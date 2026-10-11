@@ -44,6 +44,7 @@ systems, the data bundle and how both are verified.
 | `IsSkateMouseFree()` | The mouse is released to the desktop: the board gets no input |
 | `GetSkateMouseSensitivity()` | The player's mouse sensitivity (default 0.4); scales the mouse flick |
 | `GetSkateBone(Contract)` | The rider's bone for a humanoid contract name, `NAME_None` when it has none (default: the name itself); the retargeter finds every bone through it |
+| `GetSkateClothingClearance()` | Preferred extra cm for loose clothing outside the body (default 0); falls back to `skate.ArmClear` alone if infeasible |
 | `GetSkateBoardScale()` | The visible board's size (default 1): it grows about the wheels' contact and the pose rises onto its deck; the physics keep the standard board |
 | `CanCarrySkateBoard()` | The hands are free to carry the board on foot (default true); false puts a carried board away and refuses the board button |
 
