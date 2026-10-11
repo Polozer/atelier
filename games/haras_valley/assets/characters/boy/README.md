@@ -1,8 +1,9 @@
 # The boy
 
 The first character of Haras Valley: a boy of about four and a half head heights with spiky dark brown hair, hazel
-eyes, a loose moss-green T-shirt, beige cargo trousers and green-and-white sneakers. He is a 3D model only for now:
-no rig, no clips, no game code. The folder follows the first steps of the
+eyes, a loose moss-green T-shirt, beige cargo trousers and green-and-white sneakers. He is the Garçon of the game's
+character creation. The game is still a separate Unreal project outside this repository; it copies `graft-r01` and
+fits it to its riders' skeleton itself (see *In the game*). The folder follows the first steps of the
 [character pipeline](../../../../../README.md#making-a-character).
 
 The current model is `graft-r01`: the body Tripo built from the full-figure turnaround (`model-r03`) with the head
@@ -82,10 +83,23 @@ python platform/studio/atelier/ai/tripo_asset.py generate --references games/har
 `right.png` shows him facing image-right. The body's first two takes had the two swapped, and Tripo grew a mirrored
 second face, sculpted and painted, on the back of his head in both.
 
+## In the game
+
+The Haras Valley Unreal project uses `graft-r01` as the Garçon, in place of its earlier Tripo player. Its own
+`gen_garcon.py` does the fitting:
+
+1. It turns him to face -Y and scales him so his hip joints sit on its riders' thigh bones (x 2.117).
+2. It warps his measured joints onto the riders' 55-bone skeleton. The head, hands and feet move rigidly.
+3. It transfers the riders' kit skin weights by nearest surface.
+
+The model's arms run only 0.29 of his height from shoulder to fingertip. On the skeleton they run 0.38, close to the
+standing concept's 0.37, and his torso comes out slightly shorter. The game shows him at 1.65 m and drives him
+with its walk, run, idle and riding clips.
+
 ## Next
 
-1. Rig: `tripo_asset.py rig` (25 credits) on the graft's GLB, then `add_tripo_fingers.py` for the hands, so the rig
-   follows the [humanoid bone contract](../../../../../platform/conventions/rigs/humanoid.toml).
-2. `character.toml`, and the game's `build.py` step that exports him for Unreal.
-3. A cel material in Unreal (flat colour bands, an outline) to match the drawings' look; the review renders use
-   plain studio light.
+1. A cel material in Unreal (flat colour bands, an outline) to match the drawings' look; the game uses a plain lit
+   material and the review renders plain studio light.
+2. When the game moves into this repository: `character.toml` and a `build.py` step in place of the copy, and a rig
+   that follows the [humanoid bone contract](../../../../../platform/conventions/rigs/humanoid.toml) if the game
+   adopts it.
