@@ -11,6 +11,9 @@ the approved revision comes into the repository (`promote.py`). Paid calls go th
 client (`atelier.ai.tripo_asset`) refuses inputs whose hashes are not in an approval file and never resubmits an
 uncertain POST. Blender stages run under the guard (`python -m atelier.safety.guarded --small 3 ...`).
 
+To get faces that need less fixing, [Charakuru's workflow](CHARAKURU_WORKFLOW.md) makes the head and the body as
+separate Tripo jobs, so the face gets its own images, mesh budget and 4K texture; the notes list experiments to try.
+
 ## The stages
 
 | Stage | Tool (Kaede's) | Output |
