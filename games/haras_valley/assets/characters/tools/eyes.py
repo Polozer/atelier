@@ -9,7 +9,9 @@ iris, and Tripo's own eye paint, gloss and normal detail show through at the soc
    corners of each eye are the rim of its hole seen from the front, fitted with smooth quartic curves (outline).
    The lower lid is drawn LOWER_LID eye widths below the corners, the drawing's proportion, but never below where
    the eyeball is still visible from the front (visible_outline): the eyeball bulges past the mesh's lower lid.
-2. On the eyeball and the rim, an eye is drawn in the face sheet's style, analytically in front-view coordinates (so edges
+2. With template_pupils (the cleanup's default), the drawn eye itself is painted there: its outline, lash line,
+   wing, iris, pupil and highlights traced on the face sheet (TEMPLATE_*, paint_template), everything else in its
+   region skin, whatever the socket's shape. Otherwise, on the eyeball and the rim, an eye is drawn in the face sheet's style, analytically in front-view coordinates (so edges
    are as sharp as the texture allows): white with a shadow under the lid, an olive-to-yellow iris with a dark rim,
    a pupil, two highlights, a thick upper lash line ending in an outer wing, a crease above it, a short lower line.
 3. Around the eyes and over the brow band, anything that is not skin (Tripo's eye paint, the projected drawing's
@@ -275,7 +277,7 @@ class Eye:
         return smoothstep(margin, 0, outside)
 
 
-def paint(mesh, world, uv, colour, roughness, metallic, normal, texel_coverage, parts):
+def paint(mesh, world, uv, colour, roughness, metallic, normal, texel_coverage, parts, template_pupils=None):
     """Paint both eyes and brows into the texture arrays in place, from the head's pieces (head_parts)."""
     global EDGE
     height, width = colour.shape[:2]
@@ -340,11 +342,21 @@ def paint(mesh, world, uv, colour, roughness, metallic, normal, texel_coverage, 
     for eye in eyes:
         eye.skin = skin
     current[on_brow] = BROW                       # Tripo's brow strips, in the drawing's brow colour
-    for k, eye in enumerate(eyes):
-        rim = hole_rim(mesh, world, parts['face'], parts['eyeball'][k], with_depth=True)
-        outer = np.argmax(np.abs(rim[:, 0] - midline))
-        eye.corner_x = float(rim[outer, 2])
-        current, _ = eye.paint(current, y, z, eyeball_of == k, points[:, 0])
+    if template_pupils is not None:
+        # The drawn eye, from the face sheet, at the given pupils (eyes in the drawing's shape, not the sockets').
+        sp = template_pupils[1][0] - template_pupils[0][0]
+        for k, pupil in enumerate(template_pupils):
+            inward = 1.0 if pupil[0] < midline else -1.0
+            current, region = paint_template(current, y, z, pupil, sp, inward, skin, EDGE,
+                                             (eyeball_of >= 0).astype(np.float32))
+            zone = np.maximum(zone, region)
+            eyes[k].pupil = tuple(pupil)
+    else:
+        for k, eye in enumerate(eyes):
+            rim = hole_rim(mesh, world, parts['face'], parts['eyeball'][k], with_depth=True)
+            outer = np.argmax(np.abs(rim[:, 0] - midline))
+            eye.corner_x = float(rim[outer, 2])
+            current, _ = eye.paint(current, y, z, eyeball_of == k, points[:, 0])
     colour[rows, cols, :3] = current
     flat = zone[:, None]
     normal[rows, cols, :3] = normal[rows, cols, :3] * (1 - flat) + np.array([.5, .5, 1], np.float32) * flat
@@ -485,7 +497,7 @@ def lift(mesh, world, parts, fraction):
     return {'eyes': record, 'vertices_moved': len(offsets)}
 
 
-def scale(mesh, world, parts, factor, inward=0.0, inner_radius=.021, outer_radius=.027):
+def scale(mesh, world, parts, factor, inward=0.0, up=0.0, inner_radius=.021, outer_radius=.027):
     """Shrink each eye about its centre (front view) by `factor` (across, up and down): the eyeball rigidly, the lid and face around it up
     to inner_radius, fading to nothing at outer_radius (before the nose and the temple). Depth (x) is kept.
 
@@ -517,9 +529,157 @@ def scale(mesh, world, parts, factor, inward=0.0, inner_radius=.021, outer_radiu
             ky = 1 - (1 - factor[0]) * weight
             kz = 1 - (1 - factor[1]) * weight
             shift = -np.sign(pivot.y - midline) * inward * weight          # toward the nose
-            moved[index] = inverse @ Vector((p.x, pivot.y + (p.y - pivot.y) * ky + shift, pivot.z + (p.z - pivot.z) * kz))
+            moved[index] = inverse @ Vector((p.x, pivot.y + (p.y - pivot.y) * ky + shift,
+                                             pivot.z + (p.z - pivot.z) * kz + up * weight))
         record.append({'pivot': [round(pivot.y, 4), round(pivot.z, 4)], 'width_before_mm': round(abs(eye.y_outer - eye.y_inner) * 1000, 1)})
     for index, co in moved.items():
         mesh.vertices[index].co = co
     mesh.update()
-    return {'factor': list(factor), 'inward_mm': round(inward * 1000, 2), 'eyes': record, 'vertices_moved': len(moved)}
+    return {'factor': list(factor), 'inward_mm': round(inward * 1000, 2), 'up_mm': round(up * 1000, 2), 'eyes': record, 'vertices_moved': len(moved)}
+
+
+# The drawn eye, traced column by column on the face sheet's front view (his right eye, pupil at (242.3, 235.9),
+# pupil spacing sp = 92.6 px): u is toward the nose and v up, both in sp, from the pupil. An almond 0.46 sp wide and
+# 0.26 sp tall, the upper lash line nearly flat on top and closing to a point at the inner corner, a short wing out.
+TEMPLATE_OPEN_TOP = ((-.25, -.01), (-.22, .06), (-.18, .095), (-.13, .115), (-.07, .13), (0, .139), (.04, .139),
+                     (.08, .12), (.13, .085), (.17, .055), (.195, .03), (.215, 0))
+TEMPLATE_OPEN_BOTTOM = ((-.25, -.01), (-.22, -.05), (-.18, -.08), (-.13, -.10), (-.07, -.118), (0, -.122),
+                        (.04, -.12), (.08, -.105), (.13, -.088), (.17, -.072), (.195, -.048), (.215, 0))
+TEMPLATE_LASH_TOP = ((-.335, .03), (-.30, .07), (-.26, .107), (-.22, .139), (-.18, .16), (-.13, .172), (-.07, .183),
+                     (0, .185), (.04, .178), (.08, .163), (.13, .14), (.17, .107), (.195, .065), (.215, .01))
+TEMPLATE_WING_BOTTOM = ((-.335, .03), (-.30, .0), (-.25, -.01))
+TEMPLATE_IRIS = (.007, -.012, .125, .13)            # centre u, v and radii across, up and down
+TEMPLATE_PUPIL = (.012, .0, .05, .055)
+TEMPLATE_HIGHLIGHTS = ((.056, .085, .032), (-.09, .07, .018))
+
+
+def paint_template(colour, y, z, pupil, sp, inward, skin, edge, on_eyeball=None):
+    """Paint one drawn eye (the TEMPLATE_* curves) around `pupil` (world y, z) at pupil spacing sp; `inward` is +1
+    when the nose is toward +y from this eye. Everything in the eye's region that is not the eye becomes skin.
+    Returns (colour, region weight)."""
+    u = (y - pupil[0]) * inward / sp
+    v = (z - pupil[1]) / sp
+
+    def curve(points):
+        pu, pv = np.array(points).T
+        return np.interp(u, pu, pv)
+
+    def inside_sp(distance_sp):
+        return smoothstep(-edge, edge, distance_sp * sp)
+
+    def over_(c, paint, alpha):
+        a = alpha[:, None]
+        return c * (1 - a) + paint[None] * a
+
+    region = smoothstep(.5, .42, -u) * smoothstep(.36, .29, u) * smoothstep(.3, .24, v) * smoothstep(-.34, -.26, v)
+    colour = over_(colour, skin, region)
+    in_span = inside_sp(u + .25) * inside_sp(.215 - u)
+    top, bottom = curve(TEMPLATE_OPEN_TOP), curve(TEMPLATE_OPEN_BOTTOM)
+    opening = in_span * inside_sp(top - v) * inside_sp(v - bottom)
+    if on_eyeball is not None:
+        opening = opening * on_eyeball        # the white and iris on the eyeball only; the hole's walls stay skin
+    # White, a little shaded under the lash line.
+    shade = smoothstep(.0, .06, top - v)[:, None]
+    white = SCLERA_SHADOW[None] * (1 - shade) + SCLERA[None] * shade
+    colour = over_(colour, white, opening)
+    # Iris: dark olive at the top to bright yellow at the bottom, a dark rim, the pupil, two highlights.
+    iu, iv, ru, rv = TEMPLATE_IRIS
+    r = np.hypot((u - iu) / ru, (v - iv) / rv)
+    iris = inside_sp((1 - r) * rv) * opening
+    t = np.clip((iv + rv - v) / (2 * rv), 0, 1)
+    g = smoothstep(.35, .7, t)[:, None]
+    iris_colour = IRIS_TOP[None] * (1 - g) + IRIS_BOTTOM[None] * g
+    rim = inside_sp((r - .88) * rv)[:, None]
+    iris_colour = iris_colour * (1 - rim) + IRIS_RIM[None] * rim
+    colour = over_(colour, iris_colour, iris)
+    pu_, pv_, pru, prv = TEMPLATE_PUPIL
+    colour = over_(colour, PUPIL, inside_sp((1 - np.hypot((u - pu_) / pru, (v - pv_) / prv)) * prv) * opening)
+    for hu, hv, hr in TEMPLATE_HIGHLIGHTS:
+        colour = over_(colour, HIGHLIGHT, inside_sp(hr - np.hypot(u - hu, v - hv)) * opening)
+    # Upper lash line and wing.
+    lash_top = curve(TEMPLATE_LASH_TOP)
+    lash_bottom = np.where(u < -.25, curve(TEMPLATE_WING_BOTTOM), top)
+    lash = inside_sp(lash_top - v) * inside_sp(v - lash_bottom + .004) * inside_sp(u + .335) * inside_sp(.215 - u)
+    colour = over_(colour, LASH, lash)
+    # A thin crease above it.
+    crease = inside_sp(.006 - np.abs(v - lash_top - .045)) * smoothstep(-.22, -.16, u) * smoothstep(.16, .1, u)
+    colour = over_(colour, CREASE, .5 * crease)
+    return colour, region
+
+
+def flatten_lids(mesh, world, parts, pupils, sp, iterations=60, eyeball_back=.0012):
+    """Smooth away the lid ridge Tripo sculpted around each socket: the depth (x only) of the face around each eye is
+    evened out by Laplacian passes, fully within the eye's area (|u| < 0.42, |v| < 0.30 of sp from the pupil, the
+    drawn eye plus its lash line) and fading out by 1.3 times that. The ridge stood out over the eye and its shaded
+    underside showed as a grey band across the top of the iris. The eyeballs move back by eyeball_back so the
+    flattened skin stays in front of them."""
+    from mathutils import Vector
+    inverse = world.inverted()
+    vertices = sorted({v for i in parts['face'] for v in mesh.polygons[i].vertices})
+    points = {v: world @ mesh.vertices[v].co for v in vertices}
+
+    def weight(p):
+        if p.x < 0:
+            return 0.0
+        best = 0.0
+        for py, pz in pupils:
+            r = math.hypot((p.y - py) / (.42 * sp), (p.z - pz) / (.30 * sp))
+            best = max(best, float(smoothstep(1.3, 1.0, r)))
+        return best
+
+    import math
+    weights = {v: weight(p) for v, p in points.items()}
+    active = [v for v, w in weights.items() if w > 0]
+    neighbours = {v: [] for v in active}
+    for edge in mesh.edges:
+        a, b = edge.vertices
+        if a in neighbours and b in points:
+            neighbours[a].append(b)
+        if b in neighbours and a in points:
+            neighbours[b].append(a)
+    x = {v: p.x for v, p in points.items()}
+    for _ in range(iterations):
+        nxt = dict(x)
+        for v in active:
+            if neighbours[v]:
+                nxt[v] = x[v] + (sum(x[o] for o in neighbours[v]) / len(neighbours[v]) - x[v]) * .6 * weights[v]
+        x = nxt
+    largest = 0.0
+    for v in active:
+        p = points[v]
+        largest = max(largest, abs(x[v] - p.x))
+        mesh.vertices[v].co = inverse @ Vector((x[v], p.y, p.z))
+    for index in {v for i in parts['eyeballs'] for v in mesh.polygons[i].vertices}:
+        p = world @ mesh.vertices[index].co
+        mesh.vertices[index].co = inverse @ Vector((p.x - eyeball_back, p.y, p.z))
+    mesh.update()
+    return {'face_vertices': len(active), 'largest_depth_change_mm': round(largest * 1000, 2),
+            'eyeballs_back_mm': round(eyeball_back * 1000, 2)}
+
+
+def fit_hole(mesh, world, parts, pupils, sp, margin=.012):
+    """Make each socket's hole the drawn eye's outline: face vertices that fall inside the drawn opening (seen from the
+    front) move up onto its top curve or down onto its bottom curve, `margin` sp outside it. Tripo's lid folded down
+    into the hole and hung over the top of the iris."""
+    from mathutils import Vector
+    inverse = world.inverted()
+    top_u, top_v = np.array(TEMPLATE_OPEN_TOP).T
+    bottom_u, bottom_v = np.array(TEMPLATE_OPEN_BOTTOM).T
+    midline = (pupils[0][0] + pupils[1][0]) / 2
+    moved = 0
+    for index in {v for i in parts['face'] for v in mesh.polygons[i].vertices}:
+        p = world @ mesh.vertices[index].co
+        if p.x < 0:
+            continue
+        for py, pz in pupils:
+            inward = 1.0 if py < midline else -1.0
+            u, v = (p.y - py) * inward / sp, (p.z - pz) / sp
+            if not -.25 < u < .215:
+                continue
+            top, bottom = float(np.interp(u, top_u, top_v)), float(np.interp(u, bottom_u, bottom_v))
+            if bottom - margin < v < top + margin:
+                target = top + margin if v > (top + bottom) / 2 else bottom - margin
+                mesh.vertices[index].co = inverse @ Vector((p.x, p.y, pz + target * sp))
+                moved += 1
+    mesh.update()
+    return {'vertices_moved': moved}
