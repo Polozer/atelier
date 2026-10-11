@@ -24,7 +24,7 @@ jaw a V where the drawing's is a U. These fixes change textures and vertices onl
    (face.widen_lower_face, 0: widened they read as hamster cheeks), the eyes shrink to EYE_SCALE and move
    EYE_INWARD toward the nose and EYE_UP under the drawn eyes (eyes.scale), turn EYE_TILT_DEGREES outer corner up
    (eyes.tilt), lose Tripo's sculpted lid ridge (eyes.flatten_lids) and have their holes fitted to the drawn eye's
-   outline (eyes.fit_hole), the nose stands out NOSE_DEPTH as far (face.shrink_nose), the mouth rises MOUTH_UP
+   outline (eyes.fit_hole), and turn EYE_TURN_DEGREES outward onto the side plane of the face (eyes.turn_out), the nose stands out NOSE_DEPTH as far (face.shrink_nose), the mouth rises MOUTH_UP
    (mouth.raise_mouth), the sculpted lips are flattened and closed (mouth.flatten), the area between nose, cheeks and
    chin is smoothed into one surface so no muzzle is left (face.smooth_lower_face) and straightened into one slope
    from under the nose to the chin, so the upper lip does not stand out (face.straighten_profile), and the shading
@@ -61,15 +61,16 @@ FACE_FADE = (0.35, 0.75)               # normal x over which the projection fade
 CHIN_FADE = (0.324, 0.338)             # z over which it fades out above the chin's drawn outline
 HAIR_STRETCH = 0.0                     # Tripo's hair volume already matches the drawing's (measured with the pupils overlaid)
 FRINGE_DROOP = 0.0                     # front strands move down by this much of their height
-EYE_SCALE = (0.68, 0.70)               # across, up-down: each socket to the drawn eye's size (25 by 14.5 mm)
+EYE_SCALE = (0.71, 0.73)               # across, up-down: each socket to the drawn eye's size (25 by 14.5 mm)
 EYE_UP = 0.0054                        # and up under it, so no socket shows below the drawn lower lid
-EYE_INWARD = 0.0042                    # each socket toward the nose, under the drawn eyes' pupils
-EYE_PUPILS = ((-0.0281, 0.3855), (0.0219, 0.3855))   # the drawn eyes' pupils: 50 mm apart (was 54), centred on the face
-CHEEK_WIDEN = 0.0                      # measured 9 to 13% narrower than the drawing's, but widened it reads as hamster cheeks
+EYE_INWARD = 0.0032                    # each socket toward the nose, under the drawn eyes' pupils
+EYE_PUPILS = ((-0.0291, 0.3855), (0.0229, 0.3855))   # the drawn eyes' pupils: 52 mm apart, centred on the face
+CHEEK_WIDEN = -0.08                    # narrower: below the eyes the face measured 6 to 14% wider than the drawing's
 NOSE_DEPTH = 0.6                       # the nose stands out 60% as far: the drawing's is small
 CHIN_RECEDE = 0.005                    # the chin 5 mm further back: the drawing's profile recedes from the nose tip
 MOUTH_UP = 0.0033                      # the drawing's mouth sits 3.3 mm higher (pupils and chin overlaid)
 EYE_TILT_DEGREES = 4.0                 # outer corners up: the socket's droop under the drawn eye
+EYE_TURN_DEGREES = 20.0                # each eye turned outward, onto the side plane of the face, so it reads in profile
 EYE_LIFT = 0.0                         # the socket's middle up by this much of its width (any made the eye round)
 MOUTH_Z, MOUTH_HALF_WIDTH = 0.338, 0.016    # the mouth's middle and half width (front render of model-r03)
 MOUTH_RISE = 0.0                       # the corners stay where they are: raised, they looked unnatural
@@ -337,6 +338,7 @@ def main():
     lift_record = eyes.lift(mesh, world, parts, EYE_LIFT)
     lids_record = eyes.flatten_lids(mesh, world, parts, EYE_PUPILS, EYE_PUPILS[1][0] - EYE_PUPILS[0][0])
     hole_record = eyes.fit_hole(mesh, world, parts, EYE_PUPILS, EYE_PUPILS[1][0] - EYE_PUPILS[0][0])
+    turn_record = eyes.turn_out(mesh, world, parts, EYE_PUPILS, EYE_TURN_DEGREES)
     chin_back = face.recede_chin(mesh, world, face_vertices, CHIN_CENTRE_Y, .339, .309, COLLAR_Z, CHIN_RECEDE)
     nose_shape = face.shrink_nose(mesh, world, face_vertices, CHIN_CENTRE_Y, .361, NOSE_DEPTH)
     mouth_raise = mouth.raise_mouth(mesh, world, parts['face'], CHIN_CENTRE_Y, MOUTH_Z - .002, MOUTH_UP)
@@ -412,7 +414,7 @@ def main():
         'skin_gain': [round(float(c), 3) for c in skin_gain], 'skin_texels_matched': int(rest.sum()),
         'hair_median_before': [round(float(c), 3) for c in hair_before], 'hair_target': [round(float(c), 3) for c in hair_target],
         'hair_texels_recoloured': int(hair_mask.sum()), 'hair_polygons': len(hair_polygons),
-        'eyes': eye_record, 'eye_tilt': tilt_record, 'eye_lift': lift_record, 'eye_lids': lids_record, 'eye_holes': hole_record, 'mouth_corners': mouth_record, 'mouth_line': mouth_paint, 'mouth_flatten': flatten_record, 'lower_face': warp_record, 'cheeks': widen_record, 'nose_depth': nose_shape, 'chin_recede': chin_back, 'lower_face_smooth': lower_smooth, 'profile': profile_record, 'mouth_raise': mouth_raise, 'eye_scale': scale_record, 'nose': nose_record, 'face_paint': face_paint, 'brow_strip_polygons_removed': len(parts['brows']), 'reshaded': normals_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
+        'eyes': eye_record, 'eye_tilt': tilt_record, 'eye_lift': lift_record, 'eye_lids': lids_record, 'eye_holes': hole_record, 'eye_turn': turn_record, 'mouth_corners': mouth_record, 'mouth_line': mouth_paint, 'mouth_flatten': flatten_record, 'lower_face': warp_record, 'cheeks': widen_record, 'nose_depth': nose_shape, 'chin_recede': chin_back, 'lower_face_smooth': lower_smooth, 'profile': profile_record, 'mouth_raise': mouth_raise, 'eye_scale': scale_record, 'nose': nose_record, 'face_paint': face_paint, 'brow_strip_polygons_removed': len(parts['brows']), 'reshaded': normals_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
     }
     (output / 'cleanup.json').write_text(json.dumps(record, indent=2) + '\n')
     print(json.dumps(record, indent=1), flush=True)

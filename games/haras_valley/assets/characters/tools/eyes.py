@@ -22,6 +22,8 @@ iris, and Tripo's own eye paint, gloss and normal detail show through at the soc
 
 Colours are the face sheet's, as sampled from `face-six-views.png` (sRGB values, as Blender stores them).
 """
+import math
+
 import numpy as np
 
 # The face sheet's palette.
@@ -38,6 +40,7 @@ PUPIL = np.array([.08, .05, .03], np.float32)
 HIGHLIGHT = np.array([1., 1., 1.], np.float32)
 
 CELL = 0.0004            # front-view grid for reading the openings (0.4 mm)
+HEAD_AXIS_X = -.015      # the head's vertical axis, for painting the eyes by arc length around it
 LOWER_LID = 0.23         # the drawn lower lid's depth below the corners, in eye widths (the drawing's)
 EDGE = 0.0004            # antialiasing width: one texel, measured by paint() from the texture's density
 
@@ -285,15 +288,15 @@ def paint(mesh, world, uv, colour, roughness, metallic, normal, texel_coverage, 
     shapes = [outline(hole_rim(mesh, world, parts['face'], eyeball)) for eyeball in parts['eyeball']]
     midline = (np.mean(shapes[0]['y']) + np.mean(shapes[1]['y'])) / 2
     eyes = [Eye(shape, midline) for shape in shapes]
-    lo_y = min(e.shape['y'].min() for e in eyes) - .02
-    hi_y = max(e.shape['y'].max() for e in eyes) + .02
+    lo_y = min(e.shape["y"].min() for e in eyes) - .035          # out to the temples (their painted hair)
+    hi_y = max(e.shape["y"].max() for e in eyes) + .035
     lo_z = min(e.shape['bottom'].min() for e in eyes) - .01
     hi_z = max(e.shape['top'].max() for e in eyes) + 1.5 * max(e.height for e in eyes)
     texels, densities = [], []
     for index in sorted(parts['face'] | parts['eyeballs'] | parts['brows']):
         polygon = mesh.polygons[index]
         centre = world @ polygon.center
-        if not (lo_y < centre.y < hi_y and lo_z < centre.z < hi_z) or centre.x < 0:
+        if not (lo_y < centre.y < hi_y and lo_z < centre.z < hi_z) or centre.x < -.035:   # the temples sit behind x = 0
             continue
         coverage = texel_coverage(polygon, uv, width, height)
         if coverage is None:
@@ -347,8 +350,13 @@ def paint(mesh, world, uv, colour, roughness, metallic, normal, texel_coverage, 
         sp = template_pupils[1][0] - template_pupils[0][0]
         for k, pupil in enumerate(template_pupils):
             inward = 1.0 if pupil[0] < midline else -1.0
+            # The head's axis: behind the face, through the centre line; the pupil's angle and distance around it.
+            ax, ay = HEAD_AXIS_X, midline
+            front = points[(np.abs(y - pupil[0]) < .002) & (np.abs(z - pupil[1]) < .002)]
+            px_front = float(front[:, 0].max()) if len(front) else .04
+            axis = (ax, ay, math.hypot(px_front - ax, pupil[0] - ay), math.atan2(pupil[0] - ay, px_front - ax))
             current, region = paint_template(current, y, z, pupil, sp, inward, skin, EDGE,
-                                             (eyeball_of >= 0).astype(np.float32))
+                                             (eyeball_of >= 0).astype(np.float32), points[:, 0], axis)
             zone = np.maximum(zone, region)
             eyes[k].pupil = tuple(pupil)
     else:
@@ -545,19 +553,25 @@ TEMPLATE_OPEN_TOP = ((-.25, -.01), (-.22, .06), (-.18, .095), (-.13, .115), (-.0
                      (.08, .12), (.13, .085), (.17, .055), (.195, .03), (.215, 0))
 TEMPLATE_OPEN_BOTTOM = ((-.25, -.01), (-.22, -.05), (-.18, -.08), (-.13, -.10), (-.07, -.118), (0, -.122),
                         (.04, -.12), (.08, -.105), (.13, -.088), (.17, -.072), (.195, -.048), (.215, 0))
-TEMPLATE_LASH_TOP = ((-.335, .03), (-.30, .07), (-.26, .107), (-.22, .139), (-.18, .16), (-.13, .172), (-.07, .183),
+TEMPLATE_LASH_TOP = ((-.31, .035), (-.29, .075), (-.26, .107), (-.22, .139), (-.18, .16), (-.13, .172), (-.07, .183),
                      (0, .185), (.04, .178), (.08, .163), (.13, .14), (.17, .107), (.195, .065), (.215, .01))
-TEMPLATE_WING_BOTTOM = ((-.335, .03), (-.30, .0), (-.25, -.01))
+TEMPLATE_WING_BOTTOM = ((-.31, .035), (-.28, .005), (-.25, -.01))
 TEMPLATE_IRIS = (.007, -.012, .125, .13)            # centre u, v and radii across, up and down
 TEMPLATE_PUPIL = (.012, .0, .05, .055)
 TEMPLATE_HIGHLIGHTS = ((.056, .085, .032), (-.09, .07, .018))
 
 
-def paint_template(colour, y, z, pupil, sp, inward, skin, edge, on_eyeball=None):
+def paint_template(colour, y, z, pupil, sp, inward, skin, edge, on_eyeball=None, x=None, axis=None):
     """Paint one drawn eye (the TEMPLATE_* curves) around `pupil` (world y, z) at pupil spacing sp; `inward` is +1
     when the nose is toward +y from this eye. Everything in the eye's region that is not the eye becomes skin.
     Returns (colour, region weight)."""
-    u = (y - pupil[0]) * inward / sp
+    if axis is None:
+        u = (y - pupil[0]) * inward / sp
+    else:
+        # Arc length around the head's vertical axis instead of plain y: on the sides of the head, which turn away,
+        # a front projection stretches the eye backward (the wing ran along the temple, seen from the side).
+        ax, ay, radius, pupil_angle = axis
+        u = (np.arctan2(y - ay, x - ax) - pupil_angle) * radius * inward / sp
     v = (z - pupil[1]) / sp
 
     def curve(points):
@@ -569,10 +583,17 @@ def paint_template(colour, y, z, pupil, sp, inward, skin, edge, on_eyeball=None)
 
     def over_(c, paint, alpha):
         a = alpha[:, None]
-        return c * (1 - a) + paint[None] * a
+        return c * (1 - a) + (paint[None] if paint.ndim == 1 else paint) * a     # a colour, or one per texel
 
     region = smoothstep(.5, .42, -u) * smoothstep(.36, .29, u) * smoothstep(.3, .24, v) * smoothstep(-.34, -.26, v)
     colour = over_(colour, skin, region)
+    if on_eyeball is not None:
+        # Toward the temple, Tripo painted hair on the skin under its locks; with the eyes turned out it shows.
+        luminance = colour @ np.array([.299, .587, .114], np.float32)
+        temple = (smoothstep(2.0, 1.8, -u) * smoothstep(.3, .45, -u) * smoothstep(.34, .26, v) * smoothstep(-.6, -.5, v)
+                  * smoothstep(.6, .44, luminance) * (1 - on_eyeball))
+        colour = over_(colour, skin, temple)
+        region = np.maximum(region, temple)
     in_span = inside_sp(u + .25) * inside_sp(.215 - u)
     top, bottom = curve(TEMPLATE_OPEN_TOP), curve(TEMPLATE_OPEN_BOTTOM)
     opening = in_span * inside_sp(top - v) * inside_sp(v - bottom)
@@ -599,7 +620,7 @@ def paint_template(colour, y, z, pupil, sp, inward, skin, edge, on_eyeball=None)
     # Upper lash line and wing.
     lash_top = curve(TEMPLATE_LASH_TOP)
     lash_bottom = np.where(u < -.25, curve(TEMPLATE_WING_BOTTOM), top)
-    lash = inside_sp(lash_top - v) * inside_sp(v - lash_bottom + .004) * inside_sp(u + .335) * inside_sp(.215 - u)
+    lash = inside_sp(lash_top - v) * inside_sp(v - lash_bottom + .004) * inside_sp(u + .31) * inside_sp(.215 - u)
     colour = over_(colour, LASH, lash)
     # A thin crease above it.
     crease = inside_sp(.006 - np.abs(v - lash_top - .045)) * smoothstep(-.22, -.16, u) * smoothstep(.16, .1, u)
@@ -683,3 +704,49 @@ def fit_hole(mesh, world, parts, pupils, sp, margin=.012):
                 moved += 1
     mesh.update()
     return {'vertices_moved': moved}
+
+
+def turn_out(mesh, world, parts, pupils, degrees, inner_radius=.016, outer_radius=.025, pivot_depth=.003):
+    """Turn each eye outward about a vertical axis just behind its pupil: the eyeball rigidly, the face around it in
+    full within inner_radius of the pupil (front view) and fading out by outer_radius, front of the head only. The
+    hair locks over the temples turn with the skin under them, or the skin would slip behind them.
+
+    Tripo's face is flat across the eyes, so from the side an eye is seen edge-on, a sliver; the drawing's profile
+    shows the eye's almond and iris, set on the side plane of the face. The axis passes pivot_depth behind the
+    face's surface at the pupil, so the pupil hardly moves and the front view barely changes."""
+    from mathutils import Vector, Matrix
+    import bmesh as _bmesh
+    from mathutils.bvhtree import BVHTree
+    inverse = world.inverted()
+    bm = _bmesh.new()
+    bm.from_mesh(mesh)
+    bm.transform(world)
+    tree = BVHTree.FromBMesh(bm)
+    midline = (pupils[0][0] + pupils[1][0]) / 2
+    face_vertices = {v for i in parts['face'] | parts['hair'] for v in mesh.polygons[i].vertices}   # the locks too
+    moved, record = {}, []
+    for (py, pz), eyeball in zip(sorted(pupils), parts['eyeball']):
+        hit = tree.ray_cast(Vector((.3, py, pz)), Vector((-1, 0, 0)))
+        front_x = hit[0].x if hit[0] else .04
+        pivot = Vector((front_x - pivot_depth, py, pz))
+        outward = -1.0 if py < midline else 1.0
+        angle = math.radians(degrees) * outward             # +x turns toward the outside
+        eyeball_vertices = {v for i in eyeball for v in mesh.polygons[i].vertices}
+        for index in eyeball_vertices | face_vertices:
+            p = world @ mesh.vertices[index].co
+            if index in eyeball_vertices:
+                w = 1.0
+            else:
+                r = math.hypot(p.y - py, p.z - pz)
+                # A smooth fade toward the back of the head (a hard cut at x = 0 folded the temple skin over).
+                w = float(smoothstep(outer_radius, inner_radius, r)) * float(smoothstep(-.015, .015, p.x))
+                if w <= 0:
+                    continue
+            rotation = Matrix.Rotation(angle * w, 3, 'Z')
+            moved[index] = inverse @ (pivot + rotation @ (p - pivot))
+        record.append({'pivot': [round(c, 4) for c in pivot], 'degrees': round(math.degrees(angle), 1)})
+    bm.free()
+    for index, co in moved.items():
+        mesh.vertices[index].co = co
+    mesh.update()
+    return {'eyes': record, 'vertices_moved': len(moved)}

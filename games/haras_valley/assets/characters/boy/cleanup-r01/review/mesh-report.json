@@ -20,7 +20,7 @@
   "mesh_objects": [
     {
       "object": "tripo_node_7dd29c63",
-      "vertices": 15353,
+      "vertices": 15349,
       "polygons": 15122,
       "polygon_sizes": {
         "3": 15122
@@ -32,8 +32,8 @@
       "materials": [
         "tripo_mat_7dd29c63"
       ],
-      "boundary_edges": 13150,
-      "non_manifold_edges": 13150
+      "boundary_edges": 13146,
+      "non_manifold_edges": 13146
     }
   ],
   "textures": [

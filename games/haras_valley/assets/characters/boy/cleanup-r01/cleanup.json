@@ -67,83 +67,104 @@
   "eyes": {
     "eyes": [
       {
-        "inner_y": -0.0164,
+        "inner_y": -0.0204,
         "outer_y": -0.0416,
-        "width": 0.0252,
-        "height": 0.0112,
-        "rim_columns": 64
+        "width": 0.0212,
+        "height": 0.01,
+        "rim_columns": 54
       },
       {
-        "inner_y": 0.0103,
-        "outer_y": 0.0355,
-        "width": 0.0252,
-        "height": 0.012,
-        "rim_columns": 64
+        "inner_y": 0.014,
+        "outer_y": 0.036,
+        "width": 0.022,
+        "height": 0.011,
+        "rim_columns": 56
       }
     ],
     "pupils": [
       [
-        -0.0281,
+        -0.0291,
         0.3855
       ],
       [
-        0.0219,
+        0.0229,
         0.3855
       ]
     ],
     "texel_size_mm": {
-      "face": 0.229,
-      "eyeball": 0.193
+      "face": 0.25,
+      "eyeball": 0.198
     },
-    "texels_in_zone": 177187,
+    "texels_in_zone": 219894,
     "skin_colour": [
-      0.992,
-      0.7,
-      0.534
+      0.987,
+      0.685,
+      0.522
     ],
-    "skin_roughness": 0.71
+    "skin_roughness": 0.718
   },
   "eye_tilt": {
     "eyes": [
       {
         "pivot": [
-          -0.0288,
-          0.3878
+          -0.0298,
+          0.3876
         ],
         "degrees": -4.0,
-        "outer_corner_rise_mm": 0.88
+        "outer_corner_rise_mm": 0.93
       },
       {
         "pivot": [
-          0.0228,
+          0.0239,
           0.3869
         ],
         "degrees": 4.0,
-        "outer_corner_rise_mm": 0.88
+        "outer_corner_rise_mm": 0.93
       }
     ],
-    "vertices_moved": 473
+    "vertices_moved": 474
   },
   "eye_lift": {
     "eyes": [
       {
         "lift_mm": 0.0,
-        "width_mm": 25.2
+        "width_mm": 26.4
       },
       {
         "lift_mm": 0.0,
-        "width_mm": 25.2
+        "width_mm": 26.4
       }
     ],
     "vertices_moved": 0
   },
   "eye_lids": {
     "face_vertices": 266,
-    "largest_depth_change_mm": 8.62,
+    "largest_depth_change_mm": 8.59,
     "eyeballs_back_mm": 1.2
   },
   "eye_holes": {
-    "vertices_moved": 112
+    "vertices_moved": 114
+  },
+  "eye_turn": {
+    "eyes": [
+      {
+        "pivot": [
+          0.0331,
+          -0.0291,
+          0.3855
+        ],
+        "degrees": -20.0
+      },
+      {
+        "pivot": [
+          0.0331,
+          0.0229,
+          0.3855
+        ],
+        "degrees": 20.0
+      }
+    ],
+    "vertices_moved": 429
   },
   "mouth_corners": {
     "centre": [
@@ -162,24 +183,24 @@
       0.3394
     ],
     "seam_y_mm": [
-      -22.2,
-      15.4
+      -20.7,
+      13.9
     ],
     "seam_middle_z_mm": 339.4,
-    "texels_cleared": 31788,
-    "texels_inked": 9383
+    "texels_cleared": 33284,
+    "texels_inked": 9455
   },
   "mouth_flatten": {
     "vertices_flattened": 104,
     "vertices_closed_onto_seam": 60,
-    "largest_depth_change_mm": 6.44
+    "largest_depth_change_mm": 6.42
   },
   "lower_face": {
     "vertices_moved": 191,
     "largest_drop_mm": 5.41
   },
   "cheeks": {
-    "amount": 0.0,
+    "amount": -0.08,
     "vertices_moved": 299
   },
   "nose_depth": {
@@ -188,15 +209,15 @@
   },
   "chin_recede": {
     "depth_mm": 5.0,
-    "vertices_moved": 184
+    "vertices_moved": 190
   },
   "lower_face_smooth": {
-    "vertices_smoothed": 132,
-    "largest_depth_change_mm": 5.59
+    "vertices_smoothed": 136,
+    "largest_depth_change_mm": 5.76
   },
   "profile": {
-    "vertices": 128,
-    "largest_depth_change_mm": 2.55
+    "vertices": 132,
+    "largest_depth_change_mm": 2.69
   },
   "mouth_raise": {
     "rise_mm": 3.3,
@@ -204,10 +225,10 @@
   },
   "eye_scale": {
     "factor": [
-      0.68,
-      0.7
+      0.71,
+      0.73
     ],
-    "inward_mm": 4.2,
+    "inward_mm": 3.2,
     "up_mm": 5.4,
     "eyes": [
       {
@@ -228,17 +249,17 @@
     "vertices_moved": 423
   },
   "nose": {
-    "vertices_smoothed": 22
+    "vertices_smoothed": 23
   },
   "face_paint": {
-    "pupil_spacing_mm": 50.0,
-    "texels": 182763,
+    "pupil_spacing_mm": 52.0,
+    "texels": 203480,
     "freckles": 23
   },
   "brow_strip_polygons_removed": 32,
   "reshaded": {
-    "vertices_moved": 782,
-    "vertices_reshaded": 840
+    "vertices_moved": 842,
+    "vertices_reshaded": 930
   },
   "cornea_disc_polygons_removed": 24,
   "hair_vertices_moved": 1238,

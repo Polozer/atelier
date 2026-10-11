@@ -47,17 +47,18 @@ only: the topology and UVs are Tripo's, less the brow strips and cornea discs.
   coincide (the dark centres of the drawn irises; a first measure took a lash line for a pupil and overstated their
   spacing by 12%, which left the eyes too small and too far apart).
 - **Shape first** (`face.py`, `eyes.py`, `mouth.py`). The jaw drops onto the drawing's rounder outline and the chin
-  recedes 5 mm, as the drawing's profile runs straight from nose to chin. Each eye socket shrinks to the drawn eye
-  (25 by 14.5 mm), moves 4.2 mm toward the nose and 5.4 mm up under it, loses Tripo's sculpted lid ridge, and has its
-  hole fitted to the drawn outline. The nose stands out 60% as far; the mouth rises 3.3 mm; the sculpted lips are
+  recedes 5 mm, as the drawing's profile runs straight from nose to chin. Each eye socket shrinks to the drawn eye,
+  moves toward the nose and up under it, loses Tripo's sculpted lid ridge, has its hole fitted to the drawn outline,
+  and turns 20 degrees outward onto the side plane of the face, with the hair locks over the temple, so the eye reads
+  in profile as in the drawing instead of edge-on. The lower face narrows 8%. The nose stands out 60% as far; the mouth rises 3.3 mm; the sculpted lips are
   flattened and the area between nose, cheeks and chin smoothed and straightened into one slope, so no muzzle and
   no bump over the upper lip are left. The shading normals of every moved vertex are re-derived, since Tripo's FBX
-  carries the sculpt's shading frozen. (Widening the cheeks to the drawing's measured width read as hamster cheeks;
-  it is off.)
+  carries the sculpt's shading frozen. 
 - **Then paint.** Tripo builds the head from separate pieces: hair cap, face with a hole at each eye, an eyeball
   behind each hole, brow strips, cornea discs. The eyes are the drawing's own, traced column by column on the face
   sheet (an almond 0.46 pupil spacings wide and 0.26 tall, a nearly flat lash line closing at the inner corner, a
-  short wing) and painted with their pupils 50 mm apart; thick straight brows, blush, freckles and one level mouth line are painted as drawn, placed from
+  short wing) and painted with their pupils 52 mm apart, by arc length around the head so the sides of the eye are not
+  stretched in profile; the hair Tripo painted on the temples under its locks is cleared to skin; thick straight brows, blush, freckles and one level mouth line are painted as drawn, placed from
   the painted pupils, and the nose (light tip, two arched nostrils, round shade) on the sculpted nose's tip. Skin and hair take the drawing's
   colours. Tripo's hair volume measures as the drawing's and is kept.
 
