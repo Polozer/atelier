@@ -35,7 +35,7 @@
     ],
     "radius": 0.0578
   },
-  "face_texels_projected": 99353,
+  "face_texels_projected": 106760,
   "skin_median_before": [
     0.969,
     0.643,
@@ -43,28 +43,58 @@
   ],
   "skin_median_after": [
     0.992,
-    0.702,
-    0.54
+    0.704,
+    0.541
   ],
   "skin_gain": [
     1.024,
-    1.092,
-    1.197
+    1.095,
+    1.2
   ],
-  "skin_texels_matched": 2229168,
+  "skin_texels_matched": 2238980,
   "hair_median_before": [
-    0.278,
-    0.208,
-    0.157
+    0.271,
+    0.204,
+    0.153
   ],
   "hair_target": [
     0.278,
     0.196,
     0.141
   ],
-  "hair_texels_recoloured": 1326442,
-  "hair_polygons": 1478,
-  "hair_vertices_moved": 1262,
+  "hair_texels_recoloured": 1082787,
+  "hair_polygons": 1510,
+  "eyes": {
+    "eyes": [
+      {
+        "inner_y": -0.0147,
+        "outer_y": -0.0515,
+        "width": 0.0368,
+        "height": 0.0192,
+        "rim_columns": 90
+      },
+      {
+        "inner_y": 0.0085,
+        "outer_y": 0.0453,
+        "width": 0.0368,
+        "height": 0.0201,
+        "rim_columns": 89
+      }
+    ],
+    "texel_size_mm": {
+      "face": 0.254,
+      "eyeball": 0.243
+    },
+    "texels_in_zone": 212695,
+    "skin_colour": [
+      0.992,
+      0.7,
+      0.535
+    ],
+    "skin_roughness": 0.714
+  },
+  "cornea_disc_polygons_removed": 24,
+  "hair_vertices_moved": 1238,
   "largest_hair_move": 0.0316,
   "hair_stretch": 0.4,
   "fringe_droop": 0.35

@@ -21,7 +21,7 @@ no rig, no clips, no game code. The folder follows the first steps of the
 | `model-r03/job.json` | the Tripo task record: model P2, settings, credits, approval |
 | `model-r03/raw/` | Tripo's outputs as downloaded: the textured FBX (quads, 4K PBR textures embedded) and its preview |
 | `model-r03/review/` | the Blender review: `contact-sheet.png` (textured, clay and wireframe views), `turntable.gif`, `mesh-report.json`; the full-size renders are regenerated, not tracked |
-| `cleanup-r01/` | the face and hair brought back to the sheets by `../tools/cleanup_face_hair.py`: `cleanup.json` (what moved), the review and the comparison sheets; the `.blend`, `.glb` and repainted `BaseColor.png` are regenerated in two minutes, not tracked |
+| `cleanup-r01/` | the face, eyes and hair brought back to the sheets by `../tools/cleanup_face_hair.py` and `../tools/eyes.py`: `cleanup.json` (what moved), the review and the comparison sheets; the `.blend`, `.glb` and repainted texture maps are regenerated in two minutes, not tracked |
 | `../tools/review_model.py` | renders such a review for any downloaded model |
 
 `model-r03/api-private/` (raw API responses, upload tokens), the turntable frames and the review `.blend` are ignored.
@@ -43,7 +43,15 @@ Tripo's texture made the face older and tanner than the drawings and the hair sh
 projects the face sheet's front view onto the head (its irises and mouth line, found in the image, put on the
 model's), flattens the normal map under it so Tripo's smaller eyes stop showing through, scales the rest of the skin
 to the projected cheek, recolours the hair to the sheet's brown and grows the hair spikes outward, the fringe down
-toward the brows. Textures and vertices only; the topology and UVs are Tripo's. `face_closeup.py` renders the face
+toward the brows. Textures and vertices only; the topology and UVs are Tripo's, less the two cornea discs.
+
+The eyes are painted, not projected (`eyes.py`). Tripo builds the head from separate pieces: the hair cap, the face
+with a hole at each eye, an eyeball behind each hole, a brow strip above each eye and a tiny cornea disc on each
+eyeball. The rim of each hole is the eye's outline; a clean cel eye in the drawing's style and colours (white, olive
+to yellow iris, rim, pupil, two highlights, thick lash line with an outer wing, crease, short lower line) is drawn
+into it on the eyeball, the brow strips take the drawing's brow colour, the face around them is cleared to skin with
+a flat normal map and the skin's roughness, and the cornea discs are removed.
+`eyes-closeup-front.png` and `eyes-closeup-three-quarter.png` show the result up close. `face_closeup.py` renders the face
 at 1200 px from a review blend; `compare-face.png` shows the sheet, Tripo's face, the cleaned face and its
 three-quarter. For a crisper source than the 512 px sheet cell, `games/haras_valley/tools/face_portrait.py` paints a
 large front portrait with Sunburst (needs `OPENAI_API_KEY`) that the cleanup takes with `--face`.

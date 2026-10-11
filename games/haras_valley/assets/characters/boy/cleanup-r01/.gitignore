@@ -5,3 +5,5 @@ review/renders/
 *.glb
 BaseColor.png
 Normal.png
+Roughness.png
+Metallic.png

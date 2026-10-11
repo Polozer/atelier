@@ -20,20 +20,20 @@
   "mesh_objects": [
     {
       "object": "tripo_node_7dd29c63",
-      "vertices": 15452,
-      "polygons": 15206,
+      "vertices": 15416,
+      "polygons": 15182,
       "polygon_sizes": {
-        "3": 15206
+        "3": 15182
       },
-      "triangles": 15206,
+      "triangles": 15182,
       "uv_layers": [
         "UVMap"
       ],
       "materials": [
         "tripo_mat_7dd29c63"
       ],
-      "boundary_edges": 13236,
-      "non_manifold_edges": 13236
+      "boundary_edges": 13200,
+      "non_manifold_edges": 13200
     }
   ],
   "textures": [
@@ -45,14 +45,14 @@
       ]
     },
     {
-      "name": "Normal",
+      "name": "Metallic-Roughness",
       "size": [
         4096,
         4096
       ]
     },
     {
-      "name": "tripo_image_7dd29c63_2-tripo_image_7dd29c63_1",
+      "name": "Normal",
       "size": [
         4096,
         4096

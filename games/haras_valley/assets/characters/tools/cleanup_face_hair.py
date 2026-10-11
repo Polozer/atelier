@@ -4,22 +4,25 @@
     --input model-r03/raw/output_model_url.fbx --references references --output cleanup-r01
 
 Tripo's texture made the face older and tanner than the drawings (darker skin, no blush, small murky eyes, heavy
-brows) and its hair shorter and greyer. Four fixes, textures and vertices only, no retopology:
+brows) and its hair shorter and greyer. Five fixes, textures and vertices only, no retopology:
 
 1. Face projection. The front portrait (`--face`, painted by tools/face_portrait.py; without it the face sheet's
-   top-left cell) is projected onto the head through the front turnaround view, which Tripo normalised the model to (1 m tall, centred): world (y, z) maps
-   to a pixel of `front.png`, and that pixel to the sheet through the similarity that puts the sheet's irises on the
-   turnaround's. Head texels facing forward take the sheet's colour, faded out as the surface turns away (normal x),
-   so the eyes, skin, blush and freckles are the drawing's and the sides of the head keep Tripo's paint. Hair strands
-   are excluded (dark texels standing off the skull).
+   top-left cell) is projected onto the face with the affine map that puts its irises and mouth line (found in the
+   image) on the model's own (MODEL_EYE_* and MODEL_MOUTH_Z, read off model-r03's front render). Face texels facing
+   forward take the drawing's colour, faded out as the surface turns away and above the chin's drawn outline; the
+   normal map goes flat under it. The hair cap, the eyeballs and the shirt are excluded.
 2. Skin match. The rest of the skin (neck, ears, arms, hands) is scaled per channel so its median meets the projected
    cheek's.
-3. Hair colour. Hair texels are scaled per channel to the sheet's hair median: the warm dark brown instead of grey.
+3. Hair colour. The hair cap's texels are scaled per channel to the sheet's hair median: the warm dark brown
+   instead of grey. The cap, the face and the eyeballs are separate pieces of Tripo's mesh (eyes.head_parts).
 4. Hair length. Hair vertices move away from the skull centre by HAIR_STRETCH of their height above the skull, and
    the fringe's also drop by FRINGE_DROOP of it, so the spikes grow and the fringe comes down toward the brows as
    drawn; the scalp does not move.
+5. Eyes and brows. The projected drawing's eyes do not fit Tripo's sculpted sockets, so eyes.py paints clean cel
+   eyes onto the eyeballs inside each socket's rim, colours the brow strips, clears Tripo's eye paint, gloss and
+   normal detail around them, and the cornea discs are removed (see eyes.py).
 
-The output is a .blend with the textures packed, a GLB beside it and cleanup.json with the measurements.
+The output is a .blend with the four texture maps packed, a GLB beside it and cleanup.json with the measurements.
 """
 import argparse
 import json
@@ -30,6 +33,9 @@ import sys
 import bpy
 from mathutils import Vector
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # Blender's --python does not add the script's folder
+import eyes  # noqa: E402
 
 SHEET_CELL = (0, 0, 512, 512)          # the front view in the face sheet
 HEAD_Z = 0.27                          # above this: head and neck
@@ -188,10 +194,9 @@ def main():
     solution = np.linalg.lstsq(design, (skin_points ** 2).sum(axis=1), rcond=None)[0]
     skull_centre = Vector(solution[:3])
     skull_radius = math.sqrt(solution[3] + float(skull_centre.dot(skull_centre)))
-    hair_polygons = [polygon for polygon in mesh.polygons if polygon.index in polygon_texel
-                     and hair_texels[polygon_texel[polygon.index]]
-                     and ((world @ polygon.center) - skull_centre).length > skull_radius + 0.006
-                     and (world @ polygon.center).z > 0.33]
+    # Tripo builds the head from separate pieces: the hair cap, the face, and one eyeball behind each eye hole.
+    parts = eyes.head_parts(mesh, world)
+    hair_polygons = [mesh.polygons[index] for index in sorted(parts['hair'])]
     hair_vertices = sorted({index for polygon in hair_polygons for index in polygon.vertices})
     hair_polygon_set = {polygon.index for polygon in hair_polygons}
 
@@ -210,7 +215,7 @@ def main():
     weight_map = np.zeros((height, width), np.float32)
     cheek_samples = []
     for polygon in mesh.polygons:
-        if polygon.index in hair_polygon_set or polygon.index not in polygon_texel:
+        if polygon.index in hair_polygon_set or polygon.index in parts['eyeballs'] or polygon.index not in polygon_texel:
             continue
         centre = world @ polygon.center
         if centre.z < FACE_Z or abs(centre.y) > FACE_HALF_WIDTH:
@@ -264,10 +269,12 @@ def main():
         coverage = texel_coverage(polygon, uv, width, height)
         if coverage is not None:
             hair_mask[coverage[0], coverage[1]] = True
-    hair_mask &= hair_texels
+    # The cap is all hair: every texel becomes the sheet's brown, keeping only Tripo's light and shade (pale specks
+    # and skin-coloured patches included, so none survive).
+    hair_luminance = luminance[hair_mask]
     hair_before = np.median(original[hair_mask, :3], axis=0)
-    hair_gain = np.clip(hair_target / np.maximum(hair_before, 1e-3), 0.5, 2.0).astype(np.float32)
-    colour[hair_mask, :3] = np.clip(original[hair_mask, :3] * hair_gain, 0, 1)
+    shade = np.clip(hair_luminance / max(float(np.median(hair_luminance)), 1e-3), .6, 1.35)[:, None]
+    colour[hair_mask, :3] = np.clip(hair_target[None] * shade, 0, 1)
 
     # The normal map under the projected face goes flat, so Tripo's own smaller eyes and brows stop showing through.
     normal_image = image_for(material, 'Color')
@@ -287,8 +294,16 @@ def main():
                 node.image = fresh
         fresh.pack()
 
+    # 5. Eyes and brows: clean cel eyes fitted to the sculpted sockets, one brow stroke each (eyes.py).
+    roughness_image, metallic_image = image_for(material, 'Roughness'), image_for(material, 'Metallic')
+    roughness_data = np.array(roughness_image.pixels[:], dtype=np.float32).reshape(height, width, 4)
+    metallic_data = np.array(metallic_image.pixels[:], dtype=np.float32).reshape(height, width, 4)
+    eye_record = eyes.paint(mesh, world, uv, colour, roughness_data, metallic_data, normal_data, texel_coverage, parts)
+
     replace(base, 'BaseColor', colour)
     replace(normal_image, 'Normal', normal_data)
+    replace(roughness_image, 'Roughness', roughness_data)
+    replace(metallic_image, 'Metallic', metallic_data)
 
     # 4. Hair length: strands grow away from the skull centre by HAIR_STRETCH of their height above it.
     inverse = world.inverted()
@@ -304,6 +319,17 @@ def main():
             move += Vector((0, 0, -above * FRINGE_DROOP))
         largest = max(largest, move.length)
         mesh.vertices[index].co = inverse @ (point + move)
+    mesh.update()
+
+    # Tripo's cornea discs (tiny pieces floating on each eyeball) shade differently from the painted eye: removed.
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.faces.ensure_lookup_table()
+    discs = [bm.faces[index] for index in sorted(parts['discs'])]
+    bmesh.ops.delete(bm, geom=discs, context='FACES')
+    bm.to_mesh(mesh)
+    bm.free()
     mesh.update()
 
     bpy.ops.file.pack_all()
@@ -324,7 +350,7 @@ def main():
         'skin_gain': [round(float(c), 3) for c in skin_gain], 'skin_texels_matched': int(rest.sum()),
         'hair_median_before': [round(float(c), 3) for c in hair_before], 'hair_target': [round(float(c), 3) for c in hair_target],
         'hair_texels_recoloured': int(hair_mask.sum()), 'hair_polygons': len(hair_polygons),
-        'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
+        'eyes': eye_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
     }
     (output / 'cleanup.json').write_text(json.dumps(record, indent=2) + '\n')
     print(json.dumps(record, indent=1), flush=True)
