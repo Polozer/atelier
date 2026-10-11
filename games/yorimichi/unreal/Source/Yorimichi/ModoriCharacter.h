@@ -17,6 +17,8 @@ public:
     virtual FString GetPlayableName() const override { return Name(); }
     virtual FString GetBikeRig() const override { return TEXT("Modori"); }
     virtual bool PlantsFeet() const override { return true; }
+    /** His loose coat skirt reaches beyond his body's collision capsules. */
+    virtual float GetSkateClothingClearance() const override { return 14.f; }
     // Only his longer legs move the sailboat stance; Cairo and the others keep it as it was fitted.
     virtual float SailboatReach(float LegLength) const override { return FMath::Clamp(LegLength / 55.f, 1.f, 1.6f); }
     /** His name for -rider= and the character switch. */

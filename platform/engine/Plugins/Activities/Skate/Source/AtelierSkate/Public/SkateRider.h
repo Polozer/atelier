@@ -27,6 +27,8 @@ public:
      *  finger_tip_N_L, finger_end_N_L, thumb_L, thumb_tip_L, thumb_end_L), NAME_None when it has none. The board's
      *  retargeter finds every bone through this; a rig that follows the contract keeps the default. */
     virtual FName GetSkateBone(FName Contract) const { return Contract; }
+    /** Extra arm clearance in cm for clothing outside the rider's body collision shapes. */
+    virtual float GetSkateClothingClearance() const { return 0.f; }
     /** The visible board's size relative to the source rider's: a short character with big feet rides a bigger one.
      *  It grows about its ground contact and the pose rises onto its deck; the ride's physics keep the source board. */
     virtual float GetSkateBoardScale() const { return 1.f; }

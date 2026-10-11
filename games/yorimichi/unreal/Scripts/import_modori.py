@@ -106,7 +106,7 @@ mesh.set_editor_property('materials', slots)
 # The coat's lower part is Chaos cloth (YorimichiCloth.cpp): pinned where cloth_pin is 1, free up to MAX_DISTANCE below
 # the hips, colliding with his physics asset. The import rebuilds the mesh, so the cloth is made again every time.
 MAX_DISTANCE = 30.
-# It collides with capsules on his body, forearms and palms sized from his skin (export.json cloth.colliders), a
+# It collides with capsules on his hips, spine, thighs and shins sized from his skin (export.json cloth.colliders), a
 # physics asset of its own: SK_Modori keeps none, so the skating rider still fits its bodies to his skin.
 capsules = CONFIG['cloth']['colliders']
 colliders = U.YorimichiClothLibrary.make_capsule_colliders(mesh, DEST + '/PA_Modori_Cloth', [c['bone'] for c in capsules],

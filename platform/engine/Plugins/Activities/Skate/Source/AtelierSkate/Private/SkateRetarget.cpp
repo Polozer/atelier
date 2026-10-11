@@ -500,16 +500,17 @@ void USkateComponent::RetargetRiderPose()
             }
         }
         // The source's arms hang beside an adult's hips; beside wider hips and thighs the hands sink into them. Each arm
-        // swings out until its hand and forearm clear the rider's own body by skate.ArmClear (ClearArms), smoothed over
+        // swings out until its hand and forearm clear the rider's body and clothing (ClearArms), smoothed over
         // the frames (the world's clock). A grab solves after this, so it still reaches its board.
         const double Now=GetWorld()?GetWorld()->GetTimeSeconds():0.,ArmDt=ShownRuntime->ArmTime>=0?Now-ShownRuntime->ArmTime:-1.;
         ShownRuntime->ArmTime=Now;
         if (const float Clear=CVarSkateArmClear.GetValueOnGameThread(); Clear>=0.f)
         {
+            const float Margin=Clear+FMath::Max(0.f,RiderApi?RiderApi->GetSkateClothingClearance():0.f);
             UPhysicsAsset* Physics=Mesh->GetPhysicsAsset();
             if (Physics && (ShownRuntime->BodiesFor.Get()!=Physics || ShownRuntime->BodiesMesh.Get()!=Asset || (!ShownRuntime->bBodiesComplete && ShownRuntime->BodiesTries<120))) GatherBodies(*ShownRuntime,Asset,Physics,Ref,Index);
             if (Physics && !ShownRuntime->Bodies.IsEmpty())
-                ClearArms(*ShownRuntime,Ref,Output,Uppers,Index(TEXT("pelvis")),Index(TEXT("chest")),Clear/FMath::Max(Mesh->GetComponentScale().GetMax(),1e-4),ArmDt);
+                ClearArms(*ShownRuntime,Ref,Output,Uppers,Index(TEXT("pelvis")),Index(TEXT("chest")),Margin/FMath::Max(Mesh->GetComponentScale().GetMax(),1e-4),ArmDt);
             else ShownRuntime->bArmsValid=false;
         }
         else ShownRuntime->bArmsValid=false;

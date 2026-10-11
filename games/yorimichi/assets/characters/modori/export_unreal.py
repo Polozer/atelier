@@ -178,23 +178,19 @@ def pin_colours(coat, arm):
 
 
 # The coat's collision (Unreal cloth collides with capsules): each (bone carrying it, from joint, to joint, the bones
-# whose skin sets its radius, percentile), measured on the body alone, so the coat hangs on his legs and hips, not on
-# itself. The pelvis capsule stands up his middle (pelvis to spine): run across from hip to hip, its rounded ends stood a radius out
+# whose skin sets its radius), measured on the body alone, so the coat hangs on his legs and hips, not on itself. The
+# pelvis capsule stands up his middle (pelvis to spine): run across from hip to hip, its rounded ends stood a radius out
 # past each hip joint and the skirt hung off them, a bump at the waist (megapark #7325, the operator #7329).
-COLLIDERS = [('pelvis', 'pelvis', 'spine', ('pelvis',), 90), ('spine', 'spine', 'chest', ('spine', 'spine_mid'), 90),
-             ('thigh_L', 'thigh_L', 'shin_L', ('thigh_L',), 90), ('thigh_R', 'thigh_R', 'shin_R', ('thigh_R',), 90),
-             ('shin_L', 'shin_L', 'foot_L', ('shin_L',), 90), ('shin_R', 'shin_R', 'foot_R', ('shin_R',), 90),
-             # The skating pose keeps hands clear of the body, but the loose coat can cross their wrists. Capsules
-             # on the forearms and palms let the skirt respond to them as it does to the legs. The sleeves are pinned.
-             # Cover all their skin: a percentile that excludes the palm's edge lets cloth enter the hand there.
-             ('forearm_L', 'forearm_L', 'hand_L', ('forearm_L',), 100), ('forearm_R', 'forearm_R', 'hand_R', ('forearm_R',), 100),
-             ('hand_L', 'hand_L', 'finger_1_L', ('hand_L',), 100), ('hand_R', 'hand_R', 'finger_1_R', ('hand_R',), 100)]
+COLLIDERS = [('pelvis', 'pelvis', 'spine', ('pelvis',)), ('spine', 'spine', 'chest', ('spine', 'spine_mid')),
+             ('thigh_L', 'thigh_L', 'shin_L', ('thigh_L',)), ('thigh_R', 'thigh_R', 'shin_R', ('thigh_R',)),
+             ('shin_L', 'shin_L', 'foot_L', ('shin_L',)), ('shin_R', 'shin_R', 'foot_R', ('shin_R',))]
 
+PERCENTILE = 90
 CLEARANCE = .015   # metres between each capsule and the nearest simulated coat vertex at rest
 
 
 def colliders(arm, body, coat, simulated):
-    """Capsules for the cloth, in centimetres: a segment between two joints and the radius that holds its percentile of
+    """Capsules for the cloth, in centimetres: a segment between two joints and the radius that holds PERCENTILE% of
     the skin of the bones around it, but never closer than CLEARANCE to a simulated coat vertex at rest (`simulated`,
     indices into `coat`). At 80% his baggy trousers came through the coat at the thighs; at 99% plus a centimetre the
     thigh and pelvis capsules took in the trousers' outliers and held the skirt out like a hoop (the operator, #7296:
@@ -211,7 +207,7 @@ def colliders(arm, body, coat, simulated):
             strongest = max(v.groups, key=lambda g: g.weight)
             points.setdefault(names[strongest.group], []).append(np.array(body.matrix_world @ v.co))
     out = []
-    for bone, start, end, skin, percentile in COLLIDERS:
+    for bone, start, end, skin in COLLIDERS:
         a, b = head[start], head[end]
         p = np.array([q for name in skin for q in points.get(name, [])])
         assert len(p) > 20, (bone, 'too little skin to size its capsule', len(p))
@@ -219,9 +215,9 @@ def colliders(arm, body, coat, simulated):
         distance = np.linalg.norm(p - (a + t[:, None] * (b - a)), axis=1)
         t = np.clip((cloth - a) @ (b - a) / ((b - a) @ (b - a)), 0, 1)
         clearance = float(np.linalg.norm(cloth - (a + t[:, None] * (b - a)), axis=1).min())
-        skin = float(np.percentile(distance, percentile))
+        skin = float(np.percentile(distance, PERCENTILE))
         radius = math.floor(min(skin, clearance - CLEARANCE) * 1e4) / 100
-        assert radius > 0, (bone, 'the coat leaves no room for its capsule', clearance)
+        assert radius > 5, (bone, 'the coat leaves no room for its capsule', clearance)
         out.append({'bone': bone, 'from': start, 'to': end, 'radius_cm': radius,
                     'skin_cm': round(skin * 100, 2), 'coat_cm': round(clearance * 100, 2)})
     return out
