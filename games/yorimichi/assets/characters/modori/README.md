@@ -56,6 +56,7 @@ dependencies when only those assets need rebuilding after an existing full build
 
 `AModoriCharacter` is registered as a playable character and always uses his merged move set. His coat skirt is
 simulated by Chaos Cloth, with the upper coat pinned and the free skirt colliding with capsules on his body.
+Forearm and palm capsules keep the skirt clear of his wrists while skating; the export sizes them from his skin.
 The cloth resets after teleports and board mounts. His story weapon, the rope and bell-metal weight, is still a
 concept; the playable character uses the merged set's sword.
 
