@@ -40,11 +40,13 @@ takes and the Blender repair tried on the first one live in the archive, not her
 ## The face and hair cleanup
 
 Tripo's texture made the face older and tanner than the drawings and the hair shorter and greyer. `cleanup_face_hair.py`
-projects the face sheet's front view onto the head (its irises and mouth put on the model's), scales the rest of the
-skin to the projected cheek, recolours the hair to the sheet's brown and grows the hair spikes outward, the fringe
-down toward the brows. Textures and vertices only; the topology and UVs are Tripo's. Known limits: the face sheet is
-512 px across, so the projected face is softer than the drawing, and the sheet's eyes are larger than the sculpted
-eyelids, which shows as a faint crescent at the outer corners up close.
+projects the face sheet's front view onto the head (its irises and mouth line, found in the image, put on the
+model's), flattens the normal map under it so Tripo's smaller eyes stop showing through, scales the rest of the skin
+to the projected cheek, recolours the hair to the sheet's brown and grows the hair spikes outward, the fringe down
+toward the brows. Textures and vertices only; the topology and UVs are Tripo's. `face_closeup.py` renders the face
+at 1200 px from a review blend; `compare-face.png` shows the sheet, Tripo's face, the cleaned face and its
+three-quarter. For a crisper source than the 512 px sheet cell, `games/haras_valley/tools/face_portrait.py` paints a
+large front portrait with Sunburst (needs `OPENAI_API_KEY`) that the cleanup takes with `--face`.
 
 ## How it was made
 
@@ -58,6 +60,8 @@ python platform/studio/atelier/ai/tripo_asset.py generate --references games/har
 /Applications/Blender.app/Contents/MacOS/Blender -b --python games/haras_valley/assets/characters/tools/cleanup_face_hair.py -- \
     --input games/haras_valley/assets/characters/boy/model-r03/raw/output_model_url.fbx \
     --references games/haras_valley/assets/characters/boy/references --output games/haras_valley/assets/characters/boy/cleanup-r01
+/Applications/Blender.app/Contents/MacOS/Blender -b --python games/haras_valley/assets/characters/tools/face_closeup.py -- \
+    games/haras_valley/assets/characters/boy/cleanup-r01/review/review.blend games/haras_valley/assets/characters/boy/cleanup-r01/review/face-closeup.png
 ```
 
 ## Next

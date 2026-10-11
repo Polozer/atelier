@@ -1,5 +1,6 @@
 {
   "source": "output_model_url.fbx",
+  "face": "face-six-views.png (front cell)",
   "script": "cleanup_face_hair.py",
   "blender_version": "5.1.2",
   "mapping": {
@@ -34,23 +35,23 @@
     ],
     "radius": 0.0578
   },
-  "face_texels_projected": 116842,
+  "face_texels_projected": 99353,
   "skin_median_before": [
     0.969,
-    0.647,
-    0.455
+    0.643,
+    0.451
   ],
   "skin_median_after": [
     0.992,
-    0.71,
-    0.548
+    0.702,
+    0.54
   ],
   "skin_gain": [
     1.024,
-    1.097,
-    1.204
+    1.092,
+    1.197
   ],
-  "skin_texels_matched": 2207567,
+  "skin_texels_matched": 2229168,
   "hair_median_before": [
     0.278,
     0.208,

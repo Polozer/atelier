@@ -6,8 +6,8 @@
 Tripo's texture made the face older and tanner than the drawings (darker skin, no blush, small murky eyes, heavy
 brows) and its hair shorter and greyer. Four fixes, textures and vertices only, no retopology:
 
-1. Face projection. The front view of the face sheet (`face-six-views.png`, top-left cell) is projected onto the
-   head through the front turnaround view, which Tripo normalised the model to (1 m tall, centred): world (y, z) maps
+1. Face projection. The front portrait (`--face`, painted by tools/face_portrait.py; without it the face sheet's
+   top-left cell) is projected onto the head through the front turnaround view, which Tripo normalised the model to (1 m tall, centred): world (y, z) maps
    to a pixel of `front.png`, and that pixel to the sheet through the similarity that puts the sheet's irises on the
    turnaround's. Head texels facing forward take the sheet's colour, faded out as the surface turns away (normal x),
    so the eyes, skin, blush and freckles are the drawing's and the sides of the head keep Tripo's paint. Hair strands
@@ -34,9 +34,9 @@ import numpy as np
 SHEET_CELL = (0, 0, 512, 512)          # the front view in the face sheet
 HEAD_Z = 0.27                          # above this: head and neck
 FACE_Z, FACE_HALF_WIDTH = 0.30, 0.08   # the projection stays above the collar and within the head
-SHEET_MOUTH_ROW = 313                  # the mouth line in the sheet's front view (irises are found by colour)
 MODEL_EYE_MID_Y, MODEL_EYE_Z, MODEL_EYE_SPACING, MODEL_MOUTH_Z = -0.0058, 0.378, 0.0524, 0.341
 FACE_FADE = (0.35, 0.75)               # normal x over which the projection fades in (the sides keep Tripo's paint)
+CHIN_FADE = (0.324, 0.338)             # z over which it fades out above the chin's drawn outline
 HAIR_STRETCH = 0.40
 FRINGE_DROOP = 0.35                    # strands in front of the skull also drop by this much of their height
 HAIR_LUMINANCE = 0.42                  # below this a warm texel is hair (or brow, or pupil)
@@ -54,6 +54,15 @@ def iris_centres(image, box):
     xs, ys = xs + x0, ys + y0
     left = xs < np.median(xs)
     return (xs[left].mean(), ys[left].mean()), (xs[~left].mean(), ys[~left].mean()), int(mask.sum())
+
+
+def mouth_row(image, left, right):
+    """The mouth line: the darkest row between the irises' columns, 0.55 to 1.1 eye spacings below them."""
+    spacing = math.dist(left, right)
+    x0, x1 = int(min(left[0], right[0]) + spacing * .15), int(max(left[0], right[0]) - spacing * .15)
+    y0, y1 = int(left[1] + spacing * .55), int(left[1] + spacing * 1.1)     # below the nose, above the chin line
+    strip = image[y0:y1, x0:x1, :3] @ np.array([.299, .587, .114], np.float32)
+    return y0 + int(np.argmin(strip.mean(axis=1)))
 
 
 def load_image(path):
@@ -78,6 +87,7 @@ def sample(image, cols, rows):
 
 
 def image_for(material, socket):
+    """The image feeding a socket: 'Base Color' on the shader, 'Color' on the Normal Map node."""
     for link in material.node_tree.links:
         if link.to_socket.name == socket and link.from_node.type == 'TEX_IMAGE':
             return link.from_node.image
@@ -126,6 +136,8 @@ def main():
     parser.add_argument('--input', type=Path, required=True)
     parser.add_argument('--references', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--face', type=Path, default=None,
+                        help='a large clean front portrait to project instead of the sheet\'s front cell (tools/face_portrait.py)')
     args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -137,10 +149,16 @@ def main():
     world = obj.matrix_world
     rotation = world.to_3x3()
 
-    sheet = load_image(args.references / 'face-six-views.png')
-    sheet_left, sheet_right, sheet_pixels = iris_centres(sheet, SHEET_CELL)
+    if args.face:
+        sheet = load_image(args.face)
+        cell = (0, 0, sheet.shape[1], sheet.shape[0])
+    else:
+        sheet = load_image(args.references / 'face-six-views.png')
+        cell = SHEET_CELL
+    sheet_left, sheet_right, sheet_pixels = iris_centres(sheet, cell)
     sheet_mid = ((sheet_left[0] + sheet_right[0]) / 2, (sheet_left[1] + sheet_right[1]) / 2)
     sheet_spacing = math.dist(sheet_left, sheet_right)
+    sheet_mouth_row = mouth_row(sheet, sheet_left, sheet_right)
 
     base = image_for(material, 'Base Color')
     width, height = base.size
@@ -179,7 +197,6 @@ def main():
 
     # The mapping: the sheet's irises and mouth onto the model's (model anchors read off the orthographic front
     # render of model-r03: irises 41 px apart at row 154, mouth at row 183, 782.6 px per metre, centre at 450).
-    sheet_mouth_row = SHEET_MOUTH_ROW
     px_per_m_y = sheet_spacing / MODEL_EYE_SPACING
     px_per_m_z = (sheet_mouth_row - sheet_mid[1]) / (MODEL_EYE_Z - MODEL_MOUTH_Z)
 
@@ -210,11 +227,12 @@ def main():
         points = (positions[verts] * weights[:, :, None]).sum(axis=1)
         normals = (vertex_normals[verts] * weights[:, :, None]).sum(axis=1)
         facing = np.clip((normals[:, 0] - FACE_FADE[0]) / (FACE_FADE[1] - FACE_FADE[0]), 0, 1)
+        facing *= np.clip((points[:, 2] - CHIN_FADE[0]) / (CHIN_FADE[1] - CHIN_FADE[0]), 0, 1)   # not the chin's ink line
         if facing.max() <= 0:
             continue
         sheet_cols, sheet_rows = sheet_coords(points)
         value, inside = sample(sheet, sheet_cols, sheet_rows)
-        inside &= (sheet_cols >= SHEET_CELL[0]) & (sheet_cols < SHEET_CELL[2]) & (sheet_rows >= SHEET_CELL[1]) & (sheet_rows < SHEET_CELL[3])
+        inside &= (sheet_cols >= cell[0]) & (sheet_cols < cell[2]) & (sheet_rows >= cell[1]) & (sheet_rows < cell[3])
         alpha = (facing * inside)[:, None]
         colour[rows, cols, :3] = colour[rows, cols, :3] * (1 - alpha) + value[:, :3] * alpha
         strong = alpha[:, 0] > 0.9
@@ -237,9 +255,9 @@ def main():
     colour[fade, :3] = colour[fade, :3] * w + gained * (1 - w)
 
     # 3. Hair colour toward the sheet's.
-    cell = sheet[SHEET_CELL[1]:SHEET_CELL[3], SHEET_CELL[0]:SHEET_CELL[2], :3]
-    cell_luminance = cell @ np.array([.299, .587, .114], np.float32)
-    sheet_hair = cell[(cell_luminance < 0.4) & (cell[..., 0] > cell[..., 2]) & (cell[..., 0] > 0.12)]
+    face_pixels = sheet[cell[1]:cell[3], cell[0]:cell[2], :3]
+    face_luminance = face_pixels @ np.array([.299, .587, .114], np.float32)
+    sheet_hair = face_pixels[(face_luminance < 0.4) & (face_pixels[..., 0] > face_pixels[..., 2]) & (face_pixels[..., 0] > 0.12)]
     hair_target = np.median(sheet_hair, axis=0)
     hair_mask = np.zeros((height, width), bool)
     for polygon in hair_polygons:
@@ -251,16 +269,26 @@ def main():
     hair_gain = np.clip(hair_target / np.maximum(hair_before, 1e-3), 0.5, 2.0).astype(np.float32)
     colour[hair_mask, :3] = np.clip(original[hair_mask, :3] * hair_gain, 0, 1)
 
-    fresh = bpy.data.images.new('BaseColor', width, height, alpha=False)
-    fresh.colorspace_settings.name = base.colorspace_settings.name
-    fresh.pixels.foreach_set(colour.ravel())
-    fresh.filepath_raw = str(output / 'BaseColor.png')
-    fresh.file_format = 'PNG'
-    fresh.save()
-    for node in material.node_tree.nodes:
-        if node.type == 'TEX_IMAGE' and node.image == base:
-            node.image = fresh
-    fresh.pack()
+    # The normal map under the projected face goes flat, so Tripo's own smaller eyes and brows stop showing through.
+    normal_image = image_for(material, 'Color')
+    normal_data = np.array(normal_image.pixels[:], dtype=np.float32).reshape(height, width, 4)
+    flat = weight_map[..., None]
+    normal_data[..., :3] = normal_data[..., :3] * (1 - flat) + np.array([.5, .5, 1], np.float32) * flat
+
+    def replace(image, name, data):
+        fresh = bpy.data.images.new(name, width, height, alpha=False)
+        fresh.colorspace_settings.name = image.colorspace_settings.name
+        fresh.pixels.foreach_set(data.ravel())
+        fresh.filepath_raw = str(output / (name + '.png'))
+        fresh.file_format = 'PNG'
+        fresh.save()
+        for node in material.node_tree.nodes:
+            if node.type == 'TEX_IMAGE' and node.image == image:
+                node.image = fresh
+        fresh.pack()
+
+    replace(base, 'BaseColor', colour)
+    replace(normal_image, 'Normal', normal_data)
 
     # 4. Hair length: strands grow away from the skull centre by HAIR_STRETCH of their height above it.
     inverse = world.inverted()
@@ -286,7 +314,7 @@ def main():
     bpy.ops.export_scene.gltf(filepath=str(output / 'boy-cleanup-r01.glb'), export_format='GLB', use_selection=True,
                               export_animations=False)
     record = {
-        'source': args.input.name, 'script': Path(__file__).name, 'blender_version': bpy.app.version_string,
+        'source': args.input.name, 'face': args.face.name if args.face else 'face-six-views.png (front cell)', 'script': Path(__file__).name, 'blender_version': bpy.app.version_string,
         'mapping': {'sheet_irises_px': [list(sheet_left), list(sheet_right), sheet_pixels], 'sheet_mouth_row': sheet_mouth_row,
                     'model_eyes': [MODEL_EYE_MID_Y, MODEL_EYE_Z, MODEL_EYE_SPACING], 'model_mouth_z': MODEL_MOUTH_Z,
                     'sheet_px_per_m': [round(px_per_m_y, 1), round(px_per_m_z, 1)]},
