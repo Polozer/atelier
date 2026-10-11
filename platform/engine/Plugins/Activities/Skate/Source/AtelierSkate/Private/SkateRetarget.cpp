@@ -218,8 +218,9 @@ static double BodyDistance(const FSkateRuntime::FBody& Body,const FVector& Q,FVe
 // skin is Margin (component units) out of the rider's own body, at most 30 degrees. The swing is one abduction per arm,
 // about the axis that carries a hanging arm straight out from the body's midline (across the torso, pelvis to chest), so
 // it turns smoothly with the pose: no face or way out is chosen per frame. The angle needed is the smallest that clears
-// every sample (a 2.5 degree scan, then the crossing found inside its step), and the arm follows it through a critically
-// damped spring (half-life 0.05 s out, 0.15 s back) whose speed (170 degrees/s) and acceleration are capped, so a fast
+// every sample (a 2.5 degree scan, then the crossing found inside its step). If none clears, it uses the scanned angle
+// with the best clearance, preferring the smaller swing on a tie. The arm follows it through a critically damped
+// spring (half-life 0.05 s out, 0.15 s back) whose speed (170 degrees/s) and acceleration are capped, so a fast
 // move may graze the body for a moment but the arm never snaps. Dt below 0 or over 0.25 s starts it afresh.
 static void ClearArms(FSkateRuntime& Runtime,const FReferenceSkeleton& Ref,TArray<FTransform>& Output,const int32 Uppers[2],int32 Pelvis,int32 Chest,
     double Margin,double Dt)
@@ -279,11 +280,12 @@ static void ClearArms(FSkateRuntime& Runtime,const FReferenceSkeleton& Ref,TArra
         double Need=0;
         if (double Low=Clearance(0.); Low<0)
         {
-            Need=MaxSwing;
+            // If no angle clears, keep the best clearance; more swing can move a hand toward the opposite thigh.
+            double Best=Low;
             for (double Angle=Step;Angle<=MaxSwing+1e-9;Angle+=Step)
             {
                 double High=Clearance(Angle);
-                if (High<0) { Low=High; continue; }
+                if (High<0) { if (High>Best) { Best=High; Need=Angle; } Low=High; continue; }
                 // The crossing inside this step: halve it three times, then interpolate.
                 double From=Angle-Step,To=Angle;
                 for (int32 I=0;I<3;++I)
