@@ -25,7 +25,9 @@ jaw a V where the drawing's is a U. These fixes change textures and vertices onl
    EYE_INWARD toward the nose (eyes.scale), turn EYE_TILT_DEGREES outer corner up (eyes.tilt) and open by EYE_LIFT
    (eyes.lift), the nose stands out NOSE_DEPTH as far (face.shrink_nose), the mouth rises MOUTH_UP
    (mouth.raise_mouth), the sculpted lips are flattened and closed (mouth.flatten), the area between nose, cheeks and
-   chin is smoothed into one surface so no muzzle is left (face.smooth_lower_face), and the shading normals of every
+   chin is smoothed into one surface so no muzzle is left (face.smooth_lower_face) and straightened into one slope
+   from under the nose to the chin, so the upper lip does not stand out (face.straighten_profile), and the shading
+   normals of every
    moved vertex are re-derived (mouth.refresh_normals).
 6. Eyes. The projected drawing's eyes do not fit Tripo's sculpted sockets, so eyes.py paints clean cel eyes onto the
    eyeballs inside each reshaped socket's rim and clears Tripo's eye paint, gloss and normal detail around them.
@@ -337,6 +339,7 @@ def main():
     lips = mouth.seam(mesh, world, parts['face'], MODEL_EYE_MID_Y, MOUTH_HALF_WIDTH)
     flatten_record = mouth.flatten(mesh, world, parts['face'], lips)
     lower_smooth = face.smooth_lower_face(mesh, world, parts['face'], CHIN_CENTRE_Y, .334, .027, .021)
+    profile_record = face.straighten_profile(mesh, world, parts['face'], CHIN_CENTRE_Y, .352, .326)
     nose_record = face.smooth_nose(mesh, world, parts['face'], MODEL_EYE_MID_Y, NOSE_Z)
     normals_record = mouth.refresh_normals(mesh, before_reshape)     # Tripo's frozen shading off the moved surface
 
@@ -348,7 +351,8 @@ def main():
 
     # 7. One mouth: the drawn and Tripo-painted mouths cleared, a single line along the sculpted seam (mouth.py).
     face_paint = face.paint(mesh, world, uv, colour, normal_data, roughness_data, texel_coverage, parts['face'],
-                            [tuple(p) for p in eye_record['pupils']], NOSE_Z, np.array(eye_record['skin_colour'], np.float32))
+                            [tuple(p) for p in eye_record['pupils']], face.nose_tip(mesh, world, parts['face'], CHIN_CENTRE_Y),
+                            np.array(eye_record['skin_colour'], np.float32))
     mouth_paint = mouth.paint(mesh, world, uv, colour, roughness_data, normal_data, texel_coverage, parts['face'],
                               MODEL_EYE_MID_Y, MOUTH_HALF_WIDTH, np.array(eye_record['skin_colour'], np.float32), lips)
 
@@ -402,7 +406,7 @@ def main():
         'skin_gain': [round(float(c), 3) for c in skin_gain], 'skin_texels_matched': int(rest.sum()),
         'hair_median_before': [round(float(c), 3) for c in hair_before], 'hair_target': [round(float(c), 3) for c in hair_target],
         'hair_texels_recoloured': int(hair_mask.sum()), 'hair_polygons': len(hair_polygons),
-        'eyes': eye_record, 'eye_tilt': tilt_record, 'eye_lift': lift_record, 'mouth_corners': mouth_record, 'mouth_line': mouth_paint, 'mouth_flatten': flatten_record, 'lower_face': warp_record, 'cheeks': widen_record, 'nose_depth': nose_shape, 'chin_recede': chin_back, 'lower_face_smooth': lower_smooth, 'mouth_raise': mouth_raise, 'eye_scale': scale_record, 'nose': nose_record, 'face_paint': face_paint, 'brow_strip_polygons_removed': len(parts['brows']), 'reshaded': normals_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
+        'eyes': eye_record, 'eye_tilt': tilt_record, 'eye_lift': lift_record, 'mouth_corners': mouth_record, 'mouth_line': mouth_paint, 'mouth_flatten': flatten_record, 'lower_face': warp_record, 'cheeks': widen_record, 'nose_depth': nose_shape, 'chin_recede': chin_back, 'lower_face_smooth': lower_smooth, 'profile': profile_record, 'mouth_raise': mouth_raise, 'eye_scale': scale_record, 'nose': nose_record, 'face_paint': face_paint, 'brow_strip_polygons_removed': len(parts['brows']), 'reshaded': normals_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
     }
     (output / 'cleanup.json').write_text(json.dumps(record, indent=2) + '\n')
     print(json.dumps(record, indent=1), flush=True)

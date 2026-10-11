@@ -186,6 +186,10 @@
     "vertices_smoothed": 132,
     "largest_depth_change_mm": 5.59
   },
+  "profile": {
+    "vertices": 128,
+    "largest_depth_change_mm": 2.55
+  },
   "mouth_raise": {
     "rise_mm": 3.3,
     "vertices_moved": 230
@@ -219,7 +223,7 @@
   },
   "face_paint": {
     "pupil_spacing_mm": 53.3,
-    "texels": 204202,
+    "texels": 210148,
     "freckles": 23
   },
   "brow_strip_polygons_removed": 32,

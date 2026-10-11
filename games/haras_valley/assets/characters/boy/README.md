@@ -49,13 +49,13 @@ only: the topology and UVs are Tripo's, less the brow strips and cornea discs.
 - **Shape first** (`face.py`, `eyes.py`, `mouth.py`). The jaw drops onto the drawing's rounder outline and the chin
   recedes 5 mm, as the drawing's profile runs straight from nose to chin; the eyes shrink to the drawing's size,
   move 2 mm toward the nose, turn 8 degrees outer corner up and open; the nose stands out 60% as far; the mouth rises
-  3.3 mm; the sculpted lips are flattened and the area between nose, cheeks and chin smoothed into one surface, so
-  no muzzle is left. The shading normals of every moved vertex are re-derived, since Tripo's FBX carries the
+  3.3 mm; the sculpted lips are flattened and the area between nose, cheeks and chin smoothed into one surface and
+  straightened into one slope, so no muzzle and no bump over the upper lip are left. The shading normals of every moved vertex are re-derived, since Tripo's FBX carries the
   sculpt's shading frozen. (Widening the cheeks to the drawing's measured width read as hamster cheeks; it is off.)
 - **Then paint.** Tripo builds the head from separate pieces: hair cap, face with a hole at each eye, an eyeball
   behind each hole, brow strips, cornea discs. Clean cel eyes in the drawing's colours go on the eyeballs inside
-  each hole's rim; thick straight brows, a round nose with a light tip and two arched nostrils, blush, freckles and
-  one level mouth line are painted as drawn, placed from the painted pupils. Skin and hair take the drawing's
+  each hole's rim; thick straight brows, blush, freckles and one level mouth line are painted as drawn, placed from
+  the painted pupils, and the nose (light tip, two arched nostrils, round shade) on the sculpted nose's tip. Skin and hair take the drawing's
   colours. Tripo's hair volume measures as the drawing's and is kept.
 
 `compare-face.png` shows the sheet, Tripo's face, the cleaned face and its three-quarter; `overlay-drawing.png` the

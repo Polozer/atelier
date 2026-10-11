@@ -9,8 +9,8 @@ took the lash line for a pupil and overstated sp by 12%, which made the eyes too
   is 3 mm above the drawing's broad U. fit_jaw() drops the jaw outline onto the drawing's (JAW_DROP), on the front
   of the head only; the neck stays attached to the collar.
 - nose: Tripo's nostril dimples and frozen shading made a brown smudge. smooth_nose() evens out the dimples;
-  paint() clears the nose to skin and draws it as drawn: a soft round shade on the bulb, a light tip, two small dark
-  arched nostrils 0.20 sp apart, a faint shade under it.
+  paint() clears the nose to skin and draws it as drawn, on the sculpted nose (nose_tip): a light tip on its most
+  forward point, two small dark arched nostrils just under it 0.20 sp apart, a soft round shade on the bulb.
 - brows: the drawing's are thick and almost straight, 0.42 sp above the pupils, from 0.22 sp toward the nose to
   0.40 sp outward, 0.13 sp thick, tapering and dropping at the outer end. Tripo's brow strips are removed by the
   cleanup and paint() draws these instead.
@@ -161,6 +161,69 @@ def smooth_lower_face(mesh, world, face_polygons, centre_y, z_centre, radius_y, 
     return {'vertices_smoothed': len(active), 'largest_depth_change_mm': round(largest * 1000, 2)}
 
 
+def straighten_profile(mesh, world, face_polygons, centre_y, z_top, z_bottom, half_width=.016, fade_width=.026,
+                       iterations=20):
+    """Make the face between z_top (just under the nose) and z_bottom (the chin) a straight slope in every column, so
+    the upper lip no longer stands out over the mouth: each vertex takes the depth interpolated, by its height,
+    between the front of its column at z_top and at z_bottom. Full within half_width of the centre line, fading out
+    by fade_width and within 2 mm of z_top and z_bottom; a few Laplacian passes on depth blend the border.
+
+    The drawing's profile runs straight from the nose to the chin; after the lips were flattened the upper lip still
+    stood 4 mm in front of the area just under the mouth line."""
+    from mathutils import Vector
+    inverse = world.inverted()
+    vertices = sorted({v for i in face_polygons for v in mesh.polygons[i].vertices})
+    points = {v: world @ mesh.vertices[v].co for v in vertices}
+    grid = np.linspace(centre_y - fade_width - .004, centre_y + fade_width + .004, 41)
+
+    def row(z_level):
+        near = [(p.y, p.x) for p in points.values() if p.x > 0 and abs(p.z - z_level) < .0015]
+        ys, xs = np.array([n[0] for n in near]), np.array([n[1] for n in near])
+        front = np.array([xs[np.abs(ys - g) < .0018].max() if (np.abs(ys - g) < .0018).any() else np.nan for g in grid])
+        good = ~np.isnan(front)
+        front = np.interp(grid, grid[good], front[good])
+        return np.convolve(np.pad(front, 2, mode='edge'), np.ones(5) / 5, mode='valid')
+
+    top, bottom = row(z_top), row(z_bottom)
+
+    def weight(p):
+        if p.x < .02 or not (z_bottom - .002 < p.z < z_top + .002):
+            return 0.0
+        w = smoothstep(fade_width, half_width, abs(p.y - centre_y))
+        w *= smoothstep(z_bottom - .002, z_bottom + .002, p.z) * smoothstep(z_top + .002, z_top - .002, p.z)
+        return float(w)
+
+    weights = {v: weight(p) for v, p in points.items()}
+    active = [v for v, w in weights.items() if w > 0]
+    x = {v: p.x for v, p in points.items()}
+    for v in active:
+        p = points[v]
+        t = min(max((p.z - z_bottom) / (z_top - z_bottom), 0.0), 1.0)
+        target = (1 - t) * float(np.interp(p.y, grid, bottom)) + t * float(np.interp(p.y, grid, top))
+        x[v] = p.x + (target - p.x) * weights[v]
+    neighbours = {v: [] for v in active}
+    for edge in mesh.edges:
+        a, b = edge.vertices
+        if a in neighbours and b in points:
+            neighbours[a].append(b)
+        if b in neighbours and a in points:
+            neighbours[b].append(a)
+    for _ in range(iterations):
+        nxt = dict(x)
+        for v in active:
+            if neighbours[v]:
+                w = .5 * min(1.0, 2 * (1 - weights[v]) + .15)     # mostly at the border, a little everywhere
+                nxt[v] = x[v] + (sum(x[o] for o in neighbours[v]) / len(neighbours[v]) - x[v]) * w
+        x = nxt
+    largest = 0.0
+    for v in active:
+        p = points[v]
+        largest = max(largest, abs(x[v] - p.x))
+        mesh.vertices[v].co = inverse @ Vector((x[v], p.y, p.z))
+    mesh.update()
+    return {'vertices': len(active), 'largest_depth_change_mm': round(largest * 1000, 2)}
+
+
 def shrink_nose(mesh, world, vertices, centre_y, z_centre, factor, radius_y=.014, radius_z=.016, x_base=.050):
     """Make the nose stand out less: its depth in front of x_base (the face beside it) times `factor`, in full near
     its middle and fading out over the ellipse (radius_y, radius_z). The drawing's nose is small; Tripo's sticks out
@@ -221,6 +284,16 @@ def smooth_nose(mesh, world, face_polygons, centre_y, z_nose, half_width=.011, i
     return {'vertices_smoothed': len(active)}
 
 
+def nose_tip(mesh, world, face_polygons, centre_y):
+    """Height (z) of the sculpted nose's most forward point, near the centre line."""
+    best = None
+    for v in {v for i in face_polygons for v in mesh.polygons[i].vertices}:
+        p = world @ mesh.vertices[v].co
+        if abs(p.y - centre_y) < .004 and .345 < p.z < .378 and (best is None or p.x > best.x):
+            best = p
+    return float(best.z)
+
+
 def gather(mesh, world, uv, shape, polygons, texel_coverage, keep):
     """Texels (rows, cols) and their world points for the polygons whose centre passes keep(centre)."""
     height, width = shape
@@ -241,7 +314,7 @@ def gather(mesh, world, uv, shape, polygons, texel_coverage, keep):
     return np.concatenate(rows), np.concatenate(cols), np.concatenate(points)
 
 
-def paint(mesh, world, uv, colour, normal, roughness, texel_coverage, face_polygons, pupils, nose_z, skin):
+def paint(mesh, world, uv, colour, normal, roughness, texel_coverage, face_polygons, pupils, tip_z, skin):
     """Brows, nose and cheeks in the drawing's style, placed from the painted pupils (world y, z)."""
     (y_right, z_right), (y_left, z_left) = pupils          # his right eye has the smaller y
     sp = y_left - y_right
@@ -249,7 +322,7 @@ def paint(mesh, world, uv, colour, normal, roughness, texel_coverage, face_polyg
     eye_z = (z_right + z_left) / 2
     height, width = colour.shape[:2]
     rows, cols, points = gather(mesh, world, uv, (height, width), face_polygons, texel_coverage,
-                                lambda c: c.x > 0 and abs(c.y - centre_y) < 1.3 * sp and eye_z - .75 * sp < c.z < eye_z + .62 * sp)
+                                lambda c: c.x > 0 and abs(c.y - centre_y) < 1.3 * sp and eye_z - .8 * sp < c.z < eye_z + .62 * sp)
     y, z = points[:, 1], points[:, 2]
     current = colour[rows, cols, :3].copy()
     edge = .00025
@@ -277,21 +350,22 @@ def paint(mesh, world, uv, colour, normal, roughness, texel_coverage, face_polyg
         half = sp * .5 * np.interp(s, (0, .12, .5, .8, 1), (.09, .125, .13, .11, .06))
         cover = inside(half - np.abs(z - centre)) * inside((u + .22) * sp) * inside((.40 - u) * sp)
         over(BROW, cover)
-    # Nose, as drawn, placed from the pupils (the drawing's: nostrils 0.49 sp below them and 0.20 sp apart, the
-    # light tip 0.37 sp below, the bulb from 0.30 to 0.62 sp below): cleared to skin, a soft rounded bulb shade,
-    # a light tip, two small dark arched nostrils, a faint shade under the bulb.
-    nostril_z = eye_z - .49 * sp
-    nose_zone = smoothstep(1.15, .85, np.hypot((y - centre_y) / (.30 * sp), (z - nostril_z - .03 * sp) / (.22 * sp)))
+    # Nose, as drawn, on the sculpted nose: the light tip on its most forward point (tip_z), the two small dark
+    # arched nostrils 0.12 sp below it and 0.20 sp apart, a soft rounded bulb shade from 0.09 sp above the tip to
+    # just under the nostrils (the drawing's proportions, measured from its highlight). Painting it from the pupils
+    # instead put the drawn nose 8 mm under the sculpted one, a second nose over the upper lip.
+    nostril_z = tip_z - .12 * sp
+    nose_zone = smoothstep(1.15, .85, np.hypot((y - centre_y) / (.30 * sp), (z - tip_z + .04 * sp) / (.24 * sp)))
     over(skin, nose_zone)
     flat_zone = np.maximum(flat_zone, nose_zone)
-    v = np.clip((eye_z - .28 * sp - z) / (.34 * sp), 0, 1)        # 0 at the top of the bulb, 1 at its bottom
+    v = np.clip((tip_z + .09 * sp - z) / (.27 * sp), 0, 1)        # 0 at the top of the bulb, 1 at its bottom
     half_width = sp * (.07 + .12 * np.sqrt(v))                    # narrow at the top, round and full low down
-    bottom = eye_z - .62 * sp + .09 * sp * np.clip(np.abs(y - centre_y) / (.19 * sp), 0, 1.2) ** 2
+    bottom = nostril_z - .06 * sp + .07 * sp * np.clip(np.abs(y - centre_y) / (.19 * sp), 0, 1.2) ** 2
     soft = .022 * sp
     bulb = (smoothstep(-soft, soft, half_width - np.abs(y - centre_y)) * smoothstep(-soft, soft, z - bottom)
             * smoothstep(0, .3, v))
     over(NOSE_SHADE, .45 * bulb)
-    tip = smoothstep(.05, .0, np.hypot((y - centre_y) / sp, (z - (eye_z - .37 * sp)) / (1.25 * sp)))
+    tip = smoothstep(.05, .0, np.hypot((y - centre_y) / sp, (z - tip_z - .01 * sp) / (1.25 * sp)))
     over(NOSE_TIP, .6 * tip)
     for side in (-1.0, 1.0):
         nx = centre_y + side * .10 * sp
