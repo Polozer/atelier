@@ -39,31 +39,31 @@ takes and the Blender repair tried on the first one live in the archive, not her
 
 ## The face and hair cleanup
 
-Tripo's texture made the face older and tanner than the drawings and the hair shorter and greyer. `cleanup_face_hair.py`
-projects the face sheet's front view onto the head (its irises and mouth line, found in the image, put on the
-model's), flattens the normal map under it so Tripo's smaller eyes stop showing through, scales the rest of the skin
-to the projected cheek, recolours the hair to the sheet's brown and grows the hair spikes outward, the fringe down
-toward the brows. Textures and vertices only; the topology and UVs are Tripo's, less the two cornea discs.
+Tripo's take was older and tanner than the drawings, with eyes too big and drooping, a prominent nose, lips sculpted
+apart from the drawn mouth and a V-shaped jaw. `cleanup_face_hair.py` fixes it in Blender, textures and vertices
+only: the topology and UVs are Tripo's, less the brow strips and cornea discs.
 
-The eyes are painted, not projected (`eyes.py`). Tripo builds the head from separate pieces: the hair cap, the face
-with a hole at each eye, an eyeball behind each hole, a brow strip above each eye and a tiny cornea disc on each
-eyeball. The rim of each hole is the eye's outline; a clean cel eye in the drawing's style and colours (white, olive
-to yellow iris, rim, pupil, two highlights, thick lash line with an outer wing, crease, short lower line) is drawn
-into it on the eyeball, the brow strips take the drawing's brow colour, the face around them is cleared to skin with
-a flat normal map and the skin's roughness, and the cornea discs are removed.
-Tripo's eyes also sloped down toward the outside and sat low between their corners, which read as sad. Before the
-eyes are painted, each eye region turns 8 degrees outer corner up and its middle rises by 0.20 of its width with the
-corners pinned (`eyes.tilt`, `eyes.lift`), so the upper lid arches as drawn; the lower lid is painted 0.23 eye widths
-below the corners, as in the drawing, and the eyeball below it is painted as skin.
-The mouth showed twice: Tripo sculpted lips with a slit, and the drawing's line, aligned to Tripo's painted mouth,
-sat 3 to 5 mm above it; the lip also drooped at the ends. `mouth.py` raises the face around the mouth corners by
-2.5 mm, smooths the lips flat in depth and closes the slit, unfolds the corners, clears the area to skin and draws
-one line in the drawing's colour where the slit was. The shading normals of every moved vertex are re-derived from
-the new surface (Tripo's FBX carries the sculpt's shading frozen in custom normals).
-`eyes-closeup-front.png`, `eyes-closeup-three-quarter.png` and `mouth-closeup-front.png` show the result up close. `face_closeup.py` renders the face
-at 1200 px from a review blend; `compare-face.png` shows the sheet, Tripo's face, the cleaned face and its
-three-quarter. For a crisper source than the 512 px sheet cell, `games/haras_valley/tools/face_portrait.py` paints a
-large front portrait with Sunburst (needs `OPENAI_API_KEY`) that the cleanup takes with `--face`.
+- **Measured, not guessed.** The face sheet's front view is overlaid on a front render with the pupils made to
+  coincide (the dark centres of the drawn irises; a first measure took a lash line for a pupil and overstated their
+  spacing by 12%, which left the eyes too small and too far apart).
+- **Shape first** (`face.py`, `eyes.py`, `mouth.py`). The jaw drops onto the drawing's rounder outline and the chin
+  recedes 5 mm, as the drawing's profile runs straight from nose to chin; the eyes shrink to the drawing's size,
+  move 2 mm toward the nose, turn 8 degrees outer corner up and open; the nose stands out 60% as far; the mouth rises
+  3.3 mm; the sculpted lips are flattened and the area between nose, cheeks and chin smoothed into one surface, so
+  no muzzle is left. The shading normals of every moved vertex are re-derived, since Tripo's FBX carries the
+  sculpt's shading frozen. (Widening the cheeks to the drawing's measured width read as hamster cheeks; it is off.)
+- **Then paint.** Tripo builds the head from separate pieces: hair cap, face with a hole at each eye, an eyeball
+  behind each hole, brow strips, cornea discs. Clean cel eyes in the drawing's colours go on the eyeballs inside
+  each hole's rim; thick straight brows, a round nose with a light tip and two arched nostrils, blush, freckles and
+  one level mouth line are painted as drawn, placed from the painted pupils. Skin and hair take the drawing's
+  colours. Tripo's hair volume measures as the drawing's and is kept.
+
+`compare-face.png` shows the sheet, Tripo's face, the cleaned face and its three-quarter; `overlay-drawing.png` the
+drawing's lines over the cleaned face; `clay-views.png` the shape alone; `eyes-closeup-front.png`,
+`nose-closeup.png` and `mouth-closeup-front.png` the details. `overlay_render.py` and `overlay_drawing.py` make the
+overlay. `face_closeup.py`, `eye_closeup.py` and
+`mouth_closeup.py` render them from a review blend. For a crisper source than the 512 px sheet cell,
+`games/haras_valley/tools/face_portrait.py` paints a large front portrait with Sunburst (needs `OPENAI_API_KEY`).
 
 ## How it was made
 

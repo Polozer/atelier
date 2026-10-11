@@ -45,6 +45,7 @@ def corners(mesh, world, face_polygons, centre_y, centre_z, half_width, rise):
 LINE_MIDDLE = np.array([.62, .38, .29], np.float32)
 LINE_ENDS = np.array([.50, .30, .23], np.float32)
 LINE_THICKNESS = .0012          # about two pixels of the drawing's line, in metres on the model
+LINE_HALF_LENGTH = .0162        # the drawing's mouth is 0.59 pupil spacings long
 CLOSE = .0016                   # the slit's lip edges within this of the seam close onto it
 CLOSE_CORNERS = .0024           # and this much further at the corners, where Tripo cut small pits
 CORNER_PASSES = 25              # 3D smoothing passes that unfold the corners
@@ -52,7 +53,8 @@ CORNER_PASSES = 25              # 3D smoothing passes that unfold the corners
 
 def seam(mesh, world, face_polygons, centre_y, half_width):
     """The lips' seam: the face's vertices sunk at least 2 mm behind the lips around them, fitted with a quadratic
-    z(y) across the mouth. Returns (coefficients, y_min, y_max)."""
+    z(y) across the mouth, then kept level at its middle height (the drawing's mouth is a straight line). Returns
+    (quadratic coefficients, y_min, y_max)."""
     vertices = sorted({v for i in face_polygons for v in mesh.polygons[i].vertices})
     points = np.array([list(world @ mesh.vertices[v].co) for v in vertices])
     near = (points[:, 0] > 0) & (np.abs(points[:, 1] - centre_y) < 1.5 * half_width) & (points[:, 2] > .326) & (points[:, 2] < .346)
@@ -66,7 +68,10 @@ def seam(mesh, world, face_polygons, centre_y, half_width):
     if len(sunk) < 6:
         raise RuntimeError(f'only {len(sunk)} seam vertices found')
     coefficients = np.polyfit(sunk[:, 1], sunk[:, 2], 2)
-    return coefficients, float(sunk[:, 1].min()), float(sunk[:, 1].max())
+    y_min, y_max = float(sunk[:, 1].min()), float(sunk[:, 1].max())
+    # The drawing's mouth is a level line: keep only the seam's height at its middle.
+    level = float(np.polyval(coefficients, (y_min + y_max) / 2))
+    return np.array([0.0, 0.0, level]), y_min, y_max
 
 
 def paint(mesh, world, uv, colour, roughness, normal, texel_coverage, face_polygons, centre_y, half_width, skin, lips):
@@ -92,16 +97,17 @@ def paint(mesh, world, uv, colour, roughness, normal, texel_coverage, face_polyg
     rows, cols, points = np.concatenate(rows), np.concatenate(cols), np.concatenate(points)
     y, z = points[:, 1], points[:, 2]
     seam_z = np.polyval(coefficients, np.clip(y, y_min, y_max))
-    middle = (y_min + y_max) / 2
-    half = (y_max - y_min) / 2
-    u = (y - middle) / half                                   # -1 and 1 at the corners
+    middle = centre_y
+    half = LINE_HALF_LENGTH
+    u = (y - middle) / half                                   # -1 and 1 at the ends of the drawn line
 
     def ramp(a, b, x):
         t = np.clip((x - a) / (b - a), 0, 1)
         return t * t * (3 - 2 * t)
 
     # Clear: the whole mouth area becomes skin, fading out gently over 8 mm so no edge shows.
-    zone = ramp(1.6, 1.15, np.abs(u)) * ramp(.014, .006, np.abs(z - seam_z))
+    seam_half = (y_max - y_min) / 2
+    zone = ramp(1.6, 1.15, np.abs(y - (y_min + y_max) / 2) / seam_half) * ramp(.014, .006, np.abs(z - seam_z))
     current = colour[rows, cols, :3]
     current = current * (1 - zone[:, None]) + skin[None] * zone[:, None]
     # The line: along the seam, tapering over the last tenth, darker toward the ends.
@@ -127,10 +133,10 @@ def flatten(mesh, world, face_polygons, lips, iterations=60):
     """Smooth the lips' relief away so the painted line is the only mouth.
 
     Tripo sculpted lips with a slit about 2 mm tall and 5 mm deep; lit, its two edges and its inside read as a
-    second, parted mouth. Only depth (x) changes: the slit's sunk vertices first come forward to the lips around
-    them, then Laplacian passes on x even out the lips, fully inside the mouth area and fading to nothing at its
-    edge, which stays fixed. Last, the slit's lip edges (within CLOSE of the seam) close onto the seam line, so its
-    walls vanish; around each corner a few 3D Laplacian passes unfold what Tripo's corner pits leave. The line is
+    second, parted mouth, and the lips themselves stand out like a muzzle. In each column the mouth area takes the
+    depth of the straight line between the face 9 to 12 mm above the seam and 9 to 12 mm below it, fully inside the
+    area and fading to nothing at its edge; a few Laplacian passes on depth even it out. Last, the slit's lip edges
+    (within CLOSE of the seam) close onto the seam line, so its walls vanish; around each corner a few 3D Laplacian passes unfold what Tripo's corner pits leave. The line is
     painted from the seam measured before all this, so it stays where the seam was."""
     from mathutils import Vector
     coefficients, y_min, y_max = lips
@@ -142,7 +148,7 @@ def flatten(mesh, world, face_polygons, lips, iterations=60):
     def weight(p):
         u = abs(p.y - middle) / half
         dz = abs(p.z - float(np.polyval(coefficients, min(max(p.y, y_min), y_max))))
-        return (smoothstep(1.35, 1.1, u) * smoothstep(.0075, .0045, dz)) if p.x > 0 else 0.0
+        return (smoothstep(1.45, 1.15, u) * smoothstep(.0105, .0075, dz)) if p.x > 0 else 0.0
 
     weights = {v: weight(p) for v, p in points.items()}
     active = [v for v, w in weights.items() if w > 0]
@@ -155,19 +161,33 @@ def flatten(mesh, world, face_polygons, lips, iterations=60):
             neighbours[b].append(a)
     x = {v: points[v].x for v in points}
     before = dict(x)
-    # The slit comes forward: each sunk vertex to the front-most lip within 6 mm above or below, 1.5 mm across.
+    # The lips go: each vertex in the mouth area takes the depth of the straight line, in its column, between the face
+    # just above the lips and just below them (a first version filled the slit up to the lips' front instead, which
+    # left a round muzzle). Above and below are the front-most face points 9 to 12 mm from the seam.
+    def ring(lo, hi):
+        rows = sorted((p.y, p.x) for v, p in points.items() if p.x > 0 and lo < p.z - seam_level(p.y) < hi
+                      and abs(p.y - middle) < 1.7 * half)
+        ys, xs = np.array([r[0] for r in rows]), np.array([r[1] for r in rows])
+        grid = np.linspace(middle - 1.7 * half, middle + 1.7 * half, 61)
+        front = np.array([xs[np.abs(ys - g) < .002].max() if (np.abs(ys - g) < .002).any() else np.nan for g in grid])
+        good = ~np.isnan(front)
+        return grid, np.interp(grid, grid[good], front[good])
+
+    def seam_level(py):
+        return float(np.polyval(coefficients, min(max(py, y_min), y_max)))
+
+    above_y, above_x = ring(.009, .012)
+    below_y, below_x = ring(-.012, -.009)
     for v in active:
         p = points[v]
-        around = [x[o] for o, q in points.items() if abs(q.y - p.y) < .0015 and abs(q.z - p.z) < .006]
-        front = max(around)
-        if front - x[v] > .0015:
-            x[v] = x[v] + (front - .0003 - x[v]) * weights[v]
-    for _ in range(iterations):
+        t = min(max((p.z - seam_level(p.y) + .0105) / .021, 0.0), 1.0)
+        target = (1 - t) * float(np.interp(p.y, below_y, below_x)) + t * float(np.interp(p.y, above_y, above_x))
+        x[v] = x[v] + (target - x[v]) * weights[v]
+    for _ in range(iterations // 6):
         nxt = dict(x)
         for v in active:
             if neighbours[v]:
-                mean = sum(x[o] for o in neighbours[v]) / len(neighbours[v])
-                nxt[v] = x[v] + (mean - x[v]) * .5 * weights[v]
+                nxt[v] = x[v] + (sum(x[o] for o in neighbours[v]) / len(neighbours[v]) - x[v]) * .5 * weights[v]
         x = nxt
     # The slit closes: its lips' edges (within CLOSE of the seam) meet on the seam line, so its walls vanish.
     closed = 0
@@ -226,3 +246,24 @@ def refresh_normals(mesh, before):
     mesh.normals_split_custom_set(normals)
     mesh.update()
     return {'vertices_moved': len(moved), 'vertices_reshaded': len(ring)}
+
+
+def raise_mouth(mesh, world, face_polygons, centre_y, z_mouth, rise, radius_y=.030, radius_z=.012):
+    """Move the mouth up by `rise`: in full within the ellipse (radius_y, radius_z) around it, fading out over as much
+    again, front of the face only. With the pupils and chin overlaid, the drawing's mouth sits 3.3 mm higher."""
+    from mathutils import Vector
+    inverse = world.inverted()
+    vertices = {v for i in face_polygons for v in mesh.polygons[i].vertices}
+    moved = 0
+    for index in vertices:
+        p = world @ mesh.vertices[index].co
+        if p.x < 0:
+            continue
+        r = math.hypot((p.y - centre_y) / radius_y, (p.z - z_mouth) / radius_z)
+        w = smoothstep(2.0, 1.0, r) * smoothstep(0.0, .02, p.x)
+        if w <= 0:
+            continue
+        mesh.vertices[index].co = inverse @ Vector((p.x, p.y, p.z + rise * w))
+        moved += 1
+    mesh.update()
+    return {'rise_mm': round(rise * 1000, 2), 'vertices_moved': moved}

@@ -207,6 +207,7 @@ class Eye:
         Rz = .54 * float(top_mid[0] - bottom_mid[0])
         Ry = .86 * Rz
         zc = float(bottom_mid[0]) + .96 * Rz
+        self.pupil = (float(yc), float(zc + .04 * Rz))
         r = np.hypot((y - yc) / Ry, (z - zc) / Rz)
         iris_cover = inside((1 - r) * Rz) * in_opening
         t = np.clip((zc + Rz - z) / (2 * Rz), 0, 1)          # 0 at the iris top, 1 at its bottom
@@ -231,10 +232,10 @@ class Eye:
                         * np.where(on_eyeball, 1.0, smoothstep(-.02, .06, s) * smoothstep(1.03, .98, s)))
         colour = over(colour, LASH[None], band)
         top_outer = float(self.edges(np.array([self.y_outer - .03 * (self.y_outer - self.y_inner)]))[0][0])
-        wing_s = np.clip((s - .95) / .17, 0, 1)
-        wing_centre = top_outer - .06 * H + wing_s * .18 * H
-        wing_half = .09 * H * (1 - wing_s)
-        wing = inside(np.minimum(wing_half - np.abs(z - wing_centre), .001)) * (s > .95) * (s < 1.12)
+        wing_s = np.clip((s - .95) / .11, 0, 1)
+        wing_centre = top_outer - .06 * H + wing_s * .10 * H
+        wing_half = .075 * H * (1 - wing_s)
+        wing = inside(np.minimum(wing_half - np.abs(z - wing_centre), .001)) * (s > .95) * (s < 1.06)
         if x is not None:                                    # not on the side of the head behind the corner
             wing = wing * smoothstep(self.corner_x - .006, self.corner_x - .003, x)
         colour = over(colour, LASH[None], wing)
@@ -353,6 +354,7 @@ def paint(mesh, world, uv, colour, roughness, metallic, normal, texel_coverage, 
     return {'eyes': [{'inner_y': round(float(e.y_inner), 4), 'outer_y': round(float(e.y_outer), 4),
                       'width': round(e.shape['width'], 4), 'height': round(e.height, 4), 'rim_columns': e.shape['cells']}
                      for e in eyes],
+            'pupils': [[round(e.pupil[0], 5), round(e.pupil[1], 5)] for e in eyes],
             'texel_size_mm': {'face': round(sizes[0] * 1000, 3), 'eyeball': round(sizes[1] * 1000, 3)}, 'texels_in_zone': int((zone > 0).sum()),
             'skin_colour': [round(float(c), 3) for c in skin], 'skin_roughness': round(skin_roughness, 3)}
 
@@ -481,3 +483,43 @@ def lift(mesh, world, parts, fraction):
         mesh.vertices[index].co = inverse @ Vector((point.x, point.y, point.z + dz))
     mesh.update()
     return {'eyes': record, 'vertices_moved': len(offsets)}
+
+
+def scale(mesh, world, parts, factor, inward=0.0, inner_radius=.021, outer_radius=.027):
+    """Shrink each eye about its centre (front view) by `factor` (across, up and down): the eyeball rigidly, the lid and face around it up
+    to inner_radius, fading to nothing at outer_radius (before the nose and the temple). Depth (x) is kept.
+
+    With the pupils overlaid, Tripo's eyes are about 0.65 pupil spacings wide and the drawing's 0.44 to 0.51 with
+    the lash wing; `inward` also moves each eye that far toward the nose, since the gap between the eyes was 1.4
+    eye widths against the drawing's 1.18."""
+    import math
+    from mathutils import Vector
+    inverse = world.inverted()
+    shapes = [outline(hole_rim(mesh, world, parts['face'], eyeball)) for eyeball in parts['eyeball']]
+    midline = (np.mean(shapes[0]['y']) + np.mean(shapes[1]['y'])) / 2
+    face_vertices = {v for i in parts['face'] for v in mesh.polygons[i].vertices}
+    moved = {}
+    record = []
+    for shape, eyeball in zip(shapes, parts['eyeball']):
+        eye = Eye(shape, midline)
+        top, bottom = eye.edges(np.array([eye.y_inner, eye.y_outer]))
+        pivot = Vector((0, (eye.y_inner + eye.y_outer) / 2, float(np.nanmean([top, bottom]))))
+        eyeball_vertices = {v for i in eyeball for v in mesh.polygons[i].vertices}
+        for index in eyeball_vertices | face_vertices:
+            p = world @ mesh.vertices[index].co
+            r = math.hypot(p.y - pivot.y, p.z - pivot.z)
+            if index in eyeball_vertices:
+                weight = 1.0
+            else:
+                if r > outer_radius or p.x < 0:
+                    continue
+                weight = float(smoothstep(outer_radius, inner_radius, r))
+            ky = 1 - (1 - factor[0]) * weight
+            kz = 1 - (1 - factor[1]) * weight
+            shift = -np.sign(pivot.y - midline) * inward * weight          # toward the nose
+            moved[index] = inverse @ Vector((p.x, pivot.y + (p.y - pivot.y) * ky + shift, pivot.z + (p.z - pivot.z) * kz))
+        record.append({'pivot': [round(pivot.y, 4), round(pivot.z, 4)], 'width_before_mm': round(abs(eye.y_outer - eye.y_inner) * 1000, 1)})
+    for index, co in moved.items():
+        mesh.vertices[index].co = co
+    mesh.update()
+    return {'factor': list(factor), 'inward_mm': round(inward * 1000, 2), 'eyes': record, 'vertices_moved': len(moved)}

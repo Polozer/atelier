@@ -67,29 +67,39 @@
   "eyes": {
     "eyes": [
       {
-        "inner_y": -0.0151,
-        "outer_y": -0.0519,
-        "width": 0.0368,
-        "height": 0.0194,
-        "rim_columns": 92
+        "inner_y": -0.0178,
+        "outer_y": -0.045,
+        "width": 0.0272,
+        "height": 0.0157,
+        "rim_columns": 69
       },
       {
-        "inner_y": 0.0089,
-        "outer_y": 0.0457,
-        "width": 0.0368,
-        "height": 0.0201,
-        "rim_columns": 89
+        "inner_y": 0.0115,
+        "outer_y": 0.0387,
+        "width": 0.0272,
+        "height": 0.0161,
+        "rim_columns": 69
       }
+    ],
+    "pupils": [
+      [
+        -0.02979,
+        0.38582
+      ],
+      [
+        0.02349,
+        0.38562
+      ]
     ],
     "texel_size_mm": {
       "face": 0.249,
-      "eyeball": 0.255
+      "eyeball": 0.218
     },
-    "texels_in_zone": 203855,
+    "texels_in_zone": 183746,
     "skin_colour": [
       0.992,
-      0.704,
-      0.539
+      0.7,
+      0.534
     ],
     "skin_roughness": 0.714
   },
@@ -97,35 +107,35 @@
     "eyes": [
       {
         "pivot": [
-          -0.0331,
-          0.3828
+          -0.0311,
+          0.3822
         ],
         "degrees": -8.0,
-        "outer_corner_rise_mm": 2.6
+        "outer_corner_rise_mm": 1.92
       },
       {
         "pivot": [
-          0.0269,
-          0.3824
+          0.0249,
+          0.3817
         ],
         "degrees": 8.0,
-        "outer_corner_rise_mm": 2.6
+        "outer_corner_rise_mm": 1.92
       }
     ],
-    "vertices_moved": 472
+    "vertices_moved": 475
   },
   "eye_lift": {
     "eyes": [
       {
-        "lift_mm": 7.36,
-        "width_mm": 36.8
+        "lift_mm": 5.44,
+        "width_mm": 27.2
       },
       {
-        "lift_mm": 7.36,
-        "width_mm": 36.8
+        "lift_mm": 5.44,
+        "width_mm": 27.2
       }
     ],
-    "vertices_moved": 410
+    "vertices_moved": 405
   },
   "mouth_corners": {
     "centre": [
@@ -133,36 +143,93 @@
       0.338
     ],
     "half_width_mm": 16.0,
-    "rise_mm": 2.5,
-    "vertices_moved": 134,
-    "largest_move_mm": 2.5
+    "rise_mm": 0.0,
+    "vertices_moved": 0,
+    "largest_move_mm": 0.0
   },
   "mouth_line": {
     "seam_quadratic": [
-      3.7705,
-      0.0573,
-      0.3361
+      0.0,
+      0.0,
+      0.3394
     ],
     "seam_y_mm": [
-      -18.8,
-      13.4
+      -22.2,
+      15.4
     ],
-    "seam_middle_z_mm": 336.0,
-    "texels_cleared": 35667,
-    "texels_inked": 8190
+    "seam_middle_z_mm": 339.4,
+    "texels_cleared": 31788,
+    "texels_inked": 9383
   },
   "mouth_flatten": {
-    "vertices_flattened": 95,
-    "vertices_closed_onto_seam": 66,
-    "largest_depth_change_mm": 8.63
+    "vertices_flattened": 104,
+    "vertices_closed_onto_seam": 60,
+    "largest_depth_change_mm": 6.44
   },
+  "lower_face": {
+    "vertices_moved": 191,
+    "largest_drop_mm": 5.41
+  },
+  "cheeks": {
+    "amount": 0.0,
+    "vertices_moved": 299
+  },
+  "nose_depth": {
+    "factor": 0.6,
+    "vertices_moved": 59
+  },
+  "chin_recede": {
+    "depth_mm": 5.0,
+    "vertices_moved": 184
+  },
+  "lower_face_smooth": {
+    "vertices_smoothed": 132,
+    "largest_depth_change_mm": 5.59
+  },
+  "mouth_raise": {
+    "rise_mm": 3.3,
+    "vertices_moved": 230
+  },
+  "eye_scale": {
+    "factor": [
+      0.74,
+      0.88
+    ],
+    "inward_mm": 2.0,
+    "eyes": [
+      {
+        "pivot": [
+          -0.0331,
+          0.3828
+        ],
+        "width_before_mm": 36.8
+      },
+      {
+        "pivot": [
+          0.0269,
+          0.3824
+        ],
+        "width_before_mm": 36.8
+      }
+    ],
+    "vertices_moved": 423
+  },
+  "nose": {
+    "vertices_smoothed": 22
+  },
+  "face_paint": {
+    "pupil_spacing_mm": 53.3,
+    "texels": 204202,
+    "freckles": 23
+  },
+  "brow_strip_polygons_removed": 32,
   "reshaded": {
-    "vertices_moved": 607,
-    "vertices_reshaded": 703
+    "vertices_moved": 781,
+    "vertices_reshaded": 847
   },
   "cornea_disc_polygons_removed": 24,
   "hair_vertices_moved": 1238,
-  "largest_hair_move": 0.0316,
-  "hair_stretch": 0.4,
-  "fringe_droop": 0.35
+  "largest_hair_move": 0.0,
+  "hair_stretch": 0.0,
+  "fringe_droop": 0.0
 }

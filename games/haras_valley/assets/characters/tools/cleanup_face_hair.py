@@ -4,7 +4,8 @@
     --input model-r03/raw/output_model_url.fbx --references references --output cleanup-r01
 
 Tripo's texture made the face older and tanner than the drawings (darker skin, no blush, small murky eyes, heavy
-brows) and its hair shorter and greyer, and its eyes and mouth droop at the outer ends, which reads as sad. Seven fixes, textures and vertices only, no retopology:
+brows), its eyes too big and drooping, its nose too prominent, its lips sculpted apart from the drawn mouth, its
+jaw a V where the drawing's is a U. These fixes change textures and vertices only, no retopology:
 
 1. Face projection. The front portrait (`--face`, painted by tools/face_portrait.py; without it the face sheet's
    top-left cell) is projected onto the face with the affine map that puts its irises and mouth line (found in the
@@ -15,22 +16,22 @@ brows) and its hair shorter and greyer, and its eyes and mouth droop at the oute
    cheek's.
 3. Hair colour. The hair cap's texels are scaled per channel to the sheet's hair median: the warm dark brown
    instead of grey. The cap, the face and the eyeballs are separate pieces of Tripo's mesh (eyes.head_parts).
-4. Hair length. Hair vertices move away from the skull centre by HAIR_STRETCH of their height above the skull, and
-   the fringe's also drop by FRINGE_DROOP of it, so the spikes grow and the fringe comes down toward the brows as
-   drawn; the scalp does not move.
-5. Eye shape. Tripo's eyes slope down toward the outside and sit low between their corners, which reads as sad.
-   Each eye region turns by EYE_TILT_DEGREES, outer corner up (eyes.tilt), then the middle of each eye (lower lid,
-   eyeball, upper lid and brow) rises by EYE_LIFT of its width with the corners pinned (eyes.lift), so the upper lid
-   arches 0.32 eye widths above the corners as in the drawing; eyes.py draws the lower lid 0.23 below them, so the
-   corners sit 42% of the way up the opening. Both fade out before the nose, temple, cheek and forehead.
-6. Eyes and brows. The projected drawing's eyes do not fit Tripo's sculpted sockets, so eyes.py paints clean cel
-   eyes onto the eyeballs inside each reshaped socket's rim, colours the brow strips, clears Tripo's eye paint, gloss
-   and normal detail around them, and the cornea discs are removed (see eyes.py).
-7. Mouth. The drawing's mouth line (aligned to Tripo's painted mouth) sat 3 to 5 mm above Tripo's sculpted lip seam,
-   so two mouths showed. The face around the mouth corners rises by up to MOUTH_RISE (nothing at the middle, fading
-   into the cheeks), the sculpted lips are smoothed flat in depth (their slit read as a second, parted mouth), the
-   whole mouth area is cleared to skin with a flat normal map, and one line in the drawing's colour is drawn where
-   the seam was (mouth.py).
+4. Hair length. Hair vertices can move away from the skull centre by HAIR_STRETCH of their height above it, the
+   fringe's down by FRINGE_DROOP; both are 0, since Tripo's hair volume measures as the drawing's.
+5. Face shape, before anything is painted on it (face.py, eyes.py, mouth.py). Measured by overlaying the face
+   sheet's front view with the pupils made to coincide: the jaw drops onto the drawing's rounder outline
+   (face.fit_jaw) and recedes CHIN_RECEDE at the chin (face.recede_chin), the cheeks widen by CHEEK_WIDEN
+   (face.widen_lower_face, 0: widened they read as hamster cheeks), the eyes shrink to EYE_SCALE and move
+   EYE_INWARD toward the nose (eyes.scale), turn EYE_TILT_DEGREES outer corner up (eyes.tilt) and open by EYE_LIFT
+   (eyes.lift), the nose stands out NOSE_DEPTH as far (face.shrink_nose), the mouth rises MOUTH_UP
+   (mouth.raise_mouth), the sculpted lips are flattened and closed (mouth.flatten), the area between nose, cheeks and
+   chin is smoothed into one surface so no muzzle is left (face.smooth_lower_face), and the shading normals of every
+   moved vertex are re-derived (mouth.refresh_normals).
+6. Eyes. The projected drawing's eyes do not fit Tripo's sculpted sockets, so eyes.py paints clean cel eyes onto the
+   eyeballs inside each reshaped socket's rim and clears Tripo's eye paint, gloss and normal detail around them.
+7. Brows, nose, cheeks and mouth, painted as drawn and placed from the painted pupils: thick straight brows, a round
+   nose with a light tip and two arched nostrils, blush and freckles (face.paint), and one level mouth line where
+   the lips' seam was (mouth.paint). Tripo's brow strips and cornea discs are removed.
 
 The output is a .blend with the four texture maps packed, a GLB beside it and cleanup.json with the measurements.
 """
@@ -47,6 +48,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # Blender's --python does not add the script's folder
 import eyes  # noqa: E402
 import mouth  # noqa: E402
+import face  # noqa: E402
 
 SHEET_CELL = (0, 0, 512, 512)          # the front view in the face sheet
 HEAD_Z = 0.27                          # above this: head and neck
@@ -54,12 +56,21 @@ FACE_Z, FACE_HALF_WIDTH = 0.30, 0.08   # the projection stays above the collar a
 MODEL_EYE_MID_Y, MODEL_EYE_Z, MODEL_EYE_SPACING, MODEL_MOUTH_Z = -0.0058, 0.378, 0.0524, 0.341
 FACE_FADE = (0.35, 0.75)               # normal x over which the projection fades in (the sides keep Tripo's paint)
 CHIN_FADE = (0.324, 0.338)             # z over which it fades out above the chin's drawn outline
-HAIR_STRETCH = 0.40
-FRINGE_DROOP = 0.35
+HAIR_STRETCH = 0.0                     # Tripo's hair volume already matches the drawing's (measured with the pupils overlaid)
+FRINGE_DROOP = 0.0                     # front strands move down by this much of their height
+EYE_SCALE = (0.74, 0.88)               # across, up-down: Tripo's eyes are 0.66 pupil spacings wide, the drawing's 0.49
+EYE_INWARD = 0.0020                    # each eye toward the nose: the gap between them was 1.4 eye widths, drawn 1.18
+CHEEK_WIDEN = 0.0                      # measured 9 to 13% narrower than the drawing's, but widened it reads as hamster cheeks
+NOSE_DEPTH = 0.6                       # the nose stands out 60% as far: the drawing's is small
+CHIN_RECEDE = 0.005                    # the chin 5 mm further back: the drawing's profile recedes from the nose tip
+MOUTH_UP = 0.0033                      # the drawing's mouth sits 3.3 mm higher (pupils and chin overlaid)
 EYE_TILT_DEGREES = 8.0                 # outer corners up: from Tripo's 12 degree droop to the drawing's 4
+EYE_LIFT = 0.20                        # the eye's middle up by this much of its width: the drawing's upper-lid arch
 MOUTH_Z, MOUTH_HALF_WIDTH = 0.338, 0.016    # the mouth's middle and half width (front render of model-r03)
-MOUTH_RISE = 0.0025                    # the corners up by 2.5 mm: from a 1.6 mm droop to slightly up
-EYE_LIFT = 0.20                        # the eye's middle up by this much of its width: the drawing's upper-lid arch                    # strands in front of the skull also drop by this much of their height
+MOUTH_RISE = 0.0                       # the corners stay where they are: raised, they looked unnatural
+NOSE_Z = 0.3553                        # the nose line (the nostrils), front render of model-r03
+COLLAR_Z = 0.285                       # where the neck meets the collar: the jaw fit fades out there
+CHIN_CENTRE_Y = -0.0031                # the chin's tip, the jaw outline's centre line
 HAIR_LUMINANCE = 0.42                  # below this a warm texel is hair (or brow, or pupil)
 
 
@@ -312,11 +323,21 @@ def main():
     # 5. Eye shape, before the eyes are painted on it: the outer corners up to the drawing's slant, then the middle of
     # each eye lifted so the corners sit where the drawing's do (Tripo's droop and low lids read as sad).
     before_reshape = [v.co.copy() for v in mesh.vertices]
+    head_vertices = {v for i in parts['face'] | parts['hair'] for v in mesh.polygons[i].vertices}
+    warp_record = face.fit_jaw(mesh, world, head_vertices, CHIN_CENTRE_Y, MOUTH_Z, COLLAR_Z)
+    face_vertices = {v for i in parts['face'] for v in mesh.polygons[i].vertices}
+    widen_record = face.widen_lower_face(mesh, world, face_vertices, CHIN_CENTRE_Y, .357, .3497, .318, .309, CHEEK_WIDEN)
+    scale_record = eyes.scale(mesh, world, parts, EYE_SCALE, EYE_INWARD)
     tilt_record = eyes.tilt(mesh, world, parts, EYE_TILT_DEGREES)
     lift_record = eyes.lift(mesh, world, parts, EYE_LIFT)
+    chin_back = face.recede_chin(mesh, world, face_vertices, CHIN_CENTRE_Y, .339, .309, COLLAR_Z, CHIN_RECEDE)
+    nose_shape = face.shrink_nose(mesh, world, face_vertices, CHIN_CENTRE_Y, .361, NOSE_DEPTH)
+    mouth_raise = mouth.raise_mouth(mesh, world, parts['face'], CHIN_CENTRE_Y, MOUTH_Z - .002, MOUTH_UP)
     mouth_record = mouth.corners(mesh, world, parts['face'], MODEL_EYE_MID_Y, MOUTH_Z, MOUTH_HALF_WIDTH, MOUTH_RISE)
     lips = mouth.seam(mesh, world, parts['face'], MODEL_EYE_MID_Y, MOUTH_HALF_WIDTH)
     flatten_record = mouth.flatten(mesh, world, parts['face'], lips)
+    lower_smooth = face.smooth_lower_face(mesh, world, parts['face'], CHIN_CENTRE_Y, .334, .027, .021)
+    nose_record = face.smooth_nose(mesh, world, parts['face'], MODEL_EYE_MID_Y, NOSE_Z)
     normals_record = mouth.refresh_normals(mesh, before_reshape)     # Tripo's frozen shading off the moved surface
 
     # 6. Eyes and brows: clean cel eyes fitted to the reshaped sockets (eyes.py).
@@ -326,6 +347,8 @@ def main():
     eye_record = eyes.paint(mesh, world, uv, colour, roughness_data, metallic_data, normal_data, texel_coverage, parts)
 
     # 7. One mouth: the drawn and Tripo-painted mouths cleared, a single line along the sculpted seam (mouth.py).
+    face_paint = face.paint(mesh, world, uv, colour, normal_data, roughness_data, texel_coverage, parts['face'],
+                            [tuple(p) for p in eye_record['pupils']], NOSE_Z, np.array(eye_record['skin_colour'], np.float32))
     mouth_paint = mouth.paint(mesh, world, uv, colour, roughness_data, normal_data, texel_coverage, parts['face'],
                               MODEL_EYE_MID_Y, MOUTH_HALF_WIDTH, np.array(eye_record['skin_colour'], np.float32), lips)
 
@@ -355,7 +378,7 @@ def main():
     bm = bmesh.new()
     bm.from_mesh(mesh)
     bm.faces.ensure_lookup_table()
-    discs = [bm.faces[index] for index in sorted(parts['discs'])]
+    discs = [bm.faces[index] for index in sorted(parts['discs'] | parts['brows'])]   # brows are painted instead
     bmesh.ops.delete(bm, geom=discs, context='FACES')
     bm.to_mesh(mesh)
     bm.free()
@@ -379,7 +402,7 @@ def main():
         'skin_gain': [round(float(c), 3) for c in skin_gain], 'skin_texels_matched': int(rest.sum()),
         'hair_median_before': [round(float(c), 3) for c in hair_before], 'hair_target': [round(float(c), 3) for c in hair_target],
         'hair_texels_recoloured': int(hair_mask.sum()), 'hair_polygons': len(hair_polygons),
-        'eyes': eye_record, 'eye_tilt': tilt_record, 'eye_lift': lift_record, 'mouth_corners': mouth_record, 'mouth_line': mouth_paint, 'mouth_flatten': flatten_record, 'reshaded': normals_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
+        'eyes': eye_record, 'eye_tilt': tilt_record, 'eye_lift': lift_record, 'mouth_corners': mouth_record, 'mouth_line': mouth_paint, 'mouth_flatten': flatten_record, 'lower_face': warp_record, 'cheeks': widen_record, 'nose_depth': nose_shape, 'chin_recede': chin_back, 'lower_face_smooth': lower_smooth, 'mouth_raise': mouth_raise, 'eye_scale': scale_record, 'nose': nose_record, 'face_paint': face_paint, 'brow_strip_polygons_removed': len(parts['brows']), 'reshaded': normals_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
     }
     (output / 'cleanup.json').write_text(json.dumps(record, indent=2) + '\n')
     print(json.dumps(record, indent=1), flush=True)

@@ -2,38 +2,38 @@
   "source": "boy-cleanup-r01.glb",
   "blender_version": "5.1.2",
   "bounds_min": [
-    -0.12465660274028778,
+    -0.104248046875,
     -0.404541015625,
     -0.499755859375
   ],
   "bounds_max": [
-    0.10696358233690262,
+    0.104248046875,
     0.404541015625,
-    0.5290647745132446
+    0.499755859375
   ],
   "dimensions_m": [
-    0.231620192527771,
+    0.20849609375,
     0.80908203125,
-    1.0288206338882446
+    0.99951171875
   ],
   "front_axis_assumption": "+X (provider default); check the renders",
   "mesh_objects": [
     {
       "object": "tripo_node_7dd29c63",
-      "vertices": 15412,
-      "polygons": 15182,
+      "vertices": 15347,
+      "polygons": 15122,
       "polygon_sizes": {
-        "3": 15182
+        "3": 15122
       },
-      "triangles": 15182,
+      "triangles": 15122,
       "uv_layers": [
         "UVMap"
       ],
       "materials": [
         "tripo_mat_7dd29c63"
       ],
-      "boundary_edges": 13196,
-      "non_manifold_edges": 13196
+      "boundary_edges": 13144,
+      "non_manifold_edges": 13144
     }
   ],
   "textures": [
