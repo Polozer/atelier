@@ -4,7 +4,7 @@
     --input model-r03/raw/output_model_url.fbx --references references --output cleanup-r01
 
 Tripo's texture made the face older and tanner than the drawings (darker skin, no blush, small murky eyes, heavy
-brows) and its hair shorter and greyer, and its eyes slope down toward the outside, which reads as sad. Six fixes, textures and vertices only, no retopology:
+brows) and its hair shorter and greyer, and its eyes and mouth droop at the outer ends, which reads as sad. Seven fixes, textures and vertices only, no retopology:
 
 1. Face projection. The front portrait (`--face`, painted by tools/face_portrait.py; without it the face sheet's
    top-left cell) is projected onto the face with the affine map that puts its irises and mouth line (found in the
@@ -26,6 +26,8 @@ brows) and its hair shorter and greyer, and its eyes slope down toward the outsi
 6. Eyes and brows. The projected drawing's eyes do not fit Tripo's sculpted sockets, so eyes.py paints clean cel
    eyes onto the eyeballs inside each reshaped socket's rim, colours the brow strips, clears Tripo's eye paint, gloss
    and normal detail around them, and the cornea discs are removed (see eyes.py).
+7. Mouth corners. The face around the mouth corners rises by up to MOUTH_RISE, nothing at the middle, fading into the
+   cheeks, so the lower lip and the painted line no longer droop at the ends (mouth.py).
 
 The output is a .blend with the four texture maps packed, a GLB beside it and cleanup.json with the measurements.
 """
@@ -41,6 +43,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # Blender's --python does not add the script's folder
 import eyes  # noqa: E402
+import mouth  # noqa: E402
 
 SHEET_CELL = (0, 0, 512, 512)          # the front view in the face sheet
 HEAD_Z = 0.27                          # above this: head and neck
@@ -51,6 +54,8 @@ CHIN_FADE = (0.324, 0.338)             # z over which it fades out above the chi
 HAIR_STRETCH = 0.40
 FRINGE_DROOP = 0.35
 EYE_TILT_DEGREES = 8.0                 # outer corners up: from Tripo's 12 degree droop to the drawing's 4
+MOUTH_Z, MOUTH_HALF_WIDTH = 0.338, 0.016    # the mouth's middle and half width (front render of model-r03)
+MOUTH_RISE = 0.0025                    # the corners up by 2.5 mm: from a 1.6 mm droop to slightly up
 EYE_LIFT = 0.20                        # the eye's middle up by this much of its width: the drawing's upper-lid arch                    # strands in front of the skull also drop by this much of their height
 HAIR_LUMINANCE = 0.42                  # below this a warm texel is hair (or brow, or pupil)
 
@@ -333,6 +338,9 @@ def main():
         mesh.vertices[index].co = inverse @ (point + move)
     mesh.update()
 
+    # 7. Mouth corners up: Tripo's lower lip and the projected line both droop at the ends (mouth.py).
+    mouth_record = mouth.corners(mesh, world, parts['face'], MODEL_EYE_MID_Y, MOUTH_Z, MOUTH_HALF_WIDTH, MOUTH_RISE)
+
     # Tripo's cornea discs (tiny pieces floating on each eyeball) shade differently from the painted eye: removed.
     import bmesh
     bm = bmesh.new()
@@ -362,7 +370,7 @@ def main():
         'skin_gain': [round(float(c), 3) for c in skin_gain], 'skin_texels_matched': int(rest.sum()),
         'hair_median_before': [round(float(c), 3) for c in hair_before], 'hair_target': [round(float(c), 3) for c in hair_target],
         'hair_texels_recoloured': int(hair_mask.sum()), 'hair_polygons': len(hair_polygons),
-        'eyes': eye_record, 'eye_tilt': tilt_record, 'eye_lift': lift_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
+        'eyes': eye_record, 'eye_tilt': tilt_record, 'eye_lift': lift_record, 'mouth_corners': mouth_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
     }
     (output / 'cleanup.json').write_text(json.dumps(record, indent=2) + '\n')
     print(json.dumps(record, indent=1), flush=True)

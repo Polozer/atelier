@@ -127,6 +127,16 @@
     ],
     "vertices_moved": 410
   },
+  "mouth_corners": {
+    "centre": [
+      -0.0058,
+      0.338
+    ],
+    "half_width_mm": 16.0,
+    "rise_mm": 2.5,
+    "vertices_moved": 134,
+    "largest_move_mm": 2.5
+  },
   "cornea_disc_polygons_removed": 24,
   "hair_vertices_moved": 1238,
   "largest_hair_move": 0.0316,
