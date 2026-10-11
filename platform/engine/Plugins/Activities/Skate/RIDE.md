@@ -122,10 +122,10 @@ stance (`riding_switch`, `fakie`).
 (`ISkateRider::GetSkateBone`): it scales the pose by the hip-to-foot height ratio, keeps the character's bind bone
 lengths, solves both legs with two-bone IK to the simulation's feet, traces the feet to the ground (`skate.FootGround`,
 0.5 cm), keeps the arms clear of the body outside bails (`ClearArms`, `skate.ArmClear`, 2 cm, plus the rider's
-`ISkateRider::GetSkateClothingClearance()` allowance), and in a grab hooks the
-hand under the board's nearest edge (`skate.Grip`). The result is `GetRiderPose()`, which `FAnimNode_SkateRider` in
-the character's graph shows; a switch between the character's own animation and the ride's pose blends through
-`FAnimNode_RideInertialization` (`Public/AnimNode_RideInertialization.h`).
+`ISkateRider::GetSkateClothingClearance()` allowance), and in a grab hooks the hand under the board's nearest edge
+(`skate.Grip`). The result is `GetRiderPose()`, which `FAnimNode_SkateRider` in the character's graph shows; a switch
+between the character's own animation and the ride's pose blends through `FAnimNode_RideInertialization`
+(`Public/AnimNode_RideInertialization.h`).
 
 - **Inertialization.** A change of pose carries on from the last frames with their velocity and settles onto the new
   one on a quintic curve per bone (Bollo, "Inertialization", GDC 2018). The engine's `FAnimNode_Inertialization` and
