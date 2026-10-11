@@ -19,6 +19,7 @@ import httpx
 API = "https://openapi.tripo3d.ai/v3"
 KEY_FILE = Path.home()/".local/share/atelier/credentials/tripo-api-key"  # optional; TRIPO_API_KEY from .env comes first
 VIEWS = ("front", "left", "back", "right")
+DEFAULT_SEED = 9122026   # the same views and seed give the same model; another revision takes --seed
 
 
 def now():
@@ -160,7 +161,7 @@ def fetch(client, output, watch):
         time.sleep(10)
 
 
-def generate(client, references, output, faces):
+def generate(client, references, output, faces, seed=DEFAULT_SEED):
     job_path = output/"job.json"
     private = private_folder(output)
     if job_path.exists() and read_json(job_path).get("task_id"):
@@ -186,7 +187,7 @@ def generate(client, references, output, faces):
         print("Uploaded "+view, flush=True)
     settings = {"model":"P2-20260801", "quad":True, "face_limit":faces,
                 "texture":True, "pbr":True, "texture_quality":"detailed",
-                "export_uv":True, "model_seed":9122026, "texture_seed":9122026}
+                "export_uv":True, "model_seed":seed, "texture_seed":seed}
     payload = {"inputs":[{view:tokens[view]["file_token"]} for view in VIEWS], **settings}
     job = {"stage":"initial_tripo_mesh", "revision":output.name,
            "status":"submitting", "submitted_at":now(), "endpoint":API+"/generation/multiview-to-model",
@@ -264,6 +265,7 @@ def main():
     gen.add_argument("--references", type=Path, required=True)
     gen.add_argument("--output", type=Path, required=True)
     gen.add_argument("--faces", type=int, default=8000)
+    gen.add_argument("--seed", type=int, default=DEFAULT_SEED, help="model and texture seed; change it for a new take of the same views")
     query = commands.add_parser("fetch")
     query.add_argument("--output", type=Path, required=True)
     query.add_argument("--watch", action="store_true")
@@ -277,7 +279,7 @@ def main():
             if args.command == "balance":
                 print(json.dumps(call(client, "GET", "/account/balance")["data"]))
             elif args.command == "generate":
-                generate(client, args.references, args.output, args.faces)
+                generate(client, args.references, args.output, args.faces, args.seed)
             elif args.command == "rig":
                 rig(client, args.source, args.output)
             else:

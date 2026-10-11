@@ -1,0 +1,9 @@
+
+api-private/
+*.part
+*.blend1
+blender/turntable-frames/
+review/turntable-frames/
+review/review.blend
+raw/*.fbm/
+review/renders/

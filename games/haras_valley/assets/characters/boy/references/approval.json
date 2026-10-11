@@ -1,0 +1,13 @@
+{
+  "event": "multiview_set_approved_for_tripo_generation",
+  "basis": "Paul Fontanier supplied the turnaround (02-t-pose-turnaround.png) and asked for the model; Claude cut the four views from it at one scale, each figure alone on the sheet's background, and checked that the hair, shirt, cargo pockets, trousers and sneakers agree across them. Third set: left.png shows his left side (he faces image-left), right.png his right side; the first two takes had these swapped and grew a second face on the back of the head.",
+  "source": "turnaround.png (the user's file 02-t-pose-turnaround.png)",
+  "images": {
+    "front.png": "431fa16e63d0ba8d8daaf605f2e91552e1e26fc1f127d5743a4a57766a0a158a",
+    "left.png": "a347bd04ab949bbb1c81ab925347c2757c80300d1297a715abb9b72b2f6ca599",
+    "back.png": "ace059459a8ad84a70ed71829c238b10a6e06722f9b240d185626bdef551d063",
+    "right.png": "97ee284b71f640b94d45f7093b681144093e121f38269ec0baa3853ceafbfa5b"
+  },
+  "view_convention": "anatomical left/right; character faces +X, left +Y, up +Z",
+  "approved_at": "2026-10-11T10:20:58.286912+00:00"
+}

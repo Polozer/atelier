@@ -1,0 +1,72 @@
+{
+  "source": "output_model_url.fbx",
+  "blender_version": "5.1.2",
+  "bounds_min": [
+    -0.104248046875,
+    -0.4045410454273224,
+    -0.4997558891773224
+  ],
+  "bounds_max": [
+    0.104248046875,
+    0.4045410454273224,
+    0.4997558891773224
+  ],
+  "dimensions_m": [
+    0.20849609375,
+    0.8090820908546448,
+    0.9995117783546448
+  ],
+  "front_axis_assumption": "+X (provider default); check the renders",
+  "mesh_objects": [
+    {
+      "object": "tripo_node_7dd29c63",
+      "vertices": 8072,
+      "polygons": 8527,
+      "polygon_sizes": {
+        "3": 1848,
+        "4": 6679
+      },
+      "triangles": 15206,
+      "uv_layers": [
+        "tripo_7dd29c63_ac91_419c_a6d7_a993cc0c1087_NewUVMap"
+      ],
+      "materials": [
+        "tripo_mat_7dd29c63"
+      ],
+      "boundary_edges": 958,
+      "non_manifold_edges": 972
+    }
+  ],
+  "textures": [
+    {
+      "name": "tripo_image_7dd29c63_0",
+      "size": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "name": "tripo_image_7dd29c63_1",
+      "size": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "name": "tripo_image_7dd29c63_2",
+      "size": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "name": "tripo_image_7dd29c63_3",
+      "size": [
+        4096,
+        4096
+      ]
+    }
+  ],
+  "armatures": 0,
+  "note": "GLTF import is triangulated; the provider's quad topology is not visible here."
+}

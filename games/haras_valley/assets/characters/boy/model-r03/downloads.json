@@ -1,0 +1,16 @@
+[
+  {
+    "output_field": "output_model_url",
+    "file": "raw/output_model_url.fbx",
+    "sha256": "41b739982f6ace6bd5d48f28acf8aae9100cfc2816f044b10cfc1e3cd667ba52",
+    "bytes": 5473020,
+    "downloaded_at": "2026-10-11T10:23:58.138109+00:00"
+  },
+  {
+    "output_field": "output_rendered_image_url",
+    "file": "raw/output_rendered_image_url.webp",
+    "sha256": "348f1fac81f0ff9a451cd48f4f401b79d912305394fa0f128ae99f10c7999e43",
+    "bytes": 111980,
+    "downloaded_at": "2026-10-11T10:23:58.887048+00:00"
+  }
+]
