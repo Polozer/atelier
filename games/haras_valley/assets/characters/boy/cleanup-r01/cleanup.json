@@ -1,0 +1,70 @@
+{
+  "source": "output_model_url.fbx",
+  "script": "cleanup_face_hair.py",
+  "blender_version": "5.1.2",
+  "mapping": {
+    "sheet_irises_px": [
+      [
+        244.65584415584416,
+        241.25974025974025
+      ],
+      [
+        335.28395061728395,
+        241.44444444444446
+      ],
+      316
+    ],
+    "sheet_mouth_row": 313,
+    "model_eyes": [
+      -0.0058,
+      0.378,
+      0.0524
+    ],
+    "model_mouth_z": 0.341,
+    "sheet_px_per_m": [
+      1729.5,
+      1936.4
+    ]
+  },
+  "skull_sphere": {
+    "centre": [
+      -0.0023,
+      -0.003,
+      0.3691
+    ],
+    "radius": 0.0578
+  },
+  "face_texels_projected": 116842,
+  "skin_median_before": [
+    0.969,
+    0.647,
+    0.455
+  ],
+  "skin_median_after": [
+    0.992,
+    0.71,
+    0.548
+  ],
+  "skin_gain": [
+    1.024,
+    1.097,
+    1.204
+  ],
+  "skin_texels_matched": 2207567,
+  "hair_median_before": [
+    0.278,
+    0.208,
+    0.157
+  ],
+  "hair_target": [
+    0.278,
+    0.196,
+    0.141
+  ],
+  "hair_texels_recoloured": 1326442,
+  "hair_polygons": 1478,
+  "hair_vertices_moved": 1262,
+  "largest_hair_move": 0.0316,
+  "hair_stretch": 0.4,
+  "fringe_droop": 0.35
+}

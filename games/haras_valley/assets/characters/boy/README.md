@@ -5,7 +5,9 @@ eyes, a loose moss-green T-shirt, beige cargo trousers and green-and-white sneak
 no rig, no clips, no game code. The folder follows the first steps of the
 [character pipeline](../../../../../README.md#making-a-character).
 
-![All views of the model](model-r03/review/contact-sheet.png)
+![All views of the model](cleanup-r01/review/contact-sheet.png)
+
+![The face: sheet, Tripo's take, after the cleanup, three-quarter](cleanup-r01/review/compare-face.png)
 
 ## Files
 
@@ -19,6 +21,7 @@ no rig, no clips, no game code. The folder follows the first steps of the
 | `model-r03/job.json` | the Tripo task record: model P2, settings, credits, approval |
 | `model-r03/raw/` | Tripo's outputs as downloaded: the textured FBX (quads, 4K PBR textures embedded) and its preview |
 | `model-r03/review/` | the Blender review: `contact-sheet.png` (textured, clay and wireframe views), `turntable.gif`, `mesh-report.json`; the full-size renders are regenerated, not tracked |
+| `cleanup-r01/` | the face and hair brought back to the sheets by `../tools/cleanup_face_hair.py`: `cleanup.json` (what moved), the review and the comparison sheets; the `.blend`, `.glb` and repainted `BaseColor.png` are regenerated in two minutes, not tracked |
 | `../tools/review_model.py` | renders such a review for any downloaded model |
 
 `model-r03/api-private/` (raw API responses, upload tokens), the turntable frames and the review `.blend` are ignored.
@@ -34,6 +37,15 @@ non-manifold edges remain at the hair strands and the collar, as on Cairo's raw 
 sculpted and painted, on the back of his head in both. The corrected set gave take 3 at the first try. The failed
 takes and the Blender repair tried on the first one live in the archive, not here.
 
+## The face and hair cleanup
+
+Tripo's texture made the face older and tanner than the drawings and the hair shorter and greyer. `cleanup_face_hair.py`
+projects the face sheet's front view onto the head (its irises and mouth put on the model's), scales the rest of the
+skin to the projected cheek, recolours the hair to the sheet's brown and grows the hair spikes outward, the fringe
+down toward the brows. Textures and vertices only; the topology and UVs are Tripo's. Known limits: the face sheet is
+512 px across, so the projected face is softer than the drawing, and the sheet's eyes are larger than the sculpted
+eyelids, which shows as a faint crescent at the outer corners up close.
+
 ## How it was made
 
 ```sh
@@ -43,11 +55,14 @@ python platform/studio/atelier/ai/tripo_asset.py generate --references games/har
 /Applications/Blender.app/Contents/MacOS/Blender -b --python games/haras_valley/assets/characters/tools/review_model.py -- \
     --input games/haras_valley/assets/characters/boy/model-r03/raw/output_model_url.fbx \
     --output games/haras_valley/assets/characters/boy/model-r03/review
+/Applications/Blender.app/Contents/MacOS/Blender -b --python games/haras_valley/assets/characters/tools/cleanup_face_hair.py -- \
+    --input games/haras_valley/assets/characters/boy/model-r03/raw/output_model_url.fbx \
+    --references games/haras_valley/assets/characters/boy/references --output games/haras_valley/assets/characters/boy/cleanup-r01
 ```
 
 ## Next
 
-1. Clean the raw mesh in Blender where the review shows it (collar, sneaker soles, hair strand seams), as Cairo's step 3.
+1. Further mesh cleanup where the review shows it (collar, sneaker soles, hair strand seams), as Cairo's step 3.
 2. Rig: `tripo_asset.py rig` (25 credits) on the approved cleanup, then `add_tripo_fingers.py` for the hands, so the
    rig follows the [humanoid bone contract](../../../../../platform/conventions/rigs/humanoid.toml).
 3. `character.toml`, and the game's `build.py` step that exports him for Unreal.

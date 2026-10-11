@@ -1,0 +1,306 @@
+"""Cleanup r01 of the boy: his face and hair brought back to the reference sheets.
+
+/Applications/Blender.app/Contents/MacOS/Blender -b --python games/haras_valley/assets/characters/tools/cleanup_face_hair.py -- \
+    --input model-r03/raw/output_model_url.fbx --references references --output cleanup-r01
+
+Tripo's texture made the face older and tanner than the drawings (darker skin, no blush, small murky eyes, heavy
+brows) and its hair shorter and greyer. Four fixes, textures and vertices only, no retopology:
+
+1. Face projection. The front view of the face sheet (`face-six-views.png`, top-left cell) is projected onto the
+   head through the front turnaround view, which Tripo normalised the model to (1 m tall, centred): world (y, z) maps
+   to a pixel of `front.png`, and that pixel to the sheet through the similarity that puts the sheet's irises on the
+   turnaround's. Head texels facing forward take the sheet's colour, faded out as the surface turns away (normal x),
+   so the eyes, skin, blush and freckles are the drawing's and the sides of the head keep Tripo's paint. Hair strands
+   are excluded (dark texels standing off the skull).
+2. Skin match. The rest of the skin (neck, ears, arms, hands) is scaled per channel so its median meets the projected
+   cheek's.
+3. Hair colour. Hair texels are scaled per channel to the sheet's hair median: the warm dark brown instead of grey.
+4. Hair length. Hair vertices move away from the skull centre by HAIR_STRETCH of their height above the skull, and
+   the fringe's also drop by FRINGE_DROOP of it, so the spikes grow and the fringe comes down toward the brows as
+   drawn; the scalp does not move.
+
+The output is a .blend with the textures packed, a GLB beside it and cleanup.json with the measurements.
+"""
+import argparse
+import json
+import math
+from pathlib import Path
+import sys
+
+import bpy
+from mathutils import Vector
+import numpy as np
+
+SHEET_CELL = (0, 0, 512, 512)          # the front view in the face sheet
+HEAD_Z = 0.27                          # above this: head and neck
+FACE_Z, FACE_HALF_WIDTH = 0.30, 0.08   # the projection stays above the collar and within the head
+SHEET_MOUTH_ROW = 313                  # the mouth line in the sheet's front view (irises are found by colour)
+MODEL_EYE_MID_Y, MODEL_EYE_Z, MODEL_EYE_SPACING, MODEL_MOUTH_Z = -0.0058, 0.378, 0.0524, 0.341
+FACE_FADE = (0.35, 0.75)               # normal x over which the projection fades in (the sides keep Tripo's paint)
+HAIR_STRETCH = 0.40
+FRINGE_DROOP = 0.35                    # strands in front of the skull also drop by this much of their height
+HAIR_LUMINANCE = 0.42                  # below this a warm texel is hair (or brow, or pupil)
+
+
+def iris_centres(image, box):
+    """The two irises of a face image, by their hazel colour; (left, right) in image pixels, y down."""
+    x0, y0, x1, y1 = box
+    sub = image[y0:y1, x0:x1, :3]
+    r, g, b = sub[..., 0], sub[..., 1], sub[..., 2]
+    mask = (r > 0.5) & (g > 0.38) & (b < 0.32) & (r - b > 0.3) & (g - b > 0.15)
+    ys, xs = np.nonzero(mask)
+    if len(xs) < 20:
+        raise RuntimeError(f'only {len(xs)} iris pixels found in {box}')
+    xs, ys = xs + x0, ys + y0
+    left = xs < np.median(xs)
+    return (xs[left].mean(), ys[left].mean()), (xs[~left].mean(), ys[~left].mean()), int(mask.sum())
+
+
+def load_image(path):
+    """An image file as a float array indexed [row from top, column, channel]."""
+    image = bpy.data.images.load(str(path))
+    width, height = image.size
+    data = np.array(image.pixels[:], dtype=np.float32).reshape(height, width, 4)[::-1]
+    bpy.data.images.remove(image)
+    return data
+
+
+def sample(image, cols, rows):
+    """Bilinear samples; (value, inside) with inside false where the lookup leaves the image."""
+    height, width = image.shape[:2]
+    inside = (cols >= 0) & (cols <= width - 1) & (rows >= 0) & (rows <= height - 1)
+    cols, rows = np.clip(cols, 0, width - 1.001), np.clip(rows, 0, height - 1.001)
+    c0, r0 = np.floor(cols).astype(int), np.floor(rows).astype(int)
+    fc, fr = (cols - c0)[:, None], (rows - r0)[:, None]
+    value = (image[r0, c0] * (1 - fc) * (1 - fr) + image[r0, c0 + 1] * fc * (1 - fr)
+             + image[r0 + 1, c0] * (1 - fc) * fr + image[r0 + 1, c0 + 1] * fc * fr)
+    return value, inside
+
+
+def image_for(material, socket):
+    for link in material.node_tree.links:
+        if link.to_socket.name == socket and link.from_node.type == 'TEX_IMAGE':
+            return link.from_node.image
+    raise RuntimeError('no image feeds ' + socket)
+
+
+def texel_coverage(polygon, uv, width, height, grow=1.5):
+    """Texels of a polygon's UV triangles with their barycentric weights: (rows, cols, corner indices, weights)."""
+    loops = list(polygon.loop_indices)
+    corners = [uv[index].uv for index in loops]
+    out_rows, out_cols, out_corners, out_weights = [], [], [], []
+    for i in range(1, len(corners) - 1):
+        tri = (0, i, i + 1)
+        points = np.array([[corners[t].x * width, corners[t].y * height] for t in tri])
+        x0, y0 = np.floor(points.min(axis=0)).astype(int) - 2
+        x1, y1 = np.ceil(points.max(axis=0)).astype(int) + 2
+        x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, width - 1), min(y1, height - 1)
+        if x1 < x0 or y1 < y0:
+            continue
+        xs, ys = np.meshgrid(np.arange(x0, x1 + 1) + .5, np.arange(y0, y1 + 1) + .5)
+        (ax, ay), (bx, by), (cx, cy) = points
+        d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if abs(d) < 1e-9:
+            continue
+        l1 = ((by - cy) * (xs - cx) + (cx - bx) * (ys - cy)) / d
+        l2 = ((cy - ay) * (xs - cx) + (ax - cx) * (ys - cy)) / d
+        l3 = 1 - l1 - l2
+        tolerance = grow / max(abs(d) ** .5, 1)
+        inside = (l1 >= -tolerance) & (l2 >= -tolerance) & (l3 >= -tolerance)
+        if not inside.any():
+            continue
+        weights = np.stack([l1[inside], l2[inside], l3[inside]], axis=1)
+        weights = np.clip(weights, 0, None)
+        weights /= weights.sum(axis=1, keepdims=True)
+        out_rows.append(ys[inside].astype(int))
+        out_cols.append(xs[inside].astype(int))
+        out_corners.append(np.array([tri] * int(inside.sum())))
+        out_weights.append(weights)
+    if not out_rows:
+        return None
+    return (np.concatenate(out_rows), np.concatenate(out_cols), np.concatenate(out_corners), np.concatenate(out_weights))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--input', type=Path, required=True)
+    parser.add_argument('--references', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
+    output = args.output.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.import_scene.fbx(filepath=str(args.input.resolve()))
+    obj = [o for o in bpy.context.scene.objects if o.type == 'MESH'][0]
+    mesh, uv = obj.data, obj.data.uv_layers.active.data
+    material = obj.material_slots[0].material
+    world = obj.matrix_world
+    rotation = world.to_3x3()
+
+    sheet = load_image(args.references / 'face-six-views.png')
+    sheet_left, sheet_right, sheet_pixels = iris_centres(sheet, SHEET_CELL)
+    sheet_mid = ((sheet_left[0] + sheet_right[0]) / 2, (sheet_left[1] + sheet_right[1]) / 2)
+    sheet_spacing = math.dist(sheet_left, sheet_right)
+
+    base = image_for(material, 'Base Color')
+    width, height = base.size
+    colour = np.array(base.pixels[:], dtype=np.float32).reshape(height, width, 4)
+    original = colour.copy()
+    luminance = original[..., :3] @ np.array([.299, .587, .114], np.float32)
+    warm = (original[..., 0] > original[..., 1]) & (original[..., 1] > original[..., 2])
+    hair_texels = warm & (luminance < HAIR_LUMINANCE)
+    skin_texels = warm & (luminance > 0.45) & (original[..., 0] - original[..., 2] > 0.28) & (original[..., 1] - original[..., 2] > 0.08)
+
+    positions = np.array([list(world @ v.co) for v in mesh.vertices], np.float32)
+    vertex_normals = np.array([list((rotation @ v.normal).normalized()) for v in mesh.vertices], np.float32)
+    head = positions[:, 2] > HEAD_Z
+    # Hair polygons: dark texels standing off the skull. The skull is the sphere through the bright head vertices.
+    polygon_texel = {}
+    for polygon in mesh.polygons:
+        if positions[polygon.vertices[0], 2] < HEAD_Z - 0.05:
+            continue
+        corners = [uv[index].uv for index in polygon.loop_indices]
+        u, v = sum(c.x for c in corners) / len(corners), sum(c.y for c in corners) / len(corners)
+        polygon_texel[polygon.index] = (int(v * height) % height, int(u * width) % width)
+    skin_points = [list(world @ polygon.center) for polygon in mesh.polygons
+                   if polygon.index in polygon_texel and skin_texels[polygon_texel[polygon.index]]
+                   and (world @ polygon.center).z > 0.30]
+    skin_points = np.array(skin_points)
+    design = np.hstack([2 * skin_points, np.ones((len(skin_points), 1))])
+    solution = np.linalg.lstsq(design, (skin_points ** 2).sum(axis=1), rcond=None)[0]
+    skull_centre = Vector(solution[:3])
+    skull_radius = math.sqrt(solution[3] + float(skull_centre.dot(skull_centre)))
+    hair_polygons = [polygon for polygon in mesh.polygons if polygon.index in polygon_texel
+                     and hair_texels[polygon_texel[polygon.index]]
+                     and ((world @ polygon.center) - skull_centre).length > skull_radius + 0.006
+                     and (world @ polygon.center).z > 0.33]
+    hair_vertices = sorted({index for polygon in hair_polygons for index in polygon.vertices})
+    hair_polygon_set = {polygon.index for polygon in hair_polygons}
+
+    # The mapping: the sheet's irises and mouth onto the model's (model anchors read off the orthographic front
+    # render of model-r03: irises 41 px apart at row 154, mouth at row 183, 782.6 px per metre, centre at 450).
+    sheet_mouth_row = SHEET_MOUTH_ROW
+    px_per_m_y = sheet_spacing / MODEL_EYE_SPACING
+    px_per_m_z = (sheet_mouth_row - sheet_mid[1]) / (MODEL_EYE_Z - MODEL_MOUTH_Z)
+
+    def sheet_coords(points):
+        """World points (n, 3) to face-sheet pixels (cols, rows): his left (+Y) is on the viewer's right."""
+        return (sheet_mid[0] + (points[:, 1] - MODEL_EYE_MID_Y) * px_per_m_y,
+                sheet_mid[1] - (points[:, 2] - MODEL_EYE_Z) * px_per_m_z)
+
+    # 1. Face projection.
+    projected = np.zeros((height, width), bool)
+    weight_map = np.zeros((height, width), np.float32)
+    cheek_samples = []
+    for polygon in mesh.polygons:
+        if polygon.index in hair_polygon_set or polygon.index not in polygon_texel:
+            continue
+        centre = world @ polygon.center
+        if centre.z < FACE_Z or abs(centre.y) > FACE_HALF_WIDTH:
+            continue
+        texel = original[polygon_texel[polygon.index]]
+        if texel[1] > texel[0] + 0.02:            # the shirt
+            continue
+        coverage = texel_coverage(polygon, uv, width, height)
+        if coverage is None:
+            continue
+        rows, cols, corners, weights = coverage
+        loop_vertices = np.array([mesh.loops[li].vertex_index for li in polygon.loop_indices])
+        verts = loop_vertices[corners]                      # (n, 3) vertex indices per texel
+        points = (positions[verts] * weights[:, :, None]).sum(axis=1)
+        normals = (vertex_normals[verts] * weights[:, :, None]).sum(axis=1)
+        facing = np.clip((normals[:, 0] - FACE_FADE[0]) / (FACE_FADE[1] - FACE_FADE[0]), 0, 1)
+        if facing.max() <= 0:
+            continue
+        sheet_cols, sheet_rows = sheet_coords(points)
+        value, inside = sample(sheet, sheet_cols, sheet_rows)
+        inside &= (sheet_cols >= SHEET_CELL[0]) & (sheet_cols < SHEET_CELL[2]) & (sheet_rows >= SHEET_CELL[1]) & (sheet_rows < SHEET_CELL[3])
+        alpha = (facing * inside)[:, None]
+        colour[rows, cols, :3] = colour[rows, cols, :3] * (1 - alpha) + value[:, :3] * alpha
+        strong = alpha[:, 0] > 0.9
+        projected[rows[strong], cols[strong]] = True
+        weight_map[rows, cols] = np.maximum(weight_map[rows, cols], alpha[:, 0])
+        if strong.any() and skin_texels[rows[strong], cols[strong]].any():
+            keep = strong & skin_texels[rows, cols]
+            cheek_samples.append(np.stack([original[rows[keep], cols[keep], :3], value[keep, :3]], axis=1))
+    cheek = np.concatenate(cheek_samples)
+    skin_before, skin_after = np.median(cheek[:, 0], axis=0), np.median(cheek[:, 1], axis=0)
+
+    # 2. Skin match on everything skin-coloured that the projection did not reach.
+    skin_gain = np.clip(skin_after / np.maximum(skin_before, 1e-3), 0.6, 1.6).astype(np.float32)
+    rest = skin_texels & (weight_map < 0.05)
+    colour[rest, :3] = np.clip(original[rest, :3] * skin_gain, 0, 1)
+    # Within the fade, blend the gain so the cheeks meet the ears without a step.
+    fade = skin_texels & (weight_map >= 0.05) & (weight_map < 0.9)
+    gained = np.clip(original[fade, :3] * skin_gain, 0, 1)
+    w = weight_map[fade][:, None]
+    colour[fade, :3] = colour[fade, :3] * w + gained * (1 - w)
+
+    # 3. Hair colour toward the sheet's.
+    cell = sheet[SHEET_CELL[1]:SHEET_CELL[3], SHEET_CELL[0]:SHEET_CELL[2], :3]
+    cell_luminance = cell @ np.array([.299, .587, .114], np.float32)
+    sheet_hair = cell[(cell_luminance < 0.4) & (cell[..., 0] > cell[..., 2]) & (cell[..., 0] > 0.12)]
+    hair_target = np.median(sheet_hair, axis=0)
+    hair_mask = np.zeros((height, width), bool)
+    for polygon in hair_polygons:
+        coverage = texel_coverage(polygon, uv, width, height)
+        if coverage is not None:
+            hair_mask[coverage[0], coverage[1]] = True
+    hair_mask &= hair_texels
+    hair_before = np.median(original[hair_mask, :3], axis=0)
+    hair_gain = np.clip(hair_target / np.maximum(hair_before, 1e-3), 0.5, 2.0).astype(np.float32)
+    colour[hair_mask, :3] = np.clip(original[hair_mask, :3] * hair_gain, 0, 1)
+
+    fresh = bpy.data.images.new('BaseColor', width, height, alpha=False)
+    fresh.colorspace_settings.name = base.colorspace_settings.name
+    fresh.pixels.foreach_set(colour.ravel())
+    fresh.filepath_raw = str(output / 'BaseColor.png')
+    fresh.file_format = 'PNG'
+    fresh.save()
+    for node in material.node_tree.nodes:
+        if node.type == 'TEX_IMAGE' and node.image == base:
+            node.image = fresh
+    fresh.pack()
+
+    # 4. Hair length: strands grow away from the skull centre by HAIR_STRETCH of their height above it.
+    inverse = world.inverted()
+    largest = 0.0
+    for index in hair_vertices:
+        point = world @ mesh.vertices[index].co
+        offset = point - skull_centre
+        above = offset.length - skull_radius
+        if above <= 0:
+            continue
+        move = offset.normalized() * above * HAIR_STRETCH
+        if offset.x > 0.3 * offset.length:          # the fringe: toward the brows, as drawn
+            move += Vector((0, 0, -above * FRINGE_DROOP))
+        largest = max(largest, move.length)
+        mesh.vertices[index].co = inverse @ (point + move)
+    mesh.update()
+
+    bpy.ops.file.pack_all()
+    blend = output / 'boy-cleanup-r01.blend'
+    bpy.ops.wm.save_as_mainfile(filepath=str(blend))
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.ops.export_scene.gltf(filepath=str(output / 'boy-cleanup-r01.glb'), export_format='GLB', use_selection=True,
+                              export_animations=False)
+    record = {
+        'source': args.input.name, 'script': Path(__file__).name, 'blender_version': bpy.app.version_string,
+        'mapping': {'sheet_irises_px': [list(sheet_left), list(sheet_right), sheet_pixels], 'sheet_mouth_row': sheet_mouth_row,
+                    'model_eyes': [MODEL_EYE_MID_Y, MODEL_EYE_Z, MODEL_EYE_SPACING], 'model_mouth_z': MODEL_MOUTH_Z,
+                    'sheet_px_per_m': [round(px_per_m_y, 1), round(px_per_m_z, 1)]},
+        'skull_sphere': {'centre': [round(c, 4) for c in skull_centre], 'radius': round(skull_radius, 4)},
+        'face_texels_projected': int(projected.sum()),
+        'skin_median_before': [round(float(c), 3) for c in skin_before], 'skin_median_after': [round(float(c), 3) for c in skin_after],
+        'skin_gain': [round(float(c), 3) for c in skin_gain], 'skin_texels_matched': int(rest.sum()),
+        'hair_median_before': [round(float(c), 3) for c in hair_before], 'hair_target': [round(float(c), 3) for c in hair_target],
+        'hair_texels_recoloured': int(hair_mask.sum()), 'hair_polygons': len(hair_polygons),
+        'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
+    }
+    (output / 'cleanup.json').write_text(json.dumps(record, indent=2) + '\n')
+    print(json.dumps(record, indent=1), flush=True)
+
+
+if __name__ == '__main__':
+    main()
