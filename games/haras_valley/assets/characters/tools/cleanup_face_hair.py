@@ -4,7 +4,7 @@
     --input model-r03/raw/output_model_url.fbx --references references --output cleanup-r01
 
 Tripo's texture made the face older and tanner than the drawings (darker skin, no blush, small murky eyes, heavy
-brows) and its hair shorter and greyer. Five fixes, textures and vertices only, no retopology:
+brows) and its hair shorter and greyer, and its eyes slope down toward the outside, which reads as sad. Six fixes, textures and vertices only, no retopology:
 
 1. Face projection. The front portrait (`--face`, painted by tools/face_portrait.py; without it the face sheet's
    top-left cell) is projected onto the face with the affine map that puts its irises and mouth line (found in the
@@ -18,9 +18,14 @@ brows) and its hair shorter and greyer. Five fixes, textures and vertices only, 
 4. Hair length. Hair vertices move away from the skull centre by HAIR_STRETCH of their height above the skull, and
    the fringe's also drop by FRINGE_DROOP of it, so the spikes grow and the fringe comes down toward the brows as
    drawn; the scalp does not move.
-5. Eyes and brows. The projected drawing's eyes do not fit Tripo's sculpted sockets, so eyes.py paints clean cel
-   eyes onto the eyeballs inside each socket's rim, colours the brow strips, clears Tripo's eye paint, gloss and
-   normal detail around them, and the cornea discs are removed (see eyes.py).
+5. Eye shape. Tripo's eyes slope down toward the outside and sit low between their corners, which reads as sad.
+   Each eye region turns by EYE_TILT_DEGREES, outer corner up (eyes.tilt), then the middle of each eye (lower lid,
+   eyeball, upper lid and brow) rises by EYE_LIFT of its width with the corners pinned (eyes.lift), so the upper lid
+   arches 0.32 eye widths above the corners as in the drawing; eyes.py draws the lower lid 0.23 below them, so the
+   corners sit 42% of the way up the opening. Both fade out before the nose, temple, cheek and forehead.
+6. Eyes and brows. The projected drawing's eyes do not fit Tripo's sculpted sockets, so eyes.py paints clean cel
+   eyes onto the eyeballs inside each reshaped socket's rim, colours the brow strips, clears Tripo's eye paint, gloss
+   and normal detail around them, and the cornea discs are removed (see eyes.py).
 
 The output is a .blend with the four texture maps packed, a GLB beside it and cleanup.json with the measurements.
 """
@@ -44,7 +49,9 @@ MODEL_EYE_MID_Y, MODEL_EYE_Z, MODEL_EYE_SPACING, MODEL_MOUTH_Z = -0.0058, 0.378,
 FACE_FADE = (0.35, 0.75)               # normal x over which the projection fades in (the sides keep Tripo's paint)
 CHIN_FADE = (0.324, 0.338)             # z over which it fades out above the chin's drawn outline
 HAIR_STRETCH = 0.40
-FRINGE_DROOP = 0.35                    # strands in front of the skull also drop by this much of their height
+FRINGE_DROOP = 0.35
+EYE_TILT_DEGREES = 8.0                 # outer corners up: from Tripo's 12 degree droop to the drawing's 4
+EYE_LIFT = 0.20                        # the eye's middle up by this much of its width: the drawing's upper-lid arch                    # strands in front of the skull also drop by this much of their height
 HAIR_LUMINANCE = 0.42                  # below this a warm texel is hair (or brow, or pupil)
 
 
@@ -294,7 +301,12 @@ def main():
                 node.image = fresh
         fresh.pack()
 
-    # 5. Eyes and brows: clean cel eyes fitted to the sculpted sockets, one brow stroke each (eyes.py).
+    # 5. Eye shape, before the eyes are painted on it: the outer corners up to the drawing's slant, then the middle of
+    # each eye lifted so the corners sit where the drawing's do (Tripo's droop and low lids read as sad).
+    tilt_record = eyes.tilt(mesh, world, parts, EYE_TILT_DEGREES)
+    lift_record = eyes.lift(mesh, world, parts, EYE_LIFT)
+
+    # 6. Eyes and brows: clean cel eyes fitted to the reshaped sockets (eyes.py).
     roughness_image, metallic_image = image_for(material, 'Roughness'), image_for(material, 'Metallic')
     roughness_data = np.array(roughness_image.pixels[:], dtype=np.float32).reshape(height, width, 4)
     metallic_data = np.array(metallic_image.pixels[:], dtype=np.float32).reshape(height, width, 4)
@@ -350,7 +362,7 @@ def main():
         'skin_gain': [round(float(c), 3) for c in skin_gain], 'skin_texels_matched': int(rest.sum()),
         'hair_median_before': [round(float(c), 3) for c in hair_before], 'hair_target': [round(float(c), 3) for c in hair_target],
         'hair_texels_recoloured': int(hair_mask.sum()), 'hair_polygons': len(hair_polygons),
-        'eyes': eye_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
+        'eyes': eye_record, 'eye_tilt': tilt_record, 'eye_lift': lift_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
     }
     (output / 'cleanup.json').write_text(json.dumps(record, indent=2) + '\n')
     print(json.dumps(record, indent=1), flush=True)

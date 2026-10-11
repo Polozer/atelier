@@ -67,31 +67,65 @@
   "eyes": {
     "eyes": [
       {
-        "inner_y": -0.0147,
-        "outer_y": -0.0515,
+        "inner_y": -0.0151,
+        "outer_y": -0.0519,
         "width": 0.0368,
-        "height": 0.0192,
-        "rim_columns": 90
+        "height": 0.0194,
+        "rim_columns": 92
       },
       {
-        "inner_y": 0.0085,
-        "outer_y": 0.0453,
+        "inner_y": 0.0089,
+        "outer_y": 0.0457,
         "width": 0.0368,
         "height": 0.0201,
         "rim_columns": 89
       }
     ],
     "texel_size_mm": {
-      "face": 0.254,
-      "eyeball": 0.243
+      "face": 0.249,
+      "eyeball": 0.255
     },
-    "texels_in_zone": 212695,
+    "texels_in_zone": 203855,
     "skin_colour": [
       0.992,
-      0.7,
-      0.535
+      0.704,
+      0.539
     ],
     "skin_roughness": 0.714
+  },
+  "eye_tilt": {
+    "eyes": [
+      {
+        "pivot": [
+          -0.0331,
+          0.3828
+        ],
+        "degrees": -8.0,
+        "outer_corner_rise_mm": 2.6
+      },
+      {
+        "pivot": [
+          0.0269,
+          0.3824
+        ],
+        "degrees": 8.0,
+        "outer_corner_rise_mm": 2.6
+      }
+    ],
+    "vertices_moved": 472
+  },
+  "eye_lift": {
+    "eyes": [
+      {
+        "lift_mm": 7.36,
+        "width_mm": 36.8
+      },
+      {
+        "lift_mm": 7.36,
+        "width_mm": 36.8
+      }
+    ],
+    "vertices_moved": 410
   },
   "cornea_disc_polygons_removed": 24,
   "hair_vertices_moved": 1238,

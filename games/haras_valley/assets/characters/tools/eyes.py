@@ -4,9 +4,11 @@ Used by cleanup_face_hair.py (step 5). Projecting a drawing's eyes onto a Tripo 
 different size and shape from the sculpted socket, so skin shows inside the socket, the sculpted lid ridge cuts the
 iris, and Tripo's own eye paint, gloss and normal detail show through at the socket walls. Instead:
 
-1. Tripo builds the head from separate pieces: the hair cap, the face (with a hole at each eye) and one eyeball
-   behind each hole (head_parts). The opening of each eye is the rim of its hole seen from the front: its top and
-   bottom edges per 0.4 mm column, smoothed.
+1. Tripo builds the head from separate pieces: the hair cap, the face (with a hole at each eye), one eyeball behind
+   each hole, a brow strip above each eye and a cornea disc on each eyeball (head_parts). The upper lid and the
+   corners of each eye are the rim of its hole seen from the front, fitted with smooth quartic curves (outline).
+   The lower lid is drawn LOWER_LID eye widths below the corners, the drawing's proportion, but never below where
+   the eyeball is still visible from the front (visible_outline): the eyeball bulges past the mesh's lower lid.
 2. On the eyeball and the rim, an eye is drawn in the face sheet's style, analytically in front-view coordinates (so edges
    are as sharp as the texture allows): white with a shadow under the lid, an olive-to-yellow iris with a dark rim,
    a pupil, two highlights, a thick upper lash line ending in an outer wing, a crease above it, a short lower line.
@@ -34,6 +36,7 @@ PUPIL = np.array([.08, .05, .03], np.float32)
 HIGHLIGHT = np.array([1., 1., 1.], np.float32)
 
 CELL = 0.0004            # front-view grid for reading the openings (0.4 mm)
+LOWER_LID = 0.23         # the drawn lower lid's depth below the corners, in eye widths (the drawing's)
 EDGE = 0.0004            # antialiasing width: one texel, measured by paint() from the texture's density
 
 
@@ -190,7 +193,9 @@ class Eye:
         top, bottom = self.edges(y)
         top_c = np.where(np.isnan(top), np.nanmax(self.shape['top']), top)
         bottom_c = np.where(np.isnan(bottom), np.nanmin(self.shape['bottom']), bottom)
-        in_opening = on_eyeball.astype(np.float32)          # the eye paint goes on the eyeball only
+        lower_lid = inside(z - bottom_c) * inside(np.minimum(s, 1 - s) * abs(self.y_outer - self.y_inner))
+        in_opening = on_eyeball * lower_lid                  # the eye paint: on the eyeball, above the drawn lower lid
+        colour = over(colour, self.skin[None], on_eyeball * (1 - lower_lid) * (z < top_c))   # the drawn lower lid
         # White, darker under the lid.
         shade = smoothstep(.0, .32 * H, top_c - z)
         white = SCLERA_SHADOW[None] * (1 - shade[:, None]) + SCLERA[None] * shade[:, None]
@@ -237,8 +242,8 @@ class Eye:
         crease_z = top_c + .26 * H
         crease = np.where(np.isnan(top), 0.0, inside(.022 * H - np.abs(z - crease_z))) * smoothstep(.1, .3, s) * smoothstep(1.0, .85, s)
         colour = over(colour, CREASE[None], .45 * crease * (1 - on_eyeball))
-        lower = np.where(np.isnan(top), 0.0, inside(.022 * H - np.abs(z - bottom_c))) * smoothstep(.35, .6, s) * smoothstep(1.0, .9, s)
-        colour = over(colour, LOWER_LINE[None], .5 * lower * (1 - on_eyeball))
+        lower = inside(.03 * H - np.abs(z - bottom_c)) * smoothstep(.3, .55, s) * smoothstep(1.0, .88, s)
+        colour = over(colour, LOWER_LINE[None], .6 * lower)
         return colour, np.maximum.reduce([in_opening, band, wing])
 
     def brow(self, colour, y, z):
@@ -306,6 +311,22 @@ def paint(mesh, world, uv, colour, roughness, metallic, normal, texel_coverage, 
     sizes = [np.sqrt(densities[m, 0].sum() / densities[m, 1].sum()) for m in (densities[:, 2] == 0, densities[:, 2] == 1)]
     EDGE = float(max(sizes))                             # world size of one texel: the coarser of face and eyeball
 
+    # The lower lid is drawn, not taken from the mesh: Tripo's eyeball bulges past the lower lid, so its white would
+    # show far below the drawing's lower lid. The lid line runs LOWER_LID of the eye's width below the line through
+    # the corners (the drawing's proportion), never below the eyeball's visible edge; under it the eyeball is skin.
+    for k, eye in enumerate(eyes):
+        visible = visible_outline(points, eyeball_of, k, eye.shape)
+        ys = eye.shape['y']
+        s_ = eye.s(ys)
+        width = abs(eye.y_outer - eye.y_inner)
+        corner_inner = float(eye.edges(np.array([eye.y_inner]))[0][0])
+        corner_outer = float(eye.edges(np.array([eye.y_outer]))[0][0])
+        line = corner_inner + (corner_outer - corner_inner) * np.clip(s_, 0, 1)
+        designed = line - LOWER_LID * width * np.sin(np.pi * np.clip(s_, 0, 1)) ** .9
+        floor = np.interp(ys, visible['y'], visible['bottom'], left=-1, right=-1)
+        eye.shape = dict(eye.shape, bottom=np.maximum(designed, floor))
+        eye.height = float((eye.shape['top'] - eye.shape['bottom']).max())
+
     y, z = points[:, 1], points[:, 2]
     current = colour[rows, cols, :3].copy()
     skin_near = current[(skinness(current) > .9) & ~on_eyeball]
@@ -315,6 +336,8 @@ def paint(mesh, world, uv, colour, roughness, metallic, normal, texel_coverage, 
     zone = np.maximum(zone, (on_eyeball | on_brow).astype(np.float32))
     clean = zone * ~(on_eyeball | on_brow)          # all of it: Tripo's eye paint and the drawing's line art go
     current = over(current, skin[None], clean)
+    for eye in eyes:
+        eye.skin = skin
     current[on_brow] = BROW                       # Tripo's brow strips, in the drawing's brow colour
     for k, eye in enumerate(eyes):
         rim = hole_rim(mesh, world, parts['face'], parts['eyeball'][k], with_depth=True)
@@ -332,3 +355,129 @@ def paint(mesh, world, uv, colour, roughness, metallic, normal, texel_coverage, 
                      for e in eyes],
             'texel_size_mm': {'face': round(sizes[0] * 1000, 3), 'eyeball': round(sizes[1] * 1000, 3)}, 'texels_in_zone': int((zone > 0).sum()),
             'skin_colour': [round(float(c), 3) for c in skin], 'skin_roughness': round(skin_roughness, 3)}
+
+
+def visible_outline(points, eyeball_of, k, base_shape):
+    """The opening as seen from the front: cells of a 0.3 mm front-view grid where eyeball k is the frontmost
+    surface, then its top and bottom per column fitted like outline(). The eyeball bulges in front of the lower lid,
+    so this reaches lower than the face's hole rim."""
+    cell = .0003
+    y0, y1 = base_shape['y'].min() - .004, base_shape['y'].max() + .004
+    z0, z1 = base_shape['bottom'].min() - .008, base_shape['top'].max() + .004
+    columns, rows = int((y1 - y0) / cell), int((z1 - z0) / cell)
+    col = ((points[:, 1] - y0) / cell).astype(int)
+    row = ((z1 - points[:, 2]) / cell).astype(int)
+    keep = (col >= 0) & (col < columns) & (row >= 0) & (row < rows)
+    flat = row[keep] * columns + col[keep]
+    depth = points[keep, 0]
+    order = np.lexsort((-depth, flat))
+    first = np.r_[True, flat[order][1:] != flat[order][:-1]]
+    owner = np.full(rows * columns, -9)
+    owner[flat[order][first]] = eyeball_of[keep][order][first]
+    mask = (owner == k).reshape(rows, columns)
+    known = (owner != -9).reshape(rows, columns)
+    # Fill empty cells from their neighbours (the texel grid is sparser than the cells in places).
+    padded = np.pad(mask, 1)
+    mask = mask | (~known & (padded[:-2, 1:-1] & padded[2:, 1:-1] | padded[1:-1, :-2] & padded[1:-1, 2:]))
+    ys, tops, bottoms = [], [], []
+    for c in range(columns):
+        r = np.nonzero(mask[:, c])[0]
+        if len(r) < 3:
+            continue
+        ys.append(y0 + (c + .5) * cell)
+        tops.append(z1 - r.min() * cell)
+        bottoms.append(z1 - (r.max() + 1) * cell)
+    rim = np.array([[y, t] for y, t in zip(ys, tops)] + [[y, b] for y, b in zip(ys, bottoms)])
+    return outline(rim)
+
+
+def tilt(mesh, world, parts, degrees, inner_radius=.019, outer_radius=.026):
+    """Raise each eye's outer corner: rotate the eye region about the front-view axis through the eye's centre.
+
+    Tripo's sockets slope down toward the outside (outer corner 0.22 eye widths below the inner one, against 0.07 in
+    the drawing), which reads as sad. Each eyeball turns rigidly by `degrees`; the face and the brow strip turn with it
+    up to inner_radius from the eye's centre (front view), fading to nothing at outer_radius, only on the front of the
+    head. Vertices keep their depth (x). Run after painting: the paint turns with the surface."""
+    import math
+    from mathutils import Vector
+    inverse = world.inverted()
+    shapes = [outline(hole_rim(mesh, world, parts['face'], eyeball)) for eyeball in parts['eyeball']]
+    midline = (np.mean(shapes[0]['y']) + np.mean(shapes[1]['y'])) / 2
+    face_vertices = {v for i in parts['face'] for v in mesh.polygons[i].vertices}
+    brow_vertices = {v for i in parts['brows'] for v in mesh.polygons[i].vertices}
+    record = []
+    moved = {}
+    for shape, eyeball in zip(shapes, parts['eyeball']):
+        eye = Eye(shape, midline)
+        top, bottom = eye.edges(np.array([eye.y_inner, eye.y_outer]))
+        pivot_y = (eye.y_inner + eye.y_outer) / 2
+        pivot_z = float(np.mean([top, bottom]))
+        outward = np.sign(eye.y_outer - eye.y_inner)            # -1 for his right eye, +1 for his left
+        angle = math.radians(degrees) * outward                 # outer corner up
+        c, s = math.cos(angle), math.sin(angle)
+        eyeball_vertices = {v for i in eyeball for v in mesh.polygons[i].vertices}
+        for index in eyeball_vertices | face_vertices | brow_vertices:
+            point = world @ mesh.vertices[index].co
+            dy, dz = point.y - pivot_y, point.z - pivot_z
+            r = math.hypot(dy, dz)
+            if index in eyeball_vertices:
+                weight = 1.0
+            else:
+                if r > outer_radius or point.x < -.01:
+                    continue
+                weight = float(smoothstep(outer_radius, inner_radius, r)) * float(smoothstep(-.01, .01, point.x))
+            if weight <= 0:
+                continue
+            a = angle * weight
+            ca, sa = math.cos(a), math.sin(a)
+            target = Vector((point.x, pivot_y + dy * ca - dz * sa, pivot_z + dy * sa + dz * ca))
+            moved[index] = inverse @ target
+        corner = Vector((0, eye.y_outer - pivot_y, float(top[1]) - pivot_z))
+        record.append({'pivot': [round(pivot_y, 4), round(pivot_z, 4)], 'degrees': round(math.degrees(angle), 2),
+                       'outer_corner_rise_mm': round((corner.y * s + corner.z * c - corner.z) * 1000, 2)})
+    for index, co in moved.items():
+        mesh.vertices[index].co = co
+    mesh.update()
+    return {'eyes': record, 'vertices_moved': len(moved)}
+
+
+def lift(mesh, world, parts, fraction):
+    """Open each eye like the drawing's: lift its middle by `fraction` of its width, corners pinned.
+
+    In the drawing the corners sit 42% of the opening's height above the lower lid; on Tripo's sockets 63%, so the
+    upper lid hangs low and the lower lid sags, which reads as tired and sad. Raising the middle of the eye (lower
+    lid, eyeball, upper lid and brow together) by about 0.11 of its width puts the corners back at 42%. The lift is
+    sin(pi s) across the eye (zero at both corners and beyond them), full from just under the lower lid through the
+    brow, fading out into the cheek below and the forehead above, and only on the front of the head."""
+    import math
+    from mathutils import Vector
+    inverse = world.inverted()
+    shapes = [outline(hole_rim(mesh, world, parts['face'], eyeball)) for eyeball in parts['eyeball']]
+    midline = (np.mean(shapes[0]['y']) + np.mean(shapes[1]['y'])) / 2
+    vertices = {v for i in parts['face'] | parts['eyeballs'] | parts['brows'] for v in mesh.polygons[i].vertices}
+    offsets = {}
+    record = []
+    for shape in shapes:
+        eye = Eye(shape, midline)
+        width = abs(eye.y_outer - eye.y_inner)
+        amount = fraction * width
+        bottom, top = float(np.min(shape['bottom'])), float(np.max(shape['top']))
+        for index in vertices:
+            point = world @ mesh.vertices[index].co
+            if point.x < -.005:
+                continue
+            s = float(eye.s(point.y))
+            if not 0 < s < 1:
+                continue
+            across = math.sin(math.pi * s) ** .8
+            down = float(smoothstep(bottom - .010, bottom - .002, point.z) * smoothstep(top + .024, top + .014, point.z))
+            front = float(smoothstep(-.005, .01, point.x))
+            dz = amount * across * down * front
+            if dz > 1e-6:
+                offsets[index] = offsets.get(index, 0.0) + dz
+        record.append({'lift_mm': round(amount * 1000, 2), 'width_mm': round(width * 1000, 1)})
+    for index, dz in offsets.items():
+        point = world @ mesh.vertices[index].co
+        mesh.vertices[index].co = inverse @ Vector((point.x, point.y, point.z + dz))
+    mesh.update()
+    return {'eyes': record, 'vertices_moved': len(offsets)}

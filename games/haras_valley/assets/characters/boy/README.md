@@ -51,6 +51,10 @@ eyeball. The rim of each hole is the eye's outline; a clean cel eye in the drawi
 to yellow iris, rim, pupil, two highlights, thick lash line with an outer wing, crease, short lower line) is drawn
 into it on the eyeball, the brow strips take the drawing's brow colour, the face around them is cleared to skin with
 a flat normal map and the skin's roughness, and the cornea discs are removed.
+Tripo's eyes also sloped down toward the outside and sat low between their corners, which read as sad. Before the
+eyes are painted, each eye region turns 8 degrees outer corner up and its middle rises by 0.20 of its width with the
+corners pinned (`eyes.tilt`, `eyes.lift`), so the upper lid arches as drawn; the lower lid is painted 0.23 eye widths
+below the corners, as in the drawing, and the eyeball below it is painted as skin.
 `eyes-closeup-front.png` and `eyes-closeup-three-quarter.png` show the result up close. `face_closeup.py` renders the face
 at 1200 px from a review blend; `compare-face.png` shows the sheet, Tripo's face, the cleaned face and its
 three-quarter. For a crisper source than the 512 px sheet cell, `games/haras_valley/tools/face_portrait.py` paints a
