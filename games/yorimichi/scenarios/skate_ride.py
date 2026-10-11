@@ -165,7 +165,8 @@ def mount_ride():
 
 
 # User 19:46: at rest on the board Cairo's hands sank into his thighs (the idle clip on his wider hips and thighs). The
-# retarget swings each arm out until its hand and forearm clear the rider's own body (skate.ArmClear), and lifts a foot
+# retarget swings each arm out until its hand and forearm clear the rider's own body (skate.ArmClear plus its clothing
+# allowance), and lifts a foot
 # whose sole goes under the ground (skate.FootGround). hand_gap= is each hand's skin against the pelvis, spine, chest and
 # thigh bodies (cm, below 0 inside), skin_groups= the skin under the ground (skate.RideSkinCheck).
 HAND_GAP = -1.   # cm: no hand deeper inside the rider's own body than this, at rest, rolling or carving

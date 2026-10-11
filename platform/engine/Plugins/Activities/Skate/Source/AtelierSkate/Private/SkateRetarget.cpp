@@ -500,8 +500,9 @@ void USkateComponent::RetargetRiderPose()
             }
         }
         // The source's arms hang beside an adult's hips; beside wider hips and thighs the hands sink into them. Each arm
-        // swings out until its hand and forearm clear the rider's body and clothing (ClearArms), smoothed over
-        // the frames (the world's clock). A grab solves after this, so it still reaches its board.
+        // swings out until its hand and forearm clear the body by skate.ArmClear plus the rider's clothing allowance
+        // (ISkateRider::GetSkateClothingClearance), smoothed over the frames (the world's clock). A grab solves after
+        // this, so it still reaches its board.
         const double Now=GetWorld()?GetWorld()->GetTimeSeconds():0.,ArmDt=ShownRuntime->ArmTime>=0?Now-ShownRuntime->ArmTime:-1.;
         ShownRuntime->ArmTime=Now;
         if (const float Clear=CVarSkateArmClear.GetValueOnGameThread(); Clear>=0.f)
