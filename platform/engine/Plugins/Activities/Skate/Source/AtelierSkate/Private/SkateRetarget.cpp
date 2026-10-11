@@ -218,12 +218,13 @@ static double BodyDistance(const FSkateRuntime::FBody& Body,const FVector& Q,FVe
 // skin is Margin (component units) out of the rider's own body, at most 30 degrees. The swing is one abduction per arm,
 // about the axis that carries a hanging arm straight out from the body's midline (across the torso, pelvis to chest), so
 // it turns smoothly with the pose: no face or way out is chosen per frame. The angle needed is the smallest that clears
-// every sample (a 2.5 degree scan, then the crossing found inside its step). If none clears, it uses the scanned angle
-// with the best clearance, preferring the smaller swing on a tie. The arm follows it through a critically damped
-// spring (half-life 0.05 s out, 0.15 s back) whose speed (170 degrees/s) and acceleration are capped, so a fast
-// move may graze the body for a moment but the arm never snaps. Dt below 0 or over 0.25 s starts it afresh.
+// every sample (a 2.5 degree scan, then the crossing found inside its step). Clothing adds a preferred gap: if no angle
+// clears it, the arm fits the body margin alone. If that is also infeasible, it uses the best body clearance, preferring
+// the smaller swing on a tie. The arm follows it through a critically damped spring (half-life 0.05 s out, 0.15 s back)
+// whose speed (170 degrees/s) and acceleration are capped, so a fast move may graze the body for a moment but the arm
+// never snaps. Dt below 0 or over 0.25 s starts it afresh.
 static void ClearArms(FSkateRuntime& Runtime,const FReferenceSkeleton& Ref,TArray<FTransform>& Output,const int32 Uppers[2],int32 Pelvis,int32 Chest,
-    double Margin,double Dt)
+    double Margin,double Clothing,double Dt)
 {
     constexpr double Degree=UE_DOUBLE_PI/180.,Step=2.5*Degree,MaxSwing=30.*Degree;
     constexpr double RiseHalfLife=.05,FallHalfLife=.15,MaxRate=170.*Degree,MaxAccel=6000.*Degree;
@@ -231,6 +232,7 @@ static void ClearArms(FSkateRuntime& Runtime,const FReferenceSkeleton& Ref,TArra
     const FVector Spine=(Output[Chest].GetLocation()-Output[Pelvis].GetLocation()).GetSafeNormal();
     const FVector Across=FVector::VectorPlaneProject(Output[Uppers[1]].GetLocation()-Output[Uppers[0]].GetLocation(),Spine).GetSafeNormal();
     if (Spine.IsNearlyZero() || Across.IsNearlyZero()) return;
+    const double Preferred=Margin+Clothing;
     const bool bFresh=!Runtime.bArmsValid || Dt<0 || Dt>.25;
     for (int32 H=0;H<2;++H)
     {
@@ -252,51 +254,56 @@ static void ClearArms(FSkateRuntime& Runtime,const FReferenceSkeleton& Ref,TArra
         for (const FSkateRuntime::FBody& Body : Runtime.Bodies)
         {
             const FTransform& Frame=Output[Body.Bone];
-            if (FVector::Dist(Frame.TransformPosition(Body.Centre),Shoulder)<=Arm+Body.Reach*Frame.GetMaximumAxisScale()+2.*Margin) Near.Add(&Body);
+            if (FVector::Dist(Frame.TransformPosition(Body.Centre),Shoulder)<=Arm+Body.Reach*Frame.GetMaximumAxisScale()+2.*Preferred) Near.Add(&Body);
         }
         // The arm's clearance turned by Angle: the least over its samples and the bodies of the distance out of the body
-        // less Margin, capped at Margin (a sample beyond a body's bounding sphere by that much counts as the cap, so the
+        // less Gap, capped at Gap (a sample beyond a body's bounding sphere by that much counts as the cap, so the
         // cull keeps it continuous).
-        const auto Clearance=[&](double Angle)
+        const auto Clearance=[&](double Angle,double Gap)
         {
             const FQuat Turn(Axis,Angle);
-            double Least=Margin;
+            double Least=Gap;
             for (const FSkateRuntime::FBody* Each : Near)
             {
                 const FSkateRuntime::FBody& Body=*Each;
                 const FTransform& Frame=Output[Body.Bone];
-                const double Scale=Frame.GetMaximumAxisScale(),Reach=Body.Reach*Scale+2.*Margin;
+                const double Scale=Frame.GetMaximumAxisScale(),Reach=Body.Reach*Scale+2.*Gap;
                 const FVector Centre=Frame.TransformPosition(Body.Centre);
                 for (const FVector& Point : Points)
                 {
                     const FVector P=Shoulder+Turn.RotateVector(Point);
                     if (FVector::DistSquared(P,Centre)>Reach*Reach) continue;
                     FVector Way;
-                    Least=FMath::Min(Least,BodyDistance(Body,Frame.InverseTransformPosition(P),Way)*Scale-Margin);
+                    Least=FMath::Min(Least,BodyDistance(Body,Frame.InverseTransformPosition(P),Way)*Scale-Gap);
                 }
             }
             return Least;
         };
-        double Need=0;
-        if (double Low=Clearance(0.); Low<0)
+        const auto FindSwing=[&](double Gap,double& Need)
         {
-            // If no angle clears, keep the best clearance; more swing can move a hand toward the opposite thigh.
+            Need=0;
+            double Low=Clearance(0.,Gap);
+            if (Low>=0) return true;
             double Best=Low;
             for (double Angle=Step;Angle<=MaxSwing+1e-9;Angle+=Step)
             {
-                double High=Clearance(Angle);
+                double High=Clearance(Angle,Gap);
                 if (High<0) { if (High>Best) { Best=High; Need=Angle; } Low=High; continue; }
                 // The crossing inside this step: halve it three times, then interpolate.
                 double From=Angle-Step,To=Angle;
                 for (int32 I=0;I<3;++I)
                 {
-                    const double Mid=(From+To)*.5,At=Clearance(Mid);
+                    const double Mid=(From+To)*.5,At=Clearance(Mid,Gap);
                     if (At<0) { From=Mid; Low=At; } else { To=Mid; High=At; }
                 }
                 Need=From+(To-From)*(-Low)/FMath::Max(High-Low,1e-9);
-                break;
+                return true;
             }
-        }
+            return false;
+        };
+        double Need=0;
+        // Clothing is a preference; an infeasible coat gap must not drive the hand farther into the body.
+        if (Clothing<=0 || !FindSwing(Preferred,Need)) FindSwing(Margin,Need);
         Runtime.ArmNeed[H]=Need;
         double& Swing=Runtime.ArmSwing[H];
         double& Rate=Runtime.ArmRate[H];
@@ -502,18 +509,19 @@ void USkateComponent::RetargetRiderPose()
             }
         }
         // The source's arms hang beside an adult's hips; beside wider hips and thighs the hands sink into them. Each arm
-        // swings out until its hand and forearm clear the body by skate.ArmClear plus the rider's clothing allowance
+        // swings out to clear the body by skate.ArmClear, preferring the rider's extra clothing gap when feasible
         // (ISkateRider::GetSkateClothingClearance), smoothed over the frames (the world's clock). A grab solves after
         // this, so it still reaches its board.
         const double Now=GetWorld()?GetWorld()->GetTimeSeconds():0.,ArmDt=ShownRuntime->ArmTime>=0?Now-ShownRuntime->ArmTime:-1.;
         ShownRuntime->ArmTime=Now;
         if (const float Clear=CVarSkateArmClear.GetValueOnGameThread(); Clear>=0.f)
         {
-            const float Margin=Clear+FMath::Max(0.f,RiderApi?RiderApi->GetSkateClothingClearance():0.f);
+            const float Clothing=FMath::Max(0.f,RiderApi?RiderApi->GetSkateClothingClearance():0.f);
+            const double Scale=FMath::Max(Mesh->GetComponentScale().GetMax(),1e-4);
             UPhysicsAsset* Physics=Mesh->GetPhysicsAsset();
             if (Physics && (ShownRuntime->BodiesFor.Get()!=Physics || ShownRuntime->BodiesMesh.Get()!=Asset || (!ShownRuntime->bBodiesComplete && ShownRuntime->BodiesTries<120))) GatherBodies(*ShownRuntime,Asset,Physics,Ref,Index);
             if (Physics && !ShownRuntime->Bodies.IsEmpty())
-                ClearArms(*ShownRuntime,Ref,Output,Uppers,Index(TEXT("pelvis")),Index(TEXT("chest")),Margin/FMath::Max(Mesh->GetComponentScale().GetMax(),1e-4),ArmDt);
+                ClearArms(*ShownRuntime,Ref,Output,Uppers,Index(TEXT("pelvis")),Index(TEXT("chest")),Clear/Scale,Clothing/Scale,ArmDt);
             else ShownRuntime->bArmsValid=false;
         }
         else ShownRuntime->bArmsValid=false;

@@ -127,8 +127,9 @@ lengths, solves both legs with two-bone IK to the simulation's feet, traces the 
 between the character's own animation and the ride's pose blends through `FAnimNode_RideInertialization`
 (`Public/AnimNode_RideInertialization.h`).
 
-The arm fit scans up to 30 degrees. If no angle clears the requested gap, it keeps the scanned angle with the best
-clearance, choosing the smaller swing on a tie. The same spring and motion limits smooth that target.
+The arm fit scans up to 30 degrees. It first tries the clothing gap, then the body margin alone if the clothing gap is
+infeasible. If no angle clears the body margin either, it keeps the best body clearance, choosing the smaller swing on a
+tie. The same spring and motion limits smooth that target.
 
 - **Inertialization.** A change of pose carries on from the last frames with their velocity and settles onto the new
   one on a quintic curve per bone (Bollo, "Inertialization", GDC 2018). The engine's `FAnimNode_Inertialization` and
