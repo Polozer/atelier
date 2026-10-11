@@ -1,0 +1,36 @@
+{
+  "body": "output_model_url.fbx",
+  "bust": "output_model_url.fbx",
+  "script": "graft_bust.py",
+  "blender_version": "5.1.2",
+  "scale": 0.248,
+  "offset": [
+    -0.0108,
+    -0.0031,
+    0.3748
+  ],
+  "bust_neck_centre": [
+    -0.0371,
+    0.0
+  ],
+  "neck_cut": -0.44,
+  "neck_vertices_pushed_inside_shirt": 80,
+  "body_head_polygons_removed": 2644,
+  "bust_polygons_removed": 1600,
+  "skin_target": [
+    0.9900000095367432,
+    0.6600000262260437,
+    0.5
+  ],
+  "bust_skin_gain": [
+    1.061,
+    1.014,
+    1.062
+  ],
+  "body_skin_gain": [
+    1.03,
+    1.079,
+    1.17
+  ],
+  "polygons": 17800
+}

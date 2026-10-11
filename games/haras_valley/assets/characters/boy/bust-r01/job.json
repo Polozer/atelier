@@ -1,0 +1,35 @@
+{
+  "stage": "initial_tripo_mesh",
+  "revision": "bust-r01",
+  "status": "approved",
+  "submitted_at": "2026-10-11T17:20:06.330777+00:00",
+  "endpoint": "https://openapi.tripo3d.ai/v3/generation/multiview-to-model",
+  "settings": {
+    "model": "P2-20260801",
+    "quad": true,
+    "face_limit": 12000,
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "export_uv": true,
+    "model_seed": 9122026,
+    "texture_seed": 9122026
+  },
+  "reference_directory": "games/haras_valley/assets/characters/boy/references-bust",
+  "approved_inputs": {
+    "front.png": "01d78269e042aff9f60d8e05c3a863032525a8bcd782dfaebbec3a1b943f6846",
+    "right.png": "945cb43c3919bca1ef8ddad365d4d66a31bfb9f868c02691786734ba6d853608",
+    "left.png": "7b55d4da265db63608e0727e65a35551025728c882314d65dc13820554d40767",
+    "back.png": "80ec0a401df8ef6b34268febc16a0bb3ea7d1df6daccb516b800883f8fe9860f"
+  },
+  "view_convention": "anatomical left/right",
+  "user_approval": "approved",
+  "auto_rig_submitted": false,
+  "task_id": "70f37974-5042-4f45-98b2-18ef06bf60d0",
+  "provider_status": "success",
+  "progress": 100,
+  "last_checked_at": "2026-10-11T17:23:05.409981+00:00",
+  "credits_consumed": 120.0,
+  "output_files": 2,
+  "approval_note": "Reviewed 11 October 2026 against the face sheet from six angles: hair, ears, eyes, profile and neck match; grafted onto model-r03 as graft-r01."
+}

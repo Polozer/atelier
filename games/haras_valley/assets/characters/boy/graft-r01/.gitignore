@@ -2,8 +2,8 @@ review/turntable-frames/
 review/review.blend
 review/renders/
 *.blend
+*.blend1
 *.glb
-BaseColor.png
-Normal.png
-Roughness.png
-Metallic.png
+*.png
+!review/*.png
+!review/*.gif

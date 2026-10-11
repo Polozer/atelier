@@ -1,0 +1,13 @@
+{
+  "event": "multiview_set_approved_for_tripo_generation",
+  "basis": "Paul Fontanier asked to regenerate with Tripo from better views. With no image-model key on this machine, the best views are the face sheet's: front, both profiles and back of the head and shoulders, the head about 300 px tall (twice the turnaround's). Claude cut each at one scale with the figure tops aligned and centred on the head's vertical axis (the ears in profile), left.png showing his left side (he faces image-left), background-filled outside each figure, upscaled to 1024 px.",
+  "source": "face-six-views.png (the user's file 03-face-six-views.png)",
+  "images": {
+    "front.png": "01d78269e042aff9f60d8e05c3a863032525a8bcd782dfaebbec3a1b943f6846",
+    "right.png": "945cb43c3919bca1ef8ddad365d4d66a31bfb9f868c02691786734ba6d853608",
+    "left.png": "7b55d4da265db63608e0727e65a35551025728c882314d65dc13820554d40767",
+    "back.png": "80ec0a401df8ef6b34268febc16a0bb3ea7d1df6daccb516b800883f8fe9860f"
+  },
+  "view_convention": "anatomical left/right; character faces +X, left +Y, up +Z",
+  "approved_at": "2026-10-11T17:19:37.383766+00:00"
+}

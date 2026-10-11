@@ -1,0 +1,86 @@
+{
+  "source": "boy-graft-r01.glb",
+  "blender_version": "5.1.2",
+  "bounds_min": [
+    -0.10143554210662842,
+    -0.404541015625,
+    -0.499755859375
+  ],
+  "bounds_max": [
+    0.104248046875,
+    0.404541015625,
+    0.4987194538116455
+  ],
+  "dimensions_m": [
+    0.20568358898162842,
+    0.80908203125,
+    0.9984753131866455
+  ],
+  "front_axis_assumption": "+X (provider default); check the renders",
+  "mesh_objects": [
+    {
+      "object": "boy",
+      "vertices": 29986,
+      "polygons": 32024,
+      "polygon_sizes": {
+        "3": 32024
+      },
+      "triangles": 32024,
+      "uv_layers": [
+        "UVMap"
+      ],
+      "materials": [
+        "tripo_mat_7dd29c63",
+        "tripo_mat_70f37974"
+      ],
+      "boundary_edges": 24460,
+      "non_manifold_edges": 24460
+    }
+  ],
+  "textures": [
+    {
+      "name": "BodyBaseColor",
+      "size": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "name": "BustBaseColor",
+      "size": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "name": "Normal",
+      "size": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "name": "Normal.001",
+      "size": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "name": "tripo_image_70f37974_2-tripo_image_70f37974_1",
+      "size": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "name": "tripo_image_7dd29c63_2-tripo_image_7dd29c63_1",
+      "size": [
+        4096,
+        4096
+      ]
+    }
+  ],
+  "armatures": 0,
+  "note": "GLTF import is triangulated; the provider's quad topology is not visible here."
+}
