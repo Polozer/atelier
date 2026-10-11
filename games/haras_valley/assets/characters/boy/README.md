@@ -55,8 +55,11 @@ Tripo's eyes also sloped down toward the outside and sat low between their corne
 eyes are painted, each eye region turns 8 degrees outer corner up and its middle rises by 0.20 of its width with the
 corners pinned (`eyes.tilt`, `eyes.lift`), so the upper lid arches as drawn; the lower lid is painted 0.23 eye widths
 below the corners, as in the drawing, and the eyeball below it is painted as skin.
-The mouth drooped the same way: Tripo's lower lip curved down at the ends and the projected line ended in small
-hooks. `mouth.py` raises the face around the mouth corners by 2.5 mm, nothing at the middle, fading into the cheeks.
+The mouth showed twice: Tripo sculpted lips with a slit, and the drawing's line, aligned to Tripo's painted mouth,
+sat 3 to 5 mm above it; the lip also drooped at the ends. `mouth.py` raises the face around the mouth corners by
+2.5 mm, smooths the lips flat in depth and closes the slit, unfolds the corners, clears the area to skin and draws
+one line in the drawing's colour where the slit was. The shading normals of every moved vertex are re-derived from
+the new surface (Tripo's FBX carries the sculpt's shading frozen in custom normals).
 `eyes-closeup-front.png`, `eyes-closeup-three-quarter.png` and `mouth-closeup-front.png` show the result up close. `face_closeup.py` renders the face
 at 1200 px from a review blend; `compare-face.png` shows the sheet, Tripo's face, the cleaned face and its
 three-quarter. For a crisper source than the 512 px sheet cell, `games/haras_valley/tools/face_portrait.py` paints a

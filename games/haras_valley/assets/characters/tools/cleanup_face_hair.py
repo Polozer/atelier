@@ -26,8 +26,11 @@ brows) and its hair shorter and greyer, and its eyes and mouth droop at the oute
 6. Eyes and brows. The projected drawing's eyes do not fit Tripo's sculpted sockets, so eyes.py paints clean cel
    eyes onto the eyeballs inside each reshaped socket's rim, colours the brow strips, clears Tripo's eye paint, gloss
    and normal detail around them, and the cornea discs are removed (see eyes.py).
-7. Mouth corners. The face around the mouth corners rises by up to MOUTH_RISE, nothing at the middle, fading into the
-   cheeks, so the lower lip and the painted line no longer droop at the ends (mouth.py).
+7. Mouth. The drawing's mouth line (aligned to Tripo's painted mouth) sat 3 to 5 mm above Tripo's sculpted lip seam,
+   so two mouths showed. The face around the mouth corners rises by up to MOUTH_RISE (nothing at the middle, fading
+   into the cheeks), the sculpted lips are smoothed flat in depth (their slit read as a second, parted mouth), the
+   whole mouth area is cleared to skin with a flat normal map, and one line in the drawing's colour is drawn where
+   the seam was (mouth.py).
 
 The output is a .blend with the four texture maps packed, a GLB beside it and cleanup.json with the measurements.
 """
@@ -308,14 +311,23 @@ def main():
 
     # 5. Eye shape, before the eyes are painted on it: the outer corners up to the drawing's slant, then the middle of
     # each eye lifted so the corners sit where the drawing's do (Tripo's droop and low lids read as sad).
+    before_reshape = [v.co.copy() for v in mesh.vertices]
     tilt_record = eyes.tilt(mesh, world, parts, EYE_TILT_DEGREES)
     lift_record = eyes.lift(mesh, world, parts, EYE_LIFT)
+    mouth_record = mouth.corners(mesh, world, parts['face'], MODEL_EYE_MID_Y, MOUTH_Z, MOUTH_HALF_WIDTH, MOUTH_RISE)
+    lips = mouth.seam(mesh, world, parts['face'], MODEL_EYE_MID_Y, MOUTH_HALF_WIDTH)
+    flatten_record = mouth.flatten(mesh, world, parts['face'], lips)
+    normals_record = mouth.refresh_normals(mesh, before_reshape)     # Tripo's frozen shading off the moved surface
 
     # 6. Eyes and brows: clean cel eyes fitted to the reshaped sockets (eyes.py).
     roughness_image, metallic_image = image_for(material, 'Roughness'), image_for(material, 'Metallic')
     roughness_data = np.array(roughness_image.pixels[:], dtype=np.float32).reshape(height, width, 4)
     metallic_data = np.array(metallic_image.pixels[:], dtype=np.float32).reshape(height, width, 4)
     eye_record = eyes.paint(mesh, world, uv, colour, roughness_data, metallic_data, normal_data, texel_coverage, parts)
+
+    # 7. One mouth: the drawn and Tripo-painted mouths cleared, a single line along the sculpted seam (mouth.py).
+    mouth_paint = mouth.paint(mesh, world, uv, colour, roughness_data, normal_data, texel_coverage, parts['face'],
+                              MODEL_EYE_MID_Y, MOUTH_HALF_WIDTH, np.array(eye_record['skin_colour'], np.float32), lips)
 
     replace(base, 'BaseColor', colour)
     replace(normal_image, 'Normal', normal_data)
@@ -337,9 +349,6 @@ def main():
         largest = max(largest, move.length)
         mesh.vertices[index].co = inverse @ (point + move)
     mesh.update()
-
-    # 7. Mouth corners up: Tripo's lower lip and the projected line both droop at the ends (mouth.py).
-    mouth_record = mouth.corners(mesh, world, parts['face'], MODEL_EYE_MID_Y, MOUTH_Z, MOUTH_HALF_WIDTH, MOUTH_RISE)
 
     # Tripo's cornea discs (tiny pieces floating on each eyeball) shade differently from the painted eye: removed.
     import bmesh
@@ -370,7 +379,7 @@ def main():
         'skin_gain': [round(float(c), 3) for c in skin_gain], 'skin_texels_matched': int(rest.sum()),
         'hair_median_before': [round(float(c), 3) for c in hair_before], 'hair_target': [round(float(c), 3) for c in hair_target],
         'hair_texels_recoloured': int(hair_mask.sum()), 'hair_polygons': len(hair_polygons),
-        'eyes': eye_record, 'eye_tilt': tilt_record, 'eye_lift': lift_record, 'mouth_corners': mouth_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
+        'eyes': eye_record, 'eye_tilt': tilt_record, 'eye_lift': lift_record, 'mouth_corners': mouth_record, 'mouth_line': mouth_paint, 'mouth_flatten': flatten_record, 'reshaded': normals_record, 'cornea_disc_polygons_removed': len(parts['discs']), 'hair_vertices_moved': len(hair_vertices), 'largest_hair_move': round(largest, 4), 'hair_stretch': HAIR_STRETCH, 'fringe_droop': FRINGE_DROOP,
     }
     (output / 'cleanup.json').write_text(json.dumps(record, indent=2) + '\n')
     print(json.dumps(record, indent=1), flush=True)

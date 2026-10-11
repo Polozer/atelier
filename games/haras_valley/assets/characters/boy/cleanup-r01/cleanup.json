@@ -137,6 +137,29 @@
     "vertices_moved": 134,
     "largest_move_mm": 2.5
   },
+  "mouth_line": {
+    "seam_quadratic": [
+      3.7705,
+      0.0573,
+      0.3361
+    ],
+    "seam_y_mm": [
+      -18.8,
+      13.4
+    ],
+    "seam_middle_z_mm": 336.0,
+    "texels_cleared": 35667,
+    "texels_inked": 8190
+  },
+  "mouth_flatten": {
+    "vertices_flattened": 95,
+    "vertices_closed_onto_seam": 66,
+    "largest_depth_change_mm": 8.63
+  },
+  "reshaded": {
+    "vertices_moved": 607,
+    "vertices_reshaded": 703
+  },
   "cornea_disc_polygons_removed": 24,
   "hair_vertices_moved": 1238,
   "largest_hair_move": 0.0316,
