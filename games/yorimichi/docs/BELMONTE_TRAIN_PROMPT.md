@@ -1,6 +1,10 @@
 # Belmonte luxury train — deferred concept prompt
 
-Status: prepared brief only. Generate images only when the user explicitly asks to generate the train inspirations. This document does not authorize image generation, paid 3D calls, asset creation or map edits by itself.
+Status: initial inspirations generated; design review pending. Generate further images only when the user explicitly asks. This document does not authorize image generation, paid 3D calls, asset creation or map edits by itself.
+
+Initial inspirations were generated on 12 October 2026 and are awaiting the user's design review. The three images and their exact prompts are saved locally in the canonical Atelier checkout's `build/yorimichi/train-concepts/r01/`: `exterior.png`, `restaurant.png` and `first-class.png`, each with a provenance JSON file. The built-in image tool was used; its model identifier is not exposed. These are artistic inspirations, not validated modelling specifications.
+
+The user wants to use their **Tripo Studio credits** for the subsequent 3D work. After agreeing on an inspiration, explain the Studio workflow and prepare suitable references. Do not use the Tripo API to spend credits or submit a model as part of concept generation.
 
 ## Copy-ready prompt
 
