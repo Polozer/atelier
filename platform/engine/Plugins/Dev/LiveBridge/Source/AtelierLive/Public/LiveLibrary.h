@@ -15,6 +15,9 @@ class ATELIERLIVE_API UAtelierLiveSettings : public UDeveloperSettings
 {
     GENERATED_BODY()
 public:
+    /** The repository root, relative to the Unreal project folder: "../../.." for a game at games/<game>/unreal (the
+     *  default), "." for a project that is its own root. Every other path here and in the verbs resolves against it. */
+    UPROPERTY(Config, EditAnywhere, Category = "Live") FString RootFolder = TEXT("../../..");
     /** Material for runtime GLB props: parameters "Tint" (vector) and "Tex" (texture) receive the glTF base colour. */
     UPROPERTY(Config, EditAnywhere, Category = "Live") FSoftObjectPath PropMaterial;
     /** Folder of overlay files (<Name>.json), relative to the repository root. Every overlay loads at start. */
@@ -83,7 +86,7 @@ public:
     /** Overlays: <OverlayFolder>/<Name>.json lists props with their GLB, transform and collision. */
     UFUNCTION(BlueprintCallable, Category = "Live") static bool SaveOverlay(const FString& Name);
     UFUNCTION(BlueprintCallable, Category = "Live") static int32 LoadOverlay(const FString& Name);
-    /** The repository root (games/<game>/unreal is three levels down); relative paths in verbs resolve against it. */
+    /** The repository root (the project folder + RootFolder); relative paths in verbs resolve against it. */
     UFUNCTION(BlueprintCallable, Category = "Live") static FString LiveRoot();
     static FString Resolve(const FString& Path);
     /** The latest Say() line and its remaining time, for the HUD. */

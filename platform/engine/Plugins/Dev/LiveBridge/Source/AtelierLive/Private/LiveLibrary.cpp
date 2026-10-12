@@ -148,7 +148,7 @@ namespace
 }
 
 // ------------------------------------------------------------------ verbs
-FString ULiveLibrary::LiveRoot() { return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("../../..")); }
+FString ULiveLibrary::LiveRoot() { return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / Settings().RootFolder); }
 FString ULiveLibrary::Resolve(const FString& Path) { return FPaths::IsRelative(Path) ? FPaths::ConvertRelativePathToFull(LiveRoot() / Path) : Path; }
 
 UWorld* ULiveLibrary::GameWorld()

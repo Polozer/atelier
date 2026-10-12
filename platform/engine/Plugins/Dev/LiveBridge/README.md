@@ -16,7 +16,8 @@ every start).
 
 - `[HTTPServer.Listeners] +ListenerOverrides=(Port=8830,BindAddress=localhost)` in its DefaultEngine.ini. The engine's
   default binds every interface; the bridge refuses to start (an error in the log) unless its port is on loopback.
-- `[/Script/AtelierLive.AtelierLiveSettings]` in its DefaultGame.ini: `PropMaterial` (parameters `Tint` and `Tex`),
+- `[/Script/AtelierLive.AtelierLiveSettings]` in its DefaultGame.ini: `RootFolder` (the repository root relative to
+  the Unreal project, `../../..` by default; `.` for a project outside this repository), `PropMaterial` (parameters `Tint` and `Tex`),
   `OverlayFolder`, `PythonFolder`, `PythonModule` (paths relative to the repository root), `Port`.
 - A call to `AtelierLive::Start(World)` once the player is ready, and optionally `AtelierLive::SetTeleport(...)` to
   route teleports through its own travel.
