@@ -107,6 +107,8 @@ public:
     virtual bool ForcePositionUpdate(float Dt) override;
     virtual bool VerifyClientTimeStamp(float Timestamp, FNetworkPredictionData_Server_Character& Data) override;
     virtual void TickComponent(float Dt, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+    virtual void TickCharacterPose(float Dt) override;
+    float GetPresentationExtrapolation() const;
     virtual void ReplicateMoveToServer(float Dt, const FVector& NewAcceleration) override;
     virtual void SetBase(FMovementBaseInterfaceData* Base, const FName Bone = NAME_None, bool bNotifyActor = true) override;
     virtual void MoveAutonomous(float Timestamp, float Dt, uint8 Flags, const FVector& Accel) override;
@@ -123,6 +125,7 @@ public:
     virtual void PhysCustom(float Dt, int32 Iterations) override;
     virtual void HandleImpact(const FHitResult& Hit, float TimeSlice = 0.f, const FVector& MoveDelta = FVector::ZeroVector) override;
 private:
+    double LastRemoteSimulationTime = -1.;
     void ResetScheduledReactions();
     void TickScheduledReactions();
     void ScheduleReactionDeadline(uint32 Sequence, double Now, double RTT, double Jitter);

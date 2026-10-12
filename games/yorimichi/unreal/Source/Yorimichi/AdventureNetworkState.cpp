@@ -77,6 +77,7 @@ void FAdventureNetworkState::Apply(UAdventureMoveSet& Moves, const FJapanMoveChe
 {
     const bool HadGlider = Moves.bGliderShown;
 #define ADVENTURE_FIELD(Type, Name) Moves.Name = Name;
+#include "AdventureNetworkFields.inl"
 #undef ADVENTURE_FIELD
     AWandererCharacter& Rider = *Moves.Character;
     Rider.AnimationAction = Checkpoint.Action;
@@ -107,10 +108,11 @@ void FAdventureNetworkState::Apply(UAdventureMoveSet& Moves, const FJapanMoveChe
 
 bool FAdventureNetworkState::Serialize(FArchive& Ar)
 {
-    uint16 Schema = 1;
+    uint16 Schema = 2;
     Ar << Schema;
-    if (Schema != 1) { Ar.SetError(); return false; }
+    if (Schema != 2) { Ar.SetError(); return false; }
 #define ADVENTURE_FIELD(Type, Name) Field(Ar, Name);
+#include "AdventureNetworkFields.inl"
 #undef ADVENTURE_FIELD
     Field(Ar, ActionSerial); Field(Ar, ActionBlendTime); Field(Ar, ActionTime); Field(Ar, ActionDuration);
     Field(Ar, ActionSourceStartTime); Field(Ar, ActionPlayRate); Field(Ar, bActionLoops);

@@ -210,6 +210,7 @@ public:
     FString Describe() const;
 
 private:
+    friend class FJapanCheckpointTest;
     friend class FJapanReactionTransportTest;
     friend class FJapanReactionPayloadTest;
     void SubmitMovementReaction(const FAdventureMovementReaction& Reaction);

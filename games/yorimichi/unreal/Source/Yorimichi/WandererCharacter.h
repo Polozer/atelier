@@ -86,6 +86,8 @@ public:
     float GetActionPlayRate() const { return ActionPlayRate; }
     float GetActionTime() const { return ActionTime; }
     float GetActionSourceTime() const { return ActionSourceStartTime+ActionTime*ActionPlayRate; }
+    /** Render-time phase for the listen host's remote player; simulation and combat keep their own clock. */
+    float GetPresentationActionSourceTime() const;
     bool HasMovementIntent() const { return !MoveIntent.IsNearlyZero(); }
     bool DoesActionLoop() const { return bActionLoops; }
     bool IsReady() const { return bReady; }
@@ -220,6 +222,7 @@ private:
     bool bNetworkAvatarReceived = false;
     float LastAvatarPublication = -1.f;
     friend class FJapanReactionTransportTest;
+    friend class FJapanCheckpointTest;
     friend class FYorimichiPhone;
     friend class UWandererSwordComponent;
     friend class AZeppelinService;

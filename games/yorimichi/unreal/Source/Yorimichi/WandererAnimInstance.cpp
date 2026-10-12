@@ -412,7 +412,7 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
             if (const UAnimSequenceBase* Clip = Action.GetSequence())
             {
                 const float Length = FMath::Max(Clip->GetPlayLength(), .001f);
-                const float Phase = FMath::Max(0.f, Pawn->GetActionSourceTime());
+                const float Phase = FMath::Max(0.f, Pawn->GetPresentationActionSourceTime());
                 Action.SetAccumulatedTime(Pawn->DoesActionLoop() ? FMath::Fmod(Phase, Length) : FMath::Min(Phase, Length));
                 Action.SetPlayRate(0.f);
             }

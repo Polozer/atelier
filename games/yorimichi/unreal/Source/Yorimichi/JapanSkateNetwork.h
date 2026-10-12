@@ -23,6 +23,8 @@ public:
     uint32 GetBeforeBufferCount() const { return BeforeBufferCount; }
     uint32 GetAfterBufferCount() const { return AfterBufferCount; }
     uint32 GetTimestampDropCount() const { return TimestampDropCount; }
+    uint32 GetObservedPoseCount() const { return ObservedPoseCount; }
+    uint32 GetMatchingPoseCount() const { return MatchingPoseCount; }
     uint8 GetHostMode() const { return HostMode; }
     uint32 GetAcceptedFrameCount() const { return AcceptedFrameCount; }
     virtual void TickComponent(float Dt, ELevelTick Type, FActorComponentTickFunction* Tick) override;
@@ -34,6 +36,10 @@ public:
     UFUNCTION(Server, Unreliable) void ServerBoard(const FJapanBoardState& State);
 private:
     UPROPERTY() TObjectPtr<AWandererCharacter> Rider;
+    void ConfigureTickOrder();
+    void ObserveDisplayedPose();
+    bool bTickRoleKnown = false, bCaptureTick = false;
+    uint32 ObservedPoseCount = 0, MatchingPoseCount = 0;
     UPROPERTY(ReplicatedUsing=OnRep_Board) FJapanBoardState Board;
     UFUNCTION() void OnRep_Board();
     TArray<FJapanBoardState> Boards;

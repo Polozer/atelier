@@ -68,6 +68,12 @@ float AWandererCharacter::GetSprintSpeed() const
     return Definition->UseAuthoredMovement ? Definition->SprintSpeed*SprintSpeedMultiplier : Definition->RunSpeed*2.5f;
 }
 
+float AWandererCharacter::GetPresentationActionSourceTime() const
+{
+    const auto* Movement = Cast<UJapanCharacterMovement>(GetCharacterMovement());
+    return GetActionSourceTime() + (Movement ? Movement->GetPresentationExtrapolation() * ActionPlayRate : 0.f);
+}
+
 AWandererCharacter::AWandererCharacter(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer.SetDefaultSubobjectClass<UJapanCharacterMovement>(ACharacter::CharacterMovementComponentName))
 {

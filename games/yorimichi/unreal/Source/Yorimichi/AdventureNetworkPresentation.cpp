@@ -18,8 +18,10 @@ FJapanAvatarState UAdventureMoveSet::CapturePresentation() const
     State.Flags = (Character->bActionLoops ? FJapanAvatarState::Loop : 0) | (bArmed ? FJapanAvatarState::Armed : 0) |
         (bGuardHeld ? FJapanAvatarState::Guard : 0) | (bDown ? FJapanAvatarState::Down : 0) |
         (bGliderShown ? FJapanAvatarState::Glider : 0) | (bLocked ? FJapanAvatarState::Locked : 0);
-    State.MeshLocation = Character->GetMesh()->GetRelativeLocation();
-    State.MeshRotation = Character->GetMesh()->GetRelativeRotation();
+    // A listen host's displayed mesh also contains its local CMC smoothing residual.
+    // Publish the authored base only; each observer owns its own smoothing.
+    State.MeshLocation = Character->GetBaseTranslationOffset();
+    State.MeshRotation = Character->GetBaseRotationOffset().Rotator();
     State.Intent = FVector(Character->MoveIntent.X, Character->MoveIntent.Y, 0);
     State.FlinchTime = FlinchTime; State.FlinchAngle = FlinchAngle; State.FlinchPeak = FlinchPeak;
     State.FlinchTwist = FlinchTwist; State.FlinchAxis = FlinchAxis;

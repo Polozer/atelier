@@ -104,6 +104,7 @@ def listen_receipts(receipts):
             skate_seconds=6, maximum_saved_skate_moves=0, received_peer_frames=100, applied_peer_frames=80,
             jump_cm=60, processed_edges=2, checkpoints_applied=20, checkpoints_rejected=0, interpolated_peer_frames=70, held_peer_frames=10,
             before_buffer_peer_frames=0, after_buffer_peer_frames=0, peer_timestamp_drops=0,
+            observed_peer_poses=200, matching_peer_poses=199,
             position_corrections_over_1cm=0, largest_correction_cm=.06)))
     return receipts
 
@@ -130,6 +131,9 @@ def test_listen_pair_requires_both_observers_and_host_survives_leave(listen_rece
     ('client-gameplay', 'peer_timestamp_drops', 3),
     ('client-gameplay', 'position_corrections_over_1cm', 1),
     ('host/client-gameplay', 'largest_correction_cm', 9.37),
+    ('host/client-gameplay', 'observed_peer_poses', 0),
+    ('host/client-gameplay', 'matching_peer_poses', 0),
+    ('client-gameplay', 'matching_peer_poses', 100),
 ])
 def test_received_packets_alone_or_bad_listen_teardown_fail(listen_receipts, name, field, value):
     change(listen_receipts, name, lambda v: v.update({field: value}))

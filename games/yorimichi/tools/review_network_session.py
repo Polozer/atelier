@@ -188,6 +188,9 @@ def compare_receipts(folder, gameplay=False, listen=False, emulation=None, bound
                     total > 0 and receipt.get('interpolated_peer_frames', 0) / total >= .7)
                 checks[role + '_within_pose_buffer'] = total > 0 and outside / total <= .15
                 checks[role + '_bounded_timestamp_drops'] = 0 <= receipt.get('peer_timestamp_drops', -1) <= 2
+                observed = receipt.get('observed_peer_poses', 0)
+                matching = receipt.get('matching_peer_poses', 0)
+                checks[role + '_displayed_skate_pose'] = observed >= 60 and .95 <= matching / observed <= 1
                 if not any((emulation or {}).get(key, 0) for key in ('lag_ms', 'variance_ms', 'loss_percent')):
                     checks[role + '_zero_lag_prediction'] = (receipt.get('position_corrections_over_1cm') == 0 and
                         0 <= receipt.get('largest_correction_cm', -1) < 1)

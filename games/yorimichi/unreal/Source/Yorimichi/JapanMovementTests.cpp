@@ -1,5 +1,10 @@
 #include "JapanMovementNet.h"
 #include "AdventureNetworkState.h"
+#include "WandererCharacter.h"
+#include "JapanCharacterMovement.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "JapanMoveClock.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -221,7 +226,8 @@ bool FJapanCheckpointTest::RunTest(const FString&)
     State.Clock = 40.f; State.ActionTime = .35f;
     State.DriveOrigin = FVector(1200., -400., 75.); State.DriveScale = FVector(1., 2., 3.);
     State.DrivePrevious = .3f; State.GlideSpeed = 875.f; State.GlideYaw = 123.f; State.GlideTurn = -.4f;
-    State.bGuardHeld = true; State.WallPoint = FVector(60., 30., 200.); State.ClimbShift = 24.f;
+    State.bGuardHeld = State.bArmed = true; State.WallPoint = FVector(60., 30., 200.); State.ClimbShift = 24.f;
+    State.SwordCarry = .75f; State.SwordGuardCarry = .5f;
     State.PendingLaunch = FVector(0., 0., 340.);
     TArray<uint8> Bytes;
     FMemoryWriter Writer(Bytes, true);
@@ -237,6 +243,33 @@ bool FJapanCheckpointTest::RunTest(const FString&)
     TestEqual(TEXT("Glide turn survives"), Restored.GlideTurn, State.GlideTurn);
     TestTrue(TEXT("Climb anchor and pending launch survive"), Restored.WallPoint.Equals(State.WallPoint) && Restored.PendingLaunch.Equals(State.PendingLaunch));
     TestTrue(TEXT("Stamina and held guard survive"), Restored.Stamina.Units == State.Stamina.Units && Restored.bGuardHeld);
+    TestTrue(TEXT("Drawn sword and guard layers survive"), Restored.bArmed && Restored.SwordCarry == .75f && Restored.SwordGuardCarry == .5f);
+
+    // Round-trip data alone cannot prove that replay restores live state or the physical prop.
+    Spawn.bDeferConstruction = true;
+    auto* Rider = TestWorld->SpawnActor<AWandererCharacter>(FVector(0., 0., 100000.), FRotator::ZeroRotator, Spawn);
+    if (!TestNotNull(TEXT("Equipment correction owns a temporary character"), Rider)) return false;
+    ON_SCOPE_EXIT { Rider->Destroy(); };
+    Rider->Moves = NewObject<UAdventureMoveSet>(Rider);
+    auto* Moves = Rider->Moves.Get(); Moves->Character = Rider;
+    auto* Sword = NewObject<UStaticMeshComponent>(Rider);
+    Sword->RegisterComponent(); Moves->Props.Add(TEXT("sword"), Sword);
+    UAdventureMoveSet::FSlot Slot; Slot.Hand = TEXT("hand_R"); Slot.Back = TEXT("spine");
+    Slot.Held = Slot.Carry = FTransform::Identity;
+    Moves->Slots.Add(TEXT("sword"), Slot); Moves->Attach(TEXT("sword"));
+    auto* RiderMovement = CastChecked<UJapanCharacterMovement>(Rider->GetCharacterMovement());
+    RiderMovement->SetUpdatedComponent(Rider->GetCapsuleComponent());
+    Restored.Apply(*Moves, {});
+    TestTrue(TEXT("Replay restores armed simulation and held guard"), Moves->bArmed && Moves->bGuardHeld);
+    TestEqual(TEXT("Replay puts the actual sword on the hand socket"), Sword->GetAttachSocketName(), FName(TEXT("hand_R")));
+    TestEqual(TEXT("Replay restores the traversal clock"), Moves->Clock, State.Clock);
+    Restored.bArmed = false; Restored.bGuardHeld = false; Restored.Apply(*Moves, {});
+    TestFalse(TEXT("Sheathing correction restores unarmed simulation"), Moves->bArmed);
+    TestEqual(TEXT("Sheathing correction puts the actual sword on the back socket"), Sword->GetAttachSocketName(), FName(TEXT("spine")));
+    Bytes[0] = 1;
+    FMemoryReader OldSchema(Bytes, true);
+    FAdventureNetworkState Old;
+    TestFalse(TEXT("The old incomplete checkpoint layout is rejected"), Old.Serialize(OldSchema));
     Bytes[0] = 255;
     FMemoryReader BadSchema(Bytes, true);
     FAdventureNetworkState Rejected;

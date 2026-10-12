@@ -35,9 +35,42 @@ void UJapanSkateNetwork::BeginPlay()
     Super::BeginPlay();
     Rider = Cast<AWandererCharacter>(GetOwner());
     if (!Rider || Rider->IsNpc() || !JapanNetwork::IsOnline(GetWorld())) { SetComponentTickEnabled(false); return; }
-    AddTickPrerequisiteComponent(Rider->GetMesh());
     AddTickPrerequisiteComponent(Rider->GetCharacterMovement());
+    ConfigureTickOrder();
+}
 
+void UJapanSkateNetwork::ConfigureTickOrder()
+{
+    const bool Capture = Rider->IsLocallyControlled();
+    if (bTickRoleKnown && bCaptureTick == Capture) return;
+    bTickRoleKnown = true; bCaptureTick = Capture;
+    auto* Mesh = Rider->GetMesh();
+    if (Capture)
+    {
+        Mesh->RemoveTickPrerequisiteComponent(this);
+        AddTickPrerequisiteComponent(Mesh);
+        PrimaryComponentTick.TickGroup = TG_PostPhysics;
+    }
+    else
+    {
+        RemoveTickPrerequisiteComponent(Mesh);
+        AddTickPrerequisiteActor(Rider);
+        Mesh->AddTickPrerequisiteComponent(this);
+        PrimaryComponentTick.TickGroup = TG_PrePhysics;
+    }
+}
+
+void UJapanSkateNetwork::ObserveDisplayedPose()
+{
+    if (Rider->IsLocallyControlled() || GetWorld()->GetNetMode() == NM_DedicatedServer ||
+        Rider->GetNetworkActivity() != EJapanActivity::Skate || !LastAppliedFrame) return;
+    const auto& Expected = Rider->GetSkate()->GetRiderPose();
+    const auto& Displayed = Rider->GetMesh()->GetBoneSpaceTransforms();
+    if (Expected.IsEmpty() || Expected.Num() != Displayed.Num()) return;
+    ++ObservedPoseCount;
+    for (int32 I = 0; I < Expected.Num(); ++I)
+        if (!Expected[I].Equals(Displayed[I], .001f)) return;
+    ++MatchingPoseCount;
 }
 
 void UJapanSkateNetwork::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -50,6 +83,8 @@ void UJapanSkateNetwork::TickComponent(float Dt, ELevelTick Type, FActorComponen
 {
     Super::TickComponent(Dt, Type, Tick);
     if (!Rider) return;
+    ConfigureTickOrder();
+    ObserveDisplayedPose();
     if (!Rider->IsLocallyControlled() && !Rider->GetSkate()->IsNetworkProxy() &&
         (Rider->GetLocalRole() == ROLE_SimulatedProxy || Rider->GetController()))
         Rider->GetSkate()->InitializeNetworkProxy(Rider);

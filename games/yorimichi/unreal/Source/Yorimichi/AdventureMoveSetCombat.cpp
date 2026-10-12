@@ -1,4 +1,5 @@
 #include "AdventureMoveSet.h"
+#include "JapanVehicleVisuals.h"
 #include "AdventureMovementReaction.h"
 #include "JapanEnemyQA.h"
 #include "JapanCombat.h"
@@ -1027,13 +1028,13 @@ void UAdventureMoveSet::AdvanceMeshOffset(float Dt)
             const FVector Pivot = FlipPivot.IsZero() ? FVector(0, 0, FlipLift) : FlipPivot;
             Placed = Placed * FTransform(-Pivot) * FTransform(FQuat(FVector::YAxisVector, FMath::DegreesToRadians(FlipAngle))) * FTransform(Pivot);
         }
-        Body->SetRelativeTransform(Placed);
+        JapanVehicleVisuals::SetRiderPose(Character, Placed.GetLocation(), Placed.GetRotation());
         bMeshTurned = bMeshOffset = true;
         return;
     }
-    if (bMeshTurned) { Body->SetRelativeRotation(MeshBaseRotation); bMeshTurned = false; bMeshOffset = true; }
+    if (bMeshTurned) { bMeshTurned = false; bMeshOffset = true; }
     if (Offset.IsNearlyZero(.01) && !bMeshOffset) return;
-    Body->SetRelativeLocation(MeshBase + Offset);
+    JapanVehicleVisuals::SetRiderPose(Character, MeshBase + Offset, MeshBaseRotation);
     bMeshOffset = !Offset.IsNearlyZero(.01);
 }
 
