@@ -132,7 +132,7 @@ h1 { font-family: var(--display); font-weight: 400; font-size: 2rem; line-height
   </aside>
   <main id="stage">
     <div id="loading">Chargement…</div>
-    <div id="hud">Glisser pour tourner · molette pour zoomer · cliquer un véhicule dans la liste pour s'y rendre</div>
+    <div id="hud">Glisser pour tourner · molette pour zoomer · cliquer un véhicule dans la liste pour s'y rendre, puis « À pied » pour y entrer</div>
     <div id="cross" hidden></div>
     <div id="pad" hidden><button id="p-f" aria-label="Avancer">▲</button><button id="p-b" aria-label="Reculer">▼</button></div>
   </main>
@@ -335,8 +335,9 @@ function applyToggles() {
 for (const id of ['t-roof', 't-res', 't-planned', 't-doors']) $(id).addEventListener('change', applyToggles);
 applyToggles();
 
-let flight = null;
+let flight = null, selected = null;
 function focusVehicle(v) {
+  selected = v;
   setMode('orbit');
   const target = new THREE.Vector3(v.x, 2.2, 0);
   const dist = Math.max(14, v.length * 1.05);
@@ -369,6 +370,21 @@ function hits(x, y, r) {
   return false;
 }
 const walker = { on: false, x: 0, y: 0, yaw: 0, pitch: 0, eye: 1.62, r: .28, keys: new Set(), pad: 0 };
+function spawn(v) {
+  // the first free standing point found from the middle of the vehicle outwards, on the centre line or a corridor
+  const [lo, hi] = v.walk, mid = (lo + hi) / 2;
+  for (let d = 0; d < (hi - lo) / 2; d += .25) {
+    for (const sgn of [1, -1]) {
+      for (const y of [0, -IN + .6, IN - .6]) {
+        const x = v.x + mid + sgn * d;
+        if (inside(x, y, walker.r) && !hits(x, y, walker.r)) {
+          walker.x = x; walker.y = y; walker.yaw = sgn > 0 ? 0 : Math.PI; walker.pitch = -.05;
+          return;
+        }
+      }
+    }
+  }
+}
 function setMode(m) {
   for (const [id, mode] of [['m-orbit', 'orbit'], ['m-adult', 'adult'], ['m-cairo', 'cairo']]) $(id).setAttribute('aria-pressed', String(m === mode));
   walker.on = m !== 'orbit';
@@ -380,12 +396,15 @@ function setMode(m) {
   if (walker.on) {
     const human = m === 'adult' ? consist.human.adult : consist.human.cairo;
     walker.r = human.radius; walker.eye = human.height * .92;
-    const v = consist.vehicles.find((q) => q.id === 'restaurant') || built[0];
-    if (!inside(walker.x, walker.y, walker.r)) { walker.x = v.x - INX + .6; walker.y = -.05; walker.yaw = 0; walker.pitch = -.05; }
+    // enter the vehicle picked in the list, or else the built one nearest to the view
+    const target = selected && selected.status === 'built' ? selected
+      : built.reduce((best, q) => (Math.abs(q.x - controls.target.x) < Math.abs(best.x - controls.target.x) ? q : best), built[0]);
+    const here = built.find((q) => { const lx = walker.x - q.x; return lx >= q.walk[0] && lx <= q.walk[1]; });
+    if (here !== target || !inside(walker.x, walker.y, walker.r) || hits(walker.x, walker.y, walker.r)) spawn(target);
     $('hud').textContent = touch ? 'Glisser pour regarder · ▲ ▼ pour avancer' : 'Cliquer pour regarder à la souris · ZQSD / WASD ou flèches · Maj pour courir · Échap pour libérer';
   } else {
     if (document.pointerLockElement) document.exitPointerLock();
-    $('hud').textContent = 'Glisser pour tourner · molette pour zoomer · cliquer un véhicule dans la liste pour s\'y rendre';
+    $('hud').textContent = 'Glisser pour tourner · molette pour zoomer · cliquer un véhicule dans la liste pour s\'y rendre, puis « À pied » pour y entrer';
   }
 }
 $('m-orbit').addEventListener('click', () => setMode('orbit'));
