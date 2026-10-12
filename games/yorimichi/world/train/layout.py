@@ -419,7 +419,7 @@ def _cabin(c, name, x0, x1):
             c.seats.append(Seat(f'{sid}-seat-{k + 1}', sid, x - sx * .06, yc + dy, FLOOR_Z + .46, yaw))
         wall_x = x0 + .02 if sx < 0 else x1 - .02
         for k, dy in enumerate((-.60, .60)):
-            c.placements.append(Placement(f'{name}-sconce-{end}{k + 1}', 'wall-sconce', name, wall_x, yc + dy, FLOOR_Z + 1.50, yaw))
+            c.placements.append(Placement(f'{name}-sconce-{end}{k + 1}', 'wall-sconce', name, wall_x, yc + dy, FLOOR_Z + 1.62, yaw))
         c.mounts.append(Mount(f'{name}-rack-{end}', 'rack', name, wall_x, yc, FLOOR_Z + 1.85, yaw, 1.80))
         c.reservations.append(Box(f'{name}-rack-{end}', 'rack', min(wall_x, wall_x - sx * .35), max(wall_x, wall_x - sx * .35),
                                   yc - .90, yc + .90, FLOOR_Z + 1.80, FLOOR_Z + 1.95, 'brass luggage rack above the sofa'))
@@ -431,7 +431,7 @@ def _cabin(c, name, x0, x1):
 # --- restaurant: five dining bays, bar and galley at end B -------------------------------------------------------
 LOBBY = 1.45
 GROUPS = 4
-GROUP = .76 + .10 + .85 + .10 + .76        # banquette, knee gap, table, knee gap, banquette: 2.57 m
+GROUP = .73 + .10 + .85 + .10 + .73        # banquette, knee gap, table, knee gap, banquette: 2.51 m
 PITCH = GROUP + .02                         # banquettes back to back with 2 cm between them
 BAR_COUNTER_X = 4.30                        # front of the bar counter
 COUNTER, STAFF, BACKBAR = .55, .80, .40
