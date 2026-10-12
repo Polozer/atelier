@@ -11,6 +11,9 @@ game with Blender, Unreal Engine 5.8 and generative models.</p>
 
 ---
 
+This is [Polozer's shared Atelier fork](docs/PERSONAL_FORK.md), with `fontanierh/atelier` retained as upstream.
+The [Belmonte luxury train brief](games/yorimichi/docs/BELMONTE_TRAIN_PROMPT.md) prepares the restaurant and first-class coaches for later concept generation.
+
 Atelier is a toolkit for making games with AI agents. Scripts and committed asset sources describe the meshes, rigs,
 clips, worlds and materials; `atelier build` turns them into an Unreal game. Agents run every step from the terminal,
 including the game itself while it plays.

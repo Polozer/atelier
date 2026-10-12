@@ -1,5 +1,10 @@
 # Working rules
 
+## Fork ownership
+
+This fork (`Polozer/atelier`) is the owner's shared Atelier source for their projects. Push owner work to `origin`.
+The brother's repository (`fontanierh/atelier`) stays `upstream`. See [the fork setup](docs/PERSONAL_FORK.md).
+
 Atelier builds 3D games with Unreal Engine 5.8 and Blender from scripts and AI tools. [README.md](README.md) says what
 is here and how to build it; [ARCHITECTURE.md](ARCHITECTURE.md) says how the parts fit.
 
