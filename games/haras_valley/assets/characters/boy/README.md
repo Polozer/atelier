@@ -93,13 +93,15 @@ The Haras Valley Unreal project uses `graft-r01` as the Garçon, in place of its
 3. It transfers the riders' kit skin weights by nearest surface.
 
 The model's arms run only 0.29 of his height from shoulder to fingertip. On the skeleton they run 0.38, close to the
-standing concept's 0.37, and his torso comes out slightly shorter. The game shows him at 1.65 m and drives him
-with its walk, run, idle and riding clips.
+standing concept's 0.37, and his torso comes out slightly shorter. The game shows him at 1.65 m.
+
+- **Motion.** The game drives him with motion-captured clips: idle, walk, run, jump, fall and landing, taken from
+  Epic's UE5 mannequin and retargeted to the riders' skeleton. The riding clips are the game's own.
+- **Look.** He is cel shaded to match the drawings: an unlit material makes two flat tones from the scene's sun and
+  sky, and an inverted hull draws the dark outline. Being unlit, he receives no cast shadows.
+- **Portrait.** The character-creation portrait is drawn in the same look.
 
 ## Next
 
-1. A cel material in Unreal (flat colour bands, an outline) to match the drawings' look; the game uses a plain lit
-   material and the review renders plain studio light.
-2. When the game moves into this repository: `character.toml` and a `build.py` step in place of the copy, and a rig
-   that follows the [humanoid bone contract](../../../../../platform/conventions/rigs/humanoid.toml) if the game
-   adopts it.
+When the game moves into this repository: `character.toml` and a `build.py` step in place of the copy, and a rig that
+follows the [humanoid bone contract](../../../../../platform/conventions/rigs/humanoid.toml) if the game adopts it.
