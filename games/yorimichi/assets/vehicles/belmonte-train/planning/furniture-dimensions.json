@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "status": "draft_shared_dimension_contract_for_blockout",
+  "units": "metres",
+  "furniture_local_axes": {
+    "X": "width",
+    "Y": "depth, front faces -Y",
+    "Z": "up"
+  },
+  "source": "Approved restaurant and private-cabin image direction; dimensions proposed for measured Blender fitting, not measured from generated images.",
+  "coaches": {
+    "length_over_couplers_m": 24,
+    "exterior_width_m": 3.1,
+    "height_above_rail_m": 4.3,
+    "clear_interior_height_m": 2.3,
+    "wall_thickness_each_side_m": 0.075,
+    "internal_width_m": 2.95,
+    "restaurant": {
+      "central_aisle_min_m": 0.95,
+      "dining_bays_draft": 4,
+      "tables_per_bay": 2,
+      "seats_per_table": 2
+    },
+    "first_class": {
+      "compartments_draft": 4,
+      "compartment_length_m": 3,
+      "compartment_width_m": 2,
+      "side_corridor_width_m": 0.9,
+      "partition_thickness_m": 0.05,
+      "seats_per_compartment": 4
+    }
+  },
+  "assets": [
+    {
+      "id": "restaurant-banquette",
+      "name_fr": "Banquette restaurant — une place",
+      "dimensions_m": {
+        "width": 0.9,
+        "depth": 0.65,
+        "height": 1.15
+      },
+      "seat_height_m": 0.46,
+      "pivot": "floor_footprint_center",
+      "material_family": "burgundy-velvet-walnut-brass",
+      "quantity_draft": 16
+    },
+    {
+      "id": "restaurant-table",
+      "name_fr": "Table restaurant — deux convives face à face",
+      "dimensions_m": {
+        "width": 0.8,
+        "depth": 0.65,
+        "height": 0.75
+      },
+      "dimension_basis": "table body and tabletop; linen may overhang by at most 0.04 m per side",
+      "pivot": "floor_footprint_center",
+      "material_family": "walnut-brass-ivory-linen",
+      "quantity_draft": 8
+    },
+    {
+      "id": "first-class-sofa",
+      "name_fr": "Canapé cabine — deux places",
+      "dimensions_m": {
+        "width": 1.85,
+        "depth": 0.78,
+        "height": 1.1
+      },
+      "seat_height_m": 0.46,
+      "pivot": "floor_footprint_center",
+      "material_family": "emerald-velvet-walnut-brass",
+      "quantity_draft": 8
+    },
+    {
+      "id": "first-class-table",
+      "name_fr": "Petite table de cabine",
+      "dimensions_m": {
+        "width": 0.65,
+        "depth": 0.4,
+        "height": 0.62
+      },
+      "base_diameter_m": 0.28,
+      "pivot": "floor_footprint_center",
+      "material_family": "walnut-brass",
+      "quantity_draft": 4
+    },
+    {
+      "id": "table-lamp",
+      "name_fr": "Lampe de table",
+      "dimensions_m": {
+        "width": 0.24,
+        "depth": 0.24,
+        "height": 0.4
+      },
+      "base_diameter_m": 0.14,
+      "pivot": "base_contact_center",
+      "material_family": "brass-ivory-fabric",
+      "quantity_draft": 12
+    },
+    {
+      "id": "wall-sconce",
+      "name_fr": "Applique murale",
+      "dimensions_m": {
+        "width": 0.18,
+        "depth": 0.22,
+        "height": 0.4
+      },
+      "pivot": "wall_mount_center",
+      "material_family": "brass-ivory-fabric",
+      "quantity_draft": null
+    }
+  ],
+  "notes": [
+    "Internal width check: 3.10 - 2*0.075 = 2.95 m; cabin 2.00 + partition 0.05 + corridor 0.90 = 2.95 m.",
+    "The earlier 2.05 m cabin-width concept target is adjusted to 2.00 m for this coherent draft envelope.",
+    "Counts and lengths are preliminary; Claude must reconcile exterior window spacing, vestibules and service areas in the measured floor plan.",
+    "Raster images convey appearance only. Scale and dimensional compliance must be checked on actual meshes in Blender.",
+    "Do not stretch or compress furniture independently by axis to force a fit; revise the mesh or the agreed target dimensions and report changes.",
+    "These records are planning targets, not an existing 3D model or Tripo credit spend."
+  ]
+}
