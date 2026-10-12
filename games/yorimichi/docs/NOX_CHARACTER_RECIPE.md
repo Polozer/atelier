@@ -208,6 +208,21 @@ game. Check footsteps, crouch, dash, roll, jump/double jump, sword carrying and 
 climbing, gestures, sitting, bike contacts and skating mounts/tricks/bails/recoveries. Use the actual runtime graph
 for skating. A static T-pose, a successful FBX import or a browser sway demo alone does not prove playability.
 
+Use matched fixtures to diagnose a failure before changing shared movement code. Nox's direct swim-to-shore route
+caught the cabin's moored rowboat; an open-water waypoint kept the same shore-exit assertion and total deadline.
+For the bike comparison, align the **bike's** world origin after mounting, since different bodies finish the mount
+a few centimetres apart. Preserve the original failed receipts, input sequence and contact thresholds.
+
+Validate collision against the animated skin as well as the bones. Nox's rounded boots needed denser fitted hulls:
+`GetSkateCollisionHullDirections()` requests 1024 for Nox, with the existing default of 256 for other riders.
+The cache and active reuse include this resolution. With `skate.RideSkinCheck 1`, the native skate state reports
+`skin`, `skin_bone`, `skin_vertex`, `skin_point` and `skin_weights`; save the worst event and its bone pose.
+The four street/grass ride-and-recovery checks kept their 2 cm limit; Nox's worst measured contact was 1.9 cm.
+
+Report results by their actual scope. Nox passed all 39 merged-move checks and all four skating ride/bail sites.
+The aligned bike circuit passed 25 of 27 checks; Cairo reproduced the remaining sprint-speed and ramp-wheel
+failures. Those remain shared physics issues, not a passing bike suite. Hair springs are still a browser prototype.
+
 Run the source-library verifier, repository lint and the full Python suite. Record native validation and screenshots
 in the review workspace, then request another agent's PR review. Generated Unreal Content, exported FBXs and captures
 stay ignored. The committed GLB with embedded textures is sufficient to regenerate the game imports; paid generation
