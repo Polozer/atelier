@@ -8,7 +8,7 @@ Travaille à partir du fork personnel `Polozer/atelier`, dont le checkout canoni
 
 - Deux voitures seulement : restaurant et première classe à cabines privées assises. Aucun lit ; locomotive, rails, gare et gameplay de transport restent hors de cette étape.
 - Direction Orient Express : luxe européen Belle Époque avec Art déco discret, carrosserie bleu nuit, bande ivoire, filets or champagne, laiton, toit charcoal arrondi, blason original soleil et rameau d'olivier.
-- Restaurant accepté : boiseries en noyer et marqueterie végétale, velours bordeaux, tables avec linge ivoire, circulation centrale, bar et cuisine à une extrémité.
+- Restaurant accepté : boiseries en noyer et marqueterie végétale, velours bordeaux, tables avec linge ivoire, circulation centrale, bar et cuisine à une extrémité. Nouvelle demande : grandes baies vitrées panoramiques avec allège basse, vitrage proche du plafond et montants fins en noyer/laiton. Conserve les panneaux sous les baies, des supports crédibles et le toit opaque ; les rideaux doivent rester resserrés sur les montants.
 - Première classe acceptée : compartiments fermés donnant sur un couloir latéral. Deux canapés deux places en velours émeraude se font face dans chaque cabine ; une petite table est près de la fenêtre ; porte coulissante vitrée en noyer et laiton. L'ancien salon ouvert est abandonné.
 - De l'extérieur, les fenêtres doivent laisser voir le véritable intérieur vide. Les vitrages sont des objets et matériaux séparés ; les ouvertures traversent réellement la coque. Un intérieur peint dans une texture de vitre ne convient pas.
 - Nous préparons séparément les meubles et accessoires dans Tripo Studio avec mes crédits Studio. Tu construis la coque, l'architecture et les points d'accueil du mobilier. Aucun appel Tripo API n'est demandé.
@@ -19,12 +19,14 @@ Dans le checkout canonique :
 
 - `games/yorimichi/docs/BELMONTE_TRAIN_PROMPT.md` : historique et direction actuelle.
 - `build/yorimichi/train-concepts/r02/README.md` et `manifest.json` : index des douze vues.
-- `restaurant-furnished-front.png`, `restaurant-furnished-reverse.png` : restaurant avec mobilier.
-- `restaurant-empty-front.png`, `restaurant-empty-reverse.png` : architecture seule.
+- `build/yorimichi/train-concepts/r03-panoramic/README.md` et `manifest.json` : les six vues du restaurant avec les nouvelles baies vitrées. Pour le restaurant, cette révision remplace la géométrie des fenêtres r02 ; les six vues de première classe restent dans r02.
+- `restaurant-furnished-front.png`, `restaurant-furnished-reverse.png` dans r03-panoramic : restaurant avec mobilier.
+- `restaurant-empty-front.png`, `restaurant-empty-reverse.png` dans r03-panoramic : architecture seule.
 - `first-class-furnished-front.png` : cabine vue droit vers la fenêtre.
 - `first-class-furnished-corridor.png` : depuis la cabine vers le couloir.
 - `first-class-empty-front.png`, `first-class-empty-corridor.png` : mêmes directions sans mobilier.
-- `restaurant-exterior-{profile,three-quarter}.png` et `first-class-exterior-{profile,three-quarter}.png` : extérieurs avec l'intérieur vide visible.
+- `restaurant-exterior-{profile,three-quarter}.png` dans r03-panoramic et `first-class-exterior-{profile,three-quarter}.png` dans r02 : extérieurs avec l'intérieur vide visible.
+- `build/yorimichi/train-concepts/restaurant-panoramic-reference-pack-r03.zip` : nouveau pack restaurant, prompt et contrat commun, à transférer en plus des vues de première classe r02.
 - `build/yorimichi/train-concepts/train-reference-pack-r02.zip` : export portable des références. Les images du build sont locales et ignorées par Git ; si tu travailles sur un autre ordinateur, récupère ce pack avant de dessiner.
 - `games/yorimichi/assets/vehicles/belmonte-train/planning/furniture-dimensions.json` : contrat de dimensions provisoire partagé avec les assets Tripo.
 - `games/yorimichi/docs/TREEHOUSE_PLAN.md`, section « Script or Tripo » : architecture dimensionnée par script, objets individuels via Tripo.
@@ -38,7 +40,7 @@ Commence par un plan coté et un blockout paramétrique, puis modèle les deux c
 
 Le contrat propose 75 mm de paroi de chaque côté, soit 2,95 m intérieurs. Première classe : cabine de 2,00 m de large, cloison de 50 mm, couloir de 0,90 m ; la somme est 2,95 m. La cible de 2,05 m du premier concept est donc ajustée à 2,00 m dans ce plan de départ. Prévois quatre cabines d'environ 3 m de longueur chacune ; répartis correctement les espaces restants entre vestibules, bagages, sanitaires et service, sans étirer artificiellement les cabines.
 
-Restaurant : quatre travées de repas comme point de départ, deux tables par travée, deux convives face à face par table, soit seize places. Conserve un passage central d'au moins 0,95 m. Réconcilie les six grandes fenêtres du concept extérieur avec les zones repas, bar et service dans le plan final. Les quantités sont provisoires jusqu'à ce contrôle.
+Restaurant : quatre travées de repas comme point de départ, deux tables par travée, deux convives face à face par table, soit seize places. Conserve un passage central d'au moins 0,95 m. Les baies panoramiques visent une allège à environ 0,65 m du sol et un sommet proche du plafond ; ces cotes sont provisoires. Réconcilie la répétition des baies du concept extérieur avec les zones repas, bar et service dans le plan final, sans imposer le nombre de fenêtres d'une image incohérente. Contrôle le passage des dossiers, l'implantation des appliques sur les montants et les rideaux séparés. Les quantités sont provisoires jusqu'à ce contrôle.
 
 Lis les dimensions des six objets depuis le JSON pour placer des volumes temporaires : banquette restaurant 0,90 × 0,65 × 1,15 m ; table restaurant 0,80 × 0,65 × 0,75 m ; canapé cabine 1,85 × 0,78 × 1,10 m ; petite table 0,65 × 0,40 × 0,62 m ; lampe de table 0,24 × 0,24 × 0,40 m ; applique 0,18 × 0,22 × 0,40 m. Hauteur d'assise 0,46 m. Prévois l'encombrement du linge de table, les genoux, les accès et l'ouverture des portes. Vérifie les dimensions du personnage déclaré dans Yorimichi et ses besoins de caméra ; à défaut, utilise un gabarit humain de 1,75 m clairement identifié comme provisoire.
 
@@ -46,7 +48,7 @@ Si le blockout exige de changer une cible, documente le problème, ajuste le con
 
 ## Architecture à produire
 
-Modèle une enveloppe commune réutilisée : châssis, sol, côtés, toit amovible pour inspection, deux bogies, attelages, gangways et vestibules. Les deux plans intérieurs sont distincts. Sépare vitrage, portes, cloisons, matériaux et éléments qui doivent s'animer ou se remplacer. Structure de première classe : parois des cabines et du couloir latéral, portes coulissantes, encadrements et vrais passages. Structure du restaurant : salon continu, vestibules, séparation de la cuisine et réservations pour le bar.
+Modèle une enveloppe commune réutilisée : châssis, sol, toit amovible pour inspection, deux bogies, attelages, gangways et vestibules. Les deux plans intérieurs et les découpes des côtés sont distincts : grandes baies panoramiques au restaurant, fenêtres des cabines conservées en première classe. Sépare vitrage, portes, cloisons, matériaux et éléments qui doivent s'animer ou se remplacer. Structure de première classe : parois des cabines et du couloir latéral, portes coulissantes, encadrements et vrais passages. Structure du restaurant : salon continu, vestibules, séparation de la cuisine et réservations pour le bar.
 
 Conserve les boiseries, marqueteries, panneaux de plafond et moquettes des références. Utilise des motifs paramétriques, textures de détail ou trim sheets pour les ornements fins, plutôt que multiplier les petits éléments de géométrie. Les coques finales doivent être vides : meubles, lampes, rideaux, racks et objets décoratifs restent séparés. Tu peux créer des volumes de réservation et des repères pour ces objets, pas des meubles détaillés en remplacement des assets Studio.
 

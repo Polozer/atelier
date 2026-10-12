@@ -19,7 +19,15 @@
       "central_aisle_min_m": 0.95,
       "dining_bays_draft": 4,
       "tables_per_bay": 2,
-      "seats_per_table": 2
+      "seats_per_table": 2,
+      "glazing_draft": {
+        "type": "large_panoramic_bays",
+        "sill_above_finished_floor_m": 0.65,
+        "upper_edge": "near ceiling; resolve top rail in measured blockout",
+        "frames": "slim walnut/brass with credible structural piers",
+        "roof": "opaque curved roof retained",
+        "status": "user-requested direction; dimensions provisional"
+      }
     },
     "first_class": {
       "compartments_draft": 4,
