@@ -289,10 +289,10 @@ def glide():
 
 
 def swim():
-    s = state()
-    if s['mode'] != 'swim':
-        place(OFFSHORE, LAKE)
-        s, _ = yield from until(lambda s: s['mode'] == 'swim', 3.)
+    # The glider can land beside the bank. Start every body in open water so
+    # a faster rider cannot reach the shallows during the swim assertions.
+    place(OFFSHORE, LAKE)
+    s, _ = yield from until(lambda s: s['mode'] == 'swim', 3.)
     check('swim', s is not None and s['mode'] == 'swim')
     yaw = L.player_transform().rotation.rotator().yaw
     pc.set_control_rotation(unreal.Rotator(0, -12, yaw))
