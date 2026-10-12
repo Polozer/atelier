@@ -10,7 +10,7 @@ attached to gameplay. Library and assembly guide: [assets/vehicles/belmonte-trai
 | --- | --- | --- |
 | Length over buffers / body over end walls | 24.00 / 23.20 m | design target |
 | Belt (blue below, ivory above) | 1.85 m above rail, under the restaurant's low sills | design target |
-| Exterior / interior width | 3.10 / 2.95 m (walls 0.075 m) | validated by the blockout |
+| Exterior / interior width | 3.60 / 3.45 m (walls 0.075 m): wider than a real coach (3.10) for roomy game corridors | validated by the blockout |
 | Floor above rail | 1.25 m | assumption: platform heights and steps to agree with the map owner |
 | Clear height | 2.30 m at the centre, 2.05 m at the walls (flat elliptical ceiling) | validated |
 | Side walls / roof / ventilators | 3.45 / 4.18 / 4.30 m above rail | design target |
@@ -39,8 +39,10 @@ object and material, so the empty interior is visible from outside.
 
 ## Restaurant
 
+Revision v3 (user, 12 October 2026): four larger dining bays (banquettes 1.10 × 0.72 × 1.25 m, tables 1.05 × 0.85 m, 16 seats, aisle 1.18 m) on a 2.51 m pitch with 2.21 m panoramic bays and a 2.6 m bar lounge; the whole envelope was widened to 3.60 m. Figures below that predate v3 are kept for the reasoning; layout.py and the contract hold the current values.
+
 From end A: vestibule (1.60) · lobby with WC (1.45) · salon with five dining bays (10 tables, 20 banquettes) and the
-bar · service corridor beside the galley · vestibule. Central aisle 1.08 m between banquettes (contract minimum 0.95); furniture stands 0.035 m off the panelling, clear
+bar · service corridor beside the galley · vestibule. Central aisle 1.18 m between banquettes (contract minimum 0.95); furniture stands 0.035 m off the panelling, clear
 of the bay frames.
 Each bay is banquette 0.65 · knee gap 0.10 · table 0.65 · knee gap 0.10 · banquette 0.65; banquettes of
 neighbouring bays stand back to back, so each table sits in front of a window and a pier sits behind each pair of
@@ -57,18 +59,18 @@ references. Five dining bays instead of the brief's four raised the counts in th
 tables 8→10, table lamps 12→14); no furniture dimension changed.
 
 The bar counter faces the salon on the +Y side; behind it are the staff space, the back-bar and
-the galley (3.78 m) on the +Y side, with the 0.90 m service corridor on −Y continuing the passage to vestibule B.
+the galley (3.78 m) on the +Y side, with the 1.20 m service corridor on −Y continuing the passage to vestibule B.
 The galley is entered from the bar and from the corridor. This raised the restaurant counts in the contract
 (banquettes 16→20, tables 8→10, table lamps 12→14). No furniture dimension changed.
 
 ## First class
 
-From end A along the compartment side (+Y): WC 1.30 · luggage 2.40 · four cabins of 3.00 × 2.00 · attendant's
-pantry 2.40 · WC 1.30, separated by 0.05 m partitions; the 0.90 m corridor runs the whole length on −Y. The plan is
+From end A along the compartment side (+Y): WC 1.30 · luggage 2.40 · four cabins of 3.00 × 2.20 · attendant's
+pantry 2.40 · WC 1.30, separated by 0.05 m partitions; the 1.20 m corridor runs the whole length on −Y. The plan is
 symmetric about the coach's centre. The cabins are not stretched: the remaining 7.4 m go to two WCs, luggage and
 the pantry. Each cabin: two sofas against the bulkheads (1.44 m between their fronts), the small table at the
 window (0.385 m from each sofa front), a 0.70 m sliding glazed door centred on the corridor, its leaf running on
-the corridor face (the corridor keeps 0.85 m beside an open leaf). The corridor side's windows mirror the
+the corridor face (the corridor keeps 1.15 m beside an open leaf). The corridor side's windows mirror the
 compartment side, so both elevations stay regular.
 
 ## Circulation and checks
@@ -101,6 +103,6 @@ textures, not the geometry.
 - The galley, bar, WC fixtures, luggage shelving and pantry exist only as blue reservations; they need their own
   assets (Studio or script).
 - The gauge, the floor height against platforms, curve limits and the gangway articulation must be agreed with the
-  map owner before any rail placement. In 0.90 m corridors the chase camera will slide in close: check it in game.
+  map owner before any rail placement. In the 1.20 m corridors the chase camera will slide in close: check it in game.
 - Unreal: the GLBs and collision import directly (Interchange), but no import script or material instances exist
   yet. Pick the tested route before integrating.

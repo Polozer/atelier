@@ -24,10 +24,10 @@ CONTRACT = Path(__file__).resolve().parents[2] / 'assets' / 'vehicles' / 'belmon
 LENGTH_OVER_BUFFERS = 24.0
 BUFFER_X = LENGTH_OVER_BUFFERS / 2      # buffer heads and gangway faces
 BODY_X = 11.60                          # outer face of each end wall: 23.20 m body
-WIDTH = 3.10
+WIDTH = 3.60                            # wider than a real coach (3.10): roomy corridors for a luxury game interior
 HALF = WIDTH / 2
 WALL = 0.075                            # side and end walls, lining included
-IN = HALF - WALL                        # 1.475: inner face of the side walls (2.95 m clear)
+IN = HALF - WALL                        # 1.725: inner face of the side walls (3.45 m clear)
 IN_X = BODY_X - WALL                    # 11.525: inner face of the end walls
 SKIRT_Z = 1.00                          # bottom edge of the body sides
 FLOOR_Z = 1.25                          # top of the floor (assumed platform-independent; steps below the doors)
@@ -54,7 +54,8 @@ DOOR_H = 1.95                           # interior doorways and the exterior doo
 EXT_DOOR_W = 0.75
 EXT_DOOR_X = IN_X - VEST / 2            # exterior doors are centred on the vestibules
 GANGWAY_W, GANGWAY_H = 0.80, 2.00
-CORRIDOR = 0.90                         # first-class side corridor; the restaurant's service corridor matches it
+CORRIDOR = 1.20                         # first-class side corridor; the restaurant's service corridor matches it
+CABIN_W = 2.20                          # first-class cabin, partition to outer wall
 CORR_Y = -IN + CORRIDOR                 # -0.575: corridor face of the longitudinal partitions
 ROOM_Y = CORR_Y + PART                  # -0.525: room face of the longitudinal partitions
 
@@ -299,7 +300,7 @@ FC_FLOOR = {'cabin': 'carpet-emerald', 'wc': 'tile', 'luggage': 'parquet', 'pant
 def first_class():
     c = Coach('first-class', 'Voiture première classe — cabines privées assises')
     _shared(c)
-    corridor_door = (-IN + .075, CORR_Y - .075)               # 0.75 m doorway in each bulkhead, on the corridor
+    corridor_door = (-IN + CORRIDOR / 2 - .45, -IN + CORRIDOR / 2 + .45)   # 0.90 m doorway centred on the corridor
     _bulkheads(c, corridor_door, corridor_door)
     c.rooms.append(Room('corridor', 'corridor', -SPAN_X, SPAN_X, -IN, CORR_Y, 'carpet-emerald'))
     longitudinal = Wall('corridor-partition', 'x', -SPAN_X, SPAN_X, CORR_Y, ROOM_Y)
@@ -366,8 +367,8 @@ def _cabin(c, name, x0, x1):
 
 # --- restaurant: five dining bays, bar and galley at end B -------------------------------------------------------
 LOBBY = 1.45
-GROUPS = 5
-GROUP = .65 + .10 + .65 + .10 + .65        # banquette, knee gap, table, knee gap, banquette: 2.15 m
+GROUPS = 4
+GROUP = .72 + .10 + .85 + .10 + .72        # banquette, knee gap, table, knee gap, banquette: 2.49 m
 PITCH = GROUP + .02                         # banquettes back to back with 2 cm between them
 BAR_COUNTER_X = 4.30                        # front of the bar counter
 COUNTER, STAFF, BACKBAR = .55, .80, .40
@@ -378,7 +379,7 @@ def restaurant():
     _shared(c)
     lobby_x1 = -SPAN_X + LOBBY
     salon_x0 = lobby_x1 + PART
-    _bulkheads(c, (-.55, .25), (-IN + .075, CORR_Y - .075))
+    _bulkheads(c, (-.55, .25), (-IN + CORRIDOR / 2 - .45, -IN + CORRIDOR / 2 + .45))
     counter_x1 = BAR_COUNTER_X + COUNTER
     backbar_x0 = counter_x1 + STAFF
     galley_x0 = backbar_x0 + BACKBAR + PART
@@ -418,7 +419,7 @@ def restaurant():
     bays = [(x, PITCH - PIER) for x in tables]
     bar0 = tables[-1] + PITCH / 2 + PIER / 2
     bar1 = BAR_COUNTER_X - .10
-    bays.append(((bar0 + bar1) / 2, bar1 - bar0))
+    bays.append(((bar0 + bar1) / 2, min(bar1 - bar0, PITCH - PIER)))     # the bar lounge's bay, no wider than the others
     for k, (x, width) in enumerate(bays):
         c.windows += [Window(f'salon-{k + 1}-l', 1, x, width, PANO_SILL, PANO_HEAD), Window(f'salon-{k + 1}-r', -1, x, width, PANO_SILL, PANO_HEAD)]
     piers = [tables[k] + PITCH / 2 for k in range(GROUPS)]
@@ -550,14 +551,14 @@ RESTAURANT_GOALS = {'wc': (-SPAN_X + LOBBY - .45, .76), 'galley': (6.50, .45), '
 def check(c):
     """Numbers that must hold for the coach; returns a list of failures (empty when it is right)."""
     bad = []
-    if abs(2 * IN - 2.95) > 1e-9:
-        bad.append('internal width is not 2.95 m')
+    if abs(2 * IN - (WIDTH - 2 * WALL)) > 1e-9:
+        bad.append('internal width does not match the envelope')
     if c.name == 'first-class':
-        if abs((IN - ROOM_Y) + PART + CORRIDOR - 2.95) > 1e-9:
-            bad.append('cabin + partition + corridor != 2.95 m')
+        if abs((IN - ROOM_Y) + PART + CORRIDOR - 2 * IN) > 1e-9 or abs(IN - ROOM_Y - CABIN_W) > 1e-9:
+            bad.append('cabin + partition + corridor does not fill the interior')
         for r in c.rooms:
-            if r.kind == 'cabin' and (abs(r.x1 - r.x0 - 3.0) > 1e-9 or abs(r.y1 - r.y0 - 2.0) > 1e-9):
-                bad.append(f'{r.name} is not 3.00 x 2.00 m')
+            if r.kind == 'cabin' and (abs(r.x1 - r.x0 - 3.0) > 1e-9 or abs(r.y1 - r.y0 - CABIN_W) > 1e-9):
+                bad.append(f'{r.name} is not 3.00 x {CABIN_W:.2f} m')
     if c.name == 'restaurant':
         aisle = min(-max(footprint(p)[2:]) if p.y < 0 else min(footprint(p)[2:]) for p in c.placements if p.asset == 'restaurant-banquette')
         if 2 * aisle < .95:
@@ -594,6 +595,6 @@ def as_dict(c):
 def envelope():
     names = ['LENGTH_OVER_BUFFERS', 'BODY_X', 'WIDTH', 'WALL', 'IN', 'IN_X', 'SKIRT_Z', 'FLOOR_Z', 'DECK', 'BELT_Z', 'CANT_Z',
              'ROOF_TOP', 'VENT_TOP', 'CEIL_SPRING', 'CEIL_APEX', 'CLEAR', 'SILL', 'HEAD', 'WIN_W', 'SMALL_W', 'WC_W', 'PART',
-             'VEST', 'SPAN_X', 'DOOR_H', 'EXT_DOOR_W', 'EXT_DOOR_X', 'GANGWAY_W', 'GANGWAY_H', 'CORRIDOR', 'BOGIE_X',
+             'VEST', 'SPAN_X', 'DOOR_H', 'EXT_DOOR_W', 'EXT_DOOR_X', 'GANGWAY_W', 'GANGWAY_H', 'CORRIDOR', 'CABIN_W', 'BOGIE_X',
              'WHEELBASE', 'WHEEL_R', 'GAUGE', 'BUFFER_Y', 'BUFFER_Z']
     return {n: round(globals()[n], 4) for n in names}

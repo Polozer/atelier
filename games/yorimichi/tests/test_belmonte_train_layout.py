@@ -11,8 +11,9 @@ from train import layout as L  # noqa: E402
 
 class Envelope(unittest.TestCase):
     def test_widths_add_up(self):
-        self.assertAlmostEqual(2 * L.IN, 2.95)
-        self.assertAlmostEqual(L.CORRIDOR + L.PART + (L.IN - L.ROOM_Y), 2.95)
+        self.assertAlmostEqual(2 * L.IN, 3.45)
+        self.assertAlmostEqual(L.CORRIDOR + L.PART + (L.IN - L.ROOM_Y), 3.45)
+        self.assertGreaterEqual(L.CORRIDOR, 1.20)
         self.assertAlmostEqual(L.CLEAR, 2.30)
         self.assertAlmostEqual(2 * L.BUFFER_X, 24.0)
 
@@ -32,6 +33,7 @@ class Coaches(unittest.TestCase):
         c = L.first_class()
         cabins = [r for r in c.rooms if r.kind == 'cabin']
         self.assertEqual(len(cabins), 4)
+        self.assertTrue(all(abs(r.y1 - r.y0 - L.CABIN_W) < 1e-9 for r in cabins))
         self.assertEqual(len(c.seats), 16)
         self.assertEqual(sum(p.asset == 'first-class-sofa' for p in c.placements), 8)
         # the bays fill the span between the vestibule bulkheads exactly, symmetric about the centre
@@ -42,10 +44,12 @@ class Coaches(unittest.TestCase):
 
     def test_restaurant(self):
         c = L.restaurant()
-        self.assertEqual(sum(p.asset == 'restaurant-table' for p in c.placements), 10)
-        self.assertEqual(len(c.seats), 20)
+        aisle = min(min(abs(v) for v in L.footprint(p)[2:]) for p in c.placements if p.asset == 'restaurant-banquette')
+        self.assertGreaterEqual(2 * aisle, 1.15)
+        self.assertEqual(sum(p.asset == 'restaurant-table' for p in c.placements), 8)
+        self.assertEqual(len(c.seats), 16)
         bays = sorted((w for w in c.windows if w.side > 0 and w.sill == L.PANO_SILL), key=lambda w: w.x)
-        self.assertEqual(len(bays), 6)
+        self.assertEqual(len(bays), 5)
         # the panoramic bays are centred on the tables, and the piers between them sit behind the banquette backs
         tables = sorted({p.x for p in c.placements if p.asset == 'restaurant-table'})
         for t, w in zip(tables, bays):
