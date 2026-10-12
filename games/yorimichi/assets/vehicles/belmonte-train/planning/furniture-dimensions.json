@@ -94,14 +94,24 @@
       "name_fr": "Banquette restaurant — une place",
       "dimensions_m": {
         "width": 1.1,
-        "depth": 0.72,
-        "height": 1.25
+        "depth": 0.76,
+        "height": 1.15
       },
       "seat_height_m": 0.46,
       "pivot": "floor_footprint_center",
       "material_family": "burgundy-velvet-walnut-brass",
       "quantity_draft": 16,
-      "back_thickness_max_m": 0.14
+      "back_thickness_max_m": 0.14,
+      "fitted_source": {
+        "file": "luxury velvet armchair 3d model.glb (Tripo Studio, multiview)",
+        "source_size_m": [
+          0.9995,
+          0.688,
+          0.856
+        ],
+        "fit": "uniform scale 1.1005 to width 1.10; upper back (78-95 % of height) lengthened to 1.15 m",
+        "note": "left arm malformed by Tripo (cushion block): regenerate or fix"
+      }
     },
     {
       "id": "restaurant-table",
@@ -201,6 +211,7 @@
   "shell_changes_v3": [
     "Restaurant furniture enlarged at the user's request: banquette 0.90x0.65x1.15 -> 0.95x0.72x1.25 m, table 0.80x0.65 -> 0.90x0.80 m; four dining bays (16 seats) instead of five; quantities banquettes 16, tables 8, table lamps 12, sconces 24. First class unchanged.",
     "Envelope widened at the user's request for roomy luxury corridors: exterior 3.10 -> 3.60 m (interior 3.45), first-class corridor 0.90 -> 1.20 m, cabins 2.00 -> 2.20 m, restaurant aisle 0.98 -> 1.48 m. Heights, coupling and gauge unchanged.",
-    "Restaurant furniture widened into the new width (user): banquette 1.10 x 0.72 x 1.25 m, table 1.05 x 0.85 x 0.75 m; aisle 1.18 m; bay pitch 2.51 m."
+    "Restaurant furniture widened into the new width (user): banquette 1.10 x 0.72 x 1.25 m, table 1.05 x 0.85 x 0.75 m; aisle 1.18 m; bay pitch 2.51 m.",
+    "Restaurant banquette set to the Tripo Studio model: 1.10 x 0.76 x 1.15 m (back lengthened from 0.94 m); bay pitch 2.59 m."
   ]
 }

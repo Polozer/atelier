@@ -31,7 +31,7 @@ VEHICLES = [
     dict(id='restaurant', title='Voiture restaurant', length=L.LENGTH_OVER_BUFFERS, status='built'),
     dict(id='first-class', title='Première classe', length=L.LENGTH_OVER_BUFFERS, status='built'),
     dict(id='second-class', title='Deuxième classe et cantine', length=L.LENGTH_OVER_BUFFERS, status='planned', concept='locomotive/second-class--exterior-profile-v3.png'),
-    dict(id='brake-van', title='Fourgon-frein de queue', length=12.0, status='planned', concept='locomotive/brake-van--exterior-profile.png'),
+    dict(id='brake-van', title='Fourgon-frein de queue', length=L.BRAKE_LENGTH, status='built'),
 ]
 
 
@@ -56,6 +56,9 @@ def web_copy(glb, out_dir):
     name = glb.stem + '.gltf.json'
     (out_dir / name).write_text(json.dumps(doc, separators=(',', ':')))
     return name
+
+
+BUILDERS = {'restaurant': L.restaurant, 'first-class': L.first_class, 'brake-van': L.brake_van}
 
 
 def offsets():
@@ -90,6 +93,9 @@ def assembly():
             glb = OUT / v['id'] / f'SM_BT_{title}_LOD0.glb'
             rec['web'] = web_copy(glb, ASSEMBLY)
             p = json.loads((OUT / v['id'] / f'{v["id"]}-placements.json').read_text())
+            body = BUILDERS[v['id']]().body
+            rec.update(walk=list(body.walk_limits()), ends=[body.end_a, body.end_b], body_faces=[body.x_a, body.x_b],
+                       railings=[list(r) for r in L.railings(body)])
             rec.update(glb=glb.name, placements=p['placements'], seats=p['seats'], doors=p['doors_runtime'],
                        collision=[b['box'] for b in p['collision_boxes'] if b['part'] not in ('floor', 'ceiling')],
                        rooms=[dict(name=r['name'], kind=r['kind'], box=[r['x0'], r['x1'], r['y0'], r['y1']]) for r in p['rooms']],

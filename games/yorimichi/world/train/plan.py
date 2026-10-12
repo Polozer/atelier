@@ -46,21 +46,28 @@ class Svg:
 
 def plan(c):
     margin_x, top = 90, 150
-    w = int(2 * L.BUFFER_X * S + 2 * margin_x)
+    bd = c.body
+    w = int(bd.length * S + 2 * margin_x)
     h = int(2 * L.HALF * S + top + 260)
     svg = Svg(w, h)
-    X = lambda x: margin_x + (x + L.BUFFER_X) * S
+    X = lambda x: margin_x + (x - bd.buffer_a) * S
     Y = lambda y: top + (L.HALF - y) * S            # +Y (compartment / galley side) drawn at the top
     svg.text(margin_x, 40, f'{c.title} — plan coté (m)', 22, 'start', 'bold')
     svg.text(margin_x, 64, 'Repère voiture : x le long de la voiture (bout A à gauche, bout B à droite), +Y en haut (côté cabines / cuisine), '
              'z depuis le dessus du rail. Cotes de conception, pas de relevé.', 12, 'start', color='#555')
     # body, buffers, gangways
-    svg.rect(X(-L.BODY_X), Y(L.HALF), 2 * L.BODY_X * S, 2 * L.HALF * S, '#20283c', '#20283c', 1)
+    svg.rect(X(bd.x_a), Y(L.HALF), (bd.x_b - bd.x_a) * S, 2 * L.HALF * S, '#20283c', '#20283c', 1)
     for sx in (-1, 1):
-        x0 = min(sx * L.BODY_X, sx * L.BUFFER_X)
-        svg.rect(X(x0), Y(L.GANGWAY_W / 2 + .18), (L.BUFFER_X - L.BODY_X) * S, (L.GANGWAY_W + .36) * S, '#333', '#111', .5)
+        x0, x1 = sorted((bd.headstock(sx), bd.buffer(sx)))
+        if bd.end(sx) == 'gangway':
+            svg.rect(X(x0), Y(L.GANGWAY_W / 2 + .18), (x1 - x0) * S, (L.GANGWAY_W + .36) * S, '#333', '#111', .5)
+        else:
+            h0, h1 = sorted((bd.headstock(sx), bd.face(sx)))
+            svg.rect(X(h0), Y(L.IN), (h1 - h0) * S, 2 * L.IN * S, '#e6dccb', '#b38b3c', 1)
+            for x0r, x1r, y0r, y1r in L.railings(bd):
+                svg.rect(X(x0r), Y(y1r), (x1r - x0r) * S, (y1r - y0r) * S, '#b38b3c', 'none', 0)
         for sy in (-1, 1):
-            svg.rect(X(x0), Y(sy * L.BUFFER_Y + .2), (L.BUFFER_X - L.BODY_X) * S, .4 * S, '#666', '#111', .5)
+            svg.rect(X(x0), Y(sy * L.BUFFER_Y + .2), (x1 - x0) * S, .4 * S, '#666', '#111', .5)
     for r in c.rooms:
         svg.rect(X(r.x0), Y(r.y1), (r.x1 - r.x0) * S, (r.y1 - r.y0) * S, FILL.get(r.kind, '#eee'), 'none', 0)
         svg.text(X((r.x0 + r.x1) / 2), Y((r.y0 + r.y1) / 2) + (26 if r.kind in ('cabin', 'salon') else 4), r.name, 10, color='#333')
@@ -81,7 +88,7 @@ def plan(c):
         y = win.side * (L.IN + L.WALL / 2)
         col = '#9ad3f0' if win.kind == 'clear' else '#c9d6dd'
         svg.rect(X(win.x - win.width / 2), Y(y) - 3, win.width * S, 6, col, '#2a6f97', .8)
-    for name, sy, x0, x1, *_ in L.exterior_openings():
+    for name, sy, x0, x1, *_ in L.exterior_openings(c):
         svg.rect(X(x0), Y(sy * L.HALF) - (0 if sy > 0 else L.WALL * S), (x1 - x0) * S, L.WALL * S, '#f2e6c9', '#b38b3c', 1)
     for d in c.doors:
         if d.wall.startswith('side'):
@@ -115,24 +122,26 @@ def plan(c):
         for a, b in zip(marks, marks[1:]):
             if b - a > .12:
                 svg.text(X((a + b) / 2), y + (-6 if label_above else 14), f'{b - a:.2f}', 10 if b - a > .5 else 8)
-    room_marks = [-L.BODY_X, L.BODY_X, -L.IN_X, L.IN_X]
+    room_marks = [bd.x_a, bd.x_b, bd.in_a, bd.in_b]
     for r in c.rooms:
         if r.y1 >= L.IN - 1e-6:
             room_marks += [r.x0, r.x1]
     chain(room_marks, Y(L.HALF) - 30)
-    chain([-L.BUFFER_X, L.BUFFER_X], Y(L.HALF) - 60)
-    win_marks = [-L.IN_X, L.IN_X]
+    chain([bd.buffer_a, bd.buffer_b], Y(L.HALF) - 60)
+    win_marks = [bd.in_a, bd.in_b]
     for win in c.windows:
         if win.side > 0:
             win_marks += [win.x - win.width / 2, win.x + win.width / 2]
     chain(win_marks, Y(-L.HALF) + 34, False)
-    corr = [-L.BODY_X, -L.EXT_DOOR_X - L.EXT_DOOR_W / 2, -L.EXT_DOOR_X + L.EXT_DOOR_W / 2, L.EXT_DOOR_X - L.EXT_DOOR_W / 2, L.EXT_DOOR_X + L.EXT_DOOR_W / 2, L.BODY_X]
+    corr = [bd.x_a, bd.x_b] + [x + d * L.EXT_DOOR_W / 2 for _, x in bd.exterior_doors for d in (-1, 1)]
     chain(corr, Y(-L.HALF) + 64, False)
-    svg.text(X(0), Y(-L.HALF) + 96, 'Fenêtres côté +Y (2e chaîne) · portes extérieures 0.75 m centrées sur les vestibules (3e chaîne)', 11, color='#555')
+    svg.text(X((bd.buffer_a + bd.buffer_b) / 2), Y(-L.HALF) + 96, 'Fenêtres côté +Y (2e chaîne) · portes extérieures 0.75 m (3e chaîne)', 11, color='#555')
     # transverse chain at the left end
-    xa = X(-L.BUFFER_X) - 40
+    xa = X(bd.buffer_a) - 40
     if c.name == 'first-class':
         ys = [-L.HALF, -L.IN, L.CORR_Y, L.ROOM_Y, L.IN, L.HALF]
+    elif c.name != 'restaurant':
+        ys = [-L.HALF, -L.IN, L.IN, L.HALF]
     else:
         tb = [p for p in c.placements if p.asset == 'restaurant-banquette' and p.y > 0][0]
         x0, x1, y0, y1 = L.footprint(tb)

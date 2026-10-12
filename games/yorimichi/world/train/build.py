@@ -50,6 +50,7 @@ MATERIALS = {
     'glass': ((.92, .95, .96), 0., .04, None, 1., .12),
     'glass-frosted': ((.88, .90, .90), 0., .5, None, 1., .80),
     'glass-dark': ((.05, .07, .09), 0., .1, None, 1., 1.),
+    'lamp-red': ((.85, .04, .02), 0., .2, None, 1., 1.),
     'crest': ((1, 1, 1), .8, .3, 'T_BT_Crest', 0., 1.),
     'reservation': ((.85, .28, .04), 0., .8, None, 1., .60),
     'reservation-service': ((.08, .25, .75), 0., .8, None, 1., .50),
@@ -283,8 +284,8 @@ def side_walls(c, coll, parent):
     for side, sy in (('l', 1), ('r', -1)):
         m = M()
         y0, y1 = sorted((sy * L.IN, sy * L.HALF))
-        m.box(-L.BODY_X, L.BODY_X, y0, y1, L.SKIRT_Z, L.BELT_Z, 'livery-blue')
-        m.box(-L.BODY_X, L.BODY_X, y0, y1, L.BELT_Z, L.CANT_Z, 'livery-ivory')
+        m.box(B.x_a, B.x_b, y0, y1, L.SKIRT_Z, L.BELT_Z, 'livery-blue')
+        m.box(B.x_a, B.x_b, y0, y1, L.BELT_Z, L.CANT_Z, 'livery-ivory')
         o = m.obj(f'Shell_Side_{side.upper()}', coll, parent=parent)
         cutters = []
         for w in c.windows:
@@ -292,7 +293,7 @@ def side_walls(c, coll, parent):
                 continue
             cut = M(); cut.prism(rrect(w.x, (w.sill + w.head) / 2, w.width, w.head - w.sill, L.WIN_RADIUS), 'y', y0 - .05, y1 + .05, 'glass')
             cutters.append(cut)
-        for name, s, x0, x1, z0, z1 in L.exterior_openings():
+        for name, s, x0, x1, z0, z1 in L.exterior_openings(c):
             if s == sy:
                 cut = M(); cut.box(x0, x1, y0 - .05, y1 + .05, z0, z1, 'glass'); cutters.append(cut)
         boolean(o, cutters)
@@ -308,23 +309,28 @@ def side_walls(c, coll, parent):
     return out
 
 
-def end_walls(coll, parent):
+def end_walls(c, coll, parent):
+    """Each end wall rises to the roof; it carries the gangway opening, or the door onto the balcony."""
     for end, sx in (('A', -1), ('B', 1)):
         pts = [(-L.IN, L.SKIRT_Z), (L.IN, L.SKIRT_Z)]
         for k in range(17):
             y = L.IN - 2 * L.IN * k / 16
             pts.append((y, L.roof_z(y, L.ROOF_SKIN) + .002))
-        m = M(); a0, a1 = sorted((sx * L.IN_X, sx * L.BODY_X))
+        m = M(); a0, a1 = sorted((B.inner(sx), B.face(sx)))
         m.prism(pts, 'x', a0, a1, 'walnut')
         o = m.obj(f'Shell_End_{end}', coll, parent=parent)
-        cut = M(); cut.box(a0 - .05, a1 + .05, -L.GANGWAY_W / 2, L.GANGWAY_W / 2, L.FLOOR_Z, L.FLOOR_Z + L.GANGWAY_H, 'glass')
-        boolean(o, [cut])
-        reproject(o, lambda n, ctr, sx=sx: 'end-dark' if n.x * sx > .7 else 'walnut')
+        w = c.wall(f'end-{end.lower()}')
+        cutters = []
+        for op in w.openings:
+            cut = M(); cut.box(a0 - .05, a1 + .05, op.a0, op.a1, op.z0, op.z1, 'glass'); cutters.append(cut)
+        boolean(o, cutters)
+        outside = 'end-dark' if B.end(sx) == 'gangway' else 'livery-ivory'
+        reproject(o, lambda n, ctr, sx=sx, outside=outside: (outside if ctr.z > L.BELT_Z or outside == 'end-dark' else 'livery-blue') if n.x * sx > .7 else 'walnut')
     # corner posts close the ends of the side walls up to the roof
     m = M()
     for sx in (-1, 1):
         for sy in (-1, 1):
-            x0, x1 = sorted((sx * (L.BODY_X - .07), sx * (L.BODY_X + .012)))
+            x0, x1 = sorted((B.face(sx) - sx * .07, B.face(sx) + sx * .012))
             y0, y1 = sorted((sy * (L.IN - .002), sy * (L.HALF + .012)))
             m.box(x0, x1, y0, y1, L.SKIRT_Z - .02, L.CANT_Z + .14, 'end-dark')
     m.obj('Shell_CornerPosts', coll, parent=parent)
@@ -333,7 +339,9 @@ def end_walls(coll, parent):
 def roof(coll, parent, lod=0):
     seg = 32 if lod == 0 else 12
     outer = [(-L.HALF + 2 * L.HALF * k / seg) for k in range(seg + 1)]
-    xa, xb = -L.BODY_X - .05, L.BODY_X + .05
+    # the roof overhangs each end wall a little, and runs on over a balcony as its canopy
+    xa = (B.x_a - .05) if B.end_a == 'gangway' else B.headstock(-1) - .04
+    xb = (B.x_b + .05) if B.end_b == 'gangway' else B.headstock(1) + .04
     m = M()
     ys_o = [(y, L.roof_z(y)) for y in outer]
     ys_i = [(y * (L.HALF - L.ROOF_SKIN) / L.HALF, L.roof_z(y * (L.HALF - L.ROOF_SKIN) / L.HALF, L.ROOF_SKIN)) for y in outer]
@@ -352,16 +360,22 @@ def roof(coll, parent, lod=0):
     m = M()
     for sy in (-1, 1):            # cornice and the brass line under it
         y0, y1 = sorted((sy * (L.HALF - .01), sy * (L.HALF + .028)))
-        m.box(-L.BODY_X - .02, L.BODY_X + .02, y0, y1, L.CANT_Z - .07, L.CANT_Z + .01, 'roof')
+        m.box(xa + .03, xb - .03, y0, y1, L.CANT_Z - .07, L.CANT_Z + .01, 'roof')
         y0, y1 = sorted((sy * (L.HALF - .01), sy * (L.HALF + .016)))
-        m.box(-L.BODY_X, L.BODY_X, y0, y1, L.CANT_Z - .105, L.CANT_Z - .085, 'brass')
-    for k in range(9):            # torpedo ventilators on the centre line
-        x = -10.4 + 20.8 * k / 8
+        m.box(B.x_a, B.x_b, y0, y1, L.CANT_Z - .105, L.CANT_Z - .085, 'brass')
+    span = B.x_b - B.x_a
+    vents = max(2, round(span / 2.6))
+    cup = B.cupola or (1e9, 1e9)
+    for k in range(vents):        # torpedo ventilators on the centre line, none on a lookout
+        x = B.x_a + 1.2 + (span - 2.4) * k / (vents - 1)
+        if cup[0] - .3 < x < cup[1] + .3:
+            continue
         m.cylinder((x, 0), 'z', .085, L.roof_z(0) - .02, L.VENT_TOP - .07, 'roof', 12)
         m.cylinder((x, 0), 'z', .13, L.VENT_TOP - .07, L.VENT_TOP - .02, 'brass', 12)
         m.cylinder((x, 0), 'z', .07, L.VENT_TOP - .02, L.VENT_TOP, 'brass', 12)
-    for k in range(13):           # roof seams: raised battens following the roof curve
-        x = -L.BODY_X + .3 + (2 * L.BODY_X - .6) * k / 12
+    battens = max(2, round((xb - xa) / 1.85))
+    for k in range(battens + 1):  # roof seams: raised battens following the roof curve
+        x = xa + .3 + (xb - xa - .6) * k / battens
         for j in range(seg):
             (ya, za), (yb, zb) = ys_o[j], ys_o[j + 1]
             if abs(ya) > L.HALF - .05 or abs(yb) > L.HALF - .05:
@@ -370,14 +384,56 @@ def roof(coll, parent, lod=0):
             for e, sgn in ((x - .012, -1), (x + .012, 1)):
                 m.poly([(e, ya, za - .002), (e, yb, zb - .002), (e, yb, zb + .010), (e, ya, za + .010)], 'roof', normal=(sgn, 0, 0))
     m.obj('Roof_Details', coll, parent=parent, lods=(0,), closed=False)
+    if B.cupola:
+        cupola(coll, parent)
     return skin
+
+
+def cupola(coll, parent):
+    """The guard's lookout: a raised glazed cab on the roof with its own curved top, part of the removable roof."""
+    x0, x1 = B.cupola
+    hw, z0, z1 = 1.25, L.roof_z(1.25) - .05, L.ROOF_TOP + .62
+    m = M()
+    m.box(x0, x1, -hw, hw, z0, z1, 'livery-ivory')
+    o = m.obj('Roof_Cupola', coll, parent=parent)
+    cutters = []
+    for sy in (-1, 1):
+        for k in range(3):
+            xc = x0 + (x1 - x0) * (k + .5) / 3
+            cut = M(); cut.prism(rrect(xc, z1 - .30, (x1 - x0) / 3 - .20, .34, .05), 'y', -hw - .05, hw + .05, 'glass'); cutters.append(cut)
+    for xe in (x0, x1):
+        cut = M(); cut.prism(rrect(0, z1 - .30, 1.30, .34, .05), 'x', xe - .05, xe + .05, 'glass'); cutters.append(cut)
+    boolean(o, cutters)
+    reproject(o, lambda n, ctr: 'walnut' if abs(ctr.y) < hw - .03 and abs(n.z) < .5 and (x0 + .03 < ctr.x < x1 - .03) else 'livery-ivory')
+    m = M()
+    seg = 16
+    for k in range(seg):          # a small curved top, echoing the main roof
+        ya, yb = -hw - .06 + (2 * hw + .12) * k / seg, -hw - .06 + (2 * hw + .12) * (k + 1) / seg
+        za = z1 + .16 * (1 - (ya / (hw + .06)) ** 2) ** .5
+        zb = z1 + .16 * (1 - (yb / (hw + .06)) ** 2) ** .5
+        m.poly([(x0 - .06, ya, za), (x0 - .06, yb, zb), (x1 + .06, yb, zb), (x1 + .06, ya, za)], 'roof', normal=(0, 0, 1))
+        m.poly([(x0 - .06, ya, za - .03), (x1 + .06, ya, za - .03), (x1 + .06, yb, zb - .03), (x0 - .06, yb, zb - .03)], 'roof', normal=(0, 0, -1))
+    m.obj('Roof_CupolaTop', coll, parent=parent, closed=False)
+    m = M(); g = M()
+    for sy in (-1, 1):
+        for k in range(3):
+            xc = x0 + (x1 - x0) * (k + .5) / 3
+            pts = rrect(xc, z1 - .30, (x1 - x0) / 3 - .20, .34, .05)
+            g.poly([(u, sy * (hw - .02), v) for u, v in pts], 'glass', normal=(0, sy, 0))
+            m.ring(rrect(xc, z1 - .30, (x1 - x0) / 3 - .12, .42, .09), rrect(xc, z1 - .30, (x1 - x0) / 3 - .22, .32, .04), 'y', sy * hw, sy * (hw + .012), 'brass')
+    for xe, sx in ((x0, -1), (x1, 1)):
+        pts = rrect(0, z1 - .30, 1.30, .34, .05)
+        g.poly([(xe - sx * .02, u, v) for u, v in pts], 'glass', normal=(sx, 0, 0))
+    m.box(x0 - .02, x1 + .02, -hw - .02, hw + .02, z1 - .02, z1 + .01, 'brass')
+    m.obj('Roof_CupolaTrim', coll, parent=parent, lods=(0,))
+    g.obj('Glazing_Cupola', coll, parent=parent, closed=False)
 
 
 def ceiling(c, coll, parent):
     seg = 24
     ys = [-L.IN + 2 * L.IN * k / seg for k in range(seg + 1)]
     m = M()
-    xa, xb = -L.IN_X, L.IN_X
+    xa, xb = B.in_a, B.in_b
     for k in range(seg):
         ya, yb = ys[k], ys[k + 1]
         za, zb = L.ceiling_z(ya), L.ceiling_z(yb)
@@ -385,8 +441,8 @@ def ceiling(c, coll, parent):
         m.poly([(xa, ya, za + .03), (xa, yb, zb + .03), (xb, yb, zb + .03), (xb, ya, za + .03)], 'ceiling', normal=(0, 0, 1))
     m.obj('Ceiling', coll, parent=parent, closed=False)
     # brass ribs at the window piers (and partitions in first class)
-    xs = sorted({round((a.x + b.x) / 2, 3) for a, b in zip(sorted((w for w in c.windows if w.side > 0), key=lambda w: w.x),
-                                                           sorted((w for w in c.windows if w.side > 0), key=lambda w: w.x)[1:])})
+    side = sorted((w for w in c.windows if w.side > 0), key=lambda w: w.x)
+    xs = sorted({round((a.x + b.x) / 2, 3) for a, b in zip(side, side[1:])})
     m = M()
     for x in xs:                  # a smooth brass band following the ceiling: underside and two edges
         for k in range(seg):
@@ -398,99 +454,106 @@ def ceiling(c, coll, parent):
     # cove line at the springing
     for sy in (-1, 1):
         y0, y1 = sorted((sy * (L.IN - .035), sy * L.IN))
-        m.box(-L.IN_X, L.IN_X, y0, y1, L.CEIL_SPRING - .05, L.CEIL_SPRING + .005, 'brass')
+        m.box(B.in_a, B.in_b, y0, y1, L.CEIL_SPRING - .05, L.CEIL_SPRING + .005, 'brass')
     m.obj('Ceiling_Ribs', coll, parent=parent, lods=(0,), closed=False)
 
 
-def deck_and_underframe(coll, parent):
+def deck_and_underframe(c, coll, parent):
     m = M()
-    m.box(-L.IN_X, L.IN_X, -L.IN, L.IN, L.FLOOR_Z - L.DECK, L.FLOOR_Z - .006, 'undercarriage')
-    m.box(-L.BODY_X, L.BODY_X, -L.IN, L.IN, L.SKIRT_Z - .02, L.FLOOR_Z - L.DECK, 'undercarriage')
+    ha, hb = B.headstock(-1), B.headstock(1)
+    m.box(B.in_a, B.in_b, -L.IN, L.IN, L.FLOOR_Z - L.DECK, L.FLOOR_Z - .006, 'undercarriage')
+    m.box(ha, hb, -L.IN, L.IN, L.SKIRT_Z - .02, L.FLOOR_Z - L.DECK, 'undercarriage')
     for sy in (-1, 1):            # solebars
-        y0, y1 = sorted((sy * 1.20, sy * 1.36))
-        m.box(-L.BODY_X + .1, L.BODY_X - .1, y0, y1, .80, L.SKIRT_Z - .02, 'undercarriage')
+        y0, y1 = sorted((sy * (L.HALF - .45), sy * (L.HALF - .28)))
+        m.box(ha + .1, hb - .1, y0, y1, .80, L.SKIRT_Z - .02, 'undercarriage')
     for sx in (-1, 1):            # headstocks
-        x0, x1 = sorted((sx * (L.BODY_X - .05), sx * (L.BODY_X + .07)))
-        m.box(x0, x1, -1.40, 1.40, .86, 1.24, 'end-dark')
+        x0, x1 = sorted((B.headstock(sx) - sx * .05, B.headstock(sx) + sx * .07))
+        m.box(x0, x1, -L.HALF + .15, L.HALF - .15, .86, 1.24, 'end-dark')
     # equipment between the bogies: battery boxes, water tanks, brake cylinders, truss rods
-    for x0, x1, y0, y1, z0, z1 in ((-5.6, -3.6, .25, 1.15, .45, .80), (3.6, 5.6, -1.15, -.25, .45, .80),
-                                   (-2.4, 2.4, -1.10, -.35, .40, .80), (-1.8, -.6, .45, 1.15, .52, .80), (1.2, 2.8, .45, 1.15, .55, .80)):
-        m.box(x0, x1, y0, y1, z0, z1, 'undercarriage')
-    for x in (-2.2, 2.2):
-        m.cylinder((.65, .62), 'x', .22, x - 1.0, x + 1.0, 'undercarriage', 16)
+    lo, hi = B.bogies[0] + B.wheelbase / 2 + .75, B.bogies[1] - B.wheelbase / 2 - .75
+    f = lambda t: lo + (hi - lo) * t
+    for t0, t1, y0, y1, z0, z1 in ((.0, .15, .25, 1.15, .45, .80), (.85, 1., -1.15, -.25, .45, .80), (.32, .68, -1.10, -.35, .40, .80),
+                                   (.36, .45, .45, 1.15, .52, .80), (.56, .66, .45, 1.15, .55, .80)):
+        m.box(f(t0), f(t1), y0, y1, z0, z1, 'undercarriage')
+    if hi - lo > 6:
+        for t in (.33, .67):
+            m.cylinder((.65, .62), 'x', .22, f(t) - 1.0, f(t) + 1.0, 'undercarriage', 16)
     for sy in (-1, 1):
-        for x0, x1 in ((-6.6, -1.0), (1.0, 6.6)):
-            m.box(x0, x1, sy * .55 - .02, sy * .55 + .02, .42, .46, 'steel')
+        for t0, t1 in ((0., .42), (.58, 1.)):
+            m.box(f(t0), f(t1), sy * .55 - .02, sy * .55 + .02, .42, .46, 'steel')
     m.obj('Shell_Underframe', coll, parent=parent)
     # brass lining on the livery
     m = M()
+    doors_x = sorted((x0 - .55, x1 + .55) for _, s, x0, x1, *_ in L.exterior_openings(c) if s > 0)
     for sy in (-1, 1):
         o = lambda d: sorted((sy * (L.HALF - .002), sy * (L.HALF + d)))
         y0, y1 = o(.006)
         for z in (L.BELT_Z, L.SKIRT_Z + .06):
-            m.box(-L.BODY_X + .08, L.BODY_X - .08, y0, y1, z - .009, z + .009, 'brass')
-        # the lined panel on the blue lower body, broken by the exterior doors
-        for xa, xb in ((-L.EXT_DOOR_X + .55, L.EXT_DOOR_X - .55),):
+            m.box(B.x_a + .08, B.x_b - .08, y0, y1, z - .009, z + .009, 'brass')
+        # lined panels on the blue lower body, broken by the exterior doors
+        for xa, xb in _free(B.x_a + .45, B.x_b - .45, doors_x, .8):
             for z in (L.SKIRT_Z + .16, L.BELT_Z - .10):
                 m.box(xa, xb, y0, y1, z - .005, z + .005, 'brass')
             for x in (xa, xb):
                 m.box(x - .005, x + .005, y0, y1, L.SKIRT_Z + .16, L.BELT_Z - .10, 'brass')
         for z in (L.CANT_Z - .16,):
-            m.box(-L.BODY_X + .08, L.BODY_X - .08, y0, y1, z - .006, z + .006, 'brass')
+            m.box(B.x_a + .08, B.x_b - .08, y0, y1, z - .006, z + .006, 'brass')
     m.obj('Shell_Lining', coll, parent=parent, lods=(0,))
     # the crest, a decal on each side of the blue band
     m = M()
+    zc = (L.SKIRT_Z + .16 + L.BELT_Z - .10) / 2
     for sy in (-1, 1):
         y = sy * (L.HALF + .004)
-        w, h = .62, .62
-        pts = [(-w / 2, y, 1.50 - h / 2), (w / 2, y, 1.50 - h / 2), (w / 2, y, 1.50 + h / 2), (-w / 2, y, 1.50 + h / 2)]
+        w = h = .56
+        xs = (B.crest_x - w / 2, B.crest_x + w / 2)
+        pts = [(xs[0], y, zc - h / 2), (xs[1], y, zc - h / 2), (xs[1], y, zc + h / 2), (xs[0], y, zc + h / 2)]
         uv = [(0, 0), (1, 0), (1, 1), (0, 1)]
         if sy < 0:
-            pts = [(-p[0], p[1], p[2]) for p in pts]
+            pts = [(xs[1] + xs[0] - p[0], p[1], p[2]) for p in pts]
         m.poly(pts, 'crest', uv=uv, normal=(0, sy, 0))
     m.obj('Shell_Crest', coll, parent=parent, closed=False)
 
 
-def ends_hardware(coll, parent):
+def ends_hardware(c, coll, parent):
     m = M()
     for sx in (-1, 1):
+        hs, bf = B.headstock(sx), B.buffer(sx)
         for sy in (-1, 1):            # buffers
-            x0, x1 = sorted((sx * (L.BODY_X + .06), sx * (L.BUFFER_X - .06)))
+            x0, x1 = sorted((hs + sx * .06, bf - sx * .06))
             m.cylinder((sy * L.BUFFER_Y, L.BUFFER_Z), 'x', .10, x0, x1, 'undercarriage', 16)
-            x0, x1 = sorted((sx * (L.BUFFER_X - .06), sx * L.BUFFER_X))
+            x0, x1 = sorted((bf - sx * .06, bf))
             m.cylinder((sy * L.BUFFER_Y, L.BUFFER_Z), 'x', .20, x0, x1, 'steel', 20)
-        x0, x1 = sorted((sx * (L.BODY_X + .06), sx * (L.BUFFER_X - .02)))     # draw hook and screw link
+        x0, x1 = sorted((hs + sx * .06, bf - sx * .02))     # draw hook and screw link
         m.box(x0, x1, -.06, .06, L.BUFFER_Z - .07, L.BUFFER_Z + .05, 'undercarriage')
-        m.box(sx * (L.BUFFER_X - .04) - .03, sx * (L.BUFFER_X - .04) + .03, -.12, .12, L.BUFFER_Z - .20, L.BUFFER_Z - .05, 'steel')
+        m.box(bf - sx * .04 - .03, bf - sx * .04 + .03, -.12, .12, L.BUFFER_Z - .20, L.BUFFER_Z - .05, 'steel')
         for sy in (-1, 1):            # brake hoses
-            m.box(sx * (L.BODY_X + .10) - .02, sx * (L.BODY_X + .10) + .02, sy * .35 - .02, sy * .35 + .02, .80, 1.15, 'rubber')
+            m.box(hs + sx * .10 - .02, hs + sx * .10 + .02, sy * .35 - .02, sy * .35 + .02, .80, 1.15, 'rubber')
     m.obj('Shell_Buffers', coll, parent=parent)
     # gangways: a bellows frame around the end door, its face at the buffer line, and a footplate
     m = M()
     w_out, h_out = L.GANGWAY_W + .36, L.GANGWAY_H + .26
     z0 = L.FLOOR_Z - .06
     for sx in (-1, 1):
+        if B.end(sx) != 'gangway':
+            continue
+        fx, bf = B.face(sx), B.buffer(sx)
+        pitch = (abs(bf - fx) - .01) / 5
         for k in range(5):
-            a0 = sx * (L.BODY_X + .002 + k * .078); a1 = sx * (L.BODY_X + .002 + (k + 1) * .078 - (.012 if k < 4 else 0))
-            a0, a1 = sorted((a0, a1))
+            a0, a1 = sorted((fx + sx * (.002 + k * pitch), fx + sx * (.002 + (k + 1) * pitch - (.012 if k < 4 else 0))))
             g = .02 if k % 2 else 0
             yo, yi = w_out / 2 - g, L.GANGWAY_W / 2 + .04
             m.box(a0, a1, -yo, -yi, z0 + g, z0 + h_out - g, 'rubber')
             m.box(a0, a1, yi, yo, z0 + g, z0 + h_out - g, 'rubber')
             m.box(a0, a1, -yi, yi, z0 + L.GANGWAY_H + .08, z0 + h_out - g, 'rubber')
-        a0, a1 = sorted((sx * L.BODY_X, sx * (L.BUFFER_X - .005)))
+        a0, a1 = sorted((fx, bf - sx * .005))
         m.box(a0, a1, -L.GANGWAY_W / 2 - .02, L.GANGWAY_W / 2 + .02, L.FLOOR_Z - .03, L.FLOOR_Z - .005, 'steel')
-    m.obj('Shell_Gangways', coll, parent=parent)
+    if m.faces:
+        m.obj('Shell_Gangways', coll, parent=parent)
     # exterior door steps and brass grab handles
     m = M()
-    for name, sy, x0, x1, *_ in L.exterior_openings():
+    for name, sy, x0, x1, *_ in L.exterior_openings(c):
+        steps(m, sy, x0, x1)
         y = sy * L.HALF
-        for z, depth in ((.96, .18), (.66, .30)):
-            ya, yb = sorted((y - sy * .22, y + sy * (depth - .22)))
-            m.box(x0 + .02, x1 - .02, ya, yb, z - .03, z, 'steel')
-            m.box(x0 + .02, x1 - .02, ya, yb, z - .004, z + .002, 'brass')
-        for x in (x0 + .01, x1 - .01):
-            m.box(x - .015, x + .015, min(y, y + sy * .08), max(y, y + sy * .08), .63, L.SKIRT_Z, 'undercarriage')
         for x in (x0 - .07, x1 + .07):
             m.cylinder((x, sy * (L.HALF + .065)), 'z', .016, L.FLOOR_Z + .15, L.FLOOR_Z + 1.75, 'brass', 8)
             for z in (L.FLOOR_Z + .15, L.FLOOR_Z + 1.75):
@@ -498,25 +561,70 @@ def ends_hardware(coll, parent):
     m.obj('Shell_Steps', coll, parent=parent, lods=(0,))
 
 
+def steps(m, sy, x0, x1, inset=0.):
+    """Two hanging steps under a door or a balcony gate on side sy, from x0 to x1."""
+    y = sy * (L.HALF - inset)
+    for z, depth in ((.96, .18), (.66, .30)):
+        ya, yb = sorted((y - sy * .22, y + sy * (depth - .22)))
+        m.box(x0 + .02, x1 - .02, ya, yb, z - .03, z, 'steel')
+        m.box(x0 + .02, x1 - .02, ya, yb, z - .004, z + .002, 'brass')
+    for x in (x0 + .01, x1 - .01):
+        m.box(x - .015, x + .015, min(y, y + sy * .08), max(y, y + sy * .08), .63, L.SKIRT_Z, 'undercarriage')
+
+
+def balcony(c, coll, parent):
+    """An open platform beyond the end wall: plank floor, brass railing with a gate gap and steps on each side,
+    canopy posts holding the roof, and the red tail lamp."""
+    for s in (-1, 1):
+        if B.end(s) != 'balcony':
+            continue
+        edge, face = B.headstock(s), B.face(s)
+        m = M(); trim = M()
+        x0, x1 = sorted((edge, face))
+        m.box(x0, x1, -L.HALF + .12, L.HALF - .12, L.FLOOR_Z - L.DECK, L.FLOOR_Z, 'parquet')
+        for x0b, x1b, y0, y1 in L.railings(B):
+            for z in (L.FLOOR_Z + .48, L.FLOOR_Z + 1.02):
+                trim.box(x0b, x1b, y0, y1, z - .018, z + .018, 'brass')
+            for x in (x0b, x1b) if x1b - x0b > .1 else ((x0b + x1b) / 2,):
+                for y in ((y0 + y1) / 2,) if y1 - y0 < .1 else (y0 + .03, (y0 + y1) / 2, y1 - .03):
+                    trim.cylinder((x, y), 'z', .022, L.FLOOR_Z, L.FLOOR_Z + 1.04, 'brass', 8)
+        # balusters along the outer edge
+        for k in range(15):
+            y = -L.IN + .1 + (2 * L.IN - .2) * k / 14
+            trim.cylinder((edge - s * .025, y), 'z', .012, L.FLOOR_Z, L.FLOOR_Z + 1.02, 'brass', 6)
+        for sy in (-1, 1):            # canopy posts at the outer corners, up to the roof
+            trim.cylinder((edge - s * .03, sy * (L.HALF - .10)), 'z', .035, L.FLOOR_Z, L.roof_z(L.HALF - .10, L.ROOF_SKIN), 'brass', 10)
+            gx0, gx1 = sorted((face + s * .15, face + s * .85))
+            steps(m, sy, gx0, gx1)
+        lamp = next((mt for mt in c.mounts if mt.kind == 'tail-lamp'), None)
+        if lamp:
+            trim.box(lamp.x - .09, lamp.x + .09, lamp.y - .09, lamp.y + .09, lamp.z - .12, lamp.z + .12, 'end-dark')
+            red = M(); red.cylinder((lamp.y, lamp.z), 'x', .07, lamp.x + s * .09, lamp.x + s * .11, 'lamp-red', 16)
+            red.obj('Shell_TailLamp', coll, parent=parent)
+        m.obj('Shell_Balcony', coll, parent=parent)
+        trim.obj('Shell_BalconyRailing', coll, parent=parent)
+
+
 def bogies(coll, parent, lod=0):
-    """Two identical two-axle bogies sharing one frame mesh and one wheelset mesh (linked data)."""
+    """Identical two-axle bogies sharing one frame mesh and one wheelset mesh (linked data)."""
     if lod == 2:
         m = M()
-        for bx in (-L.BOGIE_X, L.BOGIE_X):
-            m.box(bx - 1.55, bx + 1.55, -1.08, 1.08, .20, .85, 'undercarriage')
+        for bx in B.bogies:
+            m.box(bx - B.wheelbase / 2 - .30, bx + B.wheelbase / 2 + .30, -1.08, 1.08, .20, .85, 'undercarriage')
         return [m.obj('LOD2_Bogies', coll, parent=parent, lods=(2,))]
     m = M()
+    hl = B.wheelbase / 2 + .30
     for sy in (-1, 1):
         y0, y1 = sorted((sy * .96, sy * 1.06))
-        m.box(-1.55, 1.55, y0, y1, .36, .62, 'undercarriage')            # side frame
+        m.box(-hl, hl, y0, y1, .36, .62, 'undercarriage')            # side frame
         m.box(-.55, .55, y0, y1, .62, .80, 'undercarriage')
-        for x in (-L.WHEELBASE / 2, L.WHEELBASE / 2):
+        for x in (-B.wheelbase / 2, B.wheelbase / 2):
             m.box(x - .16, x + .16, y0 - .02, y1 + .02, .30, .64, 'undercarriage')   # axlebox guides
             m.cylinder((x, L.WHEEL_R), 'y', .085, *sorted((sy * 1.06, sy * 1.10)), 'brass', 12)   # brass axle caps
         for x in (-.75, -.45, .45, .75):                                   # bolster springs
             m.cylinder((x, sy * 1.01), 'z', .07, .62, .82, 'steel', 10)
     m.box(-.30, .30, -1.0, 1.0, .58, .80, 'undercarriage')                 # bolster
-    for x in (-L.WHEELBASE / 2 - .25, L.WHEELBASE / 2 + .25):             # brake beams
+    for x in (-B.wheelbase / 2 - .25, B.wheelbase / 2 + .25):             # brake beams
         m.box(x - .04, x + .04, -.95, .95, .42, .50, 'undercarriage')
     out = []
     w = M()
@@ -528,14 +636,14 @@ def bogies(coll, parent, lod=0):
         w.cylinder((0, 0), 'y', .15, *sorted((sy * (L.GAUGE / 2 + .11), sy * .98)), 'undercarriage', 12)
     w.cylinder((0, 0), 'y', .075, -.98, .98, 'undercarriage', 12)
     frame_me = wheel_me = None
-    for end, bx in (('A', -L.BOGIE_X), ('B', L.BOGIE_X)):
+    for end, bx in zip('ABCD', B.bogies):
         if frame_me is None:
             b = m.obj(f'Bogie_{end}', coll, parent=parent); frame_me = b.data
         else:
             b = _linked(f'Bogie_{end}', frame_me, coll, (0, 0, 0), parent)
         b.location = (bx, 0, 0)
         out.append(b)
-        for k, ax in enumerate((-L.WHEELBASE / 2, L.WHEELBASE / 2)):
+        for k, ax in enumerate((-B.wheelbase / 2, B.wheelbase / 2)):
             name = f'Bogie_{end}_Wheelset_{k + 1}'
             if wheel_me is None:
                 ws = w.obj(name, coll); wheel_me = ws.data
@@ -637,7 +745,7 @@ def lining(c, coll, parent):
     """Marquetry panels, dado rail and skirting on the walls of the passenger rooms; brass window frames."""
     m = M(); trim = M()
     rooms = [r for r in c.rooms if r.kind in PANELLED]
-    ext = L.exterior_openings()
+    ext = L.exterior_openings(c)
     for sy in (-1, 1):
         face = sy * L.IN
         blocked_doors = [(x0 - .03, x1 + .03) for _, s, x0, x1, *_ in ext if s == sy]
@@ -800,13 +908,14 @@ def doors(c, coll, parent, glass_coll, glass_parent):
             leaf = _door_leaf(d.name, d.width, height, thick, d.glazed, coll, parent, glass_coll, None, origin, w.axis)
             dirv = [d.slide * (o.a1 - o.a0), 0, 0] if w.axis == 'x' else [0, d.slide * (o.a1 - o.a0), 0]
             DOOR_RECORDS.append(dict(name=leaf.name, door=d.name, kind='sliding', pivot=list(origin), open_offset_m=dirv, opening=[o.a0, o.a1, o.z0, o.z1], wall=w.name))
-        else:                               # double hinged leaves: hinge at each end of the opening
-            for k, (hinge, direction, swing) in enumerate(((o.a0, 1, -90), (o.a1, -1, 90))):
-                lw = (o.a1 - o.a0) / 2
+        else:                               # hinged: two leaves (double) or one, hinged at the `slide` end
+            leaves = ((o.a0, 1, -90), (o.a1, -1, 90)) if d.kind == 'double' else (((o.a0, 1, -90),) if d.slide < 0 else ((o.a1, -1, 90),))
+            for k, (hinge, direction, swing) in enumerate(leaves):
+                lw = (o.a1 - o.a0) / len(leaves)
                 a = hinge + direction * lw / 2
                 t = w.c1 if d.face > 0 else w.c0
                 origin = (t + d.face * thick / 2, a, o.z0)
-                leaf = _door_leaf(f'{d.name}_{k + 1}', lw - .005, o.z1 - o.z0, thick, d.glazed, coll, parent, glass_coll, None, origin, 'y')
+                leaf = _door_leaf(f'{d.name}_{k + 1}' if len(leaves) > 1 else d.name, lw - .005, o.z1 - o.z0, thick, d.glazed, coll, parent, glass_coll, None, origin, 'y')
                 # move the origin to the hinge, keeping the leaf where it is
                 shift = Vector((0, hinge - a, 0))
                 leaf.data.transform(__import__('mathutils').Matrix.Translation(-shift))
@@ -817,7 +926,7 @@ def doors(c, coll, parent, glass_coll, glass_parent):
 
 
 def _exterior_door(c, d, coll, parent, glass_coll):
-    name, sy, x0, x1, z0, z1 = next(e for e in L.exterior_openings() if e[0] == d.name.replace('exterior-door', 'exterior'))
+    name, sy, x0, x1, z0, z1 = next(e for e in L.exterior_openings(c) if e[0] == d.name.replace('exterior-door', 'exterior'))
     sx = -1 if x0 < 0 else 1
     hinge_x = x0 if sx < 0 else x1          # hinged on the end-wall side, opening inward
     yc = sy * (L.IN + L.WALL / 2)
@@ -890,12 +999,18 @@ def collision_boxes(c):
     """Simple convex boxes for walking: floor, walls broken at every doorway, partitions, ceiling and fixed fittings."""
     boxes = []
     add = lambda n, *b: boxes.append((n, b))
-    add('floor', -L.IN_X, L.IN_X, -L.IN, L.IN, L.FLOOR_Z - .20, L.FLOOR_Z)
-    add('ceiling', -L.IN_X, L.IN_X, -L.IN, L.IN, L.CEIL_SPRING, L.CEIL_SPRING + .15)
+    add('floor', B.in_a, B.in_b, -L.IN, L.IN, L.FLOOR_Z - .20, L.FLOOR_Z)
+    add('ceiling', B.in_a, B.in_b, -L.IN, L.IN, L.CEIL_SPRING, L.CEIL_SPRING + .15)
+    for s in (-1, 1):
+        if B.end(s) == 'balcony':
+            x0, x1 = sorted((B.headstock(s), B.face(s)))
+            add('balcony-floor', x0, x1, -L.IN, L.IN, L.FLOOR_Z - .20, L.FLOOR_Z)
+    for i, (x0, x1, y0, y1) in enumerate(L.railings(B)):
+        add(f'railing-{i}', x0, x1, y0, y1, L.FLOOR_Z, L.FLOOR_Z + 1.05)
     for sy in (-1, 1):
         y0, y1 = sorted((sy * L.IN, sy * L.HALF))
-        doors_x = sorted((x0, x1) for _, s, x0, x1, *_ in L.exterior_openings() if s == sy)
-        for a, b in _free(-L.BODY_X, L.BODY_X, doors_x, 0.):
+        doors_x = sorted((x0, x1) for _, s, x0, x1, *_ in L.exterior_openings(c) if s == sy)
+        for a, b in _free(B.x_a, B.x_b, doors_x, 0.):
             add(f'side-{sy}', a, b, y0, y1, L.FLOOR_Z, L.CANT_Z)
         for x0, x1 in doors_x:
             add(f'side-{sy}-over-door', x0, x1, y0, y1, L.FLOOR_Z + L.DOOR_H, L.CANT_Z)
@@ -924,16 +1039,16 @@ def collision(c, coll, parent, mesh_name):
 
 def lod2_hull(c, coll, parent):
     m = M()
-    m.box(-L.BODY_X, L.BODY_X, -L.HALF, L.HALF, L.SKIRT_Z, L.BELT_Z, 'livery-blue')
-    m.box(-L.BODY_X, L.BODY_X, -L.HALF, L.HALF, L.BELT_Z, L.CANT_Z, 'livery-ivory')
+    m.box(B.x_a, B.x_b, -L.HALF, L.HALF, L.SKIRT_Z, L.BELT_Z, 'livery-blue')
+    m.box(B.x_a, B.x_b, -L.HALF, L.HALF, L.BELT_Z, L.CANT_Z, 'livery-ivory')
     for w in c.windows:
         y = w.side * (L.HALF + .003)
         m.poly([(w.x - w.width / 2, y, w.sill), (w.x + w.width / 2, y, w.sill), (w.x + w.width / 2, y, w.head), (w.x - w.width / 2, y, w.head)], 'glass-dark', normal=(0, w.side, 0))
-    for name, sy, x0, x1, z0, z1 in L.exterior_openings():
+    for name, sy, x0, x1, z0, z1 in L.exterior_openings(c):
         y = sy * (L.HALF + .002)
         m.poly([(x0, y, z0), (x1, y, z0), (x1, y, z1), (x0, y, z1)], 'livery-blue', normal=(0, sy, 0))
     for sx in (-1, 1):
-        x0, x1 = sorted((sx * L.BODY_X, sx * L.BUFFER_X))
+        x0, x1 = sorted((B.headstock(sx), B.buffer(sx)))
         m.box(x0, x1, -L.GANGWAY_W / 2 - .18, L.GANGWAY_W / 2 + .18, L.FLOOR_Z - .06, L.FLOOR_Z + L.GANGWAY_H + .2, 'rubber')
         for sy in (-1, 1):
             m.box(x0, x1, sy * L.BUFFER_Y - .15, sy * L.BUFFER_Y + .15, L.BUFFER_Z - .15, L.BUFFER_Z + .15, 'undercarriage')
@@ -969,7 +1084,7 @@ def mesh_checks(objs):
     """Closed meshes (manifold, outward) and no degenerate faces in the architectural parts."""
     report = {}
     for o in objs:
-        if o.type != 'MESH' or o.name.startswith(('Glazing', 'Interior_Floor', 'Ceiling', 'Shell_Crest', 'LOD2_Hull')):
+        if o.type != 'MESH' or o.name.startswith(('Glazing', 'Interior_Floor', 'Ceiling', 'Shell_Crest', 'LOD2_Hull', 'Roof_Details', 'Roof_CupolaTop')):
             continue
         bm = bmesh.new(); bm.from_mesh(o.data)
         boundary = sum(1 for e in bm.edges if e.is_boundary)
@@ -981,7 +1096,12 @@ def mesh_checks(objs):
     return report
 
 
+B = L.Body()      # the body of the vehicle being built (build() sets it)
+
+
 def build(coach, images):
+    global B
+    B = coach.body
     bpy.ops.wm.read_factory_settings(use_empty=True)
     MAT.clear()
     for name, img in images.items():
@@ -1000,9 +1120,10 @@ def build(coach, images):
     root['coach'] = coach.name; root['frame'] = L.as_dict(coach)['frame']
     g = {n: group(f'BT_{title}_{n}', cols[n], root) for n in ('Shell', 'Roof', 'Glazing', 'Doors', 'Interior')}
     side_walls(coach, cols['Shell'], g['Shell'])
-    end_walls(cols['Shell'], g['Shell'])
-    deck_and_underframe(cols['Shell'], g['Shell'])
-    ends_hardware(cols['Shell'], g['Shell'])
+    end_walls(coach, cols['Shell'], g['Shell'])
+    deck_and_underframe(coach, cols['Shell'], g['Shell'])
+    ends_hardware(coach, cols['Shell'], g['Shell'])
+    balcony(coach, cols['Shell'], g['Shell'])
     bogies(cols['Shell'], g['Shell'])
     roof(cols['Roof'], g['Roof'])
     ceiling(coach, cols['Roof'], g['Roof'])
@@ -1011,11 +1132,11 @@ def build(coach, images):
     lining(coach, cols['Interior'], g['Interior'])
     window_frames(coach, cols['Shell'], g['Shell'], cols['Glazing'], g['Glazing'])
     doors(coach, cols['Doors'], g['Doors'], cols['Glazing'], g['Glazing'])
-    for end, e in L.coupling()['ends'].items():   # attachment sockets, exported in every LOD
-        for name, loc in (('Coupler', e['draw_hook']), ('Gangway', e['gangway_face_centre'])):
+    for end, e in L.coupling(B)['ends'].items():   # attachment sockets, exported in every LOD
+        for name, loc in [('Coupler', e['draw_hook'])] + ([('Gangway', e['gangway_face_centre'])] if 'gangway_face_centre' in e else []):
             so = bpy.data.objects.new(f'SOCKET_{name}_{end.upper()}', None); so.empty_display_type = 'ARROWS'; so.empty_display_size = .4
             so.location = loc; so.rotation_euler = (0, 0, 0 if end == 'b' else math.pi)
-            so['lods'] = [0, 1, 2]; so['pitch_m'] = L.LENGTH_OVER_BUFFERS
+            so['lods'] = [0, 1, 2]; so['length_m'] = B.length
             cols['Shell'].objects.link(so); so.parent = root
     lod2 = group(f'BT_{title}_LOD2', cols['LOD2']); lod2['lods'] = [2]
     lod2_hull(coach, cols['LOD2'], lod2)
@@ -1042,7 +1163,7 @@ def build(coach, images):
     placements = L.as_dict(coach)
     placements['doors_runtime'] = DOOR_RECORDS
     placements['envelope'] = L.envelope()
-    placements['coupling'] = L.coupling()
+    placements['coupling'] = L.coupling(B)
     placements['collision_boxes'] = [dict(name=f'UCX_{mesh_name}_{i:02d}', part=n, box=[round(v, 4) for v in b]) for i, (n, b) in enumerate(collision_boxes(coach))]
     p = out / f'{coach.name}-placements.json'; p.write_text(json.dumps(placements, indent=1)); files[p.name] = p
     for o in cols['Reservations'].objects:

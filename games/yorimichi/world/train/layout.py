@@ -67,20 +67,72 @@ CAIRO = dict(height=1.48, radius=0.22, source='Cairo: assets/characters/cairo/ch
 HUMAN = dict(height=1.75, radius=0.28, source='provisional 1.75 m adult gauge (shoulders 0.48 m + 4 cm margin)')
 
 
-def coupling():
-    """The interface every coach of this train shares, so any two couple: buffer heads, draw hook and gangway face
-    at each end, and the pitch between coupled coach origins. A coupled coach B sits at this coach's origin + PITCH
-    along +X (buffers compressed to touching faces, gangways meeting)."""
+@dataclass
+class Body:
+    """One vehicle's carriage body in its own frame. x_a/x_b are the outer faces of the end walls (end A at -X), the
+    buffer heads stand at buffer_a/buffer_b, and each end is a `gangway` (bellows and end door) or a `balcony` (an open
+    platform from the end wall to the headstock, closed by a railing). The 24 m coaches use the defaults."""
+    x_a: float = -BODY_X
+    x_b: float = BODY_X
+    buffer_a: float = -BUFFER_X
+    buffer_b: float = BUFFER_X
+    end_a: str = 'gangway'
+    end_b: str = 'gangway'
+    bogies: tuple = (-BOGIE_X, BOGIE_X)
+    wheelbase: float = WHEELBASE
+    exterior_doors: tuple = (('a', -EXT_DOOR_X), ('b', EXT_DOOR_X))   # (label, x of the door centre), both sides
+    cupola: tuple = None           # (x0, x1) of a raised lookout on the roof
+    crest_x: float = 0.
+
+    @property
+    def length(self):
+        return self.buffer_b - self.buffer_a
+
+    @property
+    def in_a(self):
+        return self.x_a + WALL
+
+    @property
+    def in_b(self):
+        return self.x_b - WALL
+
+    def face(self, s):
+        return self.x_b if s > 0 else self.x_a
+
+    def inner(self, s):
+        return self.in_b if s > 0 else self.in_a
+
+    def buffer(self, s):
+        return self.buffer_b if s > 0 else self.buffer_a
+
+    def end(self, s):
+        return self.end_b if s > 0 else self.end_a
+
+    def headstock(self, s):
+        """Where the underframe ends: at the end wall, or at the outer edge of a balcony."""
+        return self.face(s) if self.end(s) == 'gangway' else self.buffer(s) - s * (BUFFER_X - BODY_X)
+
+    def walk_limits(self):
+        """x range a passenger can stand in: inside the end walls, out to the railing on a balcony."""
+        lo = self.in_a if self.end_a == 'gangway' else self.headstock(-1) + .06
+        hi = self.in_b if self.end_b == 'gangway' else self.headstock(1) - .06
+        return lo, hi
+
+
+def coupling(body=None):
+    """The interface every vehicle of this train shares, so any two couple: buffer heads and draw hook at each end,
+    and a gangway face at each gangway end. Coupled vehicles touch buffer to buffer: the next one's origin sits at
+    this one's buffer plus its own half-length."""
+    body = body or Body()
     ends = {}
     for end, sx in (('a', -1), ('b', 1)):
-        ends[end] = dict(
-            buffer_heads=[[sx * BUFFER_X, sy * BUFFER_Y, BUFFER_Z] for sy in (1, -1)],
-            draw_hook=[sx * BUFFER_X, 0., BUFFER_Z],
-            gangway_face_centre=[sx * BUFFER_X, 0., FLOOR_Z + GANGWAY_H / 2],
-            gangway_clear_m=[GANGWAY_W, GANGWAY_H],
-            floor_z=FLOOR_Z, facing=[sx, 0, 0])
-    return dict(pitch_m=LENGTH_OVER_BUFFERS, ends=ends, buffer_head_diameter_m=.40,
-                note='same envelope, floor and gangway on every coach: a step-free walk from coach to coach')
+        e = dict(buffer_heads=[[body.buffer(sx), sy * BUFFER_Y, BUFFER_Z] for sy in (1, -1)],
+                 draw_hook=[body.buffer(sx), 0., BUFFER_Z], floor_z=FLOOR_Z, facing=[sx, 0, 0], kind=body.end(sx))
+        if body.end(sx) == 'gangway':
+            e.update(gangway_face_centre=[body.buffer(sx), 0., FLOOR_Z + GANGWAY_H / 2], gangway_clear_m=[GANGWAY_W, GANGWAY_H])
+        ends[end] = e
+    return dict(pitch_m=body.length, length_over_buffers_m=body.length, ends=ends, buffer_head_diameter_m=.40,
+                note='same buffers, hook, floor and gangway on every vehicle: a step-free walk from coach to coach')
 
 
 def ceiling_z(y):
@@ -213,6 +265,8 @@ class Coach:
     placements: list = field(default_factory=list)
     seats: list = field(default_factory=list)
     mounts: list = field(default_factory=list)
+    body: Body = field(default_factory=Body)
+    goals: dict = field(default_factory=dict)     # extra walk-check points {room: (x, y)}
 
     def room(self, name):
         return next(r for r in self.rooms if r.name == name)
@@ -240,26 +294,35 @@ def footprint(p):
 
 
 # --- shared parts -------------------------------------------------------------------------------------------------
-def _shared(c):
-    c.rooms += [Room('vestibule-a', 'vestibule', -IN_X, -IN_X + VEST, -IN, IN, 'tile'),
-                Room('vestibule-b', 'vestibule', IN_X - VEST, IN_X, -IN, IN, 'tile')]
-    c.walls += [Wall('end-a', 'y', -IN, IN, -BODY_X, -IN_X, [Opening('gangway-a', -GANGWAY_W / 2, GANGWAY_W / 2, FLOOR_Z, FLOOR_Z + GANGWAY_H)]),
-                Wall('end-b', 'y', -IN, IN, IN_X, BODY_X, [Opening('gangway-b', -GANGWAY_W / 2, GANGWAY_W / 2, FLOOR_Z, FLOOR_Z + GANGWAY_H)])]
-    c.doors += [Door('gangway-door-a', 'end-a', 'gangway-a', 'sliding', +1, -1, True, GANGWAY_W + .05),
-                Door('gangway-door-b', 'end-b', 'gangway-b', 'sliding', -1, +1, True, GANGWAY_W + .05)]
+def _shared(c, vestibules=True):
+    """End walls (a gangway or a balcony door in each), the exterior doors and, on the 24 m coaches, the vestibules."""
+    b = c.body
+    if vestibules:
+        c.rooms += [Room('vestibule-a', 'vestibule', b.in_a, b.in_a + VEST, -IN, IN, 'tile'),
+                    Room('vestibule-b', 'vestibule', b.in_b - VEST, b.in_b, -IN, IN, 'tile')]
     for end, sx in (('a', -1), ('b', 1)):
+        c0, c1 = sorted((b.face(sx), b.inner(sx)))
+        if b.end(sx) == 'gangway':
+            c.walls.append(Wall(f'end-{end}', 'y', -IN, IN, c0, c1, [Opening(f'gangway-{end}', -GANGWAY_W / 2, GANGWAY_W / 2, FLOOR_Z, FLOOR_Z + GANGWAY_H)]))
+            c.doors.append(Door(f'gangway-door-{end}', f'end-{end}', f'gangway-{end}', 'sliding', -sx, sx, True, GANGWAY_W + .05))
+        else:
+            c.walls.append(Wall(f'end-{end}', 'y', -IN, IN, c0, c1, [Opening(f'balcony-door-{end}', -.45, .45)]))
+            # hinged on its -Y jamb, opening out onto the balcony
+            c.doors.append(Door(f'balcony-door-{end}', f'end-{end}', f'balcony-door-{end}', 'hinged', sx, -1, True, .90))
+    for label, x in b.exterior_doors:
         for side, sy in (('l', 1), ('r', -1)):
-            # the exterior doors open inward into the vestibule, hinged on the end-wall side
-            c.doors.append(Door(f'exterior-door-{end}{side}', f'side-{side}', f'exterior-{end}{side}', 'hinged', -sy, sx, False, EXT_DOOR_W + .03))
+            # the exterior doors open inward, hinged on the jamb nearer the coach end
+            c.doors.append(Door(f'exterior-door-{label}{side}', f'side-{side}', f'exterior-{label}{side}', 'hinged', -sy, 1 if x >= 0 else -1,
+                                False, EXT_DOOR_W + .03))
 
 
-def exterior_openings():
-    """The four exterior door openings in the side walls, shared by both coaches: (name, side, x0, x1, z0, z1)."""
+def exterior_openings(c=None):
+    """The exterior door openings in the side walls: (name, side, x0, x1, z0, z1)."""
+    b = c.body if c is not None else Body()
     out = []
-    for end, sx in (('a', -1), ('b', 1)):
+    for label, x in b.exterior_doors:
         for side, sy in (('l', 1), ('r', -1)):
-            x = sx * EXT_DOOR_X
-            out.append((f'exterior-{end}{side}', sy, x - EXT_DOOR_W / 2, x + EXT_DOOR_W / 2, FLOOR_Z, FLOOR_Z + DOOR_H))
+            out.append((f'exterior-{label}{side}', sy, x - EXT_DOOR_W / 2, x + EXT_DOOR_W / 2, FLOOR_Z, FLOOR_Z + DOOR_H))
     return out
 
 
@@ -368,7 +431,7 @@ def _cabin(c, name, x0, x1):
 # --- restaurant: five dining bays, bar and galley at end B -------------------------------------------------------
 LOBBY = 1.45
 GROUPS = 4
-GROUP = .72 + .10 + .85 + .10 + .72        # banquette, knee gap, table, knee gap, banquette: 2.49 m
+GROUP = .76 + .10 + .85 + .10 + .76        # banquette, knee gap, table, knee gap, banquette: 2.57 m
 PITCH = GROUP + .02                         # banquettes back to back with 2 cm between them
 BAR_COUNTER_X = 4.30                        # front of the bar counter
 COUNTER, STAFF, BACKBAR = .55, .80, .40
@@ -449,19 +512,87 @@ def restaurant():
     return c
 
 
+# --- brake van: the short tail vehicle, gangway at the front (B), open balcony at the back (A) --------------------
+BRAKE_LENGTH = 12.0
+
+
+def brake_van():
+    """The guard's van that closes the train: guard's room with stove under a roof lookout at the front, a central
+    lobby with the exterior doors, a luggage room, and an open balcony with railing, handbrake and tail lamp at the
+    back. Its front end couples to the second-class coach like any other."""
+    half = BRAKE_LENGTH / 2
+    body = Body(x_a=-half + (BUFFER_X - BODY_X) + 1.30, x_b=half - (BUFFER_X - BODY_X), buffer_a=-half, buffer_b=half,
+                end_a='balcony', end_b='gangway', bogies=(-3.30, 3.55), wheelbase=2.0,
+                exterior_doors=(('m', .30),), cupola=(1.15, 3.85), crest_x=-2.45)
+    c = Coach('brake-van', 'Fourgon-frein de queue', body=body)
+    _shared(c, vestibules=False)
+    p1, p2 = (-.45, -.40), (1.00, 1.05)
+    c.rooms += [Room('balcony', 'balcony', body.headstock(-1), body.x_a, -IN, IN, 'parquet'),
+                Room('luggage', 'luggage', body.in_a, p1[0], -IN, IN, 'parquet'),
+                Room('lobby', 'lobby', p1[1], p2[0], -IN, IN, 'tile'),
+                Room('guard-room', 'guard', p2[1], body.in_b, -IN, IN, 'parquet')]
+    c.walls += [Wall('luggage-partition', 'y', -IN, IN, *p1, [Opening('door-luggage', -.55, .55)]),
+                Wall('guard-partition', 'y', -IN, IN, *p2, [Opening('door-guard-room', -.45, .45)])]
+    c.doors += [Door('door-luggage', 'luggage-partition', 'door-luggage', 'sliding', +1, +1, False, 1.15),
+                Door('door-guard-room', 'guard-partition', 'door-guard-room', 'sliding', -1, +1, True, .95)]
+    for side, sy in (('l', 1), ('r', -1)):
+        c.windows += [Window(f'guard-{side}', sy, 3.10, WIN_W), Window(f'guard-front-{side}', sy, 4.95, WC_W),
+                      Window(f'luggage-{side}', sy, -2.45, WIN_W)]
+    gi, ge = body.in_b, p2[1]
+    c.reservations += [
+        Box('stove', 'stove', ge + .15, ge + .70, IN - .62, IN - .10, FLOOR_Z, FLOOR_Z + 1.10, 'cast-iron stove with its flue to the roof'),
+        Box('guard-bench', 'bench', 2.10, 4.30, -IN + .02, -IN + .52, FLOOR_Z, FLOOR_Z + .48, "guard's bench under the window"),
+        Box('guard-desk', 'desk', 3.70, gi - .55, IN - .58, IN - .02, FLOOR_Z, FLOOR_Z + .80, 'writing desk with pigeon-holes'),
+        Box('cupola-steps', 'steps', 1.45, 2.00, -1.15, -.60, FLOOR_Z, FLOOR_Z + .60, 'two steps up to the lookout seat'),
+        Box('luggage-shelves-l', 'luggage-shelves', body.in_a + .05, p1[0] - .05, IN - .52, IN - .02, FLOOR_Z, FLOOR_Z + 1.90, 'parcel shelves'),
+        Box('luggage-shelves-r', 'luggage-shelves', body.in_a + .05, p1[0] - .80, -IN + .02, -IN + .52, FLOOR_Z, FLOOR_Z + 1.90, 'parcel shelves'),
+        Box('handbrake', 'handbrake', body.headstock(-1) + .10, body.headstock(-1) + .32, IN - .40, IN - .18, FLOOR_Z, FLOOR_Z + 1.10, 'handbrake column on the balcony'),
+    ]
+    c.mounts += [Mount('tail-lamp', 'tail-lamp', 'balcony', body.headstock(-1) - .02, -IN + .30, FLOOR_Z + .95, 90),
+                 Mount('guard-lamp', 'ceiling-lamp', 'guard-room', 3.0, 0., ceiling_z(0) - .02, 0)]
+    c.goals.update({'luggage': (-2.0, 0.), 'guard-room': (2.6, .20)})
+    _curtains(c, lambda w: _room_at(c, w.x, w.side * (IN - .1)))
+    return c
+
+
 def coaches():
-    return [restaurant(), first_class()]
+    return [restaurant(), first_class(), brake_van()]
 
 
 # --- checks -------------------------------------------------------------------------------------------------------
+def start(c):
+    """Where the walk checks begin: just inside a gangway end."""
+    b = c.body
+    s = -1 if b.end_a == 'gangway' else 1
+    return (b.inner(s) - s * .30, 0.)
+
+
+def railings(body):
+    """Balcony railings as boxes (x0, x1, y0, y1): along the outer edge and down both sides, leaving a gap at the
+    steps on each side."""
+    out = []
+    for s in (-1, 1):
+        if body.end(s) != 'balcony':
+            continue
+        edge = body.headstock(s)
+        x0, x1 = sorted((edge, edge - s * .05))
+        out.append((x0, x1, -IN, IN))
+        gap0, gap1 = sorted((body.face(s) + s * .15, body.face(s) + s * .85))   # the step opening on each side
+        for sy in (-1, 1):
+            y0, y1 = sorted((sy * IN, sy * (IN - .05)))
+            for a0, a1 in ((min(edge, body.face(s)), gap0), (gap1, max(edge, body.face(s)))):
+                if a1 - a0 > .02:
+                    out.append((a0, a1, y0, y1))
+    return out
+
+
 def walkable_grid(c, radius, step=.025):
     """Free floor cells for a disc of `radius` (2D, at standing height): walls, closed wall parts, open sliding leaves,
     floor-standing furniture and reservations are obstacles. Returns (grid, x0, y0, step)."""
-    nx, ny = int(round(2 * IN_X / step)), int(round(2 * IN / step))
-    obstacles = []
+    lo, hi = c.body.walk_limits()
+    nx, ny = int(round((hi - lo) / step)), int(round(2 * IN / step))
+    obstacles = list(railings(c.body))
     for w in c.walls:
-        if w.name.startswith('end-'):
-            continue
         spans = sorted((o.a0, o.a1) for o in w.openings)
         cuts, a = [], w.a0
         for o0, o1 in spans:
@@ -487,10 +618,10 @@ def walkable_grid(c, radius, step=.025):
     for b in c.reservations:
         if b.z0 - FLOOR_Z < 1.0:
             obstacles.append((b.x0, b.x1, b.y0, b.y1))
-    xs = -IN_X + (np.arange(nx) + .5) * step
+    xs = lo + (np.arange(nx) + .5) * step
     ys = -IN + (np.arange(ny) + .5) * step
     X, Y = np.meshgrid(xs, ys, indexing='ij')
-    grid = (np.abs(Y) <= IN - radius) & (np.abs(X) <= IN_X - radius)
+    grid = (np.abs(Y) <= IN - radius) & (X >= lo + radius) & (X <= hi - radius)
     for ox0, ox1, oy0, oy1 in obstacles:
         dx = np.maximum(np.maximum(ox0 - X, 0.), X - ox1); dy = np.maximum(np.maximum(oy0 - Y, 0.), Y - oy1)
         grid &= dx * dx + dy * dy >= radius * radius
@@ -501,7 +632,8 @@ def reachable(c, radius, start, goals):
     """Breadth-first search over the walkable grid from `start` (x, y); returns {goal name: reached}."""
     grid, step = walkable_grid(c, radius)
     nx, ny = grid.shape
-    cell = lambda x, y: (int((x + IN_X) / step), int((y + IN) / step))
+    lo = c.body.walk_limits()[0]
+    cell = lambda x, y: (int((x - lo) / step), int((y + IN) / step))
     si, sj = cell(*start)
     if not grid[si, sj]:
         return {name: False for name in goals}
@@ -525,12 +657,21 @@ def reachable(c, radius, start, goals):
 def goals(c):
     """Points a passenger must reach from vestibule A: gangway B, the four exterior doors and a point just inside
     every room (staff rooms included)."""
-    g = {'gangway-b': (IN_X - .30, 0.)}
+    b = c.body
+    g = {}
     for end, sx in (('a', -1), ('b', 1)):
+        if b.end(sx) == 'gangway':
+            g[f'gangway-{end}'] = (b.inner(sx) - sx * .30, 0.)
+        else:
+            g[f'balcony-{end}'] = (b.headstock(sx) - sx * .45, 0.)
+    for label, x in b.exterior_doors:
         for side, sy in (('l', 1), ('r', -1)):
-            g[f'exterior-door-{end}{side}'] = (sx * EXT_DOOR_X, sy * (IN - .35))
+            g[f'exterior-door-{label}{side}'] = (x, sy * (IN - .35))
     for r in c.rooms:
-        if r.kind == 'vestibule':
+        if r.kind in ('vestibule', 'balcony'):
+            continue
+        if r.name in c.goals:
+            g[r.name] = c.goals[r.name]
             continue
         door = next((o for w in c.walls for o in w.openings if o.name == f'door-{r.name}'), None)
         if r.kind == 'cabin':
@@ -570,7 +711,7 @@ def check(c):
         if x0 < r.x0 - 1e-6 or x1 > r.x1 + 1e-6 or y0 < r.y0 - 1e-6 or y1 > r.y1 + 1e-6:
             bad.append(f'{p.id} leaves {r.name}')
     for name, radius in (('Cairo', CAIRO['radius']), ('adult', HUMAN['radius'])):
-        res = reachable(c, radius, (-IN_X + .30, 0.), goals(c))
+        res = reachable(c, radius, start(c), goals(c))
         bad += [f'{name} cannot reach {g}' for g, ok in res.items() if not ok]
     # windows clear of partitions and doors, inside the ivory band
     for w in c.windows:
@@ -580,7 +721,7 @@ def check(c):
             touches = wall.axis == 'y' and (wall.a1 >= IN - 1e-6 if w.side > 0 else wall.a0 <= -IN + 1e-6)
             if touches and wall.c1 > w.x - w.width / 2 - .05 and wall.c0 < w.x + w.width / 2 + .05:
                 bad.append(f'window {w.name} meets {wall.name}')
-        for name, side, x0, x1, *_ in exterior_openings():
+        for name, side, x0, x1, *_ in exterior_openings(c):
             if side == w.side and x1 > w.x - w.width / 2 - .1 and x0 < w.x + w.width / 2 + .1:
                 bad.append(f'window {w.name} meets {name}')
     return bad

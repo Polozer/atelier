@@ -285,6 +285,7 @@ for (const v of consist.vehicles) {
   for (const r of v.reservations) {
     if (r.z0 - F < 1.0) obstacles.push([r.x0 + v.x, r.x1 + v.x, r.y0, r.y1]);
   }
+  for (const r of v.railings || []) obstacles.push([r[0] + v.x, r[1] + v.x, r[2], r[3]]);
 }
 function updateStats() {
   $('s-fit').textContent = fitted;
@@ -348,14 +349,14 @@ const built = consist.vehicles.filter((v) => v.status === 'built');
 const IN = consist.interior_half_width, INX = consist.interior_half_length, BX = consist.body_half_length;
 function inside(x, y, r) {
   for (const v of built) {
-    const lx = x - v.x;
-    if (Math.abs(lx) <= INX - r && Math.abs(y) <= IN - r) return true;
+    const lx = x - v.x, [lo, hi] = v.walk;
+    if (lx >= lo + r && lx <= hi - r && Math.abs(y) <= IN - r) return true;
   }
-  // gangways between two built vehicles that touch
+  // gangways between two built vehicles that touch, both ends being gangways
   for (let i = 0; i + 1 < consist.vehicles.length; i++) {
     const a = consist.vehicles[i], b = consist.vehicles[i + 1];
-    if (a.status !== 'built' || b.status !== 'built') continue;
-    const hi = a.x - INX + .05, lo = b.x + INX - .05;
+    if (a.status !== 'built' || b.status !== 'built' || a.ends[0] !== 'gangway' || b.ends[1] !== 'gangway') continue;
+    const hi = a.x + a.walk[0] + .05, lo = b.x + b.walk[1] - .05;
     if (x <= hi && x >= lo && Math.abs(y) <= consist.gangway.width / 2 - r * .5) return true;
   }
   return false;
