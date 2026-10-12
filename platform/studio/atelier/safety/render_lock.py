@@ -304,6 +304,13 @@ def _admit_fitting(fitting, big, small, gib):
     for path in (big, small):
         other = read_holder(path)
         if not other:
+            # An older guard does not use our admission mutex and may hold this slot before publishing
+            # a valid record. Probe the mutex, without clearing or rewriting any other owner's metadata.
+            with path.open('a+') as probe:
+                if not _take(probe):
+                    why = f'the {path.name} mutex is held without a valid holder record'
+                    break
+                fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
             continue
         if is_compile(other):
             why = f'a compile holds a render slot{describe(other)}'

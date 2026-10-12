@@ -432,6 +432,17 @@ class FittingSlotTests(SlotTestCase):
                         self.take(fitting_gib=1)
         self.assertFalse(is_locked(self.fitting))
 
+    def test_held_slots_without_valid_records_refuse_fitting_without_rewriting_them(self):
+        for path in (self.big, self.small):
+            for text in ('', '{', '{"pid":999999,"started":1}'):
+                with hold(path):
+                    path.write_text(text)
+                    with self.assertRaisesRegex(RenderBusy, 'held without a valid holder record'):
+                        self.take(fitting_gib=1)
+                    self.assertEqual(path.read_text(), text)
+                    self.assertTrue(is_locked(path))
+                    self.assertFalse(is_locked(self.fitting))
+
     def test_low_or_unknown_memory_refuses_without_fallback(self):
         for memory in (None, 9*GiB):
             self.patch(slots, 'available_bytes', lambda: memory)
