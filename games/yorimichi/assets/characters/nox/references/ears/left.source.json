@@ -14,7 +14,7 @@
   "prompt_sha256": "8b1a6b978b6d12fb4799dce53a26096123fbb878fddb97a4b26b30ed936e774e",
   "status": "done",
   "started_at": "2026-10-12T10:15:07.769549+00:00",
-  "output": "ear-left-clean.png",
+  "output": "left.png",
   "output_sha256": "028d4d7dffd2b97959ff81a5d11f6b8c8de2d8b7a82e94ed642da96542c3c255",
   "usage": {
     "input_tokens": 1374,

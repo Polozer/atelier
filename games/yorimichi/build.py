@@ -250,9 +250,6 @@ def nox_steps(out):
     return [
         Step('characters.nox', [Blender(nox / 'export_unreal.py', threads=3)], inputs=[nox, NAMES],
              outputs=[out / 'nox/export.json'], heavy=True, about='Nox assembled mesh, hair rig and two 4K atlases to FBX'),
-        Step('characters.nox_bike', [Blender(ASSETS / 'vehicles' / 'bike' / 'rider.py', ('--character', 'nox'), threads=3)],
-             inputs=[ASSETS / 'vehicles' / 'bike' / 'rider.py', ASSETS / 'vehicles' / 'bike' / 'clips.toml', nox, NAMES], needs=['world.bike'],
-             outputs=[out / 'nox/bike/export.json'], heavy=True, about='Every bike action authored on Nox'),
         Step('unreal.nox', [UnrealScript(SCRIPTS / 'import_nox.py', 'NOX IMPORT COMPLETE', null_rhi=True,
                                         modules=IMPORT_CODE + SAVED_TYPES)],
              inputs=[SCRIPTS / 'import_nox.py', SCRIPTS / 'animation_compression.py'], after=['unreal.world'],
@@ -448,6 +445,9 @@ def character_steps(ctx):
         Step('characters.modori_bike', [Blender(ASSETS / 'vehicles' / 'bike' / 'rider.py', ('--character', 'modori'))],
              inputs=[CHARS / 'modori', NAMES, ASSETS / 'vehicles' / 'bike'], needs=['world.bike'],
              outputs=[out / 'modori' / 'bike' / 'export.json'], about="Cairo's bike clips authored on Modori's rig, and the bike's channels"),
+        Step('characters.nox_bike', [Blender(ASSETS / 'vehicles' / 'bike' / 'rider.py', ('--character', 'nox'), threads=3)],
+             inputs=[ASSETS / 'vehicles' / 'bike' / 'rider.py', ASSETS / 'vehicles' / 'bike' / 'clips.toml', CHARS / 'nox', NAMES], needs=['world.bike'],
+             outputs=[out / 'nox/bike/export.json'], heavy=True, about='Every bike action authored on Nox'),
         # Likewise before data.stage, which needs it so the cook carries it; it reads only committed files.
         Step('characters.modori_grips', [Python(GRIPS / 'game.py', ('--character', 'modori', '--source', GRIPS / 'modori'))],
              inputs=[GRIPS / 'game.py', GRIPS / 'moments.py', *(GRIPS / 'modori' / f for f in ('poses.json', 'moments.json', 'body.glb'))],
