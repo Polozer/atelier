@@ -83,6 +83,7 @@ class Body:
     exterior_doors: tuple = (('a', -EXT_DOOR_X), ('b', EXT_DOOR_X))   # (label, x of the door centre), both sides
     cupola: tuple = None           # (x0, x1) of a raised lookout on the roof
     crest_x: float = 0.
+    livery: str = 'luxury'         # luxury, or worn: faded, rusty paint and peeling interiors (second class)
 
     @property
     def length(self):
@@ -555,8 +556,59 @@ def brake_van():
     return c
 
 
+# --- second class: the run-down open saloon with its canteen at end A ----------------------------------------------
+SC_PITCH = .55 + .65 + .55 + .02           # bench, legroom, bench, gap: 1.77 m
+SC_BAYS = 8
+CANTEEN_X1 = -6.50                          # the canteen's front partition (the serving hatch)
+
+
+def second_class():
+    """The poor relation at the back of the train: the same body, worn livery, an open saloon of hard benches facing
+    in pairs, and a tiled canteen at end A whose serving hatch opens onto the saloon. A service corridor beside the
+    canteen keeps the passage to the vestibule and the brake van."""
+    c = Coach('second-class', 'Deuxième classe et cantine', body=Body(livery='worn'))
+    _shared(c)
+    corridor_door = (-IN + CORRIDOR / 2 - .45, -IN + CORRIDOR / 2 + .45)
+    _bulkheads(c, corridor_door, (-.55, .55), glazed=False)
+    salon_x0 = CANTEEN_X1 + PART
+    c.rooms += [Room('canteen', 'canteen', -SPAN_X, CANTEEN_X1, ROOM_Y, IN, 'tiles-grimy'),
+                Room('service-corridor', 'corridor', -SPAN_X, CANTEEN_X1, -IN, CORR_Y, 'lino'),
+                Room('saloon', 'saloon', salon_x0, SPAN_X, -IN, IN, 'lino')]
+    c.walls += [Wall('canteen-side', 'x', -SPAN_X, CANTEEN_X1, CORR_Y, ROOM_Y, [Opening('door-canteen', -9.40, -8.65)]),
+                Wall('canteen-front', 'y', ROOM_Y, IN, CANTEEN_X1, salon_x0, [Opening('canteen-hatch', .05, 1.45, FLOOR_Z + .95, FLOOR_Z + 1.80)])]
+    c.doors.append(Door('door-canteen', 'canteen-side', 'door-canteen', 'sliding', -1, -1, False, .80))
+    bw, bd, _ = asset_dims('second-class-bench')
+    first = salon_x0 + 1.60                 # room to queue in front of the hatch
+    for k in range(SC_BAYS):
+        s0 = first + k * SC_PITCH
+        for side, sy in (('l', 1), ('r', -1)):
+            by = sy * (IN - .03 - bw / 2)
+            for end, bx, yaw in (('a', s0 + bd / 2, 90), ('b', s0 + SC_PITCH - .02 - bd / 2, -90)):
+                b = f'bench-{k + 1}{side}{end}'
+                c.placements.append(Placement(b, 'second-class-bench', 'saloon', bx, by, FLOOR_Z, yaw))
+                for n, dy in enumerate((-.30, .30)):
+                    c.seats.append(Seat(f'{b}-seat-{n + 1}', b, bx + (.04 if yaw > 0 else -.04), by + dy, FLOOR_Z + .45, yaw))
+            c.mounts.append(Mount(f'net-{k + 1}{side}', 'rack', 'saloon', s0 + SC_PITCH / 2, sy * (IN - .02), FLOOR_Z + 1.85, 0 if sy > 0 else 180, SC_PITCH - .1))
+        c.mounts.append(Mount(f'bulb-{k + 1}', 'ceiling-lamp', 'saloon', s0 + SC_PITCH / 2, 0., ceiling_z(0) - .02, 0))
+    for k in range(0, SC_BAYS, 2):          # one wide window for every two bays, as on the concept
+        x = first + (k + 1) * SC_PITCH - .01
+        c.windows += [Window(f'saloon-{k // 2 + 1}-l', 1, x, 2 * SC_PITCH - .45), Window(f'saloon-{k // 2 + 1}-r', -1, x, 2 * SC_PITCH - .45)]
+    c.windows += [Window('canteen-l', 1, -8.20, SMALL_W, FLOOR_Z + 1.00, HEAD), Window('service-r', -1, -8.20, SMALL_W)]
+    c.placements.append(Placement('canteen-pot', 'canteen-pot', 'canteen', -9.30, IN - .38, FLOOR_Z + .90, 0))
+    c.reservations += [
+        Box('canteen-counter', 'canteen-counter', CANTEEN_X1 - .60, CANTEEN_X1 - .02, ROOM_Y + .05, IN - .05, FLOOR_Z, FLOOR_Z + .95, 'serving counter under the hatch'),
+        Box('canteen-stove', 'canteen-stove', -9.82, -8.80, IN - .70, IN - .05, FLOOR_Z, FLOOR_Z + .90, 'old range carrying the porridge pot'),
+        Box('canteen-sink', 'canteen-sink', -8.55, -7.75, IN - .62, IN - .05, FLOOR_Z, FLOOR_Z + .90, 'chipped sink and draining board'),
+        Box('canteen-shelves', 'canteen-shelves', -9.82, -9.30, ROOM_Y + .05, ROOM_Y + .45, FLOOR_Z, FLOOR_Z + 1.90, 'stacked tin plates and mugs'),
+    ]
+    c.mounts.append(Mount('menu-board', 'menu-board', 'saloon', salon_x0 + .02, .75, FLOOR_Z + 2.00, -90, 1.0))
+    c.goals.update({'canteen': (-7.60, .30)})
+    _curtains(c, lambda w: _room_at(c, w.x, w.side * (IN - .1)))
+    return c
+
+
 def coaches():
-    return [restaurant(), first_class(), brake_van()]
+    return [restaurant(), first_class(), second_class(), brake_van()]
 
 
 # --- checks -------------------------------------------------------------------------------------------------------
@@ -593,7 +645,7 @@ def walkable_grid(c, radius, step=.025):
     nx, ny = int(round((hi - lo) / step)), int(round(2 * IN / step))
     obstacles = list(railings(c.body))
     for w in c.walls:
-        spans = sorted((o.a0, o.a1) for o in w.openings)
+        spans = sorted((o.a0, o.a1) for o in w.openings if o.z0 - FLOOR_Z < .3)    # a serving hatch is not a way through
         cuts, a = [], w.a0
         for o0, o1 in spans:
             cuts.append((a, o0)); a = o1

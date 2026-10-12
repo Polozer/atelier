@@ -183,6 +183,80 @@ def crest(size=512):
     return _rgba(img, alpha)
 
 
+def worn(size=1024, base=(.03, .05, .11), faded=(.13, .17, .24), rust=(.36, .17, .06), seed=31, streaks=True, rust_amount=.18):
+    """Tired paint: faded patches, rust blooms with darker cores, vertical grime streaks. Tileable."""
+    n1 = _noise(size, size, (6, 6), seed, 5)
+    n2 = _noise(size, size, (14, 14), seed + 1, 4)
+    n3 = _noise(size, size, (3, 30), seed + 2, 3)          # tall cells: streaks
+    img = np.array(base)[None, None, :] * (.85 + .3 * n2[..., None])
+    fade = np.clip((n1 - .45) * 3, 0, 1)[..., None]
+    img = img * (1 - fade) + np.array(faded)[None, None, :] * fade
+    r = np.clip((n2 - (1 - rust_amount)) * 5, 0, 1)[..., None]
+    img = img * (1 - r) + np.array(rust)[None, None, :] * (.7 + .5 * n1[..., None]) * r
+    if streaks:
+        st = np.clip((n3 - .55) * 2.5, 0, 1)[..., None] * .35
+        img = img * (1 - st) + np.array(rust)[None, None, :] * .5 * st
+    return _rgba(img)
+
+
+def peeling(size=1024, paint=(.30, .18, .10), under=(.46, .39, .29), seed=41):
+    """Brown paint flaking off pale plaster and wood, with grime at the bottom of every tile."""
+    n = _noise(size, size, (22, 22), seed, 4)          # small flakes: the texture often spans a whole panel
+    m = _noise(size, size, (24, 24), seed + 1, 3)
+    img = np.array(paint)[None, None, :] * (.8 + .35 * m[..., None])
+    flake = (n > .71)[..., None]
+    img = np.where(flake, np.array(under)[None, None, :] * (.85 + .3 * m[..., None]), img)
+    edge = (np.abs(n - .71) < .010)[..., None]
+    img = np.where(edge, np.array(paint) * .45, img)
+    y = np.linspace(0, 1, size)[:, None, None]
+    img = img * (.75 + .25 * y)
+    return _rgba(img)
+
+
+def lino(size=1024, seed=51):
+    """Worn green linoleum: scuffs, a darker path down the middle, burns and patches."""
+    n = _noise(size, size, (10, 10), seed, 5)
+    img = np.array([.20, .26, .19])[None, None, :] * (.75 + .5 * n[..., None])
+    X = np.linspace(0, 1, size)[None, :, None]
+    path = np.exp(-((X - .5) / .18) ** 2) * .25
+    img = img * (1 - path) + np.array([.10, .10, .08]) * path
+    spots = _noise(size, size, (40, 40), seed + 2, 1) > .82
+    img[spots] = img[spots] * .55
+    return _rgba(img)
+
+
+def tiles_grimy(size=512, seed=61):
+    """Cracked white canteen tiles with dark grout and grease."""
+    Y, X = np.mgrid[0:size, 0:size].astype(float) / size
+    n = _noise(size, size, (6, 6), seed, 4)[..., None]
+    img = np.array([.70, .69, .62])[None, None, :] * (.75 + .3 * n)
+    u, v = X * 6, Y * 6
+    grout = (np.abs(u - np.round(u)) < .035) | (np.abs(v - np.round(v)) < .035)
+    img[grout] = (.18, .16, .13)
+    grease = np.clip((_noise(size, size, (4, 4), seed + 1, 3) - .55) * 2, 0, 1)[..., None]
+    img = img * (1 - .45 * grease)
+    return _rgba(img)
+
+
+def numeral_two(size=512):
+    """A crooked hand-painted 2 in faded cream, for the second-class sides."""
+    Y, X = np.mgrid[0:size, 0:size].astype(float) / size
+    cx, cy, r, t = .5, .66, .19, .07
+    d = np.hypot(X - cx, Y - cy)
+    ang = np.arctan2(Y - cy, X - cx)
+    arc = (np.abs(d - r) < t / 2) & ((ang > -0.6) | (ang < -2.6))
+    p0, p1 = np.array([cx + r * .82, cy - r * .55]), np.array([.30, .20])
+    dv = p1 - p0
+    tt = np.clip(((X - p0[0]) * dv[0] + (Y - p0[1]) * dv[1]) / (dv @ dv), 0, 1)
+    diag = np.hypot(X - (p0[0] + tt * dv[0]), Y - (p0[1] + tt * dv[1])) < t / 2
+    base = (Y > .16) & (Y < .16 + t) & (X > .28) & (X < .74)
+    mask = arc | diag | base
+    wear = _noise(size, size, (12, 12), 71, 3) > .3
+    alpha = (mask & wear).astype(float)
+    img = np.zeros((size, size, 3)) + np.array([.78, .70, .50])
+    return _rgba(img, alpha)
+
+
 ALL = {
     'T_BT_Walnut': lambda: walnut(),
     'T_BT_PanelTall': lambda: panel(512, 1024, 11),
@@ -191,4 +265,11 @@ ALL = {
     'T_BT_CarpetEmerald': lambda: carpet(1024, (.035, .17, .12), GOLD * .80, 7),
     'T_BT_Tiles': lambda: tiles(),
     'T_BT_Crest': lambda: crest(),
+    'T_BT_BlueWorn': lambda: worn(1024, (.03, .05, .11), (.13, .17, .24), (.36, .17, .06), 31),
+    'T_BT_IvoryWorn': lambda: worn(1024, (.62, .55, .40), (.70, .63, .46), (.40, .22, .09), 33, rust_amount=.14),
+    'T_BT_RoofWorn': lambda: worn(1024, (.04, .045, .05), (.10, .11, .12), (.32, .15, .06), 35, rust_amount=.25),
+    'T_BT_PaintPeel': lambda: peeling(),
+    'T_BT_Lino': lambda: lino(),
+    'T_BT_TilesGrimy': lambda: tiles_grimy(),
+    'T_BT_Two': lambda: numeral_two(),
 }

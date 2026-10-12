@@ -200,6 +200,31 @@
         ],
         "fit": "turned -90 deg (back plate to +Y), uniform scale 0.404 to height 0.40"
       }
+    },
+    {
+      "id": "second-class-bench",
+      "name_fr": "Banquette de 2e classe — deux places, bois à lattes",
+      "dimensions_m": {
+        "width": 1.2,
+        "depth": 0.55,
+        "height": 1.0
+      },
+      "seat_height_m": 0.45,
+      "pivot": "floor_footprint_center",
+      "material_family": "worn-slatted-wood-iron",
+      "quantity_draft": 32
+    },
+    {
+      "id": "canteen-pot",
+      "name_fr": "Grosse marmite cabossée de la cantine",
+      "dimensions_m": {
+        "width": 0.6,
+        "depth": 0.6,
+        "height": 0.55
+      },
+      "pivot": "base_contact_center",
+      "material_family": "dented-aluminium",
+      "quantity_draft": 1
     }
   ],
   "notes": [

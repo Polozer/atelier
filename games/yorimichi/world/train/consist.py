@@ -30,7 +30,7 @@ VEHICLES = [
     dict(id='baggage-van', title='Fourgon à bagages', length=L.LENGTH_OVER_BUFFERS, status='planned', concept='locomotive/baggage-van--exterior-profile.png'),
     dict(id='restaurant', title='Voiture restaurant', length=L.LENGTH_OVER_BUFFERS, status='built'),
     dict(id='first-class', title='Première classe', length=L.LENGTH_OVER_BUFFERS, status='built'),
-    dict(id='second-class', title='Deuxième classe et cantine', length=L.LENGTH_OVER_BUFFERS, status='planned', concept='locomotive/second-class--exterior-profile-v3.png'),
+    dict(id='second-class', title='Deuxième classe et cantine', length=L.LENGTH_OVER_BUFFERS, status='built'),
     dict(id='brake-van', title='Fourgon-frein de queue', length=L.BRAKE_LENGTH, status='built'),
 ]
 
@@ -58,7 +58,7 @@ def web_copy(glb, out_dir):
     return name
 
 
-BUILDERS = {'restaurant': L.restaurant, 'first-class': L.first_class, 'brake-van': L.brake_van}
+BUILDERS = {'restaurant': L.restaurant, 'first-class': L.first_class, 'second-class': L.second_class, 'brake-van': L.brake_van}
 
 
 def offsets():

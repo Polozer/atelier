@@ -52,6 +52,16 @@ MATERIALS = {
     'glass-dark': ((.05, .07, .09), 0., .1, None, 1., 1.),
     'lamp-red': ((.85, .04, .02), 0., .2, None, 1., 1.),
     'crest': ((1, 1, 1), .8, .3, 'T_BT_Crest', 0., 1.),
+    'livery-blue-worn': ((1, 1, 1), 0., .7, 'T_BT_BlueWorn', 2.0, 1.),
+    'livery-ivory-worn': ((1, 1, 1), 0., .75, 'T_BT_IvoryWorn', 2.0, 1.),
+    'roof-worn': ((1, 1, 1), .2, .8, 'T_BT_RoofWorn', 2.0, 1.),
+    'brass-dull': ((.36, .30, .17), .6, .65, None, 1., 1.),
+    'paint-peel': ((1, 1, 1), 0., .85, 'T_BT_PaintPeel', 1.5, 1.),
+    'lino': ((1, 1, 1), 0., .75, 'T_BT_Lino', 2.0, 1.),
+    'tiles-grimy': ((1, 1, 1), 0., .5, 'T_BT_TilesGrimy', 1.2, 1.),
+    'decal-two': ((1, 1, 1), 0., .6, 'T_BT_Two', 0., 1.),
+    'glass-grimy': ((.70, .68, .55), 0., .3, None, 1., .35),
+    'ceiling-dingy': ((.50, .43, .31), 0., .85, None, 1., 1.),
     'reservation': ((.85, .28, .04), 0., .8, None, 1., .60),
     'reservation-service': ((.08, .25, .75), 0., .8, None, 1., .50),
     'gauge': ((.9, .1, .3), 0., .8, None, 1., 1.),
@@ -85,7 +95,7 @@ def make_materials(images):
         if tex:
             node = nodes.new('ShaderNodeTexImage'); node.image = images[tex]
             m.node_tree.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
-            if name == 'crest':
+            if name in ('crest', 'decal-two'):
                 m.node_tree.links.new(node.outputs['Alpha'], bsdf.inputs['Alpha'])
                 m.surface_render_method = 'DITHERED'
         if alpha < 1:
@@ -705,7 +715,23 @@ def partitions(c, coll, parent):
     return objs
 
 
-PANELLED = {'cabin', 'corridor', 'salon', 'lobby', 'bar'}
+PANELLED = {'cabin', 'corridor', 'salon', 'lobby', 'bar', 'saloon', 'guard'}
+
+# a worn coach keeps the same geometry; its finishes are swapped for tired ones after the build
+WORN = {'livery-blue': 'livery-blue-worn', 'livery-ivory': 'livery-ivory-worn', 'roof': 'roof-worn', 'end-dark': 'roof-worn',
+        'brass': 'brass-dull', 'panel-tall': 'paint-peel', 'panel-wide': 'paint-peel', 'walnut': 'paint-peel',
+        'crest': 'decal-two', 'glass': 'glass-grimy', 'ceiling': 'ceiling-dingy'}
+
+
+def wear_out(objs):
+    for o in objs:
+        if o.type != 'MESH':
+            continue
+        for slot in o.material_slots:
+            for k, v in WORN.items():
+                if slot.material is MAT[k]:
+                    slot.material = MAT[v]
+                    break
 
 
 def _free(a0, a1, blocked, min_len=.12):
@@ -818,7 +844,13 @@ def lining(c, coll, parent):
                         trim.box(a0, a1, c0, c1, z0, z1, mat)
                     else:
                         trim.box(c0, c1, a0, a1, z0, z1, mat)
-            if w.axis == 'x':
+            if o.z0 - L.FLOOR_Z > .1:          # a hatch: a sill board instead of a threshold
+                z = o.z0
+                if w.axis == 'x':
+                    trim.box(o.a0 - .03, o.a1 + .03, w.c0 - .08, w.c1 + .08, z - .03, z, 'walnut')
+                else:
+                    trim.box(w.c0 - .08, w.c1 + .08, o.a0 - .03, o.a1 + .03, z - .03, z, 'walnut')
+            elif w.axis == 'x':
                 trim.box(o.a0, o.a1, w.c0 - .02, w.c1 + .02, L.FLOOR_Z - .006, L.FLOOR_Z + .004, 'brass')
             else:
                 trim.box(w.c0 - .02, w.c1 + .02, o.a0, o.a1, L.FLOOR_Z - .006, L.FLOOR_Z + .004, 'brass')
@@ -1021,6 +1053,8 @@ def collision_boxes(c):
             add(w.name, *((a, b, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, a, b)), L.FLOOR_Z, top)
         for o in w.openings:
             add(f'{w.name}-head', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), o.z1, top)
+            if o.z0 - L.FLOOR_Z > .05:         # below a hatch
+                add(f'{w.name}-sill', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), L.FLOOR_Z, o.z0)
     for b in c.reservations:
         if b.z0 - L.FLOOR_Z < 1.0 and b.kind in ('bar-counter', 'back-bar', 'galley-counter', 'pantry-counter', 'luggage-shelves', 'wc-toilet', 'drinks-ledge'):
             add(b.name, b.x0, b.x1, b.y0, b.y1, L.FLOOR_Z, b.z1)
@@ -1150,6 +1184,8 @@ def build(coach, images):
     for o in cols['LOD2'].objects:
         o.hide_set(True)
     out = OUT / coach.name; out.mkdir(parents=True, exist_ok=True)
+    if B.livery == 'worn':
+        wear_out([o for o in scene.objects if o.users_collection and not o.users_collection[0].name.endswith(('_Reservations', '_Collision'))])
     every = list(scene.objects)
     lod_sets = {k: [o for o in every if k in list(o.get('lods', []))] for k in (0, 1, 2)}
     lod_sets[0] = [o for o in lod_sets[0] if o.name != lod2.name]
