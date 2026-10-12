@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "status": "draft_shared_dimension_contract_for_blockout",
+  "version": 2,
+  "status": "shell_blockout_v1_dimension_contract",
   "units": "metres",
   "furniture_local_axes": {
     "X": "width",
@@ -17,7 +17,7 @@
     "internal_width_m": 2.95,
     "restaurant": {
       "central_aisle_min_m": 0.95,
-      "dining_bays_draft": 4,
+      "dining_bays_draft": 5,
       "tables_per_bay": 2,
       "seats_per_table": 2,
       "glazing_draft": {
@@ -26,8 +26,14 @@
         "upper_edge": "near ceiling; resolve top rail in measured blockout",
         "frames": "slim walnut/brass with credible structural piers",
         "roof": "opaque curved roof retained",
-        "status": "user-requested direction; dimensions provisional"
-      }
+        "status": "measured in shell blockout v1; banquette backs must be <= 0.14 m thick to stay in front of the piers",
+        "bay_glass_width_m": 1.87,
+        "pier_width_m": 0.3,
+        "head_above_finished_floor_m": 1.97
+      },
+      "central_aisle_m": 1.08,
+      "bar_and_galley_end": "B (+X)",
+      "note": "Five dining bays, each with one panoramic bay (1.87 m glass, sill 0.65, head 1.97 above floor) centred on its tables; 0.30 m piers behind the meeting banquette backs; a sixth bay over the bar."
     },
     "first_class": {
       "compartments_draft": 4,
@@ -35,8 +41,52 @@
       "compartment_width_m": 2,
       "side_corridor_width_m": 0.9,
       "partition_thickness_m": 0.05,
-      "seats_per_compartment": 4
-    }
+      "seats_per_compartment": 4,
+      "service_rooms": [
+        "wc-a 1.30",
+        "luggage 2.40",
+        "pantry 2.40",
+        "wc-b 1.30"
+      ],
+      "cabin_door_clear_m": 0.7
+    },
+    "frame": "metres; x along the coach (end A -X, end B +X), y across (+Y compartment/galley side), z up from the top of the rail; Unreal through atelier.conventions.to_unreal only",
+    "floor_height_above_rail_m": 1.25,
+    "ceiling_at_walls_m": 2.05,
+    "window_sill_above_floor_m": 0.8,
+    "window_head_above_floor_m": 1.72,
+    "window_width_m": 1.4,
+    "vestibule_clear_length_m": 1.6,
+    "exterior_door_clear_m": [
+      0.75,
+      1.95
+    ],
+    "gangway_door_clear_m": [
+      0.8,
+      2.0
+    ],
+    "interior_door_height_m": 1.95,
+    "body_length_over_end_walls_m": 23.2,
+    "bogie_centres_m": 17.0,
+    "wheelbase_m": 2.5,
+    "wheel_diameter_m": 0.92,
+    "validated_by_blockout": [
+      "internal width 2.95",
+      "first-class cabin 3.00 x 2.00",
+      "corridor 0.90",
+      "restaurant aisle >= 0.95 (1.11)",
+      "clear height 2.30 at the centre",
+      "continuous passage gangway to gangway for a 1.75 m adult (r 0.28) and Cairo (r 0.22)",
+      "every room and exterior door reachable"
+    ],
+    "assumptions_to_agree": [
+      "standard gauge 1.435 m",
+      "floor 1.25 m above rail (platform height and steps to agree with the map owner)",
+      "buffer height 1.065 m",
+      "length over buffers 24.0 m and coupling distance",
+      "curve limits and gangway articulation",
+      "camera behaviour in 0.90 m corridors"
+    ]
   },
   "assets": [
     {
@@ -50,7 +100,8 @@
       "seat_height_m": 0.46,
       "pivot": "floor_footprint_center",
       "material_family": "burgundy-velvet-walnut-brass",
-      "quantity_draft": 16
+      "quantity_draft": 20,
+      "back_thickness_max_m": 0.14
     },
     {
       "id": "restaurant-table",
@@ -63,7 +114,8 @@
       "dimension_basis": "table body and tabletop; linen may overhang by at most 0.04 m per side",
       "pivot": "floor_footprint_center",
       "material_family": "walnut-brass-ivory-linen",
-      "quantity_draft": 8
+      "quantity_draft": 10,
+      "placement_note": "placed with yaw 90/-90: its 0.80 m width runs across the coach (window to aisle) and the two diners sit on its 0.65 m faces"
     },
     {
       "id": "first-class-sofa",
@@ -89,7 +141,22 @@
       "base_diameter_m": 0.28,
       "pivot": "floor_footprint_center",
       "material_family": "walnut-brass",
-      "quantity_draft": 4
+      "quantity_draft": 4,
+      "fitted_source": {
+        "file": "golden table 3d model.zip (Tripo Studio export, FBX + basecolor)",
+        "source_size_m": [
+          0.9995,
+          0.6099,
+          0.7202
+        ],
+        "fit": "uniform scale 0.6503 to width 0.65, pedestal (15-85 % of height) lengthened by 0.152 m to height 0.62; base 0.285 m; 10,100 triangles",
+        "fitted_m": [
+          0.65,
+          0.397,
+          0.62
+        ],
+        "tool": "games/yorimichi/world/train/fit_furniture.py"
+      }
     },
     {
       "id": "table-lamp",
@@ -102,7 +169,7 @@
       "base_diameter_m": 0.14,
       "pivot": "base_contact_center",
       "material_family": "brass-ivory-fabric",
-      "quantity_draft": 12
+      "quantity_draft": 14
     },
     {
       "id": "wall-sconce",
@@ -114,7 +181,7 @@
       },
       "pivot": "wall_mount_center",
       "material_family": "brass-ivory-fabric",
-      "quantity_draft": null
+      "quantity_draft": 26
     }
   ],
   "notes": [
@@ -123,6 +190,12 @@
     "Counts and lengths are preliminary; Claude must reconcile exterior window spacing, vestibules and service areas in the measured floor plan.",
     "Raster images convey appearance only. Scale and dimensional compliance must be checked on actual meshes in Blender.",
     "Do not stretch or compress furniture independently by axis to force a fit; revise the mesh or the agreed target dimensions and report changes.",
-    "These records are planning targets, not an existing 3D model or Tripo credit spend."
+    "These records are planning targets, not an existing 3D model or Tripo credit spend.",
+    "v2 (2026-10-12): placements, seat markers and mounts are in build/yorimichi/belmonte-train/<coach>-placements.json from world/train/layout.py."
+  ],
+  "shell_changes_v2": [
+    "Restaurant: 5 dining bays (20 seats) instead of 4, one panoramic bay per dining bay plus one over the bar; affects restaurant-banquette (16->20), restaurant-table (8->10), table-lamp (12->14).",
+    "Wall sconces counted: 10 in the restaurant piers + 4 per cabin on the bulkheads = 26.",
+    "No furniture dimension changed: every object fits its reservation with knee gaps of 0.10 m (restaurant) and 0.385 m (cabin sofa front to table)."
   ]
 }

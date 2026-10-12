@@ -1,0 +1,599 @@
+"""Measured plan of the Belmonte train's two coaches: the shared envelope, each coach's rooms, partitions, doors,
+windows, reservations, furniture placements and seats. Plain Python (no Blender), so tests and the plan drawing
+read the same numbers the Blender build uses.
+
+Coach frame, metres: x along the coach (end A at -X, end B at +X), y across (+Y is the compartment side in first
+class and the bar/galley side in the restaurant), z up, z = 0 on the top of the rail, origin at the coach's centre.
+Unreal takes it through `atelier.conventions.to_unreal` only (docs: platform/conventions/units.md).
+
+Furniture placements give the asset's origin (floor footprint centre; table lamps: base contact centre; wall
+sconces: wall mount point) and a yaw in degrees about +Z. At yaw 0 an asset's front faces -Y and its width runs
+along X, as in the shared contract (assets/vehicles/belmonte-train/planning/furniture-dimensions.json); yaw 90
+turns its front to +X and its width to Y.
+"""
+from dataclasses import asdict, dataclass, field
+import json
+import math
+from pathlib import Path
+
+import numpy as np
+
+CONTRACT = Path(__file__).resolve().parents[2] / 'assets' / 'vehicles' / 'belmonte-train' / 'planning' / 'furniture-dimensions.json'
+
+# --- the shared envelope ------------------------------------------------------------------------------------------
+LENGTH_OVER_BUFFERS = 24.0
+BUFFER_X = LENGTH_OVER_BUFFERS / 2      # buffer heads and gangway faces
+BODY_X = 11.60                          # outer face of each end wall: 23.20 m body
+WIDTH = 3.10
+HALF = WIDTH / 2
+WALL = 0.075                            # side and end walls, lining included
+IN = HALF - WALL                        # 1.475: inner face of the side walls (2.95 m clear)
+IN_X = BODY_X - WALL                    # 11.525: inner face of the end walls
+SKIRT_Z = 1.00                          # bottom edge of the body sides
+FLOOR_Z = 1.25                          # top of the floor (assumed platform-independent; steps below the doors)
+DECK = 0.15                             # floor structure under FLOOR_Z
+BELT_Z = 1.85                           # midnight blue below, ivory above (under the restaurant's low bay sills)
+CANT_Z = 3.45                           # top of the side walls, where the roof starts
+ROOF_TOP = 4.18                         # roof skin at the centre line
+VENT_TOP = 4.30                         # the ventilator caps: the 4.30 m height above rail
+ROOF_SKIN = 0.05
+CEIL_SPRING, CEIL_APEX = 3.30, 3.55     # ceiling meets the walls at 2.05 m above the floor, 2.30 m at the centre
+CLEAR = CEIL_APEX - FLOOR_Z
+
+SILL = FLOOR_Z + 0.80                   # windows: above restaurant tables (0.75) and cabin tables (0.62)
+HEAD = FLOOR_Z + 1.72
+WIN_RADIUS = 0.10
+WIN_W, SMALL_W, WC_W = 1.40, 0.80, 0.50
+PANO_SILL = FLOOR_Z + 0.65              # restaurant panoramic bays (r03 direction): low sill, head just under the ceiling
+PANO_HEAD = FLOOR_Z + 1.97
+PIER = 0.30                             # structural piers between the bays, behind each pair of banquette backs
+PART = 0.05                             # interior partitions
+VEST = 1.60                             # clear length of each end vestibule
+SPAN_X = IN_X - VEST - PART             # 9.875: the coach's own plan between the vestibule bulkheads
+DOOR_H = 1.95                           # interior doorways and the exterior doors
+EXT_DOOR_W = 0.75
+EXT_DOOR_X = IN_X - VEST / 2            # exterior doors are centred on the vestibules
+GANGWAY_W, GANGWAY_H = 0.80, 2.00
+CORRIDOR = 0.90                         # first-class side corridor; the restaurant's service corridor matches it
+CORR_Y = -IN + CORRIDOR                 # -0.575: corridor face of the longitudinal partitions
+ROOM_Y = CORR_Y + PART                  # -0.525: room face of the longitudinal partitions
+
+BOGIE_X, WHEELBASE, WHEEL_R = 8.50, 2.50, 0.46
+GAUGE = 1.435                           # assumption: standard gauge, to be agreed with the map owner
+BUFFER_Y, BUFFER_Z = 0.875, 1.065
+
+CAIRO = dict(height=1.48, radius=0.22, source='Cairo: assets/characters/cairo/character.toml height_cm 148, capsule 22/74 cm (CairoCharacter.cpp)')
+HUMAN = dict(height=1.75, radius=0.28, source='provisional 1.75 m adult gauge (shoulders 0.48 m + 4 cm margin)')
+
+
+def coupling():
+    """The interface every coach of this train shares, so any two couple: buffer heads, draw hook and gangway face
+    at each end, and the pitch between coupled coach origins. A coupled coach B sits at this coach's origin + PITCH
+    along +X (buffers compressed to touching faces, gangways meeting)."""
+    ends = {}
+    for end, sx in (('a', -1), ('b', 1)):
+        ends[end] = dict(
+            buffer_heads=[[sx * BUFFER_X, sy * BUFFER_Y, BUFFER_Z] for sy in (1, -1)],
+            draw_hook=[sx * BUFFER_X, 0., BUFFER_Z],
+            gangway_face_centre=[sx * BUFFER_X, 0., FLOOR_Z + GANGWAY_H / 2],
+            gangway_clear_m=[GANGWAY_W, GANGWAY_H],
+            floor_z=FLOOR_Z, facing=[sx, 0, 0])
+    return dict(pitch_m=LENGTH_OVER_BUFFERS, ends=ends, buffer_head_diameter_m=.40,
+                note='same envelope, floor and gangway on every coach: a step-free walk from coach to coach')
+
+
+def ceiling_z(y):
+    """Underside of the ceiling at y: a flat ellipse from CEIL_SPRING at the walls to CEIL_APEX at the centre."""
+    t = min(1., abs(y) / IN)
+    return CEIL_SPRING + (CEIL_APEX - CEIL_SPRING) * math.sqrt(max(0., 1 - t * t))
+
+
+def roof_z(y, inset=0.):
+    """Outer roof skin at y (an ellipse on the cant rail), optionally `inset` inward."""
+    a, b = HALF - inset, ROOF_TOP - CANT_Z - inset
+    t = min(1., abs(y) / a)
+    return CANT_Z + b * math.sqrt(max(0., 1 - t * t))
+
+
+# --- plan records -------------------------------------------------------------------------------------------------
+@dataclass
+class Room:
+    name: str
+    kind: str              # vestibule, corridor, cabin, wc, luggage, pantry, lobby, salon, bar, galley
+    x0: float
+    x1: float
+    y0: float
+    y1: float
+    floor: str             # carpet-burgundy, carpet-emerald, tile, parquet
+
+
+@dataclass
+class Opening:
+    name: str
+    a0: float              # along the wall
+    a1: float
+    z0: float = FLOOR_Z
+    z1: float = FLOOR_Z + DOOR_H
+
+
+@dataclass
+class Wall:
+    """An interior partition from the floor to the ceiling. axis 'x' runs along the coach (a = x, c = y);
+    axis 'y' runs across it (a = y, c = x)."""
+    name: str
+    axis: str
+    a0: float
+    a1: float
+    c0: float
+    c1: float
+    openings: list = field(default_factory=list)
+
+
+@dataclass
+class Window:
+    name: str
+    side: int              # +1 or -1: which side wall
+    x: float
+    width: float
+    sill: float = SILL
+    head: float = HEAD
+    kind: str = 'clear'    # clear or frosted
+
+
+@dataclass
+class Door:
+    """A door leaf in an opening. sliding: the leaf runs on the `face` side of the wall towards `slide`
+    (+1/-1 along the wall); hinged: hinge at the `slide` end, swinging into the `face` side."""
+    name: str
+    wall: str
+    opening: str
+    kind: str              # sliding, hinged, double
+    face: int
+    slide: int
+    glazed: bool
+    width: float           # leaf width (overlaps the opening by 0.025 a side when sliding)
+
+
+@dataclass
+class Box:
+    name: str
+    kind: str
+    x0: float
+    x1: float
+    y0: float
+    y1: float
+    z0: float
+    z1: float
+    note: str = ''
+
+
+@dataclass
+class Placement:
+    id: str
+    asset: str
+    room: str
+    x: float
+    y: float
+    z: float
+    yaw: float
+
+
+@dataclass
+class Seat:
+    id: str
+    furniture: str
+    x: float
+    y: float
+    z: float
+    yaw: float             # the way the seated passenger faces (0 = -Y, 90 = +X)
+
+
+@dataclass
+class Mount:
+    id: str
+    kind: str              # curtain-rail, rack, sconce
+    room: str
+    x: float
+    y: float
+    z: float
+    yaw: float
+    length: float = 0.
+
+
+@dataclass
+class Coach:
+    name: str
+    title: str
+    rooms: list = field(default_factory=list)
+    walls: list = field(default_factory=list)
+    windows: list = field(default_factory=list)
+    doors: list = field(default_factory=list)
+    reservations: list = field(default_factory=list)
+    placements: list = field(default_factory=list)
+    seats: list = field(default_factory=list)
+    mounts: list = field(default_factory=list)
+
+    def room(self, name):
+        return next(r for r in self.rooms if r.name == name)
+
+    def wall(self, name):
+        return next(w for w in self.walls if w.name == name)
+
+
+def contract():
+    return json.loads(CONTRACT.read_text())
+
+
+def asset_dims(asset):
+    spec = next(a for a in contract()['assets'] if a['id'] == asset)
+    d = spec['dimensions_m']
+    return d['width'], d['depth'], d['height']
+
+
+def footprint(p):
+    """World-space (x0, x1, y0, y1) of a floor-standing placement (yaw is a multiple of 90)."""
+    w, d, _ = asset_dims(p.asset)
+    if round(p.yaw / 90) % 2:
+        w, d = d, w
+    return p.x - w / 2, p.x + w / 2, p.y - d / 2, p.y + d / 2
+
+
+# --- shared parts -------------------------------------------------------------------------------------------------
+def _shared(c):
+    c.rooms += [Room('vestibule-a', 'vestibule', -IN_X, -IN_X + VEST, -IN, IN, 'tile'),
+                Room('vestibule-b', 'vestibule', IN_X - VEST, IN_X, -IN, IN, 'tile')]
+    c.walls += [Wall('end-a', 'y', -IN, IN, -BODY_X, -IN_X, [Opening('gangway-a', -GANGWAY_W / 2, GANGWAY_W / 2, FLOOR_Z, FLOOR_Z + GANGWAY_H)]),
+                Wall('end-b', 'y', -IN, IN, IN_X, BODY_X, [Opening('gangway-b', -GANGWAY_W / 2, GANGWAY_W / 2, FLOOR_Z, FLOOR_Z + GANGWAY_H)])]
+    c.doors += [Door('gangway-door-a', 'end-a', 'gangway-a', 'sliding', +1, -1, True, GANGWAY_W + .05),
+                Door('gangway-door-b', 'end-b', 'gangway-b', 'sliding', -1, +1, True, GANGWAY_W + .05)]
+    for end, sx in (('a', -1), ('b', 1)):
+        for side, sy in (('l', 1), ('r', -1)):
+            # the exterior doors open inward into the vestibule, hinged on the end-wall side
+            c.doors.append(Door(f'exterior-door-{end}{side}', f'side-{side}', f'exterior-{end}{side}', 'hinged', -sy, sx, False, EXT_DOOR_W + .03))
+
+
+def exterior_openings():
+    """The four exterior door openings in the side walls, shared by both coaches: (name, side, x0, x1, z0, z1)."""
+    out = []
+    for end, sx in (('a', -1), ('b', 1)):
+        for side, sy in (('l', 1), ('r', -1)):
+            x = sx * EXT_DOOR_X
+            out.append((f'exterior-{end}{side}', sy, x - EXT_DOOR_W / 2, x + EXT_DOOR_W / 2, FLOOR_Z, FLOOR_Z + DOOR_H))
+    return out
+
+
+def _bulkheads(c, opening_a, opening_b, kind='sliding', glazed=True):
+    """The two vestibule bulkheads, each with one doorway (a0, a1) across the coach."""
+    for end, sx, (a0, a1) in (('a', -1, opening_a), ('b', 1, opening_b)):
+        x_in = sx * SPAN_X
+        c0, c1 = sorted((x_in, x_in + sx * PART))
+        c.walls.append(Wall(f'bulkhead-{end}', 'y', -IN, IN, c0, c1, [Opening(f'bulkhead-{end}', a0, a1)]))
+        c.doors.append(Door(f'bulkhead-door-{end}', f'bulkhead-{end}', f'bulkhead-{end}', kind, sx, +1, glazed,
+                            a1 - a0 + .05 if kind == 'sliding' else (a1 - a0) / 2))
+
+
+def _curtains(c, rooms_for):
+    for w in c.windows:
+        if w.kind != 'clear':
+            continue
+        room = rooms_for(w)
+        y = w.side * (IN - .02)
+        c.mounts.append(Mount(f'curtain-{w.name}', 'curtain-rail', room, w.x, y, min(w.head + .06, CEIL_SPRING - .02), 0 if w.side > 0 else 180,
+                              w.width + (PIER if w.head >= PANO_HEAD else .50)))
+
+
+def _room_at(c, x, y):
+    for r in c.rooms:
+        if r.x0 - 1e-6 <= x <= r.x1 + 1e-6 and r.y0 - 1e-6 <= y <= r.y1 + 1e-6:
+            return r.name
+    return '?'
+
+
+# --- first class: four private seated cabins on a side corridor --------------------------------------------------
+FC_BAYS = [('wc-a', 'wc', 1.30), ('luggage', 'luggage', 2.40), ('cabin-1', 'cabin', 3.00), ('cabin-2', 'cabin', 3.00),
+           ('cabin-3', 'cabin', 3.00), ('cabin-4', 'cabin', 3.00), ('pantry', 'pantry', 2.40), ('wc-b', 'wc', 1.30)]
+FC_DOOR = {'cabin': .70, 'wc': .65, 'luggage': .80, 'pantry': .70}
+FC_FLOOR = {'cabin': 'carpet-emerald', 'wc': 'tile', 'luggage': 'parquet', 'pantry': 'parquet'}
+
+
+def first_class():
+    c = Coach('first-class', 'Voiture première classe — cabines privées assises')
+    _shared(c)
+    corridor_door = (-IN + .075, CORR_Y - .075)               # 0.75 m doorway in each bulkhead, on the corridor
+    _bulkheads(c, corridor_door, corridor_door)
+    c.rooms.append(Room('corridor', 'corridor', -SPAN_X, SPAN_X, -IN, CORR_Y, 'carpet-emerald'))
+    longitudinal = Wall('corridor-partition', 'x', -SPAN_X, SPAN_X, CORR_Y, ROOM_Y)
+    x = -SPAN_X
+    for i, (name, kind, length) in enumerate(FC_BAYS):
+        x0, x1 = x, x + length
+        xc = (x0 + x1) / 2
+        c.rooms.append(Room(name, kind, x0, x1, ROOM_Y, IN, FC_FLOOR[kind]))
+        w = FC_DOOR[kind]
+        longitudinal.openings.append(Opening(f'door-{name}', xc - w / 2, xc + w / 2))
+        # sliding leaves run on the corridor side, away from the cabin's centre line towards the nearer coach end
+        c.doors.append(Door(f'door-{name}', 'corridor-partition', f'door-{name}', 'sliding', -1, -1 if xc < 0 else 1,
+                            kind == 'cabin', w + .05))
+        if i < len(FC_BAYS) - 1:
+            c.walls.append(Wall(f'partition-{name}', 'y', ROOM_Y, IN, x1, x1 + PART))
+        x = x1 + PART
+        # windows: one wide window per cabin, smaller ones for the service rooms; the corridor side mirrors them
+        if kind == 'cabin':
+            c.windows += [Window(f'{name}-l', 1, xc, WIN_W), Window(f'{name}-r', -1, xc, WIN_W)]
+        elif kind == 'wc':
+            c.windows += [Window(f'{name}-l', 1, xc, WC_W, FLOOR_Z + 1.10, HEAD, 'frosted'), Window(f'{name}-r', -1, xc, SMALL_W)]
+        else:
+            c.windows += [Window(f'{name}-l', 1, xc, SMALL_W), Window(f'{name}-r', -1, xc, SMALL_W)]
+        if kind == 'cabin':
+            _cabin(c, name, x0, x1)
+        elif kind == 'wc':
+            xc = (x0 + x1) / 2
+            c.reservations += [Box(f'{name}-toilet', 'wc-toilet', xc - .22, xc + .22, IN - .70, IN - .05, FLOOR_Z, FLOOR_Z + .45, 'toilet against the outer wall'),
+                               Box(f'{name}-basin', 'wc-basin', x0 + .03, x0 + .43, .25, .70, FLOOR_Z + .75, FLOOR_Z + .90, 'wall-hung basin')]
+        elif kind == 'luggage':
+            c.reservations.append(Box(f'{name}-shelves', 'luggage-shelves', x0 + .05, x1 - .05, IN - .55, IN - .02, FLOOR_Z, FLOOR_Z + 1.90,
+                                      'open luggage shelving along the outer wall'))
+        elif kind == 'pantry':
+            c.reservations += [Box(f'{name}-counter', 'pantry-counter', x0 + .05, x1 - .05, IN - .62, IN - .02, FLOOR_Z, FLOOR_Z + .92,
+                                   'attendant pantry: coffee counter, cupboards'),
+                               Box(f'{name}-seat', 'attendant-seat', x0 + .10, x0 + .55, ROOM_Y + .05, ROOM_Y + .50, FLOOR_Z, FLOOR_Z + .90,
+                                   'folding attendant seat')]
+    assert abs(x - PART - SPAN_X) < 1e-9, 'first-class bays must fill the span'
+    c.walls.append(longitudinal)
+    _curtains(c, lambda w: _room_at(c, w.x, w.side * (IN - .1)))
+    return c
+
+
+def _cabin(c, name, x0, x1):
+    xc, yc = (x0 + x1) / 2, (ROOM_Y + IN) / 2
+    sw, sd, _ = asset_dims('first-class-sofa')
+    tw, td, _ = asset_dims('first-class-table')
+    for end, sx, yaw in (('a', -1, 90), ('b', 1, -90)):
+        x = (x0 + .01 + sd / 2) if sx < 0 else (x1 - .01 - sd / 2)
+        sid = f'{name}-sofa-{end}'
+        c.placements.append(Placement(sid, 'first-class-sofa', name, x, yc, FLOOR_Z, yaw))
+        for k, dy in enumerate((-.46, .46)):
+            c.seats.append(Seat(f'{sid}-seat-{k + 1}', sid, x - sx * .06, yc + dy, FLOOR_Z + .46, yaw))
+        wall_x = x0 + .02 if sx < 0 else x1 - .02
+        for k, dy in enumerate((-.60, .60)):
+            c.placements.append(Placement(f'{name}-sconce-{end}{k + 1}', 'wall-sconce', name, wall_x, yc + dy, FLOOR_Z + 1.50, yaw))
+        c.mounts.append(Mount(f'{name}-rack-{end}', 'rack', name, wall_x, yc, FLOOR_Z + 1.85, yaw, 1.80))
+        c.reservations.append(Box(f'{name}-rack-{end}', 'rack', min(wall_x, wall_x - sx * .35), max(wall_x, wall_x - sx * .35),
+                                  yc - .90, yc + .90, FLOOR_Z + 1.80, FLOOR_Z + 1.95, 'brass luggage rack above the sofa'))
+    ty = IN - .02 - td / 2
+    c.placements.append(Placement(f'{name}-table', 'first-class-table', name, xc, ty, FLOOR_Z, 0))
+    c.placements.append(Placement(f'{name}-lamp', 'table-lamp', name, xc, ty + .06, FLOOR_Z + .62, 0))
+
+
+# --- restaurant: five dining bays, bar and galley at end B -------------------------------------------------------
+LOBBY = 1.45
+GROUPS = 5
+GROUP = .65 + .10 + .65 + .10 + .65        # banquette, knee gap, table, knee gap, banquette: 2.15 m
+PITCH = GROUP + .02                         # banquettes back to back with 2 cm between them
+BAR_COUNTER_X = 4.30                        # front of the bar counter
+COUNTER, STAFF, BACKBAR = .55, .80, .40
+
+
+def restaurant():
+    c = Coach('restaurant', 'Voiture restaurant')
+    _shared(c)
+    lobby_x1 = -SPAN_X + LOBBY
+    salon_x0 = lobby_x1 + PART
+    _bulkheads(c, (-.55, .25), (-IN + .075, CORR_Y - .075))
+    counter_x1 = BAR_COUNTER_X + COUNTER
+    backbar_x0 = counter_x1 + STAFF
+    galley_x0 = backbar_x0 + BACKBAR + PART
+    c.rooms += [Room('lobby', 'lobby', -SPAN_X, lobby_x1, -IN, .40, 'tile'),
+                Room('wc', 'wc', -SPAN_X, lobby_x1, .45, IN, 'tile'),
+                Room('salon', 'salon', salon_x0, BAR_COUNTER_X, -IN, IN, 'carpet-burgundy'),
+                Room('bar', 'bar', BAR_COUNTER_X, galley_x0 - PART, ROOM_Y, IN, 'parquet'),
+                Room('service-corridor', 'corridor', counter_x1, SPAN_X, -IN, CORR_Y, 'carpet-burgundy'),
+                Room('galley', 'galley', galley_x0, SPAN_X, ROOM_Y, IN, 'tile')]
+    c.walls += [Wall('wc-wall', 'x', -SPAN_X, lobby_x1, .40, .45, [Opening('door-wc', lobby_x1 - .80, lobby_x1 - .15)]),
+                Wall('salon-partition', 'y', -IN, IN, lobby_x1, salon_x0, [Opening('salon-doors', -.50, .40)]),
+                Wall('service-partition', 'x', counter_x1, SPAN_X, CORR_Y, ROOM_Y, [Opening('door-galley-service', 8.65, 9.35)]),
+                Wall('galley-partition', 'y', ROOM_Y, IN, galley_x0 - PART, galley_x0, [Opening('door-galley-bar', .70, 1.40)])]
+    c.doors += [Door('door-wc', 'wc-wall', 'door-wc', 'sliding', -1, -1, False, .70),
+                Door('salon-doors', 'salon-partition', 'salon-doors', 'double', +1, 0, True, .45),
+                Door('door-galley-service', 'service-partition', 'door-galley-service', 'sliding', -1, -1, False, .75),
+                Door('door-galley-bar', 'galley-partition', 'door-galley-bar', 'sliding', +1, -1, False, .75)]
+    bw, bd, _ = asset_dims('restaurant-banquette')
+    tw, td, _ = asset_dims('restaurant-table')
+    gap = .035                                # furniture off the panelling, clear of the bay frames
+    tables = []
+    for k in range(GROUPS):
+        s = salon_x0 + .03 + k * PITCH
+        tx = s + bd + .10 + td / 2
+        tables.append(tx)
+        for side, sy in (('l', 1), ('r', -1)):
+            by = sy * (IN - gap - bw / 2)
+            ty = sy * (IN - gap - tw / 2)
+            t = f'table-{k + 1}{side}'
+            c.placements.append(Placement(t, 'restaurant-table', 'salon', tx, ty, FLOOR_Z, 90))
+            c.placements.append(Placement(f'{t}-lamp', 'table-lamp', 'salon', tx, ty + sy * .22, FLOOR_Z + .75, 0))
+            for end, bx, yaw in (('a', s + bd / 2, 90), ('b', s + GROUP - bd / 2, -90)):
+                b = f'banquette-{k + 1}{side}{end}'
+                c.placements.append(Placement(b, 'restaurant-banquette', 'salon', bx, by, FLOOR_Z, yaw))
+                c.seats.append(Seat(f'{b}-seat', b, bx + (.05 if yaw > 0 else -.05), by, FLOOR_Z + .46, yaw))
+    # one panoramic bay per dining bay, centred on its tables; the piers stand where the banquette backs meet
+    bays = [(x, PITCH - PIER) for x in tables]
+    bar0 = tables[-1] + PITCH / 2 + PIER / 2
+    bar1 = BAR_COUNTER_X - .10
+    bays.append(((bar0 + bar1) / 2, bar1 - bar0))
+    for k, (x, width) in enumerate(bays):
+        c.windows += [Window(f'salon-{k + 1}-l', 1, x, width, PANO_SILL, PANO_HEAD), Window(f'salon-{k + 1}-r', -1, x, width, PANO_SILL, PANO_HEAD)]
+    piers = [tables[k] + PITCH / 2 for k in range(GROUPS)]
+    for k, x in enumerate(piers):                # sconces on the piers, above the banquette backs
+        for side, sy in (('l', 1), ('r', -1)):
+            c.placements.append(Placement(f'sconce-{k + 1}{side}', 'wall-sconce', 'salon', x, sy * (IN - .02), FLOOR_Z + 1.45, 0 if sy > 0 else 180))
+    for k, x in enumerate(tables):               # brass racks on the ceiling cove above the bays
+        for side, sy in (('l', 1), ('r', -1)):
+            y = sy * (IN - .22)
+            c.mounts.append(Mount(f'rack-{k + 1}{side}', 'rack', 'salon', x, y, ceiling_z(y) - .04, 0 if sy > 0 else 180, PITCH - PIER))
+    lobby_xc = (-SPAN_X + lobby_x1) / 2
+    galley_windows = (galley_x0 + 1.10, SPAN_X - 1.00)
+    c.windows += [Window('wc-l', 1, lobby_xc, WC_W, FLOOR_Z + 1.10, HEAD, 'frosted'), Window('lobby-r', -1, lobby_xc, SMALL_W)]
+    for k, x in enumerate(galley_windows):
+        c.windows += [Window(f'galley-{k + 1}-l', 1, x, SMALL_W, FLOOR_Z + 1.00, HEAD), Window(f'service-{k + 1}-r', -1, x, SMALL_W)]
+    c.reservations += [Box('wc-toilet', 'wc-toilet', -SPAN_X + .05, -SPAN_X + .70, .74, 1.18, FLOOR_Z, FLOOR_Z + .45, 'toilet against the bulkhead'),
+                       Box('wc-basin', 'wc-basin', lobby_x1 - .48, lobby_x1 - .03, 1.075, IN - .02, FLOOR_Z + .75, FLOOR_Z + .90, 'basin on the outer wall')]
+    last = tables[-1] + td / 2 + .10 + bd + .02
+    c.reservations += [
+        Box('bar-counter', 'bar-counter', BAR_COUNTER_X, counter_x1, ROOM_Y, IN - .02, FLOOR_Z, FLOOR_Z + 1.05, 'service bar facing the salon'),
+        Box('back-bar', 'back-bar', backbar_x0, backbar_x0 + BACKBAR, ROOM_Y, .62, FLOOR_Z, FLOOR_Z + 2.00, 'glazed back-bar cabinet'),
+        Box('drinks-ledge-l', 'drinks-ledge', last + .15, BAR_COUNTER_X - .10, IN - .22, IN - .02, FLOOR_Z + .98, FLOOR_Z + 1.05, 'standing ledge under window 6'),
+        Box('galley-counter-outer', 'galley-counter', galley_x0 + .85, SPAN_X - .05, IN - .62, IN - .02, FLOOR_Z, FLOOR_Z + .92, 'galley range and worktops'),
+        Box('galley-counter-inner', 'galley-counter', galley_x0 + .05, 8.55, ROOM_Y + .02, ROOM_Y + .58, FLOOR_Z, FLOOR_Z + .92, 'galley worktops on the partition'),
+    ]
+    _curtains(c, lambda w: _room_at(c, w.x, w.side * (IN - .1)))
+    return c
+
+
+def coaches():
+    return [restaurant(), first_class()]
+
+
+# --- checks -------------------------------------------------------------------------------------------------------
+def walkable_grid(c, radius, step=.025):
+    """Free floor cells for a disc of `radius` (2D, at standing height): walls, closed wall parts, open sliding leaves,
+    floor-standing furniture and reservations are obstacles. Returns (grid, x0, y0, step)."""
+    nx, ny = int(round(2 * IN_X / step)), int(round(2 * IN / step))
+    obstacles = []
+    for w in c.walls:
+        if w.name.startswith('end-'):
+            continue
+        spans = sorted((o.a0, o.a1) for o in w.openings)
+        cuts, a = [], w.a0
+        for o0, o1 in spans:
+            cuts.append((a, o0)); a = o1
+        cuts.append((a, w.a1))
+        for a0, a1 in cuts:
+            if a1 - a0 > 1e-6:
+                obstacles.append((w.c0, w.c1, a0, a1) if w.axis == 'y' else (a0, a1, w.c0, w.c1))
+    for d in c.doors:
+        if d.kind != 'sliding' or d.wall.startswith('end-'):
+            continue
+        w = c.wall(d.wall); o = next(o for o in w.openings if o.name == d.opening)
+        a0 = (o.a1 - .025) if d.slide > 0 else (o.a0 + .025 - d.width)
+        a1 = a0 + d.width
+        cface = (w.c1 if d.face > 0 else w.c0)
+        c0, c1 = sorted((cface, cface + d.face * .045))
+        obstacles.append((c0, c1, a0, a1) if w.axis == 'y' else (a0, a1, c0, c1))
+    for p in c.placements:
+        if p.z - FLOOR_Z < .05:
+            x0, x1, y0, y1 = footprint(p)
+            pad = .04 if p.asset == 'restaurant-table' else 0.
+            obstacles.append((x0 - pad, x1 + pad, y0 - pad, y1 + pad))
+    for b in c.reservations:
+        if b.z0 - FLOOR_Z < 1.0:
+            obstacles.append((b.x0, b.x1, b.y0, b.y1))
+    xs = -IN_X + (np.arange(nx) + .5) * step
+    ys = -IN + (np.arange(ny) + .5) * step
+    X, Y = np.meshgrid(xs, ys, indexing='ij')
+    grid = (np.abs(Y) <= IN - radius) & (np.abs(X) <= IN_X - radius)
+    for ox0, ox1, oy0, oy1 in obstacles:
+        dx = np.maximum(np.maximum(ox0 - X, 0.), X - ox1); dy = np.maximum(np.maximum(oy0 - Y, 0.), Y - oy1)
+        grid &= dx * dx + dy * dy >= radius * radius
+    return grid, step
+
+
+def reachable(c, radius, start, goals):
+    """Breadth-first search over the walkable grid from `start` (x, y); returns {goal name: reached}."""
+    grid, step = walkable_grid(c, radius)
+    nx, ny = grid.shape
+    cell = lambda x, y: (int((x + IN_X) / step), int((y + IN) / step))
+    si, sj = cell(*start)
+    if not grid[si, sj]:
+        return {name: False for name in goals}
+    seen = [[False] * ny for _ in range(nx)]
+    seen[si][sj] = True
+    stack = [(si, sj)]
+    while stack:
+        i, j = stack.pop()
+        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            a, b = i + di, j + dj
+            if 0 <= a < nx and 0 <= b < ny and grid[a, b] and not seen[a][b]:
+                seen[a][b] = True
+                stack.append((a, b))
+    out = {}
+    for name, (x, y) in goals.items():
+        i, j = cell(x, y)
+        out[name] = seen[i][j]
+    return out
+
+
+def goals(c):
+    """Points a passenger must reach from vestibule A: gangway B, the four exterior doors and a point just inside
+    every room (staff rooms included)."""
+    g = {'gangway-b': (IN_X - .30, 0.)}
+    for end, sx in (('a', -1), ('b', 1)):
+        for side, sy in (('l', 1), ('r', -1)):
+            g[f'exterior-door-{end}{side}'] = (sx * EXT_DOOR_X, sy * (IN - .35))
+    for r in c.rooms:
+        if r.kind == 'vestibule':
+            continue
+        door = next((o for w in c.walls for o in w.openings if o.name == f'door-{r.name}'), None)
+        if r.kind == 'cabin':
+            g[r.name] = ((r.x0 + r.x1) / 2, ROOM_Y + .45)
+        elif c.name == 'first-class' and door is not None:
+            g[r.name] = ((door.a0 + door.a1) / 2, ROOM_Y + .35)
+        elif c.name == 'restaurant' and r.name in RESTAURANT_GOALS:
+            g[r.name] = RESTAURANT_GOALS[r.name]
+        else:
+            g[r.name] = ((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2 if r.kind != 'salon' else 0.)
+    return g
+
+
+# just inside the restaurant's WC door, the galley past its bar door, the bar's staff space
+RESTAURANT_GOALS = {'wc': (-SPAN_X + LOBBY - .45, .76), 'galley': (6.50, .45), 'bar': (5.25, .10)}
+
+
+def check(c):
+    """Numbers that must hold for the coach; returns a list of failures (empty when it is right)."""
+    bad = []
+    if abs(2 * IN - 2.95) > 1e-9:
+        bad.append('internal width is not 2.95 m')
+    if c.name == 'first-class':
+        if abs((IN - ROOM_Y) + PART + CORRIDOR - 2.95) > 1e-9:
+            bad.append('cabin + partition + corridor != 2.95 m')
+        for r in c.rooms:
+            if r.kind == 'cabin' and (abs(r.x1 - r.x0 - 3.0) > 1e-9 or abs(r.y1 - r.y0 - 2.0) > 1e-9):
+                bad.append(f'{r.name} is not 3.00 x 2.00 m')
+    if c.name == 'restaurant':
+        aisle = min(-max(footprint(p)[2:]) if p.y < 0 else min(footprint(p)[2:]) for p in c.placements if p.asset == 'restaurant-banquette')
+        if 2 * aisle < .95:
+            bad.append(f'restaurant aisle {2 * aisle:.3f} m < 0.95 m')
+    # every floor-standing placement sits inside its room, off the walls
+    for p in c.placements:
+        r = c.room(p.room)
+        x0, x1, y0, y1 = footprint(p) if p.z - FLOOR_Z < .05 else (p.x, p.x, p.y, p.y)
+        if x0 < r.x0 - 1e-6 or x1 > r.x1 + 1e-6 or y0 < r.y0 - 1e-6 or y1 > r.y1 + 1e-6:
+            bad.append(f'{p.id} leaves {r.name}')
+    for name, radius in (('Cairo', CAIRO['radius']), ('adult', HUMAN['radius'])):
+        res = reachable(c, radius, (-IN_X + .30, 0.), goals(c))
+        bad += [f'{name} cannot reach {g}' for g, ok in res.items() if not ok]
+    # windows clear of partitions and doors, inside the ivory band
+    for w in c.windows:
+        if w.sill < BELT_Z or w.head > CEIL_SPRING - .05:
+            bad.append(f'window {w.name} leaves the ivory band')
+        for wall in c.walls:
+            touches = wall.axis == 'y' and (wall.a1 >= IN - 1e-6 if w.side > 0 else wall.a0 <= -IN + 1e-6)
+            if touches and wall.c1 > w.x - w.width / 2 - .05 and wall.c0 < w.x + w.width / 2 + .05:
+                bad.append(f'window {w.name} meets {wall.name}')
+        for name, side, x0, x1, *_ in exterior_openings():
+            if side == w.side and x1 > w.x - w.width / 2 - .1 and x0 < w.x + w.width / 2 + .1:
+                bad.append(f'window {w.name} meets {name}')
+    return bad
+
+
+def as_dict(c):
+    d = asdict(c)
+    d['frame'] = 'metres; x along the coach (end A -X, end B +X), y across (+Y compartment/galley side), z up from the top of the rail'
+    return d
+
+
+def envelope():
+    names = ['LENGTH_OVER_BUFFERS', 'BODY_X', 'WIDTH', 'WALL', 'IN', 'IN_X', 'SKIRT_Z', 'FLOOR_Z', 'DECK', 'BELT_Z', 'CANT_Z',
+             'ROOF_TOP', 'VENT_TOP', 'CEIL_SPRING', 'CEIL_APEX', 'CLEAR', 'SILL', 'HEAD', 'WIN_W', 'SMALL_W', 'WC_W', 'PART',
+             'VEST', 'SPAN_X', 'DOOR_H', 'EXT_DOOR_W', 'EXT_DOOR_X', 'GANGWAY_W', 'GANGWAY_H', 'CORRIDOR', 'BOGIE_X',
+             'WHEELBASE', 'WHEEL_R', 'GAUGE', 'BUFFER_Y', 'BUFFER_Z']
+    return {n: round(globals()[n], 4) for n in names}
