@@ -360,14 +360,16 @@ def roof(coll, parent, lod=0):
         m.cylinder((x, 0), 'z', .085, L.roof_z(0) - .02, L.VENT_TOP - .07, 'roof', 12)
         m.cylinder((x, 0), 'z', .13, L.VENT_TOP - .07, L.VENT_TOP - .02, 'brass', 12)
         m.cylinder((x, 0), 'z', .07, L.VENT_TOP - .02, L.VENT_TOP, 'brass', 12)
-    for k in range(13):           # roof seams (raised battens) as in the concept
+    for k in range(13):           # roof seams: raised battens following the roof curve
         x = -L.BODY_X + .3 + (2 * L.BODY_X - .6) * k / 12
         for j in range(seg):
             (ya, za), (yb, zb) = ys_o[j], ys_o[j + 1]
             if abs(ya) > L.HALF - .05 or abs(yb) > L.HALF - .05:
                 continue
-            m.box(x - .012, x + .012, min(ya, yb), max(ya, yb), min(za, zb) - .01, max(za, zb) + .008, 'roof')
-    m.obj('Roof_Details', coll, parent=parent, lods=(0,))
+            m.poly([(x - .012, ya, za + .010), (x + .012, ya, za + .010), (x + .012, yb, zb + .010), (x - .012, yb, zb + .010)], 'roof', normal=(0, 0, 1))
+            for e, sgn in ((x - .012, -1), (x + .012, 1)):
+                m.poly([(e, ya, za - .002), (e, yb, zb - .002), (e, yb, zb + .010), (e, ya, za + .010)], 'roof', normal=(sgn, 0, 0))
+    m.obj('Roof_Details', coll, parent=parent, lods=(0,), closed=False)
     return skin
 
 

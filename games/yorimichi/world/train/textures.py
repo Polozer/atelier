@@ -75,23 +75,23 @@ def _sprig(img, X, Y, x0, y0, x1, y1, scale, leaves=7):
         bend = math.sin(t * math.pi) * .05 * length
         px = x0 + (x1 - x0) * t - math.sin(ang) * bend
         py = y0 + (y1 - y0) * t + math.cos(ang) * bend
-        stem |= (X - px) ** 2 + (Y - py) ** 2 <= (scale * (1.6 - .9 * t)) ** 2
+        stem |= (X - px) ** 2 + (Y - py) ** 2 <= (scale * (3.2 - 1.6 * t)) ** 2
     mask = stem.copy()
     for k in range(leaves):
         t = .12 + .80 * k / (leaves - 1)
         bend = math.sin(t * math.pi) * .05 * length
         px = x0 + (x1 - x0) * t - math.sin(ang) * bend
         py = y0 + (y1 - y0) * t + math.cos(ang) * bend
-        size = scale * (17 - 8 * t)
+        size = scale * (38 - 16 * t)
         for side in (-1, 1):
-            mask |= _leaf_mask(X, Y, px, py, size, size * .26, ang + side * .75)
-    mask |= _leaf_mask(X, Y, x1 - math.cos(ang) * scale * 2, y1 - math.sin(ang) * scale * 2, scale * 11, scale * 2.6, ang)
+            mask |= _leaf_mask(X, Y, px, py, size, size * .30, ang + side * .70)
+    mask |= _leaf_mask(X, Y, x1 - math.cos(ang) * scale * 2, y1 - math.sin(ang) * scale * 2, scale * 24, scale * 6.5, ang)
     # olives: two small ovals near the base
     for side in (-1, 1):
         t = .38
-        px = x0 + (x1 - x0) * t + side * math.sin(ang) * scale * 9
-        py = y0 + (y1 - y0) * t - side * math.cos(ang) * scale * 9
-        mask |= ((X - px) / (scale * 3.2)) ** 2 + ((Y - py) / (scale * 4.2)) ** 2 <= 1
+        px = x0 + (x1 - x0) * t + side * math.sin(ang) * scale * 20
+        py = y0 + (y1 - y0) * t - side * math.cos(ang) * scale * 20
+        mask |= ((X - px) / (scale * 6.0)) ** 2 + ((Y - py) / (scale * 8.0)) ** 2 <= 1
     edge = mask & ~(np.roll(mask, 2, 0) & np.roll(mask, -2, 0) & np.roll(mask, 2, 1) & np.roll(mask, -2, 1))
     shade = (.86 + .14 * np.sin(X * .05 + Y * .03))[..., None]
     img[mask] = (INLAY * shade)[mask]
@@ -174,7 +174,7 @@ def crest(size=512):
         x0, y0 = cx + side * size * .05, size * .17
         x1, y1 = cx + side * size * .40, size * .52
         sub = np.zeros((size, size, 3))
-        _sprig(sub, X, Y, x0, y0, x1, y1, size / 512 * 1.4, leaves=7)
+        _sprig(sub, X, Y, x0, y0, x1, y1, size / 512 * .65, leaves=7)
         m = sub.sum(2) > 0
         branches |= m
     img[branches] = GOLD * .95

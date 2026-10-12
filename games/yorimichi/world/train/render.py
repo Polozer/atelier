@@ -109,7 +109,7 @@ def coach_views(c):
     views = []
     mid_z = 2.2
     views.append(('exterior-profile', camera(scene, 'C_profile', (0, 40, mid_z), (0, 0, mid_z), ortho=25.5, res=(2400, 820)), base_hide, ()))
-    views.append(('exterior-three-quarter', camera(scene, 'C_three', (17.5, 13.5, 3.6), (2.0, 0, 2.2), lens=35, res=(2000, 1000)), base_hide, ()))
+    views.append(('exterior-three-quarter', camera(scene, 'C_three', (21.0, 17.0, 4.2), (-.8, 0, 2.0), lens=30, res=(2000, 1000)), base_hide, ()))
     views.append(('exterior-profile-other-side', camera(scene, 'C_profile_r', (0, -40, mid_z), (0, 0, mid_z), ortho=25.5, res=(2400, 820)), base_hide, ()))
     eye = L.FLOOR_Z + 1.55
     if c.name == 'restaurant':
@@ -118,10 +118,10 @@ def coach_views(c):
         views.append(('interior-towards-bar-blockout', camera(scene, 'C_bar_b', (-8.1, 0, eye), (6.0, 0, eye - .25), lens=17), ('_Collision', '_LOD2'), ('_Reservations',)))
     else:
         cab = c.room('cabin-2'); xc = (cab.x0 + cab.x1) / 2
-        views.append(('cabin-towards-window', camera(scene, 'C_window', (xc, L.CORR_Y - .30, eye - .05), (xc, L.IN, eye - .30), lens=16), base_hide, ()))
+        views.append(('cabin-towards-window', camera(scene, 'C_window', (xc, L.ROOM_Y + .12, eye - .05), (xc, L.IN, eye - .30), lens=14), base_hide, ()))
         views.append(('cabin-towards-corridor', camera(scene, 'C_corridor', (xc + .05, L.IN - .22, eye - .05), (xc, -L.IN, eye - .30), lens=16), base_hide, ()))
         views.append(('corridor', camera(scene, 'C_corr', (-9.4, -1.03, eye), (9.0, -1.03, eye - .2), lens=20), base_hide, ()))
-        views.append(('cabin-towards-window-blockout', camera(scene, 'C_window_b', (xc, L.CORR_Y - .30, eye - .05), (xc, L.IN, eye - .30), lens=16), ('_Collision', '_LOD2'), ('_Reservations',)))
+        views.append(('cabin-towards-window-blockout', camera(scene, 'C_window_b', (xc, L.ROOM_Y + .12, eye - .05), (xc, L.IN, eye - .30), lens=14), ('_Collision', '_LOD2'), ('_Reservations',)))
     views.append(('top-roof-off', camera(scene, 'C_top', (0, 0, 30), (0, 0, 0), ortho=25.0, res=(2600, 420)), base_hide + ('_Roof',), ()))
     views.append(('top-roof-off-blockout', camera(scene, 'C_top_b', (0, 0, 30), (0, 0, 0), ortho=25.0, res=(2600, 420)), ('_Collision', '_LOD2', '_Roof'), ('_Reservations',)))
     for name, (cam, res), hide, show in views:
