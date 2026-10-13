@@ -2,7 +2,7 @@
 
     blender -b --python games/yorimichi/world/train/fit_furniture.py -- ASSET_ID SOURCE.fbx|.glb [--column Z0 Z1]
         [--yaw DEG] [--scale-by width|height] [--side-panels Y0 Y1 Z0 Z1] [--back-panel X0 X1 Z0 Z1]
-        [--erase X0 X1 Z0 Z1 SHIFT] [--as OUTPUT_ID]
+        [--erase X0 X1 Z0 Z1 SHIFT] [--as OUTPUT_ID] [--table-top]
 
 Imports the mesh, puts its origin at the contract's pivot (floor footprint centre, table lamp base, sconce wall
 mount), scales it uniformly so its width matches the contract, then, with --column, lengthens only the part between
@@ -20,7 +20,8 @@ Y0 to Y1 (fractions of the depth, front to back) and Z0 to Z1 (fractions of the 
 model's own material at the side's wood. --back-panel does the same for the back (X0 to X1: fractions of the width).
 --erase paints over a mark in the texture (carved initials, say): the front-facing area X0..X1, Z0..Z1 (metres, fitted
 frame) is covered with the texture of the same area moved SHIFT metres along X. --as writes the result under another
-id (a variant of the asset with the same contract dimensions).
+id (a variant of the asset with the same contract dimensions). --table-top builds a real wooden table (top, apron, head
+block and brackets) under a draped tablecloth, whose underside Tripo leaves as a flat sheet.
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[1])); import yori  # noqa: E402,F401
 import hashlib
@@ -110,6 +111,55 @@ def close_gaps(obj, f, faces=('-x', '+x'), n=56):
         report.append((spec, wood, len(holes)))
     bm.to_mesh(me); bm.free(); me.update()
     print('CLOSED GAPS', report, flush=True)
+
+
+def table_top(obj):
+    """Put a real wooden table under a draped cloth: Tripo closes the cloth with a flat cap, so from below a table reads
+    as a sheet on a stick. Adds, just under the cap, a walnut top, an apron round it and a head block joining the
+    pedestal, textured with the model's own wood (sampled on the pedestal)."""
+    import bmesh
+    from mathutils.bvhtree import BVHTree
+    me = obj.data
+    lo, hi = bounds([obj])
+    h = hi.z - lo.z
+    caps = [(p.center.z, p.area) for p in me.polygons if p.normal.z < -.9 and p.center.z > lo.z + .6 * h]
+    bins = {}
+    for z, a in caps:                                    # the flat cap: the 1 cm band holding the most down-facing area
+        bins[round(z, 2)] = bins.get(round(z, 2), 0.) + a
+    zc = max(bins, key=bins.get) if bins else hi.z - .04
+    band = [v.co for v in me.vertices if zc - .005 < v.co.z < zc + .03]
+    x0, x1 = min(p.x for p in band) + .03, max(p.x for p in band) - .03
+    y0, y1 = min(p.y for p in band) + .03, max(p.y for p in band) - .03
+    bm = bmesh.new(); bm.from_mesh(me); bm.faces.ensure_lookup_table()
+    uv = bm.loops.layers.uv.verify()
+    tree = BVHTree.FromBMesh(bm)
+    zp = lo.z + .45 * (zc - lo.z)                        # the pedestal column, under the cloth's hem
+    _, _, index, _ = tree.ray_cast(Vector(((lo.x + hi.x) / 2, lo.y - 1, zp)), Vector((0, 1, 0)))
+    face = bm.faces[index] if index is not None else bm.faces[0]
+    cu = sum((l[uv].uv for l in face.loops), Vector((0, 0))) / len(face.loops)
+
+    def box(a0, a1, b0, b1, c0, c1):
+        vs = [bm.verts.new((x, y, z)) for x in (a0, a1) for y in (b0, b1) for z in (c0, c1)]
+        for q in ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)):
+            nf = bm.faces.new([vs[i] for i in q])
+            nf.material_index = face.material_index
+            for k, l in enumerate(nf.loops):
+                l[uv].uv = cu + Vector(((k in (1, 2)) * .004, (k in (2, 3)) * .004))
+    top = zc - .006
+    box(x0, x1, y0, y1, top - .035, top)                                   # the walnut top
+    a = .05
+    for ya, yb in ((y0 + a, y0 + a + .025), (y1 - a - .025, y1 - a)):      # the apron
+        box(x0 + a, x1 - a, ya, yb, top - .035 - .09, top - .035)
+    for xa, xb in ((x0 + a, x0 + a + .025), (x1 - a - .025, x1 - a)):
+        box(xa, xb, y0 + a, y1 - a, top - .035 - .09, top - .035)
+    cx, cy = (lo.x + hi.x) / 2, (lo.y + hi.y) / 2
+    box(cx - .09, cx + .09, cy - .09, cy + .09, top - .035 - .14, top - .035)   # head block on the pedestal
+    for sx, sy in ((1, 0), (-1, 0), (0, 1), (0, -1)):                     # four brackets out to the apron
+        bx0, bx1 = sorted((cx + sx * .09, cx + sx * (x1 - x0) / 2 * .8)) if sx else (cx - .02, cx + .02)
+        by0, by1 = sorted((cy + sy * .09, cy + sy * (y1 - y0) / 2 * .8)) if sy else (cy - .02, cy + .02)
+        box(bx0, bx1, by0, by1, top - .035 - .06, top - .035)
+    bm.to_mesh(me); bm.free(); me.update()
+    print(f'TABLE TOP under the cloth at {zc:.3f} m: {x1 - x0:.2f} x {y1 - y0:.2f} m', flush=True)
 
 
 def erase_mark(obj, e, out_id, keep_front=False):
@@ -216,6 +266,7 @@ def main():
     erase = [float(v) for v in args[args.index('--erase') + 1:args.index('--erase') + 6]] if '--erase' in args else None
     out_id = args[args.index('--as') + 1] if '--as' in args else asset
     keep_front = '--keep-front' in args      # with --erase: the mark stays on the front, a separate back is clean
+    with_top = '--table-top' in args         # a draped table: build the wooden top, apron and head under the cloth
     spec = next(a for a in L.contract()['assets'] if a['id'] == asset)
     tw, td, th = (spec['dimensions_m'][k] for k in ('width', 'depth', 'height'))
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -263,6 +314,8 @@ def main():
                 v.co.z += stretch
             elif v.co.z > z0:
                 v.co.z += stretch * (v.co.z - z0) / (z1 - z0)
+    if with_top:
+        table_top(obj)
     if panels:
         close_gaps(obj, panels, ('-x', '+x'))
     if back:

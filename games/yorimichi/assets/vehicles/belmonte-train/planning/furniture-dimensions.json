@@ -117,14 +117,23 @@
       "name_fr": "Table restaurant — deux convives face à face",
       "dimensions_m": {
         "width": 1.05,
-        "depth": 0.85,
+        "depth": 0.87,
         "height": 0.75
       },
       "dimension_basis": "table body and tabletop; linen may overhang by at most 0.04 m per side",
       "pivot": "floor_footprint_center",
       "material_family": "walnut-brass-ivory-linen",
       "quantity_draft": 8,
-      "placement_note": "placed with yaw 90/-90: its 1.05 m width runs across the coach (window to aisle) and the two diners sit on its 0.85 m faces"
+      "placement_note": "placed with yaw 90/-90: its 1.05 m width runs across the coach (window to aisle) and the two diners sit on its 0.85 m faces",
+      "fitted_source": {
+        "file": "dining table 3d model.glb (Tripo Studio)",
+        "source_size_m": [
+          1.0,
+          0.83,
+          0.652
+        ],
+        "fit": "uniform scale 1.05 to the width; pedestal lengthened 6.5 cm to 0.75 m; a walnut top, apron, head block and brackets built under the cloth (--table-top)"
+      }
     },
     {
       "id": "first-class-sofa",
