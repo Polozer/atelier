@@ -389,6 +389,8 @@ void AJapanWorld::Load()
                 else if (bBush) H->SetCullDistances(30000, 36000);
                 else if (bLitter) H->SetCullDistances(7000, 9000);
                 if (bTree || bBush) H->SetWorldPositionOffsetDisableDistance(18000);
+                // Walkers meet a tree's leaves; the skateboard meets only its trunk (SkateRuntimeDetail CollectWorld).
+                if (bTree) H->ComponentTags.Add(TEXT("SkateSimpleCollision"));
                 // The tree house: the camera arm keeps above the floor Cairo stands on there, and in hole mode its probe
                 // passes the house (SetSeeThroughProbe). Its door curtains swing up to 60 cm out of their rest pose.
                 if (Key.StartsWith(TEXT("TH_")))
@@ -404,6 +406,29 @@ void AJapanWorld::Load()
                 H->bAutoRebuildTreeOnInstanceChanges = true;
                 TotalInstances += Xs.Num(); Groups.Add(H);
                 if (bBackdrop) BackdropGroups.Add(H);
+                // Every in-map tree is one instanced group per species across the whole map, so the engine cannot leave
+                // distant trees out of the shadow pass on its own: they made the forest's shadows its largest cost. A
+                // hidden twin casts the group's shadow instead, and its per-instance cull distance (measured from the
+                // camera in shadow passes too) ends tree shadows at the menu's tree shadow distance.
+                if (bTree && !bBackdrop)
+                {
+                    UHierarchicalInstancedStaticMeshComponent* S = NewObject<UHierarchicalInstancedStaticMeshComponent>(this);
+                    S->SetStaticMesh(Mesh); S->SetupAttachment(RootComponent);
+                    S->SetMobility(EComponentMobility::Static);
+                    S->SetCanEverAffectNavigation(false);
+                    S->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+                    S->SetHiddenInGame(true); S->bCastHiddenShadow = true; S->SetCastShadow(true);
+                    S->bAffectDistanceFieldLighting = false;
+                    if (Fade != JapanSeeThrough::FadeSolid) S->SetCustomPrimitiveDataFloat(0, float(Fade));
+                    S->SetWorldPositionOffsetDisableDistance(18000);
+                    S->bAutoRebuildTreeOnInstanceChanges = false;
+                    S->RegisterComponent();
+                    S->AddInstances(Xs, false, false, false);
+                    S->BuildTreeIfOutdated(true, true);
+                    S->bAutoRebuildTreeOnInstanceChanges = true;
+                    H->SetCastShadow(false);
+                    ShadowTwins.Add(S);
+                }
             };
             AddGroup(Near, false); AddGroup(Distant, true);
         }
@@ -590,6 +615,28 @@ void AJapanWorld::Load()
     if (!Hippodrome || !Hippodrome->bGameplayReady) Incomplete.Add(TEXT("hippodrome"));
     const auto* Belmonte = ABelmonteRegion::Spawn(this, AtelierDataPath(TEXT("belmonte/runtime.json")));
     if (!Belmonte || !Belmonte->bGameplayReady) Incomplete.Add(TEXT("belmonte"));
+    // The far hills' trees stand on the hills' original heights, but the northern
+    // surface and the Mega Park approach lowered that ground. Once every region's
+    // ground is in place, drop each backdrop tree with no ground under its base.
+    int32 Floating = 0, Grounded = 0;
+    const FCollisionQueryParams GroundQuery(SCENE_QUERY_STAT(BackdropGround), true);
+    for (auto* Group : BackdropGroups)
+    {
+        if (!Group || !Group->GetStaticMesh() || !Group->GetStaticMesh()->GetName().StartsWith(TEXT("Tree"))) continue;
+        TArray<int32> Remove;
+        for (int32 I = 0; I < Group->GetInstanceCount(); ++I)
+        {
+            FTransform Instance;
+            Group->GetInstanceTransform(I, Instance, true);
+            const FVector Base = Instance.GetLocation();
+            FHitResult Hit;
+            if (GetWorld()->LineTraceSingleByChannel(Hit, Base + FVector(0, 0, 300), Base - FVector(0, 0, 400), ECC_Visibility, GroundQuery)) ++Grounded;
+            else Remove.Add(I);
+        }
+        if (!Remove.IsEmpty()) Group->RemoveInstances(Remove);
+        Floating += Remove.Num();
+    }
+    UE_LOG(LogTemp, Display, TEXT("BACKDROP TREES kept %d on the ground, removed %d with none under them"), Grounded, Floating);
     UE_LOG(LogTemp, Display, TEXT("SKATE PARK cleared %d vegetation instances"), Cleared);
     // The road guardrails are grindable: the W-beam's top edge is 85 cm over the rail line.
     if (USkateRailSubsystem* Rails = GetWorld()->GetSubsystem<USkateRailSubsystem>())
@@ -720,18 +767,35 @@ void AJapanWorld::ApplyGroupDiagnostics()
            *Wanted,Hidden,Groups.Num());
 }
 
-void AJapanWorld::ApplyPerformanceSettings(bool bPerformance)
+void AJapanWorld::ApplyPerformanceSettings(bool bPerformance, float TreeSwayMetres, float ForestDetail, float TreeShadowMetres)
 {
-    if (!bLoaded || AppliedPerformanceMode == int32(bPerformance)) return;
+    if (!bLoaded || (AppliedPerformanceMode == int32(bPerformance) && AppliedTreeSway == TreeSwayMetres && AppliedForestDetail == ForestDetail &&
+        AppliedTreeShadow == TreeShadowMetres)) return;
     for (auto* Group : Groups)
     {
         const FString Name = Group->GetStaticMesh()->GetName();
         if (Name.StartsWith(TEXT("Grass")))
             Group->SetCullDistances(bPerformance ? 3500 : 6000,bPerformance ? 5000 : 8000);
+        // A swaying tree is drawn again into the velocity pass and with its full vertex work into the
+        // depth and shadow passes; past this distance its sway is under a pixel or two.
         if (Name.StartsWith(TEXT("Tree")) || Name.StartsWith(TEXT("Bush")))
-            Group->SetWorldPositionOffsetDisableDistance(bPerformance ? 6000 : 18000);
+            Group->SetWorldPositionOffsetDisableDistance(FMath::RoundToInt(TreeSwayMetres*100.f));
+        // The forest's trees (the city's HD_ trees have their own optimization): each crown step comes at this
+        // multiple of its authored distance. Their depth, shadow and base passes scale with the detail in view.
+        if (Name.StartsWith(TEXT("Tree")))
+            Group->SetLODDistanceScale(ForestDetail);
     }
     AppliedPerformanceMode = int32(bPerformance);
+    AppliedTreeSway = TreeSwayMetres;
+    // The shadow twins follow their visible groups' sway and detail, and end at the tree shadow distance.
+    for (auto* Twin : ShadowTwins)
+    {
+        Twin->SetWorldPositionOffsetDisableDistance(FMath::RoundToInt(TreeSwayMetres*100.f));
+        Twin->SetLODDistanceScale(ForestDetail);
+        Twin->SetCullDistances(FMath::RoundToInt(TreeShadowMetres*90.f),FMath::RoundToInt(TreeShadowMetres*100.f));
+    }
+    AppliedForestDetail = ForestDetail;
+    AppliedTreeShadow = TreeShadowMetres;
 }
 
 void AJapanWorld::ApplyVolumetricFog(bool bOn, const FVolumetricFogLook& Look)
