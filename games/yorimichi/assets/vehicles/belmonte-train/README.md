@@ -60,3 +60,14 @@ Coupling: every coach shares `layout.coupling()` (buffers, draw hook, gangway, f
 
 The six reservations already match the first fitted object: the golden table from Tripo Studio fits as
 `first-class-table` (0.65 × 0.397 × 0.62 m).
+
+## Livery textures
+
+`textures/` holds the exterior swatches the build maps onto every vehicle. The user generated them in ChatGPT on
+13 October 2026 from the prompts in the train session, and `world/train/prepare_livery.py` prepared them so they tile:
+- `livery-blue-panel.jpg`: one lined panel of the blue lower body, mapped once per panel between the doors and the crest;
+- `livery-ivory.jpg`: the upper-body enamel;
+- `roof-canvas.jpg`: the canvas roof, its seams running across the coach;
+- `underframe.jpg`: the riveted black steel of the bogies, frames and headstocks.
+
+The worn second class weathers these same images (`textures.weather`), so it keeps the train's livery.

@@ -1,11 +1,16 @@
 """Detail textures for the Belmonte train, drawn with numpy (no image model, no paid call): walnut grain, two
 marquetry panels with an olive sprig in gold inlay, burgundy and emerald carpets, the vestibule tiles and the
-sun-and-olive crest. Each function returns float RGBA rows, bottom row first (Blender's image order), values 0..1.
+sun-and-olive crest; the exterior livery comes from ChatGPT swatches prepared by prepare_livery.py (`source`), which
+the worn second class weathers. Each function returns float RGBA rows, bottom row first (Blender's image order), values 0..1.
 Tileable textures wrap seamlessly; panels are mapped 0..1 on each panel face.
 """
 import math
+from pathlib import Path
 
 import numpy as np
+
+SOURCES = Path(__file__).resolve().parents[2] / 'assets' / 'vehicles' / 'belmonte-train' / 'textures'
+JPEG = {'T_BT_BluePanel', 'T_BT_BluePanelWorn', 'T_BT_Ivory', 'T_BT_IvoryWorn', 'T_BT_Roof', 'T_BT_RoofWorn', 'T_BT_Underframe'}
 
 WALNUT_DARK = np.array([.115, .042, .016])
 WALNUT_MID = np.array([.235, .095, .036])
@@ -183,11 +188,22 @@ def crest(size=512):
     return _rgba(img, alpha)
 
 
-# the luxury livery's linear colours (build.py MATERIALS reads them from here): the worn second class starts from the
-# very same paint, so it still belongs to the train
-LIVERY_BLUE = (.012, .022, .060)
-LIVERY_IVORY = (.74, .64, .46)
-ROOF = (.030, .033, .036)
+# the luxury livery's linear colours (build.py MATERIALS reads them from here), the mean colours of the ChatGPT
+# swatches in assets/vehicles/belmonte-train/textures: plain faces match the textured ones, and the worn second class
+# starts from the very same paint, so it still belongs to the train
+LIVERY_BLUE = (.0104, .0228, .054)
+LIVERY_IVORY = (.743, .617, .438)
+ROOF = (.041, .041, .040)
+
+
+def source(name):
+    """A prepared swatch (prepare_livery.py) as float RGB rows, bottom row first. Needs Blender (bpy) to read it."""
+    import bpy
+    img = bpy.data.images.load(str(SOURCES / name))
+    w, h = img.size
+    px = np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4)[..., :3].astype(float)
+    bpy.data.images.remove(img)
+    return px
 
 
 def srgb(c):
@@ -196,27 +212,32 @@ def srgb(c):
     return np.where(c <= .0031308, 12.92 * c, 1.055 * np.power(c, 1 / 2.4) - .055)
 
 
-def worn(size=1024, paint=LIVERY_BLUE, seed=31, rust_amount=.05, streaks=True):
-    """The same paint, tired: slightly chalky faded patches, darker grime blotches and soot streaks of the same hue,
-    a few rust chips. The base colour stays the luxury livery's, so the coach reads as part of the same train. Tileable."""
-    base = srgb(paint)
-    n1 = _noise(size, size, (6, 6), seed, 5)
-    n2 = _noise(size, size, (14, 14), seed + 1, 4)
-    n3 = _noise(size, size, (3, 30), seed + 2, 3)          # tall cells: streaks
-    img = base[None, None, :] * (.94 + .12 * n2[..., None])
-    chalk = np.clip(base * 1.12 + .025, 0, 1)
+def weather(img, seed=31, rust_amount=.05, streaks=True):
+    """Tire an image of paint: slightly chalky faded patches, darker grime blotches and soot streaks of its own hue,
+    a few rust chips. Tileable when the image is."""
+    h, w, _ = img.shape
+    n1 = _noise(h, w, (6, 6 * w // h), seed, 5)
+    n2 = _noise(h, w, (14, 14 * w // h), seed + 1, 4)
+    n3 = _noise(h, w, (3, 30 * w // h), seed + 2, 3)          # tall cells: streaks
+    img = img * (.94 + .12 * n2[..., None])
+    chalk = np.clip(img * 1.12 + .025, 0, 1)
     fade = (np.clip((n1 - .58) * 3, 0, 1) * .55)[..., None]
-    img = img * (1 - fade) + chalk[None, None, :] * fade
-    grime = base * .50 + np.array((.030, .022, .012))
+    img = img * (1 - fade) + chalk * fade
+    grime = img * .50 + np.array((.030, .022, .012))
     dirt = (np.clip((.50 - n1) * 3, 0, 1) * .75)[..., None]
-    img = img * (1 - dirt) + grime[None, None, :] * dirt
+    img = img * (1 - dirt) + grime * dirt
     if streaks:
         st = (np.clip((n3 - .48) * 2.5, 0, 1) * .70)[..., None]
-        img = img * (1 - st) + grime[None, None, :] * .85 * st
+        img = img * (1 - st) + grime * .85 * st
     rust = np.array((.36, .17, .06))
     r = np.clip((n2 - (1 - rust_amount)) * 6, 0, 1)[..., None]
     img = img * (1 - r) + rust[None, None, :] * (.7 + .5 * n1[..., None]) * r
     return _rgba(img)
+
+
+def worn(size=1024, paint=LIVERY_BLUE, seed=31, rust_amount=.05, streaks=True):
+    """A flat coat of the livery, tired (see weather)."""
+    return weather(np.zeros((size, size, 3)) + srgb(paint)[None, None, :], seed, rust_amount, streaks)
 
 
 def peeling(size=1024, paint=(.30, .18, .10), under=(.46, .39, .29), seed=41):
@@ -286,8 +307,14 @@ ALL = {
     'T_BT_Tiles': lambda: tiles(),
     'T_BT_Crest': lambda: crest(),
     'T_BT_BlueWorn': lambda: worn(1024, LIVERY_BLUE, 31, rust_amount=.09),
-    'T_BT_IvoryWorn': lambda: worn(1024, LIVERY_IVORY, 33, rust_amount=.08),
-    'T_BT_RoofWorn': lambda: worn(1024, ROOF, 35, rust_amount=.16),
+    'T_BT_DarkWorn': lambda: worn(1024, (.018, .019, .022), 35, rust_amount=.16),
+    'T_BT_BluePanel': lambda: _rgba(source('livery-blue-panel.jpg')),
+    'T_BT_BluePanelWorn': lambda: weather(source('livery-blue-panel.jpg'), 31, rust_amount=.09),
+    'T_BT_Ivory': lambda: _rgba(source('livery-ivory.jpg')),
+    'T_BT_IvoryWorn': lambda: weather(source('livery-ivory.jpg'), 33, rust_amount=.08),
+    'T_BT_Roof': lambda: _rgba(source('roof-canvas.jpg')),
+    'T_BT_RoofWorn': lambda: weather(source('roof-canvas.jpg'), 35, rust_amount=.16),
+    'T_BT_Underframe': lambda: _rgba(source('underframe.jpg')),
     'T_BT_PaintPeel': lambda: peeling(),
     'T_BT_Lino': lambda: lino(),
     'T_BT_TilesGrimy': lambda: tiles_grimy(),

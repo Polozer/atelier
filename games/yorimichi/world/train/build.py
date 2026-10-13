@@ -31,8 +31,9 @@ TEX = OUT / 'textures'
 # name: (base colour, metallic, roughness, texture, uv metres per tile, alpha)
 MATERIALS = {
     'livery-blue': (T.LIVERY_BLUE, 0., .32, None, 1., 1.),
-    'livery-ivory': (T.LIVERY_IVORY, 0., .38, None, 1., 1.),
-    'roof': (T.ROOF, 0., .55, None, 1., 1.),
+    'livery-ivory': ((1, 1, 1), 0., .38, 'T_BT_Ivory', (2., 1.), 1.),
+    'livery-panel': ((1, 1, 1), 0., .32, 'T_BT_BluePanel', 0., 1.),       # one lined panel per face span (panel_uv)
+    'roof': ((1, 1, 1), 0., .55, 'T_BT_Roof', 3.15, 1.),
     'end-dark': ((.018, .019, .022), 0., .5, None, 1., 1.),
     'brass': ((.80, .56, .24), 1., .28, None, 1., 1.),
     'walnut': ((1, 1, 1), 0., .42, 'T_BT_Walnut', .9, 1.),
@@ -44,7 +45,7 @@ MATERIALS = {
     'parquet': ((1, 1, 1), 0., .45, 'T_BT_Walnut', .45, 1.),
     'ceiling': ((.80, .71, .54), 0., .6, None, 1., 1.),
     'service': ((.62, .62, .60), .2, .4, None, 1., 1.),
-    'undercarriage': ((.025, .025, .027), .3, .6, None, 1., 1.),
+    'undercarriage': ((1, 1, 1), .3, .6, 'T_BT_Underframe', 1.2, 1.),
     'steel': ((.30, .30, .31), 1., .45, None, 1., 1.),
     'rubber': ((.012, .012, .013), 0., .8, None, 1., 1.),
     'glass': ((.92, .95, .96), 0., .04, None, 1., .12),
@@ -54,8 +55,10 @@ MATERIALS = {
     'coal': ((.008, .008, .009), .1, .75, None, 1., 1.),
     'crest': ((1, 1, 1), .8, .3, 'T_BT_Crest', 0., 1.),
     'livery-blue-worn': ((1, 1, 1), 0., .55, 'T_BT_BlueWorn', 2.0, 1.),
-    'livery-ivory-worn': ((1, 1, 1), 0., .58, 'T_BT_IvoryWorn', 2.0, 1.),
-    'roof-worn': ((1, 1, 1), .2, .8, 'T_BT_RoofWorn', 2.0, 1.),
+    'livery-ivory-worn': ((1, 1, 1), 0., .58, 'T_BT_IvoryWorn', (2., 1.), 1.),
+    'livery-panel-worn': ((1, 1, 1), 0., .55, 'T_BT_BluePanelWorn', 0., 1.),
+    'roof-worn': ((1, 1, 1), .2, .8, 'T_BT_RoofWorn', 3.15, 1.),
+    'end-dark-worn': ((1, 1, 1), .2, .8, 'T_BT_DarkWorn', 2.0, 1.),
     'brass-dull': ((.36, .30, .17), .6, .65, None, 1., 1.),
     'paint-peel': ((1, 1, 1), 0., .85, 'T_BT_PaintPeel', 1.5, 1.),
     'lino': ((1, 1, 1), 0., .75, 'T_BT_Lino', 2.0, 1.),
@@ -78,7 +81,11 @@ def make_textures():
         h, w, _ = px.shape
         img = bpy.data.images.new(name, w, h, alpha=True)
         img.pixels.foreach_set(px.astype(np.float32).ravel())
-        img.filepath_raw = str(TEX / f'{name}.png'); img.file_format = 'PNG'; img.save()
+        ext, fmt = ('jpg', 'JPEG') if name in T.JPEG else ('png', 'PNG')
+        img.filepath_raw = str(TEX / f'{name}.{ext}'); img.file_format = fmt
+        if fmt == 'JPEG':
+            bpy.context.scene.render.image_settings.quality = 90
+        img.save()
         images[name] = img
     return images
 
@@ -184,10 +191,10 @@ class M:
             if uv is None:
                 n = _newell(pts)
                 ax = max(range(3), key=lambda i: abs(n[i]))
-                scale = MATERIALS[m][4] or 1.
+                su, sv = _uv_scale(m)
                 for loop, p in zip(f.loops, pts):
                     u, v = [p[i] for i in range(3) if i != ax]
-                    loop[uvl].uv = (u / scale, v / scale)
+                    loop[uvl].uv = (u / su, v / sv)
             else:
                 for loop, q in zip(f.loops, uv):
                     loop[uvl].uv = q
@@ -203,6 +210,12 @@ class M:
             o.parent = parent
         o['lods'] = list(lods)
         return o
+
+
+def _uv_scale(name):
+    """Metres per texture tile along U and V (a material gives one number, or a pair for a non-square swatch)."""
+    s = MATERIALS[name][4] or 1.
+    return s if isinstance(s, tuple) else (s, s)
 
 
 def _newell(pts):
@@ -270,11 +283,11 @@ def reproject(obj, classify):
             me.materials.append(MAT[name]); names.append(mname)
         f.material_index = names.index(mname)
         ax = max(range(3), key=lambda i: abs(n[i]))
-        scale = MATERIALS[name][4] or 1.
+        su, sv = _uv_scale(name)
         for loop in f.loops:
             p = wm @ loop.vert.co
             u, v = [p[i] for i in range(3) if i != ax]
-            loop[uvl].uv = (u / scale, v / scale)
+            loop[uvl].uv = (u / su, v / sv)
     bm.to_mesh(me); bm.free()
     finish_mesh(me)
 
@@ -316,8 +329,50 @@ def side_walls(c, coll, parent):
                 return 'walnut'
             return 'walnut' if abs(ctr.y) < L.HALF - .01 or ctr.z > L.SILL - .01 else ('livery-blue' if ctr.z < L.BELT_Z else 'livery-ivory')
         reproject(o, classify)
+        panel_uv(o, livery_panels(c, sy), sy)
         out.append(o)
     return out
+
+
+def livery_panels(c, sy):
+    """The lined panels of the blue lower body on side sy, (x0, x1) each: the spans between the exterior doors and the crest, split
+    into panels of about 2 m (the swatch's proportions over the 0.85 m band)."""
+    doors = sorted([(x0 - .18, x1 + .18) for _, s, x0, x1, *_ in L.exterior_openings(c) if s == sy]
+                   + [(B.crest_x - .42, B.crest_x + .42)])          # the crest sits on plain blue between two panels
+    out = []
+    for a, b in _free(B.x_a + .12, B.x_b - .12, doors, .8):
+        n = max(1, round((b - a) / 2.))
+        out += [(a + (b - a) * k / n, a + (b - a) * (k + 1) / n) for k in range(n)]
+    return out
+
+
+def panel_uv(o, panels, sy):
+    """Cut the outer blue faces at the panel edges and map the lined-panel swatch once on each panel, skirt to belt;
+    blue between the panels (round the doors) stays the plain livery colour."""
+    me = o.data
+    bm = bmesh.new(); bm.from_mesh(me)
+    for x in sorted({x for p in panels for x in p}):
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=(x, 0, 0), plane_no=(1, 0, 0))
+    names = [m.name for m in me.materials]
+    if MAT['livery-panel'].name not in names:
+        me.materials.append(MAT['livery-panel']); names.append(MAT['livery-panel'].name)
+    blue, panel = names.index(MAT['livery-blue'].name), names.index(MAT['livery-panel'].name)
+    uvl = bm.loops.layers.uv.verify()
+    wm = o.matrix_world
+    for f in bm.faces:
+        if f.material_index != blue or (wm.to_3x3() @ f.normal).y * sy < .7:
+            continue
+        cx = (wm @ f.calc_center_median()).x
+        p = next(((a, b) for a, b in panels if a - 1e-4 <= cx <= b + 1e-4), None)
+        if p is None:
+            continue
+        f.material_index = panel
+        for loop in f.loops:
+            q = wm @ loop.vert.co
+            u = (q.x - p[0]) / (p[1] - p[0])
+            loop[uvl].uv = (u if sy > 0 else 1 - u, (q.z - L.SKIRT_Z) / (L.BELT_Z - L.SKIRT_Z))
+    bm.to_mesh(me); bm.free()
+    finish_mesh(me)
 
 
 def end_walls(c, coll, parent):
@@ -495,18 +550,11 @@ def deck_and_underframe(c, coll, parent):
     m.obj('Shell_Underframe', coll, parent=parent)
     # brass lining on the livery
     m = M()
-    doors_x = sorted((x0 - .55, x1 + .55) for _, s, x0, x1, *_ in L.exterior_openings(c) if s > 0)
     for sy in (-1, 1):
         o = lambda d: sorted((sy * (L.HALF - .002), sy * (L.HALF + d)))
         y0, y1 = o(.006)
-        for z in (L.BELT_Z, L.SKIRT_Z + .06):
-            m.box(B.x_a + .08, B.x_b - .08, y0, y1, z - .009, z + .009, 'brass')
-        # lined panels on the blue lower body, broken by the exterior doors
-        for xa, xb in _free(B.x_a + .45, B.x_b - .45, doors_x, .8):
-            for z in (L.SKIRT_Z + .16, L.BELT_Z - .10):
-                m.box(xa, xb, y0, y1, z - .005, z + .005, 'brass')
-            for x in (xa, xb):
-                m.box(x - .005, x + .005, y0, y1, L.SKIRT_Z + .16, L.BELT_Z - .10, 'brass')
+        # the belt; the lined panels and rivet strips of the blue lower body are in the livery-panel swatch (panel_uv)
+        m.box(B.x_a + .08, B.x_b - .08, y0, y1, L.BELT_Z - .009, L.BELT_Z + .009, 'brass')
         for z in (L.CANT_Z - .16,):
             m.box(B.x_a + .08, B.x_b - .08, y0, y1, z - .006, z + .006, 'brass')
     m.obj('Shell_Lining', coll, parent=parent, lods=(0,))
@@ -719,7 +767,7 @@ def partitions(c, coll, parent):
 PANELLED = {'cabin', 'corridor', 'salon', 'lobby', 'bar', 'saloon', 'guard'}
 
 # a worn coach keeps the same geometry; its finishes are swapped for tired ones after the build
-WORN = {'livery-blue': 'livery-blue-worn', 'livery-ivory': 'livery-ivory-worn', 'roof': 'roof-worn', 'end-dark': 'roof-worn',
+WORN = {'livery-blue': 'livery-blue-worn', 'livery-ivory': 'livery-ivory-worn', 'livery-panel': 'livery-panel-worn', 'roof': 'roof-worn', 'end-dark': 'end-dark-worn',
         'brass': 'brass-dull', 'panel-tall': 'paint-peel', 'panel-wide': 'paint-peel', 'walnut': 'paint-peel',
         'crest': 'decal-two', 'glass': 'glass-grimy', 'ceiling': 'ceiling-dingy'}
 
@@ -1421,7 +1469,7 @@ def build(coach, images):
     MAT.clear()
     for name, img in images.items():
         if name not in bpy.data.images:
-            images[name] = bpy.data.images.load(str(TEX / f'{name}.png'))
+            images[name] = bpy.data.images.load(str(TEX / f'{name}.{"jpg" if name in T.JPEG else "png"}'))
             images[name].name = name
     make_materials(images)
     scene = bpy.context.scene
@@ -1514,7 +1562,7 @@ def build(coach, images):
 def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     images = make_textures()
-    paths = {n: TEX / f'{n}.png' for n in images}
+    paths = {n: TEX / f'{n}.{"jpg" if n in T.JPEG else "png"}' for n in images}
     manifest = dict(
         version=1, about='Belmonte train coach shells, generated by games/yorimichi/world/train/build.py from train/layout.py',
         units='metres in the .blend and placements; GLBs are standard glTF (Y-up) exported by Blender',
