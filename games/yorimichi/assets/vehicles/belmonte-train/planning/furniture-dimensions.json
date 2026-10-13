@@ -272,6 +272,19 @@
       },
       "variant_of": "second-class-bench",
       "note": "Quest object: the one bench that keeps the carved M+L initials, front only. All other benches are clean."
+    },
+    {
+      "id": "canteen-stove",
+      "name_fr": "Vieux fourneau de la cantine (porte la marmite)",
+      "dimensions_m": {
+        "width": 1.0,
+        "depth": 0.65,
+        "height": 0.9
+      },
+      "pivot": "floor_footprint_center",
+      "material_family": "blackened-cast-iron-enamel",
+      "quantity_draft": 1,
+      "note": "the canteen pot stands on its hob at 0.90 m"
     }
   ],
   "notes": [

@@ -865,14 +865,76 @@ def window_frames(c, coll, parent, glass_coll, glass_parent):
         out = rrect(w.x, zc, w.width + .11, h + .11, L.WIN_RADIUS + .055)
         lip = rrect(w.x, zc, w.width - .03, h - .03, L.WIN_RADIUS - .015)
         sy = w.side
-        ext.ring(out, lip, 'y', sy * (L.HALF - .002), sy * (L.HALF + .014), 'brass')
         inner.ring(rrect(w.x, zc, w.width + .13, h + .13, L.WIN_RADIUS + .065), lip, 'y', sy * (L.IN + .002), sy * (L.IN - .03), 'brass')
+        if w.kind == 'bay':               # a projecting lookout: its own glazed box outside the opening
+            lookout_bay(w, coll, parent, glass)
+            continue
+        ext.ring(out, lip, 'y', sy * (L.HALF - .002), sy * (L.HALF + .014), 'brass')
         y = sy * (L.IN + L.WALL * .55)
         glass.poly([(u, y, v) for u, v in opening], 'glass' if w.kind == 'clear' else 'glass-frosted', normal=(0, sy, 0))
     ext.obj('Shell_WindowFrames', coll, parent=parent)
     inner.obj('Interior_WindowFrames', coll, parent=parent, lods=(0,))
     o = glass.obj('Glazing_Windows', glass_coll, parent=glass_parent, closed=False, lods=(0, 1))
     return o
+
+
+def lookout_bay(w, coll, parent, glass, depth=.24):
+    """The guard's projecting lookout (a ducket): a glazed box standing out from the side wall over an opening."""
+    sy = w.side
+    x0, x1 = w.x - w.width / 2 - .10, w.x + w.width / 2 + .10
+    z0, z1 = w.sill - .16, w.head + .16
+    ya, yb = sorted((sy * (L.HALF - .01), sy * (L.HALF + depth)))
+    m = M()
+    m.box(x0, x1, ya, yb, z0, z1, 'livery-ivory')
+    o = m.obj(f'Shell_Lookout_{w.name}', coll, parent=parent)
+    yi0, yi1 = sorted((sy * (L.HALF - .05), sy * (L.HALF + depth - .04)))
+    hole = M(); hole.box(x0 + .04, x1 - .04, yi0, yi1, z0 + .05, z1 - .05, 'glass')           # hollow it out
+    front = M(); front.prism(rrect(w.x, (w.sill + w.head) / 2, w.width - .04, w.head - w.sill, .06), 'y', yb - sy * .08 if sy > 0 else ya - .02,
+                             yb + .02 if sy > 0 else ya + .08, 'glass')
+    sides = []
+    for xe in (x0, x1):
+        sd = M(); sd.prism(rrect((ya + yb) / 2 + sy * .02, (w.sill + w.head) / 2, depth - .10, w.head - w.sill - .10, .04), 'x', xe - .06, xe + .06, 'glass')
+        sides.append(sd)
+    boolean(o, [hole, front] + sides)
+    reproject(o, lambda n, ctr: 'livery-ivory' if abs(ctr.y) > L.HALF + .02 or abs(n.y) < .5 else 'walnut')
+    yf = sy * (L.HALF + depth - .02)
+    glass.poly([(u, yf, v) for u, v in rrect(w.x, (w.sill + w.head) / 2, w.width - .04, w.head - w.sill, .06)], 'glass', normal=(0, sy, 0))
+    for xe, sx in ((x0 + .01, -1), (x1 - .01, 1)):
+        pts = rrect((ya + yb) / 2 + sy * .02, (w.sill + w.head) / 2, depth - .10, w.head - w.sill - .10, .04)
+        glass.poly([(xe, u, v) for u, v in pts], 'glass', normal=(sx, 0, 0))
+    cap = M()                             # a small sloped roof and a brass rim
+    cap.box(x0 - .03, x1 + .03, min(ya, yb) - .0, max(ya, yb) + .03 * (1 if sy > 0 else 0) + (.03 if sy < 0 else 0), z1, z1 + .04, 'roof')
+    cap.box(x0, x1, ya, yb, z1 - .02, z1, 'brass')
+    cap.obj(f'Shell_LookoutRoof_{w.name}', coll, parent=parent)
+
+
+def cargo_door(c, d, coll, parent, glass_coll):
+    """A pair of luggage-door leaves on the outer face of the side, sliding apart along it (open_offset_m per leaf)."""
+    name, sy, x0, x1, z0, z1 = next(e for e in L.exterior_openings(c) if e[0] == d.name.replace('cargo-door', 'cargo'))
+    yc = sy * (L.HALF + .025)
+    hw = d.width
+    for k, (sign, xc) in enumerate(((-1, x0 + hw / 2 - .02), (1, x1 - hw / 2 + .02))):
+        m = M(); g = M()
+        m.box(-hw / 2, hw / 2, -.022, .022, 0, L.BELT_Z - z0, 'livery-blue')
+        m.box(-hw / 2, hw / 2, -.022, .022, L.BELT_Z - z0, z1 - z0 + .04, 'livery-ivory')
+        leaf = m.obj(f'Door_{d.name}_{k + 1}', coll, parent=parent)
+        win = M(); win.prism(rrect(0, 1.45, .34, .44, .05), 'y', -.08, .08, 'glass')
+        boolean(leaf, [win])
+        belt = L.BELT_Z - z0
+        reproject(leaf, lambda n, ctr: ('livery-blue' if ctr.z < belt else 'livery-ivory') if abs(n.y) > .7 else 'walnut')
+        t = M()
+        t.ring(rrect(0, 1.45, .42, .52, .09), rrect(0, 1.45, .33, .43, .045), 'y', sy * .02, sy * .034, 'brass')
+        for xb in (-hw / 2 + .04, hw / 2 - .04):
+            t.box(xb - .006, xb + .006, *sorted((sy * .022, sy * .028)), .12, z1 - z0 - .08, 'brass')
+        hx = sign * -(hw / 2 - .10)
+        t.box(hx - .014, hx + .014, *sorted((sy * .022, sy * .052)), .90, 1.20, 'brass')
+        t.box(-hw / 2 - .02, hw / 2 + .02, *sorted((sy * .022, sy * .06)), z1 - z0 + .04, z1 - z0 + .09, 'end-dark')   # running rail
+        tr = t.obj(f'Door_{d.name}_{k + 1}_Trim', coll); tr.parent = leaf
+        g.poly([(u, 0, v) for u, v in rrect(0, 1.45, .34, .44, .05)], 'glass', normal=(0, sy, 0))
+        go = g.obj(f'Glazing_Door_{d.name}_{k + 1}', glass_coll, closed=False); go.parent = leaf
+        leaf.location = (xc, yc, z0)
+        DOOR_RECORDS.append(dict(name=leaf.name, door=d.name, kind='sliding', pivot=[xc, yc, z0], open_offset_m=[sign * (hw - .05), 0, 0],
+                                 opening=[x0, x1, z0, z1], wall=f'side-{"l" if sy > 0 else "r"}'))
 
 
 # --- doors --------------------------------------------------------------------------------------------------------
@@ -927,6 +989,9 @@ def doors(c, coll, parent, glass_coll, glass_parent):
     for d in c.doors:
         if d.kind == 'hinged' and d.name.startswith('exterior'):
             _exterior_door(c, d, coll, parent, glass_coll)
+            continue
+        if d.kind == 'cargo':
+            cargo_door(c, d, coll, parent, glass_coll)
             continue
         w = walls[d.wall]
         o = next(o for o in w.openings if o.name == d.opening)

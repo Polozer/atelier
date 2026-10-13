@@ -15,10 +15,11 @@ OUT = yori.OUT / 'belmonte-train' / 'plan'
 S = 60                     # pixels per metre
 FILL = {'vestibule': '#e8e2d6', 'corridor': '#cfe0d4', 'cabin': '#a9cdb5', 'wc': '#dde3ea', 'luggage': '#e6dccb',
         'pantry': '#e6dccb', 'lobby': '#e8e2d6', 'salon': '#e6b9b4', 'bar': '#e9cfa8', 'galley': '#d4dde6',
-        'saloon': '#c9cdb8', 'canteen': '#e4e2da', 'guard': '#e6dccb', 'balcony': '#efe7d6'}
+        'saloon': '#c9cdb8', 'canteen': '#e4e2da', 'guard': '#e6dccb', 'balcony': '#efe7d6', 'hold': '#e2d6c0'}
 ASSET = {'restaurant-banquette': '#8c2a2f', 'restaurant-table': '#f4efe2', 'first-class-sofa': '#1f6b4b',
          'first-class-table': '#7a4a24', 'table-lamp': '#d9a441', 'wall-sconce': '#d9a441',
-         'second-class-bench': '#6b5a3e', 'canteen-pot': '#9aa0a6'}
+         'second-class-bench': '#6b5a3e', 'canteen-pot': '#9aa0a6',
+         'second-class-bench-carved': '#8a6a3e', 'canteen-stove': '#2b2b2b'}
 
 
 class Svg:

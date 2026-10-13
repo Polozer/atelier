@@ -27,7 +27,7 @@ VIEWER = Path(__file__).with_name('viewer.html')
 VEHICLES = [
     dict(id='locomotive', title='Locomotive 4-6-2', length=14.0, status='planned', concept='locomotive/locomotive-tender--locomotive-profile.png'),
     dict(id='tender', title='Tender', length=9.0, status='planned', concept='locomotive/locomotive-tender--tender-profile-v2.png'),
-    dict(id='baggage-van', title='Fourgon à bagages', length=L.LENGTH_OVER_BUFFERS, status='planned', concept='locomotive/baggage-van--exterior-profile.png'),
+    dict(id='baggage-van', title='Fourgon à bagages', length=L.LENGTH_OVER_BUFFERS, status='built'),
     dict(id='restaurant', title='Voiture restaurant', length=L.LENGTH_OVER_BUFFERS, status='built'),
     dict(id='first-class', title='Première classe', length=L.LENGTH_OVER_BUFFERS, status='built'),
     dict(id='second-class', title='Deuxième classe et cantine', length=L.LENGTH_OVER_BUFFERS, status='built'),
@@ -58,7 +58,7 @@ def web_copy(glb, out_dir):
     return name
 
 
-BUILDERS = {'restaurant': L.restaurant, 'first-class': L.first_class, 'second-class': L.second_class, 'brake-van': L.brake_van}
+BUILDERS = {'baggage-van': L.baggage_van, 'restaurant': L.restaurant, 'first-class': L.first_class, 'second-class': L.second_class, 'brake-van': L.brake_van}
 
 
 def offsets():

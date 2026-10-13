@@ -84,6 +84,7 @@ class Body:
     cupola: tuple = None           # (x0, x1) of a raised lookout on the roof
     crest_x: float = 0.
     livery: str = 'luxury'         # luxury, or worn: faded, rusty paint and peeling interiors (second class)
+    cargo_doors: tuple = ()        # x centres of pairs of wide double sliding luggage doors, both sides (baggage van)
 
     @property
     def length(self):
@@ -111,12 +112,12 @@ class Body:
 
     def headstock(self, s):
         """Where the underframe ends: at the end wall, or at the outer edge of a balcony."""
-        return self.face(s) if self.end(s) == 'gangway' else self.buffer(s) - s * (BUFFER_X - BODY_X)
+        return self.face(s) if self.end(s) != 'balcony' else self.buffer(s) - s * (BUFFER_X - BODY_X)
 
     def walk_limits(self):
         """x range a passenger can stand in: inside the end walls, out to the railing on a balcony."""
-        lo = self.in_a if self.end_a == 'gangway' else self.headstock(-1) + .06
-        hi = self.in_b if self.end_b == 'gangway' else self.headstock(1) - .06
+        lo = self.in_a if self.end_a != 'balcony' else self.headstock(-1) + .06
+        hi = self.in_b if self.end_b != 'balcony' else self.headstock(1) - .06
         return lo, hi
 
 
@@ -306,10 +307,16 @@ def _shared(c, vestibules=True):
         if b.end(sx) == 'gangway':
             c.walls.append(Wall(f'end-{end}', 'y', -IN, IN, c0, c1, [Opening(f'gangway-{end}', -GANGWAY_W / 2, GANGWAY_W / 2, FLOOR_Z, FLOOR_Z + GANGWAY_H)]))
             c.doors.append(Door(f'gangway-door-{end}', f'end-{end}', f'gangway-{end}', 'sliding', -sx, sx, True, GANGWAY_W + .05))
+        elif b.end(sx) == 'closed':
+            c.walls.append(Wall(f'end-{end}', 'y', -IN, IN, c0, c1))
         else:
             c.walls.append(Wall(f'end-{end}', 'y', -IN, IN, c0, c1, [Opening(f'balcony-door-{end}', -.45, .45)]))
             # hinged on its -Y jamb, opening out onto the balcony
             c.doors.append(Door(f'balcony-door-{end}', f'end-{end}', f'balcony-door-{end}', 'hinged', sx, -1, True, .90))
+    for k, x in enumerate(b.cargo_doors):
+        for side, sy in (('l', 1), ('r', -1)):
+            # two leaves on the outer face, sliding apart along the side
+            c.doors.append(Door(f'cargo-door-{k + 1}{side}', f'side-{side}', f'cargo-{k + 1}{side}', 'cargo', sy, 0, False, CARGO_W / 2 + .04))
     for label, x in b.exterior_doors:
         for side, sy in (('l', 1), ('r', -1)):
             # the exterior doors open inward, hinged on the jamb nearer the coach end
@@ -324,6 +331,9 @@ def exterior_openings(c=None):
     for label, x in b.exterior_doors:
         for side, sy in (('l', 1), ('r', -1)):
             out.append((f'exterior-{label}{side}', sy, x - EXT_DOOR_W / 2, x + EXT_DOOR_W / 2, FLOOR_Z, FLOOR_Z + DOOR_H))
+    for k, x in enumerate(b.cargo_doors):
+        for side, sy in (('l', 1), ('r', -1)):
+            out.append((f'cargo-{k + 1}{side}', sy, x - CARGO_W / 2, x + CARGO_W / 2, FLOOR_Z, FLOOR_Z + DOOR_H + .05))
     return out
 
 
@@ -600,10 +610,10 @@ def second_class():
         x = first + (k + 1) * SC_PITCH - .01
         c.windows += [Window(f'saloon-{k // 2 + 1}-l', 1, x, 2 * SC_PITCH - .45), Window(f'saloon-{k // 2 + 1}-r', -1, x, 2 * SC_PITCH - .45)]
     c.windows += [Window('canteen-l', 1, -8.20, SMALL_W, FLOOR_Z + 1.00, HEAD), Window('service-r', -1, -8.20, SMALL_W)]
+    c.placements.append(Placement('canteen-stove', 'canteen-stove', 'canteen', -9.30, IN - .345, FLOOR_Z, 0))
     c.placements.append(Placement('canteen-pot', 'canteen-pot', 'canteen', -9.30, IN - .38, FLOOR_Z + .90, 0))
     c.reservations += [
         Box('canteen-counter', 'canteen-counter', CANTEEN_X1 - .60, CANTEEN_X1 - .02, ROOM_Y + .05, IN - .05, FLOOR_Z, FLOOR_Z + .95, 'serving counter under the hatch'),
-        Box('canteen-stove', 'canteen-stove', -9.82, -8.80, IN - .70, IN - .05, FLOOR_Z, FLOOR_Z + .90, 'old range carrying the porridge pot'),
         Box('canteen-sink', 'canteen-sink', -8.55, -7.75, IN - .62, IN - .05, FLOOR_Z, FLOOR_Z + .90, 'chipped sink and draining board'),
         Box('canteen-shelves', 'canteen-shelves', -9.82, -9.30, ROOM_Y + .05, ROOM_Y + .45, FLOOR_Z, FLOOR_Z + 1.90, 'stacked tin plates and mugs'),
     ]
@@ -613,8 +623,61 @@ def second_class():
     return c
 
 
+# --- baggage van: the guard's compartment behind a gangway at end A, the luggage hold, a closed end towards the tender
+CARGO_W = 1.60                              # clear width of each pair of sliding luggage doors
+GUARD_X1 = -7.60                            # the guard compartment's partition
+
+
+def baggage_van():
+    """The luxury train's baggage van, right behind the tender. End A couples to the restaurant through a gangway;
+    end B, towards the tender, is closed (no passenger gangway onto the locomotive). The guard's compartment at end A
+    has its own exterior doors and two projecting lookout bays; the hold has two pairs of wide double sliding doors
+    on each side, a few high windows and parcel shelving along the walls."""
+    body = Body(end_b='closed', exterior_doors=(('g', -10.55),), cargo_doors=(-3.40, 5.70), crest_x=1.15)
+    c = Coach('baggage-van', 'Fourgon à bagages', body=body)
+    _shared(c, vestibules=False)
+    hold_x0 = GUARD_X1 + PART
+    c.rooms += [Room('guard-room', 'guard', body.in_a, GUARD_X1, -IN, IN, 'parquet'),
+                Room('hold', 'hold', hold_x0, body.in_b, -IN, IN, 'parquet')]
+    c.walls.append(Wall('guard-partition', 'y', -IN, IN, GUARD_X1, hold_x0, [Opening('door-hold', -.55, .55)]))
+    c.doors.append(Door('door-hold', 'guard-partition', 'door-hold', 'sliding', +1, +1, False, 1.15))
+    for side, sy in (('l', 1), ('r', -1)):
+        c.windows += [Window(f'guard-bay-{side}', sy, -8.85, 1.00, FLOOR_Z + .75, HEAD, 'bay'),
+                      Window(f'guard-{side}', sy, -9.75, .60)]
+        for k, x in enumerate((-5.60, .95, 9.70)):
+            c.windows.append(Window(f'hold-{k + 1}-{side}', sy, x, SMALL_W, FLOOR_Z + 1.40, HEAD))
+    # parcel shelving along both walls, leaving the luggage doorways and a wide middle clear
+    spans = _free_spans(hold_x0 + .05, body.in_b - .05, [(x - CARGO_W / 2 - .15, x + CARGO_W / 2 + .15) for x in body.cargo_doors])
+    for k, (a, b) in enumerate(spans):
+        for side, sy in (('l', 1), ('r', -1)):
+            y0, y1 = sorted((sy * (IN - .02), sy * (IN - .55)))
+            c.reservations.append(Box(f'shelves-{k + 1}{side}', 'luggage-shelves', a, b, y0, y1, FLOOR_Z, FLOOR_Z + 2.00, 'parcel and trunk shelving'))
+    c.reservations += [
+        Box('guard-stove', 'stove', GUARD_X1 - .70, GUARD_X1 - .15, IN - .62, IN - .10, FLOOR_Z, FLOOR_Z + 1.10, 'small stove with its flue'),
+        Box('guard-desk', 'desk', GUARD_X1 - 1.75, GUARD_X1 - .85, IN - .58, IN - .02, FLOOR_Z, FLOOR_Z + .80, "the guard's sorting desk"),
+        Box('guard-handbrake', 'handbrake', body.in_a + .10, body.in_a + .34, -IN + .45, -IN + .69, FLOOR_Z, FLOOR_Z + 1.10, 'handbrake column'),
+    ]
+    c.mounts += [Mount('guard-lamp', 'ceiling-lamp', 'guard-room', -9.5, 0., ceiling_z(0) - .02, 0),
+                 Mount('hold-lamp-1', 'ceiling-lamp', 'hold', -1.0, 0., ceiling_z(0) - .02, 0),
+                 Mount('hold-lamp-2', 'ceiling-lamp', 'hold', 8.0, 0., ceiling_z(0) - .02, 0)]
+    c.goals.update({'guard-room': (-9.0, 0.), 'hold': (1.0, 0.)})
+    _curtains(c, lambda w: _room_at(c, w.x, w.side * (IN - .1)))
+    return c
+
+
+def _free_spans(a0, a1, blocked, min_len=.5):
+    out, a = [], a0
+    for b0, b1 in sorted(blocked):
+        if b0 - a >= min_len:
+            out.append((a, b0))
+        a = max(a, b1)
+    if a1 - a >= min_len:
+        out.append((a, a1))
+    return out
+
+
 def coaches():
-    return [restaurant(), first_class(), second_class(), brake_van()]
+    return [baggage_van(), restaurant(), first_class(), second_class(), brake_van()]
 
 
 # --- checks -------------------------------------------------------------------------------------------------------
@@ -725,6 +788,9 @@ def goals(c):
     for label, x in b.exterior_doors:
         for side, sy in (('l', 1), ('r', -1)):
             g[f'exterior-door-{label}{side}'] = (x, sy * (IN - .35))
+    for k, x in enumerate(b.cargo_doors):
+        for side, sy in (('l', 1), ('r', -1)):
+            g[f'cargo-door-{k + 1}{side}'] = (x, sy * (IN - .35))
     for r in c.rooms:
         if r.kind in ('vestibule', 'balcony'):
             continue

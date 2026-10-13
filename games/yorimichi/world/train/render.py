@@ -125,6 +125,9 @@ def coach_views(c):
         views.append(('saloon-towards-canteen', camera(scene, 'C_saloon', (9.0, 0, eye), (-7.0, 0, eye - .3), lens=17), base_hide, ()))
         views.append(('canteen', camera(scene, 'C_canteen', (-6.9, .2, eye), (-9.8, 1.2, eye - .35), lens=16), base_hide, ()))
         views.append(('saloon-blockout', camera(scene, 'C_saloon_b', (9.0, 0, eye), (-7.0, 0, eye - .3), lens=17), ('_Collision', '_LOD2'), ('_Reservations',)))
+    elif c.name == 'baggage-van':
+        views.append(('hold', camera(scene, 'C_hold', (10.6, .3, eye), (-7.0, 0, eye - .35), lens=17), base_hide, ()))
+        views.append(('guard-room', camera(scene, 'C_bguard', (-7.9, -.6, eye), (-11.4, .6, eye - .35), lens=16), base_hide, ()))
     elif c.name == 'brake-van':
         views.append(('guard-room', camera(scene, 'C_guard', (.3, -.6, eye), (5.4, .4, eye - .35), lens=16), base_hide, ()))
         views.append(('luggage-towards-balcony', camera(scene, 'C_lug', (.6, .3, eye), (-5.0, 0, eye - .3), lens=16), base_hide, ()))
