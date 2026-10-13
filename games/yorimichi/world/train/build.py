@@ -3,8 +3,8 @@
 Builds the locomotive and the tender (their own sections below) and the coaches from train/layout.py: the shared envelope (side walls with real window and door openings, end
 walls, floor deck, roof, ceiling, underframe, two bogies, buffers, couplers, gangways, steps), each coach's own
 partitions, sliding and hinged doors, lining panels, window frames and glazing, plus furniture reservations, seat
-markers, mounts and simple walkable collision. The coaches are empty: furniture, lamps, curtains and racks are
-separate Tripo Studio assets placed from placements.json.
+markers, mounts and simple walkable collision. Furniture is separate Tripo Studio assets placed from placements.json;
+second class also gets its luggage nets, bulbs, curtains and menu board on its mounts (fittings.py).
 
 Outputs in build/yorimichi/belmonte-train/: per coach a clean .blend, SM_BT_<Coach>_LOD0/1/2.glb (glTF, metres,
 Blender's standard Y-up export), SM_BT_<Coach>_Collision.glb, <coach>-blockout.glb (reservations and markers) and
@@ -22,6 +22,7 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
+from train import fittings as FT
 from train import layout as L
 from train import textures as T
 
@@ -72,6 +73,11 @@ MATERIALS = {
     'decal-two': ((1, 1, 1), 0., .6, 'T_BT_Two', 0., 1.),
     'glass-grimy': ((.70, .68, .55), 0., .3, None, 1., .35),
     'ceiling-dingy': ((.50, .43, .31), 0., .85, None, 1., 1.),
+    'cord': ((.24, .19, .12), 0., .9, None, 1., 1.),                  # second-class fittings (fittings.py)
+    'enamel-white': ((.78, .76, .70), 0., .35, None, 1., 1.),
+    'enamel-cream': ((.66, .58, .42), 0., .55, None, 1., 1.),
+    'curtain-mustard': ((.34, .24, .09), 0., .95, None, 1., 1.),      # flat for now: a fabric swatch may replace it
+    'menu-board': ((1, 1, 1) if T.has('menu-board.jpg') else (.02, .02, .02), 0., .7, 'T_BT_MenuBoard' if T.has('menu-board.jpg') else None, 0., 1.),
     'reservation': ((.85, .28, .04), 0., .8, None, 1., .60),
     'reservation-service': ((.08, .25, .75), 0., .8, None, 1., .50),
     'gauge': ((.9, .1, .3), 0., .8, None, 1., 1.),
@@ -1144,6 +1150,25 @@ def _exterior_door(c, d, coll, parent, glass_coll):
 
 
 # --- reservations, markers, collision -----------------------------------------------------------------------------
+def fittings(c, coll, parent):
+    """The fittings on the coach's mounts (fittings.py): one object per kind, plus an empty where each bulb's runtime
+    light goes. Every mount that is not a gameplay anchor must get its geometry."""
+    parts = FT.fittings(c)
+    if c.name in FT.COACHES:
+        made = {p.name for p in parts}
+        bare = sorted({mt.kind for mt in c.mounts if mt.kind not in FT.ANCHORS and not made & set(FT.KINDS.get(mt.kind, ()))})
+        if bare:
+            raise SystemExit(f'{c.name}: mounts without fittings: {bare}')
+    for p in parts:
+        m = M(); m.faces = list(p.faces)
+        m.obj(p.name, coll, parent=parent, closed=p.closed, lods=p.lods)
+        for name, loc in p.sockets:
+            so = bpy.data.objects.new(name, None); so.empty_display_type = 'SPHERE'; so.empty_display_size = .05
+            so.location = loc; so['lods'] = [0, 1]; so['light'] = 'bulb'
+            coll.objects.link(so); so.parent = parent
+    return parts
+
+
 def reservations(c, coll, parent):
     spec = {a['id']: a for a in L.contract()['assets']}
     for p in c.placements:
@@ -1269,7 +1294,7 @@ def mesh_checks(objs):
     """Closed meshes (manifold, outward) and no degenerate faces in the architectural parts."""
     report = {}
     for o in objs:
-        if o.type != 'MESH' or o.name.startswith(('Glazing', 'Interior_Floor', 'Ceiling', 'Shell_Crest', 'LOD2_Hull', 'Roof_Details', 'Roof_CupolaTop', 'Tender_Coal', 'Loco_SmokeboxDoor', 'Cab_BackheadFace', 'Cab_FireGlow')):
+        if o.type != 'MESH' or o.name.startswith(('Glazing', 'Interior_Floor', 'Ceiling', 'Shell_Crest', 'LOD2_Hull', 'Roof_Details', 'Roof_CupolaTop', 'Tender_Coal', 'Loco_SmokeboxDoor', 'Cab_BackheadFace', 'Cab_FireGlow', 'Fittings_')):
             continue
         bm = bmesh.new(); bm.from_mesh(o.data)
         boundary = sum(1 for e in bm.edges if e.is_boundary)
@@ -1926,6 +1951,7 @@ def build(coach, images):
         lining(coach, cols['Interior'], g['Interior'])
         window_frames(coach, cols['Shell'], g['Shell'], cols['Glazing'], g['Glazing'])
         doors(coach, cols['Doors'], g['Doors'], cols['Glazing'], g['Glazing'])
+        fittings(coach, cols['Interior'], g['Interior'])
     for end, e in L.coupling(B)['ends'].items():   # attachment sockets, exported in every LOD
         for name, loc in [('Coupler', e['draw_hook'])] + ([('Gangway', e['gangway_face_centre'])] if 'gangway_face_centre' in e else []):
             so = bpy.data.objects.new(f'SOCKET_{name}_{end.upper()}', None); so.empty_display_type = 'ARROWS'; so.empty_display_size = .4

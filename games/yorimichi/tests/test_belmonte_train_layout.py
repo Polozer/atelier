@@ -130,6 +130,31 @@ class Coaches(unittest.TestCase):
         self.assertTrue(all(L.reachable(c, L.LADY_RADIUS, (spot.x, spot.y), {'kitchen': (-8.9, .05)}).values()))
         self.assertEqual(L.check(c), [])
 
+    def test_second_class_fittings(self):
+        """Every second-class mount that is not a gameplay anchor gets its modelled fitting, inside the body, next to
+        its mount; the bulbs clear an adult's head in the aisle and each has a light socket."""
+        import math
+        from train import fittings as F
+        c = L.second_class()
+        parts = {p.name: p for p in F.fittings(c)}
+        self.assertEqual({mt.kind for mt in c.mounts} - F.ANCHORS, set(F.KINDS))
+        for kind, names in F.KINDS.items():
+            for name in names:
+                self.assertTrue(parts[name].faces, name)
+            pts = [q for name in names for f in parts[name].faces for q in f[0]]
+            for mt in (m for m in c.mounts if m.kind == kind):
+                self.assertTrue(any(math.hypot(x - mt.x, y - mt.y) <= mt.length / 2 + .5 and abs(z - mt.z) <= 1.2 for x, y, z in pts), mt.id)
+            for x, y, z in pts:
+                self.assertLessEqual(abs(y), L.IN + 1e-6)
+                self.assertTrue(L.FLOOR_Z < z <= L.ceiling_z(y) + .03, (kind, x, y, z))
+        boxes = [(L.footprint(pl), pl.z + L.asset_dims(pl.asset)[2]) for pl in c.placements]
+        for x, y, z in (q for f in parts['Fittings_Curtains'].faces for q in f[0]):       # curtains hang clear of the benches
+            self.assertFalse(any(x0 < x < x1 and y0 < y < y1 and z < top for (x0, x1, y0, y1), top in boxes), (x, y, z))
+        lamps = parts['Fittings_Lamps']
+        self.assertEqual(len(lamps.sockets), sum(1 for m in c.mounts if m.kind == 'ceiling-lamp'))
+        self.assertGreaterEqual(min(q[2] for f in lamps.faces for q in f[0]), L.FLOOR_Z + L.HUMAN['height'] + .10)
+        self.assertEqual(F.fittings(L.first_class()), [])              # first class's racks and curtains come later
+
 
 if __name__ == '__main__':
     unittest.main()

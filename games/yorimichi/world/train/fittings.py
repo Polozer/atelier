@@ -1,0 +1,219 @@
+"""The coach fittings hung on the layout's mounts, modelled in code (plain Python; build.py turns them into meshes).
+
+Second class only for now, in its worn style:
+- rack: a luggage net over each bench pair, dull brass rods on two cast wall brackets and a sagging cord net;
+- ceiling-lamp: a bare bulb under a small chipped white enamel shade, on a twisted cord from a ceiling rose;
+- curtain-rail: a thin rod over the window and two pleated curtains drawn to its sides;
+- menu-board: the canteen's framed menu board, its face a texture slot (T_BT_MenuBoard).
+The other mount kinds there are anchors for gameplay (ANCHORS) and carry no geometry.
+
+Each fitting kind gives one Part (one object for every mount of that kind, few draw calls): its faces as
+(points, material, uv or None) in the coach frame, whether the mesh is closed, its LODs and its light sockets.
+"""
+import math
+from dataclasses import dataclass, field
+
+from train import layout as L
+
+COACHES = {'second-class'}
+ANCHORS = {'npc-spot', 'serve-point', 'queue'}      # where the canteen lady stands, the tray lands, passengers queue
+
+RACK_DEPTH, RACK_SAG, ROD_R = .30, .05, .008
+NET_CORD = .008                                       # width of a cord ribbon
+SHADE_R, SHADE_H, CORD_LEN = .13, .10, .20          # the bulb clears a 1.75 m adult by 15 cm in the aisle
+CURTAIN_W, CURTAIN_PITCH, CURTAIN_AMP, CURTAIN_GAP = .26, .065, .02, .065   # gathered width, pleat, depth, off the wall
+BOARD_H, BOARD_FRAME = .36, .04
+
+
+@dataclass
+class Part:
+    name: str
+    faces: list = field(default_factory=list)
+    closed: bool = True
+    lods: tuple = (0, 1)
+    sockets: list = field(default_factory=list)       # (name, (x, y, z)): where a runtime light goes
+
+    def quad(self, a, b, c_, d, mat, uv=None):
+        self.faces.append(([a, b, c_, d], mat, uv))
+
+
+def _sub(a, b): return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+def _add(a, b, s=1.): return (a[0] + b[0] * s, a[1] + b[1] * s, a[2] + b[2] * s)
+def _cross(a, b): return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _unit(a):
+    n = math.sqrt(sum(v * v for v in a)) or 1.
+    return (a[0] / n, a[1] / n, a[2] / n)
+
+
+def tube(p, pts, r, mat, sides=6, caps=True):
+    """A round bar of radius r along a polyline."""
+    rings = []
+    for i, c in enumerate(pts):
+        d = _unit(_sub(pts[min(i + 1, len(pts) - 1)], pts[max(i - 1, 0)]))
+        ref = (0, 0, 1) if abs(d[2]) < .9 else (1, 0, 0)
+        u = _unit(_cross(d, ref)); v = _cross(d, u)
+        rings.append([_add(_add(c, u, r * math.cos(2 * math.pi * k / sides)), v, r * math.sin(2 * math.pi * k / sides)) for k in range(sides)])
+    for a, b in zip(rings, rings[1:]):
+        for k in range(sides):
+            p.quad(a[k], a[(k + 1) % sides], b[(k + 1) % sides], b[k], mat)
+    if caps:
+        p.faces.append((rings[0][::-1], mat, None)); p.faces.append((rings[-1], mat, None))
+
+
+def ribbon(p, pts, w, mat, across=(0, 0, 1)):
+    """A flat strip of width w along a polyline, lying across `across` (a cord seen from above and below)."""
+    for a, b in zip(pts, pts[1:]):
+        d = _unit(_sub(b, a)); s = _unit(_cross(d, across))
+        p.quad(_add(a, s, -w / 2), _add(b, s, -w / 2), _add(b, s, w / 2), _add(a, s, w / 2), mat)
+
+
+def lathe(p, cx, cy, profile, mat, seg=14, rim_mat=None):
+    """A surface of revolution about the vertical through (cx, cy) from (radius, z) points, top to bottom."""
+    ring = lambda r, z: [(cx + r * math.cos(2 * math.pi * k / seg), cy + r * math.sin(2 * math.pi * k / seg), z) for k in range(seg)]
+    loops = [ring(r, z) for r, z in profile]
+    for i, (a, b) in enumerate(zip(loops, loops[1:])):
+        m = rim_mat if rim_mat and i in (len(loops) // 2 - 1, len(loops) // 2) else mat
+        for k in range(seg):
+            if profile[i][0] < 1e-6:
+                p.faces.append(([a[k], b[(k + 1) % seg], b[k]], m, None))
+            elif profile[i + 1][0] < 1e-6:
+                p.faces.append(([a[k], a[(k + 1) % seg], b[k]], m, None))
+            else:
+                p.quad(a[k], a[(k + 1) % seg], b[(k + 1) % seg], b[k], m)
+
+
+def box(p, x0, x1, y0, y1, z0, z1, mat):
+    x0, x1 = sorted((x0, x1)); y0, y1 = sorted((y0, y1)); z0, z1 = sorted((z0, z1))
+    P = lambda i, j, k: ((x0, x1)[i], (y0, y1)[j], (z0, z1)[k])
+    for q in ([P(0, 1, 0), P(0, 0, 0), P(0, 0, 1), P(0, 1, 1)], [P(1, 0, 0), P(1, 1, 0), P(1, 1, 1), P(1, 0, 1)],
+              [P(0, 0, 0), P(1, 0, 0), P(1, 0, 1), P(0, 0, 1)], [P(1, 1, 0), P(0, 1, 0), P(0, 1, 1), P(1, 1, 1)],
+              [P(0, 1, 0), P(1, 1, 0), P(1, 0, 0), P(0, 0, 0)], [P(0, 0, 1), P(1, 0, 1), P(1, 1, 1), P(0, 1, 1)]):
+        p.faces.append((q, mat, None))
+
+
+def into_room(c, mt):
+    """The unit vector from the wall a mount hangs on into its room (the nearest edge of the room's rectangle)."""
+    r = c.room(mt.room)
+    edges = [(mt.x - r.x0, (1, 0)), (r.x1 - mt.x, (-1, 0)), (mt.y - r.y0, (0, 1)), (r.y1 - mt.y, (0, -1))]
+    return min(edges)[1]
+
+
+def _frame(c, mt):
+    """Wall-mount frame: (u along the wall, v out from the wall face into the room, height z) -> coach coordinates."""
+    nx, ny = into_room(c, mt)
+    tx, ty = -ny, nx
+    r = c.room(mt.room)
+    wx = mt.x if not nx else (r.x0 if nx > 0 else r.x1)
+    wy = mt.y if not ny else (r.y0 if ny > 0 else r.y1)
+    return lambda u, v, z: (wx + tx * u + nx * v, wy + ty * u + ny * v, z)
+
+
+def racks(c, part, net):
+    for mt in c.mounts:
+        if mt.kind != 'rack':
+            continue
+        P, h, z = _frame(c, mt), mt.length / 2, mt.z
+        for v in (.05, RACK_DEPTH):                                       # back and front rods
+            tube(part, [P(-h, v, z), P(h, v, z)], ROD_R, 'brass-dull', 8)
+        for u in (-h + .06, h - .06):                                     # cast brackets: wall plate, arm, strut above
+            a, b = P(u - .025, 0, z - .03), P(u + .025, .012, z + .10)
+            box(part, a[0], b[0], a[1], b[1], a[2], b[2], 'brass-dull')
+            tube(part, [P(u, .01, z), P(u, RACK_DEPTH + .015, z)], .007, 'brass-dull', 6)
+            tube(part, [P(u, .01, z + .08), P(u, .22, z)], .006, 'brass-dull', 6)
+        sag = lambda u, v: z - RACK_SAG * math.sin(math.pi * (v - .05) / (RACK_DEPTH - .05)) * (.7 + .3 * math.cos(math.pi * u / h))
+        n_u = 16
+        for k in range(1, 5):                                             # cords along the rack
+            v = .05 + k * (RACK_DEPTH - .05) / 5
+            ribbon(net, [P(-h + .01 + i * (2 * h - .02) / n_u, v, sag(-h + .01 + i * (2 * h - .02) / n_u, v)) for i in range(n_u + 1)], NET_CORD, 'cord')
+        n = int((2 * h - .02) / .10)
+        for i in range(n + 1):                                            # cords across, every 10 cm
+            u = -h + .01 + i * (2 * h - .02) / n
+            ribbon(net, [P(u, v, sag(u, v)) for v in [.05 + j * (RACK_DEPTH - .05) / 5 for j in range(6)]], NET_CORD, 'cord',
+                   across=(0, 0, 1))
+
+
+def lamps(c, part):
+    for mt in c.mounts:
+        if mt.kind != 'ceiling-lamp':
+            continue
+        x, y, z = mt.x, mt.y, mt.z
+        lathe(part, x, y, [(0, z + .02), (.045, z + .02), (.045, z), (.03, z - .02), (0, z - .02)], 'enamel-white', 8)   # ceiling rose
+        z0, z1 = z - .02, z - .02 - CORD_LEN
+        for s in (0, math.pi):                                            # two twisted strands
+            tube(part, [(x + .003 * math.cos(s + 9 * t), y + .003 * math.sin(s + 9 * t), z0 + (z1 - z0) * t / 6) for t in range(7)],
+                 .0025, 'end-dark', 3)
+        lathe(part, x, y, [(0, z1), (.018, z1), (.018, z1 - .055), (0, z1 - .055)], 'end-dark', 8)                   # bakelite holder
+        zs = z1 - .03                                                     # the shade: an enamel cone, chipped dark rim
+        lathe(part, x, y, [(.02, zs), (.06, zs - .03), (SHADE_R, zs - SHADE_H), (SHADE_R + .004, zs - SHADE_H - .004),
+                           (SHADE_R - .004, zs - SHADE_H), (.057, zs - .033), (.017, zs - .003)], 'enamel-white', 12, rim_mat='iron-black')
+        zb = z1 - .055
+        lathe(part, x, y, [(.008, zb), (.014, zb - .02), (.03, zb - .05), (.031, zb - .07), (.02, zb - .095), (0, zb - .10)], 'lamp-white', 10)
+        part.sockets.append((f'SOCKET_Light_{"".join(w.title() for w in mt.id.split("-"))}', (x, y, zb - .06)))
+
+
+def curtains(c, rails, cloth):
+    windows = {f'curtain-{w.name}': w for w in c.windows}
+    for mt in c.mounts:
+        if mt.kind != 'curtain-rail':
+            continue
+        w = windows[mt.id]
+        P, h, z = _frame(c, mt), mt.length / 2, mt.z
+        tube(rails, [P(-h, CURTAIN_GAP, z), P(h, CURTAIN_GAP, z)], ROD_R, 'brass-dull', 8)
+        for u in (-h, h):
+            tube(rails, [P(u, 0, z), P(u, CURTAIN_GAP, z)], .006, 'brass-dull', 6)                  # wall brackets
+            tube(rails, [P(u, CURTAIN_GAP, z), P(u + (-.03 if u < 0 else .03), CURTAIN_GAP, z)], .013, 'brass-dull', 8)     # finials
+        top = z - .015
+        steps = int(CURTAIN_W / CURTAIN_PITCH) * 8
+        for side in (-1, 1):                                              # drawn to both ends
+            u0 = side * (h - .02)
+            a, b = P(u0, 0, 0), P(u0 - side * CURTAIN_W, CURTAIN_GAP + 2 * CURTAIN_AMP, 0)
+            bottom = w.sill - .06                                         # just below the sill, or clear of a bench back
+            for pl in c.placements:
+                x0, x1, y0, y1 = L.footprint(pl)
+                if x0 < max(a[0], b[0]) and min(a[0], b[0]) < x1 and y0 < max(a[1], b[1]) and min(a[1], b[1]) < y1:
+                    bottom = max(bottom, pl.z + L.asset_dims(pl.asset)[2] + .03)
+            cols = []
+            for i in range(steps + 1):
+                t = i / steps
+                u = u0 - side * CURTAIN_W * t
+                ph = math.sin(2 * math.pi * CURTAIN_W * t / CURTAIN_PITCH)
+                cols.append((P(u, CURTAIN_GAP + CURTAIN_AMP * .8 * ph, top), P(u, CURTAIN_GAP + CURTAIN_AMP * 1.4 * ph, bottom)))
+            for (a0, a1), (b0, b1) in zip(cols, cols[1:]):
+                cloth.quad(a1, b1, b0, a0, 'curtain-mustard')
+
+
+def menu_board(c, part):
+    for mt in c.mounts:
+        if mt.kind != 'menu-board':
+            continue
+        P, h, z = _frame(c, mt), mt.length / 2, mt.z
+        hb, f = BOARD_H / 2, BOARD_FRAME
+        a, b = P(-h, 0, z - hb), P(h, .015, z + hb)
+        box(part, a[0], b[0], a[1], b[1], a[2], b[2], 'end-dark')                                        # the board's body
+        part.faces.append(([P(-h + f, .016, z - hb + f), P(h - f, .016, z - hb + f), P(h - f, .016, z + hb - f), P(-h + f, .016, z + hb - f)],
+                           'menu-board', [(0, 0), (1, 0), (1, 1), (0, 1)]))                              # its face, mapped whole
+        for u0, u1, z0, z1 in ((-h, h, z - hb, z - hb + f), (-h, h, z + hb - f, z + hb), (-h, -h + f, z - hb, z + hb), (h - f, h, z - hb, z + hb)):
+            a, b = P(u0, 0, z0), P(u1, .03, z1)
+            box(part, a[0], b[0], a[1], b[1], a[2], b[2], 'enamel-cream')
+
+
+def fittings(c):
+    """Every fitting Part of a coach (empty for coaches not yet fitted)."""
+    if c.name not in COACHES:
+        return []
+    parts = {k: Part(n, closed=cl, lods=lo) for k, n, cl, lo in (
+        ('rack', 'Fittings_Racks', False, (0, 1)), ('net', 'Fittings_RackNets', False, (0,)),
+        ('ceiling-lamp', 'Fittings_Lamps', False, (0, 1)),
+        ('curtain-rail', 'Fittings_CurtainRails', False, (0, 1)), ('curtain', 'Fittings_Curtains', False, (0, 1)),
+        ('menu-board', 'Fittings_MenuBoard', True, (0, 1)))}
+    racks(c, parts['rack'], parts['net'])
+    lamps(c, parts['ceiling-lamp'])
+    curtains(c, parts['curtain-rail'], parts['curtain'])
+    menu_board(c, parts['menu-board'])
+    return [p for p in parts.values() if p.faces]
+
+
+KINDS = {'rack': ('Fittings_Racks', 'Fittings_RackNets'), 'ceiling-lamp': ('Fittings_Lamps',),
+         'curtain-rail': ('Fittings_CurtainRails', 'Fittings_Curtains'), 'menu-board': ('Fittings_MenuBoard',)}
