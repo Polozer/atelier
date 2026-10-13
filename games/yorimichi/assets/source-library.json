@@ -1989,6 +1989,14 @@
       "bytes": 1001796,
       "sha256": "2b690951752b81e784bcc3e27e165b7f43cf081aec36177df1dcaefe559d0303"
     },
+    "characters/paul/Paul.glb": {
+      "bytes": 40989068,
+      "sha256": "640719953e502ac660f07989d92afcc4fe7929918f956430906541fbd0517310"
+    },
+    "characters/paul/portrait.png": {
+      "bytes": 68772,
+      "sha256": "0bfaf3c3514568aa45354ae2f68a2c99c2dac53a5d0bb473dd51e3cb5534f1a5"
+    },
     "characters/sword-trainer/SwordTrainer-Rig-r03.blend": {
       "bytes": 21263282,
       "sha256": "c83abba40d047f34852108485645b8e35a3207edb1159432dfe49c796313e0c6"

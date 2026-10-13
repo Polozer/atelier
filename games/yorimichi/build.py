@@ -193,6 +193,7 @@ def adventure_steps(out):
         *sword_trainer_steps(out),
         *modori_steps(out),
         *nox_steps(out),
+        *paul_steps(out),
     ]
 
 
@@ -270,6 +271,40 @@ def nox_steps(out):
                                             env=(('BIKE_CHARACTER', 'nox'),))],
              inputs=[SCRIPTS / 'import_bike_clips.py', SCRIPTS / 'animation_compression.py'],
              needs=['characters.nox_bike', 'unreal.nox'], heavy=True, about='/Game/NoxBike: all bike actions'),
+    ]
+
+
+def paul_steps(out):
+    """The vendored HarasValley boy, with all merged actions and fitted bike clips."""
+    paul = CHARS / 'paul'
+    spec = importlib.util.spec_from_file_location('paul_staging', paul / 'stage.py')
+    staging = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(staging)
+    (retarget, retarget_inputs), (importer, import_inputs) = moveset_retarget('paul'), moveset_import('paul')
+    return [
+        Step('characters.paul', [Blender(paul / 'export_unreal.py', threads=3)], inputs=[paul, NAMES],
+             outputs=[out / 'paul/export.json'], heavy=True, about='Paul mesh and embedded body/head atlases to FBX'),
+        Step('unreal.paul', [UnrealScript(SCRIPTS / 'import_paul.py', 'PAUL IMPORT COMPLETE', null_rhi=True,
+                                          modules=IMPORT_CODE + SAVED_TYPES)],
+             inputs=[SCRIPTS / 'import_paul.py', SCRIPTS / 'animation_compression.py'], after=['unreal.world'],
+             needs=['characters.paul', *unreal_modules.needs(IMPORT_CODE + SAVED_TYPES)],
+             outputs=[GAME / 'unreal/Content/Paul/SK_Paul.uasset'], heavy=True, about='Paul mesh and base definition'),
+        Step('characters.paul_adventure', [retarget], inputs=retarget_inputs,
+             needs=['characters.adventure', 'characters.cairo_adventure'], outputs=[out / 'paul/adventure/export.json'],
+             heavy=True, about='All movement, actions and donor gestures retargeted onto Paul'),
+        Step('unreal.paul_adventure', [importer], inputs=import_inputs,
+             needs=['characters.paul_adventure', 'unreal.paul', 'unreal.adventure'],
+             outputs=[GAME / 'unreal/Content/Data/paul/adventure.json'], heavy=True, about='Paul playable move set'),
+        Step('characters.paul_bike', [Blender(ASSETS / 'vehicles/bike/rider.py', ('--character', 'paul'), threads=3)],
+             inputs=[paul, NAMES, ASSETS / 'vehicles/bike/rider.py'], needs=['world.bike'],
+             outputs=[out / 'paul/bike/export.json'], heavy=True, about='All bike actions fitted to Paul'),
+        Step('data.paul', [Call('stage_paul_bike', staging.stage)], inputs=[paul / 'stage.py'],
+             needs=['characters.paul_bike'], outputs=[GAME / 'unreal/Content/Data/paul/bike/export.json'],
+             about='Paul bike contact data staged independently'),
+        Step('unreal.paul_bike', [UnrealScript(SCRIPTS / 'import_bike_clips.py', 'PAUL BIKE IMPORT COMPLETE', null_rhi=True,
+                                               env=(('BIKE_CHARACTER', 'paul'),))],
+             inputs=[SCRIPTS / 'import_bike_clips.py', SCRIPTS / 'animation_compression.py'],
+             needs=['characters.paul_bike', 'unreal.paul', 'data.paul'], heavy=True, about='Paul bike animations'),
     ]
 
 

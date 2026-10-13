@@ -1,0 +1,9 @@
+id = "paul"
+display_name = "Paul"
+role = "player"
+rig = "humanoid"
+height_cm = 165
+revision = "haras-r01"
+source = "Paul.glb"
+manifest = "source-manifest.json"
+licence = "own; HarasValley character vendored with the project owner's authorization"
