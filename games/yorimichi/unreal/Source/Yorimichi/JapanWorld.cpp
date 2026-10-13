@@ -418,7 +418,7 @@ void AJapanWorld::Load()
                     S->SetCanEverAffectNavigation(false);
                     S->SetCollisionEnabled(ECollisionEnabled::NoCollision);
                     S->SetHiddenInGame(true); S->bCastHiddenShadow = true; S->SetCastShadow(true);
-                    S->bAffectDistanceFieldLighting = false;
+                    S->bAffectIndirectLightingWhileHidden = true;
                     if (Fade != JapanSeeThrough::FadeSolid) S->SetCustomPrimitiveDataFloat(0, float(Fade));
                     S->SetWorldPositionOffsetDisableDistance(18000);
                     S->bAutoRebuildTreeOnInstanceChanges = false;
@@ -426,7 +426,10 @@ void AJapanWorld::Load()
                     S->AddInstances(Xs, false, false, false);
                     S->BuildTreeIfOutdated(true, true);
                     S->bAutoRebuildTreeOnInstanceChanges = true;
-                    H->SetCastShadow(false);
+                    // The twin also carries the group's distance field (for shadows and, while hidden, sky
+                    // occlusion), so Quality mode still darkens the forest beyond the cascades; the scene holds each
+                    // tree's field once.
+                    H->SetCastShadow(false); H->bAffectDistanceFieldLighting = false;
                     ShadowTwins.Add(S);
                 }
             };
