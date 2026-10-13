@@ -1144,29 +1144,6 @@ def _exterior_door(c, d, coll, parent, glass_coll):
 
 
 # --- reservations, markers, collision -----------------------------------------------------------------------------
-def canteen_tray_slide(c, coll, parent):
-    """The canteen counter's tray slide, along its saloon face through the hatch: steel tubes dead straight and
-    parallel to the counter, on brackets (a plate on the counter's face, an arm under the tubes and a strut)."""
-    box = next((b for b in c.reservations if b.kind == 'tray-slide'), None)
-    if box is None:
-        return
-    F = L.FLOOR_Z
-    r = L.SLIDE_TUBE / 2
-    zt = F + L.SLIDE_TOP - r                       # tube axis: their tops at SLIDE_TOP
-    tubes, m = M(), M()
-    for k in range(4):                             # four tubes across the 0.30 m depth
-        x = box.x0 + .045 + k * (box.x1 - box.x0 - .065) / 3
-        tubes.cylinder((x, zt), 'y', r, box.y0 + .01, box.y1 - .01, 'steel', 12)
-    for dy in L.SLIDE_BRACKETS:
-        y = L.COUNTER_Y + dy
-        m.box(box.x0, box.x0 + .012, y - .025, y + .025, F + L.SLIDE_TOP - .17, F + L.SLIDE_TOP - .005, 'end-dark')   # plate
-        m.box(box.x0, box.x1, y - .02, y + .02, zt - r - .014, zt - r, 'end-dark')                                       # arm
-        m.prism([(box.x0 + .01, F + L.SLIDE_TOP - .16), (box.x0 + .01, F + L.SLIDE_TOP - .13),
-                 (box.x1 - .05, zt - r - .006), (box.x1 - .08, zt - r - .006)], 'y', y - .008, y + .008, 'end-dark')      # strut
-    tubes.obj('Canteen_TraySlide_Tubes', coll, parent=parent)
-    m.obj('Canteen_TraySlide_Brackets', coll, parent=parent)
-
-
 def reservations(c, coll, parent):
     spec = {a['id']: a for a in L.contract()['assets']}
     for p in c.placements:
@@ -1230,7 +1207,7 @@ def collision_boxes(c):
             if o.z0 - L.FLOOR_Z > .05:         # below a hatch
                 add(f'{w.name}-sill', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), L.FLOOR_Z, o.z0)
     for b in c.reservations:
-        if b.z0 - L.FLOOR_Z < 1.0 and b.kind in ('bar-counter', 'back-bar', 'galley-counter', 'pantry-counter', 'luggage-shelves', 'wc-toilet', 'drinks-ledge', 'tray-slide'):
+        if b.z0 - L.FLOOR_Z < 1.0 and b.kind in ('bar-counter', 'back-bar', 'galley-counter', 'pantry-counter', 'luggage-shelves', 'wc-toilet', 'drinks-ledge'):
             add(b.name, b.x0, b.x1, b.y0, b.y1, L.FLOOR_Z, b.z1)
     return [(n, b) for n, b in boxes if b[1] - b[0] > 1e-4 and b[3] - b[2] > 1e-4 and b[5] - b[4] > 1e-4]
 
@@ -1949,7 +1926,6 @@ def build(coach, images):
         lining(coach, cols['Interior'], g['Interior'])
         window_frames(coach, cols['Shell'], g['Shell'], cols['Glazing'], g['Glazing'])
         doors(coach, cols['Doors'], g['Doors'], cols['Glazing'], g['Glazing'])
-        canteen_tray_slide(coach, cols['Interior'], g['Interior'])
     for end, e in L.coupling(B)['ends'].items():   # attachment sockets, exported in every LOD
         for name, loc in [('Coupler', e['draw_hook'])] + ([('Gangway', e['gangway_face_centre'])] if 'gangway_face_centre' in e else []):
             so = bpy.data.objects.new(f'SOCKET_{name}_{end.upper()}', None); so.empty_display_type = 'ARROWS'; so.empty_display_size = .4
