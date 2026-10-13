@@ -1,4 +1,5 @@
 #include "AdventureMoveSet.h"
+#include "JapanVehicleVisuals.h"
 #include "JapanNetwork.h"
 #include "JapanCharacterMovement.h"
 #include "AdventureMoveSetDetail.h"
@@ -949,7 +950,7 @@ void UAdventureMoveSet::Reset()
     FlipTime = -1.f; FlipAngle = FlipLift = FlipSettle = 0.f; bAirJumpUsed = false;
     if ((bMeshOffset || bMeshTurned) && Character->GetMesh())
     {
-        Character->GetMesh()->SetRelativeLocationAndRotation(MeshBase, MeshBaseRotation);
+        JapanVehicleVisuals::SetRiderPose(Character, MeshBase, MeshBaseRotation);
         bMeshOffset = bMeshTurned = false;
     }
     FallStartZ = Character->GetActorLocation().Z; FallSpeed = 0.f;

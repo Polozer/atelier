@@ -35,9 +35,74 @@ void UJapanSkateNetwork::BeginPlay()
     Super::BeginPlay();
     Rider = Cast<AWandererCharacter>(GetOwner());
     if (!Rider || Rider->IsNpc() || !JapanNetwork::IsOnline(GetWorld())) { SetComponentTickEnabled(false); return; }
-    AddTickPrerequisiteComponent(Rider->GetMesh());
     AddTickPrerequisiteComponent(Rider->GetCharacterMovement());
+    ConfigureTickOrder();
+    Rider->GetSkate()->PrepareNetworkPose.BindUObject(this, &UJapanSkateNetwork::PreparePose);
+    FinalizedPose = Rider->GetMesh()->RegisterOnBoneTransformsFinalizedDelegate(
+        FOnBoneTransformsFinalizedMultiCast::FDelegate::CreateUObject(this, &UJapanSkateNetwork::ObserveDisplayedPose));
+}
 
+void UJapanSkateNetwork::EndPlay(const EEndPlayReason::Type Reason)
+{
+    if (Rider) Rider->GetSkate()->PrepareNetworkPose.Unbind();
+    if (Rider && FinalizedPose.IsValid()) Rider->GetMesh()->UnregisterOnBoneTransformsFinalizedDelegate(FinalizedPose);
+    Super::EndPlay(Reason);
+}
+
+void UJapanSkateNetwork::ConfigureTickOrder()
+{
+    const bool Capture = Rider->IsLocallyControlled();
+    if (bTickRoleKnown && bCaptureTick == Capture) return;
+    bTickRoleKnown = true; bCaptureTick = Capture;
+    auto* Mesh = Rider->GetMesh();
+    if (Capture)
+    {
+        Mesh->RemoveTickPrerequisiteComponent(this);
+        AddTickPrerequisiteComponent(Mesh);
+        PrimaryComponentTick.TickGroup = TG_PostPhysics;
+    }
+    else
+    {
+        RemoveTickPrerequisiteComponent(Mesh);
+        AddTickPrerequisiteActor(Rider);
+        Mesh->AddTickPrerequisiteComponent(this);
+        PrimaryComponentTick.TickGroup = TG_PrePhysics;
+    }
+}
+
+void UJapanSkateNetwork::ObserveDisplayedPose()
+{
+    if (Rider->IsLocallyControlled() || GetWorld()->GetNetMode() == NM_DedicatedServer ||
+        Rider->GetNetworkActivity() != EJapanActivity::Skate || !LastAppliedFrame) return;
+    const auto& Expected = Rider->GetSkate()->GetRiderPose();
+    const auto& Displayed = Rider->GetMesh()->GetBoneSpaceTransforms();
+    if (Expected.IsEmpty() || Expected.Num() != Displayed.Num()) return;
+    ++ObservedPoseCount;
+    if (AppliedMeshWorld.Equals(Rider->GetMesh()->GetComponentTransform(), .01f)) ++MatchingMeshCount;
+    for (int32 I = 0; I < Expected.Num(); ++I)
+        if (!Expected[I].Equals(Displayed[I], .001f))
+        {
+#if !UE_BUILD_SHIPPING
+            if (ObservedPoseCount - MatchingPoseCount <= 3)
+                UE_LOG(LogTemp, Display, TEXT("NETWORK displayed pose mismatch role=%d bone=%s expected=%s displayed=%s autonomous_only=%d"),
+                    int32(Rider->GetLocalRole()), *Rider->GetMesh()->GetBoneName(I).ToString(),
+                    *Expected[I].ToString(), *Displayed[I].ToString(), Rider->GetMesh()->bOnlyAllowAutonomousTickPose);
+#endif
+            return;
+        }
+    ++MatchingPoseCount;
+}
+
+double UJapanSkateNetwork::GetMeshWorldError() const
+{
+    return Rider && LastAppliedFrame ? FVector::Distance(AppliedMeshWorld.GetLocation(), Rider->GetMesh()->GetComponentLocation()) : -1.;
+}
+
+void UJapanSkateNetwork::RestoreStreamedMeshFrame()
+{
+    if (!Rider || !LastAppliedFrame || !Rider->GetSkate()->IsNetworkProxy() || Rider->GetSkate()->GetRiderPose().IsEmpty()) return;
+    auto* Mesh = Rider->GetMesh();
+    if (Mesh->IsUsingAbsoluteLocation() && Mesh->IsUsingAbsoluteRotation()) Mesh->SetWorldTransform(AppliedMeshWorld);
 }
 
 void UJapanSkateNetwork::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -50,6 +115,7 @@ void UJapanSkateNetwork::TickComponent(float Dt, ELevelTick Type, FActorComponen
 {
     Super::TickComponent(Dt, Type, Tick);
     if (!Rider) return;
+    ConfigureTickOrder();
     if (!Rider->IsLocallyControlled() && !Rider->GetSkate()->IsNetworkProxy() &&
         (Rider->GetLocalRole() == ROLE_SimulatedProxy || Rider->GetController()))
         Rider->GetSkate()->InitializeNetworkProxy(Rider);
@@ -81,7 +147,14 @@ void UJapanSkateNetwork::TickComponent(float Dt, ELevelTick Type, FActorComponen
         return;
     }
     if (Rider->IsLocallyControlled()) Capture();
-    else Show(Dt);
+    else PreparePose();
+}
+
+void UJapanSkateNetwork::PreparePose()
+{
+    if (!Rider || Rider->IsLocallyControlled() || !Rider->GetSkate()->IsNetworkProxy() || PreparedFrame == GFrameCounter) return;
+    PreparedFrame = GFrameCounter;
+    Show(GetWorld()->GetDeltaSeconds());
 }
 
 void UJapanSkateNetwork::Capture()
@@ -237,6 +310,7 @@ void UJapanSkateNetwork::Show(float Dt)
     Rider->GetSkate()->ApplyNetworkBoard(Deck, Shown);
     if (Rider->GetSkate()->ApplyNetworkPose(Pose, Mesh))
     {
+        AppliedMeshWorld = Mesh;
         if (Sample.bBefore) ++BeforeBufferCount;
         if (Sample.bAfter) ++AfterBufferCount;
         if (Alpha > 0.f && Alpha < 1.f) ++InterpolatedFrameCount; else ++HeldFrameCount;

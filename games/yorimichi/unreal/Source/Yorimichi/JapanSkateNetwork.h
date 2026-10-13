@@ -15,6 +15,7 @@ class YORIMICHI_API UJapanSkateNetwork : public UActorComponent
 public:
     UJapanSkateNetwork();
     virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     bool AcceptsRoot(const FVector& Location) const;
     uint32 GetReceivedFrameCount() const { return ReceivedFrameCount; }
     uint32 GetAppliedFrameCount() const { return AppliedFrameCount; }
@@ -23,6 +24,11 @@ public:
     uint32 GetBeforeBufferCount() const { return BeforeBufferCount; }
     uint32 GetAfterBufferCount() const { return AfterBufferCount; }
     uint32 GetTimestampDropCount() const { return TimestampDropCount; }
+    uint32 GetObservedPoseCount() const { return ObservedPoseCount; }
+    uint32 GetMatchingPoseCount() const { return MatchingPoseCount; }
+    uint32 GetMatchingMeshCount() const { return MatchingMeshCount; }
+    double GetMeshWorldError() const;
+    void RestoreStreamedMeshFrame();
     uint8 GetHostMode() const { return HostMode; }
     uint32 GetAcceptedFrameCount() const { return AcceptedFrameCount; }
     virtual void TickComponent(float Dt, ELevelTick Type, FActorComponentTickFunction* Tick) override;
@@ -34,6 +40,15 @@ public:
     UFUNCTION(Server, Unreliable) void ServerBoard(const FJapanBoardState& State);
 private:
     UPROPERTY() TObjectPtr<AWandererCharacter> Rider;
+    void ConfigureTickOrder();
+    void ObserveDisplayedPose();
+    void PreparePose();
+    uint64 PreparedFrame = MAX_uint64;
+    FDelegateHandle FinalizedPose;
+    bool bTickRoleKnown = false, bCaptureTick = false;
+    uint32 ObservedPoseCount = 0, MatchingPoseCount = 0;
+    uint32 MatchingMeshCount = 0;
+    FTransform AppliedMeshWorld;
     UPROPERTY(ReplicatedUsing=OnRep_Board) FJapanBoardState Board;
     UFUNCTION() void OnRep_Board();
     TArray<FJapanBoardState> Boards;

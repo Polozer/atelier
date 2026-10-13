@@ -5,6 +5,7 @@
 #include "JapanReactionDeliveryQA.h"
 #include "JapanReactionDeliveryProbe.h"
 #include "JapanNetwork.h"
+#include "JapanSkateNetwork.h"
 #include "JapanSession.h"
 #include "WandererCharacter.h"
 #include "WandererDefinition.h"
@@ -19,6 +20,7 @@
 #include "Engine/World.h"
 #include "Interfaces/MovementBaseInterface.h"
 #include "Components/PrimitiveComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "TimerManager.h"
 #include "Misc/CommandLine.h"
 #include "Misc/ScopeExit.h"
@@ -28,7 +30,8 @@ namespace
 {
 bool TraceNetworkGameplay()
 {
-    static const bool Enabled = FParse::Param(FCommandLine::Get(), TEXT("networkgameplay"));
+    static const bool Enabled = FParse::Param(FCommandLine::Get(), TEXT("networkgameplay")) ||
+        FParse::Param(FCommandLine::Get(), TEXT("networkfeatures"));
 #if !UE_BUILD_SHIPPING
     static const bool Vehicles = FParse::Param(FCommandLine::Get(), TEXT("networkvehicles"));
     return Enabled || Vehicles;
@@ -65,7 +68,34 @@ bool UJapanCharacterMovement::PredictsMoves() const
 {
     const auto* Rider = Cast<AWandererCharacter>(CharacterOwner);
     return Rider && JapanNetwork::IsOnline(GetWorld()) && !Rider->IsNpc() && Rider->GetMoves() &&
+        // Simulated root-motion copies also call PerformMovement. They consume
+        // replicated presentation, never the predictor's neutral input holds.
+        (Rider->HasAuthority() || Rider->GetLocalRole() == ROLE_AutonomousProxy) &&
         (Rider->GetNetworkActivity() == EJapanActivity::OnFoot || Rider->GetNetworkActivity() == EJapanActivity::Bike || Rider->GetNetworkActivity() == EJapanActivity::Sailboat);
+}
+
+void UJapanCharacterMovement::SmoothClientPosition(float Dt)
+{
+    const auto* Rider = Cast<AWandererCharacter>(CharacterOwner);
+    if (Rider && Rider->GetSkate()->IsNetworkProxy() && !Rider->GetSkate()->GetRiderPose().IsEmpty())
+    {
+        // The skate stream owns an absolute mesh frame. CMC's visual smoothing
+        // writes capsule-relative offsets, which would become world coordinates
+        // on that mesh. Retire the smoothing interval without moving the body.
+        SmoothClientPosition_Interpolate(Dt);
+        return;
+    }
+    Super::SmoothClientPosition(Dt);
+}
+
+void UJapanCharacterMovement::SimulatedTick(float Dt)
+{
+    Super::SimulatedTick(Dt);
+    // Linear smoothing also resets relative rotation inside SimulatedTick,
+    // outside SmoothClientPosition. Restore the latest stream frame: animation
+    // PreUpdate inside Super may have advanced it, including transition clips.
+    if (auto* Rider = Cast<AWandererCharacter>(CharacterOwner))
+        if (auto* Stream = Rider->FindComponentByClass<UJapanSkateNetwork>()) Stream->RestoreStreamedMeshFrame();
 }
 
 uint32 UJapanCharacterMovement::GetActivityEpoch() const
@@ -76,6 +106,7 @@ uint32 UJapanCharacterMovement::GetActivityEpoch() const
 
 void UJapanCharacterMovement::ResetActivityPrediction()
 {
+    LastRemoteSimulationTime = -1.;
     JapanReactionDeliveryQA::State(this, TEXT("epoch_reset"), bReactionCheckpointPending, bReactionCheckpointCaptured);
     ResetPredictionData_Client(); ResetPredictionData_Server();
     PendingEdges.Reset(); JournalFirstEdge = 1; ProcessedEdge = PendingAcknowledgedEdge = 0;
@@ -145,6 +176,10 @@ void UJapanCharacterMovement::QueueClockReset(uint8 Reason)
 
 void UJapanCharacterMovement::TickComponent(float Dt, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
+    // A listen host renders its guest every frame. UE otherwise ticks that mesh only
+    // from ServerMove arrivals; the skating stream deliberately sends no ServerMoves.
+    if (CharacterOwner && GetNetMode() == NM_ListenServer && !CharacterOwner->IsLocallyControlled())
+        CharacterOwner->GetMesh()->bOnlyAllowAutonomousTickPose = false;
     Super::TickComponent(Dt, TickType, ThisTickFunction);
     TickScheduledReactions();
     if (bWaitingAfterClockReset && PredictsMoves() && CharacterOwner->HasAuthority() && !CharacterOwner->IsLocallyControlled())
@@ -499,6 +534,8 @@ void UJapanCharacterMovement::MoveAutonomous(float Timestamp, float Dt, uint8 Fl
             if (CharacterOwner->Controller) CharacterOwner->Controller->SetControlRotation(Data->ControlRotation);
         }
     Super::MoveAutonomous(Timestamp, Dt, Flags, Accel);
+    if (CharacterOwner->HasAuthority() && !CharacterOwner->IsLocallyControlled() && Dt > 0.f)
+        LastRemoteSimulationTime = GetWorld()->GetTimeSeconds();
     if (FirstReactionMove) JapanReactionDeliveryQA::FirstMove(this, Timestamp, Dt, FirstReactionStart);
 #if !UE_BUILD_SHIPPING
     if (PredictsMoves() && CharacterOwner->HasAuthority()) JapanJumpReplayQA::HostMove(this, Timestamp, Dt);
@@ -514,6 +551,22 @@ void UJapanCharacterMovement::MoveAutonomous(float Timestamp, float Dt, uint8 Fl
             CastChecked<AWandererCharacter>(CharacterOwner)->GetActionTime(), *PendingLaunchVelocity.ToString());
     }
 #endif
+}
+
+void UJapanCharacterMovement::TickCharacterPose(float Dt)
+{
+    // The displayed graph follows the frame clock, not bursts of movement packets.
+    // Root-motion montages and dedicated-server pose sampling retain UE's path.
+    if (CharacterOwner && GetNetMode() == NM_ListenServer && !CharacterOwner->IsLocallyControlled() &&
+        !CharacterOwner->IsPlayingNetworkedRootMotionMontage()) return;
+    Super::TickCharacterPose(Dt);
+}
+
+float UJapanCharacterMovement::GetPresentationExtrapolation() const
+{
+    if (!CharacterOwner || GetNetMode() != NM_ListenServer || CharacterOwner->IsLocallyControlled() ||
+        LastRemoteSimulationTime < 0.) return 0.f;
+    return float(FMath::Clamp(GetWorld()->GetTimeSeconds() - LastRemoteSimulationTime, 0., .125));
 }
 
 bool UJapanCharacterMovement::ClientUpdatePositionAfterServerUpdate()

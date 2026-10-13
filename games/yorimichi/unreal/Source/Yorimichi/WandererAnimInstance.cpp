@@ -286,7 +286,7 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
         FAnimInstanceProxy::PreUpdate(Instance, Dt);
         const AWandererCharacter* Pawn = Cast<AWandererCharacter>(Instance->TryGetPawnOwner());
         if (!Pawn || !Pawn->GetDefinition()) return;
-        Speed = Pawn->IsZeppelinPassenger()?Pawn->GetZeppelin()->GetWalkSpeed():Pawn->GetVelocity().Size2D();
+        Speed = Pawn->IsZeppelinPassenger()?Pawn->GetZeppelin()->GetWalkSpeed(Pawn):Pawn->GetVelocity().Size2D();
         // Beyond the fastest authored sample the stride cannot grow any more, so only then does the cycle speed up.
         AuthoredTopSpeed = FMath::Max(1.f,FMath::Max(Pawn->GetDefinition()->RunSpeed,Pawn->GetDefinition()->SprintSpeed));
         AuthoredCrouchSpeed = FMath::Max(1.f,Pawn->GetDefinition()->CrouchSpeed);
@@ -412,7 +412,7 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
             if (const UAnimSequenceBase* Clip = Action.GetSequence())
             {
                 const float Length = FMath::Max(Clip->GetPlayLength(), .001f);
-                const float Phase = FMath::Max(0.f, Pawn->GetActionSourceTime());
+                const float Phase = FMath::Max(0.f, Pawn->GetPresentationActionSourceTime());
                 Action.SetAccumulatedTime(Pawn->DoesActionLoop() ? FMath::Fmod(Phase, Length) : FMath::Min(Phase, Length));
                 Action.SetPlayRate(0.f);
             }
