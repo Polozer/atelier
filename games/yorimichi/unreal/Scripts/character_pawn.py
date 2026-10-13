@@ -117,6 +117,7 @@ U.EditorLoadingAndSavingUtils.reload_packages([U.find_package(BLUEPRINT)])
 bp = U.load_asset(BLUEPRINT)
 generated = U.BlueprintEditorLibrary.generated_class(bp)
 check(U.get_default_object(generated))
+assert generated.get_path_name() == CHARACTER.pawn, (generated.get_path_name(), CHARACTER.pawn)   # as the tools name it
 
 record = {
     'name': CHARACTER.toml['display_name'],

@@ -147,6 +147,11 @@ class Character:
         return self.adventure is not None
 
     @property
+    def pawn(self):
+        """A player's pawn class, as the game names it (Scripts/character_pawn.py makes it)."""
+        return f'{self.unreal_path}/BP_{self.name}.BP_{self.name}_C'
+
+    @property
     def donor(self):
         """The [donor] table of the character whose own clips the merged set plays on everyone, or None."""
         return (self.adventure or {}).get('donor')
@@ -161,6 +166,11 @@ def movers(chars=CHARS):
     """Every character that plays the merged move set (has an adventure.toml), the donor first."""
     found = [Character(i, chars) for i in ids(chars) if (chars / i / 'adventure.toml').exists()]
     return sorted(found, key=lambda c: (c.donor is None, c.id))
+
+
+def player(name, chars=CHARS):
+    """The playable mover a game names (its display name), or None."""
+    return next((c for c in movers(chars) if c.playable and c.toml['display_name'] == name), None)
 
 
 def load(character, chars=CHARS):
