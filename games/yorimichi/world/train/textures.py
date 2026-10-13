@@ -1,6 +1,6 @@
 """Detail textures for the Belmonte train, drawn with numpy (no image model, no paid call): walnut grain, two
 marquetry panels with an olive sprig in gold inlay, burgundy and emerald carpets, the vestibule tiles and the
-sun-and-olive crest; the exterior livery comes from ChatGPT swatches prepared by prepare_livery.py (`source`), which
+sun-and-olive crest; the exterior livery and the worn walls come from ChatGPT swatches prepared by prepare_livery.py (`source`), which
 the worn second class weathers. Each function returns float RGBA rows, bottom row first (Blender's image order), values 0..1.
 Tileable textures wrap seamlessly; panels are mapped 0..1 on each panel face.
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 SOURCES = Path(__file__).resolve().parents[2] / 'assets' / 'vehicles' / 'belmonte-train' / 'textures'
-JPEG = {'T_BT_SmokeboxDoor', 'T_BT_BluePanel', 'T_BT_BluePanelWorn', 'T_BT_Ivory', 'T_BT_IvoryWorn', 'T_BT_Roof', 'T_BT_RoofWorn', 'T_BT_Underframe'}
+JPEG = {'T_BT_SmokeboxDoor', 'T_BT_BluePanel', 'T_BT_BluePanelWorn', 'T_BT_Ivory', 'T_BT_IvoryWorn', 'T_BT_Roof', 'T_BT_RoofWorn', 'T_BT_Underframe', 'T_BT_PaintPeel'}
 
 WALNUT_DARK = np.array([.115, .042, .016])
 WALNUT_MID = np.array([.235, .095, .036])
@@ -245,20 +245,6 @@ def worn(size=1024, paint=LIVERY_BLUE, seed=31, rust_amount=.05, streaks=True):
     return weather(np.zeros((size, size, 3)) + srgb(paint)[None, None, :], seed, rust_amount, streaks)
 
 
-def peeling(size=1024, paint=(.30, .18, .10), under=(.46, .39, .29), seed=41):
-    """Brown paint flaking off pale plaster and wood, with grime at the bottom of every tile."""
-    n = _noise(size, size, (22, 22), seed, 4)          # small flakes: the texture often spans a whole panel
-    m = _noise(size, size, (24, 24), seed + 1, 3)
-    img = np.array(paint)[None, None, :] * (.8 + .35 * m[..., None])
-    flake = (n > .71)[..., None]
-    img = np.where(flake, np.array(under)[None, None, :] * (.85 + .3 * m[..., None]), img)
-    edge = (np.abs(n - .71) < .010)[..., None]
-    img = np.where(edge, np.array(paint) * .45, img)
-    y = np.linspace(0, 1, size)[:, None, None]
-    img = img * (.75 + .25 * y)
-    return _rgba(img)
-
-
 def lino(size=1024, seed=51):
     """Worn green linoleum: scuffs, a darker path down the middle, burns and patches."""
     n = _noise(size, size, (10, 10), seed, 5)
@@ -320,7 +306,7 @@ ALL = {
     'T_BT_Roof': lambda: _rgba(source('roof-canvas.jpg')),
     'T_BT_RoofWorn': lambda: weather(source('roof-canvas.jpg'), 35, rust_amount=.16),
     'T_BT_Underframe': lambda: _rgba(source('underframe.jpg')),
-    'T_BT_PaintPeel': lambda: peeling(),
+    'T_BT_PaintPeel': lambda: _rgba(source('wall-peel.jpg')),
     'T_BT_Lino': lambda: lino(),
     'T_BT_TilesGrimy': lambda: tiles_grimy(),
     'T_BT_Two': lambda: numeral_two(),

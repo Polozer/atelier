@@ -1,6 +1,7 @@
 """Prepare the livery swatches generated in ChatGPT for the train build (plain Python with Pillow, run once by hand).
 
     python3 games/yorimichi/world/train/prepare_livery.py BLUE IVORY ROOF UNDERFRAME [BACKHEAD SMOKEBOX_DOOR]
+    python3 games/yorimichi/world/train/prepare_livery.py wall WALL1 WALL2 WALL3
 
 Writes games/yorimichi/assets/vehicles/belmonte-train/textures/*.jpg, the committed sources build.py reads:
 - livery-blue-panel.jpg: one lined lower-body panel (rivet strips, brass beading), 2048 x 1024, mapped once per
@@ -11,7 +12,10 @@ Writes games/yorimichi/assets/vehicles/belmonte-train/textures/*.jpg, the commit
   the seams run across the coach, 1024 x 1024;
 - underframe.jpg: the riveted black steel of the bogies and underframe, 1024 x 1024;
 - backhead.jpg and smokebox-door.jpg: the locomotive's firebox backhead (gauges, water glasses, valves and the
-  fire-door arch painted on) and its round smokebox door, 1024 x 1024 each, mapped whole on their faces.
+  fire-door arch painted on) and its round smokebox door, 1024 x 1024 each, mapped whole on their faces;
+- wall-peel.jpg: the worn second class's matchboard walls, brown paint peeling onto an old green coat. Three square
+  swatches drawn to join edge to edge (1|2|3|1) are laid side by side, 3072 x 1024 for 3.60 x 1.20 m, so a wall runs
+  three different stretches before it repeats.
 """
 import sys
 from pathlib import Path
@@ -48,5 +52,16 @@ def main(blue, ivory, roof, underframe, backhead=None, smokebox_door=None):
         save(Image.open(smokebox_door), 'smokebox-door.jpg', (1024, 1024))
 
 
+def wall(*swatches):
+    tiles = [Image.open(f).convert('RGB').resize((1024, 1024), Image.LANCZOS) for f in swatches]
+    strip = Image.new('RGB', (1024 * len(tiles), 1024))
+    for k, t in enumerate(tiles):
+        strip.paste(t, (1024 * k, 0))
+    save(strip, 'wall-peel.jpg', strip.size)
+
+
 if __name__ == '__main__':
-    main(*sys.argv[1:7])
+    if sys.argv[1:2] == ['wall']:
+        wall(*sys.argv[2:5])
+    else:
+        main(*sys.argv[1:7])

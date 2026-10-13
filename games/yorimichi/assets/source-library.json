@@ -4996,6 +4996,10 @@
     "vehicles/belmonte-train/textures/underframe.jpg": {
       "bytes": 357504,
       "sha256": "93653308c6162bccff74d2950efba28d01686268a989023ddc2be2d53268bf3f"
+    },
+    "vehicles/belmonte-train/textures/wall-peel.jpg": {
+      "bytes": 961516,
+      "sha256": "81e0d1eb0bc751cbad810791f6f999520631eb56392f836005c986daefdd8013"
     }
   }
 }
