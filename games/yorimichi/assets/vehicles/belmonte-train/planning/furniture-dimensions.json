@@ -207,12 +207,21 @@
       "dimensions_m": {
         "width": 1.2,
         "depth": 0.55,
-        "height": 1.0
+        "height": 0.91
       },
       "seat_height_m": 0.45,
       "pivot": "floor_footprint_center",
       "material_family": "worn-slatted-wood-iron",
-      "quantity_draft": 32
+      "quantity_draft": 32,
+      "fitted_source": {
+        "file": "rusty wooden bench 3d model.glb (Tripo Studio)",
+        "source_size_m": [
+          1.0,
+          0.463,
+          0.683
+        ],
+        "fit": "uniform scale 1.2 to width; legs (5-38 % of height) lengthened by 0.094 m to bring the seat to 0.45 m; materials made double-sided (single-sided back slats)"
+      }
     },
     {
       "id": "canteen-pot",

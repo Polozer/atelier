@@ -205,6 +205,9 @@ def main():
     sc.collection.objects.link(sun)
     sc.render.filepath = str(OUT / f'{asset}.png'); bpy.ops.render.render(write_still=True)
     bpy.data.objects.remove(tgt)
+    for m in obj.data.materials:      # Tripo often leaves thin parts single-sided: show both faces
+        if m:
+            m.use_backface_culling = False
     bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True)
     glb = OUT / f'{asset}.glb'
     bpy.ops.export_scene.gltf(filepath=str(glb), export_format='GLB', use_selection=True, export_yup=True, export_apply=True)
