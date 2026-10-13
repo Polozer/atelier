@@ -37,6 +37,8 @@ SOURCE = GAME / 'unreal' / 'Source'
 # imports save in assets (Source/YorimichiAssets). Gameplay edits leave the imports current.
 IMPORT_CODE = ('YorimichiImport',)
 SAVED_TYPES = ('YorimichiAssets',)
+# Nox captures USkinMorphContactData on its mesh; its helper and saved type live in this plugin.
+CONTACT_TYPES = ('AtelierCore',)
 NAMES = paths.STUDIO / 'atelier' / 'character'
 YORI = WORLD / 'yori.py'
 SOUTHWEST_MODELS = ('stand,fisher_house_a,fisher_house_b,boat_shed,stairs,dock,boat,drying_rack,temple,island,'
@@ -163,7 +165,8 @@ def moveset_import(character):
 def moveset_retarget(character, *args):
     """assets/characters/adventure/retarget.py onto one character, and its inputs."""
     retarget = CHARS / 'adventure' / 'retarget.py'
-    return Blender(retarget, ('--character', character, *args), threads=3), [CHARS / character, retarget, *sorted(CHARS.glob('*/adventure.toml')), NAMES]
+    return Blender(retarget, ('--character', character, *args), threads=3), [CHARS / character, retarget,
+            retarget.parent / 'stance.py', *sorted(CHARS.glob('*/adventure.toml')), NAMES]
 
 
 def adventure_steps(out):
@@ -251,9 +254,9 @@ def nox_steps(out):
         Step('characters.nox', [Blender(nox / 'export_unreal.py', threads=3)], inputs=[nox, NAMES],
              outputs=[out / 'nox/export.json'], heavy=True, about='Nox assembled mesh, hair rig and two 4K atlases to FBX'),
         Step('unreal.nox', [UnrealScript(SCRIPTS / 'import_nox.py', 'NOX IMPORT COMPLETE', null_rhi=True,
-                                        modules=IMPORT_CODE + SAVED_TYPES)],
-             inputs=[SCRIPTS / 'import_nox.py', SCRIPTS / 'animation_compression.py'], after=['unreal.world'],
-             needs=['characters.nox', *unreal_modules.needs(IMPORT_CODE + SAVED_TYPES)],
+                                        modules=IMPORT_CODE + SAVED_TYPES + CONTACT_TYPES)],
+             inputs=[SCRIPTS / 'import_nox.py', SCRIPTS / 'animation_compression.py', SCRIPTS / 'skin_morph_contacts.py'], after=['unreal.world'],
+             needs=['characters.nox', *unreal_modules.needs(IMPORT_CODE + SAVED_TYPES + CONTACT_TYPES)],
              outputs=[GAME / 'unreal/Content/Nox/SK_Nox.uasset'], heavy=True,
              about='/Game/Nox: assembled mesh, materials and base definition'),
         Step('characters.nox_adventure', [retarget], inputs=retarget_inputs,
@@ -541,7 +544,7 @@ def unreal_steps(ctx):
              about="assemble the Skate plugin's simulation package and verify every payload"),
         Step('unreal.compile', [UnrealCompile('YorimichiEditor')], inputs=[SOURCE, ctx.uproject, GAME / 'unreal/Config', paths.ENGINE_PLUGINS], needs=['skate.runtime'], heavy=True,
              about='the Yorimichi C++ modules (editor target)'),
-        *unreal_modules.steps(ctx, IMPORT_CODE + SAVED_TYPES),
+        *unreal_modules.steps(ctx, IMPORT_CODE + SAVED_TYPES + CONTACT_TYPES),
         Step('unreal.world', [UnrealScript(SCRIPTS / 'setup_project.py', 'level saved')],
              inputs=[ASSETS / 'environment/textures/volcanic-rock.jpg', out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
                      *[SCRIPTS / n for n in ('setup_project.py', 'painterly_kernel.py', 'foliage_material.py', 'import_foliage_lods.py',
@@ -612,7 +615,7 @@ def unreal_steps(ctx):
              inputs=[SCRIPTS / 'import_fox_hunter.py', SCRIPTS / 'animation_compression.py'],
              after=['unreal.world'], needs=['characters.fox_hunter'], heavy=True, about='/Game/FoxHunter'),
         Step('unreal.cairo', [UnrealScript(SCRIPTS / 'import_cairo.py', 'CAIRO IMPORT COMPLETE', null_rhi=True)],
-             inputs=[SCRIPTS / n for n in ('import_cairo.py', 'verify_cairo.py', 'animation_compression.py')],
+             inputs=[SCRIPTS / n for n in ('import_cairo.py', 'verify_cairo.py', 'animation_compression.py', 'skin_morph_contacts.py')],
              after=['unreal.world'], needs=['characters.cairo'], heavy=True, about='/Game/Cairo: body and merged-set donor clips'),
         Step('unreal.cairo_bike', [UnrealScript(SCRIPTS / 'import_bike_clips.py', 'CAIRO BIKE IMPORT COMPLETE', null_rhi=True)],
              inputs=[SCRIPTS / 'import_bike_clips.py', SCRIPTS / 'animation_compression.py'], needs=['characters.cairo_bike', 'unreal.cairo'],
