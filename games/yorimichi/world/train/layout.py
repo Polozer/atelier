@@ -594,9 +594,9 @@ def second_class():
     c.rooms += [Room('canteen', 'canteen', -SPAN_X, CANTEEN_X1, ROOM_Y, IN, 'tiles-grimy'),
                 Room('service-corridor', 'corridor', -SPAN_X, CANTEEN_X1, -IN, CORR_Y, 'lino'),
                 Room('saloon', 'saloon', salon_x0, SPAN_X, -IN, IN, 'lino')]
-    c.walls += [Wall('canteen-side', 'x', -SPAN_X, CANTEEN_X1, CORR_Y, ROOM_Y, [Opening('door-canteen', -9.40, -8.65)]),
+    c.walls += [Wall('canteen-side', 'x', -SPAN_X, CANTEEN_X1, CORR_Y, ROOM_Y, [Opening('door-canteen', -9.40, -8.52)]),
                 Wall('canteen-front', 'y', ROOM_Y, IN, CANTEEN_X1, salon_x0, [Opening('canteen-hatch', HATCH[0], HATCH[1], FLOOR_Z + HATCH[2], FLOOR_Z + HATCH[3])])]
-    c.doors.append(Door('door-canteen', 'canteen-side', 'door-canteen', 'sliding', -1, -1, False, .80))
+    c.doors.append(Door('door-canteen', 'canteen-side', 'door-canteen', 'sliding', -1, 1, False, .93))
     bw, bd, _ = asset_dims('second-class-bench')
     first = salon_x0 + 1.60                 # room to queue in front of the hatch
     for k in range(SC_BAYS):
