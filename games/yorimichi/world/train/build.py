@@ -1567,14 +1567,14 @@ def loco_body(c, coll, parent, glass_coll):
     m = M()
     for sy in (-1, 1):
         y0, y1 = sorted((sy * 1.02, sy * hw))
-        m.box(cb, 5.40, y0, y1, rb - .04, rb, 'steel')
+        m.box(cb, 5.40, y0, y1, rb - .04, rb, 'iron-black')
         v0, v1 = sorted((sy * (hw - .03), sy * hw))
         m.box(cb, 5.40, v0, v1, rb - .26, rb, 'loco-black')
         trim.box(cb, 5.40, v0 - sy * .0, v1 + sy * .004, rb - .19, rb - .18, 'brass')
         trim.box(cb, 5.40, v0 - sy * .0, v1 + sy * .004, rb - .13, rb - .122, 'lining-red')
         # the drop to the front deck
         m.prism([(5.40, rb), (5.40, rb - .26), (5.95, 1.30), (5.95, 1.34)], 'y', y0, y1, 'loco-black')
-    m.box(5.95, L.LOCO_BEAM, -hw, hw, 1.30, 1.34, 'steel')
+    m.box(5.95, L.LOCO_BEAM, -hw, hw, 1.30, 1.34, 'iron-black')
     m.box(L.LOCO_BEAM, L.LOCO_BEAM + .14, -hw + .05, hw - .05, .85, 1.34, 'end-dark')
     trim.box(L.LOCO_BEAM + .14, L.LOCO_BEAM + .145, -hw + .15, hw - .15, 1.20, 1.22, 'brass')
     m.obj('Loco_RunningBoards', coll, parent=parent)
@@ -1674,10 +1674,16 @@ def loco_body(c, coll, parent, glass_coll):
     # roof: an elliptic shell over the cab, overhanging the back, cream underneath
     sec_o = [(y, L.CAB_TOP + (L.CAB_ROOF - L.CAB_TOP) * math.sqrt(max(0., 1 - (y / (hw + .05)) ** 2))) for y in np.linspace(hw + .05, -hw - .05, 17)]
     m = M()
-    for (y0_, z0_), (y1_, z1_) in zip(sec_o, sec_o[1:]):
-        m.box(ca - .25, cb + .06, min(y0_, y1_), max(y0_, y1_), min(z0_, z1_) - .05, max(z0_, z1_), 'roof')
-    o = m.obj('Cab_Roof', coll, parent=parent)
-    reproject(o, lambda n, ctr: 'ceiling' if n.z < -.5 else 'roof')
+    rx0, rx1, th = ca - .25, cb + .06, .05
+    sec_i = [(y, z - th) for y, z in sec_o]
+    for (ya, za), (yb, zb), (yc, zc), (yd, zd) in zip(sec_o, sec_o[1:], sec_i, sec_i[1:]):
+        m.poly([(rx0, ya, za), (rx1, ya, za), (rx1, yb, zb), (rx0, yb, zb)], 'loco-black', normal=(0, 0, 1))      # smooth top
+        m.poly([(rx0, yc, zc), (rx0, yd, zd), (rx1, yd, zd), (rx1, yc, zc)], 'ceiling', normal=(0, 0, -1))        # cream underside
+        for x, s in ((rx0, -1), (rx1, 1)):                                                                       # end edges
+            m.poly([(x, ya, za), (x, yb, zb), (x, yd, zd), (x, yc, zc)], 'loco-black', normal=(s, 0, 0))
+    for (y, z), (yi, zi) in ((sec_o[0], sec_i[0]), (sec_o[-1], sec_i[-1])):                                     # eaves
+        m.poly([(rx0, y, z), (rx1, y, z), (rx1, yi, zi), (rx0, yi, zi)], 'loco-black', normal=(0, 1 if y > 0 else -1, 0))
+    m.obj('Cab_Roof', coll, parent=parent, smooth_angle=50)
     trim.box(ca - .27, ca - .23, -hw, hw, L.CAB_TOP - .02, L.CAB_TOP + .02, 'brass')
     # --- backhead: the firebox end in the cab, with the fire door, gauges and controls ---
     m = M()
