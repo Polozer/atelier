@@ -98,10 +98,12 @@ def test_a_players_pawn_keeps_its_values(character):
     assert tuple(g[k] for k in keys) == PAWNS[character]
 
 
-def test_one_player_is_the_default():
+def test_one_player_is_the_default_and_every_name_is_unique():
     players = [c for c in definition.movers() if c.playable]
-    assert sorted(c.id for c in players) == sorted(PAWNS)
+    assert set(PAWNS) <= {c.id for c in players}   # a new player is data only: no test lists them all
     assert [c.id for c in players if c.game['default']] == ['cairo'] and definition.load('cairo').game['aliases'] == ['CairoAdventure']
+    names = [n for c in players for n in (c.toml['display_name'], *c.game['aliases'])]
+    assert len(names) == len(set(names)) and len({c.pawn for c in players}) == len(players)
 
 
 def test_a_new_players_pawn_comes_from_its_height(tmp_path):
