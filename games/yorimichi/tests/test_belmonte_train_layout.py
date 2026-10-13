@@ -77,5 +77,16 @@ class Coaches(unittest.TestCase):
                 self.assertIn(round(p.yaw) % 90, (0,))
 
 
+    def test_tender_couples_to_the_baggage_van_and_its_footplate_is_walkable(self):
+        t = L.tender()
+        self.assertEqual(L.check(t), [])
+        self.assertAlmostEqual(t.body.length, L.TENDER_LENGTH)
+        self.assertEqual((t.body.end_a, t.body.end_b), ('closed', 'footplate'))
+        self.assertEqual(L.baggage_van().body.end_b, 'closed')
+        lo, hi = t.body.walk_limits()
+        self.assertGreater(hi - lo, 1.5)
+        self.assertGreater(2 * t.body.walk_y, 2 * L.HUMAN['radius'] + .5)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -85,6 +85,9 @@ class Body:
     crest_x: float = 0.
     livery: str = 'luxury'         # luxury, or worn: faded, rusty paint and peeling interiors (second class)
     cargo_doors: tuple = ()        # x centres of pairs of wide double sliding luggage doors, both sides (baggage van)
+    kind: str = 'coach'            # coach, or tender (its own build: water tank, coal space, footplate, rigid axles)
+    walk: tuple = None             # (x0, x1) standing range when it is not the space inside the end walls (the tender's footplate)
+    walk_y: float = IN             # half-width of that standing range
 
     @property
     def length(self):
@@ -116,6 +119,8 @@ class Body:
 
     def walk_limits(self):
         """x range a passenger can stand in: inside the end walls, out to the railing on a balcony."""
+        if self.walk:
+            return tuple(self.walk)
         lo = self.in_a if self.end_a != 'balcony' else self.headstock(-1) + .06
         hi = self.in_b if self.end_b != 'balcony' else self.headstock(1) - .06
         return lo, hi
@@ -683,10 +688,51 @@ def coaches():
     return [baggage_van(), restaurant(), first_class(), second_class(), brake_van()]
 
 
+# --- the tender: water tank, coal space and the fireman's footplate behind the locomotive's cab --------------------
+TENDER_LENGTH = 9.0
+TENDER_HALF = 1.55                          # tank half-width: narrower than the coaches, like the locomotive
+TENDER_TANK = (-4.00, 2.56)                 # rear face of the tank, front face (the coal plate, facing the footplate)
+TENDER_TANK_Z = (1.05, 3.30)
+TENDER_COAL = (.20, 2.50)                   # the coal space on top of the front of the tank, inside raised coping plates
+TENDER_COPING_Z = 3.75
+TENDER_HEADSTOCK = 4.10
+TENDER_AXLES = (-2.50, -.25, 2.00)          # three rigid axles, as in the concept (locomotive-tender--tender-profile-v2)
+TENDER_WHEEL_R = .50
+TENDER_LOCKER = (2.56, 3.30, 1.00, 2.55)    # tool lockers each side of the footplate: x0, x1, inner y, top z
+TENDER_FALL_PLATE = 4.42                    # the hinged steel plate bridging to the locomotive's footplate
+COAL_HOLE = (.32, 1.50, 2.05)               # half-width, bottom and top of the shovelling hole in the coal plate
+
+
+def tender():
+    """The tender coupled behind the locomotive. Not a coach: a riveted water tank with the coal heaped on top of its
+    front half, three rigid axles in outside frames, rear buffers to the baggage van's closed end, and at the front the
+    fireman's footplate (floor at FLOOR_Z, like the cab's) between two tool lockers, with the shovelling hole in the
+    coal plate and a fall plate towards the locomotive. Only the footplate is walkable."""
+    half = TENDER_LENGTH / 2
+    body = Body(x_a=TENDER_TANK[0], x_b=TENDER_TANK[1], buffer_a=-half, buffer_b=half, end_a='closed', end_b='footplate',
+                bogies=(), exterior_doors=(), crest_x=-.75, kind='tender',
+                walk=(TENDER_TANK[1] + .06, TENDER_FALL_PLATE - .02), walk_y=TENDER_LOCKER[2])
+    c = Coach('tender', 'Tender', body=body)
+    lo, hi = body.walk
+    c.rooms.append(Room('footplate', 'footplate', TENDER_TANK[1], TENDER_FALL_PLATE, -TENDER_LOCKER[2], TENDER_LOCKER[2], 'parquet'))
+    c.goals.update({'footplate': ((lo + hi) / 2, 0.)})
+    c.mounts += [Mount('coal-hole', 'coal-hole', 'footplate', TENDER_TANK[1], 0., (COAL_HOLE[1] + COAL_HOLE[2]) / 2, 90),
+                 Mount('tender-lamp-l', 'lamp-bracket', 'footplate', TENDER_TANK[0] - .03, 1.10, 3.05, -90),
+                 Mount('tender-lamp-r', 'lamp-bracket', 'footplate', TENDER_TANK[0] - .03, -1.10, 3.05, -90)]
+    return c
+
+
+def vehicles():
+    """Everything the Blender build makes: the tender and the coaches."""
+    return [tender()] + coaches()
+
+
 # --- checks -------------------------------------------------------------------------------------------------------
 def start(c):
     """Where the walk checks begin: just inside a gangway end."""
     b = c.body
+    if 'gangway' not in (b.end_a, b.end_b) and b.walk:
+        return (sum(b.walk) / 2, 0.)
     s = -1 if b.end_a == 'gangway' else 1
     return (b.inner(s) - s * .30, 0.)
 
@@ -745,7 +791,7 @@ def walkable_grid(c, radius, step=.025):
     xs = lo + (np.arange(nx) + .5) * step
     ys = -IN + (np.arange(ny) + .5) * step
     X, Y = np.meshgrid(xs, ys, indexing='ij')
-    grid = (np.abs(Y) <= IN - radius) & (X >= lo + radius) & (X <= hi - radius)
+    grid = (np.abs(Y) <= c.body.walk_y - radius) & (X >= lo + radius) & (X <= hi - radius)
     for ox0, ox1, oy0, oy1 in obstacles:
         dx = np.maximum(np.maximum(ox0 - X, 0.), X - ox1); dy = np.maximum(np.maximum(oy0 - Y, 0.), Y - oy1)
         grid &= dx * dx + dy * dy >= radius * radius
@@ -786,8 +832,10 @@ def goals(c):
     for end, sx in (('a', -1), ('b', 1)):
         if b.end(sx) == 'gangway':
             g[f'gangway-{end}'] = (b.inner(sx) - sx * .30, 0.)
-        else:
+        elif b.end(sx) == 'balcony':
             g[f'balcony-{end}'] = (b.headstock(sx) - sx * .45, 0.)
+        elif b.end(sx) == 'footplate':
+            g[f'footplate-{end}'] = (b.walk_limits()[sx > 0] - sx * .45, 0.)
     for label, x in b.exterior_doors:
         for side, sy in (('l', 1), ('r', -1)):
             g[f'exterior-door-{label}{side}'] = (x, sy * (IN - .35))

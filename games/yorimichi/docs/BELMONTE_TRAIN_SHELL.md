@@ -34,8 +34,15 @@ object and material, so the empty interior is visible from outside.
   `SOCKET_Coupler_A/B` and `SOCKET_Gangway_A/B` at ±12.00 m. Two coupled coaches sit 24.00 m apart, origin to
   origin, with buffer heads and gangway faces touching, so passengers walk from one coach to the next at the same
   floor level. The `consist-*` renders check a coupled pair.
-- **Missing vehicles.** The locomotive and tender, a baggage van and an optional observation car:
+- **Missing vehicles.** Only the locomotive remains:
   [ChatGPT prompts](BELMONTE_TRAIN_MISSING_VEHICLES_PROMPTS.md), all on the same interface.
+- **Tender** (`layout.tender()`, its own section in build.py). It is 9.00 m over buffers, and only its footplate
+  is walkable. The body is a 3.10 m riveted tank, 1.05 to 3.30 m above rail, with the coal heaped inside coping
+  plates up to 3.75 m. It runs on three rigid axles (wheels 1.00 m) in outside frames. At the rear (end A), full
+  buffers meet the baggage van's closed end. At the front, the fireman's footplate (floor 1.25 m, 2.00 m between
+  two tool lockers) ends in a fall plate at +4.42 m towards the locomotive's cab, with the shovelling hole in the
+  coal plate. The lockers' doors and the coal-hole shutter animate like the coach doors. The end type is
+  `footplate`: the viewer joins two touching footplates, which will be the tender and the cab.
 
 ## Restaurant
 

@@ -1,6 +1,6 @@
 """Belmonte train coach shells (Blender, headless): `atelier build yorimichi world.belmonte_train`.
 
-Builds both coaches from train/layout.py: the shared envelope (side walls with real window and door openings, end
+Builds the tender (its own section below: tank, coal space, footplate, rigid axles) and the coaches from train/layout.py: the shared envelope (side walls with real window and door openings, end
 walls, floor deck, roof, ceiling, underframe, two bogies, buffers, couplers, gangways, steps), each coach's own
 partitions, sliding and hinged doors, lining panels, window frames and glazing, plus furniture reservations, seat
 markers, mounts and simple walkable collision. The coaches are empty: furniture, lamps, curtains and racks are
@@ -51,6 +51,7 @@ MATERIALS = {
     'glass-frosted': ((.88, .90, .90), 0., .5, None, 1., .80),
     'glass-dark': ((.05, .07, .09), 0., .1, None, 1., 1.),
     'lamp-red': ((.85, .04, .02), 0., .2, None, 1., 1.),
+    'coal': ((.008, .008, .009), .1, .75, None, 1., 1.),
     'crest': ((1, 1, 1), .8, .3, 'T_BT_Crest', 0., 1.),
     'livery-blue-worn': ((1, 1, 1), 0., .7, 'T_BT_BlueWorn', 2.0, 1.),
     'livery-ivory-worn': ((1, 1, 1), 0., .75, 'T_BT_IvoryWorn', 2.0, 1.),
@@ -1094,6 +1095,8 @@ def reservations(c, coll, parent):
 
 def collision_boxes(c):
     """Simple convex boxes for walking: floor, walls broken at every doorway, partitions, ceiling and fixed fittings."""
+    if B.kind == 'tender':
+        return tender_collision_boxes(c)
     boxes = []
     add = lambda n, *b: boxes.append((n, b))
     add('floor', B.in_a, B.in_b, -L.IN, L.IN, L.FLOOR_Z - .20, L.FLOOR_Z)
@@ -1183,7 +1186,7 @@ def mesh_checks(objs):
     """Closed meshes (manifold, outward) and no degenerate faces in the architectural parts."""
     report = {}
     for o in objs:
-        if o.type != 'MESH' or o.name.startswith(('Glazing', 'Interior_Floor', 'Ceiling', 'Shell_Crest', 'LOD2_Hull', 'Roof_Details', 'Roof_CupolaTop')):
+        if o.type != 'MESH' or o.name.startswith(('Glazing', 'Interior_Floor', 'Ceiling', 'Shell_Crest', 'LOD2_Hull', 'Roof_Details', 'Roof_CupolaTop', 'Tender_Coal')):
             continue
         bm = bmesh.new(); bm.from_mesh(o.data)
         boundary = sum(1 for e in bm.edges if e.is_boundary)
@@ -1193,6 +1196,219 @@ def mesh_checks(objs):
         bm.free()
         report[o.name] = dict(boundary_edges=boundary, non_manifold_edges=nonman, degenerate_faces=degenerate, signed_volume_m3=round(vol, 4))
     return report
+
+
+# --- the tender ---------------------------------------------------------------------------------------------------
+def _tank_section(hw, z0, z1, r, seg=6):
+    """The tank's cross-section in (y, z): square at the bottom, rounded along the top edges."""
+    pts = [(-hw, z0), (hw, z0)]
+    for cy, a0 in ((hw - r, 0), (-hw + r, 90)):
+        for k in range(seg + 1):
+            a = math.radians(a0 + 90 * k / seg)
+            pts.append((cy + r * math.cos(a), z1 - r + r * math.sin(a)))
+    return pts
+
+
+def tender_body(c, coll, parent, glass_coll):
+    """Tank with the shovelling hole, coping plates and coal heap, footplate, lockers, frames, axles and ends."""
+    hw, (ta, tb), (z0, z1) = L.TENDER_HALF, L.TENDER_TANK, L.TENDER_TANK_Z
+    hs = L.TENDER_HEADSTOCK
+    hy, hb, ht = L.COAL_HOLE
+    # the riveted tank, its front face (the coal plate) cut by the coal hole into a dark pocket
+    m = M(); m.prism(_tank_section(hw, z0, z1, .28), 'x', ta, tb, 'livery-blue')
+    tank = m.obj('Tender_Tank', coll, parent=parent)
+    cut = M(); cut.box(tb - .62, tb + .10, -hy, hy, hb, ht, 'end-dark')
+    boolean(tank, [cut])
+    pocket = lambda ctr: ctr.x > tb - .63 and abs(ctr.y) < hy + .005 and hb - .005 < ctr.z < ht + .005 and ctr.x < tb - .002
+    reproject(tank, lambda n, ctr: 'end-dark' if pocket(ctr) else 'roof' if n.z > .9 and ctr.z > z1 - .01 else 'livery-blue')
+    # coal seen through the hole, sloping back up into the tank
+    m = M()
+    m.poly([(tb - .02, -hy, hb + .02), (tb - .02, hy, hb + .02), (tb - .60, hy, ht - .02), (tb - .60, -hy, ht - .02)], 'coal', normal=(1, 0, 1))
+    # the coal heap on top, inside the coping plates
+    (ca, cb), cz = L.TENDER_COAL, L.TENDER_COPING_Z
+    nx, ny = 24, 16
+    def heap(x, y):
+        t = max(0., 1 - ((x - (ca + cb) / 2 - .10) / ((cb - ca) / 2 + .25)) ** 2) * max(0., 1 - (y / (hw + .15)) ** 2)
+        lumps = .045 * math.sin(17 * x + 3 * y) * math.cos(13 * y - 5 * x) + .03 * math.sin(29 * x * y + 7 * y)
+        return cz - .17 + .40 * t + lumps
+    xs = [ca + (cb - ca) * i / nx for i in range(nx + 1)]
+    ys = [-(hw - .05) + 2 * (hw - .05) * j / ny for j in range(ny + 1)]
+    for i in range(nx):
+        for j in range(ny):
+            q = [(xs[i], ys[j]), (xs[i + 1], ys[j]), (xs[i + 1], ys[j + 1]), (xs[i], ys[j + 1])]
+            m.poly([(x, y, heap(x, y)) for x, y in q], 'coal', normal=(0, 0, 1))
+    m.obj('Tender_Coal', coll, parent=parent, closed=False, smooth_angle=60)
+    # coping plates round the coal space, with a brass capping
+    m = M(); trim = M()
+    for sy in (-1, 1):
+        y0, y1 = sorted((sy * (hw - .05), sy * hw))
+        m.box(ca - .06, tb, y0, y1, z1 - .25, cz, 'livery-blue')
+        trim.box(ca - .06, tb, y0 - .006, y1 + .006, cz, cz + .02, 'brass')
+    for x0, zb in ((ca - .06, z1 - .05), (tb - .06, z1 - .25)):     # end boards, clear of the side plates
+        m.box(x0, x0 + .06, -hw + .052, hw - .052, zb, cz, 'livery-blue')
+    for x in (ca - .06, tb - .06):
+        trim.box(x - .006, x + .066, -hw, hw, cz, cz + .02, 'brass')
+    m.obj('Tender_Coping', coll, parent=parent)
+    # footplate, fall plate and lockers
+    m = M()
+    lx0, lx1, ly, lz = L.TENDER_LOCKER
+    m.box(tb, hs, -hw + .10, hw - .10, z0 + .05, L.FLOOR_Z, 'parquet')
+    m.box(hs, L.TENDER_FALL_PLATE, -.95, .95, L.FLOOR_Z - .018, L.FLOOR_Z, 'steel')
+    for sy in (-1, 1):
+        y0, y1 = sorted((sy * ly, sy * hw))
+        m.box(lx0, lx1, y0, y1, L.FLOOR_Z, lz, 'livery-blue')
+        trim.box(lx0, lx1 + .02, y0 - .01, y1 + .01, lz, lz + .03, 'brass')
+    m.obj('Tender_Footplate', coll, parent=parent)
+    # locker doors (hinged at the outer side, opening towards the cab) and the coal-hole shutter (slides up)
+    for side, sy in (('l', 1), ('r', -1)):
+        w = hw - ly - .08
+        d = M()
+        a0, a1 = sorted((0, -sy * w))
+        d.box(0, .03, a0, a1, 0, lz - L.FLOOR_Z - .14, 'livery-blue')
+        for z in (.10, lz - L.FLOOR_Z - .24):
+            d.box(.03, .034, a0 + .05, a1 - .05, z, z + .008, 'brass')
+        d.box(.03, .06, -sy * (w - .07) - .012, -sy * (w - .07) + .012, .50, .70, 'brass')
+        leaf = d.obj(f'Door_tender-locker-{side}', coll, parent=parent)
+        hinge = (lx1, sy * (hw - .04), L.FLOOR_Z + .07)
+        leaf.location = hinge
+        DOOR_RECORDS.append(dict(name=leaf.name, door=f'tender-locker-{side}', kind='hinged', pivot=list(hinge), swing_deg=90 * sy,
+                                 opening=[sy * ly, sy * (hw - .04), L.FLOOR_Z + .07, lz - .07], wall=f'locker-{side}'))
+    d = M()
+    d.box(-.01, .01, -hy - .05, hy + .05, 0, ht - hb + .08, 'end-dark')
+    d.box(.01, .04, -.10, .10, .06, .10, 'brass')
+    shutter = d.obj('Door_coal-hole', coll, parent=parent)
+    shutter.location = (tb + .012, 0, hb - .04)
+    DOOR_RECORDS.append(dict(name=shutter.name, door='coal-hole', kind='sliding', pivot=list(shutter.location),
+                             open_offset_m=[0, 0, ht - hb + .02], opening=[-hy, hy, hb, ht], wall='coal-plate'))
+    # brass handrails at the footplate's open sides, hanging steps below them
+    for sy in (-1, 1):
+        for x in (lx1 + .04, hs - .05):
+            trim.cylinder((x, sy * (hw - .08)), 'z', .018, L.FLOOR_Z, L.FLOOR_Z + 1.20, 'brass', 8)
+        trim.box(lx1 + .04, hs - .05, sy * (hw - .08) - .016, sy * (hw - .08) + .016, L.FLOOR_Z + .94, L.FLOOR_Z + .97, 'brass')
+        y = sy * hw
+        for zz, depth in ((.96, .20), (.66, .30)):
+            ya, yb = sorted((y - sy * .25, y + sy * (depth - .25)))
+            trim.box(lx1 + .20, hs - .15, ya, yb, zz - .03, zz, 'steel')
+        for x in (lx1 + .19, hs - .14):
+            trim.box(x - .015, x + .015, min(y - sy * .25, y), max(y - sy * .25, y), .63, z0 + .05, 'undercarriage')
+    # tank top: two water fillers, vents and handrails; rear ladder
+    for x in (-3.10, -1.40):
+        trim.cylinder((x, 0), 'z', .28, z1 - .05, z1 + .12, 'end-dark', 20)
+        trim.cylinder((x, 0), 'z', .30, z1 + .12, z1 + .16, 'brass', 20)
+        trim.cylinder((x, 0), 'z', .06, z1 + .16, z1 + .22, 'brass', 10)
+    for sy in (-1, 1):
+        trim.cylinder((-2.30, sy * .85), 'z', .05, z1 - .05, z1 + .35, 'end-dark', 10)
+        trim.cylinder((-2.30, sy * .85), 'z', .07, z1 + .35, z1 + .40, 'brass', 10)
+        y = sy * (hw - .22)
+        for x in (-3.80, -2.60, -1.40, -.20):
+            trim.cylinder((x, y), 'z', .015, z1 - .10, z1 + .24, 'brass', 8)
+        trim.box(-3.80, -.20, y - .016, y + .016, z1 + .22, z1 + .25, 'brass')
+    for y in (.95, 1.35):
+        trim.box(ta - .05, ta - .02, y - .02, y + .02, z0, z1 - .05, 'brass')
+    for k in range(7):
+        z = z0 + .25 + k * .30
+        trim.box(ta - .05, ta - .03, .95, 1.35, z - .012, z + .012, 'brass')
+    # brass lining and the crest on the tank sides
+    for sy in (-1, 1):
+        y0, y1 = sorted((sy * (hw - .002), sy * (hw + .006)))
+        for z in (z0 + .10, z1 - .32):
+            trim.box(ta + .08, tb - .08, y0, y1, z - .009, z + .009, 'brass')
+        for z in (z0 + .30, z1 - .52):
+            trim.box(ta + .30, tb - .30, y0, y1, z - .005, z + .005, 'brass')
+        for x in (ta + .30, tb - .30):
+            trim.box(x - .005, x + .005, y0, y1, z0 + .30, z1 - .52, 'brass')
+    trim.obj('Tender_Trim', coll, parent=parent, lods=(0,))
+    m = M()
+    zc = (z0 + .30 + z1 - .52) / 2
+    for sy in (-1, 1):
+        y = sy * (hw + .008)
+        w = h = .80
+        xs2 = (B.crest_x - w / 2, B.crest_x + w / 2)
+        pts = [(xs2[0], y, zc - h / 2), (xs2[1], y, zc - h / 2), (xs2[1], y, zc + h / 2), (xs2[0], y, zc + h / 2)]
+        if sy < 0:
+            pts = [(xs2[1] + xs2[0] - p[0], p[1], p[2]) for p in pts]
+        m.poly(pts, 'crest', uv=[(0, 0), (1, 0), (1, 1), (0, 1)], normal=(0, sy, 0))
+    m.obj('Shell_Crest', coll, parent=parent, closed=False)
+    # outside frames, axleboxes with brass caps, leaf springs, brake gear, headstocks
+    m = M()
+    for sy in (-1, 1):
+        y0, y1 = sorted((sy * 1.18, sy * 1.30))
+        m.box(-hs, hs, y0, y1, .58, z0, 'undercarriage')
+        for x in L.TENDER_AXLES:
+            m.box(x - .17, x + .17, *sorted((sy * 1.30, sy * 1.40)), .30, .74, 'undercarriage')
+            m.cylinder((x, L.TENDER_WHEEL_R), 'y', .09, *sorted((sy * 1.40, sy * 1.45)), 'brass', 14)
+            for k, (hl, zz) in enumerate(((.60, .78), (.48, .82), (.36, .86), (.24, .90))):
+                m.box(x - hl, x + hl, *sorted((sy * 1.20, sy * 1.36)), zz - .04, zz, 'steel')
+            for xx in (x - .62, x + .62):
+                m.box(xx - .025, xx + .025, *sorted((sy * 1.24, sy * 1.32)), .70, z0, 'undercarriage')
+    for x0, x1 in zip(L.TENDER_AXLES, L.TENDER_AXLES[1:]):
+        mid = (x0 + x1) / 2
+        m.box(mid - .05, mid + .05, -1.18, 1.18, .40, .50, 'undercarriage')
+        m.cylinder((.55, .70), 'x', .07, x0 + .55, x1 - .55, 'undercarriage', 10)
+    for sx in (-1, 1):
+        x0, x1 = sorted((sx * hs - sx * .06, sx * hs + sx * .06))
+        m.box(x0, x1, -hw + .05, hw - .05, .86, z0 + .05, 'end-dark')
+    m.obj('Tender_Frames', coll, parent=parent)
+    # buffers: full-size at the rear (the baggage van), smaller under the fall plate at the front; hooks, hoses
+    m = M()
+    for sx, head_r in ((-1, .20), (1, .15)):
+        bf = B.buffer(sx)
+        for sy in (-1, 1):
+            x0, x1 = sorted((sx * hs + sx * .06, bf - sx * .06))
+            m.cylinder((sy * L.BUFFER_Y, L.BUFFER_Z), 'x', .10, x0, x1, 'undercarriage', 16)
+            x0, x1 = sorted((bf - sx * .06, bf))
+            m.cylinder((sy * L.BUFFER_Y, L.BUFFER_Z), 'x', head_r, x0, x1, 'steel', 20)
+        x0, x1 = sorted((sx * hs + sx * .06, bf - sx * .02))
+        m.box(x0, x1, -.06, .06, L.BUFFER_Z - .07, L.BUFFER_Z + .05, 'undercarriage')
+        for sy in (-1, 1):
+            m.box(sx * hs + sx * .10 - .02, sx * hs + sx * .10 + .02, sy * .35 - .02, sy * .35 + .02, .80, 1.10 if sx > 0 else 1.15, 'rubber')
+    m.box(B.buffer(-1) + .04 - .03, B.buffer(-1) + .04 + .03, -.12, .12, L.BUFFER_Z - .20, L.BUFFER_Z - .05, 'steel')
+    m.obj('Shell_Buffers', coll, parent=parent)
+    # three wheelsets sharing one mesh, origins at their axles
+    w = M()
+    r = L.TENDER_WHEEL_R
+    for sy in (-1, 1):
+        y0, y1 = sorted((sy * (L.GAUGE / 2 - .02), sy * (L.GAUGE / 2 + .11)))
+        w.cylinder((0, 0), 'y', r, y0, y1, 'steel', 28)
+        f0, f1 = sorted((sy * (L.GAUGE / 2 - .02), sy * (L.GAUGE / 2 + .005)))
+        w.cylinder((0, 0), 'y', r + .03, f0, f1, 'steel', 28)
+        w.cylinder((0, 0), 'y', .16, *sorted((sy * (L.GAUGE / 2 + .11), sy * (L.GAUGE / 2 + .15))), 'brass', 14)
+    w.cylinder((0, 0), 'y', .08, -1.30, 1.30, 'undercarriage', 12)
+    wheel_me = None
+    for k, x in enumerate(L.TENDER_AXLES):
+        if wheel_me is None:
+            ws = w.obj(f'Wheelset_{k + 1}', coll, parent=parent); wheel_me = ws.data
+        else:
+            ws = _linked(f'Wheelset_{k + 1}', wheel_me, coll, (0, 0, 0), parent)
+        ws.location = (x, 0, r)
+
+
+def tender_lod2(c, coll, parent):
+    hw, (ta, tb), (z0, z1) = L.TENDER_HALF, L.TENDER_TANK, L.TENDER_TANK_Z
+    m = M()
+    m.box(ta, tb, -hw, hw, z0, z1, 'livery-blue')
+    m.box(L.TENDER_COAL[0], tb, -hw, hw, z1, L.TENDER_COPING_Z, 'coal')
+    m.box(tb, L.TENDER_HEADSTOCK, -hw, hw, z0, L.FLOOR_Z, 'parquet')
+    m.box(-L.TENDER_HEADSTOCK, L.TENDER_HEADSTOCK, -1.30, 1.30, .05, z0, 'undercarriage')
+    for sx in (-1, 1):
+        x0, x1 = sorted((sx * L.TENDER_HEADSTOCK, B.buffer(sx)))
+        for sy in (-1, 1):
+            m.box(x0, x1, sy * L.BUFFER_Y - .15, sy * L.BUFFER_Y + .15, L.BUFFER_Z - .15, L.BUFFER_Z + .15, 'undercarriage')
+    m.obj('LOD2_Hull', coll, parent=parent, lods=(2,))
+
+
+def tender_collision_boxes(c):
+    hw, (ta, tb), (z0, z1) = L.TENDER_HALF, L.TENDER_TANK, L.TENDER_TANK_Z
+    lx0, lx1, ly, lz = L.TENDER_LOCKER
+    boxes = [('floor', (tb, L.TENDER_FALL_PLATE, -hw + .10, hw - .10, L.FLOOR_Z - .20, L.FLOOR_Z)),
+             ('tank', (ta, tb, -hw, hw, z0, L.TENDER_COPING_Z)),
+             ('frames', (-L.TENDER_HEADSTOCK, L.TENDER_HEADSTOCK, -1.45, 1.45, .30, z0))]
+    for side, sy in (('l', 1), ('r', -1)):
+        y0, y1 = sorted((sy * ly, sy * hw))
+        boxes.append((f'locker-{side}', (lx0, lx1, y0, y1, L.FLOOR_Z, lz)))
+        y0, y1 = sorted((sy * (hw - .10), sy * hw))
+        boxes.append((f'handrail-{side}', (lx1, L.TENDER_HEADSTOCK, y0, y1, L.FLOOR_Z, L.FLOOR_Z + 1.20)))
+    return boxes
 
 
 B = L.Body()      # the body of the vehicle being built (build() sets it)
@@ -1218,19 +1434,23 @@ def build(coach, images):
     root = group(f'BT_{title}', cols['Shell'])
     root['coach'] = coach.name; root['frame'] = L.as_dict(coach)['frame']
     g = {n: group(f'BT_{title}_{n}', cols[n], root) for n in ('Shell', 'Roof', 'Glazing', 'Doors', 'Interior')}
-    side_walls(coach, cols['Shell'], g['Shell'])
-    end_walls(coach, cols['Shell'], g['Shell'])
-    deck_and_underframe(coach, cols['Shell'], g['Shell'])
-    ends_hardware(coach, cols['Shell'], g['Shell'])
-    balcony(coach, cols['Shell'], g['Shell'])
-    bogies(cols['Shell'], g['Shell'])
-    roof(cols['Roof'], g['Roof'])
-    ceiling(coach, cols['Roof'], g['Roof'])
-    floors(coach, cols['Interior'], g['Interior'])
-    partitions(coach, cols['Interior'], g['Interior'])
-    lining(coach, cols['Interior'], g['Interior'])
-    window_frames(coach, cols['Shell'], g['Shell'], cols['Glazing'], g['Glazing'])
-    doors(coach, cols['Doors'], g['Doors'], cols['Glazing'], g['Glazing'])
+    if B.kind == 'tender':
+        DOOR_RECORDS.clear()
+        tender_body(coach, cols['Shell'], g['Shell'], cols['Glazing'])
+    else:
+        side_walls(coach, cols['Shell'], g['Shell'])
+        end_walls(coach, cols['Shell'], g['Shell'])
+        deck_and_underframe(coach, cols['Shell'], g['Shell'])
+        ends_hardware(coach, cols['Shell'], g['Shell'])
+        balcony(coach, cols['Shell'], g['Shell'])
+        bogies(cols['Shell'], g['Shell'])
+        roof(cols['Roof'], g['Roof'])
+        ceiling(coach, cols['Roof'], g['Roof'])
+        floors(coach, cols['Interior'], g['Interior'])
+        partitions(coach, cols['Interior'], g['Interior'])
+        lining(coach, cols['Interior'], g['Interior'])
+        window_frames(coach, cols['Shell'], g['Shell'], cols['Glazing'], g['Glazing'])
+        doors(coach, cols['Doors'], g['Doors'], cols['Glazing'], g['Glazing'])
     for end, e in L.coupling(B)['ends'].items():   # attachment sockets, exported in every LOD
         for name, loc in [('Coupler', e['draw_hook'])] + ([('Gangway', e['gangway_face_centre'])] if 'gangway_face_centre' in e else []):
             so = bpy.data.objects.new(f'SOCKET_{name}_{end.upper()}', None); so.empty_display_type = 'ARROWS'; so.empty_display_size = .4
@@ -1238,9 +1458,12 @@ def build(coach, images):
             so['lods'] = [0, 1, 2]; so['length_m'] = B.length
             cols['Shell'].objects.link(so); so.parent = root
     lod2 = group(f'BT_{title}_LOD2', cols['LOD2']); lod2['lods'] = [2]
-    lod2_hull(coach, cols['LOD2'], lod2)
-    roof(cols['LOD2'], lod2, lod=2)
-    bogies(cols['LOD2'], lod2, lod=2)
+    if B.kind == 'tender':
+        tender_lod2(coach, cols['LOD2'], lod2)
+    else:
+        lod2_hull(coach, cols['LOD2'], lod2)
+        roof(cols['LOD2'], lod2, lod=2)
+        bogies(cols['LOD2'], lod2, lod=2)
     res_root = group(f'BT_{title}_Reservations', cols['Reservations']); res_root['lods'] = []
     reservations(coach, cols['Reservations'], res_root)
     col_root = group(f'BT_{title}_Collision', cols['Collision']); col_root['lods'] = []
@@ -1301,7 +1524,7 @@ def main():
         textures={n: dict(bytes=p.stat().st_size, sha256=sha(p)) for n, p in paths.items()},
         coaches={},
     )
-    for coach in L.coaches():
+    for coach in L.vehicles():
         manifest['coaches'][coach.name] = build(coach, dict(images))
         print(f'BELMONTE TRAIN {coach.name}: {manifest["coaches"][coach.name]["triangles"]}', flush=True)
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=1))
