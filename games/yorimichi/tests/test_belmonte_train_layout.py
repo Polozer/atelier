@@ -103,6 +103,24 @@ class Coaches(unittest.TestCase):
         m = {mt.id: mt for mt in c.mounts}
         for anchor in ('canteen-npc-spot', 'canteen-serve-point', 'canteen-queue'):
             self.assertIn(anchor, m)
+        counter = next(p for p in c.placements if p.id == 'canteen-counter')
+        x0, x1, y0, y1 = L.footprint(counter)
+        serve = m['canteen-serve-point']
+        self.assertTrue(x0 <= serve.x <= x1 and y0 <= serve.y <= y1)             # the plate lands on the counter
+        # the counter passes through the hatch: body in the kitchen, rails out in the saloon, filling the opening
+        wall = c.wall('canteen-front')
+        hatch = next(o for o in wall.openings if o.name == 'canteen-hatch')
+        self.assertEqual(counter.through, 'canteen-front')
+        self.assertTrue(counter.x - L.COUNTER_BACK < wall.c0 and counter.x + L.COUNTER_BODY_FRONT > wall.c1)
+        self.assertTrue(counter.y - L.COUNTER_HALF <= hatch.a0 and hatch.a1 <= counter.y + L.COUNTER_HALF)
+        # the straight tray slide runs the counter's length on the saloon side, deep enough for a 0.45 x 0.33 m tray,
+        # just under the top; the queue stands clear of it
+        slide = next(b for b in c.reservations if b.kind == 'tray-slide')
+        self.assertGreater(slide.x0, wall.c1)
+        self.assertGreaterEqual(slide.x1 - slide.x0, .30 - 1e-9)
+        self.assertGreaterEqual(slide.y1 - slide.y0, 2 * L.COUNTER_HALF - .05)
+        self.assertLess(slide.z1, L.FLOOR_Z + L.COUNTER_H)
+        self.assertGreaterEqual(m['canteen-queue'].x - L.HUMAN['radius'], slide.x1)
         spot, pot = m['canteen-npc-spot'], next(p for p in c.placements if p.id == 'canteen-pot')
         hatch_y = (L.HATCH[0] + L.HATCH[1]) / 2
         self.assertLessEqual(math.hypot(spot.x - pot.x, spot.y - pot.y), L.LADY_REACH)

@@ -344,6 +344,28 @@
         ],
         "fit": "uniform scale 1.93 to the 1.90 m width; pipework only, mounted on the riveted backhead plate"
       }
+    },
+    {
+      "id": "canteen-counter",
+      "name_fr": "Comptoir de service de la cantine (passe-plat)",
+      "dimensions_m": {
+        "width": 2.15,
+        "depth": 0.609,
+        "height": 0.92
+      },
+      "pivot": "floor_footprint_center",
+      "material_family": "battered-steel-cream-enamel",
+      "quantity_draft": 1,
+      "note": "through the serving hatch, its front towards the saloon (+X, yaw 90), the back upstand on the kitchen side where the canteen lady stands; the tray slide on the saloon side is part of the coach build (build.py canteen_tray_slide)",
+      "fitted_source": {
+        "file": "rusty metal cabinet 3d model.glb (Tripo Studio, from 'Battered train canteen serving counter.png')",
+        "source_size_m": [
+          1.0,
+          0.326,
+          0.314
+        ],
+        "fit": "uniform scale 2.15 to the length; the cream body panels (20-62 % of the height) lengthened to reach 0.92 m; Tripo's crooked tray rails and brackets cut off (--cut-box, everything in front of the body below the top), the footprint re-centred; the straight tray slide is modelled in the coach build"
+      }
     }
   ],
   "notes": [

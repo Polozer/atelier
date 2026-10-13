@@ -236,6 +236,7 @@ class Placement:
     y: float
     z: float
     yaw: float
+    through: str = ''      # a wall it passes through into the next room (the canteen counter under its hatch)
 
 
 @dataclass
@@ -575,11 +576,21 @@ def brake_van():
 SC_PITCH = .55 + .65 + .55 + .02           # bench, legroom, bench, gap: 1.77 m
 SC_BAYS = 8
 CANTEEN_X1 = -6.50                          # the canteen's front partition (the serving hatch)
-HATCH = (.05, 1.45, .95, 1.80)              # the serving hatch in it: y0, y1 and heights above the floor
-COUNTER_DEPTH, COUNTER_H = .58, .92         # the serving counter under the hatch (docs/BELMONTE_TRAIN_CANTEEN_LADY.md: 0.92 m)
+COUNTER_DEPTH, COUNTER_H = .609, .92        # the serving counter (docs/BELMONTE_TRAIN_CANTEEN_LADY.md: 0.92 m), Tripo's rails cut off
+# the Tripo canteen-counter measured from its centre (yaw 90: its front towards the saloon, +X): body and top ahead,
+# the back upstand behind, the body's half-length
+COUNTER_BODY_FRONT, COUNTER_TOP_FRONT, COUNTER_BACK, COUNTER_HALF = .259, .304, .279, 1.06
+# the tray slide modelled on its saloon face (build.py canteen_tray_slide): depth for a 0.45 x 0.33 m canteen tray,
+# top of the tubes just under the counter top, 25 mm tubes, a bracket every 0.66 m
+SLIDE_DEPTH, SLIDE_TOP, SLIDE_TUBE, SLIDE_BRACKETS = .30, .85, .025, (-.99, -.33, .33, .99)
+COUNTER_Y = (ROOM_Y + IN) / 2
+COUNTER_X = CANTEEN_X1 + PART + .04 - COUNTER_BODY_FRONT    # the body passes through the wall, 4 cm proud on the saloon side
+# the serving hatch: from the floor (the counter fills it below its top, which is the sill) to 1.80 m, over the body's
+# length less 1 cm a side so the body tucks into the wall: y0, y1 and heights above the floor
+HATCH = (COUNTER_Y - COUNTER_HALF + .01, COUNTER_Y + COUNTER_HALF - .01, 0., 1.80)
 LADY_RADIUS = .36                           # the canteen lady standing and turning: 1.65 m tall, ~1.4x Kaede's shoulders
 LADY_REACH = 1.20                           # from where she stands to the pot and to the hatch, ladle in hand
-STOVE_X = -7.95                             # the stove right behind the counter, against the outer wall
+STOVE_X = -7.75                             # the stove right behind the counter, against the outer wall
 
 
 def second_class():
@@ -627,19 +638,26 @@ def second_class():
     # the pot on the stove's large left hotplate (left seen from the room, i.e. towards -X)
     c.placements.append(Placement('canteen-pot', 'canteen-pot', 'canteen', STOVE_X - .23, IN - sd / 2 + .01, FLOOR_Z + .83, 0))
     hy = (HATCH[0] + HATCH[1]) / 2
-    cx0 = CANTEEN_X1 - COUNTER_DEPTH
+    # the Tripo counter through the hatch: body mostly in the kitchen, the front of its top and the tray rails out in
+    # the saloon where passengers slide their trays; its top is the hatch's sill
+    c.placements.append(Placement('canteen-counter', 'canteen-counter', 'canteen', COUNTER_X, COUNTER_Y, FLOOR_Z, 90, through='canteen-front'))
     c.reservations += [
-        Box('canteen-counter', 'canteen-counter', cx0, CANTEEN_X1 - .02, ROOM_Y + .05, IN - .05, FLOOR_Z, FLOOR_Z + COUNTER_H, 'serving counter under the hatch, with a tray slide'),
         Box('canteen-sink', 'canteen-sink', -SPAN_X + .05, -SPAN_X + .75, IN - .62, IN - .05, FLOOR_Z, FLOOR_Z + .90, 'chipped sink and draining board'),
         Box('canteen-shelves', 'canteen-shelves', -9.82, -9.30, ROOM_Y + .05, ROOM_Y + .45, FLOOR_Z, FLOOR_Z + 1.90, 'stacked tin plates and mugs'),
     ]
-    spot = (cx0 - LADY_RADIUS - .04, IN - sd - LADY_RADIUS - .04)     # clear of the counter and of the stove's front
+    # the straight tray slide along the counter's saloon face, for the whole length of the counter
+    sx0 = COUNTER_X + COUNTER_BODY_FRONT
+    c.reservations.append(Box('canteen-tray-slide', 'tray-slide', sx0, sx0 + SLIDE_DEPTH, COUNTER_Y - COUNTER_HALF, COUNTER_Y + COUNTER_HALF,
+                              FLOOR_Z + SLIDE_TOP - .16, FLOOR_Z + SLIDE_TOP, 'steel tray slide on brackets, modelled in the coach build'))
+    back = COUNTER_X - COUNTER_BACK
+    spot = (back - LADY_RADIUS - .04, IN - sd - LADY_RADIUS - .04)     # clear of the counter's back and of the stove's front
+    queue_x = sx0 + SLIDE_DEPTH + HUMAN['radius'] + .07                    # clear of the tray slide
     c.mounts += [
         Mount('canteen-npc-spot', 'npc-spot', 'canteen', spot[0], spot[1], FLOOR_Z, 90),            # the lady, facing the hatch
-        Mount('canteen-serve-point', 'serve-point', 'canteen', cx0 + COUNTER_DEPTH / 2, hy, FLOOR_Z + COUNTER_H, -90),  # the tray
-        Mount('canteen-queue', 'queue', 'saloon', salon_x0 + .45, hy, FLOOR_Z, -90, 1.10),          # the passenger, facing the hatch; the line runs +X
+        Mount('canteen-serve-point', 'serve-point', 'canteen', (CANTEEN_X1 + salon_x0) / 2, hy, FLOOR_Z + COUNTER_H, -90),  # the plate, on the top in the hatch
+        Mount('canteen-queue', 'queue', 'saloon', queue_x, hy, FLOOR_Z, -90, .80),                    # the passenger, facing the hatch; the line runs +X
     ]
-    c.goals.update({'canteen-npc-spot': spot, 'canteen-queue': (salon_x0 + .45, hy)})
+    c.goals.update({'canteen-npc-spot': spot, 'canteen-queue': (queue_x, hy)})
     c.mounts.append(Mount('menu-board', 'menu-board', 'saloon', salon_x0 + .02, .75, FLOOR_Z + 2.00, -90, 1.0))
     c.goals.update({'canteen': (-7.60, .30)})
     _curtains(c, lambda w: _room_at(c, w.x, w.side * (IN - .1)))
@@ -973,7 +991,15 @@ def check(c):
     for p in c.placements:
         r = c.room(p.room)
         x0, x1, y0, y1 = footprint(p) if p.z - FLOOR_Z < .05 else (p.x, p.x, p.y, p.y)
-        if x0 < r.x0 - 1e-6 or x1 > r.x1 + 1e-6 or y0 < r.y0 - 1e-6 or y1 > r.y1 + 1e-6:
+        rx0, rx1, ry0, ry1 = r.x0, r.x1, r.y0, r.y1
+        if p.through:                       # through a wall: the room and the one beyond it together
+            w = c.wall(p.through)
+            o = next(rm for rm in c.rooms if rm is not r and (rm.x0 <= w.c1 + 1e-6 <= rm.x1 or rm.x0 <= w.c0 - 1e-6 <= rm.x1)
+                     and rm.y0 <= (y0 + y1) / 2 <= rm.y1)
+            rx0, rx1, ry0, ry1 = min(rx0, o.x0), max(rx1, o.x1), max(ry0, min(r.y0, o.y0)), min(ry1, max(r.y1, o.y1))
+            if not any(op.a0 - 1e-6 <= (y0 + y1) / 2 <= op.a1 + 1e-6 for op in w.openings):
+                bad.append(f'{p.id} passes through {w.name} away from an opening')
+        if x0 < rx0 - 1e-6 or x1 > rx1 + 1e-6 or y0 < ry0 - 1e-6 or y1 > ry1 + 1e-6:
             bad.append(f'{p.id} leaves {r.name}')
     for name, radius in (('Cairo', CAIRO['radius']), ('adult', HUMAN['radius'])):
         res = reachable(c, radius, start(c), goals(c))

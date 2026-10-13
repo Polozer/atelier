@@ -3,7 +3,7 @@
     blender -b --python games/yorimichi/world/train/fit_furniture.py -- ASSET_ID SOURCE.fbx|.glb [--column Z0 Z1]
         [--yaw DEG] [--scale-by width|height] [--side-panels Y0 Y1 Z0 Z1] [--back-panel X0 X1 Z0 Z1]
         [--erase X0 X1 Z0 Z1 SHIFT] [--as OUTPUT_ID] [--table-top] [--side-wood] [--shallow-gaps]
-        [--metal HUE0 HUE1 SAT VAL [--metal-skip X0 X1 Y0 Y1 Z0 Z1]]
+        [--metal HUE0 HUE1 SAT VAL [--metal-skip X0 X1 Y0 Y1 Z0 Z1]] [--cut-box X0 X1 Y0 Y1 Z0 Z1]
     blender -b --python games/yorimichi/world/train/fit_furniture.py -- --metal-only OUTPUT_ID [HUE0 HUE1 SAT VAL]
 
 Imports the mesh, puts its origin at the contract's pivot (floor footprint centre, table lamp base, sconce wall
@@ -26,7 +26,8 @@ id (a variant of the asset with the same contract dimensions). --table-top build
 block and brackets) under a draped tablecloth, whose underside Tripo leaves as a flat sheet. --side-wood repaints the
 upholstery colour that bleeds onto a sofa's wooden side panels with the surrounding wood. --metal turns the brass and
 gilt Tripo paints as yellow into real metal (a metallic-roughness map from the colour map; see metalize); --metal-only
-does it to an asset already fitted.
+does it to an asset already fitted. --cut-box deletes the faces in a box (metres, fitted frame, after the column
+stretch) and re-centres the footprint: Tripo parts replaced by modelled ones.
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[1])); import yori  # noqa: E402,F401
 import hashlib
@@ -192,6 +193,26 @@ def uv_mask(me, w, h, keep):
             l2 = ((cy - ay) * (X - cx) + (ax - cx) * (Y - cy)) / d
             mask[y0:y1 + 1, x0:x1 + 1] |= (l1 >= -.02) & (l2 >= -.02) & (1 - l1 - l2 >= -.02)
     return mask
+
+
+def cut_box(obj, box):
+    """Delete the faces whose centre lies in box (x0, x1, y0, y1, z0, z1, metres, fitted frame): parts of a Tripo model
+    to be replaced by modelled ones (the canteen counter's crooked tray rails). Then re-centre the footprint."""
+    import bmesh
+    x0, x1, y0, y1, z0, z1 = box
+    me = obj.data
+    bm = bmesh.new(); bm.from_mesh(me)
+    gone = [f for f in bm.faces if x0 <= f.calc_center_median().x <= x1 and y0 <= f.calc_center_median().y <= y1
+            and z0 <= f.calc_center_median().z <= z1]
+    bmesh.ops.delete(bm, geom=gone, context='FACES')
+    loose = [v for v in bm.verts if not v.link_faces]
+    bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    bm.to_mesh(me); bm.free(); me.update()
+    lo, hi = bounds([obj])
+    shift = Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, 0))
+    for v in me.vertices:
+        v.co -= shift
+    print(f'CUT {len(gone)} faces in {box}; footprint re-centred by {tuple(round(s, 4) for s in shift[:2])}', flush=True)
 
 
 def side_wood(obj, out_id):
@@ -451,6 +472,7 @@ def main():
     with_top = '--table-top' in args         # a draped table: build the wooden top, apron and head under the cloth
     wood_sides = '--side-wood' in args       # a sofa: repaint fabric colour bleeding onto its wooden side panels
     shallow = '--shallow-gaps' in args       # with --side-panels: holes need not cross the seat
+    cut = [float(v) for v in args[args.index('--cut-box') + 1:args.index('--cut-box') + 7]] if '--cut-box' in args else None
     metal = ([float(v) for v in args[args.index('--metal') + 1:args.index('--metal') + 5]] if '--metal' in args else None)
     metal_skip = ([float(v) for v in args[args.index('--metal-skip') + 1:args.index('--metal-skip') + 7]] if '--metal-skip' in args else None)
     spec = next(a for a in L.contract()['assets'] if a['id'] == asset)
@@ -500,6 +522,8 @@ def main():
                 v.co.z += stretch
             elif v.co.z > z0:
                 v.co.z += stretch * (v.co.z - z0) / (z1 - z0)
+    if cut:
+        cut_box(obj, cut)
     if with_top:
         table_top(obj)
     if wood_sides:
