@@ -1,6 +1,6 @@
 """Prepare the livery swatches generated in ChatGPT for the train build (plain Python with Pillow, run once by hand).
 
-    python3 games/yorimichi/world/train/prepare_livery.py BLUE IVORY ROOF UNDERFRAME
+    python3 games/yorimichi/world/train/prepare_livery.py BLUE IVORY ROOF UNDERFRAME [BACKHEAD SMOKEBOX_DOOR]
 
 Writes games/yorimichi/assets/vehicles/belmonte-train/textures/*.jpg, the committed sources build.py reads:
 - livery-blue-panel.jpg: one lined lower-body panel (rivet strips, brass beading), 2048 x 1024, mapped once per
@@ -9,7 +9,9 @@ Writes games/yorimichi/assets/vehicles/belmonte-train/textures/*.jpg, the commit
   that line and cross-faded top to bottom so it tiles both ways, 2048 x 1024 for 2.00 x 1.00 m;
 - roof-canvas.jpg: the canvas roof cropped to a whole number of seam pitches (seven) so it tiles, turned a quarter so
   the seams run across the coach, 1024 x 1024;
-- underframe.jpg: the riveted black steel of the bogies and underframe, 1024 x 1024.
+- underframe.jpg: the riveted black steel of the bogies and underframe, 1024 x 1024;
+- backhead.jpg and smokebox-door.jpg: the locomotive's firebox backhead (gauges, water glasses, valves and the
+  fire-door arch painted on) and its round smokebox door, 1024 x 1024 each, mapped whole on their faces.
 """
 import sys
 from pathlib import Path
@@ -29,7 +31,7 @@ def save(img, name, size):
     print(name, size)
 
 
-def main(blue, ivory, roof, underframe):
+def main(blue, ivory, roof, underframe, backhead=None, smokebox_door=None):
     save(Image.open(blue), 'livery-blue-panel.jpg', (2048, 1024))
     a = np.asarray(Image.open(ivory).convert('RGB'), float)[:IVORY_CROP]
     body = a[:-FADE].copy()
@@ -40,7 +42,11 @@ def main(blue, ivory, roof, underframe):
     r = r.crop((0, ROOF_CROP[0], r.width, ROOF_CROP[1])).rotate(90, expand=True)
     save(r, 'roof-canvas.jpg', (1024, 1024))
     save(Image.open(underframe), 'underframe.jpg', (1024, 1024))
+    if backhead:
+        save(Image.open(backhead), 'backhead.jpg', (1024, 1024))
+    if smokebox_door:
+        save(Image.open(smokebox_door), 'smokebox-door.jpg', (1024, 1024))
 
 
 if __name__ == '__main__':
-    main(*sys.argv[1:5])
+    main(*sys.argv[1:7])

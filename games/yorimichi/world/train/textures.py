@@ -325,3 +325,6 @@ ALL = {
     'T_BT_TilesGrimy': lambda: tiles_grimy(),
     'T_BT_Two': lambda: numeral_two(),
 }
+for _name, _file in (('T_BT_SmokeboxDoor', 'smokebox-door.jpg'), ('T_BT_Backhead', 'backhead.jpg')):
+    if has(_file):          # optional locomotive swatches: plain black until they are added
+        ALL[_name] = lambda f=_file: _rgba(source(f))

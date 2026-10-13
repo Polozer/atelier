@@ -748,7 +748,8 @@ LOCO_BEAM = 6.55                            # front buffer beam
 
 def locomotive():
     """The engine at the head of the train, after the concept (locomotive-tender--locomotive-profile and the cab
-    interior): blue boiler with brass bands, black smokebox and chimney, brass dome, three 1.90 m coupled wheels with
+    interior), in the railway's black with brass and red lining (the user's choice): brass-banded boiler, smokebox
+    and chimney, brass dome, three 1.90 m coupled wheels with
     their rods, leading bogie and trailing axle. Its cab is the walkable part: open at the back onto the tender's
     footplate, the firebox backhead with the fire door at the front, the driver's controls on the left and the
     fireman's side on the right. Every control is a Mount of kind 'control' at its pivot (and a separate object in the
@@ -769,16 +770,16 @@ def locomotive():
     c.seats += [Seat('driver', 'driver-seat', -6.05, 1.28, F + .80, 90), Seat('fireman', 'fireman-seat', -6.05, -1.28, F + .80, 90)]
     bx = BACKHEAD_X
     c.mounts += [
-        Mount('regulator', 'control', 'cab', bx - .03, .42, F + 1.55, 90, .50),        # lever swinging across the backhead
+        Mount('regulator', 'control', 'cab', bx - .03, 0., F + 1.02, 90, .50),         # lever on the central fitting, swinging across
         Mount('reverser', 'control', 'cab', bx - .39, 1.14, F + 1.15, 90, .30),        # handwheel on the column
         Mount('brake', 'control', 'cab', -5.60, CAB_IN - .06, F + 1.20, 0, .25),       # driver's brake valve on the side
         Mount('whistle', 'control', 'cab', bx - .03, .62, F + 2.00, 90, .15),
         Mount('sander', 'control', 'cab', bx - .03, .80, F + .95, 90, .20),
-        Mount('fire-door', 'control', 'cab', bx - .01, 0., F + .67, 90, .50),
+        Mount('fire-door', 'control', 'cab', bx - .01, 0., F + .40, 90, .70),         # the arch painted on backhead.jpg
         Mount('injector-valve', 'control', 'cab', bx - .03, -.62, F + 1.25, 90, .10),
-        Mount('pressure-gauge', 'gauge', 'cab', bx - .03, 0., F + 1.85, 90, .32),
-        Mount('water-gauge-l', 'gauge', 'cab', bx - .03, .30, F + 1.35, 90, .40),
-        Mount('water-gauge-r', 'gauge', 'cab', bx - .03, -.30, F + 1.35, 90, .40),
+        Mount('pressure-gauge', 'gauge', 'cab', bx - .03, 0., F + 1.78, 90, .36),     # gauges where backhead.jpg paints them
+        Mount('water-gauge-l', 'gauge', 'cab', bx - .03, .38, F + 1.40, 90, .50),
+        Mount('water-gauge-r', 'gauge', 'cab', bx - .03, -.38, F + 1.40, 90, .50),
         Mount('cab-lamp', 'ceiling-lamp', 'cab', -5.70, 0., CAB_TOP - .05, 0),
         Mount('head-lamp', 'head-lamp', 'cab', LOCO_BEAM + .05, 0., 1.62, 90),
     ]
