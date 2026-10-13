@@ -10,8 +10,35 @@ source = "Cairo-Game-r18.blend"
 source_prefix = "Cairo"               # promote.py names new revisions Cairo-<stage>-rNN.blend (the archive keeps WarmOriginal-*)
 manifest = "source-manifest.json"     # every clip role with its reference, timing and contacts
 clip_roles = 56
-export = "export_unreal.py"
-export_args = []                      # export_unreal.py defaults to adventure.toml's nine donor clips
+fps = 60
 unreal_path = "/Game/Cairo"
 see_through = ["M_Cairo"]             # his body fades near the camera (Scripts/see_through.py)
 licence = "own; the sword attacks were retargeted from Mixamo motion, baked into the source (raw Mixamo files not included)"
+
+# How pipeline/export.py makes his body (the defaults, a Tripo model's, are in pipeline/definition.py). By default it exports
+# only the clips the merged move set takes from him (adventure.toml [donor]).
+[export]
+meshes = "outfit"                     # the dressed slots and the body regions the outfit leaves visible
+mesh_names = [{ property = "outfit_slot" }, { property = "body_region" }]
+measure = "evaluated-faces"           # loose vertices of the fitting body do not count
+measure_pose = "Standing · outfit review"
+actions = "authored"                  # his own clips, with their shape-key curves
+strip_simulation = false
+morph_names = "{slot}_{key}"
+clips = { "Sprint · dressed" = "Sprint" }
+
+[export.materials]
+name = "M_{asset}_{source}"
+texture = "T_{source}"
+format = "png"
+two_sided = "backface"
+roughness = "shader"
+metallic = "shader"
+specular = "shader"
+
+# How unreal/Scripts/import_character.py brings his body in (the defaults are in pipeline/definition.py).
+[unreal]
+camera_height = 35.0
+vertex_colors = true
+morph_targets = true                  # his outfit correctives and hair springs
+contact_morphs = ["head_Hair_fore", "head_Hair_side"]   # the skin readers follow his hair springs

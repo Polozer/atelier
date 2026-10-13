@@ -1,5 +1,5 @@
 # Modori, the rival (README.md). Source of truth: the current revision's .blend (textures packed) and its manifest.
-# Playable: export_unreal.py, Scripts/import_modori.py and the merged move set (adventure/retarget.py --character modori).
+# Playable: pipeline/export.py (with export_hooks.py, his coat), Scripts/import_character.py and the merged move set (adventure/retarget.py --character modori).
 id = "modori"
 display_name = "Modori"               # named on 7 October 2026 (earlier: the came-back take)
 role = "player"                       # the rival in the story, playable in place of Cairo
@@ -9,3 +9,16 @@ revision = "rig-r01"
 source = "Modori-Rig-r01.blend"
 manifest = "source-manifest.json"
 licence = "own (Sunburst concept, Tripo mesh, rig and UV, texture and face painted here)"
+
+# How pipeline/export.py makes his body (the defaults, a Tripo model's, are in pipeline/definition.py).
+[export]
+extra_bones = "drop"                  # Mixamo's end bones (finger tips, head top, toe ends) carry no weights
+mesh_names = [{ group = "cloth_pin", name = "Coat" }, { name = "Body" }]
+fbx = { colors_type = "LINEAR" }      # the coat's cloth mask travels as its vertex colour (export_hooks.py)
+
+[export.materials]
+two_sided = ["Coat"]
+
+# How unreal/Scripts/import_character.py brings his body in (the defaults are in pipeline/definition.py).
+[unreal]
+vertex_colors = true                  # the coat's cloth mask

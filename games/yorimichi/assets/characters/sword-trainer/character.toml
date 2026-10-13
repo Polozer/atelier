@@ -11,6 +11,22 @@ source = "SwordTrainer-Rig-r03.blend"
 manifest = "source-manifest.json"
 clip_roles = 2                        # her own: Bow, Talk; the move set's clips come from the retarget
 fps = 30
-export = "export_unreal.py"
 unreal_path = "/Game/SwordTrainer"
 licence = "own (Sunburst concept, Tripo mesh and rig, clips authored here)"
+
+# How pipeline/export.py makes her body (the defaults, a Tripo model's, are in pipeline/definition.py).
+[export]
+mesh_names = [{ property = "body_region" }, { name = "part{index}" }]
+actions = "authored"                  # her own Bow and Talk
+strip_simulation = false
+
+[export.materials]
+name = "M_{asset}_{source}"
+texture = "T_{source}"
+roughness = 0.7
+specular = 0.3
+
+# How unreal/Scripts/import_character.py brings her body in (the defaults are in pipeline/definition.py).
+[unreal]
+camera_height = 40.0
+cpu_access = false                    # she neither skates nor grips

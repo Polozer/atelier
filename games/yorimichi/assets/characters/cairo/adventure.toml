@@ -7,7 +7,7 @@ definition = "/Game/CairoAdventure/DA_CairoAdventure"
 keep_base_actions = true                       # retain his authored gestures alongside the merged actions
 
 # The clips of his own the merged set plays (on every character): sampled by retarget.py --dump-own and retargeted onto
-# the others at their 60 fps; on Cairo they are his imported clips in /Game/Cairo (import_cairo.py).
+# the others at their 60 fps; on Cairo they are his imported clips in /Game/Cairo (import_character.py).
 [donor]
 folder = "/Game/Cairo"
 fps = 60

@@ -3,10 +3,10 @@
     blender -b --python games/yorimichi/assets/vehicles/bike/rider.py [-- --clips BikeRide,BikeBell] [--review DIR]
         [--character modori]
 
---character authors the same clips on another playable character's rig (its folder's export_unreal.prepare), into
+--character authors the same clips on another playable character's rig (pipeline/rig.py prepare), into
 build/yorimichi/<character>/bike/: the solve reaches the same grips, pedals and saddle with that body's limbs.
 
-Opens Cairo's source through export_unreal.prepare (sha checked, contract bone names, 1.48 m; the blend is never
+Opens Cairo's source through characters/pipeline/rig.py prepare (sha checked, contract bone names, 1.48 m; the blend is never
 saved) and reads the bike's contact points from build/yorimichi/bike/manifest.json. Bike space is the bike model's:
 metres, +X forward, +Y left, origin on the ground under the bottom bracket. While riding, Cairo's mesh origin sits
 there, so every clip is authored with the rig's origin at the bike's.
@@ -573,12 +573,10 @@ def render_clip(scene, cam, parts, base, rig, hands, name, clip, out, count=7):
 
 
 def character(name):
-    """The character's export module (its prepare, SOURCE and FBX) and its bike output folder."""
-    import importlib.util
-    folder = HERE.parents[1] / 'characters' / name
-    spec = importlib.util.spec_from_file_location(f'{name.replace("-", "_")}_export', folder / 'export_unreal.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    """The character's rig (characters/pipeline/rig.py: its prepare, SOURCE, OUT and FBX) and its bike output folder."""
+    sys.path.insert(0, str(HERE.parents[1] / 'characters' / 'pipeline'))
+    import rig
+    module = rig.load(name)
     return module, module.OUT / 'bike'
 
 

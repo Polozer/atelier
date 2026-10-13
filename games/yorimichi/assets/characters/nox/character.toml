@@ -7,3 +7,22 @@ revision = "assembled-r03"
 source = "Nox.glb"
 manifest = "source-manifest.json"
 licence = "own (Sunburst references, Tripo mesh and body rig, local texture repairs and hair rig)"
+
+# How pipeline/export.py makes his body (the defaults, a Tripo model's, are in pipeline/definition.py). His seat
+# corrective shapes are checked by export_hooks.py.
+[export]
+extra_bones = "follow"                # the hair rig and Mixamo's end bones stay as neutral followers of their parents
+followers = { NoxLoc_ = 180 }
+mesh_names = [{ group_prefix = "NoxLoc_", name = "Head" }, { name = "Body" }]
+
+[export.materials]
+format = "png"
+two_sided = true
+require_texture = true
+atlas = 4096
+
+# How unreal/Scripts/import_character.py brings his body in (the defaults are in pipeline/definition.py).
+[unreal]
+physics_asset = false                 # skating fits its own physical rider to him
+vertex_colors = true
+morph_targets = true                  # his seat correctives

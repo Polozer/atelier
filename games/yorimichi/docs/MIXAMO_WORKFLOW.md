@@ -174,7 +174,7 @@ uv run atelier live py - < games/yorimichi/scenarios/adventure_moves.py
 
 The game imports only Cairo's body and the nine donor clips listed in
 [adventure.toml](../assets/characters/cairo/adventure.toml): double jump, guard/parry/recoil and everyday gestures.
-[import_cairo.py](../unreal/Scripts/import_cairo.py) installs those inputs; the
+[import_character.py](../unreal/Scripts/import_character.py) installs those inputs; the
 [merged importer](../unreal/Scripts/import_adventure_moveset.py) supplies the movement and combat set, action timings
 and sword/paraglider fits. The authored combo and armed copies described above remain source authoring material;
 they are not exported or imported as another playable move set. Older generated imports are archived before cooking.

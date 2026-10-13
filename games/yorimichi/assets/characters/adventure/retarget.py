@@ -5,14 +5,14 @@
     blender -b --python games/yorimichi/assets/characters/adventure/retarget.py -- --dump-own   # the donor's own clips, for the next
 
 Any character on the humanoid contract with an adventure.toml takes the merged move set: `--character sword-trainer` reads
-Kaede's source (sword-trainer/export_unreal.prepare) and writes build/yorimichi/sword-trainer/adventure/ (default: cairo). A
+Kaede's source (pipeline/rig.py prepare) and writes build/yorimichi/sword-trainer/adventure/ (default: cairo). A
 character other than the donor (the one whose adventure.toml has a [donor] table, Cairo) also takes the donor's own clips in
 the merged set ([donor] clips: his double jump, his two-handed guard, parry and recoil, and its gestures), from
 build/yorimichi/<donor>/adventure/own.npz, which `--dump-own` writes from the donor's source: the same retarget with the
 donor in Reference's place (bone for bone, at [donor] fps, its clips' rate).
 
 Reads Reference's baked clips (build/yorimichi/adventure/glb/Reference.glb and export.json, from adventure/export.py) and the character's
-source (its export_unreal.prepare), and writes build/yorimichi/<id>/adventure/: fbx/A_<Clip>.fbx for each of Reference's clips,
+source (pipeline/rig.py prepare), and writes build/yorimichi/<id>/adventure/: fbx/A_<Clip>.fbx for each of Reference's clips,
 on its skeleton at 30 fps, and export.json: the clips, its body scale against Reference's, and per clip how far the solved
 ankles and hips sit from where they were asked to be. The comments below say Cairo for the character retargeted onto.
 
@@ -25,7 +25,6 @@ planted feet stay planted and the stride matches the move set's scaled speeds; h
 swimming, gliding, climbing), where Cairo's own leg reaches bent as Reference's is.
 """
 import argparse
-import importlib.util
 import json
 import sys
 import tomllib
@@ -40,6 +39,8 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(CHARS.parent.parent / 'world')); import yori  # noqa: E402
 import bake   # noqa: E402
 import stance  # noqa: E402
+sys.path.insert(0, str(CHARS / 'pipeline'))
+import rig  # noqa: E402
 
 REFERENCE = yori.OUT / 'adventure'
 FPS = bake.FPS
@@ -409,11 +410,8 @@ def write_action(arm, name, basis, location):
 
 
 def character(name):
-    """The character's export module (its `prepare`, `SOURCE` and FBX settings) and its output folder."""
-    folder = CHARS / name
-    spec = importlib.util.spec_from_file_location(f'{name.replace("-", "_")}_export', folder / 'export_unreal.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    """The character's rig (pipeline/rig.py: its `prepare`, `SOURCE`, `OUT` and FBX settings) and its output folder."""
+    module = rig.load(name)
     return module, module.OUT / 'adventure'
 
 
