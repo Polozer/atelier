@@ -575,6 +575,11 @@ def brake_van():
 SC_PITCH = .55 + .65 + .55 + .02           # bench, legroom, bench, gap: 1.77 m
 SC_BAYS = 8
 CANTEEN_X1 = -6.50                          # the canteen's front partition (the serving hatch)
+HATCH = (.05, 1.45, .95, 1.80)              # the serving hatch in it: y0, y1 and heights above the floor
+COUNTER_DEPTH, COUNTER_H = .58, .92         # the serving counter under the hatch (docs/BELMONTE_TRAIN_CANTEEN_LADY.md: 0.92 m)
+LADY_RADIUS = .36                           # the canteen lady standing and turning: 1.65 m tall, ~1.4x Kaede's shoulders
+LADY_REACH = 1.20                           # from where she stands to the pot and to the hatch, ladle in hand
+STOVE_X = -7.95                             # the stove right behind the counter, against the outer wall
 
 
 def second_class():
@@ -590,7 +595,7 @@ def second_class():
                 Room('service-corridor', 'corridor', -SPAN_X, CANTEEN_X1, -IN, CORR_Y, 'lino'),
                 Room('saloon', 'saloon', salon_x0, SPAN_X, -IN, IN, 'lino')]
     c.walls += [Wall('canteen-side', 'x', -SPAN_X, CANTEEN_X1, CORR_Y, ROOM_Y, [Opening('door-canteen', -9.40, -8.65)]),
-                Wall('canteen-front', 'y', ROOM_Y, IN, CANTEEN_X1, salon_x0, [Opening('canteen-hatch', .05, 1.45, FLOOR_Z + .95, FLOOR_Z + 1.80)])]
+                Wall('canteen-front', 'y', ROOM_Y, IN, CANTEEN_X1, salon_x0, [Opening('canteen-hatch', HATCH[0], HATCH[1], FLOOR_Z + HATCH[2], FLOOR_Z + HATCH[3])])]
     c.doors.append(Door('door-canteen', 'canteen-side', 'door-canteen', 'sliding', -1, -1, False, .80))
     bw, bd, _ = asset_dims('second-class-bench')
     first = salon_x0 + 1.60                 # room to queue in front of the hatch
@@ -615,16 +620,26 @@ def second_class():
         x = first + (k + 1) * SC_PITCH - .01
         c.windows += [Window(f'saloon-{k // 2 + 1}-l', 1, x, 2 * SC_PITCH - .45), Window(f'saloon-{k // 2 + 1}-r', -1, x, 2 * SC_PITCH - .45)]
     c.windows += [Window('canteen-l', 1, -8.20, SMALL_W, FLOOR_Z + 1.00, HEAD), Window('service-r', -1, -8.20, SMALL_W)]
+    # the serving line: the stove and its pot right behind the counter, the canteen lady between them facing the hatch,
+    # the tray set down on the counter under the hatch, the passenger queuing in the saloon in front of it
     sw, sd, _ = asset_dims('canteen-stove')
-    stove_x = -SPAN_X + .05 + sw / 2
-    c.placements.append(Placement('canteen-stove', 'canteen-stove', 'canteen', stove_x, IN - sd / 2, FLOOR_Z, 0))
+    c.placements.append(Placement('canteen-stove', 'canteen-stove', 'canteen', STOVE_X, IN - sd / 2, FLOOR_Z, 0))
     # the pot on the stove's large left hotplate (left seen from the room, i.e. towards -X)
-    c.placements.append(Placement('canteen-pot', 'canteen-pot', 'canteen', stove_x - .23, IN - sd / 2 + .01, FLOOR_Z + .83, 0))
+    c.placements.append(Placement('canteen-pot', 'canteen-pot', 'canteen', STOVE_X - .23, IN - sd / 2 + .01, FLOOR_Z + .83, 0))
+    hy = (HATCH[0] + HATCH[1]) / 2
+    cx0 = CANTEEN_X1 - COUNTER_DEPTH
     c.reservations += [
-        Box('canteen-counter', 'canteen-counter', CANTEEN_X1 - .60, CANTEEN_X1 - .02, ROOM_Y + .05, IN - .05, FLOOR_Z, FLOOR_Z + .95, 'serving counter under the hatch'),
-        Box('canteen-sink', 'canteen-sink', -8.25, -7.55, IN - .62, IN - .05, FLOOR_Z, FLOOR_Z + .90, 'chipped sink and draining board'),
+        Box('canteen-counter', 'canteen-counter', cx0, CANTEEN_X1 - .02, ROOM_Y + .05, IN - .05, FLOOR_Z, FLOOR_Z + COUNTER_H, 'serving counter under the hatch, with a tray slide'),
+        Box('canteen-sink', 'canteen-sink', -SPAN_X + .05, -SPAN_X + .75, IN - .62, IN - .05, FLOOR_Z, FLOOR_Z + .90, 'chipped sink and draining board'),
         Box('canteen-shelves', 'canteen-shelves', -9.82, -9.30, ROOM_Y + .05, ROOM_Y + .45, FLOOR_Z, FLOOR_Z + 1.90, 'stacked tin plates and mugs'),
     ]
+    spot = (cx0 - LADY_RADIUS - .04, IN - sd - LADY_RADIUS - .04)     # clear of the counter and of the stove's front
+    c.mounts += [
+        Mount('canteen-npc-spot', 'npc-spot', 'canteen', spot[0], spot[1], FLOOR_Z, 90),            # the lady, facing the hatch
+        Mount('canteen-serve-point', 'serve-point', 'canteen', cx0 + COUNTER_DEPTH / 2, hy, FLOOR_Z + COUNTER_H, -90),  # the tray
+        Mount('canteen-queue', 'queue', 'saloon', salon_x0 + .45, hy, FLOOR_Z, -90, 1.10),          # the passenger, facing the hatch; the line runs +X
+    ]
+    c.goals.update({'canteen-npc-spot': spot, 'canteen-queue': (salon_x0 + .45, hy)})
     c.mounts.append(Mount('menu-board', 'menu-board', 'saloon', salon_x0 + .02, .75, FLOOR_Z + 2.00, -90, 1.0))
     c.goals.update({'canteen': (-7.60, .30)})
     _curtains(c, lambda w: _room_at(c, w.x, w.side * (IN - .1)))

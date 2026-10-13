@@ -97,5 +97,20 @@ class Coaches(unittest.TestCase):
         self.assertTrue({'regulator', 'reverser', 'brake', 'whistle', 'fire-door'} <= controls)
 
 
+    def test_canteen_serving_line(self):
+        import math
+        c = L.second_class()
+        m = {mt.id: mt for mt in c.mounts}
+        for anchor in ('canteen-npc-spot', 'canteen-serve-point', 'canteen-queue'):
+            self.assertIn(anchor, m)
+        spot, pot = m['canteen-npc-spot'], next(p for p in c.placements if p.id == 'canteen-pot')
+        hatch_y = (L.HATCH[0] + L.HATCH[1]) / 2
+        self.assertLessEqual(math.hypot(spot.x - pot.x, spot.y - pot.y), L.LADY_REACH)
+        self.assertLessEqual(math.hypot(spot.x - L.CANTEEN_X1, spot.y - hatch_y), L.LADY_REACH)
+        # she stands, turns and walks about the kitchen; the passenger reaches the queue in front of the hatch
+        self.assertTrue(all(L.reachable(c, L.LADY_RADIUS, (spot.x, spot.y), {'kitchen': (-8.9, .05)}).values()))
+        self.assertEqual(L.check(c), [])
+
+
 if __name__ == '__main__':
     unittest.main()
