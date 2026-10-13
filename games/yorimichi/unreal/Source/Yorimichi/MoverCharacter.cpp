@@ -38,6 +38,7 @@ void AMoverCharacter::BeginPlay()
     {
         HairSpring = NewObject<UHairSpringComponent>(this, TEXT("HairSpring"));
         HairSpring->Morphs = HairSpringMorphs;
+        HairSpring->AddTickPrerequisiteActor(this);   // the spring follows this frame's head
         HairSpring->RegisterComponent();
     }
     if (!SeatCorrectivePrefix.IsEmpty())

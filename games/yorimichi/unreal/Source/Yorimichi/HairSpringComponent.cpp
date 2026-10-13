@@ -7,6 +7,8 @@
 UHairSpringComponent::UHairSpringComponent()
 {
     PrimaryComponentTick.bCanEverTick = true;
+    // Before physics, right after its character's own tick (AMoverCharacter makes the character a prerequisite).
+    PrimaryComponentTick.TickGroup = TG_PrePhysics;
 }
 
 void UHairSpringComponent::TickComponent(float Dt, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -38,7 +40,7 @@ void UHairSpringComponent::TickComponent(float Dt, ELevelTick TickType, FActorCo
         Flex += FlexVelocity * H;
         if (Flex.SizeSquared() > 1.) { Flex.Normalize(); FlexVelocity = FVector2D::ZeroVector; }
     }
-    const float Enabled = FParse::Param(FCommandLine::Get(), TEXT("statichair")) ? 0.f : ContactFade;
+    const float Enabled = (FParse::Param(FCommandLine::Get(), TEXT("statichair")) || FParse::Param(FCommandLine::Get(), TEXT("cairostatichair"))) ? 0.f : ContactFade;
     Mesh->SetMorphTarget(Morphs[0], Flex.X * Enabled);
     Mesh->SetMorphTarget(Morphs[1], Flex.Y * Enabled);
 }

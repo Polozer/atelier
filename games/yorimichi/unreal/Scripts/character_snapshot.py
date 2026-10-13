@@ -68,7 +68,10 @@ def snapshot():
     options.evaluation_type = U.AnimDataEvalType.COMPRESSED
     options.optional_skeletal_mesh = mesh
     clips = {}
-    for folder in (dest, dest + 'Bike'):
+    # The body's folder and its bike clips, and the merged move set's, wherever its adventure.toml puts it.
+    folders = [dest, dest + 'Bike'] + ([character.adventure['dest']] if character.plays and not
+                                        character.adventure['dest'].startswith(dest + '/') else [])
+    for folder in folders:
         if not E.does_directory_exist(folder):
             continue
         for path in sorted(E.list_assets(folder, recursive=True)):
@@ -88,6 +91,10 @@ def snapshot():
                                          'curves': curves, 'frames': frames}
     data['clips'] = clips
     (out / 'snapshot.json').write_text(json.dumps(data) + '\n')
+    # An empty or partial snapshot proves nothing: every folder it reads must hold clips.
+    missing = [f for f in folders if (f != dest + 'Bike' or character.playable)
+               and not any(path.startswith(f + '/') for path in clips)]
+    assert clips and not missing, (character.id, 'no clips in', missing)
     U.log(f'CHARACTER SNAPSHOT COMPLETE: {character.id} {len(clips)} clips')
 
 

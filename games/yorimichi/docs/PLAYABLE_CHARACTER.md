@@ -165,9 +165,9 @@ seven eighths of it, and the mesh sits 0.65 cm lower. Override only what differs
 Modori's coat (`skate_clothing_clearance`, `cloth_teleport`) and Nox's seat (`seat_correctives`) are examples.
 
 The step writes `Content/Data/<id>/character.json` last. The game registers every character with that record when it
-starts, for `-rider=`, the character menu and shared games. A game already running picks up a new one with the console
-command `yorimichi.RescanCharacters`. A shared game keeps the catalogue it started with, so a character added during one
-appears after reconnecting.
+starts, for `-rider=`, the character menu and shared games. The console command `yorimichi.RescanCharacters` registers
+the records that appeared in the game's own `Content/Data` since then. It replaces the catalogue only when every name,
+alias and default is consistent. A shared game keeps the catalogue it started with.
 
 ```sh
 nice -n 10 uv run atelier build yorimichi unreal.<key>_pawn
