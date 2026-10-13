@@ -610,11 +610,14 @@ def second_class():
         x = first + (k + 1) * SC_PITCH - .01
         c.windows += [Window(f'saloon-{k // 2 + 1}-l', 1, x, 2 * SC_PITCH - .45), Window(f'saloon-{k // 2 + 1}-r', -1, x, 2 * SC_PITCH - .45)]
     c.windows += [Window('canteen-l', 1, -8.20, SMALL_W, FLOOR_Z + 1.00, HEAD), Window('service-r', -1, -8.20, SMALL_W)]
-    c.placements.append(Placement('canteen-stove', 'canteen-stove', 'canteen', -9.30, IN - .345, FLOOR_Z, 0))
-    c.placements.append(Placement('canteen-pot', 'canteen-pot', 'canteen', -9.30, IN - .38, FLOOR_Z + .90, 0))
+    sw, sd, _ = asset_dims('canteen-stove')
+    stove_x = -SPAN_X + .05 + sw / 2
+    c.placements.append(Placement('canteen-stove', 'canteen-stove', 'canteen', stove_x, IN - sd / 2, FLOOR_Z, 0))
+    # the pot on the stove's large left hotplate (left seen from the room, i.e. towards -X)
+    c.placements.append(Placement('canteen-pot', 'canteen-pot', 'canteen', stove_x - .23, IN - sd / 2 + .01, FLOOR_Z + .83, 0))
     c.reservations += [
         Box('canteen-counter', 'canteen-counter', CANTEEN_X1 - .60, CANTEEN_X1 - .02, ROOM_Y + .05, IN - .05, FLOOR_Z, FLOOR_Z + .95, 'serving counter under the hatch'),
-        Box('canteen-sink', 'canteen-sink', -8.55, -7.75, IN - .62, IN - .05, FLOOR_Z, FLOOR_Z + .90, 'chipped sink and draining board'),
+        Box('canteen-sink', 'canteen-sink', -8.25, -7.55, IN - .62, IN - .05, FLOOR_Z, FLOOR_Z + .90, 'chipped sink and draining board'),
         Box('canteen-shelves', 'canteen-shelves', -9.82, -9.30, ROOM_Y + .05, ROOM_Y + .45, FLOOR_Z, FLOOR_Z + 1.90, 'stacked tin plates and mugs'),
     ]
     c.mounts.append(Mount('menu-board', 'menu-board', 'saloon', salon_x0 + .02, .75, FLOOR_Z + 2.00, -90, 1.0))

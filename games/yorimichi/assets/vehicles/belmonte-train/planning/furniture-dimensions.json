@@ -277,14 +277,24 @@
       "id": "canteen-stove",
       "name_fr": "Vieux fourneau de la cantine (porte la marmite)",
       "dimensions_m": {
-        "width": 1.0,
-        "depth": 0.65,
+        "width": 1.494,
+        "depth": 0.899,
         "height": 0.9
       },
       "pivot": "floor_footprint_center",
       "material_family": "blackened-cast-iron-enamel",
       "quantity_draft": 1,
-      "note": "the canteen pot stands on its hob at 0.90 m"
+      "note": "the canteen pot stands on its large left hotplate (0.23 m left of centre) at 0.83 m; 0.90 m is the top of the brass rail",
+      "hob_height_m": 0.83,
+      "fitted_source": {
+        "file": "antique stove 3d model.glb (Tripo Studio)",
+        "source_size_m": [
+          1.0,
+          0.601,
+          0.602
+        ],
+        "fit": "scaled by height (x1.495): the model is wider than the 1.00 m draft, proportions kept"
+      }
     }
   ],
   "notes": [
@@ -306,6 +316,7 @@
     "Envelope widened at the user's request for roomy luxury corridors: exterior 3.10 -> 3.60 m (interior 3.45), first-class corridor 0.90 -> 1.20 m, cabins 2.00 -> 2.20 m, restaurant aisle 0.98 -> 1.48 m. Heights, coupling and gauge unchanged.",
     "Restaurant furniture widened into the new width (user): banquette 1.10 x 0.72 x 1.25 m, table 1.05 x 0.85 x 0.75 m; aisle 1.18 m; bay pitch 2.51 m.",
     "Restaurant banquette set to the Tripo Studio model: 1.10 x 0.76 x 1.15 m (back lengthened from 0.94 m); bay pitch 2.59 m.",
-    "Wall sconce set to the Tripo Studio model: 0.25 x 0.32 x 0.40 m; cabin sconces raised to 1.62 m to clear seated heads."
+    "Wall sconce set to the Tripo Studio model: 0.25 x 0.32 x 0.40 m; cabin sconces raised to 1.62 m to clear seated heads.",
+    "Canteen stove set to the Tripo Studio model: 1.49 x 0.90 x 0.90 m, hob at 0.83 m; stove centred at x -9.08 against the outer wall, the pot on its large hotplate; sink moved to x -8.25..-7.55."
   ]
 }
