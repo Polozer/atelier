@@ -2,6 +2,7 @@
 
     blender -b --python games/yorimichi/world/train/fit_furniture.py -- ASSET_ID SOURCE.fbx|.glb [--column Z0 Z1]
         [--yaw DEG] [--scale-by width|height] [--side-panels Y0 Y1 Z0 Z1] [--back-panel X0 X1 Z0 Z1]
+        [--erase X0 X1 Z0 Z1 SHIFT] [--as OUTPUT_ID]
 
 Imports the mesh, puts its origin at the contract's pivot (floor footprint centre, table lamp base, sconce wall
 mount), scales it uniformly so its width matches the contract, then, with --column, lengthens only the part between
@@ -17,6 +18,9 @@ scale, column stretch, triangles, checksum) and a check render <asset>.png again
 says so). --side-panels closes see-through gaps in the sides of a seat: a thin panel just inside each side, from
 Y0 to Y1 (fractions of the depth, front to back) and Z0 to Z1 (fractions of the height), textured with the
 model's own material at the side's wood. --back-panel does the same for the back (X0 to X1: fractions of the width).
+--erase paints over a mark in the texture (carved initials, say): the front-facing area X0..X1, Z0..Z1 (metres, fitted
+frame) is covered with the texture of the same area moved SHIFT metres along X. --as writes the result under another
+id (a variant of the asset with the same contract dimensions).
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[1])); import yori  # noqa: E402,F401
 import hashlib
@@ -108,6 +112,95 @@ def close_gaps(obj, f, faces=('-x', '+x'), n=56):
     print('CLOSED GAPS', report, flush=True)
 
 
+def erase_mark(obj, e, out_id, keep_front=False):
+    """Cover a mark in the base-colour texture with a clean patch of the same surface, moved along X."""
+    import numpy as np
+    from mathutils.bvhtree import BVHTree
+    import bmesh
+    x0, x1, z0, z1, shift = e
+    me = obj.data
+    bm = bmesh.new(); bm.from_mesh(me); bm.faces.ensure_lookup_table()
+    uvl = bm.loops.layers.uv.active
+    tree = BVHTree.FromBMesh(bm)
+    lo, hi = bounds([obj])
+
+    def uv_at(x, z):
+        loc, _, index, _ = tree.ray_cast(Vector((x, lo.y - 1, z)), Vector((0, 1, 0)))
+        if loc is None:
+            return None
+        f = bm.faces[index]
+        # barycentric UV inside the hit triangle (fan from the first corner)
+        loops = f.loops
+        from mathutils.geometry import intersect_point_tri, barycentric_transform
+        a = loops[0]
+        for b, c in zip(loops[1:], loops[2:]):
+            if intersect_point_tri(loc, a.vert.co, b.vert.co, c.vert.co):
+                p = barycentric_transform(loc, a.vert.co, b.vert.co, c.vert.co,
+                                          a[uvl].uv.to_3d(), b[uvl].uv.to_3d(), c[uvl].uv.to_3d())
+                return p.x, p.y
+        return tuple(sum((l[uvl].uv for l in loops), Vector((0, 0))) / len(loops))
+
+    img = None
+    for m in me.materials:
+        for n in (m.node_tree.nodes if m and m.node_tree else []):
+            # the colour map (sRGB), whether it feeds Base Color directly or through a Mix node as Tripo's do
+            if n.type == 'TEX_IMAGE' and n.image and n.image.colorspace_settings.name == 'sRGB' and n.outputs['Color'].links:
+                img = n.image
+    if img is None:
+        print('ERASE: no base colour texture', flush=True); return
+    w, h = img.size
+    px = np.empty(w * h * 4, np.float32); img.pixels.foreach_get(px); px = px.reshape(h, w, 4)
+    done = 0
+    for i in range(80):
+        for j in range(30):
+            x = x0 + (x1 - x0) * i / 79; z = z0 + (z1 - z0) * j / 29
+            dst, src = uv_at(x, z), uv_at(x + shift, z)
+            if dst is None or src is None:
+                continue
+            (du, dv), (su, sv) = dst, src
+            di, dj = int((du % 1) * w), int((dv % 1) * h)
+            si, sj = int((su % 1) * w), int((sv % 1) * h)
+            r = 3
+            px[max(0, dj - r):dj + r + 1, max(0, di - r):di + r + 1] = px[max(0, sj - r):sj + r + 1, max(0, si - r):si + r + 1][:min(dj + r + 1, h) - max(0, dj - r), :min(di + r + 1, w) - max(0, di - r)]
+            done += 1
+    img.pixels.foreach_set(px.ravel())
+    path = OUT / f'{out_id}-basecolor.png'
+    OUT.mkdir(parents=True, exist_ok=True)
+    img.filepath_raw = str(path); img.file_format = 'PNG'; img.save()
+    # the exporter writes an embedded image's original bytes: load the edited file and use it instead
+    fresh = bpy.data.images.load(str(path), check_existing=False)
+    fresh.pack()
+    if keep_front:
+        # the original keeps the mark on the front; every face gets a reversed twin, textured with the clean copy,
+        # and both sides become single-sided: the mark reads from the front only
+        bm.free()
+        src = me.materials[0]
+        back = src.copy(); back.name = src.name + '_back'
+        for n in back.node_tree.nodes:
+            if n.type == 'TEX_IMAGE' and n.image == img:
+                n.image = fresh
+        me.materials.append(back)
+        bm = bmesh.new(); bm.from_mesh(me)
+        faces = list(bm.faces)
+        dup = bmesh.ops.duplicate(bm, geom=faces)
+        twins = [g for g in dup['geom'] if isinstance(g, bmesh.types.BMFace)]
+        bmesh.ops.reverse_faces(bm, faces=twins)
+        for f in twins:
+            f.material_index = len(me.materials) - 1
+        bm.to_mesh(me); bm.free(); me.update()
+        for m in me.materials:
+            m.use_backface_culling = True
+            m['single_sided'] = True
+        print('ERASE: mark kept on the front, clean back added', flush=True)
+        return
+    for m in me.materials:
+        for n in (m.node_tree.nodes if m and m.node_tree else []):
+            if n.type == 'TEX_IMAGE' and n.image == img:
+                n.image = fresh
+    bm.free()
+    print(f'ERASE: {done} samples patched in {img.name} ({w}x{h})', flush=True)
+
+
 def main():
     args = sys.argv[sys.argv.index('--') + 1:]
     asset, src = args[0], _Path(args[1])
@@ -118,6 +211,9 @@ def main():
     scale_by = args[args.index('--scale-by') + 1] if '--scale-by' in args else 'width'
     panels = [float(v) for v in args[args.index('--side-panels') + 1:args.index('--side-panels') + 5]] if '--side-panels' in args else None
     back = [float(v) for v in args[args.index('--back-panel') + 1:args.index('--back-panel') + 5]] if '--back-panel' in args else None
+    erase = [float(v) for v in args[args.index('--erase') + 1:args.index('--erase') + 6]] if '--erase' in args else None
+    out_id = args[args.index('--as') + 1] if '--as' in args else asset
+    keep_front = '--keep-front' in args      # with --erase: the mark stays on the front, a separate back is clean
     spec = next(a for a in L.contract()['assets'] if a['id'] == asset)
     tw, td, th = (spec['dimensions_m'][k] for k in ('width', 'depth', 'height'))
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -169,6 +265,8 @@ def main():
         close_gaps(obj, panels, ('-x', '+x'))
     if back:
         close_gaps(obj, back, ('+y',))
+    if erase:
+        erase_mark(obj, erase, out_id, keep_front)
     if spec['pivot'] == 'wall_mount_center':
         lo, hi = bounds([obj])
         for v in obj.data.vertices:          # back of the sconce on y = 0, front towards -Y, centred in height
@@ -203,13 +301,13 @@ def main():
     cam.rotation_euler = (c - cam.location).to_track_quat('-Z', 'Y').to_euler()
     sun = bpy.data.objects.new('sun', bpy.data.lights.new('sun', 'SUN')); sun.data.energy = 2.5; sun.rotation_euler = (.7, .2, .8)
     sc.collection.objects.link(sun)
-    sc.render.filepath = str(OUT / f'{asset}.png'); bpy.ops.render.render(write_still=True)
+    sc.render.filepath = str(OUT / f'{out_id}.png'); bpy.ops.render.render(write_still=True)
     bpy.data.objects.remove(tgt)
     for m in obj.data.materials:      # Tripo often leaves thin parts single-sided: show both faces
-        if m:
+        if m and not m.get('single_sided'):
             m.use_backface_culling = False
     bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True)
-    glb = OUT / f'{asset}.glb'
+    glb = OUT / f'{out_id}.glb'
     bpy.ops.export_scene.gltf(filepath=str(glb), export_format='GLB', use_selection=True, export_yup=True, export_apply=True)
     report = dict(asset=asset, source=src.name, source_sha256=hashlib.sha256(src.read_bytes()).hexdigest(),
                   target_m=dict(width=tw, depth=td, height=th), source_size=[round(v, 4) for v in before],
@@ -217,7 +315,8 @@ def main():
                   fitted_m=dict(width=round(after.x, 4), depth=round(after.y, 4), height=round(after.z, 4)), errors_m=errors, ok=ok,
                   triangles=sum(len(p.vertices) - 2 for p in obj.data.polygons), pivot=spec['pivot'],
                   glb=dict(file=glb.name, bytes=glb.stat().st_size, sha256=hashlib.sha256(glb.read_bytes()).hexdigest()))
-    (OUT / f'{asset}.json').write_text(json.dumps(report, indent=1))
+    report['output_id'] = out_id
+    (OUT / f'{out_id}.json').write_text(json.dumps(report, indent=1))
     print('FIT', json.dumps(report), flush=True)
     if not ok:
         raise SystemExit(f'{asset}: fitted size misses the contract by {errors}')

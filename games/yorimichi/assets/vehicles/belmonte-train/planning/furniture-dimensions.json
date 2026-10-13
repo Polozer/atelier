@@ -212,7 +212,55 @@
       "seat_height_m": 0.45,
       "pivot": "floor_footprint_center",
       "material_family": "worn-slatted-wood-iron",
-      "quantity_draft": 32,
+      "quantity_draft": 31,
+      "fitted_source": {
+        "file": "rusty wooden bench 3d model.glb (Tripo Studio)",
+        "source_size_m": [
+          1.0,
+          0.463,
+          0.683
+        ],
+        "fit": "uniform scale 1.2 to width; legs (5-38 % of height) lengthened by 0.094 m to bring the seat to 0.45 m; materials made double-sided (single-sided back slats); carved M+L initials erased from the texture (fit_furniture.py --erase)"
+      }
+    },
+    {
+      "id": "canteen-pot",
+      "name_fr": "Grosse marmite cabossée de la cantine",
+      "dimensions_m": {
+        "width": 0.755,
+        "depth": 0.8,
+        "height": 0.566
+      },
+      "pivot": "base_contact_center",
+      "material_family": "dented-aluminium",
+      "quantity_draft": 1,
+      "body_m": {
+        "diameter": 0.62,
+        "rim_height": 0.36
+      },
+      "dimension_basis": "bounding box including the handles and the ladle",
+      "fitted_source": {
+        "file": "rusty cooking pot 3d model.glb (Tripo Studio)",
+        "source_size_m": [
+          0.944,
+          1.0,
+          0.708
+        ],
+        "fit": "uniform scale 0.8: body 0.62 m across, rim at 0.36 m (squatter than the 0.60 x 0.55 target; proportions kept)"
+      }
+    },
+    {
+      "id": "second-class-bench-carved",
+      "name_fr": "Banquette de 2e classe gravée « M+L » (quête)",
+      "dimensions_m": {
+        "width": 1.2,
+        "depth": 0.55,
+        "height": 0.91
+      },
+      "seat_height_m": 0.45,
+      "pivot": "floor_footprint_center",
+      "material_family": "worn-slatted-wood-iron",
+      "quantity_draft": 1,
       "fitted_source": {
         "file": "rusty wooden bench 3d model.glb (Tripo Studio)",
         "source_size_m": [
@@ -221,19 +269,9 @@
           0.683
         ],
         "fit": "uniform scale 1.2 to width; legs (5-38 % of height) lengthened by 0.094 m to bring the seat to 0.45 m; materials made double-sided (single-sided back slats)"
-      }
-    },
-    {
-      "id": "canteen-pot",
-      "name_fr": "Grosse marmite cabossée de la cantine",
-      "dimensions_m": {
-        "width": 0.6,
-        "depth": 0.6,
-        "height": 0.55
       },
-      "pivot": "base_contact_center",
-      "material_family": "dented-aluminium",
-      "quantity_draft": 1
+      "variant_of": "second-class-bench",
+      "note": "Quest object: the one bench that keeps the carved M+L initials, front only. All other benches are clean."
     }
   ],
   "notes": [

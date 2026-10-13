@@ -590,6 +590,12 @@ def second_class():
                     c.seats.append(Seat(f'{b}-seat-{n + 1}', b, bx + (.04 if yaw > 0 else -.04), by + dy, FLOOR_Z + .45, yaw))
             c.mounts.append(Mount(f'net-{k + 1}{side}', 'rack', 'saloon', s0 + SC_PITCH / 2, sy * (IN - .02), FLOOR_Z + 1.85, 0 if sy > 0 else 180, SC_PITCH - .1))
         c.mounts.append(Mount(f'bulb-{k + 1}', 'ceiling-lamp', 'saloon', s0 + SC_PITCH / 2, 0., ceiling_z(0) - .02, 0))
+    # the quest bench: the one that keeps the carved M+L initials (all the others are clean)
+    quest = next(p for p in c.placements if p.id == 'bench-5la')
+    quest.id, quest.asset = 'quest-bench-ml', 'second-class-bench-carved'
+    for st in c.seats:
+        if st.furniture == 'bench-5la':
+            st.furniture = 'quest-bench-ml'
     for k in range(0, SC_BAYS, 2):          # one wide window for every two bays, as on the concept
         x = first + (k + 1) * SC_PITCH - .01
         c.windows += [Window(f'saloon-{k // 2 + 1}-l', 1, x, 2 * SC_PITCH - .45), Window(f'saloon-{k // 2 + 1}-r', -1, x, 2 * SC_PITCH - .45)]
