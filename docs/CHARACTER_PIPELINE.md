@@ -101,7 +101,8 @@ role, never for a file.
 <img src="media/character/07-clip-review.jpg" alt="The third sword strike from the front, the side and three-quarter, eight frames each">
 
 **9. Into the game.** `atelier build` exports the character's body, donor clips and textures, then imports its
-merged moves, sword and paraglider into Unreal; scripted QA runs check it in motion.
+merged moves, sword and paraglider into Unreal; scripted QA runs check it in motion. Every playable character goes
+through the same data-driven steps ([make a character playable](../games/yorimichi/docs/PLAYABLE_CHARACTER.md)).
 
 ```sh
 uv run atelier build yorimichi unreal.cairo_adventure

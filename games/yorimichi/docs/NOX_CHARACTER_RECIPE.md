@@ -7,6 +7,7 @@ Nox is the first Yorimichi character made from separate head and body generation
 The watch trial was abandoned because its band could not fit the cuff cleanly; the current character has no watch.
 
 This is our practical recipe and case study. The Charakuru document records the upstream kit unchanged.
+From the approved rig onwards, Nox goes through the shared steps in [make a character playable](PLAYABLE_CHARACTER.md).
 We used its separate-part idea, then kept the supplied Tripo body rig, projected texture repairs onto its
 existing UVs and built our own review tool. We did not perform the kit's VRM export, base-body weight transfer
 or every segmentation and per-group Smart UV step. The game target is Unreal, not VRM.
