@@ -4,6 +4,7 @@
         [--yaw DEG] [--scale-by width|height] [--side-panels Y0 Y1 Z0 Z1] [--back-panel X0 X1 Z0 Z1]
         [--erase X0 X1 Z0 Z1 SHIFT] [--as OUTPUT_ID] [--table-top] [--side-wood] [--shallow-gaps]
         [--metal HUE0 HUE1 SAT VAL [--metal-skip X0 X1 Y0 Y1 Z0 Z1]] [--cut-box X0 X1 Y0 Y1 Z0 Z1]
+        [--drop-along AX AY AZ BX BY BZ R] [--drop-islands X0 X1 Y0 Y1 Z0 Z1] [--porridge Z R] [--hang]
     blender -b --python games/yorimichi/world/train/fit_furniture.py -- --metal-only OUTPUT_ID [HUE0 HUE1 SAT VAL]
 
 Imports the mesh, puts its origin at the contract's pivot (floor footprint centre, table lamp base, sconce wall
@@ -15,7 +16,8 @@ the tolerance, or the script stops and reports it.
 Writes build/yorimichi/belmonte-train/furniture/<asset>.glb and <asset>.json (dimensions before and after,
 scale, column stretch, triangles, checksum) and a check render <asset>.png against a wireframe of the target box.
 
---yaw turns the model about +Z first, when Tripo faced it another way (the contract wants the front towards -Y).
+--hang first stands a long hanging tool upright (long axis vertical, heavy end down, thin side along Y, its bowl
+opening towards -Y), for the pivot hook_top (the origin at the top of its hook). --yaw turns the model about +Z first, when Tripo faced it another way (the contract wants the front towards -Y).
 --scale-by height fits the height instead of the width (then width and depth follow the model, and the report
 says so). --side-panels closes see-through gaps in the sides of a seat: a thin panel just inside each side, from
 Y0 to Y1 (fractions of the depth, front to back) and Z0 to Z1 (fractions of the height), textured with the
@@ -27,7 +29,10 @@ block and brackets) under a draped tablecloth, whose underside Tripo leaves as a
 upholstery colour that bleeds onto a sofa's wooden side panels with the surrounding wood. --metal turns the brass and
 gilt Tripo paints as yellow into real metal (a metallic-roughness map from the colour map; see metalize); --metal-only
 does it to an asset already fitted. --cut-box deletes the faces in a box (metres, fitted frame, after the column
-stretch) and re-centres the footprint: Tripo parts replaced by modelled ones.
+stretch): Tripo parts replaced by modelled ones. --drop-along deletes the loose parts lying wholly within R of the
+segment A-B and --drop-islands those wholly inside a box (the canteen pot's ladle, its lumpy porridge top); after any of
+the three the footprint is re-centred. --porridge Z R adds a separate porridge surface, a lumpy disc of radius R at
+height Z over the pot's base, its own mesh and material for the game to animate.
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[1])); import yori  # noqa: E402,F401
 import hashlib
@@ -195,9 +200,46 @@ def uv_mask(me, w, h, keep):
     return mask
 
 
+def hang(obj):
+    """Turn a long tool that hangs from a hook (the canteen ladle) upright: its long axis vertical with the heavy end
+    (the bowl) down and the hook end up, its thinnest side along Y (flat against the wall), the bowl's opening
+    towards -Y (the contract's front, away from the wall)."""
+    import numpy as np
+    from mathutils import Matrix
+    from mathutils.bvhtree import BVHTree
+    pts = lambda: np.array([v.co[:] for v in obj.data.vertices])
+    P = pts(); c = P.mean(0)
+    a = np.linalg.eigh(np.cov((P - c).T))[1][:, 2]
+    t = (P - c) @ a; span = t.max() - t.min()
+    spread = lambda sel: np.linalg.norm((P[sel] - c) - np.outer((P[sel] - c) @ a, a), axis=1).max()
+    if spread(t > t.max() - span / 4) > spread(t < t.min() + span / 4):
+        a = -a                                        # a now runs from the bowl to the hook
+    obj.data.transform(Vector(a).rotation_difference(Vector((0, 0, 1))).to_matrix().to_4x4())
+    P = pts(); Q = P[:, :2] - P[:, :2].mean(0)
+    thin = np.linalg.eigh(np.cov(Q.T))[1][:, 0]
+    obj.data.transform(Matrix.Rotation(math.pi / 2 - math.atan2(thin[1], thin[0]), 4, 'Z'))
+    P = pts(); zl = P[:, 2].min(); bowl = P[P[:, 2] < zl + .3 * (P[:, 2].max() - zl)]
+    centre = Vector(((bowl[:, 0].min() + bowl[:, 0].max()) / 2, (bowl[:, 1].min() + bowl[:, 1].max()) / 2, (bowl[:, 2].min() + bowl[:, 2].max()) / 2))
+    tree = BVHTree.FromPolygons([v.co[:] for v in obj.data.vertices], [p.vertices[:] for p in obj.data.polygons])
+    if tree.ray_cast(centre, Vector((0, -1, 0)))[0] is not None and tree.ray_cast(centre, Vector((0, 1, 0)))[0] is None:
+        obj.data.transform(Matrix.Rotation(math.pi, 4, 'Z'))   # the opening faced +Y
+    obj.data.update()
+    print('HANG long axis vertical, bowl down, opening towards -Y', flush=True)
+
+
+def recentre(obj):
+    """Put the footprint's centre back on the origin after parts were removed; returns the shift."""
+    lo, hi = bounds([obj])
+    shift = Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, 0))
+    for v in obj.data.vertices:
+        v.co -= shift
+    obj.data.update()
+    return shift
+
+
 def cut_box(obj, box):
     """Delete the faces whose centre lies in box (x0, x1, y0, y1, z0, z1, metres, fitted frame): parts of a Tripo model
-    to be replaced by modelled ones (the canteen counter's crooked tray rails). Then re-centre the footprint."""
+    to be replaced by modelled ones (the canteen counter's crooked tray rails)."""
     import bmesh
     x0, x1, y0, y1, z0, z1 = box
     me = obj.data
@@ -208,11 +250,81 @@ def cut_box(obj, box):
     loose = [v for v in bm.verts if not v.link_faces]
     bmesh.ops.delete(bm, geom=loose, context='VERTS')
     bm.to_mesh(me); bm.free(); me.update()
-    lo, hi = bounds([obj])
-    shift = Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, 0))
-    for v in me.vertices:
-        v.co -= shift
-    print(f'CUT {len(gone)} faces in {box}; footprint re-centred by {tuple(round(s, 4) for s in shift[:2])}', flush=True)
+    print(f'CUT {len(gone)} faces in {box}', flush=True)
+
+
+def drop_islands(obj, inside, label):
+    """Delete every loose part of the mesh whose vertices all satisfy inside(co): a Tripo part fused into the model
+    only by sitting in it (the pot's ladle, its lumpy porridge top). Returns the number of parts removed."""
+    import bmesh
+    me = obj.data
+    bm = bmesh.new(); bm.from_mesh(me); bm.verts.ensure_lookup_table()
+    seen, gone, parts = set(), [], 0
+    for v in bm.verts:
+        if v.index in seen:
+            continue
+        comp, stack = [], [v]; seen.add(v.index)
+        while stack:
+            a = stack.pop(); comp.append(a)
+            for e in a.link_edges:
+                b = e.other_vert(a)
+                if b.index not in seen:
+                    seen.add(b.index); stack.append(b)
+        if all(inside(a.co) for a in comp):
+            gone += comp; parts += 1
+    bmesh.ops.delete(bm, geom=gone, context='VERTS')
+    bm.to_mesh(me); bm.free(); me.update()
+    print(f'DROP {label}: {parts} loose parts, {len(gone)} vertices', flush=True)
+    return parts
+
+
+def near_segment(a, b, r):
+    a, b = Vector(a), Vector(b)
+    def inside(co):
+        t = max(0., min(1., (co - a).dot(b - a) / (b - a).length_squared))
+        return (co - (a + (b - a) * t)).length <= r
+    return inside
+
+
+def in_box(x0, x1, y0, y1, z0, z1):
+    return lambda co: x0 <= co.x <= x1 and y0 <= co.y <= y1 and z0 <= co.z <= z1
+
+
+def porridge_surface(obj, z, r, seg=32, rings=6):
+    """A separate porridge top for the pot: a gently lumpy disc of radius r at height z, centred on the pot's base,
+    its own mesh (<name>_PorridgeSurface) and material (M_BT_Porridge) so the game can make it bubble."""
+    import bmesh
+    base = [v.co for v in obj.data.vertices if v.co.z < .02]
+    cx, cy = sum(c.x for c in base) / len(base), sum(c.y for c in base) / len(base)
+    me = bpy.data.meshes.new(f'{obj.name}_PorridgeSurface')
+    bm = bmesh.new()
+    centre = bm.verts.new((cx, cy, z + .004))
+    loops = []
+    for i in range(1, rings + 1):
+        rr = r * i / rings
+        loops.append([bm.verts.new((cx + rr * math.cos(2 * math.pi * k / seg), cy + rr * math.sin(2 * math.pi * k / seg),
+                                    z + .004 * math.sin(3 * k * 2 * math.pi / seg + 7 * rr) * math.cos(11 * rr) * (1 - (i / rings) ** 4)))
+                      for k in range(seg)])
+    for k in range(seg):
+        bm.faces.new((centre, loops[0][k], loops[0][(k + 1) % seg]))
+    for a, b in zip(loops, loops[1:]):
+        for k in range(seg):
+            bm.faces.new((a[k], b[k], b[(k + 1) % seg], a[(k + 1) % seg]))
+    uv = bm.loops.layers.uv.new('UVMap')
+    for f in bm.faces:
+        for lp in f.loops:
+            lp[uv].uv = ((lp.vert.co.x - cx) / (2 * r) + .5, (lp.vert.co.y - cy) / (2 * r) + .5)
+    bm.normal_update()
+    bm.to_mesh(me); bm.free()
+    for p in me.polygons:
+        p.use_smooth = True
+    mat = bpy.data.materials.new('M_BT_Porridge')
+    bsdf = mat.node_tree.nodes['Principled BSDF']
+    bsdf.inputs['Base Color'].default_value = (.36, .23, .11, 1); bsdf.inputs['Roughness'].default_value = .45
+    me.materials.append(mat)
+    o = bpy.data.objects.new(me.name, me); bpy.context.scene.collection.objects.link(o)
+    print(f'PORRIDGE disc r {r} at z {z}, centre ({cx:.4f}, {cy:.4f}), {len(me.polygons)} faces', flush=True)
+    return o
 
 
 def side_wood(obj, out_id):
@@ -473,6 +585,9 @@ def main():
     wood_sides = '--side-wood' in args       # a sofa: repaint fabric colour bleeding onto its wooden side panels
     shallow = '--shallow-gaps' in args       # with --side-panels: holes need not cross the seat
     cut = [float(v) for v in args[args.index('--cut-box') + 1:args.index('--cut-box') + 7]] if '--cut-box' in args else None
+    along = [float(v) for v in args[args.index('--drop-along') + 1:args.index('--drop-along') + 8]] if '--drop-along' in args else None
+    island_box = [float(v) for v in args[args.index('--drop-islands') + 1:args.index('--drop-islands') + 7]] if '--drop-islands' in args else None
+    porridge = [float(v) for v in args[args.index('--porridge') + 1:args.index('--porridge') + 3]] if '--porridge' in args else None
     metal = ([float(v) for v in args[args.index('--metal') + 1:args.index('--metal') + 5]] if '--metal' in args else None)
     metal_skip = ([float(v) for v in args[args.index('--metal-skip') + 1:args.index('--metal-skip') + 7]] if '--metal-skip' in args else None)
     spec = next(a for a in L.contract()['assets'] if a['id'] == asset)
@@ -498,11 +613,13 @@ def main():
         bpy.ops.object.join()
     obj = bpy.context.view_layer.objects.active
     obj.name = obj.data.name = f'SM_BT_{"".join(p.title() for p in asset.split("-"))}'
+    if '--hang' in args:
+        hang(obj)
     if yaw:
         from mathutils import Matrix
         obj.data.transform(Matrix.Rotation(math.radians(yaw), 4, 'Z'))
     lo, hi = bounds([obj]); before = hi - lo
-    swapped = before.y > before.x * 1.15 and tw > td * 1.15
+    swapped = before.y > before.x * 1.15 and tw > td * 1.15 and '--hang' not in args
     if swapped:                          # the width came out along Y: turn it a quarter so width runs along X
         from mathutils import Matrix
         obj.data.transform(Matrix.Rotation(math.radians(90), 4, 'Z'))
@@ -524,6 +641,14 @@ def main():
                 v.co.z += stretch * (v.co.z - z0) / (z1 - z0)
     if cut:
         cut_box(obj, cut)
+    if along:
+        drop_islands(obj, near_segment(along[0:3], along[3:6], along[6]), 'along a segment')
+    if island_box:
+        drop_islands(obj, in_box(*island_box), 'inside a box')
+    if cut or along or island_box:
+        shift = recentre(obj)
+        print(f'footprint re-centred by {tuple(round(v, 4) for v in shift[:2])}', flush=True)
+    extra = [porridge_surface(obj, *porridge)] if porridge else []
     if with_top:
         table_top(obj)
     if wood_sides:
@@ -538,6 +663,12 @@ def main():
         lo, hi = bounds([obj])
         for v in obj.data.vertices:          # back of the sconce on y = 0, front towards -Y, centred in height
             v.co.y -= hi.y; v.co.z -= (lo.z + hi.z) / 2
+    if spec['pivot'] == 'hook_top':              # hung from its top: the origin at the top of the hook end
+        lo, hi = bounds([obj])
+        top = [v.co for v in obj.data.vertices if v.co.z > hi.z - .02]
+        hx, hy = sum(c.x for c in top) / len(top), sum(c.y for c in top) / len(top)
+        for v in obj.data.vertices:
+            v.co.x -= hx; v.co.y -= hy; v.co.z -= hi.z
     obj.data.update()
     lo, hi = bounds([obj]); after = hi - lo
     errors = {k: round(abs(a - t), 4) for k, a, t in (('width', after.x, tw), ('depth', after.y, td), ('height', after.z, th))}
@@ -548,7 +679,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     # check render: the fitted mesh inside a wireframe of the target box
     tgt = bpy.data.objects.new('target', bpy.data.meshes.new('target'))
-    z0 = 0 if spec['pivot'] != 'wall_mount_center' else -th / 2
+    z0 = {'wall_mount_center': -th / 2, 'hook_top': -th}.get(spec['pivot'], 0)
     y0, y1 = (-td / 2, td / 2) if spec['pivot'] != 'wall_mount_center' else (-td, 0)
     vs = [(x, y, z) for x in (-tw / 2, tw / 2) for y in (y0, y1) for z in (z0, z0 + th)]
     tgt.data.from_pydata(vs, [(0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7)], [])
@@ -579,6 +710,8 @@ def main():
             if n.type == 'TEX_IMAGE' and n.image and max(n.image.size) > 2048:
                 n.image.scale(2048, 2048)
     bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True)
+    for o in extra:
+        o.select_set(True)
     glb = OUT / f'{out_id}.glb'
     bpy.ops.export_scene.gltf(filepath=str(glb), export_format='GLB', use_selection=True, export_yup=True, export_apply=True,
                               export_image_format='JPEG', export_jpeg_quality=88)

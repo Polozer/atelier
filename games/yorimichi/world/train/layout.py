@@ -589,7 +589,8 @@ COUNTER_X = CANTEEN_X1 + PART + .04 - COUNTER_BODY_FRONT    # the body passes th
 HATCH = (COUNTER_Y - COUNTER_HALF + .01, COUNTER_Y + COUNTER_HALF - .01, 0., 1.80)
 LADY_RADIUS = .36                           # the canteen lady standing and turning: 1.65 m tall, ~1.4x Kaede's shoulders
 LADY_REACH = 1.20                           # from where she stands to the pot and to the hatch, ladle in hand
-STOVE_X = -7.75                             # the stove right behind the counter, against the outer wall
+STOVE_X = -7.85                             # the stove right behind the counter (clear of its back), against the outer wall
+LADLE_HOOK = (-7.45, 1.70)                  # the big ladle's wall hook on the canteen side wall, behind the counter: x, height
 
 
 def second_class():
@@ -635,13 +636,18 @@ def second_class():
     sw, sd, _ = asset_dims('canteen-stove')
     c.placements.append(Placement('canteen-stove', 'canteen-stove', 'canteen', STOVE_X, IN - sd / 2, FLOOR_Z, 0))
     # the pot on the stove's large left hotplate (left seen from the room, i.e. towards -X)
-    c.placements.append(Placement('canteen-pot', 'canteen-pot', 'canteen', STOVE_X - .23, IN - sd / 2 + .01, FLOOR_Z + .83, 0))
+    # (the fitted pot's footprint centre is 1 cm off its base, which sits where the ladle-less pot always stood)
+    c.placements.append(Placement('canteen-pot', 'canteen-pot', 'canteen', STOVE_X - .23, IN - sd / 2 - .04, FLOOR_Z + .83, 0))
     hy = (HATCH[0] + HATCH[1]) / 2
     # the Tripo counter through the hatch: body mostly in the kitchen, the front of its top and its tray ledge out in
     # the saloon where passengers slide their trays; its top is the hatch's sill
     c.placements.append(Placement('canteen-counter', 'canteen-counter', 'canteen', COUNTER_X, COUNTER_Y, FLOOR_Z, 90, through='canteen-front'))
+    # the enamel sink against the outer wall at the canteen's end, its draining board towards the stove
+    kw, kd, _ = asset_dims('canteen-sink')
+    c.placements.append(Placement('canteen-sink', 'canteen-sink', 'canteen', -SPAN_X + .03 + kw / 2, IN - .02 - kd / 2, FLOOR_Z, 0))
+    # the big ladle hanging by its end hook from the wall hook (canteen-ladle mount), bowl down, flat to the wall
+    c.placements.append(Placement('canteen-ladle', 'canteen-ladle', 'canteen', LADLE_HOOK[0], ROOM_Y + .075, FLOOR_Z + LADLE_HOOK[1] + .02, 180))
     c.reservations += [
-        Box('canteen-sink', 'canteen-sink', -SPAN_X + .05, -SPAN_X + .75, IN - .62, IN - .05, FLOOR_Z, FLOOR_Z + .90, 'chipped sink and draining board'),
         Box('canteen-shelves', 'canteen-shelves', -9.82, -9.30, ROOM_Y + .05, ROOM_Y + .45, FLOOR_Z, FLOOR_Z + 1.90, 'stacked tin plates and mugs'),
     ]
     back = COUNTER_X - COUNTER_BACK
@@ -652,6 +658,7 @@ def second_class():
         Mount('canteen-npc-spot', 'npc-spot', 'canteen', spot[0], spot[1], FLOOR_Z, 90),            # the lady, facing the hatch
         Mount('canteen-serve-point', 'serve-point', 'saloon', (COUNTER_X + COUNTER_TOP_FRONT + ledge_x) / 2, hy, FLOOR_Z + COUNTER_LEDGE_Z, -90),  # the tray, on the ledge in front of the top
         Mount('canteen-queue', 'queue', 'saloon', queue_x, hy, FLOOR_Z, -90, .80),                    # the passenger, facing the hatch; the line runs +X
+        Mount('canteen-ladle', 'ladle', 'canteen', LADLE_HOOK[0], ROOM_Y + .02, FLOOR_Z + LADLE_HOOK[1], 0),  # where the big ladle hangs
     ]
     c.goals.update({'canteen-npc-spot': spot, 'canteen-queue': (queue_x, hy)})
     c.mounts.append(Mount('menu-board', 'menu-board', 'saloon', salon_x0 + .02, .75, FLOOR_Z + 2.00, -90, 1.0))
@@ -997,6 +1004,13 @@ def check(c):
                 bad.append(f'{p.id} passes through {w.name} away from an opening')
         if x0 < rx0 - 1e-6 or x1 > rx1 + 1e-6 or y0 < ry0 - 1e-6 or y1 > ry1 + 1e-6:
             bad.append(f'{p.id} leaves {r.name}')
+    floor = [p for p in c.placements if p.z - FLOOR_Z < .05]       # and no two of them in the same floor space
+    for i, a in enumerate(floor):
+        ax0, ax1, ay0, ay1 = footprint(a)
+        for b in floor[i + 1:]:
+            bx0, bx1, by0, by1 = footprint(b)
+            if min(ax1, bx1) - max(ax0, bx0) > 1e-6 and min(ay1, by1) - max(ay0, by0) > 1e-6:
+                bad.append(f'{a.id} overlaps {b.id}')
     for name, radius in (('Cairo', CAIRO['radius']), ('adult', HUMAN['radius'])):
         res = reachable(c, radius, start(c), goals(c))
         bad += [f'{name} cannot reach {g}' for g, ok in res.items() if not ok]

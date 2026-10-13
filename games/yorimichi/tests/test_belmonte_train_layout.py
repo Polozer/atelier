@@ -126,6 +126,21 @@ class Coaches(unittest.TestCase):
         hatch_y = (L.HATCH[0] + L.HATCH[1]) / 2
         self.assertLessEqual(math.hypot(spot.x - pot.x, spot.y - pot.y), L.LADY_REACH)
         self.assertLessEqual(math.hypot(spot.x - L.CANTEEN_X1, spot.y - hatch_y), L.LADY_REACH)
+        ladle = m['canteen-ladle']                                       # the big ladle's hook, within her reach
+        self.assertLessEqual(math.hypot(spot.x - ladle.x, spot.y - ladle.y), L.LADY_REACH)
+        self.assertGreater(ladle.z - L.FLOOR_Z, 1.5)                     # high enough for a long ladle to hang clear
+        hung = next(p for p in c.placements if p.id == 'canteen-ladle')   # the ladle itself, its own placement on the hook
+        self.assertEqual(hung.asset, 'canteen-ladle')
+        self.assertLess(math.hypot(hung.x - ladle.x, hung.y - ladle.y), .10)
+        self.assertTrue(0 <= hung.z - ladle.z <= .04)
+        self.assertGreater(hung.z - L.asset_dims('canteen-ladle')[2], L.FLOOR_Z + .80)
+        sink = next(p for p in c.placements if p.id == 'canteen-sink')    # the Tripo sink replaces its reservation
+        self.assertFalse(any(b.kind == 'canteen-sink' for b in c.reservations))
+        self.assertLessEqual(L.footprint(sink)[3], L.IN)
+        # the counter's back is clear of the stove, and check() would say so if it were not
+        moved = copy.deepcopy(c)
+        next(p for p in moved.placements if p.id == 'canteen-stove').x += .20
+        self.assertIn('canteen-stove overlaps canteen-counter', L.check(moved))
         # she stands, turns and walks about the kitchen; the passenger reaches the queue in front of the hatch
         self.assertTrue(all(L.reachable(c, L.LADY_RADIUS, (spot.x, spot.y), {'kitchen': (-8.9, .05)}).values()))
         self.assertEqual(L.check(c), [])
@@ -147,7 +162,7 @@ class Coaches(unittest.TestCase):
             for x, y, z in pts:
                 self.assertLessEqual(abs(y), L.IN + 1e-6)
                 self.assertTrue(L.FLOOR_Z < z <= L.ceiling_z(y) + .03, (kind, x, y, z))
-        boxes = [(L.footprint(pl), pl.z + L.asset_dims(pl.asset)[2]) for pl in c.placements]
+        boxes = [(L.footprint(pl), F._top(pl)) for pl in c.placements]
         for x, y, z in (q for f in parts['Fittings_Curtains'].faces for q in f[0]):       # curtains hang clear of the benches
             self.assertFalse(any(x0 < x < x1 and y0 < y < y1 and z < top for (x0, x1, y0, y1), top in boxes), (x, y, z))
         lamps = parts['Fittings_Lamps']

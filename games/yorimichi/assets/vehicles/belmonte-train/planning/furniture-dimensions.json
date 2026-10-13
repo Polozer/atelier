@@ -103,7 +103,7 @@
       "quantity_draft": 16,
       "back_thickness_max_m": 0.14,
       "fitted_source": {
-        "file": "luxury velvet sofa 3d model.glb (Tripo Studio, multiview, v2)",
+        "file": "belmonte-train-sources/restaurant-banquette.glb outside the repo (Tripo Studio \"luxury velvet sofa 3d model.glb\", multiview, v2)",
         "source_size_m": [
           1.0,
           0.665,
@@ -126,7 +126,7 @@
       "quantity_draft": 8,
       "placement_note": "placed with yaw 90/-90: its 1.05 m width runs across the coach (window to aisle) and the two diners sit on its 0.85 m faces",
       "fitted_source": {
-        "file": "dining table 3d model.glb (Tripo Studio)",
+        "file": "belmonte-train-sources/restaurant-table.glb outside the repo (Tripo Studio \"dining table 3d model.glb\")",
         "source_size_m": [
           1.0,
           0.83,
@@ -148,7 +148,7 @@
       "material_family": "emerald-velvet-walnut-brass",
       "quantity_draft": 8,
       "fitted_source": {
-        "file": "green velvet sofa 3d model.glb (Tripo Studio)",
+        "file": "belmonte-train-sources/first-class-sofa.glb outside the repo (Tripo Studio \"green velvet sofa 3d model.glb\")",
         "source_size_m": [
           1.0,
           0.381,
@@ -170,7 +170,7 @@
       "material_family": "walnut-brass",
       "quantity_draft": 4,
       "fitted_source": {
-        "file": "golden table 3d model.zip (Tripo Studio export, FBX + basecolor)",
+        "file": "belmonte-train-sources/first-class-table.zip outside the repo (Tripo Studio \"golden table 3d model.zip\", FBX + basecolor)",
         "source_size_m": [
           0.9995,
           0.6099,
@@ -198,7 +198,7 @@
       "material_family": "brass-ivory-fabric",
       "quantity_draft": 12,
       "fitted_source": {
-        "file": "gold table lamp 3d model.glb (Tripo Studio)",
+        "file": "belmonte-train-sources/table-lamp.glb outside the repo (Tripo Studio \"gold table lamp 3d model.glb\")",
         "source_size_m": [
           0.526,
           0.526,
@@ -219,7 +219,7 @@
       "material_family": "brass-ivory-fabric",
       "quantity_draft": 24,
       "fitted_source": {
-        "file": "golden wall lamp 3d model.glb (Tripo Studio)",
+        "file": "belmonte-train-sources/wall-sconce.glb outside the repo (Tripo Studio \"golden wall lamp 3d model.glb\")",
         "source_size_m": [
           0.6224,
           0.7893,
@@ -241,7 +241,7 @@
       "material_family": "worn-slatted-wood-iron",
       "quantity_draft": 31,
       "fitted_source": {
-        "file": "rusty wooden bench 3d model.glb (Tripo Studio)",
+        "file": "belmonte-train-sources/second-class-bench.glb outside the repo (Tripo Studio \"rusty wooden bench 3d model.glb\"; the carved variant shares it)",
         "source_size_m": [
           1.0,
           0.463,
@@ -255,8 +255,8 @@
       "name_fr": "Grosse marmite cabossée de la cantine",
       "dimensions_m": {
         "width": 0.755,
-        "depth": 0.8,
-        "height": 0.566
+        "depth": 0.674,
+        "height": 0.408
       },
       "pivot": "base_contact_center",
       "material_family": "dented-aluminium",
@@ -265,15 +265,15 @@
         "diameter": 0.62,
         "rim_height": 0.36
       },
-      "dimension_basis": "bounding box including the handles and the ladle",
+      "dimension_basis": "bounding box including the handles and the porridge drips over the rim; the ladle is a separate asset (the ladle mount)",
       "fitted_source": {
-        "file": "rusty cooking pot 3d model.glb (Tripo Studio)",
+        "file": "belmonte-train-sources/canteen-pot.glb outside the repo (Tripo Studio \"rusty cooking pot 3d model.glb\")",
         "source_size_m": [
           0.944,
           1.0,
           0.708
         ],
-        "fit": "uniform scale 0.8: body 0.62 m across, rim at 0.36 m (squatter than the 0.60 x 0.55 target; proportions kept)"
+        "fit": "uniform scale 0.8: body 0.62 m across, rim at 0.36 m (squatter than the 0.60 x 0.55 target; proportions kept); Tripo's ladle (14 loose parts along its shaft, --drop-along) and lumpy porridge top (7 loose parts, --drop-islands) removed, the footprint re-centred; a separate modelled porridge surface (SM_BT_CanteenPot_PorridgeSurface, M_BT_Porridge, --porridge 0.355 0.30) for the game to animate"
       }
     },
     {
@@ -289,7 +289,7 @@
       "material_family": "worn-slatted-wood-iron",
       "quantity_draft": 1,
       "fitted_source": {
-        "file": "rusty wooden bench 3d model.glb (Tripo Studio)",
+        "file": "belmonte-train-sources/second-class-bench.glb outside the repo (Tripo Studio \"rusty wooden bench 3d model.glb\"; the carved variant shares it)",
         "source_size_m": [
           1.0,
           0.463,
@@ -314,7 +314,7 @@
       "note": "the canteen pot stands on its large left hotplate (0.23 m left of centre) at 0.83 m; 0.90 m is the top of the brass rail",
       "hob_height_m": 0.83,
       "fitted_source": {
-        "file": "antique stove 3d model.glb (Tripo Studio)",
+        "file": "belmonte-train-sources/canteen-stove.glb outside the repo (Tripo Studio \"antique stove 3d model.glb\")",
         "source_size_m": [
           1.0,
           0.601,
@@ -336,7 +336,7 @@
       "quantity_draft": 1,
       "note": "hung on the firebox in the cab, front towards the crew (-X, yaw -90), its pipes stopping just above the floor; the controls the driver moves stay separate objects",
       "fitted_source": {
-        "file": "steampunk pipe system 3d model.glb (Tripo Studio, from backhead.jpg)",
+        "file": "belmonte-train-sources/loco-backhead.glb outside the repo (Tripo Studio \"steampunk pipe system 3d model.glb\", from backhead.jpg)",
         "source_size_m": [
           0.985,
           0.213,
@@ -358,13 +358,48 @@
       "quantity_draft": 1,
       "note": "through the serving hatch, its front towards the saloon (+X, yaw 90): Tripo's flat steel tray ledge on brackets runs the whole length on the saloon side, just under the top (surface 0.771 m, 0.31 m in front of the body); open shelves on the kitchen side where the canteen lady stands; the depth includes the ledge",
       "fitted_source": {
-        "file": "rusty bar counter 3d model.glb (Tripo Studio, from 'Comptoir quatre vues, étagères complètement vides.png')",
+        "file": "belmonte-train-sources/canteen-counter.glb outside the repo (Tripo Studio \"rusty bar counter 3d model.glb\", from 'Comptoir quatre vues, étagères complètement vides.png')",
         "source_size_m": [
           1.0,
           0.454,
           0.338
         ],
         "fit": "uniform scale 2.15 to the length; the cream body panels (26-58 % of the height) lengthened to reach 0.92 m; the ledge and the top keep their shape; nothing cut"
+      }
+    },
+    {
+      "id": "canteen-ladle",
+      "name_fr": "Grande louche de la cantinière",
+      "dimensions_m": {
+        "width": 0.225,
+        "depth": 0.194,
+        "height": 0.7
+      },
+      "pivot": "hook_top",
+      "material_family": "dull-steel-wood-handle",
+      "quantity_draft": 1,
+      "note": "hangs by its end hook on the canteen-ladle mount, bowl down, flat to the wall; a separate placement so the canteen lady can take it in her right hand (docs/BELMONTE_TRAIN_CANTEEN_LADY.md: 0.70 m)",
+      "dimension_basis": "hanging: height is the overall length, hook to bowl; width the bowl across, depth the bowl's depth",
+      "fitted_source": {
+        "file": "belmonte-train-sources/canteen-ladle.glb outside the repo (Tripo Studio image-to-model, from Paul's ChatGPT 'big spoon.png'; concept and job in build/yorimichi/belmonte-train/tripo-props/canteen-ladle/)",
+        "fit": "--hang (stood upright, bowl down, opening away from the wall), uniform scale to the 0.70 m length (--scale-by height); width and depth follow the model"
+      }
+    },
+    {
+      "id": "canteen-sink",
+      "name_fr": "Évier émaillé et égouttoir de la cantine",
+      "dimensions_m": {
+        "width": 1.0,
+        "depth": 0.709,
+        "height": 0.98
+      },
+      "pivot": "floor_footprint_center",
+      "material_family": "chipped-enamel-rusty-steel",
+      "quantity_draft": 1,
+      "note": "against the outer wall at the canteen's end, the cabinet door facing into the canteen, the draining board on the right seen from the front (towards the stove), the tap at the back of the basin; worktop about 0.88 m, the tap to 0.98 m",
+      "fitted_source": {
+        "file": "belmonte-train-sources/canteen-sink.glb outside the repo (Tripo Studio image-to-model; concept and job in build/yorimichi/belmonte-train/tripo-props/canteen-sink/)",
+        "fit": "--yaw -90 (the door to -Y), uniform scale to the 1.00 m width, the cabinet (25-55 % of the height) lengthened to bring the worktop from 0.58 to about 0.88 m; wider than the 0.70 m reservation it replaces, which kept Tripo's proportions"
       }
     }
   ],

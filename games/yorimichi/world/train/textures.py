@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 SOURCES = Path(__file__).resolve().parents[2] / 'assets' / 'vehicles' / 'belmonte-train' / 'textures'
-JPEG = {'T_BT_SmokeboxDoor', 'T_BT_MenuBoard', 'T_BT_BluePanel', 'T_BT_BluePanelWorn', 'T_BT_Ivory', 'T_BT_IvoryWorn', 'T_BT_Roof', 'T_BT_RoofWorn', 'T_BT_Underframe', 'T_BT_PaintPeel', 'T_BT_Lino', 'T_BT_TilesGrimy'}
+JPEG = {'T_BT_SmokeboxDoor', 'T_BT_MenuBoard', 'T_BT_CurtainFabric', 'T_BT_BluePanel', 'T_BT_BluePanelWorn', 'T_BT_Ivory', 'T_BT_IvoryWorn', 'T_BT_Roof', 'T_BT_RoofWorn', 'T_BT_Underframe', 'T_BT_PaintPeel', 'T_BT_Lino', 'T_BT_TilesGrimy'}
 
 WALNUT_DARK = np.array([.115, .042, .016])
 WALNUT_MID = np.array([.235, .095, .036])
@@ -197,7 +197,7 @@ ROOF = (.041, .041, .040)
 
 
 def has(name):
-    """Whether an optional swatch (the locomotive's smokebox door, the canteen menu board) has been added yet."""
+    """Whether an optional swatch (the locomotive's smokebox door, the canteen menu board, the curtain fabric) has been added yet."""
     return (SOURCES / name).exists()
 
 
@@ -286,6 +286,6 @@ ALL = {
     'T_BT_TilesGrimy': lambda: _rgba(source('canteen-tiles.jpg')),
     'T_BT_Two': lambda: numeral_two(),
 }
-for _name, _file in (('T_BT_SmokeboxDoor', 'smokebox-door.jpg'), ('T_BT_MenuBoard', 'menu-board.jpg')):
-    if has(_file):          # optional swatches (smokebox door, canteen menu): plain black until they are added
+for _name, _file in (('T_BT_SmokeboxDoor', 'smokebox-door.jpg'), ('T_BT_MenuBoard', 'menu-board.jpg'), ('T_BT_CurtainFabric', 'curtain-fabric.jpg')):
+    if has(_file):          # optional swatches (smokebox door, canteen menu, curtain fabric): plain black until they are added
         ALL[_name] = lambda f=_file: _rgba(source(f))

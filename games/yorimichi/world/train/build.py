@@ -75,8 +75,11 @@ MATERIALS = {
     'ceiling-dingy': ((.50, .43, .31), 0., .85, None, 1., 1.),
     'cord': ((.24, .19, .12), 0., .9, None, 1., 1.),                  # second-class fittings (fittings.py)
     'enamel-white': ((.78, .76, .70), 0., .35, None, 1., 1.),
+    'enamel-grimy': ((.55, .50, .40), 0., .55, None, 1., 1.),
+    'enamel-soot': ((.09, .08, .07), 0., .8, None, 1., 1.),
     'enamel-cream': ((.66, .58, .42), 0., .55, None, 1., 1.),
-    'curtain-mustard': ((.34, .24, .09), 0., .95, None, 1., 1.),      # flat for now: a fabric swatch may replace it
+    'curtain-fabric': ((1, 1, 1) if T.has('curtain-fabric.jpg') else (.34, .24, .09), 0., .95,     # faded mustard until the swatch
+                       'T_BT_CurtainFabric' if T.has('curtain-fabric.jpg') else None, 0., 1.),
     'menu-board': ((1, 1, 1) if T.has('menu-board.jpg') else (.02, .02, .02), 0., .7, 'T_BT_MenuBoard' if T.has('menu-board.jpg') else None, 0., 1.),
     'reservation': ((.85, .28, .04), 0., .8, None, 1., .60),
     'reservation-service': ((.08, .25, .75), 0., .8, None, 1., .50),
@@ -1161,7 +1164,7 @@ def fittings(c, coll, parent):
             raise SystemExit(f'{c.name}: mounts without fittings: {bare}')
     for p in parts:
         m = M(); m.faces = list(p.faces)
-        m.obj(p.name, coll, parent=parent, closed=p.closed, lods=p.lods)
+        m.obj(p.name, coll, parent=parent, closed=p.closed, lods=p.lods, smooth_angle=p.smooth)
         for name, loc in p.sockets:
             so = bpy.data.objects.new(name, None); so.empty_display_type = 'SPHERE'; so.empty_display_size = .05
             so.location = loc; so['lods'] = [0, 1]; so['light'] = 'bulb'

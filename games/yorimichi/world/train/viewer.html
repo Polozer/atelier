@@ -217,6 +217,7 @@ function placeFurniture(group, v, p, template) {
     const d = spec.dimensions_m;
     const geo = new THREE.BoxGeometry(d.width, d.height, d.depth);
     if (spec.pivot === 'wall_mount_center') geo.translate(0, 0, d.depth / 2);
+    else if (spec.pivot === 'hook_top') geo.translate(0, -d.height / 2, 0);
     else geo.translate(0, d.height / 2, 0);
     obj = new THREE.Mesh(geo, resMat);
     obj.userData.reservation = true;
