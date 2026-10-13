@@ -41,7 +41,7 @@ ANoxCharacter::ANoxCharacter()
 {
     DefinitionAssetPath = NoxDefinition;
     SprintSpeedMultiplier = 1.f;   // the reference rig's sprint: the dash clip's own stride speed
-    // 1.78 m: the capsule's half height to the crown, the soles 0.65 cm under its bottom as Cairo's (export_unreal.py).
+    // 1.78 m: the capsule's half height to the crown, the soles 0.65 cm under its bottom as every character's (pipeline/rig.py).
     GetCapsuleComponent()->InitCapsuleSize(24.f, 89.f);
     GetCharacterMovement()->SetCrouchedHalfHeight(77.f);
     GetMesh()->SetRelativeLocation(FVector(0, 0, -89.65f));
@@ -157,7 +157,7 @@ void ANoxCharacter::ResolveSeat()
             SeatThighBinds[S] = Bind(Thighs[S]).GetRotation();
             SeatAxes[S] = (Bind(Shins[S]).GetLocation() - Bind(Thighs[S]).GetLocation()).GetSafeNormal();
             const FVector Foot = Bind(Feet[S]).GetLocation();
-            // As export_unreal.py asserts: the toes ahead of the ankles, the hips above them.
+            // As the body export asserts (pipeline/rig.py): the toes ahead of the ankles, the hips above them.
             if (((Bind(Toes[S]).GetLocation() - Foot) | SeatForward) <= 0. || ((Bind(SeatPelvis).GetLocation() - Foot) | SeatUp) <= 0.
                 || SeatAxes[S].IsZero())
                 Failed.Add(FString::Printf(TEXT("%s leg against forward %s, up %s"), S ? TEXT("right") : TEXT("left"), *SeatForward.ToString(), *SeatUp.ToString()));

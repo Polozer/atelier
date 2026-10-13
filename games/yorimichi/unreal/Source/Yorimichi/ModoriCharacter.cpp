@@ -36,7 +36,7 @@ AModoriCharacter::AModoriCharacter()
 {
     DefinitionAssetPath = ModoriDefinition;
     SprintSpeedMultiplier = 1.f;   // the reference rig's sprint: the dash clip's own stride speed
-    // 1.75 m: the capsule's half height to the crown, the soles 0.65 cm under its bottom as Cairo's (export_unreal.py).
+    // 1.75 m: the capsule's half height to the crown, the soles 0.65 cm under its bottom as every character's (pipeline/rig.py).
     GetCapsuleComponent()->InitCapsuleSize(24.f, 88.f);
     GetCharacterMovement()->SetCrouchedHalfHeight(77.f);
     GetMesh()->SetRelativeLocation(FVector(0, 0, -88.65f));
