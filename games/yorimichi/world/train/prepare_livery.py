@@ -2,6 +2,7 @@
 
     python3 games/yorimichi/world/train/prepare_livery.py BLUE IVORY ROOF UNDERFRAME [BACKHEAD SMOKEBOX_DOOR]
     python3 games/yorimichi/world/train/prepare_livery.py wall WALL1 WALL2 WALL3
+    python3 games/yorimichi/world/train/prepare_livery.py floors LINO TILES
 
 Writes games/yorimichi/assets/vehicles/belmonte-train/textures/*.jpg, the committed sources build.py reads:
 - livery-blue-panel.jpg: one lined lower-body panel (rivet strips, brass beading), 2048 x 1024, mapped once per
@@ -15,7 +16,10 @@ Writes games/yorimichi/assets/vehicles/belmonte-train/textures/*.jpg, the commit
   fire-door arch painted on) and its round smokebox door, 1024 x 1024 each, mapped whole on their faces;
 - wall-peel.jpg: the worn second class's matchboard walls, brown paint peeling onto an old green coat. Three square
   swatches drawn to join edge to edge (1|2|3|1) are laid side by side, 3072 x 1024 for 3.60 x 1.20 m, so a wall runs
-  three different stretches before it repeats.
+  three different stretches before it repeats;
+- lino.jpg: the second-class saloon's worn green linoleum, a seamless swatch, 1024 x 1024 for 2.40 x 2.40 m;
+- canteen-tiles.jpg: the canteen's greasy white tiles, cropped grout line to grout line (11 x 10 tiles of about
+  10 cm) so the grid runs on across the seams, 1024 x 1024 for 1.10 x 1.00 m.
 """
 import sys
 from pathlib import Path
@@ -27,6 +31,7 @@ OUT = Path(__file__).resolve().parents[2] / 'assets' / 'vehicles' / 'belmonte-tr
 IVORY_CROP = 800              # rows above the swatch's brass line (rows 821-833 of 887)
 FADE = 64
 ROOF_CROP = (32, 1222)        # seven seam pitches of 170 px
+TILE_CROP = (0, 0, 1253, 1172)  # the canteen tiles swatch, grout to grout: 11 tiles across, 10 down
 
 
 def save(img, name, size):
@@ -60,8 +65,15 @@ def wall(*swatches):
     save(strip, 'wall-peel.jpg', strip.size)
 
 
+def floors(lino, tiles):
+    save(Image.open(lino), 'lino.jpg', (1024, 1024))
+    save(Image.open(tiles).convert('RGB').crop(TILE_CROP), 'canteen-tiles.jpg', (1024, 1024))
+
+
 if __name__ == '__main__':
     if sys.argv[1:2] == ['wall']:
         wall(*sys.argv[2:5])
+    elif sys.argv[1:2] == ['floors']:
+        floors(*sys.argv[2:4])
     else:
         main(*sys.argv[1:7])

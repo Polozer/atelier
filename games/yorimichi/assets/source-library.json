@@ -4977,6 +4977,14 @@
       "bytes": 287581,
       "sha256": "2a9d50d014da71e8d8714a4287caa92f3e3e75beeb28720bd30bbb96bd636e06"
     },
+    "vehicles/belmonte-train/textures/canteen-tiles.jpg": {
+      "bytes": 434668,
+      "sha256": "b8aeb6f0d322ec730ef484ca13fd2c44cc415e0262020354bf354f3cf04fe869"
+    },
+    "vehicles/belmonte-train/textures/lino.jpg": {
+      "bytes": 432820,
+      "sha256": "91fd7e66e6680d6d13695f9ce124f7b7280c7a2652d1baae55bcacad3a97e6bd"
+    },
     "vehicles/belmonte-train/textures/livery-blue-panel.jpg": {
       "bytes": 277181,
       "sha256": "289621a1a445c0c072ad99a32f6412ed9f2a5083b12dbad5f538d338670507f8"

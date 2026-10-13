@@ -1,6 +1,6 @@
 """Detail textures for the Belmonte train, drawn with numpy (no image model, no paid call): walnut grain, two
 marquetry panels with an olive sprig in gold inlay, burgundy and emerald carpets, the vestibule tiles and the
-sun-and-olive crest; the exterior livery and the worn walls come from ChatGPT swatches prepared by prepare_livery.py (`source`), which
+sun-and-olive crest; the exterior livery and the worn walls and floors come from ChatGPT swatches prepared by prepare_livery.py (`source`), which
 the worn second class weathers. Each function returns float RGBA rows, bottom row first (Blender's image order), values 0..1.
 Tileable textures wrap seamlessly; panels are mapped 0..1 on each panel face.
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 SOURCES = Path(__file__).resolve().parents[2] / 'assets' / 'vehicles' / 'belmonte-train' / 'textures'
-JPEG = {'T_BT_SmokeboxDoor', 'T_BT_BluePanel', 'T_BT_BluePanelWorn', 'T_BT_Ivory', 'T_BT_IvoryWorn', 'T_BT_Roof', 'T_BT_RoofWorn', 'T_BT_Underframe', 'T_BT_PaintPeel'}
+JPEG = {'T_BT_SmokeboxDoor', 'T_BT_BluePanel', 'T_BT_BluePanelWorn', 'T_BT_Ivory', 'T_BT_IvoryWorn', 'T_BT_Roof', 'T_BT_RoofWorn', 'T_BT_Underframe', 'T_BT_PaintPeel', 'T_BT_Lino', 'T_BT_TilesGrimy'}
 
 WALNUT_DARK = np.array([.115, .042, .016])
 WALNUT_MID = np.array([.235, .095, .036])
@@ -245,31 +245,6 @@ def worn(size=1024, paint=LIVERY_BLUE, seed=31, rust_amount=.05, streaks=True):
     return weather(np.zeros((size, size, 3)) + srgb(paint)[None, None, :], seed, rust_amount, streaks)
 
 
-def lino(size=1024, seed=51):
-    """Worn green linoleum: scuffs, a darker path down the middle, burns and patches."""
-    n = _noise(size, size, (10, 10), seed, 5)
-    img = np.array([.20, .26, .19])[None, None, :] * (.75 + .5 * n[..., None])
-    X = np.linspace(0, 1, size)[None, :, None]
-    path = np.exp(-((X - .5) / .18) ** 2) * .25
-    img = img * (1 - path) + np.array([.10, .10, .08]) * path
-    spots = _noise(size, size, (40, 40), seed + 2, 1) > .82
-    img[spots] = img[spots] * .55
-    return _rgba(img)
-
-
-def tiles_grimy(size=512, seed=61):
-    """Cracked white canteen tiles with dark grout and grease."""
-    Y, X = np.mgrid[0:size, 0:size].astype(float) / size
-    n = _noise(size, size, (6, 6), seed, 4)[..., None]
-    img = np.array([.70, .69, .62])[None, None, :] * (.75 + .3 * n)
-    u, v = X * 6, Y * 6
-    grout = (np.abs(u - np.round(u)) < .035) | (np.abs(v - np.round(v)) < .035)
-    img[grout] = (.18, .16, .13)
-    grease = np.clip((_noise(size, size, (4, 4), seed + 1, 3) - .55) * 2, 0, 1)[..., None]
-    img = img * (1 - .45 * grease)
-    return _rgba(img)
-
-
 def numeral_two(size=512):
     """A crooked hand-painted 2 in faded cream, for the second-class sides."""
     Y, X = np.mgrid[0:size, 0:size].astype(float) / size
@@ -307,8 +282,8 @@ ALL = {
     'T_BT_RoofWorn': lambda: weather(source('roof-canvas.jpg'), 35, rust_amount=.16),
     'T_BT_Underframe': lambda: _rgba(source('underframe.jpg')),
     'T_BT_PaintPeel': lambda: _rgba(source('wall-peel.jpg')),
-    'T_BT_Lino': lambda: lino(),
-    'T_BT_TilesGrimy': lambda: tiles_grimy(),
+    'T_BT_Lino': lambda: _rgba(source('lino.jpg')),
+    'T_BT_TilesGrimy': lambda: _rgba(source('canteen-tiles.jpg')),
     'T_BT_Two': lambda: numeral_two(),
 }
 for _name, _file in (('T_BT_SmokeboxDoor', 'smokebox-door.jpg'),):
