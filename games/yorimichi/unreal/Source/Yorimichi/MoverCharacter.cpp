@@ -16,7 +16,7 @@ AMoverCharacter::AMoverCharacter()
 void AMoverCharacter::PostInitializeComponents()
 {
     Super::PostInitializeComponents();
-    DefinitionAssetPath = Definition;   // read by AWandererCharacter::BeginPlay
+    DefinitionAssetPath = DefinitionPath;   // read by AWandererCharacter::BeginPlay
     if (ClothTeleportDistance > 0.f) GetMesh()->SetTeleportDistanceThreshold(ClothTeleportDistance);
     if (ClothTeleportRotation > 0.f) GetMesh()->SetTeleportRotationThreshold(ClothTeleportRotation);
 }

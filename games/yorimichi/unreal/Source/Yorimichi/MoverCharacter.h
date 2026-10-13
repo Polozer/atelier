@@ -38,7 +38,7 @@ public:
     /** Its name for -rider=, the character switch and the menu. */
     UPROPERTY(EditDefaultsOnly, Category = "Character") FString DisplayName;
     /** Its merged move set's definition (adventure.toml's `definition`), as an object path. */
-    UPROPERTY(EditDefaultsOnly, Category = "Character") FString Definition;
+    UPROPERTY(EditDefaultsOnly, Category = "Character") FString DefinitionPath;
     /** The bike clips' folder name (/Game/<BikeRig>Bike). */
     UPROPERTY(EditDefaultsOnly, Category = "Character") FString BikeRig;
     /** How far its clothes reach beyond its body's collision capsules (cm), for the skating rider. */

@@ -43,7 +43,7 @@ cloth = GAME['cloth_teleport'] or [0.0, 0.0]
 DEFAULTS = {
     'character_id': CHARACTER.id,
     'display_name': CHARACTER.toml['display_name'],
-    'definition': DEFINITION,
+    'definition_path': DEFINITION,
     'bike_rig': GAME['bike_rig'],
     'skate_clothing_clearance': float(GAME['skate_clothing_clearance']),
     'skate_collision_hull_directions': int(GAME['skate_hull_directions']),
