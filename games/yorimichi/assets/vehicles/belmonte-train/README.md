@@ -70,4 +70,7 @@ The six reservations already match the first fitted object: the golden table fro
 - `roof-canvas.jpg`: the canvas roof, its seams running across the coach;
 - `underframe.jpg`: the riveted black steel of the bogies, frames and headstocks.
 
+`backhead.jpg` is not mapped. It was the Tripo Studio input for the 3D pipework of the locomotive's backhead (the
+`loco-backhead` furniture asset). `smokebox-door.jpg` is mapped on the round smokebox door.
+
 The worn second class weathers these same images (`textures.weather`), so it keeps the train's livery.

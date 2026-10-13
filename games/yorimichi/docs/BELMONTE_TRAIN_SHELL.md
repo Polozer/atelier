@@ -41,8 +41,10 @@ object and material, so the empty interior is visible from outside.
   1.25 m, it is open at the back onto the tender's footplate (the end type is `footplate`) and the backhead stands
   at x = -5.00. Every control is a `control` Mount at its pivot and a `Control_*` object in the GLB: regulator,
   reverser, brake, whistle, sander, injector and fire door (the fire door is animated like the doors). The driver
-  sits on the left and the fireman on the right. When `assets/.../textures/smokebox-door.jpg` and `backhead.jpg`
-  are added, they replace the plain black smokebox door and backhead.
+  sits on the left and the fireman on the right. The backhead's pipework (gauges, water glasses, valves, copper pipes)
+  is a Tripo Studio model made from `textures/backhead.jpg`. It is the `loco-backhead` placement, 0.41 m deep, hung on
+  the riveted plate. The controls stand at its front on shafts, and the cab's standing range stops in front of it.
+  The smokebox door is the `smokebox-door.jpg` image.
 - **Tender** (`layout.tender()`, its own section in build.py). It is 9.00 m over buffers, and only its footplate
   is walkable. The body is a 3.10 m riveted tank, 1.05 to 3.30 m above rail, with the coal heaped inside coping
   plates up to 3.75 m. It runs on three rigid axles (wheels 1.00 m) in outside frames. At the rear (end A), full

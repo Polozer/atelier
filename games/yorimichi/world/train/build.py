@@ -57,8 +57,6 @@ MATERIALS = {
     'loco-black': ((.011, .011, .012), 0., .26, None, 1., 1.),      # the engine and tender: black, brass and red lining
     'lining-red': ((.42, .025, .02), 0., .35, None, 1., 1.),
     'smokebox-door': ((1, 1, 1) if T.has('smokebox-door.jpg') else (.014, .014, .015), .4, .45, 'T_BT_SmokeboxDoor' if T.has('smokebox-door.jpg') else None, 0., 1.),
-    'backhead': ((1, 1, 1) if T.has('backhead.jpg') else (.014, .014, .015), .4, .45, 'T_BT_Backhead' if T.has('backhead.jpg') else None, 0., 1.),
-    'gauge-face': ((.86, .82, .72), 0., .3, None, 1., 1.),
     'fire': ((1., .35, .05), 0., .9, None, 1., 1.),
     'lamp-white': ((1., .93, .78), 0., .2, None, 1., 1.),
     'crest': ((1, 1, 1), .8, .3, 'T_BT_Crest', 0., 1.),
@@ -1518,22 +1516,6 @@ def _wheelset(name, r, spokes, coll, parent, x, crank_angle=None):
     return o
 
 
-def _backhead_fittings(trim, g, mt, bx, F):
-    """Modelled gauges and valves, for a backhead without its painted image (assets textures/backhead.jpg)."""
-    p = mt['pressure-gauge']
-    trim.prism(_circle(p.y, p.z, .17, 24), 'x', bx - .07, bx - .004, 'brass')
-    g.poly([(bx - .072, y, z) for y, z in _circle(p.y, p.z, .14, 24)], 'gauge-face', normal=(-1, 0, 0))
-    for key in ('water-gauge-l', 'water-gauge-r'):
-        p = mt[key]
-        trim.box(bx - .07, bx - .004, p.y - .05, p.y + .05, p.z - .24, p.z - .20, 'brass')
-        trim.box(bx - .07, bx - .004, p.y - .05, p.y + .05, p.z + .20, p.z + .24, 'brass')
-        g.poly([(bx - .045, y, z) for y, z in rrect(p.y, p.z, .05, .40, .02)], 'glass', normal=(-1, 0, 0))
-        trim.prism(_circle(p.y, p.z - .32, .035, 10), 'x', bx - .10, bx - .004, 'brass')
-    for y, z in ((-.55, F + 2.05), (.55, F + 2.05), (-.25, F + 2.25), (.25, F + 2.25)):     # steam valves
-        trim.prism(_circle(y, z, .05, 12), 'x', bx - .09, bx - .004, 'brass')
-        trim.ring(_circle(y, z, .085, 12), _circle(y, z, .065, 12), 'x', bx - .12, bx - .10, 'brass')
-
-
 def loco_body(c, coll, parent, glass_coll):
     F = L.FLOOR_Z
     hw, cin = L.LOCO_HALF, L.CAB_IN
@@ -1698,16 +1680,13 @@ def loco_body(c, coll, parent, glass_coll):
     reproject(o, lambda n, ctr: 'iron-black')
     d = M()
     pts = _tank_section(L.FIREBOX_HW, F, L.FIREBOX_TOP, .45)
-    d.poly([(bx - .004, y, z) for y, z in pts], 'backhead', uv=[((L.FIREBOX_HW - y) / (2 * L.FIREBOX_HW), (z - F) / (L.FIREBOX_TOP - F)) for y, z in pts], normal=(-1, 0, 0))
+    d.poly([(bx - .004, y, z) for y, z in pts], 'undercarriage', normal=(-1, 0, 0))     # riveted plate behind the Tripo pipework
     d.obj('Cab_BackheadFace', coll, parent=parent, closed=False)
     mt = {mo.id: mo for mo in c.mounts}
-    g = M()
-    if not T.has('backhead.jpg'):
-        _backhead_fittings(trim, g, mt, bx, F)
-    if g.faces:
-        g.obj('Glazing_Gauges', glass_coll, closed=False)
     # the controls, each its own object with the origin at its pivot (the driving mode turns them)
     def control(name, mesh, mount):
+        if mount.x < bx - .05:                       # on a shaft from the backhead plate, through the pipework
+            mesh.cylinder((mount.y, mount.z), 'x', .018, mount.x, bx, 'steel', 8)
         o = mesh.obj(f'Control_{name}', coll, parent=parent, origin=(mount.x, mount.y, mount.z))
         o['control'] = mount.id; o['lods'] = [0, 1]
         return o

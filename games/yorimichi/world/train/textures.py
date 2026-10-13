@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 SOURCES = Path(__file__).resolve().parents[2] / 'assets' / 'vehicles' / 'belmonte-train' / 'textures'
-JPEG = {'T_BT_SmokeboxDoor', 'T_BT_Backhead', 'T_BT_BluePanel', 'T_BT_BluePanelWorn', 'T_BT_Ivory', 'T_BT_IvoryWorn', 'T_BT_Roof', 'T_BT_RoofWorn', 'T_BT_Underframe'}
+JPEG = {'T_BT_SmokeboxDoor', 'T_BT_BluePanel', 'T_BT_BluePanelWorn', 'T_BT_Ivory', 'T_BT_IvoryWorn', 'T_BT_Roof', 'T_BT_RoofWorn', 'T_BT_Underframe'}
 
 WALNUT_DARK = np.array([.115, .042, .016])
 WALNUT_MID = np.array([.235, .095, .036])
@@ -197,7 +197,7 @@ ROOF = (.041, .041, .040)
 
 
 def has(name):
-    """Whether an optional swatch (the locomotive's smokebox door and backhead) has been added yet."""
+    """Whether an optional swatch (the locomotive's smokebox door) has been added yet."""
     return (SOURCES / name).exists()
 
 
@@ -325,6 +325,6 @@ ALL = {
     'T_BT_TilesGrimy': lambda: tiles_grimy(),
     'T_BT_Two': lambda: numeral_two(),
 }
-for _name, _file in (('T_BT_SmokeboxDoor', 'smokebox-door.jpg'), ('T_BT_Backhead', 'backhead.jpg')):
-    if has(_file):          # optional locomotive swatches: plain black until they are added
+for _name, _file in (('T_BT_SmokeboxDoor', 'smokebox-door.jpg'),):
+    if has(_file):          # optional locomotive swatch: plain black until it is added
         ALL[_name] = lambda f=_file: _rgba(source(f))

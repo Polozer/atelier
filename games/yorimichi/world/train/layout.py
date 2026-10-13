@@ -731,6 +731,7 @@ CAB_IN = LOCO_HALF - CAB_WALL               # 1.49: inner face of the cab sides
 CAB_ENTRY = -6.30                           # the side cut-outs from the back of the cab to here, where the crew climbs in
 CAB_TOP, CAB_ROOF = 3.45, 4.05              # cab sides and roof apex
 BACKHEAD_X = -5.00                          # the firebox backhead's face, standing into the cab
+PIPEWORK = .41                              # depth of the pipework hung on it (the Tripo loco-backhead)
 FIREBOX_HW, FIREBOX_TOP = .95, 3.25
 BOILER = (-4.30, 3.70, .88, 2.95)           # lagged barrel: x0, x1, radius, axis height
 SMOKEBOX = (3.70, 4.95, .92)
@@ -755,7 +756,7 @@ def locomotive():
     fireman's side on the right. Every control is a Mount of kind 'control' at its pivot (and a separate object in the
     GLB), so a later driving mode can find and animate it."""
     half = LOCO_LENGTH / 2
-    lo, hi = CAB[0] + .03, BACKHEAD_X - .06
+    lo, hi = CAB[0] + .03, BACKHEAD_X - PIPEWORK - .02     # up to the front of the backhead's pipework
     body = Body(x_a=CAB[0], x_b=LOCO_BEAM, buffer_a=-half, buffer_b=half, end_a='footplate', end_b='closed',
                 bogies=(), exterior_doors=(), crest_x=-5.45, kind='locomotive', walk=(lo, hi), walk_y=CAB_IN - .09)
     c = Coach('locomotive', 'Locomotive 4-6-2', body=body)
@@ -765,25 +766,28 @@ def locomotive():
         Box('reverser-stand', 'control-stand', BACKHEAD_X - .52, BACKHEAD_X - .26, .98, 1.30, F, F + 1.15, 'screw reverser column with its brass quadrant'),
         Box('driver-seat', 'seat', -6.25, -5.85, 1.12, CAB_IN, F + .62, F + .80, "driver's flap seat on the cab side"),
         Box('fireman-seat', 'seat', -6.25, -5.85, -CAB_IN, -1.12, F + .62, F + .80, "fireman's flap seat on the cab side"),
-        Box('injector', 'control-stand', BACKHEAD_X - .22, BACKHEAD_X, -.98, -.62, F, F + 1.20, 'injector and its steam valve'),
+        Box('pipework-l', 'pipework', BACKHEAD_X - PIPEWORK, BACKHEAD_X, .55, FIREBOX_HW, F, F + 1.93, "backhead pipe columns, the driver's side"),
+        Box('pipework-r', 'pipework', BACKHEAD_X - PIPEWORK, BACKHEAD_X, -FIREBOX_HW, -.55, F, F + 1.93, "backhead pipe columns with the injector, the fireman's side"),
     ]
     c.seats += [Seat('driver', 'driver-seat', -6.05, 1.28, F + .80, 90), Seat('fireman', 'fireman-seat', -6.05, -1.28, F + .80, 90)]
-    bx = BACKHEAD_X
+    bx = BACKHEAD_X - PIPEWORK          # the controls stand at the front of the pipework, on shafts from the backhead
+    # the Tripo pipework (gauges, water glasses, valves, pipes) hangs on the riveted backhead plate, above the floor
+    c.placements.append(Placement('loco-backhead', 'loco-backhead', 'cab', BACKHEAD_X - asset_dims('loco-backhead')[1] / 2, 0., F + .06, -90))
     c.mounts += [
-        Mount('regulator', 'control', 'cab', bx - .03, 0., F + 1.02, 90, .50),         # lever on the central fitting, swinging across
-        Mount('reverser', 'control', 'cab', bx - .39, 1.14, F + 1.15, 90, .30),        # handwheel on the column
+        Mount('regulator', 'control', 'cab', bx, 0., F + 1.15, 90, .50),               # lever above the central fitting, swinging across
+        Mount('reverser', 'control', 'cab', BACKHEAD_X - .39, 1.14, F + 1.15, 90, .30),  # handwheel on the column
         Mount('brake', 'control', 'cab', -5.60, CAB_IN - .06, F + 1.20, 0, .25),       # driver's brake valve on the side
-        Mount('whistle', 'control', 'cab', bx - .03, .62, F + 2.00, 90, .15),
-        Mount('sander', 'control', 'cab', bx - .03, .80, F + .95, 90, .20),
-        Mount('fire-door', 'control', 'cab', bx - .01, 0., F + .40, 90, .70),         # the arch painted on backhead.jpg
-        Mount('injector-valve', 'control', 'cab', bx - .03, -.62, F + 1.25, 90, .10),
-        Mount('pressure-gauge', 'gauge', 'cab', bx - .03, 0., F + 1.78, 90, .36),     # gauges where backhead.jpg paints them
-        Mount('water-gauge-l', 'gauge', 'cab', bx - .03, .38, F + 1.40, 90, .50),
-        Mount('water-gauge-r', 'gauge', 'cab', bx - .03, -.38, F + 1.40, 90, .50),
+        Mount('whistle', 'control', 'cab', bx, .40, F + 2.02, 90, .15),
+        Mount('sander', 'control', 'cab', bx, .45, F + .95, 90, .20),
+        Mount('fire-door', 'control', 'cab', BACKHEAD_X - .01, 0., F + .40, 90, .70),  # on the plate, between the pipe columns
+        Mount('injector-valve', 'control', 'cab', bx, -.42, F + .78, 90, .10),
+        Mount('pressure-gauge', 'gauge', 'cab', bx + .12, 0., F + 1.70, 90, .36),     # gauge faces on the Tripo pipework
+        Mount('water-gauge-l', 'gauge', 'cab', bx + .18, .40, F + 1.35, 90, .45),
+        Mount('water-gauge-r', 'gauge', 'cab', bx + .18, -.40, F + 1.35, 90, .45),
         Mount('cab-lamp', 'ceiling-lamp', 'cab', -5.70, 0., CAB_TOP - .05, 0),
         Mount('head-lamp', 'head-lamp', 'cab', LOCO_BEAM + .05, 0., 1.62, 90),
     ]
-    c.goals.update({'cab': (-6.10, 0.), 'regulator': (bx - .40, .42), 'fire-door': (bx - .40, 0.)})
+    c.goals.update({'cab': (-6.10, 0.), 'regulator': (hi - .30, .30), 'fire-door': (hi - .30, 0.)})
     return c
 
 

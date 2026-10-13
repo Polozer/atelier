@@ -295,6 +295,28 @@
         ],
         "fit": "scaled by height (x1.495): the model is wider than the 1.00 m draft, proportions kept"
       }
+    },
+    {
+      "id": "loco-backhead",
+      "name_fr": "Façade du foyer (cabine de la locomotive)",
+      "dimensions_m": {
+        "width": 1.9,
+        "depth": 0.412,
+        "height": 1.928
+      },
+      "pivot": "floor_footprint_center",
+      "material_family": "black-riveted-steel-brass-copper",
+      "quantity_draft": 1,
+      "note": "hung on the firebox in the cab, front towards the crew (-X, yaw -90), its pipes stopping just above the floor; the controls the driver moves stay separate objects",
+      "fitted_source": {
+        "file": "steampunk pipe system 3d model.glb (Tripo Studio, from backhead.jpg)",
+        "source_size_m": [
+          0.985,
+          0.213,
+          1.0
+        ],
+        "fit": "uniform scale 1.93 to the 1.90 m width; pipework only, mounted on the riveted backhead plate"
+      }
     }
   ],
   "notes": [
