@@ -183,19 +183,39 @@ def crest(size=512):
     return _rgba(img, alpha)
 
 
-def worn(size=1024, base=(.03, .05, .11), faded=(.13, .17, .24), rust=(.36, .17, .06), seed=31, streaks=True, rust_amount=.18):
-    """Tired paint: faded patches, rust blooms with darker cores, vertical grime streaks. Tileable."""
+# the luxury livery's linear colours (build.py MATERIALS reads them from here): the worn second class starts from the
+# very same paint, so it still belongs to the train
+LIVERY_BLUE = (.012, .022, .060)
+LIVERY_IVORY = (.74, .64, .46)
+ROOF = (.030, .033, .036)
+
+
+def srgb(c):
+    """Linear colour to the sRGB values the PNG textures hold."""
+    c = np.asarray(c, float)
+    return np.where(c <= .0031308, 12.92 * c, 1.055 * np.power(c, 1 / 2.4) - .055)
+
+
+def worn(size=1024, paint=LIVERY_BLUE, seed=31, rust_amount=.05, streaks=True):
+    """The same paint, tired: slightly chalky faded patches, darker grime blotches and soot streaks of the same hue,
+    a few rust chips. The base colour stays the luxury livery's, so the coach reads as part of the same train. Tileable."""
+    base = srgb(paint)
     n1 = _noise(size, size, (6, 6), seed, 5)
     n2 = _noise(size, size, (14, 14), seed + 1, 4)
     n3 = _noise(size, size, (3, 30), seed + 2, 3)          # tall cells: streaks
-    img = np.array(base)[None, None, :] * (.85 + .3 * n2[..., None])
-    fade = np.clip((n1 - .45) * 3, 0, 1)[..., None]
-    img = img * (1 - fade) + np.array(faded)[None, None, :] * fade
-    r = np.clip((n2 - (1 - rust_amount)) * 5, 0, 1)[..., None]
-    img = img * (1 - r) + np.array(rust)[None, None, :] * (.7 + .5 * n1[..., None]) * r
+    img = base[None, None, :] * (.94 + .12 * n2[..., None])
+    chalk = np.clip(base * 1.12 + .025, 0, 1)
+    fade = (np.clip((n1 - .58) * 3, 0, 1) * .55)[..., None]
+    img = img * (1 - fade) + chalk[None, None, :] * fade
+    grime = base * .50 + np.array((.030, .022, .012))
+    dirt = (np.clip((.50 - n1) * 3, 0, 1) * .75)[..., None]
+    img = img * (1 - dirt) + grime[None, None, :] * dirt
     if streaks:
-        st = np.clip((n3 - .55) * 2.5, 0, 1)[..., None] * .35
-        img = img * (1 - st) + np.array(rust)[None, None, :] * .5 * st
+        st = (np.clip((n3 - .48) * 2.5, 0, 1) * .70)[..., None]
+        img = img * (1 - st) + grime[None, None, :] * .85 * st
+    rust = np.array((.36, .17, .06))
+    r = np.clip((n2 - (1 - rust_amount)) * 6, 0, 1)[..., None]
+    img = img * (1 - r) + rust[None, None, :] * (.7 + .5 * n1[..., None]) * r
     return _rgba(img)
 
 
@@ -265,9 +285,9 @@ ALL = {
     'T_BT_CarpetEmerald': lambda: carpet(1024, (.035, .17, .12), GOLD * .80, 7),
     'T_BT_Tiles': lambda: tiles(),
     'T_BT_Crest': lambda: crest(),
-    'T_BT_BlueWorn': lambda: worn(1024, (.03, .05, .11), (.13, .17, .24), (.36, .17, .06), 31),
-    'T_BT_IvoryWorn': lambda: worn(1024, (.62, .55, .40), (.70, .63, .46), (.40, .22, .09), 33, rust_amount=.14),
-    'T_BT_RoofWorn': lambda: worn(1024, (.04, .045, .05), (.10, .11, .12), (.32, .15, .06), 35, rust_amount=.25),
+    'T_BT_BlueWorn': lambda: worn(1024, LIVERY_BLUE, 31, rust_amount=.09),
+    'T_BT_IvoryWorn': lambda: worn(1024, LIVERY_IVORY, 33, rust_amount=.08),
+    'T_BT_RoofWorn': lambda: worn(1024, ROOF, 35, rust_amount=.16),
     'T_BT_PaintPeel': lambda: peeling(),
     'T_BT_Lino': lambda: lino(),
     'T_BT_TilesGrimy': lambda: tiles_grimy(),

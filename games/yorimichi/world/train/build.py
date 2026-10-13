@@ -30,9 +30,9 @@ TEX = OUT / 'textures'
 
 # name: (base colour, metallic, roughness, texture, uv metres per tile, alpha)
 MATERIALS = {
-    'livery-blue': ((.012, .022, .060), 0., .32, None, 1., 1.),
-    'livery-ivory': ((.74, .64, .46), 0., .38, None, 1., 1.),
-    'roof': ((.030, .033, .036), 0., .55, None, 1., 1.),
+    'livery-blue': (T.LIVERY_BLUE, 0., .32, None, 1., 1.),
+    'livery-ivory': (T.LIVERY_IVORY, 0., .38, None, 1., 1.),
+    'roof': (T.ROOF, 0., .55, None, 1., 1.),
     'end-dark': ((.018, .019, .022), 0., .5, None, 1., 1.),
     'brass': ((.80, .56, .24), 1., .28, None, 1., 1.),
     'walnut': ((1, 1, 1), 0., .42, 'T_BT_Walnut', .9, 1.),
@@ -53,8 +53,8 @@ MATERIALS = {
     'lamp-red': ((.85, .04, .02), 0., .2, None, 1., 1.),
     'coal': ((.008, .008, .009), .1, .75, None, 1., 1.),
     'crest': ((1, 1, 1), .8, .3, 'T_BT_Crest', 0., 1.),
-    'livery-blue-worn': ((1, 1, 1), 0., .7, 'T_BT_BlueWorn', 2.0, 1.),
-    'livery-ivory-worn': ((1, 1, 1), 0., .75, 'T_BT_IvoryWorn', 2.0, 1.),
+    'livery-blue-worn': ((1, 1, 1), 0., .55, 'T_BT_BlueWorn', 2.0, 1.),
+    'livery-ivory-worn': ((1, 1, 1), 0., .58, 'T_BT_IvoryWorn', 2.0, 1.),
     'roof-worn': ((1, 1, 1), .2, .8, 'T_BT_RoofWorn', 2.0, 1.),
     'brass-dull': ((.36, .30, .17), .6, .65, None, 1., 1.),
     'paint-peel': ((1, 1, 1), 0., .85, 'T_BT_PaintPeel', 1.5, 1.),
@@ -92,7 +92,7 @@ def make_materials(images):
         bsdf.inputs['Metallic'].default_value = metal
         bsdf.inputs['Roughness'].default_value = rough
         if name.startswith('livery'):
-            bsdf.inputs['Coat Weight'].default_value = .6
+            bsdf.inputs['Coat Weight'].default_value = .6 if not name.endswith('-worn') else .2
         if tex:
             node = nodes.new('ShaderNodeTexImage'); node.image = images[tex]
             m.node_tree.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
