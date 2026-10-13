@@ -127,13 +127,13 @@ bool USeatCorrectiveComponent::Flexion(TConstArrayView<FTransform> Pose, float& 
     // Skin rotations (the current component rotation times the inverse neutral one), as the garment candidate
     // measures them: the thigh's relative to the pelvis's turns its neutral head-to-shin axis, and the flexion is
     // that axis's sagittal angle less the neutral one.
-    const FQuat Pelvis = Pose[Pelvis].GetRotation() * PelvisBind.Inverse();
+    const FQuat PelvisRotation = Pose[Pelvis].GetRotation() * PelvisBind.Inverse();
     const auto Sagittal = [&](const FVector& Axis) { return FMath::Atan2(Axis | Forward, -(Axis | Up)); };
     float* Flex[2] = {&FlexL, &FlexR};
     for (int32 S = 0; S < 2; ++S)
     {
         const FQuat Thigh = Pose[Thighs[S]].GetRotation() * ThighBinds[S].Inverse();
-        const FVector Axis = (Pelvis.Inverse() * Thigh).RotateVector(Axes[S]);
+        const FVector Axis = (PelvisRotation.Inverse() * Thigh).RotateVector(Axes[S]);
         *Flex[S] = float(FMath::RadiansToDegrees(Sagittal(Axis) - Sagittal(Axes[S])));
     }
     return true;
