@@ -3,6 +3,8 @@
     blender -b --python games/yorimichi/world/train/fit_furniture.py -- ASSET_ID SOURCE.fbx|.glb [--column Z0 Z1]
         [--yaw DEG] [--scale-by width|height] [--side-panels Y0 Y1 Z0 Z1] [--back-panel X0 X1 Z0 Z1]
         [--erase X0 X1 Z0 Z1 SHIFT] [--as OUTPUT_ID] [--table-top] [--side-wood] [--shallow-gaps]
+        [--metal HUE0 HUE1 SAT VAL [--metal-skip X0 X1 Y0 Y1 Z0 Z1]]
+    blender -b --python games/yorimichi/world/train/fit_furniture.py -- --metal-only OUTPUT_ID [HUE0 HUE1 SAT VAL]
 
 Imports the mesh, puts its origin at the contract's pivot (floor footprint centre, table lamp base, sconce wall
 mount), scales it uniformly so its width matches the contract, then, with --column, lengthens only the part between
@@ -22,7 +24,9 @@ model's own material at the side's wood. --back-panel does the same for the back
 frame) is covered with the texture of the same area moved SHIFT metres along X. --as writes the result under another
 id (a variant of the asset with the same contract dimensions). --table-top builds a real wooden table (top, apron, head
 block and brackets) under a draped tablecloth, whose underside Tripo leaves as a flat sheet. --side-wood repaints the
-upholstery colour that bleeds onto a sofa's wooden side panels with the surrounding wood.
+upholstery colour that bleeds onto a sofa's wooden side panels with the surrounding wood. --metal turns the brass and
+gilt Tripo paints as yellow into real metal (a metallic-roughness map from the colour map; see metalize); --metal-only
+does it to an asset already fitted.
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[1])); import yori  # noqa: E402,F401
 import hashlib
@@ -164,29 +168,16 @@ def table_top(obj):
     print(f'TABLE TOP under the cloth at {zc:.3f} m: {x1 - x0:.2f} x {y1 - y0:.2f} m', flush=True)
 
 
-def side_wood(obj, out_id):
-    """Repaint upholstery colour that bleeds onto the wooden side panels of a sofa: on the faces of the two outer sides
-    (normal along X, at the extreme X), texels that read as the fabric (green over red) are filled from the surrounding
-    wood by diffusion, with a little of the wood's grain noise."""
+def uv_mask(me, w, h, keep):
+    """The texels (h x w booleans) covered by the UV triangles of the faces for which keep(polygon) is true."""
     import numpy as np
-    me = obj.data
-    lo, hi = bounds([obj])
     uvl = me.uv_layers.active.data
-    img = None
-    for m in me.materials:
-        for n in (m.node_tree.nodes if m and m.node_tree else []):
-            if n.type == 'TEX_IMAGE' and n.image and n.image.colorspace_settings.name == 'sRGB' and n.outputs['Color'].links:
-                img = n.image
-    if img is None:
-        print('SIDE WOOD: no base colour texture', flush=True); return
-    w, h = img.size
-    px = np.empty(w * h * 4, np.float32); img.pixels.foreach_get(px); px = px.reshape(h, w, 4)
     mask = np.zeros((h, w), bool)
     for p in me.polygons:
-        if abs(p.normal.x) < .85 or min(abs(p.center.x - lo.x), abs(p.center.x - hi.x)) > .06:
+        if not keep(p):
             continue
         uvs = [uvl[i].uv for i in p.loop_indices]
-        for k in range(1, len(uvs) - 1):         # rasterise the face's UV triangles
+        for k in range(1, len(uvs) - 1):
             tri = np.array([[uvs[0].x * w, uvs[0].y * h], [uvs[k].x * w, uvs[k].y * h], [uvs[k + 1].x * w, uvs[k + 1].y * h]])
             x0, y0 = np.floor(tri.min(0)).astype(int); x1, y1 = np.ceil(tri.max(0)).astype(int)
             x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, w - 1), min(y1, h - 1)
@@ -199,8 +190,27 @@ def side_wood(obj, out_id):
                 continue
             l1 = ((by - cy) * (X - cx) + (cx - bx) * (Y - cy)) / d
             l2 = ((cy - ay) * (X - cx) + (ax - cx) * (Y - cy)) / d
-            inside = (l1 >= -.02) & (l2 >= -.02) & (1 - l1 - l2 >= -.02)
-            mask[y0:y1 + 1, x0:x1 + 1] |= inside
+            mask[y0:y1 + 1, x0:x1 + 1] |= (l1 >= -.02) & (l2 >= -.02) & (1 - l1 - l2 >= -.02)
+    return mask
+
+
+def side_wood(obj, out_id):
+    """Repaint upholstery colour that bleeds onto the wooden side panels of a sofa: on the faces of the two outer sides
+    (normal along X, at the extreme X), texels that read as the fabric (green over red) are filled from the surrounding
+    wood by diffusion, with a little of the wood's grain noise."""
+    import numpy as np
+    me = obj.data
+    lo, hi = bounds([obj])
+    img = None
+    for m in me.materials:
+        for n in (m.node_tree.nodes if m and m.node_tree else []):
+            if n.type == 'TEX_IMAGE' and n.image and n.image.colorspace_settings.name == 'sRGB' and n.outputs['Color'].links:
+                img = n.image
+    if img is None:
+        print('SIDE WOOD: no base colour texture', flush=True); return
+    w, h = img.size
+    px = np.empty(w * h * 4, np.float32); img.pixels.foreach_get(px); px = px.reshape(h, w, 4)
+    mask = uv_mask(me, w, h, lambda p: abs(p.normal.x) >= .85 and min(abs(p.center.x - lo.x), abs(p.center.x - hi.x)) <= .06)
     r, g, b = px[..., 0], px[..., 1], px[..., 2]
     bad = mask & (g > r * 1.02) & (g > b * .9)
     good = mask & ~bad
@@ -230,6 +240,76 @@ def side_wood(obj, out_id):
             if n.type == 'TEX_IMAGE' and n.image == img:
                 n.image = fresh
     print(f'SIDE WOOD: {int(bad.sum())} fabric texels repainted on the side panels ({int(mask.sum())} panel texels)', flush=True)
+
+
+METAL_DEFAULT = (28., 58., .38, .42)     # hue range (degrees), minimum saturation and value of brass and gilt
+
+
+def metalize(obj, out_id, hue0=28., hue1=58., sat=.38, val=.42, skip=None):
+    """Tripo bakes everything into one colour map with metallic 0: its gilt and brass read as yellow paint. Find the
+    brass in the colour map (warm hue, saturated, bright enough: dark wood shares the hue but not the value), and give
+    the material a metallic-roughness map (metal 1 and roughness 0.28 there, 0 and 0.70 elsewhere, soft edges), with
+    the brass brightened to a metal's reflectance. skip: a box (x0, x1, y0, y1, z0, z1, fractions of the bounds)
+    whose faces stay non-metal whatever their colour (a lit, yellowish lampshade). Returns the share taken as metal."""
+    import numpy as np
+    me = obj.data
+    done = []
+    for m in me.materials:
+        if not (m and m.node_tree):
+            continue
+        nt = m.node_tree
+        bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+        tex = next((n for n in nt.nodes if n.type == 'TEX_IMAGE' and n.image and n.image.colorspace_settings.name == 'sRGB'
+                    and n.outputs['Color'].links), None)
+        if bsdf is None or tex is None:
+            continue
+        img = tex.image
+        w, h = img.size
+        px = np.empty(w * h * 4, np.float32); img.pixels.foreach_get(px); px = px.reshape(h, w, 4)
+        rgb = px[..., :3]
+        mx, mn = rgb.max(-1), rgb.min(-1)
+        s = np.where(mx > 1e-4, (mx - mn) / np.maximum(mx, 1e-4), 0)
+        r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        d = np.maximum(mx - mn, 1e-4)
+        hue = np.where(mx == r, ((g - b) / d) % 6, np.where(mx == g, (b - r) / d + 2, (r - g) / d + 4)) * 60
+        ramp = lambda x, a, b_: np.clip((x - a) / (b_ - a), 0, 1)
+        mask = (ramp(hue, hue0 - 6, hue0) * (1 - ramp(hue, hue1, hue1 + 6)) * ramp(s, sat - .08, sat) * ramp(mx, val - .08, val))
+        if skip:
+            lo, hi = bounds([obj])
+            f = lambda c, i: (c[i] - lo[i]) / max(hi[i] - lo[i], 1e-6)
+            inside = lambda p: all(skip[2 * i] <= f(p.center, i) <= skip[2 * i + 1] for i in range(3))
+            mask = mask * ~uv_mask(me, w, h, inside)
+        # brass reflectance: lift the masked colour to a bright value, keeping its hue
+        lift = np.clip(.80 / np.maximum(mx, 1e-3), 1, 2.2)[..., None]
+        rgb[:] = rgb * (1 - mask[..., None]) + np.clip(rgb * lift, 0, 1) * mask[..., None]
+        img.pixels.foreach_set(px.ravel())
+        path = OUT / f'{out_id}-{len(done)}-basecolor.jpg'
+        OUT.mkdir(parents=True, exist_ok=True)
+        img.filepath_raw = str(path); img.file_format = 'JPEG'; img.save()
+        fresh = bpy.data.images.load(str(path), check_existing=False); fresh.pack()
+        tex.image = fresh
+        mr = np.zeros((h, w, 4), np.float32); mr[..., 3] = 1
+        mr[..., 1] = .70 * (1 - mask) + .28 * mask          # glTF: roughness in G, metal in B (velvet, cloth, wood: matt)
+        mr[..., 2] = mask
+        mimg = bpy.data.images.new(f'{out_id}-{len(done)}-mr', w, h, alpha=False)
+        mimg.pixels.foreach_set(mr.ravel()); mimg.colorspace_settings.name = 'Non-Color'
+        mpath = OUT / f'{out_id}-{len(done)}-metal-rough.png'
+        mimg.filepath_raw = str(mpath); mimg.file_format = 'PNG'; mimg.save()
+        mfresh = bpy.data.images.load(str(mpath), check_existing=False); mfresh.colorspace_settings.name = 'Non-Color'; mfresh.pack()
+        node = nt.nodes.new('ShaderNodeTexImage'); node.image = mfresh
+        uvsrc = tex.inputs['Vector'].links[0].from_socket if tex.inputs['Vector'].links else None
+        if uvsrc:
+            nt.links.new(uvsrc, node.inputs['Vector'])
+        sep = nt.nodes.new('ShaderNodeSeparateColor')
+        nt.links.new(node.outputs['Color'], sep.inputs['Color'])
+        for sock in ('Metallic', 'Roughness'):
+            for l in list(bsdf.inputs[sock].links):
+                nt.links.remove(l)
+        nt.links.new(sep.outputs['Blue'], bsdf.inputs['Metallic'])
+        nt.links.new(sep.outputs['Green'], bsdf.inputs['Roughness'])
+        done.append(float(mask.mean()))
+    print(f'METAL: {[round(v, 3) for v in done]} of the texture taken as brass', flush=True)
+    return done
 
 
 def erase_mark(obj, e, out_id, keep_front=False):
@@ -323,8 +403,35 @@ def erase_mark(obj, e, out_id, keep_front=False):
     print(f'ERASE: {done} samples patched in {img.name} ({w}x{h})', flush=True)
 
 
+def metal_only(args):
+    """Add the brass metal to an asset already fitted (build/.../furniture/<asset>.glb), in place."""
+    out_id = args[1]
+    params = [float(v) for v in args[2:6]] if len(args) >= 6 and not args[2].startswith('--') else list(METAL_DEFAULT)
+    skip = [float(v) for v in args[args.index('--metal-skip') + 1:args.index('--metal-skip') + 7]] if '--metal-skip' in args else None
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    glb = OUT / f'{out_id}.glb'
+    bpy.ops.import_scene.gltf(filepath=str(glb))
+    obj = next(o for o in bpy.context.scene.objects if o.type == 'MESH')
+    for m in obj.data.materials:      # keep the fitted asset's sidedness through the round trip
+        if m and m.use_backface_culling:
+            m['single_sided'] = True
+    share = metalize(obj, out_id, *params, skip=skip)
+    bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True)
+    bpy.ops.export_scene.gltf(filepath=str(glb), export_format='GLB', use_selection=True, export_yup=True, export_apply=True,
+                              export_image_format='AUTO', export_jpeg_quality=88)
+    report_path = OUT / f'{out_id}.json'
+    if report_path.exists():
+        report = json.loads(report_path.read_text())
+        report['metal'] = dict(hue=params[:2], min_saturation=params[2], min_value=params[3], skip=skip, share=share)
+        report['glb'] = dict(file=glb.name, bytes=glb.stat().st_size, sha256=hashlib.sha256(glb.read_bytes()).hexdigest())
+        report_path.write_text(json.dumps(report, indent=1))
+    print('METAL ONLY', out_id, share, flush=True)
+
+
 def main():
     args = sys.argv[sys.argv.index('--') + 1:]
+    if args[0] == '--metal-only':
+        return metal_only(args)
     asset, src = args[0], _Path(args[1])
     column = None
     if '--column' in args:
@@ -339,6 +446,8 @@ def main():
     with_top = '--table-top' in args         # a draped table: build the wooden top, apron and head under the cloth
     wood_sides = '--side-wood' in args       # a sofa: repaint fabric colour bleeding onto its wooden side panels
     shallow = '--shallow-gaps' in args       # with --side-panels: holes need not cross the seat
+    metal = ([float(v) for v in args[args.index('--metal') + 1:args.index('--metal') + 5]] if '--metal' in args else None)
+    metal_skip = ([float(v) for v in args[args.index('--metal-skip') + 1:args.index('--metal-skip') + 7]] if '--metal-skip' in args else None)
     spec = next(a for a in L.contract()['assets'] if a['id'] == asset)
     tw, td, th = (spec['dimensions_m'][k] for k in ('width', 'depth', 'height'))
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -432,6 +541,7 @@ def main():
     sc.collection.objects.link(sun)
     sc.render.filepath = str(OUT / f'{out_id}.png'); bpy.ops.render.render(write_still=True)
     bpy.data.objects.remove(tgt)
+    metal_share = metalize(obj, out_id, *metal, skip=metal_skip) if metal else None
     for m in obj.data.materials:      # Tripo often leaves thin parts single-sided: show both faces
         if m and not m.get('single_sided'):
             m.use_backface_culling = False
@@ -450,6 +560,8 @@ def main():
                   triangles=sum(len(p.vertices) - 2 for p in obj.data.polygons), pivot=spec['pivot'],
                   glb=dict(file=glb.name, bytes=glb.stat().st_size, sha256=hashlib.sha256(glb.read_bytes()).hexdigest()))
     report['output_id'] = out_id
+    if metal:
+        report['metal'] = dict(hue=metal[:2], min_saturation=metal[2], min_value=metal[3], skip=metal_skip, share=metal_share)
     (OUT / f'{out_id}.json').write_text(json.dumps(report, indent=1))
     print('FIT', json.dumps(report), flush=True)
     if not ok:
