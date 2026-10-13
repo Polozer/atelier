@@ -288,15 +288,20 @@ def metalize(obj, out_id, hue0=28., hue1=58., sat=.38, val=.42, skip=None):
         img.filepath_raw = str(path); img.file_format = 'JPEG'; img.save()
         fresh = bpy.data.images.load(str(path), check_existing=False); fresh.pack()
         tex.image = fresh
-        mr = np.zeros((h, w, 4), np.float32); mr[..., 3] = 1
-        mr[..., 1] = .70 * (1 - mask) + .28 * mask          # glTF: roughness in G, metal in B (velvet, cloth, wood: matt)
-        mr[..., 2] = mask
-        mimg = bpy.data.images.new(f'{out_id}-{len(done)}-mr', w, h, alpha=False)
-        mimg.pixels.foreach_set(mr.ravel()); mimg.colorspace_settings.name = 'Non-Color'
-        mpath = OUT / f'{out_id}-{len(done)}-metal-rough.png'
-        mimg.filepath_raw = str(mpath); mimg.file_format = 'PNG'; mimg.save()
-        mfresh = bpy.data.images.load(str(mpath), check_existing=False); mfresh.colorspace_settings.name = 'Non-Color'; mfresh.pack()
-        node = nt.nodes.new('ShaderNodeTexImage'); node.image = mfresh
+        # the metallic-roughness map, at most 2048 px, kept as a generated image with its pixels in memory and packed
+        # (a file round trip left the exporter reading an empty image)
+        k = max(1, w // 2048)
+        m2 = mask[::k, ::k]
+        mh, mw = m2.shape
+        mr = np.ones((mh, mw, 4), np.float32)
+        mr[..., 0] = 0.
+        mr[..., 1] = .70 * (1 - m2) + .28 * m2              # glTF: roughness in G, metal in B (velvet, cloth, wood: matt)
+        mr[..., 2] = m2
+        mfresh = bpy.data.images.new(f'{out_id}-{len(done)}-metal-rough', mw, mh, alpha=False, float_buffer=False)
+        mfresh.colorspace_settings.name = 'Non-Color'
+        mfresh.pixels.foreach_set(mr.ravel())
+        mfresh.pack()
+        node = nt.nodes.new('ShaderNodeTexImage'); node.image = mfresh; node.interpolation = 'Linear'
         uvsrc = tex.inputs['Vector'].links[0].from_socket if tex.inputs['Vector'].links else None
         if uvsrc:
             nt.links.new(uvsrc, node.inputs['Vector'])
