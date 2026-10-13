@@ -729,6 +729,7 @@ CAB = (-6.95, -4.30)                        # cab floor from its open back (towa
 CAB_WALL = .06
 CAB_IN = LOCO_HALF - CAB_WALL               # 1.49: inner face of the cab sides
 CAB_ENTRY = -6.30                           # the side cut-outs from the back of the cab to here, where the crew climbs in
+CAB_DOOR = (.55, 1.95)                      # half-width and height of the doorway in the cab's back plate, onto the tender
 CAB_TOP, CAB_ROOF = 3.45, 4.05              # cab sides and roof apex
 BACKHEAD_X = -5.00                          # the firebox backhead's face, standing into the cab
 PIPEWORK = .41                              # depth of the pipework hung on it (the Tripo loco-backhead)
@@ -762,6 +763,8 @@ def locomotive():
     c = Coach('locomotive', 'Locomotive 4-6-2', body=body)
     F = FLOOR_Z
     c.rooms.append(Room('cab', 'cab', CAB[0], BACKHEAD_X, -CAB_IN, CAB_IN, 'parquet'))
+    for side, sy in (('l', 1), ('r', -1)):          # the cab's back plate either side of the doorway onto the tender
+        c.reservations.append(Box(f'cab-back-{side}', 'wall', CAB[0], CAB[0] + CAB_WALL, *sorted((sy * CAB_DOOR[0], sy * CAB_IN)), F, CAB_TOP, 'cab back plate'))
     c.reservations += [
         Box('reverser-stand', 'control-stand', BACKHEAD_X - .52, BACKHEAD_X - .26, .98, 1.30, F, F + 1.15, 'screw reverser column with its brass quadrant'),
         Box('driver-seat', 'seat', -6.25, -5.85, 1.12, CAB_IN, F + .62, F + .80, "driver's flap seat on the cab side"),

@@ -465,7 +465,7 @@ const restaurant = consist.vehicles.find((v) => v.id === 'restaurant');
 controls.target.set(restaurant.x - 12, 2, 0);
 camera.position.set(restaurant.x + 18, 11, 30);
 const clock = new THREE.Clock();
-window.trainDebug = { doors, roofs, walker, obstacles };
+window.trainDebug = { doors, roofs, walker, obstacles, camera, controls };   // camera/controls: free inspection views
 const ease = (t) => t * t * (3 - 2 * t);
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), .05);

@@ -1655,6 +1655,48 @@ def loco_body(c, coll, parent, glass_coll):
             trim.box(ce + .12, cb - .12, ya, yb, z - .005, z + .005, 'lining-red')
         for x in (ce + .12, cb - .12):
             trim.box(x - .005, x + .005, ya, yb, F + .54, F + 1.06, 'lining-red')
+    # side doors in the entrance cut-outs, under a header: hinged at their front edge, opening outwards
+    for side, sy in (('L', 1), ('R', -1)):
+        y0, y1 = sorted((sy * cin, sy * hw))
+        hd = M(); hd.box(ca, ce, y0, y1, F + 1.95, L.CAB_TOP, 'loco-black')
+        hd.obj(f'Cab_DoorHeader_{side}', coll, parent=parent)
+        dwid, dz0, dz1 = ce - ca - .02, F + .05, F + 1.93
+        d = M()
+        d.box(-dwid, 0, -.02, .02, 0, dz1 - dz0, 'loco-black')
+        win = (-dwid / 2, 1.30, dwid - .18, .42)          # (x centre from the hinge, z centre from the sill, w, h)
+        for s in (-1, 1):
+            ta, tb = sorted((s * .02, s * .026))
+            d.box(-dwid + .05, -.05, ta, tb, .30, .305, 'lining-red')
+            d.box(-dwid + .05, -.05, ta, tb, 1.02, 1.025, 'lining-red')
+            d.box(-.10, -.08, ta - s * .0, tb + s * .03, .85, 1.05, 'brass')
+        leaf = d.obj(f'Door_cab-{side.lower()}', coll, parent=parent)
+        cut = M(); cut.prism(rrect(win[0], win[1], win[2], win[3], .05), 'y', -.1, .1, 'glass')
+        boolean(leaf, [cut]); reproject(leaf, lambda n, ctr: 'walnut' if n.y * sy < -.7 else 'loco-black')
+        g = M(); g.poly([(x, 0, z) for x, z in rrect(win[0], win[1], win[2], win[3], .05)], 'glass', normal=(0, sy, 0))
+        go = g.obj(f'Glazing_Door_cab-{side.lower()}', glass_coll, closed=False); go.parent = leaf
+        hinge = (ce - .01, sy * (hw - .02), dz0)
+        leaf.location = hinge
+        DOOR_RECORDS.append(dict(name=leaf.name, door=f'cab-{side.lower()}', kind='hinged', pivot=list(hinge), swing_deg=-95 * sy,
+                                 opening=[ca, ce, dz0, dz1], wall=f'cab-side-{side.lower()}'))
+    # back plate, facing the tender: a doorway in the middle, a small glass each side to look back along the train
+    dw, dh = L.CAB_DOOR
+    m = M()
+    for sy in (-1, 1):
+        m.box(ca, ca + L.CAB_WALL, *sorted((sy * dw, sy * hw)), F, L.CAB_TOP, 'loco-black')
+    m.box(ca, ca + L.CAB_WALL, -dw, dw, F + dh, L.CAB_TOP, 'loco-black')
+    o = m.obj('Cab_Back', coll, parent=parent)
+    cuts = []
+    for sy in (-1, 1):
+        cut = M(); cut.prism(rrect(sy * 1.02, F + 1.62, .42, .52, .06), 'x', ca - .05, ca + .11, 'glass'); cuts.append(cut)
+    boolean(o, cuts)
+    reproject(o, lambda n, ctr: 'walnut' if n.x > .7 else 'loco-black')
+    g = M()
+    for sy in (-1, 1):
+        g.poly([(ca + .03, y, z) for y, z in rrect(sy * 1.02, F + 1.62, .42, .52, .06)], 'glass', normal=(-1, 0, 0))
+        trim.ring(rrect(sy * 1.02, F + 1.62, .50, .60, .08), rrect(sy * 1.02, F + 1.62, .42, .52, .06), 'x', ca - .015, ca, 'brass')
+    g.obj('Glazing_Cab_Back', glass_coll, closed=False)
+    for y in (-dw - .03, dw + .03):                 # brass grab rails at the doorway
+        trim.box(ca - .05, ca - .02, y - .015, y + .015, F + .15, F + 1.80, 'brass')
     # front plate round the firebox, two spectacle glasses
     m = M()
     for sy in (-1, 1):
@@ -1953,3 +1995,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
