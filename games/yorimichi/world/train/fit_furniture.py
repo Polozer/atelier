@@ -150,6 +150,7 @@ def erase_mark(obj, e, out_id, keep_front=False):
         print('ERASE: no base colour texture', flush=True); return
     w, h = img.size
     px = np.empty(w * h * 4, np.float32); img.pixels.foreach_get(px); px = px.reshape(h, w, 4)
+    original = px.copy()
     done = 0
     for i in range(80):
         for j in range(30):
@@ -164,13 +165,14 @@ def erase_mark(obj, e, out_id, keep_front=False):
             px[max(0, dj - r):dj + r + 1, max(0, di - r):di + r + 1] = px[max(0, sj - r):sj + r + 1, max(0, si - r):si + r + 1][:min(dj + r + 1, h) - max(0, dj - r), :min(di + r + 1, w) - max(0, di - r)]
             done += 1
     img.pixels.foreach_set(px.ravel())
-    path = OUT / f'{out_id}-basecolor.png'
+    path = OUT / f'{out_id}-basecolor.jpg'
     OUT.mkdir(parents=True, exist_ok=True)
-    img.filepath_raw = str(path); img.file_format = 'PNG'; img.save()
+    img.filepath_raw = str(path); img.file_format = 'JPEG'; img.save()
     # the exporter writes an embedded image's original bytes: load the edited file and use it instead
     fresh = bpy.data.images.load(str(path), check_existing=False)
     fresh.pack()
     if keep_front:
+        img.pixels.foreach_set(original.ravel())      # the front keeps the mark
         # the original keeps the mark on the front; every face gets a reversed twin, textured with the clean copy,
         # and both sides become single-sided: the mark reads from the front only
         bm.free()
@@ -306,9 +308,14 @@ def main():
     for m in obj.data.materials:      # Tripo often leaves thin parts single-sided: show both faces
         if m and not m.get('single_sided'):
             m.use_backface_culling = False
+    for m in obj.data.materials:      # web and game budget: no texture above 2048 px
+        for n in (m.node_tree.nodes if m and m.node_tree else []):
+            if n.type == 'TEX_IMAGE' and n.image and max(n.image.size) > 2048:
+                n.image.scale(2048, 2048)
     bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True)
     glb = OUT / f'{out_id}.glb'
-    bpy.ops.export_scene.gltf(filepath=str(glb), export_format='GLB', use_selection=True, export_yup=True, export_apply=True)
+    bpy.ops.export_scene.gltf(filepath=str(glb), export_format='GLB', use_selection=True, export_yup=True, export_apply=True,
+                              export_image_format='JPEG', export_jpeg_quality=88)
     report = dict(asset=asset, source=src.name, source_sha256=hashlib.sha256(src.read_bytes()).hexdigest(),
                   target_m=dict(width=tw, depth=td, height=th), source_size=[round(v, 4) for v in before],
                   quarter_turn=swapped, uniform_scale=round(s, 5), column_fraction=column, column_stretch_m=round(stretch, 4),
