@@ -14,9 +14,10 @@ A clip fails when:
 - a metric is missing, not finite, or the clip has no frames;
 - `ankle_cm` or a reach is above BOUNDS, unless character.toml waives it ([[fit]]: report, clip, metric, a bound
   and the reason) or SHARED does for every character;
+- the report has no clips, or lacks one its baseline has (without a baseline: one every other mover's baseline of
+  that report has);
 - the character has a baseline (assets/characters/fit/<id>.json, written by --record from a reviewed build and
-  committed) and the clip
-  is missing from the report, has another frame count, or a metric is worse than the baseline by more than MARGIN.
+  committed) and the clip has another frame count, or a metric is worse than the baseline by more than MARGIN.
 
 A new character needs no baseline: its clips are held to BOUNDS until one is recorded.
 """
@@ -45,7 +46,10 @@ def metrics(report, clip):
     """{metric: (value, higher_is_worse)} of one clip's export.json entry."""
     if report == 'bike':
         return {f'reach_{limb}_cm': (value, True) for limb, value in clip.get('reach_error_cm', {}).items()}
-    out = {'ankle_cm': (max(clip.get('ankle_L_cm', math.nan), clip.get('ankle_R_cm', math.nan)), True),
+    ankles = [clip.get('ankle_L_cm', math.nan), clip.get('ankle_R_cm', math.nan)]
+    # Each ankle is checked before the farther is taken: max() would hide a missing or NaN one.
+    finite = all(isinstance(v, (int, float)) and math.isfinite(v) for v in ankles)
+    out = {'ankle_cm': (max(ankles) if finite else math.nan, True),
            'lowest_toe_cm': (clip.get('lowest_toe_cm', math.nan), False)}
     out.update({k: (v, True) for k, v in clip.items() if k.startswith('stance_') and k.endswith('_cm')})
     return out
@@ -68,6 +72,16 @@ def baseline(character):
     return json.loads(path.read_text()) if path.exists() else {}
 
 
+def expected(character, report):
+    """The clips a report must hold: its baseline's, or without one the clips every other mover's baseline of that
+    report shares (the merged move set, or the bike's moves)."""
+    if names := set(baseline(character).get(report, {})):
+        return names
+    others = [set(json.loads(p.read_text()).get(report, {})) for p in sorted(FIT.glob('*.json')) if p.stem != character.id]
+    others = [o for o in others if o]
+    return set.intersection(*others) if others else set()
+
+
 def bound(character, report, clip, metric):
     """The waived bound, or BOUNDS' (None: the metric has no absolute bound)."""
     for waiver in [*character.fit, *SHARED]:
@@ -79,8 +93,10 @@ def bound(character, report, clip, metric):
 def check(character, report, found):
     """Failures (strings) of one report's clips, `found` as in clips()."""
     failures, base = [], baseline(character).get(report, {})
-    for name in sorted(set(base) - set(found)):
-        failures.append(f'{name}: in the baseline, not exported')
+    if not found:
+        failures.append('no clips exported')
+    for name in sorted(expected(character, report) - set(found)):
+        failures.append(f'{name}: expected, not exported')
     for name, clip in sorted(found.items()):
         if not clip.get('frames'):
             failures.append(f'{name}: no frames')
@@ -91,6 +107,8 @@ def check(character, report, found):
         values = metrics(report, clip)
         if not values:
             failures.append(f'{name}: no metrics')
+        for metric in sorted(set(was or {}) - set(values) - {'frames'}):
+            failures.append(f'{name} {metric}: in the baseline, not exported')   # a bike limb, say
         for metric, (value, worse_up) in sorted(values.items()):
             if not isinstance(value, (int, float)) or not math.isfinite(value):
                 failures.append(f'{name} {metric}: {value}')

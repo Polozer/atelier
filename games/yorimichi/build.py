@@ -251,19 +251,28 @@ def mover_adventure_steps(character, out):
         Step(f'unreal.{k}_adventure', [importer], inputs=import_inputs, needs=[f'characters.{k}_adventure', f'unreal.{k}', 'unreal.adventure'],
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / character.id / 'adventure.json'], heavy=True,
              about=f"{character.adventure['dest']} and {character.adventure['definition']}: {character.name}'s merged move set, definition and move record"),
-        *([pawn_step(character)] if character.playable else []),
     ]
 
 
-def pawn_step(character):
-    """Its pawn, BP_<Name>, and the readiness record that registers it (Scripts/character_pawn.py), in the full editor:
-    the Blueprint's parent is the game's AMoverCharacter."""
-    k, script = key(character), SCRIPTS / 'character_pawn.py'
-    return Step(f'unreal.{k}_pawn', [UnrealScript(script, f'CHARACTER PAWN COMPLETE: {character.id}', null_rhi=True, env=(('CHARACTER', character.id),))],
-                inputs=[script, PIPELINE / 'definition.py', character.folder / 'character.toml'],
-                needs=[f'unreal.{k}_adventure', 'unreal.compile'],
-                outputs=[GAME / 'unreal' / 'Content' / 'Data' / character.id / 'character.json'], heavy=True,
-                about=f'{character.unreal_path}/BP_{character.name}: {character.name} as a playable pawn, registered with the game')
+def pawn_steps(steps):
+    """Each player's pawn, BP_<Name>, and the readiness record that registers it (Scripts/character_pawn.py), in the
+    full editor (the Blueprint's parent is the game's AMoverCharacter). Last of its steps: a character is published
+    only once its move set, bike clips, grips and fit gate are all built."""
+    names = {s.name for s in steps}
+    result = []
+    for character in definition.movers():
+        if not character.playable:
+            continue
+        k, script = key(character), SCRIPTS / 'character_pawn.py'
+        ready = [n for n in (f'unreal.{k}_adventure', f'unreal.{k}_bike', f'characters.{k}_grips', f'characters.{k}_fit') if n in names]
+        result.append(Step(
+            f'unreal.{k}_pawn', [UnrealScript(script, f'CHARACTER PAWN COMPLETE: {character.id}', null_rhi=True, env=(('CHARACTER', character.id),))],
+            inputs=[script, PIPELINE / 'definition.py', character.folder / 'character.toml'],
+            needs=[*ready, 'unreal.compile'],
+            outputs=[content(character) / f'BP_{character.name}.uasset', GAME / 'unreal' / 'Content' / 'Data' / character.id / 'character.json'],
+            heavy=True,
+            about=f'{character.unreal_path}/BP_{character.name}: {character.name} as a playable pawn, registered with the game'))
+    return result
 
 
 def fit_steps(out, steps):
@@ -698,6 +707,7 @@ def steps(ctx):
     result = (world_steps(ctx, park) + character_steps(ctx) + sound_effect_steps(ctx)
               + unreal_steps(ctx) + staging_steps(ctx, park) + adventure_steps(ctx.out) + hippodrome_steps(ctx.out) + belmonte_steps(ctx.out)[1:])
     result += fit_steps(ctx.out, result)
+    result += pawn_steps(result)
     identity_spec = importlib.util.spec_from_file_location('yorimichi_network_identity', GAME / 'network_identity.py')
     identity = importlib.util.module_from_spec(identity_spec)
     identity_spec.loader.exec_module(identity)

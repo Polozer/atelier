@@ -46,6 +46,31 @@ def test_a_bad_clip_fails(tmp_path, no_baseline, change, failure):
     assert any(failure in f for f in failures), failures
 
 
+@pytest.mark.parametrize('ankles', [{'ankle_R_cm': math.nan}, {'ankle_R_cm': None}, {}])
+def test_each_ankle_must_be_measured(tmp_path, no_baseline, ankles):
+    clip = {k: v for k, v in CLIP.items() if k != 'ankle_R_cm'}
+    clip.update({k: v for k, v in ankles.items() if v is not None})
+    assert fit.check(character(tmp_path), 'adventure', {'Walk': clip}) == ['Walk ankle_cm: nan']
+
+
+def test_an_empty_report_fails(tmp_path, no_baseline):
+    assert fit.check(character(tmp_path), 'adventure', {}) == ['no clips exported']
+
+
+def test_without_a_baseline_the_other_movers_clips_are_expected(tmp_path, no_baseline):
+    for other, names in (('a', ['Walk', 'Run']), ('b', ['Walk', 'Run', 'Own'])):
+        (no_baseline / f'{other}.json').write_text(json.dumps({'adventure': {n: {'frames': 30} for n in names}}))
+    assert fit.check(character(tmp_path), 'adventure', {'Walk': CLIP}) == ['Run: expected, not exported']
+    assert fit.check(character(tmp_path), 'adventure', {'Walk': CLIP, 'Run': CLIP}) == []
+
+
+def test_a_baseline_metric_cannot_go_missing(tmp_path, no_baseline):
+    (no_baseline / 'someone.json').write_text(json.dumps({'bike': {'BikeRide': {
+        'frames': 60, 'reach_hand_L_cm': 1.0, 'reach_foot_L_cm': 1.0}}}))
+    found = {'BikeRide': {'frames': 60, 'reach_error_cm': {'hand_L': 1.0}}}
+    assert fit.check(character(tmp_path), 'bike', found) == ['BikeRide reach_foot_L_cm: in the baseline, not exported']
+
+
 def test_a_missing_metric_fails(tmp_path, no_baseline):
     clip = {k: v for k, v in CLIP.items() if k != 'lowest_toe_cm'}
     assert fit.check(character(tmp_path), 'adventure', {'Walk': clip}) == ['Walk lowest_toe_cm: nan']
@@ -71,7 +96,7 @@ def test_the_baseline_holds_frames_clips_and_metrics(tmp_path, no_baseline):
     (no_baseline / 'someone.json').write_text(json.dumps({'adventure': {
         'Walk': {'frames': 30, 'ankle_cm': 1.0, 'lowest_toe_cm': 2.0}, 'Run': {'frames': 20, 'ankle_cm': 1.0, 'lowest_toe_cm': 0.}}}))
     c = character(tmp_path)
-    assert fit.check(c, 'adventure', {'Walk': CLIP}) == ['Run: in the baseline, not exported']
+    assert fit.check(c, 'adventure', {'Walk': CLIP}) == ['Run: expected, not exported']
     found = {'Walk': {**CLIP, 'frames': 31, 'ankle_R_cm': 1.6, 'lowest_toe_cm': 1.4}, 'Run': {**CLIP, 'frames': 20}}
     assert fit.check(c, 'adventure', found) == [
         'Walk: 31 frames, the baseline 30',

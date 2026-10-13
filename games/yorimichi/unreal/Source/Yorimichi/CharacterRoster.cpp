@@ -25,6 +25,9 @@ int32 FPlayableCharacter::Scan()
     const FString Data = AtelierDataPath(FString());
     IFileManager::Get().FindFiles(Folders, *(Data / TEXT("*")), false, true);
     Folders.Sort();
+    // The whole proposed catalogue is checked before it replaces the registry: on any conflict the game keeps the
+    // catalogue it has.
+    TArray<FPlayableCharacter> Proposed = Registry();
     int32 Added = 0;
     for (const FString& Folder : Folders)
     {
@@ -48,16 +51,36 @@ int32 FPlayableCharacter::Scan()
         Record->TryGetBoolField(TEXT("default"), Character.bDefault);
         if (const TArray<TSharedPtr<FJsonValue>>* Aliases; Record->TryGetArrayField(TEXT("aliases"), Aliases))
             for (const TSharedPtr<FJsonValue>& Alias : *Aliases) Character.Aliases.Add(Alias->AsString());
-        if (Character.bDefault && Registry().ContainsByPredicate([](const FPlayableCharacter& C) { return C.bDefault; }))
-        {
-            UE_LOG(LogTemp, Error, TEXT("Character %s: a second default, registered as an ordinary character"), *Name);
-            Character.bDefault = false;
-        }
-        Registry().Add(MoveTemp(Character));
+        Proposed.Add(MoveTemp(Character));
         ++Added;
-        UE_LOG(LogTemp, Display, TEXT("Character registered: %s (%s)"), *Name, *ClassPath);
     }
-    Registry().Sort([](const FPlayableCharacter& A, const FPlayableCharacter& B) { return A.Name < B.Name; });
+    TSet<FString> Names;
+    int32 Defaults = 0;
+    for (const FPlayableCharacter& Character : Proposed)
+    {
+        Defaults += Character.bDefault;
+        TArray<FString> Called = Character.Aliases;
+        Called.Add(Character.Name);
+        for (const FString& Name : Called)
+        {
+            bool bTaken = false;
+            Names.Add(Name, &bTaken);
+            if (Name.IsEmpty() || bTaken)
+            {
+                UE_LOG(LogTemp, Error, TEXT("Characters: '%s' names two characters; the catalogue is unchanged"), *Name);
+                return 0;
+            }
+        }
+    }
+    if (Defaults > 1)
+    {
+        UE_LOG(LogTemp, Error, TEXT("Characters: %d defaults; the catalogue is unchanged"), Defaults);
+        return 0;
+    }
+    Proposed.Sort([](const FPlayableCharacter& A, const FPlayableCharacter& B) { return A.Name < B.Name; });
+    Registry() = MoveTemp(Proposed);
+    for (const FPlayableCharacter& Character : Registry())
+        UE_LOG(LogTemp, Display, TEXT("Character registered: %s"), *Character.Name);
     return Added;
 }
 
