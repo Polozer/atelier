@@ -27,7 +27,6 @@ swimming, gliding, climbing), where Cairo's own leg reaches bent as Reference's 
 import argparse
 import json
 import sys
-import tomllib
 from pathlib import Path
 
 import bpy
@@ -40,14 +39,15 @@ sys.path.insert(0, str(CHARS.parent.parent / 'world')); import yori  # noqa: E40
 import bake   # noqa: E402
 import stance  # noqa: E402
 sys.path.insert(0, str(CHARS / 'pipeline'))
+import definition  # noqa: E402
 import rig  # noqa: E402
 
 REFERENCE = yori.OUT / 'adventure'
 FPS = bake.FPS
 # The donor of the merged set's own clips: the character whose adventure.toml has a [donor] table (its clips by role, and
 # their rate). Its own clips play on it as imported; everyone else takes them retargeted from OWN (--dump-own).
-DONOR_ID = next(p.parent.name for p in sorted(CHARS.glob('*/adventure.toml')) if 'donor' in tomllib.loads(p.read_text()))
-DONOR = tomllib.loads((CHARS / DONOR_ID / 'adventure.toml').read_text())['donor']
+DONOR_ID = definition.movers()[0].id
+DONOR = definition.movers()[0].donor
 OWN = yori.OUT / DONOR_ID / 'adventure' / 'own.npz'
 OWN_CLIPS = tuple(DONOR['clips']) + tuple(DONOR['gestures'])
 OWN_FPS = DONOR['fps']
@@ -448,7 +448,7 @@ def main(args):
     bone_map.update({b: '' for b in secondary})
     missing = sorted(b.name for b in arm.data.bones if b.name not in bone_map)
     assert not missing, (f'{args.character} bones without a Reference bone', missing)
-    config = tomllib.loads((CHARS / args.character / 'adventure.toml').read_text())
+    config = definition.load(args.character).adventure
     stances = {name: stance.load(CHARS / args.character / value['choice'], prepared.record['native_sha256'])
                for name, value in config.get('stance', {}).items()}
     retarget = Retarget(glb, arm, bone_map, stances=stances)

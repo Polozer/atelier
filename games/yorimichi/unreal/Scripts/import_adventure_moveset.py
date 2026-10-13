@@ -25,7 +25,7 @@ must be byte-identical afterwards.
 """
 import os
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / 'world')); import yori  # noqa: E402  (build/yorimichi = yori.OUT)
-import hashlib, json, math, sys, tomllib
+import hashlib, json, math, sys
 from pathlib import Path
 import unreal as U
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -33,11 +33,12 @@ import animation_compression
 
 CHARACTER = os.environ.get('ADVENTURE_CHARACTER', 'cairo')
 CHARS = yori.ASSETS / 'characters'
-adventure = {p.parent.name: tomllib.loads(p.read_text()) for p in CHARS.glob('*/adventure.toml')}
-SPEC = adventure[CHARACTER]
+sys.path.insert(0, str(CHARS / 'pipeline'))
+import definition  # noqa: E402
+SPEC = definition.load(CHARACTER).adventure   # adventure.toml, its layout defaulting to the character's folder
 # The donor of the set's own clips (its double jump and bokken guard): the one character with a [donor] table.
-DONOR_ID = next(c for c, spec in adventure.items() if 'donor' in spec)
-DONOR = adventure[DONOR_ID]['donor']
+DONOR_ID = definition.movers()[0].id
+DONOR = definition.movers()[0].donor
 OUT = yori.OUT / CHARACTER / 'adventure'
 CONFIG = json.loads((OUT / 'export.json').read_text())
 REFERENCE = next(c for c in json.loads((yori.OUT / 'adventure' / 'export.json').read_text())['characters'] if c['name'] == 'Reference')

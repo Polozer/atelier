@@ -1,4 +1,5 @@
 """Yorimichi runtime data: required files, source paths and staging into Content/Data."""
+import importlib.util
 import shutil
 from pathlib import Path
 
@@ -7,14 +8,18 @@ from atelier import paths
 GAME = Path(__file__).resolve().parent
 REGIONS = GAME / 'world' / 'regions'
 ASSETS = GAME / 'assets'
+_spec = importlib.util.spec_from_file_location('character_definition', ASSETS / 'characters/pipeline/definition.py')
+definition = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(definition)
 
 
 # Runtime files the game reads through AtelierDataPath, relative to unreal/Content/Data. Each is also an output of
 # data.stage, so a file missing there (a renamed folder, a new entry) makes the step run.
 STAGED = ('world.json', 'heightmap.bin', 'hidamari/city.json', 'skatepark/park.json', 'map/map.json', 'map/map_lines.json',
           'map/map.png', 'map/map.jpg', 'city_surface_tiles/v1_128m/manifest.json',
-          'treehouse/runtime.json', 'megapark/park.json', 'bike/manifest.json', 'cairo/bike/export.json',
-          'modori/bike/export.json', 'belmonte/runtime.json', 'nox/bike/export.json')
+          'treehouse/runtime.json', 'megapark/park.json', 'bike/manifest.json', 'belmonte/runtime.json',
+          # every playable character's bike report: its contact windows and the bike's channels
+          *(f'{c.id}/bike/export.json' for c in definition.movers() if c.playable))
 
 
 def communitypark(out):
@@ -29,7 +34,8 @@ def staged(out):
 
 def staged_source(out, rel):
     """Where a staged file comes from: build output, except the committed park."""
-    return {'skatepark/park.json': REGIONS / 'skatepark' / 'park.json'}.get(rel, out / rel)
+    bikes = {f'{c.id}/bike/export.json': out / c.output / 'bike' / 'export.json' for c in definition.movers()}
+    return {'skatepark/park.json': REGIONS / 'skatepark' / 'park.json', **bikes}.get(rel, out / rel)
 
 
 def stage_data(ctx, log):

@@ -67,3 +67,30 @@ def test_a_new_character_needs_only_its_source_and_height(tmp_path, source, mesh
     c = definition.load('new-one', tmp_path)
     assert (c.name, c.output, c.unreal_path, c.fps) == ('NewOne', 'new-one', '/Game/NewOne', 30)
     assert (c.export['meshes'], c.export['measure'], c.export['names'], c.export['actions']) == (meshes, measure, 'mixamo', 'discard')
+
+
+def test_a_new_player_imports_with_the_import_modules_and_rides(tmp_path):
+    folder = tmp_path / 'new-one'
+    folder.mkdir()
+    (folder / 'character.toml').write_text('id = "new-one"\nrole = "player"\nsource = "New.glb"\nheight_cm = 170\n')
+    c = definition.load('new-one', tmp_path)
+    assert c.playable and c.unreal['modules'] == ['YorimichiImport', 'YorimichiAssets'] and c.blender == {'threads': 4}
+    (folder / 'character.toml').write_text('id = "new-one"\nrole = "npc"\nsource = "New.glb"\nheight_cm = 170\n[blender]\nfast = 1\n')
+    with pytest.raises(AssertionError, match='unknown'):
+        definition.load('new-one', tmp_path)
+
+
+def test_every_mover_has_its_steps():
+    from atelier.build import Context
+    spec = importlib.util.spec_from_file_location('yorimichi_build', CHARS.parents[1] / 'build.py')
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+    steps = build.steps(Context('yorimichi'))
+    names = [s.name for s in steps]
+    for c in definition.movers():
+        k = c.id.replace('-', '_')
+        wanted = [f'characters.{k}', f'unreal.{k}', f'characters.{k}_adventure', f'unreal.{k}_adventure', f'characters.{k}_fit']
+        wanted += [f'characters.{k}_bike', f'unreal.{k}_bike'] if c.playable else []
+        assert set(wanted) <= set(names), (c.id, sorted(set(wanted) - set(names)))
+    for i, step in enumerate(steps):   # steps run in declaration order: each after what it needs
+        assert all(names.index(n) < i for n in step.needs if n in names), step.name

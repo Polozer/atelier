@@ -26,3 +26,7 @@ atlas = 4096
 physics_asset = false                 # skating fits its own physical rider to him
 vertex_colors = true
 morph_targets = true                  # his seat correctives
+modules = ["YorimichiImport", "YorimichiAssets", "AtelierCore"]   # AtelierCore: the skin-morph contact data
+
+[blender]
+threads = 3                           # two 4K atlases

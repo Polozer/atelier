@@ -45,10 +45,21 @@ UNREAL = {
     'vertex_colors': False,         # import vertex colours (a cloth mask, say)
     'morph_targets': False,
     'contact_morphs': [],           # morph targets the skin readers must follow (USkinMorphContactData)
+    'modules': ['YorimichiImport', 'YorimichiAssets'],   # the compiled game modules the import loads ([]: the whole editor)
+}
+# [blender]: how its Blender steps run.
+BLENDER = {
+    'threads': 4,                   # for its body and bike exports
 }
 
 # [[fit]]: a clip's metric allowed above fit.py's default bound, and why.
 WAIVER = {'report', 'clip', 'metric', 'bound', 'reason'}
+
+
+def layout(path, name):
+    """Where the merged move set's import puts a character's assets, unless its adventure.toml says otherwise."""
+    return {'mesh': f'{path}/SK_{name}', 'base': f'{path}/DA_{name}Base', 'dest': f'{path}/Adventure',
+            'definition': f'{path}/DA_{name}', 'keep_base_actions': True}
 
 
 def asset_name(character):
@@ -71,8 +82,6 @@ class Character:
         self.folder = chars / character
         self.toml = tomllib.loads((self.folder / 'character.toml').read_text())
         assert self.toml['id'] == character, (character, self.toml['id'])
-        path = self.folder / 'adventure.toml'
-        self.adventure = tomllib.loads(path.read_text()) if path.exists() else None
         self.name = self.toml.get('asset_name', asset_name(character))
         self.output = self.toml.get('output', character)   # build/<game>/<output>/
         self.source = self.folder / self.toml['source'] if 'source' in self.toml else None   # None: built procedurally
@@ -92,6 +101,13 @@ class Character:
         assert set(self.toml.get('unreal', {})) <= set(UNREAL), (character, 'unknown [unreal] keys')
         self.unreal = {**UNREAL, **self.toml.get('unreal', {})}
         self.unreal_path = self.toml.get('unreal_path', '/Game/' + self.name)
+        path = self.folder / 'adventure.toml'
+        # adventure.toml, its layout defaulting to the character's own folder (Scripts/import_adventure_moveset.py)
+        self.adventure = {**layout(self.unreal_path, self.name), **tomllib.loads(path.read_text())} if path.exists() else None
+        assert set(self.toml.get('blender', {})) <= set(BLENDER), (character, 'unknown [blender] keys')
+        self.blender = {**BLENDER, **self.toml.get('blender', {})}
+        self.role = self.toml.get('role', 'player')
+        self.playable = self.role == 'player'   # the player can choose it, and it rides the bike
         self.fit = self.toml.get('fit', [])   # [[fit]]: fit.py's waivers
         for waiver in self.fit:
             assert set(waiver) == WAIVER and waiver['report'] in ('adventure', 'bike') and waiver['reason'].strip(), \

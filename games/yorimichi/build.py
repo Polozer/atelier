@@ -51,12 +51,6 @@ SOUTHWEST_MODELS = ('stand,fisher_house_a,fisher_house_b,boat_shed,stairs,dock,b
                     'boulder_a,boulder_b,boulder_c,stone_wall,pine_lean_a,pine_lean_b')
 
 
-def cairo_donor_clips():
-    """The authored clips consumed by the merged set; Cairo has no separate movement export."""
-    donor = tomllib.loads((CHARS / 'cairo' / 'adventure.toml').read_text())['donor']
-    return donor['clips'] + donor['gestures']
-
-
 # Keep the recipe's helpers available while the staging implementation has its own narrow input.
 _spec = importlib.util.spec_from_file_location('yorimichi_runtime_data', GAME / 'runtime_data.py')
 runtime_data = importlib.util.module_from_spec(_spec)
@@ -190,15 +184,85 @@ def moveset_retarget(character, *args):
             retarget.parent / 'stance.py', *sorted(CHARS.glob('*/adventure.toml')), NAMES, PIPELINE]
 
 
+def key(character):
+    """A character's step names: characters.<key>, unreal.<key>_bike..."""
+    return character.id.replace('-', '_')
+
+
+def content(character):
+    """Its Unreal folder on disk."""
+    return GAME / 'unreal' / 'Content' / character.unreal_path.removeprefix('/Game/')
+
+
+def mover_export_steps(character, out):
+    """Its body (pipeline/export.py) and, if playable, its bike clips (vehicles/bike/rider.py), to FBX."""
+    k, threads = key(character), character.blender['threads']
+    steps = [Step(f'characters.{k}', [body_export(character.id, threads=threads)], inputs=[character.folder, NAMES, PIPELINE],
+                  outputs=[out / character.output / 'export.json'], heavy=True,
+                  about=f"{character.name}'s body, textures and own clips, to FBX")]
+    if character.playable:
+        steps.append(Step(f'characters.{k}_bike', [Blender(ASSETS / 'vehicles' / 'bike' / 'rider.py', ('--character', character.id), threads=threads)],
+                          inputs=[character.folder, NAMES, PIPELINE, ASSETS / 'vehicles' / 'bike'], needs=['world.bike'],
+                          outputs=[out / character.output / 'bike' / 'export.json'], heavy=True,
+                          about=f"Every bike action authored on {character.name}'s rig, and the bike's channels"))
+    return steps
+
+
+def mover_grips_step(character):
+    """Its posed grips (assets/characters/grips/<id>, docs/GRIPS.md) for the move set's grip node, when committed."""
+    source = GRIPS / character.id
+    return [Step(f'characters.{key(character)}_grips', [Python(GRIPS / 'game.py', ('--character', character.id, '--source', source))],
+                 inputs=[GRIPS / 'game.py', GRIPS / 'moments.py', *(source / f for f in ('poses.json', 'moments.json', 'body.glb'))],
+                 outputs=[GAME / 'unreal' / 'Content' / 'Data' / character.id / 'grips.json'],
+                 about=f"{character.name}'s posed grips, for the move set's grip node")] if source.is_dir() else []
+
+
+def mover_import_steps(character):
+    """Its body (Scripts/import_character.py) and, if playable, its bike clips (Scripts/import_bike_clips.py)."""
+    k, modules = key(character), tuple(character.unreal['modules'])
+    body, inputs = body_import(character.id, modules)
+    steps = [Step(f'unreal.{k}', [body], inputs=inputs, after=['unreal.world'], needs=[f'characters.{k}', *unreal_modules.needs(modules)],
+                  outputs=[content(character) / f'SK_{character.name}.uasset'], heavy=True,
+                  about=f'{character.unreal_path}: its mesh, materials, own clips and base definition')]
+    if character.playable:
+        steps.append(Step(f'unreal.{k}_bike', [UnrealScript(SCRIPTS / 'import_bike_clips.py', f'{character.id.upper()} BIKE IMPORT COMPLETE',
+                                                            null_rhi=True, env=(('BIKE_CHARACTER', character.id),))],
+                          inputs=[SCRIPTS / 'import_bike_clips.py', SCRIPTS / 'animation_compression.py'],
+                          needs=[f'characters.{k}_bike', f'unreal.{k}'], heavy=True,
+                          about=f'{character.unreal_path}Bike: its bike clips on SK_{character.name}'))
+    return steps
+
+
+def mover_adventure_steps(character, out):
+    """The merged move set retargeted onto it (adventure/retarget.py; the donor also samples its own clips for the
+    others) and imported (Scripts/import_adventure_moveset.py)."""
+    k = key(character)
+    (retarget, retarget_inputs), (importer, import_inputs) = moveset_retarget(character.id), moveset_import(character.id)
+    donor = definition.movers()[0]
+    if character.donor:
+        commands, needs = [retarget, moveset_retarget(character.id, '--dump-own')[0]], ['characters.adventure']
+        outputs = [out / character.output / 'adventure' / 'export.json', out / character.output / 'adventure' / 'own.npz']
+    else:
+        commands, needs = [retarget], ['characters.adventure', f'characters.{key(donor)}_adventure']
+        outputs = [out / character.output / 'adventure' / 'export.json']
+    return [
+        Step(f'characters.{k}_adventure', commands, inputs=retarget_inputs, needs=needs, outputs=outputs, heavy=True,
+             about=f'The merged move set retargeted onto {character.name}, to FBX'),
+        Step(f'unreal.{k}_adventure', [importer], inputs=import_inputs, needs=[f'characters.{k}_adventure', f'unreal.{k}', 'unreal.adventure'],
+             outputs=[GAME / 'unreal' / 'Content' / 'Data' / character.id / 'adventure.json'], heavy=True,
+             about=f"{character.adventure['dest']} and {character.adventure['definition']}: {character.name}'s merged move set, definition and move record"),
+    ]
+
+
 def fit_steps(out, steps):
     """Each mover's fit gate (pipeline/fit.py), after the exports that write its reports: adventure and bike."""
     names = {s.name for s in steps}
     result = []
     for character in definition.movers():
-        key = character.id.replace('-', '_')
-        exports = [n for n in (f'characters.{key}_adventure', f'characters.{key}_bike') if n in names]
+        k = key(character)
+        exports = [n for n in (f'characters.{k}_adventure', f'characters.{k}_bike') if n in names]
         if exports:
-            result.append(Step(f'characters.{key}_fit', [Python(PIPELINE / 'fit.py', ('--character', character.id))],
+            result.append(Step(f'characters.{k}_fit', [Python(PIPELINE / 'fit.py', ('--character', character.id))],
                                inputs=[PIPELINE / 'fit.py', PIPELINE / 'definition.py', character.folder / 'character.toml',
                                        *FIT.glob(f'{character.id}.json')],
                                needs=exports, outputs=[out / character.output / 'fit.json'],
@@ -207,13 +271,12 @@ def fit_steps(out, steps):
 
 
 def adventure_steps(out):
-    """The committed merged motion reference and its character retargets."""
+    """The committed merged motion reference and every mover's retarget (characters with an adventure.toml): the donor's
+    first, which the others take its own clips from."""
     library = adventure_library()
     if not library.available():
         return []
     adventure = CHARS / 'adventure'
-    (retarget, retarget_inputs), (dump_own, _) = moveset_retarget('cairo'), moveset_retarget('cairo', '--dump-own')
-    importer, import_inputs = moveset_import('cairo')
     return [
         Step('characters.adventure', [Python(adventure / 'export.py')], inputs=[adventure, *library.sources()],
              outputs=[out / 'adventure' / 'export.json'], about='Merged motion reference and two props'),
@@ -221,125 +284,7 @@ def adventure_steps(out):
              inputs=[SCRIPTS / 'import_adventure.py', SCRIPTS / 'animation_compression.py'], after=['unreal.world'],
              needs=['characters.adventure'], outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'adventure' / 'reference.json'],
              heavy=True, about='/Game/Adventure: motion reference, sword and paraglider'),
-        Step('characters.cairo_adventure', [retarget, dump_own], inputs=retarget_inputs, needs=['characters.adventure'],
-             outputs=[out / 'cairo' / 'adventure' / 'export.json', out / 'cairo' / 'adventure' / 'own.npz'], heavy=True,
-             about="Reference move set clips retargeted onto Cairo, to FBX, and Cairo's own clips in the set sampled for others"),
-        Step('unreal.cairo_adventure', [importer], inputs=import_inputs, needs=['characters.cairo_adventure', 'unreal.cairo', 'unreal.adventure'],
-             outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'cairo' / 'adventure.json'], heavy=True,
-             about='/Game/CairoAdventure: Cairo with the adventure move set (-rider=CairoAdventure): his clips, definition and move record'),
-        *sword_trainer_steps(out),
-        *modori_steps(out),
-        *nox_steps(out),
-        *paul_steps(out),
-    ]
-
-
-
-
-def sword_trainer_steps(out):
-    """Kaede, the sword trainer of Momiji Hamlet (docs/SWORD_TRAINER.md): her body and clips, and the merged move set
-    retargeted onto her, once her source is in assets/characters/sword-trainer (until then Cairo stands in for her)."""
-    trainer = CHARS / 'sword-trainer'
-    if not (trainer / 'character.toml').exists():
-        return []
-    (retarget, retarget_inputs), (importer, import_inputs) = moveset_retarget('sword-trainer'), moveset_import('sword-trainer')
-    body, body_inputs = body_import('sword-trainer')
-    return [
-        Step('characters.sword_trainer', [body_export('sword-trainer')], inputs=[trainer, NAMES, PIPELINE],
-             outputs=[out / 'sword-trainer' / 'export.json'], about="Kaede's mesh, textures and own clips, to FBX", heavy=True),
-        Step('unreal.sword_trainer', [body], inputs=body_inputs, after=['unreal.world'],
-             needs=['characters.sword_trainer'], outputs=[GAME / 'unreal' / 'Content' / 'SwordTrainer' / 'SK_SwordTrainer.uasset'],
-             heavy=True, about='/Game/SwordTrainer: her mesh, materials, own clips and base definition'),
-        Step('characters.sword_trainer_adventure', [retarget], inputs=retarget_inputs, needs=['characters.adventure', 'characters.cairo_adventure'],
-             outputs=[out / 'sword-trainer' / 'adventure' / 'export.json'], heavy=True, about="The merged move set retargeted onto Kaede, to FBX"),
-        Step('unreal.sword_trainer_adventure', [importer], inputs=import_inputs, needs=['characters.sword_trainer_adventure', 'unreal.sword_trainer', 'unreal.adventure'],
-             outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'sword-trainer' / 'adventure.json'], heavy=True,
-             about='/Game/SwordTrainer/Adventure and DA_SwordTrainer: her merged move set, definition and move record'),
-    ]
-
-
-def modori_steps(out):
-    """Modori, the rival (assets/characters/modori/README.md), as a playable character: his body and coat, and the merged
-    move set retargeted onto him."""
-    modori = CHARS / 'modori'
-    (retarget, retarget_inputs), (importer, import_inputs) = moveset_retarget('modori'), moveset_import('modori')
-    body, body_inputs = body_import('modori', IMPORT_CODE + SAVED_TYPES)
-    return [
-        Step('characters.modori', [body_export('modori')], inputs=[modori, NAMES, PIPELINE],
-             outputs=[out / 'modori' / 'export.json'], about="Modori's body, coat (its cloth mask in the vertex colours) and textures, to FBX", heavy=True),
-        # Builds his cloth with the import tools and saves his definition, a game class.
-        Step('unreal.modori', [body], inputs=body_inputs, after=['unreal.world'],
-             needs=['characters.modori', *unreal_modules.needs(IMPORT_CODE + SAVED_TYPES)], outputs=[GAME / 'unreal' / 'Content' / 'Modori' / 'SK_Modori.uasset'],
-             heavy=True, about='/Game/Modori: his mesh, materials and base definition'),
-        Step('characters.modori_adventure', [retarget], inputs=retarget_inputs, needs=['characters.adventure', 'characters.cairo_adventure'],
-             outputs=[out / 'modori' / 'adventure' / 'export.json'], heavy=True, about="The merged move set retargeted onto Modori, to FBX"),
-        Step('unreal.modori_adventure', [importer], inputs=import_inputs, needs=['characters.modori_adventure', 'unreal.modori', 'unreal.adventure'],
-             outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'modori' / 'adventure.json'], heavy=True,
-             about='/Game/Modori/Adventure and DA_Modori: his merged move set, definition and move record'),
-        Step('unreal.modori_bike', [UnrealScript(SCRIPTS / 'import_bike_clips.py', 'MODORI BIKE IMPORT COMPLETE', null_rhi=True,
-                                                 env=(('BIKE_CHARACTER', 'modori'),))],
-             inputs=[SCRIPTS / 'import_bike_clips.py', SCRIPTS / 'animation_compression.py'], needs=['characters.modori_bike', 'unreal.modori'],
-             heavy=True, about="/Game/ModoriBike: his bike clips on SK_Modori"),
-    ]
-
-
-def nox_steps(out):
-    """The approved Nox source, every merged clip, and all procedural bike actions."""
-    nox = CHARS / 'nox'
-    (retarget, retarget_inputs), (importer, import_inputs) = moveset_retarget('nox'), moveset_import('nox')
-    body, body_inputs = body_import('nox', IMPORT_CODE + SAVED_TYPES + CONTACT_TYPES)
-    return [
-        Step('characters.nox', [body_export('nox', threads=3)], inputs=[nox, NAMES, PIPELINE],
-             outputs=[out / 'nox/export.json'], heavy=True, about='Nox assembled mesh, hair rig and two 4K atlases to FBX'),
-        Step('unreal.nox', [body], inputs=body_inputs, after=['unreal.world'],
-             needs=['characters.nox', *unreal_modules.needs(IMPORT_CODE + SAVED_TYPES + CONTACT_TYPES)],
-             outputs=[GAME / 'unreal/Content/Nox/SK_Nox.uasset'], heavy=True,
-             about='/Game/Nox: assembled mesh, materials and base definition'),
-        Step('characters.nox_adventure', [retarget], inputs=retarget_inputs,
-             needs=['characters.adventure', 'characters.cairo_adventure'],
-             outputs=[out / 'nox/adventure/export.json'], heavy=True, about='All merged movement, actions and donor gestures on Nox'),
-        Step('unreal.nox_adventure', [importer], inputs=import_inputs,
-             needs=['characters.nox_adventure', 'unreal.nox', 'unreal.adventure'],
-             outputs=[GAME / 'unreal/Content/Data/nox/adventure.json'], heavy=True,
-             about='/Game/Nox/Adventure and DA_Nox: the playable merged set'),
-        Step('unreal.nox_bike', [UnrealScript(SCRIPTS / 'import_bike_clips.py', 'NOX BIKE IMPORT COMPLETE', null_rhi=True,
-                                            env=(('BIKE_CHARACTER', 'nox'),))],
-             inputs=[SCRIPTS / 'import_bike_clips.py', SCRIPTS / 'animation_compression.py'],
-             needs=['characters.nox_bike', 'unreal.nox'], heavy=True, about='/Game/NoxBike: all bike actions'),
-    ]
-
-
-def paul_steps(out):
-    """The vendored HarasValley boy, with all merged actions and fitted bike clips."""
-    paul = CHARS / 'paul'
-    spec = importlib.util.spec_from_file_location('paul_staging', paul / 'stage.py')
-    staging = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(staging)
-    (retarget, retarget_inputs), (importer, import_inputs) = moveset_retarget('paul'), moveset_import('paul')
-    return [
-        Step('characters.paul', [Blender(paul / 'export_unreal.py', threads=3)], inputs=[paul, NAMES],
-             outputs=[out / 'paul/export.json'], heavy=True, about='Paul mesh and embedded body/head atlases to FBX'),
-        Step('unreal.paul', [UnrealScript(SCRIPTS / 'import_paul.py', 'PAUL IMPORT COMPLETE', null_rhi=True,
-                                          modules=IMPORT_CODE + SAVED_TYPES)],
-             inputs=[SCRIPTS / 'import_paul.py', SCRIPTS / 'animation_compression.py'], after=['unreal.world'],
-             needs=['characters.paul', *unreal_modules.needs(IMPORT_CODE + SAVED_TYPES)],
-             outputs=[GAME / 'unreal/Content/Paul/SK_Paul.uasset'], heavy=True, about='Paul mesh and base definition'),
-        Step('characters.paul_adventure', [retarget], inputs=retarget_inputs,
-             needs=['characters.adventure', 'characters.cairo_adventure'], outputs=[out / 'paul/adventure/export.json'],
-             heavy=True, about='All movement, actions and donor gestures retargeted onto Paul'),
-        Step('unreal.paul_adventure', [importer], inputs=import_inputs,
-             needs=['characters.paul_adventure', 'unreal.paul', 'unreal.adventure'],
-             outputs=[GAME / 'unreal/Content/Data/paul/adventure.json'], heavy=True, about='Paul playable move set'),
-        Step('characters.paul_bike', [Blender(ASSETS / 'vehicles/bike/rider.py', ('--character', 'paul'), threads=3)],
-             inputs=[paul, NAMES, ASSETS / 'vehicles/bike/rider.py'], needs=['world.bike'],
-             outputs=[out / 'paul/bike/export.json'], heavy=True, about='All bike actions fitted to Paul'),
-        Step('data.paul', [Call('stage_paul_bike', staging.stage)], inputs=[paul / 'stage.py'],
-             needs=['characters.paul_bike'], outputs=[GAME / 'unreal/Content/Data/paul/bike/export.json'],
-             about='Paul bike contact data staged independently'),
-        Step('unreal.paul_bike', [UnrealScript(SCRIPTS / 'import_bike_clips.py', 'PAUL BIKE IMPORT COMPLETE', null_rhi=True,
-                                               env=(('BIKE_CHARACTER', 'paul'),))],
-             inputs=[SCRIPTS / 'import_bike_clips.py', SCRIPTS / 'animation_compression.py'],
-             needs=['characters.paul_bike', 'unreal.paul', 'data.paul'], heavy=True, about='Paul bike animations'),
+        *[step for character in definition.movers() for step in mover_adventure_steps(character, out)],
     ]
 
 
@@ -550,24 +495,10 @@ def character_steps(ctx):
     out = ctx.out
     return [
         # ------------------------------------------------------------ characters
-        Step('characters.cairo', [body_export('cairo', '--clips', ','.join(cairo_donor_clips()))],
-             inputs=[CHARS / 'cairo', NAMES, PIPELINE], outputs=[out / 'cairo' / 'export.json'],
-             about='Cairo: body and the nine donor clips used by the merged move set', heavy=True),
-        Step('characters.cairo_bike', [Blender(ASSETS / 'vehicles' / 'bike' / 'rider.py')], inputs=[CHARS / 'cairo', NAMES, PIPELINE, ASSETS / 'vehicles' / 'bike'],
-             needs=['world.bike'], outputs=[out / 'cairo' / 'bike' / 'export.json'],
-             about="Cairo's bike clips (ride, mount, dismount, kickstand, hop, skid, foot down, bell, wave, crash) and the bike's channels", heavy=True),
-        # Declared here, before data.stage stages its export: it needs only his rig and the bike, not the adventure library.
-        Step('characters.modori_bike', [Blender(ASSETS / 'vehicles' / 'bike' / 'rider.py', ('--character', 'modori'))],
-             inputs=[CHARS / 'modori', NAMES, PIPELINE, ASSETS / 'vehicles' / 'bike'], needs=['world.bike'],
-             outputs=[out / 'modori' / 'bike' / 'export.json'], about="Cairo's bike clips authored on Modori's rig, and the bike's channels", heavy=True),
-        Step('characters.nox_bike', [Blender(ASSETS / 'vehicles' / 'bike' / 'rider.py', ('--character', 'nox'), threads=3)],
-             inputs=[ASSETS / 'vehicles' / 'bike' / 'rider.py', ASSETS / 'vehicles' / 'bike' / 'clips.toml', CHARS / 'nox', NAMES, PIPELINE], needs=['world.bike'],
-             outputs=[out / 'nox/bike/export.json'], heavy=True, about='Every bike action authored on Nox'),
-        # Likewise before data.stage, which needs it so the cook carries it; it reads only committed files.
-        Step('characters.modori_grips', [Python(GRIPS / 'game.py', ('--character', 'modori', '--source', GRIPS / 'modori'))],
-             inputs=[GRIPS / 'game.py', GRIPS / 'moments.py', *(GRIPS / 'modori' / f for f in ('poses.json', 'moments.json', 'body.glb'))],
-             outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'modori' / 'grips.json'],
-             about="His posed grips (assets/characters/grips/modori, docs/GRIPS.md), for the move set's grip node"),
+        # Every mover's body and bike clips, then its committed grips: before data.stage, which stages the bike reports
+        # and grips so the cook carries them. They need its rig and the bike, not the adventure library.
+        *[step for character in definition.movers() for step in mover_export_steps(character, out)],
+        *[step for character in definition.movers() for step in mover_grips_step(character)],
         Step('characters.fox_hunter', [Blender(CHARS / 'fox-hunter' / 'export_unreal.py', threads=4)],
              inputs=[CHARS / 'fox-hunter', NAMES], outputs=[out / 'fox_hunter' / 'export.json'], about='the fox hunter: mesh and 15 clips', heavy=True),
         Step('characters.wanderer', [Blender(CHARS / 'wanderer' / 'build.py', ('--animations', '--export', '--no-render'), threads=4)],
@@ -596,7 +527,6 @@ def sound_effect_steps(ctx):
 def unreal_steps(ctx):
     """Native checks, editor compilation and ordered content imports."""
     out = ctx.out
-    cairo, cairo_inputs = body_import('cairo')
     return [
         # ------------------------------------------------------------ Unreal
         # Imports run `after` the compile (the editor must load the module) but do not rerun when C++ changes, except
@@ -684,15 +614,12 @@ def unreal_steps(ctx):
         Step('unreal.fox_hunter', [UnrealScript(SCRIPTS / 'import_fox_hunter.py', 'FOX HUNTER IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_fox_hunter.py', SCRIPTS / 'animation_compression.py'],
              after=['unreal.world'], needs=['characters.fox_hunter'], heavy=True, about='/Game/FoxHunter'),
-        Step('unreal.cairo', [cairo], inputs=cairo_inputs,
-             after=['unreal.world'], needs=['characters.cairo'], heavy=True, about='/Game/Cairo: body and merged-set donor clips'),
-        Step('unreal.cairo_bike', [UnrealScript(SCRIPTS / 'import_bike_clips.py', 'CAIRO BIKE IMPORT COMPLETE', null_rhi=True)],
-             inputs=[SCRIPTS / 'import_bike_clips.py', SCRIPTS / 'animation_compression.py'], needs=['characters.cairo_bike', 'unreal.cairo'],
-             heavy=True, about="/Game/CairoBike: Cairo's bike clips on SK_Cairo"),
-        # The camera see-through (docs/CAMERA.md) patches materials the world and Cairo imports make, so it reruns after
+        *[step for character in definition.movers() for step in mover_import_steps(character)],
+        # The camera see-through (docs/CAMERA.md) patches materials the world and the see-through characters' imports make, so it reruns after
         # either; the tree house builds its own with it (unreal.treehouse).
         Step('unreal.see_through', [UnrealScript(SCRIPTS / 'see_through.py', 'SEE-THROUGH COMPLETE')],
-             inputs=[SCRIPTS / 'see_through.py', *sorted(CHARS.glob('*/character.toml'))], needs=['unreal.world', 'unreal.cairo'], heavy=True,
+             inputs=[SCRIPTS / 'see_through.py', PIPELINE / 'definition.py', *sorted(CHARS.glob('*/character.toml'))],
+             needs=['unreal.world', *[f'unreal.{key(c)}' for c in definition.movers() if 'see_through' in c.toml]], heavy=True,
              about='camera see-through on leaves, grass, trunks, the guardrail, poles, torii and Cairo (/Game/SeeThrough)'),
         # Runtime metadata is a separate overlay: changing it must not clear/reimport /Game/Japan.
         Step('unreal.city_tree_cpu_access', [UnrealScript(SCRIPTS / 'city_tree_cpu_access.py', 'CITY TREE CPU ACCESS COMPLETE')],
@@ -745,8 +672,9 @@ def staging_steps(ctx, park):
     return [
         Step('data.stage', [Call('stage_data', stage_data)],
              inputs=[GAME / 'runtime_data.py', REGIONS / 'skatepark' / 'park.json'],
-             needs=['world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.belmonte', 'world.bike', 'characters.cairo_bike', 'characters.modori_bike',
-                    'characters.modori_grips', 'characters.nox_bike',
+             needs=['world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.belmonte', 'world.bike',
+                    *[f'characters.{key(c)}_{kind}' for c in definition.movers() for kind, wanted in
+                      (('bike', c.playable), ('grips', (GRIPS / c.id).is_dir())) if wanted],
                     *(['world.communitypark'] if park else [])],
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / rel for rel in staged(out)], about='runtime files into unreal/Content/Data'),
     ]

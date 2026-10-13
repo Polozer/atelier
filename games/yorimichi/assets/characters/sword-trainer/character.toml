@@ -30,3 +30,4 @@ specular = 0.3
 [unreal]
 camera_height = 40.0
 cpu_access = false                    # she neither skates nor grips
+modules = []                          # imported in the whole editor

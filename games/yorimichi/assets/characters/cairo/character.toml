@@ -42,6 +42,7 @@ camera_height = 35.0
 vertex_colors = true
 morph_targets = true                  # his outfit correctives and hair springs
 contact_morphs = ["head_Hair_fore", "head_Hair_side"]   # the skin readers follow his hair springs
+modules = []                          # imported in the whole editor
 
 # Clips allowed above pipeline/fit.py's default bounds. A reach is how far a hand or foot falls short of its keyed grip,
 # pedal or ground spot (the values when the gate was adopted are in the reasons).

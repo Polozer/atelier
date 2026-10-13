@@ -1,10 +1,5 @@
 # Nox with the merged adventure move set (adventure/README.md): the reference rig's moves and Cairo's donor clips retargeted onto him
 # (adventure/retarget.py --character nox), imported by Scripts/import_adventure_moveset.py (ADVENTURE_CHARACTER=nox).
-mesh = "/Game/Nox/SK_Nox"
-base = "/Game/Nox/DA_NoxBase"            # from import_character.py
-dest = "/Game/Nox/Adventure"
-definition = "/Game/Nox/DA_Nox"
-keep_base_actions = true                       # the base's own gestures stay beside the move set's
 
 # Keep the sword below his hair and clear of the hoodie, including the crouched carry.
 [fit.push]
