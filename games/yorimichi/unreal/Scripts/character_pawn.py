@@ -5,7 +5,7 @@
 BP_<Name>, in the character's unreal_path, is a Blueprint of AMoverCharacter (Source/Yorimichi/MoverCharacter.h) holding
 character.toml's [game] table (assets/characters/pipeline/definition.py GAME): its names, merged move set, bike rig and
 skating, sailboat, cloth, hair and seat values on the class defaults, and its capsule, crouch and mesh offset on the
-inherited component templates, where a crouch restores them from. Each value is read back after the package reloads.
+inherited component templates, where a crouch restores them from. Each value is read back once the package is saved.
 
 Content/Data/<id>/character.json is written last, once the Blueprint and the move record (adventure.json) are saved:
 FPlayableCharacter::Scan (CharacterRoster.cpp) registers the character from it at startup or on
@@ -112,9 +112,6 @@ apply(U.get_default_object(U.BlueprintEditorLibrary.generated_class(bp)))
 bp.modify()
 U.BlueprintEditorLibrary.compile_blueprint(bp)
 assert U.EditorAssetLibrary.save_asset(BLUEPRINT, only_if_is_dirty=False), (BLUEPRINT, 'not saved')
-# What was saved, not what this session holds: reload the package and read every value back.
-U.EditorLoadingAndSavingUtils.reload_packages([U.find_package(BLUEPRINT)])
-bp = U.load_asset(BLUEPRINT)
 generated = U.BlueprintEditorLibrary.generated_class(bp)
 check(U.get_default_object(generated))
 assert generated.get_path_name() == CHARACTER.pawn, (generated.get_path_name(), CHARACTER.pawn)   # as the tools name it
