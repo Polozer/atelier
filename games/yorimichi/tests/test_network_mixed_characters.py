@@ -16,7 +16,7 @@ def session_module():
 
 
 def receipts():
-    people = [dict(id=player, rider=rider, pawn_class='/Script/Yorimichi.' + rider + 'Character',
+    people = [dict(id=player, rider=rider, pawn_class=f'/Game/{rider}/BP_{rider}.BP_{rider}_C',
                    ready=True, moves_ready=True, pawn_shield=shield, applied_shield=shield)
               for player, rider, shield in [('host', 'Cairo', False), ('guest', 'Modori', True)]]
     return {role: dict(local_player_id=player, people=json.loads(json.dumps(people)))
@@ -41,10 +41,10 @@ def test_wrong_per_player_application_cannot_pass(tmp_path, fault):
         data['client']['local_player_id'] = 'host'
     elif fault == 'same_character':
         for receipt in data.values():
-            receipt['people'][1].update(rider='Cairo', pawn_class='/Script/Yorimichi.CairoCharacter')
+            receipt['people'][1].update(rider='Cairo', pawn_class='/Game/Cairo/BP_Cairo.BP_Cairo_C')
     elif fault == 'wrong_class':
         for receipt in data.values():
-            receipt['people'][1]['pawn_class'] = '/Script/Yorimichi.NoxCharacter'
+            receipt['people'][1]['pawn_class'] = '/Game/Nox/BP_Nox.BP_Nox_C'
     elif fault == 'observer_disagreement':
         data['client']['people'][1]['rider'] = 'Cairo'
     elif fault == 'equipment_leak':

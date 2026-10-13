@@ -1,6 +1,11 @@
 """Check both players and both observers, using only native feature receipts."""
 import json
 import math
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'assets' / 'characters' / 'pipeline'))
+import definition as character_definition  # noqa: E402
 
 
 def finite_number(value):
@@ -58,7 +63,7 @@ def feature_checks(folder, case):
     for s in stages:
         phase = s['phase']
         expected = 'Modori' if (case == 'zeppelin' and phase >= 2) or (case != 'equipment' and phase == 2) else 'Cairo'
-        expected_class = '/Script/Yorimichi.' + expected + 'Character'
+        expected_class = character_definition.player(expected).pawn
         host_identities = {r.get('player'): (r.get('rider'), r.get('pawn')) for r in s.get('host', {}).get('views', [])}
         for side in ('host', 'guest'):
             rows = s.get(side, {}).get('views', [])

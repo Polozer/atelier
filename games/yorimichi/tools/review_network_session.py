@@ -32,6 +32,9 @@ import time
 import os
 import statistics
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'assets' / 'characters' / 'pipeline'))
+import definition as character_definition  # noqa: E402
+
 
 def load(path):
     try:
@@ -282,7 +285,7 @@ def modori_checks(folder, shield):
         checks[role + '_modori_pawns'] = (mapped and len(people) == 2 and
             {p.get('id') for p in people} == set(expected) and all(
                 p.get('id') and p.get('ready') is True and p.get('rider') == 'Modori' and
-                p.get('pawn_class') == '/Game/Modori/BP_Modori.BP_Modori_C' and
+                p.get('pawn_class') == character_definition.player('Modori').pawn and
                 p.get('moves_ready') is True and p.get('pawn_shield') is expected[p['id']] and
                 p.get('applied_shield') is expected[p['id']] for p in people))
         log = folder / (role + '.log')
@@ -303,7 +306,7 @@ def mixed_character_checks(folder):
         checks[role + '_independent_character_choices'] = (mapped and len(people) == 2 and
             {p.get('id') for p in people} == set(expected) and all(
                 p.get('rider') == expected[p['id']] and
-                p.get('pawn_class') == '/Script/Yorimichi.' + expected[p['id']] + 'Character' and
+                p.get('pawn_class') == character_definition.player(expected[p['id']]).pawn and
                 p.get('ready') is True and p.get('moves_ready') is True and
                 type(p.get('pawn_shield')) is bool and p.get('applied_shield') is p['pawn_shield']
                 for p in people))
