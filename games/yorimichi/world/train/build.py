@@ -164,9 +164,9 @@ class M:
             self.faces.append(([P(u0, v0, a0), P(u1, v1, a0), P(u1, v1, a1), P(u0, v0, a1)], mat, None))
 
     def ring(self, outer, inner, plane, d0, d1, mat):
-        """A closed frame between two loops of the same length in a plane at y (plane='y') from d0 to d1."""
+        """A closed frame between two loops of the same length, in the plane normal to `plane` ('x', 'y' or 'z'), from d0 to d1."""
         def P(u, v, d):
-            return (u, d, v) if plane == 'y' else (d, u, v)
+            return (u, d, v) if plane == 'y' else (u, v, d) if plane == 'z' else (d, u, v)
         n = len(outer)
         for i in range(n):
             j = (i + 1) % n
@@ -1541,9 +1541,12 @@ def loco_body(c, coll, parent, glass_coll):
     m = M()
     # a tall stovepipe chimney, as on the classic engines: flared base on the smokebox, slender stack, flared lip
     m.prism(_circle(4.40, 0, .38, 24), 'z', bz + sr - .10, bz + sr - .01, 'iron-black')
-    m.prism(_circle(4.40, 0, .27, 24), 'z', bz + sr - .01, 4.52, 'iron-black')
-    m.prism(_circle(4.40, 0, .31, 24), 'z', 4.52, 4.58, 'iron-black')
-    trim.prism(_circle(4.40, 0, .34, 24), 'z', 4.58, 4.66, 'brass')
+    # hollow from the top for the smoke: a sooty floor 0.54 m down, the bore 0.44 m across
+    m.prism(_circle(4.40, 0, .27, 24), 'z', bz + sr - .01, 4.12, 'iron-black')
+    m.poly([(x, y, 4.121) for x, y in _circle(4.40, 0, .222, 24)], 'coal', normal=(0, 0, 1))
+    m.ring(_circle(4.40, 0, .27, 24), _circle(4.40, 0, .22, 24), 'z', 4.12, 4.52, 'iron-black')
+    m.ring(_circle(4.40, 0, .31, 24), _circle(4.40, 0, .22, 24), 'z', 4.52, 4.58, 'iron-black')
+    trim.ring(_circle(4.40, 0, .34, 24), _circle(4.40, 0, .23, 24), 'z', 4.58, 4.66, 'brass')
     m.prism(_circle(1.20, 0, .36, 24), 'z', bz + br - .06, bz + br + .22, 'brass')     # steam dome
     m.prism(_circle(1.20, 0, .28, 24), 'z', bz + br + .22, bz + br + .30, 'brass')
     m.prism(_circle(-.80, 0, .26, 20), 'z', bz + br - .06, bz + br + .16, 'loco-black')   # sand dome
@@ -1856,6 +1859,12 @@ def build(coach, images):
             so = bpy.data.objects.new(f'SOCKET_{name}_{end.upper()}', None); so.empty_display_type = 'ARROWS'; so.empty_display_size = .4
             so.location = loc; so.rotation_euler = (0, 0, 0 if end == 'b' else math.pi)
             so['lods'] = [0, 1, 2]; so['length_m'] = B.length
+            cols['Shell'].objects.link(so); so.parent = root
+    for mt in coach.mounts:                         # emitters (the chimney's smoke), exported in every LOD
+        if mt.kind == 'emitter':
+            so = bpy.data.objects.new(f'SOCKET_{"".join(p.title() for p in mt.id.split("-"))}', None)
+            so.empty_display_type = 'SINGLE_ARROW'; so.empty_display_size = .5
+            so.location = (mt.x, mt.y, mt.z); so['lods'] = [0, 1, 2]; so['mount'] = mt.id
             cols['Shell'].objects.link(so); so.parent = root
     lod2 = group(f'BT_{title}_LOD2', cols['LOD2']); lod2['lods'] = [2]
     if B.kind == 'tender':

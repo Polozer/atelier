@@ -786,6 +786,7 @@ def locomotive():
         Mount('water-gauge-r', 'gauge', 'cab', bx + .18, -.40, F + 1.35, 90, .45),
         Mount('cab-lamp', 'ceiling-lamp', 'cab', -5.70, 0., CAB_TOP - .05, 0),
         Mount('head-lamp', 'head-lamp', 'cab', LOCO_BEAM + .05, 0., 1.62, 90),
+        Mount('chimney-smoke', 'emitter', 'cab', 4.40, 0., 4.12, 0, .44),             # smoke rises from the sooty floor of the bore
     ]
     c.goals.update({'cab': (-6.10, 0.), 'regulator': (hi - .30, .30), 'fire-door': (hi - .30, 0.)})
     return c
