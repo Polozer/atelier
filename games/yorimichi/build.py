@@ -227,7 +227,7 @@ def mover_import_steps(character):
     if character.playable:
         steps.append(Step(f'unreal.{k}_bike', [UnrealScript(SCRIPTS / 'import_bike_clips.py', f'{character.id.upper()} BIKE IMPORT COMPLETE',
                                                             null_rhi=True, env=(('BIKE_CHARACTER', character.id),))],
-                          inputs=[SCRIPTS / 'import_bike_clips.py', SCRIPTS / 'animation_compression.py'],
+                          inputs=[SCRIPTS / 'import_bike_clips.py', SCRIPTS / 'animation_compression.py', PIPELINE / 'definition.py', character.folder / 'character.toml'],
                           needs=[f'characters.{k}_bike', f'unreal.{k}'], heavy=True,
                           about=f'{character.unreal_path}Bike: its bike clips on SK_{character.name}'))
     return steps

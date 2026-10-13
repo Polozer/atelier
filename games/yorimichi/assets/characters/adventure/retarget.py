@@ -48,7 +48,7 @@ FPS = bake.FPS
 # their rate). Its own clips play on it as imported; everyone else takes them retargeted from OWN (--dump-own).
 DONOR_ID = definition.movers()[0].id
 DONOR = definition.movers()[0].donor
-OWN = yori.OUT / DONOR_ID / 'adventure' / 'own.npz'
+OWN = yori.OUT / definition.movers()[0].output / 'adventure' / 'own.npz'
 OWN_CLIPS = tuple(DONOR['clips']) + tuple(DONOR['gestures'])
 OWN_FPS = DONOR['fps']
 GLTF_TO_BLENDER = np.array([[1., 0, 0], [0, 0, -1], [0, 1, 0]])   # glTF is Y up, Blender Z up

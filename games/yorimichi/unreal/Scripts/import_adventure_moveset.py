@@ -39,7 +39,7 @@ SPEC = definition.load(CHARACTER).adventure   # adventure.toml, its layout defau
 # The donor of the set's own clips (its double jump and bokken guard): the one character with a [donor] table.
 DONOR_ID = definition.movers()[0].id
 DONOR = definition.movers()[0].donor
-OUT = yori.OUT / CHARACTER / 'adventure'
+OUT = yori.OUT / definition.load(CHARACTER).output / 'adventure'
 CONFIG = json.loads((OUT / 'export.json').read_text())
 REFERENCE = next(c for c in json.loads((yori.OUT / 'adventure' / 'export.json').read_text())['characters'] if c['name'] == 'Reference')
 CONTENT = Path(__file__).resolve().parents[1] / 'Content'
