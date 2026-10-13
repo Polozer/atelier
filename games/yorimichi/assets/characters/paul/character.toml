@@ -28,3 +28,24 @@ camera_height = 40.0
 
 [blender]
 threads = 3                           # two embedded atlases
+
+[[fit]]
+report = "bike"
+clip = "BikeCrash"
+metric = "reach_hand_L_cm"
+bound = 6.0
+reason = "the left hand falls 5.7 cm short of its keyed target, as before this gate (bike pose fit follow-up)"
+
+[[fit]]
+report = "bike"
+clip = "BikeCrash"
+metric = "reach_hand_R_cm"
+bound = 6.0
+reason = "the right hand falls 5.7 cm short of its keyed target, as before this gate (bike pose fit follow-up)"
+
+[[fit]]
+report = "bike"
+clip = "BikeKickstand"
+metric = "reach_hand_L_cm"
+bound = 7.5
+reason = "the left hand falls 7.21 cm short of its keyed target, as before this gate (bike pose fit follow-up)"

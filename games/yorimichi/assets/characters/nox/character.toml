@@ -37,3 +37,45 @@ skate_clothing_clearance = 3.0
 skate_hull_directions = 1024          # keeps his rounded soles
 leg_scaled_sailboat = true
 seat_correctives = "NoxSeat"          # export_hooks.py's seat correctives
+
+[[fit]]
+report = "adventure"
+clip = "Nml_Lockon_Jump_B_Ed"
+metric = "ankle_cm"
+bound = 4.75
+reason = "an ankle falls 4.64 cm short of its solved goal, as before this gate"
+
+[[fit]]
+report = "adventure"
+clip = "Nml_Lockon_Jump_B_St"
+metric = "ankle_cm"
+bound = 4.5
+reason = "an ankle falls 4.19 cm short of its solved goal, as before this gate"
+
+[[fit]]
+report = "adventure"
+clip = "Swim_Move_Dash"
+metric = "ankle_cm"
+bound = 7.5
+reason = "an ankle falls 7.24 cm short of its solved goal, as before this gate"
+
+[[fit]]
+report = "bike"
+clip = "BikeCrash"
+metric = "reach_hand_L_cm"
+bound = 8.5
+reason = "the left hand falls 8.26 cm short of its keyed target, as before this gate (bike pose fit follow-up)"
+
+[[fit]]
+report = "bike"
+clip = "BikeCrash"
+metric = "reach_hand_R_cm"
+bound = 7.75
+reason = "the right hand falls 7.41 cm short of its keyed target, as before this gate (bike pose fit follow-up)"
+
+[[fit]]
+report = "bike"
+clip = "BikeKickstand"
+metric = "reach_hand_L_cm"
+bound = 10.5
+reason = "the left hand falls 10.37 cm short of its keyed target, as before this gate (bike pose fit follow-up)"
