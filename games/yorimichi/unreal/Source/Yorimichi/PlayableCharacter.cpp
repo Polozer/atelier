@@ -11,16 +11,13 @@
 TArray<FPlayableCharacter>& FPlayableCharacter::Registry()
 {
     static TArray<FPlayableCharacter> Characters;
+    static bool bScanned = false;
+    if (!bScanned)
+    {
+        bScanned = true;   // first: Scan itself reads the registry
+        Scan();
+    }
     return Characters;
-}
-
-FPlayableCharacter::FRegister::FRegister(FPlayableCharacter Character)
-{
-    TArray<FPlayableCharacter>& Characters = Registry();
-    check(!Characters.ContainsByPredicate([&](const FPlayableCharacter& C) { return C.Name == Character.Name; }));
-    Characters.Add(MoveTemp(Character));
-    // Static registration runs in no set order across files: keep them by name.
-    Characters.Sort([](const FPlayableCharacter& A, const FPlayableCharacter& B) { return A.Name < B.Name; });
 }
 
 const TArray<FPlayableCharacter>& FPlayableCharacter::All() { return Registry(); }
@@ -33,9 +30,18 @@ const FPlayableCharacter* FPlayableCharacter::Find(const FString& Name)
 
 const FPlayableCharacter& FPlayableCharacter::Default()
 {
-    const FPlayableCharacter* Character = Registry().FindByPredicate([](const FPlayableCharacter& C) { return C.bDefault; });
-    check(Character);
-    return *Character;
+    if (const FPlayableCharacter* Character = Registry().FindByPredicate([](const FPlayableCharacter& C) { return C.bDefault; }))
+        return *Character;
+    // None built yet (a fresh checkout): no pawn class, and the game says which step makes one.
+    static const FPlayableCharacter None = []
+    {
+        UE_LOG(LogTemp, Error, TEXT("No default playable character: build the pawn step (unreal.<key>_pawn) of the one whose [game] is the default"));
+        FPlayableCharacter Character;
+        Character.Class = [] { return static_cast<UClass*>(nullptr); };
+        Character.IsBuilt = [] { return false; };
+        return Character;
+    }();
+    return None;
 }
 
 FString FPlayableCharacter::Requested()

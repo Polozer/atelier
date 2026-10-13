@@ -316,7 +316,6 @@ AJapanNetworkGameMode::AJapanNetworkGameMode()
     PlayerControllerClass = AJapanPlayerController::StaticClass();
     PlayerStateClass = AJapanPlayerState::StaticClass();
     GameStateClass = AJapanGameState::StaticClass();
-    DefaultPawnClass = FPlayableCharacter::Default().Class();
     HUDClass = AJapanHUD::StaticClass();
     bStartPlayersAsSpectators = true;
     bPauseable = false;

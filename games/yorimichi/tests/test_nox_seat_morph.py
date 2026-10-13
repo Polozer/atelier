@@ -1,4 +1,4 @@
-"""Nox's seat correctives (NoxSeatMorph.h) against the garment candidate's CPU interpolation, and the ride's skin gate
+"""Nox's seat correctives (SeatCorrectiveGrid.h, his prefix NoxSeat) against the garment candidate's CPU interpolation, and the ride's skin gate
 refusing frames whose skin could not be measured as it renders."""
 from pathlib import Path
 import re
@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 GAME = Path(__file__).resolve().parents[1]
-HEADER = GAME / 'unreal' / 'Source' / 'Yorimichi' / 'NoxSeatMorph.h'
+HEADER = GAME / 'unreal' / 'Source' / 'Yorimichi' / 'SeatCorrectiveGrid.h'
 sys.path.insert(0, str(GAME / 'scenarios'))
 import skate_ride  # noqa: E402
 
@@ -41,10 +41,10 @@ def probe(tmp_path_factory):
     folder = tmp_path_factory.mktemp('seat')
     (folder / 'probe.cpp').write_text(
         f'#include "{HEADER}"\n#include <cstdio>\n'
-        'int main(){float l,r,w[NoxSeat::Count];while(scanf("%f %f",&l,&r)==2){int on=NoxSeat::Weights(l,r,w);'
-        'printf("%d",on);for(int i=0;i<NoxSeat::Count;++i)printf(" %.9g",w[i]);printf("\\n");}'
-        'for(int l=0;l<NoxSeat::Size;++l)for(int r=0;r<NoxSeat::Size;++r)'
-        'printf("NoxSeat_L%s_R%s %d\\n",NoxSeat::Labels[l],NoxSeat::Labels[r],(int)NoxSeat::Moves(l,r));}\n')
+        'int main(){float l,r,w[SeatGrid::Count];while(scanf("%f %f",&l,&r)==2){int on=SeatGrid::Weights(l,r,w);'
+        'printf("%d",on);for(int i=0;i<SeatGrid::Count;++i)printf(" %.9g",w[i]);printf("\\n");}'
+        'for(int l=0;l<SeatGrid::Size;++l)for(int r=0;r<SeatGrid::Size;++r)'
+        'printf("NoxSeat_L%s_R%s %d\\n",SeatGrid::Labels[l],SeatGrid::Labels[r],(int)SeatGrid::Moves(l,r));}\n')
     subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', '-Werror', '-O1', str(folder / 'probe.cpp'), '-o', str(folder / 'probe')],
                    check=True)
     return folder / 'probe'

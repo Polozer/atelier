@@ -80,6 +80,38 @@ def test_a_new_player_imports_with_the_import_modules_and_rides(tmp_path):
         definition.load('new-one', tmp_path)
 
 
+# Each player's pawn as its own C++ class had it: capsule radius, half height and crouched half height, bike rig,
+# skating clothing clearance and hull directions, a leg-scaled sailboat, cloth teleport, hair spring and seat correctives.
+PAWNS = {
+    'cairo': (22, 74, 65, 'Cairo', 0, 256, False, None, ['head_Hair_fore', 'head_Hair_side'], ''),
+    'modori': (24, 88, 77, 'Modori', 14, 256, True, [150, 60], [], ''),
+    'nox': (24, 89, 77, 'Nox', 3, 1024, True, None, [], 'NoxSeat'),
+    'paul': (24, 83, 73, 'Paul', 0, 256, False, None, [], ''),
+}
+
+
+@pytest.mark.parametrize('character', sorted(PAWNS))
+def test_a_players_pawn_keeps_its_values(character):
+    g = definition.load(character).game
+    keys = ('capsule_radius', 'half_height', 'crouched_half_height', 'bike_rig', 'skate_clothing_clearance',
+            'skate_hull_directions', 'leg_scaled_sailboat', 'cloth_teleport', 'hair_spring_morphs', 'seat_correctives')
+    assert tuple(g[k] for k in keys) == PAWNS[character]
+
+
+def test_one_player_is_the_default():
+    players = [c for c in definition.movers() if c.playable]
+    assert sorted(c.id for c in players) == sorted(PAWNS)
+    assert [c.id for c in players if c.game['default']] == ['cairo'] and definition.load('cairo').game['aliases'] == ['CairoAdventure']
+
+
+def test_a_new_players_pawn_comes_from_its_height(tmp_path):
+    folder = tmp_path / 'new-one'
+    folder.mkdir()
+    (folder / 'character.toml').write_text('id = "new-one"\nsource = "New.glb"\nheight_cm = 171\n')
+    g = definition.load('new-one', tmp_path).game
+    assert (g['capsule_radius'], g['half_height'], g['crouched_half_height'], g['bike_rig'], g['default']) == (24, 86, 75, 'NewOne', False)
+
+
 def test_every_mover_has_its_steps():
     from atelier.build import Context
     spec = importlib.util.spec_from_file_location('yorimichi_build', CHARS.parents[1] / 'build.py')
@@ -90,7 +122,7 @@ def test_every_mover_has_its_steps():
     for c in definition.movers():
         k = c.id.replace('-', '_')
         wanted = [f'characters.{k}', f'unreal.{k}', f'characters.{k}_adventure', f'unreal.{k}_adventure', f'characters.{k}_fit']
-        wanted += [f'characters.{k}_bike', f'unreal.{k}_bike'] if c.playable else []
+        wanted += [f'characters.{k}_bike', f'unreal.{k}_bike', f'unreal.{k}_pawn'] if c.playable else []
         assert set(wanted) <= set(names), (c.id, sorted(set(wanted) - set(names)))
     for i, step in enumerate(steps):   # steps run in declaration order: each after what it needs
         assert all(names.index(n) < i for n in step.needs if n in names), step.name

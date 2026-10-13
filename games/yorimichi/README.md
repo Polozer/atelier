@@ -132,6 +132,7 @@ including props made from a sentence by `assets/props/make_prop.py`.
 
 ## Names in the code
 
-The player is Cairo: `assets/characters/cairo`, `/Game/Cairo` and `ACairoCharacter`, built on `AWandererCharacter`.
+The player starts as Cairo: `assets/characters/cairo`, `/Game/Cairo` and `BP_Cairo`. Every playable character is a
+Blueprint of `AMoverCharacter`, built on `AWandererCharacter` ([PLAYABLE_CHARACTER.md](docs/PLAYABLE_CHARACTER.md)).
 Most other game classes and console variables carry the `Japan` prefix (`AJapanWorld`, `japan.SeeThrough`), and the
 island's Unreal content is under `/Game/Japan`.

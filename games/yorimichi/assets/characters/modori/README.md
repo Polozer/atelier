@@ -56,7 +56,7 @@ dependencies when only those assets need rebuilding after an existing full build
   `DA_Modori` and his move record. [`adventure.toml`](adventure.toml) records his equipment fit.
 - `characters.modori_grips` exports his posed hand grips for the sword and paraglider.
 
-`AModoriCharacter` is registered as a playable character and always uses his merged move set. His coat skirt is
+`BP_Modori` is registered as a playable character and always uses his merged move set. His coat skirt is
 simulated by Chaos Cloth, with the upper coat pinned and the free skirt colliding with capsules on his body.
 His skating arm fit includes the width of his coat, so his hands stay outside the skirt during turns.
 The cloth resets after teleports and board mounts. His story weapon, the rope and bell-metal weight, is still a

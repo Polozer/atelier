@@ -6,6 +6,7 @@ come from these two files (docs/PLAYABLE_CHARACTER.md).
 """
 from pathlib import Path
 import json
+import math
 import re
 import tomllib
 
@@ -50,6 +51,22 @@ UNREAL = {
 # [blender]: how its Blender steps run.
 BLENDER = {
     'threads': 4,                   # for its body and bike exports
+}
+
+# [game]: a playable character's pawn, BP_<Name> (Scripts/character_pawn.py, AMoverCharacter).
+GAME = {
+    'capsule_radius': 24.0,
+    'half_height': None,            # the capsule's half height, cm (default half its height, rounded up: to the crown)
+    'crouched_half_height': None,   # default seven eighths of the half height
+    'bike_rig': None,               # the bike clips' folder, /Game/<bike_rig>Bike (default its asset name)
+    'skate_clothing_clearance': 0.0,  # how far its clothes reach beyond its body's capsules, cm
+    'skate_hull_directions': 256,   # the skating bail collision's hull resolution
+    'leg_scaled_sailboat': False,   # move the sailboat stance by its leg length
+    'cloth_teleport': None,         # [cm, degrees]: a cloth restarts from the skinned pose after a jump this far or sharp
+    'hair_spring_morphs': [],       # [forward, sideways] morph targets the hair spring drives
+    'seat_correctives': '',         # the seat correctives' morph target prefix (export_hooks.py makes them)
+    'default': False,               # the character a game starts as
+    'aliases': [],                  # older names -rider= still accepts
 }
 
 # [[fit]]: a clip's metric allowed above fit.py's default bound, and why.
@@ -108,6 +125,13 @@ class Character:
         self.blender = {**BLENDER, **self.toml.get('blender', {})}
         self.role = self.toml.get('role', 'player')
         self.playable = self.role == 'player'   # the player can choose it, and it rides the bike
+        assert set(self.toml.get('game', {})) <= set(GAME), (character, 'unknown [game] keys')
+        self.game = {**GAME, **self.toml.get('game', {})}
+        if self.game['half_height'] is None and self.height:
+            self.game['half_height'] = float(math.ceil(self.toml['height_cm'] / 2))
+        if self.game['crouched_half_height'] is None and self.game['half_height']:
+            self.game['crouched_half_height'] = float(round(self.game['half_height'] * 7 / 8))
+        self.game['bike_rig'] = self.game['bike_rig'] or self.name
         self.fit = self.toml.get('fit', [])   # [[fit]]: fit.py's waivers
         for waiver in self.fit:
             assert set(waiver) == WAIVER and waiver['report'] in ('adventure', 'bike') and waiver['reason'].strip(), \

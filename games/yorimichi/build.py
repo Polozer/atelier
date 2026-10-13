@@ -251,7 +251,19 @@ def mover_adventure_steps(character, out):
         Step(f'unreal.{k}_adventure', [importer], inputs=import_inputs, needs=[f'characters.{k}_adventure', f'unreal.{k}', 'unreal.adventure'],
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / character.id / 'adventure.json'], heavy=True,
              about=f"{character.adventure['dest']} and {character.adventure['definition']}: {character.name}'s merged move set, definition and move record"),
+        *([pawn_step(character)] if character.playable else []),
     ]
+
+
+def pawn_step(character):
+    """Its pawn, BP_<Name>, and the readiness record that registers it (Scripts/character_pawn.py), in the full editor:
+    the Blueprint's parent is the game's AMoverCharacter."""
+    k, script = key(character), SCRIPTS / 'character_pawn.py'
+    return Step(f'unreal.{k}_pawn', [UnrealScript(script, f'CHARACTER PAWN COMPLETE: {character.id}', null_rhi=True, env=(('CHARACTER', character.id),))],
+                inputs=[script, PIPELINE / 'definition.py', character.folder / 'character.toml'],
+                needs=[f'unreal.{k}_adventure', 'unreal.compile'],
+                outputs=[GAME / 'unreal' / 'Content' / 'Data' / character.id / 'character.json'], heavy=True,
+                about=f'{character.unreal_path}/BP_{character.name}: {character.name} as a playable pawn, registered with the game')
 
 
 def fit_steps(out, steps):

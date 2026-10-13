@@ -32,9 +32,10 @@ DATA_ROOTS = frozenset({
     'Network', 'SkateRide', 'adventure', 'belmonte', 'bike', 'city_surface_tiles', 'communitypark', 'heightmap.bin',
     'hidamari', 'hippodrome', 'map', 'megapark', 'skatepark', 'treehouse', 'world.json',
 } | {c.id for c in MOVERS})
-# Each mover's runtime data: its move record, its bike report if playable and its posed grips if committed.
+# Each mover's runtime data: its move record, its readiness record and bike report if playable and its posed grips if
+# committed.
 CHARACTER_DATA = {
-    **{c.id: {'adventure.json'} | ({'bike'} if c.playable else set())
+    **{c.id: {'adventure.json'} | ({'character.json', 'bike'} if c.playable else set())
        | ({'grips.json'} if (c.folder.parent / 'grips' / c.id).is_dir() else set()) for c in MOVERS},
     'hippodrome': {'hippodrome.json'},
 }

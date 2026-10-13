@@ -46,6 +46,12 @@ modules = []                          # imported in the whole editor
 
 # Clips allowed above pipeline/fit.py's default bounds. A reach is how far a hand or foot falls short of its keyed grip,
 # pedal or ground spot (the values when the gate was adopted are in the reasons).
+[game]
+capsule_radius = 22.0
+hair_spring_morphs = ["head_Hair_fore", "head_Hair_side"]
+default = true
+aliases = ["CairoAdventure"]
+
 [[fit]]
 report = "bike"
 clip = "BikeMount"

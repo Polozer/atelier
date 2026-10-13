@@ -319,7 +319,7 @@ def modori_receipts(listen_receipts, request):
             value['local_player_id'] = 'host' if role == 'server' else 'player'
             for person in value['people']:
                 applied = bool(shield) if person['id'] == 'host' else not bool(shield)
-                person.update(rider='Modori', pawn_class='/Script/Yorimichi.ModoriCharacter',
+                person.update(rider='Modori', pawn_class='/Game/Modori/BP_Modori.BP_Modori_C',
                               moves_ready=True, pawn_shield=applied, applied_shield=applied)
         change(listen_receipts, role + '-connected', configure)
         (listen_receipts / (role + '.log')).write_text(

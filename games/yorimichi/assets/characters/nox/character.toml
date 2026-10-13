@@ -30,3 +30,10 @@ modules = ["YorimichiImport", "YorimichiAssets", "AtelierCore"]   # AtelierCore:
 
 [blender]
 threads = 3                           # two 4K atlases
+
+[game]
+crouched_half_height = 77.0
+skate_clothing_clearance = 3.0
+skate_hull_directions = 1024          # keeps his rounded soles
+leg_scaled_sailboat = true
+seat_correctives = "NoxSeat"          # export_hooks.py's seat correctives

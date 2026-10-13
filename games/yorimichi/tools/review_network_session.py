@@ -282,7 +282,7 @@ def modori_checks(folder, shield):
         checks[role + '_modori_pawns'] = (mapped and len(people) == 2 and
             {p.get('id') for p in people} == set(expected) and all(
                 p.get('id') and p.get('ready') is True and p.get('rider') == 'Modori' and
-                p.get('pawn_class') == '/Script/Yorimichi.ModoriCharacter' and
+                p.get('pawn_class') == '/Game/Modori/BP_Modori.BP_Modori_C' and
                 p.get('moves_ready') is True and p.get('pawn_shield') is expected[p['id']] and
                 p.get('applied_shield') is expected[p['id']] for p in people))
         log = folder / (role + '.log')

@@ -171,12 +171,13 @@ void ASuperUltraMegaPark::RegisterRails()
 UClass* AMegaParkGameMode::GetDefaultPawnClassForController_Implementation(AController* Controller)
 {
     if (UClass* Rider = FPlayableCharacter::PawnOverride()) return Rider;
+    // Resolved here, not in the constructor: the characters register from their records once the game is running.
+    if (UClass* Player = FPlayableCharacter::Default().Class()) return Player;
     return Super::GetDefaultPawnClassForController_Implementation(Controller);
 }
 
 AMegaParkGameMode::AMegaParkGameMode()
 {
-    DefaultPawnClass = FPlayableCharacter::Default().Class();
     HUDClass = AJapanHUD::StaticClass();
 }
 

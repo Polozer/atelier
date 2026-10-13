@@ -25,6 +25,11 @@ vertex_colors = true                  # the coat's cloth mask
 
 # Clips allowed above pipeline/fit.py's default bounds. A reach is how far a hand or foot falls short of its keyed grip,
 # pedal or ground spot.
+[game]
+skate_clothing_clearance = 14.0       # his coat's hem beyond his leg capsules
+leg_scaled_sailboat = true
+cloth_teleport = [150.0, 60.0]        # his coat restarts from the skinned pose after a jump this far or sharp
+
 [[fit]]
 report = "bike"
 clip = "BikeKickstand"

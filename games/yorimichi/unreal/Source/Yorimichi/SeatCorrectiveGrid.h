@@ -1,10 +1,10 @@
 #pragma once
 
-// Nox's seat correctives: morph targets NoxSeat_L{m25,0,35,70,105}_R{...} on a 5 x 5 grid of left and right hip
-// flexions (degrees, forward positive), blended bilinearly and faded in by the deeper hip's flexion. Standing,
-// walking and gliding (both hips under 35 degrees) are exact no-ops. Self-contained (no engine types), so the
-// garment candidate's CPU interpolation can be checked against it directly.
-namespace NoxSeat
+// Seat correctives (SeatCorrectiveComponent): morph targets <Prefix>_L{m25,0,35,70,105}_R{...} on a 5 x 5 grid of left
+// and right hip flexions (degrees, forward positive), blended bilinearly and faded in by the deeper hip's flexion.
+// Standing, walking and gliding (both hips under 35 degrees) are exact no-ops. Self-contained (no engine types), so a
+// garment candidate's CPU interpolation can be checked against it directly (Nox's: tests/test_nox_seat_morph.py).
+namespace SeatGrid
 {
     constexpr int Size = 5;
     constexpr int Count = Size * Size;

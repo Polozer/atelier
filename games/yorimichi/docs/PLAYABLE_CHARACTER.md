@@ -5,8 +5,8 @@ move set, the bike, skating, the sword and the paraglider. Everything after the 
 rest. Making the model itself is covered in [the character pipeline](../../../docs/CHARACTER_PIPELINE.md) and, for a
 case study, [Nox](NOX_CHARACTER_RECIPE.md).
 
-Cairo, Kaede, Modori, Nox and Paul all go through the steps below. None of them has its own exporter, importer or
-build steps.
+Cairo, Kaede, Modori, Nox and Paul all go through the steps below. None of them has its own exporter, importer,
+build steps or game class.
 
 ## What you need
 
@@ -43,6 +43,7 @@ only what differs. Unknown keys are refused, so a typo fails at once.
 | `[export.materials]` | its materials | name and texture templates, `two_sided`, roughness, metallic and specular (a number or `"shader"`), `atlas` |
 | `[unreal]` | the Unreal import | `camera_height`, `cpu_access`, `physics_asset`, `vertex_colors`, `morph_targets`, `contact_morphs`, `modules` |
 | `[blender]` | how its Blender steps run | `threads` (3 for a heavy source) |
+| `[game]` | its pawn (step 6) | `capsule_radius`, `cloth_teleport`, `hair_spring_morphs` |
 | `[[fit]]` | fit waivers (step 4) | `report`, `clip`, `metric`, `bound`, `reason` |
 
 Paul is a complete example: a vendored GLB already on the contract's names, with three extra torso and neck bones
@@ -83,7 +84,7 @@ planted ankles and keeps the idle's breathing ([`adventure/stance.py`](../assets
 ## 3. Build it
 
 ```sh
-nice -n 10 uv run atelier build yorimichi unreal.<key>_adventure unreal.<key>_bike characters.<key>_fit
+nice -n 10 uv run atelier build yorimichi unreal.<key>_pawn unreal.<key>_bike characters.<key>_fit
 ```
 
 `<key>` is the id with dashes as underscores. The build generates these steps from the two files:
@@ -96,6 +97,7 @@ nice -n 10 uv run atelier build yorimichi unreal.<key>_adventure unreal.<key>_bi
 | `characters.<key>_bike`, `unreal.<key>_bike` | every bike action authored on its rig (players only) |
 | `characters.<key>_grips` | its posed grips, when `grips/<id>/` is committed |
 | `characters.<key>_fit` | the fit gate (step 4) |
+| `unreal.<key>_pawn` | its pawn, registered with the game (step 6; players only) |
 
 Use `atelier build` or `atelier.safety.guarded` for every heavy step, as `AGENTS.md` requires.
 
@@ -144,16 +146,31 @@ A seeded grip is a draft. It reaches the game only after someone has opened it i
 
 ## 6. In the game
 
-A playable character has a pawn class registered with `FPlayableCharacter`. That registration is what makes `-rider=`,
-the character menu and shared games know it. Copy `PaulCharacter.h/.cpp`, the smallest one, and set:
-- the definition path;
-- the capsule: half height to the crown, the mesh 0.65 cm lower;
-- the crouched half height;
-- the bike rig name.
+A player needs no code. The `unreal.<key>_pawn` step makes its pawn, `BP_<Name>`, a Blueprint of the game's
+`AMoverCharacter` ([MoverCharacter.h](../unreal/Source/Yorimichi/MoverCharacter.h)), from the `[game]` table in
+`character.toml`. The capsule comes from the height: the half height is half of `height_cm` rounded up, the crouch
+seven eighths of it, and the mesh sits 0.65 cm lower. Override only what differs:
 
-Compile with `nice -n 10 uv run atelier build yorimichi unreal.compile`. Then:
+| Key | What it sets |
+|---|---|
+| `capsule_radius`, `half_height`, `crouched_half_height` | the capsule (cm) |
+| `bike_rig` | the bike clips' folder, `/Game/<bike_rig>Bike` (default: the asset name) |
+| `skate_clothing_clearance`, `skate_hull_directions` | how far clothes reach beyond the body's capsules; the bail hull's resolution |
+| `leg_scaled_sailboat` | move the sailboat stance by the leg length |
+| `cloth_teleport` | `[cm, degrees]`: a cloth restarts from the skinned pose after a jump this far or this sharp |
+| `hair_spring_morphs` | `[forward, sideways]` morph targets a hair spring drives |
+| `seat_correctives` | the morph target prefix of seat correctives an `export_hooks.py` made |
+| `default`, `aliases` | the character a game starts as; older names `-rider=` accepts |
+
+Modori's coat (`skate_clothing_clearance`, `cloth_teleport`) and Nox's seat (`seat_correctives`) are examples.
+
+The step writes `Content/Data/<id>/character.json` last. The game registers every character with that record when it
+starts, for `-rider=`, the character menu and shared games. A game already running picks up a new one with the console
+command `yorimichi.RescanCharacters`. A shared game keeps the catalogue it started with, so a character added during one
+appears after reconnecting.
 
 ```sh
+nice -n 10 uv run atelier build yorimichi unreal.<key>_pawn
 nice -n 10 uv run atelier play yorimichi -- -rider=<Name>
 ```
 
@@ -179,8 +196,7 @@ Commit:
 - the source, its manifest and the two TOML files;
 - any `export_hooks.py`;
 - the fit baseline;
-- committed grips;
-- the pawn class.
+- committed grips.
 
 Build outputs, Unreal Content, FBXs and captures stay ignored. Run `uv run atelier lint` and `uv run pytest -q`, read
 `git diff`, and ask another agent for review on the board.

@@ -125,7 +125,7 @@ and the hand's turn within 0.1 degree across the rows, and the node's IK miss wi
 `serve.py` listens on loopback only. To publish it on the tailnet, use
 `tailscale serve --bg --set-path /grips http://127.0.0.1:8897`. With `--allowed-user`, only that Tailscale login (or a
 loopback visitor) gets in. A posed grip reaches the game only through step 5, and the game reads it at startup
-(`ModoriCharacter.cpp` passes it to `UAdventureMoveSet::Initialize`). After posing, run `game.py` and restart the game; no
+(`AMoverCharacter` passes it to `UAdventureMoveSet::Initialize`). After posing, run `game.py` and restart the game; no
 compile is needed.
 
 ## How the game holds a posed grip
