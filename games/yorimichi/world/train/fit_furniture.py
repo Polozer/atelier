@@ -2,7 +2,7 @@
 
     blender -b --python games/yorimichi/world/train/fit_furniture.py -- ASSET_ID SOURCE.fbx|.glb [--column Z0 Z1]
         [--yaw DEG] [--scale-by width|height] [--side-panels Y0 Y1 Z0 Z1] [--back-panel X0 X1 Z0 Z1]
-        [--erase X0 X1 Z0 Z1 SHIFT] [--as OUTPUT_ID] [--table-top]
+        [--erase X0 X1 Z0 Z1 SHIFT] [--as OUTPUT_ID] [--table-top] [--side-wood] [--shallow-gaps]
 
 Imports the mesh, puts its origin at the contract's pivot (floor footprint centre, table lamp base, sconce wall
 mount), scales it uniformly so its width matches the contract, then, with --column, lengthens only the part between
@@ -21,7 +21,8 @@ model's own material at the side's wood. --back-panel does the same for the back
 --erase paints over a mark in the texture (carved initials, say): the front-facing area X0..X1, Z0..Z1 (metres, fitted
 frame) is covered with the texture of the same area moved SHIFT metres along X. --as writes the result under another
 id (a variant of the asset with the same contract dimensions). --table-top builds a real wooden table (top, apron, head
-block and brackets) under a draped tablecloth, whose underside Tripo leaves as a flat sheet.
+block and brackets) under a draped tablecloth, whose underside Tripo leaves as a flat sheet. --side-wood repaints the
+upholstery colour that bleeds onto a sofa's wooden side panels with the surrounding wood.
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[1])); import yori  # noqa: E402,F401
 import hashlib
@@ -45,12 +46,13 @@ def bounds(objs):
     return lo, hi
 
 
-def close_gaps(obj, f, faces=('-x', '+x'), n=56):
+def close_gaps(obj, f, faces=('-x', '+x'), n=56, shallow=False):
     """Close see-through gaps in the given faces of a seat ('-x', '+x' sides, '+y' back). Rays cast at the face on an
     n x n grid over the region f (fractions of the face's horizontal extent and of the height) find its wood depth
     (the most common shallow hit) and its holes: rays that cross the whole seat or hit nothing, and that have wood
     above and below in the same column (open air above an arm is not a gap). Each hole cell gets a small two-sided
-    patch just behind the wood, textured with the model's walnut from a sound part of the same face."""
+    patch just behind the wood, textured with the model's walnut from a sound part of the same face. shallow: on the
+    sides too, anything well behind the wood is a hole (a notch under a sofa's arm showing the velvet inside)."""
     import bmesh
     from collections import Counter
     from mathutils.bvhtree import BVHTree
@@ -89,7 +91,7 @@ def close_gaps(obj, f, faces=('-x', '+x'), n=56):
                 solid.setdefault(i, []).append(j)
         # through a side, open air above an arm is legitimate, so a hole must cross the whole seat; nothing should
         # show through the back, so there anything well behind the back's wood is a hole
-        deep = .8 * thick if ax == 0 else wood + .05
+        deep = .8 * thick if ax == 0 and not shallow else wood + .05
         holes = [(i, j) for (i, j), v in cells.items() if v > deep and i in solid and min(solid[i]) < j < max(solid[i])]
         # grow each hole by a cell: the patches sit behind the wood, so the overlap closes the slivers at their edges
         holes = sorted({(i + di, j + dj) for i, j in holes for di in (-1, 0, 1) for dj in (-1, 0, 1) if (i + di, j + dj) in cells})
@@ -160,6 +162,74 @@ def table_top(obj):
         box(bx0, bx1, by0, by1, top - .035 - .06, top - .035)
     bm.to_mesh(me); bm.free(); me.update()
     print(f'TABLE TOP under the cloth at {zc:.3f} m: {x1 - x0:.2f} x {y1 - y0:.2f} m', flush=True)
+
+
+def side_wood(obj, out_id):
+    """Repaint upholstery colour that bleeds onto the wooden side panels of a sofa: on the faces of the two outer sides
+    (normal along X, at the extreme X), texels that read as the fabric (green over red) are filled from the surrounding
+    wood by diffusion, with a little of the wood's grain noise."""
+    import numpy as np
+    me = obj.data
+    lo, hi = bounds([obj])
+    uvl = me.uv_layers.active.data
+    img = None
+    for m in me.materials:
+        for n in (m.node_tree.nodes if m and m.node_tree else []):
+            if n.type == 'TEX_IMAGE' and n.image and n.image.colorspace_settings.name == 'sRGB' and n.outputs['Color'].links:
+                img = n.image
+    if img is None:
+        print('SIDE WOOD: no base colour texture', flush=True); return
+    w, h = img.size
+    px = np.empty(w * h * 4, np.float32); img.pixels.foreach_get(px); px = px.reshape(h, w, 4)
+    mask = np.zeros((h, w), bool)
+    for p in me.polygons:
+        if abs(p.normal.x) < .85 or min(abs(p.center.x - lo.x), abs(p.center.x - hi.x)) > .06:
+            continue
+        uvs = [uvl[i].uv for i in p.loop_indices]
+        for k in range(1, len(uvs) - 1):         # rasterise the face's UV triangles
+            tri = np.array([[uvs[0].x * w, uvs[0].y * h], [uvs[k].x * w, uvs[k].y * h], [uvs[k + 1].x * w, uvs[k + 1].y * h]])
+            x0, y0 = np.floor(tri.min(0)).astype(int); x1, y1 = np.ceil(tri.max(0)).astype(int)
+            x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, w - 1), min(y1, h - 1)
+            if x1 < x0 or y1 < y0:
+                continue
+            X, Y = np.meshgrid(np.arange(x0, x1 + 1) + .5, np.arange(y0, y1 + 1) + .5)
+            (ax, ay), (bx, by), (cx, cy) = tri
+            d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+            if abs(d) < 1e-9:
+                continue
+            l1 = ((by - cy) * (X - cx) + (cx - bx) * (Y - cy)) / d
+            l2 = ((cy - ay) * (X - cx) + (ax - cx) * (Y - cy)) / d
+            inside = (l1 >= -.02) & (l2 >= -.02) & (1 - l1 - l2 >= -.02)
+            mask[y0:y1 + 1, x0:x1 + 1] |= inside
+    r, g, b = px[..., 0], px[..., 1], px[..., 2]
+    bad = mask & (g > r * 1.02) & (g > b * .9)
+    good = mask & ~bad
+    fill = px[..., :3].copy()
+    known = good.copy()
+    todo = bad.copy()
+    for _ in range(400):                         # diffuse the wood into the green, ring by ring
+        if not todo.any():
+            break
+        acc = np.zeros_like(fill); cnt = np.zeros((h, w))
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+            k = np.roll(np.roll(known, dy, 0), dx, 1)
+            acc += np.roll(np.roll(fill, dy, 0), dx, 1) * k[..., None]; cnt += k
+        new = todo & (cnt > 0)
+        fill[new] = acc[new] / cnt[new][:, None]
+        known |= new; todo &= ~new
+    rng = np.random.default_rng(7)
+    fill[bad] *= (.92 + .16 * rng.random(bad.sum()))[:, None]
+    px[..., :3][bad] = fill[bad]
+    img.pixels.foreach_set(px.ravel())
+    path = OUT / f'{out_id}-basecolor.jpg'
+    OUT.mkdir(parents=True, exist_ok=True)
+    img.filepath_raw = str(path); img.file_format = 'JPEG'; img.save()
+    fresh = bpy.data.images.load(str(path), check_existing=False); fresh.pack()
+    for m in me.materials:
+        for n in (m.node_tree.nodes if m and m.node_tree else []):
+            if n.type == 'TEX_IMAGE' and n.image == img:
+                n.image = fresh
+    print(f'SIDE WOOD: {int(bad.sum())} fabric texels repainted on the side panels ({int(mask.sum())} panel texels)', flush=True)
 
 
 def erase_mark(obj, e, out_id, keep_front=False):
@@ -267,6 +337,8 @@ def main():
     out_id = args[args.index('--as') + 1] if '--as' in args else asset
     keep_front = '--keep-front' in args      # with --erase: the mark stays on the front, a separate back is clean
     with_top = '--table-top' in args         # a draped table: build the wooden top, apron and head under the cloth
+    wood_sides = '--side-wood' in args       # a sofa: repaint fabric colour bleeding onto its wooden side panels
+    shallow = '--shallow-gaps' in args       # with --side-panels: holes need not cross the seat
     spec = next(a for a in L.contract()['assets'] if a['id'] == asset)
     tw, td, th = (spec['dimensions_m'][k] for k in ('width', 'depth', 'height'))
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -316,8 +388,10 @@ def main():
                 v.co.z += stretch * (v.co.z - z0) / (z1 - z0)
     if with_top:
         table_top(obj)
+    if wood_sides:
+        side_wood(obj, out_id)
     if panels:
-        close_gaps(obj, panels, ('-x', '+x'))
+        close_gaps(obj, panels, ('-x', '+x'), shallow=shallow)
     if back:
         close_gaps(obj, back, ('+y',))
     if erase:

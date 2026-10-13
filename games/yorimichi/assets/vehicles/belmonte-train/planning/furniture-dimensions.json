@@ -140,13 +140,22 @@
       "name_fr": "Canapé cabine — deux places",
       "dimensions_m": {
         "width": 1.85,
-        "depth": 0.78,
-        "height": 1.1
+        "depth": 0.705,
+        "height": 0.758
       },
       "seat_height_m": 0.46,
       "pivot": "floor_footprint_center",
       "material_family": "emerald-velvet-walnut-brass",
-      "quantity_draft": 8
+      "quantity_draft": 8,
+      "fitted_source": {
+        "file": "green velvet sofa 3d model.glb (Tripo Studio)",
+        "source_size_m": [
+          1.0,
+          0.381,
+          0.41
+        ],
+        "fit": "uniform scale 1.85 to the width, the model's own proportions (seat 0.39 m, back 0.76 m, under the 0.80 m window sill); green bleeding onto the walnut side panels repainted (--side-wood)"
+      }
     },
     {
       "id": "first-class-table",

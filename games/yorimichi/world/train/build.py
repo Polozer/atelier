@@ -1539,8 +1539,11 @@ def loco_body(c, coll, parent, glass_coll):
     m.box(s0 + .10, s1 - .05, -sr + .10, sr - .10, rb - .05, bz - .3, 'iron-black')     # saddle
     m.obj('Loco_Smokebox', coll, parent=parent)
     m = M()
-    m.prism(_circle(4.40, 0, .28, 24), 'z', bz + sr - .10, 4.28, 'iron-black')       # chimney
-    trim.prism(_circle(4.40, 0, .34, 24), 'z', 4.28, 4.40, 'brass')
+    # a tall stovepipe chimney, as on the classic engines: flared base on the smokebox, slender stack, flared lip
+    m.prism(_circle(4.40, 0, .38, 24), 'z', bz + sr - .10, bz + sr - .01, 'iron-black')
+    m.prism(_circle(4.40, 0, .27, 24), 'z', bz + sr - .01, 4.52, 'iron-black')
+    m.prism(_circle(4.40, 0, .31, 24), 'z', 4.52, 4.58, 'iron-black')
+    trim.prism(_circle(4.40, 0, .34, 24), 'z', 4.58, 4.66, 'brass')
     m.prism(_circle(1.20, 0, .36, 24), 'z', bz + br - .06, bz + br + .22, 'brass')     # steam dome
     m.prism(_circle(1.20, 0, .28, 24), 'z', bz + br + .22, bz + br + .30, 'brass')
     m.prism(_circle(-.80, 0, .26, 20), 'z', bz + br - .06, bz + br + .16, 'loco-black')   # sand dome
@@ -1777,7 +1780,7 @@ def loco_lod2(c, coll, parent):
     m = M()
     m.box(b0, b1, -br, br, bz - br, bz + br, 'loco-black')
     m.box(s0, s1, -sr, sr, bz - sr, bz + sr, 'iron-black')
-    m.box(4.12, 4.68, -.28, .28, bz + sr - .1, 4.40, 'iron-black')
+    m.box(4.12, 4.68, -.28, .28, bz + sr - .1, 4.66, 'iron-black')
     m.box(L.CAB[0], L.CAB[1], -L.LOCO_HALF, L.LOCO_HALF, F - .3, L.CAB_ROOF, 'loco-black')
     m.box(L.CAB[1], L.LOCO_BEAM, -L.LOCO_HALF, L.LOCO_HALF, 1.30, L.RUNNING_BOARD_Z, 'loco-black')
     m.box(-5.0, L.LOCO_BEAM, -1.0, 1.0, .05, 1.30, 'undercarriage')
