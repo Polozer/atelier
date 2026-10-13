@@ -7,3 +7,24 @@ revision = "haras-r01"
 source = "Paul.glb"
 manifest = "source-manifest.json"
 licence = "own; HarasValley character vendored with the project owner's authorization"
+
+# How assets/characters/pipeline/export.py makes his body (the defaults are in pipeline/definition.py): the vendored GLB
+# already carries the humanoid contract's names; its three extra torso and neck bones follow their parents.
+[export]
+names = "contract"
+extra_bones = "follow"
+
+[export.materials]
+name = "{material}"
+texture = "T_{material}"
+format = "png"
+require_texture = true
+roughness = 0.8
+specular = 0.2
+
+# How unreal/Scripts/import_character.py brings his body in.
+[unreal]
+camera_height = 40.0
+
+[blender]
+threads = 3                           # two embedded atlases

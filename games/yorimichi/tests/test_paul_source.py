@@ -68,7 +68,7 @@ def test_rest_guard_accepts_precision_noise_and_refuses_moved_or_turned_bones():
     import math
     from types import SimpleNamespace
     import pytest
-    tree = ast.parse((SOURCE / 'export_unreal.py').read_text())
+    tree = ast.parse((ASSETS / 'characters/pipeline/rig.py').read_text())   # the shared rig's guard
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'measure_rest')
     scope = {'np': np, 'math': math}
     exec(compile(ast.Module(body=[node], type_ignores=[]), 'rest_guard', 'exec'), scope)

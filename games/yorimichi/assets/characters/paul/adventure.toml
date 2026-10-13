@@ -1,8 +1,10 @@
-mesh = "/Game/Paul/SK_Paul"
-base = "/Game/Paul/DA_PaulBase"
-dest = "/Game/Paul/Adventure"
-definition = "/Game/Paul/DA_Paul"
-keep_base_actions = false
+# Paul with the merged adventure move set (adventure/README.md): the reference rig's moves and Cairo's donor clips retargeted
+# onto him (adventure/retarget.py --character paul), imported by Scripts/import_adventure_moveset.py.
+keep_base_actions = false             # his source has no clips of its own
+
+# Clear his shoulder blades: the reference carry sits up to 4.0 cm inside his back (reference pose), plus 1.5 cm clearance.
+[fit.push]
+sword = [5.5, 0.0, 0.0]
 
 [fit.glider]
 # Paul has narrower palms and a shorter grip span than the reference's height-scaled bar.
