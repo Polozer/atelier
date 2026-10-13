@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 SOURCES = Path(__file__).resolve().parents[2] / 'assets' / 'vehicles' / 'belmonte-train' / 'textures'
-JPEG = {'T_BT_BluePanel', 'T_BT_BluePanelWorn', 'T_BT_Ivory', 'T_BT_IvoryWorn', 'T_BT_Roof', 'T_BT_RoofWorn', 'T_BT_Underframe'}
+JPEG = {'T_BT_SmokeboxDoor', 'T_BT_Backhead', 'T_BT_BluePanel', 'T_BT_BluePanelWorn', 'T_BT_Ivory', 'T_BT_IvoryWorn', 'T_BT_Roof', 'T_BT_RoofWorn', 'T_BT_Underframe'}
 
 WALNUT_DARK = np.array([.115, .042, .016])
 WALNUT_MID = np.array([.235, .095, .036])
@@ -194,6 +194,11 @@ def crest(size=512):
 LIVERY_BLUE = (.0104, .0228, .054)
 LIVERY_IVORY = (.743, .617, .438)
 ROOF = (.041, .041, .040)
+
+
+def has(name):
+    """Whether an optional swatch (the locomotive's smokebox door and backhead) has been added yet."""
+    return (SOURCES / name).exists()
 
 
 def source(name):

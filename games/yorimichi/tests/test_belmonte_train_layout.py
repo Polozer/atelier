@@ -88,5 +88,14 @@ class Coaches(unittest.TestCase):
         self.assertGreater(2 * t.body.walk_y, 2 * L.HUMAN['radius'] + .5)
 
 
+    def test_locomotive_cab_is_walkable_and_its_controls_are_mounted(self):
+        loco, tender = L.locomotive(), L.tender()
+        self.assertEqual(L.check(loco), [])
+        self.assertAlmostEqual(loco.body.length, L.LOCO_LENGTH)
+        self.assertEqual(loco.body.end_a, tender.body.end_b)      # the cab's open back meets the tender's footplate
+        controls = {m.id for m in loco.mounts if m.kind == 'control'}
+        self.assertTrue({'regulator', 'reverser', 'brake', 'whistle', 'fire-door'} <= controls)
+
+
 if __name__ == '__main__':
     unittest.main()

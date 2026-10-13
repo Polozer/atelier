@@ -34,8 +34,15 @@ object and material, so the empty interior is visible from outside.
   `SOCKET_Coupler_A/B` and `SOCKET_Gangway_A/B` at ±12.00 m. Two coupled coaches sit 24.00 m apart, origin to
   origin, with buffer heads and gangway faces touching, so passengers walk from one coach to the next at the same
   floor level. The `consist-*` renders check a coupled pair.
-- **Missing vehicles.** Only the locomotive remains:
-  [ChatGPT prompts](BELMONTE_TRAIN_MISSING_VEHICLES_PROMPTS.md), all on the same interface.
+- **Locomotive** (`layout.locomotive()`, its own section in build.py). A 4-6-2 Pacific of 14.00 m over buffers.
+  It has a blue boiler with brass bands, a black smokebox and chimney, and a brass dome. It runs on three 1.90 m
+  coupled wheels with coupling and connecting rods, a leading bogie and a trailing axle. Each wheelset and each rod
+  is its own object, the origin on the axle, so a driving mode can spin them. The cab is walkable: its floor is at
+  1.25 m, it is open at the back onto the tender's footplate (the end type is `footplate`) and the backhead stands
+  at x = -5.00. Every control is a `control` Mount at its pivot and a `Control_*` object in the GLB: regulator,
+  reverser, brake, whistle, sander, injector and fire door (the fire door is animated like the doors). The driver
+  sits on the left and the fireman on the right. When `assets/.../textures/smokebox-door.jpg` and `backhead.jpg`
+  are added, they replace the plain black smokebox door and backhead.
 - **Tender** (`layout.tender()`, its own section in build.py). It is 9.00 m over buffers, and only its footplate
   is walkable. The body is a 3.10 m riveted tank, 1.05 to 3.30 m above rail, with the coal heaped inside coping
   plates up to 3.75 m. It runs on three rigid axles (wheels 1.00 m) in outside frames. At the rear (end A), full

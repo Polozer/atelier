@@ -25,7 +25,7 @@ VIEWER = Path(__file__).with_name('viewer.html')
 
 # front to back; length over buffers in metres
 VEHICLES = [
-    dict(id='locomotive', title='Locomotive 4-6-2', length=14.0, status='planned', concept='locomotive/locomotive-tender--locomotive-profile.png'),
+    dict(id='locomotive', title='Locomotive 4-6-2', length=L.LOCO_LENGTH, status='built', concept='locomotive/locomotive-tender--locomotive-profile.png'),
     dict(id='tender', title='Tender', length=L.TENDER_LENGTH, status='built', concept='locomotive/locomotive-tender--tender-profile-v2.png'),
     dict(id='baggage-van', title='Fourgon à bagages', length=L.LENGTH_OVER_BUFFERS, status='built'),
     dict(id='restaurant', title='Voiture restaurant', length=L.LENGTH_OVER_BUFFERS, status='built'),
@@ -58,7 +58,7 @@ def web_copy(glb, out_dir):
     return name
 
 
-BUILDERS = {'tender': L.tender, 'baggage-van': L.baggage_van, 'restaurant': L.restaurant, 'first-class': L.first_class, 'second-class': L.second_class, 'brake-van': L.brake_van}
+BUILDERS = {'locomotive': L.locomotive, 'tender': L.tender, 'baggage-van': L.baggage_van, 'restaurant': L.restaurant, 'first-class': L.first_class, 'second-class': L.second_class, 'brake-van': L.brake_van}
 
 
 def offsets():

@@ -1,6 +1,6 @@
 """Belmonte train coach shells (Blender, headless): `atelier build yorimichi world.belmonte_train`.
 
-Builds the tender (its own section below: tank, coal space, footplate, rigid axles) and the coaches from train/layout.py: the shared envelope (side walls with real window and door openings, end
+Builds the locomotive and the tender (their own sections below) and the coaches from train/layout.py: the shared envelope (side walls with real window and door openings, end
 walls, floor deck, roof, ceiling, underframe, two bogies, buffers, couplers, gangways, steps), each coach's own
 partitions, sliding and hinged doors, lining panels, window frames and glazing, plus furniture reservations, seat
 markers, mounts and simple walkable collision. The coaches are empty: furniture, lamps, curtains and racks are
@@ -53,6 +53,12 @@ MATERIALS = {
     'glass-dark': ((.05, .07, .09), 0., .1, None, 1., 1.),
     'lamp-red': ((.85, .04, .02), 0., .2, None, 1., 1.),
     'coal': ((.008, .008, .009), .1, .75, None, 1., 1.),
+    'iron-black': ((.014, .014, .015), .55, .42, None, 1., 1.),
+    'smokebox-door': ((1, 1, 1) if T.has('smokebox-door.jpg') else (.014, .014, .015), .4, .45, 'T_BT_SmokeboxDoor' if T.has('smokebox-door.jpg') else None, 0., 1.),
+    'backhead': ((1, 1, 1) if T.has('backhead.jpg') else (.014, .014, .015), .4, .45, 'T_BT_Backhead' if T.has('backhead.jpg') else None, 0., 1.),
+    'gauge-face': ((.86, .82, .72), 0., .3, None, 1., 1.),
+    'fire': ((1., .35, .05), 0., .9, None, 1., 1.),
+    'lamp-white': ((1., .93, .78), 0., .2, None, 1., 1.),
     'crest': ((1, 1, 1), .8, .3, 'T_BT_Crest', 0., 1.),
     'livery-blue-worn': ((1, 1, 1), 0., .55, 'T_BT_BlueWorn', 2.0, 1.),
     'livery-ivory-worn': ((1, 1, 1), 0., .58, 'T_BT_IvoryWorn', (2., 1.), 1.),
@@ -98,6 +104,9 @@ def make_materials(images):
         bsdf.inputs['Base Color'].default_value = (*color, 1)
         bsdf.inputs['Metallic'].default_value = metal
         bsdf.inputs['Roughness'].default_value = rough
+        if name in ('fire', 'lamp-white'):
+            bsdf.inputs['Emission Color'].default_value = (*color, 1)
+            bsdf.inputs['Emission Strength'].default_value = 4. if name == 'fire' else 2.
         if name.startswith('livery'):
             bsdf.inputs['Coat Weight'].default_value = .6 if not name.endswith('-worn') else .2
         if tex:
@@ -1145,6 +1154,8 @@ def collision_boxes(c):
     """Simple convex boxes for walking: floor, walls broken at every doorway, partitions, ceiling and fixed fittings."""
     if B.kind == 'tender':
         return tender_collision_boxes(c)
+    if B.kind == 'locomotive':
+        return loco_collision_boxes(c)
     boxes = []
     add = lambda n, *b: boxes.append((n, b))
     add('floor', B.in_a, B.in_b, -L.IN, L.IN, L.FLOOR_Z - .20, L.FLOOR_Z)
@@ -1234,7 +1245,7 @@ def mesh_checks(objs):
     """Closed meshes (manifold, outward) and no degenerate faces in the architectural parts."""
     report = {}
     for o in objs:
-        if o.type != 'MESH' or o.name.startswith(('Glazing', 'Interior_Floor', 'Ceiling', 'Shell_Crest', 'LOD2_Hull', 'Roof_Details', 'Roof_CupolaTop', 'Tender_Coal')):
+        if o.type != 'MESH' or o.name.startswith(('Glazing', 'Interior_Floor', 'Ceiling', 'Shell_Crest', 'LOD2_Hull', 'Roof_Details', 'Roof_CupolaTop', 'Tender_Coal', 'Loco_SmokeboxDoor', 'Cab_BackheadFace', 'Cab_FireGlow')):
             continue
         bm = bmesh.new(); bm.from_mesh(o.data)
         boundary = sum(1 for e in bm.edges if e.is_boundary)
@@ -1459,6 +1470,345 @@ def tender_collision_boxes(c):
     return boxes
 
 
+# --- the locomotive -----------------------------------------------------------------------------------------------
+def _circle(cx, cz, r, seg=24, a0=0.):
+    return [(cx + r * math.cos(a0 + 2 * math.pi * k / seg), cz + r * math.sin(a0 + 2 * math.pi * k / seg)) for k in range(seg)]
+
+
+def _spoked_wheel(m, r, y0, y1, spokes, crank_angle=None, seg=32):
+    """One wheel in the plane of the y axis, centred on the axle at the origin: steel tyre with its flange, black rim,
+    spokes, hub with a brass cap and, on coupled wheels, a crank boss and the counterweight opposite it."""
+    sy = 1 if y1 > 0 else -1
+    m.ring(_circle(0, 0, r, seg), _circle(0, 0, r - .07, seg), 'y', y0, y1, 'steel')
+    f0, f1 = sorted((y0 - sy * .0, y0 + sy * .025))
+    m.ring(_circle(0, 0, r + .03, seg), _circle(0, 0, r - .02, seg), 'y', f0, f1, 'steel')
+    m.ring(_circle(0, 0, r - .07, seg), _circle(0, 0, r - .12, seg), 'y', y0 + sy * .02, y1 - sy * .02, 'end-dark')
+    hub = .11 + r * .12
+    for k in range(spokes):
+        a = 2 * math.pi * k / spokes
+        ca, sa = math.cos(a), math.sin(a)
+        w0, w1 = .028 + r * .012, .018 + r * .008
+        pts = [(hub * ca + w0 * sa, hub * sa - w0 * ca), ((r - .10) * ca + w1 * sa, (r - .10) * sa - w1 * ca),
+               ((r - .10) * ca - w1 * sa, (r - .10) * sa + w1 * ca), (hub * ca - w0 * sa, hub * sa + w0 * ca)]
+        m.prism(pts, 'y', *sorted((y0 + sy * .03, y1 - sy * .03)), 'end-dark')
+    m.prism(_circle(0, 0, hub, 16), 'y', *sorted((y0 + sy * .01, y1 + sy * .02)), 'end-dark')
+    m.prism(_circle(0, 0, hub * .55, 12), 'y', *sorted((y1 + sy * .02, y1 + sy * .045)), 'brass')
+    if crank_angle is not None:
+        ca, sa = math.cos(crank_angle), math.sin(crank_angle)
+        m.prism(_circle(L.CRANK * ca, L.CRANK * sa, .10, 12), 'y', *sorted((y0 + sy * .02, y1 + sy * .05)), 'end-dark')
+        arc = [((r - .12) * math.cos(crank_angle + math.pi + d), (r - .12) * math.sin(crank_angle + math.pi + d)) for d in np.linspace(-.75, .75, 9)]
+        m.prism(arc, 'y', *sorted((y0 + sy * .025, y1 - sy * .015)), 'end-dark')
+
+
+def _wheelset(name, r, spokes, coll, parent, x, crank_angle=None):
+    """A wheelset object, its origin on the axle so it can spin about +Y."""
+    w = M()
+    for sy in (-1, 1):
+        y0, y1 = sy * (L.GAUGE / 2 - .02), sy * (L.GAUGE / 2 + .11)
+        _spoked_wheel(w, r, y0, y1, spokes, crank_angle if crank_angle is None else crank_angle + (0 if sy > 0 else math.pi / 2))
+    w.cylinder((0, 0), 'y', .09, -L.GAUGE / 2, L.GAUGE / 2, 'undercarriage', 12)
+    o = w.obj(name, coll, parent=parent)
+    o.location = (x, 0, r)
+    return o
+
+
+def loco_body(c, coll, parent, glass_coll):
+    F = L.FLOOR_Z
+    hw, cin = L.LOCO_HALF, L.CAB_IN
+    (ca, cb), ce = L.CAB, L.CAB_ENTRY
+    bx = L.BACKHEAD_X
+    (b0, b1, br, bz), (s0, s1, sr) = L.BOILER, L.SMOKEBOX
+    rb = L.RUNNING_BOARD_Z
+    trim = M()
+    # --- boiler, firebox, smokebox, chimney, domes ---
+    m = M()
+    m.cylinder((0, bz), 'x', br, b0, b1, 'livery-blue', 40)
+    for k in range(7):                               # brass boiler bands
+        x = b0 + .35 + k * (b1 - b0 - .55) / 6
+        trim.cylinder((0, bz), 'x', br + .012, x - .025, x + .025, 'brass', 40)
+    m.box(b0, -1.90, -1.05, 1.05, rb - .05, bz, 'livery-blue')                     # firebox sides under the barrel
+    m.obj('Loco_Boiler', coll, parent=parent)
+    m = M()
+    m.cylinder((0, bz), 'x', sr, s0, s1, 'iron-black', 40)
+    m.box(s0 + .10, s1 - .05, -sr + .10, sr - .10, rb - .05, bz - .3, 'iron-black')     # saddle
+    m.obj('Loco_Smokebox', coll, parent=parent)
+    m = M()
+    m.prism(_circle(4.40, 0, .28, 24), 'z', bz + sr - .10, 4.28, 'iron-black')       # chimney
+    trim.prism(_circle(4.40, 0, .34, 24), 'z', 4.28, 4.40, 'brass')
+    m.prism(_circle(1.20, 0, .36, 24), 'z', bz + br - .06, bz + br + .22, 'brass')     # steam dome
+    m.prism(_circle(1.20, 0, .28, 24), 'z', bz + br + .22, bz + br + .30, 'brass')
+    m.prism(_circle(-.80, 0, .26, 20), 'z', bz + br - .06, bz + br + .16, 'livery-blue')   # sand dome
+    trim.prism(_circle(-.80, 0, .20, 20), 'z', bz + br + .16, bz + br + .20, 'brass')
+    for y in (-.14, .14):                             # safety valves and whistle
+        trim.prism(_circle(-2.60, y, .07, 12), 'z', bz + br - .05, bz + br + .28, 'brass')
+    trim.prism(_circle(-3.90, 0, .05, 12), 'z', bz + br - .05, bz + br + .30, 'brass')
+    trim.prism(_circle(-3.90, 0, .08, 12), 'z', bz + br + .30, bz + br + .42, 'brass')
+    m.obj('Loco_Domes', coll, parent=parent)
+    # the smokebox door (a decal plate: assets textures/smokebox-door.jpg when it exists)
+    d = M()
+    pts = _circle(0, bz, sr - .10, 32)
+    d.poly([(s1 + .006, y, z) for y, z in pts], 'smokebox-door', uv=[((y + sr - .10) / (2 * (sr - .10)), (z - bz + sr - .10) / (2 * (sr - .10))) for y, z in pts], normal=(1, 0, 0))
+    d.obj('Loco_SmokeboxDoor', coll, parent=parent, closed=False)
+    trim.ring(_circle(0, bz, sr - .06, 32), _circle(0, bz, sr - .11, 32), 'x', s1, s1 + .03, 'brass')
+    for sy in (-1, 1):                                # boiler handrails
+        trim.cylinder((sy * (br + .07), bz + .25), 'x', .014, b0 + .1, s1 - .1, 'brass', 8)
+    # --- running boards with their blue valance, front deck, buffer beam ---
+    m = M()
+    for sy in (-1, 1):
+        y0, y1 = sorted((sy * 1.02, sy * hw))
+        m.box(cb, 5.40, y0, y1, rb - .04, rb, 'steel')
+        v0, v1 = sorted((sy * (hw - .03), sy * hw))
+        m.box(cb, 5.40, v0, v1, rb - .26, rb, 'livery-blue')
+        trim.box(cb, 5.40, v0 - sy * .0, v1 + sy * .004, rb - .19, rb - .18, 'brass')
+        # the drop to the front deck
+        m.prism([(5.40, rb), (5.40, rb - .26), (5.95, 1.30), (5.95, 1.34)], 'y', y0, y1, 'livery-blue')
+    m.box(5.95, L.LOCO_BEAM, -hw, hw, 1.30, 1.34, 'steel')
+    m.box(L.LOCO_BEAM, L.LOCO_BEAM + .14, -hw + .05, hw - .05, .85, 1.34, 'end-dark')
+    trim.box(L.LOCO_BEAM + .14, L.LOCO_BEAM + .145, -hw + .15, hw - .15, 1.20, 1.22, 'brass')
+    m.obj('Loco_RunningBoards', coll, parent=parent)
+    # --- frames, cylinders, slide bars ---
+    m = M()
+    for sy in (-1, 1):
+        y0, y1 = sorted((sy * .50, sy * .58))
+        m.box(-5.0, L.LOCO_BEAM, y0, y1, .55, 1.45, 'undercarriage')
+    x0, x1, cr, cz, cy = L.CYLINDER
+    for sy in (-1, 1):
+        m.cylinder((sy * cy, cz), 'x', cr, x0, x1, 'livery-blue', 24)
+        trim.cylinder((sy * cy, cz), 'x', cr + .012, x0 - .01, x0 + .03, 'brass', 24)
+        trim.cylinder((sy * cy, cz), 'x', cr + .012, x1 - .03, x1 + .01, 'brass', 24)
+        m.box(x0 - .02, x1 + .02, *sorted((sy * .58, sy * (cy - cr + .02))), cz - .12, cz + .12, 'undercarriage')
+        for dz in (-.07, .07):                         # slide bars
+            m.box(3.55, x0, *sorted((sy * (cy - .03), sy * (cy + .03))), cz + dz - .015, cz + dz + .015, 'steel')
+    m.obj('Loco_Frames', coll, parent=parent)
+    # --- wheels: leading bogie, three coupled axles, trailing axle; each its own object so it can spin ---
+    for k, x in enumerate(L.LEADING):
+        _wheelset(f'Wheelset_Leading_{k + 1}', L.LEADING_R, 10, coll, parent, x)
+    for k, x in enumerate(L.DRIVERS):
+        _wheelset(f'Wheelset_Driver_{k + 1}', L.DRIVER_R, 18, coll, parent, x, crank_angle=0.)
+    for k, x in enumerate(L.TRAILING):
+        _wheelset(f'Wheelset_Trailing_{k + 1}', L.TRAILING_R, 12, coll, parent, x)
+    m = M()                                          # leading bogie frame and axleboxes
+    for sy in (-1, 1):
+        m.box(L.LEADING[1] - .55, L.LEADING[0] + .55, *sorted((sy * .92, sy * 1.00)), .25, .60, 'undercarriage')
+    m.obj('Loco_LeadingBogie', coll, parent=parent)
+    # coupling and connecting rods (right side crank at 0, left at 90 degrees), crosshead
+    for sy, ang in ((1, 0.), (-1, math.pi / 2)):
+        ca_, sa_ = math.cos(ang), math.sin(ang)
+        side = 'L' if sy > 0 else 'R'
+        yr0, yr1 = sorted((sy * (L.GAUGE / 2 + .17), sy * (L.GAUGE / 2 + .21)))
+        rod = M()
+        z = L.DRIVER_R + L.CRANK * sa_
+        rod.box(L.DRIVERS[-1] + L.CRANK * ca_ - .08, L.DRIVERS[0] + L.CRANK * ca_ + .08, yr0, yr1, z - .05, z + .05, 'steel')
+        rod.obj(f'Rod_Coupling_{side}', coll, parent=parent)
+        # connecting rod from the crosshead to the middle driver's crank pin
+        px, pz = L.DRIVERS[1] + L.CRANK * ca_, L.DRIVER_R + L.CRANK * sa_
+        hx, hz = 3.70, cz
+        dx, dz = hx - px, hz - pz
+        n = math.hypot(dx, dz); ux, uz = -dz / n * .055, dx / n * .055
+        yc0, yc1 = sorted((sy * (L.GAUGE / 2 + .22), sy * (L.GAUGE / 2 + .26)))
+        con = M()
+        con.prism([(px + ux, pz + uz), (px - ux, pz - uz), (hx - ux, hz - uz), (hx + ux, hz + uz)], 'y', yc0, yc1, 'steel')
+        con.box(hx - .12, hx + .12, *sorted((sy * (cy - .05), sy * (cy + .05))), cz - .09, cz + .09, 'steel')
+        con.box(hx - .03, hx + .03, *sorted((sy * (L.GAUGE / 2 + .22), sy * (cy - .05))), cz - .03, cz + .03, 'steel')
+        con.obj(f'Rod_Connecting_{side}', coll, parent=parent)
+        for x in L.DRIVERS:                            # crank pins
+            trim.cylinder((x + L.CRANK * ca_, z), 'y', .045, *sorted((sy * (L.GAUGE / 2 + .11), sy * (L.GAUGE / 2 + .28))), 'brass', 10)
+    # --- cab: floor, sides with windows, front plate with spectacle glasses, roof ---
+    m = M()
+    m.box(ca, cb, -cin, cin, F - .15, F, 'parquet')
+    m.box(ca, cb, -hw, hw, F - .30, F - .15, 'undercarriage')
+    m.obj('Cab_Floor', coll, parent=parent)
+    for side, sy in (('L', 1), ('R', -1)):
+        m = M()
+        y0, y1 = sorted((sy * cin, sy * hw))
+        m.box(ce, cb, y0, y1, F - .30, L.CAB_TOP, 'livery-blue')
+        m.box(ca, ce, y0, y1, F - .30, F + .05, 'livery-blue')          # kick plate under the entrance
+        o = m.obj(f'Cab_Side_{side}', coll, parent=parent)
+        cut = M(); cut.prism(rrect(-5.45, F + 1.52, 1.00, .70, .08), 'y', y0 - .05, y1 + .05, 'glass')
+        boolean(o, [cut])
+        reproject(o, lambda n, ctr, sy=sy: 'livery-blue' if n.y * sy > .7 and abs(ctr.y) > hw - 1e-3 else 'walnut' if n.y * sy < -.7 else 'livery-blue')
+        g = M(); g.poly([(x, sy * (cin + .03), z) for x, z in rrect(-5.45, F + 1.52, 1.00, .70, .08)], 'glass', normal=(0, sy, 0))
+        g.obj(f'Glazing_Cab_{side}', glass_coll, closed=False)
+        trim.ring(rrect(-5.45, F + 1.52, 1.10, .80, .10), rrect(-5.45, F + 1.52, 1.00, .70, .08), 'y', sy * hw, sy * (hw + .02), 'brass')
+        for x in (ca + .04, ce - .04):              # grab rails at the entrance, steps below
+            trim.cylinder((x, sy * (hw + .05)), 'z', .016, F - .10, F + 1.70, 'brass', 8)
+        for zz, depth in ((F - .32, .22), (F - .62, .30)):
+            ya, yb = sorted((sy * (hw - .22), sy * (hw - .22 + depth)))
+            trim.box(ca + .08, ce - .08, ya, yb, zz - .03, zz, 'steel')
+        trim.box(ca + .06, ca + .09, *sorted((sy * hw, sy * (hw - .02))), F - .65, F, 'undercarriage')
+        trim.box(ce - .09, ce - .06, *sorted((sy * hw, sy * (hw - .02))), F - .65, F, 'undercarriage')
+        trim.box(ce, cb, *sorted((sy * (hw - .002), sy * (hw + .006))), F + .45 - .005, F + .45 + .005, 'brass')
+    # front plate round the firebox, two spectacle glasses
+    m = M()
+    for sy in (-1, 1):
+        m.box(cb - .06, cb, *sorted((sy * L.FIREBOX_HW, sy * hw)), F, L.CAB_TOP, 'livery-blue')
+    m.box(cb - .06, cb, -L.FIREBOX_HW, L.FIREBOX_HW, L.FIREBOX_TOP, L.CAB_TOP, 'livery-blue')
+    o = m.obj('Cab_Front', coll, parent=parent)
+    cuts = []
+    for sy in (-1, 1):
+        cut = M(); cut.prism(_circle(sy * 1.22, F + 1.72, .17, 20), 'x', cb - .1, cb + .05, 'glass'); cuts.append(cut)
+    boolean(o, cuts)
+    reproject(o, lambda n, ctr: 'walnut' if n.x < -.7 else 'livery-blue')
+    g = M()
+    for sy in (-1, 1):
+        g.poly([(cb - .03, y, z) for y, z in _circle(sy * 1.22, F + 1.72, .17, 20)], 'glass', normal=(1, 0, 0))
+        trim.ring(_circle(sy * 1.22, F + 1.72, .22, 20), _circle(sy * 1.22, F + 1.72, .17, 20), 'x', cb - .075, cb - .06, 'brass')
+    g.obj('Glazing_Cab_Front', glass_coll, closed=False)
+    # roof: an elliptic shell over the cab, overhanging the back, cream underneath
+    sec_o = [(y, L.CAB_TOP + (L.CAB_ROOF - L.CAB_TOP) * math.sqrt(max(0., 1 - (y / (hw + .05)) ** 2))) for y in np.linspace(hw + .05, -hw - .05, 17)]
+    m = M()
+    for (y0_, z0_), (y1_, z1_) in zip(sec_o, sec_o[1:]):
+        m.box(ca - .25, cb + .06, min(y0_, y1_), max(y0_, y1_), min(z0_, z1_) - .05, max(z0_, z1_), 'roof')
+    o = m.obj('Cab_Roof', coll, parent=parent)
+    reproject(o, lambda n, ctr: 'ceiling' if n.z < -.5 else 'roof')
+    trim.box(ca - .27, ca - .23, -hw, hw, L.CAB_TOP - .02, L.CAB_TOP + .02, 'brass')
+    # --- backhead: the firebox end in the cab, with the fire door, gauges and controls ---
+    m = M()
+    m.prism(_tank_section(L.FIREBOX_HW, F, L.FIREBOX_TOP, .45), 'x', bx, cb - .06, 'iron-black')
+    o = m.obj('Cab_Backhead', coll, parent=parent)
+    reproject(o, lambda n, ctr: 'iron-black')
+    d = M()
+    pts = _tank_section(L.FIREBOX_HW, F, L.FIREBOX_TOP, .45)
+    d.poly([(bx - .004, y, z) for y, z in pts], 'backhead', uv=[((L.FIREBOX_HW - y) / (2 * L.FIREBOX_HW), (z - F) / (L.FIREBOX_TOP - F)) for y, z in pts], normal=(-1, 0, 0))
+    d.obj('Cab_BackheadFace', coll, parent=parent, closed=False)
+    mt = {mo.id: mo for mo in c.mounts}
+    g = M()
+    p = mt['pressure-gauge']
+    trim.prism(_circle(p.y, p.z, .17, 24), 'x', bx - .07, bx - .004, 'brass')
+    g.poly([(bx - .072, y, z) for y, z in _circle(p.y, p.z, .14, 24)], 'gauge-face', normal=(-1, 0, 0))
+    for key in ('water-gauge-l', 'water-gauge-r'):
+        p = mt[key]
+        trim.box(bx - .07, bx - .004, p.y - .05, p.y + .05, p.z - .24, p.z - .20, 'brass')
+        trim.box(bx - .07, bx - .004, p.y - .05, p.y + .05, p.z + .20, p.z + .24, 'brass')
+        g.poly([(bx - .045, y, z) for y, z in rrect(p.y, p.z, .05, .40, .02)], 'glass', normal=(-1, 0, 0))
+        trim.prism(_circle(p.y, p.z - .32, .035, 10), 'x', bx - .10, bx - .004, 'brass')
+    for y, z in ((-.55, F + 2.05), (.55, F + 2.05), (-.25, F + 2.25), (.25, F + 2.25)):     # steam valves
+        trim.prism(_circle(y, z, .05, 12), 'x', bx - .09, bx - .004, 'brass')
+        trim.ring(_circle(y, z, .085, 12), _circle(y, z, .065, 12), 'x', bx - .12, bx - .10, 'brass')
+    g.obj('Glazing_Gauges', glass_coll, closed=False)
+    # the controls, each its own object with the origin at its pivot (the driving mode turns them)
+    def control(name, mesh, mount):
+        o = mesh.obj(f'Control_{name}', coll, parent=parent, origin=(mount.x, mount.y, mount.z))
+        o['control'] = mount.id; o['lods'] = [0, 1]
+        return o
+    p = mt['regulator']
+    k = M()
+    k.prism(_circle(p.y, p.z, .05, 12), 'x', p.x - .05, p.x, 'brass')
+    k.box(p.x - .06, p.x - .03, p.y, p.y + p.length, p.z - .02, p.z + .02, 'brass')
+    k.prism(_circle(p.y + p.length, p.z, .03, 10), 'x', p.x - .14, p.x - .03, 'end-dark')
+    control('Regulator', k, p)
+    p = mt['reverser']
+    trim.box(p.x - .10, p.x + .10, p.y - .10, p.y + .10, F, p.z - .05, 'brass')
+    trim.box(p.x - .13, p.x + .13, p.y - .13, p.y + .13, F, F + .06, 'brass')
+    k = M()
+    for a in range(6):
+        ang = math.pi * a / 3
+        k.box(p.x + .14 * math.cos(ang) - .015, p.x + .14 * math.cos(ang) + .015, p.y + .14 * math.sin(ang) - .015, p.y + .14 * math.sin(ang) + .015, p.z - .015, p.z + .015, 'brass')
+        k.box(min(p.x, p.x + .14 * math.cos(ang)) - .008, max(p.x, p.x + .14 * math.cos(ang)) + .008,
+              min(p.y, p.y + .14 * math.sin(ang)) - .008, max(p.y, p.y + .14 * math.sin(ang)) + .008, p.z - .008, p.z + .008, 'brass')
+    k.prism(_circle(p.x, p.y, .04, 10), 'z', p.z - .03, p.z + .03, 'brass')
+    control('Reverser', k, p)
+    p = mt['brake']
+    trim.box(p.x - .08, p.x + .08, p.y - .03, p.y + .06, p.z - .10, p.z + .06, 'brass')
+    k = M(); k.box(p.x - .01, p.x + p.length, p.y - .05, p.y - .02, p.z - .015, p.z + .015, 'brass')
+    control('Brake', k, p)
+    p = mt['whistle']
+    k = M(); k.box(p.x - .03, p.x, p.y - .01, p.y + .01, p.z - p.length, p.z, 'brass'); k.prism(_circle(p.y, p.z - p.length, .02, 8), 'x', p.x - .05, p.x, 'end-dark')
+    control('Whistle', k, p)
+    p = mt['sander']
+    k = M(); k.box(p.x - .03, p.x, p.y - .012, p.y + .012, p.z, p.z + p.length, 'brass')
+    control('Sander', k, p)
+    p = mt['injector-valve']
+    trim.box(bx - .20, bx - .02, -.95, -.65, F, F + 1.10, 'brass')
+    k = M(); k.ring(_circle(p.y, p.z, .09, 14), _circle(p.y, p.z, .07, 14), 'x', p.x - .03, p.x, 'brass')
+    control('Injector', k, p)
+    # the fire door: hinged on its right edge, opening towards the driver, glowing grate behind
+    p = mt['fire-door']
+    glow = M(); glow.poly([(bx + .02, y, z) for y, z in rrect(0, p.z, .44, .42, .05)], 'fire', normal=(-1, 0, 0))
+    o = M(); o.box(bx - .02, bx, -.30, .30, p.z - .27, p.z + .27, 'iron-black')
+    frame = o.obj('Cab_FireholeRing', coll, parent=parent)
+    cut = M(); cut.box(bx - .1, bx + .05, -.22, .22, p.z - .21, p.z + .21, 'glass')
+    boolean(frame, [cut]); reproject(frame, lambda n, ctr: 'iron-black')
+    glow.obj('Cab_FireGlow', coll, parent=parent, closed=False)
+    door = M()
+    door.box(-.03, 0, 0, .46, -.22, .22, 'iron-black')
+    for dz in (-.12, -.04, .04, .12):
+        door.box(-.034, -.03, .08, .38, dz - .008, dz + .008, 'brass')
+    door.box(-.08, -.03, .38, .42, -.02, .02, 'brass')
+    leaf = door.obj('Door_fire-door', coll, parent=parent)
+    leaf.location = (bx - .025, -.23, p.z)
+    DOOR_RECORDS.append(dict(name=leaf.name, door='fire-door', kind='hinged', pivot=list(leaf.location), swing_deg=100,
+                             opening=[-.22, .22, p.z - .21, p.z + .21], wall='backhead'))
+    # flap seats, crest, cab lining
+    for b in c.reservations:
+        if b.kind == 'seat':
+            trim.box(b.x0, b.x1, b.y0, b.y1, b.z1 - .05, b.z1, 'walnut')
+            trim.box((b.x0 + b.x1) / 2 - .02, (b.x0 + b.x1) / 2 + .02, b.y0, b.y1, b.z0, b.z1 - .05, 'brass')
+    trim.obj('Loco_Trim', coll, parent=parent, lods=(0,))
+    m = M()
+    for sy in (-1, 1):
+        y = sy * (hw + .008)
+        w = h = .44
+        xs2 = (B.crest_x - w / 2, B.crest_x + w / 2)
+        zc = F + .80
+        pts = [(xs2[0], y, zc - h / 2), (xs2[1], y, zc - h / 2), (xs2[1], y, zc + h / 2), (xs2[0], y, zc + h / 2)]
+        if sy < 0:
+            pts = [(xs2[1] + xs2[0] - q[0], q[1], q[2]) for q in pts]
+        m.poly(pts, 'crest', uv=[(0, 0), (1, 0), (1, 1), (0, 1)], normal=(0, sy, 0))
+    m.obj('Shell_Crest', coll, parent=parent, closed=False)
+    # buffers: small at the back (under the tender's fall plate), full-size at the front; hooks, head lamp
+    m = M()
+    for sx, head_r, hs in ((-1, .15, ca), (1, .20, L.LOCO_BEAM + .14)):
+        bf = B.buffer(sx)
+        for sy in (-1, 1):
+            x0, x1 = sorted((hs, bf - sx * .06))
+            m.cylinder((sy * L.BUFFER_Y, L.BUFFER_Z), 'x', .10, x0, x1, 'undercarriage', 16)
+            x0, x1 = sorted((bf - sx * .06, bf))
+            m.cylinder((sy * L.BUFFER_Y, L.BUFFER_Z), 'x', head_r, x0, x1, 'steel', 20)
+        x0, x1 = sorted((hs, bf - sx * .02))
+        m.box(x0, x1, -.06, .06, L.BUFFER_Z - .07, L.BUFFER_Z + .05, 'undercarriage')
+    m.box(B.buffer(1) - .04 - .03, B.buffer(1) - .04 + .03, -.12, .12, L.BUFFER_Z - .20, L.BUFFER_Z - .05, 'steel')
+    hl = mt['head-lamp']
+    m.box(hl.x - .10, hl.x + .10, hl.y - .13, hl.y + .13, 1.34, hl.z + .16, 'end-dark')
+    m.obj('Shell_Buffers', coll, parent=parent)
+    lamp = M(); lamp.prism(_circle(hl.y, hl.z, .09, 16), 'x', hl.x + .10, hl.x + .12, 'lamp-white')
+    lamp.obj('Shell_HeadLamp', coll, parent=parent)
+
+
+def loco_lod2(c, coll, parent):
+    F = L.FLOOR_Z
+    (b0, b1, br, bz), (s0, s1, sr) = L.BOILER, L.SMOKEBOX
+    m = M()
+    m.box(b0, b1, -br, br, bz - br, bz + br, 'livery-blue')
+    m.box(s0, s1, -sr, sr, bz - sr, bz + sr, 'iron-black')
+    m.box(4.12, 4.68, -.28, .28, bz + sr - .1, 4.40, 'iron-black')
+    m.box(L.CAB[0], L.CAB[1], -L.LOCO_HALF, L.LOCO_HALF, F - .3, L.CAB_ROOF, 'livery-blue')
+    m.box(L.CAB[1], L.LOCO_BEAM, -L.LOCO_HALF, L.LOCO_HALF, 1.30, L.RUNNING_BOARD_Z, 'livery-blue')
+    m.box(-5.0, L.LOCO_BEAM, -1.0, 1.0, .05, 1.30, 'undercarriage')
+    m.obj('LOD2_Hull', coll, parent=parent, lods=(2,))
+
+
+def loco_collision_boxes(c):
+    F = L.FLOOR_Z
+    hw, cin = L.LOCO_HALF, L.CAB_IN
+    (ca, cb), ce = L.CAB, L.CAB_ENTRY
+    bx = L.BACKHEAD_X
+    (b0, b1, br, bz), (s0, s1, sr) = L.BOILER, L.SMOKEBOX
+    boxes = [('floor', (ca, cb, -cin, cin, F - .20, F)),
+             ('backhead', (bx, cb, -L.FIREBOX_HW, L.FIREBOX_HW, F, L.FIREBOX_TOP)),
+             ('cab-roof', (ca - .25, cb, -hw, hw, L.CAB_TOP, L.CAB_ROOF)),
+             ('boiler', (b0, s1, -br - .1, br + .1, L.RUNNING_BOARD_Z - .05, bz + br + .3)),
+             ('running-gear', (-5.0, L.LOCO_BEAM + .14, -hw, hw, .20, L.RUNNING_BOARD_Z))]
+    for side, sy in (('l', 1), ('r', -1)):
+        y0, y1 = sorted((sy * cin, sy * hw))
+        boxes.append((f'cab-side-{side}', (ce, cb, y0, y1, F, L.CAB_TOP)))
+        boxes.append((f'cab-front-{side}', (cb - .06, cb, *sorted((sy * L.FIREBOX_HW, sy * hw)), F, L.CAB_TOP)))
+    for b in c.reservations:
+        boxes.append((b.name, (b.x0, b.x1, b.y0, b.y1, b.z0, b.z1)))
+    return boxes
+
+
+
 B = L.Body()      # the body of the vehicle being built (build() sets it)
 
 
@@ -1485,6 +1835,9 @@ def build(coach, images):
     if B.kind == 'tender':
         DOOR_RECORDS.clear()
         tender_body(coach, cols['Shell'], g['Shell'], cols['Glazing'])
+    elif B.kind == 'locomotive':
+        DOOR_RECORDS.clear()
+        loco_body(coach, cols['Shell'], g['Shell'], cols['Glazing'])
     else:
         side_walls(coach, cols['Shell'], g['Shell'])
         end_walls(coach, cols['Shell'], g['Shell'])
@@ -1508,6 +1861,8 @@ def build(coach, images):
     lod2 = group(f'BT_{title}_LOD2', cols['LOD2']); lod2['lods'] = [2]
     if B.kind == 'tender':
         tender_lod2(coach, cols['LOD2'], lod2)
+    elif B.kind == 'locomotive':
+        loco_lod2(coach, cols['LOD2'], lod2)
     else:
         lod2_hull(coach, cols['LOD2'], lod2)
         roof(cols['LOD2'], lod2, lod=2)

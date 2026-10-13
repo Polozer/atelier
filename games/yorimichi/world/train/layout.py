@@ -722,9 +722,73 @@ def tender():
     return c
 
 
+# --- the locomotive: a 4-6-2 Pacific whose cab is walkable and laid out to be driven later --------------------------
+LOCO_LENGTH = 14.0
+LOCO_HALF = 1.55                            # cab and running boards, like the tender
+CAB = (-6.95, -4.30)                        # cab floor from its open back (towards the tender) to the front plate
+CAB_WALL = .06
+CAB_IN = LOCO_HALF - CAB_WALL               # 1.49: inner face of the cab sides
+CAB_ENTRY = -6.30                           # the side cut-outs from the back of the cab to here, where the crew climbs in
+CAB_TOP, CAB_ROOF = 3.45, 4.05              # cab sides and roof apex
+BACKHEAD_X = -5.00                          # the firebox backhead's face, standing into the cab
+FIREBOX_HW, FIREBOX_TOP = .95, 3.25
+BOILER = (-4.30, 3.70, .88, 2.95)           # lagged barrel: x0, x1, radius, axis height
+SMOKEBOX = (3.70, 4.95, .92)
+RUNNING_BOARD_Z = 2.02
+DRIVERS = (2.55, .45, -1.65)                # three coupled axles, 1.90 m wheels
+DRIVER_R = .95
+LEADING = (6.05, 4.55)                      # leading bogie, 0.90 m wheels
+LEADING_R = .45
+TRAILING = (-3.85,)                         # trailing axle under the cab, 1.00 m wheels
+TRAILING_R = .50
+CRANK = .38
+CYLINDER = (4.20, 5.30, .30, 1.05, 1.20)    # x0, x1, radius, axis height, |y|
+LOCO_BEAM = 6.55                            # front buffer beam
+
+
+def locomotive():
+    """The engine at the head of the train, after the concept (locomotive-tender--locomotive-profile and the cab
+    interior): blue boiler with brass bands, black smokebox and chimney, brass dome, three 1.90 m coupled wheels with
+    their rods, leading bogie and trailing axle. Its cab is the walkable part: open at the back onto the tender's
+    footplate, the firebox backhead with the fire door at the front, the driver's controls on the left and the
+    fireman's side on the right. Every control is a Mount of kind 'control' at its pivot (and a separate object in the
+    GLB), so a later driving mode can find and animate it."""
+    half = LOCO_LENGTH / 2
+    lo, hi = CAB[0] + .03, BACKHEAD_X - .06
+    body = Body(x_a=CAB[0], x_b=LOCO_BEAM, buffer_a=-half, buffer_b=half, end_a='footplate', end_b='closed',
+                bogies=(), exterior_doors=(), crest_x=-5.45, kind='locomotive', walk=(lo, hi), walk_y=CAB_IN - .09)
+    c = Coach('locomotive', 'Locomotive 4-6-2', body=body)
+    F = FLOOR_Z
+    c.rooms.append(Room('cab', 'cab', CAB[0], BACKHEAD_X, -CAB_IN, CAB_IN, 'parquet'))
+    c.reservations += [
+        Box('reverser-stand', 'control-stand', BACKHEAD_X - .52, BACKHEAD_X - .26, .98, 1.30, F, F + 1.15, 'screw reverser column with its brass quadrant'),
+        Box('driver-seat', 'seat', -6.25, -5.85, 1.12, CAB_IN, F + .62, F + .80, "driver's flap seat on the cab side"),
+        Box('fireman-seat', 'seat', -6.25, -5.85, -CAB_IN, -1.12, F + .62, F + .80, "fireman's flap seat on the cab side"),
+        Box('injector', 'control-stand', BACKHEAD_X - .22, BACKHEAD_X, -.98, -.62, F, F + 1.20, 'injector and its steam valve'),
+    ]
+    c.seats += [Seat('driver', 'driver-seat', -6.05, 1.28, F + .80, 90), Seat('fireman', 'fireman-seat', -6.05, -1.28, F + .80, 90)]
+    bx = BACKHEAD_X
+    c.mounts += [
+        Mount('regulator', 'control', 'cab', bx - .03, .42, F + 1.55, 90, .50),        # lever swinging across the backhead
+        Mount('reverser', 'control', 'cab', bx - .39, 1.14, F + 1.15, 90, .30),        # handwheel on the column
+        Mount('brake', 'control', 'cab', -5.60, CAB_IN - .06, F + 1.20, 0, .25),       # driver's brake valve on the side
+        Mount('whistle', 'control', 'cab', bx - .03, .62, F + 2.00, 90, .15),
+        Mount('sander', 'control', 'cab', bx - .03, .80, F + .95, 90, .20),
+        Mount('fire-door', 'control', 'cab', bx - .01, 0., F + .67, 90, .50),
+        Mount('injector-valve', 'control', 'cab', bx - .03, -.62, F + 1.25, 90, .10),
+        Mount('pressure-gauge', 'gauge', 'cab', bx - .03, 0., F + 1.85, 90, .32),
+        Mount('water-gauge-l', 'gauge', 'cab', bx - .03, .30, F + 1.35, 90, .40),
+        Mount('water-gauge-r', 'gauge', 'cab', bx - .03, -.30, F + 1.35, 90, .40),
+        Mount('cab-lamp', 'ceiling-lamp', 'cab', -5.70, 0., CAB_TOP - .05, 0),
+        Mount('head-lamp', 'head-lamp', 'cab', LOCO_BEAM + .05, 0., 1.62, 90),
+    ]
+    c.goals.update({'cab': (-6.10, 0.), 'regulator': (bx - .40, .42), 'fire-door': (bx - .40, 0.)})
+    return c
+
+
 def vehicles():
-    """Everything the Blender build makes: the tender and the coaches."""
-    return [tender()] + coaches()
+    """Everything the Blender build makes: the locomotive, the tender and the coaches."""
+    return [locomotive(), tender()] + coaches()
 
 
 # --- checks -------------------------------------------------------------------------------------------------------
@@ -857,6 +921,8 @@ def goals(c):
             g[r.name] = RESTAURANT_GOALS[r.name]
         else:
             g[r.name] = ((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2 if r.kind != 'salon' else 0.)
+    for name, point in c.goals.items():      # points that are not rooms (the locomotive's controls)
+        g.setdefault(name, point)
     return g
 
 

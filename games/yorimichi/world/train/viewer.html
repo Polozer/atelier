@@ -357,7 +357,7 @@ function inside(x, y, r) {
   for (let i = 0; i + 1 < consist.vehicles.length; i++) {
     const a = consist.vehicles[i], b = consist.vehicles[i + 1];
     if (a.status !== 'built' || b.status !== 'built' || a.ends[0] !== b.ends[1] || !['gangway', 'footplate'].includes(a.ends[0])) continue;
-    const hi = a.x + a.walk[0] + .05, lo = b.x + b.walk[1] - .05;
+    const hi = a.x + a.walk[0] + r + .02, lo = b.x + b.walk[1] - r - .02;   // overlaps each vehicle's own standing range
     const half = a.ends[0] === 'gangway' ? consist.gangway.width / 2 : Math.min(a.walk_y, b.walk_y);
     if (x <= hi && x >= lo && Math.abs(y) <= half - r * .5) return true;
   }
