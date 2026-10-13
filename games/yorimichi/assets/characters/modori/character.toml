@@ -22,3 +22,12 @@ two_sided = ["Coat"]
 # How unreal/Scripts/import_character.py brings his body in (the defaults are in pipeline/definition.py).
 [unreal]
 vertex_colors = true                  # the coat's cloth mask
+
+# Clips allowed above pipeline/fit.py's default bounds. A reach is how far a hand or foot falls short of its keyed grip,
+# pedal or ground spot.
+[[fit]]
+report = "bike"
+clip = "BikeKickstand"
+metric = "reach_hand_L_cm"
+bound = 6.5
+reason = "the left hand falls 6.02 cm short of its keyed target"

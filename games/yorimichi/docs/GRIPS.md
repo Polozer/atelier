@@ -105,11 +105,22 @@ same way before committing new saves.
 | 1. Body | `blender -b --python export.py -- --character modori` | `body.glb`: the skinned body and the game's skeleton |
 | 2. Samples | `sample.py PORT OUT.jsonl SECONDS` beside a running game (two-handed guard, glide) | the hands' skin and joints, the props' vertices |
 | 3. Scenes | `moments.py --character modori --samples OUT.jsonl` | `moments.json`: each handle's frame, the prop placed in it, every sampled moment |
+| 4. Seed (a new character) | `seed.py --from modori --to <id>` | `poses.json`: each grip a draft, posed as Modori's |
 | 4. Pose | `serve.py --character modori --port 8897 [--allowed-user LOGIN]` | the poser page; every save in `poses/`, the newest as `poses.json` |
 | 5. Game data | `game.py --character modori [--source DIR]` | `unreal/Content/Data/<character>/grips.json` (ignored) |
-| 6. Check | `sample.py PORT ROWS.jsonl SECONDS --held`, then `check.py ROWS.jsonl` | the drift and miss of every grip |
+| 6. Check | `sample.py PORT ROWS.jsonl SECONDS --held`, then `check.py ROWS.jsonl --character modori [--only IDS]` | the drift and miss of every grip; exit 1 on a failure |
 
-Run the Python steps with `uv run python` from the repository root, and steps 1–3 once per character.
+Run the Python steps with `uv run python` from the repository root, and steps 1–3 once per character. Every tool takes
+the character's id with `--character`.
+
+A new character's grips start from Modori's: `seed.py` copies each grip's finger angles (bend, spread and twist about
+each joint's own axes, which carry between hands on the humanoid contract) and the hand's move from where the game held
+it, into the new character's workspace, which must have no `poses.json` yet. Its own moments place the hand. A seeded
+grip is a draft: `game.py` leaves it out until a person opens it in the poser, adjusts it on the new hand and saves.
+
+`check.py` fails a grip with no rows at full weight (pass `--only` for the grips a sampling session covered) or one
+outside its bounds: the hand within 1 mm of its posed place, each measured bone within 1 mm of the same place on the prop
+and the hand's turn within 0.1 degree across the rows, and the node's IK miss within 0.5 cm.
 
 `serve.py` listens on loopback only. To publish it on the tailnet, use
 `tailscale serve --bg --set-path /grips http://127.0.0.1:8897`. With `--allowed-user`, only that Tailscale login (or a
@@ -181,9 +192,10 @@ compile is needed.
 
 - `grips/export.py`, `moments.py`, `serve.py`, `web/`: the poser.
 - `grips/game.py`: poses to `grips.json`.
+- `grips/seed.py`: a new character's draft grips from another's.
 - `grips/modori/`: Modori's posed grips (see above).
 - `grips/sample.py`: in-game sampling (scenes, or `--held` for checks).
-- `grips/check.py`: the per-grip drift report.
+- `grips/check.py`: the per-grip drift report and its bounds.
 - `GripPoseNode.h`: the animation node.
 - `AdventureMoveSetCombat.cpp`: `ReadGrips`, `GripPose`, `PlaceGliderForPose`.
 - `AdventureMoveSetTraversal.cpp`: the glider's placement on the body.

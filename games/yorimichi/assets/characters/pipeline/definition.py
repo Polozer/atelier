@@ -47,6 +47,9 @@ UNREAL = {
     'contact_morphs': [],           # morph targets the skin readers must follow (USkinMorphContactData)
 }
 
+# [[fit]]: a clip's metric allowed above fit.py's default bound, and why.
+WAIVER = {'report', 'clip', 'metric', 'bound', 'reason'}
+
 
 def asset_name(character):
     """The Unreal name: 'sword-trainer' -> 'SwordTrainer'."""
@@ -89,6 +92,10 @@ class Character:
         assert set(self.toml.get('unreal', {})) <= set(UNREAL), (character, 'unknown [unreal] keys')
         self.unreal = {**UNREAL, **self.toml.get('unreal', {})}
         self.unreal_path = self.toml.get('unreal_path', '/Game/' + self.name)
+        self.fit = self.toml.get('fit', [])   # [[fit]]: fit.py's waivers
+        for waiver in self.fit:
+            assert set(waiver) == WAIVER and waiver['report'] in ('adventure', 'bike') and waiver['reason'].strip(), \
+                (character, 'a [[fit]] waiver names its report, clip, metric, bound and reason', waiver)
 
     @property
     def manifest(self):

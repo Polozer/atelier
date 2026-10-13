@@ -42,6 +42,10 @@ CONTACT_TYPES = ('AtelierCore',)
 NAMES = paths.STUDIO / 'atelier' / 'character'
 # The shared rig and body export every humanoid character's steps run (assets/characters/pipeline).
 PIPELINE = CHARS / 'pipeline'
+FIT = CHARS / 'fit'   # the fit gate's reviewed baselines, one per character (pipeline/fit.py)
+_definition = importlib.util.spec_from_file_location('character_definition', PIPELINE / 'definition.py')
+definition = importlib.util.module_from_spec(_definition)
+_definition.loader.exec_module(definition)
 YORI = WORLD / 'yori.py'
 SOUTHWEST_MODELS = ('stand,fisher_house_a,fisher_house_b,boat_shed,stairs,dock,boat,drying_rack,temple,island,'
                     'boulder_a,boulder_b,boulder_c,stone_wall,pine_lean_a,pine_lean_b')
@@ -184,6 +188,22 @@ def moveset_retarget(character, *args):
     retarget = CHARS / 'adventure' / 'retarget.py'
     return Blender(retarget, ('--character', character, *args), threads=3), [CHARS / character, retarget,
             retarget.parent / 'stance.py', *sorted(CHARS.glob('*/adventure.toml')), NAMES, PIPELINE]
+
+
+def fit_steps(out, steps):
+    """Each mover's fit gate (pipeline/fit.py), after the exports that write its reports: adventure and bike."""
+    names = {s.name for s in steps}
+    result = []
+    for character in definition.movers():
+        key = character.id.replace('-', '_')
+        exports = [n for n in (f'characters.{key}_adventure', f'characters.{key}_bike') if n in names]
+        if exports:
+            result.append(Step(f'characters.{key}_fit', [Python(PIPELINE / 'fit.py', ('--character', character.id))],
+                               inputs=[PIPELINE / 'fit.py', PIPELINE / 'definition.py', character.folder / 'character.toml',
+                                       *FIT.glob(f'{character.id}.json')],
+                               needs=exports, outputs=[out / character.output / 'fit.json'],
+                               about=f"{character.name}'s exported clips against its fit baseline and bounds"))
+    return result
 
 
 def adventure_steps(out):
@@ -737,6 +757,7 @@ def steps(ctx):
     park = communitypark(ctx.out)
     result = (world_steps(ctx, park) + character_steps(ctx) + sound_effect_steps(ctx)
               + unreal_steps(ctx) + staging_steps(ctx, park) + adventure_steps(ctx.out) + hippodrome_steps(ctx.out) + belmonte_steps(ctx.out)[1:])
+    result += fit_steps(ctx.out, result)
     identity_spec = importlib.util.spec_from_file_location('yorimichi_network_identity', GAME / 'network_identity.py')
     identity = importlib.util.module_from_spec(identity_spec)
     identity_spec.loader.exec_module(identity)

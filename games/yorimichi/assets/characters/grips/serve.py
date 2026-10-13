@@ -119,7 +119,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--character', default='modori')
+    parser.add_argument('--character', required=True)
     parser.add_argument('--port', type=int, default=8897)
     parser.add_argument('--allowed-user', default='')
     main(parser.parse_args())

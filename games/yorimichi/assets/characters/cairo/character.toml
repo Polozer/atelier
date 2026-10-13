@@ -42,3 +42,40 @@ camera_height = 35.0
 vertex_colors = true
 morph_targets = true                  # his outfit correctives and hair springs
 contact_morphs = ["head_Hair_fore", "head_Hair_side"]   # the skin readers follow his hair springs
+
+# Clips allowed above pipeline/fit.py's default bounds. A reach is how far a hand or foot falls short of its keyed grip,
+# pedal or ground spot (the values when the gate was adopted are in the reasons).
+[[fit]]
+report = "bike"
+clip = "BikeMount"
+metric = "reach_foot_L_cm"
+bound = 7.5
+reason = "the left foot falls 7.02 cm short of its keyed target"
+
+[[fit]]
+report = "bike"
+clip = "BikeKickstand"
+metric = "reach_hand_L_cm"
+bound = 7.75
+reason = "the left hand falls 7.25 cm short of its keyed target"
+
+[[fit]]
+report = "bike"
+clip = "BikeKickstand"
+metric = "reach_foot_L_cm"
+bound = 6.5
+reason = "the left foot falls 6.03 cm short of its keyed target"
+
+[[fit]]
+report = "bike"
+clip = "BikeCrash"
+metric = "reach_hand_L_cm"
+bound = 6.5
+reason = "the left hand falls 5.81 cm short of its keyed target"
+
+[[fit]]
+report = "bike"
+clip = "BikeCrash"
+metric = "reach_hand_R_cm"
+bound = 6.5
+reason = "the right hand falls 6.07 cm short of its keyed target"
