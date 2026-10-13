@@ -25,12 +25,15 @@ two-machine or packaged release certification.
   checkpoints resume; skating carries the existing simulation, stance and trick
   state into the replacement rig. Requests during physical bail/get-up or a
   transition clip stay queued until that recovery finishes.
-- Source changes require native and rendered checks at the final revision.
-  Same-machine tests do not establish packaged or two-machine acceptance.
+- Same-machine tests do not establish packaged or two-machine acceptance.
 
-## Required multiplayer checks before release
+## Native multiplayer checks (on demand)
 
-Run the final clean revision's compile and `data.network` staging, then the native
+These checks run only when the operator asks for them, for example to accept a
+multiplayer change. A playtest release does not run them. Its notes name the
+revision of the latest native multiplayer evidence instead.
+
+Run the clean revision's compile and `data.network` staging, then the native
 wire suite. All 18 named fixtures must pass, including encounter replacement;
 an engine exit code alone is insufficient.
 Run a listen pair at zero lag and at 60 ms delay / 15 ms variance / 2% loss. Both
@@ -48,10 +51,9 @@ only with explicit authorization for that session. Individual guards default to
 and applies only to the process that renders. Its NullRHI peer stays at 10 GiB.
 Startup requires the selected aggregate ceiling plus 2 GiB available, and receipts
 check and record the actual individual and aggregate ceilings and peaks.
-Inspect the captures as well as the receipts. Rerun bike, sail,
-pending mount, parking, crash and combat routes before enabling a release build.
-Use matching packaged identities for a two-device Tailscale playtest before claiming
-that a release's multiplayer has been verified on separate machines.
+Inspect the captures as well as the receipts. A full acceptance also covers the bike,
+sail, pending mount, parking, crash and combat routes. A two-device Tailscale playtest
+with matching packaged identities is what establishes multiplayer on separate machines.
 
 The `switch-skate-bail` QA stimulus currently sets an unread scripted-input
 field, so its phase-2 timeout does not exercise a bail or character request.
@@ -116,9 +118,8 @@ native checks on the final integrated revision remain open.
 
 ## Development checks
 
-These are instructions for the next testing session, not steps run during the
-October 8 wrap-up. Follow the machine render ledger, live locks and normal
-memory guards. Build assets and identity before accepting a native receipt:
+Like the checks above, these run on demand. Follow the machine render ledger,
+live locks and normal memory guards. Build assets and identity before accepting a native receipt:
 
 ```sh
 nice -n 10 uv run atelier build yorimichi unreal.compile data.network

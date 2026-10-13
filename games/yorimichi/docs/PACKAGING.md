@@ -155,6 +155,9 @@ This verifies the download, not gameplay. Run a separate, guarded standalone smo
 folder and quit it promptly. Check that captures and logs were written inside the app's writable sandbox container.
 Upload the verified ZIP or all numbered parts, SHA256SUMS, manifest.json and the verification report together.
 
+A release does not run the native multiplayer checks. They run on demand ([MULTIPLAYER.md](MULTIPLAYER.md)). The
+release notes name the revision of the latest native multiplayer evidence.
+
 ## A launch can crash before the game starts
 
 **Seen three times, each time fixed by launching the same unchanged app again.** The game's process
