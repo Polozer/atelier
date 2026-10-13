@@ -41,7 +41,7 @@ def pipelines(skeleton=None, static=False):
 
 
 def master(name, masked):
-    """The game's character look for an adventure material: its albedo, a 0.3 albedo fill (as import_cairo.py) plus its own
+    """The game's character look for an adventure material: its albedo, a 0.3 albedo fill (as import_character.py) plus its own
     emissive map, roughness .7, specular .3; masked twin cuts at the glTF alpha cutoff."""
     mat = AT.create_asset(name, DEST, U.Material, U.MaterialFactoryNew())
     mat.set_editor_property('blend_mode', U.BlendMode.BLEND_MASKED if masked else U.BlendMode.BLEND_OPAQUE)

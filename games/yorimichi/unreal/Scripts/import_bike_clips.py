@@ -17,11 +17,15 @@ import unreal as U
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import animation_compression
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'assets' / 'characters' / 'pipeline'))
+import definition  # noqa: E402
+
 CHARACTER = os.environ.get('BIKE_CHARACTER', 'cairo')
-NAME = ''.join(word.title() for word in CHARACTER.split('-'))   # sword-trainer: SwordTrainer
-OUT = yori.OUT / CHARACTER / 'bike'
+SPEC = definition.load(CHARACTER)   # its asset name, output folder, Unreal folder and bike rig
+NAME = SPEC.name
+OUT = yori.OUT / SPEC.output / 'bike'
 CONFIG = json.loads((OUT / 'export.json').read_text())
-DEST = f'/Game/{NAME}Bike'
+DEST = f"/Game/{SPEC.game['bike_rig']}Bike"   # AMoverCharacter::GetBikeRig: UBikeComponent reads the clips there
 E = U.EditorAssetLibrary; AT = U.AssetToolsHelpers.get_asset_tools()
 
 
@@ -49,7 +53,7 @@ def fbx(name, skeleton):
     return clip
 
 
-mesh = E.load_asset(f'/Game/{NAME}/SK_{NAME}'); assert mesh, f'import {NAME} first (unreal.{CHARACTER})'
+mesh = E.load_asset(f'{SPEC.unreal_path}/SK_{NAME}'); assert mesh, f'import {NAME} first (unreal.{CHARACTER})'
 report = {}
 for name, entry in CONFIG['clips'].items():
     clip = fbx(name, mesh.skeleton)

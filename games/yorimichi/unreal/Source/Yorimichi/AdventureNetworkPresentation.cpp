@@ -2,6 +2,7 @@
 #include "JapanAvatarState.h"
 #include "WandererCharacter.h"
 #include "JapanCharacterMovement.h"
+#include "SkateComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/GameStateBase.h"
 #include "Engine/World.h"
@@ -18,8 +19,10 @@ FJapanAvatarState UAdventureMoveSet::CapturePresentation() const
     State.Flags = (Character->bActionLoops ? FJapanAvatarState::Loop : 0) | (bArmed ? FJapanAvatarState::Armed : 0) |
         (bGuardHeld ? FJapanAvatarState::Guard : 0) | (bDown ? FJapanAvatarState::Down : 0) |
         (bGliderShown ? FJapanAvatarState::Glider : 0) | (bLocked ? FJapanAvatarState::Locked : 0);
-    State.MeshLocation = Character->GetMesh()->GetRelativeLocation();
-    State.MeshRotation = Character->GetMesh()->GetRelativeRotation();
+    // A listen host's displayed mesh also contains its local CMC smoothing residual.
+    // Publish the authored base only; each observer owns its own smoothing.
+    State.MeshLocation = Character->GetBaseTranslationOffset();
+    State.MeshRotation = Character->GetBaseRotationOffset().Rotator();
     State.Intent = FVector(Character->MoveIntent.X, Character->MoveIntent.Y, 0);
     State.FlinchTime = FlinchTime; State.FlinchAngle = FlinchAngle; State.FlinchPeak = FlinchPeak;
     State.FlinchTwist = FlinchTwist; State.FlinchAxis = FlinchAxis;
@@ -40,6 +43,10 @@ void UAdventureMoveSet::ApplyPresentation(const FJapanAvatarState& State, float 
     Character->ActionDuration = State.Duration; Character->ActionBlendTime = State.Blend;
     Character->bActionLoops = (State.Flags & FJapanAvatarState::Loop) != 0;
     Character->MoveIntent = FVector2D(State.Intent.X, State.Intent.Y);
+    // The streamed full-body pose owns its mesh frame. Continue the equipment
+    // presentation below without replacing that frame with the on-foot base.
+    if (Character->GetSkate()->GetRiderPose().IsEmpty())
+    {
     const FVector MeshLocation = FMath::VInterpTo(Character->GetBaseTranslationOffset(), FVector(State.MeshLocation), Dt, 20.f);
     const FQuat MeshRotation = FQuat::Slerp(Character->GetBaseRotationOffset(), State.MeshRotation.Quaternion(),
         FMath::Clamp(Dt * 20.f, 0.f, 1.f)).GetNormalized();
@@ -48,6 +55,7 @@ void UAdventureMoveSet::ApplyPresentation(const FJapanAvatarState& State, float 
     Character->CacheInitialMeshOffset(MeshLocation, MeshRotation.Rotator());
     Character->GetMesh()->SetRelativeLocationAndRotation(MeshLocation + SmoothingLocation,
         (SmoothingRotation * MeshRotation).GetNormalized());
+    }
     Mode = EAdventureMoveMode(State.Mode);
     bArmed = (State.Flags & FJapanAvatarState::Armed) != 0;
     bGuardHeld = (State.Flags & FJapanAvatarState::Guard) != 0;

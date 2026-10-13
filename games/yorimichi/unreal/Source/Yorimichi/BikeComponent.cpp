@@ -121,7 +121,9 @@ FString UBikeComponent::RiderRig() const
 {
  // A rider without bike clips of its own borrows the default character's (and Toggle turns it away unless they fit).
  const FString Own=Rider?Rider->GetBikeRig():FString();
- return Own.IsEmpty()?CastChecked<AWandererCharacter>(FPlayableCharacter::Default().Class()->GetDefaultObject())->GetBikeRig():Own;
+ if(!Own.IsEmpty())return Own;
+ const UClass* Player=FPlayableCharacter::Default().Class();
+ return Player?CastChecked<AWandererCharacter>(Player->GetDefaultObject())->GetBikeRig():FString();
 }
 
 void UBikeComponent::Initialize(AWandererCharacter* C)

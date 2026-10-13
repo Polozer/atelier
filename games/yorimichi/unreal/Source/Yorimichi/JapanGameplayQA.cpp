@@ -13,6 +13,7 @@
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "HAL/FileManager.h"
+#include "UnrealClient.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
 
@@ -28,11 +29,13 @@ struct FScript
     uint16 MaximumProcessedEdge = 0;
     uint32 InterpolatedFrames = 0, HeldFrames = 0;
     uint32 BeforeBufferFrames = 0, AfterBufferFrames = 0, TimestampDrops = 0;
+    uint32 ObservedPoseFrames = 0, MatchingPoseFrames = 0;
     FVector Start = FVector::ZeroVector, Foot = FVector::ZeroVector;
     float WalkDistance = 0.f, JumpHeight = 0.f, SkateSeconds = 0.f, ResumedWalkDistance = 0.f;
     uint32 HighestEpoch = 1, AcceptedFrames = 0, MaximumSavedMoves = 0, PeerFrames = 0, ReceivedPeerFrames = 0;
     bool SawPlayer = false, SawSkate = false, Finished = false, JumpReleased = false;
     bool SawHostTakeoff = false;
+    bool CapturedRide = false;
     bool PreparedTimeoutGuard = false, GuardBeforeTimeout = false, ClearedTimeoutHolds = false;
     double MovementHitchSeconds = 0., SkateHitchSeconds = 0., MovementHitchAt = 0., GuardEstablishedAt = -1.;
     double TimeoutDriveSeconds = 0.;
@@ -60,6 +63,8 @@ bool Save(const FString& Folder, bool Server, const FScript& State)
     Data->SetNumberField(TEXT("before_buffer_peer_frames"), State.BeforeBufferFrames);
     Data->SetNumberField(TEXT("after_buffer_peer_frames"), State.AfterBufferFrames);
     Data->SetNumberField(TEXT("peer_timestamp_drops"), State.TimestampDrops);
+    Data->SetNumberField(TEXT("observed_peer_poses"), State.ObservedPoseFrames);
+    Data->SetNumberField(TEXT("matching_peer_poses"), State.MatchingPoseFrames);
     const double PeerApplications = double(State.InterpolatedFrames) + State.HeldFrames;
     Data->SetNumberField(TEXT("interpolated_peer_fraction"), PeerApplications > 0. ? State.InterpolatedFrames / PeerApplications : 0.);
     Data->SetNumberField(TEXT("observed_seconds"), State.ObservedSeconds);
@@ -175,6 +180,8 @@ bool JapanGameplayQA::Tick(UWorld* World, bool Server, const FString& Folder, FS
                     Script.BeforeBufferFrames = FMath::Max(Script.BeforeBufferFrames, Stream->GetBeforeBufferCount());
                     Script.AfterBufferFrames = FMath::Max(Script.AfterBufferFrames, Stream->GetAfterBufferCount());
                     Script.TimestampDrops = FMath::Max(Script.TimestampDrops, Stream->GetTimestampDropCount());
+                    Script.ObservedPoseFrames = FMath::Max(Script.ObservedPoseFrames, Stream->GetObservedPoseCount());
+                    Script.MatchingPoseFrames = FMath::Max(Script.MatchingPoseFrames, Stream->GetMatchingPoseCount());
                 }
     const double Now = World->GetTimeSeconds();
     auto* Movement = CastChecked<UJapanCharacterMovement>(Player->GetCharacterMovement());
@@ -275,6 +282,11 @@ bool JapanGameplayQA::Tick(UWorld* World, bool Server, const FString& Folder, FS
     case 4:
         if (Player->GetNetworkActivity() != EJapanActivity::Skate) { Error = TEXT("Skate epoch ended unexpectedly during sustained ride"); break; }
         Script.SkateSeconds = Elapsed;
+        if (!Script.CapturedRide && Elapsed > 3. && FParse::Param(FCommandLine::Get(), TEXT("networkrender")))
+        {
+            FScreenshotRequest::RequestScreenshot(Folder / TEXT("skating.png"), false, false);
+            Script.CapturedRide = true;
+        }
         if (SkateHitchMs && Elapsed > 2. && Script.SkateHitchSeconds == 0.)
         {
             const double Began = FPlatformTime::Seconds();

@@ -1,0 +1,51 @@
+id = "paul"
+display_name = "Paul"
+role = "player"
+rig = "humanoid"
+height_cm = 165
+revision = "haras-r01"
+source = "Paul.glb"
+manifest = "source-manifest.json"
+licence = "own; HarasValley character vendored with the project owner's authorization"
+
+# How assets/characters/pipeline/export.py makes his body (the defaults are in pipeline/definition.py): the vendored GLB
+# already carries the humanoid contract's names; its three extra torso and neck bones follow their parents.
+[export]
+names = "contract"
+extra_bones = "follow"
+
+[export.materials]
+name = "{material}"
+texture = "T_{material}"
+format = "png"
+require_texture = true
+roughness = 0.8
+specular = 0.2
+
+# How unreal/Scripts/import_character.py brings his body in.
+[unreal]
+camera_height = 40.0
+
+[blender]
+threads = 3                           # two embedded atlases
+
+[[fit]]
+report = "bike"
+clip = "BikeCrash"
+metric = "reach_hand_L_cm"
+bound = 6.0
+reason = "the left hand falls 5.7 cm short of its keyed target, as before this gate (bike pose fit follow-up)"
+
+[[fit]]
+report = "bike"
+clip = "BikeCrash"
+metric = "reach_hand_R_cm"
+bound = 6.0
+reason = "the right hand falls 5.7 cm short of its keyed target, as before this gate (bike pose fit follow-up)"
+
+[[fit]]
+report = "bike"
+clip = "BikeKickstand"
+metric = "reach_hand_L_cm"
+bound = 7.5
+reason = "the left hand falls 7.21 cm short of its keyed target, as before this gate (bike pose fit follow-up)"

@@ -1,13 +1,17 @@
 """Each character's merged-move-set config (assets/characters/<id>/adventure.toml), which the generic retarget
 (adventure/retarget.py) and import (Scripts/import_adventure_moveset.py) read in place of per-character branches."""
-import tomllib
+import importlib.util
 from pathlib import Path
 
 import pytest
 
 CHARS = Path(__file__).resolve().parents[1] / 'assets' / 'characters'
-SPECS = {p.parent.name: tomllib.loads(p.read_text()) for p in sorted(CHARS.glob('*/adventure.toml'))}
-FIT = {'carry', 'push', 'tilt', 'yaw', 'mount', 'crouch'}
+spec = importlib.util.spec_from_file_location('character_definition', CHARS / 'pipeline' / 'definition.py')
+definition = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(definition)
+# adventure.toml as the retarget and import read it: its layout defaulting to the character's own folder
+SPECS = {c.id: c.adventure for c in definition.movers()}
+FIT = {'carry', 'push', 'tilt', 'yaw', 'mount', 'crouch', 'glider'}
 
 
 def pascal(character):
@@ -21,7 +25,6 @@ def test_the_playable_characters_have_one():
 @pytest.mark.parametrize('character', sorted(SPECS))
 def test_layout(character):
     spec = SPECS[character]
-    assert (CHARS / character / 'character.toml').exists()
     assert spec['mesh'] == f'/Game/{pascal(character)}/SK_{pascal(character)}'   # the character importer names it so
     for key in ('base', 'dest', 'definition'):
         assert spec[key].startswith('/Game/'), key
@@ -37,6 +40,9 @@ def test_fit(character):
     for piece in fit.get('carry', {}).values():
         assert len(piece['offset']) == 3 and isinstance(piece['pitch'], (int, float))
     assert 0. <= fit.get('mount', 0.) <= 1.
+    if 'glider' in fit:
+        assert set(fit['glider']) == {'fit_grip_span'}
+        assert isinstance(fit['glider']['fit_grip_span'], bool)
     if 'crouch' in fit:
         assert set(fit['crouch']) == {'pivot', 'yaw', 'pitch', 'out'}
         assert fit.get('yaw'), 'the crouched carry turns the pieces that `yaw` turns'

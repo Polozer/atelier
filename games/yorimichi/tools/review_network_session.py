@@ -32,6 +32,9 @@ import time
 import os
 import statistics
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'assets' / 'characters' / 'pipeline'))
+import definition as character_definition  # noqa: E402
+
 
 def load(path):
     try:
@@ -188,6 +191,9 @@ def compare_receipts(folder, gameplay=False, listen=False, emulation=None, bound
                     total > 0 and receipt.get('interpolated_peer_frames', 0) / total >= .7)
                 checks[role + '_within_pose_buffer'] = total > 0 and outside / total <= .15
                 checks[role + '_bounded_timestamp_drops'] = 0 <= receipt.get('peer_timestamp_drops', -1) <= 2
+                observed = receipt.get('observed_peer_poses', 0)
+                matching = receipt.get('matching_peer_poses', 0)
+                checks[role + '_displayed_skate_pose'] = observed >= 60 and .95 <= matching / observed <= 1
                 if not any((emulation or {}).get(key, 0) for key in ('lag_ms', 'variance_ms', 'loss_percent')):
                     checks[role + '_zero_lag_prediction'] = (receipt.get('position_corrections_over_1cm') == 0 and
                         0 <= receipt.get('largest_correction_cm', -1) < 1)
@@ -279,7 +285,7 @@ def modori_checks(folder, shield):
         checks[role + '_modori_pawns'] = (mapped and len(people) == 2 and
             {p.get('id') for p in people} == set(expected) and all(
                 p.get('id') and p.get('ready') is True and p.get('rider') == 'Modori' and
-                p.get('pawn_class') == '/Script/Yorimichi.ModoriCharacter' and
+                p.get('pawn_class') == character_definition.player('Modori').pawn and
                 p.get('moves_ready') is True and p.get('pawn_shield') is expected[p['id']] and
                 p.get('applied_shield') is expected[p['id']] for p in people))
         log = folder / (role + '.log')
@@ -289,7 +295,25 @@ def modori_checks(folder, shield):
     return checks
 
 
-def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, loss_percent=0, tailnet=False, combat=False, combat_host_fps=20, enemy=False, app=None, cook_receipt=None, expected_identity=None, plain_package=False, movement_hitch_ms=0, skate_hitch_ms=0, modori_shield=None, vehicle_case=None, jump_replay=None, reaction_delivery_case=None, reaction_delivery_moving=False):
+def mixed_character_checks(folder):
+    receipts = {role: load(folder / (role + '-connected.json')) or {} for role in ('server', 'client')}
+    host, guest = (receipts[role].get('local_player_id') for role in ('server', 'client'))
+    mapped = isinstance(host, str) and bool(host) and isinstance(guest, str) and bool(guest) and host != guest
+    expected = {host: 'Cairo', guest: 'Modori'} if mapped else {}
+    checks = {'mixed_character_player_mapping': mapped}
+    for role, receipt in receipts.items():
+        people = receipt.get('people', [])
+        checks[role + '_independent_character_choices'] = (mapped and len(people) == 2 and
+            {p.get('id') for p in people} == set(expected) and all(
+                p.get('rider') == expected[p['id']] and
+                p.get('pawn_class') == character_definition.player(expected[p['id']]).pawn and
+                p.get('ready') is True and p.get('moves_ready') is True and
+                type(p.get('pawn_shield')) is bool and p.get('applied_shield') is p['pawn_shield']
+                for p in people))
+    return checks
+
+
+def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, loss_percent=0, tailnet=False, combat=False, combat_host_fps=20, enemy=False, app=None, cook_receipt=None, expected_identity=None, plain_package=False, movement_hitch_ms=0, skate_hitch_ms=0, modori_shield=None, vehicle_case=None, jump_replay=None, reaction_delivery_case=None, reaction_delivery_moving=False, feature_case=None, render_view=None, aggregate_memory_gib=10, rendered_memory_gib=10, mixed_characters=False):
     from atelier.build import Context
     from atelier.safety import process_tree
     from atelier.safety.guard import attach, reap
@@ -300,8 +324,8 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
     free = available_bytes()
     # Admission budgets the pair, not one game's current usage before launching another.
     # The independent runtime ceiling below includes both complete owned process trees.
-    if free is None or free < 12 * 1024**3:
-        raise RuntimeError('The compound smoke needs at least 12 GiB available before either game starts')
+    if free is None or free < (aggregate_memory_gib + 2) * 1024**3:
+        raise RuntimeError(f'The compound smoke needs at least {aggregate_memory_gib + 2} GiB available before either game starts')
     ctx = Context('yorimichi')
     package_source = None
     if app:
@@ -323,9 +347,9 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
         host = '127.0.0.1'
     pid, started = os.getpid(), process_tree.started(os.getpid())
     aggregate_report, stop = folder / 'aggregate-memory.json', folder / 'aggregate-stop'
-    monitor = subprocess.Popen([sys.executable, '-m', 'atelier.safety.tree_guard', '--pid', str(pid),
+    monitor = subprocess.Popen([sys.executable, str(Path(__file__).with_name('network_aggregate_guard.py')), '--pid', str(pid),
                                 '--expected-start', str(started), '--report', str(aggregate_report),
-                                '--stop-file', str(stop), '--duration', '315'])
+                                '--stop-file', str(stop), '--duration', '315', '--limit-gib', str(aggregate_memory_gib)])
     games = []
     began, spoken = time.monotonic(), 0.
     try:
@@ -348,11 +372,18 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
                            f'-port={port}', '-networkqa=' + role, '-networkqadir=' + str(folder),
                            '-preferencesfile=' + str(folder / (role + '-preferences.txt')),
                            '-ExecCmds=t.MaxFPS ' + ('60' if vehicle_case and role == 'server' else str(combat_host_fps) if combat and role == 'server' else '30')]
+                if render_view == ('host' if role == 'server' else 'guest'):
+                    command.remove('-nullrhi')
+                    command += ['-windowed', '-ResX=960', '-ResY=540', '-ForceRes', '-networkrender']
+                if feature_case:
+                    command += ['-networkfeatures', '-networkfeaturecase=' + feature_case]
                 command.extend([f'-PktLag={lag_ms}', f'-PktLagVariance={variance_ms}', f'-PktLoss={loss_percent}'])
                 if jump_replay is not None:
                     command.append('-networkjumpreplay=' + str(jump_replay))
                 if modori_shield is not None:
                     command += ['-rider=Modori', '-set=shield=' + str(modori_shield if role == 'server' else 1-modori_shield)]
+                if mixed_characters:
+                    command.append('-rider=' + ('Cairo' if role == 'server' else 'Modori'))
                 if not tailnet:
                     command.append('-MULTIHOME=127.0.0.1')
                 if combat:
@@ -382,7 +413,8 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
                 game = spawn_game(command, stdout=log, stderr=subprocess.STDOUT)
                 games.append((role, game))
                 guards.callback(reap, game)
-                guard = guards.enter_context(attach(game.pid, folder / (role + '-memory.json'), duration=300))
+                game_ceiling = rendered_memory_gib if render_view == ('host' if role == 'server' else 'guest') else 10
+                guard = guards.enter_context(attach(game.pid, folder / (role + '-memory.json'), duration=300, limit_gib=game_ceiling))
                 if guard is None:
                     raise RuntimeError(f'Could not attach the {role} actual-child guard')
                 print(f'{role} started as owned pid {game.pid}; aggregate plus individual guards active', flush=True)
@@ -411,7 +443,7 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
                     if now - spoken >= 15:
                         spoken = now
                         print(f'{stage}: waiting for native receipt; {now - began:.1f}s elapsed; '
-                              f'aggregate {health["footprint_bytes"] / 1024**3:.2f}/10 GiB', flush=True)
+                              f'aggregate {health["footprint_bytes"] / 1024**3:.2f}/{aggregate_memory_gib} GiB', flush=True)
                     time.sleep(.25)
                 raise RuntimeError(stage + ' deadline expired')
 
@@ -455,21 +487,44 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
             checks.update(jump_replay_checks(load(folder / 'server-gameplay.json') or {}, load(folder / 'client-gameplay.json') or {}, jump_replay))
         if modori_shield is not None:
             checks.update(modori_checks(folder, modori_shield))
+        if mixed_characters:
+            checks.update(mixed_character_checks(folder))
         reaction_delivery = None
         if reaction_delivery_case is not None:
             from network_scheduled_reaction_review import scheduled_reaction_checks
             reaction_checks, reaction_delivery = scheduled_reaction_checks(load(folder / 'reaction-server.json') or {},
                 load(folder / 'reaction-client.json') or {}, reaction_delivery_case, reaction_delivery_moving)
             checks.update(reaction_checks)
+        if feature_case:
+            from network_feature_review import feature_checks, feature_render_checks
+            checks.update(feature_checks(folder, feature_case))
+            if render_view:
+                checks.update(feature_render_checks(folder, feature_case))
         checks['source_unchanged'] = source_revision() == revision
+        aggregate = load(aggregate_report) or {}
+        checks['aggregate_complete_and_bounded'] = (aggregate.get('state') == 'complete' and
+            aggregate.get('limit_bytes') == aggregate_memory_gib * 1024**3 and
+            aggregate.get('peak_bytes', float('inf')) <= aggregate_memory_gib * 1024**3)
         checks['native_build_unchanged'] = (package_fingerprint(app, expected_identity) if app else current_native_build(ctx)) == binary
+        individual_memory = {}
+        for role in ('plain',) if plain_package else ('server', 'client'):
+            ceiling = rendered_memory_gib if render_view == ('host' if role == 'server' else 'guest') else 10
+            health = load(folder / (role + '-memory.json')) or {}
+            individual_memory[role] = health
+            checks[role + '_individual_memory_bounded'] = (health.get('limit_bytes') == ceiling * 1024**3 and
+                health.get('peak_bytes', float('inf')) <= ceiling * 1024**3)
         if app:
             checks['package_source_unchanged'] = verify_cook_source(paths.REPO, cook) == package_source
             checks.update(package_binding)
         report = dict(passed=all(checks.values()), checks=checks, aggregate=load(aggregate_report),
-                      emulation=emulation, source=revision, native_build=binary,
+                      emulation=emulation, source=revision, native_build=binary, aggregate_limit_gib=aggregate_memory_gib,
+                      rendered_limit_gib=rendered_memory_gib, individual_memory=individual_memory,
                       scope=('Same-machine Tailscale listener; ' if tailnet else 'Loopback listener; ') +
                             'NullRHI editor smoke. Packaged, rendered and two-machine acceptance remain separate')
+        if render_view:
+            report['scope'] = f'Same-machine pair; {render_view} rendered at 960x540, peer NullRHI, aggregate ceiling {aggregate_memory_gib} GiB. Packaged and two-machine acceptance remain separate.'
+        if feature_case:
+            report['feature_case'] = feature_case
         if app:
             report['packaged_build'] = report.pop('native_build')
             report['package_source'] = package_source
@@ -477,6 +532,8 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
                                'Same-machine packaged listen/client; cooked collision and compiled identity; ') + 'NullRHI. Rendered and two-machine acceptance remain separate.'
         if modori_shield is not None:
             report['modori_shield'] = dict(host=modori_shield, guest=1-modori_shield)
+        if mixed_characters:
+            report['mixed_characters'] = dict(host='Cairo', guest='Modori')
         if jump_replay is not None:
             report['jump_replay_case'] = jump_replay
         if reaction_delivery_case is not None:
@@ -518,15 +575,27 @@ def main():
     parser.add_argument('--combat-host-fps', type=int, choices=(20, 30, 60), default=20)
     parser.add_argument('--reaction-delivery-moving', action='store_true', help='Keep forward drive through reaction case 0, 5, 8 or 9; report measured pre-hit motion')
     parser.add_argument('--reaction-delivery-case', type=int, choices=range(10), help='Development-only ordering/death probe; intentional holds and stale deliveries are labelled')
+    parser.add_argument('--feature-case', choices=('equipment', 'switch-foot', 'switch-bike', 'switch-sail', 'switch-skate', 'switch-skate-air', 'switch-skate-bail', 'zeppelin'), help='Ordinary multiplayer equipment, character swaps and shared zeppelin')
+    parser.add_argument('--render-view', choices=('host', 'guest'), help='Render one observer under the existing aggregate guard')
+    parser.add_argument('--aggregate-memory-gib', type=int, choices=(10, 14, 16, 18), default=10,
+                        help='Rendered QA session ceiling; above10 requires explicit operator authorization')
+    parser.add_argument('--rendered-memory-gib', type=int, choices=(10, 12), default=10,
+                        help='Rendered game ceiling; above10 requires explicit operator authorization; the NullRHI peer stays10')
     parser.add_argument('--vehicle-case', choices=('bike', 'sail', 'mount-bike', 'mount-sail', 'park', 'crash', 'clock-bike'), help='Native vehicle route; clock-bike injects one real 1050 ms owner outage at zero lag')
     parser.add_argument('--enemy', action='store_true', help='Real shared-hunter attacks, AI claw and replicated death')
     parser.add_argument('--combat', action='store_true', help='Native listen-host 20fps and remote combat probes; same-machine stimulus files, real network inputs')
     parser.add_argument('--gameplay', action='store_true', help='Also exercise predicted walking/jump, five seconds of skating and dismount')
     parser.add_argument('--listen', action='store_true', help='Two local players across listen-host/client processes; validates the observer relay within the same aggregate guard')
+    parser.add_argument('--mixed-characters', action='store_true', help='Host chooses Cairo and guest chooses Modori through ordinary per-player startup selection')
     parser.add_argument('--lag-ms', type=int, default=0, help='Emulated one-way packet delay on both processes (0..200 ms)')
     parser.add_argument('--variance-ms', type=int, default=0, help='Packet delay variance (0..50 ms)')
     parser.add_argument('--loss-percent', type=int, default=0, help='Emulated packet loss on both processes (0..10 percent)')
     args = parser.parse_args()
+    if args.mixed_characters:
+        if (args.app or args.feature_case or args.vehicle_case or args.enemy or args.combat or
+                args.modori_shield is not None or args.jump_replay is not None or args.reaction_delivery_case is not None):
+            parser.error('Mixed characters use the ordinary editor listen/gameplay route')
+        args.listen = True
     if not (0 <= args.lag_ms <= 200 and 0 <= args.variance_ms <= 50 and 0 <= args.loss_percent <= 10):
         parser.error('Emulation must stay within the bounded lag/variance/loss ranges')
     if args.reaction_delivery_moving and args.reaction_delivery_case not in (0, 5, 8, 9):
@@ -544,6 +613,16 @@ def main():
         if args.app or args.combat or args.enemy or args.vehicle_case:
             parser.error('Modori loadout proof uses an editor listen/gameplay pair')
         args.listen = True
+    if args.feature_case:
+        if args.app or args.vehicle_case or args.enemy or args.combat or args.reaction_delivery_case is not None:
+            parser.error('Feature checks use their own editor listen route')
+        args.listen = True
+    if args.render_view and not args.listen:
+        parser.error('A rendered observer requires a listen pair')
+    if args.aggregate_memory_gib != 10 and not args.render_view:
+        parser.error('An authorized larger aggregate ceiling requires a rendered observer')
+    if args.rendered_memory_gib != 10 and not args.render_view:
+        parser.error('An authorized larger game ceiling requires a rendered observer')
     if args.vehicle_case and (args.enemy or args.combat or args.gameplay):
         parser.error('--vehicle-case uses a separate native route')
     if args.enemy and (args.combat or args.gameplay):
@@ -565,6 +644,8 @@ def main():
         if (args.lag_ms, args.variance_ms, args.loss_percent) != (60, 15, 2):
             parser.error('Combat acceptance requires --lag-ms 60 --variance-ms 15 --loss-percent 2')
         args.listen = True
+        args.gameplay = False
+    elif args.feature_case:
         args.gameplay = False
     elif args.listen:
         args.gameplay = True
@@ -596,7 +677,11 @@ def main():
         folder = args.output or ctx.out / 'network' / time.strftime('%Y%m%d-%H%M%S')
         folder.mkdir(parents=True, exist_ok=True)
     if args.worker:
-        return worker(folder, args.port, args.gameplay, args.listen, args.lag_ms, args.variance_ms, args.loss_percent, args.tailnet, args.combat, args.combat_host_fps, args.enemy, args.app, args.cook_receipt, args.expected_identity, args.plain_package, args.movement_hitch_ms, args.skate_hitch_ms, args.modori_shield, args.vehicle_case, args.jump_replay, args.reaction_delivery_case, args.reaction_delivery_moving)
+        return worker(folder, args.port, args.gameplay, args.listen, args.lag_ms, args.variance_ms, args.loss_percent, args.tailnet, args.combat, args.combat_host_fps, args.enemy, args.app, args.cook_receipt, args.expected_identity, args.plain_package, args.movement_hitch_ms, args.skate_hitch_ms, args.modori_shield, args.vehicle_case, args.jump_replay, args.reaction_delivery_case, args.reaction_delivery_moving,
+                      *([args.feature_case, args.render_view, args.aggregate_memory_gib, args.rendered_memory_gib]
+                        if args.rendered_memory_gib != 10 else [args.feature_case, args.render_view, args.aggregate_memory_gib]
+                        if args.aggregate_memory_gib != 10 else [args.feature_case, args.render_view] if args.feature_case or args.render_view else []),
+                      **({'mixed_characters': True} if args.mixed_characters else {}))
     if any(folder.iterdir()):
         raise RuntimeError('Use a fresh evidence directory; old receipts cannot establish a new run')
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -604,6 +689,11 @@ def main():
         port = sock.getsockname()[1]
     return guarded.run([sys.executable, str(Path(__file__).resolve()), '--worker', '--output', str(folder), '--port', str(port), '--combat-host-fps', str(args.combat_host_fps),
                         '--lag-ms', str(args.lag_ms), '--variance-ms', str(args.variance_ms), '--loss-percent', str(args.loss_percent), '--movement-hitch-ms', str(args.movement_hitch_ms), '--skate-hitch-ms', str(args.skate_hitch_ms)] +
+                       (['--feature-case', args.feature_case] if args.feature_case else []) +
+                       (['--render-view', args.render_view] if args.render_view else []) +
+                       (['--aggregate-memory-gib', str(args.aggregate_memory_gib)] if args.aggregate_memory_gib != 10 else []) +
+                       (['--rendered-memory-gib', str(args.rendered_memory_gib)] if args.rendered_memory_gib != 10 else []) +
+                       (['--mixed-characters'] if args.mixed_characters else []) +
                        (['--reaction-delivery-moving'] if args.reaction_delivery_moving else []) +
                        (['--reaction-delivery-case', str(args.reaction_delivery_case)] if args.reaction_delivery_case is not None else []) +
                        (['--jump-replay', str(args.jump_replay)] if args.jump_replay is not None else []) +

@@ -12,7 +12,7 @@ class YORIMICHIIMPORT_API UYorimichiClothLibrary : public UBlueprintFunctionLibr
 {
     GENERATED_BODY()
 public:
-    /** Makes the LOD 0 section drawn with material slot SlotName simulate as Chaos cloth (Scripts/import_modori.py: his
+    /** Makes the LOD 0 section drawn with material slot SlotName simulate as Chaos cloth (Scripts/import_character.py: Modori's
      *  coat). Its vertex colours' red is the pin mask: 1 follows the skin, 0 hangs free up to MaxDistanceCm from it; it
      *  collides with Colliders' capsules and spheres (MakeCapsuleColliders), or the mesh's physics asset when null.
      *  With bOuterShell, a garment modelled as a solid (an outer and an inner surface) simulates its outer surface only

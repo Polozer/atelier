@@ -14,6 +14,7 @@
 class SWidget;
 class AJapanWorld;
 class AWandererCharacter;
+struct FSkateContinuation;
 
 UCLASS()
 class YORIMICHI_API UJapanGameInstance : public UGameInstance
@@ -80,7 +81,7 @@ public:
     UFUNCTION(NetMulticast, Unreliable) void CombatEvent(const FJapanCombatEvent& Event);
     uint32 NextCombatSerial = 0, LastCombatSerial = 0;
     UPROPERTY(Replicated) bool bTrustedSkating = true;
-    UPROPERTY(Replicated) bool bPredictedVehicles = false;
+    UPROPERTY(Replicated) bool bPredictedVehicles = true;
     UPROPERTY(Replicated) bool bWorldReady = false;
 };
 
@@ -97,6 +98,11 @@ public:
     UFUNCTION(Server, Reliable) void ServerWorldReady(const FString& Identity, const FString& RiderName, bool bShield);
     UFUNCTION(Client, Reliable) void ClientAdmissionFailure(const FString& Reason);
     UFUNCTION(Client, Reliable) void ClientSessionReady();
+    bool RequestCharacter(const FString& Name);
+    bool ResumeCharacterRide(AWandererCharacter* Replacement);
+    void DiscardCharacterRide() { CharacterRide.Reset(); SkateCharacterSource.Reset(); }
+    UFUNCTION(Server, Reliable) void ServerRequestCharacter(const FString& Name, AWandererCharacter* ExpectedPawn);
+    UFUNCTION(Client, Reliable) void ClientCharacterResult(const FString& Error);
     // Server routes complete frames per connection, never back to the predicting owner.
     void SendSkateFrame(AWandererCharacter* Subject, const FJapanSkateFrame& Frame);
     void SendSkateBodies(AWandererCharacter* Subject, const FJapanSkateBodies& State);
@@ -104,6 +110,14 @@ public:
     UFUNCTION(Client, Unreliable) void ClientSkateBodies(AWandererCharacter* Subject, const FJapanSkateBodies& State);
     void MarkAdmissionComplete() { bAdmissionComplete = true; }
 private:
+    FString LocalCharacter;
+    TWeakObjectPtr<AWandererCharacter> LocalCharacterSource, SkateCharacterSource;
+    TSharedPtr<FSkateContinuation> CharacterRide;
+    void DispatchCharacterRequest();
+    FString PendingCharacter;
+    TWeakObjectPtr<AWandererCharacter> CharacterSource;
+    double CharacterRequestedAt = 0.;
+    void FinishCharacterSwitch();
     UPROPERTY() TArray<FJapanCombatEvent> PendingCombatResults;
     TArray<double> PendingCombatDeadlines;
     uint32 LastCombatResult = 0;

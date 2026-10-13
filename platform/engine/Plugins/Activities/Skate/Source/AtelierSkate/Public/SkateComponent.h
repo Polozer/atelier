@@ -16,6 +16,7 @@ class UAudioComponent;
 class USoundWave;
 class USoundAttenuation;
 class FSkateRuntime;
+struct FSkateContinuation;
 class FRideClipPlayer;
 class UBoxComponent;
 class UPhysicsAsset;
@@ -99,6 +100,9 @@ public:
     void PhysSkate(float Dt);
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     const TArray<FTransform>& GetRiderPose() const { return RiderPose; }
+    /** Prepare a remote pose on the game thread immediately before the animation
+     * node copies it. Component ticks alone can follow the character's pose tick. */
+    FSimpleDelegate PrepareNetworkPose;
     /** The switches between the skate pose and the character's own that should be blended (FAnimNode_SkateRider):
      *  the count changes at each one, and the blend takes GetPoseBlendTime seconds (0: cut). */
     uint32 GetPoseBlendSerial() const { return PoseBlendSerial; }
@@ -115,6 +119,16 @@ public:
     bool PlaceAt(const FVector& GroundPoint, float Yaw);
     /** QA: set the board's velocity (cm/s, world). */
     void Launch(const FVector& Velocity);
+    /** Keep the existing simulation through a character replacement. Physical
+     * bails and transition clips must finish before detaching the rider. */
+    bool CanContinueRide() const;
+    TSharedPtr<FSkateContinuation> DetachRide();
+    bool ContinueRide(TSharedPtr<FSkateContinuation> Continuation);
+    uint64 GetSimulationTick() const;
+    uint64 GetContinuedAtTick() const { return ContinuedAtTick; }
+    ESkateMode GetContinuedMode() const { return ContinuedMode; }
+    float GetBodyLift() const { return BodyLift; }
+    FTransform GetRideRoot() const { return RideRoot(); }
 
     uint32 GetSerial() const { return Serial; }
     FTransform GetDeckWorld() const;
@@ -170,6 +184,9 @@ private:
     ESkateMode Mode=ESkateMode::Off;
     FSkateInput In,Scripted;
     TSharedPtr<FSkateRuntime> ShownRuntime;
+    TSharedPtr<FSkateContinuation> PendingContinuation;
+    uint64 ContinuedAtTick = 0;
+    ESkateMode ContinuedMode = ESkateMode::Off;
     bool bSimulationActive=false;
     TArray<FTransform> RiderPose;
     float BailVisualLift=0.f,ShownFloorClearance=0.f;

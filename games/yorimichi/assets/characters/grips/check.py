@@ -1,6 +1,6 @@
 """Whether the game holds every posed grip exactly: each hand on its prop, sample by sample, against the poser's.
 
-    uv run python games/yorimichi/assets/characters/grips/check.py ROWS.jsonl [--character modori] [--out REPORT.json]
+    uv run python games/yorimichi/assets/characters/grips/check.py ROWS.jsonl --character modori [--out REPORT.json] [--only sword_R,sword_L]
 
 ROWS.jsonl is sample.py --held's rows (or a JSON list of the same rows, with a `film` frame number each, from a film).
 For each grip (a prop and a hand), over the rows where the animation evaluated it at full weight (the grip report's
@@ -14,6 +14,8 @@ For each grip (a prop and a hand), over the rows where the animation evaluated i
 - `worst`: the moves (or film labels) with the largest spread.
 
 The prop's frame is its mesh's (the sword's static mesh, the glider's skeletal mesh), in centimetres, unscaled.
+
+It exits 1 when a grip in the character's grips.json (or in --only) has no rows at full weight, or exceeds BOUNDS.
 """
 from pathlib import Path
 import argparse
@@ -25,6 +27,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'world')); import yori  # noqa: E402
 
 BONES = ('hand_{s}', 'finger_1_{s}', 'finger_end_1_{s}', 'thumb_end_{s}', 'finger_end_3_{s}')
+# A grip held as posed, with margin: Modori's hands stay within 0.0 mm and 0.003 degrees of their places (docs/GRIPS.md).
+BOUNDS = {'hand_mm_from_poser': 1.0, 'spread_mm': 1.0, 'turn_spread_deg': .1, 'ik_miss_max_cm': .5}
 
 
 def rot(q):
@@ -80,15 +84,31 @@ def main(args):
             'ik_miss_max_cm': round(max(float((r.get('grip', {}).get('hands') or [{}, {}])['RL'.index(side)].get('pose', {}).get('miss', 0.)) for r in rs), 3),
             'worst': sorted(((round(v, 2), k) for k, v in worst.items()), reverse=True)[:5],
         }
-    out = json.dumps(report, indent=1)
+    failures = failed(report, args.only.split(',') if args.only else sorted(grips))
+    out = json.dumps({**report, 'failures': failures}, indent=1)
     print(out)
     if args.out:
         args.out.write_text(out + '\n')
+    return 1 if failures else 0
+
+
+def failed(report, wanted):
+    """The grips missing from the rows or held outside BOUNDS, as strings."""
+    out = [f'{gid}: no rows at full weight' for gid in wanted if gid not in report]
+    for gid in wanted:
+        r = report.get(gid)
+        if not r:
+            continue
+        values = {'hand_mm_from_poser': r['hand_mm_from_poser']['max'], 'spread_mm': max(r['spread_mm'].values()),
+                  'turn_spread_deg': r['turn_spread_deg'], 'ik_miss_max_cm': r['ik_miss_max_cm']}
+        out += [f'{gid} {k}: {v} > {BOUNDS[k]}' for k, v in values.items() if not v <= BOUNDS[k]]
+    return out
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('rows', type=Path)
-    parser.add_argument('--character', default='modori')
+    parser.add_argument('--character', required=True)
     parser.add_argument('--out', type=Path)
-    main(parser.parse_args())
+    parser.add_argument('--only', help='comma-separated grip ids the rows cover (default: every grip in grips.json)')
+    sys.exit(main(parser.parse_args()))

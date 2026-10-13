@@ -99,6 +99,6 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--character', default='modori')
+    parser.add_argument('--character', required=True)
     parser.add_argument('--source', type=Path, help="the poser's files (default build/yorimichi/grips/<character>/)")
     main(parser.parse_args())

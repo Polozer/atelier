@@ -46,7 +46,7 @@ It also upgrades an M_TreeHouse carrying the first version. import_treehouse.py 
 add_mask(pieces=True). A material carrying the first version (OLD, the hole round Cairo) is upgraded in place. Every
 patch is idempotent.
 """
-import tomllib
+import sys
 from pathlib import Path
 import unreal
 
@@ -55,9 +55,9 @@ FOLDER = '/Game/SeeThrough'; MPC = FOLDER+'/MPC_SeeThrough'
 TAG = 'Japan see-through 2'
 OLD = 'Japan see-through'          # the first version: a round hole round Cairo, cut per pixel
 # The characters the camera fades near the lens: (unreal_path, material name prefixes) from their character.toml.
-CHARACTERS = [(spec['unreal_path'], tuple(spec['see_through'])) for spec in
-              (tomllib.loads(p.read_text()) for p in sorted((Path(__file__).resolve().parents[2] / 'assets' / 'characters').glob('*/character.toml')))
-              if 'see_through' in spec]
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'assets' / 'characters' / 'pipeline'))
+import definition  # noqa: E402
+CHARACTERS = [(c.unreal_path, tuple(c.toml['see_through'])) for c in map(definition.load, definition.ids()) if 'see_through' in c.toml]
 TRAIL = ('Trail0', 'Trail1', 'Trail2', 'Trail3')
 VECTORS = (('Focus', (0., 0., -100000., 90.)), ('Cut', (55., 35., 0., 0.)), ('Room', (0., 0., -100000., 0.)),
            ('RoomSize', (100., 100., 100., 0.)), ('RoomShape', (0., 60., 90., 0.)),
@@ -323,7 +323,7 @@ def done(m):
 
 def stale(m, blend=True):
     """Whether m's opacity mask still leads to a see-through that a rebuild deleted. import_treehouse.py,
-    import_cairo.py rebuilds its materials with delete_all_material_expressions, which leaves
+    import_character.py rebuilds its materials with delete_all_material_expressions, which leaves
     the opacity mask on the deleted nodes: done() still finds the tag, and the material fails to compile (Missing input
     Shadow) and renders as the default. Those imports reset the material to opaque, and the see-through (blend) always
     leaves it masked; a shadow switch that lost an input is stale too."""

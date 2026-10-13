@@ -21,7 +21,7 @@ SHA-256 and the counts below.
 | `Modori-Body` | Tripo Studio's body (Smart Mesh and Smart UV), 5,172 vertices, skinned to the rig. One material, matte (specular 0, roughness 1), its normal map disconnected; base colour `basecolor-redo.png`, 4096 px |
 | `Modori-Coat` | Tripo's long coat, a separate mesh of 5,404 vertices fitted onto the body and skinned to the same rig, with a `cloth_pin` vertex group; base colour 4096 px |
 
-- **Scale and axes:** 1 m tall in the source, Z up, facing -Y. `export_unreal.py` scales him to 1.75 m (`height_cm`),
+- **Scale and axes:** 1 m tall in the source, Z up, facing -Y. The export scales him to 1.75 m (`height_cm`),
   places the soles at the floor and turns him to face +X. He is about 5 heads tall to Cairo's 4.
 - **Texture:** the *redo* variant of [`modori_texture.py`](../tools/modori_texture.py), chosen by the user on
   7 October 2026: each head triangle is labelled skin, hair or collar, and the skin and hair are painted fresh with soft
@@ -45,16 +45,18 @@ nice -n 10 uv run atelier play yorimichi -- -rider=Modori
 The normal build includes him. `unreal.modori_adventure` selects his mesh and merged-motion imports with their
 dependencies when only those assets need rebuilding after an existing full build.
 
-- `characters.modori` runs [`export_unreal.py`](export_unreal.py), checks the source hash, renames the bones to the
-  humanoid contract and writes his body, coat, textures and cloth mask into `build/yorimichi/modori/`.
-- `unreal.modori` runs `unreal/Scripts/import_modori.py`, creating `SK_Modori`, materials, coat cloth and colliders,
+- `characters.modori` runs the shared body export ([`../pipeline/export.py`](../pipeline/export.py)) with his
+  [`export_hooks.py`](export_hooks.py) (the coat's cloth mask and colliders, the tucked trousers). It checks the
+  source hash, renames the bones to the humanoid contract and writes his body, coat, textures and cloth mask into
+  `build/yorimichi/modori/`.
+- `unreal.modori` runs `unreal/Scripts/import_character.py`, creating `SK_Modori`, materials, coat cloth and colliders,
   and `DA_ModoriBase`. The base supplies the mesh and measurements to the merged importer.
 - `characters.modori_adventure` runs `adventure/retarget.py --character modori`, using Cairo's donor clips and the
   committed motion reference. `unreal.modori_adventure` imports those clips into `/Game/Modori/Adventure` and writes
   `DA_Modori` and his move record. [`adventure.toml`](adventure.toml) records his equipment fit.
 - `characters.modori_grips` exports his posed hand grips for the sword and paraglider.
 
-`AModoriCharacter` is registered as a playable character and always uses his merged move set. His coat skirt is
+`BP_Modori` is registered as a playable character and always uses his merged move set. His coat skirt is
 simulated by Chaos Cloth, with the upper coat pinned and the free skirt colliding with capsules on his body.
 His skating arm fit includes the width of his coat, so his hands stay outside the skirt during turns.
 The cloth resets after teleports and board mounts. His story weapon, the rope and bell-metal weight, is still a

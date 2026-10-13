@@ -148,12 +148,15 @@ Choose new extraction and report paths for each run. The tool checks the manifes
 joins numbered parts when necessary, and extracts with `ditto` under the normal lock and memory guard. Read the render
 ledger and announce that extraction job before running it. It then checks the launcher permissions, Apple silicon
 executable, every bundled Mach-O dependency, app signature, sandbox audio allowance, symlinks and core staged data.
-Use `--require-communitypark` when the release includes the optional park. The expected revision is the full revision
-in the cook record; an older manifest without that record carries only its short revision.
+The expected revision is the full revision in the cook record; an older manifest without that record carries only its
+short revision.
 
 This verifies the download, not gameplay. Run a separate, guarded standalone smoke test from the extracted launcher's
 folder and quit it promptly. Check that captures and logs were written inside the app's writable sandbox container.
 Upload the verified ZIP or all numbered parts, SHA256SUMS, manifest.json and the verification report together.
+
+A release does not run the native multiplayer checks. They run on demand ([MULTIPLAYER.md](MULTIPLAYER.md)). The
+release notes name the revision of the latest native multiplayer evidence.
 
 ## A launch can crash before the game starts
 

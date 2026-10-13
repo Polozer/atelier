@@ -406,6 +406,6 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--character', default='modori')
+    parser.add_argument('--character', required=True)
     parser.add_argument('--samples', type=Path, required=True)
     main(parser.parse_args())

@@ -3,37 +3,48 @@
 Unreal's cook includes every asset and stages all of Data. Incremental checkouts therefore need to move retired
 imports out of Content as well as stop producing them. Archives stay under build/.
 """
+import importlib.util
 import json
 import shutil
 import time
-import tomllib
 from pathlib import Path
 
+_spec = importlib.util.spec_from_file_location('character_definition', Path(__file__).parent / 'assets/characters/pipeline/definition.py')
+definition = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(definition)
+MOVERS = definition.movers()   # every character with the merged move set, the donor first
+
+
+def folder(path):
+    """The Content folder an Unreal path starts in: '/Game/Modori/Adventure' -> 'Modori'."""
+    return path.removeprefix('/Game/').split('/')[0]
+
+
+# Each mover's imports: its body, its move set and, if playable, its bike clips (/Game/<Name>Bike).
+CHARACTER_ROOTS = ({folder(p) for c in MOVERS for p in (c.unreal_path, c.adventure['dest'])}
+                   | {folder(c.unreal_path) + 'Bike' for c in MOVERS if c.playable})
 ASSET_ROOTS = frozenset({
-    'Adventure', 'AtelierValidation', 'Audio', 'Cairo', 'CairoAdventure', 'CairoBike', 'Collections', 'CommunityPark',
-    'Data', 'Developers', 'Experiments', 'FX', 'FoxHunter', 'Hippodrome', 'Japan', 'MegaPark', 'Modori', 'ModoriBike',
-    'Nox', 'NoxBike', 'SeeThrough', 'SkateMotion', 'SkatePark', 'SkateRide', 'SkateRuntime', 'SwordTrainer', 'Wanderer',
-})
+    'Adventure', 'AtelierValidation', 'Audio', 'Belmonte', 'Collections', 'Data', 'Developers',
+    'Experiments', 'FX', 'FoxHunter', 'Hippodrome', 'Japan', 'MegaPark', 'SeeThrough', 'SkateMotion', 'SkatePark',
+    'SkateRide', 'SkateRuntime', 'Wanderer',
+} | CHARACTER_ROOTS)
 DATA_ROOTS = frozenset({
-    'Network', 'SkateRide', 'adventure', 'bike', 'cairo', 'city_surface_tiles', 'communitypark',
-    'heightmap.bin', 'hidamari', 'hippodrome', 'map', 'megapark', 'modori', 'skatepark', 'sword-trainer', 'treehouse',
-    'world.json', 'nox',
-})
+    'Network', 'SkateRide', 'adventure', 'belmonte', 'bike', 'city_surface_tiles', 'heightmap.bin',
+    'hidamari', 'hippodrome', 'map', 'megapark', 'skatepark', 'treehouse', 'world.json',
+} | {c.id for c in MOVERS})
+# Each mover's runtime data: its move record, its readiness record and bike report if playable and its posed grips if
+# committed.
 CHARACTER_DATA = {
-    'cairo': {'adventure.json', 'bike'},
-    'modori': {'adventure.json', 'bike', 'grips.json'},
-    'nox': {'adventure.json', 'bike'},
-    'sword-trainer': {'adventure.json'},
+    **{c.id: {'adventure.json'} | ({'character.json', 'bike'} if c.playable else set())
+       | ({'grips.json'} if (c.folder.parent / 'grips' / c.id).is_dir() else set()) for c in MOVERS},
     'hippodrome': {'hippodrome.json'},
 }
-CHARACTER_ASSET_DIRECTORIES = {
-    'Modori': {'Adventure', 'Textures'},
-    'Nox': {'Adventure', 'Textures'},
-    'SwordTrainer': {'Adventure', 'Textures'},
-}
+# The folders inside a mover's own folder, when its move set is imported there.
+CHARACTER_ASSET_DIRECTORIES = {folder(c.unreal_path): {c.adventure['dest'].rsplit('/', 1)[1], 'Textures'}
+                               for c in MOVERS if c.adventure['dest'].startswith(c.unreal_path + '/')}
 
-DONOR = tomllib.loads((Path(__file__).parent / 'assets/characters/cairo/adventure.toml').read_text())['donor']
-CAIRO_CLIPS = frozenset('A_' + clip for clip in DONOR['clips'] + DONOR['gestures'])
+DONOR = MOVERS[0]
+DONOR_CLIPS = frozenset('A_' + clip for clip in DONOR.donor['clips'] + DONOR.donor['gestures'])
 
 
 def retired(content):
@@ -50,15 +61,15 @@ def retired(content):
         if parent.is_dir():
             yield from sorted(p for p in parent.iterdir()
                               if p.is_dir() and p.name not in allowed and not p.name.startswith('.'))
-    # Incremental imports can leave the old movement/combat set beside the retained body and donor clips.
-    cairo = content / 'Cairo'
-    for parent in (cairo, cairo / 'Textures'):
+    # Incremental imports can leave the donor's former movement/combat set beside its body and donor clips.
+    donor = content / folder(DONOR.unreal_path)
+    for parent in (donor, donor / 'Textures'):
         if not parent.is_dir():
             continue
         for path in sorted(parent.iterdir()):
             name = path.stem
-            if ((name.startswith('A_') and name not in CAIRO_CLIPS) or
-                    name.startswith(('BS_', 'SM_Bokken', 'M_Bokken', 'T_M_Bokken')) or name == 'DA_Cairo'):
+            if ((name.startswith('A_') and name not in DONOR_CLIPS) or
+                    name.startswith(('BS_', 'SM_Bokken', 'M_Bokken', 'T_M_Bokken')) or name == f'DA_{DONOR.name}'):
                 yield path
 
 
