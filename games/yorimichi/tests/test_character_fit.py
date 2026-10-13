@@ -66,19 +66,27 @@ def test_without_a_baseline_the_other_movers_clips_are_expected(tmp_path, no_bas
 
 def test_a_baseline_metric_cannot_go_missing(tmp_path, no_baseline):
     (no_baseline / 'someone.json').write_text(json.dumps({'bike': {'BikeRide': {
-        'frames': 60, 'reach_hand_L_cm': 1.0, 'reach_foot_L_cm': 1.0}}}))
-    found = {'BikeRide': {'frames': 60, 'reach_error_cm': {'hand_L': 1.0}}}
-    assert fit.check(character(tmp_path), 'bike', found) == ['BikeRide reach_foot_L_cm: in the baseline, not exported']
+        'frames': 60, **{f'reach_{limb}_cm': 1.0 for limb in ('hand_L', 'hand_R', 'foot_L', 'foot_R')}}}}))
+    found = {'BikeRide': {'frames': 60, 'reach_error_cm': {'hand_L': 1.0, 'hand_R': 1.0, 'foot_R': 1.0}}}
+    assert fit.check(character(tmp_path), 'bike', found) == ['BikeRide reach_foot_L_cm: nan']
 
 
 def test_a_missing_metric_fails(tmp_path, no_baseline):
     clip = {k: v for k, v in CLIP.items() if k != 'lowest_toe_cm'}
     assert fit.check(character(tmp_path), 'adventure', {'Walk': clip}) == ['Walk lowest_toe_cm: nan']
-    assert fit.check(character(tmp_path), 'bike', {'BikeRide': {'frames': 60}}) == ['BikeRide: no metrics']
+    assert fit.check(character(tmp_path), 'bike', {'BikeRide': {'frames': 60}}) == [
+        f'BikeRide reach_{limb}_cm: nan' for limb in ('foot_L', 'foot_R', 'hand_L', 'hand_R')]
+
+
+@pytest.mark.parametrize('limb', ['hand_L', 'hand_R', 'foot_L', 'foot_R'])
+def test_each_bike_limb_must_be_measured(tmp_path, no_baseline, limb):
+    reach = {k: 0.5 for k in ('hand_L', 'hand_R', 'foot_L', 'foot_R') if k != limb}
+    assert fit.check(character(tmp_path), 'bike', {'BikeRide': {'frames': 60, 'reach_error_cm': reach}}) == [
+        f'BikeRide reach_{limb}_cm: nan']
 
 
 def test_a_reach_beyond_the_bound_fails_unless_waived(tmp_path, no_baseline):
-    clip = {'frames': 60, 'reach_error_cm': {'hand_L': 5.0, 'foot_L': 0.0}}
+    clip = {'frames': 60, 'reach_error_cm': {'hand_L': 5.0, 'hand_R': 0.0, 'foot_L': 0.0, 'foot_R': 0.0}}
     assert fit.check(character(tmp_path), 'bike', {'BikeMount': clip}) == ['BikeMount reach_hand_L_cm: 5.0 > 4.0']
     waived = character(tmp_path, '[[fit]]\nreport = "bike"\nclip = "BikeMount"\nmetric = "reach_hand_L_cm"\n'
                                   'bound = 5.5\nreason = "short of its keyed target"\n')

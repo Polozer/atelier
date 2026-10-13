@@ -29,17 +29,31 @@ int32 FPlayableCharacter::Scan()
     // catalogue it has.
     TArray<FPlayableCharacter> Proposed = Registry();
     int32 Added = 0;
+    const auto Refuse = [](const FString& Folder, const TCHAR* Why)
+    {
+        UE_LOG(LogTemp, Error, TEXT("Characters: %s/character.json %s; the catalogue is unchanged"), *Folder, Why);
+        return 0;
+    };
     for (const FString& Folder : Folders)
     {
-        const TSharedPtr<FJsonObject> Record = AtelierReadJson(Data / Folder / TEXT("character.json"));
+        const FString Path = Data / Folder / TEXT("character.json");
+        if (!IFileManager::Get().FileExists(*Path)) continue;
+        const TSharedPtr<FJsonObject> Record = AtelierReadJson(Path);
         FString Name, Id, ClassPath, Definition, BuildStep;
         if (!Record || !Record->TryGetStringField(TEXT("name"), Name) || !Record->TryGetStringField(TEXT("id"), Id)
             || !Record->TryGetStringField(TEXT("class"), ClassPath) || !Record->TryGetStringField(TEXT("definition"), Definition))
-            continue;
-        if (Find(Name)) continue;   // registered already: a record never replaces a character in play
+            return Refuse(Folder, TEXT("is malformed"));
+        if (Id != Folder) return Refuse(Folder, TEXT("names another id"));
+        // Registered already (by its stable id): a record never replaces a character in play.
+        if (Proposed.ContainsByPredicate([&](const FPlayableCharacter& C) { return C.Id == Id; })) continue;
+        if (!ClassPath.StartsWith(TEXT("/Game/")) || !ClassPath.EndsWith(TEXT("_C")) || !PackageExists(ClassPath) || !PackageExists(Definition))
+            return Refuse(Folder, TEXT("names a pawn class or definition that is not built"));
+        if (Proposed.ContainsByPredicate([&](const FPlayableCharacter& C) { return C.Name == Name; }))
+            return Refuse(Folder, TEXT("reuses a registered name"));
         Record->TryGetStringField(TEXT("build_step"), BuildStep);
         FPlayableCharacter Character;
         Character.Name = Name;
+        Character.Id = Id;
         Character.Class = [ClassPath] { return LoadClass<AWandererCharacter>(nullptr, *ClassPath); };
         // Checked on disk, never loaded: the character switch asks every time the menu opens.
         const FString Move = AtelierDataPath(Id / TEXT("adventure.json"));

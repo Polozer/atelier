@@ -15,6 +15,8 @@ struct YORIMICHI_API FPlayableCharacter
 {
     /** As -rider= and the character switch name it. */
     FString Name;
+    /** Its id (assets/characters/<id>, Content/Data/<id>/): stable across renames. */
+    FString Id;
     /** Its pawn class. */
     TFunction<UClass*()> Class;
     /** Its assets are imported, checked without loading them (unset: always). */

@@ -33,6 +33,7 @@ import definition  # noqa: E402
 REPORTS = ('adventure', 'bike')
 FIT = Path(__file__).resolve().parents[1] / 'fit'   # the baselines: outside the character's folder, an input of its exports
 BOUNDS = {'ankle_cm': 4.0, 'reach_cm': 4.0}   # cm: above every current character's grounded clips, waivers aside
+LIMBS = ('hand_L', 'hand_R', 'foot_L', 'foot_R')   # each bike clip's reaches
 MARGIN = 0.5                                   # cm a metric may worsen against the baseline
 # Waivers every character shares, as character.toml's [[fit]]: the donor's own clips are retargeted onto everyone.
 SHARED = [
@@ -44,8 +45,9 @@ SHARED = [
 
 def metrics(report, clip):
     """{metric: (value, higher_is_worse)} of one clip's export.json entry."""
-    if report == 'bike':
-        return {f'reach_{limb}_cm': (value, True) for limb, value in clip.get('reach_error_cm', {}).items()}
+    if report == 'bike':   # every bike move holds both hands and both feet to a grip, pedal or the ground
+        reach = clip.get('reach_error_cm', {})
+        return {f'reach_{limb}_cm': (reach.get(limb, math.nan), True) for limb in sorted(set(LIMBS) | set(reach))}
     ankles = [clip.get('ankle_L_cm', math.nan), clip.get('ankle_R_cm', math.nan)]
     # Each ankle is checked before the farther is taken: max() would hide a missing or NaN one.
     finite = all(isinstance(v, (int, float)) and math.isfinite(v) for v in ankles)
