@@ -95,6 +95,12 @@ class Coaches(unittest.TestCase):
         self.assertEqual(loco.body.end_a, tender.body.end_b)      # the cab's open back meets the tender's footplate
         controls = {m.id for m in loco.mounts if m.kind == 'control'}
         self.assertTrue({'regulator', 'reverser', 'brake', 'whistle', 'fire-door'} <= controls)
+        from train import fittings as F
+        lamp = next(m for m in loco.mounts if m.id == 'cab-lamp')
+        self.assertAlmostEqual(lamp.z, L.cab_ceiling_z(lamp.y))   # hung from the roof, not in mid-air
+        parts = {p.name: p for p in F.fittings(loco)}
+        self.assertEqual(parts['Fittings_Lamps'].lods, (0,))
+        self.assertEqual([s[0] for s in parts['Fittings_Lamps'].sockets], ['SOCKET_Light_CabLamp'])
 
     def test_cab_pipes_go_somewhere(self):
         # every run is axis-aligned, stays within the backhead's pipework (out of the crew's head room) and ends on a
@@ -229,6 +235,7 @@ class Coaches(unittest.TestCase):
                 self.assertEqual(parts, {}, c.name)
                 continue
             st = F.STYLES[c.name]
+            ceiling = L.cab_ceiling_z if c.name == 'locomotive' else L.ceiling_z
             for kind in kinds:
                 with self.subTest(coach=c.name, kind=kind):
                     self.assertIn(kind, F.KINDS)
@@ -238,13 +245,14 @@ class Coaches(unittest.TestCase):
                                             for x, y, z in pts), mt.id)
                     for x, y, z in pts:
                         self.assertLessEqual(abs(y), L.IN + 1e-6)
-                        self.assertTrue(L.FLOOR_Z < z <= L.ceiling_z(y) + .03, (x, y, z))
+                        self.assertTrue(L.FLOOR_Z < z <= ceiling(y) + .03, (x, y, z))
             mats = {f[1] for p in parts.values() for f in p.faces}
             if 'curtain-rail' in kinds:
                 self.assertIn(st['cloth'], mats)
             if 'rack' in kinds:
                 self.assertIn(st['net'], mats)
-            self.assertIn(st['metal'], mats)
+            if kinds & {'rack', 'curtain-rail'}:
+                self.assertIn(st['metal'], mats)
             boxes = [(L.footprint(pl), F._top(pl)) for pl in c.placements]
             for x, y, z in (q for f in parts.get('Fittings_Curtains', F.Part('')).faces for q in f[0]):
                 self.assertFalse(any(x0 < x < x1 and y0 < y < y1 and z < top for (x0, x1, y0, y1), top in boxes), (c.name, x, y, z))

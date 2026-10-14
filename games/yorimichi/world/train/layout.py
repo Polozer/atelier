@@ -806,6 +806,11 @@ FOUNTAIN = (-4.66, 2.08, .62, .05)          # the steam fountain on the firebox 
 WHISTLE_VALVE = (-4.86, .035)               # x and radius of the whistle valve under the driver's pull rod
 
 
+def cab_ceiling_z(y):
+    """The underside of the cab's elliptic roof (5 cm thick) at a lateral offset y."""
+    return CAB_TOP + (CAB_ROOF - CAB_TOP) * math.sqrt(max(0., 1 - (y / (LOCO_HALF + .05)) ** 2)) - .05
+
+
 def locomotive():
     """The engine at the head of the train, after the concept (locomotive-tender--locomotive-profile and the cab
     interior), in the railway's black with brass and red lining (the user's choice): brass-banded boiler, smokebox
@@ -845,7 +850,7 @@ def locomotive():
         Mount('pressure-gauge', 'gauge', 'cab', bx + .12, 0., F + 1.70, 90, .36),     # gauge faces on the Tripo pipework
         Mount('water-gauge-l', 'gauge', 'cab', bx + .18, .40, F + 1.35, 90, .45),
         Mount('water-gauge-r', 'gauge', 'cab', bx + .18, -.40, F + 1.35, 90, .45),
-        Mount('cab-lamp', 'ceiling-lamp', 'cab', -5.70, 0., CAB_TOP - .05, 0),
+        Mount('cab-lamp', 'ceiling-lamp', 'cab', -5.70, 0., cab_ceiling_z(0.), 0),        # under the roof's apex
         Mount('head-lamp', 'head-lamp', 'cab', LOCO_BEAM + .05, 0., 1.62, 90),
         Mount('chimney-smoke', 'emitter', 'cab', 4.40, 0., 4.12, 0, .44),             # smoke rises from the sooty floor of the bore
     ]

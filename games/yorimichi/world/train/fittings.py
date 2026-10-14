@@ -26,10 +26,12 @@ STYLES = {
     'second-class': dict(metal='brass-dull', net='cord', cloth='curtain-fabric'),
     'baggage-van': dict(metal='brass-dull', net='cord', cloth='curtain-canvas'),
     'brake-van': dict(metal='brass-dull', net='cord', cloth='curtain-canvas'),
+    'locomotive': dict(metal='brass-dull', net='cord', cloth='curtain-canvas'),     # only its cab lamp
 }
 COACHES = set(STYLES)
 ANCHORS = {'npc-spot', 'serve-point', 'queue'}      # where the canteen lady stands, the tray lands, passengers queue
-BUILT = {'tail-lamp'}                               # the brake van's tail lamp is part of its balcony (build.py)
+BUILT = {'tail-lamp', 'control', 'gauge', 'head-lamp', 'emitter'}   # in build.py: the brake van's tail lamp on its
+# balcony; the locomotive's controls, head lamp and chimney socket with its body (its gauges are on the Tripo backhead)
 
 RACK_DEPTH, RACK_SAG, ROD_R = .30, .04, .008
 NET_CORD = .008                                       # width of a cord ribbon
@@ -277,6 +279,8 @@ def fittings(c):
         ('ceiling-lamp', 'Fittings_Lamps', False, (0, 1)), ('cord', 'Fittings_LampCords', False, (0,)),
         ('curtain-rail', 'Fittings_CurtainRails', False, (0, 1)), ('curtain', 'Fittings_Curtains', False, (0, 1)),
         ('menu-board', 'Fittings_MenuBoard', True, (0, 1)), ('ladle', 'Fittings_LadleHook', False, (0, 1)))}
+    if c.name == 'locomotive':                        # the cab lamp alone: small, LOD0 only
+        parts['ceiling-lamp'].lods = (0,)
     st = STYLES[c.name]
     racks(c, parts['rack'], parts['net'], st['metal'], st['net'])
     lamps(c, parts['ceiling-lamp'], parts['cord'])

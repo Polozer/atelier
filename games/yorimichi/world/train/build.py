@@ -1990,6 +1990,7 @@ def build(coach, images):
     elif B.kind == 'locomotive':
         DOOR_RECORDS.clear()
         loco_body(coach, cols['Shell'], g['Shell'], cols['Glazing'])
+        fittings(coach, cols['Interior'], g['Interior'])
     else:
         side_walls(coach, cols['Shell'], g['Shell'])
         end_walls(coach, cols['Shell'], g['Shell'])
