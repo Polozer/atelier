@@ -10,6 +10,7 @@ first class, dull brass and worn cloth in second class and the vans:
 - menu-board: the canteen's framed menu board, its face a texture slot (T_BT_MenuBoard);
 - luggage shelving: open walnut shelves on every 'luggage-shelves' reservation (vans and first class), low under a
   window so the curtains hang clear;
+- counters: fitted cupboards with a top on the galley's (and pantry's) counter reservations, the range left to Tripo;
 - drinks ledge: the restaurant's standing ledge under a window, walnut on brass brackets, with a foot rail;
 - ladle: the iron wall hook the canteen lady's big ladle hangs from (the ladle itself is a separate asset).
 The other mount kinds are anchors for gameplay (ANCHORS) or modelled with the shell in build.py (BUILT).
@@ -323,7 +324,34 @@ def shelving(c, part, metal):
                 box(part, xa + SHELF_T, xb - SHELF_T, front, front + sy * .012, z, z + .04, metal)   # lip
 
 
-LEDGES = {'drinks-ledge'}                              # reservation kinds modelled here that curtains hang clear of
+LEDGES = {'drinks-ledge', 'galley-counter', 'pantry-counter'}   # reservation kinds curtains hang clear of
+# counters modelled in code: cupboard fronts, top, knobs
+COUNTERS = {'galley-counter': ('enamel-cream', 'steel', 'brass-dull')}
+COUNTER_TOP, PLINTH, DOOR_W = .04, .08, .50
+
+
+def counters(c, part):
+    """Fitted counters on their reservations: a dark plinth, a run of cupboard doors (each with a knob, the seams
+    between them shadowed), and a top with a rounded nosing, its front towards the middle of the room."""
+    for b in (r for r in c.reservations if r.kind in COUNTERS):
+        front_mat, top_mat, knob = COUNTERS[b.kind]
+        r = next(r for r in c.rooms if r.x0 - 1e-6 <= (b.x0 + b.x1) / 2 <= r.x1 + 1e-6 and r.y0 - 1e-6 <= (b.y0 + b.y1) / 2 <= r.y1 + 1e-6)
+        sy = -1 if (b.y0 + b.y1) / 2 > (r.y0 + r.y1) / 2 else 1          # the front faces the room's middle
+        front, back = (b.y0, b.y1) if sy < 0 else (b.y1, b.y0)
+        f = lambda d: front + sy * d                                     # d metres out from the front face
+        z0, z1 = L.FLOOR_Z, b.z1
+        box(part, b.x0 + .02, b.x1 - .02, back, f(-.075), z0, z0 + PLINTH, 'end-dark')       # recessed plinth
+        box(part, b.x0, b.x1, back, f(-.035), z0 + PLINTH, z1 - COUNTER_TOP, front_mat)    # carcass
+        n = max(1, round((b.x1 - b.x0) / DOOR_W))
+        for k in range(n):
+            xa, xb = b.x0 + (b.x1 - b.x0) * k / n + .006, b.x0 + (b.x1 - b.x0) * (k + 1) / n - .006
+            box(part, xa, xb, f(-.035), f(-.015), z0 + PLINTH + .01, z1 - COUNTER_TOP - .06, front_mat)   # door
+            box(part, xa, xb, f(-.035), f(-.015), z1 - COUNTER_TOP - .05, z1 - COUNTER_TOP - .01, front_mat)  # drawer
+            kx = xb - .05 if k % 2 == 0 else xa + .05
+            tube(part, [(kx, f(-.015), z1 - COUNTER_TOP - .20), (kx, f(0.), z1 - COUNTER_TOP - .20)], .012, knob, 8)
+            tube(part, [((xa + xb) / 2, f(-.015), z1 - COUNTER_TOP - .03), ((xa + xb) / 2, f(0.), z1 - COUNTER_TOP - .03)], .008, knob, 6)
+        box(part, b.x0, b.x1, back, f(-.005), z1 - COUNTER_TOP, z1 - .012, top_mat)             # top, lipped front
+        box(part, b.x0, b.x1, back, f(0.), z1 - .012, z1, top_mat)
 
 
 def drinks_ledges(c, part, metal):
@@ -361,7 +389,7 @@ def fittings(c):
         ('ceiling-lamp', 'Fittings_Lamps', False, (0, 1)), ('cord', 'Fittings_LampCords', False, (0,)),
         ('curtain-rail', 'Fittings_CurtainRails', False, (0, 1)), ('curtain', 'Fittings_Curtains', False, (0, 1)),
         ('menu-board', 'Fittings_MenuBoard', True, (0, 1)), ('ladle', 'Fittings_LadleHook', False, (0, 1)),
-        ('shelves', 'Fittings_Shelves', True, (0,)), ('ledge', 'Fittings_DrinksLedge', False, (0,)))}          # shelves: LOD0 only (first class sits at its LOD1 budget)
+        ('shelves', 'Fittings_Shelves', True, (0,)), ('counters', 'Fittings_Counters', True, (0,)), ('ledge', 'Fittings_DrinksLedge', False, (0,)))}          # shelves: LOD0 only (first class sits at its LOD1 budget)
     if c.name == 'locomotive':                        # the cab lamp alone: small, LOD0 only
         parts['ceiling-lamp'].lods = (0,)
     st = STYLES[c.name]
@@ -373,6 +401,7 @@ def fittings(c):
     ladle_hooks(c, parts['ladle'])
     shelving(c, parts['shelves'], st['metal'])
     drinks_ledges(c, parts['ledge'], st['metal'])
+    counters(c, parts['counters'])
     return [p for p in parts.values() if p.faces]
 
 

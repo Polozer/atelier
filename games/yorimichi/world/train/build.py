@@ -1296,7 +1296,7 @@ def collision_boxes(c):
             if o.z0 - L.FLOOR_Z > .05:         # below a hatch
                 add(f'{w.name}-sill', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), L.FLOOR_Z, o.z0)
     for b in c.reservations:
-        if b.z0 - L.FLOOR_Z < 1.0 and b.kind in ('bar-counter', 'back-bar', 'galley-counter', 'pantry-counter', 'luggage-shelves', 'wc-toilet', 'drinks-ledge'):
+        if b.z0 - L.FLOOR_Z < 1.0 and b.kind in ('bar-counter', 'back-bar', 'galley-counter', 'galley-range', 'pantry-counter', 'luggage-shelves', 'wc-toilet', 'drinks-ledge'):
             add(b.name, b.x0, b.x1, b.y0, b.y1, L.FLOOR_Z, b.z1)
     return [(n, b) for n, b in boxes if b[1] - b[0] > 1e-4 and b[3] - b[2] > 1e-4 and b[5] - b[4] > 1e-4]
 

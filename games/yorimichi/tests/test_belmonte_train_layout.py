@@ -180,6 +180,27 @@ class Coaches(unittest.TestCase):
                     self.assertGreater(z, b.z1, (x, y, z))
         self.assertTrue(all(b.y0 - .001 <= p[1] <= b.y1 + .001 for p in pts for b in c.reservations if b.kind == 'drinks-ledge'))
 
+    def test_fitted_counters_fill_their_boxes_and_leave_the_range_slot(self):
+        from train import fittings as F
+        r = L.restaurant()
+        rng = next(b for b in r.reservations if b.kind == 'galley-range')
+        self.assertAlmostEqual(rng.x1 - rng.x0, L.GALLEY_RANGE)
+        for c in L.vehicles():
+            boxes = [b for b in c.reservations if b.kind in F.COUNTERS]
+            if not boxes:
+                continue
+            parts = {p.name: p for p in F.fittings(c)}
+            pts = [q for f in parts['Fittings_Counters'].faces for q in f[0]]
+            for b in boxes:
+                self.assertTrue(any(b.x0 <= x <= b.x1 and b.y0 <= y <= b.y1 for x, y, _ in pts), (c.name, b.name))
+            for x, y, z in pts:
+                self.assertTrue(any(b.x0 - 1e-6 <= x <= b.x1 + 1e-6 and b.y0 - 1e-6 <= y <= b.y1 + 1e-6 and z <= b.z1 + 1e-6
+                                    for b in boxes), (c.name, x, y, z))
+            for x, y, z in (q for f in parts.get('Fittings_Curtains', F.Part('')).faces for q in f[0]):
+                for b in boxes:
+                    if b.x0 < x < b.x1 and b.y0 < y < b.y1:
+                        self.assertGreater(z, b.z1, (c.name, x, y, z))
+
     def test_canteen_serving_line(self):
         import math
         c = L.second_class()

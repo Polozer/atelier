@@ -452,6 +452,9 @@ BAR_COUNTER_X = 4.30                        # front of the bar counter
 COUNTER, STAFF, BACKBAR = .55, .80, .40
 
 
+GALLEY_RANGE = 1.00                         # the range's slot at the end of the galley's outer counter
+
+
 def restaurant():
     c = Coach('restaurant', 'Voiture restaurant')
     _shared(c)
@@ -520,7 +523,8 @@ def restaurant():
         Box('bar-counter', 'bar-counter', BAR_COUNTER_X, counter_x1, ROOM_Y, IN - .02, FLOOR_Z, FLOOR_Z + 1.05, 'service bar facing the salon'),
         Box('back-bar', 'back-bar', backbar_x0, backbar_x0 + BACKBAR, ROOM_Y, .62, FLOOR_Z, FLOOR_Z + 2.00, 'glazed back-bar cabinet'),
         Box('drinks-ledge-l', 'drinks-ledge', last + .15, BAR_COUNTER_X - .10, IN - .22, IN - .02, FLOOR_Z + .98, FLOOR_Z + 1.05, 'standing ledge under window 6'),
-        Box('galley-counter-outer', 'galley-counter', galley_x0 + .85, SPAN_X - .05, IN - .62, IN - .02, FLOOR_Z, FLOOR_Z + .92, 'galley range and worktops'),
+        Box('galley-counter-outer', 'galley-counter', galley_x0 + .85, SPAN_X - .05 - GALLEY_RANGE, IN - .62, IN - .02, FLOOR_Z, FLOOR_Z + .92, 'galley worktops and cupboards'),
+        Box('galley-range', 'galley-range', SPAN_X - .05 - GALLEY_RANGE, SPAN_X - .05, IN - .62, IN - .02, FLOOR_Z, FLOOR_Z + .92, 'coal range with its oven, against the end bulkhead (Tripo)'),
         Box('galley-counter-inner', 'galley-counter', galley_x0 + .05, 8.55, ROOM_Y + .02, ROOM_Y + .58, FLOOR_Z, FLOOR_Z + .92, 'galley worktops on the partition'),
     ]
     _curtains(c, lambda w: _room_at(c, w.x, w.side * (IN - .1)))
