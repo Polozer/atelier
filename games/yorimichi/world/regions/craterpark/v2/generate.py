@@ -33,6 +33,21 @@ def compile_park(layout):
     return park
 
 
+def run_validators(park, out):
+    """validate.validate_park(park, out) -> (report, ok) when validate.py provides it (agent C); a failed check fails
+    the step. Until then the step records that no validator ran."""
+    try:
+        from craterpark.v2 import validate
+    except ImportError:
+        return {'ran': False}
+    if not hasattr(validate, 'validate_park'):
+        return {'ran': False, 'why': 'validate.validate_park not defined yet'}
+    report, ok = validate.validate_park(park, out / 'validation.json')
+    if not ok:
+        raise SystemExit('Crater Park v2 validation failed: see ' + str(out / 'validation.json'))
+    return {'ran': True, 'ok': True}
+
+
 def bundle(park):
     """The arrays geometry.npz holds: render meshes r<i>_*, collision sections c<i>, rails rail<i>, and a JSON index."""
     arrays, index = {}, {'render': [], 'collision': [], 'rails': []}
@@ -82,6 +97,9 @@ def main(argv=None):
     layout = args.layout or default_layout()
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     park = compile_park(layout)
+    from craterpark.v2 import ao
+    ao.bake_mesh(park.mesh, drawn=(dsl.RIDING, dsl.SIDE, dsl.GROUND, dsl.COPING, dsl.RAIL))
+    validation = run_validators(park, out)
     arrays, index = bundle(park)
     np.savez(out / 'geometry.npz', **arrays)
     from craterpark.v2 import export
@@ -90,6 +108,7 @@ def main(argv=None):
         export.line_npz(park.mesh, line, out / 'lines' / f'{line.name}.npz')
     rep = report(park, index, time.time() - start)
     rep['layout'] = layout
+    rep['validation'] = validation
     rep['geometry_sha256'] = hashlib.sha256((out / 'geometry.npz').read_bytes()).hexdigest()
     (out / 'geometry-report.json').write_text(json.dumps(rep, indent=1) + '\n')
     print('CRATERPARK V2 GEOMETRY COMPLETE', layout, rep['render_triangles'], 'render',
