@@ -114,7 +114,8 @@ def export_mesh(name, vertices, faces, materials, face_materials, uvs=None, smoo
         apply_unit_scale=True, apply_scale_options='FBX_SCALE_ALL', global_scale=1.,
         axis_forward='-Z', axis_up='Y', use_mesh_modifiers=False, mesh_smooth_type='FACE',
         use_tspace=uvs is not None, bake_anim=False, add_leaf_bones=False, path_mode='STRIP', colors_type='SRGB')
-    lo, hi = vertices.min(axis=0), vertices.max(axis=0)
+    used = vertices[np.unique(faces)]                 # a vertex whose faces were all left out is not in the mesh
+    lo, hi = used.min(axis=0), used.max(axis=0)
     result = {'name': name, 'fbx': f'fbx/{name}.fbx', 'sha256': sha(path), 'native_origin': origin.tolist(),
               'bounds': {'minimum': lo.tolist(), 'maximum': hi.tolist()}, 'vertices': len(vertices), 'triangles': len(faces),
               'materials': materials}
