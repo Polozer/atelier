@@ -1825,6 +1825,24 @@ def loco_body(c, coll, parent, glass_coll):
     g.obj('Glazing_Cab_Back', glass_coll, closed=False)
     for y in (-dw - .03, dw + .03):                 # brass grab rails at the doorway
         trim.box(ca - .05, ca - .02, y - .015, y + .015, F + .15, F + 1.80, 'brass')
+    # the back plates' cab face: a lined panel under each glass, a steel angle round the doorway with a kick plate,
+    # and a brass handle each side of it to swing in from the tender
+    fx = ca + L.CAB_WALL
+    for sy in (-1, 1):
+        y0, y1 = sorted((sy * (dw + .10), sy * (hw - .10)))
+        for z0, z1, pad in ((F + .15, F + 1.22, 0.), (F + .15 + .05, F + 1.22 - .05, .05)):
+            mat, t = ('brass', .008) if not pad else ('lining-red', .005)
+            ya, yb = y0 + pad, y1 - pad
+            trim.box(fx, fx + t, ya, yb, z0, z0 + .012, mat); trim.box(fx, fx + t, ya, yb, z1 - .012, z1, mat)
+            trim.box(fx, fx + t, ya, ya + .012, z0, z1, mat); trim.box(fx, fx + t, yb - .012, yb, z0, z1, mat)
+        ya, yb = sorted((sy * dw, sy * (dw + .05)))
+        trim.box(ca - .005, fx + .02, ya, yb, F, F + dh, 'steel')                                  # doorway angle
+        hy = sy * (dw + .075)                      # between the doorway angle and the lined panel
+        trim.cylinder((hy, F + 1.10), 'x', .012, fx, fx + .07, 'brass', 8)
+        trim.cylinder((hy, F + 1.50), 'x', .012, fx, fx + .07, 'brass', 8)
+        trim.box(fx + .055, fx + .075, hy - .012, hy + .012, F + 1.10, F + 1.50, 'brass')          # handle bar
+    trim.box(ca - .005, fx + .02, -dw - .05, dw + .05, F + dh, F + dh + .05, 'steel')              # lintel angle
+    trim.box(ca, fx + .004, -dw, dw, F, F + .012, 'steel')                                         # kick plate, flush
     # front plate round the firebox, two spectacle glasses
     m = M()
     for sy in (-1, 1):
