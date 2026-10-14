@@ -37,6 +37,38 @@ class CleanTests(unittest.TestCase):
         self.assertTrue(all((F2 == len(P)).any(1)))                            # every face uses the new vertex
         self.assertAlmostEqual(area(P2[F2]), 1., places=12)
 
+    def test_points_on_every_edge_split_without_new_vertices(self):
+        # three busy edges: no centre vertex (on a sliver one lies within tol of its edges and splits without end)
+        P = np.array([[0., 0, 0], [0, 0, 2], [2, 0, 0], [0, 0, 1], [1, 0, 1], [1, 0, 0]]); F = np.array([[0, 1, 2]])
+        P2, F2, added = clean.fix_tjunctions(P, F)
+        self.assertEqual((added, len(P2), len(F2)), (0, 6, 4))
+        self.assertAlmostEqual(area(P2[F2]), 2., places=12)
+        n = np.cross(P2[F2][:, 1] - P2[F2][:, 0], P2[F2][:, 2] - P2[F2][:, 0])
+        self.assertTrue((n[:, 1] > 0).all())                                  # the face's winding (it faces up)
+        key, face, inv, cnt = remesh.edges_of(F2)
+        self.assertTrue((cnt <= 2).all())
+
+    def test_a_sliver_fan_does_not_cascade(self):
+        # 200 slivers 0.1 mm wide (under the 0.5 mm tol) with points along two edges each: bounded, no vertex made
+        rng = np.random.default_rng(3); tris = []
+        for i in range(200):
+            o = np.array([i * 3., 0, 0])
+            tris.append([o, o + [2, 0, 1e-4], o + [1, 0, 2e-4]])
+        T = np.array(tris); P = T.reshape(-1, 3); F = np.arange(len(P)).reshape(-1, 3)
+        pts = np.concatenate([T[:, 0] + rng.uniform(.1, .9, (200, 1)) * (T[:, 1] - T[:, 0]),
+                              T[:, 1] + rng.uniform(.1, .9, (200, 1)) * (T[:, 2] - T[:, 1])])
+        P = np.concatenate([P, pts])
+        P2, F2, added = clean.fix_tjunctions(P, F, tol=5e-4)
+        self.assertEqual((added, len(P2)), (0, len(P)))
+        self.assertLessEqual(len(F2), 3 * len(F))
+
+    def test_an_other_point_is_added_once(self):
+        P = np.array([[0., 0, 0], [2, 0, 0], [0, 0, 2], [2, 0, 2]]); F = np.array([[0, 2, 1], [1, 2, 3]])
+        P2, F2, added = clean.fix_tjunctions(P, F, np.array([[1., 0, 1], [.5, 0, 1.5], [1, 0, 0]]))
+        self.assertEqual(added, 3)
+        self.assertEqual(len(np.unique(np.round(P2, 9), axis=0)), len(P2))
+        self.assertAlmostEqual(area(P2[F2]), 4., places=12)
+
     def test_a_split_vertex_takes_its_edges_attributes(self):
         # a vertical face (no use projecting it on the ground): the new vertex's UV is the edge's, a quarter along
         P = np.array([[0., 0, 0], [0, 1, 0], [0, 0, 1]]); F = np.array([[0, 1, 2]])

@@ -229,9 +229,9 @@ def _edge_hits(a, b, pts, tol, cell=.5, budget=2_000_000):
 
 def fix_tjunctions(P, F, others=None, tol=1e-6, rounds=8, attrs=None):
     """(P, F) with every triangle split where a vertex (of P, or of `others` (k,3)) lies inside one of its edges (within
-    tol, not at its ends). New vertices are appended to P. Returns (P, F, added), and with `attrs` (a per-vertex
-    (n,k) array: UVs, occlusion) (P, F, added, attrs): a new vertex's interpolated along the edge it splits, a centre
-    vertex's the mean of its face's corners."""
+    tol, not at its ends). The only new vertices are those points of `others`, appended to P. Returns (P, F, added),
+    and with `attrs` (a per-vertex (n,k) array: UVs, occlusion) (P, F, added, attrs): a new vertex's interpolated
+    along the edge it splits."""
     added = 0
     X = None if attrs is None else np.asarray(attrs, 'f8').reshape(len(P), -1)
     if others is not None and len(others):
@@ -260,34 +260,26 @@ def fix_tjunctions(P, F, others=None, tol=1e-6, rounds=8, attrs=None):
                 ea, eb = e[cand[first], 0], e[cand[first], 1]; tt = np.clip(t[first], 0, 1)[:, None]
                 X = np.concatenate([X, (1 - tt) * X[ea] + tt * X[eb]])
             which = which.copy(); which[newp] = ids[inv]
-        # split each affected triangle: its ring (corner, the points on the edge after it by t, ...) fanned from the
-        # corner opposite its one busy edge, or from a new centre vertex when two or three edges carry points
+            others = np.delete(others, uniq - (len(P) - len(uniq)), 0)    # a vertex of P now: never added twice
+        # split each affected triangle along one busy edge (its busiest): the edge's points in order of t fanned from
+        # the opposite corner. No vertex is ever made here (a centre vertex on a sliver lies within tol of its edges
+        # and splits them again, without end); points on a face's other edges split its fan's end triangles next round
         nF = len(F)
         hf, hk = fid[cand], cand // nF
         u = np.unique(np.stack([hf, hk, which], 1), axis=0, return_index=True)[1]   # a point once per edge
         hf, hk, ht, hw = hf[u], hk[u], t[u], which[u]
-        aff = np.unique(hf)
+        cnt = np.zeros((nF, 3), 'i8'); np.add.at(cnt, (hf, hk), 1)
+        aff = np.flatnonzero(cnt.any(1)); kb = np.full(nF, -1, 'i8'); kb[aff] = cnt[aff].argmax(1)
+        on = hk == kb[hf]; hf, ht, hw = hf[on], ht[on], hw[on]
         keep = np.ones(nF, bool); keep[aff] = False
-        busy = np.zeros((nF, 3), bool); busy[hf, hk] = True
-        single = busy[aff].sum(1) == 1
-        cf = np.repeat(aff, 3); ck = np.tile(np.arange(3), len(aff))
-        ef = np.r_[cf, hf]; ek = np.r_[ck, hk]; et = np.r_[np.full(len(cf), -1.), ht]; ev = np.r_[F[cf, ck], hw]
-        o = np.lexsort((et, ek, ef)); ef, ev = ef[o], ev[o]
-        start = np.r_[0, np.flatnonzero(ef[1:] != ef[:-1]) + 1]; size = np.diff(np.r_[start, len(ef)])
-        grp = np.repeat(np.arange(len(aff)), size)                      # ring elements' face, as an index into aff
-        pos = np.arange(len(ef)) - start[grp]
-        nxt = ev[start[grp] + (pos + 1) % size[grp]]
-        kb = busy[aff].argmax(1)                                         # the single busy edge
-        apex = F[aff, (kb + 2) % 3]
-        nc = int((~single).sum())
-        centre = np.full(len(aff), -1, 'i8'); centre[~single] = len(P) + np.arange(nc)
-        hub = np.where(single, apex, centre)[grp]
-        ok = ~single[grp] | ((ev != hub) & (nxt != hub))
-        out = np.stack([hub[ok], ev[ok], nxt[ok]], 1)
-        if nc:
-            P = np.concatenate([P, P[F[aff[~single]]].mean(1)]); added += nc     # centres, on the faces' planes
-            if X is not None:
-                X = np.concatenate([X, X[F[aff[~single]]].mean(1)])
+        # each face's chain: the edge's start corner, its points by t, its end corner
+        cf = np.r_[aff, aff]; ct = np.r_[np.full(len(aff), -1.), np.full(len(aff), 2.)]
+        cv = np.r_[F[aff, kb[aff]], F[aff, (kb[aff] + 1) % 3]]
+        ef = np.r_[cf, hf]; et = np.r_[ct, ht]; ev = np.r_[cv, hw]
+        o = np.lexsort((et, ef)); ef, ev = ef[o], ev[o]
+        last = np.r_[ef[1:] != ef[:-1], True]                            # a chain's end corner starts no triangle
+        s = np.flatnonzero(~last)
+        out = np.stack([F[ef[s], (kb[ef[s]] + 2) % 3], ev[s], ev[s + 1]], 1)   # (apex, p_i, p_i+1): the face's winding
         F = np.concatenate([F[keep], np.array(out, 'i8').reshape(-1, 3)])
         # drop degenerate fan triangles (three points on one edge)
         t3 = P[F]
