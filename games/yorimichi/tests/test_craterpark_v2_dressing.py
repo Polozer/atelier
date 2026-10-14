@@ -44,8 +44,8 @@ def test_a_face_off_the_block_is_refused_but_a_buried_base_is_not():
 def test_bushes_stand_on_the_ground_clear_of_the_riding():
     ground = slab(DROP, 40., DROP[1], dsl.GROUND, tilt=20.)
     ramp = slab(DROP, 8., DROP[1] + 1., dsl.RIDING)
-    trees = dressing.plant(dsl.Mesh.concat([ground, ramp]), density=1.)
-    assert set(trees) <= {b[0] for b in dressing.BUSHES} and sum(map(len, trees.values())) > 50
+    trees = dressing.plant(dsl.Mesh.concat([ground, ramp]), clumps=1000.)
+    assert set(trees) <= {b[0] for b in dressing.BUSHES} and sum(map(len, trees.values())) > 30
     reach = {b[0]: b[3] for b in dressing.BUSHES}
     rise = math.tan(math.radians(20.))
     for name, items in trees.items():
@@ -58,9 +58,38 @@ def test_bushes_stand_on_the_ground_clear_of_the_riding():
 
 
 def test_flat_and_steep_ground_and_other_roles_get_no_bushes():
-    assert dressing.plant(slab(DROP, 30., DROP[1], dsl.GROUND), density=1.) == {}             # flat: up > .97
-    assert dressing.plant(slab(DROP, 30., DROP[1], dsl.GROUND, tilt=60.), density=1.) == {}   # steep: up < .55
-    assert dressing.plant(slab(DROP, 30., DROP[1], dsl.SIDE, tilt=20.), density=1.) == {}
+    assert dressing.plant(slab(DROP, 30., DROP[1], dsl.GROUND), clumps=1000.) == {}             # flat: up > .97
+    assert dressing.plant(slab(DROP, 30., DROP[1], dsl.GROUND, tilt=60.), clumps=1000.) == {}   # steep: up < .55
+    assert dressing.plant(slab(DROP, 30., DROP[1], dsl.SIDE, tilt=20.), clumps=1000.) == {}
+
+
+def test_no_bush_in_an_air_s_flight_corridor_and_bushes_clump():
+    ground = slab(DROP, 60., DROP[1], dsl.GROUND, tilt=20.)
+    lip, land = DROP + [-30., 0., -30.], DROP + [30., 0., 30.]
+    air = {'kind': 'air', 'lip': lip.tolist(), 'landing_start': land.tolist()}
+    trees = dressing.plant(ground, airs=[air], clumps=300.)
+    pts = np.array([[x / 100, z / 100] for items in trees.values() for x, z, *_ in items])
+    assert len(pts) > 30
+    d = dressing._segment_distance(pts, lip[[0, 2]], land[[0, 2]])
+    assert d.min() > dressing.CORRIDOR
+    # clumps, not carpets: most bushes have a neighbour within 2.5 m, and at the default density there are about
+    # 0.025 bushes per square metre of open slope (a quarter of the first planting's 0.1)
+    near = np.linalg.norm(pts[:, None] - pts[None], axis=2); np.fill_diagonal(near, np.inf)
+    assert np.median(near.min(1)) < 2.5
+    default = sum(map(len, dressing.plant(ground).values()))
+    assert 0 < default < .035 * (120 * 120 / math.cos(math.radians(20.)))
+
+
+def test_corridors_come_from_the_tags_without_air_checks():
+    ground = slab(DROP, 60., DROP[1], dsl.GROUND, tilt=20.)
+    take = dsl.Mesh.part(slab(DROP + [-30, 0, 0], 3., DROP[1] + 2, dsl.RIDING).V, np.array([[0, 2, 1], [0, 3, 2]]),
+                         feature='kicker', tag='takeoff')
+    land = dsl.Mesh.part(slab(DROP + [10, 0, 0], 3., DROP[1] - 2, dsl.RIDING).V, np.array([[0, 2, 1], [0, 3, 2]]),
+                         feature='landing', tag='landing')
+    lanes = dressing.corridors(dsl.Mesh.concat([ground, take, land]))
+    assert len(lanes) == 1
+    a, b = lanes[0]
+    assert np.allclose(a, (DROP + [-30, 0, 0])[[0, 2]]) and np.allclose(b, (DROP + [10, 0, 0])[[0, 2]])
 
 
 def test_planting_is_deterministic():
