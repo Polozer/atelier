@@ -18,6 +18,8 @@ WALL_LOW, WALL_HIGH = .9, 5.   # metres a riding deck stands over the floor, for
 RADIUS = (2.5, 3.5) # metres: a transition's radius, the wall's height within these
 RAISED = .005       # metres: a floor node raised less is left as it is
 LIP = .5            # metres round a bank's edge node within which it meets the piece's highest point (its lip)
+RAISED_RIM = .25    # metres a hole's rim stands over the floor round it, for it to be a planter (a flat bed)
+BED = .45           # metres a planter's bed lies under its cap
 TRANSITION = 1.75   # metres a channel or pocket takes to reach its depth; wider, it has a flat bottom
 WIDE = 2.           # metres across a deck at least, for a transition at its wall's foot
 CLEAR_NARROW, EASE = .3, 1.5  # metres a transition keeps off a narrower piece, and over which it eases down
@@ -276,7 +278,7 @@ def snake_channels(riding, solid, box, floor, open_=OPEN, channel=CHANNEL, feet=
     is_ride = np.isfinite(ride) & (ride >= every - .01)
     deep = (every < floor - open_) & ~is_ride                   # a hole: no riding face is the top
     label = components(deep)
-    slot = np.zeros_like(deep)
+    slot = np.zeros_like(deep); beds = np.zeros_like(deep)
     for k in np.unique(label[label >= 0]):
         patch = label == k
         if patch[0].any() or patch[-1].any() or patch[:, 0].any() or patch[:, -1].any():
@@ -284,6 +286,11 @@ def snake_channels(riding, solid, box, floor, open_=OPEN, channel=CHANNEL, feet=
         rim = grow(patch, 1) & ~patch
         if is_floor[rim].mean() >= RING:
             slot |= patch
+            # A planter: its rim (a brick cap) stands RAISED_RIM over the floor round it. It gets a flat bed BED under
+            # its cap, not a pocket curving up to the cap inside the box.
+            ring = grow(patch, 6) & ~grow(patch, 3) & is_floor
+            if ring.any() and np.median(ride[rim & is_floor]) - np.median(ride[ring]) > RAISED_RIM:
+                beds |= patch
     # A bridge across a slot (a strip at floor height, not the floor, BRIDGE wide at most) stays: the channel rises under it, a roller
     # TAPER long either side, and meets it flush.
     closed = shrink(grow(slot, int(BRIDGE / 2 / cell) + 1), int(BRIDGE / 2 / cell) + 1) | slot
@@ -321,6 +328,7 @@ def snake_channels(riding, solid, box, floor, open_=OPEN, channel=CHANNEL, feet=
         depth = depth * np.sin(np.pi / 2 * np.clip(to_bridge / TAPER, 0., 1.)) ** 2
     u = np.clip(d / np.maximum(ramp, 1e-6), 0., 1.)
     height = np.where(slot & (channel > 0), rim - depth * np.sin(np.pi / 2 * u) ** 2, ground)
+    height = np.where(beds, rim - BED, height)
     # The nodes round each piece, under the floor, carry the floor's own height: its edge meets the floor flush.
     # One mesh over both, then split by its shape, not by the grid's cells (whose outline is a staircase): a triangle
     # with a corner off the floor's level by LIFTED, a channel's dip or a transition's rise, is the channels' concrete;

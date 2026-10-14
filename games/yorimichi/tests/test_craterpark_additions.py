@@ -180,6 +180,17 @@ class SnakeTests(unittest.TestCase):
         self.assertTrue(np.array_equal(v[:, 1], raw[:, 1]))                      # heights stay
 
 
+    def test_a_planter_gets_a_flat_bed_under_its_cap(self):
+        # A plaza at 0 m with a 4 m square hole, its brick cap 0.5 m up round it (0.5 m wide), deep ground under it.
+        riding = (floor(0, 0, 20, 8) + floor(0, 12, 20, 20) + floor(0, 8, 8, 12) + floor(12, 8, 20, 12)
+                  + floor(7.5, 7.5, 12.5, 8, .5) + floor(7.5, 12, 12.5, 12.5, .5) + floor(7.5, 8, 8, 12, .5) + floor(12, 8, 12.5, 12, .5))
+        solid = np.asarray(floor(-10, -10, 30, 30, -10.), 'f8')
+        made = additions.snake_channels(np.asarray(riding, 'f8'), solid, (1, 1, 19, 19), 0., 3., 1.5)
+        v = np.concatenate([m[0][m[1]].reshape(-1, 3) for m in made.values()])
+        inside = v[(np.abs(v[:, 0] - 10) < 1.5) & (np.abs(v[:, 2] - 10) < 1.5)]
+        self.assertTrue(np.allclose(inside[:, 1], .5 - additions.BED, atol=.02))   # flat, BED under the cap
+
+
     def test_a_snake_run_lies_flush_on_its_path_with_walls_either_side_and_open_ends(self):
         # A 3 m wide path at 0 m along x from 0 to 30: the run's floor is the path's height, its walls rise either side.
         riding = np.asarray(floor(0, -1.5, 30, 1.5, 0.), 'f8')
