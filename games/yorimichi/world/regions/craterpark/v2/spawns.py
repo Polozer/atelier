@@ -4,7 +4,8 @@ map's Crater Park stop (unreal/Source/Yorimichi/CraterParkTower.cpp). Pure numpy
 
 A spawn passes only when a downward ray from CLEARANCE over it meets collidable ground within GROUND_TOLERANCE of it
 (no floating or buried start), the ground there is no steeper than MAX_SLOPE (the rider stands still), its yaw agrees
-with the line's first path segment within FACING, and, given `deck_y`, the ground is the tower deck.
+with the line's first path segment within FACING, and, given `deck_y`, the ground is the tower deck. The deck height is
+never assumed: `deck_y=TOWER` (generate.py's default) reads it from the park's own tower feature, so the tower can rise.
 
 Yaw: `RideLine.spawn[1]` is theta degrees from native +x toward native +z, so forward is (cos theta, 0, sin theta). In
 Unreal (x, z, y) that is the same angle, so the Unreal yaw is the park actor's yaw plus theta (r4's spawn is theta 0).
@@ -15,7 +16,8 @@ import numpy as np
 
 from . import dsl
 
-TOWER_DECK_Y = 40.          # native m: the tower deck at 720 m in the island (layout.md 4; island z = native y + 680)
+TOWER = 'tower'             # deck_y: the deck of the park's own tower feature (tower_deck), whatever its height
+TOWER_DECK_Y = TOWER        # generate.py's default for layouts that set no SPAWN_DECK_Y
 GROUND_TOLERANCE = .5       # m
 CLEARANCE = 2.              # m: the ray starts this far over the spawn; a face in between buries it
 MAX_SLOPE = 10.             # degrees
@@ -86,10 +88,35 @@ def check(triangles, line, deck_y=None):
     return {'ground_y': hit, 'error_m': error, 'slope_deg': slope, 'facing_deg': facing}
 
 
-def entries(mesh, lines, placement, deck_y=None, labels=None):
+def tower_deck(mesh, checks=(), feature=TOWER):
+    """The tower's deck height (native y): the tower check's `deck_y` (primitives.tower), else the height of the tower
+    feature's flat riding faces, else None when the park has no tower."""
+    for c in checks or ():
+        if c.get('kind') == 'tower' and c.get('deck_y') is not None:
+            return float(c['deck_y'])
+    if feature not in mesh.features:
+        return None
+    t = mesh.triangles()
+    n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]); length = np.linalg.norm(n, axis=1)
+    flat = (mesh.feature == mesh.features.index(feature)) & (mesh.role == dsl.ROLE[dsl.RIDING]) & (length > 0)
+    flat &= n[:, 1] > .9999 * np.maximum(length, 1e-12)
+    if not flat.any():
+        return None
+    y = t[flat][:, :, 1].mean(1); area = length[flat] / 2
+    top = y.max()                                   # the deck is the highest flat riding area of the tower
+    return float(np.average(y[y > top - GROUND_TOLERANCE], weights=area[y > top - GROUND_TOLERANCE]))
+
+
+def entries(mesh, lines, placement, deck_y=None, labels=None, checks=()):
     """park.json `lines`: [{'key', 'name', 'spawn': {'location_cm', 'yaw_deg'}, 'ground_error_m'}], one per line, each
     standing on its checked ground point. `labels` maps a line name to the name shown in the game (default: the name).
+    `deck_y`: None (no deck rule), a native height, or TOWER (the tower feature's deck, from `checks` or the mesh).
     Raises SpawnError for the first spawn that fails."""
+    if isinstance(deck_y, str) and deck_y == TOWER:
+        deck_y = tower_deck(mesh, checks)
+        if deck_y is None and len(lines):
+            raise SpawnError('the lines start on the tower deck, but the park has no tower feature '
+                             '(set the layout\'s SPAWN_DECK_Y to None for no deck rule)')
     triangles = collidable(mesh)
     yaw = float(placement.unreal_transform()['yaw_deg'])
     result = []
