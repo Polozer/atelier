@@ -242,14 +242,17 @@ def _curv_size(field, kappa, tess, P):
     return np.where(k > 1e-9, np.sqrt(8 * tess.chord / np.maximum(k, 1e-9)), np.inf)
 
 
-def plan_mesh(loops2, *, coarse=8., grade=.35, hmin=.05, size=None, lo=None, hi=None, points=None):
+def plan_mesh(loops2, *, coarse=8., grade=.35, hmin=.05, size=None, lo=None, hi=None, points=None, chains=()):
     """A graded constrained Delaunay mesh of the region inside loops2[0] and outside the other loops (even-odd), with
     every loop vertex kept, then the fixed interior `points`: (points (n, 2), faces (m, 3) plan counter-clockwise, loop
     start offsets). Steiner points
     come from a quadtree: spacing = nearest boundary segment length + grade x distance, at most `coarse` and at most
     `size(points)` if given; none closer to the boundary than 0.45 x their spacing (no slivers)."""
     loops2 = [np.asarray(lp, 'f8') for lp in loops2]
+    chains = [np.asarray(c, 'f8') for c in chains if len(c) >= 2]
     A, B = _segments(loops2)
+    if chains:                       # interior points keep clear of the extra constraint polylines too
+        A = np.concatenate([A] + [c[:-1] for c in chains]); B = np.concatenate([B] + [c[1:] for c in chains])
     lo = loops2[0].min(0) - coarse if lo is None else lo
     hi = loops2[0].max(0) + coarse if hi is None else hi
     reach = coarse / grade + coarse
@@ -276,9 +279,13 @@ def plan_mesh(loops2, *, coarse=8., grade=.35, hmin=.05, size=None, lo=None, hi=
     C = C + (np.stack([j - np.floor(j), (j * 7.31) - np.floor(j * 7.31)], 1) - .5) * 2e-3 * s[:, None]
     counts = [len(lp) for lp in loops2]
     starts = np.cumsum([0] + counts)
-    P2 = np.concatenate(loops2 + [fixed, C])
+    base = starts[-1] + len(fixed)
+    ch_idx, k = [], base
+    for c in chains:
+        ch_idx.append(np.arange(k, k + len(c))); k += len(c)
+    P2 = np.concatenate(loops2 + [fixed] + chains + [C])
     loops = [np.arange(starts[i], starts[i + 1]) for i in range(len(counts))]
-    return P2, cdt.triangulate(P2, loops), starts
+    return P2, cdt.triangulate(P2, loops, segments=ch_idx), starts
 
 
 def fill_mesh(loop, normal, *, coarse=None, grade=.35):
@@ -302,7 +309,7 @@ def fill_mesh(loop, normal, *, coarse=None, grade=.35):
 # ---------------------------------------------------------------- the ground
 def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., grade=.35, hmin=.05,
            tess=dsl.Tess(.05, 8., 8.), raster=1., blend=25., smooth=2000., feature='ground', material=dsl.GROUND_MAT,
-           side_material=dsl.GROUND_MAT, relax=200, max_slope=29.):
+           side_material=dsl.GROUND_MAT, relax=200, max_slope=29., apron=6., apron_material=dsl.CONCRETE):
     """The site's ground as a dsl.Mesh (module docstring).
     `outline` (k, 2|3): the outer loop (with y: those heights are kept). `holes` [(k, 3)]: the features' foot loops,
     kept exactly. `controls` (n, 3): exact heights, each a mesh vertex at exactly its y. `guide` (g, 3): soft points
@@ -370,17 +377,21 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
     kappa = field.curvature()
     # the plan mesh: seams, controls as vertices, graded points; then no edge over max_edge
     extra = controls[:, [0, 2]]
-    P2, F, starts = plan_mesh(loops2, coarse=coarse, grade=grade, hmin=hmin, points=extra,
+    chains = apron_chains(o2, h2, apron) if (apron and h2) else []
+    P2, F, starts = plan_mesh(loops2, coarse=coarse, grade=grade, hmin=hmin, points=extra, chains=chains,
                               size=lambda P: _curv_size(field, kappa, tess, P), lo=lo, hi=hi)
     nb = starts[-1]; nfix = nb + len(extra)
     loops = [np.arange(starts[i], starts[i + 1]) for i in range(len(loops2))]
+    chain_idx, k = [], nfix
+    for c in chains:
+        chain_idx.append(np.arange(k, k + len(c))); k += len(c)
     for _ in range(6):
         t = P2[F]; L = np.linalg.norm(t - np.roll(t, 1, 1), axis=2)
         long_ = L.max(1) > .85 * max_edge          # plan length: up to a 30 degree slope stays within max_edge
         if not long_.any():
             break
         P2 = np.concatenate([P2, t[long_].mean(1)])
-        F = cdt.triangulate(P2, loops)
+        F = cdt.triangulate(P2, loops, segments=chain_idx)
     F = F[:, ::-1].copy()                                 # plan counter-clockwise -> upward faces
     field.h = residual
     n = len(P2)
@@ -408,6 +419,12 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
         y = limit_slope(P2, F, y, fixed, max_slope)
     V = np.stack([P2[:, 0], y, P2[:, 1]], 1)
     surface = dsl.Mesh.part(V, F, material=material, role=dsl.GROUND, feature=feature, UV=P2 / dsl.UV_METRES)
+    if apron and h2:
+        # the apron: pale concrete within `apron` metres of every feature foot, its edge on the constrained curves
+        c = P2[F].mean(1)
+        HA, HB = _segments(h2)
+        near = seg_distance(c, HA, HB, apron + 1)[0] < apron
+        surface.material[near] = dsl.MATERIAL[apron_material]
     parts = [surface]
     if skirt:
         top = V[:len(o2)]
@@ -479,6 +496,118 @@ def limit_slope(P2, F, y, fixed, degrees, iterations=400):
             np.add.at(cnt, F[:, i], w)
         y = y + np.where(cnt > 0, 1.6 * corr / np.maximum(cnt, 1), 0.)
     return y
+
+
+def contours(values, lo, cell, level):
+    """Marching squares: the polylines (k, 2) where the raster `values` (nx, nz) at points lo + (i, j) cell crosses
+    `level`, chained end to end (closed ones repeat their first point)."""
+    v = values - level
+    a, b, c, d = v[:-1, :-1], v[1:, :-1], v[1:, 1:], v[:-1, 1:]      # corners (i,j) (i+1,j) (i+1,j+1) (i,j+1)
+    ii, jj = np.meshgrid(np.arange(v.shape[0] - 1), np.arange(v.shape[1] - 1), indexing='ij')
+    corners = [(a, (0, 0)), (b, (1, 0)), (c, (1, 1)), (d, (0, 1))]
+    pts = []                                     # per cell edge k (0..3): crossing point where the sign changes
+    for k in range(4):
+        (va, oa), (vb, ob) = corners[k], corners[(k + 1) % 4]
+        cross = (va > 0) != (vb > 0)
+        f = np.where(cross, va / np.where(cross, va - vb, 1.), 0.)
+        p = np.stack([ii + oa[0] + f * (ob[0] - oa[0]), jj + oa[1] + f * (ob[1] - oa[1])], -1)
+        pts.append((cross, p))
+    segs = []
+    n = sum(pts[k][0].astype(int) for k in range(4))
+    for k1 in range(4):
+        for k2 in range(k1 + 1, 4):
+            both = pts[k1][0] & pts[k2][0] & (n == 2)
+            if both.any():
+                segs.append(np.stack([pts[k1][1][both], pts[k2][1][both]], 1))
+    # saddles (4 crossings): pair edges 0-1 and 2-3 (an arbitrary but consistent choice)
+    four = n == 4
+    if four.any():
+        segs.append(np.stack([pts[0][1][four], pts[1][1][four]], 1)); segs.append(np.stack([pts[2][1][four], pts[3][1][four]], 1))
+    if not segs:
+        return []
+    S = np.concatenate(segs)
+    key = np.round(S * 1e6).astype('i8')
+    adj = {}
+    for i, (p, q) in enumerate(key):
+        adj.setdefault(tuple(p), []).append((i, 0)); adj.setdefault(tuple(q), []).append((i, 1))
+    used = np.zeros(len(S), bool); out = []
+    for start in range(len(S)):
+        if used[start]:
+            continue
+        used[start] = True
+        chain = [S[start, 0], S[start, 1]]
+        for direction in (1, 0):
+            end = tuple(key[start, direction])
+            while True:
+                nxt = [(i, e) for i, e in adj.get(end, []) if not used[i]]
+                if not nxt:
+                    break
+                i, e = nxt[0]; used[i] = True
+                p = S[i, 1 - e]; end = tuple(key[i, 1 - e])
+                if direction == 1:
+                    chain.append(p)
+                else:
+                    chain.insert(0, p)
+            if direction == 1 and np.allclose(chain[0], chain[-1]):
+                break
+        out.append(lo + np.asarray(chain) * cell)
+    return out
+
+
+def _smooth_resample(chain, step, passes=20):
+    """A polyline smoothed (endpoints of an open one held) and resampled every ~`step` metres."""
+    c = np.asarray(chain, 'f8')
+    closed = len(c) > 3 and np.linalg.norm(c[0] - c[-1]) < 1e-6
+    if closed:
+        c = c[:-1]
+    for _ in range(passes):
+        if closed:
+            c = .5 * c + .25 * (np.roll(c, 1, 0) + np.roll(c, -1, 0))
+        else:
+            c[1:-1] = .5 * c[1:-1] + .25 * (c[:-2] + c[2:])
+    q = np.vstack([c, c[:1]]) if closed else c
+    s = np.concatenate([[0.], np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))])
+    if s[-1] < 2 * step:
+        return None
+    n = max(3, int(round(s[-1] / step)))
+    t = np.linspace(0, s[-1], n + 1)
+    out = np.stack([np.interp(t, s, q[:, 0]), np.interp(t, s, q[:, 1])], 1)
+    return out if closed else out           # a closed one repeats its first point at the end
+
+
+def apron_chains(o2, h2, apron, step=1.5, raster=.5, clear=1.5):
+    """The smooth curves at `apron` metres (plan) from the foot loops `h2`, inside the outline `o2`, kept `clear` of
+    the outline and of other seams: the edge of the pale-concrete apron, as constraint polylines."""
+    A, B = _segments(h2)
+    lo = np.concatenate(h2).min(0) - apron - 2; hi = np.concatenate(h2).max(0) + apron + 2
+    nx, nz = (np.ceil((hi - lo) / raster).astype(int) + 1)
+    g = lo + np.stack(np.meshgrid(np.arange(nx), np.arange(nz), indexing='ij'), -1).reshape(-1, 2) * raster
+    d = seg_distance(g, A, B, apron + 3)[0]
+    inside_holes = even_odd(g, h2)
+    d = np.where(np.isfinite(d), d, apron + 3); d = np.where(inside_holes, -d, d).reshape(nx, nz)
+    OA, OB = _segments([o2])
+    out = []
+    for c in contours(d, lo, raster, apron):
+        c = _smooth_resample(c, step)
+        if c is None:
+            continue
+        # keep the runs clear of the outline and inside it
+        ok = even_odd(c, [o2]) & (seg_distance(c, OA, OB, clear)[0] > clear)
+        ok &= np.abs(seg_distance(c, A, B, apron + 1)[0] - apron) < .5        # smoothing kept it near the level
+        closed = np.linalg.norm(c[0] - c[-1]) < 1e-6
+        if closed and ok.all():
+            out.append(c); continue
+        run = []
+        for p, good in zip(c, ok):
+            if good:
+                run.append(p)
+            else:
+                if len(run) >= 3:
+                    out.append(np.asarray(run))
+                run = []
+        if len(run) >= 3:
+            out.append(np.asarray(run))
+    return out
 
 
 def _with_bumps(trend, controls, blend, slope=20.):

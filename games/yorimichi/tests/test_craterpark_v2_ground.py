@@ -153,3 +153,21 @@ def test_slope_limit_cuts_a_spike_but_keeps_fixed_heights():
     y = np.array([0, 0, 0, 0, 50.])
     out = ground.limit_slope(P2, F, y, np.array([1, 1, 1, 1, 0], bool), 30.)
     assert np.allclose(out[:4], 0) and 2.6 < out[4] <= np.tan(np.radians(30)) * 5 + 1e-9   # the face rule
+
+
+def test_the_apron_is_pale_concrete_within_6_m_and_its_edge_is_a_smooth_curve():
+    o, holes, controls = site()
+    m = ground.ground(o, holes, controls, apron=6.)
+    g = m.where(role=dsl.GROUND)
+    c = g.triangles().mean(1)
+    r = np.linalg.norm(c[:, [0, 2]] - [60, 50], axis=1)          # the foot is a circle of radius 8 about (60, 50)
+    concrete = g.material == dsl.MATERIAL[dsl.CONCRETE]
+    assert concrete[r < 8 + 5.5].all() and not concrete[r > 8 + 6.5].any()
+    # the edge between the two materials: edges shared by a concrete and an earth face lie on one circle of radius 14
+    F = g.F; e = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]]); owner = np.tile(np.arange(len(F)), 3)
+    key = np.sort(e, 1); order = np.lexsort((key[:, 1], key[:, 0])); key, owner = key[order], owner[order]
+    same = (key[1:] == key[:-1]).all(1)
+    a, b = owner[:-1][same], owner[1:][same]
+    border = key[:-1][same][concrete[a] != concrete[b]]
+    rad = np.linalg.norm(g.V[border.ravel()][:, [0, 2]] - [60, 50], axis=1)
+    assert len(border) > 20 and np.ptp(rad) < .3 and abs(rad.mean() - 14) < .3

@@ -247,10 +247,11 @@ class _T:
         return min(X[a], X[b]) <= X[x] <= max(X[a], X[b]) and min(Y[a], Y[b]) <= Y[x] <= max(Y[a], Y[b])
 
 
-def triangulate(points, loops, eps=1e-9):
+def triangulate(points, loops, eps=1e-9, segments=()):
     """Faces (m, 3) of the constrained Delaunay triangulation of `points` (n, 2) with the closed `loops` (index
     arrays) as constraints, keeping the even-odd inside (loops[0] the outline, the rest holes). Coincident points
-    (within eps of the extent) merge onto the first; the faces use the first's index."""
+    (within eps of the extent) merge onto the first; the faces use the first's index. `segments`: extra polylines
+    (index arrays) whose edges are kept too, without changing which triangles are inside."""
     P = np.asarray(points, 'f8')
     if len(P) < 3:
         return np.zeros((0, 3), 'i8')
@@ -272,6 +273,12 @@ def triangulate(points, loops, eps=1e-9):
         for i in range(len(idx)):
             a, b = int(idx[i]), int(idx[(i + 1) % len(idx)])
             T.recover(a, b)
+    region = set(T.fixed)
+    # extra constrained polylines (open, or closed by repeating the first index): edges kept, region unchanged
+    for chain in segments:
+        idx = alias[np.asarray(chain, 'i8')]
+        for a, b in zip(idx[:-1], idx[1:]):
+            T.recover(int(a), int(b))
     # Delaunay again on the free edges
     stack = [(t, i) for t in range(len(T.tv)) for i in range(3)]
     T.legalize(stack)
@@ -291,7 +298,7 @@ def triangulate(points, loops, eps=1e-9):
             if u < 0:
                 continue
             x, y = v[(i + 1) % 3], v[(i + 2) % 3]
-            w = depth[t] + (1 if (min(x, y), max(x, y)) in T.fixed else 0)
+            w = depth[t] + (1 if (min(x, y), max(x, y)) in region else 0)
             if depth[u] < 0 or w < depth[u]:
                 depth[u] = w
                 if w == depth[t]:
