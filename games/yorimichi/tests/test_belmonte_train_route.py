@@ -43,8 +43,8 @@ class Alignment(unittest.TestCase):
         self.assertGreaterEqual(R.volcano_distance(self.line.x, self.line.y).min(), R.VOLCANO_CLEARANCE)
 
     def test_posted_limits(self):
-        self.assertAlmostEqual(R.MAX_SPEED * 3.6, 80.)
-        for radius, kmh in ((250., 40), (300., 50), (450., 60), (620., 70), (760., 80), (2000., 80)):
+        self.assertAlmostEqual(R.MAX_SPEED * 3.6, 100.)
+        for radius, kmh in ((250., 50), (300., 50), (450., 70), (620., 80), (760., 90), (2000., 100)):
             self.assertAlmostEqual(R.curve_limit(radius) * 3.6, kmh)
         for start, end, v, radius in R.posted_limits(self.line):
             self.assertLess(start, end)

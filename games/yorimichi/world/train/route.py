@@ -99,19 +99,18 @@ VIADUCT_RISE = 15.          # per metre of height above EMBANKMENT_HEIGHT
 
 # Operation.
 TRAIN_LENGTH = 131.
-MAX_SPEED = 80 / 3.6
+MAX_SPEED = 100 / 3.6       # Paul, 2026-10-14 playtest: faster on straights and gentle curves (was 80)
 RUN_COST = 500.             # m3 of earthwork worth one second of running time, for the optimiser
-LATERAL_ACCELERATION = .65  # passenger comfort with no cant: v = sqrt(a R), posted in POSTED_STEP steps rounded down
+LATERAL_ACCELERATION = .85  # with cant (was .65 without): v = sqrt(a R), posted in POSTED_STEP steps rounded down
 POSTED_STEP = 10 / 3.6
 ACCELERATION = .4           # at most; less when the engine's power runs out
-BRAKING = .5
+BRAKING = .8                # a firm, believable stop (was .5: the arrival began far too early)
 # A steam train for a game: locomotive 70 t, tender 40 t and five vehicles of about 36 t (consist.py has no masses).
 MASS = (70. + 40. + 5 * 36.) * 1e3
 POWER = 1.5e6               # watts at the rail
 DAVIS = (15., .36, .045)    # rolling resistance per tonne, N: A + B v + C v^2 (v in m/s)
 GRAVITY = 9.81
-DOWNHILL_GRADE = .02        # steeper descents are held at DOWNHILL_SPEED on the brakes
-DOWNHILL_SPEED = 60 / 3.6
+STOP_CLEARANCE = 10.        # the head stops this far from the end of the line, the whole train on the reserve
 DWELL = 90.                 # Paul, 2026-10-14: every train stands 1 min 30 s at each terminus
 CROSSING_MARGIN = 10.       # s between the crossing train clearing the loop and the waiting one leaving
 ASKED_INTERVAL = 600.       # the 10 min first asked for; the optimiser still aims at it
@@ -159,7 +158,7 @@ OPTION_GRADE = .035
 
 
 def full_speed_radius():
-    """The smallest radius the train takes at MAX_SPEED (985 m at 80 km/h and 0.65 m/s2)."""
+    """The smallest radius the train takes at MAX_SPEED (908 m at 100 km/h and 0.85 m/s2)."""
     return MAX_SPEED ** 2 / LATERAL_ACCELERATION
 
 
@@ -672,11 +671,15 @@ def run(line, rail=None, direction=1, step=1., stop=None):
     """Run between the platform centres, H2 to Belmonte (direction 1) or back (-1): head chainage, time and speed
     arrays. The train brakes at BRAKING to reach a posted limit where the curve starts and keeps it until its rear
     has left the curve; it accelerates at most at ACCELERATION and as the engine's POWER allows against the grade
-    and DAVIS resistance; descents steeper than DOWNHILL_GRADE are held at DOWNHILL_SPEED.
+    and DAVIS resistance; descents are limited only by the posted limits and MAX_SPEED. It starts with its head
+    TRAIN_LENGTH + STOP_CLEARANCE from the end it leaves (the train reversed there) and stops with its head
+    STOP_CLEARANCE from the far end, so the whole train stands on the station reserve.
     With `stop` (a chainage) it also comes to a stand there."""
-    stop0, stop1 = HIDAMARI.reserve[0] / 2, line.length - BELMONTE.reserve[0] / 2
-    d = np.arange(0., stop1 - stop0 + step / 2, step)
-    c = stop0 + d if direction > 0 else stop1 - d
+    first, last = STOP_CLEARANCE + TRAIN_LENGTH, line.length - STOP_CLEARANCE
+    if direction < 0:
+        first, last = line.length - first, STOP_CLEARANCE
+    d = np.arange(0., abs(last - first) + step / 2, step)
+    c = first + direction * d
     limit = np.full(len(d), MAX_SPEED)
     for a, b, v, _ in posted_limits(line):
         lo, hi = (a, b + TRAIN_LENGTH) if direction > 0 else (a - TRAIN_LENGTH, b)
@@ -685,7 +688,6 @@ def run(line, rail=None, direction=1, step=1., stop=None):
         grade = np.zeros(len(d))
     else:
         grade = direction * np.interp(c, line.s, np.gradient(np.asarray(rail, float), line.s))
-    limit = np.where(grade < -DOWNHILL_GRADE, np.minimum(limit, DOWNHILL_SPEED), limit)
     vb = limit.copy()
     vb[-1] = 0.
     halt = None if stop is None else int(np.argmin(np.abs(c - stop)))
