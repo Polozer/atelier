@@ -38,6 +38,7 @@ ROLES = ('original', 'boundary', 'foundation', 'access_bridge', 'bridge_support'
 FLAT = .5              # degrees: faces this close to coplanar are merged (a shape-preserving simplification)
 COVER = .05             # metres: foundation faces this close to a drawn riding surface, and parallel to it, are not drawn
 TWIN = .01              # metres: a riding face this close to another facing the opposite way is its double-sided twin
+PIECES = 1 << 24        # ranks per mesh: room for its pieces' ranks after its own (covered)
 FLICKER = .03           # metres: drawn faces of two meshes this close and parallel z-fight; one of them is drawn
 RECEDE = .005           # metres a drawn face lying in part on a higher-ranked mesh's face moves back (recede)
 CHUNK = 20000           # points or vertices per vectorised batch (covered, ambient_occlusion): bounds the memory
@@ -251,15 +252,33 @@ def lying_on(points, normals, surfaces, two_sided, eps, margin, cell=1., ranks=N
     return on
 
 
+def pieces(faces):
+    """The connected pieces of the mesh `faces` (n, 3) (faces sharing a corner): each face's piece, numbered from 0 in
+    the order of their first faces. A source mesh is often many pieces laid over each other (the perimeter's 724 boxes,
+    each overlapping the next by 0.2 m; a foundation's duplicated walls)."""
+    if not len(faces):
+        return np.zeros(0, 'i8')
+    label = np.arange(len(faces)); corner = np.full(int(faces.max()) + 1, len(faces))
+    while True:
+        corner[:] = len(faces); np.minimum.at(corner, faces.ravel(), np.repeat(label, 3))
+        new = corner[faces].min(1)
+        new = new[new]                                  # pointer jumping: long pieces settle in a few sweeps
+        if np.array_equal(new, label):
+            break
+        label = new
+    return np.unique(label, return_inverse=True)[1].ravel()
+
+
 def recede(meshes, ranks, two_sided, eps=FLICKER, depth=RECEDE):
     """The drawn `meshes` [(vertices, faces)] with every face lying on a face of a lower-ranked mesh in part moved back
     `depth` along its normal. Faces lying on one wholly are left out before (covered); a face only partly on another (a
     foundation wall behind the side of a riding piece, the hillside against a block's wall) stays, and the two exactly
     coplanar faces z-fight, worst far away. A few millimetres behind, the depth test always draws the higher-ranked one.
-    Its corners move, still shared with the neighbouring faces, so nothing cracks. `ranks` and `two_sided` are per mesh.
-    Returns the new vertices of each mesh and the number of faces moved."""
+    Its corners move, still shared with the neighbouring faces, so nothing cracks. `ranks` (per mesh, or per face of
+    it) and `two_sided` are per mesh. Returns the new vertices of each mesh and the number of faces moved."""
     t = [v[f].astype('f8') for v, f in meshes]; owner = np.repeat(np.arange(len(t)), [len(x) for x in t])
-    every = np.concatenate(t); n = unit_normals(every); r = np.asarray(ranks)[owner]
+    every = np.concatenate(t); n = unit_normals(every)
+    r = np.concatenate([np.broadcast_to(np.asarray(k), (len(x),)) for k, x in zip(ranks, t)]) if len(t) else np.zeros(0)
     points = np.concatenate([every.mean(1, keepdims=True), every], 1).reshape(-1, 3); pn = np.repeat(n, 4, 0)
     pr = np.repeat(r, 4)
     lies = lying_on(points, pn, every, np.asarray(two_sided)[owner], eps, eps, ranks=(pr, r)).reshape(-1, 4).any(1)
@@ -543,7 +562,9 @@ def main():
     rank = np.empty(len(loaded), 'i8'); rank[order] = np.arange(len(loaded))
     shown = [a['positions'][a['triangles'][keep]] for _, a, keep in loaded]
     everything = np.concatenate(shown)
-    ranks = np.concatenate([np.full(len(f), rank[i]) for i, f in enumerate(shown)])
+    # Ranked per piece of each mesh, not per mesh: a face lying on an earlier piece of its own mesh is left out too (the
+    # foundations' duplicated walls flickered, 70k m2 of them).
+    ranks = np.concatenate([rank[i] * PIECES + pieces(a['triangles'][keep]) for i, (_, a, keep) in enumerate(loaded)])
     sides = np.concatenate([np.full(len(f), entry['doubleSided']) for (entry, _, _), f in zip(loaded, shown)])
     fighting = covered(everything, everything, sides, eps=FLICKER, ranks=(ranks, ranks))
     start = 0
@@ -568,7 +589,9 @@ def main():
             vertices, faces = simplify(vertices, faces); uvs = None
         drawn.append((entry, vertices, faces, uvs, skipped, int(len(keep) - keep.sum()) - skipped))
     # Faces partly on a higher-ranked mesh's face move back a few millimetres in the render; collision keeps them.
-    moved = recede([(v, f) for _, v, f, _, _, _ in drawn], [rank[i] for i in range(len(loaded))],
+    # Every other piece of a mesh ranks after its neighbours: where two pieces overlap in part (the perimeter's boxes,
+    # 20 cm at each joint every 2 m), the odd one moves back.
+    moved = recede([(v, f) for _, v, f, _, _, _ in drawn], [rank[i] * 2 + pieces(f) % 2 for i, (_, v, f, *_) in enumerate(drawn)],
                    [entry['doubleSided'] for entry, _, _ in loaded])
     drawn = [(entry, v, f, uvs, skipped, cov) for (entry, _, f, uvs, skipped, cov), (v, _) in zip(drawn, moved)]
     for (entry, *_), (_, count) in zip(drawn, moved):
