@@ -26,8 +26,9 @@ def adaptive(spans, density, dense=64):
             out.append([t0]); continue
         n = max(dense, int((t1 - t0) * 4) + 2)
         t = np.linspace(t0, t1, n)
-        d = np.maximum(np.asarray(density(t), 'f8'), 1e-9)
-        cum = np.concatenate([[0.], np.cumsum((d[1:] + d[:-1]) / 2 * np.diff(t))])
+        # midpoint rule: a density that jumps at a span's end (an arc meeting a line) never leaks into the span
+        d = np.maximum(np.asarray(density((t[1:] + t[:-1]) / 2), 'f8'), 1e-9)
+        cum = np.concatenate([[0.], np.cumsum(d * np.diff(t))])
         k = max(1, int(math.ceil(cum[-1] - 1e-9)))
         out.append(np.interp(np.linspace(0, cum[-1], k + 1), cum, t))
     t = np.unique(np.concatenate(out)) if out else np.zeros(0)

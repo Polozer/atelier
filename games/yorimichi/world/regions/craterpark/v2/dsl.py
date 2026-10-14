@@ -270,7 +270,7 @@ class Rail:
 
 
 @dataclass
-class Line:
+class RideLine:
     """A designed riding line: `features` in riding order, the centre `path` (k, 3) native metres, the `spawn`
     ((x, y, z), yaw degrees about +y, 0 facing native +x), the `finish` point (3,), the intended `entry_speed`
     (low, high) m/s, and `airs` [(takeoff feature, landing feature)]."""
@@ -289,7 +289,7 @@ class Line:
 @dataclass
 class Park:
     """A compiled layout: one `mesh` (every face of every feature, base faces included), the `rails`, the designed
-    `lines` [Line], and free-form `checks` (dicts: lips, landing zones, speed hints). Spawn in park.json stays the
+    `lines` [RideLine], and free-form `checks` (dicts: lips, landing zones, speed hints). Spawn in park.json stays the
     marked drop-in (assets/craterpark/drop-in.json)."""
     mesh: Mesh
     rails: list = field(default_factory=list)

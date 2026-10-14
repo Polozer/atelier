@@ -149,6 +149,20 @@ def materials():
     return result
 
 
+def delete_stale(report):
+    """Delete the SM_CP_* / UC_CP_* meshes under ROOT/Meshes that this build.json no longer names (the seed stays):
+    /Game/CraterPark is always cooked (DefaultGame.ini DirectoriesToAlwaysCook), so a dead mesh would ship."""
+    wanted = {e['name'] for e in report['render'] + report['collision']} | {'SM_CP_ImportSeed'}
+    deleted = []
+    for path in E.list_assets(ROOT + '/Meshes', recursive=False, include_folder=False):
+        name = str(path).rsplit('/', 1)[-1].split('.')[0]
+        if name.startswith(('SM_CP_', 'UC_CP_')) and name not in wanted:
+            assert E.delete_asset(str(path).split('.')[0]), f'Could not delete the stale mesh {path}'
+            deleted.append(name)
+    print('CRATERPARK stale meshes deleted:', len(deleted), flush=True)
+    return deleted
+
+
 def main():
     report = json.loads((OUT / 'build.json').read_text())
     assert megapark.sha(SOURCE / 'scene.json') == report['scene_sha256'], 'Rebuild Crater Park first (world.craterpark)'
@@ -162,6 +176,7 @@ def main():
     megapark.import_mesh = lambda path, name, dest=None, seed=None, vertex_colors=False: plain(
         path, name, dest, seed, vertex_colors or name.startswith('SM_CP_'))
     E.make_directory(ROOT + '/Meshes')
+    deleted = delete_stale(report)
     mis = materials(); results = []
     # The riding collision is placed in a throwaway level, so the editor cooks it here into the shared cache instead of
     # the game cooking about 600k triangles as the island loads (over the memory guard).
@@ -176,6 +191,7 @@ def main():
             mesh.set_editor_property('allow_cpu_access', False); E.save_loaded_asset(mesh)
     E.save_directory(ROOT, only_if_is_dirty=True, recursive=True)
     result = {'root': ROOT, 'source_sha256': report['scene_sha256'], 'meshes': results, 'materials': len(mis),
+              'deleted_stale': deleted,
               'render_triangles': sum(e['triangles'] for e in results if not e['collision']),
               'collision_triangles': sum(e['triangles'] for e in results if e['collision'])}
     (OUT / 'import-report.json').write_text(json.dumps(result, indent=2) + '\n')

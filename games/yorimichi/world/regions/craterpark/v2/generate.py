@@ -1,0 +1,100 @@
+"""Crater Park v2 geometry step (world.craterpark_geometry): compile the layout, split it, write the arrays export.py
+turns into FBX (plan/pipeline.md 2.2, 10). Pure numpy, no Blender.
+
+The layout is v2/layout_line1.py when it exists, else the M0 smoke layout (layout_m0.py); `--layout NAME` overrides.
+Writes OUT/v2/geometry.npz, OUT/v2/geometry-report.json and one OUT/v2/lines/<name>.npz per designed line.
+"""
+import argparse
+import hashlib
+import importlib
+import json
+import sys
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parents[1]))        # world/regions: the craterpark package
+sys.path.insert(0, str(HERE.parents[2]))        # world: yori
+
+import numpy as np  # noqa: E402
+
+from craterpark.v2 import dsl, split  # noqa: E402
+
+
+def default_layout():
+    return 'layout_line1' if (HERE / 'layout_line1.py').exists() else 'layout_m0'
+
+
+def compile_park(layout):
+    module = importlib.import_module(f'craterpark.v2.{layout}')
+    park = module.park()
+    if not isinstance(park, dsl.Park):
+        raise TypeError(f'{layout}.park() must return a dsl.Park')
+    return park
+
+
+def bundle(park):
+    """The arrays geometry.npz holds: render meshes r<i>_*, collision sections c<i>, rails rail<i>, and a JSON index."""
+    arrays, index = {}, {'render': [], 'collision': [], 'rails': []}
+    folded = 0
+    for i, (name, role, mesh) in enumerate(split.render_meshes(park.mesh)):
+        # no degenerate face may reach the importer's triangle check (build.py FOLDED)
+        area2 = 2 * mesh.areas()
+        bad = area2 <= 2e-7
+        if bad.any():
+            folded += int(bad.sum()); mesh = mesh.subset(~bad)
+        arrays.update(mesh.to_arrays(f'r{i}_'))
+        index['render'].append({'name': name, 'role': role, 'materials': [dsl.MATERIALS[int(m)] for m in
+                                                                          np.unique(mesh.material)],
+                                'features': list(mesh.features)})
+    for i, (name, role, t) in enumerate(split.collision_sections(park.mesh)):
+        a = t[:, 1] - t[:, 0]; b = t[:, 2] - t[:, 0]
+        ok = np.linalg.norm(np.cross(a, b), axis=1) > 2e-7
+        folded += int((~ok).sum())
+        arrays[f'c{i}'] = t[ok]
+        index['collision'].append({'name': name, 'role': role})
+    for i, rail in enumerate(park.rails):
+        arrays[f'rail{i}'] = rail.points
+        index['rails'].append({'closed': bool(rail.closed), 'feature': rail.feature})
+    index['folded_left_out'] = folded
+    arrays['index'] = np.asarray(json.dumps(index))
+    return arrays, index
+
+
+def report(park, index, seconds):
+    m = park.mesh
+    roles = {r: int((m.role == dsl.ROLE[r]).sum()) for r in dsl.ROLES}
+    return {'features': list(m.features), 'faces': int(len(m.F)), 'faces_by_role': roles,
+            'render_meshes': len(index['render']), 'collision_sections': len(index['collision']),
+            'render_triangles': int(sum((m.role == dsl.ROLE[r]).sum() for r in dsl.RENDER_ROLE)),
+            'collision_triangles': int(sum((m.role == dsl.ROLE[r]).sum() for r in dsl.COLLISION_ROLE)),
+            'rails': len(park.rails), 'lines': [ln.name for ln in park.lines], 'checks': park.checks,
+            'folded_left_out': index['folded_left_out'], 'seconds': round(seconds, 2)}
+
+
+def main(argv=None):
+    import yori
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--layout', default=None)
+    parser.add_argument('--out', default=str(yori.OUT / 'craterpark' / 'v2'))
+    args = parser.parse_args(argv)
+    start = time.time()
+    layout = args.layout or default_layout()
+    out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
+    park = compile_park(layout)
+    arrays, index = bundle(park)
+    np.savez(out / 'geometry.npz', **arrays)
+    from craterpark.v2 import export
+    (out / 'lines').mkdir(exist_ok=True)
+    for line in park.lines:
+        export.line_npz(park.mesh, line, out / 'lines' / f'{line.name}.npz')
+    rep = report(park, index, time.time() - start)
+    rep['layout'] = layout
+    rep['geometry_sha256'] = hashlib.sha256((out / 'geometry.npz').read_bytes()).hexdigest()
+    (out / 'geometry-report.json').write_text(json.dumps(rep, indent=1) + '\n')
+    print('CRATERPARK V2 GEOMETRY COMPLETE', layout, rep['render_triangles'], 'render',
+          rep['collision_triangles'], 'collision', flush=True)
+
+
+if __name__ == '__main__':
+    main()

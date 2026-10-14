@@ -52,6 +52,29 @@ _definition.loader.exec_module(definition)
 YORI = WORLD / 'yori.py'
 # Crater Park on the caldera floor: its block shapes the ground there (craterpark/placement.py terrain).
 CRATERPARK = (REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark' / 'scene.json', ASSETS / 'craterpark' / 'geometry')
+# Crater Park v2 (regions/craterpark/v2): the park generated from a layout, clean by construction. False rolls back to
+# the r4 build (craterpark/build.py); both write the same build.json, park.json and FBX names for unreal.craterpark.
+CRATERPARK_V2 = True
+
+
+def craterpark_v2_steps(out):
+    """world.craterpark_geometry (numpy: compile, split, validate) then world.craterpark (Blender: FBX and the json)."""
+    v2 = REGIONS / 'craterpark' / 'v2'
+    common = [REGIONS / 'craterpark' / '__init__.py', REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark',
+              REGIONS / 'megapark' / 'placement.py', YORI]
+    geometry = out / 'craterpark' / 'v2'
+    return [
+        Step('world.craterpark_geometry', [Python(v2 / 'generate.py')], inputs=[v2, *common],
+             outputs=[geometry / 'geometry.npz', geometry / 'geometry-report.json'],
+             about='Crater Park v2: layout -> conforming surfaces, solids, rails, render tiles and collision (numpy)',
+             heavy=True),
+        Step('world.craterpark', [Blender(v2 / 'export.py', threads=2)], inputs=[v2, *common],
+             needs=['world.craterpark_geometry'],
+             outputs=[out / 'craterpark' / 'build.json', out / 'craterpark' / 'park.json', out / 'craterpark' / 'fbx' / 'SM_CP_ImportSeed.fbx'],
+             about='Crater Park v2 export: FBX, build.json and park.json in the r4 contract', heavy=True),
+    ]
+
+
 # world.layout is a cutoff step: its dependents see its outputs, not its fingerprint, so each lists the layout sources
 # its own scripts import. VILLAGE_LAYOUT: village/layout.py (sample, integrate), imported by every Blender region.
 VILLAGE_LAYOUT = (REGIONS / 'village' / 'layout.py', YORI)
@@ -520,10 +543,11 @@ def world_steps(ctx):
                      ASSETS / 'craterpark' / 'materials.json'],
              outputs=[out / 'craterpark' / 'textures' / 'textures.json'],
              about="Crater Park restyle: painted textures in the island's style, world-aligned ground and concrete"),
+        *(craterpark_v2_steps(out) if CRATERPARK_V2 else [
         Step('world.craterpark', [Blender(REGIONS / 'craterpark' / 'build.py', threads=4)],
              inputs=[REGIONS / 'craterpark', ASSETS / 'craterpark', REGIONS / 'megapark' / 'placement.py', YORI],
              outputs=[out / 'craterpark' / 'build.json', out / 'craterpark' / 'park.json', out / 'craterpark' / 'fbx' / 'SM_CP_ImportSeed.fbx'],
-             about='Crater Park geometry and riding collision on the caldera floor -> FBX', heavy=True),
+             about='Crater Park geometry and riding collision on the caldera floor -> FBX', heavy=True)]),
         Step('world.lake', [Blender(REGIONS / 'forest_lake' / 'build.py')], inputs=[REGIONS / 'forest_lake', REGIONS / 'village' / 'build.py', *VILLAGE_LAYOUT],
              needs=['world.layout'], outputs=[out / 'forest_lake' / 'manifest.json'], about='the woodland lake and cabin', heavy=True),
         Step('world.skatepark_textures', [Python(TOOLS / 'pier_textures.py', ('finish',))],
