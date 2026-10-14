@@ -23,6 +23,7 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
+from train import collision as CO
 from train import fittings as FT
 from train import layout as L
 from train import textures as T
@@ -1264,47 +1265,9 @@ def reservations(c, coll, parent):
         coll.objects.link(e); e.parent = parent
 
 
-def collision_boxes(c):
-    """Simple convex boxes for walking: floor, walls broken at every doorway, partitions, ceiling and fixed fittings."""
-    if B.kind == 'tender':
-        return tender_collision_boxes(c)
-    if B.kind == 'locomotive':
-        return loco_collision_boxes(c)
-    boxes = []
-    add = lambda n, *b: boxes.append((n, b))
-    add('floor', B.in_a, B.in_b, -L.IN, L.IN, L.FLOOR_Z - .20, L.FLOOR_Z)
-    add('ceiling', B.in_a, B.in_b, -L.IN, L.IN, L.CEIL_SPRING, L.CEIL_SPRING + .15)
-    for s in (-1, 1):
-        if B.end(s) == 'balcony':
-            x0, x1 = sorted((B.headstock(s), B.face(s)))
-            add('balcony-floor', x0, x1, -L.IN, L.IN, L.FLOOR_Z - .20, L.FLOOR_Z)
-    for i, (x0, x1, y0, y1) in enumerate(L.railings(B)):
-        add(f'railing-{i}', x0, x1, y0, y1, L.FLOOR_Z, L.FLOOR_Z + 1.05)
-    for sy in (-1, 1):
-        y0, y1 = sorted((sy * L.IN, sy * L.HALF))
-        doors_x = sorted((x0, x1) for _, s, x0, x1, *_ in L.exterior_openings(c) if s == sy)
-        for a, b in _free(B.x_a, B.x_b, doors_x, 0.):
-            add(f'side-{sy}', a, b, y0, y1, L.FLOOR_Z, L.CANT_Z)
-        for x0, x1 in doors_x:
-            add(f'side-{sy}-over-door', x0, x1, y0, y1, L.FLOOR_Z + L.DOOR_H, L.CANT_Z)
-    for w in c.walls:
-        spans = _free(w.a0, w.a1, [(o.a0, o.a1) for o in w.openings], 0.)
-        top = L.CEIL_SPRING if not w.name.startswith('end-') else L.CANT_Z
-        for a, b in spans:
-            add(w.name, *((a, b, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, a, b)), L.FLOOR_Z, top)
-        for o in w.openings:
-            add(f'{w.name}-head', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), o.z1, top)
-            if o.z0 - L.FLOOR_Z > .05:         # below a hatch
-                add(f'{w.name}-sill', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), L.FLOOR_Z, o.z0)
-    for b in c.reservations:
-        if b.z0 - L.FLOOR_Z < 1.0 and b.kind in ('bar-counter', 'back-bar', 'galley-counter', 'galley-range', 'pantry-counter', 'luggage-shelves', 'wc-toilet', 'drinks-ledge'):
-            add(b.name, b.x0, b.x1, b.y0, b.y1, L.FLOOR_Z, b.z1)
-    return [(n, b) for n, b in boxes if b[1] - b[0] > 1e-4 and b[3] - b[2] > 1e-4 and b[5] - b[4] > 1e-4]
-
-
 def collision(c, coll, parent, mesh_name):
     out = []
-    for i, (n, b) in enumerate(collision_boxes(c)):
+    for i, (n, b) in enumerate(CO.collision_boxes(c)):
         m = M(); m.box(*b, 'reservation-service')
         o = m.obj(f'UCX_{mesh_name}_{i:02d}', coll, parent=parent, lods=())
         o['part'] = n; o.display_type = 'WIRE'
@@ -1587,20 +1550,6 @@ def tender_lod2(c, coll, parent):
         for sy in (-1, 1):
             m.box(x0, x1, sy * L.BUFFER_Y - .15, sy * L.BUFFER_Y + .15, L.BUFFER_Z - .15, L.BUFFER_Z + .15, 'undercarriage')
     m.obj('LOD2_Hull', coll, parent=parent, lods=(2,))
-
-
-def tender_collision_boxes(c):
-    hw, (ta, tb), (z0, z1) = L.TENDER_HALF, L.TENDER_TANK, L.TENDER_TANK_Z
-    lx0, lx1, ly, lz = L.TENDER_LOCKER
-    boxes = [('floor', (tb, L.TENDER_FALL_PLATE, -hw + .10, hw - .10, L.FLOOR_Z - .20, L.FLOOR_Z)),
-             ('tank', (ta, tb, -hw, hw, z0, L.TENDER_COPING_Z)),
-             ('frames', (-L.TENDER_HEADSTOCK, L.TENDER_HEADSTOCK, -1.45, 1.45, .30, z0))]
-    for side, sy in (('l', 1), ('r', -1)):
-        y0, y1 = sorted((sy * ly, sy * hw))
-        boxes.append((f'locker-{side}', (lx0, lx1, y0, y1, L.FLOOR_Z, lz)))
-        y0, y1 = sorted((sy * (hw - .10), sy * hw))
-        boxes.append((f'handrail-{side}', (lx1, L.TENDER_HEADSTOCK, y0, y1, L.FLOOR_Z, L.FLOOR_Z + 1.20)))
-    return boxes
 
 
 # --- the locomotive -----------------------------------------------------------------------------------------------
@@ -2029,27 +1978,6 @@ def loco_lod2(c, coll, parent):
     m.obj('LOD2_Hull', coll, parent=parent, lods=(2,))
 
 
-def loco_collision_boxes(c):
-    F = L.FLOOR_Z
-    hw, cin = L.LOCO_HALF, L.CAB_IN
-    (ca, cb), ce = L.CAB, L.CAB_ENTRY
-    bx = L.BACKHEAD_X
-    (b0, b1, br, bz), (s0, s1, sr) = L.BOILER, L.SMOKEBOX
-    boxes = [('floor', (ca, cb, -cin, cin, F - .20, F)),
-             ('backhead', (bx, cb, -L.FIREBOX_HW, L.FIREBOX_HW, F, L.FIREBOX_TOP)),
-             ('cab-roof', (ca - .25, cb, -hw, hw, L.CAB_TOP, L.CAB_ROOF)),
-             ('boiler', (b0, s1, -br - .1, br + .1, L.RUNNING_BOARD_Z - .05, bz + br + .3)),
-             ('running-gear', (-5.0, L.LOCO_BEAM + .14, -hw, hw, .20, L.RUNNING_BOARD_Z))]
-    for side, sy in (('l', 1), ('r', -1)):
-        y0, y1 = sorted((sy * cin, sy * hw))
-        boxes.append((f'cab-side-{side}', (ce, cb, y0, y1, F, L.CAB_TOP)))
-        boxes.append((f'cab-front-{side}', (cb - .06, cb, *sorted((sy * L.FIREBOX_HW, sy * hw)), F, L.CAB_TOP)))
-    for b in c.reservations:
-        boxes.append((b.name, (b.x0, b.x1, b.y0, b.y1, b.z0, b.z1)))
-    return boxes
-
-
-
 B = L.Body()      # the body of the vehicle being built (build() sets it)
 
 
@@ -2142,7 +2070,7 @@ def build(coach, images):
     placements['doors_runtime'] = DOOR_RECORDS
     placements['envelope'] = L.envelope()
     placements['coupling'] = L.coupling(B)
-    placements['collision_boxes'] = [dict(name=f'UCX_{mesh_name}_{i:02d}', part=n, box=[round(v, 4) for v in b]) for i, (n, b) in enumerate(collision_boxes(coach))]
+    placements['collision_boxes'] = [dict(name=f'UCX_{mesh_name}_{i:02d}', part=n, box=[round(v, 4) for v in b]) for i, (n, b) in enumerate(CO.collision_boxes(coach))]
     p = out / f'{coach.name}-placements.json'; p.write_text(json.dumps(placements, indent=1)); files[p.name] = p
     for o in cols['Reservations'].objects:
         o.hide_render = False
