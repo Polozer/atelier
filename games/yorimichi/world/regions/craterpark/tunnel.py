@@ -4,6 +4,7 @@ The foundation blocks under the riding pieces were made solid up to the top of t
 round tunnel was filled: its bore held the block's solid, and the rider met its flat end. carve cuts the faces
 reaching into a bore (of the pieces tunnels finds) out of the render and the collision.
 """
+import hashlib
 import math
 
 import numpy as np
@@ -17,6 +18,7 @@ TUBE_RAYS = 5           # of eight horizontal directions from a point near a tun
 PROBE = 2.              # metres between the points that find which pieces close round a bore (tunnels)
 SPLIT = .5              # metres across: a face reaching into a bore is split down to parts this small (carve)
 QUICK = 2.              # metres across: a part this small with no probe in the bore is kept whole (carve)
+VOXEL = 1.              # metres between the nodes of the grid that says which points lie in a bore (bore_grid)
 PAIRS = 2_000_000       # ray-face pairs per batch at most
 
 
@@ -82,6 +84,53 @@ def tunnels(pieces, step=PROBE):
     return found
 
 
+_GRIDS = {}
+
+
+def bore_grid(piece, inside, cell=VOXEL):
+    """in_bore over the grid of nodes `cell` apart round the points `inside` a bore, PROBE wider: (origin, cell, mask
+    (a, b, c), its summed volume). Kept for the next mesh: a build carves each of its meshes in turn."""
+    key = hashlib.sha1(piece.tobytes() + inside.tobytes() + repr(cell).encode()).hexdigest()
+    if key not in _GRIDS:
+        lo = inside.min(0) - PROBE
+        n = np.floor((inside.max(0) + PROBE - lo) / cell).astype('i8') + 1
+        nodes = lo + np.stack(np.meshgrid(*map(np.arange, n), indexing='ij'), -1).reshape(-1, 3) * cell
+        mask = in_bore(nodes, [piece]).reshape(tuple(n))
+        total = np.zeros(tuple(n + 1), 'i8'); total[1:, 1:, 1:] = mask.cumsum(0).cumsum(1).cumsum(2)
+        _GRIDS[key] = (lo, cell, mask, total)
+    return _GRIDS[key]
+
+
+def near_bore(a, b, grid):
+    """Mask of the boxes (lowest corners `a`, highest `b`, (k, 3)), one node wider, holding a node of the bore."""
+    lo, cell, mask, total = grid
+    n = np.array(mask.shape)
+    i0 = np.clip(np.ceil((a - cell - lo) / cell).astype('i8'), 0, n); i1 = np.clip(np.floor((b + cell - lo) / cell).astype('i8') + 1, 0, n)
+    i1 = np.maximum(i1, i0)
+    count = np.zeros(len(a), 'i8')
+    for corner in range(8):
+        pick = [(corner >> d) & 1 for d in range(3)]
+        index = tuple(np.where(pick[d], i1[:, d], i0[:, d]) for d in range(3))
+        count += (-1) ** (3 - sum(pick)) * total[index]
+    return count > 0
+
+
+def bore_test(points, piece, grid):
+    """in_bore of the `points` (k, 3): where the eight nodes of the grid's cell round a point agree, theirs; nearer the
+    bore's edge (or off the grid), tested."""
+    lo, cell, mask, _ = grid
+    i = np.floor((points - lo) / cell).astype('i8')
+    on = ((i >= 0) & (i + 1 < np.array(mask.shape))).all(1)
+    j = np.where(on[:, None], i, 0)
+    corners = np.stack([mask[j[:, 0] + dx, j[:, 1] + dy, j[:, 2] + dz]
+                        for dx in (0, 1) for dy in (0, 1) for dz in (0, 1)], 1)
+    agree = on & (corners.all(1) | ~corners.any(1))
+    out = np.where(agree, corners[:, 0], False)
+    if (~agree).any():
+        out[~agree] = in_bore(points[~agree], [piece])
+    return out
+
+
 def carve(triangles, bores, split=SPLIT):
     """The `triangles` (n, 3, 3) cut out of the tunnels' bores (in_bore), `bores` as tunnels gives them. A face reaching
     into a bore is split in four, again and again near the bore, down to `split` metres; the parts whose centre lies in
@@ -98,15 +147,13 @@ def carve(triangles, bores, split=SPLIT):
             continue
         lo, hi = reach[0] - TUBE_REACH, reach[1] + TUBE_REACH
         piece = piece[((piece.max(1) > lo) & (piece.min(1) < hi)).all(1)]
+        grid = bore_grid(piece, inside)
         parent, bary = near, np.repeat(np.eye(3)[None], len(near), 0)
         kept, dropped = [], np.zeros(len(triangles), bool)
         while len(parent):
             c = np.einsum('kij,kjd->kid', bary, triangles[parent].astype('f8'))
             a, b = c.min(1), c.max(1)
-            touch = np.zeros(len(c), bool)
-            for i in range(0, len(c), 4096):        # a part whose box, PROBE wider, holds a bore point is near the bore
-                touch[i:i + 4096] = ((inside[None] > a[i:i + 4096, None] - PROBE)
-                                     & (inside[None] < b[i:i + 4096, None] + PROBE)).all(-1).any(1)
+            touch = near_bore(a, b, grid)
             size = np.linalg.norm(b - a, axis=1); small = size <= split
             # A part QUICK across or less with none of its corners, edge middles or centre in the bore stays whole:
             # a block's face beside the bore (its top over the roof) is not split all the way down.
@@ -114,9 +161,9 @@ def carve(triangles, bores, split=SPLIT):
             clear = np.zeros(len(c), bool)
             if len(probe):
                 q = c[probe]; points = np.concatenate([q, (q + q[:, [1, 2, 0]]) / 2, q.mean(1, keepdims=True)], 1)
-                clear[probe] = ~in_bore(points.reshape(-1, 3), [piece]).reshape(len(probe), 7).any(1)
+                clear[probe] = ~bore_test(points.reshape(-1, 3), piece, grid).reshape(len(probe), 7).any(1)
             test = np.flatnonzero(touch & small)
-            gone = np.zeros(len(c), bool); gone[test] = in_bore(c[test].mean(1), [piece])
+            gone = np.zeros(len(c), bool); gone[test] = bore_test(c[test].mean(1), piece, grid)
             dropped[parent[gone]] = True
             keep = ~touch | (small & ~gone) | clear
             kept.append((parent[keep], bary[keep]))

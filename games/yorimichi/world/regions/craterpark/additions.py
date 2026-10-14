@@ -28,6 +28,7 @@ BRIDGE = 2.          # metres: a strip across a slot this wide at most is a brid
 TAPER = 4.          # metres either side of a bridge over which a channel's depth eases to nothing
 STEEPEST = .55      # a channel's depth at most this share of its half width (a narrow part is shallower)
 REACH = 4.          # metres: the distances to a slot's edge are measured up to this far
+OUTLINE = 3         # sweeps that smooth an added piece's outline (grid_mesh): its grid staircase made a row of slats
 OVERLAP = 2         # nodes a piece reaches under the floor round it, so no crack opens at the edge
 RELAX = 600         # sweeps of the smoothing that carries the floor's height across a slot
 GUESS = 2000        # fixed nodes at most that start the smoothing (relax)
@@ -39,15 +40,23 @@ SNAKE_MATERIAL = 'material_010'     # seamless concrete ('concrete'): 'concrete_
 # walls get transitions at their foot, and the floor's material (on the flat skirt round the curves).
 SNAKES = {'east_bowls': ((1384., 958., 1468., 1140.), 0., OPEN, 0., True, 'material_004'),   # one curve floor to wall
           'plaza_pockets': ((1186., 1002., 1262., 1158.), 6., 3., CHANNEL, False, 'material_003')}  # the flagstones
-# The banks: a box (x0, z0, x1, z1) over the open ground between the pieces they join, and the joins (bank) or None.
-# The kickers: a box over the floor in front of a low wall, and the side the wall is on (kicker).
-KICKERS = {'plaza_parapet': ((1184.5, 1009.5, 1189.5, 1014.5), 'x-')}   # the hip's foot, onto the terrace
+# The banks: a box (x0, z0, x1, z1) over the open ground between the pieces they join, the joins (bank) or None, and
+# the landing shape (bank) or None.
+# The kickers: a box over the floor in front of a low wall, the side the wall is on, and whether it is a spine (kicker).
+KICKERS = {'plaza_parapet': ((1184.5, 1009.5, 1189.5, 1014.5), 'x-', False)}   # the hip's foot, onto the terrace
 KICK = .3           # metres over the floor: a kicker's wall top, at least
-BANKS = {'tower_plaza_hip': ((1155., 1003., 1187., 1025.), None),
+BANKS = {'tower_plaza_hip': ((1155., 1003., 1187., 1025.), None, 2.5),   # a hip: off the channel's coping at 35 deg
+         # The banked curve ends in a quarter (-14.6 m) 2.5 m short of the peanut bowl's rim (-14.1 m): a deck across
+         # makes a spine, over into the bowl, where the curve stopped dead.
+         'curve_to_peanut': ((1232.5, 952., 1239., 967.), [((1230., 950., 1242., 969.), -15.5, -13.5)], None),
          # From the south-west bowl's rim deck (11 m) down to the banked curve's outer rim (7.4-8.8 m), beside the
          # tunnel strip: the line's way back towards the drop-in.
          'bowl_rim_to_curve': ((1139., 903., 1149.5, 966.), [((1136., 897., 1151., 906.), 10., 12.),
-                                                            ((1139., 955., 1151., 969.), 7., 9.)])}
+                                                            ((1139., 955., 1151., 969.), 7., 9.)], None)}
+# The streets: a box over the open ground, the heights (low, high) of the pieces it is paved flush with, and its material.
+STREETS = {'central_street': ((1318., 998., 1348., 1055.), (-22.7, -22.), 'material_012')}  # the walkways, herringbone
+CLEAR = .05         # metres a street lies over the hillside at least (nearer, the two would flicker)
+OVER = .3           # metres: where the hillside comes up through a street more than this, the street stops at it
 
 
 def unit_normals(t):
@@ -178,9 +187,10 @@ def relax(height, fixed, free, sweeps=RELAX):
     return h
 
 
-def grid_mesh(x0, z0, cell, height, nodes):
+def grid_mesh(x0, z0, cell, height, nodes, smooth=OUTLINE):
     """The height field over the squares whose four corner `nodes` are set: (vertices (k, 3), faces (n, 3)), each
-    square split along the diagonal across which its corners' heights differ least."""
+    square split along the diagonal across which its corners' heights differ least. Its outline, a staircase of the
+    grid's squares, is smoothed `smooth` times (smooth_outline): a wall closing it stands straight, not in slats."""
     rows, cols = nodes.shape
     index = np.full(nodes.shape, -1, 'i8'); index[nodes] = np.arange(nodes.sum())
     jj, ii = np.nonzero(nodes)
@@ -194,7 +204,30 @@ def grid_mesh(x0, z0, cell, height, nodes):
     # below, so (a, c, b) faces up.
     first = np.where(flip[:, None], np.stack([a, d, b], 1), np.stack([a, c, b], 1))
     second = np.where(flip[:, None], np.stack([b, d, c], 1), np.stack([a, d, c], 1))
-    return vertices, np.concatenate([first, second])
+    faces = np.concatenate([first, second])
+    return smooth_outline(vertices, faces, smooth), faces
+
+
+def smooth_outline(vertices, faces, sweeps=OUTLINE):
+    """`vertices` with the outline of the mesh `faces` smoothed across (x, z) `sweeps` times: each vertex on one run of
+    free edges (two neighbours along it) moves half way to their middle. Its height stays."""
+    if not sweeps or not len(faces):
+        return vertices
+    edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    key = np.sort(edges, 1)
+    _, inverse, count = np.unique(key, axis=0, return_inverse=True, return_counts=True)
+    free = key[count[inverse.ravel()] == 1]
+    ends = np.concatenate([free[:, 0], free[:, 1]]); other = np.concatenate([free[:, 1], free[:, 0]])
+    order = np.argsort(ends, kind='stable'); ends, other = ends[order], other[order]
+    vertex, first, degree = np.unique(ends, return_index=True, return_counts=True)
+    run = degree == 2                                   # a pinch (more neighbours) or an end stays put
+    vertex, first = vertex[run], first[run]
+    one, two = other[first], other[first + 1]
+    v = vertices.astype('f8').copy()
+    for _ in range(sweeps):
+        middle = (v[one][:, [0, 2]] + v[two][:, [0, 2]]) / 2
+        v[vertex[:, None], [0, 2]] = (v[vertex][:, [0, 2]] + middle) / 2
+    return v.astype(vertices.dtype)
 
 
 def wall_feet(ride, is_floor, is_ride, slot, cell=CELL):
@@ -310,11 +343,32 @@ def snake_channels(riding, solid, box, floor, open_=OPEN, channel=CHANNEL, feet=
 
 
 
-def bank(riding, solid, box, joins=None, cell=CELL):
+def coping_top(riding, gx, gz, edge, fixed, reach=LIP, rise=1.):
+    """The lip's true top at the `fixed` nodes: the highest corner of the `riding` faces within `reach` of the node, up
+    to `rise` over its `edge` height (a quarter pipe's coping lies between the grid's nodes, up to 0.6 m over them)."""
+    out = edge.copy()
+    j, i = np.nonzero(fixed)
+    if not len(j):
+        return out
+    p = np.stack([gx[j, i], gz[j, i]], 1)
+    corners = riding.reshape(-1, 3)
+    near = ((corners[:, [0, 2]] > p.min(0) - reach) & (corners[:, [0, 2]] < p.max(0) + reach)).all(1)
+    c = corners[near]
+    for k in range(0, len(p), 512):
+        q = p[k:k + 512]; e = edge[j[k:k + 512], i[k:k + 512]]
+        close = ((c[None, :, [0, 2]] - q[:, None]) ** 2).sum(-1) <= reach ** 2
+        y = np.where(close & (c[None, :, 1] <= e[:, None] + rise), c[None, :, 1], -np.inf).max(1) if len(c) else e
+        out[j[k:k + 512], i[k:k + 512]] = np.maximum(e, y)
+    return out
+
+
+def bank(riding, solid, box, joins=None, shape=None, cell=CELL):
     """A bank spanning the open ground of `box` (x0, z0, x1, z1) between the riding surfaces round it: where no
     riding face is the top, a smooth surface carries their edges' heights across (relax) and meets them flush. With
     `joins` [((x0, z0, x1, z1), low, high)], only the riding surfaces in those boxes, between those heights, are met;
-    the bank passes the others by. Its free sides hang (solidify closes them). (vertices, faces, uvs) or None."""
+    the bank passes the others by. With `shape` (an exponent over 1), it is a landing transition: from its high edge it
+    falls steeply (shape times the mean slope) and eases out flat onto its low edge, a hip's far side. It lies CLEAR over
+    the ground at least. Its free sides hang (solidify closes them). (vertices, faces, uvs) or None."""
     x0, z0, x1, z1 = box
     xs = np.arange(x0, x1 + cell / 2, cell); zs = np.arange(z0, z1 + cell / 2, cell)
     gx, gz = np.meshgrid(xs, zs)
@@ -335,7 +389,19 @@ def bank(riding, solid, box, joins=None, cell=CELL):
     # on its steep face, under the lip (the hip from the tower met the channel's wall 0.6 m low, a step and a coping
     # across the face).
     edge = np.where(fixed, max_near(np.where(meet, ride, -np.inf), LIP, cell, meet), ride)
+    edge = np.where(fixed, coping_top(riding, gx, gz, edge, fixed), edge)
     height = np.where(open_, relax(np.where(meet, edge, 0.), fixed, open_), np.where(fixed, edge, ride))
+    if shape:
+        # The share of the way from the high edge to the low (a membrane, 0 to 1), the heights each edge carries across,
+        # and between them the drop (1 - share) ** shape: steep off the lip, flat at the foot.
+        high = fixed & (edge > (edge[fixed].min() + edge[fixed].max()) / 2); low = fixed & ~high
+        if high.any() and low.any():
+            share = relax(np.where(low, 1., 0.), fixed, open_)
+            top = relax(np.where(high, edge, 0.), high, open_ | low); foot = relax(np.where(low, edge, 0.), low, open_ | high)
+            height = np.where(open_, foot + (top - foot) * (1 - np.clip(share, 0., 1.)) ** shape, height)
+            with np.errstate(invalid='ignore'):             # no ground: -inf
+                lift = every + CLEAR - height
+            height = np.where(open_ & np.isfinite(lift) & (lift > 0) & (lift <= OVER * 3), every + CLEAR, height)
     near = open_.copy()
     for _ in range(OVERLAP):
         near = grow(near, 1, True) & (open_ | meet)
@@ -343,11 +409,33 @@ def bank(riding, solid, box, joins=None, cell=CELL):
     return vertices.astype('f4'), faces, (vertices[:, [0, 2]] / UV_METRES).astype('f4')
 
 
-def kicker(riding, box, toward='x-', cell=CELL):
+def street(riding, solid, box, level, cell=CELL):
+    """A street paved over the open ground of `box` (x0, z0, x1, z1): a bank met only by the riding pieces whose height
+    lies within `level` (low, high), so it passes the others by (a deck's wall over it stays a wall, a ledge a ledge).
+    It lies CLEAR over the hillside at least; where the hillside rises through it more than OVER, it stops there.
+    (vertices, faces, uvs) or None."""
+    made = bank(riding, solid, box, [(box, *level)], cell)
+    if made is None:
+        return None
+    v = made[0].astype('f8')
+    with np.errstate(invalid='ignore'):                             # no ground under a vertex: -inf
+        up = top_heights(solid, v) + CLEAR - v[:, 1]
+    up = np.where(np.isfinite(up), up, -np.inf)
+    v[:, 1] += np.where((up > 0) & (up <= OVER + CLEAR), up, 0.)
+    faces = made[1][~(up > OVER + CLEAR)[made[1]].any(1)]
+    if not len(faces):
+        return None
+    used = np.unique(faces); index = np.full(len(v), -1, 'i8'); index[used] = np.arange(len(used))
+    return v[used].astype('f4'), index[faces], made[2][used]
+
+
+def kicker(riding, box, toward='x-', spine=False, cell=CELL):
     """A kicker in `box` (x0, z0, x1, z1) up to a low wall's top on its `toward` side ('x-', 'x+', 'z-' or 'z+'): along
     each grid line toward the wall, from the floor at the box's far side, a circle's arc of radius RADIUS[0] (the wall's
     height if more) rising to the wall's top edge (the first node KICK higher than the floor) and meeting it flush. Its
-    two sides are closed down to the floor. (vertices, faces, uvs) or None."""
+    two sides are closed down to the floor. With `spine`, the arc spans the whole box from its far side (its radius set by
+    the run and the height: a spine's steep side), and it carries the wall's top on, flush, across any gap up to the
+    rim beyond it. (vertices, faces, uvs) or None."""
     x0, z0, x1, z1 = box
     xs = np.arange(x0, x1 + cell / 2, cell); zs = np.arange(z0, z1 + cell / 2, cell)
     gx, gz = np.meshgrid(xs, zs)
@@ -362,6 +450,12 @@ def kicker(riding, box, toward='x-', cell=CELL):
             continue
         top = up.max(); h = row[top] - low
         radius = max(RADIUS[0], h); reach = np.sqrt(radius ** 2 - (radius - h) ** 2)
+        if spine:
+            run = (len(row) - 1 - top - .5) * cell
+            radius = max((run ** 2 + h ** 2) / (2 * h), h); reach = min(run, radius)
+            rim = np.flatnonzero(np.isfinite(row[:top]) & (row[:top] >= row[top] - .05))
+            fill = np.arange((rim.max() + 1) if len(rim) else 0, top)
+            height[k, fill] = row[top]
         s = (np.arange(len(row)) - top - .5) * cell                     # metres from the wall's face
         arc = low + radius - np.sqrt(np.maximum(radius ** 2 - (reach - np.clip(s, 0., reach)) ** 2, 0.))
         span = (np.arange(len(row)) >= top) & (s <= reach + cell)
@@ -370,7 +464,7 @@ def kicker(riding, box, toward='x-', cell=CELL):
     nodes = np.isfinite(height)
     if nodes.sum() < 4:
         return None
-    vertices, faces = grid_mesh(x0, z0, cell, np.where(nodes, height, 0.), nodes)
+    vertices, faces = grid_mesh(x0, z0, cell, np.where(nodes, height, 0.), nodes, 0)   # its sides follow the grid
     floor_y = np.nanmin(height)
     # The two sides, from the profile down to the floor, both ways round (they are seen from either side).
     sides_v, sides_f = [], []

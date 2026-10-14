@@ -482,8 +482,8 @@ def main():
             added.append(({'id': f'add-{part}-{name}', 'role': 'original', 'material': material,
                            'doubleSided': False, 'added': True}, (vertices, faces, uvs)))
     around = np.concatenate([riding_now, solid_now]); heights = grind.heights(around)
-    for name, (box, joins) in additions.BANKS.items():
-        made = additions.bank(riding_now, solid_now, box, joins)
+    for name, (box, joins, shape) in additions.BANKS.items():
+        made = additions.bank(riding_now, solid_now, box, joins, shape)
         if made is None:
             continue
         added.append(({'id': f'add-bank-{name}', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
@@ -492,8 +492,21 @@ def main():
         if sides is not None:
             added.append(({'id': f'add-bank-{name}-sides', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
                            'doubleSided': False, 'added': True}, sides))
-    for name, (box, toward) in additions.KICKERS.items():
-        made = additions.kicker(riding_now, box, toward)
+    for name, (box, level, material) in additions.STREETS.items():
+        made = additions.street(riding_now, solid_now, box, level)
+        if made is None:
+            continue
+        vertices, faces, uvs = made         # paved in its own material, at its tiling on the park's pieces
+        metres = material_metres(loaded, material)
+        made = (vertices, faces, uvs * additions.UV_METRES / metres)
+        added.append(({'id': f'add-street-{name}', 'role': 'original', 'material': material,
+                       'doubleSided': False, 'added': True}, made))
+        sides = additions.solidify(vertices[faces].astype('f8'), heights, around, metres)
+        if sides is not None:
+            added.append(({'id': f'add-street-{name}-sides', 'role': 'original', 'material': material,
+                           'doubleSided': False, 'added': True}, sides))
+    for name, (box, toward, spine) in additions.KICKERS.items():
+        made = additions.kicker(riding_now, box, toward, spine)
         if made is not None:
             added.append(({'id': f'add-kicker-{name}', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
                            'doubleSided': False, 'added': True}, made))
