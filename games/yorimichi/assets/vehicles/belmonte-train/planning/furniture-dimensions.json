@@ -401,6 +401,40 @@
         "file": "belmonte-train-sources/canteen-sink.glb outside the repo (Tripo Studio image-to-model; concept and job in build/yorimichi/belmonte-train/tripo-props/canteen-sink/)",
         "fit": "--yaw -90 (the door to -Y), uniform scale to the 1.00 m width, the cabinet (25-55 % of the height) lengthened to bring the worktop from 0.58 to about 0.88 m; wider than the 0.70 m reservation it replaces, which kept Tripo's proportions"
       }
+    },
+    {
+      "id": "canteen-shelves",
+      "name_fr": "Étagères rivetées de la cantine (vides)",
+      "dimensions_m": {
+        "width": 0.879,
+        "depth": 0.389,
+        "height": 1.9
+      },
+      "pivot": "floor_footprint_center",
+      "material_family": "riveted-steel-brass-hooks",
+      "quantity_draft": 1,
+      "note": "empty open riveted shelves: three steel trays and a top bar with five brass hooks at the front, the hooks facing into the canteen; mugs hang on the hooks and stand on the trays as separate canteen-mug placements; at Tripo's proportions it is 0.88 m wide, too wide for the 0.52 m reservation by the door, so it stands against the canteen's end wall",
+      "fitted_source": {
+        "file": "belmonte-train-sources/canteen-shelves.fbx outside the repo (Tripo multiview P2, raw FBX; references and job in build/yorimichi/belmonte-train/tripo-props/canteen-shelves/)",
+        "fit": "--yaw 180 (the hooks to -Y), uniform scale to the 1.90 m height (--scale-by height); width and depth follow the model"
+      }
+    },
+    {
+      "id": "canteen-mug",
+      "name_fr": "Quart émaillé blanc à liseré bleu",
+      "dimensions_m": {
+        "width": 0.128,
+        "depth": 0.095,
+        "height": 0.09
+      },
+      "pivot": "floor_footprint_center",
+      "material_family": "white-enamel-blue-rim",
+      "quantity_draft": 9,
+      "dimension_basis": "width includes the handle; the body is about 0.095 m across (Tripo's proportions at the 0.09 m height, a little wider than the 0.085 m asked) and 0.09 m tall",
+      "fitted_source": {
+        "file": "belmonte-train-sources/canteen-mug.glb outside the repo (Tripo Studio)",
+        "fit": "uniform scale to the 0.09 m height (--scale-by height)"
+      }
     }
   ],
   "notes": [

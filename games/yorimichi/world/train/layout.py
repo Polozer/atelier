@@ -575,6 +575,9 @@ def brake_van():
 # --- second class: the run-down open saloon with its canteen at end A ----------------------------------------------
 SC_PITCH = .55 + .65 + .55 + .02           # bench, legroom, bench, gap: 1.77 m
 SC_BAYS = 8
+# overhead fittings clear the tallest playable character (Nox, 1.78 m capsule) by 8 cm where players can stand: the
+# luggage nets' mount (their lowest point is RACK_Z less the net's sag) and the centre of the menu board over the queue
+OVERHEAD_CLEAR, RACK_Z, MENU_Z = 1.86, 1.92, 2.03
 CANTEEN_X1 = -6.50                          # the canteen's front partition (the serving hatch)
 COUNTER_DEPTH, COUNTER_H = .976, .92        # the serving counter (docs/BELMONTE_TRAIN_CANTEEN_LADY.md: 0.92 m)
 # the Tripo canteen-counter measured from its centre (yaw 90: its front towards the saloon, +X): the body's plinth,
@@ -590,6 +593,11 @@ HATCH = (COUNTER_Y - COUNTER_HALF + .01, COUNTER_Y + COUNTER_HALF - .01, 0., 1.8
 LADY_RADIUS = .36                           # the canteen lady standing and turning: 1.65 m tall, ~1.4x Kaede's shoulders
 LADY_REACH = 1.20                           # from where she stands to the pot and to the hatch, ladle in hand
 STOVE_X = -7.85                             # the stove right behind the counter (clear of its back), against the outer wall
+# the Tripo canteen-shelves measured in their own frame (front -Y): the five brass hooks under the top tray (x of
+# each, then y and height of the hook's tip, where a mug's handle rests) and the tray floors' heights
+SHELF_HOOKS, SHELF_HOOK_TIP, SHELF_TRAYS = (-.27, -.13, .01, .15, .29), (-.17, 1.665), (.302, .808, 1.291)
+# the Tripo canteen-mug (handle towards -X): where its handle's loop rests on a hook, from the mug's origin
+MUG_HANDLE = (-.052, .074)
 LADLE_HOOK = (-7.45, 1.70)                  # the big ladle's wall hook on the canteen side wall, behind the counter: x, height
 
 
@@ -619,7 +627,7 @@ def second_class():
                 c.placements.append(Placement(b, 'second-class-bench', 'saloon', bx, by, FLOOR_Z, yaw))
                 for n, dy in enumerate((-.30, .30)):
                     c.seats.append(Seat(f'{b}-seat-{n + 1}', b, bx + (.04 if yaw > 0 else -.04), by + dy, FLOOR_Z + .45, yaw))
-            c.mounts.append(Mount(f'net-{k + 1}{side}', 'rack', 'saloon', s0 + SC_PITCH / 2, sy * (IN - .02), FLOOR_Z + 1.85, 0 if sy > 0 else 180, SC_PITCH - .1))
+            c.mounts.append(Mount(f'net-{k + 1}{side}', 'rack', 'saloon', s0 + SC_PITCH / 2, sy * (IN - .02), FLOOR_Z + RACK_Z, 0 if sy > 0 else 180, SC_PITCH - .1))
         c.mounts.append(Mount(f'bulb-{k + 1}', 'ceiling-lamp', 'saloon', s0 + SC_PITCH / 2, 0., ceiling_z(0) - .02, 0))
     # the quest bench: the one that keeps the carved M+L initials (all the others are clean)
     quest = next(p for p in c.placements if p.id == 'bench-5la')
@@ -645,10 +653,21 @@ def second_class():
     # the enamel sink against the outer wall at the canteen's end, its draining board towards the stove
     kw, kd, _ = asset_dims('canteen-sink')
     c.placements.append(Placement('canteen-sink', 'canteen-sink', 'canteen', -SPAN_X + .03 + kw / 2, IN - .02 - kd / 2, FLOOR_Z, 0))
+    # the empty riveted shelves against the canteen's end wall, clear of the door, hooks facing into the kitchen; mugs
+    # hang from the five hooks by their handles (handle towards the shelves) and stand on the middle tray, each its own
+    # placement of the one canteen-mug asset (the plates come later)
+    fw, fd, _ = asset_dims('canteen-shelves')
+    shelf = Placement('canteen-shelves', 'canteen-shelves', 'canteen', -SPAN_X + .01 + fd / 2, ROOM_Y + .03 + fw / 2, FLOOR_Z, 90)
+    c.placements.append(shelf)
+    def on_shelf(name, lx, ly, lz, yaw):            # shelf frame (front -Y) to coach: the shelves turned 90 degrees
+        c.placements.append(Placement(name, 'canteen-mug', 'canteen', shelf.x - ly, shelf.y + lx, FLOOR_Z + lz, (shelf.yaw + yaw) % 360))
+    for k, hx in enumerate(SHELF_HOOKS):
+        on_shelf(f'canteen-mug-hook-{k + 1}', hx, SHELF_HOOK_TIP[0] - (-MUG_HANDLE[0]), SHELF_HOOK_TIP[1] - MUG_HANDLE[1], -90)
+    for k, (mx, yaw) in enumerate(((-.27, 0), (-.12, 270), (.04, 90), (.22, 180))):      # quarter turns: handles every way
+        on_shelf(f'canteen-mug-shelf-{k + 1}', mx, .02, SHELF_TRAYS[1], yaw)
     # the big ladle hanging by its end hook from the wall hook (canteen-ladle mount), bowl down, flat to the wall
     c.placements.append(Placement('canteen-ladle', 'canteen-ladle', 'canteen', LADLE_HOOK[0], ROOM_Y + .075, FLOOR_Z + LADLE_HOOK[1] + .02, 180))
     c.reservations += [
-        Box('canteen-shelves', 'canteen-shelves', -9.82, -9.30, ROOM_Y + .05, ROOM_Y + .45, FLOOR_Z, FLOOR_Z + 1.90, 'stacked tin plates and mugs'),
     ]
     back = COUNTER_X - COUNTER_BACK
     spot = (back - LADY_RADIUS - .04, IN - sd - LADY_RADIUS - .04)     # clear of the counter's back and of the stove's front
@@ -661,7 +680,7 @@ def second_class():
         Mount('canteen-ladle', 'ladle', 'canteen', LADLE_HOOK[0], ROOM_Y + .02, FLOOR_Z + LADLE_HOOK[1], 0),  # where the big ladle hangs
     ]
     c.goals.update({'canteen-npc-spot': spot, 'canteen-queue': (queue_x, hy)})
-    c.mounts.append(Mount('menu-board', 'menu-board', 'saloon', salon_x0 + .02, .75, FLOOR_Z + 2.00, -90, 1.0))
+    c.mounts.append(Mount('menu-board', 'menu-board', 'saloon', salon_x0 + .02, .75, FLOOR_Z + MENU_Z, -90, 1.0))
     c.goals.update({'canteen': (-7.60, .30)})
     _curtains(c, lambda w: _room_at(c, w.x, w.side * (IN - .1)))
     return c

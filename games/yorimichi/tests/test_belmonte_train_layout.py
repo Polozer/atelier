@@ -134,6 +134,24 @@ class Coaches(unittest.TestCase):
         self.assertLess(math.hypot(hung.x - ladle.x, hung.y - ladle.y), .10)
         self.assertTrue(0 <= hung.z - ladle.z <= .04)
         self.assertGreater(hung.z - L.asset_dims('canteen-ladle')[2], L.FLOOR_Z + .80)
+        # the empty shelves replace their reservation, clear of the canteen door; mugs are separate placements of one
+        # asset, five hanging by their handles from the shelf hooks and a few on the middle tray
+        shelf = next(p for p in c.placements if p.id == 'canteen-shelves')
+        self.assertFalse(any(b.kind == 'canteen-shelves' for b in c.reservations))
+        door = next(o for o in c.wall('canteen-side').openings if o.name == 'door-canteen')
+        self.assertLess(L.footprint(shelf)[1], door.a0)
+        mugs = [p for p in c.placements if p.asset == 'canteen-mug']
+        hooked = [p for p in mugs if p.id.startswith('canteen-mug-hook-')]
+        self.assertEqual(len(hooked), len(L.SHELF_HOOKS))
+        self.assertGreaterEqual(len(mugs) - len(hooked), 3)
+        self.assertEqual(len({p.id for p in mugs}), len(mugs))
+        for mug, hx in zip(hooked, L.SHELF_HOOKS):                       # the handle's loop on the hook's tip
+            a = math.radians(mug.yaw)
+            hx_w = mug.x + L.MUG_HANDLE[0] * math.cos(a)
+            hy_w = mug.y + L.MUG_HANDLE[0] * math.sin(a)
+            tip = (shelf.x - L.SHELF_HOOK_TIP[0], shelf.y + hx)
+            self.assertLess(math.hypot(hx_w - tip[0], hy_w - tip[1]), .01)
+            self.assertAlmostEqual(mug.z + L.MUG_HANDLE[1], L.FLOOR_Z + L.SHELF_HOOK_TIP[1])
         sink = next(p for p in c.placements if p.id == 'canteen-sink')    # the Tripo sink replaces its reservation
         self.assertFalse(any(b.kind == 'canteen-sink' for b in c.reservations))
         self.assertLessEqual(L.footprint(sink)[3], L.IN)
@@ -165,6 +183,8 @@ class Coaches(unittest.TestCase):
         boxes = [(L.footprint(pl), F._top(pl)) for pl in c.placements]
         for x, y, z in (q for f in parts['Fittings_Curtains'].faces for q in f[0]):       # curtains hang clear of the benches
             self.assertFalse(any(x0 < x < x1 and y0 < y < y1 and z < top for (x0, x1, y0, y1), top in boxes), (x, y, z))
+        for name in ('Fittings_RackNets', 'Fittings_Racks', 'Fittings_MenuBoard'):   # overhead: clear of the tallest player
+            self.assertGreaterEqual(min(q[2] for f in parts[name].faces for q in f[0]), L.FLOOR_Z + L.OVERHEAD_CLEAR - 1e-9, name)
         lamps = parts['Fittings_Lamps']
         self.assertEqual(len(lamps.sockets), sum(1 for m in c.mounts if m.kind == 'ceiling-lamp'))
         self.assertGreaterEqual(min(q[2] for f in lamps.faces for q in f[0]), L.FLOOR_Z + L.HUMAN['height'] + .10)

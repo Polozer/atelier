@@ -20,12 +20,12 @@ from train import layout as L
 COACHES = {'second-class'}
 ANCHORS = {'npc-spot', 'serve-point', 'queue'}      # where the canteen lady stands, the tray lands, passengers queue
 
-RACK_DEPTH, RACK_SAG, ROD_R = .30, .05, .008
+RACK_DEPTH, RACK_SAG, ROD_R = .30, .04, .008
 NET_CORD = .008                                       # width of a cord ribbon
 SHADE_R, SHADE_H, CORD_LEN = .13, .10, .20          # the bulb clears a 1.75 m adult by 15 cm in the aisle
 CURTAIN_W, CURTAIN_PITCH, CURTAIN_AMP, CURTAIN_GAP = .26, .065, .02, .065   # gathered width, pleat, depth, off the wall
 CURTAIN_TILE = .50                                    # metres of cloth per repeat of the fabric swatch (T_BT_CurtainFabric)
-BOARD_H, BOARD_FRAME = .36, .04
+BOARD_H, BOARD_FRAME = .32, .04
 
 
 @dataclass
@@ -128,10 +128,10 @@ def racks(c, part, net):
         for v in (.05, RACK_DEPTH):                                       # back and front rods
             tube(part, [P(-h, v, z), P(h, v, z)], ROD_R, 'brass-dull', 8)
         for u in (-h + .06, h - .06):                                     # cast brackets: wall plate, arm, strut above
-            a, b = P(u - .025, 0, z - .03), P(u + .025, .012, z + .10)
+            a, b = P(u - .025, 0, z - .03), P(u + .025, .012, z + .08)
             box(part, a[0], b[0], a[1], b[1], a[2], b[2], 'brass-dull')
             tube(part, [P(u, .01, z), P(u, RACK_DEPTH + .015, z)], .007, 'brass-dull', 6)
-            tube(part, [P(u, .01, z + .08), P(u, .22, z)], .006, 'brass-dull', 6)
+            tube(part, [P(u, .01, z + .06), P(u, .22, z)], .006, 'brass-dull', 6)
         sag = lambda u, v: z - RACK_SAG * math.sin(math.pi * (v - .05) / (RACK_DEPTH - .05)) * (.7 + .3 * math.cos(math.pi * u / h))
         n_u = 16
         for k in range(1, 5):                                             # cords along the rack
