@@ -22,9 +22,8 @@ TRANSITION = 1.75   # metres a channel or pocket takes to reach its depth; wider
 WIDE = 2.           # metres across a deck at least, for a transition at its wall's foot
 CLEAR_NARROW, EASE = .3, 1.5  # metres a transition keeps off a narrower piece, and over which it eases down
 LIFTED = .02        # metres off the floor's level: a triangle with a corner this far is the curves' concrete
-FLAT_SKIRT = .998   # a triangle's normal y at least (about 3.6 degrees), for the flat skirt
-FEET_METRES = 4.    # metres per texture tile on the flat skirt (the bowls' floor's own tiling)
-FEET_MATERIAL = 'material_004'      # the east bowls' dark floor ('bowl'), on the flat skirt round the curves
+SKIRT_STEEPEST = .7 # a triangle's normal y at least (45 degrees), for the skirt: a paved slope is, a wall is not
+FEET_METRES = 4.    # metres per texture tile the skirt's UVs are made at (build.py rescales them to its floor's)
 BRIDGE = 2.          # metres: a strip across a slot this wide at most is a bridge the channel rises under
 TAPER = 4.          # metres either side of a bridge over which a channel's depth eases to nothing
 STEEPEST = .55      # a channel's depth at most this share of its half width (a narrow part is shallower)
@@ -36,10 +35,10 @@ UV_METRES = 9.      # metres per texture tile (the snake runs' concrete)
 SNAKE_MATERIAL = 'material_010'     # seamless concrete ('concrete'): 'concrete_edge' drew a dark band every tile
 
 # The regions whose open slots and holes are filled (snake_channels): a box (x0, z0, x1, z1), the height of its floor,
-# how far under it a hole's top lies at least, the channel's depth (metres), and whether its deck walls get
-# transitions at their foot.
-SNAKES = {'east_bowls': ((1384., 958., 1468., 1140.), 0., OPEN, 0., True),     # filled: one curve floor to wall
-          'plaza_pockets': ((1186., 1002., 1262., 1158.), 6., 3., CHANNEL, False)}
+# how far under it a hole's top lies at least, the channel's depth (metres; 0 fills a slot flush), whether its deck
+# walls get transitions at their foot, and the floor's material (on the flat skirt round the curves).
+SNAKES = {'east_bowls': ((1384., 958., 1468., 1140.), 0., OPEN, 0., True, 'material_004'),   # one curve floor to wall
+          'plaza_pockets': ((1186., 1002., 1262., 1158.), 6., 3., CHANNEL, False, 'material_003')}  # the flagstones
 # The banks: a box (x0, z0, x1, z1) over the open ground between the pieces they join, and the joins (bank) or None.
 # The kickers: a box over the floor in front of a low wall, and the side the wall is on (kicker).
 KICKERS = {'plaza_parapet': ((1184.5, 1009.5, 1189.5, 1014.5), 'x-')}   # the hip's foot, onto the terrace
@@ -288,23 +287,20 @@ def snake_channels(riding, solid, box, floor, open_=OPEN, channel=CHANNEL, feet=
     # One mesh over both, then split by its shape, not by the grid's cells (whose outline is a staircase): a triangle
     # with a corner off the floor's level by LIFTED, a channel's dip or a transition's rise, is the channels' concrete;
     # the rest, flat at the floor's level, is the floor's own material ('floor'), so the concrete ends along a smooth
-    # contour. Without transitions (feet False, a plaza's pockets) the whole mesh is the channels'.
+    # contour (the bowls' dark floor, the plaza's flagstones: SNAKES names it).
     near = slot | raised
     for _ in range(OVERLAP):
         near = grow(near, 1, True) & (slot | is_floor)
     vertices, faces = grid_mesh(x0, z0, cell, height, near)
     flat = np.flatnonzero(near.ravel())
     ours = (slot | raised).ravel()[flat][faces].any(1)              # the rest lie on the floor or a deck: left out
-    if feet:
-        level = ride if channel <= 0 else np.where(slot, relax(np.where(bridge, every, np.where(is_floor, ride, 0.)),
-                                                                 fixed, slot & ~bridge), ride)
-        with np.errstate(invalid='ignore'):                         # no floor at all off the pieces: inf - inf
-            off = np.abs(height - level)
-        lifted = np.isfinite(off) & (np.where(np.isfinite(off), off, 0.) > LIFTED)
-        level_face = unit_normals(vertices[faces].astype('f8'))[:, 1] > FLAT_SKIRT
-        curved = lifted.ravel()[flat][faces].any(1) | ~level_face
-    else:
-        curved = np.ones(len(faces), bool)
+    level = ride if channel <= 0 else np.where(slot, relax(np.where(bridge, every, np.where(is_floor, ride, 0.)),
+                                                             fixed, slot & ~bridge), ride)
+    with np.errstate(invalid='ignore'):                             # no floor at all off the pieces: inf - inf
+        off = np.abs(height - level)
+    lifted = np.isfinite(off) & (np.where(np.isfinite(off), off, 0.) > LIFTED)
+    steep = unit_normals(vertices[faces].astype('f8'))[:, 1] < SKIRT_STEEPEST    # a floor node to a deck's top
+    curved = lifted.ravel()[flat][faces].any(1) | steep
     made = {}
     for name, part, metres in (('channels', ours & curved, UV_METRES), ('floor', ours & ~curved, FEET_METRES)):
         if part.any():

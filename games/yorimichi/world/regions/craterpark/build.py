@@ -153,6 +153,15 @@ def spatial_order(triangles, cell=1.):
     return np.lexsort((code, large))
 
 
+def material_metres(loaded, material):
+    """Metres per texture tile of `material` on the park's own pieces (the largest piece that uses it)."""
+    pieces = [a for entry, a, _ in loaded if entry['material'] == material and not entry.get('added')]
+    if not pieces:
+        return additions.FEET_METRES
+    a = max(pieces, key=lambda a: len(a['triangles']))
+    return additions.tile_metres(a['positions'], a['uvs'], a['triangles'])
+
+
 def carve_bores(a, keep, bores):
     """A mesh's arrays `a` (its faces kept by `keep`) cut out of the tunnels' bores (tunnel.carve): each face reaching
     into a bore is left out and its parts outside the bores are added. Returns the new keep mask and the faces cut."""
@@ -463,12 +472,15 @@ def main():
     solid_now = np.concatenate([a['positions'][a['triangles'][keep]] for entry, a, keep in loaded
                                 if entry['role'] != 'original']).astype('f8')
     added = []
-    for name, (box, floor, deep, depth, feet) in additions.SNAKES.items():
+    for name, (box, floor, deep, depth, feet, floor_material) in additions.SNAKES.items():
         made = additions.snake_channels(riding_now, solid_now, box, floor, deep, depth, feet) or {}
-        for part, mesh in made.items():
-            material = additions.SNAKE_MATERIAL if part == 'channels' else additions.FEET_MATERIAL
+        for part, (vertices, faces, uvs) in made.items():
+            material = additions.SNAKE_MATERIAL
+            if part == 'floor':             # the skirt in the floor's own material, at its tiling on the park's pieces
+                material = floor_material
+                uvs = uvs * additions.FEET_METRES / material_metres(loaded, floor_material)
             added.append(({'id': f'add-{part}-{name}', 'role': 'original', 'material': material,
-                           'doubleSided': False, 'added': True}, mesh))
+                           'doubleSided': False, 'added': True}, (vertices, faces, uvs)))
     around = np.concatenate([riding_now, solid_now]); heights = grind.heights(around)
     for name, (box, joins) in additions.BANKS.items():
         made = additions.bank(riding_now, solid_now, box, joins)
