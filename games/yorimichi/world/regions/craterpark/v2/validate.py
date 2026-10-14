@@ -718,13 +718,17 @@ def plan_width(loops, thin=THIN, corner_deg=45., facing_deg=60., limit=FAILURES)
 
 # ---------------------------------------------------------------------------------------------------- V14 budgets
 
-def budgets(meshes, limits=None, cube=CUBE, stride=CUBE_STRIDE):
+def budgets(meshes, limits=None, cube=CUBE, stride=CUBE_STRIDE, tiles=None):
     """V14: render and collision triangle totals, the largest render mesh, the render mesh count, coping triangles and
-    the most collision triangles inside any `cube` (sliding by `stride`), with that cube's corner."""
+    the most collision triangles inside any `cube` (sliding by `stride`), with that cube's corner. tiles: the exported
+    render meshes [(name, triangles, centre)] when they differ from `meshes` (split's 64 m material tiles)."""
     L = dict(BUDGETS, **(limits or {}))
     ren = [m for m in meshes if m.domain == 'render']; col = [m for m in meshes if m.domain == 'collision']
     nr = sum(len(m.F) for m in ren); nc = sum(len(m.F) for m in col)
     big = max(ren, key=lambda m: len(m.F)) if ren else None
+    if tiles is not None:
+        tiles = list(tiles)
+        big_t = max(tiles, key=lambda t: t[1]) if tiles else None
     cop = sum(len(m.F) for m in ren if m.role == 'coping')
     worst, corner = 0, None
     if col:
@@ -740,20 +744,25 @@ def budgets(meshes, limits=None, cube=CUBE, stride=CUBE_STRIDE):
         worst = int(s.max())
         # block ending at prefix index at+k covers cells at+1 .. at+k of G, i.e. q cells at+1-k .. at
         corner = [float((a + 1 - k + q0[d]) * stride) for d, a in enumerate(at)]
-    rec = {'render_triangles': nr, 'collision_triangles': nc, 'render_meshes': len(ren),
-           'largest_render_mesh': {'name': big.name, 'triangles': int(len(big.F))} if big else None,
+    n_meshes = len(ren) if tiles is None else len(tiles)
+    if tiles is None:
+        largest = (big.name, int(len(big.F)), _pt(big.V[np.unique(big.F)].mean(0))) if big else None
+    else:
+        largest = (big_t[0], int(big_t[1]), _pt(big_t[2])) if big_t else None
+    rec = {'render_triangles': nr, 'collision_triangles': nc, 'render_meshes': n_meshes,
+           'largest_render_mesh': {'name': largest[0], 'triangles': largest[1]} if largest else None,
            'coping_triangles': cop, 'collision_cube_max': worst, 'collision_cube_corner': corner, 'limits': L}
     fails = []
     for k, v, lim in (('render', nr, L['render']), ('collision', nc, L['collision']),
-                      ('render_meshes', len(ren), L['render_meshes']), ('coping', cop, L['coping']),
+                      ('render_meshes', n_meshes, L['render_meshes']), ('coping', cop, L['coping']),
                       ('collision_cube', worst, L['collision_cube']),
-                      ('render_mesh', len(big.F) if big else 0, L['render_mesh'])):
+                      ('render_mesh', largest[1] if largest else 0, L['render_mesh'])):
         if v > lim:
             f = {'kind': k, 'value': int(v), 'limit': lim, 'where': None}
             if k == 'collision_cube':
                 f['where'] = [c + cube / 2 for c in corner]
             if k == 'render_mesh':
-                f['mesh'] = big.name; f['where'] = _pt(big.V[np.unique(big.F)].mean(0))
+                f['mesh'] = largest[0]; f['where'] = largest[2]
             fails.append(f)
     rec['ok'] = not fails; rec['failures'] = fails
     return rec
@@ -801,6 +810,114 @@ def validate(meshes, lanes=(), regions=(), allow_open=None, out=None, checks=Non
             continue
         if name.endswith('_collision') and not col or name in ('overlaps', 'topology', 'thin_walls') and not ren:
             continue
+        t = time.time()
+        r = fn(); r['seconds'] = round(time.time() - t, 2)
+        report['checks'][name] = r
+        if log:
+            log(f'validate {name}: {"ok" if r["ok"] else "FAIL"} ({r["seconds"]} s)')
+    ok = all(r['ok'] for r in report['checks'].values())
+    report['ok'] = ok
+    report['failed'] = [k for k, r in report['checks'].items() if not r['ok']]
+    report = _jsonable(report)
+    if out is not None:
+        p = Path(out); p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix('.tmp'); tmp.write_text(json.dumps(report, indent=1)); tmp.replace(p)
+    return report, ok
+
+
+# ---------------------------------------------------------------------------------------------------- dsl.Park
+
+LANE_HALF_WIDTH = 1.5   # metres either side of a designed line's centre path: the rider's corridor
+
+
+def park_meshes(park):
+    """A dsl.Park's one mesh as validator meshes, one per (feature, role), named 'feature/role'. Render: the roles in
+    dsl.RENDER_ROLE; collision: dsl.COLLISION_ROLE; base faces (buried bottoms, never drawn) only close the surface.
+    Returns (render, collision, surface): surface is everything but coping and rail tubes, for the watertight test."""
+    from . import dsl
+    m = park.mesh
+    feat = np.asarray(m.feature, 'i8'); role = np.asarray(m.role, 'i8')
+    render, collision, surface = [], [], []
+    for r_id, r_name in enumerate(dsl.ROLES):
+        for f_id in np.unique(feat[role == r_id]):
+            mask = (role == r_id) & (feat == f_id)
+            name = f'{m.features[f_id]}/{r_name}'
+            F = m.F[mask]
+            kw = dict(role=r_name, feature=np.full(len(F), f_id), material=None)
+            if r_name in dsl.RENDER_ROLE:
+                render.append(Mesh(name, m.V, F, 'render', **kw))
+            if r_name in dsl.COLLISION_ROLE:
+                collision.append(Mesh(name, m.V, F, 'collision', **kw))
+            if r_name not in (dsl.COPING, dsl.RAIL):
+                surface.append(Mesh(name, m.V, F, 'surface', **kw))
+            else:
+                surface_tube = Mesh(name, m.V, F, 'render', closed=True, **kw)
+                surface.append(surface_tube)
+    return render, collision, surface
+
+
+def park_lanes(park, half_width=LANE_HALF_WIDTH):
+    """Lane corridors from the park's designed RideLines: their plan centre paths, their own features by index."""
+    names = {n: i for i, n in enumerate(park.mesh.features)}
+    return [Lane(line.name, np.asarray(line.path)[:, [0, 2]], half_width,
+                 features=tuple(names[f] for f in line.features if f in names)) for line in park.lines]
+
+
+def _tube_components(mesh, weld=WELD):
+    """Each connected component of a tube mesh (coping, rail) as its own closed Mesh."""
+    if not len(mesh.F):
+        return []
+    q = np.round(mesh.V / weld).astype('i8')
+    _, vid = np.unique(q, axis=0, return_inverse=True); vid = vid.ravel()
+    W = vid[mesh.F]
+    parent = np.arange(vid.max() + 1)
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]; x = parent[x]
+        return x
+    for a, b in np.r_[W[:, [0, 1]], W[:, [1, 2]]]:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+    comp = np.array([find(x) for x in W[:, 0]])
+    out = []
+    for k, c in enumerate(np.unique(comp)):
+        sel = comp == c
+        out.append(Mesh(f'{mesh.name}#{k}', mesh.V, mesh.F[sel], mesh.domain, mesh.role, mesh.feature[sel], True))
+    return out
+
+
+def validate_park(park, out=None, lanes=None, regions=(), allow_open=None, limits=None, log=print):
+    """The build's entry point (generate.run_validators): every check on a dsl.Park. Returns (report, ok) and writes
+    the report as JSON to `out`. Lanes default to the park's RideLines; the surface (riding, side, ground and base
+    faces) must be closed except where allow_open allows; coping and rail tubes must each be closed solids."""
+    import time
+    render, collision, surface = park_meshes(park)
+    lanes = park_lanes(park) if lanes is None else lanes
+    tubes = [c for m in surface if m.closed for c in _tube_components(m)]
+    try:
+        from . import split
+        tiles = [(name, len(t.F), t.triangles().reshape(-1, 3).mean(0)) for name, _, t in split.render_meshes(park.mesh)]
+    except Exception as e:                                       # the split's own failure is reported by its step
+        tiles = None
+        if log:
+            log(f'validate budgets: render tiles unavailable ({e})')
+    surf = [m for m in surface if not m.closed]
+    drawn = [m for m in render]
+    run = {
+        'overlaps': lambda: overlaps(drawn),
+        'overlaps_collision': lambda: overlaps(collision),
+        'topology': lambda: topology(surf + tubes, allow_open),
+        'thin_walls': lambda: thin_walls(drawn),
+        'plan_width': lambda: _plan_widths(regions),
+        'protrusions': lambda: protrusions(drawn, lanes),
+        'budgets': lambda: budgets(render + collision, limits, tiles=tiles),
+    }
+    report = {'schema': 1, 'frame': 'native metres, x, y up, z', 'features': list(park.mesh.features),
+              'lanes': [{'name': l.name, 'half_width_m': l.half_width, 'path': np.round(l.path, 3).tolist()} for l in lanes],
+              'checks': {}}
+    for name, fn in run.items():
         t = time.time()
         r = fn(); r['seconds'] = round(time.time() - t, 2)
         report['checks'][name] = r

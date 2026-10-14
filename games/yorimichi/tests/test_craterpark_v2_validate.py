@@ -210,6 +210,38 @@ class EntryPointTests(unittest.TestCase):
         self.assertTrue({'overlaps', 'protrusions', 'topology'} <= set(rep['failed']), rep['failed'])
 
 
+class ParkEntryTests(unittest.TestCase):
+    """validate_park on agent A's dsl.Park, as generate.run_validators calls it."""
+
+    def setUp(self):
+        from craterpark.v2 import dsl, layout_m0
+        self.dsl = dsl
+        self.park = layout_m0.park()
+
+    def test_the_m0_park_passes_closed_and_renders_its_plan(self):
+        with tempfile.TemporaryDirectory() as d:
+            rep, ok = V.validate_park(self.park, Path(d) / 'validation.json', log=None)
+            self.assertTrue(ok, rep['failed'])
+            self.assertEqual(rep['checks']['topology']['surface']['open_edges'], 0)      # base faces close it
+            self.assertTrue((Path(d) / 'validation.json').exists())
+            png, _, _ = plan_png.render_park(self.park, Path(d) / 'plan.png', report=rep)
+            self.assertTrue(Path(png).stat().st_size > 1000)
+
+    def test_a_slab_in_the_line_fails_the_park_where_it_is(self):
+        dsl = self.dsl
+        line = self.park.lines[0]
+        x, y, z = np.asarray(line.path)[0]
+        P, F = box((x + .5, y - .3, z - .5), (x + 1.5, y + .1, z + .5))
+        slab = dsl.Mesh.part(P, F, role=dsl.SIDE, feature='old_planter', material=dsl.SIDE_WALL)
+        park = dsl.Park(dsl.Mesh.concat([self.park.mesh, slab]), self.park.rails, self.park.lines)
+        rep, ok = V.validate_park(park, log=None)
+        self.assertFalse(ok)
+        self.assertIn('protrusions', rep['failed'])
+        f = rep['checks']['protrusions']['failures'][0]
+        self.assertEqual(f['mesh'], 'old_planter/side')
+        self.assertTrue(x + .5 - 1e-9 <= f['where'][0] <= x + 1.5 + 1e-9, f)
+
+
 @unittest.skipUnless(R4.is_dir(), 'r4 imported geometry not on this machine')
 class R4DefectTests(unittest.TestCase):
     """The checks flag r4's real defects at the places the owner's notes name (native metres)."""

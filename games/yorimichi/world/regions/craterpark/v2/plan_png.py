@@ -109,8 +109,9 @@ def render_plan(meshes, out, lanes=(), airs=(), report=None, box=None, px=None, 
         for fid, li in line_of.items():
             col[Fid == fid] = LINE_COLOURS[li % len(LINE_COLOURS)]
     rgb[edge] = (.35 * rgb[edge] + .65 * col[edge]).astype('u1')
-    margin = 60
-    img = Image.new('RGB', (rgb.shape[1], rgb.shape[0] + margin), (250, 250, 247))
+    margin = 64
+    W = max(rgb.shape[1], 720)
+    img = Image.new('RGB', (W, rgb.shape[0] + margin), (250, 250, 247))
     img.paste(Image.fromarray(rgb), (0, margin))
     d = ImageDraw.Draw(img)
     try:
@@ -160,19 +161,37 @@ def render_plan(meshes, out, lanes=(), airs=(), report=None, box=None, px=None, 
                 d.ellipse([x - r, z - r, x + r, z + r], outline=(220, 20, 20), width=3)
                 if n <= 99:
                     d.text((x + r + 2, z - r), f'{n} {name}', fill=(200, 10, 10), font=font)
-    # header: title, height scale, metre bar, axes
-    d.text((10, 8), title, fill=(20, 20, 20), font=font)
-    sw = min(240, img.width // 4)
+    # header, two rows: title and failure count; height scale, metre bar and axes
+    d.text((10, 6), title, fill=(20, 20, 20), font=font)
+    if n:
+        d.text((W // 2, 6), f'{n} failure locations ringed (red)', fill=(200, 10, 10), font=font)
+    sw = 200
     bar = _palette(np.linspace(0, 1, sw))
     for i in range(sw):
-        d.line([(10 + i, 32), (10 + i, 46)], fill=tuple(int(c) for c in bar[i]))
-    d.text((14 + sw, 31), f'{ylo:.1f} m to {yhi:.1f} m', fill=(20, 20, 20), font=font)
+        d.line([(10 + i, 34), (10 + i, 48)], fill=tuple(int(c) for c in bar[i]))
+    d.text((16 + sw, 34), f'height {ylo:.1f} to {yhi:.1f} m', fill=(20, 20, 20), font=font)
     ten = 10. / px
-    bx = img.width - ten - 20
-    d.line([(bx, 40), (bx + ten, 40)], fill=(20, 20, 20), width=3)
-    d.text((bx, 18), '10 m', fill=(20, 20, 20), font=font)
-    d.text((bx - 140, 18), 'x right, z down', fill=(90, 90, 90), font=font)
-    if n:
-        d.text((10 + sw + 200, 31), f'{n} failure locations ringed', fill=(200, 10, 10), font=font)
+    while ten > W / 4:
+        ten /= 2
+    bx = W - ten - 16
+    d.line([(bx, 44), (bx + ten, 44)], fill=(20, 20, 20), width=3)
+    d.text((bx, 26), f'{ten * px:g} m', fill=(20, 20, 20), font=font)
+    d.text((bx - 130, 38), 'x right, z down', fill=(90, 90, 90), font=font)
     img.save(out)
     return out, px, box
+
+
+def render_park(park, out, report=None, airs=None, **kw):
+    """The plan of a dsl.Park: its drawn faces, its RideLines as lanes, its airs (or the park's checks with 'lip' and
+    'land' points) and the report's failures."""
+    from .validate import park_meshes, park_lanes
+    render, _, _ = park_meshes(park)
+    if airs is None:
+        airs = [c for c in park.checks if isinstance(c, dict) and 'lip' in c and 'land' in c]
+    line_of = {}
+    names = {n: i for i, n in enumerate(park.mesh.features)}
+    for k, line in enumerate(park.lines):
+        for f in line.features:
+            if f in names:
+                line_of.setdefault(names[f], k)
+    return render_plan(render, out, lanes=park_lanes(park), airs=airs, report=report, line_of=line_of, **kw)
