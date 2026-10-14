@@ -70,9 +70,13 @@ floor and the wall's lower slope; about 50 groups of two to five grey boulders 9
 take no snow) with scree on bare ground; and ochre shrubs. About 9,600 autumn thicket plants clump along the crest, on
 rock as steep as 55 degrees and more thinly on snow (loose red and gold `Bush_HD_Autumn` bushes, ochre bushes and a
 few red shrub maples and golden ginkgo shrubs), and ochre bushes ring the park's block 9-40 m out, snow or not. The
-block's own exposed hillside carries about 230 low granite domes 4-10 m across in clusters on its gentler ground
-(`HD_NorthRock*`, snow-capped, sunk so their open undersides never show), and about 9,900 more bushes in clumps,
-packed thicker round the domes; all stand clear of every riding piece and bridge (`placement.piece_triangles`). The
+block itself carries none of the island's planting. `dress_caldera` places about 250 granite domes and 10,000 bushes
+on the block's hillside, but the block filter that follows (`contains(margin=3)`) drops them, so city.json has no
+instance on the block. In the r5 build the nearest is 5.5 m off its 5 m mask. The v2 park dresses its own ground
+instead ([`v2/dressing.py`](../world/regions/craterpark/v2/dressing.py)): autumn and ochre bushes on its upward ground
+faces, 4 m plus their reach clear of every riding, side, coping and rail face, planted by the park actor from
+park.json `trees`. `dressing.check` keeps every drawn v2 face on the block's mask, and every riding face 4 m inside the
+ground the island keeps clear of dressing, so no island plant or rock pokes through it. The
 autumn bush has a warm core: the garden shrubs' near-black one, sunk in a slope or seen from afar, read as black
 shards on the snow. Bushes have no collision and are culled beyond 300 m, the autumn bush beyond 550 m (the rim and
 air views look across the caldera; `JapanWorld.cpp`). Some 500 granite stones (`HD_NorthRockA`/`C`, as on the north
