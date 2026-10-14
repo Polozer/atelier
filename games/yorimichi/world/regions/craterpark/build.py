@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import yori
-from craterpark import additions, grind, placement, tunnel
+from craterpark import additions, cleanbuild, grind, placement, tunnel
 
 import bpy
 import bmesh
@@ -575,83 +575,24 @@ def main():
         keep, cut = carve_bores(a, np.ones(len(faces), bool), bores)     # a cap's wall stood across the tunnel
         loaded.append((entry, a, keep))
         print('Added', entry['id'], 'faces:', len(faces), 'cut out of a tunnel:', cut, flush=True)
-    # Faces of different meshes lying on each other z-fight (the foundations' shared walls and tops, a riding piece on the
-    # block): each face lying on one of an earlier mesh, in ROLES order, is left out of the render and collision.
-    # The added pieces rank after the bridges: a bridge over a snake channel is drawn where the channel meets it.
-    order = sorted(range(len(loaded)), key=lambda i: (ROLES.index('bridge_support') + .5 if loaded[i][0].get('added')
-                                                    else ROLES.index(loaded[i][0]['role']), i))
-    rank = np.empty(len(loaded), 'i8'); rank[order] = np.arange(len(loaded))
-    shown = [a['positions'][a['triangles'][keep]] for _, a, keep in loaded]
-    everything = np.concatenate(shown)
-    # Ranked per piece of each mesh, not per mesh: a face lying on an earlier piece of its own mesh is left out too (the
-    # foundations' duplicated walls flickered, 70k m2 of them).
-    ranks = np.concatenate([rank[i] * PIECES + pieces(a['triangles'][keep]) for i, (_, a, keep) in enumerate(loaded)])
-    sides = np.concatenate([np.full(len(f), entry['doubleSided']) for (entry, _, _), f in zip(loaded, shown)])
-    fighting = covered(everything, everything, sides, eps=FLICKER, ranks=(ranks, ranks))
-    start = 0
-    for (entry, a, keep), f in zip(loaded, shown):
-        index = np.flatnonzero(keep); lost = fighting[start:start + len(f)]; start += len(f)
-        keep[index[lost]] = False
-        if lost.any():
-            print('Mesh', entry['id'], entry['role'], 'faces lying on an earlier mesh left out:', int(lost.sum()), flush=True)
-    drawn = []
-    for entry, a, keep in loaded:
-        skipped = int(len(keep) - keep.sum())
-        if entry['role'] == 'foundation':
-            index = np.flatnonzero(keep)
-            hidden = covered(a['positions'][a['triangles'][index]], riding, two_sided)
-            keep[index[hidden]] = False
-            print('Foundation', entry['id'], 'faces on a riding surface left out:', int(hidden.sum()), flush=True)
-        sections.setdefault(entry['role'], []).append(a['positions'][a['triangles'][keep]])
-        used = np.unique(a['triangles'][keep])
-        remap = np.full(len(a['positions']), -1, 'i8'); remap[used] = np.arange(len(used))
-        vertices, faces, uvs = a['positions'][used], remap[a['triangles'][keep]], a['uvs'][used]
-        if entry['role'] in PLAIN:
-            vertices, faces = simplify(vertices, faces); uvs = None
-        drawn.append((entry, vertices, faces, uvs, skipped, int(len(keep) - keep.sum()) - skipped))
-    # Faces partly on a higher-ranked mesh's face move back a few millimetres in the render; collision keeps them.
-    # Every other piece of a mesh ranks after its neighbours: where two pieces overlap in part (the perimeter's boxes,
-    # 20 cm at each joint every 2 m), the odd one moves back.
-    moved = recede([(v, f) for _, v, f, _, _, _ in drawn], [rank[i] * 2 + pieces(f) % 2 for i, (_, v, f, *_) in enumerate(drawn)],
-                   [entry['doubleSided'] for entry, _, _ in loaded])
-    drawn = [(entry, v, f, uvs, skipped, cov) for (entry, _, f, uvs, skipped, cov), (v, _) in zip(drawn, moved)]
-    for (entry, *_), (_, count) in zip(drawn, moved):
-        if count:
-            print('Mesh', entry['id'], entry['role'], 'faces partly on a higher-ranked mesh moved back:', count, flush=True)
-    ride = np.concatenate(sections['original']); above = riding_above(ride[unit_normals(ride.astype('f8'))[:, 1] > .2])
-    final = {}
-    for role, parts in sections.items():
-        triangles = np.concatenate(parts)
-        hidden = hidden_walls(triangles, above)
-        triangles = triangles[~hidden]
-        sunk = 0
-        if role != 'original':
-            triangles, sunk = sink_inside(triangles, above)
-        final[role] = triangles
-        print('Collision', role, 'faces inside the solid left out:', int(hidden.sum()), 'corners inside sunk:', sunk, flush=True)
-    # Grind lines along the lips (grind.py), on the collision the board rides, each drawn as a steel coping tube.
-    lines = grind.grind_lines(final['original'].astype('f8'),
-                              np.concatenate([x for role, x in final.items() if role != 'original']).astype('f8'))
-    print('Grind lines along the lips:', len(lines), 'of', round(sum(np.linalg.norm(np.diff(l, axis=0), axis=1).sum() for l in lines)), 'm', flush=True)
-    tube = additions.coping(lines)
-    if tube is not None:
-        drawn.append(({'id': 'add-coping', 'role': 'coping', 'material': additions.COPING_MATERIAL}, *tube, 0, 0))
-    occlusion = ambient_occlusion([(v, f) for _, v, f, _, _, _ in drawn])
-    for (entry, vertices, faces, uvs, skipped, covered_faces), ao in zip(drawn, occlusion):
+    # The clean geometry (cleanbuild.py, docs "Clean geometry"): only faces seen from the open space, no face lying on
+    # another, conforming seams, every mesh remeshed within millimetres of these fine faces and their occlusion.
+    pieces_, lines, stats = cleanbuild.clean(loaded)
+    print('Clean:', json.dumps(stats), flush=True)
+    for p in pieces_:
+        entry = p['entry']; vertices, faces, uvs, ao = p['out']
         mesh = export_mesh('SM_CP_' + entry['id'].replace('-', '_'), vertices, faces, [entry['material']],
-                           np.zeros(len(faces), 'i4'), uvs, smooth=True, ao=ao)
-        mesh.update(source_id=entry['id'], role=entry['role'], skipped=skipped,
-                    covered=covered_faces, occlusion_mean=round(float(ao.mean()), 4))
+                           np.zeros(len(faces), 'i4'), None if entry['role'] in PLAIN else uvs, smooth=True, ao=ao)
+        mesh.update(source_id=entry['id'], role=entry['role'], fine_triangles=p['fine_faces'],
+                    occlusion_mean=round(float(ao.mean()), 4))
         report['render'].append(mesh)
-        print('Exported', mesh['name'], flush=True)
+        print('Exported', mesh['name'], len(faces), 'of', p['fine_faces'], flush=True)
+    _, final = cleanbuild.collision([dict(entry=p['entry'], P=p['out'][0], F=p['out'][1]) for p in pieces_])
     for role, triangles in final.items():
         triangles = triangles[spatial_order(triangles)]     # sections of neighbouring faces
         for k in range(0, len(triangles), SECTION):
             chunk = triangles[k:k + SECTION]
             vertices, faces = chunk.reshape(-1, 3), np.arange(len(chunk) * 3).reshape(-1, 3)
-            if role in PLAIN:
-                vertices, faces = simplify(vertices, faces)
-            faces = faces[spatial_order(vertices[faces])]
             entry = export_mesh(f'UC_CP_{role}_{k // SECTION}', vertices, faces, ['M_Collision'], np.zeros(len(faces), 'i4'))
             entry['source_triangles'] = len(chunk)
             entry.update(role=role, one_sided=False)

@@ -559,20 +559,9 @@ def snake_run(riding, path, width, wall, radius, laid=True, cell=CELL):
     return run_mesh(line, y, width, wall, radius, cell)
 
 
-def run_mesh(line, y, width, wall, radius, cell=CELL, ground=None):
-    """The mesh of a run along `line` (k, 3) whose floor lies at `y` (k,) under it: a floor `width` wide, a circle's arc
-    of `radius` either side rising `wall` over it, then SNAKE_LIP of flat deck; its ends open, cut square across it.
-    With `ground` (m, 3, 3), its sides slope down at SKIRT_DEGREES to the ground under them where it lies within
-    SKIRT_DEPTH (lower, they hang that far: solidify walls the rest): a ramp's flank meeting the street it lands on is
-    a hip to ride over, not a wall across it. (vertices, faces, uvs) or None."""
-    radius = max(radius, wall); reach = np.sqrt(radius ** 2 - (radius - wall) ** 2)
-    edge = width / 2 + reach + SNAKE_LIP
-    half = edge + (SKIRT_DEPTH / np.tan(np.radians(SKIRT_DEGREES)) if ground is not None else 0.)
-    x0, z0 = line[:, [0, 2]].min(0) - half - cell; x1, z1 = line[:, [0, 2]].max(0) + half + cell
-    xs = np.arange(x0, x1 + cell / 2, cell); zs = np.arange(z0, z1 + cell / 2, cell)
-    gx, gz = np.meshgrid(xs, zs)
-    q = np.stack([gx.ravel(), gz.ravel()], 1)
-    # Each node's distance to the centreline and its floor's height there (the nearest segment's, interpolated).
+def run_field(line, y, q):
+    """A run's centreline field at the points q (m, 2) (x, z): the distance to the centreline `line` (k, 3), the floor's
+    height there (the nearest segment's `y`, interpolated) and whether the point lies past either end of it."""
     a, b = line[:-1][:, [0, 2]], line[1:][:, [0, 2]]
     best = np.full(len(q), np.inf); floor_y = np.zeros(len(q)); beyond = np.zeros(len(q), bool)
     for i in range(0, len(a), 64):
@@ -583,21 +572,148 @@ def run_mesh(line, y, width, wall, radius, cell=CELL, ground=None):
         better = m < best
         best = np.where(better, m, best)
         floor_y = np.where(better, y[i + j] + u[np.arange(len(q)), j] * (y[i + j + 1] - y[i + j]), floor_y)
-        # Past either end of the centreline: left out, so the run's ends are open mouths cut square across it.
-        out = ((i + j == 0) & (f < 0)) | ((i + j == len(a) - 1) & (f > 1))
+        out = ((i + j == 0) & (f < -1e-9)) | ((i + j == len(a) - 1) & (f > 1 + 1e-9))
         beyond = np.where(better, out, beyond)
-    e = np.clip(best - width / 2, 0., reach)
-    height = floor_y + radius - np.sqrt(np.maximum(radius ** 2 - e ** 2, 0.))
-    nodes = (best <= half) & ~beyond
-    if ground is not None:
-        drop = np.maximum(best - edge, 0.) * np.tan(np.radians(SKIRT_DEGREES))
-        under = np.full(len(q), -np.inf); flank = nodes & (best > edge)
-        under[flank] = top_heights(ground, np.stack([q[flank, 0], height[flank] - drop[flank] + OVER, q[flank, 1]], 1))
-        # A flank node lies over the ground (or a little in it, so no crack opens), and the slope stops where it met it.
-        nodes &= ~flank | (height - drop >= under - CUT)
-        height = height - drop
-    nodes = nodes.reshape(gx.shape)
-    vertices, faces = grid_mesh(x0, z0, cell, height.reshape(gx.shape), nodes)
+    return best, floor_y, beyond
+
+
+RIBBON_EASE = 4.    # metres either side over which the ribbon's cross-sections turn with the centreline
+CHORD = .001        # metres: a transition's arc off its chords at most
+
+
+def _offsets(width, reach, radius, edge, cell):
+    """The lateral offsets of one side of a run's cross-section (from 0 out to `edge`): the floor every `cell`, its
+    edge (the transition's foot, a crease), the arc in chords within CHORD, its top (a crease), the lip deck to `edge`."""
+    w2 = width / 2
+    floor = np.linspace(0., w2, max(1, int(np.ceil(w2 / cell))) + 1)
+    if reach > 1e-9:
+        ang = np.arcsin(min(reach / radius, 1.))
+        n = max(1, int(np.ceil(ang / (2 * np.arccos(1 - CHORD / radius)))), int(np.ceil(reach / cell)))
+        arc = w2 + radius * np.sin(np.linspace(0., ang, n + 1))[1:]
+    else:
+        arc = np.zeros(0)
+    top = w2 + reach
+    lip = np.linspace(top, edge, max(1, int(np.ceil((edge - top) / cell))) + 1)[1:] if edge > top + 1e-9 else np.zeros(0)
+    return np.concatenate([floor, arc, lip])
+
+
+def run_mesh(line, y, width, wall, radius, cell=CELL, ground=None):
+    """The mesh of a run along `line` (k, 3) whose floor lies at `y` (k,) under it: a floor `width` wide, a circle's arc
+    of `radius` either side rising `wall` over it, then SNAKE_LIP of flat deck; its ends open, cut square across it.
+    With `ground` (m, 3, 3), its sides slope down at SKIRT_DEGREES to the ground under them where it lies within
+    SKIRT_DEPTH (lower, they hang that far: solidify walls the rest): a ramp's flank meeting the street it lands on is
+    a hip to ride over, not a wall across it. (vertices, faces, uvs) or None.
+
+    Swept, not gridded: a cross-section every `cell` along the centreline (its normal eased over RIBBON_EASE, square to
+    the end segments at the ends), each vertex moved onto the exact distance from the centreline its offset stands for,
+    so the floor's edges, the arcs' tops, the lip and the outline are straight or curved lines along the run, never a
+    grid's staircase; heights from the same field as before (run_field)."""
+    radius = max(radius, wall); reach = np.sqrt(max(radius ** 2 - (radius - wall) ** 2, 0.))
+    edge = width / 2 + reach + SNAKE_LIP
+    skirt = SKIRT_DEPTH / np.tan(np.radians(SKIRT_DEGREES)) if ground is not None else 0.
+    # stations every `cell` along the centreline (its segments are straight: y between stations is linear)
+    seg = np.linalg.norm(np.diff(line[:, [0, 2]], axis=0), axis=1); s = np.concatenate([[0.], np.cumsum(seg)])
+    if s[-1] < 1e-6:
+        return None
+    t = np.unique(np.concatenate([np.linspace(0., s[-1], max(2, int(np.ceil(s[-1] / cell))) + 1), s]))
+    t = t[np.r_[True, np.diff(t) > 1e-6]]
+    cx, cz = np.interp(t, s, line[:, 0]), np.interp(t, s, line[:, 2])
+    # cross-section directions: the tangent eased over RIBBON_EASE (narrowing to none at the ends)
+    tang = np.stack([np.gradient(cx, t), np.gradient(cz, t)], 1)
+    tang[0] = line[1, [0, 2]] - line[0, [0, 2]]; tang[-1] = line[-1, [0, 2]] - line[-2, [0, 2]]
+    tang /= np.maximum(np.linalg.norm(tang, axis=1, keepdims=True), 1e-12)
+    ease = np.minimum(RIBBON_EASE, np.minimum(t, t[-1] - t))
+    sm = np.empty_like(tang)
+    for i in range(len(t)):
+        w = np.abs(t - t[i]) <= ease[i] + 1e-9
+        v = tang[w].sum(0); sm[i] = v / max(np.linalg.norm(v), 1e-12)
+    nrm = np.stack([-sm[:, 1], sm[:, 0]], 1)                         # left of the direction of travel
+    side = _offsets(width, reach, radius, edge, cell)
+    cols = np.concatenate([-side[::-1], side[1:]])                   # the core section, left to right
+    # the skirt's extra offsets (trimmed per section where it meets the ground)
+    extra = np.arange(cell, skirt + cell / 2, cell)[:, None] * [1.] if skirt > 0 else np.zeros((0, 1))
+    extra = extra.ravel()
+    def place(off):
+        """Points at signed offsets off (n, m) from each station, moved onto the exact centreline distance |off|."""
+        p = np.stack([cx[:, None] + off * nrm[:, None, 0], cz[:, None] + off * nrm[:, None, 1]], -1)
+        target = np.abs(off)
+        for _ in range(4):
+            d, _, _ = run_field(line, y, p.reshape(-1, 2)); d = d.reshape(off.shape)
+            p = p + ((target - d) * np.sign(off))[..., None] * nrm[:, None, :]
+        return p
+    def field_y(p):
+        d, fy, beyond = run_field(line, y, p.reshape(-1, 2))
+        e = np.clip(d - width / 2, 0., reach)
+        return (fy + radius - np.sqrt(np.maximum(radius ** 2 - e ** 2, 0.))).reshape(p.shape[:-1]), d.reshape(p.shape[:-1])
+    core = place(np.broadcast_to(cols, (len(t), len(cols))).copy())
+    core_y, _ = field_y(core)
+    V = [np.stack([core[..., 0], core_y, core[..., 1]], -1).reshape(-1, 3)]
+    nst, nc = len(t), len(cols)
+    idx = np.arange(nst * nc).reshape(nst, nc)
+    rows = [list(r) for r in idx.tolist()]                           # each section's vertex ids, left to right
+    base = nst * nc
+    if skirt > 0 and len(extra):
+        drop = extra * np.tan(np.radians(SKIRT_DEGREES))
+        for sgn in (-1., 1.):
+            off = sgn * (edge + extra)
+            p = place(np.broadcast_to(off, (nst, len(extra))).copy())
+            py, _ = field_y(p); py = py - drop
+            under = top_heights(ground, np.stack([p[..., 0].ravel(), (py + OVER).ravel(), p[..., 1].ravel()], 1)).reshape(py.shape)
+            margin = py - (under - CUT)                              # >= 0: the slope still over the ground
+            edge_y = V[0].reshape(nst, nc, 3)[:, 0 if sgn < 0 else -1]
+            for i in range(nst):
+                ok = margin[i] >= 0
+                k = int(np.argmin(ok)) if not ok.all() else len(ok)  # the run of samples before the first under
+                pts = [np.array([p[i, j, 0], py[i, j], p[i, j, 1]]) for j in range(k)]
+                if k < len(ok):
+                    # where the slope meets the ground: between the last sample over it and the first under
+                    m0 = margin[i, k - 1] if k else (edge_y[i, 1] - (top_heights(ground, edge_y[i:i + 1])[0] - CUT))
+                    m1 = margin[i, k]
+                    if m0 > 0 and np.isfinite(m1) and np.isfinite(m0):
+                        f = m0 / (m0 - m1)
+                        a0 = pts[-1] if k else edge_y[i]
+                        a1 = np.array([p[i, k, 0], py[i, k], p[i, k, 1]])
+                        pts.append(a0 + f * (a1 - a0))
+                ids = list(range(base, base + len(pts))); base += len(pts)
+                if pts:
+                    V.append(np.array(pts))
+                rows[i] = (ids[::-1] + rows[i]) if sgn < 0 else (rows[i] + ids)
+    vertices = np.concatenate(V)
+    # strips between neighbouring sections: the core column by column; a skirt's longer side fanned to the shorter end
+    faces = []
+    for i in range(nst - 1):
+        r0, r1 = rows[i], rows[i + 1]
+        # split each row into (left skirt, core, right skirt); the core is idx[i]
+        c0, c1 = idx[i].tolist(), idx[i + 1].tolist()
+        l0 = r0[:r0.index(c0[0])][::-1]; l1 = r1[:r1.index(c1[0])][::-1]
+        g0 = r0[r0.index(c0[-1]) + 1:]; g1 = r1[r1.index(c1[-1]) + 1:]
+        def strip(a, b):
+            """Quads between two parallel polylines a and b (same direction), the longer one's tail fanned."""
+            out = []
+            m = min(len(a), len(b))
+            for j in range(m - 1):
+                out.append((a[j], b[j], a[j + 1], b[j + 1]))
+            if len(a) > m:
+                out += [('tri', a[j], a[j + 1], b[m - 1]) for j in range(m - 1, len(a) - 1)]
+            elif len(b) > m:
+                out += [('tri', a[m - 1], b[j], b[j + 1]) for j in range(m - 1, len(b) - 1)]
+            return out
+        quads = strip(c0, c1) + strip([c0[0]] + l0, [c1[0]] + l1) + strip([c0[-1]] + g0, [c1[-1]] + g1)
+        for q in quads:
+            if q[0] == 'tri':
+                faces.append(q[1:])
+                continue
+            a0, b0, a1, b1 = q
+            # the shorter diagonal
+            if np.linalg.norm(vertices[a0] - vertices[b1]) <= np.linalg.norm(vertices[b0] - vertices[a1]):
+                faces += [(a0, b0, b1), (a0, b1, a1)]
+            else:
+                faces += [(a0, b0, a1), (b0, b1, a1)]
+    faces = np.array(faces, 'i8').reshape(-1, 3)
+    tri = vertices[faces]
+    n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    faces = faces[np.linalg.norm(n, axis=1) > 1e-10]; n = n[np.linalg.norm(n, axis=1) > 1e-10]
+    faces[n[:, 1] < 0] = faces[n[:, 1] < 0][:, [0, 2, 1]]          # wound to face up (native y up)
     if not len(faces):
         return None
     return vertices.astype('f4'), faces, (vertices[:, [0, 2]] / UV_METRES).astype('f4')
@@ -849,10 +965,40 @@ def solidify(piece, heights, around, metres=UV_METRES, clear=None):
     outward = np.tile(np.concatenate([out, out]), (2, 1))
     facing = np.where(kind == 0, normal[:, 1], (normal * outward).sum(1))
     faces[facing < 0] = faces[facing < 0][:, [0, 2, 1]]
-    # Caps take the texture from above, walls along their face.
-    p = np.concatenate([push, push])
-    wall_u = vertices[2 * n:, 0] * p[:, 2] - vertices[2 * n:, 2] * p[:, 0]
-    uvs = np.concatenate([vertices[:2 * n][:, [0, 2]], np.stack([wall_u, vertices[2 * n:, 1]], 1)]) / metres
+    # Caps take the texture from above, walls along their face: u is the distance along the run of the wall's top (a
+    # projection on the outward direction's normal jumped a tile each time the direction turned a degree, far from the
+    # origin: streaks down the wall), v its height. Where a run closes on itself its first corner is doubled.
+    u = np.full(n, np.nan)
+    adj = [[] for _ in range(n)]
+    for e, (x, z) in enumerate(zip(ia.tolist(), ib.tolist())):
+        adj[x].append((z, e)); adj[z].append((x, e))
+    flat_far = far[:, [0, 2]]
+    deg = np.array([len(v) for v in adj])
+    for s0 in sorted(range(n), key=lambda v: (deg[v] != 1, v)):
+        if np.isfinite(u[s0]) or not deg[s0]:
+            continue
+        u[s0] = 0.; stack = [s0]
+        while stack:
+            cur = stack.pop()
+            for nxt, e in adj[cur]:
+                if np.isnan(u[nxt]):
+                    u[nxt] = u[cur] + np.linalg.norm(flat_far[nxt] - flat_far[cur]); stack.append(nxt)
+    u = np.nan_to_num(u)
+    length = np.linalg.norm(flat_far[ib] - flat_far[ia], axis=1)
+    seam = np.abs(np.abs(u[ib] - u[ia]) - length) > 1e-4                 # a run's closing edge (or a pinch)
+    uv_wall = np.stack([np.concatenate([u, u]), vertices[2 * n:, 1]], 1)
+    extra_v, extra_uv = [], []
+    m, ne = len(vertices), len(ia)
+    for k, e in enumerate(np.flatnonzero(seam).tolist()):
+        lo_end, hi_end = (ia[e], ib[e]) if u[ia[e]] <= u[ib[e]] else (ib[e], ia[e])
+        nu = u[hi_end] + length[e]                       # the lower end's copies carry on past the higher end's u
+        extra_v += [vertices[2 * n + lo_end], vertices[3 * n + lo_end]]
+        extra_uv += [[nu, vertices[2 * n + lo_end, 1]], [nu, vertices[3 * n + lo_end, 1]]]
+        for f in (len(caps) + e, len(caps) + ne + e):    # the edge's two wall faces
+            faces[f] = np.where(faces[f] == 2 * n + lo_end, m + 2 * k, np.where(faces[f] == 3 * n + lo_end, m + 2 * k + 1, faces[f]))
+    if extra_v:
+        vertices = np.concatenate([vertices, np.array(extra_v)])
+    uvs = np.concatenate([vertices[:2 * n][:, [0, 2]], uv_wall] + ([np.array(extra_uv)] if extra_uv else [])) / metres
     keep = np.linalg.norm(normal, axis=1) > 1e-8
     return vertices, faces[keep], uvs
 
