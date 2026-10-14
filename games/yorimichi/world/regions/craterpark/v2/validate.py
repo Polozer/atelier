@@ -1181,7 +1181,7 @@ def air(meshes, lip, direction, lip_degrees=None, speeds=SPEEDS, band=None, g=G,
     fails = []
     if not np.isfinite(built):
         fails.append({'kind': 'no_lip_surface', 'where': _pt(lip)})
-    elif built > lip_max:
+    elif built > lip_max + .05:                                 # a 30 degree design lip measures 30.000x
         fails.append({'kind': 'lip_verts', 'where': _pt(lip), 'lip_deg': round(built, 2), 'limit_deg': lip_max})
     if lip_degrees is not None and np.isfinite(built) and abs(built - lip_degrees) > lip_tol:
         fails.append({'kind': 'lip_off_design', 'where': _pt(lip), 'built_deg': round(built, 2), 'design_deg': lip_degrees})

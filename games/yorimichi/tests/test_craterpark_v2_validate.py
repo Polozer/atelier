@@ -320,6 +320,8 @@ class AirTests(unittest.TestCase):
         self.assertFalse(V.air(meshes, lip, (1, 0), band=(lo - 2, hi))['ok'])        # a design band it cannot land
 
     def test_a_steep_lip_verts_and_flat_ground_is_no_landing(self):
+        meshes, lip = kicker_park(lip_deg=30.)
+        self.assertNotIn('lip_verts', [f['kind'] for f in V.air(meshes, lip, (1, 0))['failures']])   # the limit itself
         meshes, lip = kicker_park(lip_deg=50.)
         self.assertIn('lip_verts', [f['kind'] for f in V.air(meshes, lip, (1, 0))['failures']])
         meshes, lip = kicker_park(landing=False)
