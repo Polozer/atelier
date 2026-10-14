@@ -2,6 +2,7 @@
 #include "AtelierSettings.h"
 #include "JapanHUD.h"
 #include "JapanNetwork.h"
+#include "CraterParkTower.h"
 #include "JapanSession.h"
 #include "PlayableCharacter.h"
 #include "SkateComponent.h"
@@ -1052,6 +1053,24 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
         Detail->SetEnabled(TAttribute<bool>::CreateLambda([this] { return Get(TEXT("tree_optimization"))>.5f; }));
         Rows->AddSlot().AutoHeight().Padding(0,0,0,4)[Page->Add(Detail,TEXT("tree_lod_mode"),
             TEXT("Higher distance values keep detailed trees farther away and cost more GPU time. Forced intermediate/distant modes are comparisons, not the default."))];
+    }
+    // Crater Park's tower (docs/CRATERPARK.md, "Tower"): back to a line's roll-in crest, out of the menu's click.
+    if (const TArray<FCraterParkStart>& Starts = CraterParkTower::Starts(); Starts.Num())
+    {
+        TSharedRef<SWrapBox> Tower = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(2,2));
+        Page->Section();
+        for (int32 I = 0; I < Starts.Num(); ++I)
+            Tower->AddSlot()[Page->Add(SNew(SButton).Text(FText::FromString(Starts[I].Name))
+                .OnClicked_Lambda([this,I]
+                {
+                    CloseMenu();
+                    if (AWandererCharacter* Pawn = Owner)
+                        Pawn->GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(Pawn,[Pawn,I] { CraterParkTower::Return(Pawn,I); }));
+                    return FReply::Handled();
+                }),TEXT("tower:")+Starts[I].Key,
+                FString::Printf(TEXT("Back to the top of %s, standing on the tower deck facing down the line (F7 repeats the last one)."),*Starts[I].Name))];
+        Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(STextBlock).Text(FText::FromString(TEXT("Crater Park tower"))).Font(FCoreStyle::GetDefaultFontStyle("Bold",16)).ColorAndOpacity(FLinearColor::White)];
+        Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Tower];
     }
     Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Page->Add(SNew(SButton).Text(FText::FromString(TEXT("Play with friends")))
         .OnClicked_Lambda([this] { CloseMenu(); if (Owner) if (auto* Session=Owner->GetGameInstance<UJapanGameInstance>()) Session->Friends(); return FReply::Handled(); }),

@@ -306,7 +306,22 @@ nice -n 10 uv run python games/yorimichi/tools/review_craterpark.py --memory-gib
 
 In the game, `JapanWorld` spawns the park with `ASuperUltraMegaPark::Spawn`, the Mega Park's actor. `park.json` names
 its own `mesh_root`, its grind lines and `rails_required: true`. The collision is invisible and blocking, and counts as a skate
-surface like the Mega Park's. The world map has a **Crater Park** travel point at the marked drop-in.
+surface like the Mega Park's.
+
+## Tower
+
+The v2 park starts every line from one tower on the high east rim. `park.json` lists one start per designed line under
+`lines`: `{key, name, spawn: {location_cm, yaw_deg}, ground_error_m}`, island Unreal cm and yaw, facing down the line.
+The build places each start on its checked ground ([`v2/spawns.py`](../world/regions/craterpark/v2/spawns.py)):
+a downward ray from 2 m over it must meet collidable ground within 0.5 m, no steeper than 10°, on the tower deck, with
+the yaw within 15° of the line's first segment. Otherwise the build fails, naming the line. The top-level `spawn` is
+the first line's start.
+
+In the game ([`CraterParkTower.cpp`](../unreal/Source/Yorimichi/CraterParkTower.cpp)) the menu has a **Crater Park
+tower** button per line, and **F7** returns to the line chosen last (the first by default). The world map's
+**Crater Park** stop is the first line's start too. Each puts the rider on foot, standing still, facing down the line,
+after the same ground trace at runtime: with no ground within 50 cm of the start, it refuses with a message. A
+`park.json` without `lines` (r4) falls back to its single marked drop-in, which is also where the map stop stays.
 
 ## Later
 
