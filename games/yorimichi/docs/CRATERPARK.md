@@ -112,7 +112,25 @@ sky fill no longer lights every face evenly. It costs 4 bytes per drawn vertex: 
 of GPU memory with Unreal's vertex splits.
 
 Foundation faces that lie on a drawn riding surface (within 5 cm, facing the same way; the foundations sit up to 3 cm
-off the surfaces) are left out of the render, so they no longer flicker through it; the collision keeps every face.
+off the surfaces) are left out of the render, so they no longer flicker through it, and out of the collision. Every
+riding surface had a foundation face within 6 cm of it, and the board met the two as rival contacts: the ride stuttered
+on every ramp and bailed on the snake run's joins. A downward face lying on an upward one (a double-sided piece modelled
+with both windings) is left out too. The collision is what is drawn, as Mega Park's: the riding surfaces exactly, never
+simplified (a simplified ramp strayed up to 2.3 cm off its curve), the other roles simplified.
+
+Inside the block, the foundations' shared walls and the pieces' sides rise to 3 cm under the ramps. At speed (above
+about 7 m/s) the board's trucks met their top edges head-on: a single contact closing faster than the simulation's
+7.1 m/s limit, which it treats as a run-out, so the rider stepped off on the snake run's joins and at the foot of the
+wooden ramps. The collision leaves out every steep face whose top edge lies inside the solid (a riding face over it,
+and 2 cm to either side across the wall, up to 1 m above; a point on the seam of two riding faces is under both), and sinks every other collision corner inside the solid 25 cm, so a wall
+with an outer corner showing keeps its outside. A riser of 3 cm or more keeps its face. About 260,000 hidden faces
+leave the collision; by the east wooden ramps they filled the board's collision snapshot (196,608 triangles).
+
+The skate simulation tests a snapshot's triangles 64 at a time, in their stored order, against each group's box. The
+simplified foundations came out of Blender in scattered order, so each group of 64 spanned a median 433 m and every
+query met nearly all of them: by the east wooden ramps a simulation step took up to 186 ms, and the ride stuttered while
+walking stayed smooth. Each collision mesh is now stored along a Z-order curve of its faces' centres, the faces over
+8 m across in groups of their own: a group spans a median 9-16 m (52 m on the hillside's large faces).
 
 ## Restyle
 
@@ -154,7 +172,7 @@ ceiling.
 
 | Step | Does |
 |---|---|
-| `world.craterpark` | [`craterpark/build.py`](../world/regions/craterpark/build.py) (Blender) exports one render FBX per mesh, without its `render_skip` faces or the foundation faces on a riding surface, with creases over 35° and the baked occlusion as vertex colour ("Shading"). Collision FBX are built per role, at most 200,000 triangles each, with every face. It writes `park.json`. |
+| `world.craterpark` | [`craterpark/build.py`](../world/regions/craterpark/build.py) (Blender) exports one render FBX per mesh, without its `render_skip` faces or the foundation faces on a riding surface, with creases over 35° and the baked occlusion as vertex colour ("Shading"). Collision FBX are built per role, at most 200,000 triangles each, from the drawn faces, without the faces inside the solid; only the riding surfaces stay unsimplified. It writes `park.json`. |
 | `unreal.craterpark` | [`import_craterpark.py`](../unreal/Scripts/import_craterpark.py) imports them into `/Game/CraterPark`, with their vertex colours. Each material is a texture times its base colour, or the colour alone, darkened by the baked occlusion, and is two-sided where the source says so. |
 | `data.stage` | Copies `craterpark/park.json` to `Content/Data`. |
 

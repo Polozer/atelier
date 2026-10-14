@@ -5,8 +5,10 @@ Run with Blender. Every mesh except the helpers is kept, with no simplification:
   across edges under SMOOTH degrees; the PLAIN roles, drawn with world-aligned materials, are simplified (simplify);
   foundation faces lying on a drawn riding surface are left out (covered); every drawn vertex carries its baked
   ambient occlusion in its vertex colour (ambient_occlusion);
-- collision: every face of each role, the hidden ones included, simplified, from sections of at most SECTION source
-  triangles.
+- collision: what is drawn, as Mega Park's riding collision (megapark/build.py): the riding surfaces exactly, never
+  simplified, and the other roles simplified; no face lying on a riding surface (a foundation's top, a coincident
+  duplicate facing the other way), which the board met as a second contact millimetres off the ramp and bailed on;
+  no face inside the solid under the ramps (hidden_walls, sink_inside); sections of at most SECTION triangles.
 park.json places them on the caldera floor for ASuperUltraMegaPark::Spawn (placement.py).
 """
 import sys
@@ -32,7 +34,18 @@ SECTION = 200000        # collision triangles per mesh
 PLAIN = {'foundation', 'mountain', 'access_bridge', 'bridge_support', 'boundary'}
 FLAT = .5              # degrees: faces this close to coplanar are merged (a shape-preserving simplification)
 COVER = .05             # metres: foundation faces this close to a drawn riding surface, and parallel to it, are not drawn
+TWIN = .01              # metres: a riding face this close to another facing the opposite way is its double-sided twin
+FLICKER = .03           # metres: drawn faces of two meshes this close and parallel z-fight; one of them is drawn
 CHUNK = 20000           # points or vertices per vectorised batch (covered, ambient_occlusion): bounds the memory
+PAIRS = 2_000_000       # point-face candidate pairs per batch at most (covered): about 0.6 GB
+CELLS = 4_000_000       # surface cell entries indexed at once at most (covered): about 0.7 GB while indexing
+HIDE = 1.              # metres: a steep face's top edge this far under riding faces on both sides is inside the solid
+WALL_SIDE = .02         # metres either side of a steep face's top edge (across it) that hidden_walls probes for a riding face
+EDGE = 1e-9             # barycentric slack: a probe on the shared edge of two riding faces lies over them
+WALL_STEP = .03         # metres: a riding face this far below the top edge at a probe still covers it (a slope, not a riser)
+WALL_FLUSH = .005       # metres a riding face lies above a steep face's top edge at least, for the edge to be inside the solid
+LARGE = 8.              # metres across: a collision face this large is stored with the other large ones (spatial_order)
+SINK = .25              # metres the collision's corners inside the solid move down, out of the board's reach
 # Baked ambient occlusion, per drawn vertex (ambient_occlusion): voxel size and reach in metres, rays and steps per ray.
 AO_VOXEL = .5
 AO_REACH = 12.
@@ -112,6 +125,22 @@ def simplify(vertices, faces):
     return v, f[valid(v, f)]
 
 
+def spatial_order(triangles, cell=1.):
+    """The order of the `triangles` (n, 3, 3) along a Z-order curve of their centres over CELL-metre cells, those over
+    LARGE metres across last. The skate simulation groups a snapshot's triangles 64 at a time in their stored order and
+    tests each group's box: stored in this order, a group is a few metres across instead of the whole park (the
+    simplified foundations' groups spanned 433 m, so every query met all of them and a step took up to 186 ms), and the
+    few large faces share their own groups."""
+    t = triangles.astype('f8'); centres = t.mean(1)
+    large = np.linalg.norm(t.max(1) - t.min(1), axis=1) > LARGE
+    q = np.floor((centres - centres.min(0)) / cell).astype('u8') & 0x1fffff
+    code = np.zeros(len(q), 'u8')
+    for bit in range(21):
+        for axis in range(3):
+            code |= ((q[:, axis] >> np.uint64(bit)) & np.uint64(1)) << np.uint64(3 * bit + axis)
+    return np.lexsort((code, large))
+
+
 def valid(positions, triangles):
     t = positions[triangles].astype('f8')
     return np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1) > 1e-12
@@ -128,39 +157,130 @@ def cell_keys(cells):
     return (c[..., 0] << 42) | (c[..., 1] << 21) | c[..., 2]
 
 
-def covered(triangles, surfaces, two_sided, eps=COVER, cell=1.):
+def covered(triangles, surfaces, two_sided, eps=COVER, cell=1., ranks=None):
     """Mask of `triangles` (n, 3, 3) that lie on the drawn riding `surfaces` (m, 3, 3): the centroid and the three corners
     are each within eps of the plane of a surface triangle facing the same way (either way where `two_sided`), and inside
-    it, or within eps of its edges. Drawn under the riding surface they only flicker through it."""
+    it, or within eps of its edges. Drawn under the riding surface they only flicker through it. With `ranks` (the
+    triangles', the surfaces'), only a surface of a lower rank counts."""
     s = surfaces.astype('f8'); ns = unit_normals(s)
     lo = np.floor((s.min(1) - eps) / cell).astype('i8'); hi = np.floor((s.max(1) + eps) / cell).astype('i8')
+    size = hi - lo + 1; count = size.prod(1); total = np.cumsum(count)
+    t = triangles.astype('f8'); nt = unit_normals(t)
+    points = np.concatenate([t.mean(1, keepdims=True), t], 1).reshape(-1, 3)
+    pn = np.repeat(nt, 4, 0); k = cell_keys(np.floor(points / cell))
+    on = np.zeros(len(points), bool)
+    # The surfaces are indexed in batches of at most CELLS cell entries: a large face spans thousands of cells.
+    bounds = np.unique(np.concatenate([[0], np.searchsorted(total, np.arange(CELLS, total[-1] if len(s) else 0, CELLS)), [len(s)]]))
+    for s0, s1 in zip(bounds[:-1], bounds[1:]):
+        c = count[s0:s1]
+        owner = s0 + np.repeat(np.arange(s1 - s0), c)
+        local = np.arange(c.sum()) - np.repeat(np.cumsum(c) - c, c)
+        sx, sy = size[owner, 0], size[owner, 1]
+        keys = cell_keys(lo[owner] + np.stack([local % sx, (local // sx) % sy, local // (sx * sy)], -1))
+        del local, sx, sy
+        order = np.argsort(keys, kind='stable'); keys, owner = keys[order], owner[order]
+        first = np.searchsorted(keys, k, 'left'); pairs = np.cumsum(np.searchsorted(keys, k, 'right') - first)
+        # Batches of points bounded by their candidate pairs, not their count: a dense cell holds thousands of faces.
+        cuts = np.unique(np.concatenate([np.arange(0, len(points), CHUNK), np.searchsorted(pairs, np.arange(PAIRS, pairs[-1] if len(pairs) else 0, PAIRS)), [len(points)]]))
+        for start, end in zip(cuts[:-1], cuts[1:]):
+            p = points[start:end]; n = pn[start:end]
+            a = first[start:end]; reps = np.diff(pairs[start:end], prepend=pairs[start - 1] if start else 0)
+            which = np.repeat(np.arange(len(p)), reps)
+            cand = owner[np.repeat(a, reps) + np.arange(reps.sum()) - np.repeat(np.cumsum(reps) - reps, reps)]
+            q = p[which]; v = s[cand]; m = ns[cand]
+            facing = (n[which] * m).sum(1)
+            ok = (np.abs(((q - v[:, 0]) * m).sum(1)) < eps) & ((facing > .98) | (two_sided[cand] & (facing < -.98)))
+            for i in range(3):
+                e = v[:, (i + 1) % 3] - v[:, i]
+                inward = (np.cross(e, q - v[:, i]) * m).sum(1) / np.maximum(np.linalg.norm(e, axis=1), 1e-12)
+                ok &= inward > -eps
+            if ranks is not None:
+                ok &= ranks[1][cand] < ranks[0][(start + which) // 4]
+            on[start + which[ok]] = True
+    return on.reshape(-1, 4).all(1)
+
+
+def riding_above(riding, cell=2.):
+    """A test over the upward riding faces `riding` (m, 3, 3): above(points, low, high) is the mask of the points (k, 3)
+    with a riding face over them, between low and high (k,) in height."""
+    s = riding.astype('f8')
+    lo = np.floor(s.min(1)[:, [0, 2]] / cell).astype('i8'); hi = np.floor(s.max(1)[:, [0, 2]] / cell).astype('i8')
     size = hi - lo + 1; count = size.prod(1)
     owner = np.repeat(np.arange(len(s)), count)
     local = np.arange(count.sum()) - np.repeat(np.cumsum(count) - count, count)
-    sx, sy = size[owner, 0], size[owner, 1]
-    keys = cell_keys(lo[owner] + np.stack([local % sx, (local // sx) % sy, local // (sx * sy)], -1))
+    cells = lo[owner] + np.stack([local % size[owner, 0], local // size[owner, 0]], -1)
+    keys = (cells[:, 0] + (1 << 20)) << 21 | (cells[:, 1] + (1 << 20))
     order = np.argsort(keys, kind='stable'); keys, owner = keys[order], owner[order]
-    t = triangles.astype('f8'); nt = unit_normals(t)
-    points = np.concatenate([t.mean(1, keepdims=True), t], 1).reshape(-1, 3)
-    pn = np.repeat(nt, 4, 0)
-    on = np.zeros(len(points), bool)
-    for start in range(0, len(points), CHUNK):
-        p = points[start:start + CHUNK]; n = pn[start:start + CHUNK]
-        k = cell_keys(np.floor(p / cell))
-        a = np.searchsorted(keys, k, 'left'); b = np.searchsorted(keys, k, 'right')
-        reps = b - a
-        which = np.repeat(np.arange(len(p)), reps)
-        cand = owner[np.repeat(a, reps) + np.arange(reps.sum()) - np.repeat(np.cumsum(reps) - reps, reps)]
-        q = p[which]; v = s[cand]; m = ns[cand]
-        facing = (n[which] * m).sum(1)
-        ok = (np.abs(((q - v[:, 0]) * m).sum(1)) < eps) & ((facing > .98) | (two_sided[cand] & (facing < -.98)))
-        for i in range(3):
-            e = v[:, (i + 1) % 3] - v[:, i]
-            inward = (np.cross(e, q - v[:, i]) * m).sum(1) / np.maximum(np.linalg.norm(e, axis=1), 1e-12)
-            ok &= inward > -eps
-        hit = np.zeros(len(p), bool); hit[which[ok]] = True
-        on[start:start + CHUNK] = hit
-    return on.reshape(-1, 4).all(1)
+
+    def above(points, low, high):
+        c = np.floor(points[:, [0, 2]] / cell).astype('i8'); k = (c[:, 0] + (1 << 20)) << 21 | (c[:, 1] + (1 << 20))
+        start = np.searchsorted(keys, k, 'left'); pairs = np.cumsum(np.searchsorted(keys, k, 'right') - start)
+        found = np.zeros(len(points), bool)
+        cuts = np.unique(np.concatenate([np.arange(0, len(points), CHUNK), np.searchsorted(pairs, np.arange(PAIRS, pairs[-1] if len(pairs) else 0, PAIRS)), [len(points)]]))
+        for i0, i1 in zip(cuts[:-1], cuts[1:]):
+            reps = np.diff(pairs[i0:i1], prepend=pairs[i0 - 1] if i0 else 0)
+            which = np.repeat(np.arange(i0, i1), reps)
+            cand = owner[np.repeat(start[i0:i1], reps) + np.arange(reps.sum()) - np.repeat(np.cumsum(reps) - reps, reps)]
+            p = points[which]; v = s[cand]
+            d = (v[:, 1, 2] - v[:, 2, 2]) * (v[:, 0, 0] - v[:, 2, 0]) + (v[:, 2, 0] - v[:, 1, 0]) * (v[:, 0, 2] - v[:, 2, 2])
+            ok = np.abs(d) > 1e-12; d = np.where(ok, d, 1.)
+            l1 = ((v[:, 1, 2] - v[:, 2, 2]) * (p[:, 0] - v[:, 2, 0]) + (v[:, 2, 0] - v[:, 1, 0]) * (p[:, 2] - v[:, 2, 2])) / d
+            l2 = ((v[:, 2, 2] - v[:, 0, 2]) * (p[:, 0] - v[:, 2, 0]) + (v[:, 0, 0] - v[:, 2, 0]) * (p[:, 2] - v[:, 2, 2])) / d
+            l3 = 1 - l1 - l2
+            y = l1 * v[:, 0, 1] + l2 * v[:, 1, 1] + l3 * v[:, 2, 1]
+            hit = ok & (l1 >= -EDGE) & (l2 >= -EDGE) & (l3 >= -EDGE) & (y >= low[which]) & (y <= high[which])
+            found[which[hit]] = True
+        return found
+    return above
+
+
+def inside(points, above, across=None):
+    """Mask of the points (k, 3) inside the park's solid: a riding face lies over the point (WALL_FLUSH to HIDE above it)
+    and over its neighbours WALL_SIDE away (from WALL_STEP below, where a slope falls away, to HIDE above): on both sides
+    along `across` (k, 3), a wall's horizontal normal, or else in all four directions."""
+    if across is None:
+        side = np.broadcast_to(WALL_SIDE * np.array([[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]), (len(points), 5, 3))
+    else:
+        side = WALL_SIDE * across[:, None] * np.array([0, 1, -1])[None, :, None]
+    probes = (points[:, None] + side).reshape(-1, 3); m = side.shape[1]
+    y = np.repeat(points[:, 1], m)
+    low = y - np.tile([-WALL_FLUSH] + [WALL_STEP] * (m - 1), len(points))
+    return above(probes, low, y + HIDE).reshape(-1, m).all(1)
+
+
+def hidden_walls(triangles, above):
+    """Mask of the steep `triangles` (n, 3, 3) whose top edge lies inside the park's solid (inside, at three points along
+    it). Inside, the foundations' shared walls and the pieces' sides run up to a few centimetres under the ramps; the
+    board's contacts met them head-on there and threw the rider off at speed (a runout). A riser of WALL_STEP or more, or
+    an outer wall, with a drop on one side, keeps its face. The probes go across the wall only: a cross wall's top
+    corner at a ramp's outer edge is still inside."""
+    t = triangles.astype('f8'); n = unit_normals(t)
+    steep = np.flatnonzero(np.abs(n[:, 1]) < .7)
+    mask = np.zeros(len(t), bool)
+    if not len(steep):
+        return mask
+    # The top edge: the edge with the highest corners, level or slanting along a slope; or, for a wall's lower half
+    # (one corner at the top, a diagonal down), that top corner alone.
+    w = t[steep]; rows = np.arange(len(w))
+    first = np.argmax(np.stack([w[:, i, 1] + w[:, (i + 1) % 3, 1] for i in range(3)], 1), 1)
+    a = w[rows, first]; b = w[rows, (first + 1) % 3]
+    along = np.stack([a + (b - a) * f for f in (.1, .5, .9)], 1).reshape(-1, 3)
+    corner = w[rows, np.argmax(w[:, :, 1], 1)]
+    inward = (w.mean(1) - corner) * [1, 0, 1]                          # along the wall, off a ramp's outer corner
+    corner = corner + WALL_SIDE / 2 * inward / np.maximum(np.linalg.norm(inward, axis=1, keepdims=True), 1e-9)
+    across = n[steep] * [1, 0, 1]; across /= np.linalg.norm(across, axis=1, keepdims=True)
+    probes = inside(np.concatenate([along, corner]), above, np.concatenate([np.repeat(across, 3, 0), across]))
+    mask[steep] = probes[:len(along)].reshape(-1, 3).all(1) | probes[len(along):]
+    return mask
+
+
+def sink_inside(triangles, above):
+    """The collision `triangles` (n, 3, 3) with every corner inside the park's solid moved SINK down: a wall partly
+    inside (an outer corner showing) keeps its shape outside and drops its hidden top out of the board's reach."""
+    t = triangles.copy(); corners = t.reshape(-1, 3)
+    hidden = inside(corners.astype('f8'), above)
+    corners[hidden, 1] -= SINK
+    return t, int(hidden.sum())
 
 
 def ao_directions(rays=AO_RAYS):
@@ -240,7 +360,6 @@ def main():
         assert sha(SOURCE / entry['npz']) == entry['sha256'], entry['npz']
         a = placement.arrays(entry)
         keep = valid(a['positions'], a['triangles'])
-        sections.setdefault(entry['role'], []).append(a['positions'][a['triangles'][keep]])
         keep[a['render_skip']] = False
         loaded.append((entry, a, keep))
     # The riding surfaces as drawn; foundation faces lying on them are left out of the render (collision keeps them).
@@ -248,6 +367,33 @@ def main():
                 if entry['role'] == 'original']
     riding = np.concatenate([t for t, _ in surfaces])
     two_sided = np.concatenate([np.full(len(t), d) for t, d in surfaces])
+    # A double-sided piece modelled with both windings: drop the face turned down where an upward one lies on it. Its
+    # material draws both sides, so the pair only flickered, and the board met the downward one as a ceiling.
+    up = unit_normals(riding)[:, 1] > .5        # native frame: y up
+    for entry, a, keep in loaded:
+        if entry['role'] != 'original':
+            continue
+        index = np.flatnonzero(keep); t = a['positions'][a['triangles'][index]]
+        down = unit_normals(t.astype('f8'))[:, 1] < -.5
+        if down.any():
+            twin = covered(t[down], riding[up], np.ones(int(up.sum()), bool), eps=TWIN)
+            keep[index[np.flatnonzero(down)[twin]]] = False
+            print('Riding', entry['id'], 'downward twins left out:', int(twin.sum()), flush=True)
+    # Faces of different meshes lying on each other z-fight (the foundations' shared walls and tops, a riding piece on the
+    # block): each face lying on one of an earlier mesh, the riding pieces first, is left out of the render and collision.
+    order = sorted(range(len(loaded)), key=lambda i: (loaded[i][0]['role'] != 'original', i))
+    rank = np.empty(len(loaded), 'i8'); rank[order] = np.arange(len(loaded))
+    shown = [a['positions'][a['triangles'][keep]] for _, a, keep in loaded]
+    everything = np.concatenate(shown)
+    ranks = np.concatenate([np.full(len(f), rank[i]) for i, f in enumerate(shown)])
+    sides = np.concatenate([np.full(len(f), entry['doubleSided']) for (entry, _, _), f in zip(loaded, shown)])
+    fighting = covered(everything, everything, sides, eps=FLICKER, ranks=(ranks, ranks))
+    start = 0
+    for (entry, a, keep), f in zip(loaded, shown):
+        index = np.flatnonzero(keep); lost = fighting[start:start + len(f)]; start += len(f)
+        keep[index[lost]] = False
+        if lost.any():
+            print('Mesh', entry['id'], entry['role'], 'faces lying on an earlier mesh left out:', int(lost.sum()), flush=True)
     drawn = []
     for entry, a, keep in loaded:
         skipped = int(len(keep) - keep.sum())
@@ -256,6 +402,7 @@ def main():
             hidden = covered(a['positions'][a['triangles'][index]], riding, two_sided)
             keep[index[hidden]] = False
             print('Foundation', entry['id'], 'faces on a riding surface left out:', int(hidden.sum()), flush=True)
+        sections.setdefault(entry['role'], []).append(a['positions'][a['triangles'][keep]])
         used = np.unique(a['triangles'][keep])
         remap = np.full(len(a['positions']), -1, 'i8'); remap[used] = np.arange(len(used))
         vertices, faces, uvs = a['positions'][used], remap[a['triangles'][keep]], a['uvs'][used]
@@ -270,11 +417,22 @@ def main():
                     covered=covered_faces, occlusion_mean=round(float(ao.mean()), 4))
         report['render'].append(mesh)
         print('Exported', mesh['name'], flush=True)
+    ride = np.concatenate(sections['original']); above = riding_above(ride[unit_normals(ride.astype('f8'))[:, 1] > .2])
     for role, parts in sections.items():
         triangles = np.concatenate(parts)
+        hidden = hidden_walls(triangles, above)
+        triangles = triangles[~hidden]
+        sunk = 0
+        if role != 'original':
+            triangles, sunk = sink_inside(triangles, above)
+        print('Collision', role, 'faces inside the solid left out:', int(hidden.sum()), 'corners inside sunk:', sunk, flush=True)
+        triangles = triangles[spatial_order(triangles)]     # sections of neighbouring faces
         for k in range(0, len(triangles), SECTION):
             chunk = triangles[k:k + SECTION]
-            vertices, faces = simplify(chunk.reshape(-1, 3), np.arange(len(chunk) * 3).reshape(-1, 3))
+            vertices, faces = chunk.reshape(-1, 3), np.arange(len(chunk) * 3).reshape(-1, 3)
+            if role in PLAIN:
+                vertices, faces = simplify(vertices, faces)
+            faces = faces[spatial_order(vertices[faces])]
             entry = export_mesh(f'UC_CP_{role}_{k // SECTION}', vertices, faces, ['M_Collision'], np.zeros(len(faces), 'i4'))
             entry['source_triangles'] = len(chunk)
             entry.update(role=role, one_sided=False)
