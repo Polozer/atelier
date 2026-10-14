@@ -5984,6 +5984,30 @@
     "treehouse/textures/wood_timber.jpg": {
       "bytes": 385333,
       "sha256": "8de60cf7892e108b9815e6954d8e157100c3929b25a4b2b88c44457746b41ec3"
+    },
+    "vehicles/belmonte-train/textures/backhead.jpg": {
+      "bytes": 287581,
+      "sha256": "2a9d50d014da71e8d8714a4287caa92f3e3e75beeb28720bd30bbb96bd636e06"
+    },
+    "vehicles/belmonte-train/textures/livery-blue-panel.jpg": {
+      "bytes": 277181,
+      "sha256": "289621a1a445c0c072ad99a32f6412ed9f2a5083b12dbad5f538d338670507f8"
+    },
+    "vehicles/belmonte-train/textures/livery-ivory.jpg": {
+      "bytes": 119113,
+      "sha256": "fb173dcdbf8ebea273a7428ce54f1960874d813bcbda9dfa79ed53b546b2101a"
+    },
+    "vehicles/belmonte-train/textures/roof-canvas.jpg": {
+      "bytes": 285797,
+      "sha256": "74e29d8ec31f3ed758a692a63560d44768b52a1d11789e07156f9dd06bab2a08"
+    },
+    "vehicles/belmonte-train/textures/smokebox-door.jpg": {
+      "bytes": 208619,
+      "sha256": "095b9ecb622065ec3996bc3b086d0eb5662bbe1cc3cd60a5978f4d4d7b471d40"
+    },
+    "vehicles/belmonte-train/textures/underframe.jpg": {
+      "bytes": 357504,
+      "sha256": "93653308c6162bccff74d2950efba28d01686268a989023ddc2be2d53268bf3f"
     }
   }
 }
