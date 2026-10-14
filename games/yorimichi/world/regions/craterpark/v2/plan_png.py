@@ -198,3 +198,154 @@ def render_park(park, out, report=None, airs=None, **kw):
             if any(n == f or n.startswith(f + '.') for f in line.features):
                 line_of.setdefault(i, k)
     return render_plan(render, out, lanes=park_lanes(park), airs=airs, report=report, line_of=line_of, **kw)
+
+
+# ---------------------------------------------------------------------------------------------------- 3-D model (glTF)
+
+GLB_COLOURS = {'material_000': '#d9d3c7', 'material_010': '#d9d3c7', 'material_019': '#3d8fd6',
+               'coping_steel': '#9aa3ad', 'material_016': '#c08a4e', 'material_024': '#8c7a55'}
+GLB_OTHER = '#c4bdb0'           # any other material: a slightly darker concrete (walls, ledges)
+GLB_GROUND = '#8c7a55'          # warm earth / autumn grass, every ground-role face
+GLB_LINES = {'L1': '#ff7a1a', 'L2': '#2f7bff', 'L3': '#22c55e', 'L4': '#a855f7'}
+GLB_AIR = '#ffe14d'
+GLB_LIFT = -40.                 # native y minus this: world height (native y + 680, placement.LIFT) minus 640
+GLB_MAX_BYTES = 12_000_000
+
+
+def _linear(hexcol):
+    """sRGB '#rrggbb' to linear RGB in [0, 1] (glTF vertex colours are linear)."""
+    c = np.array([int(hexcol[i:i + 2], 16) for i in (1, 3, 5)], 'f8') / 255.
+    return np.where(c <= .04045, c / 12.92, ((c + .055) / 1.055) ** 2.4)
+
+
+def _air_arc(lip, land, apex, n=40):
+    """A parabola from lip to land through the apex height (native)."""
+    lip, land = np.asarray(lip, 'f8'), np.asarray(land, 'f8')
+    t = np.linspace(0, 1, n)
+    y0, y1, ya = lip[1], land[1], max(apex, lip[1], land[1])
+    # y(t) = y0 + b t + c t^2 with max ya: solve for b (the root giving a top inside [0, 1])
+    d = y1 - y0
+    disc = max((ya - y0) * (ya - y1), 0.)
+    b = 2 * ((ya - y0) + math.sqrt(disc))
+    c = d - b
+    P = lip[None] + t[:, None] * (land - lip)[None]
+    P[:, 1] = y0 + b * t + c * t * t
+    return P
+
+
+def park_glb(park, out, report=None, lift=GLB_LIFT, centre=None, max_bytes=GLB_MAX_BYTES, ground_reach=None):
+    """Write the park as a binary glTF 2.0 (one mesh, one vertex-coloured material; a second node with each line's path
+    0.5 m over its surface and each air's arc as line strips). Native metres, y up; x and z recentred on the park,
+    y = native y - `lift` (world height - 640 m). Base faces are left out. Returns (path, info)."""
+    import json as _json
+    import struct
+    from . import dsl
+    from .validate import heights_under
+    m = park.mesh
+    keep = np.asarray(m.role) != dsl.ROLE[dsl.BASE]
+    F = np.asarray(m.F)[keep]; role = np.asarray(m.role)[keep]; mat = np.asarray(m.material)[keep]
+    V = np.asarray(m.V, 'f8'); N = np.asarray(m.N, 'f8')
+    is_ground = role == dsl.ROLE[dsl.GROUND]
+    if ground_reach is not None:                                 # optional: drop ground faces far from every feature
+        feat_c = V[F[~is_ground]].mean(1)[:, [0, 2]]
+        g_c = V[F[is_ground]].mean(1)[:, [0, 2]]
+        cell = ground_reach
+        occ = {tuple(k) for k in np.floor(feat_c / cell).astype('i8').tolist()}
+        gk = np.floor(g_c / cell).astype('i8')
+        near = np.array([any((a + i, b + j) in occ for i in (-1, 0, 1) for j in (-1, 0, 1)) for a, b in gk.tolist()], bool)
+        sel = np.ones(len(F), bool); sel[np.flatnonzero(is_ground)[~near]] = False
+        F, role, mat, is_ground = F[sel], role[sel], mat[sel], is_ground[sel]
+    names = np.asarray(dsl.MATERIALS, object)[mat]
+    palette = {}
+    cid = np.empty(len(F), 'i8')
+    for k, (g, nm) in enumerate(zip(is_ground, names)):
+        key = GLB_GROUND if (g or nm == 'material_024') else GLB_COLOURS.get(nm, GLB_OTHER)
+        cid[k] = palette.setdefault(key, len(palette))
+    cols = np.array([_linear(h) for h in palette], 'f8')
+    # a vertex per (vertex, colour): faces of two colours sharing a vertex each get their own
+    corner_v = F.ravel(); corner_c = np.repeat(cid, 3)
+    key = corner_v * len(palette) + corner_c
+    uk, inv = np.unique(key, return_inverse=True)
+    vi = uk // len(palette); ci = uk % len(palette)
+    if centre is None:
+        lo = V[vi].min(0); hi = V[vi].max(0); centre = ((lo[0] + hi[0]) / 2, (lo[2] + hi[2]) / 2)
+    off = np.array([centre[0], lift, centre[1]])
+    P = (V[vi] - off).astype('f4')
+    Nn = N[vi]; Nn = (Nn / np.maximum(np.linalg.norm(Nn, axis=1, keepdims=True), 1e-12)).astype('f4')
+    C = np.c_[np.round(cols[ci] * 255), np.full(len(ci), 255)].astype('u1')
+    I = inv.reshape(-1, 3).astype('u4')
+    # line strips: each line's path 0.5 m over its riding surface; each air's arc
+    strips = []
+    T = V[F[~is_ground]]
+    for line in park.lines:
+        path = np.asarray(line.path, 'f8')
+        if len(path) < 2:
+            continue
+        p, h, _ = heights_under(T, path)
+        y = path[:, 1].copy()
+        for k in range(len(path)):
+            hk = h[p == k]
+            if len(hk):
+                y[k] = hk.max()
+        pts = np.c_[path[:, 0], y + .5, path[:, 2]]
+        strips.append((pts, GLB_LINES.get(str(line.name).split('-')[0].split('.')[0][:2], '#ff3d81')))
+    for a in (report or {}).get('airs', []) or []:
+        strips.append((_air_arc(a['lip'], a['land'], a.get('apex', a['lip'][1])), GLB_AIR))
+    # binary layout
+    blob = bytearray(); views = []; accessors = []
+
+    def add(arr, target, comp, typ, normalized=False, minmax=False):
+        while len(blob) % 4:
+            blob.append(0)
+        views.append({'buffer': 0, 'byteOffset': len(blob), 'byteLength': arr.nbytes, **({'target': target} if target else {})})
+        blob.extend(arr.tobytes())
+        acc = {'bufferView': len(views) - 1, 'componentType': comp, 'count': int(len(arr) if arr.ndim > 1 or typ == 'SCALAR' else len(arr)),
+               'type': typ}
+        if typ == 'SCALAR':
+            acc['count'] = int(arr.size)
+        if normalized:
+            acc['normalized'] = True
+        if minmax:
+            acc['min'] = arr.min(0).astype(float).tolist(); acc['max'] = arr.max(0).astype(float).tolist()
+        accessors.append(acc)
+        return len(accessors) - 1
+    a_pos = add(P, 34962, 5126, 'VEC3', minmax=True)
+    a_nrm = add(Nn, 34962, 5126, 'VEC3')
+    a_col = add(C, 34962, 5121, 'VEC4', normalized=True)
+    a_idx = add(I.ravel(), 34963, 5125, 'SCALAR')
+    prims = [{'attributes': {'POSITION': a_pos, 'NORMAL': a_nrm, 'COLOR_0': a_col}, 'indices': a_idx, 'material': 0, 'mode': 4}]
+    line_prims = []
+    for pts, hexcol in strips:
+        Q = (pts - off).astype('f4')
+        Cq = np.tile(np.r_[np.round(_linear(hexcol) * 255), 255].astype('u1'), (len(Q), 1))
+        line_prims.append({'attributes': {'POSITION': add(Q, 34962, 5126, 'VEC3', minmax=True),
+                                          'COLOR_0': add(Cq, 34962, 5121, 'VEC4', normalized=True)},
+                           'material': 1, 'mode': 3})
+    while len(blob) % 4:
+        blob.append(0)
+    meshes = [{'name': 'crater_park', 'primitives': prims}]
+    nodes = [{'name': 'crater_park', 'mesh': 0}]
+    if line_prims:
+        meshes.append({'name': 'lines_and_airs', 'primitives': line_prims}); nodes.append({'name': 'lines_and_airs', 'mesh': 1})
+    gltf = {'asset': {'version': '2.0', 'generator': 'craterpark v2 plan_png.park_glb'},
+            'scene': 0, 'scenes': [{'nodes': list(range(len(nodes)))}], 'nodes': nodes, 'meshes': meshes,
+            'materials': [{'name': 'park', 'pbrMetallicRoughness': {'baseColorFactor': [1, 1, 1, 1], 'metallicFactor': 0.,
+                                                                    'roughnessFactor': .85}},
+                          {'name': 'lines', 'pbrMetallicRoughness': {'baseColorFactor': [1, 1, 1, 1], 'metallicFactor': 0.,
+                                                                     'roughnessFactor': 1.}, 'emissiveFactor': [1, 1, 1],
+                           'extensions': {'KHR_materials_unlit': {}}}],
+            'extensionsUsed': ['KHR_materials_unlit'],
+            'accessors': accessors, 'bufferViews': views, 'buffers': [{'byteLength': len(blob)}],
+            'extras': {'frame': 'native metres, y up: gltf = native - offset_native (y: world height - 640 m)',
+                       'offset_native': off.tolist()}}
+    js = _json.dumps(gltf, separators=(',', ':')).encode()
+    js += b' ' * (-len(js) % 4)
+    total = 12 + 8 + len(js) + 8 + len(blob)
+    if total > max_bytes and ground_reach is None:
+        return park_glb(park, out, report, lift, centre, max_bytes, ground_reach=30.)
+    with open(out, 'wb') as fh:
+        fh.write(struct.pack('<III', 0x46546C67, 2, total))
+        fh.write(struct.pack('<II', len(js), 0x4E4F534A)); fh.write(js)
+        fh.write(struct.pack('<II', len(blob), 0x004E4942)); fh.write(bytes(blob))
+    return out, {'bytes': total, 'vertices': int(len(P)), 'triangles': int(len(I)), 'strips': len(strips),
+                 'offset_native': off.tolist(), 'ground_trimmed': ground_reach is not None}

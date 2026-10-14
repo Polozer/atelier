@@ -387,6 +387,31 @@ class ParkEntryTests(unittest.TestCase):
             png, _, _ = plan_png.render_park(self.park, Path(d) / 'plan.png', report=rep)
             self.assertTrue(Path(png).stat().st_size > 1000)
 
+    def test_the_park_glb_is_well_formed_coloured_and_lined(self):
+        import struct
+        with tempfile.TemporaryDirectory() as d:
+            rep = V.validate_park(self.park, log=None, skip=('slivers',))[0]
+            path, info = plan_png.park_glb(self.park, Path(d) / 'park.glb', report=rep)
+            b = Path(path).read_bytes()
+        magic, ver, total = struct.unpack('<III', b[:12])
+        self.assertEqual((magic, ver, total), (0x46546C67, 2, len(b)))
+        jl, jt = struct.unpack('<II', b[12:20]); g = json.loads(b[20:20 + jl])
+        bl, bt = struct.unpack('<II', b[20 + jl:28 + jl])
+        self.assertEqual((jt, bt, bl, 28 + jl + bl), (0x4E4F534A, 0x004E4942, g['buffers'][0]['byteLength'], len(b)))
+        B = b[28 + jl:]
+        prim = g['meshes'][0]['primitives'][0]
+        acc = lambda i, dt, k: np.frombuffer(B, dt, g['accessors'][i]['count'] * k,
+                                             g['bufferViews'][g['accessors'][i]['bufferView']]['byteOffset']).reshape(-1, k)
+        P = acc(prim['attributes']['POSITION'], '<f4', 3); N = acc(prim['attributes']['NORMAL'], '<f4', 3)
+        I = acc(prim['indices'], '<u4', 1).ravel()
+        base = int((np.asarray(self.park.mesh.role) == self.dsl.ROLE[self.dsl.BASE]).sum())
+        self.assertEqual(len(I) // 3, len(self.park.mesh.F) - base)                     # every drawn face, no base
+        self.assertLess(I.max(), len(P))
+        self.assertTrue(np.allclose(np.linalg.norm(N, axis=1), 1, atol=1e-4))
+        self.assertAlmostEqual(float(P[:, 1].max()), float(self.park.mesh.V[:, 1].max()) + 40, places=3)   # world - 640
+        self.assertEqual(len(g['meshes']), 2)                                             # the line strips
+        self.assertEqual(g['meshes'][1]['primitives'][0]['mode'], 3)
+
     def test_the_ground_is_the_site_and_an_unlined_ramp_is_not(self):
         dsl = self.dsl
         g = dsl.Mesh.part(*grid(1100, 1000, 1110, 1010, 2, y=20.), role=dsl.GROUND, feature='ground', material=dsl.GROUND_MAT)
