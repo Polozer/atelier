@@ -459,25 +459,47 @@ def street(riding, solid, box, level, cell=CELL):
     return v[used].astype('f4'), index[faces], made[2][used]
 
 
+def monotone(x, y, at):
+    """The curve through the points (x, y) at `at`, smooth (its slope continuous) and never past its neighbours' heights
+    (a monotone cubic, Fritsch-Carlson): a landing ramp's profile with no bump or dip between its given heights."""
+    x, y = np.asarray(x, 'f8'), np.asarray(y, 'f8')
+    if len(x) < 3:
+        return np.interp(at, x, y)
+    h = np.diff(x); d = np.diff(y) / h
+    m = np.zeros(len(x)); m[0], m[-1] = d[0], d[-1]
+    same = d[:-1] * d[1:] > 0
+    w1, w2 = 2 * h[1:] + h[:-1], h[1:] + 2 * h[:-1]
+    m[1:-1] = np.where(same, (w1 + w2) / np.where(same, w1 / np.where(same, d[:-1], 1) + w2 / np.where(same, d[1:], 1), 1), 0.)
+    k = np.clip(np.searchsorted(x, at) - 1, 0, len(x) - 2)
+    u = np.clip((at - x[k]) / h[k], 0., 1.)
+    h00, h10, h01, h11 = 2 * u ** 3 - 3 * u ** 2 + 1, u ** 3 - 2 * u ** 2 + u, -2 * u ** 3 + 3 * u ** 2, u ** 3 - u ** 2
+    return h00 * y[k] + h10 * h[k] * m[k] + h01 * y[k + 1] + h11 * h[k] * m[k + 1]
+
+
 SNAKE_LIP = .6      # metres of flat deck along a snake run's lip, behind its coping
 SNAKE_STEP = .5     # metres between the points its centreline is resampled at
 SNAKE_EASE = 2.     # metres over which its floor's height is smoothed along it
 
 
-def snake_run(riding, path, width, wall, radius, cell=CELL):
+def snake_run(riding, path, width, wall, radius, laid=True, cell=CELL):
     """A snake run along the centreline `path` [(x, z) or (x, y, z)]: a floor `width` wide, at the height of the riding
     face under the centreline (a path it is laid over stays flush), or the point's own y, carried smoothly along it
     between; a circle's arc of `radius` either side rising `wall` over the floor, so a rider carves and pumps from wall
-    to wall; then SNAKE_LIP of flat deck. Its outer sides hang (solidify closes them). (vertices, faces, uvs) or None."""
+    to wall; then SNAKE_LIP of flat deck. Not `laid` (over a gap: a landing ramp), its floor takes only the points' own
+    heights, through a smooth curve that never overshoots them (no wall: a ramp). Its outer sides hang (solidify closes
+    them). (vertices, faces, uvs) or None."""
     p = np.asarray([(q[0], np.nan, q[1]) if len(q) == 2 else q for q in path], 'f8')
     # The centreline resampled every SNAKE_STEP, its floor's height sampled and carried across the gaps, then eased.
     seg = np.linalg.norm(np.diff(p[:, [0, 2]], axis=0), axis=1); s = np.concatenate([[0.], np.cumsum(seg)])
     t = np.arange(0., s[-1] + 1e-6, SNAKE_STEP)
     line = np.stack([np.interp(t, s, p[:, 0]), np.zeros(len(t)), np.interp(t, s, p[:, 2])], 1)
     given = np.interp(t, s[np.isfinite(p[:, 1])], p[np.isfinite(p[:, 1]), 1]) if np.isfinite(p[:, 1]).any() else None
-    y = top_heights(riding, line)
+    if not laid:
+        y = monotone(s[np.isfinite(p[:, 1])], p[np.isfinite(p[:, 1]), 1], t)
+    else:
+        y = top_heights(riding, line)
     near_given = np.zeros(len(t), bool)
-    if given is not None:
+    if given is not None and laid:
         for k in np.flatnonzero(np.isfinite(p[:, 1])):
             near_given |= np.abs(t - s[k]) < SNAKE_STEP
         y = np.where(near_given | ~np.isfinite(y), np.where(near_given, given, y), y)
@@ -485,8 +507,9 @@ def snake_run(riding, path, width, wall, radius, cell=CELL):
     if ok.sum() < 2:
         return None
     y = np.interp(t, t[ok], y[ok])
-    k = max(1, int(SNAKE_EASE / SNAKE_STEP / 2))
-    y = np.convolve(np.pad(y, k, mode='edge'), np.ones(2 * k + 1) / (2 * k + 1), mode='valid')
+    if laid:
+        k = max(1, int(SNAKE_EASE / SNAKE_STEP / 2))
+        y = np.convolve(np.pad(y, k, mode='edge'), np.ones(2 * k + 1) / (2 * k + 1), mode='valid')
     radius = max(radius, wall); reach = np.sqrt(radius ** 2 - (radius - wall) ** 2)
     half = width / 2 + reach + SNAKE_LIP
     x0, z0 = line[:, [0, 2]].min(0) - half - cell; x1, z1 = line[:, [0, 2]].max(0) + half + cell

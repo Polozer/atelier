@@ -18,6 +18,7 @@ TUBE_RAYS = 5           # of eight horizontal directions from a point near a tun
 PROBE = 2.              # metres between the points that find which pieces close round a bore (tunnels)
 SPLIT = .5              # metres across: a face reaching into a bore is split down to parts this small (carve)
 QUICK = 2.              # metres across: a part this small with no probe in the bore is kept whole (carve)
+LATTICE = 64            # lattice points along a face's longest edge at most (reaches_in)
 VOXEL = 1.              # metres between the nodes of the grid that says which points lie in a bore (bore_grid)
 PAIRS = 2_000_000       # ray-face pairs per batch at most
 
@@ -131,6 +132,24 @@ def bore_test(points, piece, grid):
     return out
 
 
+def reaches_in(triangles, piece, grid, step):
+    """Mask of the `triangles` (n, 3, 3) with a point of a lattice over them, `step` apart, in the bore (bore_test).
+    Most faces near a bore only line it: they stay whole, and only the ones reaching in are split (carve)."""
+    hit = np.zeros(len(triangles), bool)
+    longest = np.linalg.norm(triangles - triangles[:, [1, 2, 0]], axis=-1).max(1)
+    k = np.clip(np.ceil(longest / step).astype('i8'), 1, LATTICE)
+    for n in np.unique(k):
+        which = np.flatnonzero(k == n)
+        i, j = np.meshgrid(np.arange(n + 1), np.arange(n + 1)); keep = (i + j) <= n
+        w = np.stack([i[keep], j[keep], n - i[keep] - j[keep]], 1) / n          # barycentric lattice
+        w = np.concatenate([w, [[1 / 3, 1 / 3, 1 / 3]]])
+        for c in range(0, len(which), max(1, 200000 // len(w))):
+            f = which[c:c + max(1, 200000 // len(w))]
+            points = np.einsum('pk,fkd->fpd', w, triangles[f]).reshape(-1, 3)
+            hit[f] = bore_test(points, piece, grid).reshape(len(f), len(w)).any(1)
+    return hit
+
+
 def carve(triangles, bores, split=SPLIT):
     """The `triangles` (n, 3, 3) cut out of the tunnels' bores (in_bore), `bores` as tunnels gives them. A face reaching
     into a bore is split in four, again and again near the bore, down to `split` metres; the parts whose centre lies in
@@ -148,6 +167,7 @@ def carve(triangles, bores, split=SPLIT):
         lo, hi = reach[0] - TUBE_REACH, reach[1] + TUBE_REACH
         piece = piece[((piece.max(1) > lo) & (piece.min(1) < hi)).all(1)]
         grid = bore_grid(piece, inside)
+        near = near[reaches_in(triangles[near].astype('f8'), piece, grid, split)]
         parent, bary = near, np.repeat(np.eye(3)[None], len(near), 0)
         kept, dropped = [], np.zeros(len(triangles), bool)
         while len(parent):
