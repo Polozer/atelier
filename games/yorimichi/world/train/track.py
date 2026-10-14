@@ -60,6 +60,7 @@ MATERIALS = {               # Blender colour stand-ins; the names are the Unreal
     'MI_TK_Marker': (.95, .45, .05, .6),
     'MI_TK_TunnelLining': (.075, .07, .065, .95),   # soot-blackened stone: the tunnel stays dark between its lamps
     'MI_TK_LampGlow': (1., .72, .38, .3),            # emissive in Unreal (track_build.py lights it in Blender)
+    'MI_TK_Bank': (.10, .14, .045, .95),             # the grass of a bank built over ground that is not carved
 }
 BUDGETS = {                 # triangles per LOD (BELMONTE_TRACK.md)
     'SM_TK_Chunk': (1200, 400, 120),
@@ -71,6 +72,7 @@ BUDGETS = {                 # triangles per LOD (BELMONTE_TRACK.md)
     'SM_TK_BufferStop': (800,),
     'SM_TK_Sleeper': (12,),
     'SM_TK_TunnelLamp': (120,),
+    'SM_TK_Bank': (6000, 1500),                # per 100 m piece
 }
 
 
@@ -458,6 +460,50 @@ def portal_mesh(lod):
     return mesh
 
 
+# --- banks over ground the earthworks cannot carve ----------------------------------------------------------------
+
+
+BANK_SLICES = (5., 10.)
+BANK_ACROSS = (1., 2.5)
+
+
+def bank_ranges(line):
+    """Chainage ranges of embankment over Belmonte's own valley, whose committed terrain is not carved: there the
+    bank is a mesh of its own (elsewhere the terrain itself is raised, train/earthworks.py)."""
+    from belmonte import layout as BM
+    rows = line.route['samples']
+    out, start = [], None
+    for i, r in enumerate(rows + [None]):
+        on = r is not None and r['class'] == 'embankment' and r['rail_z'] - r['ground_z'] > .3 and bool(BM.contains(r['x'], r['y']))
+        if on and start is None:
+            start = max(r['s'] - 5., 0.)
+        if not on and start is not None:
+            out.append((start, min(rows[i - 1]['s'] + 5., line.length)))
+            start = None
+    return out
+
+
+def bank_mesh(line, start, end, lod, origin):
+    """The bank from start to end: the earthworks' formation and slopes down to 0.3 m under the natural ground."""
+    from train import earthworks as E
+    ln = E.line()
+    mesh = Mesh()
+    s_values = stations(start, end, BANK_SLICES[lod])
+    reach = E.FLOOR_HALF + E.ROUND + E.RATIO[1] * max(float(np.max(line.rail - line.ground)), 1.) + 4.
+    u = np.arange(-reach, reach + 1e-6, BANK_ACROSS[lod])[::-1]
+
+    def section(s):
+        p = line.place(np.full(len(u), s), u, 0.)
+        g = R.ground(p[:, 0], p[:, 1])
+        _, lo, _ = E.design(p[:, 0], p[:, 1], ln)
+        lo = np.where(np.isfinite(lo), lo, g - .3)
+        z = np.maximum(lo, g - .3)
+        rail = float(np.interp(s, line.s, line.rail))
+        return list(zip(u, z - rail))
+
+    return sweep(line, mesh, s_values, section, 'MI_TK_Bank', origin)
+
+
 # --- the viaduct -------------------------------------------------------------------------------------------------
 
 
@@ -594,6 +640,15 @@ def layout(line=None):
                                 chunks=[c['name'] for c in chunk_rows if c['layer'] == name]))
     meshes['SM_TK_Portal'] = [portal_mesh(lod) for lod in range(2)]
     placed['SM_TK_Portal'] = portals
+    bank_rows = []
+    for a0, b0 in bank_ranges(line):
+        edges = stations(a0, b0, CHUNK)
+        for a, b in zip(edges[:-1], edges[1:]):
+            origin = line.frame(a)[0]
+            name = f'SM_TK_Bank_{len(bank_rows):02d}'
+            meshes[name] = [bank_mesh(line, a, b, lod, origin) for lod in range(2)]
+            bank_rows.append(dict(name=name, start=round(float(a), 2), end=round(float(b), 2), origin=_xyz(origin),
+                                  collision='LOD1'))
     meshes['SM_TK_TunnelLamp'] = [lamp_mesh()]
     placed['SM_TK_TunnelLamp'] = lamps
 
@@ -645,7 +700,7 @@ def layout(line=None):
         '[x, y, z, yaw degrees, scale] (scale: sleepers along their length, turnouts the y mirror)',
         route=dict(length_m=round(line.length, 2), loop=list(line.loop), loop_side='left' if line.loop_side > 0 else 'right',
                    mismatch_m=round(line.mismatch, 4)),
-        chunks=chunk_rows, tunnels=tunnel_rows, viaducts=viaduct_rows,
+        chunks=chunk_rows, tunnels=tunnel_rows, viaducts=viaduct_rows, banks=bank_rows,
         tunnel_lighting=dict(
             lights=lights, light=LIGHT, lamp_spacing_m=LAMP_SPACING,
             exposure=dict(min_ev=-1., max_ev=1., note='a post-process volume per lining piece (tunnels[].lining[].volume) '

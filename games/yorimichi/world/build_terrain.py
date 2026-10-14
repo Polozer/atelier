@@ -153,6 +153,9 @@ def main():
 
     fverts = [(float(FX[j, i]), float(FY[j, i]), float(FZ[j, i])) for j in range(fn) for i in range(fn)]
     ffaces = [(j * fn + i, j * fn + i + 1, (j + 1) * fn + i + 1, (j + 1) * fn + i) for j in range(fn - 1) for i in range(fn - 1)]
+    from train import earthworks  # the Belmonte railway's cuttings through the far hills (RAILWAY_EARTHWORKS=0: none)
+    from hidamari.mountains import contains as under_foothills
+    fverts, ffaces, _ = earthworks.polygons(fverts, ffaces, 4., hidden=under_foothills)
     hills = obj("FarHills", fverts, ffaces, far, uvs=lambda co: (co.x / 180.0, co.y / 180.0))
     # export terrain fbx
     bpy.ops.object.select_all(action="DESELECT")

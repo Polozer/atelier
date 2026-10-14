@@ -225,6 +225,7 @@ def land_use(x,y):
 def surface(name,xs,ys,color):
     m=M(name)
     gx,gy=np.meshgrid(xs,ys);gz=height(gx,gy)
+    if name=='HD_Terrain':from train import earthworks;gz=earthworks.carve(gx,gy,gz)  # the Belmonte railway's bank and cutting by the city
     for j,y in enumerate(ys[:-1]):
         for i,x in enumerate(xs[:-1]):
             dx=xs[i+1]-x;dy=ys[j+1]-y

@@ -79,10 +79,16 @@ def finish_surfaces(data):
 
 
 def surroundings():
+    from hidamari import mountains
+    from train import earthworks
     collar, seam = terrain.collar()
     entries = []
-    for name, mesh in [('SM_BM_NorthApron', collar), ('SM_BM_NorthCountry', terrain.country())]:
+    (OUT / 'natural').mkdir(exist_ok=True)
+    for name, mesh, step in [('SM_BM_NorthApron', collar, 2.5), ('SM_BM_NorthCountry', terrain.country(), 4.)]:
         path = OUT / 'glb' / (name + '.glb')
+        # The natural ground stays beside the built one: the route study samples it, never the railway's own cuttings.
+        mesh.save(OUT / 'natural' / (name + '.glb'), 'BM_000_Ground')
+        earthworks.quads(mesh, L.ORIGIN, step, hidden=lambda x, y: mountains.contains(x, y) & (y < L.SOUTH_JOIN))
         info = mesh.save(path, 'BM_000_Ground')
         appearance.paint_join(path, mesh)
         entries.append({'name': name, 'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),

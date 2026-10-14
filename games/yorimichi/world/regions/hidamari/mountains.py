@@ -527,8 +527,10 @@ def mesh(base_sampler):
             faces.extend([(a,b,c),(a,c,d)])
     faces=np.asarray(faces,dtype=np.int32)
     used=np.unique(faces);remap=np.full(x.size,-1,dtype=np.int32);remap[used]=np.arange(len(used))
-    return dict(vertices=np.stack([x,y,z],-1).reshape(-1,3)[used],faces=remap[faces],
-                colours=np.dstack([colors,mask]).reshape(-1,4)[used],normals=normals.reshape(-1,3)[used])
+    sheet=dict(vertices=np.stack([x,y,z],-1).reshape(-1,3)[used],faces=remap[faces],
+               colours=np.dstack([colors,mask]).reshape(-1,4)[used],normals=normals.reshape(-1,3)[used])
+    from train import earthworks  # the Belmonte railway's cuttings, banks and portal holes (RAILWAY_EARTHWORKS=0: none)
+    return earthworks.sheet(sheet)
 
 
 def trail_mesh(surface):
