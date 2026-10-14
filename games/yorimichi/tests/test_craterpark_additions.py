@@ -37,24 +37,31 @@ def tube(radius, length, sides=24):
 
 
 class TunnelTests(unittest.TestCase):
-    def test_the_solid_in_a_tunnel_is_found_and_the_block_round_it_kept(self):
+    def test_the_solid_in_a_tunnel_is_cut_out_and_the_block_round_it_kept(self):
         bore = tube(3., 20.)
         inside = np.asarray(box(2, .5, -1, 18, 4, 1), 'f8')              # solid filling the bore
         outside = np.asarray(box(2, 7, -1, 18, 9, 1) + box(-10, 0, -10, -5, 5, 10), 'f8')  # over the roof, beside it
-        mask = tunnel.inside_tubes(np.concatenate([inside, outside]), tunnel.tunnels([bore]))
-        self.assertTrue(mask[:len(inside)].all())
-        self.assertFalse(mask[len(inside):].any())
+        cut, parent, corners = tunnel.carve(np.concatenate([inside, outside]), tunnel.tunnels([bore]))
+        self.assertTrue(cut[:len(inside)].all())
+        self.assertFalse(cut[len(inside):].any())
 
-    def test_a_long_face_crossing_the_bore_is_found(self):
-        bore = tube(3., 20.)
-        sliver = np.asarray([[(10, -8, -.2), (10, 5, -.2), (10.3, -8, .2)]], 'f8')    # its centre under the floor
-        self.assertTrue(tunnel.inside_tubes(sliver, tunnel.tunnels([bore]))[0])
+    def test_a_long_face_crossing_the_bore_keeps_its_ends(self):
+        bore = tube(3., 20.); bores = tunnel.tunnels([bore])
+        sliver = np.asarray([[(10, -8, -.4), (10, 9, -.4), (10.3, -8, .4)]], 'f8')   # from under the floor to over the roof
+        cut, parent, corners = tunnel.carve(sliver, bores)
+        self.assertTrue(cut[0])
+        parts = np.einsum('mij,mjd->mid', corners, sliver[parent])
+        centres = parts.mean(1)
+        self.assertFalse(tunnel.in_bore(centres, [bore]).any())        # nothing left in the bore
+        self.assertTrue((centres[:, 1] < 0).any() and (centres[:, 1] > 6).any())     # both ends kept
+        area = lambda t: np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1).sum() / 2
+        self.assertLess(area(parts), area(sliver))
 
     def test_under_a_deck_is_no_tunnel(self):
         deck = np.asarray(floor(-5, -5, 5, 5, 4.) + floor(-5, -5, 5, 5, 0.), 'f8')    # open on every side
         block = np.asarray(box(-1, 1, -1, 1, 3, 1), 'f8')
         self.assertEqual(tunnel.tunnels([deck]), [])
-        self.assertFalse(tunnel.inside_tubes(block, [(deck, np.zeros((1, 3)))]).any())
+        self.assertFalse(tunnel.carve(block, [(deck, np.zeros((1, 3)))])[0].any())
 
 
 class SnakeTests(unittest.TestCase):
@@ -88,14 +95,29 @@ class SnakeTests(unittest.TestCase):
         riding = np.asarray(floor(0, 0, 10, 10) + floor(10, 0, 20, 10, 2.5), 'f8')
         solid = np.asarray(floor(-10, -10, 30, 30, -20.), 'f8')
         made = additions.snake_channels(riding, solid, (-2, -2, 22, 12), 0., feet=True)
-        self.assertNotIn('channels', made)
-        v, f, uv = made['feet']
+        v, f, uv = made['channels']                                         # the curve, in concrete
         used = v[np.unique(f)]
+        if 'floor' in made:                                                 # a skirt, if any, lies flat on the floor
+            self.assertLess(float(np.abs(v[made['floor'][1]][:, :, 1]).max()), additions.LIFTED * 2)
         self.assertAlmostEqual(float(used[:, 1].max()), 2.5, delta=.01)          # reaches the deck's edge
         foot = used[(np.abs(used[:, 2] - 5) < .2) & (used[:, 0] < 10)]
         self.assertLess(float(foot[:, 0].min()), 10 - 2.)                       # starts about its radius out
         n = grind.unit_normals(v[f].astype('f8'))
         self.assertTrue((n[:, 1] > 0).all())
+
+
+    def test_a_filled_slot_at_a_walls_foot_is_one_curve_from_the_floor_to_the_deck(self):
+        # The floor at 0 m, a 3 m slot along the foot of a deck 2.5 m up, the hillside 20 m down.
+        riding = np.asarray(floor(0, 0, 30, 10) + floor(0, 10, 5, 13) + floor(25, 10, 30, 13) + floor(0, 13, 30, 20, 2.5), 'f8')
+        solid = np.asarray(floor(-10, -10, 40, 35, -20.), 'f8')
+        made = additions.snake_channels(riding, solid, (-2, -2, 32, 22), 0., channel=0., feet=True)
+        v = np.concatenate([m[0][m[1]].reshape(-1, 3) for m in made.values()])
+        self.assertGreater(float(v[:, 1].min()), -.001)                         # no gutter: nothing under the floor
+        cut = v[(np.abs(v[:, 0] - 15) < .01) & (v[:, 2] > 7) & (v[:, 2] < 13.01)]
+        cut = cut[np.argsort(cut[:, 2])]
+        self.assertTrue((np.diff(cut[:, 1]) > -1e-4).all())                     # rises all the way across the slot
+        self.assertAlmostEqual(float(cut[-1, 1]), 2.5, delta=.05)               # up to the deck's edge
+        self.assertLess(float(cut[0, 1]), .01)                                  # from the floor
 
 
 class SolidifyTests(unittest.TestCase):

@@ -148,8 +148,10 @@ them as `rails` and sets `rails_required`.
 
 The foundation blocks were made solid up to the top of the pieces over them, so they filled the round tunnel: the
 rider met its flat end. [`craterpark/tunnel.py`](../world/regions/craterpark/tunnel.py) finds the pieces that close
-round an open bore (a riding face over and under a point, and round it on most sides, within 12 m) and leaves out of
-the render and the collision every block face that reaches into one.
+round an open bore (a riding face over and under a point, and round it on most sides, within 12 m) and cuts every
+block face that reaches into one out of the render and the collision: the face is split down to 0.5 m near the bore
+and only its parts inside are left out, so a block's wall keeps its solid round the portal and a long face crossing
+the bore keeps its ends. The added pieces are cut the same way (a cap's wall once stood across the tunnel).
 
 [`craterpark/additions.py`](../world/regions/craterpark/additions.py) adds riding pieces, shaped on the park's own
 surfaces; none moves, cuts or covers what is ridden:
@@ -158,7 +160,9 @@ surfaces; none moves, cuts or covers what is ridden:
   1.5 m deep at its middle (less where it is narrow), its sides a sine curve meeting the floor flush at both edges.
   Under each bridge across a slot the channel rises into a roller over 4 m and meets the bridge's top. At the foot of a
   riding deck 0.9-5 m over the bowls' floor (and nearer than any slot), the floor rises in a transition of 2.5-3.5 m
-  radius up to the deck's edge: a long bank joins the east rim's deck to the bowls.
+  radius up to the deck's edge: a long bank joins the east rim's deck to the bowls. The curves (channels and
+  transitions) are seamless concrete (`material_010`); where they flatten onto the floor, within 2 cm of its level,
+  they take the bowls' own dark floor (`material_004`), so the concrete ends along a smooth contour.
 - **Pockets.** The plaza's stage pit and the holes in its terrace row are dishes of the same shape, flush with the
   plaza round them.
 - **Banks.** A smooth surface spans the hillside between two pieces, flush with both: a hip from the tower's channel

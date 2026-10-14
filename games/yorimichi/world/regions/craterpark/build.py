@@ -153,6 +153,22 @@ def spatial_order(triangles, cell=1.):
     return np.lexsort((code, large))
 
 
+def carve_bores(a, keep, bores):
+    """A mesh's arrays `a` (its faces kept by `keep`) cut out of the tunnels' bores (tunnel.carve): each face reaching
+    into a bore is left out and its parts outside the bores are added. Returns the new keep mask and the faces cut."""
+    index = np.flatnonzero(keep)
+    cut, parent, bary = tunnel.carve(a['positions'][a['triangles'][index]].astype('f8'), bores)
+    if not cut.any():
+        return keep, 0
+    corners = a['triangles'][index[parent]].astype('i8'); base = len(a['positions'])
+    for key in ('positions', 'uvs'):
+        parts = np.einsum('mij,mjd->mid', bary, a[key][corners].astype('f8'))
+        a[key] = np.concatenate([a[key], parts.reshape(-1, a[key].shape[1]).astype(a[key].dtype)])
+    a['triangles'] = np.concatenate([a['triangles'].astype('i8'), base + np.arange(3 * len(parent)).reshape(-1, 3)])
+    keep = np.concatenate([keep, np.ones(len(parent), bool)]); keep[index[cut]] = False
+    return keep, int(cut.sum())
+
+
 def valid(positions, triangles):
     t = positions[triangles].astype('f8')
     return np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1) > 1e-12
@@ -433,14 +449,13 @@ def main():
     bores = tunnel.tunnels([a['positions'][a['triangles'][keep]].astype('f8') for entry, a, keep in loaded
                              if entry['role'] == 'original'])
     print('Pieces closing round a tunnel:', len(bores), flush=True)
-    for entry, a, keep in loaded:
+    for i, (entry, a, keep) in enumerate(loaded):
         if entry['role'] in ('original', 'mountain'):
             continue
-        index = np.flatnonzero(keep)
-        bore = tunnel.inside_tubes(a['positions'][a['triangles'][index]], bores)
-        keep[index[bore]] = False
-        if bore.any():
-            print('Mesh', entry['id'], entry['role'], 'faces in a tunnel left out:', int(bore.sum()), flush=True)
+        keep, cut = carve_bores(a, keep, bores)
+        loaded[i] = (entry, a, keep)
+        if cut:
+            print('Mesh', entry['id'], entry['role'], 'faces cut out of a tunnel:', cut, flush=True)
     # The added riding pieces (additions.py): snake channels in the east bowls' slots, and caps and walls closing the
     # sheets that ended in the air. They come after the park's own pieces: where one lies on a piece, the piece is drawn.
     riding_now = np.concatenate([a['positions'][a['triangles'][keep]] for entry, a, keep in loaded
@@ -475,9 +490,11 @@ def main():
                            'doubleSided': False, 'added': True}, made))
     del riding_now, solid_now, heights, around
     for entry, (vertices, faces, uvs) in added:
-        loaded.append((entry, {'positions': vertices.astype('f4'), 'triangles': faces.astype('i8'),
-                               'uvs': uvs.astype('f4'), 'render_skip': np.zeros(0, 'i8')}, np.ones(len(faces), bool)))
-        print('Added', entry['id'], 'faces:', len(faces), flush=True)
+        a = {'positions': vertices.astype('f4'), 'triangles': faces.astype('i8'), 'uvs': uvs.astype('f4'),
+             'render_skip': np.zeros(0, 'i8')}
+        keep, cut = carve_bores(a, np.ones(len(faces), bool), bores)     # a cap's wall stood across the tunnel
+        loaded.append((entry, a, keep))
+        print('Added', entry['id'], 'faces:', len(faces), 'cut out of a tunnel:', cut, flush=True)
     # Faces of different meshes lying on each other z-fight (the foundations' shared walls and tops, a riding piece on the
     # block): each face lying on one of an earlier mesh, in ROLES order, is left out of the render and collision.
     # The added pieces rank after the bridges: a bridge over a snake channel is drawn where the channel meets it.

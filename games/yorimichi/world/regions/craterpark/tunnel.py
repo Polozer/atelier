@@ -1,8 +1,8 @@
 """Crater Park's tunnels kept open (pure numpy, native frame: metres, y up).
 
 The foundation blocks under the riding pieces were made solid up to the top of the pieces over them, so the one
-round tunnel was filled: its bore held the block's solid, and the rider met its flat end. inside_tubes finds the
-faces in a bore (of the pieces tunnels finds), which build.py leaves out of the render and the collision.
+round tunnel was filled: its bore held the block's solid, and the rider met its flat end. carve cuts the faces
+reaching into a bore (of the pieces tunnels finds) out of the render and the collision.
 """
 import math
 
@@ -15,10 +15,7 @@ TUBE_REACH = 12.        # metres to a tunnel's wall at most, every way
 TUBE_SIDES = 2          # horizontal lines through a point in a tunnel meeting its wall both ways (its ends are open)
 TUBE_RAYS = 5           # of eight horizontal directions from a point near a tunnel's open end, meeting its wall
 PROBE = 2.              # metres between the points that find which pieces close round a bore (tunnels)
-LARGE = 1.              # metres across: a face this large is tested at SAMPLES points, not its centre alone
-# Barycentric points spread over a face, out towards its corners.
-SAMPLES = np.array([[.6, .2, .2], [.2, .6, .2], [.2, .2, .6], [.8, .1, .1], [.1, .8, .1], [.1, .1, .8],
-                    [.45, .45, .1], [.45, .1, .45], [.1, .45, .45], [.95, .025, .025], [.025, .95, .025], [.025, .025, .95]])
+SPLIT = .5              # metres across: a face reaching into a bore is split down to parts this small (carve)
 PAIRS = 2_000_000       # ray-face pairs per batch at most
 
 
@@ -70,11 +67,6 @@ def in_bore(points, pieces):
     return mask
 
 
-def cell_keys(points, size):
-    c = np.floor(points / size).astype('i8') + (1 << 20)
-    return (c[:, 0] << 42) | (c[:, 1] << 21) | c[:, 2]
-
-
 def tunnels(pieces, step=PROBE):
     """The `pieces` [(m, 3, 3)] that close round a bore somewhere, each with the points of a `step`-metre grid over it
     that lie in its bore (in_bore): [(piece, points)]."""
@@ -89,24 +81,44 @@ def tunnels(pieces, step=PROBE):
     return found
 
 
-def inside_tubes(triangles, bores):
-    """Mask of the `triangles` (n, 3, 3) reaching into a tunnel's bore (in_bore), `bores` as tunnels gives them: the
-    centre, or for a face over LARGE across, any of SAMPLES points spread over it. Only the points within a grid step
-    or so of the bore's own grid points are tested. The foundation blocks were made solid up to the top of the pieces
-    over them: they filled the tunnel, and the rider met its solid end; long faces inside the block crossed it too."""
-    mask = np.zeros(len(triangles), bool)
+def carve(triangles, bores, split=SPLIT):
+    """The `triangles` (n, 3, 3) cut out of the tunnels' bores (in_bore), `bores` as tunnels gives them. A face reaching
+    into a bore is split in four, again and again near the bore, down to `split` metres; the parts whose centre lies in
+    the bore are left out and the rest kept, so a block's wall keeps its solid round the portal and a long face crossing
+    the bore keeps its ends. Returns (cut, parent, corners): the mask of the faces cut, and for each kept part its face's
+    index and its corners' barycentric coordinates on that face (m, 3, 3)."""
+    cut = np.zeros(len(triangles), bool); parents, corners = [], []
+    halves = np.array([[[1, 0, 0], [.5, .5, 0], [.5, 0, .5]], [[.5, .5, 0], [0, 1, 0], [0, .5, .5]],
+                       [[.5, 0, .5], [0, .5, .5], [0, 0, 1]], [[.5, .5, 0], [0, .5, .5], [.5, 0, .5]]])
     for piece, inside in bores:
-        lo, hi = piece.min((0, 1)), piece.max((0, 1))
-        near = np.flatnonzero(((triangles.max(1) > lo) & (triangles.min(1) < hi)).all(1))
+        reach = inside.min(0) - PROBE, inside.max(0) + PROBE
+        near = np.flatnonzero(((triangles.max(1) > reach[0]) & (triangles.min(1) < reach[1])).all(1) & ~cut)
         if not len(near):
             continue
-        t = triangles[near].astype('f8')
-        large = np.flatnonzero(np.linalg.norm(t.max(1) - t.min(1), axis=1) > LARGE)
-        points = np.concatenate([t.mean(1), np.einsum('sk,nkd->nsd', SAMPLES, t[large]).reshape(-1, 3)])
-        owner = np.concatenate([np.arange(len(t)), np.repeat(large, len(SAMPLES))])
-        offsets = np.stack(np.meshgrid(*[[-PROBE, 0., PROBE]] * 3, indexing='ij'), -1).reshape(-1, 3)
-        around = np.unique(cell_keys((inside[:, None] + offsets).reshape(-1, 3), PROBE))
-        close = np.isin(cell_keys(points, PROBE), around)
-        hit = np.zeros(len(points), bool); hit[close] = in_bore(points[close], [piece])
-        mask[near[owner[hit]]] = True
-    return mask
+        lo, hi = reach[0] - TUBE_REACH, reach[1] + TUBE_REACH
+        piece = piece[((piece.max(1) > lo) & (piece.min(1) < hi)).all(1)]
+        parent, bary = near, np.repeat(np.eye(3)[None], len(near), 0)
+        kept, dropped = [], np.zeros(len(triangles), bool)
+        while len(parent):
+            c = np.einsum('kij,kjd->kid', bary, triangles[parent].astype('f8'))
+            a, b = c.min(1), c.max(1)
+            touch = np.zeros(len(c), bool)
+            for i in range(0, len(c), 4096):        # a part whose box, PROBE wider, holds a bore point is near the bore
+                touch[i:i + 4096] = ((inside[None] > a[i:i + 4096, None] - PROBE)
+                                     & (inside[None] < b[i:i + 4096, None] + PROBE)).all(-1).any(1)
+            small = np.linalg.norm(b - a, axis=1) <= split
+            test = np.flatnonzero(touch & small)
+            gone = np.zeros(len(c), bool); gone[test] = in_bore(c[test].mean(1), [piece])
+            dropped[parent[gone]] = True
+            keep = ~touch | (small & ~gone)
+            kept.append((parent[keep], bary[keep]))
+            more = touch & ~small
+            parent = np.repeat(parent[more], 4)
+            bary = np.einsum('hij,kjl->khil', halves, bary[more]).reshape(-1, 3, 3)
+        cut |= dropped
+        for p, b in kept:
+            mine = dropped[p]
+            parents.append(p[mine]); corners.append(b[mine])
+    if not parents:
+        return cut, np.zeros(0, 'i8'), np.zeros((0, 3, 3))
+    return cut, np.concatenate(parents), np.concatenate(corners)
