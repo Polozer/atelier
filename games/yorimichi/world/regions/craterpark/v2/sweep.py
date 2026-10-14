@@ -11,10 +11,12 @@ two vertices per position, each with its own side's analytic normal. Quads use t
 per strip. UVs: transverse u = length along the path at `offset`, v = profile arc length; longitudinal u = w,
 v = s; both divided by uv_metres.
 """
+import math
+
 import numpy as np
 
 from . import dsl
-from .curves import merge_params
+from .curves import adaptive, merge_params
 
 
 def _ys(t, h):
@@ -147,13 +149,27 @@ def sweep(path, profile, *, mode='transverse', side=1, offset=0., height=0., sta
     t_need = t_need[(t_need > start + 1e-9) & (t_need < start + dx[-1] - 1e-9)]
     if t is not None:
         t_need = np.concatenate([t_need, np.asarray(t, 'f8')])
+    # a slope on a plan curve: its normal also turns with the heading (rate k sin a cos a per metre of profile) and
+    # across the width (the same rate per metre of offset), so both stations share the angle budget with the profile
+    # (a combined turn of at most tess.angle between neighbouring faces, diagonals included)
+    tdense = start + dx
+    kd = np.abs(path.curvature(tdense)); ad = profile.angle(dense)
+    twist = kd * np.abs(np.sin(ad) * np.cos(ad))
+    budget = np.radians(tess.angle) / math.sqrt(2)
+    if twist.max() > 1e-9:
+        kp = np.abs(profile.curvature(dense))
+        rate = np.sqrt(kp ** 2 + twist ** 2) / budget
+        spans = [(r[1], r[2]) for r in profile.rows if r[0] != 'corner' and r[2] > r[1]]
+        extra_s = adaptive(spans, lambda q: np.interp(q, dense, rate))
+        ss = merge_params(extra_s, ss)
     ss = merge_params(ss, np.interp(t_need - start, dx, dense))
     st, right, skip_row = _stations(profile, ss)
     px, py, pa = _eval_profile(profile, st, right)
     tt = start + px - profile.start[0]
     if w is None:
         kmax = np.abs(path.curvature(tt)).max() if len(tt) else 0.
-        n = max(1, int(np.ceil(width * tess.density(0., 1 + kmax * wmax))))
+        cols = max(width * tess.density(0., 1 + kmax * wmax), width * twist.max() / budget)
+        n = max(1, int(np.ceil(cols)))
         w = np.linspace(-width / 2, width / 2, n + 1)
     C = path.point(tt); T = path.tangent(tt); Nn = path.normal(tt); k = path.curvature(tt)
     hy, hs = _ys(tt, h)
