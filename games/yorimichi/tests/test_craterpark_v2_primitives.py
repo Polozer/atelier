@@ -288,5 +288,15 @@ class AssemblyTests(unittest.TestCase):
         self.assertIn('fold', str(e.exception))
 
 
+class LayoutLineTests(unittest.TestCase):
+    def test_every_layout_line_builds_with_bank_and_wall_sides(self):
+        from craterpark.v2 import layout
+        for side in ('bank', 'wall'):
+            for line in layout.LINES:
+                built = layout.build_line(line, side=side)
+                self.assertGreater(len(built.mesh.F), 0, (line.id, side))
+                self.assertTrue(np.isfinite(built.mesh.V).all(), (line.id, side))
+
+
 if __name__ == '__main__':
     unittest.main()

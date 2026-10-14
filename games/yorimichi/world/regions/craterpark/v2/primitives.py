@@ -197,8 +197,10 @@ def _side_columns(E, D, side, g, base_y, under=None, on_ground=False):
     foot = outer.copy(); foot[:, 1] = np.minimum(gy, outer[:, 1] - gap)
     if under is not None and not on_ground:     # under the section's lowest point, so the end face stays simple
         foot[:, 1] = np.minimum(foot[:, 1], under - FOOT)
-    if side.kind != 'bank':
-        role = dsl.SIDE if (side.kind != 'flush' or on_ground) else dsl.BASE
+    # down to the foot (a bank's flank ends on the ground already; where it collapsed onto a flush edge, the drop
+    # keeps the foot under it, so the end face never folds back on itself)
+    role = dsl.SIDE if (side.kind != 'flush' or on_ground) else dsl.BASE
+    if side.kind != 'bank' or (not on_ground and (outer[:, 1] - foot[:, 1] > 1e-9).any()):
         for r in _drop_rows(outer, foot):
             rows.append(r); segs.append((role, 'out'))
     if not on_ground:
