@@ -62,6 +62,7 @@ def test_the_plan_follows_the_generated_park(tmp_path):
 
 def test_the_flythrough_chases_each_line(tmp_path):
     built(tmp_path)
+    np.savez(tmp_path / 'v2' / 'lines' / 'old.npz', path=np.zeros((3, 3)))     # left from an earlier layout
     paths = tour.line_paths(tmp_path)
     assert list(paths) == ['m0']
     frames = tour.chase(paths['m0'], step=.5)

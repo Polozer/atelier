@@ -227,9 +227,14 @@ def plan(out=None):
 
 
 def line_paths(out=None):
-    """{line: (k, 3) native path} from the generated line files."""
-    folder = Path(out or yori.OUT / 'craterpark') / 'v2' / 'lines'
-    return {p.stem: np.load(p)['path'] for p in sorted(folder.glob('*.npz'))} if folder.exists() else {}
+    """{line: (k, 3) native path} from the generated line files, only the lines park.json starts (a file left from an
+    earlier layout is skipped)."""
+    out = Path(out or yori.OUT / 'craterpark'); folder = out / 'v2' / 'lines'
+    if not folder.exists():
+        return {}
+    park = json.loads((out / 'park.json').read_text()) if (out / 'park.json').exists() else {}
+    keys = {ln['key'] for ln in park.get('lines', [])}
+    return {p.stem: np.load(p)['path'] for p in sorted(folder.glob('*.npz')) if not keys or p.stem in keys}
 
 
 def chase(path, step=1.5, behind=10., ahead=14., up=5.):
