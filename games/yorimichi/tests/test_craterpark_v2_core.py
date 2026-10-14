@@ -113,7 +113,7 @@ def test_one_deck_and_one_quarter_pipe_are_watertight_with_conforming_seams():
 def test_geometry_bundle_and_line_npz(tmp_path):
     park = layout_m0.park()
     arrays, index = generate.bundle(park)
-    assert index['folded_left_out'] == 0
+    assert index['folded_left_out'] == 0 and index['lines'] == []
     assert all(e['name'].startswith('SM_CP_') for e in index['render'])
     assert all(e['name'].startswith('UC_CP_') for e in index['collision'])
     assert not any(dsl.MATERIALS.index(m) is None for e in index['render'] for m in e['materials'])
@@ -138,7 +138,9 @@ def fake_mesh(out, name, vertices, faces, materials, face_materials, uvs=None, n
 @pytest.mark.skipif(not (R4 / 'build.json').exists(), reason='r4 build output not on this machine')
 def test_export_keeps_r4s_build_and_park_json_key_sets(tmp_path):
     from craterpark import placement
-    arrays, _ = generate.bundle(layout_m0.park())
+    park_, module = generate.compile_park('layout_m0')
+    lines = generate.line_spawns(park_, module)
+    arrays, _ = generate.bundle(park_, lines)
     np.savez(tmp_path / 'g.npz', **arrays)
     (tmp_path / 'fbx').mkdir()
     (tmp_path / 'fbx' / 'SM_CP_mesh_0000_000.fbx').write_bytes(b'stale')
@@ -149,11 +151,15 @@ def test_export_keeps_r4s_build_and_park_json_key_sets(tmp_path):
         want = {tuple(sorted(e)) for e in r4[kind]}
         assert {tuple(sorted(e)) for e in build[kind]} == want
         assert build[kind]
-    assert set(park) == set(r4park)
+    assert set(park) == set(r4park) | {'lines'}
+    assert [ln['key'] for ln in park['lines']] == ['m0'] and park['spawn'] == park['lines'][0]['spawn']
+    # the smoke's start stands on the r4 drop-in, facing r4's way: the same spawn as r4
+    assert np.allclose(park['spawn']['location_cm'], r4park['spawn']['location_cm'], atol=.01)
+    assert park['spawn']['yaw_deg'] == pytest.approx((r4park['spawn']['yaw_deg'] + 180) % 360 - 180)
     for kind in ('render', 'collision'):
         assert {tuple(sorted(e)) for e in park[kind]} == {tuple(sorted(e)) for e in r4park[kind]}
     assert {tuple(sorted(e)) for e in park['rails']} == {tuple(sorted(e)) for e in r4park['rails']}
-    assert set(park['spawn']) == set(r4park['spawn']) and park['spawn'] == r4park['spawn']
+    assert set(park['spawn']) == set(r4park['spawn'])
     assert park['location_cm'] == r4park['location_cm'] and park['yaw_deg'] == r4park['yaw_deg']
     assert park['mesh_root'] == r4park['mesh_root'] and park['name'] == r4park['name']
     assert build['scene_sha256'] == r4['scene_sha256'] and park['rails'] and park['rails_required']

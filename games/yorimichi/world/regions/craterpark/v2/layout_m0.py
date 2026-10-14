@@ -12,6 +12,7 @@ from .profile import Profile
 from .sweep import sweep
 
 DROP = (1149.5, 37.6, 1094.8)      # assets/craterpark/drop-in.json groundPosition
+SPAWN_DECK_Y = None                # the smoke's deck is the r4 drop-in, not the v2 tower deck
 
 
 def quarter_pipe(path, *, height=3.5, radius=3.5, extension=.3, deck=8., deck_y=DROP[1], feature='m0_quarter',

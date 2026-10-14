@@ -30,7 +30,18 @@ def compile_park(layout):
     park = module.park()
     if not isinstance(park, dsl.Park):
         raise TypeError(f'{layout}.park() must return a dsl.Park')
-    return park
+    return park, module
+
+
+def line_spawns(park, module):
+    """park.json `lines` (spawns.entries): each line's start, ground-checked on the collidable mesh; a layout's
+    SPAWN_DECK_Y (default the tower deck) is the deck every start must stand on (None: no deck rule)."""
+    if not park.lines:
+        return []
+    from craterpark import placement
+    from craterpark.v2 import spawns
+    deck_y = getattr(module, 'SPAWN_DECK_Y', spawns.TOWER_DECK_Y)
+    return spawns.entries(park.mesh, park.lines, placement, deck_y=deck_y, labels=getattr(module, 'LINE_LABELS', None))
 
 
 def run_validators(park, out):
@@ -48,9 +59,10 @@ def run_validators(park, out):
     return {'ran': True, 'ok': True}
 
 
-def bundle(park):
-    """The arrays geometry.npz holds: render meshes r<i>_*, collision sections c<i>, rails rail<i>, and a JSON index."""
-    arrays, index = {}, {'render': [], 'collision': [], 'rails': []}
+def bundle(park, lines=()):
+    """The arrays geometry.npz holds: render meshes r<i>_*, collision sections c<i>, rails rail<i>, and a JSON index
+    (with park.json's `lines` entries)."""
+    arrays, index = {}, {'render': [], 'collision': [], 'rails': [], 'lines': list(lines)}
     folded = 0
     for i, (name, role, mesh) in enumerate(split.render_meshes(park.mesh)):
         # no degenerate face may reach the importer's triangle check (build.py FOLDED)
@@ -96,11 +108,12 @@ def main(argv=None):
     start = time.time()
     layout = args.layout or default_layout()
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
-    park = compile_park(layout)
+    park, module = compile_park(layout)
+    lines = line_spawns(park, module)
     from craterpark.v2 import ao
     ao.bake_mesh(park.mesh, drawn=(dsl.RIDING, dsl.SIDE, dsl.GROUND, dsl.COPING, dsl.RAIL))
     validation = run_validators(park, out)
-    arrays, index = bundle(park)
+    arrays, index = bundle(park, lines)
     np.savez(out / 'geometry.npz', **arrays)
     from craterpark.v2 import export
     (out / 'lines').mkdir(exist_ok=True)

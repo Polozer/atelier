@@ -26,7 +26,7 @@ RENDER_KEYS = ('name', 'fbx', 'sha256', 'native_origin', 'bounds', 'vertices', '
 COLLISION_KEYS = ('name', 'fbx', 'sha256', 'native_origin', 'bounds', 'vertices', 'triangles', 'materials',
                   'source_triangles', 'role', 'one_sided')
 PARK_KEYS = ('source_sha256', 'name', 'mesh_root', 'rails_required', 'location_cm', 'yaw_deg', 'placement', 'render',
-             'collision', 'rails', 'spawn')
+             'collision', 'rails', 'spawn')     # plus `lines` when the layout has designed lines (E, CraterParkTower)
 
 
 def sha(path):
@@ -153,6 +153,10 @@ def write(out, source, geometry, placement, entry_mesh=export_mesh):
             'render': [{'name': e['name'], 'origin_cm': ue(e['native_origin'])} for e in build['render']],
             'collision': [{'name': e['name'], 'origin_cm': ue(e['native_origin'])} for e in build['collision']],
             'rails': rails, 'spawn': {'location_cm': placement.to_unreal(ground).tolist(), 'yaw_deg': t['yaw_deg']}}
+    if index.get('lines'):
+        # one start per designed line (generate.line_spawns, CraterParkTower.cpp); the first is the hero line
+        park['lines'] = index['lines']
+        park['spawn'] = dict(index['lines'][0]['spawn'])
     (out / 'park.json').write_text(json.dumps(park) + '\n')
     return build, park
 
