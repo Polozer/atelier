@@ -53,12 +53,13 @@ class Built:
     mesh: dsl.Mesh
     rails: list = field(default_factory=list)
     checks: list = field(default_factory=list)
+    foot: list = field(default_factory=list)     # on_ground: the loops (k, 3) where the solid meets the ground
 
     @staticmethod
     def concat(built):
         built = [b for b in built if b is not None]
         return Built(dsl.Mesh.concat([b.mesh for b in built]), [r for b in built for r in b.rails],
-                     [c for b in built for c in b.checks])
+                     [c for b in built for c in b.checks], [f for b in built for f in b.foot])
 
 
 def as_side(s):
@@ -107,64 +108,74 @@ def _dedupe(ids, V):
     return ids[keep]
 
 
-def _side_columns(E, D, side, g, base_y, under=None):
+def _side_columns(E, D, side, g, base_y, under=None, on_ground=False):
     """The cross-section points outward of a riding edge E (k, 3), outward D (k, 3) horizontal unit, for `side`:
-    a list of (k, 3) rows from the edge out to the outer top, then the foot and the base rows; plus each segment's
-    (role, material, outward kind) for the strips between consecutive rows."""
+    a list of (k, 3) rows from the edge out to the outer top, then the foot and (unless `on_ground`) the base rows;
+    plus each segment's (role, outward kind) for the strips between consecutive rows. On the ground, the foot lies
+    exactly on it (or at the edge where the ground is as high), and nothing goes below."""
     Y = np.array([0., 1., 0.])
+    gap = 0. if on_ground else FOOT
     rows, segs = [E], []
     if side.kind == 'curb':
         rows.append(E + side.height * Y); segs.append((dsl.SIDE, 'inner'))
         rows.append(E + side.height * Y + side.width * D); segs.append((dsl.RIDING, 'up'))
     elif side.kind == 'bank':
         top = rows[-1]
-        drop = np.maximum(top[:, 1] - g(top[:, 0], top[:, 2]), FOOT)
-        foot = top + (drop / math.tan(math.radians(side.degrees)))[:, None] * D - drop[:, None] * Y
-        # the slope's foot on the ground there (one Newton step for sloping ground)
-        for _ in range(3):
-            gy = g(foot[:, 0], foot[:, 2])
-            drop = np.maximum(top[:, 1] - gy, FOOT)
+        foot = top.copy()
+        for _ in range(4):                                       # the slope's foot on the (sloping) ground
+            drop = np.maximum(top[:, 1] - g(foot[:, 0], foot[:, 2]), gap)
             foot = top + (drop / math.tan(math.radians(side.degrees)))[:, None] * D - drop[:, None] * Y
         rows.append(foot); segs.append((dsl.RIDING, 'bank'))
     outer = rows[-1]
     gy = g(outer[:, 0], outer[:, 2])
-    foot = outer.copy(); foot[:, 1] = np.minimum(gy, outer[:, 1] - FOOT)
-    if under is not None:                       # under the section's lowest point, so the end face stays simple
+    foot = outer.copy(); foot[:, 1] = np.minimum(gy, outer[:, 1] - gap)
+    if under is not None and not on_ground:     # under the section's lowest point, so the end face stays simple
         foot[:, 1] = np.minimum(foot[:, 1], under - FOOT)
     if side.kind != 'bank':
-        rows.append(foot); segs.append((dsl.SIDE if side.kind != 'flush' else dsl.BASE, 'out'))
-    base = outer.copy(); base[:, 1] = base_y
-    rows.append(base); segs.append((dsl.BASE, 'out'))
+        role = dsl.SIDE if (side.kind != 'flush' or on_ground) else dsl.BASE
+        rows.append(foot); segs.append((role, 'out'))
+    if not on_ground:
+        base = outer.copy(); base[:, 1] = base_y
+        rows.append(base); segs.append((dsl.BASE, 'out'))
     return rows, segs
 
 
-def _close(riding, rows_minus, rows_plus, ends, feature, ground, Dm, Dp, sides, T0, T1):
-    """Walls, base and end caps closing a riding sheet into a solid. rows_*: per side, the list of (k, 3) rows from
-    the riding edge outward and down to the base (a row per station). ends: (start, end) Side kinds."""
-    Y = np.array([0., 1., 0.])
-    parts = []
-    for rows, segs, D, side in ((rows_minus[0], rows_minus[1], Dm, sides[0]), (rows_plus[0], rows_plus[1], Dp, sides[1])):
-        for (a, b), (role, kind) in zip(itertools.pairwise(rows), segs, strict=True):
-            P = np.stack([a, b], 1)
-            out = {'inner': -D, 'up': np.broadcast_to(Y, D.shape), 'bank': D + Y, 'out': D}[kind]
-            m = solids.grid(P, outward=out.sum(0), feature=feature, material=side.material, role=role,
-                            uv='arc' if role == dsl.RIDING else 'wall')
-            if role == dsl.SIDE:
-                _bury_low(m, ground)
-            parts.append(m)
-    bm, bp = rows_minus[0][-1], rows_plus[0][-1]
-    parts.append(solids.grid(np.stack([bm, bp], 1), outward=-Y, feature=feature, role=dsl.BASE, uv='world'))
-    # end caps: the ring at the first and last station, split at the chord between the two feet
-    for i, kind, out in ((0, ends[0], -T0), (-1, ends[1], T1)):
-        top = riding[i]
-        minus = [r[i] for r in rows_minus[0]]; plus = [r[i] for r in rows_plus[0]]
-        upper = [minus[-2]] + minus[-3::-1] + list(top) + plus[1:-1]
-        upper = _strip_dupes(np.asarray(upper))
-        lower = np.asarray([plus[-2], plus[-1], minus[-1], minus[-2]])
-        role = dsl.SIDE if as_side(kind).kind == 'wall' else dsl.BASE
-        parts.append(solids.polygon(upper, outward=out, feature=feature, role=role))
-        parts.append(solids.polygon(lower, outward=out, feature=feature, role=dsl.BASE))
-    return parts
+def _ground_bands(chain, g, eps=1e-6):
+    """An end face on the ground: the polygons between its top `chain` (from foot to foot) and the ground straight
+    under it, one per run where the chain stands over the ground (where it lies on the ground the face pinches)."""
+    gy = np.minimum(g(chain[:, 0], chain[:, 2]), chain[:, 1])
+    gy[0], gy[-1] = chain[0, 1], chain[-1, 1]                    # the feet are on the ground
+    over = chain[:, 1] - gy > eps
+    bands, i, n = [], 0, len(chain)
+    while i < n - 1:
+        if not over[i + 1]:
+            i += 1; continue
+        j = i + 1
+        while j < n - 1 and over[j]:
+            j += 1
+        top = chain[i:j + 1]
+        under = np.stack([chain[i + 1:j, 0], gy[i + 1:j], chain[i + 1:j, 2]], 1)[::-1]
+        loop = _strip_dupes(np.concatenate([top, under])) if len(under) else top
+        if len(loop) >= 3:
+            bands.append(loop)
+        i = j
+    return bands
+
+
+def _chord_points(chain, F, B, gap=.05):
+    """Points on the straight foot chord F -> B under an end face's top `chain`, where its points stand over the
+    chord (in order from F): the face's triangles then never span the whole chord under a low top (C's V9)."""
+    d = B - F; L2 = float(d @ d)
+    if L2 < 1e-12:
+        return np.zeros((0, 3))
+    u = np.sort(((chain - F) @ d) / L2)
+    u = u[(u > gap / np.sqrt(L2)) & (u < 1 - gap / np.sqrt(L2))]
+    keep, last = [], 0.
+    for x in u:
+        if (x - last) * np.sqrt(L2) > gap:
+            keep.append(x); last = x
+    keep = [x for x in keep if (1 - x) * np.sqrt(L2) > gap]
+    return F + np.asarray(keep)[:, None] * d if keep else np.zeros((0, 3))
 
 
 def _strip_dupes(L):
@@ -184,25 +195,70 @@ def _bury_low(mesh, ground):
     mesh.role[low] = dsl.ROLE[dsl.BASE]
 
 
-def _finish(parts, feature, riding=None):
+def _finish(parts, feature, riding=None, on_ground=False):
+    """The parts as one mesh, checked: closed (or, on the ground, open only along simple foot loops) and unfolded.
+    Returns (mesh, foot loops [(k, 3)])."""
     mesh = dsl.Mesh.concat(parts)
     mesh.features = (feature,)
-    solids.check_closed(mesh, name=feature)
     solids.check_folds(mesh.where(role=dsl.RIDING) if riding is None else riding, name=feature)
-    return mesh
+    if not on_ground:
+        solids.check_closed(mesh, name=feature)
+        return mesh, []
+    return mesh, solids.check_open(mesh, name=feature)
 
 
 # ------------------------------------------------------------------------------------------------ longitudinal ramps
 
+CLEAR = .25         # share of the local station spacing a path station keeps clear of a profile station
+
+
+class _Clear(Curve):
+    """A path whose own adaptive stations keep clear of the profile's (`own`, path parameters): a longitudinal sweep
+    merges both lists, and a path station a centimetre from a profile station made a sliver row (C's V9)."""
+
+    def __init__(self, path, own):
+        self.path, self.own = path, np.sort(np.asarray(own, 'f8'))
+        self.length, self.closed = path.length, getattr(path, 'closed', False)
+
+    def point(self, t):
+        return self.path.point(t)
+
+    def tangent(self, t):
+        return self.path.tangent(t)
+
+    def normal(self, t):
+        return self.path.normal(t)
+
+    def curvature(self, t):
+        return self.path.curvature(t)
+
+    def breaks(self):
+        return self.path.breaks()
+
+    def samples(self, tess, extra=(), offsets=(0.,), height=None):
+        t = self.path.samples(tess, extra, offsets, height)
+        if len(self.own) < 2:
+            return t
+        k = np.clip(np.searchsorted(self.own, t), 1, len(self.own) - 1)
+        lo, hi = self.own[k - 1], self.own[k]
+        gap = np.minimum(t - lo, hi - t)
+        inside = (t > self.own[0]) & (t < self.own[-1])
+        keep = ~inside | (gap > CLEAR * (hi - lo)) | np.isin(t, self.path.breaks())
+        return t[keep]
+
+
+
 def ramp(path, profile, width, *, start=0., left='wall', right='wall', ground=None, ends=('flush', 'flush'),
-         feature='ramp', tess=dsl.RIDING_TESS, t=None):
+         feature='ramp', tess=dsl.RIDING_TESS, t=None, on_ground=False):
     """A ramp along the plan `path` (curves.Curve) from `start` metres along it: the `profile` (its x along the path,
     y absolute) `width` wide, closed into a solid down to the `ground` (float or f(x, z); default 0 under the lowest
     point) with sides `left`/`right` (Side or kind; left is the path's +normal side) and `ends` (start, end) each
     'flush' (the next feature or deck continues there) or 'wall' (a visible end face: a kicker's back at its lip, a
     landing's front). Roll-ins, decks, kickers, landings and run-outs are ramps. Returns a Built."""
     left, right = as_side(left), as_side(right)
-    riding = sweep(path, profile, mode='longitudinal', start=start, across=width, feature=feature, tess=tess, t=t)
+    own = start + profile.point(profile.samples(tess))[:, 0] - profile.start[0]
+    riding = sweep(_Clear(path, own), profile, mode='longitudinal', start=start, across=width, feature=feature,
+                   tess=tess, t=t)
     lo = float(riding.V[:, 1].min())
     g = as_ground(lo if ground is None else ground)
     V = riding.V
@@ -217,31 +273,19 @@ def ramp(path, profile, width, *, start=0., left='wall', right='wall', ground=No
     rows = [V[start_row], V[end_row]]
     if np.dot(rows[0][-1] - rows[0][0], D[0]) < 0:
         rows = [r[::-1] for r in rows]
-    # base under everything: the lowest ground at the outer feet and the lowest riding point
-    probe = []
-    for E, Dd, s in ((Em, -D, right), (Ep, D, left)):
-        reach = 0. if s.kind != 'curb' else s.width
-        if s.kind == 'bank':
-            reach = (E[:, 1] - g(E[:, 0], E[:, 2])).max() / math.tan(math.radians(s.degrees)) + 1.
-        q = E + reach * Dd
-        probe.append(g(q[:, 0], q[:, 2]))
-    base_y = min(lo, *(float(p.min()) for p in probe), float(g(V[:, 0], V[:, 2]).min())) - BURY
-    rm = _side_columns(Em, -D, right, g, base_y)
-    rp = _side_columns(Ep, D, left, g, base_y)
-    T0 = Em[1] - Em[0]; T0[1] = 0; T0 /= np.linalg.norm(T0)
-    T1 = Em[-1] - Em[-2]; T1[1] = 0; T1 /= np.linalg.norm(T1)
-    riding_rows = [rows[0], rows[1]]
-    parts = [riding] + _close(riding_rows, rm, rp, ends, feature, g, -D, D, (right, left), T0, T1)
-    mesh = _finish(parts, feature, riding)
+    G = np.stack([Em, Ep], 1)
+    parts = [riding] + _close_transverse(G, feature=feature, ground=g, front=right, back=left, ends=ends,
+                                         closed=False, end_rows=rows, on_ground=on_ground)
+    mesh, foot = _finish(parts, feature, riding, on_ground)
     x = profile.point([0., profile.length])
     checks = [{'feature': feature, 'kind': 'ramp', 'start_t': start, 'end_t': start + float(x[1, 0] - x[0, 0]),
                'start_y': float(x[0, 1]), 'end_y': float(x[1, 1]), 'end_degrees': profile.end_degrees,
                'width': width}]
-    return Built(mesh, [], checks)
+    return Built(mesh, [], checks, foot)
 
 
 def jump_line(path, launch, landing, gap, width, *, start=0., left='wall', right='wall', ground=None,
-              feature='jump', tess=dsl.RIDING_TESS, land_width=None):
+              feature='jump', tess=dsl.RIDING_TESS, land_width=None, on_ground=False):
     """The joined line: roll-in, deck, kicker (the `launch` profile, ending at its lip), a `gap` (horizontal metres
     from the lip to the landing's start), then landing and run-out (the `landing` profile), along one plan `path`.
     The launch's last arc is tagged takeoff and the landing ramp's faces landing (unless the profiles tag them). The
@@ -253,10 +297,10 @@ def jump_line(path, launch, landing, gap, width, *, start=0., left='wall', right
     launch = retag(launch, 'takeoff', [arcs[-1]] if arcs else [len(launch.parts) - 1])
     landing = retag(landing, 'landing', None)
     a = ramp(path, launch, width, start=start, left=left, right=right, ground=ground, ends=('flush', 'wall'),
-             feature=f'{feature}.launch', tess=tess)
+             feature=f'{feature}.launch', tess=tess, on_ground=on_ground)
     x0 = float(launch.end[0] - launch.start[0])
     b = ramp(path, landing, land_width or width, start=start + x0 + gap, left=left, right=right, ground=ground,
-             ends=('wall', 'flush'), feature=f'{feature}.landing', tess=tess)
+             ends=('wall', 'flush'), feature=f'{feature}.landing', tess=tess, on_ground=on_ground)
     g = as_ground(0. if ground is None else ground)
     lip_t = start + x0
     lip = path.point3([lip_t], launch.end[1])[0]
@@ -264,7 +308,7 @@ def jump_line(path, launch, landing, gap, width, *, start=0., left='wall', right
     checks = [{'feature': feature, 'kind': 'air', 'lip': lip.tolist(), 'lip_degrees': launch.end_degrees,
                'lip_height': float(lip[1] - g(lip[:1], lip[2:])[0]), 'gap': gap, 'landing_start': land0.tolist(),
                'landing_t': (lip_t + gap, lip_t + gap + float(landing.end[0] - landing.start[0]))}]
-    return Built(dsl.Mesh.concat([a.mesh, b.mesh]), [], a.checks + b.checks + checks)
+    return Built(dsl.Mesh.concat([a.mesh, b.mesh]), [], a.checks + b.checks + checks, a.foot + b.foot)
 
 
 # ------------------------------------------------------------------------------------------------ transverse solids
@@ -375,11 +419,13 @@ def _dedupe_cols(row):
     return row[keep]
 
 
-def _close_transverse(G, *, feature, ground, front, back, ends, closed):
-    """Walls, base, caps and end faces closing the transverse sheet grid G (k, n, 3) (rows path stations, columns
-    profile stations from front to back) into a solid. front/back: Side kinds ('wall', 'flush', 'curb', 'bank'), or
-    'cap' (front only: the front column is a level loop filled as riding, a bowl's floor or a ledge's top) or 'base'
-    (back only: the back column is a level loop on the support, filled as a buried base: a ledge's footprint)."""
+def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows=None, on_ground=False):
+    """Walls, base, caps and end faces closing a riding sheet into a solid. G (k, n, 3): its grid, rows path
+    stations, columns from front to back (a ramp passes only its two edge columns and its full `end_rows`).
+    front/back: Side kinds ('wall', 'flush', 'curb', 'bank'), or 'cap' (front only: the front column is a level loop
+    filled as riding, a bowl's floor or a ledge's top) or 'base' (back only: a level loop on the support filled as a
+    buried base, a ledge's footprint). `on_ground`: no base under the feet; the solid stays open exactly along its
+    foot loop, which the ground (ground.py) fills. Low faces (under FLUSH over the ground) are buried (role base)."""
     Y = np.array([0., 1., 0.])
     g = as_ground(ground)
     if closed:
@@ -394,6 +440,9 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed):
             reach = (E[:, 1] - g(E[:, 0], E[:, 2])).max() / math.tan(math.radians(s.degrees)) + 1.
             q = E + reach * Dd
             probe.append(float(g(q[:, 0], q[:, 2]).min()))
+        if s is not None and s.kind == 'curb':
+            q = E + s.width * Dd
+            probe.append(float(g(q[:, 0], q[:, 2]).min()))
     base_y = min([lo] + probe) - BURY - FOOT
     parts = []
     cols = {}
@@ -405,42 +454,59 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed):
         if kind == 'base':
             if np.ptp(E[:, 1]) > 1e-9:
                 raise ValueError(f'{feature}: a base loop must be level')
-            parts.append(solids.polygon(E, outward=-Y, feature=feature, role=dsl.BASE))
+            if not on_ground:
+                parts.append(solids.polygon(E, outward=-Y, feature=feature, role=dsl.BASE))
             cols[name] = None
             continue
         side = as_side(kind)
-        rows, segs = _side_columns(E, Dd, side, g, base_y, under=G[..., 1].min(1))
+        rows, segs = _side_columns(E, Dd, side, g, base_y, under=G[..., 1].min(1), on_ground=on_ground)
         for (a, b), (role, k) in zip(itertools.pairwise(rows), segs, strict=True):
             out = {'inner': -Dd, 'up': np.broadcast_to(Y, Dd.shape), 'bank': Dd + Y, 'out': Dd}[k]
             m = solids.grid(np.stack([a, b], 1), outward=out, feature=feature, material=side.material, role=role,
                             uv='arc' if role == dsl.RIDING else 'wall', closed_rows=closed)
-            if role == dsl.SIDE:
+            if role == dsl.SIDE and not on_ground:
                 _bury_low(m, g)
             parts.append(m)
         cols[name] = rows
-    if cols['front'] is not None and cols['back'] is not None:
-        parts.append(solids.grid(np.stack([cols['front'][-1], cols['back'][-1]], 1), outward=-Y, feature=feature,
-                                 role=dsl.BASE, uv='world', closed_rows=closed))
-    elif closed and cols['back'] is not None:
-        parts.append(solids.polygon(cols['back'][-1], outward=-Y, feature=feature, role=dsl.BASE))
-    elif closed and cols['front'] is not None:
-        raise ValueError(f'{feature}: a closed sweep needs a cap at its front or a base at its back')
+    if not on_ground:
+        if cols['front'] is not None and cols['back'] is not None:
+            parts.append(solids.grid(np.stack([cols['front'][-1], cols['back'][-1]], 1), outward=-Y, feature=feature,
+                                     role=dsl.BASE, uv='world', closed_rows=closed))
+        elif closed and cols['back'] is not None:
+            parts.append(solids.polygon(cols['back'][-1], outward=-Y, feature=feature, role=dsl.BASE))
+        elif closed and cols['front'] is not None:
+            raise ValueError(f'{feature}: a closed sweep needs a cap at its front or a base at its back')
     if not closed:
         if cols['front'] is None or cols['back'] is None:
             raise ValueError(f'{feature}: an open sweep closes with walls at its front and back')
         T0 = _horizontal(G[1, 0] - G[0, 0]); T1 = _horizontal(G[-1, 0] - G[-2, 0])
-        for i, kind, out in ((0, ends[0], -T0), (-1, ends[1], T1)):
+        tops = end_rows if end_rows is not None else (G[0], G[-1])
+        foot = -1 if on_ground else -2
+        for i, top, kind, out in ((0, tops[0], ends[0], -T0), (-1, tops[1], ends[1], T1)):
             f = [r[i] for r in cols['front']]; b = [r[i] for r in cols['back']]
-            upper = _strip_dupes(np.asarray([f[-2]] + f[-3::-1] + list(G[i]) + b[1:-1]))
-            lower = np.asarray([b[-2], b[-1], f[-1], f[-2]])
-            role = dsl.SIDE if as_side(kind).kind == 'wall' else dsl.BASE
-            parts.append(solids.polygon(upper, outward=out, feature=feature, role=role))
-            parts.append(solids.polygon(lower, outward=out, feature=feature, role=dsl.BASE))
+            wall = as_side(kind).kind == 'wall'
+            if on_ground and not wall:
+                continue                 # the next feature or deck continues here: left open (its seam)
+            upper = [f[foot]] + f[foot - 1::-1] + list(top) + b[1:len(b) + foot + 1]
+            upper = _strip_dupes(np.asarray(upper))
+            if on_ground:
+                for band in _ground_bands(upper, g):
+                    parts.append(solids.polygon(band, outward=out, feature=feature, role=dsl.SIDE))
+                continue
+            chord = _chord_points(upper, f[foot], b[foot])
+            m = solids.polygon(np.concatenate([upper, chord[::-1]]), outward=out, feature=feature,
+                               role=dsl.SIDE if wall else dsl.BASE)
+            if wall and not on_ground:
+                _bury_low(m, g)
+            parts.append(m)
+            if not on_ground:
+                lower = np.concatenate([[b[-2], b[-1], f[-1], f[-2]], chord])
+                parts.append(solids.polygon(lower, outward=out, feature=feature, role=dsl.BASE))
     return parts
 
 
 def transverse(path, profile, *, side=1, offset=0., height=0., ground=None, front='flush', back='wall',
-               ends=('wall', 'wall'), feature='transverse', tess=dsl.RIDING_TESS, t=None):
+               ends=('wall', 'wall'), feature='transverse', tess=dsl.RIDING_TESS, t=None, on_ground=False):
     """A profile swept across the plan `path` (A's transverse sweep: o = offset + side * x), closed into a solid.
     Returns (Built, the sheet's grid (k, n, 3), its profile columns)."""
     closed = bool(getattr(path, 'closed', False))
@@ -453,9 +519,9 @@ def transverse(path, profile, *, side=1, offset=0., height=0., ground=None, fron
     Gc = G[:, keep]
     lo = float(G[..., 1].min())
     parts = [riding] + _close_transverse(Gc, feature=feature, ground=lo if ground is None else ground, front=front,
-                                         back=back, ends=ends, closed=closed)
-    mesh = _finish(parts, feature, riding)
-    return Built(mesh), G, st
+                                         back=back, ends=ends, closed=closed, on_ground=on_ground)
+    mesh, foot = _finish(parts, feature, riding, on_ground)
+    return Built(mesh, foot=foot), G, st
 
 
 def _lip_row(G, st, profile, name='lip'):
@@ -478,12 +544,12 @@ def _with_coping(built, G, st, profile, *, closed, into_sign, feature, names=('l
         solids.check_closed(tube, name=f'{feature}.{name}')
         meshes.append(tube); rails.append(rail)
     mesh = dsl.Mesh.concat(meshes); mesh.features = (feature,)
-    return Built(mesh, built.rails + rails, built.checks)
+    return Built(mesh, built.rails + rails, built.checks, built.foot)
 
 
 def quarter_pipe(path, *, floor_y, height, radius, deck=1.5, floor=.5, top_degrees=None, side=1, ground=None,
                  back='wall', ends=('wall', 'wall'), coping=True, feature='quarter_pipe', tess=dsl.RIDING_TESS,
-                 material=dsl.CONCRETE, deck_material=dsl.DECK):
+                 material=dsl.CONCRETE, deck_material=dsl.DECK, on_ground=False):
     """A quarter pipe whose lip runs along the plan `path`: a flat `floor` strip at `floor_y`, a transition of `radius`
     up to `top_degrees` (default: vertical if `height` > `radius`, else the angle the arc reaches at `height`), a
     straight extension to the lip at floor_y + height, then a flat `deck` (>= 1.2 m) on the path's `side` (+1 its
@@ -506,7 +572,7 @@ def quarter_pipe(path, *, floor_y, height, radius, deck=1.5, floor=.5, top_degre
     prof = Profile(parts, start=(0., floor_y), tags={'lip': len(parts) - 1})
     x_lip = float(prof.point([prof.tags['lip']])[0, 0])
     built, G, st = transverse(path, prof, side=side, offset=-side * x_lip, ground=ground, front='flush', back=back,
-                              ends=ends, feature=feature, tess=tess)
+                              ends=ends, feature=feature, tess=tess, on_ground=on_ground)
     built.checks.append({'feature': feature, 'kind': 'quarter_pipe', 'lip_y': floor_y + height,
                          'top_degrees': top_degrees, 'radius': radius})
     if coping:
@@ -516,7 +582,7 @@ def quarter_pipe(path, *, floor_y, height, radius, deck=1.5, floor=.5, top_degre
 
 
 def bank(path, *, foot_y, height, degrees, foot_r=3., top_r=3., deck=1.2, floor=0., side=1, ground=None,
-         back='wall', ends=('wall', 'wall'), feature='bank', tess=dsl.RIDING_TESS, material=dsl.CONCRETE):
+         back='wall', ends=('wall', 'wall'), feature='bank', tess=dsl.RIDING_TESS, material=dsl.CONCRETE, on_ground=False):
     """A bank whose foot runs along the plan `path`, rising on its `side` (+1 left): `floor` flat, a foot transition
     (R >= 3 m) up to `degrees`, a straight slope, a crest transition (R >= 3 m) back to level and a `deck` at
     foot_y + height. Along a Rounded path with a convex corner it is a rounded hip."""
@@ -532,7 +598,7 @@ def bank(path, *, foot_y, height, degrees, foot_r=3., top_r=3., deck=1.2, floor=
     parts += [('arc', top_r, 0., ride), ('line', deck, ride)]
     prof = Profile(parts, start=(0., foot_y), tags={'crest': len(parts) - 1})
     built, _, _ = transverse(path, prof, side=side, ground=ground, front='flush', back=back, ends=ends,
-                             feature=feature, tess=tess)
+                             feature=feature, tess=tess, on_ground=on_ground)
     built.checks.append({'feature': feature, 'kind': 'bank', 'degrees': degrees, 'top_y': foot_y + height})
     return built
 
@@ -563,7 +629,7 @@ def snake_profile(width, wall, radius, lip):
 
 
 def snake_run(centre, *, width, wall, radius, lip=.6, floor=0., ground=None, coping=True, ends=('flush', 'flush'),
-              feature='snake', tess=dsl.RIDING_TESS):
+              feature='snake', tess=dsl.RIDING_TESS, on_ground=False):
     """A snake run along the centreline `centre` (a smooth Curve, e.g. Spline): a floor `width` wide at the height
     `floor` (float, dsl.Height or f(t)) along it, transitions of `radius` rising `wall` either side, a `lip` deck and
     a coping on both lips. The sections come from the analytic normal (no eased polyline, no snap). A centreline
@@ -576,7 +642,7 @@ def snake_run(centre, *, width, wall, radius, lip=.6, floor=0., ground=None, cop
         raise ValueError(f'{feature}: the centreline bends to R {1 / k:.2f} m, tighter than 1.5 x the section reach '
                          f'{half:.2f} m: the section would fold')
     built, G, st = transverse(centre, prof, side=1, offset=-half, height=floor, ground=ground, front='wall',
-                              back='wall', ends=ends, feature=feature, tess=tess)
+                              back='wall', ends=ends, feature=feature, tess=tess, on_ground=on_ground)
     outline = np.concatenate([G[:, 0], G[-1, 1:], G[::-1][1:, -1], G[0, ::-1][1:-1]])[:, [0, 2]]
     outline = _dedupe_cols(outline)
     if solids.segments_cross(outline):
@@ -596,7 +662,7 @@ def _ccw(path):
 
 
 def bowl(outline, *, floor_y, depth, radius, deck=1.2, top_degrees=None, ground=None, back='wall', coping=True,
-         feature='bowl', tess=dsl.RIDING_TESS, material=dsl.CONCRETE, deck_material=dsl.DECK):
+         feature='bowl', tess=dsl.RIDING_TESS, material=dsl.CONCRETE, deck_material=dsl.DECK, on_ground=False):
     """A bowl whose coping follows the closed plan `outline` (Spline(closed=True) or Rounded(closed=True)): a level
     floor at `floor_y`, walls of transition `radius` up to `top_degrees` (default: vertical if `depth` > `radius`),
     a straight extension to the lip at floor_y + depth, and a `deck` around it. The outline may turn inward (a
@@ -627,7 +693,7 @@ def bowl(outline, *, floor_y, depth, radius, deck=1.2, top_degrees=None, ground=
         raise ValueError(f'{feature}: the outline turns inward at R {1 / concave:.2f} m near '
                          f'{outline.point([tt[i]])[0].round(2)}, tighter than the deck {deck:.2f} m: the deck would fold')
     built, G, st = transverse(outline, prof, side=-inward, offset=inward * reach, ground=ground, front='cap',
-                              back=back, feature=feature, tess=tess)
+                              back=back, feature=feature, tess=tess, on_ground=on_ground)
     built.checks.append({'feature': feature, 'kind': 'bowl', 'lip_y': floor_y + depth, 'reach': reach,
                          'least_bulge_radius': 1 / convex if convex > 0 else np.inf,
                          'least_inward_radius': 1 / concave if concave > 0 else np.inf})
@@ -636,11 +702,11 @@ def bowl(outline, *, floor_y, depth, radius, deck=1.2, top_degrees=None, ground=
     return built
 
 
-SOLID_TESS = dsl.Tess(.003, 15., 4.)    # ledges and boxes: a 3 cm nose and 10 cm corners in 15 degree steps
+SOLID_TESS = dsl.Tess(.003, 15., .5)    # ledges and boxes: a 3 cm nose in 15 degree steps, stations 0.5 m apart
 
 
 def ledge(outline, *, support_y, height, nose=.03, feature='ledge', tess=SOLID_TESS, material=dsl.LEDGE,
-          grind=True):
+          grind=True, on_ground=False):
     """A ledge, box or manual pad over the closed plan footprint `outline` (Rounded(closed=True) or a closed Spline):
     a level ridable top at support_y + height, a rounded `nose` over vertical faces down to the support. The base
     faces close it over the footprint, which the network cuts out of the deck (review point 1: no buried faces under
@@ -653,7 +719,7 @@ def ledge(outline, *, support_y, height, nose=.03, feature='ledge', tess=SOLID_T
                    start=(0., top))
     inward = 1 if _ccw(outline) else -1
     built, G, _ = transverse(outline, prof, side=-inward, offset=inward * nose, front='cap', back='base',
-                              ground=support_y, feature=feature, tess=tess)
+                              ground=support_y, feature=feature, tess=tess, on_ground=on_ground)
     mesh = built.mesh
     foot = G[:, -1]
     foot = foot[:-1] if np.linalg.norm(foot[0] - foot[-1]) < 1e-9 else foot
@@ -664,7 +730,7 @@ def ledge(outline, *, support_y, height, nose=.03, feature='ledge', tess=SOLID_T
         arris = G[:, 0]
         rails.append(edge_rail(arris, closed=True, feature=feature))
     built.checks.append({'feature': feature, 'kind': 'ledge', 'top_y': top, 'footprint': foot[:, [0, 2]].tolist()})
-    return Built(mesh, rails, built.checks)
+    return Built(mesh, rails, built.checks, built.foot)
 
 
 def box(x0, z0, x1, z1, *, support_y, height, corner=.1, nose=.03, feature='box', **kw):

@@ -17,6 +17,7 @@ import numpy as np
 from . import dsl
 
 WELD = 1e-7          # metres: positions this close are one vertex of the topology
+RING_SPACING = 2.5   # metres between a tube's rings at most
 
 
 # ---------------------------------------------------------------------------------------------------------- checks
@@ -49,6 +50,41 @@ def check_closed(mesh, min_area=1e-9, name=None):
     if v <= 0:
         raise ValueError(f'{name}: inward volume {v}')
     return v
+
+
+def check_open(mesh, name=None, min_area=1e-9):
+    """Raise unless the mesh is consistently wound and manifold, open only along simple closed loops; return those
+    loops as (k, 3) positions (a feature on the ground: its foot loops, which the ground fills)."""
+    name = name or mesh.features[0]
+    a = mesh.areas()
+    if (a < min_area).any():
+        raise ValueError(f'{name}: {int((a < min_area).sum())} degenerate faces')
+    P, F = mesh.welded(WELD)
+    r = edge_report(F)
+    if r['nonmanifold'] or r['flipped']:
+        raise ValueError(f'{name}: not manifold {r}')
+    d = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+    _, inv, cu = np.unique(np.sort(d, axis=1), axis=0, return_inverse=True, return_counts=True)
+    open_ = d[cu[inv.ravel()] == 1]
+    nxt = {}
+    for u, v in open_:
+        if int(u) in nxt:
+            raise ValueError(f'{name}: its open boundary branches at {P[u].round(3).tolist()}')
+        nxt[int(u)] = int(v)
+    loops, seen = [], set()
+    for u0 in nxt:
+        if u0 in seen:
+            continue
+        loop, u = [], u0
+        while u not in seen:
+            seen.add(u); loop.append(u)
+            if u not in nxt:
+                raise ValueError(f'{name}: its open boundary does not close at {P[u].round(3).tolist()}')
+            u = nxt[u]
+        if u != u0:
+            raise ValueError(f'{name}: its open boundary is not a simple loop')
+        loops.append(P[loop[::-1]])                      # the ground's side: counter-clockwise seen from above
+    return loops
 
 
 def check_folds(mesh, name=None, flat=.05):
@@ -234,12 +270,85 @@ def grid(P, *, outward, feature, material=dsl.CONCRETE, role=dsl.SIDE, tag='', u
     return dsl.Mesh.part(V, F, material=material, role=role, feature=feature, UV=UV, tag=tag, N=normals)
 
 
-def polygon(loop, *, outward, feature, material=dsl.CONCRETE, role=dsl.SIDE, tag='', uv=None):
-    """A planar cap over the 3D loop (n, 3), ear-clipped, facing `outward`. UVs: world (x, z) when the cap is near
-    level, else (horizontal distance in its plane, y)."""
+def _inside(Q, P2):
+    """Even-odd: which points Q (m, 2) lie inside the polygon P2 (n, 2)."""
+    a, b = P2, np.roll(P2, -1, 0)
+    inside = np.zeros(len(Q), bool)
+    for i0 in range(0, len(P2), 512):
+        A, B = a[i0:i0 + 512], b[i0:i0 + 512]
+        cond = (A[None, :, 1] > Q[:, None, 1]) != (B[None, :, 1] > Q[:, None, 1])
+        x = A[None, :, 0] + (Q[:, None, 1] - A[None, :, 1]) * (B[None, :, 0] - A[None, :, 0]) / np.where(
+            B[None, :, 1] != A[None, :, 1], B[None, :, 1] - A[None, :, 1], 1.)
+        inside ^= (cond & (Q[:, None, 0] < x)).sum(1) % 2 == 1
+    return inside
+
+
+def _seg_distance(Q, P2):
+    a, b = P2, np.roll(P2, -1, 0)
+    best = np.full(len(Q), np.inf)
+    for i0 in range(0, len(P2), 512):
+        A, B = a[i0:i0 + 512], b[i0:i0 + 512]
+        d = B - A
+        u = np.clip(((Q[:, None] - A[None]) * d[None]).sum(-1) / np.maximum((d * d).sum(1), 1e-300)[None], 0, 1)
+        best = np.minimum(best, np.linalg.norm(Q[:, None] - (A[None] + u[..., None] * d[None]), axis=-1).min(1))
+    return best
+
+
+STEINER_MAX = 2.0     # metres: interior points of a planar cap at most this far apart
+STEINER_MIN = .25
+
+
+def fill(P2, spacing=None):
+    """Faces (index triples) filling the simple polygon P2 (n, 2) without moving or adding boundary vertices: a
+    constrained Delaunay triangulation (cdt.py) over the boundary plus interior points on a grid (as fine as the
+    boundary's spacing and the polygon's size ask, STEINER_MIN..STEINER_MAX), kept clear of the boundary, so a dense
+    curved edge never fans to one far corner. A failed triangulation is retried at nearby spacings, then ear-clipped.
+    Returns (faces, interior points (k, 2)); faces wound as P2's order."""
+    from .cdt import CDTError, triangulate
+    P2 = np.asarray(P2, 'f8')
+    seg = np.linalg.norm(np.roll(P2, -1, 0) - P2, axis=1)
+    x = P2[:, 0] - P2[:, 0].mean(); y = P2[:, 1] - P2[:, 1].mean()
+    area = .5 * (x * np.roll(y, -1) - np.roll(x, -1) * y).sum()
+    h0 = spacing or float(np.clip(max(2 * np.median(seg), np.sqrt(abs(area)) / 12), STEINER_MIN, STEINER_MAX))
+    lo, hi = P2.min(0), P2.max(0)
+    for h in (h0, h0 * 1.13, h0 * .89, h0 * 1.27):
+        gx = np.arange(lo[0] + h / 2, hi[0], h); gy = np.arange(lo[1] + h / 2, hi[1], h)
+        G = np.stack(np.meshgrid(gx, gy), -1).reshape(-1, 2) if len(gx) and len(gy) else np.zeros((0, 2))
+        if len(G):
+            G = G[_inside(G, P2)]
+        if len(G):
+            G = G[_seg_distance(G, P2) > .6 * h]
+        pts = np.concatenate([P2, G])
+        try:
+            F = triangulate(pts, [np.arange(len(P2))])
+        except CDTError:
+            continue
+        if len(F) != len(P2) - 2 + 2 * len(G):               # not a full triangulation of the polygon: retry
+            continue
+        t = pts[F]
+        cw = ((t[:, 1, 0] - t[:, 0, 0]) * (t[:, 2, 1] - t[:, 0, 1])
+              - (t[:, 1, 1] - t[:, 0, 1]) * (t[:, 2, 0] - t[:, 0, 0])) < 0
+        F = np.where(cw[:, None], F[:, [0, 2, 1]], F)        # counter-clockwise in P2's plane
+        return (F if area > 0 else F[:, [0, 2, 1]]), G
+    return ear_clip(P2), np.zeros((0, 2))
+
+
+def polygon(loop, *, outward, feature, material=dsl.CONCRETE, role=dsl.SIDE, tag='', uv=None, steiner=True):
+    """A planar cap over the 3D loop (n, 3) facing `outward`: a constrained Delaunay fill with interior points (fill),
+    or ear-clipped (steiner=False: no new vertices at all). UVs: world (x, z) when the cap is near level, else
+    (horizontal distance in its plane, y)."""
     L = np.asarray(loop, 'f8')
     P2, n = _plane_2d(L)
-    F = orient(ear_clip(P2), L, outward)
+    if steiner:
+        F, G = fill(P2)
+        if len(G):                                           # interior points back into 3D on the loop's plane
+            e1 = np.cross(np.array([0., 1., 0.]) if abs(n[1]) < .9 else np.array([1., 0., 0.]), n)
+            e1 /= np.linalg.norm(e1); e2 = np.cross(n, e1)
+            d = L[0] @ n
+            L = np.concatenate([L, G[:, :1] * e1 + G[:, 1:] * e2 + d * n])
+    else:
+        F = ear_clip(P2)
+    F = orient(F, L, outward)
     if uv is None:
         uv = 'world' if abs(n[1]) > .7 else 'vertical'
     if uv == 'world':
@@ -293,6 +402,15 @@ def tube(axis, radius, *, feature, sides=12, closed=False, role=dsl.COPING, mate
     ends in flat discs. Smooth normals round the tube; u along it, v round it."""
     P = np.asarray(axis, 'f8')
     if closed and np.linalg.norm(P[0] - P[-1]) < 1e-9:
+        P = P[:-1]
+    # rings at most RING_SPACING apart, so a long straight run's faces stay well shaped (C's V9)
+    Q = np.concatenate([P, P[:1]]) if closed else P
+    out = [Q[:1]]
+    for a, b in zip(Q[:-1], Q[1:], strict=True):
+        n = max(1, int(np.ceil(np.linalg.norm(b - a) / RING_SPACING)))
+        out.append(a + (b - a) * (np.arange(1, n + 1) / n)[:, None])
+    P = np.concatenate(out)
+    if closed:
         P = P[:-1]
     k = len(P)
     T, N = transport_frames(P, closed)

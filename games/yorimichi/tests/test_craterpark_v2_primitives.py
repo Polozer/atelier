@@ -222,5 +222,48 @@ class SolidTests(unittest.TestCase, Common):
         self.assertTrue(np.allclose(np.linalg.norm(np.diff(rail.points, axis=0), axis=1).max(), .5, atol=.01))
 
 
+def quality(mesh):
+    t = mesh.triangles()
+    l2 = ((t[:, [1, 2, 0]] - t) ** 2).sum(-1).sum(1)
+    return 4 * np.sqrt(3) * mesh.areas() / np.maximum(l2, 1e-300)
+
+
+class ShapeTests(unittest.TestCase):
+    def test_every_drawn_face_of_every_primitive_is_well_shaped(self):
+        k, l = additions.RAMPS['pool_gap_kicker'][2], additions.RAMPS['pool_gap_landing'][2]
+        built = [
+            pr.jump_line(Line((1144., 931.4), (1380., 902.6)), pr.from_additions(*k), pr.from_additions(*l), 1.5, 7.,
+                         ground=-27., right=pr.Side('curb', .4, .3)),
+            pr.quarter_pipe(Line((0., 0.), (12., 0.)), floor_y=0., height=4., radius=3.5, deck=1.5),
+            pr.bank(Line((0., 0.), (12., 0.)), foot_y=0., height=2., degrees=30.),
+            pr.hip((10., 0.), ((0., 0.), (10., 10.)), foot_y=0., height=1.5, degrees=30.),
+            pr.snake_run(Spline([(0, 0), (15, 6), (30, 0), (45, -6), (60, 0)]), width=3., wall=1.5, radius=3.5),
+            pr.bowl(pr.Rounded(KIDNEY, [4.5, 4.5, 4.5, 2.5, 4.5], closed=True), floor_y=-3., depth=3., radius=3.),
+            pr.ledge(pr.Rounded([(0, 0), (8, 0), (8, .6), (0, .6)], .1, closed=True), support_y=0., height=.45),
+        ]
+        for b in built:
+            drawn = b.mesh.subset(b.mesh.role != dsl.ROLE[dsl.BASE])
+            self.assertGreaterEqual(quality(drawn).min(), .01, b.mesh.features)
+
+
+class GroundTests(unittest.TestCase):
+    def test_on_the_ground_a_feature_is_open_only_along_its_foot_loops_on_the_ground(self):
+        ground = lambda x, z: -.02 * np.asarray(x)
+        k, l = additions.RAMPS['pool_gap_kicker'][2], additions.RAMPS['pool_gap_landing'][2]
+        built = [pr.jump_line(Line((0., 0.), (200., 0.)), pr.from_additions(*k), pr.from_additions(*l), 1.5, 7.,
+                              ground=lambda x, z: np.full(np.shape(x), -27.), on_ground=True),
+                 pr.bowl(pr.Rounded(KIDNEY, 4.5, closed=True), floor_y=-3., depth=3., radius=3., ground=-1.,
+                         on_ground=True)]
+        built.append(pr.quarter_pipe(Line((0., 0.), (12., 0.)), floor_y=0., height=3., radius=3.5, ground=ground,
+                                     on_ground=True))
+        for b in built:
+            self.assertTrue(b.foot)
+            for loop in b.foot:
+                self.assertGreaterEqual(len(loop), 3)
+        # the bowl's foot is its deck's outer foot, on the ground at -1
+        self.assertEqual(len(built[1].foot), 1)
+        self.assertTrue(np.allclose(built[1].foot[0][:, 1], -1.))
+
+
 if __name__ == '__main__':
     unittest.main()
