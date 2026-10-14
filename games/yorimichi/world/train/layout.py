@@ -287,6 +287,11 @@ def contract():
     return json.loads(CONTRACT.read_text())
 
 
+def seat_height(asset):
+    """The contract's seat height (the cushion's top) above the floor."""
+    return next(a for a in contract()['assets'] if a['id'] == asset)['seat_height_m']
+
+
 def asset_dims(asset):
     spec = next(a for a in contract()['assets'] if a['id'] == asset)
     d = spec['dimensions_m']
@@ -424,6 +429,18 @@ def first_class():
     return c
 
 
+SEAT_FROM_BACK = .14        # a seated marker (the hip) stands this far in front of the backrest's face, 10 cm above the
+                            # seat: the restaurant banquettes' 0.138 (the second-class benches have 0.114)
+SOFA_BACK_FACE = {'plain': .091, 'pillow': -.029}   # that face on the fitted sofa, from its centre towards its back; on
+                            # its own -x half a throw pillow leans on the back, and the pillow is the backrest there
+
+
+def local_to_coach(p, u, v):
+    """A point (u, v) in a placement's own frame (yaw 0 faces -v) to coach (x, y)."""
+    a = math.radians(p.yaw)
+    return p.x + u * math.cos(a) - v * math.sin(a), p.y + u * math.sin(a) + v * math.cos(a)
+
+
 def _cabin(c, name, x0, x1):
     xc, yc = (x0 + x1) / 2, (ROOM_Y + IN) / 2
     sw, sd, _ = asset_dims('first-class-sofa')
@@ -431,9 +448,12 @@ def _cabin(c, name, x0, x1):
     for end, sx, yaw in (('a', -1, 90), ('b', 1, -90)):
         x = (x0 + .01 + sd / 2) if sx < 0 else (x1 - .01 - sd / 2)
         sid = f'{name}-sofa-{end}'
-        c.placements.append(Placement(sid, 'first-class-sofa', name, x, yc, FLOOR_Z, yaw))
-        for k, dy in enumerate((-.46, .46)):
-            c.seats.append(Seat(f'{sid}-seat-{k + 1}', sid, x - sx * .06, yc + dy, FLOOR_Z + .46, yaw))
+        sofa = Placement(sid, 'first-class-sofa', name, x, yc, FLOOR_Z, yaw)
+        c.placements.append(sofa)
+        for k, dy in enumerate((-.46, .46)):           # on the cushion, SEAT_FROM_BACK in front of the back (or pillow)
+            u = dy * round(math.sin(math.radians(yaw)))                 # the sofa's own x for this place
+            sx_, sy_ = local_to_coach(sofa, u, SOFA_BACK_FACE['pillow' if u < 0 else 'plain'] - SEAT_FROM_BACK)
+            c.seats.append(Seat(f'{sid}-seat-{k + 1}', sid, round(sx_, 4), round(sy_, 4), FLOOR_Z + seat_height('first-class-sofa'), yaw))
         wall_x = x0 + .02 if sx < 0 else x1 - .02
         for k, dy in enumerate((-.60, .60)):
             c.placements.append(Placement(f'{name}-sconce-{end}{k + 1}', 'wall-sconce', name, wall_x, yc + dy, FLOOR_Z + 1.62, yaw))

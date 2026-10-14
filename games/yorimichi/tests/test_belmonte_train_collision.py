@@ -1,3 +1,4 @@
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -119,6 +120,47 @@ class Collision(unittest.TestCase):
         self.assertNotIn('cupola-steps', parts)          # two treads, not one block up to the upper tread
         self.assertAlmostEqual(parts['cupola-steps-lower'][5], L.FLOOR_Z + .30)
         self.assertAlmostEqual(parts['lookout-seat'][5], L.FLOOR_Z + L.LOOKOUT_SEAT[4])
+
+    def test_seat_markers_rest_on_their_collision_tops(self):
+        for c in L.vehicles():
+            boxes = CO.collision_boxes(c)
+            for st in c.seats:
+                tops = [q[5] for _, q in boxes if q[0] <= st.x <= q[1] and q[2] <= st.y <= q[3] and q[4] < st.z]
+                self.assertTrue(tops, (c.name, st.id))
+                self.assertTrue(-1e-6 <= st.z - max(tops) <= CO.SEAT_GAP, (c.name, st.id, st.z - max(tops)))
+
+    def test_first_class_sofa_markers_sit_on_the_cushion_in_front_of_the_back(self):
+        # the same hip-to-backrest distance as the restaurant banquettes, from the back (or the throw pillow on the
+        # sofa's own -x half), whichever way the sofa faces
+        c = L.first_class()
+        sofas = {p.id: p for p in c.placements if p.asset == 'first-class-sofa'}
+        self.assertEqual(sum(st.furniture in sofas for st in c.seats), 16)
+        sides = []
+        for st in c.seats:
+            p = sofas[st.furniture]
+            self.assertAlmostEqual(st.z, L.FLOOR_Z + .40)
+            a = math.radians(-p.yaw)
+            dx, dy = st.x - p.x, st.y - p.y
+            u, v = dx * math.cos(a) - dy * math.sin(a), dx * math.sin(a) + dy * math.cos(a)
+            face = L.SOFA_BACK_FACE['pillow' if u < 0 else 'plain']
+            self.assertAlmostEqual(face - v, L.SEAT_FROM_BACK, places=3)
+            self.assertAlmostEqual(abs(u), .46, places=3)
+            sides.append(u < 0)
+        self.assertEqual(sides.count(True), 8)
+
+    def test_a_seat_marker_against_its_backrest_is_caught(self):
+        c = L.first_class()
+        st = c.seats[1]
+        back = dict(CO.collision_boxes(c))[f'{st.furniture}-back']
+        x = back[0] - .05 if st.x < back[0] else back[1] + .05          # 5 cm in front of the back slab
+        c.seats[1] = type(st)(st.id, st.furniture, x, st.y, st.z, st.yaw)
+        self.assertTrue(any(m.startswith(f'seat {st.id}:') and 'backrest' in m for m in CO.check_collision(c, CO.collision_boxes(c))))
+
+    def test_a_sunken_seat_marker_is_caught(self):
+        c = L.first_class()
+        st = c.seats[0]
+        c.seats[0] = type(st)(st.id, st.furniture, st.x, st.y, st.z - .05, st.yaw)
+        self.assertTrue(any(m.startswith(f'seat {st.id}:') for m in CO.check_collision(c, CO.collision_boxes(c))))
 
     def test_a_missing_bench_is_caught(self):
         c = L.second_class()

@@ -309,6 +309,8 @@ STEP_UP = .45          # UE MaxStepHeight: anything lower than this does not sto
 PERCH = .08            # a capsule stays up while its centre is this close to a floor edge
 SHELL = ('floor', 'ceiling', 'side-', 'end-', 'balcony-floor', 'railing', 'gangway-')
 SOFT_ASSETS = SOFT
+SEAT_BACK_CLEAR = .10  # and at least this far from its backrest's collision slab
+SEAT_GAP = .03         # a seat marker floats at most this far above its collision top, and never sinks into it
 
 
 def _cover(rect, boxes, z):
@@ -423,13 +425,19 @@ def check_collision(c, boxes):
                                             if c.body.end(s) == 'balcony' for sd in 'lr']
     need += [f'door-{o[0]}' for o in L.exterior_openings(c)] + [f'railing-{i}-above' for i in range(len(L.railings(c.body)))]
     bad += [f'{n} has no collision' for n in need if n not in parts]
-    # 7. every seat sits on (or up to 2 cm above) a collision top, 0.40-0.50 m above the floor
+    # 7. every seat marker sits on, or up to SEAT_GAP above, a collision top (nothing solid over it to its height),
+    #    0.40-0.50 m above the floor
     for st in c.seats:
-        tops = [q[5] for _, q in boxes if q[0] <= st.x <= q[1] and q[2] <= st.y <= q[3] and q[5] <= st.z + .02]
-        if not tops or st.z - max(tops) > .06:
-            bad.append(f'seat {st.id}: no collision top under it')
-        elif c.name not in ('locomotive',) and not .40 <= st.z - F <= .50:
+        tops = [q[5] for _, q in boxes if q[0] <= st.x <= q[1] and q[2] <= st.y <= q[3] and q[4] < st.z]
+        if not tops or not -1e-6 <= st.z - max(tops) <= SEAT_GAP:
+            bad.append(f'seat {st.id}: {"no collision top under it" if not tops else f"{st.z - max(tops):+.2f} m from its collision top"}')
+        elif c.name not in ('locomotive',) and not .40 - 1e-6 <= st.z - F <= .50:
             bad.append(f'seat {st.id}: sitting height {st.z - F:.2f} m')
+        back = next((q for p, q in boxes if p == f'{st.furniture}-back'), None)
+        if back:                                                # the hips clear the backrest
+            d = np.hypot(max(back[0] - st.x, 0., st.x - back[1]), max(back[2] - st.y, 0., st.y - back[3]))
+            if d < SEAT_BACK_CLEAR:
+                bad.append(f'seat {st.id}: {d:.2f} m from its backrest')
     # 8. a roof lookout's well is open in the ceiling collision
     if c.body.cupola:
         x0, x1 = c.body.cupola
