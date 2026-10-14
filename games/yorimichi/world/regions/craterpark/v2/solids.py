@@ -223,7 +223,13 @@ def grid(P, *, outward, feature, material=dsl.CONCRETE, role=dsl.SIDE, tag='', u
                         np.where(short[:, None], np.stack([i, k, m], 1), np.stack([j, k, m], 1))])
     t = V[F]
     F = F[np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1) > 1e-12]
-    F = orient(F, V, outward)
+    out = np.asarray(outward, 'f8')
+    if out.ndim > 1:                                             # per row (a, 3) or per vertex (a, b, 3)
+        out = np.broadcast_to(out[:, None] if out.ndim == 2 else out, (len(out), b, 3))
+        if closed_rows:
+            out = np.concatenate([out, out[:1]])
+        out = out.reshape(-1, 3)[F].mean(1)
+    F = orient(F, V, out)
     UV = _uv(P, uv).reshape(-1, 2)
     return dsl.Mesh.part(V, F, material=material, role=role, feature=feature, UV=UV, tag=tag, N=normals)
 
