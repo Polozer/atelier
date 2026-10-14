@@ -131,7 +131,8 @@ class Built(unittest.TestCase):
                 self.skipTest('Belmonte not built with its natural ground (world.belmonte)')
             built, natural = (source.Surface(source.triangles(out / d / f'{name}.glb')) for d in ('glb', 'natural'))
             shift = lambda surface: (lambda x, y: surface.height(x - BM.ORIGIN[0], y - BM.ORIGIN[1]) + BM.ORIGIN[2])  # noqa: E731
-            inside = (self.y > BM.SOUTH_JOIN) & ~BM.contains(self.x, self.y)
+            # Near the seam with the valley's terrain (not carved) the apron eases its carving out: the bank covers it.
+            inside = (self.y > BM.SOUTH_JOIN) & (E.seam_weight(self.x, self.y, BM.BOUNDS) >= 1.)
             if np.isfinite(shift(built)(self.x[inside], self.y[inside])).any():
                 self.check(name, shift(built), shift(natural), inside)
 
@@ -159,7 +160,7 @@ class Built(unittest.TestCase):
             self.skipTest('no bank over Belmonte\'s valley on this route')
         from belmonte.source import Surface
         bank = Surface(np.asarray(faces))
-        inside = BM.contains(self.x, self.y)
+        inside = E.seam_weight(self.x, self.y, BM.BOUNDS) < 1.
         z = bank.height(self.x[inside], self.y[inside])
         on = np.isfinite(z)
         off = np.abs(z[on] - (self.rail[inside][on] - E.FORMATION_DROP))

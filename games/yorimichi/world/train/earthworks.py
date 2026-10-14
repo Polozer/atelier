@@ -45,6 +45,8 @@ HOOD_HALF = 7.              # ... within this half width, falling 1:1 beyond
 HOLE = (6.4, -1.2, 2.2)     # the hole at a portal: half width, from (outside, metres along) to (inside)
 END_RATIO = 1.5             # cones where a fill or cut ends at a viaduct or the line's end
 REACH = 120.                # nothing is carved further than this from the centre line
+SEAM_FADE = 20.             # a terrain sharing a seam with ground that is not carved (Belmonte's valley) eases its
+                            # carving to nothing over this many metres from the seam, so the seam stays closed
 CUT = ('cutting', 'deep cutting', 'embankment')
 
 ENABLED = os.environ.get('RAILWAY_EARTHWORKS', '1') != '0'
@@ -335,6 +337,14 @@ def paint(colours, x, y, z, z0, ln=None):
 # --- refining a terrain's triangles ------------------------------------------------------------------------------
 
 
+def seam_weight(x, y, box, fade=SEAM_FADE):
+    """0 on and inside the box [x0, y0, x1, y1] (ground that is not carved), easing to 1 at `fade` metres out."""
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    dx = np.maximum(np.maximum(box[0] - x, x - box[2]), 0.)
+    dy = np.maximum(np.maximum(box[1] - y, y - box[3]), 0.)
+    return _smooth(np.hypot(dx, dy) / fade)
+
+
 def touched(points, ln=None, margin=.02):
     """True for the points the earthworks move (or nearly: within 12 m of the open line)."""
     ln = ln or line()
@@ -346,10 +356,11 @@ def touched(points, ln=None, margin=.02):
     return moved | (np.isfinite(s) & (np.abs(np.nan_to_num(u, nan=1e9)) < 12.))
 
 
-def refine(vertices, faces, step, attributes=None, ln=None, holes=True, hidden=None):
+def refine(vertices, faces, step, attributes=None, ln=None, holes=True, hidden=None, weight=None):
     """Subdivide the triangles the earthworks touch to about `step` metres, carve every vertex and leave the portal
     holes open. vertices (N, 3) in route metres; faces (M, 3); attributes {name: (N, k)} are interpolated (normals
-    are recomputed where carved). `hidden(x, y)`: where this terrain lies under another one (left as it is).
+    are recomputed where carved). `hidden(x, y)`: where this terrain lies under another one (left as it is);
+    `weight(x, y)`: 0..1, how much of the carving applies (seam_weight).
     Returns (vertices, faces, attributes, report)."""
     ln = ln or line()
     shown = (lambda x, y: ~np.asarray(hidden(x, y), bool)) if hidden else (lambda x, y: np.ones(np.shape(x), bool))
@@ -357,7 +368,9 @@ def refine(vertices, faces, step, attributes=None, ln=None, holes=True, hidden=N
     def carved(p):
         z = p[:, 2].copy()
         on = shown(p[:, 0], p[:, 1])
-        z[on] = carve(p[on, 0], p[on, 1], p[on, 2], ln)
+        c = carve(p[on, 0], p[on, 1], p[on, 2], ln)
+        w = 1. if weight is None else weight(p[on, 0], p[on, 1])
+        z[on] = p[on, 2] + w * (c - p[on, 2])
         return z
     v = np.asarray(vertices, float).reshape(-1, 3)
     f = np.asarray(faces, np.int64).reshape(-1, 3)
@@ -488,7 +501,7 @@ def sheet(data, step=SHEET_STEP, ln=None, hidden=None):
     return dict(data, vertices=v, faces=f.astype(np.int32), colours=colours, normals=a['normals'])
 
 
-def quads(mesh, origin, step, ln=None, hidden=None):
+def quads(mesh, origin, step, ln=None, hidden=None, weight=None):
     """`refine` in place for a hippodrome.build.Mesh (lists p, n, t, i; positions relative to `origin`), keeping each
     vertex's natural height in `mesh.natural` for `paint`. Returns the report."""
     ln = ln or line()
@@ -497,7 +510,7 @@ def quads(mesh, origin, step, ln=None, hidden=None):
     origin = np.asarray(origin, float)
     v = np.asarray(mesh.p, float) + origin
     attrs = dict(normals=np.asarray(mesh.n, float), uv=np.asarray(mesh.t, float), natural=v[:, 2:3])
-    v, f, a, report = refine(v, np.asarray(mesh.i).reshape(-1, 3), step, attrs, ln, hidden=hidden)
+    v, f, a, report = refine(v, np.asarray(mesh.i).reshape(-1, 3), step, attrs, ln, hidden=hidden, weight=weight)
     mesh.p = list(v - origin)
     mesh.n = list(a['normals'])
     mesh.t = [tuple(uv) for uv in a['uv']]
@@ -505,3 +518,76 @@ def quads(mesh, origin, step, ln=None, hidden=None):
     mesh.natural = a['natural'][:, 0]
     print('RAILWAY EARTHWORKS', report, flush=True)
     return report
+
+
+def stitch(meshes, origin, lines, ln=None, tol=1e-4):
+    """Close the seams between hippodrome.build.Mesh terrains refined at different steps: along each straight seam
+    (axis 0: x = value, axis 1: y = value), every seam vertex of one mesh near the line becomes a vertex of the other
+    (its seam triangles are fanned), at the exact height the first mesh gives it. Returns the vertices added."""
+    ln = ln or line()
+    if ln is None:
+        return 0
+    origin = np.asarray(origin, float)
+    added = 0
+    for axis, value in lines:
+        across = 1 - axis       # the seam runs along this coordinate
+        seams = []
+        for mesh in meshes:
+            p = np.asarray(mesh.p, float) + origin
+            on = np.abs(p[:, axis] - value) < tol
+            s, _, _ = ln.project(p[on, 0], p[on, 1])
+            near = np.flatnonzero(on)[np.isfinite(s)]
+            seams.append({round(float(p[k, across]), 4): float(p[k, 2]) for k in near})
+        for m, mesh in enumerate(meshes):
+            others = {}
+            for k, seam in enumerate(seams):
+                if k != m:
+                    others.update(seam)
+            if not others:
+                continue
+            keys = np.array(sorted(others))
+            heights = np.array([others[k] for k in keys])
+            p = np.asarray(mesh.p, float) + origin
+            n, t = np.asarray(mesh.n, float), np.asarray(mesh.t, float)
+            natural = getattr(mesh, 'natural', None)
+            tris = np.asarray(mesh.i).reshape(-1, 3)
+            on = np.abs(p[:, axis] - value) < tol
+            out, new_p, new_n, new_t, new_nat = [], [], [], [], []
+            base = len(p)
+            for a, b, c in tris:
+                done = False
+                for e0, e1, opp in ((a, b, c), (b, c, a), (c, a, b)):
+                    if not (on[e0] and on[e1]):
+                        continue
+                    u0, u1 = p[e0, across], p[e1, across]
+                    inside = keys[(keys > min(u0, u1) + tol) & (keys < max(u0, u1) - tol)]
+                    if not len(inside):
+                        break
+                    inside = inside if u1 > u0 else inside[::-1]
+                    chain = [e0]
+                    for q in inside:
+                        f = (q - u0) / (u1 - u0)
+                        point = p[e0] + f * (p[e1] - p[e0])
+                        point[across] = q
+                        point[2] = heights[np.searchsorted(keys, q)]
+                        new_p.append(point)
+                        new_n.append(n[e0] + f * (n[e1] - n[e0]))
+                        new_t.append(t[e0] + f * (t[e1] - t[e0]))
+                        if natural is not None:
+                            new_nat.append(natural[e0] + f * (natural[e1] - natural[e0]))
+                        chain.append(base + len(new_p) - 1)
+                    chain.append(e1)
+                    out.extend((x0, x1, opp) for x0, x1 in zip(chain[:-1], chain[1:]))
+                    done = True
+                    break
+                if not done:
+                    out.append((a, b, c))
+            if new_p:
+                mesh.p = list(np.concatenate([p, new_p]) - origin)
+                mesh.n = list(np.concatenate([n, new_n]))
+                mesh.t = [tuple(v) for v in np.concatenate([t, new_t])]
+                mesh.i = [int(k) for k in np.asarray(out).ravel()]
+                if natural is not None:
+                    mesh.natural = np.concatenate([natural, new_nat])
+                added += len(new_p)
+    return added

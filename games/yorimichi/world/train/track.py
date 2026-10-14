@@ -468,13 +468,16 @@ BANK_ACROSS = (1., 2.5)
 
 
 def bank_ranges(line):
-    """Chainage ranges of embankment over Belmonte's own valley, whose committed terrain is not carved: there the
-    bank is a mesh of its own (elsewhere the terrain itself is raised, train/earthworks.py)."""
+    """Chainage ranges of embankment over Belmonte's own valley, whose committed terrain is not carved, and over the
+    apron's seam with it, where the apron's carving eases out (earthworks.SEAM_FADE): there the bank is a mesh of its
+    own (elsewhere the terrain itself is raised, train/earthworks.py)."""
     from belmonte import layout as BM
+    from train import earthworks as E
     rows = line.route['samples']
     out, start = [], None
     for i, r in enumerate(rows + [None]):
-        on = r is not None and r['class'] == 'embankment' and r['rail_z'] - r['ground_z'] > .3 and bool(BM.contains(r['x'], r['y']))
+        on = r is not None and r['class'] == 'embankment' and r['rail_z'] - r['ground_z'] > .3 and \
+            float(E.seam_weight(r['x'], r['y'], BM.BOUNDS)) < 1.
         if on and start is None:
             start = max(r['s'] - 5., 0.)
         if not on and start is not None:
@@ -484,7 +487,9 @@ def bank_ranges(line):
 
 
 def bank_mesh(line, start, end, lod, origin):
-    """The bank from start to end: the earthworks' formation and slopes down to 0.3 m under the natural ground."""
+    """The bank from start to end: the earthworks' formation and slopes, over the ground as it is shown (the apron
+    partly raised by its own carving near the seam) by 2 cm, and down to 0.3 m under it beyond the slopes' toes."""
+    from belmonte import layout as BM
     from train import earthworks as E
     ln = E.line()
     mesh = Mesh()
@@ -496,8 +501,9 @@ def bank_mesh(line, start, end, lod, origin):
         p = line.place(np.full(len(u), s), u, 0.)
         g = R.ground(p[:, 0], p[:, 1])
         _, lo, _ = E.design(p[:, 0], p[:, 1], ln)
-        lo = np.where(np.isfinite(lo), lo, g - .3)
-        z = np.maximum(lo, g - .3)
+        lo = np.where(np.isfinite(lo), lo, -np.inf)
+        shown = g + E.seam_weight(p[:, 0], p[:, 1], BM.BOUNDS) * (np.maximum(lo, g) - g)
+        z = np.where(lo > shown - .3, np.maximum(lo, shown + .02), shown - .3)
         rail = float(np.interp(s, line.s, line.rail))
         return list(zip(u, z - rail))
 

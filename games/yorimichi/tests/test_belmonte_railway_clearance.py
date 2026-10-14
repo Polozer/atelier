@@ -1,5 +1,6 @@
-"""No tree or bush where the Belmonte train runs (train/corridor.py), over every planted source along route v3:
-Hidamari's city.json, Belmonte's runtime.json and the world's world.json."""
+"""The railway's corridor (train/corridor.py) over every planted source along the line (Hidamari's city.json,
+Belmonte's runtime.json, the world's world.json): no tree in it, shrubs and grass only down to its soft edge, and
+nothing near the line left floating over or sunk under the earthworks' carved ground."""
 import json
 import sys
 import unittest
@@ -15,15 +16,15 @@ from train import corridor as C  # noqa: E402
 
 
 def planted():
-    """{source: {name: array of (x, y)}} for the built sources that exist."""
+    """{source: {name: array of (x, y, z)}} for the built sources that exist."""
     out = {}
     city = yori.OUT / 'hidamari' / 'city.json'
     if city.exists():
-        out['hidamari'] = {n: np.asarray(v, float).reshape(len(v), -1)[:, :2]
+        out['hidamari'] = {n: np.asarray(v, float).reshape(len(v), -1)[:, :3]
                            for n, v in json.loads(city.read_text())['instances'].items() if v}
     world = yori.OUT / 'world.json'
     if world.exists():
-        out['world'] = {n: np.asarray(v, float).reshape(len(v), -1)[:, :2]
+        out['world'] = {n: np.asarray(v, float).reshape(len(v), -1)[:, :3]
                         for n, v in json.loads(world.read_text()).get('instances', {}).items() if v}
     runtime = yori.OUT / 'belmonte' / 'runtime.json'
     if runtime.exists():
@@ -33,7 +34,8 @@ def planted():
             if not g.get('plant'):
                 continue
             name = g['asset'].split('.')[-1]
-            xy = [(t['translation_cm'][0] / 100 + BM.ORIGIN[0], -t['translation_cm'][1] / 100 + BM.ORIGIN[1]) for t in g['transforms']]
+            xy = [(t['translation_cm'][0] / 100 + BM.ORIGIN[0], -t['translation_cm'][1] / 100 + BM.ORIGIN[1],
+                   t['translation_cm'][2] / 100 + BM.ORIGIN[2]) for t in g['transforms']]
             if xy:
                 rows[name] = np.concatenate([rows[name], xy]) if name in rows else np.asarray(xy, float)
         out['belmonte'] = rows
@@ -68,15 +70,43 @@ class Clearance(unittest.TestCase):
         if not cls.sources:
             raise unittest.SkipTest('no planted source built')
 
-    def test_no_tree_or_bush_stands_where_the_train_runs(self):
+    def test_no_tree_in_the_corridor_and_shrubs_and_grass_only_to_its_soft_edge(self):
+        from train import earthworks as E
+        ln = E.line()
         for source, names in self.sources.items():
-            for name, xy in names.items():
-                if not name.replace('Tree_Tuscan', 'Tree').startswith(C.PLANTS) or not len(xy):
+            for name, xyz in names.items():
+                k = C.kind(name)
+                if k is None or not len(xyz):
                     continue
                 with self.subTest(source=source, plant=name):
-                    bad = self.line.blocked(xy[:, 0], xy[:, 1])
+                    x, y = xyz[:, 0], xyz[:, 1]
+                    if k == 'tree' or ln is None:
+                        bad = self.line.blocked(x, y) if k != 'grass' else np.zeros(len(x), bool)
+                    else:
+                        s, u, _ = ln.project(x, y)
+                        near = np.isfinite(s)
+                        tunnel, _ = ln.inside(np.nan_to_num(s), ln.tunnels)
+                        viaduct, _ = ln.inside(np.nan_to_num(s), ln.viaducts)
+                        half = C.SHRUB_HALF if k == 'shrub' else C.GRASS_HALF
+                        bad = near & (tunnel <= 0) & (viaduct <= 0) & (np.abs(np.nan_to_num(u, nan=1e9)) < half)
                     if bad.any():
-                        self.fail(f'{int(bad.sum())} in the corridor, e.g. {xy[bad][0].round(1).tolist()}')
+                        self.fail(f'{int(bad.sum())} in the corridor, e.g. {xyz[bad][0].round(1).tolist()}')
+
+    def test_nothing_near_the_line_floats_over_or_sinks_under_the_carved_ground(self):
+        from train import earthworks as E
+        ln = E.line()
+        if ln is None:
+            self.skipTest('earthworks off')
+        for source, names in self.sources.items():
+            for name, xyz in names.items():
+                if C.kind(name) is None or not len(xyz):
+                    continue
+                with self.subTest(source=source, plant=name):
+                    keep, z = C.settle(name, xyz[:, 0], xyz[:, 1], xyz[:, 2], self.line)
+                    off = np.abs(z - xyz[:, 2]) > C.MOVED     # carving twice moves a crest by at most ROUND / 4
+                    bad = off | ~keep
+                    if bad.any():
+                        self.fail(f'{int(bad.sum())} not settled on the carved ground, e.g. {xyz[bad][0].round(1).tolist()}')
 
 
 if __name__ == '__main__':

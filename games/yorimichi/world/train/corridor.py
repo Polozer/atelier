@@ -112,24 +112,85 @@ def keep(x, y):
     return np.ones(n, bool) if c is None else ~c.blocked(x, y)
 
 
-PLANTS = ('Tree', 'Bush', 'Shrub', 'Fern', 'Reed')     # what the corridor clears (grass and flowers stay under the train)
+PLANTS = ('Tree', 'Bush', 'Shrub', 'Fern', 'Reed')     # what the corridor cleared before the earthworks' soft edge
+# The soft edge (with the earthworks, train/earthworks.py): trees keep clear of the whole corridor; shrubs, rocks and
+# litter come down the slopes to SHRUB_HALF of the line, off the rock faces; grass and flowers to the ballast's edge.
+# Whatever stays near the line is set on the carved ground (the regions place it on the natural one).
+SHRUBS = ('Bush', 'Shrub', 'Fern', 'Reed', 'Rock', 'Litter')
+GRASSES = ('Grass', 'Flower')
+SHRUB_HALF = 4.5            # the train's half width (1.8) and the step boards, plus a shrub's spread
+GRASS_HALF = 3.2            # the ballast's skirt (track.SKIRT 2.6) and its shoulder
+MOVED = .5                  # a tree on ground the earthworks moved more than this goes (it would float or sink)
+
+
+def kind(name):
+    """'tree', 'shrub', 'grass' or None for an instance or asset name."""
+    name = name.replace('Tree_Tuscan', 'Tree').replace('Tree_Forest', 'Tree')
+    return 'tree' if name.startswith('Tree') else 'shrub' if name.startswith(SHRUBS) else \
+        'grass' if name.startswith(GRASSES) else None
+
+
+def settle(name, x, y, z, corridor=None):
+    """(keep, z): which of the plants named `name` at x, y, z (natural ground) stay, and their height on the carved
+    ground. Without the earthworks (RAILWAY_EARTHWORKS=0 or no line) shrubs keep clear of the whole corridor as trees
+    do, and nothing moves."""
+    from train import earthworks as E
+    x, y, z = (np.asarray(v, float).ravel() for v in (x, y, z))
+    keep, out = np.ones(len(x), bool), z.copy()
+    k = kind(name)
+    c = corridor or load()
+    if k is None or c is None or not len(x):
+        return keep, out
+    ln = E.line()
+    if ln is None:
+        if k != 'grass':
+            keep = ~c.blocked(x, y)
+        return keep, out
+    s, u, _ = ln.project(x, y)
+    near = np.isfinite(s)
+    if k == 'tree':
+        keep = ~c.blocked(x, y)
+    if not near.any():
+        return keep, out
+    i = np.flatnonzero(near)
+    tunnel, _ = ln.inside(s[i], ln.tunnels)
+    viaduct, _ = ln.inside(s[i], ln.viaducts)
+    open_ = (tunnel <= 0) & (viaduct <= 0)
+    # Over a tunnel the ground is left as it is (its hood only thickens thin cover); a plant's own height there may
+    # belong to another surface (the far hills under the foothills).
+    carved = np.where(open_, E.carve(x[i], y[i], z[i], ln), z[i])
+    moved = np.abs(carved - z[i]) > MOVED
+    if k == 'tree':
+        bad = moved                                         # no tree on the new slopes
+    else:
+        bad = open_ & (np.abs(u[i]) < (SHRUB_HALF if k == 'shrub' else GRASS_HALF))
+        bad |= E.in_hole(x[i], y[i], carved, ln)
+        if k == 'shrub':
+            rock, _, _ = E.weights(x[i], y[i], carved, z[i], ln)
+            bad |= rock > .5
+    keep[i] &= ~bad
+    out[i] = carved
+    return keep, out
 
 
 def clear_instances(instances, corridor=None):
-    """Remove from {name: [[x, y, ...], ...]} the plants standing in the corridor, in place; {name: removed}."""
+    """Clear the railway's corridor in {name: [[x, y, z, ...], ...]} in place (see settle); {name: removed}."""
     c = corridor or load()
     removed = {}
     if c is None:
         return removed
     for name, rows in instances.items():
-        if not name.startswith(PLANTS) or not rows:
+        if not rows or kind(name) is None:
             continue
         a = np.asarray(rows, float)
-        bad = c.blocked(a[:, 0], a[:, 1])
-        if bad.any():
-            removed[name] = int(bad.sum())
-            instances[name] = a[~bad].tolist()
-    return removed
+        if a.ndim != 2 or a.shape[1] < 3:
+            continue
+        keep, z = settle(name, a[:, 0], a[:, 1], a[:, 2], c)
+        if (~keep).any() or not np.array_equal(z, a[:, 2]):
+            a[:, 2] = np.round(z, 3)
+            removed[name] = int((~keep).sum())
+            instances[name] = a[keep].tolist()
+    return {k: v for k, v in removed.items() if v}
 
 
 # --- the terrain's cut and fill, for the terrain builders --------------------------------------------------------
