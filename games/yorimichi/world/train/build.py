@@ -26,6 +26,7 @@ from mathutils import Vector
 from train import collision as CO
 from train import fittings as FT
 from train import layout as L
+from train import parts as PT
 from train import textures as T
 
 OUT = yori.OUT / 'belmonte-train'
@@ -55,6 +56,8 @@ MATERIALS = {
     'glass': ((.92, .95, .96), 0., .04, None, 1., .12),
     'glass-frosted': ((.88, .90, .90), 0., .5, None, 1., .80),
     'glass-dark': ((.05, .07, .09), 0., .1, None, 1., 1.),
+    'window-interior': ((1, 1, 1), 0., .25, None, 1., 1.),       # the LOD2 windows' interior atlas (parts.py)
+    'shadow-proxy': ((.5, .5, .5), 0., 1., None, 1., 1.),
     'lamp-red': ((.85, .04, .02), 0., .2, None, 1., 1.),
     'coal': ((.008, .008, .009), .1, .75, None, 1., 1.),
     'iron-black': ((.014, .014, .015), .55, .42, None, 1., 1.),
@@ -1316,13 +1319,24 @@ def collision(c, coll, parent, mesh_name):
     return out
 
 
+def window_cards(c, m, y_out):
+    """Each window as a card facing out at y_out from the side: the clear ones on the interior atlas (parts.py), the
+    frosted ones dark."""
+    _, tiles = PT.window_tiles(c)
+    for w in c.windows:
+        y = w.side * y_out
+        pts = [(w.x - w.width / 2, y, w.sill), (w.x + w.width / 2, y, w.sill), (w.x + w.width / 2, y, w.head), (w.x - w.width / 2, y, w.head)]
+        if w.name in tiles:
+            m.poly(pts, 'window-interior', uv=PT.window_uv(w, tiles[w.name]), normal=(0, w.side, 0))
+        else:
+            m.poly(pts, 'glass-dark', normal=(0, w.side, 0))
+
+
 def lod2_hull(c, coll, parent):
     m = M()
     m.box(B.x_a, B.x_b, -L.HALF, L.HALF, L.SKIRT_Z, L.BELT_Z, 'livery-blue')
     m.box(B.x_a, B.x_b, -L.HALF, L.HALF, L.BELT_Z, L.CANT_Z, 'livery-ivory')
-    for w in c.windows:
-        y = w.side * (L.HALF + .003)
-        m.poly([(w.x - w.width / 2, y, w.sill), (w.x + w.width / 2, y, w.sill), (w.x + w.width / 2, y, w.head), (w.x - w.width / 2, y, w.head)], 'glass-dark', normal=(0, w.side, 0))
+    window_cards(c, m, L.HALF + .003)
     for name, sy, x0, x1, z0, z1 in L.exterior_openings(c):
         y = sy * (L.HALF + .002)
         m.poly([(x0, y, z0), (x1, y, z0), (x1, y, z1), (x0, y, z1)], 'livery-blue', normal=(0, sy, 0))
@@ -2095,6 +2109,11 @@ def build(coach, images):
     for o in cols['LOD2'].objects:
         o.hide_set(True)
     out = OUT / coach.name; out.mkdir(parents=True, exist_ok=True)
+    atlas = TEX / f'T_BT_{title}Interior.png'           # the windows' interior views, rendered before the exports
+    window_tiles = PT.render_atlas(coach, atlas, OUT / 'furniture', [cols['LOD2'], cols['Reservations'], cols['Collision']])
+    if window_tiles:
+        MAT['window-interior'].name = f'M_BT_WindowInterior{title}'
+        PT.window_material(MAT['window-interior'], atlas)
     if B.livery == 'worn':
         wear_out([o for o in scene.objects if o.users_collection and not o.users_collection[0].name.endswith(('_Reservations', '_Collision'))])
     every = list(scene.objects)
@@ -2123,6 +2142,7 @@ def build(coach, images):
     p = out / f'{coach.name}.blend'
     bpy.ops.wm.save_as_mainfile(filepath=str(p), compress=True, relative_remap=True)
     files[p.name] = p
+    parts = export_parts(coach, lod_sets, out, mesh_name, files, window_tiles)
     info = dict(
         title=coach.title, mesh=mesh_name,
         triangles={f'LOD{k}': tris(lod_sets[k]) for k in (0, 1, 2)},
@@ -2133,8 +2153,57 @@ def build(coach, images):
         mesh_checks=mesh_checks(lod_sets[0]),
         layout_checks=L.check(coach),
         files={n: dict(bytes=f.stat().st_size, sha256=sha(f)) for n, f in files.items()},
+        parts=parts,
     )
     return info
+
+
+def export_parts(c, lod_sets, out, mesh_name, files, window_tiles):
+    """The engine's cut of the vehicle (parts.py), beside the combined LODs, and its record for the manifest. Leaves
+    the scene as it was."""
+    coll = bpy.data.collections.new('Parts'); bpy.context.scene.collection.children.link(coll)
+    p = out / f'{mesh_name}_Exterior_LOD2.glb'; export_glb(p, lod_sets[2]); files[p.name] = p     # the LOD2 is all outside
+    lod2 = dict(file=p.name, triangles=tris(lod_sets[2]), sections=PT.sections(lod_sets[2]), nodes=sum(1 for o in lod_sets[2] if o.type == 'MESH'))
+    renamed = []
+    for o in set(lod_sets[0]) | set(lod_sets[1]):    # the copies take the originals' names in the GLBs
+        renamed.append((o, o.name)); o.name = o.name + '~'
+    record = dict(exterior={}, interior={}, render=dict(
+        interior_cull_m=PT.INTERIOR_CULL_M, interior_cast_shadow=False, exterior_cast_shadow=False,
+        shadow_proxy='casts the shadows only (hidden in game, shadow casting on)',
+        window_cards=f'drawn only beyond {PT.INTERIOR_CULL_M:g} m, where the interior is culled; one-sided, facing out'))
+    made = []
+    for k in (0, 1):
+        sides = PT.split(B, lod_sets[k], coll)
+        for side, objs in sides.items():
+            made += objs
+            if not any(o.type == 'MESH' for o in objs):
+                continue
+            p = out / f'{mesh_name}_{side.title()}_LOD{k}.glb'; export_glb(p, objs); files[p.name] = p
+            record[side][f'LOD{k}'] = dict(file=p.name, triangles=PT.triangles(objs), sections=PT.sections(objs),
+                                           nodes=sum(1 for o in objs if o.type == 'MESH'))
+        for o in made:
+            o.name = o.name + '#'                     # out of the way of the next level's names
+    for o, name in renamed:
+        o.name = name
+    record['exterior']['LOD2'] = lod2
+    proxy = PT.shadow_proxy(c, coll, MAT['shadow-proxy']); made.append(proxy)
+    proxy.name = 'ShadowProxy'
+    p = out / f'{mesh_name}_ShadowProxy.glb'; export_glb(p, [proxy]); files[p.name] = p
+    record['shadow_proxy'] = dict(file=p.name, triangles=PT.triangles([proxy]))
+    if window_tiles:
+        m = M(); window_cards(c, m, L.HALF + .004)
+        cards = m.obj('WindowCards', coll, lods=()); made.append(cards)
+        p = out / f'{mesh_name}_WindowCards.glb'; export_glb(p, [cards]); files[p.name] = p
+        record['window_cards'] = dict(file=p.name, triangles=PT.triangles([cards]), atlas=f'T_BT_{"".join(t.title() for t in c.name.split("-"))}Interior.png',
+                                      atlas_px=[PT.TILE_PX * PT.ATLAS_TILES, PT.TILE_PX], tiles=window_tiles, fov_deg=PT.WINDOW_FOV,
+                                      uv='u across the atlas: tile = floor(u * tiles); v 0 at the sill')
+    for o in made:
+        data = o.data
+        bpy.data.objects.remove(o)
+        if data is not None and data.users == 0:
+            bpy.data.meshes.remove(data) if isinstance(data, bpy.types.Mesh) else None
+    bpy.data.collections.remove(coll)
+    return record
 
 
 def main():

@@ -4,6 +4,7 @@ The checks on build outputs skip when `atelier build yorimichi world.belmonte_tr
 `world.belmonte_train_furniture_lods` (furniture levels of detail) has not been run in this checkout.
 """
 import json
+import struct
 import sys
 import unittest
 from collections import Counter
@@ -145,6 +146,74 @@ class Shells(unittest.TestCase):
                 w, h = img.size
                 self.assertTrue(B.is_power_of_two(w) and B.is_power_of_two(h), (w, h))
                 self.assertLessEqual(max(w, h), 2048)
+
+
+class ShellParts(unittest.TestCase):
+    """The engine's cut of each shell (parts.py): exterior and interior add up to the combined mesh, within the shell
+    budgets; a small shadow proxy; the windows' interior atlas."""
+
+    @classmethod
+    def setUpClass(cls):
+        path = OUT / 'manifest.json'
+        if not path.exists():
+            raise unittest.SkipTest('train shells not built (atelier build yorimichi world.belmonte_train)')
+        cls.manifest = json.loads(path.read_text())
+        if any('parts' not in c for c in cls.manifest['coaches'].values()):
+            raise unittest.SkipTest('shells built before the parts')
+
+    def test_exterior_and_interior_add_up_to_the_combined_mesh(self):
+        for name, c in self.manifest['coaches'].items():
+            p = c['parts']
+            for k in ('LOD0', 'LOD1'):
+                with self.subTest(vehicle=name, lod=k):
+                    total = sum(p[side].get(k, {}).get('triangles', 0) for side in ('exterior', 'interior'))
+                    self.assertEqual(total, c['triangles'][k])
+                    self.assertLessEqual(total, B.SHELL[k])
+            self.assertEqual(p['exterior']['LOD2']['triangles'], c['triangles']['LOD2'])
+            self.assertNotIn('LOD2', p['interior'])
+
+    def test_every_part_file_is_built_and_stated(self):
+        for name, c in self.manifest['coaches'].items():
+            p = c['parts']
+            recs = [*p['exterior'].values(), *p['interior'].values(), p['shadow_proxy']] + ([p['window_cards']] if 'window_cards' in p else [])
+            for r in recs:
+                with self.subTest(vehicle=name, file=r['file']):
+                    path = OUT / name / r['file']
+                    self.assertTrue(path.exists())
+                    self.assertEqual(B.glb_stats(path)['triangles'], r['triangles'])
+
+    def test_the_shadow_proxy_is_small_and_closed(self):
+        for name, c in self.manifest['coaches'].items():
+            with self.subTest(vehicle=name):
+                path = OUT / name / c['parts']['shadow_proxy']['file']
+                doc, binary = B.read_glb(path)
+                self.assertLessEqual(B.glb_stats(path)['triangles'], B.SHELL_PROXY)
+                prim = doc['meshes'][0]['primitives'][0]
+                acc = doc['accessors'][prim['indices']]
+                view = doc['bufferViews'][acc['bufferView']]
+                fmt = {5121: 'B', 5123: 'H', 5125: 'I'}[acc['componentType']]
+                idx = struct.unpack_from(f'<{acc["count"]}{fmt}', binary, view.get('byteOffset', 0) + acc.get('byteOffset', 0))
+                pos_acc = doc['accessors'][prim['attributes']['POSITION']]
+                pv = doc['bufferViews'][pos_acc['bufferView']]
+                pts = struct.unpack_from(f'<{pos_acc["count"] * 3}f', binary, pv.get('byteOffset', 0) + pos_acc.get('byteOffset', 0))
+                key = [tuple(round(v, 4) for v in pts[3 * i:3 * i + 3]) for i in range(pos_acc['count'])]
+                edges = Counter()
+                for t in range(0, len(idx), 3):
+                    a, b_, c_ = (key[i] for i in idx[t:t + 3])
+                    for e in ((a, b_), (b_, c_), (c_, a)):
+                        edges[tuple(sorted(e))] += 1
+                self.assertTrue(all(n % 2 == 0 for n in edges.values()), 'open edges')    # closed pieces
+
+    def test_window_atlases_are_powers_of_two(self):
+        from PIL import Image
+        for name, c in self.manifest['coaches'].items():
+            cards = c['parts'].get('window_cards')
+            if not cards:
+                continue
+            with self.subTest(vehicle=name), Image.open(OUT / 'textures' / cards['atlas']) as img:
+                self.assertEqual(list(img.size), cards['atlas_px'])
+                self.assertTrue(all(B.is_power_of_two(n) for n in img.size))
+                self.assertTrue(cards['tiles'] and all(t['depth_m'] > 0 for t in cards['tiles']))
 
 
 if __name__ == '__main__':

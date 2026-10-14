@@ -112,6 +112,27 @@ Seven shared detail maps (512–1024 px) drawn by `textures.py`: walnut grain, t
 in gold inlay, burgundy and emerald carpets, vestibule tiles, the sun-and-olive crest. The fine ornament is in the
 textures, not the geometry.
 
+## Parts for the engine
+
+Beside the combined `SM_BT_<V>_LOD0/1/2.glb`, which stay as they are, `parts.py` cuts every vehicle for the
+engine. The manifest's `parts` records each file, with its triangles and sections:
+
+| File | What | Draw |
+| --- | --- | --- |
+| `SM_BT_<V>_Exterior_LOD0/1/2.glb` | outer skin, roof, ends, gangways, underframe, glazing, outside doors, balcony; static geometry joined into one node, moving parts (doors, bogies, wheelsets, rods, cab controls) as named nodes | always, no shadows |
+| `SM_BT_<V>_Interior_LOD0/1.glb` | lining, partitions, ceiling, floor, fittings, inside doors, the lookout, the engine's cab | culled at 40 m with the furniture, no shadows |
+| `SM_BT_<V>_ShadowProxy.glb` | a closed hull of 24–104 triangles (cap `budgets.SHELL_PROXY`, 400) | hidden, casts the shadows |
+| `SM_BT_<V>_WindowCards.glb` | the windows as one-sided cards facing out, on the interior atlas | beyond 40 m only |
+
+A mesh lying on both sides is cut face by face at the inner envelope: the side walls' walnut goes inside and their
+livery outside. Roof, livery and underframe materials always stay outside. Exterior plus interior adds up to the
+combined mesh exactly, and the tests check it against the shell caps.
+
+Windows: `T_BT_<V>Interior.png` (2048 × 512) holds four 512 px views, each rendered with the vehicle's furniture
+from a clear window's plane looking in (90° horizontal field of view). The manifest records each tile's room depth
+for a 2D interior-mapping material. Every clear window in LOD2 and on the cards maps to its nearest tile
+(`u` across the atlas, `v` from the sill). Until that material exists, the plain textured one stands in.
+
 ## Limits and next steps
 
 - The interior lining is generated from the plan: raised walnut panels, dado rail and brass architraves. Its

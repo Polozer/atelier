@@ -126,3 +126,7 @@ def glb_stats(path):
         o = bv.get('byteOffset', 0)
         images.append(image_size(binary[o:o + bv['byteLength']]))
     return dict(triangles=tris, materials=[mats[m].get('name', '') if m >= 0 else '' for m in sorted(used)], images=images)
+
+
+# --- the shells' parts (parts.py): the shadow proxy that casts each vehicle's shadows in place of its detail
+SHELL_PROXY = 400           # triangles
