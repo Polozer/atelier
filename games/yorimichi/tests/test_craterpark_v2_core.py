@@ -1,6 +1,7 @@
 """Crater Park v2 core: the data model, the sweep, the seam network, and the Unreal contract of the export."""
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -16,7 +17,8 @@ from craterpark.v2.curves import Line, Spline  # noqa: E402
 from craterpark.v2.profile import Profile  # noqa: E402
 from craterpark.v2.sweep import sweep  # noqa: E402
 
-R4 = Path.home() / 'dev' / 'atelier-jim5-volcano' / 'build' / 'yorimichi' / 'craterpark'
+# r4's own build output (build.json, park.json) for the key-set comparison: CRATERPARK_R4_BUILD names its folder
+R4 = Path(os.environ.get('CRATERPARK_R4_BUILD', '/nonexistent'))
 
 
 def edges_of(F):
@@ -135,7 +137,7 @@ def fake_mesh(out, name, vertices, faces, materials, face_materials, uvs=None, n
             'vertices': len(vertices), 'triangles': len(faces), 'materials': list(materials)}
 
 
-@pytest.mark.skipif(not (R4 / 'build.json').exists(), reason='r4 build output not on this machine')
+@pytest.mark.skipif(not (R4 / 'build.json').exists(), reason='set CRATERPARK_R4_BUILD to an r4 build/yorimichi/craterpark folder')
 def test_export_keeps_r4s_build_and_park_json_key_sets(tmp_path):
     from craterpark import placement
     park_, module = generate.compile_park('layout_m0')

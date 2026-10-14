@@ -6,7 +6,7 @@ same merged stations, so both seams conform; the two ends are capped from the se
 """
 import numpy as np
 
-from . import dsl, network
+from . import dsl, ground, network
 from .curves import Line
 from .profile import Profile
 from .sweep import sweep
@@ -25,9 +25,13 @@ def quarter_pipe(path, *, height=3.5, radius=3.5, extension=.3, deck=8., deck_y=
     floor = deck_y - rise
     tran = Profile(parts, start=(0., floor), tags={'lip': 'end'}, material=dsl.CONCRETE)
     x1, y1 = tran.end
+    # the body: deck, back wall, buried base 0.3 m under the floor, and a 0.3 m front face up to the transition's foot
+    # (so no section corner is a zero-angle wedge)
+    sink = .3
     body = Profile([('line', deck, {'material': dsl.DECK}),
-                    ('corner', -90), ('line', y1 - floor, {'role': dsl.SIDE, 'material': dsl.SIDE_WALL}),
-                    ('corner', -180), ('line', x1 + deck, {'role': dsl.BASE, 'material': dsl.SIDE_WALL})],
+                    ('corner', -90), ('line', y1 - floor + sink, {'role': dsl.SIDE, 'material': dsl.SIDE_WALL}),
+                    ('corner', -180), ('line', x1 + deck, {'role': dsl.BASE, 'material': dsl.SIDE_WALL}),
+                    ('corner', -270), ('line', sink, {'role': dsl.SIDE, 'material': dsl.SIDE_WALL})],
                    start=(x1, y1), degrees=0.)
     net = network.Network()
     net.add('qp', path)
@@ -50,7 +54,7 @@ def quarter_pipe(path, *, height=3.5, radius=3.5, extension=.3, deck=8., deck_y=
         loop = np.concatenate(loop)
         T = path.tangent([t[row]])[0]
         normal = sign * np.array([T[0], 0., T[1]])
-        F = network.fill(loop, normal)
+        loop, F = ground.fill_mesh(loop, normal)
         parts_.append(dsl.Mesh.part(loop, F, material=dsl.SIDE_WALL, role=dsl.SIDE, feature=feature,
                                     N=np.broadcast_to(normal, loop.shape)))
     mesh = dsl.Mesh.concat(parts_)

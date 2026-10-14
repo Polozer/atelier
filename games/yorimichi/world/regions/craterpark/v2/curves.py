@@ -76,7 +76,7 @@ class Curve:
             inv = 1 / np.where(np.abs(k) > 1e-12, k, 1e-12)
             r = np.abs(inv[:, None] - o[None, :]).min(1)
             d = np.where(np.abs(k) > 1e-12, np.abs(k) / tess.step_angle(np.maximum(r, 1e-6)), 0.)
-            d = np.maximum(d, stretch / tess.max_edge)
+            d = np.maximum(d, stretch / (tess.max_edge / math.sqrt(2)))
             if height is not None:
                 d = np.maximum(d, tess.density(height.curvature(t)))
             return d

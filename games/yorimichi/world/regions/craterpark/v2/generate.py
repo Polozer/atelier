@@ -22,7 +22,9 @@ from craterpark.v2 import dsl, split  # noqa: E402
 
 
 def default_layout():
-    return 'layout_line1' if (HERE / 'layout_line1.py').exists() else 'layout_m0'
+    """D's park (v2/layout.py) once it defines park(); else the M0 smoke layout."""
+    text = (HERE / 'layout.py').read_text() if (HERE / 'layout.py').exists() else ''
+    return 'layout' if '\ndef park(' in text else 'layout_m0'
 
 
 def compile_park(layout):
@@ -67,7 +69,9 @@ def bundle(park, lines=()):
     for i, (name, role, mesh) in enumerate(split.render_meshes(park.mesh)):
         # no degenerate face may reach the importer's triangle check (build.py FOLDED)
         area2 = 2 * mesh.areas()
-        bad = area2 <= 2e-7
+        t = mesh.triangles()
+        # Unreal's FBX reader welds points under about 1e-5 cm apart: an edge under 0.1 mm would lose its face
+        bad = (area2 <= 2e-7) | (np.linalg.norm(t - np.roll(t, 1, 1), axis=2).min(1) < 1e-4)
         if bad.any():
             folded += int(bad.sum()); mesh = mesh.subset(~bad)
         arrays.update(mesh.to_arrays(f'r{i}_'))
@@ -76,7 +80,7 @@ def bundle(park, lines=()):
                                 'features': list(mesh.features)})
     for i, (name, role, t) in enumerate(split.collision_sections(park.mesh)):
         a = t[:, 1] - t[:, 0]; b = t[:, 2] - t[:, 0]
-        ok = np.linalg.norm(np.cross(a, b), axis=1) > 2e-7
+        ok = (np.linalg.norm(np.cross(a, b), axis=1) > 2e-7) & (np.linalg.norm(t - np.roll(t, 1, 1), axis=2).min(1) >= 1e-4)
         folded += int((~ok).sum())
         arrays[f'c{i}'] = t[ok]
         index['collision'].append({'name': name, 'role': role})

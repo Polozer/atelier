@@ -65,10 +65,11 @@ class Tess:
 
     def density(self, curvature, stretch=1.0):
         """Samples per metre of parameter for a curve of `curvature` (1/m, array ok), whose edges are `stretch` times
-        the parameter step long (an offset sweep's outer edge): max(|k| / step_angle, stretch / max_edge)."""
+        the parameter step long (an offset sweep's outer edge): max(|k| / step_angle, stretch / (max_edge / sqrt 2)).
+        Grid edges stay within max_edge / sqrt 2 so a quad's diagonal stays within max_edge."""
         k = np.abs(np.asarray(curvature, 'f8'))
         turn = np.where(k > 1e-12, k / self.step_angle(1 / np.maximum(k, 1e-12)), 0.)
-        return np.maximum(turn, np.asarray(stretch, 'f8') / self.max_edge)
+        return np.maximum(turn, np.asarray(stretch, 'f8') / (self.max_edge / math.sqrt(2)))
 
 
 RIDING_TESS = Tess(.002, 2.0, 4.0)
