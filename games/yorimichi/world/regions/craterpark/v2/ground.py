@@ -396,8 +396,11 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
     field.h = residual
     n = len(P2)
     fixed = np.zeros(n, bool); fixed[:nfix] = True
+    if outline.shape[1] != 3:
+        fixed[:len(o2)] = False                       # a 2D outline's heights are free (slope limit may lift them)
     y_exact = np.zeros(n)
     y_exact[:len(o2)] = outline[:, 1] if outline.shape[1] == 3 else field.sample(o2) + trend(o2)
+    natural_edge = y_exact[:len(o2)].copy()          # where the skirt must reach down to
     for i, h in enumerate(holes):
         y_exact[starts[i + 1]:starts[i + 2]] = h[:, 1]
     y_exact[nb:nfix] = controls[:, 1]
@@ -428,10 +431,12 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
     parts = [surface]
     if skirt:
         top = V[:len(o2)]
-        bottom = top - [0., skirt, 0.]
+        # down to `skirt` under the lower of the edge's height and its natural (field) height, so an edge the slope
+        # limit lifted still reaches the world ground
+        depth = top[:, 1] - np.minimum(top[:, 1], natural_edge) + skirt
         k = len(o2)
-        rows = max(1, int(np.ceil(skirt / 2.)))           # rows of 2 m at most: every skirt edge within 4 m
-        Vs = np.concatenate([top - [0., skirt * r / rows, 0.] for r in range(rows + 1)])
+        rows = max(1, int(np.ceil(depth.max() / 2.)))     # rows of 2 m at most: every skirt edge within 4 m
+        Vs = np.concatenate([top - np.c_[np.zeros(k), depth * r / rows, np.zeros(k)] for r in range(rows + 1)])
         Fs = np.asarray([f for r in range(rows) for i in range(k)
                          for f in ((r * k + i, (r + 1) * k + i, (r + 1) * k + (i + 1) % k),
                                    (r * k + i, (r + 1) * k + (i + 1) % k, r * k + (i + 1) % k))], 'i8')
@@ -448,7 +453,7 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
         side.N = dsl.vertex_normals(Vs, Fs) * [1, 0, 1]
         side.N /= np.maximum(np.linalg.norm(side.N, axis=1, keepdims=True), 1e-12)
         Pb, Fb, _ = plan_mesh([o2], coarse=coarse, grade=1., hmin=coarse)   # a coarse base: never drawn
-        Vb = np.stack([Pb[:, 0], np.full(len(Pb), bottom[:, 1].min()), Pb[:, 1]], 1)
+        Vb = np.stack([Pb[:, 0], np.full(len(Pb), Vs[rows * k:, 1].min()), Pb[:, 1]], 1)
         Vb[:k] = Vs[rows * k:]
         base = dsl.Mesh.part(Vb, Fb, material=side_material, role=dsl.BASE, feature=feature,
                              N=np.broadcast_to([0., -1., 0.], Vb.shape))
