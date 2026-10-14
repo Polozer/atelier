@@ -531,6 +531,11 @@ def restaurant():
 BRAKE_LENGTH = 12.0
 
 
+CUPOLA_HW, CUPOLA_WALL = 1.25, .06                  # the lookout's half-width and wall; open below into the guard's room
+LOOKOUT_SEAT = (1.21, 1.66, -1.17, -.55, 2.45)      # x0, x1, y0, y1, top above the floor: against the lookout's rear wall
+LOOKOUT_LADDER_X = 1.70                             # the ladder from the steps' top tread to the seat
+
+
 def brake_van():
     """The guard's van that closes the train: guard's room with stove under a roof lookout at the front, a central
     lobby with the exterior doors, a luggage room, and an open balcony with railing, handbrake and tail lamp at the
@@ -558,13 +563,13 @@ def brake_van():
         Box('stove', 'stove', ge + .15, ge + .70, IN - .62, IN - .10, FLOOR_Z, FLOOR_Z + 1.10, 'cast-iron stove with its flue to the roof'),
         Box('guard-bench', 'bench', 2.10, 4.30, -IN + .02, -IN + .52, FLOOR_Z, FLOOR_Z + .48, "guard's bench under the window"),
         Box('guard-desk', 'desk', 3.70, gi - .55, IN - .58, IN - .02, FLOOR_Z, FLOOR_Z + .80, 'writing desk with pigeon-holes'),
-        Box('cupola-steps', 'steps', 1.45, 2.00, -1.15, -.60, FLOOR_Z, FLOOR_Z + .60, 'two steps up to the lookout seat'),
+        Box('cupola-steps', 'steps', 1.45, 2.00, -1.15, -.60, FLOOR_Z, FLOOR_Z + .60, 'two steps and a ladder up to the lookout seat'),
         Box('luggage-shelves-l', 'luggage-shelves', body.in_a + .05, p1[0] - .05, IN - .52, IN - .02, FLOOR_Z, FLOOR_Z + 1.90, 'parcel shelves'),
         Box('luggage-shelves-r', 'luggage-shelves', body.in_a + .05, p1[0] - .80, -IN + .02, -IN + .52, FLOOR_Z, FLOOR_Z + 1.90, 'parcel shelves'),
         Box('handbrake', 'handbrake', body.headstock(-1) + .10, body.headstock(-1) + .32, IN - .40, IN - .18, FLOOR_Z, FLOOR_Z + 1.10, 'handbrake column on the balcony'),
     ]
     c.mounts += [Mount('tail-lamp', 'tail-lamp', 'balcony', body.headstock(-1) - .02, -IN + .30, FLOOR_Z + .95, 90),
-                 Mount('guard-lamp', 'ceiling-lamp', 'guard-room', 3.0, 0., ceiling_z(0) - .02, 0)]
+                 Mount('guard-lamp', 'ceiling-lamp', 'guard-room', 4.65, 0., ceiling_z(0) - .02, 0)]   # past the lookout's well
     c.goals.update({'luggage': (-2.0, 0.), 'guard-room': (2.6, .20)})
     _curtains(c, lambda w: _room_at(c, w.x, w.side * (IN - .1)))
     return c

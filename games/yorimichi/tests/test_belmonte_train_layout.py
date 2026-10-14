@@ -133,6 +133,22 @@ class Coaches(unittest.TestCase):
         self.assertEqual(sum(r['name'].startswith('injector') for r in runs), 4)
 
 
+    def test_brake_van_lookout_is_reachable(self):
+        # the lookout opens down into the guard's room; steps and a ladder on the reserved box lead to a seat whose
+        # occupant's eyes are at the lookout's windows, and no lamp hangs in the open well
+        b = L.brake_van()
+        x0, x1 = b.body.cupola
+        w = L.CUPOLA_WALL
+        sx0, sx1, sy0, sy1, top = L.LOOKOUT_SEAT
+        self.assertTrue(x0 + w <= sx0 < sx1 <= x1 - w and -L.CUPOLA_HW + w <= sy0 < sy1 <= L.CUPOLA_HW - w)
+        self.assertGreater(L.FLOOR_Z + top - .16, L.FLOOR_Z + L.OVERHEAD_CLEAR)   # the seat's bearers clear every player
+        eyes, window = L.FLOOR_Z + top + .75, L.ROOF_TOP + .62 - .30          # seated eye height; the windows' centre
+        self.assertLess(abs(eyes - window), .15)
+        steps = next(r for r in b.reservations if r.name == 'cupola-steps')
+        self.assertTrue(steps.x0 < L.LOOKOUT_LADDER_X < steps.x1)
+        for m in (m for m in b.mounts if m.kind == 'ceiling-lamp'):
+            self.assertFalse(x0 - .2 < m.x < x1 + .2 and abs(m.y) < L.CUPOLA_HW, m.id)
+
     def test_canteen_serving_line(self):
         import math
         c = L.second_class()

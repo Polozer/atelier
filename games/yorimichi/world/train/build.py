@@ -447,6 +447,10 @@ def roof(coll, parent, lod=0):
     skin = m.obj('Roof_Skin' if lod == 0 else 'LOD2_Roof', coll, parent=parent, lods=(0, 1) if lod == 0 else (2,))
     if lod:
         return skin
+    well = _lookout_well()
+    if well:                                          # the lookout opens through the roof
+        cut = M(); cut.box(well[0] - .02, well[1] + .02, -well[2] - .02, well[2] + .02, L.CEIL_SPRING, L.ROOF_TOP + .30, 'roof')   # edges hidden in its walls
+        boolean(skin, [cut])
     m = M()
     for sy in (-1, 1):            # cornice and the brass line under it
         y0, y1 = sorted((sy * (L.HALF - .01), sy * (L.HALF + .028)))
@@ -470,6 +474,8 @@ def roof(coll, parent, lod=0):
             (ya, za), (yb, zb) = ys_o[j], ys_o[j + 1]
             if abs(ya) > L.HALF - .05 or abs(yb) > L.HALF - .05:
                 continue
+            if B.cupola and B.cupola[0] - .07 < x < B.cupola[1] + .07 and min(abs(ya), abs(yb)) < L.CUPOLA_HW + .07:
+                continue
             m.poly([(x - .012, ya, za + .010), (x + .012, ya, za + .010), (x + .012, yb, zb + .010), (x - .012, yb, zb + .010)], 'roof', normal=(0, 0, 1))
             for e, sgn in ((x - .012, -1), (x + .012, 1)):
                 m.poly([(e, ya, za - .002), (e, yb, zb - .002), (e, yb, zb + .010), (e, ya, za + .010)], 'roof', normal=(sgn, 0, 0))
@@ -482,11 +488,14 @@ def roof(coll, parent, lod=0):
 def cupola(coll, parent):
     """The guard's lookout: a raised glazed cab on the roof with its own curved top, part of the removable roof."""
     x0, x1 = B.cupola
-    hw, z0, z1 = 1.25, L.roof_z(1.25) - .05, L.ROOF_TOP + .62
+    hw = L.CUPOLA_HW
+    z0, z1 = L.roof_z(hw) - .05, L.ROOF_TOP + .62
     m = M()
     m.box(x0, x1, -hw, hw, z0, z1, 'livery-ivory')
     o = m.obj('Roof_Cupola', coll, parent=parent)
-    cutters = []
+    w = L.CUPOLA_WALL
+    hollow = M(); hollow.box(x0 + w, x1 - w, -hw + w, hw - w, z0 - .30, z1 - w, 'ceiling')   # open below, into the well
+    cutters = [hollow]
     for sy in (-1, 1):
         for k in range(3):
             xc = x0 + (x1 - x0) * (k + .5) / 3
@@ -494,7 +503,8 @@ def cupola(coll, parent):
     for xe in (x0, x1):
         cut = M(); cut.prism(rrect(0, z1 - .30, 1.30, .34, .05), 'x', xe - .05, xe + .05, 'glass'); cutters.append(cut)
     boolean(o, cutters)
-    reproject(o, lambda n, ctr: 'walnut' if abs(ctr.y) < hw - .03 and abs(n.z) < .5 and (x0 + .03 < ctr.x < x1 - .03) else 'livery-ivory')
+    inside = lambda ctr: abs(ctr.y) < hw - .03 and x0 + .03 < ctr.x < x1 - .03 and ctr.z < z1 - .03
+    reproject(o, lambda n, ctr: ('ceiling' if n.z < -.5 else 'walnut') if inside(ctr) and n.z < .5 else 'livery-ivory')
     m = M()
     seg = 16
     for k in range(seg):          # a small curved top, echoing the main roof
@@ -519,16 +529,61 @@ def cupola(coll, parent):
     g.obj('Glazing_Cupola', coll, parent=parent, closed=False)
 
 
+def _lookout_well():
+    """(x0, x1, half-width, top) of the opening from the guard's room up into the lookout, or None."""
+    if not B.cupola:
+        return None
+    x0, x1 = B.cupola
+    w = L.CUPOLA_WALL
+    return x0 + w, x1 - w, L.CUPOLA_HW - w, L.roof_z(L.CUPOLA_HW) - .04     # up to the lookout's own walls
+
+
+def lookout(c, coll, parent):
+    """The guard's way up into the lookout: two walnut steps with brass nosings on the 'cupola-steps' box, a brass
+    ladder from the top tread, and the lookout seat against the lookout's rear wall, with a grab rail."""
+    b = next(r for r in c.reservations if r.name == 'cupola-steps')
+    F, lx = L.FLOOR_Z, L.LOOKOUT_LADDER_X
+    sx0, sx1, sy0, sy1, top = L.LOOKOUT_SEAT
+    m = M()
+    for x0, x1, z in ((lx + .03, b.x1, F + .30), (b.x0, lx + .03, F + .60)):     # the lower tread in front, the upper behind
+        m.box(x0, x1, b.y0, b.y1, F, z, 'walnut')
+        m.box(x1 - .03, x1, b.y0, b.y1, z - .02, z + .005, 'brass')
+    for y in (b.y0 + .07, b.y1 - .07):               # ladder stiles, on past the seat as handholds
+        m.box(lx - .015, lx + .015, y - .015, y + .015, F + .60, F + top + .55, 'brass')
+    for k in range(6):
+        z = F + .90 + k * .30
+        m.cylinder((lx, z), 'y', .012, b.y0 + .07, b.y1 - .07, 'brass', 8)
+    m.box(sx0, sx1, sy0, sy1, F + top - .06, F + top, 'walnut')                 # seat board on its bearers
+    for y in (sy0 + .04, sy1 - .04):
+        m.box(sx0, sx1, y - .025, y + .025, F + top - .16, F + top - .06, 'walnut')
+    m.box(sx0, sx0 + .05, sy0, sy1, F + top, F + top + .40, 'walnut')            # backrest on the rear wall
+    m.cylinder((sx0 + .10, F + top + .35), 'y', .014, sy1, sy1 + .45, 'brass', 8)  # grab rail along the wall
+    m.obj('Interior_Lookout', coll, parent=parent)
+
+
 def ceiling(c, coll, parent):
     seg = 24
     ys = [-L.IN + 2 * L.IN * k / seg for k in range(seg + 1)]
+    well = _lookout_well()
+    if well:                                          # the strips meet the well's sides exactly
+        ys = sorted(set(ys) | {-well[2], well[2]})
     m = M()
     xa, xb = B.in_a, B.in_b
-    for k in range(seg):
-        ya, yb = ys[k], ys[k + 1]
+    for ya, yb in zip(ys, ys[1:]):
         za, zb = L.ceiling_z(ya), L.ceiling_z(yb)
-        m.poly([(xa, ya, za), (xb, ya, za), (xb, yb, zb), (xa, yb, zb)], 'ceiling', normal=(0, 0, -1))
-        m.poly([(xa, ya, za + .03), (xa, yb, zb + .03), (xb, yb, zb + .03), (xb, ya, za + .03)], 'ceiling', normal=(0, 0, 1))
+        spans = [(xa, well[0]), (well[1], xb)] if well and abs((ya + yb) / 2) < well[2] else [(xa, xb)]
+        for x0, x1 in spans:
+            m.poly([(x0, ya, za), (x1, ya, za), (x1, yb, zb), (x0, yb, zb)], 'ceiling', normal=(0, 0, -1))
+            m.poly([(x0, ya, za + .03), (x0, yb, zb + .03), (x1, yb, zb + .03), (x1, ya, za + .03)], 'ceiling', normal=(0, 0, 1))
+    if well:                                          # the well's walnut lining, from the ceiling up into the lookout
+        x0, x1, hw, top = well
+        for y, sgn in ((-hw, 1), (hw, -1)):
+            z = L.ceiling_z(y)
+            m.poly([(x0, y, z), (x1, y, z), (x1, y, top), (x0, y, top)], 'walnut', normal=(0, sgn, 0))
+        for x, sgn in ((x0, 1), (x1, -1)):
+            for ya, yb in zip(ys, ys[1:]):
+                if abs((ya + yb) / 2) < hw:
+                    m.poly([(x, ya, L.ceiling_z(ya)), (x, yb, L.ceiling_z(yb)), (x, yb, top), (x, ya, top)], 'walnut', normal=(sgn, 0, 0))
     m.obj('Ceiling', coll, parent=parent, closed=False)
     # brass ribs at the window piers (and partitions in first class)
     side = sorted((w for w in c.windows if w.side > 0), key=lambda w: w.x)
@@ -2021,6 +2076,8 @@ def build(coach, images):
         window_frames(coach, cols['Shell'], g['Shell'], cols['Glazing'], g['Glazing'])
         doors(coach, cols['Doors'], g['Doors'], cols['Glazing'], g['Glazing'])
         fittings(coach, cols['Interior'], g['Interior'])
+        if B.cupola:
+            lookout(coach, cols['Interior'], g['Interior'])
     for end, e in L.coupling(B)['ends'].items():   # attachment sockets, exported in every LOD
         for name, loc in [('Coupler', e['draw_hook'])] + ([('Gangway', e['gangway_face_centre'])] if 'gangway_face_centre' in e else []):
             so = bpy.data.objects.new(f'SOCKET_{name}_{end.upper()}', None); so.empty_display_type = 'ARROWS'; so.empty_display_size = .4
