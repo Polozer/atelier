@@ -11,7 +11,6 @@ from train import layout as L  # noqa: E402
 
 
 class Collision(unittest.TestCase):
-    @unittest.expectedFailure      # until the collision fix list lands (furniture, gangways, doors, lookout, seats)
     def test_every_vehicle_is_clean(self):
         for c in L.vehicles():
             with self.subTest(vehicle=c.name):
@@ -25,7 +24,8 @@ class Collision(unittest.TestCase):
             parts = {n for n, _ in CO.collision_boxes(c)}
             for r in c.reservations:
                 if r.z0 - L.FLOOR_Z < 1.0:
-                    self.assertEqual(r.name in parts, r.kind in CO.MODELLED, (c.name, r.name, r.kind))
+                    has = any(n == r.name or n.startswith(r.name + '-') for n in parts)    # or in pieces (the treads)
+                    self.assertEqual(has, r.kind in CO.MODELLED, (c.name, r.name, r.kind))
 
     def test_gangways_overlap_past_the_buffers_and_locked_ones_are_shut_in_their_own_group(self):
         for c in L.vehicles():
@@ -103,6 +103,22 @@ class Collision(unittest.TestCase):
         c = L.brake_van()
         boxes = [(n, q) for n, q in CO.collision_boxes(c) if n != 'door-gate-al']
         self.assertIn('door-gate-al has no collision', CO.check_collision(c, boxes))
+
+    def test_the_lookout_is_open_through_the_ceiling_and_closed_above(self):
+        c = L.brake_van()
+        boxes = CO.collision_boxes(c)
+        x0, x1, hw, _ = L.lookout_well(c.body)
+        cx, cy = (x0 + x1) / 2, 0.
+        for p, q in boxes:              # nothing between the guard's room and the lookout's roof over the well
+            if q[0] < cx < q[1] and q[2] < cy < q[3] and q[5] > L.FLOOR_Z + 2.5:
+                self.assertTrue(p.startswith('lookout-roof'), p)
+        parts = dict(boxes)
+        for p in ('lookout-wall-a', 'lookout-wall-b', 'lookout-wall-l', 'lookout-wall-r', 'lookout-roof',
+                  'cupola-steps-lower', 'cupola-steps-upper', 'lookout-seat'):
+            self.assertIn(p, parts)
+        self.assertNotIn('cupola-steps', parts)          # two treads, not one block up to the upper tread
+        self.assertAlmostEqual(parts['cupola-steps-lower'][5], L.FLOOR_Z + .30)
+        self.assertAlmostEqual(parts['lookout-seat'][5], L.FLOOR_Z + L.LOOKOUT_SEAT[4])
 
     def test_a_missing_bench_is_caught(self):
         c = L.second_class()

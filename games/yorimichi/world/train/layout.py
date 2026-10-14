@@ -536,6 +536,7 @@ BRAKE_LENGTH = 12.0
 
 
 CUPOLA_HW, CUPOLA_WALL = 1.25, .06                  # the lookout's half-width and wall; open below into the guard's room
+LOOKOUT_RISE = .62                                  # the lookout's walls stand this far above the roof's crown
 LOOKOUT_SEAT = (1.21, 1.66, -1.17, -.55, 2.45)      # x0, x1, y0, y1, top above the floor: against the lookout's rear wall
 LOOKOUT_LADDER_X = 1.70                             # the ladder from the steps' top tread to the seat
 
@@ -915,6 +916,20 @@ def start(c):
 def balcony_gate(body, s):
     """x range of the gate gap in the side railings of the balcony at end s, over the steps."""
     return tuple(sorted((body.face(s) + s * .15, body.face(s) + s * .85)))
+
+
+def lookout_well(body):
+    """(x0, x1, half-width, top) of the opening from the guard's room up into the lookout, or None."""
+    if not body.cupola:
+        return None
+    x0, x1 = body.cupola
+    w = CUPOLA_WALL
+    return x0 + w, x1 - w, CUPOLA_HW - w, roof_z(CUPOLA_HW) - .04     # up to the lookout's own walls
+
+
+def lookout_top(body):
+    """(underside, top) of the lookout's roof slab, above the main roof."""
+    return ROOF_TOP + LOOKOUT_RISE - CUPOLA_WALL, ROOF_TOP + LOOKOUT_RISE + .16
 
 
 def railings(body):

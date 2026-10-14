@@ -37,7 +37,8 @@ def collision_boxes(c):
     boxes = []
     add = lambda n, *q: boxes.append((n, q))
     add('floor', b.in_a, b.in_b, -L.IN, L.IN, L.FLOOR_Z - .20, L.FLOOR_Z)
-    add('ceiling', b.in_a, b.in_b, -L.IN, L.IN, L.CEIL_SPRING, L.CEIL_SPRING + .15)
+    for q in ceiling_boxes(b):
+        add('ceiling', *q)
     for s in (-1, 1):
         if b.end(s) == 'balcony':
             x0, x1 = sorted((b.headstock(s), b.face(s)))
@@ -60,11 +61,45 @@ def collision_boxes(c):
             add(f'{w.name}-head', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), o.z1, top)
             if o.z0 - L.FLOOR_Z > .05:         # below a hatch
                 add(f'{w.name}-sill', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), L.FLOOR_Z, o.z0)
-    boxes += furniture_boxes(c) + gangway_boxes(c) + door_boxes(c)
+    boxes += furniture_boxes(c) + gangway_boxes(c) + door_boxes(c) + lookout_boxes(c)
     for r in c.reservations:                        # the furniture modelled in code (an unmodelled box stays soft)
-        if r.z0 - L.FLOOR_Z < 1.0 and r.kind in MODELLED:
+        if r.z0 - L.FLOOR_Z < 1.0 and r.kind in MODELLED and r.name != 'cupola-steps':
             add(r.name, r.x0, r.x1, r.y0, r.y1, L.FLOOR_Z, r.z1)
     return [(n, q) for n, q in boxes if q[1] - q[0] > 1e-4 and q[3] - q[2] > 1e-4 and q[5] - q[4] > 1e-4]
+
+
+def ceiling_boxes(b):
+    """The ceiling slab, left open over a roof lookout's well: (x0, x1, y0, y1, z0, z1) pieces."""
+    z = (L.CEIL_SPRING, L.CEIL_SPRING + .15)
+    well = L.lookout_well(b)
+    if not well:
+        return [(b.in_a, b.in_b, -L.IN, L.IN, *z)]
+    x0, x1, hw, _ = well
+    return [(b.in_a, x0, -L.IN, L.IN, *z), (x1, b.in_b, -L.IN, L.IN, *z),
+            (x0, x1, -L.IN, -hw, *z), (x0, x1, hw, L.IN, *z)]
+
+
+def lookout_boxes(c):
+    """The brake van's lookout: its four walls from the ceiling up to its roof, the roof slab, the two step treads
+    (the lower in front, the upper behind, as build.lookout makes them) and the seat up in the lookout. The ladder
+    from the top tread to the seat is an interaction for later."""
+    b, F = c.body, L.FLOOR_Z
+    if not b.cupola:
+        return []
+    x0, x1 = b.cupola
+    hw, w = L.CUPOLA_HW, L.CUPOLA_WALL
+    under, top = L.lookout_top(b)
+    z0 = L.CEIL_SPRING
+    out = [('lookout-wall-a', (x0, x0 + w, -hw, hw, z0, under)), ('lookout-wall-b', (x1 - w, x1, -hw, hw, z0, under)),
+           ('lookout-wall-l', (x0, x1, hw - w, hw, z0, under)), ('lookout-wall-r', (x0, x1, -hw, -hw + w, z0, under)),
+           ('lookout-roof', (x0, x1, -hw, hw, under, top))]
+    st = next(r for r in c.reservations if r.name == 'cupola-steps')
+    lx = L.LOOKOUT_LADDER_X + .03
+    out += [('cupola-steps-lower', (lx, st.x1, st.y0, st.y1, F, F + .30)),
+            ('cupola-steps-upper', (st.x0, lx, st.y0, st.y1, F, F + .60))]
+    sx0, sx1, sy0, sy1, seat = L.LOOKOUT_SEAT
+    out.append(('lookout-seat', (sx0, sx1, sy0, sy1, F + seat - .16, F + seat)))
+    return out
 
 
 GANGWAY_OVERLAP = .15     # past the buffer line: on a 250 m curve the outside of the gap between coaches opens a wedge

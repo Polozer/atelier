@@ -491,7 +491,7 @@ def cupola(coll, parent):
     """The guard's lookout: a raised glazed cab on the roof with its own curved top, part of the removable roof."""
     x0, x1 = B.cupola
     hw = L.CUPOLA_HW
-    z0, z1 = L.roof_z(hw) - .05, L.ROOF_TOP + .62
+    z0, z1 = L.roof_z(hw) - .05, L.ROOF_TOP + L.LOOKOUT_RISE
     m = M()
     m.box(x0, x1, -hw, hw, z0, z1, 'livery-ivory')
     o = m.obj('Roof_Cupola', coll, parent=parent)
@@ -532,12 +532,7 @@ def cupola(coll, parent):
 
 
 def _lookout_well():
-    """(x0, x1, half-width, top) of the opening from the guard's room up into the lookout, or None."""
-    if not B.cupola:
-        return None
-    x0, x1 = B.cupola
-    w = L.CUPOLA_WALL
-    return x0 + w, x1 - w, L.CUPOLA_HW - w, L.roof_z(L.CUPOLA_HW) - .04     # up to the lookout's own walls
+    return L.lookout_well(B)
 
 
 def lookout(c, coll, parent):
