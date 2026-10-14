@@ -32,7 +32,9 @@ LIFT = 680.0            # island z = native y + LIFT
 
 # ---------------------------------------------------------------- data types
 def _seg_length(seg):
-    return seg[1] if seg[0] == 'straight' else seg[1] * math.radians(abs(seg[2])) if seg[0] == 'turn' else 0.
+    if seg[0] == 'elbow':
+        return float(seg[2].get('drift', 0.)) if len(seg) > 2 else 0.
+    return seg[1] if seg[0] == 'straight' else seg[1] * math.radians(abs(seg[2]))
 
 
 @dataclass(frozen=True)
@@ -56,8 +58,10 @@ class Turtle:
             if seg[0] == 'straight':
                 L = float(seg[1]); out.append(('straight', s, s + L, (x, z), math.degrees(a), 0., 0.))
                 x += L * math.cos(a); z += L * math.sin(a); s += L
-            elif seg[0] == 'elbow':
-                out.append(('elbow', s, s, (x, z), math.degrees(a), 0., float(seg[1])))
+            elif seg[0] == 'elbow':             # the rider rides the wall, drifting `drift` along it (W -> E)
+                drift = _seg_length(seg); u = a + math.radians(seg[1]) / 2
+                out.append(('elbow', s, s + drift, (x, z), math.degrees(a), drift, float(seg[1])))
+                x += drift * math.cos(u); z += drift * math.sin(u); s += drift
                 a += math.radians(seg[1])
             else:
                 R, d = float(seg[1]), math.radians(seg[2]); sg = 1. if d > 0 else -1.
@@ -96,14 +100,16 @@ class Turtle:
         for kind, a, b, p, h, R, d in self.pieces():
             if kind == 'elbow':
                 out.append((s_leg, a, Turtle(start, heading, tuple(segs))))
-                start, heading, segs, s_leg = tuple(p), h + d, [], a
+                u = math.radians(h + d / 2)
+                start = (p[0] + R * math.cos(u), p[1] + R * math.sin(u))      # E: R holds the drift
+                heading, segs, s_leg = h + d, [], b
             else:
                 segs.append(('straight', b - a) if kind == 'straight' else ('turn', R, d))
         out.append((s_leg, self.length, Turtle(start, heading, tuple(segs))))
         return out
 
     def elbows(self):
-        """[(s, corner (x, z), heading in, heading out, params)] in order."""
+        """[(s, corner W (x, z), heading in, heading out, params)] in order (params['drift']: W to E along the wall)."""
         return [(a, p, h, h + d, seg[2] if len(seg) > 2 else {})
                 for (kind, a, _, p, h, _, d), seg in zip(self.pieces(), self.segs, strict=True) if kind == 'elbow']
 
@@ -199,8 +205,8 @@ FORBIDDEN_MATERIALS = ('material_004',)   # dark concrete
 # ---------------------------------------------------------------- the tower
 TOWER = {
     'centre': (1146.5, 1136.7),    # island (992, 2541); the world-map travel point moves here
-    'size': (26.0, 18.0),          # along native x (island east-west), along native z
-    'y': 40.0,                     # island 720
+    'size': (34.0, 56.0),          # native x, z: two 16 m roll-ins and their bowl walls share the +x side (place_crests)
+    'y': 50.0,                     # island 730 (G's v3 tower; v2 lines start at 40)
     'cap': 1.5,                    # flat caps on every wall, metres
     'sides': 'earth-banked at 30 degrees to the ground fill; no free-standing walls',
     'roll_ins': {'T1': 'L1', 'T2': 'L2', 'T3': 'L3'},
@@ -307,6 +313,178 @@ L2 = LineSpec(
 )
 
 LINES = (L1, L3, L2)
+V2_LINES = LINES
+
+
+# ---------------------------------------------------------------- v3: G's switchback plan (plan/gaps/plan_v3.py)
+# Island frame as G drew it: x east, y north, heading 0 east, counter-clockwise positive. Elements: ('S', length,
+# [(s0, s1, kind, label, status)]) a straight leg (s from the leg start); ('QP', turn, drift, label) a vert quarter pipe
+# elbow (the rider meets the wall, drifts along it and leaves mirrored); ('HB', turn, radius, label) a half bowl turn.
+V3_TOWER_Y = 50.0           # 730 m (G)
+V3_PLAN = {
+    'L1': {'name': 'Crater Line', 'width': 16., 'heading': 222.7, 'rollin': (('arc', 14, -35), ('line', 31.5), ('arc', 30, 0)), 'elems': (
+        ('S', 205., ((70.7, 107.2, 'hero_transfer', 'J2 Canyon Transfer', 'ridden'),
+                     (163., 190., 'step_down', 'J4 step-down 15 m', 'planned'))),
+        ('QP', -90., 24., 'E1'),
+        ('S', 75., ((22., 55., 'step_up', 'J5 step-up 14 m', 'planned'),)),
+        ('QP', 140., 9., 'E2'),
+        ('S', 110., ((22., 52., 'step_down', 'J6 step-down 16 m', 'planned'),
+                     (75., 100., 'step_down', 'J7 gap into the bowl rim 14 m', 'planned'))))},
+    'L2': {'name': 'Serpent Line', 'width': 16., 'heading': 182.0, 'rollin': (('arc', 14, -33), ('line', 20), ('arc', 30, -7)), 'elems': (
+        ('S', 252., ((60., 112., 'hero_crater', 'J3 Rim Gap', 'planned'),
+                     (140., 168., 'step_down', 'J8 step-down 14 m', 'planned'),
+                     (190., 215., 'gap', 'J9 gap 18 m', 'planned'))),
+        ('HB', 92., 20., 'HB2'),
+        ('S', 190., ((25., 60., 'step_down', 'J10 step-down 16 m', 'planned'),
+                     (95., 130., 'gap', 'J11 gap 20 m', 'planned'))))},
+    'L3': {'name': 'Valley Line', 'width': 22., 'heading': 270.0, 'rollin': (('arc', 14, -34), ('line', 22), ('arc', 30, -6)), 'elems': (
+        ('S', 250., ((175., 205., 'step_down', 'J12 step-down 14 m', 'planned'),
+                     (215., 240., 'gap', 'J13 gap 16 m', 'planned'))),
+        ('HB', -118., 26., 'HB3'),
+        ('S', 140., ((22., 70., 'hero_crater', 'J1 Crater Gap', 'planned'),
+                     (92., 118., 'step_down', 'J14 step-down 15 m', 'planned'))))},
+}
+V3_GRADE = -6.5             # run grade (G)
+
+
+def _gap_template(kind, label):
+    """(kicker parts, (gap, dy), landing parts, lip degrees) for a gap kind; every landing ends back on the run grade."""
+    import re
+    m = re.search(r'(\d+) m', label); g = float(m.group(1)) if m else 16.
+    if kind == 'hero_transfer':                    # J2 as ridden: from a flat run
+        return [('arc', 16, 30), ('line', 6.5)], (22., -1.5), [('arc', 25, -32), ('line', 12), ('arc', 40, V3_GRADE)], 30.
+    if kind == 'hero_crater':                      # J1/J3: 24 degree lip, 20 m gap, the 34x8 receiver
+        return [('arc', 22, 24), ('line', 3)], (20., -1.5), [*CRATER_LANDING, ('arc', 60, V3_GRADE)], 24.
+    if kind == 'step_up':
+        return [('arc', 15, 24), ('line', 2)], (g, 1.0), [('arc', 12, -12), ('line', 4), ('arc', 30, V3_GRADE)], 24.
+    if kind == 'step_down':
+        return [('arc', 15, 18), ('line', 2)], (g, -2.0), [('arc', 12, -18), ('line', 6), ('arc', 30, V3_GRADE)], 18.
+    return [('arc', 18, 22), ('line', 2)], (g, -1.5), [('arc', 15, -22), ('line', 8), ('arc', 35, V3_GRADE)], 22.
+
+
+def _chain(a0, parts):
+    """[(start angle, part)] along parts from angle a0."""
+    out, a = [], a0
+    for p in parts:
+        out.append((a, p))
+        if p[0] == 'arc':
+            a = p[2]
+    return out
+
+
+def island_to_native_xz(x, y):
+    from craterpark import placement as pl
+    cx, cy = pl.frame(); a = math.radians(-pl.HEADING)
+    dx, dy = x - pl.CENTRE[0], y - pl.CENTRE[1]
+    return cx + dx * math.cos(a) - dy * math.sin(a), -(cy + dx * math.sin(a) + dy * math.cos(a))
+
+
+def native_heading(island_heading):
+    a = math.radians(island_heading)
+    p0 = np.array(island_to_native_xz(900., 2400.)); p1 = np.array(island_to_native_xz(900. + math.cos(a), 2400. + math.sin(a)))
+    return math.degrees(math.atan2(p1[1] - p0[1], p1[0] - p0[0])) % 360.
+
+
+def v3_crests(tower=None):
+    """Native crest points of the v3 roll-ins on the tower deck (B's place_crests: the side each heading faces)."""
+    from .primitives import place_crests
+    return place_crests(tower or TOWER, {k: (native_heading(v['heading']), v['width']) for k, v in V3_PLAN.items()})
+
+
+def plan_line(key, crest=None):
+    """A LineSpec from G's v3 plan: native path (legs, elbows with drift, half bowl turns), a profile synthesised from
+    the gap templates (runs at V3_GRADE, level over every elbow apron and half bowl), features and airs."""
+    from craterpark.additions import profile
+    spec = V3_PLAN[key]; w = spec['width']
+    h = native_heading(spec['heading'])
+    crest = crest or v3_crests()[key]
+    segs, feats, airs = [], [], []
+    parts = list(spec['rollin'])
+    k = profile(V3_TOWER_Y, 0., parts); s, a = k[-1][0], k[-1][2]
+    feats.append(Feature(f'{key}_rollin', 'roll_in', 0., s, w, '', {'crest_r': 14}))
+
+    def add(p):
+        nonlocal s, a
+        kk = profile(0., a, [p]); s += kk[-1][0]; a = kk[-1][2]; parts.append(p)
+
+    def run_to(target):
+        if target - s > .25:
+            add(('line', target - s))
+
+    def bend(to, R=40.):
+        if abs(to - a) > .01:
+            add(('arc', R, to))
+
+    def arc_len(frm, to, R=40.):
+        return profile(0., frm, [('arc', R, to)])[-1][0] if abs(to - frm) > .01 else 0.
+
+    if abs(a - V3_GRADE) > .01 and spec['elems'][0][2] and spec['elems'][0][2][0][2] != 'hero_transfer':
+        bend(V3_GRADE)
+    leg0 = 0.
+    elems = spec['elems']
+    for ei, el in enumerate(elems):
+        if el[0] == 'S':
+            segs.append(('straight', float(el[1])))
+            leg_end = leg0 + float(el[1])
+            nxt = elems[ei + 1] if ei + 1 < len(elems) else None
+            T = abs(nxt[1]) if nxt is not None else 0.; half = math.radians(T / 2)
+            d_in = (6. + w / 2 * math.cos(half)) / max(math.sin(half), 1e-6) if nxt is not None and nxt[0] == 'QP' else 0.
+            reserve = d_in + 2. + arc_len(V3_GRADE, 0.) if nxt is not None else 0.
+            for f0, f1, kind, label, status in el[2]:
+                kick, (gap, dy), land, lip = _gap_template(kind, label)
+                if kind != 'hero_transfer':
+                    bend(V3_GRADE)
+                length = sum(profile(0., q[0], [q[1]])[-1][0] for q in _chain(a, kick)) + gap \
+                    + sum(profile(0., q[0], [q[1]])[-1][0] for q in _chain(0., land))
+                start = min(leg0 + f0, leg_end - reserve - length)          # the landing stays on its leg
+                start = max(start, s, leg0 + 20. if ei else s)              # 20 m of straight run-in after a turn
+                if start + length > leg_end - reserve + 1e-6:
+                    feats.append(Feature(f'{key}_{label.split()[0]}_dropped', 'note', s, s + .5, w, '',
+                                         {'why': f'{label}: {length:.0f} m does not fit its leg'}))
+                    continue
+                run_to(start)
+                ks = s
+                for p in kick:
+                    add(p)
+                lip_s = s
+                parts.append(('gap', gap, dy, label)); s += gap; a = 0.
+                ls = s
+                for p in land:
+                    add(p)
+                fid = label.split()[0]
+                feats += [Feature(f'{key}_{fid}_kicker', 'kicker', ks, lip_s, w, 'takeoff', {'lip_deg': lip, 'status': status}),
+                          Feature(f'{key}_{fid}_gap', 'gap', lip_s, lip_s + gap, w, '', {'open': True, 'label': label}),
+                          Feature(f'{key}_{fid}_landing', 'landing', ls, s, max(w, 18.), 'landing', {'status': status})]
+                airs.append((f'{key}_{fid}_kicker', f'{key}_{fid}_landing'))
+            if nxt is not None:                      # level over the next elbow's apron or half bowl
+                run_to(leg_end - d_in - 2. - arc_len(a, 0.))
+                bend(0.)
+            run_to(leg_end)
+            leg0 = leg_end
+        elif el[0] == 'QP':
+            turn, drift, label = el[1], el[2], el[3]
+            T = abs(turn); half = math.radians(T / 2)
+            d_out = (6. + w / 2 * math.cos(half)) / max(math.sin(half), 1e-6)
+            drift = max(float(drift), w + 10.)       # the two legs' floors and walls side by side along the wall
+            segs.append(('elbow', -float(turn), {'kind': 'elbow_qp', 'drift': float(drift), 'r': 6., 'vert': 1., 'deck': 2.,
+                                                  'apron': 6., 'width': w, 'lip_min': 40., 'label': label}))
+            feats.append(Feature(f'{key}_{label}', 'elbow_qp', leg0 - (6. + w / 2 * math.cos(half)) / max(math.sin(half), 1e-6),
+                                 leg0 + drift + d_out, w, '', {'r': 6., 'vert': 1., 'deck': 2., 'turn_island_deg': turn}))
+            run_to(leg0 + drift + d_out + 2.)
+            bend(V3_GRADE)
+            leg0 += drift
+        else:
+            turn, R, label = el[1], el[2], el[3]
+            L = R * math.radians(abs(turn))
+            segs.append(('turn', float(R), -float(turn)))
+            feats.append(Feature(f'{key}_{label}', 'half_bowl', leg0, leg0 + L, w, '', {'r': 7., 'vert': 1., 'deck': 2.}))
+            run_to(leg0 + L + 2.)
+            bend(V3_GRADE)
+            leg0 += L
+    path = Turtle(tuple(crest), h, tuple(segs))
+    run_to(path.length)
+    return LineSpec(id=key, name=spec['name'], path=path, y0=V3_TOWER_Y, profile=tuple(parts), features=tuple(feats),
+                    entry=f'{key} crest', exit='crater_bowl', airs=tuple(airs), rollin=len(spec['rollin']))
 
 
 # ---------------------------------------------------------------- lines from a design file (G's switchbacks)
@@ -332,8 +510,6 @@ def load_design(path=DESIGN):
     return tuple(line_from_design(d) for d in json.loads(__import__('pathlib').Path(path).read_text())['lines'])
 
 
-if DESIGN.exists():         # a committed design file replaces the built-in lines
-    LINES = load_design()
 
 # ---------------------------------------------------------------- the bowl complex
 BOWLS = (
@@ -473,7 +649,7 @@ def along_parts(parts, degrees=0.):
 
 
 def feature(fid):
-    for line in LINES:
+    for line in (*LINES, *V2_LINES):
         for f in line.features:
             if f.id == fid:
                 return line, f
@@ -531,10 +707,39 @@ def slab_ground(lines=None, depth=2.0, step=1.0):
     return ground
 
 
+def _bowl_rect(bowl, grow=0.):
+    """The bowl's coping as a rounded rectangle (k, 2) grown by `grow`: centre, axis, size; corner radius 25 m (or half
+    the width), so primitives.bowl never folds at its ends."""
+    (cx, cz), (L, W) = bowl.centre, bowl.size
+    L, W = L + 2 * grow, W + 2 * grow
+    a = math.radians(bowl.axis); u = np.array([math.cos(a), math.sin(a)]); v = np.array([-u[1], u[0]])
+    c = np.array([cx, cz])
+    return np.array([c + u * x * L / 2 + v * z * W / 2 for x, z in ((1, 1), (-1, 1), (-1, -1), (1, -1))])
+
+
+def _inside(poly, p):
+    """Point in convex polygon (counter-clockwise or clockwise)."""
+    sgn = None
+    for a, b in zip(poly, np.roll(poly, -1, 0), strict=True):
+        c = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+        if sgn is None:
+            sgn = c >= 0
+        elif (c >= 0) != sgn:
+            return False
+    return True
+
+
 def build_stop(line):
-    """Where build_line stops: before the first berm turning more than 100 degrees (a bank primitive, not a ramp)."""
-    return min([f.s0 for f in line.features if f.kind == 'berm' and abs(f.params.get('turn_deg', 0)) > 100]
-               + [line.path.length])
+    """Where build_line stops: before the first berm turning more than 100 degrees (a bank primitive, not a ramp), and
+    3 m before the line's path enters its exit bowl's coping plus deck (the bowl owns its rim)."""
+    stops = [f.s0 for f in line.features if f.kind == 'berm' and abs(f.params.get('turn_deg', 0)) > 100]
+    bowl = next((b for b in BOWLS if b.id == line.exit), None)
+    if bowl is not None:
+        poly = _bowl_rect(bowl, bowl.deck + 1.)
+        for s in np.arange(exit_station(line)[0], line.path.length, 1.):
+            if _inside(poly, line.path.at(s)[0]):
+                stops.append(max(s - 3., 0.)); break
+    return min(stops + [line.path.length])
 
 
 def clip(s0, y0, a0, parts, lo, hi):
@@ -563,54 +768,94 @@ def clip(s0, y0, a0, parts, lo, hi):
     return (*start, kept) if kept else None
 
 
-def elbow_spec(line, index):
-    """B's interface for the `index`-th elbow of a line (an `elbow_qp` or `half_bowl` feature): the corner W, the unit
-    normal `n` into the riding side (the bisector, away from the wall), the wall direction `t`, the apron plane
-    y(p) = y + grade_t * ((p - W) . t), the transition `r`, `vert`, `deck`, the apron depth, the wall's half length,
-    and where each leg meets the apron (s_in, s_out)."""
+def _profile_at(line, s):
     from craterpark.additions import profile
+    k = np.asarray(profile(line.y0, 0., [p for p in line.profile if p[0] != 'gap'], .25), 'f8')
+    return float(np.interp(s, k[:, 0], k[:, 1])), float(np.interp(s, k[:, 0], k[:, 2]))
+
+
+def elbow_spec(line, index):
+    """B's interface for the `index`-th elbow of a line (an `elbow_qp`): the corner W where the rider meets the wall,
+    the drift along it to E, the unit normal `n` into the riding side (the bisector, away from the wall), the wall
+    direction `t`, the apron plane y(p) = y + grade_t * ((p - W) . t) (level: grade_t 0 on v3 lines), the transition
+    `r`, `vert`, `deck`, the apron depth, the wall's centre and half length, and where each leg's whole end section
+    clears the apron (s_in, s_out)."""
     s_w, W, h_in, h_out, prm = line.path.elbows()[index]
+    W = np.asarray(W, 'f8')
     A = np.array([math.cos(math.radians(h_in)), math.sin(math.radians(h_in))])
     B = np.array([math.cos(math.radians(h_out)), math.sin(math.radians(h_out))])
     n = (B - A) / np.linalg.norm(B - A); t = np.array([-n[1], n[0]])
-    k = np.asarray(profile(line.y0, 0., [p for p in line.profile if p[0] != 'gap'], .25), 'f8')
-    y = float(np.interp(s_w, *k[:, :2].T)); deg = float(np.interp(s_w, k[:, 0], k[:, 2]))
+    drift = float(prm.get('drift', 0.)); u = (A + B) / max(np.linalg.norm(A + B), 1e-9)
+    E = W + u * drift; mid = (W + E) / 2
+    y, deg = _profile_at(line, s_w)
     at = float(A @ t)
     grade_t = math.tan(math.radians(deg)) / at if abs(at) > 1e-6 else 0.
     apron = float(prm.get('apron', 6.)); w = float(prm.get('width', 16.))
-    d_in, d_out = apron / max(-float(A @ n), 1e-6), apron / max(float(B @ n), 1e-6)
-    reach = max(abs(d_in * at) + w / 2 / max(-float(A @ n), 1e-6), abs(d_out * float(B @ t)) + w / 2 / max(float(B @ n), 1e-6))
+    an, bn = max(-float(A @ n), 1e-6), max(float(B @ n), 1e-6)
+    d_in = (apron + w / 2 * abs(at)) / an
+    d_out = (apron + w / 2 * abs(float(B @ t))) / bn
+    reach = drift / 2 + max(abs(d_in * at) + w / 2 / an, abs(d_out * float(B @ t)) + w / 2 / bn)
     return {'line': line.id, 'index': index, 'kind': prm.get('kind', 'elbow_qp'), 'corner': (float(W[0]), float(W[1])),
-            'y': y, 'n': tuple(n), 't': tuple(t), 'grade_t': grade_t, 'r': float(prm.get('r', 4.)),
-            'vert': float(prm.get('vert', .5)), 'deck': float(prm.get('deck', 3.)), 'apron': apron,
-            'half_length': float(prm.get('half_length', reach + 2.)), 'width': w, 's': s_w,
-            's_in': s_w - d_in, 's_out': s_w + d_out, 'heading_in': h_in, 'heading_out': h_out,
-            'material': PALETTE['concrete']}
+            'exit_corner': (float(E[0]), float(E[1])), 'centre': (float(mid[0]), float(mid[1])), 'drift': drift,
+            'y': y, 'n': tuple(n), 't': tuple(t), 'grade_t': grade_t, 'r': float(prm.get('r', 6.)),
+            'vert': float(prm.get('vert', 1.)), 'deck': float(prm.get('deck', 2.)), 'apron': apron,
+            'half_length': max(float(prm.get('half_length', 0.)), reach + 2., float(prm.get('lip_min', 40.)) / 2),
+            'width': w, 's': s_w, 's_in': s_w - d_in, 's_out': s_w + drift + d_out, 'heading_in': h_in,
+            'heading_out': h_out, 'material': PALETTE['concrete'], 'label': prm.get('label', '')}
+
+
+def half_bowl_spec(line, f):
+    """B's interface for a half bowl (a `half_bowl` feature over a path turn): a quarter pipe on a concave arc whose
+    floor strip is the riding surface across the turn, so the run's floor flows round and up the wall. Centre, the
+    riding radius, the lip radius (riding radius + half the floor + 0.5 + r), the angles, floor y (level), r, vert,
+    deck."""
+    turn = next(p for p in line.path.pieces() if p[0] == 'turn' and abs(p[1] - f.s0) < .05)
+    _, s0, s1, (x, z), h, R, d = turn
+    a = math.radians(h); sg = 1. if d > 0 else -1.
+    cx, cz = x - sg * R * math.sin(a), z + sg * R * math.cos(a)
+    r = float(f.params.get('r', 7.)); vert = float(f.params.get('vert', 1.))
+    y, _ = _profile_at(line, s0)
+    return {'line': line.id, 'feature': f.id, 'centre': (cx, cz), 'riding_radius': R, 'turn': d,
+            'start_deg': math.degrees(math.atan2(z - cz, x - cx)), 'floor': f.width + .5,
+            'lip_radius': R + f.width / 2 + .5 + r, 'floor_y': y, 'r': r, 'vert': vert,
+            'deck': float(f.params.get('deck', 2.)), 's_in': s0, 's_out': s1}
+
+
+def breaks(line):
+    """Plan ranges no ramp covers: each elbow's apron (s_in, s_out) and each half bowl's turn."""
+    out = [(e['s_in'], e['s_out']) for e in (elbow_spec(line, i) for i in range(len(line.path.elbows())))]
+    out += [(f.s0, f.s1) for f in line.features if f.kind == 'half_bowl']
+    return sorted(out)
 
 
 def surfaces(line):
     """The surfaces build_line makes, in riding order: dicts with s0, y0, degrees, parts (additions semantics), the leg
-    (index, s0, Turtle), and the open gaps before and after (metres, or 0). A surface runs between gaps and elbow aprons
-    only: never a seam mid-surface."""
+    (index, s0, Turtle), and the open gaps before and after (metres, or 0). A surface runs between gaps, elbow aprons
+    and half bowls only: never a seam mid-surface."""
     from craterpark.additions import profile
     stop = build_stop(line)
     legs = line.path.legs()
-    els = [elbow_spec(line, i) for i in range(len(line.path.elbows()))]
     ps = [p for p in pieces(line, start='exit') if p[0] < stop - 1e-6]
     ends = [p[0] + profile(p[1], p[2], list(p[3]))[-1][0] for p in ps]
+    free, lo = [], 0.
+    for a, b in breaks(line):
+        free.append((lo, a)); lo = b
+    free.append((lo, stop))
     out = []
     for k, (s0, y0, a0, parts) in enumerate(ps):
         before = s0 - ends[k - 1] if k else 0.
         after = ps[k + 1][0] - ends[k] if k + 1 < len(ps) else 0.
-        for li, (L0, L1, turtle) in enumerate(legs):
-            lo = max(s0, els[li - 1]['s_out'] if li else L0)
-            hi = min(ends[k], els[li]['s_in'] if li < len(els) else L1, stop)
-            c = clip(s0, y0, a0, parts, lo, hi)
-            if c is None or hi - lo < .05:
+        for f0, f1 in free:
+            lo_, hi_ = max(s0, f0), min(ends[k], f1, stop)
+            if hi_ - lo_ < .05:
+                continue
+            li, (L0, _, turtle) = next((i, g) for i, g in enumerate(legs) if g[0] - 1e-6 <= (lo_ + hi_) / 2 <= g[1] + 1e-6)
+            c = clip(s0, y0, a0, parts, lo_, hi_)
+            if c is None:
                 continue
             out.append({'s0': c[0], 'y0': c[1], 'degrees': c[2], 'parts': c[3], 'leg': (li, L0, turtle), 'piece': k,
                         'gap_before': before if abs(c[0] - s0) < 1e-6 else 0.,
-                        'gap_after': after if abs(hi - ends[k]) < 1e-6 else 0.})
+                        'gap_after': after if abs(hi_ - ends[k]) < 1e-6 else 0.})
     return out
 
 
@@ -622,16 +867,26 @@ def _ride_tags(parts, gap_before, gap_after):
     if gap_after and arcs:
         parts = tagged(parts, 'takeoff', [arcs[-1]])
     if gap_before:
-        run = next((i for i in arcs if parts[i][2] >= -6. and (not gap_after or i != arcs[-1])), len(parts) - 1)
+        run = next((i for i in arcs if parts[i][2] >= -7. and (not gap_after or i != arcs[-1])), len(parts) - 1)
         parts = tagged(parts, 'landing', list(range(run + 1)))
     return parts
 
 
-def build_line(line, ground=None, side='bank', on_ground=False):
+def run_side(width):
+    """The owner's rule: bowl walls on both sides of every run (B's Side('bowl'), R about 3.5 m, about 3 m tall, capped);
+    bank flanks until B's primitive has it."""
+    from . import primitives as P
+    try:
+        return P.Side('bowl')
+    except (ValueError, TypeError):
+        return 'bank'
+
+
+def build_line(line, ground=None, side=None, on_ground=False, extras=None):
     """Compile a line with B's primitives, from the tower roll-in's exit section (exit_station) to build_stop: every
-    surface (between gaps and elbow aprons) is one primitives.ramp on its leg, with a wall end at a gap (the kicker's
-    back, the landing's front) and flush ends elsewhere; each elbow is B's elbow_qp / half_bowl (elbow_spec) plus its
-    apron. Widths are each surface's widest feature. Returns a primitives.Built (air checks per gap)."""
+    surface (between gaps, elbow aprons and half bowls) is one primitives.ramp on its leg, with a wall end at a gap (the
+    kicker's back, the landing's front) and flush ends elsewhere; each elbow and half bowl is a quarter pipe (B's
+    elbow_qp / half_bowl when they exist). Widths are each surface's widest feature. Returns a primitives.Built."""
     from craterpark.additions import profile
 
     from . import dsl
@@ -639,7 +894,8 @@ def build_line(line, ground=None, side='bank', on_ground=False):
 
     def width(s0, s1):
         return max([f.width for f in line.features
-                    if f.kind not in ('gap', 'bowl_entry') and f.s0 < s1 - .05 and f.s1 > s0 + .05] or [16.])
+                    if f.kind not in ('gap', 'bowl_entry', 'elbow_qp', 'half_bowl') and f.s0 < s1 - .05 and f.s1 > s0 + .05]
+                   or [16.])
 
     built, checks, last = [], [], {}
     for n, sf in enumerate(surfaces(line)):
@@ -650,7 +906,9 @@ def build_line(line, ground=None, side='bank', on_ground=False):
         prof = dsl.Profile(_ride_tags(prof.parts, sf['gap_before'], sf['gap_after']), start=tuple(prof.start),
                            degrees=prof.degrees, tags=prof.tags)
         name = f'{line.id}.{n}'
-        b = P.ramp(curve(turtle), prof, width(sf['s0'], s1), start=sf['s0'] - L0, left=side, right=side, ground=ground,
+        w = width(sf['s0'], s1)
+        sd = side or run_side(w)
+        b = P.ramp(curve(turtle), prof, w, start=sf['s0'] - L0, left=sd, right=sd, ground=ground,
                    ends=('wall' if sf['gap_before'] else 'flush', 'wall' if sf['gap_after'] else 'flush'),
                    feature=name, on_ground=on_ground)
         built.append(b)
@@ -663,29 +921,55 @@ def build_line(line, ground=None, side='bank', on_ground=False):
                            'landing_t': (float(sf['s0']), float(s1))})
         k = profile(sf['y0'], sf['degrees'], parts)
         last = {'name': name, 's1': s1, 'y1': float(k[-1][1]), 'deg1': float(k[-1][2]), 'gap_after': sf['gap_after']}
+    walls = built if extras is None else extras       # park() keeps elbows and half bowls apart (it may drop one)
     for i in range(len(line.path.elbows())):
-        built.append(build_elbow(elbow_spec(line, i), ground=ground, on_ground=on_ground, checks=checks))
+        walls.append(build_elbow(elbow_spec(line, i), ground=ground, on_ground=on_ground, checks=checks))
+    for f in line.features:
+        if f.kind == 'half_bowl' and f.s0 < build_stop(line):
+            hb = build_half_bowl(half_bowl_spec(line, f), ground=ground, on_ground=on_ground)
+            if _on_site(hb):
+                walls.append(hb)
+            else:                       # planned: G's carve radius puts this wall off the block
+                checks.append({'kind': 'todo', 'what': f'{f.id}: half bowl wall leaves the site; tighten its turn',
+                               'owner': 'G', 'status': 'planned'})
     out = P.Built.concat(built)
     out.checks += checks
     return out
 
 
+def _on_site(built, margin=1.):
+    """Every foot point of a Built on the r4 block (placement.contains)."""
+    from . import ground as G
+    pts = np.concatenate([np.asarray(f, 'f8') for f in built.foot]) if built.foot else built.mesh.V
+    return bool(G.even_odd(pts[:, [0, 2]], [_site2()]).all())
+
+
+_SITE = []
+
+
+def _site2():
+    """A's site outline in plan (ground.r4_site), cached."""
+    if not _SITE:
+        from . import ground as G
+        _SITE.append(G.r4_site()[:, [0, 2]])
+    return _SITE[0]
+
+
 def build_elbow(spec, ground=None, on_ground=False, checks=None):
-    """An elbow: B's primitives.elbow_qp(spec) / half_bowl(spec) when they exist (the wall and its apron, joined to both
-    legs); until then the apron as a ramp across the corner (a plane sloping only along the wall) and, where that
-    plane is level, a primitives.quarter_pipe."""
+    """An elbow: B's primitives.elbow_qp(spec) when it exists; until then the apron as a ramp along the wall (a plane
+    sloping only along it) and, where that plane is level, a primitives.quarter_pipe (H's Mega Park wall: R6 + 1 m
+    vert, deck 2, steel coping, lip at least 40 m)."""
     from . import primitives as P
     from .curves import Line
     fn = getattr(P, spec['kind'], None)
     if fn is not None:
         return fn(spec, ground=ground, on_ground=on_ground)
-    W, n, t = np.asarray(spec['corner']), np.asarray(spec['n']), np.asarray(spec['t'])
+    W, n, t = np.asarray(spec['centre']), np.asarray(spec['n']), np.asarray(spec['t'])
     h = spec['half_length']; mid = W + n * spec['apron'] / 2
     deg = math.degrees(math.atan(spec['grade_t']))
-    y_mid = spec['y'] + spec['grade_t'] * float((mid - W) @ t)
     apron = P.ramp(Line(tuple(mid - t * h), tuple(mid + t * h)),
-                   P.from_additions(y_mid - spec['grade_t'] * h, deg, [('line', 2 * h)]), spec['apron'],
-                   left='bank', right='bank', ground=ground, feature=f"{spec['line']}.elbow{spec['index']}.apron",
+                   P.from_additions(spec['y'] - spec['grade_t'] * h, deg, [('line', 2 * h)]), spec['apron'],
+                   left='flush', right='flush', ground=ground, feature=f"{spec['line']}.elbow{spec['index']}.apron",
                    on_ground=on_ground)
     parts = [apron]
     if abs(deg) < .25:
@@ -698,6 +982,20 @@ def build_elbow(spec, ground=None, on_ground=False, checks=None):
         checks.append({'kind': 'todo', 'what': f"{spec['kind']} on a sloped apron ({deg:.1f} deg along the wall)",
                        'owner': 'B', 'spec': {k: v for k, v in spec.items() if k != 'material'}})
     return P.Built.concat(parts)
+
+
+def build_half_bowl(spec, ground=None, on_ground=False):
+    """A half bowl: B's primitives.half_bowl(spec) when it exists, else a primitives.quarter_pipe along the concave lip
+    arc (deck outside), its floor strip the riding surface round the turn."""
+    from . import primitives as P
+    from .curves import Arc
+    fn = getattr(P, 'half_bowl', None)
+    if fn is not None:
+        return fn(spec, ground=ground, on_ground=on_ground)
+    arc = Arc(spec['centre'], spec['lip_radius'], spec['start_deg'], spec['turn'])
+    return P.quarter_pipe(arc, floor_y=spec['floor_y'], height=spec['r'] + spec['vert'], radius=spec['r'],
+                          deck=spec['deck'], floor=spec['floor'], side=-1 if spec['turn'] > 0 else 1, ground=ground,
+                          feature=spec['feature'], on_ground=on_ground)
 
 
 # ---------------------------------------------------------------- the bowl complex interface (F's bowls.py)
@@ -721,7 +1019,6 @@ def bowl_wall(bowl):
 
 
 # ---------------------------------------------------------------- the compiled park (generate.py calls park())
-LINE_LABELS = {line.id: line.name for line in LINES}
 SPAWN_DECK_Y = None         # park() sets the tower deck's y once B's tower builds; until then spawns stand at the exits
 
 
@@ -768,7 +1065,8 @@ def park():
     from . import dsl
     from . import primitives as P
     slab = slab_ground()
-    built = {line.id: build_line(line, ground=slab, on_ground=True) for line in LINES}
+    walls = []
+    built = {line.id: build_line(line, ground=slab, on_ground=True, extras=walls) for line in LINES}
     parts = list(built.values()); checks = [c for b in parts for c in b.checks]
     global SPAWN_DECK_Y
     SPAWN_DECK_Y = None
@@ -783,13 +1081,43 @@ def park():
     try:
         from . import bowls  # F: the bowl complex from BOWLS and LINKS
     except ImportError:
-        checks.append({'kind': 'todo', 'what': 'bowl complex', 'owner': 'F'})
-    else:
-        parts.append(bowls.build(BOWLS, LINKS, ground=slab))
+        bowls = None
+    complex_ = None
+    if bowls is not None and hasattr(bowls, 'complex'):
+        try:
+            complex_ = bowls.complex(only=('crater_bowl',), on_ground=True)
+        except Exception as error:  # noqa: BLE001 (F's module in progress: keep the park visible, placeholder)
+            checks.append({'kind': 'todo', 'what': 'bowl complex failed, placeholder used', 'owner': 'F',
+                           'error': f'{type(error).__name__}: {error}'[:300]})
+    if complex_ is None:                    # placeholder until F lands: the Crater Bowl as B's bowl at its outline
+        complex_ = crater_placeholder(slab)
+        checks.append({'kind': 'todo', 'what': 'bowl complex (Crater Bowl is a placeholder)', 'owner': 'F'})
+    parts.append(complex_)
     from . import ground as G
-    feet = [f for b in parts for f in b.foot]
-    land = G.ground(site_outline(G), holes=feet, guide=G.r4_block_controls())
-    mesh = dsl.Mesh.concat([b.mesh for b in parts] + [land])
+    feet = _merged_feet(parts)
+    for w in walls:                         # elbows and half bowls: kept where their feet clear everything else
+        if _on_site(w) and not any(_loops_overlap(f, g) for f in w.foot for g in feet):
+            parts.append(w); feet += [np.asarray(f, 'f8') for f in w.foot]
+        else:
+            checks.append({'kind': 'todo', 'what': f'{next(iter(w.mesh.features))}: overlaps its legs or leaves the site',
+                           'owner': 'D/G', 'status': 'planned'})
+    import re
+    for _ in range(40):                     # a hole the ground refuses (overlap, off the site): the ground runs on
+        try:                                # without it, and the check names the place (preview over perfection)
+            land = G.ground(G.r4_site(), holes=feet, guide=G.r4_block_controls())
+            break
+        except ValueError as error:
+            m = re.search(r'foot loop (\d+) (?:overlaps foot loop (\d+)|leaves the site)', str(error))
+            if not m:                       # the landform can't take these feet yet: show the park without it
+                checks.append({'kind': 'todo', 'what': 'ground landform left out', 'owner': 'A/D',
+                               'error': str(error)[:200]})
+                land = None
+                break
+            drop = int(m.group(2) or m.group(1))
+            checks.append({'kind': 'todo', 'what': 'ground hole left out', 'owner': 'D/G', 'error': str(error)[:200],
+                           'where': np.asarray(feet[drop]).mean(0).round(1).tolist()})
+            feet = feet[:drop] + feet[drop + 1:]
+    mesh = dsl.Mesh.concat([b.mesh for b in parts] + ([land] if land is not None else []))
     lines = [ride_line(line, built[line.id]) for line in LINES]
     for line in LINES:
         checks.append({'kind': 'speed', 'line': line.id, 'exit_speed_mps': [round(exit_speed(line, v), 2) for v in (1., 4., 8.)],
@@ -806,6 +1134,33 @@ def site_outline(G, inset=.985):
     return o
 
 
+def _loops_overlap(a, b):
+    from . import ground as G
+    a, b = np.asarray(a, 'f8')[:, [0, 2]], np.asarray(b, 'f8')[:, [0, 2]]
+    if (a.min(0) > b.max(0)).any() or (b.min(0) > a.max(0)).any():
+        return False
+    return bool(G.even_odd(a, [b]).any() or G.even_odd(b, [a]).any())
+
+
+def _merged_feet(parts):
+    """The ground's holes: the open loops of all on-ground parts together (solids.check_open), so the tower's exit
+    rows and the lines' start rows merge into one loop (B); each part's own feet if the union is not manifold."""
+    from . import dsl
+    from .solids import check_open
+    try:
+        return [np.asarray(f, 'f8') for f in check_open(dsl.Mesh.concat([b.mesh for b in parts]), name='park')]
+    except ValueError:
+        return [np.asarray(f, 'f8') for b in parts for f in b.foot]
+
+
+def crater_placeholder(ground=None):
+    """The Crater Bowl as B's primitives.bowl on its rounded-rectangle outline, rim and floor (F's bowls.py replaces it)."""
+    from . import primitives as P
+    b = next(b for b in BOWLS if b.id == 'crater_bowl')
+    return P.bowl(P.Rounded(_bowl_rect(b), 25., closed=True), floor_y=b.floor_y, depth=b.rim_y - b.floor_y, radius=b.r,
+                  deck=b.deck, top_degrees=90. if b.vert > 0 else None, ground=ground, feature='crater_bowl', on_ground=True)
+
+
 def tower_exits():
     """B's tower interface: per line, the roll-in (its profile parts from the deck at TOWER['y']) and the exit section
     it must end on exactly: s, y, degrees, plan point (x, z), heading degrees and width."""
@@ -818,3 +1173,8 @@ def tower_exits():
                         's': s, 'y': y, 'degrees': a, 'point': p, 'exit_heading': h, 'width': f.width,
                         'params': dict(f.params)}
     return out
+
+
+# ---------------------------------------------------------------- the park's lines: G's v3 plan (a design file wins)
+LINES = load_design() if DESIGN.exists() else tuple(plan_line(k) for k in V3_PLAN)
+LINE_LABELS = {line.id: line.name for line in LINES}
