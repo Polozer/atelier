@@ -57,4 +57,10 @@ Before riding, check the whole train against the playable characters, and make t
   - Riding: board at the doors in stations. Aboard, players walk in the train's own frame on each coach's floor plan
     (rooms, walls, doors and furniture from `layout.py`), with no physics at speed, so nobody can fall out or through
     a wall. Seats to sit on, coach to coach through the gangways, get off at stations.
+  - No sprinting aboard: each coach exports its interior (rooms and gangways) as a no-sprint zone, and the
+    game drops players to walking speed inside it.
+  - Gangways are closed: invisible walls on both sides (and above) every coach-to-coach crossing, so nobody
+    can fall out between two coaches.
+  - Hit boxes: every piece of furniture is solid, no box sticks into aisles or doorways, seats sit on their
+    collision, and the brake van lookout can be climbed (its ceiling collision still spans the well).
   - Before playtests, multiplayer receipts like the zeppelin's and long bot walks aboard a moving train.
