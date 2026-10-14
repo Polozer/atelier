@@ -7,6 +7,8 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world' / 'regions'))
+import itertools
+
 from craterpark import placement
 from craterpark.v2 import dsl
 from craterpark.v2 import layout as L
@@ -89,3 +91,34 @@ def test_palette_is_pale():
     assert L.TOWER['material'] == L.PALETTE['deck']
     used = {dsl.MATERIALS[i] for i in np.unique(L.build_line(L.L1, ground=-20.).mesh.material)}
     assert not used & set(L.FORBIDDEN_MATERIALS)
+
+
+@pytest.mark.parametrize('line', L.LINES, ids=lambda line: line.id)
+def test_profile_is_smooth(line):
+    """No kinks (('angle', ...) parts) and no sliver parts: a surface splits only at its gaps (C's review)."""
+    for part in line.profile:
+        assert part[0] != 'angle'
+        if part[0] == 'line':
+            assert part[1] >= .25, part
+
+
+@pytest.mark.parametrize('line', L.LINES, ids=lambda line: line.id)
+def test_line_starts_outside_the_tower(line):
+    """B's tower owns its footprint and the roll-ins: a line starts at its roll-in's exit section, off the tower."""
+    s, _, _, (x, z), _ = L.exit_station(line)
+    (cx, cz), (sx, sz) = L.TOWER['centre'], L.TOWER['size']
+    assert abs(x - cx) > sx / 2 or abs(z - cz) > sz / 2
+    assert s == pytest.approx(next(f.s1 for f in line.features if f.kind == 'roll_in'), abs=.05)
+
+
+def test_crater_gap_lip_speed():
+    """J1 (park-assist #13452): the lip must see 18.25 m/s or more from a standing start. Ridden on the validator lane
+    (plan/l3final): 18.61-18.62 m/s for 1, 4 and 8 m/s starts; the model here must agree within its margin."""
+    lip = L.feature('L3_K1')[1]
+    k = np.asarray(L.knots(L.L3, .25)); k = k[k[:, 0] <= lip.s1 + 1e-6]
+    v = 1.
+    for (s0, y0, _), (s1, y1, _) in itertools.pairwise(k):
+        dl = math.hypot(s1 - s0, y1 - y0)
+        drag = float(np.interp(v, L.MEASURED_DRAG[0], L.MEASURED_DRAG[1]))
+        v = math.sqrt(max(v * v - 2 * 9.81 * (y1 - y0) - 2 * drag * dl, 0.))
+    assert 18.25 <= v <= 19.35, v

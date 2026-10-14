@@ -115,11 +115,12 @@ class LineSpec:
     name: str
     path: Turtle
     y0: float                   # profile start height (the tower deck)
-    profile: tuple              # additions.profile parts plus ('gap', dx, dy, name) and ('angle', degrees)
+    profile: tuple              # additions.profile parts plus ('gap', dx, dy, name); no kinks, no ('angle', ...)
     features: tuple
     entry: str                  # where the rider starts: the roll-in crest (respawn point)
     exit: str                   # where it leads: no dead ends
     airs: tuple = ()            # (takeoff feature id, landing feature id)
+    rollin: int = 3             # the first `rollin` profile parts are the tower's roll-in (built by the tower, not here)
 
 
 @dataclass(frozen=True)
@@ -177,16 +178,17 @@ TOWER = {
     'material': 'material_000',    # PALETTE['deck']
 }
 
-# The Crater Gap landing, ridden: knuckle R15 to 24 degrees, 16 m, R45 out. Lips 17.6-20.5 m/s land 26-43 m out, an
-# ollie up to 44 m, with no bail (simout/j1_shortest.txt).
-CRATER_LANDING = (('arc', 15, -24), ('line', 16), ('arc', 45, -5))
+# The Crater Gap receiver, validated by park-assist (#13450): knuckle R15 to 24 degrees, 16 m, R30 to 34 degrees, 8 m,
+# R45 out; 6/6 passes (baseline and ollie, spawns 1/4/8 m/s) at lip 18.25-19.35 m/s. It drops 23.9 m over 55.9 m of plan.
+# The shorter receiver (no 34-degree part) failed at a 17.2 m/s lip: keep the lip at 18.25 m/s or more.
+CRATER_LANDING = (('arc', 15, -24), ('line', 16), ('arc', 30, -34), ('line', 8), ('arc', 45, -5))
 
 # ---------------------------------------------------------------- L1, the Crater Line (the hero)
 L1 = LineSpec(
     id='L1', name='Crater Line',
     path=Turtle(start=(1159.388, 1126.798), heading=322.3, segs=(('straight', 262.),)),
     y0=40.0,
-    profile=(('line', 0.001), ('arc', 14, -35), ('line', 31.5), ('arc', 30, 0),       # T1 roll-in: 40 -> 10 (720 -> 690)
+    profile=(('arc', 14, -35), ('line', 31.5), ('arc', 30, 0),       # T1 roll-in: 40 -> 10 (720 -> 690)
              ('line', 14),                                                           # flat run-in (no spawn hop)
              ('arc', 16, 30), ('line', 6.5),                                         # A ramp: lip 30 deg at y 15.88
              ('gap', 22., -1.5, 'J2 Canyon Transfer'),                               # open canyon
@@ -210,25 +212,33 @@ L3 = LineSpec(
     id='L3', name='Valley Line',
     path=Turtle(start=(1147.608, 1123.76), heading=275.0, segs=(('straight', 176.), ('turn', 35., 90.), ('straight', 111.))),
     y0=40.0,
-    profile=(('line', 0.001), ('arc', 14, -34), ('line', 22), ('arc', 30, -6),         # T3 roll-in: 40 -> 17.8
-             ('line', 132.5),                                                        # the Valley at -6 deg
+    # A slow Valley, then a late drop: at -2 degrees the rider settles at about 12.3 m/s, where rolling drag is near zero,
+    # so standing, 4 and 8 m/s starts all reach the K1 lip at the same speed (ridden: 18.6-18.7 m/s, plan/l3v3).
+    profile=(('arc', 14, -30), ('line', 2), ('arc', 30, -2),                          # T3 roll-in: 40 -> 33.0
+             ('line', 102.624),                                                      # the Valley at -2 deg (slow)
+             ('arc', 40, -30), ('line', 16), ('arc', 40, -6),                         # Valley drop: 29.4 -> 9.7
              ('line', 55),                                                           # the Crater Berm (plan turn R35, 90 deg)
-             ('arc', 40, -14), ('line', 14), ('arc', 40, -5),                         # chute (straight plan)
-             ('arc', 22, 24), ('line', 3),                                           # K1: lip 24 deg at y -4.25
-             ('gap', 25., -1.5, 'J1 Crater Gap'),
-             *CRATER_LANDING,                                                        # knuckle y -5.75 -> foot -17.89
-             ('line', 10.)),                                                         # into the Crater Bowl's east floor
+             ('arc', 40, -5), ('line', 20),                                          # 20 m straight run-in
+             ('arc', 22, 24), ('line', 3),                                           # K1: lip 24 deg at y 5.23
+             ('gap', 20., -1.5, 'J1 Crater Gap'),
+             *CRATER_LANDING,                                                        # knuckle y 3.73 -> foot -20.14
+             ('line', 0.5)),                                                         # onto the Crater Bowl's east floor
     features=(
-        Feature('L3_rollin', 'roll_in', 0., 43.5, 22., '', {'crest_r': 14, 'face_deg': 34, 'runout_r': 30}),
-        Feature('L3_valley', 'valley', 43.5, 176., 22., '', {
-            'grade_deg': -6, 'floor': 22., 'wall_r': 25., 'wall_top_deg': 50., 'wall_height': 10., 'cap': 1.5, 'coping': True,
+        Feature('L3_rollin', 'roll_in', 0., 22.95, 22., '', {'crest_r': 14, 'face_deg': 30, 'runout_r': 30}),
+        Feature('L3_valley', 'valley', 22.95, 125.58, 22., '', {
+            'grade_deg': -2, 'floor': 22., 'wall_r': 25., 'wall_top_deg': 50., 'wall_height': 10., 'cap': 1.5, 'coping': True,
+            'speed': 'settles at 12.3 m/s (ridden): carve wall to wall up to about 8 m',
             'source': 'r4 12 m half-pipe (native 1320, 960): 22 m floor, R25-30 walls, about 45 deg at the top'}),
-        Feature('L3_berm', 'berm', 176., 231., 22., '', {'turn_r': 35., 'turn_deg': 90., 'outer_bank_height': 8., 'outer_wall_r': 20., 'bank_deg': 45.}),
-        Feature('L3_chute', 'run', 231., 256.7, 16., '', {'to_deg': -14}),
-        Feature('L3_K1', 'kicker', 256.7, 270.5, 14., 'takeoff', {'r': 22, 'lip_deg': 24, 'lip_y': -4.25, 'height': 3.15, 'flanks': 'kicker flanks at 30 degrees'}),
-        Feature('L3_gap', 'gap', 270.5, 295.5, 25., '', {'open': True, 'ground_max_y': -9.0}),
-        Feature('L3_landing', 'landing', 295.5, 332.0, 18., 'landing', {'knuckle_y': -5.75, 'knuckle_r': 15, 'slope_deg': 24, 'slope_len': 16, 'runout_r': 45}),
-        Feature('L3_bowl_entry', 'bowl_entry', 332.0, 342.0, 18., '', {'bowl': 'crater_bowl', 'kind': 'floor level, along the bowl axis (no rim)'}),
+        Feature('L3_drop', 'valley', 125.58, 176., 22., '', {
+            'grade_deg': -30, 'floor': 22., 'wall_r': 25., 'wall_height': 6., 'cap': 1.5, 'note': 'the Valley walls run on, lower'}),
+        Feature('L3_berm', 'berm', 176., 231., 22., '', {'turn_r': 35., 'turn_deg': 90., 'outer_bank_height': 8., 'outer_wall_r': 20., 'bank_deg': 55.,
+                                                          'speed': 'about 21 m/s: bank for v^2/(gR) = 1.3'}),
+        Feature('L3_runin', 'run', 231., 251.69, 16., '', {'grade_deg': -5}),
+        Feature('L3_K1', 'kicker', 251.69, 265.56, 14., 'takeoff', {'r': 22, 'lip_deg': 24, 'lip_y': 5.23, 'height': 3.15, 'flanks': 'kicker flanks at 30 degrees'}),
+        Feature('L3_gap', 'gap', 265.56, 285.56, 20., '', {'open': True, 'ground_max_y': 0.0}),
+        Feature('L3_landing', 'landing', 285.56, 341.48, 18., 'landing', {'knuckle_y': 3.73, 'knuckle_r': 15, 'slope_deg': 24, 'slope_len': 16,
+                                                                          'steep_deg': 34, 'steep_len': 8, 'runout_r': 45}),
+        Feature('L3_bowl_entry', 'bowl_entry', 341.48, 342.0, 18., '', {'bowl': 'crater_bowl', 'kind': 'floor level, along the bowl axis (no rim)'}),
     ),
     entry='T3 crest (1147.61, 40.0, 1123.76)', exit='crater_bowl',
     airs=(('L3_K1', 'L3_landing'),),
@@ -243,13 +253,13 @@ L2 = LineSpec(
         ('straight', 201.5),                                                               # straight from s 136.3 to 337.8
         ('turn', 35., -135.), ('straight', 12.))),                                         # carving berm into the bowl
     y0=40.0,
-    profile=(('line', 0.001), ('arc', 14, -33), ('line', 20), ('arc', 30, -7),         # T2 roll-in: 40 -> 20.1
+    profile=(('arc', 14, -33), ('line', 20), ('arc', 30, -7),         # T2 roll-in: 40 -> 20.1
              ('line', 97),                                                           # Serpent at -7 deg
              ('arc', 40, -13), ('line', 10), ('arc', 40, -5),                         # chute
              ('arc', 22, 24), ('line', 3),                                           # K3: lip 24 deg at y 8.09
              ('gap', 25., -1.5, 'J3 Rim Gap'),
              *CRATER_LANDING,                                                        # knuckle y 6.59 -> foot about -5.5
-             ('angle', -1), ('line', 200.)),                                         # run-out and carving berm at -1 deg
+             ('arc', 120, 0), ('line', 170.11)),                                    # level run-out and carving berm
     features=(
         Feature('L2_rollin', 'roll_in', 0., 40.3, 14., '', {'crest_r': 14, 'face_deg': 33, 'runout_r': 30}),
         Feature('L2_serpent', 'snake', 40.3, 137.3, 14., '', {
@@ -258,8 +268,8 @@ L2 = LineSpec(
         Feature('L2_chute', 'run', 137.3, 156.9, 14., '', {'to_deg': -13}),
         Feature('L2_K3', 'kicker', 156.9, 170.8, 14., 'takeoff', {'r': 22, 'lip_deg': 24, 'lip_y': 7.5, 'height': 3.15}),
         Feature('L2_gap', 'gap', 170.8, 195.8, 25., '', {'open': True, 'ground_max_y': 2.5}),
-        Feature('L2_landing', 'landing', 195.8, 232.3, 18., 'landing', {'knuckle_r': 15, 'slope_deg': 24, 'slope_len': 16, 'runout_r': 45}),
-        Feature('L2_runout', 'run', 232.3, 337.8, 14., '', {'grade_deg': -1}),
+        Feature('L2_landing', 'landing', 195.8, 251.73, 18., 'landing', {'knuckle_r': 15, 'slope_deg': 24, 'slope_len': 16, 'steep_deg': 34, 'steep_len': 8, 'runout_r': 45}),
+        Feature('L2_runout', 'run', 251.73, 337.8, 14., '', {'grade_deg': 0, 'note': 'level: bleeds the landing speed before the berm'}),
         Feature('L2_berm', 'berm', 337.8, 420.3, 16., '', {'turn_r': 35., 'turn_deg': -135., 'outer_bank_height': 6., 'outer_wall_r': 15., 'bank_deg': 40.}),
         Feature('L2_bowl_entry', 'bowl_entry', 420.3, 432.3, 16., '', {'bowl': 'crater_bowl', 'kind': 'roll-in bank at the west end, along the bowl axis'}),
     ),
@@ -271,8 +281,8 @@ LINES = (L1, L3, L2)
 
 # ---------------------------------------------------------------- the bowl complex
 BOWLS = (
-    Bowl('crater_bowl', centre=(1367.1, 932.2), axis=5.0, size=(120., 55.), rim_y=-10.0, floor_y=-19.0,
-         r=8.0, vert=1.0, deck=3.0, material=PALETTE['concrete'], max_entry=25.0,
+    Bowl('crater_bowl', centre=(1367.1, 932.2), axis=5.0, size=(120., 55.), rim_y=-10.0, floor_y=-20.2,
+         r=9.0, vert=1.0, deck=3.0, material=PALETTE['concrete'], max_entry=25.0,
          openings=(('L1', (1357.4, 973.8), 'roll-in bank, NE rim'), ('L3', (1311.5, 926.3), 'east end at floor level'),
                    ('L2', (1429.8, 936.8), 'roll-in bank, west end')),
          notes='Ridden straight-on (simout/bowlwalls.txt): R8 + 1 m vert returns clean to 25 m/s; 26-28 m/s lands on the '
@@ -313,6 +323,11 @@ GROUND = {
 }
 
 # What the offline Session measured (plan/layout.md; plan/line1/validation*/report.json; plan/simout/).
+# Rolling drag on the offline Session, m/s^2 against speed m/s (plan/model.py, calibrated by straight-lane rides): about
+# zero below 11 m/s, then 0.8-1.2 m/s^2 (a 5-6 degree slope's worth) from 14 to 30 m/s.
+MEASURED_DRAG = ((0, 8, 11, 12, 12.6, 13.4, 16, 18, 20, 22, 25, 28, 30, 40),
+                 (0, 0, .06, .15, .4, .75, .82, .95, 1.0, 1.08, 1.1, 1.2, 1.25, 1.4))
+
 MEASURED = {
     'roll_in_30m': 'from the tower deck at 3-5 m/s: 22.1-22.4 m/s on the flat run-in (plan/rollin_speed.py)',
     'L1_canyon_transfer': 'validator PASS at entry 21-24.5 m/s: airs 27-45 m, 1.8-2.8 s, mismatch 5-16 deg, normal 2-6 m/s '
@@ -325,28 +340,53 @@ MEASURED = {
 
 
 # ---------------------------------------------------------------- helpers
-def pieces(line):
-    """The line's continuous surfaces between gaps: [(s0, y0, degrees0, parts)] in additions.profile semantics."""
-    out, s, y, cur, start = [], 0., line.y0, [], (0., line.y0, 0.)
+def pieces(line, start=None):
+    """The line's continuous surfaces between gaps: [(s0, y0, degrees0, parts)] in additions.profile semantics. A piece
+    boundary happens only at a gap, so a landing and its run-out are one surface. `start='exit'` begins at the tower
+    roll-in's exit section (exit_station) and leaves the roll-in out."""
     from craterpark.additions import profile
-    for part in line.profile:
+    parts = list(line.profile)
+    s0, y0, a0 = 0., line.y0, 0.
+    if start == 'exit':
+        s0, y0, a0 = exit_station(line)[:3]; parts = parts[line.rollin:]
+    out, cur, here = [], [], (s0, y0, a0)
+    for part in parts:
+        if part[0] == 'angle':
+            raise ValueError(f'{line.id}: an angle part is a kink; use an arc')
         if part[0] == 'gap':
             if cur:
-                k = profile(start[1], start[2], cur); s, y = start[0] + k[-1][0], k[-1][1]
-                out.append((*start, tuple(cur)))
-            s, y, cur = s + part[1], y + part[2], []
-            start = (s, y, 0.)
-        elif part[0] == 'angle':
-            if cur:
-                k = profile(start[1], start[2], cur); out.append((*start, tuple(cur)))
-                start = (start[0] + k[-1][0], k[-1][1], float(part[1])); cur = []
-            else:
-                start = (start[0], start[1], float(part[1]))
+                k = profile(here[1], here[2], cur); out.append((*here, tuple(cur)))
+                here = (here[0] + k[-1][0], k[-1][1], k[-1][2])
+            here, cur = (here[0] + part[1], here[1] + part[2], 0.), []
         else:
             cur.append(part)
     if cur:
-        out.append((*start, tuple(cur)))
+        out.append((*here, tuple(cur)))
     return out
+
+
+def exit_station(line):
+    """(s, y, degrees, (x, z), heading degrees): where the tower's roll-in hands over to the line (B's tower builds the
+    roll-in up to this section; build_line starts here, so the two never overlap in plan)."""
+    from craterpark.additions import profile
+    k = profile(line.y0, 0., list(line.profile[:line.rollin]))
+    s, y, a = (float(v) for v in k[-1])
+    p, d = line.path.at(s)
+    return s, y, a, (float(p[0]), float(p[1])), math.degrees(math.atan2(d[1], d[0]))
+
+
+def cut(s0, y0, a0, parts, stop):
+    """A piece's parts cut at plan distance `stop` (None when the piece starts at or past it)."""
+    from craterpark.additions import profile
+    if s0 >= stop - 1e-6:
+        return None
+    keep = list(parts)
+    while keep and s0 + profile(y0, a0, keep)[-1][0] > stop + 1e-6:
+        last = keep[-1]; over = s0 + profile(y0, a0, keep)[-1][0] - stop
+        if last[0] == 'line' and last[1] > over:
+            keep[-1] = ('line', last[1] - over); break
+        keep.pop()
+    return tuple(keep) or None
 
 
 def knots(line, step=1.):
@@ -401,37 +441,72 @@ def curve(path):
     return Rounded(p, r)
 
 
-def build_line(line, ground=None, side='bank'):
-    """Compile a line with B's primitives: each jump (the continuous piece up to its lip, the gap, the next piece) is a
-    primitives.jump_line, and a piece after the last jump is a primitives.ramp. Widths are each piece's widest
+def slab_ground(lines=None, depth=2.0, step=1.0):
+    """An interim ground until A's landform (v2/ground.py) lands: a plan height function (x, z) -> y that sits `depth`
+    under the nearest riding station of any line, and at each open gap's `ground_max_y` (or 6 m under its lip) across
+    the gap, so the flanks of every line bank down only a short way and never run into each other."""
+    pts = []
+    for line in lines or LINES:
+        for s, y, _ in knots(line, step):
+            p, _ = line.path.at(s); pts.append((p[0], p[1], y - depth))
+        for f in line.features:
+            if f.kind == 'gap':
+                floor = f.params.get('ground_max_y')
+                if floor is None:
+                    floor = min(y for s, y, _ in knots(line, step) if abs(s - f.s0) < step) - 6.
+                for s in np.arange(f.s0, f.s1 + 1e-9, step):
+                    p, _ = line.path.at(s); pts.append((p[0], p[1], floor))
+    P = np.asarray(pts, 'f8')
+
+    def ground(x, z):
+        x, z = np.asarray(x, 'f8'), np.asarray(z, 'f8'); shape = np.shape(x)
+        q = np.c_[x.ravel(), z.ravel()]; out = np.empty(len(q))
+        for a in range(0, len(q), 2048):
+            d = ((q[a:a + 2048, None, :] - P[None, :, :2]) ** 2).sum(-1)
+            out[a:a + 2048] = P[np.argmin(d, axis=1), 2]
+        return out.reshape(shape)
+    return ground
+
+
+def build_stop(line):
+    """Where build_line stops: before the first berm turning more than 100 degrees (a bank primitive, not a ramp)."""
+    return min([f.s0 for f in line.features if f.kind == 'berm' and abs(f.params.get('turn_deg', 0)) > 100]
+               + [line.path.length])
+
+
+def build_line(line, ground=None, side='bank', on_ground=False):
+    """Compile a line with B's primitives, from the tower roll-in's exit section (exit_station) to build_stop: each
+    jump (the surface up to its lip, the gap, the surface after it, to the next gap or the end) is one
+    primitives.jump_line, and a surface after the last jump is a primitives.ramp. Widths are each piece's widest
     feature. Returns a primitives.Built."""
+    from craterpark.additions import profile
+
     from . import primitives as P
-    stop = min([f.s0 for f in line.features if f.kind == 'berm' and abs(f.params.get('turn_deg', 0)) > 100] + [line.path.length])
-    path = curve(line.path.until(stop)); built = []
-    ps = [p for p in pieces(line) if p[0] < stop - 1e-6]
+    stop = build_stop(line)
+    path = curve(line.path.until(stop))
+    ps = []
+    for s0, y0, a0, parts in pieces(line, start='exit'):
+        kept = cut(s0, y0, a0, parts, stop)
+        if kept:
+            ps.append((s0, y0, a0, kept))
     gaps = [p for p in line.profile if p[0] == 'gap']
-    i = 0
+
+    def width(s0, y0, a0, parts):
+        s1 = s0 + profile(y0, a0, list(parts))[-1][0]
+        return max([f.width for f in line.features if f.s0 < s1 - 1e-6 and f.s1 > s0 + 1e-6] or [16.])
+
+    built, i = [], 0
     while i < len(ps):
         s0, y0, a0, parts = ps[i]
-        width = max(f.width for f in line.features if f.s0 < s0 + 1e-6 + sum(p[1] if p[0] == 'line' else 0 for p in parts) and f.s1 > s0) \
-            if line.features else 16.
         if i + 1 < len(ps) and i < len(gaps):
-            n0, ny, na, nparts = ps[i + 1]
+            _, ny, na, nparts = ps[i + 1]
             launch = P.from_additions(y0, a0, list(parts)); landing = P.from_additions(ny, na, list(nparts))
-            land_w = max(f.width for f in line.features if f.tag == 'landing' and f.s0 >= n0 - 1)
-            built.append(P.jump_line(path, launch, landing, gaps[i][1], width, start=s0, left=side, right=side,
-                                     ground=ground, feature=f'{line.id}.{i}', land_width=land_w))
+            built.append(P.jump_line(path, launch, landing, gaps[i][1], width(*ps[i]), start=s0, left=side, right=side,
+                                     ground=ground, feature=f'{line.id}.{i}', land_width=width(*ps[i + 1]),
+                                     on_ground=on_ground))
             i += 2
         else:
-            from craterpark.additions import profile as prof
-            keep = list(parts)
-            while keep and s0 + prof(y0, a0, keep)[-1][0] > stop + 1e-6:      # cut the last run at the stop
-                last = keep[-1]
-                over = s0 + prof(y0, a0, keep)[-1][0] - stop
-                if last[0] == 'line' and last[1] > over:
-                    keep[-1] = ('line', last[1] - over); break
-                keep.pop()
-            built.append(P.ramp(path, P.from_additions(y0, a0, keep), width, start=s0, left=side, right=side,
-                                ground=ground, feature=f'{line.id}.{i}'))
+            built.append(P.ramp(path, P.from_additions(y0, a0, list(parts)), width(*ps[i]), start=s0, left=side,
+                                right=side, ground=ground, feature=f'{line.id}.{i}', on_ground=on_ground))
             i += 1
     return P.Built.concat(built)
