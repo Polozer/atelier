@@ -18,7 +18,11 @@ uv run atelier build yorimichi world.city_tiles world.city_trees unreal.desktop 
   `build/yorimichi/hidamari/city.json`; then it builds the modular meshes, their collision and `manifest.json`. Streets
   and the terrain under them share one height profile, intersections included, and the far terrain is lowered
   smoothly round the city.
-- `unreal.world` imports them with `unreal/Scripts/import_hidamari.py`, keeping the authored collision.
+- `unreal.world` imports them with `unreal/Scripts/import_hidamari.py`, keeping the authored collision, all but the
+  volcano: `unreal.north` imports `HD_North*` after it, with `M_NorthMountains`, the rock texture and the snow mask
+  (`HIDAMARI_ASSETS=HD_North*`; a name ending in `*` selects the meshes it begins). Each needs a digest of the meshes
+  it reads (`world.hidamari.city`, `world.hidamari.north`, `export_digest.py`) rather than `world.hidamari`, so a
+  layout-only change (`city.json`) or a volcano change reimports nothing else.
 - `data.stage` stages `city.json`; the game merges it into the world when it builds the instanced meshes.
 - `world.city_tiles` and `world.city_trees` build the desktop profile's 128 m city surface tiles and city tree LODs,
   and `unreal.desktop` imports them into `/Game/Experiments`.
@@ -52,7 +56,7 @@ Do not run a benchmark beside Blender or another Unreal session; it rejects cont
 | [`arcade.py`](arcade.py), [`plaza.py`](plaza.py), [`harbor.py`](harbor.py) | The arcade, clock-square and harbour kits |
 | [`living_streets.py`](living_streets.py), [`living_plaza.py`](living_plaza.py), [`working_harbor.py`](working_harbor.py) | Street details, plaza furniture, the fish market |
 | [`pond_garden.py`](pond_garden.py), [`garden_bridge.py`](garden_bridge.py), [`civic_gardens.py`](civic_gardens.py), [`hero_approaches.py`](hero_approaches.py) | The park, its bridge, temple gardens, the station forecourt and the stone approaches |
-| [`mountains.py`](mountains.py), [`forest_backdrop.py`](forest_backdrop.py) | The north foothills, volcano and trail; tree cover on the eastern hills |
+| [`mountains.py`](mountains.py), [`forest_backdrop.py`](forest_backdrop.py) | The north foothills, the volcano and its caldera ([docs/VOLCANO.md](../../../docs/VOLCANO.md)) and trail; tree cover on the eastern hills |
 | [`arrival.py`](arrival.py), [`park_grounds.py`](park_grounds.py), [`temple_precinct.py`](temple_precinct.py), [`station_yard.py`](station_yard.py) | The arrival road's rice terraces, the pond park's grounds, the temple precinct, the railway behind the station |
 | [`lane_edges.py`](lane_edges.py), [`city_poles.py`](city_poles.py) | What lines the narrow lanes; utility poles and their wires |
 | [`garden_shrubs.py`](garden_shrubs.py), [`house_gardens.py`](house_gardens.py) | The clipped garden shrubs; the planting of the back-lane houses' front plots |

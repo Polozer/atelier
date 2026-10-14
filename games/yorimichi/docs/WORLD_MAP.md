@@ -55,6 +55,8 @@ Each zone is a travel target with a key, name, position, yaw and hint. Zones are
 | South-west island | `fishing`, `cove`, `landing`, `temple` |
 | Hidamari | `arrival`, `arcade`, `plaza`, `harbor`, `hillside`, `park`, `station`, `foothills` |
 | Elsewhere | `forest_lake`, `megapark`, `skatepier`, `hippodrome`, `zeppelin_forest`, `zeppelin_city`, `zeppelin_megapark` |
+| Volcano | `craterpark` (Crater Park: its marked ramp drop-in, looking across the park; [CRATERPARK.md](CRATERPARK.md)) |
+| Belmonte | `belmonte`, `belmonte_course`, `belmonte_training` (from `belmonte/runtime.json`) |
 
 `UJapanMap` adds a `skatepier` stop from `skatepark/park.json`, and a `hippodrome` stop (by the grandstand, at the
 grandstand) from `hippodrome/hippodrome.json`, when `map.json` has none ([HIPPODROME.md](HIPPODROME.md)).
@@ -112,6 +114,7 @@ from data:
 | `world_map_provenance.json` | Model, prompt and inputs, with each earlier version's record nested under `parent` |
 | `island_repaint.provenance.json` | The ledger of the south-west island repaint call |
 | `sunset_pier_repaint.provenance.json` | The shared paid-call ledger for the enlarged pier and moved island |
+| `volcano_repaint.provenance.json` | The ledger of the enlarged volcano's repaint ([`repaint_volcano.py`](../world/map/repaint_volcano.py)) |
 
 `build_map.py` uses the painted sheet only while its bounds and knots match the current ones exactly; otherwise it
 falls back to the generated sheet. Never stretch old artwork over a changed world: every pin would move off its
