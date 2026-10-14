@@ -93,7 +93,12 @@ class Curve:
                 d = np.maximum(d, tess.density(height.curvature(t)))
             return d
         b = np.unique(np.concatenate([self.breaks(), [0., self.length]]))
-        return merge_params(adaptive(list(zip(b[:-1], b[1:])), density), [x for x in np.ravel(extra) if 0 <= x <= self.length])
+        # The density may legitimately require stations closer than 1 cm (a
+        # narrow spine's rounded crest, for example). The generic merge's 1 cm
+        # thinning would drop every sample of such an arc, including its ends.
+        # Preserve the tessellation and make all curve breaks semantic here.
+        return merge_params(adaptive(list(zip(b[:-1], b[1:])), density),
+                            np.r_[b, [x for x in np.ravel(extra) if 0 <= x <= self.length]], near=0.)
 
 
 class Line(Curve):
