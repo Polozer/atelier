@@ -1382,6 +1382,10 @@ def validate_park(park, out=None, lanes=None, regions=(), allow_open=None, limit
     drawn = [m for m in render]
     line_features = [f for line in park.lines for f in line.features]
     scenery = [c.get('feature') for c in park.checks if isinstance(c, dict) and c.get('kind') == 'scenery']
+    # the site: a feature with ground faces (the landform every line stands on) is on no line by design
+    from . import dsl
+    gr = np.asarray(park.mesh.role) == dsl.ROLE[dsl.GROUND]
+    scenery += [park.mesh.features[i] for i in np.unique(np.asarray(park.mesh.feature)[gr])]
     air_specs = [c for c in park.checks if isinstance(c, dict) and c.get('kind') == 'air' and 'lip' in c]
     riding = [m for m in collision if m.role == 'riding']
     run = {

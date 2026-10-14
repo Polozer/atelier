@@ -14,8 +14,7 @@ sys.path.insert(0, str(GAME / 'world' / 'regions'))
 from craterpark.v2 import plan_png, validate as V  # noqa: E402
 
 NPZ = Path(os.environ.get('CRATERPARK_R4_NPZ', '/nonexistent'))   # park-assist's r4 extraction (positions, corner_uv)
-R4 = Path(os.environ.get('CRATERPARK_R4_GEOMETRY', Path.home() / 'dev' / 'atelier-jim5-volcano' / 'build' / 'yorimichi'
-                         / 'craterpark' / 'imported-geometry'))   # r4's imported .bin soups
+R4 = NPZ   # r4's meshes: positions (n,3) native metres + triangles; the r4 .bin dumps are overwritten by later builds
 
 
 def grid(x0, z0, x1, z1, n=4, y=0.):
@@ -388,6 +387,15 @@ class ParkEntryTests(unittest.TestCase):
             png, _, _ = plan_png.render_park(self.park, Path(d) / 'plan.png', report=rep)
             self.assertTrue(Path(png).stat().st_size > 1000)
 
+    def test_the_ground_is_the_site_and_an_unlined_ramp_is_not(self):
+        dsl = self.dsl
+        g = dsl.Mesh.part(*grid(1100, 1000, 1110, 1010, 2, y=20.), role=dsl.GROUND, feature='ground', material=dsl.GROUND_MAT)
+        stray = dsl.Mesh.part(*grid(1120, 1000, 1124, 1004, 2, y=20.), role=dsl.RIDING, feature='orphan_ramp')
+        park = dsl.Park(dsl.Mesh.concat([self.park.mesh, g, stray]), self.park.rails, self.park.lines)
+        r = V.validate_park(park, log=None, skip=tuple(k for k in ('overlaps', 'overlaps_collision', 'topology', 'buried',
+                            'thin_walls', 'outlines', 'facets', 'uv_stretch', 'slivers', 'protrusions', 'airs', 'budgets')))[0]
+        self.assertEqual(r['checks']['ownership']['features_on_no_line'], ['orphan_ramp'])
+
     def test_a_slab_in_the_line_fails_the_park_where_it_is(self):
         dsl = self.dsl
         line = self.park.lines[0]
@@ -403,17 +411,22 @@ class ParkEntryTests(unittest.TestCase):
         self.assertTrue(x + .5 - 1e-9 <= f['where'][0] <= x + 1.5 + 1e-9, f)
 
 
-@unittest.skipUnless(R4.is_dir(), 'r4 imported geometry not on this machine')
+@unittest.skipUnless(R4.is_dir(), "r4 extraction not on this machine (set CRATERPARK_R4_NPZ)")
 class R4DefectTests(unittest.TestCase):
     """The checks flag r4's real defects at the places the owner's notes name (native metres)."""
 
     @staticmethod
-    def near(box, names=None, prefix='SM_CP_'):
+    def soup(f):
+        d = np.load(f)
+        return d['positions'].astype('f8')[d['triangles']]
+
+    @classmethod
+    def near(cls, box, names=None, prefix='SM_CP_'):
         out = []
-        for f in sorted(R4.glob(prefix + '*.bin')):
+        for f in sorted(R4.glob(prefix + '*.npz')):
             if names and not any(n in f.stem for n in names):
                 continue
-            T = np.fromfile(f, 'f8').reshape(-1, 3, 3)[:, :, [0, 2, 1]] / 100.
+            T = cls.soup(f)
             c = T.mean(1)
             k = (c[:, 0] >= box[0]) & (c[:, 0] <= box[2]) & (c[:, 2] >= box[1]) & (c[:, 2] <= box[3])
             if k.any():
@@ -486,13 +499,14 @@ class R4DefectTests(unittest.TestCase):
 
     def test_r4_blows_every_budget(self):
         meshes = []
-        for f in sorted(R4.glob('*.bin')):
-            T = np.fromfile(f, 'f8').reshape(-1, 3)[:, [0, 2, 1]] / 100.
+        for f in sorted(R4.glob('*.npz')):
+            T = self.soup(f).reshape(-1, 3)
             meshes.append(V.Mesh(f.stem, T, np.arange(len(T)).reshape(-1, 3),
                                  domain='collision' if f.stem.startswith('UC_') else 'render',
                                  role='coping' if 'coping' in f.stem else 'riding'))
         r = V.budgets(meshes)
-        self.assertEqual((r['render_triangles'] > 1_300_000, r['collision_triangles']), (True, 848_916))
+        # the extraction lacks the exact duplicates Blender dropped on import (5,750 render, 6,711 collision)
+        self.assertEqual((r['render_triangles'], r['collision_triangles']), (1_307_949, 842_205))
         self.assertGreater(r['collision_cube_max'], 400_000)                     # one snapshot cube, 4x its budget
         self.assertTrue({f['kind'] for f in r['failures']} >= {'render', 'collision', 'coping', 'render_meshes',
                                                               'collision_cube', 'render_mesh'})
