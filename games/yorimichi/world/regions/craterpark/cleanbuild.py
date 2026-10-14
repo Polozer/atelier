@@ -13,13 +13,16 @@ returns what build.py exports:
 6. every mesh remeshed (remesh.py): the added pieces as height fields over the ground, the rest by planar patches,
    chains shared, within TOL_H of the fine surface and TOL_AO of its occlusion (and TOL_UV of its UVs).
 """
+import hashlib
 import json
 import math
 import time
+from pathlib import Path
 
 import numpy as np
 
-from craterpark import additions, clean, grind, remesh, visibility
+from craterpark import additions, grind, remesh, visibility
+from craterpark import clean as cl
 from craterpark import build as B
 
 TOL_H = .003        # metres: a remeshed surface's height off the fine one at every fine vertex, at most
@@ -28,6 +31,7 @@ TOL_AO = .02        # the baked occlusion, linear
 TOL_UV = .002       # texture tiles, on the textured pieces
 COPING_TOL = .0015  # metres: a coping line simplified this close to its lip
 WELD = 2e-4         # metres: the library's positions are float32 (0.12 mm apart near x = 1300)
+MARGIN = 15.        # metres round a region (box) whose faces are cleaned with it, as its context
 TJ = 5e-4           # metres: a vertex this close to another face's edge splits it
 # Old meshes an added piece was laid through, whose parts over its top showed through it (a planter's cap as a
 # wedge in the plaza kicker's face): cut away exactly (clean.cut_under). Listed, not inferred: a floor a piece runs
@@ -65,9 +69,23 @@ def weld(P, F, UV):
     return P[first], F, UV[first]
 
 
-def clean(loaded, coping_lines=None):
-    """build.py's pieces -> (meshes [(entry, P, F, UV, AO)], collision {role: triangles}, grind lines, stats)."""
-    t0 = time.time(); stats = {}
+def _key(*arrays):
+    """A piece's remesh inputs, hashed: its positions, faces, attributes, fixed vertices, mode and tolerances (each
+    already carries its neighbours' effects: clipping, seams, occlusion), with the remesher's own source."""
+    h = hashlib.sha256(Path(remesh.__file__).read_bytes())
+    for a in arrays:
+        h.update(np.ascontiguousarray(np.asarray(a)).tobytes() if not isinstance(a, str) else a.encode())
+    return h.hexdigest()[:32]
+
+
+def clean(loaded, cache=None, box=None):
+    """build.py's pieces -> (pieces with p['out'] = (P, F, UV, AO), grind lines, stats). `cache`: a directory of
+    remeshed faces, one file per piece keyed by its inputs (_key), reused while they are unchanged. `box` (x0, z0, x1,
+    z1): a region only (checks within the small memory slot): the open space and the rays see every face, the rest
+    runs on the faces within MARGIN of the box, and only the faces whose centroid lies in it come out."""
+    t0 = time.time(); stats = {}; diag = {}
+    if cache is not None:
+        cache = Path(cache); cache.mkdir(parents=True, exist_ok=True)
     pieces = []
     for entry, a, keep in loaded:
         F = a['triangles'][keep].astype('i8')
@@ -91,7 +109,7 @@ def clean(loaded, coping_lines=None):
             near = np.flatnonzero((T0.max(1) >= lo).all(1) & (T0.min(1) <= hi).all(1))
             keep = np.ones(len(T0), bool); add_P, add_UV = [], []
             for f in near.tolist():
-                parts = clean.cut_under(T0[f], skin)
+                parts = cl.cut_under(T0[f], skin)
                 if len(parts) == 1 and np.allclose(parts[0], T0[f]):
                     continue
                 keep[f] = False
@@ -110,21 +128,30 @@ def clean(loaded, coping_lines=None):
                 log(t0, f'{o}: {int((~keep).sum())} faces cut under {piece}')
     T = np.concatenate([p['P'][p['F']] for p in pieces])
     owner = np.repeat(np.arange(len(pieces)), [len(p['F']) for p in pieces])
+    ctx = np.ones(len(T), bool)
+    if box is not None:
+        c = T.mean(1)
+        ctx = (c[:, 0] >= box[0] - MARGIN) & (c[:, 0] <= box[2] + MARGIN) & (c[:, 2] >= box[1] - MARGIN) & (c[:, 2] <= box[3] + MARGIN)
     # 1. visibility
-    reach = clean.reachable(T, log=lambda m: log(t0, m))
+    reach = cl.reachable(T, log=lambda m: log(t0, m))
     pre = np.zeros(len(T), bool)
     role = np.array([p['entry']['role'] for p in pieces])[owner]
-    found = role == 'foundation'
+    found = (role == 'foundation') & ctx
     ride = (role == 'original')
     two = np.array([bool(p['entry'].get('doubleSided')) for p in pieces])[owner]
     if found.any():
         f = np.flatnonzero(found)
-        pre[f[clean.covered(T[f], T[ride], eps=COVER)]] = True
-        pre[f[clean.inner_walls(T[f], np.zeros(len(f), 'i8'))]] = True
+        near = ride & ctx
+        pre[f[cl.covered(T[f], T[near], eps=COVER)]] = True
+        pre[f[cl.inner_walls(T[f], np.zeros(len(f), 'i8'))]] = True
     log(t0, 'hidden before rays (foundation on riding, shared prism walls):', int(pre.sum()))
     tree = visibility.bvh(T)
-    seen = visibility.seen_faces(tree, T, two, reach, test=~pre) & ~pre
+    seen = visibility.seen_faces(tree, T, two, reach, test=~pre & ctx) & ~pre & ctx
     del tree
+    # failed rays are evidence, not proof: a riding top (n_y > .2) stays unless the exact pre-pass hid it
+    top = ride & ctx & (remesh.face_normals(T.reshape(-1, 3), np.arange(3 * len(T)).reshape(-1, 3))[0][:, 1] > .2)
+    stats['riding_tops_kept_unwitnessed'] = int((top & ~seen & ~pre).sum())
+    seen |= top & ~pre
     stats['hidden'] = int((~seen).sum())
     log(t0, 'faces seen:', int(seen.sum()), 'of', len(T))
     # 2. overlaps clipped by rank (piece by piece within a mesh)
@@ -132,7 +159,7 @@ def clean(loaded, coping_lines=None):
     mrank = np.empty(len(pieces), 'i8'); mrank[order] = np.arange(len(pieces))
     rank = np.concatenate([mrank[k] * (1 << 24) + B.pieces(p['F']) for k, p in enumerate(pieces)])
     vis = np.flatnonzero(seen)
-    pairs = clean.overlap_pairs(T[vis], rank[vis])
+    pairs = cl.overlap_pairs(T[vis], rank[vis])
     stats['overlap_pairs'] = int(len(pairs))
     removed = np.zeros(len(T), bool); parts = {}
     if len(pairs):
@@ -142,7 +169,7 @@ def clean(loaded, coping_lines=None):
         for s, e in zip(starts, ends):
             f = srt[s, 0]
             removed[f] = True
-            kept = clean.subtract(T[f], T[srt[s:e, 1]])
+            kept = cl.subtract(T[f], T[srt[s:e, 1]])
             if len(kept):
                 parts[f] = kept
     stats['clipped'] = int(removed.sum())
@@ -168,7 +195,7 @@ def clean(loaded, coping_lines=None):
         lo, hi = p['P'].min(0) - 1, p['P'].max(0) + 1
         others = np.concatenate([x['P'] for j, x in enumerate(pieces) if j != k])
         others = others[((others >= lo) & (others <= hi)).all(1)]
-        P, F, added, p['UV'] = clean.fix_tjunctions(p['P'], p['F'], others, tol=TJ, attrs=p['UV'])   # UVs along the split edge
+        P, F, added, p['UV'] = cl.fix_tjunctions(p['P'], p['F'], others, tol=TJ, attrs=p['UV'])   # UVs along the split edge
         p['P'], p['F'] = P, F
     log(t0, 'T-junctions split')
     # 4. grind lines on the fine collision, and the coping along them
@@ -188,9 +215,16 @@ def clean(loaded, coping_lines=None):
                                  'doubleSided': False, 'added': True}, 'P': P, 'F': F, 'UV': UV})
         stats['coping'] = {'faces': int(len(f)), 'seen': int(keep.sum())}
     # 5. occlusion on the fine faces
-    for p, ao in zip(pieces, B.ambient_occlusion([(p['P'], p['F']) for p in pieces])):
+    for p, ao in zip(pieces, occlusion([(p['P'], p['F']) for p in pieces])):
         p['AO'] = ao
     log(t0, 'occlusion baked')
+    if box is not None:
+        for p in pieces:
+            c = p['P'][p['F']].mean(1)
+            m = (c[:, 0] >= box[0]) & (c[:, 0] <= box[2]) & (c[:, 2] >= box[1]) & (c[:, 2] <= box[3])
+            F = p['F'][m]; used = np.unique(F); rm = np.full(len(p['P']), -1, 'i8'); rm[used] = np.arange(len(used))
+            p['P'], p['F'], p['UV'], p['AO'] = p['P'][used], rm[F], p['UV'][used], p['AO'][used]
+        pieces = [p for p in pieces if len(p['F'])]
     # 6. remesh
     keys = np.concatenate([np.round(p['P'] / WELD).astype('i8') for p in pieces])
     who = np.repeat(np.arange(len(pieces)), [len(p['P']) for p in pieces])
@@ -207,20 +241,76 @@ def clean(loaded, coping_lines=None):
         textured = e['role'] not in B.PLAIN and e['id'] != 'add-coping'
         A = np.stack([AO] + ([UV[:, 0], UV[:, 1]] if textured else []), 1)
         tolA = np.array([TOL_AO] + ([TOL_UV, TOL_UV] if textured else []))
-        if e['id'] == 'add-coping':
+        mode = 'coping' if e['id'] == 'add-coping' else 'height' if heightfield(e) and (remesh.face_normals(P, F)[0][:, 1] > .05).any() else 'planar'
+        key = _key(P, F, A, fixed_v, mode, tolA, np.array([TOL_H, TOL_B]))
+        hit = cache / (key + '.npy') if cache is not None else None
+        if hit is not None and hit.exists():
+            Tn = np.load(hit)
+        elif mode == 'coping':
             Tn = F
-        elif heightfield(e) and (remesh.face_normals(P, F)[0][:, 1] > .05).any():
+        elif mode == 'height':
             up = remesh.face_normals(P, F)[0][:, 1] > .05
             lab = np.unique(np.where(up, 0, 1 + np.arange(len(F))), return_inverse=True)[1].ravel()
             Tn = remesh.remesh_mesh(P, F, A, TOL_H, tolA, lab, normal_of=lambda l: np.array([0., 1., 0.]), tol_b=TOL_B,
-                                    fixed=set(range(1, int(lab.max()) + 1)), fixed_vertex=fixed_v)
+                                    fixed=set(range(1, int(lab.max()) + 1)), fixed_vertex=fixed_v, diag=diag)
         else:
-            Tn = remesh.remesh_mesh(P, F, A, TOL_H, tolA, remesh.planar_patches(P, F), tol_b=TOL_B, fixed_vertex=fixed_v)
+            Tn = remesh.remesh_mesh(P, F, A, TOL_H, tolA, remesh.planar_patches(P, F), tol_b=TOL_B, fixed_vertex=fixed_v,
+                                    diag=diag)
+        if hit is not None and not hit.exists():
+            np.save(hit, Tn)
         used = np.unique(Tn); rm = np.full(len(P), -1, 'i8'); rm[used] = np.arange(len(used))
         p['out'] = (P[used], rm[Tn], UV[used], AO[used])
         p['fine_faces'] = int(len(F))
-    log(t0, 'remeshed')
+    stats['remesh_fallback'] = diag
+    log(t0, 'remeshed', diag)
     return pieces, lines, stats
+
+
+def occlusion(meshes):
+    """build.ambient_occlusion, the same rays, reach and smoothing, with its voxel grid filled by clean.mark at the
+    same sample spacing (voxel/2), which costs a face its edges' lengths, not its longest edge squared."""
+    voxel, reach = B.AO_VOXEL, B.AO_REACH
+    tris = np.concatenate([v[f] for v, f in meshes]).astype('f8')
+    verts = np.concatenate([v for v, _ in meshes]).astype('f8')
+    lo = verts.min(0) - reach - voxel; hi = verts.max(0) + reach + voxel
+    lo[1] = max(lo[1], np.percentile(verts[:, 1], 1) - reach)
+    grid = np.zeros(np.ceil((hi - lo) / voxel).astype(int), bool)
+    cl.mark(grid, tris, lo, voxel, step=voxel / 2)
+    del tris
+    return _rays(meshes, grid, lo)
+
+
+def _rays(meshes, grid, lo):
+    """build.ambient_occlusion's rays and smoothing over a given grid (origin lo, voxel AO_VOXEL)."""
+    voxel, reach = B.AO_VOXEL, B.AO_REACH
+    shape = np.array(grid.shape)
+    local = B.ao_directions()
+    distances = np.geomspace(1.5 * voxel, reach, B.AO_STEPS)
+    result = []
+    for vertices, faces in meshes:
+        v = vertices.astype('f8'); n = B.vertex_normals(vertices, faces)
+        side = np.where(np.abs(n[:, :1]) < .9, [[1., 0., 0.]], [[0., 0., 1.]])
+        tu = np.cross(n, side); tu /= np.linalg.norm(tu, axis=1, keepdims=True); tv = np.cross(n, tu)
+        ao = np.ones(len(v))
+        for s in range(0, len(v), B.CHUNK):
+            d = (local[None, :, :1] * tu[s:s + B.CHUNK, None] + local[None, :, 1:2] * tv[s:s + B.CHUNK, None]
+                 + local[None, :, 2:] * n[s:s + B.CHUNK, None])
+            origin = v[s:s + B.CHUNK, None, None] + 1.2 * voxel * n[s:s + B.CHUNK, None, None]
+            p = origin + d[:, :, None] * distances[None, None, :, None]
+            c = np.floor((p - lo) / voxel).astype(int)
+            inside = ((c >= 0) & (c < shape)).all(-1)
+            c = np.where(inside[..., None], c, 0)
+            blocked = grid[c[..., 0], c[..., 1], c[..., 2]] & inside
+            first = np.where(blocked.any(-1), distances[blocked.argmax(-1)], reach)
+            ao[s:s + B.CHUNK] = 1 - (1 - first / reach).mean(1)
+        edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+        for _ in range(2):
+            total = np.zeros(len(v)); count = np.zeros(len(v))
+            np.add.at(total, edges[:, 0], ao[edges[:, 1]]); np.add.at(count, edges[:, 0], 1)
+            np.add.at(total, edges[:, 1], ao[edges[:, 0]]); np.add.at(count, edges[:, 1], 1)
+            ao = np.where(count > 0, .5 * ao + .5 * total / np.maximum(count, 1), ao)
+        result.append(np.clip(ao, 0, 1))
+    return result
 
 
 def collision(pieces):

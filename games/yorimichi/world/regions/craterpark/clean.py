@@ -201,7 +201,9 @@ def _edge_hits(a, b, pts, tol, cell=.5, budget=2_000_000):
         f = (np.arange(len(own)) - np.repeat(np.cumsum(kk) - kk, kk)) / np.maximum(np.repeat(kk - 1, kk), 1)
         smp = a[own] + f[:, None] * (b[own] - a[own])
         cells = key(np.floor((smp[:, None, :] + nudge[None] * rad[own][:, None, None]) / cell).astype('i8')).ravel()
-        pair = np.unique(np.stack([np.repeat(own, len(nudge)), cells], 1), axis=0)
+        own8 = np.repeat(own, len(nudge)); o = np.lexsort((cells, own8)); own8, cells = own8[o], cells[o]
+        first_ = np.r_[True, (own8[1:] != own8[:-1]) | (cells[1:] != cells[:-1])]
+        pair = np.stack([own8[first_], cells[first_]], 1)
         first = np.searchsorted(pk, pair[:, 1], 'left'); reps = np.searchsorted(pk, pair[:, 1], 'right') - first
         rc = np.cumsum(reps)
         sub = np.unique(np.r_[0, np.searchsorted(rc, np.arange(budget, rc[-1] if len(rc) else 0, budget)), len(pair)])
@@ -220,8 +222,8 @@ def _edge_hits(a, b, pts, tol, cell=.5, budget=2_000_000):
     if not hits:
         return np.zeros(0, 'i8'), np.zeros(0, 'i8'), np.zeros(0)
     h = np.concatenate(hits)
-    _, first = np.unique(h[:, :2].astype('i8'), axis=0, return_index=True)   # an edge-point pair once
-    h = h[first]
+    e_, p_ = h[:, 0].astype('i8'), h[:, 1].astype('i8'); o = np.lexsort((p_, e_))
+    h = h[o][np.r_[True, (e_[o][1:] != e_[o][:-1]) | (p_[o][1:] != p_[o][:-1])]]   # an edge-point pair once
     return h[:, 0].astype('i8'), h[:, 1].astype('i8'), h[:, 2]
 
 
@@ -234,11 +236,12 @@ def fix_tjunctions(P, F, others=None, tol=1e-6, rounds=8, attrs=None):
     X = None if attrs is None else np.asarray(attrs, 'f8').reshape(len(P), -1)
     if others is not None and len(others):
         # each other position once, and none of this mesh's own (those split its edges as its vertices already)
-        ko = np.round(np.asarray(others, 'f8') / max(tol, 1e-9)).astype('i8')
-        _, first = np.unique(ko, axis=0, return_index=True); others = np.asarray(others, 'f8')[np.sort(first)]
-        kp = {tuple(r) for r in np.round(P / max(tol, 1e-9)).astype('i8').tolist()}
-        mine = np.array([tuple(r) in kp for r in np.round(others / max(tol, 1e-9)).astype('i8').tolist()], bool)
-        others = others[~mine]
+        others = np.asarray(others, 'f8')
+        k = np.round(np.concatenate([P, others]) / max(tol, 1e-9)).astype('i8')
+        _, first, inv = np.unique(k, axis=0, return_index=True, return_inverse=True); inv = inv.ravel()
+        mine = np.zeros(len(first), bool); mine[inv[:len(P)]] = True
+        keep = first[~mine & (first >= len(P))] - len(P)         # each other position once, none of this mesh's own
+        others = others[np.sort(keep)]
     for _ in range(rounds):
         e = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]]); fid = np.tile(np.arange(len(F)), 3)
         a, b = P[e[:, 0]], P[e[:, 1]]
@@ -257,35 +260,34 @@ def fix_tjunctions(P, F, others=None, tol=1e-6, rounds=8, attrs=None):
                 ea, eb = e[cand[first], 0], e[cand[first], 1]; tt = np.clip(t[first], 0, 1)[:, None]
                 X = np.concatenate([X, (1 - tt) * X[ea] + tt * X[eb]])
             which = which.copy(); which[newp] = ids[inv]
-        # split each affected triangle: gather its edge points, then fan from the corners
-        out = []
-        aff = np.unique(fid[cand])
-        keep = np.ones(len(F), bool); keep[aff] = False
-        per = {}
-        for w, c, tt in zip(which.tolist(), cand.tolist(), t.tolist()):
-            per.setdefault(int(fid[c]), []).append((int(c // len(F)), tt, w))
-        extra, extraX = [], []
-        for f in aff.tolist():
-            tri = F[f].tolist()
-            on = [sorted({(tt, w) for kk, tt, w in per[f] if kk == k}) for k in range(3)]
-            busy = [k for k in range(3) if on[k]]
-            if len(busy) == 1:
-                k = busy[0]                                  # fan from the corner opposite that edge
-                chain = [tri[k]] + [w for _, w in on[k]] + [tri[(k + 1) % 3]]
-                apex = tri[(k + 2) % 3]
-                out += [[apex, chain[i], chain[i + 1]] for i in range(len(chain) - 1)]
-            else:
-                ring = []
-                for k in range(3):
-                    ring += [tri[k]] + [w for _, w in on[k]]
-                c = len(P) + len(extra); extra.append(P[tri].mean(0))   # a centre vertex, on the face's plane
-                if X is not None:
-                    extraX.append(X[tri].mean(0))
-                out += [[c, ring[i], ring[(i + 1) % len(ring)]] for i in range(len(ring))]
-        if extra:
-            P = np.concatenate([P, np.array(extra)]); added += len(extra)
+        # split each affected triangle: its ring (corner, the points on the edge after it by t, ...) fanned from the
+        # corner opposite its one busy edge, or from a new centre vertex when two or three edges carry points
+        nF = len(F)
+        hf, hk = fid[cand], cand // nF
+        u = np.unique(np.stack([hf, hk, which], 1), axis=0, return_index=True)[1]   # a point once per edge
+        hf, hk, ht, hw = hf[u], hk[u], t[u], which[u]
+        aff = np.unique(hf)
+        keep = np.ones(nF, bool); keep[aff] = False
+        busy = np.zeros((nF, 3), bool); busy[hf, hk] = True
+        single = busy[aff].sum(1) == 1
+        cf = np.repeat(aff, 3); ck = np.tile(np.arange(3), len(aff))
+        ef = np.r_[cf, hf]; ek = np.r_[ck, hk]; et = np.r_[np.full(len(cf), -1.), ht]; ev = np.r_[F[cf, ck], hw]
+        o = np.lexsort((et, ek, ef)); ef, ev = ef[o], ev[o]
+        start = np.r_[0, np.flatnonzero(ef[1:] != ef[:-1]) + 1]; size = np.diff(np.r_[start, len(ef)])
+        grp = np.repeat(np.arange(len(aff)), size)                      # ring elements' face, as an index into aff
+        pos = np.arange(len(ef)) - start[grp]
+        nxt = ev[start[grp] + (pos + 1) % size[grp]]
+        kb = busy[aff].argmax(1)                                         # the single busy edge
+        apex = F[aff, (kb + 2) % 3]
+        nc = int((~single).sum())
+        centre = np.full(len(aff), -1, 'i8'); centre[~single] = len(P) + np.arange(nc)
+        hub = np.where(single, apex, centre)[grp]
+        ok = ~single[grp] | ((ev != hub) & (nxt != hub))
+        out = np.stack([hub[ok], ev[ok], nxt[ok]], 1)
+        if nc:
+            P = np.concatenate([P, P[F[aff[~single]]].mean(1)]); added += nc     # centres, on the faces' planes
             if X is not None:
-                X = np.concatenate([X, np.array(extraX)])
+                X = np.concatenate([X, X[F[aff[~single]]].mean(1)])
         F = np.concatenate([F[keep], np.array(out, 'i8').reshape(-1, 3)])
         # drop degenerate fan triangles (three points on one edge)
         t3 = P[F]
@@ -295,13 +297,14 @@ def fix_tjunctions(P, F, others=None, tol=1e-6, rounds=8, attrs=None):
 
 
 
-def mark(occ, T, lo, h, budget=4_000_000):
+def mark(occ, T, lo, h, budget=4_000_000, step=None):
     """Set the voxels of occ (origin lo, size h) that the faces T (n,3,3) pass through: each face sampled on its own
     skewed grid, at most h/4 apart along each of its two edges from corner 0 (a long thin face costs its length, not
     its length squared), in chunks of about `budget` points."""
     e1 = (T[:, 1] - T[:, 0]).astype('f8'); e2 = (T[:, 2] - T[:, 0]).astype('f8')
-    k1 = np.clip(np.ceil(np.linalg.norm(e1, axis=1) / (h / 4)), 1, 8000).astype('i8')
-    k2 = np.clip(np.ceil(np.linalg.norm(e2, axis=1) / (h / 4)), 1, 8000).astype('i8')
+    step = h / 4 if step is None else step
+    k1 = np.clip(np.ceil(np.linalg.norm(e1, axis=1) / step), 1, 8000).astype('i8')
+    k2 = np.clip(np.ceil(np.linalg.norm(e2, axis=1) / step), 1, 8000).astype('i8')
     cost = (k1 + 1) * (k2 + 2) // 2 + k1 + 1
     cut = np.searchsorted(np.cumsum(cost), np.arange(budget, cost.sum() + budget, budget))
     s = 0
@@ -320,6 +323,7 @@ def mark(occ, T, lo, h, budget=4_000_000):
         g = idx[pt]
         p = T[g, 0] + np.repeat(u, cnt)[:, None] * e1[g] + (j / b[pt])[:, None] * e2[g]
         c = np.floor((p - lo) / h).astype(np.int32)
+        c = c[((c >= 0) & (c < occ.shape)).all(1)]
         occ[c[:, 0], c[:, 1], c[:, 2]] = True
 
 

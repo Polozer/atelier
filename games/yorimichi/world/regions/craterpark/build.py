@@ -577,7 +577,7 @@ def main():
         print('Added', entry['id'], 'faces:', len(faces), 'cut out of a tunnel:', cut, flush=True)
     # The clean geometry (cleanbuild.py, docs "Clean geometry"): only faces seen from the open space, no face lying on
     # another, conforming seams, every mesh remeshed within millimetres of these fine faces and their occlusion.
-    pieces_, lines, stats = cleanbuild.clean(loaded)
+    pieces_, lines, stats = cleanbuild.clean(loaded, cache=OUT / 'clean-cache')
     print('Clean:', json.dumps(stats), flush=True)
     for p in pieces_:
         entry = p['entry']; vertices, faces, uvs, ao = p['out']

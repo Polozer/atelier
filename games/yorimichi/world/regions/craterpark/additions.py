@@ -269,7 +269,27 @@ def grid_mesh(x0, z0, cell, height, nodes, smooth=OUTLINE):
     first = np.where(flip[:, None], np.stack([a, d, b], 1), np.stack([a, c, b], 1))
     second = np.where(flip[:, None], np.stack([b, d, c], 1), np.stack([a, d, c], 1))
     faces = np.concatenate([first, second])
-    return smooth_outline(vertices, faces, smooth), faces
+    moved = smooth_outline(vertices, faces, smooth)
+    # an outline vertex moved across keeps to the surface: its height read off the field where it now stands (moved
+    # level, it stood proud of a slope or sank into it by the slope times its move, a row of teeth along the edge)
+    shift_ = np.linalg.norm((moved - vertices)[:, [0, 2]], axis=1) > 1e-9
+    if shift_.any():
+        moved[shift_, 1] = field_height(height, nodes, x0, z0, cell, moved[shift_][:, [0, 2]], vertices[shift_, 1])
+    return moved, faces
+
+
+def field_height(height, nodes, x0, z0, cell, q, fallback):
+    """The height field's value at the points q (k, 2) (x, z): bilinear over its square where all four corners are set,
+    else `fallback` (a vertex moved out past the set squares keeps its height)."""
+    i = (q[:, 0] - x0) / cell; j = (q[:, 1] - z0) / cell
+    i0 = np.clip(np.floor(i).astype('i8'), 0, nodes.shape[1] - 2); j0 = np.clip(np.floor(j).astype('i8'), 0, nodes.shape[0] - 2)
+    fi, fj = np.clip(i - i0, 0, 1), np.clip(j - j0, 0, 1)
+    h00, h10 = height[j0, i0], height[j0, i0 + 1]; h01, h11 = height[j0 + 1, i0], height[j0 + 1, i0 + 1]
+    n00, n10, n01, n11 = nodes[j0, i0], nodes[j0, i0 + 1], nodes[j0 + 1, i0], nodes[j0 + 1, i0 + 1]
+    out = np.asarray(fallback, 'f8').copy()
+    full = n00 & n10 & n01 & n11
+    out[full] = ((1 - fi) * (1 - fj) * h00 + fi * (1 - fj) * h10 + (1 - fi) * fj * h01 + fi * fj * h11)[full]
+    return out
 
 
 def smooth_outline(vertices, faces, sweeps=OUTLINE):
@@ -713,7 +733,10 @@ def run_mesh(line, y, width, wall, radius, cell=CELL, ground=None):
     tri = vertices[faces]
     n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
     faces = faces[np.linalg.norm(n, axis=1) > 1e-10]; n = n[np.linalg.norm(n, axis=1) > 1e-10]
-    faces[n[:, 1] < 0] = faces[n[:, 1] < 0][:, [0, 2, 1]]          # wound to face up (native y up)
+    down = n[:, 1] < 0
+    if 0 < down.sum() < len(faces) / 2:                                # the sections all run one way: a face turned
+        raise ValueError(f'run_mesh: {int(down.sum())} faces folded over (the centreline bends tighter than the run is wide)')
+    faces[down] = faces[down][:, [0, 2, 1]]                           # wound to face up (native y up)
     if not len(faces):
         return None
     return vertices.astype('f4'), faces, (vertices[:, [0, 2]] / UV_METRES).astype('f4')
