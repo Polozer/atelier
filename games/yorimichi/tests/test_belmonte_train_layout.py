@@ -186,7 +186,7 @@ class Coaches(unittest.TestCase):
         rng = next(b for b in r.reservations if b.kind == 'galley-range')
         self.assertAlmostEqual(rng.x1 - rng.x0, L.GALLEY_RANGE)
         for c in L.vehicles():
-            boxes = [b for b in c.reservations if b.kind in F.COUNTERS or b.kind in ('attendant-seat', 'handbrake', 'bench')]
+            boxes = [b for b in c.reservations if b.kind in F.COUNTERS or b.kind in ('attendant-seat', 'handbrake', 'bench', 'desk')]
             if not boxes:
                 continue
             parts = {p.name: p for p in F.fittings(c)}

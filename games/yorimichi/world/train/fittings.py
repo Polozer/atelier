@@ -11,7 +11,8 @@ first class, dull brass and worn cloth in second class and the vans:
 - luggage shelving: open walnut shelves on every 'luggage-shelves' reservation (vans and first class), low under a
   window so the curtains hang clear;
 - counters: fitted cupboards with a top on the galley's and the pantry's counters (the galley range left to Tripo),
-  the pantry attendant's folding seat, the vans' handbrake columns and the guard's locker bench;
+  the pantry attendant's folding seat, the vans' handbrake columns, the guard's locker bench and
+  the guards' desks with pigeon-holes;
 - drinks ledge: the restaurant's standing ledge under a window, walnut on brass brackets, with a foot rail;
 - ladle: the iron wall hook the canteen lady's big ladle hangs from (the ladle itself is a separate asset).
 The other mount kinds are anchors for gameplay (ANCHORS) or modelled with the shell in build.py (BUILT).
@@ -420,6 +421,37 @@ def benches(c, part, cloth, metal):
         box(part, b.x0 + .02, b.x1 - .02, back, f(-.03), top, b.z1, cloth)       # cushion
 
 
+def desks(c, part, metal):
+    """The guard's writing desk on each 'desk' box, against the outer wall: nothing rises above its top, so the windows
+    over it stay clear. A walnut top, a pedestal of open pigeon-holes (four rows of three) facing the guard at its
+    low-x end, a kneehole with a shallow drawer and a modesty board, and a side panel at the other end."""
+    for b in (r for r in c.reservations if r.kind == 'desk'):
+        sy = _facing(c, b)
+        front, back = (b.y0, b.y1) if sy < 0 else (b.y1, b.y0)
+        f = lambda d: front + sy * d
+        z, top = L.FLOOR_Z, b.z1
+        ped = min(.45, (b.x1 - b.x0) * .5)
+        px0, px1 = b.x0, b.x0 + ped                              # the pigeon-hole pedestal
+        box(part, b.x0, b.x1, back, f(0.), top - .03, top, 'walnut')                          # top
+        box(part, px0, px1, back, back + sy * .02, z, top - .03, 'walnut')                    # pedestal back
+        for x in (px0, px1 - .02):
+            box(part, x, x + .02, back, f(0.), z, top - .03, 'walnut')                        # pedestal sides
+        box(part, px0, px1, back, f(0.), z, z + .06, 'end-dark')                              # plinth
+        rows, cols = 4, 3
+        h = (top - .03 - (z + .06)) / rows
+        for k in range(rows + 1):                                                               # shelves
+            zz = z + .06 + k * h
+            box(part, px0 + .02, px1 - .02, back + sy * .02, f(0.), zz - .008, zz + .008, 'walnut')
+        for k in range(1, cols):                                                                # dividers
+            x = px0 + .02 + (ped - .04) * k / cols
+            box(part, x - .006, x + .006, back + sy * .02, f(-.01), z + .06, top - .03, 'walnut')
+        box(part, b.x1 - .03, b.x1, back, f(0.), z, top - .03, 'walnut')                       # far side panel
+        box(part, px1, b.x1 - .03, back, back + sy * .02, top - .30, top - .03, 'walnut')      # modesty board
+        box(part, px1, b.x1 - .03, f(-.02), f(0.), top - .13, top - .03, 'walnut')             # kneehole drawer
+        mx = (px1 + b.x1 - .03) / 2
+        box(part, mx - .05, mx + .05, f(-.005), f(0.), top - .09, top - .07, metal)           # drawer pull
+
+
 def drinks_ledges(c, part, metal):
     """The restaurant's standing ledge under a window: a walnut top with a rounded nosing and a brass gallery rail
     (glasses don't slide off on a curve), on cast brackets, and a brass foot rail low along the wall."""
@@ -471,6 +503,7 @@ def fittings(c):
     attendant_seats(c, parts['counters'], st['cloth'], st['metal'])
     handbrakes(c, parts['counters'], st['metal'])
     benches(c, parts['counters'], st['cloth'], st['metal'])
+    desks(c, parts['counters'], st['metal'])
     return [p for p in parts.values() if p.faces]
 
 
