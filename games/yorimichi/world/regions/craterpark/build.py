@@ -511,8 +511,8 @@ def main():
         if sides is not None:
             added.append(({'id': f'add-bank-{name}-sides', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
                            'doubleSided': False, 'added': True}, sides))
-    for name, (path, width, wall, radius) in additions.SNAKE_RUNS.items():
-        made = additions.snake_run(riding_now, path, width, wall, radius)
+    for name, (path, width, wall, radius, laid) in additions.SNAKE_RUNS.items():
+        made = additions.snake_run(riding_now, path, width, wall, radius, laid)
         if made is None:
             continue
         added.append(({'id': f'add-run-{name}', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
@@ -548,6 +548,14 @@ def main():
             added.append(({'id': 'add-solid-' + entry['id'][5:9], 'role': 'original', 'material': entry['material'],
                            'doubleSided': False, 'added': True}, made))
     del riding_now, solid_now, heights, around
+    # The hillside cut away under the snake runs laid through it (a hump between the blue pool and the half-pipe).
+    runs = [v[f] for entry, (v, f, _) in added if entry['id'].startswith('add-run-') and not entry['id'].endswith('-sides')]
+    if runs:
+        runs = np.concatenate(runs)
+        for entry, a, keep in loaded:
+            if entry['role'] == 'mountain':
+                a['positions'], moved = additions.cut_ground(a['positions'], runs)
+                print('Mountain', entry['id'], 'vertices cut under the snake runs:', moved, flush=True)
     for entry, (vertices, faces, uvs) in added:
         a = {'positions': vertices.astype('f4'), 'triangles': faces.astype('i8'), 'uvs': uvs.astype('f4'),
              'render_skip': np.zeros(0, 'i8')}

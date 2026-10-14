@@ -56,11 +56,14 @@ BANKS = {'tower_plaza_hip': ((1155., 1003., 1187., 1025.), None, 2.5),   # a hip
          # tunnel strip: the line's way back towards the drop-in.
          'bowl_rim_to_curve': ((1139., 903., 1149.5, 969.), [((1136., 897., 1151., 906.), 10., 12.),
                                                             ((1139., 955., 1151., 972.), 7., 10.5)], None)}
-# The snake runs: a centreline [(x, z) or (x, y, z)], the floor's width, the walls' height and their radius (snake_run).
+# The snake runs: a centreline [(x, z) or (x, y, z)], the floor's width, the walls' height, their radius, and whether
+# it is laid on the path under it (snake_run).
 SNAKE_RUNS = {
     # The narrow path from the banked curve's foot to the blue pool, a wide run to pump along, over its coping.
     'curve_to_blue_pool': ([(1211., 955.5), (1217., 950.), (1229.7, 939.7), (1248., 924.2), (1257.6, 917.9),
-                            (1264.9, 914.4), (1268., -22.1, 913.4), (1277., -22., 911.)], 6., 2.5, 3.5)}
+                            (1264.9, 914.4), (1268., -22.1, 913.4), (1277., -22., 911.)], 6., 2.5, 3.5, True),
+    # The blue pool's north coping (-22 m) to the 12 m half-pipe's floor (-22 m), through the hump between them (cut).
+    'blue_pool_to_half_pipe': ([(1316., -22., 923.), (1318., -22., 936.), (1322., -22., 950.)], 6., 2.5, 3.5, False)}
 # The streets: a box over the open ground, the heights (low, high) of the pieces it is paved flush with, and its material.
 STREETS = {'central_street': ((1318., 998., 1348., 1055.), (-22.7, -22.), 'material_012')}  # the walkways, herringbone
 CLEAR = .05         # metres a street lies over the hillside at least (nearer, the two would flicker)
@@ -476,6 +479,7 @@ def monotone(x, y, at):
     return h00 * y[k] + h10 * h[k] * m[k] + h01 * y[k + 1] + h11 * h[k] * m[k + 1]
 
 
+CUT = .3            # metres the hillside lies under a snake run laid through it (cut_ground)
 SNAKE_LIP = .6      # metres of flat deck along a snake run's lip, behind its coping
 SNAKE_STEP = .5     # metres between the points its centreline is resampled at
 SNAKE_EASE = 2.     # metres over which its floor's height is smoothed along it
@@ -537,6 +541,17 @@ def snake_run(riding, path, width, wall, radius, laid=True, cell=CELL):
     if not len(faces):
         return None
     return vertices.astype('f4'), faces, (vertices[:, [0, 2]] / UV_METRES).astype('f4')
+
+
+def cut_ground(positions, pieces, depth=CUT):
+    """The hillside's vertices `positions` (k, 3) lowered to `depth` under the added `pieces` (m, 3, 3) over them, where
+    the hillside stood higher: a snake run laid through a hump lies in a cut, the hill meeting its lips, not through
+    its floor. Returns the new positions and how many moved."""
+    top = top_heights(pieces.astype('f8'), positions.astype('f8'))
+    with np.errstate(invalid='ignore'):                             # none over: -inf
+        low = np.isfinite(top) & (positions[:, 1] > top - depth)
+    out = positions.copy(); out[low, 1] = (top[low] - depth).astype(out.dtype)
+    return out, int(low.sum())
 
 
 def kicker(riding, box, toward='x-', spine=False, cell=CELL):
