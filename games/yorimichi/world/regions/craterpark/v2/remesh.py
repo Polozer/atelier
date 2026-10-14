@@ -7,12 +7,18 @@ attributes), so both patches along it get the very same vertices: the result is 
 T-junction, no crack. Each patch is then re-triangulated from its simplified boundary (constrained Delaunay in its
 plane) and greedy insertion of its own vertices: in every triangle the input vertex furthest from it (height along
 the patch's normal over tol_h, or an attribute over its own tolerance) is inserted, until every input vertex lies
-within the tolerances. Output vertices are a subset of the input ones, so per-vertex attributes carry over exactly.
+within the tolerances, and also (new in v2) every point where a coarse edge crosses a fine one: both surfaces are
+linear between those and the fine vertices, so the bound then holds everywhere on the fine faces, not only at their
+corners (a bowl, curved both ways, was 3.7 mm at tol_h 2.5 mm checked at vertices only). Output vertices are a subset
+of the input ones, so per-vertex attributes carry over exactly.
 
 Fails closed: a patch that cannot be certified keeps its fine faces (and its neighbours are redone against its full
 chains): a CDT that makes a vertex (crossing constraints), a vertex left uncovered, the round limit, a covered area off
 the fine one's by more than tol_b x boundary length, a boundary simplified to fewer than 3 points, and (new in v2) a
-patch whose faces do not all project onto its plane with one orientation (a fold: the snake lesson).
+patch whose faces do not all project onto its plane with one orientation (a fold: the snake lesson). Also new in v2:
+Blender's CDT merging two input vertices within its epsilon, and any patch whose triangles are not a manifold sheet
+bounded by exactly its chain edges (_closes); a last guard returns the input if the result has more open or
+non-manifold edges than it. `diag['reasons']` counts why patches kept their faces.
 
 Proven on generated ramps with Blender's CDT: 7 ramps 191,268 -> 854 triangles, max riding deviation 1.74 mm at
 tol_h 3 mm, 0 failed patches, 3.0 s, 1.84 GiB peak (cleanpark remesh benchmark). Needs Blender for `cdt`.
@@ -148,8 +154,10 @@ def cdt(Q2, edges):
     # map output vertices to input ones (constraints never cross, so every output vertex is an input vertex)
     m = np.full(len(vo), -1)
     for i, o in enumerate(ov):
+        if len(o) > 1:
+            raise CDTError('input vertices merged within epsilon')          # one would vanish: a hole beside it
         if len(o):
-            m[i] = min(o)
+            m[i] = o[0]
     F = np.array(fo, dtype='i8').reshape(-1, 3) if len(fo) else np.zeros((0, 3), 'i8')
     if (m < 0).any():
         raise CDTError('constraint edges crossed: a new vertex was made')     # fail closed: the patch keeps its faces
@@ -185,13 +193,71 @@ def _dist_to_boundary(Q, P2, T):
     return out
 
 
-def remesh_patch(P2, H, A, tol_h, tol_a, bverts, bedges, interior, inside, max_rounds=60, tol_out=0.):
+def _crossing_errors(P2, H, A, tol_h, tol_a, Tg, loc, E, max_steps=64):
+    """The worst normalised error (1 = at tolerance) of the coarse triangles Tg against the fine surface along each
+    fine edge E (e,2): both are linear along a fine edge except where it crosses a coarse edge, so the error's maximum
+    over a fine face lies at its corners (checked as vertices) or at those crossings. Each edge is walked from
+    triangle to triangle (convex: it leaves each by the nearest outward edge) and the error is taken at every exit.
+    An edge whose start lies outside the coarse domain (the boundary moved within tol_b) is walked from its other end."""
+    E = np.asarray(E, 'i8').reshape(-1, 2)
+    err = np.zeros(len(E))
+    tri0, _ = loc.locate(P2[E[:, 0]], eps=1e-7)
+    flip = tri0 < 0
+    E = np.where(flip[:, None], E[:, ::-1], E)
+    a, b = E[:, 0], E[:, 1]
+    pa = P2[a]; d = P2[b] - pa
+    L = np.linalg.norm(d, axis=1)
+    tri = np.where(flip, loc.locate(pa, eps=1e-7)[0], tri0)
+    t = np.zeros(len(E))
+    active = np.flatnonzero((tri >= 0) & (L > 1e-12))
+    for _ in range(max_steps):
+        if not len(active):
+            break
+        q = P2[Tg[tri[active]]]                                         # (k,3,2)
+        e = np.roll(q, -1, 1) - q
+        sgn = np.sign((e[:, 0, 0] * e[:, 1, 1] - e[:, 0, 1] * e[:, 1, 0]))[:, None]
+        n_out = np.stack([e[..., 1], -e[..., 0]], -1) * sgn[..., None]   # outward edge normals
+        dd = d[active]
+        den = (n_out * dd[:, None]).sum(-1)
+        num = ((q - pa[active][:, None]) * n_out).sum(-1)
+        par = np.where(den > 1e-300, num / np.where(den > 1e-300, den, 1.), np.inf)
+        par = np.where(par >= t[active][:, None] - 1e-12, par, np.inf)
+        te = par.min(1)
+        go = te < 1 - 1e-9
+        idx = active[go]; te = te[go]; qg = q[go]
+        if not len(idx):
+            break
+        x = pa[idx] + te[:, None] * d[idx]
+        # barycentrics of x in its triangle
+        v0 = qg[:, 1] - qg[:, 0]; v1 = qg[:, 2] - qg[:, 0]; v2 = x - qg[:, 0]
+        den2 = v0[:, 0] * v1[:, 1] - v1[:, 0] * v0[:, 1]; den2 = np.where(np.abs(den2) > 1e-300, den2, 1.)
+        b1 = (v2[:, 0] * v1[:, 1] - v1[:, 0] * v2[:, 1]) / den2; b2 = (v0[:, 0] * v2[:, 1] - v2[:, 0] * v0[:, 1]) / den2
+        bc = np.stack([1 - b1 - b2, b1, b2], 1)
+        T = Tg[tri[idx]]
+        coarse = (H[T] * bc).sum(1); fine = H[a[idx]] + te * (H[b[idx]] - H[a[idx]])
+        ex = np.abs(coarse - fine) / tol_h
+        if A is not None and A.shape[1]:
+            ca = (A[T] * bc[..., None]).sum(1); fa = A[a[idx]] + te[:, None] * (A[b[idx]] - A[a[idx]])
+            ex = np.maximum(ex, (np.abs(ca - fa) / tol_a).max(1))
+        err[idx] = np.maximum(err[idx], ex)
+        # step into the next triangle
+        step = np.maximum(1e-7 / L[idx], 1e-9)
+        nt, _ = loc.locate(pa[idx] + np.minimum(te + step, 1.)[:, None] * d[idx], eps=1e-7)
+        moved = (nt >= 0) & (nt != tri[idx])
+        tri[idx[moved]] = nt[moved]; t[idx[moved]] = te[moved]
+        active = idx[moved]
+    return err
+
+
+def remesh_patch(P2, H, A, tol_h, tol_a, bverts, bedges, interior, inside, max_rounds=60, tol_out=0., fine_edges=None):
     """One patch: P2 (V,2) plane coordinates, H (V,) height along its normal, A (V,k) attributes; the simplified
     boundary's vertices `bverts` and constraint edges `bedges` (pairs of vertex ids), the candidate vertices
     `interior` (every original vertex of the patch, boundary ones included, as checks), `inside(points (m,2))` a mask of
     points in the patch's domain (None: the parity of the constraint loops, exact). Returns triangles (m,3) of vertex ids, or None when it cannot certify them (fail
     closed): a check vertex left outside the triangles by more than tol_out (the boundary's own tolerance) is inserted,
-    and one still outside, or still off the surface, after max_rounds fails the patch."""
+    and one still outside, or still off the surface, after max_rounds fails the patch. With `fine_edges` (pairs of
+    vertex ids: the fine faces' edges) the bound also holds inside the fine faces (_crossing_errors): a fine edge
+    crossed off tolerance inserts its endpoints, and one whose endpoints are both chosen already fails the patch."""
     chosen = np.unique(np.asarray(bverts))
     check = np.asarray(interior)
     if len(chosen) < 3:                       # a boundary simplified to a segment: nothing to triangulate (fail closed)
@@ -225,7 +291,18 @@ def remesh_patch(P2, H, A, tol_h, tol_a, bverts, bedges, interior, inside, max_r
             err[ok] = np.maximum(err[ok], (np.abs(a - A[check[ok]]) / tol_a).max(1))
         bad = ok & (err > 1)
         if not bad.any():
-            return Tg
+            if fine_edges is None:
+                return Tg
+            fe = np.asarray(fine_edges, 'i8').reshape(-1, 2)
+            xe = _crossing_errors(P2, H, A, tol_h, tol_a, Tg, loc, fe)
+            worse = fe[xe > 1]
+            if not len(worse):
+                return Tg
+            new = np.setdiff1d(worse.ravel(), chosen)
+            if not len(new) or rnd == max_rounds - 1:
+                return None                                   # crossed between two chosen vertices: keep the faces
+            chosen = np.unique(np.r_[chosen, new])
+            continue
         # the worst point of each triangle
         bi = np.flatnonzero(bad)
         order = np.lexsort((-err[bi], tri[bi]))
@@ -348,8 +425,14 @@ def _boundary_length(P2, F):
     return float(np.linalg.norm(P2[b[:, 0]] - P2[b[:, 1]], axis=1).sum())
 
 
-def _patch(P, F, A, fl, chains, n, area, l, normal_of, tol_h, tol_a, tol_b, patch_A=None):
-    """One patch's remeshed faces (global vertex ids), or None when it cannot be certified."""
+def _patch(P, F, A, fl, chains, n, area, l, normal_of, tol_h, tol_a, tol_b, patch_A=None, why=None):
+    """One patch's remeshed faces (global vertex ids), or None when it cannot be certified (`why`, a dict: the
+    count of each reason)."""
+    def fail(reason):
+        if why is not None:
+            why[reason] = why.get(reason, 0) + 1
+        return None
+
     Fl = F[fl]
     vs = np.unique(np.concatenate([Fl.ravel()] + list(chains)))
     loc_of = {int(v): i for i, v in enumerate(vs.tolist())}
@@ -359,31 +442,53 @@ def _patch(P, F, A, fl, chains, n, area, l, normal_of, tol_h, tol_a, tol_b, patc
     P2 = np.stack([Pl @ u, Pl @ v], 1); H = Pl @ w
     Al = patch_A(l, vs) if patch_A is not None else (A[vs] if A is not None else None)
     if Al is None and patch_A is not None:
-        return None                                     # the patch's attributes are not single-valued (a seam inside)
+        return fail('seam')                             # the patch's attributes are not single-valued (a seam inside)
     s_n = (n[fl] @ w)[area[fl] > 1e-12]                 # degenerate faces have no orientation
     if not ((s_n > MIN_COS).all() or (s_n < -MIN_COS).all()):
-        return None                                     # not one-to-one onto its plane (a fold, or too steep a face)
+        return fail('projection')                       # not one-to-one onto its plane (a fold, or too steep a face)
     bverts, bedges = [], []
     for k in chains:
         kk = [loc_of[int(x)] for x in k]
         bverts += kk; bedges += list(zip(kk[:-1], kk[1:]))
     Flocal = np.array([[loc_of[int(x)] for x in tri] for tri in Fl.tolist()], 'i8')
     try:
-        T = remesh_patch(P2, H, Al, tol_h, tol_a, np.unique(bverts), bedges, np.unique(Flocal), None, tol_out=tol_b)
-    except CDTError:
-        return None
+        fe = np.unique(np.sort(np.concatenate([Flocal[:, [0, 1]], Flocal[:, [1, 2]], Flocal[:, [2, 0]]]), 1), axis=0)
+        T = remesh_patch(P2, H, Al, tol_h, tol_a, np.unique(bverts), bedges, np.unique(Flocal), None, tol_out=tol_b,
+                         fine_edges=fe)
+    except CDTError as e:
+        return fail('cdt: ' + str(e))
     if T is None or not len(T):
-        return None
+        return fail('uncertified')
     # the domain: the remeshed patch covers the fine one's area, up to its boundary moving tol_b
     a0 = np.abs(_area2(P2[Flocal])).sum(); a1 = np.abs(_area2(P2[T])).sum()
     if abs(a1 - a0) > tol_b * _boundary_length(P2, Flocal) + 1e-9:
-        return None
+        return fail('area')
     t2 = P2[T]
     s = (t2[:, 1, 0] - t2[:, 0, 0]) * (t2[:, 2, 1] - t2[:, 0, 1]) - (t2[:, 1, 1] - t2[:, 0, 1]) * (t2[:, 2, 0] - t2[:, 0, 0])
     T = np.where((s < 0)[:, None], T[:, [0, 2, 1]], T)
     if (n[fl] @ w).mean() < 0:
         T = T[:, [0, 2, 1]]
+    if not _closes(T, bedges):
+        return fail('topology')
     return vs[T]
+
+
+def _closes(T, bedges):
+    """True when the triangles T (local ids) are a manifold disc-like sheet bounded by exactly the constraint edges:
+    no degenerate or repeated triangle, every constraint edge used once, every other edge twice with opposite
+    directions. Shared chains then make neighbouring patches meet edge for edge (no gap, no overlap)."""
+    T = np.asarray(T, 'i8')
+    if ((T[:, 0] == T[:, 1]) | (T[:, 1] == T[:, 2]) | (T[:, 2] == T[:, 0])).any():
+        return False
+    d = np.concatenate([T[:, [0, 1]], T[:, [1, 2]], T[:, [2, 0]]])
+    if len(np.unique(d, axis=0)) != len(d):                  # a directed edge twice: overlap or flipped neighbour
+        return False
+    u, c = np.unique(np.sort(d, 1), axis=0, return_counts=True)
+    if (c > 2).any():
+        return False
+    b = np.unique(np.sort(np.asarray(bedges, 'i8').reshape(-1, 2), 1), axis=0)
+    once = u[c == 1]
+    return len(once) == len(b) and np.array_equal(once, b)
 
 
 def remesh_mesh(P, F, A, tol_h, tol_a, label, normal_of=None, tol_b=None, fixed=None, fixed_vertex=None, diag=None,
@@ -443,7 +548,8 @@ def remesh_mesh(P, F, A, tol_h, tol_a, label, normal_of=None, tol_b=None, fixed=
                 res = done[l][1]
             else:
                 res = _patch(P, F, A, fl, [chain_simple[c] if simple[c] else chain_full[c] for c in of_patch[l]],
-                             n, area, l, normal_of, tol_h, tol_a, tol_b, patch_A)
+                             n, area, l, normal_of, tol_h, tol_a, tol_b, patch_A,
+                             None if diag is None else diag.setdefault('reasons', {}))
                 done[l] = (sig, res)
             if res is None:
                 failed.append(l); out.append(F[fl]); labs_out.append(np.full(len(fl), l))
@@ -489,7 +595,7 @@ def patches(mesh):
 
 def simplify(mesh, tol_h=TOL_H, tol_b=TOL_B, tol_uv=TOL_UV, tol_ao=TOL_AO, keep=None, diag=None):
     """The mesh remeshed patch by patch (patches()) within tol_h of its surface along each patch's direction, its
-    boundaries within tol_b, its UVs within tol_uv and AO within tol_ao at every input vertex; a new dsl.Mesh whose
+    boundaries within tol_b, its UVs within tol_uv and AO within tol_ao everywhere on the input's faces; a new dsl.Mesh whose
     vertices are a subset of the input's (positions, normals, UVs, AO carried over exactly) and whose faces keep their
     patch's material, role, feature and tag. Creases and UV seams (split vertices) keep every vertex along them.
     `keep` (m,) bool: faces left as they are (their patches fixed). A patch the remesher cannot certify, or one that
@@ -538,10 +644,21 @@ def simplify(mesh, tol_h=TOL_H, tol_b=TOL_B, tol_uv=TOL_UV, tol_ao=TOL_AO, keep=
         m = np.full(len(P), -1, 'i8'); m[Fw[fl].ravel()] = F[fl].ravel()
         out[rows] = m[T[rows]]
     assert (out >= 0).all()
+    if any(a > b for a, b in zip(_edge_defects(w_of[out]), _edge_defects(Fw))):   # last guard: never less watertight
+        if diag is not None:
+            diag['reverted'] = True
+        return mesh
     face_of = order[bounds[tl]]                                            # a face of each output face's patch
     used = np.unique(out); remap = np.full(len(V), -1, 'i8'); remap[used] = np.arange(len(used))
     return dsl.Mesh(V[used], remap[out], mesh.N[used], mesh.UV[used], mesh.AO[used], mesh.material[face_of],
                     mesh.role[face_of], mesh.feature[face_of], mesh.features, tag=mesh.tag[face_of])
+
+
+def _edge_defects(F):
+    """(open edges, edges on more than two faces) of welded faces F."""
+    e = np.sort(np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]]), 1)
+    _, c = np.unique(e, axis=0, return_counts=True)
+    return int((c == 1).sum()), int((c > 2).sum())
 
 
 def _direction(mesh, lab, order, bounds, l):

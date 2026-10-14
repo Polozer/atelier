@@ -11,8 +11,9 @@ import numpy as np
 
 GAME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GAME / 'world' / 'regions'))
-from craterpark.v2 import remesh, tjunction  # noqa: E402
-from craterpark.v2.dsl import Mesh  # noqa: E402
+from craterpark.v2 import layout_m0, remesh, tjunction  # noqa: E402
+from craterpark.v2.curves import Arc  # noqa: E402
+from craterpark.v2.dsl import RIDING, ROLE, Mesh  # noqa: E402
 
 
 def delaunay(Q):
@@ -126,6 +127,17 @@ class SimplifyTests(unittest.TestCase):
         diag = {}; out = remesh.simplify(m, diag=diag)
         self.assertEqual(len(out.F), len(F))
         self.assertGreaterEqual(diag.get('failed_patches', 0), 1)
+        self.assertGreaterEqual(sum(diag['reasons'].values()), 1)      # why it failed is recorded
+
+    def test_inside_the_fine_faces_too_on_a_bowl(self):
+        # a quarter pipe swept round a 9 m arc (curved both ways): a coarse edge crossing a long fine face kinks inside
+        # it, off the fine surface (3.66 mm here when only vertices were checked); the crossings are certified too
+        m = layout_m0.quarter_pipe(Arc((0., 0.), 9., 0., 40.), feature='bowl')[0]
+        out = remesh.simplify(m, tol_h=.0025)
+        self.assertLess(len(out.F), .8 * len(m.F))
+        T = m.triangles()[m.role == ROLE[RIDING]]
+        self.assertLess(distance_to(out, T.mean(1)).max(), .0025 + 1e-9)
+        self.assertEqual(tjunction.check(out)['tjunctions'], 0)
 
     def test_a_seam_ending_inside_a_patch_keeps_its_faces(self):
         # a UV seam along x = 5 from z = 0 to z = 5 only: its twins lie in one patch (joined round the seam's end)
@@ -149,6 +161,19 @@ class SimplifyTests(unittest.TestCase):
 
 
 class FailClosedTests(unittest.TestCase):
+    def test_closes_accepts_a_sheet_bounded_by_its_constraints_only(self):
+        square = np.array([[0, 1, 2], [0, 2, 3]]); loop = [(0, 1), (1, 2), (2, 3), (3, 0)]
+        self.assertTrue(remesh._closes(square, loop))
+        self.assertFalse(remesh._closes(square[:1], loop))                         # a hole: an edge left open
+        self.assertFalse(remesh._closes(np.r_[square, square[:1]], loop))          # an overlap: a face twice
+        self.assertFalse(remesh._closes(np.array([[0, 1, 2], [0, 3, 2]]), loop))   # a flipped neighbour
+        self.assertFalse(remesh._closes(square, loop[:3]))                         # a boundary edge not constrained
+
+    def test_edge_defects_counts_open_and_non_manifold_edges(self):
+        self.assertEqual(remesh._edge_defects(np.array([[0, 1, 2], [0, 2, 3]])), (4, 0))
+        self.assertEqual(remesh._edge_defects(np.array([[0, 1, 2], [0, 2, 3], [2, 0, 4]])), (6, 1))
+
+
     def test_a_patch_that_leaves_a_vertex_uncovered_fails_closed(self):
         P2 = np.array([[0., 0], [1, 0], [0, 1], [2, 2]]); H = np.zeros(4)
         real = remesh.cdt
