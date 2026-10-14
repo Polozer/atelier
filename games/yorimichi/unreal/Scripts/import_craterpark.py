@@ -30,9 +30,11 @@ OCCLUSION = .6
 CAVITY = .3
 
 
-# The park's own hillside carries snow like the caldera round it (docs/CRATERPARK.md, "Snow"); the skating surfaces,
-# the edge guard and its coping, foundations and bridges stay clear.
-SNOWY = {'material_024'}
+# No snow anywhere in the park (owner: none near anything ridable). The park's ground (material_024, the v2
+# landform) is warm dry earth and autumn grass: its grey volcanic ground texture tinted warm (TINTS, sRGB multipliers
+# over the restyled texture), so no new texture or parent is needed.
+SNOWY = set()
+TINTS = {'material_024': (1.30, 1.06, .74)}
 
 
 def parent(kind):
@@ -130,7 +132,7 @@ def materials():
             MEL.set_material_instance_scalar_parameter_value(mi, 'Metres', float(aligned['metres']))
         # The restyled images carry their colour, already an albedo for the island's light (craterpark_textures.py
         # palette means); a flat material keeps the source's sRGB base colour.
-        colour = [1., 1., 1.] if entry else spec['baseColor']
+        colour = list(TINTS.get(spec['id'], (1., 1., 1.))) if entry else spec['baseColor']
         tint = [c / 12.92 if c <= .04045 else ((c + .055) / 1.055) ** 2.4 for c in colour]
         MEL.set_material_instance_vector_parameter_value(mi, 'Tint', unreal.LinearColor(*tint, 1.))
         MEL.set_material_instance_scalar_parameter_value(mi, 'Snow', float(spec['id'] in SNOWY))
