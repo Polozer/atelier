@@ -91,6 +91,11 @@ def render_plan(meshes, out, lanes=(), airs=(), report=None, box=None, px=None, 
     ren = [m for m in meshes if m.domain == 'render'] or meshes
     T = np.concatenate([m.T for m in ren]) if ren else np.zeros((0, 3, 3))
     feat = np.concatenate([m.feature for m in ren]) if ren else np.zeros(0, 'i8')
+    if not len(T) and box is None:                               # nothing built: say so rather than fail
+        img = Image.new('RGB', (720, 120), (250, 250, 247)); d = ImageDraw.Draw(img)
+        d.text((10, 10), title, fill=(20, 20, 20)); d.text((10, 50), 'NO GEOMETRY: the park has no drawn faces', fill=(200, 10, 10))
+        img.save(out)
+        return out, None, None
     if box is None:
         lo = T.reshape(-1, 3).min(0); hi = T.reshape(-1, 3).max(0)
         box = (lo[0] - pad, lo[2] - pad, hi[0] + pad, hi[2] + pad)

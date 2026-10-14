@@ -355,6 +355,12 @@ class EntryPointTests(unittest.TestCase):
             self.assertGreater(min(im.size), 100)
             self.assertGreater(len(np.unique(np.asarray(im.convert('RGB')).reshape(-1, 3), axis=0)), 50)          # shaded, not blank
 
+    def test_an_empty_park_renders_a_notice(self):
+        with tempfile.TemporaryDirectory() as d:
+            png, px, box_ = plan_png.render_plan([], Path(d) / 'plan.png')
+            self.assertEqual((px, box_), (None, None))
+            self.assertTrue(Path(png).exists())
+
     def test_a_dirty_park_fails_naming_each_check(self):
         park, lane = clean_park()
         park.append(V.Mesh('tile', *box((5, -.2, 3.5), (6, .05, 4.5)), feature=-1))   # pokes out, and lies on the deck
