@@ -50,6 +50,10 @@ Before riding, check the whole train against the playable characters, and make t
     is computed.
   - Departure boards in the stations. Yorimichi has no in-game clock yet, so the boards need one to be designed.
   - Hidamari station is Henry's to design and Belmonte station the owner's. Reserve their space; build neither here.
+  - Sitting: on the controller, D-pad down (Yorimichi's Interact) near a seat sits the player on the nearest free
+    seat marker (each bench and sofa exports its seats with position, height and facing), and again stands them
+    up. A seat taken in multiplayer is unavailable to others. The characters' seat correctives
+    (`SeatCorrectiveComponent`) keep every body height seated cleanly.
   - Riding: board at the doors in stations. Aboard, players walk in the train's own frame on each coach's floor plan
     (rooms, walls, doors and furniture from `layout.py`), with no physics at speed, so nobody can fall out or through
     a wall. Seats to sit on, coach to coach through the gangways, get off at stations.
