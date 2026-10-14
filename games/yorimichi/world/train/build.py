@@ -734,8 +734,7 @@ def balcony(c, coll, parent):
             trim.cylinder((edge - s * .025, y), 'z', .012, L.FLOOR_Z, L.FLOOR_Z + 1.02, 'brass', 6)
         for sy in (-1, 1):            # canopy posts at the outer corners, up to the roof
             trim.cylinder((edge - s * .03, sy * (L.HALF - .10)), 'z', .035, L.FLOOR_Z, L.roof_z(L.HALF - .10, L.ROOF_SKIN), 'brass', 10)
-            gx0, gx1 = sorted((face + s * .15, face + s * .85))
-            steps(m, sy, gx0, gx1)
+            steps(m, sy, *L.balcony_gate(B, s))
         lamp = next((mt for mt in c.mounts if mt.kind == 'tail-lamp'), None)
         if lamp:
             trim.box(lamp.x - .09, lamp.x + .09, lamp.y - .09, lamp.y + .09, lamp.z - .12, lamp.z + .12, 'end-dark')
@@ -1174,6 +1173,34 @@ def doors(c, coll, parent, glass_coll, glass_parent):
                     ch.location -= shift
                 leaf.location = Vector(origin) + shift
                 DOOR_RECORDS.append(dict(name=leaf.name, door=d.name, kind='hinged', pivot=list(leaf.location), swing_deg=swing * d.face, opening=[o.a0, o.a1, o.z0, o.z1], wall=w.name))
+    gates(c, coll, parent)
+
+
+def gates(c, coll, parent):
+    """A brass gate in the railing gap over each balcony's steps: hung on the post at its end-wall side, swinging in
+    over the balcony (collision.doors() gives it its Interact points and box)."""
+    F = L.FLOOR_Z
+    for s, end in ((-1, 'a'), (1, 'b')):
+        if B.end(s) != 'balcony':
+            continue
+        gx0, gx1 = L.balcony_gate(B, s)
+        hinge = CO.gate_hinge(B, s)
+        dx = 1 if hinge == gx0 else -1
+        n = gx1 - gx0 - .06                       # clear of both posts
+        for side, sy in (('l', 1), ('r', -1)):
+            m = M()
+            u0, u1 = sorted((dx * .03, dx * (.03 + n)))
+            for z in (.48, 1.02):
+                m.box(u0, u1, -.016, .016, z - .016, z + .016, 'brass')
+            for u in (u0 + .014, u1 - .014):
+                m.cylinder((u, 0), 'z', .018, .05, 1.04, 'brass', 8)
+            for k in range(1, 5):
+                m.cylinder((u0 + (u1 - u0) * k / 5, 0), 'z', .010, .06, 1.02, 'brass', 6)
+            leaf = m.obj(f'Door_gate-{end}{side}', coll, parent=parent)
+            pivot = (hinge, sy * (L.IN - .025), F)
+            leaf.location = pivot
+            DOOR_RECORDS.append(dict(name=leaf.name, door=f'gate-{end}{side}', kind='hinged', pivot=list(pivot), swing_deg=-90 * sy * dx,
+                                     opening=[gx0, gx1, F, F + 1.05], wall='railing'))
 
 
 def _exterior_door(c, d, coll, parent, glass_coll):
@@ -1213,6 +1240,24 @@ def _exterior_door(c, d, coll, parent, glass_coll):
     swing = 90 * sy * sx
     DOOR_RECORDS.append(dict(name=leaf.name, door=d.name, kind='hinged', pivot=[hinge_x, yc, z0], swing_deg=swing, opening=[x0, x1, z0, z1],
                              wall=f'side-{"l" if sy > 0 else "r"}'))
+
+
+DOOR_RULES = dict(interact='D-pad down (Interact) opens or closes the one door whose handle point is nearest; never all '
+                  'together', opens={'station': 'only while the train is stopped at a station (exterior doors, balcony gates)',
+                                     'any': 'at any time (gangway and inside doors)'},
+                  locked='a locked door keeps its gangway-lock box shut and the Interact prompt reads "locked" for passengers',
+                  collision='opening a door removes its collision object (COL_<mesh>_<part>); closing it puts it back')
+
+
+def door_interactions(c, mesh_name):
+    """collision.doors() with the leaves that build made for each door (its hinge pivot and swing, or its slide
+    offset) and the name of its switchable collision object."""
+    out = []
+    for d in CO.doors(c):
+        key = d['door'] or d['id']
+        leaves = [{k: r[k] for k in ('name', 'kind', 'pivot', 'swing_deg', 'open_offset_m') if k in r} for r in DOOR_RECORDS if r['door'] == key]
+        out.append(dict(d, box=[round(v, 4) for v in d['box']], leaves=leaves, collision=f'COL_{mesh_name}_{d["part"]}'))
+    return out
 
 
 # --- reservations, markers, collision -----------------------------------------------------------------------------
@@ -2068,6 +2113,8 @@ def build(coach, images):
     p = out / f'{coach.name}-blockout.glb'; export_glb(p, blockout); files[p.name] = p
     placements = L.as_dict(coach)
     placements['doors_runtime'] = DOOR_RECORDS
+    placements['doors'] = door_interactions(coach, mesh_name)
+    placements['door_rules'] = DOOR_RULES
     placements['envelope'] = L.envelope()
     placements['coupling'] = L.coupling(B)
     placements['collision_boxes'] = [dict(name=name, part=n, group=g, box=[round(v, 4) for v in b]) for name, n, g, b in CO.named_boxes(coach, mesh_name)]

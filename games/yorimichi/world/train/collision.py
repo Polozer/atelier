@@ -60,7 +60,7 @@ def collision_boxes(c):
             add(f'{w.name}-head', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), o.z1, top)
             if o.z0 - L.FLOOR_Z > .05:         # below a hatch
                 add(f'{w.name}-sill', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), L.FLOOR_Z, o.z0)
-    boxes += furniture_boxes(c) + gangway_boxes(c)
+    boxes += furniture_boxes(c) + gangway_boxes(c) + door_boxes(c)
     for r in c.reservations:                        # the furniture modelled in code (an unmodelled box stays soft)
         if r.z0 - L.FLOOR_Z < 1.0 and r.kind in MODELLED:
             add(r.name, r.x0, r.x1, r.y0, r.y1, L.FLOOR_Z, r.z1)
@@ -109,6 +109,90 @@ def gangway_boxes(c):
                 (f'gangway-{end}-roof', (x0, x1, -w1, w1, F + L.GANGWAY_H, F + L.GANGWAY_H + .15))]
         if end in locked:
             out.append((f'gangway-lock-{end}', (*sorted((b.inner(s), b.face(s))), -hw, hw, F, F + L.GANGWAY_H)))
+    return out
+
+
+HANDLE_Z = 1.0           # the Interact prompt point: at handle height,
+HANDLE_OUT = .30         # this far out from each face of the door, and
+HANDLE_IN = .10          # this far in from the leaf's free edge
+OPENS = {'exterior': 'station', 'gate': 'station', 'gangway': 'any', 'internal': 'any'}
+
+
+def door_id(name):
+    """A layout door's id: 'exterior-door-al' -> 'exterior-al', 'door-wc-a' -> 'wc-a', 'salon-doors' -> 'salon'."""
+    return name.replace('-doors', '').replace('-door', '').removeprefix('door-')
+
+
+def doors(c):
+    """Every door and balcony gate a player opens with Interact, one at a time: id, layout door name, kind (exterior,
+    gangway, internal, gate), motion, the rule for when it opens ('station': only while the train stands at a
+    station; 'any'), default state, whether it is locked for passengers (a gangway behind a gangway-lock box), its
+    collision part and box (a 'door' box, closed until opened), and the Interact points on each side of the leaf."""
+    b, F = c.body, L.FLOOR_Z
+    locked = {door for v, door in A.locked_gangways() if v == c.name}
+    ext = {e[0]: e for e in L.exterior_openings(c)}
+    gb = dict(gangway_boxes(c))
+    out = []
+
+    def rec(i, name, kind, motion, box, handle_a, along, sides, lock=False):
+        pts = [dict(side=n, point=[round(v, 4) for v in (*((handle_a, cc) if along == 'x' else (cc, handle_a)), F + HANDLE_Z)])
+               for n, cc in sides]
+        part = f'gangway-lock-{i[-1]}' if lock else f'door-{i}'
+        out.append(dict(id=i, door=name, kind=kind, motion=motion, opens=OPENS[kind], default='closed', locked=lock,
+                        part=part, box=gb[part] if lock else box, handles=pts))
+
+    def free_edge(a0, a1, hinge):
+        return a1 - HANDLE_IN if hinge == a0 else a0 + HANDLE_IN
+
+    for d in c.doors:
+        i = door_id(d.name)
+        if i in ext:                                    # exterior and cargo doors in the side walls
+            _, sy, x0, x1, z0, z1 = ext[i]
+            box = (x0, x1, *sorted((sy * L.IN, sy * L.HALF)), z0, z1)
+            ha = (x0 + x1) / 2 if d.kind == 'cargo' else free_edge(x0, x1, x0 if x0 < 0 else x1)
+            rec(i, d.name, 'exterior', 'sliding' if d.kind == 'cargo' else 'hinged', box, ha, 'x',
+                (('inside', sy * (L.IN - HANDLE_OUT)), ('outside', sy * (L.HALF + HANDLE_OUT))))
+            continue
+        w = c.wall(d.wall); o = next(o for o in w.openings if o.name == d.opening)
+        box = (*((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), o.z0, o.z1)
+        if d.kind == 'sliding':
+            ha = o.a0 + HANDLE_IN if d.slide > 0 else o.a1 - HANDLE_IN
+        elif d.kind == 'double':
+            ha = (o.a0 + o.a1) / 2
+        else:
+            ha = free_edge(o.a0, o.a1, o.a0 if d.slide < 0 else o.a1)
+        sides = []
+        for cc in (w.c0 - HANDLE_OUT, w.c1 + HANDLE_OUT):
+            x, y = (ha, cc) if w.axis == 'x' else (cc, ha)
+            room = L._room_at(c, x, y)
+            sides.append(('gangway' if room == '?' and i.startswith('gangway') else room, cc))
+        kind = 'gangway' if i.startswith('gangway') else 'internal'
+        rec(i, d.name, kind, d.kind, box, ha, w.axis, sides, lock=kind == 'gangway' and d.name in locked)
+    for s, end in ((-1, 'a'), (1, 'b')):
+        if b.end(s) != 'balcony':
+            continue
+        gx0, gx1 = L.balcony_gate(b, s)
+        hinge = gate_hinge(b, s)
+        for side, sy in (('l', 1), ('r', -1)):
+            box = (gx0, gx1, *sorted((sy * (L.IN - .05), sy * L.HALF)), F, L.ROOF_TOP)
+            rec(f'gate-{end}{side}', None, 'gate', 'hinged', box, free_edge(gx0, gx1, hinge), 'x',
+                (('balcony', sy * (L.IN - .05 - HANDLE_OUT)), ('outside', sy * (L.HALF + HANDLE_OUT))))
+    return out
+
+
+def gate_hinge(body, s):
+    """A balcony gate hangs on the post at its end-wall side and swings in over the balcony."""
+    gx0, gx1 = L.balcony_gate(body, s)
+    return gx1 if s < 0 else gx0
+
+
+def door_boxes(c):
+    """A 'door' box closing every door and gate that is not locked behind a gangway-lock box (the game removes one
+    when a player opens that door), and, fixed, an invisible wall from each balcony railing's top up to the canopy (a
+    jump clears 1.05 m)."""
+    out = [(d['part'], d['box']) for d in doors(c) if not d['locked']]
+    for i, (x0, x1, y0, y1) in enumerate(L.railings(c.body)):
+        out.append((f'railing-{i}-above', (x0, x1, y0, y1, L.FLOOR_Z + 1.05, L.ROOF_TOP)))
     return out
 
 
@@ -254,10 +338,12 @@ def check_collision(c, boxes):
         if seen < .6 * area:
             bad.append(f'collision {part} has nothing visible under {1 - seen / area:.0%} of it')
     # 3. on the collision alone, the widest player reaches every goal and never walks off a floor edge
+    #    (every door open, as a player opens them one by one; floor edges with them all shut, as while running)
     radius = max(p[2] for p in A.players())
-    xs, ys, floor, free = _grid(c, boxes, radius)
+    xs, ys, floor, free_open = _grid(c, [(p, q) for p, q in boxes if group(p) != 'door'], radius)
+    _, _, _, free = _grid(c, boxes, radius)
     cell = lambda x, y: (int(np.searchsorted(xs, x)), int(np.searchsorted(ys, y)))
-    seen = _flood(floor & free, cell(*L.start(c)))
+    seen = _flood(floor & free_open, cell(*L.start(c)))
     for g, (x, y) in L.goals(c).items():
         if not seen[cell(x, y)]:
             bad.append(f'{g} unreachable on collision')
@@ -283,14 +369,21 @@ def check_collision(c, boxes):
     for v, door in A.locked_gangways():
         if v == c.name and not any(p == f'gangway-lock-{door[-1]}' for p, _ in boxes):
             bad.append(f'{door} is locked for passengers but its opening is free in collision')
-    # 6. every seat sits on (or up to 2 cm above) a collision top, 0.40-0.50 m above the floor
+    # 6. every door and balcony gate is shut by its own box ('door', or 'gangway-lock' when locked), and a balcony's
+    #    railing is walled up to the canopy
+    parts = {p for p, _ in boxes}
+    need = [d['part'] for d in doors(c)] + [f'door-gate-{e}{sd}' for s, e in ((-1, 'a'), (1, 'b'))
+                                            if c.body.end(s) == 'balcony' for sd in 'lr']
+    need += [f'door-{o[0]}' for o in L.exterior_openings(c)] + [f'railing-{i}-above' for i in range(len(L.railings(c.body)))]
+    bad += [f'{n} has no collision' for n in need if n not in parts]
+    # 7. every seat sits on (or up to 2 cm above) a collision top, 0.40-0.50 m above the floor
     for st in c.seats:
         tops = [q[5] for _, q in boxes if q[0] <= st.x <= q[1] and q[2] <= st.y <= q[3] and q[5] <= st.z + .02]
         if not tops or st.z - max(tops) > .06:
             bad.append(f'seat {st.id}: no collision top under it')
         elif c.name not in ('locomotive',) and not .40 <= st.z - F <= .50:
             bad.append(f'seat {st.id}: sitting height {st.z - F:.2f} m')
-    # 7. a roof lookout's well is open in the ceiling collision
+    # 8. a roof lookout's well is open in the ceiling collision
     if c.body.cupola:
         x0, x1 = c.body.cupola
         if any(p == 'ceiling' and q[0] < x1 - .1 and q[1] > x0 + .1 and q[2] < 0 < q[3] for p, q in boxes):

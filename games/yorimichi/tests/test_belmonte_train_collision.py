@@ -45,6 +45,52 @@ class Collision(unittest.TestCase):
             named = [n for n, p, g, _ in CO.named_boxes(c, 'SM') if g == 'gangway-lock']
             self.assertTrue(named and all(n.startswith('COL_SM_gangway-lock-') for n in named))
 
+    def test_every_door_and_gate_has_its_own_switchable_box_and_interact_points(self):
+        for c in L.vehicles():
+            boxes = dict(CO.collision_boxes(c))
+            ds = CO.doors(c)
+            gates = [d for d in ds if d['kind'] == 'gate']
+            self.assertEqual(len(ds), len(c.doors) + len(gates), c.name)
+            self.assertEqual(len({d['part'] for d in ds}), len(ds), c.name)      # one box per door, opened one at a time
+            for d in ds:
+                self.assertEqual(boxes[d['part']], d['box'], (c.name, d['id']))
+                self.assertEqual(CO.group(d['part']), 'gangway-lock' if d['locked'] else 'door', (c.name, d['id']))
+                self.assertEqual(d['opens'], 'station' if d['kind'] in ('exterior', 'gate') else 'any')
+                self.assertEqual(d['default'], 'closed')
+                self.assertEqual(len(d['handles']), 2)
+                q = d['box']
+                for h in d['handles']:                  # the prompt points face the leaf, one on each side
+                    x, y, _ = h['point']
+                    self.assertTrue(q[0] - .5 <= x <= q[1] + .5 and q[2] - .5 <= y <= q[3] + .5, (c.name, d['id'], h))
+            self.assertEqual({d['door'] for d in ds if d['locked']},
+                             {door for v, door in A.locked_gangways() if v == c.name})
+            for name, sy, x0, x1, z0, z1 in L.exterior_openings(c):
+                q = boxes[f'door-{name}']
+                self.assertEqual((q[0], q[1], q[4], q[5]), (x0, x1, z0, z1), (c.name, name))
+            for i, r in enumerate(L.railings(c.body)):
+                q = boxes[f'railing-{i}-above']
+                self.assertEqual(q[:4], r)
+                self.assertLessEqual(q[4], L.FLOOR_Z + 1.05)
+                self.assertGreaterEqual(q[5], L.ROOF_TOP)
+                self.assertEqual(CO.group(f'railing-{i}-above'), 'fixed')
+            named = [n for n, p, g, _ in CO.named_boxes(c, 'SM') if g == 'door']
+            self.assertTrue(all(n.startswith('COL_SM_door-') for n in named))
+        gates = {d['id']: d for d in CO.doors(L.brake_van()) if d['kind'] == 'gate'}
+        self.assertEqual(sorted(gates), ['gate-al', 'gate-ar'])
+        for d in gates.values():
+            self.assertGreaterEqual(d['box'][5], L.ROOF_TOP)
+
+    def test_a_shut_inside_door_does_not_cut_the_walk_but_a_missing_one_is_caught(self):
+        c = L.first_class()
+        self.assertEqual(CO.check_collision(c, CO.collision_boxes(c)), [])
+        boxes = [(n, q) for n, q in CO.collision_boxes(c) if n != 'door-cabin-2']
+        self.assertIn('door-cabin-2 has no collision', CO.check_collision(c, boxes))
+
+    def test_a_missing_door_is_caught(self):
+        c = L.brake_van()
+        boxes = [(n, q) for n, q in CO.collision_boxes(c) if n != 'door-gate-al']
+        self.assertIn('door-gate-al has no collision', CO.check_collision(c, boxes))
+
     def test_a_missing_bench_is_caught(self):
         c = L.second_class()
         boxes = [(n, q) for n, q in CO.collision_boxes(c) if not n.startswith('bench-1la')]

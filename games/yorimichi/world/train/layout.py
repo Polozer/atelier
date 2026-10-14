@@ -912,6 +912,11 @@ def start(c):
     return (b.inner(s) - s * .30, 0.)
 
 
+def balcony_gate(body, s):
+    """x range of the gate gap in the side railings of the balcony at end s, over the steps."""
+    return tuple(sorted((body.face(s) + s * .15, body.face(s) + s * .85)))
+
+
 def railings(body):
     """Balcony railings as boxes (x0, x1, y0, y1): along the outer edge and down both sides, leaving a gap at the
     steps on each side."""
@@ -922,7 +927,7 @@ def railings(body):
         edge = body.headstock(s)
         x0, x1 = sorted((edge, edge - s * .05))
         out.append((x0, x1, -IN, IN))
-        gap0, gap1 = sorted((body.face(s) + s * .15, body.face(s) + s * .85))   # the step opening on each side
+        gap0, gap1 = balcony_gate(body, s)                                    # the step opening on each side
         for sy in (-1, 1):
             y0, y1 = sorted((sy * IN, sy * (IN - .05)))
             for a0, a1 in ((min(edge, body.face(s)), gap0), (gap1, max(edge, body.face(s)))):
