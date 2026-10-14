@@ -1267,10 +1267,10 @@ def reservations(c, coll, parent):
 
 def collision(c, coll, parent, mesh_name):
     out = []
-    for i, (n, b) in enumerate(CO.collision_boxes(c)):
+    for name, n, g, b in CO.named_boxes(c, mesh_name):
         m = M(); m.box(*b, 'reservation-service')
-        o = m.obj(f'UCX_{mesh_name}_{i:02d}', coll, parent=parent, lods=())
-        o['part'] = n; o.display_type = 'WIRE'
+        o = m.obj(name, coll, parent=parent, lods=())
+        o['part'] = n; o['group'] = g; o.display_type = 'WIRE'
         out.append(o)
     return out
 
@@ -2070,7 +2070,7 @@ def build(coach, images):
     placements['doors_runtime'] = DOOR_RECORDS
     placements['envelope'] = L.envelope()
     placements['coupling'] = L.coupling(B)
-    placements['collision_boxes'] = [dict(name=f'UCX_{mesh_name}_{i:02d}', part=n, box=[round(v, 4) for v in b]) for i, (n, b) in enumerate(CO.collision_boxes(coach))]
+    placements['collision_boxes'] = [dict(name=name, part=n, group=g, box=[round(v, 4) for v in b]) for name, n, g, b in CO.named_boxes(coach, mesh_name)]
     p = out / f'{coach.name}-placements.json'; p.write_text(json.dumps(placements, indent=1)); files[p.name] = p
     for o in cols['Reservations'].objects:
         o.hide_render = False

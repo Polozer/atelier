@@ -60,11 +60,56 @@ def collision_boxes(c):
             add(f'{w.name}-head', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), o.z1, top)
             if o.z0 - L.FLOOR_Z > .05:         # below a hatch
                 add(f'{w.name}-sill', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), L.FLOOR_Z, o.z0)
-    boxes += furniture_boxes(c)
+    boxes += furniture_boxes(c) + gangway_boxes(c)
     for r in c.reservations:                        # the furniture modelled in code (an unmodelled box stays soft)
         if r.z0 - L.FLOOR_Z < 1.0 and r.kind in MODELLED:
             add(r.name, r.x0, r.x1, r.y0, r.y1, L.FLOOR_Z, r.z1)
     return [(n, q) for n, q in boxes if q[1] - q[0] > 1e-4 and q[3] - q[2] > 1e-4 and q[5] - q[4] > 1e-4]
+
+
+GANGWAY_OVERLAP = .15     # past the buffer line: on a 250 m curve the outside of the gap between coaches opens a wedge
+GANGWAY_SIDE = .10        # thickness of the invisible side walls and roof over a gangway crossing
+GROUPS = {'gangway-lock-': 'gangway-lock', 'door-': 'door'}   # switchable boxes, exported apart from the fixed UCX
+
+
+def group(part):
+    """'fixed' for the static collision, or the switchable group a box belongs to (the game opens it for staff, or
+    at stops)."""
+    return next((g for prefix, g in GROUPS.items() if part.startswith(prefix)), 'fixed')
+
+
+def named_boxes(c, mesh_name):
+    """[(object name, part, group, box)]: the fixed boxes as UE's UCX_<mesh>_NN simple collision, the switchable ones
+    as COL_<mesh>_<part> (a part named after its group), separate objects the game turns on and off."""
+    out, k = [], 0
+    for part, q in collision_boxes(c):
+        g = group(part)
+        if g == 'fixed':
+            out.append((f'UCX_{mesh_name}_{k:02d}', part, g, q)); k += 1
+        else:
+            out.append((f'COL_{mesh_name}_{part}', part, g, q))
+    return out
+
+
+def gangway_boxes(c):
+    """At each gangway end: the floor from the end wall's inner face out past the buffer line, invisible walls each
+    side and a roof over the crossing (nobody falls between coaches, even on a curve), and on a gangway locked for
+    passengers a 'gangway-lock' box filling the end wall's opening."""
+    b, F, hw = c.body, L.FLOOR_Z, L.GANGWAY_W / 2
+    locked = {door[-1] for v, door in A.locked_gangways() if v == c.name}
+    out = []
+    for s, end in ((-1, 'a'), (1, 'b')):
+        if b.end(s) != 'gangway':
+            continue
+        x0, x1 = sorted((b.inner(s), b.buffer(s) + s * GANGWAY_OVERLAP))
+        w0, w1 = hw + .04, hw + .04 + GANGWAY_SIDE
+        out += [(f'gangway-{end}-floor', (x0, x1, -w0, w0, F - .20, F)),
+                (f'gangway-{end}-side-l', (x0, x1, w0, w1, F, F + L.GANGWAY_H + .15)),
+                (f'gangway-{end}-side-r', (x0, x1, -w1, -w0, F, F + L.GANGWAY_H + .15)),
+                (f'gangway-{end}-roof', (x0, x1, -w1, w1, F + L.GANGWAY_H, F + L.GANGWAY_H + .15))]
+        if end in locked:
+            out.append((f'gangway-lock-{end}', (*sorted((b.inner(s), b.face(s))), -hw, hw, F, F + L.GANGWAY_H)))
+    return out
 
 
 SOFT = {'wall-sconce', 'table-lamp', 'canteen-mug', 'canteen-ladle', 'canteen-pot'}   # small, or standing on another
@@ -161,6 +206,9 @@ def _grid(c, boxes, radius, step=.025):
     xs = np.arange(x0 + step / 2, x1, step); ys = np.arange(-L.HALF - .3, L.HALF + .3, step)
     X, Y = np.meshgrid(xs, ys, indexing='ij')
     floor = np.zeros(X.shape, bool); free = np.ones(X.shape, bool)
+    for s in (-1, 1):                                       # past a gangway's buffer line: the next coach's floor
+        if b.end(s) == 'gangway':
+            floor |= (s * (X - b.buffer(s)) > 0) & (np.abs(Y) < L.GANGWAY_W / 2 + .04)
     for _, q in boxes:
         if abs(q[5] - F) < .03 and q[4] < F:
             floor |= (X >= q[0] - PERCH) & (X <= q[1] + PERCH) & (Y >= q[2] - PERCH) & (Y <= q[3] + PERCH)
