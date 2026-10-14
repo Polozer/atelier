@@ -11,7 +11,7 @@ first class, dull brass and worn cloth in second class and the vans:
 - luggage shelving: open walnut shelves on every 'luggage-shelves' reservation (vans and first class), low under a
   window so the curtains hang clear;
 - counters: fitted cupboards with a top on the galley's and the pantry's counters (the galley range left to Tripo),
-  and the pantry attendant's folding seat;
+  the pantry attendant's folding seat, and the vans' handbrake columns;
 - drinks ledge: the restaurant's standing ledge under a window, walnut on brass brackets, with a foot rail;
 - ladle: the iron wall hook the canteen lady's big ladle hangs from (the ladle itself is a separate asset).
 The other mount kinds are anchors for gameplay (ANCHORS) or modelled with the shell in build.py (BUILT).
@@ -378,6 +378,29 @@ def attendant_seats(c, part, cloth, metal):
             tube(part, [(x, f(.01), z + .20), (x, f(b.y1 - b.y0 - .06), z + .42)], .007, metal, 6)
 
 
+def handbrakes(c, part, metal):
+    """A handbrake on each 'handbrake' box: a cast-iron column on a bolted floor flange, its screw housing and a
+    four-spoked wheel on top, turned flat for the guard to wind."""
+    for b in (r for r in c.reservations if r.kind == 'handbrake'):
+        cx, cy, z = (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, L.FLOOR_Z
+        rr = min(b.x1 - b.x0, b.y1 - b.y0) / 2 - .012          # the wheel fills the box
+        top = b.z1 - .08                                       # the spinner knob reaches the box top
+        lathe(part, cx, cy, [(0, z + .035), (.09, z + .035), (.09, z), (.06, z), (.05, z + .06), (.045, z + .55), (.055, z + .58),
+                             (.055, z + .64), (.04, z + .67), (.034, top - .08), (.026, top - .06), (0, top - .06)], 'iron-black', 12)
+        for k in range(4):                                      # flange bolts
+            a = math.pi / 4 + k * math.pi / 2
+            lathe(part, cx + .07 * math.cos(a), cy + .07 * math.sin(a), [(0, z + .05), (.012, z + .05), (.012, z + .035)], metal, 6)
+        lathe(part, cx, cy, [(0, top + .02), (.03, top + .02), (.03, top - .02), (.016, top - .06), (0, top - .06)], metal, 10)  # hub
+        ring = [(cx + rr * math.cos(2 * math.pi * k / 16), cy + rr * math.sin(2 * math.pi * k / 16), top) for k in range(17)]
+        tube(part, ring, .011, metal, 6, caps=False)
+        for k in range(4):
+            a = k * math.pi / 2
+            tube(part, [(cx + .03 * math.cos(a), cy + .03 * math.sin(a), top), (cx + rr * math.cos(a), cy + rr * math.sin(a), top)], .007, metal, 6)
+        a = math.pi / 4                                         # the spinner knob
+        kx, ky = cx + rr * math.cos(a), cy + rr * math.sin(a)
+        tube(part, [(kx, ky, top), (kx, ky, top + .07)], .012, 'end-dark', 8)
+
+
 def drinks_ledges(c, part, metal):
     """The restaurant's standing ledge under a window: a walnut top with a rounded nosing and a brass gallery rail
     (glasses don't slide off on a curve), on cast brackets, and a brass foot rail low along the wall."""
@@ -427,6 +450,7 @@ def fittings(c):
     drinks_ledges(c, parts['ledge'], st['metal'])
     counters(c, parts['counters'])
     attendant_seats(c, parts['counters'], st['cloth'], st['metal'])
+    handbrakes(c, parts['counters'], st['metal'])
     return [p for p in parts.values() if p.faces]
 
 
