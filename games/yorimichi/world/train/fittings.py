@@ -10,6 +10,7 @@ first class, dull brass and worn cloth in second class and the vans:
 - menu-board: the canteen's framed menu board, its face a texture slot (T_BT_MenuBoard);
 - luggage shelving: open walnut shelves on every 'luggage-shelves' reservation (vans and first class), low under a
   window so the curtains hang clear;
+- drinks ledge: the restaurant's standing ledge under a window, walnut on brass brackets, with a foot rail;
 - ladle: the iron wall hook the canteen lady's big ladle hangs from (the ladle itself is a separate asset).
 The other mount kinds are anchors for gameplay (ANCHORS) or modelled with the shell in build.py (BUILT).
 
@@ -215,9 +216,9 @@ def curtains(c, rails, cloth, metal='brass-dull', fabric='curtain-fabric'):
         steps = int(CURTAIN_W / CURTAIN_PITCH) * 10
         for side in (-1, 1):                                              # drawn to both ends
             seed = _noise(mt.x, mt.y, side)
-            def under(pl, u0):                                            # a placement in the curtain's floor space
+            def under(pl, u0):                                            # a placement (or box) in the curtain's floor space
                 a, b = P(u0, 0, 0), P(u0 - side * CURTAIN_W, CURTAIN_GAP + 2 * CURTAIN_AMP, 0)
-                x0, x1, y0, y1 = L.footprint(pl)
+                x0, x1, y0, y1 = (pl.x0, pl.x1, pl.y0, pl.y1) if isinstance(pl, L.Box) else L.footprint(pl)
                 return x0 < max(a[0], b[0]) and min(a[0], b[0]) < x1 and y0 < max(a[1], b[1]) and min(a[1], b[1]) < y1
             u0 = side * (h - .02)
             sconces = [pl for pl in c.placements if _pivot(pl) == 'wall_mount_center']
@@ -227,6 +228,9 @@ def curtains(c, rails, cloth, metal='brass-dull', fabric='curtain-fabric'):
             for pl in c.placements:
                 if pl not in sconces and under(pl, u0):
                     bottom = max(bottom, _top(pl) + .03)
+            for bx in c.reservations:                                     # a ledge built under the window
+                if bx.kind in LEDGES and under(bx, u0):
+                    bottom = max(bottom, bx.z1 + .03)
             # soft folds: the phase runs at a pitch wandering +-15 %, each fold its own depth, gathered tight at the rail
             # and fuller at the hem, which dips at the leading edge and curls up towards the wall end
             cols, phase, run = [], 0., 0.
@@ -319,6 +323,35 @@ def shelving(c, part, metal):
                 box(part, xa + SHELF_T, xb - SHELF_T, front, front + sy * .012, z, z + .04, metal)   # lip
 
 
+LEDGES = {'drinks-ledge'}                              # reservation kinds modelled here that curtains hang clear of
+
+
+def drinks_ledges(c, part, metal):
+    """The restaurant's standing ledge under a window: a walnut top with a rounded nosing and a brass gallery rail
+    (glasses don't slide off on a curve), on cast brackets, and a brass foot rail low along the wall."""
+    for b in (r for r in c.reservations if r.kind == 'drinks-ledge'):
+        sy = 1 if b.y0 + b.y1 > 0 else -1
+        wall, front = (b.y1, b.y0) if sy > 0 else (b.y0, b.y1)
+        sill = next((w.sill for w in c.windows if w.side == sy and abs(w.x - (b.x0 + b.x1) / 2) < w.width / 2
+                     and w.sill < b.z1), None)
+        box(part, b.x0, b.x1, wall, front, b.z1 - .04, b.z1, 'walnut')
+        tube(part, [(b.x0, front + sy * .02, b.z1 - .02), (b.x1, front + sy * .02, b.z1 - .02)], .02, 'walnut', 8)   # nosing
+        tube(part, [(b.x0 + .03, front + sy * .03, b.z1 + .035), (b.x1 - .03, front + sy * .03, b.z1 + .035)], .006, metal, 6)
+        n = max(2, math.ceil((b.x1 - b.x0) / .75) + 1)
+        for k in range(n):
+            x = b.x0 + .06 + (b.x1 - b.x0 - .12) * k / (n - 1)
+            tube(part, [(x, front + sy * .03, b.z1), (x, front + sy * .03, b.z1 + .035)], .005, metal, 6)   # gallery posts
+            if sill is not None:                                   # over glass: brackets stand on the window's sill
+                box(part, x - .02, x + .02, wall - sy * .01, wall - sy * .09, sill, sill + .012, metal)    # foot plate
+                tube(part, [(x, wall - sy * .05, sill + .012), (x, wall - sy * .05, b.z1 - .04)], .009, metal, 6)
+                tube(part, [(x, wall - sy * .06, sill + .06), (x, front + sy * .04, b.z1 - .045)], .008, metal, 6)
+            else:
+                box(part, x - .012, x + .012, wall, wall - sy * .03, b.z1 - .30, b.z1 - .04, metal)       # bracket plate
+                tube(part, [(x, wall - sy * .02, b.z1 - .28), (x, front + sy * .04, b.z1 - .045)], .01, metal, 6)
+            tube(part, [(x, wall, L.FLOOR_Z + .18), (x, front + sy * .05, L.FLOOR_Z + .18)], .008, metal, 6)    # foot-rail arm
+        tube(part, [(b.x0 + .02, front + sy * .05, L.FLOOR_Z + .18), (b.x1 - .02, front + sy * .05, L.FLOOR_Z + .18)], .016, metal, 10)
+
+
 def fittings(c):
     """Every fitting Part of a coach (empty for coaches not yet fitted)."""
     if c.name not in COACHES:
@@ -328,7 +361,7 @@ def fittings(c):
         ('ceiling-lamp', 'Fittings_Lamps', False, (0, 1)), ('cord', 'Fittings_LampCords', False, (0,)),
         ('curtain-rail', 'Fittings_CurtainRails', False, (0, 1)), ('curtain', 'Fittings_Curtains', False, (0, 1)),
         ('menu-board', 'Fittings_MenuBoard', True, (0, 1)), ('ladle', 'Fittings_LadleHook', False, (0, 1)),
-        ('shelves', 'Fittings_Shelves', True, (0,)))}          # shelves: LOD0 only (first class sits at its LOD1 budget)
+        ('shelves', 'Fittings_Shelves', True, (0,)), ('ledge', 'Fittings_DrinksLedge', False, (0,)))}          # shelves: LOD0 only (first class sits at its LOD1 budget)
     if c.name == 'locomotive':                        # the cab lamp alone: small, LOD0 only
         parts['ceiling-lamp'].lods = (0,)
     st = STYLES[c.name]
@@ -339,6 +372,7 @@ def fittings(c):
     menu_board(c, parts['menu-board'])
     ladle_hooks(c, parts['ladle'])
     shelving(c, parts['shelves'], st['metal'])
+    drinks_ledges(c, parts['ledge'], st['metal'])
     return [p for p in parts.values() if p.faces]
 
 

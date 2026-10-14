@@ -167,6 +167,19 @@ class Coaches(unittest.TestCase):
                 if any(b.x0 < x < b.x1 and b.y0 < y < b.y1 for b in boxes):
                     self.assertGreater(z, low + .05, (c.name, x, y, z))
 
+    def test_drinks_ledge_is_built_and_the_curtains_hang_clear(self):
+        from train import fittings as F
+        c = L.restaurant()
+        parts = {p.name: p for p in F.fittings(c)}
+        pts = [q for f in parts['Fittings_DrinksLedge'].faces for q in f[0]]
+        for b in (r for r in c.reservations if r.kind == 'drinks-ledge'):
+            mine = [p for p in pts if b.x0 - 1e-6 <= p[0] <= b.x1 + 1e-6 and b.y0 - 1e-6 <= p[1] <= b.y1 + 1e-6]
+            self.assertTrue(b.z1 + .03 < max(p[2] for p in mine) < b.z1 + .05)         # the top and its gallery rail
+            for x, y, z in (q for f in parts['Fittings_Curtains'].faces for q in f[0]):
+                if b.x0 < x < b.x1 and b.y0 < y < b.y1:
+                    self.assertGreater(z, b.z1, (x, y, z))
+        self.assertTrue(all(b.y0 - .001 <= p[1] <= b.y1 + .001 for p in pts for b in c.reservations if b.kind == 'drinks-ledge'))
+
     def test_canteen_serving_line(self):
         import math
         c = L.second_class()
