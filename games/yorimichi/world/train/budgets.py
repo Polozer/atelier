@@ -18,7 +18,7 @@ FURNITURE = {
     'second-class-bench-carved': (2500, 300, 1024),   # front and a clean back twin: the carved M+L reads from the front
     'first-class-sofa': (3000, 400, 1024),
     'restaurant-banquette': (2000, 300, 1024),
-    'restaurant-table': (1000, 150, 1024),
+    'restaurant-table': (1000, 150, 2048),            # see LARGE_TEXTURES
     'first-class-table': (800, 120, 1024),
     'table-lamp': (600, None, 512),
     'wall-sconce': (400, None, 512),
@@ -34,6 +34,11 @@ FURNITURE = {
 
 # Aims below a cap where a coach total needs it: 31 benches at 200 would alone pass the second class's LOD1 budget.
 LOD1_AIM = {'second-class-bench': 150}
+
+# Assets allowed above 1024 px. The restaurant table: its cloth's woven damask is a fine pattern spread over a large
+# draped area; at 1024 the bake loses it and the cloth turns plain. The eight tables share one material, so the
+# 2048 set (about 8 MB of compressed maps with their mips) is paid once, and the table's LOD1 drops to 512.
+LARGE_TEXTURES = {'restaurant-table'}
 
 # Extra materials allowed beside the baked one: the pot's porridge is its own mesh and material for the game to animate.
 EXTRA_MATERIALS = {'canteen-pot': ('M_BT_Porridge',)}

@@ -38,9 +38,23 @@ SHARP_DEG = 60.
 MARGIN_PX = 8
 # parts smaller than this fraction of the asset's size are left to the bake, per level
 DROP = {0: .03, 1: .12}
-# the pot's drips hang from its rim on such edges: opened, they fall apart into shards
-KEEP_FOLDS = {'canteen-pot'}
-PART_EXP = {'canteen-pot': .5}   # its drips are better left few triangles
+KEEP_FOLDS = set()     # assets whose folds stay closed
+# per asset: the budget share by area ** exp (higher favours the big parts: the lamp's round base and shade, the
+# table's cloth), and the size under which parts go to the bake (the pot's drips: left to the maps, they read as
+# relief instead of faceted shards)
+PART_EXP = {'canteen-pot': {0: .5}, 'table-lamp': {0: .8}, 'restaurant-table': {0: 1., 1: 1.}}
+# share by the parts' own detail (source triangles) instead of area: the lamp's round, beaded base needs more than
+# its plain shade, whose pleats the normal map carries
+BY_DETAIL = {'table-lamp'}
+# thin sheets turned towards open air rather than like the source (the cloth's own winding faces in and out)
+OUTWARD = {'restaurant-table'}
+# parts hidden from every side, below included, left out of LOD0 too (the cap Tripo closed the cloth with, sitting
+# between its top and the modelled wooden top): their triangles go to the drapes
+HIDDEN0 = {'restaurant-table'}
+# LOD1 decimated from LOD0 (already turned right, its cloth one clean sheet) rather than from the source
+LOD1_FROM_LOD0 = {'restaurant-table'}
+ROUND = {'table-lamp'}     # turned base: decimate() holds the walls of its lower parts
+PART_DROP = {'canteen-pot': {0: .16, 1: .2}}
 EXP = .35          # the budget shared between parts by area ** EXP: below 0.5 favours the small, thin parts
 
 
@@ -123,8 +137,14 @@ def apply_modifiers(obj):
     bpy.data.meshes.remove(old)
 
 
-def decimate(obj, target, size=1.):
-    """Edge-collapse obj down to at most target triangles (a few passes: collapse lands near, not on, its ratio)."""
+def decimate(obj, target, size=1., round_=False):
+    """Edge-collapse obj down to at most target triangles (a few passes: collapse lands near, not on, its ratio).
+    round_: hold the vertices whose normal is near horizontal (the walls of a turned base or column), so a round
+    part keeps a round outline instead of collapsing to a few facets."""
+    if round_:
+        g = obj.vertex_groups.get('keep') or obj.vertex_groups.new(name='keep')
+        for v in obj.data.vertices:
+            g.add([v.index], (1 - abs(v.normal.z)) ** 2, 'REPLACE')
     for attempt in range(10):
         n = tris(obj)
         if n <= target:
@@ -132,6 +152,8 @@ def decimate(obj, target, size=1.):
         m = obj.modifiers.new('decimate', 'DECIMATE')
         m.decimate_type = 'COLLAPSE'; m.use_collapse_triangulate = True
         m.ratio = max(target / n * (.985 ** attempt), .0005)
+        if round_:
+            m.vertex_group = 'keep'; m.vertex_group_factor = 6.
         apply_modifiers(obj)
     return tris(obj)
 
@@ -158,6 +180,40 @@ def orient(low, highs):
     return len(flip)
 
 
+def outward(low):
+    """Turn a thin sheet's faces towards open air (a tablecloth's drapes). The winding is first made consistent over
+    each connected part, then each part is turned as a whole by a vote: from every face, rays fanned over both of its
+    sides; the side where more escape the mesh, weighted by face area, is the outside. Unreal draws one side of a
+    face; a drape turned inwards reads there as transparent shards, whatever the double-sided preview shows."""
+    from mathutils.bvhtree import BVHTree
+    bm = bmesh.new(); bm.from_mesh(low.data); bm.faces.ensure_lookup_table()
+    turned = 0
+    for part in islands(low.data):
+        faces = [bm.faces[i] for i in part]
+        bmesh.ops.recalc_face_normals(bm, faces=faces)
+    bm.normal_update()
+    tree = BVHTree.FromBMesh(bm)
+    for part in islands(low.data):
+        vote = 0.
+        for i in part:
+            f = bm.faces[i]
+            n = f.normal
+            if n.length < .5:
+                continue
+            t = (f.verts[1].co - f.verts[0].co).normalized()
+            b = n.cross(t)
+            c = f.calc_center_median()
+            fan = [n] + [(n + .8 * (t * math.cos(a) + b * math.sin(a))).normalized() for a in (0, 1.57, 3.14, 4.71)]
+            out = sum(tree.ray_cast(c + d * 1e-4, d)[0] is None for d in fan)
+            back = sum(tree.ray_cast(c - d * 1e-4, -d)[0] is None for d in fan)
+            vote += f.calc_area() * (out - back)
+        if vote < 0:
+            bmesh.ops.reverse_faces(bm, faces=[bm.faces[i] for i in part]); turned += 1
+    bm.to_mesh(low.data); bm.free()
+    print(f'LOD: winding made consistent per part, {turned} parts turned towards open air', flush=True)
+    return turned
+
+
 def islands(me):
     """Face index lists of the connected parts of a mesh."""
     bm = bmesh.new(); bm.from_mesh(me); bm.faces.ensure_lookup_table()
@@ -178,7 +234,65 @@ def islands(me):
     return parts
 
 
-def decimate_parts(obj, target, size, drop, exp=EXP):
+def share(parts, target, exp, by=2, least=12):
+    """Triangles for each part, by area ** exp (by=2) or source triangles ** exp (by=3), at least `least` and at most what it has: what a small part cannot use goes
+    back to the others (water filling), so the asset uses its whole budget."""
+    alloc, left, free = {}, target, list(range(len(parts)))
+    while free:
+        w = sum(parts[i][by] ** exp for i in free)
+        full = [i for i in free if left * parts[i][by] ** exp / w >= parts[i][3]]
+        if not full:
+            for i in free:
+                alloc[i] = max(least, int(left * parts[i][by] ** exp / w))
+            break
+        for i in full:
+            alloc[i] = parts[i][3]; left -= parts[i][3]; free.remove(i)
+    return [alloc[i] for i in range(len(parts))]
+
+
+def seen_only(highs, below=False):
+    """Copies of the source keeping only the parts seen from above or the sides, for LOD1 (from its distance nobody
+    looks under a table): a part (connected once welded) every one of whose sample points hits another part looking
+    up and along +-X and +-Y goes, from the LOD1 mesh and from its bake. Without this the restaurant table's cloth
+    top, decimated this far, sinks into the cap, wooden top and apron modelled under it and bakes them."""
+    from mathutils.bvhtree import BVHTree
+    dirs = [Vector(d) for d in ((0, 0, 1), (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0))] + ([Vector((0, 0, -1))] if below else [])
+    out = []
+    for h in highs:
+        o = link(bpy.data.objects.new('HIGH_lod1_' + h.name, h.data.copy()))
+        o.matrix_world = h.matrix_world
+        bm = bmesh.new(); bm.from_mesh(o.data)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+        bm.faces.ensure_lookup_table()
+        seen, parts = set(), []
+        for f in bm.faces:
+            if f.index in seen:
+                continue
+            stack, part = [f], []
+            seen.add(f.index)
+            while stack:
+                g = stack.pop(); part.append(g)
+                for e in g.edges:
+                    for nb in e.link_faces:
+                        if nb.index not in seen:
+                            seen.add(nb.index); stack.append(nb)
+            parts.append(part)
+        verts = [v.co.copy() for v in bm.verts]
+        drop = []
+        for part in parts if len(parts) > 1 else []:
+            mine = {f.index for f in part}
+            tree = BVHTree.FromPolygons(verts, [[v.index for v in f.verts] for f in bm.faces if f.index not in mine])
+            samples = [f.calc_center_median() for f in part[::max(1, len(part) // 60)]]
+            if not any(tree.ray_cast(c + d * 1e-4, d)[0] is None for c in samples for d in dirs):
+                drop += part
+        print(f'LOD: LOD1 leaves out {len(drop)} hidden faces of {len(bm.faces)}', flush=True)
+        bmesh.ops.delete(bm, geom=drop, context='FACES')
+        bm.to_mesh(o.data); bm.free()
+        out.append(o)
+    return out
+
+
+def decimate_parts(obj, target, size, drop, exp=EXP, by=2, round_=False, least=12, min_tris=0):
     """Share the budget between the mesh's connected parts (arms, pipes, drips, slats) by their area to the power EXP, so edge collapse's global error measure does not spend it all on the big surfaces and fold the thin parts
     away. Parts smaller than drop x size are removed: the bake keeps their look on what lies under them."""
     me = obj.data
@@ -190,16 +304,18 @@ def decimate_parts(obj, target, size, drop, exp=EXP):
         pts = [me.vertices[v].co for i in part for v in me.polygons[i].vertices]
         lo = Vector([min(p[i] for p in pts) for i in range(3)]); hi = Vector([max(p[i] for p in pts) for i in range(3)])
         area = sum(me.polygons[i].area for i in part)
-        info.append((part, (hi - lo).length, area, sum(len(me.polygons[i].vertices) - 2 for i in part)))
-    kept = [x for x in info if x[1] >= drop * size] or [max(info, key=lambda x: x[2])]
+        info.append((part, (hi - lo).length, area, sum(len(me.polygons[i].vertices) - 2 for i in part), hi.z))
+    kept = [x for x in info if x[1] >= drop * size and x[3] > min_tris] or [max(info, key=lambda x: x[2])]
     while True:
-        w = sum(x[2] ** exp for x in kept)
-        alloc = [min(x[3], max(12, int(target * x[2] ** exp / w))) for x in kept]
+        alloc = share(kept, target, exp, by, least)
         if sum(alloc) <= target or len(kept) == 1:
             break
         kept.remove(min(kept, key=lambda x: x[2]))      # too many parts for the budget: the smallest goes to the bake
     objs = []
-    for (part, _, _, n), t in zip(kept, alloc):
+    zs = [v.co.z for v in me.vertices]
+    z_low = min(zs) + .45 * (max(zs) - min(zs))      # round_ holds only the lower parts (a lamp's base, not its shade)
+    print('LOD: parts', sorted(((x[3], t) for x, t in zip(kept, alloc)), reverse=True)[:12], flush=True)
+    for (part, _, _, n, top), t in zip(kept, alloc):
         new = bpy.data.meshes.new(obj.name + '_part')
         vmap = {}
         verts, faces = [], []
@@ -212,7 +328,7 @@ def decimate_parts(obj, target, size, drop, exp=EXP):
             faces.append(face)
         new.from_pydata(verts, [], faces)
         o = link(bpy.data.objects.new(obj.name + '_part', new))
-        decimate(o, t, size)
+        decimate(o, t, size, round_ and top < z_low)
         objs.append(o)
     for _ in range(8):                                   # collapse overshoots on some parts: take it from the others
         over = sum(tris(o) for o in objs) - target
@@ -367,23 +483,23 @@ def low_material(name, px, mr, constants, double_sided):
     return mat, nodes
 
 
-def bake(kind, low, highs, node, size, clear):
+def bake(kind, low, highs, node, size, clear, cage=1.):
     select(highs + [low], low)
     low.active_material.node_tree.nodes.active = node
-    ext = min(max(.025 * size, .006), .03)
+    ext = min(max(.025 * size, .006), .03) * cage
     bpy.ops.object.bake(type=kind, use_selected_to_active=True, cage_extrusion=ext, max_ray_distance=ext + .1 * size,
                         margin=MARGIN_PX, use_clear=clear, normal_space='TANGENT')
 
 
-def bake_all(pairs, nodes, size, mr):
+def bake_all(pairs, nodes, size, mr, cage=1.):
     """pairs: [(low, highs)] baked into the same maps, the first clearing them."""
     for i, (low, highs) in enumerate(pairs):
-        bake('NORMAL', low, highs, nodes['normal'], size, i == 0)
+        bake('NORMAL', low, highs, nodes['normal'], size, i == 0, cage)
     for i, (low, highs) in enumerate(pairs):
-        emit(highs, 'base'); bake('EMIT', low, highs, nodes['base'], size, i == 0)
+        emit(highs, 'base'); bake('EMIT', low, highs, nodes['base'], size, i == 0, cage)
     if mr:
         for i, (low, highs) in enumerate(pairs):
-            emit(highs, 'mr'); bake('EMIT', low, highs, nodes['mr'], size, i == 0)
+            emit(highs, 'mr'); bake('EMIT', low, highs, nodes['mr'], size, i == 0, cage)
     for _, highs in pairs:
         restore(highs)
 
@@ -428,7 +544,7 @@ def export(path, objs):
 
 
 # ---------------------------------------------------------------- one asset
-def level(asset, k, highs, target, px, size, mr, constants, carved):
+def level(asset, k, highs, target, px, size, mr, constants, carved, start=None):
     """One level of detail: the source welded and decimated to target, unwrapped, its maps baked at px from highs.
     Returns the low object and its maps' sizes."""
     name = f'SM_BT_{title(asset)}' + ('' if k == 0 else f'_LOD{k}')
@@ -458,14 +574,22 @@ def level(asset, k, highs, target, px, size, mr, constants, carved):
         for o in (high_front, high_back):
             o.hide_set(True); o.hide_render = True
     else:
-        low = bare_copy(highs[0] if len(highs) == 1 else join_copy(highs), name, split=asset not in KEEP_FOLDS)
-        decimate_parts(low, target, size, DROP[k], PART_EXP.get(asset, EXP))
-        orient(low, highs)
+        low = bare_copy(start or (highs[0] if len(highs) == 1 else join_copy(highs)), name, split=asset not in KEEP_FOLDS)
+        decimate_parts(low, target, size, PART_DROP.get(asset, DROP)[k], PART_EXP.get(asset, {}).get(k, EXP),
+                       3 if asset in BY_DETAIL else 2, asset in ROUND,
+                       least=12 if k == 0 else 6,
+                       min_tris=12 if start is not None else 0)   # from LOD0: its boxes (12 triangles) are inside   # LOD1: a slat may be a thin wedge, so a bench keeps its back
+        if start is None:             # a start mesh (LOD0) is already turned right
+            orient(low, highs)
+            if asset in OUTWARD:
+                outward(low)
         shade(low)
         unwrap([low]); pack([low])
-        mat, nodes = low_material(mname, px, mr, constants, double_sided=True)
+        # a sheet turned outward is drawn one-sided, as in the game, so the review shows any face still turned in
+        mat, nodes = low_material(mname, px, mr, constants, double_sided=asset not in OUTWARD)
         low.data.materials.append(mat)
-        bake_all([(low, highs)], nodes, size, mr)
+        # LOD1 sags further from the source (a table's cloth top sinks under the wooden top inside it): a deeper cage
+        bake_all([(low, highs)], nodes, size, mr, cage=2. if k else 1.)
     return low, save_maps(asset + ('' if k == 0 else f'-lod{k}'), nodes)
 
 
@@ -494,12 +618,13 @@ def make(asset):
     LOD.mkdir(parents=True, exist_ok=True)
     radius = (hi - lo).length / 2
     sizes = B.screen_sizes(asset, radius)
-    low, textures = level(asset, 0, highs, lod0_t - sum(tris(o) for o in extra), px, size, mr, constants, carved)
+    low, textures = level(asset, 0, seen_only(highs, below=True) if asset in HIDDEN0 else highs, lod0_t - sum(tris(o) for o in extra), px, size, mr, constants, carved)
     files = [export(LOD / f'{asset}_LOD0.glb', [low] + extra)]
     record = [dict(level=0, glb=files[0].name, triangles=tris(low) + sum(tris(o) for o in extra), screen_size=sizes['lod0'],
                    textures=textures)]
     if lod1_t:          # its own small bake: collapsing LOD0 further stalls on its UV seams
-        l1, tex1 = level(asset, 1, highs, lod1_t, max(px // 4, 128), size, mr, constants, carved)
+        l1, tex1 = level(asset, 1, seen_only(highs), lod1_t, max(px // 4, 128), size, mr, constants, carved,
+                         start=low if asset in LOD1_FROM_LOD0 else None)
         files.append(export(LOD / f'{asset}_LOD1.glb', [l1]))
         record.append(dict(level=1, glb=files[1].name, triangles=tris(l1), screen_size=sizes['lod1'], textures=tex1))
     for r, f in zip(record, files):

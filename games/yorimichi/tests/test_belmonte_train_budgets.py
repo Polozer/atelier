@@ -38,7 +38,7 @@ class Targets(unittest.TestCase):
 
     def test_texture_caps_are_powers_of_two(self):
         for a, (_, _, px) in B.FURNITURE.items():
-            self.assertTrue(B.is_power_of_two(px) and px <= 1024, a)
+            self.assertTrue(B.is_power_of_two(px) and px <= (2048 if a in B.LARGE_TEXTURES else 1024), a)
 
     def test_coaches_fit_at_the_caps(self):
         lod0 = {a: v[0] for a, v in B.FURNITURE.items()}
