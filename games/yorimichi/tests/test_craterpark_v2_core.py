@@ -190,3 +190,33 @@ def test_regions_on_one_network_key_share_their_seam_vertices():
     t = net.merge()['k']
     a = sweep(path, a_prof, t=t, feature='a'); b = sweep(path, b_prof, t=t, feature='b')
     assert np.array_equal(a.V[a.seams['a.right']], b.V[b.seams['b.left']])
+
+
+def _fake_validate(checks):
+    class V:
+        @staticmethod
+        def validate_park(park, path):
+            report = {'checks': {k: {'ok': ok, 'bad_faces': 3} for k, ok in checks.items()}}
+            Path(path).write_text(json.dumps(report))
+            return report, all(checks.values())
+    return V
+
+
+@pytest.mark.parametrize('checks,preview,passes', [
+    ({'slivers': False, 'facets': False, 'topology': True}, True, True),
+    ({'slivers': False, 'facets': False, 'topology': True}, False, False),
+    ({'slivers': False, 'buried': False}, True, False),
+])
+def test_preview_gate_passes_only_cosmetic_failures_when_opted_in(tmp_path, monkeypatch, checks, preview, passes):
+    import craterpark.v2 as pkg
+    monkeypatch.setattr(pkg, 'validate', _fake_validate(checks), raising=False)
+    monkeypatch.setitem(sys.modules, 'craterpark.v2.validate', _fake_validate(checks))
+    if preview:
+        (tmp_path / generate.PREVIEW).write_text('')
+    if passes:
+        result = generate.run_validators(None, tmp_path)
+        report = json.loads((tmp_path / 'validation.json').read_text())
+        assert result['preview'] and report['preview'] is True and report['ok'] is False
+    else:
+        with pytest.raises(SystemExit):
+            generate.run_validators(None, tmp_path)

@@ -46,19 +46,38 @@ def line_spawns(park, module):
     return spawns.entries(park.mesh, park.lines, placement, deck_y=deck_y, labels=getattr(module, 'LINE_LABELS', None))
 
 
+SAFETY = ('topology', 'topology_collision', 'buried', 'overlaps', 'overlaps_collision', 'thin_walls', 'plan_width',
+          'protrusions', 'airs', 'terrain', 'budgets', 'ownership', 'dressing')
+COSMETIC = ('outlines', 'facets', 'uv_stretch', 'slivers')
+PREVIEW = 'PREVIEW'     # a file of this name in the output folder (build/yorimichi/craterpark/v2) opts into a preview
+
+
 def run_validators(park, out):
-    """validate.validate_park(park, out) -> (report, ok) when validate.py provides it (agent C); a failed check fails
-    the step. Until then the step records that no validator ran."""
+    """validate.validate_park(park, path) -> (report, ok); a failed check fails the step. Preview gate: when only
+    COSMETIC checks fail and out/PREVIEW exists, the step passes with validation.json {ok: false, preview: true} (for
+    screenshots, never for a release: packaging requires ok true). Any SAFETY (or unclassified) failure still fails."""
     try:
         from craterpark.v2 import validate
     except ImportError:
         return {'ran': False}
     if not hasattr(validate, 'validate_park'):
         return {'ran': False, 'why': 'validate.validate_park not defined yet'}
-    report, ok = validate.validate_park(park, out / 'validation.json')
-    if not ok:
-        raise SystemExit('Crater Park v2 validation failed: see ' + str(out / 'validation.json'))
-    return {'ran': True, 'ok': True}
+    path = out / 'validation.json'
+    report, ok = validate.validate_park(park, path)
+    if ok:
+        return {'ran': True, 'ok': True}
+    failed = sorted(k for k, v in report.get('checks', {}).items() if isinstance(v, dict) and not v.get('ok', True))
+    cosmetic_only = bool(failed) and all(k in COSMETIC for k in failed)
+    if cosmetic_only and (out / PREVIEW).exists():
+        report.update(ok=False, preview=True, cosmetic_failures=failed)
+        path.write_text(json.dumps(report, indent=1, default=str) + '\n')
+        n = sum(int(report['checks'][k].get('bad_faces', report['checks'][k].get('faceted_edges',
+                report['checks'][k].get('zigzag_points', 1)))) for k in failed)
+        print('!' * 78 + f'\nPREVIEW BUILD: {n} cosmetic failures in {", ".join(failed)} (validation.json ok: false)\n'
+              + '!' * 78, flush=True)
+        return {'ran': True, 'ok': False, 'preview': True, 'failed': failed}
+    raise SystemExit(f'Crater Park v2 validation failed ({", ".join(failed) or "?"}): see {path}'
+                     + ('' if not cosmetic_only else f' (only cosmetic: create {out / PREVIEW} for a preview build)'))
 
 
 def declare_scenery(park):
