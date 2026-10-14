@@ -21,7 +21,26 @@ The train must be fully finished and designed inside before anyone can ride it.
 Simple, straight or repeated parts (shelves, racks, steps, pipework, rails) are better modelled in code than drawn
 in Tripo: they come out straight and cost nothing. The canteen tray slide was the first.
 
-## 2. Later
+## 2. When the interiors are designed: fit and access
+
+Before riding, check the whole train against the playable characters, and make the checks automatic in
+`layout.py` (`check()` and the tests), so a later piece of furniture can't break them:
+
+- **Sizes:** every playable character, from Cairo (1.48 m) to Modori (1.75 m), fits the headroom under lamps, racks
+  and doorways, the door widths, and the aisle and corridor clearances, with each character's own radius.
+- **Walking through:** each coach can be walked end to end, and the gangways join neighbouring coaches at the same
+  floor height.
+- **Access by class**, in consist order (locomotive, tender, baggage van, restaurant, first class, second class,
+  brake van):
+  - first class and the restaurant are open to each other;
+  - the gangway doors from **second class to first class and to the brake van are locked** for passengers;
+  - the locomotive, tender and baggage van are staff only: not reachable from the passenger coaches, but walkable
+    inside.
+- **Tickets:** a second-class ticket keeps the player in second class until the next stop, with only the exterior
+  doors opening, at stations. The rule lives in an access graph that the layout checks: no passenger route from
+  second class to any other coach.
+
+## 3. Later
 
 - **The canteen lady** ([brief](BELMONTE_TRAIN_CANTEEN_LADY.md)): her spot, the serve point and the queue are already
   placed at the counter.
