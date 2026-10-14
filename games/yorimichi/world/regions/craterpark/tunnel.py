@@ -16,10 +16,9 @@ TUBE_REACH = 12.        # metres to a tunnel's wall at most, every way
 TUBE_SIDES = 2          # horizontal lines through a point in a tunnel meeting its wall both ways (its ends are open)
 TUBE_RAYS = 5           # of eight horizontal directions from a point near a tunnel's open end, meeting its wall
 PROBE = 2.              # metres between the points that find which pieces close round a bore (tunnels)
-SPLIT = .5              # metres across: a face reaching into a bore is split down to parts this small (carve)
-QUICK = 2.              # metres across: a part this small with no probe in the bore is kept whole (carve)
-LATTICE = 64            # lattice points along a face's longest edge at most (reaches_in)
-VOXEL = 1.              # metres between the nodes of the grid that says which points lie in a bore (bore_grid)
+COVERED = 3             # of eight horizontal directions from a bore's axis meeting a wall, for its prism to go on
+EXTEND = 40.            # metres a bore's prism is carried on along its axis at most, past its grid (bore_prism)
+VOXEL = .5              # metres between the nodes of the grid that says which points lie in a bore (bore_grid)
 PAIRS = 2_000_000       # ray-face pairs per batch at most
 
 
@@ -102,98 +101,141 @@ def bore_grid(piece, inside, cell=VOXEL):
     return _GRIDS[key]
 
 
-def near_bore(a, b, grid):
-    """Mask of the boxes (lowest corners `a`, highest `b`, (k, 3)), one node wider, holding a node of the bore."""
-    lo, cell, mask, total = grid
-    n = np.array(mask.shape)
-    i0 = np.clip(np.ceil((a - cell - lo) / cell).astype('i8'), 0, n); i1 = np.clip(np.floor((b + cell - lo) / cell).astype('i8') + 1, 0, n)
-    i1 = np.maximum(i1, i0)
-    count = np.zeros(len(a), 'i8')
-    for corner in range(8):
-        pick = [(corner >> d) & 1 for d in range(3)]
-        index = tuple(np.where(pick[d], i1[:, d], i0[:, d]) for d in range(3))
-        count += (-1) ** (3 - sum(pick)) * total[index]
-    return count > 0
+def hull(points):
+    """The convex hull of the 2-D `points` (k, 2), counter-clockwise (monotone chain)."""
+    p = np.unique(np.round(points, 6), axis=0)
+    if len(p) < 3:
+        return p
+    cross = lambda o, a, b: (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lower, upper = [], []
+    for q in p:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], q) <= 0:
+            lower.pop()
+        lower.append(q)
+    for q in p[::-1]:
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], q) <= 0:
+            upper.pop()
+        upper.append(q)
+    return np.asarray(lower[:-1] + upper[:-1])
 
 
-def bore_test(points, piece, grid):
-    """in_bore of the `points` (k, 3): where the eight nodes of the grid's cell round a point agree, theirs; nearer the
-    bore's edge, tested. Off the grid (PROBE past the points found in the bore, which lie PROBE apart) is out of it."""
+def bore_prism(grid, around=None, step=VOXEL, reach=EXTEND):
+    """A straight bore as a convex prism: the hull of its grid's nodes across its axis (horizontal, their main
+    direction), extruded between its ends, each face half a node out; with `around` (m, 3, 3), each end carried on
+    along the axis to the mouth, while those faces together still lie over and under the hull's middle with COVERED of
+    eight horizontal directions walled, where one piece alone does not close round it (a tunnel's roof one piece, a
+    wall another; its walls open near the mouth). (normals (m, 3), offsets (m,)): a point x lies in it
+    when normals @ x <= offsets for every face."""
     lo, cell, mask, _ = grid
-    i = np.floor((points - lo) / cell).astype('i8')
-    on = ((i >= 0) & (i + 1 < np.array(mask.shape))).all(1)
-    j = np.where(on[:, None], i, 0)
-    corners = np.stack([mask[j[:, 0] + dx, j[:, 1] + dy, j[:, 2] + dz]
-                        for dx in (0, 1) for dy in (0, 1) for dz in (0, 1)], 1)
-    agree = ~on | corners.all(1) | ~corners.any(1)
-    out = on & corners[:, 0]
-    if (~agree).any():
-        out[~agree] = in_bore(points[~agree], [piece])
+    p = lo + np.argwhere(mask) * cell
+    centre = p[:, [0, 2]].mean(0)
+    axis = np.linalg.svd(p[:, [0, 2]] - centre, full_matrices=False)[2][0]
+    side = np.array([-axis[1], axis[0]])
+    along = (p[:, [0, 2]] - centre) @ axis
+    outline = hull(np.stack([(p[:, [0, 2]] - centre) @ side, p[:, 1]], 1))
+    a3 = np.array([axis[0], 0., axis[1]]); s3 = np.array([side[0], 0., side[1]]); c3 = np.array([centre[0], 0., centre[1]])
+    ends = [along.max() + cell / 2, -along.min() + cell / 2]
+    if around is not None:
+        middle = c3 + outline[:, 0].mean() * s3 + np.array([0., outline[:, 1].mean(), 0.])
+        up, down = np.array([0., 1., 0.]), np.array([0., -1., 0.])
+        flat = [np.array([math.cos(a), 0., math.sin(a)]) for a in np.radians(np.arange(0, 360, 45))]
+        for k, sign in enumerate((1., -1.)):
+            start = ends[k]
+            while ends[k] < start + reach:
+                point = (middle + sign * (ends[k] + step) * a3)[None]
+                near = around[((around.max(1) > point - TUBE_REACH) & (around.min(1) < point + TUBE_REACH)).all(1)]
+                if not len(near):
+                    break
+                over, under = ray_distances(point, up, near, TUBE_REACH)[0], ray_distances(point, down, near, TUBE_REACH)[0]
+                walls = sum(np.isfinite(ray_distances(point, d, near, TUBE_REACH)[0]) for d in flat)
+                if not (np.isfinite(over) and np.isfinite(under) and walls >= COVERED):   # its roof ends: the mouth
+                    break
+                ends[k] += step
+    normals = [a3, -a3]; offsets = [ends[0] + a3 @ c3, ends[1] - a3 @ c3]
+    for k in range(len(outline)):
+        (u0, y0), (u1, y1) = outline[k], outline[(k + 1) % len(outline)]
+        n2 = np.array([y1 - y0, -(u1 - u0)]); n2 /= max(np.linalg.norm(n2), 1e-12)      # outward (counter-clockwise)
+        normal = n2[0] * s3 + n2[1] * np.array([0., 1., 0.])
+        normals.append(normal); offsets.append(n2 @ np.array([u0, y0]) + cell / 2 + n2[0] * (s3 @ c3))
+    return np.asarray(normals), np.asarray(offsets)
+
+
+def clip_out(corners, normals, offsets):
+    """The parts of the triangle `corners` (3, 3) outside the convex prism (normals, offsets), as barycentric triangles
+    (m, 3, 3) on it: the polygon left inside every face so far is cut by the next, and what lies past it kept."""
+    keep = []
+    polygon = [(corners[i], np.eye(3)[i]) for i in range(3)]
+    for n, d in zip(normals, offsets):
+        inside, outside = [], []
+        for k in range(len(polygon)):
+            (p0, b0), (p1, b1) = polygon[k], polygon[(k + 1) % len(polygon)]
+            d0, d1 = n @ p0 - d, n @ p1 - d
+            (inside if d0 <= 0 else outside).append((p0, b0))
+            if (d0 < 0 < d1) or (d1 < 0 < d0):
+                t = d0 / (d0 - d1); q = (p0 + t * (p1 - p0), b0 + t * (b1 - b0))
+                inside.append(q); outside.append(q)
+        if len(outside) >= 3:
+            keep += [(outside[0][1], outside[i][1], outside[i + 1][1]) for i in range(1, len(outside) - 1)]
+        polygon = inside
+        if len(polygon) < 3:
+            break
+    return np.asarray(keep).reshape(-1, 3, 3)
+
+
+def bore_prisms(bores):
+    """Each of the `bores` (tunnels) as a convex prism (bore_prism), from the grid of its piece round it, the bores'
+    pieces together carrying it on to its mouths; (None, None) where its grid holds no node."""
+    around = np.concatenate([piece for piece, _ in bores]).astype('f8') if bores else None
+    out = []
+    for piece, inside in bores:
+        lo, hi = inside.min(0) - PROBE - TUBE_REACH, inside.max(0) + PROBE + TUBE_REACH
+        grid = bore_grid(piece[((piece.max(1) > lo) & (piece.min(1) < hi)).all(1)], inside)
+        out.append(bore_prism(grid, around) if grid[2].any() else (None, None))
     return out
 
 
-def reaches_in(triangles, piece, grid, step):
-    """Mask of the `triangles` (n, 3, 3) with a point of a lattice over them, `step` apart, in the bore (bore_test).
-    Most faces near a bore only line it: they stay whole, and only the ones reaching in are split (carve)."""
-    hit = np.zeros(len(triangles), bool)
-    longest = np.linalg.norm(triangles - triangles[:, [1, 2, 0]], axis=-1).max(1)
-    k = np.clip(np.ceil(longest / step).astype('i8'), 1, LATTICE)
-    for n in np.unique(k):
-        which = np.flatnonzero(k == n)
-        i, j = np.meshgrid(np.arange(n + 1), np.arange(n + 1)); keep = (i + j) <= n
-        w = np.stack([i[keep], j[keep], n - i[keep] - j[keep]], 1) / n          # barycentric lattice
-        w = np.concatenate([w, [[1 / 3, 1 / 3, 1 / 3]]])
-        for c in range(0, len(which), max(1, 200000 // len(w))):
-            f = which[c:c + max(1, 200000 // len(w))]
-            points = np.einsum('pk,fkd->fpd', w, triangles[f]).reshape(-1, 3)
-            hit[f] = bore_test(points, piece, grid).reshape(len(f), len(w)).any(1)
-    return hit
-
-
-def carve(triangles, bores, split=SPLIT):
-    """The `triangles` (n, 3, 3) cut out of the tunnels' bores (in_bore), `bores` as tunnels gives them. A face reaching
-    into a bore is split in four, again and again near the bore, down to `split` metres; the parts whose centre lies in
-    the bore are left out and the rest kept, so a block's wall keeps its solid round the portal and a long face crossing
-    the bore keeps its ends. Returns (cut, parent, corners): the mask of the faces cut, and for each kept part its face's
-    index and its corners' barycentric coordinates on that face (m, 3, 3)."""
+def carve(triangles, bores):
+    """The `triangles` (n, 3, 3) cut out of the tunnels' bores, `bores` as tunnels gives them: each bore taken as a
+    convex prism (bore_prism), a face wholly inside it is left out, and a face crossing its side is clipped exactly,
+    its parts outside kept, so a block's wall keeps its solid round the portal and a long face crossing the bore keeps
+    its ends. Returns (cut, parent, corners): the mask of the faces cut, and for each kept part its face's index and its
+    corners' barycentric coordinates on that face (m, 3, 3)."""
     cut = np.zeros(len(triangles), bool); parents, corners = [], []
-    halves = np.array([[[1, 0, 0], [.5, .5, 0], [.5, 0, .5]], [[.5, .5, 0], [0, 1, 0], [0, .5, .5]],
-                       [[.5, 0, .5], [0, .5, .5], [0, 0, 1]], [[.5, .5, 0], [0, .5, .5], [.5, 0, .5]]])
-    for piece, inside in bores:
-        reach = inside.min(0) - PROBE, inside.max(0) + PROBE
-        near = np.flatnonzero(((triangles.max(1) > reach[0]) & (triangles.min(1) < reach[1])).all(1) & ~cut)
-        if not len(near):
+    done = 0
+    for normals, offsets in bore_prisms(bores):
+        if normals is None:
             continue
-        lo, hi = reach[0] - TUBE_REACH, reach[1] + TUBE_REACH
-        piece = piece[((piece.max(1) > lo) & (piece.min(1) < hi)).all(1)]
-        grid = bore_grid(piece, inside)
-        near = near[reaches_in(triangles[near].astype('f8'), piece, grid, split)]
-        parent, bary = near, np.repeat(np.eye(3)[None], len(near), 0)
-        kept, dropped = [], np.zeros(len(triangles), bool)
-        while len(parent):
-            c = np.einsum('kij,kjd->kid', bary, triangles[parent].astype('f8'))
-            a, b = c.min(1), c.max(1)
-            touch = near_bore(a, b, grid)
-            size = np.linalg.norm(b - a, axis=1); small = size <= split
-            # A part QUICK across or less with none of its corners, edge middles or centre in the bore stays whole:
-            # a block's face beside the bore (its top over the roof) is not split all the way down.
-            probe = np.flatnonzero(touch & ~small & (size <= QUICK))
-            clear = np.zeros(len(c), bool)
-            if len(probe):
-                q = c[probe]; points = np.concatenate([q, (q + q[:, [1, 2, 0]]) / 2, q.mean(1, keepdims=True)], 1)
-                clear[probe] = ~bore_test(points.reshape(-1, 3), piece, grid).reshape(len(probe), 7).any(1)
-            test = np.flatnonzero(touch & small)
-            gone = np.zeros(len(c), bool); gone[test] = bore_test(c[test].mean(1), piece, grid)
-            dropped[parent[gone]] = True
-            keep = ~touch | (small & ~gone) | clear
-            kept.append((parent[keep], bary[keep]))
-            more = touch & ~small & ~clear
-            parent = np.repeat(parent[more], 4)
-            bary = np.einsum('hij,kjl->khil', halves, bary[more]).reshape(-1, 3, 3)
-        cut |= dropped
-        for p, b in kept:
-            mine = dropped[p]
-            parents.append(p[mine]); corners.append(b[mine])
+        near = np.flatnonzero(~cut)
+        side = np.einsum('mk,fck->fcm', normals, triangles[near].astype('f8')) - offsets   # (faces, corners, prism faces)
+        apart = (side >= 0).all(1).any(1)                                 # all corners past one face: clear of it
+        near, side, apart = near[~apart], side[~apart], apart[~apart]
+        t = triangles[near].astype('f8')
+        whole = (side <= 0).all((1, 2))                                   # all corners inside every face
+        cut[near[whole]] = True
+        for f in np.flatnonzero(~apart & ~whole):
+            parts = clip_out(t[f], normals, offsets)
+            # a barycentric triangle's share of its face is its cross product's sum over three: all of it, only touching
+            share = np.abs(np.cross(parts[:, 1] - parts[:, 0], parts[:, 2] - parts[:, 0]).sum(1)).sum() / 3 if len(parts) else 0.
+            if share > 1 - 1e-9:
+                continue
+            cut[near[f]] = True
+            if len(parts):
+                parents.append(np.full(len(parts), near[f])); corners.append(parts)
+        # The parts an earlier bore left, cut by this one too (two bores meet at a tunnel's bend or its mouth).
+        if done:
+            parent, corner = np.concatenate(parents[:done]), np.concatenate(corners[:done])
+            p = np.einsum('mij,mjd->mid', corner, triangles[parent].astype('f8'))
+            side = np.einsum('mk,fck->fcm', normals, p) - offsets
+            gone = (side <= 0).all((1, 2)); touching = ~(side >= 0).all(1).any(1) & ~gone
+            keep_p, keep_c = [parent[~gone & ~touching]], [corner[~gone & ~touching]]
+            for f in np.flatnonzero(touching):
+                sub = clip_out(p[f], normals, offsets)
+                share = np.abs(np.cross(sub[:, 1] - sub[:, 0], sub[:, 2] - sub[:, 0]).sum(1)).sum() / 3 if len(sub) else 0.
+                if share > 1 - 1e-9:
+                    sub = np.eye(3)[None]
+                keep_p.append(np.full(len(sub), parent[f])); keep_c.append(np.einsum('mij,jk->mik', sub, corner[f]))
+            parents[:done], corners[:done] = [np.concatenate(keep_p)], [np.concatenate(keep_c).reshape(-1, 3, 3)]
+        done = len(parents)
     if not parents:
         return cut, np.zeros(0, 'i8'), np.zeros((0, 3, 3))
     return cut, np.concatenate(parents), np.concatenate(corners)
