@@ -164,3 +164,21 @@ def test_export_keeps_r4s_build_and_park_json_key_sets(tmp_path):
     assert (tmp_path / 'fbx' / 'SM_CP_ImportSeed.fbx').exists()
     assert not (tmp_path / 'fbx' / 'SM_CP_mesh_0000_000.fbx').exists()
     assert json.loads((tmp_path / 'build.json').read_text()) == build
+
+
+def test_fill_handles_a_concave_outline_without_new_vertices():
+    L = np.array([[0, 0, 0], [4, 0, 0], [4, 0, 1], [1, 0, 1], [1, 0, 4], [0, 0, 4]], float)
+    F = network.fill(L, [0, 1, 0])
+    t = L[F]; n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+    assert len(F) == 4 and (n[:, 1] > 0).all() and np.linalg.norm(n, axis=1).sum() / 2 == pytest.approx(7.)
+
+
+def test_regions_on_one_network_key_share_their_seam_vertices():
+    path = Spline([(0, 0), (6, 2), (12, 0)])
+    net = network.Network(); net.add('k', path)
+    a_prof = Profile([('arc', 3.5, 60)]); b_prof = Profile([('line', 2.)], start=tuple(a_prof.end))
+    net.propose('k', path.samples(dsl.RIDING_TESS, offsets=(0., 6.)), priority=1)
+    net.propose('k', path.samples(dsl.SIDE_TESS, offsets=(0., 6.)))
+    t = net.merge()['k']
+    a = sweep(path, a_prof, t=t, feature='a'); b = sweep(path, b_prof, t=t, feature='b')
+    assert np.array_equal(a.V[a.seams['a.right']], b.V[b.seams['b.left']])
