@@ -16,6 +16,8 @@ returns what build.py exports:
 import hashlib
 import json
 import math
+import resource
+import sys
 import time
 from pathlib import Path
 
@@ -41,7 +43,8 @@ COVER = .05         # metres: a foundation face this close on a riding surface i
 
 
 def log(t0, *a):
-    print(f'{time.time() - t0:7.1f}s clean:', *a, flush=True)
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1 << 30 if sys.platform == 'darwin' else 1 << 20)
+    print(f'{time.time() - t0:7.1f}s {peak:5.2f}G clean:', *a, flush=True)
 
 
 def mesh_rank(entry):
@@ -280,7 +283,7 @@ def occlusion(meshes):
     lo = verts.min(0) - reach - voxel; hi = verts.max(0) + reach + voxel
     lo[1] = max(lo[1], np.percentile(verts[:, 1], 1) - reach)
     grid = np.zeros(np.ceil((hi - lo) / voxel).astype(int), bool)
-    cl.mark(grid, tris, lo, voxel, step=voxel / 2)
+    cl.mark(grid, tris, lo, voxel, step=voxel / 2, cheapest=False)
     del tris
     return _rays(meshes, grid, lo)
 
