@@ -140,6 +140,11 @@ at 250 m. Each such face of the later mesh in role order (riding pieces, built w
 hillside) moves 5 mm back along its normal in the render; its corners stay shared, so nothing cracks. The collision
 keeps them where they are.
 
+Faces are ranked per piece of their mesh, not per mesh: a source mesh is often many pieces laid over each other. The
+crater's perimeter is 724 boxes, each 2.2 m long, set every 2 m, so their faces met in 20 cm coplanar strips every 2 m;
+the foundations carry about 70,000 m² of walls duplicated within one mesh. A face lying wholly on an earlier piece of its
+own mesh is left out, and where two pieces overlap in part, every other piece moves back 5 mm.
+
 [`craterpark/grind.py`](../world/regions/craterpark/grind.py) finds the grind lines along the lips already in the
 park, on the collision the board rides: the edge of a level deck where the ground falls away, with nothing over it,
 as the runtime's grind probes accept (the deck within 4 cm on one side 9 cm out, nothing at deck height on the
@@ -151,29 +156,46 @@ rider met its flat end. [`craterpark/tunnel.py`](../world/regions/craterpark/tun
 round an open bore (a riding face over and under a point, and round it on most sides, within 12 m) and cuts every
 block face that reaches into one out of the render and the collision: the face is split down to 0.5 m near the bore
 and only its parts inside are left out, so a block's wall keeps its solid round the portal and a long face crossing
-the bore keeps its ends. The added pieces are cut the same way (a cap's wall once stood across the tunnel).
+the bore keeps its ends. Which points lie in a bore is looked up on a 1 m grid computed once per bore (tested exactly
+only where the grid's nodes disagree, at its edge), and only faces with a point of a 0.5 m lattice over them in the
+bore are split: the thousands of faces that only line it stay whole. The added pieces are cut the same way (a cap's
+wall once stood across the tunnel).
 
 [`craterpark/additions.py`](../world/regions/craterpark/additions.py) adds riding pieces, shaped on the park's own
 surfaces; none moves, cuts or covers what is ridden:
 
-- **Snake channels.** The slots in the east bowls' floor fell 20-31 m to the hillside. Each holds a concrete channel
-  1.5 m deep at its middle (less where it is narrow), its sides a sine curve meeting the floor flush at both edges.
-  Under each bridge across a slot the channel rises into a roller over 4 m and meets the bridge's top. At the foot of a
-  riding deck 0.9-5 m over the bowls' floor (and nearer than any slot), the floor rises in a transition of 2.5-3.5 m
-  radius up to the deck's edge: a long bank joins the east rim's deck to the bowls. The curves (channels and
-  transitions) are seamless concrete (`material_010`); where they flatten onto the floor, within 2 cm of its level,
-  they take the bowls' own dark floor (`material_004`), so the concrete ends along a smooth contour.
-- **Pockets.** The plaza's stage pit and the holes in its terrace row are dishes of the same shape, flush with the
-  plaza round them.
-- **Banks.** A smooth surface spans the hillside between two pieces, flush with both: a hip from the tower's channel
-  down to the plaza terrace, and a run from the south-west bowl's rim deck (11 m) down to the banked curve's outer
-  rim (8 m), beside the tunnel strip, the line's way back towards the drop-in. A bank meets only the pieces named
-  for it; it passes the others by.
+- **East bowls.** The slots in the bowls' floor fell 20-31 m to the hillside. They are filled flush with the floor,
+  so at the foot of a riding deck at least 2 m across, 0.9-5 m over the floor, one transition of 2.5-3.5 m radius runs
+  from the floor up to the deck's edge, over the filled slot, with no gutter at its foot. A rail, a ledge or a wall stub
+  gets none, and a transition passing one eases down to the floor 0.3 m from it. Under each access bridge the floor
+  meets the bridge's top. The curves are seamless concrete (`material_010`); where they flatten onto the floor, within
+  2 cm of its level, they take the bowls' own dark floor (`material_004`), so the concrete ends along a smooth contour.
+- **Pockets.** The plaza's stage pit and the holes in its terrace row are dishes 1.5 m deep, flush with the plaza round
+  them, their sides a sine curve of at most 1.75 m and a flat bottom when wider. A hole whose rim stands 25 cm over the
+  plaza round it is a planter: it gets a flat bed 45 cm under its cap, not a dish curving up inside the box.
+- **Banks.** A smooth surface spans the hillside between pieces, flush with them, meeting a piece at its lip: the true
+  top of its coping, which can lie up to 0.6 m over the grid's nodes on a quarter pipe's steep face. A bank meets only
+  the pieces named for it, by box and height; it passes the others by. The hip from the tower channel's coping (16.3 m)
+  down to the plaza terrace is a landing transition: steep off the coping (about 30 degrees), easing out flat at its
+  foot. The run from the south-west bowl's rim deck (11 m) meets the banked curve's outer lip (10.4 m), where the
+  rider drops in. At the curve's far end, where it rose into a quarter 2.5 m short of the peanut bowl's rim and
+  stopped, a deck across makes a spine over into the bowl.
+- **Kicker.** A short arc from the plaza terrace up onto its parapet, at the hip's foot.
+- **Street.** The central street between the two walkway strips was hillside, level with them. It is paved flush with
+  the strips (herringbone, `material_012`), 5 cm over the hillside at least; a higher deck beside it keeps its wall,
+  and where the hill rises more than 30 cm through it, the paving stops at the hill.
+- **Snake runs.** A run along a centreline: a floor 6 m wide on the path it is laid over (flush with it), or on a
+  smooth profile through given heights; a 2.5 m wall of 3.5 m radius each side to carve and pump between; open ends cut
+  square. The narrow path from the banked curve's foot to the blue pool is one, carried over the gap to the pool's
+  coping; another joins the pool's north coping to the 12 m half-pipe's floor. The hillside under a run is cut 30 cm
+  below it.
 - **Steel coping.** A 7 cm steel tube is drawn along every grind line, its top 12 mm over the deck (render only; a
   metallic `Steel` parent in `import_craterpark.py`).
 - **Solid edges.** A riding sheet's free edge that ends in the air, a knife edge (a half-pipe's flank, the back of its
   wall), gets a level cap 35 cm wide on the side away from the piece, a grindable lip, and a wall from it down to
-  the ground, so the piece reads as solid concrete.
+  the ground, so the piece reads as solid concrete. A run of free edge shorter than 2 m (a stray scrap) gets none.
+  An added piece's outline, a staircase of its 25 cm grid, is smoothed first, so its walls stand straight, not in
+  slats.
 
 The added pieces take the riding concrete's materials with world-planar UVs at the piece's own texture scale, and
 rank after the bridges: where an added piece meets a bridge or a riding piece, theirs is drawn.

@@ -118,15 +118,15 @@ def near_bore(a, b, grid):
 
 def bore_test(points, piece, grid):
     """in_bore of the `points` (k, 3): where the eight nodes of the grid's cell round a point agree, theirs; nearer the
-    bore's edge (or off the grid), tested."""
+    bore's edge, tested. Off the grid (PROBE past the points found in the bore, which lie PROBE apart) is out of it."""
     lo, cell, mask, _ = grid
     i = np.floor((points - lo) / cell).astype('i8')
     on = ((i >= 0) & (i + 1 < np.array(mask.shape))).all(1)
     j = np.where(on[:, None], i, 0)
     corners = np.stack([mask[j[:, 0] + dx, j[:, 1] + dy, j[:, 2] + dz]
                         for dx in (0, 1) for dy in (0, 1) for dz in (0, 1)], 1)
-    agree = on & (corners.all(1) | ~corners.any(1))
-    out = np.where(agree, corners[:, 0], False)
+    agree = ~on | corners.all(1) | ~corners.any(1)
+    out = on & corners[:, 0]
     if (~agree).any():
         out[~agree] = in_bore(points[~agree], [piece])
     return out
