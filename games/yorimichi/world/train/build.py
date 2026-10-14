@@ -76,9 +76,9 @@ MATERIALS = {
     'ceiling-dingy': ((.50, .43, .31), 0., .85, None, 1., 1.),
     'cord': ((.24, .19, .12), 0., .9, None, 1., 1.),                  # coach fittings (fittings.py)
     'cord-burgundy': ((.20, .025, .03), 0., .7, None, 1., 1.),
-    'cord-emerald': ((.02, .12, .08), 0., .7, None, 1., 1.),
+    'cord-emerald': ((.010, .060, .022), 0., .7, None, 1., 1.),
     'velvet-burgundy': ((.26, .03, .04), 0., .85, None, 1., 1.),
-    'velvet-emerald': ((.03, .15, .10), 0., .85, None, 1., 1.),
+    'velvet-emerald': ((.008, .075, .025), 0., .85, None, 1., 1.),
     'curtain-canvas': ((.30, .27, .19), 0., .95, None, 1., 1.),       # the vans' faded blinds
     'enamel-white': ((.78, .76, .70), 0., .35, None, 1., 1.),
     'enamel-grimy': ((.55, .50, .40), 0., .55, None, 1., 1.),
