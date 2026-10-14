@@ -7,7 +7,7 @@ import numpy as np
 
 GAME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GAME / 'world' / 'regions'))
-from craterpark import additions, clean, remesh  # noqa: E402
+from craterpark import additions, clean, grind, remesh  # noqa: E402
 
 
 def area(t):
@@ -95,6 +95,25 @@ class RibbonTests(unittest.TestCase):
         self.assertTrue((cnt <= 2).all())                                            # a clean sheet
         n = np.cross(v[f][:, 1] - v[f][:, 0], v[f][:, 2] - v[f][:, 0])
         self.assertTrue((n[:, 1] > 0).all())                                         # facing up
+
+
+    def test_a_curved_walls_texture_runs_along_it_unstretched(self):
+        # a 4 m strip on a 20 m arc, 5 m up, 1.3 km out as the park is: its side walls' u is the distance along them
+        th = np.radians(np.linspace(0, 60, 61))
+        ring = lambda r: np.stack([1300 + r * np.cos(th), np.full(61, 5.), 900 + r * np.sin(th)], 1)
+        V = np.concatenate([ring(18.), ring(22.)])
+        F = np.array([f for i in range(60) for f in ([i, i + 1, 62 + i], [i, 62 + i, 61 + i])])
+        t = V[F]; n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]); F[n[:, 1] < 0] = F[n[:, 1] < 0][:, [0, 2, 1]]; t = V[F]
+        ground = np.array([[[1200., 0, 800], [1400, 0, 800], [1200, 0, 1000]], [[1400., 0, 800], [1400, 0, 1000], [1200, 0, 1000]]])
+        around = np.concatenate([t, ground])
+        v, f, uv = additions.solidify(t, grind.heights(around), around)
+        wall = np.abs(np.cross(v[f][:, 1] - v[f][:, 0], v[f][:, 2] - v[f][:, 0])[:, 1]) < 1e-6
+        self.assertGreater(int(wall.sum()), 200)
+        for tri in f[wall]:
+            for i in range(3):
+                p, q = tri[i], tri[(i + 1) % 3]
+                if abs(v[p, 1] - v[q, 1]) < 1e-9:
+                    self.assertAlmostEqual(abs(uv[q, 0] - uv[p, 0]) * additions.UV_METRES, np.linalg.norm((v[q] - v[p])[[0, 2]]), places=6)
 
 
 class RemeshTests(unittest.TestCase):

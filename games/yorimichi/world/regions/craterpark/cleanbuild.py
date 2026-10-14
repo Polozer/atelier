@@ -191,10 +191,10 @@ def clean(loaded, cache=None, box=None):
         p['P'], p['F'], p['UV'] = weld(*compact(P, F, UV)) if len(F) else (P[:0], F, UV[:0])
     pieces = [p for p in pieces if len(p['F'])]
     # 3. T-junctions
+    allP = np.concatenate([x['P'] for x in pieces]); whose = np.repeat(np.arange(len(pieces)), [len(x['P']) for x in pieces])
     for k, p in enumerate(pieces):
         lo, hi = p['P'].min(0) - 1, p['P'].max(0) + 1
-        others = np.concatenate([x['P'] for j, x in enumerate(pieces) if j != k])
-        others = others[((others >= lo) & (others <= hi)).all(1)]
+        others = allP[((allP >= lo) & (allP <= hi)).all(1) & (whose != k)]     # positions as they were before this pass
         P, F, added, p['UV'] = cl.fix_tjunctions(p['P'], p['F'], others, tol=TJ, attrs=p['UV'])   # UVs along the split edge
         p['P'], p['F'] = P, F
     log(t0, 'T-junctions split')

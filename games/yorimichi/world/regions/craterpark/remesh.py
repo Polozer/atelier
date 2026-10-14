@@ -151,6 +151,19 @@ class CDTError(RuntimeError):
     pass
 
 
+def _parity(q, P2, edges, chunk=4096):
+    """Even-odd inside test of the points q (m,2) against the closed loops of `edges` (pairs into P2): a constrained
+    triangulation's triangles lie wholly inside or outside its constraints, so a centroid's parity is exact."""
+    e = np.asarray(edges, 'i8').reshape(-1, 2); a, b = P2[e[:, 0]], P2[e[:, 1]]
+    odd = np.zeros(len(q), bool)
+    for s in range(0, len(e), chunk):
+        ax, ay, bx, by = a[s:s + chunk, 0], a[s:s + chunk, 1], b[s:s + chunk, 0], b[s:s + chunk, 1]
+        straddle = (ay[None] > q[:, 1:2]) != (by[None] > q[:, 1:2])
+        x = ax[None] + (q[:, 1:2] - ay[None]) * (bx - ax)[None] / np.where(by == ay, 1., by - ay)[None]
+        odd ^= (straddle & (x > q[:, 0:1])).sum(1) % 2 == 1
+    return odd
+
+
 def _dist_to_boundary(Q, P2, T):
     """Distance from points Q (m,2) to the boundary edges (edges of one face) of the triangles T (n,3) into P2."""
     key, face, inv, cnt = edges_of(T)
@@ -167,7 +180,7 @@ def remesh_patch(P2, H, A, tol_h, tol_a, bverts, bedges, interior, inside, max_r
     """One patch: P2 (V,2) plane coordinates, H (V,) height along its normal, A (V,k) attributes; the simplified
     boundary's vertices `bverts` and constraint edges `bedges` (pairs of vertex ids), the candidate vertices
     `interior` (every original vertex of the patch, boundary ones included, as checks), `inside(points (m,2))` a mask of
-    points in the patch's domain. Returns triangles (m,3) of vertex ids, or None when it cannot certify them (fail
+    points in the patch's domain (None: the parity of the constraint loops, exact). Returns triangles (m,3) of vertex ids, or None when it cannot certify them (fail
     closed): a check vertex left outside the triangles by more than tol_out (the boundary's own tolerance) is inserted,
     and one still outside, or still off the surface, after max_rounds fails the patch."""
     chosen = np.unique(np.asarray(bverts))
@@ -178,7 +191,7 @@ def remesh_patch(P2, H, A, tol_h, tol_a, bverts, bedges, interior, inside, max_r
         T = cdt(P2[chosen], le)
         if len(T):
             c = P2[chosen][T].mean(1)
-            T = T[inside(c)]
+            T = T[_parity(c, P2, bedges) if inside is None else inside(c)]
         Tg = chosen[T]
         if not len(Tg):
             return None
@@ -338,10 +351,8 @@ def _patch(P, F, A, fl, chains, n, area, l, normal_of, tol_h, tol_a, tol_b):
         kk = [loc_of[int(x)] for x in k]
         bverts += kk; bedges += list(zip(kk[:-1], kk[1:]))
     Flocal = np.array([[loc_of[int(x)] for x in tri] for tri in Fl.tolist()], 'i8')
-    loc0 = Locator(P2[Flocal])
-    inside = lambda c, loc0=loc0: loc0.locate(c, eps=1e-9)[0] >= 0
     try:
-        T = remesh_patch(P2, H, Al, tol_h, tol_a, np.unique(bverts), bedges, np.unique(Flocal), inside, tol_out=tol_b)
+        T = remesh_patch(P2, H, Al, tol_h, tol_a, np.unique(bverts), bedges, np.unique(Flocal), None, tol_out=tol_b)
     except CDTError:
         return None
     if T is None or not len(T):
