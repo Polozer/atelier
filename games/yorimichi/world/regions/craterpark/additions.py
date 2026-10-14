@@ -17,7 +17,11 @@ CHANNEL = 1.5       # metres: a snake channel's depth at its middle
 WALL_LOW, WALL_HIGH = .9, 5.   # metres a riding deck stands over the floor, for a transition at its wall's foot
 RADIUS = (2.5, 3.5) # metres: a transition's radius, the wall's height within these
 RAISED = .005       # metres: a floor node raised less is left as it is
+TRANSITION = 1.75   # metres a channel or pocket takes to reach its depth; wider, it has a flat bottom
+WIDE = 2.           # metres across a deck at least, for a transition at its wall's foot
+CLEAR_NARROW, EASE = .3, 1.5  # metres a transition keeps off a narrower piece, and over which it eases down
 LIFTED = .02        # metres off the floor's level: a triangle with a corner this far is the curves' concrete
+FLAT_SKIRT = .998   # a triangle's normal y at least (about 3.6 degrees), for the flat skirt
 FEET_METRES = 4.    # metres per texture tile on the flat skirt (the bowls' floor's own tiling)
 FEET_MATERIAL = 'material_004'      # the east bowls' dark floor ('bowl'), on the flat skirt round the curves
 BRIDGE = 2.          # metres: a strip across a slot this wide at most is a bridge the channel rises under
@@ -249,8 +253,16 @@ def snake_channels(riding, solid, box, floor, open_=OPEN, channel=CHANNEL, feet=
         # so a deck wall's transition starts on the floor and runs over the slot in one curve: no gutter at its foot.
         across = relax(np.where(bridge, every, np.where(is_floor, ride, 0.)),
                        (grow(slot, 1) & ~slot & is_floor) | bridge, slot & ~bridge)
-        ride = np.where(slot & ~bridge, across, ride); is_floor = is_floor | (slot & ~bridge)
-    rise = wall_feet(ride, is_floor, is_ride, slot & (channel > 0), cell)[0] if feet else np.zeros(ride.shape)
+        ride = np.where(slot & ~bridge, across, np.where(bridge, every, ride)); is_floor = is_floor | (slot & ~bridge)
+    # Only a deck WIDE across has a transition at its foot. A rail, a ledge or a free-standing wall stub keeps its
+    # faces as they are: no transition starts at it, and one passing by eases down to the floor CLEAR_NARROW from it.
+    high = is_ride & (ride > floor + WALL_LOW - .05)
+    k = int(round(WIDE / 2 / cell))
+    narrow = high & ~grow(~grow(~high, k, True), k, True)          # opened by a square: a deck's corners stay
+    rise = wall_feet(ride, is_floor, is_ride & ~narrow, slot & (channel > 0), cell)[0] if feet else np.zeros(ride.shape)
+    if narrow.any():
+        gap = distance_out(~narrow, CLEAR_NARROW + EASE, cell)
+        rise = rise * np.sin(np.pi / 2 * np.clip((gap - CLEAR_NARROW) / EASE, 0., 1.)) ** 2
     rise = np.where(is_floor, rise, 0.)
     raised = rise > RAISED
     if not slot.any() and not raised.any():
@@ -261,11 +273,12 @@ def snake_channels(riding, solid, box, floor, open_=OPEN, channel=CHANNEL, feet=
     rim = relax(level, fixed, slot & ~bridge)
     d = distance_out(slot, REACH, cell)
     half = np.maximum(max_near(d, REACH * .75, cell, slot), d)
-    depth = np.minimum(max(channel, 0.), STEEPEST * half)
+    ramp = np.minimum(half, TRANSITION)                          # down a transition, then a flat bottom
+    depth = np.minimum(max(channel, 0.), STEEPEST * ramp)
     if bridge.any():
         to_bridge = distance_out(~bridge, TAPER, cell)
         depth = depth * np.sin(np.pi / 2 * np.clip(to_bridge / TAPER, 0., 1.)) ** 2
-    u = np.clip(d / np.maximum(half, 1e-6), 0., 1.)
+    u = np.clip(d / np.maximum(ramp, 1e-6), 0., 1.)
     height = np.where(slot & (channel > 0), rim - depth * np.sin(np.pi / 2 * u) ** 2, ground)
     # The nodes round each piece, under the floor, carry the floor's own height: its edge meets the floor flush.
     # One mesh over both, then split by its shape, not by the grid's cells (whose outline is a staircase): a triangle
@@ -284,7 +297,8 @@ def snake_channels(riding, solid, box, floor, open_=OPEN, channel=CHANNEL, feet=
         with np.errstate(invalid='ignore'):                         # no floor at all off the pieces: inf - inf
             off = np.abs(height - level)
         lifted = np.isfinite(off) & (np.where(np.isfinite(off), off, 0.) > LIFTED)
-        curved = lifted.ravel()[flat][faces].any(1)
+        level_face = unit_normals(vertices[faces].astype('f8'))[:, 1] > FLAT_SKIRT
+        curved = lifted.ravel()[flat][faces].any(1) | ~level_face
     else:
         curved = np.ones(len(faces), bool)
     made = {}

@@ -74,7 +74,7 @@ class SnakeTests(unittest.TestCase):
         v, f, uv = additions.snake_channels(self.riding, self.solid, (-2, -2, 32, 27), 0.)['channels']
         self.assertEqual(len(uv), len(v))
         mid = (v[:, 2] > 12.4) & (v[:, 2] < 12.6) & (v[:, 0] > 8) & (v[:, 0] < 22)
-        self.assertAlmostEqual(float(v[mid, 1].min()), -min(additions.CHANNEL, additions.STEEPEST * 2.5), delta=.05)
+        self.assertAlmostEqual(float(v[mid, 1].min()), -min(additions.CHANNEL, additions.STEEPEST * min(2.5, additions.TRANSITION)), delta=.05)
         edge = (np.abs(v[:, 2] - 10) < .01) | (np.abs(v[:, 2] - 15) < .01)
         self.assertLess(float(np.abs(v[edge, 1]).max()), .02)       # flush with the floor at both edges
         n = grind.unit_normals(v[f].astype('f8'))
@@ -87,7 +87,7 @@ class SnakeTests(unittest.TestCase):
         under = (np.abs(v[:, 0] - 15) < .2) & (v[:, 2] > 11) & (v[:, 2] < 14)
         self.assertLess(float(np.abs(v[under, 1]).max()), .02)      # flush with the bridge's top
         far = (np.abs(v[:, 0] - 6) < .2) & (np.abs(v[:, 2] - 12.5) < .2)
-        self.assertLess(float(v[far, 1].min()), -1.)                # deep again away from it
+        self.assertLess(float(v[far, 1].min()), -.9)                # deep again away from it
 
 
     def test_a_deck_wall_gets_a_transition_at_its_foot_up_to_its_edge(self):
@@ -118,6 +118,18 @@ class SnakeTests(unittest.TestCase):
         self.assertTrue((np.diff(cut[:, 1]) > -1e-4).all())                     # rises all the way across the slot
         self.assertAlmostEqual(float(cut[-1, 1]), 2.5, delta=.05)               # up to the deck's edge
         self.assertLess(float(cut[0, 1]), .01)                                  # from the floor
+
+
+    def test_a_rail_on_the_floor_keeps_its_faces(self):
+        # A 0.3 m wide rail 1.2 m up on the floor, 6 m from a deck 2.5 m up: the deck's foot gets a transition, the rail none.
+        riding = np.asarray(floor(0, 0, 30, 20) + floor(0, 20, 30, 30, 2.5) + floor(10, 8, 20, 8.3, 1.2), 'f8')
+        solid = np.asarray(floor(-10, -10, 40, 40, -20.), 'f8')
+        made = additions.snake_channels(riding, solid, (-2, -2, 32, 32), 0., channel=0., feet=True)
+        v = np.concatenate([m[0][m[1]].reshape(-1, 3) for m in made.values()])
+        near_deck = v[(v[:, 2] > 18) & (v[:, 2] < 20)]
+        self.assertGreater(float(near_deck[:, 1].max()), 1.)                    # the deck's transition
+        by_rail = v[(v[:, 0] > 9) & (v[:, 0] < 21) & (v[:, 2] > 7) & (v[:, 2] < 9.3)]
+        self.assertLess(float(by_rail[:, 1].max()) if len(by_rail) else 0., .01)   # nothing rises on the rail
 
 
 class SolidifyTests(unittest.TestCase):
