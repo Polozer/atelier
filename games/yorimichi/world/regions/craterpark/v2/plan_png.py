@@ -148,23 +148,22 @@ def render_plan(meshes, out, lanes=(), airs=(), report=None, box=None, px=None, 
         label = a.get('label') or f'{gap:.0f} m air'
         mid = pts[16]
         d.text((mid[0] + 6, mid[1] - 8), f'{label}  (drop {lip[1] - land[1]:+.1f} m)', fill=(20, 20, 20), font=font)
-    n = 0
+    n = 0; per_check = {}
     if report:
         for name, chk in report.get('checks', {}).items():
             for f in chk.get('failures', []) or []:
                 w = f.get('where')
                 if not w or w[0] is None or len(w) < 3:
                     continue
-                n += 1
+                n += 1; per_check[name] = per_check.get(name, 0) + 1
                 x, z = to(w[0], w[2])
                 r = 9
                 d.ellipse([x - r, z - r, x + r, z + r], outline=(220, 20, 20), width=3)
-                if n <= 99:
-                    d.text((x + r + 2, z - r), f'{n} {name}', fill=(200, 10, 10), font=font)
     # header, two rows: title and failure count; height scale, metre bar and axes
     d.text((10, 6), title, fill=(20, 20, 20), font=font)
     if n:
-        d.text((W // 2, 6), f'{n} failure locations ringed (red)', fill=(200, 10, 10), font=font)
+        d.text((W // 3, 6), f'{n} failure locations ringed: ' + ', '.join(f'{k} {v}' for k, v in per_check.items()),
+               fill=(200, 10, 10), font=font)
     sw = 200
     bar = _palette(np.linspace(0, 1, sw))
     for i in range(sw):
@@ -187,11 +186,10 @@ def render_park(park, out, report=None, airs=None, **kw):
     from .validate import park_meshes, park_lanes
     render, _, _ = park_meshes(park)
     if airs is None:
-        airs = [c for c in park.checks if isinstance(c, dict) and 'lip' in c and 'land' in c]
+        airs = (report or {}).get('airs') or [c for c in park.checks if isinstance(c, dict) and 'lip' in c and 'land' in c]
     line_of = {}
-    names = {n: i for i, n in enumerate(park.mesh.features)}
     for k, line in enumerate(park.lines):
-        for f in line.features:
-            if f in names:
-                line_of.setdefault(names[f], k)
+        for i, n in enumerate(park.mesh.features):
+            if any(n == f or n.startswith(f + '.') for f in line.features):
+                line_of.setdefault(i, k)
     return render_plan(render, out, lanes=park_lanes(park), airs=airs, report=report, line_of=line_of, **kw)
