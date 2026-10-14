@@ -137,3 +137,27 @@ def zipper(V, top, bottom):
         else:
             out.append((top[i], bottom[j], bottom[j + 1])); j += 1
     return np.asarray(out, 'i8').reshape(-1, 3)
+
+
+def wall_strip(top, bottom, *, outward=None, feature='unnamed', material='material_023', role='side',
+               uv_metres=9.):
+    """A wall joining two regions whose heights differ along a shared curve (invariant I3): `top` (k, 3) and `bottom`
+    (k, 3) are the two regions' own seam vertices at the same plan points (same network samples), so the wall shares
+    every vertex position with both. `outward` (3,) picks the facing (default: the side the strip's normals already
+    face). Vertex normals are the averaged face normals made horizontal (a ruled wall). u = length along the top (the clean-branch solidify rule), v = height."""
+    from . import dsl
+    top = np.asarray(top, 'f8'); bottom = np.asarray(bottom, 'f8'); k = len(top)
+    V = np.concatenate([top, bottom])
+    F = strip(np.arange(k), np.arange(k, 2 * k))
+    t = V[F]; fn = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+    if outward is not None and (fn @ np.asarray(outward, 'f8')).sum() < 0:
+        F = F[:, ::-1].copy(); fn = -fn
+    # no faces where the two seams meet (the wall's height runs out to zero)
+    keep = np.linalg.norm(fn, axis=1) > 1e-10
+    u = np.concatenate([[0.], np.cumsum(np.linalg.norm(np.diff(top[:, [0, 2]], axis=0), axis=1))])
+    UV = np.concatenate([np.stack([u, top[:, 1]], 1), np.stack([u, bottom[:, 1]], 1)]) / uv_metres
+    mesh = dsl.Mesh.part(V, F[keep], material=material, role=role, feature=feature, UV=UV)
+    mesh.N[:] = dsl.vertex_normals(V, F[keep]) * [1, 0, 1]
+    n = np.linalg.norm(mesh.N, axis=1, keepdims=True)
+    mesh.N = np.where(n > 1e-12, mesh.N / np.maximum(n, 1e-12), dsl.vertex_normals(V, F[keep]))
+    return mesh
