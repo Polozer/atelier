@@ -152,6 +152,23 @@ class SimplifyTests(unittest.TestCase):
         self.assertEqual(len(out.F), len(F))
         self.assertGreaterEqual(diag.get('seam_patches', 0), 1)
 
+    def test_pieces_simplified_apart_with_keep_open_still_meet(self):
+        # a curved sheet cut in two along z = 5 (as export's render chunks are): each simplified on its own
+        R = 3.5
+        V, F = grid(30, 20, 0., 3., 0., 10., y=lambda x, z: R - np.sqrt(R * R - x * x))
+        c = V[F].mean(1)[:, 2] < 5
+        # the lower half changes material at x = 1.5, so its chains along the cut end there; the upper's do not
+        lower = V[F[c]].mean(1)[:, 0] < 1.5
+        halves = [Mesh.concat([Mesh.part(V, F[c][lower], feature='quarter'),
+                               Mesh.part(V, F[c][~lower], feature='quarter', material='material_000')]),
+                  Mesh.part(V, F[~c], feature='quarter')]
+        out = [remesh.simplify(h, keep_open=True) for h in halves]
+        self.assertLess(sum(len(o.F) for o in out), len(F))
+        self.assertEqual(tjunction.check(Mesh.concat(out))['tjunctions'], 0)
+        cut = [np.unique(np.round(o.V[np.abs(o.V[:, 2] - 5) < 1e-9, 0], 9)) for o in out]
+        self.assertTrue(np.array_equal(cut[0], cut[1]))                # the cut keeps every vertex on both sides
+        self.assertEqual(len(cut[0]), 31)
+
     def test_kept_faces_are_unchanged(self):
         V, F = grid(10, 10)
         m = Mesh.part(V, F, feature='deck')

@@ -593,13 +593,14 @@ def patches(mesh):
     return np.unique(lab, return_inverse=True)[1].ravel()
 
 
-def simplify(mesh, tol_h=TOL_H, tol_b=TOL_B, tol_uv=TOL_UV, tol_ao=TOL_AO, keep=None, diag=None):
+def simplify(mesh, tol_h=TOL_H, tol_b=TOL_B, tol_uv=TOL_UV, tol_ao=TOL_AO, keep=None, diag=None, keep_open=False):
     """The mesh remeshed patch by patch (patches()) within tol_h of its surface along each patch's direction, its
     boundaries within tol_b, its UVs within tol_uv and AO within tol_ao everywhere on the input's faces; a new dsl.Mesh whose
     vertices are a subset of the input's (positions, normals, UVs, AO carried over exactly) and whose faces keep their
     patch's material, role, feature and tag. Creases and UV seams (split vertices) keep every vertex along them.
     `keep` (m,) bool: faces left as they are (their patches fixed). A patch the remesher cannot certify, or one that
-    holds both sides of a seam (a seam ending inside it), keeps its faces; counted in `diag`."""
+    holds both sides of a seam (a seam ending inside it), keeps its faces; counted in `diag`. `keep_open`: every vertex
+    on an open edge stays (a piece cut from a larger mesh, simplified on its own, still meets its neighbours exactly)."""
     from . import dsl
     V, F = mesh.V, mesh.F
     if not len(F):
@@ -608,6 +609,10 @@ def simplify(mesh, tol_h=TOL_H, tol_b=TOL_B, tol_uv=TOL_UV, tol_ao=TOL_AO, keep=
     _, first, w_of = np.unique(key, axis=0, return_index=True, return_inverse=True); w_of = w_of.ravel()
     P = V[first]; Fw = w_of[F]
     twins = np.bincount(w_of, minlength=len(P)) > 1                        # split vertices: creases and UV seams
+    if keep_open:
+        e = np.sort(np.concatenate([Fw[:, [0, 1]], Fw[:, [1, 2]], Fw[:, [2, 0]]]), 1)
+        u, c = np.unique(e, axis=0, return_counts=True)
+        twins[u[c == 1].ravel()] = True
     X = np.c_[mesh.AO, mesh.UV]
     tolA = np.array([tol_ao, tol_uv, tol_uv])
     lab = patches(mesh)
