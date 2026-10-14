@@ -799,6 +799,11 @@ TRAILING_R = .50
 CRANK = .38
 CYLINDER = (4.20, 5.30, .30, 1.05, 1.20)    # x0, x1, radius, axis height, |y|
 LOCO_BEAM = 6.55                            # front buffer beam
+# where the Tripo backhead's pipes stop short, measured on the fitted mesh in the coach frame (z above the floor)
+BACKHEAD_STUBS = (-5.00, .8825, 1.9395, .0165)                      # x, |y|, z, radius: the outer columns' tops, bent forward
+BACKHEAD_FEET = ((-5.278, .723, .060, .016), (-5.278, .815, .097, .013))   # x, |y|, bottom, radius: the injector pipes
+FOUNTAIN = (-4.66, 2.08, .62, .05)          # the steam fountain on the firebox top: x, axis z above the floor, half-length, radius
+WHISTLE_VALVE = (-4.86, .035)               # x and radius of the whistle valve under the driver's pull rod
 
 
 def locomotive():
@@ -846,6 +851,34 @@ def locomotive():
     ]
     c.goals.update({'cab': (-6.10, 0.), 'regulator': (hi - .30, .30), 'fire-door': (hi - .30, 0.)})
     return c
+
+
+def cab_pipes():
+    """The cab's own pipe runs, finishing what the Tripo backhead leaves in mid-air, as on a real Pacific: the outer
+    columns feed the steam fountain (the manifold on the firebox top), the fountain and the whistle valve take steam
+    from the boiler through its back end, and the injector pipes drop through the footplate. Each run is a list of
+    axis-aligned points (coach frame) with a radius, a material and how each end finishes: 'union' where it joins a
+    Tripo pipe or a fitting, 'cap' at the fountain's ends, 'flange' where it meets the boiler or the floor."""
+    F = FLOOR_Z
+    sx, sy, sz, sr = BACKHEAD_STUBS
+    fx, fz, fh, fr = FOUNTAIN
+    wx, wr = WHISTLE_VALVE
+    boiler = CAB[1] - .005                  # the boiler barrel's back end, behind the cab front plate
+    whistle = next(m for m in locomotive().mounts if m.id == 'whistle')
+    runs = [dict(name='fountain', pts=[(fx, -fh, F + fz), (fx, fh, F + fz)], r=fr, mat='iron-black', ends=('cap', 'cap')),
+            dict(name='steam-supply', pts=[(fx, 0., F + fz), (fx, 0., F + 2.30), (boiler, 0., F + 2.30)], r=.04,
+                 mat='iron-black', ends=('union', 'flange')),
+            dict(name='whistle-feed', pts=[(wx, whistle.y, F + fz), (fx, whistle.y, F + fz)], r=.02, mat='brass-dull',
+                 ends=('union', 'union')),
+            dict(name='whistle-pipe', pts=[(wx, whistle.y, F + 2.12), (wx, whistle.y, F + 2.38), (boiler, whistle.y, F + 2.38)],
+                 r=.022, mat='brass-dull', ends=('union', 'flange'))]
+    for side, s in (('l', 1), ('r', -1)):
+        runs.append(dict(name=f'column-feed-{side}', pts=[(sx, s * sy, F + sz), (fx, s * sy, F + sz), (fx, s * sy, F + fz),
+                                                           (fx, s * fh, F + fz)], r=sr, mat='brass-dull', ends=('union', 'union')))
+        for k, (x, y, z, r) in enumerate(BACKHEAD_FEET):
+            runs.append(dict(name=f'injector-{side}-{k + 1}', pts=[(x, s * y, F + z + .015), (x, s * y, F)], r=r,
+                             mat='brass-dull', ends=('union', 'flange')))
+    return runs
 
 
 def vehicles():

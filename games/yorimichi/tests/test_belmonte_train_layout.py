@@ -96,6 +96,33 @@ class Coaches(unittest.TestCase):
         controls = {m.id for m in loco.mounts if m.kind == 'control'}
         self.assertTrue({'regulator', 'reverser', 'brake', 'whistle', 'fire-door'} <= controls)
 
+    def test_cab_pipes_go_somewhere(self):
+        # every run is axis-aligned, stays within the backhead's pipework (out of the crew's head room) and ends on a
+        # Tripo pipe, a fitting, the boiler's back end or the footplate
+        F, loco = L.FLOOR_Z, L.locomotive()
+        runs = L.cab_pipes()
+        ends = {(round(x, 3), round(s * y, 3), round(F + z, 3)) for s in (1, -1) for x, y, z, _ in L.BACKHEAD_FEET}
+        ends |= {(L.BACKHEAD_STUBS[0], round(s * L.BACKHEAD_STUBS[1], 3), round(F + L.BACKHEAD_STUBS[2], 3)) for s in (1, -1)}
+        fountain = next(r for r in runs if r['name'] == 'fountain')['pts']
+        for run in runs:
+            pts = run['pts']
+            for a, b in zip(pts, pts[1:]):
+                self.assertEqual(sum(abs(a[i] - b[i]) > 1e-9 for i in range(3)), 1, run['name'])
+            for p in pts:
+                self.assertGreaterEqual(p[0], L.BACKHEAD_X - L.PIPEWORK, run['name'])
+                self.assertLess(p[0], L.CAB[1], run['name'])
+            for end, p in zip(run['ends'], (pts[0], pts[-1])):
+                if end == 'flange':     # on the boiler's back end or the footplate
+                    self.assertTrue(abs(p[0] - L.CAB[1]) < .01 or abs(p[2] - F) < 1e-9, (run['name'], p))
+                elif end == 'union':    # on a Tripo pipe end (a little inside it), the fountain or the whistle valve
+                    on_fountain = abs(p[0] - fountain[0][0]) < 1e-9 and abs(p[2] - fountain[0][2]) < 1e-9 and abs(p[1]) <= fountain[1][1] + 1e-9
+                    on_valve = abs(p[0] - L.WHISTLE_VALVE[0]) < 1e-9
+                    on_tripo = any(abs(p[0] - e[0]) < 1e-3 and abs(p[1] - e[1]) < 1e-3 and -1e-3 < p[2] - e[2] < .02 for e in ends)
+                    self.assertTrue(on_fountain or on_valve or on_tripo, (run['name'], p))
+        whistle = next(m for m in loco.mounts if m.id == 'whistle')
+        self.assertTrue(any(r['pts'][0][:2] == (L.WHISTLE_VALVE[0], whistle.y) for r in runs))
+        self.assertEqual(sum(r['name'].startswith('injector') for r in runs), 4)
+
 
     def test_canteen_serving_line(self):
         import math

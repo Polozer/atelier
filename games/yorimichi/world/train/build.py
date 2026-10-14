@@ -1796,9 +1796,9 @@ def loco_body(c, coll, parent, glass_coll):
     d.obj('Cab_BackheadFace', coll, parent=parent, closed=False)
     mt = {mo.id: mo for mo in c.mounts}
     # the controls, each its own object with the origin at its pivot (the driving mode turns them)
-    def control(name, mesh, mount):
-        if mount.x < bx - .05:                       # on a shaft from the backhead plate, through the pipework
-            mesh.cylinder((mount.y, mount.z), 'x', .018, mount.x, bx, 'steel', 8)
+    def control(name, mesh, mount, to=bx):
+        if mount.x < bx - .05:                       # on a shaft from the backhead plate (or a valve), through the pipework
+            mesh.cylinder((mount.y, mount.z), 'x', .018, mount.x, to, 'steel', 8)
         o = mesh.obj(f'Control_{name}', coll, parent=parent, origin=(mount.x, mount.y, mount.z))
         o['control'] = mount.id; o['lods'] = [0, 1]
         return o
@@ -1825,7 +1825,8 @@ def loco_body(c, coll, parent, glass_coll):
     control('Brake', k, p)
     p = mt['whistle']
     k = M(); k.box(p.x - .03, p.x, p.y - .01, p.y + .01, p.z - p.length, p.z, 'brass'); k.prism(_circle(p.y, p.z - p.length, .02, 8), 'x', p.x - .05, p.x, 'end-dark')
-    control('Whistle', k, p)
+    control('Whistle', k, p, to=L.WHISTLE_VALVE[0] - L.WHISTLE_VALVE[1])      # the pull rod runs to the whistle valve
+    cab_pipework(coll, parent)
     p = mt['sander']
     k = M(); k.box(p.x - .03, p.x, p.y - .012, p.y + .012, p.z, p.z + p.length, 'brass')
     control('Sander', k, p)
@@ -1881,6 +1882,49 @@ def loco_body(c, coll, parent, glass_coll):
     m.obj('Shell_Buffers', coll, parent=parent)
     lamp = M(); lamp.prism(_circle(hl.y, hl.z, .09, 16), 'x', hl.x + .10, hl.x + .12, 'lamp-white')
     lamp.obj('Shell_HeadLamp', coll, parent=parent)
+
+
+def cab_pipework(coll, parent):
+    """The cab's pipe runs from layout.cab_pipes (the steam fountain, its feeds, the whistle valve and the injector pipes
+    through the footplate), with brass unions, end caps, flanges, the fountain's saddles and the main steam valve."""
+    F = L.FLOOR_Z
+    m = M()
+    axis = lambda a, b: next(i for i in range(3) if abs(a[i] - b[i]) > 1e-9)
+    def tube(a, b, r, mat, seg):                     # an axis-aligned tube from a to b
+        i = axis(a, b)
+        m.cylinder([a[j] for j in range(3) if j != i], 'xyz'[i], r, min(a[i], b[i]), max(a[i], b[i]), mat, seg)
+    def collar(p, i, sign, r, depth, mat, seg):      # a short ring on axis i at p, reaching `depth` back along the tube
+        m.cylinder([p[j] for j in range(3) if j != i], 'xyz'[i], r, *sorted((p[i], p[i] - sign * depth)), mat, seg)
+    for run in L.cab_pipes():
+        pts, r, mat = run['pts'], run['r'], run['mat']
+        seg = 12 if r > .03 else 8
+        for a, b in zip(pts, pts[1:]):
+            tube(a, b, r, mat, seg)
+        for a, p, b in zip(pts, pts[1:], pts[2:]):  # elbows: a fitting a little fatter than the pipe at each bend
+            i = axis(p, b)
+            collar(p, i, -1 if b[i] > p[i] else 1, r * 1.3, r * 1.3, 'brass', seg)
+            collar(p, axis(a, p), 1 if p[axis(a, p)] > a[axis(a, p)] else -1, r * 1.3, r * 1.3, 'brass', seg)
+        for end, (p, q) in zip(run['ends'], ((pts[0], pts[1]), (pts[-1], pts[-2]))):
+            i = axis(p, q)
+            sign = 1 if p[i] > q[i] else -1           # outwards from the tube
+            if end == 'union':
+                collar(p, i, sign, r * 1.45, .035, 'brass', seg)
+            elif end == 'cap':
+                collar(p, i, sign, r * 1.15, .03, 'brass', seg)
+            else:                                    # a bolted flange flat on the boiler's back end or the footplate
+                collar(p, i, sign, r * 2.3, .012, 'iron-black', 12)
+    fx, fz, fh, fr = L.FOUNTAIN
+    for y in (-.35, .35):                            # saddles holding the fountain on the firebox top
+        m.box(fx - .05, fx + .05, y - .03, y + .03, L.FIREBOX_TOP, F + fz, 'iron-black')
+    for y in (-.36, -.12, .16):                      # small stop valves along the fountain's top, one per take-off
+        m.cylinder((fx, y), 'z', .018, F + fz, F + fz + fr + .05, 'brass', 8)
+        m.ring(_circle(fx, y, .045, 10), _circle(fx, y, .035, 10), 'z', F + fz + fr + .05, F + fz + fr + .06, 'brass')
+    m.ring(_circle(0., F + 2.21, .09, 14), _circle(0., F + 2.21, .075, 14), 'x', fx - .07, fx - .055, 'brass')   # main steam valve wheel
+    m.cylinder((0., F + 2.21), 'x', .015, fx - .07, fx, 'steel', 8)
+    wx, wr = L.WHISTLE_VALVE
+    wy = next(mo for mo in L.locomotive().mounts if mo.id == 'whistle').y
+    m.cylinder((wx, wy), 'z', wr, L.FIREBOX_TOP, F + 2.12, 'brass', 10)                # the whistle valve
+    m.obj('Cab_Pipework', coll, parent=parent, lods=(0,))     # inside the cab: LOD0 only, like the trim
 
 
 def loco_lod2(c, coll, parent):
