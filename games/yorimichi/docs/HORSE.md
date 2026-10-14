@@ -200,8 +200,9 @@ nice -n 10 uv run atelier build yorimichi unreal.horses unreal.cairo_horse chara
   dashes as underscores (`T_CoatVariant_kestrel_bay`), then for each breed an upright copy of its GLB
   (`horse_data.upright_glb`, written to `build/yorimichi/horses/glb/`) as `SK_Horse_<Name>`, `SKEL_Horse_<Name>` and
   `A_Horse_<Name>_<Clip>` (no root motion), and its 14 tack meshes as `SK_Horse_<Name>_<Part>_<id>`. Each imported
-  material instance is reparented to its master, keeping the base-colour texture from the GLB. The step's check passes
-  only when the roster matches its report, the contract and the library, and every asset it names is saved.
+  material instance is reparented to its master, keeping the base-colour texture from the GLB; the report also lists
+  each mesh's material instances and those textures. The step's check passes only when the roster matches its report,
+  the contract and the library, and every asset either names is saved.
 - **`unreal.<key>_horse`** imports the 13 FBXs onto the character's skeleton at the export rate, with the shared
   compression and no root motion. The bike's clips use the same script with `RIDE=bike`.
 
@@ -293,7 +294,7 @@ nice -n 10 uv run python games/yorimichi/tools/review_network_session.py --featu
 ```
 
 - **Build and import.** `unreal.horses` passes only when the roster matches its report, the contract and the library
-  and every asset it names is saved; `unreal.<key>_horse` checks each clip's imported length against `export.json`;
+  and every asset they name, materials and textures included, is saved; `unreal.<key>_horse` checks each clip's imported length against `export.json`;
   the fit gate holds every horse clip's `reach_error_cm` to the 4 cm bound (waivers aside) and, once the character has
   a horse baseline, to it ([PLAYABLE_CHARACTER.md](PLAYABLE_CHARACTER.md)).
 - **Review renders.** The Blender run goes under `atelier.safety.guarded`, for several breeds and tack sets

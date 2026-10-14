@@ -7,7 +7,8 @@ Reads assets/horses/manifest.json (breeds, tack sets, clips, coat masks, palette
 build/yorimichi/horses/manifest.json (world.horses: each breed's rider contacts). Each breed's horse.glb and tack GLBs
 are imported from upright copies (horse_data.upright_glb) under build/yorimichi/horses/glb; Interchange imports each
 material's base-colour texture from the GLB itself. Writes Content/Data/horses/roster.json, whose shape is the contract
-in horse_data.py, and the same file as build/yorimichi/horses/unreal_import.json.
+in horse_data.py, and build/yorimichi/horses/unreal_import.json: the same roster plus `materials`, each mesh's
+material instances and the base-colour textures they keep, so the build's check covers every package a mesh loads.
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / 'world')); import yori  # noqa: E402  (build/yorimichi = yori.OUT)
 import json, sys, time
@@ -327,6 +328,7 @@ def restyle_instance(material, masters, hair_colour):
     M.set_material_instance_texture_parameter_value(material, 'BaseColorTexture', keep_base)
     M.update_material_instance(material)
     E.save_loaded_asset(material, False)
+    return keep_base.get_path_name()
 
 
 def match_clip(imported_paths, clip_name):
@@ -339,7 +341,8 @@ def match_clip(imported_paths, clip_name):
 
 
 def import_breed(slug, breed, masters):
-    """The breed's mesh, skeleton, clips and tack, as its roster entry (mesh, skeleton, clips, saddles, reins)."""
+    """The breed's mesh, skeleton, clips and tack, as its roster entry (mesh, skeleton, clips, saddles, reins), and
+    each of its meshes' material instances with the texture each keeps."""
     started = time.time()
     bname = breed['name']  # PascalCase: Arabian, Thoroughbred, Friesian, Andalusian, Clydesdale, Quarter
     folder = f'{DEST}/{bname}'
@@ -372,8 +375,8 @@ def import_breed(slug, breed, masters):
             'loop': clip['loop'],
         }
 
-    for mat_path in found.get('MaterialInstanceConstant', []):
-        restyle_instance(E.load_asset(mat_path), masters, breed['hair_colour'])
+    materials = {mesh.get_path_name(): {mat_path: restyle_instance(E.load_asset(mat_path), masters, breed['hair_colour'])
+                                        for mat_path in found.get('MaterialInstanceConstant', [])}}
 
     E.save_loaded_asset(skeleton, False)
     E.save_loaded_asset(mesh, False)
@@ -406,8 +409,8 @@ def import_breed(slug, breed, masters):
         assert len(smeshes) == 1, (bname, part, sid, 'expected 1 tack skeletal mesh', sub_found)
         tmesh_path = rename(smeshes[0], f'SK_Horse_{bname}_{part}_{sid}')
         tmesh = E.load_asset(tmesh_path)
-        for mat_path in sub_found.get('MaterialInstanceConstant', []):
-            restyle_instance(E.load_asset(mat_path), masters, breed['hair_colour'])
+        materials[tmesh.get_path_name()] = {mat_path: restyle_instance(E.load_asset(mat_path), masters, breed['hair_colour'])
+                                            for mat_path in sub_found.get('MaterialInstanceConstant', [])}
         E.save_loaded_asset(tmesh, False)
         if part == 'Saddle':
             saddles[sid] = tmesh.get_path_name()
@@ -415,7 +418,8 @@ def import_breed(slug, breed, masters):
             reins[sid] = tmesh.get_path_name()
 
     U.log(f'Horse breed {bname}: {len(clips)} clips, {len(saddles)} saddles, {len(reins)} reins in {time.time() - started:.1f}s')
-    return {'mesh': mesh.get_path_name(), 'skeleton': skeleton.get_path_name(), 'clips': clips, 'saddles': saddles, 'reins': reins}
+    assert all(materials.values()), (bname, 'a mesh imported without material instances', materials)
+    return {'mesh': mesh.get_path_name(), 'skeleton': skeleton.get_path_name(), 'clips': clips, 'saddles': saddles, 'reins': reins}, materials
 
 
 if E.does_directory_exist(DEST):
@@ -438,12 +442,14 @@ name = lambda variant: 'T_CoatVariant_' + variant['id'].replace('-', '_')
 imported_variants = import_textures_batch([(ASSETS / 'coats' / 'variants' / v['file'], f'{DEST}/Coats/Variants', name(v)) for v in VARIANTS])
 coat_variants = [{**v, 'texture': imported_variants[name(v)]} for v in VARIANTS]
 
-breeds = {slug: import_breed(slug, breed, masters) for slug, breed in LIBRARY['breeds'].items()}
+imported = {slug: import_breed(slug, breed, masters) for slug, breed in LIBRARY['breeds'].items()}
+breeds = {slug: entry for slug, (entry, _) in imported.items()}
+materials = {mesh: used for _, breed_materials in imported.values() for mesh, used in breed_materials.items()}
 roster = horse_data.roster(LIBRARY, BUILT, {k: v.get_path_name() for k, v in masters.items()}, coat_masks, coat_variants, breeds)
 problems = horse_data.roster_problems(roster)
 assert not problems, problems
 DATA.mkdir(parents=True, exist_ok=True)
 (DATA / 'roster.json').write_text(json.dumps(roster, indent=1) + '\n')
-(OUT / 'unreal_import.json').write_text(json.dumps(roster, indent=1) + '\n')
+(OUT / 'unreal_import.json').write_text(json.dumps({**roster, 'materials': materials}, indent=1) + '\n')
 U.log('HORSES IMPORT COMPLETE: %d breeds, %d tack sets, %d coat variants' % (
     len(breeds), len(LIBRARY['tack_sets']), len(coat_variants)))

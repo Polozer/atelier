@@ -230,24 +230,35 @@ def test_roster_contract():
 def test_import_verification_checks_the_roster_and_its_saved_assets(tmp_path, monkeypatch):
     built, masters, masks, variants, breeds = imported()
     roster = horse_data.roster(LIBRARY, built, masters, masks, variants, breeds)
+    meshes = list(horse_data.meshes(roster))
+    assert len(meshes) == len(set(meshes)) == 6 * (1 + 2 * 7)
+    folder = lambda mesh: mesh.rsplit('/', 1)[0]
+    materials = {m: {f'{folder(m)}/Coat': f'{folder(m)}/T_Coat.T_Coat'} for m in meshes}
     monkeypatch.setattr(RECIPE, 'GAME', tmp_path)
     out = tmp_path / 'build'
     content = tmp_path / 'unreal' / 'Content'
+    report = out / 'horses' / 'unreal_import.json'
     assert not RECIPE.horses_imported_present(out)
-    for path in (content / 'Data' / 'horses' / 'roster.json', out / 'horses' / 'unreal_import.json'):
+    for path, data in ((content / 'Data' / 'horses' / 'roster.json', roster), (report, {**roster, 'materials': materials})):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(roster))
+        path.write_text(json.dumps(data))
     assert not RECIPE.horses_imported_present(out)   # no assets saved yet
-    saved = [content / f"{p.split('.')[0].removeprefix('/Game/')}.uasset" for p in horse_data.asset_paths(roster)]
-    for path in saved:
+    uasset = lambda p: content / f"{p.split('.')[0].removeprefix('/Game/')}.uasset"
+    named = [uasset(p) for p in horse_data.asset_paths(roster)]
+    dependencies = [uasset(p) for used in materials.values() for pair in used.items() for p in pair]
+    for path in named + dependencies:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b'')
     assert RECIPE.horses_imported_present(out)
-    saved[-1].unlink()
-    assert not RECIPE.horses_imported_present(out)
-    saved[-1].write_bytes(b'')
-    (out / 'horses' / 'unreal_import.json').write_text(json.dumps({**roster, 'fps': 30}))
-    assert not RECIPE.horses_imported_present(out)
+    for path in (named[-1], dependencies[0], dependencies[-1]):   # a clip or mesh, a material instance, a texture
+        path.unlink()
+        assert not RECIPE.horses_imported_present(out), path
+        path.write_bytes(b'')
+    for data in ({**roster, 'materials': materials, 'fps': 30}, roster,
+                 {**roster, 'materials': {**materials, meshes[0]: {}}},
+                 {**roster, 'materials': {m: used for m, used in materials.items() if m != meshes[-1]}}):
+        report.write_text(json.dumps(data))
+        assert not RECIPE.horses_imported_present(out)
 
 
 def test_the_rider_and_recipe_take_their_clip_lists_from_the_manifest():

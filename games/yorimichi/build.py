@@ -152,10 +152,15 @@ def horse_import_inputs():
 
 def horses_imported_present(out):
     """The roster unreal.horses wrote matches its report and the contract (Scripts/horse_data.py), lists the library's
-    breeds, clips, tack sets, coat masks and variants, and every asset it names is saved."""
+    breeds, clips, tack sets, coat masks and variants, and every asset it names is saved, as is each mesh's material
+    instances and the textures they keep (the report's `materials`)."""
     try:
         roster = json.loads((GAME / 'unreal' / 'Content' / 'Data' / 'horses' / 'roster.json').read_text())
-        if roster != json.loads((out / 'horses' / 'unreal_import.json').read_text()) or horse_data.roster_problems(roster):
+        report = json.loads((out / 'horses' / 'unreal_import.json').read_text())
+        materials = report.pop('materials')
+        if roster != report or horse_data.roster_problems(roster):
+            return False
+        if set(materials) != set(horse_data.meshes(roster)) or not all(materials.values()):
             return False
         library = json.loads((HORSES / 'manifest.json').read_text())
         variants = json.loads((HORSE_VARIANTS / 'manifest.json').read_text())['variants']
@@ -165,8 +170,9 @@ def horses_imported_present(out):
                 or any(list(b['clips']) != list(library['clips']) for b in roster['breeds'].values())):
             return False
         content = GAME / 'unreal' / 'Content'
+        dependencies = [path for used in materials.values() for pair in used.items() for path in pair]
         return all((content / f"{path.split('.')[0].removeprefix('/Game/')}.uasset").is_file()
-                   for path in horse_data.asset_paths(roster))
+                   for path in [*horse_data.asset_paths(roster), *dependencies])
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return False
 

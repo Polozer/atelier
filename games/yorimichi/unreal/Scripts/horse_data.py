@@ -188,6 +188,14 @@ def roster_problems(r):
     return problems
 
 
+def meshes(r):
+    """Every skeletal mesh the roster names: each breed's body, saddles and reins."""
+    for b in r['breeds'].values():
+        yield b['mesh']
+        yield from b['saddles'].values()
+        yield from b['reins'].values()
+
+
 def asset_paths(r):
     """Every Unreal asset path the roster names."""
     yield from r['masters'].values()
