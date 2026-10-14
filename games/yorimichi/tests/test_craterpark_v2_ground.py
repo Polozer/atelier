@@ -16,6 +16,24 @@ def edges(F):
     return np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
 
 
+def test_cdt_locates_near_edge_point_without_bouncing_between_faces():
+    """Reduced from the park ground: naive determinants are negative on BOTH edge directions."""
+    p = np.array([
+        [-0.002159022181525156, -0.26060285877442446],
+        [-0.003647025664025914, -0.2621078107191396],
+        [0.01967137672515413, -0.2980150015703681],
+        [0.0029101075202578397, -0.32838390829532504],
+        [0.011898575928760782, -0.2860459379532919],
+    ])
+    t = cdt._T(p)
+    t.new([0, 1, 2], [1, -1, -1])
+    t.new([2, 1, 3], [-1, -1, 0])
+    assert t.orient(1, 2, 4) > 0
+    assert t.orient(2, 1, 4) == -t.orient(1, 2, 4)
+    assert t.locate(4, 0) == 0
+    assert t.locate(4, 1) == 0
+
+
 def test_cdt_keeps_every_constraint_and_fills_the_region_exactly():
     o = np.array([[0, 0], [10, 0], [10, 10], [0, 10]], float)
     a = np.linspace(0, 2 * np.pi, 40, endpoint=False); h = np.c_[5 + 2 * np.cos(a), 5 + 2 * np.sin(a)]

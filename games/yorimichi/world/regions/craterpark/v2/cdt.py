@@ -14,6 +14,23 @@ flips (Sloan 1993), a Delaunay re-legalisation of the free edges, and an even-od
 import numpy as np
 
 
+def _orient2d(ax, ay, bx, by, cx, cy):
+    """Signed area, with an exact fallback when cancellation makes its sign uncertain.
+
+    A point almost on an edge must not lie to the right of both directed copies of
+    that edge: the point-location walk would bounce between its adjacent faces.
+    The bound includes the coordinate subtractions and the determinant products.
+    """
+    left = (bx - ax) * (cy - ay)
+    right = (by - ay) * (cx - ax)
+    det = left - right
+    if abs(det) > 3.3306690738754716e-16 * (abs(left) + abs(right)):
+        return det
+    from fractions import Fraction
+    ax, ay, bx, by, cx, cy = map(Fraction, (ax, ay, bx, by, cx, cy))
+    return float((bx - ax) * (cy - ay) - (by - ay) * (cx - ax))
+
+
 class CDTError(RuntimeError):
     """`vertices`: the input point indices involved (two crossing segments a-b and x-y), when known."""
     def __init__(self, message, vertices=()):
@@ -38,7 +55,7 @@ class _T:
 
     def orient(self, a, b, c):
         X, Y = self.X, self.Y
-        return (X[b] - X[a]) * (Y[c] - Y[a]) - (Y[b] - Y[a]) * (X[c] - X[a])
+        return _orient2d(X[a], Y[a], X[b], Y[b], X[c], Y[c])
 
     def incircle(self, a, b, c, d):
         X, Y = self.X, self.Y
@@ -61,8 +78,6 @@ class _T:
             n[n.index(old)] = new
 
     def locate(self, p, t):
-        X, Y = self.X, self.Y
-        px, py = X[p], Y[p]
         steps = 0
         k = 0
         while True:
@@ -74,7 +89,7 @@ class _T:
             for r in range(3):
                 i = (k + r) % 3
                 a, b = v[(i + 1) % 3], v[(i + 2) % 3]
-                o = (X[b] - X[a]) * (py - Y[a]) - (Y[b] - Y[a]) * (px - X[a])
+                o = self.orient(a, b, p)
                 if o < 0:
                     u = self.tn[t][i]
                     if u < 0:
