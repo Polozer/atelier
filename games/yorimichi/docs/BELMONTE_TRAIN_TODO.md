@@ -11,9 +11,9 @@ The train must be fully finished and designed inside before anyone can ride it.
 
 | Vehicle | Still reservation boxes |
 |---|---|
-| Second class | canteen counter (re-fit from the new Tripo model, in progress), canteen sink and draining board, canteen shelves (stacked tin plates and mugs) |
+| Second class | canteen plates (stacks on the shelves, once the Tripo plate is made) |
 | Restaurant | bar counter and glazed back-bar (the empty grey floor at the bar end), drinks ledge under window 6, galley range and worktops (outer and partition side), WC toilet and basin |
-| First class | 8 brass luggage racks above the sofas, attendant pantry counter and folding seat, luggage shelving, 2 WCs (toilet and basin each) |
+| First class | attendant pantry counter and folding seat, luggage shelving, 2 WCs (toilet and basin each) |
 | Locomotive | cab back plates, screw reverser stand, driver's and fireman's flap seats, backhead pipework on both sides |
 | Baggage van | 6 parcel and trunk shelf units, guard's stove, sorting desk, handbrake column |
 | Brake van | stove with its flue, guard's bench, desk with pigeon-holes, lookout steps, 2 parcel shelf units, balcony handbrake |

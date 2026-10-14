@@ -188,7 +188,40 @@ class Coaches(unittest.TestCase):
         lamps = parts['Fittings_Lamps']
         self.assertEqual(len(lamps.sockets), sum(1 for m in c.mounts if m.kind == 'ceiling-lamp'))
         self.assertGreaterEqual(min(q[2] for f in lamps.faces for q in f[0]), L.FLOOR_Z + L.HUMAN['height'] + .10)
-        self.assertEqual(F.fittings(L.first_class()), [])              # first class's racks and curtains come later
+
+    def test_every_coach_has_its_fittings_in_its_style(self):
+        """Every vehicle with a style gets geometry for each mount that isn't an anchor or built with the shell, next to
+        its mount and inside the body, its curtains clear of the furniture; brass and velvet in the restaurant and first
+        class, dull brass and worn cloth elsewhere. First class's racks are modelled, not reserved."""
+        import math
+        from train import fittings as F
+        for c in L.vehicles():
+            parts = {p.name: p for p in F.fittings(c)}
+            kinds = {m.kind for m in c.mounts} - F.ANCHORS - F.BUILT
+            if c.name not in F.COACHES:
+                self.assertEqual(parts, {}, c.name)
+                continue
+            st = F.STYLES[c.name]
+            for kind in kinds:
+                with self.subTest(coach=c.name, kind=kind):
+                    self.assertIn(kind, F.KINDS)
+                    pts = [q for name in F.KINDS[kind] if name in parts for f in parts[name].faces for q in f[0]]
+                    for mt in (m for m in c.mounts if m.kind == kind):
+                        self.assertTrue(any(math.hypot(x - mt.x, y - mt.y) <= mt.length / 2 + .5 and abs(z - mt.z) <= 1.2
+                                            for x, y, z in pts), mt.id)
+                    for x, y, z in pts:
+                        self.assertLessEqual(abs(y), L.IN + 1e-6)
+                        self.assertTrue(L.FLOOR_Z < z <= L.ceiling_z(y) + .03, (x, y, z))
+            mats = {f[1] for p in parts.values() for f in p.faces}
+            if 'curtain-rail' in kinds:
+                self.assertIn(st['cloth'], mats)
+            if 'rack' in kinds:
+                self.assertIn(st['net'], mats)
+            self.assertIn(st['metal'], mats)
+            boxes = [(L.footprint(pl), F._top(pl)) for pl in c.placements]
+            for x, y, z in (q for f in parts.get('Fittings_Curtains', F.Part('')).faces for q in f[0]):
+                self.assertFalse(any(x0 < x < x1 and y0 < y < y1 and z < top for (x0, x1, y0, y1), top in boxes), (c.name, x, y, z))
+        self.assertFalse(any(b.kind == 'rack' for b in L.first_class().reservations))
 
 
 if __name__ == '__main__':

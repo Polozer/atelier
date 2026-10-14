@@ -18,9 +18,9 @@ from pathlib import Path
 
 import numpy as np
 
-import layout as L
-import fittings as FT
-from consist import BUILDERS, VEHICLES
+from train import fittings as FT
+from train import layout as L
+from train.consist import BUILDERS, VEHICLES
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'assets' / 'characters' / 'pipeline'))
 import definition  # noqa: E402

@@ -438,8 +438,6 @@ def _cabin(c, name, x0, x1):
         for k, dy in enumerate((-.60, .60)):
             c.placements.append(Placement(f'{name}-sconce-{end}{k + 1}', 'wall-sconce', name, wall_x, yc + dy, FLOOR_Z + 1.62, yaw))
         c.mounts.append(Mount(f'{name}-rack-{end}', 'rack', name, wall_x, yc, FLOOR_Z + 1.85, yaw, 1.80))
-        c.reservations.append(Box(f'{name}-rack-{end}', 'rack', min(wall_x, wall_x - sx * .35), max(wall_x, wall_x - sx * .35),
-                                  yc - .90, yc + .90, FLOOR_Z + 1.80, FLOOR_Z + 1.95, 'brass luggage rack above the sofa'))
     ty = IN - .02 - td / 2
     c.placements.append(Placement(f'{name}-table', 'first-class-table', name, xc, ty, FLOOR_Z, 0))
     c.placements.append(Placement(f'{name}-lamp', 'table-lamp', name, xc, ty + .06, FLOOR_Z + .62, 0))

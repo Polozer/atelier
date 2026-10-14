@@ -4,7 +4,8 @@ Builds the locomotive and the tender (their own sections below) and the coaches 
 walls, floor deck, roof, ceiling, underframe, two bogies, buffers, couplers, gangways, steps), each coach's own
 partitions, sliding and hinged doors, lining panels, window frames and glazing, plus furniture reservations, seat
 markers, mounts and simple walkable collision. Furniture is separate Tripo Studio assets placed from placements.json;
-second class also gets its luggage nets, bulbs, curtains and menu board on its mounts (fittings.py).
+the coaches and vans also get their luggage racks, bulbs, curtains and (second class) menu board on their mounts
+(fittings.py).
 
 Outputs in build/yorimichi/belmonte-train/: per coach a clean .blend, SM_BT_<Coach>_LOD0/1/2.glb (glTF, metres,
 Blender's standard Y-up export), SM_BT_<Coach>_Collision.glb, <coach>-blockout.glb (reservations and markers) and
@@ -73,7 +74,12 @@ MATERIALS = {
     'decal-two': ((1, 1, 1), 0., .6, 'T_BT_Two', 0., 1.),
     'glass-grimy': ((.70, .68, .55), 0., .3, None, 1., .35),
     'ceiling-dingy': ((.50, .43, .31), 0., .85, None, 1., 1.),
-    'cord': ((.24, .19, .12), 0., .9, None, 1., 1.),                  # second-class fittings (fittings.py)
+    'cord': ((.24, .19, .12), 0., .9, None, 1., 1.),                  # coach fittings (fittings.py)
+    'cord-burgundy': ((.20, .025, .03), 0., .7, None, 1., 1.),
+    'cord-emerald': ((.02, .12, .08), 0., .7, None, 1., 1.),
+    'velvet-burgundy': ((.26, .03, .04), 0., .85, None, 1., 1.),
+    'velvet-emerald': ((.03, .15, .10), 0., .85, None, 1., 1.),
+    'curtain-canvas': ((.30, .27, .19), 0., .95, None, 1., 1.),       # the vans' faded blinds
     'enamel-white': ((.78, .76, .70), 0., .35, None, 1., 1.),
     'enamel-grimy': ((.55, .50, .40), 0., .55, None, 1., 1.),
     'enamel-soot': ((.09, .08, .07), 0., .8, None, 1., 1.),
@@ -1159,7 +1165,7 @@ def fittings(c, coll, parent):
     parts = FT.fittings(c)
     if c.name in FT.COACHES:
         made = {p.name for p in parts}
-        bare = sorted({mt.kind for mt in c.mounts if mt.kind not in FT.ANCHORS and not made & set(FT.KINDS.get(mt.kind, ()))})
+        bare = sorted({mt.kind for mt in c.mounts if mt.kind not in FT.ANCHORS | FT.BUILT and not made & set(FT.KINDS.get(mt.kind, ()))})
         if bare:
             raise SystemExit(f'{c.name}: mounts without fittings: {bare}')
     for p in parts:

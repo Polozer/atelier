@@ -4,10 +4,9 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world'))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world' / 'train'))
 import yori  # noqa: E402,F401
-import access as A  # noqa: E402
-import layout as L  # noqa: E402
+from train import access as A  # noqa: E402
+from train import layout as L  # noqa: E402
 
 
 class Players(unittest.TestCase):

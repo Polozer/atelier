@@ -1,13 +1,15 @@
 """The coach fittings hung on the layout's mounts, modelled in code (plain Python; build.py turns them into meshes).
 
-Second class only for now, in its worn style:
-- rack: a luggage net over each bench pair, dull brass rods on two cast wall brackets and a sagging cord net;
+Every coach and van in its own style (STYLES): polished brass and burgundy or emerald velvet in the restaurant and
+first class, dull brass and worn cloth in second class and the vans:
+- rack: a luggage net over the seats, brass rods on two cast wall brackets (or hung from the ceiling where the rack
+  sits above the top of the wall) and a sagging cord net;
 - ceiling-lamp: a bare bulb under a small enamel shade (grimy outside, sooted inside, chipped rim), on a twisted
   cord from a ceiling rose (cord and rose LOD0 only);
 - curtain-rail: a thin rod over the window and two softly pleated curtains drawn to its sides, mapped in metres;
 - menu-board: the canteen's framed menu board, its face a texture slot (T_BT_MenuBoard);
 - ladle: the iron wall hook the canteen lady's big ladle hangs from (the ladle itself is a separate asset).
-The other mount kinds there are anchors for gameplay (ANCHORS) and carry no geometry.
+The other mount kinds are anchors for gameplay (ANCHORS) or modelled with the shell in build.py (BUILT).
 
 Each fitting kind gives one Part (one object for every mount of that kind, few draw calls): its faces as
 (points, material, uv or None) in the coach frame, whether the mesh is closed, its LODs and its light sockets.
@@ -17,8 +19,17 @@ from dataclasses import dataclass, field
 
 from train import layout as L
 
-COACHES = {'second-class'}
+# per coach: rack and rail metal, net cord, curtain cloth (all cloth is mapped in metres: CURTAIN_TILE)
+STYLES = {
+    'restaurant': dict(metal='brass', net='cord-burgundy', cloth='velvet-burgundy'),
+    'first-class': dict(metal='brass', net='cord-emerald', cloth='velvet-emerald'),
+    'second-class': dict(metal='brass-dull', net='cord', cloth='curtain-fabric'),
+    'baggage-van': dict(metal='brass-dull', net='cord', cloth='curtain-canvas'),
+    'brake-van': dict(metal='brass-dull', net='cord', cloth='curtain-canvas'),
+}
+COACHES = set(STYLES)
 ANCHORS = {'npc-spot', 'serve-point', 'queue'}      # where the canteen lady stands, the tray lands, passengers queue
+BUILT = {'tail-lamp'}                               # the brake van's tail lamp is part of its balcony (build.py)
 
 RACK_DEPTH, RACK_SAG, ROD_R = .30, .04, .008
 NET_CORD = .008                                       # width of a cord ribbon
@@ -120,27 +131,35 @@ def _frame(c, mt):
     return lambda u, v, z: (wx + tx * u + nx * v, wy + ty * u + ny * v, z)
 
 
-def racks(c, part, net):
+def racks(c, part, net, metal='brass-dull', cord='cord'):
     for mt in c.mounts:
         if mt.kind != 'rack':
             continue
         P, h, z = _frame(c, mt), mt.length / 2, mt.z
+        on_wall = z + .09 < L.ceiling_z(P(0, 0, z)[1])                    # the bracket's plate fits on the wall
+        if not on_wall:                                                   # under the ceiling's curve: level, clear of it
+            z = min(z, L.ceiling_z(P(0, .05, z)[1]) - .035)
         for v in (.05, RACK_DEPTH):                                       # back and front rods
-            tube(part, [P(-h, v, z), P(h, v, z)], ROD_R, 'brass-dull', 8)
-        for u in (-h + .06, h - .06):                                     # cast brackets: wall plate, arm, strut above
-            a, b = P(u - .025, 0, z - .03), P(u + .025, .012, z + .08)
-            box(part, a[0], b[0], a[1], b[1], a[2], b[2], 'brass-dull')
-            tube(part, [P(u, .01, z), P(u, RACK_DEPTH + .015, z)], .007, 'brass-dull', 6)
-            tube(part, [P(u, .01, z + .06), P(u, .22, z)], .006, 'brass-dull', 6)
+            tube(part, [P(-h, v, z), P(h, v, z)], ROD_R, metal, 8)
+        for u in (-h + .06, h - .06):
+            tube(part, [P(u, .01, z), P(u, RACK_DEPTH + .015, z)], .007, metal, 6)                   # arm
+            if on_wall:                                                   # cast bracket: wall plate and strut above
+                a, b = P(u - .025, 0, z - .03), P(u + .025, .012, z + .08)
+                box(part, a[0], b[0], a[1], b[1], a[2], b[2], metal)
+                tube(part, [P(u, .01, z + .06), P(u, .22, z)], .006, metal, 6)
+            else:                                                         # above the wall: hangers from the ceiling
+                for v in (.05, RACK_DEPTH):
+                    q = P(u, v, z)
+                    tube(part, [q, (q[0], q[1], L.ceiling_z(q[1]))], .006, metal, 6)
         sag = lambda u, v: z - RACK_SAG * math.sin(math.pi * (v - .05) / (RACK_DEPTH - .05)) * (.7 + .3 * math.cos(math.pi * u / h))
         n_u = 16
         for k in range(1, 5):                                             # cords along the rack
             v = .05 + k * (RACK_DEPTH - .05) / 5
-            ribbon(net, [P(-h + .01 + i * (2 * h - .02) / n_u, v, sag(-h + .01 + i * (2 * h - .02) / n_u, v)) for i in range(n_u + 1)], NET_CORD, 'cord')
+            ribbon(net, [P(-h + .01 + i * (2 * h - .02) / n_u, v, sag(-h + .01 + i * (2 * h - .02) / n_u, v)) for i in range(n_u + 1)], NET_CORD, cord)
         n = int((2 * h - .02) / .10)
         for i in range(n + 1):                                            # cords across, every 10 cm
             u = -h + .01 + i * (2 * h - .02) / n
-            ribbon(net, [P(u, v, sag(u, v)) for v in [.05 + j * (RACK_DEPTH - .05) / 5 for j in range(6)]], NET_CORD, 'cord',
+            ribbon(net, [P(u, v, sag(u, v)) for v in [.05 + j * (RACK_DEPTH - .05) / 5 for j in range(6)]], NET_CORD, cord,
                    across=(0, 0, 1))
 
 
@@ -174,17 +193,17 @@ def _top(pl):
     return pl.z if pivot == 'hook_top' else pl.z + L.asset_dims(pl.asset)[2]
 
 
-def curtains(c, rails, cloth):
+def curtains(c, rails, cloth, metal='brass-dull', fabric='curtain-fabric'):
     windows = {f'curtain-{w.name}': w for w in c.windows}
     for mt in c.mounts:
         if mt.kind != 'curtain-rail':
             continue
         w = windows[mt.id]
         P, h, z = _frame(c, mt), mt.length / 2, mt.z
-        tube(rails, [P(-h, CURTAIN_GAP, z), P(h, CURTAIN_GAP, z)], ROD_R, 'brass-dull', 8)
+        tube(rails, [P(-h, CURTAIN_GAP, z), P(h, CURTAIN_GAP, z)], ROD_R, metal, 8)
         for u in (-h, h):
-            tube(rails, [P(u, 0, z), P(u, CURTAIN_GAP, z)], .006, 'brass-dull', 6)                  # wall brackets
-            tube(rails, [P(u, CURTAIN_GAP, z), P(u + (-.03 if u < 0 else .03), CURTAIN_GAP, z)], .013, 'brass-dull', 8)     # finials
+            tube(rails, [P(u, 0, z), P(u, CURTAIN_GAP, z)], .006, metal, 6)                  # wall brackets
+            tube(rails, [P(u, CURTAIN_GAP, z), P(u + (-.03 if u < 0 else .03), CURTAIN_GAP, z)], .013, metal, 8)     # finials
         top = z - .015
         steps = int(CURTAIN_W / CURTAIN_PITCH) * 10
         for side in (-1, 1):                                              # drawn to both ends
@@ -211,7 +230,7 @@ def curtains(c, rails, cloth):
             for (a0, a1), (b0, b1) in zip(cols, cols[1:]):                 # UVs in metres of cloth, for the swatch
                 da, db = _sub(b0, a0), _sub(b1, a1)
                 s0, s1 = run, run + math.sqrt(sum(v * v for v in da))
-                cloth.quad(a1, b1, b0, a0, 'curtain-fabric', [(s0 / CURTAIN_TILE, a1[2] / CURTAIN_TILE), (s1 / CURTAIN_TILE, b1[2] / CURTAIN_TILE),
+                cloth.quad(a1, b1, b0, a0, fabric, [(s0 / CURTAIN_TILE, a1[2] / CURTAIN_TILE), (s1 / CURTAIN_TILE, b1[2] / CURTAIN_TILE),
                                                               (s1 / CURTAIN_TILE, b0[2] / CURTAIN_TILE), (s0 / CURTAIN_TILE, a0[2] / CURTAIN_TILE)])
                 run = s1
 
@@ -250,10 +269,11 @@ def fittings(c):
         ('ceiling-lamp', 'Fittings_Lamps', False, (0, 1)), ('cord', 'Fittings_LampCords', False, (0,)),
         ('curtain-rail', 'Fittings_CurtainRails', False, (0, 1)), ('curtain', 'Fittings_Curtains', False, (0, 1)),
         ('menu-board', 'Fittings_MenuBoard', True, (0, 1)), ('ladle', 'Fittings_LadleHook', False, (0, 1)))}
-    racks(c, parts['rack'], parts['net'])
+    st = STYLES[c.name]
+    racks(c, parts['rack'], parts['net'], st['metal'], st['net'])
     lamps(c, parts['ceiling-lamp'], parts['cord'])
     parts['curtain'].smooth = 180.                    # soft folds, no hard creases
-    curtains(c, parts['curtain-rail'], parts['curtain'])
+    curtains(c, parts['curtain-rail'], parts['curtain'], st['metal'], st['cloth'])
     menu_board(c, parts['menu-board'])
     ladle_hooks(c, parts['ladle'])
     return [p for p in parts.values() if p.faces]
