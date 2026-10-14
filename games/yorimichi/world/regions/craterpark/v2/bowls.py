@@ -891,6 +891,15 @@ def complex(data=None, *, on_ground=False, ports=None, only=None):    # noqa: A0
     the open surface with its `foot` loop for A's ground. `ports`: {line id: (k, 3) end row} from the built lines."""
     data = data or _layout()
     pl = plan(data, ports, only)
+    return compile_plan(pl, on_ground=on_ground)
+
+
+def compile_plan(pl, *, on_ground=False, inserts=()):
+    """Mesh a connected bowl plan, including its inner spines and exact entry rows.
+
+    Both the original complex and the Prado-inspired finish use this builder, so
+    a spine changes the floor boundary rather than overlapping a second ramp.
+    """
     loops, _ = outline(pl)
     if len(loops) < 1:
         raise ValueError('bowls: no outline')
@@ -913,6 +922,13 @@ def complex(data=None, *, on_ground=False, ports=None, only=None):    # noqa: A0
     parts = [ring_mesh(rg, pl, features) for rg in rings]
     # the floor: the region between the rings' floor edges, cut into bowls and channels at each channel's ramp ends
     floor_loops = [rg.P[:, 0] for rg in rings]
+    for insert in inserts:
+        # An internal feature owns its floor footprint. Fill around its exact
+        # foot loop, never underneath it: no buried or coincident riding faces.
+        for foot in insert.foot:
+            if not solids._inside(np.asarray(foot)[:, [0, 2]], floor_loops[0][:, [0, 2]]).all():
+                raise ValueError(f'{insert.mesh.features[0]}: floor footprint leaves the receiving bowl floor')
+            floor_loops.append(foot)
     fV, fF = fill_plan(floor_loops, FLOOR_STEP[1], height=pl.floor,
                        step_fn=lambda Q: np.where(pl.bowl_of(Q) == 'bowl_channels', FLOOR_STEP[0], FLOOR_STEP[1]))
     names = pl.bowl_of(fV[fF].mean(1)[:, [0, 2]])
@@ -938,7 +954,11 @@ def complex(data=None, *, on_ground=False, ports=None, only=None):    # noqa: A0
     else:
         base_y = min(pl.floors.values()) - 1.5
         bot = O.copy(); bot[:, 1] = base_y
-        G2 = np.stack([O, bot], 1)
+        # A full-depth skirt quad has a 10+ m edge in a deep bowl. Keep the
+        # closing surface within the same 4 m edge limit as other side walls.
+        steps = max(1, int(math.ceil(float((O[:, 1] - base_y).max()) / 2.5)))
+        u = np.linspace(0., 1., steps + 1)
+        G2 = O[:, None] * (1 - u[None, :, None]) + bot[:, None] * u[None, :, None]
         F, _ = _grid_faces(G2)
         V = G2.reshape(-1, 3)
         t = V[F]; n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
@@ -966,6 +986,9 @@ def complex(data=None, *, on_ground=False, ports=None, only=None):    # noqa: A0
                                   np.full(m, features.index(rg.bowl[idx[0]])), tuple(features), {}, tube.tag))
             rails.append(rail)
     mesh = dsl.Mesh.concat(parts)
+    if inserts:
+        mesh = dsl.Mesh.concat([mesh] + [b.mesh for b in inserts])
+        rails += [rail for b in inserts for rail in b.rails]
     checks = [{'feature': 'bowl_complex', 'kind': 'bowls', 'ports': [p.as_dict() for p in pl.ports],
                'rows': [len(rg.t) for rg in rings], 'columns': N,
                'floors': pl.floors, 'rim': pl.rim, 'notes': pl.notes}]
