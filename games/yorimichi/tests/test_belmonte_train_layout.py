@@ -149,6 +149,24 @@ class Coaches(unittest.TestCase):
         for m in (m for m in b.mounts if m.kind == 'ceiling-lamp'):
             self.assertFalse(x0 - .2 < m.x < x1 + .2 and abs(m.y) < L.CUPOLA_HW, m.id)
 
+    def test_luggage_shelving_fills_its_boxes_and_clears_the_curtains(self):
+        from train import fittings as F
+        for c in L.vehicles():
+            boxes = [b for b in c.reservations if b.kind == 'luggage-shelves']
+            if not boxes:
+                continue
+            parts = {p.name: p for p in F.fittings(c)}
+            pts = [q for f in parts['Fittings_Shelves'].faces for q in f[0]]
+            for b in boxes:                     # each box gets shelving, and the shelving stays inside its boxes
+                self.assertTrue(any(b.x0 <= x <= b.x1 and b.y0 <= y <= b.y1 for x, y, _ in pts), (c.name, b.name))
+            for x, y, z in pts:
+                self.assertTrue(any(b.x0 - 1e-6 <= x <= b.x1 + 1e-6 and b.y0 - 1e-6 <= y <= b.y1 + 1e-6 and z <= b.z1 + 1e-6
+                                    for b in boxes), (c.name, x, y, z))
+            low = L.FLOOR_Z + F.SHELF_LOW[-1] + .04       # the low shelves' lip
+            for x, y, z in (q for f in parts.get('Fittings_Curtains', F.Part('')).faces for q in f[0]):
+                if any(b.x0 < x < b.x1 and b.y0 < y < b.y1 for b in boxes):
+                    self.assertGreater(z, low + .05, (c.name, x, y, z))
+
     def test_canteen_serving_line(self):
         import math
         c = L.second_class()

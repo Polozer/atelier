@@ -8,6 +8,8 @@ first class, dull brass and worn cloth in second class and the vans:
   cord from a ceiling rose (cord and rose LOD0 only);
 - curtain-rail: a thin rod over the window and two softly pleated curtains drawn to its sides, mapped in metres;
 - menu-board: the canteen's framed menu board, its face a texture slot (T_BT_MenuBoard);
+- luggage shelving: open walnut shelves on every 'luggage-shelves' reservation (vans and first class), low under a
+  window so the curtains hang clear;
 - ladle: the iron wall hook the canteen lady's big ladle hangs from (the ladle itself is a separate asset).
 The other mount kinds are anchors for gameplay (ANCHORS) or modelled with the shell in build.py (BUILT).
 
@@ -270,6 +272,53 @@ def ladle_hooks(c, part):
         tube(part, [P(0, .01, z), P(0, .07, z - .005), P(0, .085, z + .02), P(0, .08, z + .045)], .006, 'iron-black', 6)   # J hook
 
 
+SHELF_BOARDS = (.10, .70, 1.25, 1.80)                 # board tops above the floor; trunks go on the lowest
+SHELF_LOW = (.10, .55)                                 # under a window: low shelves clear of the curtains' hems
+SHELF_T, SHELF_POST, SHELF_BAY = .025, .04, 1.00       # board thickness, upright, widest bay between uprights
+
+
+def _window_zones(c, sy, x0, x1):
+    """Spans of a wall (side sy) between x0 and x1 that a window and its drawn curtains take, with the curtains' hem."""
+    zones = []
+    rails = {mt.id: mt for mt in c.mounts if mt.kind == 'curtain-rail'}
+    for w in c.windows:
+        if w.side != sy:
+            continue
+        rail = rails.get(f'curtain-{w.name}')
+        h = (rail.length / 2 + .06) if rail else (w.width / 2 + .05)
+        a, b = (rail.x if rail else w.x) - h, (rail.x if rail else w.x) + h
+        if a < x1 and b > x0:
+            zones.append((max(a, x0), min(b, x1), w.sill - .06))
+    return sorted(zones)
+
+
+def shelving(c, part, metal):
+    """Open walnut shelving on every 'luggage-shelves' box, against its outer wall: end panels, front uprights at most
+    a metre apart, boards with a metal lip along the front; under a window only low shelves, below the curtains."""
+    for b in (r for r in c.reservations if r.kind == 'luggage-shelves'):
+        sy = 1 if b.y0 + b.y1 > 0 else -1
+        wall, front = (b.y1, b.y0) if sy > 0 else (b.y0, b.y1)
+        zones = _window_zones(c, sy, b.x0, b.x1)
+        cuts = sorted({b.x0, b.x1} | {x for z in zones for x in z[:2]})
+        for xa, xb in zip(cuts, cuts[1:]):
+            low = next((z for z in zones if z[0] <= xa + 1e-6 and xb <= z[1] + 1e-6), None)
+            boards = SHELF_LOW if low else tuple(t for t in SHELF_BOARDS if L.FLOOR_Z + t < b.z1 - .05)
+            top = L.FLOOR_Z + boards[-1]
+            if low:
+                assert top < low[2] - .10, (c.name, b.name)
+            for x, s in ((xa, 1), (xb, -1)):                       # end panels, full depth
+                box(part, x, x + s * SHELF_T, wall, front, L.FLOOR_Z, min(top + (.12 if not low else .04), b.z1), 'walnut')
+            n = max(1, math.ceil((xb - xa - 2 * SHELF_T) / SHELF_BAY))
+            for k in range(1, n):                                   # front uprights and their wall cleats
+                x = xa + (xb - xa) * k / n
+                box(part, x - SHELF_POST / 2, x + SHELF_POST / 2, front, front + sy * SHELF_POST, L.FLOOR_Z, top, 'walnut')
+                box(part, x - SHELF_POST / 2, x + SHELF_POST / 2, wall, wall - sy * .03, L.FLOOR_Z, top, 'walnut')
+            for t in boards:
+                z = L.FLOOR_Z + t
+                box(part, xa + SHELF_T, xb - SHELF_T, wall, front, z - SHELF_T, z, 'walnut')
+                box(part, xa + SHELF_T, xb - SHELF_T, front, front + sy * .012, z, z + .04, metal)   # lip
+
+
 def fittings(c):
     """Every fitting Part of a coach (empty for coaches not yet fitted)."""
     if c.name not in COACHES:
@@ -278,7 +327,8 @@ def fittings(c):
         ('rack', 'Fittings_Racks', False, (0, 1)), ('net', 'Fittings_RackNets', False, (0,)),
         ('ceiling-lamp', 'Fittings_Lamps', False, (0, 1)), ('cord', 'Fittings_LampCords', False, (0,)),
         ('curtain-rail', 'Fittings_CurtainRails', False, (0, 1)), ('curtain', 'Fittings_Curtains', False, (0, 1)),
-        ('menu-board', 'Fittings_MenuBoard', True, (0, 1)), ('ladle', 'Fittings_LadleHook', False, (0, 1)))}
+        ('menu-board', 'Fittings_MenuBoard', True, (0, 1)), ('ladle', 'Fittings_LadleHook', False, (0, 1)),
+        ('shelves', 'Fittings_Shelves', True, (0,)))}          # shelves: LOD0 only (first class sits at its LOD1 budget)
     if c.name == 'locomotive':                        # the cab lamp alone: small, LOD0 only
         parts['ceiling-lamp'].lods = (0,)
     st = STYLES[c.name]
@@ -288,6 +338,7 @@ def fittings(c):
     curtains(c, parts['curtain-rail'], parts['curtain'], st['metal'], st['cloth'])
     menu_board(c, parts['menu-board'])
     ladle_hooks(c, parts['ladle'])
+    shelving(c, parts['shelves'], st['metal'])
     return [p for p in parts.values() if p.faces]
 
 
