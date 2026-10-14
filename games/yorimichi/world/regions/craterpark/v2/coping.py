@@ -15,6 +15,7 @@ RADIUS = .035       # metres (7 cm across, as r4's COPING_RADIUS)
 PROUD = .012        # metres its top stands over the deck (r4's COPING_PROUD)
 REVEAL = .012       # metres its front stands past the wall face
 SIDES = 12
+INSET = .01         # metres an open tube's ends stop short of its lip's ends
 
 
 def axis(lip, into, radius=RADIUS, proud=PROUD, reveal=REVEAL):
@@ -29,6 +30,10 @@ def coping(lip, into, *, closed=False, feature='coping', radius=RADIUS, proud=PR
     a = axis(lip, into, radius, proud, reveal)
     if closed and np.linalg.norm(a[0] - a[-1]) < 1e-9:
         a = a[:-1]
+    if not closed:                               # end discs clear of the flank faces the lip ends on (no flicker)
+        for end, nxt in ((0, 1), (-1, -2)):
+            d = a[nxt] - a[end]; L = np.linalg.norm(d)
+            a[end] = a[end] + d / L * min(INSET, L / 3)
     mesh = solids.tube(a, radius, feature=feature, sides=sides, closed=closed, tag='coping')
     top = a + np.array([0., radius, 0.])
     return mesh, dsl.Rail(resample(top, closed=closed), closed, feature)

@@ -63,4 +63,5 @@ def round_rail(axis, *, ground, feature='rail', radius=RAIL_RADIUS, post_radius=
                                   side_role=dsl.RAIL))
     mesh = dsl.Mesh.concat(parts)
     mesh.features = (feature,)
+    mesh.feature[:] = 0
     return mesh, dsl.Rail(resample(P + [0., radius, 0.]), False, feature)

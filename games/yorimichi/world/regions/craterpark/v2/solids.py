@@ -12,6 +12,8 @@ UV modes (divided by dsl.UV_METRES, so in tiles):
 - `arc`: u each column's own arc length along the rows, v each row's arc length across;
 - `world`: (x, z), for flats.
 """
+import itertools
+
 import numpy as np
 
 from . import dsl
@@ -406,7 +408,7 @@ def tube(axis, radius, *, feature, sides=12, closed=False, role=dsl.COPING, mate
     # rings at most RING_SPACING apart, so a long straight run's faces stay well shaped (C's V9)
     Q = np.concatenate([P, P[:1]]) if closed else P
     out = [Q[:1]]
-    for a, b in zip(Q[:-1], Q[1:], strict=True):
+    for a, b in itertools.pairwise(Q):
         n = max(1, int(np.ceil(np.linalg.norm(b - a) / RING_SPACING)))
         out.append(a + (b - a) * (np.arange(1, n + 1) / n)[:, None])
     P = np.concatenate(out)

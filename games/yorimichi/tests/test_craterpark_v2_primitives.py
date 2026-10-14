@@ -265,5 +265,28 @@ class GroundTests(unittest.TestCase):
         self.assertTrue(np.allclose(built[1].foot[0][:, 1], -1.))
 
 
+class AssemblyTests(unittest.TestCase):
+    def test_a_quarter_pipe_a_snake_and_a_bowl_concat_and_validate(self):
+        from craterpark.v2 import validate
+        built = pr.Built.concat([
+            pr.quarter_pipe(Line((0., 0.), (12., 0.)), floor_y=0., height=3., radius=3.5, feature='qp'),
+            pr.snake_run(Spline([(0, 30), (15, 36), (30, 30)]), width=3., wall=1.5, radius=3.5, feature='snake'),
+            pr.bowl(pr.Rounded([(40, 0), (60, 0), (60, 14), (51, 9), (40, 14)], 4.5, closed=True), floor_y=-3.,
+                    depth=3., radius=3., feature='bowl')])
+        mesh = built.mesh
+        self.assertEqual(mesh.features, ('qp', 'snake', 'bowl'))
+        self.assertLess(int(mesh.feature.max()), len(mesh.features))
+        report, _ = validate.validate_park(dsl.Park(mesh, built.rails), log=lambda *a: None,
+                                           skip=('ownership', 'uv_stretch'))
+        checks = report['checks']
+        for name in ('topology', 'overlaps', 'buried', 'thin_walls', 'slivers', 'facets', 'outlines'):
+            self.assertTrue(checks[name]['ok'], (name, checks[name].get('failures', [])[:2]))
+
+    def test_a_quarter_pipe_on_a_curve_tighter_than_its_reach_is_refused_with_a_reason(self):
+        with self.assertRaises(ValueError) as e:
+            pr.quarter_pipe(pr.Rounded([(0, 0), (10, 0), (10, 10)], 2.), floor_y=0., height=3., radius=3.5, side=-1)
+        self.assertIn('fold', str(e.exception))
+
+
 if __name__ == '__main__':
     unittest.main()

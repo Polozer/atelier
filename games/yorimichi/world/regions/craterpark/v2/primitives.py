@@ -31,6 +31,8 @@ FLUSH = .05         # metres: a riding edge this close over the ground meets it 
 FOOT = .01          # metres a wall's foot lies under a flush edge at least (so the wall never has zero height)
 BURY = .3           # metres the base lies under the lowest ground or riding point
 MIN_WALL = .30      # metres: a wall or cap's least thickness (I5)
+TESS = dsl.Tess(.002, 2.0, 2.8)   # riding: as RIDING_TESS, but quads of 2.8 m keep their diagonals under 4 m (V9)
+WALL_ROW = 2.8      # metres between a wall's rows down it at most
 
 
 @dataclass
@@ -40,6 +42,7 @@ class Side:
     height: float = .3          # curb: how far it stands over the riding edge
     degrees: float = 30.        # bank: its slope
     material: str = dsl.CONCRETE
+    shoulder: float = 1.5       # bank: the radius rolling the riding edge over into the slope (no crease)
 
     def __post_init__(self):
         if self.kind not in ('wall', 'curb', 'bank', 'flush'):
@@ -60,6 +63,13 @@ class Built:
         built = [b for b in built if b is not None]
         return Built(dsl.Mesh.concat([b.mesh for b in built]), [r for b in built for r in b.rails],
                      [c for b in built for c in b.checks], [f for b in built for f in b.foot])
+
+
+def one_feature(mesh, feature):
+    """The mesh with every face under the one feature name (its parts' names merged)."""
+    mesh.features = (feature,)
+    mesh.feature[:] = 0
+    return mesh
 
 
 def as_side(s):
@@ -108,6 +118,66 @@ def _dedupe(ids, V):
     return ids[keep]
 
 
+FLANK_ROW = 2.8     # metres between a bank flank's rows across it at most
+FLANK_STEP = 2.     # degrees per row round its shoulder at most
+
+
+def _flank_rows(E, D, side, g, gap):
+    """A bank flank's rows outward from the riding edge E (k, 3): a shoulder of radius side.shoulder turning from
+    level to side.degrees (tangent to the riding edge, so no crease), then the straight slope, rows at most
+    FLANK_ROW apart, down to the ground. Each station's rows past its foot collapse onto the foot (a row within half
+    a spacing of it too), so the flank is as long as its drop needs and never a sliver."""
+    a = math.radians(side.degrees); rs = side.shoulder
+    arc = rs * a
+    def at(sig):                                             # (out, down) along the flank at arc length sig
+        th = np.minimum(sig, arc) / max(rs, 1e-12)
+        out = rs * np.sin(th) + np.maximum(sig - arc, 0) * math.cos(a)
+        down = rs * (1 - np.cos(th)) + np.maximum(sig - arc, 0) * math.sin(a)
+        return out, down
+    def height_over(sig):
+        out, down = at(sig)
+        q = E + out[:, None] * D
+        return E[:, 1] - down - g(q[:, 0], q[:, 2]) - gap
+    drop = E[:, 1] - g(E[:, 0], E[:, 2])
+    hi = np.full(len(E), arc + (max(float(drop.max()), 0) + rs) / math.sin(a) + 1.)
+    lo = np.zeros(len(E))
+    over = height_over(lo) > 0
+    for _ in range(50):                                      # bisection for each station's foot
+        mid = (lo + hi) / 2
+        up = height_over(mid) > 0
+        lo = np.where(up, mid, lo); hi = np.where(up, hi, mid)
+    foot = np.where(over, (lo + hi) / 2, 0.)
+    n_arc = max(1, math.ceil(side.degrees / FLANK_STEP))
+    longest = float(foot.max())
+    sig = list(np.linspace(0, arc, n_arc + 1)[1:]) if arc > 0 else []
+    if longest > arc:
+        n = max(1, math.ceil((longest - arc) / FLANK_ROW))
+        sig += list(arc + np.arange(1, n + 1) * (longest - arc) / n)
+    rows = []
+    for k, sg in enumerate(sig):
+        step = sg - (sig[k - 1] if k else 0.)
+        use = np.where(sg < foot - step / 2, sg, foot)
+        if k == len(sig) - 1:
+            use = foot
+        out, down = at(use)
+        rows.append(E + out[:, None] * D - down[:, None] * np.array([0., 1., 0.]))
+    return rows
+
+
+def _drop_rows(top, foot, step=WALL_ROW):
+    """Rows down a vertical wall from `top` to `foot` (k, 3), at most `step` apart; past a station's foot (or within
+    half a step of it) a row collapses onto the foot. The last row is the foot."""
+    h = top[:, 1] - foot[:, 1]
+    n = max(1, math.ceil(float(h.max()) / step)) if len(h) else 1
+    rows = []
+    for k in range(1, n):
+        d = k * float(h.max()) / n
+        y = np.where(d < h - step / 2, top[:, 1] - d, foot[:, 1])
+        r = top.copy(); r[:, 1] = y
+        rows.append(r)
+    return rows + [foot]
+
+
 def _side_columns(E, D, side, g, base_y, under=None, on_ground=False):
     """The cross-section points outward of a riding edge E (k, 3), outward D (k, 3) horizontal unit, for `side`:
     a list of (k, 3) rows from the edge out to the outer top, then the foot and (unless `on_ground`) the base rows;
@@ -120,12 +190,8 @@ def _side_columns(E, D, side, g, base_y, under=None, on_ground=False):
         rows.append(E + side.height * Y); segs.append((dsl.SIDE, 'inner'))
         rows.append(E + side.height * Y + side.width * D); segs.append((dsl.RIDING, 'up'))
     elif side.kind == 'bank':
-        top = rows[-1]
-        foot = top.copy()
-        for _ in range(4):                                       # the slope's foot on the (sloping) ground
-            drop = np.maximum(top[:, 1] - g(foot[:, 0], foot[:, 2]), gap)
-            foot = top + (drop / math.tan(math.radians(side.degrees)))[:, None] * D - drop[:, None] * Y
-        rows.append(foot); segs.append((dsl.RIDING, 'bank'))
+        for r in _flank_rows(E, D, side, g, gap):
+            rows.append(r); segs.append((dsl.RIDING, 'bank'))
     outer = rows[-1]
     gy = g(outer[:, 0], outer[:, 2])
     foot = outer.copy(); foot[:, 1] = np.minimum(gy, outer[:, 1] - gap)
@@ -133,7 +199,8 @@ def _side_columns(E, D, side, g, base_y, under=None, on_ground=False):
         foot[:, 1] = np.minimum(foot[:, 1], under - FOOT)
     if side.kind != 'bank':
         role = dsl.SIDE if (side.kind != 'flush' or on_ground) else dsl.BASE
-        rows.append(foot); segs.append((role, 'out'))
+        for r in _drop_rows(outer, foot):
+            rows.append(r); segs.append((role, 'out'))
     if not on_ground:
         base = outer.copy(); base[:, 1] = base_y
         rows.append(base); segs.append((dsl.BASE, 'out'))
@@ -198,8 +265,7 @@ def _bury_low(mesh, ground):
 def _finish(parts, feature, riding=None, on_ground=False):
     """The parts as one mesh, checked: closed (or, on the ground, open only along simple foot loops) and unfolded.
     Returns (mesh, foot loops [(k, 3)])."""
-    mesh = dsl.Mesh.concat(parts)
-    mesh.features = (feature,)
+    mesh = one_feature(dsl.Mesh.concat(parts), feature)
     solids.check_folds(mesh.where(role=dsl.RIDING) if riding is None else riding, name=feature)
     if not on_ground:
         solids.check_closed(mesh, name=feature)
@@ -249,7 +315,7 @@ class _Clear(Curve):
 
 
 def ramp(path, profile, width, *, start=0., left='wall', right='wall', ground=None, ends=('flush', 'flush'),
-         feature='ramp', tess=dsl.RIDING_TESS, t=None, on_ground=False):
+         feature='ramp', tess=TESS, t=None, on_ground=False):
     """A ramp along the plan `path` (curves.Curve) from `start` metres along it: the `profile` (its x along the path,
     y absolute) `width` wide, closed into a solid down to the `ground` (float or f(x, z); default 0 under the lowest
     point) with sides `left`/`right` (Side or kind; left is the path's +normal side) and `ends` (start, end) each
@@ -285,7 +351,7 @@ def ramp(path, profile, width, *, start=0., left='wall', right='wall', ground=No
 
 
 def jump_line(path, launch, landing, gap, width, *, start=0., left='wall', right='wall', ground=None,
-              feature='jump', tess=dsl.RIDING_TESS, land_width=None, on_ground=False):
+              feature='jump', tess=TESS, land_width=None, on_ground=False):
     """The joined line: roll-in, deck, kicker (the `launch` profile, ending at its lip), a `gap` (horizontal metres
     from the lip to the landing's start), then landing and run-out (the `landing` profile), along one plan `path`.
     The launch's last arc is tagged takeoff and the landing ramp's faces landing (unless the profiles tag them). The
@@ -437,7 +503,7 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows
     for E, Dd, kind in ((Ef, -D, front), (Eb, D, back)):
         s = as_side(kind) if kind not in ('cap', 'base') else None
         if s is not None and s.kind == 'bank':
-            reach = (E[:, 1] - g(E[:, 0], E[:, 2])).max() / math.tan(math.radians(s.degrees)) + 1.
+            reach = (E[:, 1] - g(E[:, 0], E[:, 2])).max() / math.tan(math.radians(s.degrees)) + s.shoulder + 1.
             q = E + reach * Dd
             probe.append(float(g(q[:, 0], q[:, 2]).min()))
         if s is not None and s.kind == 'curb':
@@ -506,15 +572,36 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows
 
 
 def transverse(path, profile, *, side=1, offset=0., height=0., ground=None, front='flush', back='wall',
-               ends=('wall', 'wall'), feature='transverse', tess=dsl.RIDING_TESS, t=None, on_ground=False):
+               ends=('wall', 'wall'), feature='transverse', tess=TESS, t=None, on_ground=False):
     """A profile swept across the plan `path` (A's transverse sweep: o = offset + side * x), closed into a solid.
     Returns (Built, the sheet's grid (k, n, 3), its profile columns)."""
     closed = bool(getattr(path, 'closed', False))
+    o = offset + side * profile.point(profile.samples(tess))[:, 0]
+    tt = np.linspace(0, path.length, max(256, int(path.length * 8)))
+    k = path.curvature(tt)
+    stretch = 1 - k[:, None] * o[None, :]                    # a row's length per metre of path: <= 0 folds
+    if stretch.min() < .1:
+        i, j = np.unravel_index(int(np.argmin(stretch)), stretch.shape)
+        raise ValueError(f'{feature}: the path bends to R {1 / abs(k[i]):.2f} m near '
+                         f'{path.point([tt[i]])[0].round(2).tolist()} on the side the section reaches '
+                         f'{abs(o[j]):.2f} m: the section would fold (keep R > 1.1 x the reach there)')
     riding = sweep(path, profile, mode='transverse', side=side, offset=offset, height=height, feature=feature,
                    tess=tess, t=t)
     st = _columns(profile, tess)
     G = _grid_of(riding, len(st))
     # the closing works on positions; crease twins are dropped (they weld)
+    # UVs: u the length along the path itself (o = 0: the lip, the centreline), the same for every column so nothing
+    # shears (A's sweep measures it at `offset`, the profile's start, which stretches the far side most: V8); v the
+    # profile's arc length. Each column's length is linear in its offset; the fit at o = 0 is the path's.
+    o = offset + side * profile.point(st)[:, 0]
+    along = np.concatenate([np.zeros((1, G.shape[1])), np.cumsum(np.linalg.norm(np.diff(G, axis=0), axis=-1), 0)])
+    if np.ptp(o) > 1e-9:
+        oc = o - o.mean()
+        slope = (along * oc).sum(1) / (oc * oc).sum()
+        u = along.mean(1) - slope * o.mean()
+    else:
+        u = along[:, 0]
+    riding.UV = (np.stack(np.broadcast_arrays(u[:, None], st[None, :]), -1) / dsl.UV_METRES).reshape(-1, 2)
     keep = np.r_[True, np.abs(np.diff(st)) > 1e-12]
     Gc = G[:, keep]
     lo = float(G[..., 1].min())
@@ -543,12 +630,12 @@ def _with_coping(built, G, st, profile, *, closed, into_sign, feature, names=('l
         tube, rail = coping_mod.coping(rows, -sign * Dd, closed=closed, feature=f'{feature}.{name}')
         solids.check_closed(tube, name=f'{feature}.{name}')
         meshes.append(tube); rails.append(rail)
-    mesh = dsl.Mesh.concat(meshes); mesh.features = (feature,)
+    mesh = one_feature(dsl.Mesh.concat(meshes), feature)
     return Built(mesh, built.rails + rails, built.checks, built.foot)
 
 
 def quarter_pipe(path, *, floor_y, height, radius, deck=1.5, floor=.5, top_degrees=None, side=1, ground=None,
-                 back='wall', ends=('wall', 'wall'), coping=True, feature='quarter_pipe', tess=dsl.RIDING_TESS,
+                 back='wall', ends=('wall', 'wall'), coping=True, feature='quarter_pipe', tess=TESS,
                  material=dsl.CONCRETE, deck_material=dsl.DECK, on_ground=False):
     """A quarter pipe whose lip runs along the plan `path`: a flat `floor` strip at `floor_y`, a transition of `radius`
     up to `top_degrees` (default: vertical if `height` > `radius`, else the angle the arc reaches at `height`), a
@@ -582,7 +669,7 @@ def quarter_pipe(path, *, floor_y, height, radius, deck=1.5, floor=.5, top_degre
 
 
 def bank(path, *, foot_y, height, degrees, foot_r=3., top_r=3., deck=1.2, floor=0., side=1, ground=None,
-         back='wall', ends=('wall', 'wall'), feature='bank', tess=dsl.RIDING_TESS, material=dsl.CONCRETE, on_ground=False):
+         back='wall', ends=('wall', 'wall'), feature='bank', tess=TESS, material=dsl.CONCRETE, on_ground=False):
     """A bank whose foot runs along the plan `path`, rising on its `side` (+1 left): `floor` flat, a foot transition
     (R >= 3 m) up to `degrees`, a straight slope, a crest transition (R >= 3 m) back to level and a `deck` at
     foot_y + height. Along a Rounded path with a convex corner it is a rounded hip."""
@@ -629,7 +716,7 @@ def snake_profile(width, wall, radius, lip):
 
 
 def snake_run(centre, *, width, wall, radius, lip=.6, floor=0., ground=None, coping=True, ends=('flush', 'flush'),
-              feature='snake', tess=dsl.RIDING_TESS, on_ground=False):
+              feature='snake', tess=TESS, on_ground=False):
     """A snake run along the centreline `centre` (a smooth Curve, e.g. Spline): a floor `width` wide at the height
     `floor` (float, dsl.Height or f(t)) along it, transitions of `radius` rising `wall` either side, a `lip` deck and
     a coping on both lips. The sections come from the analytic normal (no eased polyline, no snap). A centreline
@@ -662,7 +749,7 @@ def _ccw(path):
 
 
 def bowl(outline, *, floor_y, depth, radius, deck=1.2, top_degrees=None, ground=None, back='wall', coping=True,
-         feature='bowl', tess=dsl.RIDING_TESS, material=dsl.CONCRETE, deck_material=dsl.DECK, on_ground=False):
+         feature='bowl', tess=TESS, material=dsl.CONCRETE, deck_material=dsl.DECK, on_ground=False):
     """A bowl whose coping follows the closed plan `outline` (Spline(closed=True) or Rounded(closed=True)): a level
     floor at `floor_y`, walls of transition `radius` up to `top_degrees` (default: vertical if `depth` > `radius`),
     a straight extension to the lip at floor_y + depth, and a `deck` around it. The outline may turn inward (a
