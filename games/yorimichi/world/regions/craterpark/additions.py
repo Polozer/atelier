@@ -55,11 +55,7 @@ BANKS = {'tower_plaza_hip': ((1155., 1003., 1187., 1025.), None, 2.5),   # a hip
          # From the south-west bowl's rim deck (11 m) down to the banked curve's outer lip (9.5 m), beside the
          # tunnel strip: the line's way back towards the drop-in.
          'bowl_rim_to_curve': ((1139., 903., 1149.5, 969.), [((1136., 897., 1151., 906.), 10., 12.),
-                                                            ((1139., 955., 1151., 972.), 7., 10.5)], None),
-         # The 12 m half-pipe's west deck (-10.1 m) down its stepped neck to the peanut bowl's tail (-14.5 m): a landing
-         # for an air out over the west coping, and one smooth bank where the steps were.
-         'half_pipe_to_peanut': ((1266., 953., 1282., 965.), [((1280., 948., 1290., 972.), -10.6, -9.9),
-                                                              ((1255., 952., 1268., 966.), -15.8, -13.9)], 2.5)}
+                                                            ((1139., 955., 1151., 972.), 7., 10.5)], None)}
 # The snake runs: a centreline [(x, z) or (x, y, z)], the floor's width, the walls' height, their radius, and whether
 # it is laid on the path under it (snake_run).
 SNAKE_RUNS = {
@@ -103,7 +99,11 @@ RAMPS = {
     # 38 degrees, the old wall's angle where they meet). From a standstill the rider reaches the floor at 16.5 m/s; up
     # it, a pump out of the crater floor to the black bowls and the tunnel.
     'half_pipe_roll_in': ([(1378., 953.), (1340., 953.)], 0., (-0.9, 0., [('line', 4.), ('arc', 14., -38.), ('line', 11.4)]),
-                          8., 0.)}
+                          8., 0.),
+    # The 12 m half-pipe's west deck (-10.1 m) over its stepped neck to the peanut bowl's tail (-14.5 m): a 25-degree
+    # landing for an air out over the west coping, one smooth bank where the steps were.
+    'half_pipe_to_peanut': ([(1283., 959.), (1250., 959.)], 0., (-10.1, 0., [('line', 1.5), ('arc', 8., -25.), ('line', 5.8),
+                                                                          ('arc', 10., 0.)]), 6., 0.)}
 # The streets: a box over the open ground, the heights (low, high) of the pieces it is paved flush with, and its material.
 STREETS = {'central_street': ((1306., 968., 1348., 1055.), (-22.7, -22.), 'material_012')}  # the walkways, herringbone
 CLEAR = .05         # metres a street lies over the hillside at least (nearer, the two would flicker)
