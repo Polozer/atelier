@@ -162,6 +162,33 @@ class Collision(unittest.TestCase):
         c.seats[0] = type(st)(st.id, st.furniture, st.x, st.y, st.z - .05, st.yaw)
         self.assertTrue(any(m.startswith(f'seat {st.id}:') for m in CO.check_collision(c, CO.collision_boxes(c))))
 
+    def test_interior_volumes_tag_every_room_gangway_and_footplate_no_sprint(self):
+        for c in L.vehicles():
+            vols = L.interior_volumes(c)
+            names = {v['name'] for v in vols}
+            self.assertTrue(all(v['tags'] == ['interior', 'no_sprint'] for v in vols))
+            self.assertTrue({r.name for r in c.rooms} <= names, c.name)
+            for v in vols:
+                x0, x1, y0, y1, z0, z1 = v['box']
+                floor = L.CEIL_SPRING if v['kind'] == 'lookout' else L.FLOOR_Z      # the lookout is up in the roof
+                self.assertTrue(x0 < x1 and y0 < y1 and z0 <= floor < z1, (c.name, v['name']))
+            for s, end in ((-1, 'a'), (1, 'b')):
+                if c.body.end(s) == 'gangway':
+                    q = next(v['box'] for v in vols if v['name'] == f'gangway-{end}')
+                    self.assertGreaterEqual(q[1] if s > 0 else -q[0], abs(c.body.buffer(s)))
+        self.assertIn('lookout', {v['name'] for v in L.interior_volumes(L.brake_van())})
+        self.assertLessEqual(L.interior_volumes(L.locomotive())[0]['box'][0], L.locomotive().body.buffer_a)
+        self.assertGreaterEqual(L.interior_volumes(L.tender())[0]['box'][1], L.tender().body.buffer_b)
+
+    def test_a_reachable_place_outside_the_volumes_is_caught(self):
+        c = L.first_class()
+        L_iv = L.interior_volumes
+        try:
+            L.interior_volumes = lambda c: [v for v in L_iv(c) if not v['name'].startswith('gangway')]
+            self.assertTrue(any('outside every interior volume' in m for m in CO.check_collision(c, CO.collision_boxes(c))))
+        finally:
+            L.interior_volumes = L_iv
+
     def test_a_missing_bench_is_caught(self):
         c = L.second_class()
         boxes = [(n, q) for n, q in CO.collision_boxes(c) if not n.startswith('bench-1la')]

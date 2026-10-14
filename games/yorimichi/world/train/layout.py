@@ -54,6 +54,7 @@ DOOR_H = 1.95                           # interior doorways and the exterior doo
 EXT_DOOR_W = 0.75
 EXT_DOOR_X = IN_X - VEST / 2            # exterior doors are centred on the vestibules
 GANGWAY_W, GANGWAY_H = 0.80, 2.00
+GANGWAY_OVERLAP = .15                   # gangway floor, walls and volume run this far past the buffer line (curves)
 CORRIDOR = 1.20                         # first-class side corridor; the restaurant's service corridor matches it
 CABIN_W = 2.20                          # first-class cabin, partition to outer wall
 CORR_Y = -IN + CORRIDOR                 # -0.575: corridor face of the longitudinal partitions
@@ -968,6 +969,45 @@ def railings(body):
             for a0, a1 in ((min(edge, body.face(s)), gap0), (gap1, max(edge, body.face(s)))):
                 if a1 - a0 > .02:
                     out.append((a0, a1, y0, y1))
+    return out
+
+
+INTERIOR_TAGS = ['interior', 'no_sprint']
+VOLUME_REACH = .05      # each room's volume reaches this far into its partitions, so doorways stay covered
+VOLUME_DOORSTEP = .10   # and this far out past the body side, over the doorstep of an open exterior door
+
+
+def interior_volumes(c):
+    """Where a player is inside the train (and may not sprint): [dict(name, kind, box=[x0, x1, y0, y1, z0, z1],
+    tags)]. One per room from just under the floor to the ceiling's springing, reaching into its partitions and out
+    through the side walls (an open exterior door); one for the whole body between its end walls (the rooms leave
+    passages untiled); one per gangway end from the end wall out past the buffer line;
+    the brake van's lookout; the locomotive's cab out to its buffer line and the tender's footplate out to its own."""
+    b, F = c.body, FLOOR_Z
+    z0 = F - .10
+    out = []
+    add = lambda name, kind, *q: out.append(dict(name=name, kind=kind, box=[round(v, 4) for v in q], tags=list(INTERIOR_TAGS)))
+    for r in c.rooms:
+        x0, x1, y0, y1 = r.x0 - VOLUME_REACH, r.x1 + VOLUME_REACH, r.y0 - VOLUME_REACH, r.y1 + VOLUME_REACH
+        if b.kind == 'locomotive':
+            add(r.name, r.kind, b.buffer_a, x1, -LOCO_HALF - VOLUME_DOORSTEP, LOCO_HALF + VOLUME_DOORSTEP, z0, CAB_TOP)
+        elif b.kind == 'tender':
+            add(r.name, r.kind, TENDER_TANK[1], b.buffer_b, -TENDER_HALF, TENDER_HALF, z0, F + 2.20)
+        else:
+            y0 = -HALF - VOLUME_DOORSTEP if r.y0 <= -IN + .01 else y0
+            y1 = HALF + VOLUME_DOORSTEP if r.y1 >= IN - .01 else y1
+            add(r.name, r.kind, x0, x1, y0, y1, z0, CANT_Z if r.kind == 'balcony' else CEIL_SPRING)
+    if b.kind not in ('locomotive', 'tender'):     # the whole body too: the rooms do not tile it (the restaurant's passage)
+        add('body', 'body', b.in_a, b.in_b, -HALF - VOLUME_DOORSTEP, HALF + VOLUME_DOORSTEP, z0, CEIL_SPRING)
+    for s, end in ((-1, 'a'), (1, 'b')):
+        if b.end(s) == 'gangway':
+            x0, x1 = sorted((b.inner(s), b.buffer(s) + s * GANGWAY_OVERLAP))
+            hw = GANGWAY_W / 2 + .04
+            add(f'gangway-{end}', 'gangway', x0, x1, -hw, hw, z0, F + GANGWAY_H)
+    well = lookout_well(b)
+    if well:
+        x0, x1, hw, _ = well
+        add('lookout', 'lookout', x0, x1, -hw, hw, CEIL_SPRING - .10, lookout_top(b)[0])
     return out
 
 

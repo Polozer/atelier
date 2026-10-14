@@ -2111,6 +2111,7 @@ def build(coach, images):
     placements['doors_runtime'] = DOOR_RECORDS
     placements['doors'] = door_interactions(coach, mesh_name)
     placements['door_rules'] = DOOR_RULES
+    placements['interior_volumes'] = L.interior_volumes(coach)
     placements['envelope'] = L.envelope()
     placements['coupling'] = L.coupling(B)
     placements['collision_boxes'] = [dict(name=name, part=n, group=g, box=[round(v, 4) for v in b]) for name, n, g, b in CO.named_boxes(coach, mesh_name)]

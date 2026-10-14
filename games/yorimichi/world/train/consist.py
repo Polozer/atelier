@@ -91,7 +91,7 @@ def assembly():
                                      for r in fit['lods']['levels']]
                     entry['cull_screen_size'] = fit['lods']['cull_screen_size']
         furniture[a['id']] = entry
-    vehicles = []
+    vehicles, door_rules = [], None
     for v in VEHICLES:
         rec = dict(v, x=round(xs[v['id']], 4))
         if v['status'] == 'built':
@@ -99,11 +99,14 @@ def assembly():
             glb = OUT / v['id'] / f'SM_BT_{title}_LOD0.glb'
             rec['web'] = web_copy(glb, ASSEMBLY)
             p = json.loads((OUT / v['id'] / f'{v["id"]}-placements.json').read_text())
+            door_rules = p['door_rules']
             body = BUILDERS[v['id']]().body
             rec.update(walk=list(body.walk_limits()), walk_y=body.walk_y, ends=[body.end_a, body.end_b], body_faces=[body.x_a, body.x_b],
                        railings=[list(r) for r in L.railings(body)])
             rec.update(glb=glb.name, placements=p['placements'], seats=p['seats'], doors=p['doors_runtime'],
-                       collision=[b['box'] for b in p['collision_boxes'] if b['part'] not in ('floor', 'ceiling')],
+                       door_interactions=p['doors'], interior_volumes=p['interior_volumes'],
+                       collision=[b['box'] for b in p['collision_boxes'] if b['group'] == 'fixed'],
+                       collision_boxes=p['collision_boxes'],
                        rooms=[dict(name=r['name'], kind=r['kind'], box=[r['x0'], r['x1'], r['y0'], r['y1']]) for r in p['rooms']],
                        mounts=p['mounts'], reservations=p['reservations'])
         vehicles.append(rec)
@@ -113,7 +116,13 @@ def assembly():
               'each vehicle at its own origin shifted by x. Unreal: atelier.conventions.to_unreal. glTF/three.js: (x, z, -y).',
         floor_z=L.FLOOR_Z, interior_half_width=L.IN, interior_half_length=L.IN_X, body_half_length=L.BODY_X,
         gangway=dict(width=L.GANGWAY_W, height=L.GANGWAY_H), coupling=L.coupling(),
-        human=dict(adult=L.HUMAN, cairo=L.CAIRO), furniture=furniture, vehicles=vehicles,
+        human=dict(adult=L.HUMAN, cairo=L.CAIRO), furniture=furniture, vehicles=vehicles, door_rules=door_rules,
+        notes=dict(
+            collision="per vehicle, 'collision_boxes' is the full simple collision (name, part, group, box): build game "
+                      "collision from it (or from the _Collision.glb). 'collision' is only the fixed boxes' extents, the "
+                      "viewer's obstacles; it has no switchable door or gangway-lock boxes",
+            door_interactions="one per door: Interact opens it alone, under door_rules",
+            interior_volumes="tags ['interior', 'no_sprint']: inside any of them a player walks (no sprint)"),
         length_m=sum(v['length'] for v in VEHICLES),
     )
     (ASSEMBLY / 'consist.json').write_text(json.dumps(doc, indent=1))

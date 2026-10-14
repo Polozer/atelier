@@ -102,7 +102,7 @@ def lookout_boxes(c):
     return out
 
 
-GANGWAY_OVERLAP = .15     # past the buffer line: on a 250 m curve the outside of the gap between coaches opens a wedge
+GANGWAY_OVERLAP = L.GANGWAY_OVERLAP   # past the buffer line: on a 250 m curve the gap between coaches opens a wedge
 GANGWAY_SIDE = .10        # thickness of the invisible side walls and roof over a gangway crossing
 GROUPS = {'gangway-lock-': 'gangway-lock', 'door-': 'door'}   # switchable boxes, exported apart from the fixed UCX
 
@@ -402,6 +402,15 @@ def check_collision(c, boxes):
     if edge.any():
         i, j = np.nonzero(edge)
         bad.append(f'{len(i)} floor-edge cells with no wall, e.g. at ({xs[i[0]]:.2f}, {ys[j[0]]:.2f})')
+    # 3b. every place a player reaches is inside an interior (no-sprint) volume
+    vols = [v['box'] for v in L.interior_volumes(c)]
+    X, Y = np.meshgrid(xs, ys, indexing='ij'); inside = np.zeros_like(seen)
+    for q in vols:
+        inside |= (X >= q[0]) & (X <= q[1]) & (Y >= q[2]) & (Y <= q[3])
+    out = seen & ~inside
+    if out.any():
+        i, j = np.nonzero(out)
+        bad.append(f'{len(i)} reachable cells outside every interior volume, e.g. at ({xs[i[0]]:.2f}, {ys[j[0]]:.2f})')
     # 4. gangways: floor to the buffer line and closed sides and top, so two coaches' boxes meet at the buffers
     for s in (-1, 1):
         if c.body.end(s) != 'gangway':
