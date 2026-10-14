@@ -11,7 +11,7 @@ first class, dull brass and worn cloth in second class and the vans:
 - luggage shelving: open walnut shelves on every 'luggage-shelves' reservation (vans and first class), low under a
   window so the curtains hang clear;
 - counters: fitted cupboards with a top on the galley's and the pantry's counters (the galley range left to Tripo),
-  the pantry attendant's folding seat, and the vans' handbrake columns;
+  the pantry attendant's folding seat, the vans' handbrake columns and the guard's locker bench;
 - drinks ledge: the restaurant's standing ledge under a window, walnut on brass brackets, with a foot rail;
 - ladle: the iron wall hook the canteen lady's big ladle hangs from (the ladle itself is a separate asset).
 The other mount kinds are anchors for gameplay (ANCHORS) or modelled with the shell in build.py (BUILT).
@@ -401,6 +401,25 @@ def handbrakes(c, part, metal):
         tube(part, [(kx, ky, top), (kx, ky, top + .07)], .012, 'end-dark', 8)
 
 
+def benches(c, part, cloth, metal):
+    """The guard's locker bench on each 'bench' box: a panelled walnut chest along the wall, its lid the seat, with a
+    cushion, a brass hasp and a kick recess at the foot."""
+    for b in (r for r in c.reservations if r.kind == 'bench'):
+        sy = _facing(c, b)
+        front, back = (b.y0, b.y1) if sy < 0 else (b.y1, b.y0)
+        f = lambda d: front + sy * d
+        z, top = L.FLOOR_Z, b.z1 - .06                          # the cushion takes the last 6 cm
+        box(part, b.x0, b.x1, back, f(-.06), z, z + .07, 'end-dark')                     # kick recess
+        box(part, b.x0, b.x1, back, f(-.02), z + .07, top - .03, 'walnut')                # chest
+        n = max(1, round((b.x1 - b.x0) / .55))
+        for k in range(n):                                      # raised panels on the front
+            xa, xb = b.x0 + (b.x1 - b.x0) * k / n + .04, b.x0 + (b.x1 - b.x0) * (k + 1) / n - .04
+            box(part, xa, xb, f(-.02), f(-.005), z + .12, top - .08, 'walnut')
+            box(part, (xa + xb) / 2 - .015, (xa + xb) / 2 + .015, f(-.005), f(0.), top - .07, top - .035, metal)   # hasp
+        box(part, b.x0, b.x1, back, f(0.), top - .03, top, 'walnut')                       # the lid
+        box(part, b.x0 + .02, b.x1 - .02, back, f(-.03), top, b.z1, cloth)       # cushion
+
+
 def drinks_ledges(c, part, metal):
     """The restaurant's standing ledge under a window: a walnut top with a rounded nosing and a brass gallery rail
     (glasses don't slide off on a curve), on cast brackets, and a brass foot rail low along the wall."""
@@ -451,6 +470,7 @@ def fittings(c):
     counters(c, parts['counters'])
     attendant_seats(c, parts['counters'], st['cloth'], st['metal'])
     handbrakes(c, parts['counters'], st['metal'])
+    benches(c, parts['counters'], st['cloth'], st['metal'])
     return [p for p in parts.values() if p.faces]
 
 
