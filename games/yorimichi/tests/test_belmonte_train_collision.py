@@ -16,6 +16,16 @@ class Collision(unittest.TestCase):
             with self.subTest(vehicle=c.name):
                 self.assertEqual(CO.check_collision(c, CO.collision_boxes(c)), [])
 
+    def test_only_modelled_reservations_get_collision(self):
+        # a box with nothing in it yet (WC pan, bar, back bar, range, stoves) must not be an invisible wall
+        for c in L.vehicles():
+            if c.body.kind in ('tender', 'locomotive'):
+                continue
+            parts = {n for n, _ in CO.collision_boxes(c)}
+            for r in c.reservations:
+                if r.z0 - L.FLOOR_Z < 1.0:
+                    self.assertEqual(r.name in parts, r.kind in CO.MODELLED, (c.name, r.name, r.kind))
+
     def test_a_missing_bench_is_caught(self):
         c = L.second_class()
         boxes = [(n, q) for n, q in CO.collision_boxes(c) if not n.startswith('bench-1la')]

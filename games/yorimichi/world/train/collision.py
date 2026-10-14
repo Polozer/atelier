@@ -8,6 +8,12 @@ from train import access as A
 from train import layout as L
 
 
+# reservation kinds that have geometry today (fittings.py, build.lookout, the locomotive's body); the others (WC pans,
+# bar, back bar, range, stoves) wait for their models and must not get collision before them
+MODELLED = {'galley-counter', 'pantry-counter', 'attendant-seat', 'handbrake', 'bench', 'desk', 'luggage-shelves',
+            'drinks-ledge', 'steps', 'wall', 'control-stand', 'pipework', 'seat'}
+
+
 def _free(a0, a1, blocked, min_len=.12):
     out, a = [], a0
     for b0, b1 in sorted(blocked):
@@ -55,8 +61,8 @@ def collision_boxes(c):
             if o.z0 - L.FLOOR_Z > .05:         # below a hatch
                 add(f'{w.name}-sill', *((o.a0, o.a1, w.c0, w.c1) if w.axis == 'x' else (w.c0, w.c1, o.a0, o.a1)), L.FLOOR_Z, o.z0)
     boxes += furniture_boxes(c)
-    for r in c.reservations:
-        if r.z0 - L.FLOOR_Z < 1.0 and r.kind in ('bar-counter', 'back-bar', 'galley-counter', 'galley-range', 'pantry-counter', 'luggage-shelves', 'wc-toilet', 'drinks-ledge'):
+    for r in c.reservations:                        # the furniture modelled in code (an unmodelled box stays soft)
+        if r.z0 - L.FLOOR_Z < 1.0 and r.kind in MODELLED:
             add(r.name, r.x0, r.x1, r.y0, r.y1, L.FLOOR_Z, r.z1)
     return [(n, q) for n, q in boxes if q[1] - q[0] > 1e-4 and q[3] - q[2] > 1e-4 and q[5] - q[4] > 1e-4]
 
@@ -126,10 +132,6 @@ F = L.FLOOR_Z
 STEP_UP = .45          # UE MaxStepHeight: anything lower than this does not stop a capsule
 PERCH = .08            # a capsule stays up while its centre is this close to a floor edge
 SHELL = ('floor', 'ceiling', 'side-', 'end-', 'balcony-floor', 'railing', 'gangway-')
-# reservation kinds that have geometry today (fittings.py, build.lookout, the locomotive's body); the others (WC pans,
-# bar, back bar, range, stoves) wait for their models and must not get collision before them
-MODELLED = {'galley-counter', 'pantry-counter', 'attendant-seat', 'handbrake', 'bench', 'desk', 'luggage-shelves',
-            'drinks-ledge', 'steps', 'wall', 'control-stand', 'pipework', 'seat'}
 SOFT_ASSETS = SOFT
 
 
