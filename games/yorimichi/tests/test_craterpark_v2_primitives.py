@@ -298,5 +298,42 @@ class LayoutLineTests(unittest.TestCase):
                 self.assertTrue(np.isfinite(built.mesh.V).all(), (line.id, side))
 
 
+TOWER = {'centre': (0., 0.), 'size': (34., 30.), 'y': 40., 'material': 'material_000'}
+ROLL = (('arc', 14, -33), ('line', 28), ('arc', 30, 0))
+
+
+class TowerTests(unittest.TestCase):
+    def exits(self, y=40., ri=None):
+        ri = ri or {'T1': (0., 14.), 'T2': (90., 14.), 'T3': (180., 16.), 'T4': (300., 14.)}
+        crests = pr.place_crests(TOWER, ri)
+        return {k: pr.exit_of(crests[k], h, ROLL, w, y) for k, (h, w) in ri.items()}
+
+    def test_four_roll_ins_end_on_their_exit_sections_and_the_tower_has_one_foot_loop(self):
+        for y in (40., 100.):                                      # the deck height is a parameter (720 .. 780 m)
+            ex = self.exits(y)
+            built = pr.tower(TOWER, ex, ground=2., y=y)
+            self.assertEqual(len(built.foot), 1)
+            deck = built.mesh.where(role=dsl.RIDING)
+            self.assertAlmostEqual(deck.V[:, 1].max(), y, places=9)
+            for c in (c for c in built.checks if c['kind'] == 'exit'):
+                e = ex[c['line']]
+                self.assertAlmostEqual(c['y'], e['y'], places=9)
+                self.assertTrue(np.allclose(c['point'], e['point'], atol=1e-9))
+            solids.check_folds(deck)
+            self.assertGreaterEqual(quality(built.mesh).min(), .01)
+
+    def test_crossing_crest_rows_and_a_missed_exit_are_refused(self):
+        ex = self.exits()
+        ex['T2'] = pr.exit_of(ex['T1']['crest'], 90., ROLL, 14., 40.)  # on top of another roll-in
+        with self.assertRaises(ValueError):
+            pr.tower(TOWER, ex, ground=2.)
+        ex = self.exits()
+        ex['T1']['y'] += 1.
+        with self.assertRaises(ValueError):
+            pr.tower(TOWER, ex, ground=2.)
+        with self.assertRaises(ValueError):                         # five 14 m roll-ins on one 30 m side
+            pr.place_crests(TOWER, {f'T{i}': (0., 14.) for i in range(3)})
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -9,7 +9,9 @@ Sides of a feature, where its edge meets lower ground (`Side`):
 - `curb`: a thick wall standing `height` over the riding edge with a flat cap `width` (>= 0.30 m) wide;
 - `bank`: a slope at `degrees` down to the ground (role side: it collides and can be ridden, but it is not the
   designed line, so it is meshed coarsely and kept out of the riding checks);
-- `flush`: the ground or a deck continues at the riding edge (the wall is only a buried closing face).
+- `flush`: the ground or a deck continues at the riding edge (the wall is only a buried closing face);
+- `ground` (on_ground only): no side at all: the landform meets the riding edge itself (a roll-in carved into the
+  tower's mound).
 Wherever the riding edge stands less than FLUSH over the ground, its wall is buried (role base).
 
 Profiles are A's `profile.Profile` (('line', L) is L along the slope). `from_additions` converts the r4 RAMPS table's
@@ -45,7 +47,7 @@ class Side:
     material: str = dsl.CONCRETE
 
     def __post_init__(self):
-        if self.kind not in ('wall', 'curb', 'bank', 'flush'):
+        if self.kind not in ('wall', 'curb', 'bank', 'flush', 'ground'):
             raise ValueError(f'unknown side {self.kind!r}')
         if self.kind == 'curb' and self.width < MIN_WALL:
             raise ValueError(f'a curb cap must be at least {MIN_WALL} m wide (I5), not {self.width}')
@@ -242,6 +244,10 @@ def _side_columns(E, D, side, g, base_y, under=None, on_ground=False, closed=Fal
     gap = 0. if on_ground else FOOT
     rows, segs = [E], []
     extra = {'parts': [], 'ends': {0: [], -1: []}}
+    if side.kind == 'ground':
+        if not on_ground:
+            raise ValueError("a 'ground' side needs on_ground=True (the landform meets the riding edge)")
+        return rows, segs, extra
     if side.kind == 'curb':
         rows.append(E + side.height * Y); segs.append((dsl.SIDE, 'inner'))
         rows.append(E + side.height * Y + side.width * D); segs.append((dsl.RIDING, 'up'))
@@ -893,3 +899,133 @@ def box(x0, z0, x1, z1, *, support_y, height, corner=.1, nose=.03, feature='box'
     """A box or manual pad: a rounded rectangle footprint (corner radius `corner`), see ledge."""
     return ledge(Rounded([(x0, z0), (x1, z0), (x1, z1), (x0, z1)], corner, closed=True), support_y=support_y,
                  height=height, nose=nose, feature=feature, **kw)
+
+
+# ------------------------------------------------------------------------------------------------------------ tower
+
+TOWER_FLANK = 30.   # degrees: the tower mound's earth-banked flanks, at most
+
+
+def _heading(deg):
+    a = math.radians(deg)
+    return np.array([math.cos(a), math.sin(a)])
+
+
+def place_crests(spec, roll_ins, gap=2.):
+    """Crest points for roll-ins on the tower deck rectangle (spec 'centre', 'size'): each roll-in
+    {id: (heading degrees, width)} goes on the side whose outward normal is nearest its heading, roll-ins sharing a side
+    spread along it `gap` apart. Returns {id: (x, z)}; refuses roll-ins that do not fit their side."""
+    c = np.asarray(spec['centre'], 'f8'); hx, hz = spec['size'][0] / 2, spec['size'][1] / 2
+    sides = {0: (np.array([1., 0.]), hx, hz), 90: (np.array([0., 1.]), hz, hx),
+             180: (np.array([-1., 0.]), hx, hz), 270: (np.array([0., -1.]), hz, hx)}
+    by_side = {}
+    for rid, (h, w) in roll_ins.items():
+        d = _heading(h)
+        best = max(sides, key=lambda k: sides[k][0] @ d)
+        by_side.setdefault(best, []).append((rid, w))
+    out = {}
+    for k, items in by_side.items():
+        n, half, along = sides[k]
+        t = np.array([-n[1], n[0]])
+        total = sum(w for _, w in items) + gap * (len(items) - 1)
+        if total > 2 * along + 1e-9:
+            raise ValueError(f'tower: roll-ins {[r for r, _ in items]} need {total:.1f} m on one side of '
+                             f'{2 * along:.1f} m: widen the deck or turn one to another side')
+        x = -total / 2
+        for rid, w in items:
+            out[rid] = tuple((c + n * half + t * (x + w / 2)).tolist())
+            x += w + gap
+    return out
+
+
+def tower(spec, exits, ground, *, y=None, side=None, flanks='ground', flank_degrees=TOWER_FLANK, feature='tower',
+          tess=TESS):
+    """The drop-in tower (C's item: one owner for every plan point of its footprint): a flat deck at `y` (default
+    spec['y']: the deck height is a parameter) whose outline runs through each roll-in's crest row, earth-banked
+    flanks at `flank_degrees` from its free edges down to the `ground` (float or f(x, z)), and one roll-in per line
+    in `exits` (layout.tower_exits(): crest, heading, rollin parts in r4's convention, width, the exit section s, y,
+    point; optionally 'path', the line's plan Curve when the roll-in turns), each a ramp ending exactly on its exit
+    section, where the line's own build starts. flanks='ground' (default): the deck's free edges and the roll-ins'
+    riding edges are the foot loop, and A's landform is the mound (one surface round every roll-in; their own flanks
+    would overlap each other on a high deck); flanks='bank': its own `flank_degrees` flanks (a low deck only). Open
+    only along its foot loop (Built.foot). Refuses crest rows that cross or lie inside the deck, and a roll-in that misses its exit section."""
+    deck_y = float(spec['y'] if y is None else y)
+    g = as_ground(ground)
+    if flanks not in ('ground', 'bank'):
+        raise ValueError(f'{feature}: flanks are ground (the landform is the mound) or bank (its own 30 degree flanks)')
+    side = side or (Side('ground') if flanks == 'ground' else Side('bank', degrees=flank_degrees))
+    parts, checks, rows = [], [], []
+    for rid, ex in exits.items():
+        h = _heading(ex['heading']); crest = np.asarray(ex['crest'], 'f8')
+        path = ex.get('path') or Line(crest, crest + h * (float(ex['s']) + 1.))
+        prof = from_additions(deck_y, 0., list(ex['rollin']))
+        x_end = float(prof.end[0] - prof.start[0])
+        if abs(x_end - float(ex['s'])) > 1e-6 or abs(float(prof.end[1]) - float(ex['y'])) > 1e-6:
+            raise ValueError(f'{feature}: roll-in {rid} ends at s {x_end:.3f}, y {prof.end[1]:.3f}, not its exit section '
+                             f's {ex["s"]:.3f}, y {ex["y"]:.3f} (the deck height {deck_y} must be the line\'s y0)')
+        end = path.point([x_end])[0]
+        if np.linalg.norm(end - np.asarray(ex['point'])) > .01:
+            raise ValueError(f'{feature}: roll-in {rid} ends at {end.round(3).tolist()}, {np.linalg.norm(end - ex["point"]):.2f} m '
+                             f'off its exit section: pass the line\'s plan curve as exits[{rid!r}]["path"]')
+        b = ramp(path, prof, float(ex['width']), left=side, right=side, ground=g, ends=('flush', 'flush'),
+                 feature=f'{rid}.rollin', tess=tess, on_ground=True)
+        sm = b.mesh.seams
+        row = b.mesh.V[_dedupe(sm[f'{rid}.rollin.start'], b.mesh.V)]
+        N = np.array([-h[1], 0., h[0]])
+        if (row[-1] - row[0]) @ N < 0:
+            row = row[::-1]
+        rows.append((rid, row, h))
+        parts.append(b.mesh); checks += b.checks
+        checks.append({'feature': f'{rid}.rollin', 'kind': 'exit', 'line': rid, 's': x_end, 'y': float(prof.end[1]),
+                       'degrees': prof.end_degrees, 'point': end.tolist(), 'heading': float(ex['heading'])})
+    # the deck: the crest rows in order round it, joined by its free edges
+    centre = np.mean([r[1][:, [0, 2]].mean(0) for r in rows], 0)
+    rows.sort(key=lambda r: math.atan2(*(r[1][:, [0, 2]].mean(0) - centre)[::-1]))
+    loop, free = [], []
+    for i, (rid, row, h) in enumerate(rows):
+        loop += list(row)
+        nxt = rows[(i + 1) % len(rows)][1]
+        a, b2 = row[-1], nxt[0]
+        L = float(np.linalg.norm(b2 - a))
+        if L > 1e-6:
+            n = max(1, math.ceil(L / tess.max_edge))
+            E = a + (b2 - a) * (np.arange(n + 1) / n)[:, None]
+            free.append(E)
+            loop += list(E[1:-1])
+    loop = np.asarray(loop)
+    if solids.segments_cross(loop[:, [0, 2]]):
+        raise ValueError(f'{feature}: the roll-ins\' crest rows cross or overlap round the deck: '
+                         f'{[r[0] for r in rows]}; move their crests apart (place_crests)')
+    x = loop[:, 0] - loop[:, 0].mean(); z = loop[:, 2] - loop[:, 2].mean()
+    area = .5 * (x * np.roll(z, -1) - np.roll(x, -1) * z).sum()
+    if area <= 0:
+        raise ValueError(f'{feature}: a crest row faces into the deck (headings must point away from it)')
+    parts.append(solids.polygon(loop, outward=[0., 1., 0.], feature=feature, material=spec.get('material', dsl.DECK),
+                                role=dsl.RIDING))
+    for E in free if flanks == 'bank' else ():
+        t = _horizontal(E[-1] - E[0])
+        D = np.broadcast_to(np.array([t[2], 0., -t[0]]), E.shape).copy()      # outward: right of a CCW loop
+        m, _, _ = _flank_mesh(E, D, side, g, 0., feature)
+        if m is not None:
+            parts.append(m)
+    mesh = dsl.Mesh.concat(parts)
+    foot = solids.check_open(mesh, name=feature)
+    checks.append({'feature': feature, 'kind': 'tower', 'deck_y': deck_y, 'deck_area_m2': float(area),
+                   'roll_ins': [r[0] for r in rows]})
+    return Built(mesh, [], checks, foot)
+
+
+def exit_of(crest, heading, rollin, width, deck_y, path=None):
+    """The exits entry (as layout.tower_exits) of a roll-in from `crest` (x, z) heading `heading` degrees with r4-style
+    `rollin` parts from the deck at deck_y, along `path` (default straight): its exit section s, y, degrees, point."""
+    prof = from_additions(deck_y, 0., list(rollin))
+    s = float(prof.end[0] - prof.start[0])
+    c = np.asarray(crest, 'f8')
+    line = path or Line(c, c + _heading(heading) * (s + 1.))
+    p = line.point([s])[0]; d = line.tangent([s])[0]
+    out = {'crest': tuple(c.tolist()), 'heading': float(heading), 'rollin': tuple(rollin), 's': s,
+           'y': float(prof.end[1]), 'degrees': prof.end_degrees, 'point': tuple(p.tolist()),
+           'exit_heading': math.degrees(math.atan2(d[1], d[0])), 'width': float(width)}
+    if path is not None:
+        out['path'] = path
+    return out
