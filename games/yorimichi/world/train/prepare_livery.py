@@ -16,7 +16,8 @@ Writes games/yorimichi/assets/vehicles/belmonte-train/textures/*.jpg, the commit
   fire-door arch painted on) and its round smokebox door, 1024 x 1024 each, mapped whole on their faces;
 - wall-peel.jpg: the worn second class's matchboard walls, brown paint peeling onto an old green coat. Three square
   swatches drawn to join edge to edge (1|2|3|1) are laid side by side, 3072 x 1024 for 3.60 x 1.20 m, so a wall runs
-  three different stretches before it repeats;
+  three different stretches before it repeats (textures.py resamples it to 2048 x 1024 for T_BT_PaintPeel: Unreal
+  mips and streams only power-of-two textures);
 - lino.jpg: the second-class saloon's worn green linoleum, a seamless swatch, 1024 x 1024 for 2.40 x 2.40 m;
 - canteen-tiles.jpg: the canteen's greasy white tiles, cropped grout line to grout line (11 x 10 tiles of about
   10 cm) so the grid runs on across the seams, 1024 x 1024 for 1.10 x 1.00 m.

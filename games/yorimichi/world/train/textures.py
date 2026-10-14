@@ -201,10 +201,13 @@ def has(name):
     return (SOURCES / name).exists()
 
 
-def source(name):
-    """A prepared swatch (prepare_livery.py) as float RGB rows, bottom row first. Needs Blender (bpy) to read it."""
+def source(name, size=None):
+    """A prepared swatch (prepare_livery.py) as float RGB rows, bottom row first. Needs Blender (bpy) to read it.
+    size (w, h) resamples it first: Unreal only mips and streams power-of-two textures."""
     import bpy
     img = bpy.data.images.load(str(SOURCES / name))
+    if size and tuple(img.size) != tuple(size):
+        img.scale(*size)
     w, h = img.size
     px = np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4)[..., :3].astype(float)
     bpy.data.images.remove(img)
@@ -281,7 +284,7 @@ ALL = {
     'T_BT_Roof': lambda: _rgba(source('roof-canvas.jpg')),
     'T_BT_RoofWorn': lambda: weather(source('roof-canvas.jpg'), 35, rust_amount=.16),
     'T_BT_Underframe': lambda: _rgba(source('underframe.jpg')),
-    'T_BT_PaintPeel': lambda: _rgba(source('wall-peel.jpg')),
+    'T_BT_PaintPeel': lambda: _rgba(source('wall-peel.jpg', (2048, 1024))),   # the 3072 px strip, power of two for Unreal
     'T_BT_Lino': lambda: _rgba(source('lino.jpg')),
     'T_BT_TilesGrimy': lambda: _rgba(source('canteen-tiles.jpg')),
     'T_BT_Two': lambda: numeral_two(),
