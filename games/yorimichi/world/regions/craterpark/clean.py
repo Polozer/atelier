@@ -229,11 +229,12 @@ def _edge_hits(a, b, pts, tol, cell=.5, budget=2_000_000):
     return h[:, 0].astype('i8'), h[:, 1].astype('i8'), h[:, 2]
 
 
-def fix_tjunctions(P, F, others=None, tol=1e-6, rounds=8, attrs=None):
+def fix_tjunctions(P, F, others=None, tol=1e-6, rounds=8, attrs=None, atol=1e-3):
     """(P, F) with every triangle split where a vertex (of P, or of `others` (k,3)) lies inside one of its edges (within
-    tol, not at its ends). The only new vertices are those points of `others`, appended to P. Returns (P, F, added),
-    and with `attrs` (a per-vertex (n,k) array: UVs, occlusion) (P, F, added, attrs): a new vertex's interpolated
-    along the edge it splits."""
+    tol, not at its ends), on an open edge (one face's), each point at its nearest edge of a face. New vertices, appended
+    to P, lie only at those points' positions. Returns (P, F, added), and with `attrs` (a per-vertex (n,k) array: UVs,
+    occlusion) (P, F, added, attrs): a split's vertex takes the attributes interpolated along the edge it splits; an
+    existing vertex is reused only where its own agree within atol (a UV seam's other chart gets a vertex of its own)."""
     added = 0
     X = None if attrs is None else np.asarray(attrs, 'f8').reshape(len(P), -1)
     if others is not None and len(others):
@@ -249,7 +250,9 @@ def fix_tjunctions(P, F, others=None, tol=1e-6, rounds=8, attrs=None):
         a, b = P[e[:, 0]], P[e[:, 1]]
         pts = P if others is None else np.concatenate([P, others])
         cand, which, t = _edge_hits(a, b, pts, tol)
-        own = (F[fid[cand]] == which[:, None]).any(1)     # a face's own corner (a sliver's apex) never splits its edges
+        # a face's own corner (a sliver's apex), or any point at a corner's position (its UV seam twin), never
+        # splits its edges
+        own = (np.linalg.norm(P[F[fid[cand]]] - pts[which][:, None], axis=2) <= tol).any(1)
         cand, which, t = cand[~own], which[~own], t[~own]
         if not len(cand):
             break
@@ -265,29 +268,40 @@ def fix_tjunctions(P, F, others=None, tol=1e-6, rounds=8, attrs=None):
         cand, which, t = cand[op], which[op], t[op]
         if not len(cand):
             break
-        # points from `others` become new vertices of P (shared positions)
-        newp = which >= len(P)
-        if newp.any():
-            uniq, inv = np.unique(which[newp], return_inverse=True)
-            ids = len(P) + np.arange(len(uniq))
-            P = np.concatenate([P, pts[uniq]]); added += len(uniq)
-            if X is not None:
-                first = np.flatnonzero(newp)[np.unique(inv, return_index=True)[1]]
-                ea, eb = e[cand[first], 0], e[cand[first], 1]; tt = np.clip(t[first], 0, 1)[:, None]
-                X = np.concatenate([X, (1 - tt) * X[ea] + tt * X[eb]])
-            which = which.copy(); which[newp] = ids[inv]
-            others = np.delete(others, uniq - (len(P) - len(uniq)), 0)    # a vertex of P now: never added twice
         # split each affected triangle along one busy edge (its busiest): the edge's points in order of t fanned from
-        # the opposite corner. No vertex is ever made here (a centre vertex on a sliver lies within tol of its edges
-        # and splits them again, without end); points on a face's other edges split its fan's end triangles next round
+        # the opposite corner. No vertex is ever made inside a face (a centre vertex on a sliver lies within tol of its
+        # edges and splits them again, without end); points on a face's other edges split its fan's end triangles next round
         nF = len(F)
         hf, hk = fid[cand], cand // nF
         u = np.unique(np.stack([hf, hk, which], 1), axis=0, return_index=True)[1]   # a point once per edge
-        hf, hk, ht, hw = hf[u], hk[u], t[u], which[u]
+        cand, which, t, hf, hk = cand[u], which[u], t[u], hf[u], hk[u]
         cnt = np.zeros((nF, 3), 'i8'); np.add.at(cnt, (hf, hk), 1)
         aff = np.flatnonzero(cnt.any(1)); kb = np.full(nF, -1, 'i8'); kb[aff] = cnt[aff].argmax(1)
-        on = hk == kb[hf]; hf, ht, hw = hf[on], ht[on], hw[on]
+        on = hk == kb[hf]; cand, which, t, hf = cand[on], which[on], t[on], hf[on]
         keep = np.ones(nF, bool); keep[aff] = False
+        # the vertex each split point becomes: a vertex of P where its attributes are the receiving edge's (a UV seam
+        # keeps a vertex per chart at one position: the other chart's is never borrowed), else a new one at its
+        # position with the edge's attributes, one per (position, attributes)
+        n0 = len(P)
+        if X is None:
+            make = which >= n0; Xi = None
+        else:
+            tt = np.clip(t, 0, 1)[:, None]; Xi = (1 - tt) * X[e[cand, 0]] + tt * X[e[cand, 1]]
+            make = which >= n0
+            mine = np.flatnonzero(~make)
+            make[mine] = np.abs(X[which[mine]] - Xi[mine]).max(1) > atol
+        if make.any():
+            src = which[make]
+            key = src[:, None] if Xi is None else np.c_[src, np.round(Xi[make] / atol).astype('i8')]
+            _, fi, inv = np.unique(key, axis=0, return_index=True, return_inverse=True); inv = inv.ravel()
+            P = np.concatenate([P, pts[src[fi]]]); added += len(fi)
+            if X is not None:
+                X = np.concatenate([X, Xi[make][fi]])
+            which = which.copy(); which[make] = n0 + np.arange(len(fi))[inv]
+            used = np.unique(src[src >= n0]) - n0
+            if len(used):
+                others = np.delete(others, used, 0)                       # a vertex of P now: never added twice
+        hw, ht = which, t
         # each face's chain: the edge's start corner, its points by t, its end corner
         cf = np.r_[aff, aff]; ct = np.r_[np.full(len(aff), -1.), np.full(len(aff), 2.)]
         cv = np.r_[F[aff, kb[aff]], F[aff, (kb[aff] + 1) % 3]]

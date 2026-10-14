@@ -20,6 +20,7 @@ TURN = 35.          # degrees: a sharper corner ends a line
 SHORTEST = 1.5      # metres: shorter lines are left out
 STEP = .5           # metres between a line's points
 CELL = 2.           # metres: the height index's grid
+PAIRS = 500_000     # point-face candidates per batch at most (heights): about 0.2 GB however dense a cell
 
 
 def unit_normals(t):
@@ -41,27 +42,32 @@ def heights(triangles, cell=CELL):
     keys = (cells[:, 0] + (1 << 20)) << 21 | (cells[:, 1] + (1 << 20))
     order = np.argsort(keys, kind='stable'); keys, owner = keys[order], owner[order]
 
-    def between(points, low, high, chunk=20000, top=False):
-        if len(points) > chunk:
-            return np.concatenate([between(points[i:i + chunk], low[i:i + chunk], high[i:i + chunk], top=top)
-                                   for i in range(0, len(points), chunk)])
+    def between(points, low, high, top=False, pairs=PAIRS):
         c = np.floor(points[:, [0, 2]] / cell).astype('i8'); k = (c[:, 0] + (1 << 20)) << 21 | (c[:, 1] + (1 << 20))
         start = np.searchsorted(keys, k, 'left'); reps = np.searchsorted(keys, k, 'right') - start
-        which = np.repeat(np.arange(len(points)), reps)
-        cand = owner[np.repeat(start, reps) + np.arange(reps.sum()) - np.repeat(np.cumsum(reps) - reps, reps)]
-        p = points[which]; v = s[cand]
-        d = (v[:, 1, 2] - v[:, 2, 2]) * (v[:, 0, 0] - v[:, 2, 0]) + (v[:, 2, 0] - v[:, 1, 0]) * (v[:, 0, 2] - v[:, 2, 2])
-        ok = np.abs(d) > 1e-12; d = np.where(ok, d, 1.)
-        l1 = ((v[:, 1, 2] - v[:, 2, 2]) * (p[:, 0] - v[:, 2, 0]) + (v[:, 2, 0] - v[:, 1, 0]) * (p[:, 2] - v[:, 2, 2])) / d
-        l2 = ((v[:, 2, 2] - v[:, 0, 2]) * (p[:, 0] - v[:, 2, 0]) + (v[:, 0, 0] - v[:, 2, 0]) * (p[:, 2] - v[:, 2, 2])) / d
-        l3 = 1 - l1 - l2
-        y = l1 * v[:, 0, 1] + l2 * v[:, 1, 1] + l3 * v[:, 2, 1]
-        hit = ok & (l1 >= -1e-9) & (l2 >= -1e-9) & (l3 >= -1e-9) & (y >= low[which]) & (y <= high[which])
-        if top:
-            best = np.full(len(points), -np.inf); np.maximum.at(best, which[hit], y[hit])
-            return best
-        found = np.zeros(len(points), bool); found[which[hit]] = True
-        return found
+        out = np.full(len(points), -np.inf) if top else np.zeros(len(points), bool)
+        cum = np.cumsum(reps)
+        # batches of about `pairs` point-face candidates (a dense cell's points cost its faces each, not a fixed share)
+        cuts = np.unique(np.r_[0, np.searchsorted(cum, np.arange(pairs, cum[-1] if len(cum) else 0, pairs), 'right'), len(points)])
+        for i0, i1 in zip(cuts[:-1], cuts[1:]):
+            r = reps[i0:i1]
+            if not r.sum():
+                continue
+            which = np.repeat(np.arange(i0, i1), r)
+            cand = owner[np.repeat(start[i0:i1], r) + np.arange(r.sum()) - np.repeat(np.cumsum(r) - r, r)]
+            p = points[which]; v = s[cand]
+            d = (v[:, 1, 2] - v[:, 2, 2]) * (v[:, 0, 0] - v[:, 2, 0]) + (v[:, 2, 0] - v[:, 1, 0]) * (v[:, 0, 2] - v[:, 2, 2])
+            ok = np.abs(d) > 1e-12; d = np.where(ok, d, 1.)
+            l1 = ((v[:, 1, 2] - v[:, 2, 2]) * (p[:, 0] - v[:, 2, 0]) + (v[:, 2, 0] - v[:, 1, 0]) * (p[:, 2] - v[:, 2, 2])) / d
+            l2 = ((v[:, 2, 2] - v[:, 0, 2]) * (p[:, 0] - v[:, 2, 0]) + (v[:, 0, 0] - v[:, 2, 0]) * (p[:, 2] - v[:, 2, 2])) / d
+            l3 = 1 - l1 - l2
+            y = l1 * v[:, 0, 1] + l2 * v[:, 1, 1] + l3 * v[:, 2, 1]
+            hit = ok & (l1 >= -1e-9) & (l2 >= -1e-9) & (l3 >= -1e-9) & (y >= low[which]) & (y <= high[which])
+            if top:
+                np.maximum.at(out, which[hit], y[hit])
+            else:
+                out[which[hit]] = True
+        return out
     return between
 
 

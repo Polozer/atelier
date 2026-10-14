@@ -83,6 +83,17 @@ class CleanTests(unittest.TestCase):
         self.assertEqual(len(np.unique(np.round(P2, 9), axis=0)), len(P2))
         self.assertAlmostEqual(area(P2[F2]), 4., places=12)
 
+    def test_a_uv_seam_keeps_a_vertex_per_chart(self):
+        # one diagonal, two charts (separate vertices at its ends, as weld keeps them): the point splits each with its own UV
+        P = np.array([[0., 0, 0], [0, 0, 1], [1, 0, 0], [1, 0, 0], [0, 0, 1], [1, 0, 1]])
+        F = np.array([[0, 1, 2], [3, 4, 5]])
+        UV = np.array([[0., 0], [0, 1], [1, 0], [11, 0], [10, 1], [11, 1]])
+        P2, F2, added, UV2 = clean.fix_tjunctions(P, F, np.array([[.5, 0, .5]]), attrs=UV)
+        self.assertEqual((added, len(F2)), (2, 4))
+        self.assertEqual(sorted(UV2[6:].tolist()), [[.5, .5], [10.5, .5]])
+        for f in F2:                                                             # each face within its own chart
+            self.assertTrue((UV2[f, 0] < 2).all() or (UV2[f, 0] > 9).all())
+
     def test_a_split_vertex_takes_its_edges_attributes(self):
         # a vertical face (no use projecting it on the ground): the new vertex's UV is the edge's, a quarter along
         P = np.array([[0., 0, 0], [0, 1, 0], [0, 0, 1]]); F = np.array([[0, 1, 2]])
@@ -180,6 +191,11 @@ class RemeshTests(unittest.TestCase):
                                     lambda c: np.ones(len(c), bool), max_rounds=3)
         finally:
             remesh.cdt = real
+        self.assertIsNone(T)
+
+    def test_a_boundary_simplified_to_a_segment_fails_closed(self):
+        P2 = np.array([[0., 0], [1, 0], [.5, 1e-4]]); H = np.zeros(3)
+        T = remesh.remesh_patch(P2, H, None, .003, None, [0, 1], [(0, 1), (1, 0)], np.arange(3), lambda c: np.ones(len(c), bool))
         self.assertIsNone(T)
 
     def test_planar_patches_join_coplanar_faces_only(self):

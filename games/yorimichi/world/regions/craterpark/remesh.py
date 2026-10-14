@@ -185,6 +185,8 @@ def remesh_patch(P2, H, A, tol_h, tol_a, bverts, bedges, interior, inside, max_r
     and one still outside, or still off the surface, after max_rounds fails the patch."""
     chosen = np.unique(np.asarray(bverts))
     check = np.asarray(interior)
+    if len(chosen) < 3:                       # a boundary simplified to a segment: nothing to triangulate (fail closed)
+        return None
     for rnd in range(max_rounds):
         local = {v: i for i, v in enumerate(chosen.tolist())}
         le = np.array([[local[a], local[b]] for a, b in bedges], 'i8').reshape(-1, 2)
