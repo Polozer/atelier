@@ -180,6 +180,20 @@ class SnakeTests(unittest.TestCase):
         self.assertTrue(np.array_equal(v[:, 1], raw[:, 1]))                      # heights stay
 
 
+    def test_a_snake_run_lies_flush_on_its_path_with_walls_either_side_and_open_ends(self):
+        # A 3 m wide path at 0 m along x from 0 to 30: the run's floor is the path's height, its walls rise either side.
+        riding = np.asarray(floor(0, -1.5, 30, 1.5, 0.), 'f8')
+        v, f, uv = additions.snake_run(riding, [(2., 0.), (28., 0.)], 6., 2., 3.)
+        t = v[f].astype('f8')
+        y = lambda x, z: float(additions.top_heights(t, np.array([[x, 0., z]]))[0])
+        self.assertAlmostEqual(y(15, 0), 0., delta=.01)                         # flush on the path
+        self.assertAlmostEqual(y(15, 2.5), 0., delta=.01)                       # a wide floor
+        self.assertGreater(y(15, 5.8), 1.5)                                     # a wall each side
+        self.assertGreater(y(15, -5.8), 1.5)
+        self.assertEqual(y(1., 0.), -np.inf)                                    # open ends, cut square
+        self.assertEqual(y(29., 0.), -np.inf)
+
+
     def test_a_kicker_rises_from_the_floor_to_a_low_walls_top(self):
         riding = np.asarray(floor(0, 0, 5, 10, .8) + floor(5, 0, 15, 10, 0.), 'f8')    # a 0.8 m wall's top, the floor
         v, f, uv = additions.kicker(riding, (4, 2, 9, 6), 'x-')

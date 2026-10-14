@@ -492,6 +492,16 @@ def main():
         if sides is not None:
             added.append(({'id': f'add-bank-{name}-sides', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
                            'doubleSided': False, 'added': True}, sides))
+    for name, (path, width, wall, radius) in additions.SNAKE_RUNS.items():
+        made = additions.snake_run(riding_now, path, width, wall, radius)
+        if made is None:
+            continue
+        added.append(({'id': f'add-run-{name}', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                       'doubleSided': False, 'added': True}, made))
+        sides = additions.solidify(made[0][made[1]].astype('f8'), heights, around)
+        if sides is not None:
+            added.append(({'id': f'add-run-{name}-sides', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                           'doubleSided': False, 'added': True}, sides))
     for name, (box, level, material) in additions.STREETS.items():
         made = additions.street(riding_now, solid_now, box, level)
         if made is None:

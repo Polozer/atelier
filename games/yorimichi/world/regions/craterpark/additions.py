@@ -53,6 +53,11 @@ BANKS = {'tower_plaza_hip': ((1155., 1003., 1187., 1025.), None, 2.5),   # a hip
          # tunnel strip: the line's way back towards the drop-in.
          'bowl_rim_to_curve': ((1139., 903., 1149.5, 966.), [((1136., 897., 1151., 906.), 10., 12.),
                                                             ((1139., 955., 1151., 969.), 7., 9.)], None)}
+# The snake runs: a centreline [(x, z) or (x, y, z)], the floor's width, the walls' height and their radius (snake_run).
+SNAKE_RUNS = {
+    # The narrow path from the banked curve's foot to the blue pool, a wide run to pump along, over its coping.
+    'curve_to_blue_pool': ([(1211., 955.5), (1217., 950.), (1229.7, 939.7), (1248., 924.2), (1257.6, 917.9),
+                            (1264.9, 914.4), (1268., -22.1, 913.4), (1277., -22., 911.)], 6., 2.5, 3.5)}
 # The streets: a box over the open ground, the heights (low, high) of the pieces it is paved flush with, and its material.
 STREETS = {'central_street': ((1318., 998., 1348., 1055.), (-22.7, -22.), 'material_012')}  # the walkways, herringbone
 CLEAR = .05         # metres a street lies over the hillside at least (nearer, the two would flicker)
@@ -430,6 +435,63 @@ def street(riding, solid, box, level, cell=CELL):
         return None
     used = np.unique(faces); index = np.full(len(v), -1, 'i8'); index[used] = np.arange(len(used))
     return v[used].astype('f4'), index[faces], made[2][used]
+
+
+SNAKE_LIP = .6      # metres of flat deck along a snake run's lip, behind its coping
+SNAKE_STEP = .5     # metres between the points its centreline is resampled at
+SNAKE_EASE = 2.     # metres over which its floor's height is smoothed along it
+
+
+def snake_run(riding, path, width, wall, radius, cell=CELL):
+    """A snake run along the centreline `path` [(x, z) or (x, y, z)]: a floor `width` wide, at the height of the riding
+    face under the centreline (a path it is laid over stays flush), or the point's own y, carried smoothly along it
+    between; a circle's arc of `radius` either side rising `wall` over the floor, so a rider carves and pumps from wall
+    to wall; then SNAKE_LIP of flat deck. Its outer sides hang (solidify closes them). (vertices, faces, uvs) or None."""
+    p = np.asarray([(q[0], np.nan, q[1]) if len(q) == 2 else q for q in path], 'f8')
+    # The centreline resampled every SNAKE_STEP, its floor's height sampled and carried across the gaps, then eased.
+    seg = np.linalg.norm(np.diff(p[:, [0, 2]], axis=0), axis=1); s = np.concatenate([[0.], np.cumsum(seg)])
+    t = np.arange(0., s[-1] + 1e-6, SNAKE_STEP)
+    line = np.stack([np.interp(t, s, p[:, 0]), np.zeros(len(t)), np.interp(t, s, p[:, 2])], 1)
+    given = np.interp(t, s[np.isfinite(p[:, 1])], p[np.isfinite(p[:, 1]), 1]) if np.isfinite(p[:, 1]).any() else None
+    y = top_heights(riding, line)
+    near_given = np.zeros(len(t), bool)
+    if given is not None:
+        for k in np.flatnonzero(np.isfinite(p[:, 1])):
+            near_given |= np.abs(t - s[k]) < SNAKE_STEP
+        y = np.where(near_given | ~np.isfinite(y), np.where(near_given, given, y), y)
+    ok = np.isfinite(y)
+    if ok.sum() < 2:
+        return None
+    y = np.interp(t, t[ok], y[ok])
+    k = max(1, int(SNAKE_EASE / SNAKE_STEP / 2))
+    y = np.convolve(np.pad(y, k, mode='edge'), np.ones(2 * k + 1) / (2 * k + 1), mode='valid')
+    radius = max(radius, wall); reach = np.sqrt(radius ** 2 - (radius - wall) ** 2)
+    half = width / 2 + reach + SNAKE_LIP
+    x0, z0 = line[:, [0, 2]].min(0) - half - cell; x1, z1 = line[:, [0, 2]].max(0) + half + cell
+    xs = np.arange(x0, x1 + cell / 2, cell); zs = np.arange(z0, z1 + cell / 2, cell)
+    gx, gz = np.meshgrid(xs, zs)
+    q = np.stack([gx.ravel(), gz.ravel()], 1)
+    # Each node's distance to the centreline and its floor's height there (the nearest segment's, interpolated).
+    a, b = line[:-1][:, [0, 2]], line[1:][:, [0, 2]]
+    best = np.full(len(q), np.inf); floor_y = np.zeros(len(q)); beyond = np.zeros(len(q), bool)
+    for i in range(0, len(a), 64):
+        aa, bb = a[i:i + 64], b[i:i + 64]; d = bb - aa
+        free = ((q[:, None] - aa) * d).sum(-1) / np.maximum((d * d).sum(-1), 1e-12); u = np.clip(free, 0., 1.)
+        dist = np.linalg.norm(q[:, None] - (aa + u[..., None] * d), axis=-1)
+        j = dist.argmin(1); m = dist[np.arange(len(q)), j]; f = free[np.arange(len(q)), j]
+        better = m < best
+        best = np.where(better, m, best)
+        floor_y = np.where(better, y[i + j] + u[np.arange(len(q)), j] * (y[i + j + 1] - y[i + j]), floor_y)
+        # Past either end of the centreline: left out, so the run's ends are open mouths cut square across it.
+        out = ((i + j == 0) & (f < 0)) | ((i + j == len(a) - 1) & (f > 1))
+        beyond = np.where(better, out, beyond)
+    e = np.clip(best - width / 2, 0., reach)
+    height = floor_y + radius - np.sqrt(np.maximum(radius ** 2 - e ** 2, 0.))
+    nodes = ((best <= half) & ~beyond).reshape(gx.shape)
+    vertices, faces = grid_mesh(x0, z0, cell, height.reshape(gx.shape), nodes)
+    if not len(faces):
+        return None
+    return vertices.astype('f4'), faces, (vertices[:, [0, 2]] / UV_METRES).astype('f4')
 
 
 def kicker(riding, box, toward='x-', spine=False, cell=CELL):
