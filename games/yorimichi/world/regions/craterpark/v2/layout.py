@@ -21,6 +21,7 @@ line's length runs along its slope.
 Every jump was ridden on the offline gameplay Session (see MEASURED). Keep the numbers marked "ridden" unless a new
 ride proves the change.
 """
+import itertools
 import math
 from dataclasses import dataclass, field
 
@@ -142,7 +143,7 @@ class Bowl:
     coping: bool = True
     max_entry: float = 0.
     copy_from: dict = None
-    openings: tuple = ()        # (name, plan point on the rim, kind): where a line or link enters through the rim
+    openings: tuple = ()        # dicts: line, point (x, z) where its surface ends, y, heading degrees, width, kind (rim | floor)
     notes: str = ''
 
 
@@ -283,8 +284,15 @@ LINES = (L1, L3, L2)
 BOWLS = (
     Bowl('crater_bowl', centre=(1367.1, 932.2), axis=5.0, size=(120., 55.), rim_y=-10.0, floor_y=-20.2,
          r=9.0, vert=1.0, deck=3.0, material=PALETTE['concrete'], max_entry=25.0,
-         openings=(('L1', (1357.4, 973.8), 'roll-in bank, NE rim'), ('L3', (1311.5, 926.3), 'east end at floor level'),
-                   ('L2', (1429.8, 936.8), 'roll-in bank, west end')),
+         openings=(
+             {'line': 'L1', 'point': (1366.69, 966.58), 'y': -11.59, 'heading': -37.7, 'width': 16.,
+              'kind': 'rim', 'note': 'the line meets the north rim 1.6 m under the coping: a roll-in bank cut through '
+                                     'the wall, R12 to 28 degrees, R12 out onto the floor'},
+             {'line': 'L3', 'point': (1311.44, 926.29), 'y': -20.19, 'heading': 5.0, 'width': 18.,
+              'kind': 'floor', 'note': 'the east end opens at floor level along the axis: the J1 receiver runs out onto the floor'},
+             {'line': 'L2', 'point': (1414.47, 941.43), 'y': -18.36, 'heading': -175.0, 'width': 16.,
+              'kind': 'floor', 'note': 'the west end opens near floor level along the axis, after the carving berm '
+                                       '(1.8 m over the floor: a mellow R25 ramp down)'}),
          notes='Ridden straight-on (simout/bowlwalls.txt): R8 + 1 m vert returns clean to 25 m/s; 26-28 m/s lands on the '
                'deck behind the coping (no bail). The east end is a mellow R25 bank to 30 degrees, where L3 rolls in along '
                'the axis with about 115 m of floor to bleed. r4 SW mega bowl reference: 73 m wide, R10-19, 25 m floor.'),
@@ -510,3 +518,108 @@ def build_line(line, ground=None, side='bank', on_ground=False):
                                 right=side, ground=ground, feature=f'{line.id}.{i}', on_ground=on_ground))
             i += 1
     return P.Built.concat(built)
+
+
+# ---------------------------------------------------------------- the bowl complex interface (F's bowls.py)
+def bowl_outline(bowl, step=1.):
+    """The bowl's coping line as a closed plan polyline (k, 2), counter-clockwise: an ellipse `size` (length along
+    `axis`, width) round `centre`, or the r4 source outline moved to `centre` when `copy_from` names one (F reads the
+    r4 meshes; this returns the ellipse that bounds it)."""
+    (cx, cz), (L, W) = bowl.centre, bowl.size
+    n = max(16, math.ceil(math.pi * (L + W) / 2 / step))
+    t = np.linspace(0., 2 * math.pi, n, endpoint=False)
+    a = math.radians(bowl.axis)
+    x, z = L / 2 * np.cos(t), W / 2 * np.sin(t)
+    return np.c_[cx + x * math.cos(a) - z * math.sin(a), cz + x * math.sin(a) + z * math.cos(a)]
+
+
+def bowl_wall(bowl):
+    """The wall section from floor to coping, for primitives.bowl: radius, depth, vertical top and deck."""
+    return {'floor_y': bowl.floor_y, 'depth': bowl.rim_y - bowl.floor_y, 'radius': bowl.r, 'vert': bowl.vert,
+            'top_degrees': 90. if bowl.vert > 0 else None, 'deck': bowl.deck, 'material': bowl.material,
+            'coping': bowl.coping, 'max_entry_mps': bowl.max_entry}
+
+
+# ---------------------------------------------------------------- the compiled park (generate.py calls park())
+LINE_LABELS = {line.id: line.name for line in LINES}
+SPAWN_DECK_Y = None         # no tower deck yet: lines spawn at their roll-in exit (B's tower brings back TOWER['y'])
+
+
+def exit_speed(line, v0=1.):
+    """The modelled speed at the roll-in's exit section from `v0` at the crest (MEASURED_DRAG)."""
+    s_exit = exit_station(line)[0]
+    k = np.asarray([p for p in knots(line, .25) if p[0] <= s_exit + 1e-6])
+    v = float(v0)
+    for (s0, y0, _), (s1, y1, _) in itertools.pairwise(k):
+        drag = float(np.interp(v, *MEASURED_DRAG))
+        v = math.sqrt(max(v * v - 2 * 9.81 * (y1 - y0) - 2 * drag * math.hypot(s1 - s0, y1 - y0), 0.))
+    return v
+
+
+def ride_line(line, built):
+    """The dsl.RideLine of a built line: its centre path from the exit section to build_stop (2 m steps, on the
+    surface; gaps follow the ballistic chord), the spawn 1 m past the exit section facing down the line, and its airs."""
+    from . import dsl
+    s_exit, _, _, _, heading = exit_station(line)
+    stop = build_stop(line)
+    k = np.asarray([p for p in knots(line, 1.) if s_exit - 1e-6 <= p[0] <= stop + 1e-6])
+    pts = np.array([(*line.path.at(s)[0], y) for s, y, _ in k[::2]])
+    path = pts[:, [0, 2, 1]]
+    s0 = s_exit + 1.
+    y0 = float(np.interp(s0, k[:, 0], k[:, 1])); p0, _ = line.path.at(s0)
+    names = list(built.mesh.features)
+    airs = [(n, n.replace('.launch', '.landing')) for n in names if n.endswith('.launch')]
+    return dsl.RideLine(line.id, names, path, ((float(p0[0]), y0, float(p0[1])), heading), tuple(path[-1]),
+                        entry_speed=(round(exit_speed(line, 1.), 1), round(exit_speed(line, 8.), 1)), airs=airs)
+
+
+def park():
+    """The whole park as a dsl.Park: every line from its roll-in exit to build_stop, on A's ground landform (the lines'
+    foot loops are its holes), plus B's tower and F's bowl complex when their modules land. Interim slab: the lines'
+    flanks bank down to slab_ground() (2 m under the nearest riding station), where the landform takes over."""
+    from . import dsl
+    from . import primitives as P
+    slab = slab_ground()
+    built = {line.id: build_line(line, ground=slab, on_ground=True) for line in LINES}
+    parts = list(built.values()); checks = [c for b in parts for c in b.checks]
+    if hasattr(P, 'tower'):                 # B: the tower solid with its three roll-ins to the exit sections
+        parts.append(P.tower(TOWER, tower_exits(), ground=slab))
+    else:
+        checks.append({'kind': 'todo', 'what': 'tower', 'owner': 'B', 'note': 'lines start at the roll-in exit sections'})
+    try:
+        from . import bowls  # F: the bowl complex from BOWLS and LINKS
+    except ImportError:
+        checks.append({'kind': 'todo', 'what': 'bowl complex', 'owner': 'F'})
+    else:
+        parts.append(bowls.build(BOWLS, LINKS, ground=slab))
+    from . import ground as G
+    feet = [f for b in parts for f in b.foot]
+    land = G.ground(site_outline(G), holes=feet, guide=G.r4_block_controls())
+    mesh = dsl.Mesh.concat([b.mesh for b in parts] + [land])
+    lines = [ride_line(line, built[line.id]) for line in LINES]
+    for line in LINES:
+        checks.append({'kind': 'speed', 'line': line.id, 'exit_speed_mps': [round(exit_speed(line, v), 2) for v in (1., 4., 8.)],
+                       'bowl_entry_max_mps': next(b.max_entry for b in BOWLS if b.id == line.exit)})
+    return dsl.Park(mesh, [r for b in parts for r in b.rails], lines, checks)
+
+
+def site_outline(G, inset=.985):
+    """r4's site outline (ground.r4_site) pulled in about its centroid by `inset`: r4_site's spline runs up to 1 m past
+    the block's own edge at its corners (dressing.check rejects any face off placement.contains)."""
+    o = G.r4_site()
+    c = o[:, [0, 2]].mean(0)
+    o = o.copy(); o[:, [0, 2]] = c + (o[:, [0, 2]] - c) * inset
+    return o
+
+
+def tower_exits():
+    """B's tower interface: per line, the roll-in (its profile parts from the deck at TOWER['y']) and the exit section
+    it must end on exactly: s, y, degrees, plan point (x, z), heading degrees and width."""
+    out = {}
+    for line in LINES:
+        s, y, a, p, h = exit_station(line)
+        f = next(f for f in line.features if f.kind == 'roll_in')
+        out[line.id] = {'crest': line.path.start, 'heading': line.path.heading, 'rollin': line.profile[:line.rollin],
+                        's': s, 'y': y, 'degrees': a, 'point': p, 'exit_heading': h, 'width': f.width,
+                        'params': dict(f.params)}
+    return out
