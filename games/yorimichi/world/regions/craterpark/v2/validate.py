@@ -768,6 +768,25 @@ def budgets(meshes, limits=None, cube=CUBE, stride=CUBE_STRIDE, tiles=None):
     return rec
 
 
+# ---------------------------------------------------------------------------------------------------- site edge
+
+def site_boundary(outline, tol=1e-3, below=None):
+    """An allow_open rule for topology: an open edge is allowed only when both its ends and its midpoint lie within
+    `tol` (plan metres) of the site's outer `outline` [(x, z)] (closed loop), and, with `below`, at or under that
+    native y (the skirt's bottom). Any other open edge (a crack, a knife edge, a free wall top) still fails."""
+    o = np.asarray(outline, 'f8'); o = o[:, [0, 2]] if o.shape[1] == 3 else o
+    loop = np.r_[o, o[:1]]
+
+    def ok(a, b):
+        m = np.ones(len(a), bool)
+        for p in (a, b, (a + b) / 2):
+            m &= _seg_dist2(p[:, [0, 2]], loop) <= tol * tol
+            if below is not None:
+                m &= p[:, 1] <= below + tol
+        return m
+    return ok
+
+
 # ---------------------------------------------------------------------------------------------------- V7 facets
 
 DIHEDRAL = 2.        # degrees between neighbouring riding faces at most, off a designed crease (I6)

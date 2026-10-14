@@ -107,6 +107,15 @@ class TopologyTests(unittest.TestCase):
         self.assertFalse(r['ok'])
         self.assertGreater(r['surface']['open_edges'], 0)
 
+    def test_the_site_boundary_rule_allows_only_the_outline(self):
+        rule = V.site_boundary([(0, 0), (2, 0), (2, 1), (0, 1)])
+        a = V.Mesh('a', *grid(0, 0, 1, 1, 1)); b = V.Mesh('b', *grid(1, 0, 2, 1, 2))
+        r = V.topology([a, b], allow_open=rule)                              # the T-junction at x 1 still fails
+        self.assertEqual((r['surface']['open_edges'], r['surface']['t_junction_vertices']), (3, 1))   # the crack: a's edge and b's two halves
+        self.assertTrue(V.topology([V.Mesh('d', *grid(0, 0, 2, 1, 2))], allow_open=rule)['ok'])
+        self.assertFalse(V.topology([V.Mesh('d', *grid(0, 0, 2, 1, 2))],
+                                    allow_open=V.site_boundary([(0, 0), (2, 0), (2, 1), (0, 1)], below=-1))['ok'])
+
     def test_flipped_open_and_inside_out_solids_fail(self):
         P, F = grid(0, 0, 2, 2, 2); F[3] = F[3, ::-1]
         self.assertEqual(V.topology([V.Mesh('d', P, F)], allow_open=on_square(0, 0, 2, 2))['surface']['miswound_edges'], 3)
