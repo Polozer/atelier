@@ -154,11 +154,12 @@ them as `rails` and sets `rails_required`.
 The foundation blocks were made solid up to the top of the pieces over them, so they filled the round tunnel: the
 rider met its flat end. [`craterpark/tunnel.py`](../world/regions/craterpark/tunnel.py) finds the pieces that close
 round an open bore (a riding face over and under a point, and round it on most sides, within 12 m) and cuts every
-block face that reaches into one out of the render and the collision: the face is split down to 0.5 m near the bore
-and only its parts inside are left out, so a block's wall keeps its solid round the portal and a long face crossing
-the bore keeps its ends. Which points lie in a bore is looked up on a 1 m grid computed once per bore (tested exactly
-only where the grid's nodes disagree, at its edge), and only faces with a point of a 0.5 m lattice over them in the
-bore are split: the thousands of faces that only line it stay whole. The added pieces are cut the same way (a cap's
+block face that reaches into one out of the render and the collision. A bore is straight: it is taken as a convex
+prism, the hull of its grid's nodes across its axis extruded along it, carried on to each mouth while the bores'
+pieces together still roof it (near the portal one piece is the roof, another a wall). A face inside is left out; a
+face crossing the prism's side is clipped exactly against it and its parts outside kept, so a block's wall keeps its
+solid round the portal and a long face crossing the bore keeps its ends. Parts one bore leaves are clipped by the
+next. The real tunnel: 123k parts in about 20 s, no face left inside. The added pieces are cut the same way (a cap's
 wall once stood across the tunnel).
 
 [`craterpark/additions.py`](../world/regions/craterpark/additions.py) adds riding pieces, shaped on the park's own
@@ -181,14 +182,31 @@ surfaces; none moves, cuts or covers what is ridden:
   rider drops in. At the curve's far end, where it rose into a quarter 2.5 m short of the peanut bowl's rim and
   stopped, a deck across makes a spine over into the bowl.
 - **Kicker.** A short arc from the plaza terrace up onto its parapet, at the hip's foot.
-- **Street.** The central street between the two walkway strips was hillside, level with them. It is paved flush with
-  the strips (herringbone, `material_012`), 5 cm over the hillside at least; a higher deck beside it keeps its wall,
+- **Street.** The central street between the two walkway strips was hillside, level with them, as is the ground on
+  to the half-pipe's open north side. It is paved flush with the strips (herringbone, `material_012`), 5 cm over the hillside at least; a higher deck beside it keeps its wall,
   and where the hill rises more than 30 cm through it, the paving stops at the hill.
 - **Snake runs.** A run along a centreline: a floor 6 m wide on the path it is laid over (flush with it), or on a
   smooth profile through given heights; a 2.5 m wall of 3.5 m radius each side to carve and pump between; open ends cut
   square. The narrow path from the banked curve's foot to the blue pool is one, carried over the gap to the pool's
   coping; another joins the pool's north coping to the 12 m half-pipe's floor. The hillside under a run is cut 30 cm
   below it.
+- **Ramps and gaps.** A ramp follows a straight centreline, its profile drawn from arcs and lines (a crest, a kicker's
+  transition up to its lip, a landing's knuckle and run-out) so each angle holds where it is meant to. A gap is a
+  kicker and a landing on one line. Every gap was first ridden by the game's own rider offline
+  (`Tests/build_simulation_session_cli.py`, `tools/check_skate_feel.py`'s session) across the speeds its line gives,
+  and shaped until each landed clean: the blue pool gap off the south-west bowl's rim deck (a 50 m bridge over the
+  dumbbell's disk, a 15-degree lip at -2.5 m, a 35 m, 2.2 s air into the pool); the plaza's gap south-east over the
+  city into the 12 m half-pipe (a 4.5 m step-up bleeds the hip's speed, clean from 14 to 26 m/s). A steep lip throws
+  the rider at the same angle into a landing too short to match it, so lips are 15 degrees and landings long and steep;
+  a crest is at least 10 m in radius, or the rider leaves it. The pool's 3 m wall is vertical at its top and the rider
+  bailed there from 22 m/s, so a bank carries the gap's run-out over it up 22.5 m to the south-east run's deck. The
+  half-pipe's east wall is carried up 11 m to the black bowls' pocket as a roll-in (a 75-degree coping threw the
+  rider off; a 14 m crest takes the rider from a standstill to 16.5 m/s on the floor), and a ramp lies over the half-pipe's
+  stepped neck down to the peanut bowl. A ramp's flanks slope at 30 degrees down to the ground within 4 m (a hip to
+  ride over where it meets a street, not a wall), and where its wall would stand on a riding face 3 m or more under
+  it, the wall stops 60 cm down: a span, the run under it left open.
+- **Pump track.** The valley's floor, where the rider stopped, runs south through the city's dirt to its paved street
+  between transition walls, over 1 m rollers every 8 m.
 - **Steel coping.** A 7 cm steel tube is drawn along every grind line, its top 12 mm over the deck (render only; a
   metallic `Steel` parent in `import_craterpark.py`).
 - **Solid edges.** A riding sheet's free edge that ends in the air, a knife edge (a half-pipe's flank, the back of its
