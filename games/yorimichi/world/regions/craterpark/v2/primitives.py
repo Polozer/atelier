@@ -7,7 +7,8 @@ welded topology (base faces included) and has no folded face; both are checked b
 Sides of a feature, where its edge meets lower ground (`Side`):
 - `wall`: a vertical wall down to the ground: the solid's own side, as thick as the feature is wide;
 - `curb`: a thick wall standing `height` over the riding edge with a flat cap `width` (>= 0.30 m) wide;
-- `bank`: a riding slope at `degrees` down to the ground;
+- `bank`: a slope at `degrees` down to the ground (role side: it collides and can be ridden, but it is not the
+  designed line, so it is meshed coarsely and kept out of the riding checks);
 - `flush`: the ground or a deck continues at the riding edge (the wall is only a buried closing face).
 Wherever the riding edge stands less than FLUSH over the ground, its wall is buried (role base).
 
@@ -32,7 +33,7 @@ FOOT = .01          # metres a wall's foot lies under a flush edge at least (so 
 BURY = .3           # metres the base lies under the lowest ground or riding point
 MIN_WALL = .30      # metres: a wall or cap's least thickness (I5)
 TESS = dsl.Tess(.002, 2.0, 2.8)   # riding: as RIDING_TESS, but quads of 2.8 m keep their diagonals under 4 m (V9)
-WALL_ROW = 2.8      # metres between a wall's rows down it at most
+WALL_ROW = 2.2      # metres between a wall's rows down it at most
 
 
 @dataclass
@@ -42,7 +43,6 @@ class Side:
     height: float = .3          # curb: how far it stands over the riding edge
     degrees: float = 30.        # bank: its slope
     material: str = dsl.CONCRETE
-    shoulder: float = 1.5       # bank: the radius rolling the riding edge over into the slope (no crease)
 
     def __post_init__(self):
         if self.kind not in ('wall', 'curb', 'bank', 'flush'):
@@ -118,50 +118,105 @@ def _dedupe(ids, V):
     return ids[keep]
 
 
-FLANK_ROW = 2.8     # metres between a bank flank's rows across it at most
-FLANK_STEP = 2.     # degrees per row round its shoulder at most
+FLANK_ROW = 2.2     # metres between a bank flank's rows down it at most
+PINCH = .12         # metres: a flank shorter than this is none (the riding edge meets the ground there)
+INSIDE = 2.         # metres a flank stops short of its edge's centre of turn
 
 
-def _flank_rows(E, D, side, g, gap):
-    """A bank flank's rows outward from the riding edge E (k, 3): a shoulder of radius side.shoulder turning from
-    level to side.degrees (tangent to the riding edge, so no crease), then the straight slope, rows at most
-    FLANK_ROW apart, down to the ground. Each station's rows past its foot collapse onto the foot (a row within half
-    a spacing of it too), so the flank is as long as its drop needs and never a sliver."""
-    a = math.radians(side.degrees); rs = side.shoulder
-    arc = rs * a
-    def at(sig):                                             # (out, down) along the flank at arc length sig
-        th = np.minimum(sig, arc) / max(rs, 1e-12)
-        out = rs * np.sin(th) + np.maximum(sig - arc, 0) * math.cos(a)
-        down = rs * (1 - np.cos(th)) + np.maximum(sig - arc, 0) * math.sin(a)
-        return out, down
-    def height_over(sig):
-        out, down = at(sig)
-        q = E + out[:, None] * D
-        return E[:, 1] - down - g(q[:, 0], q[:, 2]) - gap
-    drop = E[:, 1] - g(E[:, 0], E[:, 2])
-    hi = np.full(len(E), arc + (max(float(drop.max()), 0) + rs) / math.sin(a) + 1.)
-    lo = np.zeros(len(E))
-    over = height_over(lo) > 0
-    for _ in range(50):                                      # bisection for each station's foot
+def _flank_extent(E, D, side, g, gap):
+    """Each station's flank length down the slope from the riding edge E (k, 3) to the ground, clipped on the inside
+    of a turn to the edge's turn radius less INSIDE (a flank must never fold; it then ends in a short wall)."""
+    a = math.radians(side.degrees)
+    drop = E[:, 1] - gap - g(E[:, 0], E[:, 2])
+    lo = np.zeros(len(E)); hi = np.full(len(E), max(float(drop.max()), 0.) / math.sin(a) + 1.)
+    for _ in range(50):                                      # bisection: the slope meets the (sloping) ground
         mid = (lo + hi) / 2
-        up = height_over(mid) > 0
+        q = E + (mid * math.cos(a))[:, None] * D
+        up = E[:, 1] - mid * math.sin(a) - gap - g(q[:, 0], q[:, 2]) > 0
         lo = np.where(up, mid, lo); hi = np.where(up, hi, mid)
-    foot = np.where(over, (lo + hi) / 2, 0.)
-    n_arc = max(1, math.ceil(side.degrees / FLANK_STEP))
-    longest = float(foot.max())
-    sig = list(np.linspace(0, arc, n_arc + 1)[1:]) if arc > 0 else []
-    if longest > arc:
-        n = max(1, math.ceil((longest - arc) / FLANK_ROW))
-        sig += list(arc + np.arange(1, n + 1) * (longest - arc) / n)
-    rows = []
-    for k, sg in enumerate(sig):
-        step = sg - (sig[k - 1] if k else 0.)
-        use = np.where(sg < foot - step / 2, sg, foot)
-        if k == len(sig) - 1:
-            use = foot
-        out, down = at(use)
-        rows.append(E + out[:, None] * D - down[:, None] * np.array([0., 1., 0.]))
-    return rows
+    sig = np.where(drop > 0, (lo + hi) / 2, 0.)
+    # the edge's curvature toward D: D turning by dtheta over ds; > 0 bends toward the flank (its inside)
+    if len(E) > 2:
+        s = np.r_[0., np.cumsum(np.linalg.norm(np.diff(E[:, [0, 2]], axis=0), axis=1))]
+        T = np.gradient(E[:, [0, 2]], s, axis=0)
+        T /= np.maximum(np.linalg.norm(T, axis=1, keepdims=True), 1e-12)
+        dT = np.gradient(T, s, axis=0)
+        k = (dT * D[:, [0, 2]]).sum(1)
+        k = np.maximum.reduce([k, np.r_[k[1:], k[-1]], np.r_[k[0], k[:-1]], np.r_[k[2:], k[-2:]], np.r_[k[:2], k[:-2]]])
+        reach = np.where(k > 1e-9, np.maximum(1 / np.maximum(k, 1e-9) - INSIDE, 0.) / math.cos(a), np.inf)
+        sig = np.minimum(sig, reach)
+    sig[sig < PINCH] = 0.
+    return sig
+
+
+def _flank_mesh(E, D, side, g, gap, feature):
+    """A bank flank on an open path, as a constrained Delaunay mesh in its own (u along the riding edge, sigma down
+    the slope) domain: the edge on top, each station's foot below, rows FLANK_ROW apart at the stations' u, each row
+    ending a half row short of the foot, so a flank whose length changes along the ramp never fans or thins. UVs: u
+    the arc length along each row, v sigma. Returns (mesh or None, foot (k, 3), end columns {0: [...], -1: [...]})."""
+    from .cdt import CDTError, triangulate
+    a = math.radians(side.degrees)
+    Y = np.array([0., 1., 0.])
+    k = len(E)
+    sig_f = _flank_extent(E, D, side, g, gap)
+
+    def place(uu, ss):
+        Eu = np.stack([np.interp(uu, u, E[:, c]) for c in range(3)], 1)
+        Du = np.stack([np.interp(uu, u, D[:, c]) for c in range(3)], 1)
+        Du /= np.maximum(np.linalg.norm(Du, axis=1, keepdims=True), 1e-300)
+        return Eu + (ss * math.cos(a))[:, None] * Du - (ss * math.sin(a))[:, None] * Y
+    u = np.r_[0., np.cumsum(np.linalg.norm(np.diff(E, axis=0), axis=1))]
+    foot = place(u, sig_f)
+    foot[sig_f == 0] = E[sig_f == 0]
+    lim = np.minimum.reduce([sig_f, np.r_[sig_f[1:], sig_f[-1]], np.r_[sig_f[0], sig_f[:-1]]])
+
+    def column(limit):
+        n = int(limit // FLANK_ROW)
+        lv = FLANK_ROW * np.arange(1, n + 1)
+        return lv[lv < limit - FLANK_ROW / 2]
+    ends = {0: column(sig_f[0]), -1: column(sig_f[-1])}
+    run = np.flatnonzero(sig_f > 0)
+    if not len(run):
+        return None, foot, {0: [], -1: []}
+    parts = []
+    for r in np.split(run, np.flatnonzero(np.diff(run) > 1) + 1):
+        i0, i1 = int(r[0]), int(r[-1])
+        top = [(u[i], 0.) for i in range(i0, i1 + 1)]
+        left = [(u[i0 - 1], 0.)] if i0 > 0 else []
+        if i1 < k - 1:
+            right = [(u[i1 + 1], 0.)]
+            hi = i1
+        else:
+            right = [(u[-1], x) for x in ends[-1]] + [(u[-1], sig_f[-1])]
+            hi = k - 2
+        lo = i0 if i0 > 0 else 1
+        feet = [(u[i], sig_f[i]) for i in range(hi, lo - 1, -1)]
+        if i0 == 0:
+            feet += [(u[0], sig_f[0])] + [(u[0], x) for x in ends[0][::-1]]
+        poly = np.asarray(left + top + right + feet)
+        inner = [(u[i], x) for i in range(max(i0, 1), min(i1, k - 2) + 1) for x in column(lim[i])]
+        P2 = np.concatenate([poly, np.asarray(inner).reshape(-1, 2)])
+        try:
+            F = triangulate(P2, [np.arange(len(poly))])
+        except CDTError:
+            P2 = poly; F = solids.ear_clip(poly)
+        V = place(P2[:, 0], P2[:, 1])
+        # u: the arc length along each row (the iso-sigma curve through the vertex), v: sigma
+        rows = place(np.repeat(u[None], len(P2), 0).ravel(), np.repeat(P2[:, 1], k)).reshape(len(P2), k, 3)
+        seg = np.r_[np.zeros((len(P2), 1)).T, np.cumsum(np.linalg.norm(np.diff(rows, axis=1), axis=2), 1).T].T
+        along = np.array([np.interp(P2[j, 0], u, seg[j]) for j in range(len(P2))])
+        t = V[F]
+        F = F[np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1) > 1e-12]
+        uc = P2[F].mean(1)[:, 0]
+        F = solids.orient(F, V, np.stack([np.interp(uc, u, D[:, c]) for c in range(3)], 1) + Y)
+        t = V[F]
+        n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        if (n[:, 1] <= 0).any():
+            raise ValueError(f'{feature}: its bank flank folds near {t[np.argmin(n[:, 1])].mean(0).round(2).tolist()}')
+        parts.append(dsl.Mesh.part(V, F, material=side.material, role=dsl.SIDE, feature=feature,
+                                   UV=np.stack([along, P2[:, 1]], 1) / dsl.UV_METRES))
+    col = {e: [place(np.array([u[e]]), np.array([x]))[0] for x in ends[e]] for e in (0, -1)}
+    return dsl.Mesh.concat(parts), foot, col
 
 
 def _drop_rows(top, foot, step=WALL_ROW):
@@ -178,7 +233,7 @@ def _drop_rows(top, foot, step=WALL_ROW):
     return rows + [foot]
 
 
-def _side_columns(E, D, side, g, base_y, under=None, on_ground=False):
+def _side_columns(E, D, side, g, base_y, under=None, on_ground=False, closed=False, feature='side'):
     """The cross-section points outward of a riding edge E (k, 3), outward D (k, 3) horizontal unit, for `side`:
     a list of (k, 3) rows from the edge out to the outer top, then the foot and (unless `on_ground`) the base rows;
     plus each segment's (role, outward kind) for the strips between consecutive rows. On the ground, the foot lies
@@ -186,12 +241,16 @@ def _side_columns(E, D, side, g, base_y, under=None, on_ground=False):
     Y = np.array([0., 1., 0.])
     gap = 0. if on_ground else FOOT
     rows, segs = [E], []
+    extra = {'parts': [], 'ends': {0: [], -1: []}}
     if side.kind == 'curb':
         rows.append(E + side.height * Y); segs.append((dsl.SIDE, 'inner'))
         rows.append(E + side.height * Y + side.width * D); segs.append((dsl.RIDING, 'up'))
     elif side.kind == 'bank':
-        for r in _flank_rows(E, D, side, g, gap):
-            rows.append(r); segs.append((dsl.RIDING, 'bank'))
+        if closed:
+            raise ValueError(f'{feature}: a bank flank on a closed path is not supported; use a wall or curb')
+        mesh, foot_f, ends = _flank_mesh(E, D, side, g, gap, feature)
+        rows.append(foot_f); segs.append((dsl.RIDING, 'flank'))
+        extra = {'parts': [mesh] if mesh is not None else [], 'ends': ends}
     outer = rows[-1]
     gy = g(outer[:, 0], outer[:, 2])
     foot = outer.copy(); foot[:, 1] = np.minimum(gy, outer[:, 1] - gap)
@@ -200,13 +259,13 @@ def _side_columns(E, D, side, g, base_y, under=None, on_ground=False):
     # down to the foot (a bank's flank ends on the ground already; where it collapsed onto a flush edge, the drop
     # keeps the foot under it, so the end face never folds back on itself)
     role = dsl.SIDE if (side.kind != 'flush' or on_ground) else dsl.BASE
-    if side.kind != 'bank' or (not on_ground and (outer[:, 1] - foot[:, 1] > 1e-9).any()):
+    if side.kind != 'bank' or (outer[:, 1] - foot[:, 1] > 1e-9).any():
         for r in _drop_rows(outer, foot):
             rows.append(r); segs.append((role, 'out'))
     if not on_ground:
         base = outer.copy(); base[:, 1] = base_y
         rows.append(base); segs.append((dsl.BASE, 'out'))
-    return rows, segs
+    return rows, segs, extra
 
 
 def _ground_bands(chain, g, eps=1e-6):
@@ -278,6 +337,7 @@ def _finish(parts, feature, riding=None, on_ground=False):
 # ------------------------------------------------------------------------------------------------ longitudinal ramps
 
 CLEAR = .25         # share of the local station spacing a path station keeps clear of a profile station
+NEAR = .05          # metres: a path break (a fillet's start) this near a profile station merges into it
 
 
 class _Clear(Curve):
@@ -311,7 +371,7 @@ class _Clear(Curve):
         lo, hi = self.own[k - 1], self.own[k]
         gap = np.minimum(t - lo, hi - t)
         inside = (t > self.own[0]) & (t < self.own[-1])
-        keep = ~inside | (gap > CLEAR * (hi - lo)) | np.isin(t, self.path.breaks())
+        keep = ~inside | (gap > CLEAR * (hi - lo)) | (np.isin(t, self.path.breaks()) & (gap > NEAR))
         return t[keep]
 
 
@@ -505,7 +565,7 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows
     for E, Dd, kind in ((Ef, -D, front), (Eb, D, back)):
         s = as_side(kind) if kind not in ('cap', 'base') else None
         if s is not None and s.kind == 'bank':
-            reach = (E[:, 1] - g(E[:, 0], E[:, 2])).max() / math.tan(math.radians(s.degrees)) + s.shoulder + 1.
+            reach = (E[:, 1] - g(E[:, 0], E[:, 2])).max() / math.tan(math.radians(s.degrees)) + 1.
             q = E + reach * Dd
             probe.append(float(g(q[:, 0], q[:, 2]).min()))
         if s is not None and s.kind == 'curb':
@@ -513,7 +573,7 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows
             probe.append(float(g(q[:, 0], q[:, 2]).min()))
     base_y = min([lo] + probe) - BURY - FOOT
     parts = []
-    cols = {}
+    cols, ends_of = {}, {'front': {0: [], -1: []}, 'back': {0: [], -1: []}}
     for name, E, Dd, kind in (('front', Ef, -D, front), ('back', Eb, D, back)):
         if kind == 'cap':
             parts.append(solids.polygon(E, outward=Y, feature=feature, role=dsl.RIDING))
@@ -527,8 +587,13 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows
             cols[name] = None
             continue
         side = as_side(kind)
-        rows, segs = _side_columns(E, Dd, side, g, base_y, under=G[..., 1].min(1), on_ground=on_ground)
+        rows, segs, extra = _side_columns(E, Dd, side, g, base_y, under=G[..., 1].min(1), on_ground=on_ground,
+                                          closed=closed, feature=feature)
+        parts += extra['parts']
+        ends_of[name] = extra['ends']
         for (a, b), (role, k) in zip(itertools.pairwise(rows), segs, strict=True):
+            if k == 'flank':
+                continue
             out = {'inner': -Dd, 'up': np.broadcast_to(Y, Dd.shape), 'bank': Dd + Y, 'out': Dd}[k]
             m = solids.grid(np.stack([a, b], 1), outward=out, feature=feature, material=side.material, role=role,
                             uv='arc' if role == dsl.RIDING else 'wall', closed_rows=closed)
@@ -552,6 +617,8 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows
         foot = -1 if on_ground else -2
         for i, top, kind, out in ((0, tops[0], ends[0], -T0), (-1, tops[1], ends[1], T1)):
             f = [r[i] for r in cols['front']]; b = [r[i] for r in cols['back']]
+            f = f[:1] + list(ends_of['front'][i]) + f[1:]        # a flank's own points down the end
+            b = b[:1] + list(ends_of['back'][i]) + b[1:]
             wall = as_side(kind).kind == 'wall'
             if on_ground and not wall:
                 continue                 # the next feature or deck continues here: left open (its seam)
