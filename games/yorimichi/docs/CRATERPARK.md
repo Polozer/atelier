@@ -287,17 +287,22 @@ concrete, warm wooden ramps, terracotta tiles and a blue pool, in soft flat pain
 
 ## Review
 
-`tools/review_craterpark.py` takes the park in the game from fixed cameras under the render guard, after the build:
-`air`, `rim`, `zeppelin`, `city`, `dropin` and `bowls` round the caldera, and `hidamari`, `hidamari_east`,
-`belmonte` and `trail` for the volcano from far away; then it places the rider at the marked drop-in, facing into the
-park with the brake held. The target views it is judged against are in `assets/craterpark/concepts`: the grounded
-paintovers `paintover-dropin.jpg` and `paintover-bowls.jpg`, and `target-g_air`, `target-g_rim`, `target-g_zep`,
-`target-f_city2` (the city's north edge) and `target-f_belmonte`, each with its generation record. The game now
-peaks at about 11.5 GiB, over the default 10 GiB game limit. Pass `--memory-gib 14` explicitly for that review;
-the harness defaults to 10 GiB and never raises it automatically. After coordinating the guarded turn:
+`tools/review_craterpark.py` is the park's tour for the owner's page after every build. It runs the editor game under
+the render guard and takes its cameras from the build's own outputs, so the tour follows the layout:
+- `aerial` and `aerial_plan` frame the whole block;
+- `tower_<line>` looks from each roll-in crest down its line (park.json `lines`);
+- `gap_<feature>` is a side view of every air, with the rider launched off the lip at the design speed (18.5 m/s)
+  and caught near the apex (geometry-report `checks`, else the layout's gaps);
+- `feature_<id>` frames every bowl, half bowl, elbow or quarter pipe, from its built faces or else the layout.
+
+`--video` adds a chase flythrough of each line (`flythrough_<line>.mp4`, from `v2/lines/*.npz`). `--plan` prints the
+shot list without a game. `--shots far` takes the r4 review's views of the volcano from far away (`rim`, `zeppelin`,
+`city`, `hidamari`, `hidamari_east`, `belmonte`, `trail`), to check the park stays hidden. It writes the PNGs,
+`tour.json` and `index.html` (a contact sheet) to `build/yorimichi/craterpark/review`. The game peaked at about 11.5
+GiB in the r4 review: pass `--memory-gib 14` explicitly after coordinating the guarded turn.
 
 ```sh
-nice -n 10 uv run python games/yorimichi/tools/review_craterpark.py --memory-gib 14
+nice -n 10 uv run python games/yorimichi/tools/review_craterpark.py --video --memory-gib 14
 ```
 
 ## Build and game
