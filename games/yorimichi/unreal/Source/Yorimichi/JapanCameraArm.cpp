@@ -47,7 +47,10 @@ bool UJapanCameraArm::PassesHouse() const
 float UJapanCameraArm::Free(const FVector& From, const FVector& Dir, float Dist, float Radius, const FCollisionQueryParams& Params) const
 {
     FHitResult Hit;
-    if (!GetWorld()->SweepSingleByChannel(Hit, From, From + Dir * Dist, FQuat::Identity, ProbeChannel, FCollisionShape::MakeSphere(Radius), Params))
+    const bool bHit = ProbeObjectsOnly != ECC_MAX
+        ? GetWorld()->SweepSingleByObjectType(Hit, From, From + Dir * Dist, FQuat::Identity, FCollisionObjectQueryParams(ProbeObjectsOnly), FCollisionShape::MakeSphere(Radius), Params)
+        : GetWorld()->SweepSingleByChannel(Hit, From, From + Dir * Dist, FQuat::Identity, ProbeChannel, FCollisionShape::MakeSphere(Radius), Params);
+    if (!bHit)
         return Dist;
     return Hit.bStartPenetrating ? -1.f : Hit.Time * Dist;
 }

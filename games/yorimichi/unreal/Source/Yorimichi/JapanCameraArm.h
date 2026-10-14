@@ -36,6 +36,9 @@ public:
     UPROPERTY(EditAnywhere, Category = Camera) float LiftHeight = 50.f;
     /** On the tree house, the camera stays this far above the floor under Cairo (cm). */
     UPROPERTY(EditAnywhere, Category = Camera) float FloorClearance = 40.f;
+    /** When set, the probe only stops on objects of this type (aboard the Belmonte train: its vehicles, so the terrain
+     *  the line still clips cannot pull the camera into the rider's head inside a coach). ECC_MAX: every solid thing. */
+    TEnumAsByte<ECollisionChannel> ProbeObjectsOnly = ECC_MAX;
 
 protected:
     virtual void UpdateDesiredArmLocation(bool bDoTrace, bool bDoLocationLag, bool bDoRotationLag, float DeltaTime) override;

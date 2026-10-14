@@ -229,6 +229,7 @@ private:
     friend class FYorimichiPhone;
     friend class UWandererSwordComponent;
     friend class AZeppelinService;
+    friend class ABelmonteTrainService;
     friend class UAdventureMoveSet;
     friend class UJapanCharacterMovement;
     friend struct FAdventureNetworkState;
@@ -297,6 +298,8 @@ public:
     bool IsCinematic() const { return bCinematic; }
     class AZeppelinService* GetZeppelin() const;
     bool IsZeppelinPassenger() const;
+    /** Inside a no-sprint volume (aboard the Belmonte train): sprint is unavailable. */
+    bool bNoSprint = false;
     /** The flight buttons: aboard, ride speed; at the docked ship, its next stop. -1 or +1. */
     void ZeppelinStep(int32 Direction);
 private:

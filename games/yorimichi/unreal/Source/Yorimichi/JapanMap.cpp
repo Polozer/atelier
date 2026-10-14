@@ -5,6 +5,7 @@
 #include "WandererCharacter.h"
 #include "JapanWorld.h"
 #include "LiveLibrary.h"
+#include "BelmonteTrainService.h"
 #include "SkateComponent.h"
 #include "Engine/World.h"
 #include "Components/CapsuleComponent.h"
@@ -497,6 +498,23 @@ void UJapanMap::Initialize(AWandererCharacter* Pawn)
             Zones.Add(Zone);
         }
     }
+    // The Belmonte train's termini (tools/belmonte_train_service.py): arrive on the platform as the next train comes in.
+    if (const TSharedPtr<FJsonObject> Train = AtelierReadJson(AtelierDataPath(TEXT("belmonte_train/service.json"))))
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Stations = nullptr;
+        if (Train->TryGetArrayField(TEXT("stations"), Stations))
+            for (const auto& Value : *Stations)
+            {
+                const auto S = Value->AsObject();
+                const auto Arrival = S->GetObjectField(TEXT("arrival"));
+                const auto& L = Arrival->GetArrayField(TEXT("location"));
+                FJapanMapZone Zone; Zone.Key = S->GetStringField(TEXT("key")); Zone.Name = S->GetStringField(TEXT("name"));
+                Zone.Hint = TEXT("Le train de Belmonte : quai provisoire, le prochain train arrive");
+                Zone.Location = FVector(L[0]->AsNumber(), L[1]->AsNumber(), L[2]->AsNumber());
+                Zone.Yaw = float(Arrival->GetNumberField(TEXT("yaw")));
+                if (!Zones.ContainsByPredicate([&](const FJapanMapZone& Z) { return Z.Key == Zone.Key; })) Zones.Add(Zone);
+            }
+    }
     ImageFile = Dir/TEXT("map.png");
     Texture = FImageUtils::ImportFileAsTexture2D(ImageFile);
     if (Texture)
@@ -666,6 +684,8 @@ bool UJapanMap::TeleportToZone(const FString& Key)
     if (Key.StartsWith(MarkerPrefix)) return SelectMarker(Key) && ReturnToMarker();
     const FJapanMapZone* Z = FindZone(Key);
     if (!Z || !Owner) return false;
+    if (Key.EndsWith(TEXT("_station")))
+        if (auto* Train = ABelmonteTrainService::Find(Owner)) return Train->GoToStation(Key, true);
     return Owner->TravelTo(Z->Location,Z->Yaw,*Z->Name);
 }
 

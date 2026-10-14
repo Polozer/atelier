@@ -1,4 +1,5 @@
 #include "WandererCharacter.h"
+#include "BelmonteTrainService.h"
 #include "AtelierExit.h"
 #include "JapanCombatResolver.h"
 #include "JapanNetwork.h"
@@ -923,7 +924,10 @@ void AWandererCharacter::ZeppelinStep(int32 Direction)
     if(IsZeppelinPassenger())GetZeppelin()->AdjustFlightSpeed(Direction);
     else if(bReady&&!bMenuOpen)GetZeppelin()->ChooseDestination(this,Direction);
 }
-void AWandererCharacter::Interact(const FInputActionValue&) { if (JapanNetwork::IsOnline(GetWorld()))
+void AWandererCharacter::Interact(const FInputActionValue&) {
+ // The Belmonte train's doors and seats are local to each machine (docs/BELMONTE_TRAIN_SHELL.md).
+ if(bReady&&!bMenuOpen&&IsLocallyControlled()&&!SkateRide->IsRiding()&&ABelmonteTrainService::TryInteract(this))return;
+ if (JapanNetwork::IsOnline(GetWorld()))
  {
   auto* Ship=GetZeppelin();
   if(IsLocallyControlled()&&bReady&&!bMenuOpen&&Ship&&(Ship->IsPassenger(this)||Ship->CanReach(this)))ServerZeppelinInput(NetworkActivity.Epoch,0);
@@ -1474,7 +1478,7 @@ void AWandererCharacter::Tick(float Dt)
     }
     if (!bPredictedMoves)
     {
-    const bool CanSprint=!bWalk&&!bJog&&!bIsCrouched&&!MovementLocked()&&!SkateRide->IsRiding()&&!OnVehicle()&&!MoveIntent.IsNearlyZero()&&M->Velocity.Size2D()>40.f&&(!Moves||Moves->CanSprint());
+    const bool CanSprint=!bNoSprint&&!bWalk&&!bJog&&!bIsCrouched&&!MovementLocked()&&!SkateRide->IsRiding()&&!OnVehicle()&&!MoveIntent.IsNearlyZero()&&M->Velocity.Size2D()>40.f&&(!Moves||Moves->CanSprint());
     // A move set spends stamina itself (climbing, gliding, swimming, a charge) and refills it only on foot.
     Stamina.Tick(Dt,bSprintHeld,CanSprint,bMenuOpen||(Moves&&Moves->HoldsStamina()));
     M->MaxWalkSpeed = Definition->UseAuthoredMovement
