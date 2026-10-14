@@ -191,7 +191,8 @@ class Trend:
         K = self._k(q[:, None] - q[None])
         n = len(q); Pm = np.c_[np.ones(n), q]
         M = np.zeros((n + 3, n + 3)); M[:n, :n] = K + smooth / self.sc ** 2 * np.eye(n); M[:n, n:] = Pm; M[n:, :n] = Pm.T
-        sol = np.linalg.solve(M, np.r_[c[:, 1], np.zeros(3)])
+        # lstsq: collinear controls (a fall line given as points) leave the plane term rank-deficient
+        sol = np.linalg.lstsq(M, np.r_[c[:, 1], np.zeros(3)], rcond=None)[0]
         self.w, self.a, self.q = sol[:n], sol[n:], q
 
     @staticmethod
@@ -241,9 +242,10 @@ def _curv_size(field, kappa, tess, P):
     return np.where(k > 1e-9, np.sqrt(8 * tess.chord / np.maximum(k, 1e-9)), np.inf)
 
 
-def plan_mesh(loops2, *, coarse=8., grade=.35, hmin=.05, size=None, lo=None, hi=None):
+def plan_mesh(loops2, *, coarse=8., grade=.35, hmin=.05, size=None, lo=None, hi=None, points=None):
     """A graded constrained Delaunay mesh of the region inside loops2[0] and outside the other loops (even-odd), with
-    every loop vertex kept: (points (n, 2), faces (m, 3) plan counter-clockwise, loop start offsets). Interior points
+    every loop vertex kept, then the fixed interior `points`: (points (n, 2), faces (m, 3) plan counter-clockwise, loop
+    start offsets). Steiner points
     come from a quadtree: spacing = nearest boundary segment length + grade x distance, at most `coarse` and at most
     `size(points)` if given; none closer to the boundary than 0.45 x their spacing (no slivers)."""
     loops2 = [np.asarray(lp, 'f8') for lp in loops2]
@@ -265,12 +267,16 @@ def plan_mesh(loops2, *, coarse=8., grade=.35, hmin=.05, size=None, lo=None, hi=
     inside, d, length = region_of(C)
     keep = inside & (d >= np.maximum(.45 * s, .3 * np.where(np.isfinite(length), length, 0.)))
     C, s = C[keep], s[keep]
+    fixed = np.zeros((0, 2)) if points is None else np.asarray(points, 'f8').reshape(-1, 2)
+    if len(fixed) and len(C):
+        dp = seg_distance(C, fixed, fixed, coarse)[0]
+        C, s = C[~(dp < .45 * s)], s[~(dp < .45 * s)]
     # a tiny deterministic jitter: no exact collinear or cocircular lattice runs
     j = np.sin(C @ [12.9898, 78.233]) * 43758.5453
     C = C + (np.stack([j - np.floor(j), (j * 7.31) - np.floor(j * 7.31)], 1) - .5) * 2e-3 * s[:, None]
     counts = [len(lp) for lp in loops2]
     starts = np.cumsum([0] + counts)
-    P2 = np.concatenate(loops2 + [C])
+    P2 = np.concatenate(loops2 + [fixed, C])
     loops = [np.arange(starts[i], starts[i + 1]) for i in range(len(counts))]
     return P2, cdt.triangulate(P2, loops), starts
 
@@ -294,22 +300,40 @@ def fill_mesh(loop, normal, *, coarse=None, grade=.35):
 
 
 # ---------------------------------------------------------------- the ground
-def ground(outline, holes=(), controls=(), *, skirt=4., coarse=8., grade=.35, hmin=.05, tess=dsl.GROUND_TESS,
-           raster=1., blend=25., smooth=10., feature='ground', material=dsl.GROUND_MAT, side_material=dsl.GROUND_MAT,
-           relax=60):
-    """The site's ground as a dsl.Mesh (module docstring). `outline` (k, 2|3) the outer loop; `holes` [(k, 3)] the
-    features' foot loops (their vertices are kept exactly); `controls` (n, 3) height targets."""
+def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., grade=.35, hmin=.05,
+           tess=dsl.Tess(.05, 8., 8.), raster=1., blend=25., smooth=2000., feature='ground', material=dsl.GROUND_MAT,
+           side_material=dsl.GROUND_MAT, relax=200):
+    """The site's ground as a dsl.Mesh (module docstring).
+    `outline` (k, 2|3): the outer loop (with y: those heights are kept). `holes` [(k, 3)]: the features' foot loops,
+    kept exactly. `controls` (n, 3): exact heights, each a mesh vertex at exactly its y. `guide` (g, 3): soft points
+    for the broad landform (a smoothing thin-plate spline, `smooth`), e.g. r4_block_controls(); without a guide the
+    controls shape it. Every ground edge is at most `max_edge` long."""
     outline = np.asarray(outline, 'f8')
+    coarse = .85 * max_edge / math.sqrt(2)
+    # the outline is the ground's own: subdivide its long segments (heights carried along)
+    nxt = np.roll(outline, -1, 0)
+    k = np.maximum(1, np.ceil(np.linalg.norm(_loop2(nxt) - _loop2(outline), axis=1) / (coarse / 1.5)).astype(int))
+    f = np.concatenate([np.arange(n) / n for n in k]); r = np.repeat(np.arange(len(outline)), k)
+    outline = outline[r] + f[:, None] * (nxt - outline)[r]
     o2 = _loop2(outline)
     holes = [np.asarray(h, 'f8') for h in holes]
     h2 = [h[:, [0, 2]] for h in holes]
     loops2 = [o2] + h2
     A, B = _segments(loops2)
     controls = np.asarray(controls, 'f8').reshape(-1, 3)
+    guide = np.asarray(guide, 'f8').reshape(-1, 3)
+    if len(controls):
+        controls = controls[even_odd(controls[:, [0, 2]], loops2)]
+    if not len(controls) and not len(guide) and not holes and outline.shape[1] != 3:
+        raise ValueError('ground needs heights: an outline with y, foot loops, controls or a guide')
     lo = o2.min(0) - coarse; hi = o2.max(0) + coarse
-    # heights = trend (a smoothing spline through the controls: the broad landform) + residual (a screened harmonic
-    # field, Dirichlet on the outline when it has heights and on the foot loops, fading to 0 over `blend` metres)
-    trend = Trend(controls, smooth, const=float(np.mean([h[:, 1].mean() for h in holes])) if holes else 0.)
+    # heights = trend (broad landform) + residual (a screened harmonic field, Dirichlet on the outline when it has
+    # heights, the foot loops and the controls, fading to 0 over `blend` metres), then relaxed on the mesh
+    soft = guide if len(guide) else controls
+    trend = Trend(soft, smooth, const=float(np.mean([h[:, 1].mean() for h in holes])) if holes else
+                  (float(outline[:, 1].mean()) if outline.shape[1] == 3 else 0.))
+    trend = _with_bumps(trend, controls, blend)
+    field = Field(lo, hi, raster)
     fpts, fval = [], []
 
     def dense(loop3):
@@ -320,86 +344,128 @@ def ground(outline, holes=(), controls=(), *, skirt=4., coarse=8., grade=.35, hm
     if outline.shape[1] == 3:
         d = dense(outline); fpts.append(d[:, [0, 2]]); fval.append(d[:, 1] - trend(d[:, [0, 2]]))
     for h in holes:
-        d = dense(h); fpts.append(d[:, [0, 2]]); fval.append(d[:, 1] - trend(d[:, [0, 2]]))
-    if not len(controls) and not holes and outline.shape[1] != 3:
-        raise ValueError('ground needs heights: an outline with y, foot loops or controls')
-    field = Field(lo, hi, raster)
+        d = dense(h); r = d[:, 1] - trend(d[:, [0, 2]])
+        fpts.append(d[:, [0, 2]]); fval.append(r)
+        # the cells inside a foot loop are fixed too (nearest seam value): the field by the seam never blends with
+        # the free inside of the hole
+        lo_i = field.index(d[:, [0, 2]].min(0)); hi_i = field.index(d[:, [0, 2]].max(0))
+        gi = np.stack(np.meshgrid(np.arange(lo_i[0], hi_i[0] + 1), np.arange(lo_i[1], hi_i[1] + 1), indexing='ij'),
+                      -1).reshape(-1, 2)
+        cc = field.lo + (gi + .5) * raster
+        cc = cc[even_odd(cc, [d[:, [0, 2]]])]
+        if len(cc):
+            near = np.empty(len(cc), 'i8'); step = max(1, 2_000_000 // len(d))
+            for i in range(0, len(cc), step):
+                q = cc[i:i + step]
+                near[i:i + len(q)] = np.argmin(((q[:, None] - d[None, :, [0, 2]]) ** 2).sum(-1), 1)
+            fpts.append(cc); fval.append(r[near])
     if fpts:
         field.solve(np.concatenate(fpts), np.concatenate(fval), blend=blend)
     else:
         field.h = np.zeros(field.n)
-    # the curvature of the whole surface, on the raster
+    residual = field.h
     cells = field.lo + (np.stack(np.meshgrid(np.arange(field.n[0]), np.arange(field.n[1]), indexing='ij'), -1)
                         .reshape(-1, 2) + .5) * raster
-    residual = field.h
     field.h = residual + trend(cells).reshape(field.n)
     kappa = field.curvature()
-    P2, F, starts = plan_mesh([o2] + h2, coarse=coarse, grade=grade, hmin=hmin,
+    # the plan mesh: seams, controls as vertices, graded points; then no edge over max_edge
+    extra = controls[:, [0, 2]]
+    P2, F, starts = plan_mesh(loops2, coarse=coarse, grade=grade, hmin=hmin, points=extra,
                               size=lambda P: _curv_size(field, kappa, tess, P), lo=lo, hi=hi)
+    nb = starts[-1]; nfix = nb + len(extra)
+    loops = [np.arange(starts[i], starts[i + 1]) for i in range(len(loops2))]
+    for _ in range(6):
+        t = P2[F]; L = np.linalg.norm(t - np.roll(t, 1, 1), axis=2)
+        long_ = L.max(1) > .85 * max_edge          # plan length: up to a 30 degree slope stays within max_edge
+        if not long_.any():
+            break
+        P2 = np.concatenate([P2, t[long_].mean(1)])
+        F = cdt.triangulate(P2, loops)
     F = F[:, ::-1].copy()                                 # plan counter-clockwise -> upward faces
-    # heights: seam vertices exact, the rest from the field relaxed on the mesh
-    nb = starts[-1]
-    counts = np.diff(starts)
-    y = np.empty(len(P2))
     field.h = residual
-    y[:len(o2)] = outline[:, 1] if outline.shape[1] == 3 else field.sample(o2) + trend(o2)
+    n = len(P2)
+    fixed = np.zeros(n, bool); fixed[:nfix] = True
+    y_exact = np.zeros(n)
+    y_exact[:len(o2)] = outline[:, 1] if outline.shape[1] == 3 else field.sample(o2) + trend(o2)
     for i, h in enumerate(holes):
-        y[starts[i + 1]:starts[i + 2]] = h[:, 1]
-    free = np.arange(nb, len(P2))
+        y_exact[starts[i + 1]:starts[i + 2]] = h[:, 1]
+    y_exact[nb:nfix] = controls[:, 1]
     base_y = trend(P2)
-    y -= base_y * (np.arange(len(P2)) < nb)          # relax the residual; seam residuals fixed
-    y[free] = field.sample(P2[free])
-    anchor = y.copy()
-    dist = seg_distance(P2, A, B, 3 * coarse)[0]
+    r = np.where(fixed, y_exact - base_y, field.sample(P2))
+    anchor = r.copy()
+    # anchored far from every fixed vertex, free near them (the raster cannot place a seam closer than a cell)
+    fa, fb = (np.concatenate([A, extra]), np.concatenate([B, extra])) if len(extra) else (A, B)
+    dist = seg_distance(P2, fa, fb, 3 * coarse)[0]
     alpha = np.clip(np.where(np.isfinite(dist), dist, 3 * coarse) / (3 * coarse), 0, 1) * .3
-    del field
-    e = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
-    e = np.concatenate([e, e[:, ::-1]])
-    deg = np.bincount(e[:, 0], minlength=len(P2)).astype('f8')
+    # cotangent weights in plan: the mesh's own harmonic relaxation, right on a graded mesh
+    w_i, w_j, w = _cotan(P2, F)
+    total = np.bincount(w_i, w, n)
     for _ in range(relax):
-        avg = np.bincount(e[:, 0], y[e[:, 1]], len(P2)) / np.maximum(deg, 1)
-        new = (1 - alpha) * avg + alpha * anchor
-        y[free] = new[free]
-    y = y + base_y
-    for i, h in enumerate(holes):                     # exact, not round-tripped through the trend
-        y[starts[i + 1]:starts[i + 2]] = h[:, 1]
-    if outline.shape[1] == 3:
-        y[:len(o2)] = outline[:, 1]
+        avg = np.bincount(w_i, w * r[w_j], n) / np.maximum(total, 1e-12)
+        r = np.where(fixed, r, (1 - alpha) * avg + alpha * anchor)
+    y = np.where(fixed, y_exact, r + base_y)
     V = np.stack([P2[:, 0], y, P2[:, 1]], 1)
-    surface = dsl.Mesh.part(V, F, material=material, role=dsl.GROUND, feature=feature,
-                            UV=P2 / dsl.UV_METRES)
+    surface = dsl.Mesh.part(V, F, material=material, role=dsl.GROUND, feature=feature, UV=P2 / dsl.UV_METRES)
     parts = [surface]
     if skirt:
         top = V[:len(o2)]
         bottom = top - [0., skirt, 0.]
         k = len(o2)
         Vs = np.concatenate([top, bottom])
-        Fs = []
-        for i in range(k):
-            a, b = i, (i + 1) % k
-            Fs += [(a, k + a, k + b), (a, k + b, b)]
-        Fs = np.asarray(Fs, 'i8')
-        # outward: away from the outline's interior
-        mid = (top + np.roll(top, -1, 0)) / 2
+        Fs = np.asarray([f for i in range(k) for f in ((i, k + i, k + (i + 1) % k), (i, k + (i + 1) % k, (i + 1) % k))],
+                        'i8')
         t = Vs[Fs]; fn = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
-        centre = top.mean(0)
-        ccw = signed_area(o2) > 0
         tang = (np.roll(top, -1, 0) - top)[:, [0, 2]]
-        outward = np.stack([tang[:, 1], -tang[:, 0]], 1) if ccw else np.stack([-tang[:, 1], tang[:, 0]], 1)
+        outward = np.stack([tang[:, 1], -tang[:, 0]], 1) if signed_area(o2) > 0 else np.stack([-tang[:, 1], tang[:, 0]], 1)
         o3 = np.repeat(np.stack([outward[:, 0], np.zeros(k), outward[:, 1]], 1), 2, 0)
         if (fn * o3).sum() < 0:
             Fs = Fs[:, ::-1].copy()
-        del mid, centre
         u = np.concatenate([[0.], np.cumsum(np.linalg.norm(np.diff(o2, axis=0), axis=1))])
         UV = np.concatenate([np.stack([u, top[:, 1]], 1), np.stack([u, bottom[:, 1]], 1)]) / dsl.UV_METRES
         side = dsl.Mesh.part(Vs, Fs, material=side_material, role=dsl.SIDE, feature=feature, UV=UV)
         side.N = dsl.vertex_normals(Vs, Fs) * [1, 0, 1]
         side.N /= np.maximum(np.linalg.norm(side.N, axis=1, keepdims=True), 1e-12)
-        Fb = cdt.triangulate(o2, [np.arange(k)])          # plan counter-clockwise: downward, as a base faces
-        base = dsl.Mesh.part(bottom, Fb, material=side_material, role=dsl.BASE, feature=feature,
-                             N=np.broadcast_to([0., -1., 0.], bottom.shape))
+        Pb, Fb, _ = plan_mesh([o2], coarse=coarse, grade=1., hmin=coarse)   # a coarse base: never drawn
+        Vb = np.stack([Pb[:, 0], np.full(len(Pb), bottom[:, 1].min()), Pb[:, 1]], 1)
+        Vb[:k] = bottom
+        base = dsl.Mesh.part(Vb, Fb, material=side_material, role=dsl.BASE, feature=feature,
+                             N=np.broadcast_to([0., -1., 0.], Vb.shape))
         parts += [side, base]
     return dsl.Mesh.concat(parts)
+
+
+def _with_bumps(trend, controls, blend, slope=20.):
+    """trend + smooth compact bumps (Wendland C2) that make the surface pass through every control exactly; each bump
+    is wide enough (radius >= its height / tan(slope) x 1.6) that it never reads as a spike."""
+    if not len(controls):
+        return trend
+    c = controls[:, [0, 2]]; res = controls[:, 1] - trend(c)
+    R = np.maximum(blend, 1.6 * np.abs(res) / math.tan(math.radians(slope)))
+
+    def phi(P):
+        q = np.linalg.norm(np.asarray(P, 'f8').reshape(-1, 2)[:, None] - c[None], axis=2) / R[None]
+        return np.where(q < 1, (1 - q) ** 4 * (4 * q + 1), 0.)
+    a = np.linalg.lstsq(phi(c), res, rcond=None)[0]
+
+    def base(P):
+        P = np.asarray(P, 'f8').reshape(-1, 2)
+        out = trend(P)
+        for i in range(0, len(P), 200_000):
+            out[i:i + 200_000] += phi(P[i:i + 200_000]) @ a
+        return out
+    return base
+
+
+def _cotan(P2, F):
+    """Edge weights (i, j, w) of the plan cotangent Laplacian, both directions, negative weights clipped small."""
+    i, j, k = F[:, 0], F[:, 1], F[:, 2]
+    out_i, out_j, out_w = [], [], []
+    for a, b, c in ((i, j, k), (j, k, i), (k, i, j)):
+        u = P2[b] - P2[a]; v = P2[c] - P2[a]
+        cot = (u * v).sum(1) / np.maximum(np.abs(u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]), 1e-12)
+        w = np.maximum(.5 * cot, 1e-3)
+        out_i += [b, c]; out_j += [c, b]; out_w += [w, w]
+    return np.concatenate(out_i), np.concatenate(out_j), np.concatenate(out_w)
 
 
 def report(mesh, limit=30.):
@@ -451,5 +517,29 @@ def r4_block_controls(spacing=12.):
     return np.stack([centre[:, 0], top[:, 1], centre[:, 1]], 1)
 
 
-__all__ = ['ground', 'report', 'boundary_loops', 'r4_block_controls', 'Field', 'seg_distance', 'even_odd']
-_ = math
+def r4_site(spacing=4., stride=8):
+    """The r4 block's top rim as the site outline, native (k, 3), counter-clockwise in plan: the open boundary of the
+    block's upward faces, smoothed through a closed C2 spline (every `stride`-th rim vertex) and sampled every
+    `spacing` metres, its heights carried along from the rim. The world terrain stamp (placement.terrain) was made
+    for this footprint, so M1 keeps it."""
+    from craterpark import placement
+    from .curves import Spline
+    loops = []
+    for entry in placement.meshes(placement.GROUND):
+        a = placement.arrays(entry)
+        m = dsl.Mesh(a['positions'].astype('f8'), a['triangles'].astype('i8'))
+        loops += boundary_loops(m.subset(m.face_normals()[:, 1] > .3))
+    rim = max(loops, key=len)
+    if signed_area(rim[:, [0, 2]]) < 0:
+        rim = rim[::-1]
+    s = np.concatenate([[0.], np.cumsum(np.linalg.norm(np.diff(np.vstack([rim, rim[:1]])[:, [0, 2]], axis=0), axis=1))])
+    curve = Spline(rim[::stride, [0, 2]], closed=True)
+    t = np.linspace(0., curve.length, max(8, int(np.ceil(curve.length / spacing))) + 1)[:-1]
+    plan = curve.point(t)
+    y = np.interp(t / curve.length * s[-1], s, np.r_[rim[:, 1], rim[:1, 1]])
+    return np.stack([plan[:, 0], y, plan[:, 1]], 1)
+
+
+build = ground       # the name layout.park() looks for
+
+__all__ = ['build', 'ground', 'report', 'boundary_loops', 'r4_block_controls', 'r4_site', 'plan_mesh', 'fill_mesh', 'Field', 'seg_distance', 'even_odd']
