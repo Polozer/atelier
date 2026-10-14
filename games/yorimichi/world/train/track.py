@@ -36,6 +36,11 @@ TUNNEL_WALL = 3.2
 TUNNEL_BASE = -.7
 TUNNEL_LOAD = 60.           # a tunnel's data layer loads within this distance of either portal
 LINING_SLICES = (5., 10.)
+LAMP_SPACING = 30.          # wall lamps along a tunnel, alternating sides, the first and last LAMP_SPACING / 2 in
+LAMP_HEIGHT = 3.0           # the lamp's bracket on the wall, over the rail top (the wall stands TUNNEL_WALL)
+LAMP_REACH = .32            # the globe's centre out from the wall
+LIGHT = dict(colour_k=2700, intensity_cd=80., attenuation_m=14., source_radius_m=.08, cast_shadows=False)
+VOLUME_HALF = (3.6, 4.2)    # a tunnel volume's half width beyond the line's own bend, and half height
 SPAN = 20.                  # viaduct span between pier centres
 PIER = 2.5                  # pier thickness along the line
 DECK_WIDTH = 5.4
@@ -53,6 +58,8 @@ MATERIALS = {               # Blender colour stand-ins; the names are the Unreal
     'MI_B_stone': (.52, .48, .42, .9),
     'MI_TK_Signal': (.72, .08, .05, .6),
     'MI_TK_Marker': (.95, .45, .05, .6),
+    'MI_TK_TunnelLining': (.075, .07, .065, .95),   # soot-blackened stone: the tunnel stays dark between its lamps
+    'MI_TK_LampGlow': (1., .72, .38, .3),            # emissive in Unreal (track_build.py lights it in Blender)
 }
 BUDGETS = {                 # triangles per LOD (BELMONTE_TRACK.md)
     'SM_TK_Chunk': (1200, 400, 120),
@@ -63,6 +70,7 @@ BUDGETS = {                 # triangles per LOD (BELMONTE_TRACK.md)
     'SM_TK_Turnout': (3000,),
     'SM_TK_BufferStop': (800,),
     'SM_TK_Sleeper': (12,),
+    'SM_TK_TunnelLamp': (120,),
 }
 
 
@@ -382,7 +390,54 @@ def lining_mesh(line, start, end, lod, origin):
     """The lining from start to end, facing inwards (the section runs right to left, so swept quads face in)."""
     mesh = Mesh()
     section = horseshoe((12, 5)[lod])[::-1]
-    return sweep(line, mesh, stations(start, end, LINING_SLICES[lod]), section, 'MI_B_stone', origin)
+    return sweep(line, mesh, stations(start, end, LINING_SLICES[lod]), section, 'MI_TK_TunnelLining', origin)
+
+
+def lamp_mesh():
+    """A wall lamp: local x along the tunnel, y out of the wall into the tunnel, z up, origin on the wall at the
+    bracket. An iron plate and arm, and an octagonal glowing globe under a small cap."""
+    mesh = Mesh()
+    box(mesh, (0., .02, 0.), (.16, .04, .26), 'MI_B_iron')                       # wall plate
+    box(mesh, (0., LAMP_REACH / 2, .08), (.04, LAMP_REACH, .04), 'MI_B_iron')    # arm
+    cylinder(mesh, (0., LAMP_REACH, .07), (0., LAMP_REACH, .11), .09, 'MI_B_iron')  # cap
+    cylinder(mesh, (0., LAMP_REACH, -.12), (0., LAMP_REACH, .07), .07, 'MI_TK_LampGlow')
+    return mesh
+
+
+def tunnel_lamps(line, a, b):
+    """Lamps of the tunnel from a to b: [x, y, z, yaw degrees, 1] on the wall (local y into the tunnel), and the
+    lights' positions [x, y, z] at their globes. Sides alternate, starting on the left."""
+    n = max(1, round((b - a) / LAMP_SPACING))
+    lamps, lights = [], []
+    for k, s in enumerate(a + (np.arange(n) + .5) * (b - a) / n):
+        side = 1. if k % 2 == 0 else -1.                   # +1: the left wall
+        h = line.heading(s)
+        p = line.place(s, side * TUNNEL_HALF, LAMP_HEIGHT)
+        yaw = math.degrees(h) + (180. if side > 0 else 0.)
+        lamps.append([*_xyz(p), round(yaw, 3), 1.])
+        globe = line.place(s, side * (TUNNEL_HALF - LAMP_REACH), LAMP_HEIGHT - .025)
+        lights.append(_xyz(globe))
+    return lamps, lights
+
+
+def tunnel_volume(line, p, q):
+    """An oriented box over the tunnel from chainage p to q (for the exposure's post-process volume): centre, yaw
+    degrees (x along the chord), half extents."""
+    s = stations(p, q, 5.)
+    pts, _, _ = line.frame(s)
+    a, b = pts[0], pts[-1]
+    d = b[:2] - a[:2]
+    length = float(np.hypot(*d)) or 1.
+    tx, ty = d / length
+    rel = pts[:, :2] - a[:2]
+    along = rel @ np.array([tx, ty])
+    across = rel @ np.array([-ty, tx])
+    mid_u = (across.max() + across.min()) / 2
+    centre = a[:2] + np.array([tx, ty]) * (along.max() + along.min()) / 2 + np.array([-ty, tx]) * mid_u
+    z0, z1 = pts[:, 2].min() + TUNNEL_BASE, pts[:, 2].max() + TUNNEL_WALL + TUNNEL_HALF + .5
+    return dict(centre=_xyz((centre[0], centre[1], (z0 + z1) / 2)), yaw=round(math.degrees(math.atan2(ty, tx)), 3),
+                half_extent=[round((along.max() - along.min()) / 2 + 1., 3),
+                             round((across.max() - across.min()) / 2 + VOLUME_HALF[0], 3), round((z1 - z0) / 2, 3)])
 
 
 def portal_mesh(lod):
@@ -513,6 +568,7 @@ def layout(line=None):
 
     tunnel_rows = []
     portals = []
+    lamps, lights = {}, {}
     for name, a, b in tunnel_list:
         pieces = []
         edges = stations(a, b, CHUNK)
@@ -521,7 +577,8 @@ def layout(line=None):
             mesh_name = f'SM_TK_Tunnel_{name}_{k:02d}'
             meshes[mesh_name] = [lining_mesh(line, p, q, lod, origin) for lod in range(2)]
             pieces.append(dict(name=mesh_name, start=round(float(p), 2), end=round(float(q), 2), origin=_xyz(origin),
-                               collision='LOD1'))
+                               collision='LOD1', volume=tunnel_volume(line, p, q)))
+        lamps[name], lights[name] = tunnel_lamps(line, a, b)
         ends = []
         for s, outward in ((a, -1.), (b, 1.)):
             p = line.frame(s)[0]
@@ -537,6 +594,8 @@ def layout(line=None):
                                 chunks=[c['name'] for c in chunk_rows if c['layer'] == name]))
     meshes['SM_TK_Portal'] = [portal_mesh(lod) for lod in range(2)]
     placed['SM_TK_Portal'] = portals
+    meshes['SM_TK_TunnelLamp'] = [lamp_mesh()]
+    placed['SM_TK_TunnelLamp'] = lamps
 
     viaduct_rows = []
     for v, piers in enumerate(viaduct_spans(line)):
@@ -587,9 +646,18 @@ def layout(line=None):
         route=dict(length_m=round(line.length, 2), loop=list(line.loop), loop_side='left' if line.loop_side > 0 else 'right',
                    mismatch_m=round(line.mismatch, 4)),
         chunks=chunk_rows, tunnels=tunnel_rows, viaducts=viaduct_rows,
+        tunnel_lighting=dict(
+            lights=lights, light=LIGHT, lamp_spacing_m=LAMP_SPACING,
+            exposure=dict(min_ev=-1., max_ev=1., note='a post-process volume per lining piece (tunnels[].lining[].volume) '
+                          'pins the auto-exposure so the tunnel reads dark and the lamps carry the light'),
+            note='Real dark tunnels: soot-black lining (MI_TK_TunnelLining), the ground keeps 8.6 m over the rail '
+                 '(train/earthworks.py HOOD) so no sky reaches in; one warm point light per wall lamp, no shadows, '
+                 'spawned with its tunnel\'s data layer (lights and SM_TK_TunnelLamp instances are grouped by tunnel); '
+                 'MI_TK_LampGlow is emissive.'),
         instances={name: ({str(k): v for k, v in rows.items()} if isinstance(rows, dict) else rows)
                    for name, rows in placed.items()},
-        instance_groups={'SM_TK_Sleeper': 'per main chunk (HISM per chunk, cull 120 m)'},
+        instance_groups={'SM_TK_Sleeper': 'per main chunk (HISM per chunk, cull 120 m)',
+                         'SM_TK_TunnelLamp': 'per tunnel (its data layer)'},
         editor_only=['SM_TK_Marker'],
         stations=dict(Hidamari=dict(buffer_stop=BUFFER_OFFSET, stopping_point=STOP_OFFSET),
                       Belmonte=dict(buffer_stop=round(line.length - BUFFER_OFFSET, 2),

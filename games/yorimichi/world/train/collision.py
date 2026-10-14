@@ -221,6 +221,33 @@ def doors(c):
     return out
 
 
+BOARD_OUT = .60          # the outside start stands this far beyond the body side, on the ground (rail top, z 0)
+BOARD_IN = .45           # the inside end stands this far in from the side wall, on the floor
+
+
+def boarding(c):
+    """How a player boards or alights at each passenger door and balcony gate (Interact, D-pad down; at a station
+    only, as the door's own rule): the door, the outside start on the ground beside the steps, the two treads (upper
+    first), the inside end on the floor, the yaw to face for boarding and for alighting (0 faces -Y, 90 faces +X), and
+    the door's Interact points. The game opens the door, moves the player up or down the treads and shuts it again."""
+    F, out = L.FLOOR_Z, []
+    for d in doors(c):
+        if d['kind'] not in ('exterior', 'gate') or d['id'].startswith('cargo'):
+            continue
+        x0, x1, y0, y1 = d['box'][:4]
+        sy = 1 if y0 > 0 else -1
+        xc = (x0 + x1) / 2
+        r = lambda *v: [round(float(a), 4) for a in v]   # noqa: E731
+        out.append(dict(
+            id=d['id'], door=d['part'], kind=d['kind'], opens=d['opens'], side=sy,
+            outside=r(xc, sy * (L.HALF + BOARD_OUT), 0.),
+            treads=[dict(box=r(*t[:4]), top_z=t[4]) for t in L.step_treads(sy, x0, x1)],
+            inside=r(xc, sy * (L.IN - BOARD_IN), F),
+            board_yaw=0. if sy > 0 else 180., alight_yaw=180. if sy > 0 else 0.,
+            handles=d['handles']))
+    return out
+
+
 def gate_hinge(body, s):
     """A balcony gate hangs on the post at its end-wall side and swings in over the balcony."""
     gx0, gx1 = L.balcony_gate(body, s)
@@ -403,7 +430,7 @@ def check_collision(c, boxes):
         i, j = np.nonzero(edge)
         bad.append(f'{len(i)} floor-edge cells with no wall, e.g. at ({xs[i[0]]:.2f}, {ys[j[0]]:.2f})')
     # 3b. every place a player reaches is inside an interior (no-sprint) volume
-    vols = [v['box'] for v in L.interior_volumes(c)]
+    vols = [v['box'] for v in L.interior_volumes(c) if 'interior' in v['tags']]
     X, Y = np.meshgrid(xs, ys, indexing='ij'); inside = np.zeros_like(seen)
     for q in vols:
         inside |= (X >= q[0]) & (X <= q[1]) & (Y >= q[2]) & (Y <= q[3])

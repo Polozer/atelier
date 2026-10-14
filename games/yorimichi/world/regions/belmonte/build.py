@@ -15,6 +15,24 @@ from belmonte import layout as L, source, planting, terrain, appearance
 OUT = yori.OUT / 'belmonte'
 
 
+def clear_railway(plants):
+    """Drop every plant but grass that stands where the Belmonte train runs (train/corridor.py); {name: removed}."""
+    from train import corridor
+    line = corridor.load()
+    removed = {}
+    if line is None:
+        return removed
+    for name, transforms in plants.items():
+        if name.startswith('Grass_') or not transforms:
+            continue
+        t = np.asarray([tr['translation_cm'][:2] for tr in transforms], float)
+        bad = line.blocked(t[:, 0] / 100 + L.ORIGIN[0], -t[:, 1] / 100 + L.ORIGIN[1])
+        if bad.any():
+            removed[name] = int(bad.sum())
+            plants[name] = [tr for tr, b in zip(transforms, bad) if not b]
+    return removed
+
+
 def finish_surfaces(data):
     """Current scenery and a Tuscan ground palette with neutral texture grain."""
     materials, images = {}, {}
@@ -129,6 +147,7 @@ def main():
         plants.setdefault(name, []).extend(transforms)
     plant_report['connecting_woodland'] = sum(len(v) for v in woods.values())
     plant_report['tree_detail'] = 'Original detailed leaf geometry; no backdrop or _lo assets'
+    plant_report['railway_corridor_removed'] = clear_railway(plants)
     for name, transforms in plants.items():
         tree = name.startswith(('Tree_', 'HD_'))
         grass = name.startswith('Grass_')

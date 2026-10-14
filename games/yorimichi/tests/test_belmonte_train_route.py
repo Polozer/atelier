@@ -89,7 +89,14 @@ class Profile(unittest.TestCase):
         line, rail = self.r['line'], self.r['rail']
         grade = np.diff(rail) / np.diff(line.s)
         self.assertLessEqual(np.abs(grade).max(), R.DESIGN_GRADE + 1e-6)
-        self.assertGreaterEqual(R.STEP / max(np.abs(np.diff(grade)).max(), 1e-9), 1000.)
+        self.assertGreaterEqual(R.STEP / max(np.abs(np.diff(grade)).max(), 1e-9), R.VERTICAL_RADIUS - 1.)
+        self.assertEqual(self.r['loop'], R.LOOP)                            # the approved loop stays put
+
+    def test_earthworks_follow_the_ground(self):
+        h = self.r['rail'] - self.r['zg']
+        open_ = ~np.isin(self.r['kind'], ('tunnel', 'viaduct'))
+        self.assertGreater(h[open_].min(), -(R.TUNNEL_COVER + R.TUNNEL_BORE) - .5)    # no cutting deeper than a portal
+        self.assertLess(h[open_].max(), R.EMBANKMENT_HEIGHT + .5)
 
     def test_level_platforms(self):
         line, rail, zg = self.r['line'], self.r['rail'], self.r['zg']

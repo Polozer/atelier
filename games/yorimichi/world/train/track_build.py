@@ -32,6 +32,9 @@ def materials():
         bsdf.inputs['Base Color'].default_value = (r, g, b, 1.)
         bsdf.inputs['Roughness'].default_value = rough
         bsdf.inputs['Metallic'].default_value = .6 if name == 'MI_B_iron' else 0.
+        if name == 'MI_TK_LampGlow':
+            bsdf.inputs['Emission Color'].default_value = (r, g, b, 1.)
+            bsdf.inputs['Emission Strength'].default_value = 8.
         out[name] = m
     return out
 

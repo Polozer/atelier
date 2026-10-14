@@ -71,6 +71,33 @@ class Track(unittest.TestCase):
         self.assertAlmostEqual(covered, spiral['end'] - spiral['start'], places=1)
         self.assertTrue(spiral['chunks'])                     # deep chunks go on the tunnel's data layer
 
+    def test_tunnels_are_dark_and_lit_by_wall_lamps(self):
+        lighting = self.doc['tunnel_lighting']
+        for tunnel in self.doc['tunnels']:
+            name = tunnel['name']
+            lamps, lights = self.doc['instances']['SM_TK_TunnelLamp'][name], lighting['lights'][name]
+            self.assertEqual(len(lamps), len(lights))
+            spacing = (tunnel['end'] - tunnel['start']) / len(lamps)
+            self.assertLessEqual(spacing, T.LAMP_SPACING * 1.5)
+            for (x, y, z, yaw, _), light in zip(lamps, lights):
+                self.assertGreater(light[2], z - .2)
+                self.assertLess(math.dist(light[:2], (x, y)), T.LAMP_REACH + .05)
+            # Every lamp stands inside one of its tunnel's exposure volumes.
+            for x, y, z, *_ in lamps:
+                inside = False
+                for piece in tunnel['lining']:
+                    v = piece['volume']
+                    c, h = v['centre'], v['half_extent']
+                    a = math.radians(v['yaw'])
+                    dx, dy = x - c[0], y - c[1]
+                    u, w = dx * math.cos(a) + dy * math.sin(a), -dx * math.sin(a) + dy * math.cos(a)
+                    inside |= abs(u) <= h[0] and abs(w) <= h[1] and abs(z - c[2]) <= h[2]
+                self.assertTrue(inside, (name, x, y, z))
+        for name, lods in self.meshes.items():
+            if name.startswith('SM_TK_Tunnel_'):
+                self.assertEqual(set(lods[0].mats), {'MI_TK_TunnelLining'})
+        self.assertFalse(lighting['light']['cast_shadows'])
+
     def test_viaduct_piers_reach_the_ground(self):
         via = self.doc['viaducts'][0]
         spans = np.diff(via['piers'])

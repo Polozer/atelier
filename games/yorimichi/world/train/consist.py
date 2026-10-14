@@ -105,6 +105,7 @@ def assembly():
                        railings=[list(r) for r in L.railings(body)])
             rec.update(glb=glb.name, placements=p['placements'], seats=p['seats'], doors=p['doors_runtime'],
                        door_interactions=p['doors'], interior_volumes=p['interior_volumes'],
+                       exterior_volumes=p['exterior_volumes'], boarding=p['boarding'],
                        collision=[b['box'] for b in p['collision_boxes'] if b['group'] == 'fixed'],
                        collision_boxes=p['collision_boxes'],
                        rooms=[dict(name=r['name'], kind=r['kind'], box=[r['x0'], r['x1'], r['y0'], r['y1']]) for r in p['rooms']],
@@ -122,7 +123,13 @@ def assembly():
                       "collision from it (or from the _Collision.glb). 'collision' is only the fixed boxes' extents, the "
                       "viewer's obstacles; it has no switchable door or gangway-lock boxes",
             door_interactions="one per door: Interact opens it alone, under door_rules",
-            interior_volumes="tags ['interior', 'no_sprint']: inside any of them a player walks (no sprint)"),
+            interior_volumes="tags ['interior', 'no_sprint', 'no_climb']: inside any of them a player walks (no sprint) "
+                             "and cannot climb",
+            boarding="per passenger door and balcony gate: outside start (ground, z 0), the two treads upper first, the "
+                     "inside end on the floor, board and alight yaws (0 faces -Y); Interact boards or alights, at a "
+                     "station only",
+            exterior_volumes="one 'train_exterior' box per vehicle over its body and roof, tags ['no_climb']: nobody "
+                             "climbs onto the train"),
         length_m=sum(v['length'] for v in VEHICLES),
     )
     (ASSEMBLY / 'consist.json').write_text(json.dumps(doc, indent=1))

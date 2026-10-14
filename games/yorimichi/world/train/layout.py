@@ -934,6 +934,16 @@ def start(c):
     return (b.inner(s) - s * .30, 0.)
 
 
+STEP_TREADS = ((.96, .18), (.66, .30))   # the two hanging steps under a door or gate: top above the rail, depth
+STEP_BACK = .22                           # how far each tread reaches in under the body side
+
+
+def step_treads(sy, x0, x1, inset=0.):
+    """The two steps under an opening on side sy from x0 to x1, upper first: (x0, x1, y0, y1, top z)."""
+    y = sy * (HALF - inset)
+    return [(x0 + .02, x1 - .02, *sorted((y - sy * STEP_BACK, y + sy * (depth - STEP_BACK))), z) for z, depth in STEP_TREADS]
+
+
 def balcony_gate(body, s):
     """x range of the gate gap in the side railings of the balcony at end s, over the steps."""
     return tuple(sorted((body.face(s) + s * .15, body.face(s) + s * .85)))
@@ -972,7 +982,7 @@ def railings(body):
     return out
 
 
-INTERIOR_TAGS = ['interior', 'no_sprint']
+INTERIOR_TAGS = ['interior', 'no_sprint', 'no_climb']
 VOLUME_REACH = .05      # each room's volume reaches this far into its partitions, so doorways stay covered
 VOLUME_DOORSTEP = .10   # and this far out past the body side, over the doorstep of an open exterior door
 
@@ -1009,6 +1019,25 @@ def interior_volumes(c):
         x0, x1, hw, _ = well
         add('lookout', 'lookout', x0, x1, -hw, hw, CEIL_SPRING - .10, lookout_top(b)[0])
     return out
+
+
+EXTERIOR_TAGS = ['no_climb']
+EXTERIOR_MARGIN = .15   # beyond the body's sides and roof
+
+
+def exterior_volumes(c):
+    """The vehicle's outside, where nobody may climb onto it (a moving train): one 'train_exterior' box per vehicle
+    over its body and roof (the lookout, the engine's chimney), from the bogies to just above the top, buffer to
+    buffer. [dict(name, kind, box, tags)] like interior_volumes."""
+    b, m = c.body, EXTERIOR_MARGIN
+    if b.kind == 'locomotive':
+        hw, top = LOCO_HALF, BOILER[3] + BOILER[2] + 1.3          # the chimney stands about 1.3 m above the barrel
+    elif b.kind == 'tender':
+        hw, top = TENDER_HALF, TENDER_COPING_Z
+    else:
+        hw, top = HALF, lookout_top(b)[1] if b.cupola else ROOF_TOP
+    box = [b.buffer_a, b.buffer_b, -hw - m, hw + m, .20, top + m]
+    return [dict(name='train_exterior', kind='train_exterior', box=[round(v, 4) for v in box], tags=list(EXTERIOR_TAGS))]
 
 
 def walkable_grid(c, radius, step=.025):

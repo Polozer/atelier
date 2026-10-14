@@ -166,7 +166,7 @@ class Collision(unittest.TestCase):
         for c in L.vehicles():
             vols = L.interior_volumes(c)
             names = {v['name'] for v in vols}
-            self.assertTrue(all(v['tags'] == ['interior', 'no_sprint'] for v in vols))
+            self.assertTrue(all(v['tags'] == ['interior', 'no_sprint', 'no_climb'] for v in vols))
             self.assertTrue({r.name for r in c.rooms} <= names, c.name)
             for v in vols:
                 x0, x1, y0, y1, z0, z1 = v['box']
@@ -179,6 +179,42 @@ class Collision(unittest.TestCase):
         self.assertIn('lookout', {v['name'] for v in L.interior_volumes(L.brake_van())})
         self.assertLessEqual(L.interior_volumes(L.locomotive())[0]['box'][0], L.locomotive().body.buffer_a)
         self.assertGreaterEqual(L.interior_volumes(L.tender())[0]['box'][1], L.tender().body.buffer_b)
+
+    def test_each_vehicle_has_a_no_climb_exterior_over_its_body_and_roof(self):
+        for c in L.vehicles():
+            (v,) = L.exterior_volumes(c)
+            x0, x1, y0, y1, z0, z1 = v['box']
+            self.assertEqual((v['name'], v['tags']), ('train_exterior', ['no_climb']))
+            self.assertLessEqual(x0, c.body.buffer_a)
+            self.assertGreaterEqual(x1, c.body.buffer_b)
+            for i in L.interior_volumes(c):                   # it holds the whole inside too
+                q = i['box']
+                self.assertTrue(x0 - CO.GANGWAY_OVERLAP <= q[0] and q[1] <= x1 + CO.GANGWAY_OVERLAP and y0 <= q[2] and q[3] <= y1 and q[5] <= z1, (c.name, i['name']))
+        self.assertGreaterEqual(L.exterior_volumes(L.brake_van())[0]['box'][5], L.lookout_top(L.brake_van().body)[1])
+
+    def test_every_passenger_door_and_gate_has_a_boarding_record(self):
+        for c in L.vehicles():
+            recs = {b['id']: b for b in CO.boarding(c)}
+            want = {d['id'] for d in CO.doors(c) if d['kind'] in ('exterior', 'gate') and not d['id'].startswith('cargo')}
+            self.assertEqual(set(recs), want, c.name)
+            parts = dict(CO.collision_boxes(c))
+            for b in recs.values():
+                with self.subTest(vehicle=c.name, door=b['id']):
+                    sy = b['side']
+                    self.assertIn(b['door'], parts)
+                    self.assertEqual(b['opens'], 'station')
+                    (up, low) = b['treads']
+                    self.assertGreater(up['top_z'], low['top_z'])
+                    self.assertLess(up['top_z'], L.FLOOR_Z)
+                    self.assertTrue(abs(b['outside'][1]) > L.HALF and abs(b['inside'][1]) < L.IN)   # either side of the wall
+                    self.assertEqual(b['outside'][1] * sy > 0, True)
+                    self.assertAlmostEqual(b['inside'][2], L.FLOOR_Z)
+                    fy = -math.cos(math.radians(b['board_yaw']))                  # boarding faces into the coach
+                    self.assertEqual(fy, -sy)
+                    self.assertEqual((b['board_yaw'] + 180) % 360, b['alight_yaw'])
+                    xs = [b['outside'][0], b['inside'][0]]
+                    self.assertTrue(all(up['box'][0] <= x <= up['box'][1] for x in xs))
+        self.assertEqual({b['kind'] for b in CO.boarding(L.brake_van())}, {'exterior', 'gate'})
 
     def test_a_reachable_place_outside_the_volumes_is_caught(self):
         c = L.first_class()

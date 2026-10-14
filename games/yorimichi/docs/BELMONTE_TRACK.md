@@ -19,6 +19,12 @@ Built:
 - The ends of the line. At each terminus the track runs to a buffer stop, and a stop board marks the stopping point.
   There are no station buildings. The 200 m station reserves stay in the data, but nothing is built on them.
 - Tunnels: four portals in Belmonte stone, and a simple horseshoe lining for both tunnels, the spiral included.
+- Dark tunnels with lamps (Paul, 14 October 2026): the lining is soot-black stone (`MI_TK_TunnelLining`). A wall lamp
+  (`SM_TK_TunnelLamp`: iron bracket, emissive globe `MI_TK_LampGlow`) stands every ~30 m, 3.0 m over the rail, on
+  alternating walls. track.json's `tunnel_lighting` holds one warm point light per lamp (2700 K, 80 cd, 14 m reach,
+  no shadows) grouped by tunnel, to be spawned with the tunnel's data layer. Each lining piece also carries an
+  oriented `volume` box for a post-process volume that pins the auto-exposure (EV −1…1), so the tunnel reads dark and
+  the lamps carry the light. The terrain keeps 8.6 m of ground over the rail (train/earthworks.py), so no sky leaks in.
 - The viaduct: arched piers and a deck in Belmonte stone (`MI_B_ashlar`, with `MI_B_stone` for the copings).
 - Earthwork marker posts every 50 m at the top of each cut and the toe of each fill. They are editor-only and data
   only.

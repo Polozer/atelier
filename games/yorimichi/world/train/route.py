@@ -74,14 +74,15 @@ MIN_STRAIGHT = 20.          # between two curves
 VOLCANO_CLEARANCE = 1550.
 MAX_GRADE = .035
 PREFERRED_GRADE = .030
-VERTICAL_CURVE = 150.       # moving-average length: a parabolic vertical curve at every grade change
+VERTICAL_CURVE = 150.       # margin around the level and loop zones (and, before the grade-state profile, the smoothing)
 DZ = .05                    # rail height resolution of the dynamic programme
+VERTICAL_RADIUS = STEP * STEP / DZ   # 2000 m: the profile's grade changes by at most DZ per STEP per STEP
 PLATFORM_OFFSET = 6.        # rail may stand this far off the ground along a reserve (H2 rises 9.5 m along its 200 m)
 
 # Classification (rail top against the ground; the tunnel crown stands TUNNEL_BORE above the rail).
 CUT_DEPTH = 12.             # deeper cuttings are reported as deep cuttings: preferred to tunnels for the view
 TUNNEL_BORE = 7.
-TUNNEL_COVER = 25.          # tunnels only where the cover would reach this
+TUNNEL_COVER = 18.          # tunnels where the cover would reach this: portals at 25 m deep (was 25: 32 m deep cuttings)
 EMBANKMENT_HEIGHT = 10.
 MIN_TUNNEL = 60.
 SPIRAL_COVER = 15.          # rail at least this far below the ground over the spiral (bore plus 8 m)
@@ -121,6 +122,7 @@ LOOP_RADIUS = 500.
 LOOP_GRADE = .01
 TRACK_SPACING = 4.
 LOOP_SEARCH = 240.          # seconds of timetable offset searched first when placing the loop (optimiser)
+LOOP = (4580., 4840.)       # Paul, 2026-10-14: the approved loop, kept when the profile changes
 LOOP_TRIES = 12             # loop windows given their own profile when placing the loop
 HEADWAY_COST = 20000.       # m3 of earthwork worth one second of headway when choosing the loop
 OFFSET_COST = 2000.         # m3 of earthwork worth one second of timetable offset when choosing the loop
@@ -479,16 +481,22 @@ def zones(s, length, loop=None):
 
 
 def vertical(s, zg, grade=MAX_GRADE, loop=None, spiral=None):
-    """Rail heights every STEP metres minimising the view-weighted cost, by dynamic programming over DZ levels, then
-    smoothed over VERTICAL_CURVE. Returns (rail z, total cost) or (None, inf) if no profile meets the limits."""
+    """Rail heights every STEP metres minimising the view-weighted cost, by dynamic programming over DZ levels and
+    grades: the grade changes by at most DZ per STEP per STEP (a vertical curve radius of VERTICAL_RADIUS) and stays
+    within `grade`, LOOP_GRADE along the loop's tracks and level along the platforms. The ground's undulations are
+    followed wherever the grade allows, and no smoothing afterwards undoes it. Returns (rail z, total cost) or
+    (None, inf) if no profile meets the limits."""
     s, zg = np.asarray(s, float), np.asarray(zg, float)
     length = float(s[-1])
-    level, platform, on_loop, track = zones(s, length, loop)
+    _, platform, _, track = zones(s, length, loop)
     z0 = float(zg.min()) - 60.
     levels = z0 + DZ * np.arange(int((zg.max() + 80. - z0) / DZ))
     m = len(levels)
     ds = np.diff(s, prepend=s[0])
     big = 1e18
+    top = int(math.floor(grade * STEP / DZ + 1e-9))         # grade states: k levels per STEP, |k| <= top
+    flat = int(math.floor(LOOP_GRADE * STEP / DZ + 1e-9))
+    ks = np.arange(-top, top + 1)
 
     def row(i):
         h = levels - zg[i]
@@ -501,37 +509,45 @@ def vertical(s, zg, grade=MAX_GRADE, loop=None, spiral=None):
             c = np.where((h > -(TUNNEL_COVER + TUNNEL_BORE)) & (h <= EMBANKMENT_HEIGHT), c, big)
         return c
 
-    acc = row(0)
-    back = np.zeros((len(s), m), np.int8)
+    acc = np.full((m, len(ks)), big)
+    acc[:, top] = row(0)                                     # level at the buffer stop
+    back = np.zeros((len(s), m, len(ks)), np.int8)
     for i in range(1, len(s)):
-        if level[i] and level[i - 1]:
-            k = 0
-        else:
-            limit = LOOP_GRADE if (on_loop[i] or on_loop[i - 1]) else grade
-            k = int(math.floor(limit * ds[i] / DZ + 1e-9))
-        best, arg = acc.copy(), np.zeros(m, np.int8)
-        for d in range(1, k + 1):
-            for sign in (1, -1):
-                shifted = np.full(m, np.inf)
-                if sign > 0:
-                    shifted[d:] = acc[:-d]
-                else:
-                    shifted[:-d] = acc[d:]
-                better = shifted < best
-                best[better] = shifted[better]
-                arg[better] = sign * d
-        acc = best + row(i)
-        back[i] = arg
-    j = int(np.argmin(acc))
-    total = float(acc[j])
+        allowed = 0 if (platform[i] and platform[i - 1]) else flat if (track[i] or track[i - 1]) else top
+        scale = ds[i] / STEP
+        padded = np.pad(acc, ((0, 0), (1, 1)), constant_values=big)
+        choice = np.stack([padded[:, :-2], padded[:, 1:-1], padded[:, 2:]])   # from grade k-1, k, k+1
+        arg = np.argmin(choice, 0)
+        best = np.take_along_axis(choice, arg[None], 0)[0]
+        new = np.full((m, len(ks)), big)
+        r = row(i)
+        for c, k in enumerate(ks):
+            if abs(k) > allowed:
+                continue
+            d = int(round(k * scale))
+            col = np.full(m, big)
+            if d > 0:
+                col[d:] = best[:-d, c]
+            elif d < 0:
+                col[:d] = best[-d:, c]
+            else:
+                col = best[:, c].copy()
+            new[:, c] = col + r
+        acc = np.minimum(new, big)
+        back[i] = (arg - 1).astype(np.int8)        # per level before the step: the grade column offset it came from
+    acc[:, np.abs(ks) > 0] = big                             # level at the far buffer stop too
+    j, c = np.unravel_index(int(np.argmin(acc)), acc.shape)
+    total = float(acc[j, c])
     if total >= big:
         return None, math.inf
     index = np.empty(len(s), int)
     for i in range(len(s) - 1, -1, -1):
         index[i] = j
-        j -= int(back[i, j])
-    rail = smooth(levels[index], s)
-    return rail, total
+        if i == 0:
+            break
+        j -= int(round(ks[c] * ds[i] / STEP))       # the level before this step, then the grade it came from
+        c += int(back[i, j, c])
+    return levels[index], total
 
 
 def smooth(z, s):
@@ -1099,7 +1115,13 @@ def study(points=None, sampler=ground, grade=None):
     plain = {g: vertical(line.s, zg, g, spiral=line.spiral_mask())[1] for g in (PREFERRED_GRADE, MAX_GRADE)}
     if grade is None:
         grade = DESIGN_GRADE
-    loop, rail, total, meet = place_loop(line, zg, grade)
+    rail = None
+    if points is None and LOOP is not None:      # the approved line keeps its approved loop
+        _, _, total, meet = place_loop(line, zg, grade, tries=0)
+        loop = LOOP
+        rail, total = vertical(line.s, zg, grade, loop, line.spiral_mask())
+    if points is not None or LOOP is None or rail is None:     # other lines, or a grade the approved loop cannot take
+        loop, rail, total, meet = place_loop(line, zg, grade)
     if rail is None and grade < MAX_GRADE:
         grade = MAX_GRADE
         loop, rail, total, meet = place_loop(line, zg, grade)
@@ -1442,6 +1464,8 @@ def main():
                       'closed_stretches': stretches(rows, lambda row: any(f.startswith('closed') for f in row['flags']))},
             'empty_spaces': {'cell': CELL, 'range': EMPTY_RANGE, 'sites': spaces}}
     (out / 'route.json').write_text(json.dumps(data, indent=1))
+    from train import corridor                  # the cut, fill and portal footprints for the terrain builders
+    corridor.write_terrain_mask(data, out / 'terrain_mask.json')
     draw_profile(out / 'profile.png', r)
     draw_plan(out / 'plan.png', r, raster, rows, spaces)
     print(json.dumps(report, indent=1))

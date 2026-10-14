@@ -702,10 +702,9 @@ def ends_hardware(c, coll, parent):
 def steps(m, sy, x0, x1, inset=0.):
     """Two hanging steps under a door or a balcony gate on side sy, from x0 to x1."""
     y = sy * (L.HALF - inset)
-    for z, depth in ((.96, .18), (.66, .30)):
-        ya, yb = sorted((y - sy * .22, y + sy * (depth - .22)))
-        m.box(x0 + .02, x1 - .02, ya, yb, z - .03, z, 'steel')
-        m.box(x0 + .02, x1 - .02, ya, yb, z - .004, z + .002, 'brass')
+    for tx0, tx1, ya, yb, z in L.step_treads(sy, x0, x1, inset):
+        m.box(tx0, tx1, ya, yb, z - .03, z, 'steel')
+        m.box(tx0, tx1, ya, yb, z - .004, z + .002, 'brass')
     for x in (x0 + .01, x1 - .01):
         m.box(x - .015, x + .015, min(y, y + sy * .08), max(y, y + sy * .08), .63, L.SKIRT_Z, 'undercarriage')
 
@@ -2131,6 +2130,8 @@ def build(coach, images):
     placements['doors'] = door_interactions(coach, mesh_name)
     placements['door_rules'] = DOOR_RULES
     placements['interior_volumes'] = L.interior_volumes(coach)
+    placements['exterior_volumes'] = L.exterior_volumes(coach)
+    placements['boarding'] = CO.boarding(coach)
     placements['envelope'] = L.envelope()
     placements['coupling'] = L.coupling(B)
     placements['collision_boxes'] = [dict(name=name, part=n, group=g, box=[round(v, 4) for v in b]) for name, n, g, b in CO.named_boxes(coach, mesh_name)]
