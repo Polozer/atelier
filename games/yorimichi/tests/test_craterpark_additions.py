@@ -143,6 +143,43 @@ class SnakeTests(unittest.TestCase):
         self.assertGreater(float(start[:, 1].min()), 2.8)                       # from the lip, 3 m (the face is at 1-2 m)
 
 
+    def test_a_hip_bank_falls_steeply_off_the_lip_and_eases_out_flat(self):
+        # A deck 8 m up to x 5, open ground, a deck at 0 from x 25: the landing shape is steep by the lip, flat at the foot.
+        riding = np.asarray(floor(0, 0, 5, 10, 8.) + floor(25, 0, 35, 10, 0.), 'f8')
+        solid = np.asarray(floor(-10, -10, 40, 30, -20.), 'f8')
+        v, f, uv = additions.bank(riding, solid, (4, 2, 26, 8), None, 2.5)
+        t = v[f].astype('f8')
+        xs = np.array([5.5, 6.5, 23.5, 24.5])
+        y = additions.top_heights(t, np.stack([xs, 0 * xs, 0 * xs + 5], 1))
+        self.assertGreater(float(y[0] - y[1]), .6)                              # steep off the lip (mean slope 0.4)
+        self.assertLess(float(y[2] - y[3]), .05)                                # flat into the foot
+        self.assertGreater(float(y[0]), 7.)
+
+
+    def test_a_street_is_flush_with_its_walkways_and_passes_a_deck_by(self):
+        # Walkways at 0 m, a deck 1 m up, the hillside a little under them with a hump and a mound.
+        riding = np.asarray(floor(0, 0, 2, 20, 0.) + floor(18, 0, 20, 20, 0.) + floor(14, 0, 18, 6, 1.), 'f8')
+        hill = floor(-10, -10, 40, 40, -.3) + box(6, -1, 8, 8, -.02, 10) + box(10, -1, 14, 13, 2., 17)
+        v, f, uv = additions.street(riding, np.asarray(hill, 'f8'), (1, 1, 19, 19), (-.2, .2))
+        t = v[f].astype('f8')
+        y = lambda x, z: float(additions.top_heights(t, np.array([[x, 0., z]]))[0])
+        self.assertAlmostEqual(y(10, 4), 0., delta=.01)                         # flush with the walkways
+        self.assertAlmostEqual(y(15, 8), 0., delta=.05)                         # not up onto the deck by it
+        self.assertAlmostEqual(y(7, 9), -.02 + additions.CLEAR, delta=.01)      # clear over the hump
+        self.assertEqual(y(12, 15), -np.inf)                                    # stops at the mound
+
+
+    def test_an_added_pieces_outline_is_smoothed(self):
+        # A staircase outline (a triangle of grid squares): its corner vertices move toward the diagonal.
+        nodes = np.tril(np.ones((9, 9), bool))
+        v, f = additions.grid_mesh(0., 0., 1., np.zeros((9, 9)), nodes)
+        raw, _ = additions.grid_mesh(0., 0., 1., np.zeros((9, 9)), nodes, 0)
+        off = lambda p: np.abs(p[:, 2] - p[:, 0])                                # from the diagonal z = x
+        inner = (raw[:, 2] - raw[:, 0] == 1) & (raw[:, 0] > 0) & (raw[:, 2] < 8)  # the staircase's inner corners
+        self.assertTrue((off(v[inner]) < off(raw[inner]) - .2).all())
+        self.assertTrue(np.array_equal(v[:, 1], raw[:, 1]))                      # heights stay
+
+
     def test_a_kicker_rises_from_the_floor_to_a_low_walls_top(self):
         riding = np.asarray(floor(0, 0, 5, 10, .8) + floor(5, 0, 15, 10, 0.), 'f8')    # a 0.8 m wall's top, the floor
         v, f, uv = additions.kicker(riding, (4, 2, 9, 6), 'x-')

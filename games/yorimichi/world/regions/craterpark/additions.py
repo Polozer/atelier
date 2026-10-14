@@ -343,16 +343,17 @@ def snake_channels(riding, solid, box, floor, open_=OPEN, channel=CHANNEL, feet=
 
 
 
-def coping_top(riding, gx, gz, edge, fixed, reach=LIP, rise=1.):
+def coping_top(riding, gx, gz, edge, fixed, reach=LIP, rise=1., highest=np.inf):
     """The lip's true top at the `fixed` nodes: the highest corner of the `riding` faces within `reach` of the node, up
-    to `rise` over its `edge` height (a quarter pipe's coping lies between the grid's nodes, up to 0.6 m over them)."""
+    to `rise` over its `edge` height and `highest` at most (a quarter pipe's coping lies between the grid's nodes, up
+    to 0.6 m over them)."""
     out = edge.copy()
     j, i = np.nonzero(fixed)
     if not len(j):
         return out
     p = np.stack([gx[j, i], gz[j, i]], 1)
     corners = riding.reshape(-1, 3)
-    near = ((corners[:, [0, 2]] > p.min(0) - reach) & (corners[:, [0, 2]] < p.max(0) + reach)).all(1)
+    near = ((corners[:, [0, 2]] > p.min(0) - reach) & (corners[:, [0, 2]] < p.max(0) + reach)).all(1) & (corners[:, 1] <= highest)
     c = corners[near]
     for k in range(0, len(p), 512):
         q = p[k:k + 512]; e = edge[j[k:k + 512], i[k:k + 512]]
@@ -389,7 +390,9 @@ def bank(riding, solid, box, joins=None, shape=None, cell=CELL):
     # on its steep face, under the lip (the hip from the tower met the channel's wall 0.6 m low, a step and a coping
     # across the face).
     edge = np.where(fixed, max_near(np.where(meet, ride, -np.inf), LIP, cell, meet), ride)
-    edge = np.where(fixed, coping_top(riding, gx, gz, edge, fixed), edge)
+    # Joined only to some heights, the lip is too: a higher piece beside a walkway is no lip of it.
+    highest = max(high for _, _, high in joins) if joins is not None else np.inf
+    edge = np.where(fixed, coping_top(riding, gx, gz, edge, fixed, highest=highest), edge)
     height = np.where(open_, relax(np.where(meet, edge, 0.), fixed, open_), np.where(fixed, edge, ride))
     if shape:
         # The share of the way from the high edge to the low (a membrane, 0 to 1), the heights each edge carries across,
