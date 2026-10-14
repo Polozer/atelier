@@ -401,6 +401,7 @@ def tile_metres(positions, uvs, triangles, default=UV_METRES):
 
 
 THICK = .35         # metres: a sheet's free edge is capped this wide, so the piece reads as solid concrete
+RUN = 2.            # metres of free edge in one run at least, for a cap and a wall
 CLEAR_EDGE = .3     # metres up or down from a free edge where nothing continues past it (it ends in the air)
 LOWEST = .15        # metres: a free edge this close over what lies under it rests on it (no wall to build)
 FAR_DOWN = 30.      # metres a wall goes down at most, where nothing lies under it
@@ -477,6 +478,20 @@ def solidify(piece, heights, around, metres=UV_METRES):
         for sign in (1., -1.):
             sheet[batch] &= ~np.isfinite(rays(start[batch], sign * normal[batch], here, SHEET))
     a, b, out = a[sheet], b[sheet], out[sheet]
+    if not len(a):
+        return None
+    # Only a run of edges RUN long at least: a stray stretch a few decimetres long stood as a lone slat to the ground.
+    _, ids = np.unique(np.round(np.concatenate([a, b]) * 1000).astype('i8'), axis=0, return_inverse=True)
+    ia, ib = ids.ravel()[:len(a)], ids.ravel()[len(a):]
+    label = np.arange(ids.max() + 1)
+    while True:                                                     # each corner takes its run's lowest id
+        low = np.minimum(label[ia], label[ib]); before = label.copy()
+        np.minimum.at(label, ia, low); np.minimum.at(label, ib, low); label = label[label]
+        if (label == before).all():
+            break
+    run = np.zeros(len(label)); np.add.at(run, label[ia], np.linalg.norm(b - a, axis=1))
+    long_run = run[label[ia]] >= RUN
+    a, b, out = a[long_run], b[long_run], out[long_run]
     if not len(a):
         return None
     # One far point per corner, shared by the edges that meet there: the caps join without a crack.

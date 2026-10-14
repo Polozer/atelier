@@ -178,6 +178,13 @@ class SolidifyTests(unittest.TestCase):
         self.assertLess(float(v[:, 1].min()), 0.)                    # the back wall goes down into the ground
 
 
+    def test_a_stray_scrap_of_sheet_gets_no_wall(self):
+        # A 0.4 m square of sheet standing in the air: its free edges run 1.6 m in all, under RUN.
+        piece = np.asarray(quad((0, 5, 0), (0, 5.4, 0), (0, 5.4, .4), (0, 5, .4)), 'f8')
+        ground = np.asarray(floor(-5, -5, 10, 10, 0.), 'f8')
+        heights = grind.heights(np.concatenate([piece, ground]))
+        self.assertIsNone(additions.solidify(piece, heights, np.concatenate([piece, ground])))
+
 
 class CopingTests(unittest.TestCase):
     def test_a_tube_runs_along_the_line_its_top_just_over_the_deck_facing_out(self):
