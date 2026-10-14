@@ -187,10 +187,13 @@ def lamps(c, part, cords):
         part.sockets.append((f'SOCKET_Light_{"".join(w.title() for w in mt.id.split("-"))}', (x, y, zb - .06)))
 
 
+def _pivot(pl):
+    return next(a['pivot'] for a in L.contract()['assets'] if a['id'] == pl.asset)
+
+
 def _top(pl):
     """The highest point of a placement: its pivot is at its base, or at its top for things hung from a hook."""
-    pivot = next(a['pivot'] for a in L.contract()['assets'] if a['id'] == pl.asset)
-    return pl.z if pivot == 'hook_top' else pl.z + L.asset_dims(pl.asset)[2]
+    return pl.z if _pivot(pl) == 'hook_top' else pl.z + L.asset_dims(pl.asset)[2]
 
 
 def curtains(c, rails, cloth, metal='brass-dull', fabric='curtain-fabric'):
@@ -208,12 +211,17 @@ def curtains(c, rails, cloth, metal='brass-dull', fabric='curtain-fabric'):
         steps = int(CURTAIN_W / CURTAIN_PITCH) * 10
         for side in (-1, 1):                                              # drawn to both ends
             seed = _noise(mt.x, mt.y, side)
+            def under(pl, u0):                                            # a placement in the curtain's floor space
+                a, b = P(u0, 0, 0), P(u0 - side * CURTAIN_W, CURTAIN_GAP + 2 * CURTAIN_AMP, 0)
+                x0, x1, y0, y1 = L.footprint(pl)
+                return x0 < max(a[0], b[0]) and min(a[0], b[0]) < x1 and y0 < max(a[1], b[1]) and min(a[1], b[1]) < y1
             u0 = side * (h - .02)
-            a, b = P(u0, 0, 0), P(u0 - side * CURTAIN_W, CURTAIN_GAP + 2 * CURTAIN_AMP, 0)
+            sconces = [pl for pl in c.placements if _pivot(pl) == 'wall_mount_center']
+            while any(under(pl, u0) for pl in sconces) and abs(u0) > w.width / 2 - .10:   # a wall lamp on the pier:
+                u0 -= side * .01                                          # draw the curtain in beside it
             bottom = w.sill - .06                                         # just below the sill, or clear of a bench back
             for pl in c.placements:
-                x0, x1, y0, y1 = L.footprint(pl)
-                if x0 < max(a[0], b[0]) and min(a[0], b[0]) < x1 and y0 < max(a[1], b[1]) and min(a[1], b[1]) < y1:
+                if pl not in sconces and under(pl, u0):
                     bottom = max(bottom, _top(pl) + .03)
             # soft folds: the phase runs at a pitch wandering +-15 %, each fold its own depth, gathered tight at the rail
             # and fuller at the hem, which dips at the leading edge and curls up towards the wall end
