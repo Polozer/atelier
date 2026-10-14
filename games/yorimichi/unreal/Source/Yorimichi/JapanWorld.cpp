@@ -15,6 +15,9 @@
 #include "Components/LightComponent.h"
 #include "EngineUtils.h"
 #include "Engine/StaticMesh.h"
+#if WITH_EDITOR
+#include "StaticMeshCompiler.h"
+#endif
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
@@ -167,6 +170,38 @@ void AJapanWorld::Load()
         GlideGrade->Settings.bOverride_ColorOffset=true;
         GlideGrade->Settings.ColorOffset=FVector4(-.03,-.03,-.03,0);
         GlideGrade->RegisterComponent();
+        // Crater Park's caldera (docs/CRATERPARK.md, "Look"): at 700 m every face sees the open sky, so the park and the
+        // snow read milky and lavender against the grounded paintovers. Inside the crest (and 80 m over it) the black
+        // point comes down with more contrast and colour, a little warmer.
+        UBoxComponent* CalderaBounds=NewObject<UBoxComponent>(this);
+        CalderaBounds->SetupAttachment(RootComponent);
+        CalderaBounds->SetRelativeLocation(ToUE(850,2400,700));
+        CalderaBounds->SetBoxExtent(FVector(50000,50000,16000));
+        CalderaBounds->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+        CalderaBounds->SetCollisionResponseToAllChannels(ECR_Ignore);
+        CalderaBounds->SetGenerateOverlapEvents(false);
+        CalderaBounds->SetCanEverAffectNavigation(false);
+        CalderaBounds->RegisterComponent();
+        UPostProcessComponent* CalderaGrade=NewObject<UPostProcessComponent>(this);
+        CalderaGrade->SetupAttachment(CalderaBounds);
+        CalderaGrade->bUnbound=false;CalderaGrade->BlendRadius=6000;CalderaGrade->Priority=3;
+        CalderaGrade->Settings.bOverride_ColorContrast=true;
+        CalderaGrade->Settings.ColorContrast=FVector4(1.2,1.2,1.2,1);
+        CalderaGrade->Settings.bOverride_ColorSaturation=true;
+        CalderaGrade->Settings.ColorSaturation=FVector4(1.3,1.3,1.3,1);
+        CalderaGrade->Settings.bOverride_ColorOffset=true;
+        CalderaGrade->Settings.ColorOffset=FVector4(-.035,-.035,-.035,0);
+        CalderaGrade->Settings.bOverride_WhiteTemp=true;
+        CalderaGrade->Settings.WhiteTemp=7000;
+        // Split toning as the targets paint it: sunlit faces warm, shade on snow and rock blue.
+        CalderaGrade->Settings.bOverride_ColorGainShadows=true;
+        CalderaGrade->Settings.ColorGainShadows=FVector4(.94,.98,1.10,1);
+        CalderaGrade->Settings.bOverride_ColorGainHighlights=true;
+        CalderaGrade->Settings.ColorGainHighlights=FVector4(1.05,1.01,.95,1);
+        CalderaGrade->RegisterComponent();
+        float CalderaDistance=0.f;
+        UE_LOG(LogTemp,Display,TEXT("Caldera grade bounds: dropin=%d rim=%d city=%d"),CalderaGrade->EncompassesPoint(ToUE(985,2505,719),0.f,&CalderaDistance),
+            CalderaGrade->EncompassesPoint(ToUE(1180,2080,735),0.f,&CalderaDistance),CalderaGrade->EncompassesPoint(ToUE(720,430,82),0.f,&CalderaDistance));
         // Northern aerial views face the same strong sky light. Bring down the
         // black point according to clearance, leaving ground-level views alone.
         NorthAerialGrade=NewObject<UPostProcessComponent>(this);
@@ -386,6 +421,8 @@ void AJapanWorld::Load()
                 H->SetCastShadow(!bGrass && !bLitter && !bBackdrop && !bWater && !bWires && Key!=TEXT("HD_ArcadeRoof") && Key!=TEXT("HD_ArcadeLanterns") && Key!=TEXT("HD_PlazaWater"));
                 if (bGrass || bLitter || bBackdrop) H->bAffectDistanceFieldLighting = false;
                 if (bGrass) H->SetCullDistances(6000, 8000);
+                // The caldera's wild thicket (Bush_HD_Autumn, only there) is what the rim and air views look across.
+                else if (Key == TEXT("Bush_HD_Autumn")) H->SetCullDistances(55000, 60000);
                 else if (bBush) H->SetCullDistances(30000, 36000);
                 else if (bLitter) H->SetCullDistances(7000, 9000);
                 if (bTree || bBush) H->SetWorldPositionOffsetDisableDistance(18000);
@@ -614,6 +651,9 @@ void AJapanWorld::Load()
     // The Mega Park in the western foothills: the original meshes, riding collision and grind paths, placed (docs/MEGAPARK.md).
     const auto* MegaPark = ASuperUltraMegaPark::Spawn(GetWorld(), AtelierDataPath(TEXT("megapark/park.json")));
     if (!MegaPark || !MegaPark->bGameplayReady) Incomplete.Add(TEXT("mega park"));
+    // Crater Park on the volcano's caldera floor, placed by the same actor (docs/CRATERPARK.md).
+    const auto* CraterPark = ASuperUltraMegaPark::Spawn(GetWorld(), AtelierDataPath(TEXT("craterpark/park.json")));
+    if (!CraterPark || !CraterPark->bGameplayReady) Incomplete.Add(TEXT("crater park"));
     const auto* Hippodrome = AHippodrome::Spawn(GetWorld(), HippodromePath);
     if (!Hippodrome || !Hippodrome->bGameplayReady) Incomplete.Add(TEXT("hippodrome"));
     const auto* Belmonte = ABelmonteRegion::Spawn(this, AtelierDataPath(TEXT("belmonte/runtime.json")));
@@ -621,6 +661,11 @@ void AJapanWorld::Load()
     // The far hills' trees stand on the hills' original heights, but the northern
     // surface and the Mega Park approach lowered that ground. Once every region's
     // ground is in place, drop each backdrop tree with no ground under its base.
+#if WITH_EDITOR
+    // An editor build compiles spawned meshes asynchronously, and a mesh still compiling has no collision yet: the
+    // volcano's ground was still building here, and the trace dropped about half its forest.
+    FStaticMeshCompilingManager::Get().FinishAllCompilation();
+#endif
     int32 Floating = 0, Grounded = 0;
     const FCollisionQueryParams GroundQuery(SCENE_QUERY_STAT(BackdropGround), true);
     for (auto* Group : BackdropGroups)
@@ -886,7 +931,7 @@ void AJapanWorld::UpdateNorthAerialGrade(float Dt)
     NorthGradeCamera=C;bNorthGradeHasCamera=true;
     const float X=C.X,Y=-C.Y;
     const float Region=FMath::SmoothStep(-90000.f,-70000.f,X)*(1-FMath::SmoothStep(240000.f,260000.f,X))
-        *FMath::SmoothStep(35000.f,65000.f,Y)*(1-FMath::SmoothStep(540000.f,560000.f,Y));
+        *FMath::SmoothStep(35000.f,65000.f,Y)*(1-FMath::SmoothStep(600000.f,620000.f,Y));  // through Belmonte (belmonte/layout.py)
     NorthGradeTraceElapsed+=Dt;
     if (Region>0 && (Jump || NorthGradeTraceElapsed>=.25f))
     {
