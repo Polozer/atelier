@@ -49,13 +49,13 @@ class Collision(unittest.TestCase):
         for c in L.vehicles():
             boxes = dict(CO.collision_boxes(c))
             ds = CO.doors(c)
-            gates = [d for d in ds if d['kind'] == 'gate']
-            self.assertEqual(len(ds), len(c.doors) + len(gates), c.name)
+            extra = [d for d in ds if d['kind'] in ('gate', 'staff')]       # not layout doors: no leaf in c.doors
+            self.assertEqual(len(ds), len(c.doors) + len(extra), c.name)
             self.assertEqual(len({d['part'] for d in ds}), len(ds), c.name)      # one box per door, opened one at a time
             for d in ds:
                 self.assertEqual(boxes[d['part']], d['box'], (c.name, d['id']))
                 self.assertEqual(CO.group(d['part']), 'gangway-lock' if d['locked'] else 'door', (c.name, d['id']))
-                self.assertEqual(d['opens'], 'station' if d['kind'] in ('exterior', 'gate') else 'any')
+                self.assertEqual(d['opens'], 'station' if d['kind'] in ('exterior', 'gate', 'staff') else 'any')
                 self.assertEqual(d['default'], 'closed')
                 self.assertEqual(len(d['handles']), 2)
                 q = d['box']
@@ -79,6 +79,19 @@ class Collision(unittest.TestCase):
         self.assertEqual(sorted(gates), ['gate-al', 'gate-ar'])
         for d in gates.values():
             self.assertGreaterEqual(d['box'][5], L.ROOF_TOP)
+
+    def test_the_cab_floor_and_the_footplate_meet_past_the_buffers_and_the_cab_doors_are_staff_doors(self):
+        loco, tender = L.locomotive(), L.tender()
+        lf, tf = dict(CO.collision_boxes(loco))['floor'], dict(CO.collision_boxes(tender))['floor']
+        self.assertLessEqual(lf[0], loco.body.buffer_a - .01)
+        self.assertGreaterEqual(tf[1], tender.body.buffer_b + .01)
+        tb = dict(CO.collision_boxes(tender))
+        for side in 'lr':
+            self.assertGreaterEqual(tb[f'handrail-{side}'][1], L.TENDER_FALL_PLATE)
+        ds = {d['id']: d for d in CO.doors(loco)}
+        self.assertEqual(sorted(ds), ['cab-l', 'cab-r'])
+        for d in ds.values():
+            self.assertEqual((d['kind'], d['opens'], CO.group(d['part'])), ('staff', 'station', 'door'))
 
     def test_a_shut_inside_door_does_not_cut_the_walk_but_a_missing_one_is_caught(self):
         c = L.first_class()

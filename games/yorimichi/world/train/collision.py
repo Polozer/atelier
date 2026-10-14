@@ -115,7 +115,7 @@ def gangway_boxes(c):
 HANDLE_Z = 1.0           # the Interact prompt point: at handle height,
 HANDLE_OUT = .30         # this far out from each face of the door, and
 HANDLE_IN = .10          # this far in from the leaf's free edge
-OPENS = {'exterior': 'station', 'gate': 'station', 'gangway': 'any', 'internal': 'any'}
+OPENS = {'exterior': 'station', 'gate': 'station', 'staff': 'station', 'gangway': 'any', 'internal': 'any'}
 
 
 def door_id(name):
@@ -125,7 +125,7 @@ def door_id(name):
 
 def doors(c):
     """Every door and balcony gate a player opens with Interact, one at a time: id, layout door name, kind (exterior,
-    gangway, internal, gate), motion, the rule for when it opens ('station': only while the train stands at a
+    gangway, internal, gate, or staff: the locomotive's cab doors, for the crew), motion, the rule for when it opens ('station': only while the train stands at a
     station; 'any'), default state, whether it is locked for passengers (a gangway behind a gangway-lock box), its
     collision part and box (a 'door' box, closed until opened), and the Interact points on each side of the leaf."""
     b, F = c.body, L.FLOOR_Z
@@ -168,6 +168,12 @@ def doors(c):
             sides.append(('gangway' if room == '?' and i.startswith('gangway') else room, cc))
         kind = 'gangway' if i.startswith('gangway') else 'internal'
         rec(i, d.name, kind, d.kind, box, ha, w.axis, sides, lock=kind == 'gangway' and d.name in locked)
+    if b.kind == 'locomotive':                         # the crew's doors in the cab side cut-outs
+        ca, ce = L.CAB[0], L.CAB_ENTRY
+        for side, sy in (('l', 1), ('r', -1)):
+            box = (ca, ce, *sorted((sy * L.CAB_IN, sy * L.LOCO_HALF)), F, F + CAB_DOOR_H)
+            rec(f'cab-{side}', None, 'staff', 'hinged', box, free_edge(ca, ce, ce), 'x',
+                (('cab', sy * (L.CAB_IN - HANDLE_OUT)), ('outside', sy * (L.LOCO_HALF + HANDLE_OUT))))
     for s, end in ((-1, 'a'), (1, 'b')):
         if b.end(s) != 'balcony':
             continue
@@ -222,17 +228,22 @@ def furniture_boxes(c):
     return out
 
 
+FOOTPLATE_OVERLAP = .01   # the cab floor and the tender's footplate each run this far past their buffer line
+CAB_DOOR_H = 1.95         # the cab side doors, under their header
+
+
 def tender_collision_boxes(c):
     hw, (ta, tb), (z0, z1) = L.TENDER_HALF, L.TENDER_TANK, L.TENDER_TANK_Z
     lx0, lx1, ly, lz = L.TENDER_LOCKER
-    boxes = [('floor', (tb, L.TENDER_FALL_PLATE, -hw + .10, hw - .10, L.FLOOR_Z - .20, L.FLOOR_Z)),
+    # the footplate (with its fall plate) runs 1 cm past the buffer line onto the locomotive's cab floor
+    boxes = [('floor', (tb, c.body.buffer_b + FOOTPLATE_OVERLAP, -hw + .10, hw - .10, L.FLOOR_Z - .20, L.FLOOR_Z)),
              ('tank', (ta, tb, -hw, hw, z0, L.TENDER_COPING_Z)),
              ('frames', (-L.TENDER_HEADSTOCK, L.TENDER_HEADSTOCK, -1.45, 1.45, .30, z0))]
     for side, sy in (('l', 1), ('r', -1)):
         y0, y1 = sorted((sy * ly, sy * hw))
         boxes.append((f'locker-{side}', (lx0, lx1, y0, y1, L.FLOOR_Z, lz)))
         y0, y1 = sorted((sy * (hw - .10), sy * hw))
-        boxes.append((f'handrail-{side}', (lx1, L.TENDER_HEADSTOCK, y0, y1, L.FLOOR_Z, L.FLOOR_Z + 1.20)))
+        boxes.append((f'handrail-{side}', (lx1, L.TENDER_FALL_PLATE, y0, y1, L.FLOOR_Z, L.FLOOR_Z + 1.20)))
     return boxes
 
 
@@ -242,7 +253,7 @@ def loco_collision_boxes(c):
     (ca, cb), ce = L.CAB, L.CAB_ENTRY
     bx = L.BACKHEAD_X
     (b0, b1, br, bz), (s0, s1, sr) = L.BOILER, L.SMOKEBOX
-    boxes = [('floor', (ca, cb, -cin, cin, F - .20, F)),
+    boxes = [('floor', (c.body.buffer_a - FOOTPLATE_OVERLAP, cb, -cin, cin, F - .20, F)),
              ('backhead', (bx, cb, -L.FIREBOX_HW, L.FIREBOX_HW, F, L.FIREBOX_TOP)),
              ('cab-roof', (ca - .25, cb, -hw, hw, L.CAB_TOP, L.CAB_ROOF)),
              ('boiler', (b0, s1, -br - .1, br + .1, L.RUNNING_BOARD_Z - .05, bz + br + .3)),
@@ -251,9 +262,10 @@ def loco_collision_boxes(c):
         y0, y1 = sorted((sy * cin, sy * hw))
         boxes.append((f'cab-side-{side}', (ce, cb, y0, y1, F, L.CAB_TOP)))
         boxes.append((f'cab-front-{side}', (cb - .06, cb, *sorted((sy * L.FIREBOX_HW, sy * hw)), F, L.CAB_TOP)))
+        boxes.append((f'cab-side-{side}-over-door', (L.CAB[0], ce, y0, y1, F + CAB_DOOR_H, L.CAB_TOP)))
     for r in c.reservations:
         boxes.append((r.name, (r.x0, r.x1, r.y0, r.y1, r.z0, r.z1)))
-    return boxes
+    return boxes + door_boxes(c)
 
 
 # --- checks: the collision against the plan, as a player capsule meets it ----------------------------------------

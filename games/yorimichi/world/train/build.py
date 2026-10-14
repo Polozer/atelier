@@ -1245,6 +1245,7 @@ def _exterior_door(c, d, coll, parent, glass_coll):
 DOOR_RULES = dict(interact='D-pad down (Interact) opens or closes the one door whose handle point is nearest; never all '
                   'together', opens={'station': 'only while the train is stopped at a station (exterior doors, balcony gates)',
                                      'any': 'at any time (gangway and inside doors)'},
+                  staff='the cab doors open for the crew only; passengers get the "locked" prompt',
                   locked='a locked door keeps its gangway-lock box shut and the Interact prompt reads "locked" for passengers',
                   collision='opening a door removes its collision object (COL_<mesh>_<part>); closing it puts it back')
 
