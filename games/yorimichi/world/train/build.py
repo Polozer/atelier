@@ -1397,6 +1397,21 @@ def tender_body(c, coll, parent, glass_coll):
     shutter.location = (tb + .012, 0, hb - .04)
     DOOR_RECORDS.append(dict(name=shutter.name, door='coal-hole', kind='sliding', pivot=list(shutter.location),
                              open_offset_m=[0, 0, ht - hb + .02], opening=[-hy, hy, hb, ht], wall='coal-plate'))
+    # the coal hole's ironwork: a steel shovelling plate at its sill, channel guides the shutter slides up in (as far
+    # as its stop bar), and the lamp irons on the tank's rear face (a plate, an arm and the tongue a lamp drops onto)
+    f = M()
+    lift = ht - hb + .02
+    f.box(tb - .25, tb + .05, -hy - .02, hy + .02, hb - .015, hb, 'steel')
+    for sy in (-1, 1):
+        f.box(tb, tb + .034, sy * (hy + .055), sy * (hy + .085), hb - .06, ht + .04 + lift, 'iron-black')   # cheek, beside the shutter
+        f.box(tb + .024, tb + .034, sy * (hy + .03), sy * (hy + .055), hb - .06, ht + .04 + lift, 'iron-black')   # lip, over its edge
+    f.box(tb, tb + .034, -hy - .10, hy + .10, ht + .04 + lift, ht + .08 + lift, 'iron-black')     # stop bar
+    for mt in (mo for mo in c.mounts if mo.kind == 'lamp-bracket'):
+        x, y, z = mt.x, mt.y, mt.z
+        f.box(ta - .008, ta, y - .035, y + .035, z - .07, z + .03, 'iron-black')
+        f.box(x - .006, ta - .008, y - .022, y + .022, z - .07, z - .058, 'iron-black')
+        f.box(x - .006, x + .006, y - .022, y + .022, z - .07, z + .07, 'iron-black')
+    f.obj('Tender_Ironwork', coll, parent=parent)
     # brass handrails at the footplate's open sides, hanging steps below them
     for sy in (-1, 1):
         for x in (lx1 + .04, hs - .05):
@@ -1420,11 +1435,11 @@ def tender_body(c, coll, parent, glass_coll):
         for x in (-3.80, -2.60, -1.40, -.20):
             trim.cylinder((x, y), 'z', .015, z1 - .10, z1 + .24, 'brass', 8)
         trim.box(-3.80, -.20, y - .016, y + .016, z1 + .22, z1 + .25, 'brass')
-    for y in (.95, 1.35):
+    for y in L.TENDER_LADDER:
         trim.box(ta - .05, ta - .02, y - .02, y + .02, z0, z1 - .05, 'brass')
     for k in range(7):
         z = z0 + .25 + k * .30
-        trim.box(ta - .05, ta - .03, .95, 1.35, z - .012, z + .012, 'brass')
+        trim.box(ta - .05, ta - .03, *L.TENDER_LADDER, z - .012, z + .012, 'brass')
     # brass lining and the crest on the tank sides
     for sy in (-1, 1):
         y0, y1 = sorted((sy * (hw - .002), sy * (hw + .006)))

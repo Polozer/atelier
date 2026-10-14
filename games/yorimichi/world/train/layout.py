@@ -754,6 +754,8 @@ TENDER_WHEEL_R = .50
 TENDER_LOCKER = (2.56, 3.30, 1.00, 2.55)    # tool lockers each side of the footplate: x0, x1, inner y, top z
 TENDER_FALL_PLATE = 4.42                    # the hinged steel plate bridging to the locomotive's footplate
 COAL_HOLE = (.32, 1.50, 2.05)               # half-width, bottom and top of the shovelling hole in the coal plate
+TENDER_LADDER = (.95, 1.35)                 # the rear ladder's stiles (|y|), on the driver's side
+TENDER_LAMP_Y = .60                         # the rear lamp irons, clear of the ladder
 
 
 def tender():
@@ -770,8 +772,8 @@ def tender():
     c.rooms.append(Room('footplate', 'footplate', TENDER_TANK[1], TENDER_FALL_PLATE, -TENDER_LOCKER[2], TENDER_LOCKER[2], 'parquet'))
     c.goals.update({'footplate': ((lo + hi) / 2, 0.)})
     c.mounts += [Mount('coal-hole', 'coal-hole', 'footplate', TENDER_TANK[1], 0., (COAL_HOLE[1] + COAL_HOLE[2]) / 2, 90),
-                 Mount('tender-lamp-l', 'lamp-bracket', 'footplate', TENDER_TANK[0] - .03, 1.10, 3.05, -90),
-                 Mount('tender-lamp-r', 'lamp-bracket', 'footplate', TENDER_TANK[0] - .03, -1.10, 3.05, -90)]
+                 Mount('tender-lamp-l', 'lamp-bracket', 'footplate', TENDER_TANK[0] - .03, TENDER_LAMP_Y, 3.05, -90),
+                 Mount('tender-lamp-r', 'lamp-bracket', 'footplate', TENDER_TANK[0] - .03, -TENDER_LAMP_Y, 3.05, -90)]
     return c
 
 

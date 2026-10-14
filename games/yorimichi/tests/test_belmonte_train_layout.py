@@ -86,6 +86,9 @@ class Coaches(unittest.TestCase):
         lo, hi = t.body.walk_limits()
         self.assertGreater(hi - lo, 1.5)
         self.assertGreater(2 * t.body.walk_y, 2 * L.HUMAN['radius'] + .5)
+        for m in (m for m in t.mounts if m.kind == 'lamp-bracket'):    # the rear lamp irons stand clear of the ladder
+            self.assertTrue(abs(m.y) + .035 < L.TENDER_LADDER[0] - .02 or abs(m.y) - .035 > L.TENDER_LADDER[1] + .02, m.id)
+            self.assertLess(abs(m.y), L.TENDER_HALF - .28)              # on the flat of the rear face, inside its corners
 
 
     def test_locomotive_cab_is_walkable_and_its_controls_are_mounted(self):
