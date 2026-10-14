@@ -132,6 +132,31 @@ class SnakeTests(unittest.TestCase):
         self.assertLess(float(by_rail[:, 1].max()) if len(by_rail) else 0., .01)   # nothing rises on the rail
 
 
+    def test_a_bank_meets_a_pieces_lip_not_its_face(self):
+        # A deck 3 m up whose edge falls in a steep face to 1 m (x 5 to 5.4), open ground, a deck 1 m up from x 15.
+        face = [[(5, 3, 0), (5.4, 1, 10), (5.4, 1, 0)], [(5, 3, 0), (5, 3, 10), (5.4, 1, 10)]]
+        riding = np.asarray(floor(0, 0, 5, 10, 3.) + face + floor(15, 0, 25, 10, 1.), 'f8')
+        solid = np.asarray(floor(-10, -10, 40, 30, -20.), 'f8')
+        v, f, uv = additions.bank(riding, solid, (4, 2, 16, 8))
+        top = v[np.unique(f)]
+        start = top[(top[:, 0] > 5.3) & (top[:, 0] < 5.8)]
+        self.assertGreater(float(start[:, 1].min()), 2.8)                       # from the lip, 3 m (the face is at 1-2 m)
+
+
+    def test_a_kicker_rises_from_the_floor_to_a_low_walls_top(self):
+        riding = np.asarray(floor(0, 0, 5, 10, .8) + floor(5, 0, 15, 10, 0.), 'f8')    # a 0.8 m wall's top, the floor
+        v, f, uv = additions.kicker(riding, (4, 2, 9, 6), 'x-')
+        top = v[np.unique(f)]
+        ridge = top[(np.abs(top[:, 2] - 4) < .01)]
+        ridge = ridge[np.argsort(ridge[:, 0])]
+        ridge = ridge[ridge[:, 1] > -1e-6]
+        self.assertAlmostEqual(float(ridge[0, 1]), .8, delta=.01)              # flush with the wall's top
+        self.assertTrue((np.diff(ridge[:, 1]) < 1e-6).all())                     # falls all the way to the floor
+        self.assertLess(float(ridge[-1, 1]), .01)
+        n = grind.unit_normals(v[f].astype('f8'))
+        self.assertTrue((n[:, 1] > .5).sum() > 0 and (np.abs(n[:, 1]) < .1).sum() > 0)    # a top and closed sides
+
+
 class SolidifyTests(unittest.TestCase):
     def test_a_wall_ending_in_the_air_gets_a_cap_and_a_back_wall(self):
         # A curved sheet (a quarter pipe 2 m high along z) standing on the ground, open behind.

@@ -16,6 +16,7 @@ TUBE_SIDES = 2          # horizontal lines through a point in a tunnel meeting i
 TUBE_RAYS = 5           # of eight horizontal directions from a point near a tunnel's open end, meeting its wall
 PROBE = 2.              # metres between the points that find which pieces close round a bore (tunnels)
 SPLIT = .5              # metres across: a face reaching into a bore is split down to parts this small (carve)
+QUICK = 2.              # metres across: a part this small with no probe in the bore is kept whole (carve)
 PAIRS = 2_000_000       # ray-face pairs per batch at most
 
 
@@ -106,13 +107,20 @@ def carve(triangles, bores, split=SPLIT):
             for i in range(0, len(c), 4096):        # a part whose box, PROBE wider, holds a bore point is near the bore
                 touch[i:i + 4096] = ((inside[None] > a[i:i + 4096, None] - PROBE)
                                      & (inside[None] < b[i:i + 4096, None] + PROBE)).all(-1).any(1)
-            small = np.linalg.norm(b - a, axis=1) <= split
+            size = np.linalg.norm(b - a, axis=1); small = size <= split
+            # A part QUICK across or less with none of its corners, edge middles or centre in the bore stays whole:
+            # a block's face beside the bore (its top over the roof) is not split all the way down.
+            probe = np.flatnonzero(touch & ~small & (size <= QUICK))
+            clear = np.zeros(len(c), bool)
+            if len(probe):
+                q = c[probe]; points = np.concatenate([q, (q + q[:, [1, 2, 0]]) / 2, q.mean(1, keepdims=True)], 1)
+                clear[probe] = ~in_bore(points.reshape(-1, 3), [piece]).reshape(len(probe), 7).any(1)
             test = np.flatnonzero(touch & small)
             gone = np.zeros(len(c), bool); gone[test] = in_bore(c[test].mean(1), [piece])
             dropped[parent[gone]] = True
-            keep = ~touch | (small & ~gone)
+            keep = ~touch | (small & ~gone) | clear
             kept.append((parent[keep], bary[keep]))
-            more = touch & ~small
+            more = touch & ~small & ~clear
             parent = np.repeat(parent[more], 4)
             bary = np.einsum('hij,kjl->khil', halves, bary[more]).reshape(-1, 3, 3)
         cut |= dropped

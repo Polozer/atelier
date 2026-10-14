@@ -17,6 +17,7 @@ CHANNEL = 1.5       # metres: a snake channel's depth at its middle
 WALL_LOW, WALL_HIGH = .9, 5.   # metres a riding deck stands over the floor, for a transition at its wall's foot
 RADIUS = (2.5, 3.5) # metres: a transition's radius, the wall's height within these
 RAISED = .005       # metres: a floor node raised less is left as it is
+LIP = .5            # metres round a bank's edge node within which it meets the piece's highest point (its lip)
 TRANSITION = 1.75   # metres a channel or pocket takes to reach its depth; wider, it has a flat bottom
 WIDE = 2.           # metres across a deck at least, for a transition at its wall's foot
 CLEAR_NARROW, EASE = .3, 1.5  # metres a transition keeps off a narrower piece, and over which it eases down
@@ -40,6 +41,9 @@ SNAKE_MATERIAL = 'material_010'     # seamless concrete ('concrete'): 'concrete_
 SNAKES = {'east_bowls': ((1384., 958., 1468., 1140.), 0., OPEN, 0., True),     # filled: one curve floor to wall
           'plaza_pockets': ((1186., 1002., 1262., 1158.), 6., 3., CHANNEL, False)}
 # The banks: a box (x0, z0, x1, z1) over the open ground between the pieces they join, and the joins (bank) or None.
+# The kickers: a box over the floor in front of a low wall, and the side the wall is on (kicker).
+KICKERS = {'plaza_parapet': ((1184.5, 1009.5, 1189.5, 1014.5), 'x-')}   # the hip's foot, onto the terrace
+KICK = .3           # metres over the floor: a kicker's wall top, at least
 BANKS = {'tower_plaza_hip': ((1155., 1003., 1187., 1025.), None),
          # From the south-west bowl's rim deck (11 m) down to the banked curve's outer rim (7.4-8.8 m), beside the
          # tunnel strip: the line's way back towards the drop-in.
@@ -331,12 +335,65 @@ def bank(riding, solid, box, joins=None, cell=CELL):
     fixed = grow(open_, 1) & meet
     if not open_.any() or not fixed.any():
         return None
-    height = np.where(open_, relax(np.where(meet, ride, 0.), fixed, open_), ride)
+    # The bank meets a piece at its lip, the highest of it within LIP: the grid node next to a quarter pipe's top lies
+    # on its steep face, under the lip (the hip from the tower met the channel's wall 0.6 m low, a step and a coping
+    # across the face).
+    edge = np.where(fixed, max_near(np.where(meet, ride, -np.inf), LIP, cell, meet), ride)
+    height = np.where(open_, relax(np.where(meet, edge, 0.), fixed, open_), np.where(fixed, edge, ride))
     near = open_.copy()
     for _ in range(OVERLAP):
         near = grow(near, 1, True) & (open_ | meet)
     vertices, faces = grid_mesh(x0, z0, cell, height, near)
     return vertices.astype('f4'), faces, (vertices[:, [0, 2]] / UV_METRES).astype('f4')
+
+
+def kicker(riding, box, toward='x-', cell=CELL):
+    """A kicker in `box` (x0, z0, x1, z1) up to a low wall's top on its `toward` side ('x-', 'x+', 'z-' or 'z+'): along
+    each grid line toward the wall, from the floor at the box's far side, a circle's arc of radius RADIUS[0] (the wall's
+    height if more) rising to the wall's top edge (the first node KICK higher than the floor) and meeting it flush. Its
+    two sides are closed down to the floor. (vertices, faces, uvs) or None."""
+    x0, z0, x1, z1 = box
+    xs = np.arange(x0, x1 + cell / 2, cell); zs = np.arange(z0, z1 + cell / 2, cell)
+    gx, gz = np.meshgrid(xs, zs)
+    ride = top_heights(riding, np.stack([gx.ravel(), np.zeros(gx.size), gz.ravel()], 1)).reshape(gx.shape)
+    turn = lambda a: (a if toward[0] == 'x' else a.T)[:, ::-1 if toward[1] == '+' else 1]
+    unturn = lambda a: (a[:, ::-1 if toward[1] == '+' else 1]).T if toward[0] == 'z' else a[:, ::-1 if toward[1] == '+' else 1]
+    r = turn(ride); height = np.full(r.shape, np.nan)
+    for k, row in enumerate(r):
+        low = row[-1]
+        up = np.flatnonzero(np.isfinite(row) & (row > low + KICK))
+        if not np.isfinite(low) or not len(up):
+            continue
+        top = up.max(); h = row[top] - low
+        radius = max(RADIUS[0], h); reach = np.sqrt(radius ** 2 - (radius - h) ** 2)
+        s = (np.arange(len(row)) - top - .5) * cell                     # metres from the wall's face
+        arc = low + radius - np.sqrt(np.maximum(radius ** 2 - (reach - np.clip(s, 0., reach)) ** 2, 0.))
+        span = (np.arange(len(row)) >= top) & (s <= reach + cell)
+        height[k, span] = np.where(np.arange(len(row))[span] == top, row[top], arc[span])
+    height = unturn(height)
+    nodes = np.isfinite(height)
+    if nodes.sum() < 4:
+        return None
+    vertices, faces = grid_mesh(x0, z0, cell, np.where(nodes, height, 0.), nodes)
+    floor_y = np.nanmin(height)
+    # The two sides, from the profile down to the floor, both ways round (they are seen from either side).
+    sides_v, sides_f = [], []
+    edge_rows = [0, nodes.shape[0] - 1] if toward[0] == 'x' else [0, nodes.shape[1] - 1]
+    for e in edge_rows:
+        line = (np.flatnonzero(nodes[e]) if toward[0] == 'x' else np.flatnonzero(nodes[:, e]))
+        for i in line[:-1]:
+            if toward[0] == 'x':
+                (xa, za, ya), (xb, zb, yb) = (xs[i], zs[e], height[e, i]), (xs[i + 1], zs[e], height[e, i + 1])
+            else:
+                (xa, za, ya), (xb, zb, yb) = (xs[e], zs[i], height[i, e]), (xs[e], zs[i + 1], height[i + 1, e])
+            base = len(vertices) + len(sides_v)
+            sides_v += [(xa, ya, za), (xb, yb, zb), (xb, floor_y, zb), (xa, floor_y, za)]
+            sides_f += [(base, base + 1, base + 2), (base, base + 2, base + 3), (base, base + 2, base + 1), (base, base + 3, base + 2)]
+    if sides_v:
+        vertices = np.concatenate([vertices, np.asarray(sides_v)]); faces = np.concatenate([faces, np.asarray(sides_f, 'i8')])
+    uv = np.where(np.arange(len(vertices))[:, None] < nodes.sum(), vertices[:, [0, 2]],
+                  np.stack([vertices[:, 0] + vertices[:, 2], vertices[:, 1]], 1)) / UV_METRES
+    return vertices.astype('f4'), faces, uv.astype('f4')
 
 
 def tile_metres(positions, uvs, triangles, default=UV_METRES):

@@ -480,6 +480,11 @@ def main():
         if sides is not None:
             added.append(({'id': f'add-bank-{name}-sides', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
                            'doubleSided': False, 'added': True}, sides))
+    for name, (box, toward) in additions.KICKERS.items():
+        made = additions.kicker(riding_now, box, toward)
+        if made is not None:
+            added.append(({'id': f'add-kicker-{name}', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                           'doubleSided': False, 'added': True}, made))
     for entry, a, keep in loaded:
         if entry['role'] != 'original':
             continue
