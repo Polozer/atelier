@@ -32,14 +32,18 @@ def spatial_order(triangles, cell=1.):
     return np.lexsort((code, large))
 
 
-def render_meshes(mesh, tile=TILE, limit=MAX_RENDER):
+GROUND_TILE = 128.  # the hillside's tiles: plain world-aligned ground, large triangles, so fewer, larger meshes
+
+
+def render_meshes(mesh, tile=TILE, limit=MAX_RENDER, ground_tile=GROUND_TILE):
     """[(name, render role, Mesh)] for every drawn face of `mesh`, deterministic order (sorted by name)."""
     roles = np.asarray([dsl.RENDER_ROLE.get(r) for r in dsl.ROLES], object)[mesh.role]
     drawn = np.asarray([r is not None for r in roles], bool)
     if not drawn.any():
         return []
     c = mesh.triangles().mean(1)
-    tx = np.floor(c[:, 0] / tile).astype('i8'); tz = np.floor(c[:, 2] / tile).astype('i8')
+    size = np.where(roles == dsl.RENDER_ROLE[dsl.GROUND], ground_tile, tile)
+    tx = np.floor(c[:, 0] / size).astype('i8'); tz = np.floor(c[:, 2] / size).astype('i8')
     out = []
     keys = sorted({(roles[i], int(mesh.material[i]), int(tx[i]), int(tz[i])) for i in np.flatnonzero(drawn)})
     for role, material, x, z in keys:

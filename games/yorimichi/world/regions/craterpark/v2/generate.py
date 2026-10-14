@@ -61,6 +61,18 @@ def run_validators(park, out):
     return {'ran': True, 'ok': True}
 
 
+def declare_scenery(park):
+    """A feature made only of ground, side and base faces with ground among them (ground.ground's landform) is
+    scenery, not a useless block: declare it for validate's ownership check unless the layout already did."""
+    m = park.mesh
+    declared = {c.get('feature') for c in park.checks if isinstance(c, dict) and c.get('kind') == 'scenery'}
+    plain = {dsl.ROLE[dsl.GROUND], dsl.ROLE[dsl.SIDE], dsl.ROLE[dsl.BASE]}
+    for i, name in enumerate(m.features):
+        roles = set(np.unique(m.role[m.feature == i]).tolist())
+        if name not in declared and dsl.ROLE[dsl.GROUND] in roles and roles <= plain:
+            park.checks.append({'kind': 'scenery', 'feature': name})
+
+
 def bundle(park, lines=(), trees=None):
     """The arrays geometry.npz holds: render meshes r<i>_*, collision sections c<i>, rails rail<i>, and a JSON index
     (with park.json's `lines` entries)."""
@@ -113,6 +125,7 @@ def main(argv=None):
     layout = args.layout or default_layout()
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     park, module = compile_park(layout)
+    declare_scenery(park)
     lines = line_spawns(park, module)
     from craterpark import placement
     from craterpark.v2 import dressing

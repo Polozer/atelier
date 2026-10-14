@@ -121,3 +121,35 @@ def test_collinear_controls_and_a_guide_do_not_break_the_trend():
     m2 = ground.ground(o, [], [[50, 12, 40]], guide=fall)
     assert np.isfinite(m.V).all() and np.isfinite(m2.V).all()
     assert np.linalg.norm(m2.V - [50, 12, 40], axis=1).min() < .01
+
+
+def test_a_60_m_ridge_rises_smoothly_with_no_slope_over_30_degrees():
+    """The raised landforms (owner, 780 m tower): a ridge 60 m over a gently falling site, guided by a spline of
+    points, its flanks falling to the outline with no cliff."""
+    o = np.array([[0, 0], [400, 0], [400, 300], [0, 300]], float)
+    x = np.linspace(40, 360, 9)
+    ridge = np.c_[x, 60 - x * .02, np.full(len(x), 150.)]
+    rim = np.c_[np.linspace(0, 400, 9), np.full(9, -5.), np.full(9, 5.)]
+    rim2 = rim + [0, 0, 290]
+    guide = np.vstack([ridge, rim, rim2])
+    m = ground.ground(o, [], [[200, 62, 150]], guide=guide)
+    g = m.where(role=dsl.GROUND)
+    rep = ground.report(m)
+    assert rep['max_slope_deg'] <= 30.
+    assert np.linalg.norm(g.V - [200, 62, 150], axis=1).min() < .01         # the exact control (a deck height)
+    assert g.V[:, 1].max() >= 58.
+    t = g.triangles()
+    assert np.linalg.norm(t - np.roll(t, 1, 1), axis=2).max() <= 8. + 1e-9
+    # no cliff: neighbouring vertices never differ by more than the slope allows over their distance
+    P, F = g.welded(1e-7)
+    e = np.unique(np.sort(edges(F), 1), axis=0)
+    d = P[e[:, 0]] - P[e[:, 1]]
+    assert (np.abs(d[:, 1]) <= np.tan(np.radians(30.)) * np.linalg.norm(d[:, [0, 2]], axis=1) + 1e-6).all()
+
+
+def test_slope_limit_cuts_a_spike_but_keeps_fixed_heights():
+    P2 = np.array([[0, 0], [10, 0], [0, 10], [10, 10], [5, 5]], float)
+    F = np.array([[0, 1, 4], [1, 3, 4], [3, 2, 4], [2, 0, 4]])
+    y = np.array([0, 0, 0, 0, 50.])
+    out = ground.limit_slope(P2, F, y, np.array([1, 1, 1, 1, 0], bool), 30.)
+    assert np.allclose(out[:4], 0) and 2.6 < out[4] <= np.tan(np.radians(30)) * 5 + 1e-9   # the face rule

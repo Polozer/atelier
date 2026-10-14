@@ -302,7 +302,7 @@ def fill_mesh(loop, normal, *, coarse=None, grade=.35):
 # ---------------------------------------------------------------- the ground
 def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., grade=.35, hmin=.05,
            tess=dsl.Tess(.05, 8., 8.), raster=1., blend=25., smooth=2000., feature='ground', material=dsl.GROUND_MAT,
-           side_material=dsl.GROUND_MAT, relax=200):
+           side_material=dsl.GROUND_MAT, relax=200, max_slope=29.):
     """The site's ground as a dsl.Mesh (module docstring).
     `outline` (k, 2|3): the outer loop (with y: those heights are kept). `holes` [(k, 3)]: the features' foot loops,
     kept exactly. `controls` (n, 3): exact heights, each a mesh vertex at exactly its y. `guide` (g, 3): soft points
@@ -312,7 +312,7 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
     coarse = .85 * max_edge / math.sqrt(2)
     # the outline is the ground's own: subdivide its long segments (heights carried along)
     nxt = np.roll(outline, -1, 0)
-    k = np.maximum(1, np.ceil(np.linalg.norm(_loop2(nxt) - _loop2(outline), axis=1) / (coarse / 1.5)).astype(int))
+    k = np.maximum(1, np.ceil(np.linalg.norm(_loop2(nxt) - _loop2(outline), axis=1) / min(coarse / 1.5, 2.8)).astype(int))
     f = np.concatenate([np.arange(n) / n for n in k]); r = np.repeat(np.arange(len(outline)), k)
     outline = outline[r] + f[:, None] * (nxt - outline)[r]
     o2 = _loop2(outline)
@@ -404,6 +404,8 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
         avg = np.bincount(w_i, w * r[w_j], n) / np.maximum(total, 1e-12)
         r = np.where(fixed, r, (1 - alpha) * avg + alpha * anchor)
     y = np.where(fixed, y_exact, r + base_y)
+    if max_slope:
+        y = limit_slope(P2, F, y, fixed, max_slope)
     V = np.stack([P2[:, 0], y, P2[:, 1]], 1)
     surface = dsl.Mesh.part(V, F, material=material, role=dsl.GROUND, feature=feature, UV=P2 / dsl.UV_METRES)
     parts = [surface]
@@ -411,27 +413,72 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
         top = V[:len(o2)]
         bottom = top - [0., skirt, 0.]
         k = len(o2)
-        Vs = np.concatenate([top, bottom])
-        Fs = np.asarray([f for i in range(k) for f in ((i, k + i, k + (i + 1) % k), (i, k + (i + 1) % k, (i + 1) % k))],
-                        'i8')
+        rows = max(1, int(np.ceil(skirt / 2.)))           # rows of 2 m at most: every skirt edge within 4 m
+        Vs = np.concatenate([top - [0., skirt * r / rows, 0.] for r in range(rows + 1)])
+        Fs = np.asarray([f for r in range(rows) for i in range(k)
+                         for f in ((r * k + i, (r + 1) * k + i, (r + 1) * k + (i + 1) % k),
+                                   (r * k + i, (r + 1) * k + (i + 1) % k, r * k + (i + 1) % k))], 'i8')
         t = Vs[Fs]; fn = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
         tang = (np.roll(top, -1, 0) - top)[:, [0, 2]]
         outward = np.stack([tang[:, 1], -tang[:, 0]], 1) if signed_area(o2) > 0 else np.stack([-tang[:, 1], tang[:, 0]], 1)
-        o3 = np.repeat(np.stack([outward[:, 0], np.zeros(k), outward[:, 1]], 1), 2, 0)
+        o3 = np.tile(np.repeat(np.stack([outward[:, 0], np.zeros(k), outward[:, 1]], 1), 2, 0), (rows, 1))
         if (fn * o3).sum() < 0:
             Fs = Fs[:, ::-1].copy()
         u = np.concatenate([[0.], np.cumsum(np.linalg.norm(np.diff(o2, axis=0), axis=1))])
-        UV = np.concatenate([np.stack([u, top[:, 1]], 1), np.stack([u, bottom[:, 1]], 1)]) / dsl.UV_METRES
+        u = np.r_[u, u[-1] + np.linalg.norm(o2[0] - o2[-1])][:k]
+        UV = np.concatenate([np.stack([u, Vs[r * k:(r + 1) * k, 1]], 1) for r in range(rows + 1)]) / dsl.UV_METRES
         side = dsl.Mesh.part(Vs, Fs, material=side_material, role=dsl.SIDE, feature=feature, UV=UV)
         side.N = dsl.vertex_normals(Vs, Fs) * [1, 0, 1]
         side.N /= np.maximum(np.linalg.norm(side.N, axis=1, keepdims=True), 1e-12)
         Pb, Fb, _ = plan_mesh([o2], coarse=coarse, grade=1., hmin=coarse)   # a coarse base: never drawn
         Vb = np.stack([Pb[:, 0], np.full(len(Pb), bottom[:, 1].min()), Pb[:, 1]], 1)
-        Vb[:k] = bottom
+        Vb[:k] = Vs[rows * k:]
         base = dsl.Mesh.part(Vb, Fb, material=side_material, role=dsl.BASE, feature=feature,
                              N=np.broadcast_to([0., -1., 0.], Vb.shape))
         parts += [side, base]
     return dsl.Mesh.concat(parts)
+
+
+def limit_slope(P2, F, y, fixed, degrees, iterations=400):
+    """Heights `y` with no edge steeper than `degrees` where a free vertex can move: each free vertex is pulled into
+    [max(y_j - g L), min(y_j + g L)] over its neighbours j (L the plan length, g = tan degrees), alternating
+    up and down passes; fixed vertices (seams, controls) never move. A designed ridge too steep for its footprint
+    is cut down and its foot filled, smoothly, instead of becoming a cliff."""
+    e = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+    e = np.unique(np.sort(e, 1), axis=0); e = np.concatenate([e, e[:, ::-1]])
+    g = math.tan(math.radians(degrees)) * np.linalg.norm(P2[e[:, 0]] - P2[e[:, 1]], axis=1)
+    y = y.copy(); n = len(y)
+    for _ in range(iterations):
+        hi = np.full(n, np.inf); np.minimum.at(hi, e[:, 0], y[e[:, 1]] + g)
+        lo = np.full(n, -np.inf); np.maximum.at(lo, e[:, 0], y[e[:, 1]] - g)
+        new = np.where(fixed, y, np.clip(y, np.minimum(lo, hi), hi))
+        if np.abs(new - y).max() < 1e-4:
+            y = new; break
+        y = new
+    # an edge limit still lets a face slope up to about sqrt 2 more across its edges: flatten such faces toward their
+    # mean height (free vertices only) until every face holds the limit
+    gmax = math.tan(math.radians(degrees))
+    a, b, c = P2[F[:, 0]], P2[F[:, 1]], P2[F[:, 2]]
+    det = (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
+    det = np.where(np.abs(det) > 1e-12, det, 1e-12)
+    free = (~fixed[F]).astype('f8')
+    for _ in range(6 * iterations):
+        ya, yb, yc = y[F[:, 0]], y[F[:, 1]], y[F[:, 2]]
+        gx = ((yb - ya) * (c[:, 1] - a[:, 1]) - (yc - ya) * (b[:, 1] - a[:, 1])) / det
+        gz = ((yc - ya) * (b[:, 0] - a[:, 0]) - (yb - ya) * (c[:, 0] - a[:, 0])) / det
+        grad = np.hypot(gx, gz)
+        bad = grad > gmax * 1.0001
+        if not bad.any():
+            break
+        mean = (ya + yb + yc) / 3
+        k = np.where(bad, 1 - .98 * gmax / np.maximum(grad, 1e-12), 0.)
+        corr = np.zeros(n); cnt = np.zeros(n)
+        for i in range(3):
+            w = free[:, i] * bad
+            np.add.at(corr, F[:, i], w * k * (mean - y[F[:, i]]))
+            np.add.at(cnt, F[:, i], w)
+        y = y + np.where(cnt > 0, 1.6 * corr / np.maximum(cnt, 1), 0.)
+    return y
 
 
 def _with_bumps(trend, controls, blend, slope=20.):
@@ -537,6 +584,18 @@ def r4_site(spacing=4., stride=8):
     t = np.linspace(0., curve.length, max(8, int(np.ceil(curve.length / spacing))) + 1)[:-1]
     plan = curve.point(t)
     y = np.interp(t / curve.length * s[-1], s, np.r_[rim[:, 1], rim[:1, 1]])
+    # the spline may overshoot a corner of the block: pull such points in along the inward normal until they lie on
+    # the block as the island sees it (placement.contains), so the ground never leaves the dressing-free footprint
+    normal = curve.normal(t)                              # left of a counter-clockwise loop: inward
+    for _ in range(40):
+        isl = placement.native_to_island(np.stack([plan[:, 0], y, plan[:, 1]], 1))
+        mid = placement.native_to_island(np.stack([(plan + np.roll(plan, -1, 0))[:, 0] / 2, y, (plan + np.roll(plan, -1, 0))[:, 1] / 2], 1))
+        out = ~placement.contains(isl[:, 0], isl[:, 1])
+        bad_mid = ~placement.contains(mid[:, 0], mid[:, 1])
+        out |= bad_mid | np.roll(bad_mid, 1)
+        if not out.any():
+            break
+        plan[out] += .5 * normal[out]
     return np.stack([plan[:, 0], y, plan[:, 1]], 1)
 
 
