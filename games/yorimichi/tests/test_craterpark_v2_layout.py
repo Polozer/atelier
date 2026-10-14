@@ -122,3 +122,32 @@ def test_crater_gap_lip_speed():
         drag = float(np.interp(v, L.MEASURED_DRAG[0], L.MEASURED_DRAG[1]))
         v = math.sqrt(max(v * v - 2 * 9.81 * (y1 - y0) - 2 * drag * dl, 0.))
     assert 18.25 <= v <= 19.35, v
+
+
+SWITCHBACK = {
+    'id': 'T', 'name': 'switchback test', 'y0': 40., 'rollin': 3, 'exit': 'crater_bowl',
+    'path': {'start': [1204.28, 1092.10], 'heading': 322.3,
+             'segs': [['straight', 150.], ['elbow', 160., {'kind': 'elbow_qp', 'r': 4., 'vert': .5, 'deck': 3., 'apron': 6.,
+                                                          'width': 14.}], ['straight', 60.]]},
+    'profile': [['arc', 14, -30], ['line', 4], ['arc', 30, -4],
+                ['line', 20], ['arc', 22, 20], ['line', 2], ['gap', 14., -1., 'G1'],
+                ['arc', 15, -20], ['line', 6], ['arc', 40, -4], ['line', 20], ['arc', 22, 18], ['line', 2], ['gap', 12., -1., 'G2'],
+                ['arc', 15, -18], ['line', 5], ['arc', 40, 0], ['line', 60.]],
+    'features': [{'id': 'T_all', 'kind': 'run', 's0': 0., 's1': 210., 'width': 14.}],
+}
+
+
+def test_switchback_line_from_design():
+    """G's schema: legs joined by an elbow, chained gaps (a middle surface lands one gap and launches the next)."""
+    line = L.line_from_design(SWITCHBACK)
+    assert len(line.path.legs()) == 2 and len(line.path.elbows()) == 1
+    spec = L.elbow_spec(line, 0)
+    assert spec['s_in'] < spec['s'] < spec['s_out'] and abs(spec['grade_t']) < 1e-9     # level apron at 0 degrees
+    sf = L.surfaces(line)
+    assert [round(s['gap_before']) for s in sf] == [0, 14, 12, 0]                   # the elbow splits the last surface
+    built = L.build_line(line, ground=L.slab_ground([line]))
+    air = [c for c in built.checks if c.get('kind') == 'air']
+    assert [round(c['gap']) for c in air] == [14, 12]
+    assert {'takeoff', 'landing'} <= set(np.asarray(dsl.TAGS)[np.unique(built.mesh.tag)])
+    assert {'T.elbow0', 'T.elbow0.apron'} <= set(built.mesh.features) and built.rails  # the wall, its apron, its coping
+    assert any(c.get('kind') == 'quarter_pipe' for c in built.checks)
