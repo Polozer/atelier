@@ -97,7 +97,7 @@ def _noise(x, y, scale, seed):
     return (a * (1 - f[..., 0]) + b * f[..., 0]) * (1 - f[..., 1]) + (c * (1 - f[..., 0]) + d * f[..., 0]) * f[..., 1]
 
 
-def plant(mesh, seed=771, spacing=3., density=.25):
+def plant(mesh, seed=771, spacing=3., density=.1):
     """park.json `trees` for the park's own ground: {mesh name: [[x, y, z cm, yaw, scale], ...]} in park-local Unreal
     cm (ue(native) = 100 (x, z, y)). Each bush stands on an upward ground face (normal 0.55-0.97 up, as r4's
     hillside), 0.15 m into it, its reach plus CLEAR clear in plan of every riding, side, coping and rail face."""
