@@ -49,6 +49,7 @@ MATERIALS = {
     'service': ((.62, .62, .60), .2, .4, None, 1., 1.),
     'undercarriage': ((1, 1, 1), .3, .6, 'T_BT_Underframe', 1.2, 1.),
     'steel': ((.30, .30, .31), 1., .45, None, 1., 1.),
+    'zinc': ((.66, .67, .68), .85, .38, None, 1., 1.),            # the galley's and pantry's worktops
     'rubber': ((.012, .012, .013), 0., .8, None, 1., 1.),
     'glass': ((.92, .95, .96), 0., .04, None, 1., .12),
     'glass-frosted': ((.88, .90, .90), 0., .5, None, 1., .80),

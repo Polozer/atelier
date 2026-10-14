@@ -10,7 +10,8 @@ first class, dull brass and worn cloth in second class and the vans:
 - menu-board: the canteen's framed menu board, its face a texture slot (T_BT_MenuBoard);
 - luggage shelving: open walnut shelves on every 'luggage-shelves' reservation (vans and first class), low under a
   window so the curtains hang clear;
-- counters: fitted cupboards with a top on the galley's (and pantry's) counter reservations, the range left to Tripo;
+- counters: fitted cupboards with a top on the galley's and the pantry's counters (the galley range left to Tripo),
+  and the pantry attendant's folding seat;
 - drinks ledge: the restaurant's standing ledge under a window, walnut on brass brackets, with a foot rail;
 - ladle: the iron wall hook the canteen lady's big ladle hangs from (the ladle itself is a separate asset).
 The other mount kinds are anchors for gameplay (ANCHORS) or modelled with the shell in build.py (BUILT).
@@ -326,7 +327,7 @@ def shelving(c, part, metal):
 
 LEDGES = {'drinks-ledge', 'galley-counter', 'pantry-counter'}   # reservation kinds curtains hang clear of
 # counters modelled in code: cupboard fronts, top, knobs
-COUNTERS = {'galley-counter': ('enamel-cream', 'steel', 'brass-dull')}
+COUNTERS = {'galley-counter': ('enamel-cream', 'zinc', 'brass-dull'), 'pantry-counter': ('walnut', 'zinc', 'brass')}
 COUNTER_TOP, PLINTH, DOOR_W = .04, .08, .50
 
 
@@ -335,8 +336,7 @@ def counters(c, part):
     between them shadowed), and a top with a rounded nosing, its front towards the middle of the room."""
     for b in (r for r in c.reservations if r.kind in COUNTERS):
         front_mat, top_mat, knob = COUNTERS[b.kind]
-        r = next(r for r in c.rooms if r.x0 - 1e-6 <= (b.x0 + b.x1) / 2 <= r.x1 + 1e-6 and r.y0 - 1e-6 <= (b.y0 + b.y1) / 2 <= r.y1 + 1e-6)
-        sy = -1 if (b.y0 + b.y1) / 2 > (r.y0 + r.y1) / 2 else 1          # the front faces the room's middle
+        sy = _facing(c, b)                                               # the front faces the room's middle
         front, back = (b.y0, b.y1) if sy < 0 else (b.y1, b.y0)
         f = lambda d: front + sy * d                                     # d metres out from the front face
         z0, z1 = L.FLOOR_Z, b.z1
@@ -352,6 +352,30 @@ def counters(c, part):
             tube(part, [((xa + xb) / 2, f(-.015), z1 - COUNTER_TOP - .03), ((xa + xb) / 2, f(0.), z1 - COUNTER_TOP - .03)], .008, knob, 6)
         box(part, b.x0, b.x1, back, f(-.005), z1 - COUNTER_TOP, z1 - .012, top_mat)             # top, lipped front
         box(part, b.x0, b.x1, back, f(0.), z1 - .012, z1, top_mat)
+
+
+def _facing(c, b):
+    """+1 or -1: the y direction a reservation's front faces, towards the middle of its room."""
+    r = next(r for r in c.rooms if r.x0 - 1e-6 <= (b.x0 + b.x1) / 2 <= r.x1 + 1e-6 and r.y0 - 1e-6 <= (b.y0 + b.y1) / 2 <= r.y1 + 1e-6)
+    return -1 if (b.y0 + b.y1) / 2 > (r.y0 + r.y1) / 2 else 1
+
+
+def attendant_seats(c, part, cloth, metal):
+    """The attendant's folding seat on the wall: a walnut back board with a cushion, a hinged seat (shown down) with
+    its cushion, held by two folding brass stays, on a brass hinge rod."""
+    for b in (r for r in c.reservations if r.kind == 'attendant-seat'):
+        sy = _facing(c, b)
+        wall = b.y0 if sy > 0 else b.y1
+        f = lambda d: wall + sy * d
+        z = L.FLOOR_Z
+        box(part, b.x0, b.x1, f(0.), f(.02), z + .50, b.z1, 'walnut')                       # back board
+        box(part, b.x0 + .04, b.x1 - .04, f(.02), f(.05), z + .58, b.z1 - .06, cloth)       # back cushion
+        box(part, b.x0, b.x1, f(.03), f(b.y1 - b.y0), z + .42, z + .45, 'walnut')            # seat, folded down
+        box(part, b.x0 + .02, b.x1 - .02, f(.05), f(b.y1 - b.y0 - .02), z + .45, z + .48, cloth)
+        tube(part, [(b.x0, f(.03), z + .435), (b.x1, f(.03), z + .435)], .009, metal, 8)        # hinge rod
+        for x in (b.x0 + .03, b.x1 - .03):
+            box(part, x - .015, x + .015, f(0.), f(.01), z + .14, z + .26, metal)              # stay plate
+            tube(part, [(x, f(.01), z + .20), (x, f(b.y1 - b.y0 - .06), z + .42)], .007, metal, 6)
 
 
 def drinks_ledges(c, part, metal):
@@ -402,6 +426,7 @@ def fittings(c):
     shelving(c, parts['shelves'], st['metal'])
     drinks_ledges(c, parts['ledge'], st['metal'])
     counters(c, parts['counters'])
+    attendant_seats(c, parts['counters'], st['cloth'], st['metal'])
     return [p for p in parts.values() if p.faces]
 
 

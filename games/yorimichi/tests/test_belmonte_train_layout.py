@@ -186,7 +186,7 @@ class Coaches(unittest.TestCase):
         rng = next(b for b in r.reservations if b.kind == 'galley-range')
         self.assertAlmostEqual(rng.x1 - rng.x0, L.GALLEY_RANGE)
         for c in L.vehicles():
-            boxes = [b for b in c.reservations if b.kind in F.COUNTERS]
+            boxes = [b for b in c.reservations if b.kind in F.COUNTERS or b.kind == 'attendant-seat']
             if not boxes:
                 continue
             parts = {p.name: p for p in F.fittings(c)}
@@ -198,7 +198,7 @@ class Coaches(unittest.TestCase):
                                     for b in boxes), (c.name, x, y, z))
             for x, y, z in (q for f in parts.get('Fittings_Curtains', F.Part('')).faces for q in f[0]):
                 for b in boxes:
-                    if b.x0 < x < b.x1 and b.y0 < y < b.y1:
+                    if b.kind in F.COUNTERS and b.x0 < x < b.x1 and b.y0 < y < b.y1:
                         self.assertGreater(z, b.z1, (c.name, x, y, z))
 
     def test_canteen_serving_line(self):
