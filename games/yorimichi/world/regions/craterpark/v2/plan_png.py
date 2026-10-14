@@ -349,3 +349,172 @@ def park_glb(park, out, report=None, lift=GLB_LIFT, centre=None, max_bytes=GLB_M
         fh.write(struct.pack('<II', len(blob), 0x004E4942)); fh.write(bytes(blob))
     return out, {'bytes': total, 'vertices': int(len(P)), 'triangles': int(len(I)), 'strips': len(strips),
                  'offset_native': off.tolist(), 'ground_trimmed': ground_reach is not None}
+
+
+# ---------------------------------------------------------------------------------------------------- viewer JSON
+
+def _srgb(hexcol):
+    return [int(hexcol[i:i + 2], 16) for i in (1, 3, 5)]
+
+
+def _surface_y(park, pts, features_only=False):
+    """The highest drawn non-base surface over each plan point (x, z) (NaN where none); features_only: not the ground."""
+    from . import dsl
+    from .validate import heights_under
+    m = park.mesh
+    keep = np.asarray(m.role) != dsl.ROLE[dsl.BASE]
+    if features_only:
+        keep &= np.asarray(m.role) != dsl.ROLE[dsl.GROUND]
+    T = np.asarray(m.V)[np.asarray(m.F)[keep]]
+    Q = np.c_[np.asarray(pts)[:, 0], np.zeros(len(pts)), np.asarray(pts)[:, 1]]
+    p, h, _ = heights_under(T, Q)
+    y = np.full(len(Q), np.nan)
+    np.fmax.at(y, p, h)
+    return y
+
+
+def _nice(fid, line_id):
+    """'L1_canyon' -> 'Canyon'; 'L3_valley' -> 'Valley'."""
+    t = str(fid)
+    if t.startswith(line_id + '_'):
+        t = t[len(line_id) + 1:]
+    return t.replace('_', ' ').strip().title() or t
+
+
+def layout_labels(layout, park, lift=GLB_LIFT):
+    """Feature labels in native metres (x, y, z): [{text, pos, kind}] from a layout module's LINES (features along each
+    path), TOWER and BOWLS, each placed 3-4 m over the built surface at the feature. Features with no geometry under
+    them are marked '(planned)'. Heights in the text are world metres (native y + 680) where they name a level."""
+    world = lambda y: y + 680.
+    out = []
+    tower = getattr(layout, 'TOWER', None)
+    rollin_name = {v: k for k, v in (tower or {}).get('roll_ins', {}).items()}
+    for line in getattr(layout, 'LINES', ()):
+        try:
+            k = np.asarray(layout.knots(line, 1.))
+        except Exception:
+            k = None
+        yat = (lambda s: float(np.interp(s, k[:, 0], k[:, 1]))) if k is not None and len(k) else (lambda s: float(line.y0))
+        feats = list(line.features)
+        for i, f in enumerate(feats):
+            kind = f.kind.lower(); p = dict(f.params)
+            mid = (f.s0 + f.s1) / 2
+            (x, z), _ = line.path.at(mid)
+            ys = _surface_y(park, [(x, z)])[0]
+            built = bool(np.isfinite(_surface_y(park, [(x, z)], features_only=True)[0]))
+            y = (ys if np.isfinite(ys) else yat(mid)) + 3.
+            name = _nice(f.id, line.id)
+            text = label = None
+            if kind == 'roll_in':
+                drop = yat(f.s0) - yat(f.s1)
+                label = 'rollin'
+                text = f"{rollin_name.get(line.id, line.id)} roll-in · {line.name} · {drop:.0f} m drop · {p.get('face_deg', '?')}° face"
+                (x, z), _ = line.path.at(f.s0 + 2.); y = yat(f.s0) + 4.
+            elif kind == 'gap':
+                take = next((g for g in reversed(feats[:i]) if g.tag == 'takeoff' or 'takeoff' in g.kind or g.kind == 'kicker'), None)
+                lip = (take.params.get('lip_deg') if take else None)
+                land = next((g for g in feats[i + 1:] if g.tag == 'landing' or 'landing' in g.kind), None)
+                drop = yat(f.s0) - yat(land.s0) if land else None
+                label = 'gap'
+                slope = land.params.get('slope_deg') if land else None
+                text = f"{line.id} {name} · {f.s1 - f.s0:.0f} m gap" + (f" · {lip:.0f}° lip" if lip is not None else '') + \
+                    (f" · lands {drop:.1f} m lower" if drop is not None else '') + (f" on {slope:.0f}°" if slope else '')
+                y = yat(f.s0) + 5.
+                built = bool(take and np.isfinite(_surface_y(park, [line.path.at(f.s0 - .5)[0]], features_only=True)[0]))
+            elif kind in ('valley', 'half_pipe', 'halfpipe', 'half_bowl', 'halfbowl', 'channel'):
+                label = 'halfbowl'
+                bits = [f"{p['floor']:.0f} m floor" if 'floor' in p else None,
+                        f"{p['wall_height']:.0f} m walls" if 'wall_height' in p else None,
+                        f"R{p['wall_r']:.0f}" if 'wall_r' in p else None,
+                        f"{p['grade_deg']:+.0f}° grade" if 'grade_deg' in p else None]
+                text = f"{line.id} {name} · " + ', '.join(b for b in bits if b)
+            elif kind in ('quarter', 'quarter_pipe', 'quarterpipe', 'qp', 'vert'):
+                label = 'quarterpipe'
+                text = f"{line.id} {name} QP · {p.get('height', p.get('wall_height', '?'))} m" + \
+                    (f" + {p['vert']} m vert" if p.get('vert') else '') + (f" · R{p['r']}" if 'r' in p else '')
+            elif kind in ('snake', 'berm', 'bank'):
+                berms = p.get('berms') or ()
+                for j, (b0, b1) in enumerate(berms):
+                    s = f.s0 + (b0 + b1) / 2
+                    (bx, bz), _ = line.path.at(s)
+                    by = _surface_y(park, [(bx, bz)])[0]
+                    bb = bool(np.isfinite(_surface_y(park, [(bx, bz)], features_only=True)[0]))
+                    out.append({'text': f"{line.id} berm {j + 1}" + (f" · {p['outer_wall_in_berms']:.0f} m outer wall" if 'outer_wall_in_berms' in p else '')
+                                + ('' if bb else ' (planned)'),
+                                'pos': [bx, (by if np.isfinite(by) else yat(s)) + 3., bz], 'kind': 'berm', 'planned': not bb})
+                label = 'berm'
+                bits = [f"{abs(p['turn_deg']):.0f}° turn" if 'turn_deg' in p else None,
+                        f"R{p['turn_r']:.0f}" if 'turn_r' in p else None,
+                        f"{p['outer_bank_height']:.0f} m bank" if 'outer_bank_height' in p else None,
+                        f"at {p['bank_deg']:.0f}°" if 'bank_deg' in p else None,
+                        f"{p['wall']} m walls" if 'wall' in p else None,
+                        f"{p['grade_deg']:+.0f}° grade" if 'grade_deg' in p else None]
+                text = f"{line.id} {name} · " + ' '.join(b for b in bits if b)
+            elif kind in ('kicker', 'transfer_takeoff'):
+                continue                                              # named on its gap
+            if text:
+                out.append({'text': text + ('' if built else ' (planned)'), 'pos': [x, y, z], 'kind': label, 'planned': not built})
+    if tower:
+        cx, cz = tower['centre']
+        ys = _surface_y(park, [(cx, cz)], features_only=True)[0]
+        built = bool(np.isfinite(ys) and abs(ys - tower['y']) < 2.)
+        out.append({'text': f"Tower · deck {world(tower['y']):.0f} m" + ('' if built else ' (planned)'),
+                    'pos': [cx, tower['y'] + 6., cz], 'kind': 'tower', 'planned': not built})
+    for b in getattr(layout, 'BOWLS', ()):
+        cx, cz = b.centre
+        ys = _surface_y(park, [(cx, cz)], features_only=True)[0]
+        built = bool(np.isfinite(ys) and abs(ys - b.floor_y) < 1.5)
+        out.append({'text': f"{b.id.replace('_', ' ').title()} · {b.rim_y - b.floor_y:.1f} m deep · R{b.r:g}"
+                            + (f" + {b.vert:g} m vert" if b.vert else '') + ('' if built else ' (planned)'),
+                    'pos': [cx, b.rim_y + 4., cz], 'kind': 'bowl', 'planned': not built})
+    return out
+
+
+def viewer_json(park, out, report=None, labels=(), max_bytes=10_000_000):
+    """The owner's viewer file: base64 P (float32, recentred like the GLB, y = world height - 640), N (int8 x 127),
+    C (uint8 sRGB), I (uint32); `lines` {name: [[x, y, z], ...]}; `labels` [{text, pos, kind}]; `airs` [[[x, y, z], ...]],
+    all in that frame. Returns (path, info)."""
+    import base64
+    import json as _json
+    from . import dsl
+    m = park.mesh
+    keep = np.asarray(m.role) != dsl.ROLE[dsl.BASE]
+    F = np.asarray(m.F)[keep]; role = np.asarray(m.role)[keep]; mat = np.asarray(m.material)[keep]
+    V = np.asarray(m.V, 'f8'); N = np.asarray(m.N, 'f8')
+    names = np.asarray(dsl.MATERIALS, object)[mat]
+    is_ground = role == dsl.ROLE[dsl.GROUND]
+    palette = {}
+    cid = np.array([palette.setdefault(GLB_GROUND if (g or nm == 'material_024') else GLB_COLOURS.get(nm, GLB_OTHER), len(palette))
+                    for g, nm in zip(is_ground, names)], 'i8')
+    key = F.ravel() * len(palette) + np.repeat(cid, 3)
+    uk, inv = np.unique(key, return_inverse=True)
+    vi = uk // len(palette); ci = uk % len(palette)
+    lo = V[vi].min(0); hi = V[vi].max(0)
+    off = np.array([(lo[0] + hi[0]) / 2, GLB_LIFT, (lo[2] + hi[2]) / 2])
+    tr = lambda p: (np.asarray(p, 'f8') - off).round(3).tolist()
+    Nn = N[vi] / np.maximum(np.linalg.norm(N[vi], axis=1, keepdims=True), 1e-12)
+    cols = np.array([_srgb(h) for h in palette], 'u1')
+    b64 = lambda a: base64.b64encode(np.ascontiguousarray(a).tobytes()).decode()
+    lines = {}
+    for line in park.lines:
+        path = np.asarray(line.path, 'f8')
+        if len(path) < 2:
+            continue
+        y = _surface_y(park, path[:, [0, 2]])
+        y = np.where(np.isfinite(y), y, path[:, 1]) + .5
+        lines[str(line.name)] = tr(np.c_[path[:, 0], y, path[:, 2]])
+    airs = [tr(_air_arc(a['lip'], a['land'], a.get('apex', a['lip'][1]))) for a in (report or {}).get('airs', []) or []]
+    doc = {'frame': 'metres, y up; x, z recentred on the park, y = world height - 640 (native y + 40)',
+           'offset_native': off.tolist(),
+           'P': b64((V[vi] - off).astype('<f4')),
+           'N': b64(np.clip(np.round(Nn * 127), -127, 127).astype('i1')),
+           'C': b64(cols[ci]), 'I': b64(inv.reshape(-1, 3).astype('<u4')),
+           'counts': {'vertices': int(len(vi)), 'triangles': int(len(F))},
+           'lines': lines, 'labels': [dict(l, pos=tr(l['pos'])) for l in labels], 'airs': airs}
+    s = _json.dumps(doc, separators=(',', ':'))
+    if len(s) > max_bytes:
+        raise ValueError(f'viewer json {len(s)} bytes > {max_bytes}')
+    Path_ = __import__('pathlib').Path
+    p = Path_(out); tmp = p.with_suffix('.tmp'); tmp.write_text(s); tmp.replace(p)
+    return out, {'bytes': len(s), 'vertices': int(len(vi)), 'triangles': int(len(F)), 'labels': len(labels),
+                 'lines': len(lines), 'airs': len(airs)}

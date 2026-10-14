@@ -412,6 +412,25 @@ class ParkEntryTests(unittest.TestCase):
         self.assertEqual(len(g['meshes']), 2)                                             # the line strips
         self.assertEqual(g['meshes'][1]['primitives'][0]['mode'], 3)
 
+    def test_the_viewer_json_decodes_to_the_glb_frame(self):
+        import base64
+        with tempfile.TemporaryDirectory() as d:
+            rep = V.validate_park(self.park, log=None, skip=('slivers',))[0]
+            labels = [{'text': 'M0 quarter · 2 m', 'pos': list(self.park.mesh.V.mean(0)), 'kind': 'quarterpipe'}]
+            path, info = plan_png.viewer_json(self.park, Path(d) / 'viewer.json', report=rep, labels=labels)
+            doc = json.loads(Path(path).read_text())
+        P = np.frombuffer(base64.b64decode(doc['P']), '<f4').reshape(-1, 3)
+        N = np.frombuffer(base64.b64decode(doc['N']), 'i1').reshape(-1, 3)
+        C = np.frombuffer(base64.b64decode(doc['C']), 'u1').reshape(-1, 3)
+        I = np.frombuffer(base64.b64decode(doc['I']), '<u4').reshape(-1, 3)
+        self.assertEqual((len(N), len(C)), (len(P), len(P)))
+        self.assertLess(int(I.max()), len(P))
+        self.assertTrue((np.abs(np.linalg.norm(N.astype('f8'), axis=1) - 127) < 2).all())
+        off = np.asarray(doc['offset_native'])
+        self.assertAlmostEqual(off[1], -40.)                                            # y = world height - 640
+        self.assertTrue(np.allclose(doc['labels'][0]['pos'], self.park.mesh.V.mean(0) - off, atol=1e-3))
+        self.assertEqual(set(doc['lines']), {l.name for l in self.park.lines})
+
     def test_the_ground_is_the_site_and_an_unlined_ramp_is_not(self):
         dsl = self.dsl
         g = dsl.Mesh.part(*grid(1100, 1000, 1110, 1010, 2, y=20.), role=dsl.GROUND, feature='ground', material=dsl.GROUND_MAT)
