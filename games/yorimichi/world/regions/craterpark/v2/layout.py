@@ -501,7 +501,8 @@ def build_line(line, ground=None, side='bank', on_ground=False):
 
     def width(s0, y0, a0, parts):
         s1 = s0 + profile(y0, a0, list(parts))[-1][0]
-        return max([f.width for f in line.features if f.s0 < s1 - 1e-6 and f.s1 > s0 + 1e-6] or [16.])
+        return max([f.width for f in line.features
+                    if f.kind not in ('gap', 'bowl_entry') and f.s0 < s1 - .05 and f.s1 > s0 + .05] or [16.])
 
     built, i = [], 0
     while i < len(ps):
