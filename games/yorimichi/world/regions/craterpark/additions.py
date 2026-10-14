@@ -33,6 +33,7 @@ REACH = 4.          # metres: the distances to a slot's edge are measured up to 
 OUTLINE = 3         # sweeps that smooth an added piece's outline (grid_mesh): its grid staircase made a row of slats
 OVERLAP = 2         # nodes a piece reaches under the floor round it, so no crack opens at the edge
 RELAX = 600         # sweeps of the smoothing that carries the floor's height across a slot
+COARSE = 16         # nodes across at least, for relax to start from a grid half as fine
 GUESS = 2000        # fixed nodes at most that start the smoothing (relax)
 UV_METRES = 9.      # metres per texture tile (the snake runs' concrete)
 SNAKE_MATERIAL = 'material_010'     # seamless concrete ('concrete'): 'concrete_edge' drew a dark band every tile
@@ -51,10 +52,10 @@ BANKS = {'tower_plaza_hip': ((1155., 1003., 1187., 1025.), None, 2.5),   # a hip
          # The banked curve ends in a quarter (-14.6 m) 2.5 m short of the peanut bowl's rim (-14.1 m): a deck across
          # makes a spine, over into the bowl, where the curve stopped dead.
          'curve_to_peanut': ((1232.5, 952., 1239., 967.), [((1230., 950., 1242., 969.), -15.5, -13.5)], None),
-         # From the south-west bowl's rim deck (11 m) down to the banked curve's outer rim (7.4-8.8 m), beside the
+         # From the south-west bowl's rim deck (11 m) down to the banked curve's outer lip (9.5 m), beside the
          # tunnel strip: the line's way back towards the drop-in.
-         'bowl_rim_to_curve': ((1139., 903., 1149.5, 966.), [((1136., 897., 1151., 906.), 10., 12.),
-                                                            ((1139., 955., 1151., 969.), 7., 9.)], None)}
+         'bowl_rim_to_curve': ((1139., 903., 1149.5, 969.), [((1136., 897., 1151., 906.), 10., 12.),
+                                                            ((1139., 955., 1151., 972.), 7., 10.5)], None)}
 # The snake runs: a centreline [(x, z) or (x, y, z)], the floor's width, the walls' height and their radius (snake_run).
 SNAKE_RUNS = {
     # The narrow path from the banked curve's foot to the blue pool, a wide run to pump along, over its coping.
@@ -177,13 +178,26 @@ def relax(height, fixed, free, sweeps=RELAX):
     """`height` carried smoothly across the `free` nodes from the `fixed` ones (a membrane: each free node the mean of
     its free or fixed neighbours)."""
     h = np.where(fixed | free, height, 0.).astype('f8')
-    # Started from the fixed heights spread by inverse distance: the sweeps then only smooth it, even far from them.
-    fj, fi = np.nonzero(fixed); keep = slice(None, None, max(1, len(fj) // GUESS))
-    fj, fi, fh = fj[keep], fi[keep], height[fixed][keep]
-    sj, si = np.nonzero(free)
-    for k in range(0, len(sj), 4096):
-        w = 1 / np.maximum((sj[k:k + 4096, None] - fj) ** 2 + (si[k:k + 4096, None] - fi) ** 2, 1e-9)
-        h[sj[k:k + 4096], si[k:k + 4096]] = (w * fh).sum(1) / w.sum(1)
+    rows, cols = h.shape
+    if min(rows, cols) >= COARSE and free.sum() > COARSE ** 2 and fixed.any():
+        # Started from the same membrane on a grid half as fine (each square of four nodes one node: fixed if any of
+        # them is, at their mean): the sweeps here then only add the detail, however long the span (a 60 m bank
+        # converged over 240 nodes only from this start).
+        r2, c2 = (rows + 1) // 2, (cols + 1) // 2
+        blocks = lambda a, fill: np.pad(a, ((0, 2 * r2 - rows), (0, 2 * c2 - cols)), constant_values=fill).reshape(r2, 2, c2, 2)
+        f2 = blocks(fixed, False); n = f2.sum((1, 3))
+        coarse_fixed = n > 0
+        coarse = relax(blocks(np.where(fixed, height, 0.), 0.).sum((1, 3)) / np.maximum(n, 1), coarse_fixed,
+                       blocks(free, False).any((1, 3)) & ~coarse_fixed, sweeps)
+        h = np.where(free, np.repeat(np.repeat(coarse, 2, 0), 2, 1)[:rows, :cols], h)
+    else:
+        # Started from the fixed heights spread by inverse distance: the sweeps then only smooth it.
+        fj, fi = np.nonzero(fixed); keep = slice(None, None, max(1, len(fj) // GUESS))
+        fj, fi, fh = fj[keep], fi[keep], height[fixed][keep]
+        sj, si = np.nonzero(free)
+        for k in range(0, len(sj), 4096):
+            w = 1 / np.maximum((sj[k:k + 4096, None] - fj) ** 2 + (si[k:k + 4096, None] - fi) ** 2, 1e-9)
+            h[sj[k:k + 4096], si[k:k + 4096]] = (w * fh).sum(1) / w.sum(1)
     use = fixed | free
     for _ in range(sweeps):
         total = np.zeros_like(h); count = np.zeros_like(h)
