@@ -184,6 +184,8 @@ def _edge_hits(a, b, pts, tol, cell=.5, budget=2_000_000):
     from the cells each edge passes through (sampled every cell/4 at most; the cells of the cube of half that spacing
     plus tol round each sample), never its bounding box, and tested in chunks of about `budget` pairs (memory stays bounded however dense the points)."""
     key = lambda c: ((c[..., 0] + (1 << 20)) << 42) | ((c[..., 1] + (1 << 20)) << 21) | (c[..., 2] + (1 << 20))
+    if not len(a) or not len(pts):
+        return np.zeros(0, 'i8'), np.zeros(0, 'i8'), np.zeros(0)
     pk = key(np.floor(pts / cell).astype('i8')); po = np.argsort(pk); pk = pk[po]
     L = np.linalg.norm(b - a, axis=1)
     k = np.clip(np.ceil(L / (cell / 4)).astype('i8'), 1, 1 << 20) + 1          # samples per edge
@@ -247,6 +249,20 @@ def fix_tjunctions(P, F, others=None, tol=1e-6, rounds=8, attrs=None):
         a, b = P[e[:, 0]], P[e[:, 1]]
         pts = P if others is None else np.concatenate([P, others])
         cand, which, t = _edge_hits(a, b, pts, tol)
+        own = (F[fid[cand]] == which[:, None]).any(1)     # a face's own corner (a sliver's apex) never splits its edges
+        cand, which, t = cand[~own], which[~own], t[~own]
+        if not len(cand):
+            break
+        # a point near two edges of one face (anywhere in a sliver) splits only its nearest: the edge it lies on
+        tc = np.clip(t, 0, 1)[:, None]
+        dist = np.linalg.norm(a[cand] + tc * (b[cand] - a[cand]) - pts[which], axis=1)
+        o = np.lexsort((dist, which, fid[cand]))
+        first = np.r_[True, (fid[cand][o][1:] != fid[cand][o][:-1]) | (which[o][1:] != which[o][:-1])]
+        o = o[first]; cand, which, t = cand[o], which[o], t[o]
+        # and only an open edge (one face's): a crack opens only there; an edge two faces share already conforms
+        ue = np.sort(e, 1); _, ui, uc = np.unique(ue, axis=0, return_inverse=True, return_counts=True)
+        op = uc[ui.ravel()][cand] == 1
+        cand, which, t = cand[op], which[op], t[op]
         if not len(cand):
             break
         # points from `others` become new vertices of P (shared positions)

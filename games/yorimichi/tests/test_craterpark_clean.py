@@ -29,12 +29,13 @@ class CleanTests(unittest.TestCase):
         pairs = clean.overlap_pairs(np.stack([a, b, c]), np.array([0, 1, 2]))
         self.assertEqual(pairs.tolist(), [[1, 0]])                            # b lies on a; c is 0.5 m above
 
-    def test_a_vertex_on_an_edge_splits_both_faces(self):
+    def test_a_point_splits_an_open_edge_but_not_a_shared_one(self):
+        # a crack opens only along an open edge: the diagonal two faces share conforms already
         P = np.array([[0., 0, 0], [1, 0, 0], [0, 0, 1], [1, 0, 1]]); F = np.array([[0, 2, 1], [1, 2, 3]])
-        P2, F2, added = clean.fix_tjunctions(P, F, np.array([[.5, 0, .5]]))
-        self.assertEqual(added, 1)
-        self.assertEqual(len(F2), 4)
-        self.assertTrue(all((F2 == len(P)).any(1)))                            # every face uses the new vertex
+        P2, F2, added = clean.fix_tjunctions(P, F, np.array([[.5, 0, .5], [.5, 0, 0]]))
+        self.assertEqual((added, len(F2)), (1, 3))
+        self.assertTrue(np.allclose(P2[-1], [.5, 0, 0]))
+        self.assertEqual(int((F2 == len(P)).any(1).sum()), 2)                   # both halves of the split face
         self.assertAlmostEqual(area(P2[F2]), 1., places=12)
 
     def test_points_on_every_edge_split_without_new_vertices(self):
@@ -61,11 +62,24 @@ class CleanTests(unittest.TestCase):
         P2, F2, added = clean.fix_tjunctions(P, F, tol=5e-4)
         self.assertEqual((added, len(P2)), (0, len(P)))
         self.assertLessEqual(len(F2), 3 * len(F))
+        self.assertAlmostEqual(area(P2[F2]), area(T), places=12)                  # every sliver kept, whole
+        n = np.cross(P2[F2][:, 1] - P2[F2][:, 0], P2[F2][:, 2] - P2[F2][:, 0])
+        self.assertTrue((n[:, 1] < 0).all())                                     # each its own winding
+
+    def test_a_slivers_own_apex_does_not_split_it(self):
+        # the opposite corner lies within tol of the long edge: the sliver stays (park-assist's case)
+        P = np.array([[0., 0, 0], [2, 0, 1e-4], [1, 0, 2e-4]]); F = np.array([[0, 1, 2]])
+        for rounds in (1, 8):
+            P2, F2, added = clean.fix_tjunctions(P, F, tol=5e-4, rounds=rounds)
+            self.assertEqual(F2.tolist(), F.tolist())
+        P2, F2, added = clean.fix_tjunctions(P, F[:0], tol=5e-4)                  # no faces: nothing to do
+        self.assertEqual(len(F2), 0)
 
     def test_an_other_point_is_added_once(self):
-        P = np.array([[0., 0, 0], [2, 0, 0], [0, 0, 2], [2, 0, 2]]); F = np.array([[0, 2, 1], [1, 2, 3]])
-        P2, F2, added = clean.fix_tjunctions(P, F, np.array([[1., 0, 1], [.5, 0, 1.5], [1, 0, 0]]))
-        self.assertEqual(added, 3)
+        # two open edges of one face carry points: two rounds, and the first point is not added again in the second
+        P = np.array([[0., 0, 0], [0, 0, 2], [2, 0, 0], [2, 0, 2]]); F = np.array([[0, 1, 2], [2, 1, 3]])
+        P2, F2, added = clean.fix_tjunctions(P, F, np.array([[0., 0, 1], [1, 0, 0], [1., 0, 1]]))
+        self.assertEqual(added, 2)
         self.assertEqual(len(np.unique(np.round(P2, 9), axis=0)), len(P2))
         self.assertAlmostEqual(area(P2[F2]), 4., places=12)
 
