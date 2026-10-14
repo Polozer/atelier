@@ -45,14 +45,14 @@ def gone(pid, timeout=10.):
 
 
 class FakeMonitor:
-    """Stands in for the guard process: `dead` makes it look like it exited early."""
-    def __init__(self, dead=False, raises=None):
-        self.dead, self.raises = dead, raises
+    """Stands in for the guard process: `dead` makes it look like it exited early (with `status`)."""
+    def __init__(self, dead=False, raises=None, status=1):
+        self.dead, self.raises, self.status = dead, raises, status
 
     def poll(self):
         if self.raises:
             raise self.raises
-        return 1 if self.dead else None
+        return self.status if self.dead else None
 
 
 class GuardedRunTests(unittest.TestCase):
@@ -66,13 +66,13 @@ class GuardedRunTests(unittest.TestCase):
         self.addCleanup(os.environ.pop, 'ATELIER_RENDER_LOCK_SCAN', None)
         self.seen = []
 
-    def fake_attach(self, monitor=None, raises=None):
+    def fake_attach(self, monitor=None, raises=None, state='fake'):
         """Replace the memory guard, recording the child pid it was asked to watch."""
         @contextmanager
         def attach(pid, report, duration, limit_gib=10., expected_start=None):
             self.seen.append(pid)
             Path(report).parent.mkdir(parents=True, exist_ok=True)
-            Path(report).write_text('{"state": "fake"}')
+            Path(report).write_text(f'{{"state": "{state}"}}')
             if raises:
                 raise raises
             yield monitor if monitor is not None else FakeMonitor()
@@ -102,6 +102,32 @@ class GuardedRunTests(unittest.TestCase):
         self.fake_attach(monitor=FakeMonitor(dead=True))
         with self.assertRaises(SystemExit):
             guarded_run.run(SLEEPER, self.folder)
+        self.assertTrue(gone(self.seen[0]))
+
+    def test_a_monitor_that_sees_the_child_leave_just_before_it_exits_is_not_a_failure(self):
+        # The regression: an Unreal still freeing memory at shutdown is already marked as exiting, so its monitor
+        # stops cleanly with a `running` report a moment before the child is reaped.
+        self.fake_attach(monitor=FakeMonitor(dead=True, status=0), state='running')
+        shutting_down = [sys.executable, '-c', 'import time; time.sleep(1.5)']
+        self.assertEqual(guarded_run.run(shutting_down, self.folder), 0)
+
+    def test_a_cleanly_exited_monitor_still_fails_a_child_that_keeps_running(self):
+        self.fake_attach(monitor=FakeMonitor(dead=True, status=0), state='running')
+        original = guarded_run.MONITOR_EXIT_GRACE
+        guarded_run.MONITOR_EXIT_GRACE = .5
+        self.addCleanup(setattr, guarded_run, 'MONITOR_EXIT_GRACE', original)
+        with self.assertRaises(SystemExit) as caught:
+            guarded_run.run(SLEEPER, self.folder)
+        self.assertIn('still ran', str(caught.exception))
+        self.assertTrue(gone(self.seen[0]))
+
+    def test_a_monitor_that_stopped_at_the_limit_fails_without_waiting(self):
+        self.fake_attach(monitor=FakeMonitor(dead=True, status=0), state='memory_limit')
+        started = time.monotonic()
+        with self.assertRaises(SystemExit) as caught:
+            guarded_run.run(SLEEPER, self.folder)
+        self.assertIn('memory_limit', str(caught.exception))
+        self.assertLess(time.monotonic()-started, guarded_run.MONITOR_EXIT_GRACE)
         self.assertTrue(gone(self.seen[0]))
 
     def test_an_interruption_kills_the_child(self):

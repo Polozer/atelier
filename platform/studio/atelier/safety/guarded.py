@@ -23,7 +23,7 @@ outer slot turn. When the run ends, for any reason, recorded descendants still r
 deepest first, before the child itself. Shared engine services a cook starts (Zen, Unreal Trace Server) and anything
 under them are never signalled, nor is anything outside the recorded tree. `progress` prints a line that often while the child is quiet.
 """
-import argparse, os, signal, subprocess, sys, time
+import argparse, json, os, signal, subprocess, sys, time
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -36,6 +36,9 @@ from .process import spawn
 # Engine services a cook may start and other work then shares: recorded, never guarded or signalled.
 SHARED_SERVICES = frozenset({'zenserver', 'UnrealTraceServer'})
 FITTING_STARTUP_SECONDS = 2.
+# The monitor stops as soon as the kernel marks its child as exiting, which can be a moment before the child is
+# reaped: an Unreal freeing gigabytes at shutdown was reported as a failure. Allow it this long to finish exiting.
+MONITOR_EXIT_GRACE = 5.
 
 
 class Descendants:
@@ -143,6 +146,20 @@ def last_line(path):
         return ''
 
 
+def monitor_failure(status, report):
+    """Why the memory guard stopped, or None when it only saw its child leave: it exited cleanly and its last
+    report still says `running` (or it never wrote one). A limit, a deadline or a crash of the guard is a reason."""
+    if status:
+        return f'exit status {status}'
+    try:
+        state = json.loads(Path(report).read_text()).get('state')
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as error:
+        return f'unreadable report: {error}'
+    return None if state == 'running' else f'state {state!r}'
+
+
 def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gib=10., small_gib=None, kind='job',
         on_slot=None, watch=(), progress=0., track_tree=False, fitting_gib=None):
     """Run `command` to completion and return its exit status. `small_gib` and `kind` go to `render_lock`;
@@ -205,7 +222,15 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
                 watched = ', '.join(f'{label} {key[0]}' for key, (label, _) in tree.guarded.items() if tree.same(key)) if tree else ''
                 print(f'{(spoken-started)/60:.0f} min{f" [{watched}]" if watched else ""}: {last_line(folder/"stdout.log")}', flush=True)
             if monitor is not None and monitor.poll() is not None and child.poll() is None:
-                raise SystemExit('memory guard exited before the child')
+                why = monitor_failure(monitor.poll(), folder/'memory-health.json')
+                if why is not None:
+                    raise SystemExit(f'memory guard exited before the child ({why})')
+                try:
+                    child.wait(timeout=MONITOR_EXIT_GRACE)
+                except subprocess.TimeoutExpired:
+                    raise SystemExit(f'memory guard exited before the child, which still ran '
+                                     f'{MONITOR_EXIT_GRACE:g} s later') from None
+                continue
             if deadline is not None and time.monotonic() > deadline:
                 raise SystemExit(f'child exceeded {timeout} s')
             try:
