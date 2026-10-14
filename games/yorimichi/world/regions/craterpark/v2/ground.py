@@ -12,6 +12,7 @@ ground(outline, holes, controls) -> dsl.Mesh: one continuous sculpted surface ov
   plus its features is one closed surface.
 """
 import math
+import warnings
 
 import numpy as np
 
@@ -326,6 +327,7 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
     holes = [np.asarray(h, 'f8') for h in holes]
     h2 = [h[:, [0, 2]] for h in holes]
     loops2 = [o2] + h2
+    _check_loops(o2, h2)
     A, B = _segments(loops2)
     controls = np.asarray(controls, 'f8').reshape(-1, 3)
     guide = np.asarray(guide, 'f8').reshape(-1, 3)
@@ -378,8 +380,11 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
     # the plan mesh: seams, controls as vertices, graded points; then no edge over max_edge
     extra = controls[:, [0, 2]]
     chains = apron_chains(o2, h2, apron) if (apron and h2) else []
-    P2, F, starts = plan_mesh(loops2, coarse=coarse, grade=grade, hmin=hmin, points=extra, chains=chains,
-                              size=lambda P: _curv_size(field, kappa, tess, P), lo=lo, hi=hi)
+    try:
+        P2, F, starts = plan_mesh(loops2, coarse=coarse, grade=grade, hmin=hmin, points=extra, chains=chains,
+                                  size=lambda P: _curv_size(field, kappa, tess, P), lo=lo, hi=hi)
+    except cdt.CDTError as e:
+        raise _located(e, loops2, len(extra), chains) from None
     nb = starts[-1]; nfix = nb + len(extra)
     loops = [np.arange(starts[i], starts[i + 1]) for i in range(len(loops2))]
     chain_idx, k = [], nfix
@@ -391,7 +396,10 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
         if not long_.any():
             break
         P2 = np.concatenate([P2, t[long_].mean(1)])
-        F = cdt.triangulate(P2, loops, segments=chain_idx)
+        try:
+            F = cdt.triangulate(P2, loops, segments=chain_idx)
+        except cdt.CDTError as e:
+            raise _located(e, loops2, len(extra), chains) from None
     F = F[:, ::-1].copy()                                 # plan counter-clockwise -> upward faces
     field.h = residual
     n = len(P2)
@@ -453,12 +461,94 @@ def ground(outline, holes=(), controls=(), *, guide=(), skirt=4., max_edge=8., g
         side.N = dsl.vertex_normals(Vs, Fs) * [1, 0, 1]
         side.N /= np.maximum(np.linalg.norm(side.N, axis=1, keepdims=True), 1e-12)
         Pb, Fb, _ = plan_mesh([o2], coarse=coarse, grade=1., hmin=coarse)   # a coarse base: never drawn
-        Vb = np.stack([Pb[:, 0], np.full(len(Pb), Vs[rows * k:, 1].min()), Pb[:, 1]], 1)
+        # the base's inside sits below the lowest surface point too (a pit lower than the edge never crosses it)
+        Vb = np.stack([Pb[:, 0], np.full(len(Pb), min(Vs[rows * k:, 1].min(), y.min() - skirt)), Pb[:, 1]], 1)
         Vb[:k] = Vs[rows * k:]
         base = dsl.Mesh.part(Vb, Fb, material=side_material, role=dsl.BASE, feature=feature,
                              N=np.broadcast_to([0., -1., 0.], Vb.shape))
         parts += [side, base]
-    return dsl.Mesh.concat(parts)
+    out = dsl.Mesh.concat(parts)
+    if max_slope:
+        spots = steep_spots(surface, limit=max_slope + 1.)
+        if spots:
+            warnings.warn(f'ground: {len(spots)} spots over {max_slope + 1:.0f} degrees where fixed heights (foot loops, '
+                          f'controls, the outline) are closer than their height difference allows, worst '
+                          f'{spots[0]["max_deg"]} deg at {spots[0]["where"]} ({spots[0]["area_m2"]} m2); see ground.steep_spots',
+                          stacklevel=2)
+    return out
+
+
+def _check_loops(o2, h2):
+    """Refuse, by name, a foot loop that leaves the site outline or overlaps another foot loop."""
+    for i, h in enumerate(h2):
+        out = ~even_odd(h, [o2])
+        if out.any():
+            p = h[np.flatnonzero(out)[0]]
+            raise ValueError(f'ground: foot loop {i} leaves the site outline at ({p[0]:.2f}, {p[1]:.2f}) '
+                             f'({int(out.sum())} of its {len(h)} points outside)')
+    box = [(h.min(0), h.max(0)) for h in h2]
+    for i, h in enumerate(h2):
+        for j in range(i + 1, len(h2)):
+            if (box[i][0] > box[j][1]).any() or (box[j][0] > box[i][1]).any():
+                continue
+            for a, b, ia, ib in ((h, h2[j], i, j), (h2[j], h, j, i)):
+                inside = even_odd(a, [b])
+                if inside.any():           # a shared seam is not an overlap: only points clear of b's edge count
+                    d = seg_distance(a[inside], b, np.roll(b, -1, 0), 1.)[0]
+                    inside[np.flatnonzero(inside)[~(d > 1e-3)]] = False
+                if inside.any():
+                    p = a[np.flatnonzero(inside)[0]]
+                    raise ValueError(f'ground: foot loop {ia} overlaps foot loop {ib} at ({p[0]:.2f}, {p[1]:.2f})')
+
+
+def _located(e, loops2, n_points, chains):
+    """A CDTError re-raised as a ValueError naming the loops (outline, foot loop i, control, apron chain) involved."""
+    starts = np.cumsum([0] + [len(lp) for lp in loops2] + [n_points] + [len(c) for c in chains])
+    names = []
+    for v in e.vertices:
+        k = int(np.searchsorted(starts, v, 'right')) - 1
+        names.append('the outline' if k == 0 else f'foot loop {k - 1}' if k < len(loops2) else
+                     'a control' if k == len(loops2) else 'an apron edge' if k < len(starts) - 1 else 'a Steiner point')
+    who = ' and '.join(dict.fromkeys(names)) or 'unknown loops'
+    return ValueError(f'ground: {who}: {e}')
+
+
+def steep_spots(mesh, limit=30., cell=15.):
+    """Where the ground's faces exceed `limit` degrees, grouped into spots (cells of `cell` metres joined by
+    adjacency), worst first: [{where (x, y, z), max_deg, area_m2, faces}]. With a correct slope limit these are only
+    places the fixed heights force: a foot loop or control too close, in plan, to a much lower or higher one."""
+    g = mesh.role == dsl.ROLE[dsl.GROUND]
+    if not g.any():
+        return []
+    T = mesh.triangles()[g]; n = mesh.face_normals()[g]; a = mesh.areas()[g]
+    deg = np.degrees(np.arccos(np.clip(n[:, 1], -1, 1)))
+    bad = np.flatnonzero(deg > limit)
+    if not len(bad):
+        return []
+    c = T[bad].mean(1)
+    key = np.floor(c[:, [0, 2]] / cell).astype('i8')
+    cells = {tuple(k): None for k in key}
+    label, nxt = {}, 0
+    for k0 in cells:                       # flood the 8-connected cells
+        if k0 in label:
+            continue
+        label[k0] = nxt; stack = [k0]
+        while stack:
+            kx, kz = stack.pop()
+            for dx in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    q = (kx + dx, kz + dz)
+                    if q in cells and q not in label:
+                        label[q] = nxt; stack.append(q)
+        nxt += 1
+    lab = np.array([label[tuple(k)] for k in key])
+    out = []
+    for i in range(nxt):
+        m = lab == i; w = bad[m]
+        j = w[np.argmax(deg[w])]
+        out.append({'where': [round(float(v), 2) for v in T[j].mean(0)], 'max_deg': round(float(deg[j]), 1),
+                    'area_m2': round(float(a[w].sum()), 1), 'faces': int(m.sum())})
+    return sorted(out, key=lambda s: -s['area_m2'])
 
 
 def limit_slope(P2, F, y, fixed, degrees, iterations=400):
@@ -735,4 +825,4 @@ def r4_site(spacing=4., stride=8):
 
 build = ground       # the name layout.park() looks for
 
-__all__ = ['build', 'ground', 'report', 'boundary_loops', 'r4_block_controls', 'r4_site', 'plan_mesh', 'fill_mesh', 'Field', 'seg_distance', 'even_odd']
+__all__ = ['build', 'ground', 'report', 'steep_spots', 'boundary_loops', 'r4_block_controls', 'r4_site', 'plan_mesh', 'fill_mesh', 'Field', 'seg_distance', 'even_odd']

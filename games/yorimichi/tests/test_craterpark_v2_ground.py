@@ -171,3 +171,32 @@ def test_the_apron_is_pale_concrete_within_6_m_and_its_edge_is_a_smooth_curve():
     border = key[:-1][same][concrete[a] != concrete[b]]
     rad = np.linalg.norm(g.V[border.ravel()][:, [0, 2]] - [60, 50], axis=1)
     assert len(border) > 20 and np.ptp(rad) < .3 and abs(rad.mean() - 14) < .3
+
+
+def square(c, r, y=0., n=4):
+    a = np.linspace(0, 2 * np.pi, 4 * n, endpoint=False)
+    p = np.c_[np.cos(a), np.sin(a)]; p = p / np.abs(p).max(1, keepdims=True) * r + c
+    return np.c_[p[:, 0], np.full(len(p), y), p[:, 1]]
+
+
+def test_bad_foot_loops_are_refused_by_name():
+    o = square([0., 0.], 40.)
+    with pytest.raises(ValueError, match='foot loop 0 leaves the site outline'):
+        ground.ground(o, [square([38., 0.], 5.)])
+    with pytest.raises(ValueError, match='foot loop 1 overlaps foot loop 0|foot loop 0 overlaps foot loop 1'):
+        ground.ground(o, [square([0., 0.], 5.), square([6., 0.], 5.)])
+    # two feet sharing a seam edge are not an overlap
+    ground._check_loops(o[:, [0, 2]], [square([0., 0.], 5.)[:, [0, 2]], square([10., 0.], 5.)[:, [0, 2]]])
+
+
+def test_an_infeasible_foot_is_reported_and_the_base_stays_below_the_surface():
+    o = square([0., 0.], 40., n=16)                 # a 3D outline at y 0: its heights are kept
+    foot = square([-30., 0.], 6., y=25.)            # 25 m up, 4 m from the edge: no 30 degree slope reaches it
+    with pytest.warns(UserWarning, match='spots over'):
+        m = ground.ground(o, [foot], skirt=3.)
+    spots = ground.steep_spots(m)
+    assert spots and spots[0]['max_deg'] > 60 and spots[0]['where'][0] < -30
+    g = m.where(role=dsl.GROUND); base = m.where(role=dsl.BASE)
+    assert base.V[:, 1].max() <= 0 - 3 + 1e-9 and base.V[:, 1].min() < g.V[:, 1].min()
+    # a feasible site reports nothing
+    assert not ground.steep_spots(ground.ground(o, [square([0., 0.], 6., y=5.)]))

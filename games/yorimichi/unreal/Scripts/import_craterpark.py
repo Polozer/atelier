@@ -161,6 +161,11 @@ def delete_stale(report):
         if name.startswith(('SM_CP_', 'UC_CP_')) and name not in wanted:
             assert E.delete_asset(str(path).split('.')[0]), f'Could not delete the stale mesh {path}'
             deleted.append(name)
+    # the import's geometry audit (imported-geometry/<name>.bin) would otherwise keep r4's dead meshes in analyses
+    audit = OUT / 'imported-geometry'
+    for stale in (audit.glob('*.bin') if audit.exists() else ()):
+        if stale.stem not in wanted:
+            stale.unlink(); deleted.append(stale.name)
     print('CRATERPARK stale meshes deleted:', len(deleted), flush=True)
     return deleted
 

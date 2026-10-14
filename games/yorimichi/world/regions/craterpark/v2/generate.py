@@ -134,6 +134,22 @@ def report(park, index, seconds):
             'folded_left_out': index['folded_left_out'], 'seconds': round(seconds, 2)}
 
 
+def ground_spots(m, limit=30.):
+    """ground.steep_spots for the park's ground, each with the nearest other feature and its plan gap: the places
+    where fixed heights force ground steeper than `limit` (a foot too near a much lower edge or foot)."""
+    from craterpark.v2 import ground
+    spots = ground.steep_spots(m, limit=limit)
+    other = np.flatnonzero(m.role != dsl.ROLE[dsl.GROUND])
+    other = other[np.isin(m.role[other], [dsl.ROLE[r] for r in (dsl.RIDING, dsl.SIDE, dsl.COPING)])]
+    if not len(other):
+        return spots
+    C = m.triangles()[other].mean(1)
+    for s in spots:
+        d = np.linalg.norm(C[:, [0, 2]] - np.asarray(s['where'])[[0, 2]], axis=1); k = int(np.argmin(d))
+        s['near'] = m.features[int(m.feature[other[k]])]; s['gap_m'] = round(float(d[k]), 1)
+    return spots
+
+
 def main(argv=None):
     import yori
     parser = argparse.ArgumentParser()
@@ -149,7 +165,7 @@ def main(argv=None):
     from craterpark import placement
     from craterpark.v2 import dressing
     dressing.check(park.mesh, placement)          # every drawn face on the block, riding clear of the island's dressing
-    trees = dressing.plant(park.mesh)
+    trees = dressing.plant(park.mesh, airs=park.checks)
     from craterpark.v2 import ao
     ao.bake_mesh(park.mesh, drawn=(dsl.RIDING, dsl.SIDE, dsl.GROUND, dsl.COPING, dsl.RAIL))
     validation = run_validators(park, out)
@@ -162,6 +178,9 @@ def main(argv=None):
     rep = report(park, index, time.time() - start)
     rep['layout'] = layout
     rep['validation'] = validation
+    rep['ground_steep_spots'] = ground_spots(park.mesh)
+    for s in rep['ground_steep_spots'][:8]:
+        print('ground over 30 deg:', s, flush=True)
     rep['geometry_sha256'] = hashlib.sha256((out / 'geometry.npz').read_bytes()).hexdigest()
     (out / 'geometry-report.json').write_text(json.dumps(rep, indent=1) + '\n')
     print('CRATERPARK V2 GEOMETRY COMPLETE', layout, rep['render_triangles'], 'render',

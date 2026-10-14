@@ -15,7 +15,10 @@ import numpy as np
 
 
 class CDTError(RuntimeError):
-    pass
+    """`vertices`: the input point indices involved (two crossing segments a-b and x-y), when known."""
+    def __init__(self, message, vertices=()):
+        super().__init__(message)
+        self.vertices = tuple(int(v) for v in vertices)
 
 
 def _zorder(p):
@@ -211,7 +214,7 @@ class _T:
             else:
                 raise CDTError('lost the constrained segment')
             if (min(x, y), max(x, y)) in self.fixed:
-                raise CDTError('two constrained segments cross')
+                raise CDTError('two constrained segments cross', (a, b, x, y))
             edges.append((min(x, y), max(x, y)))
             u = self.tn[t][i]; q = self.tv[u][self.tn[u].index(t)]
             if q == b:
@@ -268,17 +271,23 @@ def triangulate(points, loops, eps=1e-9, segments=()):
     for p in _zorder(Q):
         last, got = T.insert(int(p), last, tol)
         alias[p] = got
+    def recover(a, b):
+        try:
+            T.recover(a, b)
+        except CDTError as e:
+            v = [i for i in e.vertices if i < n] or [a, b]
+            where = ', '.join(f'{i} ({P[i][0]:.2f}, {P[i][1]:.2f})' for i in v)
+            raise CDTError(f'{e} at vertices {where}', v) from None
     for loop in loops:
         idx = alias[np.asarray(loop, 'i8')]
         for i in range(len(idx)):
-            a, b = int(idx[i]), int(idx[(i + 1) % len(idx)])
-            T.recover(a, b)
+            recover(int(idx[i]), int(idx[(i + 1) % len(idx)]))
     region = set(T.fixed)
     # extra constrained polylines (open, or closed by repeating the first index): edges kept, region unchanged
     for chain in segments:
         idx = alias[np.asarray(chain, 'i8')]
         for a, b in zip(idx[:-1], idx[1:]):
-            T.recover(int(a), int(b))
+            recover(int(a), int(b))
     # Delaunay again on the free edges
     stack = [(t, i) for t in range(len(T.tv)) for i in range(3)]
     T.legalize(stack)
