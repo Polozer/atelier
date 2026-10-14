@@ -15,7 +15,10 @@ Besides the combined SM_BT_<V>_LOD0/1/2.glb, each vehicle gets:
   (horizontal field of view WINDOW_FOV, room depth recorded per tile). The cards are drawn only beyond the interior's
   cull distance, where the real interior is gone.
 """
+import hashlib
+import json
 import math
+from pathlib import Path
 
 import bmesh
 import bpy
@@ -230,6 +233,40 @@ def room_depth(c, w):
     y = w.side * (L.IN - .3)
     r = next((r for r in c.rooms if r.x0 <= w.x <= r.x1 and r.y0 <= y <= r.y1), None)
     return round((r.y1 - r.y0) if r else 2 * L.IN, 3)
+
+
+ATLAS_SOURCES = ('build.py', 'parts.py', 'fittings.py', 'layout.py', 'textures.py')   # what shapes the rendered rooms
+
+
+def atlas_key(c, furniture_dir):
+    """A hash of everything an atlas shows: the code that builds and lights the rooms, the furniture contract, the
+    vehicle's plan and the furniture GLBs it places."""
+    h = hashlib.sha256()
+    here = Path(__file__).resolve().parent
+    for name in ATLAS_SOURCES:
+        h.update((here / name).read_bytes())
+    h.update(L.CONTRACT.read_bytes())
+    h.update(json.dumps(L.as_dict(c), sort_keys=True, default=str).encode())
+    for asset in sorted({p.asset for p in c.placements}):
+        f = furniture_dir / f'{asset}.glb'
+        h.update(asset.encode() + (f.read_bytes() if f.exists() else b'-'))
+    return h.hexdigest()
+
+
+def atlas(c, path, furniture_dir, hide):
+    """The vehicle's window atlas and its tile records: rendered (render_atlas) only when its inputs changed since
+    the last build, which the sidecar <atlas>.json remembers; otherwise the atlas on disk is kept."""
+    key, side = atlas_key(c, furniture_dir), path.with_suffix('.json')
+    try:
+        cached = json.loads(side.read_text())
+        if cached['key'] == key and path.exists():
+            return cached['tiles']
+    except (OSError, ValueError, KeyError):
+        pass
+    tiles = render_atlas(c, path, furniture_dir, hide)
+    if tiles:
+        side.write_text(json.dumps(dict(key=key, tiles=tiles), indent=1))
+    return tiles
 
 
 def render_atlas(c, path, furniture_dir, hide):

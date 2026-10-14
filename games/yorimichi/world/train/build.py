@@ -2109,8 +2109,8 @@ def build(coach, images):
     for o in cols['LOD2'].objects:
         o.hide_set(True)
     out = OUT / coach.name; out.mkdir(parents=True, exist_ok=True)
-    atlas = TEX / f'T_BT_{title}Interior.png'           # the windows' interior views, rendered before the exports
-    window_tiles = PT.render_atlas(coach, atlas, OUT / 'furniture', [cols['LOD2'], cols['Reservations'], cols['Collision']])
+    atlas = TEX / f'T_BT_{title}Interior.png'           # the windows' interior views (re-rendered when their inputs change)
+    window_tiles = PT.atlas(coach, atlas, OUT / 'furniture', [cols['LOD2'], cols['Reservations'], cols['Collision']])
     if window_tiles:
         MAT['window-interior'].name = f'M_BT_WindowInterior{title}'
         PT.window_material(MAT['window-interior'], atlas)
