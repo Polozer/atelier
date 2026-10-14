@@ -249,6 +249,49 @@ class SolidifyTests(unittest.TestCase):
         self.assertIsNone(additions.solidify(piece, heights, np.concatenate([piece, ground])))
 
 
+class RampTests(unittest.TestCase):
+    def test_a_profile_of_arcs_and_lines_ends_where_its_circles_say(self):
+        knots = additions.profile(0., 0., [('line', 2.), ('arc', 10., -60.), ('arc', 5., 0.)])
+        s, y, degrees = knots[-1]
+        self.assertAlmostEqual(s, 2 + 10 * math.sin(math.radians(60)) + 5 * math.sin(math.radians(60)), places=6)
+        self.assertAlmostEqual(y, -10 * (1 - math.cos(math.radians(60))) - 5 * (1 - math.cos(math.radians(60))), places=6)
+        self.assertEqual(degrees, 0.)
+        self.assertTrue(all(b[0] - a[0] <= 1. + 1e-9 for a, b in zip(knots, knots[1:])))
+
+    def test_a_ramp_lies_on_its_profile_and_its_lip_rises_at_its_angle(self):
+        knots = additions.profile(5., 0., [('line', 4.), ('arc', 10., 15.)])
+        v, f, _ = additions.ramp([(0., 0.), (40., 0.)], 2., knots, 4.)
+        t = v[f].astype('f8')
+        at = lambda x: additions.top_heights(t, np.array([[x, 0., 0.]]))[0]
+        self.assertAlmostEqual(at(2.5), 5., places=2)                      # the flat run-in, from 2 m along the line
+        end = 2 + knots[-1][0]
+        self.assertAlmostEqual(at(end - .3), knots[-1][1], delta=.1)      # the lip (its last cell of grid)
+        self.assertAlmostEqual((at(end - .3) - at(end - .8)) / .5, math.tan(math.radians(15) - .55 / 10), delta=.03)
+        self.assertTrue(np.isinf(at(end + .5)))                            # it ends at its lip, cut square
+
+    def test_its_flanks_slope_down_to_the_ground_beside_it(self):
+        ground = np.asarray(floor(-20, -20, 60, 20, 0.), 'f8')
+        knots = additions.profile(2., 0., [('line', 30.)])
+        v, f, _ = additions.ramp([(0., 0.), (40., 0.)], 0., knots, 4., ground=ground)
+        t = v[f].astype('f8')
+        at = lambda z: additions.top_heights(t, np.array([[15., 0., z]]))[0]
+        edge = 2 + additions.SNAKE_LIP
+        self.assertAlmostEqual(at(0.), 2., places=3)
+        drop = 1. / math.tan(math.radians(additions.SKIRT_DEGREES))
+        self.assertAlmostEqual(at(edge + drop), 1., delta=.08)             # down the flank at its angle
+        self.assertTrue(np.isinf(at(edge + 3 * drop)) or at(edge + 3 * drop) < 0.)   # it meets the ground and stops
+
+    def test_a_wall_over_a_run_stops_short_as_a_span(self):
+        deck = np.asarray(floor(0, -2, 10, 2, 10.), 'f8')                  # a deck 10 m over a run
+        run = np.asarray(floor(-5, -10, 15, 10, 0.), 'f8')
+        everything = np.concatenate([deck, run])
+        heights = grind.heights(everything)
+        full = additions.solidify(deck, heights, everything)
+        span = additions.solidify(deck, heights, everything, clear=grind.heights(run))
+        self.assertLess(float(full[0][:, 1].min()), 0.)                    # without: walls down into the run
+        self.assertAlmostEqual(float(span[0][:, 1].min()), 10. - additions.BEAM, places=6)
+
+
 class CopingTests(unittest.TestCase):
     def test_a_tube_runs_along_the_line_its_top_just_over_the_deck_facing_out(self):
         line = np.stack([np.linspace(0, 5, 11), np.full(11, 1.), np.zeros(11)], 1)

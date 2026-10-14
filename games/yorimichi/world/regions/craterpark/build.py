@@ -521,6 +521,18 @@ def main():
         if sides is not None:
             added.append(({'id': f'add-run-{name}-sides', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
                            'doubleSided': False, 'added': True}, sides))
+    # The ramps fly over the runs under them: their walls stop short over a riding face (a span), leaving it open.
+    over = grind.heights(np.concatenate([riding_now] + [v[f] for e, (v, f, _) in added if not e['id'].endswith('-sides')]))
+    for name, (path, start, (y, degrees, parts), width, wall) in additions.RAMPS.items():
+        made = additions.ramp(path, start, additions.profile(y, degrees, parts), width, wall, ground=around)
+        if made is None:
+            continue
+        added.append(({'id': f'add-run-{name}', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                       'doubleSided': False, 'added': True}, made))
+        sides = additions.solidify(made[0][made[1]].astype('f8'), heights, around, clear=over)
+        if sides is not None:
+            added.append(({'id': f'add-run-{name}-sides', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                           'doubleSided': False, 'added': True}, sides))
     for name, (box, level, material) in additions.STREETS.items():
         made = additions.street(riding_now, solid_now, box, level)
         if made is None:

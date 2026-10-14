@@ -55,7 +55,11 @@ BANKS = {'tower_plaza_hip': ((1155., 1003., 1187., 1025.), None, 2.5),   # a hip
          # From the south-west bowl's rim deck (11 m) down to the banked curve's outer lip (9.5 m), beside the
          # tunnel strip: the line's way back towards the drop-in.
          'bowl_rim_to_curve': ((1139., 903., 1149.5, 969.), [((1136., 897., 1151., 906.), 10., 12.),
-                                                            ((1139., 955., 1151., 972.), 7., 10.5)], None)}
+                                                            ((1139., 955., 1151., 972.), 7., 10.5)], None),
+         # The 12 m half-pipe's west deck (-10.1 m) down its stepped neck to the peanut bowl's tail (-14.5 m): a landing
+         # for an air out over the west coping, and one smooth bank where the steps were.
+         'half_pipe_to_peanut': ((1266., 953., 1282., 965.), [((1280., 948., 1290., 972.), -10.6, -9.9),
+                                                              ((1255., 952., 1268., 966.), -15.8, -13.9)], 2.5)}
 # The snake runs: a centreline [(x, z) or (x, y, z)], the floor's width, the walls' height, their radius, and whether
 # it is laid on the path under it (snake_run).
 SNAKE_RUNS = {
@@ -63,9 +67,45 @@ SNAKE_RUNS = {
     'curve_to_blue_pool': ([(1211., 955.5), (1217., 950.), (1229.7, 939.7), (1248., 924.2), (1257.6, 917.9),
                             (1264.9, 914.4), (1268., -22.1, 913.4), (1277., -22., 911.)], 6., 2.5, 3.5, True),
     # The blue pool's north coping (-22 m) to the 12 m half-pipe's floor (-22 m), through the hump between them (cut).
-    'blue_pool_to_half_pipe': ([(1316., -22., 923.), (1318., -22., 936.), (1322., -22., 950.)], 6., 2.5, 3.5, False)}
+    'blue_pool_to_half_pipe': ([(1316., -22., 923.), (1318., -22., 936.), (1322., -22., 950.)], 6., 2.5, 3.5, False),
+    # The valley's floor (-24.2 m), where the rider stopped, south through the city's dirt to its paved central street
+    # (-22.4 m): a pump track, rollers a metre high every 8 m between transition walls.
+    'valley_pump_track': ([(1322., -24.2 + k % 2, 1134. - 4 * k) for k in range(15)]
+                          + [(1322., -23.4, 1072.), (1322., -22.4, 1066.), (1322., -22.4, 1056.)], 7., 2.5, 3.5, False)}
+# The ramps: a centreline [(x, z)], where along it the ramp starts (metres), its profile (y, degrees, parts; profile),
+# its width and its walls' height (ramp). A gap is a kicker and a landing on one line.
+GAP_LINE = [(1144., 931.4), (1380., 902.6)]
+PLAZA_LINE = [(1237.6, 1037.1), (1337.6, 967.1)]  # the terrace (7.5 m) south-east, past its planters, into the half-pipe     # the rim deck (11 m) east, over the dumbbell's disk, into the blue pool
+RAMPS = {
+    # The blue pool gap: a 50 m bridge off the south-west bowl's rim deck, a crest (radius 50 m) down to 32 degrees, a
+    # kicker to a 15-degree lip at -2.5 m; a table, a 32-degree landing over the snake run's end (5 m up) and a run-out
+    # into the pool's floor (-24.9 m). The game's rider (offline simulation): 16-18 m/s at the lip from 7-13 m/s on
+    # the bridge, a 35 m, 2.2 s air from 10 m/s, clean at every speed (slower ones land on the table), 23-25 m/s in.
+    'pool_gap_kicker': (GAP_LINE, 0., (11.1, -1., [('line', 50.), ('arc', 50., -32.), ('line', 2.), ('arc', 30., 0.),
+                                                   ('arc', 20., 15.)]), 7., 0.),
+    'pool_gap_landing': (GAP_LINE, 100.2, (-2.99, 0., [('line', 6.), ('arc', 18., -32.), ('line', 22.2), ('arc', 35., 0.)]),
+                         10., 0.),
+    # The pool's far side at that speed: its 3 m wall is vertical at the top (from 22 m/s the rider bailed there), so a
+    # bank over it from the run-out's foot: a 12 m transition to 28 degrees, clear of the old coping, up 22.5 m to the
+    # south-east run's deck (-2.4 m), the crater floor's way out; down it, the run drops into the pool.
+    'pool_east_bank': (GAP_LINE, 157.5, (-24.9, 0., [('arc', 12., 28.), ('line', 30.8), ('arc', 40., 0.), ('line', 12.5)]),
+                       12., 0.),
+    # The plaza's gap south-east over the hillside and the city's west street (29 m down): a 4.5 m step-up off the
+    # terrace (it bleeds the speed the hip gives: past 21 m/s at the lip the rider overshot the landing and bailed), a
+    # 15-degree lip at the terrace's edge, a 10 m table and a 45-degree landing easing out (radius 70 m) over the paved
+    # street onto the 12 m half-pipe's floor. The game's rider: clean from 14 to 26 m/s on the terrace; 24 m/s flies
+    # 48 m in 2.8 s.
+    'plaza_gap_kicker': (PLAZA_LINE, 0., (7.5, 0., [('arc', 20., 25.), ('line', 6.), ('arc', 20., 0.), ('line', 3.),
+                                                     ('arc', 15., 15.)]), 8., 0.),
+    'plaza_gap_landing': (PLAZA_LINE, 31.3, (14.06, 0., [('line', 10.), ('arc', 25., -45.), ('line', 8.24), ('arc', 70., 0.)]),
+                          10., 0.),
+    # The 12 m half-pipe's east wall carried up 11 m to the black bowls' pocket (-0.9 m): a roll-in (crest radius 14 m,
+    # 38 degrees, the old wall's angle where they meet). From a standstill the rider reaches the floor at 16.5 m/s; up
+    # it, a pump out of the crater floor to the black bowls and the tunnel.
+    'half_pipe_roll_in': ([(1378., 953.), (1340., 953.)], 0., (-0.9, 0., [('line', 4.), ('arc', 14., -38.), ('line', 11.4)]),
+                          8., 0.)}
 # The streets: a box over the open ground, the heights (low, high) of the pieces it is paved flush with, and its material.
-STREETS = {'central_street': ((1318., 998., 1348., 1055.), (-22.7, -22.), 'material_012')}  # the walkways, herringbone
+STREETS = {'central_street': ((1306., 968., 1348., 1055.), (-22.7, -22.), 'material_012')}  # the walkways, herringbone
 CLEAR = .05         # metres a street lies over the hillside at least (nearer, the two would flicker)
 OVER = .3           # metres: where the hillside comes up through a street more than this, the street stops at it
 
@@ -483,6 +523,8 @@ CUT = .3            # metres the hillside lies under a snake run laid through it
 SNAKE_LIP = .6      # metres of flat deck along a snake run's lip, behind its coping
 SNAKE_STEP = .5     # metres between the points its centreline is resampled at
 SNAKE_EASE = 2.     # metres over which its floor's height is smoothed along it
+SKIRT_DEGREES = 30. # a ramp's flank sloping down to the ground beside it (run_mesh)
+SKIRT_DEPTH = 4.    # metres it goes down at most
 
 
 def snake_run(riding, path, width, wall, radius, laid=True, cell=CELL):
@@ -514,8 +556,18 @@ def snake_run(riding, path, width, wall, radius, laid=True, cell=CELL):
     if laid:
         k = max(1, int(SNAKE_EASE / SNAKE_STEP / 2))
         y = np.convolve(np.pad(y, k, mode='edge'), np.ones(2 * k + 1) / (2 * k + 1), mode='valid')
+    return run_mesh(line, y, width, wall, radius, cell)
+
+
+def run_mesh(line, y, width, wall, radius, cell=CELL, ground=None):
+    """The mesh of a run along `line` (k, 3) whose floor lies at `y` (k,) under it: a floor `width` wide, a circle's arc
+    of `radius` either side rising `wall` over it, then SNAKE_LIP of flat deck; its ends open, cut square across it.
+    With `ground` (m, 3, 3), its sides slope down at SKIRT_DEGREES to the ground under them where it lies within
+    SKIRT_DEPTH (lower, they hang that far: solidify walls the rest): a ramp's flank meeting the street it lands on is
+    a hip to ride over, not a wall across it. (vertices, faces, uvs) or None."""
     radius = max(radius, wall); reach = np.sqrt(radius ** 2 - (radius - wall) ** 2)
-    half = width / 2 + reach + SNAKE_LIP
+    edge = width / 2 + reach + SNAKE_LIP
+    half = edge + (SKIRT_DEPTH / np.tan(np.radians(SKIRT_DEGREES)) if ground is not None else 0.)
     x0, z0 = line[:, [0, 2]].min(0) - half - cell; x1, z1 = line[:, [0, 2]].max(0) + half + cell
     xs = np.arange(x0, x1 + cell / 2, cell); zs = np.arange(z0, z1 + cell / 2, cell)
     gx, gz = np.meshgrid(xs, zs)
@@ -536,11 +588,66 @@ def snake_run(riding, path, width, wall, radius, laid=True, cell=CELL):
         beyond = np.where(better, out, beyond)
     e = np.clip(best - width / 2, 0., reach)
     height = floor_y + radius - np.sqrt(np.maximum(radius ** 2 - e ** 2, 0.))
-    nodes = ((best <= half) & ~beyond).reshape(gx.shape)
+    nodes = (best <= half) & ~beyond
+    if ground is not None:
+        drop = np.maximum(best - edge, 0.) * np.tan(np.radians(SKIRT_DEGREES))
+        under = np.full(len(q), -np.inf); flank = nodes & (best > edge)
+        under[flank] = top_heights(ground, np.stack([q[flank, 0], height[flank] - drop[flank] + OVER, q[flank, 1]], 1))
+        # A flank node lies over the ground (or a little in it, so no crack opens), and the slope stops where it met it.
+        nodes &= ~flank | (height - drop >= under - CUT)
+        height = height - drop
+    nodes = nodes.reshape(gx.shape)
     vertices, faces = grid_mesh(x0, z0, cell, height.reshape(gx.shape), nodes)
     if not len(faces):
         return None
     return vertices.astype('f4'), faces, (vertices[:, [0, 2]] / UV_METRES).astype('f4')
+
+
+def hermite(s, y, slope, at):
+    """The curve through the heights `y` at the distances `s` along a line, rising at the `slope`s there (rise per
+    metre), a cubic between each two: a ramp's profile with its lip and its landing at exactly their angles."""
+    s, y, m = (np.asarray(v, 'f8') for v in (s, y, slope))
+    k = np.clip(np.searchsorted(s, at) - 1, 0, len(s) - 2); h = s[k + 1] - s[k]
+    u = np.clip((at - s[k]) / h, 0., 1.)
+    h00, h10, h01, h11 = 2 * u ** 3 - 3 * u ** 2 + 1, u ** 3 - 2 * u ** 2 + u, -2 * u ** 3 + 3 * u ** 2, u ** 3 - u ** 2
+    return h00 * y[k] + h10 * h * m[k] + h01 * y[k + 1] + h11 * h * m[k + 1]
+
+
+def profile(y, degrees, parts, step=1.):
+    """A ramp's profile from its start at height `y` rising at `degrees`, through `parts`: ('line', metres) straight on,
+    or ('arc', radius, degrees) curving to that angle on a circle (a crest down a roll-in, a kicker's transition up to
+    its lip, a landing's knuckle and its run-out): its knots [(s, y, degrees)] every `step` metres at most, for ramp."""
+    s, a = 0., float(degrees); knots = [(s, float(y), a)]
+    for part in parts:
+        if part[0] == 'line':
+            n = max(1, int(np.ceil(part[1] / step)))
+            for _ in range(n):
+                s += part[1] / n; y += part[1] / n * np.tan(np.radians(a)); knots.append((s, y, a))
+        else:
+            radius, to = part[1], float(part[2])
+            n = max(1, int(np.ceil(radius * np.radians(abs(to - a)) / step)))
+            for k in range(1, n + 1):
+                b = a + (to - a) * k / n; prev = knots[-1][2]
+                # along the circle from angle prev to b: dx = R |sin b - sin prev|, dy = R |cos prev - cos b| signed
+                dx = radius * abs(np.sin(np.radians(b)) - np.sin(np.radians(prev)))
+                dy = radius * (np.cos(np.radians(prev)) - np.cos(np.radians(b))) * (1 if b > prev else -1)
+                s += dx; y += dy; knots.append((s, y, b))
+            a = to
+    return knots
+
+
+def ramp(path, start, knots, width, wall=0., radius=RADIUS[1], cell=CELL, ground=None):
+    """A ramp along the centreline `path` [(x, z)] from `start` metres along it, its floor's height along it from the
+    `knots` [(s, y, degrees)] (profile; s from the ramp's start, a cubic between, so each knot's angle holds there: a
+    kicker's lip, a landing's slope), `width` wide, with walls as a snake run's (run_mesh; `wall` 0: a plain sheet). A
+    gap is a kicker and a landing, each a ramp on one path. (vertices, faces, uvs) or None."""
+    p = np.asarray(path, 'f8'); k = np.asarray(knots, 'f8')
+    seg = np.linalg.norm(np.diff(p, axis=0), axis=1); s = np.concatenate([[0.], np.cumsum(seg)])
+    t = np.arange(0., k[-1, 0] + 1e-6, SNAKE_STEP)
+    if t[-1] < k[-1, 0] - 1e-6:
+        t = np.append(t, k[-1, 0])
+    line = np.stack([np.interp(start + t, s, p[:, 0]), np.zeros(len(t)), np.interp(start + t, s, p[:, 1])], 1)
+    return run_mesh(line, hermite(k[:, 0], k[:, 1], np.tan(np.radians(k[:, 2])), t), width, wall, radius, cell, ground)
 
 
 def cut_ground(positions, pieces, depth=CUT):
@@ -626,6 +733,8 @@ LOWEST = .15        # metres: a free edge this close over what lies under it res
 FAR_DOWN = 30.      # metres a wall goes down at most, where nothing lies under it
 BURY = .1           # metres a wall goes on under the ground it stands on
 SHEET = .4          # metres either side of a sheet's face that are open air
+HEADROOM = 3.       # metres over a riding face at least, for a ramp's wall over it to stop short as a span (solidify)
+BEAM = .6           # metres deep: a span's fascia over a run it leaves open
 
 
 def free_edges(triangles):
@@ -657,14 +766,16 @@ def local_centres(points, centres, radius):
     return np.where(counts[:, None] > 0, sums / np.maximum(counts, 1)[:, None], np.nan)
 
 
-def solidify(piece, heights, around, metres=UV_METRES):
+def solidify(piece, heights, around, metres=UV_METRES, clear=None):
     """Caps and walls that close the free edges of the riding piece `piece` (n, 3, 3) where it ends in the air, a
     sheet with no thickness (a half-pipe's flank, the back of its wall): along each such edge a level cap THICK wide on
     the side away from the piece, then a wall from the cap's far edge down to whatever lies under it. `heights` is
     grind.heights over the whole park and `around` its faces (m, 3, 3); `metres` per texture tile. A sheet is open on
     both sides: from its face just inside the edge, nothing lies within SHEET either way (a trim on a wall's top, a
-    pool's rim or a ramp on its block has the solid behind it). Returns (vertices (k, 3), faces (m, 3), uvs (k, 2)) or
-    None: the caps' corners and the walls' are apart, so the edge between them stays sharp."""
+    pool's rim or a ramp on its block has the solid behind it). With `clear` (grind.heights over the riding faces), a
+    wall over a riding face HEADROOM or more under it stops BEAM down, a span's fascia: a ramp flying over a run leaves
+    it open. Returns (vertices (k, 3), faces (m, 3), uvs (k, 2)) or None: the caps' corners and the walls' are apart, so
+    the edge between them stays sharp."""
     t = piece.astype('f8')
     a, b, face = free_edges(t)
     if not len(a):
@@ -722,6 +833,10 @@ def solidify(piece, heights, around, metres=UV_METRES):
     far = corner + THICK * push
     ground = heights(far, far[:, 1] - FAR_DOWN, far[:, 1] - CLEAR_EDGE, top=True)
     bottom = np.where(np.isfinite(ground), ground, far[:, 1] - FAR_DOWN) - BURY
+    if clear is not None:
+        ride = clear(far, far[:, 1] - FAR_DOWN, far[:, 1] - HEADROOM, top=True)
+        span = np.isfinite(ride) & (ride >= bottom + BURY - LOWEST)        # the ground it stands on is ridden
+        bottom = np.where(span, far[:, 1] - BEAM, bottom)
     low = np.stack([far[:, 0], bottom, far[:, 2]], 1)
     # Vertices: the caps' (corner, far), then the walls' (far, low).
     vertices = np.concatenate([corner, far, far, low])
