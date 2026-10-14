@@ -61,10 +61,10 @@ def run_validators(park, out):
     return {'ran': True, 'ok': True}
 
 
-def bundle(park, lines=()):
+def bundle(park, lines=(), trees=None):
     """The arrays geometry.npz holds: render meshes r<i>_*, collision sections c<i>, rails rail<i>, and a JSON index
     (with park.json's `lines` entries)."""
-    arrays, index = {}, {'render': [], 'collision': [], 'rails': [], 'lines': list(lines)}
+    arrays, index = {}, {'render': [], 'collision': [], 'rails': [], 'lines': list(lines), 'trees': trees or {}}
     folded = 0
     for i, (name, role, mesh) in enumerate(split.render_meshes(park.mesh)):
         # no degenerate face may reach the importer's triangle check (build.py FOLDED)
@@ -114,10 +114,14 @@ def main(argv=None):
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     park, module = compile_park(layout)
     lines = line_spawns(park, module)
+    from craterpark import placement
+    from craterpark.v2 import dressing
+    dressing.check(park.mesh, placement)          # every drawn face on the block, riding clear of the island's dressing
+    trees = dressing.plant(park.mesh)
     from craterpark.v2 import ao
     ao.bake_mesh(park.mesh, drawn=(dsl.RIDING, dsl.SIDE, dsl.GROUND, dsl.COPING, dsl.RAIL))
     validation = run_validators(park, out)
-    arrays, index = bundle(park, lines)
+    arrays, index = bundle(park, lines, trees)
     np.savez(out / 'geometry.npz', **arrays)
     from craterpark.v2 import export
     (out / 'lines').mkdir(exist_ok=True)

@@ -153,7 +153,7 @@ def test_export_keeps_r4s_build_and_park_json_key_sets(tmp_path):
         want = {tuple(sorted(e)) for e in r4[kind]}
         assert {tuple(sorted(e)) for e in build[kind]} == want
         assert build[kind]
-    assert set(park) == set(r4park) | {'lines'}
+    assert set(r4park) <= set(park) <= set(r4park) | {'lines', 'trees'}
     assert [ln['key'] for ln in park['lines']] == ['m0'] and park['spawn'] == park['lines'][0]['spawn']
     # the smoke's start stands on the r4 drop-in, facing r4's way: the same spawn as r4
     assert np.allclose(park['spawn']['location_cm'], r4park['spawn']['location_cm'], atol=.01)

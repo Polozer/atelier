@@ -35,9 +35,21 @@ def adaptive(spans, density, dense=64):
     return t
 
 
-def merge_params(t, extra, tol=1e-9):
-    t = np.unique(np.concatenate([np.asarray(t, 'f8'), np.asarray(extra, 'f8').ravel()]))
-    return t[np.r_[True, np.diff(t) > tol]]
+def merge_params(t, extra, tol=1e-9, near=.01):
+    """The adaptive parameters `t` united with the kept ones `extra` (knots, tags, given stations): every kept one
+    survives; an adaptive one within `near` (1 cm) of a kept one, or of the previous adaptive one, is dropped, so no
+    sliver row is ever made."""
+    keep = np.unique(np.asarray(extra, 'f8').ravel())
+    keep = keep[np.r_[True, np.diff(keep) > tol]] if len(keep) else keep
+    t = np.unique(np.asarray(t, 'f8'))
+    if len(keep) and len(t):
+        j = np.clip(np.searchsorted(keep, t), 1, len(keep)) if len(keep) > 1 else np.zeros(len(t), 'i8')
+        d = np.minimum(np.abs(t - keep[np.clip(j - 1, 0, len(keep) - 1)]), np.abs(t - keep[np.clip(j, 0, len(keep) - 1)]))
+        t = t[d > near]
+    if len(t) > 1:
+        t = t[np.r_[True, np.diff(t) > near]]
+    out = np.unique(np.concatenate([t, keep]))
+    return out[np.r_[True, np.diff(out) > tol]] if len(out) else out
 
 
 class Curve:
