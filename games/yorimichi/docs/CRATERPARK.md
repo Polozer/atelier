@@ -132,6 +132,44 @@ query met nearly all of them: by the east wooden ramps a simulation step took up
 walking stayed smooth. Each collision mesh is now stored along a Z-order curve of its faces' centres, the faces over
 8 m across in groups of their own: a group spans a median 9-16 m (52 m on the hillside's large faces).
 
+## Clean geometry
+
+r4 hid its geometry's faults instead of removing them. It dropped faces lying on an earlier mesh, pushed partial
+overlaps back 5 mm, merged flat faces into fans of needles, and drew the foundations' prism walls and bottoms buried in
+the block. [`craterpark/cleanbuild.py`](../world/regions/craterpark/cleanbuild.py) cleans build.py's pieces once,
+after the additions, for both the render and the collision:
+
+- **Seen faces only** ([`visibility.py`](../world/regions/craterpark/visibility.py), `clean.reachable`). The open space
+  connected to the outside is flood-filled on a 0.5 m grid. A face is drawn if a ray from it escapes the park, or runs
+  freely through that space. Up to 16 sample points per face, 8 cosine-weighted rays each, cover tunnels, spans and
+  pockets.
+  - Two exact tests run before any ray: a foundation face within 5 cm of a riding surface, and a wall two prisms
+    share (a face lying wholly on one turned the other way).
+  - A riding top (normal y over 0.2) is never dropped on failed rays alone.
+- **No face on another** (`clean.overlap_pairs`, `clean.subtract`). Faces within 1 cm of each other and parallel within
+  2 degrees are found through a plane index. The lower-ranked face (rank as `ROLES`, then the added pieces, the
+  coping last) has the higher one's outline cut out of it exactly, in its own plane. Nothing is pushed back.
+- **Conforming seams** (`clean.fix_tjunctions`). A vertex lying inside another face's edge, of its own mesh or of any
+  other, splits that face. Its UVs are interpolated along the split edge.
+- **Remeshed with bounds** ([`remesh.py`](../world/regions/craterpark/remesh.py)).
+  - Each mesh is cut into patches: the added pieces' tops as height fields over the ground, the rest as planar
+    patches (within 0.5 degrees and 1 mm).
+  - The chains between patches are simplified once, within 1.5 mm (and 0.02 of the occlusion). Both sides share them.
+  - Each patch is re-triangulated by constrained Delaunay and refined from its own vertices until every original
+    vertex lies within 3 mm of it, within 0.02 of its occlusion, and within 0.002 of its UVs.
+  - A patch that cannot be certified keeps its faces, and its neighbours are redone against its full outline.
+- **The occlusion** is baked as before (same rays, reach and smoothing) on the fine faces, before the remesh.
+- **An old mesh an added piece was laid through** (`CUT_UNDER`; the planter under the plaza kicker) loses its parts
+  over the piece's top, cut exactly. The list is explicit: a floor that a piece runs under, as the pool landing's
+  run-out does, is ridden and stays.
+- **The ramps and snake runs are swept**, not gridded (`additions.run_mesh`):
+  - A cross-section every 25 cm along the eased centreline, each vertex on its exact distance from the centreline.
+  - The floor's edges, the arcs' tops, the lips and the outline are true lines. A 25 cm grid gave them a staircase,
+    and its smoothing left teeth on the side walls.
+  - The side walls are textured by distance along their top.
+
+Each piece's remesh is cached under its inputs' hash, in `build/yorimichi/craterpark/clean-cache`.
+
 ## Riding
 
 Faces of two meshes lying partly on each other (a foundation's wall behind a ramp's side, the hillside against a

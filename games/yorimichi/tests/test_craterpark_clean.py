@@ -7,7 +7,7 @@ import numpy as np
 
 GAME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GAME / 'world' / 'regions'))
-from craterpark import clean, remesh  # noqa: E402
+from craterpark import additions, clean, remesh  # noqa: E402
 
 
 def area(t):
@@ -78,6 +78,23 @@ class CleanTests(unittest.TestCase):
         inside = np.floor((np.array([2., 2, 2]) - lo) / h).astype(int)
         outside = np.floor((np.array([-.7, 2, 2]) - lo) / h).astype(int)
         self.assertFalse(grid[tuple(inside)]); self.assertTrue(grid[tuple(outside)])
+
+
+class RibbonTests(unittest.TestCase):
+    def test_a_straight_run_has_a_straight_outline_square_ends_and_its_profile(self):
+        line = np.stack([np.linspace(0, 10, 21), np.zeros(21), np.zeros(21)], 1)
+        width, wall, radius = 4., 1., 2.
+        v, f, uv = additions.run_mesh(line, np.zeros(21), width, wall, radius)
+        v = v.astype('f8')
+        reach = np.sqrt(radius ** 2 - (radius - wall) ** 2); edge = width / 2 + reach + additions.SNAKE_LIP
+        self.assertAlmostEqual(np.abs(v[:, 2]).max(), edge, places=5)            # the outline: the run's edge
+        self.assertAlmostEqual(v[:, 0].min(), 0., places=5); self.assertAlmostEqual(v[:, 0].max(), 10., places=5)
+        e = np.clip(np.abs(v[:, 2]) - width / 2, 0, reach)
+        self.assertLess(np.abs(v[:, 1] - (radius - np.sqrt(radius ** 2 - e ** 2))).max(), 1e-5)   # on the profile
+        key, face, inv, cnt = remesh.edges_of(f)
+        self.assertTrue((cnt <= 2).all())                                            # a clean sheet
+        n = np.cross(v[f][:, 1] - v[f][:, 0], v[f][:, 2] - v[f][:, 0])
+        self.assertTrue((n[:, 1] > 0).all())                                         # facing up
 
 
 class RemeshTests(unittest.TestCase):

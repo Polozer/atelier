@@ -222,8 +222,11 @@ def clean(loaded, cache=None, box=None):
         for p in pieces:
             c = p['P'][p['F']].mean(1)
             m = (c[:, 0] >= box[0]) & (c[:, 0] <= box[2]) & (c[:, 2] >= box[1]) & (c[:, 2] <= box[3])
+            cut = np.zeros(len(p['P']), bool)                          # on the box's cut: kept exactly (tiles meet)
+            cut[np.intersect1d(p['F'][m].ravel(), p['F'][~m].ravel())] = True
             F = p['F'][m]; used = np.unique(F); rm = np.full(len(p['P']), -1, 'i8'); rm[used] = np.arange(len(used))
             p['P'], p['F'], p['UV'], p['AO'] = p['P'][used], rm[F], p['UV'][used], p['AO'][used]
+            p['cut'] = cut[used]
         pieces = [p for p in pieces if len(p['F'])]
     # 6. remesh
     keys = np.concatenate([np.round(p['P'] / WELD).astype('i8') for p in pieces])
@@ -238,6 +241,8 @@ def clean(loaded, cache=None, box=None):
         mine = inv[off[k]:off[k + 1]]
         cnt = np.bincount(mine, minlength=len(u))
         fixed_v = shared[mine] | (cnt[mine] > 1)                       # seams with other meshes, UV seams within
+        if 'cut' in p:
+            fixed_v = fixed_v | p['cut']
         textured = e['role'] not in B.PLAIN and e['id'] != 'add-coping'
         A = np.stack([AO] + ([UV[:, 0], UV[:, 1]] if textured else []), 1)
         tolA = np.array([TOL_AO] + ([TOL_UV, TOL_UV] if textured else []))

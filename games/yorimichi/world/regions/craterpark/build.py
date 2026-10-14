@@ -582,9 +582,9 @@ def main():
     for p in pieces_:
         entry = p['entry']; vertices, faces, uvs, ao = p['out']
         mesh = export_mesh('SM_CP_' + entry['id'].replace('-', '_'), vertices, faces, [entry['material']],
-                           np.zeros(len(faces), 'i4'), None if entry['role'] in PLAIN else uvs, smooth=True, ao=ao)
-        mesh.update(source_id=entry['id'], role=entry['role'], fine_triangles=p['fine_faces'],
-                    occlusion_mean=round(float(ao.mean()), 4))
+                           np.zeros(len(faces), 'i4'), uvs, smooth=True, ao=ao)
+        mesh.update(source_id=entry['id'], role=entry['role'], skipped=0, covered=0, fine_triangles=p['fine_faces'],
+                    occlusion_mean=round(float(ao.mean()), 4))      # skipped, covered: r4's keys, nothing hidden that way now
         report['render'].append(mesh)
         print('Exported', mesh['name'], len(faces), 'of', p['fine_faces'], flush=True)
     _, final = cleanbuild.collision([dict(entry=p['entry'], P=p['out'][0], F=p['out'][1]) for p in pieces_])
