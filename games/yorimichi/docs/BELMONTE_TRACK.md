@@ -6,6 +6,7 @@ The track for the Belmonte steam line (H2 to Belmonte, 7.17 km, route v3 at 4%),
   `world.belmonte_train_route`).
 - Layout code, no Blender: `world/train/track.py`.
 - Meshes: `world/train/track_build.py` (Blender, explicit step `world.belmonte_track`).
+- Control renders: `world/train/track_render.py` (explicit step `world.belmonte_track_review`).
 - Output: `build/yorimichi/belmonte-track/`.
 
 ## Scope of the first version
@@ -61,6 +62,7 @@ are for the worst view, either a player on the viaduct or at the loop looking do
 | Draw calls from the track in view | ≤ 40 |
 | Triangles in view (after LOD) | ≤ 60k |
 | Ballast + rails chunk, LOD0 / LOD1 / LOD2 | ≤ 1,200 / 400 / 120 tris |
+| Loop track rails (260 m, one mesh), LOD0 / LOD1 / LOD2 | ≤ 2,000 / 400 / 120 tris |
 | LOD screen sizes | 0.5 / 0.15 / 0.04 (LOD2 holds beyond about 600 m) |
 | Sleeper | 12 tris; ≤ 400 drawn instances in view (11.4k in total) |
 | Tunnel lining chunk, LOD0 / LOD1 | ≤ 600 / 200 tris; nothing drawn from outside a tunnel |
@@ -75,9 +77,36 @@ are for the worst view, either a player on the viaduct or at the loop looking do
 The build writes `manifest.json` with the triangle count of every mesh and LOD. A test checks the counts against
 these budgets.
 
+## Version 1 as built
+
+Steps: `atelier build yorimichi world.belmonte_track` (and `world.belmonte_track_review` for the control renders in
+`review/`).
+
+| Part | Built | Worst triangles per LOD |
+| --- | --- | --- |
+| Main chunks | 72 | 950 / 220 / 40 |
+| Loop rails | 1 | 1,820 / 312 / 44 |
+| Tunnel linings | 28 | 520 / 120 |
+| Portal | 1 mesh, 4 instances | 236 / 124 |
+| Viaduct | 4 pieces | 1,560 in total at LOD0 |
+| Sleepers | 11,725 instances | 10 each |
+
+The GLBs take 7.6 MB in total and `track.json` 1 MB.
+
+- Through the loop, the main chunks' ballast widens under the second track.
+- Where the two tracks are closer than a sleeper's length, they share long timbers. These are sleeper instances
+  scaled along their length.
+- The turnout mesh carries the switch stand, lever, rodding, blades and a block frog.
+- The rails of the two tracks simply cross at the frog.
+- UVs are planar, in metres along each face's dominant axis.
+- The ballast texture with painted sleepers is still to come; the GLBs use flat material colours named after the
+  Belmonte material instances.
+- Collision comes from the chunk's LOD2 (ballast), the lining's LOD1 and the viaduct's LOD2.
+
 ## Outputs (`build/yorimichi/belmonte-track/`)
 
-- `SM_TK_Chunk_<nn>_LOD0/1/2.glb`: one per 100 m of line, loop chunks included.
+- `meshes/SM_TK_Chunk_<nn>_LOD0/1/2.glb`: one per 100 m of line.
+- `meshes/SM_TK_Loop_LOD*.glb`: the loop track's rails.
 - Tunnel linings: `SM_TK_Tunnel_<tunnel>_<nn>_LOD*.glb`.
 - Viaduct pieces: `SM_TK_Viaduct_<nn>_LOD*.glb`.
 - One file each for the turnouts, portal, sleeper, buffer stop and stop board: `SM_TK_Turnout_*`, `SM_TK_Portal`,
