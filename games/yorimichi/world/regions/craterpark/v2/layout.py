@@ -156,6 +156,16 @@ class Link:
     params: dict = field(default_factory=dict)
 
 
+# ---------------------------------------------------------------- palette (owner, note 26: dark concrete is out)
+PALETTE = {
+    'concrete': 'material_010',     # pale concrete: every run, ramp and bowl
+    'deck': 'material_000',         # decks and the tower
+    'pool': 'material_019',         # blue: the Blue Pool only
+    'coping': 'coping_steel',       # bowl lips, the pool and the tower lip
+    'wood': 'material_016',
+}
+FORBIDDEN_MATERIALS = ('material_004',)   # dark concrete
+
 # ---------------------------------------------------------------- the tower
 TOWER = {
     'centre': (1146.5, 1136.7),    # island (992, 2541); the world-map travel point moves here
@@ -164,7 +174,7 @@ TOWER = {
     'cap': 1.5,                    # flat caps on every wall, metres
     'sides': 'earth-banked at 30 degrees to the ground fill; no free-standing walls',
     'roll_ins': {'T1': 'L1', 'T2': 'L2', 'T3': 'L3'},
-    'material': 'material_000',
+    'material': 'material_000',    # PALETTE['deck']
 }
 
 # The Crater Gap landing, ridden: knuckle R15 to 24 degrees, 16 m, R45 out. Lips 17.6-20.5 m/s land 26-43 m out, an
@@ -262,21 +272,21 @@ LINES = (L1, L3, L2)
 # ---------------------------------------------------------------- the bowl complex
 BOWLS = (
     Bowl('crater_bowl', centre=(1367.1, 932.2), axis=5.0, size=(120., 55.), rim_y=-10.0, floor_y=-19.0,
-         r=8.0, vert=1.0, deck=3.0, material='material_004', max_entry=25.0,
+         r=8.0, vert=1.0, deck=3.0, material=PALETTE['concrete'], max_entry=25.0,
          openings=(('L1', (1357.4, 973.8), 'roll-in bank, NE rim'), ('L3', (1311.5, 926.3), 'east end at floor level'),
                    ('L2', (1429.8, 936.8), 'roll-in bank, west end')),
          notes='Ridden straight-on (simout/bowlwalls.txt): R8 + 1 m vert returns clean to 25 m/s; 26-28 m/s lands on the '
                'deck behind the coping (no bail). The east end is a mellow R25 bank to 30 degrees, where L3 rolls in along '
                'the axis with about 115 m of floor to bleed. r4 SW mega bowl reference: 73 m wide, R10-19, 25 m floor.'),
     Bowl('blue_pool', centre=(1387.6, 870.7), axis=5.0, size=(47., 25.), rim_y=-10.0, floor_y=-12.9,
-         r=2.5, vert=0.4, deck=2.0, material='material_003', max_entry=10.0,
+         r=2.5, vert=0.4, deck=2.0, material=PALETTE['pool'], max_entry=10.0,
          copy_from={'meshes': ('geometry/mesh-0098-000.npz', 'geometry/mesh-0064-000.npz'), 'r4_centre': (1296.3, 910.7),
                         'r4_floor_y': -24.9, 'r4_coping_y': -22.0, 'note': 'translate by (centre - r4_centre), keep orientation; '
                         'r4 pool: about 47 x 25 m, 17 m across at x 1300, 2.9 m deep (4.1 m deep end), R2-3, vertical top'},
          notes='Reached only from inside the complex. Ridden (simout/bowlwalls2.txt): R2.5 + 0.4 m vert returns clean at '
                '8-10 m/s; at 12 m/s the rider lands on the deck. Pool entry 10 m/s or less.'),
     Bowl('peanut', centre=(1312.7, 866.2), axis=5.0, size=(40., 18.), rim_y=-10.0, floor_y=-13.3,
-         r=3.0, vert=0.3, deck=2.0, material='material_004', max_entry=10.0,
+         r=3.0, vert=0.3, deck=2.0, material=PALETTE['concrete'], max_entry=10.0,
          notes='Two lobes 18 m across with a 12 m waist hip. R3 + 0.3 m vert returns clean at 8-10 m/s (ridden).'),
 )
 

@@ -79,3 +79,13 @@ def test_crater_line_compiles_with_tags():
     assert {'takeoff', 'landing'} <= tags
     air = [c for c in built.checks if c.get('kind') == 'air']
     assert len(air) == 1 and air[0]['gap'] == pytest.approx(22.) and air[0]['lip_degrees'] == pytest.approx(30.)
+
+
+def test_palette_is_pale():
+    """Owner: no dark concrete. Bowls are pale concrete, blue only on the Blue Pool."""
+    for b in L.BOWLS:
+        assert b.material not in L.FORBIDDEN_MATERIALS, b.id
+        assert b.material == (L.PALETTE['pool'] if b.id == 'blue_pool' else L.PALETTE['concrete']), b.id
+    assert L.TOWER['material'] == L.PALETTE['deck']
+    used = {dsl.MATERIALS[i] for i in np.unique(L.build_line(L.L1, ground=-20.).mesh.material)}
+    assert not used & set(L.FORBIDDEN_MATERIALS)
