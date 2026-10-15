@@ -475,6 +475,11 @@ The web server is Rust (`platform/web/board/server`: axum and SQLite). `board se
 and stops it when it stops. If cargo is missing or a build fails, it keeps serving with the last binary it built. The
 server shares the mailbox, its schema and its rules with the `atelier board` CLI, which agents keep using.
 
+The server bundles SQLite 3.51.3 through rusqlite 0.39 and checks its linked version at startup. SQLite 3.51.0/1
+can deadlock when a WAL connection closes while another opens; [SQLite 3.51.2 fixed that lock-order defect](https://sqlite.org/releaselog/3_51_2.html).
+The concurrent open/read/close regression runs in an owned subprocess with a deadline and retains a stack sample
+and logs on timeout, so a dependency regression cannot hang the test runner.
+
 For a deployment whose server was already built and reviewed, skip the startup cargo build with the paired
 `--prebuilt-server /absolute/staged/atelier-board-server --prebuilt-sha256 EXPECTED_SHA256` options. The Python
 launcher still initializes the mailbox, starts its presence watcher, supplies the normal server arguments and
