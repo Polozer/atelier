@@ -855,12 +855,14 @@
       const bids = out.map(q => { M.pos.push(q[0], bot, q[1]); M.nor.push(0, -1, 0); M.col.push(...COL.bottom); return M.pos.length / 3 - 1; });
       for (const t of triangulate(out)) M.idx.push(bids[t[0]], bids[t[1]], bids[t[2]]);
     }
+    // its top is the deck's outer edge (ringAt r 0: a deep pocket's wall stands on its lowered floor, y0 - dep)
+    const deckY = i => y0 - (wall[i].dep || 0) + wall[i].h;
     for (let i = 0; i < n; i++) {
       if (ME.has(i)) continue;
       const j = (i + 1) % n, a = out[i], c = out[j];
       const nx = (c[1] - a[1]) * -sgn, nz = (a[0] - c[0]) * -sgn, l = Math.hypot(nx, nz) || 1;
       const k = M.pos.length / 3;
-      for (const q of [[a[0], y0 + wall[i].h, a[1]], [c[0], y0 + wall[j].h, c[1]], [c[0], bot, c[1]], [a[0], bot, a[1]]]) { M.pos.push(...q); M.nor.push(nx / l, 0, nz / l); M.col.push(...COL.side); }
+      for (const q of [[a[0], deckY(i), a[1]], [c[0], deckY(j), c[1]], [c[0], bot, c[1]], [a[0], bot, a[1]]]) { M.pos.push(...q); M.nor.push(nx / l, 0, nz / l); M.col.push(...COL.side); }
       M.idx.push(k, k + 2, k + 1, k, k + 3, k + 2);
     }
     return M;

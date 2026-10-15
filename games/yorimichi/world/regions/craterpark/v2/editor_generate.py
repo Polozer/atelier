@@ -3,7 +3,8 @@
 The geometry is the editor's own: the pinned pieces.js (editor/pieces.cjs) meshes every piece through the Node bridge,
 exactly as the editor draws it. `--lines` keeps only those lines (by id, or single pieces by id), plus the pieces they
 ride into and the decks they start from. The ramps are laid with planks running across them (piece_uv); a bowl named
-in DECALS is painted with its own graphic from above. Supports (editor_supports: stone viaducts under every ramp) are
+in DECALS is painted with its own graphic (editor_decal: from above on its floor, laid down its walls, with a tile band
+under its brick coping and a concrete deck). Supports (editor_supports: stone viaducts under every ramp) are
 generated from the pieces and the cut ground; they are not the v4 validated supports, so the geometry is still marked
 an editor playtest instead of a validated v4 park.
 
@@ -34,7 +35,7 @@ WOOD = 'material_030'     # ramp planks, a Sunburst painting on piece_uv (assets
 PLANKS = 4.             # metres the ramp-plank texture spans each way (eight boards: half-metre boards)
 SIDES = 'material_029'    # the ramps' outer sides: the viaducts' masonry (editor_supports.STONE), world-aligned, so the
                           # stone runs up to the planks as in the concept and only the riding faces are wood
-# a bowl named with a key here is painted with that decal material, laid over it from above (decal_frame, decal_uv):
+# a bowl named with a key here is painted with that decal material (editor_decal), its plan frame decal_frame:
 # tools/craterpark_textures.py DECALS paints it onto a plan rendered with the same frame
 DECALS = {'Prado': 'material_031'}
 KICK_REACH = 30.        # metres of a capped run's end that count as its launch ramp
@@ -167,11 +168,15 @@ def piece_mesh(piece, decal=None, tower=False):
     ride, ride_uv = (dsl.CONCRETE if concrete else WOOD), (piece_uv(V, meta['stations']) if laid else None)
     if bowl and not concrete:
         ride_uv = bowl_uv(piece)
+    surfaces = [(~side, dsl.RIDING, ride, ride_uv)]
     if decal:
-        ride, ride_uv = decal, decal_uv(V, decal_frame(V))
-    for mask, role, material, uv in (
-            (~side, dsl.RIDING, ride, ride_uv),
-            (side, dsl.SIDE, dsl.SIDE_WALL if concrete else SIDES, None)):
+        # the painting on the floor and down the walls, a tile band under the coping, a concrete deck (editor_decal)
+        from craterpark.v2 import editor_coping, editor_decal
+        ride_faces, deck_faces = editor_coping._classes(piece)
+        got, _ = editor_decal.parts(piece, decal, ride_faces & ~side, deck_faces & ~side, decal_frame(V), meta['id'])
+        parts += got
+        surfaces = []
+    for mask, role, material, uv in surfaces + [(side, dsl.SIDE, dsl.SIDE_WALL if concrete else SIDES, None)]:
         uv = tile_uv(V, N) if uv is None else uv
         if tower:
             mask = mask & (V[F][:, :, 1].min(1) > V[:, 1].max() - .05)
