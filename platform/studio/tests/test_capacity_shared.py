@@ -3,6 +3,7 @@ from dataclasses import asdict
 import fcntl
 import json
 import os
+import stat
 from pathlib import Path
 import sys
 import subprocess
@@ -21,6 +22,7 @@ from atelier.safety import guarded
 
 BOOT_A = '11111111-1111-4111-8111-111111111111'
 BOOT_B = '22222222-2222-4222-8222-222222222222'
+BOOT_C = '44444444-4444-4444-8444-444444444444'
 actual_boot_id = wire.boot_id
 
 
@@ -53,6 +55,7 @@ def barrier(short_path, monkeypatch):
     monkeypatch.delenv('ATELIER_RENDER_LOCK_SCAN', raising=False)
     boot = [BOOT_A]
     monkeypatch.setattr(wire, 'boot_id', lambda: boot[0])
+    monkeypatch.setattr(compat, '_volume_uuid', lambda path: '33333333-3333-4333-8333-333333333333')
     paths = locks.lock_paths()
     for name, path in paths.items():
         path.write_text('unchanged ' + name)
@@ -105,6 +108,160 @@ def test_preopened_writer_is_not_a_same_boot_closure_proof(barrier):
     barrier.boot[0] = BOOT_B
     with pytest.raises(wire.CapacityError, match='modified'):
         compat.activate(barrier.config)
+
+
+def legacy_seal(barrier):
+    value = compat.prepare(barrier.config)
+    value['schema'] = 1
+    for item in value['locks'].values():
+        item.pop('volume_uuid')
+        item['device'] += 100  # Darwin's device number can change after a boot.
+    compat._save(compat.DEFAULT_RECORD, value)
+    return value
+
+
+def test_stable_volume_seal_accepts_new_boot_device_number(barrier):
+    value = compat.prepare(barrier.config)
+    assert value['schema'] == 2
+    for item in value['locks'].values():
+        item['device'] += 100
+    compat._save(compat.DEFAULT_RECORD, value)
+    barrier.boot[0] = BOOT_B
+    assert compat.activate(barrier.config)['state'] == 'active'
+    barrier.boot[0] = BOOT_C
+    assert compat.verify()['state'] == 'active'
+
+
+def test_volume_mismatch_refuses_even_with_unchanged_inode(barrier, monkeypatch):
+    activated(barrier)
+    monkeypatch.setattr(compat, '_volume_uuid', lambda path: BOOT_C)
+    with pytest.raises(wire.CapacityError, match='modified'):
+        compat.verify()
+
+
+def test_shared_handle_requires_current_device_even_after_boot(barrier, monkeypatch):
+    activated(barrier)
+    with barrier.paths['big'].open('rb') as handle:
+        actual_fstat = os.fstat
+        def changed_device(fd):
+            info = actual_fstat(fd)
+            if fd == handle.fileno():
+                return SimpleNamespace(st_dev=info.st_dev + 1, st_ino=info.st_ino,
+                    st_ctime_ns=info.st_ctime_ns, st_mode=info.st_mode,
+                    st_uid=info.st_uid, st_nlink=info.st_nlink)
+            return info
+        monkeypatch.setattr(compat.os, 'fstat', changed_device)
+        with pytest.raises(wire.CapacityError, match='replaced lane'):
+            compat.verify(handles={'big': handle})
+
+
+def test_forward_migration_preserves_old_seal_and_requires_another_boot(barrier):
+    old = legacy_seal(barrier)
+    original = compat.DEFAULT_RECORD.read_bytes()
+    before = {name: (path.stat().st_ino, path.stat().st_ctime_ns, path.read_bytes())
+              for name, path in barrier.paths.items()}
+    barrier.boot[0] = BOOT_B
+    with pytest.raises(wire.CapacityError, match='explicit volume migration'):
+        compat.activate(barrier.config)
+    value = compat.migrate_volume_seal(barrier.config)
+    assert value['schema'] == 2 and value['state'] == 'sealed' and value['seal_boot_id'] == BOOT_B
+    assert value['activation_id'] == old['activation_id']
+    archive = compat.DEFAULT_RECORD.with_name(f'cutover.schema1.{old["activation_id"]}.json')
+    assert archive.read_bytes() == original and archive.stat().st_mode & 0o777 == 0o600
+    assert before == {name: (path.stat().st_ino, path.stat().st_ctime_ns, path.read_bytes())
+                      for name, path in barrier.paths.items()}
+    with pytest.raises(wire.CapacityError, match='new OS boot'):
+        compat.activate(barrier.config)
+    barrier.boot[0] = BOOT_C
+    assert compat.activate(barrier.config)['state'] == 'active'
+    with pytest.raises(wire.CapacityError, match='exactly a schema-1 sealed'):
+        compat.migrate_volume_seal(barrier.config)
+
+
+def test_migration_resumes_only_matching_durable_archive(barrier, monkeypatch):
+    legacy_seal(barrier)
+    barrier.boot[0] = BOOT_B
+    original = compat.DEFAULT_RECORD.read_bytes()
+    save = compat._save
+    events = []
+    fsync = os.fsync
+    def sync(fd):
+        events.append('directory' if stat.S_ISDIR(os.fstat(fd).st_mode) else 'file')
+        return fsync(fd)
+    def fail_save(*args):
+        assert events[-2:] == ['file', 'directory']
+        raise OSError('simulated replacement failure')
+    monkeypatch.setattr(compat.os, 'fsync', sync)
+    monkeypatch.setattr(compat, '_save', fail_save)
+    with pytest.raises(OSError, match='replacement failure'):
+        compat.migrate_volume_seal(barrier.config)
+    assert compat.DEFAULT_RECORD.read_bytes() == original
+    monkeypatch.setattr(compat, '_save', save)
+    assert compat.migrate_volume_seal(barrier.config)['schema'] == 2
+
+
+@pytest.mark.parametrize('failure', ['same-boot', 'preparing', 'active', 'schema2', 'inode',
+                                     'ctime', 'permission', 'hardlink', 'symlink', 'path',
+                                     'policy', 'archive', 'busy', 'uuid'])
+def test_migration_refusals_leave_old_record_and_never_unseal(barrier, monkeypatch, failure):
+    value = legacy_seal(barrier)
+    barrier.boot[0] = BOOT_B
+    path = barrier.paths['fitting']
+    if failure == 'same-boot':
+        barrier.boot[0] = BOOT_A
+    elif failure in ('preparing', 'active'):
+        value['state'] = failure
+    elif failure == 'schema2':
+        value['schema'] = 2
+        for item in value['locks'].values():
+            item['volume_uuid'] = BOOT_C
+    elif failure == 'inode':
+        value['locks']['fitting']['inode'] += 1
+    elif failure == 'ctime':
+        value['locks']['fitting']['ctime_ns'] += 1
+    elif failure == 'permission':
+        path.chmod(0o600)
+    elif failure == 'hardlink':
+        os.link(path, barrier.root / 'extra')
+    elif failure == 'symlink':
+        path.unlink()
+        path.symlink_to(barrier.paths['big'])
+    elif failure == 'path':
+        value['locks']['fitting']['path'] = str(barrier.root / 'wrong')
+    elif failure == 'policy':
+        value['policy_sha256'] = '0' * 64
+    elif failure == 'archive':
+        archive = compat.DEFAULT_RECORD.with_name(f'cutover.schema1.{value["activation_id"]}.json')
+        archive.write_text('must preserve')
+        archive.chmod(0o600)
+    elif failure == 'uuid':
+        def unavailable(path):
+            raise wire.CapacityError('UUID unavailable')
+        monkeypatch.setattr(compat, '_volume_uuid', unavailable)
+    compat._save(compat.DEFAULT_RECORD, value)
+    original = compat.DEFAULT_RECORD.read_bytes()
+    with path.open('rb') as handle:
+        if failure == 'busy':
+            fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        with pytest.raises((wire.CapacityError, OSError)):
+            compat.migrate_volume_seal(barrier.config)
+    assert compat.DEFAULT_RECORD.read_bytes() == original
+    assert all(p.stat().st_mode & 0o777 == (0o600 if failure == 'permission' and p == path else 0o400)
+               for p in barrier.paths.values())
+    if failure == 'archive':
+        assert archive.read_text() == 'must preserve'
+
+
+@pytest.mark.parametrize('value', ['', 'invalid', '0' * 32, '00000000-0000-0000-0000-000000000000', None])
+def test_unusable_volume_uuids_are_refused(value):
+    with pytest.raises(wire.CapacityError, match='volume UUID'):
+        compat._uuid(value)
+
+
+def test_volume_observation_never_falls_back_to_device_number(monkeypatch):
+    monkeypatch.setattr(compat.sys, 'platform', 'linux')
+    with pytest.raises(wire.CapacityError, match='unavailable'):
+        compat._volume_uuid('/')
 
 
 @pytest.mark.parametrize('mutation', ['permission', 'replace', 'hardlink', 'symlink'])
