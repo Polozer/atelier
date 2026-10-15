@@ -87,11 +87,17 @@ def validate_session_profile(admission, *, kind, command, limit_gib):
         raise ValueError('Full-capacity session phase differs from the actual launch kind')
     if request.get('performance') is not True and (kind in ('game', 'compile') or workers is None):
         raise ValueError('Full-capacity games, compiles and unknown commands require exclusive admission')
+    maintenance = getattr(admission, 'mode', None) == 'sealed-maintenance'
+    if maintenance:
+        from . import capacity_compat
+        proof = capacity_compat.verify_maintenance(admission.cutover, policy_sha256=admission.seal_policy_sha256)
+        if request.get('performance') is not True or resources.cpu_millis != proof['total']['cpu_millis'] - proof['reserve']['cpu_millis']:
+            raise ValueError('Maintenance requires exclusive admission and the complete managed CPU budget')
     if workers is None:
         if request.get('workers') is not None:
             raise ValueError('Unknown commands cannot declare bounded Blender workers')
         from . import capacity_compat
-        proof = capacity_compat.verify(admission.cutover)
+        proof = proof if maintenance else capacity_compat.verify(admission.cutover)
         if resources.cpu_millis < proof['total']['cpu_millis'] - proof['reserve']['cpu_millis']:
             raise ValueError('Unknown commands must reserve the complete managed CPU budget')
     if workers is not None:
@@ -117,7 +123,8 @@ def configured_session(*, kind, limit_gib, timeout, folder=None, purpose=None, c
     valid measured-small eligibility, no performance exclusion, and an unchanged GPU reservation
     fitting that envelope. The nominal profile MUST still cover the caller's nominal ceiling.
     That SMALL memory reservation MUST equal the actual selected guard ceiling; bridge and
-    explicit-session limits MUST NOT be changed by this selection.
+    explicit-session limits MUST NOT be changed by this selection. Sealed maintenance MUST retain
+    nominal guard ceilings and reserve all managed CPU with performance exclusion for every job.
     """
     if type(performance) is not bool:
         raise ValueError('capacity performance request must be a boolean')
@@ -138,16 +145,19 @@ def configured_session(*, kind, limit_gib, timeout, folder=None, purpose=None, c
               and type(value.get('schema')) is int and value['schema'] == 1)
     full = (isinstance(value, dict) and set(value) == {'schema', 'socket', 'profiles', 'cutover'}
             and type(value.get('schema')) is int and value['schema'] == 2)
-    if (not (bridge or full) or not isinstance(value['socket'], str)
+    maintenance = (isinstance(value, dict) and set(value) == {'schema', 'mode', 'socket', 'profiles', 'cutover', 'seal_policy_sha256'}
+                   and type(value.get('schema')) is int and value['schema'] == 3 and value['mode'] == 'sealed-maintenance')
+    if (not (bridge or full or maintenance) or not isinstance(value['socket'], str)
             or not Path(value['socket']).is_absolute() or not isinstance(value['profiles'], dict)):
         raise ValueError('unsupported capacity client configuration')
     if bridge and barrier is not None:
         raise ValueError('A sealed capacity cutover refuses legacy bridge clients')
     proof = None
-    if full:
+    if full or maintenance:
         if Path(value['cutover']) != capacity_compat.DEFAULT_RECORD:
             raise ValueError('Full capacity must use the machine default compatibility record')
-        proof = capacity_compat.verify(value['cutover'])
+        proof = (capacity_compat.verify_maintenance(value['cutover'], policy_sha256=value['seal_policy_sha256'])
+                 if maintenance else capacity_compat.verify(value['cutover']))
         if value['socket'] != proof['socket']:
             raise ValueError('Capacity endpoint differs from the sealed machine policy')
     if set(value['profiles']) != {'job', 'game', 'compile'}:
@@ -163,7 +173,7 @@ def configured_session(*, kind, limit_gib, timeout, folder=None, purpose=None, c
         raise ValueError('capacity profile reservation is smaller than the actual guard ceiling')
     if resources.cpu_millis == 0:
         raise ValueError('capacity profiles must reserve CPU capacity')
-    workers = _worker_profile(command) if full or kind == 'job' else None
+    workers = _worker_profile(command) if full or maintenance or kind == 'job' else None
     guard_limit_gib = limit_gib
     if full and kind == 'job' and not performance and workers is not None:
         from .safety.render_lock import SMALL_LIMIT_GIB, SMALL_PEAK_GIB
@@ -175,13 +185,13 @@ def configured_session(*, kind, limit_gib, timeout, folder=None, purpose=None, c
             resources = replace(resources, memory_mib=math.ceil(selected * 1024))
     if kind == 'job' and workers is not None:
         resources = replace(resources, cpu_millis=workers * 1000)
-    if full:
-        exclusive = performance or kind in ('game', 'compile') or workers is None
+    if full or maintenance:
+        exclusive = maintenance or performance or kind in ('game', 'compile') or workers is None
         budget = proof['total']['cpu_millis'] - proof['reserve']['cpu_millis']
-        floor = workers * 1000 if workers is not None else budget
+        floor = budget if maintenance or workers is None else workers * 1000
         if kind == 'compile':
             floor = max(floor, 3000)  # Existing UBT/compiler tuning remains three workers.
-        resources = replace(resources, cpu_millis=max(resources.cpu_millis, floor))
+        resources = replace(resources, cpu_millis=budget if maintenance else max(resources.cpu_millis, floor))
         performance = exclusive
     locks = profile['locks']
     if (not isinstance(locks, list) or any(not isinstance(lock, str) or not lock for lock in locks)
@@ -195,7 +205,9 @@ def configured_session(*, kind, limit_gib, timeout, folder=None, purpose=None, c
                    purpose=str(purpose or kind), phase=kind,
                    resources=asdict(resources), locks=sorted(set(locks) | {'checkout:' + str(REPO)}),
                    seconds=math.ceil(timeout) if timeout > 0 else 300, performance=performance)
-    if full and workers is not None:
+    if (full or maintenance) and workers is not None:
         request['workers'] = workers
-    return AdmissionSession(value['socket'], request,
-                            **({'cutover': value['cutover'], 'guard_limit_gib': guard_limit_gib} if full else {}))
+    options = {'cutover': value['cutover'], 'guard_limit_gib': guard_limit_gib} if full or maintenance else {}
+    if maintenance:
+        options.update(mode='sealed-maintenance', seal_policy_sha256=value['seal_policy_sha256'])
+    return AdmissionSession(value['socket'], request, **options)

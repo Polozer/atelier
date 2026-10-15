@@ -45,7 +45,8 @@ function Reservation({job, now, fresh}: {job: Job; now: number; fresh: boolean})
  * Stale, missing or unavailable broker observations MUST NOT be displayed as free capacity.
  * Totals MUST come from the broker, including reservations outside a truncated visible list.
  * Observed process memory MUST remain distinct from reserved capacity and host memory.
- * Recovery MUST identify visible uncertain reservations, and bridge mode MUST remain explicit.
+ * Recovery MUST identify visible uncertain reservations. Bridge and sealed maintenance modes
+ * MUST remain distinct from full capacity admission.
  */
 export function Capacity({status, connected, bridge, serverTime}: {status?: Status; connected: boolean; bridge: boolean; serverTime?: number}) {
   const [, tick] = useState(0);
@@ -59,7 +60,9 @@ export function Capacity({status, connected, bridge, serverTime}: {status?: Stat
   const fresh = Boolean(connected && status?.fresh && snapshot && now - snapshot.observed_at >= 0 && now - snapshot.observed_at < 10);
   const legacy = status?.configuration === 'legacy';
   const full = snapshot?.mode === 'capacity' && snapshot.cutover;
+  const maintenance = snapshot?.mode === 'sealed-maintenance' && !snapshot.cutover;
   const title = legacy ? 'Legacy slots' : fresh ? full ? snapshot.recovering ? 'Capacity recovery' : 'Capacity admission'
+    : maintenance ? snapshot.recovering ? 'Maintenance recovery' : 'Exclusive maintenance'
     : snapshot?.recovering ? 'Capacity bridge recovery' : 'Capacity bridge' : 'Capacity status unavailable';
   const active = snapshot?.records.filter((job) => job.charged || job.state === 'gated') || [];
   const uncertain = active.filter((job) => job.state === 'uncertain');
@@ -72,6 +75,8 @@ export function Capacity({status, connected, bridge, serverTime}: {status?: Stat
         : 'Capacity admission is not configured for this board. Existing slot locks and guards apply.'}</p>
         : <p>{fresh ? full ? snapshot.recovering ? 'New grants are paused while compatibility or ownership is checked.'
           : 'The broker admits work within resource budgets and named locks. Legacy mutexes remain sealed.'
+          : maintenance ? snapshot.recovering ? 'New grants are paused while sealed compatibility or ownership is checked.'
+          : 'One guarded job at a time. Sealed legacy locks remain exclusive; full concurrency awaits a verified reboot.'
           : 'Broker reservations and all legacy lane locks are required. Extra concurrency is not enabled.'
           : status?.configuration === 'invalid' ? 'The board cannot read a valid capacity configuration.'
           : status?.availability === 'checking' || !status ? 'Checking the broker.'

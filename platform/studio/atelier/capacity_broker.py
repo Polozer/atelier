@@ -39,23 +39,25 @@ class CapacityBroker:
     MAY instead use a positively exited root plus its bound aggregate guard's terminal empty-tree
     cleanup receipt; that witnesses the monitored owned tree, not every descendant's kernel exit.
     The adapter MUST retain exclusive legacy exclusion in bridge
-    mode, or verified sealed shared compatibility mutexes in full mode.
+    mode, verified sealed shared compatibility mutexes in full mode, or read-only exclusive
+    ownership of every sealed legacy lane in explicit maintenance mode.
     """
     def __init__(self, state_directory, *, total, reserve=Resources(), disk_pool=None,
                  observe=None, lease_seconds=10., rpc_timeout=2., started=wire.process_start,
                  watch=wire.ExitWatch, guards=wire.validate_guards, child_of=wire.direct_child,
                  parent=wire.parent_pin, boot=wire.boot_id, alive=wire.live, mode='legacy-bridge',
                  cutover=None, policy_sha256=None, foreign=None):
-        if mode not in ('legacy-bridge', 'capacity'):
+        if mode not in ('legacy-bridge', 'capacity', 'sealed-maintenance'):
             raise wire.CapacityError('Unsupported production capacity mode')
         self.mode, self.cutover, self.policy_sha256 = mode, cutover, policy_sha256
         self.activation_id, self.compatible = None, True
-        if mode == 'capacity':
+        if mode in ('capacity', 'sealed-maintenance'):
             from . import capacity_compat
             if (not isinstance(policy_sha256, str) or len(policy_sha256) != 64
                     or Path(cutover or '') != capacity_compat.DEFAULT_RECORD):
                 raise wire.CapacityError('Full capacity requires the sealed machine policy')
-            proof = capacity_compat.verify(cutover, policy_sha256=policy_sha256)
+            proof = (capacity_compat.verify_maintenance(cutover, policy_sha256=policy_sha256)
+                     if mode == 'sealed-maintenance' else capacity_compat.verify(cutover, policy_sha256=policy_sha256))
             self.activation_id = proof['activation_id']
         self.foreign = foreign
         self.directory = Path(state_directory)
@@ -74,7 +76,7 @@ class CapacityBroker:
         self.parent, self.boot = parent, boot()
         self.alive = alive
         self.socket_path = self.directory / 'broker.sock'
-        if mode == 'capacity' and (proof['socket'] != str(self.socket_path)
+        if mode in ('capacity', 'sealed-maintenance') and (proof['socket'] != str(self.socket_path)
                 or proof['disk_pool'] != str(self.disk_pool)
                 or proof['total'] != asdict(self.total) or proof['reserve'] != asdict(self.reserve)):
             raise wire.CapacityError('Broker resources or endpoint differ from the sealed policy')
@@ -277,10 +279,9 @@ class CapacityBroker:
 
     def _refresh(self, state, now):
         changed = False
-        if self.mode == 'capacity':
-            from . import capacity_compat
+        if self.mode in ('capacity', 'sealed-maintenance'):
             try:
-                proof = capacity_compat.verify(self.cutover, policy_sha256=self.policy_sha256)
+                proof = self._compatibility_proof()
                 self.compatible = proof['activation_id'] == self.activation_id
             except (OSError, ValueError, wire.CapacityError):
                 self.compatible = False
@@ -338,14 +339,14 @@ class CapacityBroker:
 
     def _terminal_tree_exit(self, record, *, preserved=None):
         """@cc [owner:fontanierh,label:safety] exclusive-terminal-tree-release
-        Only bridge or full performance-exclusive grants MAY use this policy. The root MUST
+        Only bridge or sealed-mode performance-exclusive grants MAY use this policy. The root MUST
         have affirmative exit evidence and its previously bound aggregate report MUST match
         identity, ceiling and invocation time, with child_exited, completed cleanup and zero
         processes/footprint. Any verifiably live retained identity MUST refuse release. This
         witnesses monitored-owned-tree cleanup, never individual historical kernel exits.
         """
         if (self.mode != 'legacy-bridge'
-                and not (self.mode == 'capacity' and record.get('request', {}).get('performance') is True)):
+                and not (self.mode in ('capacity', 'sealed-maintenance') and record.get('request', {}).get('performance') is True)):
             return None
         if record.get('child') not in record.get('exited', []):
             return None
@@ -411,12 +412,14 @@ class CapacityBroker:
         performance = value.get('performance', False)
         if type(performance) is not bool:
             raise wire.CapacityError('Invalid performance-window request')
-        if self.mode == 'capacity':
+        if self.mode in ('capacity', 'sealed-maintenance'):
             checkout = wire.text(value.get('checkout'), maximum=4096)
             if not Path(checkout).is_absolute() or 'checkout:' + checkout not in locks:
                 raise wire.CapacityError('Full capacity requires its declared checkout named lock')
             if not vector.cpu_millis:
                 raise wire.CapacityError('Full capacity requires a nonzero CPU reservation')
+            if self.mode == 'sealed-maintenance' and (not performance or vector.cpu_millis != self.total.cpu_millis - self.reserve.cpu_millis):
+                raise wire.CapacityError('Maintenance requires exclusive admission and the complete managed CPU budget')
             workers = value.get('workers')
             if workers is not None:
                 wire.integer(workers, minimum=1, maximum=1024)
@@ -515,12 +518,16 @@ class CapacityBroker:
         if failed:
             raise wire.CapacityError('Existing holder lost ownership or enforcement; reservation retained')
 
-    def _validate_compatibility(self, state):
-        if self.mode != 'capacity':
-            return
+    def _compatibility_proof(self):
         from . import capacity_compat
+        verifier = capacity_compat.verify_maintenance if self.mode == 'sealed-maintenance' else capacity_compat.verify
+        return verifier(self.cutover, policy_sha256=self.policy_sha256)
+
+    def _validate_compatibility(self, state):
+        if self.mode not in ('capacity', 'sealed-maintenance'):
+            return
         try:
-            proof = capacity_compat.verify(self.cutover, policy_sha256=self.policy_sha256)
+            proof = self._compatibility_proof()
             if proof['activation_id'] != self.activation_id:
                 raise wire.CapacityError('Capacity activation changed')
         except (OSError, ValueError, wire.CapacityError):
@@ -552,7 +559,7 @@ class CapacityBroker:
                       total=asdict(self.total), reserve=asdict(self.reserve), charged_resources=asdict(used),
                       charged_count=len(charged), waiting_count=sum(r['state'] in ('queued', 'waiting') for r in records),
                       total_records=len(records), records=[], truncated=False)
-        if self.mode == 'capacity':
+        if self.mode in ('capacity', 'sealed-maintenance'):
             result['compatibility_healthy'] = self.compatible
         selected = self._selection(state)
         for record in sorted(records, key=lambda r: (r['state'] not in HELD, r['state'] != 'queued', r['sequence'])):
@@ -561,7 +568,7 @@ class CapacityBroker:
             reason = ('uncertain ownership or enforcement; reservation retained' if record['state'] == 'uncertain' else
                       'capacity recovery blocks new grants' if result['recovering'] and record['state'] == 'queued' else
                       ('selected advisory offer; sealed compatibility locks and guarded commit still required'
-                       if self.mode == 'capacity' else 'selected advisory offer; legacy exclusion and guarded commit still required') if record is selected else
+                       if self.mode in ('capacity', 'sealed-maintenance') else 'selected advisory offer; legacy exclusion and guarded commit still required') if record is selected else
                       ('; '.join(blockers) or 'older ready request selected') if record['state'] == 'queued' else
                       'not currently ready; retry required' if record['state'] == 'waiting' else '')
             item = dict(id=request['id'], owner=request.get('owner'), checkout=request.get('checkout'),
@@ -617,7 +624,7 @@ class CapacityBroker:
                 action = message['action']
                 if 'preserved_terminal' in message and action != 'reconcile':
                     raise wire.CapacityError('Preserved terminal evidence is allowed only for reconciliation')
-                if self.mode == 'capacity' and action not in ('status', 'reconcile', 'close'):
+                if self.mode in ('capacity', 'sealed-maintenance') and action not in ('status', 'reconcile', 'close'):
                     if not self.compatible or message.get('activation_id') != self.activation_id:
                         raise wire.CapacityError('Full-capacity compatibility proof is unavailable or mismatched')
                 if action in ('status', 'reconcile'):
@@ -628,7 +635,7 @@ class CapacityBroker:
                             refreshed |= self._settle_exited(retained)
                     result = self._status(state)
                 elif action == 'owned':
-                    if (self.mode != 'capacity' or message.get('boot_id') != self.boot
+                    if (self.mode not in ('capacity', 'sealed-maintenance') or message.get('boot_id') != self.boot
                             or message.get('epoch') != state['epoch']):
                         raise wire.CapacityError('Capacity ownership observation was fenced')
                     result = dict(owned=self._owned(state, message.get('candidates')), epoch=state['epoch'])
@@ -691,7 +698,7 @@ class CapacityBroker:
                         guards = {name: message[name] for name in ('process_guard', 'tree_guard')}
                         facts = self.guards(guards, child, principal, message['limit_bytes'],
                                              record['request']['resources']['memory_mib'])
-                        if self.mode == 'capacity':
+                        if self.mode in ('capacity', 'sealed-maintenance'):
                             self._foreign_check(state)
                         self._pressure(state, record)
                         self._validate_compatibility(state)
@@ -791,7 +798,7 @@ class CapacityBroker:
                     finally:
                         self._gate_close(go)
                 return {'namespace': wire.NAMESPACE, 'boot_id': self.boot, 'mode': self.mode,
-                        **({'activation_id': self.activation_id} if self.mode == 'capacity' else {}), **result}, fd
+                        **({'activation_id': self.activation_id} if self.mode in ('capacity', 'sealed-maintenance') else {}), **result}, fd
             except BaseException:
                 self.connection.rollback()
                 if message.get('action') == 'start':
@@ -915,10 +922,14 @@ def load_config(configpath, *, expected_sha256=None):
                 or not hmac.compare_digest(hashlib.sha256(raw).hexdigest(), expected_sha256)):
             raise wire.CapacityError('Capacity policy changed; drain and reinstall the reviewed configuration')
     config = wire.decode(raw)
-    wire.fields(config, ('schema', 'state_directory', 'total', 'reserve', 'disk_pool', 'mode'), ('cutover',))
-    bridge = type(config['schema']) is int and config['schema'] == 1 and config['mode'] == 'legacy-bridge' and 'cutover' not in config
-    full = type(config['schema']) is int and config['schema'] == 2 and config['mode'] == 'capacity' and 'cutover' in config
-    if not (bridge or full):
+    wire.fields(config, ('schema', 'state_directory', 'total', 'reserve', 'disk_pool', 'mode'), ('cutover', 'seal_policy_sha256'))
+    bridge = type(config['schema']) is int and config['schema'] == 1 and config['mode'] == 'legacy-bridge' and 'cutover' not in config and 'seal_policy_sha256' not in config
+    full = type(config['schema']) is int and config['schema'] == 2 and config['mode'] == 'capacity' and 'cutover' in config and 'seal_policy_sha256' not in config
+    maintenance = (type(config['schema']) is int and config['schema'] == 3 and config['mode'] == 'sealed-maintenance'
+                   and 'cutover' in config and isinstance(config.get('seal_policy_sha256'), str)
+                   and len(config['seal_policy_sha256']) == 64
+                   and all(c in '0123456789abcdef' for c in config['seal_policy_sha256']))
+    if not (bridge or full or maintenance):
         raise wire.CapacityError('Unsupported capacity broker configuration')
     state, disk = Path(config['state_directory']), Path(config['disk_pool'])
     if (not state.is_absolute() or not disk.is_absolute() or not disk.is_dir()
@@ -933,11 +944,12 @@ def load_config(configpath, *, expected_sha256=None):
     if reserve.excess(total):
         raise wire.CapacityError('Capacity reserve exceeds total')
     settings = dict(state_directory=state, total=total, reserve=reserve, disk_pool=disk)
-    if full:
+    if full or maintenance:
         from . import capacity_compat
         if Path(config['cutover']) != capacity_compat.DEFAULT_RECORD:
             raise wire.CapacityError('Full capacity must use the machine default compatibility record')
-        settings.update(mode='capacity', cutover=Path(config['cutover']), policy_sha256=hashlib.sha256(raw).hexdigest())
+        settings.update(mode=config['mode'], cutover=Path(config['cutover']),
+                        policy_sha256=config['seal_policy_sha256'] if maintenance else hashlib.sha256(raw).hexdigest())
     return settings
 
 

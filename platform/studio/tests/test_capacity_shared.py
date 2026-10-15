@@ -1,4 +1,5 @@
 """Full-mode compatibility uses private temporary inodes only; no machine activation."""
+from contextlib import closing
 from dataclasses import asdict
 import fcntl
 import json
@@ -827,10 +828,15 @@ def test_missing_boot_observation_retains_charge_and_status_remains_usable(actor
     assert status['charged_count'] == 1
 
 
-def test_full_socket_configured_python_runs_under_real_guards_and_releases(barrier, monkeypatch):
+@pytest.mark.parametrize('mode', ['capacity', 'sealed-maintenance'])
+def test_full_socket_configured_python_runs_under_real_guards_and_releases(barrier, monkeypatch, mode):
     from atelier import capacity_client
-    activated(barrier)
-    instance = broker.CapacityBroker(**broker.load_config(barrier.config), boot=lambda: BOOT_B,
+    if mode == 'capacity':
+        proof = activated(barrier)
+        settings = broker.load_config(barrier.config)
+    else:
+        settings, proof = maintenance_settings(barrier)
+    instance = broker.CapacityBroker(**settings,
         observe=lambda: dict(observed_monotonic=time.monotonic(), available_memory_mib=99999,
                              available_temp_mib=99999))
     errors = []
@@ -843,8 +849,11 @@ def test_full_socket_configured_python_runs_under_real_guards_and_releases(barri
     thread.start()
     profile = dict(resources=asdict(Resources(memory_mib=256, cpu_millis=1000, temp_mib=16, io_slots=1)), locks=[])
     config = barrier.root / 'client.json'
-    config.write_text(json.dumps(dict(schema=2, cutover=str(compat.DEFAULT_RECORD), socket=str(instance.socket_path),
-        profiles={kind: profile for kind in ('job', 'game', 'compile')})))
+    client_settings = dict(schema=2, cutover=str(compat.DEFAULT_RECORD), socket=str(instance.socket_path),
+        profiles={kind: profile for kind in ('job', 'game', 'compile')})
+    if mode == 'sealed-maintenance':
+        client_settings.update(schema=3, mode=mode, seal_policy_sha256=proof['policy_sha256'])
+    config.write_text(json.dumps(client_settings))
     config.chmod(0o600)
     monkeypatch.setenv('ATELIER_CAPACITY_CLIENT', str(config))
     # Only native inventory is injected; real Python, socket, SQLite, SH flocks, exec gate and both monitors run.
@@ -856,7 +865,7 @@ def test_full_socket_configured_python_runs_under_real_guards_and_releases(barri
         assert 'full capacity executed' in (folder / 'stdout.log').read_text()
         assert json.loads((folder / 'memory-health-tree.json').read_text())['state'] == 'child_exited'
         status = capacity_client.status(instance.socket_path)
-        assert status['mode'] == 'capacity' and status['cutover'] and status['charged_count'] == 0
+        assert status['mode'] == mode and status['cutover'] is (mode == 'capacity') and status['charged_count'] == 0
         assert status['records'][0]['state'] == 'released'
         assert all(path.stat().st_mode & 0o777 == 0o400 for path in barrier.paths.values())
         diagnostics = json.loads((folder / 'execution-timings.json').read_text())
@@ -871,3 +880,183 @@ def test_full_socket_configured_python_runs_under_real_guards_and_releases(barri
         thread.join(timeout=3)
         instance.close()
         assert not thread.is_alive() and not errors, errors
+
+
+def maintenance_settings(barrier):
+    legacy_seal(barrier)
+    barrier.boot[0] = BOOT_B
+    proof = compat.migrate_volume_seal(barrier.config)
+    value = dict(barrier.value, schema=3, mode='sealed-maintenance', seal_policy_sha256=proof['policy_sha256'])
+    path = barrier.root / 'maintenance.json'
+    path.write_text(json.dumps(value))
+    path.chmod(0o600)
+    return broker.load_config(path), proof
+
+
+def test_maintenance_preserves_seal_policy_and_requires_explicit_schema(barrier):
+    settings, proof = maintenance_settings(barrier)
+    assert settings['policy_sha256'] == proof['policy_sha256']
+    assert settings['mode'] == 'sealed-maintenance'
+    assert compat.verify_maintenance(policy_sha256=proof['policy_sha256']) == proof
+    with pytest.raises(wire.CapacityError, match='new OS boot'):
+        compat.activate(barrier.config)
+    with closing(broker.CapacityBroker(**settings)) as service:
+        status = service._status(service._load())
+        assert status['mode'] == 'sealed-maintenance' and status['cutover'] is False
+        assert status['compatibility_healthy'] is True
+    assert compat.read() == proof
+
+
+@pytest.mark.parametrize('change', ['boot', 'active', 'schema1', 'policy', 'volume', 'write'])
+def test_maintenance_refuses_unproven_or_changed_seals(barrier, monkeypatch, change):
+    settings, proof = maintenance_settings(barrier)
+    if change == 'boot':
+        barrier.boot[0] = BOOT_C
+    elif change == 'active':
+        proof['state'] = 'active'
+        compat._save(compat.DEFAULT_RECORD, proof)
+    elif change == 'schema1':
+        proof['schema'] = 1
+        for item in proof['locks'].values():
+            item.pop('volume_uuid')
+        compat._save(compat.DEFAULT_RECORD, proof)
+    elif change == 'policy':
+        settings['policy_sha256'] = 'a' * 64
+    elif change == 'volume':
+        monkeypatch.setattr(compat, '_volume_uuid', lambda path: BOOT_C)
+    else:
+        barrier.paths['small'].chmod(0o600)
+    with pytest.raises((wire.CapacityError, OSError)):
+        broker.CapacityBroker(**settings)
+
+
+@pytest.mark.parametrize('lane', ['big', 'small', 'fitting'])
+def test_maintenance_takes_every_readonly_lane_exclusively_and_releases_partial(barrier, monkeypatch, lane):
+    settings, proof = maintenance_settings(barrier)
+    admission = SimpleNamespace(mode='sealed-maintenance', cutover=compat.DEFAULT_RECORD,
+        seal_policy_sha256=settings['policy_sha256'], activation_id=proof['activation_id'], owned=lambda pins: set())
+    monkeypatch.setattr(locks, 'native_candidates', lambda: [])
+    before = {name: (path.read_bytes(), path.stat().st_ino, path.stat().st_ctime_ns)
+              for name, path in barrier.paths.items()}
+    with barrier.paths[lane].open('rb') as shared:
+        fcntl.flock(shared, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        with pytest.raises(locks.RenderBusy):
+            with locks.render_lock('blocked maintenance', capacity=admission):
+                pytest.fail('shared holder must exclude maintenance')
+    with locks.render_lock('maintenance', capacity=admission):
+        for path in barrier.paths.values():
+            with path.open('rb') as other:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(other, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        # Full activation's future-boot verification can pass, but its EX acquisition still refuses.
+        barrier.boot[0] = BOOT_C
+        with pytest.raises(BlockingIOError):
+            compat.activate(barrier.config)
+        barrier.boot[0] = BOOT_B
+    assert before == {name: (path.read_bytes(), path.stat().st_ino, path.stat().st_ctime_ns)
+                      for name, path in barrier.paths.items()}
+    for path in barrier.paths.values():
+        with path.open('rb') as other:
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+@pytest.mark.parametrize('performance,cpu,accepted', [(False, 11000, False), (True, 3000, False),
+                                                    (True, 12000, False), (True, 11000, True)])
+def test_maintenance_broker_requires_full_cpu_and_exclusion_even_bounded(barrier, performance, cpu, accepted):
+    settings, _ = maintenance_settings(barrier)
+    with closing(broker.CapacityBroker(**settings)) as service:
+        request = dict(id='test', resources=asdict(Resources(memory_mib=10240, cpu_millis=cpu)),
+            workers=3, phase='job', checkout=str(barrier.root), locks=['checkout:' + str(barrier.root)],
+            performance=performance)
+        if accepted:
+            assert service._request(request)['performance'] is True
+        else:
+            with pytest.raises(wire.CapacityError, match='Maintenance requires'):
+                service._request(request)
+
+
+def test_maintenance_rejects_changed_service_resources_and_endpoint(barrier):
+    settings, _ = maintenance_settings(barrier)
+    for changes in [dict(total=Resources(**(asdict(settings['total']) | {'memory_mib': 65536}))), dict(state_directory=barrier.root / 'different')]:
+        with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
+            broker.CapacityBroker(**(settings | changes))
+
+
+def test_maintenance_client_fences_exact_mode_and_activation(barrier):
+    from atelier.capacity_client import AdmissionSession
+    settings, proof = maintenance_settings(barrier)
+    session = AdmissionSession(proof['socket'], {}, cutover=compat.DEFAULT_RECORD,
+        mode='sealed-maintenance', seal_policy_sha256=settings['policy_sha256'])
+    assert session._fence() == {'activation_id': proof['activation_id']}
+    for response in [dict(mode='capacity', activation_id=proof['activation_id']),
+                     dict(mode='sealed-maintenance', activation_id='different')]:
+        with pytest.raises(wire.CapacityError, match='mode or compatibility epoch'):
+            session._response(response, None)
+
+
+@pytest.mark.parametrize('failure', ['guard', 'seal'])
+def test_maintenance_lost_enforcement_retains_charge_and_blocks_other_go(barrier, failure):
+    settings, _ = maintenance_settings(barrier)
+    healthy = [True]
+    def guards(*args):
+        if not healthy[0]:
+            raise wire.CapacityError('Guard exited during scan')
+        return wire.GuardFacts((), 0)
+    class Watch:
+        def __init__(self, pin):
+            pass
+        def poll(self):
+            return False
+        def close(self):
+            pass
+    with closing(broker.CapacityBroker(**settings, started=lambda pid: pid * 100,
+            alive=lambda pin: True, watch=Watch, guards=guards, child_of=lambda *args: True,
+            parent=lambda pin: None, foreign=lambda: [],
+            observe=lambda: dict(observed_monotonic=time.monotonic(), available_memory_mib=99999,
+                                 available_temp_mib=99999))) as instance:
+        envelope = dict(performance=True, resources=asdict(Resources(memory_mib=1024, cpu_millis=11000)))
+        first, _ = offer(instance, (101, 10100), 'a', **envelope)
+        gate_start(instance, (101, 10100), first, 201)
+        second, offered = offer(instance, (102, 10200), 'b', **envelope)
+        assert not offered['selected']
+        with pytest.raises(wire.CapacityError, match='Maintenance requires'):
+            instance.handle(first | dict(action='replace', resources=asdict(Resources(memory_mib=1024, cpu_millis=3000)),
+                                         locks=['checkout:' + str(instance.directory.parent / 'a')]), (101, 10100))
+        if failure == 'guard':
+            healthy[0] = False
+        else:
+            barrier.paths['small'].chmod(0o600)
+        status, _ = instance.handle(dict(namespace=wire.NAMESPACE, action='status'), (102, 10200))
+        assert status['charged_count'] == 1 and status['recovering']
+        assert next(r for r in status['records'] if r['id'] == 'a')['state'] == 'uncertain'
+        with pytest.raises(wire.CapacityError):
+            gate_start(instance, (102, 10200), second, 202)
+
+
+@pytest.mark.parametrize('failure', ['fresh-prepare', 'missing', 'changed-bytes', 'same-boot', 'activation', 'inode'])
+def test_maintenance_requires_hash_bound_prior_boot_migration(barrier, failure):
+    if failure == 'fresh-prepare':
+        proof = compat.prepare(barrier.config)
+    else:
+        _, proof = maintenance_settings(barrier)
+        archive = compat.DEFAULT_RECORD.with_name(f'cutover.schema1.{proof["activation_id"]}.json')
+        if failure == 'missing':
+            archive.unlink()
+        else:
+            old = json.loads(archive.read_bytes())
+            if failure == 'changed-bytes':
+                archive.write_bytes(archive.read_bytes() + b' ')
+            else:
+                if failure == 'same-boot':
+                    old['seal_boot_id'] = BOOT_B
+                elif failure == 'activation':
+                    old['activation_id'] = '5' * 32
+                else:
+                    old['locks']['big']['inode'] += 1
+                archive.write_text(json.dumps(old))
+                # Even a matching claimed hash cannot hide contradictory original migration facts.
+                import hashlib
+                proof['migration_archive_sha256'] = hashlib.sha256(archive.read_bytes()).hexdigest()
+                compat._save(compat.DEFAULT_RECORD, proof)
+    with pytest.raises((wire.CapacityError, OSError)):
+        compat.verify_maintenance(policy_sha256=proof['policy_sha256'])

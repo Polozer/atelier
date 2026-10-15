@@ -450,6 +450,8 @@ export function RenderPane() {
     earlier.capacity_bridge && earlier.checkout === holder.checkout && earlier.time === holder.time));
   const bridge = holders.some(([, holder]) => holder.capacity_bridge);
   const full = state?.capacity.snapshot?.mode === 'capacity' && state.capacity.snapshot.cutover;
+  const maintenance = state?.capacity.snapshot?.mode === 'sealed-maintenance' && !state.capacity.snapshot.cutover;
+  const sealed = full || maintenance;
   const r = state?.resources;
   return (
     <aside className="pane render-pane" id="renderPane" aria-label="Render floor">
@@ -457,25 +459,28 @@ export function RenderPane() {
         <p className="pane-sub" id="renderSummary">{!state ? 'Checking live jobs' : failed ? 'Live status unavailable'
           : full ? state.capacity.fresh ? state.capacity.snapshot?.recovering ? 'Capacity recovery · grants paused'
           : 'Capacity admission · broker reservations' : 'Capacity observation stale'
+          : maintenance ? state.capacity.fresh ? state.capacity.snapshot?.recovering ? 'Maintenance recovery · grants paused'
+          : 'Exclusive maintenance · one job at a time' : 'Maintenance observation stale'
           : bridge ? 'Capacity bridge · legacy lanes held' : jobs.length ? `${jobs.length} reported ${jobs.length === 1 ? 'job' : 'jobs'}`
           : 'No live legacy holders reported'}</p>
       </header>
       <div className="pane-body">
         <section className="card" aria-labelledby="liveHeading" style={{'--i': 0} as React.CSSProperties}>
-          <h2 className="eyebrow" id="liveHeading">{full ? 'Compatibility locks' : 'Live legacy holders'}</h2>
+          <h2 className="eyebrow" id="liveHeading">{sealed ? 'Compatibility locks' : 'Live legacy holders'}</h2>
           <div id="liveJobs">
-            {full && <p className="quiet">{state?.capacity.fresh && !failed
+            {sealed && <p className="quiet">{state?.capacity.fresh && !failed
               ? state.capacity.snapshot?.recovering ? 'Recovery is checking compatibility and ownership. New grants are paused.'
+              : maintenance ? 'Sealed legacy mutexes stay exclusive. Broker reservations below report the single guarded job.'
               : 'Legacy mutexes are sealed. Broker reservations below report active work.'
               : 'The last observation used sealed legacy mutexes. Current admission state is unknown.'}</p>}
-            {!full && jobs.map(([slot, holder]) => (
+            {!sealed && jobs.map(([slot, holder]) => (
               <div key={slot} className="job">
                 <div className="job-label"><span className="dot live" /><span>{holder.capacity_bridge ? 'Capacity bridge · all legacy lanes' : `${slot} slot`}</span>
                   <span className="job-since">{typeof holder.time === 'number' ? `since ${clock(holder.time)}` : ''}</span></div>
                 <div className="job-purpose">{text(holder.purpose)}</div><div className="job-checkout">{holder.checkout}</div>
               </div>
             ))}
-            {state && !full && !jobs.length && <p className="quiet">{state.legacy_slots.slots} legacy {state.legacy_slots.slots === 1 ? 'slot' : 'slots'} configured{state.legacy_slots.fitting_enabled ? ` · fitting lane ${state.legacy_slots.fitting_paused ? 'paused' : 'enabled'}` : ''}. Admission still checks live locks and host pressure.</p>}
+            {state && !sealed && !jobs.length && <p className="quiet">{state.legacy_slots.slots} legacy {state.legacy_slots.slots === 1 ? 'slot' : 'slots'} configured{state.legacy_slots.fitting_enabled ? ` · fitting lane ${state.legacy_slots.fitting_paused ? 'paused' : 'enabled'}` : ''}. Admission still checks live locks and host pressure.</p>}
           </div>
           <div className="resources" id="resourceLine">{r && <>
             <span>{!failed && r.fresh && r.cpu != null ? `CPU ${Math.round(r.cpu)}%` : 'CPU · no telemetry'}</span>

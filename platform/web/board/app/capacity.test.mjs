@@ -57,6 +57,30 @@ test('bridge recovery remains a bridge until actual cutover', () => {
   assert.doesNotMatch(html, /Capacity admission|Legacy mutexes remain sealed/);
 });
 
+test('sealed maintenance explicitly reports one guarded job with no full cutover', () => {
+  const html = render(snapshot({mode: 'sealed-maintenance', cutover: false}));
+  assert.match(html, /capacity-tag">Exclusive maintenance/);
+  assert.match(html, /One guarded job at a time/);
+  assert.match(html, /Sealed legacy locks remain exclusive/);
+  assert.match(html, /full concurrency awaits a verified reboot/);
+  assert.doesNotMatch(html, />Capacity admission<|>Capacity bridge<|>Legacy slots</);
+});
+
+test('maintenance recovery retains visible owner and reservation evidence', () => {
+  const html = render(snapshot({mode: 'sealed-maintenance', cutover: false, recovering: true,
+    records: [job()], charged_count: 1}));
+  assert.match(html, /capacity-tag warning">Maintenance recovery/);
+  assert.match(html, /waiting for verified process exits: City export \(builder\)/);
+  assert.doesNotMatch(html, />Capacity admission<|>Capacity bridge recovery</);
+});
+
+test('stale maintenance observations cannot claim current exclusive admission', () => {
+  const html = render(snapshot({mode: 'sealed-maintenance', cutover: false, observed_at: 80}));
+  assert.match(html, /capacity-tag warning">Capacity status unavailable/);
+  assert.match(html, /These figures are stale/);
+  assert.doesNotMatch(html, />Exclusive maintenance</);
+});
+
 test('stale, disconnected and missing observations never claim current admission', () => {
   for (const html of [render(snapshot({observed_at: 80})), render(snapshot(), {connected: false}), render(null)]) {
     assert.match(html, /capacity-tag warning">Capacity status unavailable/);
