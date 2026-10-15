@@ -80,6 +80,29 @@ def test_nonlevel_turn_is_rejected_instead_of_covering_a_bad_join():
         J.elbow(spec, ground=-2.)
 
 
+def test_suspended_elbow_exposes_underside_and_only_its_two_real_ports():
+    built=J.elbow(turn(),ground=-1.5,on_ground=False)
+    assert solids.check_closed(built.mesh)>0
+    mesh=built.mesh.subset(built.mesh.role!=dsl.ROLE[dsl.BASE])
+    assert len(solids.check_open(mesh))==2
+    T=mesh.triangles();under=(np.abs(T[:,:,1]+1.5)<1e-8).all(1)
+    assert under.any()
+    assert (mesh.role[under]==dsl.ROLE[dsl.SIDE]).all()
+
+
+def test_port_span_distinguishes_separate_ports_on_the_same_cut_plane():
+    meshes=[]
+    for z in (0.,100.):
+        m=solids.grid(np.array([[[0.,0.,z-5.],[0.,0.,z+5.]],
+                               [[10.,0.,z-5.],[10.,0.,z+5.]]]),
+                      outward=[0.,1.,0.],role=dsl.RIDING,feature='test')
+        meshes.append(m)
+    mesh=dsl.Mesh.concat(meshes)
+    with pytest.raises(ValueError,match='unbranched'):J.boundary_row(mesh,np.zeros(2),np.array([1.,0.]))
+    row=J.boundary_row(mesh,np.zeros(2),np.array([1.,0.]),span=10.)
+    assert np.allclose(row,[[0.,0.,-5.],[0.,0.,5.]])
+
+
 def test_merge_has_tangent_and_curvature_continuity_at_both_ports():
     p = J.MergeCurve((100., 200.), 322.3, -1)
     assert p.length > 80.

@@ -17,7 +17,7 @@ def direction(degrees):
     return np.array([math.cos(a), math.sin(a)])
 
 
-def boundary_row(mesh, point, tangent, *, tolerance=1e-6, level=True):
+def boundary_row(mesh, point, tangent, *, tolerance=1e-6, level=True, span=None):
     """Read one actual open section, including curved shoulders and caps."""
     m = mesh.where(role=dsl.RIDING)
     V, F = m.welded(1e-7)
@@ -26,6 +26,12 @@ def boundary_row(mesh, point, tangent, *, tolerance=1e-6, level=True):
     edges = edges[count == 1]
     distance = (V[:, [0, 2]] - point) @ tangent
     edges = edges[(np.abs(distance[edges]) <= tolerance).all(1)]
+    if span is not None:
+        if not math.isfinite(span) or span <= 0:
+            raise ValueError('junction: port span must be finite and positive')
+        n = np.array([-tangent[1],tangent[0]])
+        lateral = (V[:, [0,2]] - point) @ n
+        edges = edges[(np.abs(lateral[edges]) <= span / 2. + tolerance).all(1)]
     if not len(edges):
         raise ValueError('junction: no open section on the specified cut plane')
     degree = np.bincount(edges.ravel(), minlength=len(V))
@@ -125,7 +131,7 @@ def elbow(spec, *, ground=None, on_ground=True, rows=None):
     name = f"{spec['line']}.elbow{spec['index']}"
     wall = P.quarter_pipe(Line(lip + t * lo, lip + t * hi), floor_y=y,
                           height=radius + spec['vert'], radius=radius, deck=spec['deck'], floor=0.,
-                          ground=ground, feature=name, front='ground', on_ground=True)
+                          ground=ground if on_ground else y, feature=name, front='ground', on_ground=True)
     # The first column is the exact floor seam, not an extra strip of floor.
     foot = wall.mesh.V[wall.mesh.seams[name + '.left']]
     loop = _hull_with_samples([np.asarray(r) for r in rows] + [foot])
@@ -146,11 +152,25 @@ def elbow(spec, *, ground=None, on_ground=True, rows=None):
     if not on_ground:
         loop = feet[0]
         base = loop.copy()
-        base[:, 1] = min(float(loop[:, 1].min()), float(y)) - 1.5
-        skirt = solids.grid(np.stack([loop, base], 1), outward=loop - loop.mean(0), feature=name,
-                            role=dsl.SIDE, closed_rows=True)
-        cap = solids.polygon(base, outward=[0., -1., 0.], feature=name, role=dsl.BASE)
-        mesh = dsl.Mesh.concat([mesh, skirt, cap])
+        base[:, 1] = float(y) - 1.5
+        skirts = []
+        for i in range(len(loop)):
+            j = (i + 1) % len(loop)
+            edge = loop[[i, j]]
+            port = False
+            for p,a,row in ((pin,A,rows[0]),(pout,B,rows[1])):
+                n = np.array([-a[1],a[0]])
+                bounds = (np.asarray(row)[:,[0,2]]-p) @ n
+                lateral = (edge[:,[0,2]]-p) @ n
+                port |= (np.abs((edge[:,[0,2]]-p) @ a).max() < 1e-7
+                         and lateral.min() >= bounds.min()-1e-7
+                         and lateral.max() <= bounds.max()+1e-7)
+            d = loop[j] - loop[i]
+            skirts.append(solids.grid(np.array([[loop[i], base[i]], [loop[j], base[j]]]),
+                                       outward=[d[2], 0., -d[0]], feature=name,
+                                       role=dsl.BASE if port else dsl.SIDE))
+        cap = solids.polygon(base, outward=[0., -1., 0.], feature=name, role=dsl.SIDE)
+        mesh = dsl.Mesh.concat([mesh, *skirts, cap])
         solids.check_closed(mesh, name=name)
         feet = []
     return P.Built(mesh, wall.rails, checks, feet)

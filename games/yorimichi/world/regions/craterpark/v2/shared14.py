@@ -14,11 +14,17 @@ from craterpark.additions import profile
 from . import course, dsl, junctions as J, primitives as P, solids
 from .curves import EasedTurn
 
-FLOOR_Y = 17.5
-OUTLET_Y = 0.
+FLOOR_Y = 5.
+OUTLET_Y = -15.
 WIDTH = 100.
-APPROACH = 50.
-BRIDGE_LENGTH = 10.
+APPROACH = 75.
+BRIDGE_LENGTH = 15.
+ROOM_HEIGHT = 11.
+ROOM_RADIUS = 10.
+ORANGE_OFFSET = -10.
+DIRECT_OFFSET = 30.
+ORANGE_PORT = (ORANGE_OFFSET - 16.,ORANGE_OFFSET + 16.)
+DIRECT_PORT = (DIRECT_OFFSET - 16.,DIRECT_OFFSET + 16.)
 
 
 def level_change(y0, y1, length):
@@ -61,7 +67,7 @@ class Definition:
     body_parts: tuple
     primary: dict
 
-    def reference(self, key, step=.5):
+    def reference(self, key, step=.5, exit_offset=0.):
         """A physical 3D centre path; its sampled segments carry their own lengths.
 
         The two inlets enter the same body ten metres either side of its axis.
@@ -80,6 +86,8 @@ class Definition:
         sign = float(np.sign((self.arms[key].point([self.arms[key].length])[0] - self.origin) @ J.direction(220.)))
         u = np.clip(b[:, 0] / 80., 0., 1.)
         offset = sign * 10. * (1 - u ** 3 * (10. - 15. * u + 6. * u ** 2))
+        v = np.clip((b[:, 0] - (self.body.length - 90.)) / 90., 0., 1.)
+        offset += exit_offset * v ** 3 * (10. - 15. * v + 6. * v ** 2)
         xy = self.body.point(b[:, 0]) + offset[:, None] * self.body.normal(b[:, 0])
         body = np.c_[xy[:, 0], b[:, 1], xy[:, 1]]
         result = np.concatenate([primary, arm[1:], body[1:]])
@@ -100,7 +108,7 @@ def definition():
     wide = float(np.linalg.norm(outlets['L1'] - outlets['L4']) / 2)
     origin = mean + APPROACH * forward
     arms, profiles = {}, {}
-    body = EasedTurn(origin, 130., 80., 90.)
+    body = EasedTurn(origin, 130., 80., 135.)
     # This continuous downhill room restores speed before the choice point.
     # The exact, level-ended profile has R300+ pitch arcs; no convex crest is
     # introduced at a high-speed straight/turn interface.
@@ -122,7 +130,9 @@ def build(spec=None):
     """Build the two inlet arms and the single shared room, including real portals."""
     spec = definition() if spec is None else spec
     built, rows = [], {}
-    across = np.unique(np.r_[np.arange(-50., 51., 2.), -46., -40., -20., -14., 20., 40.])
+    port_row = np.r_[-16.,-15.,np.arange(-14.,15.,2.),15.,16.]
+    across = np.unique(np.r_[np.arange(-50., 51., 2.),
+                             port_row+ORANGE_OFFSET,port_row+DIRECT_OFFSET])
     # Top and underside use one row of port samples at both room ends.
     bottom_u = (np.r_[-51., across, 51.] + 51.) / 102.
 
@@ -139,21 +149,20 @@ def build(spec=None):
     room = LineSpec('S14', 'Shared room', spec.body, FLOOR_Y, spec.body_parts, (), 'merge', 'choice', rollin=0)
     continuous = pieces(room)
     for i, (start, y, a, parts) in enumerate(continuous):
-        # Only the actual room ends carry connecting portals. The gap has
-        # ordinary visible, full-width kicker/knuckle walls.
-        left = right = P.Side('bowl', height=15., radius=14., fade=(20., 20.))
+        # Only the actual room ends carry connecting portals.
+        left = right = P.Side('bowl', height=ROOM_HEIGHT, radius=ROOM_RADIUS, fade=(20., 20.))
         prof = P.from_additions(y, a, parts)
         prof = dsl.Profile(P.tagged(prof.parts, 'takeoff' if not i else 'landing'),
                            start=tuple(prof.start), degrees=prof.degrees)
         openings = ([(-20., 20.)] if not i else None,
-                    [(-46., -14.), (20., 40.)] if i == len(continuous) - 1 else None)
+                    [ORANGE_PORT,DIRECT_PORT] if i == len(continuous) - 1 else None)
         b = P.ramp(spec.body, prof, WIDTH, start=start, left=left, right=right, across=across,
                    feature='S14.shared.' + str(i), thickness=course.THICKNESS,
                    bottom_u=bottom_u, end_openings=openings,
                    ends=('flush' if not i else 'wall', 'flush' if i == len(continuous) - 1 else 'wall'))
         built.append(b)
         if not i:
-            row = J.boundary_row(b.mesh, spec.origin, J.direction(130.))
+            row = J.boundary_row(b.mesh, spec.origin, J.direction(130.),span=WIDTH+2.)
             w = (row[:, [0, 2]] - spec.origin) @ J.direction(220.)
             body_row = row[np.abs(w) <= 20. + 1e-7]
     built.append(_bridge(spec, rows, body_row))
@@ -166,12 +175,12 @@ def build(spec=None):
     out.checks.append({'kind': 'shared_room', 'feature': 'S14', 'owners': ['L1', 'L4'],
                         'floor_width_m': WIDTH, 'body_length_m': spec.body.length,
                         'floor_y_m': FLOOR_Y, 'outlet_y_m': room_y,
-                        'direct_port_m': [20., 40.], 'orange_port_m': [-46., -14.]})
+                        'direct_port_m': DIRECT_PORT, 'orange_port_m': ORANGE_PORT})
     return out
 
 
 def _bridge(spec, rows, body_row):
-    """A single flat slab replaces the last ten metres of the two separate arms.
+    """A single flat slab replaces the narrowing tips of the two separate arms.
 
     Its exact two inlet rows and one outlet row are the only hidden end walls.
     There is no narrowing pair of vertical walls beneath a converging slit.
