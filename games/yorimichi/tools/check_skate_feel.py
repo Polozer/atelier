@@ -250,7 +250,7 @@ def main():
         ones = {k: 1 for k in ('flick_radius', 'flick_window', 'flick_pace', 'gravity', 'boneless', 'hippy',
                                'rail_magnetism', 'grind_pop', 'grind_friction', 'braking', 'steering', 'carve', 'grip',
                                'powerslide', 'rolling_friction', 'hill_speed', 'pump', 'wobble', 'wobble_onset',
-                               'manual_drift', 'landing', 'impact', 'powerslide_turn')}
+                               'manual_drift', 'landing', 'impact', 'powerslide_turn', 'grind_tolerance')}
         ones.update(auto_push=-1, assisted_air=-1, tight_flicks=0, flick_120hz=0, drift_powerslide=0, drift_grip=.3, drift_full_grip=.6)
         rides = [flat.ride(330, flick(18, 2), feel, velocity=(0, 0, 5)) for feel in (None, ones)]
         same = all(a['root'] == b['root'] and a['bones'] == b['bones'] and a['velocity'] == b['velocity'] for a, b in zip(*rides))

@@ -312,7 +312,8 @@ board settles the start onto the floor (`SettleRideStart`, `RideComponent.cpp`).
   runs on as momentum that fades (`MomentumDecay`, `MomentumBrake`).
 - **Air dismount and kick-out.** The skate button in the air: with a grab held (`RideGrab`: Indy `FS`, Melon `BS`,
   Christ air `STALE`, tuck knee `DBL`, a one-foot `MUTE`) the rider steps off holding the board; without one the feet
-  kick the board away and it flies on as a projectile, settling flat.
+  kick the board away and it flies on as a projectile, settling flat. The right trigger held from the board is the
+  transfer, not a grab (the plugin README's "Controls"); pulled in the air it grabs.
 - **Caveman.** The skate button in a jump: the board goes under the feet; the ride starts airborne when the ground is
   more than 70 cm below.
 - **Carry.** The board stays in hand for `BoardHoldTime` (6 s), then dissolves. It goes at once when the hands are
@@ -360,7 +361,7 @@ in but no one has ridden it yet.
 | H23 | Simulation maths on the game thread runs outside the floating-point scope; two session failures in a row (one during the get-up) stow the board | The scope covers the worker's calls only | `FScopedSimulationFloatEnvironment` callers in `SkateRuntime.cpp`; `RelaunchSimulationRide` |
 | H26 | Hands inside the thighs at rest: the main rider -7.8 / -4.3 cm, a second rider -5.2 cm | The simulation's idle pose on our riders' proportions; `ClearArms` runs on the simulation's pose, but whether it covers this case is unchecked | `RetargetRiderPose`, `ClearArms`, the `arm_need=` field |
 | H29 | The board inside geometry: 19.3 cm into a wall in a run-out carrying the board; one frame 104 cm past a floor at a corner | The run-out case is the transition's carried board, not the simulation's; the floor case is unexplained | The run-out in `RideTransitionMount.cpp`; the snapshot near thin meshes |
-| H30 | A 360 hardflip onto a rail lands into a 5-0 5 cm from the rail's line, then bails | Unknown: the simulation's own outcome or the rail's polyline | Rail registration, `Grind*` |
+| H30 | A 360 hardflip onto a rail lands into a 5-0 5 cm from the rail's line, then bails | Unknown: the simulation's own outcome or the rail's polyline; `GrindTolerance` 2 (README, "Feel") rides through twice the in-grind knocks, to playtest | Rail registration, `Grind*` |
 | H35 | A foot joint goes 1.8–3.5 degrees past its range in the joint check | Unknown | `skate.RideJointCheck`, `BailJoints` |
 | H37 | A quarter pipe's straight air is not repeatable (an occasional 70-degree yaw on the face, a bail at the landing) | Possibly fixed by fresh sessions; to measure again | The same launch repeated |
 | H43 | A grind's exit at the end of a long ledge drifts outward; the board yaws 15–20 degrees on the lock | Unknown: the simulation's grind exit or the rail's end | The rail's polyline and end, `Grind*` |

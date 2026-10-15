@@ -505,13 +505,12 @@ FSkateHostPad USkateComponent::ReadHostPad() const
             Out.bController=true;
             Out.bFaceLeft=PC->IsInputKeyDown(EKeys::Gamepad_FaceButton_Left);Out.bFaceBottom=PC->IsInputKeyDown(EKeys::Gamepad_FaceButton_Bottom);
             Out.bW=PC->IsInputKeyDown(EKeys::W);Out.bUp=PC->IsInputKeyDown(EKeys::Up);
-            Out.bLeftShoulder=PC->IsInputKeyDown(EKeys::Gamepad_LeftShoulder);
-            // RB is the transfer (ReadInput), on the host's bit: the session's own RB (stepping off onto the feet) is not sent.
-            Out.bRightShoulder=false;
+            Out.bLeftShoulder=PC->IsInputKeyDown(EKeys::Gamepad_LeftShoulder);Out.bRightShoulder=PC->IsInputKeyDown(EKeys::Gamepad_RightShoulder);
             Out.bLeftThumb=PC->IsInputKeyDown(EKeys::Gamepad_LeftThumbstick);Out.bRightThumb=PC->IsInputKeyDown(EKeys::Gamepad_RightThumbstick);
             Out.bQ=PC->IsInputKeyDown(EKeys::Q);Out.bE=PC->IsInputKeyDown(EKeys::E);
             Out.LeftTrigger=PC->GetInputAnalogKeyState(EKeys::Gamepad_LeftTriggerAxis);
-            Out.RightTrigger=PC->GetInputAnalogKeyState(EKeys::Gamepad_RightTriggerAxis);
+            // R2 held as the transfer (ReadInput) is on the host's bit, not the session's right trigger.
+            Out.RightTrigger=bRightTriggerTransfer?0.f:PC->GetInputAnalogKeyState(EKeys::Gamepad_RightTriggerAxis);
         }
     return Out;
 }

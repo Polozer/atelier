@@ -50,8 +50,9 @@ Riding into the sea puts Cairo back on the board at the last dry spot.
 | Ollie | Right stick down, then up | Hold Space, release |
 | Tricks | Right stick gestures | Hold the left mouse button and flick |
 | Manual, nose manual | Right stick partly down / up | Hold the left mouse button, move part-way |
-| Pump on the ground, grab in the air | L2 / R2 (LT / RT) | Q / E |
-| Transfer over the coping | Hold R1 / RB | Hold Shift |
+| Pump on the ground, grab in the air | L2 / R2 (LT / RT); R2 grabs once pulled in the air | Q / E |
+| Transfer over the coping | Hold R2 / RT from the board into the lip | Hold Shift |
+| Handplant | R1 / RB at the coping | |
 | Look | (follows the board) | Mouse, without the left button |
 
 The flicks: down-up ollie, down-up-left kickflip, down-up-right heelflip, down-left or down-right shove-its, a sweep
@@ -77,7 +78,11 @@ across the line.
 frames too, so a quick hardflip keeps the point at the bottom of its arc. The flick window, pace and tolerance keep
 their meaning. It reads a controller between frames on macOS. See the plugin README's "120 Hz flicks".
 
-A grab never sends Cairo over the coping; only the transfer input does.
+A grab never sends Cairo over the coping; only the transfer input does. R2 pulled on the board (rolling, up the ramp,
+into the lip) is only the transfer: it does not pump or grab, so a transfer is not also a right-hand grab, and it stays
+the transfer while held on into the air. Let go in the air, R2 grabs again until the board is down. L2 still pumps and
+grabs as before, and both stick clicks with both triggers are still the bail. R1 is the simulation's own: a handplant
+at the coping.
 
 ### Trick line and HUD
 
@@ -90,7 +95,7 @@ line.
 
 ### Pumping
 
-Pull a trigger to crouch and let it go to stand up: L2 / R2 any part of the way (the deeper of the two counts), or
+Pull a trigger to crouch and let it go to stand up: L2 any part of the way (R2 on the board is the transfer), or
 Q / E fully. Standing up while the board rides through a curve gains speed: crouch across the flat or high on the
 descent and let go through the curve at the bottom; crouch again for the next wall. Timing matters: holding a trigger
 is not a boost, and holding it through the curve gains less than coasting, which pumps a little by itself (the
@@ -168,8 +173,14 @@ settings show the same values under "Skate mode", "Skate feel · Custom" and "Sk
 values to stock** and **Reset controls and camera** return those values to their defaults.
 
 Custom values multiply the base difficulty's own, so pick the base first. Each starts at the game's own value: 1.00 for
-most, and this game's pop 1.15, spin 1.6, push speed 1.15, push strength 1.45 and vert assist 1 (`DefaultGame.ini`). The plugin README's
-"Feel" table says what each one scales. Some useful starting points:
+most, and this game's pop 1.15, spin 1.6, push speed 1.15, push strength 1.45, vert assist 1 and grind balance 2
+(`DefaultGame.ini`). The plugin README's "Feel" table says what each one scales.
+
+**Grind balance** (`GrindTolerance`, 2 in this game, in every mode) is how much a grind takes before Cairo bails. At 2
+the grind rides through twice the knocks, the twist of the deck off the rail and the time a push-off has to clear the
+rail; a rail boardslide that stalls drops off the rail and rides away instead of wiping out. The entry takes half as
+much more: hitting the rail 12 m/s sideways or slamming on with a 12 m/s jolt still bails, as does an air entry pitched
+more than 30° along the rail. Some useful starting points:
 
 | To get | Try |
 | --- | --- |
@@ -177,7 +188,7 @@ most, and this game's pop 1.15, spin 1.6, push speed 1.15, push strength 1.45 an
 | Floatier airs | Gravity 0.8 (heights stay; air time is about 12% longer) |
 | Grinds that catch from farther | Rail magnetism 1.5 to 2 |
 | Endless lines | Rolling resistance 0.5, Grind friction 0.5, Pumping 1.5 |
-| Fewer bails | Landing forgiveness 1.5, Impact toughness 1.5 |
+| Fewer bails | Landing forgiveness 1.5, Impact toughness 1.5, Grind balance 3 |
 
 ## Board contract
 

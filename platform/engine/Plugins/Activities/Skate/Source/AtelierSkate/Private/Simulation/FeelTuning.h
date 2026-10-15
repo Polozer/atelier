@@ -14,6 +14,11 @@ struct FeelTuning
     float gravity=1,boneless=1,hippy=1;
     // Rails: how far a jump may be bent onto a rail or ledge, the pop off a grind and the grind's friction.
     float rail_magnetism=1,grind_pop=1,grind_friction=1;
+    // Grinds: how much a grind takes before it bails (0.5..3). Its in-grind limits (GrindPostTolerance) and the time a
+    // push-off has to clear the rail are this times the authored; the entry's (the impact snapping on, the speed
+    // across the rail, the speed landing into it) are half as much more, (1 + this) / 2, so a sideways or hard slam
+    // still bails. Above 1, a rail slide that stalls is pushed off the rail instead of wiping out.
+    float grind_tolerance=1;
     // Rolling: braking, steering, carve strength, wheel grip, powerslide bite, rolling resistance, downhill pull and pumping.
     float braking=1,steering=1,carve=1,grip=1,powerslide=1,rolling_friction=1,hill_speed=1,pump=1;
     // Balance: speed wobble size and the speed at which it starts, manual balance drift.

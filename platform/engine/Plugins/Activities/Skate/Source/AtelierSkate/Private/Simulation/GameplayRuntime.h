@@ -135,6 +135,7 @@ private:
         WipeoutSettings wipeout;
         std::array<WipeoutMode,5> wipeout_modes;
         std::array<PointGraph<8>,5> slide_speed_to_force;
+        GrindPostSettings grind_post;
     } feel_stock_{};
     FeelTuning feel_;
     float vert_assist_=0,vert_assist_limit_=1;

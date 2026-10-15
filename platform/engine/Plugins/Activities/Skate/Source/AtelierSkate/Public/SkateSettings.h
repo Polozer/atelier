@@ -63,6 +63,8 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Skate") bool bDriftPowerslide = false;
     UPROPERTY(Config, EditAnywhere, Category = "Skate", meta=(ClampMin="0", ClampMax="1.5")) float DriftGrip = .3f;
     UPROPERTY(Config, EditAnywhere, Category = "Skate", meta=(ClampMin="0", ClampMax="1.5")) float DriftFullGrip = .6f;
+    /** How much a grind takes before it bails (README, "Feel": GrindTolerance; 1 is stock). */
+    UPROPERTY(Config, EditAnywhere, Category = "Skate", meta=(ClampMin="0.5", ClampMax="3")) float GrindTolerance = 1.f;
     /** How far a powerslide turns the board across the travel (1 is stock). */
     UPROPERTY(Config, EditAnywhere, Category = "Skate", meta=(ClampMin="0.25", ClampMax="1.5")) float PowerslideTurn = 1.f;
     /** The board parts (the board contract in the plugin README: deck top 9.05 cm above the ground, X nose). */

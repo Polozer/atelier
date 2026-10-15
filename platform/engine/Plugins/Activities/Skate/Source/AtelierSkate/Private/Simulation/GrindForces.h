@@ -40,7 +40,11 @@ struct GrindLaunchOutput {Vec4 velocity;PlayerGrindJumper jumper;std::uint32_t f
 GrindLaunchOutput CalculateGrindLaunch(PlayerGrindJumper,GrindLaunchInput);
 struct GrindReckoningSettings {Vec4 ground_normal_smoothing;PointGraph<8> tilt_vs_rotation,tilt_vs_slope;};
 bool UpdateGrindReckoning(GroundOrientation&,ReckoningFrames&,PhysicalBodySpinState&,AirReckoningState&,const GrindReckoningSettings&,Vec4 normal,Vec4 heading,float smoothing,bool reverse,float body_spin,std::string& error);
-struct GrindPostSettings {float max_arm_contact_164,max_body_contact_168,xz_acceleration_204,max_displacement_208,max_angular_deck_error_212;};
+struct GrindPostSettings {float max_arm_contact_164,max_body_contact_168,xz_acceleration_204,max_displacement_208,max_angular_deck_error_212;
+    float y_acceleration=100;};   // the board's closing speed through the rail, up or down, that bails (stock 100)
+// Every post-physics grind bail limit times tolerance (FeelTuning::grind_tolerance): the body pushed off its pose, a
+// knock to the body or arms, the board's closing speed across and through the rail, the deck twisted off its target.
+GrindPostSettings GrindPostTolerance(GrindPostSettings stock,float tolerance);
 // Shared original regional-force kernel will be exported by the Wipeout owner
 // after its frozen baseline passes. There is no duplicate grind implementation.
 bool CheckWipeoutRegionalForce(const WipeoutFrame&,float body,float arms);

@@ -49,7 +49,7 @@ bool PlayerGrindInputState::PostUpdate(ProcessedPhysicsInput& p,const WorldGeome
     if(!balance.UpdateForceExit(Float4(fields.point_1120),fields.flags_1516,query,error))return false;
     const auto entered=engagement.Update({fields.valid_1488,fields.family_1248,p.category_2512,p.state_2504,p.scalar_2652,c.balance_2720,
         Float4(fields.direction_1136),vectors.grind_normal,Float4(p.vectors_544_560_592_608[0]),Float4(p.vectors_400_416[0]),Float4(p.vectors_544_560_592_608[3]),
-        fields.geometry_kind_1464,Float4(fields.high_side_1440),settings_.vertical_help,settings_.max_impact,fields.flags_1516,Float4(fields.entry_velocity_1184)});
+        fields.geometry_kind_1464,Float4(fields.high_side_1440),settings_.vertical_help,settings_.max_impact*entry_tolerance,fields.flags_1516,Float4(fields.entry_velocity_1184),7*entry_tolerance});
     fields.valid_1488=entered.valid;fields.flags_1516=entered.flags;fields.entry_velocity_1184=Raw4(entered.entry_velocity);fields.impact_speed_1492=entered.impact_speed;
     if(!entered.wipeout_reasons.empty())p.flags_2468|=0x00040000u;
     control.Update(fields.valid_1488?fields.family_1248:UINT32_MAX,c.board[2],vectors.grind_normal,(fields.flags_1516&0x20000000u)!=0,

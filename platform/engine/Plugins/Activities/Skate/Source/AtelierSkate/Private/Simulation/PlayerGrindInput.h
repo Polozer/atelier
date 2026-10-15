@@ -80,6 +80,9 @@ public:
     bool previous_proximity=false,previous_air_target=false;Vec4 previous_direction{};float gravity_timer=0;
     PlayerGrindBalanceState balance;PlayerGrindEngagement engagement;PlayerGrindControl control;PlayerGrindJumper jumper;
     GrindInvestigationFields investigation;
+    // The entry bails' share (GameplayRuntime::Feel), 1 stock: the impact snapping onto the rail and the speed
+    // across it that bail are this times the authored.
+    float entry_tolerance=1;
     static std::optional<PlayerGrindInputState> Load(const SettingsDatabase&,std::string& error);
     void Reset();
     void Permission(const ProcessedPhysicsInput&,std::int32_t air_counter);

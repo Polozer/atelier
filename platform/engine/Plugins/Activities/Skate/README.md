@@ -83,6 +83,7 @@ with its own build step. `skate.RideTune` overrides the transitions' tuning live
 | `bDriftPowerslide` | false | Drift powerslides: the left stick straight down starts one too (to the right when dead straight; a rear diagonal picks its side as before), the slide holds from half tilt instead of full tilt, and its wheel friction follows how far down the stick is pulled, from `DriftGrip` of the slide's own at half tilt to `DriftFullGrip` at full tilt. Let go, the slide holds on (up to half a second, at `DriftGrip`) while the board turns back along its travel, so the rider comes out with the speed and the line instead of the line swinging round to the board. Off is stock |
 | `DriftGrip`, `DriftFullGrip` | 0.3, 0.6 | 0 to 1.5; a drift powerslide's wheel friction at half and at full tilt, as shares of the slide's own |
 | `PowerslideTurn` | 1 | 0.25 to 1.5; how far a powerslide turns the board across the travel |
+| `GrindTolerance` | 1 | 0.5 to 3; how much a grind takes before it bails (see Feel) |
 | `DeckMesh`, `TruckMesh`, `WheelMesh` | none | Board parts (see the board contract); skating is unavailable without all three |
 | `BoardDissolveMaterial` | none | A masked material with a scalar `Dissolve` (0 whole, 1 gone) that fades the board in and out; without one the board shows and hides |
 | `SoundFolder` | none | Content folder of the board sounds |
@@ -146,6 +147,7 @@ bit-exact with stock.
 | `RailMagnetism` | 0.25 to 3 | The grind lock distance, how far and how sharply a jump may be bent onto a rail, and the crossing and drop speeds still admitted |
 | `GrindPop` | 0.5 to 2 | The ollie out of a grind |
 | `GrindFriction` | 0 to 3 | Grind and slide friction |
+| `GrindTolerance` | 0.5 to 3 | `GrindTolerance`: what a grind rides through before it bails. In full: every in-grind bail limit (`GrindPostTolerance`: the body pushed off its pose, 2; a knock to the body or arms, 8.5 and 30; the board's closing speed across the rail, 6, and through it, 100; the deck twisted off its target, 1.3 rad) and the 35 updates a push-off has to clear the rail before it bails. Half as much more, `(1 + GrindTolerance) / 2`: the entry's (the impact snapping on, 8 m/s; the speed across the rail, 7 m/s; the speed landing into it, 8 m/s times `Landing`). The 30° pitch along the rail an air entry bails at is kept. Above 1, a rail boardslide or darkslide that stalls is pushed off across the rail, as on a ledge, instead of wiping out |
 | `Braking` | 0.25 to 3 | Foot-brake force |
 | `Steering`, `Carve`, `Grip` | 0.5 to 2 | Steering scalar, heading turn strength, wheel friction |
 | `Powerslide` | 0.25 to 3 | A powerslide's slowing force |
@@ -187,15 +189,18 @@ attenuate over a 500 cm inner radius and 4500 cm falloff.
 | Load, ollie | Right stick down, then up | Hold Space, release to pop |
 | Flick-It tricks | Right stick gestures | Hold the left mouse button and flick |
 | Manual, nose manual | Right stick partly down / up | Hold the left mouse button and move slowly |
-| Pump (ground), grab (air) | Left / right trigger | Q / E |
-| Transfer over the coping | Hold RB (R1) | Hold Shift |
+| Pump (ground), grab (air) | Left / right trigger (the right one grabs once pulled in the air) | Q / E |
+| Transfer over the coping | Hold the right trigger (R2) from the board into the lip | Hold Shift |
+| Handplant | RB (R1) at the coping | |
 
 Kickflips flick down then up-left, heelflips down then up-right; goofy mirrors the gestures. Holding the left-trigger
 grab, B makes it a Christ air and A a one-foot; holding the right stick to one side changes the grab, and the right
-trigger with the stick held left is a tuck knee. A grab never requests a transfer: the transfer has its own input, RB,
-on the host's transfer bit (the session's own RB, which steps off onto the feet, is not sent). LB and both stick
-clicks pass through to the session's pad; clicking both sticks with both triggers held is the
-deliberate bail. The adapter undoes the project's 0.25 per-axis stick dead zone, because Flick-It and the manual
+trigger with the stick held left is a tuck knee. A grab never requests a transfer: the transfer has its own input, the
+right trigger pulled on the board, on the host's transfer bit. That pull is then not the session's right trigger (no
+pump, no grab; `RightTriggerTransfers`, `SkatePad.h`), and it stays the transfer while held on into the air; let go in
+the air, the right trigger grabs again until the board is down. LB, RB (the session's handplant at the coping) and
+both stick clicks pass through to the session's pad; clicking both sticks with both triggers held is the
+deliberate bail, and the right trigger then reaches the session. The adapter undoes the project's 0.25 per-axis stick dead zone, because Flick-It and the manual
 balance read real stick positions. A fast mouse flick points the stick in its direction and springs back after 0.1 s;
 slow movement moves it gradually.
 
