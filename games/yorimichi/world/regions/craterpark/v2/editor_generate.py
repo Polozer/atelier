@@ -133,6 +133,31 @@ def decal_uv(V, frame):
     return np.stack([(V[:, 0] - x0) / w, (V[:, 2] - z0) / h], 1)
 
 
+def bowl_uv(piece, size=PLANKS):
+    """UVs for a wooden bowl, its boards running round it parallel to its lip as the ramps' boards run along them: v the
+    distance round the nearest lip, u the distance down from it (across the deck or floor, plus the drop)."""
+    from craterpark.v2 import editor_coping
+    V = np.asarray(piece.mesh.V, 'f8')
+    lips = editor_coping._join(editor_coping.piece_lips(piece))
+    if not lips:
+        return tile_uv(V, np.asarray(piece.mesh.N, 'f8'), size)
+    pts, run, base = [], [], 0.
+    for lip in lips:
+        P = np.asarray(lip[0], 'f8')
+        d = np.r_[0., np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))]
+        pts.append(P)
+        run.append(base + d)
+        base += d[-1] + 50.
+    P, R = np.concatenate(pts), np.concatenate(run)
+    uv = np.zeros((len(V), 2))
+    for a in range(0, len(V), 2048):
+        Q = V[a:a + 2048]
+        k = (((Q[:, None, [0, 2]] - P[None, :, [0, 2]]) ** 2).sum(2)).argmin(1)
+        flat = np.hypot(Q[:, 0] - P[k, 0], Q[:, 2] - P[k, 2])
+        uv[a:a + 2048] = np.stack([flat + np.maximum(P[k, 1] - Q[:, 1], 0.), R[k]], 1)
+    return uv / size
+
+
 def piece_mesh(piece, decal=None, tower=False):
     """The piece's riding faces and sides; a tower deck (editor_supports.tower) keeps only its top."""
     m, meta = piece.mesh, piece.metadata
@@ -141,10 +166,13 @@ def piece_mesh(piece, decal=None, tower=False):
     for c in SIDE_COLOURS:
         side |= (np.abs(col[F] - c).max(2) < 0.02).all(1)
     parts = []
-    # wooden ramps (the park's ramp boards) everywhere but the bowls, which stay poured concrete
-    concrete = meta['type'] == 'bowl'
-    laid = not concrete and meta.get('stations')
+    # wooden ramps (the park's ramp boards) and wooden bowls; a bowl with its own graphic (DECALS) stays poured concrete
+    bowl = meta['type'] == 'bowl'
+    concrete = bowl and decal is not None
+    laid = not bowl and meta.get('stations')
     ride, ride_uv = (dsl.CONCRETE if concrete else WOOD), (piece_uv(V, meta['stations']) if laid else None)
+    if bowl and not concrete:
+        ride_uv = bowl_uv(piece)
     if decal:
         ride, ride_uv = decal, decal_uv(V, decal_frame(V))
     for mask, role, material, uv in (

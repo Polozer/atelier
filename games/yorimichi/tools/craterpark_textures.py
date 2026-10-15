@@ -156,7 +156,8 @@ WORLD_PAINTINGS = {
     'crater_floor': ('crater_stone', 'blend', 'the bare ground of a volcanic crater floor, only its stone and gravel as in '
                      'Image 1: a light cool mid-grey volcanic stone surface, soft and slightly bluish grey, broken by large '
                      'irregular patches of darker charcoal-grey gravel and fine scree several times bigger than the small '
-                     'stones, scattered small and medium angular grey stones with pale tops, broad gentle variation in tone '
+                     'stones, the patches rounded blobs of different sizes scattered evenly in every direction, never '
+                     'diagonal bands, stripes, rows or streaks, seen from straight above; scattered small and medium angular grey stones with pale tops, broad gentle variation in tone '
                      'over the whole square; neutral and cool, no brown, no tan, no snow, no moss, no grass, no plants, '
                      'no boulders, no paths'),
 }
