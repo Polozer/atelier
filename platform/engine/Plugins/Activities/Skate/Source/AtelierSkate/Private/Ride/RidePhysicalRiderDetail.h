@@ -162,7 +162,8 @@ namespace RidePhysicalRiderDetail
     // The surfaces made physical follow the body once it has moved this far, and let go beyond twice the radius.
     constexpr float PhysicalFollow = 600.f;
     constexpr int32 MinBodies = 6;
-    // A mesh that moves further than this in one frame was placed, not ridden (60 m/s at 60 fps).
+    // A mesh that moves further than this in one frame, plus what the rider's speed covers in a step, was placed, not
+    // ridden (RideShownMotion::PlacedReach).
     constexpr float PlacedDistance = 100.f;
     // For this many frames after a placement, a change of the rider's speed above LaunchStep in one frame (12 g at
     // 60 fps: a scripted launch, not riding) is given to the body as well.

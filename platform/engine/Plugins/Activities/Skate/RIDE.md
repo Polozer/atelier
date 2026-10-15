@@ -89,6 +89,13 @@ Each activation carries a generation number, so a previous ride's output never m
 `skate.Lockstep` (-1, the default: on under a fixed time step or frame rate; 1 always; 0 never) makes each frame wait
 up to 2 s for the last step, so the same controls ride the same way. A mount waits for the session's first pose.
 
+The rider and the camera are shown a tick behind the session, between its last two ticks (`Ride/RideShownMotion.h`,
+`skate.ShowBetweenTicks`, 1 by default; lockstep shows the ticks). Shown at its last whole tick, a 60 fps frame about a
+tick long showed runs of no tick and two ticks: on a 35 m/s air the rider stood still, then jumped 117 cm. The body
+read a jump over 1 m as a placement and put its bodies back on the animation, which stopped their spin. A placement is
+now a move beyond 1 m plus what the rider's speed covers in the longest step (0.1 s), for the body's test and Physics
+Control's teleport alike. `AtelierSkate.Ride.ShownMotion` tests both.
+
 ### Bails
 
 A simulation wipeout hands the rider to the Chaos body (`AfterSimulationRideFrame`, `OfferBail`): a run-out plays on foot, a
@@ -321,7 +328,7 @@ recaches and resets.
 - **The simulation's own tests**, the parity checks in `Tests/` ([RUNTIME.md](RUNTIME.md#verification)), check the session
   bit for bit against the reference implementation.
 - **Console variables.** `skate.FailSimulation 1` (the session fails, to test recovery), `skate.RidePhysical` (0: no
-  active ragdoll), `skate.Lockstep` (-1, 0 or 1), `skate.PumpTrick` (the m/s one pump must add to show as `Pump`, 0.5), `skate.RideTrace N`, `skate.RideBailTrace N`,
+  active ragdoll), `skate.Lockstep` (-1, 0 or 1), `skate.ShowBetweenTicks` (0: the last whole tick), `skate.PumpTrick` (the m/s one pump must add to show as `Pump`, 0.5), `skate.RideTrace N`, `skate.RideBailTrace N`,
   `skate.RideJointCheck`, `skate.RideSkinCheck 1`, `skate.RidePhysicalDump`, `skate.RideTune`.
 
 ## Known gaps and bugs

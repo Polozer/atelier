@@ -81,6 +81,8 @@ namespace SkateRuntimeDetail
         TEXT("cm each riding foot's sole stays above the ground under it; below 0 off"));
     TAutoConsoleVariable<int32> CVarSkateLockstep(TEXT("skate.Lockstep"),-1,
         TEXT("Skating waits for each step of its thread, so a replay repeats: 1 always, 0 never, -1 under a fixed step or frame rate"));
+    TAutoConsoleVariable<int32> CVarSkateShowBetweenTicks(TEXT("skate.ShowBetweenTicks"),1,
+        TEXT("1 shows the ride and its camera between the simulation's last two 60 Hz ticks, a tick behind; 0 its last whole tick (lockstep always does)"));
     TAutoConsoleVariable<int32> CVarSkateSurfaceDebug(TEXT("skate.SurfaceDebug"),0,
         TEXT("1 logs every colliding mesh's surface per material slot at the next collision gather (USkateSettings surfaces)."));
     TAutoConsoleVariable<int32> CVarSkateCookedSurface(TEXT("skate.CookedSurface"),0,
