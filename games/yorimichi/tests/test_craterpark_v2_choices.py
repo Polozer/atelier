@@ -20,6 +20,9 @@ def test_choice_paths_use_the_actual_two_room_portals():
     assert np.linalg.norm(direct.path.point([0.])[0]-vert.inlet)==pytest.approx(shared14.DIRECT_OFFSET-shared14.ORANGE_OFFSET)
     assert np.allclose(direct.path.tangent([0.])[0],room.body.tangent([room.body.length])[0])
     assert np.allclose(vert.line.path.at(vert.line.path.length)[1],J.direction(vert.spec['heading_in']-90.))
+    apron_inlet = vert.line.path.at(vert.spec['s_in'])[0]
+    np.testing.assert_allclose(apron_inlet - vert.inlet,
+                               20. * J.direction(vert.spec['heading_in']), atol=1e-7)
 
 
 def test_direct_transfer_has_straight_alignment_and_a_real_open_gap():

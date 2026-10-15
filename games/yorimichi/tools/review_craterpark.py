@@ -113,10 +113,16 @@ def layout_module():
 
 def along(line, layout, s):
     """A native point on a layout line at plan distance s (its profile height), and the plan direction there."""
-    c = layout.curve(line.path)
-    s = float(np.clip(s, 0., c.length))
-    p = np.asarray(c.point([s]), 'f8').reshape(-1)[:2]
-    d = np.asarray(c.tangent([s]), 'f8').reshape(-1)[:2]
+    s = float(np.clip(s, 0., line.path.length))
+    if hasattr(line.path, 'at'):
+        # A vert elbow includes an airborne drift between separate ground
+        # legs. Its authored path can be evaluated without inventing a curve
+        # across that discontinuity.
+        p, d = line.path.at(s)
+    else:
+        c = layout.curve(line.path)
+        p = np.asarray(c.point([s]), 'f8').reshape(-1)[:2]
+        d = np.asarray(c.tangent([s]), 'f8').reshape(-1)[:2]
     k = np.asarray([(a, b) for a, b, _ in layout.knots(line)], 'f8')
     y = float(np.interp(s, k[:, 0], k[:, 1]))
     return np.array([p[0], y, p[1]]), np.array([d[0], 0., d[1]])
