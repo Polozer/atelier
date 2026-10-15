@@ -73,10 +73,12 @@ migration. [World build practices](docs/WORLD_BUILD_PRACTICES.md) explain how to
 terrain and regions for small rebuilds. Proposed features are marked; the [artifact pool](docs/ARTIFACT_POOL.md)
 documents automatic cache maintenance, signed bundle ingestion, optional HTTPS lookup and the older explicit reuse commands.
 Imports require pinned publisher keys, explicit redistribution grants and complete byte verification;
-uploading and trusted publisher issuance remain separate work.
+an operator-controlled producer can freshly build an independent audited Python action and export a signed
+directory. Online uploading and hostile-source signer isolation remain separate work.
 The related [capacity admission proposal](docs/BUILD_CAPACITY.md) describes replacing fixed execution slots with
 measured resource reservations while preserving memory guards and exclusive-resource locks. Its current commands
-evaluate supplied snapshots and inspect retained guard histories; measured admission remains a separate migration.
+evaluate supplied snapshots, inspect retained guard histories and exercise durable queue/lease transactions in an
+explicit simulation database. Live admission and native launcher integration remain a separate migration.
 
 ## Why the studio is Python
 
