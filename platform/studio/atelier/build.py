@@ -173,6 +173,7 @@ class Step:
     _query_bindings: tuple | None = field(default=None, init=False, repr=False, compare=False)
     toolchain: bool = False                               # installed Python/Blender identity, without cache publication
     batch: Batch | None = None                            # opt-in scripts that reset their own transient process state
+    cook_recovery: object = field(default=None, repr=False, compare=False)  # narrowly opted-in cook certification policy
 
 
 def outputs_present(step):
@@ -195,10 +196,12 @@ def check_modules(steps):
 
 # ---------------------------------------------------------------- context
 class Context:
-    def __init__(self, game, *, create=True, cook_mode=None, cook_reason=None):
+    def __init__(self, game, *, create=True, cook_mode=None, cook_reason=None, recover_cook=None, record_cook_recovery=False):
         from .build_cook import measurement_reason
         self.cook_reason = measurement_reason(cook_reason)
         self.cook_mode = CookMode.DEFAULT if cook_mode is None else CookMode(cook_mode)
+        self.recover_cook = recover_cook
+        self.record_cook_recovery = record_cook_recovery
         self.game = game
         self.game_dir = paths.game_dir(game)
         self.out = paths.build_dir(game) if create else paths.build_root() / game
@@ -490,6 +493,12 @@ def run_argv(ctx, step, command, argv, env, log, request, slots, *, pass_fds=())
                 if original_callback is not None:
                     original_callback(pid)
                 cook.poll(pid)
+        attempt = None
+        if isinstance(command, UnrealPackage) and step.cook_recovery is not None and getattr(ctx, 'record_cook_recovery', False):
+            from . import build_cook_recovery
+            attempt = build_cook_recovery.begin(ctx, step, command, argv, env)
+            argv = attempt[1]
+            inherited.update(invocation_id=attempt[0].name, completion_path=attempt[0] / 'guarded-success.json')
         try:
             code = guarded.run(argv, folder, purpose=f'atelier build {ctx.game} {step.name}', env=env,
                                small_gib=small_gib, kind=kind, on_slot=note, timeout=getattr(command, 'timeout', 0.),
@@ -531,6 +540,8 @@ def run_argv(ctx, step, command, argv, env, log, request, slots, *, pass_fds=())
             phases = dict(schema=1, status='not-recorded', phases=[], diagnostics=[])
         phases['cook'] = cook.finish(success=True)
         ctx.cook_observation = phases['cook']
+        if attempt is not None:
+            build_cook_recovery.complete(ctx, step, attempt, phases['cook'])
     return phases
 
 
@@ -544,7 +555,13 @@ def slot_summary(slots):
 
 
 def build(game, wanted=(), force=False, dry=False, touch=False, echo=print, verify=False, cook_mode=None, cook_reason=None,
-          max_heavy_commands=None):
+          max_heavy_commands=None, recover_cook=None, record_cook_recovery=False):
+    if recover_cook is not None and (force or dry or touch or cook_mode is not None or max_heavy_commands is not None):
+        raise ValueError('Cook recovery requires ordinary execution without force/touch/experimental/budget flags')
+    if recover_cook is not None and list(wanted) not in (['unreal.cook'], ['unreal.package']):
+        raise ValueError('Cook recovery selects exactly unreal.cook or unreal.package')
+    if record_cook_recovery and (recover_cook is not None or list(wanted) not in (['unreal.cook'], ['unreal.package'])):
+        raise ValueError('Record cook recovery selects unreal.cook or unreal.package, without --recover-cook')
     if max_heavy_commands is not None and (type(max_heavy_commands) is not int or max_heavy_commands < 1):
         raise ValueError('max_heavy_commands must be a positive integer')
     from .build_snapshot import require_complete
@@ -553,7 +570,9 @@ def build(game, wanted=(), force=False, dry=False, touch=False, echo=print, veri
         from .build_plan import show
         return show(game, wanted, force=force, echo=echo, verify=verify,
                     **({'cook_mode': cook_mode, 'cook_reason': cook_reason} if cook_mode is not None else {}))
-    ctx = Context(game, **({'cook_mode': cook_mode, 'cook_reason': cook_reason} if cook_mode is not None else {}))
+    ctx = Context(game, **({'cook_mode': cook_mode, 'cook_reason': cook_reason} if cook_mode is not None else {}),
+                  **({'recover_cook': recover_cook} if recover_cook is not None else {}))
+    ctx.record_cook_recovery = record_cook_recovery
     from .build_hashes import HashIndex
     with HashIndex(ctx.out / '.state' / 'file-hashes.sqlite3', verify=verify) as index:
         return _build(ctx, wanted, force=force, touch=touch, echo=echo, index=index,
@@ -712,11 +731,18 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
             return 1
         from .build_cook import forced
         force_step = forced(ctx, step, force)
-        if not force_step and previous.get('fingerprint') == current and outputs_ok:
+        recovering = getattr(ctx, 'recover_cook', None) is not None and step.name == 'unreal.cook'
+        if (recovering or (step.name == 'unreal.cook' and getattr(ctx, 'record_cook_recovery', False))) and step.cook_recovery is None:
+            echo(f'{print_} FAILED: this recipe does not support cook recovery')
+            return 1
+        if not recovering and not force_step and previous.get('fingerprint') == current and outputs_ok:
             done[step.name] = result(step, current, previous)
             build_products.feed_results(done, previous.get('products', {}))
             echo(f'{print_} up to date')
             continue
+        if getattr(ctx, 'recover_cook', None) is not None and not recovering and step.name != 'unreal.package':
+            echo(f'{print_} FAILED: recovery requires every prerequisite already current and complete')
+            return 1
         if touch:   # the outputs are known to be current (a refactor of the recipe): record them without running
             if not outputs_ok:
                 echo(f'{print_} not touched: outputs missing')
@@ -788,7 +814,11 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
                 # would execute an obsolete plan whose newly selected producers have not run.
                 verify_spatial(step, current)
                 request = slot_request(ctx, step) if step.heavy else None   # from the reports of the previous run
-                for command in (() if from_cache else step.commands):
+                if recovering:
+                    from .build_cook_recovery import recover
+                    recovery = recover(ctx, step, ctx.recover_cook, log)
+                    command_times.append(dict(kind='CookCertificationRecovery', **recovery))
+                for command in (() if from_cache or recovering else step.commands):
                     if step.heavy and not isinstance(command, Call):
                         if budget_spent():
                             return yield_build(step)

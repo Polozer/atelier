@@ -28,7 +28,7 @@ It samples the simultaneous physical footprint of the wrapper and its owned desc
 excluding shared services, under the same ceiling and admission. `memory-health-tree.json` is this aggregate
 receipt, separate from per-process reports. Lost telemetry or a missing successful terminal receipt fails the run.
 """
-import argparse, json, os, signal, subprocess, sys, time, uuid
+import argparse, hashlib, json, os, signal, subprocess, sys, time, uuid
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -189,9 +189,33 @@ def check_root_guard(child, monitor, report, final=False):
             raise SystemExit(f'memory guard stopped the child: {record["state"]}')
 
 
+def completion_watches(tree):
+    """A disappeared watched child cannot erase its affirmative guard stop from recovery evidence."""
+    records = []
+    for (pid, started), (label, monitor) in tree.guarded.items():
+        if monitor.poll() not in (None, 0):
+            raise RuntimeError('Watched process guard failed; no completion proof')
+        path = tree.folder / f'memory-health-{label}-{pid}.json'
+        try:
+            with path.open('rb') as stream:
+                raw = stream.read(1024**2 + 1)
+            if len(raw) > 1024**2:
+                raise ValueError('oversized watched guard report')
+            record = json.loads(raw)
+        except FileNotFoundError:
+            continue  # A short-lived child can exit before its first sample.
+        if (record.get('pid'), record.get('process_start')) != (pid, started):
+            continue
+        if record.get('state') in ('memory_limit', 'test_duration'):
+            raise RuntimeError('Watched process guard stopped its child; no completion proof')
+        records.append(record)
+    return records
+
+
 def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gib=10., small_gib=None, kind='job',
         on_slot=None, watch=(), progress=0., track_tree=False, fitting_gib=None, pass_fds=(), aggregate_tree=False,
-        on_poll=None, admission=None, performance=False, invocation_id=None, worker_binding=None):
+        on_poll=None, admission=None, performance=False, invocation_id=None, worker_binding=None,
+        completion_path=None):
     """@cc [owner:fontanierh,label:correctness] diagnostic-execution-timings
     Timing diagnostics MUST NOT certify outputs or guess command execution duration. Publication
     MUST require clearing the prior report; failure to clear MUST suppress publication without
@@ -205,6 +229,10 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
     identifier = uuid.uuid4().hex if invocation_id is None else invocation_id
     if type(identifier) is not str or uuid.UUID(identifier).hex != identifier:
         raise ValueError('invocation_id must be a UUID hex string')
+    if completion_path is not None:
+        completion_path = Path(completion_path)
+        if kind != 'compile' or not lock or completion_path.exists() or completion_path.is_symlink():
+            raise ValueError('Completion proof requires a new path and the normal aggregate compile lifecycle')
     report = Path(folder) / 'execution-timings.json'
     publish_timings = True
     try:
@@ -212,10 +240,29 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
     except OSError:
         publish_timings = False  # A diagnostic path must not block an otherwise valid launch.
     events = {}
+    completion = {} if completion_path is not None else None
     try:
-        return _run(command, folder, timeout, purpose, lock, env, limit_gib, small_gib, kind,
+        code = _run(command, folder, timeout, purpose, lock, env, limit_gib, small_gib, kind,
                     on_slot, watch, progress, track_tree, fitting_gib, pass_fds, aggregate_tree,
-                    on_poll, admission, performance, worker_binding=worker_binding, _timings=events)
+                    on_poll, admission, performance, worker_binding=worker_binding, _timings=events,
+                    **({'_completion': completion} if completion is not None else {}))
+        # _run's ExitStack has now completed child cleanup, capacity close and monitor detach.
+        # This affirmative receipt is deliberately independent from diagnostic timings.
+        if completion is not None and code == 0:
+            if not completion:
+                raise RuntimeError('Guarded command lacks positive aggregate completion evidence')
+            identity = lambda value: hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+            value = dict(schema=1, kind='guarded-success', invocation_id=identifier, returncode=0,
+                         cleanup_and_capacity_close=True, command_sha256=identity(command),
+                         environment_sha256=identity(dict(os.environ) if env is None else env), **completion)
+            candidate = completion_path.with_name('.' + completion_path.name + '.' + identifier + '.tmp')
+            fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, 'w') as stream:
+                json.dump(value, stream, allow_nan=False); stream.write('\n')
+                stream.flush(); os.fsync(stream.fileno())
+            os.link(candidate, completion_path)
+            candidate.unlink()
+        return code
     finally:
         if publish_timings and events.get('ready'):
             def duration(start, end):
@@ -242,7 +289,7 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
 
 def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gib=10., small_gib=None, kind='job',
         on_slot=None, watch=(), progress=0., track_tree=False, fitting_gib=None, pass_fds=(), aggregate_tree=False,
-        on_poll=None, admission=None, performance=False, *, worker_binding=None, _timings):
+        on_poll=None, admission=None, performance=False, *, worker_binding=None, _timings, _completion=None):
     """@cc [owner:fontanierh,label:safety] compile-tree-monitor-lifecycle
     Aggregate mode MUST release the command only after a matching monitor readiness receipt, and MUST
     require a successful matching terminal receipt proving observed tree exit before returning success.
@@ -257,6 +304,8 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
     Shared admission MUST verify the durable boot-bound compatibility barrier. Broker failure MUST fail the run, without falling back to
     slots. Capacity cleanup MUST follow owned-child cleanup/reap and precede guard detachment.
     Requested performance exclusion MUST reach the configured broker or already belong to an explicit session.
+    Optional completion evidence MUST contain the positively waited launcher and matching terminal
+    aggregate receipt. Its caller MUST publish it only after successful cleanup and capacity close.
     Only automatic full sessions MAY select the existing measured-small 4 GiB envelope. Both
     process and aggregate guards MUST use that actual ceiling and the matching reservation.
     Explicit sessions MUST retain and cover the caller's actual requested ceiling.
@@ -402,9 +451,14 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                                                            duration=horizon, limit_gib=limit_gib,
                                                            expected_start=root_start))
             aggregate.ready()
+            if _completion is not None:
+                monitor_pins = dict(process=[monitor.pid, process_tree.started(monitor.pid)],
+                                    tree=[aggregate.process.pid, process_tree.started(aggregate.process.pid)])
+                if any(type(start) is not int or start <= 0 for _, start in monitor_pins.values()):
+                    raise RuntimeError('Could not pin completion monitors')
             if monitor.poll() is not None:
                 raise RuntimeError('process memory guard exited before releasing the launcher')
-            if admission is not None or worker_binding is not None:
+            if admission is not None or worker_binding is not None or _completion is not None:
                 limit_bytes = int(limit_gib * 1024**3)
                 wait_ready(monitor, child.pid, root_start, folder/'memory-health.json', limit_bytes)
             if admission is not None:
@@ -475,6 +529,20 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
             if tree is not None:
                 tree.check()
             on_poll(child.pid)
+        if _completion is not None and child.returncode == 0:
+            if aggregate is None or child.wait(timeout=0) != 0 or not aggregate.receipt('child_exited'):
+                raise RuntimeError('Completion proof lacks a positively waited guarded tree')
+            terminal = json.loads(aggregate.report.read_text())
+            if (terminal.get('owner'), terminal.get('owner_started'), terminal.get('state'), terminal.get('cleanup_complete')) != (
+                    child.pid, root_start, 'child_exited', True):
+                raise RuntimeError('Completion terminal identity changed')
+            process_receipt = json.loads((folder / 'memory-health.json').read_text())
+            if (process_receipt.get('pid'), process_receipt.get('process_start')) != (child.pid, root_start):
+                raise RuntimeError('Completion process guard identity changed')
+            if process_receipt.get('state') in ('memory_limit', 'test_duration'):
+                raise RuntimeError('Completion process guard stopped the child; no completion proof')
+            _completion.update(root=[child.pid, root_start], monitors=monitor_pins, terminal=terminal,
+                               process_guard=process_receipt, watched=completion_watches(tree))
         return child.returncode or 0
 
 

@@ -158,6 +158,12 @@ Upload the verified ZIP or all numbered parts, SHA256SUMS, manifest.json and the
 A release does not run the native multiplayer checks. They run on demand ([MULTIPLAYER.md](MULTIPLAYER.md)). The
 release notes name the revision of the latest native multiplayer evidence.
 
+## Interrupted cook certification
+
+Future cooks can opt into [same-checkout certification recovery](../../../docs/COOK_RECOVERY.md) before UAT starts.
+A positively completed guarded cook can then resume hashing and normal package assembly without another cook.
+Historical logs without the new complete input and guarded completion evidence cannot be recovered.
+
 ## A launch can crash before the game starts
 
 **Seen three times, each time fixed by launching the same unchanged app again.** The game's process

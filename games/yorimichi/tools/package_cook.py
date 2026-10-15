@@ -76,6 +76,66 @@ def source_snapshot(ctx):
     return dict(revision=revision, source_dirty=dirty, fingerprint=fingerprint(cook, done), engine=engine)
 
 
+def recovery_inputs(ctx):
+    """Native bytes consumed by UAT, outside the declared source/prerequisite identities.
+
+    Game-target Binaries/Intermediate are UAT outputs and are deliberately not frozen. The
+    precompiled editor modules, Content (including Data), engine installation and selected SDK
+    are inputs. This conservative local proof has no cross-checkout reuse contract.
+    """
+    import subprocess
+    from pathlib import Path
+    from atelier import paths
+    from atelier.setup import headless_user_dir
+    sdk = Path(subprocess.check_output(['xcrun', '--show-sdk-path'], text=True, timeout=10).strip()).resolve(strict=True)
+    developer = Path(subprocess.check_output(['xcode-select', '-p'], text=True, timeout=10).strip()).resolve(strict=True)
+    roots = [ctx.game_dir / 'unreal/Content', ctx.unreal_root / 'Engine/Build',
+             ctx.unreal_root / 'Engine/Binaries', ctx.unreal_root / 'Engine/Content',
+             ctx.unreal_root / 'Engine/Config', ctx.unreal_root / 'Engine/Shaders', ctx.unreal_root / 'Engine/Source',
+             sdk, developer / 'Toolchains/XcodeDefault.xctoolchain',
+             ctx.game_dir / 'build.py', Path(__file__), paths.REPO / 'uv.lock']
+    headless = os.environ.get('UE_HEADLESS_USER_DIR') or headless_user_dir(ctx.unreal_root)
+    if not headless:
+        raise RuntimeError('Cook recovery recording requires the supported headless UAT configuration')
+    config = Path('Unreal Engine/UnrealBuildTool/BuildConfiguration.xml')
+    roots.extend([Path(headless) / config, Path(headless) / 'UnrealEngine/UnrealBuildTool/BuildConfiguration.xml',
+                  ctx.game_dir / 'unreal/Saved/UnrealBuildTool/BuildConfiguration.xml',
+                  ctx.unreal_root / 'Engine/Saved/UnrealBuildTool/BuildConfiguration.xml',
+                  ctx.unreal_root / 'Engine/Restricted/NotForLicensees/Programs/UnrealBuildTool/BuildConfiguration.xml'])
+    roots.extend(base / config for base in (Path.home() / '.config', Path.home() / '.local/share',
+                 Path.home() / 'Library/Application Support', Path('/usr/share'), Path('/Library/Application Support')))
+    roots.extend([developer / 'Platforms/MacOSX.platform/Info.plist', developer.parent / 'Info.plist',
+                  developer.parent / 'SharedFrameworks', developer.parent / 'Frameworks',
+                  developer.parent / 'OtherFrameworks', Path('/System/Library/CoreServices/SystemVersion.plist')])
+    for name in ('xcodebuild', 'ibtool', 'actool', 'codesign', 'xcrun', 'ditto', 'strip', 'install_name_tool', 'dsymutil'):
+        roots.append(Path(subprocess.check_output(['xcrun', '--find', name], text=True, timeout=10).strip()).resolve(strict=True))
+    # Cook-all can consume engine plugin content/config and prebuilt native modules.
+    for plugins in (ctx.unreal_root / 'Engine/Plugins', paths.ENGINE_PLUGINS, ctx.game_dir / 'unreal/Plugins'):
+        if plugins.exists():
+            selected = ('Content', 'Config', 'Source', 'Resources')
+            if plugins == ctx.unreal_root / 'Engine/Plugins':
+                selected += ('Binaries',)
+            roots.extend(p for p in plugins.rglob('*') if p.name in selected
+                         and not any(parent.name in selected for parent in p.relative_to(plugins).parents))
+            roots.extend(p for p in plugins.rglob('UnrealEditor*')
+                         if p.parent.name == 'Mac' and 'Binaries' in p.relative_to(plugins).parts
+                         and p.suffix in ('.dylib', '.modules', '.target'))
+            roots.extend(plugins.rglob('*.uplugin'))
+    roots.extend(p for p in sorted((ctx.game_dir / 'unreal/Binaries/Mac').glob('UnrealEditor*'))
+                 if p.suffix in ('.dylib', '.modules', '.target'))
+    roots.append(ctx.game_dir / 'unreal/Binaries/Mac' / (ctx.uproject.stem + 'Editor.target'))
+    return roots
+
+
+
+def recovery_link_owners(ctx):
+    """Only the selected immutable tool installations may contribute cross-root link targets."""
+    import subprocess
+    from pathlib import Path
+    developer = Path(subprocess.check_output(['xcode-select', '-p'], text=True, timeout=10).strip()).resolve(strict=True)
+    return [ctx.unreal_root / 'Engine', developer.parent]
+
+
 def prepare(ctx, log):
     root = ctx.out / 'package'
     root.mkdir(parents=True, exist_ok=True)
