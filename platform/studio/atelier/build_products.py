@@ -34,7 +34,7 @@ def identity(value) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def inventory(product: Product) -> dict:
+def inventory(product: Product, *, hasher=None) -> dict:
     """@cc [owner:fontanierh,label:correctness] complete-output-inventory
     Every declared root and its members MUST be inventoried. Missing, linked, special or changing
     files MUST fail verification; checking only a representative output cannot certify a product.
@@ -42,6 +42,11 @@ def inventory(product: Product) -> dict:
     Root indexes make the record independent of checkout location. Paths and their ordering are
     part of the recipe, while relative member names belong to this output identity.
     """
+    return _inventory(product, hasher=hasher)
+
+
+def _inventory(product, *, hasher=None, ignore=None):
+    """Shared traversal. Only source inventories may exclude generated/cache files."""
     entries, observed = {}, []
 
     def visit(path, root, index):
@@ -54,9 +59,10 @@ def inventory(product: Product) -> dict:
             observed.append((path, before))
             entries[name] = {'kind': 'directory'}
             for child in sorted(path.iterdir()):
-                visit(child, root, index)
+                if ignore is None or not ignore(child):
+                    visit(child, root, index)
         elif stat.S_ISREG(before.st_mode):
-            entries[name] = {'kind': 'file', 'size': before.st_size, 'sha256': file_digest(path)}
+            entries[name] = {'kind': 'file', 'size': before.st_size, 'sha256': (hasher or file_digest)(path)}
             observed.append((path, before))
         else:
             raise ValueError(f'{product.name}: non-regular output {path}')
@@ -79,18 +85,18 @@ def inventory(product: Product) -> dict:
     return {'schema': 1, 'files': entries}
 
 
-def records(step) -> dict:
+def records(step, *, hasher=None) -> dict:
     """A complete, independently verifiable record for each product a step owns."""
     result = {}
     for product in step.products:
-        manifest = inventory(product)
+        manifest = inventory(product, hasher=hasher)
         result[product.name] = {'digest': identity(manifest), 'inventory': manifest}
     return result
 
 
-def valid_records(step, previous: dict) -> bool:
+def valid_records(step, previous: dict, *, hasher=None) -> bool:
     try:
-        return records(step) == previous
+        return records(step, hasher=hasher) == previous
     except (OSError, ValueError):
         return False
 
@@ -112,18 +118,28 @@ class Graph:
     """
 
     def __init__(self, steps):
+        from . import build_audit
+        from .build import declared_inputs, required_inputs
         self.steps = list(steps)
         self.by_name = {}
         self.owners = {}
         owned_paths = []
         for step in self.steps:
+            build_audit.validate(step)
+            if step.optional_inputs:
+                if not step.products:
+                    raise ValueError(f'{step.name}: optional inputs require named products')
+                required = {str(Path(p).resolve()).casefold() for p in required_inputs(step)}
+                optional = [str(Path(p).resolve()).casefold() for p in step.optional_inputs]
+                if len(set(optional)) != len(optional) or required.intersection(optional):
+                    raise ValueError(f'{step.name}: duplicate or required optional input')
             if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]*', step.name):
                 raise ValueError(f'Invalid step name: {step.name!r}')
             if step.name in self.by_name:
                 raise ValueError(f'Duplicate step: {step.name}')
             self.by_name[step.name] = step
             sources = [tuple(p.casefold() for p in Path(source).resolve().parts)
-                       for source in step.inputs] if step.products else []
+                       for source in declared_inputs(step)] if step.products else []
             for product in step.products:
                 if not product.name or product.name in self.owners:
                     raise ValueError(f'Duplicate or empty product name: {product.name!r}')
@@ -147,6 +163,15 @@ class Graph:
                 if path[:len(other)] == other:
                     raise ValueError(f'Overlapping product ownership: {owner} and {other_owner}')
             previous = path, owner
+        # Legacy declarations still reserve their paths. Product restoration and audited rebuilds
+        # replace whole roots, so those roots cannot contain (or sit inside) another step's outputs.
+        legacy_paths = [(step.name, tuple(p.casefold() for p in Path(path).resolve().parts))
+                        for step in self.steps for path in (*step.outputs, *step.pool_roots)]
+        for path, product in owned_paths:
+            parts = tuple(p.casefold() for p in path.parts)
+            for step_name, other in legacy_paths:
+                if self.owners[product] != step_name and (parts[:len(other)] == other or other[:len(parts)] == parts):
+                    raise ValueError(f'Product {product} overlaps legacy outputs of {step_name}')
         for step in self.steps:
             for dependency in (*step.needs, *step.after):
                 if dependency not in self.by_name:

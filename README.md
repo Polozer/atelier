@@ -175,6 +175,15 @@ gameplay, so gameplay edits rebuild only the code.
 
 `atelier build <game> --list` shows every step; name one to run just it and what it needs. Yorimichi's
 [build.py](games/yorimichi/build.py) has examples from textures to a whole city, a harbour and three skate parks.
+For small rebuilds, name independently consumed products and declare which ones each step reads or merely
+references. Opted-in portable products are restored automatically from the local cache across worktrees; the
+[sandbox](games/sandbox/README.md) demonstrates independent geometry and placements without Unreal.
+Python generators can opt into an input audit that catches undeclared reads and writes outside their products.
+`atelier build <game> --timings` shows historical execution, restore and instrumented phase durations;
+`--changes` lists differences between certified output inventories. Both inspect receipts without running a build.
+`--ddc` reads retained Unreal logs for cache configuration and recorded hit/miss counts, preserving unknowns.
+Named actions can declare exact optional source files, tracking their appearance and removal without depending on a whole directory.
+[Build recipes](docs/BUILD_RECIPES.md) cover the API, audit limits, input checks and read-only reports.
 
 ### A prop from a sentence
 
@@ -307,7 +316,8 @@ Atelier is built for several AI agents working on one Mac at once, each in its o
 | `atelier setup [--headless] [--workers N]` | verify Xcode and Metal; prepare the tested installed UE 5.8.2 for SSH builds |
 | `atelier reuse <game> --from PATH [--to PATH]` | copy verified artifacts into a fresh worktree at the same revision |
 | `atelier pool publish/restore/status <game> <step>` | [pool explicitly owned portable outputs](docs/ARTIFACT_POOL.md) across feature revisions |
-| `atelier build <game> [step ...]` | build what changed; `--list`, `--force`, `--touch`; read-only `--plan` / `--dry-run`, `--explain`, `--json` |
+| `atelier cache status/gc/pin/unpin/forget` | [inspect and prune automatic portable-product reuse](docs/ARTIFACT_POOL.md#automatic-product-cache) |
+| `atelier build <game> [step ...]` | build what changed; `--list`, `--force`, `--touch`, full-byte `--verify`; read-only `--plan` / `--dry-run`, `--explain`, `--timings`, `--changes`, `--ddc`, `--json` |
 | `atelier play <game> [--profile P] [--set K=V] [--memory-gib N]` | play under the render lock and memory guard; profiles come from the game's `game.toml` |
 | `atelier playtest <game> [--tag T] [--download-only] [--memory-gib N]` | download, verify and play a GitHub release; `[release]` sets the tag prefix, launcher, watched processes and log |
 | `atelier live state` / `py "..."` / `shot` | work on the running game |
@@ -317,11 +327,16 @@ Atelier is built for several AI agents working on one Mac at once, each in its o
 | `atelier lint [--staged]` | the public-repository rules: no secrets, no personal paths, no game names in the platform |
 | `atelier contracts check` | contract syntax and owner policy; semantic review is separate and advisory |
 | `atelier capacity plan snapshot.json [--json]` | offline capacity simulation; does not admit or launch work |
+| `atelier capacity history GUARD_DIRECTORY [--json]` | [inspect retained process memory histories](docs/BUILD_CAPACITY.md#inspect-retained-resource-history) without launching work |
 
-**Tests.** Hosted CI runs all studio and game Python tests on each PR head. Locally, run the tests affected by
-your change, for example `uv run pytest platform/studio/tests/test_build.py -q`; avoid repeating the full suite
-when CI already covers it. In-game
-checks use QA scenarios through the live bridge; with a local stream, the phone smoke tests in
+**Tests.** Hosted CI runs all Python tests on each PR head in three isolated macOS jobs: board, other studio,
+and games. Each uses normal pytest collection; new tests automatically belong to one group. All three must
+pass for the `Studio Python / macOS` merge check. Rust dependencies are cached from successful main builds;
+PRs only restore them, and the board server must compile successfully before its tests run. Each job retains
+its collected test list, JUnit results and slowest-test timings for diagnosis. Superseded PR runs are cancelled.
+Locally, run the tests affected by your change, for example `uv run pytest platform/studio/tests/test_build.py -q`;
+avoid repeating the full suite when CI already covers it. In-game checks use QA scenarios through the live bridge;
+with a local stream, the phone smoke tests in
 `games/yorimichi/phone/` and `platform/web/stream/player-smoke.mjs` run in a browser.
 
 ## Made with Atelier: Yorimichi

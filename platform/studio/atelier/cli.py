@@ -5,6 +5,7 @@
     atelier setup [--headless]         check full Xcode and Metal; repair UE 5.8.2 for SSH-only builds
     atelier reuse <game> --from PATH [--to PATH]   seed a fresh worktree (this one by default) from a verified build of the same revision
     atelier pool publish|restore|status <game> <step>   share explicitly owned portable outputs (docs/ARTIFACT_POOL.md)
+    atelier cache status|gc|pin|unpin|forget   inspect and prune automatic local product reuse
     atelier fetch <game>               download what a game needs but may not redistribute (sound masters)
     atelier build <game> [step ...]    build what changed; --list, --force, --dry-run, --touch
     atelier play <game> [--profile P] [--memory-gib N] [-- unreal args]   launch the game under the render lock and memory guard
@@ -157,6 +158,8 @@ def make_parser():
     sub = parser.add_subparsers(dest='command', required=True)
     from . import board
     board.configure(sub)
+    from . import cache_admin
+    cache_admin.configure(sub)
     p = sub.add_parser('new'); p.add_argument('game'); p.add_argument('--title')
     p = sub.add_parser('doctor'); p.add_argument('game')
     p = sub.add_parser('setup'); p.add_argument('--headless', action='store_true')
@@ -166,14 +169,18 @@ def make_parser():
     p = sub.add_parser('pool'); p.add_argument('action', choices=['publish', 'restore', 'status'])
     p.add_argument('game'); p.add_argument('step')
     p = sub.add_parser('fetch'); p.add_argument('game')
-    p = sub.add_parser('capacity', help='evaluate a capacity snapshot without admitting work')
-    p.add_argument('action', choices=['plan']); p.add_argument('snapshot')
+    p = sub.add_parser('capacity', help='inspect retained resource history or evaluate a capacity snapshot')
+    p.add_argument('action', choices=['plan', 'history']); p.add_argument('path', help='snapshot JSON or guard report directory')
     p.add_argument('--json', action='store_true')
     p = sub.add_parser('build'); p.add_argument('game'); p.add_argument('steps', nargs='*')
     p.add_argument('--list', action='store_true'); p.add_argument('--force', action='store_true')
     p.add_argument('--dry-run', '--plan', action='store_true', help='read-only build decisions')
     p.add_argument('--explain', action='store_true', help='plan with the reason for each rebuild')
-    p.add_argument('--json', action='store_true', help='print the read-only plan as JSON')
+    p.add_argument('--json', action='store_true', help='print the selected read-only report as JSON')
+    p.add_argument('--timings', action='store_true', help='read historical execution and phase timings without checking inputs')
+    p.add_argument('--changes', action='store_true', help='read changes between the last certified product inventories')
+    p.add_argument('--ddc', action='store_true', help='read historical DDC configuration and counts from retained Unreal logs')
+    p.add_argument('--verify', action='store_true', help='read all named-product bytes instead of using the local hash index')
     p.add_argument('--touch', action='store_true', help='record the steps as built without running them (after a recipe refactor)')
     p = sub.add_parser('play'); p.add_argument('game'); p.add_argument('--profile', default='play')
     p.add_argument('--set', default='', help='settings overrides, key=value;key=value')
@@ -228,12 +235,33 @@ def main(argv=None):
     if args.command == 'pool':
         from . import artifact_pool
         return artifact_pool.main(args.action, args.game, args.step)
+    if args.command == 'cache':
+        from . import cache_admin
+        return cache_admin.main(args)
     if args.command == 'fetch':
         return fetch(args.game)
     if args.command == 'capacity':
+        if args.action == 'history':
+            from .capacity_history import show
+            return show(args.path, as_json=args.json)
         from . import capacity
-        return capacity.main(args.snapshot, as_json=args.json)
+        return capacity.main(args.path, as_json=args.json)
     if args.command == 'build':
+        if args.ddc:
+            if args.timings or args.changes or args.list or args.dry_run or args.explain or args.force or args.touch or args.verify:
+                raise SystemExit('--ddc combines only with step selection and --json')
+            from .build_ddc import show
+            return show(args.game, args.steps, as_json=args.json)
+        if args.changes:
+            if args.timings or args.list or args.dry_run or args.explain or args.force or args.touch or args.verify:
+                raise SystemExit('--changes combines only with step selection and --json')
+            from .build_changes import show
+            return show(args.game, args.steps, as_json=args.json)
+        if args.timings:
+            if args.list or args.dry_run or args.explain or args.force or args.touch or args.verify:
+                raise SystemExit('--timings combines only with step selection and --json')
+            from .build_timings import show
+            return show(args.game, args.steps, as_json=args.json)
         if args.list:
             list_steps(args.game)
             return 0
@@ -241,8 +269,8 @@ def main(argv=None):
             if args.touch:
                 raise SystemExit('--touch cannot be combined with a read-only plan')
             from .build_plan import show
-            return show(args.game, args.steps, force=args.force, explain=args.explain, as_json=args.json)
-        return build(args.game, args.steps, force=args.force, dry=args.dry_run, touch=args.touch)
+            return show(args.game, args.steps, force=args.force, explain=args.explain, as_json=args.json, verify=args.verify)
+        return build(args.game, args.steps, force=args.force, dry=args.dry_run, touch=args.touch, verify=args.verify)
     if args.command == 'play':
         return play(args.game, args.profile, args.set, args.extra, args.memory_gib)
     if args.command == 'playtest':

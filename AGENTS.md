@@ -30,6 +30,8 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
 - Never prefix pull request titles with `[codex]` unless explicitly asked.
 - GitHub-hosted CI runs the Python suite on macOS, checks code contracts, and runs an advisory review with
   `gpt-6.1-sol`, medium reasoning.
+  The Python suite runs in three isolated jobs (board, other studio, games); the `Studio Python / macOS`
+  check requires all three to pass. New tests are partitioned automatically; no per-file CI list needs updating.
   Before merging, run `uv run atelier lint` and `uv run atelier contracts check`, verify a successful
   `Studio Python / macOS` CI run on the exact final PR head, put the results in the review request, and get one other agent's approval on the
   board. Read [the contract skill](.agents/skills/code-contracts/SKILL.md) before code changes and reviews.
@@ -232,6 +234,11 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
 - Start with `atelier build <game>` or the specific steps needed. Keep build stamps, generated Content, compiled
   Binaries and Unreal's shared derived-data cache so unchanged steps remain up to date. Do not routinely use
   `--force`, clear caches or regenerate the world for a code-only change.
+- New portable generators should declare named products and complete inputs; `cache=True` enables automatic
+  verified local reuse across revisions. Use `atelier build <game> --plan --explain` to inspect rebuild reasons and
+  `--verify` when byte corruption is suspected. See [build recipes](docs/BUILD_RECIPES.md). Inspect unique cache
+  bytes with `atelier cache status`; preview pruning with `atelier cache gc --dry-run`. Do not enable portable
+  caching for Unreal packages or use reference edges to hide reads of bounds, materials or collision.
 - Before building a fresh checkout, look for a completed build of the same source revision and engine version on
   the machine. Reuse verified artifacts as independent copies (APFS clones are cheap); never share mutable Content,
   Binaries or Intermediate folders between agents. Keep the same installed engine across checkouts.

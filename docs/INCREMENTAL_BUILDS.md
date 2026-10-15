@@ -4,10 +4,22 @@ Atelier should build a small edit by generating, importing and cooking only the 
 changed. Every certified product should be reusable across compatible worktrees and revisions. The normal `atelier build`
 command should handle this automatically, with a local store that works offline and an optional remote store.
 
-**Status: foundations implemented; native migration proposed.** `Step.products`, `reads` and `references`, complete
+**Status: foundations and local portable caching implemented; native migration proposed.** `Step.products`, `reads` and `references`, complete
 product inventories, content-based downstream invalidation, read-only `--plan` / `--explain` / `--json`, and command
-timings are available. [The recipe guide](BUILD_RECIPES.md) describes the implemented API. Automatic restoration,
-import transactions, spatial dependencies and remote storage below still require implementation and native proof.
+timings, a file-hash index, opt-in automatic portable-product restoration, and cache accounting/pruning are available.
+Instrumented scripts can emit bounded phase records; `--timings` displays historical command/phase measurements
+separately from restoration time. The sandbox demonstrates the protocol; native phase baselines remain to be measured.
+`--changes` lists added, changed and retired members between certified named-product inventories, with unchanged
+member counts. It reuses existing inventories, preserves unknown baselines and makes no extra product-byte reads.
+`--ddc` reads bounded retained-log observations of cache configuration and explicit cook hit/miss statistics.
+Those historical logs do not prove current settings or measured warm/cold improvements; native baselines remain open.
+Opt-in Python access auditing now checks declared file reads and owned writes before certification, with complete
+source directory inventories and separate completion reports; the sandbox uses it. It does not prove metadata,
+environment or native-I/O dependencies. Blender/Unreal audit bootstraps remain proposed.
+Named actions can declare exact optional source files; absent/present identities track conditional reads without
+hashing unrelated siblings. The sandbox demonstrates this with a block override. Runtime query/context APIs remain proposed.
+[The recipe guide](BUILD_RECIPES.md) describes the implemented API, exercised by the sandbox's asset/placement example.
+Unreal restoration, import transactions, spatial dependencies and remote storage below still require implementation and native proof.
 Legacy fingerprints, output cutoffs, module isolation and the [portable artifact pool](ARTIFACT_POOL.md) remain.
 The current CLI and safety rules remain in force; no native import recipe or scheduler is switched by this phase.
 
@@ -109,6 +121,13 @@ accesses still need explicit declarations and importer-specific dependency enume
 macOS process-access tracer. Controlled input workspaces and clean-versus-incremental checks test the declared
 closure; until it is proven, keep conservative dependencies and restrict shared publication.
 
+The implemented `Step.audit=True` starts with one Python command per owned-product action. Its access hook, private
+scratch/bytecode paths and completion pipe catch undeclared reads, reference misuse, writes outside ownership and
+reuse of stale output bytes. Each executed action starts with empty owned outputs; cache hits restore without running
+it. Unsupported observed subprocess mechanisms fail. Path checks for ordinary Python
+metadata queries do not make timestamp values portable. See [the current API and limits](BUILD_RECIPES.md#audit-a-python-generators-accesses);
+the tracked context API and native bootstraps are still separate work.
+
 The planner should reject cycles, duplicate package ownership, missing products and writes outside owned paths.
 Every output, including leaf assets and bulk-data sidecars, belongs in a verified manifest. A sentinel such as
 `Torii.fbx` or `manifest.json` existing is insufficient evidence that the rest of a step's outputs survive.
@@ -166,7 +185,7 @@ render lock, memory guard, worker limits and handoff rules until the separately 
 validated. A batch does not authorize parallel Unreal processes or an idle editor holding capacity. Use an empty
 import world where possible and measure startup, import, derived-data work, validation and save separately.
 
-Stage 1 should also report DDC configuration and hits. The two inspected worktrees already use the same per-user
+Stage 1 now reports DDC configuration and explicit hit counts from retained logs. The two inspected worktrees use the same per-user
 ZenLocal service and filesystem DDC, while ZenShared is disabled. Preserve that reuse and measure its effectiveness;
 evaluate a remote/shared DDC for additional machines only on demonstrated benefit. DDC and Zen cook storage have
 different responsibilities even when served by related infrastructure. Sharing DDC does not eliminate the import
@@ -292,9 +311,9 @@ show its consumers as conditional until that generator or a cache hit resolves t
 A no-op build should inspect cached inventories without repeatedly reading every large source and generated file.
 Use a local file-hash index, with filesystem identity/change metadata as a memoization aid and full verification
 at trust boundaries. Hash memoization must never certify a remote download or a suspected corrupted output.
-The next part of stage 1 introduces this index: file identity, size and high-resolution change metadata are hints, with invalidation
-on replacement, uncertain filesystem events, index-version changes or lost watcher history. A full verification
-mode remains available; ordinary timestamps alone cannot certify correctness after an unobserved modification.
+The implemented index uses file identity, size and high-resolution modification/change metadata as hints, and
+rehashes replacements or ambiguous whole-second metadata. No watcher is required; membership is scanned on each
+check. `--verify` reads all bytes. A future watcher optimization must also invalidate on lost event history.
 
 ## Resource capacity
 
@@ -302,6 +321,9 @@ Small build products also allow finer scheduling. The [capacity admission propos
 fixed big/small lane categories with atomic memory/CPU reservations, measured workload profiles and named locks
 for real exclusivity. Artifact lookup and the build graph determine the work; the capacity service decides when
 it can safely execute. Existing slots remain authoritative until that scheduler passes its migration gates.
+The implemented `atelier capacity history GUARD_DIRECTORY` command inspects retained process measurements
+without running a job. It distinguishes sampling sessions and watched processes; it does not yet provide
+per-phase owned-tree profiles, calibrated reservations or disk estimates.
 
 ## Migration and acceptance gates
 

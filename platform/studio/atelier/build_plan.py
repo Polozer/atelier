@@ -17,7 +17,7 @@ def changed_inputs(previous, current):
     if not previous:
         return ['recipe or inputs changed (the old stamp has no input detail)']
     reasons = []
-    for field, label in (('commands', 'commands'), ('products', 'product declarations')):
+    for field, label in (('commands', 'commands'), ('products', 'product declarations'), ('tools', 'tool context')):
         if previous.get(field) != current.get(field):
             reasons.append(f'{label} changed')
     for field, label in (('inputs', 'input'), ('needs', 'dependency'), ('reads', 'product')):
@@ -25,31 +25,56 @@ def changed_inputs(previous, current):
         for name in sorted(before.keys() | after.keys()):
             if before.get(name) != after.get(name):
                 reasons.append(f'{label} changed: {name}')
+    before, after = previous.get('optional_inputs', {}), current.get('optional_inputs', {})
+    for name in sorted(before.keys() | after.keys()):
+        old, new = before.get(name), after.get(name)
+        if old == new:
+            continue
+        change = 'declared' if old is None else 'declaration removed' if new is None else 'changed'
+        if isinstance(old, dict) and isinstance(new, dict) and old.get('present') != new.get('present'):
+            change = 'appeared' if new.get('present') else 'removed'
+        reasons.append(f'optional input {change}: {name}')
     return reasons or ['fingerprint changed']
 
 
-def inspect(ctx, steps, wanted=(), *, force=False):
+def inspect(ctx, steps, wanted=(), *, force=False, verify=False):
     """@cc [owner:fontanierh,label:correctness] plan-without-execution
     Planning MUST NOT run commands, create output directories, write stamps or acquire capacity.
     A changed producer's unobserved product MUST remain conditional in downstream decisions.
     """
+    from .build_hashes import HashIndex
+    with HashIndex(ctx.out / '.state' / 'file-hashes.sqlite3', read_only=True, verify=verify) as index:
+        return _inspect(ctx, steps, wanted, force=force, index=index)
+
+
+def _inspect(ctx, steps, wanted, *, force, index):
     engine.check_modules(steps)
     graph = build_products.Graph(steps)
     done, uncertain_steps, uncertain_products, decisions = {}, set(), set(), []
+    tool_cache = {}
     for step in graph.select(wanted):
         stamp = read_stamp(ctx.stamps / f'{step.name}.json')
-        current, state = engine.fingerprint_state(step, done)
         reasons = []
+        try:
+            if step.cache or step.audit:
+                from .build_cache import roots
+                roots(ctx, step)
+            current, state = engine.fingerprint_state(step, done, index=index, tool_cache=tool_cache)
+        except (OSError, ValueError, SyntaxError) as error:
+            current, state = f'invalid:{step.name}', {}
+            reasons.append(f'invalid inputs: {error}')
         reasons.extend(f'required input missing: {path}' for path in engine.missing_product_inputs(step))
         if force:
             reasons.append('forced')
+        if (ctx.stamps / f'{step.name}.restore.json').exists():
+            reasons.append('interrupted product restoration')
         if not stamp:
             reasons.append('no successful stamp')
         elif stamp.get('fingerprint') != current:
             reasons.extend(changed_inputs(stamp.get('input_state'), state))
         if not engine.outputs_present(step):
             reasons.append('required outputs missing or verification failed')
-        if step.products and not build_products.valid_records(step, stamp.get('products', {})):
+        if step.products and not build_products.valid_records(step, stamp.get('products', {}), hasher=index.digest):
             reasons.append('product inventory missing, changed or incomplete')
         pending = sorted(set(step.needs) & uncertain_steps)
         pending += sorted(set(step.reads) & uncertain_products)
@@ -71,9 +96,9 @@ def inspect(ctx, steps, wanted=(), *, force=False):
     return {'schema': 1, 'game': ctx.game, 'steps': decisions}
 
 
-def show(game, wanted=(), *, force=False, explain=False, as_json=False, echo=print):
+def show(game, wanted=(), *, force=False, explain=False, as_json=False, echo=print, verify=False):
     ctx = engine.Context(game, create=False)
-    report = inspect(ctx, engine.load_recipe(game).steps(ctx), wanted, force=force)
+    report = inspect(ctx, engine.load_recipe(game).steps(ctx), wanted, force=force, verify=verify)
     if as_json:
         echo(json.dumps(report, indent=2))
         return 0
