@@ -180,9 +180,13 @@ def make_parser():
                                     'supervise', 'prepare-cutover', 'activate-cutover'])
     p.add_argument('path', help='snapshot, guard directory, experiment database, broker config, or status socket')
     p.add_argument('--state', help='explicit absolute simulation database path (shadow only)')
+    p.add_argument('--request-id', help='request whose preserved terminal receipt is attested (reconcile only)')
+    p.add_argument('--preserved-terminal', help='preserved original aggregate terminal JSON (reconcile only; requires --request-id)')
     p.add_argument('--json', action='store_true')
     p = sub.add_parser('build'); p.add_argument('game'); p.add_argument('steps', nargs='*')
     p.add_argument('--list', action='store_true'); p.add_argument('--force', action='store_true')
+    p.add_argument('--max-heavy-commands', type=int, metavar='N',
+                   help='run at most N heavy commands, then yield before the next one (exit 75)')
     p.add_argument('--dry-run', '--plan', action='store_true', help='read-only build decisions')
     p.add_argument('--explain', action='store_true', help='plan with the reason for each rebuild')
     p.add_argument('--json', action='store_true', help='print the selected read-only report as JSON')
@@ -260,6 +264,9 @@ def main(argv=None):
     if args.command == 'fetch':
         return fetch(args.game)
     if args.command == 'capacity':
+        if ((args.request_id is None) != (args.preserved_terminal is None)
+                or (args.request_id is not None and args.action != 'reconcile')):
+            raise SystemExit('--request-id and --preserved-terminal must be used together with capacity reconcile')
         if args.action == 'shadow':
             if not args.state:
                 raise SystemExit('capacity shadow requires --state with an explicit absolute simulation database path')
@@ -283,7 +290,9 @@ def main(argv=None):
         if args.action in ('status', 'reconcile'):
             import json
             from .capacity_client import reconcile, status
-            print(json.dumps((reconcile if args.action == 'reconcile' else status)(args.path), indent=2))
+            result = (reconcile(args.path, request_id=args.request_id, preserved_terminal=args.preserved_terminal)
+                      if args.action == 'reconcile' else status(args.path))
+            print(json.dumps(result, indent=2))
             return 0
         if args.action == 'probe':
             from .capacity_probe import main as probe_main
@@ -294,6 +303,11 @@ def main(argv=None):
         from . import capacity
         return capacity.main(args.path, as_json=args.json)
     if args.command == 'build':
+        if args.max_heavy_commands is not None:
+            if args.max_heavy_commands < 1:
+                raise SystemExit('--max-heavy-commands must be a positive integer')
+            if args.list or args.ddc or args.changes or args.timings or args.dry_run or args.explain or args.json or args.touch:
+                raise SystemExit('--max-heavy-commands requires build execution')
         experimental = {'cook_mode': args.cook_mode, 'cook_reason': args.cook_reason} if args.cook_mode is not None else {}
         if args.cook_reason is not None and not experimental:
             raise SystemExit('--cook-reason requires --cook-mode')
@@ -322,7 +336,9 @@ def main(argv=None):
                 raise SystemExit('--touch cannot be combined with a read-only plan')
             from .build_plan import show
             return show(args.game, args.steps, force=args.force, explain=args.explain, as_json=args.json, verify=args.verify, **experimental)
-        return build(args.game, args.steps, force=args.force, dry=args.dry_run, touch=args.touch, verify=args.verify, **experimental)
+        bounded = {'max_heavy_commands': args.max_heavy_commands} if args.max_heavy_commands is not None else {}
+        return build(args.game, args.steps, force=args.force, dry=args.dry_run, touch=args.touch, verify=args.verify,
+                     **experimental, **bounded)
     if args.command == 'play':
         return play(args.game, args.profile, args.set, args.extra, args.memory_gib)
     if args.command == 'playtest':

@@ -11,16 +11,104 @@ Until clients are explicitly configured, the current render slots, live locks, m
 remain authoritative. This design complements the [incremental build proposal](INCREMENTAL_BUILDS.md):
 small products reduce the work, and capacity admission schedules the remaining work safely.
 
+## Agent workflow
+
+This is the operational runbook for agents. The machine remains in the conservative migration bridge until
+the operator announces the controlled full-mode cutover. Merging implementation PRs, installing a broker or
+seeing a quiet machine does not change its live mode. Check the actual broker status and the board's fresh
+observation: `(legacy-bridge, false)` means bridge; `(capacity, true)` means full capacity. Use the socket selected
+by the installed client when running `uv run atelier capacity status ABSOLUTE_SOCKET`. Missing or stale status
+means availability is unknown. Preserve the machine board, live locks and guard checks at every heavy boundary.
+
+Before adopting main, finish the checkout's current native child and stop its enclosing caller at an agreed
+boundary so it cannot automatically launch another child. Only then merge and run `uv sync`. Keep generated
+Content, Binaries, build stamps and caches; use the verified [reuse procedure](../AGENTS.md#reusing-builds) for a
+fresh checkout instead of rebuilding everything or sharing mutable directories. Do not change a running job's
+source, Python environment or installed engine underneath it.
+
+Inspect `uv run atelier build yorimichi --plan` before a large run. Separate genuine source changes and the first
+adoption of new product owners from repeated invalidation of unchanged work. A real ownership or input-contract
+migration may require one refresh; report repeated broad rebuilds with the plan and source revisions. Keep real
+inputs and output verification intact: do not manufacture stamps, use `--touch` to hide a required build, or
+force regeneration to make the plan look simpler. Prefer the specific required steps and retain reusable outputs.
+
+During the current bridge pilot, use your registered board owner and the explicit pilot client for ordinary jobs:
+
+```sh
+ATELIER_AGENT=YOUR_OWNER ATELIER_CAPACITY_CLIENT="$HOME/.cache/atelier/capacity/pilot-client.json" nice -n 10 uv run atelier build yorimichi
+ATELIER_AGENT=YOUR_OWNER ATELIER_CAPACITY_CLIENT="$HOME/.cache/atelier/capacity/pilot-client.json" nice -n 10 uv run atelier play yorimichi
+```
+
+Keep the existing worker counts, memory ceilings and saved play preferences. The bridge requires both a broker
+grant and all legacy lane locks; it authorizes no extra overlap. Quit test games promptly. Only after the operator's
+full-mode announcement and a fresh full-mode status, remove the explicit pilot override
+(`unset ATELIER_CAPACITY_CLIENT`) and use the installed default client. Continue identifying each ordinary command,
+for example `ATELIER_AGENT=YOUR_OWNER nice -n 10 uv run atelier build yorimichi` (or `play yorimichi`).
+Agents do not edit client profiles, broker configuration, service settings or cutover records to change modes.
+Removing the override is a rollout step, never a fallback after a refusal.
+
+If admission or a running grant is refused, retain the command, source revision, guard directory, stdout,
+`memory-health.json`, `memory-health-tree.json` and any execution timings. Report the broker's reason, owner,
+phase and the next safe boundary. A charged or uncertain reservation still holds capacity even when measured
+memory is small. Recovery accepts complete known-ancestry retained exits, or, for bridge and full
+performance-exclusive grants, a positively exited root plus its matching bound aggregate guard's successful
+terminal empty-tree cleanup receipt. The latter witnesses the monitored owned tree rather than inventing
+individual historical exits. Neither policy certifies outputs; uncertainty remains charged without its required
+evidence. PID absence or heartbeat expiry alone never establishes release. If a later invocation overwrote the
+bound report, authorized recovery can attest the preserved original with
+`atelier capacity reconcile ABSOLUTE_SOCKET --request-id REQUEST_ID --preserved-terminal ABSOLUTE_ARCHIVE`;
+the broker applies the same scoped checks and records the evidence hash and preservation provenance.
+Do not clear the database or locks, restart a live broker, drop the client environment, or launch through another
+path. Ask the operator for help when the documented recovery cannot establish a safe next step.
+
+Read board reservations as scheduling budgets, separately from measured process memory and host availability.
+Recovery pauses new grants; inspect the uncertain jobs and their owners, or the compatibility reason, rather than
+treating the warning as spare capacity. Optional I/O tokens are a contention budget, not disk-space protection;
+zero tokens do not disable temporary-disk pressure checks. An unavailable observation never means a free pool.
+
+When asked to stop or yield, let the current owned child finish normally and arrange for its caller to stop before
+another heavy admission. First check `uv run atelier build --help`: if this checkout offers
+`--max-heavy-commands`, use `--max-heavy-commands 1` for the handoff. Exit status `75` means the build yielded;
+recheck Waiting and resume from its existing stamps when your next turn is agreed. If the option is unavailable,
+choose a bounded step or another supported caller boundary before launching; do not invent a pause mechanism.
+A whole-build wrapper may continue into
+another build step, still capture or upload after a child exits. State explicitly which of those stages remain and
+wait for the agreed caller boundary before an update, service change or reboot. If the caller cannot safely stop
+there, report that limitation and keep maintenance pending. A momentarily empty native process list is not proof
+that the chain is finished. Schedule approved reboot/cutover work only after all owners confirm their complete
+chains have drained and retained reservations have resolved.
+
 ## Broker and guarded-launch migration
 
 The production broker uses its own private Unix socket and SQLite namespace. It is separate from every shadow
 database and token below. `atelier capacity serve ABSOLUTE_CONFIG` runs it; `atelier capacity status ABSOLUTE_SOCKET`
 reads its state. `atelier capacity supervise ABSOLUTE_CONFIG` installs macOS login/crash supervision. Installing
 the service does **not** enable clients. Do not create a second broker to work around an outage or an uncertain grant.
-`atelier capacity reconcile ABSOLUTE_SOCKET` releases only reservations whose retained identities have affirmative
-exit evidence; it cannot clear an unknown exit. Same-boot recovery rearms live registered identities and permits
+If a controller is interrupted, normal broker refresh automatically releases its reservation once every retained
+process has a verified exit and ancestry is known. Bridge and full performance-exclusive grants also accept a
+positively exited root plus its previously bound aggregate guard's final `child_exited` receipt: matching root
+identity and limit, invocation time, completed cleanup, no processes and zero footprint, with no retained identity
+still verifiably live. This deliberately permits historical discovery gaps under the exclusive guard policy.
+The witness is `guarded-tree-exit`, covering the **monitored owned tree**; it does not manufacture individual
+kernel exit evidence or claim universal descendant discovery. It releases capacity only, never certifies outputs.
+`atelier capacity reconcile ABSOLUTE_SOCKET` applies the same two policies. Without either witness, uncertainty
+remains charged. Same-boot recovery rearms live registered identities and permits
 the original controller's fenced session to report exit only. A verified OS boot change proves prior local jobs
 ended; ordinary daemon restart does not.
+
+If a later invocation overwrote the bound aggregate report, an authorized administrator can attest a preserved
+original terminal JSON file explicitly:
+
+```sh
+uv run atelier capacity reconcile ABSOLUTE_SOCKET --request-id REQUEST_ID --preserved-terminal ABSOLUTE_ARCHIVE
+```
+
+Both options are required together and apply only to reconciliation. The broker reads the bounded owned regular
+archive without following links and applies the same root-exit, identity, limit, time, exclusivity and empty-tree
+checks. Its durable witness records `operator-preserved` provenance, the exact evidence SHA256, and the original
+bound report-path hash and monitor identity. This is an explicit preservation attestation over the authenticated
+same-user administrative socket, not cryptographic proof of the archive's origin. It never invents historical
+per-process exits, replaces the current report, or certifies build outputs. Missing or invalid archives refuse.
 
 The broker configuration is an owner-only JSON file in an owner-only directory, with exactly these fields:
 
@@ -30,7 +118,7 @@ The broker configuration is an owner-only JSON file in an owner-only directory, 
   "mode": "legacy-bridge",
   "state_directory": "/absolute/private/capacity-state",
   "disk_pool": "/absolute/build-filesystem",
-  "total": {"memory_mib": 32768, "cpu_millis": 10000, "temp_mib": 200000, "io_slots": 2, "gpu_mib": 16000},
+  "total": {"memory_mib": 32768, "cpu_millis": 10000, "temp_mib": 200000, "io_slots": 0, "gpu_mib": 16000},
   "reserve": {"memory_mib": 8192, "cpu_millis": 2000, "temp_mib": 20000, "io_slots": 0, "gpu_mib": 0}
 }
 ```
@@ -44,8 +132,15 @@ Upgraded `guarded.run` clients read the private `~/.cache/atelier/capacity/clien
 `ATELIER_CAPACITY_CLIENT` selects another absolute file. The client file contains `schema: 1`, an absolute `socket`,
 and `profiles` for `job`, `game` and `compile`. Each profile contains a complete `resources` vector and a `locks`
 list. The common launcher always adds its checkout lock. A reservation smaller than the actual guard ceiling
-is refused, including a session using a higher game limit. Missing CPU or I/O capacity is refused. Profiles do
-not alter worker settings or provide kernel CPU quotas; initial budgets must conservatively cover unchanged workers.
+is refused, including a session using a higher game limit. CPU reservations must be nonzero. I/O slots are
+optional calibrated scheduling tokens, defaulting to zero: there is no automatic universal I/O charge per job.
+Use a nonzero I/O reservation only for an identified workload whose measured contention warrants a limit.
+Existing configured nonzero I/O reservations and their limits remain enforced; this does not change machine
+settings. I/O tokens are not disk bandwidth or free-space enforcement; `temp_mib` and observed disk pressure
+still constrain temporary disk space. Profiles do not alter worker settings or provide kernel CPU quotas;
+initial budgets must conservatively cover unchanged workers. For a literal Blender job with an explicit
+thread limit, the request charges exactly that many CPU units in bridge and full mode, even when the generic
+profile reserves more; a three-thread job charges 3000 `cpu_millis`. The launch arguments remain unchanged.
 The common launcher can request a performance window with `guarded.run(..., performance=True)`; the configured
 broker requires other grants to drain before admission and excludes new grants until release. The benchmark tool requests this window
 and still rejects observed render overlap. Benchmark, cinematic capture and sailboat QA each use the common
@@ -63,10 +158,11 @@ aggregate memory guards before asking for a grant. The broker checks fresh guard
 vector, named locks, pressure and service epoch, commits accounting, then releases the gate. An offered or queued
 request holds no resources. Its logical identity survives an uncharged retry; a separate run nonce fences old gates.
 
-Capacity release concerns the **retained registered process roster**, using pinned kernel exit events and the
-controller's actual direct-child wait. It does not turn a failed process lookup or aggregate guard report into
-proof that every possible descendant was discovered or exited. Unwitnessed exits, lost guards and crashes retain
-uncertain charges. Output certification remains the build system's separate responsibility. The legacy bridge
+Exact capacity release concerns the **retained registered process roster**, using pinned kernel exit events and the
+controller's actual direct-child wait. The exclusive terminal-cleanup policy above instead witnesses the monitored
+owned tree, with positive root exit essential. Neither policy turns a failed process lookup into exit proof or
+claims that every possible descendant was discovered. Missing, mismatched, failed or incomplete cleanup receipts
+retain uncertainty when exact exit evidence is unavailable. Output certification remains separate. The legacy bridge
 and foreign-process scan remain necessary while stronger ownership coverage and client migration are validated.
 
 The agent board rollout must show the real machine mode: legacy slots, capacity migration bridge, or full capacity.
@@ -152,7 +248,8 @@ uv run atelier capacity plan docs/examples/capacity.json --json
 ```
 
 The example is synthetic, not a live resource snapshot. Quantities are integer MiB, thousandths of a CPU core,
-and I/O slots. On the unified-memory model, `memory_mib` includes GPU allocations; `gpu_mib` is an additional
+and optional calibrated I/O tokens (`io_slots`, zero unless explicitly needed). On the unified-memory model,
+`memory_mib` includes GPU allocations; `gpu_mib` is an additional
 subset ceiling and cannot exceed it. Total capacity includes the host reserve. Existing holders and queued
 requests must have distinct IDs; queue entries carry their original `ready_at` and `bypasses` values.
 

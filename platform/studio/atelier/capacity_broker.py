@@ -1,8 +1,8 @@
 """Production Unix capacity broker. Native activation and supervision are separate policy.
 
 One serialized actor owns the SQLite transaction and every launch-gate writer. Restart fences
-all old sessions and retains their allocations. Release means the explicitly retained roster
-has affirmative exit evidence; it does not establish universal process-tree discovery.
+all old sessions and retains their allocations. Release uses exact retained exits or the scoped
+exclusive monitored-tree cleanup policy; neither establishes universal process-tree discovery.
 """
 from dataclasses import asdict
 import fcntl
@@ -35,8 +35,10 @@ class CapacityBroker:
     Queued offers MUST charge no resources. Final complete-vector and lock accounting MUST commit
     before this broker's sole gate writer releases a child, in one serialized actor turn. Restart,
     lost health and missing exit evidence MUST retain grants. No process MAY be signalled here.
-    Exit evidence covers the retained roster only; no process scan or aggregate report proves
-    undiscovered descendants absent. The adapter MUST retain exclusive legacy exclusion in bridge
+    Exact exit evidence covers the retained roster only. Bridge and performance-exclusive grants
+    MAY instead use a positively exited root plus its bound aggregate guard's terminal empty-tree
+    cleanup receipt; that witnesses the monitored owned tree, not every descendant's kernel exit.
+    The adapter MUST retain exclusive legacy exclusion in bridge
     mode, or verified sealed shared compatibility mutexes in full mode.
     """
     def __init__(self, state_directory, *, total, reserve=Resources(), disk_pool=None,
@@ -196,6 +198,9 @@ class CapacityBroker:
             raise wire.CapacityError('Capacity state exceeds its limit')
         self.connection.execute('UPDATE state SET value=? WHERE id=1', (data,))
         self.connection.commit()
+        for record in state['records'].values():
+            if record['state'] == 'released':
+                self._dispose(record.get('nonce'))
 
     def _clock(self):
         now = time.monotonic()
@@ -247,10 +252,27 @@ class CapacityBroker:
         try:
             return self.guards(record['guards'], tuple(record['child']), tuple(record['principal']),
                                record['limit_bytes'], record['request']['resources']['memory_mib'])
-        except (OSError, ValueError, wire.CapacityError):
+        except (OSError, ValueError, wire.CapacityError) as error:
             # A normal child exit can occur between the first watch poll and receipt validation.
             # Only an already bound positive kernel witness resolves that race.
             record['state'] = 'draining' if self._root_exited(record) else 'uncertain'
+            known = {'Capacity guard identity is not live and owned',
+                     'Capacity guard identity changed during validation',
+                     'Capacity guard receipt is stale or mismatched',
+                     'Capacity guard receipt belongs to another child',
+                     'Capacity guard report repeatedly replaced while reading',
+                     'Capacity file changed while reading',
+                     'Capacity file must be bounded, owned and regular',
+                     'Capacity paths cannot contain symlinks',
+                     'Guard ceiling exceeds the reserved memory envelope',
+                     'Invalid retained guard roster', 'Invalid retained guard process identity',
+                     'Invalid capacity message', 'Invalid capacity protocol fields',
+                     'Invalid capacity integer', 'A pinned process identity is required'}
+            reason = str(error) if isinstance(error, wire.CapacityError) and str(error) in known else type(error).__name__
+            request = record['request']
+            print('capacity guard health failure: ' + json.dumps(dict(
+                owner=request.get('owner'), purpose=request.get('purpose'), pid=record['child'][0],
+                reason=reason, state=record['state'])), file=sys.stderr, flush=True)
             return None
 
     def _refresh(self, state, now):
@@ -293,7 +315,89 @@ class CapacityBroker:
                 except (OSError, ValueError, wire.CapacityError):
                     record['state'] = 'uncertain'
                     changed = True
+            changed |= self._settle_exited(record)
         return changed
+
+    def _settle_exited(self, record):
+        """@cc [owner:fontanierh,label:safety] witnessed-capacity-recovery
+        An uncertain reservation MUST release after complete known-ancestry retained exits, or
+        the explicitly scoped terminal-tree witness below. Missing PIDs and expired heartbeats
+        alone MUST NOT release capacity. Neither release path MAY certify build outputs.
+        """
+        if record['state'] != 'uncertain' or not record.get('roster'):
+            return False
+        if (not record.get('ancestry_unknown')
+                and all(pin in record.get('exited', []) for pin in record['roster'])):
+            witness = {'kind': 'retained-kernel-exits'}
+        else:
+            witness = self._terminal_tree_exit(record)
+            if witness is None:
+                return False
+        record.update(state='released', release_witness=witness)
+        return True
+
+    def _terminal_tree_exit(self, record, *, preserved=None):
+        """@cc [owner:fontanierh,label:safety] exclusive-terminal-tree-release
+        Only bridge or full performance-exclusive grants MAY use this policy. The root MUST
+        have affirmative exit evidence and its previously bound aggregate report MUST match
+        identity, ceiling and invocation time, with child_exited, completed cleanup and zero
+        processes/footprint. Any verifiably live retained identity MUST refuse release. This
+        witnesses monitored-owned-tree cleanup, never individual historical kernel exits.
+        """
+        if (self.mode != 'legacy-bridge'
+                and not (self.mode == 'capacity' and record.get('request', {}).get('performance') is True)):
+            return None
+        if record.get('child') not in record.get('exited', []):
+            return None
+        try:
+            item = wire.fields(record.get('guards', {}).get('tree_guard'), ('pid', 'start', 'report'))
+            wire.identity((item['pid'], item['start']))  # Bound at start; terminal monitor may now have exited.
+            report = wire.text(item['report'], maximum=4096)
+            receipt = (wire.decode(wire.private_file(report, limit=wire.MAX_FRAME, private=False))
+                       if preserved is None else preserved)
+            observed, ready = receipt.get('time'), record.get('first_ready')
+            if (type(observed) not in (int, float) or not math.isfinite(observed)
+                    or type(ready) not in (int, float) or not math.isfinite(ready)
+                    or not 0 < ready <= observed <= time.time()
+                    or wire.identity((receipt.get('owner'), receipt.get('owner_started'))) != tuple(record['child'])
+                    or type(receipt.get('limit_bytes')) is not int or receipt['limit_bytes'] != record['limit_bytes']
+                    or receipt.get('state') != 'child_exited' or receipt.get('cleanup_complete') is not True
+                    or receipt.get('termination_reason') is not None or receipt.get('processes') != []
+                    or type(receipt.get('footprint_bytes')) is not int or receipt['footprint_bytes'] != 0
+                    or any(self.alive(wire.identity(pin)) for pin in record['roster'])):
+                return None
+        except (OSError, ValueError, KeyError, TypeError, wire.CapacityError):
+            return None
+        return {'kind': 'guarded-tree-exit', 'coverage': 'monitored-owned-tree', 'observed_at': observed}
+
+    def _preserved_terminal(self, state, evidence):
+        """@cc [owner:fontanierh,label:safety] attested-preserved-terminal-recovery
+        This explicit same-UID administration request MAY supply an archived original receipt
+        after its bound shared report path was reused. It MUST retain every terminal-tree
+        policy check and bind the evidence digest and original report metadata durably. It
+        attests operator preservation, not cryptographic monitor provenance or per-pin exits.
+        """
+        wire.fields(evidence, ('request_id', 'path'))
+        record = state['records'].get(wire.text(evidence['request_id']))
+        if record is None:
+            raise wire.CapacityError('Preserved terminal request does not exist')
+        if record['state'] == 'released':
+            return False
+        if record['state'] != 'uncertain':
+            raise wire.CapacityError('Preserved terminal evidence requires an uncertain reservation')
+        path = Path(wire.text(evidence['path'], maximum=4096))
+        if not path.is_absolute():
+            raise wire.CapacityError('Preserved terminal archive path must be absolute')
+        raw = wire.private_file(path, limit=wire.MAX_FRAME, private=False)
+        witness = self._terminal_tree_exit(record, preserved=wire.decode(raw))
+        if witness is None:
+            raise wire.CapacityError('Preserved terminal evidence does not satisfy the scoped release policy')
+        bound = record['guards']['tree_guard']
+        witness.update(provenance='operator-preserved', evidence_sha256=hashlib.sha256(raw).hexdigest(),
+                       bound_report_sha256=hashlib.sha256(bound['report'].encode()).hexdigest(),
+                       bound_monitor=[bound['pid'], bound['start']])
+        record.update(state='released', release_witness=witness)
+        return True
 
     def _request(self, value):
         wire.fields(value, ('id', 'resources'), ('locks', 'seconds', 'performance', 'checkout', 'owner', 'purpose', 'phase', 'workers'))
@@ -311,8 +415,8 @@ class CapacityBroker:
             checkout = wire.text(value.get('checkout'), maximum=4096)
             if not Path(checkout).is_absolute() or 'checkout:' + checkout not in locks:
                 raise wire.CapacityError('Full capacity requires its declared checkout named lock')
-            if not vector.cpu_millis or not vector.io_slots:
-                raise wire.CapacityError('Full capacity requires nonzero CPU and I/O reservations')
+            if not vector.cpu_millis:
+                raise wire.CapacityError('Full capacity requires a nonzero CPU reservation')
             workers = value.get('workers')
             if workers is not None:
                 wire.integer(workers, minimum=1, maximum=1024)
@@ -507,22 +611,21 @@ class CapacityBroker:
                 refreshed = self._refresh(state, now)
                 wire.fields(message, ('namespace', 'action'), ('request', 'id', 'nonce', 'epoch', 'boot_id', 'child',
                             'process_guard', 'tree_guard', 'limit_bytes', 'descendants', 'witness', 'resources', 'locks',
-                            'activation_id', 'candidates'))
+                            'activation_id', 'candidates', 'preserved_terminal'))
                 if message['namespace'] != wire.NAMESPACE:
                     raise wire.CapacityError('Production broker namespace required')
                 action = message['action']
+                if 'preserved_terminal' in message and action != 'reconcile':
+                    raise wire.CapacityError('Preserved terminal evidence is allowed only for reconciliation')
                 if self.mode == 'capacity' and action not in ('status', 'reconcile', 'close'):
                     if not self.compatible or message.get('activation_id') != self.activation_id:
                         raise wire.CapacityError('Full-capacity compatibility proof is unavailable or mismatched')
                 if action in ('status', 'reconcile'):
                     if action == 'reconcile':
+                        if 'preserved_terminal' in message:
+                            refreshed |= self._preserved_terminal(state, message['preserved_terminal'])
                         for retained in state['records'].values():
-                            if (retained['state'] == 'uncertain' and retained.get('roster')
-                                    and not retained.get('ancestry_unknown')
-                                    and all(pin in retained.get('exited', []) for pin in retained['roster'])):
-                                retained.update(state='released', release_witness={'kind': 'retained-kernel-exits'})
-                                self._dispose(retained['nonce'])
-                                refreshed = True
+                            refreshed |= self._settle_exited(retained)
                     result = self._status(state)
                 elif action == 'owned':
                     if (self.mode != 'capacity' or message.get('boot_id') != self.boot
@@ -614,6 +717,8 @@ class CapacityBroker:
                             raise wire.CapacityError('Capacity grant is uncertain or inactive')
                         self._watch(record, message.get('descendants', []))
                         self._refresh(state, now)
+                        if record['state'] not in ('running', 'draining'):
+                            raise wire.CapacityError('Capacity grant is uncertain or inactive')
                         if record['child'] in record.get('exited', []):
                             record['state'] = 'draining'
                         else:
@@ -641,12 +746,19 @@ class CapacityBroker:
                                 # This authenticated adapter reports its actual Popen wait status.
                                 record.setdefault('exited', []).append(record['child']) if record['child'] not in record.get('exited', []) else None
                             self._refresh(state, now)
-                            complete = (not record.get('ancestry_unknown') and bool(record.get('roster'))
-                                        and all(pin in record.get('exited', []) for pin in record.get('roster', [])))
-                            record['state'] = 'released' if complete else 'uncertain'
-                            if complete:
-                                self._dispose(record['nonce'])
-                            result = {'state': record['state'], 'released': complete, 'coverage': 'retained-roster-only'}
+                            if record['state'] != 'released':
+                                record['state'] = 'uncertain'
+                                self._settle_exited(record)
+                            complete = record['state'] == 'released'
+                            if not complete:
+                                print('capacity close retained: ' + json.dumps(dict(
+                                    owner=record['request'].get('owner'), purpose=record['request'].get('purpose'),
+                                    pid=record['child'][0], roster=len(record.get('roster', [])),
+                                    exited=len(record.get('exited', [])), ancestry_unknown=record.get('ancestry_unknown', False),
+                                    reason='Retained exits incomplete and no eligible terminal cleanup witness')),
+                                    file=sys.stderr, flush=True)
+                            result = {'state': record['state'], 'released': complete,
+                                      'coverage': record.get('release_witness', {}).get('coverage', 'retained-roster-only')}
                     elif action == 'replace':
                         if record['state'] != 'running':
                             raise wire.CapacityError('Only a live grant can change phase')
