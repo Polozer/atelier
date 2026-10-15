@@ -196,6 +196,20 @@ def hidamari_props_import_step(out):
                 about='Hidamari prop exports the world import consumes, without review images')
 
 
+def village_import_step(out, *, regions=REGIONS):
+    """Validated files import_village.main(terrain=False) consumes, behind one semantic cutoff."""
+    name = 'world.village.import'
+    output = out / 'digests' / f'{name}.json'
+    return Step(name, [Call('validated village import digest', lambda ctx, log:
+                           export_digest.record(output, export_digest.village(out, regions), log))],
+                inputs=[GAME / 'export_digest.py'],
+                deferred_inputs=[DeferredInputs('village', export_digest.village_inputs, (out, regions),
+                                                support=(GAME / 'export_digest.py',))],
+                needs=['world.village'], outputs=[output], cutoff=True,
+                verify=lambda: export_digest.village_present(out, regions),
+                about='Village import files and validated layout/source identities, without FBX export-time churn')
+
+
 def package_present(out):
     """The zip or every part the manifest lists, at its recorded size: names vary with the revision and the split."""
     root = out / 'package'
@@ -562,6 +576,7 @@ def world_steps(ctx):
         digest_step(out, 'world.terrain', 'meshes', 'the terrain and sea meshes the imports read', out, ['terrain.fbx', 'assets/Sea.fbx']),
         Step('world.village', [Blender(REGIONS / 'village' / 'build.py')], inputs=[REGIONS / 'village', YORI], needs=['world.layout'],
              outputs=[out / 'village' / 'manifest.json'], about='Momiji Hamlet', heavy=True),
+        village_import_step(out),
         Step('world.houses', [Blender(REGIONS / 'houses' / 'build.py')],
              inputs=[REGIONS / 'houses', REGIONS / 'village' / 'build.py', WORLD / 'torii_clearance.py', *VILLAGE_LAYOUT],
              needs=['world.layout', 'world.textures'], outputs=[out / 'houses' / 'manifest.json'],
@@ -703,7 +718,7 @@ def unreal_steps(ctx):
              after=['unreal.compile', 'unreal.materials'],
              references=['materials.shared', *['foliage.' + name + '.native' for name in foliage_build.catalog.FOLIAGE]],
              needs=['world.textures', 'world.layout', 'world.props', 'world.hidamari.city', 'world.hidamari_textures', 'world.hidamari_props.import',
-                    'world.zeppelin.meshes', 'world.terrain.meshes', 'world.village', 'world.sailboat', 'characters.wanderer'],
+                    'world.zeppelin.meshes', 'world.terrain.meshes', 'world.village.import', 'world.sailboat', 'characters.wanderer'],
              heavy=True, about='legacy world assets and level; preserves independent materials and foliage'),
         # The volcano: its meshes, M_NorthMountains with the rock and snow mask textures, M_NorthGate. The world import
         # purges /Game/Japan and makes the textures and MPC these materials use, so this reruns after it.
