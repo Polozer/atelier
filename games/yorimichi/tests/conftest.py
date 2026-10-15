@@ -1,5 +1,6 @@
 """Shared, immutable inputs for the game tests; mutation tests use private fixtures."""
 import importlib.util
+import os
 from pathlib import Path
 
 import pytest
@@ -27,3 +28,11 @@ def skating_package(tmp_path_factory):
         # Restore write permission for pytest's temporary-directory cleanup, even on test failure.
         for path in members:
             path.chmod(0o755 if path.is_dir() else 0o644)
+
+
+@pytest.fixture(autouse=True)
+def craterpark_generator_by_choice(monkeypatch):
+    """The build ships the editor park by default (craterpark.v2.v4_config.SHIPPED); a test sees the older generator
+    unless it selects a park itself, as these tests were written against."""
+    if 'ATELIER_CRATERPARK_EDITOR_PARK' not in os.environ:
+        monkeypatch.setenv('ATELIER_CRATERPARK_EDITOR_PARK', 'off')

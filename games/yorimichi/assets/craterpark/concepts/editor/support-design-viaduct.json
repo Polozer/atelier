@@ -1,0 +1,34 @@
+{
+  "model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "prompt": "Use case: art-direction design for the support structures of a skate park in a stylized open-world game. Image 1 is an in-game screenshot: giant wooden skate ramps and a mega gap high on a volcano's crater rim, floating with nothing under them. Keep its camera, horizon, field of view, terrain and every ramp exactly where and how they are: do not move, reshape or remove any riding surface. Image 2 is the approved art direction: keep its soft painterly style, warm light, dark blue-grey columnar basalt, snow patches, yellow-green moss and autumn shrubs, and paint the ramps as warm wooden ramps with thin steel coping. The supports must look designed, calm and monumental, never like a forest of thin sticks: FEW large solid forms, each clearly readable, rising from the ground to meet the underside of the ramps. Design: an elegant viaduct of dark volcanic stone under the long ramps: tall solid piers linked by wide round arches, like an old mountain railway aqueduct, the arches spanning 30 to 50 metres, the ramp running on top of the arcade, the masonry in dark basalt blocks with lighter mortar, moss on the ledges; under the mega gap's kicker and landing two great buttressed piers.",
+  "references": {
+    "build/yorimichi/craterpark/shots/mega_side_a/view.png": "85dfbfa7e708be51d0af77c2a8ec348938c20b554288e9f4563fbe443493a528",
+    "assets/craterpark/concepts/editor/supports-rock.jpg": "a8c2c5fd8cebc8b8d39887e03d42c2b800ed093bcdba757dbb0544e3a938cb77"
+  },
+  "purpose": "Crater Park editor park art direction",
+  "status": "done",
+  "started_at": "2026-10-15T16:14:51.871966+00:00",
+  "usage": {
+    "input_tokens": 2284,
+    "input_tokens_details": {
+      "image_tokens": 2000,
+      "text_tokens": 284
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 3656
+  },
+  "png_sha256": "768ac1abd54fc80244ee3281e6b62779208d6b3caf03c5902fcbadd03f201892",
+  "output": {
+    "file": "support-design-viaduct.jpg",
+    "size": "1536x1024",
+    "jpeg_quality": 88,
+    "chroma": "4:2:0"
+  },
+  "finished_at": "2026-10-15T16:15:30.163645+00:00"
+}

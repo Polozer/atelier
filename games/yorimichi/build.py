@@ -53,7 +53,44 @@ foliage_build = importlib.util.module_from_spec(_foliage_spec)
 _foliage_spec.loader.exec_module(foliage_build)
 
 # Crater Park on the caldera floor: its block shapes the ground there (craterpark/placement.py terrain).
-CRATERPARK = (REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark' / 'scene.json', ASSETS / 'craterpark' / 'geometry')
+_v4_spec = importlib.util.spec_from_file_location('craterpark_v4_config', REGIONS / 'craterpark' / 'v2' / 'v4_config.py')
+craterpark_v4 = importlib.util.module_from_spec(_v4_spec)
+_v4_spec.loader.exec_module(craterpark_v4)
+CRATERPARK = (REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark' / 'scene.json', ASSETS / 'craterpark' / 'geometry',
+              REGIONS / 'craterpark' / 'v2' / 'v4_config.py', *craterpark_v4.input_paths())
+# Crater Park v2 (regions/craterpark/v2): the park generated from a layout, clean by construction. False rolls back to
+# the r4 build (craterpark/build.py); both write the same build.json, park.json and FBX names for unreal.craterpark.
+CRATERPARK_V2 = True
+
+
+def craterpark_v2_steps(out):
+    """world.craterpark_geometry (numpy: compile, split, validate) then world.craterpark (Blender: FBX and the json)."""
+    v2 = REGIONS / 'craterpark' / 'v2'
+    common = [REGIONS / 'craterpark' / '__init__.py', REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark',
+              REGIONS / 'megapark' / 'placement.py', YORI]
+    geometry = out / 'craterpark' / 'v2'
+    volcano = []
+    if craterpark_v4.editor():      # the owner's editor park.json (ATELIER_CRATERPARK_EDITOR_PARK)
+        runner, arguments = 'editor_generate.py', ('--park', str(craterpark_v4.editor_path()))
+        # its crater floor (editor_floor) stands on the volcano's ground: mountains.py and what it imports
+        volcano = [REGIONS / 'hidamari' / '__init__.py', REGIONS / 'hidamari' / 'mountains.py',
+                   REGIONS / 'belmonte' / '__init__.py', REGIONS / 'belmonte' / 'layout.py']
+    else:
+        runner = 'v4_generate.py' if craterpark_v4.selected() else 'generate.py'
+        arguments = ('--design', str(craterpark_v4.design_path())) if craterpark_v4.selected() else ()
+    return [
+        Step('world.craterpark_geometry', [Python(v2 / runner, arguments)],
+             inputs=[v2, *common, *volcano, *craterpark_v4.input_paths()],
+             outputs=[geometry / 'geometry.npz', geometry / 'geometry-report.json'],
+             about='Crater Park v2: layout -> conforming surfaces, solids, rails, render tiles and collision (numpy)',
+             heavy=True),
+        Step('world.craterpark', [Blender(v2 / 'export.py', threads=2)], inputs=[v2, *common, *craterpark_v4.input_paths()],
+             needs=['world.craterpark_geometry'],
+             outputs=[out / 'craterpark' / 'build.json', out / 'craterpark' / 'park.json', out / 'craterpark' / 'fbx' / 'SM_CP_ImportSeed.fbx'],
+             about='Crater Park v2 export: FBX, build.json and park.json in the r4 contract', heavy=True),
+    ]
+
+
 # world.layout is a cutoff step: its dependents see its outputs, not its fingerprint, so each lists the layout sources
 # its own scripts import. VILLAGE_LAYOUT: village/layout.py (sample, integrate), imported by every Blender region.
 VILLAGE_LAYOUT = (REGIONS / 'village' / 'layout.py', YORI)
@@ -499,6 +536,7 @@ def texture_steps(ctx):
 def world_steps(ctx):
     """World exports."""
     out = ctx.out
+    crater_geometry = ['world.craterpark_geometry'] if craterpark_v4.selected() else []
     return [*texture_steps(ctx),
         # ------------------------------------------------------------ world
         # The tree house's tall canopy trees come first: its layout sizes them from trees.json.
@@ -513,7 +551,7 @@ def world_steps(ctx):
                      TREEHOUSE / 'screen.py', REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'forest.py',
                      REGIONS / 'megapark' / 'trail.py', REGIONS / 'megapark' / 'gate.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'forest_backdrop.py'],
-             needs=['world.treehouse_trees'], cutoff=True,
+             needs=['world.treehouse_trees', *crater_geometry], cutoff=True,
              outputs=[out / 'world.json', out / 'heightmap.npy', out / 'heightmap.bin', out / 'farhills.npy', out / 'treehouse' / 'layout.json',
                       out / 'megapark' / 'trail.json'],
              about='terrain heightfield, road, scatter and every region layout -> world.json (dependents see these files)'),
@@ -533,8 +571,9 @@ def world_steps(ctx):
                      REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'forest.py', REGIONS / 'megapark' / 'trail.py',
                      REGIONS / 'megapark' / 'gate.py', REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py', ASSETS / 'hidamari' / 'props',
                      *TREEHOUSE_LAYOUT, *VILLAGE_LAYOUT],
-             needs=['world.layout', 'world.treehouse_trees'], outputs=[out / 'hidamari' / 'city.json', out / 'hidamari' / 'manifest.json',
-                                             out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json'],
+             needs=['world.layout', 'world.treehouse_trees', *crater_geometry], outputs=[out / 'hidamari' / 'city.json', out / 'hidamari' / 'manifest.json',
+                                             out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
+                                             out / 'hidamari' / 'north_crater.png', out / 'hidamari' / 'north_crater.json'],
              about='the city: layout (city.json), building kit, harbor, plaza, arcade, mountains', heavy=True),
         digest_step(out, 'world.hidamari', 'city', 'the Hidamari meshes unreal.world reads (all but the volcano)', north=False),
         digest_step(out, 'world.hidamari', 'north', "the volcano's meshes unreal.north reads (HD_North*)", north=True),
@@ -601,10 +640,15 @@ def world_steps(ctx):
                      ASSETS / 'craterpark' / 'materials.json'],
              outputs=[out / 'craterpark' / 'textures' / 'textures.json'],
              about="Crater Park restyle: painted textures in the island's style, world-aligned ground and concrete"),
+        *(craterpark_v2_steps(out) if CRATERPARK_V2 else [
         Step('world.craterpark', [Blender(REGIONS / 'craterpark' / 'build.py', threads=4)],
              inputs=[REGIONS / 'craterpark', ASSETS / 'craterpark', REGIONS / 'megapark' / 'placement.py', YORI],
              outputs=[out / 'craterpark' / 'build.json', out / 'craterpark' / 'park.json', out / 'craterpark' / 'fbx' / 'SM_CP_ImportSeed.fbx'],
-             about='Crater Park geometry and riding collision on the caldera floor -> FBX', heavy=True),
+             about='Crater Park geometry and riding collision on the caldera floor -> FBX', heavy=True)]),
+        Step('world.crater_cloud', [Python(REGIONS / 'craterpark' / 'cloud_build.py')],
+             inputs=[REGIONS / 'craterpark' / 'cloud.py', REGIONS / 'craterpark' / 'cloud_build.py', YORI],
+             outputs=[out / 'craterpark' / 'cloud.json'],
+             about="Crater Park's lenticular cap cloud: its nested lens shells and their look (numpy)"),
         Step('world.lake', [Blender(REGIONS / 'forest_lake' / 'build.py')], inputs=[REGIONS / 'forest_lake', REGIONS / 'village' / 'build.py', *VILLAGE_LAYOUT],
              needs=['world.layout'], outputs=[out / 'forest_lake' / 'manifest.json'], about='the woodland lake and cabin', heavy=True),
         Step('world.skatepark_textures', [Python(TOOLS / 'pier_textures.py', ('finish',))],
@@ -638,7 +682,7 @@ def world_steps(ctx):
                        for entry in json.loads((ASSETS / 'belmonte' / 'source.json').read_text())['meshes']
                        if entry['name'].startswith(('SM_BM_BT_blk_', 'SM_BM_BH_', 'SM_BM_BE_', 'SM_BM_BHip_',
                                                     'SM_BM_BVV_Farm_', 'SM_BM_BC_Water_', 'SM_BM_BC_Pave', 'SM_BM_BC_Ponte')))],
-             needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte'],
+             needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', *crater_geometry],
              outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png'], about='map zones and the painted sheet'),
         Step('world.city_tiles', [Blender(WORLD / 'city_surface_tiles.py', ('--tag', 'v1_128m'))],
              inputs=[WORLD / 'city_surface_tiles.py'], needs=['world.hidamari'],
@@ -724,9 +768,11 @@ def unreal_steps(ctx):
         # purges /Game/Japan and makes the textures and MPC these materials use, so this reruns after it.
         Step('unreal.north', [UnrealScript(SCRIPTS / 'import_hidamari.py', 'HIDAMARI IMPORT COMPLETE', env=(('HIDAMARI_ASSETS', 'HD_North*'),))],
              inputs=[ASSETS / 'environment/textures/volcanic-rock.jpg', out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
+                     out / 'hidamari' / 'north_crater.png', out / 'hidamari' / 'north_crater.json',
+                     out / 'craterpark' / 'textures' / 'crater_floor.png', TOOLS / 'craterpark_textures.py',
                      *[SCRIPTS / n for n in ('import_hidamari.py', 'mountain_material.py', 'import_village.py', 'atmosphere.py', 'ground_grain.py', 'sea_look.py')]],
-             needs=['unreal.world', 'world.hidamari.north'], heavy=True,
-             about='/Game/Japan: the volcano (HD_North*), M_NorthMountains and its rock and snow mask textures'),
+             needs=['unreal.world', 'world.hidamari.north', 'world.craterpark_restyle'], heavy=True,
+             about='/Game/Japan: the volcano (HD_North*), M_NorthMountains and its rock, snow and crater floor textures'),
         # The regions below layer onto the world (the south-west import replaces the terrain's and the sea's materials),
         # so they rerun when it is reimported.
         Step('unreal.southwest', [UnrealScript(SCRIPTS / 'import_southwest.py', 'SOUTHWEST IMPORT COMPLETE')],
@@ -785,6 +831,10 @@ def unreal_steps(ctx):
              inputs=[SCRIPTS / 'board_dissolve_material.py'], after=['unreal.compile'],
              outputs=[GAME / 'unreal' / 'Content' / 'SkatePark' / 'Board' / 'M_BoardDissolve.uasset'],
              heavy=True, about="the board's dissolve material for the Ride transitions (/Game/SkatePark/Board)"),
+        Step('unreal.crater_cloud', [UnrealScript(SCRIPTS / 'crater_cloud_material.py', 'CRATER CLOUD MATERIAL COMPLETE')],
+             inputs=[SCRIPTS / 'crater_cloud_material.py', SCRIPTS / 'atmosphere.py', SCRIPTS / 'sea_look.py'], after=['unreal.compile'],
+             outputs=[GAME / 'unreal' / 'Content' / 'CraterPark' / 'Cloud' / f'{name}.uasset' for name in ('M_CraterCloud', 'M_CraterCloudVeil')],
+             heavy=True, about="the cap cloud's translucent materials, plain and blurring veil (/Game/CraterPark/Cloud)"),
         Step('unreal.sounds', [
                 UnrealScript(SCRIPTS / 'import_footsteps.py', 'FOOTSTEP IMPORT COMPLETE'),
                 UnrealScript(SCRIPTS / 'import_combat_audio.py', 'COMBAT AUDIO IMPORT COMPLETE'),
@@ -855,7 +905,7 @@ def staging_steps(ctx):
     return [
         Step('data.stage', [Call('stage_data', stage_data)],
              inputs=[GAME / 'runtime_data.py', REGIONS / 'skatepark' / 'park.json'],
-             needs=['world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.craterpark', 'world.belmonte', 'world.bike',
+             needs=['world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.craterpark', 'world.crater_cloud', 'world.belmonte', 'world.bike',
                     *[f'characters.{key(c)}_{kind}' for c in definition.movers() for kind, wanted in
                       (('bike', c.playable), ('grips', (GRIPS / c.id).is_dir())) if wanted]],
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / rel for rel in staged(out)], about='runtime files into unreal/Content/Data'),

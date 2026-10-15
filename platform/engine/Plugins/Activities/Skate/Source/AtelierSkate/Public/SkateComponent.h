@@ -273,6 +273,9 @@ private:
     void BeginSimulationBoardInBail();
     void FollowSimulationBoardInBail(float Dt);
     void EndSimulationBoardInBail();
+    /** A step whose session lost the rider (its own recovery teleport, a jump, its board down through Unreal's floor:
+     *  Private/Ride/RideLostSimulation.h) is not shown: the body bails where the rider is. Whether it did. */
+    bool BailOffLostSimulation(float Dt);
     void AfterSimulationRideFrame(float Dt);
     void GetUpFromSimulationBail();
     // The simulation's rider off the board on foot (its Biped states) becomes the character once that outlasts the frames a
@@ -388,6 +391,9 @@ private:
     bool TakeRunOut(ERideBailKind Kind);
     bool BeginRunOut();
     bool BeginRecover();
+    /** The assist zones' limit on the vert assist for the next step (SkateAssistZones.h), held through an air. */
+    void UpdateAssistZones();
+    float VertAssistHeld = 1.f;
     bool BeginStepOnClip();
     /** The board leaves the clip (kicked away, or rolling on after a run-out): it flies or rolls on by itself as a
      *  projectile, or settles where it is when it barely moves. */

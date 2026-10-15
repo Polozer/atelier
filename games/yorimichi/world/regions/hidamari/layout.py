@@ -855,6 +855,11 @@ def dress_caldera(put):
             put('HD_NorthRockA' if rng.random()<.6 else 'HD_NorthRockC',x,y,float(z[0])-(.1+1.2*float(slope[0]))*scale,
                 yaw=float(rng.uniform(0,360)),scale=scale)
             counts['stones']+=1
+    if craterpark.is_v4():
+        # V4's geometry compiler owns planting and flight-corridor clearance on
+        # its landform. The legacy hillside pass must not add a second set.
+        counts.update(hillside=0, outcrops=0, trees=len(trees), groves=len(groves))
+        return counts
     # The park's own hillside (craterpark `GROUND`) is a separate mesh above the terrain: its exposed, upward slopes get
     # leafy clumps too (the rim target's foreground), on its triangles, 4 m clear of every riding piece and bridge.
     from megapark.placement import surface_samples

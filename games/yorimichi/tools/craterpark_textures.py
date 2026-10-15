@@ -52,6 +52,13 @@ STYLES = {
     'plaza': (CONCEPTS / 'paintover-dropin.jpg', (0, 560, 1536, 1024)),
     'bowls': (CONCEPTS / 'paintover-bowls.jpg', (0, 420, 900, 1024)),
     'rock': (MEGAPARK / 'concepts' / 'improve-riding.jpg', (0, 330, 820, 1024)),
+    # the editor park's approved concepts: a viaduct pier, and a ramp's boards
+    'viaduct': (CONCEPTS / 'editor' / 'support-design-viaduct.jpg', (1080, 90, 1536, 700)),
+    'ramps': (CONCEPTS / 'editor' / 'prado-graphics-layout.jpg', (1150, 690, 1536, 1024)),
+    # the crater floor's dark cinder, stones, moss and grass tufts (concepts/editor/crater-floor-layout.jpg)
+    'crater': (CONCEPTS / 'editor' / 'crater-floor-layout.jpg', (680, 400, 1360, 1000)),
+    # the approved crater floor's ground: cool grey volcanic stone and darker gravel (concepts/editor/crater-floor.jpg)
+    'crater_stone': (CONCEPTS / 'editor' / 'crater-floor.jpg', (640, 400, 1000, 620)),
 }
 SURFACE = ('Image 1 is a tileable texture from a skate park in a stylised game, stretched to fill this frame. Image 2 '
            'shows the art direction of the game: soft painterly shapes, flat matte colour, clean well-kept surfaces, pale '
@@ -134,8 +141,25 @@ WORLD_PAINTINGS = {
     'ground': ('rock', 'blend', 'the bare ground of a volcanic crater: lavender-grey volcanic gravel and scree with scattered '
                'small and medium grey rocks, a little fine dark ash soil, a few tufts of dry golden grass and small '
                'yellow-green moss patches; no snow, no leaves'),
+    # the editor park's support towers (v2/editor_supports.py), after concepts/editor/supports-rock*.jpg
+    'basalt': ('rock', 'blend', 'the side of a tall columnar basalt cliff: dark blue-grey volcanic basalt columns standing '
+               'side by side in long vertical stripes with crisp narrow joints, faint horizontal cracks, soft lighter '
+               'grey edges, a few small patches of yellow-green moss and pale lichen; no snow, no sky, no ground'),
+    # the editor park's viaduct supports (v2/editor_supports.py), after concepts/editor/support-design-viaduct.jpg
+    'masonry': ('viaduct', 'edges', 'the wall of a mountain viaduct as in Image 1: squarish warm charcoal-grey and '
+                'grey-brown basalt blocks of slightly varied sizes in rough courses, soft rounded worn edges, thin joints '
+                'only a little lighter than the stone so they stay subtle, gentle painterly variation from block to block, '
+                'two or three tiny yellow-green moss tufts; not blue, no bright mortar grid, no snow'),
     'cast_concrete': ('bowls', 'edges', 'a large smooth cast-concrete wall in pale warm grey, faint rectangular formwork panel '
                       'joints in a regular grid of four equal panels, very subtle soft tonal variation, clean'),
+    # the editor park's crater floor, for the volcano's ground inside the crater (not a park material: WORLD_ALIGNED)
+    'crater_floor': ('crater_stone', 'blend', 'the bare ground of a volcanic crater floor, only its stone and gravel as in '
+                     'Image 1: a light cool mid-grey volcanic stone surface, soft and slightly bluish grey, broken by large '
+                     'irregular patches of darker charcoal-grey gravel and fine scree several times bigger than the small '
+                     'stones, the patches rounded blobs of different sizes scattered evenly in every direction, never '
+                     'diagonal bands, stripes, rows or streaks, seen from straight above; scattered small and medium angular grey stones with pale tops, broad gentle variation in tone '
+                     'over the whole square; neutral and cool, no brown, no tan, no snow, no moss, no grass, no plants, '
+                     'no boulders, no paths'),
 }
 # material: (painting, metres per tile, palette mean sRGB). The meshes have no UVs: the hillside and the foundations and
 # bridges get world-aligned textures. 'megapark:rock' is the Mega Park's restyled rock, reused for the edge guard's
@@ -146,6 +170,50 @@ WORLD_ALIGNED = {
     'material_025': ('cast_concrete', 4, (170, 165, 153)),      # access bridges
     'material_026': ('cast_concrete', 4, (148, 142, 132)),      # bridge supports
     'material_027': ('megapark:rock', 10, (150, 146, 152)),     # the edge guard (darker read as black shards in shade)
+    'material_028': ('basalt', 6, (104, 106, 114)),             # editor-park basalt support towers
+    'material_029': ('masonry', 5, (84, 80, 80)),              # editor-park viaducts and ramp sides: the concept's charcoal stone
+    # not a park material: the volcano's ground inside the crater (hidamari/mountains.py), for M_NorthMountains
+    'crater_floor': ('crater_floor', 16, (100, 98, 100)),       # the concept's warm dark grey gravel
+}
+# slug: (texture, style, how it is made to wrap, description, palette mean sRGB) of the UV-mapped textures painted from
+# nothing: a material whose texture is `texture` gets the painting on its own UVs (the editor ramps' boards, laid along
+# each piece: v2/editor_generate.piece_uv)
+UV_PAINTINGS = {
+    'ramp_planks': ('textures/ramp_planks.png', 'ramps', 'edges', 'the smooth wooden riding surface of a big skate ramp '
+                    'exactly as in Image 1: soft warm honey and pale golden wood, six long boards stacked from top to bottom, '
+                    'each running unbroken across the whole frame from left to right with no butt joints, the seams between '
+                    'them only faint thin lines a little darker than the wood, gentle broad painterly variation in tone '
+                    'from board to board, barely visible soft straight grain; calm and smooth, no knots, no nails, no '
+                    'screws, no stripes of strong contrast', WOOD),
+    # the ramps' outer sides: a fascia, not more riding boards
+    'ramp_fascia': ('textures/ramp_fascia.png', 'ramps', 'edges', 'the smooth outer side panel (fascia) of a big wooden '
+                    'skate ramp, as the ramp sides in Image 1: large smooth sheets of warm dark-stained plywood in a deep '
+                    'chestnut brown, two tall panels side by side with one thin vertical joint, a narrow slightly darker '
+                    'band along the top edge, soft broad painterly tonal variation, almost no grain; no boards, no planks, '
+                    'no stripes, no nails', (112, 76, 52)),
+    # the Prado bowl's rim: the concept's glazed terracotta brick coping
+    'brick_coping': ('textures/brick_coping.png', 'bowls', 'edges', 'a band of glazed terracotta brick coping as on the '
+                     'rim of the bowl in Image 1: one row of rounded bullnose terracotta bricks laid end to end from left '
+                     'to right across the whole frame, each brick about one eighth of the frame wide, warm orange-red '
+                     'glaze with soft highlights, thin pale cream grout lines between them; the brick row fills the frame '
+                     'top to bottom', (176, 92, 62)),
+}
+# slug: (texture, plan, concept, size, description) of the decals painted onto one piece's own plan: the plan (a top-down
+# render of the piece, v2/editor_generate.decal_frame) is Image 1 and the approved concept Image 2; the painting is laid
+# over the piece from above (editor_generate.decal_uv), so it is never tiled
+DECALS = {
+    'prado': ('textures/prado.png', CONCEPTS / 'editor' / 'prado-plan.png', CONCEPTS / 'editor' / 'prado-graphics-layout.jpg',
+              '1024x1536', 'Image 1 is the exact top-down plan of a concrete skate bowl called Prado, seen straight down: '
+              'the flat floor is light, the curved transition walls darken toward the rim, the mid-grey ring round it is '
+              'the flat deck, the thin dark line near the bottom is a spine, and everything black is outside the bowl. '
+              'Image 2 is the approved design for its graphics. Paint the bowl\'s surface as a flat texture that fits '
+              'Image 1 exactly, straight down, no perspective, no shadows, no lighting, keeping every edge exactly where it '
+              'is: a smooth pale warm cream concrete floor; a big golden-yellow sun with soft rays on the floor in the '
+              'upper wide part; sweeping deep blue and teal wave bands with a few orange accents following the walls all '
+              'round; the word PRADO in big rounded navy-blue letters across the middle of the floor, reading left to '
+              'right, upright with the top of the image at the top; a band of glazed terracotta tiles right along the '
+              'rim where the walls meet the deck; the deck ring pale grey concrete; outside the bowl plain black. '
+              'Hand-painted like the background art of a Japanese animated film, clean, soft, flat matte colour'),
 }
 # Surfaces finished from another surface's painting: slug: (painting, palette mean sRGB). The snake run's box tops carry
 # the irregular-stone texture (material_003), but the paintovers make them wooden decks.
@@ -156,6 +224,8 @@ REPAINTED = {'flagstone': ('masonite', (160, 122, 86))}
 DETAIL = .14
 DETAIL_MIN = 8.
 DETAIL_GAIN = 2.5
+# paintings that already carry the concepts' calm surface keep their own variation (at most this gain)
+CALM = {'ramp_planks': 1., 'masonry': 1.2, 'ramp_fascia': 1., 'brick_coping': 1.2}
 
 
 def sha(data):
@@ -204,6 +274,12 @@ def job(slug):
         size = size_for(*Image.open(SOURCE / texture).size)
         refs = [stretched(slug, texture, size), style(key)]
         return SURFACE + text + '.', size, refs, {'original': {texture: sha((SOURCE / texture).read_bytes())}}
+    if slug in DECALS:
+        texture, plan, concept, size, text = DECALS[slug]
+        return text + '.', size, [plan, concept], {'texture': texture}
+    if slug in UV_PAINTINGS:
+        texture, key, _, text, _ = UV_PAINTINGS[slug]
+        return WORLD + text + '.', '1024x1024', [style(key)], {'texture': texture}
     key, _, text = WORLD_PAINTINGS[slug]
     return WORLD + text + '.', '1024x1024', [style(key)], {'materials': sorted(
         m for m, (s, *_) in WORLD_ALIGNED.items() if s == slug)}
@@ -264,7 +340,7 @@ def paint_one(slug):
 
 
 def paint(only, redo, jobs, dry):
-    slugs = [s for s in list(SURFACES) + list(WORLD_PAINTINGS) if not only or s in only]
+    slugs = [s for s in list(SURFACES) + list(WORLD_PAINTINGS) + list(UV_PAINTINGS) + list(DECALS) if not only or s in only]
     if dry:
         for slug in slugs:
             prompt, size, refs, _ = job(slug)
@@ -366,13 +442,13 @@ def to_mean(rgb, target):
     return srgb(a * want / np.maximum(a.reshape(-1, 3).mean(0), 1e-4))
 
 
-def detail(rgb, target):
+def detail(rgb, target, cap=DETAIL_GAIN):
     """rgb (sRGB 0-1) brought to the palette mean `target` with its variation stretched (DETAIL). Returns (rgb, gain)."""
     import numpy as np
     a = to_mean(rgb, target)
     luma = a @ np.array([.2126, .7152, .0722])
     want = max(DETAIL_MIN / 255, DETAIL * float(luma.mean()))
-    gain = float(np.clip(want / max(float(luma.std()), 1e-4), 1., DETAIL_GAIN))
+    gain = float(np.clip(want / max(float(luma.std()), 1e-4), 1., cap))
     mean = a.reshape(-1, 3).mean(0)
     return to_mean(np.clip(mean + (a - mean) * gain, 0, 1), target), gain
 
@@ -411,12 +487,25 @@ def finish():
             a, gain = detail(a, mean)
             note += f', mean {list(mean)}, detail x{gain:.2f}'
         report['textures'][texture] = {**save(slug, a), 'slug': slug, 'how': note}
+    for slug, (texture, _, _, size, _) in DECALS.items():
+        src = PAINTED / f'{slug}.jpg'
+        if not src.exists():
+            print('not painted yet:', slug); continue
+        a = load(src, tuple(map(int, size.split('x'))))
+        report['textures'][texture] = {**save(slug, a), 'slug': slug, 'how': 'a decal on its piece, not tiled'}
+    for slug, (texture, _, how, _, mean) in UV_PAINTINGS.items():
+        src = PAINTED / f'{slug}.jpg'
+        if not src.exists():
+            print('not painted yet:', slug); continue
+        a, gain = detail(srgb(tile(lin(load(src, (1024, 1024))), 'xy', how)), mean, CALM.get(slug, DETAIL_GAIN))
+        report['textures'][texture] = {**save(slug, a), 'slug': slug,
+                                       'how': f'painted, wraps xy ({how}), mean {list(mean)}, detail x{gain:.2f}'}
     for material, (slug, metres, mean) in WORLD_ALIGNED.items():
         src = (MEGAPARK / 'restyle' / f'{slug.split(":")[1]}.jpg') if slug.startswith('megapark:') else PAINTED / f'{slug}.jpg'
         if not src.exists():
             print('not painted yet:', slug, 'for', material); continue
         how = WORLD_PAINTINGS[slug][1] if slug in WORLD_PAINTINGS else 'blend'
-        a, gain = detail(srgb(tile(lin(load(src, (1024, 1024))), 'xy', how)), mean)
+        a, gain = detail(srgb(tile(lin(load(src, (1024, 1024))), 'xy', how)), mean, CALM.get(slug, DETAIL_GAIN))
         report['world_aligned'][material] = {**save(material, a), 'slug': slug, 'metres': metres,
                                              'how': f'world-aligned {rel(src)}, wraps xy ({how}), mean {list(mean)}, '
                                                     f'detail x{gain:.2f}; Tint white'}
@@ -434,7 +523,7 @@ def main():
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
     only = {s for s in args.only.split(',') if s}
-    unknown = only - set(SURFACES) - set(WORLD_PAINTINGS)
+    unknown = only - set(SURFACES) - set(WORLD_PAINTINGS) - set(UV_PAINTINGS) - set(DECALS)
     if unknown:
         parser.error(f'unknown slugs {sorted(unknown)}')
     if args.command == 'paint':

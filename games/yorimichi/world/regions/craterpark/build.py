@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import yori
-from craterpark import placement
+from craterpark import additions, cleanbuild, grind, placement, tunnel
 
 import bpy
 import bmesh
@@ -32,10 +32,15 @@ SMOOTH = 35.0           # degrees: sharper edges keep their crease
 SECTION = 200000        # collision triangles per mesh
 # Roles drawn with world-aligned materials (import_craterpark.py): their UVs are unused, so their flat faces are merged.
 PLAIN = {'foundation', 'mountain', 'access_bridge', 'bridge_support', 'boundary'}
+# Where two meshes' faces lie on each other, the earlier role's is drawn: the riding pieces, then the built walls and
+# blocks, the added pieces (after the bridges), the hillside last (its dark rock showed in patches on the perimeter walls).
+ROLES = ('original', 'boundary', 'foundation', 'access_bridge', 'bridge_support', 'mountain')
 FLAT = .5              # degrees: faces this close to coplanar are merged (a shape-preserving simplification)
 COVER = .05             # metres: foundation faces this close to a drawn riding surface, and parallel to it, are not drawn
 TWIN = .01              # metres: a riding face this close to another facing the opposite way is its double-sided twin
+PIECES = 1 << 24        # ranks per mesh: room for its pieces' ranks after its own (covered)
 FLICKER = .03           # metres: drawn faces of two meshes this close and parallel z-fight; one of them is drawn
+RECEDE = .005           # metres a drawn face lying in part on a higher-ranked mesh's face moves back (recede)
 CHUNK = 20000           # points or vertices per vectorised batch (covered, ambient_occlusion): bounds the memory
 PAIRS = 2_000_000       # point-face candidate pairs per batch at most (covered): about 0.6 GB
 CELLS = 4_000_000       # surface cell entries indexed at once at most (covered): about 0.7 GB while indexing
@@ -45,6 +50,7 @@ EDGE = 1e-9             # barycentric slack: a probe on the shared edge of two r
 WALL_STEP = .03         # metres: a riding face this far below the top edge at a probe still covers it (a slope, not a riser)
 WALL_FLUSH = .005       # metres a riding face lies above a steep face's top edge at least, for the edge to be inside the solid
 LARGE = 8.              # metres across: a collision face this large is stored with the other large ones (spatial_order)
+FOLDED = 2e-7           # square metres (twice a face's area): a face flatter than this is not exported
 SINK = .25              # metres the collision's corners inside the solid move down, out of the board's reach
 # Baked ambient occlusion, per drawn vertex (ambient_occlusion): voxel size and reach in metres, rays and steps per ray.
 AO_VOXEL = .5
@@ -74,6 +80,13 @@ def export_mesh(name, vertices, faces, materials, face_materials, uvs=None, smoo
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
     origin = np.round((vertices.min(axis=0).astype('f8') + vertices.max(axis=0)) / 2 / 32) * 32
+    # The recede can fold a simplified face flat (two corners on one point or on one line). Unreal's FBX import drops
+    # such faces, and its triangle check would then fail, so they are left out here.
+    t = vertices.astype('f8')[faces] - origin
+    flat = np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1) <= FOLDED
+    if flat.any():
+        print('Mesh', name, 'folded faces left out:', int(flat.sum()), flush=True)
+        faces, face_materials = faces[~flat], np.asarray(face_materials)[~flat]
     data = bpy.data.meshes.new(name)
     data.from_pydata(native_to_blender(vertices.astype('f8') - origin).tolist(), [], faces.tolist())
     data.update()
@@ -101,7 +114,8 @@ def export_mesh(name, vertices, faces, materials, face_materials, uvs=None, smoo
         apply_unit_scale=True, apply_scale_options='FBX_SCALE_ALL', global_scale=1.,
         axis_forward='-Z', axis_up='Y', use_mesh_modifiers=False, mesh_smooth_type='FACE',
         use_tspace=uvs is not None, bake_anim=False, add_leaf_bones=False, path_mode='STRIP', colors_type='SRGB')
-    lo, hi = vertices.min(axis=0), vertices.max(axis=0)
+    used = vertices[np.unique(faces)]                 # a vertex whose faces were all left out is not in the mesh
+    lo, hi = used.min(axis=0), used.max(axis=0)
     result = {'name': name, 'fbx': f'fbx/{name}.fbx', 'sha256': sha(path), 'native_origin': origin.tolist(),
               'bounds': {'minimum': lo.tolist(), 'maximum': hi.tolist()}, 'vertices': len(vertices), 'triangles': len(faces),
               'materials': materials}
@@ -141,6 +155,31 @@ def spatial_order(triangles, cell=1.):
     return np.lexsort((code, large))
 
 
+def material_metres(loaded, material):
+    """Metres per texture tile of `material` on the park's own pieces (the largest piece that uses it)."""
+    pieces = [a for entry, a, _ in loaded if entry['material'] == material and not entry.get('added')]
+    if not pieces:
+        return additions.FEET_METRES
+    a = max(pieces, key=lambda a: len(a['triangles']))
+    return additions.tile_metres(a['positions'], a['uvs'], a['triangles'])
+
+
+def carve_bores(a, keep, bores):
+    """A mesh's arrays `a` (its faces kept by `keep`) cut out of the tunnels' bores (tunnel.carve): each face reaching
+    into a bore is left out and its parts outside the bores are added. Returns the new keep mask and the faces cut."""
+    index = np.flatnonzero(keep)
+    cut, parent, bary = tunnel.carve(a['positions'][a['triangles'][index]].astype('f8'), bores)
+    if not cut.any():
+        return keep, 0
+    corners = a['triangles'][index[parent]].astype('i8'); base = len(a['positions'])
+    for key in ('positions', 'uvs'):
+        parts = np.einsum('mij,mjd->mid', bary, a[key][corners].astype('f8'))
+        a[key] = np.concatenate([a[key], parts.reshape(-1, a[key].shape[1]).astype(a[key].dtype)])
+    a['triangles'] = np.concatenate([a['triangles'].astype('i8'), base + np.arange(3 * len(parent)).reshape(-1, 3)])
+    keep = np.concatenate([keep, np.ones(len(parent), bool)]); keep[index[cut]] = False
+    return keep, int(cut.sum())
+
+
 def valid(positions, triangles):
     t = positions[triangles].astype('f8')
     return np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1) > 1e-12
@@ -162,13 +201,23 @@ def covered(triangles, surfaces, two_sided, eps=COVER, cell=1., ranks=None):
     are each within eps of the plane of a surface triangle facing the same way (either way where `two_sided`), and inside
     it, or within eps of its edges. Drawn under the riding surface they only flicker through it. With `ranks` (the
     triangles', the surfaces'), only a surface of a lower rank counts."""
+    t = triangles.astype('f8'); nt = unit_normals(t)
+    points = np.concatenate([t.mean(1, keepdims=True), t], 1).reshape(-1, 3)
+    on = lying_on(points, np.repeat(nt, 4, 0), surfaces, two_sided, eps, eps, cell,
+                  None if ranks is None else (np.repeat(ranks[0], 4), ranks[1]))
+    return on.reshape(-1, 4).all(1)
+
+
+def lying_on(points, normals, surfaces, two_sided, eps, margin, cell=1., ranks=None, pairs=False):
+    """Mask of the `points` (k, 3), each on a face with unit normal `normals` (k, 3), that lie within eps of the plane of
+    a surface triangle (m, 3, 3) facing the same way (either way where `two_sided`), inside it or within `margin` of its
+    edges. With `ranks` (the points', the surfaces'), only a surface of a lower rank counts. With `pairs`, the (point,
+    surface) index pairs instead."""
     s = surfaces.astype('f8'); ns = unit_normals(s)
     lo = np.floor((s.min(1) - eps) / cell).astype('i8'); hi = np.floor((s.max(1) + eps) / cell).astype('i8')
     size = hi - lo + 1; count = size.prod(1); total = np.cumsum(count)
-    t = triangles.astype('f8'); nt = unit_normals(t)
-    points = np.concatenate([t.mean(1, keepdims=True), t], 1).reshape(-1, 3)
-    pn = np.repeat(nt, 4, 0); k = cell_keys(np.floor(points / cell))
-    on = np.zeros(len(points), bool)
+    k = cell_keys(np.floor(points / cell))
+    on = np.zeros(len(points), bool); found = []
     # The surfaces are indexed in batches of at most CELLS cell entries: a large face spans thousands of cells.
     bounds = np.unique(np.concatenate([[0], np.searchsorted(total, np.arange(CELLS, total[-1] if len(s) else 0, CELLS)), [len(s)]]))
     for s0, s1 in zip(bounds[:-1], bounds[1:]):
@@ -179,12 +228,12 @@ def covered(triangles, surfaces, two_sided, eps=COVER, cell=1., ranks=None):
         keys = cell_keys(lo[owner] + np.stack([local % sx, (local // sx) % sy, local // (sx * sy)], -1))
         del local, sx, sy
         order = np.argsort(keys, kind='stable'); keys, owner = keys[order], owner[order]
-        first = np.searchsorted(keys, k, 'left'); pairs = np.cumsum(np.searchsorted(keys, k, 'right') - first)
+        first = np.searchsorted(keys, k, 'left'); pairs_ = np.cumsum(np.searchsorted(keys, k, 'right') - first)
         # Batches of points bounded by their candidate pairs, not their count: a dense cell holds thousands of faces.
-        cuts = np.unique(np.concatenate([np.arange(0, len(points), CHUNK), np.searchsorted(pairs, np.arange(PAIRS, pairs[-1] if len(pairs) else 0, PAIRS)), [len(points)]]))
+        cuts = np.unique(np.concatenate([np.arange(0, len(points), CHUNK), np.searchsorted(pairs_, np.arange(PAIRS, pairs_[-1] if len(pairs_) else 0, PAIRS)), [len(points)]]))
         for start, end in zip(cuts[:-1], cuts[1:]):
-            p = points[start:end]; n = pn[start:end]
-            a = first[start:end]; reps = np.diff(pairs[start:end], prepend=pairs[start - 1] if start else 0)
+            p = points[start:end]; n = normals[start:end]
+            a = first[start:end]; reps = np.diff(pairs_[start:end], prepend=pairs_[start - 1] if start else 0)
             which = np.repeat(np.arange(len(p)), reps)
             cand = owner[np.repeat(a, reps) + np.arange(reps.sum()) - np.repeat(np.cumsum(reps) - reps, reps)]
             q = p[which]; v = s[cand]; m = ns[cand]
@@ -193,11 +242,57 @@ def covered(triangles, surfaces, two_sided, eps=COVER, cell=1., ranks=None):
             for i in range(3):
                 e = v[:, (i + 1) % 3] - v[:, i]
                 inward = (np.cross(e, q - v[:, i]) * m).sum(1) / np.maximum(np.linalg.norm(e, axis=1), 1e-12)
-                ok &= inward > -eps
+                ok &= inward > -margin
             if ranks is not None:
-                ok &= ranks[1][cand] < ranks[0][(start + which) // 4]
+                ok &= ranks[1][cand] < ranks[0][start + which]
             on[start + which[ok]] = True
-    return on.reshape(-1, 4).all(1)
+            if pairs:
+                found.append(np.stack([start + which[ok], cand[ok]], 1))
+    if pairs:
+        return np.concatenate(found) if found else np.zeros((0, 2), 'i8')
+    return on
+
+
+def pieces(faces):
+    """The connected pieces of the mesh `faces` (n, 3) (faces sharing a corner): each face's piece, numbered from 0 in
+    the order of their first faces. A source mesh is often many pieces laid over each other (the perimeter's 724 boxes,
+    each overlapping the next by 0.2 m; a foundation's duplicated walls)."""
+    if not len(faces):
+        return np.zeros(0, 'i8')
+    label = np.arange(len(faces)); corner = np.full(int(faces.max()) + 1, len(faces))
+    while True:
+        corner[:] = len(faces); np.minimum.at(corner, faces.ravel(), np.repeat(label, 3))
+        new = corner[faces].min(1)
+        new = new[new]                                  # pointer jumping: long pieces settle in a few sweeps
+        if np.array_equal(new, label):
+            break
+        label = new
+    return np.unique(label, return_inverse=True)[1].ravel()
+
+
+def recede(meshes, ranks, two_sided, eps=FLICKER, depth=RECEDE):
+    """The drawn `meshes` [(vertices, faces)] with every face lying on a face of a lower-ranked mesh in part moved back
+    `depth` along its normal. Faces lying on one wholly are left out before (covered); a face only partly on another (a
+    foundation wall behind the side of a riding piece, the hillside against a block's wall) stays, and the two exactly
+    coplanar faces z-fight, worst far away. A few millimetres behind, the depth test always draws the higher-ranked one.
+    Its corners move, still shared with the neighbouring faces, so nothing cracks. `ranks` (per mesh, or per face of
+    it) and `two_sided` are per mesh. Returns the new vertices of each mesh and the number of faces moved."""
+    t = [v[f].astype('f8') for v, f in meshes]; owner = np.repeat(np.arange(len(t)), [len(x) for x in t])
+    every = np.concatenate(t); n = unit_normals(every)
+    r = np.concatenate([np.broadcast_to(np.asarray(k), (len(x),)) for k, x in zip(ranks, t)]) if len(t) else np.zeros(0)
+    points = np.concatenate([every.mean(1, keepdims=True), every], 1).reshape(-1, 3); pn = np.repeat(n, 4, 0)
+    pr = np.repeat(r, 4)
+    lies = lying_on(points, pn, every, np.asarray(two_sided)[owner], eps, eps, ranks=(pr, r)).reshape(-1, 4).any(1)
+    # A lower-ranked face inside a larger one: a corner of it lies on the larger face.
+    lies[lying_on(points, pn, every, np.ones(len(every), bool), eps, eps, ranks=(-pr, -r), pairs=True)[:, 1]] = True
+    out, start = [], 0
+    for (v, f), x in zip(meshes, t):
+        back = lies[start:start + len(x)]; start += len(x)
+        push = np.zeros((len(v), 3)); np.add.at(push, f[back].ravel(), np.repeat(n[start - len(x):start][back], 3, 0))
+        length = np.linalg.norm(push, axis=1, keepdims=True); moved = length[:, 0] > 1e-9
+        v = v.copy(); v[moved] = v[moved] - (depth * push[moved] / length[moved]).astype(v.dtype)
+        out.append((v, int(back.sum())))
+    return out
 
 
 def riding_above(riding, cell=2.):
@@ -362,7 +457,7 @@ def main():
         keep = valid(a['positions'], a['triangles'])
         keep[a['render_skip']] = False
         loaded.append((entry, a, keep))
-    # The riding surfaces as drawn; foundation faces lying on them are left out of the render (collision keeps them).
+    # The riding surfaces as drawn; foundation faces lying on them are left out of the render and the collision.
     surfaces = [(a['positions'][a['triangles'][keep]], entry['doubleSided']) for entry, a, keep in loaded
                 if entry['role'] == 'original']
     riding = np.concatenate([t for t, _ in surfaces])
@@ -379,60 +474,125 @@ def main():
             twin = covered(t[down], riding[up], np.ones(int(up.sum()), bool), eps=TWIN)
             keep[index[np.flatnonzero(down)[twin]]] = False
             print('Riding', entry['id'], 'downward twins left out:', int(twin.sum()), flush=True)
-    # Faces of different meshes lying on each other z-fight (the foundations' shared walls and tops, a riding piece on the
-    # block): each face lying on one of an earlier mesh, the riding pieces first, is left out of the render and collision.
-    order = sorted(range(len(loaded)), key=lambda i: (loaded[i][0]['role'] != 'original', i))
-    rank = np.empty(len(loaded), 'i8'); rank[order] = np.arange(len(loaded))
-    shown = [a['positions'][a['triangles'][keep]] for _, a, keep in loaded]
-    everything = np.concatenate(shown)
-    ranks = np.concatenate([np.full(len(f), rank[i]) for i, f in enumerate(shown)])
-    sides = np.concatenate([np.full(len(f), entry['doubleSided']) for (entry, _, _), f in zip(loaded, shown)])
-    fighting = covered(everything, everything, sides, eps=FLICKER, ranks=(ranks, ranks))
-    start = 0
-    for (entry, a, keep), f in zip(loaded, shown):
-        index = np.flatnonzero(keep); lost = fighting[start:start + len(f)]; start += len(f)
-        keep[index[lost]] = False
-        if lost.any():
-            print('Mesh', entry['id'], entry['role'], 'faces lying on an earlier mesh left out:', int(lost.sum()), flush=True)
-    drawn = []
+    # The solid filling a tunnel's bore is left out of the render and the collision.
+    bores = tunnel.tunnels([a['positions'][a['triangles'][keep]].astype('f8') for entry, a, keep in loaded
+                             if entry['role'] == 'original'])
+    print('Pieces closing round a tunnel:', len(bores), flush=True)
+    for i, (entry, a, keep) in enumerate(loaded):
+        if entry['role'] in ('original', 'mountain'):
+            continue
+        keep, cut = carve_bores(a, keep, bores)
+        loaded[i] = (entry, a, keep)
+        if cut:
+            print('Mesh', entry['id'], entry['role'], 'faces cut out of a tunnel:', cut, flush=True)
+    # The added riding pieces (additions.py): snake channels in the east bowls' slots, and caps and walls closing the
+    # sheets that ended in the air. They come after the park's own pieces: where one lies on a piece, the piece is drawn.
+    riding_now = np.concatenate([a['positions'][a['triangles'][keep]] for entry, a, keep in loaded
+                                 if entry['role'] == 'original']).astype('f8')
+    solid_now = np.concatenate([a['positions'][a['triangles'][keep]] for entry, a, keep in loaded
+                                if entry['role'] != 'original']).astype('f8')
+    added = []
+    for name, (box, floor, deep, depth, feet, floor_material) in additions.SNAKES.items():
+        made = additions.snake_channels(riding_now, solid_now, box, floor, deep, depth, feet) or {}
+        for part, (vertices, faces, uvs) in made.items():
+            material = additions.SNAKE_MATERIAL
+            if part == 'floor':             # the skirt in the floor's own material, at its tiling on the park's pieces
+                material = floor_material
+                uvs = uvs * additions.FEET_METRES / material_metres(loaded, floor_material)
+            added.append(({'id': f'add-{part}-{name}', 'role': 'original', 'material': material,
+                           'doubleSided': False, 'added': True}, (vertices, faces, uvs)))
+    around = np.concatenate([riding_now, solid_now]); heights = grind.heights(around)
+    for name, (box, joins, shape) in additions.BANKS.items():
+        made = additions.bank(riding_now, solid_now, box, joins, shape)
+        if made is None:
+            continue
+        added.append(({'id': f'add-bank-{name}', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                       'doubleSided': False, 'added': True}, made))
+        sides = additions.solidify(made[0][made[1]].astype('f8'), heights, around)
+        if sides is not None:
+            added.append(({'id': f'add-bank-{name}-sides', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                           'doubleSided': False, 'added': True}, sides))
+    for name, (path, width, wall, radius, laid) in additions.SNAKE_RUNS.items():
+        made = additions.snake_run(riding_now, path, width, wall, radius, laid)
+        if made is None:
+            continue
+        added.append(({'id': f'add-run-{name}', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                       'doubleSided': False, 'added': True}, made))
+        sides = additions.solidify(made[0][made[1]].astype('f8'), heights, around)
+        if sides is not None:
+            added.append(({'id': f'add-run-{name}-sides', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                           'doubleSided': False, 'added': True}, sides))
+    # The ramps fly over the runs under them: their walls stop short over a riding face (a span), leaving it open.
+    over = grind.heights(np.concatenate([riding_now] + [v[f] for e, (v, f, _) in added if not e['id'].endswith('-sides')]))
+    for name, (path, start, (y, degrees, parts), width, wall) in additions.RAMPS.items():
+        made = additions.ramp(path, start, additions.profile(y, degrees, parts), width, wall, ground=around)
+        if made is None:
+            continue
+        added.append(({'id': f'add-run-{name}', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                       'doubleSided': False, 'added': True}, made))
+        sides = additions.solidify(made[0][made[1]].astype('f8'), heights, around, clear=over)
+        if sides is not None:
+            added.append(({'id': f'add-run-{name}-sides', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                           'doubleSided': False, 'added': True}, sides))
+    for name, (box, level, material) in additions.STREETS.items():
+        made = additions.street(riding_now, solid_now, box, level)
+        if made is None:
+            continue
+        vertices, faces, uvs = made         # paved in its own material, at its tiling on the park's pieces
+        metres = material_metres(loaded, material)
+        made = (vertices, faces, uvs * additions.UV_METRES / metres)
+        added.append(({'id': f'add-street-{name}', 'role': 'original', 'material': material,
+                       'doubleSided': False, 'added': True}, made))
+        sides = additions.solidify(vertices[faces].astype('f8'), heights, around, metres)
+        if sides is not None:
+            added.append(({'id': f'add-street-{name}-sides', 'role': 'original', 'material': material,
+                           'doubleSided': False, 'added': True}, sides))
+    for name, (box, toward, spine) in additions.KICKERS.items():
+        made = additions.kicker(riding_now, box, toward, spine)
+        if made is not None:
+            added.append(({'id': f'add-kicker-{name}', 'role': 'original', 'material': additions.SNAKE_MATERIAL,
+                           'doubleSided': False, 'added': True}, made))
     for entry, a, keep in loaded:
-        skipped = int(len(keep) - keep.sum())
-        if entry['role'] == 'foundation':
-            index = np.flatnonzero(keep)
-            hidden = covered(a['positions'][a['triangles'][index]], riding, two_sided)
-            keep[index[hidden]] = False
-            print('Foundation', entry['id'], 'faces on a riding surface left out:', int(hidden.sum()), flush=True)
-        sections.setdefault(entry['role'], []).append(a['positions'][a['triangles'][keep]])
-        used = np.unique(a['triangles'][keep])
-        remap = np.full(len(a['positions']), -1, 'i8'); remap[used] = np.arange(len(used))
-        vertices, faces, uvs = a['positions'][used], remap[a['triangles'][keep]], a['uvs'][used]
-        if entry['role'] in PLAIN:
-            vertices, faces = simplify(vertices, faces); uvs = None
-        drawn.append((entry, vertices, faces, uvs, skipped, int(len(keep) - keep.sum()) - skipped))
-    occlusion = ambient_occlusion([(v, f) for _, v, f, _, _, _ in drawn])
-    for (entry, vertices, faces, uvs, skipped, covered_faces), ao in zip(drawn, occlusion):
+        if entry['role'] != 'original':
+            continue
+        made = additions.solidify(a['positions'][a['triangles'][keep]], heights, around,
+                                  additions.tile_metres(a['positions'], a['uvs'], a['triangles'][keep]))
+        if made is not None:
+            added.append(({'id': 'add-solid-' + entry['id'][5:9], 'role': 'original', 'material': entry['material'],
+                           'doubleSided': False, 'added': True}, made))
+    del riding_now, solid_now, heights, around
+    # The hillside cut away under the snake runs laid through it (a hump between the blue pool and the half-pipe).
+    runs = [v[f] for entry, (v, f, _) in added if entry['id'].startswith('add-run-') and not entry['id'].endswith('-sides')]
+    if runs:
+        runs = np.concatenate(runs)
+        for entry, a, keep in loaded:
+            if entry['role'] == 'mountain':
+                a['positions'], moved = additions.cut_ground(a['positions'], runs)
+                print('Mountain', entry['id'], 'vertices cut under the snake runs:', moved, flush=True)
+    for entry, (vertices, faces, uvs) in added:
+        a = {'positions': vertices.astype('f4'), 'triangles': faces.astype('i8'), 'uvs': uvs.astype('f4'),
+             'render_skip': np.zeros(0, 'i8')}
+        keep, cut = carve_bores(a, np.ones(len(faces), bool), bores)     # a cap's wall stood across the tunnel
+        loaded.append((entry, a, keep))
+        print('Added', entry['id'], 'faces:', len(faces), 'cut out of a tunnel:', cut, flush=True)
+    # The clean geometry (cleanbuild.py, docs "Clean geometry"): only faces seen from the open space, no face lying on
+    # another, conforming seams, every mesh remeshed within millimetres of these fine faces and their occlusion.
+    pieces_, lines, stats = cleanbuild.clean(loaded, cache=OUT / 'clean-cache')
+    print('Clean:', json.dumps(stats), flush=True)
+    for p in pieces_:
+        entry = p['entry']; vertices, faces, uvs, ao = p['out']
         mesh = export_mesh('SM_CP_' + entry['id'].replace('-', '_'), vertices, faces, [entry['material']],
                            np.zeros(len(faces), 'i4'), uvs, smooth=True, ao=ao)
-        mesh.update(source_id=entry['id'], role=entry['role'], skipped=skipped,
-                    covered=covered_faces, occlusion_mean=round(float(ao.mean()), 4))
+        mesh.update(source_id=entry['id'], role=entry['role'], skipped=0, covered=0, fine_triangles=p['fine_faces'],
+                    occlusion_mean=round(float(ao.mean()), 4))      # skipped, covered: r4's keys, nothing hidden that way now
         report['render'].append(mesh)
-        print('Exported', mesh['name'], flush=True)
-    ride = np.concatenate(sections['original']); above = riding_above(ride[unit_normals(ride.astype('f8'))[:, 1] > .2])
-    for role, parts in sections.items():
-        triangles = np.concatenate(parts)
-        hidden = hidden_walls(triangles, above)
-        triangles = triangles[~hidden]
-        sunk = 0
-        if role != 'original':
-            triangles, sunk = sink_inside(triangles, above)
-        print('Collision', role, 'faces inside the solid left out:', int(hidden.sum()), 'corners inside sunk:', sunk, flush=True)
+        print('Exported', mesh['name'], len(faces), 'of', p['fine_faces'], flush=True)
+    _, final = cleanbuild.collision([dict(entry=p['entry'], P=p['out'][0], F=p['out'][1]) for p in pieces_])
+    for role, triangles in final.items():
         triangles = triangles[spatial_order(triangles)]     # sections of neighbouring faces
         for k in range(0, len(triangles), SECTION):
             chunk = triangles[k:k + SECTION]
             vertices, faces = chunk.reshape(-1, 3), np.arange(len(chunk) * 3).reshape(-1, 3)
-            if role in PLAIN:
-                vertices, faces = simplify(vertices, faces)
-            faces = faces[spatial_order(vertices[faces])]
             entry = export_mesh(f'UC_CP_{role}_{k // SECTION}', vertices, faces, ['M_Collision'], np.zeros(len(faces), 'i4'))
             entry['source_triangles'] = len(chunk)
             entry.update(role=role, one_sided=False)
@@ -444,11 +604,16 @@ def main():
     t = placement.unreal_transform()
     # The marked ramp drop-in; the rider starts there facing the park's native +x.
     ground = json.loads((SOURCE / 'drop-in.json').read_text())['groundPosition']
-    park = {'source_sha256': report['scene_sha256'], 'name': 'CRATERPARK', 'mesh_root': MESH_ROOT, 'rails_required': False,
+    rails = []
+    for i, line in enumerate(lines):
+        closed = len(line) > 3 and np.linalg.norm(line[0] - line[-1]) < .01
+        rails.append({'id': f'cp_lip_{i:03d}', 'closed': bool(closed),
+                      'points_cm': [ue(p) for p in (line[:-1] if closed else line).tolist()]})
+    park = {'source_sha256': report['scene_sha256'], 'name': 'CRATERPARK', 'mesh_root': MESH_ROOT, 'rails_required': True,
             'location_cm': t['location_cm'], 'yaw_deg': t['yaw_deg'], 'placement': placement.summary(),
             'render': [{'name': e['name'], 'origin_cm': ue(e['native_origin'])} for e in report['render']],
             'collision': [{'name': e['name'], 'origin_cm': ue(e['native_origin'])} for e in report['collision']],
-            'rails': [], 'spawn': {'location_cm': placement.to_unreal(ground).tolist(), 'yaw_deg': t['yaw_deg']}}
+            'rails': rails, 'spawn': {'location_cm': placement.to_unreal(ground).tolist(), 'yaw_deg': t['yaw_deg']}}
     (OUT / 'park.json').write_text(json.dumps(park) + '\n')
     print('CRATERPARK BUILD COMPLETE', len(report['render']), 'render', len(report['collision']), 'collision',
           scene['counts'], flush=True)
