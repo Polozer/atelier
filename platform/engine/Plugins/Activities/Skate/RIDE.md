@@ -77,6 +77,15 @@ nears its edge or, on foot, when the rider changes cell; in lockstep (QA, replay
 gathers its own at once. Over open water, where there is nothing to snapshot, the old one stays and the rebuild is
 retried 20 m further on. Moving objects, skeletal and procedural meshes and streamed-out terrain are not in it.
 
+Riding, the board is looked ahead (`SkateCollisionCoverage.h`) by a build's time: half as long again as the slowest
+recent build plus a quarter second (0.25-2 s), falling under gravity in the air. A world is asked for once that point
+passes the reach, centred there (at most a reach from the board), so a fast air's world comes in where the board
+arrives, the landing below a falling board included. A board within a tenth of a second of leaving its world waits for
+the one building if that covers it, or has one gathered at once on the game thread (a hitch, logged). In lockstep (a
+fixed step or frame rate) a world building is waited for at once, so fixed-step QA rides do not see the lag. At rest
+the rules are the old ones, and the budget and the radii are unchanged. `AtelierSkate.Ride.CollisionCoverage` tests
+the plans.
+
 ### Threading and lockstep
 
 The session runs on `AtelierSkateSimulation` (32 MiB stack), which owns every mutable simulation object, in the standalone
@@ -115,6 +124,15 @@ out where it lies and a board dissolves in under the feet.
 A session error never stows the board under a moving rider (`skate.FailSimulation 1` forces one): the body bails with the
 momentum shown and `RelaunchSimulationRide` loads a fresh session off the game thread while it falls. Two failures in a
 row (a failure during the get-up) stow the board (H23).
+
+A session that loses the rider is not followed either (`BailOffLostSimulation`, `Ride/RideLostSimulation.h`). Its own
+recovery (`Teleporting`: an air over 300 ticks, 5 s, or a wipeout's automatic reset) puts its rider back on its respawn
+history when it has no ground under it, the ground ridden seconds before; the glue read that state as the ground and
+carried the rider there. A board that misses an overshot mega gap's landing in the session falls on through Unreal's
+floor until then: a teleport back to the run-in. A step that is `Teleporting`, moves the board further than its speed
+takes it, or takes it in the air 25 cm down through a floor and under it is not shown: the body bails from where the
+rider is with the momentum shown, the session is suspended, and the get-up starts a fresh one where the body lies.
+Without a body the session's recovery plays as before. `AtelierSkate.Ride.LostSimulation` tests the verdicts.
 
 ### Modes and display
 

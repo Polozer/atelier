@@ -18,6 +18,7 @@
 #include "SkateRuntimeAdapter.h"
 #include "SkateFeel.h"
 #include "SkateRails.h"
+#include "SkateCollisionCoverage.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -504,7 +505,7 @@ namespace SkateRuntimeDetail
             if (!Snapshot.Full()) break;
         }
         if (Snapshot.Num()==0 || Snapshot.Full()) return false;
-        Reach=Radius*.6;
+        Reach=Radius*SkateCoverage::ReachFraction;
         // A park's rails stay with its surfaces (the job holds the rails within the largest radius).
         TArray<FBox> Parks;
         for (const FGatherJob::FPart& Part : Job.Parts) if (Part.bPark) Parks.Add(Part.Bounds);
@@ -822,6 +823,9 @@ public:
     // the rider on foot was last seen in.
     FVector WantCentre=FVector::ZeroVector,IdleCell=FVector(UE_BIG_NUMBER);
     TFuture<TSharedPtr<FWorldResult,ESPMode::ThreadSafe>> PendingWorld;
+    // The world being built: its centre, and when it was asked for (FPlatformTime). BuildSeconds: the slowest recent
+    // build, from the ask to the frame that saw it ready (SkateCollisionCoverage.h looks the board ahead by it).
+    FVector PendingCentre=FVector::ZeroVector;double PendingSince=-1;double BuildSeconds=SkateCoverage::FirstBuildSeconds;
     TArray<TStrongObjectPtr<UObject>> PendingKeep;   // the meshes PendingWorld's gather reads, released on the game thread
     skate_simulation::ContactMaterial Floor;
     TOptional<FVector> PendingLaunch;
@@ -876,6 +880,7 @@ public:
     {
         if(!PendingWorld.IsValid())return;
         const auto Result=PendingWorld.Get();PendingWorld={};PendingKeep.Reset();
+        PendingSince=-1;
         // Nothing to snapshot (open water): keep the old world and try again 20 m on, not on every frame.
         if(Result->Empty){GatherRetryAt=Result->At;return;}
         CollisionCentre=Result->Centre;CollisionReach=Result->Reach;++Worlds;WorldTriangles=Result->Triangles;GatherRetryAt=FVector(UE_BIG_NUMBER);
