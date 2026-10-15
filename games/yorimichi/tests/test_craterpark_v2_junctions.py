@@ -159,3 +159,17 @@ def test_overlapping_fades_have_no_crease_where_their_weights_meet():
     slope = np.gradient(h, u)
     assert np.abs(np.diff(slope)).max() < .001
     assert h[0] == h[-1] == 0.
+
+
+def test_elbow_route_tracks_its_flight_drift_without_teleporting_to_the_exit():
+    path = L.Turtle((0., 0.), 0., (('straight', 80.), ('elbow', 90., {'drift': 26.}), ('straight', 60.)))
+    expected = np.array([80., 0.]) + 13. * J.direction(45.)
+    point, tangent = path.at(93.)
+    assert point == pytest.approx(expected)
+    assert tangent == pytest.approx(J.direction(45.))
+    assert path.until(93.).at(93.)[0] == pytest.approx(expected)
+    s, distance = path.project([point])
+    assert s == pytest.approx([93.]) and distance == pytest.approx([0.])
+    points, stations = path.points(3.7)
+    assert stations[-1] == path.length
+    assert points[-1] == pytest.approx(path.at(path.length)[0])

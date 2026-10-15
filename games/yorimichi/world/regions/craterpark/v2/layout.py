@@ -71,11 +71,13 @@ class Turtle:
         return out
 
     def at(self, s):
-        """(point (x, z), unit tangent) at plan distance s (clamped to the path; at an elbow, the incoming tangent)."""
-        ps = [p for p in self.pieces() if p[0] != 'elbow']
+        """Plan point and tangent, including the airborne along-wall drift of an elbow."""
+        ps = self.pieces()
         kind, s0, s1, (x, z), h, R, d = next((p for p in ps if s <= p[2] + 1e-9), ps[-1])
         t = min(max(s - s0, 0.), s1 - s0); a = math.radians(h)
-        if kind == 'straight':
+        if kind in ('straight', 'elbow'):
+            if kind == 'elbow':
+                a += math.radians(d) / 2
             return np.array([x + t * math.cos(a), z + t * math.sin(a)]), np.array([math.cos(a), math.sin(a)])
         sg = 1. if d > 0 else -1.; cx, cz = x - sg * R * math.sin(a), z + sg * R * math.cos(a); b = a + sg * t / R
         return np.array([cx + sg * R * math.sin(b), cz - sg * R * math.cos(b)]), np.array([math.cos(b), math.sin(b)])
@@ -87,8 +89,11 @@ class Turtle:
             L = _seg_length(seg)
             if s + L >= s_end - 1e-9:
                 rest = s_end - s
-                if rest > 1e-9 and seg[0] != 'elbow':
-                    segs.append(('straight', rest) if seg[0] == 'straight' else ('turn', seg[1], math.copysign(math.degrees(rest / seg[1]), seg[2])))
+                if rest > 1e-9:
+                    if seg[0] == 'elbow':
+                        segs.append(('elbow', seg[1], {**(seg[2] if len(seg) > 2 else {}), 'drift': rest}))
+                    else:
+                        segs.append(('straight', rest) if seg[0] == 'straight' else ('turn', seg[1], math.copysign(math.degrees(rest / seg[1]), seg[2])))
                 break
             segs.append(seg); s += L
         return Turtle(self.start, self.heading, tuple(segs))
@@ -114,21 +119,19 @@ class Turtle:
                 for (kind, a, _, p, h, _, d), seg in zip(self.pieces(), self.segs, strict=True) if kind == 'elbow']
 
     def points(self, step=.5):
-        s = np.arange(0., self.length + 1e-9, step)
+        s = np.unique(np.r_[np.arange(0., self.length, step), self.length])
         return np.array([self.at(v)[0] for v in s]), s
 
     def project(self, points):
-        """Exact nearest station in plan on a straight/arc leg (ties keep the first piece)."""
+        """Exact nearest plan station, including the drift line (ties keep the first piece)."""
         Q = np.atleast_2d(np.asarray(points, 'f8'))
         best = np.full(len(Q), np.inf)
         station = np.zeros(len(Q))
         for kind, s0, s1, start, heading, radius, turn in self.pieces():
-            if kind == 'elbow':
-                continue
-            a = math.radians(heading)
+            a = math.radians(heading + turn / 2 if kind == 'elbow' else heading)
             A = np.array([math.cos(a), math.sin(a)])
             start = np.asarray(start)
-            if kind == 'straight':
+            if kind in ('straight', 'elbow'):
                 u = np.clip((Q - start) @ A, 0., s1 - s0)
                 P0 = start + u[:, None] * A
             else:
