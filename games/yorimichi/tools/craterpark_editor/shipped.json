@@ -4304,17 +4304,19 @@
   {
    "id": "p309",
    "type": "run",
-   "name": "Runway",
+   "name": "Kicker run-up",
    "line": "L2",
    "attach": "p308",
-   "next": [],
+   "next": [
+    "p310"
+   ],
    "x": 962.472,
    "y": 24.718,
    "z": 1023.689,
    "heading": 162,
    "slope": -6,
    "params": {
-    "len": 150,
+    "len": 25,
     "turn": 0,
     "slope": -6,
     "vR": 120,
@@ -4328,12 +4330,80 @@
      "R": 4
     },
     "deck": 1.5,
-    "wall_blend": 40,
+    "wall_blend": 20,
     "dig": true
+   }
+  },
+  {
+   "id": "p310",
+   "type": "kicker",
+   "name": "Mega air kicker",
+   "line": "L2",
+   "attach": "p309",
+   "next": [
+    "p311"
+   ],
+   "x": 974.992,
+   "y": 101.381,
+   "z": 1019.621,
+   "heading": -18,
+   "slope": -7,
+   "params": {
+    "kick_R": 30,
+    "lip_deg": 30,
+    "lip_len": 1,
+    "run_in": 0,
+    "width": 30,
+    "wl": {
+     "h": 1.5,
+     "R": 4
+    },
+    "wr": {
+     "h": 1.5,
+     "R": 4
+    },
+    "deck": 1.5,
+    "lift": 0,
+    "vert_assist_max": 0
+   }
+  },
+  {
+   "id": "p311",
+   "type": "landing",
+   "name": "Mega air landing",
+   "line": "L2",
+   "attach": null,
+   "next": [],
+   "heading": -3.0000000000005684,
+   "slope": 0,
+   "x": 1086.0628460195544,
+   "y": 30.230743201263984,
+   "z": 907.2296441524351,
+   "params": {
+    "deck_len": 3,
+    "knuckle_R": 3,
+    "land_deg": 15,
+    "land_len": 30,
+    "out_R": 50,
+    "mid_deg": -36,
+    "mid_len": 60,
+    "end_deg": 0,
+    "out_len": 30,
+    "width": 40,
+    "land_width": 40,
+    "wl": {
+     "h": 1.5,
+     "R": 4
+    },
+    "wr": {
+     "h": 1.5,
+     "R": 4
+    },
+    "deck": 1.5
    }
   }
  ],
- "rev": 109,
- "saved_at": "2026-10-16T01:22:25+02:00",
+ "rev": 110,
+ "saved_at": "2026-10-16T01:29:04+02:00",
  "notes": []
 }
