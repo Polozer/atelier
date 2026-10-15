@@ -191,6 +191,20 @@ class FailClosedTests(unittest.TestCase):
         self.assertEqual(remesh._edge_defects(np.array([[0, 1, 2], [0, 2, 3], [2, 0, 4]])), (6, 1))
 
 
+    def test_overlay_checks_late_crossings_and_outside_endpoints(self):
+        x = np.arange(102.)
+        P = np.array([(a, b) for a in x for b in (0., 1.)] + [(0., .5), (101., .5), (-1., .5), (102., .5)])
+        T = np.array([t for i in range(101) for t in ((2*i,2*i+2,2*i+1), (2*i+1,2*i+2,2*i+3))])
+        H = np.zeros(len(P)); H[150:152] = 1.
+        E = np.array([[204,205], [206,207]])
+        loc = remesh.Locator(P[T])
+        error = remesh._crossing_errors(P, H, None, .003, None, T, loc, E)
+        np.testing.assert_allclose(error, 1. / .003, atol=1e-8)
+        A = np.zeros((len(P), 1)); A[150:152] = 1.
+        error = remesh._crossing_errors(P, np.zeros(len(P)), A, .003, np.array([.02]), T, loc, E)
+        np.testing.assert_allclose(error, 50., atol=1e-8)
+
+
     def test_a_patch_that_leaves_a_vertex_uncovered_fails_closed(self):
         P2 = np.array([[0., 0], [1, 0], [0, 1], [2, 2]]); H = np.zeros(4)
         real = remesh.cdt

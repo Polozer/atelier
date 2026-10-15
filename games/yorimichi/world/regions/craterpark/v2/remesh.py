@@ -193,59 +193,97 @@ def _dist_to_boundary(Q, P2, T):
     return out
 
 
-def _crossing_errors(P2, H, A, tol_h, tol_a, Tg, loc, E, max_steps=64):
-    """The worst normalised error (1 = at tolerance) of the coarse triangles Tg against the fine surface along each
-    fine edge E (e,2): both are linear along a fine edge except where it crosses a coarse edge, so the error's maximum
-    over a fine face lies at its corners (checked as vertices) or at those crossings. Each edge is walked from
-    triangle to triangle (convex: it leaves each by the nearest outward edge) and the error is taken at every exit.
-    An edge whose start lies outside the coarse domain (the boundary moved within tol_b) is walked from its other end."""
+def _crossing_errors(P2, H, A, tol_h, tol_a, Tg, loc, E):
+    """@cc [owner:fontanierh,label:correctness] complete-overlay-edge-errors
+    Return the maximum normalised height/attribute error over each fine edge's
+    intersection with the coarse surface. Every intersecting coarse triangle
+    MUST be examined; a traversal limit or failed point lookup MUST NOT certify
+    an unexamined remainder. Exterior boundary motion is certified separately
+    by remesh_patch's vertex and _patch's area/boundary/topology checks.
+
+    Clip the edge against each candidate triangle in barycentric coordinates.
+    The difference is linear on that interval, so its endpoints suffice. The
+    locator's complete bounding-box cell index supplies candidates, including
+    when either endpoint is outside, or the edge goes through a coarse vertex.
+    """
     E = np.asarray(E, 'i8').reshape(-1, 2)
     err = np.zeros(len(E))
-    tri0, _ = loc.locate(P2[E[:, 0]], eps=1e-7)
-    flip = tri0 < 0
-    E = np.where(flip[:, None], E[:, ::-1], E)
-    a, b = E[:, 0], E[:, 1]
-    pa = P2[a]; d = P2[b] - pa
-    L = np.linalg.norm(d, axis=1)
-    tri = np.where(flip, loc.locate(pa, eps=1e-7)[0], tri0)
-    t = np.zeros(len(E))
-    active = np.flatnonzero((tri >= 0) & (L > 1e-12))
-    for _ in range(max_steps):
-        if not len(active):
-            break
-        q = P2[Tg[tri[active]]]                                         # (k,3,2)
-        e = np.roll(q, -1, 1) - q
-        sgn = np.sign((e[:, 0, 0] * e[:, 1, 1] - e[:, 0, 1] * e[:, 1, 0]))[:, None]
-        n_out = np.stack([e[..., 1], -e[..., 0]], -1) * sgn[..., None]   # outward edge normals
-        dd = d[active]
-        den = (n_out * dd[:, None]).sum(-1)
-        num = ((q - pa[active][:, None]) * n_out).sum(-1)
-        par = np.where(den > 1e-300, num / np.where(den > 1e-300, den, 1.), np.inf)
-        par = np.where(par >= t[active][:, None] - 1e-12, par, np.inf)
-        te = par.min(1)
-        go = te < 1 - 1e-9
-        idx = active[go]; te = te[go]; qg = q[go]
-        if not len(idx):
-            break
-        x = pa[idx] + te[:, None] * d[idx]
-        # barycentrics of x in its triangle
-        v0 = qg[:, 1] - qg[:, 0]; v1 = qg[:, 2] - qg[:, 0]; v2 = x - qg[:, 0]
-        den2 = v0[:, 0] * v1[:, 1] - v1[:, 0] * v0[:, 1]; den2 = np.where(np.abs(den2) > 1e-300, den2, 1.)
-        b1 = (v2[:, 0] * v1[:, 1] - v1[:, 0] * v2[:, 1]) / den2; b2 = (v0[:, 0] * v2[:, 1] - v2[:, 0] * v0[:, 1]) / den2
-        bc = np.stack([1 - b1 - b2, b1, b2], 1)
-        T = Tg[tri[idx]]
-        coarse = (H[T] * bc).sum(1); fine = H[a[idx]] + te * (H[b[idx]] - H[a[idx]])
-        ex = np.abs(coarse - fine) / tol_h
-        if A is not None and A.shape[1]:
-            ca = (A[T] * bc[..., None]).sum(1); fa = A[a[idx]] + te[:, None] * (A[b[idx]] - A[a[idx]])
-            ex = np.maximum(ex, (np.abs(ca - fa) / tol_a).max(1))
-        err[idx] = np.maximum(err[idx], ex)
-        # step into the next triangle
-        step = np.maximum(1e-7 / L[idx], 1e-9)
-        nt, _ = loc.locate(pa[idx] + np.minimum(te + step, 1.)[:, None] * d[idx], eps=1e-7)
-        moved = (nt >= 0) & (nt != tri[idx])
-        tri[idx[moved]] = nt[moved]; t[idx[moved]] = te[moved]
-        active = idx[moved]
+    if not len(E) or not len(Tg):
+        return err
+    pa, pb = P2[E[:, 0]], P2[E[:, 1]]
+    lower = np.floor((np.minimum(pa, pb) - loc.o) / loc.cell).astype('i8')
+    upper = np.floor((np.maximum(pa, pb) - loc.o) / loc.cell).astype('i8')
+    sizes = upper - lower + 1
+    counts = sizes.prod(1)
+
+    def evaluate(edge, triangle):
+        if not len(edge):
+            return
+        q = P2[Tg[triangle]]
+        u, v = q[:, 1] - q[:, 0], q[:, 2] - q[:, 0]
+        den = u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]
+        if (np.abs(den) <= 1e-300).any():
+            raise CDTError('degenerate triangle in overlay certification')
+
+        def bary(points):
+            w = points - q[:, 0]
+            b1 = (w[:, 0] * v[:, 1] - w[:, 1] * v[:, 0]) / den
+            b2 = (u[:, 0] * w[:, 1] - u[:, 1] * w[:, 0]) / den
+            return np.stack([1. - b1 - b2, b1, b2], 1)
+
+        first, last = bary(pa[edge]), bary(pb[edge])
+        delta = last - first
+        ratio = -first / np.where(delta != 0., delta, 1.)
+        enter = np.maximum(0., np.where(delta > 0., ratio, -np.inf).max(1))
+        leave = np.minimum(1., np.where(delta < 0., ratio, np.inf).min(1))
+        parallel_outside = ((delta == 0.) & (first < -1e-10)).any(1)
+        hit = (enter <= leave + 1e-10) & ~parallel_outside
+        if not hit.any():
+            return
+        edge, triangle = edge[hit], triangle[hit]
+        first, delta = first[hit], delta[hit]
+        for t in (np.clip(enter[hit], 0., 1.), np.clip(leave[hit], 0., 1.)):
+            bc = first + t[:, None] * delta
+            coarse = (H[Tg[triangle]] * bc).sum(1)
+            fine = H[E[edge, 0]] + t * (H[E[edge, 1]] - H[E[edge, 0]])
+            value = np.abs(coarse - fine) / tol_h
+            if A is not None and A.shape[1]:
+                ca = (A[Tg[triangle]] * bc[..., None]).sum(1)
+                fa = A[E[edge, 0]] + t[:, None] * (A[E[edge, 1]] - A[E[edge, 0]])
+                value = np.maximum(value, (np.abs(ca - fa) / tol_a).max(1))
+            np.maximum.at(err, edge, value)
+
+    # Bound temporary cell and pair arrays, even for an unusually long edge.
+    # Large cell rectangles use a complete triangle scan in bounded chunks.
+    cell_budget = 65536
+    start = 0
+    while start < len(E):
+        if counts[start] > cell_budget:
+            for begin in range(0, len(Tg), 4096):
+                tri = np.arange(begin, min(begin + 4096, len(Tg)))
+                evaluate(np.full(len(tri), start, 'i8'), tri)
+            start += 1
+            continue
+        stop = start
+        total = 0
+        while stop < len(E) and total + counts[stop] <= cell_budget and stop - start < 1024:
+            total += int(counts[stop]); stop += 1
+        n = counts[start:stop]
+        owner = np.repeat(np.arange(start, stop), n)
+        local = np.arange(total) - np.repeat(np.cumsum(n) - n, n)
+        cells = lower[owner] + np.stack([local % sizes[owner, 0], local // sizes[owner, 0]], 1)
+        keys = (cells[:, 0] << 32) + cells[:, 1]
+        lo = np.searchsorted(loc.keys, keys, 'left')
+        reps = np.searchsorted(loc.keys, keys, 'right') - lo
+        # One cell can name many triangles; slice the virtual candidate list.
+        cumulative = np.r_[0, np.cumsum(reps)]
+        for begin in range(0, int(cumulative[-1]), 262144):
+            index = np.arange(begin, min(begin + 262144, int(cumulative[-1])))
+            cell = np.searchsorted(cumulative, index, 'right') - 1
+            triangle = loc.owner[lo[cell] + index - cumulative[cell]]
+            pairs = np.unique(np.stack([owner[cell], triangle], 1), axis=0)
+            evaluate(pairs[:, 0], pairs[:, 1])
+        start = stop
     return err
 
 
