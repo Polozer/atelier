@@ -70,10 +70,41 @@ def plan_distance(parts, pieces, cell=.5):
 
 def test_every_kind_is_placed_on_a_budget(built):
     parts, summary = built
-    for kind in ('boulders', 'stones', 'blocks', 'snow', 'tufts', 'moss', 'shrubs'):
+    for kind in ('crags', 'spires', 'rocks', 'stones', 'conifers', 'shrubs', 'tufts', 'cushions', 'snow_m2', 'moss_m2'):
         assert summary[kind] > 0, kind
-    assert summary['triangles'] == sum(len(p.F) for p in parts) < 60000
-    assert set(summary['by_material']) <= {ef.ROCK, ef.SNOW, ef.GRASS, ef.MOSS, ef.SHRUB}
+    assert summary['triangles'] == sum(len(p.F) for p in parts) < 80000
+    assert set(summary['by_material']) == {ef.ROCK, ef.SNOW, ef.GRASS, ef.MOSS, ef.OLIVE, ef.SHRUB, ef.GOLD, ef.CONIFER}
+    assert all(m in dsl.MATERIAL for m in summary['by_material'])
+
+
+def test_snow_lies_in_broad_fields_over_its_share_of_the_open_floor(built):
+    parts, summary = built
+    assert abs(summary['snow_share'] - ef.SNOW_COVER) < .08, summary['snow_share']
+    snow = [p for p in parts if dsl.MATERIALS[int(p.material[0])] == ef.SNOW][0]
+    # one welded sheet: its faces connect into a few big fields, not hundreds of blobs
+    parent = list(range(len(snow.V)))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for a, b, c in snow.F:
+        for u, v in ((a, b), (b, c)):
+            parent[root(u)] = root(v)
+    fields = {root(i) for i in np.unique(snow.F)}
+    assert len(fields) < summary['snow_m2'] / 150., (len(fields), summary['snow_m2'])
+
+
+def test_crags_are_tall_and_jagged_conifers_stylised(built):
+    parts, _ = built
+    site = ef.Site.flat(GROUND, GRID)
+    rock = [p for p in parts if dsl.MATERIALS[int(p.material[0])] == ef.ROCK][0]
+    over = rock.V[:, 1] - site.ground(rock.V[:, 0], rock.V[:, 2])
+    assert over.max() > 3., 'crags several metres high'
+    tree = [p for p in parts if dsl.MATERIALS[int(p.material[0])] == ef.CONIFER][0]
+    over = tree.V[:, 1] - site.ground(tree.V[:, 0], tree.V[:, 2])
+    assert 2.5 < over.max() <= 8.5
 
 
 def test_no_nan_and_valid_faces(built):

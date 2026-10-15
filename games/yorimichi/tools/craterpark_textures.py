@@ -57,6 +57,8 @@ STYLES = {
     'ramps': (CONCEPTS / 'editor' / 'prado-graphics-layout.jpg', (1150, 690, 1536, 1024)),
     # the crater floor's dark cinder, stones, moss and grass tufts (concepts/editor/crater-floor-layout.jpg)
     'crater': (CONCEPTS / 'editor' / 'crater-floor-layout.jpg', (680, 400, 1360, 1000)),
+    # the approved crater floor's ground: cool grey volcanic stone and darker gravel (concepts/editor/crater-floor.jpg)
+    'crater_stone': (CONCEPTS / 'editor' / 'crater-floor.jpg', (640, 400, 1000, 620)),
 }
 SURFACE = ('Image 1 is a tileable texture from a skate park in a stylised game, stretched to fill this frame. Image 2 '
            'shows the art direction of the game: soft painterly shapes, flat matte colour, clean well-kept surfaces, pale '
@@ -151,10 +153,12 @@ WORLD_PAINTINGS = {
     'cast_concrete': ('bowls', 'edges', 'a large smooth cast-concrete wall in pale warm grey, faint rectangular formwork panel '
                       'joints in a regular grid of four equal panels, very subtle soft tonal variation, clean'),
     # the editor park's crater floor, for the volcano's ground inside the crater (not a park material: WORLD_ALIGNED)
-    'crater_floor': ('crater', 'blend', 'the bare floor of a volcanic crater as in Image 1: dark charcoal and warm brown-grey '
-                     'volcanic cinder gravel and fine scree, many small scattered dark grey stones and pebbles with soft '
-                     'lighter tops, a few small patches of yellow-green moss and a few tiny tufts of dry golden grass, '
-                     'evenly spread with no large shapes; no snow, no boulders, no bushes, no paths'),
+    'crater_floor': ('crater_stone', 'blend', 'the bare ground of a volcanic crater floor, only its stone and gravel as in '
+                     'Image 1: a light cool mid-grey volcanic stone surface, soft and slightly bluish grey, broken by large '
+                     'irregular patches of darker charcoal-grey gravel and fine scree several times bigger than the small '
+                     'stones, scattered small and medium angular grey stones with pale tops, broad gentle variation in tone '
+                     'over the whole square; neutral and cool, no brown, no tan, no snow, no moss, no grass, no plants, '
+                     'no boulders, no paths'),
 }
 # material: (painting, metres per tile, palette mean sRGB). The meshes have no UVs: the hillside and the foundations and
 # bridges get world-aligned textures. 'megapark:rock' is the Mega Park's restyled rock, reused for the edge guard's
@@ -168,7 +172,7 @@ WORLD_ALIGNED = {
     'material_028': ('basalt', 6, (104, 106, 114)),             # editor-park basalt support towers
     'material_029': ('masonry', 5, (104, 98, 94)),             # editor-park viaduct supports
     # not a park material: the volcano's ground inside the crater (hidamari/mountains.py), for M_NorthMountains
-    'crater_floor': ('crater_floor', 8, (92, 84, 80)),
+    'crater_floor': ('crater_floor', 8, (120, 119, 124)),
 }
 # slug: (texture, style, how it is made to wrap, description, palette mean sRGB) of the UV-mapped textures painted from
 # nothing: a material whose texture is `texture` gets the painting on its own UVs (the editor ramps' boards, laid along

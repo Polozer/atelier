@@ -49,21 +49,28 @@ WALL_ROW = 3.0        # the arcade's faces are cut in courses this high...
 WALL_BUMP = .12       # ...each standing up to this much in or out
 COURSE = (1.5, 2.6)   # pier courses: heights between these
 VOUSSOIR = 1.         # arch stones: about this long round the arch
-# the start tower: a solid deck standing high above the ground is built as a stone keep (the roll-in towers of the
-# concept), not a box
-FASCIA = 'material_032'        # the deck's wooden edge (editor_generate.FASCIA)
+# the start tower: a solid deck standing high above the ground becomes a Japanese castle keep: a curved stone base
+# (ishigaki) under a white-plastered turret (yagura) with a tiled skirt roof, a balcony with a vermilion railing round
+# the deck, a torii over the drop-in and a tiled pavilion roof with upturned eaves over the back of the deck
+FASCIA = 'material_032'       # the ramps' fascia (editor_generate.FASCIA), unused here
+VERMILION = 'material_038'    # lacquered vermilion: torii, posts and railing
+TILE = 'material_039'         # dark blue-grey roof tiles, the torii's black lintel
+PLASTER = 'material_040'      # white lime plaster
+TIMBER = 'material_041'       # dark stained timber: the turret's boards and frame, the deck's edge
 TOWER_MIN = 6.        # a solid deck this far above the ground becomes a tower
-TOWER_STAGE = 19.     # its stages are about this tall...
-TOWER_STEP = 1.8      # ...each stepping out this much a side below the one above, on a sloped ledge...
-TOWER_BATTER = .04    # ...and leaning out this much per metre within itself
-TOWER_LEDGE = 1.      # the sloped ledges' height
-BUTTRESS = 2.4        # corner buttresses: half this across...
-BUTTRESS_RISE = .55   # ...rising this share of the tower, stepping in twice on the way up
-CROWN = 2.6           # the corbelled crown under the deck: this deep...
-CROWN_OUT = 1.        # ...overhanging the top stage this much...
-CORBEL = 2.1          # ...on corbels about this far apart
-MERLON = (1.5, 1.1, 1.)  # the battlement round the sides with no ramp: merlon length, gap and height
-FASCIA_BAND = .55     # the deck's wooden edge above the crown
+ISHIGAKI_FLARE = .2   # the stone base spreads out this share of its height at its foot (at most ISHIGAKI_MAX)...
+ISHIGAKI_MAX = 15.
+ISHIGAKI_CURVE = 2.2  # ...along this concave curve: near upright under the turret, sweeping out toward the foot
+YAGURA = 6.5          # the plastered turret under the deck: this tall...
+YAGURA_OUT = .8       # ...standing this far out of the deck's outline, its lower BOARDS share in dark boards
+BOARDS = .38
+SKIRT = 2.8           # the tiled skirt roof round the turret's foot: its reach...
+SKIRT_DROP = 1.5      # ...its drop...
+SORI = .7             # ...and every eave's upturn at the corners
+RIM = 1.7             # the balcony round the deck, outside its planks
+RAIL = 1.1            # the railing's height
+TORII = 10.           # the torii over the drop-in: its height
+PAVILION = (.5, 5.4, 2.4)  # the pavilion over the back of the deck: share of the deck it covers, post height, overhang
 
 
 class Ground:
@@ -475,9 +482,10 @@ def _box(b, material, c, fwd, acr, a, w, y0, y1, yaw=0.):
     _rings(b, material, [ring(y0), ring(y1)])
 
 
-def _course(b, centre, fwd, acr, along, wide, y0, y1, key, plinth=False):
+def _course(b, centre, fwd, acr, along, wide, y0, y1, key, plinth=False, top=None):
     """One rough course of stone, `along` (half, along fwd) by `wide` (half, along acr), from y0 to y1: a little
-    shifted, turned and rounded at random, with a corner stone standing out of it about every other course."""
+    shifted, turned and rounded at random, with a corner stone standing out of it about every other course. `top`
+    (along, wide) tapers it to another size at y1."""
     j = 0. if plinth else .22
     cc = centre + (2 * _rand(key, 1.) - 1) * j * fwd + (2 * _rand(key, 2.) - 1) * j * .6 * acr
     yaw = 0. if plinth else (2 * _rand(key, 3.) - 1) * .025
@@ -485,11 +493,13 @@ def _course(b, centre, fwd, acr, along, wide, y0, y1, key, plinth=False):
     f = math.cos(yaw) * fwd + math.sin(yaw) * acr
     u = -math.sin(yaw) * fwd + math.cos(yaw) * acr
     rings, normals = [], []
-    for y in (y0, y1):
-        pts, nrm = _rounded(cc, f, u, along, wide, y, rad, seg=2)
+    for y, (al, wi) in ((y0, (along, wide)), (y1, top or (along, wide))):
+        pts, nrm = _rounded(cc, f, u, al, wi, y, rad, seg=2)
         rings.append(pts)
         normals.append(nrm)
     _rings(b, STONE, rings, normals)
+    if top is not None:
+        return
     if not plinth and _rand(key, 5.) < .55:              # a corner stone standing out of the course
         su, sv = (1 if _rand(key, 6.) < .5 else -1), (1 if _rand(key, 7.) < .5 else -1)
         qa, qw = .5 + .35 * _rand(key, 8.), .4 + .25 * _rand(key, 9.)
@@ -682,164 +692,202 @@ def _rect(V):
     return c, fwd, acr, np.abs((P - c) @ fwd).max(), np.abs((P - c) @ acr).max(), top
 
 
-def _relieving_arch(b, c, n, t, half, y0, y1, offset, key):
-    """A relieving arch on one face (outward normal n, along t, centred c): a ring of uneven wedge stones standing out of
-    the face, springing from y0 + its radius up to its crown at y1, its keystone the deepest; `offset(y)` is the face's
-    distance from c at height y."""
-    spring = y1 - half
-    if spring - y0 < 1.:
-        return
-    at = lambda u, y, out: (c[0] + u * t[0] + (offset(y) + out) * n[0], y, c[1] + u * t[1] + (offset(y) + out) * n[1])
-    count = max(5, int(round(np.pi * half / VOUSSOIR)))
-    for k in range(count):
-        a0, a1 = np.pi * k / count + .012, np.pi * (k + 1) / count - .012
-        depth = RING_DEPTH * (1.1 + .6 * _rand(key, k, 1.)) * (1.35 if k == count // 2 else 1.)
-        proud = .3 + .25 * _rand(key, k, 2.)
-        quad = lambda out: np.array([at(r * math.cos(a), spring + r * math.sin(a), out)
-                                     for r, a in ((half, a0), (half + depth, a0), (half + depth, a1), (half, a1))])
-        _rings(b, STONE, [quad(proud), quad(-.3)])
+def _cylinder(b, material, x, z, y0, y1, r, seg=10):
+    ring = lambda y: np.array([(x + r * math.cos(a), y, z + r * math.sin(a))
+                               for a in np.linspace(0, 2 * np.pi, seg, endpoint=False)])
+    _rings(b, material, [ring(y0), ring(y1)])
+
+
+def _perimeter(n_side=6):
+    """Points round a unit rectangle (u, v in [-1, 1]), the same order for every ring of a roof."""
+    out = []
+    for k in range(4 * n_side):
+        side, f = divmod(k, n_side)
+        t = -1 + 2 * f / n_side
+        out.append([(1, t), (-t, 1), (-1, -t), (t, -1)][side])
+    return np.array(out, 'f8')
+
+
+def _roof(b, c, fwd, acr, levels):
+    """A tiled roof lofted through rectangular rings (half along, half across, y, upturn): each eave rises SORI-like
+    toward its corners by `upturn`, so the roof sweeps up at its four corners."""
+    P = _perimeter()
+    rings = []
+    for A, W, y, up in levels:
+        m = np.minimum(np.abs(P[:, 0]), np.abs(P[:, 1])) ** 4
+        u, v = P[:, 0] * (A + .4 * up * m), P[:, 1] * (W + .4 * up * m)
+        rings.append(np.stack([c[0] + u * fwd[0] + v * acr[0], y + up * m, c[1] + u * fwd[1] + v * acr[1]], 1))
+    _rings(b, TILE, rings)
+
+
+def _beam(b, material, c, t, n, half, y0, y1, depth, lift=0.):
+    """A beam along t (half long), y0..y1 high, `depth` thick along n; `lift` curves its ends up (a torii's lintel)."""
+    rings = []
+    for s in np.linspace(-1, 1, 15 if lift else 2):
+        dy = lift * s ** 4
+        p = c + s * half * t
+        rings.append(np.array([(p[0] + q * depth * n[0], y + dy, p[1] + q * depth * n[1])
+                               for q, y in ((-1, y0), (1, y0), (1, y1), (-1, y1))]))
+    _rings(b, material, rings)
 
 
 def tower(b, plan, ground, piece, open_sides):
-    """The start tower under a high solid deck: a stone keep after the concept's roll-in towers. Rough courses in
-    stages that step out on sloped ledges toward the foot, each face of each stage with a blind arch, stepped corner
-    buttresses, a corbelled crown just under the deck, a battlement round the sides the ramps don't leave from, a plinth
-    and rubble round the foot. Returns the boulders placed, or None if the deck is not high enough for one."""
+    """The start tower under a high solid deck, a Japanese castle keep: a curved ishigaki of rough stone courses with
+    long-and-short corner stones, sweeping out toward its foot; a white-plastered turret with dark boards and timber
+    frame on top of it, a tiled skirt roof round its foot; a balcony with a vermilion railing round the deck on the
+    sides no ramp leaves from; a torii over the drop-in and a pavilion with an upturned tiled roof over the back of the
+    deck. Returns the boulders placed, or None if the deck is not high enough for one."""
     V = np.asarray(piece.mesh.V, 'f8')
     c, fwd, acr, a, w, top = _rect(V)
     corners = [c + u * fwd + v * acr for u in (-a, 0, a) for v in (-w, 0, w)]
     g = [float(ground(*q)) for q in corners]
     g_hi, foot = max(g), min(g) - SINK - 1.
-    crown_top = top - FASCIA_BAND
-    body = crown_top - CROWN
-    base = g_hi + PLINTH
-    if top - g_hi < TOWER_MIN or body - base < 3.:
+    floor = top - .12                                         # the balcony's boards, just under the deck's planks
+    yagura_top = floor - .5
+    yagura_foot = yagura_top - YAGURA
+    stone_top = yagura_foot - .3
+    if top - g_hi < TOWER_MIN or stone_top - g_hi < 2.:
         return None
     key0 = c[0] * 7 + c[1]
-    stages = max(1, int(round((body - base) / TOWER_STAGE)))
-    edges = np.linspace(body, base, stages + 1)              # edges[k] is the top of stage k (0 at the top)
+    ya, yw = a + YAGURA_OUT, w + YAGURA_OUT
+    height = stone_top - foot
+    flare = min(ISHIGAKI_FLARE * height, ISHIGAKI_MAX)
+    spread = lambda y: .4 + flare * (max(stone_top - y, 0.) / height) ** ISHIGAKI_CURVE
 
-    def offset(y):
-        """How far each face stands out of the deck's own outline at height y (stepping out stage by stage)."""
-        k = min(int(np.searchsorted(-edges, -y, side='right')) - 1, stages - 1) if y < body else 0
-        k = max(k, 0)
-        return k * TOWER_STEP + TOWER_BATTER * (edges[k] - y)
-
-    # the plinth, then rough courses up to the crown; a stage's foot sits on a sloped ledge out to the next one
-    low = offset(base + .01)
-    _course(b, c, fwd, acr, a + low + PLINTH_OUT, w + low + PLINTH_OUT, foot, base, key0, plinth=True)
-    y, k = base, 0
-    while y < body - .3:
+    # the ishigaki: rough courses, each a little shifted and turned, tapering with the curve; long-and-short corner
+    # stones (sangi-zumi) at every corner, the long side turning from face to face course by course
+    y, k = foot, 0
+    while y < stone_top - .3:
         h = COURSE[0] + (COURSE[1] - COURSE[0]) * _rand(key0, k, 11.)
-        y1 = min(y + h, body) if body - (y + h) > .8 else body
-        st = next(i for i in range(stages) if y >= edges[i + 1] - 1e-6)
-        if y1 > edges[st] + 1e-6:
-            y1 = edges[st]
-        o = offset(y + .01)
-        _course(b, c, fwd, acr, a + o, w + o, y - .02, y1, key0 * 13 + k)
+        y1 = min(y + h, stone_top) if stone_top - (y + h) > .8 else stone_top
+        s0, s1 = spread(y), spread(y1)
+        _course(b, c, fwd, acr, ya + s0, yw + s0, y - .02, y1, key0 * 13 + k, top=(ya + s1, yw + s1))
+        if y1 > g_hi:
+            for su in (-1, 1):
+                for sv in (-1, 1):
+                    long_f = (k + (su * sv > 0)) % 2 == 0
+                    qa, qw = (1.2, .55) if long_f else (.55, 1.2)
+                    sm = (s0 + s1) / 2 + .12
+                    qc = c + su * (ya + sm - qa + .12) * fwd + sv * (yw + sm - qw + .12) * acr
+                    _box(b, STONE, qc, fwd, acr, qa, qw, y + .05, y1 - .05)
         y, k = y1, k + 1
-    for i in range(stages - 1):                              # the weathering ledge at the top of each lower stage
-        y0 = edges[i + 1]
-        below, above = offset(y0 - .01), offset(y0 + .01)
-        rings, normals = [], []
-        for yy, o in ((y0 - .02, below + .15), (y0 + TOWER_LEDGE, above)):
-            pts, nrm = _rounded(c, fwd, acr, a + o, w + o, yy, CORNER, seg=2)
-            rings.append(pts)
-            normals.append(nrm)
-        _rings(b, STONE, rings)
-    # a relieving arch on every face of every stage tall enough for one
-    for i in range(stages):
-        y_top, y_bot = edges[i], edges[i + 1]
-        if y_top - y_bot < 7.:
-            continue
-        for n, t, half_face, other in ((fwd, acr, w, a), (-fwd, acr, w, a), (acr, fwd, a, w), (-acr, fwd, a, w)):
-            half = min(.42 * half_face, .3 * (y_top - y_bot))
-            cc = c.copy()
-            _relieving_arch(b, cc, n, t, half, y_bot + 1.6 + (TOWER_LEDGE if i < stages - 1 else 0.), y_top - 2.2,
-                        lambda yy, other=other: other + offset(yy), key0 + i * 31 + n[0] * 5 + n[1])
-    # stepped corner buttresses on the lowest stages
-    rise = base + BUTTRESS_RISE * (body - base)
-    for su in (-1, 1):
-        for sv in (-1, 1):
-            steps = 3
-            for j in range(steps):
-                y0 = base + (rise - base) * j / steps - .02
-                y1 = base + (rise - base) * (j + 1) / steps
-                half = BUTTRESS * (1. - .15 * j)
-                o = offset(y1 - .01) + .35 * half                  # its inner half buried in the body's corner
-                corner = c + su * (a + o) * fwd + sv * (w + o) * acr
-                yy, kk = y0, 0
-                while yy < y1 - .3:
-                    hh = COURSE[0] + (COURSE[1] - COURSE[0]) * _rand(key0, su, sv, j, kk)
-                    yy1 = min(yy + hh, y1) if y1 - (yy + hh) > .8 else y1
-                    _course(b, corner, fwd, acr, half, half, yy - .02, yy1, key0 + su * 3 + sv * 7 + j * 101 + kk)
-                    yy, kk = yy1, kk + 1
-                cap = [_rounded(corner, fwd, acr, half + .1, half + .1, y1 - .02, CORNER, seg=2)[0],
-                       _rounded(corner, fwd, acr, half * .45, half * .45, y1 + .9 * half, CORNER * .5, seg=2)[0]]
-                _rings(b, STONE, cap)
-    # the crown: corbels under a ragged overhanging band of capstones, its top just under the deck
-    o = offset(body - .01)
-    for n, t, half_face, other in ((fwd, acr, w, a), (-fwd, acr, w, a), (acr, fwd, a, w), (-acr, fwd, a, w)):
-        count = max(2, int(round(2 * half_face / CORBEL)))
-        for k in range(count + 1):
-            u = -half_face + 2 * half_face * k / count
-            cc = c + (other + o + CROWN_OUT / 2) * n + u * t
-            _box(b, STONE, cc, n, t, CROWN_OUT / 2 + .05, .35, body - 1.2, body + .5 * CROWN)
-    j = 0
-    sides = 16
-    pts, _ = _rounded(c, fwd, acr, a + o + CROWN_OUT, w + o + CROWN_OUT, 0., CORNER, seg=2)
-    lo, hi = body + .5 * CROWN, crown_top
-    _course(b, c, fwd, acr, a + o + CROWN_OUT, w + o + CROWN_OUT, lo, hi - .35, key0 + 77)
-    _course(b, c, fwd, acr, a + o + CROWN_OUT - .1, w + o + CROWN_OUT - .1, hi - .37, hi, key0 + 78)
-    _course(b, c, fwd, acr, a + o - .05, w + o - .05, body - .02, lo + .02, key0 + 79, plinth=True)
-    # the deck's wooden edge over the crown
-    _rings(b, FASCIA, [_rounded(c, fwd, acr, a, w, crown_top - .05, .05, seg=1)[0],
+    # the skirt roof round the turret's foot, over the top of the stone
+    _roof(b, c, fwd, acr, [(ya + .05, yw + .05, yagura_foot + .9, 0.), (ya + .55 * SKIRT, yw + .55 * SKIRT,
+                           yagura_foot - .45 * SKIRT_DROP, .3 * SORI), (ya + SKIRT, yw + SKIRT, yagura_foot - SKIRT_DROP,
+                                                                        SORI)])
+    # the turret: dark boards below, white plaster above, a dark timber frame and barred windows on the plaster
+    split = yagura_foot + BOARDS * YAGURA
+    _rings(b, TIMBER, [_rounded(c, fwd, acr, ya, yw, yagura_foot, .05, seg=1)[0],
+                       _rounded(c, fwd, acr, ya, yw, split, .05, seg=1)[0]])
+    _rings(b, PLASTER, [_rounded(c, fwd, acr, ya - .05, yw - .05, split, .05, seg=1)[0],
+                        _rounded(c, fwd, acr, ya - .05, yw - .05, yagura_top, .05, seg=1)[0]])
+    for n, t, half_face, other in ((fwd, acr, yw, ya), (-fwd, acr, yw, ya), (acr, fwd, ya, yw), (-acr, fwd, ya, yw)):
+        count = max(2, int(round(2 * half_face / 3.2)))
+        for j in range(count + 1):
+            u = -half_face + 2 * half_face * j / count
+            _box(b, TIMBER, c + other * n + u * t, n, t, .1, .18, split, yagura_top)
+        _beam(b, TIMBER, c + (other + .02) * n, t, n, half_face, split - .12, split + .15, .1)
+        _beam(b, TIMBER, c + (other + .02) * n, t, n, half_face, yagura_top - .35, yagura_top, .1)
+        for j in range(count):
+            u = -half_face + 2 * half_face * (j + .5) / count
+            wy = split + .55 * (yagura_top - split)
+            _box(b, TIMBER, c + (other + .03) * n + u * t, n, t, .08, .6, wy - .45, wy + .45)
+    # brackets under the balcony, then its boards
+    for n, t, half_face, other in ((fwd, acr, w + RIM, a), (-fwd, acr, w + RIM, a), (acr, fwd, a + RIM, w),
+                                   (-acr, fwd, a + RIM, w)):
+        for j in range(int(2 * half_face // 2.6) + 1):
+            u = -half_face + .4 + j * 2.6
+            if u > half_face - .4:
+                break
+            _box(b, TIMBER, c + (other + YAGURA_OUT + .5 * (RIM - YAGURA_OUT)) * n + u * t, n, t,
+                 .5 * (RIM - YAGURA_OUT) + .1, .15, yagura_top - .9, yagura_top)
+    _rings(b, TIMBER, [_rounded(c, fwd, acr, a + RIM, w + RIM, yagura_top - .02, .1, seg=1)[0],
+                       _rounded(c, fwd, acr, a + RIM, w + RIM, floor, .1, seg=1)[0]])
+    _rings(b, TIMBER, [_rounded(c, fwd, acr, a, w, floor - .05, .05, seg=1)[0],
                        _rounded(c, fwd, acr, a, w, top - .02, .05, seg=1)[0]])
-    # a battlement on the crown's rim round the sides no ramp leaves from
-    ml, mg, mh = MERLON
-    rim = CROWN_OUT * .5
-    for n, t, half_face, other, side in ((fwd, acr, w, a, 0), (-fwd, acr, w, a, 1), (acr, fwd, a, w, 2),
-                                         (-acr, fwd, a, w, 3)):
+    sides = ((0, fwd, acr, w, a), (1, -fwd, acr, w, a), (2, acr, fwd, a, w), (3, -acr, fwd, a, w))
+    # the vermilion railing round the balcony, except where a ramp leaves
+    for side, n, t, half_face, other in sides:
         if side in open_sides:
             continue
-        span = 2 * (half_face + o + CROWN_OUT) - .4
-        count = max(1, int((span + mg) // (ml + mg)))
-        step = span / count
-        for k in range(count):
-            u = -span / 2 + step * (k + .5)
-            cc = c + (other + o + CROWN_OUT - rim) * n + u * t
-            hh = mh * (.9 + .25 * _rand(key0, side, k))
-            _box(b, STONE, cc, t, n, (step - mg) / 2, rim * .8, hi - .02, hi + hh)
+        edge, span = other + RIM - .2, half_face + RIM - .2
+        lo, hi = -span, span
+        for g in open_sides:                                  # stop short of a drop-in beside this side
+            _, gn, _, _, g_other = sides[g]
+            if gn @ t > .5:
+                hi = g_other - .4
+            elif gn @ t < -.5:
+                lo = -(g_other - .4)
+        count = max(2, int(round((hi - lo) / 2.)))
+        for j in range(count + 1):
+            u = lo + (hi - lo) * j / count
+            corner = j in (0, count)
+            _box(b, VERMILION, c + edge * n + u * t, n, t, .11, .11, floor, floor + RAIL + (.3 if corner else 0.))
+            if corner:
+                _cylinder(b, TILE, *(c + edge * n + u * t), floor + RAIL + .3, floor + RAIL + .55, .16, seg=8)
+        for yy in (floor + .45, floor + RAIL - .1):
+            _beam(b, VERMILION, c + edge * n + (lo + hi) / 2 * t, t, n, (hi - lo) / 2, yy, yy + .12, .07)
+    # the torii over the drop-in: two vermilion pillars on black feet, the tie beam through them, the lintel and its
+    # black, upturned cap
+    gate = next(iter(sorted(open_sides)), None)
+    if gate is not None:
+        _, n, t, half_face, other = sides[gate]
+        span = half_face + .9
+        base = c + (other - 1.) * n
+        for sgn in (-1, 1):
+            x, z = base + sgn * span * t
+            _cylinder(b, TILE, x, z, floor - .02, floor + .7, .62)
+            _cylinder(b, VERMILION, x, z, floor + .7, floor + TORII - .6, .45)
+        _beam(b, VERMILION, base, t, n, span + 1.2, floor + TORII - 2.6, floor + TORII - 2.05, .3)
+        _box(b, VERMILION, base, n, t, .28, .3, floor + TORII - 2.1, floor + TORII - 1.05)
+        _beam(b, VERMILION, base, t, n, span + 1.6, floor + TORII - 1.05, floor + TORII - .55, .38)
+        _beam(b, TILE, base, t, n, span + 2.3, floor + TORII - .55, floor + TORII + .05, .48, lift=.7)
+    # the pavilion over the back of the deck: vermilion posts, tie beams, an upturned hip roof with a ridge
+    back = {0: 1, 1: 0, 2: 3, 3: 2}.get(gate, 1)
+    _, n, t, half_face, other = sides[back]
+    share, post, over = PAVILION
+    depth = share * other
+    pc = c + (other - depth) * n
+    pa, pw = depth - .8, half_face - .8
+    for su in (-1, 0, 1):
+        for sv in (-1, 1):
+            x, z = pc + su * pa * n + sv * pw * t
+            _cylinder(b, VERMILION, x, z, floor - .02, top + post, .32)
+    for sv in (-1, 1):
+        _beam(b, VERMILION, pc + sv * pw * t, n, t, pa + .5, top + post - .7, top + post, .22)
+    for su in (-1, 1):
+        _beam(b, VERMILION, pc + su * pa * n, t, n, pw + .5, top + post - .7, top + post, .22)
+    eave = top + post + .2
+    rise = .5 * (pw + over)
+    _roof(b, pc, n, t, [(pa + over, pw + over, eave, SORI), (.62 * (pa + over), .62 * (pw + over), eave + .42 * rise,
+                                                             .25 * SORI), (max(pa * .3, .3), .05, eave + rise, 0.)])
+    _beam(b, TILE, pc + 0 * n, n, t, max(pa * .3, .3) + .6, eave + rise - .1, eave + rise + .55, .35)
     placed = 0
-    reach_a, reach_w = a + low + PLINTH_OUT, w + low + PLINTH_OUT
-    n = 10 + int((top - g_hi) / 8)
-    for k in range(n):
-        ang = 2 * np.pi * (k + _rand(key0, k, 1.)) / n
-        q = c + (reach_a * math.cos(ang) * fwd + reach_w * math.sin(ang) * acr) * (1.05 + .4 * _rand(key0, k, 2.))
+    reach_a, reach_w = ya + spread(g_hi) + .5, yw + spread(g_hi) + .5
+    count = 10 + int((top - g_hi) / 8)
+    for k in range(count):
+        ang = 2 * np.pi * (k + _rand(key0, k, 1.)) / count
+        q = c + (reach_a * math.cos(ang) * fwd + reach_w * math.sin(ang) * acr) * (1.05 + .3 * _rand(key0, k, 2.))
         r = min(.8 + 1.4 * _rand(key0, k, 3.) + .02 * (top - g_hi), 3.6)
         placed += _boulder(b, plan, ground, q[0], q[1], r, key0 * 3 + k)
     return placed
 
 
 def open_sides(piece, pieces, k):
-    """The sides of a deck (0 +fwd, 1 -fwd, 2 +acr, 3 -acr) another piece leaves from at its top: no battlement there."""
+    """The sides of a deck (0 +fwd, 1 -fwd, 2 +acr, 3 -acr) a ramp leaves from at its top (or arrives at): where the
+    ramp's first or last station stands on the deck's edge. No railing there, and the torii over the first."""
     c, fwd, acr, a, w, top = _rect(np.asarray(piece.mesh.V, 'f8'))
     out = set()
     for j, other in enumerate(pieces):
-        if j == k:
+        stations = other.metadata.get('stations') or []
+        if j == k or not stations:
             continue
-        V = np.asarray(other.mesh.V, 'f8')
-        near = V[np.abs(V[:, 1] - top) < 1.5]
-        if not len(near):
-            continue
-        d = near[:, [0, 2]] - c
-        u, v = d @ fwd, d @ acr
-        for side, hit in ((0, (u > a - .5) & (u < a + 4) & (np.abs(v) < w + 1)),
-                          (1, (u < -a + .5) & (u > -a - 4) & (np.abs(v) < w + 1)),
-                          (2, (v > w - .5) & (v < w + 4) & (np.abs(u) < a + 1)),
-                          (3, (v < -w + .5) & (v > -w - 4) & (np.abs(u) < a + 1))):
-            if hit.any():
-                out.add(side)
+        for st in (stations[0], stations[-1]):
+            d = np.array([st['x'], st['z']]) - c
+            u, v = d @ fwd, d @ acr
+            if abs(st['y'] - top) > 1.5 or abs(u) > a + 2. or abs(v) > w + 2.:
+                continue
+            out.add(int(np.argmax([u / a, -u / a, v / w, -v / w])))
     return out
 
 

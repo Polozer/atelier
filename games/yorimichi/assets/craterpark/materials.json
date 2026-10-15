@@ -424,5 +424,68 @@
     "doubleSided": false,
     "wrap": "repeat",
     "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_038",
+    "baseColor": [0.8, 0.24, 0.13],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_039",
+    "baseColor": [0.2, 0.22, 0.26],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_040",
+    "baseColor": [0.93, 0.91, 0.86],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_041",
+    "baseColor": [0.25, 0.18, 0.13],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_042",
+    "baseColor": [0.42, 0.45, 0.16],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_043",
+    "baseColor": [0.1, 0.22, 0.13],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_044",
+    "baseColor": [0.82, 0.62, 0.13],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
   }
 ]

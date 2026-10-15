@@ -1,32 +1,36 @@
-"""The crater floor round the owner's editor park, after the approved Sunburst concepts
-(assets/craterpark/concepts/editor/crater-floor.jpg and crater-floor-layout.jpg): dark volcanic cinder strewn with
-boulder clusters and blocky outcrops, low patches of snow, tufts of dry golden grass, yellow-green moss and a few small
-autumn shrubs.
+"""The crater floor round the owner's editor park, after the approved Sunburst concept
+(assets/craterpark/concepts/editor/crater-floor.jpg): broad fields of snow over cool grey volcanic ground, mats of
+yellow-green and olive moss, jagged grey crags and slabs gathered toward the crater's wall, clusters of small conifers,
+yellow and orange autumn shrubs, angular rocks, stones and dry grass.
 
 Everything stands on the ground the game draws (Site): the volcano's natural ground blended into the editor's cut
 ground by its weight (craterpark/placement.py _follow), sampled as the volcano's 5 m mesh samples it
 (hidamari/mountains.py height), inside the crater's crest. Placement is deterministic: jittered grids and value noise
-hashed from positions, never a global random state.
+hashed from positions, never a global random state. The snow and moss are sheets cut from noise fields (marching
+squares), so they lie in broad connected shapes with soft irregular edges.
 
 The riding stays clear: nothing within CLEAR of a piece's plan (BOWL_CLEAR round a bowl, and further round a tall
 viaduct's battered foot), nothing taller than LOW within END_REACH of a piece's end, and nothing at all in the run-out
-past an end that meets the ground. No snow lies on anything ridden: the patches are on the volcano's ground only.
+past an end that meets the ground. No snow lies on anything ridden: the fields are on the volcano's ground only.
 
-The rocks are solid (side faces, with collision); the snow, grass, moss and shrubs are drawn only (the coping role:
-rendered, no collision), so a rider rolling across the floor is never tripped by a tuft or the lip of a snow patch.
+The rocks and crags are solid (side faces, with collision); the snow, moss, grass, shrubs and conifers are drawn only
+(the coping role: rendered, no collision), so a rider crossing the floor is never tripped by a mat's edge.
 """
 import math
 
 import numpy as np
 
 from . import dsl
-from .editor_supports import Builder, Ground, _boulder, _outer_half
+from .editor_supports import Builder, Ground, _outer_half
 
 ROCK = 'material_027'         # the volcano's restyled rock (as the viaducts' boulders)
 SNOW = 'material_034'         # snow, flat
 GRASS = 'material_035'        # dry golden grass, two-sided blades
 MOSS = 'material_036'         # yellow-green moss and low bushes
 SHRUB = 'material_037'        # autumn orange shrubs
+OLIVE = 'material_042'        # olive moss mats
+CONIFER = 'material_043'      # dark green conifers
+GOLD = 'material_044'         # golden-yellow autumn shrubs
 SOLID = {ROCK}                # materials with collision; the rest are drawn only
 
 CLEAR = 4.            # metres kept clear round every piece's plan...
@@ -41,7 +45,10 @@ EXIT_SIDE = 5.        # as wide as the piece and this much more each side
 EXIT_GROUND = 3.
 CREST_MARGIN = 10.    # metres inside the crater's crest, where the dressing stops
 CELL = 1.             # metres per cell of the clearance field
-SLOPE_SNOW, SLOPE_PLANT, SLOPE_ROCK = 16., 30., 38.   # degrees: the steepest ground each kind is placed on
+SLOPE_SNOW, SLOPE_PLANT, SLOPE_ROCK = 24., 30., 38.   # degrees: the steepest ground each kind is placed on
+SNOW_COVER = .3       # the share of the open floor (clear of the riding) under snow fields...
+MOSS_COVER = .11      # ...and under each of the two moss mats (yellow-green, olive), off the snow
+SNOW_CELL, MOSS_CELL = 3., 2.   # metres between the fields' samples
 SITE_STEP = 5.        # the volcano's mesh spacing (hidamari/mountains.py STEP)
 BAKE_TILE = 48.       # metres: the dressing's occlusion is baked in plan tiles, each grid this and ao.AO_REACH round it
 
@@ -293,7 +300,7 @@ def _lump(b, material, site, x, z, r, h, seed, lift, cap=None):
 
 
 def _stone(b, site, x, z, r, seed):
-    """A small half-buried faceted stone (an icosahedron, 20 faces), as editor_supports._boulder but coarser.
+    """A small half-buried faceted stone (an icosahedron, 20 faces).
     Returns its triangles."""
     P = _sphere()[0][:12]
     F = np.array([(0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11), (1, 5, 9), (5, 11, 4), (11, 10, 2),
@@ -361,35 +368,141 @@ def _block(b, site, x, z, w, d, h, yaw, seed):
     return _add_flat(b, ROCK, T)
 
 
-def _snow(b, site, x, z, R, seed):
-    """A low irregular snow patch of radius about R draped on the ground: thickest in the middle, its rim tucked just
-    under the ground. Returns its triangles."""
-    n = 16
-    th = np.arange(n) * 2 * np.pi / n
-    p = [_r(seed, i) * 2 * np.pi for i in range(4)]
-    shape = (1 + .22 * np.cos(2 * th + p[0]) + .14 * np.cos(3 * th + p[1]) + .08 * np.cos(5 * th + p[2])
-             + .1 * (np.array([_r(seed, 10 + i) for i in range(n)]) - .5))
-    rings = (.35, .7, 1.) if R > 5.5 else (.5, 1.)
-    lift = {.35: .19, .5: .17, .7: .15, 1.: -.04}     # over the volcano's 5 m mesh, which sags between our vertices
-    V = [np.array([x, float(site.ground(x, z)) + .2, z])]
-    for f in rings:
-        px, pz = x + f * R * shape * np.cos(th), z + f * R * shape * np.sin(th)
-        V += list(np.stack([px, site.ground(px, pz) + lift[f], pz], 1))
+def _field(b, material, site, xs, zs, f, t, lift, edge):
+    """The ground where the field f (len(zs), len(xs)) on the grid xs, zs reaches t, as one draped sheet (marching
+    squares: every cell clipped to f >= t, its edges cut where f crosses t, so the outline is soft and irregular):
+    LIFT over the ground where f is EDGE over t, its rim tucked just under the ground. Returns (triangles, area)."""
+    nz, nx = f.shape
+    inside = f >= t
+    key, V = {}, []
+
+    def vertex(k, x, z, value):
+        if k not in key:
+            key[k] = len(V)
+            V.append((x, z, value))
+        return key[k]
+
+    def corner(j, i):
+        return vertex(('c', j, i), xs[i], zs[j], f[j, i])
+
+    def cut(j0, i0, j1, i1):
+        a, c = f[j0, i0], f[j1, i1]
+        u = (t - a) / (c - a)
+        return vertex(('e', j0, i0, j1, i1), xs[i0] + u * (xs[i1] - xs[i0]), zs[j0] + u * (zs[j1] - zs[j0]), t)
+
+    F = []
+    any_in = inside[:-1, :-1] | inside[:-1, 1:] | inside[1:, :-1] | inside[1:, 1:]
+    for j, i in zip(*np.nonzero(any_in)):
+        ring = ((j, i), (j, i + 1), (j + 1, i + 1), (j + 1, i))
+        poly = []
+        for k in range(4):
+            (ja, ia), (jb, ib) = ring[k], ring[(k + 1) % 4]
+            if inside[ja, ia]:
+                poly.append(corner(ja, ia))
+            if inside[ja, ia] != inside[jb, ib]:
+                poly.append(cut(ja, ia, jb, ib) if (ja, ia) < (jb, ib) else cut(jb, ib, ja, ia))
+        F += [(poly[0], poly[k], poly[k + 1]) for k in range(1, len(poly) - 1)]
+    if not F:
+        return 0, 0.
     V = np.array(V)
-    F = [(0, 1 + (i + 1) % n, 1 + i) for i in range(n)]
-    for k in range(len(rings) - 1):
-        a, c = 1 + k * n, 1 + (k + 1) * n
-        for i in range(n):
-            j = (i + 1) % n
-            F += [(a + i, a + j, c + j), (a + i, c + j, c + i)]
+    x, z, value = V[:, 0], V[:, 1], V[:, 2]
+    y = site.ground(x, z) + (lift + .03) * _smooth((value - t) / edge) - .03
+    P = np.stack([x, y, z], 1)
     F = np.array(F)
-    fn = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
-    fn[fn[:, 1] < 0] *= -1
-    N = np.zeros_like(V)
-    np.add.at(N, F.reshape(-1), np.repeat(fn, 3, axis=0))
-    N /= np.linalg.norm(N, axis=1, keepdims=True) + 1e-12
-    b.add(SNOW, (V, F, N))
-    return len(F)
+    # the ground's own normal under each vertex: the sheet shades as the ground it lies on
+    h = 1.5
+    gx = (site.ground(x + h, z) - site.ground(x - h, z)) / (2 * h)
+    gz = (site.ground(x, z + h) - site.ground(x, z - h)) / (2 * h)
+    N = np.stack([-gx, np.ones_like(gx), -gz], 1)
+    N /= np.linalg.norm(N, axis=1, keepdims=True)
+    T = P[F]
+    area = float(np.linalg.norm(np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]), axis=1).sum() / 2)
+    b.add(material, (P, F, N))
+    return len(F), area
+
+
+def _spire(b, site, x, z, w, d, h, yaw, lean, seed):
+    """A jagged rock spire or slab (the concepts' broken grey crags): an angular prism w x d (half) narrowing to a
+    sharp crest h over the highest ground under it, leaning by `lean` (metres of top offset, x and z), its foot sunk
+    under the lowest. Flat-shaded, sharp facets. Returns its triangles."""
+    n = 4 + int(_r(seed, 1) * 3)
+    a = (np.arange(n) + .7 * (np.array([_r(seed, 10 + k) for k in range(n)]) - .5)) * 2 * np.pi / n
+    k = np.array([.75 + .45 * _r(seed, 20 + i) for i in range(n)])
+    u, v = np.cos(a) * w * k, np.sin(a) * d * k
+    c, s = math.cos(yaw), math.sin(yaw)
+    px, pz = x + u * c - v * s, z + u * s + v * c
+    g = site.ground(px, pz)
+    base = g.max()
+
+    def ring(frac, inset, jitter):
+        """The section `frac` of the way up: inset toward the axis (and its lean), each corner jittered up and down."""
+        cx, cz = x + lean[0] * frac, z + lean[1] * frac
+        y = base + frac * h + jitter * h * (np.array([_r(seed, 100 * frac + 30 + i) for i in range(n)]) - .5)
+        return np.stack([cx + (px - x) * inset, y, cz + (pz - z) * inset], 1)
+
+    bottom = np.stack([px, np.full(n, g.min() - 1.), pz], 1)
+    mid = ring(.5 + .15 * _r(seed, 2), .8 + .1 * _r(seed, 3), .12)
+    top = ring(.88, .32 + .2 * _r(seed, 4), .1)
+    peak = np.array([x + lean[0] + .25 * w * (_r(seed, 5) - .5), base + h, z + lean[1] + .25 * d * (_r(seed, 6) - .5)])
+    T = []
+    for i in range(n):
+        j = (i + 1) % n
+        T += [(bottom[i], bottom[j], mid[j]), (bottom[i], mid[j], mid[i]),
+              (mid[i], mid[j], top[j]), (mid[i], top[j], top[i]), (top[i], top[j], peak)]
+    T = np.array(T)
+    centre = np.array([x + lean[0] / 2, (g.min() + base + h) / 2, z + lean[1] / 2])
+    nrm = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
+    flip = (nrm * (T.mean(1) - centre)).sum(1) < 0
+    T[flip] = T[flip][:, [0, 2, 1]]
+    return _add_flat(b, ROCK, T)
+
+
+def _crag(b, site, x, z, size, seed):
+    """A crag: two to five spires and slabs (`size` metres across, up to about that high), the tallest near its
+    middle, the slabs upright or leaning out. Returns (spires, triangles)."""
+    n = 2 + int(_r(seed, 1) * 4)
+    tris = 0
+    heading = 2 * np.pi * _r(seed, 2)
+    for m in range(n):
+        a, d = heading + 2 * np.pi * m / n + .8 * (_r(seed, 10 + m) - .5), (0. if m == 0 else .3 * size * (.5 + _r(seed, 20 + m)))
+        sx, sz = x + d * math.cos(a), z + d * math.sin(a)
+        h = size * (.55 + .45 * _r(seed, 30 + m)) * (1. if m == 0 else .45 + .4 * _r(seed, 40 + m))
+        slab = _r(seed, 50 + m) < .45
+        w = size * (.22 + .12 * _r(seed, 60 + m))
+        dd = w * (.3 + .15 * _r(seed, 70 + m) if slab else .7 + .3 * _r(seed, 70 + m))
+        out = .12 * h * _r(seed, 80 + m)
+        tris += _spire(b, site, sx, sz, w, dd, h, a + np.pi / 2 if slab else 2 * np.pi * _r(seed, 90 + m),
+                       (out * math.cos(a), out * math.sin(a)), int(seed) * 11 + m)
+    return n, tris
+
+
+def _conifer(b, site, x, z, h, seed):
+    """A small stylised conifer h tall: a short trunk and three stacked cones, dark green. Returns its triangles."""
+    n = 7
+    g = float(site.ground(x, z)) - .2
+    th = (np.arange(n) + _r(seed, 1)) * 2 * np.pi / n
+    T = []
+    r0 = h * (.3 + .06 * _r(seed, 2))
+    trunk = .06 * h
+    for t in range(n):                                   # the trunk, up into the lowest cone
+        a, c = th[t], th[(t + 1) % n]
+        p = [np.array([x + trunk * math.cos(q), y, z + trunk * math.sin(q)]) for q in (a, c) for y in (g, g + .3 * h)]
+        T += [(p[0], p[2], p[3]), (p[0], p[3], p[1])]
+    for k in range(3):
+        r = r0 * (1 - .27 * k)
+        y0 = g + h * (.2 + .24 * k)
+        apex = np.array([x, g + h * (.55 + .225 * k) if k < 2 else g + h, z])
+        ring = [np.array([x + r * math.cos(q), y0 + .04 * h * (_r(seed, 10 * k + t) - .5), z + r * math.sin(q)])
+                for t, q in enumerate(th)]
+        hub = np.array([x, y0 + .06 * h, z])
+        for t in range(n):
+            T += [(ring[t], ring[(t + 1) % n], apex), (ring[(t + 1) % n], ring[t], hub)]
+    T = np.array(T)
+    nrm = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
+    centre = np.array([x, g + .5 * h, z])
+    flip = (nrm * (T.mean(1) - centre)).sum(1) < 0
+    T[flip] = T[flip][:, [0, 2, 1]]
+    return _add_flat(b, CONIFER, T)
 
 
 def _tuft(b, site, x, z, h, seed):
@@ -415,15 +528,6 @@ def _tuft(b, site, x, z, h, seed):
     return len(T)
 
 
-class _NoPlan:
-    """editor_supports._boulder's plan check: the clearance field has already kept every rock off the pieces."""
-
-    @staticmethod
-    def heights(x, z):
-        return np.zeros(0, int), np.zeros(0)
-
-
-# ---------------------------------------------------------------- placement
 def _jitter(bounds, cell, seed):
     """One candidate per cell of a `cell`-metre grid over bounds, jittered within it: (x, z, key)."""
     x0, z0, x1, z1 = bounds
@@ -455,128 +559,155 @@ def build(pieces, heights, grid, site=None, bake=True):
     `site` is the ground to stand on (Site.volcano in the build; the cut ground alone, Site.flat, by default); `bake`
     bakes the parts' own occlusion (bake_tiles).
 
-    As the concepts, the dressing gathers in patches (a shared value noise, `rough`) over open stretches of bare cinder
-    (the ground's own texture), and thickens toward the crater's wall, where the rocky ledges and snow banks are."""
+    As the concept (crater-floor.jpg): broad connected snow fields over about SNOW_COVER of the open floor, mats of
+    yellow-green and olive moss several metres across, jagged grey crags and slabs (denser toward the wall), clusters
+    of small conifers, yellow and orange autumn shrubs, stones and grass. Everything but the fields gathers in patches
+    (a shared value noise, `rough`) and thickens toward the wall."""
     site = site or Site.flat(heights, grid)
     clear = Clear(pieces, site, site.bounds)
     b = Builder()
-    plan = _NoPlan()
-    count = {'boulders': 0, 'stones': 0, 'outcrops': 0, 'blocks': 0, 'snow': 0, 'tufts': 0, 'moss': 0, 'shrubs': 0}
+    count = {'crags': 0, 'spires': 0, 'rocks': 0, 'stones': 0, 'conifers': 0, 'shrubs': 0, 'tufts': 0, 'cushions': 0,
+             'snow_m2': 0, 'moss_m2': 0}
     bounds = site.bounds
 
+    def wall(x, z):
+        return _smooth(1 - (site.inside(x, z) - 50.) / 120.)
+
     def rough(x, z):
-        """Where the dressing gathers: 0 on the open cinder, 1 in a patch; the wall's foot is rougher."""
+        """Where the dressing gathers: 0 on the open ground, 1 in a patch; the wall's foot is rougher."""
         n = .65 * _noise(x, z, 75., 7) + .35 * _noise(x, z, 26., 8)
-        wall = _smooth(1 - (site.inside(x, z) - 50.) / 110.)
-        return _smooth((n + .25 * wall - .42) / .22)
+        return _smooth((n + .25 * wall(x, z) - .42) / .22)
 
     def one(x, z, r, slope, tall=0.):
         return bool(_ok(site, clear, np.array([x]), np.array([z]), r, slope, tall)[0])
 
-    def foot_plants(k, bx, bz, r, n):
-        """Tufts and moss round a rock's foot."""
-        for t in range(n):
-            ta = 2 * np.pi * _r(k, 100 + t)
-            d = r + .3 + .9 * _r(k, 120 + t)
-            tx, tz = bx + d * math.cos(ta), bz + d * math.sin(ta)
-            if not one(tx, tz, 1.2, SLOPE_PLANT):
-                continue
-            if _r(k, 140 + t) < .55:
-                count['tufts'] += 1
-                _tuft(b, site, tx, tz, .35 + .3 * _r(k, 160 + t), int(k) * 53 + t)
-            else:
-                count['moss'] += 1
-                _cushion(b, MOSS, site, tx, tz, .45 + .45 * _r(k, 180 + t), .22 + .15 * _r(k, 190 + t), int(k) * 59 + t)
+    def open_ground(X, Z, slope):
+        """0..1 on a field's samples: inside the crater, on ground no steeper than `slope`, clear of the riding (a
+        sample needs CLEAR and 1 m more, so the sheet's cut edge stays out of the clear zone too)."""
+        m = _smooth((site.inside(X, Z) - CREST_MARGIN) / 5.) * (site.slope(X, Z) <= slope)
+        m = m * _smooth((clear.free(X, Z) - 1.) / 3.)
+        return m * ~clear.in_run(X, Z, 2.)
 
-    # boulder clusters: one big stone with a few smaller ones round it, in the rough patches
-    x, z, key = _jitter(bounds, 22., 11)
-    on = _ok(site, clear, x, z, 6., SLOPE_ROCK) & (_hash(key, 13) < .05 + .6 * rough(x, z))
+    def snow_noise(X, Z):
+        """Broad fields broken at their edges into tongues and holes, gathered toward the wall."""
+        return (.45 * _noise(X, Z, 70., 61) + .3 * _noise(X, Z, 24., 62) + .25 * _noise(X, Z, 8., 63)
+                + .18 * wall(X, Z))
+
+    def grid_of(cell):
+        x0, z0, x1, z1 = bounds
+        xs, zs = np.arange(x0, x1 + cell, cell), np.arange(z0, z1 + cell, cell)
+        X, Z = np.meshgrid(xs, zs)
+        return xs, zs, X, Z
+
+    # snow fields: broad and connected, soft irregular edges, more toward the wall
+    xs, zs, X, Z = grid_of(SNOW_CELL)
+    room = open_ground(X, Z, SLOPE_SNOW)
+    n = snow_noise(X, Z)
+    valid = room > .99
+    t_snow = float(np.quantile(n[valid], 1 - SNOW_COVER)) if valid.any() else 2.
+    snow = n * room
+    tris, area = _field(b, SNOW, site, xs, zs, snow, t_snow, .22, .08)
+    count['snow_m2'] = round(area)
+    floor_m2 = float(valid.sum()) * SNOW_CELL ** 2
+    count['snow_share'] = round(area / max(floor_m2, 1.), 3)
+
+    # moss mats, off the snow: yellow-green and olive, several metres across, clustered
+    xs, zs, X, Z = grid_of(MOSS_CELL)
+    room = open_ground(X, Z, SLOPE_PLANT) * _smooth((t_snow - .03 - snow_noise(X, Z)) / .04)
+    valid = room > .99
+    gather = .6 + .4 * _noise(X, Z, 60., 64)
+    mats = []
+    for material, seed in ((MOSS, 65), (OLIVE, 67)):
+        m = (.5 * _noise(X, Z, 16., seed) + .5 * _noise(X, Z, 6., seed + 1)) * gather
+        t = float(np.quantile(m[valid], 1 - MOSS_COVER)) if valid.any() else 2.
+        m = m * room
+        for other in mats:                       # the two kinds side by side, never one over the other
+            m = np.where(other[0] >= other[1] - .02, 0., m)
+        mats.append((m, t))
+        _, area = _field(b, material, site, xs, zs, m, t, .12, .06)
+        count['moss_m2'] += round(area)
+        # cushions of moss over the thickest of the mat, for volume
+        j, i = np.nonzero(m > t + .08)
+        pick = _hash(j, i, seed + 2) < .1
+        for jj, ii in zip(j[pick], i[pick]):
+            k = int(jj) * 7919 + int(ii) * 104729 + seed
+            cx, cz = xs[ii] + MOSS_CELL * (_r(k, 1) - .5), zs[jj] + MOSS_CELL * (_r(k, 2) - .5)
+            _cushion(b, material, site, cx, cz, .7 + .9 * _r(k, 3), .25 + .25 * _r(k, 4), k)
+            count['cushions'] += 1
+
+    # crags: jagged grey spires and slabs, 3 to 10 m, scattered over the floor and gathered toward the wall
+    x, z, key = _jitter(bounds, 20., 21)
+    size = 3. + 7. * _hash(key, 23) ** 1.4
+    on = _ok(site, clear, x, z, 6., SLOPE_ROCK) & (_hash(key, 22) < .14 + .35 * rough(x, z) + .45 * wall(x, z))
+    for cx, cz, sz, k in zip(x[on], z[on], size[on], key[on]):
+        if not one(cx, cz, .75 * sz + 1., SLOPE_ROCK, sz):
+            continue
+        spires, _ = _crag(b, site, cx, cz, sz, int(k))
+        count['crags'] += 1
+        count['spires'] += spires
+        for t in range(int(_r(k, 90) * 4)):                 # shrubs and tufts round its foot
+            a = 2 * np.pi * _r(k, 100 + t)
+            d = .5 * sz + .8 + 1.5 * _r(k, 110 + t)
+            tx, tz = cx + d * math.cos(a), cz + d * math.sin(a)
+            if one(tx, tz, 1.2, SLOPE_PLANT):
+                if _r(k, 120 + t) < .5:
+                    _lump(b, GOLD if _r(k, 130 + t) < .6 else SHRUB, site, tx, tz, .5 + .3 * _r(k, 140 + t),
+                          .8 + .5 * _r(k, 150 + t), int(k) * 13 + t, .15, cap=-.4)
+                    count['shrubs'] += 1
+                else:
+                    _tuft(b, site, tx, tz, .35 + .3 * _r(k, 160 + t), int(k) * 53 + t)
+                    count['tufts'] += 1
+
+    # rocks: angular blocks a metre or two across, in small groups
+    x, z, key = _jitter(bounds, 20., 11)
+    on = _ok(site, clear, x, z, 5., SLOPE_ROCK) & (_hash(key, 13) < .03 + .3 * rough(x, z))
     for cx, cz, k in zip(x[on], z[on], key[on]):
-        big = 1. + 1.8 * _r(k, 2) ** 1.5
-        n = 2 + int(_r(k, 1) * 4)
-        for m in range(n):
-            r = big if m == 0 else .3 + .6 * _r(k, 20 + m) ** 1.3
-            a, d = 2 * np.pi * _r(k, 40 + m), (0. if m == 0 else big + .5 + 3. * _r(k, 60 + m))
+        for m in range(1 + int(_r(k, 1) * 4)):
+            a, d = 2 * np.pi * _r(k, 40 + m), (0. if m == 0 else 1.5 + 2.5 * _r(k, 60 + m))
             bx, bz = cx + d * math.cos(a), cz + d * math.sin(a)
-            if not one(bx, bz, 1.5 * r, SLOPE_ROCK, .45 * r):        # its bumps reach about 1.5 r
-                continue
-            if r >= 1.4:                              # the big ones rounder (80 faces), the rest coarse
-                count['boulders'] += _boulder(b, plan, site.ground, bx, bz, r, int(k) * 31 + m)
-            else:
-                _stone(b, site, bx, bz, r, int(k) * 31 + m)
-                count['stones'] += 1
-            if m == 0:
-                foot_plants(int(k) * 3 + m, bx, bz, r, 1 + int(_r(k, 80) * 4))
+            w = .6 + 1. * _r(k, 20 + m)
+            h = w * (.6 + .8 * _r(k, 30 + m))
+            if one(bx, bz, 1.5 * w, SLOPE_ROCK, h):
+                _block(b, site, bx, bz, w, w * (.6 + .4 * _r(k, 50 + m)), h, 2 * np.pi * _r(k, 70 + m), int(k) * 31 + m)
+                count['rocks'] += 1
 
-    # loose stones over the floor between the patches
-    x, z, key = _jitter(bounds, 11., 15)
-    on = _ok(site, clear, x, z, 1.1, SLOPE_ROCK) & (_hash(key, 16) < .03 + .14 * rough(x, z))
-    for sx, sz, k in zip(x[on], z[on], key[on]):
-        _stone(b, site, sx, sz, .25 + .45 * _r(k, 1) ** 1.5, int(k))
+    # loose stones between them
+    x, z, key = _jitter(bounds, 12., 15)
+    on = _ok(site, clear, x, z, 1.1, SLOPE_ROCK) & (_hash(key, 16) < .04 + .14 * rough(x, z))
+    for sx, sz_, k in zip(x[on], z[on], key[on]):
+        _stone(b, site, sx, sz_, .25 + .45 * _r(k, 1) ** 1.5, int(k))
         count['stones'] += 1
 
-    # outcrops: broken basalt ledges of a few angular blocks in a ragged row, most toward the crater's wall
-    x, z, key = _jitter(bounds, 40., 21)
-    wall = _smooth(1 - (site.inside(x, z) - 50.) / 120.)
-    on = _ok(site, clear, x, z, 8., SLOPE_ROCK) & (_hash(key, 22) < .1 + .3 * rough(x, z) + .35 * wall)
+    # conifers: small stylised trees in clusters, more toward the wall
+    x, z, key = _jitter(bounds, 40., 71)
+    on = _ok(site, clear, x, z, 8., SLOPE_PLANT, 8.) & (_hash(key, 72) < .06 + .25 * rough(x, z) + .3 * wall(x, z))
     for cx, cz, k in zip(x[on], z[on], key[on]):
-        n = 3 + int(_r(k, 1) * 5)
-        heading = 2 * np.pi * _r(k, 2)
-        placed = 0
-        for m in range(n):
-            along = (m - (n - 1) / 2) * (2.4 + 1.2 * _r(k, 10 + m))
-            off = 1.6 * (_r(k, 20 + m) - .5)
-            bx = cx + along * math.cos(heading) - off * math.sin(heading)
-            bz = cz + along * math.sin(heading) + off * math.cos(heading)
-            h = (.9 + 2.6 * _r(k, 30 + m) ** 1.4) * (1.15 if abs(along) < 3 else .8)
-            w, d = 1.1 + 1.1 * _r(k, 40 + m), .9 + .9 * _r(k, 50 + m)
-            if not one(bx, bz, max(w, d) * 1.4, SLOPE_ROCK, h):
-                continue
-            _block(b, site, bx, bz, w, d, h, heading + .6 * (_r(k, 60 + m) - .5), int(k) * 17 + m)
-            count['blocks'] += 1
-            placed += 1
-        if placed:
-            count['outcrops'] += 1
-            foot_plants(int(k) * 5, cx, cz, 2.5, 2 + int(_r(k, 3) * 5))
+        for m in range(2 + int(_r(k, 1) * 6)):
+            a, d = 2 * np.pi * _r(k, 10 + m), (0. if m == 0 else 2.5 + 5. * _r(k, 20 + m))
+            tx, tz = cx + d * math.cos(a), cz + d * math.sin(a)
+            h = 3. + 5. * _r(k, 30 + m) ** 1.3
+            if one(tx, tz, .4 * h, SLOPE_PLANT, h):
+                _conifer(b, site, tx, tz, h, int(k) * 17 + m)
+                count['conifers'] += 1
 
-    # snow: low patches lying in the colder hollows and banked toward the wall's foot
-    x, z, key = _jitter(bounds, 18., 31)
-    cold = _noise(x, z, 70., 32) + .3 * _smooth(1 - (site.inside(x, z) - 40.) / 140.)
-    R = 2.5 + 6.5 * _hash(key, 33) ** 1.6
-    on = _ok(site, clear, x, z, 0., SLOPE_SNOW) & (cold > .6) & (_hash(key, 34) < .75)
-    for px, pz, r, k in zip(x[on], z[on], R[on], key[on]):
-        if not one(px, pz, r * 1.5, SLOPE_SNOW):            # its outline reaches about 1.5 R
-            continue
-        th = np.linspace(0, 2 * np.pi, 8, endpoint=False)
-        if (site.slope(px + r * np.cos(th), pz + r * np.sin(th)) <= SLOPE_SNOW + 4).all():   # its rim on gentle ground
-            count['snow'] += 1
-            _snow(b, site, px, pz, r, int(k))
+    # autumn shrubs, yellow and orange, in loose groups
+    x, z, key = _jitter(bounds, 22., 51)
+    on = _ok(site, clear, x, z, 3., SLOPE_PLANT) & (_hash(key, 52) < .06 + .4 * rough(x, z))
+    for cx, cz, k in zip(x[on], z[on], key[on]):
+        for m in range(1 + int(_r(k, 2) * 3)):
+            a, d = 2 * np.pi * _r(k, 10 + m), (0. if m == 0 else 1. + 1.5 * _r(k, 20 + m))
+            _lump(b, GOLD if _r(k, 1 + 7 * m) < .6 else SHRUB, site, cx + d * math.cos(a), cz + d * math.sin(a),
+                  .6 + .5 * _r(k, 30 + m), 1. + .4 * _r(k, 40 + m), int(k) * 13 + m, .15, cap=-.4)
+            count['shrubs'] += 1
 
-    # grass and moss: clumps of tufts and cushions, in the patches and thinly over the open floor
-    x, z, key = _jitter(bounds, 8., 41)
-    on = _ok(site, clear, x, z, 4., SLOPE_PLANT) & (_hash(key, 43) < .03 + .42 * rough(x, z) * _noise(x, z, 40., 42))
+    # dry grass in loose clumps
+    x, z, key = _jitter(bounds, 10., 41)
+    on = _ok(site, clear, x, z, 4., SLOPE_PLANT) & (_hash(key, 43) < .03 + .3 * rough(x, z) * _noise(x, z, 40., 42))
     for cx, cz, k in zip(x[on], z[on], key[on]):
         for t in range(2 + int(_r(k, 1) * 5)):
             a, d = 2 * np.pi * _r(k, 10 + t), 2.5 * _r(k, 20 + t) ** .7
-            count['tufts'] += 1
             _tuft(b, site, cx + d * math.cos(a), cz + d * math.sin(a), .3 + .4 * _r(k, 30 + t), int(k) * 7 + t)
-        for t in range(int(_r(k, 2) * 2.2)):
-            a, d = 2 * np.pi * _r(k, 50 + t), 2.5 * _r(k, 60 + t) ** .7
-            count['moss'] += 1
-            _cushion(b, MOSS, site, cx + d * math.cos(a), cz + d * math.sin(a), .5 + .7 * _r(k, 70 + t),
-                     .25 + .2 * _r(k, 80 + t), int(k) * 3 + t)
-
-    # shrubs: a few small autumn bushes, two or three lumps each
-    x, z, key = _jitter(bounds, 30., 51)
-    on = _ok(site, clear, x, z, 2.5, SLOPE_PLANT) & (_hash(key, 52) < .08 + .4 * rough(x, z))
-    for cx, cz, k in zip(x[on], z[on], key[on]):
-        material = SHRUB if _r(k, 1) < .7 else MOSS
-        for m in range(2 + int(_r(k, 2) * 2)):
-            a, d = 2 * np.pi * _r(k, 10 + m), (0. if m == 0 else .5 + .4 * _r(k, 20 + m))
-            h = (.9 + .7 * _r(k, 40 + m)) * (1 if m == 0 else .75)
-            _lump(b, material, site, cx + d * math.cos(a), cz + d * math.sin(a), .45 + .35 * _r(k, 30 + m), h,
-                  int(k) * 13 + m, .15, cap=-.4)
-        count['shrubs'] += 1
+            count['tufts'] += 1
 
     parts, tris = [], {}
     for mesh in b.meshes('crater_floor') if b.parts else []:

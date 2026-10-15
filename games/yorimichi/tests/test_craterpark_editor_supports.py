@@ -79,19 +79,25 @@ def box_deck(pid, top, a=8., w=11., bottom=-5.):
                                  metadata=dict(id=pid, type='deck', stations=[], params={'solid': True}))
 
 
-def test_a_high_solid_deck_is_a_stone_tower_with_a_battlement_but_not_where_the_ramp_leaves():
-    ramp = sheet('ramp', 60., length=60., x0=8.)                 # leaves the deck's +x side at its top
+def test_a_high_solid_deck_is_a_japanese_keep_with_a_torii_over_the_drop_in():
+    ramp = sheet('ramp', 60., length=60., z0=0., x0=0.)
+    for st in ramp.metadata['stations']:                     # leaves the deck's +x side (x = 8) at its top
+        st['x'] += 8.
+    ramp.mesh.V[:, 0] += 8.
     parts, summary = es.build([box_deck('t', 60.), ramp], FLAT, GRID)
     assert summary['towers'] == ['t'] and summary['pieces']['t'] == 'tower'
     tower = [p for p in parts if p.features[0] == 't_tower']
     V = vertices(tower)
-    assert V[:, 1].min() < 0. and V[:, 1].max() > 60., 'from below the ground to a battlement over the deck'
+    assert V[:, 1].min() < 0. and V[:, 1].max() > 60. + es.TORII - .5, 'from below the ground to the torii and roofs'
     assert sum(len(p.F) for p in tower) < 20000
-    merlons = V[V[:, 1] > 60.05]
-    assert len(merlons) and merlons[:, 0].max() < 8.5, 'no battlement across the roll-in'
-    assert merlons[:, 0].min() < -8.5 and np.abs(merlons[:, 2]).max() > 11.5
-    stem = V[(V[:, 1] > 10.) & (V[:, 1] < 50.)]
-    assert np.abs(stem[:, 0]).max() > 9., 'the stages step out of the deck outline'
+    by = {dsl.MATERIALS[p.material[0]]: p for p in tower}
+    assert {es.STONE, es.VERMILION, es.TILE, es.PLASTER, es.TIMBER} <= set(by)
+    torii = by[es.VERMILION].V[by[es.VERMILION].V[:, 1] > 60. + es.TORII - 3.]
+    assert len(torii) and torii[:, 0].min() > 5., 'the torii stands over the drop-in (+x), not elsewhere'
+    rail = by[es.VERMILION].V[(by[es.VERMILION].V[:, 1] > 60.) & (by[es.VERMILION].V[:, 1] < 61.5)]
+    assert rail[:, 0].max() < 8.5 + es.RIM, 'no railing across the drop-in'
+    foot = vertices([by[es.STONE]])
+    assert np.abs(foot[foot[:, 1] < 5.][:, 2]).max() > 11. + es.YAGURA_OUT + 5., 'the ishigaki sweeps out at its foot'
 
 
 def test_a_low_solid_deck_stays_a_deck():
