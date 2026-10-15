@@ -2025,6 +2025,70 @@
       "bytes": 1894799,
       "sha256": "f52e9bb716abc139f16e58f911d3c7882a9a369c143559391071f029c51f3190"
     },
+    "craterpark/concepts/editor/crater-floor-layout.jpg": {
+      "bytes": 542702,
+      "sha256": "099d9edbc9b46302658a8518bcc4ec271a7b267c24c8520e9d5ca468be8f9fcf"
+    },
+    "craterpark/concepts/editor/crater-floor.jpg": {
+      "bytes": 488062,
+      "sha256": "42db0a0478c55192376874c5f780430c0dbcc86b22e45c5189752d53d8e23373"
+    },
+    "craterpark/concepts/editor/lenticular-belmonte.jpg": {
+      "bytes": 370830,
+      "sha256": "9b4a132ea1f936b988362a449a838f8347bba6a26870683f68bbdcf8e071aa17"
+    },
+    "craterpark/concepts/editor/lenticular-ramp.jpg": {
+      "bytes": 210495,
+      "sha256": "beba85cbbebb76f2151d9e3764fc16eebc7b632cbe04956d79ce51f0ac1b72dc"
+    },
+    "craterpark/concepts/editor/prado-graphics-layout.jpg": {
+      "bytes": 505175,
+      "sha256": "6a23e62dc50fb7b4ad879edb6f5a451b2267e08a7689fa2f3f7fb0ade392d611"
+    },
+    "craterpark/concepts/editor/prado-graphics.jpg": {
+      "bytes": 413719,
+      "sha256": "b0343575ed23738bb323db1cbbf38363bc2140d386e68e1fee812be2282c1e08"
+    },
+    "craterpark/concepts/editor/prado-plan.png": {
+      "bytes": 35881,
+      "sha256": "c200a8f377f41fcad1c9fd8991e90ce4db9332cee9780689201ce3c04878b212"
+    },
+    "craterpark/concepts/editor/support-design-fins.jpg": {
+      "bytes": 399935,
+      "sha256": "7278870d575c53437befa7a02f465658cae8351f1031474e72b6bba2b31aa5be"
+    },
+    "craterpark/concepts/editor/support-design-piers.jpg": {
+      "bytes": 379926,
+      "sha256": "1c37d3f76da8f3c839114f6d572877a53f737ea74e6a6d7cf8a404101cb237ae"
+    },
+    "craterpark/concepts/editor/support-design-viaduct.jpg": {
+      "bytes": 391134,
+      "sha256": "d7476c8777d00e293b5be9faa9d0d289d2d6f1984e0807b05e25853f4417eb24"
+    },
+    "craterpark/concepts/editor/supports-rock-layout.jpg": {
+      "bytes": 355341,
+      "sha256": "49a7eaa08d305503fd8c0cfa946f2c67e2e36f5587c8708b9bab05222e611160"
+    },
+    "craterpark/concepts/editor/supports-rock.jpg": {
+      "bytes": 357410,
+      "sha256": "a8c2c5fd8cebc8b8d39887e03d42c2b800ed093bcdba757dbb0544e3a938cb77"
+    },
+    "craterpark/concepts/editor/supports-steel-layout.jpg": {
+      "bytes": 425538,
+      "sha256": "a2084fcc6a8d41f9e2c7a8caaa05a44fc14bc257e8143ca46657d5ca475d81a2"
+    },
+    "craterpark/concepts/editor/supports-steel.jpg": {
+      "bytes": 406408,
+      "sha256": "b36f6de98762f6adcaf3df26f68fa6fc9670aad69070e9f89165d96605c3c910"
+    },
+    "craterpark/concepts/editor/supports-timber-layout.jpg": {
+      "bytes": 405896,
+      "sha256": "cc52b04d53bc6b425ba726c2173a7dcca427dc66da501276a566ccf0261732d7"
+    },
+    "craterpark/concepts/editor/supports-timber.jpg": {
+      "bytes": 430031,
+      "sha256": "30a373b4b4306e88b3565e5c639d113796a94fb32aa68373e5d99a7723cbabc0"
+    },
     "craterpark/concepts/paintover-bowls.jpg": {
       "bytes": 321012,
       "sha256": "3cdecbd276cf69ccdc7ec09816caa6917ecc108f3cf6f1be81f8145df00adabe"

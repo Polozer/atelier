@@ -36,7 +36,7 @@ def test_the_m0_park_lies_on_the_block():
 def test_a_face_off_the_block_is_refused_but_a_buried_base_is_not():
     off = DROP + np.array([0., 0., 400.])        # 400 m along native z: far off the 385 m block
     assert not placement.contains(*placement.native_to_island(off)[:2])
-    with pytest.raises(dressing.DressingError, match='off the r4 block'):
+    with pytest.raises(dressing.DressingError, match='outside the selected park envelope'):
         dressing.check(slab(off, 3., off[1], dsl.RIDING), placement)
     dressing.check(dsl.Mesh.concat([slab(DROP, 3., DROP[1], dsl.RIDING), slab(off, 3., off[1], dsl.BASE)]), placement)
 
