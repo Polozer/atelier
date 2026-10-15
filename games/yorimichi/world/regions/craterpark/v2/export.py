@@ -17,7 +17,7 @@ sys.path.insert(0, str(HERE.parents[2]))        # world
 
 import numpy as np  # noqa: E402
 
-from craterpark.v2 import dsl  # noqa: E402
+from craterpark.v2 import dsl, v4_config  # noqa: E402
 
 MESH_ROOT = '/Game/CraterPark/Meshes'
 FOLDED = 2e-7           # square metres (twice a face's area): a face flatter than this is never exported
@@ -120,7 +120,25 @@ def write(out, source, geometry, placement, entry_mesh=export_mesh):
     out = Path(out); (out / 'fbx').mkdir(parents=True, exist_ok=True)
     # mesh files this build does not make are removed, so no stale r4 FBX lies next to the new ones
     index = json.loads(str(geometry['index']))
+    provenance = None
+    if v4_config.selected():
+        provenance = v4_config.provenance()
+        if index.get('v4') != provenance:
+            raise ValueError('v4 geometry does not match the selected design and inputs; rebuild geometry')
+        validation = index.get('validation', {})
+        cosmetic_preview = validation.get('preview') and validation.get('failed') and all(
+            name in ('outlines', 'facets', 'uv_stretch', 'slivers') for name in validation['failed'])
+        if not index.get('accepted') or not validation.get('ran') or not (validation.get('ok') or cosmetic_preview):
+            raise ValueError('v4 geometry has not passed structural validation; diagnostic artifacts cannot export')
+        if not validation.get('supports', {}).get('ran') or not validation['supports'].get('ok'):
+            raise ValueError('v4 geometry has not passed actual support and ride envelope checks')
+        if not index.get('lines'):
+            raise ValueError('v4 geometry has no checked tower starts')
+    elif index.get('v4'):
+        raise ValueError('v4 geometry requires its explicit design selection; rebuild old geometry')
     build = {'scene_sha256': sha(source / 'scene.json'), 'render': [], 'collision': []}
+    if provenance:
+        build['v4'] = provenance
     for i, spec in enumerate(index['render']):
         mesh = dsl.Mesh.from_arrays(geometry, f'r{i}_')
         materials = [dsl.MATERIALS[int(m)] for m in np.unique(mesh.material)]
@@ -141,25 +159,51 @@ def write(out, source, geometry, placement, entry_mesh=export_mesh):
     for stale in (out / 'fbx').glob('*.fbx'):
         if stale.stem not in keep:
             stale.unlink()
-    (out / 'build.json').write_text(json.dumps(build, indent=1) + '\n')
     t = placement.unreal_transform()
-    ground = json.loads((source / 'drop-in.json').read_text())['groundPosition']
+    ground = None if provenance else json.loads((source / 'drop-in.json').read_text())['groundPosition']
     rails = []
     for i, spec in enumerate(index['rails']):
         points = np.asarray(geometry[f'rail{i}'], 'f8')
         rails.append({'id': f'cp_lip_{i:03d}', 'closed': bool(spec['closed']), 'points_cm': [ue(p) for p in points.tolist()]})
+    if provenance:
+        bounds = np.asarray(index.get('bounds_native'), 'f8')
+        if bounds.shape != (2, 3) or not np.isfinite(bounds).all() or np.any(bounds[1] < bounds[0]):
+            raise ValueError('v4 geometry requires finite native bounds')
+        corners = np.asarray([[bounds[i, 0], bounds[j, 1], bounds[k, 2]]
+                              for i in range(2) for j in range(2) for k in range(2)])
+        world = corners[:, [0, 2, 1]] * 100.
+        angle = np.radians(t['yaw_deg'])
+        world[:, :2] = world[:, :2] @ np.asarray([[np.cos(angle), np.sin(angle)],
+                                                [-np.sin(angle), np.cos(angle)]])
+        world += np.asarray(t['location_cm'])
+        island = world * np.asarray([.01, -.01, .01])
+        start = np.asarray(index['lines'][0]['spawn']['location_cm']) * np.asarray([.01, -.01, .01])
+        summary = {'version': 4, 'bounds_native': bounds.tolist(), 'bounds_min': island.min(0).tolist(),
+                   'bounds_max': island.max(0).tolist(), 'drop_in': start.tolist(), 'unreal': t,
+                   'provenance': provenance}
+    else:
+        summary = placement.summary()
     park = {'source_sha256': build['scene_sha256'], 'name': 'CRATERPARK', 'mesh_root': MESH_ROOT, 'rails_required': True,
-            'location_cm': t['location_cm'], 'yaw_deg': t['yaw_deg'], 'placement': placement.summary(),
+            'location_cm': t['location_cm'], 'yaw_deg': t['yaw_deg'], 'placement': summary,
             'render': [{'name': e['name'], 'origin_cm': ue(e['native_origin'])} for e in build['render']],
             'collision': [{'name': e['name'], 'origin_cm': ue(e['native_origin'])} for e in build['collision']],
-            'rails': rails, 'spawn': {'location_cm': placement.to_unreal(ground).tolist(), 'yaw_deg': t['yaw_deg']}}
+            'rails': rails, 'spawn': (dict(index['lines'][0]['spawn']) if provenance else
+                                   {'location_cm': placement.to_unreal(ground).tolist(), 'yaw_deg': t['yaw_deg']})}
+    if provenance:
+        park['v4'] = provenance
+        park['source_sha256'] = provenance['source_sha256']
     if any(index.get('trees', {}).values()):
         park['trees'] = index['trees']           # the park's own planting (dressing.plant), Spawn's HISM path
     if index.get('lines'):
         # one start per designed line (generate.line_spawns, CraterParkTower.cpp); the first is the hero line
         park['lines'] = index['lines']
         park['spawn'] = dict(index['lines'][0]['spawn'])
-    (out / 'park.json').write_text(json.dumps(park) + '\n')
+    if provenance and v4_config.provenance() != provenance:
+        raise ValueError('v4 inputs changed during export; refusing to publish mixed design metadata')
+    for name, data in (('build.json', build), ('park.json', park)):
+        temporary = out / (name + '.tmp')
+        temporary.write_text(json.dumps(data, indent=1 if name == 'build.json' else None) + '\n')
+        temporary.replace(out / name)
     return build, park
 
 

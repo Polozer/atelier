@@ -51,7 +51,11 @@ definition = importlib.util.module_from_spec(_definition)
 _definition.loader.exec_module(definition)
 YORI = WORLD / 'yori.py'
 # Crater Park on the caldera floor: its block shapes the ground there (craterpark/placement.py terrain).
-CRATERPARK = (REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark' / 'scene.json', ASSETS / 'craterpark' / 'geometry')
+_v4_spec = importlib.util.spec_from_file_location('craterpark_v4_config', REGIONS / 'craterpark' / 'v2' / 'v4_config.py')
+craterpark_v4 = importlib.util.module_from_spec(_v4_spec)
+_v4_spec.loader.exec_module(craterpark_v4)
+CRATERPARK = (REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark' / 'scene.json', ASSETS / 'craterpark' / 'geometry',
+              REGIONS / 'craterpark' / 'v2' / 'v4_config.py', *craterpark_v4.input_paths())
 # Crater Park v2 (regions/craterpark/v2): the park generated from a layout, clean by construction. False rolls back to
 # the r4 build (craterpark/build.py); both write the same build.json, park.json and FBX names for unreal.craterpark.
 CRATERPARK_V2 = True
@@ -63,12 +67,14 @@ def craterpark_v2_steps(out):
     common = [REGIONS / 'craterpark' / '__init__.py', REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark',
               REGIONS / 'megapark' / 'placement.py', YORI]
     geometry = out / 'craterpark' / 'v2'
+    runner = 'v4_generate.py' if craterpark_v4.selected() else 'generate.py'
+    arguments = ('--design', str(craterpark_v4.design_path())) if craterpark_v4.selected() else ()
     return [
-        Step('world.craterpark_geometry', [Python(v2 / 'generate.py')], inputs=[v2, *common],
+        Step('world.craterpark_geometry', [Python(v2 / runner, arguments)], inputs=[v2, *common, *craterpark_v4.input_paths()],
              outputs=[geometry / 'geometry.npz', geometry / 'geometry-report.json'],
              about='Crater Park v2: layout -> conforming surfaces, solids, rails, render tiles and collision (numpy)',
              heavy=True),
-        Step('world.craterpark', [Blender(v2 / 'export.py', threads=2)], inputs=[v2, *common],
+        Step('world.craterpark', [Blender(v2 / 'export.py', threads=2)], inputs=[v2, *common, *craterpark_v4.input_paths()],
              needs=['world.craterpark_geometry'],
              outputs=[out / 'craterpark' / 'build.json', out / 'craterpark' / 'park.json', out / 'craterpark' / 'fbx' / 'SM_CP_ImportSeed.fbx'],
              about='Crater Park v2 export: FBX, build.json and park.json in the r4 contract', heavy=True),
@@ -437,6 +443,7 @@ def belmonte_steps(out):
 def world_steps(ctx):
     """World exports."""
     out = ctx.out
+    crater_geometry = ['world.craterpark_geometry'] if craterpark_v4.selected() else []
     return [
         # ------------------------------------------------------------ world
         Step('world.textures', [Python(WORLD / 'gen_textures.py')], inputs=[WORLD / 'gen_textures.py', WORLD / 'surface_textures.py', YORI,
@@ -455,7 +462,7 @@ def world_steps(ctx):
                      TREEHOUSE / 'screen.py', REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'forest.py',
                      REGIONS / 'megapark' / 'trail.py', REGIONS / 'megapark' / 'gate.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'forest_backdrop.py'],
-             needs=['world.treehouse_trees'], cutoff=True,
+             needs=['world.treehouse_trees', *crater_geometry], cutoff=True,
              outputs=[out / 'world.json', out / 'heightmap.npy', out / 'heightmap.bin', out / 'farhills.npy', out / 'treehouse' / 'layout.json',
                       out / 'megapark' / 'trail.json'],
              about='terrain heightfield, road, scatter and every region layout -> world.json (dependents see these files)'),
@@ -477,7 +484,7 @@ def world_steps(ctx):
                      REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'forest.py', REGIONS / 'megapark' / 'trail.py',
                      REGIONS / 'megapark' / 'gate.py', REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py', ASSETS / 'hidamari' / 'props',
                      *TREEHOUSE_LAYOUT, *VILLAGE_LAYOUT],
-             needs=['world.layout', 'world.treehouse_trees'], outputs=[out / 'hidamari' / 'city.json', out / 'hidamari' / 'manifest.json',
+             needs=['world.layout', 'world.treehouse_trees', *crater_geometry], outputs=[out / 'hidamari' / 'city.json', out / 'hidamari' / 'manifest.json',
                                              out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json'],
              about='the city: layout (city.json), building kit, harbor, plaza, arcade, mountains', heavy=True),
         digest_step(out, 'world.hidamari', 'city', 'the Hidamari meshes unreal.world reads (all but the volcano)', north=False),
@@ -575,7 +582,7 @@ def world_steps(ctx):
                        for entry in json.loads((ASSETS / 'belmonte' / 'source.json').read_text())['meshes']
                        if entry['name'].startswith(('SM_BM_BT_blk_', 'SM_BM_BH_', 'SM_BM_BE_', 'SM_BM_BHip_',
                                                     'SM_BM_BVV_Farm_', 'SM_BM_BC_Water_', 'SM_BM_BC_Pave', 'SM_BM_BC_Ponte')))],
-             needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte'],
+             needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', *crater_geometry],
              outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png'], about='map zones and the painted sheet'),
         Step('world.city_tiles', [Blender(WORLD / 'city_surface_tiles.py', ('--tag', 'v1_128m'))],
              inputs=[WORLD / 'city_surface_tiles.py'], needs=['world.hidamari'],
