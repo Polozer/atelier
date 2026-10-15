@@ -94,8 +94,11 @@ class Rig:
         return Matrix((x.normalized(), y.normalized(), z.normalized())).transposed()
 
     def two_bone(self, upper, lower, end, target_arm, pole_arm, end_rot, forearm_twist=0.):
-        """Reach `target_arm` with the end bone's head; `forearm_twist` (0..1) rolls the lower bone toward the end's
-        frame. Returns the metres short of the target (0 when reached)."""
+        """@cc [owner:fontanierh,label:correctness] unsigned-rider-reach-error
+        Reach `target_arm` with the end bone's head; `forearm_twist` (0..1) rolls the lower bone toward the end's
+        frame. Return the nonnegative distance in world metres from the target, including targets inside the
+        minimum reach of unequal bone lengths, so the fit gate MUST NOT discard an unreachable contact's error.
+        """
         S = self.head(upper)
         l1, l2 = self.length(upper, lower), self.length(lower, end)
         d = target_arm - S; D = min(max(d.length, abs(l1 - l2) + 1e-4), (l1 + l2) * .9995); u = d.normalized()
@@ -116,7 +119,7 @@ class Rig:
                 R_lower = Quaternion((1., 0., 0., 0.)).slerp(q_tw, forearm_twist).to_matrix() @ R_lower
         self.place(lower, Matrix.Translation(self.head(lower)) @ R_lower.to_4x4())
         self.place(end, Matrix.Translation(self.head(end)) @ end_rot.to_4x4())
-        return (d.length - D) * self.scale
+        return abs(d.length - D) * self.scale
 
 
 def rest_world_rot(rig, bone):
