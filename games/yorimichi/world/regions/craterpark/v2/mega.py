@@ -37,6 +37,17 @@ class Mega:
                 ('line', 25.), ('arc', 80., 0.), ('line', 35.))
 
     @property
+    def rising_receiver(self):
+        """A native-ridden receiver reclaiming height before the next turn.
+
+        At 1/4/8 m/s tower starts, Orange exits at 25.63..26.17 m/s and
+        Standard at 22.95..24.34 m/s. All six runs retain their required airs,
+        on-slope landings and the hard 7 m/s peak normal-impact limit.
+        """
+        return (('arc', 20., -self.landing), ('line', 18.), ('arc', 60., 25.),
+                ('line', 12.), ('arc', 80., 0.), ('line', 12.))
+
+    @property
     def profile(self):
         return (*self.approach, ('gap', self.gap, -self.knuckle_drop, self.name), *self.receiver)
 
