@@ -1060,3 +1060,76 @@ def test_maintenance_requires_hash_bound_prior_boot_migration(barrier, failure):
                 compat._save(compat.DEFAULT_RECORD, proof)
     with pytest.raises((wire.CapacityError, OSError)):
         compat.verify_maintenance(policy_sha256=proof['policy_sha256'])
+
+
+
+def maintenance_with_eight_gib_sealed_reserve(barrier):
+    barrier.value['reserve']['memory_mib'] = 8192
+    barrier.config.write_text(json.dumps(barrier.value))
+    return maintenance_settings(barrier)
+
+
+@pytest.mark.parametrize('memory,accepted', [(4095, False), (4096, True), (6144, True), (8192, True), (8193, False)])
+def test_maintenance_host_memory_reserve_has_explicit_floor_and_sealed_ceiling(barrier, memory, accepted):
+    settings, proof = maintenance_with_eight_gib_sealed_reserve(barrier)
+    settings['reserve'] = Resources(**(asdict(settings['reserve']) | {'memory_mib': memory}))
+    if accepted:
+        with closing(broker.CapacityBroker(**settings)) as instance:
+            assert instance.reserve.memory_mib == memory
+            assert compat.read() == proof and proof['reserve']['memory_mib'] == 8192
+    else:
+        with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
+            broker.CapacityBroker(**settings)
+
+
+@pytest.mark.parametrize('dimension', ['cpu_millis', 'temp_mib', 'io_slots', 'gpu_mib'])
+def test_maintenance_reduced_memory_reserve_never_changes_other_dimensions(barrier, dimension):
+    settings, _ = maintenance_with_eight_gib_sealed_reserve(barrier)
+    values = asdict(settings['reserve']) | {'memory_mib': 4096}
+    values[dimension] += 1
+    settings['reserve'] = Resources(**values)
+    with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
+        broker.CapacityBroker(**settings)
+
+
+@pytest.mark.parametrize('available,accepted', [(14335, False), (14336, True), (14337, True)])
+def test_maintenance_ten_gib_job_requires_exact_fourteen_gib_pressure_floor(barrier, available, accepted):
+    settings, _ = maintenance_with_eight_gib_sealed_reserve(barrier)
+    settings['reserve'] = Resources(**(asdict(settings['reserve']) | {'memory_mib': 4096}))
+    with closing(broker.CapacityBroker(**settings, observe=lambda: dict(observed_monotonic=time.monotonic(),
+            available_memory_mib=available, available_temp_mib=99999))) as instance:
+        request = instance._request(dict(id='normal', resources=asdict(Resources(memory_mib=10240, cpu_millis=11000)),
+            workers=3, phase='job', checkout=str(barrier.root), locks=['checkout:' + str(barrier.root)], performance=True))
+        candidate = dict(state='queued', request=request)
+        if accepted:
+            instance._pressure({'records': {'normal': candidate}}, candidate)
+        else:
+            with pytest.raises(wire.CapacityError, match='pressure refuses the complete reservation'):
+                instance._pressure({'records': {'normal': candidate}}, candidate)
+        assert request['resources']['memory_mib'] == 10240
+
+
+def test_full_mode_refuses_reduced_host_memory_reserve(barrier):
+    settings, _ = maintenance_with_eight_gib_sealed_reserve(barrier)
+    barrier.boot[0] = BOOT_C
+    compat.activate(barrier.config)
+    settings.update(mode='capacity', reserve=Resources(**(asdict(settings['reserve']) | {'memory_mib': 4096})))
+    with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
+        broker.CapacityBroker(**settings)
+
+
+def test_reduced_maintenance_reserve_still_pins_total_and_own_configuration(barrier):
+    import hashlib
+    settings, proof = maintenance_with_eight_gib_sealed_reserve(barrier)
+    path = barrier.root / 'maintenance.json'
+    value = json.loads(path.read_bytes())
+    value['reserve']['memory_mib'] = 4096
+    raw = json.dumps(value).encode()
+    path.write_bytes(raw)
+    selected = broker.load_config(path, expected_sha256=hashlib.sha256(raw).hexdigest())
+    assert selected['reserve'].memory_mib == 4096 and selected['policy_sha256'] == proof['policy_sha256']
+    with pytest.raises(wire.CapacityError, match='policy changed'):
+        broker.load_config(path, expected_sha256='f' * 64)
+    selected['total'] = Resources(**(asdict(settings['total']) | {'memory_mib': 65536}))
+    with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
+        broker.CapacityBroker(**selected)
