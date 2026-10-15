@@ -18,6 +18,8 @@ def client(tmp_path, monkeypatch):
     value = dict(schema=1, socket=str(tmp_path / 'broker.sock'),
                  profiles={kind: copy.deepcopy(profile) for kind in ('job', 'game', 'compile')})
     monkeypatch.setattr(runtime, 'DEFAULT_CONFIG', path)
+    from atelier import capacity_compat as compat
+    monkeypatch.setattr(compat, 'DEFAULT_RECORD', tmp_path / 'cutover.json')
     monkeypatch.delenv('ATELIER_CAPACITY_CLIENT', raising=False)
     calls = []
 

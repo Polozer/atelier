@@ -213,12 +213,31 @@ The compatibility proof is deliberately stronger than an agent acknowledgement o
 3. A verified new OS boot **after sealing** closes preopened writable descriptors, including inherited or transferred
    ones. Permission changes alone cannot revoke them. Neither a process/lsof scan, two stable scans, an operator
    boolean nor immutable flags establish closure. Without a positive boot UUID change, activation refuses.
-4. `atelier capacity activate-cutover ABSOLUTE_FULL_CONFIG` verifies the new boot and all recorded inode/device,
-   change-time and permission pins under exclusive flocks, then records `active`. Install the reviewed full broker
+4. `atelier capacity activate-cutover ABSOLUTE_FULL_CONFIG` verifies the new boot and all recorded stable volume UUID,
+   inode, change-time and permission pins under exclusive flocks, then records `active`. Darwin device numbers
+   can change across boots, so they bind current open handles to current paths rather than identify a volume
+   across boots. Install the reviewed full broker
    and client settings through the existing explicit service procedure; do not run a second broker or interrupt one
    that still owns charged grants. This source change does not execute any of these machine operations.
 5. Validate one guarded job and crash/recovery negatives before controlled overlap trials. Do not infer useful
    throughput or safe new coexistence combinations merely from full-mode availability.
+
+New cutover records use seal schema 2 (separate from broker/client configuration schemas). Each lane pins the
+filesystem UUID read through Darwin's `fgetattrlist` for its held descriptor and `getattrlist` for its path.
+Missing, zero or unsupported UUID observations refuse; there is no device-number fallback.
+
+A schema 1 seal has no stable volume evidence and cannot activate. During an explicitly approved maintenance
+window, `atelier capacity migrate-volume-seal ABSOLUTE_FULL_CONFIG` supports only the forward transition from
+schema 1 `sealed` to schema 2 `sealed`. It requires a verified boot change after the old seal, unchanged policy,
+the fixed lane paths, admission exclusion and all three exclusive lane handles. It checks ownership, single links,
+inode, change time, mode `0400` and actual write-open denial, allowing only the old transient device numbers to
+differ. It binds the current volume UUIDs, preserves the original record bytes in the private sibling
+`cutover.schema1.ACTIVATION_ID.json`, and resets `seal_boot_id` to the current boot. The archive and its directory
+are synced before the new record replaces the old one. An interrupted migration can reuse only an owned,
+private, single-link archive whose bytes exactly match the original; differing archives refuse.
+**Another real OS reboot after migration is required before activation.** Migration does not establish the old
+volume's identity, activate capacity, alter lane files or unseal them. Other states and schemas refuse migration;
+do not edit records, delete archives or substitute files to force the transition.
 
 Every full startup and GO checks the seal. A replaced inode, writable ACL, changed policy or unavailable boot
 observation refuses new work; held allocations become uncertain and stay charged. A controller/broker crash may
