@@ -179,7 +179,12 @@ def light_parent():
 
 
 def trees(report):
-    """The tall canopy trees (world/regions/treehouse/trees.py) join the island's foliage: M_Foliage instances keyed by slot
+    """@cc [owner:fontanierh,label:correctness] treehouse-owned-fbx-seed
+    Missing or replaced tree packages MUST start from the owned on-disk placeholder FBX before
+    importing authored geometry with fresh material slots. Engine primitives MUST NOT seed reimports:
+    their stored source files may be absent, opening an unsupported commandlet file dialog.
+
+    The tall canopy trees (world/regions/treehouse/trees.py) join the island's foliage: M_Foliage instances keyed by slot
     name, the new atlases with the same alpha-coverage mips as the others, and no collision (their names start with
     Tree, so AJapanWorld also lets the camera through them and sways them)."""
     src = OUT/'trees'; info = json.loads((src/'trees.json').read_text())
@@ -199,7 +204,7 @@ def trees(report):
         MEL.set_material_instance_parent(mi, foliage); MEL.set_material_instance_texture_parameter_value(mi, 'Tex', t)
         MEL.update_material_instance(mi); E.save_loaded_asset(mi)
     for name, d in info.items():
-        # Seed a new tree with the engine cube, then reimport its own geometry and slots. Borrowing
+        # Seed a new tree with the owned placeholder, then reimport its own geometry and slots. Borrowing
         # Tree_Maple_A here made treehouse packages secretly depend on the island foliage's bytes.
         path = f'/Game/Japan/Assets/{name}'; want = sorted(['Bark', d['slot']])
         slots = lambda m: sorted(str(s.get_editor_property('imported_material_slot_name')) for s in m.get_editor_property('static_materials'))

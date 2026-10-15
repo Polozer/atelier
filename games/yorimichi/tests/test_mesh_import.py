@@ -1,4 +1,5 @@
 """Model UE's stored-data reimport precedence; native equivalence remains a separate gate."""
+import ast
 import importlib.util
 import json
 from pathlib import Path
@@ -197,3 +198,123 @@ def test_hidamari_terrain_reimport_replaces_seed_slots_and_keeps_terrain_materia
     assert p.assets['/Game/Other/Mesh'] is unrelated and unrelated.centimetres is None
     assert json.loads((tmp_path / 'hidamari/import-report.json').read_text()) == {}
     assert sand_calls == ['sand', 'sand'] and logs == ['HIDAMARI IMPORT COMPLETE'] * 2
+
+
+@pytest.mark.parametrize('initial', ['new', 'stale-slots', 'stale-lods'])
+def test_treehouse_trees_seed_from_existing_fbx_before_reimport(importer, monkeypatch, tmp_path, initial):
+    """Run the real tree owner and FBX adapter, including missing-source reimport failure."""
+    p = importer
+    scripts = Path(__file__).resolve().parents[1] / 'unreal/Scripts'
+    package = '/Game/Japan/Assets/Tree_Treehouse'
+    source = tmp_path / 'treehouse/trees'
+    source.mkdir(parents=True)
+    (source / 'trees.json').write_text(json.dumps({
+        'Tree_Treehouse': dict(slot='LeafAmber', leaf='LeafAmber', crown_hi=12.0),
+    }))
+    (source / 'Tree_Treehouse.fbx').touch()
+    seed = tmp_path / 'village/assets/Village_Sign.fbx'
+    seed.parent.mkdir(parents=True)
+    seed.touch()
+
+    class Slot:
+        def __init__(self, name, material=None):
+            self.values = dict(imported_material_slot_name=name, material_interface=material)
+        def get_editor_property(self, name):
+            return self.values[name]
+        def set_editor_property(self, name, value):
+            self.values[name] = value
+        def copy(self):
+            return Slot(self.values['imported_material_slot_name'], self.values['material_interface'])
+
+    monkeypatch.setattr(Mesh, 'get_num_lods', lambda self: getattr(self, 'lods', 1), raising=False)
+    monkeypatch.setattr(Mesh, 'set_num_source_models', lambda self, count: setattr(self, 'lods', count), raising=False)
+    monkeypatch.setattr(Mesh, 'get_bounding_box', lambda self: SimpleNamespace(max=SimpleNamespace(z=self.centimetres)), raising=False)
+    if initial != 'new':
+        stale = p.assets[package] = Mesh(ImportData())
+        stale.static_materials = [Slot('Bark'), Slot('OldLeaf' if initial == 'stale-slots' else 'LeafAmber')]
+        stale.lods = 2 if initial == 'stale-lods' else 1
+    p.source_slots.update({'Village_Sign.fbx': [Slot('VillagePalette')],
+                          'Tree_Treehouse.fbx': [Slot('Bark'), Slot('LeafAmber')]})
+    materials = {name: object() for name in ('Bark', 'LeafAmber')}
+    for name in ('M_Foliage', 'MI_LeafCrimson', 'MI_LeafAmber', 'MI_Bark'):
+        p.assets['/Game/Japan/Materials/' + name] = materials.get(name.removeprefix('MI_'), object())
+    saved, collision, deleted = [], {}, []
+    original_execute = p.module.AT.import_asset_tasks
+
+    def execute(tasks):
+        for task in tasks:
+            if Path(task.filename).suffix == '.png':
+                p.assets['/Game/Japan/Textures/' + Path(task.filename).stem] = ImportData()
+                continue
+            assert Path(task.filename).is_file(), 'FBX import needs a real source file'
+            previous = p.assets.get(task.destination_path + '/' + task.destination_name)
+            if previous:
+                stored_source = previous.values['asset_import_data'].values.get('source_filename')
+                assert stored_source is None or Path(stored_source).is_file(), 'Reimport would open a source-file dialog'
+            original_execute([task])
+            mesh = p.assets[task.destination_path + '/' + task.destination_name]
+            mesh.values['asset_import_data'].values['source_filename'] = task.filename
+            mesh.values['body_setup'] = SimpleNamespace(set_editor_property=collision.__setitem__)
+
+    def duplicate_asset(source_path, destination):
+        assert source_path == '/Engine/BasicShapes/Cube'
+        mesh = p.assets[destination] = Mesh(ImportData())
+        mesh.values['asset_import_data'].values['source_filename'] = str(tmp_path / 'missing-engine-cube.fbx')
+        return mesh
+
+    p.module.AT.import_asset_tasks = execute
+    p.unreal.AssetToolsHelpers.get_asset_tools = lambda: p.module.AT
+    p.unreal.EditorAssetLibrary.duplicate_asset = duplicate_asset
+    p.unreal.EditorAssetLibrary.delete_asset = lambda path: deleted.append(path) or p.assets.pop(path)
+    p.unreal.EditorAssetLibrary.save_loaded_asset = saved.append
+    p.unreal.MaterialEditingLibrary = SimpleNamespace(**{name: lambda *args: None for name in (
+        'set_material_instance_parent', 'set_material_instance_texture_parameter_value', 'update_material_instance')})
+    p.unreal.SystemLibrary = SimpleNamespace(execute_console_command=lambda *args: None)
+    p.unreal.Vector4 = lambda *args: args
+    p.unreal.TextureMipGenSettings = SimpleNamespace(TMGS_SIMPLE_AVERAGE='average')
+    p.unreal.CollisionTraceFlag = SimpleNamespace(CTF_USE_SIMPLE_AS_COMPLEX='none')
+    monkeypatch.setattr(sys, 'path', list(sys.path))
+    for name, module in {'yori': SimpleNamespace(OUT=tmp_path), 'atmosphere': SimpleNamespace(),
+                         'see_through': SimpleNamespace(), 'mesh_import': p.module}.items():
+        monkeypatch.setitem(sys.modules, name, module)
+    # This commandlet runs main() unconditionally; load its real definitions without
+    # importing unrelated room meshes and material graphs.
+    script = scripts / 'import_treehouse.py'
+    tree = ast.parse(script.read_text(), filename=str(script))
+    assert isinstance(tree.body[-1], ast.Expr) and isinstance(tree.body[-1].value, ast.Call)
+    assert tree.body[-1].value.func.id == 'main'
+    tree.body.pop()
+    owner = {'__file__': str(script)}
+    exec(compile(tree, str(script), 'exec'), owner)
+    report = {}
+    for _ in range(2):
+        owner['trees'](report)
+        mesh = p.assets[package]
+        assert mesh.centimetres == 1200 and mesh.get_num_lods() == 1
+        assert [slot.values['imported_material_slot_name'] for slot in mesh.static_materials] == ['Bark', 'LeafAmber']
+        assert [slot.values['material_interface'] for slot in mesh.static_materials] == list(materials.values())
+        assert saved[-1] is mesh
+    assert [name for name, _, _ in p.calls] == ['Village_Sign.fbx', 'Tree_Treehouse.fbx', 'Tree_Treehouse.fbx']
+    assert deleted == ([] if initial == 'new' else [package])
+    assert collision == {'collision_trace_flag': 'none'}
+    assert report == {'trees': ['Tree_Treehouse', 'Tree_Treehouse']}
+
+
+def test_see_through_commandlet_resolves_sibling_without_scripts_on_path(monkeypatch):
+    """A fresh commandlet must reach the real collection check without prior world imports."""
+    scripts = Path(__file__).resolve().parents[1] / 'unreal/Scripts'
+    pipeline = scripts.parents[1] / 'assets/characters/pipeline'
+    monkeypatch.setattr(sys, 'path', [path for path in sys.path if path not in (str(scripts), str(pipeline))])
+    for name in ('see_through', 'definition'):
+        monkeypatch.setitem(sys.modules, name, None)
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setitem(sys.modules, 'unreal', SimpleNamespace(
+        EditorAssetLibrary=SimpleNamespace(does_asset_exist=lambda path: False),
+        MaterialEditingLibrary=SimpleNamespace(),
+        MaterialProperty=SimpleNamespace(MP_OPACITY_MASK='opacity'),
+        CustomMaterialOutputType=SimpleNamespace(CMOT_FLOAT1='float'),
+    ))
+    with pytest.raises(RuntimeError, match='Build unreal.materials: missing /Game/SeeThrough/MPC_SeeThrough'):
+        runpy.run_path(str(scripts / 'import_see_through.py'), run_name='__main__')
+    assert Path(sys.modules['see_through'].__file__) == scripts / 'see_through.py'
+    assert Path(sys.modules['definition'].__file__) == pipeline / 'definition.py'
