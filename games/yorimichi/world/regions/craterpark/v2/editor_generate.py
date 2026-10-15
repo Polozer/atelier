@@ -1,10 +1,11 @@
 """Compile the owner's editor park (craterpark-editor/1 park.json) into the existing NPZ/FBX pipeline.
 
 The geometry is the editor's own: the pinned pieces.js (editor/pieces.cjs) meshes every piece through the Node bridge,
-exactly as the editor draws it. `--lines` keeps only those lines (by id), plus the pieces they ride into and the decks
-they start from. Supports (editor_supports: basalt towers under the high pieces, timber trestles under the low ones)
-are generated from the pieces and the cut ground; they are not the v4 validated supports, so the geometry is still
-marked an editor playtest instead of a validated v4 park.
+exactly as the editor draws it. `--lines` keeps only those lines (by id, or single pieces by id), plus the pieces they
+ride into and the decks they start from. The ramps are laid with planks running across them (piece_uv); a bowl named
+in DECALS is painted with its own graphic from above. Supports (editor_supports: stone viaducts under every ramp) are
+generated from the pieces and the cut ground; they are not the v4 validated supports, so the geometry is still marked
+an editor playtest instead of a validated v4 park.
 
 The editor's cut terrain is not a mesh of the park: it is stored as a grid (ground_height, ground_weight) that the
 volcano's own terrain follows (craterpark/placement.py terrain), so every surface round the pieces is the volcano's,
@@ -13,6 +14,7 @@ with its material, rock and snow, and its collision.
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import sys
@@ -28,7 +30,11 @@ import numpy as np  # noqa: E402
 from craterpark.v2 import dsl, generate, v4_config  # noqa: E402
 from craterpark.v2.editor import frontend  # noqa: E402
 
-WOOD = 'material_016'     # ramp boards (assets/craterpark/materials.json)
+WOOD = 'material_030'     # ramp planks, a Sunburst painting on piece_uv (assets/craterpark/materials.json)
+PLANKS = 4.             # metres the ramp-plank texture spans each way (eight boards: half-metre boards)
+# a bowl named with a key here is painted with that decal material, laid over it from above (decal_frame, decal_uv):
+# tools/craterpark_textures.py DECALS paints it onto a plan rendered with the same frame
+DECALS = {'Prado': 'material_031'}
 KICK_REACH = 30.        # metres of a capped run's end that count as its launch ramp
 GROUND_REACH = 60.     # metres round every kept piece where the volcano takes the editor's cut ground in full
 GROUND_FADE = 40.      # metres beyond that over which it eases back to the natural ground
@@ -41,8 +47,9 @@ SIDE_COLOURS = ([0.6, 0.58, 0.54], [0.45, 0.43, 0.4])   # pieces.js COL.side, CO
 
 
 def select(doc, lines):
-    """The pieces of `lines`, the pieces they lead into (a bowl they land in) and the decks of their starts."""
-    keep = {p['id'] for p in doc['pieces'] if p['line'] in lines}
+    """The pieces of `lines` (line names, or single piece ids), the pieces they lead into (a bowl they land in) and the
+    decks of their starts."""
+    keep = {p['id'] for p in doc['pieces'] if p['line'] in lines or p['id'] in lines}
     by = {p['id']: p for p in doc['pieces']}
     for pid in list(keep):
         for n in by[pid].get('next') or []:
@@ -81,7 +88,44 @@ def tile_uv(V, N, size=4.):
     return uv / size
 
 
-def piece_mesh(piece):
+def piece_uv(V, stations, size=PLANKS):
+    """UVs laid along a piece, so its boards run across the ramp the whole way round its curves: v along the piece
+    (its stations' distance), u across it, continuing up the walls (lateral offset plus height above the floor)."""
+    S = np.array([(s['d'], s['x'], s['z'], s['y'], math.radians(s['h'])) for s in stations])
+    uv = np.zeros((len(V), 2))
+    for a in range(0, len(V), 4096):
+        P = V[a:a + 4096]
+        k = (((P[:, None, [0, 2]] - S[None, :, [1, 2]]) ** 2).sum(2)).argmin(1)
+        d, x, z, y, h = S[k].T
+        dx, dz = P[:, 0] - x, P[:, 2] - z
+        along = dx * np.cos(h) + dz * np.sin(h)
+        lat = dx * np.sin(h) - dz * np.cos(h)
+        rise = np.maximum(P[:, 1] - y, 0.)
+        uv[a:a + 4096] = np.stack([lat + np.sign(lat) * rise, d + along], 1)
+    return uv / size
+
+
+def side_uv(V, stations, size=PLANKS):
+    """UVs for a piece's outer sides: boards running along the piece, stacked up its height."""
+    along = piece_uv(V, stations, 1.)[:, 1]
+    return np.stack([along, V[:, 1]], 1) / size
+
+
+def decal_frame(V):
+    """The plan frame (x0, z0, width, height) a decal is painted in: the piece's plan bounds, 4% taller, centred in a
+    2:3 portrait frame (the painting's 1024x1536); its top is the piece's lowest z."""
+    x0, x1, z0, z1 = V[:, 0].min(), V[:, 0].max(), V[:, 2].min(), V[:, 2].max()
+    h = (z1 - z0) * 1.04
+    w = h / 1.5
+    return (x0 + x1 - w) / 2, (z0 + z1 - h) / 2, w, h
+
+
+def decal_uv(V, frame):
+    x0, z0, w, h = frame
+    return np.stack([(V[:, 0] - x0) / w, (V[:, 2] - z0) / h], 1)
+
+
+def piece_mesh(piece, decal=None):
     m, meta = piece.mesh, piece.metadata
     V, N, F, col = m.V, m.N, orient(m.V, m.F, m.N), piece.colors
     side = np.zeros(len(F), bool)
@@ -90,10 +134,16 @@ def piece_mesh(piece):
     parts = []
     # wooden ramps (the park's ramp boards) everywhere but the bowls, which stay poured concrete
     concrete = meta['type'] == 'bowl'
-    for mask, role, material in ((~side, dsl.RIDING, dsl.CONCRETE if concrete else WOOD),
-                                 (side, dsl.SIDE, dsl.SIDE_WALL if concrete else WOOD)):
+    laid = not concrete and meta.get('stations')
+    ride, ride_uv = (dsl.CONCRETE if concrete else WOOD), (piece_uv(V, meta['stations']) if laid else None)
+    if decal:
+        ride, ride_uv = decal, decal_uv(V, decal_frame(V))
+    for mask, role, material, uv in (
+            (~side, dsl.RIDING, ride, ride_uv),
+            (side, dsl.SIDE, dsl.SIDE_WALL if concrete else WOOD, side_uv(V, meta['stations']) if laid else None)):
+        uv = tile_uv(V, N) if uv is None else uv
         if mask.any():
-            parts.append(dsl.Mesh.part(V, F[mask], N=N, UV=tile_uv(V, N), role=role, material=material,
+            parts.append(dsl.Mesh.part(V, F[mask], N=N, UV=uv, role=role, material=material,
                                        feature=meta['id']).subset(np.ones(int(mask.sum()), bool)))
     return parts
 
@@ -187,9 +237,11 @@ def main(argv=None):
         snap = frontend.snapshot(tmp / 'src' / 'park.json', tmp / 'snap', terrain_dir=park_path.parent / 'data')
         scene = frontend.compile_snapshot(snap, tmp / 'mesh', timeout=600)
         scene.metadata['_dir'] = str(tmp / 'mesh')
+        decals = {p['id']: material for p in chosen['pieces'] for key, material in DECALS.items()
+                  if p['type'] == 'bowl' and key in (p.get('name') or '')}
         parts, keep = [], []
         for piece in scene.pieces:
-            parts += piece_mesh(piece)
+            parts += piece_mesh(piece, decals.get(piece.metadata['id']))
             keep.append(piece.mesh.V)
         keep = np.concatenate(keep)
         # the editor's chosen terrain layer, before the pieces cut it
@@ -198,8 +250,8 @@ def main(argv=None):
         heights, weight = ground_grid(scene, keep, base.reshape(terrain['nz'], terrain['nx']).astype('f8'))
         grid = {k: scene.metadata['ground_grid'][k] for k in ('x0', 'z0', 'G', 'nx', 'nz')}
         supports, support_summary = editor_supports.build(scene.pieces, heights, grid)
-        print(f"CRATERPARK EDITOR supports: {support_summary['towers']} basalt towers "
-              f"({support_summary['columns']} columns), {support_summary['bents']} timber bents", flush=True)
+        print(f"CRATERPARK EDITOR supports: stone viaducts, {support_summary['piers']} piers, "
+              f"{support_summary['arches']} arches, {support_summary['metres']} m", flush=True)
         parts += supports
         caps = {p['id']: (p.get('params') or {}).get('vert_assist_max') for p in chosen['pieces']}
         copings, rails, coping_summary = editor_coping.build(scene.pieces, caps)

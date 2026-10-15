@@ -1,0 +1,39 @@
+{
+  "model": "gpt-image-2.5-sunburst",
+  "prompt": "Image 1 shows the art direction of a stylised game: soft painterly shapes, flat matte colour. Paint a seamless tileable texture in that style, seen from directly above, perfectly flat and straight-on, filling the square edge to edge: no perspective, no horizon, no object outline, no shadows or lighting gradient, even brightness everywhere, no text, repeating seamlessly on all four sides. Hand-painted like the background art of a Japanese animated film, soft strokes, medium detail that holds up when repeated over a large area, no photographic grime or noise. The surface: a warm honey-tan wooden skate ramp surface as in Image 1: long smooth sanded boards laid side by side, every board running straight across the frame from left to right, eight boards stacked from top to bottom, thin soft darker seams between them and a few staggered butt joints, each board a slightly different warm tone, very fine soft straight grain; no knots, no nails, no screws, no swirls.",
+  "references": {
+    "build/yorimichi/craterpark/restyle/style-ramps.png": "19f9f9ebf8cc7eba0b09549fb3cf133463451b340e207db49b33b574682376d6"
+  },
+  "texture": "textures/ramp_planks.png",
+  "purpose": "Crater Park restyle texture",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/edits",
+  "prompt_sha256": "97dce20f29607ee0cea546fd70fafd72f1c036b64f87ee1e7ed1fb6d984d3e88",
+  "status": "done",
+  "started_at": "2026-10-15T16:26:49.782771+00:00",
+  "output": "ramp_planks.png",
+  "output_sha256": "1e11266653312453c3d37d51893884c3c2e333a69e60e02e839d61f0d09974e8",
+  "usage": {
+    "input_tokens": 743,
+    "input_tokens_details": {
+      "image_tokens": 525,
+      "text_tokens": 218
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 2499
+  },
+  "elapsed_seconds": 42.2,
+  "finished_at": "2026-10-15T16:27:32.023105+00:00",
+  "compact": {
+    "file": "ramp_planks.jpg",
+    "size": "1024x1024",
+    "jpeg_quality": 92,
+    "chroma": "4:4:4"
+  }
+}

@@ -2901,6 +2901,10 @@
       "bytes": 287904,
       "sha256": "f8e603fed325f7c95408bd751987a3c396e62e49bf0d99871190896692272194"
     },
+    "craterpark/restyle/masonry.jpg": {
+      "bytes": 329001,
+      "sha256": "ea49637a514a45466b6d177f229d79900b5a1082aee460b8654c20162d98c0be"
+    },
     "craterpark/restyle/paving.jpg": {
       "bytes": 223045,
       "sha256": "eb44cb3a4d62b60c9dfcea8452bb45e8878150ae9557c3847a1c454e10fdfe50"
@@ -2913,9 +2917,17 @@
       "bytes": 264038,
       "sha256": "3ac0ce1f60677d72dd332ed41247f2bffb46cddb9ed95091bb18bc900c9e4f82"
     },
+    "craterpark/restyle/prado.jpg": {
+      "bytes": 412948,
+      "sha256": "c6d918188cf57c30b213ace43c169a959974f3ec05c6cbef5a5d2adac0f0ffb9"
+    },
     "craterpark/restyle/ramp_boards.jpg": {
       "bytes": 258572,
       "sha256": "39724567401c22dee17d1bd9d37923536c14819bc29a67ddf7d98e5661174853"
+    },
+    "craterpark/restyle/ramp_planks.jpg": {
+      "bytes": 189697,
+      "sha256": "fb17f7653609c806032e75ed63aa3ac47e79e9ba47e0bb28e2e458349533a563"
     },
     "craterpark/restyle/retaining_wall.jpg": {
       "bytes": 490019,

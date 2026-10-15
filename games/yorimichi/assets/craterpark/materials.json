@@ -343,5 +343,32 @@
     "doubleSided": false,
     "wrap": "repeat",
     "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_029",
+    "baseColor": [0.35, 0.36, 0.39],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_030",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/ramp_planks.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_031",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/prado.png",
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
   }
 ]

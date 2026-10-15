@@ -52,6 +52,9 @@ STYLES = {
     'plaza': (CONCEPTS / 'paintover-dropin.jpg', (0, 560, 1536, 1024)),
     'bowls': (CONCEPTS / 'paintover-bowls.jpg', (0, 420, 900, 1024)),
     'rock': (MEGAPARK / 'concepts' / 'improve-riding.jpg', (0, 330, 820, 1024)),
+    # the editor park's approved concepts: a viaduct pier, and a ramp's boards
+    'viaduct': (CONCEPTS / 'editor' / 'support-design-viaduct.jpg', (1080, 90, 1536, 700)),
+    'ramps': (CONCEPTS / 'editor' / 'prado-graphics-layout.jpg', (1150, 690, 1536, 1024)),
 }
 SURFACE = ('Image 1 is a tileable texture from a skate park in a stylised game, stretched to fill this frame. Image 2 '
            'shows the art direction of the game: soft painterly shapes, flat matte colour, clean well-kept surfaces, pale '
@@ -138,6 +141,11 @@ WORLD_PAINTINGS = {
     'basalt': ('rock', 'blend', 'the side of a tall columnar basalt cliff: dark blue-grey volcanic basalt columns standing '
                'side by side in long vertical stripes with crisp narrow joints, faint horizontal cracks, soft lighter '
                'grey edges, a few small patches of yellow-green moss and pale lichen; no snow, no sky, no ground'),
+    # the editor park's viaduct supports (v2/editor_supports.py), after concepts/editor/support-design-viaduct.jpg
+    'masonry': ('viaduct', 'edges', 'the wall of a mountain viaduct as in Image 1: squarish warm charcoal-grey and '
+                'grey-brown basalt blocks of slightly varied sizes in rough courses, soft rounded worn edges, thin joints '
+                'only a little lighter than the stone so they stay subtle, gentle painterly variation from block to block, '
+                'two or three tiny yellow-green moss tufts; not blue, no bright mortar grid, no snow'),
     'cast_concrete': ('bowls', 'edges', 'a large smooth cast-concrete wall in pale warm grey, faint rectangular formwork panel '
                       'joints in a regular grid of four equal panels, very subtle soft tonal variation, clean'),
 }
@@ -151,6 +159,34 @@ WORLD_ALIGNED = {
     'material_026': ('cast_concrete', 4, (148, 142, 132)),      # bridge supports
     'material_027': ('megapark:rock', 10, (150, 146, 152)),     # the edge guard (darker read as black shards in shade)
     'material_028': ('basalt', 6, (104, 106, 114)),             # editor-park basalt support towers
+    'material_029': ('masonry', 5, (104, 98, 94)),             # editor-park viaduct supports
+}
+# slug: (texture, style, how it is made to wrap, description, palette mean sRGB) of the UV-mapped textures painted from
+# nothing: a material whose texture is `texture` gets the painting on its own UVs (the editor ramps' boards, laid along
+# each piece: v2/editor_generate.piece_uv)
+UV_PAINTINGS = {
+    'ramp_planks': ('textures/ramp_planks.png', 'ramps', 'edges', 'a warm honey-tan wooden skate ramp surface as in '
+                    'Image 1: long smooth sanded boards laid side by side, every board running straight across the frame '
+                    'from left to right, eight boards stacked from top to bottom, thin soft darker seams between them and a '
+                    'few staggered butt joints, each board a slightly different warm tone, very fine soft straight grain; '
+                    'no knots, no nails, no screws, no swirls', WOOD),
+}
+# slug: (texture, plan, concept, size, description) of the decals painted onto one piece's own plan: the plan (a top-down
+# render of the piece, v2/editor_generate.decal_frame) is Image 1 and the approved concept Image 2; the painting is laid
+# over the piece from above (editor_generate.decal_uv), so it is never tiled
+DECALS = {
+    'prado': ('textures/prado.png', CONCEPTS / 'editor' / 'prado-plan.png', CONCEPTS / 'editor' / 'prado-graphics-layout.jpg',
+              '1024x1536', 'Image 1 is the exact top-down plan of a concrete skate bowl called Prado, seen straight down: '
+              'the flat floor is light, the curved transition walls darken toward the rim, the mid-grey ring round it is '
+              'the flat deck, the thin dark line near the bottom is a spine, and everything black is outside the bowl. '
+              'Image 2 is the approved design for its graphics. Paint the bowl\'s surface as a flat texture that fits '
+              'Image 1 exactly, straight down, no perspective, no shadows, no lighting, keeping every edge exactly where it '
+              'is: a smooth pale warm cream concrete floor; a big golden-yellow sun with soft rays on the floor in the '
+              'upper wide part; sweeping deep blue and teal wave bands with a few orange accents following the walls all '
+              'round; the word PRADO in big rounded navy-blue letters across the middle of the floor, reading left to '
+              'right, upright with the top of the image at the top; a band of glazed terracotta tiles right along the '
+              'rim where the walls meet the deck; the deck ring pale grey concrete; outside the bowl plain black. '
+              'Hand-painted like the background art of a Japanese animated film, clean, soft, flat matte colour'),
 }
 # Surfaces finished from another surface's painting: slug: (painting, palette mean sRGB). The snake run's box tops carry
 # the irregular-stone texture (material_003), but the paintovers make them wooden decks.
@@ -209,6 +245,12 @@ def job(slug):
         size = size_for(*Image.open(SOURCE / texture).size)
         refs = [stretched(slug, texture, size), style(key)]
         return SURFACE + text + '.', size, refs, {'original': {texture: sha((SOURCE / texture).read_bytes())}}
+    if slug in DECALS:
+        texture, plan, concept, size, text = DECALS[slug]
+        return text + '.', size, [plan, concept], {'texture': texture}
+    if slug in UV_PAINTINGS:
+        texture, key, _, text, _ = UV_PAINTINGS[slug]
+        return WORLD + text + '.', '1024x1024', [style(key)], {'texture': texture}
     key, _, text = WORLD_PAINTINGS[slug]
     return WORLD + text + '.', '1024x1024', [style(key)], {'materials': sorted(
         m for m, (s, *_) in WORLD_ALIGNED.items() if s == slug)}
@@ -269,7 +311,7 @@ def paint_one(slug):
 
 
 def paint(only, redo, jobs, dry):
-    slugs = [s for s in list(SURFACES) + list(WORLD_PAINTINGS) if not only or s in only]
+    slugs = [s for s in list(SURFACES) + list(WORLD_PAINTINGS) + list(UV_PAINTINGS) + list(DECALS) if not only or s in only]
     if dry:
         for slug in slugs:
             prompt, size, refs, _ = job(slug)
@@ -416,6 +458,19 @@ def finish():
             a, gain = detail(a, mean)
             note += f', mean {list(mean)}, detail x{gain:.2f}'
         report['textures'][texture] = {**save(slug, a), 'slug': slug, 'how': note}
+    for slug, (texture, _, _, size, _) in DECALS.items():
+        src = PAINTED / f'{slug}.jpg'
+        if not src.exists():
+            print('not painted yet:', slug); continue
+        a = load(src, tuple(map(int, size.split('x'))))
+        report['textures'][texture] = {**save(slug, a), 'slug': slug, 'how': 'a decal on its piece, not tiled'}
+    for slug, (texture, _, how, _, mean) in UV_PAINTINGS.items():
+        src = PAINTED / f'{slug}.jpg'
+        if not src.exists():
+            print('not painted yet:', slug); continue
+        a, gain = detail(srgb(tile(lin(load(src, (1024, 1024))), 'xy', how)), mean)
+        report['textures'][texture] = {**save(slug, a), 'slug': slug,
+                                       'how': f'painted, wraps xy ({how}), mean {list(mean)}, detail x{gain:.2f}'}
     for material, (slug, metres, mean) in WORLD_ALIGNED.items():
         src = (MEGAPARK / 'restyle' / f'{slug.split(":")[1]}.jpg') if slug.startswith('megapark:') else PAINTED / f'{slug}.jpg'
         if not src.exists():
@@ -439,7 +494,7 @@ def main():
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
     only = {s for s in args.only.split(',') if s}
-    unknown = only - set(SURFACES) - set(WORLD_PAINTINGS)
+    unknown = only - set(SURFACES) - set(WORLD_PAINTINGS) - set(UV_PAINTINGS) - set(DECALS)
     if unknown:
         parser.error(f'unknown slugs {sorted(unknown)}')
     if args.command == 'paint':

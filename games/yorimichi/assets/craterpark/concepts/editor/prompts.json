@@ -94,5 +94,29 @@
       "assets/craterpark/concepts/paintover-bowls.jpg"
     ],
     "prompt": "Use case: art-direction paintover for a stylized open-world game. Image 1 is an in-game screenshot. Keep its camera, horizon, field of view, terrain, buildings and every object exactly where they are. Image 2 is the game's art direction: keep its soft, painterly style, warm light and palette. This view is from the roll-in tower of the skate ramps at the volcano's crater rim, inside a lenticular cap cloud that sits on the summit. Paint the ramps as warm wooden skate ramps. Around the rider the cloud is a thin, luminous, translucent haze: the ramps and nearby rock are crisp, and the world beyond (the valley, the distant town of Belmonte, forests and sea) is still visible but softly blurred and veiled, as if seen through frosted glass, with bright sunlit wisps and layered cloud lenses curving overhead and below the rim. Dreamy, airy, high-altitude mood, but still clear enough to skate. No text, no UI."
+  },
+  {
+    "id": "support-design-piers",
+    "prompt": "Use case: art-direction design for the support structures of a skate park in a stylized open-world game. Image 1 is an in-game screenshot: giant wooden skate ramps and a mega gap high on a volcano's crater rim, floating with nothing under them. Keep its camera, horizon, field of view, terrain and every ramp exactly where and how they are: do not move, reshape or remove any riding surface. Image 2 is the approved art direction: keep its soft painterly style, warm light, dark blue-grey columnar basalt, snow patches, yellow-green moss and autumn shrubs, and paint the ramps as warm wooden ramps with thin steel coping. The supports must look designed, calm and monumental, never like a forest of thin sticks: FEW large solid forms, each clearly readable, rising from the ground to meet the underside of the ramps. Design: a few monolithic basalt piers, widely spaced (about one every 40 to 50 metres), each a single massive solid pier as wide as the ramp, gently tapering upward and flaring into a broad capital that cradles the ramp's underside, its surface faceted with subtle vertical basalt column joints, its foot merging into a skirt of boulders and talus. No thin posts, no scaffolding.",
+    "references": [
+      "build/yorimichi/craterpark/shots/mega_side_a/view.png",
+      "assets/craterpark/concepts/editor/supports-rock.jpg"
+    ]
+  },
+  {
+    "id": "support-design-viaduct",
+    "prompt": "Use case: art-direction design for the support structures of a skate park in a stylized open-world game. Image 1 is an in-game screenshot: giant wooden skate ramps and a mega gap high on a volcano's crater rim, floating with nothing under them. Keep its camera, horizon, field of view, terrain and every ramp exactly where and how they are: do not move, reshape or remove any riding surface. Image 2 is the approved art direction: keep its soft painterly style, warm light, dark blue-grey columnar basalt, snow patches, yellow-green moss and autumn shrubs, and paint the ramps as warm wooden ramps with thin steel coping. The supports must look designed, calm and monumental, never like a forest of thin sticks: FEW large solid forms, each clearly readable, rising from the ground to meet the underside of the ramps. Design: an elegant viaduct of dark volcanic stone under the long ramps: tall solid piers linked by wide round arches, like an old mountain railway aqueduct, the arches spanning 30 to 50 metres, the ramp running on top of the arcade, the masonry in dark basalt blocks with lighter mortar, moss on the ledges; under the mega gap's kicker and landing two great buttressed piers.",
+    "references": [
+      "build/yorimichi/craterpark/shots/mega_side_a/view.png",
+      "assets/craterpark/concepts/editor/supports-rock.jpg"
+    ]
+  },
+  {
+    "id": "support-design-fins",
+    "prompt": "Use case: art-direction design for the support structures of a skate park in a stylized open-world game. Image 1 is an in-game screenshot: giant wooden skate ramps and a mega gap high on a volcano's crater rim, floating with nothing under them. Keep its camera, horizon, field of view, terrain and every ramp exactly where and how they are: do not move, reshape or remove any riding surface. Image 2 is the approved art direction: keep its soft painterly style, warm light, dark blue-grey columnar basalt, snow patches, yellow-green moss and autumn shrubs, and paint the ramps as warm wooden ramps with thin steel coping. The supports must look designed, calm and monumental, never like a forest of thin sticks: FEW large solid forms, each clearly readable, rising from the ground to meet the underside of the ramps. Design: tall solid rock fins: each support is one thick blade-shaped wall of dark basalt set along the ramp's direction, as long as 20 to 30 metres, rising from the slope to the ramp's underside, with a sculpted flowing silhouette and one large rounded opening through its middle; few fins, widely spaced, reading like natural lava rock sculpted by wind.",
+    "references": [
+      "build/yorimichi/craterpark/shots/mega_side_a/view.png",
+      "assets/craterpark/concepts/editor/supports-rock.jpg"
+    ]
   }
 ]
