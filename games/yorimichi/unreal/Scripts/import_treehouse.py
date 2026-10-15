@@ -206,9 +206,10 @@ def trees(report):
         top = lambda m: m.get_bounding_box().max.z / 100          # metres; the tree's crown top from trees.json
         if E.does_asset_exist(path) and (slots(E.load_asset(path)) != want or E.load_asset(path).get_num_lods() != 1): E.delete_asset(path)
         if not E.does_asset_exist(path):
-            assert E.duplicate_asset('/Engine/BasicShapes/Cube', path), name
-            # Start with exactly one source model before importing the authored tree.
-            E.load_asset(path).set_num_source_models(1)
+            # Seed a new tree from an owned FBX on disk (as the other trees above do), never the engine cube: its import
+            # data names a source file that does not exist here, so the reimport asks for a file dialog and the commandlet
+            # crashes (SIGSEGV in FDesktopPlatformMac::FileDialogShared).
+            helper['import_mesh'](PLACEHOLDER, '/Game/Japan/Assets', name)
         mesh = helper['import_mesh'](src/f'{name}.fbx', '/Game/Japan/Assets', name, fresh_slots=True)
         if abs(top(mesh)-d['crown_hi']) > .5:
             # A seed without FBX import data can skip the first unit
