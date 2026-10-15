@@ -1,0 +1,473 @@
+"""Small analytic checks; native Session proof is an explicit separate command."""
+from pathlib import Path
+import sys
+import numpy as np
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
+from park_line_geometry import LineWorld, Path2D, RouteProgress
+from park_line_metrics import analyze
+from validate_park_lines import validate_speeds
+from park_line_controller import LineFollower
+from park_line_gaps import validate_gap_specs
+
+
+def test_profile_lane_keeps_endpoints_and_gap(tmp_path):
+    world = LineWorld(dict(path=[[0,0],[0,100]], sections=[
+        dict(id='takeoff',role='takeoff',start_m=0,profile=dict(y=0,parts=[['line',5],['arc',10,30]])),
+        dict(id='land',role='landing',start_m=40,knots=[[0,2,-20],[20,0,0]])]), tmp_path)
+    assert np.all(world.normal[:,1]>0)
+    assert world.support([0,.2,2])['surface']=='takeoff'
+    assert world.support([0,10,25],drop=20) is None
+    assert world.support([0,2.2,40])['surface']=='land'
+    assert np.isclose(world.triangles[:,:,2].max(),60)
+    assert np.allclose(world.spawn()[0],[0,.05,1])
+
+
+def test_path_projection_and_heading():
+    path = Path2D([[0,0],[10,0],[10,10]])
+    s, lateral = path.project(np.array([[3,0,2],[12,0,7]]))
+    assert np.allclose(s,[3,17]) and np.allclose(lateral,[2,2])
+    p,d = path.at(12)
+    assert np.allclose(p,[10,2]) and np.allclose(d,[0,1])
+
+
+def test_continuous_progress_keeps_the_return_leg_at_a_plan_crossing():
+    path=Path2D([[0,0],[0,20],[20,20],[20,0],[0,0],[0,-20]])
+    tracker=RouteProgress(path,0.)
+    progress=[]
+    for station in np.arange(0.,path.s[-1]+.25,.5):
+        p,_=path.at(station)
+        s,error=tracker.update([p[0],0.,p[1]],30.)
+        progress.append(s)
+        assert s==pytest.approx(station) and error<1e-8
+    assert progress[-1]==pytest.approx(100.)
+    assert path.project(np.array([[0.,0.,0.]]))[0][0]==0.
+
+
+def test_tracker_cannot_turn_a_shortcut_into_a_completed_route():
+    path=Path2D([[0,0],[0,20],[20,20],[20,0],[0,0],[0,-20]])
+    tracker=RouteProgress(path,0.)
+    station,error=tracker.update([0.,0.,-20.],20.)
+    assert station<3.1 and error>=20.
+
+
+def test_triangle_surface_tags(tmp_path):
+    world=LineWorld(dict(path=[[0,0],[0,2]],triangles=[[[0,0,0],[0,0,2],[2,0,0]]],
+                        surface_regions=[dict(id='floor',role='runout',faces=[0])],spawn=[.2,.05,.2]),tmp_path)
+    assert world.support([.2,.1,.2])['role']=='runout'
+
+
+class FixtureWorld:
+    def __init__(self, role='landing', width=80):
+        self.spec={'finish_s_m':35,'acceptance':{'landing_recovery_s':.3}}
+        self.path=Path2D([[0,0],[0,100]])
+        self.width=80;self.design_width=width;self.sections={}
+        self.finish_m=35
+        self.role=role
+    def support(self,p):
+        if p[2]<5:
+            return dict(surface='takeoff',role='takeoff',normal=[0,1,0])
+        angle=np.radians(20 if self.role=='landing' else 0)
+        return dict(surface='landing',role=self.role,normal=[0,float(np.cos(angle)),float(np.sin(angle))])
+
+
+def flight_rows():
+    rows=[]
+    for i in range(80):
+        ground=i<10 or i>=50
+        # 0.67s artificial air, 32m horizontal; incoming slope matches a -20 degree landing.
+        z=float(i*.8)
+        velocity=[0,-20*np.tan(np.radians(20)) if i>=40 else 3,20]
+        rows.append(dict(time_s=(i+1)/60,position=[0,1,z],velocity=velocity,
+                         state='PhysicsGround' if ground else 'PhysicsAir',buttons=0))
+    return rows
+
+
+def test_authored_width_zone_does_not_expand_the_earlier_narrow_lane():
+    world=FixtureWorld(width=18)
+    world.corridor_zones=[dict(start_s_m=20.,end_s_m=80.,width_m=30.)]
+    rows=flight_rows()
+    for row in rows:
+        if row['position'][2]>=20.:row['position'][0]=12.
+    result=analyze(rows,world)
+    assert result['max_corridor_excess_m']==0
+    rows[5]['position'][0]=12.
+    result=analyze(rows,world)
+    assert result['max_corridor_excess_m']==pytest.approx(3.)
+    assert 'rider left the designed rideable corridor' in result['failures']
+
+
+@pytest.mark.parametrize('zones',[
+    [dict(start_s_m=10,end_s_m=110,width_m=30)],
+    [dict(start_s_m=10,end_s_m=30,width_m=float('nan'))],
+    [dict(start_s_m=10,end_s_m=30,width_m=30),dict(start_s_m=20,end_s_m=40,width_m=18)]])
+def test_invalid_corridor_width_zones_fail_before_a_trial(tmp_path,zones):
+    with pytest.raises(ValueError,match='corridor'):
+        LineWorld(dict(path=[[0,0],[0,100]],triangles=[[[0,0,0],[0,0,2],[2,0,0]]],corridor_zones=zones),tmp_path)
+
+
+def test_verified_landing_passes_and_flat_landing_fails():
+    result=analyze(flight_rows(),FixtureWorld())
+    assert result['passed'],result['failures']
+    assert result['airs'][0]['huge_air_pass']
+    result=analyze(flight_rows(),FixtureWorld('runout'))
+    assert not result['passed']
+    assert 'landing is not an intended sloped transition' in result['airs'][0]['failures']
+
+
+def test_unfinished_air_and_missing_recovery_fail():
+    assert not analyze(flight_rows()[:45],FixtureWorld())['passed']
+    result=analyze(flight_rows()[:52],FixtureWorld())
+    assert not result['passed']
+    assert 'insufficient observations after landing' in result['airs'][0]['failures']
+
+
+def test_normal_speed_peak_rejects_hard_impact_hidden_by_early_contact_response():
+    rows=flight_rows(); world=FixtureWorld()
+    normal=np.array(world.support([0,1,40])['normal'])
+    tangent=np.array([0,-np.sin(np.radians(20)),np.cos(np.radians(20))])*20
+    # Earlier flight and grounded velocities are outside the three airborne frame window.
+    for frame,normal_speed in [(46,30),(47,12),(48,6),(49,0),(50,40)]:
+        rows[frame]['velocity']=(tangent-normal*normal_speed).tolist()
+    result=analyze(rows,world)
+    air=result['airs'][0]
+    assert air['landing_normal_speed_mps']==pytest.approx(0,abs=1e-12)
+    assert air['landing_normal_speed_peak_3frames_mps']==pytest.approx(12)
+    assert not air['safe_landing_pass']
+    assert 'landing normal speed exceeds the impact limit' in air['failures']
+    rows[47]['velocity']=(tangent-normal*6.5).tolist()
+    assert analyze(rows,world)['airs'][0]['safe_landing_pass']
+    world.support=lambda p:None
+    assert analyze(rows,world)['airs'][0]['landing_normal_speed_peak_3frames_mps'] is None
+
+
+@pytest.mark.parametrize('limit', [0., -1., 7.01, float('inf'), float('nan')])
+def test_impact_limit_cannot_be_disabled_or_relaxed(limit):
+    world=FixtureWorld()
+    world.spec={**world.spec, 'acceptance': {'max_landing_normal_speed_mps':limit}}
+    with pytest.raises(ValueError,match='at most 7'):
+        analyze(flight_rows(),world)
+
+
+def test_bail_and_diagnostic_width_do_not_pass():
+    rows=flight_rows();rows[55]['state']='Wipeout'
+    assert not analyze(rows,FixtureWorld())['passed']
+    rows=flight_rows()
+    for r in rows:r['position'][0]=8
+    result=analyze(rows,FixtureWorld(width=10))
+    assert 'rider left the designed rideable corridor' in result['failures']
+
+
+def test_gravity_corrected_bump_and_brake_exclusion():
+    rows=[dict(time_s=(i+1)/60,position=[0,0,i*.15],velocity=[0,0,10 if i<40 else 6],
+               state='PhysicsGround',buttons=0) for i in range(80)]
+    result=analyze(rows,FixtureWorld())
+    assert result['bump_candidates'] and result['bump_candidates'][0]['gravity_corrected_loss_mps']>=4
+    for r in rows:r['buttons']=0x2000
+    assert not analyze(rows,FixtureWorld())['bump_candidates']
+
+
+def test_brief_lip_support_gap_uses_recent_ground_but_unknown_landing_fails():
+    world=FixtureWorld();base=world.support
+    world.support=lambda p:None if 6.4<=p[2]<8 else base(p)
+    result=analyze(flight_rows(),world)
+    assert result['passed']
+    assert result['unknown_ground_support_frames']==2
+    assert result['airs'][0]['takeoff_support_frame']==7
+    world.support=lambda p:None if p[2]>=39 else base(p)
+    result=analyze(flight_rows(),world)
+    assert not result['passed']
+    assert 'landing support unknown' in result['airs'][0]['failures']
+
+
+def test_triangle_mesh_finish_defaults_to_path_end(tmp_path):
+    world=LineWorld(dict(path=[[0,0],[0,20]],triangles=[[[0,0,0],[0,0,20],[20,0,0]]],
+                        surface_regions=[dict(id='floor',role='runout',faces=[0])],spawn=[.2,.05,.2]),tmp_path)
+    assert world.finish_m==18
+
+
+def test_empty_or_invalid_sweep_cannot_pass_without_trials():
+    for speeds in ([],[-1],[float('nan')],[float('inf')]):
+        with pytest.raises(ValueError):
+            validate_speeds(speeds)
+    assert validate_speeds([0,10])==[0,10]
+
+
+def test_follower_corrects_cross_track_and_rotates_with_path():
+    first=LineFollower(Path2D([[0,0],[0,100]]),{})
+    rotated=LineFollower(Path2D([[0,0],[100,0]]),{})
+    a=dict(state='PhysicsGround',position=[2,0,10],velocity=[0,0,12])
+    b=dict(state='PhysicsGround',position=[10,0,-2],velocity=[12,0,0])
+    assert first.steering(a)>0
+    assert first.previous==pytest.approx(rotated.steering(b)/32767,abs=1/32767)
+
+
+def test_follower_never_steers_in_air_or_offboard():
+    follower=LineFollower(Path2D([[0,0],[0,100]]),{})
+    row=dict(state='PhysicsGround',position=[2,0,10],velocity=[0,0,12])
+    assert follower.steering(row)>0
+    for state in ('PhysicsAir','WipeoutAir','BipedGround','Teleporting'):
+        assert follower.steering({**row,'state':state})==0
+        assert follower.previous==0
+    assert follower.steering({**row,'velocity':[0,0,0]})==0
+
+
+def test_follower_input_is_bounded_and_invalid_settings_rejected():
+    path=Path2D([[0,0],[0,100]])
+    follower=LineFollower(path,dict(max_stick=.4,smoothing_seconds=.001))
+    value=follower.steering(dict(state='PhysicsGround',position=[30,0,10],velocity=[12,0,0]))
+    assert abs(value)<=round(.4*32767)
+    assert follower.report()['saturated_frames']==1
+    for config in ({'gain':0},{'max_stick':2},{'lookahead_m':float('nan')},{'mode':'teleport'},{'unknown':1}):
+        with pytest.raises(ValueError):
+            LineFollower(path,config)
+
+
+def paired_flights():
+    world=FixtureWorld()
+    world.path=Path2D([[0,0],[0,200]])
+    world.finish_m=95
+    world.sections={name:dict(role=role) for name,role in
+                    [('launch1','takeoff'),('land1','landing'),('launch2','takeoff'),('land2','landing')]}
+    world.spec['required_airs']=[
+        dict(id='hero',takeoff='launch1',landing='land1',knuckle_s_m=36,knuckle_y_m=-2,
+             landing_end_s_m=60,min_knuckle_margin_m=3,min_air_m=25),
+        dict(id='secondary',takeoff='launch2',landing='land2',knuckle_s_m=86,
+             landing_end_s_m=100,min_knuckle_margin_m=3)]
+    def support(p):
+        name='launch1' if p[2]<10 else 'land1' if p[2]<65 else 'launch2' if p[2]<77 else 'land2'
+        return dict(surface=name,role=world.sections[name]['role'],
+                    normal=[0,float(np.cos(np.radians(20))),float(np.sin(np.radians(20)))])
+    world.support=support
+    rows=flight_rows()
+    for row in flight_rows():
+        rows.append({**row,'time_s':row['time_s']+80/60,
+                     'position':[0,1,70+row['position'][2]/2]})
+    return rows,world
+
+
+def test_secondary_gap_can_be_shorter_while_hero_remains_required():
+    rows,world=paired_flights()
+    report=analyze(rows,world)
+    assert report['passed'],report['failures']
+    assert [a['huge_air_pass'] for a in report['airs']]==[True,False]
+    assert all(g['passed'] for g in report['gap_checks'])
+    assert report['gap_checks'][0]['vertical_clearance_at_knuckle_m']==pytest.approx(3)
+    assert report['gap_checks'][1]['touchdown_margin_m']==pytest.approx(4)
+    world.spec.pop('required_airs')
+    assert not analyze(rows,world)['passed']  # legacy required_takeoffs still demand huge airs
+    rows,world=paired_flights()
+    world.spec['required_airs']=world.spec['required_airs'][1:]
+    world.spec['required_takeoffs']=['launch2']
+    for row in rows[:80]:row['state']='PhysicsGround'
+    assert 'no completed qualifying huge air' in analyze(rows,world)['failures']
+
+
+@pytest.mark.parametrize('change,expected',[
+    ('wrong_receiver','named receiver'),('close_knuckle','too close'),
+    ('overshoot','beyond the intended'),('speed','takeoff speed'),
+    ('missing','no observed flight'),('order','declaration order'),
+    ('bail','safety checks')])
+def test_gap_gate_does_not_hide_bad_secondary_with_successful_hero(change,expected):
+    rows,world=paired_flights()
+    spec=world.spec['required_airs'][1]
+    if change=='wrong_receiver':spec['landing']='land1'
+    elif change=='close_knuckle':spec['knuckle_s_m']=88
+    elif change=='overshoot':spec['landing_end_s_m']=89
+    elif change=='speed':spec['min_takeoff_speed_mps']=100
+    elif change=='missing':
+        for row in rows[80:]:row['state']='PhysicsGround'
+    elif change=='order':world.spec['required_airs'].reverse()
+    elif change=='bail':rows[135]['state']='WipeoutGround'
+    report=analyze(rows,world)
+    assert not report['passed']
+    assert report['airs'][0]['huge_air_pass']
+    assert any(expected in f for g in report['gap_checks'] for f in g['failures'])
+
+
+@pytest.mark.parametrize('key,value',[
+    ('knuckle_s_m',float('nan')),('landing_end_s_m',201),('min_air_m',-1),
+    ('knuckle_y_m',float('inf')),('takeoff','missing'),('landing','launch1'),('typo',3)])
+def test_invalid_gap_requirement_fails_closed(key,value):
+    _,world=paired_flights();world.spec['required_airs'][0][key]=value
+    with pytest.raises(ValueError):validate_gap_specs(world)
+
+
+def test_follower_vert_zone_changes_inputs_without_retaining_the_prior_higher_limit():
+    path=Path2D([[0,0],[0,100]])
+    follower=LineFollower(path,dict(smoothing_seconds=.001,zones=[dict(start_s_m=20,end_s_m=40,gain=.5,max_stick=.2)]))
+    row=dict(state='PhysicsGround',position=[30,0,10],velocity=[0,0,20])
+    high=abs(follower.steering(row))
+    for z in np.arange(10.5,25.1,.5):limited=abs(follower.steering({**row,'position':[30,0,float(z)]}))
+    for z in np.arange(25.5,50.1,.5):restored=abs(follower.steering({**row,'position':[30,0,float(z)]}))
+    assert high>limited and limited<=round(.2*32767) and restored>limited
+    assert follower.steering({**row,'position':[30,0,25],'state':'PhysicsAir'})==0
+    assert follower.report()['zones'][0]['gain']==.5
+
+
+def test_follower_tracks_airborne_progress_while_keeping_inputs_neutral():
+    path=Path2D([[0,0],[0,100]])
+    follower=LineFollower(path,{},start_m=0.)
+    for z in np.arange(0.,40.,.5):
+        assert follower.steering(dict(state='PhysicsAir',position=[0.,5.,float(z)],velocity=[0.,0.,30.]))==0
+    assert follower.progress.station==pytest.approx(39.5)
+
+
+def test_follower_zones_reject_ambiguous_or_invalid_ranges():
+    path=Path2D([[0,0],[0,100]])
+    invalid=[dict(start_s_m=30,end_s_m=20),dict(start_s_m=0,end_s_m=101),
+             dict(start_s_m=0,end_s_m=10,max_stick=1.1),dict(start_s_m=0,end_s_m=10,gain=float('nan')),
+             dict(start_s_m=0,end_s_m=10,teleport=True)]
+    for zone in invalid:
+        with pytest.raises(ValueError):LineFollower(path,dict(zones=[zone]))
+    with pytest.raises(ValueError):
+        LineFollower(path,dict(zones=[dict(start_s_m=0,end_s_m=30),dict(start_s_m=20,end_s_m=40)]))
+
+
+def test_full_scene_capacity_requires_pinned_ancestor_and_held_lock(monkeypatch, tmp_path):
+    import errno
+    import json
+    import os
+    from types import SimpleNamespace
+    from atelier.safety import memory_guard, render_lock
+    import validate_park_lines as validator
+    path = tmp_path/'render.lock'
+    monkeypatch.setattr(render_lock, 'lock_path', lambda: path)
+    monkeypatch.setattr(render_lock, 'family', lambda pid: {123, os.getpid()})
+    current = SimpleNamespace(started=456, exited=False)
+    monkeypatch.setattr(memory_guard, 'usage', lambda pid: current)
+    monkeypatch.setattr(render_lock, 'usage', lambda pid: current)
+    assert validator.collision_capacity() == 100000
+    def denied(record):
+        path.write_text(json.dumps(record))
+        with pytest.raises(ValueError, match='owned live BIG'):
+            validator.collision_capacity(True)
+    denied({})
+    denied({'pid': 123, 'slot': 'big'})  # unpinned metadata is never enough
+    denied({'pid': 123, 'slot': 'small', 'started': 456})
+    denied({'pid': 123, 'slot': 'big', 'started': 455})
+    good = {'pid': 123, 'slot': 'big', 'started': 456}
+    denied(good)  # live pinned record, but the kernel lock is free
+    def held(fd, flags):
+        raise BlockingIOError(errno.EAGAIN, 'held by launcher')
+    monkeypatch.setattr(validator.fcntl, 'flock', held)
+    current.exited = True
+    denied(good)
+    current.exited = False
+    monkeypatch.setattr(render_lock, 'family', lambda pid: {123})
+    denied(good)
+    monkeypatch.setattr(render_lock, 'family', lambda pid: {123, os.getpid()})
+    denied({'pid': os.getpid(), 'slot': 'big', 'started': 456})
+    path.write_text(json.dumps(good))
+    assert validator.collision_capacity(True) == 250000
+    # A record replaced during the held-lock check cannot admit the job.
+    def replaced(fd, flags):
+        path.write_text(json.dumps({**good, 'started': 999}))
+        raise BlockingIOError(errno.EAGAIN, 'held')
+    monkeypatch.setattr(validator.fcntl, 'flock', replaced)
+    with pytest.raises(ValueError, match='owned live BIG'):
+        validator.collision_capacity(True)
+
+
+def test_native_session_guard_covers_startup_and_cleanup(monkeypatch, tmp_path):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    import io
+    from atelier.safety import guard, process
+    import validate_park_lines as validator
+    events = []
+    child = SimpleNamespace(pid=1234, stdout=io.StringIO(
+        '{"type":"ready","names":["SKATEBOARD_ROOT"]}\n'), stdin=io.StringIO(), alive=True)
+    child.poll = lambda: None if child.alive else 0
+    def wait(timeout):
+        events.append('wait'); child.alive = False; return getattr(child, 'exit_status', 0)
+    child.wait = wait
+    monitor = SimpleNamespace(poll=lambda: None)
+    def spawn(command, **options):
+        events.append('spawn'); return child
+    def reap(proc):
+        events.append('reap'); proc.alive = False
+    @contextmanager
+    def attach(pid, report, duration, limit_gib):
+        assert pid == child.pid and limit_gib == 10 and duration == 150
+        events.append('attach')
+        try: yield monitor
+        finally:
+            assert not child.alive
+            events.append('detach')
+    selector = SimpleNamespace(register=lambda *a: None, select=lambda timeout: [True], close=lambda: None)
+    monkeypatch.setattr(validator, 'guarded_big_holder', lambda: events.append('admit'))
+    monkeypatch.setattr(process, 'spawn', spawn)
+    monkeypatch.setattr(guard, 'reap', reap)
+    monkeypatch.setattr(guard, 'attach', attach)
+    monkeypatch.setattr(validator.selectors, 'DefaultSelector', lambda: selector)
+    monkeypatch.setattr(validator.feel, 'OUTPUT', tmp_path)
+    session = validator.ObservedSession('binary', 'package', {}, 'guarded')
+    assert events == ['admit', 'spawn', 'attach']
+    assert session.ready['type'] == 'ready'
+    monitor.poll = lambda: 1
+    with pytest.raises(RuntimeError, match='memory monitor'):
+        session.read()
+    with pytest.raises(RuntimeError, match='memory monitor'):
+        session.close()
+    assert events[-2:] == ['reap', 'detach']
+    assert session.log.closed
+    def fresh(name):
+        child.alive = True
+        child.stdout = io.StringIO('{"type":"ready","names":["SKATEBOARD_ROOT"]}\n')
+        monitor.poll = lambda: None
+        return validator.ObservedSession('binary', 'package', {}, name)
+    normal = fresh('normal')
+    normal.close()
+    assert events[-3:] == ['wait', 'reap', 'detach']
+    with pytest.raises(RuntimeError, match='one-shot'):
+        normal.start()
+    abnormal = fresh('abnormal')
+    child.alive = False
+    with pytest.raises(RuntimeError, match='before intentional shutdown'):
+        abnormal.close()
+    assert events[-2:] == ['reap', 'detach']
+    abnormal = fresh('nonzero')
+    child.exit_status = 7
+    with pytest.raises(RuntimeError, match='status 7'):
+        abnormal.close()
+    assert events[-2:] == ['reap', 'detach']
+    child.exit_status = 0
+    # A failure before ready still reaps the child while its guard is attached.
+    child.alive = True; child.stdout = io.StringIO('bad json\n'); monitor.poll = lambda: None
+    with pytest.raises(ValueError):
+        validator.ObservedSession('binary', 'package', {}, 'bad-ready')
+    assert not child.alive and events[-2:] == ['reap', 'detach']
+    # Attachment itself failing also unwinds ownership immediately.
+    child.alive = True
+    def fail_attach(*args, **kwargs):
+        raise RuntimeError('guard launch failed')
+    monkeypatch.setattr(guard, 'attach', fail_attach)
+    with pytest.raises(RuntimeError, match='guard launch failed'):
+        validator.ObservedSession('binary', 'package', {}, 'bad-attach')
+    assert not child.alive and events[-1] == 'reap'
+
+
+def test_collision_capacity_tiers_remain_bounded(tmp_path):
+    triangle = np.array([[[0.,0.,0.],[0.,0.,1.],[1.,0.,0.]]])
+    spec = dict(path=[[0.,0.],[0.,1.]], triangles=np.broadcast_to(triangle,(100001,3,3)))
+    with pytest.raises(ValueError, match='100,000'):
+        LineWorld(spec, tmp_path)
+    spec['triangles'] = np.broadcast_to(triangle, (250001,3,3))
+    with pytest.raises(ValueError, match='250,000'):
+        LineWorld(spec, tmp_path, triangle_limit=250000)
+    with pytest.raises(ValueError, match='capacity must'):
+        LineWorld(spec, tmp_path, triangle_limit=1000000)
+
+
+def test_exact_full_scene_capacity_is_constructed_without_a_larger_tier(monkeypatch, tmp_path):
+    import park_line_geometry as geometry
+    monkeypatch.setattr(geometry, 'normals', lambda triangles: (
+        np.tile([0., 1., 0.], (len(triangles), 1)), np.ones(len(triangles))))
+    monkeypatch.setattr(geometry, 'BVH', lambda triangles: object())
+    triangle = np.array([[[0.,0.,0.],[0.,0.,1.],[1.,0.,0.]]])
+    world = LineWorld(dict(path=[[0.,0.],[0.,1.]],
+                          triangles=np.broadcast_to(triangle,(250000,3,3))), tmp_path,
+                      triangle_limit=250000)
+    assert len(world.triangles) == 250000
