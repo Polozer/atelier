@@ -2,6 +2,7 @@
 import math
 import sys
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +13,12 @@ from craterpark.v2 import bowls, dsl, solids  # noqa: E402
 
 
 class SectionTests(unittest.TestCase):
+    def test_floor_ports_above_and_below_floor_have_finite_exact_endpoints(self):
+        for delta in (-1.8, 1.8):
+            section = bowls.flat_section(-6., -6. + delta, reach=3.)
+            self.assertAlmostEqual(section.reach, 3., places=8)
+            np.testing.assert_allclose(section.at([0., 1.]), [[3., -6.], [0., -6. + delta]], atol=1e-8)
+
     def test_wall_reaches_its_height_vertically(self):
         s = bowls.wall_section(-20.2, 10.2, 9., 1.2)
         self.assertAlmostEqual(s.height, 10.2, places=6)
@@ -40,6 +47,19 @@ class SectionTests(unittest.TestCase):
 
 
 class PortTests(unittest.TestCase):
+    def test_port_uses_built_end_instead_of_unbuilt_tail(self):
+        bowl = SimpleNamespace(id='crater_bowl', rim_y=0., floor_y=-10.)
+        line = SimpleNamespace(id='test', y0=20., path=SimpleNamespace(at=lambda s: (np.array([s, 0.]), np.array([1., 0.]))),
+                               features=[SimpleNamespace(width=18., s0=0., s1=40., kind='run')])
+        data = SimpleNamespace(BOWLS=[bowl], LINES=[line],
+                               knots=lambda line, step: [(0., 20., -10.), (20., 0., -5.), (40., -20., 0.)],
+                               build_stop=lambda line: 20.)
+        port = bowls.ports(data)[0]
+        self.assertEqual(port.kind, 'rim')
+        self.assertEqual(port.y, 0.)
+        self.assertEqual(port.slope_deg, -5.)
+        np.testing.assert_allclose(port.point, [20., 0.])
+
     def test_every_line_has_a_port_row_across_its_width(self):
         for p in bowls.ports():
             self.assertIn(p.kind, ('floor', 'rim', 'mid', 'skip'))

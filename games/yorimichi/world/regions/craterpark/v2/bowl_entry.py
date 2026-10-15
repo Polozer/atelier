@@ -57,13 +57,17 @@ def definition(*, gap=8., rise=1.8, lip=22., receiver_angle=14., crest_radius=16
     return Entry(path, parts, shared14.OUTLET_Y, gap, -rise)
 
 
-def build(entry=None):
+def build(entry=None, *, include_runout=True):
     """Build one kicker and one receiving channel, without a floor across the gap."""
     from .layout import pieces
     entry = definition() if entry is None else entry
     modules = []
     spans = pieces(entry.line())
     for i, (station, y, angle, parts) in enumerate(spans):
+        if i == len(spans) - 1 and not include_runout:
+            if parts[-1] != ('line', 25.):
+                raise ValueError('bowl transfer: the final 25 m must be supplied by the bowl floor')
+            parts = parts[:-1]
         width = WIDTH if i == 0 else RECEIVER_WIDTH
         half = width / 2.
         across = FLOOR_ACROSS if i == 0 else np.arange(-half, half + 1., 2.)

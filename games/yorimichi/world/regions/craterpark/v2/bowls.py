@@ -199,14 +199,19 @@ def port_row(point, heading, y, width):
 
 
 def ports(data=None, rows=None):
-    """Every line's port into the Crater Bowl, from layout's LINES: the end of the line's built profile (its last
-    knot). rows: {line id: (k, 3)} to use a built line's exact end row instead of the sampled one."""
+    """Every line's port at its actual built end, not its unbuilt profile tail.
+    rows: {line id: (k, 3)} supplies the built line's exact seam row.
+    """
     data = data or _layout()
     crater = _bowl(data, 'crater_bowl')
     out = []
     for line in data.LINES:
-        k = data.knots(line, .25)
-        s, y, a = k[-1]
+        k = np.asarray(data.knots(line, .25), 'f8')
+        s = float(data.build_stop(line)) if hasattr(data, 'build_stop') else float(k[-1, 0])
+        if any(f.kind == 'gap' and f.s0 + 1e-6 < s < f.s1 - 1e-6 for f in line.features):
+            raise ValueError(f'bowls: {line.id} ends inside an open gap')
+        y = float(np.interp(s, k[:, 0], k[:, 1]))
+        a = float(np.interp(s, k[:, 0], k[:, 2]))
         p, tg = line.path.at(s)
         width = max(f.width for f in line.features if f.s0 <= s + 1e-6) if line.features else 16.
         last = [f for f in line.features if f.s0 <= s + 1e-6]
@@ -305,11 +310,17 @@ def rollin_section(floor, H, top_deg, crest, foot=20., slope=25.):
 
 
 def flat_section(floor, top_y, reach=PORT_FLAT):
-    """A level strip (or the gentlest slope to a slightly higher line) into the bowl: a floor port."""
-    a = math.degrees(math.atan2(top_y - floor, reach))
-    if abs(a) < 1e-6:
+    """@cc [owner:fontanierh,label:correctness] signed-floor-port-section
+    A floor port above or below its floor MUST have a finite circular section
+    ending exactly at the requested horizontal reach and height. A lower port
+    MUST NOT produce an unbounded radius by clamping the sign of its angle.
+    """
+    h = top_y - floor
+    if abs(h) < 1e-8:
         return Section(floor, [('line', reach)])
-    return Section(floor, [('arc', 2 * reach / max(math.radians(a), 1e-6), a), ('line', 1e-3)])
+    radius = (reach * reach + h * h) / (2. * abs(h))
+    angle = math.degrees(2. * math.atan2(h, reach))
+    return Section(floor, [('arc', radius, angle)])
 
 
 # ---------------------------------------------------------------------------------------------------- the plan
@@ -381,7 +392,7 @@ def _bowl(data, name):
 
 def _crater_polygon(bowl, ports_):
     """The Crater's convex plan polygon: its size round its centre on its axis, extended to reach every port that
-    lies outside, and cut by every port inside, so each port is a straight edge."""
+    lies outside, and cut by every port's entry plane, so each port is a straight edge."""
     c = np.asarray(bowl.centre, 'f8'); ax = math.radians(bowl.axis)
     u = np.array([math.cos(ax), math.sin(ax)]); v = np.array([-u[1], u[0]])
     L, W = bowl.size[0] / 2, bowl.size[1] / 2
@@ -394,8 +405,7 @@ def _crater_polygon(bowl, ports_):
         a, b = p.point + half * left, p.point - half * left
         if sdf_polygon(p.point[None], rect)[0] > 0:
             pts += [a, b]                   # outside: the bowl grows to reach it (its edge is the hull's)
-        else:
-            cuts.append((p.heading, p.point))
+        cuts.append((p.heading, p.point))    # outside ports also need an exact seam plane
     P = convex_hull(np.asarray(pts))
     if _area(P) < 0:
         P = P[::-1]
@@ -527,7 +537,8 @@ class Loop:
     """A closed lip polyline, densely resampled (DS) and smoothed, with the bowl on its left: point, unit tangent,
     inward normal (into the bowl) and the turning per metre at any arc length t."""
 
-    def __init__(self, P, smooth=3):
+    def __init__(self, P, smooth=3, normal_span=.3):
+        self.normal_span = float(normal_span)
         P = np.asarray(P, 'f8')
         P = _resample(P, DS)
         for _ in range(smooth):                       # Taubin smoothing: no shrinking
@@ -540,7 +551,7 @@ class Loop:
         P = self.P
         seg = np.linalg.norm(np.roll(P, -1, 0) - P, axis=1)
         self.s = np.concatenate([[0.], np.cumsum(seg)]); self.length = float(self.s[-1])
-        k = max(1, int(round(.3 / DS)))
+        k = max(1, int(round(self.normal_span / DS)))
         T = np.roll(P, -k, 0) - np.roll(P, k, 0)
         self.T = T / np.maximum(np.linalg.norm(T, axis=1, keepdims=True), 1e-12)
         self.N = np.stack([-self.T[:, 1], self.T[:, 0]], 1)
@@ -630,7 +641,7 @@ def _zones(loop, ps, rim):
     for p in ps:
         tc = loop.locate(p.point)
         if np.linalg.norm(loop.point(tc) - p.point) > 1.:
-            continue
+            raise ValueError(f'bowls: {p.line} entry does not meet the bowl boundary')
         out.append((tc, p.width / 2 + PORT_PAD, p))
     return out
 
@@ -903,12 +914,14 @@ def compile_plan(pl, *, on_ground=False, inserts=()):
     loops, _ = outline(pl)
     if len(loops) < 1:
         raise ValueError('bowls: no outline')
-    outer = Loop(loops[0] if _area(loops[0]) > 0 else loops[0][::-1])
+    loop_options = dict(smooth=getattr(pl, 'outline_smooth', 3),
+                        normal_span=getattr(pl, 'outline_normal_span', .3))
+    outer = Loop(loops[0] if _area(loops[0]) > 0 else loops[0][::-1], **loop_options)
     for p in pl.ports:                                   # each port's straight lip
         a, b = p.row[0, [0, 2]], p.row[-1, [0, 2]]
         ext = (b - a) / np.linalg.norm(b - a) * PORT_PAD
         outer.snap(a - ext, b + ext)
-    inner = [Loop(L if _area(L) < 0 else L[::-1]) for L in loops[1:]]
+    inner = [Loop(L if _area(L) < 0 else L[::-1], **loop_options) for L in loops[1:]]
     # columns: enough for every section's tightest arc
     secs = [wall_section(0, *w) for w in pl.walls]
     for p in pl.ports:
@@ -926,8 +939,11 @@ def compile_plan(pl, *, on_ground=False, inserts=()):
         # An internal feature owns its floor footprint. Fill around its exact
         # foot loop, never underneath it: no buried or coincident riding faces.
         for foot in insert.foot:
-            if not solids._inside(np.asarray(foot)[:, [0, 2]], floor_loops[0][:, [0, 2]]).all():
-                raise ValueError(f'{insert.mesh.features[0]}: floor footprint leaves the receiving bowl floor')
+            inside = solids._inside(np.asarray(foot)[:, [0, 2]], floor_loops[0][:, [0, 2]])
+            if not inside.all():
+                bad = np.asarray(foot)[~inside]
+                raise ValueError(f'{insert.mesh.features[0]}: floor footprint leaves the receiving bowl floor; '
+                                 f'outside bounds {bad.min(0).tolist()} to {bad.max(0).tolist()}')
             floor_loops.append(foot)
     fV, fF = fill_plan(floor_loops, FLOOR_STEP[1], height=pl.floor,
                        step_fn=lambda Q: np.where(pl.bowl_of(Q) == 'bowl_channels', FLOOR_STEP[0], FLOOR_STEP[1]))
@@ -959,14 +975,47 @@ def compile_plan(pl, *, on_ground=False, inserts=()):
         steps = max(1, int(math.ceil(float((O[:, 1] - base_y).max()) / 2.5)))
         u = np.linspace(0., 1., steps + 1)
         G2 = O[:, None] * (1 - u[None, :, None]) + bot[:, None] * u[None, :, None]
+        # A floor-port closing edge has the receiver's two vertical endpoints.
+        # Collapse intermediate skirt samples there; otherwise removing the
+        # covered face leaves T-junctions against the receiver's end wall.
+        for p in pl.ports:
+            n = np.array([-p.heading[1], p.heading[0]])
+            lateral = (O[:, [0, 2]] - p.point) @ n
+            bounds = (p.row[:, [0, 2]] - p.point) @ n
+            at_port = (np.abs((O[:, [0, 2]] - p.point) @ p.heading) < 1e-7)
+            at_port &= (lateral >= bounds.min() - 1e-7) & (lateral <= bounds.max() + 1e-7)
+            at_port &= np.abs(O[:, 1] - p.y) < 1e-7
+            if p.kind == 'floor':
+                receiving_bottom = p.y - 1.5
+                if receiving_bottom < base_y - 1e-7:
+                    raise ValueError(f'bowls: {p.line} receiver bottom is below the bowl base')
+                if abs(receiving_bottom - base_y) < 1e-7:
+                    G2[at_port, 1:] = bot[at_port, None]
+                else:
+                    if steps < 2:
+                        raise ValueError('bowls: elevated floor port needs at least two skirt intervals')
+                    G2[at_port, 1:, 1] = np.linspace(receiving_bottom, base_y, steps)
         F, _ = _grid_faces(G2)
         V = G2.reshape(-1, 3)
+        t = V[F]; n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        F = F[np.linalg.norm(n, axis=1) > 1e-9]
         t = V[F]; n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
         cen = O[:, [0, 2]].mean(0)
         out = t.mean(1)[:, [0, 2]] - cen
         if (n[:, [0, 2]] * out).sum() < 0:
             F = F[:, ::-1]
-        parts.append(_part(V, F, material=dsl.CONCRETE, role=dsl.SIDE, feature='bowl_deck', features=features))
+        skirt = _part(V, F, material=dsl.CONCRETE, role=dsl.SIDE, feature='bowl_deck', features=features)
+        for p in pl.ports:
+            n = np.array([-p.heading[1], p.heading[0]])
+            lateral = (t[:, :, [0, 2]] - p.point) @ n
+            bounds = (p.row[:, [0, 2]] - p.point) @ n
+            covered = (np.abs((t[:, :, [0, 2]] - p.point) @ p.heading) < 1e-7).all(1)
+            covered &= (lateral.min(1) >= bounds.min() - 1e-7) & (lateral.max(1) <= bounds.max() + 1e-7)
+            if p.kind == 'floor':
+                covered &= t[:, :, 1].max(1) <= p.y + 1e-7
+                covered &= t[:, :, 1].min(1) >= p.y - 1.5 - 1e-7
+                skirt.role[covered] = dsl.ROLE[dsl.BASE]
+        parts.append(skirt)
         b = solids.polygon(bot, outward=np.array([0., -1., 0.]), feature='bowl_deck', role=dsl.BASE)
         parts.append(_part(b.V, b.F, material=dsl.CONCRETE, role=dsl.BASE, feature='bowl_deck', features=features))
     # coping: every plain-wall stretch of each lip (the islands' are closed loops)
