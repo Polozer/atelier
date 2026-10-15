@@ -103,3 +103,12 @@ def test_a_high_solid_deck_is_a_japanese_keep_with_a_torii_over_the_drop_in():
 def test_a_low_solid_deck_stays_a_deck():
     parts, summary = es.build([box_deck('t', 3.)], FLAT, GRID)
     assert summary['towers'] == [] and not parts
+
+
+def test_a_piece_whose_every_pier_would_stand_on_another_is_left_open():
+    # rev 110's mega air landing: every pier position under the high run lies on the piece below it
+    high, low = sheet('high', 40., length=120.), sheet('low', 10., length=120.)
+    parts, summary = es.build([high, low], FLAT, GRID)
+    V = vertices([p for p in parts if p.features[0] == 'high_supports'])
+    assert not len(V) or (V[:, 1] >= 10. + es.OVER - 1e-6).all(), 'no stone through the piece below'
+    assert np.isfinite(vertices(parts)).all()

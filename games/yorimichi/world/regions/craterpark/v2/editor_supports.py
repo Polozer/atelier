@@ -631,6 +631,9 @@ def arcade(b, plan, ground, piece, stations):
             S, ts = secs[k:e + 1], t[k:e + 1]
             clear = float(np.median([s.top - s.g_hi for s in S]))
             rows, P = [], _piers(ts, np.array([s.blocked for s in S]), clear)
+            if not P:                                         # every pier would stand on another piece: leave it open
+                k = e + 1
+                continue
             first, last = P[0][0], P[-1][1]
             # a stretch's ends beyond its first and last piers spring from the stretch end
             spans = ([(0, first)] if first > 1 else []) + [(P[j][1], P[j + 1][0]) for j in range(len(P) - 1)] \
