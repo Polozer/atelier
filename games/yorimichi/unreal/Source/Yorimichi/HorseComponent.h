@@ -59,7 +59,7 @@ public:
     /** One step of the ride, deterministic from this state, the input and the world: speed, heading (the actor's yaw), the
      *  movement component's velocity, the phase, the clip and its clock. No presentation, sound or randomness, so a shared
      *  game can run it inside the movement component's moves and replay it. False when the horse has gone (offline, at the
-     *  end of dismounting or when the walking physics starts swimming: stow him); online either waits in
+     *  end of dismounting or on reaching swimming depth: stow him); online either waits in
      *  NeedsNetworkStow() for the host instead. */
     bool AdvanceSimulation(float Dt, const FHorseInput& In);
     bool NeedsNetworkStow() const { return bTerminal; }
@@ -139,6 +139,8 @@ public:
     void PopulateRiderNode(FHorseRiderNode& OutNode) const;
 
 private:
+    friend class FJapanHorseWaterTest;
+    bool IsInDeepWater() const;
     struct FBreed
     {
         FString Slug, Name, Mesh;

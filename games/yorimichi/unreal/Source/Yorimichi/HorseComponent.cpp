@@ -1,6 +1,7 @@
 #include "HorseComponent.h"
 
 #include "AtelierData.h"
+#include "AdventureMoveSet.h"
 #include "HorseRiderNode.h"
 #include "JapanFootsteps.h"
 #include "JapanGameplayCollision.h"
@@ -218,12 +219,12 @@ bool UHorseComponent::LoadRoster()
         Breed.MeshYaw = float(Yaw);
         if (!(*Object)->TryGetStringField(TEXT("name"), Breed.Name)) Breed.Name = Breed.Slug;
         Breed.Clips.SetNum(HorseRide::RoleCount);
-        const TSharedPtr<FJsonObject>* Clips = nullptr;
-        if ((*Object)->TryGetObjectField(TEXT("clips"), Clips))
+        const TSharedPtr<FJsonObject>* BreedClips = nullptr;
+        if ((*Object)->TryGetObjectField(TEXT("clips"), BreedClips))
             for (int32 R = 0; R < HorseRide::RoleCount; ++R)
             {
                 const TSharedPtr<FJsonObject>* Clip = nullptr;
-                if ((*Clips)->TryGetObjectField(HorseRide::Roles[R].Horse, Clip)) (*Clip)->TryGetStringField(TEXT("path"), Breed.Clips[R]);
+                if ((*BreedClips)->TryGetObjectField(HorseRide::Roles[R].Horse, Clip)) (*Clip)->TryGetStringField(TEXT("path"), Breed.Clips[R]);
             }
         if (Breed.Clips[int32(EHorseRole::Idle)].IsEmpty()) Missing(FString::Printf(TEXT("breed %s has no Idle clip"), *Breed.Slug));
         auto ReadTack = [&](const TCHAR* Field, TMap<FString, FString>& Paths)
@@ -537,6 +538,22 @@ void UHorseComponent::ReleaseFriction()
     bFrictionSaved = false;
 }
 
+bool UHorseComponent::IsInDeepWater() const
+{
+    if (!Rider) return false;
+    const auto* Movement = Rider->GetCharacterMovement();
+    if (Movement->IsSwimming()) return true;
+    const auto* Moves = Rider->GetMoves();
+    float Surface = 0.f;
+    const FVector Here = Rider->GetActorLocation();
+    if (!Moves || !Moves->WaterAt(Here, Surface)) return false;
+    const float HalfHeight = Rider->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+    // Match on-foot entry in AdvanceGround/AdvanceAir. The horse leaves the capsule unchanged, and the sea and lake
+    // use authored water queries, not Unreal physics volumes or MOVE_Swimming.
+    const float Depth = Movement->IsFalling() ? 10.f : HalfHeight * 1.1f;
+    return float(Here.Z) - HalfHeight < Surface - Depth;
+}
+
 void UHorseComponent::StowImmediately()
 {
     ReleaseFriction();
@@ -545,7 +562,7 @@ void UHorseComponent::StowImmediately()
         UCharacterMovementComponent* M = Rider->GetCharacterMovement();
         // The ride ended in water (AdvanceSimulation): the player on it is told why (offline here, online when the host's
         // stow reaches him; never the host for a guest's horse).
-        if (M->IsSwimming() && Rider->IsLocallyControlled()) ULiveLibrary::Say(TEXT("The horse will not swim: you are on foot"));
+        if (IsInDeepWater() && Rider->IsLocallyControlled()) ULiveLibrary::Say(TEXT("The horse will not swim: you are on foot"));
         M->StopMovementImmediately();
         JapanVehicleVisuals::SetRiderPose(Rider, MeshLocation, MeshRotation.Quaternion(), false);
         Phase = EPhase::Stowed;
@@ -586,10 +603,9 @@ bool UHorseComponent::AdvanceSimulation(float Dt, const FHorseInput& In)
     Input = In;
     UCharacterMovementComponent* M = Rider->GetCharacterMovement();
     PhaseTime = FMath::Min(PhaseTime + Dt, HorseRide::MaxPhaseTime);
-    // In water the walking physics swims him and the horse cannot: the ride ends there, as at the end of dismounting
-    // (offline stowed at once; online the host's actor tick stows it on NeedsNetworkStow). The movement mode is the
-    // movement component's own predicted state, the same on the owner and the host.
-    if (!bTerminal && M->IsSwimming())
+    // The authored sea/lake query and capsule depth match on-foot swimming admission on the owner and host.
+    // Offline the ride ends now; online the host's actor tick stows it on NeedsNetworkStow, outside movement replay.
+    if (!bTerminal && IsInDeepWater())
     {
         if (!JapanNetwork::IsOnline(GetWorld())) return false;
         if (Phase != EPhase::Dismounting)
@@ -654,11 +670,11 @@ bool UHorseComponent::AdvanceSimulation(float Dt, const FHorseInput& In)
         Q.AddIgnoredActor(Rider);
         const FVector Feet = Rider->GetActorLocation() - FVector(0.f, 0.f, Rider->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
         const FVector Ahead = Rider->GetActorForwardVector();
-        for (const HorseRide::FProbe& Probe : HorseRide::Probes)
+        for (const HorseRide::FProbe& AheadProbe : HorseRide::Probes)
         {
-            const FVector From = Feet + FVector(0.f, 0.f, Probe.Height);
+            const FVector From = Feet + FVector(0.f, 0.f, AheadProbe.Height);
             FHitResult Hit;
-            if (GetWorld()->LineTraceSingleByChannel(Hit, From, From + Ahead * (Probe.Reach + Speed * Dt),
+            if (GetWorld()->LineTraceSingleByChannel(Hit, From, From + Ahead * (AheadProbe.Reach + Speed * Dt),
                     Online ? JapanGameplayCollision::Channel : ECC_Visibility, Q) && Hit.ImpactNormal.Z < .6f)
             {
                 Speed = 0.f;

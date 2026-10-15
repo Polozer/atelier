@@ -242,6 +242,7 @@ private:
     float LastAvatarPublication = -1.f;
     friend class FJapanReactionTransportTest;
     friend class FJapanCheckpointTest;
+    friend class FJapanHorseWaterTest;
     friend class AJapanPlayerController;
     friend class FYorimichiPhone;
     friend class UWandererSwordComponent;

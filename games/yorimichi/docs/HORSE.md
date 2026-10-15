@@ -272,7 +272,9 @@ There is no phone control and no single-player QA scenario for the horse yet; th
 ## Tests
 
 The native `Yorimichi.Network.HorseCheckpoint` (in the network wire suite) checks the shared game's checkpoint and look
-indices. `uv run pytest games/yorimichi/tests/test_horses.py -q` needs no Blender or Unreal. It checks that the library
+indices. `Yorimichi.Network.HorseWater` checks the actual sea/lake query, shallow/deep and falling entry,
+scaled capsules and restored walking friction after stowing. `uv run pytest games/yorimichi/tests/test_horses.py -q`
+needs no Blender or Unreal. It checks that the library
 manifest matches the files on disk and the source library, the palettes' shapes, each coat variant against its
 provenance record, that every GLB is slim, self-contained and skinned within range, the uprighting, the roster
 contract and what breaks it, the `unreal.horses` output check, that the rider and recipe take their clip lists from
