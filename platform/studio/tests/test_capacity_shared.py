@@ -1133,3 +1133,24 @@ def test_reduced_maintenance_reserve_still_pins_total_and_own_configuration(barr
     selected['total'] = Resources(**(asdict(settings['total']) | {'memory_mib': 65536}))
     with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
         broker.CapacityBroker(**selected)
+
+
+
+def test_bounded_public_status_keeps_active_and_queue_order_then_newest_released(barrier):
+    settings, _ = maintenance_settings(barrier)
+    with closing(broker.CapacityBroker(**settings)) as instance:
+        records = {}
+        for sequence in range(1, 39):
+            state = 'released' if sequence <= 35 else 'running' if sequence == 36 else 'queued'
+            name = str(sequence)
+            request = dict(id=name, resources=asdict(Resources(memory_mib=1024, cpu_millis=11000)),
+                locks=['checkout:' + name], seconds=60, performance=True)
+            records[name] = dict(request=request, state=state, sequence=sequence, first_ready=1., bypasses=0)
+        status = instance._status(dict(epoch=1, records=records))
+        visible = status['records']
+        assert [row['id'] for row in visible[:3]] == ['36', '37', '38']
+        assert [row['id'] for row in visible[3:]] == [str(number) for number in range(35, 6, -1)]
+        assert status['truncated'] and status['returned_records'] == 32 and status['total_records'] == 38
+        assert status['charged_count'] == 1 and status['waiting_count'] == 2
+        assert status['charged_resources']['memory_mib'] == 1024
+        assert len(records) == 38 and records['1']['state'] == 'released'

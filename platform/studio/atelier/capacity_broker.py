@@ -571,7 +571,8 @@ class CapacityBroker:
         if self.mode in ('capacity', 'sealed-maintenance'):
             result['compatibility_healthy'] = self.compatible
         selected = self._selection(state)
-        for record in sorted(records, key=lambda r: (r['state'] not in HELD, r['state'] != 'queued', r['sequence'])):
+        for record in sorted(records, key=lambda r: (r['state'] not in HELD, r['state'] != 'queued',
+                                                     -r['sequence'] if r['state'] == 'released' else r['sequence'])):
             request = record['request']
             blockers = conflicts(self._model(record), [self._model(r) for r in charged], self.total, self.reserve)
             reason = ('uncertain ownership or enforcement; reservation retained' if record['state'] == 'uncertain' else
