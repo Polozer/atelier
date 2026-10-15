@@ -6,11 +6,32 @@ import os
 from pathlib import Path
 
 SWITCH = 'ATELIER_CRATERPARK_V4_DESIGN'
+# The owner's editor document (craterpark-editor/1 park.json) selects the editor park instead: the same downstream
+# contract (geometry.npz, placement, terrain stamp), compiled by editor_generate.py from the editor's own geometry.
+EDITOR_SWITCH = 'ATELIER_CRATERPARK_EDITOR_PARK'
+EDITOR_SCHEMA = 'craterpark-editor/1'
+
+
+def editor_path():
+    value = os.environ.get(EDITOR_SWITCH, '').strip()
+    return Path(value).expanduser().resolve() if value else None
+
+
+def editor():
+    return editor_path() is not None
 
 
 def design_path():
+    if editor():
+        return editor_path()
     value = os.environ.get(SWITCH, '').strip()
     return Path(value).expanduser().resolve() if value else None
+
+
+def editor_document(doc):
+    """What v4 placement reads, for an editor park: the shared 680 m frame, no caldera dig override, and the
+    editor's terrain grid as the site (the park may use the whole grid)."""
+    return {'frame': {'lift': 680.}, 'ground': {}, 'editor': True, 'site': {}}
 
 
 def selected():
@@ -25,6 +46,8 @@ def load_document(path=None):
     document = json.loads(path.read_text())
     if not isinstance(document, dict):
         raise ValueError('v4 design must be a JSON object')
+    if document.get('schema') == EDITOR_SCHEMA:
+        return editor_document(document)
     return document
 
 
@@ -36,6 +59,15 @@ def input_paths(path=None):
     path = Path(path).resolve() if path is not None else design_path()
     if path is None:
         return []
+    if json.loads(path.read_text()).get('schema') == EDITOR_SCHEMA:
+        # the editor park and the terrain it was drawn on (data/ beside it)
+        data = path.parent / 'data'
+        meta = json.loads((data / 'terrain.json').read_text())
+        files = [data / 'terrain.json'] + [data / name for name in (*meta['inner']['layers'].values(), meta['outer']['file'])]
+        for file in files:
+            if not file.is_file():
+                raise ValueError(f'editor park input missing: {file.name}')
+        return [path, *files]
     document = load_document(path)
     paths = [path]
     refs = [document.get('elements_file'), document.get('ground', {}).get('heightmap')]

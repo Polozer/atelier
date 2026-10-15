@@ -67,8 +67,11 @@ def craterpark_v2_steps(out):
     common = [REGIONS / 'craterpark' / '__init__.py', REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark',
               REGIONS / 'megapark' / 'placement.py', YORI]
     geometry = out / 'craterpark' / 'v2'
-    runner = 'v4_generate.py' if craterpark_v4.selected() else 'generate.py'
-    arguments = ('--design', str(craterpark_v4.design_path())) if craterpark_v4.selected() else ()
+    if craterpark_v4.editor():      # the owner's editor park.json (ATELIER_CRATERPARK_EDITOR_PARK)
+        runner, arguments = 'editor_generate.py', ('--park', str(craterpark_v4.editor_path()))
+    else:
+        runner = 'v4_generate.py' if craterpark_v4.selected() else 'generate.py'
+        arguments = ('--design', str(craterpark_v4.design_path())) if craterpark_v4.selected() else ()
     return [
         Step('world.craterpark_geometry', [Python(v2 / runner, arguments)], inputs=[v2, *common, *craterpark_v4.input_paths()],
              outputs=[geometry / 'geometry.npz', geometry / 'geometry-report.json'],

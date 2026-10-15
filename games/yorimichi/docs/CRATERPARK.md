@@ -317,6 +317,28 @@ In the game, `JapanWorld` spawns the park with `ASuperUltraMegaPark::Spawn`, the
 its own `mesh_root`, its grind lines and `rails_required: true`. The collision is invisible and blocking, and counts as a skate
 surface like the Mega Park's.
 
+## Editor parks
+
+The remake is designed in the owner's park editor; its `park.json` (`craterpark-editor/1`) is the build's source of
+truth. One command takes a saved design to the game:
+
+```sh
+uv run python games/yorimichi/tools/ship_craterpark_editor.py --lines L1 --build
+```
+
+[`ship_craterpark_editor.py`](../tools/ship_craterpark_editor.py) freezes the editor folder (park.json, data/ and
+pieces.js) as `ship/rev<N>`, never overwriting a frozen revision. If pieces.js changed, it vendors it as
+[`editor/pieces.cjs`](../world/regions/craterpark/v2/editor/) and re-pins its hash in `pin.json`; commit both. It
+checks that the bridge meshes the frozen park, then runs the guarded build with `ATELIER_CRATERPARK_EDITOR_PARK` and
+`ATELIER_CRATERPARK_EDITOR_LINES`. Without `--build` it prints that command.
+
+With `ATELIER_CRATERPARK_EDITOR_PARK` set, `world.craterpark_geometry` runs
+[`editor_generate.py`](../world/regions/craterpark/v2/editor_generate.py) instead of the v4 generator. It meshes every piece
+through the pinned pieces.js, exactly as the editor draws it. It keeps the chosen lines (by id; L1 is orange), the bowls
+they land in and the decks they start from. The ground is the editor's cut terrain within 60 m of a kept piece. Each
+line spawns at its roll-in. The rest of the chain (`world.craterpark`, `unreal.craterpark`, `data.stage`) is unchanged.
+Editor parks have no supports yet, so their geometry is marked `editor_playtest` and skips the v4 acceptance checks.
+
 ## Tower
 
 The v2 park starts every line from one tower on the high east rim. `park.json` lists one start per designed line under

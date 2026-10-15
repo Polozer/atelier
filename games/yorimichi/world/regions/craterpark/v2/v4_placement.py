@@ -47,6 +47,11 @@ def site_polygon():
     polygon = site.get('buildable')
     if polygon is None:
         polygon = site.get('buildable_polygon', {}).get('coordinates', [None])[0]
+    if doc.get('editor'):
+        # the editor's inner terrain grid (native x, z), which bounds everything the editor can place
+        meta = json.loads((v4_config.design_path().parent / 'data' / 'terrain.json').read_text())['inner']
+        x0, z0, x1, z1 = meta['x0'], meta['z0'], meta['x0'] + meta['G'] * meta['nx'], meta['z0'] + meta['G'] * meta['nz']
+        polygon = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
     q = np.asarray(polygon, 'f8')
     if q.ndim != 2 or q.shape[0] < 3 or q.shape[1] != 2 or not np.isfinite(q).all():
         raise ValueError('v4 site needs an explicit finite native xz buildable polygon')
@@ -95,7 +100,10 @@ def _geometry(path, mtime_ns, size, ctime_ns, source_sha):
         cosmetic=validation.get('preview') and validation.get('failed') and all(
             name in ('outlines','facets','uv_stretch','slivers') for name in validation['failed'])
         supports=validation.get('supports', {})
-        if (not index.get('accepted') or not validation.get('ran') or not (validation.get('ok') or cosmetic)
+        # an editor playtest park is the owner's own design, exported as drawn; supports are not built yet (owner)
+        if index.get('editor_playtest'):
+            pass
+        elif (not index.get('accepted') or not validation.get('ran') or not (validation.get('ok') or cosmetic)
                 or not supports.get('ran') or not supports.get('ok')):
             raise ValueError('v4 placement requires accepted structural and support validation')
         ground, pieces = [], []
