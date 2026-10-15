@@ -30,8 +30,12 @@ TILE_SPAN = 1.8       # metres the tile texture spans along the lip (six 0.3 m t
 TILE_HEIGHT = .9      # metres it spans down the wall (its 2:1 frame)
 TILE_FROM = .3        # metres under the lip where its top row starts, under the brick coping's face
 PAINTED_BAND = 3.6    # plan metres in from the lip where the painting's own tile band ends (its 90th percentile)
+# the least plan metres of painting per metre down a wall (at most 6:1): a wall too short for the painting from
+# PAINTED_BAND to its foot at that rate (rev 107's 4.8 m walls: 0.8 m of plan over 6.4 m of wall) starts nearer the lip
+LAID_MIN = 1 / 6
 SPINE_LINE = .5       # plan metres from a spine's lip that the painting draws as the spine
 SMOOTH = 3.           # metres of lip over which the directions wall points are pushed along are averaged
+FIN = .3              # an up-facing floor face standing steeper than this (|n.y|) is a fin (_flip_fins)
 FLAT = .98            # a vertex whose normal is this close to up is floor (or the last, near-flat row of a wall)
 DECK_TILE = 4.        # metres per concrete tile on the deck (editor_generate.tile_uv)
 WELD = 1e-3
@@ -146,6 +150,46 @@ def _slice(V, F, X, field, level):
     return np.array(V), np.array(out, 'i8'), np.array(X), np.array(field)
 
 
+def _flip_fins(V, F, N):
+    """Flip the floor's fins away: a face whose corners all face up but that stands on edge (the editor's floor grid
+    clipped a line 2 mm from a wall foot: three points in a row in plan, 5 cm apart in height) is flipped with the face
+    across its longest plan edge, so the floor bends over that step instead of standing a sliver up on it (which takes
+    no texels from above)."""
+    F = F.copy()
+    key = np.round(V / WELD).astype('i8')
+    for _ in range(4):
+        t = V[F]
+        n = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        up = (N[F][:, :, 1] > FLAT).all(1)
+        fins = np.flatnonzero(up & (np.abs(n[:, 1]) < FIN * np.linalg.norm(n, axis=1)))
+        if not len(fins):
+            break
+        edges = {}
+        for f, tri in enumerate(F.tolist()):
+            for i in range(3):
+                edges[(tuple(key[tri[i]]), tuple(key[tri[(i + 1) % 3]]))] = (f, i)
+        done = set()
+        for f in fins:
+            if f in done:
+                continue
+            tri = F[f]
+            plan = [np.linalg.norm(V[tri[(i + 1) % 3]][[0, 2]] - V[tri[i]][[0, 2]]) for i in range(3)]
+            i = int(np.argmax(plan))
+            c, a, b = tri[i], tri[(i + 1) % 3], tri[(i + 2) % 3]           # the long edge c -> a, b its apex
+            hit = edges.get((tuple(key[a]), tuple(key[c])))
+            if hit is None or hit[0] in done:
+                continue
+            g, j = hit
+            d = F[g][(j + 2) % 3]
+            new = np.array([[b, c, d], [b, d, a]])
+            q = V[new]
+            m = np.cross(q[:, 1] - q[:, 0], q[:, 2] - q[:, 0])[:, 1]
+            if (np.sign(m) == np.sign(n[g, 1])).all() and (np.abs(m) > 1e-6).all():
+                F[f], F[g] = new
+                done |= {f, g}
+    return F
+
+
 def ride_layout(piece, ride, frame):
     """The riding faces of a decal bowl, laid out: (V, N, F, material per face (TILE or None for the painting), UV per
     face corner (m, 3, 2), report). `ride` masks the piece's riding faces, `frame` is editor_generate.decal_frame."""
@@ -158,6 +202,7 @@ def ride_layout(piece, ride, frame):
     remap = np.full(len(V0), -1, 'i8')
     remap[used] = np.arange(len(used))
     V, N, F = V0[used], N0[used], remap[F]
+    F = _flip_fins(V, F, N)
     V, F, added, N = tjunction.fix_tjunctions(V, F, attrs=N)
     N /= np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-12)
     lips = sorted(editor_coping._join(editor_coping.lip_frames(piece)),
@@ -195,7 +240,9 @@ def ride_layout(piece, ride, frame):
         o, into, _, _ = _project(V[m][:, [0, 2]], q, d, closed)
         top, band = (PAINTED_BAND, BAND) if k == 0 else (SPINE_LINE, 0.)
         wall = np.isfinite(tt[m]) & (tt[m] > 1e-6)
-        c = np.clip((o + tp[m] - top) / np.maximum(s[m] + tt[m] - band, 1e-6), .02, 1.)
+        foot, length = o + tp[m], np.maximum(s[m] + tt[m] - band, 1e-6)    # the foot's plan offset, the laid length
+        top = np.minimum(top, foot - LAID_MIN * length)        # a short wall starts its lay nearer the lip
+        c = np.clip((foot - top) / length, LAID_MIN, 1.)
         lay = np.where(wall, np.maximum(o, top + (s[m] - band) * c), o)
         Q[m] += (lay - o)[:, None] * into
     decal = decal_uv(np.c_[Q[:, 0], np.zeros(len(Q)), Q[:, 1]], frame)

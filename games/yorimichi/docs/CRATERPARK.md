@@ -359,9 +359,10 @@ Editor parks have no supports yet, so their geometry is marked `editor_playtest`
 The Prado bowl (`p5`, a bowl in `editor_generate.DECALS`) is finished by
 [`editor_decal.py`](../world/regions/craterpark/v2/editor_decal.py). Its painting (drawn on the bowl's plan) lies on
 the floor from straight above. On the walls it is laid down the fall line instead, from the painted tile band's inner
-edge (3.6 m in from the lip) to the wall's foot, so a vert keeps 1 to 8 texels per metre instead of none. The top
-0.9 m of wall under the lip is a real tile band (`material_007`, 0.3 m tiles), sliced out of the wall along that
-line. The deck is plain concrete. The floor's grid points on the walls' foot edges are split into the walls first, so
+edge (3.6 m in from the lip, nearer on a wall too short for that at 6:1) to the wall's foot, so a vert keeps 1 to 8
+texels per metre instead of none. The top 0.9 m of wall under the lip is a real tile band (`material_007`, 0.3 m
+tiles), sliced out of the wall along that line. The deck is plain concrete. Where the editor's floor grid stands a
+face on edge (a grid line 2 mm from a wall's foot), that face is flipped into the floor. The floor's grid points on the walls' foot edges are split into the walls first, so
 there are no T-junctions. The brick coping ([`editor_coping.py`](../world/regions/craterpark/v2/editor_coping.py))
 takes its side of each lip from every face on the lip edge. Its normals face out of the band, and it leans with a
 sloping wall. A whole number of brick textures goes round a closed loop. On a spine's narrow top, the two sides' bands
