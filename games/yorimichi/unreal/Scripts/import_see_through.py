@@ -2,7 +2,8 @@
 import sys
 from pathlib import Path
 import unreal
-import see_through as cut
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # run on its own, the commandlet does not put Scripts on the path
+import see_through as cut  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'assets/characters/pipeline'))
 import definition
