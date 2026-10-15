@@ -101,8 +101,10 @@ an old nonexclusive record never gains terminal-tree release eligibility merely 
 The maintenance broker configuration is schema3: the schema2 broker keys with `mode: "sealed-maintenance"` and
 an additional `seal_policy_sha256` containing the unchanged original sealed full-policy SHA256. The service pins
 the new configuration's own digest independently. Its socket, resource totals, non-memory reserve dimensions
-and disk pool must exactly match the sealed policy. Only this exclusive maintenance mode permits a deliberately
-reviewed host **memory reserve** between 4096 MiB and the original sealed reserve. The original full-policy bytes
+and disk pool must exactly match the sealed policy. The unchanged original sealed reserve remains valid. Only
+this exclusive maintenance mode permits a deliberately reviewed **reduction** of the host memory reserve, with
+the selected value between 4096 MiB and the original sealed reserve. The 4096 MiB floor applies to reductions;
+it does not silently raise an unchanged originally sealed reserve. The original full-policy bytes
 and full-mode reserve remain unchanged; full mode requires the exact original reserve. This temporary calibration
 policy does not lower a job's actual memory guard or reservation, change available-memory measurement, relax
 pressure admission, or enable overlap. A normal 10 GiB job with a 4 GiB host reserve still requires at least
