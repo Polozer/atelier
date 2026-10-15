@@ -87,3 +87,6 @@ Load both packaged apps under normal owned guards; compare the sandbox map, expe
 changed configuration/serialization cases. No default enablement follows until this matrix and repeated
 end-to-end timings demonstrate correctness and a real improvement. Compiler caching and runtime-root
 reduction remain separate work; neither is silently enabled here.
+
+The [native acceptance preparation](COOK_ACCEPTANCE.md) gives guarded commands, private fixture expectations
+and offline evidence helpers. It does not execute or certify the native matrix.
