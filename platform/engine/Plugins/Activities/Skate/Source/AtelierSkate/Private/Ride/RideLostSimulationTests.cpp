@@ -84,6 +84,54 @@ bool FRideLostSimulationTest::RunTest(const FString&)
         Back.To = FVector(-6000, 0, 2400);
         TestTrue(TEXT("A board back on the run-in 70 m away bails"), Judge(Back) == ERideLostSimulation::Jump);
     }
+    // Long airs: 6 s air timeout (360 ticks) that lands and rides on (air-timeout Teleport landing properly).
+    {
+        // A 6 second air (360 ticks) where the board lands within ThroughDepth of the floor.
+        // The session is Teleporting but the board is near the floor, so it rides on.
+        FRideLostSimulationStep LongAir = Moving(TEXT("Teleporting"), FVector(0, 0, 10), FVector(2800, 0, -1800));
+        LongAir.Tick = 360;
+        // Board crosses at z=0 and lands at -20 cm: within the ThroughDepth threshold.
+        LongAir = Crossing(LongAir, FVector(1650, 0, 0), FVector::UpVector);
+        LongAir.To = FVector(1650, 0, -20);
+        TestTrue(TEXT("A 6 s air landing near the floor rides on despite Teleporting"),
+            Judge(LongAir) == ERideLostSimulation::Kept);
+    }
+    // High-speed big air landings (ThroughFloor robustness at speed).
+    {
+        // 40 m/s landing: the board crosses the floor and passes through 60 cm in one frame.
+        // Speed-adjusted threshold allows this for landings (board starting above floor).
+        FRideLostSimulationStep Steep = Moving(TEXT("PhysicsAir"), FVector(0, 0, 50), FVector(4000, 0, -800));
+        Steep.Tick = 150;  // well into the air
+        // Floor at z=0. From.Z = 50 (above floor). Speed = 4055 cm/s.
+        // Depth threshold = 25 + 4055/60 * 1.5 = 25 + 101 = 126 cm.
+        // Board ends 60 cm below floor: within lenient threshold.
+        Steep = Crossing(Steep, FVector(2667, 0, 0), FVector::UpVector);
+        Steep.To = FVector(2667, 0, -60);
+        TestTrue(TEXT("A 40 m/s touchdown crossing the floor at 60 cm depth rides on (speed-adjusted)"),
+            Judge(Steep) == ERideLostSimulation::Kept);
+        // 50 m/s landing on same floor type, board passes 75 cm through.
+        FRideLostSimulationStep Fast = Moving(TEXT("KnownAir"), FVector(0, 0, 100), FVector(5000, 0, -500));
+        Fast.Tick = 200;
+        // Speed = 5024 cm/s. Depth threshold = 25 + 5024/60 * 1.5 = 25 + 126 = 151 cm.
+        // Board ends 75 cm below floor: within lenient threshold.
+        Fast = Crossing(Fast, FVector(4167, 0, 0), FVector::UpVector);
+        Fast.To = FVector(4167, 0, -75);
+        TestTrue(TEXT("A 50 m/s touchdown at 75 cm depth rides on (speed-adjusted)"),
+            Judge(Fast) == ERideLostSimulation::Kept);
+    }
+    // Fall-through case: board already below floor uses strict threshold and bails.
+    {
+        // A board already 30 cm under a floor at z=0, moving further down at the original speed from test line 42.
+        // This uses the strict threshold (25 cm) because From.Z < 0.
+        FRideLostSimulationStep FallThrough = Moving(TEXT("PhysicsAir"), FVector(0, 0, -30), FVector(2800, 0, -1800));
+        FallThrough.Tick = 150;
+        FallThrough = Crossing(FallThrough, FVector(47, 0, 0), FVector::UpVector);
+        // After one frame at 3206 cm/s down, the board ends at -80 cm: 80 cm below floor.
+        // With strict threshold of 25 cm, this bails.
+        FallThrough.To = FVector(47, 0, -80);
+        TestTrue(TEXT("A board already 30 cm under and reaching 80 cm bails with strict threshold"),
+            Judge(FallThrough) == ERideLostSimulation::ThroughFloor);
+    }
     // Ordinary riding: the fastest frames ride on, and so does a slow frame at speed.
     {
         TestTrue(TEXT("30 m/s at 60 Hz rides on"), Judge(Moving(TEXT("PhysicsGround"), FVector::ZeroVector, FVector(3000, 0, 0))) == ERideLostSimulation::Kept);

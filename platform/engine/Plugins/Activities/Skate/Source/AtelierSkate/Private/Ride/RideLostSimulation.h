@@ -65,14 +65,35 @@ namespace RideLostSimulation
     inline ERideLostSimulation Judge(const FRideLostSimulationStep& S)
     {
         if (S.Tick < SettleTicks) return ERideLostSimulation::Kept;
-        if (S.State == TEXT("Teleporting")) return ERideLostSimulation::Teleport;
+        // Air timeout (300 ticks): only bail if the board is well below terrain. If in open air or landing,
+        // the session's internal recovery is fine and the ride continues.
+        if (S.State == TEXT("Teleporting"))
+        {
+            // If the board hasn't crossed a floor, it's in open air and the recovery is internal.
+            if (!S.bCrossed) return ERideLostSimulation::Kept;
+            // If the board is not far below the floor (within ThroughDepth), it's landing properly.
+            if (FVector::DotProduct(S.CrossedAt - S.To, S.CrossedNormal) <= ThroughDepth)
+                return ERideLostSimulation::Kept;
+            return ERideLostSimulation::Teleport;
+        }
         if (FVector::Dist(S.From, S.To) > JumpSlack + 2.f * S.Speed * TickSeconds * float(FMath::Max(S.Ticks, FewestTicks)))
             return ERideLostSimulation::Jump;
         // Down through a floor, deep past it and under it, still in the air and still going into it: the session had no
-        // floor there.
+        // floor there. Scale the depth threshold with speed only when crossing the floor (landing): at high speeds,
+        // the board naturally travels 50-80 cm further in one tick at 30-50 m/s. A board already deep under (fall-through)
+        // uses the strict threshold.
         if (S.bCrossed && S.bCovered && IsBoardAir(S.State) && S.To.Z < S.From.Z && S.CrossedNormal.Z > FloorUp &&
-            FVector::DotProduct(S.CrossedAt - S.To, S.CrossedNormal) > ThroughDepth && FVector::DotProduct(S.Velocity, S.CrossedNormal) < 0.)
-            return ERideLostSimulation::ThroughFloor;
+            FVector::DotProduct(S.Velocity, S.CrossedNormal) < 0.)
+        {
+            // Check if this step crosses the floor (landing) or the board is already deep below (fall-through).
+            // If From is at or above the floor level, this is a crossing/landing.
+            const bool bCrossing = S.From.Z >= S.CrossedAt.Z;
+            const float ThresholdDepth = bCrossing ?
+                ThroughDepth + S.Speed * TickSeconds * 1.5f :  // Landing: allow high-speed penetration
+                ThroughDepth;  // Already below: strict check
+            if (FVector::DotProduct(S.CrossedAt - S.To, S.CrossedNormal) > ThresholdDepth)
+                return ERideLostSimulation::ThroughFloor;
+        }
         return ERideLostSimulation::Kept;
     }
 
