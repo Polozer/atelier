@@ -256,14 +256,14 @@ def _flank_mesh(E, D, side, g, gap, feature):
     return dsl.Mesh.concat(parts), foot, col
 
 
-def _drop_rows(top, foot, step=WALL_ROW):
+def _drop_rows(top, foot, step=WALL_ROW, fixed=False):
     """Rows down a vertical wall from `top` to `foot` (k, 3), at most `step` apart; past a station's foot (or within
     half a step of it) a row collapses onto the foot. The last row is the foot."""
     h = top[:, 1] - foot[:, 1]
     n = max(1, math.ceil(float(h.max()) / step)) if len(h) else 1
     rows = []
     for k in range(1, n):
-        d = k * float(h.max()) / n
+        d = k * step if fixed else k * float(h.max()) / n
         y = np.where(d < h - step / 2, top[:, 1] - d, foot[:, 1])
         r = top.copy(); r[:, 1] = y
         rows.append(r)
@@ -405,7 +405,7 @@ def _side_columns(E, D, side, g, base_y, under=None, on_ground=False, closed=Fal
         extra['parts'] += [mesh] if mesh is not None else []
         extra['ends'] = ends
     outer = rows[-1]
-    gy = np.asarray(base_y) + FOOT if suspended else g(outer[:, 0], outer[:, 2])
+    gy = np.asarray(base_y) if suspended else g(outer[:, 0], outer[:, 2])
     foot = outer.copy(); foot[:, 1] = np.minimum(gy, outer[:, 1] - gap)
     if under is not None and not on_ground:     # under the section's lowest point, so the end face stays simple
         foot[:, 1] = np.minimum(foot[:, 1], under - FOOT)
@@ -413,7 +413,7 @@ def _side_columns(E, D, side, g, base_y, under=None, on_ground=False, closed=Fal
     # keeps the foot under it, so the end face never folds back on itself)
     role = dsl.SIDE if (side.kind != 'flush' or on_ground) else dsl.BASE
     if side.kind != 'bank' or (outer[:, 1] - foot[:, 1] > 1e-9).any():
-        for r in _drop_rows(outer, foot):
+        for r in _drop_rows(outer, foot, fixed=suspended):
             rows.append(r); segs.append((role, 'out'))
     if not on_ground:
         base = outer.copy(); base[:, 1] = base_y
@@ -530,7 +530,8 @@ class _Clear(Curve):
 
 
 def ramp(path, profile, width, *, start=0., left='wall', right='wall', ground=None, ends=('flush', 'flush'),
-         feature='ramp', tess=TESS, t=None, on_ground=False, across=None, thickness=None):
+         feature='ramp', tess=TESS, t=None, on_ground=False, across=None, thickness=None,
+         bottom_u=None, end_openings=None):
     """@cc [owner:fontanierh,label:correctness] suspended-ramp-solid
     A ramp along the plan `path` (curves.Curve) from `start` metres along it: the `profile` (its x along the path,
     y absolute) `width` wide, closed into a solid down to the `ground` (float or f(x, z); default 0 under the lowest
@@ -540,6 +541,10 @@ def ramp(path, profile, width, *, start=0., left='wall', right='wall', ground=No
     `thickness` makes an elevated solid channel whose underside follows the floor
     that many metres below it; it has no terrain footprint. Roll-ins, decks,
     kickers, landings and run-outs are ramps. Returns a Built.
+
+    `bottom_u` gives exact normalized underside columns for shared ports.
+    `end_openings` gives the start/end lateral intervals occupied by adjoining
+    modules. The rest of those end walls stays visible and collidable.
 
     A suspended ramp MUST be closed, with a visible underside following its floor
     at the requested positive thickness; it MUST NOT close down to terrain.
@@ -551,6 +556,17 @@ def ramp(path, profile, width, *, start=0., left='wall', right='wall', ground=No
             raise ValueError('a suspended ramp cannot also be on_ground')
         if any(as_side(s).kind in ('bank', 'ground') or as_side(s).outer in ('bank', 'ground') for s in (left, right)):
             raise ValueError('a suspended ramp needs solid outer walls')
+    if bottom_u is not None:
+        bottom_u = np.asarray(bottom_u, 'f8')
+        if (thickness is None or bottom_u.ndim != 1 or len(bottom_u) < 2 or not np.isfinite(bottom_u).all()
+                or np.any(np.diff(bottom_u) <= 0) or not np.allclose(bottom_u[[0, -1]], [0., 1.], atol=1e-12, rtol=0)):
+            raise ValueError('suspended underside columns must increase from zero to one')
+    if end_openings is not None:
+        if thickness is None or len(end_openings) != 2:
+            raise ValueError('end openings need a suspended ramp and two end specifications')
+        for openings in end_openings:
+            if openings is not None and any(not -width / 2 <= a < b <= width / 2 for a, b in openings):
+                raise ValueError('end openings must lie inside the flat floor width')
     if across is not None:
         across = np.asarray(across, 'f8')
         if (across.ndim != 1 or len(across) < 2 or not np.isfinite(across).all()
@@ -585,7 +601,8 @@ def ramp(path, profile, width, *, start=0., left='wall', right='wall', ground=No
         rows = [r[::-1] for r in rows]
     G = np.stack([Em, Ep], 1)
     parts = [riding] + _close_transverse(G, feature=feature, ground=g, front=right, back=left, ends=ends,
-                                         closed=False, end_rows=rows, on_ground=on_ground, thickness=thickness)
+                                         closed=False, end_rows=rows, on_ground=on_ground, thickness=thickness,
+                                         bottom_u=bottom_u, end_openings=end_openings)
     mesh, foot = _finish(parts, feature, riding, on_ground)
     x = profile.point([0., profile.length])
     checks = [{'feature': feature, 'kind': 'ramp', 'start_t': start, 'end_t': start + float(x[1, 0] - x[0, 0]),
@@ -729,7 +746,8 @@ def _dedupe_cols(row):
     return row[keep]
 
 
-def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows=None, on_ground=False, thickness=None):
+def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows=None, on_ground=False, thickness=None,
+                      bottom_u=None, end_openings=None):
     """Walls, base, caps and end faces closing a riding sheet into a solid. G (k, n, 3): its grid, rows path
     stations, columns from front to back (a ramp passes only its two edge columns and its full `end_rows`).
     front/back: Side kinds ('wall', 'flush', 'curb', 'bank'), or 'cap' (front only: the front column is a level loop
@@ -795,7 +813,8 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows
     if not on_ground:
         if cols['front'] is not None and cols['back'] is not None:
             fbase, bbase = cols['front'][-1], cols['back'][-1]
-            bottom_u = np.linspace(0., 1., max(1, math.ceil(np.linalg.norm(bbase - fbase, axis=1).max() / WALL_ROW)) + 1)
+            if bottom_u is None:
+                bottom_u = np.linspace(0., 1., max(1, math.ceil(np.linalg.norm(bbase - fbase, axis=1).max() / WALL_ROW)) + 1)
             bottom = fbase[:, None] + bottom_u[None, :, None] * (bbase - fbase)[:, None]
             parts.append(solids.grid(bottom if suspended else np.stack([fbase, bbase], 1), outward=-Y, feature=feature,
                                      role=dsl.SIDE if suspended else dsl.BASE, uv='world', closed_rows=closed))
@@ -817,22 +836,32 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows
             wall = as_side(kind).kind == 'wall'
             if on_ground and not wall:
                 continue                 # the next feature or deck continues here: left open (its seam)
+            if suspended:
+                chord = f[-1] + bottom_u[1:-1, None] * (b[-1] - f[-1])
+                loop = _strip_dupes(np.asarray(f[::-1] + list(top) + b[1:] + list(chord[::-1])))
+                openings = None if end_openings is None else end_openings[0 if i == 0 else 1]
+                if openings is None:
+                    parts.append(solids.polygon(loop, outward=out, feature=feature,
+                                                role=dsl.SIDE if wall else dsl.BASE))
+                else:
+                    from . import ports
+                    parts += ports.cap(loop, axis=D[i], centre=(Ef[i] + Eb[i]) / 2,
+                                       outward=out, openings=openings, feature=feature)
+                continue
             upper = [f[foot]] + f[foot - 1::-1] + list(top) + b[1:len(b) + foot + 1]
             upper = _strip_dupes(np.asarray(upper))
             if on_ground:
                 for band in _ground_bands(upper, g):
                     parts.append(solids.polygon(band, outward=out, feature=feature, role=dsl.SIDE))
                 continue
-            chord = (f[foot] + bottom_u[1:-1, None] * (b[foot] - f[foot]) if suspended
-                     else _chord_points(upper, f[foot], b[foot]))
+            chord = _chord_points(upper, f[foot], b[foot])
             m = solids.polygon(np.concatenate([upper, chord[::-1]]), outward=out, feature=feature,
                                role=dsl.SIDE if wall else dsl.BASE)
-            if wall and not on_ground and not suspended:
+            if wall and not on_ground:
                 _bury_low(m, g)
             parts.append(m)
             if not on_ground:
-                base_chord = (f[-1] + bottom_u[1:-1, None] * (b[-1] - f[-1]))[::-1] if suspended else np.zeros((0, 3))
-                lower = np.concatenate([[b[-2], b[-1]], base_chord, [f[-1], f[-2]], chord])
+                lower = np.concatenate([[b[-2], b[-1], f[-1], f[-2]], chord])
                 parts.append(solids.polygon(lower, outward=out, feature=feature, role=dsl.BASE))
     return parts
 

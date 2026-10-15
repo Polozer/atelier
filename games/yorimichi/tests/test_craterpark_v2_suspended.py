@@ -35,3 +35,45 @@ def test_suspended_requires_solid_sides_and_positive_thickness():
                    {'thickness': 1., 'left': P.Side('bowl', outer='ground')}):
         with pytest.raises(ValueError):
             P.ramp(path, prof, 18., **kwargs)
+
+
+def test_end_openings_expose_only_the_actual_joined_port_intervals():
+    side=P.Side('bowl',fade=(10.,10.))
+    floor=np.unique(np.r_[np.arange(-50.,51.,2.),np.arange(-19.,20.,2.)])
+    ramp=P.ramp(Line((0.,0.),(20.,0.)),P.from_additions(17.5,0.,[('line',20.)]),100.,
+                left=side,right=side,thickness=1.5,across=floor,bottom_u=np.linspace(0.,1.,103),
+                end_openings=([(-20.,20.)],[(-46.,-14.),(20.,40.)]))
+    assert solids.check_closed(ramp.mesh)>0
+    T=ramp.mesh.triangles()
+    for x,openings in ((0.,[(-20.,20.)]),(20.,[(-46.,-14.),(20.,40.)])):
+        end=(np.abs(T[:,:,0]-x)<1e-8).all(1)
+        visible=end&(ramp.mesh.role==dsl.ROLE[dsl.SIDE])
+        for lo,hi in openings:
+            w=T[visible,:,2]
+            assert not ((w.max(1)>lo+1e-7)&(w.min(1)<hi-1e-7)).any()
+        hidden=end&(ramp.mesh.role==dsl.ROLE[dsl.BASE])
+        assert ramp.mesh.areas()[hidden].sum()==pytest.approx(sum(hi-lo for lo,hi in openings)*1.5)
+        assert ramp.mesh.areas()[visible].sum()==pytest.approx((102.-sum(hi-lo for lo,hi in openings))*1.5)
+
+
+def test_end_openings_reject_unsampled_or_overlapping_cuts():
+    path=Line((0.,0.),(20.,0.));prof=P.from_additions(10.,0.,[('line',20.)])
+    with pytest.raises(ValueError,match='matching upper and underside'):
+        P.ramp(path,prof,18.,thickness=1.,end_openings=([(-3.141,3.141)],None))
+    with pytest.raises(ValueError,match='overlap'):
+        P.ramp(path,prof,18.,thickness=1.,across=np.arange(-9.,10.,1.),bottom_u=np.linspace(0.,1.,19),
+               end_openings=([(-3.,3.),(1.,5.)],None))
+
+
+def test_adjoining_suspended_walls_share_vertical_rows_despite_different_peak_heights():
+    def growing(E):
+        t=np.clip(E[:,0]/30.,0.,1.);w=np.sin(np.pi*t)**2
+        return 3.+4.*w,3.5+2.5*w
+    def ordinary(E):return np.full(len(E),3.),np.full(len(E),3.5)
+    built=[]
+    for start,end,shape in ((0.,30.,growing),(30.,50.,ordinary)):
+        side=P.Side('bowl',height=7.,radius=6.,shape=shape)
+        built.append(P.ramp(Line((start,0.),(end,0.)),P.from_additions(10.,0.,[('line',end-start)]),18.,
+                            left=side,right=side,thickness=1.5,bottom_u=np.linspace(0.,1.,21)).mesh)
+    m=dsl.Mesh.concat(built);m=m.subset(m.role!=dsl.ROLE[dsl.BASE])
+    assert len(solids.check_open(m))==2

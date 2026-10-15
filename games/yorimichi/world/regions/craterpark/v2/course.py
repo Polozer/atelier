@@ -21,16 +21,18 @@ HEADING = 310.
 LANE_SPACING = 30.
 TURN_START = 214.
 THICKNESS = 1.5
+FLOOR_ACROSS = np.unique(np.r_[np.linspace(-9., 9., 13), np.arange(-9., 10., 1.)])
+PORT_CROSS = np.r_[-10., FLOOR_ACROSS, 10.]
+BOTTOM_U = (PORT_CROSS + 10.) / 20.
 
 
-class PrimaryPath(Chain):
-    """Projectable smooth switchback, in actual plan metres."""
-    def __init__(self, crest, radius, turn):
-        self.start, self.heading = tuple(crest), HEADING
-        d = np.array([math.cos(math.radians(HEADING)), math.sin(math.radians(HEADING))])
-        a = Line(crest, np.asarray(crest) + TURN_START * d)
-        b = EasedTurn(a.b, HEADING, radius, turn)
-        super().__init__((a, b))
+class RoutePath(Chain):
+    """A projectable chain of exact, tangent-continuous course pieces."""
+    def __init__(self, pieces):
+        super().__init__(pieces)
+        self.start = tuple(self.point([0.])[0])
+        d = self.tangent([0.])[0]
+        self.heading = math.degrees(math.atan2(d[1], d[0])) % 360.
         self._sample_s = np.linspace(0., self.length, math.ceil(self.length / 2.) + 1)
         self._sample_p = self.point(self._sample_s)
 
@@ -51,6 +53,15 @@ class PrimaryPath(Chain):
             s = np.clip(s - (delta * tangent).sum(1) / np.maximum(denom, .1), 0., self.length)
         lateral = ((q - self.point(s)) * self.normal(s)).sum(1)
         return s, lateral
+
+
+class PrimaryPath(RoutePath):
+    """Projectable smooth switchback, in actual plan metres."""
+    def __init__(self, crest, radius, turn):
+        d = np.array([math.cos(math.radians(HEADING)), math.sin(math.radians(HEADING))])
+        a = Line(crest, np.asarray(crest) + TURN_START * d)
+        b = EasedTurn(a.b, HEADING, radius, turn)
+        super().__init__((a, b))
 
 
 def primary_specs():
@@ -105,7 +116,12 @@ def primary_sides(line):
         weight = (1 - np.cos(np.pi * fade_in)) / 2 * (1 - np.cos(np.pi * fade_out)) / 2
         return 3. + 4. * weight, 3.5 + 2.5 * weight
 
-    sides = [P.Side('bowl'), P.Side('bowl')]
+    def ordinary(E):
+        return np.full(len(E), 3.), np.full(len(E), 3.5)
+
+    # The common envelope gives both sides the same transverse port samples,
+    # including when one side grows into the integral half bowl.
+    sides = [P.Side('bowl', height=7., radius=6., shape=ordinary) for _ in range(2)]
     sides[outer] = replace(sides[outer], height=7., radius=6., shape=shape)
     return sides
 
@@ -123,6 +139,7 @@ def build_primary(line):
                            start=tuple(prof.start), degrees=prof.degrees)
         b = P.ramp(curve(line.path), prof, 18., start=station, left=left, right=right,
                    feature=name, thickness=THICKNESS,
+                   across=FLOOR_ACROSS, bottom_u=BOTTOM_U,
                    ends=('wall' if i else 'flush', 'wall' if i < len(continuous) - 1 else 'flush'))
         built.append(b)
     return P.Built.concat(built)
