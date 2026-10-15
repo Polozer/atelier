@@ -11,11 +11,21 @@ Instrumented scripts can emit bounded phase records; `--timings` displays histor
 separately from restoration time. The sandbox demonstrates the protocol; native phase baselines remain to be measured.
 `--changes` lists added, changed and retired members between certified named-product inventories, with unchanged
 member counts. It reuses existing inventories, preserves unknown baselines and makes no extra product-byte reads.
+`--ddc` reads bounded retained-log observations of cache configuration and explicit cook hit/miss statistics.
+Those historical logs do not prove current settings or measured warm/cold improvements; native baselines remain open.
 Opt-in Python access auditing now checks declared file reads and owned writes before certification, with complete
 source directory inventories and separate completion reports; the sandbox uses it. It does not prove metadata,
 environment or native-I/O dependencies. Blender/Unreal audit bootstraps remain proposed.
+Named actions can declare exact optional source files; absent/present identities track conditional reads without
+hashing unrelated siblings. The sandbox demonstrates this with a block override. Recipe-declared spatial boxes now
+resolve into tracked product reads, including empty selections, additions, removals and movement. Audited Python
+actions receive frozen matches through `atelier.build_context.query`; the offline sandbox proves narrow rebuilds
+and restoration. Runtime-discovered query volumes and generated spatial indexes remain proposed.
 [The recipe guide](BUILD_RECIPES.md) describes the implemented API, exercised by the sandbox's asset/placement example.
-Unreal restoration, import transactions, spatial dependencies and remote storage below still require implementation and native proof.
+Signed source bundles can now enter the existing local store after publisher/policy checks and complete byte
+verification. Optional HTTPS lookup uses fixed object-store paths, pinned publisher keys and bounded downloads;
+ordinary builds fall back locally on a remote failure. Trusted production and upload remain to be implemented.
+Unreal restoration, import transactions and native spatial migration below still require implementation and native proof.
 Legacy fingerprints, output cutoffs, module isolation and the [portable artifact pool](ARTIFACT_POOL.md) remain.
 The current CLI and safety rules remain in force; no native import recipe or scheduler is switched by this phase.
 
@@ -181,7 +191,7 @@ render lock, memory guard, worker limits and handoff rules until the separately 
 validated. A batch does not authorize parallel Unreal processes or an idle editor holding capacity. Use an empty
 import world where possible and measure startup, import, derived-data work, validation and save separately.
 
-Stage 1 should also report DDC configuration and hits. The two inspected worktrees already use the same per-user
+Stage 1 now reports DDC configuration and explicit hit counts from retained logs. The two inspected worktrees use the same per-user
 ZenLocal service and filesystem DDC, while ZenShared is disabled. Preserve that reuse and measure its effectiveness;
 evaluate a remote/shared DDC for additional machines only on demonstrated benefit. DDC and Zen cook storage have
 different responsibilities even when served by related infrastructure. Sharing DDC does not eliminate the import
@@ -244,8 +254,10 @@ closure, including leaves. A fresh worktree may reuse unchanged products from di
 are proven; it need not find a single donor whose entire build is current. Preserve strict `atelier reuse` until
 the replacement satisfies those stronger per-product guarantees.
 
-The remote store is optional and has a simple transport boundary. A private object store is the proposed default
-for frequent small artifact retrieval. GitHub release bundles are a plausible backend for versioned starter packs
+The optional HTTPS receiver now supports frequent small artifact retrieval from fixed object-store paths, with
+explicit configuration, verified manifests, bounded downloads and local fallback; see [the cache guide](ARTIFACT_POOL.md#fetch-signed-products-over-https).
+Trusted production and uploading remain separate work. A private object store is the proposed default.
+GitHub release bundles are a plausible backend for versioned starter packs
 and larger snapshots; choose bundle sizes after checking current service constraints. GitHub Actions caches should
 remain disposable accelerators. The source of truth is the recipe and committed sources, not the availability of
 any hosted cache. No hosting limits or prices were assessed in this offline proposal.
@@ -317,6 +329,9 @@ Small build products also allow finer scheduling. The [capacity admission propos
 fixed big/small lane categories with atomic memory/CPU reservations, measured workload profiles and named locks
 for real exclusivity. Artifact lookup and the build graph determine the work; the capacity service decides when
 it can safely execute. Existing slots remain authoritative until that scheduler passes its migration gates.
+The implemented `atelier capacity history GUARD_DIRECTORY` command inspects retained process measurements
+without running a job. It distinguishes sampling sessions and watched processes; it does not yet provide
+per-phase owned-tree profiles, calibrated reservations or disk estimates.
 
 ## Migration and acceptance gates
 
@@ -336,6 +351,11 @@ generic edit-boundary test harness; Stage 2 supplies recipe templates, product d
 Python audit bootstraps for Blender/Unreal and the ownership checker. Later stages exercise restore/registry
 recovery, two neighbouring terrain tiles, native/cook invalidation and remote fallback using sandbox fixtures.
 `atelier new` inherits these templates and examples. Yorimichi supplies the demanding case, not platform special cases.
+
+The offline part of Stage 4 now has a sandbox proof: two fixed query tiles update for changed, added, removed
+and moved products, ignore distant edits and unread siblings, and agree after cache restoration and a fresh build.
+Audited actions refuse reads of the raw catalogue or nonmatching products. These are JSON dependency fixtures;
+terrain seams, generated spatial indexes, native queries and collision ordering still require their own proof.
 
 Stage 2 should start with the observed five-tree edit. The current foliage importer already accepts a subset of
 names, which offers a concrete migration seam. Remove its shared material writes into the material owner and

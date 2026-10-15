@@ -20,11 +20,21 @@ def changed_inputs(previous, current):
     for field, label in (('commands', 'commands'), ('products', 'product declarations'), ('tools', 'tool context')):
         if previous.get(field) != current.get(field):
             reasons.append(f'{label} changed')
-    for field, label in (('inputs', 'input'), ('needs', 'dependency'), ('reads', 'product')):
+    for field, label in (('inputs', 'input'), ('needs', 'dependency'), ('reads', 'product'),
+                         ('queries', 'spatial query'), ('spatial_outputs', 'spatial bounds')):
         before, after = previous.get(field, {}), current.get(field, {})
         for name in sorted(before.keys() | after.keys()):
             if before.get(name) != after.get(name):
                 reasons.append(f'{label} changed: {name}')
+    before, after = previous.get('optional_inputs', {}), current.get('optional_inputs', {})
+    for name in sorted(before.keys() | after.keys()):
+        old, new = before.get(name), after.get(name)
+        if old == new:
+            continue
+        change = 'declared' if old is None else 'declaration removed' if new is None else 'changed'
+        if isinstance(old, dict) and isinstance(new, dict) and old.get('present') != new.get('present'):
+            change = 'appeared' if new.get('present') else 'removed'
+        reasons.append(f'optional input {change}: {name}')
     return reasons or ['fingerprint changed']
 
 
@@ -77,6 +87,9 @@ def _inspect(ctx, steps, wanted, *, force, index):
                           'previous_seconds': stamp.get('seconds'), 'heavy': step.heavy,
                           'products': [p.name for p in step.products], 'needs': step.needs, 'after': step.after,
                           'reads': step.reads, 'references': step.references})
+        if step.queries:
+            from .build_spatial import manifest
+            decisions[-1]['queries'] = manifest(step)['queries']
         done[step.name] = (stamp['result'] if step.cutoff and status != 'current' and stamp.get('result')
                            else engine.result(step, current, stamp))
         build_products.feed_results(done, stamp.get('products', {}))

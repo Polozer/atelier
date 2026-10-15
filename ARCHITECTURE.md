@@ -18,7 +18,7 @@ build/            ignored: everything a build generates, per game
 
 | Piece | Where | What |
 |---|---|---|
-| `atelier` command | `platform/studio/atelier` | `new`, `doctor`, `setup`, `fetch`, `build` (incremental steps/products), `reuse`, `pool`, `play` (profiles), `playtest`, `stream`, `live`, `qa`, `lint`, `contracts`, `capacity` (shadow plans), `board`; the lock and memory guard around heavy processes (`atelier.safety`) |
+| `atelier` command | `platform/studio/atelier` | `new`, `doctor`, `setup`, `fetch`, `build` (incremental steps/products), `reuse`, `pool`, `play` (profiles), `playtest`, `stream`, `live`, `qa`, `lint`, `contracts`, `capacity` (shadow plans and retained guard histories), `board`; the lock and memory guard around heavy processes (`atelier.safety`) |
 | AI and review tools | `platform/studio/atelier/{ai,review,blender}`, `platform/studio/node` | Tripo, Sunburst, H3 and Seedance helpers, the paid-call ledger, the UniMate and Kimodo runners, contact sheets, glTF previews |
 | Conventions | `platform/conventions` | units and axes, humanoid bones, clip roles, sound cues, naming |
 | AtelierCore | `engine/Plugins/AtelierCore` | runtime data files (`AtelierDataPath`), sprint stamina |
@@ -65,14 +65,18 @@ ramp, footsteps, the world map, preferences and the HUD.
 ## Build products
 
 The [recipe guide](docs/BUILD_RECIPES.md) covers named products, content-based read dependencies and read-only build
-plans, historical phase timings and certified-output differences, file-hash memoization, automatic local caching
-of portable products and opt-in Python input/write auditing. The
+plans, historical phase timings, certified-output differences and retained-log DDC diagnostics, file-hash memoization, automatic local caching
+of portable products, opt-in Python input/write auditing and recipe-declared spatial queries with frozen,
+matched-product reads. The sandbox exercises these spatial dependencies without Unreal. The
 [incremental build architecture](docs/INCREMENTAL_BUILDS.md) describes the remaining native import and remote storage
 migration. [World build practices](docs/WORLD_BUILD_PRACTICES.md) explain how to structure asset libraries,
 terrain and regions for small rebuilds. Proposed features are marked; the [artifact pool](docs/ARTIFACT_POOL.md)
-documents automatic cache maintenance alongside the older explicit reuse commands.
+documents automatic cache maintenance, signed bundle ingestion, optional HTTPS lookup and the older explicit reuse commands.
+Imports require pinned publisher keys, explicit redistribution grants and complete byte verification;
+uploading and trusted publisher issuance remain separate work.
 The related [capacity admission proposal](docs/BUILD_CAPACITY.md) describes replacing fixed execution slots with
-measured resource reservations while preserving memory guards and exclusive-resource locks.
+measured resource reservations while preserving memory guards and exclusive-resource locks. Its current commands
+evaluate supplied snapshots and inspect retained guard histories; measured admission remains a separate migration.
 
 ## Why the studio is Python
 

@@ -105,12 +105,12 @@ def prepared(ctx, step, products):
     certification. Reference products MUST NOT grant read access. Reports MUST stay outside products;
     failed actions and incomplete reports MUST NOT create stamps or publish cache entries.
     """
-    from .build import declared_inputs
+    from .build import required_inputs
     from .build_cache import atomic_json, roots
     validate(step)
     roots(ctx, step)
     command = step.commands[0]
-    inputs = [*declared_inputs(step), *(p for name in step.reads for p in products[name].paths)]
+    inputs = [*required_inputs(step), *(p for name in step.reads for p in products[name].paths)]
     output_roots = [Path(p).resolve() for product in step.products for p in product.paths]
     report_path = ctx.logs / f'{step.name}.audit.json'
     # These paths have one owner, and the executor has already dropped its old stamp. Unlinking
@@ -123,6 +123,10 @@ def prepared(ctx, step, products):
             root.unlink(missing_ok=True)
     with tempfile.TemporaryDirectory(dir=ctx.logs, prefix='.audit-') as temporary, ExitStack() as cleanup:
         control = Path(temporary).resolve()
+        from .build_spatial import manifest
+        action_inputs = control / 'action-inputs.json'
+        action_inputs.write_text(json.dumps(manifest(step)))
+        inputs.append(action_inputs)
         scratch = control / 'scratch'
         for name in ('home', 'tmp', 'cache', 'bytecode'):
             (scratch / name).mkdir(parents=True)
@@ -133,7 +137,8 @@ def prepared(ctx, step, products):
         receiver = Receiver(read_fd, nonce)
         config = {
             'nonce': nonce, 'fd': write_fd, 'script': str(command.script.resolve()), 'args': list(map(str, command.args)),
-            'inputs': [(str(Path(p).resolve()), Path(p).is_dir()) for p in inputs],
+            'inputs': [*((str(Path(p).resolve()), Path(p).is_dir()) for p in inputs),
+                       *((str(Path(p).resolve()), False) for p in step.optional_inputs)],
             'outputs': list(map(str, output_roots)), 'scratch': str(scratch),
             'runtime': sorted({str(Path(sysconfig.get_path(name)).resolve())
                                for name in ('stdlib', 'platstdlib', 'purelib', 'platlib')}),
@@ -147,7 +152,7 @@ def prepared(ctx, step, products):
         env = (('HOME', str(scratch / 'home')), ('TMPDIR', str(scratch / 'tmp')),
                ('TMP', str(scratch / 'tmp')), ('TEMP', str(scratch / 'tmp')),
                ('XDG_CACHE_HOME', str(scratch / 'cache')), ('PYTHONPYCACHEPREFIX', str(scratch / 'bytecode')),
-               ('PYTHONDONTWRITEBYTECODE', '1'))
+               ('PYTHONDONTWRITEBYTECODE', '1'), ('ATELIER_ACTION_INPUTS', str(action_inputs)))
         receiver.thread.start()
         try:
             yield argv, env, (write_fd,)

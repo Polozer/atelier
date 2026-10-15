@@ -169,8 +169,8 @@ def make_parser():
     p = sub.add_parser('pool'); p.add_argument('action', choices=['publish', 'restore', 'status'])
     p.add_argument('game'); p.add_argument('step')
     p = sub.add_parser('fetch'); p.add_argument('game')
-    p = sub.add_parser('capacity', help='evaluate a capacity snapshot without admitting work')
-    p.add_argument('action', choices=['plan']); p.add_argument('snapshot')
+    p = sub.add_parser('capacity', help='inspect retained resource history or evaluate a capacity snapshot')
+    p.add_argument('action', choices=['plan', 'history']); p.add_argument('path', help='snapshot JSON or guard report directory')
     p.add_argument('--json', action='store_true')
     p = sub.add_parser('build'); p.add_argument('game'); p.add_argument('steps', nargs='*')
     p.add_argument('--list', action='store_true'); p.add_argument('--force', action='store_true')
@@ -179,6 +179,7 @@ def make_parser():
     p.add_argument('--json', action='store_true', help='print the selected read-only report as JSON')
     p.add_argument('--timings', action='store_true', help='read historical execution and phase timings without checking inputs')
     p.add_argument('--changes', action='store_true', help='read changes between the last certified product inventories')
+    p.add_argument('--ddc', action='store_true', help='read historical DDC configuration and counts from retained Unreal logs')
     p.add_argument('--verify', action='store_true', help='read all named-product bytes instead of using the local hash index')
     p.add_argument('--touch', action='store_true', help='record the steps as built without running them (after a recipe refactor)')
     p = sub.add_parser('play'); p.add_argument('game'); p.add_argument('--profile', default='play')
@@ -240,9 +241,17 @@ def main(argv=None):
     if args.command == 'fetch':
         return fetch(args.game)
     if args.command == 'capacity':
+        if args.action == 'history':
+            from .capacity_history import show
+            return show(args.path, as_json=args.json)
         from . import capacity
-        return capacity.main(args.snapshot, as_json=args.json)
+        return capacity.main(args.path, as_json=args.json)
     if args.command == 'build':
+        if args.ddc:
+            if args.timings or args.changes or args.list or args.dry_run or args.explain or args.force or args.touch or args.verify:
+                raise SystemExit('--ddc combines only with step selection and --json')
+            from .build_ddc import show
+            return show(args.game, args.steps, as_json=args.json)
         if args.changes:
             if args.timings or args.list or args.dry_run or args.explain or args.force or args.touch or args.verify:
                 raise SystemExit('--changes combines only with step selection and --json')

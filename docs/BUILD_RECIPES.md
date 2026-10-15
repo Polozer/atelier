@@ -26,8 +26,9 @@ def steps(ctx):
 The scripts write their declared paths. Command scripts are automatically included for named-product actions.
 They must also declare imported helpers, data, settings and tool inputs that
 affect their output. `Call` function bodies must also be covered by explicit source inputs. Declaration alone does
-not discover arbitrary reads. Every declared source of a named-product action must exist before it runs or accepts
-a cache hit; plans report missing inputs. Native commands still need `heavy=True` and the existing guards.
+not discover arbitrary reads. Every required source of a named-product action must exist before it runs or accepts
+a cache hit; plans report missing required inputs. Explicit optional files use the declaration below.
+Native commands still need `heavy=True` and the existing guards.
 
 | Relationship | Execution and invalidation |
 | --- | --- |
@@ -47,6 +48,24 @@ every member, empty directory and file hash. Missing, altered, unexpected or lin
 Symlinked ancestors such as a system temporary directory are supported; product roots and members cannot be links.
 Input changes during generation prevent certification, and the final stamp is replaced atomically after validation.
 
+## Track an optional source file
+
+A step with named products can declare `optional_inputs=[source / 'override.json']`. The exact path contributes
+either an absent identity or a complete regular-file content identity to its key. Appearance, edits, removal and
+changing between required and optional declarations all invalidate the action. An unrelated sibling file does not.
+Normal `inputs`, command scripts and audit support files remain required. Plans explain optional-file transitions.
+
+Use this for an explicitly named source whose absence has defined behavior, such as the sandbox block override.
+Do not declare a broad directory merely to support `Path.exists()` on one file. A declaration grants an audited
+action reads and ordinary metadata checks on that exact path; it grants no directory listing, descendant/sibling
+read or source write. Optional paths cannot overlap the action's outputs or duplicate a required input.
+
+Directories, symlinks (including dangling ones), special files and access/I/O errors are refused. Only a missing
+path is absence. Existing cache and post-generation fingerprint checks also cover optional files; a change while
+building prevents certification. This tracks existence and file contents, not portable timestamp, permission or
+inode dependencies. Declare imported helpers normally, and include optional source files in source control when
+they are part of the intended game. Local dirty-source caching does not make a private file available to others.
+
 ## Inspect a build without running it
 
 ```sh
@@ -55,10 +74,11 @@ uv run atelier build sandbox --plan --explain
 uv run atelier build sandbox --json
 uv run atelier build sandbox world --timings --json
 uv run atelier build sandbox world --changes --json
+uv run atelier build sandbox --ddc --json
 ```
 
-`--plan` and `--dry-run` are aliases. `--explain` and `--json` also imply planning unless `--timings` or `--changes` selects historical
-receipts. These reports do not create build folders,
+`--plan` and `--dry-run` are aliases. `--explain` and `--json` also imply planning unless `--timings`, `--changes` or
+`--ddc` selects historical observations. These reports do not create build folders,
 write stamps, run commands or take render capacity. Recipes and verification callbacks must themselves be read-only
 during inspection. Changed input names are available after a new successful build stores input detail; older stamps
 get a general reason. A consumer of a dirty product is `check-after-build` when its outcome is still unknown.
@@ -137,6 +157,35 @@ an ordinary declared code dependency. This build-engine update itself changes th
 actions once; it does not weaken cache keys to avoid that initial rebuild. Native phase measurements still require
 the normal guarded execution and admission. Command time outside measured phases includes waiting and launch/
 shutdown overhead; do not label it all as editor startup.
+
+## Inspect derived-data-cache observations
+
+`atelier build <game> [step ...] --ddc [--json]` reads retained logs for selected Unreal script/package steps and
+their dependencies. It starts no tools and does not read DDC directories, contact Zen, inspect artifacts, hash
+inputs, write stamps or acquire capacity. Other commands such as Python generators and native compilation have
+no DDC report. Combine `--ddc` only with step selection and optional `--json`.
+
+The report recognizes explicit cache-node availability and disabled states, plus Unreal's `DDC Summary Stats`
+fields for get/put counts, reported hit fractions and local/shared/Zen/cloud presence. An import log can describe
+its cache configuration without recording any hit counts. Missing, malformed or conflicting values are **unknown**,
+not zero. Contradictory count totals are unusable. Repeated summaries remain separate; local and ZenLocal counters
+can overlap and must not be summed. Configuration that changes within a log is labelled **mixed**.
+
+These are **historical, unverified log observations**. A retained log can describe a failed attempt, an older
+revision or a reused donor; it does not prove the current configuration, a successful build, or sharing with
+another checkout. `LogZenStore` cook-storage messages and isolated shader-cache misses do not establish DDC totals.
+DDC reuse does not eliminate package imports, loading or saving.
+
+For each step, the reader prefers `logs/<step>.guard/stdout.log`, covering the last guarded command, and falls
+back to `logs/<step>.log` only when guard stdout is absent. It never counts both as separate executions. Reads are
+capped at 4 MiB per file and 32 MiB per invocation, with 100,000 lines, 8,192 characters per line and 16 summaries
+per file. Limits and logs changed during reading are labelled **partial**. Cut records are discarded; unsupported
+formats remain unknown. Missing logs after reuse are normal. Symlinks and special files are not read.
+
+Reports contain only allowlisted node/state labels and typed numerical fields. Paths, URLs, namespaces, command
+lines and unknown raw log messages are omitted; the report identifies its source by a build-relative label.
+The sandbox uses the same inspection path and reports unknown values until native logs exist. Parser fixtures
+exercise the supported log formats without requiring a native build.
 
 ## Audit a Python generator's accesses
 
@@ -219,3 +268,61 @@ Existing recipes remain supported. Unreal packages, native binaries, Content and
 ineligible for this cache. Transactional Unreal restoration, import ownership, registry refresh, relocation and remote
 storage remain described in [the architecture](INCREMENTAL_BUILDS.md). Keep native imports conservative until their clean/incremental equivalence checks
 pass, following [world build practices](WORLD_BUILD_PRACTICES.md).
+
+## Spatial product reads
+
+Use recipe-declared boxes when an action depends on nearby products. `Product(collection=..., bounds=...)` names
+a collection and a conservative bounding box. `BBoxQuery(name, collection, bounds)` selects its intersecting
+products. Bounds are `(min_x, min_y, min_z, max_x, max_y, max_z)`, finite numbers in a shared coordinate frame and
+unit. Flat boxes and touching boundaries are included. Names are stable product IDs, independent of discovery order.
+
+```python
+from atelier.build import BBoxQuery, Product, Python, Step
+from atelier.build_inputs import local_imports
+
+source = Step('world.rock', [Python(rock_script, (rock_source, rock_output))],
+              inputs=[rock_source], audit=True, cache=True,
+              products=[Product('rock.geometry', (rock_output,),
+                                collection='geometry.cm', bounds=(10, 0, 0, 30, 20, 40))])
+tile = Step('world.tile', [Python(tile_script, (tile_output,))],
+            inputs=local_imports(tile_script), audit=True, cache=True,
+            queries=[BBoxQuery('nearby', 'geometry.cm', (0, -50, -50, 100, 50, 50))],
+            products=[Product('tile.geometry', (tile_output,))])
+```
+
+The tile script reads frozen matches:
+
+```python
+from atelier.build_context import query
+
+for product in query('nearby'):
+    # product.name, product.bounds and product.paths are immutable records.
+    geometry = product.paths[0].read_bytes()
+```
+
+Resolution happens before target selection, ordering and cache lookup, against all current recipe declarations.
+Matching producers become prerequisites and their selected product identities enter the consumer's key. The key
+also includes query criteria and the full sorted result set, even when empty. Unmatched products and unconsumed
+sibling outputs do not enter it. `--plan --json` exposes resolved matches; `--explain` names changed queries.
+
+Queries currently require an audited Python action with named products. Only declared matches grant file access;
+the action does not receive the global catalogue. Include its static imports through `local_imports`, and avoid
+declaring a broad catalogue input on the consumer, which would deliberately invalidate it for every catalogue edit.
+The [sandbox example](../games/sandbox/README.md#spatial-dependencies-without-unreal) exercises this without native tools.
+
+Read catalogue metadata freshly inside `steps(ctx)`, for example from per-source JSON files. Atelier re-evaluates
+the recipe before accepting a query consumer and before/after restoration or execution. Changed bindings, owner
+paths, consumed bytes or refreshed consumer fingerprints refuse certification and require rerunning to replan.
+The executor does not silently add producers to an already running plan. Fresh resolution does not reload arbitrary
+Python globals or cached imported modules; keep catalogues out of such state. Products must not change concurrently
+with their consumers. Endpoint checks cannot prove that a file was unchanged at every instant.
+
+Each checkpoint resolves only the current action's queries, while revalidating ownership against the complete
+fresh catalogue. Shared source paths are resolved once within that validation; path results are not retained
+between checkpoints. Recipe loading, complete ownership checks and matched-product inventories still have a
+cost. Profile large catalogues before migration; this API does not provide a persistent spatial index or watcher.
+
+Bounds are author declarations, not a geometric proof. Include each operation's full influence volume and verify
+that product bounds contain the generated geometry. Runtime-discovered boxes, generated spatial catalogues,
+nearest-neighbour queries and native import/query adapters are not implemented. Use broader explicit reads until
+those contracts exist. Native Unreal products remain ineligible for portable caching.
