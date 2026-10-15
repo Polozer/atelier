@@ -49,6 +49,21 @@ WALL_ROW = 3.0        # the arcade's faces are cut in courses this high...
 WALL_BUMP = .12       # ...each standing up to this much in or out
 COURSE = (1.5, 2.6)   # pier courses: heights between these
 VOUSSOIR = 1.         # arch stones: about this long round the arch
+# the start tower: a solid deck standing high above the ground is built as a stone keep (the roll-in towers of the
+# concept), not a box
+FASCIA = 'material_032'        # the deck's wooden edge (editor_generate.FASCIA)
+TOWER_MIN = 6.        # a solid deck this far above the ground becomes a tower
+TOWER_STAGE = 19.     # its stages are about this tall...
+TOWER_STEP = 1.8      # ...each stepping out this much a side below the one above, on a sloped ledge...
+TOWER_BATTER = .04    # ...and leaning out this much per metre within itself
+TOWER_LEDGE = 1.      # the sloped ledges' height
+BUTTRESS = 2.4        # corner buttresses: half this across...
+BUTTRESS_RISE = .55   # ...rising this share of the tower, stepping in twice on the way up
+CROWN = 2.6           # the corbelled crown under the deck: this deep...
+CROWN_OUT = 1.        # ...overhanging the top stage this much...
+CORBEL = 2.1          # ...on corbels about this far apart
+MERLON = (1.5, 1.1, 1.)  # the battlement round the sides with no ramp: merlon length, gap and height
+FASCIA_BAND = .55     # the deck's wooden edge above the crown
 
 
 class Ground:
@@ -460,6 +475,29 @@ def _box(b, material, c, fwd, acr, a, w, y0, y1, yaw=0.):
     _rings(b, material, [ring(y0), ring(y1)])
 
 
+def _course(b, centre, fwd, acr, along, wide, y0, y1, key, plinth=False):
+    """One rough course of stone, `along` (half, along fwd) by `wide` (half, along acr), from y0 to y1: a little
+    shifted, turned and rounded at random, with a corner stone standing out of it about every other course."""
+    j = 0. if plinth else .22
+    cc = centre + (2 * _rand(key, 1.) - 1) * j * fwd + (2 * _rand(key, 2.) - 1) * j * .6 * acr
+    yaw = 0. if plinth else (2 * _rand(key, 3.) - 1) * .025
+    rad = CORNER * (.5 + .7 * _rand(key, 4.))
+    f = math.cos(yaw) * fwd + math.sin(yaw) * acr
+    u = -math.sin(yaw) * fwd + math.cos(yaw) * acr
+    rings, normals = [], []
+    for y in (y0, y1):
+        pts, nrm = _rounded(cc, f, u, along, wide, y, rad, seg=2)
+        rings.append(pts)
+        normals.append(nrm)
+    _rings(b, STONE, rings, normals)
+    if not plinth and _rand(key, 5.) < .55:              # a corner stone standing out of the course
+        su, sv = (1 if _rand(key, 6.) < .5 else -1), (1 if _rand(key, 7.) < .5 else -1)
+        qa, qw = .5 + .35 * _rand(key, 8.), .4 + .25 * _rand(key, 9.)
+        pop = .1 + .15 * _rand(key, 10.)
+        qc = cc + su * (along - qa + pop) * f + sv * (wide - qw + pop) * u
+        _box(b, STONE, qc, f, u, qa, qw, y0 + .04, y1 - .04)
+
+
 def _pier(b, plan, ground, S, ts, a, c):
     """A pier over samples a..c, laid in rough courses as the concept's: each course a little shifted, turned and
     stepped, stepping in at a ledge or two on the way up to the capstones, corner stones standing out, on a plinth,
@@ -481,25 +519,7 @@ def _pier(b, plan, ground, S, ts, a, c):
 
     def course(y0, y1, extra, key, plinth=False):
         along = half_len + .5 * BATTER * max(top - y0, 0.) + extra
-        wide = _lean(s, y0) + extra
-        j = 0. if plinth else .22
-        cc = centre + (2 * _rand(key, 1.) - 1) * j * fwd + (2 * _rand(key, 2.) - 1) * j * .6 * acr
-        yaw = 0. if plinth else (2 * _rand(key, 3.) - 1) * .025
-        rad = CORNER * (.5 + .7 * _rand(key, 4.))
-        f = math.cos(yaw) * fwd + math.sin(yaw) * acr
-        u = -math.sin(yaw) * fwd + math.cos(yaw) * acr
-        rings, normals = [], []
-        for y in (y0, y1):
-            pts, nrm = _rounded(cc, f, u, along, wide, y, rad, seg=2)
-            rings.append(pts)
-            normals.append(nrm)
-        _rings(b, STONE, rings, normals)
-        if not plinth and _rand(key, 5.) < .55:              # a corner stone standing out of the course
-            su, sv = (1 if _rand(key, 6.) < .5 else -1), (1 if _rand(key, 7.) < .5 else -1)
-            qa, qw = .5 + .35 * _rand(key, 8.), .4 + .25 * _rand(key, 9.)
-            pop = .1 + .15 * _rand(key, 10.)
-            qc = cc + su * (along - qa + pop) * f + sv * (wide - qw + pop) * u
-            _box(b, STONE, qc, f, u, qa, qw, y0 + .04, y1 - .04)
+        _course(b, centre, fwd, acr, along, _lean(s, y0) + extra, y0, y1, key, plinth)
 
     course(foot, base, out + PLINTH_OUT, mid, plinth=True)
     y, k = base, 0
@@ -651,13 +671,194 @@ def arcade(b, plan, ground, piece, stations):
     return piers, arches, metres, rocks
 
 
+def _rect(V):
+    """The top face of a box deck: centre (x, z), long and short axes, half extents along them, and its top y."""
+    top = V[:, 1].max()
+    P = np.unique(np.round(V[V[:, 1] > top - .05][:, [0, 2]], 3), axis=0)
+    c = P.mean(0)
+    w, vecs = np.linalg.eigh(np.cov((P - c).T))
+    fwd = vecs[:, 1] / np.linalg.norm(vecs[:, 1])
+    acr = np.array([-fwd[1], fwd[0]])
+    return c, fwd, acr, np.abs((P - c) @ fwd).max(), np.abs((P - c) @ acr).max(), top
+
+
+def _relieving_arch(b, c, n, t, half, y0, y1, offset, key):
+    """A relieving arch on one face (outward normal n, along t, centred c): a ring of uneven wedge stones standing out of
+    the face, springing from y0 + its radius up to its crown at y1, its keystone the deepest; `offset(y)` is the face's
+    distance from c at height y."""
+    spring = y1 - half
+    if spring - y0 < 1.:
+        return
+    at = lambda u, y, out: (c[0] + u * t[0] + (offset(y) + out) * n[0], y, c[1] + u * t[1] + (offset(y) + out) * n[1])
+    count = max(5, int(round(np.pi * half / VOUSSOIR)))
+    for k in range(count):
+        a0, a1 = np.pi * k / count + .012, np.pi * (k + 1) / count - .012
+        depth = RING_DEPTH * (1.1 + .6 * _rand(key, k, 1.)) * (1.35 if k == count // 2 else 1.)
+        proud = .3 + .25 * _rand(key, k, 2.)
+        quad = lambda out: np.array([at(r * math.cos(a), spring + r * math.sin(a), out)
+                                     for r, a in ((half, a0), (half + depth, a0), (half + depth, a1), (half, a1))])
+        _rings(b, STONE, [quad(proud), quad(-.3)])
+
+
+def tower(b, plan, ground, piece, open_sides):
+    """The start tower under a high solid deck: a stone keep after the concept's roll-in towers. Rough courses in
+    stages that step out on sloped ledges toward the foot, each face of each stage with a blind arch, stepped corner
+    buttresses, a corbelled crown just under the deck, a battlement round the sides the ramps don't leave from, a plinth
+    and rubble round the foot. Returns the boulders placed, or None if the deck is not high enough for one."""
+    V = np.asarray(piece.mesh.V, 'f8')
+    c, fwd, acr, a, w, top = _rect(V)
+    corners = [c + u * fwd + v * acr for u in (-a, 0, a) for v in (-w, 0, w)]
+    g = [float(ground(*q)) for q in corners]
+    g_hi, foot = max(g), min(g) - SINK - 1.
+    crown_top = top - FASCIA_BAND
+    body = crown_top - CROWN
+    base = g_hi + PLINTH
+    if top - g_hi < TOWER_MIN or body - base < 3.:
+        return None
+    key0 = c[0] * 7 + c[1]
+    stages = max(1, int(round((body - base) / TOWER_STAGE)))
+    edges = np.linspace(body, base, stages + 1)              # edges[k] is the top of stage k (0 at the top)
+
+    def offset(y):
+        """How far each face stands out of the deck's own outline at height y (stepping out stage by stage)."""
+        k = min(int(np.searchsorted(-edges, -y, side='right')) - 1, stages - 1) if y < body else 0
+        k = max(k, 0)
+        return k * TOWER_STEP + TOWER_BATTER * (edges[k] - y)
+
+    # the plinth, then rough courses up to the crown; a stage's foot sits on a sloped ledge out to the next one
+    low = offset(base + .01)
+    _course(b, c, fwd, acr, a + low + PLINTH_OUT, w + low + PLINTH_OUT, foot, base, key0, plinth=True)
+    y, k = base, 0
+    while y < body - .3:
+        h = COURSE[0] + (COURSE[1] - COURSE[0]) * _rand(key0, k, 11.)
+        y1 = min(y + h, body) if body - (y + h) > .8 else body
+        st = next(i for i in range(stages) if y >= edges[i + 1] - 1e-6)
+        if y1 > edges[st] + 1e-6:
+            y1 = edges[st]
+        o = offset(y + .01)
+        _course(b, c, fwd, acr, a + o, w + o, y - .02, y1, key0 * 13 + k)
+        y, k = y1, k + 1
+    for i in range(stages - 1):                              # the weathering ledge at the top of each lower stage
+        y0 = edges[i + 1]
+        below, above = offset(y0 - .01), offset(y0 + .01)
+        rings, normals = [], []
+        for yy, o in ((y0 - .02, below + .15), (y0 + TOWER_LEDGE, above)):
+            pts, nrm = _rounded(c, fwd, acr, a + o, w + o, yy, CORNER, seg=2)
+            rings.append(pts)
+            normals.append(nrm)
+        _rings(b, STONE, rings)
+    # a relieving arch on every face of every stage tall enough for one
+    for i in range(stages):
+        y_top, y_bot = edges[i], edges[i + 1]
+        if y_top - y_bot < 7.:
+            continue
+        for n, t, half_face, other in ((fwd, acr, w, a), (-fwd, acr, w, a), (acr, fwd, a, w), (-acr, fwd, a, w)):
+            half = min(.42 * half_face, .3 * (y_top - y_bot))
+            cc = c.copy()
+            _relieving_arch(b, cc, n, t, half, y_bot + 1.6 + (TOWER_LEDGE if i < stages - 1 else 0.), y_top - 2.2,
+                        lambda yy, other=other: other + offset(yy), key0 + i * 31 + n[0] * 5 + n[1])
+    # stepped corner buttresses on the lowest stages
+    rise = base + BUTTRESS_RISE * (body - base)
+    for su in (-1, 1):
+        for sv in (-1, 1):
+            steps = 3
+            for j in range(steps):
+                y0 = base + (rise - base) * j / steps - .02
+                y1 = base + (rise - base) * (j + 1) / steps
+                half = BUTTRESS * (1. - .15 * j)
+                o = offset(y1 - .01) + .35 * half                  # its inner half buried in the body's corner
+                corner = c + su * (a + o) * fwd + sv * (w + o) * acr
+                yy, kk = y0, 0
+                while yy < y1 - .3:
+                    hh = COURSE[0] + (COURSE[1] - COURSE[0]) * _rand(key0, su, sv, j, kk)
+                    yy1 = min(yy + hh, y1) if y1 - (yy + hh) > .8 else y1
+                    _course(b, corner, fwd, acr, half, half, yy - .02, yy1, key0 + su * 3 + sv * 7 + j * 101 + kk)
+                    yy, kk = yy1, kk + 1
+                cap = [_rounded(corner, fwd, acr, half + .1, half + .1, y1 - .02, CORNER, seg=2)[0],
+                       _rounded(corner, fwd, acr, half * .45, half * .45, y1 + .9 * half, CORNER * .5, seg=2)[0]]
+                _rings(b, STONE, cap)
+    # the crown: corbels under a ragged overhanging band of capstones, its top just under the deck
+    o = offset(body - .01)
+    for n, t, half_face, other in ((fwd, acr, w, a), (-fwd, acr, w, a), (acr, fwd, a, w), (-acr, fwd, a, w)):
+        count = max(2, int(round(2 * half_face / CORBEL)))
+        for k in range(count + 1):
+            u = -half_face + 2 * half_face * k / count
+            cc = c + (other + o + CROWN_OUT / 2) * n + u * t
+            _box(b, STONE, cc, n, t, CROWN_OUT / 2 + .05, .35, body - 1.2, body + .5 * CROWN)
+    j = 0
+    sides = 16
+    pts, _ = _rounded(c, fwd, acr, a + o + CROWN_OUT, w + o + CROWN_OUT, 0., CORNER, seg=2)
+    lo, hi = body + .5 * CROWN, crown_top
+    _course(b, c, fwd, acr, a + o + CROWN_OUT, w + o + CROWN_OUT, lo, hi - .35, key0 + 77)
+    _course(b, c, fwd, acr, a + o + CROWN_OUT - .1, w + o + CROWN_OUT - .1, hi - .37, hi, key0 + 78)
+    _course(b, c, fwd, acr, a + o - .05, w + o - .05, body - .02, lo + .02, key0 + 79, plinth=True)
+    # the deck's wooden edge over the crown
+    _rings(b, FASCIA, [_rounded(c, fwd, acr, a, w, crown_top - .05, .05, seg=1)[0],
+                       _rounded(c, fwd, acr, a, w, top - .02, .05, seg=1)[0]])
+    # a battlement on the crown's rim round the sides no ramp leaves from
+    ml, mg, mh = MERLON
+    rim = CROWN_OUT * .5
+    for n, t, half_face, other, side in ((fwd, acr, w, a, 0), (-fwd, acr, w, a, 1), (acr, fwd, a, w, 2),
+                                         (-acr, fwd, a, w, 3)):
+        if side in open_sides:
+            continue
+        span = 2 * (half_face + o + CROWN_OUT) - .4
+        count = max(1, int((span + mg) // (ml + mg)))
+        step = span / count
+        for k in range(count):
+            u = -span / 2 + step * (k + .5)
+            cc = c + (other + o + CROWN_OUT - rim) * n + u * t
+            hh = mh * (.9 + .25 * _rand(key0, side, k))
+            _box(b, STONE, cc, t, n, (step - mg) / 2, rim * .8, hi - .02, hi + hh)
+    placed = 0
+    reach_a, reach_w = a + low + PLINTH_OUT, w + low + PLINTH_OUT
+    n = 10 + int((top - g_hi) / 8)
+    for k in range(n):
+        ang = 2 * np.pi * (k + _rand(key0, k, 1.)) / n
+        q = c + (reach_a * math.cos(ang) * fwd + reach_w * math.sin(ang) * acr) * (1.05 + .4 * _rand(key0, k, 2.))
+        r = min(.8 + 1.4 * _rand(key0, k, 3.) + .02 * (top - g_hi), 3.6)
+        placed += _boulder(b, plan, ground, q[0], q[1], r, key0 * 3 + k)
+    return placed
+
+
+def open_sides(piece, pieces, k):
+    """The sides of a deck (0 +fwd, 1 -fwd, 2 +acr, 3 -acr) another piece leaves from at its top: no battlement there."""
+    c, fwd, acr, a, w, top = _rect(np.asarray(piece.mesh.V, 'f8'))
+    out = set()
+    for j, other in enumerate(pieces):
+        if j == k:
+            continue
+        V = np.asarray(other.mesh.V, 'f8')
+        near = V[np.abs(V[:, 1] - top) < 1.5]
+        if not len(near):
+            continue
+        d = near[:, [0, 2]] - c
+        u, v = d @ fwd, d @ acr
+        for side, hit in ((0, (u > a - .5) & (u < a + 4) & (np.abs(v) < w + 1)),
+                          (1, (u < -a + .5) & (u > -a - 4) & (np.abs(v) < w + 1)),
+                          (2, (v > w - .5) & (v < w + 4) & (np.abs(u) < a + 1)),
+                          (3, (v < -w + .5) & (v > -w - 4) & (np.abs(u) < a + 1))):
+            if hit.any():
+                out.add(side)
+    return out
+
+
 def build(pieces, heights, grid):
     """The supports for the kept editor pieces (bridge Pieces), as dsl Mesh parts, and a summary."""
     ground = Ground(heights, grid)
     plan = Plan(pieces)
-    out, summary = [], {'piers': 0, 'arches': 0, 'metres': 0., 'boulders': 0, 'pieces': {}}
+    out, summary = [], {'piers': 0, 'arches': 0, 'metres': 0., 'boulders': 0, 'towers': [], 'pieces': {}}
     for k, piece in enumerate(pieces):
         meta = piece.metadata
+        if meta['type'] == 'deck' and (meta.get('params') or {}).get('solid'):
+            b = Builder()
+            rocks = tower(b, plan, ground, piece, open_sides(piece, pieces, k))
+            if rocks is not None:
+                out += b.meshes(f"{meta['id']}_tower")
+                summary['boulders'] += rocks
+                summary['towers'].append(meta['id'])
+                summary['pieces'][meta['id']] = 'tower'
+            continue
         if meta['type'] in ('bowl', 'deck', 'rail') or not meta.get('stations'):
             continue
         b = Builder()

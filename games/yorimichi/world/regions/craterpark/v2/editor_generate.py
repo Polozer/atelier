@@ -133,7 +133,8 @@ def decal_uv(V, frame):
     return np.stack([(V[:, 0] - x0) / w, (V[:, 2] - z0) / h], 1)
 
 
-def piece_mesh(piece, decal=None):
+def piece_mesh(piece, decal=None, tower=False):
+    """The piece's riding faces and sides; a tower deck (editor_supports.tower) keeps only its top."""
     m, meta = piece.mesh, piece.metadata
     V, N, F, col = m.V, m.N, orient(m.V, m.F, m.N), piece.colors
     side = np.zeros(len(F), bool)
@@ -150,6 +151,8 @@ def piece_mesh(piece, decal=None):
             (~side, dsl.RIDING, ride, ride_uv),
             (side, dsl.SIDE, dsl.SIDE_WALL if concrete else FASCIA, side_uv(V, meta['stations']) if laid else None)):
         uv = tile_uv(V, N) if uv is None else uv
+        if tower:
+            mask = mask & (V[F][:, :, 1].min(1) > V[:, 1].max() - .05)
         if mask.any():
             parts.append(dsl.Mesh.part(V, F[mask], N=N, UV=uv, role=role, material=material,
                                        feature=meta['id']).subset(np.ones(int(mask.sum()), bool)))
@@ -281,11 +284,10 @@ def main(argv=None):
         scene.metadata['_dir'] = str(tmp / 'mesh')
         decals = {p['id']: material for p in chosen['pieces'] for key, material in DECALS.items()
                   if p['type'] == 'bowl' and key in (p.get('name') or '')}
-        parts, keep = [], []
-        for piece in scene.pieces:
-            parts += piece_mesh(piece, decals.get(piece.metadata['id']))
-            keep.append(piece.mesh.V)
-        keep = np.concatenate(keep)
+        params = {p['id']: p.get('params') or {} for p in chosen['pieces']}
+        for piece in scene.pieces:                 # the bridge leaves the params out; the tower needs `solid`
+            piece.metadata['params'] = params.get(piece.metadata['id'], {})
+        parts, keep = [], np.concatenate([piece.mesh.V for piece in scene.pieces])
         # the editor's chosen terrain layer, before the pieces cut it
         terrain = json.loads((park_path.parent / 'data' / 'terrain.json').read_text())['inner']
         base = np.fromfile(park_path.parent / 'data' / terrain['layers'][doc['terrain']], '<f4')
@@ -295,6 +297,11 @@ def main(argv=None):
         print(f"CRATERPARK EDITOR supports: stone viaducts, {support_summary['piers']} piers, "
               f"{support_summary['arches']} arches, {support_summary['metres']} m", flush=True)
         parts += supports
+        towers = set(support_summary['towers'])
+        if towers:
+            print(f"CRATERPARK EDITOR towers: {sorted(towers)}", flush=True)
+        for piece in scene.pieces:
+            parts += piece_mesh(piece, decals.get(piece.metadata['id']), tower=piece.metadata['id'] in towers)
         caps = {p['id']: (p.get('params') or {}).get('vert_assist_max') for p in chosen['pieces']}
         copings, rails, coping_summary = editor_coping.build(scene.pieces, caps, brick=set(decals))
         print(f"CRATERPARK EDITOR coping: {coping_summary['rails']} grind rails, {coping_summary['metres']} m", flush=True)

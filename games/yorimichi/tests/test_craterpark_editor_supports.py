@@ -68,3 +68,32 @@ def test_supports_are_deterministic():
     a, _ = es.build([sheet('p1', 30.)], FLAT, GRID)
     b, _ = es.build([sheet('p1', 30.)], FLAT, GRID)
     assert np.array_equal(vertices(a), vertices(b))
+
+
+def box_deck(pid, top, a=8., w=11., bottom=-5.):
+    """A solid deck as the bridge meshes it: a box from below the ground up to its top, here square to the axes."""
+    V = np.array([(x, y, z) for y in (bottom, top) for x, z in ((-a, -w), (a, -w), (a, w), (-a, w))], 'f8')
+    F = np.array([(4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4),
+                  (3, 4, 7)])
+    return types.SimpleNamespace(mesh=types.SimpleNamespace(V=V, F=F),
+                                 metadata=dict(id=pid, type='deck', stations=[], params={'solid': True}))
+
+
+def test_a_high_solid_deck_is_a_stone_tower_with_a_battlement_but_not_where_the_ramp_leaves():
+    ramp = sheet('ramp', 60., length=60., x0=8.)                 # leaves the deck's +x side at its top
+    parts, summary = es.build([box_deck('t', 60.), ramp], FLAT, GRID)
+    assert summary['towers'] == ['t'] and summary['pieces']['t'] == 'tower'
+    tower = [p for p in parts if p.features[0] == 't_tower']
+    V = vertices(tower)
+    assert V[:, 1].min() < 0. and V[:, 1].max() > 60., 'from below the ground to a battlement over the deck'
+    assert sum(len(p.F) for p in tower) < 20000
+    merlons = V[V[:, 1] > 60.05]
+    assert len(merlons) and merlons[:, 0].max() < 8.5, 'no battlement across the roll-in'
+    assert merlons[:, 0].min() < -8.5 and np.abs(merlons[:, 2]).max() > 11.5
+    stem = V[(V[:, 1] > 10.) & (V[:, 1] < 50.)]
+    assert np.abs(stem[:, 0]).max() > 9., 'the stages step out of the deck outline'
+
+
+def test_a_low_solid_deck_stays_a_deck():
+    parts, summary = es.build([box_deck('t', 3.)], FLAT, GRID)
+    assert summary['towers'] == [] and not parts
