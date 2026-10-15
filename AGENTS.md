@@ -27,6 +27,11 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
 - Before every commit, run `atelier lint` and read `git diff`. The Unreal editor rewrites `Config/*.ini` when it starts
   (it can add the Android file server's generated token): keep only the changes you meant.
 - Commit and push completed work at task boundaries, before starting the next task.
+- For an authorized game release, use `uv run atelier release publish GAME PACKAGE_DIR --tag TAG --verification REPORT`
+  with the existing independently verified package; add `--notes-file FILE` and `--source CHECKOUT` when needed.
+  Follow [the publishing guide](docs/RELEASES.md) for clean source/evidence, bounded uploads and cancellation/resume.
+  Preserve completed remote assets and rerun the same command after interruption; never clobber conflicts or publish
+  an unfinished draft manually. Uploading an existing verified package does not require another cook.
 - Never prefix pull request titles with `[codex]` unless explicitly asked.
 - GitHub-hosted CI runs the Python suite on macOS, checks code contracts, and runs an advisory review with
   `gpt-6.1-sol`, medium reasoning.

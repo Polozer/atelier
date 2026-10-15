@@ -344,6 +344,7 @@ Atelier is built for several AI agents working on one Mac at once, each in its o
 | `atelier build <game> [step ...]` | build what changed; `--list`, `--force`, `--touch`, full-byte `--verify`; read-only `--plan` / `--dry-run`, `--explain`, `--timings`, `--changes`, `--ddc`, `--json` |
 | `atelier play <game> [--profile P] [--set K=V] [--memory-gib N]` | play under the render lock and memory guard; profiles come from the game's `game.toml` |
 | `atelier playtest <game> [--tag T] [--download-only] [--memory-gib N]` | download, verify and play a GitHub release; `[release]` sets the tag prefix, launcher, watched processes and log |
+| `atelier release publish <game> PACKAGE_DIR --tag T --verification REPORT` | [publish an existing verified package](docs/RELEASES.md) with bounded, resumable uploads and the checksum manifest last |
 | `atelier live state` / `py "..."` / `shot` | work on the running game |
 | `atelier qa <game> <scenario>` | run `games/<game>/scenarios/<scenario>.py` against the running game |
 | `atelier stream <game> start [--local]` / `status` / `stop` / `build-web [--install]` | play in a browser; build the web assets, optionally reinstalling their dependencies |
