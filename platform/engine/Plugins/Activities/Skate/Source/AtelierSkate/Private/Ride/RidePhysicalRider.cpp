@@ -3,6 +3,7 @@
 #include "RidePhysicalRiderDetail.h"
 #include "SkateRider.h"
 #include "RideClipPlayer.h"
+#include "RideShownMotion.h"
 #include "PhysicsControlComponent.h"
 #include "PhysicsControlAsset.h"
 #include "PhysicsControlRecord.h"
@@ -568,8 +569,13 @@ void URidePhysicalRider::Update(float Dt, ERidePhysicalPhase NewPhase)
     AdvanceGetUp(Dt);
 
     const FVector MeshAt = Mesh->GetComponentLocation();
-    const bool bPlaced = FVector::DistSquared(MeshAt, LastMeshLocation) > FMath::Square(PlacedDistance);
     const FVector RiderVelocity = Rider->GetVelocity();
+    // A frame can show up to a step's worth of the session's ticks (RideShownMotion.h): a 35 m/s air moves 117 cm in
+    // two. A placement is a move beyond what the rider's speed covers in one, for this test and Physics Control's alike
+    // (its teleport drops the controls' velocities for a frame and resets the board-frame root body).
+    const float Reach = RideShownMotion::PlacedReach(PlacedDistance, float(FMath::Max(RiderVelocity.Size(), LastRiderVelocity.Size())));
+    Control->TeleportDistanceThreshold = Reach;
+    const bool bPlaced = FVector::DistSquared(MeshAt, LastMeshLocation) > FMath::Square(Reach);
     const FVector Launch = RiderVelocity - LastRiderVelocity;
     LastMeshLocation = MeshAt; LastRiderVelocity = RiderVelocity;
     if (!bSimulating || GetUpWait >= 0) PelvisError = WorstError = FootError = 0.f;

@@ -28,7 +28,9 @@ struct FRideLostSimulationStep
     FVector From = FVector::ZeroVector, To = FVector::ZeroVector;
     FVector Velocity = FVector::ZeroVector;         // the session's board after the step (cm/s)
     float Speed = 0.f;                              // the faster of the board's speeds before and after the step (cm/s)
-    float Dt = 0.f;                                 // the frame's time (s)
+    // The session's ticks from the pose shown to this one (60 Hz; a stalled step catches up to six at once). The pose
+    // shown is a tick behind its latest (RideShownMotion.h), so the glue counts that tick too.
+    uint64 Ticks = 1;
     // The first face of the world crossed on the way from just over From down to To, its normal turned toward From;
     // and whether a face lies over To, up to that one's height (To under the floor, not over a spine's other side).
     bool bCrossed = false, bCovered = false;
@@ -40,9 +42,11 @@ namespace RideLostSimulation
     // An activation travels the fresh session to the ride's start, passing through Teleporting for a tick, in the 5
     // ticks before its first pose (GameplaySession::Activate); its own recovery comes seconds into a ride at the earliest.
     constexpr uint64 SettleTicks = 30;
-    // A step's board moves at most twice its speed over the frame (a slow frame counted as 1/30 s), plus a flip's
-    // swing of the deck about the rider (FollowSimulationBoardInBail's reach).
-    constexpr float JumpSlack = 50.f, SlowestFrame = 1.f / 30.f;
+    // A step's board moves at most twice its speed over the session's time between the two poses (its ticks, at least
+    // two: the frame's own time undercounts a catch-up after a stall), plus a flip's swing of the deck about the rider
+    // (FollowSimulationBoardInBail's reach).
+    constexpr float JumpSlack = 50.f, TickSeconds = 1.f / 60.f;
+    constexpr uint64 FewestTicks = 2;
     // The face the board went through is looked for from this far over the ground point shown last (cm): a landing
     // presses the wheels a little into the floor, and a ground point already under its face would miss it.
     constexpr float TraceAbove = 30.f;
@@ -62,7 +66,8 @@ namespace RideLostSimulation
     {
         if (S.Tick < SettleTicks) return ERideLostSimulation::Kept;
         if (S.State == TEXT("Teleporting")) return ERideLostSimulation::Teleport;
-        if (FVector::Dist(S.From, S.To) > JumpSlack + 2.f * S.Speed * FMath::Max(S.Dt, SlowestFrame)) return ERideLostSimulation::Jump;
+        if (FVector::Dist(S.From, S.To) > JumpSlack + 2.f * S.Speed * TickSeconds * float(FMath::Max(S.Ticks, FewestTicks)))
+            return ERideLostSimulation::Jump;
         // Down through a floor, deep past it and under it, still in the air and still going into it: the session had no
         // floor there.
         if (S.bCrossed && S.bCovered && IsBoardAir(S.State) && S.To.Z < S.From.Z && S.CrossedNormal.Z > FloorUp &&

@@ -6,6 +6,7 @@
 #include "Simulation/GroundSurfaceRuntime.h"
 #include "Simulation/HostScalar.h"
 #include "SkatePad.h"
+#include "Ride/RideShownMotion.h"
 #include <deque>
 #include <limits>
 #include <cfenv>
@@ -74,6 +75,9 @@ namespace SkateRuntimeDetail
     // step or controls are skipped and the same controls replay the same ride. Its collision rebuilds install on the
     // frame after they start.
     extern TAutoConsoleVariable<int32> CVarSkateLockstep;
+    // The ride shows the frame's time between the session's last two ticks, a tick behind it (RideShownMotion.h), not its
+    // last whole tick. Lockstep shows the ticks themselves, as QA's fixed-step rides always have.
+    extern TAutoConsoleVariable<int32> CVarSkateShowBetweenTicks;
     extern TAutoConsoleVariable<int32> CVarSkateSurfaceDebug;
     // QA: complex-as-simple meshes read their cooked collision triangles even where their render data keeps CPU copies.
     extern TAutoConsoleVariable<int32> CVarSkateCookedSurface;
@@ -577,6 +581,7 @@ public:
         skate_simulation::ContactMaterial Floor;skate_simulation::Vec3 Spin{};bool Switch=false,Fakie=false;
         bool TrickSwitch=false,TrickFakie=false;   // the stance the trick the simulation's scoring announced started in
         float StepMs=0;   // the session's step (and its collision installs) on the thread, ms
+        float Fraction=0;   // the frame's time the session keeps for its next step, in ticks (RideShownMotion::Alpha)
         float RenewMs=0;   // a placement's new runtime on the thread, ms
         uint32 Pumps=0;float PumpGain=0;   // the session's successful pumps and the last one's gain (m/s)
         uint8 Surface=0,Wheels=0;   // the surface the wheels are on (ESkateSurface, 0 untagged) and the wheels in contact
@@ -730,6 +735,7 @@ private:
     {
         if(!Session_->CheckPublishedPose(Error))return false;
         const auto& G=*Session_->gameplay;FOutput Out;Out.Ready=Ready;Out.Generation=Generation_;Out.StepMs=StepMs;Out.RenewMs=RenewMs;
+        Out.Fraction=Session_->Period()>0?Session_->Elapsed()/Session_->Period():0;
         auto Pose=Session_->Pose();Out.Root=Pose.root;Out.Bones=std::move(Pose.bones);
         Out.Velocity=Pose.velocity;Out.Tick=Pose.tick;Out.State=std::move(Pose.state);
         Out.Spin=G.physical->board.Bodies()[std::size_t(skate_simulation::BoardBodyId::Deck)].rates.angular_velocity;
@@ -844,6 +850,10 @@ public:
     // The shown pose's health for QA (the simulation's bones).
     FRidePoseMeasure PoseMeasure;float PoseTravel=1;
     FTransform Root=FTransform::Identity,Camera=FTransform::Identity;float CameraFOV=0;
+    // The pose of the tick before the latest one (Root, Bones, Camera at Tick), the generation of the pose last taken
+    // and the latest step's kept time in ticks: Present shows the frame between the two (RideShownMotion.h).
+    FTransform PreviousRoot=FTransform::Identity,PreviousCamera=FTransform::Identity;TArray<FTransform> PreviousBones;
+    uint64 PreviousTick=0;uint32 PoseGeneration=MAX_uint32;float Fraction=0;
     // The rider's feel (USkateComponent::SetFeel), sent with every Activate and Configure.
     FSkateFeel Feel=FSkateFeel::Defaults();
     TArray<FName> Names;TArray<FTransform> Reference,Bones;
@@ -908,8 +918,20 @@ public:
                 if(Now-CostSince>=1.){CostMean=float(CostSum/CostSteps);CostWorst=CostPeak;CostSum=0;CostPeak=0;CostSteps=0;CostSince=Now;}
             }
             if(Out.Bones.empty()||Out.Bones.size()>256){Error=TEXT("Invalid simulation skeleton");continue;}
-            Root=MatrixValue(Out.Root);Bones.Reset();for(const auto& M:Out.Bones)Bones.Add(MatrixValue(M));
-            Velocity=FromSimulation(FVector(Out.Velocity.x,Out.Velocity.y,Out.Velocity.z));State=UTF8_TO_TCHAR(Out.State.c_str());
+            const FTransform NewRoot=MatrixValue(Out.Root);
+            const FVector NewVelocity=FromSimulation(FVector(Out.Velocity.x,Out.Velocity.y,Out.Velocity.z));
+            // A step that ran ticks moves on from the latest pose; one that ran none keeps the pose before it. A ride's
+            // start, a new session or a jump has nothing to blend from: the latest is shown as it comes.
+            if(Out.Tick!=Tick||Out.Generation!=PoseGeneration)
+            {
+                if(!Out.Ready&&Out.Generation==PoseGeneration&&Bones.Num()==int32(Out.Bones.size())&&RideShownMotion::Continues(
+                    Root.GetLocation(),NewRoot.GetLocation(),Tick,Out.Tick,float(FMath::Max(Velocity.Size(),NewVelocity.Size()))))
+                {PreviousRoot=Root;PreviousBones=Bones;PreviousCamera=Camera;PreviousTick=Tick;}
+                else PreviousTick=Out.Tick;
+            }
+            PoseGeneration=Out.Generation;Fraction=Out.Fraction;
+            Root=NewRoot;Bones.Reset();for(const auto& M:Out.Bones)Bones.Add(MatrixValue(M));
+            Velocity=NewVelocity;State=UTF8_TO_TCHAR(Out.State.c_str());
             Spin=FVector(-Out.Spin.z,Out.Spin.x,-Out.Spin.y);
             if(HasPose&&Out.Switch!=Switch)++Turns;Switch=Out.Switch;Fakie=Out.Fakie;
             // The stance as the game shows it: the simulation's IDs name the trick, its scoring the stance it was done in.
@@ -949,8 +971,17 @@ public:
     /** Show another runtime's latest pose and state (Ride's presentation of its simulation session). */
     void Present(const FSkateRuntime& S)
     {
-        Root=S.Root;Bones=S.Bones;Velocity=S.Velocity;Spin=S.Spin;Switch=S.Switch;Fakie=S.Fakie;Turns=S.Turns;State=S.State;Trick=S.Trick;Score=S.Score;
-        ManualBalance=S.ManualBalance;Camera=S.Camera;CameraFOV=S.CameraFOV;Tick=S.Tick;Floor=S.Floor;HasPose=true;
+        // The pose and the camera between the last two ticks (RideShownMotion.h); the state and the speed are the latest's.
+        const float A=CVarSkateShowBetweenTicks.GetValueOnGameThread()>0&&!Lockstep()&&S.PreviousBones.Num()==S.Bones.Num()
+            ?RideShownMotion::Alpha(S.PreviousTick,S.Tick,S.Fraction):1.f;
+        if(A>=1.f){Root=S.Root;Bones=S.Bones;}
+        else
+        {
+            Root=RideShownMotion::Blend(S.PreviousRoot,S.Root,A);Bones.SetNum(S.Bones.Num());
+            for(int32 I=0;I<Bones.Num();++I)Bones[I]=RideShownMotion::Blend(S.PreviousBones[I],S.Bones[I],A);
+        }
+        Velocity=S.Velocity;Spin=S.Spin;Switch=S.Switch;Fakie=S.Fakie;Turns=S.Turns;State=S.State;Trick=S.Trick;Score=S.Score;
+        ManualBalance=S.ManualBalance;Camera=RideShownMotion::Blend(S.PreviousCamera,S.Camera,A);CameraFOV=S.CameraFOV;Tick=S.Tick;Floor=S.Floor;HasPose=true;
         Surface=S.Surface;Wheels=S.Wheels;
         if(Names!=S.Names){Names=S.Names;Reference=S.Reference;}
     }

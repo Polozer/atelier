@@ -82,6 +82,8 @@ namespace SkateRuntimeDetail
         TEXT("cm each riding foot's sole stays above the ground under it; below 0 off"));
     TAutoConsoleVariable<int32> CVarSkateLockstep(TEXT("skate.Lockstep"),-1,
         TEXT("Skating waits for each step of its thread, so a replay repeats: 1 always, 0 never, -1 under a fixed step or frame rate"));
+    TAutoConsoleVariable<int32> CVarSkateShowBetweenTicks(TEXT("skate.ShowBetweenTicks"),1,
+        TEXT("1 shows the ride and its camera between the simulation's last two 60 Hz ticks, a tick behind; 0 its last whole tick (lockstep always does)"));
     TAutoConsoleVariable<int32> CVarSkateSurfaceDebug(TEXT("skate.SurfaceDebug"),0,
         TEXT("1 logs every colliding mesh's surface per material slot at the next collision gather (USkateSettings surfaces)."));
     TAutoConsoleVariable<int32> CVarSkateCookedSurface(TEXT("skate.CookedSurface"),0,
@@ -302,7 +304,8 @@ bool USkateComponent::BailOffLostSimulation(float Dt)
     const FSkateRuntime& N=*RideSimulation;
     const FTransform WasDeck=ShownRuntime->Bone(TEXT("SKATEBOARD_ROOT")), NowDeck=N.Bone(TEXT("SKATEBOARD_ROOT"));
     FRideLostSimulationStep Step;
-    Step.State=N.State; Step.Tick=N.Tick; Step.Velocity=N.Velocity; Step.Dt=Dt;
+    // The ticks the session ran since the pose shown, and the one that pose is behind (RideShownMotion.h).
+    Step.State=N.State; Step.Tick=N.Tick; Step.Velocity=N.Velocity; Step.Ticks=(N.Tick>ShownRuntime->Tick?N.Tick-ShownRuntime->Tick:0)+1;
     Step.From=WasDeck.GetLocation()-WasDeck.GetRotation().GetUpVector()*9.05; Step.To=NowDeck.GetLocation()-NowDeck.GetRotation().GetUpVector()*9.05;
     Step.Speed=float(FMath::Max(ShownRuntime->Velocity.Size(),N.Velocity.Size()));
     if (RideLostSimulation::IsBoardAir(Step.State) && Step.To.Z<Step.From.Z)

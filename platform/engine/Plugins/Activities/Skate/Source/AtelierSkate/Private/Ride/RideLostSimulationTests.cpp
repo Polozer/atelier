@@ -14,8 +14,8 @@ namespace
     FRideLostSimulationStep Moving(const TCHAR* State, const FVector& From, const FVector& Velocity)
     {
         FRideLostSimulationStep S;
-        S.State = State; S.Tick = 600; S.Dt = 1.f / 60.f;
-        S.From = From; S.To = From + Velocity * S.Dt; S.Velocity = Velocity; S.Speed = float(Velocity.Size());
+        S.State = State; S.Tick = 600; S.Ticks = 1;
+        S.From = From; S.To = From + Velocity * (1.f / 60.f); S.Velocity = Velocity; S.Speed = float(Velocity.Size());
         return S;
     }
     // The step crossed a face at At with Normal (turned toward From), and ends under a face (bCovered) or in the open.
@@ -88,8 +88,16 @@ bool FRideLostSimulationTest::RunTest(const FString&)
     {
         TestTrue(TEXT("30 m/s at 60 Hz rides on"), Judge(Moving(TEXT("PhysicsGround"), FVector::ZeroVector, FVector(3000, 0, 0))) == ERideLostSimulation::Kept);
         FRideLostSimulationStep Slow = Moving(TEXT("PhysicsAir"), FVector::ZeroVector, FVector(3000, 0, 0));
-        Slow.Dt = .1f; Slow.To = Slow.From + Slow.Velocity * Slow.Dt;
+        Slow.Ticks = 6; Slow.To = Slow.From + Slow.Velocity * .1f;
         TestTrue(TEXT("A 100 ms frame at 30 m/s rides on"), Judge(Slow) == ERideLostSimulation::Kept);
+        // A stalled step: the frame was 17 ms, but the session caught up six ticks (and the pose shown is one behind).
+        FRideLostSimulationStep CatchUp = Moving(TEXT("PhysicsAir"), FVector::ZeroVector, FVector(3500, 0, -1500));
+        CatchUp.Ticks = 7; CatchUp.To = CatchUp.From + CatchUp.Velocity * (7.f / 60.f);
+        TestTrue(TEXT("A catch-up of seven ticks at 38 m/s after a stall rides on"), Judge(CatchUp) == ERideLostSimulation::Kept);
+        FRideLostSimulationStep Short = CatchUp; Short.Ticks = 1;
+        TestTrue(TEXT("Counted as one frame's tick it would have bailed"), Judge(Short) == ERideLostSimulation::Jump);
+        FRideLostSimulationStep Far = CatchUp; Far.To = FVector(2000, 0, 0) + CatchUp.Velocity * (7.f / 60.f);
+        TestTrue(TEXT("20 m beyond those seven ticks still bails"), Judge(Far) == ERideLostSimulation::Jump);
         FRideLostSimulationStep Flip = Moving(TEXT("KnownAir"), FVector::ZeroVector, FVector::ZeroVector);
         Flip.To = FVector(0, 0, 40);
         TestTrue(TEXT("A flip swinging the deck 40 cm about a rider at rest rides on"), Judge(Flip) == ERideLostSimulation::Kept);
