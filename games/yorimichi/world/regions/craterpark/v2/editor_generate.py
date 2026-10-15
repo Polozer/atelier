@@ -263,7 +263,9 @@ def main(argv=None):
     ride_lines, labels = [], {}
     for line in lines:
         name = next((l['name'] for l in doc['lines'] if l['id'] == line), line)
-        first = next(p for p in scene.pieces if p.metadata['line'] == line and p.metadata['type'] == 'rollin')
+        first = next((p for p in scene.pieces if p.metadata['line'] == line and p.metadata['type'] == 'rollin'), None)
+        if first is None:          # a single piece (or a line without a roll-in): no riding line of its own
+            continue
         order, seen, cur = [], set(), first.metadata['id']
         while cur and cur not in seen and cur in by:
             seen.add(cur)
