@@ -304,7 +304,8 @@ bool USkateComponent::BailOffLostSimulation(float Dt)
     const FSkateRuntime& N=*RideSimulation;
     const FTransform WasDeck=ShownRuntime->Bone(TEXT("SKATEBOARD_ROOT")), NowDeck=N.Bone(TEXT("SKATEBOARD_ROOT"));
     FRideLostSimulationStep Step;
-    Step.State=N.State; Step.Tick=N.Tick; Step.Velocity=N.Velocity; Step.Dt=Dt;
+    // The ticks the session ran since the pose shown, and the one that pose is behind (RideShownMotion.h).
+    Step.State=N.State; Step.Tick=N.Tick; Step.Velocity=N.Velocity; Step.Ticks=(N.Tick>ShownRuntime->Tick?N.Tick-ShownRuntime->Tick:0)+1;
     Step.From=WasDeck.GetLocation()-WasDeck.GetRotation().GetUpVector()*9.05; Step.To=NowDeck.GetLocation()-NowDeck.GetRotation().GetUpVector()*9.05;
     Step.Speed=float(FMath::Max(ShownRuntime->Velocity.Size(),N.Velocity.Size()));
     if (RideLostSimulation::IsBoardAir(Step.State) && Step.To.Z<Step.From.Z)
