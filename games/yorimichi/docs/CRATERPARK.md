@@ -356,6 +356,19 @@ chain (`world.craterpark`, `unreal.craterpark`, `data.stage`) is unchanged; `wor
 the volcano is rebuilt with it.
 Editor parks have no supports yet, so their geometry is marked `editor_playtest` and skips the v4 acceptance checks.
 
+The Prado bowl (`p5`, a bowl in `editor_generate.DECALS`) is finished by
+[`editor_decal.py`](../world/regions/craterpark/v2/editor_decal.py). Its painting (drawn on the bowl's plan) lies on
+the floor from straight above. On the walls it is laid down the fall line instead, from the painted tile band's inner
+edge (3.6 m in from the lip) to the wall's foot, so a vert keeps 1 to 8 texels per metre instead of none. The top
+0.9 m of wall under the lip is a real tile band (`material_007`, 0.3 m tiles), sliced out of the wall along that
+line. The deck is plain concrete. The floor's grid points on the walls' foot edges are split into the walls first, so
+there are no T-junctions. The brick coping ([`editor_coping.py`](../world/regions/craterpark/v2/editor_coping.py))
+takes its side of each lip from every face on the lip edge. Its normals face out of the band, and it leans with a
+sloping wall. A whole number of brick textures goes round a closed loop. On a spine's narrow top, the two sides' bands
+meet along the middle instead of overlapping.
+[`test_craterpark_editor_prado.py`](../tests/test_craterpark_editor_prado.py) checks the shipped bowl: no open deck
+edges, T-junctions, slivers or coplanar overlaps, and bounded texture stretch.
+
 ## Tower
 
 The v2 park starts every line from one tower on the high east rim. `park.json` lists one start per designed line under
