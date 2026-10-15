@@ -770,7 +770,7 @@
   {
    "id": "p9",
    "type": "jump",
-   "name": "Mega 55 m \u00b7 mega",
+   "name": "Mega 55 m · mega",
    "line": "L1",
    "attach": "p8",
    "next": [
@@ -792,20 +792,20 @@
     "rail": false,
     "template": "custom",
     "knuckle_R": 3,
-    "land_deg": 55,
-    "land_len": 28.775,
-    "out_R": 12,
+    "land_deg": 50,
+    "land_len": 25.867,
+    "out_R": 40,
     "mid_deg": 0,
     "mid_len": 0,
-    "end_deg": 0,
-    "out_len": 92.83,
+    "end_deg": -1,
+    "out_len": 74.388,
     "vert_assist_max": 0.5
    }
   },
   {
    "id": "p10",
    "type": "run",
-   "name": "w1 \u00b7 1",
+   "name": "w1 · 1",
    "line": "L1",
    "attach": "p9",
    "next": [
@@ -828,14 +828,14 @@
     },
     "len": 112.02,
     "turn": -64.12,
-    "slope": -1.5,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p11",
    "type": "run",
-   "name": "w1 \u00b7 2",
+   "name": "w1 · 2",
    "line": "L1",
    "attach": "p10",
    "next": [
@@ -858,14 +858,14 @@
     },
     "len": 11.49,
     "turn": 6.58,
-    "slope": -1.5,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p12",
    "type": "run",
-   "name": "w1 \u00b7 3",
+   "name": "w1 · 3",
    "line": "L1",
    "attach": "p11",
    "next": [
@@ -888,14 +888,14 @@
     },
     "len": 3.5,
     "turn": 1.43,
-    "slope": -1.5,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p13",
    "type": "run",
-   "name": "w1 \u00b7 4",
+   "name": "w1 · 4",
    "line": "L1",
    "attach": "p12",
    "next": [
@@ -918,14 +918,14 @@
     },
     "len": 13.99,
     "turn": 8.02,
-    "slope": -1.5,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p14",
    "type": "run",
-   "name": "w1 \u00b7 5",
+   "name": "w1 · 5",
    "line": "L1",
    "attach": "p13",
    "next": [
@@ -948,14 +948,14 @@
     },
     "len": 8.99,
     "turn": -0.34,
-    "slope": -1.5,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p15",
    "type": "run",
-   "name": "w1b \u00b7 1",
+   "name": "w1b · 1",
    "line": "L1",
    "attach": "p14",
    "next": [
@@ -978,14 +978,14 @@
     },
     "len": 4.27,
     "turn": 2.42,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p16",
    "type": "run",
-   "name": "w1b \u00b7 2",
+   "name": "w1b · 2",
    "line": "L1",
    "attach": "p15",
    "next": [
@@ -1008,14 +1008,14 @@
     },
     "len": 2,
     "turn": -0.18,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p17",
    "type": "run",
-   "name": "w1b \u00b7 3",
+   "name": "w1b · 3",
    "line": "L1",
    "attach": "p16",
    "next": [
@@ -1038,14 +1038,14 @@
     },
     "len": 12.48,
     "turn": -8.46,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p18",
    "type": "run",
-   "name": "w1b \u00b7 4",
+   "name": "w1b · 4",
    "line": "L1",
    "attach": "p17",
    "next": [
@@ -1068,14 +1068,14 @@
     },
     "len": 3.99,
     "turn": 2.86,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p19",
    "type": "run",
-   "name": "w1b \u00b7 5",
+   "name": "w1b · 5",
    "line": "L1",
    "attach": "p18",
    "next": [
@@ -1098,14 +1098,14 @@
     },
     "len": 3.99,
     "turn": -2.86,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p20",
    "type": "run",
-   "name": "w1b \u00b7 6",
+   "name": "w1b · 6",
    "line": "L1",
    "attach": "p19",
    "next": [
@@ -1128,14 +1128,14 @@
     },
     "len": 1.5,
     "turn": 0.36,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p21",
    "type": "run",
-   "name": "w1b \u00b7 7",
+   "name": "w1b · 7",
    "line": "L1",
    "attach": "p20",
    "next": [
@@ -1158,14 +1158,14 @@
     },
     "len": 3.99,
     "turn": -2.86,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p22",
    "type": "run",
-   "name": "w1b \u00b7 8",
+   "name": "w1b · 8",
    "line": "L1",
    "attach": "p21",
    "next": [
@@ -1188,14 +1188,14 @@
     },
     "len": 2,
     "turn": 1.43,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p23",
    "type": "run",
-   "name": "w1b \u00b7 9",
+   "name": "w1b · 9",
    "line": "L1",
    "attach": "p22",
    "next": [
@@ -1218,14 +1218,14 @@
     },
     "len": 2,
     "turn": 0.76,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p24",
    "type": "run",
-   "name": "w1b \u00b7 10",
+   "name": "w1b · 10",
    "line": "L1",
    "attach": "p23",
    "next": [
@@ -1248,14 +1248,14 @@
     },
     "len": 24.95,
     "turn": 17.87,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p25",
    "type": "run",
-   "name": "w1b \u00b7 11",
+   "name": "w1b · 11",
    "line": "L1",
    "attach": "p24",
    "next": [
@@ -1278,14 +1278,14 @@
     },
     "len": 7.49,
     "turn": -5.33,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p26",
    "type": "run",
-   "name": "w1b \u00b7 12",
+   "name": "w1b · 12",
    "line": "L1",
    "attach": "p25",
    "next": [
@@ -1308,14 +1308,14 @@
     },
     "len": 3.49,
     "turn": 2.5,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p27",
    "type": "run",
-   "name": "w1b \u00b7 13",
+   "name": "w1b · 13",
    "line": "L1",
    "attach": "p26",
    "next": [
@@ -1338,14 +1338,14 @@
     },
     "len": 13.97,
     "turn": -10.01,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p28",
    "type": "run",
-   "name": "w1b \u00b7 14",
+   "name": "w1b · 14",
    "line": "L1",
    "attach": "p27",
    "next": [
@@ -1368,14 +1368,14 @@
     },
     "len": 3.99,
     "turn": 2.86,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p29",
    "type": "run",
-   "name": "w1b \u00b7 15",
+   "name": "w1b · 15",
    "line": "L1",
    "attach": "p28",
    "next": [
@@ -1398,14 +1398,14 @@
     },
     "len": 18.47,
     "turn": -12.87,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p30",
    "type": "run",
-   "name": "w1b \u00b7 16",
+   "name": "w1b · 16",
    "line": "L1",
    "attach": "p29",
    "next": [
@@ -1428,14 +1428,14 @@
     },
     "len": 41.42,
     "turn": -0.71,
-    "slope": -1.3,
+    "slope": -1.65,
     "vR": 80
    }
   },
   {
    "id": "p31",
    "type": "jump",
-   "name": "Gap 30 m \u00b7 g2",
+   "name": "Gap 30 m · g2",
    "line": "L1",
    "attach": "p30",
    "next": [
@@ -1469,7 +1469,7 @@
   {
    "id": "p32",
    "type": "run",
-   "name": "w2 \u00b7 1",
+   "name": "w2 · 1",
    "line": "L1",
    "attach": "p31",
    "next": [
@@ -1499,7 +1499,7 @@
   {
    "id": "p33",
    "type": "run",
-   "name": "w2 \u00b7 2",
+   "name": "w2 · 2",
    "line": "L1",
    "attach": "p32",
    "next": [
@@ -1529,7 +1529,7 @@
   {
    "id": "p34",
    "type": "jump",
-   "name": "Gap 25 m \u00b7 g3",
+   "name": "Gap 25 m · g3",
    "line": "L1",
    "attach": "p33",
    "next": [
@@ -1563,7 +1563,7 @@
   {
    "id": "p35",
    "type": "run",
-   "name": "w3 \u00b7 1",
+   "name": "w3 · 1",
    "line": "L1",
    "attach": "p34",
    "next": [
@@ -1593,7 +1593,7 @@
   {
    "id": "p36",
    "type": "run",
-   "name": "w3 \u00b7 2",
+   "name": "w3 · 2",
    "line": "L1",
    "attach": "p35",
    "next": [
@@ -1623,7 +1623,7 @@
   {
    "id": "p37",
    "type": "jump",
-   "name": "Gap 30 m \u00b7 g4",
+   "name": "Gap 30 m · g4",
    "line": "L1",
    "attach": "p36",
    "next": [
@@ -1688,7 +1688,7 @@
   {
    "id": "p39",
    "type": "jump",
-   "name": "Gap 15 m \u00b7 g5",
+   "name": "Gap 15 m · g5",
    "line": "L1",
    "attach": "p38",
    "next": [
@@ -1723,7 +1723,7 @@
   {
    "id": "p40",
    "type": "run",
-   "name": "w5 \u00b7 1",
+   "name": "w5 · 1",
    "line": "L1",
    "attach": "p39",
    "next": [
@@ -1753,7 +1753,7 @@
   {
    "id": "p41",
    "type": "run",
-   "name": "w5 \u00b7 2",
+   "name": "w5 · 2",
    "line": "L1",
    "attach": "p40",
    "next": [
@@ -1783,7 +1783,7 @@
   {
    "id": "p42",
    "type": "jump",
-   "name": "Gap 25 m \u00b7 g6",
+   "name": "Gap 25 m · g6",
    "line": "L1",
    "attach": "p41",
    "next": [
@@ -1806,12 +1806,12 @@
     "template": "custom",
     "knuckle_R": 8,
     "land_deg": 40,
-    "land_len": 14,
-    "out_R": 10,
+    "land_len": 12.248,
+    "out_R": 30,
     "mid_deg": -50,
-    "mid_len": 7.83,
+    "mid_len": 1,
     "end_deg": 0,
-    "out_len": 16.15,
+    "out_len": 6.946,
     "vert_assist_max": 0.5
    }
   },
@@ -1832,7 +1832,7 @@
    "params": {
     "len": 144.554,
     "turn": -104.691,
-    "slope": -6.103,
+    "slope": -5.552,
     "vR": 80,
     "width": 18,
     "wl": {
@@ -2439,7 +2439,7 @@
   {
    "id": "p55",
    "type": "jump",
-   "name": "Gap 25 m \u00b7 fgap",
+   "name": "Gap 25 m · fgap",
    "line": "L1",
    "attach": "p54",
    "next": [
@@ -3991,7 +3991,7 @@
    }
   }
  ],
- "rev": 74,
- "saved_at": "2026-10-15T19:20:00+02:00",
+ "rev": 78,
+ "saved_at": "2026-10-15T22:45:33+02:00",
  "notes": []
 }
