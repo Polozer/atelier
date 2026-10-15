@@ -202,8 +202,10 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
 - Follow the [capacity agent workflow](docs/BUILD_CAPACITY.md#agent-workflow) for the current bridge launch
   environment, mode checks, safe update/stop boundaries and refusal recovery. Merge and `uv sync` only while
   the checkout has no owned native child and its caller cannot start the next one; preserve build artifacts.
-  A merged capacity PR does not activate full mode. Keep the explicit pilot client until the operator announces
-  cutover; then use the installed default client. Never edit broker settings, clear uncertain reservations,
+  A merged capacity PR does not activate full mode. Explicit sealed maintenance is one guarded job at a time,
+  with read-only exclusive ownership of all sealed lanes and normal nominal guard ceilings; it is not full
+  concurrency. Keep the pilot client until the operator announces maintenance or full cutover; then use the
+  installed default client after checking the matching live mode. Never edit broker settings, clear uncertain reservations,
   lower profiles below guard ceilings or bypass a refusal. Keep board coordination and normal guards active.
 - On macOS, the shared process launcher gives builds and games application resource policies instead of an
   inherited background launchd role. It keeps normal thread QoS and at least nice 10; explicit `taskpolicy -b`

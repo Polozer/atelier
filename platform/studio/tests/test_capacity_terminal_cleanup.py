@@ -69,10 +69,11 @@ def test_any_live_retained_identity_blocks_terminal_release(terminal):
     assert not broker._settle_exited(record)
 
 
+@pytest.mark.parametrize('mode', ['capacity', 'sealed-maintenance'])
 @pytest.mark.parametrize('performance,allowed', [(False, False), (True, True)])
-def test_full_mode_requires_performance_exclusion(terminal, performance, allowed):
+def test_full_mode_requires_performance_exclusion(terminal, performance, allowed, mode):
     broker, record, _, _ = terminal
-    broker.mode = 'capacity'
+    broker.mode = mode
     record['request']['performance'] = performance
     assert broker._settle_exited(record) is allowed
 
