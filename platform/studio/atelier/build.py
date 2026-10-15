@@ -48,9 +48,10 @@ class Blender:
     args: tuple = ()
     threads: int = 6
     factory_startup: bool = False
+    env: tuple = ()
 
     def __repr__(self):
-        shown = [f for f in fields(self) if f.name != 'factory_startup' or self.factory_startup]
+        shown = [f for f in fields(self) if f.name not in ('factory_startup', 'env') or getattr(self, f.name)]
         return f'Blender({", ".join(f"{f.name}={getattr(self, f.name)!r}" for f in shown)})'
 
     def argv(self, ctx):
@@ -150,6 +151,14 @@ class Call:
     fn: object = field(compare=False, repr=False)
 
 
+@dataclass(frozen=True)
+class Batch:
+    """Independent actions that may share a guarded process; yield at action boundaries."""
+    group: str
+    runtime_env: tuple[str, ...] = ()
+    max_seconds: float = 240.
+
+
 @dataclass
 class Step:
     name: str
@@ -173,6 +182,8 @@ class Step:
     optional_inputs: list[Path] = field(default_factory=list)  # exact source files: absence is an input identity
     queries: list[BBoxQuery] = field(default_factory=list)     # graph-resolved spatial product reads
     _query_bindings: tuple | None = field(default=None, init=False, repr=False, compare=False)
+    toolchain: bool = False                               # installed Python/Blender identity, without cache publication
+    batch: Batch | None = None                            # opt-in scripts that reset their own transient process state
 
 
 def outputs_present(step):
@@ -260,7 +271,8 @@ def required_inputs(step):
     named = step.products or step.reads or step.references
     from .build_audit import SUPPORT
     from . import build_spatial
-    return [*step.inputs, *(c.script for c in step.commands if named and hasattr(c, 'script')),
+    batch_code = [Path(__file__).with_name(name) for name in ('build_batches.py', 'build_batch_worker.py')] if step.batch else []
+    return [*step.inputs, *batch_code, *(c.script for c in step.commands if named and hasattr(c, 'script')),
             *(p for c in step.commands for p in getattr(c, 'runs', list)()),
             *(SUPPORT if step.audit else ()), *([Path(build_spatial.__file__)] if step.queries else ())]
 
@@ -349,10 +361,13 @@ def fingerprint_state(step, done, *, capture=True, index=None, tool_cache=None):
     if spatial_outputs:
         state['spatial_outputs'] = spatial_outputs
         digest.update(json.dumps(spatial_outputs, sort_keys=True).encode())
-    if step.cache or step.audit:
+    if step.cache or step.audit or step.toolchain:
         from .build_cache import tool_context
         state['tools'] = build_products.identity(tool_context(step, hasher, cache=tool_cache))
         digest.update(state['tools'].encode())
+    if step.batch:
+        state['batch'] = repr(step.batch)
+        digest.update(state['batch'].encode())
     return digest.hexdigest(), state
 
 
@@ -437,7 +452,8 @@ def run_argv(ctx, step, command, argv, env, log, request, slots, *, pass_fds=())
         inherited = {'pass_fds': pass_fds} if pass_fds else {}
         code = guarded.run(argv, folder, purpose=f'atelier build {ctx.game} {step.name}', env=env,
                            small_gib=small_gib, kind=kind, on_slot=note, timeout=getattr(command, 'timeout', 0.),
-                           watch=getattr(command, 'watch', ()), progress=getattr(command, 'progress', 0.), **inherited)
+                           watch=getattr(command, 'watch', ()), progress=getattr(command, 'progress', 0.),
+                           **inherited, **({'on_poll': command.on_poll} if hasattr(command, 'on_poll') else {}))
         text = (folder / 'stdout.log').read_text(errors='ignore')
         log.write(text)
         if code and used == ['small']:
@@ -473,6 +489,8 @@ def slot_summary(slots):
 
 
 def build(game, wanted=(), force=False, dry=False, touch=False, echo=print, verify=False):
+    from .build_snapshot import require_complete
+    require_complete(paths.build_root() / game, game=game)
     if dry:
         from .build_plan import show
         return show(game, wanted, force=force, echo=echo, verify=verify)
@@ -483,9 +501,56 @@ def build(game, wanted=(), force=False, dry=False, touch=False, echo=print, veri
 
 
 def _build(ctx, wanted, *, force, touch, echo, index, steps=None, produced=None):
+    checkpoint = {}
+    try:
+        code = _execute_build(ctx, wanted, force=force, touch=touch, echo=echo, index=index,
+                              steps=steps, produced=produced, checkpoint=checkpoint)
+    finally:
+        # Failure and yield paths must also discard earlier certificates with changed reads.
+        invalid = _discard_changed_certificates(ctx, checkpoint, index=index)
+    if invalid:
+        echo('FAILED: products changed after their owner completed: ' + ', '.join(invalid))
+        return 1
+    return code
+
+
+def _discard_changed_certificates(ctx, checkpoint, *, index):
+    """@cc [owner:fontanierh,label:correctness] completed-product-checkpoint
+    Every build exit MUST discard selected completed/current certificates whose owned products
+    or consumed products changed, including legacy-output consumers and failed/yielded builds.
+    Producer inventories MUST be fresh for this checkpoint; reference bytes MUST NOT invalidate
+    a consumer. Reuse each observed producer inventory only within this checkpoint.
+    """
+    from .build_plan import read_stamp
+    done, plan = checkpoint.get('done', {}), checkpoint.get('plan', ())
+    observed, fresh = {}, {}
+    for step in plan:
+        if step.name not in done:
+            continue
+        try:
+            observed[step.name] = build_products.records(step, hasher=index.digest)
+        except (OSError, ValueError):
+            observed[step.name] = None
+        build_products.feed_results(fresh, observed[step.name])
+    invalid = []
+    for step in plan:
+        if step.name not in done:
+            continue
+        stamp = ctx.stamps / (step.name + '.json')
+        outputs_changed = step.products and observed[step.name] != read_stamp(stamp).get('products', {})
+        reads_changed = any(fresh.get('product:' + name) != done.get('product:' + name) for name in step.reads)
+        if outputs_changed or reads_changed:
+            stamp.unlink(missing_ok=True)
+            invalid.append(step.name)
+    return invalid
+
+
+def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, checkpoint):
     # A trusted producer can supply the exact singleton declarations it already vetted, avoiding
     # a second recipe import that could choose a different action or introduce native prerequisites.
-    from . import build_cache
+    from . import build_batches, build_cache
+    from .build_snapshot import require_complete
+    require_complete(ctx.out, game=ctx.game)
     game = ctx.game
     if steps is None:
         steps = load_recipe(game).steps(ctx)
@@ -493,6 +558,12 @@ def _build(ctx, wanted, *, force, touch, echo, index, steps=None, produced=None)
     plan = order(steps, list(wanted))
     declared_products = {p.name: p for s in steps for p in s.products}
     for step in plan:
+        if step.toolchain and not step.products:
+            raise SystemExit(f'{step.name}: an explicit toolchain identity requires named products')
+        try:
+            build_batches.validate(step)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
         if step.cache or step.audit:
             try:
                 build_cache.roots(ctx, step)
@@ -510,6 +581,7 @@ def _build(ctx, wanted, *, force, touch, echo, index, steps=None, produced=None)
     ctx.logs.mkdir(parents=True, exist_ok=True)
     ctx.stamps.mkdir(parents=True, exist_ok=True)
     done, ran, restored = {}, 0, 0
+    checkpoint.update(plan=plan, done=done)
     tool_cache = {}
     def verify_spatial(step, expected):
         if step.queries:
@@ -520,7 +592,10 @@ def _build(ctx, wanted, *, force, touch, echo, index, steps=None, produced=None)
 
     # The graph includes every prerequisite. Unrelated stamps cannot affect this selected build.
     started = time.monotonic()
-    for step in plan:
+    completed_batches = set()
+    for position, step in enumerate(plan):
+        if step.name in completed_batches:
+            continue
         print_ = f'{step.name:34s}'
         stamp = ctx.stamps / f'{step.name}.json'
         journal = ctx.stamps / f'{step.name}.restore.json'
@@ -567,6 +642,19 @@ def _build(ctx, wanted, *, force, touch, echo, index, steps=None, produced=None)
             done[step.name] = result(step, current, touched)
             echo(f'{print_} touched')
             continue
+        try:
+            batch = build_batches.select(ctx, plan, position, done, force=force, index=index, tool_cache=tool_cache)
+        except (OSError, ValueError, SyntaxError) as error:
+            echo(f'{print_} FAILED: {error}')
+            return 1
+        if batch:
+            completed, code = build_batches.run(ctx, batch, done, index=index, tool_cache=tool_cache,
+                                                echo=echo, products=declared_products, wanted=wanted)
+            completed_batches.update(completed)
+            ran += len(completed)
+            if code:
+                return code
+            continue
         pool_key = None
         if step.pool_roots:
             from . import artifact_pool
@@ -608,7 +696,8 @@ def _build(ctx, wanted, *, force, touch, echo, index, steps=None, produced=None)
                     command_started = time.monotonic()
                     audited = {'products': declared_products, 'audit_receipt': audit_receipt} if step.audit else {}
                     phases = run_command(ctx, step, command, log, request, slots, **audited)
-                    timing = {'kind': type(command).__name__, 'seconds': round(time.monotonic() - command_started, 3)}
+                    timing = {'kind': type(command).__name__, 'seconds': round(time.monotonic() - command_started, 3),
+                              'scope': 'command invocation'}
                     if not isinstance(command, Call) and phases is not None:
                         timing['phases'] = phases
                     command_times.append(timing)
@@ -620,6 +709,7 @@ def _build(ctx, wanted, *, force, touch, echo, index, steps=None, produced=None)
                 if missing:
                     raise RuntimeError(f'{step.name}: outputs missing after the run: {missing[:3]}')
                 products = build_products.records(step)
+                build_products.verify_reads(step, declared_products, done)
                 if step.products and fingerprint(step, done, index=index, tool_cache=tool_cache) != current:
                     raise RuntimeError(f'{step.name}: inputs changed during build; products not certified')
                 verify_spatial(step, current)
@@ -641,7 +731,11 @@ def _build(ctx, wanted, *, force, touch, echo, index, steps=None, produced=None)
             from . import build_changes
             record['products'] = products
             record['product_roots'] = build_changes.root_labels(ctx, step)
-            record['output_changes'] = build_changes.compare(previous, products, record['product_roots'], restored=from_cache)
+            optional = build_changes.optional_roots(step)
+            if optional:
+                record['product_optional_roots'] = optional
+            record['output_changes'] = build_changes.compare(previous, products, record['product_roots'],
+                                                             restored=from_cache, optional=optional)
         if from_cache:
             record['restored_from'] = current
             if previous.get('fingerprint') == current:
