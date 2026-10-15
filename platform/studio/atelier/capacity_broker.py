@@ -40,7 +40,9 @@ class CapacityBroker:
     cleanup receipt; that witnesses the monitored owned tree, not every descendant's kernel exit.
     The adapter MUST retain exclusive legacy exclusion in bridge
     mode, verified sealed shared compatibility mutexes in full mode, or read-only exclusive
-    ownership of every sealed legacy lane in explicit maintenance mode.
+    ownership of every sealed legacy lane in explicit maintenance mode. Only maintenance MAY
+    explicitly reduce the sealed host memory reserve, with a 4096 MiB floor; every other sealed
+    resource dimension MUST remain exact. Actual job reservations and pressure checks MUST NOT shrink.
     """
     def __init__(self, state_directory, *, total, reserve=Resources(), disk_pool=None,
                  observe=None, lease_seconds=10., rpc_timeout=2., started=wire.process_start,
@@ -76,9 +78,16 @@ class CapacityBroker:
         self.parent, self.boot = parent, boot()
         self.alive = alive
         self.socket_path = self.directory / 'broker.sock'
+        reserve_matches = True
+        if mode in ('capacity', 'sealed-maintenance'):
+            selected_reserve = asdict(self.reserve)
+            reserve_matches = selected_reserve == proof['reserve']
+            if mode == 'sealed-maintenance' and not reserve_matches:
+                reserve_matches = (4096 <= self.reserve.memory_mib <= proof['reserve']['memory_mib']
+                    and {**selected_reserve, 'memory_mib': proof['reserve']['memory_mib']} == proof['reserve'])
         if mode in ('capacity', 'sealed-maintenance') and (proof['socket'] != str(self.socket_path)
                 or proof['disk_pool'] != str(self.disk_pool)
-                or proof['total'] != asdict(self.total) or proof['reserve'] != asdict(self.reserve)):
+                or proof['total'] != asdict(self.total) or not reserve_matches):
             raise wire.CapacityError('Broker resources or endpoint differ from the sealed policy')
         if len(os.fsencode(self.socket_path)) >= (104 if sys.platform == 'darwin' else 108):
             raise wire.CapacityError('Capacity Unix socket path is too long')
@@ -562,7 +571,8 @@ class CapacityBroker:
         if self.mode in ('capacity', 'sealed-maintenance'):
             result['compatibility_healthy'] = self.compatible
         selected = self._selection(state)
-        for record in sorted(records, key=lambda r: (r['state'] not in HELD, r['state'] != 'queued', r['sequence'])):
+        for record in sorted(records, key=lambda r: (r['state'] not in HELD, r['state'] != 'queued',
+                                                     -r['sequence'] if r['state'] == 'released' else r['sequence'])):
             request = record['request']
             blockers = conflicts(self._model(record), [self._model(r) for r in charged], self.total, self.reserve)
             reason = ('uncertain ownership or enforcement; reservation retained' if record['state'] == 'uncertain' else
