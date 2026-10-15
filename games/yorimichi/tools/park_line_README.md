@@ -118,6 +118,10 @@ triangles; the guarded `--full-scene` tier permits at most 250,000 triangles; cr
 
 ## Results and acceptance
 
+`GroundAnimation` is not generic riding ground. A landing may be confirmed through at most two such
+frames only when actual riding ground follows on the same named support, first contact is within 25 cm
+of that support, and riding recovery is observed. Distance and impact still use the original first contact.
+
 `report.json` is checkpointed after each trial. `complete` means all requested trials were attempted, not that
 they passed. Native failures retain partial traces and count as failures. Exit 0 means every tested entry speed
 passes; exit 1 means at least one failed. `passing_tested_speeds_mps` is a sampled set, not a continuous safe range.

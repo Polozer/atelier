@@ -29,6 +29,32 @@ def slope(normal, velocity):
     return math.degrees(math.atan2(-float(n[[0, 2]]@v)/max(d, 1e-12), n[1]))
 
 
+
+def confirmed_landing(end, states, supports, positions, world):
+    """@cc [owner:fontanierh,label:correctness] bounded-landing-confirmation
+    A GroundAnimation transition MUST NOT itself count as riding recovery.
+    At most two such frames MAY bridge an air to actual PhysicsGround or
+    RevertGround, only with the same named support at first contact, within
+    25 cm vertically. Distances and impact velocities MUST remain measured
+    at the first contact, and recovery MUST start at confirmed riding ground.
+    Bail, renewed air, unknown support and longer transitions MUST fail closed.
+    """
+    if end >= len(states):
+        return None, None
+    if is_ground(states[end]):
+        return end, supports[end]
+    confirm = end
+    while confirm < min(len(states), end+2) and states[confirm] == 'GroundAnimation':
+        confirm += 1
+    if confirm == end or confirm >= len(states) or not is_ground(states[confirm]):
+        return None, None
+    first = world.support(positions[end])
+    last = supports[confirm]
+    if (first is None or last is None or first['surface'] != last['surface']
+            or 'height_m' not in first or abs(first['height_m']-positions[end, 1]) > .25):
+        return None, None
+    return confirm, first
+
 def analyze(rows, world):
     """@cc [owner:fontanierh,label:correctness] measured-line-acceptance
     A huge-air pass MUST require a completed flight, an identified intended transition landing,
@@ -66,10 +92,11 @@ def analyze(rows, world):
     for begin, end in zip(changes, np.r_[changes[1:], len(rows)]):
         if not airborne[begin]:
             continue
-        before = max(0, begin-1); landed = end < len(rows) and ground[end]
+        before = max(0, begin-1)
+        confirmed, support = confirmed_landing(end, states, supports, p, world)
+        landed = confirmed is not None
         last = end if end < len(rows) else len(rows)-1
         incoming = v[max(begin, end-1)]
-        support = supports[end] if landed else None
         departure_frame = next((i for i in range(before, -1, -1)
                                 if times[begin]-times[i] <= .15 and supports[i] is not None), None)
         departure = supports[departure_frame] if departure_frame is not None else None
@@ -77,6 +104,8 @@ def analyze(rows, world):
                                      if times[begin]-times[i] <= .15 and nearby[i] is not None), None)
         vert_departure = nearby[vert_departure_frame] if vert_departure_frame is not None else None
         if vert_departure is not None:
+            landed = end < len(rows) and ground[end]
+            confirmed = end if landed else None
             departure_frame, departure = vert_departure_frame, vert_departure
             support = nearby[end] if landed else None
         takeoff = v[begin]
@@ -102,9 +131,11 @@ def analyze(rows, world):
                 fail.append('incoming trajectory does not match landing slope')
         if vert_return is None and not world.spec.get('intended_vert', False) and abs(angle) > rules['max_takeoff_angle_deg']:
             fail.append('unintended near-vertical takeoff')
-        recovery_end = times[last]+rules['landing_recovery_s']
+        recovery_end = times[confirmed if landed else last]+rules['landing_recovery_s']
         if landed and times[-1] < recovery_end:
             fail.append('insufficient observations after landing')
+        if landed and confirmed != end and not ground[(times >= times[confirmed]) & (times <= recovery_end)].all():
+            fail.append('landing confirmation lacks riding-ground recovery')
         if any(before <= i and times[i] <= recovery_end for i in bail):
             fail.append('bail/slam state during flight or recovery')
         normal_peak = float(np.max(np.abs(v[max(begin, end-3):end] @ support['normal']))) if support else None
@@ -114,6 +145,7 @@ def analyze(rows, world):
         if min(horizontal, forward) < rules['huge_air_m']:
             fail.append('air is shorter than the required forward distance')
         airs.append(dict(takeoff_frame=int(begin), landing_frame=int(end) if landed else None,
+                         landing_confirmation_frame=int(confirmed) if landed else None,
                          termination_frame=int(end) if end < len(rows) else None,
                          termination_state=states[end] if end < len(rows) else 'frame_budget',
                          takeoff_position=p[before].tolist(), end_position=p[last].tolist(),

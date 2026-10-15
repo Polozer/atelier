@@ -471,3 +471,28 @@ def test_exact_full_scene_capacity_is_constructed_without_a_larger_tier(monkeypa
                           triangles=np.broadcast_to(triangle,(250000,3,3))), tmp_path,
                       triangle_limit=250000)
     assert len(world.triangles) == 250000
+
+
+def test_one_landing_animation_frame_needs_confirmed_nearby_ground():
+    world = FixtureWorld()
+    support = world.support
+    world.support = lambda p: {**support(p), 'height_m': 1.}
+    rows = flight_rows()
+    rows[50]['state'] = 'GroundAnimation'
+    result = analyze(rows, world)
+    assert result['passed'], result['failures']
+    air = result['airs'][0]
+    assert air['landing_frame'] == 50 and air['landing_confirmation_frame'] == 51
+    assert air['end_position'] == rows[50]['position']
+    assert air['incoming_speed_mps'] == pytest.approx(np.linalg.norm(rows[49]['velocity']))
+    normal = np.array(world.support([0, 1, 40])['normal'])
+    rows[47]['velocity'] = (np.array(rows[47]['velocity'])-normal*20).tolist()
+    assert not analyze(rows, world)['passed']
+    for state in ('WipeoutGround', 'PhysicsAir', 'GroundAnimation'):
+        rows = flight_rows()
+        rows[50]['state'] = 'GroundAnimation'
+        rows[51]['state'] = rows[52]['state'] = state
+        assert not analyze(rows, world)['airs'][0]['completed']
+    rows = flight_rows(); rows[50]['state'] = 'GroundAnimation'
+    rows[50]['position'][1] = 2.
+    assert not analyze(rows, world)['airs'][0]['completed']
