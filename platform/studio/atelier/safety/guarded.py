@@ -298,7 +298,7 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                 limit_gib = selected
     if admission is not None and (not lock or fitting_gib is not None):
         raise ValueError('capacity admission requires the legacy bridge or sealed shared mutexes, without a fitting-lane request')
-    if admission is not None and getattr(admission, 'mode', None) == 'capacity':
+    if admission is not None and getattr(admission, 'mode', None) in ('capacity', 'sealed-maintenance'):
         from ..capacity_runtime import validate_session_profile
         validate_session_profile(admission, kind=kind, command=command, limit_gib=limit_gib)
     aggregate_tree = aggregate_tree or kind == 'compile' or admission is not None
@@ -343,7 +343,7 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                 options['worker_binding'] = worker_binding
             if admission is not None:
                 options.update(small_gib=None)
-                if getattr(admission, 'mode', None) == 'capacity':
+                if getattr(admission, 'mode', None) in ('capacity', 'sealed-maintenance'):
                     options['capacity'] = admission
                 else:
                     options['exclusive_bridge'] = True

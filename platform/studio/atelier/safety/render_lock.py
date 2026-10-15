@@ -233,28 +233,44 @@ def _shared_capacity(admission, on_slot, *, ignore, scan):
     from .. import capacity_compat
     if ignore or scan is False or os.environ.get('ATELIER_RENDER_LOCK_SCAN') == '0':
         raise ValueError('Full capacity requires exact broker ownership and the normal foreign scan')
-    proof = capacity_compat.verify(admission.cutover)
+    maintenance = admission.mode == 'sealed-maintenance'
+    def verify(**kwargs):
+        if maintenance:
+            return capacity_compat.verify_maintenance(admission.cutover, policy_sha256=admission.seal_policy_sha256, **kwargs)
+        return capacity_compat.verify(admission.cutover, **kwargs)
+    proof = verify()
     if proof['activation_id'] != admission.activation_id:
         raise RenderBusy('capacity session belongs to another compatibility activation')
     with ExitStack() as stack:
+        acquisition = None
+        if maintenance:
+            big = lock_path()
+            acquisition = stack.enter_context(big.with_name(f'{big.stem}.admission{big.suffix}').open('a+'))
+            try:
+                fcntl.flock(acquisition, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                raise RenderBusy('another job is checking sealed maintenance admission') from None
         handles = {}
         for name, path in lock_paths().items():
             fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
             handle = stack.enter_context(os.fdopen(fd, 'rb'))
             try:
-                fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                fcntl.flock(handle, (fcntl.LOCK_EX if maintenance else fcntl.LOCK_SH) | fcntl.LOCK_NB)
             except OSError:
                 raise RenderBusy('a legacy exclusive lane still blocks full capacity') from None
             handles[name] = handle
-        capacity_compat.verify(admission.cutover, handles=handles)
+        verify(handles=handles)
+        if acquisition is not None:
+            fcntl.flock(acquisition, fcntl.LOCK_UN)
         candidates = native_candidates()
         owned = admission.owned(candidates)
         if any(tuple(pin) not in owned for pin in candidates):
             raise RenderBusy('unregistered native processes refuse full capacity')
         if on_slot is not None:
-            on_slot('capacity', 'broker resources and named locks decide admission; legacy inodes stay sealed')
+            on_slot(admission.mode, 'all sealed lanes stay exclusive; full concurrency is inactive' if maintenance
+                    else 'broker resources and named locks decide admission; legacy inodes stay sealed')
         yield lock_path()
-        # Closing only our shared descriptors releases them. Never _write/_release these records.
+        # Closing only our descriptors releases them. Never _write/_release these sealed records.
 
 
 def holder(handle):
@@ -448,7 +464,7 @@ def render_lock(purpose, wait=0., ignore=(), scan=None, small_gib=None, kind='jo
     if kind not in KINDS:
         raise ValueError(f'kind must be one of {KINDS}, not {kind!r}')
     if capacity is not None:
-        if (getattr(capacity, 'mode', None) != 'capacity' or wait or exclusive_bridge
+        if (getattr(capacity, 'mode', None) not in ('capacity', 'sealed-maintenance') or wait or exclusive_bridge
                 or small_gib is not None or fitting_gib is not None):
             raise ValueError('Shared capacity needs one nonblocking, fully configured admission')
         with _shared_capacity(capacity, on_slot, ignore=ignore, scan=scan) as path:

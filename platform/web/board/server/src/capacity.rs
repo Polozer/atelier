@@ -59,7 +59,7 @@ fn profile(value: &Value) -> bool {
 }
 
 /// Absence of the default client file means legacy operation; explicit missing/invalid files do not.
-fn configured(path: &Path, explicit: bool, cutover: &Path) -> Result<Option<(PathBuf, bool)>, ()> {
+fn configured(path: &Path, explicit: bool, cutover: &Path) -> Result<Option<(PathBuf, &'static str)>, ()> {
     if !path.is_absolute() {
         return Err(());
     }
@@ -97,7 +97,14 @@ fn configured(path: &Path, explicit: bool, cutover: &Path) -> Result<Option<(Pat
         && value.get("schema").and_then(Value::as_u64) == Some(2)
         && value.get("cutover").and_then(Value::as_str).map(Path::new) == Some(cutover);
     let bridge = object.len() == 3 && value.get("schema").and_then(Value::as_u64) == Some(1) && !barrier;
-    if !bridge && !full {
+    let maintenance = object.len() == 6
+        && value.get("schema").and_then(Value::as_u64) == Some(3)
+        && value.get("mode").and_then(Value::as_str) == Some("sealed-maintenance")
+        && value.get("cutover").and_then(Value::as_str).map(Path::new) == Some(cutover)
+        && value.get("seal_policy_sha256").and_then(Value::as_str).is_some_and(|hash| {
+            hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        });
+    if !bridge && !full && !maintenance {
         return Err(());
     }
     let profiles = value.get("profiles").and_then(Value::as_object).ok_or(())?;
@@ -112,7 +119,7 @@ fn configured(path: &Path, explicit: bool, cutover: &Path) -> Result<Option<(Pat
     if !socket.is_absolute() {
         return Err(());
     }
-    Ok(Some((socket, full)))
+    Ok(Some((socket, if full { "capacity" } else if maintenance { "sealed-maintenance" } else { "legacy-bridge" })))
 }
 
 fn endpoint(path: &Path) -> Result<(), ()> {
@@ -174,8 +181,9 @@ fn decode(data: &[u8], now: f64) -> Result<CapacitySnapshot, ()> {
     let mut snapshot = reply.snapshot;
     if !reply.ok
         || reply.namespace != NAMESPACE
-        || !matches!((snapshot.mode.as_str(), snapshot.cutover), ("legacy-bridge", false) | ("capacity", true))
-        || (snapshot.cutover && (reply.compatibility_healthy.is_none()
+        || !matches!((snapshot.mode.as_str(), snapshot.cutover),
+            ("legacy-bridge", false) | ("capacity", true) | ("sealed-maintenance", false))
+        || (snapshot.mode != "legacy-bridge" && (reply.compatibility_healthy.is_none()
             || (reply.compatibility_healthy == Some(false) && !snapshot.recovering)))
         || snapshot.boot_id.is_empty()
         || snapshot.boot_id.len() > 256
@@ -245,6 +253,10 @@ async fn request(path: &Path) -> Result<CapacitySnapshot, ()> {
     .map_err(|_| ())?
 }
 
+fn matches_mode(snapshot: &CapacitySnapshot, expected: &str) -> bool {
+    snapshot.mode == expected && snapshot.cutover == (expected == "capacity")
+}
+
 /// @cc [owner:fontanierh,label:safety] read-only-capacity-observation
 /// The board MUST send only production status requests, with one bounded poll at a time. Broker
 /// failures MUST remain unknown/stale, never an empty grant pool. HTTP snapshots MUST NOT wait
@@ -279,14 +291,14 @@ pub fn start() {
                     previous = None;
                     delay = (delay * 2).min(30);
                 }
-                Ok(Some((socket, full))) => {
-                    if previous.as_ref() != Some(&(socket.clone(), full)) {
+                Ok(Some((socket, mode))) => {
+                    if previous.as_ref() != Some(&(socket.clone(), mode)) {
                         status.snapshot = None;
                     }
-                    previous = Some((socket.clone(), full));
+                    previous = Some((socket.clone(), mode));
                     status.configuration = "configured".into();
                     match request(&socket).await {
-                        Ok(value) if value.cutover == full => {
+                        Ok(value) if matches_mode(&value, mode) => {
                             status.snapshot = Some(value);
                             status.availability = "available".into();
                             delay = 3;
@@ -465,6 +477,63 @@ mod tests {
     }
 
     #[test]
+    fn maintenance_is_distinct_from_bridge_and_full_with_required_seal_health() {
+        let mut value = sample(1000.);
+        value["mode"] = json!("sealed-maintenance");
+        assert!(decode(&frame(&value), 1001.).is_err());
+        value["compatibility_healthy"] = json!(true);
+        let maintenance = decode(&frame(&value), 1001.).unwrap();
+        assert!(matches_mode(&maintenance, "sealed-maintenance"));
+        assert!(!matches_mode(&maintenance, "legacy-bridge"));
+        assert!(!matches_mode(&maintenance, "capacity"));
+        let bridge = decode(&frame(&sample(1000.)), 1001.).unwrap();
+        assert!(!matches_mode(&bridge, "sealed-maintenance"));
+        value["compatibility_healthy"] = json!(false);
+        assert!(decode(&frame(&value), 1001.).unwrap().recovering);
+        value["recovering"] = json!(false);
+        assert!(decode(&frame(&value), 1001.).is_err());
+        value["compatibility_healthy"] = json!(true);
+        value["cutover"] = json!(true);
+        assert!(decode(&frame(&value), 1001.).is_err());
+    }
+
+    #[test]
+    fn maintenance_configuration_requires_explicit_mode_seal_and_policy_identity() {
+        let folder = Folder::new();
+        let path = folder.0.join("client.json");
+        let cutover = folder.0.join("cutover.json");
+        let resources = sample(1000.)["total"].clone();
+        let profile = json!({"resources": resources, "locks": []});
+        let config = json!({"schema": 3, "mode": "sealed-maintenance",
+            "cutover": cutover, "seal_policy_sha256": "a".repeat(64),
+            "socket": folder.0.join("broker.sock"),
+            "profiles": {"job": profile, "game": profile, "compile": profile}});
+        fs::write(&path, config.to_string()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(configured(&path, false, &cutover),
+            Ok(Some((folder.0.join("broker.sock"), "sealed-maintenance"))));
+        for (field, invalid) in [
+            ("mode", json!("capacity")), ("schema", json!(2)),
+            ("cutover", json!(folder.0.join("other.json"))),
+            ("seal_policy_sha256", json!("A".repeat(64))),
+            ("seal_policy_sha256", json!("a".repeat(63))),
+        ] {
+            let mut value = config.clone();
+            value[field] = invalid;
+            fs::write(&path, value.to_string()).unwrap();
+            assert!(configured(&path, false, &cutover).is_err(), "{field}");
+        }
+        let mut extra = config.clone();
+        extra["extra"] = json!(true);
+        fs::write(&path, extra.to_string()).unwrap();
+        assert!(configured(&path, false, &cutover).is_err());
+        let mut missing = config;
+        missing.as_object_mut().unwrap().remove("seal_policy_sha256");
+        fs::write(&path, missing.to_string()).unwrap();
+        assert!(configured(&path, false, &cutover).is_err());
+    }
+
+    #[test]
     fn only_absent_default_configuration_is_legacy() {
         let folder = Folder::new();
         let path = folder.0.join("client.json");
@@ -477,14 +546,14 @@ mod tests {
             "profiles": {"job": profile, "game": profile, "compile": profile}});
         fs::write(&path, config.to_string()).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-        assert_eq!(configured(&path, false, &cutover), Ok(Some((folder.0.join("broker.sock"), false))));
+        assert_eq!(configured(&path, false, &cutover), Ok(Some((folder.0.join("broker.sock"), "legacy-bridge"))));
         fs::write(&cutover, "preparing").unwrap();
         assert!(configured(&path, false, &cutover).is_err());
         let mut full = config;
         full["schema"] = json!(2);
         full["cutover"] = json!(cutover);
         fs::write(&path, full.to_string()).unwrap();
-        assert_eq!(configured(&path, false, &cutover), Ok(Some((folder.0.join("broker.sock"), true))));
+        assert_eq!(configured(&path, false, &cutover), Ok(Some((folder.0.join("broker.sock"), "capacity"))));
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
         assert!(configured(&path, false, &cutover).is_err());
         fs::remove_file(&path).unwrap();
