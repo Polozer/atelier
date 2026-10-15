@@ -340,6 +340,9 @@ conversation's place, as in Slack's sidebar (choosing an agent or Everyone bring
   capacity broker when the machine's private client configuration is present. A service installed without client
   activation does not replace the legacy slots. The migration bridge still holds all legacy lanes and adds no
   native concurrency; the board does not activate clients or offer admission controls.
+  A matching full-mode configuration and broker observation instead show capacity admission and sealed
+  compatibility locks. Full recovery pauses grants without asserting a healthy seal; the legacy holder rows
+  are replaced by broker reservations. This display does not perform or authorize machine cutover.
 
   Capacity status is fetched by one background observer, separately from HTTP requests, with an 800 ms total socket
   deadline and a 64 KiB frame limit. Healthy observations poll every three seconds; failures back off to at most
