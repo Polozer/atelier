@@ -67,10 +67,11 @@ the sprint's top speed.
   as the rider's HorseMount and HorseDismount clips (1.60 s and 1.40 s as authored), so each plays to its end; the
   horse stands still meanwhile. Getting off needs the horse stopped (40 cm/s, 1.4 km/h, or less) and the ground under
   him; faster, the HUD says "Slow down to get off", and in the air "Land to get off". Then the horse goes away.
-- **Water.** The horse does not swim. If the walking physics starts swimming him (a water volume), the ride ends at
-  once: offline the horse goes there and then, online the host stows it as at the end of getting off, and the player
-  is told "The horse will not swim: you are on foot". The bike has no such rule. The sea and the woodland lake are the
-  move set's water, which starts a swim only on foot: on either vehicle they stay walking physics.
+- **Water.** The horse does not swim. It queries the move set's sea and woodland lake and ends the ride at the same
+  depth that starts swimming on foot: feet below the surface by 1.1 capsule half-heights while grounded, or 10 cm
+  while falling. Offline it stows immediately; online the host confirms the stow. The player is told "The horse will
+  not swim: you are on foot" and the normal move set takes over. Engine swimming volumes also end the ride.
+  The bike has no such rule.
 - **In the saddle.** Jump, Attack, Guard, the sword and the move set do nothing, and the bike, sailboat and
   skateboard cannot be taken out. Crouch, Wave and Interact do nothing either (on the bike Crouch skids and Wave waves,
   but the horse has no such clips): he cannot crouch, wave, talk to the sword trainer, or call or board the zeppelin
@@ -191,7 +192,11 @@ nice -n 10 uv run atelier build yorimichi unreal.horses unreal.cairo_horse chara
   head and neck motion. `export.json` keeps `source_sha256`, `fps` and each clip's frames, duration and loop (what
   `unreal.<key>_horse` reads) and `reach_error_cm` per limb (what the fit gate bounds); the horse clip and the solved
   targets per frame stay in memory for the review renders. The rig solve, hand frames, keyed actions, studio and
-  character loader are shared with the bike in `assets/vehicles/rider_common.py`. A manual `rider.py --review` run
+  character loader are shared with the bike in `assets/vehicles/rider_common.py`. Mounting lifts the trailing foot
+  with the rider's body, then swings it over the saddle; dismounting reverses the path. The torso leans over the
+  saddle and shifts within all four limbs' reach, keeping the targets and bone lengths fixed and leaving a bend
+  in the elbows and knees. Unreachable contacts still fail the normal 4 cm fit gate.
+  A manual `rider.py --review` run
   re-exports every clip into the build, and `--clips` a subset (into `export-partial.json`), overwriting the step's FBXs
   while its build stamp still says current, as the bike's rider does: after one from changed sources, rebuild it
   (`uv run atelier build yorimichi --force characters.<key>_horse`, under the guard) before the next import.

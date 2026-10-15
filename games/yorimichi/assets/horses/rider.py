@@ -316,6 +316,34 @@ def _place_torso(rig, hips_w, pelvis_rot, lean, twist, side_lean, shrug=0.0, spi
             rig.local('clavicle_' + side, rot(0., 0., -SIDE[side] * shrug))
 
 
+def transition_hips(rig, hips, state, foot_offset):
+    """@cc [owner:fontanierh,label:correctness] fixed-transition-contacts
+    Move the torso into the intersection of the four limbs' reach spheres.
+    Transition fitting MUST preserve the authored hand and foot targets
+    and the rig's bone lengths; the final IK solve MUST still report any unreachable contact to the fit gate.
+    """
+    constraints = []
+    for side in 'LR':
+        for upper, lower, end, target in (
+            (f'upperarm_{side}', f'forearm_{side}', f'hand_{side}', Vector(state['wrist_' + side])),
+            (f'thigh_{side}', f'shin_{side}', f'foot_{side}',
+             Vector(state['sole_' + side]) + state['Rf_' + side] @ foot_offset[side]),
+        ):
+            # With the torso rotations fixed, translating the hips translates each limb root by the same amount.
+            centre = target - (rig.world(rig.head(upper)) - hips)
+            # Use the riding solve's reach margins so knees and elbows retain a little bend.
+            reach = 0.93 if upper.startswith('upperarm') else 0.965
+            radius = (rig.length(upper, lower) + rig.length(lower, end)) * rig.scale * reach
+            constraints.append((centre, radius))
+    fitted = hips.copy()
+    for _ in range(64):
+        for centre, radius in constraints:
+            delta = fitted - centre
+            if delta.length > radius:
+                fitted = centre + delta.normalized() * radius
+    return fitted
+
+
 def solve_pose(rig, hands, foot_offset, fr, state):
     """Pose the character rig for one frame given resolved rider state and horse contact frame `fr`."""
     hips_w = Vector(state['hips']).copy()
@@ -329,6 +357,11 @@ def solve_pose(rig, hands, foot_offset, fr, state):
     hp, hy, hr = state['head']
 
     _place_torso(rig, hips_w, pelvis_rot, lean, twist, side_lean, shrug, spine_rots, clavicle_rots)
+
+    if state.get('transition_reach', False):
+        hips_w = transition_hips(rig, hips_w, state, foot_offset)
+        _place_torso(rig, hips_w, pelvis_rot, lean, twist, side_lean, shrug, spine_rots, clavicle_rots)
+        state['hips'] = hips_w
 
     # Settle the pelvis deeper into the saddle if a short-legged rider's boot reaches past 96.5% of leg length
     # during high horse suspension frames, keeping the sneaker/boot sole 100% inside the étrier (stirrup iron).
@@ -613,6 +646,9 @@ def transition_keys(rig, fr0):
     """Keyframes for HorseMount and HorseDismount relative to the horse's Idle frame 0 contacts."""
     seat = Vector(fr0['seat']) + Vector((0.015, 0.0, rig.seat_clearance_z))
     h_ground = rig.rest_hips_w.z
+    # The saddle grip and left stirrup are high on the horse even for a small rider. Lift the trailing foot with
+    # the body: leaving it near the ground makes those three contacts physically incompatible for short limbs.
+    step_height = seat.z - 0.26
     beside = dict(
         hips=(0.00, 0.64, h_ground), pelvis_rot=(4., -70., 0.), lean=6., twist=-4., side=0., head=(4., -10., 0.),
         hand_L=(GROUND_SPACE, 0.14, 0.42, h_ground + 0.30), hand_R=(GROUND_SPACE, -0.08, 0.42, h_ground + 0.28),
@@ -620,22 +656,23 @@ def transition_keys(rig, fr0):
         foot_L=(GROUND_SPACE, 0.10, 0.56, 0.0), foot_R=(GROUND_SPACE, -0.06, 0.64, 0.0), pitch_L=0., pitch_R=0.,
     )
     step_stirrup = dict(
-        hips=(-0.02, 0.52, h_ground + 0.24), pelvis_rot=(6., -48., 0.), lean=8., twist=-4., side=2., head=(4., -8., 0.),
+        hips=(-0.02, 0.42, step_height), pelvis_rot=(16., -48., 0.), lean=35., twist=-4., side=2., head=(4., -8., 0.),
         hand_L='pommel', hand_R='cantle', frame_L='pommel', frame_R='cantle', curl_L=0.75, curl_R=0.65,
-        foot_L='stirrup', foot_R=(GROUND_SPACE, -0.14, 0.54, 0.16), pitch_L=-4., pitch_R=14.,
+        foot_L='stirrup', foot_R=(GROUND_SPACE, -0.14, 0.54, max(0.16, step_height - 0.75 * rig.leg_length)),
+        pitch_L=-4., pitch_R=14.,
     )
     spring_up = dict(
-        hips=(-0.02, 0.36, seat.z + 0.12), pelvis_rot=(8., -26., 0.), lean=10., twist=-2., side=2., head=(-2., -6., 0.),
+        hips=(-0.02, 0.36, seat.z + 0.12), pelvis_rot=(16., -26., 0.), lean=35., twist=-2., side=2., head=(-2., -6., 0.),
         hand_L='pommel', hand_R='cantle', frame_L='pommel', frame_R='cantle', curl_L=0.80, curl_R=0.65,
         foot_L='stirrup', foot_R=(-0.38, 0.38, seat.z + 0.12), pitch_L=-6., pitch_R=20.,
     )
     swing_apex = dict(
-        hips=(0.00, 0.16, seat.z + 0.15), pelvis_rot=(10., -14., 0.), lean=12., twist=-2., side=0., head=(-4., -4., 0.),
+        hips=(0.00, 0.16, seat.z + 0.15), pelvis_rot=(16., -14., 0.), lean=35., twist=-2., side=0., head=(-4., -4., 0.),
         hand_L='reins', hand_R='pommel', frame_L='reins', frame_R='pommel', curl_L=0.84, curl_R=0.70,
         foot_L='stirrup', foot_R=(-0.44, 0.00, seat.z + 0.22), pitch_L=-6., pitch_R=22.,
     )
     swing_over = dict(
-        hips=(0.01, 0.04, seat.z + 0.08), pelvis_rot=(8., -6., 0.), lean=12., twist=0., side=0., head=(-4., -2., 0.),
+        hips=(0.01, 0.04, seat.z + 0.08), pelvis_rot=(16., -6., 0.), lean=35., twist=0., side=0., head=(-4., -2., 0.),
         hand_L='reins', hand_R='pommel', frame_L='reins', frame_R='pommel', curl_L=0.88, curl_R=0.72,
         foot_L='stirrup', foot_R=(-0.24, -0.38, seat.z + 0.06), pitch_L=-6., pitch_R=12.,
     )
@@ -730,14 +767,14 @@ def bake_transition_clip(rig, hands, foot_offset, name, duration, keys, horse_cl
             D_L=D_L, D_R=D_R, wrist_L=w_L, wrist_R=w_R,
             curl_L=smooth(a['curl_L'], b['curl_L'], s),
             curl_R=smooth(a['curl_R'], b['curl_R'], s),
-            Rf_L=Rf_L, Rf_R=Rf_R, sole_L=sole_L, sole_R=sole_R, auto_reach=False,
+            Rf_L=Rf_L, Rf_R=Rf_R, sole_L=sole_L, sole_R=sole_R, auto_reach=False, transition_reach=True,
         )
         short = solve_pose(rig, hands, foot_offset, fr, state)
         for limb, v in short.items():
             worst[limb] = max(worst.get(limb, 0.), v)
         poses.append({n: rig.basis[n].copy() for n in rig.order})
         horse_frames.append({
-            'seat': [round(x, 4) for x in hips],
+            'seat': [round(x, 4) for x in state['hips']],
             'grip_L': fr['grip_L'],
             'grip_R': fr['grip_R'],
             'stirrup_L': [round(x, 4) for x in sole_L],
