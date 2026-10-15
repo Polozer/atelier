@@ -72,9 +72,9 @@
   const WALL = { h: 2.75, R: 3.0 };
   const P = (key, label, unit, min, max, step, help, extra) => Object.assign({ key, label, unit, min, max, step, help }, extra || {});
   const wallParams = [
-    P('wl.h', 'Left wall height', 'm', 0, 22, 0.1, 'Rider’s left. 0 = no wall. Above the radius it goes vertical (vert).'),
+    P('wl.h', 'Left wall height', 'm', 0, 30, 0.1, 'Rider’s left. 0 = no wall. Above the radius it goes vertical (vert).'),
     P('wl.R', 'Left wall radius', 'm', 0.5, 22, 0.1, 'Transition radius of the curved wall.'),
-    P('wr.h', 'Right wall height', 'm', 0, 22, 0.1, 'Rider’s right. 0 = no wall.'),
+    P('wr.h', 'Right wall height', 'm', 0, 30, 0.1, 'Rider’s right. 0 = no wall.'),
     P('wr.R', 'Right wall radius', 'm', 0.5, 22, 0.1, ''),
     P('deck', 'Deck behind walls', 'm', 0, 6, 0.1, 'Flat coping deck on top of each wall.'),
   ];
@@ -82,7 +82,7 @@
   const kickerWallParams = wallParams.map(d => ({ ...d, nullable: true, help: (d.help ? d.help + ' ' : '') + 'Empty = same as the runway before.' }));
   const receiverParams = [
     P('knuckle_R', 'Knuckle radius', 'm', 0, 40, 0.5, 'Rounding from the flat knuckle into the landing slope.'),
-    P('land_deg', 'Landing angle', '°', 5, 80, 0.5, 'Steepness of the landing slope (45° and up: a vert landing).'),
+    P('land_deg', 'Landing angle', '°', 5, 88, 0.5, 'Steepness of the landing slope (45° and up: a vert landing).'),
     P('land_len', 'Landing length', 'm', 0, 80, 0.5, 'Straight part of the landing slope.'),
     P('out_R', 'Run-out radius', 'm', 2, 200, 1, 'Curve from the landing slope back to flat.'),
     P('mid_deg', 'Middle slope', '°', -80, 0, 0.5, 'Optional slope between landing and run-out: gentle for mega ramps, or steeper than the landing for a vert landing that steepens with the fall.'),
@@ -119,6 +119,7 @@
         P('bank', 'Bank', '°', -35, 35, 0.5, 'Tilts the floor across: + raises the rider’s left side (for right turns).'),
         P('width', 'Floor width', 'm', 4, 80, 0.5, 'Flat floor between the walls (18 m standard).'),
         P('width_end', 'Floor width at end', 'm', 4, 80, 0.5, 'Leave empty for constant width (use for flared mouths).', { nullable: true }),
+        P('shift', 'Side shift', 'm', -40, 40, 0.5, 'Starts the piece this far to the rider’s left (+) or right (−) of its parent’s end: two half-width pieces side by side make split lanes.'),
         ...wallParams,
         P('wall_blend', 'Wall blend', 'm', 0, 80, 0.5, 'The walls grow or shrink smoothly from the piece before over this length, so they run on as one wall. 0 = sudden change.'),
         P('dig', 'Cut the ground under it', '', 0, 1, 1, 'Cuts the crater ground away: under the floor, just below each deck top out past the deck edge, then 40° rock banks up to the ground.', { kind: 'bool' }),
@@ -128,8 +129,8 @@
       label: 'Roll-in', ride: true, start: true,
       defaults: { drop: 30, steep_deg: 35, crest_R: 40, foot_R: 40, out_deg: -5, run: 10, turn: 0, bank: 0, width: 18, wl: { ...WALL }, wr: { ...WALL }, deck: 1.5, dig: false },
       params: [
-        P('drop', 'Drop height', 'm', 2, 150, 0.5, 'Vertical drop from the top to the foot.'),
-        P('steep_deg', 'Steepness', '°', 10, 70, 0.5, 'Angle of the steepest part (the incline).'),
+        P('drop', 'Drop height', 'm', 2, 250, 0.5, 'Vertical drop from the top to the foot.'),
+        P('steep_deg', 'Steepness', '°', 10, 88, 0.5, 'Angle of the steepest part (the incline).'),
         P('crest_R', 'Top curve radius', 'm', 2, 300, 1, 'How gradually it tips over at the top. Bigger = gentler.'),
         P('foot_R', 'Bottom curve radius', 'm', 2, 300, 1, 'How gradually it flattens at the bottom. Bigger = gentler, less compression.'),
         P('out_deg', 'Exit slope', '°', -30, 5, 0.5, 'Slope it hands over to the next piece.'),
@@ -149,7 +150,7 @@
         P('open', 'Gap length', 'm', 3, 90, 0.5, 'Lip to knuckle, horizontal.'),
         P('drop', 'Knuckle below lip', 'm', -10, 30, 0.1, ''),
         P('kick_R', 'Kicker radius', 'm', 4, 80, 0.5, ''),
-        P('lip_deg', 'Lip angle', '°', 0, 45, 0.5, ''),
+        P('lip_deg', 'Lip angle', '°', 0, 88, 0.5, ''),
         P('lip_len', 'Lip straight', 'm', 0, 10, 0.1, ''),
         P('run_in', 'Run-in before kicker', 'm', 0, 60, 0.5, ''),
         P('width', 'Kicker width', 'm', 4, 50, 0.5, ''),
@@ -390,6 +391,7 @@
     for (const p of park.pieces) {
       const b = built.get(p.id), pb = p.attach && built.get(p.attach);
       if (!b || !pb || b.type !== 'run' || pb.type !== 'run' || !b.info.needStart || !pb.info.ownEnd) continue;
+      if (num((p.params || {}).shift, 0)) continue;   // split lanes carry only their own side's wall on: the parent keeps its own end
       if (!same(b.info.needStart, pb.info.ownEnd)) ends.set(pb.id, b.info.needStart);
     }
     const changed = [...new Set([...ends.keys(), ...prevEnds.keys()])].some(id => !ends.has(id) || !prevEnds.has(id) || !same(ends.get(id), prevEnds.get(id)));
@@ -411,6 +413,9 @@
         const pb = visit(par);
         if (pb.exit) {
           pose = { x: pb.exit.x, z: pb.exit.z, y: pb.exit.y, h: pb.exit.h, a: TYPES[p.type].start || p.type === 'landing' || p.type === 'qp' || p.type === 'bowl' ? 0 : pb.exit.a, walls: pb.exit.walls };
+          // a side shift starts the piece beside its parent's end (split lanes: half-width pieces side by side), walls its own
+          const shift = num((p.params || {}).shift, 0);
+          if (shift) { const hr = pose.h * D2R; pose.x += Math.sin(hr) * shift; pose.z -= Math.cos(hr) * shift; pose.walls = null; }
           p.x = +pose.x.toFixed(3); p.z = +pose.z.toFixed(3); p.y = +pose.y.toFixed(3); p.heading = +pose.h.toFixed(3); p.slope = +pose.a.toFixed(3);
         }
       } else if (p.attach) p.attach = null;
@@ -431,6 +436,7 @@
   function markJoins(park, built) {
     for (const b of built.values()) b.joins = { start: false, end: false };
     const wEq = (a, c) => a && c && Math.abs(a.h - c.h) < 0.05 && Math.abs(a.R - c.R) < 0.05;
+    const lanes = new Map();          // parent id -> its split lanes' lateral spans
     for (const p of park.pieces) {
       const b = built.get(p.id), pb = p.attach && built.get(p.attach);
       if (!b || !pb) continue;
@@ -438,9 +444,25 @@
       if (b.type === 'bowl' && b.info.through && pb.stations.length && pb.segs.length) { pb.joins.end = true; continue; }
       if (!b.stations.length || !pb.stations.length || !b.segs.length || !pb.segs.length || b.segs[0][0] !== 0) continue;
       const s0 = b.stations[0], s1 = pb.stations[pb.segs[pb.segs.length - 1][1]];
+      const shift = num((p.params || {}).shift, 0);
+      if (shift && s1) {
+        // a split lane: joined when it starts level on its parent's end and its outer edge and wall carry the parent's on
+        // that side; the parent's end goes when its lanes cover its whole width
+        const left = shift > 0, edge = Math.abs(shift) + s0.w / 2;
+        if (Math.abs(s0.y - s1.y) > 0.05 || Math.abs(s0.a - s1.a) > 1 || Math.abs(edge - s1.w / 2) > 0.05) continue;
+        if (!wEq(left ? s0.wl : s0.wr, left ? s1.wl : s1.wr) || Math.abs(s0.deck - s1.deck) > 0.05) continue;
+        b.joins.start = true;
+        (lanes.get(p.attach) || lanes.set(p.attach, { w: s1.w, spans: [] }).get(p.attach)).spans.push([shift - s0.w / 2, shift + s0.w / 2]);
+        continue;
+      }
       if (!s1 || Math.hypot(s0.x - s1.x, s0.z - s1.z, s0.y - s1.y) > 0.05 || Math.abs(s0.a - s1.a) > 1 || Math.abs(s0.w - s1.w) > 0.05) continue;
       if (!wEq(s0.wl, s1.wl) || !wEq(s0.wr, s1.wr) || Math.abs(s0.deck - s1.deck) > 0.05) continue;
       b.joins.start = true; pb.joins.end = true;
+    }
+    for (const [id, L] of lanes) {
+      let reach = -L.w / 2;
+      for (const [lo, hi] of L.spans.sort((a, c) => a[0] - c[0])) { if (lo > reach + 0.05) break; reach = Math.max(reach, hi); }
+      if (reach >= L.w / 2 - 0.05) built.get(id).joins.end = true;
     }
   }
   const samePose = (a, b) => Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.z - b.z) < 1e-6 && Math.abs(a.y - b.y) < 1e-6 && Math.abs(a.h - b.h) < 1e-6 && Math.abs(a.a - b.a) < 1e-6

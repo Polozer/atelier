@@ -13,7 +13,7 @@ EDITOR_SCHEMA = 'craterpark-editor/1'
 # With neither switch set the build ships the editor park the owner last approved (its terrain in data/ beside it);
 # EDITOR_SWITCH=off builds the old park instead
 SHIPPED = Path(__file__).resolve().parents[4] / 'tools' / 'craterpark_editor' / 'shipped.json'
-SHIPPED_LINES = 'L1,p5'
+SHIPPED_LINES = 'L1,L2,p5'
 
 
 def editor_path():

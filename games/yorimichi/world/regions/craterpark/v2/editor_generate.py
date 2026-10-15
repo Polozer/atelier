@@ -65,7 +65,7 @@ def select(doc, lines):
             if by[n]['type'] in ('bowl', 'deck'):
                 keep.add(n)
     # the start decks: decks of the structure line that the kept roll-ins stand on (within 30 m of their top)
-    tops = [(p['x'], p['z']) for p in doc['pieces'] if p['id'] in keep and p['type'] == 'rollin']
+    tops = [(p['x'], p['z']) for p in doc['pieces'] if p['id'] in keep and (p['type'] == 'rollin' or p.get('start'))]
     for p in doc['pieces']:
         if p['type'] == 'deck' and p['id'] not in keep and any(np.hypot(p['x'] - x, p['z'] - z) < 60 for x, z in tops):
             keep.add(p['id'])
@@ -339,8 +339,11 @@ def main(argv=None):
     ride_lines, labels = [], {}
     for line in lines:
         name = next((l['name'] for l in doc['lines'] if l['id'] == line), line)
-        first = next((p for p in scene.pieces if p.metadata['line'] == line and p.metadata['type'] == 'rollin'), None)
-        if first is None:          # a single piece (or a line without a roll-in): no riding line of its own
+        # the line's start: its roll-in, or a piece the owner marked as the start (a drop off a deck edge into the void)
+        starts = {p['id'] for p in doc['pieces'] if p.get('start')}
+        first = next((p for p in scene.pieces if p.metadata['line'] == line and p.metadata['type'] == 'rollin'), None) \
+            or next((p for p in scene.pieces if p.metadata['line'] == line and p.metadata['id'] in starts), None)
+        if first is None:          # a single piece (or a line without a start): no riding line of its own
             continue
         order, seen, cur = [], set(), first.metadata['id']
         while cur and cur not in seen and cur in by:
@@ -348,8 +351,13 @@ def main(argv=None):
             order.append(cur)
             cur = next(iter(by[cur].metadata['next']), None)
         path = np.concatenate([by[i].centerline for i in order if len(by[i].centerline)])
-        st = first.metadata['stations'][min(3, len(first.metadata['stations']) - 1)]
-        spawn = ((st['x'], st['y'], st['z']), float(st['h']))
+        if first.metadata['type'] == 'rollin':
+            st = first.metadata['stations'][min(3, len(first.metadata['stations']) - 1)]
+            spawn = ((st['x'], st['y'], st['z']), float(st['h']))
+        else:                      # a start off an edge: on the deck behind it, back from the edge, facing the drop
+            st = first.metadata['stations'][0]
+            hr = np.radians(float(st['h']))
+            spawn = ((st['x'] - 6 * np.cos(hr), st['y'], st['z'] - 6 * np.sin(hr)), float(st['h']))
         ride_lines.append(dsl.RideLine(line, order, path, spawn, path[-1]))
         labels[line] = name
     park = dsl.Park(mesh, rails, ride_lines, [dict(kind='editor_playtest', rev=doc.get('rev'), lines=lines)])

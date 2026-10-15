@@ -20,7 +20,7 @@ function number(x, where) {
   if(typeof x!=='number' || !Number.isFinite(x) || Math.abs(x)>100000) throw Error(`${where}: expected bounded finite number`);
 }
 // Optional parameters the editor reads but does not put in its type defaults (see the editor README).
-const EXTRA = { run: ['corner', 'vert_assist_max'], jump: ['vert_assist_max'], bowl: ['ext', 'deep', 'spines', 'exit_wl', 'exit_wr'], deck: ['outline'] };
+const EXTRA = { run: ['corner', 'vert_assist_max', 'shift'], jump: ['vert_assist_max', 'wl', 'wr', 'deck'], kicker: ['vert_assist_max', 'wl', 'wr', 'deck'], landing: ['wl', 'wr', 'deck'], bowl: ['ext', 'deep', 'spines', 'exit_wl', 'exit_wr'], deck: ['outline'] };
 const WALL_EXTRA = ['level'];
 function validate(park) {
   keys(park,['schema','about','frame','terrain','lines','pieces','rev','saved_at','notes'], 'park');
@@ -48,6 +48,7 @@ function validate(park) {
       } else if(d===undefined) { if(v===null||!['object','boolean','number'].includes(typeof v)) throw Error(`${at}: unexpected value`); }
       else if(d && typeof d==='object') params(v,d,at,WALL_EXTRA);
       else if(k==='width_end' && (v===null||v==='')) continue;
+      else if(k==='template' && v===null) continue;   // the editor clears it when a template's value is edited (custom)
       else if(typeof d==='boolean') { if(typeof v!=='boolean') throw Error(`${at}: expected boolean`); }
       else if(typeof d==='string') {
         if(typeof v!=='string'||(k==='template'&&v!==''&&v!=='custom'&&!Object.hasOwn(P.TEMPLATES,v))) throw Error(`${at}: unknown template`);

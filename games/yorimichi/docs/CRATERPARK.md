@@ -333,8 +333,8 @@ checks that the bridge meshes the frozen park, then runs the guarded build with 
 `ATELIER_CRATERPARK_EDITOR_LINES`. Without `--build` it prints that command.
 
 The build ships the owner's last approved design by default:
-[`tools/craterpark_editor/shipped.json`](../tools/craterpark_editor/shipped.json) (rev 78), with its terrain in
-`tools/craterpark_editor/data/` beside it, and its lines `L1,p5` (orange and Prado), so a plain `atelier build` from
+[`tools/craterpark_editor/shipped.json`](../tools/craterpark_editor/shipped.json) (rev 107), with its terrain in
+`tools/craterpark_editor/data/` beside it, and its lines `L1,L2,p5` (orange, the tower vert drop and Prado), so a plain `atelier build` from
 main builds the editor park. `ATELIER_CRATERPARK_EDITOR_PARK` selects another frozen park.json and
 `ATELIER_CRATERPARK_EDITOR_LINES` other lines; `ATELIER_CRATERPARK_EDITOR_PARK=off` (or a v4 design in
 `ATELIER_CRATERPARK_V4_DESIGN`) builds the older generator instead. To ship a new revision, copy its frozen park.json
