@@ -225,7 +225,11 @@ def _former_cone(x,y,trail_quiet):
 
 def caldera_floor():
     """The caldera floor's level, metres above sea level."""
-    return float(apron_height(VOLCANO[1]))+CREST-DEPTH
+    depth = DEPTH
+    if craterpark.is_v4():
+        from craterpark.v2 import v4_placement
+        depth = v4_placement.depth(DEPTH)
+    return float(apron_height(VOLCANO[1]))+CREST-depth
 
 def natural_height(x,y):
     """The foothills and volcano before the edge blend, without the Mega Park."""
@@ -279,8 +283,19 @@ def raw_height(x,y,base,shoulder=None):
     edge=smooth((x-BOUNDS[0])/200)*smooth((BOUNDS[2]-x)/200)*north_edge*leave
     return np.asarray(base)*(1-edge)+target*edge
 
-@lru_cache(maxsize=4)
 def surface_grid(base_sampler):
+    return _surface_grid(base_sampler, _park_identity())
+
+
+def _park_identity():
+    if craterpark.is_v4():
+        from craterpark.v2 import v4_placement
+        return v4_placement.identity()
+    return None
+
+
+@lru_cache(maxsize=4)
+def _surface_grid(base_sampler, park_identity):
     xs=np.arange(BOUNDS[0],BOUNDS[2]+1,STEP);ys=np.arange(BOUNDS[1],BOUNDS[3]+1,STEP)
     x,y=np.meshgrid(xs,ys)
     z=raw_height(x,y,base_sampler(x,y),base_sampler(x,np.full_like(y,BOUNDS[1])))
@@ -453,14 +468,23 @@ def snow_cover(x,y,z,step=STEP):
     rock=noise(x,y,7,120)+noise(x,y,3,121)*.5+noise(x,y,16,122)*.4
     return cover*smooth((rock+1.)/.3)*line
 
-@lru_cache(maxsize=4)
 def snow_grid(base_sampler):
+    return _snow_grid(base_sampler, _park_identity())
+
+
+@lru_cache(maxsize=4)
+def _snow_grid(base_sampler, park_identity):
     xs=np.arange(SNOW_BOUNDS[0],SNOW_BOUNDS[2]+1,SNOW_STEP)
     ys=np.arange(SNOW_BOUNDS[1],SNOW_BOUNDS[3]+1,SNOW_STEP)
     x,y=np.meshgrid(xs,ys)
     cover=snow_cover(x,y,height(x,y,base_sampler),SNOW_STEP)
     # The same bytes drive the material and planting; filtering is bilinear.
     return np.rint(np.clip(cover,0,1)*255).astype(np.uint8)
+
+
+# Preserve callers that explicitly clear derived caches after changing a sampler.
+surface_grid.cache_clear = _surface_grid.cache_clear
+snow_grid.cache_clear = _snow_grid.cache_clear
 
 def snow(x,y,base_sampler):
     x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))

@@ -58,7 +58,7 @@ def drawn(mesh):
 
 
 def check(mesh, placement, spacing=SPACING, ring=None):
-    """Every drawn face of the park lies on the r4 block's footprint mask, and every riding, side, coping and rail face
+    """Every drawn face lies in the selected placement envelope, and every riding, side, coping and rail face
     `ring` m (RING) inside the mask grown by one cell, where the island admits no dressing: {'ok', 'samples',
     'outside', 'near_edge', 'examples' (island x, y)}. Raises DressingError on either."""
     ring = RING if ring is None else ring
@@ -80,11 +80,11 @@ def check(mesh, placement, spacing=SPACING, ring=None):
     report = {'ok': not len(outside) and not len(edge), 'samples': int(len(every)), 'outside': int(len(outside)),
               'near_edge': int(len(edge)), 'examples': np.round(np.concatenate([outside, edge])[:5], 2).tolist()}
     if len(outside):
-        raise DressingError(f'{len(outside)} of {len(every)} face samples lie off the r4 block, where the caldera is '
+        raise DressingError(f'{len(outside)} of {len(every)} face samples lie outside the selected park envelope, where the caldera is '
                             f'dressed (island x, y e.g. {report["examples"]}); keep the park on placement.contains')
     if len(edge):
         raise DressingError(f'{len(edge)} riding, side, coping or rail samples lie within {ring:g} m of where the caldera '
-                            f'may be dressed, at the r4 block\'s edge (island x, y e.g. {report["examples"]})')
+                            f'may be dressed, at the selected envelope edge (island x, y e.g. {report["examples"]})')
     return report
 
 

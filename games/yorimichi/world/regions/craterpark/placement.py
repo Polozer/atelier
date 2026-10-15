@@ -14,6 +14,13 @@ from pathlib import Path
 
 import numpy as np
 
+from .v2 import v4_config
+
+
+def is_v4():
+    """The sole design-file switch selects v4 in every placement consumer."""
+    return v4_config.selected()
+
 SOURCE = Path(__file__).resolve().parents[3] / 'assets' / 'craterpark'
 
 CENTRE = (850.0, 2400.0)    # Blender metres: the caldera's centre (hidamari/mountains.py VOLCANO)
@@ -81,13 +88,23 @@ def to_unreal(native):
 
 def drop_in():
     """The park's marked ramp drop-in: (ground point, camera point) in island Blender metres."""
+    if is_v4():
+        from .v2 import v4_placement
+        return v4_placement.drop_in()
     marker = json.loads((SOURCE / 'drop-in.json').read_text())
     return native_to_island(marker['groundPosition']), native_to_island(marker['cameraPosition'])
 
 
-@lru_cache(maxsize=1)
 def ground_triangles():
     """The block's triangles, placed in the island, float64 (n, 3, 3)."""
+    if is_v4():
+        from .v2 import v4_placement
+        return v4_placement.triangles(True)
+    return _legacy_ground_triangles()
+
+
+@lru_cache(maxsize=1)
+def _legacy_ground_triangles():
     out = []
     for entry in meshes(GROUND):
         a = arrays(entry)
@@ -96,10 +113,17 @@ def ground_triangles():
     return np.concatenate(out)
 
 
-@lru_cache(maxsize=1)
 def piece_triangles():
     """Every drawn piece but the block (riding surfaces, bridges, foundations, the edge guard), placed in the island,
     float64 (n, 3, 3)."""
+    if is_v4():
+        from .v2 import v4_placement
+        return v4_placement.triangles(False)
+    return _legacy_piece_triangles()
+
+
+@lru_cache(maxsize=1)
+def _legacy_piece_triangles():
     out = []
     for entry in meshes():
         if entry['role'] == GROUND:
@@ -110,10 +134,17 @@ def piece_triangles():
     return np.concatenate(out)
 
 
-@lru_cache(maxsize=2)
 def footprint(cell=5.0):
     """The block's top on a Blender-frame grid: (x0, y0, cell, top, mask). top is its highest point in each cell (NaN
     outside); mask is the covered cells."""
+    if is_v4():
+        from .v2 import v4_placement
+        return _footprint(cell, v4_placement.identity())
+    return _footprint(cell, None)
+
+
+@lru_cache(maxsize=4)
+def _footprint(cell, identity):
     from megapark.placement import surface_samples
     pts = surface_samples(ground_triangles(), cell / 2)
     x0, y0 = np.floor(pts[:, :2].min(0) / cell) * cell - cell
@@ -138,7 +169,7 @@ def _smooth(t):
 
 
 @lru_cache(maxsize=4)
-def _stamp(natural):
+def _stamp(natural, identity=None):
     """Fields on a grid round the block for `natural(x, y)`: (x0, y0, cell, inside, distance, offset, ground)."""
     fx0, fy0, cell, top, mask = footprint()
     pad = int(SKIRT_MAX / cell) + 2
@@ -176,9 +207,16 @@ def _sample(field, x0, y0, cell, x, y):
 
 
 def terrain(x, y, natural_height, natural):
-    """Ground height with the park in it. `natural_height` is natural(x, y), the ground without the park."""
+    """@cc [owner:fontanierh,label:correctness] selected-park-terrain-stamp
+    When v4 is selected, terrain MUST use the current v4 ground mesh and
+    MUST NOT reuse the old block stamp or cached legacy footprint.
+    """
     x, y, z = np.broadcast_arrays(np.asarray(x, 'f8'), np.asarray(y, 'f8'), np.asarray(natural_height, 'f8'))
-    x0, y0, cell, inside, distance, offset, ground = _stamp(natural)
+    identity = None
+    if is_v4():
+        from .v2 import v4_placement
+        identity = v4_placement.identity()
+    x0, y0, cell, inside, distance, offset, ground = _stamp(natural, identity)
     ny, nx = inside.shape
     i = np.floor((x - x0) / cell).astype(int); j = np.floor((y - y0) / cell).astype(int)
     near = (i >= 0) & (i < nx) & (j >= 0) & (j < ny)
@@ -194,6 +232,9 @@ def terrain(x, y, natural_height, natural):
 
 def contains(x, y, margin=0.0):
     """True where (x, y) is on the park's block (grown by `margin` metres)."""
+    if is_v4():
+        from .v2 import v4_placement
+        return v4_placement.contains(x, y, margin)
     fx0, fy0, cell, _, mask = footprint()
     x, y = np.broadcast_arrays(np.asarray(x, 'f8'), np.asarray(y, 'f8'))
     grow = int(math.ceil(margin / cell))
@@ -206,6 +247,9 @@ def contains(x, y, margin=0.0):
 
 
 def summary():
+    if is_v4():
+        from .v2 import v4_placement
+        return v4_placement.summary()
     t = ground_triangles().reshape(-1, 3)
     ground, _ = drop_in()
     return {'centre': CENTRE, 'heading': HEADING, 'lift': LIFT, 'meshes': len(meshes()), 'helpers': len(meshes(helper=True)),
