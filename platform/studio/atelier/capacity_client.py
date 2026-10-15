@@ -80,18 +80,22 @@ class AdmissionSession:
     the durable reservation stays held.
     A Popen witness proves the direct child's exit only, never an undiscovered process tree.
     """
-    def __init__(self, socket_path, request, *, timeout=2., cutover=None, guard_limit_gib=None):
+    def __init__(self, socket_path, request, *, timeout=2., cutover=None, guard_limit_gib=None, mode=None, seal_policy_sha256=None):
         if guard_limit_gib is not None and (type(guard_limit_gib) not in (int, float)
                 or not math.isfinite(guard_limit_gib) or guard_limit_gib <= 0):
             raise CapacityError('Configured guard ceiling must be positive and finite')
         self._guard_limit_gib = guard_limit_gib
         self.socket_path, self.request, self.timeout = Path(socket_path), dict(request), timeout
         self.cutover = cutover
-        self.mode = 'capacity' if cutover is not None else 'legacy-bridge'
+        self.mode = mode or ('capacity' if cutover is not None else 'legacy-bridge')
+        self.seal_policy_sha256 = seal_policy_sha256
+        if self.mode not in ('legacy-bridge', 'capacity', 'sealed-maintenance') or ((cutover is None) != (self.mode == 'legacy-bridge')):
+            raise CapacityError('Invalid capacity session mode')
         self.activation_id = None
         if cutover is not None:
             from . import capacity_compat
-            proof = capacity_compat.verify(cutover)
+            proof = (capacity_compat.verify_maintenance(cutover, policy_sha256=seal_policy_sha256)
+                     if self.mode == 'sealed-maintenance' else capacity_compat.verify(cutover))
             if str(self.socket_path) != proof['socket']:
                 raise CapacityError('Capacity client endpoint differs from the compatibility barrier')
             self.activation_id = proof['activation_id']
@@ -109,10 +113,10 @@ class AdmissionSession:
         return self._guard_limit_gib
 
     def _fence(self):
-        return {'activation_id': self.activation_id} if self.mode == 'capacity' else {}
+        return {'activation_id': self.activation_id} if self.mode in ('capacity', 'sealed-maintenance') else {}
 
     def _response(self, response, fd):
-        if self.mode == 'capacity' and (response.get('mode') != self.mode
+        if self.mode in ('capacity', 'sealed-maintenance') and (response.get('mode') != self.mode
                 or response.get('activation_id') != self.activation_id):
             if fd is not None:
                 os.close(fd)

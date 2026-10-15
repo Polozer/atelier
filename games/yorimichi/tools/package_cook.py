@@ -76,6 +76,29 @@ def source_snapshot(ctx):
     return dict(revision=revision, source_dirty=dirty, fingerprint=fingerprint(cook, done), engine=engine)
 
 
+def recovery_config_inputs(ctx):
+    """Require generated UBT defaults before freezing their consumed bytes for recovery."""
+    from pathlib import Path
+    from atelier.setup import headless_user_dir
+    headless = os.environ.get('UE_HEADLESS_USER_DIR') or headless_user_dir(ctx.unreal_root)
+    if not headless:
+        raise RuntimeError('Cook recovery recording requires the supported headless UAT configuration')
+    config = Path('Unreal Engine/UnrealBuildTool/BuildConfiguration.xml')
+    project = ctx.game_dir / 'unreal/Saved/UnrealBuildTool/BuildConfiguration.xml'
+    engine = ctx.unreal_root / 'Engine/Saved/UnrealBuildTool/BuildConfiguration.xml'
+    defaults = [project, Path.home() / 'Library/Application Support' / config]
+    if not (ctx.unreal_root / 'Engine/Build/InstalledBuild.txt').is_file():
+        defaults.append(engine)
+    if any(not path.is_file() for path in defaults):
+        raise RuntimeError('Cook recovery needs existing UBT default XML files; run an ordinary nonrecording cook first. '
+                           'No recording cook was started.')
+    return [Path(headless) / config, Path(headless) / 'UnrealEngine/UnrealBuildTool/BuildConfiguration.xml',
+            project, engine,
+            ctx.unreal_root / 'Engine/Restricted/NotForLicensees/Programs/UnrealBuildTool/BuildConfiguration.xml',
+            *(base / config for base in (Path.home() / '.config', Path.home() / '.local/share',
+              Path.home() / 'Library/Application Support', Path('/usr/share'), Path('/Library/Application Support')))]
+
+
 def recovery_inputs(ctx):
     """Native bytes consumed by UAT, outside the declared source/prerequisite identities.
 
@@ -86,7 +109,7 @@ def recovery_inputs(ctx):
     import subprocess
     from pathlib import Path
     from atelier import paths
-    from atelier.setup import headless_user_dir
+    configurations = recovery_config_inputs(ctx)
     sdk = Path(subprocess.check_output(['xcrun', '--show-sdk-path'], text=True, timeout=10).strip()).resolve(strict=True)
     developer = Path(subprocess.check_output(['xcode-select', '-p'], text=True, timeout=10).strip()).resolve(strict=True)
     roots = [ctx.game_dir / 'unreal/Content', ctx.unreal_root / 'Engine/Build',
@@ -94,16 +117,7 @@ def recovery_inputs(ctx):
              ctx.unreal_root / 'Engine/Config', ctx.unreal_root / 'Engine/Shaders', ctx.unreal_root / 'Engine/Source',
              sdk, developer / 'Toolchains/XcodeDefault.xctoolchain',
              ctx.game_dir / 'build.py', Path(__file__), paths.REPO / 'uv.lock']
-    headless = os.environ.get('UE_HEADLESS_USER_DIR') or headless_user_dir(ctx.unreal_root)
-    if not headless:
-        raise RuntimeError('Cook recovery recording requires the supported headless UAT configuration')
-    config = Path('Unreal Engine/UnrealBuildTool/BuildConfiguration.xml')
-    roots.extend([Path(headless) / config, Path(headless) / 'UnrealEngine/UnrealBuildTool/BuildConfiguration.xml',
-                  ctx.game_dir / 'unreal/Saved/UnrealBuildTool/BuildConfiguration.xml',
-                  ctx.unreal_root / 'Engine/Saved/UnrealBuildTool/BuildConfiguration.xml',
-                  ctx.unreal_root / 'Engine/Restricted/NotForLicensees/Programs/UnrealBuildTool/BuildConfiguration.xml'])
-    roots.extend(base / config for base in (Path.home() / '.config', Path.home() / '.local/share',
-                 Path.home() / 'Library/Application Support', Path('/usr/share'), Path('/Library/Application Support')))
+    roots.extend(configurations)
     roots.extend([developer / 'Platforms/MacOSX.platform/Info.plist', developer.parent / 'Info.plist',
                   developer.parent / 'SharedFrameworks', developer.parent / 'Frameworks',
                   developer.parent / 'OtherFrameworks', Path('/System/Library/CoreServices/SystemVersion.plist')])
@@ -137,6 +151,8 @@ def recovery_link_owners(ctx):
 
 
 def prepare(ctx, log):
+    if getattr(ctx, 'record_cook_recovery', False):
+        recovery_config_inputs(ctx)  # Refuse unprimed UAT defaults before deleting an earlier archive.
     root = ctx.out / 'package'
     root.mkdir(parents=True, exist_ok=True)
     (root / 'cook.json').unlink(missing_ok=True)

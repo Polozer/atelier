@@ -32,6 +32,14 @@ def identity(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
+def sync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def write(path, value):
     temporary = path.with_name('.' + path.name + '.tmp')
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -40,6 +48,7 @@ def write(path, value):
         stream.flush(); os.fsync(stream.fileno())
     os.link(temporary, path)  # Publish a complete immutable journal file without replacing prior evidence.
     temporary.unlink()
+    sync_directory(path.parent)
 
 
 def inventory(roots, *, hashes, hasher=None, link_owners=()):
@@ -195,6 +204,8 @@ def begin(ctx, step, command, argv, environment):
     require(isinstance(ctx.cook_source, dict), 'recipe must prepare its source identity first')
     folder = ctx.out / 'cook-attempts' / uuid.uuid4().hex
     folder.mkdir(parents=True, mode=0o700)
+    sync_directory(folder.parent)
+    sync_directory(ctx.out)
     adapter = [sys.executable, '-m', 'atelier.build_cook_recovery', 'prepare-exec', str(folder)]
     request = dict(schema=1, game=ctx.game, step=step.name, checkout=str(paths.REPO.resolve()),
                    source=ctx.cook_source, argv=argv, adapter_argv=adapter,

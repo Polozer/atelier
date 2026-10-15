@@ -189,11 +189,23 @@ def check_root_guard(child, monitor, report, final=False):
             raise SystemExit(f'memory guard stopped the child: {record["state"]}')
 
 
+def settle_completion_guards(monitor, tree, timeout=3.):
+    """Let every receipt writer finish naturally before retaining affirmative completion evidence."""
+    deadline = time.monotonic() + timeout
+    for process in [monitor, *(guard for _, guard in tree.guarded.values())]:
+        try:
+            code = process.wait(timeout=max(0., deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            raise RuntimeError('Completion process guards did not settle naturally') from None
+        if code != 0:
+            raise RuntimeError('Completion process guard failed; no completion proof')
+
+
 def completion_watches(tree):
     """A disappeared watched child cannot erase its affirmative guard stop from recovery evidence."""
     records = []
     for (pid, started), (label, monitor) in tree.guarded.items():
-        if monitor.poll() not in (None, 0):
+        if monitor.poll() != 0:
             raise RuntimeError('Watched process guard failed; no completion proof')
         path = tree.folder / f'memory-health-{label}-{pid}.json'
         try:
@@ -262,6 +274,11 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
                 stream.flush(); os.fsync(stream.fileno())
             os.link(candidate, completion_path)
             candidate.unlink()
+            directory = os.open(completion_path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         return code
     finally:
         if publish_timings and events.get('ready'):
@@ -347,7 +364,7 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                 limit_gib = selected
     if admission is not None and (not lock or fitting_gib is not None):
         raise ValueError('capacity admission requires the legacy bridge or sealed shared mutexes, without a fitting-lane request')
-    if admission is not None and getattr(admission, 'mode', None) == 'capacity':
+    if admission is not None and getattr(admission, 'mode', None) in ('capacity', 'sealed-maintenance'):
         from ..capacity_runtime import validate_session_profile
         validate_session_profile(admission, kind=kind, command=command, limit_gib=limit_gib)
     aggregate_tree = aggregate_tree or kind == 'compile' or admission is not None
@@ -392,7 +409,7 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                 options['worker_binding'] = worker_binding
             if admission is not None:
                 options.update(small_gib=None)
-                if getattr(admission, 'mode', None) == 'capacity':
+                if getattr(admission, 'mode', None) in ('capacity', 'sealed-maintenance'):
                     options['capacity'] = admission
                 else:
                     options['exclusive_bridge'] = True
@@ -532,6 +549,7 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
         if _completion is not None and child.returncode == 0:
             if aggregate is None or child.wait(timeout=0) != 0 or not aggregate.receipt('child_exited'):
                 raise RuntimeError('Completion proof lacks a positively waited guarded tree')
+            settle_completion_guards(monitor, tree)
             terminal = json.loads(aggregate.report.read_text())
             if (terminal.get('owner'), terminal.get('owner_started'), terminal.get('state'), terminal.get('cleanup_complete')) != (
                     child.pid, root_start, 'child_exited', True):

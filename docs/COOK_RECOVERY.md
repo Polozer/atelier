@@ -14,6 +14,10 @@ The original command prints `cook recovery attempt: ID`. Its private evidence li
 `build/<game>/cook-attempts/ID/`. Ordinary builds without this flag have no recovery inventory overhead and
 cannot be retroactively recovered. Recording currently requires an explicitly supported recipe; it does not
 change cook arguments, worker limits, deadlines, guards, capacity admission or default cook mode.
+The project and user UBT default XML files must already exist: UAT creates them on first use,
+which would change the frozen input set. Recording refuses before deleting an earlier archive if
+these defaults are absent; prime them with an ordinary nonrecording cook first. Their bytes remain
+part of every recovery check.
 The opted-in launcher first runs a small Python capture adapter inside the normal charged admission and
 both memory guards, then `exec`s the original UAT command in that same PID. Normal guard polling, capacity
 heartbeats and the original timeout stay active during capture. There is no second lock or ungated UAT.
@@ -61,6 +65,8 @@ The journal has four required parts:
 - `prepared.json`: durable pre-UAT source, recipe, prerequisite, native input, tool and launch identities.
 - `guarded-success.json`: affirmative returncode0 from the positively waited root and matching aggregate
   terminal receipt, published only after owned cleanup, monitor detachment and successful capacity close.
+  Root and watched process guards must exit naturally with status0 before their final receipts are captured;
+  a late stop report, failed guard or unsettled guard cannot produce this proof.
 - `completed.json`: matching invocation and success proof, completion marker/observation, and the complete
   archive leaf identity before expensive certification hashes begin.
 

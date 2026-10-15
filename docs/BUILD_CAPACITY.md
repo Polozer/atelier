@@ -5,7 +5,7 @@ temporary disk space and resources that require exclusive access. Agents request
 admits it when all requirements fit. A small job need not wait for a particular lane to become free.
 
 **Status: the supervised broker supports the conservative legacy-lock bridge and a sealed, boot-bound full
-capacity path. Actual full-mode machine activation and concurrency trials remain separate rollout gates.** The separate
+capacity path, plus explicit sealed exclusive maintenance. Actual full-mode machine activation and concurrency trials remain separate rollout gates.** The separate
 `atelier capacity plan snapshot.json` command still evaluates only supplied snapshots; it never grants admission.
 Until clients are explicitly configured, the current render slots, live locks, memory guards and machine board
 remain authoritative. This design complements the [incremental build proposal](INCREMENTAL_BUILDS.md):
@@ -13,10 +13,11 @@ small products reduce the work, and capacity admission schedules the remaining w
 
 ## Agent workflow
 
-This is the operational runbook for agents. The machine remains in the conservative migration bridge until
-the operator announces the controlled full-mode cutover. Merging implementation PRs, installing a broker or
+This is the operational runbook for agents. Use only the mode announced by the operator and confirmed by
+fresh broker status. An explicit maintenance announcement is separate from full-mode cutover. Merging implementation PRs, installing a broker or
 seeing a quiet machine does not change its live mode. Check the actual broker status and the board's fresh
-observation: `(legacy-bridge, false)` means bridge; `(capacity, true)` means full capacity. Use the socket selected
+observation: `(legacy-bridge, false)` means bridge; `(sealed-maintenance, false)` means exclusive maintenance;
+`(capacity, true)` means full capacity. Maintenance is one guarded job at a time, not full concurrency. Use the socket selected
 by the installed client when running `uv run atelier capacity status ABSOLUTE_SOCKET`. Missing or stale status
 means availability is unknown. Preserve the machine board, live locks and guard checks at every heavy boundary.
 
@@ -41,7 +42,7 @@ ATELIER_AGENT=YOUR_OWNER ATELIER_CAPACITY_CLIENT="$HOME/.cache/atelier/capacity/
 
 Keep the existing worker counts, memory ceilings and saved play preferences. The bridge requires both a broker
 grant and all legacy lane locks; it authorizes no extra overlap. Quit test games promptly. Only after the operator's
-full-mode announcement and a fresh full-mode status, remove the explicit pilot override
+maintenance or full-mode announcement and fresh matching status, remove the explicit pilot override
 (`unset ATELIER_CAPACITY_CLIENT`) and use the installed default client. Continue identifying each ordinary command,
 for example `ATELIER_AGENT=YOUR_OWNER nice -n 10 uv run atelier build yorimichi` (or `play yorimichi`).
 Agents do not edit client profiles, broker configuration, service settings or cutover records to change modes.
@@ -50,7 +51,7 @@ Removing the override is a rollout step, never a fallback after a refusal.
 If admission or a running grant is refused, retain the command, source revision, guard directory, stdout,
 `memory-health.json`, `memory-health-tree.json` and any execution timings. Report the broker's reason, owner,
 phase and the next safe boundary. A charged or uncertain reservation still holds capacity even when measured
-memory is small. Recovery accepts complete known-ancestry retained exits, or, for bridge and full
+memory is small. Recovery accepts complete known-ancestry retained exits, or, for bridge and sealed-mode
 performance-exclusive grants, a positively exited root plus its matching bound aggregate guard's successful
 terminal empty-tree cleanup receipt. The latter witnesses the monitored owned tree rather than inventing
 individual historical exits. Neither policy certifies outputs; uncertainty remains charged without its required
@@ -78,6 +79,46 @@ there, report that limitation and keep maintenance pending. A momentarily empty 
 that the chain is finished. Schedule approved reboot/cutover work only after all owners confirm their complete
 chains have drained and retained reservations have resolved.
 
+## Sealed exclusive maintenance
+
+This explicit interim mode permits ordinary guarded work without another reboot after a reviewed stable-volume
+reseal. It does not establish closure of old preopened descriptors or authorize full concurrency. The cutover
+record remains schema2 `sealed` with its original full-policy digest and a verified seal from the **current** boot.
+Eligibility additionally requires the migration-recorded SHA256 of the exact private archived schema1 seal, a
+verified boot change since that original seal, matching activation/policy/resources and unchanged old inode pins.
+A fresh same-boot prepare or missing historical archive does not qualify; no proof is invented retrospectively.
+All three unchanged lane inodes remain write-denied. Each job takes read-only **exclusive** flocks on every lane,
+uses the same broker/SQLite history and normal pressure, foreign-process, exec-gate, process and aggregate guards.
+It reserves all managed CPU with performance exclusion. Actual worker arguments, GPU reservations, temporary-disk
+checks and nominal memory ceilings remain unchanged; automatic SMALL/4 GiB selection is disabled in this mode.
+
+Only an authorized operator installs the reviewed mode change after draining callers and retained reservations.
+Agents use the installed default client after the announcement, keep `ATELIER_AGENT`, and run the same ordinary
+`nice -n 10 uv run atelier build/play` commands. A refusal has no legacy fallback. Missing, stale or incompatible
+status means unknown availability. Maintenance failure or restart retains uncertainty under the existing policies;
+an old nonexclusive record never gains terminal-tree release eligibility merely because the mode changed.
+
+The maintenance broker configuration is schema3: the schema2 broker keys with `mode: "sealed-maintenance"` and
+an additional `seal_policy_sha256` containing the unchanged original sealed full-policy SHA256. The service pins
+the new configuration's own digest independently. Its socket, resource totals, non-memory reserve dimensions
+and disk pool must exactly match the sealed policy. The unchanged original sealed reserve remains valid. Only
+this exclusive maintenance mode permits a deliberately reviewed **reduction** of the host memory reserve, with
+the selected value between 4096 MiB and the original sealed reserve. The 4096 MiB floor applies to reductions;
+it does not silently raise an unchanged originally sealed reserve. The original full-policy bytes
+and full-mode reserve remain unchanged; full mode requires the exact original reserve. This temporary calibration
+policy does not lower a job's actual memory guard or reservation, change available-memory measurement, relax
+pressure admission, or enable overlap. A normal 10 GiB job with a 4 GiB host reserve still requires at least
+14 GiB freshly observed available memory; any lower observation refuses. Operators validate the tail under the
+normal guards and an independent host-headroom abort before handing off production work. Agents do not lower
+this floor or tune the buffer to fit a particular snapshot. The client has exactly `schema: 3`, `mode: "sealed-maintenance"`, `socket`, `profiles`,
+`cutover` and `seal_policy_sha256`. No environment flag enables this mode or bypasses the seal. Both client and
+broker fence the exact mode and activation identity; board status shows **Exclusive maintenance**, `cutover: false`.
+
+A later full-mode activation still requires a verified new boot after the current seal and an explicit drained
+transition to the original full policy/client. Full activation takes all three lanes exclusively and refuses while
+maintenance owns any of them. Neither an implementation merge nor maintenance operation activates that path.
+Do not reboot, edit sealed files, replace lane inodes or change service configuration as an agent workaround.
+
 ## Broker and guarded-launch migration
 
 The production broker uses its own private Unix socket and SQLite namespace. It is separate from every shadow
@@ -85,7 +126,7 @@ database and token below. `atelier capacity serve ABSOLUTE_CONFIG` runs it; `ate
 reads its state. `atelier capacity supervise ABSOLUTE_CONFIG` installs macOS login/crash supervision. Installing
 the service does **not** enable clients. Do not create a second broker to work around an outage or an uncertain grant.
 If a controller is interrupted, normal broker refresh automatically releases its reservation once every retained
-process has a verified exit and ancestry is known. Bridge and full performance-exclusive grants also accept a
+process has a verified exit and ancestry is known. Bridge and sealed-mode performance-exclusive grants also accept a
 positively exited root plus its previously bound aggregate guard's final `child_exited` receipt: matching root
 identity and limit, invocation time, completed cleanup, no processes and zero footprint, with no retained identity
 still verifiably live. This deliberately permits historical discovery gaps under the exclusive guard policy.
@@ -213,12 +254,31 @@ The compatibility proof is deliberately stronger than an agent acknowledgement o
 3. A verified new OS boot **after sealing** closes preopened writable descriptors, including inherited or transferred
    ones. Permission changes alone cannot revoke them. Neither a process/lsof scan, two stable scans, an operator
    boolean nor immutable flags establish closure. Without a positive boot UUID change, activation refuses.
-4. `atelier capacity activate-cutover ABSOLUTE_FULL_CONFIG` verifies the new boot and all recorded inode/device,
-   change-time and permission pins under exclusive flocks, then records `active`. Install the reviewed full broker
+4. `atelier capacity activate-cutover ABSOLUTE_FULL_CONFIG` verifies the new boot and all recorded stable volume UUID,
+   inode, change-time and permission pins under exclusive flocks, then records `active`. Darwin device numbers
+   can change across boots, so they bind current open handles to current paths rather than identify a volume
+   across boots. Install the reviewed full broker
    and client settings through the existing explicit service procedure; do not run a second broker or interrupt one
    that still owns charged grants. This source change does not execute any of these machine operations.
 5. Validate one guarded job and crash/recovery negatives before controlled overlap trials. Do not infer useful
    throughput or safe new coexistence combinations merely from full-mode availability.
+
+New cutover records use seal schema 2 (separate from broker/client configuration schemas). Each lane pins the
+filesystem UUID read through Darwin's `fgetattrlist` for its held descriptor and `getattrlist` for its path.
+Missing, zero or unsupported UUID observations refuse; there is no device-number fallback.
+
+A schema 1 seal has no stable volume evidence and cannot activate. During an explicitly approved maintenance
+window, `atelier capacity migrate-volume-seal ABSOLUTE_FULL_CONFIG` supports only the forward transition from
+schema 1 `sealed` to schema 2 `sealed`. It requires a verified boot change after the old seal, unchanged policy,
+the fixed lane paths, admission exclusion and all three exclusive lane handles. It checks ownership, single links,
+inode, change time, mode `0400` and actual write-open denial, allowing only the old transient device numbers to
+differ. It binds the current volume UUIDs, preserves the original record bytes in the private sibling
+`cutover.schema1.ACTIVATION_ID.json`, and resets `seal_boot_id` to the current boot. The archive and its directory
+are synced before the new record replaces the old one. An interrupted migration can reuse only an owned,
+private, single-link archive whose bytes exactly match the original; differing archives refuse.
+**Another real OS reboot after migration is required before activation.** Migration does not establish the old
+volume's identity, activate capacity, alter lane files or unseal them. Other states and schemas refuse migration;
+do not edit records, delete archives or substitute files to force the transition.
 
 Every full startup and GO checks the seal. A replaced inode, writable ACL, changed policy or unavailable boot
 observation refuses new work; held allocations become uncertain and stay charged. A controller/broker crash may

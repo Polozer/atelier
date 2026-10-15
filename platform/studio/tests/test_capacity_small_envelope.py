@@ -30,9 +30,12 @@ def configured(tmp_path, monkeypatch):
     monkeypatch.setattr(compat, 'read', lambda: None)
     monkeypatch.setattr(compat, 'verify', lambda *args, **kwargs: dict(socket=value['socket'], activation_id='fixture',
         total=dict(cpu_millis=10000), reserve=dict(cpu_millis=2000)))
+    monkeypatch.setattr(compat, 'verify_maintenance', compat.verify)
     def make(*, schema=2, kind='job', command=None, small_gib=2, performance=False, limit_gib=10, gpu_mib=0):
         settings = dict(value)
         settings['schema'] = schema
+        if schema == 3:
+            settings.update(mode='sealed-maintenance', seal_policy_sha256='a' * 64)
         if schema == 1:
             settings.pop('cutover')
         settings['profiles'][kind]['resources']['gpu_mib'] = gpu_mib
@@ -134,7 +137,7 @@ def handshake(monkeypatch):
 
 
 @pytest.mark.parametrize('options,expected', [
-    ({}, 4), ({'schema': 1}, 10), ({'small_gib': None}, 10), ({'small_gib': 4}, 10),
+    ({}, 4), ({'schema': 3}, 10), ({'schema': 1}, 10), ({'small_gib': None}, 10), ({'small_gib': 4}, 10),
     ({'command': ['Blender', '-b']}, 10), ({'command': ['sh', '-c', 'Blender --threads 3']}, 10),
     ({'kind': 'game'}, 10), ({'kind': 'compile'}, 10), ({'performance': True}, 10), ({'gpu_mib': 8192}, 10),
 ])
@@ -199,3 +202,15 @@ def test_two_small_envelopes_pass_32gib_host_pressure_where_nominal_envelopes_re
         else:
             with pytest.raises(wire.CapacityError, match='pressure refuses'):
                 broker._pressure(state, candidate)
+
+
+@pytest.mark.parametrize('kind,command', [('job', BLENDER), ('job', ['Blender', '-b']),
+                                        ('game', ['UnrealEditor']), ('compile', ['UnrealBuildTool'])])
+def test_maintenance_profiles_preserve_nominal_guards_and_all_managed_cpu(configured, kind, command):
+    session = configured[0](schema=3, kind=kind, command=command)
+    assert session.mode == 'sealed-maintenance' and session.guard_limit_gib == 10
+    assert session.request['resources']['memory_mib'] == 10240
+    assert session.request['resources']['cpu_millis'] == 8000
+    assert session.request['performance'] is True
+    assert session.request['resources']['temp_mib'] == 2048
+    assert session.request['resources']['gpu_mib'] == 0

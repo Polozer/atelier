@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 from types import SimpleNamespace
 import zipfile
 
@@ -26,6 +27,7 @@ def tool(name):
 @pytest.fixture
 def sample(tmp_path, monkeypatch):
     cook = tool('package_cook')
+    monkeypatch.setattr(cook, 'recovery_config_inputs', lambda _: [])
     out = tmp_path / 'build'; out.mkdir()
     content = tmp_path / 'Content'; content.mkdir(); (content / 'probe.uasset').write_bytes(b'original asset')
     source = tmp_path / 'source.cpp'; source.write_text('source')
@@ -181,6 +183,31 @@ def test_positive_guard_receipt_is_after_cleanup_and_never_published_on_failure(
     assert order == ['cleanup'] and destination.exists() is (failure is None)
 
 
+@pytest.mark.parametrize('kind', ['journal', 'guard'])
+def test_completion_publication_syncs_file_before_link_and_directory_before_return(tmp_path, monkeypatch, kind):
+    events = []
+    fsync, link = os.fsync, os.link
+    def synced(descriptor):
+        events.append('directory' if stat.S_ISDIR(os.fstat(descriptor).st_mode) else 'file')
+        fsync(descriptor)
+    def published(*args, **kwargs):
+        events.append('publish')
+        return link(*args, **kwargs)
+    monkeypatch.setattr(os, 'fsync', synced)
+    monkeypatch.setattr(os, 'link', published)
+    destination = tmp_path / 'completion.json'
+    if kind == 'journal':
+        recovery.write(destination, {'completed': True})
+    else:
+        def completed(*args, _completion, **kwargs):
+            _completion.update(root=[123, 456], terminal={'state': 'child_exited'})
+            return 0
+        monkeypatch.setattr(guarded, '_run', completed)
+        assert guarded.run(['UAT'], tmp_path, kind='compile', completion_path=destination) == 0
+    assert destination.is_file()
+    assert events == ['file', 'publish', 'directory']
+
+
 def test_default_cook_keeps_recording_opt_in(sample):
     sample.ctx.record_cook_recovery = False
     # A nonrecording native stub has no completion-path argument and cannot create a journal.
@@ -191,6 +218,26 @@ def test_default_cook_keeps_recording_opt_in(sample):
     with patch.object(build.guarded, 'run', native):
         assert sample.run() == 1
     assert not (sample.ctx.out / 'cook-attempts').exists()
+
+
+def test_missing_ubt_defaults_refuse_recording_before_old_archive_is_removed(tmp_path, monkeypatch):
+    cook = tool('package_cook')
+    monkeypatch.setenv('UE_HEADLESS_USER_DIR', str(tmp_path / 'headless'))
+    monkeypatch.setattr(Path, 'home', lambda: tmp_path / 'home')
+    ctx = SimpleNamespace(game_dir=tmp_path / 'game', unreal_root=tmp_path / 'engine',
+                          out=tmp_path / 'build', record_cook_recovery=True)
+    old = ctx.out / 'package/archive/retained.app'; old.mkdir(parents=True)
+    (old / 'marker').write_bytes(b'old archive')
+    with pytest.raises(RuntimeError, match='existing UBT default XML'):
+        cook.prepare(ctx, io.StringIO())
+    assert (old / 'marker').read_bytes() == b'old archive'
+    installed = ctx.unreal_root / 'Engine/Build/InstalledBuild.txt'
+    installed.parent.mkdir(parents=True); installed.write_text('installed')
+    for config in (ctx.game_dir / 'unreal/Saved/UnrealBuildTool/BuildConfiguration.xml',
+                   Path.home() / 'Library/Application Support/Unreal Engine/UnrealBuildTool/BuildConfiguration.xml'):
+        config.parent.mkdir(parents=True); config.write_text('<Configuration/>')
+    inputs = cook.recovery_config_inputs(ctx)
+    assert ctx.game_dir / 'unreal/Saved/UnrealBuildTool/BuildConfiguration.xml' in inputs
 
 
 @pytest.mark.parametrize('flags', [['--force'], ['--touch'], ['--plan'], ['--timings'], ['--max-heavy-commands','1'], ['--record-cook-recovery']])
@@ -271,6 +318,26 @@ def test_disappeared_watched_child_stop_cannot_certify_uat_text_success(tmp_path
     (tmp_path / 'memory-health-dotnet-123.json').write_text(json.dumps(record))
     tree = SimpleNamespace(folder=tmp_path, guarded={(123,456): ('dotnet', SimpleNamespace(poll=lambda: 0))})
     with pytest.raises(RuntimeError, match='stopped its child'): guarded.completion_watches(tree)
+
+
+@pytest.mark.parametrize('failure', ['memory_limit', 'test_duration', 'nonzero', 'timeout'])
+def test_watched_guard_must_settle_before_final_completion_evidence(tmp_path, failure):
+    import subprocess
+    report = tmp_path / 'memory-health-UnrealEditor-123.json'
+    report.write_text(json.dumps(dict(pid=123, process_start=456, state='running')))
+    def settled(timeout):
+        if failure == 'timeout':
+            raise subprocess.TimeoutExpired('guard', timeout)
+        if failure in ('memory_limit', 'test_duration'):
+            # A guard can kill a watched helper, then finish writing only after UAT exits0.
+            report.write_text(json.dumps(dict(pid=123, process_start=456, state=failure)))
+        return 1 if failure == 'nonzero' else 0
+    process = SimpleNamespace(wait=settled, poll=lambda: 0)
+    tree = SimpleNamespace(folder=tmp_path, guarded={(123, 456): ('UnrealEditor', process)})
+    root = SimpleNamespace(wait=lambda timeout: 0)
+    with pytest.raises(RuntimeError, match='guard'):
+        guarded.settle_completion_guards(root, tree)
+        guarded.completion_watches(tree)
 
 
 def test_first_input_inventory_runs_only_inside_guarded_adapter(sample, monkeypatch):
@@ -364,7 +431,7 @@ def test_late_process_guard_stop_after_final_check_never_publishes_positive_rece
     @contextmanager
     def memory(pid, report, **kwargs):
         Path(report).write_text(json.dumps(dict(pid=pid, process_start=pid*10, state='running')))
-        yield SimpleNamespace(pid=200, poll=lambda: None)
+        yield SimpleNamespace(pid=200, poll=lambda: None, wait=lambda timeout: 0)
     @contextmanager
     def aggregate(pid, report, **kwargs):
         def finish():
