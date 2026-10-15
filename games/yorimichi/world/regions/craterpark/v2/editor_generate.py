@@ -280,7 +280,7 @@ def main(argv=None):
     import yori
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--park', required=True, help="the editor's park.json (its data/ folder beside it)")
-    parser.add_argument('--lines', default=os.environ.get('ATELIER_CRATERPARK_EDITOR_LINES', 'L1'),
+    parser.add_argument('--lines', default=v4_config.editor_lines(),
                         help='comma-separated line ids to build (default: L1, orange)')
     parser.add_argument('--out', default=str(yori.OUT / 'craterpark' / 'v2'))
     args = parser.parse_args(argv)

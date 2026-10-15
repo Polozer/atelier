@@ -10,11 +10,24 @@ SWITCH = 'ATELIER_CRATERPARK_V4_DESIGN'
 # contract (geometry.npz, placement, terrain stamp), compiled by editor_generate.py from the editor's own geometry.
 EDITOR_SWITCH = 'ATELIER_CRATERPARK_EDITOR_PARK'
 EDITOR_SCHEMA = 'craterpark-editor/1'
+# With neither switch set the build ships the editor park the owner last approved (its terrain in data/ beside it);
+# EDITOR_SWITCH=off builds the old park instead
+SHIPPED = Path(__file__).resolve().parents[4] / 'tools' / 'craterpark_editor' / 'shipped.json'
+SHIPPED_LINES = 'L1,p5'
 
 
 def editor_path():
     value = os.environ.get(EDITOR_SWITCH, '').strip()
-    return Path(value).expanduser().resolve() if value else None
+    if value.lower() == 'off':
+        return None
+    if value:
+        return Path(value).expanduser().resolve()
+    return None if os.environ.get(SWITCH, '').strip() else SHIPPED
+
+
+def editor_lines():
+    """The lines (and single pieces) the editor park ships: ATELIER_CRATERPARK_EDITOR_LINES, or the shipped park's."""
+    return os.environ.get('ATELIER_CRATERPARK_EDITOR_LINES', '').strip() or SHIPPED_LINES
 
 
 def editor():

@@ -172,3 +172,18 @@ def test_repository_editor_uses_the_pinned_compiler_and_ships_its_designs():
     assert all((APP / 'data' / name).is_file() for name in [*terrain['inner']['layers'].values(), terrain['outer']['file']])
     designs = sorted((APP / 'designs').glob('craterpark-rev*.json'))
     assert designs and all(json.loads(d.read_text())['schema'] == 'craterpark-editor/1' for d in designs)
+
+
+def test_the_build_ships_the_committed_editor_park_by_default(monkeypatch):
+    from craterpark.v2 import v4_config
+    monkeypatch.delenv(v4_config.EDITOR_SWITCH, raising=False)
+    monkeypatch.delenv(v4_config.SWITCH, raising=False)
+    monkeypatch.delenv('ATELIER_CRATERPARK_EDITOR_LINES', raising=False)
+    assert v4_config.editor_path() == v4_config.SHIPPED and v4_config.editor_lines() == 'L1,p5'
+    assert json.loads(v4_config.SHIPPED.read_text())['schema'] == v4_config.EDITOR_SCHEMA
+    assert [p.name for p in v4_config.input_paths()][:2] == ['shipped.json', 'terrain.json']
+    monkeypatch.setenv(v4_config.EDITOR_SWITCH, 'off')
+    assert not v4_config.selected()
+    monkeypatch.delenv(v4_config.EDITOR_SWITCH)
+    monkeypatch.setenv(v4_config.SWITCH, '/elsewhere/design.json')
+    assert not v4_config.editor()

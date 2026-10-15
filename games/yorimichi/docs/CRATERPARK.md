@@ -332,7 +332,16 @@ pieces.js) as `ship/rev<N>`, never overwriting a frozen revision. If pieces.js c
 checks that the bridge meshes the frozen park, then runs the guarded build with `ATELIER_CRATERPARK_EDITOR_PARK` and
 `ATELIER_CRATERPARK_EDITOR_LINES`. Without `--build` it prints that command.
 
-With `ATELIER_CRATERPARK_EDITOR_PARK` set, `world.craterpark_geometry` runs
+The build ships the owner's last approved design by default:
+[`tools/craterpark_editor/shipped.json`](../tools/craterpark_editor/shipped.json) (rev 74), with its terrain in
+`tools/craterpark_editor/data/` beside it, and its lines `L1,p5` (orange and Prado), so a plain `atelier build` from
+main builds the editor park. `ATELIER_CRATERPARK_EDITOR_PARK` selects another frozen park.json and
+`ATELIER_CRATERPARK_EDITOR_LINES` other lines; `ATELIER_CRATERPARK_EDITOR_PARK=off` (or a v4 design in
+`ATELIER_CRATERPARK_V4_DESIGN`) builds the older generator instead. To ship a new revision, copy its frozen park.json
+over `shipped.json` and commit it (and `SHIPPED_LINES` in
+[`v4_config.py`](../world/regions/craterpark/v2/v4_config.py) if the lines change).
+
+With the editor park selected, `world.craterpark_geometry` runs
 [`editor_generate.py`](../world/regions/craterpark/v2/editor_generate.py) instead of the v4 generator. It meshes every piece
 through the pinned pieces.js, exactly as the editor draws it. It keeps the chosen lines (by id; L1 is orange), the bowls
 they land in and the decks they start from. The park draws no ground of its own. The editor's cut terrain goes into
