@@ -50,9 +50,14 @@ Removing the override is a rollout step, never a fallback after a refusal.
 If admission or a running grant is refused, retain the command, source revision, guard directory, stdout,
 `memory-health.json`, `memory-health-tree.json` and any execution timings. Report the broker's reason, owner,
 phase and the next safe boundary. A charged or uncertain reservation still holds capacity even when measured
-memory is small. The broker on current main releases an uncertain reservation automatically only after affirmative
-exit evidence for every retained process and known ancestry; it does not certify outputs. Unknown exits or ancestry
-remain charged. Neither PID absence, an expired heartbeat nor an aggregate cleanup report establishes release.
+memory is small. Recovery accepts complete known-ancestry retained exits, or, for bridge and full
+performance-exclusive grants, a positively exited root plus its matching bound aggregate guard's successful
+terminal empty-tree cleanup receipt. The latter witnesses the monitored owned tree rather than inventing
+individual historical exits. Neither policy certifies outputs; uncertainty remains charged without its required
+evidence. PID absence or heartbeat expiry alone never establishes release. If a later invocation overwrote the
+bound report, authorized recovery can attest the preserved original with
+`atelier capacity reconcile ABSOLUTE_SOCKET --request-id REQUEST_ID --preserved-terminal ABSOLUTE_ARCHIVE`;
+the broker applies the same scoped checks and records the evidence hash and preservation provenance.
 Do not clear the database or locks, restart a live broker, drop the client environment, or launch through another
 path. Ask the operator for help when the documented recovery cannot establish a safe next step.
 
@@ -90,6 +95,20 @@ kernel exit evidence or claim universal descendant discovery. It releases capaci
 remains charged. Same-boot recovery rearms live registered identities and permits
 the original controller's fenced session to report exit only. A verified OS boot change proves prior local jobs
 ended; ordinary daemon restart does not.
+
+If a later invocation overwrote the bound aggregate report, an authorized administrator can attest a preserved
+original terminal JSON file explicitly:
+
+```sh
+uv run atelier capacity reconcile ABSOLUTE_SOCKET --request-id REQUEST_ID --preserved-terminal ABSOLUTE_ARCHIVE
+```
+
+Both options are required together and apply only to reconciliation. The broker reads the bounded owned regular
+archive without following links and applies the same root-exit, identity, limit, time, exclusivity and empty-tree
+checks. Its durable witness records `operator-preserved` provenance, the exact evidence SHA256, and the original
+bound report-path hash and monitor identity. This is an explicit preservation attestation over the authenticated
+same-user administrative socket, not cryptographic proof of the archive's origin. It never invents historical
+per-process exits, replaces the current report, or certifies build outputs. Missing or invalid archives refuse.
 
 The broker configuration is an owner-only JSON file in an owner-only directory, with exactly these fields:
 
