@@ -126,12 +126,14 @@ momentum shown and `RelaunchSimulationRide` loads a fresh session off the game t
 row (a failure during the get-up) stow the board (H23).
 
 A session that loses the rider is not followed either (`BailOffLostSimulation`, `Ride/RideLostSimulation.h`). Its own
-recovery (`Teleporting`: an air over 300 ticks, 5 s, or a wipeout's automatic reset) puts its rider back on its respawn
-history when it has no ground under it, the ground ridden seconds before; the glue read that state as the ground and
-carried the rider there. A board that misses an overshot mega gap's landing in the session falls on through Unreal's
-floor until then: a teleport back to the run-in. A step that is `Teleporting`, moves the board further than its speed
-takes it, or takes it in the air 25 cm down through a floor and under it is not shown: the body bails from where the
-rider is with the momentum shown, the session is suspended, and the get-up starts a fresh one where the body lies.
+recovery (`Teleporting`: an air over 300 ticks (5 s) in tests and the CLI, raised to 1800 ticks (30 s) in the game, or a
+wipeout's automatic reset) puts its rider back on its respawn history when it has no ground under it, the ground ridden
+seconds before; the glue read that state as the ground and carried the rider there. A board that misses an overshot mega
+gap's landing in the session falls on through Unreal's floor until then: a teleport back to the run-in. A step that is
+`Teleporting`, moves the board further than its speed takes it, or takes it in the air 25 cm down through a floor and
+under it is not shown: the body bails from where the rider is with the momentum shown, the session is suspended, and the
+get-up starts a fresh one where the body lies. The through-floor threshold scales with speed at landing (25 cm plus
+1.5 × per-tick travel) to allow high-speed touchdowns, while strict checks catch real fall-throughs.
 Without a body the session's recovery plays as before. `AtelierSkate.Ride.LostSimulation` tests the verdicts.
 
 ### Modes and display

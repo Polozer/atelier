@@ -3,13 +3,14 @@
 // plain values in, a verdict out, so it is tested without a world (RideLostSimulationTests.cpp).
 //
 // The glue sets the actor on the session's root every step, and reads a state without Wipeout, Grind or Air in its
-// name as the ground. The session has its own recovery: an air over 300 ticks (5 s, PlayerStateSelector.cpp) or a
-// wipeout's automatic reset makes it Teleporting, and RespawnHistory::Automatic puts its rider where it stands only
-// over ground the session has under it; with none it takes a place from its history, the ground ridden a few seconds
-// before. A board that misses an overshot mega gap's landing in the session (its world not there yet, or the impact
-// carrying it through) falls on through Unreal's floor until that 5 s runs out, and the rider was carried back to the
-// run-in to ride on: the teleport back. The rider is the body's from where the session lost it instead: it bails there,
-// and the get-up starts a fresh session where the body lies.
+// name as the ground. The session has its own recovery: an air over 300 ticks (5 s, default in PlayerStateSelector.cpp;
+// raised to 1800 ticks / 30 s in GameplayRuntime.cpp for the game) or a wipeout's automatic reset makes it Teleporting,
+// and RespawnHistory::Automatic puts its rider where it stands only over ground the session has under it; with none it
+// takes a place from its history, the ground ridden a few seconds before. A board that misses an overshot mega gap's
+// landing in the session (its world not there yet, or the impact carrying it through) falls on through Unreal's floor
+// until that timeout runs out, and the rider was carried back to the run-in to ride on: the teleport back. The rider is
+// the body's from where the session lost it instead: it bails there, and the get-up starts a fresh session where the body
+// lies.
 #include "CoreMinimal.h"
 
 enum class ERideLostSimulation : uint8
@@ -69,10 +70,21 @@ namespace RideLostSimulation
         if (FVector::Dist(S.From, S.To) > JumpSlack + 2.f * S.Speed * TickSeconds * float(FMath::Max(S.Ticks, FewestTicks)))
             return ERideLostSimulation::Jump;
         // Down through a floor, deep past it and under it, still in the air and still going into it: the session had no
-        // floor there.
+        // floor there. Scale the depth threshold with speed only when crossing the floor (landing): at high speeds,
+        // the board naturally travels 50-80 cm further in one tick at 30-50 m/s. A board already deep under (fall-through)
+        // uses the strict threshold.
         if (S.bCrossed && S.bCovered && IsBoardAir(S.State) && S.To.Z < S.From.Z && S.CrossedNormal.Z > FloorUp &&
-            FVector::DotProduct(S.CrossedAt - S.To, S.CrossedNormal) > ThroughDepth && FVector::DotProduct(S.Velocity, S.CrossedNormal) < 0.)
-            return ERideLostSimulation::ThroughFloor;
+            FVector::DotProduct(S.Velocity, S.CrossedNormal) < 0.)
+        {
+            // Check if this step crosses the floor (landing) or the board is already deep below (fall-through).
+            // If From is at or above the floor level, this is a crossing/landing.
+            const bool bCrossing = S.From.Z >= S.CrossedAt.Z;
+            const float ThresholdDepth = bCrossing ?
+                ThroughDepth + S.Speed * TickSeconds * 1.5f :  // Landing: allow high-speed penetration
+                ThroughDepth;  // Already below: strict check
+            if (FVector::DotProduct(S.CrossedAt - S.To, S.CrossedNormal) > ThresholdDepth)
+                return ERideLostSimulation::ThroughFloor;
+        }
         return ERideLostSimulation::Kept;
     }
 
