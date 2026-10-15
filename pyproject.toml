@@ -12,6 +12,7 @@ dependencies = [
   "websockets>=15.0",
   "markdown-it-py>=4,<5",
   "cryptography>=43",
+  "manifold3d==3.5.4",
 ]
 
 [project.scripts]
