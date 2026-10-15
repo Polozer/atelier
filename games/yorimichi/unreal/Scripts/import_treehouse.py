@@ -179,7 +179,12 @@ def light_parent():
 
 
 def trees(report):
-    """The tall canopy trees (world/regions/treehouse/trees.py) join the island's foliage: M_Foliage instances keyed by slot
+    """@cc [owner:fontanierh,label:correctness] treehouse-owned-fbx-seed
+    Missing or replaced tree packages MUST start from the owned on-disk placeholder FBX before
+    importing authored geometry with fresh material slots. Engine primitives MUST NOT seed reimports:
+    their stored source files may be absent, opening an unsupported commandlet file dialog.
+
+    The tall canopy trees (world/regions/treehouse/trees.py) join the island's foliage: M_Foliage instances keyed by slot
     name, the new atlases with the same alpha-coverage mips as the others, and no collision (their names start with
     Tree, so AJapanWorld also lets the camera through them and sways them)."""
     src = OUT/'trees'; info = json.loads((src/'trees.json').read_text())
@@ -199,16 +204,17 @@ def trees(report):
         MEL.set_material_instance_parent(mi, foliage); MEL.set_material_instance_texture_parameter_value(mi, 'Tex', t)
         MEL.update_material_instance(mi); E.save_loaded_asset(mi)
     for name, d in info.items():
-        # Seed a new tree with the engine cube, then reimport its own geometry and slots. Borrowing
+        # Seed a new tree with the owned placeholder, then reimport its own geometry and slots. Borrowing
         # Tree_Maple_A here made treehouse packages secretly depend on the island foliage's bytes.
         path = f'/Game/Japan/Assets/{name}'; want = sorted(['Bark', d['slot']])
         slots = lambda m: sorted(str(s.get_editor_property('imported_material_slot_name')) for s in m.get_editor_property('static_materials'))
         top = lambda m: m.get_bounding_box().max.z / 100          # metres; the tree's crown top from trees.json
         if E.does_asset_exist(path) and (slots(E.load_asset(path)) != want or E.load_asset(path).get_num_lods() != 1): E.delete_asset(path)
         if not E.does_asset_exist(path):
-            assert E.duplicate_asset('/Engine/BasicShapes/Cube', path), name
-            # Start with exactly one source model before importing the authored tree.
-            E.load_asset(path).set_num_source_models(1)
+            # Seed a new tree from an owned FBX on disk (as the other trees above do), never the engine cube: its import
+            # data names a source file that does not exist here, so the reimport asks for a file dialog and the commandlet
+            # crashes (SIGSEGV in FDesktopPlatformMac::FileDialogShared).
+            helper['import_mesh'](PLACEHOLDER, '/Game/Japan/Assets', name)
         mesh = helper['import_mesh'](src/f'{name}.fbx', '/Game/Japan/Assets', name, fresh_slots=True)
         if abs(top(mesh)-d['crown_hi']) > .5:
             # A seed without FBX import data can skip the first unit
