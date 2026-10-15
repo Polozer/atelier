@@ -13,7 +13,7 @@ PLAN_SCALE = (1.35, 1.55)
 DEEP_WALL = (16.8, 15.6, 1.2)
 SHALLOW_WALL = (15., 14.4, .6)
 CROP_BLEND = 36.
-PORT_RADIUS_MARGIN = 30.
+PORT_RADIUS_MARGIN = 22.
 
 
 def floor_port(entry_mesh):
@@ -93,7 +93,7 @@ class FinishPlan(prado.PradoPlan):
 def build(entry_mesh, *, on_ground=False):
     port = floor_port(entry_mesh)
     plan = FinishPlan(port)
-    inserts = [prado.spine(plan, (39., 0.), (52., 0.), floor=plan.shallow,
+    inserts = [prado.spine(plan, (39., -12.), (52., -12.), floor=plan.shallow,
                            height=15., radius=14.4, feature='crater_bowl.transfer_spine'),
                prado.spine(plan, (-28., -3.), (-17., -3.), floor=plan.deep,
                            height=16.8, radius=15.6, feature='crater_bowl.clover_spine')]

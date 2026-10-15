@@ -1,7 +1,7 @@
 """One orange/purple riding room, fed by their actual primary outlets.
 
-The direct exit stays to the southeast of the finite vert-return wall; the
-orange continuation uses the other half. Both are part of this one wide room.
+The direct exit stays west of the finite vert-return wall; the orange
+continuation uses the eastern opening. Both are part of this one wide room.
 Dimensions remain subject to the complete native route gate.
 """
 import math
@@ -15,14 +15,14 @@ from . import course, dsl, junctions as J, primitives as P, solids
 from .curves import EasedTurn
 
 FLOOR_Y = 5.
-OUTLET_Y = -15.
+OUTLET_Y = 5.
 WIDTH = 100.
 APPROACH = 75.
 BRIDGE_LENGTH = 15.
 ROOM_HEIGHT = 11.
 ROOM_RADIUS = 10.
-ORANGE_OFFSET = -10.
-DIRECT_OFFSET = 30.
+ORANGE_OFFSET = 30.
+DIRECT_OFFSET = -10.
 ORANGE_PORT = (ORANGE_OFFSET - 16.,ORANGE_OFFSET + 16.)
 DIRECT_PORT = (DIRECT_OFFSET - 16.,DIRECT_OFFSET + 16.)
 
@@ -109,9 +109,8 @@ def definition():
     origin = mean + APPROACH * forward
     arms, profiles = {}, {}
     body = EasedTurn(origin, 130., 80., 135.)
-    # This continuous downhill room restores speed before the choice point.
-    # The exact, level-ended profile has R300+ pitch arcs; no convex crest is
-    # introduced at a high-speed straight/turn interface.
+    # Keep the choice deck level to reserve height for later orange jumps.
+    # The inlet arms finish their descent before the shared body begins.
     body_parts = level_change(FLOOR_Y, OUTLET_Y, body.length)
     for key in ('L1', 'L4'):
         q = primary[key]

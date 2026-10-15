@@ -33,7 +33,7 @@ class Entry:
                         self.parts, (), 'shared choice', 'bowl floor', rollin=0)
 
 
-def definition(*, gap=8., rise=1.8, lip=22., receiver_angle=14., crest_radius=160.):
+def definition(*, gap=8., rise=-.8, lip=16., receiver_angle=-30., crest_radius=90.):
     """@cc [owner:fontanierh,label:correctness] direct-bowl-transfer-port
     This transfer MUST start at the actual direct opening in the shared room,
     level and tangent to its outlet. Its normal kicker MUST have at least 20 m
@@ -44,10 +44,10 @@ def definition(*, gap=8., rise=1.8, lip=22., receiver_angle=14., crest_radius=16
     end = room.body.length
     origin = room.body.point([end])[0] + shared14.DIRECT_OFFSET * room.body.normal([end])[0]
     tangent = room.body.tangent([end])[0]
-    parts = (('line', 40.), ('arc', 30., lip), ('line', 3.),
-             ('gap', gap, rise, 'B14.direct'),
-             ('arc', 15., receiver_angle), ('arc', crest_radius, -6.),
-             ('arc', 60., 0.), ('line', 25.))
+    parts = (*shared14.level_change(shared14.OUTLET_Y, shared14.OUTLET_Y - 3.2, 28.),
+             ('arc', 22., lip), ('line', 3.), ('gap', gap, rise, 'B14.direct'),
+             ('arc', 10., -8.5), ('arc', crest_radius, receiver_angle),
+             ('line', 25.), ('arc', 60., 0.), ('line', 25.))
     # The plan curve covers the complete profile, including the actual open gap.
     from .layout import knots, LineSpec
     probe = LineSpec('B14', '', Line((0., 0.), (1000., 0.)), shared14.OUTLET_Y,
