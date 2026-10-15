@@ -8,6 +8,7 @@
 #include "SkateComponent.h"
 #include "SailboatComponent.h"
 #include "BikeComponent.h"
+#include "HorseComponent.h"
 #include "WandererSword.h"
 #include "FoxHunter.h"
 #include "SwordTrainer.h"
@@ -241,6 +242,7 @@ void AJapanHUD::DrawHUD()
         DrawSkateLine();
     }
     const UBikeComponent* Bike=Pawn->GetBike();
+    const UHorseComponent* Horse=Pawn->GetHorse();
     if (Bike && Bike->IsEquipped())
     {
         const float Kmh=Bike->GetSpeed()*.036f;
@@ -249,8 +251,24 @@ void AJapanHUD::DrawHUD()
             : FString::Printf(TEXT("W pedal   S brake   A / D steer   Up / Down lean (Down while pedalling: wheelie)   Shift pedal hard (on / off)   Space jump   C skid stop (steering: drift)   Left click bell   Q wave   V get off (stopped)      %s   %.0f km/h"),*Bike->GetStatus(),Kmh);
         Secondary=bController?FString::Printf(TEXT("Right stick look   %s map (hold: places)   %s settings"),Pad.Map,Pad.Menu):TEXT("Mouse look   M map & travel   Esc settings");
     }
-    else if (Bike && Bike->IsAvailable() && !bRide && !bSailboat && !Pawn->IsZeppelinPassenger())
-        Secondary += bController ? FString::Printf(TEXT("   Hold %s bike"),Pad.Skate) : TEXT("   V bike");
+    else if (Horse && Horse->IsEquipped())
+    {
+        const float Kmh=Horse->GetSpeed()*.036f;
+        Controls=bController
+            ? FString::Printf(TEXT("%s ride   %s rein in   Left stick steer   %s sprint (on / off)   %s random horse   D-pad Up breed   D-pad Right tack   D-pad Left coat   Hold %s get off (when stopped)      %s   %.0f km/h"),Pad.Attack,Pad.Parry,Pad.Sprint,Pad.Dash,Pad.RightBumper,*Horse->GetStatus(),Kmh)
+            : FString::Printf(TEXT("W ride   S rein in   A / D steer   Alt walk   J trot   Shift sprint (on / off)   N random horse   U breed   I tack   O coat   H get off (when stopped)      %s   %.0f km/h"),*Horse->GetStatus(),Kmh);
+        Secondary=bController?FString::Printf(TEXT("Right stick look   %s map (hold: places)   %s settings"),Pad.Map,Pad.Menu):TEXT("Mouse look   M map & travel   Esc settings");
+    }
+    else if (!bRide && !bSailboat && !Pawn->IsZeppelinPassenger())
+    {
+        if (Bike && Bike->IsAvailable())
+            Secondary += bController ? FString::Printf(TEXT("   Hold %s bike"),Pad.Skate) : TEXT("   V bike");
+        // Only to a character with horse clips; a shared game offers it while its host allows vehicles
+        // (AWandererCharacter::RequestNetworkHorse).
+        const AJapanGameState* Rules = GetWorld()->GetGameState<AJapanGameState>();
+        if (Horse && Horse->CanRide() && (!JapanNetwork::IsOnline(GetWorld()) || (Rules && Rules->bPredictedVehicles)))
+            Secondary += bController ? FString::Printf(TEXT("   Hold %s horse"),Pad.RightBumper) : TEXT("   H horse   N random horse");
+    }
 
     if(!bSailboat&&!Pawn->IsZeppelinPassenger())
     {

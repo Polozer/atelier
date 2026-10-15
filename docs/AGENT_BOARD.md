@@ -335,8 +335,48 @@ conversation's place, as in Slack's sidebar (choosing an agent or Everyone bring
   tab's badge counts them.
 - **Agents:** listening status, checkout, status line (Idle, Waiting on you) and queued messages for each agent;
   a listener without launchd auto-recovery is flagged.
-- **Render:** PID/start-validated live holders, machine telemetry and the human-maintained schedule, with the
-  newest log entries first.
+- **Render:** PID/start-validated live holders, enabled legacy lanes (including reserved fitting), machine telemetry
+  and the human-maintained schedule, with the newest log entries first. The floor also observes the production
+  capacity broker when the machine's private client configuration is present. A service installed without client
+  activation does not replace the legacy slots. The migration bridge still holds all legacy lanes and adds no
+  native concurrency; the board does not activate clients or offer admission controls.
+  A matching full-mode configuration and broker observation instead show capacity admission and sealed
+  compatibility locks. Full recovery pauses grants without asserting a healthy seal; the legacy holder rows
+  are replaced by broker reservations. This display does not perform or authorize machine cutover.
+
+  Capacity status is fetched by one background observer, separately from HTTP requests, with an 800 ms total socket
+  deadline and a 64 KiB frame limit. Healthy observations poll every three seconds; failures back off to at most
+  thirty seconds. The last observation remains visible as stale after a failed poll, and unavailable status never
+  means no reservations. Invalid configurations, shadow/probe responses and unsupported cutover modes cannot become
+  live status. The observer reads the same default private client configuration and `ATELIER_CAPACITY_CLIENT`
+  override as common launchers; this describes that configured launch path, not an inventory of every checkout.
+
+  Memory, CPU, temporary disk, I/O and GPU reservations are budgets. Unreserved budget is total minus host reserve
+  and charged grants; fresh host pressure can still refuse admission. CPU units are profile estimates, not kernel
+  quotas. GPU memory is a subset of unified memory and must not be added to RAM. Host CPU/free memory telemetry
+  remains separate from job measurements; unmeasured job CPU, disk and GPU usage are unknown. Job memory carries
+  its own measurement time. Broker totals cover all records even when the displayed list is truncated. Ready
+  (`queued`) requests are uncharged; `waiting` means a retry is needed. Draining and uncertain reservations remain
+  charged, including their named locks, until the broker has affirmative release evidence.
+- **Disk** (on the Render floor): free and total space on the home folder's volume, read with one `statfs` on every
+  update, and what takes the space. The breakdown measures allocated size (readdir and lstat; never following symlinks
+  or leaving the volume, never listing or measuring a place reached through a symlink, a hard-linked file counted
+  once, unreadable folders left out) of each entry in `~/dev` and
+  `~/.cache/atelier`, then the rest of `~/.cache`, `~/Library/Caches`, the rest of `~/Library`,
+  `/Users/Shared/Epic Games` and the temporary folder. The twelve largest are listed, then **Other**: the used space
+  they leave unexplained, shown once a scan has completed. Folders macOS guards for privacy (Desktop, Documents,
+  Downloads, the Trash, other apps' containers, Mail, Messages, iCloud Drive and the others listed as `PRIVATE` in
+  `platform/web/board/server/src/disk.rs`) are never opened and count under Other. An APFS clone counts in full in
+  every place that holds it, so the places can add up to more than the used space; Other is then left out. A full scan
+  is expensive: `du` over `~/dev`, `~/.cache`, `~/Library` and `/Users/Shared` did not finish in 20 minutes on a
+  machine with many checkouts, and opening a guarded folder can block for seconds. So the board scans gently: one scan
+  at a time, on one thread in macOS's background band (lowest CPU priority, throttled disk reads); started only when
+  the floor is shown, never while any render lane's lock (big, small or fitting) is held, and pausing while one is
+  held, rechecking every few seconds, even partway through a folder's listing; the next scan starts only five
+  minutes (`REFRESH_SECONDS`) after the last one finished. A request never waits for it. Each place keeps its own measurement time, so a scan in progress shows what it has measured so
+  far and marks the place it is measuring; the section says when the last complete scan finished, how long it took,
+  and whether a scan is running or paused. `ATELIER_BOARD_DISK_SCAN=0` turns the breakdown off (the tests' servers
+  do), and `ATELIER_BOARD_DISK_ENGINE` points the engine place elsewhere for a preview on a sample tree.
 
 Long lines and code wrap or scroll inside their message, so the page never widens. On a phone, Add to Home
 Screen opens the board as a standalone app. Reading the UI never advances agent delivery cursors or grants

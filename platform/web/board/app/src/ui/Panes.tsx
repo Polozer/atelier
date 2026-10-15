@@ -13,6 +13,7 @@ import {thread} from '../store/thread';
 import {ui} from '../store/ui';
 import {Inline, Markdown, Orb, Slot} from './bits';
 import {sortedAgents} from './Chat';
+import {Capacity} from './Capacity';
 import {Icon} from './Icon';
 import {ReplyBox} from './ReplyBox';
 
@@ -395,33 +396,94 @@ function Schedule({state}: {state: State}) {
 
 const text = (value: unknown) => (typeof value === 'string' ? value : value == null ? '' : String(value));
 
+const gib = (bytes: number) => `${(bytes / 1073741824).toFixed(1)} GiB`;
+const duration = (seconds: number) => (seconds < 60 ? `${Math.max(1, Math.round(seconds))} s` : `${Math.round(seconds / 60)} min`);
+
+/** The home folder's volume and what takes its space. The server measures the breakdown with a slow background scan
+ *  (five minutes after the last one finished, never during a render), one place at a time, so places carry their
+ *  own measurement time and the one being measured is marked. */
+export function DiskCard({disk, now}: {disk: State['disk']; now: number}) {
+  const {free_bytes: free, total_bytes: total} = disk;
+  const used = free != null && total ? (total - free) / total : null;
+  // Bars compare places with the largest one; Other (often far larger) fills its bar.
+  const biggest = Math.max(1, ...disk.items.filter((item) => item.path != null).map((item) => item.bytes));
+  const activity = !disk.scanning ? '' : disk.paused ? 'paused while a render runs' : disk.measured_at == null ? 'scanning…' : 'rescanning…';
+  const measured = disk.measured_at == null ? ['Not measured yet', activity].filter(Boolean).join(' · ')
+    : [`Measured ${since(disk.measured_at, now)}${disk.scan_seconds != null ? ` in ${duration(disk.scan_seconds)}` : ''}`, activity]
+      .filter(Boolean).join(' · ');
+  return (
+    <section className="card disk-card" aria-labelledby="diskHeading" style={{'--i': 1} as React.CSSProperties}>
+      <h2 className="eyebrow" id="diskHeading">Disk</h2>
+      <p className="disk-volume" id="diskVolume">{free != null && total
+        ? <><strong>{gib(free)}</strong> free of {gib(total)}</> : 'Free space unknown'}</p>
+      {used != null && (
+        <div className={`disk-meter${1 - used < .05 ? ' low' : 1 - used < .1 ? ' tight' : ''}`} role="meter" aria-label="Used space"
+             aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(used * 100)}>
+          <span style={{width: `${(used * 100).toFixed(1)}%`}} />
+        </div>
+      )}
+      <p className="disk-status" id="diskStatus">{measured}</p>
+      {disk.items.length > 0 && (
+        <ul className="disk-items" id="diskItems" aria-label="What takes the space">
+          {disk.items.map((item) => (
+            <li key={`${item.label}\n${item.path ?? ''}`} className={`disk-item${item.measuring ? ' measuring' : ''}`}>
+              <span className="disk-label">{item.label}</span><span className="disk-size">{gib(item.bytes)}</span>
+              <span className="disk-path">{item.path ?? 'Smaller places and everything not measured'}</span>
+              <span className="disk-age">{item.measuring ? (disk.paused ? 'paused' : 'measuring…')
+                : item.measured_at != null ? since(item.measured_at, now) : ''}</span>
+              <span className="disk-share" aria-hidden="true"><span style={{width: `${Math.min(100, item.bytes / biggest * 100).toFixed(1)}%`}} /></span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {disk.items.length > 0 && <p className="disk-note" id="diskNote">Allocated sizes. An APFS clone counts in full in each place, so places can add up to more than the used space.</p>}
+    </section>
+  );
+}
+
 export function RenderPane() {
   const state = useStore(board, (b) => b.state);
-  const jobs = state ? Object.entries(state.holders).filter(([, h]) => h) as [string, NonNullable<State['holders']['big']>][] : [];
+  const failed = useStore(board, (b) => b.failed);
+  const holders = state ? Object.entries(state.holders).filter(([, h]) => h) as [string, NonNullable<State['holders']['big']>][] : [];
+  // A bridge publishes one holder in all legacy lane records. Display one physical job.
+  const jobs = holders.filter(([, holder], i) => !holder.capacity_bridge || !holders.slice(0, i).some(([, earlier]) =>
+    earlier.capacity_bridge && earlier.checkout === holder.checkout && earlier.time === holder.time));
+  const bridge = holders.some(([, holder]) => holder.capacity_bridge);
+  const full = state?.capacity.snapshot?.mode === 'capacity' && state.capacity.snapshot.cutover;
   const r = state?.resources;
   return (
     <aside className="pane render-pane" id="renderPane" aria-label="Render floor">
       <header className="pane-head"><h1>Render floor</h1>
-        <p className="pane-sub" id="renderSummary">{!state ? 'Checking live jobs' : jobs.length ? `${jobs.map(([slot]) => slot).join(' + ')} slot busy` : 'Both slots free'}</p>
+        <p className="pane-sub" id="renderSummary">{!state ? 'Checking live jobs' : failed ? 'Live status unavailable'
+          : full ? state.capacity.fresh ? state.capacity.snapshot?.recovering ? 'Capacity recovery · grants paused'
+          : 'Capacity admission · broker reservations' : 'Capacity observation stale'
+          : bridge ? 'Capacity bridge · legacy lanes held' : jobs.length ? `${jobs.length} reported ${jobs.length === 1 ? 'job' : 'jobs'}`
+          : 'No live legacy holders reported'}</p>
       </header>
       <div className="pane-body">
         <section className="card" aria-labelledby="liveHeading" style={{'--i': 0} as React.CSSProperties}>
-          <h2 className="eyebrow" id="liveHeading">Running now</h2>
+          <h2 className="eyebrow" id="liveHeading">{full ? 'Compatibility locks' : 'Live legacy holders'}</h2>
           <div id="liveJobs">
-            {jobs.map(([slot, holder]) => (
+            {full && <p className="quiet">{state?.capacity.fresh && !failed
+              ? state.capacity.snapshot?.recovering ? 'Recovery is checking compatibility and ownership. New grants are paused.'
+              : 'Legacy mutexes are sealed. Broker reservations below report active work.'
+              : 'The last observation used sealed legacy mutexes. Current admission state is unknown.'}</p>}
+            {!full && jobs.map(([slot, holder]) => (
               <div key={slot} className="job">
-                <div className="job-label"><span className="dot live" /><span>{`${slot} slot`}</span>
+                <div className="job-label"><span className="dot live" /><span>{holder.capacity_bridge ? 'Capacity bridge · all legacy lanes' : `${slot} slot`}</span>
                   <span className="job-since">{typeof holder.time === 'number' ? `since ${clock(holder.time)}` : ''}</span></div>
                 <div className="job-purpose">{text(holder.purpose)}</div><div className="job-checkout">{holder.checkout}</div>
               </div>
             ))}
-            {state && !jobs.length && <p className="quiet">The render floor is clear.</p>}
+            {state && !full && !jobs.length && <p className="quiet">{state.legacy_slots.slots} legacy {state.legacy_slots.slots === 1 ? 'slot' : 'slots'} configured{state.legacy_slots.fitting_enabled ? ` · fitting lane ${state.legacy_slots.fitting_paused ? 'paused' : 'enabled'}` : ''}. Admission still checks live locks and host pressure.</p>}
           </div>
           <div className="resources" id="resourceLine">{r && <>
-            <span>{r.fresh && r.cpu != null ? `CPU ${Math.round(r.cpu)}%` : 'CPU · no telemetry'}</span>
-            <span>{r.fresh && r.available_gib != null ? `${r.available_gib.toFixed(1)} GiB free` : 'Memory · no telemetry'}</span>
+            <span>{!failed && r.fresh && r.cpu != null ? `CPU ${Math.round(r.cpu)}%` : 'CPU · no telemetry'}</span>
+            <span>{!failed && r.fresh && r.available_gib != null ? `${r.available_gib.toFixed(1)} GiB host available` : 'Memory · no telemetry'}</span>
           </>}</div>
         </section>
+        <Capacity status={state?.capacity} connected={Boolean(state && !failed)} bridge={bridge} serverTime={state?.time} />
+        {state && <DiskCard disk={state.disk} now={state.time} />}
         <section className="stack" aria-labelledby="scheduleHeading">
           <h2 className="eyebrow" id="scheduleHeading" style={{'--i': 1} as React.CSSProperties}>Schedule</h2>
           {state && <Schedule state={state} />}

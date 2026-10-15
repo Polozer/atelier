@@ -44,7 +44,7 @@ holders from older guards. Keep `slots` at 2 so clients can be upgraded before t
 `ATELIER_RENDER_LOCK` moves the lock files and the switch, and `ATELIER_RENDER_LOCK_SCAN=0` skips the foreign
 process scan. Both exist for the CPU tests; a real measurement uses the defaults.
 """
-import fcntl, json, math, os, re, subprocess, sys, time
+import fcntl, json, math, os, re, selectors, subprocess, sys, time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -134,14 +134,60 @@ def available_bytes():
     return parse_vm_stat(text)
 
 
-def process_table():
+def _bounded_process_listing(timeout):
+    """A failed, truncated or oversized observation is never an empty machine."""
+    deadline = time.monotonic() + timeout
+    process = subprocess.Popen(['/bin/ps', '-axo', 'pid=,ppid=,comm='],
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    listing = bytearray()
+    try:
+        with selectors.DefaultSelector() as ready:
+            ready.register(process.stdout, selectors.EVENT_READ)
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not ready.select(remaining):
+                    raise OSError('Native process observation timed out')
+                chunk = os.read(process.stdout.fileno(), 65536)
+                if not chunk:
+                    break
+                listing.extend(chunk)
+                if len(listing) > 1024 * 1024:
+                    raise OSError('Native process observation exceeded its bound')
+        if process.wait(timeout=max(.001, deadline - time.monotonic())):
+            raise OSError('Native process observation failed')
+        return listing.decode('utf-8', errors='strict')
+    except subprocess.SubprocessError:
+        raise OSError('Native process observation failed to complete within its bound') from None
+    finally:
+        process.stdout.close()
+        if process.poll() is None:
+            process.kill()  # Only this observer's own bounded ps child.
+            try:
+                process.wait(timeout=1.)
+            except subprocess.SubprocessError:
+                raise OSError('Owned process observer did not exit within its reap bound') from None
+
+
+def process_table(timeout=None):
     """(pid, parent pid, command) for every process."""
-    listing = subprocess.run(['ps', '-axo', 'pid=,ppid=,comm='], capture_output=True, text=True).stdout
+    listing = (_bounded_process_listing(timeout) if timeout is not None else
+               subprocess.run(['ps', '-axo', 'pid=,ppid=,comm='], capture_output=True, text=True).stdout)
+    if timeout is not None and not listing.endswith('\n'):
+        raise OSError('Native process observation ended with an incomplete row')
     table = []
+    seen = set()
     for line in listing.splitlines():
         fields = line.split(None, 2)
         if len(fields) == 3 and fields[0].isdigit() and fields[1].isdigit():
-            table.append((int(fields[0]), int(fields[1]), fields[2].strip()))
+            pid, parent, command = int(fields[0]), int(fields[1]), fields[2].strip()
+            if timeout is not None and (pid in seen or not command or any(ord(c) < 32 for c in command)):
+                raise OSError('Native process observation has duplicate or incomplete rows')
+            seen.add(pid)
+            table.append((pid, parent, command))
+        elif timeout is not None:
+            raise OSError('Native process observation has malformed rows')
+    if timeout is not None and (not table or os.getpid() not in seen):
+        raise OSError('Native process observation is empty or incomplete')
     return table
 
 
@@ -164,6 +210,51 @@ def render_processes(ignore=(), table=None):
     skip = set(ignore) | {os.getpid()}
     return [{'pid': pid, 'command': command} for pid, _, command in (process_table() if table is None else table)
             if pid not in skip and Path(command).name in RENDER_NAMES]
+
+
+def native_candidates():
+    """Pin every observed native candidate; a failed identity lookup is not absence."""
+    from .. import capacity_protocol as wire
+    table = process_table(timeout=2.)
+    values = []
+    for item in render_processes(table=table):
+        pin = (item['pid'], wire.process_start(item['pid']))
+        if not wire.live(pin) or wire.process_start(pin[0]) != pin[1]:
+            raise wire.CapacityError('Native process identity changed during the foreign scan')
+        values.append(list(pin))
+    if len(values) > wire.MAX_ROSTER:
+        raise wire.CapacityError('Native ownership observation exceeds the complete bounded query')
+    return values
+
+
+@contextmanager
+def _shared_capacity(admission, on_slot, *, ignore, scan):
+    from contextlib import ExitStack
+    from .. import capacity_compat
+    if ignore or scan is False or os.environ.get('ATELIER_RENDER_LOCK_SCAN') == '0':
+        raise ValueError('Full capacity requires exact broker ownership and the normal foreign scan')
+    proof = capacity_compat.verify(admission.cutover)
+    if proof['activation_id'] != admission.activation_id:
+        raise RenderBusy('capacity session belongs to another compatibility activation')
+    with ExitStack() as stack:
+        handles = {}
+        for name, path in lock_paths().items():
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+            handle = stack.enter_context(os.fdopen(fd, 'rb'))
+            try:
+                fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except OSError:
+                raise RenderBusy('a legacy exclusive lane still blocks full capacity') from None
+            handles[name] = handle
+        capacity_compat.verify(admission.cutover, handles=handles)
+        candidates = native_candidates()
+        owned = admission.owned(candidates)
+        if any(tuple(pin) not in owned for pin in candidates):
+            raise RenderBusy('unregistered native processes refuse full capacity')
+        if on_slot is not None:
+            on_slot('capacity', 'broker resources and named locks decide admission; legacy inodes stay sealed')
+        yield lock_path()
+        # Closing only our shared descriptors releases them. Never _write/_release these records.
 
 
 def holder(handle):
@@ -334,16 +425,39 @@ def _admit_fitting(fitting, big, small, gib):
 
 
 @contextmanager
-def render_lock(purpose, wait=0., ignore=(), scan=None, small_gib=None, kind='job', on_slot=None, fitting_gib=None):
+def render_lock(purpose, wait=0., ignore=(), scan=None, small_gib=None, kind='job', on_slot=None, fitting_gib=None,
+                exclusive_bridge=False, capacity=None, worker_binding=None):
     """Own a render slot for the duration of the block; yields the lock file taken.
 
     Without `small_gib` this is the machine's single big slot, as it always was. `small_gib`, the job's expected peak,
     lets it use the small slot when two are configured and it is admitted. `kind` ('job', 'game' or 'compile') is
     recorded in the lock file; a compile also takes the small and fitting slots. `fitting_gib` requests only the
-    configured reserved lane. `on_slot(slot, why)` hears 'big', 'small' or 'fitting' once the scan has passed."""
+    configured reserved lane. `on_slot(slot, why)` hears 'big', 'small' or 'fitting' once the scan has passed.
+
+    `exclusive_bridge` is the capacity client's migration boundary: acquire all existing lane mutexes
+    together or none, without waiting while holding a subset. Old clients therefore cannot enter a
+    second lane after the broker's capacity check. It adds an admission requirement, never concurrency.
+    """
+    if worker_binding is not None:
+        from .worker_binding import WorkerBinding, require_legacy
+        if (type(worker_binding) is not WorkerBinding or kind != 'job' or exclusive_bridge
+                or capacity is not None or small_gib is not None or fitting_gib is not None):
+            raise ValueError('Worker binding supports one ordinary legacy big-slot job only')
+        require_legacy()
     kind = kind or 'job'
     if kind not in KINDS:
         raise ValueError(f'kind must be one of {KINDS}, not {kind!r}')
+    if capacity is not None:
+        if (getattr(capacity, 'mode', None) != 'capacity' or wait or exclusive_bridge
+                or small_gib is not None or fitting_gib is not None):
+            raise ValueError('Shared capacity needs one nonblocking, fully configured admission')
+        with _shared_capacity(capacity, on_slot, ignore=ignore, scan=scan) as path:
+            yield path
+        return
+    from .. import capacity_compat
+    capacity_compat.refuse_unmanaged('Direct legacy render locking')
+    if exclusive_bridge and (small_gib is not None or fitting_gib is not None or wait):
+        raise ValueError('the capacity bridge requires one nonblocking attempt without a slot preference')
     if fitting_gib is not None and (kind != 'job' or small_gib is not None
                                    or not math.isfinite(fitting_gib) or not 0 < fitting_gib <= SMALL_PEAK_GIB):
         raise ValueError('fitting requires a job with an expected peak above zero and at most 3 GiB, without small_gib')
@@ -359,19 +473,39 @@ def render_lock(purpose, wait=0., ignore=(), scan=None, small_gib=None, kind='jo
             why = f'expected {small_gib:.1f} GiB, over the small slot\'s {SMALL_PEAK_GIB:g}'
     eligible = small_gib is not None and not why
     opened, owned = [], []
-    handle = big.open('a+')
-    opened.append(handle)
-    admission = big.with_name(f'{big.stem}.admission{big.suffix}').open('a+')
-    opened.append(admission)
-    deadline = time.monotonic()+max(wait, 0.)
     try:
+        handle = big.open('a+')
+        opened.append(handle)
+        admission = big.with_name(f'{big.stem}.admission{big.suffix}').open('a+')
+        opened.append(admission)
+        bridge_handles = [handle]
+        if exclusive_bridge:
+            for path in (small, fitting):
+                extra = path.open('a+')
+                opened.append(extra)
+                bridge_handles.append(extra)
+        deadline = time.monotonic()+max(wait, 0.)
         while True:
             slot = None
             # Publish the chosen slot's record before another new guard checks admission. Otherwise two
             # launches in the same checkout can both see an empty record between flock and _write.
             if _take(admission):
                 try:
-                    if fitting_gib is not None:
+                    if exclusive_bridge:
+                        taken = []
+                        for candidate in bridge_handles:
+                            if not _take(candidate):
+                                why = f'the capacity bridge needs every lane; {candidate.name} is busy'
+                                break
+                            taken.append(candidate)
+                        if len(taken) == len(bridge_handles):
+                            owned.extend(taken)
+                            slot, why = 'big', 'capacity migration bridge holds every legacy lane'
+                        else:
+                            # Nothing was published. Do not truncate any previous owner's record.
+                            for candidate in reversed(taken):
+                                fcntl.flock(candidate.fileno(), fcntl.LOCK_UN)
+                    elif fitting_gib is not None:
                         taken, why = _admit_fitting(fitting, big, small, fitting_gib)
                         if taken:
                             opened.append(taken)
@@ -396,7 +530,10 @@ def render_lock(purpose, wait=0., ignore=(), scan=None, small_gib=None, kind='jo
                                       time=time.time(), protocol=PROTOCOL)
                         if slot in ('small', 'fitting'):
                             record['expected_gib'] = round(float(fitting_gib if slot == 'fitting' else small_gib), 2)
-                        _write(owned[0], record)
+                        if exclusive_bridge:
+                            record['capacity_bridge'] = True
+                        for target in owned if exclusive_bridge else owned[:1]:
+                            _write(target, record)
                 finally:
                     fcntl.flock(admission.fileno(), fcntl.LOCK_UN)
             else:
@@ -412,7 +549,7 @@ def render_lock(purpose, wait=0., ignore=(), scan=None, small_gib=None, kind='jo
                 raise RenderBusy(f'another render job is running{detail}; '
                                  f'stop it (or the phone stream) before starting this one{aside}')
             time.sleep(.25)
-        if kind == 'compile':
+        if kind == 'compile' and not exclusive_bridge:
             # Nothing runs beside a compile. Holding the big slot, recorded as a compile, stops new small jobs;
             # one already running is waited for.
             why = 'a compile, which also holds the small and fitting slots'
@@ -439,7 +576,7 @@ def render_lock(purpose, wait=0., ignore=(), scan=None, small_gib=None, kind='jo
             # One listing for both, so a shader worker the other slot's Unreal starts meanwhile is not taken for foreign.
             table = process_table()
             skip = set(ignore)
-            if kind != 'compile':
+            if kind != 'compile' and not exclusive_bridge:
                 for label, path in lock_paths().items():
                     if label != slot:
                         other = read_holder(path)
@@ -452,6 +589,8 @@ def render_lock(purpose, wait=0., ignore=(), scan=None, small_gib=None, kind='jo
                                  f'Stop them (the phone stream: `atelier stream stop`) first')
         if on_slot is not None:
             on_slot(slot, why)
+        if worker_binding is not None:
+            worker_binding.capture(owned[0], big, record)
         yield {'big': big, 'small': small, 'fitting': fitting}[slot]
     finally:
         for taken in reversed(owned):

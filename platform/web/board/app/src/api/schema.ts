@@ -83,8 +83,11 @@ schedule: {
 log_total: number
 inbox: InboxSummary
 holders: Holders
+legacy_slots: LegacySlots
+capacity: CapacityStatus
 sessions: Session[]
 resources: Resources
+disk: Disk
 /**
  * Send it back as `X-Board-CSRF` on every POST.
  */
@@ -269,6 +272,7 @@ activity: number
 export interface Holders {
 big?: (Holder | null)
 small?: (Holder | null)
+fitting?: (Holder | null)
 }
 /**
  * A live render lock holder.
@@ -284,6 +288,83 @@ kind: unknown
  */
 checkout: string
 time: unknown
+capacity_bridge: boolean
+}
+/**
+ * This interface was referenced by `Contract`'s JSON-Schema
+ * via the `definition` "LegacySlots".
+ */
+export interface LegacySlots {
+slots: number
+fitting_enabled: boolean
+fitting_paused: boolean
+}
+/**
+ * This interface was referenced by `Contract`'s JSON-Schema
+ * via the `definition` "CapacityStatus".
+ */
+export interface CapacityStatus {
+configuration: string
+availability: string
+checked_at?: (number | null)
+fresh: boolean
+snapshot?: (CapacitySnapshot | null)
+}
+/**
+ * This interface was referenced by `Contract`'s JSON-Schema
+ * via the `definition` "CapacitySnapshot".
+ */
+export interface CapacitySnapshot {
+epoch: number
+boot_id: string
+mode: string
+cutover: boolean
+observed_at: number
+recovering: boolean
+total: CapacityVector
+reserve: CapacityVector
+charged_resources: CapacityVector
+charged_count: number
+waiting_count: number
+total_records: number
+returned_records: number
+records: CapacityJob[]
+truncated: boolean
+}
+/**
+ * This interface was referenced by `Contract`'s JSON-Schema
+ * via the `definition` "CapacityVector".
+ */
+export interface CapacityVector {
+memory_mib: number
+cpu_millis: number
+temp_mib: number
+io_slots: number
+gpu_mib: number
+}
+/**
+ * This interface was referenced by `Contract`'s JSON-Schema
+ * via the `definition` "CapacityJob".
+ */
+export interface CapacityJob {
+id: string
+owner?: (string | null)
+checkout?: (string | null)
+purpose?: (string | null)
+phase?: (string | null)
+state: string
+charged: boolean
+resources: CapacityVector
+locks: string[]
+first_ready: number
+sequence: number
+bypasses: number
+retained: number
+witnessed: number
+wait_reason: string
+measured_memory_mib?: (number | null)
+measured_at?: (number | null)
+ancestry_unknown: boolean
 }
 /**
  * A remote agent session the watchdog reports on.
@@ -309,6 +390,67 @@ export interface Resources {
 fresh: boolean
 cpu?: (number | null)
 available_gib?: (number | null)
+}
+/**
+ * The home folder's volume and what takes its space.
+ * 
+ * This interface was referenced by `Contract`'s JSON-Schema
+ * via the `definition` "Disk".
+ */
+export interface Disk {
+/**
+ * Bytes the user can still write on the volume, read on every request (none if it cannot be read).
+ */
+free_bytes?: (number | null)
+total_bytes?: (number | null)
+/**
+ * When the last complete scan finished, in Unix seconds; none before the first one. A background scan starts
+ * when the floor is shown, five minutes after the last one finished, and never while a render lock is held.
+ */
+measured_at?: (number | null)
+/**
+ * How long that scan took, in seconds.
+ */
+scan_seconds?: (number | null)
+/**
+ * A scan is running now.
+ */
+scanning: boolean
+/**
+ * The running scan waits for a render lock to be released.
+ */
+paused: boolean
+/**
+ * The largest places by allocated size, biggest first, and the one being measured, then `Other` once a scan has
+ * completed (the used space they leave unexplained, left out when not positive: an APFS clone counts in full in
+ * every place, so places can add up to more).
+ */
+items: DiskItem[]
+}
+/**
+ * One place on the disk and its allocated size.
+ * 
+ * This interface was referenced by `Contract`'s JSON-Schema
+ * via the `definition` "DiskItem".
+ */
+export interface DiskItem {
+label: string
+/**
+ * Where it is, `~/…` inside the home folder; none for `Other`.
+ */
+path?: (string | null)
+/**
+ * While `measuring`, its last size or the count so far, whichever is larger.
+ */
+bytes: number
+/**
+ * When this place was last measured, in Unix seconds; none for `Other` and a place not measured yet.
+ */
+measured_at?: (number | null)
+/**
+ * The scan is measuring it now.
+ */
+measuring: boolean
 }
 /**
  * `GET /api/threads`: the conversations the reader is part of, unread first, then by newest reply.

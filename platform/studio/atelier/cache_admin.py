@@ -2,7 +2,9 @@
 import json
 from collections import Counter
 import math
+from pathlib import Path
 import shutil
+import sys
 import time
 
 from .build_cache import DIGEST, Store, atomic_json, members
@@ -38,8 +40,12 @@ def snapshot(store):
             invalid.append(path.stem)
     conflicts = sorted(p.name.removesuffix('.conflict.json') for p in (store.root / 'actions').glob('*.conflict.json')
                        if DIGEST.fullmatch(p.name.removesuffix('.conflict.json')))
+    from .artifact_snapshot import retention
+    retained = retention(store)
+    for action in actions:
+        action['snapshot_retained'] = action['key'] in retained['snapshot_actions']
     return {'unique_bytes': sum(blobs.values()), 'blobs': blobs, 'actions': actions,
-            'invalid_actions': invalid, 'conflicts': conflicts}
+            'invalid_actions': invalid, 'conflicts': conflicts, **retained}
 
 
 def prune(store, *, max_bytes, max_age_days, dry=False, now=None):
@@ -54,8 +60,12 @@ def prune(store, *, max_bytes, max_age_days, dry=False, now=None):
         if state['invalid_actions']:
             raise ValueError('Invalid action manifests; inspect and forget them before pruning: '
                              + ', '.join(state['invalid_actions']))
+        if state['invalid_snapshots']:
+            raise ValueError('Invalid snapshots or retained members; unpin/repair/remove explicitly before pruning: '
+                             + ', '.join(state['invalid_snapshots']))
         keep = {item['key']: item for item in state['actions']}
-        candidates = sorted((a for a in keep.values() if not a['pinned']), key=lambda a: (a['used'], a['key']))
+        candidates = sorted((a for a in keep.values() if not a['pinned'] and not a['snapshot_retained']),
+                            key=lambda a: (a['used'], a['key']))
         for item in candidates:
             if item['used'] < now - max_age_days * 86400:
                 keep.pop(item['key'])
@@ -104,19 +114,57 @@ def pin(store, key, enabled):
 def forget(store, key):
     """Discard a bad/nondeterministic entry; never bless either conflicting result."""
     with store.lock(exclusive=True):
+        from .artifact_snapshot import retention
+        retained = retention(store)
+        if retained['invalid_snapshots'] or key in retained['snapshot_actions']:
+            raise ValueError('Unpin snapshot roots explicitly before forgetting a retained action')
         action = store.action(key)
         for path in (action, action.with_suffix('.conflict.json'), action.with_suffix('.pin')):
             path.unlink(missing_ok=True)
 
 
 def configure(sub):
-    parser = sub.add_parser('cache', help='inspect and prune portable products shared by local checkouts')
+    parser = sub.add_parser('cache', help='inspect, prune and import signed portable products')
     commands = parser.add_subparsers(dest='action', required=True)
     commands.add_parser('status')
+    create = commands.add_parser('snapshot-create', help='pin an unsigned local selection of current portable products')
+    create.add_argument('game')
+    create.add_argument('steps', nargs='+', help='target step names/prefixes; full dependency closure is mandatory')
+    create.add_argument('--grants', type=Path, required=True, help='schema-1 per-action/product redistribution grants')
+    create.add_argument('--public', action='store_true', help='require public rights for every selected product; does not publish')
+    show = commands.add_parser('snapshot-show', help='verify and inspect a local unsigned snapshot')
+    show.add_argument('key')
+    show.add_argument('--metadata-only', action='store_true', help='inspect the manifest without requiring retained CAS members')
+    restore = commands.add_parser('snapshot-restore', help='restore an exact portable snapshot without executing actions')
+    restore.add_argument('key')
+    restore.add_argument('game')
+    for name in ('snapshot-pin', 'snapshot-unpin', 'snapshot-remove'):
+        commands.add_parser(name).add_argument('key')
     gc = commands.add_parser('gc')
     gc.add_argument('--max-gib', type=float, default=10, help='unique retained blob bytes (default: 10 GiB)')
     gc.add_argument('--max-age-days', type=float, default=30, help='keep unpinned hits/publications this recent')
     gc.add_argument('--dry-run', action='store_true')
+    bundle = commands.add_parser('import-bundle', help='verify a signed offline bundle and add it to the local store')
+    bundle.add_argument('directory', type=Path)
+    bundle.add_argument('--trust', type=Path, required=True, help='explicit allowlist of publisher public keys')
+    bundle.add_argument('--dry-run', action='store_true', help='verify without changing the local store')
+    remote = commands.add_parser('fetch-bundle', help='download signed source products over HTTPS into the local store')
+    remote.add_argument('endpoint', help='HTTPS object-store prefix; no credentials, query or fragment')
+    remote.add_argument('key', help='exact action key to fetch')
+    remote.add_argument('--trust', type=Path, required=True, help='explicit allowlist of publisher public keys')
+    remote.add_argument('--timeout', type=float, default=30, help='total transfer deadline in seconds (max 300)')
+    remote.add_argument('--dry-run', action='store_true', help='download and verify without changing the local store')
+    export = commands.add_parser('export-bundle', help='freshly build an approved audited Python action and export a signed directory')
+    export.add_argument('game')
+    export.add_argument('step')
+    export.add_argument('directory', type=Path)
+    export.add_argument('--profile', type=Path, required=True, help='protected operator publisher profile outside the checkout')
+    upload = commands.add_parser('upload-bundle', help='explicitly upload a signed public V2 source bundle over HTTPS')
+    upload.add_argument('directory', type=Path)
+    upload.add_argument('--trust', type=Path, required=True, help='explicit allowlist of publisher public keys')
+    upload.add_argument('--profile', type=Path, required=True, help='protected operator endpoint/credential profile')
+    upload.add_argument('--timeout', type=float, default=30, help='total verification/transfer deadline (max 300 seconds)')
+    upload.add_argument('--dry-run', action='store_true', help='verify snapshot/profile without credentials or network')
     for name in ('pin', 'unpin', 'forget'):
         commands.add_parser(name).add_argument('key')
 
@@ -125,14 +173,49 @@ def main(args):
     store = Store()
     try:
         if args.action == 'status':
-            state = snapshot(store)
+            if store.root.exists():
+                with store.lock():
+                    state = snapshot(store)
+            else:
+                state = snapshot(store)
             print(json.dumps({**state, 'blobs': len(state['blobs']),
                               'actions': [{**a, 'blobs': len(a['blobs'])} for a in state['actions']]}, indent=2))
+        elif args.action.startswith('snapshot-'):
+            from . import artifact_snapshot
+            if args.action == 'snapshot-create':
+                result = artifact_snapshot.create(args.game, args.steps, args.grants, store=store, public=args.public)
+            elif args.action == 'snapshot-restore':
+                result = artifact_snapshot.restore(args.game, args.key, store=store)
+            elif args.action == 'snapshot-show':
+                with store.lock():
+                    result = artifact_snapshot.load(store, args.key, verify=not args.metadata_only)
+            elif args.action == 'snapshot-remove':
+                result = artifact_snapshot.remove(store, args.key)
+            else:
+                result = artifact_snapshot.pin(store, args.key, args.action == 'snapshot-pin')
+            if result is not None:
+                print(json.dumps(result, indent=2))
         elif args.action == 'gc':
             print(json.dumps(prune(store, max_bytes=int(args.max_gib * 2**30), max_age_days=args.max_age_days,
                                    dry=args.dry_run), indent=2))
         elif args.action == 'forget':
             forget(store, args.key)
+        elif args.action == 'import-bundle':
+            from .artifact_bundle import import_bundle
+            print(json.dumps(import_bundle(args.directory, args.trust, store=store, dry_run=args.dry_run), indent=2))
+        elif args.action == 'fetch-bundle':
+            from .artifact_remote import fetch_bundle, stderr_progress
+            print(json.dumps(fetch_bundle(args.endpoint, args.key, args.trust, store=store, dry_run=args.dry_run,
+                                          timeout=args.timeout, echo=stderr_progress), indent=2))
+        elif args.action == 'export-bundle':
+            from .artifact_publisher import publish
+            print(json.dumps(publish(args.game, args.step, args.directory, profile=args.profile,
+                                     echo=lambda message: print(message, file=sys.stderr)), indent=2))
+        elif args.action == 'upload-bundle':
+            from .artifact_upload import upload_bundle
+            print(json.dumps(upload_bundle(args.directory, args.trust, profile=args.profile, dry_run=args.dry_run,
+                                           timeout=args.timeout,
+                                           echo=lambda message: print(message, file=sys.stderr)), indent=2))
         else:
             pin(store, args.key, args.action == 'pin')
         return 0

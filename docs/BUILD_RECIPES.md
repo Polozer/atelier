@@ -47,6 +47,48 @@ restoration and audited generation replace entire owned roots. Declare every req
 every member, empty directory and file hash. Missing, altered, unexpected or linked output invalidates the product.
 Symlinked ancestors such as a system temporary directory are supported; product roots and members cannot be links.
 Input changes during generation prevent certification, and the final stamp is replaced atomically after validation.
+The build also rechecks owned products after all selected steps, catching later importers that resave another
+owner's package. Consumers verify fresh read-product bytes before certification. Completion and failure paths
+also discard earlier consumer stamps when a later writer changes those inputs, including consumers with legacy
+outputs. Reference edges remain independent of referenced content bytes.
+Use `Product(name, required_paths, optional_paths=(...))` for format sidecars that may be absent:
+their absence, appearance, removal or byte change is part of the product identity. Required roots still must exist.
+Optional roots have the same exclusive ownership rules and are not eligible for the portable source cache or Python audit.
+Change receipts retain their ordered root roles separately: an optional root appearing is an added member, its
+removal is a retired member, and an absent root contributes no retained member count. Older receipts without the
+optional-root roles remain unknown when they cannot be compared safely.
+
+## Defer legacy input membership
+
+A legacy action may defer an expensive directory selection until that action is selected and reaches
+its fingerprint decision, after its prerequisites have finished:
+
+```python
+from atelier.build import DeferredInputs, Step
+
+Step('runtime.identity', commands,
+     inputs=[source / 'identity.py'],
+     deferred_inputs=[DeferredInputs('content', identity.content_files, (content,),
+                                     support=(source / 'identity.py',))])
+```
+
+`settings` is a tuple of positional collector arguments (nested tuples, paths, strings, integers,
+booleans and `None`). `support` must include the collector's implementation and all its helpers.
+Collectors are trusted recipe functions: they only observe membership and return an ordered list or
+tuple of paths. They must declare all selection settings and code; this API does not discover hidden
+reads, environment dependencies or hostile code. It does not import or launch tools itself.
+
+Unselected collectors do not run. Fingerprints include explicit criteria, support bytes, ordered
+member paths and their normal legacy byte feeds, including an empty selection. After executing an
+opted-in action, a fresh selection and fingerprint must still match before a stamp is written.
+Plans and worktree reuse use the same observation API; reuse filters copied generated members from
+both the source-only byte inputs and membership list. No observation is cached on a recipe Step or
+across invocations. Existing actions without this opt-in retain their fingerprint algorithm.
+
+This first API supports legacy actions only: named products, reads/references, optional inputs,
+spatial queries, audit, caches, pool roots, explicit toolchains and batches cannot use it. Supporting
+named actions later requires preserving complete source/output ownership checks without enumerating
+unselected members. Deferred selection does not grant native cache eligibility or audit certification.
 
 ## Track an optional source file
 
@@ -87,6 +129,49 @@ Builds store per-command durations alongside total step time. Step/prefix select
 matching only explicit steps reports an unknown selection rather than silently doing nothing. `--touch` cannot
 certify named products.
 
+## Reuse a tool process without merging actions
+
+Opt in only scripts that reset their own transient state and can safely follow another script in the same process:
+
+```python
+from atelier.build import Batch, Blender, Product, Step
+
+Step('library.oak', [Blender(script, ('oak',), threads=3, factory_startup=True)],
+     inputs=[script, oak_spec], products=[Product('oak.mesh', (out / 'oak',))],
+     heavy=True, toolchain=True, batch=Batch('tree exports', max_seconds=240))
+```
+
+Consecutive, ready misses with the same batch policy, command type, startup environment, module closure and tool
+settings can share one guarded process. Arguments and script paths remain per action. `runtime_env=('ASSET_ID',)`
+allows explicitly named environment values to vary between scripts; process-start settings such as `PYTHONHASHSEED`
+cannot vary. Actions must override the same set of runtime keys; an added or omitted override starts a separate
+process, so it cannot inherit the preceding action's value. Never rely on `runpy` to clear imported module globals,
+Blender data or Unreal editor state. The recipe
+must reset its own state, and native equivalence checks must cover cold and warm execution in different orders.
+
+The host validates each action's marker, inputs and complete output inventory, saves its individual stamp, and
+acknowledges it before the next action starts. A crash on action four preserves valid results from actions one to
+three. The host checks completed results again after exit. No-op and already-current actions never enter the batch.
+Cache-enabled actions currently execute individually, retaining their normal restore-before-execute behavior.
+Per-action `seconds` and command timings in a batch measure action execution only. `--timings` labels that scope,
+including in copied producer receipts. Shared tool startup/shutdown and host validation/acknowledgement time are
+excluded; the builder does not allocate those costs to individual actions. Per-action phase and output-change
+receipts remain historical diagnostics and do not change product identity or admission.
+New individual command receipts identify their command-invocation scope. Historical commands without a recorded
+scope remain labelled unknown; they are not assumed to include shared process startup or shutdown.
+
+A batch uses BIG and the normal 10 GiB actual-child guard. Before each further action, its memory predictor reserves
+headroom using the next action's measured batch growth and the current session's growth. Without batch history it
+falls back to the standalone peak or conservative unknown headroom. Session reports stay separate from standalone
+action peaks. Missing fresh telemetry ends the batch.
+The wall budget is at most 240 seconds, including startup, and is checked **between actions**; one long action can
+exceed it. This is a cooperative boundary, not a deadline that interrupts an import or a replacement for the guard.
+
+Budget exhaustion saves completed results, exits **75 (yielded)**, and prints `BATCH YIELDED` with counts and a resume
+command. It does not reacquire capacity automatically. `atelier build ... && atelier play ...` intentionally stops
+there. Remaining actions stay `run` in `--plan`; rerun the printed command without `--force` after checking Waiting
+and handing off to other ready work. Retain the original first-ready time in the render board's Waiting entry.
+
 ## Compare certified outputs
 
 `atelier build <game> [step ...] --changes` reports differences between the last two certified named-product
@@ -122,6 +207,16 @@ producer receipt, including across repeated restores. A fresh checkout restore, 
 key, has no producer timing unless it already carries that receipt. It is reported as **not recorded**, never zero.
 Explicit worktree reuse and the legacy pool copy producer stamps; their restore duration is unknown. Touched,
 old stamps without command details and interrupted restores also remain clearly labelled.
+New portable restore receipts distinguish a local-store hit from a product fetched over HTTPS during that build.
+The latter still passes through the normal verified local store before installation. A later local restore is
+labelled local even if the bytes originally arrived remotely. Older stamps without this attribution say
+**not recorded**; inspection never contacts a server to infer provenance.
+
+Guarded commands can also retain a fresh launcher timing receipt. Admission and guard setup measure from entry
+to the launch gate acknowledgement; child lifetime measures actual spawn to observed process exit and includes
+any time behind that gate. These intervals overlap and must not be added. Command execution stays **not recorded**
+unless the launcher observes its start separately. Useful phase durations still come from the instrumented script.
+Missing, stale or malformed diagnostics never change build success, product identities or cache eligibility.
 
 To time a generator or importer, emit one flushed stdout line per phase boundary. The version 1 protocol is the
 literal prefix `ATELIER_PHASE ` followed by a JSON object:
@@ -189,8 +284,11 @@ exercise the supported log formats without requiring a native build.
 
 ## Audit a Python generator's accesses
 
-Add `audit=True` to a step with exactly one `Python` command and named products under `ctx.out`. It works with
-or without `cache=True`. The sandbox's two portable generators opt in. Atelier installs a Python audit hook before
+Add `audit=True` to a step with exactly one `Python` command and named products under `ctx.out`. Python actions
+work with or without `cache=True`. Guarded `Blender` and `UnrealScript` commands have offline-tested Python access
+audit adapters with `heavy=True` and `cache=False`; Blender requires `factory_startup=True`. Native products may live in owned
+generated subpaths under `ctx.out`, or the project's `Content` for Unreal. Optional product roots, linked output
+paths and legacy pool/cutoff protocols are refused. The sandbox's two portable generators opt in. Atelier installs a Python audit hook before
 running the script and writes `logs/<step>.audit.json` separately from its products. No extra command is required.
 
 The audit checks file reads against declared source inputs and `reads` products. A `references` edge grants no
@@ -205,8 +303,11 @@ Python's import event also require declared inputs or tool runtime. Namespace pa
 directory or tool runtime.
 
 Writes, removals and renames must stay within owned products or private scratch space. After a cache miss, Atelier
-drops the stamp and removes the action's old product paths before launching it. It unlinks file leaves, preserving
-any other hard-link names; old bytes, metadata and leftover files cannot become inputs. A failed action leaves no
+drops the stamp. The executing child removes old product paths before installing its observer and running the
+recipe; heavy actions reach that child only after normal guarded admission. Refused admission preserves the old
+products. Cleanup rechecks root and ancestor links and removes entries through held parent descriptors. It unlinks
+file leaves, preserving any other hard-link names;
+old bytes, metadata and leftover files cannot become inputs to the recipe. A failed action leaves no
 certified outputs, and a retry starts empty again. Reading back new writes is allowed. Atomic output replacement
 works by writing in the action's private temporary directory and then using `os.replace`. Use an owned directory
 product when a generator needs temporary siblings.
@@ -218,7 +319,9 @@ Audited actions inherit the ordinary launcher; `heavy=True` still takes its norm
 
 A caught access violation remains a failure. Missing, malformed or unsuccessful completion records prevent stamps
 and cache publication, including an `os._exit(0)` that bypasses normal cleanup. Reports travel through a separate
-inherited pipe, not a recipe-owned output. Cache hits verify the audited action key and complete output inventory;
+inherited pipe, not a recipe-owned output. A fresh nonce, ordered start/accesses/complete records and pipe closure
+are required. The hook stays armed after completion: trailing Python access fails certification, even if it repeats
+a formerly allowed read and its exception is caught. Cache hits verify the audited action key and complete output inventory;
 they do not rerun the generator merely to produce another trace. The stamp records restoration separately.
 
 This is a diagnostic for trusted recipes, **not a security sandbox or a proof of complete input closure**. It observes
@@ -227,11 +330,48 @@ without changing their return values. Metadata values (timestamps, permissions a
 reads, direct native I/O and unobserved low-level APIs are outside its guarantee. Recipes must not derive portable
 output from those values. Observed subprocess, network, ctypes, mmap, sqlite3 and opaque descriptor operations,
 and unhandled `os.*` events, are refused;
-an uninstrumented child must not silently supply a supposedly audited result. Blender and Unreal bootstraps are not
-enabled by this option. Their imports still need their own dependency and native equivalence proofs.
-Libraries that use a refused mechanism during initialization also cannot pass, even if they catch its exception;
-the installed NumPy uses `ctypes` this way. Such recipes must keep `audit=False` until a specific adapter proves the
-required native behavior. Do not add a blanket exemption for the library.
+an uninstrumented child must not silently supply a supposedly audited result. Blender/Unreal bootstraps observe
+action-time Python work only; host startup, native callbacks and native imports still need explicit declarations
+and native equivalence proofs. Offline fake-host tests validate this protocol without launching Blender or Unreal;
+they do not certify real-host behavior or native package portability. Tool runtime exemptions come only from
+recognized Python library directories within a fingerprinted host installation, never arbitrary `sys.path` entries.
+Native bootstrap helpers execute their fingerprinted source directly. Ambient runtime `__pycache__` bytes receive
+no runtime exemption, and action imports use a private bytecode prefix even if the host ignored startup flags.
+Before execution, the bootstrap refuses preloaded project/helper modules outside the fingerprinted installation,
+including declared sources: their loaded values may predate those source bytes or come from stale bytecode.
+Package and namespace search locations must also stay inside the tool. Installed module origins and preloaded
+bytecode must belong to the complete tool identity or fresh private bytecode directory; native Blender's audit
+identity therefore includes installed `__pycache__` bytes. Originless modules require builtin/frozen loader
+provenance or an explicit known host API name (`unreal` or the supported Blender API modules). Host API mutable
+native state remains outside Python input observation. CPython's synthetic `typing.io`/`typing.re` namespaces require
+their exact binding to the fingerprinted `typing` module. Preload rejection produces an incomplete report and no stamp.
+The source-verified UE adapter is version-gated to UE 5.8. It completely fingerprints the bundled
+`Engine/Binaries/ThirdParty/Python3/Mac` runtime and the exact
+`Engine/Plugins/Experimental/PythonScriptPlugin/Content/Python` wrapper directory, including bytecode. That wrapper
+directory also grants tool reads during the action. The identity includes the editor, `Build.version`, both
+`libUnrealEditor-PythonScriptPlugin.dylib` and `libUnrealEditor-PythonScriptPluginPreload.dylib`, and their
+`UnrealEditor.modules` descriptor. The shipped source creates exactly `_unreal_core`, `_unreal_slate`,
+`_unreal_engine` and `_unreal_editor` at startup; those originless bindings join `unreal` as explicit native APIs.
+UE's source-proven originless `__main__` placeholder is allowed only without file/spec origins; the recipe runs
+in a fresh `runpy` main module, so startup globals in that placeholder do not become recipe globals.
+Native startup search paths are retained, but grant no additional read permission. Other plugin/project roots,
+preloaded project helpers and unknown dynamic native modules remain refused. The wrapper registry also generates
+module names from loaded engine/game modules; those require explicit provenance before approval, not a prefix
+wildcard. Fake hosts exercise the actual wrapper layout and known binding names. Actual UE execution and complete
+native dependency/equivalence acceptance remain unvalidated and separate from this offline adapter.
+Unreal keeps its descriptor isolation and native library checks before/after the observed script. These framework
+checks run outside recipe observation; recipe ctypes calls remain refused.
+
+An audited native action runs in a fresh process, including when it declares `Batch(...)`. Such declarations fall
+back to ordinary per-action execution. Warm audited batching is unsupported: hooks cannot be removed and warm
+modules/callbacks can retain earlier action state. The direct batch runner refuses audited candidates. A second
+bootstrap invocation in the same host is a sticky failure. This option never enables native cache restoration or
+publication.
+The worker initializes managed stdlib `ctypes` before installing the observer, including CPython's own
+`PyDLL(None)` handle. This lets NumPy import that existing runtime state. Action-time library loads and symbol
+lookups remain refused, even when their exceptions are caught; NumPy gets no access exemption. Array operations
+still have the native-I/O limits above. Other libraries that emit a refused event during initialization cannot
+pass and must keep `audit=False` until a specific adapter supports their required behavior.
 
 ## Migration boundary
 
@@ -250,12 +390,18 @@ invalidate the key. The sandbox's `world.block` and `world.placements` are execu
 
 The key includes command arguments, declared sources, consumed product digests, the managed Python environment or
 Blender application, dependency lock and build adapters. Python path/interpreter overrides refuse portable caching.
-Cached Blender commands must use `factory_startup=True`. Keep installed tools fixed during one build invocation;
-the next invocation rediscovers their identities. A static import check rejects undeclared local helpers, including
+Cached Blender commands must use `factory_startup=True`. `BLENDER` must resolve to the executable inside the macOS
+app bundle. For the standard install, set `BLENDER=/Applications/Blender.app/Contents/MacOS/Blender`; the fingerprint
+includes its bundled Python and exporters. A shell wrapper alone cannot identify those resources.
+Keep installed tools fixed during one build invocation; the next invocation rediscovers their identities.
+A static import check rejects undeclared local helpers, including
 package initializers and relative imports. Use `atelier.build_inputs.local_imports(script, roots)` when declaring
-their closure. Dynamic imports, runtime data reads and relevant settings still need explicit inputs. The optional
-Python access audit catches many missing declarations during execution; it does not replace the closure contract.
-Scripts must not depend on undeclared environment values.
+their closure. A recipe with many scripts can share an `ImportScanner()` and call `scanner.local_imports(script, roots)`
+within that recipe evaluation; create a new scanner on every evaluation so added or removed helpers are discovered.
+`toolchain=True` includes the same installed tool identity for a named action without enabling storage or restoration.
+Dynamic imports, runtime data reads and relevant settings still need explicit inputs. The optional Python access
+audit catches many missing declarations during execution; it does not replace the closure contract. Scripts must
+not depend on undeclared environment values.
 
 Portable output must be byte-deterministic, contain no checkout-specific paths and run without its donor checkout.
 An interrupted restore leaves no successful stamp; the next build discards that action's abandoned staging and
@@ -263,8 +409,75 @@ verifies every installed output again. Missing/corrupt blobs fall back to genera
 same action key disable that key's reuse. [Cache maintenance](ARTIFACT_POOL.md#automatic-product-cache) covers
 accounting, pins, LRU pruning and discarding conflicts. Plans remain read-only and never fetch or restore a hit.
 
-`atelier reuse` and the portable pool reject recipes that try to certify named products through their older protocols.
-Existing recipes remain supported. Unreal packages, native binaries, Content and Intermediate directories are
-ineligible for this cache. Transactional Unreal restoration, import ownership, registry refresh, relocation and remote
-storage remain described in [the architecture](INCREMENTAL_BUILDS.md). Keep native imports conservative until their clean/incremental equivalence checks
-pass, following [world build practices](WORLD_BUILD_PRACTICES.md).
+`atelier reuse` supports named products as part of a verified whole build at the same clean revision. It compares
+producer source identities before copying and full fingerprints and inventories afterward, including unconsumed
+leaves and optional sidecars. Its journal blocks build and launch after an interrupted copy; see
+[snapshot recovery](ARTIFACT_POOL.md#verified-whole-build-reuse). The older explicit `atelier pool` still rejects named
+products. Unreal packages, native binaries, Content and Intermediate directories remain ineligible for the automatic
+portable source cache. Per-package cross-revision restoration, relocation and remote storage remain described in
+[the architecture](INCREMENTAL_BUILDS.md). Keep native imports conservative until their clean/incremental equivalence
+checks pass, following [world build practices](WORLD_BUILD_PRACTICES.md).
+
+## Spatial product reads
+
+Use recipe-declared boxes when an action depends on nearby products. `Product(collection=..., bounds=...)` names
+a collection and a conservative bounding box. `BBoxQuery(name, collection, bounds)` selects its intersecting
+products. Bounds are `(min_x, min_y, min_z, max_x, max_y, max_z)`, finite numbers in a shared coordinate frame and
+unit. Flat boxes and touching boundaries are included. Names are stable product IDs, independent of discovery order.
+
+```python
+from atelier.build import BBoxQuery, Product, Python, Step
+from atelier.build_inputs import local_imports
+
+source = Step('world.rock', [Python(rock_script, (rock_source, rock_output))],
+              inputs=[rock_source], audit=True, cache=True,
+              products=[Product('rock.geometry', (rock_output,),
+                                collection='geometry.cm', bounds=(10, 0, 0, 30, 20, 40))])
+tile = Step('world.tile', [Python(tile_script, (tile_output,))],
+            inputs=local_imports(tile_script), audit=True, cache=True,
+            queries=[BBoxQuery('nearby', 'geometry.cm', (0, -50, -50, 100, 50, 50))],
+            products=[Product('tile.geometry', (tile_output,))])
+```
+
+The tile script reads frozen matches:
+
+```python
+from atelier.build_context import query
+
+for product in query('nearby'):
+    # product.name, product.bounds and product.paths are immutable records.
+    geometry = product.paths[0].read_bytes()
+```
+
+When a matching product declares `optional_paths`, the frozen result exposes that separate tuple too.
+Required and optional root roles enter the selector identity; optional-root absence, presence and bytes enter
+the consumed product identity. Audit read grants cover those exact owned roots, including missing optional
+paths, without granting their parent directories or siblings. Products with optional output roots remain
+ineligible for portable caching and Python auditing; this does not enable native package caching.
+
+Resolution happens before target selection, ordering and cache lookup, against all current recipe declarations.
+Matching producers become prerequisites and their selected product identities enter the consumer's key. The key
+also includes query criteria and the full sorted result set, even when empty. Unmatched products and unconsumed
+sibling outputs do not enter it. `--plan --json` exposes resolved matches; `--explain` names changed queries.
+
+Queries currently require an audited Python action with named products. Only declared matches grant file access;
+the action does not receive the global catalogue. Include its static imports through `local_imports`, and avoid
+declaring a broad catalogue input on the consumer, which would deliberately invalidate it for every catalogue edit.
+The [sandbox example](../games/sandbox/README.md#spatial-dependencies-without-unreal) exercises this without native tools.
+
+Read catalogue metadata freshly inside `steps(ctx)`, for example from per-source JSON files. Atelier re-evaluates
+the recipe before accepting a query consumer and before/after restoration or execution. Changed bindings, owner
+paths, consumed bytes or refreshed consumer fingerprints refuse certification and require rerunning to replan.
+The executor does not silently add producers to an already running plan. Fresh resolution does not reload arbitrary
+Python globals or cached imported modules; keep catalogues out of such state. Products must not change concurrently
+with their consumers. Endpoint checks cannot prove that a file was unchanged at every instant.
+
+Each checkpoint resolves only the current action's queries, while revalidating ownership against the complete
+fresh catalogue. Shared source paths are resolved once within that validation; path results are not retained
+between checkpoints. Recipe loading, complete ownership checks and matched-product inventories still have a
+cost. Profile large catalogues before migration; this API does not provide a persistent spatial index or watcher.
+
+Bounds are author declarations, not a geometric proof. Include each operation's full influence volume and verify
+that product bounds contain the generated geometry. Runtime-discovered boxes, generated spatial catalogues,
+nearest-neighbour queries and native import/query adapters are not implemented. Use broader explicit reads until
+those contracts exist. Native Unreal products remain ineligible for portable caching.

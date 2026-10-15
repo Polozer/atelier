@@ -14,6 +14,7 @@
     atelier live state|py|shot         talk to the running game through the live bridge
     atelier qa <game> <scenario> ...   run games/<game>/scenarios/<scenario>.py against the running game
     atelier board post|read|thread|task|supervise|retire|wait|status|serve ...   coordinate machine-local agents (docs/AGENT_BOARD.md)
+    atelier pr-media push <key> FILE... [--remote R] [--dry-run]   publish PR screenshots/films under refs/pr-media/<key>, outside default clones
     atelier lint                       public-repository rules: no secrets, no personal paths, no game names in the platform
 """
 import argparse, datetime, importlib.util, os, re, shutil, subprocess, sys
@@ -79,6 +80,8 @@ def game_limit(memory_gib=None):
 def play(game, profile, settings, extra, memory_gib=None):
     limit = game_limit(memory_gib)
     ctx = Context(game)
+    from .build_snapshot import require_complete
+    require_complete(ctx.out, game=game)
     data = manifest.game(game)
     profiles = data.get('play', {})
     if profile not in profiles:
@@ -164,13 +167,19 @@ def make_parser():
     p = sub.add_parser('doctor'); p.add_argument('game')
     p = sub.add_parser('setup'); p.add_argument('--headless', action='store_true')
     p.add_argument('--workers', type=int, default=3, help='headless compiler parallelism (default: 3)')
-    p = sub.add_parser('reuse'); p.add_argument('game'); p.add_argument('--from', dest='source', required=True)
+    p = sub.add_parser('reuse'); p.add_argument('game')
+    mode = p.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--from', dest='source')
+    mode.add_argument('--abandon', action='store_true', help='remove an interrupted generated copy; keep tracked sources/logs')
     p.add_argument('--to', dest='target', help='fresh worktree path (default: this checkout)')
     p = sub.add_parser('pool'); p.add_argument('action', choices=['publish', 'restore', 'status'])
     p.add_argument('game'); p.add_argument('step')
     p = sub.add_parser('fetch'); p.add_argument('game')
-    p = sub.add_parser('capacity', help='inspect retained resource history or evaluate a capacity snapshot')
-    p.add_argument('action', choices=['plan', 'history']); p.add_argument('path', help='snapshot JSON or guard report directory')
+    p = sub.add_parser('capacity', help='inspect capacity or run the supervised admission broker')
+    p.add_argument('action', choices=['plan', 'history', 'shadow', 'probe', 'serve', 'status', 'reconcile',
+                                    'supervise', 'prepare-cutover', 'activate-cutover'])
+    p.add_argument('path', help='snapshot, guard directory, experiment database, broker config, or status socket')
+    p.add_argument('--state', help='explicit absolute simulation database path (shadow only)')
     p.add_argument('--json', action='store_true')
     p = sub.add_parser('build'); p.add_argument('game'); p.add_argument('steps', nargs='*')
     p.add_argument('--list', action='store_true'); p.add_argument('--force', action='store_true')
@@ -195,6 +204,11 @@ def make_parser():
     p = sub.add_parser('stream'); p.add_argument('game'); p.add_argument('action', choices=['start', 'stop', 'status', 'build-web'])
     p.add_argument('--local', action='store_true', help='this machine only: no Tailscale Serve')
     p.add_argument('--install', action='store_true', help='build-web: reinstall platform/web packages (npm ci)')
+    p = sub.add_parser('pr-media', help='publish PR screenshots and films under refs/pr-media/<key>')
+    p.add_argument('action', choices=['push']); p.add_argument('key', help='the PR number, or a slug before the PR exists')
+    p.add_argument('files', nargs='+', metavar='FILE')
+    p.add_argument('--remote', default='origin', help='GitHub remote to push to (default: origin)')
+    p.add_argument('--dry-run', action='store_true', help='read the remote ref and build the commit locally, but print its links without pushing')
     p = sub.add_parser('lint'); p.add_argument('--staged', action='store_true', help='check the staged files only')
     p = sub.add_parser('contracts', help='check code contract syntax and owners')
     p.add_argument('action', choices=['check'])
@@ -231,6 +245,8 @@ def main(argv=None):
         return setup.main(args.headless, args.workers)
     if args.command == 'reuse':
         from . import reuse
+        if args.abandon:
+            return reuse.abandon(args.game, args.target)
         return reuse.main(args.game, args.source, args.target)
     if args.command == 'pool':
         from . import artifact_pool
@@ -241,6 +257,34 @@ def main(argv=None):
     if args.command == 'fetch':
         return fetch(args.game)
     if args.command == 'capacity':
+        if args.action == 'shadow':
+            if not args.state:
+                raise SystemExit('capacity shadow requires --state with an explicit absolute simulation database path')
+            from .capacity_service import main as shadow_main
+            return shadow_main(args.state, args.path)
+        if args.state:
+            raise SystemExit('--state is only supported by capacity shadow')
+        if args.action in ('prepare-cutover', 'activate-cutover'):
+            from . import capacity_compat
+            operation = capacity_compat.prepare if args.action == 'prepare-cutover' else capacity_compat.activate
+            operation(args.path)
+            print('Legacy lanes sealed; a verified new OS boot is required before activation.' if args.action == 'prepare-cutover'
+                  else 'Full capacity compatibility barrier activated; clients still require broker admission.')
+            return 0
+        if args.action == 'serve':
+            from .capacity_broker import main as serve_main
+            return serve_main(args.path)
+        if args.action == 'supervise':
+            from .capacity_supervision import install
+            return install(args.path)
+        if args.action in ('status', 'reconcile'):
+            import json
+            from .capacity_client import reconcile, status
+            print(json.dumps((reconcile if args.action == 'reconcile' else status)(args.path), indent=2))
+            return 0
+        if args.action == 'probe':
+            from .capacity_probe import main as probe_main
+            return probe_main(args.path)
         if args.action == 'history':
             from .capacity_history import show
             return show(args.path, as_json=args.json)
@@ -279,12 +323,17 @@ def main(argv=None):
     if args.command == 'stream':
         from . import stream
         return stream.main(args.game, args.action, local=args.local, install=args.install)
+    if args.command == 'pr-media':
+        from . import pr_media
+        return pr_media.push(args.key, args.files, remote=args.remote, dry_run=args.dry_run)
     if args.command == 'lint':
         return lint(args.staged)
     if args.command == 'contracts':
         from . import contracts
         return contracts.check()
     if args.command == 'qa':
+        from .build_snapshot import require_complete
+        require_complete(paths.build_root() / args.game, game=args.game)
         script = paths.game_dir(args.game) / 'scenarios' / f'{args.scenario}.py'
         if not script.exists():
             raise SystemExit(f'no scenario {script}')

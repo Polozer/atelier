@@ -18,7 +18,7 @@ import ast, importlib.util, json, os, tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from atelier.build import Step, Python, Blender, UnrealScript, UnrealCompile, UnrealPackage, Call
+from atelier.build import Product, Step, DeferredInputs, Python, Blender, UnrealScript, UnrealCompile, UnrealPackage, Call
 from atelier import paths, unreal_modules
 
 GAME = Path(__file__).resolve().parent
@@ -99,6 +99,16 @@ NORTH_LAYOUT = (REGIONS / 'hidamari' / 'forest_backdrop.py', REGIONS / 'megapark
                 REGIONS / 'megapark' / 'trail.py', *TREEHOUSE_LAYOUT, *VILLAGE_LAYOUT)
 SOUTHWEST_MODELS = ('stand,fisher_house_a,fisher_house_b,boat_shed,stairs,dock,boat,drying_rack,temple,island,'
                     'boulder_a,boulder_b,boulder_c,stone_wall,pine_lean_a,pine_lean_b')
+# The horse library (assets/horses/manifest.json) declares the breeds, tack sets and clips; the rider authors one clip
+# per horse clip, and the mount and dismount. RIDE_COMMON is what the bike and horse riders share.
+HORSES = ASSETS / 'horses'
+HORSE_LIBRARY = json.loads((HORSES / 'manifest.json').read_text())
+HORSE_VARIANTS = HORSES / 'coats' / 'variants'
+HORSE_RIDER_CLIPS = (*(f'Horse{clip}' for clip in HORSE_LIBRARY['clips']), 'HorseMount', 'HorseDismount')
+RIDE_COMMON = ASSETS / 'vehicles' / 'rider_common.py'
+_horse_data = importlib.util.spec_from_file_location('horse_data', SCRIPTS / 'horse_data.py')
+horse_data = importlib.util.module_from_spec(_horse_data)
+_horse_data.loader.exec_module(horse_data)
 
 
 def local_imports(script, roots=(WORLD, REGIONS)):
@@ -162,6 +172,45 @@ def skate_data_present(out):
                     (content / (path.removeprefix('/Game/').split('.')[0] + '.uasset')).is_file()
                     for path in [*report['banks'], report['runtime_asset']]))
     except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def horse_import_inputs():
+    """What Scripts/import_horses.py reads: its modules (horse_data.upright_glb packs with atelier.gltf), the library
+    manifest, the coat masks and variants, and each breed's GLBs."""
+    variants = json.loads((HORSE_VARIANTS / 'manifest.json').read_text())['variants']
+    return [SCRIPTS / 'import_horses.py', SCRIPTS / 'horse_data.py', SCRIPTS / 'animation_compression.py', YORI,
+            paths.STUDIO / 'atelier' / 'gltf.py',
+            HORSES / 'manifest.json', HORSE_VARIANTS / 'manifest.json',
+            *(HORSES / 'coats' / f'T_Coat_{mask}_Mask.png' for mask in HORSE_LIBRARY['coat_masks']),
+            *(HORSE_VARIANTS / v['file'] for v in variants),
+            *(HORSES / slug for slug in HORSE_LIBRARY['breeds'])]
+
+
+def horses_imported_present(out):
+    """The roster unreal.horses wrote matches its report and the contract (Scripts/horse_data.py), lists the library's
+    breeds, clips, tack sets, coat masks and variants, and every asset it names is saved, as is each mesh's material
+    instances and the textures they keep (the report's `materials`)."""
+    try:
+        roster = json.loads((GAME / 'unreal' / 'Content' / 'Data' / 'horses' / 'roster.json').read_text())
+        report = json.loads((out / 'horses' / 'unreal_import.json').read_text())
+        materials = report.pop('materials')
+        if roster != report or horse_data.roster_problems(roster):
+            return False
+        if set(materials) != set(horse_data.meshes(roster)) or not all(materials.values()):
+            return False
+        library = json.loads((HORSES / 'manifest.json').read_text())
+        variants = json.loads((HORSE_VARIANTS / 'manifest.json').read_text())['variants']
+        if (roster['breed_order'] != list(library['breeds']) or roster['tack_sets'] != library['tack_sets']
+                or list(roster['coat_masks']) != library['coat_masks']
+                or [v['id'] for v in roster['coat_variants']] != [v['id'] for v in variants]
+                or any(list(b['clips']) != list(library['clips']) for b in roster['breeds'].values())):
+            return False
+        content = GAME / 'unreal' / 'Content'
+        dependencies = [path for used in materials.values() for pair in used.items() for path in pair]
+        return all((content / f"{path.split('.')[0].removeprefix('/Game/')}.uasset").is_file()
+                   for path in [*horse_data.asset_paths(roster), *dependencies])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return False
 
 
@@ -293,16 +342,21 @@ def content(character):
 
 
 def mover_export_steps(character, out):
-    """Its body (pipeline/export.py) and, if playable, its bike clips (vehicles/bike/rider.py), to FBX."""
+    """Its body (pipeline/export.py) and, if playable, its bike clips (vehicles/bike/rider.py) and horse clips (horses/rider.py), to FBX."""
     k, threads = key(character), character.blender['threads']
     steps = [Step(f'characters.{k}', [body_export(character.id, threads=threads)], inputs=[character.folder, NAMES, PIPELINE],
                   outputs=[out / character.output / 'export.json'], heavy=True,
                   about=f"{character.name}'s body, textures and own clips, to FBX")]
     if character.playable:
         steps.append(Step(f'characters.{k}_bike', [Blender(ASSETS / 'vehicles' / 'bike' / 'rider.py', ('--character', character.id), threads=threads)],
-                          inputs=[character.folder, NAMES, PIPELINE, ASSETS / 'vehicles' / 'bike'], needs=['world.bike'],
+                          inputs=[character.folder, NAMES, PIPELINE, ASSETS / 'vehicles' / 'bike', RIDE_COMMON], needs=['world.bike'],
                           outputs=[out / character.output / 'bike' / 'export.json'], heavy=True,
                           about=f"Every bike action authored on {character.name}'s rig, and the bike's channels"))
+        steps.append(Step(f'characters.{k}_horse', [Blender(ASSETS / 'horses' / 'rider.py', ('--character', character.id), threads=threads)],
+                          inputs=[character.folder, NAMES, PIPELINE, HORSES / 'rider.py', RIDE_COMMON, YORI], needs=['world.horses'],
+                          outputs=[out / character.output / 'horse' / 'export.json',
+                                   *(out / character.output / 'horse' / 'fbx' / f'A_{c}.fbx' for c in HORSE_RIDER_CLIPS)], heavy=True,
+                          about=f"Every horseback riding action authored on {character.name}'s rig, with its reach errors"))
     return steps
 
 
@@ -315,19 +369,24 @@ def mover_grips_step(character):
                  about=f"{character.name}'s posed grips, for the move set's grip node")] if source.is_dir() else []
 
 
-def mover_import_steps(character):
-    """Its body (Scripts/import_character.py) and, if playable, its bike clips (Scripts/import_bike_clips.py)."""
+def mover_import_steps(character, out):
+    """Its body (Scripts/import_character.py) and, if playable, its bike and horse clips (Scripts/import_ride_clips.py)."""
     k, modules = key(character), tuple(character.unreal['modules'])
     body, inputs = body_import(character.id, modules)
     steps = [Step(f'unreal.{k}', [body], inputs=inputs, after=['unreal.world'], needs=[f'characters.{k}', *unreal_modules.needs(modules)],
                   outputs=[content(character) / f'SK_{character.name}.uasset'], heavy=True,
                   about=f'{character.unreal_path}: its mesh, materials, own clips and base definition')]
     if character.playable:
-        steps.append(Step(f'unreal.{k}_bike', [UnrealScript(SCRIPTS / 'import_bike_clips.py', f'{character.id.upper()} BIKE IMPORT COMPLETE',
-                                                            null_rhi=True, env=(('BIKE_CHARACTER', character.id),))],
-                          inputs=[SCRIPTS / 'import_bike_clips.py', SCRIPTS / 'animation_compression.py', PIPELINE / 'definition.py', character.folder / 'character.toml'],
-                          needs=[f'characters.{k}_bike', f'unreal.{k}'], heavy=True,
+        rides = SCRIPTS / 'import_ride_clips.py'
+        ride = lambda kind: UnrealScript(rides, f'{character.id.upper()} {kind.upper()} IMPORT COMPLETE', null_rhi=True,
+                                         env=(('RIDE', kind), ('RIDE_CHARACTER', character.id)))
+        inputs = [rides, SCRIPTS / 'animation_compression.py', YORI, PIPELINE / 'definition.py', character.folder / 'character.toml']
+        steps.append(Step(f'unreal.{k}_bike', [ride('bike')], inputs=inputs, needs=[f'characters.{k}_bike', f'unreal.{k}'], heavy=True,
                           about=f'{character.unreal_path}Bike: its bike clips on SK_{character.name}'))
+        steps.append(Step(f'unreal.{k}_horse', [ride('horse')], inputs=inputs, needs=[f'characters.{k}_horse', f'unreal.{k}'],
+                          outputs=[out / character.output / 'horse' / 'unreal_import.json',
+                                   *(GAME / 'unreal' / 'Content' / f"{character.game['bike_rig']}Horse" / f'A_{c}.uasset' for c in HORSE_RIDER_CLIPS)],
+                          heavy=True, about=f'{character.unreal_path}Horse: its horseback riding clips on SK_{character.name}'))
     return steps
 
 
@@ -355,7 +414,8 @@ def mover_adventure_steps(character, out):
 def pawn_steps(steps):
     """Each player's pawn, BP_<Name>, and the readiness record that registers it (Scripts/character_pawn.py), in the
     full editor (the Blueprint's parent is the game's AMoverCharacter). Last of its steps: a character is published
-    only once its move set, bike clips, grips and fit gate are all built."""
+    only once its move set, bike clips, grips and fit gate are all built, and after its horse clips: the pawn reads
+    none of them, so horse changes leave it current."""
     names = {s.name for s in steps}
     result = []
     for character in definition.movers():
@@ -366,7 +426,7 @@ def pawn_steps(steps):
         result.append(Step(
             f'unreal.{k}_pawn', [UnrealScript(script, f'CHARACTER PAWN COMPLETE: {character.id}', null_rhi=True, env=(('CHARACTER', character.id),))],
             inputs=[script, PIPELINE / 'definition.py', character.folder / 'character.toml'],
-            needs=[*ready, 'unreal.compile'],
+            needs=[*ready, 'unreal.compile'], after=[n for n in (f'unreal.{k}_horse',) if n in names],
             outputs=[content(character) / f'BP_{character.name}.uasset', GAME / 'unreal' / 'Content' / 'Data' / character.id / 'character.json'],
             heavy=True,
             about=f'{character.unreal_path}/BP_{character.name}: {character.name} as a playable pawn, registered with the game'))
@@ -374,12 +434,12 @@ def pawn_steps(steps):
 
 
 def fit_steps(out, steps):
-    """Each mover's fit gate (pipeline/fit.py), after the exports that write its reports: adventure and bike."""
+    """Each mover's fit gate (pipeline/fit.py), after the exports that write its reports: adventure, bike and horse."""
     names = {s.name for s in steps}
     result = []
     for character in definition.movers():
         k = key(character)
-        exports = [n for n in (f'characters.{k}_adventure', f'characters.{k}_bike') if n in names]
+        exports = [n for n in (f'characters.{k}_adventure', f'characters.{k}_bike', f'characters.{k}_horse') if n in names]
         if exports:
             result.append(Step(f'characters.{k}_fit', [Python(PIPELINE / 'fit.py', ('--character', character.id))],
                                inputs=[PIPELINE / 'fit.py', PIPELINE / 'definition.py', character.folder / 'character.toml',
@@ -448,16 +508,36 @@ def belmonte_steps(out):
     ]
 
 
+def texture_steps(ctx):
+    """One exact PNG/JPEG owner per spec; the familiar aggregate consumes their byte identities."""
+    from atelier.build_inputs import local_imports as action_imports
+    definition = importlib.util.spec_from_file_location('yorimichi_texture_catalog', WORLD / 'texture_catalog.py')
+    catalogue = importlib.util.module_from_spec(definition)
+    definition.loader.exec_module(catalogue)
+    script = WORLD / 'gen_textures.py'
+    support = [path for path in action_imports(script) if path != script]
+    steps, products = [], []
+    for key, (filename, _, assets) in catalogue.TEXTURES.items():
+        spec = WORLD / 'textures' / f'{key}.json'
+        output = ctx.out / 'textures' / filename
+        product = f'texture.{key}'
+        products.append(product)
+        steps.append(Step(f'world.textures.{key}',
+                          [Python(script, ('--texture', key, '--spec', spec, '--output', output,
+                                           *(('--assets', ASSETS) if assets else ())))],
+                          inputs=[spec, *support, *(ASSETS / 'environment/textures' / name for name in assets)],
+                          outputs=[output], products=[Product(product, (output,))], cache=True, audit=True,
+                          about=f'independent {filename} source texture'))
+    return [*steps, Step('world.textures', [], reads=products,
+                        about='all island source textures, retaining the legacy consumer boundary')]
+
+
 def world_steps(ctx):
     """World exports."""
     out = ctx.out
     crater_geometry = ['world.craterpark_geometry'] if craterpark_v4.selected() else []
-    return [
+    return [*texture_steps(ctx),
         # ------------------------------------------------------------ world
-        Step('world.textures', [Python(WORLD / 'gen_textures.py')], inputs=[WORLD / 'gen_textures.py', WORLD / 'surface_textures.py', YORI,
-             ASSETS / 'environment/textures/tree-bark.jpg', ASSETS / 'environment/textures/tuscan-ground.jpg',
-             ASSETS / 'environment/textures/tuscan-ground.provenance.json'],
-             outputs=[out / 'textures' / 'T_sky.png', out / 'textures' / 'T_ground_detail.png'], about='procedural textures (leaves, grass, bark, road, sky)'),
         # The tree house's tall canopy trees come first: its layout sizes them from trees.json.
         Step('world.treehouse_trees', [Blender(TREEHOUSE / 'trees.py', threads=4)], inputs=[TREEHOUSE / 'trees.py', WORLD / 'build_assets.py', WORLD / 'forest_trees.py', REGIONS / 'forest/specs.py'],
              needs=['world.textures'], outputs=[out / 'treehouse' / 'trees' / 'trees.json'],
@@ -584,6 +664,12 @@ def world_steps(ctx):
         Step('world.bike', [Blender(ASSETS / 'vehicles' / 'bike' / 'build.py')],
              inputs=[ASSETS / 'vehicles' / 'bike' / 'build.py', YORI],
              outputs=[out / 'bike' / 'manifest.json'], about="Cairo's bike: frame, steering, wheels, crank, pedals, kickstand, rack board", heavy=True),
+        # Verifies every library GLB, measures each breed's contacts and samples the reference breed's clips. A cutoff:
+        # its dependents (the riders, unreal.horses) list what else they read, so a palette edit reruns only the import.
+        Step('world.horses', [Blender(HORSES / 'build.py')],
+             inputs=[HORSES / 'build.py', HORSES / 'manifest.json', YORI, *(HORSES / slug for slug in HORSE_LIBRARY['breeds'])],
+             outputs=[out / 'horses' / 'manifest.json'], cutoff=True,
+             about="the horses' rider contacts and 60 Hz clip trajectories", heavy=True),
         Step('world.kei', [Blender(ASSETS / 'vehicles' / 'kei' / 'build.py')],
              inputs=[ASSETS / 'vehicles' / 'kei', REGIONS / 'village' / 'build.py'],
              outputs=[out / 'kei' / 'manifest.json'], about='the four kei cars in the Mega Park car park', heavy=True),
@@ -717,6 +803,11 @@ def unreal_steps(ctx):
         Step('unreal.bike', [UnrealScript(SCRIPTS / 'import_bike.py', 'BIKE IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_bike.py', SCRIPTS / 'bike_material.py'], needs=['unreal.world', 'world.bike'], heavy=True,
              about="Cairo's bike parts and M_Bike (/Game/Japan/Assets)"),
+        Step('unreal.horses', [UnrealScript(SCRIPTS / 'import_horses.py', 'HORSES IMPORT COMPLETE')],
+             inputs=horse_import_inputs(), after=['unreal.compile'], needs=['world.horses'],
+             outputs=[out / 'horses' / 'unreal_import.json', GAME / 'unreal' / 'Content' / 'Data' / 'horses' / 'roster.json'],
+             verify=lambda: horses_imported_present(out),
+             heavy=True, about='the horse breeds, coats, tack sets and materials (/Game/Horses) and their roster'),
         Step('unreal.lake', [UnrealScript(SCRIPTS / 'import_forest_lake.py', 'LAKE IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_forest_lake.py', SCRIPTS / 'forest_lake_material.py'], needs=['unreal.world', 'world.lake'],
              heavy=True, about='the woodland lake and cabin'),
@@ -753,7 +844,7 @@ def unreal_steps(ctx):
         Step('unreal.fox_hunter', [UnrealScript(SCRIPTS / 'import_fox_hunter.py', 'FOX HUNTER IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_fox_hunter.py', SCRIPTS / 'animation_compression.py'],
              after=['unreal.world'], needs=['characters.fox_hunter'], heavy=True, about='/Game/FoxHunter'),
-        *[step for character in definition.movers() for step in mover_import_steps(character)],
+        *[step for character in definition.movers() for step in mover_import_steps(character, out)],
         # The camera see-through (docs/CAMERA.md) patches materials the world and the see-through characters' imports make, so it reruns after
         # either; the tree house builds its own with it (unreal.treehouse).
         Step('unreal.see_through', [UnrealScript(SCRIPTS / 'see_through.py', 'SEE-THROUGH COMPLETE')],
@@ -850,7 +941,9 @@ def steps(ctx):
                        about='archive retired generated imports before multiplayer identity and cooking'))
     result.append(Step('data.network', [Call('network_identity', identity.stage)],
                        inputs=[GAME / 'network_identity.py', SOURCE, ctx.uproject, GAME / 'unreal/Config',
-                               paths.ENGINE_PLUGINS, *identity.content_files(content)],
+                               paths.ENGINE_PLUGINS],
+                       deferred_inputs=[DeferredInputs('content', identity.content_files, (content,),
+                                                       support=(GAME / 'network_identity.py',))],
                        needs=[s.name for s in result if s.name.startswith('unreal.')] + ['data.stage', 'data.content'],
                        outputs=[content / 'Data/Network/session.json'],
                        about='matching multiplayer code, imported assets and staged gameplay data'))

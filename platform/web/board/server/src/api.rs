@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// A stored message, exactly as the mailbox holds it.
@@ -131,6 +131,7 @@ pub struct Holder {
     /// The folder name of the checkout running the job.
     pub checkout: String,
     pub time: Value,
+    pub capacity_bridge: bool,
 }
 
 #[derive(Serialize, JsonSchema, Clone, Debug, Default)]
@@ -139,6 +140,74 @@ pub struct Holders {
     pub big: Option<Holder>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub small: Option<Holder>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fitting: Option<Holder>,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, Default)]
+pub struct CapacityVector {
+    pub memory_mib: u64,
+    pub cpu_millis: u64,
+    pub temp_mib: u64,
+    pub io_slots: u64,
+    pub gpu_mib: u64,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+pub struct CapacityJob {
+    pub id: String,
+    pub owner: Option<String>,
+    pub checkout: Option<String>,
+    pub purpose: Option<String>,
+    pub phase: Option<String>,
+    pub state: String,
+    pub charged: bool,
+    pub resources: CapacityVector,
+    pub locks: Vec<String>,
+    pub first_ready: f64,
+    pub sequence: u64,
+    pub bypasses: u64,
+    pub retained: u64,
+    pub witnessed: u64,
+    pub wait_reason: String,
+    pub measured_memory_mib: Option<u64>,
+    pub measured_at: Option<f64>,
+    pub ancestry_unknown: bool,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+pub struct CapacitySnapshot {
+    pub epoch: u64,
+    pub boot_id: String,
+    pub mode: String,
+    pub cutover: bool,
+    pub observed_at: f64,
+    pub recovering: bool,
+    pub total: CapacityVector,
+    pub reserve: CapacityVector,
+    pub charged_resources: CapacityVector,
+    pub charged_count: u64,
+    pub waiting_count: u64,
+    pub total_records: u64,
+    pub returned_records: u64,
+    pub records: Vec<CapacityJob>,
+    pub truncated: bool,
+}
+
+#[derive(Serialize, JsonSchema, Clone, Debug)]
+pub struct CapacityStatus {
+    pub configuration: String,
+    pub availability: String,
+    pub checked_at: Option<f64>,
+    pub fresh: bool,
+    pub snapshot: Option<CapacitySnapshot>,
+}
+
+#[derive(Serialize, JsonSchema, Clone, Debug)]
+pub struct LegacySlots {
+    pub slots: u8,
+    pub fitting_enabled: bool,
+    pub fitting_paused: bool,
 }
 
 /// A remote agent session the watchdog reports on.
@@ -157,6 +226,41 @@ pub struct Resources {
     pub fresh: bool,
     pub cpu: Option<f64>,
     pub available_gib: Option<f64>,
+}
+
+/// One place on the disk and its allocated size.
+#[derive(Serialize, JsonSchema, Clone, Debug, PartialEq)]
+pub struct DiskItem {
+    pub label: String,
+    /// Where it is, `~/…` inside the home folder; none for `Other`.
+    pub path: Option<String>,
+    /// While `measuring`, its last size or the count so far, whichever is larger.
+    pub bytes: u64,
+    /// When this place was last measured, in Unix seconds; none for `Other` and a place not measured yet.
+    pub measured_at: Option<f64>,
+    /// The scan is measuring it now.
+    pub measuring: bool,
+}
+
+/// The home folder's volume and what takes its space.
+#[derive(Serialize, JsonSchema, Clone, Debug)]
+pub struct Disk {
+    /// Bytes the user can still write on the volume, read on every request (none if it cannot be read).
+    pub free_bytes: Option<u64>,
+    pub total_bytes: Option<u64>,
+    /// When the last complete scan finished, in Unix seconds; none before the first one. A background scan starts
+    /// when the floor is shown, five minutes after the last one finished, and never while a render lock is held.
+    pub measured_at: Option<f64>,
+    /// How long that scan took, in seconds.
+    pub scan_seconds: Option<f64>,
+    /// A scan is running now.
+    pub scanning: bool,
+    /// The running scan waits for a render lock to be released.
+    pub paused: bool,
+    /// The largest places by allocated size, biggest first, and the one being measured, then `Other` once a scan has
+    /// completed (the used space they leave unexplained, left out when not positive: an APFS clone counts in full in
+    /// every place, so places can add up to more).
+    pub items: Vec<DiskItem>,
 }
 
 /// The Threads and Activity tabs' unread badges.
@@ -182,8 +286,11 @@ pub struct State {
     pub log_total: i64,
     pub inbox: InboxSummary,
     pub holders: Holders,
+    pub legacy_slots: LegacySlots,
+    pub capacity: CapacityStatus,
     pub sessions: Vec<Session>,
     pub resources: Resources,
+    pub disk: Disk,
     /// Send it back as `X-Board-CSRF` on every POST.
     pub csrf: String,
     /// The name the board posts as.

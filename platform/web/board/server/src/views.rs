@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use crate::api::{Agent, Message, Resources, Row, Session, State, Thread};
 use crate::db::{self, Result, bad};
-use crate::{files, floor, inbox, markdown, store};
+use crate::{capacity, disk, files, floor, inbox, markdown, store};
 
 static SESSION_URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^https://claude\.ai/code/session_[A-Za-z0-9]+$").unwrap());
 
@@ -219,6 +219,7 @@ pub fn snapshot(query: &Query, remote_status: Option<&Path>, sender: &str, csrf:
     let (summary, direct) = inbox::summary(&db, sender)?;
     let mut schedule = floor::sections(&floor::board_text());
     let holders = floor::holders();
+    let render_held = floor::any_lane_held();
     let telemetry = files::read_json(&db::root().join("render-supervisor/latest.json")).unwrap_or(Value::Null);
     let mut sessions = Vec::new();
     if let Some(path) = remote_status {
@@ -264,12 +265,15 @@ pub fn snapshot(query: &Query, remote_status: Option<&Path>, sender: &str, csrf:
         log_total,
         inbox: summary,
         holders,
+        legacy_slots: floor::slots(),
+        capacity: capacity::snapshot(),
         sessions,
         resources: Resources {
             fresh: (0.0..120.0).contains(&(now - reported)),
             cpu: telemetry.get("cpu_busy_percent").and_then(Value::as_f64),
             available_gib: telemetry.get("memory").and_then(|m| m.get("available_gib")).and_then(Value::as_f64),
         },
+        disk: disk::report(render_held),
         csrf: csrf.to_owned(),
         sender: sender.to_owned(),
     })

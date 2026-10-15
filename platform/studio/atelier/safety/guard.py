@@ -19,7 +19,7 @@ monitor records the game's descendants while it runs, and once the game has gone
 the recorded ones named in `HELPERS` that are still the same processes, still orphaned or under another of them. Nothing
 is matched by name across the machine, and shared services the game starts (Zen, Trace) are not in `HELPERS`.
 """
-import json, os, signal, subprocess, sys, time
+import json, math, os, signal, subprocess, sys, time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -102,6 +102,33 @@ def reap(child, grace=10.):
         _reap_helpers(child.pid)
 
 
+def wait_ready(monitor, pid, started, report, limit_bytes, timeout=5.):
+    """Require a fresh process-guard sample before releasing a capacity-gated child.
+
+    This is evidence of guard health and its configured ceiling, not an exit witness or
+    a claim that the process's descendants have all been discovered.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if monitor is None or monitor.poll() is not None:
+            raise RuntimeError('process memory guard exited before becoming ready')
+        try:
+            with Path(report).open('rb') as handle:
+                raw = handle.read(1024 * 1024 + 1)
+            value = json.loads(raw) if len(raw) <= 1024 * 1024 else None
+        except (OSError, ValueError):
+            value = None
+        if isinstance(value, dict):
+            observed = value.get('time')
+            fresh = (type(observed) in (int, float) and math.isfinite(observed)
+                     and 0 <= time.time() - observed <= 5.)
+            if (fresh and value.get('pid') == pid and value.get('process_start') == started
+                    and value.get('limit_bytes') == limit_bytes and value.get('state') == 'running'):
+                return
+        time.sleep(.01)
+    raise RuntimeError('process memory guard did not become ready')
+
+
 @contextmanager
 def attach(pid, report, duration, limit_gib=10., expected_start=None):
     """`duration=None` means no time limit: the ceiling still applies, nothing kills on the clock. `expected_start`
@@ -131,3 +158,87 @@ def attach(pid, report, duration, limit_gib=10., expected_start=None):
         except subprocess.TimeoutExpired:
             monitor.kill()
         _reap_helpers(pid)   # a game still running is left to the harness's reap
+
+
+class TreeMonitor:
+    """A sibling aggregate monitor whose receipts belong to this exact launcher."""
+    def __init__(self, process, pid, started, report):
+        self.process, self.pid, self.started, self.report = process, pid, started, Path(report)
+
+    def receipt(self, state):
+        try:
+            with self.report.open('rb') as handle:
+                raw = handle.read(1024 * 1024 + 1)
+            if len(raw) > 1024 * 1024:
+                return False
+            record = json.loads(raw)
+        except (OSError, ValueError):
+            return False
+        if not isinstance(record, dict):
+            return False
+        observed = record.get('observed_monotonic')
+        fresh = (type(observed) in (int, float) and math.isfinite(observed)
+                 and 0 <= time.monotonic() - observed <= 5.)
+        return (fresh and record.get('owner') == self.pid and record.get('owner_started') == self.started
+                and record.get('state') == state
+                and (state != 'child_exited' or record.get('cleanup_complete') is True))
+
+    def ready(self, timeout=5.):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.process.poll() is not None:
+                raise RuntimeError('aggregate memory guard exited before becoming ready')
+            if self.receipt('running'):
+                return
+            time.sleep(.01)
+        raise RuntimeError('aggregate memory guard did not become ready')
+
+    def check(self):
+        if self.process.poll() is not None:
+            raise RuntimeError('aggregate memory guard exited before the launcher finished')
+        if not self.receipt('running'):
+            raise RuntimeError('aggregate memory guard lost its live receipt')
+
+    def finish(self, timeout=5.):
+        try:
+            status = self.process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError('aggregate memory guard did not finish') from None
+        if status != 0 or not self.receipt('child_exited'):
+            raise RuntimeError('aggregate memory guard did not certify launcher exit')
+
+
+@contextmanager
+def attach_tree(pid, report, duration, limit_gib=10., expected_start=None):
+    """Attach while the gated launcher waits. Call ready() after entering; reap its tree before leaving.
+
+    Readiness is deliberately outside __enter__, so a readiness failure still leaves the monitor
+    attached until the caller's owned-tree cleanup has run.
+    """
+    from . import process_tree
+    started = process_tree.started(pid)
+    if started is None or (expected_start is not None and started != expected_start):
+        raise RuntimeError('Cannot attach aggregate guard to the pinned launcher')
+    report = Path(report)
+    report.unlink(missing_ok=True)  # an earlier run is never a readiness receipt
+    command = [sys.executable, '-m', 'atelier.safety.tree_guard', '--child', '--pid', str(pid),
+               '--expected-start', str(started), '--report', str(report), '--limit-gib', str(limit_gib)]
+    if duration is not None:
+        command += ['--duration', str(duration)]
+    process = subprocess.Popen(command)
+    monitor = TreeMonitor(process, pid, started, report)
+    try:
+        yield monitor
+    finally:
+        if process.poll() is None:
+            # The launcher has already been reaped by the caller. Let the monitor observe and
+            # drain its retained tree before detaching; its child-mode cleanup has a 2 s bound.
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
