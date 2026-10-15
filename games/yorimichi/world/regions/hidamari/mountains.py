@@ -225,7 +225,11 @@ def _former_cone(x,y,trail_quiet):
 
 def caldera_floor():
     """The caldera floor's level, metres above sea level."""
-    return float(apron_height(VOLCANO[1]))+CREST-DEPTH
+    depth = DEPTH
+    if craterpark.is_v4():
+        from craterpark.v2 import v4_placement
+        depth = v4_placement.depth(DEPTH)
+    return float(apron_height(VOLCANO[1]))+CREST-depth
 
 def natural_height(x,y):
     """The foothills and volcano before the edge blend, without the Mega Park."""
@@ -279,8 +283,19 @@ def raw_height(x,y,base,shoulder=None):
     edge=smooth((x-BOUNDS[0])/200)*smooth((BOUNDS[2]-x)/200)*north_edge*leave
     return np.asarray(base)*(1-edge)+target*edge
 
-@lru_cache(maxsize=4)
 def surface_grid(base_sampler):
+    return _surface_grid(base_sampler, _park_identity())
+
+
+def _park_identity():
+    if craterpark.is_v4():
+        from craterpark.v2 import v4_placement
+        return v4_placement.identity()
+    return None
+
+
+@lru_cache(maxsize=4)
+def _surface_grid(base_sampler, park_identity):
     xs=np.arange(BOUNDS[0],BOUNDS[2]+1,STEP);ys=np.arange(BOUNDS[1],BOUNDS[3]+1,STEP)
     x,y=np.meshgrid(xs,ys)
     z=raw_height(x,y,base_sampler(x,y),base_sampler(x,np.full_like(y,BOUNDS[1])))
@@ -453,14 +468,23 @@ def snow_cover(x,y,z,step=STEP):
     rock=noise(x,y,7,120)+noise(x,y,3,121)*.5+noise(x,y,16,122)*.4
     return cover*smooth((rock+1.)/.3)*line
 
-@lru_cache(maxsize=4)
 def snow_grid(base_sampler):
+    return _snow_grid(base_sampler, _park_identity())
+
+
+@lru_cache(maxsize=4)
+def _snow_grid(base_sampler, park_identity):
     xs=np.arange(SNOW_BOUNDS[0],SNOW_BOUNDS[2]+1,SNOW_STEP)
     ys=np.arange(SNOW_BOUNDS[1],SNOW_BOUNDS[3]+1,SNOW_STEP)
     x,y=np.meshgrid(xs,ys)
     cover=snow_cover(x,y,height(x,y,base_sampler),SNOW_STEP)
     # The same bytes drive the material and planting; filtering is bilinear.
     return np.rint(np.clip(cover,0,1)*255).astype(np.uint8)
+
+
+# Preserve callers that explicitly clear derived caches after changing a sampler.
+surface_grid.cache_clear = _surface_grid.cache_clear
+snow_grid.cache_clear = _snow_grid.cache_clear
 
 def snow(x,y,base_sampler):
     x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
@@ -473,16 +497,21 @@ def snow(x,y,base_sampler):
     inside=(x>=SNOW_BOUNDS[0])&(x<=SNOW_BOUNDS[2])&(y>=SNOW_BOUNDS[1])&(y<=SNOW_BOUNDS[3])
     return np.where(inside,value,0.)
 
-def export_snow_mask(output,base_sampler):
-    """Linear R8 PNG, row zero at minimum world y, sampled at texel centres."""
-    import json,struct,zlib
-    field=snow_grid(base_sampler)
-    assert not any(np.any(edge) for edge in (field[0],field[-1],field[:,0],field[:,-1])),'Snow mask clips its footprint'
+def _r8_png(field):
+    """A greyscale 8-bit PNG of `field` (uint8, row zero first)."""
+    import struct,zlib
     def chunk(kind,data):
         return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff)
     rows=b''.join(b'\0'+row.tobytes() for row in field)
-    png=(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',field.shape[1],field.shape[0],8,0,0,0,0))
-         +chunk(b'IDAT',zlib.compress(rows))+chunk(b'IEND',b''))
+    return (b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',field.shape[1],field.shape[0],8,0,0,0,0))
+            +chunk(b'IDAT',zlib.compress(rows))+chunk(b'IEND',b''))
+
+def export_snow_mask(output,base_sampler):
+    """Linear R8 PNG, row zero at minimum world y, sampled at texel centres."""
+    import json
+    field=snow_grid(base_sampler)
+    assert not any(np.any(edge) for edge in (field[0],field[-1],field[:,0],field[:,-1])),'Snow mask clips its footprint'
+    png=_r8_png(field)
     (output/'north_snow.png').write_bytes(png)
     meta={'bounds':SNOW_BOUNDS,'step_m':SNOW_STEP,'size':[field.shape[1],field.shape[0]],
           'linear':True,'row_zero_world_y':SNOW_BOUNDS[1],'filter':'bilinear, clamp, texel-centred',
@@ -491,6 +520,37 @@ def export_snow_mask(output,base_sampler):
           'rock_prominence_m':[130*LIFT,250*LIFT],'south_join_m':SOUTH_JOIN}
     (output/'north_snow.json').write_text(json.dumps(meta,indent=2)+'\n')
     print('NORTH SNOW MASK',field.shape,len(png),'bytes',flush=True)
+
+# The caldera floor's painted ground (tools/craterpark_textures.py 'crater_floor', the editor park's Sunburst floor):
+# M_NorthMountains lays it over the floor and the foot of the wall, CRATER_REACH beyond the wall's foot, fading over
+# CRATER_FADE, so the crags above keep their rock.
+CRATER_REACH = 20.
+CRATER_FADE = 25.
+
+def crater_floor(x,y):
+    """How much of the painted crater floor lies at (x, y): 1 on the caldera floor, 0 up the wall's crags."""
+    _,_,radius,angle=polar(x,y)
+    return smooth((wall_foot(angle)+CRATER_REACH-radius)/CRATER_FADE)
+
+def crater_grid():
+    """crater_floor on the snow mask's texels (the same footprint and step), uint8."""
+    xs=np.arange(SNOW_BOUNDS[0],SNOW_BOUNDS[2]+1,SNOW_STEP)
+    ys=np.arange(SNOW_BOUNDS[1],SNOW_BOUNDS[3]+1,SNOW_STEP)
+    x,y=np.meshgrid(xs,ys)
+    return np.rint(np.clip(crater_floor(x,y),0,1)*255).astype(np.uint8)
+
+def export_crater_mask(output):
+    """north_crater.png/json: crater_floor as a linear R8 PNG on the snow mask's footprint (row zero at minimum world
+    y, texel centres), for M_NorthMountains."""
+    import json
+    field=crater_grid()
+    assert not any(np.any(edge) for edge in (field[0],field[-1],field[:,0],field[:,-1])),'Crater mask clips its footprint'
+    png=_r8_png(field)
+    (output/'north_crater.png').write_bytes(png)
+    meta={'bounds':SNOW_BOUNDS,'step_m':SNOW_STEP,'size':[field.shape[1],field.shape[0]],
+          'linear':True,'row_zero_world_y':SNOW_BOUNDS[1],'filter':'bilinear, clamp, texel-centred'}
+    (output/'north_crater.json').write_text(json.dumps(meta,indent=2)+'\n')
+    print('NORTH CRATER MASK',field.shape,len(png),'bytes',flush=True)
 
 def mesh(base_sampler):
     xs=np.arange(BOUNDS[0],BOUNDS[2]+1,STEP);ys=np.arange(BOUNDS[1],BOUNDS[3]+1,STEP)

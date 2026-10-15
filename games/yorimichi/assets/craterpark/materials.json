@@ -334,5 +334,158 @@
     "doubleSided": false,
     "wrap": "repeat",
     "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_028",
+    "baseColor": [0.36, 0.37, 0.4],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_029",
+    "baseColor": [0.35, 0.36, 0.39],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_030",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/ramp_planks.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_031",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/prado.png",
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_032",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/ramp_fascia.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_033",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/brick_coping.png",
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_034",
+    "baseColor": [0.9, 0.92, 0.95],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_035",
+    "baseColor": [0.72, 0.56, 0.2],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_036",
+    "baseColor": [0.44, 0.45, 0.2],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_037",
+    "baseColor": [0.85, 0.45, 0.12],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_038",
+    "baseColor": [0.8, 0.24, 0.13],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_039",
+    "baseColor": [0.2, 0.22, 0.26],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_040",
+    "baseColor": [0.93, 0.91, 0.86],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_041",
+    "baseColor": [0.25, 0.18, 0.13],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_042",
+    "baseColor": [0.5, 0.46, 0.2],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_043",
+    "baseColor": [0.14, 0.28, 0.16],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_044",
+    "baseColor": [0.82, 0.62, 0.13],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
   }
 ]

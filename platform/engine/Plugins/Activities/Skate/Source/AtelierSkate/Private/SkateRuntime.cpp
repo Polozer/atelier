@@ -1,4 +1,5 @@
 #include "SkateComponent.h"
+#include "SkateAssistZones.h"
 #include "SkateRuntimeDetail.h"
 #include "Simulation/GameplaySession.h"
 #include "Simulation/GroundSurfaceRuntime.h"
@@ -67,6 +68,7 @@ struct FSkateContinuation
 #include "Ride/RideClipPlayer.h"
 #include "Ride/RidePoseMeasure.h"
 #include "Ride/RidePhysicalRider.h"
+#include "Ride/RideLostSimulation.h"
 #include "PhysicsEngine/PhysicsAsset.h"
 #include "PhysicsEngine/SkeletalBodySetup.h"
 
@@ -80,6 +82,8 @@ namespace SkateRuntimeDetail
         TEXT("cm each riding foot's sole stays above the ground under it; below 0 off"));
     TAutoConsoleVariable<int32> CVarSkateLockstep(TEXT("skate.Lockstep"),-1,
         TEXT("Skating waits for each step of its thread, so a replay repeats: 1 always, 0 never, -1 under a fixed step or frame rate"));
+    TAutoConsoleVariable<int32> CVarSkateShowBetweenTicks(TEXT("skate.ShowBetweenTicks"),1,
+        TEXT("1 shows the ride and its camera between the simulation's last two 60 Hz ticks, a tick behind; 0 its last whole tick (lockstep always does)"));
     TAutoConsoleVariable<int32> CVarSkateSurfaceDebug(TEXT("skate.SurfaceDebug"),0,
         TEXT("1 logs every colliding mesh's surface per material slot at the next collision gather (USkateSettings surfaces)."));
     TAutoConsoleVariable<int32> CVarSkateCookedSurface(TEXT("skate.CookedSurface"),0,
@@ -288,6 +292,48 @@ void USkateComponent::EndSimulationBoardInBail()
     // A failed session is dropped where it failed (RelaunchSimulationRide).
     if (RideSimulation && RideSimulation->Error.IsEmpty()) SuspendSimulationRide();
 }
+bool USkateComponent::BailOffLostSimulation(float Dt)
+{
+    // The session's step against the pose shown before it (RideLostSimulation.h). Its own recovery would carry the rider
+    // back along its respawn history, and a board gone through the floor would drag the rider under it: neither is
+    // shown. The rider bails from where it is, with the momentum shown, as from a failed session; the session is
+    // suspended where it is lost, and the get-up starts a fresh one where the body lies (GetUpFromSimulationBail).
+    // Without a body to take the bail, the session's recovery plays as before.
+    if (!RideSimulation || !ShownRuntime || !ShownRuntime->HasPose || !PhysicalRider || !PhysicalRider->IsActive()
+        || PhysicalRider->IsBailing() || PhysicalRider->IsGettingUp()) return false;
+    const FSkateRuntime& N=*RideSimulation;
+    const FTransform WasDeck=ShownRuntime->Bone(TEXT("SKATEBOARD_ROOT")), NowDeck=N.Bone(TEXT("SKATEBOARD_ROOT"));
+    FRideLostSimulationStep Step;
+    // The ticks the session ran since the pose shown, and the one that pose is behind (RideShownMotion.h).
+    Step.State=N.State; Step.Tick=N.Tick; Step.Velocity=N.Velocity; Step.Ticks=(N.Tick>ShownRuntime->Tick?N.Tick-ShownRuntime->Tick:0)+1;
+    Step.From=WasDeck.GetLocation()-WasDeck.GetRotation().GetUpVector()*9.05; Step.To=NowDeck.GetLocation()-NowDeck.GetRotation().GetUpVector()*9.05;
+    Step.Speed=float(FMath::Max(ShownRuntime->Velocity.Size(),N.Velocity.Size()));
+    if (RideLostSimulation::IsBoardAir(Step.State) && Step.To.Z<Step.From.Z)
+    {
+        // The world's own floor: not another character, nor a prop moving under physics (neither is in the session's
+        // world, and the ride goes by them as before).
+        FHitResult Hit;
+        const FCollisionQueryParams Params(SCENE_QUERY_STAT(SkateLostFloor),false,Rider);
+        if (GetWorld()->LineTraceSingleByChannel(Hit,Step.From+FVector(0,0,RideLostSimulation::TraceAbove),Step.To,ECC_Pawn,Params)
+            && !Cast<APawn>(Hit.GetActor()) && !(Hit.GetComponent() && Hit.GetComponent()->IsSimulatingPhysics()))
+        {
+            Step.bCrossed=true; Step.CrossedAt=Hit.ImpactPoint; Step.CrossedNormal=Hit.ImpactNormal;
+            // A face over the board (its underside: a trace meets a face from either side) up to the one it crossed.
+            FHitResult Over;
+            Step.bCovered=GetWorld()->LineTraceSingleByChannel(Over,Step.To,
+                FVector(Step.To.X,Step.To.Y,FMath::Max(Step.To.Z,Hit.ImpactPoint.Z)+RideLostSimulation::TraceAbove),ECC_Pawn,Params);
+        }
+    }
+    const ERideLostSimulation Lost=RideLostSimulation::Judge(Step);
+    if (Lost==ERideLostSimulation::Kept) return false;
+    if (!PhysicalRider->StartBail(Vel,RideSpin,URidePhysicalRider::ShownTransform(BoardRoot),BoardScale())) return false;
+    SuspendSimulationRide();
+    bSimulationBail=true;
+    ++Bails; ++Serial; Mode=ESkateMode::Bail; PlayCue(TEXT("clatter"),1,1);
+    UE_LOG(LogTemp,Display,TEXT("SKATE simulation lost the rider (%s, %s tick=%llu, the board %.0f cm from the last shown at %.0f cm/s): the body bails at (%.0f, %.0f, %.0f)"),
+        RideLostSimulation::Describe(Lost),*Step.State,Step.Tick,FVector::Dist(Step.From,Step.To),Step.Speed,Pos.X,Pos.Y,Pos.Z);
+    return true;
+}
 bool USkateComponent::SimulationStateStarts(const TCHAR* Prefix) const
 {
     return ShownRuntime && ShownRuntime->State.StartsWith(Prefix);
@@ -459,7 +505,9 @@ FSkateHostPad USkateComponent::ReadHostPad() const
             Out.bController=true;
             Out.bFaceLeft=PC->IsInputKeyDown(EKeys::Gamepad_FaceButton_Left);Out.bFaceBottom=PC->IsInputKeyDown(EKeys::Gamepad_FaceButton_Bottom);
             Out.bW=PC->IsInputKeyDown(EKeys::W);Out.bUp=PC->IsInputKeyDown(EKeys::Up);
-            Out.bLeftShoulder=PC->IsInputKeyDown(EKeys::Gamepad_LeftShoulder);Out.bRightShoulder=PC->IsInputKeyDown(EKeys::Gamepad_RightShoulder);
+            Out.bLeftShoulder=PC->IsInputKeyDown(EKeys::Gamepad_LeftShoulder);
+            // RB is the transfer (ReadInput), on the host's bit: the session's own RB (stepping off onto the feet) is not sent.
+            Out.bRightShoulder=false;
             Out.bLeftThumb=PC->IsInputKeyDown(EKeys::Gamepad_LeftThumbstick);Out.bRightThumb=PC->IsInputKeyDown(EKeys::Gamepad_RightThumbstick);
             Out.bQ=PC->IsInputKeyDown(EKeys::Q);Out.bE=PC->IsInputKeyDown(EKeys::E);
             Out.LeftTrigger=PC->GetInputAnalogKeyState(EKeys::Gamepad_LeftTriggerAxis);
@@ -479,6 +527,7 @@ void USkateComponent::TickSimulation(float Dt)
     { CVarSkateFailSimulation->Set(0,ECVF_SetByConsole); RideSimulation->Error=TEXT("Failed on request (skate.FailSimulation)"); }
     if (bSimulationBail) { FollowSimulationBoardInBail(Dt); AfterSimulationRideFrame(Dt); return; }
     if (!RideSimulation) { RuntimeFailure(TEXT("The simulation ride session is gone.")); StowImmediately(); return; }
+    UpdateAssistZones();
     bool bFailed=false;
     const bool Changed=StepSimulation(*RideSimulation,Dt,PhysicalRider && PhysicalRider->IsGettingUp(),bFailed);
     if (bFailed)
@@ -498,6 +547,9 @@ void USkateComponent::TickSimulation(float Dt)
         return;
     }
     if (!Changed) { AfterSimulationRideFrame(Dt); return; }
+    // A session that lost the rider (its own recovery teleport after a long fall, its board through the floor) is not
+    // followed: the body bails where the rider is shown (BailOffLostSimulation).
+    if (BailOffLostSimulation(Dt)) return;
     ShownRuntime->Present(*RideSimulation);
     const FString& S=ShownRuntime->State;
     // A fallen rider getting up onto the board is still in the bail.
@@ -554,6 +606,18 @@ void USkateComponent::TickSimulation(float Dt)
     if (RideSimulation && !bSimulationBail) RefreshSimulationCollision(*RideSimulation,Pos,Rot.Rotator().Yaw,false);
 }
 
+void USkateComponent::UpdateAssistZones()
+{
+    // Assist zones (SkateAssistZones.h, README "Assist zones"): with the board or the rider inside one, the vert assist
+    // is at most its limit. An air keeps the limit it was launched with until it lands, so a kicker's whole jump is
+    // ridden with it; on the ground the limit is the zones' where the board is.
+    float Limit=1.f;
+    if (const USkateAssistSubsystem* Zones=GetWorld()?GetWorld()->GetSubsystem<USkateAssistSubsystem>():nullptr; Zones && !Zones->Zones.IsEmpty())
+        Limit=Zones->VertAssistLimit({Pos,Rider?Rider->GetActorLocation():Pos});
+    if (Mode==ESkateMode::Air) Limit=FMath::Min(Limit,VertAssistHeld);
+    VertAssistHeld=Limit;
+    if (RideSimulation) RideSimulation->VertAssistLimit=Limit;
+}
 void USkateComponent::NameSimulationSpin(ESkateMode Was)
 {
     // The rider's turn about its own up (the pose root's; a shove-it turns only the board) between shown frames.
@@ -627,7 +691,7 @@ bool USkateComponent::StepSimulation(FSkateRuntime& R, float Dt, bool bNeutral, 
         R.Readings.clear();
         if (!bNeutral) ReadFineSticks(R,R.FrameTime,Pad);
         Command.Readings=std::move(R.Readings);R.Readings.clear();R.LastSend=FPlatformTime::Seconds();
-        Command.Input=Input;R.Sent=Input;R.Worker->Enqueue(MoveTemp(Command));
+        Command.Input=Input;Command.VertAssistLimit=R.VertAssistLimit;R.Sent=Input;R.Worker->Enqueue(MoveTemp(Command));
         R.AwaitingPose=true; R.FrameTime=0;
     };
     Send();
@@ -718,20 +782,59 @@ void USkateComponent::RefreshSimulationCollision(FSkateRuntime& R, const FVector
     // between simulation ticks; an idle session (the rider on foot) installs it as soon as it is built.
     // On foot the world also follows the rider from cell to cell (its centre is where a mount there would gather). A
     // world that lands centred elsewhere (built for a cell the rider has left) is built again.
+    // Riding, the board is looked ahead by a build's time, falling in the air (SkateCollisionCoverage.h): a world is asked
+    // for before the board passes the reach, centred where the board will be when it comes in, and a board about to
+    // leave its world with none coming that covers it waits for one built at once. At rest the rules are the old ones.
     if (bIdle)
     {
         const FVector Cell=GridCell(At);
         if (Cell!=R.IdleCell) { R.IdleCell=Cell; R.WantCentre=SnapshotCentre(GetWorld(),At); }
     }
+    const FVector Velocity=bIdle?FVector::ZeroVector:Vel;
+    const double Gravity=!bIdle && Mode==ESkateMode::Air ? 980.*Feel.Gravity : 0.;
+    const FSkateCoveragePlan Plan=SkateCoverage::Plan(R.CollisionCentre,R.CollisionReach,At,Velocity,Gravity,R.BuildSeconds);
+    const bool bNow=!bIdle && Plan.Refresh==ESkateCoverage::Now;
     if (R.PendingWorld.IsValid())
     {
-        if (R.PendingWorld.IsReady() || Lockstep()) R.FinishPendingWorld(!bIdle);
-        return;
+        const bool bReady=R.PendingWorld.IsReady();
+        if (bReady && R.PendingSince>=0) R.BuildSeconds=SkateCoverage::NextBuildSeconds(R.BuildSeconds,FPlatformTime::Seconds()-R.PendingSince);
+        // The world coming covers the board: it is waited for (its build is under way).
+        const bool bWait=bNow && SkateCoverage::Covers(R.PendingCentre,R.CollisionReach/SkateCoverage::ReachFraction,
+            SkateCoverage::Predict(At,Velocity,SkateCoverage::SoonSeconds,Gravity));
+        if (bReady || Lockstep() || bWait)
+        {
+            const double Began=FPlatformTime::Seconds();
+            R.FinishPendingWorld(!bIdle);
+            if (bWait && !bReady) UE_LOG(LogTemp,Display,TEXT("SKATE simulation collision waited for %.0f ms at %.0f cm/s: the board was leaving its world"),
+                (FPlatformTime::Seconds()-Began)*1000.,Velocity.Size());
+            return;
+        }
+        if (!bNow) return;
     }
     if ((At-R.GatherRetryAt).GetAbsMax()<=2000.) return;
-    if ((At-R.CollisionCentre).GetAbsMax()>R.CollisionReach) R.WantCentre=SnapshotCentre(GetWorld(),At);
+    if (bNow)
+    {
+        // None coming covers it: gathered here, as a mount out of reach does (ActivateSimulation), and installed before
+        // the next step. A world still building is installed first, so it never lands over this one. It is centred on the
+        // board's place a moment on, not the look-ahead, so a dense place's smaller cube still holds the board; the
+        // next world is asked for ahead as usual.
+        // A park's world is centred on the park whatever the cell (SnapshotCentre): one gathered again there is the same.
+        const FVector Centre=SnapshotCentre(GetWorld(),SkateCoverage::Predict(At,Velocity,SkateCoverage::SoonSeconds,Gravity));
+        if (Centre.Equals(R.CollisionCentre,1.)) return;
+        const double Began=FPlatformTime::Seconds();
+        R.FinishPendingWorld(false);
+        FSnapshot Snapshot;double Reach=0;
+        if (!GatherWorld(GetWorld(),Rider,Centre,At,Yaw,RailSystem,Snapshot,Reach)) { R.GatherRetryAt=At; return; }
+        R.SendWorld(Snapshot);R.WantCentre=R.CollisionCentre=Centre;R.CollisionReach=Reach;R.GatherRetryAt=FVector(UE_BIG_NUMBER);
+        ++R.Worlds;R.WorldTriangles=Snapshot.Num();
+        UE_LOG(LogTemp,Display,TEXT("SKATE simulation collision gathered at once in %.0f ms at %.0f cm/s: the board was leaving its world"),
+            (FPlatformTime::Seconds()-Began)*1000.,Velocity.Size());
+        return;
+    }
+    if (Plan.Refresh!=ESkateCoverage::Keep) R.WantCentre=SnapshotCentre(GetWorld(),Plan.Target);
     if (!R.WantCentre.Equals(R.CollisionCentre,1.))
     {
+        R.PendingCentre=R.WantCentre; R.PendingSince=FPlatformTime::Seconds();
         // The game thread only lists the meshes (a few ms); their triangles are made with the build (H11: the whole
         // gather took 13 ms of a frame).
         auto Job=MakeShared<FGatherJob,ESPMode::ThreadSafe>();

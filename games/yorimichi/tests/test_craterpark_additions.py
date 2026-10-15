@@ -1,0 +1,307 @@
+"""Crater Park's added pieces and its tunnel kept open (world/regions/craterpark/additions.py, tunnel.py)."""
+from pathlib import Path
+import math
+import sys
+import unittest
+
+import numpy as np
+
+GAME = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(GAME / 'world' / 'regions'))
+from craterpark import additions, grind, tunnel  # noqa: E402
+
+
+def quad(a, b, c, d):
+    return [[a, c, b], [a, d, c]]
+
+
+def floor(x0, z0, x1, z1, y=0.):
+    return quad((x0, y, z0), (x1, y, z0), (x1, y, z1), (x0, y, z1))
+
+
+def box(x0, y0, z0, x1, y1, z1):
+    """A closed box's six faces."""
+    c = [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)]
+    return (quad(c[0], c[4], c[6], c[2]) + quad(c[1], c[3], c[7], c[5]) + quad(c[0], c[1], c[5], c[4])
+            + quad(c[2], c[6], c[7], c[3]) + quad(c[0], c[2], c[3], c[1]) + quad(c[4], c[5], c[7], c[6]))
+
+
+def tube(radius, length, sides=24):
+    """A round tunnel along x, from 0 to `length`, its axis at height `radius`."""
+    t = []
+    for k in range(sides):
+        a0, a1 = 2 * math.pi * k / sides, 2 * math.pi * (k + 1) / sides
+        p = lambda x, a: (x, radius - radius * math.cos(a), radius * math.sin(a))
+        t += quad(p(0, a0), p(length, a0), p(length, a1), p(0, a1))
+    return np.asarray(t, 'f8')
+
+
+class TunnelTests(unittest.TestCase):
+    def test_the_solid_in_a_tunnel_is_cut_out_and_the_block_round_it_kept(self):
+        bore = tube(3., 20.)
+        inside = np.asarray(box(2, .5, -1, 18, 4, 1), 'f8')              # solid filling the bore
+        outside = np.asarray(box(2, 7, -1, 18, 9, 1) + box(-10, 0, -10, -5, 5, 10), 'f8')  # over the roof, beside it
+        cut, parent, corners = tunnel.carve(np.concatenate([inside, outside]), tunnel.tunnels([bore]))
+        self.assertTrue(cut[:len(inside)].all())
+        self.assertFalse(cut[len(inside):].any())
+
+    def test_a_long_face_crossing_the_bore_keeps_its_ends(self):
+        bore = tube(3., 20.); bores = tunnel.tunnels([bore])
+        sliver = np.asarray([[(10, -8, -.4), (10, 9, -.4), (10.3, -8, .4)]], 'f8')   # from under the floor to over the roof
+        cut, parent, corners = tunnel.carve(sliver, bores)
+        self.assertTrue(cut[0])
+        parts = np.einsum('mij,mjd->mid', corners, sliver[parent])
+        centres = parts.mean(1)
+        off_axis = np.hypot(centres[:, 1] - 3., centres[:, 2])
+        self.assertFalse((tunnel.in_bore(centres, [bore]) & (off_axis < 2.5)).any())   # nothing left in the bore (a few cm of skin at its wall)
+        self.assertTrue((centres[:, 1] < 0).any() and (centres[:, 1] > 6).any())     # both ends kept
+        area = lambda t: np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1).sum() / 2
+        self.assertLess(area(parts), area(sliver))
+
+    def test_under_a_deck_is_no_tunnel(self):
+        deck = np.asarray(floor(-5, -5, 5, 5, 4.) + floor(-5, -5, 5, 5, 0.), 'f8')    # open on every side
+        block = np.asarray(box(-1, 1, -1, 1, 3, 1), 'f8')
+        self.assertEqual(tunnel.tunnels([deck]), [])
+        self.assertFalse(tunnel.carve(block, [(deck, np.zeros((1, 3)))])[0].any())
+
+
+class SnakeTests(unittest.TestCase):
+    def setUp(self):
+        # Two floor slabs at 0 m with a 5 m slot between them along z; the hillside 20 m down.
+        self.riding = np.asarray(floor(0, 0, 30, 10) + floor(0, 15, 30, 25) + floor(0, 10, 3, 15) + floor(27, 10, 30, 15), 'f8')
+        self.solid = np.asarray(floor(-10, -10, 40, 35, -20.), 'f8')
+
+    def test_a_slot_holds_a_channel_meeting_the_floor_level(self):
+        v, f, uv = additions.snake_channels(self.riding, self.solid, (-2, -2, 32, 27), 0.)['channels']
+        self.assertEqual(len(uv), len(v))
+        mid = (v[:, 2] > 12.4) & (v[:, 2] < 12.6) & (v[:, 0] > 8) & (v[:, 0] < 22)
+        self.assertAlmostEqual(float(v[mid, 1].min()), -min(additions.CHANNEL, additions.STEEPEST * min(2.5, additions.TRANSITION)), delta=.05)
+        edge = (np.abs(v[:, 2] - 10) < .01) | (np.abs(v[:, 2] - 15) < .01)
+        self.assertLess(float(np.abs(v[edge, 1]).max()), .02)       # flush with the floor at both edges
+        n = grind.unit_normals(v[f].astype('f8'))
+        self.assertTrue((n[:, 1] > 0).all())                         # faces up
+        self.assertLess(float(v[:, 1].max()), .001)                  # nothing rises over the floor
+
+    def test_a_bridge_over_the_slot_stays_and_the_channel_rises_to_it(self):
+        bridge = np.asarray(box(14.5, -.3, 9.5, 15.5, 0, 15.5), 'f8')
+        v, f, uv = additions.snake_channels(self.riding, np.concatenate([self.solid, bridge]), (-2, -2, 32, 27), 0.)['channels']
+        under = (np.abs(v[:, 0] - 15) < .2) & (v[:, 2] > 11) & (v[:, 2] < 14)
+        self.assertLess(float(np.abs(v[under, 1]).max()), .02)      # flush with the bridge's top
+        far = (np.abs(v[:, 0] - 6) < .2) & (np.abs(v[:, 2] - 12.5) < .2)
+        self.assertLess(float(v[far, 1].min()), -.9)                # deep again away from it
+
+
+    def test_a_deck_wall_gets_a_transition_at_its_foot_up_to_its_edge(self):
+        # A deck 2.5 m up beside the floor (a vertical wall at x 10), no slot.
+        riding = np.asarray(floor(0, 0, 10, 10) + floor(10, 0, 20, 10, 2.5), 'f8')
+        solid = np.asarray(floor(-10, -10, 30, 30, -20.), 'f8')
+        made = additions.snake_channels(riding, solid, (-2, -2, 22, 12), 0., feet=True)
+        v, f, uv = made['channels']                                         # the curve, in concrete
+        used = v[np.unique(f)]
+        if 'floor' in made:                                                 # a skirt, if any, lies flat on the floor
+            self.assertLess(float(np.abs(v[made['floor'][1]][:, :, 1]).max()), additions.LIFTED * 2)
+        self.assertAlmostEqual(float(used[:, 1].max()), 2.5, delta=.01)          # reaches the deck's edge
+        foot = used[(np.abs(used[:, 2] - 5) < .2) & (used[:, 0] < 10)]
+        self.assertLess(float(foot[:, 0].min()), 10 - 2.)                       # starts about its radius out
+        n = grind.unit_normals(v[f].astype('f8'))
+        self.assertTrue((n[:, 1] > 0).all())
+
+
+    def test_a_filled_slot_at_a_walls_foot_is_one_curve_from_the_floor_to_the_deck(self):
+        # The floor at 0 m, a 3 m slot along the foot of a deck 2.5 m up, the hillside 20 m down.
+        riding = np.asarray(floor(0, 0, 30, 10) + floor(0, 10, 5, 13) + floor(25, 10, 30, 13) + floor(0, 13, 30, 20, 2.5), 'f8')
+        solid = np.asarray(floor(-10, -10, 40, 35, -20.), 'f8')
+        made = additions.snake_channels(riding, solid, (-2, -2, 32, 22), 0., channel=0., feet=True)
+        v = np.concatenate([m[0][m[1]].reshape(-1, 3) for m in made.values()])
+        self.assertGreater(float(v[:, 1].min()), -.001)                         # no gutter: nothing under the floor
+        cut = v[(np.abs(v[:, 0] - 15) < .01) & (v[:, 2] > 7) & (v[:, 2] < 13.01)]
+        cut = cut[np.argsort(cut[:, 2])]
+        self.assertTrue((np.diff(cut[:, 1]) > -1e-4).all())                     # rises all the way across the slot
+        self.assertAlmostEqual(float(cut[-1, 1]), 2.5, delta=.05)               # up to the deck's edge
+        self.assertLess(float(cut[0, 1]), .01)                                  # from the floor
+
+
+    def test_a_rail_on_the_floor_keeps_its_faces(self):
+        # A 0.3 m wide rail 1.2 m up on the floor, 6 m from a deck 2.5 m up: the deck's foot gets a transition, the rail none.
+        riding = np.asarray(floor(0, 0, 30, 20) + floor(0, 20, 30, 30, 2.5) + floor(10, 8, 20, 8.3, 1.2), 'f8')
+        solid = np.asarray(floor(-10, -10, 40, 40, -20.), 'f8')
+        made = additions.snake_channels(riding, solid, (-2, -2, 32, 32), 0., channel=0., feet=True)
+        v = np.concatenate([m[0][m[1]].reshape(-1, 3) for m in made.values()])
+        near_deck = v[(v[:, 2] > 18) & (v[:, 2] < 20)]
+        self.assertGreater(float(near_deck[:, 1].max()), 1.)                    # the deck's transition
+        by_rail = v[(v[:, 0] > 9) & (v[:, 0] < 21) & (v[:, 2] > 7) & (v[:, 2] < 9.3)]
+        self.assertLess(float(by_rail[:, 1].max()) if len(by_rail) else 0., .01)   # nothing rises on the rail
+
+
+    def test_a_bank_meets_a_pieces_lip_not_its_face(self):
+        # A deck 3 m up whose edge falls in a steep face to 1 m (x 5 to 5.4), open ground, a deck 1 m up from x 15.
+        face = [[(5, 3, 0), (5.4, 1, 10), (5.4, 1, 0)], [(5, 3, 0), (5, 3, 10), (5.4, 1, 10)]]
+        riding = np.asarray(floor(0, 0, 5, 10, 3.) + face + floor(15, 0, 25, 10, 1.), 'f8')
+        solid = np.asarray(floor(-10, -10, 40, 30, -20.), 'f8')
+        v, f, uv = additions.bank(riding, solid, (4, 2, 16, 8))
+        top = v[np.unique(f)]
+        start = top[(top[:, 0] > 5.3) & (top[:, 0] < 5.8)]
+        self.assertGreater(float(start[:, 1].min()), 2.8)                       # from the lip, 3 m (the face is at 1-2 m)
+
+
+    def test_a_hip_bank_falls_steeply_off_the_lip_and_eases_out_flat(self):
+        # A deck 8 m up to x 5, open ground, a deck at 0 from x 25: the landing shape is steep by the lip, flat at the foot.
+        riding = np.asarray(floor(0, 0, 5, 10, 8.) + floor(25, 0, 35, 10, 0.), 'f8')
+        solid = np.asarray(floor(-10, -10, 40, 30, -20.), 'f8')
+        v, f, uv = additions.bank(riding, solid, (4, 2, 26, 8), None, 2.5)
+        t = v[f].astype('f8')
+        xs = np.array([5.5, 6.5, 23.5, 24.5])
+        y = additions.top_heights(t, np.stack([xs, 0 * xs, 0 * xs + 5], 1))
+        self.assertGreater(float(y[0] - y[1]), .6)                              # steep off the lip (mean slope 0.4)
+        self.assertLess(float(y[2] - y[3]), .05)                                # flat into the foot
+        self.assertGreater(float(y[0]), 7.)
+
+
+    def test_a_street_is_flush_with_its_walkways_and_passes_a_deck_by(self):
+        # Walkways at 0 m, a deck 1 m up, the hillside a little under them with a hump and a mound.
+        riding = np.asarray(floor(0, 0, 2, 20, 0.) + floor(18, 0, 20, 20, 0.) + floor(14, 0, 18, 6, 1.), 'f8')
+        hill = floor(-10, -10, 40, 40, -.3) + box(6, -1, 8, 8, -.02, 10) + box(10, -1, 14, 13, 2., 17)
+        v, f, uv = additions.street(riding, np.asarray(hill, 'f8'), (1, 1, 19, 19), (-.2, .2))
+        t = v[f].astype('f8')
+        y = lambda x, z: float(additions.top_heights(t, np.array([[x, 0., z]]))[0])
+        self.assertAlmostEqual(y(10, 4), 0., delta=.01)                         # flush with the walkways
+        self.assertAlmostEqual(y(15, 8), 0., delta=.05)                         # not up onto the deck by it
+        self.assertAlmostEqual(y(7, 9), -.02 + additions.CLEAR, delta=.01)      # clear over the hump
+        self.assertEqual(y(12, 15), -np.inf)                                    # stops at the mound
+
+
+    def test_an_added_pieces_outline_is_smoothed(self):
+        # A staircase outline (a triangle of grid squares): its corner vertices move toward the diagonal.
+        nodes = np.tril(np.ones((9, 9), bool))
+        v, f = additions.grid_mesh(0., 0., 1., np.zeros((9, 9)), nodes)
+        raw, _ = additions.grid_mesh(0., 0., 1., np.zeros((9, 9)), nodes, 0)
+        off = lambda p: np.abs(p[:, 2] - p[:, 0])                                # from the diagonal z = x
+        inner = (raw[:, 2] - raw[:, 0] == 1) & (raw[:, 0] > 0) & (raw[:, 2] < 8)  # the staircase's inner corners
+        self.assertTrue((off(v[inner]) < off(raw[inner]) - .2).all())
+        self.assertTrue(np.array_equal(v[:, 1], raw[:, 1]))                      # heights stay
+
+
+    def test_a_planter_gets_a_flat_bed_under_its_cap(self):
+        # A plaza at 0 m with a 4 m square hole, its brick cap 0.5 m up round it (0.5 m wide), deep ground under it.
+        riding = (floor(0, 0, 20, 8) + floor(0, 12, 20, 20) + floor(0, 8, 8, 12) + floor(12, 8, 20, 12)
+                  + floor(7.5, 7.5, 12.5, 8, .5) + floor(7.5, 12, 12.5, 12.5, .5) + floor(7.5, 8, 8, 12, .5) + floor(12, 8, 12.5, 12, .5))
+        solid = np.asarray(floor(-10, -10, 30, 30, -10.), 'f8')
+        made = additions.snake_channels(np.asarray(riding, 'f8'), solid, (1, 1, 19, 19), 0., 3., 1.5)
+        v = np.concatenate([m[0][m[1]].reshape(-1, 3) for m in made.values()])
+        inside = v[(np.abs(v[:, 0] - 10) < 1.5) & (np.abs(v[:, 2] - 10) < 1.5)]
+        self.assertTrue(np.allclose(inside[:, 1], .5 - additions.BED, atol=.02))   # flat, BED under the cap
+
+
+    def test_a_snake_run_lies_flush_on_its_path_with_walls_either_side_and_open_ends(self):
+        # A 3 m wide path at 0 m along x from 0 to 30: the run's floor is the path's height, its walls rise either side.
+        riding = np.asarray(floor(0, -1.5, 30, 1.5, 0.), 'f8')
+        v, f, uv = additions.snake_run(riding, [(2., 0.), (28., 0.)], 6., 2., 3.)
+        t = v[f].astype('f8')
+        y = lambda x, z: float(additions.top_heights(t, np.array([[x, 0., z]]))[0])
+        self.assertAlmostEqual(y(15, 0), 0., delta=.01)                         # flush on the path
+        self.assertAlmostEqual(y(15, 2.5), 0., delta=.01)                       # a wide floor
+        self.assertGreater(y(15, 5.8), 1.5)                                     # a wall each side
+        self.assertGreater(y(15, -5.8), 1.5)
+        self.assertEqual(y(1., 0.), -np.inf)                                    # open ends, cut square
+        self.assertEqual(y(29., 0.), -np.inf)
+
+
+    def test_a_kicker_rises_from_the_floor_to_a_low_walls_top(self):
+        riding = np.asarray(floor(0, 0, 5, 10, .8) + floor(5, 0, 15, 10, 0.), 'f8')    # a 0.8 m wall's top, the floor
+        v, f, uv = additions.kicker(riding, (4, 2, 9, 6), 'x-')
+        top = v[np.unique(f)]
+        ridge = top[(np.abs(top[:, 2] - 4) < .01)]
+        ridge = ridge[np.argsort(ridge[:, 0])]
+        ridge = ridge[ridge[:, 1] > -1e-6]
+        self.assertAlmostEqual(float(ridge[0, 1]), .8, delta=.01)              # flush with the wall's top
+        self.assertTrue((np.diff(ridge[:, 1]) < 1e-6).all())                     # falls all the way to the floor
+        self.assertLess(float(ridge[-1, 1]), .01)
+        n = grind.unit_normals(v[f].astype('f8'))
+        self.assertTrue((n[:, 1] > .5).sum() > 0 and (np.abs(n[:, 1]) < .1).sum() > 0)    # a top and closed sides
+
+
+class SolidifyTests(unittest.TestCase):
+    def test_a_wall_ending_in_the_air_gets_a_cap_and_a_back_wall(self):
+        # A curved sheet (a quarter pipe 2 m high along z) standing on the ground, open behind.
+        t = []
+        for k in range(8):
+            a0, a1 = math.pi / 2 * k / 8, math.pi / 2 * (k + 1) / 8
+            p = lambda z, a: (2 * math.sin(a), 2 - 2 * math.cos(a), z)      # rises from x 0 to the vertical at x 2
+            t += quad(p(0, a0), p(6, a0), p(6, a1), p(0, a1))
+        piece = np.asarray(t, 'f8')
+        ground = np.asarray(floor(-5, -5, 10, 10, 0.), 'f8')
+        heights = grind.heights(np.concatenate([piece, ground]))
+        v, f, uv = additions.solidify(piece, heights, np.concatenate([piece, ground]))
+        n = grind.unit_normals(v[f].astype('f8'))
+        caps = f[n[:, 1] > .9]
+        self.assertTrue(len(caps))
+        top = v[caps].reshape(-1, 3)
+        self.assertTrue(np.allclose(top[:, 1], 2., atol=1e-6))       # level with the coping
+        self.assertGreater(float(top[:, 0].max()), 2 + additions.THICK - 1e-6)   # behind the wall, away from the ramp
+        self.assertLess(float(v[:, 1].min()), 0.)                    # the back wall goes down into the ground
+
+
+    def test_a_stray_scrap_of_sheet_gets_no_wall(self):
+        # A 0.4 m square of sheet standing in the air: its free edges run 1.6 m in all, under RUN.
+        piece = np.asarray(quad((0, 5, 0), (0, 5.4, 0), (0, 5.4, .4), (0, 5, .4)), 'f8')
+        ground = np.asarray(floor(-5, -5, 10, 10, 0.), 'f8')
+        heights = grind.heights(np.concatenate([piece, ground]))
+        self.assertIsNone(additions.solidify(piece, heights, np.concatenate([piece, ground])))
+
+
+class RampTests(unittest.TestCase):
+    def test_a_profile_of_arcs_and_lines_ends_where_its_circles_say(self):
+        knots = additions.profile(0., 0., [('line', 2.), ('arc', 10., -60.), ('arc', 5., 0.)])
+        s, y, degrees = knots[-1]
+        self.assertAlmostEqual(s, 2 + 10 * math.sin(math.radians(60)) + 5 * math.sin(math.radians(60)), places=6)
+        self.assertAlmostEqual(y, -10 * (1 - math.cos(math.radians(60))) - 5 * (1 - math.cos(math.radians(60))), places=6)
+        self.assertEqual(degrees, 0.)
+        self.assertTrue(all(b[0] - a[0] <= 1. + 1e-9 for a, b in zip(knots, knots[1:])))
+
+    def test_a_ramp_lies_on_its_profile_and_its_lip_rises_at_its_angle(self):
+        knots = additions.profile(5., 0., [('line', 4.), ('arc', 10., 15.)])
+        v, f, _ = additions.ramp([(0., 0.), (40., 0.)], 2., knots, 4.)
+        t = v[f].astype('f8')
+        at = lambda x: additions.top_heights(t, np.array([[x, 0., 0.]]))[0]
+        self.assertAlmostEqual(at(2.5), 5., places=2)                      # the flat run-in, from 2 m along the line
+        end = 2 + knots[-1][0]
+        self.assertAlmostEqual(at(end - .3), knots[-1][1], delta=.1)      # the lip (its last cell of grid)
+        self.assertAlmostEqual((at(end - .3) - at(end - .8)) / .5, math.tan(math.radians(15) - .55 / 10), delta=.03)
+        self.assertTrue(np.isinf(at(end + .5)))                            # it ends at its lip, cut square
+
+    def test_its_flanks_slope_down_to_the_ground_beside_it(self):
+        ground = np.asarray(floor(-20, -20, 60, 20, 0.), 'f8')
+        knots = additions.profile(2., 0., [('line', 30.)])
+        v, f, _ = additions.ramp([(0., 0.), (40., 0.)], 0., knots, 4., ground=ground)
+        t = v[f].astype('f8')
+        at = lambda z: additions.top_heights(t, np.array([[15., 0., z]]))[0]
+        edge = 2 + additions.SNAKE_LIP
+        self.assertAlmostEqual(at(0.), 2., places=3)
+        drop = 1. / math.tan(math.radians(additions.SKIRT_DEGREES))
+        self.assertAlmostEqual(at(edge + drop), 1., delta=.08)             # down the flank at its angle
+        self.assertTrue(np.isinf(at(edge + 3 * drop)) or at(edge + 3 * drop) < 0.)   # it meets the ground and stops
+
+    def test_a_wall_over_a_run_stops_short_as_a_span(self):
+        deck = np.asarray(floor(0, -2, 10, 2, 10.), 'f8')                  # a deck 10 m over a run
+        run = np.asarray(floor(-5, -10, 15, 10, 0.), 'f8')
+        everything = np.concatenate([deck, run])
+        heights = grind.heights(everything)
+        full = additions.solidify(deck, heights, everything)
+        span = additions.solidify(deck, heights, everything, clear=grind.heights(run))
+        self.assertLess(float(full[0][:, 1].min()), 0.)                    # without: walls down into the run
+        self.assertAlmostEqual(float(span[0][:, 1].min()), 10. - additions.BEAM, places=6)
+
+
+class CopingTests(unittest.TestCase):
+    def test_a_tube_runs_along_the_line_its_top_just_over_the_deck_facing_out(self):
+        line = np.stack([np.linspace(0, 5, 11), np.full(11, 1.), np.zeros(11)], 1)
+        v, f, uv = additions.coping([line])
+        self.assertAlmostEqual(float(v[:, 1].max()), 1 + additions.COPING_PROUD, delta=.002)
+        self.assertAlmostEqual(float(v[:, 0].max()), 5., places=4)
+        t = v[f].astype('f8'); n = grind.unit_normals(t)
+        axis = np.stack([t.mean(1)[:, 0], np.full(len(t), 1 + additions.COPING_PROUD - additions.COPING_RADIUS), np.zeros(len(t))], 1)
+        self.assertTrue(((n * (t.mean(1) - axis)).sum(1) > 0).all())
+
+
+if __name__ == '__main__':
+    unittest.main()

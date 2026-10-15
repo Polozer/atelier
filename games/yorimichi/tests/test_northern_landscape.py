@@ -65,6 +65,32 @@ class NorthernLandscape(unittest.TestCase):
         authored=M.snow_cover(x,y,z)
         self.assertEqual(float(authored[outside].max()),0.,'Snow would be lost beyond the texture footprint')
 
+    def test_crater_mask_covers_the_floor_not_the_crags_and_keeps_its_bytes(self):
+        import json
+        import tempfile
+        from PIL import Image
+        field=M.crater_grid()
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)
+            M.export_crater_mask(path)
+            image=Image.open(path/'north_crater.png')
+            self.assertEqual((image.mode,image.size),('L',(1024,1024)))
+            np.testing.assert_array_equal(np.asarray(image),field)
+            meta=json.loads((path/'north_crater.json').read_text())
+            snow={'bounds':list(M.SNOW_BOUNDS),'step_m':M.SNOW_STEP}
+            self.assertEqual({k:meta[k] for k in snow},snow,'the material samples it as the snow mask')
+            self.assertTrue(meta['linear'])
+        # Asymmetric texels detect a flipped PNG or swapped world axes.
+        for iy,ix in ((512,512),(530,600),(470,380),(512,700)):
+            x=M.SNOW_BOUNDS[0]+ix*M.SNOW_STEP
+            y=M.SNOW_BOUNDS[1]+iy*M.SNOW_STEP
+            self.assertEqual(int(field[iy,ix]),int(np.rint(float(M.crater_floor(x,y))*255)))
+        angle=np.linspace(0,2*np.pi,90,endpoint=False)
+        cx,cy=M.VOLCANO
+        for r,want in ((M.wall_foot(angle)-10,1.),(M.rim_radius(angle)-12,0.)):
+            got=M.crater_floor(cx+r*np.cos(angle),cy+r*np.sin(angle))
+            np.testing.assert_allclose(got,want,atol=1e-9)
+
     def test_species_transition_is_shared_continuous_and_preserves_roots(self):
         from forest.ecotone import tuscan_mask,northern_ecotone
         join=M.BOUNDS[3]

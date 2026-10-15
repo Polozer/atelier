@@ -1,0 +1,105 @@
+"""Editor-park supports: stone viaducts under every ramp, flush with its underside, clear of the pieces below."""
+from pathlib import Path
+import sys
+import types
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world' / 'regions'))
+from craterpark.v2 import dsl, editor_supports as es  # noqa: E402
+
+
+def sheet(pid, y, length=60., width=18., x0=0., z0=0.):
+    """A flat run along +x at height y, as the bridge would hand it over (a triangulated sheet plus stations)."""
+    xs, zs = np.meshgrid(np.arange(0, length + .1, 2.), np.arange(-width / 2, width / 2 + .1, 3.))
+    V = np.stack([x0 + xs.ravel(), np.full(xs.size, y), z0 + zs.ravel()], 1)
+    nz, nx = xs.shape
+    i = (np.arange(nz - 1)[:, None] * nx + np.arange(nx - 1)[None]).ravel()
+    F = np.concatenate([np.stack([i, i + nx, i + 1], 1), np.stack([i + 1, i + nx, i + nx + 1], 1)])
+    stations = [dict(d=float(d), x=x0 + d, y=y, z=z0, h=0., a=0., w=width - 2, wl={'h': 0., 'R': 1.}, wr={'h': 0., 'R': 1.},
+                     deck=0.) for d in np.arange(0, length + .1, 1.)]
+    return types.SimpleNamespace(mesh=types.SimpleNamespace(V=V, F=F), metadata=dict(id=pid, type='run', stations=stations))
+
+
+GRID = dict(x0=-60., z0=-60., G=2., nx=150, nz=150)
+FLAT = np.zeros(150 * 150, 'f4')
+
+
+def vertices(parts):
+    return np.concatenate([p.V for p in parts]) if parts else np.zeros((0, 3))
+
+
+def test_high_piece_rides_on_an_arcade_flush_under_it():
+    parts, summary = es.build([sheet('p1', 30., length=120.)], FLAT, GRID)
+    assert summary['pieces'] == {'p1': 'viaduct'} and summary['piers'] >= 3 and summary['arches'] >= 2
+    stone = {dsl.MATERIAL[es.STONE], dsl.MATERIAL[es.ROCK]}
+    assert all(set(p.material.tolist()) <= stone and p.role[0] == dsl.ROLE[dsl.SIDE] for p in parts)
+    V = vertices(parts)
+    assert abs(V[:, 1].max() - (30. + es.EMBED)) < 1e-6, 'the stone meets the ramp in one line'
+    assert V[:, 1].min() >= -es.SINK - 5.
+    assert np.isfinite(V).all() and np.isfinite(np.concatenate([p.N for p in parts])).all()
+
+
+def test_few_thick_piers_with_relief_not_a_forest():
+    parts, summary = es.build([sheet('p1', 30., length=120.)], FLAT, GRID)
+    assert 2 <= summary['piers'] <= 120. / es.SPAN_MIN
+    assert summary['boulders'] >= summary['piers'] * 2, 'boulders round every pier foot'
+    assert sum(len(p.F) for p in parts) < 25000
+    V = vertices(parts)
+    assert np.abs(V[:, 2]).max() > 8. + es.INSET + es.PROUD - .1, 'piers stand proud of the faces'
+
+
+
+def test_low_run_rests_on_a_solid_wall():
+    parts, summary = es.build([sheet('p1', 3.)], FLAT, GRID)
+    assert summary['arches'] == 0 and summary['piers'] == 0 and summary['metres'] > 50.
+    assert vertices(parts)[:, 1].max() <= 3. + es.EMBED + 1e-6
+
+
+def test_the_arcade_lifts_clear_of_a_piece_below():
+    high, low = sheet('high', 40., length=120.), sheet('low', 10., length=20., x0=50.)
+    parts, _ = es.build([high, low], FLAT, GRID)
+    V = vertices([p for p in parts if p.features[0] == 'high_supports'])
+    over = (V[:, 0] > 50.5) & (V[:, 0] < 69.5) & (np.abs(V[:, 2]) < 8.5)
+    assert over.any() and (V[over, 1] >= 10. + es.OVER - 1e-6).all(), 'stone stands on or runs through the lower piece'
+
+
+def test_supports_are_deterministic():
+    a, _ = es.build([sheet('p1', 30.)], FLAT, GRID)
+    b, _ = es.build([sheet('p1', 30.)], FLAT, GRID)
+    assert np.array_equal(vertices(a), vertices(b))
+
+
+def box_deck(pid, top, a=8., w=11., bottom=-5.):
+    """A solid deck as the bridge meshes it: a box from below the ground up to its top, here square to the axes."""
+    V = np.array([(x, y, z) for y in (bottom, top) for x, z in ((-a, -w), (a, -w), (a, w), (-a, w))], 'f8')
+    F = np.array([(4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4),
+                  (3, 4, 7)])
+    return types.SimpleNamespace(mesh=types.SimpleNamespace(V=V, F=F),
+                                 metadata=dict(id=pid, type='deck', stations=[], params={'solid': True}))
+
+
+def test_a_high_solid_deck_is_a_japanese_keep_with_a_torii_over_the_drop_in():
+    ramp = sheet('ramp', 60., length=60., z0=0., x0=0.)
+    for st in ramp.metadata['stations']:                     # leaves the deck's +x side (x = 8) at its top
+        st['x'] += 8.
+    ramp.mesh.V[:, 0] += 8.
+    parts, summary = es.build([box_deck('t', 60.), ramp], FLAT, GRID)
+    assert summary['towers'] == ['t'] and summary['pieces']['t'] == 'tower'
+    tower = [p for p in parts if p.features[0] == 't_tower']
+    V = vertices(tower)
+    assert V[:, 1].min() < 0. and V[:, 1].max() > 60. + es.TORII - .5, 'from below the ground to the torii and roofs'
+    assert sum(len(p.F) for p in tower) < 20000
+    by = {dsl.MATERIALS[p.material[0]]: p for p in tower}
+    assert {es.STONE, es.VERMILION, es.TILE, es.PLASTER, es.TIMBER} <= set(by)
+    torii = by[es.VERMILION].V[by[es.VERMILION].V[:, 1] > 60. + es.TORII - 3.]
+    assert len(torii) and torii[:, 0].min() > 5., 'the torii stands over the drop-in (+x), not elsewhere'
+    rail = by[es.VERMILION].V[(by[es.VERMILION].V[:, 1] > 60.) & (by[es.VERMILION].V[:, 1] < 61.5)]
+    assert rail[:, 0].max() < 8.5 + es.RIM, 'no railing across the drop-in'
+    foot = vertices([by[es.STONE]])
+    assert np.abs(foot[foot[:, 1] < 5.][:, 2]).max() > 11. + es.YAGURA_OUT + 5., 'the ishigaki sweeps out at its foot'
+
+
+def test_a_low_solid_deck_stays_a_deck():
+    parts, summary = es.build([box_deck('t', 3.)], FLAT, GRID)
+    assert summary['towers'] == [] and not parts

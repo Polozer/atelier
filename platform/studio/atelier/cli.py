@@ -208,6 +208,16 @@ def make_parser():
     p.add_argument('--download-only', action='store_true', help='download and unpack it, without playing')
     p.add_argument('--memory-gib', type=float, default=None, help='memory guard limit, as for play')
     p.add_argument('extra', nargs='*', help='launcher arguments, after --')
+    p = sub.add_parser('release', help='publish an existing independently verified package')
+    p.add_argument('action', choices=['publish']); p.add_argument('game'); p.add_argument('package')
+    p.add_argument('--tag', required=True, help='new tag under the game release prefix, or the same tag to resume')
+    p.add_argument('--verification', required=True, help='existing native package verification report')
+    p.add_argument('--source', help='clean package source checkout (default: this repository)')
+    p.add_argument('--title', help='release title (default: tag)')
+    p.add_argument('--notes-file', help='release notes; must be identical when resuming')
+    p.add_argument('--part-mib', type=int, default=200, help='upload part size, 1 to 1900 MiB (default: 200)')
+    p.add_argument('--workers', type=int, default=6, help='concurrent uploads, 1 to 6 (default: 6)')
+    p.add_argument('--prerelease', action='store_true', help='publish a prerelease instead of a normal release')
     p = sub.add_parser('stream'); p.add_argument('game'); p.add_argument('action', choices=['start', 'stop', 'status', 'build-web'])
     p.add_argument('--local', action='store_true', help='this machine only: no Tailscale Serve')
     p.add_argument('--install', action='store_true', help='build-web: reinstall platform/web packages (npm ci)')
@@ -344,6 +354,11 @@ def main(argv=None):
     if args.command == 'playtest':
         from . import playtest
         return playtest.main(args.game, args.tag, args.download_only, args.extra, game_limit(args.memory_gib))
+    if args.command == 'release':
+        from . import release
+        return release.main(args.game, args.package, tag=args.tag, verification=args.verification,
+                            title=args.title, notes_file=args.notes_file, source=args.source,
+                            part_mib=args.part_mib, workers=args.workers, prerelease=args.prerelease)
     if args.command == 'stream':
         from . import stream
         return stream.main(args.game, args.action, local=args.local, install=args.install)

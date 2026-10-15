@@ -1,4 +1,5 @@
 #include "WandererCharacter.h"
+#include "CraterParkTower.h"
 #include "AtelierExit.h"
 #include "JapanCombatResolver.h"
 #include "JapanNetwork.h"
@@ -432,7 +433,7 @@ void AWandererCharacter::BuildInput()
         {TEXT("Interact"),EKeys::E},{TEXT("Skateboard"),EKeys::B},{TEXT("Dash"),EKeys::F},{TEXT("Sailboat"),EKeys::K},{TEXT("Bike"),EKeys::V},
         {TEXT("Horse"),EKeys::H},{TEXT("HorseRandom"),EKeys::N},{TEXT("HorseBreed"),EKeys::U},{TEXT("HorseTack"),EKeys::I},{TEXT("HorseCoat"),EKeys::O},
         {TEXT("Map"),EKeys::M},{TEXT("Menu"),EKeys::Escape},{TEXT("MouseRelease"),EKeys::Tab},{TEXT("Screenshot"),EKeys::F12},
-        {TEXT("SetMarker"),EKeys::F5},{TEXT("ReturnMarker"),EKeys::F9},
+        {TEXT("SetMarker"),EKeys::F5},{TEXT("ReturnMarker"),EKeys::F9},{TEXT("TowerReturn"),EKeys::F7},
         {TEXT("FlightSlower"),EKeys::LeftBracket},{TEXT("FlightFaster"),EKeys::RightBracket},
         {TEXT("Attack"),EKeys::LeftMouseButton},{TEXT("Parry"),EKeys::RightMouseButton},{TEXT("Weapon"),EKeys::R}})
         Key(Axis(Pair.Key,EInputActionValueType::Boolean),Pair.Value);
@@ -515,6 +516,9 @@ void AWandererCharacter::SetupPlayerInputComponent(UInputComponent* Input)
         { if (bReady && !bMenuOpen && Map) Map->SetMarker(); });
         E->BindActionValueLambda(Inputs[TEXT("ReturnMarker")],ETriggerEvent::Started,[this](const FInputActionValue&)
         { if (bReady && !bMenuOpen && Map) Map->ReturnToMarker(); });
+        // Back to the top of the Crater Park line chosen last (the menu's Crater Park tower buttons; docs/CRATERPARK.md).
+        E->BindActionValueLambda(Inputs[TEXT("TowerReturn")],ETriggerEvent::Started,[this](const FInputActionValue&)
+        { if (bReady && !bMenuOpen) CraterParkTower::Return(this,CraterParkTower::LastStart()); });
         E->BindAction(Inputs[TEXT("MapPad")],ETriggerEvent::Triggered,this,&AWandererCharacter::ToggleMap);
         // The bar opens on the next tick, outside Enhanced Input's evaluation. Its focus change flushes the held View
         // key, and a flush inside this callback is forgotten before the next tick, so the hold trigger never sees View

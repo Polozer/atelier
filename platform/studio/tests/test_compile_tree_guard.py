@@ -110,12 +110,21 @@ def assert_gone(pid, started):
 def standin(tmp_path, megabytes=0):
     child_file = tmp_path / 'child.json'
     child_code = (f'import os,json,time; from atelier.safety.process_tree import started; '
+                  f'from pathlib import Path; marker=Path({str(child_file)!r}); '
+                  'pending=marker.with_suffix(".pending"); '
+                  'pending.write_text(json.dumps([os.getpid(),started(os.getpid())])); pending.replace(marker); '
                   f'block=bytearray({megabytes}*1024*1024); '
-                  f'open({str(child_file)!r},"w").write(json.dumps([os.getpid(),started(os.getpid())])); '
                   'time.sleep(30)')
-    wrapper = ('import subprocess,sys,time; '
-               f'block=bytearray({megabytes}*1024*1024); '
-               f'subprocess.Popen([sys.executable,"-c",{child_code!r}]); time.sleep(30)')
+    # Publish the complete identity before either allocation can cross the aggregate
+    # ceiling. A correct early guard stop must not race the fixture's readiness marker.
+    wrapper = ('import os,subprocess,sys,time\n'
+               f'subprocess.Popen([sys.executable,"-c",{child_code!r}])\n'
+               'deadline=time.monotonic()+5\n'
+               f'while not os.path.exists({str(child_file)!r}):\n'
+               '    if time.monotonic()>=deadline: raise RuntimeError("stand-in child did not become ready")\n'
+               '    time.sleep(.005)\n'
+               f'block=bytearray({megabytes}*1024*1024)\n'
+               'time.sleep(30)')
     return [sys.executable, '-c', wrapper], child_file
 
 
