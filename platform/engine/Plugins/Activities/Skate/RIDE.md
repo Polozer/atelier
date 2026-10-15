@@ -77,6 +77,15 @@ nears its edge or, on foot, when the rider changes cell; in lockstep (QA, replay
 gathers its own at once. Over open water, where there is nothing to snapshot, the old one stays and the rebuild is
 retried 20 m further on. Moving objects, skeletal and procedural meshes and streamed-out terrain are not in it.
 
+Riding, the board is looked ahead (`SkateCollisionCoverage.h`) by a build's time: half as long again as the slowest
+recent build plus a quarter second (0.25-2 s), falling under gravity in the air. A world is asked for once that point
+passes the reach, centred there (at most a reach from the board), so a fast air's world comes in where the board
+arrives, the landing below a falling board included. A board within a tenth of a second of leaving its world waits for
+the one building if that covers it, or has one gathered at once on the game thread (a hitch, logged). In lockstep (a
+fixed step or frame rate) a world building is waited for at once, so fixed-step QA rides do not see the lag. At rest
+the rules are the old ones, and the budget and the radii are unchanged. `AtelierSkate.Ride.CollisionCoverage` tests
+the plans.
+
 ### Threading and lockstep
 
 The session runs on `AtelierSkateSimulation` (32 MiB stack), which owns every mutable simulation object, in the standalone

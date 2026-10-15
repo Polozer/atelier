@@ -779,20 +779,59 @@ void USkateComponent::RefreshSimulationCollision(FSkateRuntime& R, const FVector
     // between simulation ticks; an idle session (the rider on foot) installs it as soon as it is built.
     // On foot the world also follows the rider from cell to cell (its centre is where a mount there would gather). A
     // world that lands centred elsewhere (built for a cell the rider has left) is built again.
+    // Riding, the board is looked ahead by a build's time, falling in the air (SkateCollisionCoverage.h): a world is asked
+    // for before the board passes the reach, centred where the board will be when it comes in, and a board about to
+    // leave its world with none coming that covers it waits for one built at once. At rest the rules are the old ones.
     if (bIdle)
     {
         const FVector Cell=GridCell(At);
         if (Cell!=R.IdleCell) { R.IdleCell=Cell; R.WantCentre=SnapshotCentre(GetWorld(),At); }
     }
+    const FVector Velocity=bIdle?FVector::ZeroVector:Vel;
+    const double Gravity=!bIdle && Mode==ESkateMode::Air ? 980.*Feel.Gravity : 0.;
+    const FSkateCoveragePlan Plan=SkateCoverage::Plan(R.CollisionCentre,R.CollisionReach,At,Velocity,Gravity,R.BuildSeconds);
+    const bool bNow=!bIdle && Plan.Refresh==ESkateCoverage::Now;
     if (R.PendingWorld.IsValid())
     {
-        if (R.PendingWorld.IsReady() || Lockstep()) R.FinishPendingWorld(!bIdle);
-        return;
+        const bool bReady=R.PendingWorld.IsReady();
+        if (bReady && R.PendingSince>=0) R.BuildSeconds=SkateCoverage::NextBuildSeconds(R.BuildSeconds,FPlatformTime::Seconds()-R.PendingSince);
+        // The world coming covers the board: it is waited for (its build is under way).
+        const bool bWait=bNow && SkateCoverage::Covers(R.PendingCentre,R.CollisionReach/SkateCoverage::ReachFraction,
+            SkateCoverage::Predict(At,Velocity,SkateCoverage::SoonSeconds,Gravity));
+        if (bReady || Lockstep() || bWait)
+        {
+            const double Began=FPlatformTime::Seconds();
+            R.FinishPendingWorld(!bIdle);
+            if (bWait && !bReady) UE_LOG(LogTemp,Display,TEXT("SKATE simulation collision waited for %.0f ms at %.0f cm/s: the board was leaving its world"),
+                (FPlatformTime::Seconds()-Began)*1000.,Velocity.Size());
+            return;
+        }
+        if (!bNow) return;
     }
     if ((At-R.GatherRetryAt).GetAbsMax()<=2000.) return;
-    if ((At-R.CollisionCentre).GetAbsMax()>R.CollisionReach) R.WantCentre=SnapshotCentre(GetWorld(),At);
+    if (bNow)
+    {
+        // None coming covers it: gathered here, as a mount out of reach does (ActivateSimulation), and installed before
+        // the next step. A world still building is installed first, so it never lands over this one. It is centred on the
+        // board's place a moment on, not the look-ahead, so a dense place's smaller cube still holds the board; the
+        // next world is asked for ahead as usual.
+        // A park's world is centred on the park whatever the cell (SnapshotCentre): one gathered again there is the same.
+        const FVector Centre=SnapshotCentre(GetWorld(),SkateCoverage::Predict(At,Velocity,SkateCoverage::SoonSeconds,Gravity));
+        if (Centre.Equals(R.CollisionCentre,1.)) return;
+        const double Began=FPlatformTime::Seconds();
+        R.FinishPendingWorld(false);
+        FSnapshot Snapshot;double Reach=0;
+        if (!GatherWorld(GetWorld(),Rider,Centre,At,Yaw,RailSystem,Snapshot,Reach)) { R.GatherRetryAt=At; return; }
+        R.SendWorld(Snapshot);R.WantCentre=R.CollisionCentre=Centre;R.CollisionReach=Reach;R.GatherRetryAt=FVector(UE_BIG_NUMBER);
+        ++R.Worlds;R.WorldTriangles=Snapshot.Num();
+        UE_LOG(LogTemp,Display,TEXT("SKATE simulation collision gathered at once in %.0f ms at %.0f cm/s: the board was leaving its world"),
+            (FPlatformTime::Seconds()-Began)*1000.,Velocity.Size());
+        return;
+    }
+    if (Plan.Refresh!=ESkateCoverage::Keep) R.WantCentre=SnapshotCentre(GetWorld(),Plan.Target);
     if (!R.WantCentre.Equals(R.CollisionCentre,1.))
     {
+        R.PendingCentre=R.WantCentre; R.PendingSince=FPlatformTime::Seconds();
         // The game thread only lists the meshes (a few ms); their triangles are made with the build (H11: the whole
         // gather took 13 ms of a frame).
         auto Job=MakeShared<FGatherJob,ESPMode::ThreadSafe>();
