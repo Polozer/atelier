@@ -59,7 +59,10 @@ def input_paths(path=None):
     path = Path(path).resolve() if path is not None else design_path()
     if path is None:
         return []
-    if json.loads(path.read_text()).get('schema') == EDITOR_SCHEMA:
+    document = json.loads(path.read_text())
+    if not isinstance(document, dict):
+        raise ValueError(f'{path}: a Crater Park design must be a JSON object')
+    if document.get('schema') == EDITOR_SCHEMA:
         # the editor park and the terrain it was drawn on (data/ beside it)
         data = path.parent / 'data'
         meta = json.loads((data / 'terrain.json').read_text())

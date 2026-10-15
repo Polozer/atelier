@@ -370,5 +370,59 @@
     "doubleSided": false,
     "wrap": "repeat",
     "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_032",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/ramp_fascia.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_033",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/brick_coping.png",
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_034",
+    "baseColor": [0.9, 0.92, 0.95],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_035",
+    "baseColor": [0.72, 0.56, 0.2],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_036",
+    "baseColor": [0.58, 0.58, 0.18],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_037",
+    "baseColor": [0.78, 0.4, 0.14],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": false,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
   }
 ]

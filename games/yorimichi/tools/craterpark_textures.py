@@ -55,6 +55,8 @@ STYLES = {
     # the editor park's approved concepts: a viaduct pier, and a ramp's boards
     'viaduct': (CONCEPTS / 'editor' / 'support-design-viaduct.jpg', (1080, 90, 1536, 700)),
     'ramps': (CONCEPTS / 'editor' / 'prado-graphics-layout.jpg', (1150, 690, 1536, 1024)),
+    # the crater floor's dark cinder, stones, moss and grass tufts (concepts/editor/crater-floor-layout.jpg)
+    'crater': (CONCEPTS / 'editor' / 'crater-floor-layout.jpg', (680, 400, 1360, 1000)),
 }
 SURFACE = ('Image 1 is a tileable texture from a skate park in a stylised game, stretched to fill this frame. Image 2 '
            'shows the art direction of the game: soft painterly shapes, flat matte colour, clean well-kept surfaces, pale '
@@ -148,6 +150,11 @@ WORLD_PAINTINGS = {
                 'two or three tiny yellow-green moss tufts; not blue, no bright mortar grid, no snow'),
     'cast_concrete': ('bowls', 'edges', 'a large smooth cast-concrete wall in pale warm grey, faint rectangular formwork panel '
                       'joints in a regular grid of four equal panels, very subtle soft tonal variation, clean'),
+    # the editor park's crater floor, for the volcano's ground inside the crater (not a park material: WORLD_ALIGNED)
+    'crater_floor': ('crater', 'blend', 'the bare floor of a volcanic crater as in Image 1: dark charcoal and warm brown-grey '
+                     'volcanic cinder gravel and fine scree, many small scattered dark grey stones and pebbles with soft '
+                     'lighter tops, a few small patches of yellow-green moss and a few tiny tufts of dry golden grass, '
+                     'evenly spread with no large shapes; no snow, no boulders, no bushes, no paths'),
 }
 # material: (painting, metres per tile, palette mean sRGB). The meshes have no UVs: the hillside and the foundations and
 # bridges get world-aligned textures. 'megapark:rock' is the Mega Park's restyled rock, reused for the edge guard's
@@ -160,6 +167,8 @@ WORLD_ALIGNED = {
     'material_027': ('megapark:rock', 10, (150, 146, 152)),     # the edge guard (darker read as black shards in shade)
     'material_028': ('basalt', 6, (104, 106, 114)),             # editor-park basalt support towers
     'material_029': ('masonry', 5, (104, 98, 94)),             # editor-park viaduct supports
+    # not a park material: the volcano's ground inside the crater (hidamari/mountains.py), for M_NorthMountains
+    'crater_floor': ('crater_floor', 8, (92, 84, 80)),
 }
 # slug: (texture, style, how it is made to wrap, description, palette mean sRGB) of the UV-mapped textures painted from
 # nothing: a material whose texture is `texture` gets the painting on its own UVs (the editor ramps' boards, laid along
@@ -171,6 +180,18 @@ UV_PAINTINGS = {
                     'them only faint thin lines a little darker than the wood, gentle broad painterly variation in tone '
                     'from board to board, barely visible soft straight grain; calm and smooth, no knots, no nails, no '
                     'screws, no stripes of strong contrast', WOOD),
+    # the ramps' outer sides: a fascia, not more riding boards
+    'ramp_fascia': ('textures/ramp_fascia.png', 'ramps', 'edges', 'the smooth outer side panel (fascia) of a big wooden '
+                    'skate ramp, as the ramp sides in Image 1: large smooth sheets of warm dark-stained plywood in a deep '
+                    'chestnut brown, two tall panels side by side with one thin vertical joint, a narrow slightly darker '
+                    'band along the top edge, soft broad painterly tonal variation, almost no grain; no boards, no planks, '
+                    'no stripes, no nails', (112, 76, 52)),
+    # the Prado bowl's rim: the concept's glazed terracotta brick coping
+    'brick_coping': ('textures/brick_coping.png', 'bowls', 'edges', 'a band of glazed terracotta brick coping as on the '
+                     'rim of the bowl in Image 1: one row of rounded bullnose terracotta bricks laid end to end from left '
+                     'to right across the whole frame, each brick about one eighth of the frame wide, warm orange-red '
+                     'glaze with soft highlights, thin pale cream grout lines between them; the brick row fills the frame '
+                     'top to bottom', (176, 92, 62)),
 }
 # slug: (texture, plan, concept, size, description) of the decals painted onto one piece's own plan: the plan (a top-down
 # render of the piece, v2/editor_generate.decal_frame) is Image 1 and the approved concept Image 2; the painting is laid
@@ -199,7 +220,7 @@ DETAIL = .14
 DETAIL_MIN = 8.
 DETAIL_GAIN = 2.5
 # paintings that already carry the concepts' calm surface keep their own variation (at most this gain)
-CALM = {'ramp_planks': 1., 'masonry': 1.2}
+CALM = {'ramp_planks': 1., 'masonry': 1.2, 'ramp_fascia': 1., 'brick_coping': 1.2}
 
 
 def sha(data):

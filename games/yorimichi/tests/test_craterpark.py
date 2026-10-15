@@ -32,6 +32,10 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual({m['material'] for m in placement.scene()['meshes']} - set(materials), set())
         for m in materials.values():
             if m['texture']:
+                # a texture painted from nothing is the Sunburst restyle's own (tools/craterpark_textures.py)
+                painted = placement.SOURCE / 'restyle' / (Path(m['texture']).stem + '.jpg')
+                if painted.is_file() and not (placement.SOURCE / m['texture']).is_file():
+                    continue
                 self.assertTrue((placement.SOURCE / m['texture']).is_file(), m['texture'])
                 self.assertIn(m['texture'], placement.scene()['textures'])
 

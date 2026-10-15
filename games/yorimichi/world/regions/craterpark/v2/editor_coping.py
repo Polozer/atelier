@@ -5,6 +5,9 @@ surfaces differently (pieces.js mesh: rideC and deckC), so the lips are exactly 
 deck face, for runs, roll-ins, jumps and bowls alike. Each lip becomes the pipeline's own coping (coping.coping: a
 render-only steel tube) and its dsl.Rail, which the game grinds (export.py cp_lip_###).
 
+A bowl in `brick` (the decal bowls: Prado) gets the concept's glazed terracotta brick coping instead of steel: a
+bullnose band over its lip, the same grind line on top.
+
 Left out: a jump's kicker (its stations up to the lip), and the launch end of a run the owner capped
 (params.vert_assist_max, the same KICK_REACH as the assist zones). Lips that continue from one piece into the next are
 joined into one rail, so a grind runs on across the joint.
@@ -19,6 +22,12 @@ WELD = 1e-3          # metres: vertices this close are one point
 JOIN = .05           # metres: lips whose ends are this close continue into each other
 MIN_LENGTH = 2.      # metres: shorter lips are left out
 KICK_REACH = 30.     # metres of a capped run's end that count as its launch ramp (editor_generate.KICK_REACH)
+BRICK = 'material_033'   # glazed terracotta brick coping (a Sunburst painting, tools/craterpark_textures.py)
+BRICK_LENGTH = 2.4       # metres the brick texture spans along the lip (eight bricks)
+# the brick band's profile (out of the bowl, up) about the lip: down the wall face, over a rounded nose, back over the
+# deck; its top is the grind line
+BRICK_PROFILE = ((-.0, -.3), (-.06, -.3), (-.06, -.03), (-.045, .03), (-.01, .065), (.04, .08), (.36, .08), (.36, -.02))
+BRICK_TOP = .08
 EXCLUDE_PAD = 1.     # metres past a launch ramp's end that stay bare
 
 
@@ -169,16 +178,51 @@ def _join(lips):
     return out
 
 
-def build(pieces, caps):
-    """(coping meshes, rails, summary) for the kept bridge pieces. `caps` maps piece id -> vert_assist_max (or None)."""
-    lips = []
+def brick_coping(lip, into, closed, feature):
+    """(mesh, rail): the brick band along the lip points (k, 3), `into` the horizontal unit toward the bowl."""
+    P, D = np.asarray(lip, 'f8'), np.asarray(into, 'f8')
+    if closed:
+        P, D = np.vstack([P, P[:1]]), np.vstack([D, D[:1]])
+    along = np.r_[0., np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))] / BRICK_LENGTH
+    prof = np.array(BRICK_PROFILE)
+    span = np.r_[0., np.cumsum(np.linalg.norm(np.diff(prof, axis=0), axis=1))]
+    span /= span[-1]
+    up = np.array([0., 1., 0.])
+    out = -D                                                                 # away from the bowl, over the deck
+    V = P[:, None] + out[:, None] * prof[None, :, 0:1] + up * prof[None, :, 1:2]
+    k, m = V.shape[:2]
+    UV = np.stack(np.broadcast_arrays(along[:, None], span[None, :]), -1).reshape(-1, 2)
+    i = (np.arange(k - 1)[:, None] * m + np.arange(m - 1)[None]).ravel()
+    F = np.concatenate([np.stack([i, i + 1, i + m + 1], 1), np.stack([i, i + m + 1, i + m], 1)])
+    V = V.reshape(-1, 3)
+    # normals: across the profile (its outward perpendicular in the out/up plane)
+    t = np.gradient(prof, axis=0)
+    pn = np.stack([t[:, 1], -t[:, 0]], 1)
+    pn /= np.linalg.norm(pn, axis=1, keepdims=True)
+    N = (out[:, None] * pn[None, :, 0:1] + up * pn[None, :, 1:2]).reshape(-1, 3)
+    mesh = dsl.Mesh.part(V, F, N=N, UV=UV, role=dsl.COPING, material=BRICK, feature=feature, tag='coping')
+    top = P + up * BRICK_TOP
+    if closed:
+        top = top[:-1]
+    return mesh, dsl.Rail(coping_mod.resample(top, closed=closed), closed, feature)
+
+
+def build(pieces, caps, brick=()):
+    """(coping meshes, rails, summary) for the kept bridge pieces. `caps` maps piece id -> vert_assist_max (or None);
+    the bowls in `brick` get brick coping."""
+    lips, bricks = [], []
     for piece in pieces:
         if piece.metadata['type'] in ('deck', 'rail'):
             continue
-        lips += piece_lips(piece, caps.get(piece.metadata['id']))
+        got = piece_lips(piece, caps.get(piece.metadata['id']))
+        (bricks if piece.metadata['id'] in brick else lips).extend(got)
     meshes, rails = [], []
     for k, (p, n, closed) in enumerate(_join(lips)):
         mesh, rail = coping_mod.coping(p, n, closed=closed, feature=f'editor_coping_{k:03d}')
+        meshes.append(mesh)
+        rails.append(rail)
+    for k, (p, n, closed) in enumerate(_join(bricks)):
+        mesh, rail = brick_coping(p, n, closed, f'editor_brick_{k:03d}')
         meshes.append(mesh)
         rails.append(rail)
     length = sum(np.linalg.norm(np.diff(r.points, axis=0), axis=1).sum() for r in rails)

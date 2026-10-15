@@ -67,13 +67,18 @@ def craterpark_v2_steps(out):
     common = [REGIONS / 'craterpark' / '__init__.py', REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark',
               REGIONS / 'megapark' / 'placement.py', YORI]
     geometry = out / 'craterpark' / 'v2'
+    volcano = []
     if craterpark_v4.editor():      # the owner's editor park.json (ATELIER_CRATERPARK_EDITOR_PARK)
         runner, arguments = 'editor_generate.py', ('--park', str(craterpark_v4.editor_path()))
+        # its crater floor (editor_floor) stands on the volcano's ground: mountains.py and what it imports
+        volcano = [REGIONS / 'hidamari' / '__init__.py', REGIONS / 'hidamari' / 'mountains.py',
+                   REGIONS / 'belmonte' / '__init__.py', REGIONS / 'belmonte' / 'layout.py']
     else:
         runner = 'v4_generate.py' if craterpark_v4.selected() else 'generate.py'
         arguments = ('--design', str(craterpark_v4.design_path())) if craterpark_v4.selected() else ()
     return [
-        Step('world.craterpark_geometry', [Python(v2 / runner, arguments)], inputs=[v2, *common, *craterpark_v4.input_paths()],
+        Step('world.craterpark_geometry', [Python(v2 / runner, arguments)],
+             inputs=[v2, *common, *volcano, *craterpark_v4.input_paths()],
              outputs=[geometry / 'geometry.npz', geometry / 'geometry-report.json'],
              about='Crater Park v2: layout -> conforming surfaces, solids, rails, render tiles and collision (numpy)',
              heavy=True),
@@ -488,7 +493,8 @@ def world_steps(ctx):
                      REGIONS / 'megapark' / 'gate.py', REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py', ASSETS / 'hidamari' / 'props',
                      *TREEHOUSE_LAYOUT, *VILLAGE_LAYOUT],
              needs=['world.layout', 'world.treehouse_trees', *crater_geometry], outputs=[out / 'hidamari' / 'city.json', out / 'hidamari' / 'manifest.json',
-                                             out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json'],
+                                             out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
+                                             out / 'hidamari' / 'north_crater.png', out / 'hidamari' / 'north_crater.json'],
              about='the city: layout (city.json), building kit, harbor, plaza, arcade, mountains', heavy=True),
         digest_step(out, 'world.hidamari', 'city', 'the Hidamari meshes unreal.world reads (all but the volcano)', north=False),
         digest_step(out, 'world.hidamari', 'north', "the volcano's meshes unreal.north reads (HD_North*)", north=True),
@@ -672,9 +678,11 @@ def unreal_steps(ctx):
         # purges /Game/Japan and makes the textures and MPC these materials use, so this reruns after it.
         Step('unreal.north', [UnrealScript(SCRIPTS / 'import_hidamari.py', 'HIDAMARI IMPORT COMPLETE', env=(('HIDAMARI_ASSETS', 'HD_North*'),))],
              inputs=[ASSETS / 'environment/textures/volcanic-rock.jpg', out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
+                     out / 'hidamari' / 'north_crater.png', out / 'hidamari' / 'north_crater.json',
+                     out / 'craterpark' / 'textures' / 'crater_floor.png', TOOLS / 'craterpark_textures.py',
                      *[SCRIPTS / n for n in ('import_hidamari.py', 'mountain_material.py', 'import_village.py', 'atmosphere.py', 'ground_grain.py', 'sea_look.py')]],
-             needs=['unreal.world', 'world.hidamari.north'], heavy=True,
-             about='/Game/Japan: the volcano (HD_North*), M_NorthMountains and its rock and snow mask textures'),
+             needs=['unreal.world', 'world.hidamari.north', 'world.craterpark_restyle'], heavy=True,
+             about='/Game/Japan: the volcano (HD_North*), M_NorthMountains and its rock, snow and crater floor textures'),
         # The regions below layer onto the world (the south-west import replaces the terrain's and the sea's materials),
         # so they rerun when it is reimported.
         Step('unreal.southwest', [UnrealScript(SCRIPTS / 'import_southwest.py', 'SOUTHWEST IMPORT COMPLETE')],

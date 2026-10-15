@@ -45,6 +45,10 @@ CORNICE = 1.1         # the cornice band under the ramp: its height...
 OVERHANG = .45        # ...and how far it stands out of the faces (just under the ramp's edge)
 RING_DEPTH = 1.1      # the arch rings (archivolts): their depth round the opening...
 RING_PROUD = .2       # ...and how far they stand out of the faces
+WALL_ROW = 3.0        # the arcade's faces are cut in courses this high...
+WALL_BUMP = .12       # ...each standing up to this much in or out
+COURSE = (1.5, 2.6)   # pier courses: heights between these
+VOUSSOIR = 1.         # arch stones: about this long round the arch
 
 
 class Ground:
@@ -377,27 +381,37 @@ def _tiers(secs, ts, f0, f1, arc):
 
 def _loft(b, rows):
     """Loft the arcade through its sections [(Section, bottom[, top left, top right])], with flat-shaded closed faces.
-    Its sides lean out BATTER per metre below the ramp, so piers, arches and tiers share one battered face."""
+    Its sides lean out BATTER per metre below the ramp, so piers, arches and tiers share one battered face, and are cut
+    in courses WALL_ROW high, each a little in or out (WALL_BUMP), so the stone never reads machine-flat."""
+    n = int(np.clip(math.ceil(max(max(top or (s.top,)) - bot for s, bot, *top in rows) / WALL_ROW), 1, 40))
     corners = []
     for s, bot, *top in rows:
         (x, z), u = s.c, s.across
         top_l, top_r = top or (s.top_l, s.top_r)
-        lean = lambda y: s.half + min(BATTER * max(s.top - y, 0.), BATTER_MAX)   # one battered plane each side
-        wl, wr, wb = lean(top_l), lean(top_r), lean(bot)
-        corners.append(np.array([(x - wb * u[0], bot, z - wb * u[1]), (x + wb * u[0], bot, z + wb * u[1]),
-                                 (x + wr * u[0], top_r, z + wr * u[1]), (x - wl * u[0], top_l, z - wl * u[1])]))
+
+        def side(sign, top_y):
+            pts = []
+            for r in range(n + 1):
+                y = bot + (top_y - bot) * r / n
+                bump = 0. if r in (0, n) else WALL_BUMP * (2 * _rand(x, z, r, sign) - 1)
+                w = _lean(s, y) + bump
+                pts.append((x + sign * w * u[0], y, z + sign * w * u[1]))
+            return pts
+        right, left = side(1., top_r), side(-1., top_l)
+        corners.append(np.array([left[0]] + right + left[::-1][:-1]))
     V, F, N = [], [], []
+    k = len(corners[0])
 
     def quad(q, outward):
-        n = np.cross(q[1] - q[0], q[2] - q[0]) + np.cross(q[2] - q[0], q[3] - q[0])
-        size = np.linalg.norm(n)
+        nn = np.cross(q[1] - q[0], q[2] - q[0]) + np.cross(q[2] - q[0], q[3] - q[0])
+        size = np.linalg.norm(nn)
         if size < 1e-6:
             return
-        n = n / size
-        if n @ outward < 0:
-            n = -n
+        nn = nn / size
+        if nn @ outward < 0:
+            nn = -nn
         o = len(V)
-        V.extend(q), N.extend([n] * 4), F.extend([(o, o + 1, o + 2), (o, o + 2, o + 3)])
+        V.extend(q), N.extend([nn] * 4), F.extend([(o, o + 1, o + 2), (o, o + 2, o + 3)])
 
     for i in range(len(rows) - 1):
         A, B = corners[i], corners[i + 1]
@@ -405,16 +419,24 @@ def _loft(b, rows):
         if np.linalg.norm(fwd) < 1e-9:                       # a pier face: both sections at one sample
             s = rows[i][0]
             fwd = np.array([-s.across[1], 0., s.across[0]]) * (1 if rows[i + 1][1] > rows[i][1] else -1)
-            for e in range(4):
-                quad(np.array([A[e], A[(e + 1) % 4], B[(e + 1) % 4], B[e]]), fwd)
+            for e in range(k):
+                quad(np.array([A[e], A[(e + 1) % k], B[(e + 1) % k], B[e]]), fwd)
             continue
         mid = np.concatenate([A, B]).mean(0)
-        for e in range(4):
-            q = np.array([A[e], A[(e + 1) % 4], B[(e + 1) % 4], B[e]])
+        for e in range(k):
+            q = np.array([A[e], A[(e + 1) % k], B[(e + 1) % k], B[e]])
             quad(q, q.mean(0) - mid)
-    for C, sign, k in ((corners[0], -1, 0), (corners[-1], 1, -1)):
-        s = rows[k][0]
-        quad(C, sign * np.array([-s.across[1], 0., s.across[0]]))
+    for C, sign, j in ((corners[0], -1, 0), (corners[-1], 1, -1)):   # end caps: fans
+        s = rows[j][0]
+        out = sign * np.array([-s.across[1], 0., s.across[0]])
+        c = C.mean(0)
+        for e in range(k):
+            tri = np.array([c, C[e], C[(e + 1) % k]])
+            nn = np.cross(tri[1] - tri[0], tri[2] - tri[0])
+            if np.linalg.norm(nn) < 1e-9:
+                continue
+            o = len(V)
+            V.extend([tri[0], tri[1], tri[2], tri[2]]), N.extend([out] * 4), F.append((o, o + 1, o + 2))
     if F:
         b.add(STONE, (np.array(V, 'f8'), np.array(F, 'i8'), np.array(N, 'f8')))
 
@@ -428,9 +450,20 @@ def _at(S, ts, t):
     return c, u / np.linalg.norm(u), S[i if f < .5 else i + 1]
 
 
+def _box(b, material, c, fwd, acr, a, w, y0, y1, yaw=0.):
+    """A stone block: `a` long (half, along fwd turned by yaw), `w` wide (half), from y0 to y1, flat faces."""
+    ca, sa = math.cos(yaw), math.sin(yaw)
+    f = ca * fwd + sa * acr
+    u = -sa * fwd + ca * acr
+    ring = lambda y: np.array([(c[0] + p * a * f[0] + q * w * u[0], y, c[1] + p * a * f[1] + q * w * u[1])
+                               for p, q in ((1, 1), (-1, 1), (-1, -1), (1, -1))])
+    _rings(b, material, [ring(y0), ring(y1)])
+
+
 def _pier(b, plan, ground, S, ts, a, c):
-    """A pier over samples a..c: rounded stages standing proud of the faces, stepping in at a ledge or two on the
-    way up to the cornice, on a plinth, with boulders round its foot. Returns the boulders placed."""
+    """A pier over samples a..c, laid in rough courses as the concept's: each course a little shifted, turned and
+    stepped, stepping in at a ledge or two on the way up to the capstones, corner stones standing out, on a plinth,
+    with rubble round its foot. Returns the boulders placed."""
     mid = (ts[a] + ts[c]) / 2
     centre, acr, s = _at(S, ts, mid)
     fwd = np.array([acr[1], -acr[0]])
@@ -446,65 +479,104 @@ def _pier(b, plan, ground, S, ts, a, c):
     stages = 1 + (height > 14.) + (height > 32.)
     out = PROUD + (stages - 1) * SETBACK
 
-    def block(y0, y1, extra):
+    def course(y0, y1, extra, key, plinth=False):
+        along = half_len + .5 * BATTER * max(top - y0, 0.) + extra
+        wide = _lean(s, y0) + extra
+        j = 0. if plinth else .22
+        cc = centre + (2 * _rand(key, 1.) - 1) * j * fwd + (2 * _rand(key, 2.) - 1) * j * .6 * acr
+        yaw = 0. if plinth else (2 * _rand(key, 3.) - 1) * .025
+        rad = CORNER * (.5 + .7 * _rand(key, 4.))
+        f = math.cos(yaw) * fwd + math.sin(yaw) * acr
+        u = -math.sin(yaw) * fwd + math.cos(yaw) * acr
         rings, normals = [], []
         for y in (y0, y1):
-            along = half_len + .5 * BATTER * max(top - y, 0.) + extra
-            pts, nrm = _rounded(centre, fwd, acr, along, _lean(s, y) + extra, y)
+            pts, nrm = _rounded(cc, f, u, along, wide, y, rad, seg=2)
             rings.append(pts)
             normals.append(nrm)
         _rings(b, STONE, rings, normals)
+        if not plinth and _rand(key, 5.) < .55:              # a corner stone standing out of the course
+            su, sv = (1 if _rand(key, 6.) < .5 else -1), (1 if _rand(key, 7.) < .5 else -1)
+            qa, qw = .5 + .35 * _rand(key, 8.), .4 + .25 * _rand(key, 9.)
+            pop = .1 + .15 * _rand(key, 10.)
+            qc = cc + su * (along - qa + pop) * f + sv * (wide - qw + pop) * u
+            _box(b, STONE, qc, f, u, qa, qw, y0 + .04, y1 - .04)
 
-    block(foot, base, out + PLINTH_OUT)
-    for k in range(stages):
-        y0 = base + height * k / stages
-        y1 = base + height * (k + 1) / stages
-        block(y0 - (.05 if k else 0.), y1, out - k * SETBACK)
+    course(foot, base, out + PLINTH_OUT, mid, plinth=True)
+    y, k = base, 0
+    while y < top - .3:
+        h = COURSE[0] + (COURSE[1] - COURSE[0]) * _rand(mid, k, 11.)
+        y1 = min(y + h, top) if top - (y + h) > .8 else top
+        stage = min(int((y - base) / height * stages), stages - 1)
+        course(y - .02, y1, out - stage * SETBACK, mid * 13 + k)
+        y, k = y1, k + 1
     placed = 0
-    n = 3 + min(6, int(height / 8))
+    n = 4 + min(8, int(height / 6))
     for k in range(n):
         ang = 2 * np.pi * (k + _rand(mid, k, 1.)) / n
         reach = np.array([(half_len + out + PLINTH_OUT) * math.cos(ang), (s.half + out + PLINTH_OUT) * math.sin(ang)])
-        reach *= 1.05 + .35 * _rand(mid, k, 2.)
+        reach *= 1.0 + .45 * _rand(mid, k, 2.)
         q = centre + reach[0] * fwd + reach[1] * acr
-        r = min(.9 + .9 * _rand(mid, k, 3.) + .025 * height, 3.2)
+        r = min(.6 + 1.1 * _rand(mid, k, 3.) + .025 * height, 3.2)
         placed += _boulder(b, plan, ground, q[0], q[1], r, mid * 7 + k)
     return placed
 
 
 def _archivolt(b, S, ts, f0, f1, arc):
-    """The stone ring round an arch: RING_DEPTH deep round the intrados, standing RING_PROUD out of both faces."""
+    """The arch's stones: wedge blocks about VOUSSOIR long round the intrados, of uneven depth, each standing a little
+    out of the faces."""
     t = np.asarray(ts[f0:f1 + 1], 'f8')
     y = np.asarray(arc, 'f8')
     if len(t) < 4:
         return
-    dt, dy = np.gradient(t), np.gradient(y)
-    norm = np.hypot(dt, dy)
-    nt, ny = -dy / norm, dt / norm
-    rings = []
-    for k in range(len(t)):
-        c_in, u_in, s = _at(S, ts, t[k])
-        c_out, u_out, _ = _at(S, ts, t[k] + RING_DEPTH * nt[k])
-        y_out = y[k] + RING_DEPTH * ny[k]
-        w_in, w_out = _lean(s, y[k]) + RING_PROUD, _lean(s, y_out) + RING_PROUD
-        rings.append(np.array([(c_in[0] - w_in * u_in[0], y[k], c_in[1] - w_in * u_in[1]),
-                               (c_in[0] + w_in * u_in[0], y[k], c_in[1] + w_in * u_in[1]),
-                               (c_out[0] + w_out * u_out[0], y_out, c_out[1] + w_out * u_out[1]),
-                               (c_out[0] - w_out * u_out[0], y_out, c_out[1] - w_out * u_out[1])]))
-    _rings(b, STONE, rings)
+    seg = np.hypot(np.diff(t), np.diff(y))
+    run = np.r_[0., np.cumsum(seg)]
+    count = max(3, int(round(run[-1] / VOUSSOIR)))
+    edges = np.linspace(0., run[-1], count + 1)
+
+    def point(d):
+        i = int(np.clip(np.searchsorted(run, d) - 1, 0, len(seg) - 1))
+        f = (d - run[i]) / max(seg[i], 1e-9)
+        tt, yy = t[i] + f * (t[i + 1] - t[i]), y[i] + f * (y[i + 1] - y[i])
+        dt, dy = (t[i + 1] - t[i]) / max(seg[i], 1e-9), (y[i + 1] - y[i]) / max(seg[i], 1e-9)
+        return tt, yy, -dy, dt                               # the point and the outward normal (away from the opening)
+
+    for k in range(count):
+        depth = RING_DEPTH * (.8 + .5 * _rand(t[0], k, 1.))
+        proud = RING_PROUD * (.5 + _rand(t[0], k, 2.))
+        rings = []
+        for d in (edges[k] + .03, edges[k + 1] - .03):
+            tt, yy, nt, ny = point(d)
+            c_in, u_in, s = _at(S, ts, tt)
+            c_out, u_out, _ = _at(S, ts, tt + depth * nt)
+            y_out = yy + depth * ny
+            w_in, w_out = _lean(s, yy) + proud, _lean(s, y_out) + proud
+            rings.append(np.array([(c_in[0] - w_in * u_in[0], yy, c_in[1] - w_in * u_in[1]),
+                                   (c_in[0] + w_in * u_in[0], yy, c_in[1] + w_in * u_in[1]),
+                                   (c_out[0] + w_out * u_out[0], y_out, c_out[1] + w_out * u_out[1]),
+                                   (c_out[0] - w_out * u_out[0], y_out, c_out[1] - w_out * u_out[1])]))
+        _rings(b, STONE, rings)
 
 
 def _cornice(b, S):
-    """The cornice band along the top of a stretch: it stands OVERHANG out of the faces, a bevel below it."""
-    rings = []
-    for s in S:
-        (x, z), u = s.c, s.across
-        yb = s.top - CORNICE
-        wall, out = _lean(s, yb) - .05, s.half + OVERHANG
-        prof = [(-wall, yb), (-out, yb + .45 * CORNICE), (-out, s.top_l), (out, s.top_r), (out, yb + .45 * CORNICE),
-                (wall, yb)]
-        rings.append(np.array([(x + v * u[0], y, z + v * u[1]) for v, y in prof]))
-    _rings(b, STONE, rings)
+    """The capstones along the top of a stretch: a ragged row of blocks one or two metres long, each standing its own
+    distance out of the faces and hanging its own depth below the ramp."""
+    j = 0
+    while j < len(S) - 1:
+        e = min(len(S) - 1, j + 1 + int(_rand(S[j].c[0], S[j].c[1], 1.) * 2))
+        over = OVERHANG * (.6 + .7 * _rand(S[j].c[0], S[j].c[1], 2.))
+        depth = CORNICE * (.75 + .5 * _rand(S[j].c[0], S[j].c[1], 3.))
+        rings = []
+        for i in range(j, e + 1):
+            s = S[i]
+            (x, z), u = s.c, s.across
+            yb = s.top - depth
+            wall, out = _lean(s, yb) - .05, s.half + over
+            prof = [(-wall, yb), (-out, yb + .4 * depth), (-out, s.top_l), (out, s.top_r), (out, yb + .4 * depth),
+                    (wall, yb)]
+            rings.append(np.array([(x + v * u[0], yy, z + v * u[1]) for v, yy in prof]))
+        if len(rings) >= 2:
+            _rings(b, STONE, rings)
+        j = e
 
 
 def arcade(b, plan, ground, piece, stations):

@@ -32,6 +32,8 @@ from craterpark.v2.editor import frontend  # noqa: E402
 
 WOOD = 'material_030'     # ramp planks, a Sunburst painting on piece_uv (assets/craterpark/materials.json)
 PLANKS = 4.             # metres the ramp-plank texture spans each way (eight boards: half-metre boards)
+FASCIA = 'material_032'   # the ramps' outer sides: stained plywood fascia panels, not more boards
+FASCIA_SIZE = 6.        # metres the fascia texture spans each way
 # a bowl named with a key here is painted with that decal material, laid over it from above (decal_frame, decal_uv):
 # tools/craterpark_textures.py DECALS paints it onto a plan rendered with the same frame
 DECALS = {'Prado': 'material_031'}
@@ -43,6 +45,12 @@ GROUND_FADE = 40.      # metres beyond that over which it eases back to the natu
 # terrain triangle there rises through the piece.
 PIT_REACH = 7.5
 PIT_CLEAR = .5
+# Round a bowl the ground never rises through it: within BOWL_REACH of its rim and deck the ground stays BOWL_CLEAR
+# under them, then may climb back BOWL_SLOPE per metre (so a bowl on a slope sits in a gentle cut, not a wall of earth)
+BOWL_REACH = 3.
+BOWL_CLEAR = .05
+BOWL_SLOPE = .6
+BOWL_EASE = 12.
 SIDE_COLOURS = ([0.6, 0.58, 0.54], [0.45, 0.43, 0.4])   # pieces.js COL.side, COL.bottom
 
 
@@ -105,8 +113,8 @@ def piece_uv(V, stations, size=PLANKS):
     return uv / size
 
 
-def side_uv(V, stations, size=PLANKS):
-    """UVs for a piece's outer sides: boards running along the piece, stacked up its height."""
+def side_uv(V, stations, size=FASCIA_SIZE):
+    """UVs for a piece's outer sides: the fascia panels along the piece, up its height."""
     along = piece_uv(V, stations, 1.)[:, 1]
     return np.stack([along, V[:, 1]], 1) / size
 
@@ -140,7 +148,7 @@ def piece_mesh(piece, decal=None):
         ride, ride_uv = decal, decal_uv(V, decal_frame(V))
     for mask, role, material, uv in (
             (~side, dsl.RIDING, ride, ride_uv),
-            (side, dsl.SIDE, dsl.SIDE_WALL if concrete else WOOD, side_uv(V, meta['stations']) if laid else None)):
+            (side, dsl.SIDE, dsl.SIDE_WALL if concrete else FASCIA, side_uv(V, meta['stations']) if laid else None)):
         uv = tile_uv(V, N) if uv is None else uv
         if mask.any():
             parts.append(dsl.Mesh.part(V, F[mask], N=N, UV=uv, role=role, material=material,
@@ -186,7 +194,41 @@ def ground_grid(scene, points, base):
     low = np.minimum.reduce([_shifted(low, dy, dx, np.inf) for dy, dx in _shifts(r)])
     pit = H < base - PIT_CLEAR
     H = np.where(pit, np.minimum(H, low - PIT_CLEAR), H)
+    from craterpark.v2 import editor_coping
+    decks, rides = [], []
+    for p in getattr(scene, 'pieces', ()):  # the bowls' riding faces and decks: the ground stays under those
+        if p.metadata['type'] == 'bowl':
+            ride, deck = editor_coping._classes(p)
+            V, F = np.asarray(p.mesh.V), np.asarray(p.mesh.F)
+            decks.append(V[np.unique(F[deck])])
+            rides.append(V[np.unique(F[ride])])
+    if decks:
+        H = clear_bowls(H, g, np.concatenate(decks), np.concatenate(rides))
     return H.astype('f4'), weight.astype('f4')
+
+
+def clear_bowls(H, g, decks, rides):
+    """The heights H (nz, nx) on grid g kept under the bowls: BOWL_CLEAR under their riding faces' and decks' vertices
+    within BOWL_REACH, and beyond the decks free to climb BOWL_SLOPE per metre, up to BOWL_EASE away."""
+    H = np.asarray(H, 'f8')
+    shape = H.shape
+    reach = int(np.ceil(BOWL_REACH / g['G']))
+
+    def lowest(points):
+        j = np.round((points[:, 2] - g['z0']) / g['G'] - .5).astype(int)
+        i = np.round((points[:, 0] - g['x0']) / g['G'] - .5).astype(int)
+        on = (j >= 0) & (j < shape[0]) & (i >= 0) & (i < shape[1])
+        low = np.full(shape, np.inf)
+        np.minimum.at(low, (j[on], i[on]), points[on, 1])
+        return np.minimum.reduce([_shifted(low, dy, dx, np.inf) for dy, dx in _shifts(reach)])
+    H = np.minimum(H, lowest(rides) - BOWL_CLEAR)
+    low = lowest(decks)
+    cap = low.copy()
+    r = int(np.ceil(BOWL_EASE / g['G']))
+    for dy, dx in _shifts(r):
+        if dy or dx:
+            cap = np.minimum(cap, _shifted(low, dy, dx, np.inf) + BOWL_SLOPE * np.hypot(dy, dx) * g['G'])
+    return np.minimum(H, cap - BOWL_CLEAR)
 
 
 def assist_zones(pieces, doc):
@@ -254,7 +296,7 @@ def main(argv=None):
               f"{support_summary['arches']} arches, {support_summary['metres']} m", flush=True)
         parts += supports
         caps = {p['id']: (p.get('params') or {}).get('vert_assist_max') for p in chosen['pieces']}
-        copings, rails, coping_summary = editor_coping.build(scene.pieces, caps)
+        copings, rails, coping_summary = editor_coping.build(scene.pieces, caps, brick=set(decals))
         print(f"CRATERPARK EDITOR coping: {coping_summary['rails']} grind rails, {coping_summary['metres']} m", flush=True)
         parts += copings
     mesh = dsl.Mesh.concat(parts)
@@ -281,6 +323,12 @@ def main(argv=None):
     entries = spawns.entries(park.mesh, park.lines, placement, deck_y=None, labels=labels)
     print('CRATERPARK EDITOR baking occlusion', flush=True)
     ao.bake_mesh(park.mesh, drawn=(dsl.RIDING, dsl.SIDE, dsl.COPING, dsl.RAIL))
+    # the crater floor round the park (editor_floor): rocks, snow, grass and shrubs on the volcano's own ground. Added
+    # after the park's bake, with its own baked in plan tiles: in this one the voxel grid would span the whole crater.
+    from craterpark.v2 import editor_floor
+    floor, floor_summary = editor_floor.build(scene.pieces, heights, grid, editor_floor.site(heights, weight, grid))
+    print(f"CRATERPARK EDITOR crater floor: {floor_summary['triangles']} triangles", flush=True)
+    park.mesh = dsl.Mesh.concat([park.mesh, *floor])
     arrays, index = generate.bundle(park, entries, {})
     # the cut ground the volcano's terrain follows (v4_placement.ground_grid), instead of a park mesh over it
     arrays.update(ground_height=heights, ground_weight=weight)

@@ -44,7 +44,7 @@ def test_few_thick_piers_with_relief_not_a_forest():
     parts, summary = es.build([sheet('p1', 30., length=120.)], FLAT, GRID)
     assert 2 <= summary['piers'] <= 120. / es.SPAN_MIN
     assert summary['boulders'] >= summary['piers'] * 2, 'boulders round every pier foot'
-    assert sum(len(p.F) for p in parts) < 10000
+    assert sum(len(p.F) for p in parts) < 25000
     V = vertices(parts)
     assert np.abs(V[:, 2]).max() > 8. + es.INSET + es.PROUD - .1, 'piers stand proud of the faces'
 

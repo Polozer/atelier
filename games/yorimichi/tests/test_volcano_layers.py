@@ -49,6 +49,18 @@ def test_snow_rock_and_mountain_material_reimport_only_the_volcano(tmp_path, mon
         assert changed_by(edited, tmp_path, monkeypatch) == {'unreal.north'} | LATER, edited
 
 
+def test_the_crater_floor_reimports_only_the_volcano(tmp_path, monkeypatch):
+    """The crater floor's mask and painting (mountain_material.py) reimport the volcano and nothing else."""
+    for edited in (tmp_path / 'hidamari' / 'north_crater.png', tmp_path / 'hidamari' / 'north_crater.json',
+                   tmp_path / 'craterpark' / 'textures' / 'crater_floor.png'):
+        assert changed_by(edited, tmp_path, monkeypatch) == {'unreal.north'} | LATER, edited
+    ctx = SimpleNamespace(game='yorimichi', out=tmp_path, uproject=tmp_path / 'Yorimichi.uproject')
+    steps = {s.name: s for s in RECIPE.steps(ctx)}
+    assert 'world.craterpark_restyle' in steps['unreal.north'].needs
+    assert {tmp_path / 'hidamari' / 'north_crater.png', tmp_path / 'hidamari' / 'north_crater.json'} <= set(
+        steps['world.hidamari'].outputs)
+
+
 def test_the_world_import_reads_no_volcano_input(tmp_path):
     ctx = SimpleNamespace(game='yorimichi', out=tmp_path, uproject=tmp_path / 'Yorimichi.uproject')
     steps = {s.name: s for s in RECIPE.steps(ctx)}
@@ -170,3 +182,18 @@ def test_layout_dependents_hash_every_module_their_scripts_import(tmp_path):
             assert not missing, (step.name, missing)
             checked += 1
     assert checked >= 12
+
+
+def test_the_crater_floor_shader_tiles_the_painting_at_its_metres(monkeypatch):
+    """mountain_material.floor_hlsl: the painting at P/(metres*100) cm, about its linear mean, over the ground by the
+    mask; crater_hlsl samples the mask on its texel centres, as the snow mask."""
+    import sys
+    from unittest import mock
+    monkeypatch.setitem(sys.modules, 'unreal', mock.MagicMock())
+    monkeypatch.syspath_prepend(str(RECIPE.SCRIPTS))
+    import mountain_material
+    hlsl = mountain_material.floor_hlsl(8., (92, 84, 80))
+    assert 'cp=P/800.0;' in hlsl and 'CFM=float3(0.10702,0.08866,0.08022)' in hlsl
+    assert hlsl.endswith('ground=lerp(ground,painted,crater);')
+    mask = mountain_material.crater_hlsl({'bounds': [-430., 1120., 0., 0.], 'step_m': 2.5, 'size': [1024, 1024]})
+    assert 'float2(-430.0,1120.0))/2.5+.5)/1024.;' in mask and '(1-Caps)' in mask

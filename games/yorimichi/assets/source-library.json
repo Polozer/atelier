@@ -2857,6 +2857,10 @@
       "bytes": 233623,
       "sha256": "03e7aec97b095f46c82f8076579ebe8c5869b3ab276dc896c4294234f3196e92"
     },
+    "craterpark/restyle/brick_coping.jpg": {
+      "bytes": 251339,
+      "sha256": "ece974a0cdb2e7c453422013f7bc0b0a9fa56561402ee1c4c9f5c2a4b425160b"
+    },
     "craterpark/restyle/cast_concrete.jpg": {
       "bytes": 225845,
       "sha256": "523f72b14fbd25abee7270e410a971ef492a97b69ed02b8fbed3d9ec49b06763"
@@ -2880,6 +2884,10 @@
     "craterpark/restyle/coping_tile.jpg": {
       "bytes": 156443,
       "sha256": "62ff9cc5acee0876a1a52a3efcd7df5668131fcb0dcbef9cb4c96ec9466a849c"
+    },
+    "craterpark/restyle/crater_floor.jpg": {
+      "bytes": 623094,
+      "sha256": "a926d3f98942b245456a094c63011c1b00e7679cff00a6301ce67bdaee93ea5e"
     },
     "craterpark/restyle/flagstone.jpg": {
       "bytes": 372833,
@@ -2924,6 +2932,10 @@
     "craterpark/restyle/ramp_boards.jpg": {
       "bytes": 258572,
       "sha256": "39724567401c22dee17d1bd9d37923536c14819bc29a67ddf7d98e5661174853"
+    },
+    "craterpark/restyle/ramp_fascia.jpg": {
+      "bytes": 146945,
+      "sha256": "f7f980689a7a2f6f84e225a057e9303564a734c0dad462698af18f4aed2ebde0"
     },
     "craterpark/restyle/ramp_planks.jpg": {
       "bytes": 183260,
