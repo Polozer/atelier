@@ -127,13 +127,13 @@ def test_crater_gap_lip_speed():
 SWITCHBACK = {
     'id': 'T', 'name': 'switchback test', 'y0': 40., 'rollin': 3, 'exit': 'crater_bowl',
     'path': {'start': [1204.28, 1092.10], 'heading': 322.3,
-             'segs': [['straight', 150.], ['elbow', 160., {'kind': 'elbow_qp', 'r': 4., 'vert': .5, 'deck': 3., 'apron': 6.,
-                                                          'width': 14.}], ['straight', 60.]]},
+             'segs': [['straight', 180.], ['elbow', 160., {'kind': 'elbow_qp', 'r': 4., 'vert': .5, 'deck': 3., 'apron': 6.,
+                                                          'width': 14., 'drift': 24.}], ['straight', 60.]]},
     'profile': [['arc', 14, -30], ['line', 4], ['arc', 30, -4],
                 ['line', 20], ['arc', 22, 20], ['line', 2], ['gap', 14., -1., 'G1'],
                 ['arc', 15, -20], ['line', 6], ['arc', 40, -4], ['line', 20], ['arc', 22, 18], ['line', 2], ['gap', 12., -1., 'G2'],
-                ['arc', 15, -18], ['line', 5], ['arc', 40, 0], ['line', 60.]],
-    'features': [{'id': 'T_all', 'kind': 'run', 's0': 0., 's1': 210., 'width': 14.}],
+                ['arc', 15, -18], ['line', 5], ['arc', 40, 0], ['line', 114.]],
+    'features': [{'id': 'T_all', 'kind': 'run', 's0': 0., 's1': 264., 'width': 14.}],
 }
 
 

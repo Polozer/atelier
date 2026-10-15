@@ -23,7 +23,7 @@ ride proves the change.
 """
 import itertools
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -116,6 +116,37 @@ class Turtle:
     def points(self, step=.5):
         s = np.arange(0., self.length + 1e-9, step)
         return np.array([self.at(v)[0] for v in s]), s
+
+    def project(self, points):
+        """Exact nearest station in plan on a straight/arc leg (ties keep the first piece)."""
+        Q = np.atleast_2d(np.asarray(points, 'f8'))
+        best = np.full(len(Q), np.inf)
+        station = np.zeros(len(Q))
+        for kind, s0, s1, start, heading, radius, turn in self.pieces():
+            if kind == 'elbow':
+                continue
+            a = math.radians(heading)
+            A = np.array([math.cos(a), math.sin(a)])
+            start = np.asarray(start)
+            if kind == 'straight':
+                u = np.clip((Q - start) @ A, 0., s1 - s0)
+                P0 = start + u[:, None] * A
+            else:
+                sign = math.copysign(1., turn)
+                centre = start + sign * radius * np.array([-A[1], A[0]])
+                angle0 = math.atan2(*(start - centre)[::-1])
+                angle = np.arctan2(Q[:, 1] - centre[1], Q[:, 0] - centre[0])
+                delta = (sign * (angle - angle0)) % (2 * math.pi)
+                inside = delta <= math.radians(abs(turn))
+                end, _ = self.at(s1)
+                choose_end = np.linalg.norm(Q - end, axis=1) < np.linalg.norm(Q - start, axis=1)
+                u = np.where(inside, radius * delta, np.where(choose_end, s1 - s0, 0.))
+                th = angle0 + sign * u / radius
+                P0 = centre + radius * np.stack([np.cos(th), np.sin(th)], 1)
+            d = np.linalg.norm(Q - P0, axis=1)
+            take = d < best
+            station[take], best[take] = s0 + u[take], d[take]
+        return station, best
 
     def curves(self):
         """The path as dsl curves (curves.Line and curves.Arc), in order (elbows are corners between them)."""
@@ -671,13 +702,10 @@ def corners(path):
 
 
 def curve(path):
-    """The turtle as one dsl curve: a curves.Line when straight, else a primitives.Rounded with exact fillets."""
-    from .curves import Line
-    if len(path.segs) == 1:
-        return Line(path.start, path.at(path.length)[0])
-    from .primitives import Rounded
-    p, r = corners(path)
-    return Rounded(p, r)
+    """Keep the turtle's analytic arcs; do not intersect parallel turn tangents."""
+    from .curves import Chain
+    pieces_ = path.curves()
+    return pieces_[0] if len(pieces_) == 1 else Chain(pieces_)
 
 
 def slab_ground(lines=None, depth=2.0, step=1.0):
@@ -769,9 +797,13 @@ def clip(s0, y0, a0, parts, lo, hi):
 
 
 def _profile_at(line, s):
+    """Height and slope at a built station, preserving each gap's length and drop."""
     from craterpark.additions import profile
-    k = np.asarray(profile(line.y0, 0., [p for p in line.profile if p[0] != 'gap'], .25), 'f8')
-    return float(np.interp(s, k[:, 0], k[:, 1])), float(np.interp(s, k[:, 0], k[:, 2]))
+    for s0, y0, a0, parts in pieces(line):
+        k = np.asarray(profile(y0, a0, list(parts), .02), 'f8')
+        if s0 - 1e-7 <= s <= s0 + k[-1, 0] + 1e-7:
+            return float(np.interp(s - s0, k[:, 0], k[:, 1])), float(np.interp(s - s0, k[:, 0], k[:, 2]))
+    raise ValueError(f'{line.id}: station {s:.6f} is not on a built profile')
 
 
 def elbow_spec(line, index):
@@ -785,7 +817,11 @@ def elbow_spec(line, index):
     A = np.array([math.cos(math.radians(h_in)), math.sin(math.radians(h_in))])
     B = np.array([math.cos(math.radians(h_out)), math.sin(math.radians(h_out))])
     n = (B - A) / np.linalg.norm(B - A); t = np.array([-n[1], n[0]])
-    drift = float(prm.get('drift', 0.)); u = (A + B) / max(np.linalg.norm(A + B), 1e-9)
+    drift = float(prm.get('drift', 0.))
+    # The angle bisector also defines a full reversal's drift; A+B is zero
+    # for 180 degrees and used to collapse its two approach ports together.
+    bisector = math.radians((h_in + h_out) / 2)
+    u = np.array([math.cos(bisector), math.sin(bisector)])
     E = W + u * drift; mid = (W + E) / 2
     y, deg = _profile_at(line, s_w)
     at = float(A @ t)
@@ -822,9 +858,8 @@ def half_bowl_spec(line, f):
 
 
 def breaks(line):
-    """Plan ranges no ramp covers: each elbow's apron (s_in, s_out) and each half bowl's turn."""
+    """Ranges owned by integral elbow aprons; half bowls remain continuous swept runs."""
     out = [(e['s_in'], e['s_out']) for e in (elbow_spec(line, i) for i in range(len(line.path.elbows())))]
-    out += [(f.s0, f.s1) for f in line.features if f.kind == 'half_bowl']
     return sorted(out)
 
 
@@ -882,6 +917,35 @@ def run_side(width):
         return 'bank'
 
 
+def run_sides(line, width):
+    """Continuous shoulders: the outside grows to R7 + 1 m vert through a half bowl."""
+    from . import primitives as P
+    from .bowls import smootherstep
+    out = []
+    for sign in (1., -1.):                    # left, right
+        turns = []
+        for f in line.features:
+            if f.kind != 'half_bowl':
+                continue
+            piece = next(p for p in line.path.pieces() if p[0] == 'turn' and abs(p[1] - f.s0) < .05)
+            if math.copysign(1., piece[-1]) == -sign:
+                turns.append(f)
+        if not turns:
+            out.append(run_side(width))
+            continue
+
+        def shape(E, turns=tuple(turns)):
+            s, _ = line.path.project(E[:, [0, 2]])
+            w = np.zeros(len(s))
+            for f in turns:
+                w = np.maximum(w, np.minimum(smootherstep((s - f.s0 + 40.) / 40.),
+                                              smootherstep((f.s1 + 40. - s) / 40.)))
+            return 3. + 5. * w, 3.5 + 3.5 * w
+
+        out.append(P.Side('bowl', height=8., radius=7., shape=shape))
+    return out
+
+
 def build_line(line, ground=None, side=None, on_ground=False, extras=None):
     """Compile a line with B's primitives, from the tower roll-in's exit section (exit_station) to build_stop: every
     surface (between gaps, elbow aprons and half bowls) is one primitives.ramp on its leg, with a wall end at a gap (the
@@ -897,6 +961,9 @@ def build_line(line, ground=None, side=None, on_ground=False, extras=None):
                     if f.kind not in ('gap', 'bowl_entry', 'elbow_qp', 'half_bowl') and f.s0 < s1 - .05 and f.s1 > s0 + .05]
                    or [16.])
 
+    from . import junctions
+    elbows = [elbow_spec(line, i) for i in range(len(line.path.elbows()))]
+    port_rows = [{} for _ in elbows]
     built, checks, last = [], [], {}
     for n, sf in enumerate(surfaces(line)):
         _, L0, turtle = sf['leg']
@@ -907,11 +974,24 @@ def build_line(line, ground=None, side=None, on_ground=False, extras=None):
                            degrees=prof.degrees, tags=prof.tags)
         name = f'{line.id}.{n}'
         w = width(sf['s0'], s1)
-        sd = side or run_side(w)
-        b = P.ramp(curve(turtle), prof, w, start=sf['s0'] - L0, left=sd, right=sd, ground=ground,
+        sides = [side, side] if side is not None else run_sides(line, w)
+        at_start = [i for i, e in enumerate(elbows) if abs(sf['s0'] - e['s_out']) < 1e-5]
+        at_end = [i for i, e in enumerate(elbows) if abs(s1 - e['s_in']) < 1e-5]
+        if at_start or at_end:
+            for j, sd in enumerate(sides):
+                if isinstance(sd, P.Side) and sd.kind == 'bowl':
+                    fade = sd.fade or (P.BOWL_FADE if sf['gap_before'] else 0., P.BOWL_FADE if sf['gap_after'] else 0.)
+                    sides[j] = replace(sd, fade=(max(fade[0], 20.) if at_start else fade[0],
+                                                  max(fade[1], 20.) if at_end else fade[1]))
+        b = P.ramp(curve(turtle), prof, w, start=sf['s0'] - L0, left=sides[0], right=sides[1], ground=ground,
                    ends=('wall' if sf['gap_before'] else 'flush', 'wall' if sf['gap_after'] else 'flush'),
                    feature=name, on_ground=on_ground)
         built.append(b)
+        if on_ground:
+            for ids, station, key in ((at_start, sf['s0'], 'out'), (at_end, s1, 'in')):
+                for i in ids:
+                    point, tangent = line.path.at(station)
+                    port_rows[i][key] = junctions.boundary_row(b.mesh, point, tangent)
         if sf['gap_before'] and last.get('gap_after'):
             lip_p, _ = line.path.at(last['s1'])
             land_p, _ = line.path.at(sf['s0'])
@@ -921,17 +1001,14 @@ def build_line(line, ground=None, side=None, on_ground=False, extras=None):
                            'landing_t': (float(sf['s0']), float(s1))})
         k = profile(sf['y0'], sf['degrees'], parts)
         last = {'name': name, 's1': s1, 'y1': float(k[-1][1]), 'deg1': float(k[-1][2]), 'gap_after': sf['gap_after']}
-    walls = built if extras is None else extras       # park() keeps elbows and half bowls apart (it may drop one)
-    for i in range(len(line.path.elbows())):
-        walls.append(build_elbow(elbow_spec(line, i), ground=ground, on_ground=on_ground, checks=checks))
+    walls = built if extras is None else extras
+    for i, e in enumerate(elbows):
+        rows = [port_rows[i][k] for k in ('in', 'out')] if on_ground else None
+        walls.append(build_elbow(e, ground=ground, on_ground=on_ground, checks=checks, rows=rows))
     for f in line.features:
         if f.kind == 'half_bowl' and f.s0 < build_stop(line):
-            hb = build_half_bowl(half_bowl_spec(line, f), ground=ground, on_ground=on_ground)
-            if _on_site(hb):
-                walls.append(hb)
-            else:                       # planned: G's carve radius puts this wall off the block
-                checks.append({'kind': 'todo', 'what': f'{f.id}: half bowl wall leaves the site; tighten its turn',
-                               'owner': 'G', 'status': 'planned'})
+            checks.append({'kind': 'half_bowl', 'feature': f.id, 's0': f.s0, 's1': f.s1,
+                           'wall_radius_m': 7., 'wall_height_m': 8., 'continuous_with_run': True})
     out = P.Built.concat(built)
     out.checks += checks
     return out
@@ -955,33 +1032,10 @@ def _site2():
     return _SITE[0]
 
 
-def build_elbow(spec, ground=None, on_ground=False, checks=None):
-    """An elbow: B's primitives.elbow_qp(spec) when it exists; until then the apron as a ramp along the wall (a plane
-    sloping only along it) and, where that plane is level, a primitives.quarter_pipe (H's Mega Park wall: R6 + 1 m
-    vert, deck 2, steel coping, lip at least 40 m)."""
-    from . import primitives as P
-    from .curves import Line
-    fn = getattr(P, spec['kind'], None)
-    if fn is not None:
-        return fn(spec, ground=ground, on_ground=on_ground)
-    W, n, t = np.asarray(spec['centre']), np.asarray(spec['n']), np.asarray(spec['t'])
-    h = spec['half_length']; mid = W + n * spec['apron'] / 2
-    deg = math.degrees(math.atan(spec['grade_t']))
-    apron = P.ramp(Line(tuple(mid - t * h), tuple(mid + t * h)),
-                   P.from_additions(spec['y'] - spec['grade_t'] * h, deg, [('line', 2 * h)]), spec['apron'],
-                   left='flush', right='flush', ground=ground, feature=f"{spec['line']}.elbow{spec['index']}.apron",
-                   on_ground=on_ground)
-    parts = [apron]
-    if abs(deg) < .25:
-        lip = W - n * spec['r']
-        parts.append(P.quarter_pipe(Line(tuple(lip - t * h), tuple(lip + t * h)), floor_y=spec['y'],
-                                    height=spec['r'] + spec['vert'], radius=spec['r'], deck=spec['deck'], floor=.5,
-                                    side=1, ground=ground,     # the path runs along t: its left is -n, the wall side
-                                    feature=f"{spec['line']}.elbow{spec['index']}", on_ground=on_ground))
-    elif checks is not None:
-        checks.append({'kind': 'todo', 'what': f"{spec['kind']} on a sloped apron ({deg:.1f} deg along the wall)",
-                       'owner': 'B', 'spec': {k: v for k, v in spec.items() if k != 'material'}})
-    return P.Built.concat(parts)
+def build_elbow(spec, ground=None, on_ground=False, checks=None, rows=None):
+    """One integral apron and vert turn, cut to the exact approach sections."""
+    from .junctions import elbow
+    return elbow(spec, ground=ground, on_ground=on_ground, rows=rows)
 
 
 def build_half_bowl(spec, ground=None, on_ground=False):
@@ -1094,13 +1148,10 @@ def park():
         checks.append({'kind': 'todo', 'what': 'bowl complex (Crater Bowl is a placeholder)', 'owner': 'F'})
     parts.append(complex_)
     from . import ground as G
+    # Turns are required route geometry. Never hide a placement defect by
+    # dropping its wall; validation must reject the assembled park instead.
+    parts.extend(walls)
     feet = _merged_feet(parts)
-    for w in walls:                         # elbows and half bowls: kept where their feet clear everything else
-        if _on_site(w) and not any(_loops_overlap(f, g) for f in w.foot for g in feet):
-            parts.append(w); feet += [np.asarray(f, 'f8') for f in w.foot]
-        else:
-            checks.append({'kind': 'todo', 'what': f'{next(iter(w.mesh.features))}: overlaps its legs or leaves the site',
-                           'owner': 'D/G', 'status': 'planned'})
     import re
     for _ in range(40):                     # a hole the ground refuses (overlap, off the site): the ground runs on
         try:                                # without it, and the check names the place (preview over perfection)

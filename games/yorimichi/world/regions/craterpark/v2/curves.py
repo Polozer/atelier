@@ -101,6 +101,47 @@ class Curve:
                             np.r_[b, [x for x in np.ravel(extra) if 0 <= x <= self.length]], near=0.)
 
 
+class Chain(Curve):
+    """Exact tangent-continuous analytic pieces, including a full 180-degree arc.
+
+    Constructing a semicircle by intersecting its parallel tangent lines is
+    singular. A chain evaluates the original line and arc pieces directly.
+    """
+    def __init__(self, pieces):
+        self.pieces = tuple(pieces)
+        if not self.pieces or any(p.length <= 0 for p in self.pieces):
+            raise ValueError('a curve chain requires positive-length pieces')
+        for a, b in zip(self.pieces[:-1], self.pieces[1:], strict=True):
+            if np.linalg.norm(a.point([a.length])[0] - b.point([0.])[0]) > 1e-7:
+                raise ValueError('curve chain: separated pieces')
+            if np.linalg.norm(a.tangent([a.length])[0] - b.tangent([0.])[0]) > 1e-7:
+                raise ValueError('curve chain: tangent discontinuity')
+        self.ends = np.r_[0., np.cumsum([p.length for p in self.pieces])]
+        self.length = float(self.ends[-1])
+
+    def _eval(self, t, name):
+        t = np.clip(np.atleast_1d(np.asarray(t, 'f8')), 0., self.length)
+        index = np.clip(np.searchsorted(self.ends, t, side='right') - 1, 0, len(self.pieces) - 1)
+        out = np.empty((len(t), 2) if name != 'curvature' else len(t))
+        for i, piece in enumerate(self.pieces):
+            take = index == i
+            if take.any():
+                out[take] = getattr(piece, name)(t[take] - self.ends[i])
+        return out
+
+    def point(self, t):
+        return self._eval(t, 'point')
+
+    def tangent(self, t):
+        return self._eval(t, 'tangent')
+
+    def curvature(self, t):
+        return self._eval(t, 'curvature')
+
+    def breaks(self):
+        return np.unique(np.concatenate([p.breaks() + start for p, start in zip(self.pieces, self.ends[:-1], strict=True)]))
+
+
 class Line(Curve):
     """A straight segment from a to b (plan points)."""
 

@@ -12,6 +12,12 @@ Sides of a feature, where its edge meets lower ground (`Side`):
 - `flush`: the ground or a deck continues at the riding edge (the wall is only a buried closing face);
 - `ground` (on_ground only): no side at all: the landform meets the riding edge itself (a roll-in carved into the
   tower's mound).
+- `bowl`: a curved transition wall rising from the riding edge (a circular arc of `radius` up to `height`, as a
+  snake run's or half-pipe's), so a rider drifting sideways carves up it and comes back, then a flat cap `width` wide,
+  then `outer`: 'ground' (on_ground: the landform meets the cap), 'wall' (down to the ground) or 'bank'. The wall
+  grows from zero over `fade` metres at each end (a ramp fades it at a 'wall' end: to zero at a kicker's lip, from zero
+  at a landing's knuckle; a tower roll-in fades it from its deck), and is full height at a 'flush' end, so the next
+  run's walls continue it exactly.
 Wherever the riding edge stands less than FLUSH over the ground, its wall is buried (role base).
 
 Profiles are A's `profile.Profile` (('line', L) is L along the slope). `from_additions` converts the r4 RAMPS table's
@@ -19,7 +25,7 @@ profiles, whose ('line', L) is a horizontal run, so the ridden dimensions carry 
 """
 import itertools
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -36,21 +42,45 @@ BURY = .3           # metres the base lies under the lowest ground or riding poi
 MIN_WALL = .30      # metres: a wall or cap's least thickness (I5)
 TESS = dsl.Tess(.002, 2.0, 2.8)   # riding: as RIDING_TESS, but quads of 2.8 m keep their diagonals under 4 m (V9)
 WALL_ROW = 2.2      # metres between a wall's rows down it at most
+BOWL_HEIGHT = 3.    # metres: a bowl side's wall over the riding edge at full height
+BOWL_RADIUS = 3.5   # metres: its transition's radius
+BOWL_CAP = 1.       # metres: its flat cap's width
+BOWL_FADE = 15.     # metres over which it grows from zero at a faded end (a cosine ease of its whole section)
+BOWL_TURN = 1.2     # degrees its rows turn along a fade between stations at most (with the diagonals, under 2)
+BOWL_STEP = 1.5     # degrees across a shoulder; leave room for its longitudinal pitch under the 2 degree facet limit
 
 
 @dataclass
 class Side:
-    kind: str = 'wall'          # wall, curb, bank, flush
-    width: float = .4           # curb: its cap's width
-    height: float = .3          # curb: how far it stands over the riding edge
-    degrees: float = 30.        # bank: its slope
+    kind: str = 'wall'          # wall, curb, bank, flush, ground, bowl
+    width: float = None         # curb: its cap's width (.4); bowl: its flat cap's width (BOWL_CAP)
+    height: float = None        # curb: how far it stands over the riding edge (.3); bowl: its wall (BOWL_HEIGHT)
+    degrees: float = 30.        # bank (and a bowl's 'bank' outer): its slope
     material: str = dsl.CONCRETE
+    radius: float = BOWL_RADIUS     # bowl: its transition's radius
+    fade: tuple = None              # bowl: metres it grows from zero over at (start, end); None: the ramp decides
+    outer: str = None               # bowl: past its cap, 'ground', 'wall' or 'bank' (None: ground on the ground)
+    fade_power: float = 1.           # a merge uses 3: height vanishes as distance^6, reach as distance^3
+    shape: object = None            # optional (edge positions) -> (full heights, radii), before endpoint fades
 
     def __post_init__(self):
-        if self.kind not in ('wall', 'curb', 'bank', 'flush', 'ground'):
+        if self.kind not in ('wall', 'curb', 'bank', 'flush', 'ground', 'bowl'):
             raise ValueError(f'unknown side {self.kind!r}')
+        if self.width is None:
+            self.width = BOWL_CAP if self.kind == 'bowl' else .4
+        if self.height is None:
+            self.height = BOWL_HEIGHT if self.kind == 'bowl' else .3
         if self.kind == 'curb' and self.width < MIN_WALL:
             raise ValueError(f'a curb cap must be at least {MIN_WALL} m wide (I5), not {self.width}')
+        if self.kind == 'bowl':
+            if self.width < MIN_WALL:
+                raise ValueError(f'a bowl side\'s cap must be at least {MIN_WALL} m wide (I5), not {self.width}')
+            if not (self.height > 0 and self.radius > 0):
+                raise ValueError('a bowl side needs a positive height and radius')
+            if self.outer not in (None, 'ground', 'wall', 'bank'):
+                raise ValueError(f'a bowl side\'s outer is ground, wall or bank, not {self.outer!r}')
+            if not math.isfinite(self.fade_power) or self.fade_power < 1.:
+                raise ValueError('a bowl fade power must be finite and at least one')
 
 
 @dataclass
@@ -76,6 +106,13 @@ def one_feature(mesh, feature):
 
 def as_side(s):
     return s if isinstance(s, Side) else Side(s)
+
+
+def _faded(side, ends):
+    """A bowl side with no fade given fades at the ramp's 'wall' ends (a kicker's lip, a landing's knuckle)."""
+    if side.kind != 'bowl' or side.fade is not None:
+        return side
+    return replace(side, fade=tuple(BOWL_FADE if as_side(e).kind == 'wall' else 0. for e in ends))
 
 
 def as_ground(g):
@@ -137,16 +174,9 @@ def _flank_extent(E, D, side, g, gap):
         up = E[:, 1] - mid * math.sin(a) - gap - g(q[:, 0], q[:, 2]) > 0
         lo = np.where(up, mid, lo); hi = np.where(up, hi, mid)
     sig = np.where(drop > 0, (lo + hi) / 2, 0.)
-    # the edge's curvature toward D: D turning by dtheta over ds; > 0 bends toward the flank (its inside)
-    if len(E) > 2:
-        s = np.r_[0., np.cumsum(np.linalg.norm(np.diff(E[:, [0, 2]], axis=0), axis=1))]
-        T = np.gradient(E[:, [0, 2]], s, axis=0)
-        T /= np.maximum(np.linalg.norm(T, axis=1, keepdims=True), 1e-12)
-        dT = np.gradient(T, s, axis=0)
-        k = (dT * D[:, [0, 2]]).sum(1)
-        k = np.maximum.reduce([k, np.r_[k[1:], k[-1]], np.r_[k[0], k[:-1]], np.r_[k[2:], k[-2:]], np.r_[k[:2], k[:-2]]])
-        reach = np.where(k > 1e-9, np.maximum(1 / np.maximum(k, 1e-9) - INSIDE, 0.) / math.cos(a), np.inf)
-        sig = np.minimum(sig, reach)
+    k = _edge_curvature(E, D)
+    reach = np.where(k > 1e-9, np.maximum(1 / np.maximum(k, 1e-9) - INSIDE, 0.) / math.cos(a), np.inf)
+    sig = np.minimum(sig, reach)
     sig[sig < PINCH] = 0.
     return sig
 
@@ -198,9 +228,14 @@ def _flank_mesh(E, D, side, g, gap, feature):
         poly = np.asarray(left + top + right + feet)
         inner = [(u[i], x) for i in range(max(i0, 1), min(i1, k - 2) + 1) for x in column(lim[i])]
         P2 = np.concatenate([poly, np.asarray(inner).reshape(-1, 2)])
-        try:
-            F = triangulate(P2, [np.arange(len(poly))])
-        except CDTError:
+        F = None
+        for sc in (1., .5, 2., .77, 1.3):           # the CDT's point location can fail; an affine stretch avoids it
+            try:
+                F = triangulate(P2 * [sc, 1.], [np.arange(len(poly))])
+                break
+            except CDTError:
+                continue
+        if F is None:
             P2 = poly; F = solids.ear_clip(poly)
         V = place(P2[:, 0], P2[:, 1])
         # u: the arc length along each row (the iso-sigma curve through the vertex), v: sigma
@@ -235,15 +270,126 @@ def _drop_rows(top, foot, step=WALL_ROW):
     return rows + [foot]
 
 
+def _bowl_top(side, h=None):
+    """A bowl side's transition at wall height h (default its full height): (top angle radians, vert metres)."""
+    h = side.height if h is None else h
+    R = side.radius
+    return (math.acos(1. - h / R), 0.) if h <= R else (math.pi / 2, h - R)
+
+
+def bowl_reach(side=None):
+    """Plan metres from the riding edge to a bowl side's outer cap edge at full height (default: Side('bowl'))."""
+    side = side or Side('bowl')
+    th, _ = _bowl_top(side)
+    return side.radius * math.sin(th) + side.width
+
+
+def _edge_curvature(E, D):
+    """Per station: the riding edge E's plan curvature toward D (> 0: D is the inside of the turn), the largest over
+    each station's two neighbours either side."""
+    if len(E) < 3:
+        return np.zeros(len(E))
+    s = np.r_[0., np.cumsum(np.linalg.norm(np.diff(E[:, [0, 2]], axis=0), axis=1))]
+    T = np.gradient(E[:, [0, 2]], s, axis=0)
+    T /= np.maximum(np.linalg.norm(T, axis=1, keepdims=True), 1e-12)
+    dT = np.gradient(T, s, axis=0)
+    k = (dT * D[:, [0, 2]]).sum(1)
+    return np.maximum.reduce([k, np.r_[k[1:], k[-1]], np.r_[k[0], k[:-1]], np.r_[k[2:], k[-2:]], np.r_[k[:2], k[:-2]]])
+
+
+def _bowl_scale(u, fade):
+    """A bowl side's section scale (0..1) at plan metres u along its edge of plan length u[-1]: a cosine ease from 0
+    over fade (start, end) metres at each end, else 1."""
+    f0, f1 = fade or (0., 0.)
+    w = np.ones(len(u))
+    if f0 > 0:
+        w *= (1. - np.cos(np.pi * np.clip(u / f0, 0., 1.))) / 2
+    if f1 > 0:
+        w *= (1. - np.cos(np.pi * np.clip((u[-1] - u) / f1, 0., 1.))) / 2
+    return w
+
+
+def _fade_stations(side, length):
+    """Extra plan stations (metres along an edge of plan `length`) in a bowl side's fade zones, so the top of its
+    transition turns at most BOWL_TURN between stations as its section eases (its other stations stay as swept)."""
+    f0, f1 = side.fade or (0., 0.)
+    out = []
+    for f, sign in ((f0, 1), (f1, -1)):
+        if f <= 0:
+            continue
+        x = np.linspace(0., min(f, length), 2001)
+        H = side.height * ((1 - np.cos(np.pi * x / f)) / 2) ** side.fade_power
+        th = np.arccos(1 - np.minimum(H, side.radius) / side.radius)
+        reach = side.radius * np.sin(th)
+        yaw = np.arctan(np.gradient(reach, x))
+        pitch = np.arctan(np.gradient(H, x))
+        acc = np.r_[0., np.cumsum(np.abs(np.diff(th)) + np.abs(np.diff(yaw)) + np.abs(np.diff(pitch)))]
+        n = math.ceil(acc[-1] / math.radians(BOWL_TURN))
+        if n > 1:
+            q = np.interp(np.linspace(0., acc[-1], n + 1)[1:-1], acc, x)
+            out.append(q if sign > 0 else length - q)
+    return np.concatenate(out) if out else np.zeros(0)
+
+
+def _bowl_rows(E, D, side, feature):
+    """@cc [owner:fontanierh,label:correctness] nonpinching-shoulder-fade
+    Fading MUST lower the wall along its specified fixed-radius transition;
+    it MUST NOT shrink that radius toward a sharp conical tip. At zero height
+    the transition collapses onto its floor edge and its flat cap remains.
+    """
+    Y = np.array([0., 1., 0.])
+    u = np.r_[0., np.cumsum(np.linalg.norm(np.diff(E[:, [0, 2]], axis=0), axis=1))]
+    sc = _bowl_scale(u, side.fade)[:, None]
+    th, vert = _bowl_top(side)
+    if side.shape is None:
+        heights, R = side.height, side.radius
+    else:
+        heights, R = (np.asarray(v, 'f8').reshape(-1, 1) for v in side.shape(E))
+        if (not np.isfinite(heights).all() or not np.isfinite(R).all() or (heights <= 0).any() or (R <= 0).any()
+                or (heights > side.height + 1e-7).any() or (R > side.radius + 1e-7).any()):
+            raise ValueError(f'{feature}: side shape exceeds its declared positive height/radius envelope')
+    H = heights * sc ** side.fade_power
+    angles = np.arccos(1 - np.minimum(H, R) / R)
+    vertical = np.maximum(H - R, 0.)
+    k = _edge_curvature(E, D)
+    reach = bowl_reach(side)
+    if (k * reach > .9).any():
+        i = int(np.argmax(k))
+        raise ValueError(f'{feature}: its bowl side folds on the inside of a turn of radius {1 / k[i]:.1f} m near '
+                         f'{E[i].round(2).tolist()} (the wall reaches {reach:.1f} m; ease the turn or lower the wall)')
+    n_arc = max(2, math.ceil(math.degrees(th) / BOWL_STEP))
+    n_vert = math.ceil(vert / WALL_ROW) if vert > 0 else 0
+    rows = []
+    for j in range(1, n_arc + 1):
+        a = angles * j / n_arc
+        rows.append(E + R * np.sin(a) * D + R * (1 - np.cos(a)) * Y)
+    top = rows[-1]
+    for j in range(1, n_vert + 1):
+        rows.append(top + vertical * (j / n_vert) * Y)
+    cap = rows[-1] + side.width * D
+    return [E] + rows, cap
+
+
 def _side_columns(E, D, side, g, base_y, under=None, on_ground=False, closed=False, feature='side'):
     """The cross-section points outward of a riding edge E (k, 3), outward D (k, 3) horizontal unit, for `side`:
     a list of (k, 3) rows from the edge out to the outer top, then the foot and (unless `on_ground`) the base rows;
-    plus each segment's (role, outward kind) for the strips between consecutive rows. On the ground, the foot lies
-    exactly on it (or at the edge where the ground is as high), and nothing goes below."""
+    plus each segment's (role, outward kind) for the strips between consecutive rows ('skip': meshed in extra
+    parts). On the ground, the foot lies exactly on it (or at the edge where the ground is as high), and nothing goes
+    below. extra: {'parts', 'ends': a bank flank's own points down each end, 'at': the row they follow}."""
     Y = np.array([0., 1., 0.])
     gap = 0. if on_ground else FOOT
     rows, segs = [E], []
-    extra = {'parts': [], 'ends': {0: [], -1: []}}
+    extra = {'parts': [], 'ends': {0: [], -1: []}, 'at': 0}
+    if side.kind == 'bowl':
+        arc, cap = _bowl_rows(E, D, side, feature)
+        extra['parts'].append(solids.grid(np.stack(arc, 1), outward=-D + Y, feature=feature, material=side.material,
+                                          role=dsl.RIDING, uv='arc', closed_rows=closed))
+        rows += arc[1:]; segs += [(dsl.RIDING, 'skip')] * (len(arc) - 1)
+        rows.append(cap); segs.append((dsl.RIDING, 'up'))
+        outer = side.outer or ('ground' if on_ground else 'wall')
+        side = Side(outer, degrees=side.degrees, material=side.material)
+        E = cap
+        extra['at'] = len(rows) - 1
     if side.kind == 'ground':
         if not on_ground:
             raise ValueError("a 'ground' side needs on_ground=True (the landform meets the riding edge)")
@@ -256,7 +402,8 @@ def _side_columns(E, D, side, g, base_y, under=None, on_ground=False, closed=Fal
             raise ValueError(f'{feature}: a bank flank on a closed path is not supported; use a wall or curb')
         mesh, foot_f, ends = _flank_mesh(E, D, side, g, gap, feature)
         rows.append(foot_f); segs.append((dsl.RIDING, 'flank'))
-        extra = {'parts': [mesh] if mesh is not None else [], 'ends': ends}
+        extra['parts'] += [mesh] if mesh is not None else []
+        extra['ends'] = ends
     outer = rows[-1]
     gy = g(outer[:, 0], outer[:, 2])
     foot = outer.copy(); foot[:, 1] = np.minimum(gy, outer[:, 1] - gap)
@@ -383,15 +530,30 @@ class _Clear(Curve):
 
 
 def ramp(path, profile, width, *, start=0., left='wall', right='wall', ground=None, ends=('flush', 'flush'),
-         feature='ramp', tess=TESS, t=None, on_ground=False):
+         feature='ramp', tess=TESS, t=None, on_ground=False, across=None):
     """A ramp along the plan `path` (curves.Curve) from `start` metres along it: the `profile` (its x along the path,
     y absolute) `width` wide, closed into a solid down to the `ground` (float or f(x, z); default 0 under the lowest
     point) with sides `left`/`right` (Side or kind; left is the path's +normal side) and `ends` (start, end) each
     'flush' (the next feature or deck continues there) or 'wall' (a visible end face: a kicker's back at its lip, a
-    landing's front). Roll-ins, decks, kickers, landings and run-outs are ramps. Returns a Built."""
-    left, right = as_side(left), as_side(right)
+    landing's front). `across` supplies exact lateral floor stations for a shared port, including both floor edges.
+    Roll-ins, decks, kickers, landings and run-outs are ramps. Returns a Built."""
+    if across is not None:
+        across = np.asarray(across, 'f8')
+        if (across.ndim != 1 or len(across) < 2 or not np.isfinite(across).all()
+                or np.any(np.diff(across) <= 0) or not np.allclose(across[[0, -1]], [-width / 2, width / 2], atol=1e-8, rtol=0)):
+            raise ValueError('ramp: across must increase from -width/2 to width/2')
+    left, right = _faded(as_side(left), ends), _faded(as_side(right), ends)
+    if left.kind == 'bowl' or right.kind == 'bowl':
+        tess = replace(tess, angle=min(tess.angle, 1.))
     own = start + profile.point(profile.samples(tess))[:, 0] - profile.start[0]
-    riding = sweep(_Clear(path, own), profile, mode='longitudinal', start=start, across=width, feature=feature,
+    extra = [] if t is None else [np.asarray(t, 'f8')]
+    for sd in (left, right):
+        if sd.kind == 'bowl' and sd.fade and max(sd.fade) > 0:
+            L = float(own.max() - own.min())
+            q = start + _fade_stations(sd, L)
+            extra.append(q[np.abs(q[:, None] - own[None]).min(1) > .15] if len(q) else q)
+    t = np.unique(np.concatenate(extra)) if extra else None
+    riding = sweep(_Clear(path, own), profile, mode='longitudinal', start=start, across=width if across is None else across, feature=feature,
                    tess=tess, t=t)
     lo = float(riding.V[:, 1].min())
     g = as_ground(lo if ground is None else ground)
@@ -577,9 +739,15 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows
         if s is not None and s.kind == 'curb':
             q = E + s.width * Dd
             probe.append(float(g(q[:, 0], q[:, 2]).min()))
+        if s is not None and s.kind == 'bowl':
+            out = bowl_reach(s) + (E[:, 1].max() + s.height - g(E[:, 0], E[:, 2]).min()) / math.tan(
+                math.radians(s.degrees)) + 1. if s.outer == 'bank' else bowl_reach(s)
+            for x in np.linspace(0., out, 4):
+                q = E + x * Dd
+                probe.append(float(g(q[:, 0], q[:, 2]).min()))
     base_y = min([lo] + probe) - BURY - FOOT
     parts = []
-    cols, ends_of = {}, {'front': {0: [], -1: []}, 'back': {0: [], -1: []}}
+    cols, ends_of, at_of = {}, {'front': {0: [], -1: []}, 'back': {0: [], -1: []}}, {'front': 0, 'back': 0}
     for name, E, Dd, kind in (('front', Ef, -D, front), ('back', Eb, D, back)):
         if kind == 'cap':
             parts.append(solids.polygon(E, outward=Y, feature=feature, role=dsl.RIDING))
@@ -596,9 +764,9 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows
         rows, segs, extra = _side_columns(E, Dd, side, g, base_y, under=G[..., 1].min(1), on_ground=on_ground,
                                           closed=closed, feature=feature)
         parts += extra['parts']
-        ends_of[name] = extra['ends']
+        ends_of[name] = extra['ends']; at_of[name] = extra['at']
         for (a, b), (role, k) in zip(itertools.pairwise(rows), segs, strict=True):
-            if k == 'flank':
+            if k in ('flank', 'skip'):
                 continue
             out = {'inner': -Dd, 'up': np.broadcast_to(Y, Dd.shape), 'bank': Dd + Y, 'out': Dd}[k]
             m = solids.grid(np.stack([a, b], 1), outward=out, feature=feature, material=side.material, role=role,
@@ -623,8 +791,9 @@ def _close_transverse(G, *, feature, ground, front, back, ends, closed, end_rows
         foot = -1 if on_ground else -2
         for i, top, kind, out in ((0, tops[0], ends[0], -T0), (-1, tops[1], ends[1], T1)):
             f = [r[i] for r in cols['front']]; b = [r[i] for r in cols['back']]
-            f = f[:1] + list(ends_of['front'][i]) + f[1:]        # a flank's own points down the end
-            b = b[:1] + list(ends_of['back'][i]) + b[1:]
+            af, ab = at_of['front'] + 1, at_of['back'] + 1     # a flank's own points down the end
+            f = f[:af] + list(ends_of['front'][i]) + f[af:]
+            b = b[:ab] + list(ends_of['back'][i]) + b[ab:]
             wall = as_side(kind).kind == 'wall'
             if on_ground and not wall:
                 continue                 # the next feature or deck continues here: left open (its seam)
@@ -711,12 +880,13 @@ def _with_coping(built, G, st, profile, *, closed, into_sign, feature, names=('l
 
 def quarter_pipe(path, *, floor_y, height, radius, deck=1.5, floor=.5, top_degrees=None, side=1, ground=None,
                  back='wall', ends=('wall', 'wall'), coping=True, feature='quarter_pipe', tess=TESS,
-                 material=dsl.CONCRETE, deck_material=dsl.DECK, on_ground=False):
+                 material=dsl.CONCRETE, deck_material=dsl.DECK, on_ground=False, front='flush'):
     """A quarter pipe whose lip runs along the plan `path`: a flat `floor` strip at `floor_y`, a transition of `radius`
     up to `top_degrees` (default: vertical if `height` > `radius`, else the angle the arc reaches at `height`), a
     straight extension to the lip at floor_y + height, then a flat `deck` (>= 1.2 m) on the path's `side` (+1 its
     left). The floor's front edge meets the park floor flush; the deck's back is a `back` Side; its flanks are
-    `ends`. With `coping`, a steel tube along the lip and a rail on it."""
+    `ends`. With `coping`, a steel tube along the lip and a rail on it. `front='ground'` leaves an on-ground
+    floor seam open for an integral apron instead of making a wall underneath that apron."""
     if deck < 1.2 - 1e-9:
         raise ValueError(f'{feature}: a deck must be at least 1.2 m deep')
     if top_degrees is None:
@@ -733,7 +903,7 @@ def quarter_pipe(path, *, floor_y, height, radius, deck=1.5, floor=.5, top_degre
     parts += [('corner', 0., {'material': deck_material, 'tag': 'lip'}), ('line', deck, {'material': deck_material})]
     prof = Profile(parts, start=(0., floor_y), tags={'lip': len(parts) - 1})
     x_lip = float(prof.point([prof.tags['lip']])[0, 0])
-    built, G, st = transverse(path, prof, side=side, offset=-side * x_lip, ground=ground, front='flush', back=back,
+    built, G, st = transverse(path, prof, side=side, offset=-side * x_lip, ground=ground, front=front, back=back,
                               ends=ends, feature=feature, tess=tess, on_ground=on_ground)
     built.checks.append({'feature': feature, 'kind': 'quarter_pipe', 'lip_y': floor_y + height,
                          'top_degrees': top_degrees, 'radius': radius})
@@ -911,10 +1081,12 @@ def _heading(deg):
     return np.array([math.cos(a), math.sin(a)])
 
 
-def place_crests(spec, roll_ins, gap=2.):
+def place_crests(spec, roll_ins, gap=2., walls=None):
     """Crest points for roll-ins on the tower deck rectangle (spec 'centre', 'size'): each roll-in
     {id: (heading degrees, width)} goes on the side whose outward normal is nearest its heading, roll-ins sharing a side
-    spread along it `gap` apart. Returns {id: (x, z)}; refuses roll-ins that do not fit their side."""
+    spread along it `gap` apart, each taking `walls` more each side (default bowl_reach(): its bowl walls at full
+    height; 0 for none). Returns {id: (x, z)}; refuses roll-ins that do not fit their side."""
+    walls = bowl_reach() if walls is None else float(walls)
     c = np.asarray(spec['centre'], 'f8'); hx, hz = spec['size'][0] / 2, spec['size'][1] / 2
     sides = {0: (np.array([1., 0.]), hx, hz), 90: (np.array([0., 1.]), hz, hx),
              180: (np.array([-1., 0.]), hx, hz), 270: (np.array([0., -1.]), hz, hx)}
@@ -927,14 +1099,14 @@ def place_crests(spec, roll_ins, gap=2.):
     for k, items in by_side.items():
         n, half, along = sides[k]
         t = np.array([-n[1], n[0]])
-        total = sum(w for _, w in items) + gap * (len(items) - 1)
+        total = sum(w + 2 * walls for _, w in items) + gap * (len(items) - 1)
         if total > 2 * along + 1e-9:
             raise ValueError(f'tower: roll-ins {[r for r, _ in items]} need {total:.1f} m on one side of '
                              f'{2 * along:.1f} m: widen the deck or turn one to another side')
         x = -total / 2
         for rid, w in items:
-            out[rid] = tuple((c + n * half + t * (x + w / 2)).tolist())
-            x += w + gap
+            out[rid] = tuple((c + n * half + t * (x + walls + w / 2)).tolist())
+            x += w + 2 * walls + gap
     return out
 
 
@@ -953,7 +1125,14 @@ def tower(spec, exits, ground, *, y=None, side=None, flanks='ground', flank_degr
     g = as_ground(ground)
     if flanks not in ('ground', 'bank'):
         raise ValueError(f'{feature}: flanks are ground (the landform is the mound) or bank (its own 30 degree flanks)')
-    side = side or (Side('ground') if flanks == 'ground' else Side('bank', degrees=flank_degrees))
+    side = side or Side('bowl', fade=(BOWL_FADE, 0.), outer='ground' if flanks == 'ground' else 'bank',
+                        degrees=flank_degrees)
+    if flanks == 'bank' and side.kind == 'ground':
+        raise ValueError(f"{feature}: flanks='bank' needs roll-in sides of their own (not 'ground')")
+    if side.kind == 'bowl' and flanks == 'ground' and side.outer not in (None, 'ground'):
+        raise ValueError(f"{feature}: with flanks='ground' the landform meets the roll-ins' bowl caps (outer 'ground')")
+    if side.kind == 'bowl' and (side.fade or (0., 0.))[0] <= 0:
+        raise ValueError(f'{feature}: a roll-in\'s bowl walls must fade into the deck (fade[0] > 0)')
     parts, checks, rows = [], [], []
     for rid, ex in exits.items():
         h = _heading(ex['heading']); crest = np.asarray(ex['crest'], 'f8')
@@ -974,6 +1153,9 @@ def tower(spec, exits, ground, *, y=None, side=None, flanks='ground', flank_degr
         N = np.array([-h[1], 0., h[0]])
         if (row[-1] - row[0]) @ N < 0:
             row = row[::-1]
+        if side.kind == 'bowl':        # the walls are zero high at the crest: their caps lie on the deck's edge
+            u = _horizontal(row[-1] - row[0])
+            row = np.concatenate([[row[0] - side.width * u], row, [row[-1] + side.width * u]])
         rows.append((rid, row, h))
         parts.append(b.mesh); checks += b.checks
         checks.append({'feature': f'{rid}.rollin', 'kind': 'exit', 'line': rid, 's': x_end, 'y': float(prof.end[1]),
