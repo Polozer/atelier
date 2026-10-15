@@ -21,11 +21,11 @@ Vec4 PlayerGrindAirborneVelocity(std::uint32_t kind,Vec4 direction,Vec4 normal,V
     Vec4 out;for(std::size_t i=0;i<4;++i)out[i]=std::fma(velocity[i]-removed[i],amount,velocity[i]*(1-amount));return out;
 }
 static void Impacts(Vec4 direction,Vec4 board,Vec4 initial,Vec4 corrected,std::uint32_t kind,Vec4 side,float maximum,
-    float& impact,std::vector<std::size_t>& reasons)
+    float sideways,float& impact,std::vector<std::size_t>& reasons)
 {
     const auto delta=Sub(corrected,initial);impact=SquareRoot(Dot3(delta,delta));if(impact>maximum)reasons.push_back(9);
     const auto along=Dot3(board,direction);auto transverse=Sub(Scale4(direction,along),board);transverse[1]=0;
-    if(Dot3(transverse,transverse)>49&&(kind==0||Dot3(board,side)>0))reasons.push_back(14);
+    if(Dot3(transverse,transverse)>sideways*sideways&&(kind==0||Dot3(board,side)>0))reasons.push_back(14);
 }
 PlayerGrindEntryOutput PlayerGrindEngagement::Update(const PlayerGrindEntryInput& i)
 {
@@ -37,12 +37,12 @@ PlayerGrindEntryOutput PlayerGrindEngagement::Update(const PlayerGrindEntryInput
     o.flags|=0x40000000u;const auto initial=i.category==100?i.board_velocity:i.air_velocity;
     o.entry_velocity=i.category==100?PlayerGrindGroundedVelocity(i.kind,i.direction,i.board_velocity,i.balance_2720,i.speed,i.vertical_help):
         PlayerGrindAirborneVelocity(i.kind,i.direction,i.normal,i.air_velocity);
-    Impacts(i.direction,i.board_velocity,initial,o.entry_velocity,i.surface_kind,i.high_side,i.max_delta,o.impact_speed,o.wipeout_reasons);
+    Impacts(i.direction,i.board_velocity,initial,o.entry_velocity,i.surface_kind,i.high_side,i.max_delta,i.max_sideways,o.impact_speed,o.wipeout_reasons);
     if(!o.wipeout_reasons.empty())o.valid=false;return o;
 }
-std::vector<std::size_t> PlayerGrindAirborneRejections(Vec4 direction,Vec4 up,Vec4 board,Vec4 air,Vec4 corrected,std::uint32_t kind,Vec4 side,float maximum)
+std::vector<std::size_t> PlayerGrindAirborneRejections(Vec4 direction,Vec4 up,Vec4 board,Vec4 air,Vec4 corrected,std::uint32_t kind,Vec4 side,float maximum,float sideways)
 {
     if(std::abs(Dot3(up,direction))>.5f)return {13};std::vector<std::size_t> reasons;float impact;
-    Impacts(direction,board,air,corrected,kind,side,maximum,impact,reasons);return reasons;
+    Impacts(direction,board,air,corrected,kind,side,maximum,sideways,impact,reasons);return reasons;
 }
 }

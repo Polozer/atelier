@@ -83,6 +83,7 @@ with its own build step. `skate.RideTune` overrides the transitions' tuning live
 | `bDriftPowerslide` | false | Drift powerslides: the left stick straight down starts one too (to the right when dead straight; a rear diagonal picks its side as before), the slide holds from half tilt instead of full tilt, and its wheel friction follows how far down the stick is pulled, from `DriftGrip` of the slide's own at half tilt to `DriftFullGrip` at full tilt. Let go, the slide holds on (up to half a second, at `DriftGrip`) while the board turns back along its travel, so the rider comes out with the speed and the line instead of the line swinging round to the board. Off is stock |
 | `DriftGrip`, `DriftFullGrip` | 0.3, 0.6 | 0 to 1.5; a drift powerslide's wheel friction at half and at full tilt, as shares of the slide's own |
 | `PowerslideTurn` | 1 | 0.25 to 1.5; how far a powerslide turns the board across the travel |
+| `GrindTolerance` | 1 | 0.5 to 3; how much a grind takes before it bails (see Feel) |
 | `DeckMesh`, `TruckMesh`, `WheelMesh` | none | Board parts (see the board contract); skating is unavailable without all three |
 | `BoardDissolveMaterial` | none | A masked material with a scalar `Dissolve` (0 whole, 1 gone) that fades the board in and out; without one the board shows and hides |
 | `SoundFolder` | none | Content folder of the board sounds |
@@ -146,6 +147,7 @@ bit-exact with stock.
 | `RailMagnetism` | 0.25 to 3 | The grind lock distance, how far and how sharply a jump may be bent onto a rail, and the crossing and drop speeds still admitted |
 | `GrindPop` | 0.5 to 2 | The ollie out of a grind |
 | `GrindFriction` | 0 to 3 | Grind and slide friction |
+| `GrindTolerance` | 0.5 to 3 | `GrindTolerance`: what a grind rides through before it bails. In full: every in-grind bail limit (`GrindPostTolerance`: the body pushed off its pose, 2; a knock to the body or arms, 8.5 and 30; the board's closing speed across the rail, 6, and through it, 100; the deck twisted off its target, 1.3 rad) and the 35 updates a push-off has to clear the rail before it bails. Half as much more, `(1 + GrindTolerance) / 2`: the entry's (the impact snapping on, 8 m/s; the speed across the rail, 7 m/s; the speed landing into it, 8 m/s times `Landing`). The 30° pitch along the rail an air entry bails at is kept. Above 1, a rail boardslide or darkslide that stalls is pushed off across the rail, as on a ledge, instead of wiping out |
 | `Braking` | 0.25 to 3 | Foot-brake force |
 | `Steering`, `Carve`, `Grip` | 0.5 to 2 | Steering scalar, heading turn strength, wheel friction |
 | `Powerslide` | 0.25 to 3 | A powerslide's slowing force |

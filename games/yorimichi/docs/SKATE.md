@@ -173,8 +173,14 @@ settings show the same values under "Skate mode", "Skate feel · Custom" and "Sk
 values to stock** and **Reset controls and camera** return those values to their defaults.
 
 Custom values multiply the base difficulty's own, so pick the base first. Each starts at the game's own value: 1.00 for
-most, and this game's pop 1.15, spin 1.6, push speed 1.15, push strength 1.45 and vert assist 1 (`DefaultGame.ini`). The plugin README's
-"Feel" table says what each one scales. Some useful starting points:
+most, and this game's pop 1.15, spin 1.6, push speed 1.15, push strength 1.45, vert assist 1 and grind balance 2
+(`DefaultGame.ini`). The plugin README's "Feel" table says what each one scales.
+
+**Grind balance** (`GrindTolerance`, 2 in this game, in every mode) is how much a grind takes before Cairo bails. At 2
+the grind rides through twice the knocks, the twist of the deck off the rail and the time a push-off has to clear the
+rail; a rail boardslide that stalls drops off the rail and rides away instead of wiping out. The entry takes half as
+much more: hitting the rail 12 m/s sideways or slamming on with a 12 m/s jolt still bails, as does an air entry pitched
+more than 30° along the rail. Some useful starting points:
 
 | To get | Try |
 | --- | --- |
@@ -182,7 +188,7 @@ most, and this game's pop 1.15, spin 1.6, push speed 1.15, push strength 1.45 an
 | Floatier airs | Gravity 0.8 (heights stay; air time is about 12% longer) |
 | Grinds that catch from farther | Rail magnetism 1.5 to 2 |
 | Endless lines | Rolling resistance 0.5, Grind friction 0.5, Pumping 1.5 |
-| Fewer bails | Landing forgiveness 1.5, Impact toughness 1.5 |
+| Fewer bails | Landing forgiveness 1.5, Impact toughness 1.5, Grind balance 3 |
 
 ## Board contract
 

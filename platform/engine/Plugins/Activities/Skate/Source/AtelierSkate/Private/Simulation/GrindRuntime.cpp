@@ -65,7 +65,7 @@ bool GrindRuntime::Advance(GrindRuntimeOwners o,std::string& error)
     if(state.substate==1&&should_exit)state.substate=2;
     if(!Execute(o,observed,error))return false;
     auto& next=states[std::size_t(family)];next.leaving_updates=next.substate==2?Increment(next.leaving_updates):0;
-    if(next.leaving_updates>35)o.wipeout.Request(17,0);
+    if(float(next.leaving_updates)>35*tolerance)o.wipeout.Request(17,0);
     next.crouch=std::fabs(Dot3(frame[2],next.normal))*0.4f;
     o.ground.steering.Update(0,o.air_settings.steering_blend,p.flags_2468,p.flags_2472);
     const auto velocity=FloatVector(p.vectors_400_416[0]);

@@ -91,7 +91,7 @@ bool GameplayRuntime::Create(std::shared_ptr<const GameplayResources> source,Wor
     stock.pumping=result->ground.pumping_settings.modes;stock.auto_push=result->ground.auto_push_enabled;
     stock.reckoning=result->air_reckoning.modes;
     for(std::size_t i=0;i<stock.known_air_flips.size();++i)stock.known_air_flips[i]=result->known_air.configuration.modes[i].perfect_body_flips_28;
-    stock.wipeout=result->wipeout.settings;stock.wipeout_modes=result->wipeout.modes;
+    stock.wipeout=result->wipeout.settings;stock.wipeout_modes=result->wipeout.modes;stock.grind_post=result->grind.settings.post;
     for(std::size_t i=0;i<stock.slide_speed_to_force.size();++i)stock.slide_speed_to_force[i]=result->slide.settings.surfaces[i].surface.speed_to_force;
     output=std::move(result);error.clear();return true;
 }
@@ -219,7 +219,7 @@ bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
         || !in(t.landing,0.5f,3.0f) || !in(t.impact,0.5f,3.0f) || !switch_ok(t.auto_push) || !switch_ok(t.assisted_air)
         || t.tight_flicks<0 || t.tight_flicks>1 || t.flick_120hz<0 || t.flick_120hz>1
         || !in(t.powerslide_turn,0.25f,1.5f) || t.drift_powerslide<0 || t.drift_powerslide>1
-        || !in(t.drift_grip,0.0f,1.5f) || !in(t.drift_full_grip,0.0f,1.5f))
+        || !in(t.drift_grip,0.0f,1.5f) || !in(t.drift_full_grip,0.0f,1.5f) || !in(t.grind_tolerance,0.5f,3.0f))
     {error="Invalid skating feel";return false;}
     auto* gestures=controls->MutableGestures();
     if(!gestures){error="Skating feel requires the gesture recogniser";return false;}
@@ -265,6 +265,11 @@ bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
     auto& w=wipeout.settings;
     w.ground.y_acceleration*=t.impact;
     w.air.xz_acceleration*=t.impact;w.air.y_acceleration*=t.impact;w.air.xz_trick*=t.impact;w.air.y_trick*=t.impact;
+    // Grind tolerance: the in-grind bails and the push-off's time in full, the entry's bails half as much more.
+    const float entry=(1+t.grind_tolerance)*0.5f;
+    w.air.max_grind_speed*=entry;
+    grind.settings.post=GrindPostTolerance(stock.grind_post,t.grind_tolerance);grind.tolerance=t.grind_tolerance;
+    if(input->grind)input->grind->entry_tolerance=entry;
     feel_=t;error.clear();return true;
 }
 void GameplayRuntime::Launch(Vec3 velocity)

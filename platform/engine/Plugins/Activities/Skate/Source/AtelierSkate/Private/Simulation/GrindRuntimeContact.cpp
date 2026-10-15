@@ -78,6 +78,8 @@ bool GrindRuntime::Involuntary(GrindRuntimeOwners o,const PlayerGrindObservation
     switch(family){
     case PlayerGrindFamily::Boardslide:case PlayerGrindFamily::Darkslide:
         if(kind==2){input.strength=90;input.speed_limit=0.75f;input.enable_lift=false;release();}
+        // A forgiving grind (tolerance above 1) pushes a stalled rail slide off across the rail, as a ledge's.
+        else if(tolerance>1){input.strength=90;input.speed_limit=0.75f;input.force_across=true;input.enable_lift=false;release();}
         else{state.slide_wipeout=true;state.slide_impulse=Scale(manager.geometry.direction_1136,136);o.wipeout.Request(10,0);}
         GrindClearWheelSpin(board);break;
     case PlayerGrindFamily::FiftyFifty:if(kind>=2){input.strength=10;input.lift=0;}release();break;
