@@ -4273,7 +4273,9 @@
    "name": "Vert drop: U-turn bowl",
    "line": "L2",
    "attach": "p307",
-   "next": [],
+   "next": [
+    "p309"
+   ],
    "x": 947.765,
    "y": 23.141,
    "z": 1026.415,
@@ -4298,9 +4300,40 @@
     "wall_blend": 50,
     "dig": true
    }
+  },
+  {
+   "id": "p309",
+   "type": "run",
+   "name": "Runway",
+   "line": "L2",
+   "attach": "p308",
+   "next": [],
+   "x": 962.472,
+   "y": 24.718,
+   "z": 1023.689,
+   "heading": 162,
+   "slope": -6,
+   "params": {
+    "len": 150,
+    "turn": 0,
+    "slope": -6,
+    "vR": 120,
+    "width": 30,
+    "wl": {
+     "h": 1.5,
+     "R": 4
+    },
+    "wr": {
+     "h": 1.5,
+     "R": 4
+    },
+    "deck": 1.5,
+    "wall_blend": 40,
+    "dig": true
+   }
   }
  ],
- "rev": 108,
- "saved_at": "2026-10-16T01:02:14+02:00",
+ "rev": 109,
+ "saved_at": "2026-10-16T01:22:25+02:00",
  "notes": []
 }
