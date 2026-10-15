@@ -1,4 +1,4 @@
-# Independent artifact pooling
+# Build caches and independent reuse
 
 Keep a complete playable canonical checkout warm. Feature worktrees keep independent generated
 files; all share the installed engine and its local derived-data cache. Never share mutable Unreal
@@ -11,7 +11,7 @@ Named-product actions with `cache=True` publish verified portable outputs during
 actions automatically across revisions and worktrees. [The recipe guide](BUILD_RECIPES.md) covers eligibility and the
 sandbox example. This store lives under `ATELIER_CACHE/products/v1` (by default the machine-local Atelier cache).
 It uses content-addressed blobs and complete inventories. Restores are independent APFS clones or copies, never
-links; a checkout stays usable if its cache entry is deleted. Nothing is uploaded. Remote reads are
+links; a checkout stays usable if its cache entry is deleted. Builds do not upload artifacts automatically. Remote reads are
 disabled unless explicitly configured as described below.
 
 ```sh
@@ -34,6 +34,38 @@ A conflicting action key remains disabled until investigated. `forget` discards 
 it does not choose either result as valid. Fix nondeterminism or missing inputs before publishing again. Deleting
 an entry does not change successful local stamps; use a deliberate `--force` on that action to generate new evidence.
 Corrupt action manifests must be explicitly forgotten before GC can safely determine blob reachability.
+
+## Verified whole-build reuse
+
+```sh
+uv run atelier reuse <game> --from <completed-checkout> --to <fresh-worktree>
+```
+
+Donor and receiver must be clean at the same source revision and engine build. Legacy steps retain their existing
+checks. Named products additionally require current producer inputs, complete byte inventories and matching
+fingerprints in both checkouts after copying. This includes leaf products that no other step reads and optional
+native sidecars. Every product must lie within the supported copy scope: generated game output, game Content and
+game/plugin Binaries. Copies are independent; Intermediate, Saved, build logs and local hash indexes are not copied.
+
+The target must have no build stamps, occupied destination outputs, or game Intermediate/Saved caches. Starting
+from a fresh target ensures that the receiving editor/cooker discovers its own asset registry instead of loading a
+donor's stale discovery cache. Reuse does not merge a partial build or certify different source revisions.
+
+Before the first replacement, reuse writes and fsyncs a journal under the target's build directory. A completion
+receipt follows the final source, engine and output checks; the journal is removed last. While it exists, builds,
+play, package, stream, QA and shared native launch paths refuse the incomplete snapshot. Do not delete the journal
+or create stamps by hand. Changing `ATELIER_BUILD_ROOT` does not bypass the checkout's default journal: copied
+Content and Binaries still belong to that project. After coordinating a short render-lock turn, discard an
+interrupted generated copy with:
+
+```sh
+uv run atelier reuse <game> --abandon --to <interrupted-worktree>
+```
+
+Recovery removes only the journal's allowlisted generated copy scope, plus its stamps and completion receipt. It
+preserves tracked files, logs and unrelated paths, and never follows links. An interrupted recovery can be repeated.
+Then reuse into the fresh target again or build it normally. This protocol supports whole-build native copies;
+it does not enable automatic per-package Unreal caching across revisions.
 
 ## Import a signed offline bundle
 
@@ -129,7 +161,7 @@ explicit commands put progress on stderr and the JSON receipt on stdout. No cach
 
 The transport requires verified HTTPS, refuses redirects and compressed responses, and ignores implicit proxy,
 netrc and certificate-path environment settings. URLs cannot contain credentials, queries or fragments. There is
-currently no authentication header or presigned-URL support; an endpoint must be reachable without these, for
+currently no receiver authentication header or presigned-URL support; an endpoint must be readable without these, for
 example on a private network with a publicly trusted TLS certificate. It never prints URLs, response bodies or
 foreign network exceptions. Archive extraction, automatic upload and a GitHub release adapter remain unimplemented.
 The trusted local exporter below supplies signed bundles; a public repository does not grant asset redistribution rights.
@@ -178,6 +210,53 @@ The host, approved recipe and signer implementation are trusted. The Python inpu
 security sandbox: environment reads, metadata-derived behavior and arbitrary native I/O remain outside its
 guarantee. Owner-only files and loading the key after execution do not isolate it from malicious code under the
 same user account. This command does not provide hostile-source signing, a native memory guard or online publishing.
+
+## Upload an approved public bundle
+
+```sh
+uv run atelier cache upload-bundle /path/to/export --trust /path/to/publishers.json --profile /path/to/upload.json --dry-run
+uv run atelier cache upload-bundle /path/to/export --trust /path/to/publishers.json --profile /path/to/upload.json
+```
+
+This explicit command accepts an already exported, pinned-signer V2 audited-Python bundle. Every product must
+carry an explicit `public` redistribution grant. A `private` grant permits local export/ingestion only, even
+when the upload endpoint is private. A signature authenticates these permissions and producer assertions;
+Atelier does not independently establish redistribution rights. No build signs or uploads automatically.
+
+The operator supplies an absolute owner-only profile outside Git checkouts and the bundle:
+
+```json
+{"schema":1,"endpoint":"https://cache.example.test/products/","token_file":"/path/to/protected/upload.token"}
+```
+
+The token file contains only a bearer token, optionally followed by one newline. It must also be absolute,
+owner-only, single-link and outside checkouts/the bundle. Final-component symlinks and special files are refused.
+Use a write credential scoped to the configured object prefix. Its value is read only after signature, grants,
+every blob and complete reconstructed product inventories have passed the shared importer verification.
+The upload consumes independent staging copies, so later changes to the original export cannot change its bytes.
+A dry run verifies the bundle and profile without opening the token file or contacting the network.
+
+The endpoint must honor atomic `If-None-Match: *` PUT semantics and expose the receiver's fixed object paths:
+`blobs/<sha256>` and `actions/<action-key>/manifest.json`. Blobs are conditionally written and read back with exact
+size/hash checks before the action manifest is conditionally written last. The manifest is then read back and
+verified against the pinned publisher allowlist. An existing trusted public V2 manifest for the same complete
+entry remains unchanged, including its original provenance. A different entry, corrupt blob, invalid signature
+or private grant refuses publication; Atelier never deletes a conflicting remote object. Interrupted attempts
+may leave unreferenced blobs. The server's conditional-write behavior is an operator deployment requirement,
+not something a client can establish against a dishonest server.
+
+TLS verification stays enabled, redirects are refused, and ambient proxy/netrc/certificate-path configuration
+is ignored. Only the explicit upload client sends the bearer credential to the configured origin. Receivers
+still need unauthenticated GET access; private read authentication and presigned URLs remain separate work.
+URLs, credentials, response bodies and foreign network exceptions are omitted from progress and receipts.
+
+The existing bundle quotas apply (256 MiB logical products and 2 MiB manifest). Verification uses at most two
+logical copies in temporary staging; transfer payloads are bounded to twice the bundle/manifest byte quotas,
+including readback. A separate owned worker enforces the total verification/network deadline, 30 seconds by
+default and at most 300 with `--timeout`, including blocked DNS shutdown. It is reaped before scratch removal;
+bounded cleanup can extend wall time beyond that deadline. This command changes no checkout outputs, stamps
+or local store. Tests exercise fake HTTPS transport and a shipped sandbox export/upload/fetch/restore path;
+no deployment, real upload, credential provisioning or native-product publication is claimed.
 
 ## Portable output pool
 

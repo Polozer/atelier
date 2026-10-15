@@ -7,6 +7,9 @@ command should handle this automatically, with a local store that works offline 
 **Status: foundations and local portable caching implemented; native migration proposed.** `Step.products`, `reads` and `references`, complete
 product inventories, content-based downstream invalidation, read-only `--plan` / `--explain` / `--json`, and command
 timings, a file-hash index, opt-in automatic portable-product restoration, and cache accounting/pruning are available.
+Whole-build reuse also verifies named inventories and blocks incomplete copies with an interruption journal.
+Opt-in bounded tool batches retain per-action identities and receipts; native recipe migration and acceptance
+remain separate work. Optional output sidecars retain absence in their product identities and frozen query reads.
 Instrumented scripts can emit bounded phase records; `--timings` displays historical command/phase measurements
 separately from restoration time. The sandbox demonstrates the protocol; native phase baselines remain to be measured.
 `--changes` lists added, changed and retired members between certified named-product inventories, with unchanged
@@ -26,8 +29,10 @@ Signed source bundles can now enter the existing local store after publisher/pol
 verification. Optional HTTPS lookup uses fixed object-store paths, pinned publisher keys and bounded downloads;
 ordinary builds fall back locally on a remote failure. A trusted producer can freshly execute one independent
 audited Python action and export a signed V2 directory after clean/pushed-source, grant, audit and inventory
-checks. It makes no native memory-guard assertion. Online uploading and hostile-source signer isolation remain
-unimplemented. Unreal restoration, import transactions and native spatial migration still require native proof.
+checks. It makes no native memory-guard assertion. Explicit HTTPS upload verifies public V2 bundles before loading
+write credentials, commits immutable manifests last and checks remote bytes. Automatic publication and
+hostile-source signer isolation remain unimplemented. Unreal restoration, import transactions and native spatial
+migration still require native proof.
 Legacy fingerprints, output cutoffs, module isolation and the [portable artifact pool](ARTIFACT_POOL.md) remain.
 The current CLI and safety rules remain in force; no native import recipe or scheduler is switched by this phase.
 
@@ -136,6 +141,10 @@ it. Unsupported observed subprocess mechanisms fail. Path checks for ordinary Py
 metadata queries do not make timestamp values portable. See [the current API and limits](BUILD_RECIPES.md#audit-a-python-generators-accesses);
 the tracked context API and native bootstraps are still separate work.
 
+Legacy actions can opt into deferred, explicit input membership: only selected actions enumerate their members,
+after prerequisites finish, and execution rechecks the selection before certification. This does not track arbitrary
+reads or enable native caching; [the recipe guide](BUILD_RECIPES.md#defer-legacy-input-membership) describes its restricted scope.
+
 The planner should reject cycles, duplicate package ownership, missing products and writes outside owned paths.
 Every output, including leaf assets and bulk-data sidecars, belongs in a verified manifest. A sentinel such as
 `Torii.fbx` or `manifest.json` existing is insufficient evidence that the rest of a step's outputs survive.
@@ -192,6 +201,11 @@ separately sized batch. Validate that previous imports cannot leak state into th
 render lock, memory guard, worker limits and handoff rules until the separately proposed capacity scheduler is
 validated. A batch does not authorize parallel Unreal processes or an idle editor holding capacity. Use an empty
 import world where possible and measure startup, import, derived-data work, validation and save separately.
+
+The implemented opt-in `Batch` protocol saves and acknowledges each action before starting the next. It uses a
+separate session guard report, per-action observed memory growth and a budget of at most 240 seconds checked
+between actions. It yields with exit 75 instead of immediately reacquiring capacity; see [the operational contract](BUILD_RECIPES.md#reuse-a-tool-process-without-merging-actions).
+Cold/warm and reversed-order native equivalence remain acceptance gates for every batch-enabled recipe.
 
 Stage 1 now reports DDC configuration and explicit hit counts from retained logs. The two inspected worktrees use the same per-user
 ZenLocal service and filesystem DDC, while ZenShared is disabled. Preserve that reuse and measure its effectiveness;
@@ -258,7 +272,9 @@ the replacement satisfies those stronger per-product guarantees.
 
 The optional HTTPS receiver now supports frequent small artifact retrieval from fixed object-store paths, with
 explicit configuration, verified manifests, bounded downloads and local fallback; see [the cache guide](ARTIFACT_POOL.md#fetch-signed-products-over-https).
-Online uploading and hostile-source signing remain separate work. A private object store is the proposed default.
+Explicit public-V2 bundle upload now completes the producer/receiver transport path with immutable conditional
+writes and verified readback. Private redistribution/upload policy, receiver authentication, automatic publication
+and hostile-source signing remain separate work. A private object store is the proposed default.
 GitHub release bundles are a plausible backend for versioned starter packs
 and larger snapshots; choose bundle sizes after checking current service constraints. GitHub Actions caches should
 remain disposable accelerators. The source of truth is the recipe and committed sources, not the availability of
@@ -332,8 +348,9 @@ fixed big/small lane categories with atomic memory/CPU reservations, measured wo
 for real exclusivity. Artifact lookup and the build graph determine the work; the capacity service decides when
 it can safely execute. Existing slots remain authoritative until that scheduler passes its migration gates.
 The implemented `atelier capacity history GUARD_DIRECTORY` command inspects retained process measurements
-without running a job. It distinguishes sampling sessions and watched processes; it does not yet provide
-per-phase owned-tree profiles, calibrated reservations or disk estimates.
+without running a job. It distinguishes sampling sessions and watched processes, and reports a retained
+aggregate tree-guard receipt separately when present. It does not yet provide per-phase owned-tree profiles,
+calibrated reservations or disk estimates.
 
 ## Migration and acceptance gates
 
