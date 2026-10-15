@@ -231,6 +231,7 @@ mod tests {
 
     #[test]
     fn linked_sqlite_contains_the_unix_wal_deadlock_fix() {
+        eprintln!("linked SQLite {} ({})", rusqlite::version(), rusqlite::version_number());
         assert!(rusqlite::version_number() >= 3_051_002, "linked SQLite {}", rusqlite::version());
     }
 
@@ -270,6 +271,7 @@ mod tests {
                     }
                 }
             });
+            eprintln!("SQLite WAL open/close rounds completed: 1000");
             return;
         }
         let folder = std::env::temp_dir().join(format!("atelier-sqlite-race-{}-{}", std::process::id(), rand::random::<u64>()));
@@ -284,12 +286,28 @@ mod tests {
         let result = wait(&mut child.0, 15);
         if result.is_none() {
             let stack = folder.join("deadlock.sample");
-            if cfg!(target_os = "macos") {
-                if let Ok(sampler) = Command::new("/usr/bin/sample")
-                    .args([&child.0.id().to_string(), "1", "-file"])
-                    .arg(&stack).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+            let diagnostic = folder.join("stack-capture.log");
+            let mut command = if cfg!(target_os = "macos") {
+                let mut command = Command::new("/usr/bin/sample");
+                command.args([&child.0.id().to_string(), "1", "-file"]).arg(&stack);
+                command
+            } else {
+                let mut command = Command::new("gdb");
+                command.args(["--batch", "--nx", "-ex", "set pagination off", "-ex", "thread apply all bt", "-p"])
+                    .arg(child.0.id().to_string());
+                command
+            };
+            let output = File::create(if cfg!(target_os = "macos") { &diagnostic } else { &stack }).unwrap();
+            match command.stdout(Stdio::from(output.try_clone().unwrap())).stderr(Stdio::from(output)).spawn() {
+                Ok(sampler) => {
                     let mut sampler = OwnedChild(sampler);
-                    let _ = wait(&mut sampler.0, 3);
+                    if wait(&mut sampler.0, 3).is_none() {
+                        drop(sampler);
+                        std::fs::write(&diagnostic, "Stack capture exceeded its 3-second deadline\n").unwrap();
+                    }
+                }
+                Err(error) => {
+                    std::fs::write(&diagnostic, format!("Stack capture could not start: {error}\n")).unwrap();
                 }
             }
             eprintln!("SQLite WAL child timed out; evidence retained at {}", folder.display());
@@ -299,9 +317,14 @@ mod tests {
             if let Ok(text) = std::fs::read_to_string(&stack) {
                 eprintln!("{text}");
             }
+            if let Ok(text) = std::fs::read_to_string(&diagnostic) {
+                eprintln!("{text}");
+            }
             panic!("concurrent SQLite WAL open/close exceeded its 15-second deadline");
         }
         assert!(result.unwrap().success(), "SQLite WAL child failed; evidence: {}", folder.display());
+        assert!(std::fs::read_to_string(&log_path).unwrap().contains("SQLite WAL open/close rounds completed: 1000"),
+                "SQLite WAL child did not complete the workload; evidence: {}", folder.display());
         std::fs::remove_dir_all(folder).unwrap();
     }
 }
