@@ -126,11 +126,14 @@ def write(out, source, geometry, placement, entry_mesh=export_mesh):
         if index.get('v4') != provenance:
             raise ValueError('v4 geometry does not match the selected design and inputs; rebuild geometry')
         validation = index.get('validation', {})
+        # the owner's editor park (ATELIER_CRATERPARK_EDITOR_PARK): built without supports for a playtest, by choice
+        playtest = v4_config.editor() and index.get('editor_playtest') and index.get('lines')
         cosmetic_preview = validation.get('preview') and validation.get('failed') and all(
             name in ('outlines', 'facets', 'uv_stretch', 'slivers') for name in validation['failed'])
-        if not index.get('accepted') or not validation.get('ran') or not (validation.get('ok') or cosmetic_preview):
+        if not playtest and (not index.get('accepted') or not validation.get('ran')
+                             or not (validation.get('ok') or cosmetic_preview)):
             raise ValueError('v4 geometry has not passed structural validation; diagnostic artifacts cannot export')
-        if not validation.get('supports', {}).get('ran') or not validation['supports'].get('ok'):
+        if not playtest and (not validation.get('supports', {}).get('ran') or not validation['supports'].get('ok')):
             raise ValueError('v4 geometry has not passed actual support and ride envelope checks')
         if not index.get('lines'):
             raise ValueError('v4 geometry has no checked tower starts')
