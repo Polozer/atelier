@@ -883,7 +883,9 @@ def test_full_socket_configured_python_runs_under_real_guards_and_releases(barri
 
 
 def maintenance_settings(barrier):
-    proof = compat.prepare(barrier.config)
+    legacy_seal(barrier)
+    barrier.boot[0] = BOOT_B
+    proof = compat.migrate_volume_seal(barrier.config)
     value = dict(barrier.value, schema=3, mode='sealed-maintenance', seal_policy_sha256=proof['policy_sha256'])
     path = barrier.root / 'maintenance.json'
     path.write_text(json.dumps(value))
@@ -909,7 +911,7 @@ def test_maintenance_preserves_seal_policy_and_requires_explicit_schema(barrier)
 def test_maintenance_refuses_unproven_or_changed_seals(barrier, monkeypatch, change):
     settings, proof = maintenance_settings(barrier)
     if change == 'boot':
-        barrier.boot[0] = BOOT_B
+        barrier.boot[0] = BOOT_C
     elif change == 'active':
         proof['state'] = 'active'
         compat._save(compat.DEFAULT_RECORD, proof)
@@ -947,10 +949,10 @@ def test_maintenance_takes_every_readonly_lane_exclusively_and_releases_partial(
                 with pytest.raises(BlockingIOError):
                     fcntl.flock(other, fcntl.LOCK_SH | fcntl.LOCK_NB)
         # Full activation's future-boot verification can pass, but its EX acquisition still refuses.
-        barrier.boot[0] = BOOT_B
+        barrier.boot[0] = BOOT_C
         with pytest.raises(BlockingIOError):
             compat.activate(barrier.config)
-        barrier.boot[0] = BOOT_A
+        barrier.boot[0] = BOOT_B
     assert before == {name: (path.read_bytes(), path.stat().st_ino, path.stat().st_ctime_ns)
                       for name, path in barrier.paths.items()}
     for path in barrier.paths.values():
@@ -1029,3 +1031,32 @@ def test_maintenance_lost_enforcement_retains_charge_and_blocks_other_go(barrier
         assert next(r for r in status['records'] if r['id'] == 'a')['state'] == 'uncertain'
         with pytest.raises(wire.CapacityError):
             gate_start(instance, (102, 10200), second, 202)
+
+
+@pytest.mark.parametrize('failure', ['fresh-prepare', 'missing', 'changed-bytes', 'same-boot', 'activation', 'inode'])
+def test_maintenance_requires_hash_bound_prior_boot_migration(barrier, failure):
+    if failure == 'fresh-prepare':
+        proof = compat.prepare(barrier.config)
+    else:
+        _, proof = maintenance_settings(barrier)
+        archive = compat.DEFAULT_RECORD.with_name(f'cutover.schema1.{proof["activation_id"]}.json')
+        if failure == 'missing':
+            archive.unlink()
+        else:
+            old = json.loads(archive.read_bytes())
+            if failure == 'changed-bytes':
+                archive.write_bytes(archive.read_bytes() + b' ')
+            else:
+                if failure == 'same-boot':
+                    old['seal_boot_id'] = BOOT_B
+                elif failure == 'activation':
+                    old['activation_id'] = '5' * 32
+                else:
+                    old['locks']['big']['inode'] += 1
+                archive.write_text(json.dumps(old))
+                # Even a matching claimed hash cannot hide contradictory original migration facts.
+                import hashlib
+                proof['migration_archive_sha256'] = hashlib.sha256(archive.read_bytes()).hexdigest()
+                compat._save(compat.DEFAULT_RECORD, proof)
+    with pytest.raises((wire.CapacityError, OSError)):
+        compat.verify_maintenance(policy_sha256=proof['policy_sha256'])

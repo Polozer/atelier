@@ -84,6 +84,9 @@ chains have drained and retained reservations have resolved.
 This explicit interim mode permits ordinary guarded work without another reboot after a reviewed stable-volume
 reseal. It does not establish closure of old preopened descriptors or authorize full concurrency. The cutover
 record remains schema2 `sealed` with its original full-policy digest and a verified seal from the **current** boot.
+Eligibility additionally requires the migration-recorded SHA256 of the exact private archived schema1 seal, a
+verified boot change since that original seal, matching activation/policy/resources and unchanged old inode pins.
+A fresh same-boot prepare or missing historical archive does not qualify; no proof is invented retrospectively.
 All three unchanged lane inodes remain write-denied. Each job takes read-only **exclusive** flocks on every lane,
 uses the same broker/SQLite history and normal pressure, foreign-process, exec-gate, process and aggregate guards.
 It reserves all managed CPU with performance exclusion. Actual worker arguments, GPU reservations, temporary-disk

@@ -9,6 +9,7 @@ from dataclasses import asdict
 import ctypes
 import errno
 import fcntl
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -33,11 +34,14 @@ def read(path=None):
         raise wire.CapacityError('Capacity cutover directory must be private and owned')
     value = wire.decode(wire.private_file(path, limit=wire.MAX_FRAME))
     wire.fields(value, ('schema', 'state', 'activation_id', 'seal_boot_id', 'policy_sha256',
-                        'socket', 'disk_pool', 'locks', 'total', 'reserve', 'protocol'))
+                        'socket', 'disk_pool', 'locks', 'total', 'reserve', 'protocol'), ('migration_archive_sha256',))
     if (type(value['schema']) is not int or value['schema'] not in (1, 2)
             or type(value['protocol']) is not int or value['protocol'] != PROTOCOL
             or value['state'] not in ('preparing', 'sealed', 'active')):
         raise wire.CapacityError('Unsupported capacity cutover record')
+    if 'migration_archive_sha256' in value and (value['schema'] != 2 or not isinstance(value['migration_archive_sha256'], str)
+            or re.fullmatch('[0-9a-f]{64}', value['migration_archive_sha256']) is None):
+        raise wire.CapacityError('Invalid capacity migration provenance')
     for key in ('activation_id', 'seal_boot_id', 'policy_sha256', 'socket', 'disk_pool'):
         wire.text(value[key], maximum=4096)
     try:
@@ -150,13 +154,28 @@ def verify(path=None, *, policy_sha256=None, active=True, handles=None):
 def verify_maintenance(path=None, *, policy_sha256=None, handles=None):
     """@cc [owner:fontanierh,label:safety] sealed-exclusive-maintenance
     Maintenance MUST require a schema2 SEALED record from the current boot and unchanged stable
-    lane identities with actual write denial. It MUST NOT claim closure of preopened descriptors
+    lane identities with actual write denial, plus the hash-bound archived schema1 seal from an
+    earlier boot. Fresh same-boot prepare MUST NOT qualify. It MUST NOT claim closure of preopened descriptors
     or full activation. Every maintenance job MUST hold all three lane mutexes exclusively.
     """
     if not isinstance(policy_sha256, str) or len(policy_sha256) != 64 or any(
             c not in '0123456789abcdef' for c in policy_sha256):
         raise wire.CapacityError('Maintenance requires the original sealed policy digest')
-    return _verify_seal(path, policy_sha256=policy_sha256, active=False, handles=handles, maintenance=True)
+    value = _verify_seal(path, policy_sha256=policy_sha256, active=False, handles=handles, maintenance=True)
+    archive = DEFAULT_RECORD.with_name(f'cutover.schema1.{value["activation_id"]}.json')
+    if 'migration_archive_sha256' not in value:
+        raise wire.CapacityError('Maintenance requires archived prior-boot volume migration evidence')
+    original = read(archive)
+    raw = wire.private_file(archive, limit=wire.MAX_FRAME)
+    if (original is None or hashlib.sha256(raw).hexdigest() != value['migration_archive_sha256']
+            or wire.decode(raw) != original or original['schema'] != 1 or original['state'] != 'sealed'
+            or original['seal_boot_id'] == wire.boot_id()
+            or any(original[key] != value[key] for key in ('activation_id', 'policy_sha256', 'socket',
+                       'disk_pool', 'total', 'reserve', 'protocol'))
+            or any(not _same_seal({k: v for k, v in pin.items() if k != 'volume_uuid'}, original['locks'][name])
+                   for name, pin in value['locks'].items())):
+        raise wire.CapacityError('Maintenance prior-boot migration evidence differs from the sealed policy')
+    return value
 
 
 def _verify_seal(path, *, policy_sha256, active, handles, maintenance=False):
@@ -363,6 +382,6 @@ def migrate_volume_seal(config):
             os.fsync(directory)
         finally:
             os.close(directory)
-        value.update(schema=2, seal_boot_id=boot, locks=pins)
+        value.update(schema=2, seal_boot_id=boot, locks=pins, migration_archive_sha256=hashlib.sha256(original).hexdigest())
         _save(DEFAULT_RECORD, value)
     return value
