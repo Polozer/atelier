@@ -9,7 +9,17 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world' / 'regions'))
 
-from craterpark.v2 import bowls, dsl, solids  # noqa: E402
+from craterpark.v2 import bowls, dsl, solids, layout  # noqa: E402
+
+
+# Exercise one valid component floor port without depending on the unfinished
+# course graph. Both compilation and seam assertions use this exact same data.
+BOWL_FIXTURE = SimpleNamespace(**vars(layout))
+BOWL_FIXTURE.LINES = (layout.LineSpec(
+    'floor-port', 'Component floor entrance', layout.Turtle((1367.1,1009.),270.,(('straight',40.),)),
+    -20.2, (('line',40.),),
+    (layout.Feature('entrance','run',0.,40.,18.),), '', 'crater_bowl', rollin=0),)
+BOWL_FIXTURE.build_stop = lambda line: line.path.length
 
 
 class SectionTests(unittest.TestCase):
@@ -60,8 +70,17 @@ class PortTests(unittest.TestCase):
         self.assertEqual(port.slope_deg, -5.)
         np.testing.assert_allclose(port.point, [20., 0.])
 
+    def test_a_nominal_cutoff_inside_a_gap_cannot_be_a_port(self):
+        gap = SimpleNamespace(kind='gap', s0=10., s1=30., width=18.)
+        line = SimpleNamespace(id='invalid-gap-cutoff', features=[gap])
+        data = SimpleNamespace(BOWLS=BOWL_FIXTURE.BOWLS, LINES=[line],
+                               knots=lambda line, step: [(0.,0.,0.),(40.,0.,0.)],
+                               build_stop=lambda line: 20.)
+        with self.assertRaisesRegex(ValueError, 'ends inside an open gap'):
+            bowls.ports(data)
+
     def test_every_line_has_a_port_row_across_its_width(self):
-        for p in bowls.ports():
+        for p in bowls.ports(BOWL_FIXTURE):
             self.assertIn(p.kind, ('floor', 'rim', 'mid', 'skip'))
             self.assertAlmostEqual(np.linalg.norm(p.row[0, [0, 2]] - p.row[-1, [0, 2]]), p.width, places=6)
             gaps = np.linalg.norm(np.diff(p.row, axis=0), axis=1)
@@ -71,7 +90,7 @@ class PortTests(unittest.TestCase):
 class CraterTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.built = bowls.complex(only=('crater_bowl',))
+        cls.built = bowls.complex(BOWL_FIXTURE, only=('crater_bowl',))
 
     def test_closed_solid(self):
         P, F = self.built.mesh.welded(solids.WELD)
@@ -86,7 +105,7 @@ class CraterTests(unittest.TestCase):
 
     def test_ports_reach_the_lip(self):
         V = self.built.mesh.V
-        for p in bowls.ports():
+        for p in bowls.ports(BOWL_FIXTURE):
             if p.kind == 'skip':
                 continue
             d = np.linalg.norm(V[None] - p.row[:, None], axis=-1).min(1)
