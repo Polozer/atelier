@@ -68,6 +68,8 @@ bool GameplayRuntime::Create(std::shared_ptr<const GameplayResources> source,Wor
     if(!Adopt(FootPhysicalOutputs::Load(data,error),result->foot_physical))return false;
     if(!Adopt(PlayerInputRuntime::Load(data,error),result->input))return false;
     if(!Adopt(PlayerStateRuntime::Load(data,mode,error),result->player_state))return false;
+    // Game raises air timeout from 300 ticks (5 s) to 1800 (30 s) for long airs.
+    result->player_state->selector.max_air_frames=1800;
     if(!result->player_state->conditioning.Load(data,error))return false;
     if(!result->ground.Load(data,true,error) || !result->ground_runtime.Load(data,error)
         || !result->ground_profiles.Load(data,error) || !result->ground_settings.Load(data,mode,"smooth",error))return false;

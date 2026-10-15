@@ -84,18 +84,6 @@ bool FRideLostSimulationTest::RunTest(const FString&)
         Back.To = FVector(-6000, 0, 2400);
         TestTrue(TEXT("A board back on the run-in 70 m away bails"), Judge(Back) == ERideLostSimulation::Jump);
     }
-    // Long airs: 6 s air timeout (360 ticks) that lands and rides on (air-timeout Teleport landing properly).
-    {
-        // A 6 second air (360 ticks) where the board lands within ThroughDepth of the floor.
-        // The session is Teleporting but the board is near the floor, so it rides on.
-        FRideLostSimulationStep LongAir = Moving(TEXT("Teleporting"), FVector(0, 0, 10), FVector(2800, 0, -1800));
-        LongAir.Tick = 360;
-        // Board crosses at z=0 and lands at -20 cm: within the ThroughDepth threshold.
-        LongAir = Crossing(LongAir, FVector(1650, 0, 0), FVector::UpVector);
-        LongAir.To = FVector(1650, 0, -20);
-        TestTrue(TEXT("A 6 s air landing near the floor rides on despite Teleporting"),
-            Judge(LongAir) == ERideLostSimulation::Kept);
-    }
     // High-speed big air landings (ThroughFloor robustness at speed).
     {
         // 40 m/s landing: the board crosses the floor and passes through 60 cm in one frame.

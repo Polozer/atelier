@@ -45,7 +45,7 @@ S StateSelector::CalculateValid(S current,const StateSelectionInput& input)
     air_frames=p.category_2512==200 ? (p.Has2468(8) ? air_frames : Increment(air_frames)) : 0;
     skitch_exit_countdown=current==S::Skitching ? 10 : skitch_exit_countdown>0 ? skitch_exit_countdown-1 : 0;
     if (p.Has2468(2)||p.Has2472(0x40000)) return S::Teleporting;
-    if (air_frames>300) {request_teleport=true;return current;}
+    if (air_frames>max_air_frames) {request_teleport=true;return current;}
     if (p.field_1776<0&&(std::uint32_t(p.field_1776)&0x2000000)==0&&teleport_countdown==0) return S::FollowPath;
     const Facts facts{colliding,p.Has2468(0x40000),p.Has2472(0x40),StateIsSkateboardAnimated(input.skeleton),StateConditionOffGround(input.board_body,input.normal_off_ground),StateConditionOffGroundSkitching(input.board_body,input.skitching_off_ground),CheckGrind(p)};
     switch (current)
