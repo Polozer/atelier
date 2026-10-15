@@ -312,7 +312,8 @@ board settles the start onto the floor (`SettleRideStart`, `RideComponent.cpp`).
   runs on as momentum that fades (`MomentumDecay`, `MomentumBrake`).
 - **Air dismount and kick-out.** The skate button in the air: with a grab held (`RideGrab`: Indy `FS`, Melon `BS`,
   Christ air `STALE`, tuck knee `DBL`, a one-foot `MUTE`) the rider steps off holding the board; without one the feet
-  kick the board away and it flies on as a projectile, settling flat.
+  kick the board away and it flies on as a projectile, settling flat. The right trigger held from the board is the
+  transfer, not a grab (the plugin README's "Controls"); pulled in the air it grabs.
 - **Caveman.** The skate button in a jump: the board goes under the feet; the ride starts airborne when the ground is
   more than 70 cm below.
 - **Carry.** The board stays in hand for `BoardHoldTime` (6 s), then dissolves. It goes at once when the hands are

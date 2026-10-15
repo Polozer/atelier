@@ -187,15 +187,18 @@ attenuate over a 500 cm inner radius and 4500 cm falloff.
 | Load, ollie | Right stick down, then up | Hold Space, release to pop |
 | Flick-It tricks | Right stick gestures | Hold the left mouse button and flick |
 | Manual, nose manual | Right stick partly down / up | Hold the left mouse button and move slowly |
-| Pump (ground), grab (air) | Left / right trigger | Q / E |
-| Transfer over the coping | Hold RB (R1) | Hold Shift |
+| Pump (ground), grab (air) | Left / right trigger (the right one grabs once pulled in the air) | Q / E |
+| Transfer over the coping | Hold the right trigger (R2) from the board into the lip | Hold Shift |
+| Handplant | RB (R1) at the coping | |
 
 Kickflips flick down then up-left, heelflips down then up-right; goofy mirrors the gestures. Holding the left-trigger
 grab, B makes it a Christ air and A a one-foot; holding the right stick to one side changes the grab, and the right
-trigger with the stick held left is a tuck knee. A grab never requests a transfer: the transfer has its own input, RB,
-on the host's transfer bit (the session's own RB, which steps off onto the feet, is not sent). LB and both stick
-clicks pass through to the session's pad; clicking both sticks with both triggers held is the
-deliberate bail. The adapter undoes the project's 0.25 per-axis stick dead zone, because Flick-It and the manual
+trigger with the stick held left is a tuck knee. A grab never requests a transfer: the transfer has its own input, the
+right trigger pulled on the board, on the host's transfer bit. That pull is then not the session's right trigger (no
+pump, no grab; `RightTriggerTransfers`, `SkatePad.h`), and it stays the transfer while held on into the air; let go in
+the air, the right trigger grabs again until the board is down. LB, RB (the session's handplant at the coping) and
+both stick clicks pass through to the session's pad; clicking both sticks with both triggers held is the
+deliberate bail, and the right trigger then reaches the session. The adapter undoes the project's 0.25 per-axis stick dead zone, because Flick-It and the manual
 balance read real stick positions. A fast mouse flick points the stick in its direction and springs back after 0.1 s;
 slow movement moves it gradually.
 

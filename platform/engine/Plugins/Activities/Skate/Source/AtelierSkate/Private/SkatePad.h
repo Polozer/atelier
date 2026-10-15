@@ -56,6 +56,16 @@ namespace atelier::skate_pad
 
     using HostPad = FSkateHostPad;
 
+    /** Whether the controller's right trigger is the transfer this frame. Pulled on the board (rolling, up a ramp, into
+     *  the lip) it is, and its pull is not the session's, so a transfer is not also a pump or a right-hand grab; held
+     *  on into the air it stays one. Let go in the air, Grabs is set and a pull grabs again until the board is down. */
+    inline bool RightTriggerTransfers(bool bPulled, bool bAirborne, bool& bGrabs)
+    {
+        if (!bAirborne) bGrabs = false;
+        else if (!bPulled) bGrabs = true;
+        return bPulled && !bGrabs;
+    }
+
     /** The packet: push A, brake B, transfer on the host bit; X on its own bit (and no longer A unless A, W or Up is
      *  held too); shoulders and stick clicks; triggers from the grabs (full) or the pulls, or the controller's analog
      *  axes (Q and E full); the sticks quantised to 32767. */
