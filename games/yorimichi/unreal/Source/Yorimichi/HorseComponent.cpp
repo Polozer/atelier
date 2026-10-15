@@ -16,6 +16,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "Engine/Engine.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
@@ -417,9 +418,14 @@ bool UHorseComponent::ApplyAppearance(const FJapanHorseAppearance& NewAppearance
 {
     if (!IsValidAppearance(NewAppearance)) return false;
     const bool bBody = NewAppearance.Breed != Appearance.Breed || NewAppearance.Tack != Appearance.Tack;
+    const bool bTextures = NewAppearance.Coat != Appearance.Coat || NewAppearance.Mask != Appearance.Mask;
     Appearance = NewAppearance;
     if (bBody) ApplyCurrentBreedAndTack();
     ApplyCurrentMaterials();
+    // Local look changes can replace whole meshes and texture sets. Request collection at the engine's next safe
+    // opportunity, with incremental purging, so trying breeds does not wait for the periodic pass. A remote look must
+    // not make every observer collect; colour-only changes allocate no new asset set. Never collect inline here.
+    if ((bBody || bTextures) && Rider && Rider->IsLocallyControlled() && GEngine) GEngine->ForceGarbageCollection(false);
     return true;
 }
 
