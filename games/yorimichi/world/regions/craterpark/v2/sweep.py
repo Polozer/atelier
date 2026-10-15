@@ -137,18 +137,15 @@ def sweep(path, profile, *, mode='transverse', side=1, offset=0., height=0., sta
         return mesh
     if mode != 'longitudinal':
         raise ValueError(mode)
-    # profile stations, plus the s of any path station the path's curvature needs inside the profile's span
-    ss = profile.samples(tess, () if s is None else s)
+    # One adaptive station set accounts for pitch, plan turn and their twist.
+    # Merging independent grids for all three oversamples their Cartesian product
+    # with the transverse shoulders and creates very close, skinny rows.
     dense = np.linspace(0, profile.length, 2048); dx = profile.point(dense)[:, 0] - profile.start[0]
     if np.any(np.diff(dx) < -1e-9):
         raise ValueError(f'{feature}: a longitudinal profile must not run backwards')
     w = np.asarray(across, 'f8') if across is not None and np.ndim(across) else None
     width = float(across) if w is None and across is not None else 0.
     wmax = np.abs(w).max() if w is not None else width / 2
-    t_need = path.samples(tess, offsets=(-wmax, wmax))
-    t_need = t_need[(t_need > start + 1e-9) & (t_need < start + dx[-1] - 1e-9)]
-    if t is not None:
-        t_need = np.concatenate([t_need, np.asarray(t, 'f8')])
     # a slope on a plan curve: its normal also turns with the heading (rate k sin a cos a per metre of profile) and
     # across the width (the same rate per metre of offset), so both stations share the angle budget with the profile
     # (a combined turn of at most tess.angle between neighbouring faces, diagonals included)
@@ -156,13 +153,34 @@ def sweep(path, profile, *, mode='transverse', side=1, offset=0., height=0., sta
     kd = np.abs(path.curvature(tdense)); ad = profile.angle(dense)
     twist = kd * np.abs(np.sin(ad) * np.cos(ad))
     budget = np.radians(tess.angle) / math.sqrt(2)
-    if twist.max() > 1e-9:
-        kp = np.abs(profile.curvature(dense))
-        rate = np.sqrt(kp ** 2 + twist ** 2) / budget
-        spans = [(r[1], r[2]) for r in profile.rows if r[0] != 'corner' and r[2] > r[1]]
-        extra_s = adaptive(spans, lambda q: np.interp(q, dense, rate))
-        ss = merge_params(extra_s, ss)
-    ss = merge_params(ss, np.interp(t_need - start, dx, dense))
+    def density(q):
+        x, a = profile.point(q)[:, 0], profile.angle(q)
+        k = np.abs(path.curvature(start + x - profile.start[0]))
+        kp = np.abs(profile.curvature(q))
+        cos = np.abs(np.cos(a))
+        radius = np.maximum(1 / np.maximum(k, 1e-12) - wmax, 1e-6)
+        plan_rate = k * cos / tess.step_angle(radius)
+        edge_rate = cos * (1 + k * wmax) / (tess.max_edge / math.sqrt(2))
+        twist_rate = np.sqrt(kp ** 2 + (k * np.abs(np.sin(a) * np.cos(a))) ** 2) / budget
+        return np.maximum.reduce([tess.density(kp), plan_rate, edge_rate, twist_rate])
+
+    # Invert only semantic path cuts and caller-supplied stations, to full
+    # precision: linear inversion on a fixed 2048-point table moves a cut off
+    # its exact profile and can leave a visible seam at a joined module.
+    t_need = np.r_[path.breaks(), [] if t is None else t]
+    t_need = np.unique(t_need[(t_need > start + 1e-9) & (t_need < start + dx[-1] - 1e-9)])
+    lo, hi = np.zeros(len(t_need)), np.full(len(t_need), profile.length)
+    for _ in range(48):
+        mid = (lo + hi) / 2
+        before = start + profile.point(mid)[:, 0] - profile.start[0] < t_need
+        lo, hi = np.where(before, mid, lo), np.where(before, hi, mid)
+    keep = np.r_[profile.knots, list(profile.tags.values()), [] if s is None else s, (lo + hi) / 2]
+    keep = np.unique(keep[(keep >= 0.) & (keep <= profile.length)])
+    cuts = np.unique(np.r_[0., profile.length, keep])
+    # Splitting at the path cuts also keeps an abrupt curvature change from
+    # being missed by the density integration, even if a profile part is long.
+    spans = [(a, b) for a, b in zip(cuts[:-1], cuts[1:]) if b - a > 1e-12]
+    ss = merge_params(adaptive(spans, density), keep)
     st, right, skip_row = _stations(profile, ss)
     px, py, pa = _eval_profile(profile, st, right)
     tt = start + px - profile.start[0]

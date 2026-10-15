@@ -184,6 +184,68 @@ class Arc(Curve):
         return np.full(len(np.atleast_1d(t)), self.sign / self.r)
 
 
+class EasedTurn(Curve):
+    """A circular turn with cosine curvature blends at both straight ports.
+
+    Unlike an instantaneous line/arc join, its curvature is zero at each port.
+    This avoids a real cross-slope crease when a descending channel starts
+    turning. Radius is the minimum radius, never the average radius.
+    """
+    def __init__(self, start, heading, radius, degrees, blend=20.):
+        self.a = np.asarray(start, 'f8')
+        self.heading, self.r = math.radians(heading), float(radius)
+        self.sign = 1. if degrees > 0 else -1.
+        self.angle, self.blend = math.radians(abs(degrees)), float(blend)
+        if radius <= 0 or blend <= 0 or self.angle * radius < blend:
+            raise ValueError('eased turn needs a positive radius and room for both curvature blends')
+        self.length = self.angle * radius + blend
+        self._first = self._integral(np.array([blend]), first=True)[0]
+        m = self.length - 2 * blend
+        a0 = self.heading + self.sign * blend / (2 * radius)
+        a1 = a0 + self.sign * m / radius
+        self._middle = radius / self.sign * np.array([math.sin(a1) - math.sin(a0), math.cos(a0) - math.cos(a1)])
+
+    def _theta(self, s):
+        s = np.clip(np.asarray(s, 'f8'), 0., self.length)
+        b, r = self.blend, self.r
+        first = (s / 2 - b / (2 * math.pi) * np.sin(math.pi * s / b)) / r
+        u = self.length - s
+        last = self.angle - (u / 2 - b / (2 * math.pi) * np.sin(math.pi * u / b)) / r
+        return np.where(s <= b, first, np.where(s >= self.length - b, last, (s - b / 2) / r))
+
+    def _integral(self, s, *, first):
+        s = np.atleast_1d(s)
+        q = s[:, None] * (GAUSS_X[None] + 1.) / 2
+        theta = self._theta(q if first else self.length - self.blend + q)
+        a = self.heading + self.sign * theta
+        return s[:, None] / 2 * np.stack([np.cos(a) @ GAUSS_W, np.sin(a) @ GAUSS_W], 1)
+
+    def point(self, t):
+        t = np.clip(np.atleast_1d(np.asarray(t, 'f8')), 0., self.length)
+        b, r = self.blend, self.r
+        out = np.empty((len(t), 2))
+        first, last = t <= b, t >= self.length - b
+        middle = ~first & ~last
+        out[first] = self._integral(t[first], first=True)
+        a0 = self.heading + self.sign * b / (2 * r)
+        a = a0 + self.sign * (t[middle] - b) / r
+        out[middle] = self._first + r / self.sign * np.stack([np.sin(a) - math.sin(a0), math.cos(a0) - np.cos(a)], 1)
+        out[last] = self._first + self._middle + self._integral(t[last] - (self.length - b), first=False)
+        return out + self.a
+
+    def tangent(self, t):
+        a = self.heading + self.sign * self._theta(np.atleast_1d(t))
+        return np.stack([np.cos(a), np.sin(a)], 1)
+
+    def curvature(self, t):
+        t = np.clip(np.atleast_1d(np.asarray(t, 'f8')), 0., self.length)
+        u = np.minimum(t, self.length - t)
+        return self.sign / self.r * np.where(u < self.blend, (1 - np.cos(np.pi * u / self.blend)) / 2, 1.)
+
+    def breaks(self):
+        return np.array([0., self.blend, self.length - self.blend, self.length])
+
+
 class Polyline(Curve):
     """Straight segments through `points` (k, 2); corners are breaks (a sweep should not turn a corner: use a Spline).
     `closed` joins the last point to the first."""
