@@ -190,7 +190,10 @@ void ASuperUltraMegaPark::RegisterRails()
         for (const FVector& Point : Source.Points)
             Rail.Points.Add(GetActorTransform().TransformPosition(Point));
         if (Source.Closed && !Rail.Points[0].Equals(Rail.Points.Last(), .01f))
-            Rail.Points.Add(Rail.Points[0]);
+        {
+            const FVector First = Rail.Points[0];       // a copy: Add may reallocate the array the reference points into
+            Rail.Points.Add(First);
+        }
         if (Registry->Add(MoveTemp(Rail)) != INDEX_NONE) ++Count;
     }
     UE_LOG(LogTemp, Display, TEXT("MEGAPARK registered %d original grind paths"), Count);

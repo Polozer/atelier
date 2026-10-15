@@ -1,4 +1,5 @@
-"""Editor-park crater floor: rocks, snow, grass and shrubs round the pieces, deterministic and clear of the riding."""
+"""Editor-park crater floor: basalt crags, snow drifts, moss, shrubs and conifers round the pieces, deterministic and
+clear of the riding."""
 import math
 from pathlib import Path
 import sys
@@ -37,9 +38,16 @@ def scene():
             sheet('bowl', -3., length=30., width=24., x0=40., z0=-60., kind='bowl')]
 
 
+def floor_site():
+    """The rolling floor inside a round crater wall whose foot is 135 m from the middle (the corners are up the wall)."""
+    site = ef.Site.flat(GROUND, GRID)
+    site.foot = lambda x, z: 135. - np.hypot(x, z)
+    return site
+
+
 @pytest.fixture(scope='module')
 def built():
-    return ef.build(scene(), GROUND, GRID)
+    return ef.build(scene(), GROUND, GRID, floor_site())
 
 
 def vertices(parts):
@@ -72,8 +80,9 @@ def test_every_kind_is_placed_on_a_budget(built):
     parts, summary = built
     for kind in ('crags', 'spires', 'rocks', 'stones', 'conifers', 'shrubs', 'tufts', 'cushions', 'snow_m2', 'moss_m2'):
         assert summary[kind] > 0, kind
-    assert summary['triangles'] == sum(len(p.F) for p in parts) < 80000
-    assert set(summary['by_material']) == {ef.ROCK, ef.SNOW, ef.GRASS, ef.MOSS, ef.OLIVE, ef.SHRUB, ef.GOLD, ef.CONIFER}
+    assert summary['triangles'] == sum(len(p.F) for p in parts) < 100000
+    assert set(summary['by_material']) == {ef.BASALT, ef.ROCK, ef.SNOW, ef.GRASS, ef.MOSS, ef.OLIVE, ef.SHRUB, ef.GOLD,
+                                           ef.CONIFER}
     assert all(m in dsl.MATERIAL for m in summary['by_material'])
 
 
@@ -96,15 +105,44 @@ def test_snow_lies_in_broad_fields_over_its_share_of_the_open_floor(built):
     assert len(fields) < summary['snow_m2'] / 150., (len(fields), summary['snow_m2'])
 
 
-def test_crags_are_tall_and_jagged_conifers_stylised(built):
+def test_crags_are_big_dark_and_gather_at_the_wall_conifers_stylised(built):
     parts, _ = built
-    site = ef.Site.flat(GROUND, GRID)
-    rock = [p for p in parts if dsl.MATERIALS[int(p.material[0])] == ef.ROCK][0]
+    site = floor_site()
+    rock = [p for p in parts if dsl.MATERIALS[int(p.material[0])] == ef.BASALT][0]
     over = rock.V[:, 1] - site.ground(rock.V[:, 0], rock.V[:, 2])
-    assert over.max() > 3., 'crags several metres high'
+    assert 8. < over.max() <= 15.5, 'the biggest crags stand 8 to 15 m'
+    tall = rock.V[over > 3.]
+    foot = site.foot(tall[:, 0], tall[:, 2])
+    band = (foot < ef.BAND) & (foot > -ef.WALL_UP)
+    # crag rock stands far thicker in the wall's band than out on the floor (per square metre of plan)
+    plan = np.stack(np.meshgrid(np.arange(-149., 150.), np.arange(-149., 150.)), -1).reshape(-1, 2)
+    f = site.foot(plan[:, 0], plan[:, 1])
+    share = ((f < ef.BAND) & (f > -ef.WALL_UP)).mean()
+    assert band.mean() / share > 3 * (1 - band.mean()) / (1 - share)
     tree = [p for p in parts if dsl.MATERIALS[int(p.material[0])] == ef.CONIFER][0]
     over = tree.V[:, 1] - site.ground(tree.V[:, 0], tree.V[:, 2])
-    assert 2.5 < over.max() <= 8.5
+    assert 3.5 < over.max() <= 9.5
+
+
+def test_snow_drifts_are_never_fragments(built):
+    parts, _ = built
+    snow = [p for p in parts if dsl.MATERIALS[int(p.material[0])] == ef.SNOW][0]
+    parent = list(range(len(snow.V)))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for a, b, c in snow.F:
+        parent[root(b)] = root(a)
+        parent[root(c)] = root(a)
+    T = snow.V[snow.F][:, :, [0, 2]]
+    e1, e2 = T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]
+    area = np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]) / 2
+    comp = np.array([root(a) for a in snow.F[:, 0]])
+    sizes = np.bincount(np.unique(comp, return_inverse=True)[1], area)
+    assert sizes.min() >= 60. * .9, sizes.min()
 
 
 def test_no_nan_and_valid_faces(built):
@@ -118,13 +156,13 @@ def test_rocks_are_solid_the_rest_drawn_only(built):
     parts, _ = built
     for p in parts:
         material = dsl.MATERIALS[int(p.material[0])]
-        assert p.role[0] == dsl.ROLE[dsl.SIDE if material == ef.ROCK else dsl.COPING]
+        assert p.role[0] == dsl.ROLE[dsl.SIDE if material in ef.SOLID else dsl.COPING]
         assert dsl.RENDER_ROLE.get(dsl.ROLES[p.role[0]]) is not None, 'drawn'
 
 
 def test_deterministic():
-    a, sa = ef.build(scene(), GROUND, GRID)
-    b, sb = ef.build(scene(), GROUND, GRID)
+    a, sa = ef.build(scene(), GROUND, GRID, floor_site(), bake=False)
+    b, sb = ef.build(scene(), GROUND, GRID, floor_site(), bake=False)
     assert sa == sb
     assert np.array_equal(vertices(a), vertices(b))
 
@@ -168,5 +206,5 @@ def test_the_dressing_bakes_its_own_occlusion(built):
     parts, _ = built
     ao = np.concatenate([p.AO for p in parts])
     assert len(ao) == len(vertices(parts)) and np.isfinite(ao).all() and ao.min() >= 0. and ao.max() <= 1.
-    rock = np.concatenate([p.AO for p in parts if dsl.MATERIALS[int(p.material[0])] == ef.ROCK])
+    rock = np.concatenate([p.AO for p in parts if dsl.MATERIALS[int(p.material[0])] == ef.BASALT])
     assert (rock < .9).mean() > .02, 'rocks in a cluster shade one another'

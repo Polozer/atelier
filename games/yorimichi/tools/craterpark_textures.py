@@ -173,7 +173,7 @@ WORLD_ALIGNED = {
     'material_028': ('basalt', 6, (104, 106, 114)),             # editor-park basalt support towers
     'material_029': ('masonry', 5, (104, 98, 94)),             # editor-park viaduct supports
     # not a park material: the volcano's ground inside the crater (hidamari/mountains.py), for M_NorthMountains
-    'crater_floor': ('crater_floor', 16, (120, 119, 124)),
+    'crater_floor': ('crater_floor', 16, (100, 98, 100)),       # the concept's warm dark grey gravel
 }
 # slug: (texture, style, how it is made to wrap, description, palette mean sRGB) of the UV-mapped textures painted from
 # nothing: a material whose texture is `texture` gets the painting on its own UVs (the editor ramps' boards, laid along
