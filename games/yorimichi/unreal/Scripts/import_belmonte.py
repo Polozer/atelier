@@ -212,6 +212,10 @@ def import_mesh(path, name):
 
 
 def main():
+    """@cc [owner:fontanierh,label:correctness] collision-hull-distance-fields
+    Separate source collision hulls MUST disable LOD0 mesh distance-field generation. This
+    optimization MUST NOT change visible-mesh build settings, hull geometry or physics association.
+    """
     report = json.loads((OUT / 'build-report.json').read_text())
     runtime = json.loads((OUT / 'runtime.json').read_text())
     defaults = {}
@@ -238,6 +242,11 @@ def main():
             if E.does_asset_exist(ROOT + '/Meshes/' + collision_name):
                 E.delete_asset(ROOT + '/Meshes/' + collision_name)
             collision = import_mesh(OUT / 'glb' / Path(entry['collision']['path']).name, collision_name)
+            # This asset supplies physics through complex_collision_mesh; no component draws it.
+            editor = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+            settings = editor.get_lod_build_settings(collision, 0)
+            settings.set_editor_property('distance_field_resolution_scale', 0.)
+            editor.set_lod_build_settings(collision, 0, settings)
             ground = E.load_asset(ROOT + '/Materials/MI_BM_Ground')
             for slot in range(len(collision.get_editor_property('static_materials'))):
                 collision.set_material(slot, ground)
