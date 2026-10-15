@@ -179,7 +179,7 @@ def test_the_build_ships_the_committed_editor_park_by_default(monkeypatch):
     monkeypatch.delenv(v4_config.EDITOR_SWITCH, raising=False)
     monkeypatch.delenv(v4_config.SWITCH, raising=False)
     monkeypatch.delenv('ATELIER_CRATERPARK_EDITOR_LINES', raising=False)
-    assert v4_config.editor_path() == v4_config.SHIPPED and v4_config.editor_lines() == 'L1,p5'
+    assert v4_config.editor_path() == v4_config.SHIPPED and v4_config.editor_lines() == 'L1,L2,p5'
     assert json.loads(v4_config.SHIPPED.read_text())['schema'] == v4_config.EDITOR_SCHEMA
     assert [p.name for p in v4_config.input_paths()][:2] == ['shipped.json', 'terrain.json']
     monkeypatch.setenv(v4_config.EDITOR_SWITCH, 'off')
