@@ -80,9 +80,12 @@ def check_runtime(log, expected):
         data = source.read(16 * 1024**2 + 1)
     require(len(data) <= 16 * 1024**2, 'runtime log exceeds evidence bound')
     observed = runtime(data.decode())
-    require(observed == json.loads(expected.read_text()), 'runtime map/assets/config/renderer differ from expected fixture')
+    expected_raw = expected.read_bytes()
+    require(observed == json.loads(expected_raw), 'runtime map/assets/config/renderer differ from expected fixture')
+    log_sha, expected_sha = hashlib.sha256(data).hexdigest(), hashlib.sha256(expected_raw).hexdigest()
+    require(digest(log) == log_sha and digest(expected) == expected_sha, 'runtime evidence changed during checking')
     return dict(runtime_checks_passed=True, native_parity=False, observed=observed,
-                log_sha256=digest(log), expected_sha256=digest(expected))
+                log_sha256=log_sha, expected_sha256=expected_sha)
 
 
 def source_record(source):

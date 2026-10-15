@@ -121,6 +121,20 @@ def test_incomplete_or_conflicting_runtime_is_not_parity_evidence(text):
     with pytest.raises(ValueError): load('cook_acceptance').runtime(text)
 
 
+def test_runtime_replacement_cannot_attach_a_different_log_hash(tmp_path, monkeypatch):
+    tool = load('cook_acceptance')
+    log = tmp_path / 'runtime.log'; log.write_text(RUNTIME)
+    expected = tmp_path / 'expected.json'; expected.write_text(json.dumps(tool.runtime(RUNTIME)))
+    parse = tool.runtime
+    def replace_after_parse(text):
+        value = parse(text)
+        replacement = tmp_path / 'next.log'; replacement.write_text('another run')
+        replacement.replace(log)
+        return value
+    monkeypatch.setattr(tool, 'runtime', replace_after_parse)
+    with pytest.raises(ValueError, match='changed during checking'): tool.check_runtime(log, expected)
+
+
 @pytest.mark.parametrize('which', ['cook.json', 'unreal.cook.json', 'cook-observation.json', 'stdout.log'])
 def test_concurrent_receipt_stamp_or_log_replacement_never_certifies_mixed_sample(sample, tmp_path, monkeypatch, which):
     tool, _, _, _, _ = sample
