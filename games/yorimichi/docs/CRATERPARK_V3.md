@@ -68,3 +68,31 @@ preview image is not evidence that a route rides correctly.
   riding facet is 1.913 degrees. Its UVs, full-park entries and native transfer
   riding have not yet been accepted.
 - No v3 park release has been accepted or published yet.
+
+## Native sizing of the mega modules
+
+The preferred profiles in `world/regions/craterpark/v2/mega.py` have been ridden
+with the actual gameplay Session follower at 1, 4 and 8 m/s starts, on a 780 m
+crest. These are standalone straight modules with an 18 m floor and both 3 m
+shoulders, rather than evidence for the four assembled routes.
+
+| Module | Open gap | Measured air | Touchdown beyond knuckle | Peak normal impact |
+| --- | ---: | ---: | ---: | ---: |
+| Orange, R30 kicker to 18°, R20 receiver to -24° | 55 m | 63.09–68.29 m | 8.75–13.98 m | 4.59–5.54 m/s |
+| Standard, R30 kicker to 16°, R20 receiver to -26° | 42 m | 51.80–54.06 m | 10.46–12.73 m | 3.02–3.18 m/s |
+
+Both use an R80 convex roll-in crest, a 35° descent, an R60 foot, 20 m of
+straight approach and an R80 receiver recovery. The orange roll-in drops 54 m;
+the standard drops 48 m. Their receivers are long and stay under the 7 m/s
+pre-contact normal-speed limit in all three trials. The peak uses the last
+three airborne frames; an early collision response cannot turn a hard landing
+into a pass. A prior standard receiver at -22° failed its fastest case and was
+replaced by the -26° receiver above.
+
+The two input lanes of the shared section now have an integral merge builder:
+18 m floors join one 38 m floor, with fixed-radius inner walls fading away.
+Its isolated geometry has no overlapping riding faces and maximum riding
+facet 1.731°. Triangle quality and placement in the complete route remain open.
+Elbows now use one floor polygon and quarter pipe with exact shared ports.
+The outside wall of each major half-bowl turn grows continuously from the
+run into R7 plus 1 m of vert; it is no longer a detached overlapping module.
