@@ -43,5 +43,8 @@ struct FeelTuning
     // under the rider (GameplayRuntime::Advance), so the travel does not swing round to the board.
     std::int8_t drift_powerslide=0;
     float drift_grip=0.3f,drift_full_grip=0.6f;
+    // Boost zones (BowlBoost.h): how much speed pumping and powersliding on a boost zone's transitions add (0 off, 1 the
+    // tuned boost, up to 2). The host-only boost reads it; outside a zone it changes nothing.
+    float bowl_boost=1;
 };
 }

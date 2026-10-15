@@ -60,7 +60,7 @@ constexpr bool bLumenAvailable = WITH_EDITOR != 0;
 const TCHAR* const LumenUnavailable = TEXT("Lumen is not available in this build: it is packaged for forward lighting only.");
 // The Skate feel page (docs/SKATE.md, "Skate feel menu"): every value that changes how the board rides, saved as
 // skate_<name>. The mode picks Easy, Normal or Hardcore as made, or Custom, where every value below is tuned on a base
-// difficulty; the stick, mouse, tight and 120 Hz flicks and camera (bAlways) apply in every mode. A knob without a
+// difficulty; the stick, mouse, tight and 120 Hz flicks, bowl boost and camera (bAlways) apply in every mode. A knob without a
 // field is a choice: the mode (0 easy, 1 normal, 2 hardcore, 3 custom), the base difficulty (0 easy, 1 normal,
 // 2 hardcore), tight flicks and 120 Hz flicks (0 off, 1 on) or a switch (0 the difficulty's own, 1 off, 2 on).
 struct FSkateKnob { const TCHAR* Key; const TCHAR* Label; const TCHAR* Hint; float Minimum, Maximum, Step; float FSkateFeel::* Field; bool bAlways = false; };
@@ -95,6 +95,7 @@ const TArray<FSkateGroup>& SkateGroups()
             {TEXT("skate_push_power"), TEXT("Push strength"), TEXT("Speed gained with each push."), .5f, 3, .05f, &FSkateFeel::PushPower},
             {TEXT("skate_auto_push"), TEXT("Auto push"), TEXT("Keeps you rolling without pushing."), 0, 2, 1, nullptr},
             {TEXT("skate_pump"), TEXT("Pumping"), TEXT("Speed gained by pumping through transitions."), 0, 3, .05f, &FSkateFeel::Pump},
+            {TEXT("skate_bowl_boost"), TEXT("Bowl boost"), TEXT("Extra speed from pumping and powersliding on the walls of boost bowls (Crater Park's orange flow bowl and U-turns). 0 is off."), 0, 2, .05f, &FSkateFeel::BowlBoost, true},
             {TEXT("skate_rolling_friction"), TEXT("Rolling resistance"), TEXT("How fast speed above cruising bleeds off on the flat. 0 keeps every bit of speed."), 0, 3, .05f, &FSkateFeel::RollingFriction},
             {TEXT("skate_hill_speed"), TEXT("Hill speed"), TEXT("How hard slopes pull the board down."), 0, 2, .05f, &FSkateFeel::HillSpeed},
             {TEXT("skate_braking"), TEXT("Braking"), TEXT("How hard the foot brake stops."), .25f, 3, .05f, &FSkateFeel::Braking}}},
@@ -516,7 +517,7 @@ void UJapanPreferences::Apply()
 FSkateFeel UJapanPreferences::GetSkateFeel() const
 {
     // Easy, Normal and Hardcore are the difficulty as made; Custom tunes every value on its base difficulty. The stick,
-    // mouse, tight flicks, drift powerslides, 120 Hz flicks and camera apply in every mode. Custom values stay saved while a preset is played.
+    // mouse, tight flicks, drift powerslides, 120 Hz flicks, bowl boost and camera apply in every mode. Custom values stay saved while a preset is played.
     FSkateFeel Feel = FSkateFeel::Defaults();
     const int32 Mode = FMath::Clamp(FMath::RoundToInt(Get(TEXT("skate_mode"))), 0, SkateCustom);
     for (const FSkateGroup& Group : SkateGroups())

@@ -568,6 +568,7 @@ public:
         ECommand Kind=ECommand::Step;skate_simulation::XboxState Input{};float Dt=0,Heading=0;
         std::vector<skate_simulation::StickReading> Readings;   // a Step's 120 Hz stick readings (empty: the packet's)
         float VertAssistLimit=1;   // a Step's assist-zone limit on the vert assist (USkateComponent::UpdateAssistZones)
+        float BoostZone=0;   // a Step's boost zone scale where the board is (0 none; BowlBoost.h)
         skate_simulation::Vec3 Spawn{},Velocity{};uint32 Generation=0;FPreferences Preferences;
         std::optional<skate_simulation::GameplayWorldSnapshot> Snapshot;
         std::optional<skate_simulation::PreparedGameplayWorld> World;std::string Error;bool Background=false;
@@ -584,6 +585,7 @@ public:
         float Fraction=0;   // the frame's time the session keeps for its next step, in ticks (RideShownMotion::Alpha)
         float RenewMs=0;   // a placement's new runtime on the thread, ms
         uint32 Pumps=0;float PumpGain=0;   // the session's successful pumps and the last one's gain (m/s)
+        float Boosted=0;   // speed the boost zones added during the step (m/s; BowlBoost.h)
         uint8 Surface=0,Wheels=0;   // the surface the wheels are on (ESkateSurface, 0 untagged) and the wheels in contact
     };
     FSkateSimulationWorker(skate_simulation::GameplayWorldSnapshot World,skate_simulation::Vec3 Spawn,float Heading,
@@ -642,6 +644,7 @@ public:
                     if(!InstallWorld(Pending,Error)){Okay=false;break;}
                 PendingCollisions_.clear();
                 if(Okay)Okay=Session_->LimitVertAssist(Command.VertAssistLimit,Error)
+                    &&Session_->Boost(Command.BoostZone,Error)
                     &&Session_->Step(Command.Input,Command.Dt,Command.Readings,Error);
                 if(Okay)Okay=Publish(false,Error,float((FPlatformTime::Seconds()-Began)*1000.));
                 break;
@@ -744,7 +747,7 @@ private:
         if(HideTrick_&&G.scoring.State().announces!=HiddenAnnounces_)HideTrick_=false;
         if(!HideTrick_)Out.Trick=G.scoring.CurrentTrick();
         Out.TrickSwitch=G.scoring.State().start_stance[0];Out.TrickFakie=G.scoring.State().start_stance[1];
-        Out.Pumps=Session_->pumps.count;Out.PumpGain=Session_->pumps.last_gain;
+        Out.Pumps=Session_->pumps.count;Out.PumpGain=Session_->pumps.last_gain;Out.Boosted=Session_->boost.total;Session_->boost.total=0;
         const auto Ground=skate_simulation::ReportGroundSurface(G.physical->riding);Out.Surface=uint8(Ground.sound);Out.Wheels=uint8(Ground.wheels);
         const auto& Score=G.scoring.session.holder.State().snapshot;
         Out.Score=Score.completed_lines+Score.line;Out.Manual=G.animation_input.fields.balance;Out.Camera=Pose.camera;
@@ -814,6 +817,8 @@ public:
     bool Switch=false,Fakie=false;uint32 Turns=0;
     double CollisionReach=6000.;
     float VertAssistLimit=1;   // sent with every step: the assist zones' limit on the vert assist (1: none)
+    float BoostZone=0;   // sent with every step: the boost zone scale where the board is (0: none)
+    float Boosted=0;     // speed the boost zones added in the last step read (m/s), logged by AfterSimulationRideFrame
     // Where a gather last found nothing to snapshot (open water): the next try waits 20 m from it. The coverage
     // (CollisionCentre, CollisionReach) stays the installed world's.
     FVector GatherRetryAt=FVector(UE_BIG_NUMBER);
@@ -871,7 +876,7 @@ public:
         N.braking=S.Braking;N.steering=S.Steering;N.carve=S.Carve;N.grip=S.Grip;N.powerslide=S.Powerslide;
         N.powerslide_turn=S.PowerslideTurn;N.drift_powerslide=S.DriftPowerslide;
         N.drift_grip=S.DriftGrip;N.drift_full_grip=S.DriftFullGrip;
-        N.rolling_friction=S.RollingFriction;N.hill_speed=S.HillSpeed;N.pump=S.Pump;
+        N.rolling_friction=S.RollingFriction;N.hill_speed=S.HillSpeed;N.pump=S.Pump;N.bowl_boost=S.BowlBoost;
         N.wobble=S.Wobble;N.wobble_onset=S.WobbleOnset;N.manual_drift=S.ManualDrift;
         N.landing=S.Landing;N.impact=S.Impact;N.auto_push=S.AutoPush;N.assisted_air=S.AssistedAir;
         return P;
@@ -937,7 +942,7 @@ public:
             // The stance as the game shows it: the simulation's IDs name the trick, its scoring the stance it was done in.
             Trick=TrickLabel(UTF8_TO_TCHAR(Out.Trick.c_str()));
             if(!Trick.IsEmpty()&&(Out.TrickFakie||Out.TrickSwitch))Trick=(Out.TrickFakie?TEXT("Fakie "):TEXT("Switch "))+Trick;
-            Score=Out.Score;Tick=Out.Tick;ManualBalance=Out.Manual;Pumps=Out.Pumps;PumpGain=Out.PumpGain;
+            Score=Out.Score;Tick=Out.Tick;ManualBalance=Out.Manual;Pumps=Out.Pumps;PumpGain=Out.PumpGain;Boosted+=Out.Boosted;
             Surface=Out.Surface<=uint8(ESkateSurface::Sand)?ESkateSurface(Out.Surface):ESkateSurface::None;Wheels=Out.Wheels;
             if(Root.ContainsNaN()||Velocity.ContainsNaN()||Bones.ContainsByPredicate([](const FTransform& T){return T.ContainsNaN();}))
             {Error=TEXT("Nonfinite simulation output");continue;}

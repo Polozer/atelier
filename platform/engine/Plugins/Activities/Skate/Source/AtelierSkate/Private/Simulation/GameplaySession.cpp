@@ -3,6 +3,7 @@
 #include "DebugString.h"
 #include "PlayerControls.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #if defined(__clang__)
 #pragma clang fp contract(off)
@@ -105,8 +106,39 @@ bool GameplaySession::Advance(std::string& error)
 {input.PublishActions();return AdvancePublished(error);}
 bool GameplaySession::AdvancePublished(std::string& error)
 {
+    const float before=boost.zone>0?BoostSpeed():0;
     markers.Advance(input,*gameplay);if(!gameplay->Advance(input.PublishedInput(),error))return false;
-    pumps.Observe(*gameplay,Period());return true;
+    pumps.Observe(*gameplay,Period());
+    if(boost.zone>0 || boost.inside)ApplyBoost(before);
+    return true;
+}
+float GameplaySession::BoostSpeed() const
+{
+    const auto& v=gameplay->physical->board.Bodies()[std::size_t(BoardBodyId::Deck)].rates.linear_velocity;
+    return std::sqrt(v.x*v.x+v.y*v.y+v.z*v.z);
+}
+void GameplaySession::ApplyBoost(float before)
+{
+    // BowlBoost.h: on the ground only, the pump the tick added (as GameplayPumps counts it) or the powerslide.
+    const auto state=gameplay->player_state->Current();
+    const bool ground=state==PhysicalStateId::PhysicsGround||state==PhysicalStateId::RevertGround;
+    const bool sliding=state==PhysicalStateId::SlideGround;
+    const auto& pumping=gameplay->ground.pumping;
+    const float pump=ground && pumping.intentional_pumping && pumping.pump_acceleration>0?pumping.pump_acceleration:0;
+    const float scale=(ground||sliding)?boost.zone*gameplay->Feel().bowl_boost:0;
+    const auto deck=gameplay->physical->board.PartTransforms()[std::size_t(BoardBodyId::Deck)];
+    const float after=BoostSpeed();
+    const float gain=boost.zone>0?boost.Gain(scale>0?scale:0,deck.basis.columns[1][1],pump,sliding,before,after,Period()):0;
+    if(!(boost.zone>0))boost.inside=false;
+    if(!(gain>0) || !(after>0.5f))return;
+    // Along the travel, the same for every body (GameplayRuntime::Launch), so the board and rider keep their motion.
+    const auto v=gameplay->physical->board.Bodies()[std::size_t(BoardBodyId::Deck)].rates.linear_velocity;
+    const float k=gain/after;const Vec3 add{v.x*k,v.y*k,v.z*k};
+    for(auto& body:gameplay->physical->board.BodiesMut())
+    {auto& l=body.rates.linear_velocity;l.x+=add.x;l.y+=add.y;l.z+=add.z;}
+    for(auto& body:gameplay->physical->skeleton.BodiesMut())
+    {auto& l=body.rates.linear_velocity;l.x+=add.x;l.y+=add.y;l.z+=add.z;}
+    boost.total+=gain;
 }
 void GameplayPumps::Observe(const GameplayRuntime& runtime,float dt)
 {

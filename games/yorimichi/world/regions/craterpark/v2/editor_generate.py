@@ -281,6 +281,35 @@ def assist_zones(pieces, doc):
     return zones
 
 
+BOOST_CHUNK = 10.   # m of a boosted run's length per boost box, so a curved run's boxes hug it
+
+
+def boost_zones(pieces, doc):
+    """The bowls and runs the owner gave a pump and powerslide boost (params.boost, a scale; 0 or absent is none):
+    the piece's own riding mesh, walls included, as native point sets. A bowl is one set; a run is cut every
+    BOOST_CHUNK metres along its stations, so a U-turn's boxes follow its curve. export.py fits a box to each."""
+    import numpy as np
+    zones, params = [], {p['id']: p.get('params', {}) for p in doc['pieces']}
+    for piece in pieces:
+        meta = piece.metadata
+        boost = params[meta['id']].get('boost') or 0
+        if boost <= 0 or meta['type'] not in ('bowl', 'run'):
+            continue
+        V = np.asarray(piece.mesh.V, 'f8')
+        if meta['type'] == 'bowl' or not meta.get('stations'):
+            groups = [V]
+        else:
+            st = meta['stations']
+            S = np.asarray([[s['x'], s['z']] for s in st], 'f8')
+            d = np.asarray([s['d'] for s in st], 'f8')
+            near = np.argmin(((V[:, None, [0, 2]] - S[None]) ** 2).sum(-1), 1)
+            chunk = np.floor((d[near] - d[0]) / BOOST_CHUNK).astype(int)
+            groups = [V[chunk == k] for k in np.unique(chunk)]
+        for k, pts in enumerate(g for g in groups if len(g) >= 3):
+            zones.append({'id': f"{meta['id']}_{k}", 'boost': float(boost), 'points': pts.round(3).tolist()})
+    return zones
+
+
 def main(argv=None):
     import yori
     parser = argparse.ArgumentParser(description=__doc__)
@@ -381,6 +410,7 @@ def main(argv=None):
                  supports={k: v for k, v in support_summary.items() if k != 'pieces'}, coping=coping_summary,
                  bounds_native=[park.mesh.V.min(0).tolist(), park.mesh.V.max(0).tolist()])
     index['assist_zones_native'] = assist_zones(scene.pieces, doc)
+    index['boost_zones_native'] = boost_zones(scene.pieces, doc)
     arrays['index'] = np.asarray(json.dumps(index))
     (out / 'lines').mkdir(exist_ok=True)
     for stale in (out / 'lines').glob('*.npz'):

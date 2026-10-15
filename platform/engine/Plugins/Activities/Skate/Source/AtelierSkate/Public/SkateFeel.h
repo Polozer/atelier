@@ -48,6 +48,7 @@ struct ATELIERSKATE_API FSkateFeel
     float RollingFriction = 1.f;                 // rolling resistance (0..3)
     float HillSpeed = 1.f;                       // downhill pull (0..2)
     float Pump = 1.f;                            // speed from pumping transitions (0..3)
+    float BowlBoost = 1.f;                       // boost zones: speed from pumps and powerslides on their transitions (0..2)
 
     // Balance.
     float Wobble = 1.f;                          // speed wobble size (0..3)

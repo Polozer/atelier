@@ -212,6 +212,23 @@ session's vert assist is at most the lowest such limit (`GameplaySession::LimitV
 an air keeps the limit it was launched with until it lands. With no zones every step sends 1, which leaves the
 assistance exactly as tuned. A zone whose `Owner` is gone no longer applies.
 
+### Boost zones
+
+The same boxes can carry a `Boost` scale (0 none, up to 3) instead of a limit: pumping and powersliding on a boost
+zone's transitions gain speed. Each step sends the highest `Boost` of the zones holding the board (`BoostScale`,
+`GameplaySession::Boost`), and the session's host-only `BowlBoost` (`Private/Simulation/BowlBoost.h`) adds the gain
+after each tick. It multiplies the zone's scale by `FSkateFeel::BowlBoost` (`FeelTuning::bowl_boost`, 0 off to 2,
+default 1), and works only on the ground with the deck leaning more than 12 degrees from level, so flat bottoms and
+decks never boost:
+
+- a tick's intentional pump gains 1.5 times the speed the pump itself added, more;
+- a powerslide gets back up to 6 m/s^2 of the speed the slide (and a climb) took, and gains 2.5 m/s^2 on top.
+
+The gain goes along the travel, the same to every body, as `GameplayRuntime::Launch` does. It never raises the speed
+past the cap: the speed the board came into the zone with, times 1 + 0.35 x the scale, or 18 m/s, whichever is more.
+The component logs `SKATE boost` for each half metre per second added. Outside every zone the scale is 0 and nothing
+changes, so sessions without zones (the CLI, parity traces) ride exactly as before.
+
 ### 120 Hz flicks
 
 Flick-It reads the sticks once a tick, at 60 Hz, and the host reads them once a frame. A flick through a trick's middle

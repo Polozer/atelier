@@ -217,7 +217,7 @@ bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
         || !in(t.rail_magnetism,0.25f,3.0f) || !in(t.grind_pop,0.5f,2.0f) || !in(t.grind_friction,0.0f,3.0f)
         || !in(t.braking,0.25f,3.0f) || !in(t.steering,0.5f,2.0f) || !in(t.carve,0.5f,2.0f) || !in(t.grip,0.5f,2.0f)
         || !in(t.powerslide,0.25f,3.0f) || !in(t.rolling_friction,0.0f,3.0f) || !in(t.hill_speed,0.0f,2.0f)
-        || !in(t.pump,0.0f,3.0f) || !in(t.wobble,0.0f,3.0f) || !in(t.wobble_onset,0.5f,3.0f) || !in(t.manual_drift,0.0f,3.0f)
+        || !in(t.pump,0.0f,3.0f) || !in(t.bowl_boost,0.0f,2.0f) || !in(t.wobble,0.0f,3.0f) || !in(t.wobble_onset,0.5f,3.0f) || !in(t.manual_drift,0.0f,3.0f)
         || !in(t.landing,0.5f,3.0f) || !in(t.impact,0.5f,3.0f) || !switch_ok(t.auto_push) || !switch_ok(t.assisted_air)
         || t.tight_flicks<0 || t.tight_flicks>1 || t.flick_120hz<0 || t.flick_120hz>1
         || !in(t.powerslide_turn,0.25f,1.5f) || t.drift_powerslide<0 || t.drift_powerslide>1

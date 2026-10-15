@@ -33,7 +33,7 @@ bool FSkateFeel::Validate(FString& Error) const
         {TEXT("Powerslide"), Powerslide, .25f, 3}, {TEXT("PowerslideTurn"), PowerslideTurn, .25f, 1.5f},
         {TEXT("DriftGrip"), DriftGrip, 0, 1.5f}, {TEXT("DriftFullGrip"), DriftFullGrip, 0, 1.5f},
         {TEXT("RollingFriction"), RollingFriction, 0, 3}, {TEXT("HillSpeed"), HillSpeed, 0, 2},
-        {TEXT("Pump"), Pump, 0, 3}, {TEXT("Wobble"), Wobble, 0, 3}, {TEXT("WobbleOnset"), WobbleOnset, .5f, 3}, {TEXT("ManualDrift"), ManualDrift, 0, 3},
+        {TEXT("Pump"), Pump, 0, 3}, {TEXT("BowlBoost"), BowlBoost, 0, 2}, {TEXT("Wobble"), Wobble, 0, 3}, {TEXT("WobbleOnset"), WobbleOnset, .5f, 3}, {TEXT("ManualDrift"), ManualDrift, 0, 3},
         {TEXT("Landing"), Landing, .5f, 3}, {TEXT("Impact"), Impact, .5f, 3}, {TEXT("GetUpDelay"), GetUpDelay, .25f, 2},
         {TEXT("CameraDistance"), CameraDistance, .6f, 1.6f}, {TEXT("CameraFOV"), CameraFOV, -20, 20}};
     for (const FRange& R : Ranges)

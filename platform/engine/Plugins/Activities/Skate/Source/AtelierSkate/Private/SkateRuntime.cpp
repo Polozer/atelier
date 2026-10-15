@@ -610,12 +610,20 @@ void USkateComponent::UpdateAssistZones()
     // Assist zones (SkateAssistZones.h, README "Assist zones"): with the board or the rider inside one, the vert assist
     // is at most its limit. An air keeps the limit it was launched with until it lands, so a kicker's whole jump is
     // ridden with it; on the ground the limit is the zones' where the board is.
-    float Limit=1.f;
+    // A boost zone's scale is where the board is (the session boosts only on the ground; README "Boost zones").
+    float Limit=1.f,Boost=0.f;
     if (const USkateAssistSubsystem* Zones=GetWorld()?GetWorld()->GetSubsystem<USkateAssistSubsystem>():nullptr; Zones && !Zones->Zones.IsEmpty())
-        Limit=Zones->VertAssistLimit({Pos,Rider?Rider->GetActorLocation():Pos});
+    { Limit=Zones->VertAssistLimit({Pos,Rider?Rider->GetActorLocation():Pos}); Boost=Zones->BoostScale(Pos); }
     if (Mode==ESkateMode::Air) Limit=FMath::Min(Limit,VertAssistHeld);
     VertAssistHeld=Limit;
-    if (RideSimulation) RideSimulation->VertAssistLimit=Limit;
+    if (RideSimulation) { RideSimulation->VertAssistLimit=Limit; RideSimulation->BoostZone=Boost; }
+    // Each half metre per second the boost zones added, once (the speed added since the last line).
+    if (RideSimulation && RideSimulation->Boosted>=.5f)
+    {
+        UE_LOG(LogTemp, Display, TEXT("SKATE boost +%.2f m/s zone=%.2f setting=%.2f speed=%.1f m/s state=%s"), RideSimulation->Boosted,
+            Boost, Feel.BowlBoost, Vel.Size()/100., *RideSimulation->State);
+        RideSimulation->Boosted=0;
+    }
 }
 void USkateComponent::NameSimulationSpin(ESkateMode Was)
 {
@@ -690,7 +698,7 @@ bool USkateComponent::StepSimulation(FSkateRuntime& R, float Dt, bool bNeutral, 
         R.Readings.clear();
         if (!bNeutral) ReadFineSticks(R,R.FrameTime,Pad);
         Command.Readings=std::move(R.Readings);R.Readings.clear();R.LastSend=FPlatformTime::Seconds();
-        Command.Input=Input;Command.VertAssistLimit=R.VertAssistLimit;R.Sent=Input;R.Worker->Enqueue(MoveTemp(Command));
+        Command.Input=Input;Command.VertAssistLimit=R.VertAssistLimit;Command.BoostZone=R.BoostZone;R.Sent=Input;R.Worker->Enqueue(MoveTemp(Command));
         R.AwaitingPose=true; R.FrameTime=0;
     };
     Send();
