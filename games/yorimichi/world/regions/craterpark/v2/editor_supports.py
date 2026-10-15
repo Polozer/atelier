@@ -29,10 +29,22 @@ PIER_MIN, PIER_MAX = 4., 7.     # pier thickness along the piece
 BATTER = .05          # each pier side leans out this much per metre down to its foot
 BATTER_MAX = 6.       # metres: at most
 RING_MIN, RING_MAX = 1.6, 3.5   # stone kept above an arch's crown
-MIN_RISE = 2.5        # an opening lower than this is left solid
+MIN_RISE = 2.        # an opening lower than this is left solid
 OVER = 2.5            # metres kept clear above another piece running underneath
 TIER = 26.           # an opening taller than this gets a lower tier of arches (as an aqueduct's)
 TALL_BLOCK = 25.     # a stretch too short for a span but this tall gets one arch through it
+# the concept's relief (support-design-viaduct.jpg): piers standing proud of the faces, arch rings, a cornice under the
+# ramp, plinths and boulders at the feet
+ROCK = 'material_027'         # the volcano's restyled rock, for the boulders round the feet
+PROUD = .35           # the top of a pier stands this far out of the arcade's faces
+SETBACK = .3          # each ledge up a pier steps in this much (so its lower stages stand further out)
+CORNER = .8           # rounded pier corners (radius, m)
+PLINTH = .8           # a pier's plinth rises this far above the highest ground under it...
+PLINTH_OUT = .5       # ...and steps out this much round it
+CORNICE = 1.1         # the cornice band under the ramp: its height...
+OVERHANG = .45        # ...and how far it stands out of the faces (just under the ramp's edge)
+RING_DEPTH = 1.1      # the arch rings (archivolts): their depth round the opening...
+RING_PROUD = .2       # ...and how far they stand out of the faces
 
 
 class Ground:
@@ -139,6 +151,114 @@ def _outer_half(s):
         h, R = w['h'], max(w['R'], 1e-3)
         reach.append(R if h >= R else R * math.sin(math.acos(max(-1., 1 - h / R))))
     return s['w'] / 2 + max(reach) + s.get('deck', 0)
+
+
+def _rand(*key):
+    """Deterministic uniform [0, 1) from a position: the same park always gets the same stones."""
+    h = 2166136261
+    for k in key:
+        h = ((h ^ (int(round(k * 100)) & 0xffffffff)) * 16777619) & 0xffffffff
+    return ((h * 2654435761) & 0xffffffff) / 2 ** 32
+
+
+def _rings(b, material, rings, normals=None):
+    """Loft through closed cross-sections (each (k, 3)), with end caps: flat faces outward, or the given per-ring
+    vertex normals (each (k, 3)) on the sides for a smooth (rounded) surface."""
+    V, F, N = [], [], []
+    for i in range(len(rings) - 1):
+        A, B = rings[i], rings[i + 1]
+        mid = np.concatenate([A, B]).mean(0)
+        k = len(A)
+        for e in range(k):
+            q = np.array([A[e], A[(e + 1) % k], B[(e + 1) % k], B[e]])
+            n = np.cross(q[1] - q[0], q[2] - q[0]) + np.cross(q[2] - q[0], q[3] - q[0])
+            size = np.linalg.norm(n)
+            if size < 1e-6:
+                continue
+            n = n / size
+            if n @ (q.mean(0) - mid) < 0:
+                n = -n
+            o = len(V)
+            V.extend(q)
+            if normals is not None:
+                N.extend([normals[i][e], normals[i][(e + 1) % k], normals[i + 1][(e + 1) % k], normals[i + 1][e]])
+            else:
+                N.extend([n] * 4)
+            F.extend([(o, o + 1, o + 2), (o, o + 2, o + 3)])
+    for R, other in ((rings[0], rings[1]), (rings[-1], rings[-2])):
+        out = R.mean(0) - other.mean(0)
+        size = np.linalg.norm(out)
+        if size < 1e-9:
+            continue
+        o = len(V)
+        V.extend([R.mean(0)] + list(R))
+        N.extend([out / size] * (len(R) + 1))
+        F.extend([(o, o + 1 + e, o + 1 + (e + 1) % len(R)) for e in range(len(R))])
+    if F:
+        b.add(material, (np.array(V, 'f8'), np.array(F, 'i8'), np.array(N, 'f8')))
+
+
+def _rounded(c, fwd, acr, a, w, y, r=CORNER, seg=3):
+    """A rounded rectangle at height y, `a` long (half, along fwd) and `w` wide (half, along acr): points and their
+    outward horizontal normals."""
+    r = min(r, a * .9, w * .9)
+    pts, nrm = [], []
+    for su, sv, a0 in ((1, 1, 0.), (-1, 1, .5 * np.pi), (-1, -1, np.pi), (1, -1, 1.5 * np.pi)):
+        for k in range(seg + 1):
+            ang = a0 + .5 * np.pi * k / seg
+            du, dv = math.cos(ang), math.sin(ang)
+            u, v = su * (a - r) + r * du, sv * (w - r) + r * dv
+            pts.append((c[0] + u * fwd[0] + v * acr[0], y, c[1] + u * fwd[1] + v * acr[1]))
+            nrm.append((du * fwd[0] + dv * acr[0], 0., du * fwd[1] + dv * acr[1]))
+    return np.array(pts), np.array(nrm)
+
+
+def _lean(s, y):
+    """The arcade's half width at height y in section s: its faces lean out BATTER per metre below the ramp."""
+    return s.half + min(BATTER * max(s.top - y, 0.), BATTER_MAX)
+
+
+_ICO = None
+
+
+def _boulder(b, plan, ground, x, z, r, seed):
+    """A half-buried, faceted boulder of radius r at (x, z); none where a piece lies within reach above the ground."""
+    global _ICO
+    g = float(ground(x, z))
+    who, y = plan.heights(x, z)
+    if len(y) and (y < g + 2.5 * r + 1.).any():
+        return 0
+    if _ICO is None:
+        t = (1 + 5 ** .5) / 2
+        P = np.array([(-1, t, 0), (1, t, 0), (-1, -t, 0), (1, -t, 0), (0, -1, t), (0, 1, t), (0, -1, -t), (0, 1, -t),
+                      (t, 0, -1), (t, 0, 1), (-t, 0, -1), (-t, 0, 1)], 'f8')
+        F = [(0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11), (1, 5, 9), (5, 11, 4), (11, 10, 2), (10, 7, 6),
+             (7, 1, 8), (3, 9, 4), (3, 4, 2), (3, 2, 6), (3, 6, 8), (3, 8, 9), (4, 9, 5), (2, 4, 11), (6, 2, 10),
+             (8, 6, 7), (9, 8, 1)]
+        P = list(P / np.linalg.norm(P[0]))
+        mids, F2 = {}, []
+        for a, bb, c in F:                                   # one subdivision: 80 faces
+            m = []
+            for i, j in ((a, bb), (bb, c), (c, a)):
+                key = (min(i, j), max(i, j))
+                if key not in mids:
+                    q = P[i] + P[j]
+                    P.append(q / np.linalg.norm(q))
+                    mids[key] = len(P) - 1
+                m.append(mids[key])
+            F2 += [(a, m[0], m[2]), (bb, m[1], m[0]), (c, m[2], m[1]), (m[0], m[1], m[2])]
+        _ICO = np.array(P), np.array(F2)
+    P, F = _ICO
+    bump = np.array([1 + .32 * (_rand(seed, i, 7.) - .5) for i in range(len(P))])
+    yaw = _rand(seed, 3.) * 2 * np.pi
+    S = P * bump[:, None] * [r * (1 + .3 * _rand(seed, 5.)), r * .62, r]
+    S = S @ np.array([[math.cos(yaw), 0, -math.sin(yaw)], [0, 1, 0], [math.sin(yaw), 0, math.cos(yaw)]])
+    S += [x, g - .3 * r, z]
+    T = S[F]
+    n = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
+    n /= np.linalg.norm(n, axis=1, keepdims=True) + 1e-12
+    b.add(ROCK, (T.reshape(-1, 3), np.arange(len(F) * 3).reshape(-1, 3), np.repeat(n, 3, axis=0)))
+    return 1
 
 
 def _samples(stations):
@@ -299,14 +419,102 @@ def _loft(b, rows):
         b.add(STONE, (np.array(V, 'f8'), np.array(F, 'i8'), np.array(N, 'f8')))
 
 
+def _at(S, ts, t):
+    """The arcade's frame at distance t along a stretch: centre (x, z), across (unit), the section nearest."""
+    i = int(np.clip(np.searchsorted(ts, t) - 1, 0, len(ts) - 2))
+    f = float(np.clip((t - ts[i]) / max(ts[i + 1] - ts[i], 1e-9), 0., 1.))
+    c = S[i].c * (1 - f) + S[i + 1].c * f
+    u = S[i].across * (1 - f) + S[i + 1].across * f
+    return c, u / np.linalg.norm(u), S[i if f < .5 else i + 1]
+
+
+def _pier(b, plan, ground, S, ts, a, c):
+    """A pier over samples a..c: rounded stages standing proud of the faces, stepping in at a ledge or two on the
+    way up to the cornice, on a plinth, with boulders round its foot. Returns the boulders placed."""
+    mid = (ts[a] + ts[c]) / 2
+    centre, acr, s = _at(S, ts, mid)
+    fwd = np.array([acr[1], -acr[0]])
+    half_len = max((ts[c] - ts[a]) / 2, 1.5)
+    top = min(min(S[j].top_l, S[j].top_r) for j in range(a, c + 1)) - CORNICE + .1
+    corners = [centre + u * fwd + v * acr for u in (-half_len, half_len) for v in (-s.half, s.half)]
+    g_hi = max(float(ground(*q)) for q in corners)
+    foot = min(float(ground(*q)) for q in corners) - SINK - 1.
+    base = g_hi + PLINTH
+    if top - base < 1.5:
+        return 0
+    height = top - base
+    stages = 1 + (height > 14.) + (height > 32.)
+    out = PROUD + (stages - 1) * SETBACK
+
+    def block(y0, y1, extra):
+        rings, normals = [], []
+        for y in (y0, y1):
+            along = half_len + .5 * BATTER * max(top - y, 0.) + extra
+            pts, nrm = _rounded(centre, fwd, acr, along, _lean(s, y) + extra, y)
+            rings.append(pts)
+            normals.append(nrm)
+        _rings(b, STONE, rings, normals)
+
+    block(foot, base, out + PLINTH_OUT)
+    for k in range(stages):
+        y0 = base + height * k / stages
+        y1 = base + height * (k + 1) / stages
+        block(y0 - (.05 if k else 0.), y1, out - k * SETBACK)
+    placed = 0
+    n = 3 + min(6, int(height / 8))
+    for k in range(n):
+        ang = 2 * np.pi * (k + _rand(mid, k, 1.)) / n
+        reach = np.array([(half_len + out + PLINTH_OUT) * math.cos(ang), (s.half + out + PLINTH_OUT) * math.sin(ang)])
+        reach *= 1.05 + .35 * _rand(mid, k, 2.)
+        q = centre + reach[0] * fwd + reach[1] * acr
+        r = min(.9 + .9 * _rand(mid, k, 3.) + .025 * height, 3.2)
+        placed += _boulder(b, plan, ground, q[0], q[1], r, mid * 7 + k)
+    return placed
+
+
+def _archivolt(b, S, ts, f0, f1, arc):
+    """The stone ring round an arch: RING_DEPTH deep round the intrados, standing RING_PROUD out of both faces."""
+    t = np.asarray(ts[f0:f1 + 1], 'f8')
+    y = np.asarray(arc, 'f8')
+    if len(t) < 4:
+        return
+    dt, dy = np.gradient(t), np.gradient(y)
+    norm = np.hypot(dt, dy)
+    nt, ny = -dy / norm, dt / norm
+    rings = []
+    for k in range(len(t)):
+        c_in, u_in, s = _at(S, ts, t[k])
+        c_out, u_out, _ = _at(S, ts, t[k] + RING_DEPTH * nt[k])
+        y_out = y[k] + RING_DEPTH * ny[k]
+        w_in, w_out = _lean(s, y[k]) + RING_PROUD, _lean(s, y_out) + RING_PROUD
+        rings.append(np.array([(c_in[0] - w_in * u_in[0], y[k], c_in[1] - w_in * u_in[1]),
+                               (c_in[0] + w_in * u_in[0], y[k], c_in[1] + w_in * u_in[1]),
+                               (c_out[0] + w_out * u_out[0], y_out, c_out[1] + w_out * u_out[1]),
+                               (c_out[0] - w_out * u_out[0], y_out, c_out[1] - w_out * u_out[1])]))
+    _rings(b, STONE, rings)
+
+
+def _cornice(b, S):
+    """The cornice band along the top of a stretch: it stands OVERHANG out of the faces, a bevel below it."""
+    rings = []
+    for s in S:
+        (x, z), u = s.c, s.across
+        yb = s.top - CORNICE
+        wall, out = _lean(s, yb) - .05, s.half + OVERHANG
+        prof = [(-wall, yb), (-out, yb + .45 * CORNICE), (-out, s.top_l), (out, s.top_r), (out, yb + .45 * CORNICE),
+                (wall, yb)]
+        rings.append(np.array([(x + v * u[0], y, z + v * u[1]) for v, y in prof]))
+    _rings(b, STONE, rings)
+
+
 def arcade(b, plan, ground, piece, stations):
-    """The viaduct under one piece: (piers, arches, metres of arcade)."""
+    """The viaduct under one piece: (piers, arches, metres of arcade, boulders)."""
     got = _samples(stations)
     if got is None:
-        return 0, 0, 0.
+        return 0, 0, 0., 0
     t, x, z, h, half = got
     secs = [Section(plan, ground, piece, *a) for a in zip(x, z, h, half)]
-    piers = arches = 0
+    piers = arches = rocks = 0
     metres = 0.
     k, n = 0, len(secs)
     while k < n:                                              # stretches of consecutive good sections
@@ -330,9 +538,11 @@ def arcade(b, plan, ground, piece, stations):
                 if arc is not None:
                     bots[(f0, f1)] = arc
                     arches += 1
+                    _archivolt(b, S, ts, f0, f1, arc)
                     for band, lower in _tiers(S, ts, f0, f1, arc):
                         _loft(b, [(S[j], lower[j - f0], band[j - f0], band[j - f0])
                                   for j in range(f0, f1 + 1)])
+                        _archivolt(b, S, ts, f0, f1, lower)
                         arches += 1
             solid = np.ones(len(S), bool)
             for f0, f1 in bots:
@@ -349,29 +559,43 @@ def arcade(b, plan, ground, piece, stations):
                 for j in range(f0, f1 + 1):
                     rows.append((S[j], arc[j - f0]))
                 i = f1
-            piers += sum(1 for a, c in P if c - a >= 1)
             _loft(b, rows)
+            _cornice(b, S)
+            if bots:
+                for a, c in P:
+                    if c - a >= 1 and not any(S[j].blocked for j in range(a, c + 1)):
+                        rocks += _pier(b, plan, ground, S, ts, a, c)
+                        piers += 1
+            # boulders along the foot of the solid walls
+            for j in range(0, len(S), 6):
+                if solid[j] and not S[j].blocked and S[j].top - S[j].g_hi > 1.:
+                    for side in (-1., 1.):
+                        if _rand(ts[j], side, 4.) < .55:
+                            q = S[j].c + side * (_lean(S[j], S[j].g_lo) + .3 + _rand(ts[j], side, 5.)) * S[j].across
+                            rocks += _boulder(b, plan, ground, q[0], q[1], .7 + .8 * _rand(ts[j], side, 6.),
+                                              ts[j] * 3 + side)
             metres += ts[-1] - ts[0]
         k = e + 1
-    return piers, arches, metres
+    return piers, arches, metres, rocks
 
 
 def build(pieces, heights, grid):
     """The supports for the kept editor pieces (bridge Pieces), as dsl Mesh parts, and a summary."""
     ground = Ground(heights, grid)
     plan = Plan(pieces)
-    out, summary = [], {'piers': 0, 'arches': 0, 'metres': 0., 'pieces': {}}
+    out, summary = [], {'piers': 0, 'arches': 0, 'metres': 0., 'boulders': 0, 'pieces': {}}
     for k, piece in enumerate(pieces):
         meta = piece.metadata
         if meta['type'] in ('bowl', 'deck', 'rail') or not meta.get('stations'):
             continue
         b = Builder()
-        piers, arches, metres = arcade(b, plan, ground, k, meta['stations'])
+        piers, arches, metres, rocks = arcade(b, plan, ground, k, meta['stations'])
         if not metres:
             continue
         out += b.meshes(f"{meta['id']}_supports")
         summary['piers'] += piers
         summary['arches'] += arches
+        summary['boulders'] += rocks
         summary['metres'] += round(metres, 1)
         summary['pieces'][meta['id']] = 'viaduct'
     summary['metres'] = round(summary['metres'], 1)

@@ -165,11 +165,12 @@ WORLD_ALIGNED = {
 # nothing: a material whose texture is `texture` gets the painting on its own UVs (the editor ramps' boards, laid along
 # each piece: v2/editor_generate.piece_uv)
 UV_PAINTINGS = {
-    'ramp_planks': ('textures/ramp_planks.png', 'ramps', 'edges', 'a warm honey-tan wooden skate ramp surface as in '
-                    'Image 1: long smooth sanded boards laid side by side, every board running straight across the frame '
-                    'from left to right, eight boards stacked from top to bottom, thin soft darker seams between them and a '
-                    'few staggered butt joints, each board a slightly different warm tone, very fine soft straight grain; '
-                    'no knots, no nails, no screws, no swirls', WOOD),
+    'ramp_planks': ('textures/ramp_planks.png', 'ramps', 'edges', 'the smooth wooden riding surface of a big skate ramp '
+                    'exactly as in Image 1: soft warm honey and pale golden wood, six long boards stacked from top to bottom, '
+                    'each running unbroken across the whole frame from left to right with no butt joints, the seams between '
+                    'them only faint thin lines a little darker than the wood, gentle broad painterly variation in tone '
+                    'from board to board, barely visible soft straight grain; calm and smooth, no knots, no nails, no '
+                    'screws, no stripes of strong contrast', WOOD),
 }
 # slug: (texture, plan, concept, size, description) of the decals painted onto one piece's own plan: the plan (a top-down
 # render of the piece, v2/editor_generate.decal_frame) is Image 1 and the approved concept Image 2; the painting is laid
@@ -197,6 +198,8 @@ REPAINTED = {'flagstone': ('masonite', (160, 122, 86))}
 DETAIL = .14
 DETAIL_MIN = 8.
 DETAIL_GAIN = 2.5
+# paintings that already carry the concepts' calm surface keep their own variation (at most this gain)
+CALM = {'ramp_planks': 1., 'masonry': 1.2}
 
 
 def sha(data):
@@ -413,13 +416,13 @@ def to_mean(rgb, target):
     return srgb(a * want / np.maximum(a.reshape(-1, 3).mean(0), 1e-4))
 
 
-def detail(rgb, target):
+def detail(rgb, target, cap=DETAIL_GAIN):
     """rgb (sRGB 0-1) brought to the palette mean `target` with its variation stretched (DETAIL). Returns (rgb, gain)."""
     import numpy as np
     a = to_mean(rgb, target)
     luma = a @ np.array([.2126, .7152, .0722])
     want = max(DETAIL_MIN / 255, DETAIL * float(luma.mean()))
-    gain = float(np.clip(want / max(float(luma.std()), 1e-4), 1., DETAIL_GAIN))
+    gain = float(np.clip(want / max(float(luma.std()), 1e-4), 1., cap))
     mean = a.reshape(-1, 3).mean(0)
     return to_mean(np.clip(mean + (a - mean) * gain, 0, 1), target), gain
 
@@ -468,7 +471,7 @@ def finish():
         src = PAINTED / f'{slug}.jpg'
         if not src.exists():
             print('not painted yet:', slug); continue
-        a, gain = detail(srgb(tile(lin(load(src, (1024, 1024))), 'xy', how)), mean)
+        a, gain = detail(srgb(tile(lin(load(src, (1024, 1024))), 'xy', how)), mean, CALM.get(slug, DETAIL_GAIN))
         report['textures'][texture] = {**save(slug, a), 'slug': slug,
                                        'how': f'painted, wraps xy ({how}), mean {list(mean)}, detail x{gain:.2f}'}
     for material, (slug, metres, mean) in WORLD_ALIGNED.items():
@@ -476,7 +479,7 @@ def finish():
         if not src.exists():
             print('not painted yet:', slug, 'for', material); continue
         how = WORLD_PAINTINGS[slug][1] if slug in WORLD_PAINTINGS else 'blend'
-        a, gain = detail(srgb(tile(lin(load(src, (1024, 1024))), 'xy', how)), mean)
+        a, gain = detail(srgb(tile(lin(load(src, (1024, 1024))), 'xy', how)), mean, CALM.get(slug, DETAIL_GAIN))
         report['world_aligned'][material] = {**save(material, a), 'slug': slug, 'metres': metres,
                                              'how': f'world-aligned {rel(src)}, wraps xy ({how}), mean {list(mean)}, '
                                                     f'detail x{gain:.2f}; Tint white'}

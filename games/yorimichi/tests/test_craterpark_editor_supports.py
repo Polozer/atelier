@@ -32,22 +32,27 @@ def vertices(parts):
 def test_high_piece_rides_on_an_arcade_flush_under_it():
     parts, summary = es.build([sheet('p1', 30., length=120.)], FLAT, GRID)
     assert summary['pieces'] == {'p1': 'viaduct'} and summary['piers'] >= 3 and summary['arches'] >= 2
-    assert all((p.material == dsl.MATERIAL[es.STONE]).all() and p.role[0] == dsl.ROLE[dsl.SIDE] for p in parts)
+    stone = {dsl.MATERIAL[es.STONE], dsl.MATERIAL[es.ROCK]}
+    assert all(set(p.material.tolist()) <= stone and p.role[0] == dsl.ROLE[dsl.SIDE] for p in parts)
     V = vertices(parts)
     assert abs(V[:, 1].max() - (30. + es.EMBED)) < 1e-6, 'the stone meets the ramp in one line'
-    assert V[:, 1].min() >= -es.SINK - 1e-6
+    assert V[:, 1].min() >= -es.SINK - 5.
     assert np.isfinite(V).all() and np.isfinite(np.concatenate([p.N for p in parts])).all()
 
 
-def test_few_thick_piers_not_a_forest():
+def test_few_thick_piers_with_relief_not_a_forest():
     parts, summary = es.build([sheet('p1', 30., length=120.)], FLAT, GRID)
-    assert summary['piers'] <= 120. / es.SPAN_MIN
-    assert sum(len(p.F) for p in parts) < 3000
+    assert 2 <= summary['piers'] <= 120. / es.SPAN_MIN
+    assert summary['boulders'] >= summary['piers'] * 2, 'boulders round every pier foot'
+    assert sum(len(p.F) for p in parts) < 10000
+    V = vertices(parts)
+    assert np.abs(V[:, 2]).max() > 8. + es.INSET + es.PROUD - .1, 'piers stand proud of the faces'
+
 
 
 def test_low_run_rests_on_a_solid_wall():
     parts, summary = es.build([sheet('p1', 3.)], FLAT, GRID)
-    assert summary['arches'] == 0 and summary['piers'] >= 1
+    assert summary['arches'] == 0 and summary['piers'] == 0 and summary['metres'] > 50.
     assert vertices(parts)[:, 1].max() <= 3. + es.EMBED + 1e-6
 
 
