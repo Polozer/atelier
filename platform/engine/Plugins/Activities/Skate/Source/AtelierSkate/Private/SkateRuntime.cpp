@@ -68,6 +68,7 @@ struct FSkateContinuation
 #include "Ride/RideClipPlayer.h"
 #include "Ride/RidePoseMeasure.h"
 #include "Ride/RidePhysicalRider.h"
+#include "Ride/RideLostSimulation.h"
 #include "PhysicsEngine/PhysicsAsset.h"
 #include "PhysicsEngine/SkeletalBodySetup.h"
 
@@ -289,6 +290,47 @@ void USkateComponent::EndSimulationBoardInBail()
     // A failed session is dropped where it failed (RelaunchSimulationRide).
     if (RideSimulation && RideSimulation->Error.IsEmpty()) SuspendSimulationRide();
 }
+bool USkateComponent::BailOffLostSimulation(float Dt)
+{
+    // The session's step against the pose shown before it (RideLostSimulation.h). Its own recovery would carry the rider
+    // back along its respawn history, and a board gone through the floor would drag the rider under it: neither is
+    // shown. The rider bails from where it is, with the momentum shown, as from a failed session; the session is
+    // suspended where it is lost, and the get-up starts a fresh one where the body lies (GetUpFromSimulationBail).
+    // Without a body to take the bail, the session's recovery plays as before.
+    if (!RideSimulation || !ShownRuntime || !ShownRuntime->HasPose || !PhysicalRider || !PhysicalRider->IsActive()
+        || PhysicalRider->IsBailing() || PhysicalRider->IsGettingUp()) return false;
+    const FSkateRuntime& N=*RideSimulation;
+    const FTransform WasDeck=ShownRuntime->Bone(TEXT("SKATEBOARD_ROOT")), NowDeck=N.Bone(TEXT("SKATEBOARD_ROOT"));
+    FRideLostSimulationStep Step;
+    Step.State=N.State; Step.Tick=N.Tick; Step.Velocity=N.Velocity; Step.Dt=Dt;
+    Step.From=WasDeck.GetLocation()-WasDeck.GetRotation().GetUpVector()*9.05; Step.To=NowDeck.GetLocation()-NowDeck.GetRotation().GetUpVector()*9.05;
+    Step.Speed=float(FMath::Max(ShownRuntime->Velocity.Size(),N.Velocity.Size()));
+    if (RideLostSimulation::IsBoardAir(Step.State) && Step.To.Z<Step.From.Z)
+    {
+        // The world's own floor: not another character, nor a prop moving under physics (neither is in the session's
+        // world, and the ride goes by them as before).
+        FHitResult Hit;
+        const FCollisionQueryParams Params(SCENE_QUERY_STAT(SkateLostFloor),false,Rider);
+        if (GetWorld()->LineTraceSingleByChannel(Hit,Step.From+FVector(0,0,RideLostSimulation::TraceAbove),Step.To,ECC_Pawn,Params)
+            && !Cast<APawn>(Hit.GetActor()) && !(Hit.GetComponent() && Hit.GetComponent()->IsSimulatingPhysics()))
+        {
+            Step.bCrossed=true; Step.CrossedAt=Hit.ImpactPoint; Step.CrossedNormal=Hit.ImpactNormal;
+            // A face over the board (its underside: a trace meets a face from either side) up to the one it crossed.
+            FHitResult Over;
+            Step.bCovered=GetWorld()->LineTraceSingleByChannel(Over,Step.To,
+                FVector(Step.To.X,Step.To.Y,FMath::Max(Step.To.Z,Hit.ImpactPoint.Z)+RideLostSimulation::TraceAbove),ECC_Pawn,Params);
+        }
+    }
+    const ERideLostSimulation Lost=RideLostSimulation::Judge(Step);
+    if (Lost==ERideLostSimulation::Kept) return false;
+    if (!PhysicalRider->StartBail(Vel,RideSpin,URidePhysicalRider::ShownTransform(BoardRoot),BoardScale())) return false;
+    SuspendSimulationRide();
+    bSimulationBail=true;
+    ++Bails; ++Serial; Mode=ESkateMode::Bail; PlayCue(TEXT("clatter"),1,1);
+    UE_LOG(LogTemp,Display,TEXT("SKATE simulation lost the rider (%s, %s tick=%llu, the board %.0f cm from the last shown at %.0f cm/s): the body bails at (%.0f, %.0f, %.0f)"),
+        RideLostSimulation::Describe(Lost),*Step.State,Step.Tick,FVector::Dist(Step.From,Step.To),Step.Speed,Pos.X,Pos.Y,Pos.Z);
+    return true;
+}
 bool USkateComponent::SimulationStateStarts(const TCHAR* Prefix) const
 {
     return ShownRuntime && ShownRuntime->State.StartsWith(Prefix);
@@ -502,6 +544,9 @@ void USkateComponent::TickSimulation(float Dt)
         return;
     }
     if (!Changed) { AfterSimulationRideFrame(Dt); return; }
+    // A session that lost the rider (its own recovery teleport after a long fall, its board through the floor) is not
+    // followed: the body bails where the rider is shown (BailOffLostSimulation).
+    if (BailOffLostSimulation(Dt)) return;
     ShownRuntime->Present(*RideSimulation);
     const FString& S=ShownRuntime->State;
     // A fallen rider getting up onto the board is still in the bail.
