@@ -801,7 +801,7 @@ void UHorseComponent::Present(float Dt)
     if (Dt <= 0.f) return;
     Dt = FMath::Min(Dt, .05f);   // the springs below stay stable through a hitch
     UAnimSequence* const Clip = GetHorseSequence();
-    if (PresentedSerial != Serial || bHorseClipStale || Clip != PresentedHorseClip)
+    if (PresentedSerial != Serial || bHorseClipStale || Clip != PresentedHorseClip.Get())
     {
         // A new clip on the horse; its first frame is no footfall.
         if (Clip)

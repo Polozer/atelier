@@ -198,7 +198,7 @@ private:
     // Per EHorseRole: rider clips; horse clips append TurnLeft/Right without changing wire role IDs.
     UPROPERTY() TArray<TObjectPtr<UAnimSequence>> RiderClips;
     UPROPERTY() TArray<TObjectPtr<UAnimSequence>> HorseClips;
-    UPROPERTY() TObjectPtr<UAnimSequence> PresentedHorseClip;
+    UPROPERTY() TWeakObjectPtr<UAnimSequence> PresentedHorseClip;
 
     TArray<FBreed> Breeds;
     TArray<FString> TackIds;
