@@ -48,10 +48,6 @@ SEAM_FADE = 20.             # a terrain sharing a seam with ground that is not c
                             # carving to nothing over this many metres from the seam, so the seam stays closed
 CUT = ('cutting', 'deep cutting', 'embankment')
 
-# Off in default builds while the railway track and train steps remain explicit;
-# flip to True when unreal.belmonte_track joins the default build.
-ENABLED = True
-
 
 def _smooth(t):
     t = np.clip(t, 0., 1.)
@@ -185,9 +181,7 @@ class Line:
 
 @lru_cache(maxsize=1)
 def line():
-    """The built line, or None (no line.json yet, or RAILWAY_EARTHWORKS=0)."""
-    if not ENABLED:
-        return None
+    """The committed Belmonte railway line, or None if missing."""
     try:
         return Line(json.loads(C.LINE.read_text()))
     except (OSError, ValueError, KeyError):

@@ -317,11 +317,15 @@ def _cell(x,y):
 def _barycentric(z00,z10,z01,z11,u,v):
     return np.where(u>=v,z00*(1-u)+z10*(u-v)+z11*v,z00*(1-v)+z11*u+z01*(v-u))
 
-def height(x,y,base_sampler):
+def height(x,y,base_sampler,*,carved=True):
     """Barycentric sampling of the single cached grid exported as actual collision."""
     ix,iy,u,v=_cell(x,y)
     z=surface_grid(base_sampler)[2]
-    return _barycentric(z[iy,ix],z[iy,ix+1],z[iy+1,ix],z[iy+1,ix+1],u,v)
+    out=_barycentric(z[iy,ix],z[iy,ix+1],z[iy+1,ix],z[iy+1,ix+1],u,v)
+    if carved:
+        from train import earthworks
+        out=earthworks.carve(x,y,out)
+    return out
 
 def on_grid(x,y,field):
     """field(x, y) at the grid's nodes round each (x, y), sampled as height() samples the grid: what the ground would be
@@ -482,7 +486,7 @@ def _snow_grid(base_sampler, park_identity):
     xs=np.arange(SNOW_BOUNDS[0],SNOW_BOUNDS[2]+1,SNOW_STEP)
     ys=np.arange(SNOW_BOUNDS[1],SNOW_BOUNDS[3]+1,SNOW_STEP)
     x,y=np.meshgrid(xs,ys)
-    cover=snow_cover(x,y,height(x,y,base_sampler),SNOW_STEP)
+    cover=snow_cover(x,y,height(x,y,base_sampler,carved=False),SNOW_STEP)
     # The same bytes drive the material and planting; filtering is bilinear.
     return np.rint(np.clip(cover,0,1)*255).astype(np.uint8)
 

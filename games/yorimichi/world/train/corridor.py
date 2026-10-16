@@ -20,7 +20,7 @@ import numpy as np
 import yori
 
 ROUTE = yori.OUT / 'belmonte-train' / 'route' / 'route.json'
-LINE = yori.ASSETS / 'vehicles' / 'belmonte-train' / 'planning' / 'line.json'
+LINE = yori.ASSETS / 'vehicles' / 'belmonte-train' / 'line.json'
 HALF_WIDTH = 10.        # metres either side of the centreline: half the train (1.8) plus a tree's crown and a margin
 MAX_HALF_WIDTH = 40.
 FORMATION, SLOPE = 8., 1.5      # route.py's: formation width and earthwork slope (horizontal per vertical)
@@ -96,10 +96,7 @@ def line_data(route):
 
 
 def load(path=None):
-    """The corridor of the built route, or None before world.belmonte_train_route has run."""
-    from train import earthworks as E
-    if path is None and not E.ENABLED:
-        return None
+    """The corridor of the committed Belmonte railway line (or path when given)."""
     for p in ([path] if path else [LINE]):
         try:
             return Corridor(json.loads(p.read_text()))

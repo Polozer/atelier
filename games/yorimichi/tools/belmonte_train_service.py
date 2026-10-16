@@ -523,7 +523,7 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def build(root=TRAIN, glb=None):
+def build(root=TRAIN, glb=None, *, use_record_lods=True):
     route_path = root / 'route' / 'route.json'
     consist_path = root / 'assembly' / 'consist.json'
     route = json.loads(route_path.read_text())
@@ -534,7 +534,7 @@ def build(root=TRAIN, glb=None):
         if path.exists():
             placements[v['id']] = json.loads(path.read_text())
     records = {}
-    for path in sorted((root / 'furniture').glob('*.json')):
+    for path in (sorted((root / 'furniture').glob('*.json')) if use_record_lods else ()):
         try:
             records[path.stem] = json.loads(path.read_text())
         except ValueError:
@@ -564,7 +564,7 @@ def main(argv=None):
     parser.add_argument('--root', type=Path, default=TRAIN, help='the Train Builder output folder')
     parser.add_argument('--output', type=Path, default=OUTPUT)
     args = parser.parse_args(argv)
-    data = build(args.root, args.output.parent / 'glb')
+    data = build(args.root, args.output.parent / 'glb', use_record_lods=False)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(data, separators=(',', ':')) + '\n')
     s = data['service']

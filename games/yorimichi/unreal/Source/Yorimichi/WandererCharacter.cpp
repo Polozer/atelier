@@ -366,7 +366,7 @@ bool AWandererCharacter::TravelTo(FVector Target, float Yaw, const TCHAR* Reason
     }
     if (JapanNetwork::IsOnline(GetWorld())) GetWorld()->GetSubsystem<UJapanCombatResolver>()->Flush(this);
     if(GetZeppelin())GetZeppelin()->Cancel(this);
-    if(auto* Train = ABelmonteTrainService::Find(this)) { Train->Cancel(this); Train->SnapToStationDwell(Target); }
+    if(auto* Train = ABelmonteTrainService::Find(this)) Train->Cancel(this);
     auto* Movement = GetCharacterMovement();
     // Leave custom ramp physics before restoring the ordinary character pose.
     Movement->SetMovementMode(MOVE_Falling);
@@ -649,7 +649,7 @@ void AWandererCharacter::RequestJump(const FInputActionValue&)
     if (bSkating && !(GetCharacterMovement()->IsFalling() && SkateRide->CanYieldToCharacter())) return;
     if (Bike->IsEquipped()) { if (bReady && !bMenuOpen) Bike->Hop(); return; }
     if (Horse->IsEquipped()) { if (bReady && !bMenuOpen) Horse->Jump(); return; }
-    if (Sailboat->IsEquipped()) return;
+    if (Sailboat->IsEquipped() || bTrainAboard) return;
     if (Moves) { PressMove(TEXT("jump")); return; }
     if (bReady && !bMenuOpen && Sword && !Sword->CancelForInterrupt(false)) return;   // a draw, sheathe or deflection finishes first
     if (!bReady || bMenuOpen || MovementLocked() || bPendingTakeoff) return;

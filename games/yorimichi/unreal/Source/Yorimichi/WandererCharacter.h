@@ -319,7 +319,7 @@ public:
     class AZeppelinService* GetZeppelin() const;
     bool IsZeppelinPassenger() const;
     /** Inside a no-sprint volume (aboard the Belmonte train): sprint is unavailable. */
-    bool bNoSprint = false;
+    bool bNoSprint = false, bTrainAboard = false, bTrainDriving = false;
     /** The flight buttons: aboard, ride speed; at the docked ship, its next stop. -1 or +1. */
     void ZeppelinStep(int32 Direction);
 private:

@@ -284,6 +284,18 @@ def package_present(out):
         return False
 
 
+def belmonte_train_route_present(out):
+    """route.json, line.json and terrain_mask.json exist and line.json matches the committed line.json."""
+    root = out / 'belmonte-train' / 'route'
+    try:
+        generated = json.loads((root / 'line.json').read_text())
+        committed = json.loads((ASSETS / 'vehicles' / 'belmonte-train' / 'line.json').read_text())
+        return ((root / 'route.json').is_file() and (root / 'terrain_mask.json').is_file()
+                and generated == committed)
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def belmonte_train_assembly_present(out):
     """consist.json, index.html and every vehicle and furniture GLB/gltf.json copy in assembly/."""
     root = out / 'belmonte-train' / 'assembly'
@@ -589,21 +601,11 @@ def hippodrome_steps(out):
 
 TRAIN_VEHICLES = ('locomotive', 'tender', 'baggage-van', 'restaurant', 'first-class', 'second-class', 'brake-van')
 TRAIN_FURNITURE = tuple(a['id'] for a in json.loads((ASSETS / 'vehicles/belmonte-train/planning/furniture-dimensions.json').read_text())['assets'])
-_train_ew_spec = importlib.util.spec_from_file_location('yorimichi_train_earthworks', WORLD / 'train' / 'earthworks.py')
-train_earthworks = importlib.util.module_from_spec(_train_ew_spec)
-_sys_path = list(os.sys.path)
-os.sys.path.insert(0, str(WORLD))
-try:
-    _train_ew_spec.loader.exec_module(train_earthworks)
-finally:
-    os.sys.path[:] = _sys_path
-
-
 def belmonte_train_corridor(out):
     """The railway corridor and earthworks (world/train/corridor.py and earthworks.py read the committed line.json):
     unconditional inputs of the terrain and planting steps."""
     return [WORLD / 'train' / 'corridor.py', WORLD / 'train' / 'earthworks.py',
-            ASSETS / 'vehicles' / 'belmonte-train' / 'planning' / 'line.json']
+            ASSETS / 'vehicles' / 'belmonte-train' / 'line.json']
 
 
 def belmonte_steps(out):
@@ -630,7 +632,7 @@ def belmonte_steps(out):
              after=['unreal.forest'], heavy=True,
              outputs=[out / 'belmonte' / 'import-report.json', GAME / 'unreal' / 'Content' / 'Belmonte' / 'Meshes' / 'SM_BM_NorthApron.uasset'],
              about='/Game/Belmonte: environment meshes, collision and painterly surfaces'),
-        *([Step('unreal.belmonte_train', [UnrealScript(SCRIPTS / 'import_belmonte_train.py', 'BELMONTE TRAIN IMPORT COMPLETE', null_rhi=True,
+        Step('unreal.belmonte_train', [UnrealScript(SCRIPTS / 'import_belmonte_train.py', 'BELMONTE TRAIN IMPORT COMPLETE', null_rhi=True,
                                                        args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
                 inputs=[SCRIPTS / 'import_belmonte_train.py',
                         SOURCE / 'Yorimichi' / 'BelmonteTrainService.h', SOURCE / 'Yorimichi' / 'BelmonteTrainService.cpp',
@@ -641,14 +643,13 @@ def belmonte_steps(out):
                 after=['unreal.compile'], heavy=True,
                 outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'belmonte_train' / 'service.json', out / 'belmonte-train' / 'service' / 'import-report.json'],
                 about='/Game/BelmonteTrain: the train vehicles (3 LODs, box collision) and furniture, and the service data'),
-           Step('unreal.belmonte_track', [UnrealScript(SCRIPTS / 'import_belmonte_track.py', 'BELMONTE TRACK IMPORT COMPLETE', null_rhi=True,
+        Step('unreal.belmonte_track', [UnrealScript(SCRIPTS / 'import_belmonte_track.py', 'BELMONTE TRACK IMPORT COMPLETE', null_rhi=True,
                                                        args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
                 inputs=[SCRIPTS / 'import_belmonte_track.py'],
                 needs=['world.belmonte_track.meshes', 'world.belmonte.meshes', 'unreal.belmonte'],
                 after=['unreal.compile'], heavy=True,
                 outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'belmonte_track' / 'track.json', out / 'belmonte-track' / 'runtime' / 'import-report.json'],
-                about='/Game/BelmonteTrack: track chunks, loop, turnouts, buffers, tunnel linings and portals, viaduct, banks, lamps')]
-          if train_earthworks.ENABLED else []),
+                about='/Game/BelmonteTrack: track chunks, loop, turnouts, buffers, tunnel linings and portals, viaduct, banks, lamps'),
     ]
 
 
@@ -874,13 +875,16 @@ def world_steps(ctx):
              outputs=[out / 'belmonte-train' / 'review' / 'consist-profile.png'],
              about='Belmonte train control renders (white background)'),
         Step('world.belmonte_train_route', [Python(WORLD / 'train' / 'route.py')],
-             inputs=[WORLD / 'train' / 'route.py', WORLD / 'train' / 'corridor.py', *CRATERPARK, *NORTH_LAYOUT,
+             inputs=[WORLD / 'train' / 'route.py', WORLD / 'train' / 'corridor.py',
+                     ASSETS / 'vehicles' / 'belmonte-train' / 'line.json', *CRATERPARK, *NORTH_LAYOUT,
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py',
                      REGIONS / 'belmonte' / 'layout.py', REGIONS / 'belmonte' / 'source.py', REGIONS / 'belmonte' / 'terrain.py',
-                     ASSETS / 'belmonte'],
+                     ASSETS / 'belmonte', out / 'belmonte' / 'natural' / 'SM_BM_NorthApron.glb',
+                     out / 'belmonte' / 'natural' / 'SM_BM_NorthCountry.glb'],
              needs=['world.layout', 'world.hidamari', 'world.belmonte'], cutoff=True,
              outputs=[out / 'belmonte-train' / 'route' / 'route.json', out / 'belmonte-train' / 'route' / 'line.json',
                       out / 'belmonte-train' / 'route' / 'terrain_mask.json'],
+             verify=lambda: belmonte_train_route_present(out),
              about='Belmonte railway route study: alignment, profile, structures, timetable (route.json, plan and profile)'),
         Step('world.belmonte_track', [Blender(WORLD / 'train' / 'track_build.py', threads=3)],
              inputs=[WORLD / 'train' / 'track.py', WORLD / 'train' / 'track_build.py', WORLD / 'train' / 'earthworks.py',
@@ -1221,7 +1225,7 @@ def steps(ctx):
     policy = importlib.util.module_from_spec(policy_spec)
     policy_spec.loader.exec_module(policy)
     result.append(Step('data.content', [Call('archive_retired_content', policy.archive)],
-                       inputs=[GAME / 'content_policy.py', WORLD / 'train' / 'earthworks.py'],
+                       inputs=[GAME / 'content_policy.py'],
                        needs=[s.name for s in result if s.name.startswith('unreal.')] + ['data.stage'],
                        outputs=[ctx.out / 'runtime-content.json'],
                        verify=lambda: not any(policy.retired(content)),

@@ -636,32 +636,36 @@ def backdrop_grid():
         BACKDROP=original*(1-weight)+target*weight
     return BACKDROP
 
-def backdrop_height(x,y):
+def backdrop_height(x,y,*,carved=False):
     h=backdrop_grid();n=h.shape[0]
     fx=np.clip((np.asarray(x)+3200)/6400*(n-1),0,n-1.001);fy=np.clip((np.asarray(y)+3200)/6400*(n-1),0,n-1.001)
     i=fx.astype(int);j=fy.astype(int);u=fx-i;v=fy-j
-    return (h[j,i]*(1-u)+h[j,i+1]*u)*(1-v)+(h[j+1,i]*(1-u)+h[j+1,i+1]*u)*v
+    out=(h[j,i]*(1-u)+h[j,i+1]*u)*(1-v)+(h[j+1,i]*(1-u)+h[j+1,i+1]*u)*v
+    if carved:
+        from train import earthworks
+        out=earthworks.carve(x,y,out)
+    return out
 
-def far_height(x,y):
+def far_height(x,y,*,carved=False):
     """The far hills up to y=3200, where their grid ends, and Belmonte's country (belmonte/terrain.py) beyond."""
     x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
-    base=np.array(backdrop_height(x,y),dtype=float)
+    base=np.array(backdrop_height(x,y,carved=carved),dtype=float)
     beyond=y>3200
     if beyond.any():
         from belmonte.terrain import country_height
-        base[beyond]=country_height(x[beyond],y[beyond])
+        base[beyond]=country_height(x[beyond],y[beyond],carved=carved)
     return base
 
 def north_base_height(x,y):
     x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
-    base=far_height(x,y)
+    base=far_height(x,y,carved=False)
     city_edge=mountains.smooth((x-280)/60)*mountains.smooth((1440-x)/60)
-    return base+(height(x,500)-backdrop_height(x,500))*city_edge*mountains.smooth((800-y)/300)
+    return base+(height(x,500)-backdrop_height(x,500,carved=False))*city_edge*mountains.smooth((800-y)/300)
 
-def north_surface(x,y):
+def north_surface(x,y,*,carved=True):
     x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
-    base=far_height(x,y)
-    z=mountains.height(x,y,north_base_height)
+    base=far_height(x,y,carved=carved)
+    z=mountains.height(x,y,north_base_height,carved=carved)
     # Existing city terrain extends through y=500.
     city=(x>=300)&(x<=1420)&(y<=500)&(y>=-300)
     z=np.where(city,height(x,y),np.where(mountains.contains(x,y),z,base))

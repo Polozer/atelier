@@ -13,7 +13,7 @@ from yori import OUT  # noqa: E402
 from train import route as R  # noqa: E402
 
 BUILT = all((OUT / name).exists() for name in ('hidamari/city.json', 'belmonte/runtime.json', 'farhills.npy',
-                                               'belmonte/glb/SM_BM_NorthCountry.glb'))
+                                               'belmonte/natural/SM_BM_NorthCountry.glb', 'belmonte/natural/SM_BM_NorthApron.glb'))
 
 
 class Alignment(unittest.TestCase):
@@ -84,6 +84,25 @@ class Profile(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.r = R.study()
+
+    def test_committed_line_matches_study(self):
+        import json
+        from train import corridor as C
+        line, rail, zg, kind = self.r['line'], self.r['rail'], self.r['zg'], self.r['kind']
+        side = 1. if self.r['loop'] and float(np.interp(sum(self.r['loop']) / 2, line.s, line.curvature)) <= 0 else -1.
+        lt = R.loop_track(line, self.r['loop'], side)
+        if R.volcano_distance(lt[:, 1], lt[:, 2]).min() < R.volcano_distance(*line.at(lt[:, 0])[:2]).min():
+            lt = R.loop_track(line, self.r['loop'], -side)
+        route_doc = {
+            'frame': 'Blender metres, x east, y north, z up; bearings counter-clockwise from east',
+            'samples': [{'s': round(float(s), 2), 'x': round(float(x), 2), 'y': round(float(y), 2),
+                         'rail_z': round(float(z), 3), 'ground_z': round(float(g), 3), 'class': str(k)}
+                        for s, x, y, z, g, k in zip(line.s, line.x, line.y, rail, zg, kind)],
+            'passing_loop': {'start': self.r['loop'][0], 'end': self.r['loop'][1],
+                             'second_track': [[round(float(a), 1), round(float(b), 2), round(float(c), 2)] for a, b, c in lt]},
+        }
+        committed = json.loads(C.LINE.read_text())
+        self.assertEqual(C.line_data(route_doc), committed, 'update games/yorimichi/assets/vehicles/belmonte-train/line.json')
 
     def test_grades_and_vertical_curves(self):
         line, rail = self.r['line'], self.r['rail']

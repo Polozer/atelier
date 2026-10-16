@@ -108,7 +108,7 @@ class YORIMICHI_API ABelmonteTrainService : public AActor
     GENERATED_BODY()
 public:
     ABelmonteTrainService();
-    /** True unless -nobelmontetrain disables the railway for this session. */
+    /** True: the Belmonte railway is part of the default world. */
     static bool IsEnabled();
     static ABelmonteTrainService* Spawn(UWorld* World, const FString& Path);
     static ABelmonteTrainService* Find(const UObject* WorldContext);
@@ -120,7 +120,6 @@ public:
     static bool IsDrivingRider(const AWandererCharacter* Character);
     void Cancel(AWandererCharacter* Character);
     bool ReplacePassenger(AWandererCharacter* From, AWandererCharacter* To);
-    void SnapToStationDwell(const FVector& Target);
     double ServiceTime() const;
     /** Puts the player beside the line where a train passes soon; returns false when there is no player yet. */
     bool View(const FString& Where);
@@ -235,7 +234,9 @@ private:
     UPROPERTY(ReplicatedUsing=OnRep_NetworkState) FBelmonteTrainNetworkState NetworkState;
     UFUNCTION() void OnRep_NetworkState();
     void PublishNetworkState();
-    bool AnyRiderAboardMovingTrain(double Time) const;
+    void CancelLocal(FRider& Rider);
+    bool AnyRiderAboard() const;
+    bool bInitialized = false, bInitFailed = false;
     double LastNetworkPublication = -1.;
     double DevOffset = 0.;
     double NextReport = 0.;
