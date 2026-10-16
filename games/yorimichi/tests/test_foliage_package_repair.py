@@ -4,8 +4,54 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import sys
+from types import ModuleType
 
 import pytest
+
+
+@pytest.fixture
+def preflight(tmp_path, monkeypatch):
+    script = Path(__file__).resolve().parents[1] / 'unreal/Scripts/prepare_foliage.py'
+    yori = ModuleType('yori')
+    yori.GAME, yori.OUT = tmp_path / 'game', tmp_path / 'build'
+    catalog = ModuleType('asset_catalog')
+    catalog.FOLIAGE = {'Tree_Test': {}}
+    helper = ModuleType('foliage_package_repair')
+    calls = []
+    def quarantine(*args, require_unloaded):
+        require_unloaded()
+        calls.append(args)
+        return tmp_path / 'preserved'
+    helper.quarantine_invalid_package = quarantine
+    for name, module in [('yori', yori), ('asset_catalog', catalog), ('foliage_package_repair', helper)]:
+        monkeypatch.setitem(sys.modules, name, module)
+    monkeypatch.setattr(sys, 'path', list(sys.path))
+    monkeypatch.setenv('ATELIER_FOLIAGE', 'Tree_Test')
+    monkeypatch.delitem(sys.modules, 'unreal', raising=False)
+    spec = importlib.util.spec_from_file_location('fixture_prepare_foliage', script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module, calls, yori
+
+
+def test_actual_pre_editor_hook_selects_only_its_catalog_owner(preflight, capsys):
+    module, calls, yori = preflight
+    module.main()
+    assert calls == [(yori.GAME / 'unreal/Content', yori.OUT, 'Tree_Test')]
+    assert capsys.readouterr().out.startswith('Preserved invalid foliage package before fresh import: ')
+
+
+@pytest.mark.parametrize('bad', ['unknown-owner', 'editor-loaded'])
+def test_pre_editor_hook_refuses_before_preservation(preflight, monkeypatch, bad):
+    module, calls, _ = preflight
+    if bad == 'unknown-owner':
+        monkeypatch.setenv('ATELIER_FOLIAGE', '../Tree_Test')
+    else:
+        monkeypatch.setitem(sys.modules, 'unreal', ModuleType('unreal'))
+    with pytest.raises((ValueError, RuntimeError)):
+        module.main()
+    assert calls == []
 
 
 @pytest.fixture
@@ -23,6 +69,21 @@ def repair(tmp_path):
 
 def run(repair):
     return repair.quarantine_invalid_package(repair.content, repair.output, 'Tree_Test', require_unloaded=lambda: None)
+
+
+@pytest.mark.parametrize('data', [None, b'\xc1\x83\x2a\x9e', b'\x9e\x2a\x83\xc1bad body', b'bad tag'])
+def test_editor_refuses_new_invalid_tag_without_mutating_files(repair, data):
+    if data is not None:
+        repair.member.write_bytes(data)
+    if data == b'bad tag':
+        with pytest.raises(RuntimeError, match='after pre-editor'):
+            repair.require_valid_or_missing(repair.content, 'Tree_Test')
+    else:
+        repair.require_valid_or_missing(repair.content, 'Tree_Test')
+    assert repair.member.exists() is (data is not None)
+    if data is not None:
+        assert repair.member.read_bytes() == data
+    assert not repair.output.exists()
 
 
 @pytest.mark.parametrize('data', [None, b'\xc1\x83\x2a\x9e', b'\x9e\x2a\x83\xc1invalid body'])

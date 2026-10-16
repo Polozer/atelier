@@ -64,11 +64,15 @@ An existing Interchange-imported mesh first passes through its owned FBX seed to
 The final pass then applies the declared metre-to-centimetre settings while preserving the package object and
 path. Bounds are checked before importing LODs and again after assembly; a failed migration stays uncertified.
 
-Missing LOD0 mesh packages rebuild through their ordinary owner. Before loading a LOD0 mesh package with an invalid UE file tag,
-the guarded owner preserves and verifies its exact `.uasset` and optional `.uexp`/`.ubulk` bytes under
+Missing mesh packages rebuild through their ordinary owner. Before the editor starts, a preflight in the
+admitted guarded child preserves a LOD0 mesh package with an invalid UE file tag. It verifies the exact
+`.uasset` and optional `.uexp`/`.ubulk` bytes under
 `build/yorimichi/logs/foliage-repair/<name>/`, with a receipt, then removes those invalid originals for fresh import.
-An already loaded owner/LOD package, a linked file or a concurrent edit refuses this repair. A valid file tag
-does not prove a valid body: deeper corruption and invalid-header LOD source packages still fail normally. No failure restores old certificates or
+The preflight uses file IO in fresh Python, then execs the unchanged editor command with the same PID and guards;
+every selected batch owner is prepared before that one editor starts. It never imports Unreal or starts
+another native process. Linked files, changed batch plans and concurrent edits refuse the repair; damage
+that appears after preparation fails in the importer. A valid file tag does not prove a valid body:
+deeper corruption and invalid-header LOD1+ mesh packages still fail normally. No failure restores old certificates or
 certifies a partial replacement. Fresh imports explicitly retain the legacy lightmap resolution 4 and UV channel 0.
 
 `import_trunk_collision` is an explicit native policy, separate from the FBX's authored UCX geometry and the

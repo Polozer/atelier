@@ -46,8 +46,10 @@ def test_props_generator_is_not_a_foliage_input(tmp_path, monkeypatch):
     assert not any('.foliage.' in name for name in changed)
 
 
-def test_package_repair_code_invalidates_native_owners_without_reexporting_geometry(tmp_path, monkeypatch):
-    changed = changed_by(SCRIPTS / 'foliage_package_repair.py', tmp_path, monkeypatch)
+@pytest.mark.parametrize('source', [SCRIPTS / 'foliage_package_repair.py', SCRIPTS / 'prepare_foliage.py',
+                                    build.paths.STUDIO / 'atelier/unreal_preflight.py'])
+def test_package_repair_code_invalidates_native_owners_without_reexporting_geometry(tmp_path, monkeypatch, source):
+    changed = changed_by(source, tmp_path, monkeypatch)
     native = {name for name in changed if name.startswith('unreal.foliage.')}
     assert len(native) == 18
     assert changed == native | PACKAGING

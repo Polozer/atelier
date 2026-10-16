@@ -44,13 +44,25 @@ def _receipt(folder, value):
     _sync(folder)
 
 
+def require_valid_or_missing(content, name):
+    """Refuse damage that appeared after the admitted pre-editor preparation."""
+    main = Path(content) / 'Japan/Assets' / (name + '.uasset')
+    try:
+        stream, _ = _open(main)
+    except FileNotFoundError:
+        return
+    with stream:
+        if stream.read(4) not in (b'\xc1\x83\x2a\x9e', b'\x9e\x2a\x83\xc1'):
+            raise RuntimeError('Invalid foliage package appeared after pre-editor preparation: ' + name)
+
+
 def quarantine_invalid_package(content, output, name, *, require_unloaded):
     """@cc [owner:fontanierh,label:correctness] preserve-invalid-owned-foliage-package
     The caller MUST validate the exact foliage owner before calling this function.
     Only a main package with an invalid UE package tag may be removed, together with its
     exact optional sidecars. Every removed byte MUST first have a durable verified copy.
     Links, foreign files and concurrent changes MUST refuse. Valid packages MUST stay intact.
-    This operation MUST run inside the native owner's existing guard before asset loading;
+    This operation MUST run inside the native owner's existing guard before editor startup;
     it neither certifies the replacement nor restores old packages after an import failure.
     require_unloaded MUST positively reject any already loaded owner/LOD package before removal.
     """

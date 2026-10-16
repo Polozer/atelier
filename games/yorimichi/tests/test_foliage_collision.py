@@ -95,7 +95,7 @@ def owner(monkeypatch, tmp_path):
         'asset_catalog': SimpleNamespace(FOLIAGE=('Tree_Test',)),
         'mesh_import': SimpleNamespace(import_mesh=import_mesh),
         'import_foliage_lods': SimpleNamespace(apply_lods=apply_lods),
-        'foliage_package_repair': SimpleNamespace(quarantine_invalid_package=lambda *args, **kwargs: None),
+        'foliage_package_repair': SimpleNamespace(require_valid_or_missing=lambda *args, **kwargs: None),
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
     monkeypatch.setattr(sys, 'path', list(sys.path))
@@ -143,23 +143,21 @@ def test_registered_but_unloadable_package_reaches_fresh_import(owner, monkeypat
     assert owner.report.is_file()
 
 
-def test_invalid_header_preservation_precedes_any_existing_asset_load(owner, monkeypatch):
+def test_invalid_header_check_precedes_any_existing_asset_load(owner, monkeypatch):
     calls = []
     editor = sys.modules['unreal'].EditorAssetLibrary
     original = editor.does_asset_exist
     monkeypatch.setattr(editor, 'does_asset_exist', lambda path: (calls.append('lookup'), original(path))[1])
-    monkeypatch.setitem(owner.run.__globals__, 'quarantine_invalid_package', lambda *args, **kwargs: calls.append('preserve'))
+    monkeypatch.setitem(owner.run.__globals__, 'require_valid_or_missing', lambda *args, **kwargs: calls.append('check'))
     owner.run()
-    assert calls[0] == 'preserve' and calls[1] == 'lookup'
+    assert calls[0] == 'check' and calls[1] == 'lookup'
 
 
-def test_already_loaded_invalid_owner_refuses_before_quarantine_or_import(owner, monkeypatch):
-    def preserve(*args, require_unloaded):
-        require_unloaded()
-        pytest.fail('Loaded package must refuse before quarantine')
-    monkeypatch.setattr(sys.modules['unreal'], 'find_package', lambda path: object(), raising=False)
-    monkeypatch.setitem(owner.run.__globals__, 'quarantine_invalid_package', preserve)
-    with pytest.raises(RuntimeError, match='already loaded'):
+def test_damage_after_preparation_refuses_without_in_editor_mutation(owner, monkeypatch):
+    def refuse(*args):
+        raise RuntimeError('Invalid foliage package appeared after pre-editor preparation')
+    monkeypatch.setitem(owner.run.__globals__, 'require_valid_or_missing', refuse)
+    with pytest.raises(RuntimeError, match='after pre-editor'):
         owner.run()
     assert owner.mutations == []
     assert_uncertified(owner)
