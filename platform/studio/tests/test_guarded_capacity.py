@@ -41,6 +41,7 @@ class Admission:
         self.events.append('heartbeat')
         if self.fail == 'heartbeat':
             raise RuntimeError('broker lost during run')
+        return {'state': 'running', 'admission': True}
 
     def close(self, *, child=None, child_start=None, descendants=()):
         self.events.append('close')
@@ -71,7 +72,12 @@ def guards(monkeypatch):
     def process_monitor(*args, **kwargs):
         events.append('process-attach')
         try:
-            yield SimpleNamespace(pid=os.getpid(), poll=lambda: None)
+            monitor = SimpleNamespace(pid=os.getpid(), returncode=None)
+            monitor.poll = lambda: monitor.returncode
+            def wait(timeout):
+                events.append('process-finish'); monitor.returncode = 0; return 0
+            monitor.wait = wait
+            yield monitor
         finally:
             events.append('process-detach')
 
@@ -223,3 +229,63 @@ def test_uncertain_release_fails_successful_command_and_still_unwinds(tmp_path, 
 def test_capacity_hook_cannot_bypass_legacy_bridge(tmp_path, options):
     with pytest.raises(ValueError, match='legacy bridge'):
         guarded.run([sys.executable, '-c', 'pass'], tmp_path, admission=object(), **options)
+
+
+@pytest.mark.parametrize('case', ['success', 'nonzero-root', 'surviving-root', 'failed-final-root',
+                                   'failed-final-tree', 'missing-terminal', 'broker-error', 'late-root-stop',
+                                   'unfinished-root-monitor', 'failed-root-monitor'])
+def test_terminal_heartbeat_requires_actual_wait_final_guards_and_close(tmp_path, guards, monkeypatch, case):
+    from atelier.capacity_client import CapacityError
+    class Finishing(Admission):
+        checks = 0
+        def check(self, *, descendants):
+            self.checks += 1
+            guards.append('capacity-check-' + str(self.checks))
+            if case == 'broker-error': raise CapacityError('broker unavailable')
+            if self.checks == 1:
+                return dict(state='uncertain', admission=False, finish_required=True)
+            if case == 'missing-terminal': return dict(state='uncertain', admission=False, finish_required=True)
+            return dict(state='released', admission=False, terminal=True)
+    session = Finishing(guards)
+    original_check = guarded.check_root_guard
+    def final_root(child, monitor, report, *, final=False):
+        if final:
+            guards.append('final-root')
+            if case == 'failed-final-root': raise RuntimeError('root guard memory_limit')
+        if case == 'late-root-stop': original_check(child, monitor, report, final=final)
+    monkeypatch.setattr(guarded, 'check_root_guard', final_root)
+    if case in ('late-root-stop', 'unfinished-root-monitor', 'failed-root-monitor'):
+        import json, subprocess
+        original_process = guarded.attach_memory_guard
+        @contextmanager
+        def late_monitor(pid, report, **kwargs):
+            with original_process(pid, report, **kwargs) as monitor:
+                def wait(timeout):
+                    if case == 'unfinished-root-monitor': raise subprocess.TimeoutExpired('guard', timeout)
+                    monitor.returncode = 1 if case == 'failed-root-monitor' else 0
+                    if case == 'late-root-stop':
+                        report.write_text(json.dumps(dict(pid=pid, state='memory_limit')))
+                    return monitor.returncode
+                monitor.wait = wait
+                yield monitor
+        monkeypatch.setattr(guarded, 'attach_memory_guard', late_monitor)
+    if case == 'failed-final-tree':
+        original = guarded.attach_tree
+        @contextmanager
+        def broken(*args, **kwargs):
+            with original(*args, **kwargs) as tree:
+                def finish(): raise RuntimeError('aggregate memory_limit')
+                tree.finish = finish
+                yield tree
+        monkeypatch.setattr(guarded, 'attach_tree', broken)
+    seconds = 10 if case == 'surviving-root' else .15
+    code = 5 if case == 'nonzero-root' else 0
+    command = [sys.executable, '-c', f'import time; time.sleep({seconds}); raise SystemExit({code})']
+    if case in ('success', 'nonzero-root'):
+        assert guarded.run(command, tmp_path / 'guard', admission=session) == code
+        assert guards.index('tree-finish') < guards.index('final-root') < guards.index('capacity-check-2') < guards.index('close')
+        assert session.final[0].returncode == code
+    else:
+        with pytest.raises((RuntimeError, CapacityError, SystemExit), match='surviving launcher|memory_limit|not affirmatively|broker unavailable|memory guard .*after capacity completion'):
+            guarded.run(command, tmp_path / 'guard', admission=session)
+    assert guards.count('close') == 1 and session.final[0].poll() is not None

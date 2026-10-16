@@ -180,6 +180,7 @@ def test_recovery_commits_before_disposal_and_reconcile_is_idempotent(terminal, 
     broker, record, bound_path, receipt = terminal
     broker.compatible, broker.lease_seconds, broker.boot = True, 10, 'fixture'
     broker._watches, broker._gates, broker._lock = {}, {}, threading.RLock()
+    broker.directory = bound_path.parent
     broker._clock = lambda: 20
     broker.total, broker.reserve = Resources(memory_mib=10), Resources()
     record['epoch'] = 1
@@ -196,13 +197,18 @@ def test_recovery_commits_before_disposal_and_reconcile_is_idempotent(terminal, 
     state = dict(namespace=wire.NAMESPACE, epoch=1, boot_id=broker.boot, records={'job': record})
     broker.connection.execute('INSERT INTO state VALUES (1,?)', (json.dumps(state),))
     disposed = []
-    def dispose(nonce):
+    def dispose():
         assert not broker.connection.in_transaction
         durable = json.loads(broker.connection.execute('SELECT value FROM state').fetchone()[0])
         assert durable['records']['job']['state'] == 'released'
         assert durable['records']['job']['release_witness']['kind'] == 'guarded-tree-exit'
-        disposed.append(nonce)
-    broker._dispose = dispose
+        disposed.append('fixture')
+    class Handle:
+        def poll(self):
+            return False
+        def close(self):
+            dispose()
+    broker._watches[('fixture', (100, 1000))] = Handle()
     try:
         for _ in range(1 if action == 'close' else 2):
             message = dict(namespace=wire.NAMESPACE, action='reconcile' if action == 'preserved' else action)
@@ -219,3 +225,85 @@ def test_recovery_commits_before_disposal_and_reconcile_is_idempotent(terminal, 
         assert disposed == ['fixture']
     finally:
         broker.connection.close()
+
+
+@pytest.mark.parametrize('damage', [None, 'missing-candidate', 'compatibility', 'lease', 'stale-wall',
+    'stale-monotonic', 'future-monotonic', 'wrong-owner', 'wrong-birth', 'memory-stop', 'nonempty',
+    'footprint', 'incomplete', 'ceiling', 'stop-reason', 'missing-report', 'symlink-report'])
+def test_finish_hint_requires_fresh_clean_bound_report_and_never_releases(terminal, damage):
+    broker, record, path, receipt = terminal
+    broker.compatible = True; broker.lease_seconds = 30; broker._clock = time.monotonic
+    record['heartbeat'] = time.monotonic(); record['guard_completion_candidate'] = True
+    record['exited'].remove(record['child'])  # The hint MUST NOT stand in for affirmative root exit.
+    receipt.update(time=time.time(), observed_monotonic=time.monotonic())
+    changes = {'stale-wall': {'time': time.time()-10}, 'stale-monotonic': {'observed_monotonic': time.monotonic()-10},
+        'future-monotonic': {'observed_monotonic': time.monotonic()+10}, 'wrong-owner': {'owner': 101},
+        'wrong-birth': {'owner_started': 1001}, 'memory-stop': {'state': 'memory_limit'},
+        'nonempty': {'processes': [{'pid': 100}]}, 'footprint': {'footprint_bytes': 1},
+        'incomplete': {'cleanup_complete': False}, 'ceiling': {'limit_bytes': 2},
+        'stop-reason': {'termination_reason': 'memory_limit'}}
+    receipt.update(changes.get(damage, {})); path.write_text(json.dumps(receipt))
+    if damage == 'missing-candidate': record.pop('guard_completion_candidate')
+    if damage == 'compatibility': broker.compatible = False
+    if damage == 'lease': record['heartbeat'] -= 60
+    if damage == 'missing-report': path.unlink()
+    if damage == 'symlink-report':
+        other = path.with_suffix('.saved'); path.rename(other); path.symlink_to(other)
+    result = broker._check_completion(record)
+    assert (result is not None) is (damage is None)
+    if result is not None:
+        assert result == dict(state='uncertain', admission=False, finish_required=True, child=record['child'])
+    assert record['state'] == 'uncertain' and record['child'] not in record['exited']
+    assert not broker._settle_exited(record)
+
+
+def test_released_check_requires_an_existing_positive_release_witness(terminal):
+    broker, record, _, _ = terminal
+    assert broker._settle_exited(record)
+    result = broker._check_completion(record)
+    assert result == dict(state='released', admission=False, terminal=True, child=record['child'])
+    record['release_witness'] = {'kind': 'os-boot-change'}
+    assert broker._check_completion(record) is None
+
+
+@pytest.mark.parametrize('arrives', ['aggregate', 'root', 'neither'])
+def test_monitor_publication_lag_gets_one_bounded_charged_reconciliation(terminal, monkeypatch, arrives):
+    broker, record, path, receipt = terminal
+    broker.compatible = True; broker.lease_seconds = 30; broker._clock = time.monotonic
+    record['heartbeat'] = time.monotonic(); record['guard_completion_candidate'] = True
+    record['exited'].remove(record['child'])
+    receipt.update(time=time.time(), observed_monotonic=time.monotonic(), state='running', cleanup_complete=False)
+    path.write_text(json.dumps(receipt))
+    original = broker._tree_end_observation
+    calls = []
+    def observation(*args, **kwargs):
+        result = original(*args, **kwargs)
+        calls.append(True)
+        if len(calls) == 1 and arrives == 'aggregate':
+            # Publish only AFTER the initial read found the running report.
+            final = receipt | dict(state='child_exited', cleanup_complete=True)
+            path.write_text(json.dumps(final))
+        return result
+    monkeypatch.setattr(broker, '_tree_end_observation', observation)
+    def root_exited(_):
+        if arrives == 'root':
+            record['exited'].append(record['child'])
+            return True
+        return False
+    monkeypatch.setattr(broker, '_root_exited', root_exited)
+    before = time.monotonic()
+    result = broker._check_completion(record, reconcile=True)
+    assert time.monotonic() - before < 1
+    assert record['completion_reconciled'] is True
+    if arrives == 'aggregate':
+        assert result['finish_required'] is True and result['admission'] is False
+        assert record['state'] == 'uncertain' and record['child'] not in record['exited']
+    elif arrives == 'root':
+        assert result is None and record['state'] == 'draining'
+        assert record['child'] in record['exited']
+    else:
+        assert result is None and record['state'] == 'uncertain'
+        before = time.monotonic()
+        assert broker._check_completion(record, reconcile=True) is None
+        assert time.monotonic() - before < .1  # Never renew the reconciliation window.
+    assert record['state'] != 'released'  # Nothing here clears capacity or certifies outputs.
