@@ -295,7 +295,9 @@ void UAdventureMoveSet::BladePoints(TArray<FVector>& Out) const
     const TObjectPtr<UStaticMeshComponent>* Sword = Props.Find(TEXT("sword"));
     if (!Sword || !*Sword || BladeTip.IsNearlyZero()) return;
     const FTransform& T = (*Sword)->GetComponentTransform();
-    for (int32 I = 0; I < 6; ++I) Out.Add(T.TransformPosition(FMath::Lerp(BladeBase, BladeTip, I / 5.f)));
+    const float StockLen = float((BladeTip * (*Sword)->GetComponentScale()).Size());
+    const FVector Tip = CustomBladeLength > 0.f ? BladeTip * (CustomBladeLength / FMath::Max(StockLen, 1.f)) : BladeTip;
+    for (int32 I = 0; I < 6; ++I) Out.Add(T.TransformPosition(FMath::Lerp(BladeBase, Tip, I / 5.f)));
 }
 
 void UAdventureMoveSet::SweepBlade()
@@ -350,7 +352,17 @@ void UAdventureMoveSet::SweepArc()
         A->GetSimpleCollisionCylinder(Radius, Half);
         const FVector To = (A->GetActorLocation() - Here) * FVector(1, 1, 0);
         if (To.Size() - Radius > Range || (Forward | To.GetSafeNormal()) < FMath::Cos(FMath::DegreesToRadians(82.f))) return;
-        if (FMath::Abs(A->GetActorLocation().Z - Here.Z) > Half + HalfHeight() + 85.f) return;
+        if (FMath::Abs(A->GetActorLocation().Z - Here.Z) > Half + HalfHeight() + 40.f) return;
+        FHitResult WallHit;
+        FCollisionQueryParams WallQuery(SCENE_QUERY_STAT(AdventureArcLOS), false, Character);
+        WallQuery.AddIgnoredActor(A);
+        if (Character->GetWorld()->LineTraceSingleByChannel(
+                WallHit,
+                Here + FVector(0, 0, HalfHeight() * .4f),
+                A->GetActorLocation() + FVector(0, 0, Half * .4f),
+                ECC_Visibility,
+                WallQuery))
+            return;
         HitThisSwing.Add(A);
         const FVector At = A->GetActorLocation() - To.GetSafeNormal() * Radius + FVector(0, 0, HalfHeight() * .3f);
         Strike(A, Strength, At, Forward);
@@ -374,8 +386,10 @@ bool UAdventureMoveSet::GetBladePose(FVector& OutBase, FVector& OutTip, FVector&
     const TObjectPtr<UStaticMeshComponent>* Sword = Props.Find(TEXT("sword"));
     if (!Sword || !*Sword || BladeTip.IsNearlyZero()) return false;
     const FTransform& T = (*Sword)->GetComponentTransform();
+    const float StockLen = float((BladeTip * (*Sword)->GetComponentScale()).Size());
+    const FVector Tip = CustomBladeLength > 0.f ? BladeTip * (CustomBladeLength / FMath::Max(StockLen, 1.f)) : BladeTip;
     OutBase = T.TransformPosition(BladeBase);
-    OutTip = T.TransformPosition(BladeTip);
+    OutTip = T.TransformPosition(Tip);
     OutMajor = T.TransformVectorNoScale(SwordMajor).GetSafeNormal();
     return true;
 }

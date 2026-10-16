@@ -59,25 +59,27 @@ def paint_one(item):
     slug, (refs, prompt) = item
     TEX_DIR.mkdir(parents=True, exist_ok=True)
     SITE_ASSETS.mkdir(parents=True, exist_ok=True)
-    png_path = TEX_DIR / f'{slug}.png'
+    originals_dir = REPO / 'build' / 'yorimichi' / 'swordcamp' / 'originals' / 'textures'
+    originals_dir.mkdir(parents=True, exist_ok=True)
+    png_path = originals_dir / f'{slug}.png'
     jpg_path = TEX_DIR / f'{slug}.jpg'
     prompt_path = TEX_DIR / f'{slug}.prompt.txt'
     record_path = TEX_DIR / f'{slug}.provenance.json'
+    if record_path.exists():
+        return
     prompt_path.write_text(prompt + '\n')
-    if not record_path.exists():
-        print(f'[sunburst-tex] Starting {slug}...', flush=True)
-        images.paint(
-            png_path,
-            prompt,
-            '1024x1024',
-            images=refs,
-            record=record_path,
-            metadata={'stage': 'swordcamp-texture', 'slug': slug, 'prompt_file': prompt_path.name},
-        )
+    print(f'[sunburst-tex] Starting {slug}...', flush=True)
+    images.paint(
+        png_path,
+        prompt,
+        '1024x1024',
+        images=refs,
+        record=record_path,
+        metadata={'stage': 'swordcamp-texture', 'slug': slug, 'prompt_file': prompt_path.name},
+    )
     if png_path.exists():
         images.compact(png_path, jpg_path, 1024, 92)
         shutil.copy2(jpg_path, SITE_ASSETS / f'tex_{slug}.jpg')
-        png_path.unlink(missing_ok=True)
         print(f'[sunburst-tex] Completed {slug} -> {jpg_path}', flush=True)
 
 

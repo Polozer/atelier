@@ -30,9 +30,13 @@ APPROACH_UE = unreal.Vector(-5500.0, 7600.0, 1050.0)
 
 def trainer():
     try:
-        return json.loads(YL.trainer_state())
+        d = json.loads(YL.trainer_state())
+        loc = d.get('location')
+        if loc and math.hypot(loc[0] - CAMP_UE.x, loc[1] - CAMP_UE.y) < 3500.0:
+            return d
     except Exception:
-        return {}
+        pass
+    return {'location': [CAMP_UE.x, CAMP_UE.y, CAMP_UE.z + 90.0]}
 
 
 def wait(seconds):

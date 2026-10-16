@@ -1,7 +1,9 @@
 #include "JapanMap.h"
 #include "AtelierData.h"
 #include "CraterParkTower.h"
+#include "JapanGameMode.h"
 #include "JapanHUD.h"
+#include "JapanNetwork.h"
 #include "SkatePark.h"
 #include "WandererCharacter.h"
 #include "JapanWorld.h"
@@ -498,7 +500,10 @@ void UJapanMap::Initialize(AWandererCharacter* Pawn)
             Zones.Add(Zone);
         }
     }
-    if (!Zones.ContainsByPredicate([](const FJapanMapZone& Zone) { return Zone.Key == TEXT("ronin_camp"); }))
+    const bool bCampSpawned = !JapanNetwork::IsOnline(Owner ? Owner->GetWorld() : nullptr) &&
+        !FParse::Param(FCommandLine::Get(), TEXT("noronincamp")) &&
+        (!AJapanGameMode::IsScriptedSession() || FParse::Param(FCommandLine::Get(), TEXT("ronincamp")));
+    if (bCampSpawned && !Zones.ContainsByPredicate([](const FJapanMapZone& Zone) { return Zone.Key == TEXT("ronin_camp"); }))
     {
         FJapanMapZone Zone; Zone.Key = TEXT("ronin_camp"); Zone.Name = TEXT("Kasa Ronin camp");
         Zone.Hint = TEXT("Coastal bluff overlook: test your blade against the three Kasa Ronin");

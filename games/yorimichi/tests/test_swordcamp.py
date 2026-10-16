@@ -34,9 +34,12 @@ def test_sunburst_textures_and_atlas_exist():
         data = json.loads(prov.read_text())
         assert data['requested_model'] == 'gpt-image-2.5-sunburst'
         assert data['quality'] == 'high'
-    atlas = TEXTURES / 'swordcamp_atlas.jpg'
-    assert atlas.is_file()
-    im = Image.open(atlas)
+    import sys
+    sys.path.insert(0, str(REGION))
+    import make_atlas
+    out = REPO / 'build' / 'yorimichi' / 'swordcamp' / 'swordcamp_atlas.jpg'
+    make_atlas.build_atlas(out)
+    im = Image.open(out)
     assert im.size == (2048, 2048)
 
 

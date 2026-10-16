@@ -65,13 +65,17 @@ def build_material(atlas_tex):
         unreal.MaterialExpressionCustom,
         -320,
         120,
-        code='float glow=step(.72,C.r)*step(.32,C.g)*step(C.b,.28); return C*(.06+glow*.95);',
+        code='return C*(.06+saturate(G)*.95);',
         output_type=unreal.CustomMaterialOutputType.CMOT_FLOAT3,
     )
-    arg = unreal.CustomInput()
-    arg.set_editor_property('input_name', 'C')
-    fill.set_editor_property('inputs', [arg])
+    fill_inputs = []
+    for key in ('C', 'G'):
+        arg = unreal.CustomInput()
+        arg.set_editor_property('input_name', key)
+        fill_inputs.append(arg)
+    fill.set_editor_property('inputs', fill_inputs)
     link(tex, 'RGB', fill, 'C')
+    link(vc, 'R', fill, 'G')
 
     base, glow = atmosphere.apply(m, tex, fill, x=120, y=0)
     assert MEL.connect_material_property(base, '', unreal.MaterialProperty.MP_BASE_COLOR)

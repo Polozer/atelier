@@ -195,7 +195,7 @@ bool ASwordTrainer::IsSparringWith(const AActor* Other) const
     if (bHostileRonin)
     {
         const AWandererCharacter* Player = Cast<AWandererCharacter>(Other);
-        return Player && Player != this && !Player->IsNpc() && Bout != EBout::Over && Bout != EBout::Return &&
+        return Player && Player != this && !Player->IsNpc() && !bDefeated && Bout != EBout::Over && Bout != EBout::Return &&
             (!GetSword() || GetSword()->GetHealth() > 0.f);
     }
     // From the stance (so each side's lock-on finds the other) to the end of the bout.
@@ -299,11 +299,12 @@ void ASwordTrainer::UpdateRoninAttachments()
 
 void ASwordTrainer::AlertCamp(AWandererCharacter* Player)
 {
-    if (!bHostileRonin || !Player || Bout == EBout::Fighting || Bout == EBout::Over) return;
+    if (!bHostileRonin || !Player || bDefeated || DefeatCooldown > 0.f || Bout == EBout::Fighting || Bout == EBout::Over) return;
     for (TActorIterator<ASwordTrainer> It(GetWorld()); It; ++It)
     {
         ASwordTrainer* Member = *It;
-        if (!Member || !Member->IsHostileRonin() || Member->Bout == EBout::Fighting || Member->Bout == EBout::Over) continue;
+        if (!Member || !Member->IsHostileRonin() || Member->bDefeated || Member->DefeatCooldown > 0.f ||
+            Member->Bout == EBout::Fighting || Member->Bout == EBout::Over) continue;
         if (FVector::Dist2D(Member->CampOrigin, CampOrigin) > 2500.f) continue;
         Member->Opponent = Player;
         Member->ReleaseAll();
@@ -598,22 +599,32 @@ void ASwordTrainer::AdvanceHome(float Dt)
     Drive(FVector2D::ZeroVector, 0);
     if (bHostileRonin)
     {
+        DefeatCooldown = FMath::Max(0.f, DefeatCooldown - Dt);
+        if (bDefeated || DefeatCooldown > 0.f) return;
         AWandererCharacter* Player = Cast<AWandererCharacter>(GetWorld()->GetFirstPlayerController() ? GetWorld()->GetFirstPlayerController()->GetPawn() : nullptr);
         if (GetHealthFraction() < .999f && Player)
         {
             AlertCamp(Player);
             return;
         }
-        if (Player && !Player->IsNpc() && Player->IsReady() && (!Player->GetSword() || !Player->GetSword()->IsDown()))
+        if (Player && !Player->IsNpc() && Player->IsReady() && !Player->OnVehicle() && !Player->IsZeppelinPassenger() &&
+            (!Player->GetSkate() || !Player->GetSkate()->IsRiding()) && (!Player->GetSword() || !Player->GetSword()->IsDown()))
         {
-            const FVector ToPlayer = Player->GetActorLocation() - GetActorLocation();
-            const float Dist = ToPlayer.Size2D();
-            const float CosAngle = FVector::DotProduct(GetActorForwardVector(), ToPlayer.GetSafeNormal2D());
-            const float BackSense = Player->bIsCrouched ? 190.f : 560.f;
-            if ((Dist < 1400.f && CosAngle > -.2f && FMath::Abs(ToPlayer.Z) < 420.f) || Dist < BackSense)
+            const bool bSneakstriking = Player->GetMoves() && Player->GetMoves()->GetActionName() == TEXT("Sneakstrike");
+            if (!bSneakstriking)
             {
-                AlertCamp(Player);
-                return;
+                const FVector ToPlayer = Player->GetActorLocation() - GetActorLocation();
+                if (FMath::Abs(ToPlayer.Z) < 350.f)
+                {
+                    const float Dist = ToPlayer.Size2D();
+                    const float CosAngle = FVector::DotProduct(GetActorForwardVector(), ToPlayer.GetSafeNormal2D());
+                    const float BackSense = Player->bIsCrouched ? 190.f : 560.f;
+                    if ((Dist < 1400.f && CosAngle > -.2f) || Dist < BackSense)
+                    {
+                        AlertCamp(Player);
+                        return;
+                    }
+                }
             }
         }
         // Camp idle routines: Guard practices cuts against the Makiwara post; Scout scans the road; Captain watches by the fire.
@@ -671,13 +682,20 @@ void ASwordTrainer::AdvanceOver(float Dt)
     if (bHostileRonin)
     {
         if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>()) Encounters->End(this);
-        if (GetHealthFraction() <= 0.f)
+        if (bDefeated)
         {
-            // Defeated Ronin stays down until the respite expires, then returns to camp duty.
-            if (BoutTime > 18.f) { Bout = EBout::Return; BoutTime = 0.f; SetIntent(TEXT("return")); Restore(this); }
+            // Defeated Ronin stays out of the fight until the player leaves the camp (> 4200 cm) or after 45 s respite.
+            const AWandererCharacter* P = Opponent.Get();
+            const bool bPlayerLeft = !P || FVector::Dist2D(P->GetActorLocation(), CampOrigin) > 4200.f;
+            if (bPlayerLeft || BoutTime > 45.f)
+            {
+                bDefeated = false;
+                DefeatCooldown = 6.f;
+                Bout = EBout::Return; BoutTime = 0.f; SetIntent(TEXT("return")); Restore(this);
+            }
             return;
         }
-        if (BoutTime > 4.f) { Bout = EBout::Return; BoutTime = 0.f; SetIntent(TEXT("return")); Restore(this); }
+        if (BoutTime > 4.f) { DefeatCooldown = 4.f; Bout = EBout::Return; BoutTime = 0.f; SetIntent(TEXT("return")); Restore(this); }
         return;
     }
     if (AWandererCharacter* P = Opponent.Get()) if (!Moves->IsDown()) FaceToward(P->GetActorLocation(), Dt);
@@ -720,7 +738,7 @@ void ASwordTrainer::AdvanceFight(float Dt)
         Bout = EBout::Over; BoutTime = 0.f; SetIntent(TEXT("over"));
         if (bHostileRonin)
         {
-            if (Mine <= 0.f) { ++Losses; Say(FString::Printf(TEXT("%s: \"A clean cut...\""), *GetDisplayName()), 3.f); }
+            if (Mine <= 0.f) { bDefeated = true; ++Losses; Say(FString::Printf(TEXT("%s: \"A clean cut...\""), *GetDisplayName()), 3.f); }
             else { ++Wins; Say(FString::Printf(TEXT("%s: \"Stay down, traveler.\""), *GetDisplayName()), 3.f); }
         }
         else
@@ -747,9 +765,21 @@ void ASwordTrainer::AdvanceFight(float Dt)
         return;
     }
     if (Moves->IsDown()) { ReleaseAll(); SetIntent(TEXT("down")); return; }
+    // Group encounter ticket check for the hostile Kasa Ronin camp: up to 2 Ronin attack at once while the 3rd flanks.
+    bool bCanTakeTicket = true;
+    if (bHostileRonin)
+    {
+        if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>())
+            Encounters->Refresh(this, 3200.f);
+        int32 OtherAttackers = 0;
+        for (TActorIterator<ASwordTrainer> It(GetWorld()); It; ++It)
+            if (*It != this && It->IsHostileRonin() && !It->bDefeated && It->Bout == EBout::Fighting && It->Intent.StartsWith(TEXT("attack")))
+                ++OtherAttackers;
+        if (OtherAttackers >= 2) bCanTakeTicket = false;
+    }
     // Instant riposte after landing a parry or absorbing a blow on guard (OpenGothic / BotW counter-slash).
     const FName MyAction = Moves->GetActionName();
-    if ((MyAction == TEXT("SwordParry") || MyAction == TEXT("Parry") || MyAction == TEXT("SwordGuardHit") || MyAction == TEXT("GuardHit")) &&
+    if (bCanTakeTicket && (MyAction == TEXT("SwordParry") || MyAction == TEXT("Parry") || MyAction == TEXT("SwordGuardHit") || MyAction == TEXT("GuardHit")) &&
         Level > 0 && Distance < 290.f && Moves->GetActionClipTime() >= .12f && !Intent.StartsWith(TEXT("attack")))
     {
         Cooldown = 0.f; Forced = TEXT("combo"); Open(Distance);
@@ -764,11 +794,12 @@ void ASwordTrainer::AdvanceFight(float Dt)
         Cooldown = FMath::Max(Cooldown, .8f);
         return;
     }
-    // OpenGothic whiff punishment: if the opponent swings out of reach (205..420 cm), step back out of the arc and punish recovery.
-    if (Level > 0 && !Intent.StartsWith(TEXT("attack")) && !Moves->IsBusy())
+    if (Defend(Dt, Distance)) return;
+    // OpenGothic whiff punishment: if the opponent swings beyond lunge reach (280..440 cm), step back out of the arc and punish recovery.
+    if (bCanTakeTicket && Level > 0 && !Intent.StartsWith(TEXT("attack")) && !Moves->IsBusy())
     {
         const bool bOpponentSwinging = Theirs->IsAttacking() && !Theirs->IsCharging();
-        if (bOpponentSwinging && Distance > 205.f && Distance < 420.f && Theirs->NextBlowIn() >= 0.f)
+        if (bOpponentSwinging && Distance > 280.f && Distance < 440.f && Theirs->NextBlowIn() >= 0.f)
         {
             bWhiffWatching = true;
             Hold(TEXT("guard"), true);
@@ -786,21 +817,8 @@ void ASwordTrainer::AdvanceFight(float Dt)
         }
         if (!bOpponentSwinging) bWhiffWatching = false;
     }
-    if (Defend(Dt, Distance)) return;
-    if (!Forced.IsEmpty() && Cooldown <= 0.f && !Intent.StartsWith(TEXT("attack"))) Open(Distance);
+    if (bCanTakeTicket && !Forced.IsEmpty() && Cooldown <= 0.f && !Intent.StartsWith(TEXT("attack"))) Open(Distance);
     if (Intent.StartsWith(TEXT("attack")) && Press_Attack(Dt, Distance)) return;
-    // Group encounter ticket check for the hostile Kasa Ronin camp: up to 2 Ronin attack at once while the 3rd flanks.
-    bool bCanTakeTicket = true;
-    if (bHostileRonin)
-        if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>())
-        {
-            Encounters->Refresh(this, 3200.f);
-            int32 OtherAttackers = 0;
-            for (TActorIterator<ASwordTrainer> It(GetWorld()); It; ++It)
-                if (*It != this && It->IsHostileRonin() && It->Bout == EBout::Fighting && It->Intent.StartsWith(TEXT("attack")))
-                    ++OtherAttackers;
-            if (OtherAttackers >= 2) bCanTakeTicket = false;
-        }
     // Circling at a fair distance, guard up (strafing on the lock-on), waiting for an opening.
     SetIntent(TEXT("circle"));
     StrafeSwitch -= Dt;

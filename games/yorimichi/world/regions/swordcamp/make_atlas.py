@@ -23,9 +23,11 @@ def clean_sandogasa(im):
     return Image.fromarray(arr)
 
 
-def build_atlas():
-    TEX.mkdir(parents=True, exist_ok=True)
-    SITE_ASSETS.mkdir(parents=True, exist_ok=True)
+def build_atlas(out_jpg=None):
+    if out_jpg is None:
+        out_jpg = REPO / 'build' / 'yorimichi' / 'swordcamp' / 'swordcamp_atlas.jpg'
+    out_jpg = Path(out_jpg)
+    out_jpg.parent.mkdir(parents=True, exist_ok=True)
     atlas = Image.new('RGB', (2048, 2048), (45, 42, 38))
 
     # Quadrant (0, 0) [top-left, y: 0..1024, x: 0..1024]: sandogasa_weave (UV u: 0..0.5, v: 0.5..1.0 in Blender bottom-up)
@@ -122,10 +124,9 @@ def build_atlas():
         block = np.clip(block + noise, 0, 255).astype(np.uint8)
         atlas.paste(Image.fromarray(block), (x0, y0))
 
-    out_jpg = TEX / 'swordcamp_atlas.jpg'
     atlas.save(out_jpg, 'JPEG', quality=93)
-    atlas.save(SITE_ASSETS / 'swordcamp_atlas.jpg', 'JPEG', quality=92)
     print(f'Built 2048x2048 Sunburst UV atlas -> {out_jpg}')
+    return out_jpg
 
 
 if __name__ == '__main__':

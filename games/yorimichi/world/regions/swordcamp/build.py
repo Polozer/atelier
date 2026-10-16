@@ -21,10 +21,12 @@ from mathutils import Euler, Matrix, Vector
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[4]
 sys.path.insert(0, str(HERE.parents[1]))
+sys.path.insert(0, str(HERE))
 import yori  # noqa: E402
+import make_atlas  # noqa: E402
 
-ATLAS_SRC = REPO / 'games' / 'yorimichi' / 'assets' / 'swordcamp' / 'textures' / 'swordcamp_atlas.jpg'
 OUT = yori.OUT / 'swordcamp'
+ATLAS_PATH = OUT / 'swordcamp_atlas.jpg'
 FBX_DIR = OUT / 'fbx'
 SITE_ASSETS = OUT / 'site'
 
@@ -77,8 +79,10 @@ class ProcMesh:
         self.uvs = []
         self.smooth = []
         self.alphas = []
+        self.glows = []
         self.colliders = []
         self.xf = Matrix.Identity(4)
+        self._vmap = {}
 
     def push(self, loc=(0, 0, 0), rot=(0, 0, 0), scale=(1, 1, 1)):
         old = self.xf.copy()
@@ -87,13 +91,32 @@ class ProcMesh:
         self.xf = old @ Matrix.Translation(Vector(loc)) @ r @ s
         return old
 
-    def quad(self, pts, uvs=None, smooth=False, alpha=0.0):
-        i0 = len(self.verts)
-        for p in pts:
-            self.verts.append(tuple(self.xf @ Vector(p)))
-            self.alphas.append(alpha)
-        self.faces.append(tuple(range(i0, i0 + len(pts))))
-        self.uvs.append(uvs or UV_DARKWOOD[:len(pts)])
+    def quad(self, pts, uvs=None, smooth=False, alpha=0.0, glow=None):
+        f_uvs = uvs or UV_DARKWOOD[:len(pts)]
+        if glow is None:
+            glow = 1.0 if (uvs is UV_LANTERN or uvs is UV_EMBER) else 0.0
+        face_indices = []
+        for k, p in enumerate(pts):
+            wp = tuple(self.xf @ Vector(p))
+            if smooth:
+                key = (round(wp[0], 4), round(wp[1], 4), round(wp[2], 4), round(alpha, 3), round(glow, 3))
+                idx = self._vmap.get(key)
+                if idx is None:
+                    idx = len(self.verts)
+                    self._vmap[key] = idx
+                    self.verts.append(wp)
+                    self.alphas.append(alpha)
+                    self.glows.append(glow)
+            else:
+                idx = len(self.verts)
+                self.verts.append(wp)
+                self.alphas.append(alpha)
+                self.glows.append(glow)
+            face_indices.append(idx)
+        if len(set(face_indices)) < 3:
+            return
+        self.faces.append(tuple(face_indices))
+        self.uvs.append(f_uvs)
         self.smooth.append(smooth)
 
     def box(self, c, s, uvs=None, bevel=0.0, rot=(0, 0, 0)):
@@ -191,7 +214,7 @@ class ProcMesh:
                 uv_layer.data[li].uv = f_uvs[k % len(f_uvs)]
         col = me.color_attributes.new(name='Color', type='FLOAT_COLOR', domain='POINT')
         for vi in range(len(self.verts)):
-            col.data[vi].color = (1.0, 1.0, 1.0, self.alphas[vi])
+            col.data[vi].color = (self.glows[vi], 1.0, 1.0, self.alphas[vi])
         obj = bpy.data.objects.new(self.name, me)
         bpy.context.collection.objects.link(obj)
         return obj
@@ -600,7 +623,7 @@ def make_material():
     bsdf.inputs['Roughness'].default_value = 0.88
     bsdf.inputs['Specular IOR Level'].default_value = 0.08
     tex = nt.nodes.new('ShaderNodeTexImage')
-    tex.image = bpy.data.images.load(str(ATLAS_SRC))
+    tex.image = bpy.data.images.load(str(ATLAS_PATH))
     nt.links.new(tex.outputs['Color'], bsdf.inputs['Base Color'])
     nt.nodes.active = tex
     return m
@@ -685,8 +708,8 @@ def render_showcase(proc: ProcMesh, out_png: Path, cam_loc, cam_target, ortho_sc
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     FBX_DIR.mkdir(parents=True, exist_ok=True)
-    SITE_ASSETS.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(ATLAS_SRC, OUT / 'swordcamp_atlas.jpg')
+    make_atlas.build_atlas(ATLAS_PATH)
+    showcase = '--showcase' in sys.argv
     manifest = {}
     assets = [
         ('SM_RoninKasa', lambda m: build_kasa(m)),
@@ -703,54 +726,56 @@ def main():
     for name, fn in assets:
         pm = ProcMesh(name)
         fn(pm)
-        polys = export_fbx_and_glb(pm, None, fbx_name=name, glb_name=name.lower())
+        polys = export_fbx_and_glb(pm, None, fbx_name=name, glb_name=name.lower() if showcase else None)
         manifest[name] = {'polygons': polys, 'colliders': len(pm.colliders)}
         print(f'[swordcamp] Built {name}: {polys} polygons, {len(pm.colliders)} colliders', flush=True)
 
-    kit_ronin = ProcMesh('RoninArmorKit')
-    build_kasa(kit_ronin, origin=(-0.62, 0.0, 0.42))
-    old = kit_ronin.push((-0.05, 0.0, 0.56), rot=(78, 0, 0), scale=(0.68, 0.68, 0.68))
-    build_kasa(kit_ronin)
-    kit_ronin.xf = old
-    old = kit_ronin.push((-0.72, -0.05, -0.02), rot=(0, 0, -90), scale=(1.28, 1.28, 1.28))
-    build_menpo(kit_ronin)
-    kit_ronin.xf = old
-    old = kit_ronin.push((-0.38, 0.0, -0.04), rot=(0, -8, -72))
-    build_sode(kit_ronin)
-    kit_ronin.xf = old
-    old = kit_ronin.push((0.02, 0.0, -0.04), rot=(0, 8, -108))
-    build_sode(kit_ronin)
-    kit_ronin.xf = old
-    old = kit_ronin.push((0.68, 0.0, -0.32), rot=(0, 0, 0))
-    build_sashimono(kit_ronin)
-    kit_ronin.xf = old
-    old = kit_ronin.push((-0.68, 0.0, -0.30), rot=(0, 90, 0))
-    build_sword(kit_ronin, blade_len=0.68, hilt_len=0.22, curve=0.028, sheathed=False)
-    kit_ronin.xf = old
-    old = kit_ronin.push((-0.74, 0.0, -0.46), rot=(0, 90, 0))
-    build_sword(kit_ronin, blade_len=0.88, hilt_len=0.28, curve=0.038, sheathed=False)
-    kit_ronin.xf = old
-    old = kit_ronin.push((0.12, 0.0, -0.32), rot=(0, 90, 0))
-    build_sword(kit_ronin, blade_len=0.68, hilt_len=0.22, curve=0.028, sheathed=True, red_saya=False)
-    kit_ronin.xf = old
-    export_fbx_and_glb(kit_ronin, None, glb_name='ronin_kit_scene')
-    render_showcase(kit_ronin, SITE_ASSETS / 'render_ronin_kit.png', cam_loc=(0.0, -2.8, 0.15), cam_target=(0.0, 0.0, 0.10), ortho_scale=2.25)
+    if showcase:
+        SITE_ASSETS.mkdir(parents=True, exist_ok=True)
+        kit_ronin = ProcMesh('RoninArmorKit')
+        build_kasa(kit_ronin, origin=(-0.62, 0.0, 0.42))
+        old = kit_ronin.push((-0.05, 0.0, 0.56), rot=(78, 0, 0), scale=(0.68, 0.68, 0.68))
+        build_kasa(kit_ronin)
+        kit_ronin.xf = old
+        old = kit_ronin.push((-0.72, -0.05, -0.02), rot=(0, 0, -90), scale=(1.28, 1.28, 1.28))
+        build_menpo(kit_ronin)
+        kit_ronin.xf = old
+        old = kit_ronin.push((-0.38, 0.0, -0.04), rot=(0, -8, -72))
+        build_sode(kit_ronin)
+        kit_ronin.xf = old
+        old = kit_ronin.push((0.02, 0.0, -0.04), rot=(0, 8, -108))
+        build_sode(kit_ronin)
+        kit_ronin.xf = old
+        old = kit_ronin.push((0.68, 0.0, -0.32), rot=(0, 0, 0))
+        build_sashimono(kit_ronin)
+        kit_ronin.xf = old
+        old = kit_ronin.push((-0.68, 0.0, -0.30), rot=(0, 90, 0))
+        build_sword(kit_ronin, blade_len=0.68, hilt_len=0.22, curve=0.028, sheathed=False)
+        kit_ronin.xf = old
+        old = kit_ronin.push((-0.74, 0.0, -0.46), rot=(0, 90, 0))
+        build_sword(kit_ronin, blade_len=0.88, hilt_len=0.28, curve=0.038, sheathed=False)
+        kit_ronin.xf = old
+        old = kit_ronin.push((0.12, 0.0, -0.32), rot=(0, 90, 0))
+        build_sword(kit_ronin, blade_len=0.68, hilt_len=0.22, curve=0.028, sheathed=True, red_saya=False)
+        kit_ronin.xf = old
+        export_fbx_and_glb(kit_ronin, None, glb_name='ronin_kit_scene')
+        render_showcase(kit_ronin, SITE_ASSETS / 'render_ronin_kit.png', cam_loc=(0.0, -2.8, 0.15), cam_target=(0.0, 0.0, 0.10), ortho_scale=2.25)
 
-    kit_camp = ProcMesh('CampPropsKit')
-    old = kit_camp.push((-1.45, 0.55, 0.35), rot=(0, 0, 18), scale=(0.68, 0.68, 0.68))
-    build_jinmaku(kit_camp)
-    kit_camp.xf = old
-    old = kit_camp.push((1.35, 0.45, 0.35), scale=(0.85, 0.85, 0.85))
-    build_firepit(kit_camp)
-    kit_camp.xf = old
-    old = kit_camp.push((-1.35, -0.65, -0.95), rot=(0, 0, -68), scale=(0.88, 0.88, 0.88))
-    build_weapon_rack_clean(kit_camp)
-    kit_camp.xf = old
-    old = kit_camp.push((1.25, -0.65, -0.88), rot=(0, 0, -14), scale=(0.95, 0.95, 0.95))
-    build_bales_and_chest(kit_camp)
-    kit_camp.xf = old
-    export_fbx_and_glb(kit_camp, None, glb_name='camp_kit_scene')
-    render_showcase(kit_camp, SITE_ASSETS / 'render_camp_kit.png', cam_loc=(0.0, -6.2, 2.45), cam_target=(0.0, 0.0, 0.10), ortho_scale=5.75)
+        kit_camp = ProcMesh('CampPropsKit')
+        old = kit_camp.push((-1.45, 0.55, 0.35), rot=(0, 0, 18), scale=(0.68, 0.68, 0.68))
+        build_jinmaku(kit_camp)
+        kit_camp.xf = old
+        old = kit_camp.push((1.35, 0.45, 0.35), scale=(0.85, 0.85, 0.85))
+        build_firepit(kit_camp)
+        kit_camp.xf = old
+        old = kit_camp.push((-1.35, -0.65, -0.95), rot=(0, 0, -68), scale=(0.88, 0.88, 0.88))
+        build_weapon_rack_clean(kit_camp)
+        kit_camp.xf = old
+        old = kit_camp.push((1.25, -0.65, -0.88), rot=(0, 0, -14), scale=(0.95, 0.95, 0.95))
+        build_bales_and_chest(kit_camp)
+        kit_camp.xf = old
+        export_fbx_and_glb(kit_camp, None, glb_name='camp_kit_scene')
+        render_showcase(kit_camp, SITE_ASSETS / 'render_camp_kit.png', cam_loc=(0.0, -6.2, 2.45), cam_target=(0.0, 0.0, 0.10), ortho_scale=5.75)
 
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     print('SWORDCAMP PROCEDURAL BUILD COMPLETE', flush=True)

@@ -48,25 +48,27 @@ def generate_one(item):
     slug, prompt = item
     CONCEPTS_DIR.mkdir(parents=True, exist_ok=True)
     SITE_ASSETS.mkdir(parents=True, exist_ok=True)
-    png_path = CONCEPTS_DIR / f'{slug}.png'
+    originals_dir = REPO / 'build' / 'yorimichi' / 'swordcamp' / 'originals' / 'concepts'
+    originals_dir.mkdir(parents=True, exist_ok=True)
+    png_path = originals_dir / f'{slug}.png'
     jpg_path = CONCEPTS_DIR / f'{slug}.jpg'
     prompt_path = CONCEPTS_DIR / f'{slug}.prompt.txt'
     record_path = CONCEPTS_DIR / f'{slug}.provenance.json'
+    if record_path.exists():
+        return
     prompt_path.write_text(prompt + '\n')
-    if not record_path.exists():
-        print(f'[sunburst] Starting {slug} (gpt-image-2.5-sunburst, quality=high)...', flush=True)
-        images.paint(
-            png_path,
-            prompt,
-            '1536x1024',
-            images=REFS,
-            record=record_path,
-            metadata={'stage': 'swordcamp-concept', 'concept': slug, 'prompt_file': prompt_path.name},
-        )
+    print(f'[sunburst] Starting {slug} (gpt-image-2.5-sunburst, quality=high)...', flush=True)
+    images.paint(
+        png_path,
+        prompt,
+        '1536x1024',
+        images=REFS,
+        record=record_path,
+        metadata={'stage': 'swordcamp-concept', 'concept': slug, 'prompt_file': prompt_path.name},
+    )
     if png_path.exists():
         images.compact(png_path, jpg_path, 1536, 90)
         shutil.copy2(jpg_path, SITE_ASSETS / f'{slug}.jpg')
-        png_path.unlink(missing_ok=True)
         print(f'[sunburst] Completed {slug} -> {jpg_path}', flush=True)
 
 
