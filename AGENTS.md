@@ -211,6 +211,9 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   In confirmed full mode (`capacity`, `cutover=true`), use `ATELIER_AGENT=OWNER nice -n 10 uv run atelier build/play`
   with `ATELIER_CAPACITY_CLIENT` unset. Resource budgets and named locks replace BIG/SMALL/fitting scheduling.
   Routine builds need no pre-announcement or permission from a coordinator. Broker admission and guards decide.
+  A confirmed queued request waits automatically for up to 30 minutes, with progress and no held resources,
+  child, launch gate or legacy locks. Keep the command in the normal background job facility; cancellation
+  closes its uncharged session. Other broker/transport/safety refusals still fail without retry or fallback.
   Do not request an extra legacy slot or edit `render-slots.json`. Existing sealed compatibility files remain
   protected and must never be removed, replaced or chmodded. Memory reservations cover actual-child and
   aggregate guard ceilings; CPU is a scheduling budget, not dedicated cores. Let normal admission select
