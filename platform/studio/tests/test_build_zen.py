@@ -66,6 +66,7 @@ def test_sponsor_uses_admitted_root_through_cook_completion(live):
     live.watch.close()
     report = json.loads(live.watch.path.read_text())
     assert report['attached_count'] == 2 and report['child'] == dict(pid=55, started=1234)
+    assert report['first_attached_at'] <= report['cook_completed_at'] < report['last_attached_at']
 
 
 def test_healthy_slow_zen_read_has_no_elapsed_timeout(live):

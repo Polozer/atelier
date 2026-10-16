@@ -77,9 +77,13 @@ class Lifecycle:
             # Keep health required through the stage: subsequent chunk reads use the same
             # Zen store and need not print another oplog URL.
             self.reading = True
+            self.report.setdefault('first_read_at', time.monotonic())
+        if 'COOK COMMAND COMPLETED' in line:
+            self.report.setdefault('cook_completed_at', time.monotonic())
         if 'STAGE COMMAND COMPLETED' in line:
             self.reading = False
             self.unavailable_since = None
+            self.report['stage_completed_at'] = time.monotonic()
 
     def poll(self, pid):
         if self.stopped.is_set():
@@ -99,6 +103,8 @@ class Lifecycle:
             self.report.update(last_check=result, health_checks=self.report['health_checks'] + 1)
             if result['attached']:
                 self.report['attached_count'] += 1
+                self.report.setdefault('first_attached_at', now)
+                self.report['last_attached_at'] = now
             self.unavailable_since = (None if result['healthy'] or not self.reading else
                                       self.unavailable_since if self.unavailable_since is not None else now)
             self.attach_failed_since = (None if not result['error'] else
