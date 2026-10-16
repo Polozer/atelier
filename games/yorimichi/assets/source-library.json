@@ -1769,6 +1769,10 @@
       "bytes": 153463,
       "sha256": "76688f455b00bd19bbd5ff1b67d418cc0e3a2cfe91ba48a352e481223ee4f0f4"
     },
+    "characters/concepts/character-select.jpg": {
+      "bytes": 382030,
+      "sha256": "c417bdedf570f35c73c3a8e89b25891f0c1c5313647fb7f59c57b1482255db7e"
+    },
     "characters/concepts/ferry-courier.jpg": {
       "bytes": 149064,
       "sha256": "8e7c2f5ed27ebcca12bf83b7380480a9ef288c1e0e4e7060b516ac81464fdd6e"
@@ -2012,6 +2016,22 @@
     "characters/paul/references/body/right.png": {
       "bytes": 1568269,
       "sha256": "008526075455369f8831c4355e8a4e1e5addad5914d3e4397c3d458130def430"
+    },
+    "characters/portraits/cairo.png": {
+      "bytes": 293994,
+      "sha256": "dc4958cc3151182af5d0cc6450fa4b8212c60925923ef01b25f21264c5697aa8"
+    },
+    "characters/portraits/modori.png": {
+      "bytes": 294673,
+      "sha256": "c46c0cd046398dcab1ffa74d8338523d559b56ebff1c339aeb79956f0a5bef9e"
+    },
+    "characters/portraits/nox.png": {
+      "bytes": 341526,
+      "sha256": "7fe340c6a0c11de467714821af32970f2199559199df2a8c51d60c9e4dd9eb76"
+    },
+    "characters/portraits/paul.png": {
+      "bytes": 319231,
+      "sha256": "1df5dda4d44885a01a0fc17b5fb34c081c15d1b0d4f994a086cfca0f8717fcef"
     },
     "characters/sword-trainer/SwordTrainer-Rig-r03.blend": {
       "bytes": 21263282,

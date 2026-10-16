@@ -2,6 +2,7 @@
 #include "LiveLibrary.h"
 #include "WandererCharacter.h"
 #include "JapanPreferences.h"
+#include "JapanCharacterSelect.h"
 #include "WandererSword.h"
 #include "SkateComponent.h"
 #include "BikeComponent.h"
@@ -45,7 +46,12 @@ bool UYorimichiLive::Press(const FString& Button)
 bool UYorimichiLive::MenuKey(const FString& Key)
 {
     AWandererCharacter* P = Cast<AWandererCharacter>(ULiveLibrary::Player());
-    if (!P || !P->GetPreferences() || !P->GetPreferences()->IsMenuOpen() || !FSlateApplication::IsInitialized()) return false;
+    const bool bPrefsOpen = P && P->GetPreferences() && P->GetPreferences()->IsMenuOpen();
+    const bool bSelectOpen = FJapanCharacterSelect::IsOpen();
+    if (!P || (!bPrefsOpen && !bSelectOpen) || !FSlateApplication::IsInitialized()) return false;
+    if (bSelectOpen && (Key == TEXT("next") || Key == TEXT("Right") || Key == TEXT("Gamepad_DPad_Right"))) return FJapanCharacterSelect::StepSelection(1);
+    if (bSelectOpen && (Key == TEXT("previous") || Key == TEXT("Left") || Key == TEXT("Gamepad_DPad_Left"))) return FJapanCharacterSelect::StepSelection(-1);
+    if (bSelectOpen && (Key == TEXT("accept") || Key == TEXT("Enter") || Key == TEXT("Gamepad_FaceButton_Bottom"))) return FJapanCharacterSelect::Choose() != nullptr;
     // accept, next and previous (Enter, Tab and Shift+Tab), or any key by name, such as Gamepad_DPad_Down.
     const bool bNamed = Key == TEXT("accept") || Key == TEXT("next") || Key == TEXT("previous");
     const FKey Named = bNamed ? (Key == TEXT("accept") ? EKeys::Enter : EKeys::Tab) : FKey(*Key);
@@ -71,6 +77,7 @@ bool UYorimichiLive::PadInput(const FString& Key, float Value)
 
 FString UYorimichiLive::MenuFocus()
 {
+    if (FJapanCharacterSelect::IsOpen()) return FJapanCharacterSelect::FocusedControl();
     AWandererCharacter* P = Cast<AWandererCharacter>(ULiveLibrary::Player());
     return P && P->GetPreferences() ? P->GetPreferences()->FocusedControl() : FString();
 }
@@ -202,6 +209,23 @@ FString UYorimichiLive::SwitchCharacter(const FString& Name)
 {
     AWandererCharacter* P = Cast<AWandererCharacter>(ULiveLibrary::Player());
     if (P) if (AWandererCharacter* To = FPlayableCharacter::SwitchPlayer(P, Name)) P = To;
+    return P ? FPlayableCharacter::NameOf(P) : FString();
+}
+
+FString UYorimichiLive::CharacterSelectState()
+{
+    return FJapanCharacterSelect::Describe();
+}
+
+bool UYorimichiLive::OpenCharacterSelect()
+{
+    AWandererCharacter* P = Cast<AWandererCharacter>(ULiveLibrary::Player());
+    return P && FJapanCharacterSelect::Open(P, false);
+}
+
+FString UYorimichiLive::SelectCharacter(const FString& Name)
+{
+    AWandererCharacter* P = FJapanCharacterSelect::Choose(Name);
     return P ? FPlayableCharacter::NameOf(P) : FString();
 }
 

@@ -114,6 +114,7 @@ def test_the_packaged_launcher_carries_the_desktop_profile_and_saved_settings(tm
     settings = container/'Library'/'Application Support'/'Yorimichi'/'settings.txt'
     assert f'-abslog={container/"Library"/"Logs"/"Yorimichi"/"game.log"}' in args
     assert '-desktopnative1440' in args and f'-preferencesfile={settings}' in args
+    assert '-characterselect' in args
     assert '-llm' not in args   # tried and dropped: the retry below covers the startup crash (docs/PACKAGING.md)
     assert '-set=desktop=1;performance=1;render_scale=100;renderer=0' in args
     assert any('r.ForwardShading=True' in a and 'DesktopPreviewViewportClient' in a for a in args)

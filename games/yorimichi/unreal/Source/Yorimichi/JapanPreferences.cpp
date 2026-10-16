@@ -1,4 +1,5 @@
 #include "JapanPreferences.h"
+#include "JapanCharacterSelect.h"
 #include "DevNotes.h"
 #include "AtelierSettings.h"
 #include "JapanHUD.h"
@@ -1114,6 +1115,17 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
                 FString::Printf(TEXT("Play as %s."),*FPlayableCharacter::Label(Name)))];
         }
         Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(STextBlock).Text(FText::FromString(TEXT("Character"))).Font(FCoreStyle::GetDefaultFontStyle("Bold",16)).ColorAndOpacity(FLinearColor::White)];
+        if (!JapanNetwork::IsOnline(Owner->GetWorld()))
+        {
+            Characters->AddSlot()[Page->Add(SNew(SButton).Text(FText::FromString(TEXT("Character gallery...")))
+                .OnClicked_Lambda([this]
+                {
+                    CloseMenu();
+                    if (AWandererCharacter* Pawn = Owner)
+                        Pawn->GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(Pawn,[Pawn] { FJapanCharacterSelect::Open(Pawn,false); }));
+                    return FReply::Handled();
+                }),TEXT("character_select"),TEXT("Open the character selection screen with portrait cards."))];
+        }
         Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Characters];
     }
     if (JapanNetwork::IsOnline(Owner->GetWorld()))

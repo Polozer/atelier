@@ -20,7 +20,8 @@ STAGED = ('world.json', 'heightmap.bin', 'hidamari/city.json', 'skatepark/park.j
           'treehouse/runtime.json', 'megapark/park.json', 'craterpark/park.json', 'craterpark/cloud.json', 'bike/manifest.json', 'belmonte/runtime.json',
           # every playable character's bike report: its clips' contact windows and channels (UBikeComponent). The horse
           # reads no rider report; its runtime data, Data/horses/roster.json, is written there by unreal.horses.
-          *(f'{c.id}/bike/export.json' for c in definition.movers() if c.playable))
+          *(f'{c.id}/bike/export.json' for c in definition.movers() if c.playable),
+          *(f'{c.id}/portrait.png' for c in definition.movers() if c.playable))
 
 
 def staged(out):
@@ -28,9 +29,11 @@ def staged(out):
 
 
 def staged_source(out, rel):
-    """Where a staged file comes from: build output, except the committed park."""
+    """Where a staged file comes from: build output, except the committed park and character portraits."""
     bikes = {f'{c.id}/bike/export.json': out / c.output / 'bike' / 'export.json' for c in definition.movers()}
-    return {'skatepark/park.json': REGIONS / 'skatepark' / 'park.json', **bikes}.get(rel, out / rel)
+    portraits = {f'{c.id}/portrait.png': ASSETS / 'characters' / 'portraits' / f'{c.id}.png'
+                 for c in definition.movers() if c.playable}
+    return {'skatepark/park.json': REGIONS / 'skatepark' / 'park.json', **bikes, **portraits}.get(rel, out / rel)
 
 
 def stage_data(ctx, log):

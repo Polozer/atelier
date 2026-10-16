@@ -5,6 +5,7 @@
 #include "ZeppelinService.h"
 #include "WandererCharacter.h"
 #include "JapanPreferences.h"
+#include "JapanCharacterSelect.h"
 #include "SkateComponent.h"
 #include "SailboatComponent.h"
 #include "BikeComponent.h"
@@ -90,6 +91,7 @@ void AJapanHUD::DrawHUD()
         DrawText(TEXT("YORIMICHI   /   preparing the countryside"),FLinearColor(.93f,.87f,.72f),Canvas->SizeX*.34f,Canvas->SizeY*.5f,Font,1.4f);
         return;
     }
+    if (FJapanCharacterSelect::IsOpen()) return;
     if (Pawn->IsCinematic() || Pawn->IsPhoneTouchActive()) return;
     // A line from the live bridge (ULiveLibrary::Say), centred at the top.
     {

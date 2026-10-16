@@ -1,0 +1,41 @@
+{
+  "stage": "character-portrait",
+  "character": "cairo",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/edits",
+  "execution": "games/yorimichi/tools/character_select_art.py",
+  "prompt_file": "cairo.prompt.txt",
+  "prompt_sha256": "f748f0ba8bfd07d7d2de50e35da7e86b14e26be7919c56a0e7d69b70a6e54a0a",
+  "reference_files": {
+    "games/yorimichi/assets/characters/concepts/modori.jpg": "ed08287e77de7c7bb166ae6ffd5fea7d88541a1ec2cf66a14fb0695fb5a4009e",
+    "games/yorimichi/assets/characters/wanderer/references/design-sheet.png": "3eefbe3a66710e46a5e9f1ecf17d322e28d4dd9f1935ce0461a4ede22bea815e"
+  },
+  "status": "done",
+  "started_at": "2026-10-16T21:46:54.689520+00:00",
+  "usage": {
+    "input_tokens": 2433,
+    "input_tokens_details": {
+      "image_tokens": 2160,
+      "text_tokens": 273
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 4189
+  },
+  "outputs": {
+    "cairo.png": "37acc10739305484cbef1a831bcc21ff57b645cfd590e7733b2db3826d289e01"
+  },
+  "portrait": {
+    "file": "cairo.png",
+    "size": "440x520",
+    "bytes": 293994,
+    "sha256": "dc4958cc3151182af5d0cc6450fa4b8212c60925923ef01b25f21264c5697aa8"
+  },
+  "elapsed_seconds": 37.8,
+  "finished_at": "2026-10-16T21:47:32.539357+00:00"
+}

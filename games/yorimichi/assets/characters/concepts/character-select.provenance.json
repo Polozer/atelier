@@ -1,0 +1,46 @@
+{
+  "stage": "ui-concept",
+  "concept": "character-select",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "endpoint": "/v1/images/edits",
+  "execution": "games/yorimichi/tools/character_select_art.py",
+  "prompt_file": "character-select.prompt.txt",
+  "prompt_sha256": "988d15d5c1140e25a4925949a542ff486c707c25c41862810727f36d12c7231f",
+  "reference_files": {
+    "games/yorimichi/assets/characters/concepts/modori.jpg": "ed08287e77de7c7bb166ae6ffd5fea7d88541a1ec2cf66a14fb0695fb5a4009e",
+    "games/yorimichi/assets/characters/nox/references/head/front.png": "d20b66247c7dc4bb5f8dec651e1af26dee2813a48298cea1c9f6610bdecb8483",
+    "games/yorimichi/assets/characters/nox/references/body/front.png": "ce7f3f623e662cc01e8e07166ebc8df8c11bbd3778077f50c81d0d965ddcb225",
+    "games/yorimichi/assets/characters/wanderer/references/design-sheet.png": "3eefbe3a66710e46a5e9f1ecf17d322e28d4dd9f1935ce0461a4ede22bea815e",
+    "games/yorimichi/assets/treehouse/concepts/overview-day.jpg": "934aaa350b373b2d7686e8f671f21007c6201ab6e159be35ebfc36edc0e62b45",
+    "games/yorimichi/assets/characters/paul/portrait.png": "0bfaf3c3514568aa45354ae2f68a2c99c2dac53a5d0bb473dd51e3cb5534f1a5"
+  },
+  "status": "done",
+  "started_at": "2026-10-16T21:52:31.631613+00:00",
+  "usage": {
+    "input_tokens": 6250,
+    "input_tokens_details": {
+      "image_tokens": 5526,
+      "text_tokens": 724
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 7622
+  },
+  "outputs": {
+    "character-select.png": "fb04548a6ff0184499b0c04323df06a2dfac17b778c915e5c868c86a5dea35a3"
+  },
+  "compact_copy": {
+    "file": "character-select.jpg",
+    "size": "1536x1024",
+    "jpeg_quality": 88,
+    "chroma": "4:2:0",
+    "sha256": "c417bdedf570f35c73c3a8e89b25891f0c1c5313647fb7f59c57b1482255db7e"
+  },
+  "elapsed_seconds": 36.8,
+  "finished_at": "2026-10-16T21:53:08.423865+00:00"
+}

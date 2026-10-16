@@ -126,7 +126,7 @@ PROFILE="desktop=1"
 [ -n "$(saved render_scale)" ] || PROFILE="$PROFILE;render_scale=100"
 RENDERER=0; RENDER=(@FORWARD@); COMMANDS=@FORWARD_COMMANDS@
 LOG="$LOGS/game.log"
-ARGS=(-fullscreen -ForceRes -resx=2560 -resy=1440 -desktopnative1440 -nosplash -abslog="$LOG"
+ARGS=(-fullscreen -ForceRes -resx=2560 -resy=1440 -desktopnative1440 -characterselect -nosplash -abslog="$LOG"
   -set="$PROFILE;renderer=$RENDERER" -preferencesfile="$PREFS" "${RENDER[@]}" -ExecCmds="$COMMANDS" "$@")
 # A Development package can segfault at startup, before it logs anything. Crash reports and engine source point to
 # the memory tracker freeing itself on the game thread while AppKit's launch event allocates through it on the main

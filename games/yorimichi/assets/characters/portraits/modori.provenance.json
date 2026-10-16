@@ -1,0 +1,41 @@
+{
+  "stage": "character-portrait",
+  "character": "modori",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/edits",
+  "execution": "games/yorimichi/tools/character_select_art.py",
+  "prompt_file": "modori.prompt.txt",
+  "prompt_sha256": "38f9df4bf8d1a8d07989c1f3295a5fbe9073ca1537bb57eee0a09bc8444720cc",
+  "reference_files": {
+    "games/yorimichi/assets/characters/concepts/modori.jpg": "ed08287e77de7c7bb166ae6ffd5fea7d88541a1ec2cf66a14fb0695fb5a4009e",
+    "games/yorimichi/assets/characters/concepts/modori-tpose/front.jpg": "04ccc0d8f3a81425caaf7ccb5f6f45c57bd009d4f2709c340539b84da632d60a"
+  },
+  "status": "done",
+  "started_at": "2026-10-16T21:46:54.687904+00:00",
+  "usage": {
+    "input_tokens": 2359,
+    "input_tokens_details": {
+      "image_tokens": 2104,
+      "text_tokens": 255
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 4115
+  },
+  "outputs": {
+    "modori.png": "2afd05afbb9510c4ba675aa0bb1b14b68821859d3d5573d400f6654e0d39fcc4"
+  },
+  "portrait": {
+    "file": "modori.png",
+    "size": "440x520",
+    "bytes": 294673,
+    "sha256": "c46c0cd046398dcab1ffa74d8338523d559b56ebff1c339aeb79956f0a5bef9e"
+  },
+  "elapsed_seconds": 37.6,
+  "finished_at": "2026-10-16T21:47:32.323918+00:00"
+}
