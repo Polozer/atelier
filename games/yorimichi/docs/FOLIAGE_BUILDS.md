@@ -68,9 +68,10 @@ Missing mesh packages rebuild through their ordinary owner. Before the editor st
 admitted guarded child preserves a LOD0 mesh package with an invalid UE file tag. It verifies the exact
 `.uasset` and optional `.uexp`/`.ubulk` bytes under
 `build/yorimichi/logs/foliage-repair/<name>/`, with a receipt, then atomically moves the originals into that private
-folder for fresh import. The `claimed-*` originals remain alongside their verified copies; nothing is unlinked.
+folder for fresh import. The `claimed-*` originals remain alongside their verified copies; no package is unlinked.
 Each claimed file must still match its pinned identity and copied bytes. A concurrent replacement is retained
 and refuses the import, with the claim intent and outcome in the receipt; no destination is overwritten.
+Content and the build logs must be on the same volume for the atomic move; a different volume refuses safely.
 The preflight uses file IO in fresh Python, then execs the unchanged editor command with the same PID and guards;
 every selected batch owner is prepared before that one editor starts. It never imports Unreal or starts
 another native process. Linked files, changed batch plans and concurrent edits refuse the repair; damage

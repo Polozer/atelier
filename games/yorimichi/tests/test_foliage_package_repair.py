@@ -369,3 +369,20 @@ def test_atomic_claim_never_replaces_an_existing_destination(repair):
         repair._claim(repair.member, destination)
     assert repair.member.read_bytes() == b'keep source'
     assert destination.read_bytes() == b'keep destination'
+
+
+def test_failed_receipt_write_cleans_only_its_temporary_and_allows_failure_receipt(repair, tmp_path, monkeypatch):
+    folder = tmp_path / 'receipt'
+    folder.mkdir()
+    repair._receipt(folder, {'state': 'preserved'})
+    def interrupted(value, stream, **kwargs):
+        stream.write('{"state":')
+        raise OSError('interrupted receipt write')
+    with monkeypatch.context() as change:
+        change.setattr(repair.json, 'dump', interrupted)
+        with pytest.raises(OSError, match='interrupted receipt'):
+            repair._receipt(folder, {'state': 'claiming'})
+    assert not (folder / 'receipt.next').exists()
+    assert json.loads((folder / 'receipt.json').read_text()) == {'state': 'preserved'}
+    repair._receipt(folder, {'state': 'claim_failed'})
+    assert json.loads((folder / 'receipt.json').read_text()) == {'state': 'claim_failed'}

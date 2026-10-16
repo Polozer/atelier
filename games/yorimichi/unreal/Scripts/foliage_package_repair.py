@@ -57,13 +57,17 @@ def _claim(source, destination):
 
 def _receipt(folder, value):
     temporary = folder / 'receipt.next'
-    with temporary.open('x') as stream:
-        json.dump(value, stream, indent=2)
-        stream.write('\n')
-        stream.flush()
-        os.fsync(stream.fileno())
-    temporary.replace(folder / 'receipt.json')
-    _sync(folder)
+    stream = temporary.open('x')
+    try:
+        with stream:
+            json.dump(value, stream, indent=2)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(folder / 'receipt.json')
+        _sync(folder)
+    finally:
+        temporary.unlink(missing_ok=True)  # Only this call's exclusively created receipt temporary.
 
 
 def require_valid_or_missing(content, name):
