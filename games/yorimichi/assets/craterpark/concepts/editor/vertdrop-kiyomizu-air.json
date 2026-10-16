@@ -1,0 +1,34 @@
+{
+  "model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "prompt": "Use case: art-direction design for the support structures of one skate line in a stylized open-world game. Image 1 is a plain 3D layout render from the park editor: flat-shaded ramps over a volcano's crater, untextured, with coloured route markings and red flight arcs that are not part of the art. Paint it as the finished in-game scene. Keep its camera, horizon and field of view, and keep every ramp, wall, bowl and the terrain exactly where and how they are: do not move, reshape or remove any riding surface. Image 2 is the approved art direction: keep its soft painterly style, warm light, dark blue-grey volcanic rock, yellow-green moss, a little snow on the ground only, and paint every riding surface as warm wooden skate ramp with thin steel coping (never snow on a ramp). The line: a rider drops from a Japanese start tower into the void onto an enormous wide curved catch wall, kicks off a towering near-vertical wall, lands on a tall reverse catch ramp, rides a giant U-turn bowl cut into the crater wall, then launches a huge kicker into a 150 m air onto a tall landing ramp that runs out on the crater floor. Today these ramps stand on plain dark blocks; replace every dark block with designed supports that look built and weathered, with few large readable forms, chamfered and layered, never thin sticks or plain boxes. Leave the air under every jump open. Design: a Japanese kakezukuri hillside-temple frame like the stage of Kiyomizu-dera: a deep orderly grid of massive weathered hinoki pillars braced by horizontal nuki tie-beams, stone footings and plinths at every post, the frames stepping down the slope; the tall catch wall and the reverse catch carried by these great timber stages, the U-turn bowl wrapped in a timber gallery, the landing ramp on a long stepped timber trestle.",
+  "references": {
+    "build/yorimichi/craterpark/editor-views/vd_uturn_air.png": "273fae8c39b22aa90fa195c1b260961305dccaca580504aad96879038ac95c69",
+    "assets/craterpark/concepts/editor/supports-rock.jpg": "a8c2c5fd8cebc8b8d39887e03d42c2b800ed093bcdba757dbb0544e3a938cb77"
+  },
+  "purpose": "Crater Park editor park art direction",
+  "status": "done",
+  "started_at": "2026-10-15T23:44:33.178175+00:00",
+  "usage": {
+    "input_tokens": 2784,
+    "input_tokens_details": {
+      "image_tokens": 2360,
+      "text_tokens": 424
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 4156
+  },
+  "png_sha256": "9c870849c47734a4e5c4e183fc1734bd908c83a9979203e4c5e2fcab5c332136",
+  "output": {
+    "file": "vertdrop-kiyomizu-air.jpg",
+    "size": "1536x1024",
+    "jpeg_quality": 88,
+    "chroma": "4:2:0"
+  },
+  "finished_at": "2026-10-15T23:45:09.600757+00:00"
+}

@@ -18,7 +18,7 @@ uv run python -m atelier.ai.kimodo.install --root build/motion-experiment
 ## Generate
 
 Run the following with the installed environment's Python, inside a memory-guarded process
-(`atelier.safety.guarded`):
+(`atelier.harness.safety.guarded`):
 
 ```python
 from atelier.ai.kimodo import Engine

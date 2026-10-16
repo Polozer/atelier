@@ -4,7 +4,7 @@
 Both probes consume the same generated command stream. Expected values execute
 the unmodified frozen Rust core. Authored sampling uses every independently
 decoded stock clip from check_animation_samples_parity.py's export directory.
-Run this compiler/sampling job through atelier.safety's render lock and guard.
+Run this compiler/sampling job through atelier.harness.safety's render lock and guard.
 """
 import argparse
 from collections import Counter

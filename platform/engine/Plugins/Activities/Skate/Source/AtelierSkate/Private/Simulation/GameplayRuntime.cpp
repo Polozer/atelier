@@ -1,6 +1,8 @@
 #include "GameplayRuntime.h"
 #include "GravityScale.h"
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 #if defined(__clang__)
 #pragma clang fp contract(off)
 #endif
@@ -8,6 +10,8 @@ namespace atelier::skate
 {
 namespace
 {
+// A drift powerslide let go holds on until the board is within about 12 degrees of its travel, at most half a second.
+constexpr float DriftAlignedCos=0.978f;constexpr int DriftHoldTicks=30;
 template<class T> bool Adopt(std::optional<T> value,std::unique_ptr<T>& destination)
 {
     if(!value)return false;
@@ -64,6 +68,8 @@ bool GameplayRuntime::Create(std::shared_ptr<const GameplayResources> source,Wor
     if(!Adopt(FootPhysicalOutputs::Load(data,error),result->foot_physical))return false;
     if(!Adopt(PlayerInputRuntime::Load(data,error),result->input))return false;
     if(!Adopt(PlayerStateRuntime::Load(data,mode,error),result->player_state))return false;
+    // Game raises air timeout from 300 ticks (5 s) to 1800 (30 s) for long airs.
+    result->player_state->selector.max_air_frames=1800;
     if(!result->player_state->conditioning.Load(data,error))return false;
     if(!result->ground.Load(data,true,error) || !result->ground_runtime.Load(data,error)
         || !result->ground_profiles.Load(data,error) || !result->ground_settings.Load(data,mode,"smooth",error))return false;
@@ -87,8 +93,9 @@ bool GameplayRuntime::Create(std::shared_ptr<const GameplayResources> source,Wor
     stock.pumping=result->ground.pumping_settings.modes;stock.auto_push=result->ground.auto_push_enabled;
     stock.reckoning=result->air_reckoning.modes;
     for(std::size_t i=0;i<stock.known_air_flips.size();++i)stock.known_air_flips[i]=result->known_air.configuration.modes[i].perfect_body_flips_28;
-    stock.wipeout=result->wipeout.settings;stock.wipeout_modes=result->wipeout.modes;
+    stock.wipeout=result->wipeout.settings;stock.wipeout_modes=result->wipeout.modes;stock.grind_post=result->grind.settings.post;
     for(std::size_t i=0;i<stock.slide_speed_to_force.size();++i)stock.slide_speed_to_force[i]=result->slide.settings.surfaces[i].surface.speed_to_force;
+    stock.camera_anchor_speed=result->camera.settings.manager.rig.anchor.speed_clamp;
     output=std::move(result);error.clear();return true;
 }
 GameplayFrameOwners GameplayRuntime::BorrowFrame()
@@ -137,7 +144,24 @@ GameplayFrameOwners GameplayRuntime::BorrowFrame()
 bool GameplayRuntime::Advance(const TickInput& packet,std::string& error)
 {
     gravity_scale=feel_.gravity;
+    const bool drift=feel_.drift_powerslide==1,sliding=player_state->Current()==PhysicalStateId::SlideGround;
+    // A drift powerslide let go while the board is still across its travel holds on, at most DriftHoldTicks, so the
+    // board comes back round under the rider instead of the travel swinging round to the board (and scrubbing).
+    if(drift)controls->preferences.drift_hold=sliding && drift_hold_<DriftHoldTicks && DriftAcross();
     if(!controls->Sample(packet,input->physical,physical->settings,profile,camera,error))return false;
+    if(drift)
+    {
+        // A drift powerslide grips as far as the left stick is pulled down: from drift_grip of the slide's own wheel
+        // friction at half tilt (DriftSlideTilt) to drift_full_grip at full tilt. Held on, it aims the board along
+        // the travel at the light grip.
+        const auto& words=controls->controller.Words();std::array<float,2> left;std::memcpy(left.data(),&words[7],8);
+        const bool asking=AsksPowerslide(left,controls->preferences),holding=controls->preferences.drift_hold && !asking;
+        drift_hold_=sliding && !asking?drift_hold_+1:0;
+        const float depth=std::clamp((-left[1]-DriftSlideTilt)/(0.95f-DriftSlideTilt),0.0f,1.0f);
+        auto& s=slide.settings.settings;
+        s.turn_scale=holding?0.0f:feel_.powerslide_turn;
+        s.friction_scale=holding?feel_.drift_grip:feel_.drift_grip+(feel_.drift_full_grip-feel_.drift_grip)*depth;
+    }
     auto actions=packet.Actions();
     return AdvanceGameplayFrame(BorrowFrame(),actions,packet.ControllerAvailable(),error);
 }
@@ -161,10 +185,28 @@ bool GameplayRuntime::Tune(float pop,float spin,float push_speed,float push_powe
         || !std::isfinite(push_power) || push_power<0.5f || push_power>3.0f
         || !(vert_assist>=0.0f && vert_assist<=1.0f))
     {error="Invalid skating tuning";return false;}
-    trajectory.vert_assist=vert_assist;
+    vert_assist_=vert_assist;trajectory.vert_assist=std::min(vert_assist_,vert_assist_limit_);
     trainer.pop=pop;trainer.push_speed=push_speed;trainer.push_power=push_power;
     air_settings.state.body_spin_scale_428=stock_spin_speed_*spin;
     known_air.SetSpinSpeed(stock_spin_speed_*spin);air_reckoning.SetSpinScale(spin);
+    error.clear();return true;
+}
+bool GameplayRuntime::DriftAcross() const
+{
+    // The deck's angle to its travel about the deck's up, either end leading, beyond DriftAlignedCos.
+    const auto deck=physical->board.PartTransforms()[std::size_t(BoardBodyId::Deck)];
+    const auto& u=deck.basis.columns[1];const auto& f=deck.basis.columns[2];
+    const auto v=physical->board.Bodies()[std::size_t(BoardBodyId::Deck)].rates.linear_velocity;
+    const float vu=v.x*u[0]+v.y*u[1]+v.z*u[2],fu=f[0]*u[0]+f[1]*u[1]+f[2]*u[2];
+    const float tv[3]{v.x-u[0]*vu,v.y-u[1]*vu,v.z-u[2]*vu},tf[3]{f[0]-u[0]*fu,f[1]-u[1]*fu,f[2]-u[2]*fu};
+    const float vv=tv[0]*tv[0]+tv[1]*tv[1]+tv[2]*tv[2],ff=tf[0]*tf[0]+tf[1]*tf[1]+tf[2]*tf[2];
+    if(!(vv>1.0f) || !(ff>0.0f))return false;
+    return std::abs(tv[0]*tf[0]+tv[1]*tf[1]+tv[2]*tf[2])<DriftAlignedCos*std::sqrt(vv*ff);
+}
+bool GameplayRuntime::LimitVertAssist(float limit,std::string& error)
+{
+    if(!(limit>=0.0f && limit<=1.0f)){error="Invalid vert assist limit";return false;}
+    vert_assist_limit_=limit;trajectory.vert_assist=std::min(vert_assist_,vert_assist_limit_);trajectory.vert_assist_limit=limit;
     error.clear();return true;
 }
 bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
@@ -176,9 +218,12 @@ bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
         || !in(t.rail_magnetism,0.25f,3.0f) || !in(t.grind_pop,0.5f,2.0f) || !in(t.grind_friction,0.0f,3.0f)
         || !in(t.braking,0.25f,3.0f) || !in(t.steering,0.5f,2.0f) || !in(t.carve,0.5f,2.0f) || !in(t.grip,0.5f,2.0f)
         || !in(t.powerslide,0.25f,3.0f) || !in(t.rolling_friction,0.0f,3.0f) || !in(t.hill_speed,0.0f,2.0f)
-        || !in(t.pump,0.0f,3.0f) || !in(t.wobble,0.0f,3.0f) || !in(t.wobble_onset,0.5f,3.0f) || !in(t.manual_drift,0.0f,3.0f)
+        || !in(t.pump,0.0f,3.0f) || !in(t.bowl_boost,0.0f,2.0f) || !in(t.wobble,0.0f,3.0f) || !in(t.wobble_onset,0.5f,3.0f) || !in(t.manual_drift,0.0f,3.0f)
         || !in(t.landing,0.5f,3.0f) || !in(t.impact,0.5f,3.0f) || !switch_ok(t.auto_push) || !switch_ok(t.assisted_air)
-        || t.tight_flicks<0 || t.tight_flicks>1 || t.flick_120hz<0 || t.flick_120hz>1)
+        || t.tight_flicks<0 || t.tight_flicks>1 || t.flick_120hz<0 || t.flick_120hz>1
+        || !in(t.powerslide_turn,0.25f,1.5f) || t.drift_powerslide<0 || t.drift_powerslide>1
+        || !in(t.drift_grip,0.0f,1.5f) || !in(t.drift_full_grip,0.0f,1.5f) || !in(t.grind_tolerance,0.5f,3.0f)
+        || !in(t.camera_follow,1.0f,3.0f) || !in(t.wall_follow,0.0f,1.0f))
     {error="Invalid skating feel";return false;}
     auto* gestures=controls->MutableGestures();
     if(!gestures){error="Skating feel requires the gesture recogniser";return false;}
@@ -188,6 +233,8 @@ bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
     trainer.rolling_friction=t.rolling_friction;trainer.hill_speed=t.hill_speed;
     trainer.wobble=t.wobble;trainer.wobble_onset=t.wobble_onset;trainer.manual_drift=t.manual_drift;
     boneless.height_scale=t.boneless;
+    controls->preferences.drift_powerslide=t.drift_powerslide==1;controls->preferences.drift_hold=false;drift_hold_=0;
+    slide.settings.settings.turn_scale=t.powerslide_turn;slide.settings.settings.friction_scale=1;
     const auto& stock=feel_stock_;
     const auto& g=stock.gravity;
     physical->settings.board.step.simulation.gravity_acceleration={g.x*t.gravity,g.y*t.gravity,g.z*t.gravity};
@@ -222,6 +269,22 @@ bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
     auto& w=wipeout.settings;
     w.ground.y_acceleration*=t.impact;
     w.air.xz_acceleration*=t.impact;w.air.y_acceleration*=t.impact;w.air.xz_trick*=t.impact;w.air.y_trick*=t.impact;
+    // Grind tolerance: the in-grind bails and the push-off's time in full, the entry's bails half as much more.
+    const float entry=(1+t.grind_tolerance)*0.5f;
+    w.air.max_grind_speed*=entry;
+    grind.settings.post=GrindPostTolerance(stock.grind_post,t.grind_tolerance);grind.tolerance=t.grind_tolerance;
+    // Slides hold on twice as long again as the tolerance: at 2, a tail slide ridden into a coping leans off after
+    // about 4 s, not 1.3 s.
+    if(input->grind){input->grind->entry_tolerance=entry;input->grind->slide_hold=std::max(1.0f,2*t.grind_tolerance-1);}
+    camera.settings.manager.rig.anchor.speed_clamp=stock.camera_anchor_speed*t.camera_follow;
+    // A camera that keeps up also keeps the speed shake, which a stock camera lost by falling behind above about 40 m/s:
+    // from 30 to 40 m/s it eases to a quarter of its size at half its rate. At camera_follow 1 the shake is stock.
+    {auto& shake=camera.settings.manager.shake;const bool keep=t.camera_follow>1;
+     shake.high_speed_start=keep?30.0f:0;shake.high_speed_end=keep?40.0f:0;
+     shake.high_speed_amplitude=keep?0.25f:1;shake.high_speed_frequency=keep?0.5f:1;}
+    // Wall-follow air (WallFollow.h): a change restarts it, so an air already turning stops and nothing is half latched.
+    if(t.wall_follow!=trajectory.wall_follow.strength)
+    {trajectory.wall_follow.Reset();trajectory.wall_follow.strength=t.wall_follow;trajectory.selector.SetWallFollow(0,0);}
     feel_=t;error.clear();return true;
 }
 void GameplayRuntime::Launch(Vec3 velocity)

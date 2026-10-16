@@ -6,23 +6,26 @@ import argparse
 import os
 from pathlib import Path
 import subprocess
+from atelier.harness.capacity_compat import refuse_unmanaged
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 
 
 def command(*args):
+    refuse_unmanaged('Animation lab setup')
     subprocess.run([str(a) for a in args], cwd=REPO, check=True)
 
 
 def prepare(generator, root):
+    refuse_unmanaged('Animation lab setup')
     if generator == "kimodo":
         from atelier.ai.kimodo.install import install
     else:
         from atelier.ai.unimate.install import install
     install(root, atelier_source=REPO)
     # This small export only samples transforms and writes glTF, without rendering.
-    from atelier.safety import guarded
+    from atelier.harness.safety import guarded
     code = guarded.run([os.environ.get('BLENDER', 'blender'), '-b', '--threads', '2', '--python-exit-code', '1',
         '--python', str(HERE / 'export_rig.py'), '--', '--source',
         str(REPO / 'games/yorimichi/assets/characters/fox-hunter/FoxHunter-Anim-r05.blend'),
@@ -39,6 +42,7 @@ def main():
     ap.add_argument('--root', type=Path)
     ap.add_argument('--generator', choices=['both', 'unimate', 'kimodo'], default='both')
     args = ap.parse_args()
+    refuse_unmanaged('Animation lab setup')
     root = (args.root or REPO / 'build/yorimichi' / ('motion_lab' if args.generator == 'both' else args.generator)).resolve()
     command('npm', 'ci', '--prefix', HERE, '--no-audit', '--no-fund')
     generators = ['unimate', 'kimodo'] if args.generator == 'both' else [args.generator]

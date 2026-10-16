@@ -2025,6 +2025,114 @@
       "bytes": 1894799,
       "sha256": "f52e9bb716abc139f16e58f911d3c7882a9a369c143559391071f029c51f3190"
     },
+    "craterpark/concepts/editor/boost-look-chevrons.jpg": {
+      "bytes": 517126,
+      "sha256": "eb5a6e59287d8dca5edd72cb1fb511146aa4fd995c00c08f0f46700d807f15c1"
+    },
+    "craterpark/concepts/editor/boost-look-glow-lip.jpg": {
+      "bytes": 493630,
+      "sha256": "54f8d3aebf8c0a1269f2f61a5c7deadd15204b31890da8ed4a991476ef52a406"
+    },
+    "craterpark/concepts/editor/boost-look-lacquer.jpg": {
+      "bytes": 528867,
+      "sha256": "a39bf6f751ea1be146fdf75aa77aa5571ccc02704bbf390aed9ead01e22d751c"
+    },
+    "craterpark/concepts/editor/boost-look-sunrays.jpg": {
+      "bytes": 514269,
+      "sha256": "57388b70f224567a6b4122e204543286fca514978de8297ca05d2a1c9df71567"
+    },
+    "craterpark/concepts/editor/crater-floor-layout.jpg": {
+      "bytes": 542702,
+      "sha256": "099d9edbc9b46302658a8518bcc4ec271a7b267c24c8520e9d5ca468be8f9fcf"
+    },
+    "craterpark/concepts/editor/crater-floor.jpg": {
+      "bytes": 488062,
+      "sha256": "42db0a0478c55192376874c5f780430c0dbcc86b22e45c5189752d53d8e23373"
+    },
+    "craterpark/concepts/editor/lenticular-belmonte.jpg": {
+      "bytes": 370830,
+      "sha256": "9b4a132ea1f936b988362a449a838f8347bba6a26870683f68bbdcf8e071aa17"
+    },
+    "craterpark/concepts/editor/lenticular-ramp.jpg": {
+      "bytes": 210495,
+      "sha256": "beba85cbbebb76f2151d9e3764fc16eebc7b632cbe04956d79ce51f0ac1b72dc"
+    },
+    "craterpark/concepts/editor/prado-graphics-layout.jpg": {
+      "bytes": 505175,
+      "sha256": "6a23e62dc50fb7b4ad879edb6f5a451b2267e08a7689fa2f3f7fb0ade392d611"
+    },
+    "craterpark/concepts/editor/prado-graphics.jpg": {
+      "bytes": 413719,
+      "sha256": "b0343575ed23738bb323db1cbbf38363bc2140d386e68e1fee812be2282c1e08"
+    },
+    "craterpark/concepts/editor/prado-plan.png": {
+      "bytes": 35881,
+      "sha256": "c200a8f377f41fcad1c9fd8991e90ce4db9332cee9780689201ce3c04878b212"
+    },
+    "craterpark/concepts/editor/support-design-fins.jpg": {
+      "bytes": 399935,
+      "sha256": "7278870d575c53437befa7a02f465658cae8351f1031474e72b6bba2b31aa5be"
+    },
+    "craterpark/concepts/editor/support-design-piers.jpg": {
+      "bytes": 379926,
+      "sha256": "1c37d3f76da8f3c839114f6d572877a53f737ea74e6a6d7cf8a404101cb237ae"
+    },
+    "craterpark/concepts/editor/support-design-viaduct.jpg": {
+      "bytes": 391134,
+      "sha256": "d7476c8777d00e293b5be9faa9d0d289d2d6f1984e0807b05e25853f4417eb24"
+    },
+    "craterpark/concepts/editor/supports-rock-layout.jpg": {
+      "bytes": 355341,
+      "sha256": "49a7eaa08d305503fd8c0cfa946f2c67e2e36f5587c8708b9bab05222e611160"
+    },
+    "craterpark/concepts/editor/supports-rock.jpg": {
+      "bytes": 357410,
+      "sha256": "a8c2c5fd8cebc8b8d39887e03d42c2b800ed093bcdba757dbb0544e3a938cb77"
+    },
+    "craterpark/concepts/editor/supports-steel-layout.jpg": {
+      "bytes": 425538,
+      "sha256": "a2084fcc6a8d41f9e2c7a8caaa05a44fc14bc257e8143ca46657d5ca475d81a2"
+    },
+    "craterpark/concepts/editor/supports-steel.jpg": {
+      "bytes": 406408,
+      "sha256": "b36f6de98762f6adcaf3df26f68fa6fc9670aad69070e9f89165d96605c3c910"
+    },
+    "craterpark/concepts/editor/supports-timber-layout.jpg": {
+      "bytes": 405896,
+      "sha256": "cc52b04d53bc6b425ba726c2173a7dcca427dc66da501276a566ccf0261732d7"
+    },
+    "craterpark/concepts/editor/supports-timber.jpg": {
+      "bytes": 430031,
+      "sha256": "30a373b4b4306e88b3565e5c639d113796a94fb32aa68373e5d99a7723cbabc0"
+    },
+    "craterpark/concepts/editor/tower-top-great-torii.jpg": {
+      "bytes": 367010,
+      "sha256": "544ab132e8b833c7d3f0fb7c234f8878cfd88538865f70b408b51d3fa229f1eb"
+    },
+    "craterpark/concepts/editor/tower-top-shrine-balcony.jpg": {
+      "bytes": 347159,
+      "sha256": "12a6e577d99ac0741915a6e204cc1d5643be289f6f50e65285e6cc71ae9038a0"
+    },
+    "craterpark/concepts/editor/tower-top-sunburst-pick.jpg": {
+      "bytes": 367324,
+      "sha256": "dbdd6a5e620e8bb1cf033314901bdbe20d189928bc6174923c017dc48e2fb47f"
+    },
+    "craterpark/concepts/editor/tower-top-temple-roof.jpg": {
+      "bytes": 346778,
+      "sha256": "db81fcf461b16615a34c650d471d2279986a9268bd35aa05a6f2732d36f6bc5d"
+    },
+    "craterpark/concepts/editor/vertdrop-kiyomizu-air.jpg": {
+      "bytes": 471695,
+      "sha256": "02dbf52f4617a512ed37705aacc997918537572218784c36be0ce975e8036132"
+    },
+    "craterpark/concepts/editor/vertdrop-kiyomizu-below.jpg": {
+      "bytes": 397155,
+      "sha256": "7bc8694c443ee9547779d8ef06dd8acb7e4e6a3301334fa26e0bcc6d6389cf2f"
+    },
+    "craterpark/concepts/editor/vertdrop-kiyomizu-overview.jpg": {
+      "bytes": 488595,
+      "sha256": "2bbf43db7b56d4f21398456c2ee98bfa78a18e0f0e41f31738db680fefdadb6d"
+    },
     "craterpark/concepts/paintover-bowls.jpg": {
       "bytes": 321012,
       "sha256": "3cdecbd276cf69ccdc7ec09816caa6917ecc108f3cf6f1be81f8145df00adabe"
@@ -2849,9 +2957,17 @@
       "bytes": 408341,
       "sha256": "248c15c2976c3e2390b8872fc055cbcbb8696c49721b77ac1139d9df0f519964"
     },
+    "craterpark/restyle/basalt.jpg": {
+      "bytes": 348818,
+      "sha256": "8fd5a8f2f3e5b4c10c38ea60e2ebc2e7aaedfb932191dba5263bdb52a60a92fc"
+    },
     "craterpark/restyle/bowl.jpg": {
       "bytes": 233623,
       "sha256": "03e7aec97b095f46c82f8076579ebe8c5869b3ab276dc896c4294234f3196e92"
+    },
+    "craterpark/restyle/brick_coping.jpg": {
+      "bytes": 251339,
+      "sha256": "ece974a0cdb2e7c453422013f7bc0b0a9fa56561402ee1c4c9f5c2a4b425160b"
     },
     "craterpark/restyle/cast_concrete.jpg": {
       "bytes": 225845,
@@ -2877,6 +2993,10 @@
       "bytes": 156443,
       "sha256": "62ff9cc5acee0876a1a52a3efcd7df5668131fcb0dcbef9cb4c96ec9466a849c"
     },
+    "craterpark/restyle/crater_floor.jpg": {
+      "bytes": 387811,
+      "sha256": "a462b49213e2f21c3e8f4ede836667a960e77122b49f5c9e445a3abf8163a02b"
+    },
     "craterpark/restyle/flagstone.jpg": {
       "bytes": 372833,
       "sha256": "77d69cb25958a522fe8634212f50a4914423ee47dba228230947be75375a50f1"
@@ -2889,6 +3009,10 @@
       "bytes": 305950,
       "sha256": "bf93e86192436f9b00578d671347d5c85d5a06fbe2b63e069a04c40197db1cb5"
     },
+    "craterpark/restyle/keyaki.jpg": {
+      "bytes": 378878,
+      "sha256": "6995346aced98c9b6268fc70a5d5968887bf2e2a65c3e862e9ada224edee9857"
+    },
     "craterpark/restyle/ledge.jpg": {
       "bytes": 138565,
       "sha256": "c0032910434090670a88e40d24936d7a6b58a6f52f986d1beb1254b10d767087"
@@ -2896,6 +3020,10 @@
     "craterpark/restyle/masonite.jpg": {
       "bytes": 287904,
       "sha256": "f8e603fed325f7c95408bd751987a3c396e62e49bf0d99871190896692272194"
+    },
+    "craterpark/restyle/masonry.jpg": {
+      "bytes": 329001,
+      "sha256": "ea49637a514a45466b6d177f229d79900b5a1082aee460b8654c20162d98c0be"
     },
     "craterpark/restyle/paving.jpg": {
       "bytes": 223045,
@@ -2909,9 +3037,21 @@
       "bytes": 264038,
       "sha256": "3ac0ce1f60677d72dd332ed41247f2bffb46cddb9ed95091bb18bc900c9e4f82"
     },
+    "craterpark/restyle/prado.jpg": {
+      "bytes": 412948,
+      "sha256": "c6d918188cf57c30b213ace43c169a959974f3ec05c6cbef5a5d2adac0f0ffb9"
+    },
     "craterpark/restyle/ramp_boards.jpg": {
       "bytes": 258572,
       "sha256": "39724567401c22dee17d1bd9d37923536c14819bc29a67ddf7d98e5661174853"
+    },
+    "craterpark/restyle/ramp_fascia.jpg": {
+      "bytes": 146945,
+      "sha256": "f7f980689a7a2f6f84e225a057e9303564a734c0dad462698af18f4aed2ebde0"
+    },
+    "craterpark/restyle/ramp_planks.jpg": {
+      "bytes": 183260,
+      "sha256": "bf6c95e92867c122fdbce0a4e21821e7885626795c4b61210ea3b5fe0e6dcfdf"
     },
     "craterpark/restyle/retaining_wall.jpg": {
       "bytes": 490019,
@@ -2936,6 +3076,38 @@
     "craterpark/restyle/turtle.jpg": {
       "bytes": 381456,
       "sha256": "511a371ca08c0c9d9cda4f0f70e5adb360cd7d5c8fcb8899e9d7cddc85c22e28"
+    },
+    "craterpark/shrine/bell_pavilion/bell_pavilion.glb": {
+      "bytes": 994356,
+      "sha256": "e119bf391c8817d65c91ec4501d7d6f3b66a9a96f3192bc87929ffb7efa1ffff"
+    },
+    "craterpark/shrine/bell_pavilion/concept.jpg": {
+      "bytes": 196239,
+      "sha256": "918b9342c91471e608860c076720e4f91cfcd817afc667c3295c8b04d031bc59"
+    },
+    "craterpark/shrine/nobori/concept.jpg": {
+      "bytes": 77722,
+      "sha256": "54ea0b713c2eacf84a6d62d78d35cfeebd6ebf91c52be7b787612a9e3723c8f7"
+    },
+    "craterpark/shrine/nobori/nobori.glb": {
+      "bytes": 538032,
+      "sha256": "fc89c4e80f88b7ee2daf628c2e6d7899ec831f4102e58b7581e664fbf08f837e"
+    },
+    "craterpark/shrine/stone_lantern/concept.jpg": {
+      "bytes": 111989,
+      "sha256": "71346bab2008c250ca8fe5481e6d330473b1dd8d2f386cfb8969b5b6035a193e"
+    },
+    "craterpark/shrine/stone_lantern/stone_lantern.glb": {
+      "bytes": 649076,
+      "sha256": "0174e8f8a05ac5f059e418cb4916dc49070e27a24bf7d096970d8af6e12108ef"
+    },
+    "craterpark/shrine/torii/concept.jpg": {
+      "bytes": 112467,
+      "sha256": "eb5fef60088cc4c8c0a5a7c6fd2f8d9dd118cec6a4eb2245546b4e92d65e2ac2"
+    },
+    "craterpark/shrine/torii/torii.glb": {
+      "bytes": 805996,
+      "sha256": "fa5899dcbfbeb1396738b8345e68839d55745d29176ca6f8b78d52ca79b2bd24"
     },
     "craterpark/textures/tex-0001.png": {
       "bytes": 147980,
@@ -3020,6 +3192,38 @@
     "craterpark/textures/tex-0074.png": {
       "bytes": 420413,
       "sha256": "b1855d13f9b71b28bbfd2264fe0dbf91b4bce6e95879d2d3c68784cfa7846785"
+    },
+    "craterpark/trees/black_pine_a/raw/output_model_url.glb": {
+      "bytes": 4824444,
+      "sha256": "c9920432966c4e34f30e300166cb249c96f6aba7fbcec36d2c7227d003b11e06"
+    },
+    "craterpark/trees/black_pine_b/raw/output_model_url.glb": {
+      "bytes": 3314468,
+      "sha256": "2e0c378b68c9fa96d46ee31ba31a479108a5a9b2399f39d645fe8388e41d2e01"
+    },
+    "craterpark/trees/cedar_a/raw/output_model_url.glb": {
+      "bytes": 4667620,
+      "sha256": "78f62c042570b6fbfe065b4eebc45ad40249222331fa7eebb6a01f4b318945a9"
+    },
+    "craterpark/trees/cedar_b/raw/output_model_url.glb": {
+      "bytes": 3087800,
+      "sha256": "72394cfc367e812e4f377aed42671552fddb601b7aa7d92902420733442ac7ad"
+    },
+    "craterpark/trees/sugi_black_pine/reference_v1.jpg": {
+      "bytes": 112901,
+      "sha256": "85a16137a971c3460f718dd6e7b46b89476b1191c47504a12ea4635b603444aa"
+    },
+    "craterpark/trees/sugi_black_pine/reference_v2.jpg": {
+      "bytes": 122480,
+      "sha256": "70f10a716443608eff4ae2c4730d84b5616936c78304539d32f8abb785fbf835"
+    },
+    "craterpark/trees/sugi_cedar/reference_v1.jpg": {
+      "bytes": 120839,
+      "sha256": "78fd7dff062fb926f3dc0c8b52754d9a37aca870f2ababbf6a8efe92b9939ea3"
+    },
+    "craterpark/trees/sugi_cedar/reference_v2.jpg": {
+      "bytes": 101053,
+      "sha256": "fca787f0d08cfae14989a9950064eac5445c6cb24b5788a6f2d2781bdfac7f62"
     },
     "environment/concepts/transition.jpg": {
       "bytes": 1167905,
@@ -3480,6 +3684,450 @@
     "hippodrome/props/tote_board/tote_board.glb": {
       "bytes": 853680,
       "sha256": "2346a9f31874bb5d66ca334a025db082d5f4caab9e206a3e48ff8bfeda9f67f8"
+    },
+    "horses/andalusian/horse.glb": {
+      "bytes": 10587008,
+      "sha256": "ea88cdac9493985a00a13e95e804e930c794a7aa14a66fe6922601c655938527"
+    },
+    "horses/andalusian/tack/Reins_00.glb": {
+      "bytes": 146064,
+      "sha256": "2965bd15157f425ca5e83e40bab33e10dd50927f12151de90fd26d662eee6694"
+    },
+    "horses/andalusian/tack/Reins_01.glb": {
+      "bytes": 169744,
+      "sha256": "d28b3a06d29ab6e059aeb0145f354b509d4b9fd3b281db5549e8aed19064f20c"
+    },
+    "horses/andalusian/tack/Reins_02.glb": {
+      "bytes": 179104,
+      "sha256": "0df5c6bd8c7a49b1a2d6ca19f5892d4e6463b46c0df75ef4f6b504461c4fb8ad"
+    },
+    "horses/andalusian/tack/Reins_03.glb": {
+      "bytes": 607884,
+      "sha256": "2b4a8a67d25d6d180498482e1bb10157cfec5a5d807a594d7ede02805125aa63"
+    },
+    "horses/andalusian/tack/Reins_04.glb": {
+      "bytes": 530868,
+      "sha256": "72fa72d2bc442c04eba8c0f8080a5857ff05e21c4fb03de88555e6194f4718b8"
+    },
+    "horses/andalusian/tack/Reins_05.glb": {
+      "bytes": 176672,
+      "sha256": "e807d05e663e7e1236ecbf9a843bd852ae2676f4abf9fe72dce443cfb6b62470"
+    },
+    "horses/andalusian/tack/Reins_06.glb": {
+      "bytes": 154108,
+      "sha256": "18aefad333734a41a4043d9becf5ecd24f3e14f332cd2ea1f53142ba6f17a307"
+    },
+    "horses/andalusian/tack/Saddle_00.glb": {
+      "bytes": 264048,
+      "sha256": "b24175a792c79454bd487d5fc6d6bcd7a2ee0bd53b13a90f3931569afb602b88"
+    },
+    "horses/andalusian/tack/Saddle_01.glb": {
+      "bytes": 472844,
+      "sha256": "e2382360276c514c04b9a06e5fedcf7353882ebf2d08c2797f78999468ef7e45"
+    },
+    "horses/andalusian/tack/Saddle_02.glb": {
+      "bytes": 431516,
+      "sha256": "fdab76eb00d1655bd5253459f667574ecb952e3c9c522afae6311c744cae636d"
+    },
+    "horses/andalusian/tack/Saddle_03.glb": {
+      "bytes": 951804,
+      "sha256": "b1742b24f199a15e5ea78d79e67d5d1edc51a516c6f6e7d8cd1c44634d8e7f83"
+    },
+    "horses/andalusian/tack/Saddle_04.glb": {
+      "bytes": 803156,
+      "sha256": "d3648dcc0443ede363e62e468521c2c746fefaae20d582b1c75e8ba703b22f87"
+    },
+    "horses/andalusian/tack/Saddle_05.glb": {
+      "bytes": 440708,
+      "sha256": "7cddef07c2e205b6d2dba0f61a2b211ba89d5f99a88c902649cb989dc98d6950"
+    },
+    "horses/andalusian/tack/Saddle_06.glb": {
+      "bytes": 256812,
+      "sha256": "4c2ff86a36622374bb8bde2db6d60129393a356314a08c0a8afa63ac1bc3e5e4"
+    },
+    "horses/arabian/horse.glb": {
+      "bytes": 9933624,
+      "sha256": "23122548a0398794d48515f601f66dbaa261d99af29e9a4684b8e0ff3ecd9c03"
+    },
+    "horses/arabian/tack/Reins_00.glb": {
+      "bytes": 145828,
+      "sha256": "918c2b5b7ff992af2c6aa2924ba937bac8f49d231bb662a388381a03d3ce58c0"
+    },
+    "horses/arabian/tack/Reins_01.glb": {
+      "bytes": 169504,
+      "sha256": "744199f19799dc68ad7d058fc9c8808ba1eb6e73be3210de07fd8d345f1d2614"
+    },
+    "horses/arabian/tack/Reins_02.glb": {
+      "bytes": 178864,
+      "sha256": "6ca19c678e5058066eacb6ff75804db2d020488ea479a5afdca17b04ee09cfb9"
+    },
+    "horses/arabian/tack/Reins_03.glb": {
+      "bytes": 607424,
+      "sha256": "d33218ade0c32f824d9b1e7e2faac4a6014bd5fba6e66e335a7e2209dccd41af"
+    },
+    "horses/arabian/tack/Reins_04.glb": {
+      "bytes": 530412,
+      "sha256": "e3acf6beeefc297b965f36d4af4fe185f554ec4c27b90b699da027422a60e297"
+    },
+    "horses/arabian/tack/Reins_05.glb": {
+      "bytes": 176440,
+      "sha256": "eac1b48b5f42a50873931cfdd492d92c8046fb50f4a2a46f465ce99eb2f0d23d"
+    },
+    "horses/arabian/tack/Reins_06.glb": {
+      "bytes": 153864,
+      "sha256": "451b7662cccfde15a80627fe876cb75c513f4cef4fdf350b8dcee2993508e77f"
+    },
+    "horses/arabian/tack/Saddle_00.glb": {
+      "bytes": 263808,
+      "sha256": "56eaa4a1d2cc388b535e6159948724a87ea8cc320e4875c30327363088118459"
+    },
+    "horses/arabian/tack/Saddle_01.glb": {
+      "bytes": 472604,
+      "sha256": "97efab1546a9f2e26af4545a442f29e9828f109095846528544d4c7d05356182"
+    },
+    "horses/arabian/tack/Saddle_02.glb": {
+      "bytes": 431272,
+      "sha256": "9a2bb2564c13cb5f8cc1fbeadbeac47c4cbfe73873a7cc0bbfff04c0b0a4354b"
+    },
+    "horses/arabian/tack/Saddle_03.glb": {
+      "bytes": 951340,
+      "sha256": "e07e7c782b0c51e015c5e12d54fac65d18caaeb3c56746cce89fd863bc8e9562"
+    },
+    "horses/arabian/tack/Saddle_04.glb": {
+      "bytes": 802696,
+      "sha256": "5d743959d0304b476d5dce761b65926fd4be0319cff24cc64fc73a5f4f0dede2"
+    },
+    "horses/arabian/tack/Saddle_05.glb": {
+      "bytes": 440476,
+      "sha256": "3fbbd3ab9366af6808e327c0b37c2ed64c7d9b1c88735e488335f6f34440adb6"
+    },
+    "horses/arabian/tack/Saddle_06.glb": {
+      "bytes": 256580,
+      "sha256": "c24e62ae59f7c2876e601ba2df5584f45b573dc3129aadb3e07f939edbfeda0d"
+    },
+    "horses/clydesdale/horse.glb": {
+      "bytes": 9963644,
+      "sha256": "b124c42f4c34347b58a708bedd784176c8d5d88f48bc7c0459b6ea6c9a35810d"
+    },
+    "horses/clydesdale/tack/Reins_00.glb": {
+      "bytes": 146148,
+      "sha256": "d757a5a6350872ca2e24f6eee5e9cb066ce23fd232a7300114a1d196c4ce9f92"
+    },
+    "horses/clydesdale/tack/Reins_01.glb": {
+      "bytes": 169828,
+      "sha256": "5338a698a753d9b318cd3ade9fb841994dad6a5269f50fefd35ea3e91e06e14e"
+    },
+    "horses/clydesdale/tack/Reins_02.glb": {
+      "bytes": 179188,
+      "sha256": "39ed2d3536433ffebf38ef11a1d372b37b9e4ccdd560b324d0456f08ac47bf9f"
+    },
+    "horses/clydesdale/tack/Reins_03.glb": {
+      "bytes": 607820,
+      "sha256": "2e440f94806689bc9a16d225efe98498d8de56e952c73346fd56b4f441c557ab"
+    },
+    "horses/clydesdale/tack/Reins_04.glb": {
+      "bytes": 530808,
+      "sha256": "0e7b632041770e2ade258802870e5d965118ecbd3dd355e69699a948556ce1a9"
+    },
+    "horses/clydesdale/tack/Reins_05.glb": {
+      "bytes": 176728,
+      "sha256": "10f9147e1687279abd7c0f91123519d0d17ae07ffc3da8b11db0b6d6073ea151"
+    },
+    "horses/clydesdale/tack/Reins_06.glb": {
+      "bytes": 154188,
+      "sha256": "de0d4d8ae8463b812ae68f4f1c6190f01f5afc33594bdc175285cd6bd3b76241"
+    },
+    "horses/clydesdale/tack/Saddle_00.glb": {
+      "bytes": 264124,
+      "sha256": "c62a0c4f847cf85f6ba2078741ec0322e4149e9dd935c2ed33f2cf8e67d8c43e"
+    },
+    "horses/clydesdale/tack/Saddle_01.glb": {
+      "bytes": 472932,
+      "sha256": "ec5dd251ea34d64c7aa664bc05a72105afceb9a93bc9a81bcb8c3b77522adf76"
+    },
+    "horses/clydesdale/tack/Saddle_02.glb": {
+      "bytes": 431588,
+      "sha256": "25ee2cd599e19b11cda57534e384bde0e00f27829ef9463d6b8624ea41113421"
+    },
+    "horses/clydesdale/tack/Saddle_03.glb": {
+      "bytes": 951740,
+      "sha256": "8747d71ca62c4bdfe065ad881e394ec3b98a18a3d786719c5c2bb2d9b0769532"
+    },
+    "horses/clydesdale/tack/Saddle_04.glb": {
+      "bytes": 803092,
+      "sha256": "62423588217da3e60d3c33f55ab06ac0ca14b7222af956f6fa2fdf44b53e16bb"
+    },
+    "horses/clydesdale/tack/Saddle_05.glb": {
+      "bytes": 440788,
+      "sha256": "7c3d34205434771420b04330859529fd31f8c50d7832c1c719c5aa583dc5c9c9"
+    },
+    "horses/clydesdale/tack/Saddle_06.glb": {
+      "bytes": 256900,
+      "sha256": "965ab03e3e0a56986a55d3e6a24ecf809d93a0c652066674826324fd776b8269"
+    },
+    "horses/coats/T_Coat_Overo_Mask.png": {
+      "bytes": 48994,
+      "sha256": "ea4299996fdadb7cc612493745151684ddfb1c8e92dc0231f9a93fb47f969aca"
+    },
+    "horses/coats/T_Coat_Pangare_Mask.png": {
+      "bytes": 8683,
+      "sha256": "1483dd19d97a3b5dd700cf37b433f60e0cb78cdc31a7ca387adc1016e43c5086"
+    },
+    "horses/coats/T_Coat_Solid_Mask.png": {
+      "bytes": 6533,
+      "sha256": "9bac33234e2386142d5ccbceaa7176765552945aee6d42284b64518cad886009"
+    },
+    "horses/coats/T_Coat_Spots_Mask.png": {
+      "bytes": 20401,
+      "sha256": "474227e860ea50152d29e9e511bed43320386b32d221a5b06640543e455e5faf"
+    },
+    "horses/coats/T_Coat_Tobiano_Mask.png": {
+      "bytes": 30515,
+      "sha256": "3590182eeb8e457767cf88ce42881c1602c22fcb77bfbac0f5ea85f4d2ae90d4"
+    },
+    "horses/coats/variants/kestrel/bay-tobiano.png": {
+      "bytes": 1568371,
+      "sha256": "e515179f94dbeadc6025777094e460fa58ea92fe6198bbe9a618b08fd441282c"
+    },
+    "horses/coats/variants/kestrel/bay.png": {
+      "bytes": 1231826,
+      "sha256": "51432e6b3e102cea7610112ab4330428389ea499863f4b72786590378c2a653c"
+    },
+    "horses/coats/variants/kestrel/black.png": {
+      "bytes": 1413753,
+      "sha256": "810847f744404a7807e9a66227ed1cc7a95398804eb9675cb731a59959658455"
+    },
+    "horses/coats/variants/kestrel/blanket.png": {
+      "bytes": 1493427,
+      "sha256": "348e9faf8d160e2372674116842b160a337dc5751458783a2931fc0ca5318ebf"
+    },
+    "horses/coats/variants/kestrel/blue-roan.png": {
+      "bytes": 1911170,
+      "sha256": "a22cdc9768cce5b776840e0b08df0c2a866966afa8b659ed3d2a520883b6d357"
+    },
+    "horses/coats/variants/kestrel/buckskin.png": {
+      "bytes": 1460992,
+      "sha256": "44f65913ab4f8e52e910e677efd9158c27a22f454dd5648230d1cf7c961ff715"
+    },
+    "horses/coats/variants/kestrel/chestnut-overo.png": {
+      "bytes": 1581579,
+      "sha256": "a87a956f5927bf1c0fe90718fbd0057662f32ef155d078ce077f41d08074a50a"
+    },
+    "horses/coats/variants/kestrel/chestnut.png": {
+      "bytes": 1399498,
+      "sha256": "a678d883baf8af53071e041e7303960f6857a0c3a52bb1405d8f220389273165"
+    },
+    "horses/coats/variants/kestrel/dapple-grey.png": {
+      "bytes": 1658556,
+      "sha256": "f009e0390860bda39ee078c3dfbd1041c7dc657f97e46237c3fff3dba7dbd577"
+    },
+    "horses/coats/variants/kestrel/leopard.png": {
+      "bytes": 1661828,
+      "sha256": "3d2a284d337fb39abb4af61a411b0e5a56be5bf2b60a453d10309cb7c2bd2510"
+    },
+    "horses/coats/variants/kestrel/palomino.png": {
+      "bytes": 1277587,
+      "sha256": "c2a5aa36053f8627e73700d11708d439406bedae71c9be7f935ec72b034adafd"
+    },
+    "horses/coats/variants/kestrel/perlino.png": {
+      "bytes": 1253685,
+      "sha256": "b54710d475585ddf1cad837234c835e5b07589e5018a286e861fa72e3cf5ef7b"
+    },
+    "horses/coats/variants/kestrel/red-roan.png": {
+      "bytes": 1929230,
+      "sha256": "6f9d6767a9c764d270b2319c34a30b045ca8d1d9c9bb1639ce0b1f18d16fca66"
+    },
+    "horses/coats/variants/kestrel/seal-brown.png": {
+      "bytes": 1175852,
+      "sha256": "fc6f22e1c27a652e9b9ba573aeed382611d110fc82ef5dff2e468b42a9eb0c75"
+    },
+    "horses/coats/variants/kestrel/silver-dun.png": {
+      "bytes": 1485764,
+      "sha256": "421a0d8d06311a2f9d36ab3faca11cc34c73b7330ade103fdd2d50534087d711"
+    },
+    "horses/coats/variants/kestrel/sorrel.png": {
+      "bytes": 1308605,
+      "sha256": "b1c7eff4712dbe5b6dfefd40a518b4819054b4b3d9b45fcc15caf55d7bd1f566"
+    },
+    "horses/friesian/horse.glb": {
+      "bytes": 8803828,
+      "sha256": "94f053870375042cac70516d6ae4b7a12c178544ebe1d2f7db63d11ab8256200"
+    },
+    "horses/friesian/tack/Reins_00.glb": {
+      "bytes": 146056,
+      "sha256": "060c3aead7c164ffb6fc84a72e4b7b2c43e702c41c1764f18114844d651b8595"
+    },
+    "horses/friesian/tack/Reins_01.glb": {
+      "bytes": 169736,
+      "sha256": "11dbcdbcf26e6ce945b22e118e047fbfab58e5dd6ebe21d0667785e4872db104"
+    },
+    "horses/friesian/tack/Reins_02.glb": {
+      "bytes": 179100,
+      "sha256": "cb6770f988dab1cb2a8a0947aced985b44993cf4ae2577ce27bb74983e7b076a"
+    },
+    "horses/friesian/tack/Reins_03.glb": {
+      "bytes": 607872,
+      "sha256": "8ac931a4aefe2ce41373417f38677383ff0d9ff9dfdce08a39ef125ac81dee06"
+    },
+    "horses/friesian/tack/Reins_04.glb": {
+      "bytes": 530856,
+      "sha256": "500b78e2f7e914a01fc1e4bdcc5d1bf0ca6a668755e8965fdbc8cea12ab20ebd"
+    },
+    "horses/friesian/tack/Reins_05.glb": {
+      "bytes": 176704,
+      "sha256": "d8a98fe8aea5a5e9d0399daef3775dd6d5cf2b846590feaa0c5d00823ddb9faf"
+    },
+    "horses/friesian/tack/Reins_06.glb": {
+      "bytes": 154100,
+      "sha256": "c5b6093f7522e9f701ecae09a00f0d5889a1bff02cdb8789fae39cb0e2cd7a19"
+    },
+    "horses/friesian/tack/Saddle_00.glb": {
+      "bytes": 264028,
+      "sha256": "26048bffc64478177eca1fee51182e1a6959732967b55b2ad4a6cc0a31d37aa4"
+    },
+    "horses/friesian/tack/Saddle_01.glb": {
+      "bytes": 472828,
+      "sha256": "a43c1261c8bdc8dcc517d92eb9e24a89266ad07c4240ddd621f77bfb619dbfbe"
+    },
+    "horses/friesian/tack/Saddle_02.glb": {
+      "bytes": 431504,
+      "sha256": "fc9740f32c9c990ceba2e03b749ba4e4b4ca3a224cc7ecf272796293df257d5d"
+    },
+    "horses/friesian/tack/Saddle_03.glb": {
+      "bytes": 951788,
+      "sha256": "7a8f152d4ac7ed84fa8a085f35499c03347d0c7e2144358cb71cb371b38c8042"
+    },
+    "horses/friesian/tack/Saddle_04.glb": {
+      "bytes": 803144,
+      "sha256": "51a4562c1d44d3021f83a3222e5f7aecb0c294576fe5e64edb223ee9e9b90098"
+    },
+    "horses/friesian/tack/Saddle_05.glb": {
+      "bytes": 440700,
+      "sha256": "d48c1504c606bfcca4713ae308f69df4ec91199c91e82e23447d6a746199e02e"
+    },
+    "horses/friesian/tack/Saddle_06.glb": {
+      "bytes": 256808,
+      "sha256": "7e34b7424736b0c597b081033508df1d32ca5899a26e9003499d661767859725"
+    },
+    "horses/quarter/horse.glb": {
+      "bytes": 10015264,
+      "sha256": "13f65a6794280d2993b59da64de811a1ec6e628fb7179785b478e70f6aeb3e70"
+    },
+    "horses/quarter/tack/Reins_00.glb": {
+      "bytes": 146284,
+      "sha256": "95110f8ecca0afea39e07134f6cd9edfb45e47a15a2df9494d58bc3df40ad2d5"
+    },
+    "horses/quarter/tack/Reins_01.glb": {
+      "bytes": 169964,
+      "sha256": "879ad7b2fd2bf861707e44d7f659be8bc1e5ffc925181b011fd0c5d6e1836fc3"
+    },
+    "horses/quarter/tack/Reins_02.glb": {
+      "bytes": 179324,
+      "sha256": "9902768238f784a6957bf3c2034cb4041fe273abe51e669b53cff1160a03fa14"
+    },
+    "horses/quarter/tack/Reins_03.glb": {
+      "bytes": 607460,
+      "sha256": "682ad104e212b38386b4a7bed404b76d387de0068697e1af091f4f53131e156c"
+    },
+    "horses/quarter/tack/Reins_04.glb": {
+      "bytes": 530448,
+      "sha256": "3c2b442765fae31363408f6c13cbecfe03eda4509d8f6da2f2ac31811ba81e69"
+    },
+    "horses/quarter/tack/Reins_05.glb": {
+      "bytes": 176856,
+      "sha256": "c9f46db97d7d1918a70a6be0abbd955964742b6380b24558441ea0501fe48b8a"
+    },
+    "horses/quarter/tack/Reins_06.glb": {
+      "bytes": 154328,
+      "sha256": "fbe363e80e3439adfe7e8da8b38af52c161f6700a8b609eaa206c5c9f2663b9d"
+    },
+    "horses/quarter/tack/Saddle_00.glb": {
+      "bytes": 264260,
+      "sha256": "43d933bde17d8de7589914ca844d6b68d7132b5c7de9b9ec41551aa02166b38a"
+    },
+    "horses/quarter/tack/Saddle_01.glb": {
+      "bytes": 473064,
+      "sha256": "a1310f362c35035fe1ae8edda26ae93146e6b637c9aa1c1ae7207b678e76176b"
+    },
+    "horses/quarter/tack/Saddle_02.glb": {
+      "bytes": 431728,
+      "sha256": "5b376c4de1e4c7d1dec72e78720e16d7cd4e13d17054735edb28172d2d3e1af1"
+    },
+    "horses/quarter/tack/Saddle_03.glb": {
+      "bytes": 951388,
+      "sha256": "308e5183448be0d3c3228a1f4169263d1ee02ef4f229020db960d22c6d1d69e1"
+    },
+    "horses/quarter/tack/Saddle_04.glb": {
+      "bytes": 802736,
+      "sha256": "79126cfe636c2d9fdc3c82b9757a5403e62582071b14b1b69a339f71bbd867fa"
+    },
+    "horses/quarter/tack/Saddle_05.glb": {
+      "bytes": 440940,
+      "sha256": "f115145232ae6afb2ed8099edabdeaa7f978d706f7c92d2878fd24de000ccc95"
+    },
+    "horses/quarter/tack/Saddle_06.glb": {
+      "bytes": 257032,
+      "sha256": "ee0aa51c798a2740e80d6e8ae1f9e9cfed35df1f3cf1c826671536bbd4925abc"
+    },
+    "horses/thoroughbred/horse.glb": {
+      "bytes": 9648620,
+      "sha256": "ad60b4e7ac2c8a04440e97845ba52be198da2c9881c04dd84651a5845a8ccbdd"
+    },
+    "horses/thoroughbred/tack/Reins_00.glb": {
+      "bytes": 145880,
+      "sha256": "ea1c74d78af7bd3ee65b2fb2c264279abfd6b9a70d3a37405ee1ea7479e75797"
+    },
+    "horses/thoroughbred/tack/Reins_01.glb": {
+      "bytes": 169560,
+      "sha256": "593297c8a8f782e6f243063dc89c3053bd1389afa157ec589a79cd730e340866"
+    },
+    "horses/thoroughbred/tack/Reins_02.glb": {
+      "bytes": 178920,
+      "sha256": "58a75bc191de963fb2c0821b9e21ea2b300fd98db8a3e7133bd584f9f7e3939b"
+    },
+    "horses/thoroughbred/tack/Reins_03.glb": {
+      "bytes": 607056,
+      "sha256": "807797ff00c343ed426d9bf0705ab00139812480fe3278953bf097c470870c51"
+    },
+    "horses/thoroughbred/tack/Reins_04.glb": {
+      "bytes": 530044,
+      "sha256": "5803243daf5eab5852889a8f98de0baf53947c93a8743547efdf2f97e67611d0"
+    },
+    "horses/thoroughbred/tack/Reins_05.glb": {
+      "bytes": 176532,
+      "sha256": "87dcc4bd757f836e05b9fb7f120d10c5cfda786b0674adb40f18c0711f3be5eb"
+    },
+    "horses/thoroughbred/tack/Reins_06.glb": {
+      "bytes": 153924,
+      "sha256": "858a4190748e559427b9aa1dc2388893f352ba27a756ace40c72e75e36798b5e"
+    },
+    "horses/thoroughbred/tack/Saddle_00.glb": {
+      "bytes": 263864,
+      "sha256": "1269017e3c2c92c3ba4d3d774c811834f72a2095bfc0783602257eafb3ffac58"
+    },
+    "horses/thoroughbred/tack/Saddle_01.glb": {
+      "bytes": 472656,
+      "sha256": "100068952b1e239e48ff0c10a35f5cc3d018ee0e3b407dc5c98f3341cef1398f"
+    },
+    "horses/thoroughbred/tack/Saddle_02.glb": {
+      "bytes": 431324,
+      "sha256": "e2bee601b948d9fbea8cace7298c5bb14b162432aa86317030be2c1e86e59dab"
+    },
+    "horses/thoroughbred/tack/Saddle_03.glb": {
+      "bytes": 950980,
+      "sha256": "02db393c4cbde794c1711a019f54cc86f8dac3a28e078de8a25c175733e7e767"
+    },
+    "horses/thoroughbred/tack/Saddle_04.glb": {
+      "bytes": 802328,
+      "sha256": "cf0c954d823661144ed7915d3776bb853bbbc4ac5d63e01bbb28e4adfc9236c0"
+    },
+    "horses/thoroughbred/tack/Saddle_05.glb": {
+      "bytes": 440540,
+      "sha256": "63816444c66c6c51f9db82e5e933e5408256c163ac19a4fce5c5ca4470590e53"
+    },
+    "horses/thoroughbred/tack/Saddle_06.glb": {
+      "bytes": 256628,
+      "sha256": "c07d6d19428c54ef2b18631a60b4feabe1d1695e2b71452e9bec561af0ea1382"
     },
     "houses/concepts/street.jpg": {
       "bytes": 325610,

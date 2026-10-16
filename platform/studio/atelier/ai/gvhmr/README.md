@@ -31,7 +31,7 @@ uses upstream's default SimpleVO, and the output is motion data, not a rendered 
 
 ## Run
 
-Run this with the installed environment's Python inside a memory-guarded process (`atelier.safety.guarded`):
+Run this with the installed environment's Python inside a memory-guarded process (`atelier.harness.safety.guarded`):
 
 ```python
 from atelier.ai.gvhmr import Engine, save
@@ -47,7 +47,7 @@ motion = body_motion({k: v.numpy() for k, v in pred['smpl_params_global'].items(
 The command line does the same and writes `gvhmr.pt`, `provenance.json` and `motion.json` into `--out`:
 
 ```sh
-uv run python -m atelier.safety.guarded --report build/gvhmr/guard --purpose 'GVHMR take' -- \
+uv run python -m atelier.harness.safety.guarded --report build/gvhmr/guard --purpose 'GVHMR take' -- \
     build/gvhmr/venv/bin/python -m atelier.ai.gvhmr take.mp4 --root build/gvhmr --out build/gvhmr/takes/take \
     --static-cam [--root-height camera] [--f-mm 26]
 ```

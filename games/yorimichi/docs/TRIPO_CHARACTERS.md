@@ -9,7 +9,7 @@ Cairo's outfits went through the same stages ([FOX_HUNTER_ANIMATION.md](FOX_HUNT
 Every stage writes a revision folder in the archive (`YORIMICHI_ARCHIVE`, `assets/characters/tools/_archive.py`); only
 the approved revision comes into the repository (`promote.py`). Paid calls go through `atelier.ai.ledger`; Tripo's
 client (`atelier.ai.tripo_asset`) refuses inputs whose hashes are not in an approval file and never resubmits an
-uncertain POST. Blender stages run under the guard (`python -m atelier.safety.guarded --small 3 ...`).
+uncertain POST. Blender stages run under the guard (`python -m atelier.harness.safety.guarded --small 3 ...`).
 
 To get faces that need less fixing, [Charakuru's workflow](CHARAKURU_WORKFLOW.md) makes the head and the body as
 separate Tripo jobs, so the face gets its own images, mesh budget and 4K texture; the notes list experiments to try.
@@ -31,7 +31,7 @@ its multiple generations, texture repairs, assembly and reusable clipping review
 | Fingers and own clips | `sword_trainer_rig.py` | 30 finger bones (`atelier.blender.tripo_fingers.add_fingers`), the character's own clips |
 | **Eyes, light and noise** | `atelier.blender.tripo_character_texture` + `face.json` | flat painted colour, chips gone, eyes and brows solid, the face clean, brows and mouth redrawn (below) |
 | Promote | `promote.py sword-trainer <revision>` | the blend and its records in `assets/characters/<id>/` |
-| Move set | `adventure/retarget.py --character <id>` | the merged move set retargeted onto the body (106 the reference rig clips and Cairo's own 4) |
+| Move set | `adventure/retarget.py --character <id>` | the merged move set retargeted onto the body, including Cairo's nine donor clips |
 
 ## Eyes, light and noise: the fix almost every Tripo character needs
 
@@ -64,7 +64,7 @@ python platform/studio/atelier/blender/tripo_character_texture.py --input ... --
 blender -b --python-exit-code 1 --python platform/studio/atelier/blender/tripo_character_texture.py -- --input ... --output <out> --face ... --stage pack
 ```
 
-Run each under the guard (`python -m atelier.safety.guarded --small 3 ...`; paint peaks near 3 GiB). Raster once;
+Run each under the guard (`python -m atelier.harness.safety.guarded --small 3 ...`; paint peaks near 3 GiB). Raster once;
 paint and pack again after each change to the spec or the options (8 minutes for a 4096 texture).
 
 1. **Raster.** Every texel's place on the body, its facing, its **mesh piece** (the welded parts: head, each eye, each

@@ -40,6 +40,8 @@ struct StateSelector
     std::optional<PhysicalStateId> current_state;
     std::int32_t nonspecific_collision_free_frames=0,nonspecific_collision_frames=0,something_colliding_frames=0,two_wheel_counter=0,three_wheel_counter=0,post_grind_jump_counter=0,air_frames=0,teleport_countdown=0,skitch_exit_countdown=0;
     bool revert_exited_normally=false,request_teleport=false;
+    // Air timeout limit (ticks at 60 Hz): default 300 for reference parity; game raises to 1800 (30 s).
+    std::int32_t max_air_frames=300;
     bool Calculate(PhysicalStateId,const StateSelectionInput&,PhysicalStateId& result,std::string& error);
 private:
     struct Facts {bool colliding,wipeout,force_known_air,skateboard_animated,off_ground,off_ground_skitching;std::optional<PhysicalStateId> grind;};

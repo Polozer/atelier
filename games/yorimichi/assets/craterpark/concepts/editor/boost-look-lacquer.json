@@ -1,0 +1,35 @@
+{
+  "model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "prompt": "Use case: art-direction concept for the boost walls of a skate park in a stylized open-world game. Image 1 is an in-game screenshot of the park's wooden flow bowl: a big bowl with curving transition walls, rounded U-turn bowl ends and the runs joining them, raised on supports over a volcanic crater floor. Paint it as the finished scene. Keep its camera, horizon and field of view, and keep every ramp, bowl wall, run, deck and the terrain exactly where and how they are: do not move, reshape, add or remove any riding surface. Image 2 is the approved art direction: copy its look exactly: soft painterly style, warm light, warm wooden skate ramps with thin steel coping, massive weathered hinoki timber frames with nuki tie-beams on stone footings under the ramps, dark volcanic rock with moss and autumn shrubs, snow only on the ground outside the park. Image 3 shows the park's graphic language: bold, flat, hand-painted 1970s pool graphics (bands and a sun) painted straight onto a skate bowl. The curved transition walls of the big bowl and of the rounded U-turn bowl ends are BOOST WALLS: pumping and powersliding on them gives speed, so they must be instantly recognizable from anywhere in the park and clearly unlike the plain wooden ramps. The long straight run along the right foreground is a normal run: keep it plain warm wood with steel coping, so the boost walls stand out against it. Every ridable surface stays a clean, smooth, skateable surface: no snow, rocks, props or clutter on any ramp, floor or deck, and all paint is flat and flush with the surface. Boost-wall treatment: the whole boost transition, from the flat bottom up to the coping, is glossy sunburst-orange lacquered wood, with thin gold-leaf rays fanning up the wall from the bottom like a rising sun, and a polished gold coping on top. The lacquer catches the light with a soft sheen, so every boost bowl glows orange and gold against the plain warm wood of the rest of the park. The flat bottom stays natural wood.",
+  "references": {
+    "build/yorimichi/craterpark/shots/flow_bowl/view.png": "26f55d227748e32221e8868cdeb6adfa7b95a07588feb81d0586370c25ba9e92",
+    "assets/craterpark/concepts/editor/vertdrop-kiyomizu-overview.jpg": "2bbf43db7b56d4f21398456c2ee98bfa78a18e0f0e41f31738db680fefdadb6d",
+    "assets/craterpark/concepts/editor/prado-graphics-layout.jpg": "6a23e62dc50fb7b4ad879edb6f5a451b2267e08a7689fa2f3f7fb0ade392d611"
+  },
+  "purpose": "Crater Park editor park art direction",
+  "status": "done",
+  "started_at": "2026-10-16T11:24:52.774682+00:00",
+  "usage": {
+    "input_tokens": 3553,
+    "input_tokens_details": {
+      "image_tokens": 3080,
+      "text_tokens": 473
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 4925
+  },
+  "png_sha256": "3706588c82d7d2ea4382dc2d8921c36c889c6dbf8592c4ce6a587c2e31fc17f2",
+  "output": {
+    "file": "boost-look-lacquer.jpg",
+    "size": "1536x1024",
+    "jpeg_quality": 88,
+    "chroma": "4:2:0"
+  },
+  "finished_at": "2026-10-16T11:25:32.716617+00:00"
+}

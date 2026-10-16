@@ -225,7 +225,7 @@ def film(take, rehearse):
     if not (WALK/'route.json').exists(): plan()
     settings = PROJECT/'Saved/settings.txt'; saved = out/'settings.before.txt'
     if settings.exists(): shutil.copy(settings, saved)
-    cmd = [sys.executable, '-m', 'atelier.safety.guarded', '--report', str(out/'guard'), '--timeout', '5400', '--purpose', f'Tree house walk {take}',
+    cmd = [sys.executable, '-m', 'atelier.harness.safety.guarded', '--report', str(out/'guard'), '--timeout', '5400', '--purpose', f'Tree house walk {take}',
            '--', str(UNREAL), str(PROJECT/'Yorimichi.uproject'), '-game', '-RenderOffscreen', '-ForceRes', '-resx=1920', '-resy=1080', '-nofox',
            '-unattended', '-nosplash', '-stdout', '-noshaderworker', '-set='+views.SETTINGS+';show_fps=0;stamina_rings=5;cam_dist=330',
            '-ExecCmds='+views.COMMANDS, '-abslog='+str(out/'game.log')]

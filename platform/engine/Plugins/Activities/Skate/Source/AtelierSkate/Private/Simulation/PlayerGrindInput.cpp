@@ -36,7 +36,10 @@ void PlayerGrindInputState::Reset()
 }
 void PlayerGrindInputState::Permission(const ProcessedPhysicsInput& p,std::int32_t air_counter)
 {
-    const auto state=p.state_2508;if(state!=previous_state){engagement_counter+=state==400||state==402||state==404?50:state==403?20:0;previous_state=state;}
+    const auto state=p.state_2508;if(state!=previous_state){
+        // Forgiving (entry tolerance above 1), a slide caught again after a moment off its line (701) is not a new one.
+        const bool relock=entry_tolerance>1&&previous_state==701;
+        engagement_counter+=relock?0:state==400||state==402||state==404?50:state==403?20:0;previous_state=state;}
     engagement_counter=Decrement(engagement_counter);suppressed=engagement_counter>151;cooldown=suppressed?90:Decrement(cooldown);
     disabled=(p.flags_2468&0x18000000u)!=0||(p.flags_2472&0x8008u)!=0||(p.flags_2476&0x00400000u)!=0||cooldown>0
         ||(p.category_2512==200&&(p.state_timer_2664<=F(0x3da3d70a)||air_counter<=10))||p.category_2512==500

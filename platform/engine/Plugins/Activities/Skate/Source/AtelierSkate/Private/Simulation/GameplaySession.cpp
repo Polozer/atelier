@@ -3,6 +3,7 @@
 #include "DebugString.h"
 #include "PlayerControls.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #if defined(__clang__)
 #pragma clang fp contract(off)
@@ -95,18 +96,56 @@ bool GameplaySession::Activate(Vec3 spawn,float heading,std::string& error)
     auto respawn=RespawnRuntime::Load(gameplay->resources->settings,deck,gameplay->animation->CheckpointStance(),error);
     if(!respawn)return false;
     *gameplay->respawn=std::move(*respawn);gameplay->teleport->SetCheckpoint({deck,true});
-    input=ControllerInputRuntime{};elapsed_=0;error.clear();return true;
+    input=ControllerInputRuntime{};boost.crouched=boost.stand=0;elapsed_=0;error.clear();return true;
 }
 void GameplaySession::SuspendInput()
-{input=ControllerInputRuntime{};markers.Suspend();elapsed_=0;}
+{input=ControllerInputRuntime{};markers.Suspend();boost.crouched=boost.stand=0;elapsed_=0;}
 void GameplaySession::Collect(const std::array<DeviceSample,InputDeviceSlots>& samples,float dt)
 {input.Collect(samples);markers.CollectTime(double(dt));}
 bool GameplaySession::Advance(std::string& error)
 {input.PublishActions();return AdvancePublished(error);}
 bool GameplaySession::AdvancePublished(std::string& error)
 {
+    const float before=boost.zone>0?BoostSpeed():0;
     markers.Advance(input,*gameplay);if(!gameplay->Advance(input.PublishedInput(),error))return false;
-    pumps.Observe(*gameplay,Period());return true;
+    pumps.Observe(*gameplay,Period());
+    {
+        // The pump input for BowlBoost (host-only, it moves nothing): the triggers as the player holds them.
+        const auto triggers=input.CurrentRawInput().triggers;
+        const auto state=gameplay->player_state->Current();
+        boost.Trigger(triggers[0]>BowlBoost::Crouch || triggers[1]>BowlBoost::Crouch,state==PhysicalStateId::PhysicsGround
+            || state==PhysicalStateId::RevertGround || state==PhysicalStateId::SlideGround,Period());
+    }
+    if(boost.zone>0 || boost.inside)ApplyBoost(before);
+    return true;
+}
+float GameplaySession::BoostSpeed() const
+{
+    const auto& v=gameplay->physical->board.Bodies()[std::size_t(BoardBodyId::Deck)].rates.linear_velocity;
+    return std::sqrt(v.x*v.x+v.y*v.y+v.z*v.z);
+}
+void GameplaySession::ApplyBoost(float before)
+{
+    // BowlBoost.h: on the ground only, a pump (the stand-up after a trigger's crouch, however much the physical pump
+    // added; BowlBoost::Trigger) or the powerslide.
+    const auto state=gameplay->player_state->Current();
+    const bool ground=state==PhysicalStateId::PhysicsGround||state==PhysicalStateId::RevertGround;
+    const bool sliding=state==PhysicalStateId::SlideGround;
+    const bool pump=ground && boost.Standing();
+    const auto deck=gameplay->physical->board.PartTransforms()[std::size_t(BoardBodyId::Deck)];
+    const float after=BoostSpeed();
+    // The zone holds the board (and its entry speed) through an air; only the gain needs the ground (BowlBoost::Tick).
+    const float gain=boost.Tick(boost.zone,gameplay->Feel().bowl_boost,ground||sliding,deck.basis.columns[1][1],pump,sliding,
+        before,after,Period());
+    if(!(gain>0) || !(after>0.5f))return;
+    // Along the travel, the same for every body (GameplayRuntime::Launch), so the board and rider keep their motion.
+    const auto v=gameplay->physical->board.Bodies()[std::size_t(BoardBodyId::Deck)].rates.linear_velocity;
+    const float k=gain/after;const Vec3 add{v.x*k,v.y*k,v.z*k};
+    for(auto& body:gameplay->physical->board.BodiesMut())
+    {auto& l=body.rates.linear_velocity;l.x+=add.x;l.y+=add.y;l.z+=add.z;}
+    for(auto& body:gameplay->physical->skeleton.BodiesMut())
+    {auto& l=body.rates.linear_velocity;l.x+=add.x;l.y+=add.y;l.z+=add.z;}
+    boost.total+=gain;
 }
 void GameplayPumps::Observe(const GameplayRuntime& runtime,float dt)
 {

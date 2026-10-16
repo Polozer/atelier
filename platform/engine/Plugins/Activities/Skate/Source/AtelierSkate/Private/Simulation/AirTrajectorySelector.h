@@ -33,7 +33,12 @@ public:
     const std::optional<AirTrajectoryLaunchBatch>& Batch() const {return batch_;}
     std::uint16_t Pass() const {return pass_;}
     bool AdjustedOnVert() const {return adjusted_on_vert_;}
+    // Wall-follow air (WallFollow.h): every arc a later pass predicts turns at this curvature for this long. 0, stock,
+    // predicts plain parabolas. AirTrajectoryRuntime::Launch sets it before each launch.
+    void SetWallFollow(float curvature,float time) {wall_curvature_=curvature;wall_follow_time_=time;}
+    float WallCurvature() const {return wall_curvature_;}
 private:
+    float wall_curvature_=0,wall_follow_time_=0;
     std::optional<AirLaunchInfo> launch_info_;
     std::optional<AirTrajectoryLaunchBatch> batch_;
     std::vector<AirTrajectoryCandidate> candidates_;

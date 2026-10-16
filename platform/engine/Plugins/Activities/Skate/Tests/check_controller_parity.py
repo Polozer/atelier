@@ -2,7 +2,7 @@
 """Differential graph execution test, including every callback and timer bit.
 
 The generated host has visible side effects. Comparing only the final selected
-state would miss reordered, skipped or extra callbacks. Run under atelier.safety.
+state would miss reordered, skipped or extra callbacks. Run under atelier.harness.safety.
 """
 import argparse
 import hashlib

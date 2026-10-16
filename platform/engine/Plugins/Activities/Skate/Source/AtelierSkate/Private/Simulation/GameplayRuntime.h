@@ -50,6 +50,9 @@ public:
     // The player's feel beyond Tune (FeelTuning.h): applied over copies of the authored settings captured at Create.
     bool Feel(const FeelTuning&,std::string& error);
     const FeelTuning& Feel() const {return feel_;}
+    // The host's limit on the vert assistance (0..1; an assist zone): the assistance Tune set, at most this, from the
+    // next trajectory selected. 1, no limit, unless the host sets one.
+    bool LimitVertAssist(float limit,std::string& error);
     void Launch(Vec3 velocity);
 
     std::shared_ptr<const GameplayResources> resources;
@@ -132,7 +135,13 @@ private:
         WipeoutSettings wipeout;
         std::array<WipeoutMode,5> wipeout_modes;
         std::array<PointGraph<8>,5> slide_speed_to_force;
+        float camera_anchor_speed;
+        GrindPostSettings grind_post;
     } feel_stock_{};
     FeelTuning feel_;
+    float vert_assist_=0,vert_assist_limit_=1;
+    // Ticks a drift powerslide has held on since the stick let it go (Advance).
+    int drift_hold_=0;
+    bool DriftAcross() const;
 };
 }

@@ -4,7 +4,7 @@
 Persistent crouch/auto-pump, tilt, fakie and pump channels run original core
 methods; ground and physical feedback call untouched original publishers.
 Stock settings are decoded independently by the original loaders. Compile/run
-only through atelier.safety. This does not yet establish graph registration.
+only through atelier.harness.safety. This does not yet establish graph registration.
 """
 import argparse
 from collections import Counter

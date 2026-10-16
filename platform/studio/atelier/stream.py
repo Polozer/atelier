@@ -25,10 +25,11 @@ import urllib.request
 from pathlib import Path
 
 from . import paths
+from atelier.harness.capacity_compat import refuse_unmanaged
 from .build import Context
-from .safety import memory_guard
-from .safety.memory_guard import usage
-from .safety.process import spawn_game
+from atelier.harness.safety import memory_guard
+from atelier.harness.safety.memory_guard import usage
+from atelier.harness.safety.process import spawn_game
 
 WEB = paths.PLATFORM / 'web'
 STREAM_WEB = WEB / 'stream'
@@ -145,6 +146,9 @@ def build_web(g, install=False):
 
 
 def start(g, local=False):
+    refuse_unmanaged('Browser streaming')
+    from .build_snapshot import require_complete
+    require_complete(paths.build_root() / g.id, game=g.id)
     if any(alive(r) for r in g.processes().values()):
         raise SystemExit('the stream is already running; `status` or `stop` first')
     running = subprocess.check_output(['ps', '-axo', 'pid=,command='], text=True)
@@ -238,6 +242,8 @@ pidfile={g.out}/turn.pid
 
 
 def main(game, action, local=False, install=False):
+    if action == 'start':
+        refuse_unmanaged('Browser streaming')
     g = Game(game)
     g.out.mkdir(parents=True, exist_ok=True)
     if action == 'start':

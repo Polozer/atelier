@@ -13,7 +13,7 @@ import re
 import subprocess
 import time
 
-from atelier.safety import guarded
+from atelier.harness.safety import guarded
 from package_archive import AUDIO_SERVICE, MACH_LOOKUP, STAGED_DATA
 
 MACHO = {b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca',

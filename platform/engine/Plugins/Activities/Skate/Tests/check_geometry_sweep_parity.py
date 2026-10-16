@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact rounded triangle sweep differential checks against reference 46513a6.
 
-Run through atelier.safety; the complete original core module layout is frozen
+Run through atelier.harness.safety; the complete original core module layout is frozen
 in the supplied game build directory and compiled without numerical edits.
 """
 import argparse

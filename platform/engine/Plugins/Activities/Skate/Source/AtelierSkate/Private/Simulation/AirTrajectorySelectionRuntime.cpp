@@ -72,8 +72,34 @@ bool AirTrajectoryRuntime::Launch(AirLaunchInfo info, AirSelectorInput input,
       input.ground_normal,info.start_velocity,input.directional_input,vert_assist);
   input.ground_normal=departure.first;info.start_velocity=departure.second;
   bool did_launch;
-  if (!selector.Launch(info, input, settings, did_launch, error))
+  // In a zone that allows no vert assist the stock alignment (AdjustAirTrajectoryLaunchVelocity) would still bend a
+  // near-vertical lip's air straight up and back into the ramp; with no transfer held it keeps the lip's own direction.
+  AirTrajectorySelectorSettings plain;
+  const bool ballistic=vert_assist_limit<=0.0f && input.directional_input<0.5f;
+  if (ballistic) {plain=settings;plain.vert_jump_align_max_ground_normal_y=-2.0f;}
+  const auto& used=ballistic?plain:settings;
+  // Wall-follow air: an air already turning keeps turning for what is left of it. A new one takes a launch the
+  // stock alignment aims up a vert wall (never the ballistic zero-assist case), with vert assist above zero, no lean
+  // forward (the align's lean, directional_input - 0.25, at most 0: no transfer), off a concave curved wall measured
+  // just before (WallFollow.h). Its arcs are predicted turning, so the landing found is the one the turn reaches.
+  float latch=0;
+  if (wall_follow.strength>0.0f) {
+    auto& w=wall_follow;
+    if (w.pending||w.active) selector.SetWallFollow(w.curvature,w.Remaining());
+    else {
+      AirLaunchInfo probe=info;const bool aligned=AdjustAirTrajectoryLaunchVelocity(probe,input,used);
+      latch=WallFollowLaunchCurvature(w,aligned,vert_assist,vert_assist_limit,input.directional_input,
+                                      info.start_velocity,input.ground_normal);
+      selector.SetWallFollow(latch,latch!=0.0f?WallFollowAir::MaximumTime:0.0f);
+    }
+  }
+  if (!selector.Launch(info, input, used, did_launch, error))
     return false;
+  if (did_launch && latch!=0.0f) {
+    auto& w=wall_follow;w.pending=true;w.pending_ticks=0;w.curvature=latch;w.elapsed=0;
+    const float h=std::sqrt(input.ground_normal[0]*input.ground_normal[0]+input.ground_normal[2]*input.ground_normal[2]);
+    w.inward_x=input.ground_normal[0]/h;w.inward_z=input.ground_normal[2]/h;
+  }
   if (did_launch && !Submit(world, error))
     return false;
   launched = did_launch;

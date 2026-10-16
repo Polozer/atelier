@@ -70,15 +70,33 @@ floor and the wall's lower slope; about 50 groups of two to five grey boulders 9
 take no snow) with scree on bare ground; and ochre shrubs. About 9,600 autumn thicket plants clump along the crest, on
 rock as steep as 55 degrees and more thinly on snow (loose red and gold `Bush_HD_Autumn` bushes, ochre bushes and a
 few red shrub maples and golden ginkgo shrubs), and ochre bushes ring the park's block 9-40 m out, snow or not. The
-block's own exposed hillside carries about 230 low granite domes 4-10 m across in clusters on its gentler ground
-(`HD_NorthRock*`, snow-capped, sunk so their open undersides never show), and about 9,900 more bushes in clumps,
-packed thicker round the domes; all stand clear of every riding piece and bridge (`placement.piece_triangles`). The
+block itself carries none of the island's planting. `dress_caldera` places about 250 granite domes and 10,000 bushes
+on the block's hillside, but the block filter that follows (`contains(margin=3)`) drops them, so city.json has no
+instance on the block. In the r5 build the nearest is 5.5 m off its 5 m mask. The v2 park dresses its own ground
+instead ([`v2/dressing.py`](../world/regions/craterpark/v2/dressing.py)): autumn and ochre bushes on its upward ground
+faces, 4 m plus their reach clear of every riding, side, coping and rail face, planted by the park actor from
+park.json `trees`. `dressing.check` keeps every drawn v2 face on the block's mask, and every riding face 4 m inside the
+ground the island keeps clear of dressing, so no island plant or rock pokes through it. The
 autumn bush has a warm core: the garden shrubs' near-black one, sunk in a slope or seen from afar, read as black
 shards on the snow. Bushes have no collision and are culled beyond 300 m, the autumn bush beyond 550 m (the rim and
 air views look across the caldera; `JapanWorld.cpp`). Some 500 granite stones (`HD_NorthRockA`/`C`, as on the north
 slopes) lie in clusters over the floor, and about 70 low crags 15-30 m across sit deep in its bare ground, so from
 the zeppelin the floor reads as dark rock among the snow. No tree or stone stands within 7 m of the park's block. The
 caldera is a `near_trees` box, so its trees cast shadows and keep trunk collision.
+
+With the owner's editor park (the shipped one), the editor's site covers the whole caldera, so `dress_caldera`'s
+groves place nothing there: the crater floor round the pieces is dressed by
+[`v2/editor_floor.py`](../world/regions/craterpark/v2/editor_floor.py) (crags, snow, moss, shrubs, stones, grass and
+clusters of conifers near the wall). Its conifers are the owner's mixed grove (concept D): four Tripo models
+([`v2/trees.py`](../world/regions/craterpark/v2/trees.py), sources in `assets/craterpark/trees/`), twisted Japanese
+black pines with cloud-pad crowns (8 m) and tiered sugi cedars (12 m), scaled 0.85-1.25, each cluster mostly of one
+family. `world.hidamari_props` fits them like the city's Tripo props (upright to their height, stood on their trunk's
+base, one textured material, no collision) and makes three distance LODs: welded and decimated to a third from about
+30-45 m, then remeshed into closed shells (the cedars' thin tiers keep their mass) of a tenth from 80-115 m and about
+300 triangles from 200-290 m. A shell's trunk is decimated apart from its crown, so the far LODs still stand on their
+root. The floor keeps each tree's crown and height clear of the riding, its trunk sunk on slopes, and plants them in
+park.json `trees`; the park spawns them as instanced groups with shadows and the camera fade, and no collision, like
+the cones they replace.
 
 The volcano's own snow (`hidamari/mountains.py` `snow_cover`) leaves about a third of the caldera floor white, the
 rest dark cinder. Broad couloirs, tens of metres wide, run down the inner wall from just under the crest to its foot,
@@ -132,6 +150,130 @@ query met nearly all of them: by the east wooden ramps a simulation step took up
 walking stayed smooth. Each collision mesh is now stored along a Z-order curve of its faces' centres, the faces over
 8 m across in groups of their own: a group spans a median 9-16 m (52 m on the hillside's large faces).
 
+## Clean geometry
+
+r4 hid its geometry's faults instead of removing them. It dropped faces lying on an earlier mesh, pushed partial
+overlaps back 5 mm, merged flat faces into fans of needles, and drew the foundations' prism walls and bottoms buried in
+the block. [`craterpark/cleanbuild.py`](../world/regions/craterpark/cleanbuild.py) cleans build.py's pieces once,
+after the additions, for both the render and the collision:
+
+- **Seen faces only** ([`visibility.py`](../world/regions/craterpark/visibility.py), `clean.reachable`). The open space
+  connected to the outside is flood-filled on a 0.5 m grid. A face is drawn if a ray from it escapes the park, or runs
+  freely through that space. Up to 16 sample points per face, 8 cosine-weighted rays each, cover tunnels, spans and
+  pockets.
+  - Two exact tests run before any ray: a foundation face within 5 cm of a riding surface, and a wall two prisms
+    share (a face lying wholly on one turned the other way).
+  - A riding top (normal y over 0.2) is never dropped on failed rays alone.
+- **No face on another** (`clean.overlap_pairs`, `clean.subtract`). Faces within 1 cm of each other and parallel within
+  2 degrees are found through a plane index. The lower-ranked face (rank as `ROLES`, then the added pieces, the
+  coping last) has the higher one's outline cut out of it exactly, in its own plane. Nothing is pushed back.
+- **Conforming seams** (`clean.fix_tjunctions`). A vertex lying inside another face's edge, of its own mesh or of any
+  other, splits that face. Its UVs are interpolated along the split edge.
+- **Remeshed with bounds** ([`remesh.py`](../world/regions/craterpark/remesh.py)).
+  - Each mesh is cut into patches: the added pieces' tops as height fields over the ground, the rest as planar
+    patches (within 0.5 degrees and 1 mm).
+  - The chains between patches are simplified once, within 1.5 mm (and 0.02 of the occlusion). Both sides share them.
+  - Each patch is re-triangulated by constrained Delaunay and refined from its own vertices until every original
+    vertex lies within 3 mm of it, within 0.02 of its occlusion, and within 0.002 of its UVs.
+  - A patch that cannot be certified keeps its faces, and its neighbours are redone against its full outline.
+- **The occlusion** is baked as before (same rays, reach and smoothing) on the fine faces, before the remesh.
+- **An old mesh an added piece was laid through** (`CUT_UNDER`; the planter under the plaza kicker) loses its parts
+  over the piece's top, cut exactly. The list is explicit: a floor that a piece runs under, as the pool landing's
+  run-out does, is ridden and stays.
+- **The ramps and snake runs are swept**, not gridded (`additions.run_mesh`):
+  - A cross-section every 25 cm along the eased centreline, each vertex on its exact distance from the centreline.
+  - The floor's edges, the arcs' tops, the lips and the outline are true lines. A 25 cm grid gave them a staircase,
+    and its smoothing left teeth on the side walls.
+  - The side walls are textured by distance along their top.
+
+Each piece's remesh is cached under its inputs' hash, in `build/yorimichi/craterpark/clean-cache`.
+
+## Riding
+
+Faces of two meshes lying partly on each other (a foundation's wall behind a ramp's side, the hillside against a
+block's wall) were drawn at the same depth and flickered, worst far away, where the depth buffer resolves about 15 µm
+at 250 m. Each such face of the later mesh in role order (riding pieces, built walls and blocks, added pieces,
+hillside) moves 5 mm back along its normal in the render; its corners stay shared, so nothing cracks. The collision
+keeps them where they are.
+
+Faces are ranked per piece of their mesh, not per mesh: a source mesh is often many pieces laid over each other. The
+crater's perimeter is 724 boxes, each 2.2 m long, set every 2 m, so their faces met in 20 cm coplanar strips every 2 m;
+the foundations carry about 70,000 m² of walls duplicated within one mesh. A face lying wholly on an earlier piece of its
+own mesh is left out, and where two pieces overlap in part, every other piece moves back 5 mm.
+
+[`craterpark/grind.py`](../world/regions/craterpark/grind.py) finds the grind lines along the lips already in the
+park, on the collision the board rides: the edge of a level deck where the ground falls away, with nothing over it,
+as the runtime's grind probes accept (the deck within 4 cm on one side 9 cm out, nothing at deck height on the
+other). A stair's nosing, a path's edge over the hillside and anything under a roof are left out. `park.json` lists
+them as `rails` and sets `rails_required`.
+
+The foundation blocks were made solid up to the top of the pieces over them, so they filled the round tunnel: the
+rider met its flat end. [`craterpark/tunnel.py`](../world/regions/craterpark/tunnel.py) finds the pieces that close
+round an open bore (a riding face over and under a point, and round it on most sides, within 12 m) and cuts every
+block face that reaches into one out of the render and the collision. A bore is straight: it is taken as a convex
+prism, the hull of its grid's nodes across its axis extruded along it, carried on to each mouth while the bores'
+pieces together still roof it (near the portal one piece is the roof, another a wall). A face inside is left out; a
+face crossing the prism's side is clipped exactly against it and its parts outside kept, so a block's wall keeps its
+solid round the portal and a long face crossing the bore keeps its ends. Parts one bore leaves are clipped by the
+next. The real tunnel: 123k parts in about 20 s, no face left inside. The added pieces are cut the same way (a cap's
+wall once stood across the tunnel).
+
+[`craterpark/additions.py`](../world/regions/craterpark/additions.py) adds riding pieces, shaped on the park's own
+surfaces; none moves, cuts or covers what is ridden:
+
+- **East bowls.** The slots in the bowls' floor fell 20-31 m to the hillside. They are filled flush with the floor,
+  so at the foot of a riding deck at least 2 m across, 0.9-5 m over the floor, one transition of 2.5-3.5 m radius runs
+  from the floor up to the deck's edge, over the filled slot, with no gutter at its foot. A rail, a ledge or a wall stub
+  gets none, and a transition passing one eases down to the floor 0.3 m from it. Under each access bridge the floor
+  meets the bridge's top. The curves are seamless concrete (`material_010`); where they flatten onto the floor, within
+  2 cm of its level, they take the bowls' own dark floor (`material_004`), so the concrete ends along a smooth contour.
+- **Pockets.** The plaza's stage pit and the holes in its terrace row are dishes 1.5 m deep, flush with the plaza round
+  them, their sides a sine curve of at most 1.75 m and a flat bottom when wider. A hole whose rim stands 25 cm over the
+  plaza round it is a planter: it gets a flat bed 45 cm under its cap, not a dish curving up inside the box.
+- **Banks.** A smooth surface spans the hillside between pieces, flush with them, meeting a piece at its lip: the true
+  top of its coping, which can lie up to 0.6 m over the grid's nodes on a quarter pipe's steep face. A bank meets only
+  the pieces named for it, by box and height; it passes the others by. The hip from the tower channel's coping (16.3 m)
+  down to the plaza terrace is a landing transition: steep off the coping (about 30 degrees), easing out flat at its
+  foot. The run from the south-west bowl's rim deck (11 m) meets the banked curve's outer lip (10.4 m), where the
+  rider drops in. At the curve's far end, where it rose into a quarter 2.5 m short of the peanut bowl's rim and
+  stopped, a deck across makes a spine over into the bowl.
+- **Kicker.** A short arc from the plaza terrace up onto its parapet, at the hip's foot.
+- **Street.** The central street between the two walkway strips was hillside, level with them, as is the ground on
+  to the half-pipe's open north side. It is paved flush with the strips (herringbone, `material_012`), 5 cm over the hillside at least; a higher deck beside it keeps its wall,
+  and where the hill rises more than 30 cm through it, the paving stops at the hill.
+- **Snake runs.** A run along a centreline: a floor 6 m wide on the path it is laid over (flush with it), or on a
+  smooth profile through given heights; a 2.5 m wall of 3.5 m radius each side to carve and pump between; open ends cut
+  square. The narrow path from the banked curve's foot to the blue pool is one, carried over the gap to the pool's
+  coping; another joins the pool's north coping to the 12 m half-pipe's floor. The hillside under a run is cut 30 cm
+  below it.
+- **Ramps and gaps.** A ramp follows a straight centreline, its profile drawn from arcs and lines (a crest, a kicker's
+  transition up to its lip, a landing's knuckle and run-out) so each angle holds where it is meant to. A gap is a
+  kicker and a landing on one line. Every gap was first ridden by the game's own rider offline
+  (`Tests/build_simulation_session_cli.py`, `tools/check_skate_feel.py`'s session) across the speeds its line gives,
+  and shaped until each landed clean: the blue pool gap off the south-west bowl's rim deck (a 50 m bridge over the
+  dumbbell's disk, a 15-degree lip at -2.5 m, a 35 m, 2.2 s air into the pool); the plaza's gap south-east over the
+  city into the 12 m half-pipe (a 4.5 m step-up bleeds the hip's speed, clean from 14 to 26 m/s). A steep lip throws
+  the rider at the same angle into a landing too short to match it, so lips are 15 degrees and landings long and steep;
+  a crest is at least 10 m in radius, or the rider leaves it. The pool's 3 m wall is vertical at its top and the rider
+  bailed there from 22 m/s, so a bank carries the gap's run-out over it up 22.5 m to the south-east run's deck. The
+  half-pipe's east wall is carried up 11 m to the black bowls' pocket as a roll-in (a 75-degree coping threw the
+  rider off; a 14 m crest takes the rider from a standstill to 16.5 m/s on the floor), and a ramp lies over the half-pipe's
+  stepped neck down to the peanut bowl. A ramp's flanks slope at 30 degrees down to the ground within 4 m (a hip to
+  ride over where it meets a street, not a wall), and where its wall would stand on a riding face 3 m or more under
+  it, the wall stops 60 cm down: a span, the run under it left open.
+- **Pump track.** The valley's floor, where the rider stopped, runs south through the city's dirt to its paved street
+  between transition walls, over 1 m rollers every 8 m.
+- **Steel coping.** A 7 cm steel tube is drawn along every grind line, its top 12 mm over the deck (render only; a
+  metallic `Steel` parent in `import_craterpark.py`).
+- **Solid edges.** A riding sheet's free edge that ends in the air, a knife edge (a half-pipe's flank, the back of its
+  wall), gets a level cap 35 cm wide on the side away from the piece, a grindable lip, and a wall from it down to
+  the ground, so the piece reads as solid concrete. A run of free edge shorter than 2 m (a stray scrap) gets none.
+  An added piece's outline, a staircase of its 25 cm grid, is smoothed first, so its walls stand straight, not in
+  slats.
+
+The added pieces take the riding concrete's materials with world-planar UVs at the piece's own texture scale, and
+rank after the bridges: where an added piece meets a bridge or a riding piece, theirs is drawn.
+
 ## Restyle
 
 [`tools/craterpark_textures.py`](../tools/craterpark_textures.py) repaints the park's realistic textures in the
@@ -159,29 +301,190 @@ concrete, warm wooden ramps, terracotta tiles and a blue pool, in soft flat pain
 
 ## Review
 
-`tools/review_craterpark.py` takes the park in the game from fixed cameras under the render guard, after the build:
-`air`, `rim`, `zeppelin`, `city`, `dropin` and `bowls` round the caldera, and `hidamari`, `hidamari_east`,
-`belmonte` and `trail` for the volcano from far away; then it places the rider at the marked drop-in, facing into the
-park with the brake held. The target views it is judged against are in `assets/craterpark/concepts`: the grounded
-paintovers `paintover-dropin.jpg` and `paintover-bowls.jpg`, and `target-g_air`, `target-g_rim`, `target-g_zep`,
-`target-f_city2` (the city's north edge) and `target-f_belmonte`, each with its generation record. The game now
-peaks at about 11.5 GiB, over the default 10 GiB game limit, so the review runs with `--memory-gib 14`, the project's
-ceiling.
+`tools/review_craterpark.py` is the park's tour for the owner's page after every build. It runs the editor game under
+the render guard and takes its cameras from the build's own outputs, so the tour follows the layout:
+- `aerial` and `aerial_plan` frame the whole block;
+- `tower_<line>` looks from each roll-in crest down its line (park.json `lines`);
+- `gap_<feature>` is a side view of every air, with the rider launched off the lip at the design speed (18.5 m/s)
+  and caught near the apex (geometry-report `checks`, else the layout's gaps);
+- `feature_<id>` frames every bowl, half bowl, elbow or quarter pipe, from its built faces or else the layout.
+
+`--video` adds a chase flythrough of each line (`flythrough_<line>.mp4`, from `v2/lines/*.npz`). `--plan` prints the
+shot list without a game. `--shots far` takes the r4 review's views of the volcano from far away (`rim`, `zeppelin`,
+`city`, `hidamari`, `hidamari_east`, `belmonte`, `trail`), to check the park stays hidden. It writes the PNGs,
+`tour.json` and `index.html` (a contact sheet) to `build/yorimichi/craterpark/review`. The game peaked at about 11.5
+GiB in the r4 review: pass `--memory-gib 14` explicitly after coordinating the guarded turn.
+
+```sh
+nice -n 10 uv run python games/yorimichi/tools/review_craterpark.py --video --memory-gib 14
+```
 
 ## Build and game
 
 | Step | Does |
 |---|---|
-| `world.craterpark` | [`craterpark/build.py`](../world/regions/craterpark/build.py) (Blender) exports one render FBX per mesh, without its `render_skip` faces or the foundation faces on a riding surface, with creases over 35° and the baked occlusion as vertex colour ("Shading"). Collision FBX are built per role, at most 200,000 triangles each, from the drawn faces, without the faces inside the solid; only the riding surfaces stay unsimplified. It writes `park.json`. |
+| `world.craterpark` | [`craterpark/build.py`](../world/regions/craterpark/build.py) (Blender) exports one render FBX per mesh and per added piece ("Riding"), without its `render_skip` faces, the foundation faces on a riding surface or the block's faces in the tunnel, with creases over 35° and the baked occlusion as vertex colour ("Shading"). Collision FBX are built per role, at most 200,000 triangles each, from the drawn faces, without the faces inside the solid; only the riding surfaces stay unsimplified. It writes `park.json`. |
 | `unreal.craterpark` | [`import_craterpark.py`](../unreal/Scripts/import_craterpark.py) imports them into `/Game/CraterPark`, with their vertex colours. Each material is a texture times its base colour, or the colour alone, darkened by the baked occlusion, and is two-sided where the source says so. |
 | `data.stage` | Copies `craterpark/park.json` to `Content/Data`. |
 
 In the game, `JapanWorld` spawns the park with `ASuperUltraMegaPark::Spawn`, the Mega Park's actor. `park.json` names
-its own `mesh_root` and sets `rails_required: false`. The collision is invisible and blocking, and counts as a skate
-surface like the Mega Park's. The world map has a **Crater Park** travel point at the marked drop-in.
+its own `mesh_root`, its grind lines and `rails_required: true`. The collision is invisible and blocking, and counts as a skate
+surface like the Mega Park's.
+
+## Editor parks
+
+The remake is designed in the owner's park editor; its `park.json` (`craterpark-editor/1`) is the build's source of
+truth. One command takes a saved design to the game:
+
+```sh
+uv run python games/yorimichi/tools/ship_craterpark_editor.py --lines L1 --build
+```
+
+[`ship_craterpark_editor.py`](../tools/ship_craterpark_editor.py) freezes the editor folder (park.json, data/ and
+pieces.js) as `ship/rev<N>`, never overwriting a frozen revision. If pieces.js changed, it vendors it as
+[`editor/pieces.cjs`](../world/regions/craterpark/v2/editor/) and re-pins its hash in `pin.json`; commit both. It
+checks that the bridge meshes the frozen park, then runs the guarded build with `ATELIER_CRATERPARK_EDITOR_PARK` and
+`ATELIER_CRATERPARK_EDITOR_LINES`. Without `--build` it prints that command.
+
+The build ships the owner's last approved design by default:
+[`tools/craterpark_editor/shipped.json`](../tools/craterpark_editor/shipped.json) (rev 111), with its terrain in
+`tools/craterpark_editor/data/` beside it, and its lines `L1,L2,p5` (orange, the tower vert drop and Prado), so a plain `atelier build` from
+main builds the editor park. `ATELIER_CRATERPARK_EDITOR_PARK` selects another frozen park.json and
+`ATELIER_CRATERPARK_EDITOR_LINES` other lines; `ATELIER_CRATERPARK_EDITOR_PARK=off` (or a v4 design in
+`ATELIER_CRATERPARK_V4_DESIGN`) builds the older generator instead. To ship a new revision, copy its frozen park.json
+over `shipped.json` and commit it (and `SHIPPED_LINES` in
+[`v4_config.py`](../world/regions/craterpark/v2/v4_config.py) if the lines change).
+
+With the editor park selected, `world.craterpark_geometry` runs
+[`editor_generate.py`](../world/regions/craterpark/v2/editor_generate.py) instead of the v4 generator. It meshes every piece
+through the pinned pieces.js, exactly as the editor draws it. It keeps the chosen lines (by id; L1 is orange), the bowls
+they land in and the decks they start from. The park draws no ground of its own. The editor's cut terrain goes into
+`geometry.npz` as a grid (`ground_height`, `ground_weight`), and the volcano's terrain follows it
+([`placement.py`](../world/regions/craterpark/placement.py) terrain): in full within 60 m of a kept piece, easing back
+to the natural ground over the next 40 m. So the dug floors and bowl pits are the volcano's own surface, with its
+material, rock, snow and collision. The editor's natural layer is that terrain's natural height, so nothing changes
+where nothing is cut. The volcano samples the cut on its 5 m grid, coarser than the editor's 2 m, so in a pit a piece
+cut (a bowl's) the grid keeps the ground 0.5 m under every piece within 7.5 m: no terrain rises through the bowl, though
+its outer walls can show a few metres above the coarser pit edge. Each line spawns at its roll-in. The rest of the
+chain (`world.craterpark`, `unreal.craterpark`, `data.stage`) is unchanged; `world.hidamari` needs the geometry, so
+the volcano is rebuilt with it.
+Supports come from [`editor_supports.py`](../world/regions/craterpark/v2/editor_supports.py). Most ramps stand on
+stone viaducts. The Vert drop (`STAGE_LINES`, L2), the roll-in and the start tower stand on a Kiyomizu-style timber
+stage instead, after `concepts/editor/vertdrop-kiyomizu-overview.jpg`:
+- **Frame.** Frames stand along each ramp's edges and across its two ends, not under the whole ramp, with a girder
+  under the ramp from edge to edge.
+  - **Posts and plinths.** Heavy squared posts with capitals stand on rough stone plinths. The posts are weathered
+    keyaki (`material_045`, the `keyaki` world painting), and the corner posts are doubled.
+  - **Nuki.** They pass through the posts three to five levels high, ending in square blocks, with black iron plates
+    over the outer joints.
+  - **Cap beam.** It follows the ramp's underside, deeper along the outer frames.
+  - **Scale.** Members grow with the stage's height, and there are no diagonal braces.
+- **Over a lower piece.** Where another piece runs underneath, no post stands on it. A truss under the ramp carries it
+  to the nearest frame post, or to an outrigger on clear ground beside the pieces below.
+- **Catch walls.** A piece that drops steeply from its start gets a frame behind its lip.
+- **Tower.** It stands on an open frame round the deck's own outline, with no stone flare. Its tenons stay flush
+  toward the ramps that leave it.
+- **Clearance.** Every post and plinth keeps `STAGE_CLEAR` (3 m) from any other piece beside it, and an arcade lifts
+  `OVER` (4.5 m) clear of a piece below.
+- **Open air.** Nothing spans from one piece to the next, and nothing stands behind a piece's end. So the slot between
+  the vert kicker and the reverse catch, and the air under the mega jump, stay open.
+
+Editor parks still skip the v4 acceptance checks: their geometry is marked `editor_playtest`.
+
+The Prado bowl (`p5`, a bowl in `editor_generate.DECALS`) is finished by
+[`editor_decal.py`](../world/regions/craterpark/v2/editor_decal.py). Its painting (drawn on the bowl's plan) lies on
+the floor from straight above. On the walls it is laid down the fall line instead, from the painted tile band's inner
+edge (3.6 m in from the lip, nearer on a wall too short for that at 6:1) to the wall's foot, so a vert keeps 1 to 8
+texels per metre instead of none. The top 0.9 m of wall under the lip is a real tile band (`material_007`, 0.3 m
+tiles), sliced out of the wall along that line. The deck is plain concrete. Where the editor's floor grid stands a
+face on edge (a grid line 2 mm from a wall's foot), that face is flipped into the floor. The floor's grid points on the walls' foot edges are split into the walls first, so
+there are no T-junctions. The brick coping ([`editor_coping.py`](../world/regions/craterpark/v2/editor_coping.py))
+takes its side of each lip from every face on the lip edge. Its normals face out of the band, and it leans with a
+sloping wall. A whole number of brick textures goes round a closed loop. On a spine's narrow top, the two sides' bands
+meet along the middle instead of overlapping.
+[`test_craterpark_editor_prado.py`](../tests/test_craterpark_editor_prado.py) checks the shipped bowl: no open deck
+edges, T-junctions, slivers or coplanar overlaps, and bounded texture stretch.
+
+## Tower
+
+The v2 park starts every line from one tower on the high east rim. `park.json` lists one start per designed line under
+`lines`: `{key, name, spawn: {location_cm, yaw_deg}, ground_error_m}`, island Unreal cm and yaw, facing down the line.
+The build places each start on its checked ground ([`v2/spawns.py`](../world/regions/craterpark/v2/spawns.py)):
+a downward ray from 2 m over it must meet collidable ground within 0.5 m, no steeper than 10°, on the tower deck, with
+the yaw within 15° of the line's first segment. Otherwise the build fails, naming the line. The top-level `spawn` is
+the first line's start.
+
+In the game ([`CraterParkTower.cpp`](../unreal/Source/Yorimichi/CraterParkTower.cpp)) the menu has a **Crater Park
+tower** button per line, and **F7** returns to the line chosen last (the first by default). The world map's
+**Crater Park** stop is the first line's start too. Each puts the rider on foot, standing still, facing down the line,
+after the same ground trace at runtime: with no ground within 50 cm of the start, it refuses with a message. A
+`park.json` without `lines` (r4) falls back to its single marked drop-in, which is also where the map stop stays.
+
+## Assist zones
+
+The kickers that launch into a big gap's landing should send the rider forward even when the player rides with
+**Vert assist** at 1 (which turns straight airs short of vertical back into the ramp). `park.json` lists them under
+`assist_zones`: `[{id, center_cm: [x, y, z], half_extent_cm: [hx, hy, hz], yaw_deg, vert_assist_max}]`, boxes in island
+Unreal cm turned `yaw_deg` about up (`id` and `yaw_deg` are optional). While the board or the rider is inside one, the
+vert assist is at most `vert_assist_max`; an air launched inside one keeps that limit until it lands, so the whole jump
+rides with it. `ASuperUltraMegaPark::Spawn` adds them to the Skate plugin's `USkateAssistSubsystem` (plugin README,
+"Assist zones"); a park without the key changes nothing.
+
+`vert_assist_max: 0` means no vert at all. The Vert drop's 86 degree kicker (p305) launches the plain ballistic air
+it was fitted for, up and over into the reverse catch, unless the rider transfers. Before r3 the stock vert-jump
+alignment still bent it straight up and back into the kicker (the plugin README, "Assist zones").
+
+## Boost zones
+
+The orange line's flow bowl (p45) and its two U-turn bowls (p47, p51) have `params.boost: 1` in the editor. Pumping or
+powersliding on their transitions gains speed there and nowhere else (plugin README, "Boost zones"). Players set the
+intensity with **Bowl boost** on the Skate feel page: 0 is off, 1 the tuned boost, up to 2. It applies in every
+skating mode. `editor_generate.boost_zones` takes each boosted piece's own mesh, walls included. A bowl stays whole,
+and a run is cut every 10 m along its stations so a U-turn's boxes follow its curve. `export.boost_boxes` fits a box to
+each piece along its long axis, grown by 1 m (2 m up and down), and writes them to `park.json` as
+`boost_zones: [{id, center_cm, half_extent_cm, yaw_deg, boost}]`. `ASuperUltraMegaPark::Spawn` adds them beside the
+assist zones. Boxes also cover some flat ground, which never boosts.
+
+## Cap cloud
+
+A lenticular cap cloud sits on the summit, round the ramps on and inside the crest (concepts:
+`assets/craterpark/concepts/editor/lenticular-belmonte.jpg` and `lenticular-ramp.jpg`). From Belmonte it reads as a
+pile of smooth saucers with warm, sunlit tops and cool undersides. It hides the rim ramps and leaves the slopes clear.
+From inside, where the park is ridden, it thins to a luminous veil: the ramps stay crisp and the world beyond the crest
+is softly blurred and hazed, with the lenses curving overhead.
+
+[`cloud.py`](../world/regions/craterpark/cloud.py) (NumPy) defines the shells:
+
+- **The veil:** a soft lens inside the saucers that blends a blurred copy of the scene behind it.
+- **Four saucers:** each rim is higher and narrower than the one below it, and the lowest sits on the crest.
+
+Each shell is a closed lens mesh. Its opacity depends on where the camera is: each shell has a far opacity and a near
+opacity. The camera term is q, the camera's distance from the shells' bounding ellipsoid centre, divided by its radii.
+At q ≥ 1.7 each shell uses its far opacity. At q ≤ 1 (inside) it uses its near opacity.
+
+- A surface fades out when it is less than 40 m from the camera.
+- Shells fade into the ground over 45 m.
+- Long, flat striations drift slowly.
+
+Its tests (`test_craterpark_cloud.py`) check:
+
+- the seen ramp space, from three Belmonte cameras, is at least 85 % covered (blur not counted);
+- sight lines from riders inside are at most 40 % covered;
+- the slopes facing Belmonte are under 5 % covered.
+
+| Step | Does |
+|---|---|
+| `world.crater_cloud` | `cloud_build.py` writes `craterpark/cloud.json`: each shell's mesh (Unreal cm, about 9,000 triangles each) and every look parameter. |
+| `unreal.crater_cloud` | [`crater_cloud_material.py`](../unreal/Scripts/crater_cloud_material.py) makes `/Game/CraterPark/Cloud/M_CraterCloud` and `M_CraterCloudVeil`: unlit, translucent and two-sided. The veil takes nine depth-aware SceneColor taps, so nearer things do not bleed into the blur. |
+| `data.stage` | Copies `craterpark/cloud.json` to `Content/Data`. |
+
+`JapanWorld` spawns [`ACraterCloud`](../unreal/Source/Yorimichi/CraterCloud.cpp) after the park; a dedicated server
+does not. It builds one procedural mesh per shell, with no collision, shadow or tick. It sets each shell's dynamic
+material from the record and takes its sun direction from the level's directional light. The veil sorts first. All
+look values live in `cloud.json`, so tuning them needs only `world.crater_cloud` and `data.stage`. In a packaged app
+you can also edit the loose `Data/craterpark/cloud.json` and relaunch.
 
 ## Later
 
-- Grind paths: the source has none.
 - A way up: a zeppelin stop or a trail over the crest.
 - A ground material for the block that matches the volcano.

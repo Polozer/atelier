@@ -102,8 +102,11 @@ bool Feel(const Json& value,FeelTuning& feel,std::string& error)
         {"rail_magnetism",&FeelTuning::rail_magnetism},{"grind_pop",&FeelTuning::grind_pop},{"grind_friction",&FeelTuning::grind_friction},
         {"braking",&FeelTuning::braking},{"steering",&FeelTuning::steering},{"carve",&FeelTuning::carve},{"grip",&FeelTuning::grip},
         {"powerslide",&FeelTuning::powerslide},{"rolling_friction",&FeelTuning::rolling_friction},{"hill_speed",&FeelTuning::hill_speed},
-        {"pump",&FeelTuning::pump},{"wobble",&FeelTuning::wobble},{"wobble_onset",&FeelTuning::wobble_onset},
-        {"manual_drift",&FeelTuning::manual_drift},{"landing",&FeelTuning::landing},{"impact",&FeelTuning::impact}};
+        {"pump",&FeelTuning::pump},{"bowl_boost",&FeelTuning::bowl_boost},{"wobble",&FeelTuning::wobble},{"wobble_onset",&FeelTuning::wobble_onset},
+        {"manual_drift",&FeelTuning::manual_drift},{"landing",&FeelTuning::landing},{"impact",&FeelTuning::impact},
+        {"powerslide_turn",&FeelTuning::powerslide_turn},{"drift_grip",&FeelTuning::drift_grip},
+        {"drift_full_grip",&FeelTuning::drift_full_grip},{"grind_tolerance",&FeelTuning::grind_tolerance},{"camera_follow",&FeelTuning::camera_follow},
+        {"wall_follow",&FeelTuning::wall_follow}};
     for(std::size_t i=0;i<value.keys.size();++i)
     {
         const auto& key=value.keys[i];const auto& child=value.children[i];
@@ -113,11 +116,11 @@ bool Feel(const Json& value,FeelTuning& feel,std::string& error)
             if(!(choice==-1 || choice==0 || choice==1)){error="`"+key+"` is -1, 0 or 1";return false;}
             (key=="auto_push"?feel.auto_push:feel.assisted_air)=std::int8_t(choice);continue;
         }
-        if(key=="tight_flicks" || key=="flick_120hz")
+        if(key=="tight_flicks" || key=="flick_120hz" || key=="drift_powerslide")
         {
             float choice=0;if(!Float(child,choice,error))return false;
             if(!(choice==0 || choice==1)){error="`"+key+"` is 0 or 1";return false;}
-            (key=="tight_flicks"?feel.tight_flicks:feel.flick_120hz)=std::int8_t(choice);continue;
+            (key=="tight_flicks"?feel.tight_flicks:key=="flick_120hz"?feel.flick_120hz:feel.drift_powerslide)=std::int8_t(choice);continue;
         }
         bool known=false;
         for(const auto& [name,field]:fields)if(key==name){if(!Float(child,feel.*field,error))return false;known=true;}
@@ -297,6 +300,13 @@ bool Publish(const GameplaySession& session,bool ready,std::uint32_t generation,
     out<<",\"manual\":";Number(out,game.animation_input.fields.balance);
     const auto ground=ReportGroundSurface(game.physical->riding);
     out<<",\"surface\":["<<ground.physics<<','<<ground.sound<<','<<ground.wheels<<']';
+    // Boost zones (BowlBoost.h): the speed the zones have added this session, the last tick's pump (its speed gain and
+    // whether it was intentional) and the deck's up against world up, for measuring boosts.
+    const auto& pumping=game.ground.pumping;
+    const auto deck=game.physical->board.PartTransforms()[std::size_t(BoardBodyId::Deck)];
+    out<<",\"boost\":{\"total\":";Number(out,session.boost.total);
+    out<<",\"pump\":";Number(out,pumping.pump_acceleration);
+    out<<",\"intentional\":"<<int(pumping.intentional_pumping)<<",\"up\":";Number(out,deck.basis.columns[1][1]);out.put('}');
     out<<",\"camera\":";
     if(pose.camera)
     {
@@ -493,6 +503,20 @@ bool Run(int argc,char** argv,std::string& error)
             if(!Vector(*Field(command,"velocity"),velocity,error))return false;
             if(!Finite(velocity)){error="Invalid launch velocity";return false;}
             session.Launch(velocity);
+        }
+        else if(op=="vert_assist_limit")
+        {
+            // An assist zone's limit on the tuned vert assistance (GameplaySession::LimitVertAssist); no reply.
+            if(!Fields(command,{"op","limit"},{"op","limit"},error))return false;
+            float limit=1;
+            if(!FloatField(command,"limit",limit,error) || !session.LimitVertAssist(limit,error))return false;
+        }
+        else if(op=="boost")
+        {
+            // The boost zone the board is in (its scale, 0 none; GameplaySession::Boost), for the next steps; no reply.
+            if(!Fields(command,{"op","zone"},{"op","zone"},error))return false;
+            float zone=0;
+            if(!FloatField(command,"zone",zone,error) || !session.Boost(zone,error))return false;
         }
         else if(op=="suspend" || op=="quit")
         {

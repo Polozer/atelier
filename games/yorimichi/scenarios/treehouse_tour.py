@@ -231,7 +231,7 @@ def film(label):
                f'-reviewdir={folder}', '-UseFixedTimeStep', '-FPS=60', '-unattended', '-nosplash', '-stdout', '-noshaderworker',
                f'-set={V.SETTINGS};show_fps=0', f'-ExecCmds={V.COMMANDS}', f'-abslog={folder/"game.log"}']
     try:
-        subprocess.run([sys.executable, '-m', 'atelier.safety.guarded', '--report', str(folder/'guard'), '--timeout', '5400',
+        subprocess.run([sys.executable, '-m', 'atelier.harness.safety.guarded', '--report', str(folder/'guard'), '--timeout', '5400',
                         '--purpose', f'Tree house tour {label}', '--', *command], check=True, stdout=subprocess.DEVNULL,
                        env={**os.environ, 'PYTHONPATH': str(yori.REPO/'platform'/'studio')})
     finally:

@@ -57,7 +57,7 @@ def test_wrong_per_player_application_cannot_pass(tmp_path, fault):
 
 
 def test_mixed_choice_flag_reaches_the_guarded_gameplay_worker(tmp_path, monkeypatch):
-    from atelier.safety import guarded
+    from atelier.harness.safety import guarded
     module = session_module()
     observed = []
     monkeypatch.setattr(guarded, 'run', lambda command, *args, **kwargs: observed.extend(command) or 0)

@@ -1,0 +1,15 @@
+{
+  "model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/generations",
+  "prompt": "Paint a single stylized game tree in a 3/4 front view from slightly above, showing the whole tree from base to crown.\nCentred with clear margin all round on a plain neutral light-grey background, soft even light, no cast shadow, no floor, no text.\nThe game is Yorimichi, a stylised Japanese setting with warm Sunburst art direction: hand-painted style, chunky readable shapes,\ngently rounded edges, matte colours with soft variation, no photographic noise, no glossy highlights. Every branch and foliage mass\nis solid. The tree must have:\n- A clearly visible trunk (reddish-brown to dark brown wood colour)\n- Foliage masses built from chunky rounded shapes (not thin needles)\n- Proportions suitable for a stylised game model with clean LOD chain\n- Natural organic form, painterly execution\nThe specific tree: a Japanese black pine (Twisted reddish-brown trunk with cloud-pad foliage tiers, elegant bonsai-inspired form), approximately 5-7m tall, shown upright, main trunk straight from base, three prominent cloud-pad tiers stacked vertically.",
+  "species": "Japanese black pine",
+  "variant": "v1",
+  "purpose": "Crater Park tree reference for Tripo 3D",
+  "execution": "games/yorimichi/tools/crater_trees.py",
+  "status": "submission_uncertain",
+  "started_at": "2026-10-16T09:34:33.258975+00:00",
+  "error_type": "KeyError",
+  "finished_at": "2026-10-16T09:35:10.921600+00:00"
+}
