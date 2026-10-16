@@ -13,6 +13,7 @@ def test_staging_copies_required_sources_and_preserves_unrelated_data(tmp_path, 
     ctx = SimpleNamespace(game='yorimichi', out=tmp_path / 'build')
     destination = tmp_path / 'Content' / 'Data'
     monkeypatch.setattr(data, 'REGIONS', tmp_path / 'regions')
+    monkeypatch.setattr(data, 'ASSETS', tmp_path / 'assets')
     monkeypatch.setattr(data.paths, 'content_data', lambda game: destination)
     expected = {}
     for rel in data.staged(ctx.out):

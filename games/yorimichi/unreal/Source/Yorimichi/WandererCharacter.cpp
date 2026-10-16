@@ -32,6 +32,7 @@
 #include "SeeThrough.h"
 #include "ZeppelinService.h"
 #include "JapanPreferences.h"
+#include "JapanCharacterSelect.h"
 #include "JapanMap.h"
 #include "TimerManager.h"
 #include "Animation/AnimSequence.h"
@@ -302,6 +303,7 @@ void AWandererCharacter::EndPlay(const EEndPlayReason::Type Reason)
 {
     PhoneInput.Reset();
     UGameViewportClient::OnScreenshotCaptured().RemoveAll(this);   // review and trailer frame capture
+    if (FJapanCharacterSelect::IsOpen()) FJapanCharacterSelect::Close(this);
     if (Preferences) Preferences->CloseMenu();
     if (Map) Map->Close();
     if (ULocalPlayer* LP = InputOwner.Get())
@@ -330,6 +332,7 @@ void AWandererCharacter::EnterWorld(AJapanWorld* World)
 
 void AWandererCharacter::Leave()
 {
+    if (FJapanCharacterSelect::IsOpen()) FJapanCharacterSelect::Close(this);
     if (Preferences) Preferences->CloseMenu();
     if (Map) Map->Close();
     if (Moves) Moves->Reset();
@@ -793,6 +796,7 @@ bool AWandererCharacter::Live_Press(FName Button)
     else if (Button == TEXT("guard_release")) ParryReleased(FInputActionValue(false));
     else if (Button == TEXT("weapon")) ToggleWeapon(FInputActionValue(true));
     else if (Button == TEXT("menu")) { if (!Preferences) return false; ToggleMenu(FInputActionValue(true)); }   // the settings menu (closing the map first)
+    else if (Button == TEXT("character_select")) { return FJapanCharacterSelect::Open(this, false); }
     else if (Button == TEXT("skate_feel")) { if (!Preferences) return false; Preferences->OpenSkateMenu(); }   // the menu's Skate feel page
     else if (Button == TEXT("bike")) ToggleBike(FInputActionValue(true));
     else if (Button == TEXT("horse")) ToggleHorse(FInputActionValue(true));
@@ -1010,6 +1014,7 @@ void AWandererCharacter::Interact(const FInputActionValue&) {
 void AWandererCharacter::ToggleMenu(const FInputActionValue&)
 {
     if (!bReady) return;
+    if (FJapanCharacterSelect::IsOpen()) { FJapanCharacterSelect::Close(); return; }
     if (Map && Map->IsOpen()) { Map->Close(); return; }
     if (Preferences) Preferences->ToggleMenu();
 }
@@ -1507,6 +1512,8 @@ void AWandererCharacter::Tick(float Dt)
             AtelierLive::SetTeleport([](APawn* Pawn, const FVector& Ground, float Yaw)
             { AWandererCharacter* Player = Cast<AWandererCharacter>(Pawn); return Player && Player->TravelTo(Ground, Yaw, TEXT("live")); });
             AtelierLive::Start(GetWorld());
+            if (!IsNpc() && Cast<APlayerController>(Controller) && !bSwitchedIn && FJapanCharacterSelect::ShouldOpenAtStartup(GetWorld()) && !FJapanCharacterSelect::HasOpenedForWorld(GetWorld()))
+                FJapanCharacterSelect::Open(this, true);
         }
         return;
     }
