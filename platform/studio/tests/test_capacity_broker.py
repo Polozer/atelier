@@ -434,6 +434,36 @@ def test_exit_watch_post_arm_pid_reuse_discards_kernel_handle():
         child.wait()
 
 
+def test_departed_helpers_reclaim_kernel_descriptors_without_losing_exit_proof(monkeypatch):
+    from types import SimpleNamespace
+    import errno
+    handles, watches = set(), []
+    class Queue:
+        def __init__(self):
+            if len(handles) >= 16:
+                raise OSError(errno.EMFILE, 'injected finite descriptor budget')
+            handles.add(self)
+        def control(self, events, count, timeout):
+            if events:
+                self.pid = events[0].ident
+                return []
+            return [SimpleNamespace(ident=self.pid, fflags=select.KQ_NOTE_EXIT, flags=0)]
+        def close(self):
+            handles.remove(self)
+    monkeypatch.setattr(wire.sys, 'platform', 'darwin')
+    monkeypatch.setattr(wire.select, 'kqueue', Queue, raising=False)
+    monkeypatch.setattr(wire.select, 'kevent', lambda pid, **kwargs: SimpleNamespace(ident=pid), raising=False)
+    for name, value in dict(KQ_FILTER_PROC=1, KQ_EV_ADD=2, KQ_EV_ONESHOT=4, KQ_NOTE_EXIT=8, KQ_EV_ERROR=16).items():
+        monkeypatch.setattr(wire.select, name, value, raising=False)
+    for pid in range(100, 700):
+        watch = wire.ExitWatch((pid, 1), started=lambda _: 1)
+        watches.append(watch)
+        assert watch.poll() is True
+        assert watch.handle is None
+        assert not handles
+    assert all(watch.poll() is True for watch in watches)
+
+
 @pytest.mark.parametrize('committed', [False, True])
 def test_killed_broker_fences_gate_and_retains_committed_vector(broker_factory, short_path, committed):
     # Abrupt process death exercises OS-owned pipe closure and durable SQLite state, not close().
