@@ -19,6 +19,9 @@ struct FeelTuning
     // across the rail, the speed landing into it) are half as much more, (1 + this) / 2, so a sideways or hard slam
     // still bails. Above 1, a rail slide that stalls is pushed off the rail instead of wiping out.
     float grind_tolerance=1;
+    // Camera: how fast the camera's anchor may chase the rider, times the authored 40 m/s (1..3). At stock a rider
+    // faster than that pulls away from the camera and the gap jitters as the limit catches and lets go.
+    float camera_follow=1;
     // Rolling: braking, steering, carve strength, wheel grip, powerslide bite, rolling resistance, downhill pull and pumping.
     float braking=1,steering=1,carve=1,grip=1,powerslide=1,rolling_friction=1,hill_speed=1,pump=1;
     // Balance: speed wobble size and the speed at which it starts, manual balance drift.

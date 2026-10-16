@@ -184,6 +184,8 @@ into a coping, not 1.3 s); grinds keep their stock timing. The entry takes half 
 much more: hitting the rail 12 m/s sideways or slamming on with a 12 m/s jolt still bails, as does an air entry pitched
 more than 30° along the rail. Some useful starting points:
 
+**Camera follow** (`CameraFollow`, 2 in this game): the camera keeps up with the rider up to 80 m/s, twice the authored 40. Crater Park's big lines run at 130 to 170 km/h; at the stock limit the rider pulled away from the camera and the gap jittered.
+
 | To get | Try |
 | --- | --- |
 | Flick tricks that land more easily | Flick tolerance 1.3, Flick time window 1.5, Flick speed for full pop 0.8 |

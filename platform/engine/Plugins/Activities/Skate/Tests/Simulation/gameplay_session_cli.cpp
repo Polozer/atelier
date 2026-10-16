@@ -105,7 +105,7 @@ bool Feel(const Json& value,FeelTuning& feel,std::string& error)
         {"pump",&FeelTuning::pump},{"bowl_boost",&FeelTuning::bowl_boost},{"wobble",&FeelTuning::wobble},{"wobble_onset",&FeelTuning::wobble_onset},
         {"manual_drift",&FeelTuning::manual_drift},{"landing",&FeelTuning::landing},{"impact",&FeelTuning::impact},
         {"powerslide_turn",&FeelTuning::powerslide_turn},{"drift_grip",&FeelTuning::drift_grip},
-        {"drift_full_grip",&FeelTuning::drift_full_grip},{"grind_tolerance",&FeelTuning::grind_tolerance}};
+        {"drift_full_grip",&FeelTuning::drift_full_grip},{"grind_tolerance",&FeelTuning::grind_tolerance},{"camera_follow",&FeelTuning::camera_follow}};
     for(std::size_t i=0;i<value.keys.size();++i)
     {
         const auto& key=value.keys[i];const auto& child=value.children[i];

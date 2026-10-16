@@ -872,7 +872,7 @@ public:
         auto& N=P.Feel;
         N.flick_radius=S.FlickRadius;N.flick_window=S.FlickWindow;N.flick_pace=S.FlickPace;N.tight_flicks=S.TightFlicks;N.flick_120hz=S.Flick120Hz;
         N.gravity=S.Gravity;N.boneless=S.Boneless;N.hippy=S.Hippy;
-        N.rail_magnetism=S.RailMagnetism;N.grind_pop=S.GrindPop;N.grind_friction=S.GrindFriction;N.grind_tolerance=S.GrindTolerance;
+        N.rail_magnetism=S.RailMagnetism;N.grind_pop=S.GrindPop;N.grind_friction=S.GrindFriction;N.grind_tolerance=S.GrindTolerance;N.camera_follow=S.CameraFollow;
         N.braking=S.Braking;N.steering=S.Steering;N.carve=S.Carve;N.grip=S.Grip;N.powerslide=S.Powerslide;
         N.powerslide_turn=S.PowerslideTurn;N.drift_powerslide=S.DriftPowerslide;
         N.drift_grip=S.DriftGrip;N.drift_full_grip=S.DriftFullGrip;
