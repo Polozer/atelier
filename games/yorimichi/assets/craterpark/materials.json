@@ -575,5 +575,81 @@
     "wrap": "repeat",
     "colorSpace": "sRGB",
     "finish": "metal"
+  },
+  {
+    "id": "material_054",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/prado_teal.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB",
+    "finish": "lacquer",
+    "derivedFrom": "restyle/concrete.jpg"
+  },
+  {
+    "id": "material_055",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/prado_navy.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB",
+    "finish": "lacquer",
+    "derivedFrom": "restyle/concrete.jpg"
+  },
+  {
+    "id": "material_056",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/prado_orange.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB",
+    "finish": "lacquer",
+    "derivedFrom": "restyle/concrete.jpg"
+  },
+  {
+    "id": "material_057",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/prado_magenta.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB",
+    "finish": "lacquer",
+    "derivedFrom": "restyle/concrete.jpg"
+  },
+  {
+    "id": "material_058",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/prado_yellow.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB",
+    "finish": "lacquer",
+    "derivedFrom": "restyle/concrete.jpg"
+  },
+  {
+    "id": "material_059",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/prado_sun.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB",
+    "finish": "lacquer",
+    "derivedFrom": "restyle/concrete.jpg"
+  },
+  {
+    "id": "material_060",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/prado_letters.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB",
+    "derivedFrom": "restyle/concrete.jpg"
   }
 ]

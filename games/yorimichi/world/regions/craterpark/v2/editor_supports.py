@@ -76,15 +76,15 @@ TORII_CLEAR = 3.5     # ...this far from any wall or coping above the deck,
 RUNWAY_CLEAR = 4.     # ...and this far from the run-in (RUNWAY m back from its first station) of a line starting there
 RUNWAY = 12.
 # the shrine balcony off the back of the deck (concept C, tower-top-shrine-balcony.jpg; its models are shrine.py's)
-SHRINE_DEPTH = 12.    # its depth out from the tower's rim...
+SHRINE_DEPTH = 17.    # its depth out from the tower's rim...
 SHRINE_STEP = .45     # ...its floor this far above the rim's boards, behind the deck's railing...
 SHRINE_SLAB = .9      # ...boards over a timber frame this deep
 SHRINE_CLEAR = 3.5    # kept this far (plan) from any other piece's surface from SHRINE_BELOW under its floor to over its
 SHRINE_BELOW = 4.     # roofs, RUNWAY_CLEAR from every run-in and over no other piece at all...
-SHRINE_WIDE, SHRINE_DEEP = 10., 11.   # ...at least this wide and deep, or no shrine
+SHRINE_WIDE, SHRINE_DEEP = 12., 15.   # ...at least this wide and deep, or no shrine
 SHRINE_POST = 1.1     # its posts' half thickness (the tower's are TOWER_POST)
-SHRINE_FRONT = 2.8    # the pavilion stands this far back from the balcony's front edge...
-SHRINE_TORII = 1.3    # ...the torii this far back, just behind the deck's railing
+SHRINE_FRONT = 4.     # the pavilion stands this far back from the balcony's front edge...
+SHRINE_TORII = 1.3    # ...the torii this far back, just behind the deck's railing, framing the pavilion
 SHRINE_BANNERS = 3.   # metres between the nobori along the back
 TOWER_TIMBER = True   # the tower stands on an open timber frame as the Vert drop's concept, not on the stone keep
 TOWER_POST = 1.5      # its posts' half thickness...
@@ -997,10 +997,10 @@ def _shrine(b, plan, ground, k, c, n, t, half_face, other, floor, runways):
     above the tower's rim, behind the deck's railing, as wide as the deck and its rim where it stays SHRINE_CLEAR from
     every other piece near its height, RUNWAY_CLEAR from every run-in and over no piece at all; a vermilion railing
     round its three outer sides; standing on its own row of keyaki posts on stone plinths down to the ground, tied by
-    nuki to each other and back into the tower's frame. On it (shrine.py, b.models): the bell pavilion, a stone lantern
-    either side of its front, the torii at the deck's back corner with the more room (its posts on the balcony, off
-    the deck and its rim) and a row of nobori along the back. Sets b.shrine (its plan rectangle in the deck's frame,
-    floor height and model count) and returns it, or None (no room: no shrine)."""
+    nuki to each other and back into the tower's frame. On it (shrine.py, b.models): the bell pavilion, the torii in
+    front of it on its axis as the gateway from the deck (its posts on the balcony, off the deck and its rim), a stone
+    lantern either side of the path between them and a row of nobori along the back. Sets b.shrine (its plan rectangle
+    in the deck's frame, floor height and model count) and returns it, or None (no room: no shrine)."""
     from . import shrine
     u0, u1 = other + RIM, other + RIM + SHRINE_DEPTH
     v0, v1 = -(half_face + RIM), half_face + RIM
@@ -1085,17 +1085,14 @@ def _shrine(b, plan, ground, k, c, n, t, half_face, other, floor, runways):
     face = -n
     _, tw, _ = shrine.footprint('torii')
     pd, pw, _ = shrine.footprint('bell_pavilion')
-    ld, lw, _ = shrine.footprint('stone_lantern')
     bd, bw, _ = shrine.footprint('nobori')
-    side = 1. if v1 >= -v0 else -1.                          # the back corner with more room past the deck's corner
-    v_torii = side * ((v1 if side > 0 else -v0) - tw - .3)
-    v_pav = min(max(vm, v0 + pw + .5), v1 - pw - .5)
+    # the torii is the gateway from the deck: on the pavilion's axis, just behind the railing, so a rider on the deck
+    # sees the bell through it
+    v_pav = min(max(vm, v0 + max(pw, tw) + .5), v1 - max(pw, tw) - .5)
     u_pav = u0 + SHRINE_FRONT + pd
-    models = [('torii', at(u0 + SHRINE_TORII, v_torii), face), ('bell_pavilion', at(u_pav, v_pav), face)]
-    for sgn in (-1, 1):
-        v = v_pav + sgn * (pw + .5 + lw)
-        if v0 + .5 + lw <= v <= v1 - .5 - lw:
-            models.append(('stone_lantern', at(u0 + SHRINE_FRONT - ld + .4, v), face))
+    models = [('torii', at(u0 + SHRINE_TORII, v_pav), face), ('bell_pavilion', at(u_pav, v_pav), face)]
+    for sgn in (-1, 1):                                    # the lanterns line the path from the torii to the bell
+        models.append(('stone_lantern', at(u0 + (SHRINE_TORII + SHRINE_FRONT) / 2, v_pav + sgn * .65 * pw), face))
     count = max(2, int(round((v1 - v0 - 2.) / SHRINE_BANNERS)))
     for v in np.linspace(v0 + .6 + bw, v1 - .6 - bw, count):
         models.append(('nobori', at(u1 - .5 - bd, v), face))
@@ -1381,15 +1378,22 @@ def stage(b, plan, ground, piece, stations):
                 for P, sgn in ((a, -1.), (e, 1.)):
                     _box(b, KEYAKI, P + sgn * w * el * u, u, n, w * el, w * ea, level - w * eh, level + w * eh)
             level += nuki
-        # the cap beam hugs the ramp's underside between the two posts (level between them off the piece)
-        pts = []
+        # the cap beam hugs the ramp's underside between the two posts (level between them off the piece): its top is
+        # shaped to the underside across its width too, so under a steep ramp it bears all across instead of stopping
+        # short of the ramp's upper side
+        rings = []
         for s in np.linspace(0., 1., max(2, int(L / 1.5) + 1)):
             p = A['p'] + s * d
-            sps = [plan.span(*(p + q * w * .85 * n), piece) for q in (-1., 0., 1.)]   # its top under the ramp all across
-            ys = [sp[0] for sp in sps if sp is not None]
-            y = min(ys) + EMBED if ys else A['top'] + s * (B['top'] - A['top'])
-            pts.append((p[0], y - top * .5, p[1]))
-        _timber(b, pts, n, w * .85, top * .5)
+            sps = [plan.span(*(p + q * w * .85 * n), piece) for q in (-1., 0., 1.)]
+            if all(sp is not None for sp in sps):
+                tops = [sp[0] + EMBED for sp in sps]
+            else:
+                ys = [sp[0] for sp in sps if sp is not None]
+                tops = [min(ys) + EMBED if ys else A['top'] + s * (B['top'] - A['top'])] * 3
+            at = lambda q, y: (p[0] + q * w * .85 * n[0], y, p[1] + q * w * .85 * n[1])
+            low = min(tops) - top
+            rings.append(np.array([at(-1., low), at(1., low), at(1., tops[2]), at(0., tops[1]), at(-1., tops[0])]))
+        _rings(b, KEYAKI, rings)
         beams += 1
 
     def truss(chain, depth):

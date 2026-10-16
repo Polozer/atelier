@@ -326,3 +326,33 @@ def test_batch_rejects_unowned_outputs_and_startup_environment(project):
     p.steps[0].batch = build.Batch('bad', runtime_env=('PYTHONHASHSEED',))
     with pytest.raises(SystemExit, match='process-start'):
         p.run()
+
+
+@pytest.mark.parametrize('expire_after_first', [False, True])
+def test_queue_wait_does_not_consume_the_batch_budget_but_running_time_still_does(project, monkeypatch, expire_after_first):
+    p = project
+    clock = SimpleNamespace(now=0.)
+    monkeypatch.setattr(build_batches, 'time', SimpleNamespace(monotonic=lambda: clock.now, time=time.time))
+    launch_worker = build.run_command
+
+    def after_queue(ctx, first, command, log, request, slots):
+        # A long admission wait happens after Session construction, before the owned worker.
+        clock.now = 900.
+        if expire_after_first:
+            original_poll = command.on_poll
+            def poll(pid):
+                original_poll(pid)
+                if original_poll.__self__.completed:
+                    # The second action must yield; repeated polls must not reset the clock.
+                    clock.now = 1141.
+            command.on_poll = poll
+        return launch_worker(ctx, first, command, log, request, slots)
+
+    monkeypatch.setattr(build, 'run_command', after_queue)
+    assert p.run() == (75 if expire_after_first else 0)
+    assert len(p.launches) == 1
+    assert {path.stem for path in p.ctx.stamps.glob('action*.json')} == (
+        {'action1', 'action2'} if expire_after_first else {f'action{i}' for i in range(1, 7)})
+    if expire_after_first:
+        assert any('wall-time budget' in message for message in p.messages)
+        assert not (p.ctx.out / '3.txt').exists()

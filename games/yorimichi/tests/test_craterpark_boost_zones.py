@@ -27,12 +27,13 @@ def piece(pid, kind, V, stations=None):
                            metadata={'id': pid, 'type': kind, 'stations': stations or []})
 
 
-def test_shipped_park_boosts_only_the_orange_flow_bowl_and_u_turns():
+def test_shipped_park_boosts_the_orange_flow_bowl_its_u_turns_and_the_prado():
     doc = json.loads(SHIPPED.read_text())
     boosted = {p['id']: p for p in doc['pieces'] if p.get('params', {}).get('boost')}
-    assert set(boosted) == {'p45', 'p47', 'p51'}
-    assert {p['line'] for p in boosted.values()} == {'L1'}
+    assert set(boosted) == {'p45', 'p47', 'p51', 'p5'}
+    assert {p['line'] for p in boosted.values() if p['id'] != 'p5'} == {'L1'}
     assert boosted['p45']['type'] == 'bowl' and boosted['p47']['type'] == boosted['p51']['type'] == 'run'
+    assert boosted['p5']['type'] == 'bowl' and 'Prado' in boosted['p5']['name']     # owner, r4 notes: all boost walls
 
 
 def test_a_bowl_is_one_box_round_its_mesh_and_unboosted_pieces_none():

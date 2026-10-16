@@ -85,6 +85,7 @@ with its own build step. `skate.RideTune` overrides the transitions' tuning live
 | `PowerslideTurn` | 1 | 0.25 to 1.5; how far a powerslide turns the board across the travel |
 | `GrindTolerance` | 1 | 0.5 to 3; how much a grind takes before it bails (see Feel) |
 | `CameraFollow` | 1 | 1 to 3; how fast the camera may chase the rider, times 40 m/s (see Feel) |
+| `CameraPullback` | 0 | 0 to 1.5; how much farther back the camera sits at speed (the Skate menu's default; see Feel) |
 | `DeckMesh`, `TruckMesh`, `WheelMesh` | none | Board parts (see the board contract); skating is unavailable without all three |
 | `BoardDissolveMaterial` | none | A masked material with a scalar `Dissolve` (0 whole, 1 gone) that fades the board in and out; without one the board shows and hides |
 | `SoundFolder` | none | Content folder of the board sounds |
@@ -168,6 +169,7 @@ bit-exact with stock.
 | `AutoPush` | -1, 0, 1 | Auto push |
 | `AssistedAir` | -1, 0, 1 | Easy body spins and perfect body flips |
 | `CameraDistance` | 0.6 to 1.6 | The skate camera's distance from the rider |
+| `CameraPullback` | 0 to 1.5 | How much farther back the camera sits at speed: from 25 m/s it eases out to 1 + this of its distance at 45 m/s and holds there, following the speed with a 0.8 s lag; a bail brings it back in (`USkateComponent::EaseCameraPull`) |
 | `CameraFOV` | -20 to 20 | Degrees added to the skate camera's field of view |
 
 `SoundFolder` holds the loops `roll_01`, `grind_01`, `slide_01`, `skid_01` (powerslide) and `scrape_01` (foot brake),

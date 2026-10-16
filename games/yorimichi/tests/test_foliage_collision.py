@@ -91,10 +91,11 @@ def owner(monkeypatch, tmp_path):
         load_module=lambda name: None, get_editor_subsystem=lambda kind: meshes, StaticMeshEditorSubsystem=object(),
         CollisionTraceFlag=SimpleNamespace(CTF_USE_COMPLEX_AS_SIMPLE='complex', CTF_USE_DEFAULT='default'), log=logs.append)
     for name, module in {
-        'unreal': unreal, 'yori': SimpleNamespace(OUT=tmp_path),
+        'unreal': unreal, 'yori': SimpleNamespace(OUT=tmp_path, GAME=tmp_path / 'game'),
         'asset_catalog': SimpleNamespace(FOLIAGE=('Tree_Test',)),
         'mesh_import': SimpleNamespace(import_mesh=import_mesh),
         'import_foliage_lods': SimpleNamespace(apply_lods=apply_lods),
+        'foliage_package_repair': SimpleNamespace(require_valid_or_missing=lambda *args, **kwargs: None),
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
     monkeypatch.setattr(sys, 'path', list(sys.path))
@@ -131,6 +132,55 @@ def assert_uncertified(owner):
     assert not owner.report.exists()
     assert not any(line.startswith('FOLIAGE IMPORT COMPLETE') for line in owner.logs)
     assert ('save', owner.imported) not in owner.mutations
+
+
+def test_registered_but_unloadable_package_reaches_fresh_import(owner, monkeypatch):
+    monkeypatch.setattr(sys.modules['unreal'].EditorAssetLibrary, 'load_asset', lambda path: None)
+    owner.run()
+    assert ('import', owner.imported) in owner.mutations
+    assert ('reset-lods', owner.previous, 1) not in owner.mutations
+    assert ('remove', owner.imported) in owner.mutations
+    assert owner.report.is_file()
+
+
+def test_invalid_header_check_precedes_any_existing_asset_load(owner, monkeypatch):
+    calls = []
+    editor = sys.modules['unreal'].EditorAssetLibrary
+    original = editor.does_asset_exist
+    monkeypatch.setattr(editor, 'does_asset_exist', lambda path: (calls.append('lookup'), original(path))[1])
+    monkeypatch.setitem(owner.run.__globals__, 'require_valid_or_missing', lambda *args, **kwargs: calls.append('check'))
+    owner.run()
+    assert calls[0] == 'check' and calls[1] == 'lookup'
+
+
+def test_damage_after_preparation_refuses_without_in_editor_mutation(owner, monkeypatch):
+    def refuse(*args):
+        raise RuntimeError('Invalid foliage package appeared after pre-editor preparation')
+    monkeypatch.setitem(owner.run.__globals__, 'require_valid_or_missing', refuse)
+    with pytest.raises(RuntimeError, match='after pre-editor'):
+        owner.run()
+    assert owner.mutations == []
+    assert_uncertified(owner)
+
+
+@pytest.mark.parametrize('registered', [False, True])
+def test_rebuild_applies_the_legacy_lightmap_policy(owner, monkeypatch, registered):
+    monkeypatch.setattr(sys.modules['unreal'].EditorAssetLibrary, 'does_asset_exist', lambda path: registered)
+    owner.imported.values.update(light_map_resolution=64, light_map_coordinate_index=1)
+    owner.run()
+    assert owner.imported.values['light_map_resolution'] == 4
+    assert owner.imported.values['light_map_coordinate_index'] == 0
+
+
+def test_failed_fresh_import_of_unloadable_package_stays_uncertified(owner, monkeypatch):
+    monkeypatch.setattr(sys.modules['unreal'].EditorAssetLibrary, 'load_asset', lambda path: None)
+    def fail_import(*args, **kwargs):
+        raise RuntimeError('FBX import failed')
+    monkeypatch.setitem(owner.run.__globals__, 'import_mesh', fail_import)
+    with pytest.raises(RuntimeError, match='FBX import failed'):
+        owner.run()
+    assert owner.mutations == []
+    assert_uncertified(owner)
 
 
 def test_failed_final_collision_removal_cannot_certify_the_import(owner):

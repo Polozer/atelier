@@ -1,8 +1,6 @@
 name: Contract review bot
 
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
   issue_comment:
     types: [created]
 
@@ -10,15 +8,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: contract-review-${{ github.event.pull_request.number || github.event.issue.number }}
-  # Cancelling a paid run can leave an uncertain provider request. Finish it, then review the latest head.
+  group: contract-review-${{ github.event.issue.number }}
+  # Never cancel an already submitted paid operation. Only a new writer comment requests another.
   cancel-in-progress: false
 
 jobs:
   review:
     if: >-
-      (github.event_name == 'pull_request_target' && !github.event.pull_request.draft) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.body == 'r? cc')
+      github.event.issue.pull_request && github.event.comment.body == 'r? cc'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -32,7 +29,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const pull_number = context.payload.pull_request?.number ?? context.payload.issue?.number;
+            const pull_number = context.payload.issue.number;
             const sender = context.payload.sender;
             if (sender?.type !== 'User') return;
             const permission = await github.rest.repos.getCollaboratorPermissionLevel({
@@ -41,13 +38,6 @@ jobs:
             if (!['write', 'maintain', 'admin'].includes(permission.data.permission)) return;
             const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number });
             if (pr.state !== 'open' || pr.draft || pr.head.repo?.full_name !== process.env.GITHUB_REPOSITORY) return;
-            const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
-              ...context.repo, ref: pr.head.sha, per_page: 100,
-            });
-            const prior = statuses.find(s => s.context === 'Code contracts / review');
-            // This persistent status is the cross-run guard; RUNNER_TEMP receipts alone cannot
-            // deduplicate runners. A same-head or base-only review needs an explicit writer request.
-            if (prior && context.eventName !== 'issue_comment') return;
             if (Number(process.env.GITHUB_RUN_ATTEMPT) !== 1) {
               core.setFailed('Reconcile the previous paid run, then request a new review with r? cc.');
               return;
@@ -67,6 +57,15 @@ jobs:
           ref: ${{ fromJSON(steps.request.outputs.request).base_sha }}
           path: .ci-controller
           persist-credentials: false
+
+      - name: Refresh the advisory request notice
+        if: steps.request.outputs.request != ''
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { updateNotice } = require('./.ci-controller/.github/scripts/contract-review-notice.cjs');
+            await updateNotice({ github, context });
 
       - name: Check out the reviewed upstream tool revision
         if: steps.request.outputs.request != ''

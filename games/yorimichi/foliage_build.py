@@ -66,12 +66,14 @@ def unreal_steps(ctx, modules, engine_inputs):
                   Product('materials.foliage_interface', (ctx.out / 'materials/foliage-interface.json',))],
         heavy=True, about='shared textures, material graphs and stable parameter collections')]
     script = SCRIPTS / 'import_foliage.py'
-    code = build_inputs.local_imports(script, (WORLD,))
+    preflight = SCRIPTS / 'prepare_foliage.py'
+    code = sorted(set(build_inputs.local_imports(script, (WORLD,)) +
+                      build_inputs.local_imports(preflight, (WORLD,))))
     for name in catalog.FOLIAGE:
         steps.append(Step(
             'unreal.foliage.' + name,
             [UnrealScript(script, 'FOLIAGE IMPORT COMPLETE ' + name, null_rhi=True, modules=modules,
-                          env=(('ATELIER_FOLIAGE', name),),
+                          env=(('ATELIER_FOLIAGE', name), ('ATELIER_UNREAL_PREFLIGHT', str(preflight))),
                           args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
             inputs=[*code, *common], after=['unreal.compile'], needs=unreal_modules.needs(modules),
             reads=['foliage.' + name + '.source', 'materials.foliage_interface'], references=[shared],

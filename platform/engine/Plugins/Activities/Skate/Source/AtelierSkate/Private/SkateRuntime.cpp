@@ -463,16 +463,28 @@ void USkateComponent::ConfigureSimulation()
     C.Preferences=RideSimulation->Preferences(bGoofy);RideSimulation->Worker->Enqueue(MoveTemp(C));
 }
 
+void USkateComponent::EaseCameraPull(float Dt)
+{
+    // The camera keeps up with a fast rider (CameraFollow) at its usual distance; FSkateFeel::CameraPullback lets it
+    // drop back a bounded way at speed: from 25 m/s it eases out to 1 + CameraPullback of its distance at 45 m/s and holds
+    // there, never drifting further. The pull follows the speed with a 0.8 s lag, so a landing or a slam does not pop
+    // the camera, and a bail brings it back in.
+    FSkateRuntime& O=*ShownRuntime;
+    const float Speed=O.Velocity.Size()/100.f, T=FMath::Clamp((Speed-25.f)/20.f,0.f,1.f);
+    const float Target=bSimulationBail?1.f:1.f+Feel.CameraPullback*T*T*(3.f-2.f*T);
+    O.CameraPull=FMath::IsFinite(O.CameraPull)?O.CameraPull+(Target-O.CameraPull)*(1.f-FMath::Exp(-FMath::Max(Dt,0.f)/.8f)):Target;
+}
 bool USkateComponent::GetSimulationCamera(FTransform& Out, float& FOV) const
 {
     // A bail handed to the body has no session camera (the session waits): the character's own camera follows the body.
     if (!bSimulationActive || !ShownRuntime || !ShownRuntime->HasPose || ShownRuntime->CameraFOV<=0 || bSimulationBail) return false;
     Out=ShownRuntime->Camera; FOV=ShownRuntime->CameraFOV;
-    // The player's camera (FSkateFeel): nearer or farther along the line to the rider, a wider or narrower view.
-    if(Feel.CameraDistance!=1.f)
+    // The player's camera (FSkateFeel): nearer or farther along the line to the rider, farther still at speed
+    // (EaseCameraPull), a wider or narrower view.
+    if(const float Scale=Feel.CameraDistance*ShownRuntime->CameraPull; Scale!=1.f)
     {
         const FVector Pivot=ShownRuntime->Root.GetLocation()+FVector(0,0,90);
-        Out.SetLocation(Pivot+(Out.GetLocation()-Pivot)*Feel.CameraDistance);
+        Out.SetLocation(Pivot+(Out.GetLocation()-Pivot)*Scale);
     }
     if(Feel.CameraFOV!=0.f)FOV=FMath::Clamp(FOV+Feel.CameraFOV,20.f,140.f);
     return true;
@@ -603,6 +615,7 @@ void USkateComponent::TickSimulation(float Dt)
         const bool bDeckBack=O.Bones.IsValidIndex(DeckBone) && O.Bones[DeckBone].GetRotation().GetForwardVector().X<0;
         O.PoseMeasure.Measure(O.Names,O.Reference,O.Bones,Dt,O.PoseTravel,bDeckBack);
     }
+    EaseCameraPull(Dt);
     RideSpin=ShownRuntime->Spin;
     if (TakeSimulationOnFoot(Dt)) return;
     AfterSimulationRideFrame(Dt);

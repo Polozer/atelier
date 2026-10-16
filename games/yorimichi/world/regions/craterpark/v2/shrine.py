@@ -22,10 +22,10 @@ SOURCE = Path(__file__).resolve().parents[4] / 'assets' / 'craterpark' / 'shrine
 # slug: (material, size in metres, what the size measures). The models stand with y up, their front along +x and
 # their width along z (Tripo's frame); `width` is the larger plan side.
 MODELS = {
-    'bell_pavilion': ('material_046', 7.0, 'width'),
-    'stone_lantern': ('material_047', 2.4, 'height'),
-    'torii': ('material_048', 7.5, 'height'),
-    'nobori': ('material_049', 4.8, 'height'),
+    'bell_pavilion': ('material_046', 10.5, 'width'),
+    'stone_lantern': ('material_047', 3.4, 'height'),
+    'torii': ('material_048', 12.0, 'height'),
+    'nobori': ('material_049', 7.0, 'height'),
 }
 MATERIALS = tuple(m for m, _, _ in MODELS.values())
 

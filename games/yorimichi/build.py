@@ -635,10 +635,13 @@ def world_steps(ctx):
         # Keep the old build order; track tree metadata read by the imported treehouse layout directly.
         Step('world.zeppelin', [Blender(REGIONS / 'zeppelin' / 'build.py', threads=2)],
              inputs=[REGIONS / 'zeppelin', REGIONS / 'village' / 'build.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
+                     ASSETS / 'belmonte' / 'source.json',
+                     *(ASSETS / 'belmonte' / entry['path'] for entry in json.loads((ASSETS / 'belmonte/source.json').read_text())['meshes']
+                       if entry['name'].startswith('SM_BM_BT_Terrain_')),
                      REGIONS / 'megapark' / 'gate.py', ASSETS / 'megapark' / 'map.json',
                      ASSETS / 'megapark' / 'geometry', ASSETS / 'megapark' / 'collision'],
              needs=['world.layout', 'world.treehouse_trees'], after=['world.hidamari'],
-             outputs=[out / 'zeppelin' / 'manifest.json'], about='airship and its three stations', heavy=True),
+             outputs=[out / 'zeppelin' / 'manifest.json'], about='airship and its four stations', heavy=True),
         digest_step(out, 'world.zeppelin', 'meshes', 'the zeppelin meshes unreal.world reads', out / 'zeppelin', ['manifest.json', 'assets']),
         Step('world.hidamari_textures', [Python(TOOLS / 'hidamari_textures.py', ('finish',))],
              inputs=[TOOLS / 'hidamari_textures.py', TOOLS / 'treehouse_textures.py', ASSETS / 'hidamari' / 'textures'],

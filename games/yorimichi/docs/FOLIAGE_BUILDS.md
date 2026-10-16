@@ -22,15 +22,42 @@ auto-numbered collision data-block names in nine trunk FBXs while preserving UCX
 All 100 split files were byte-identical across repeated exports, another directory and reversed asset order in a
 fresh process. The later explicit native-collision policy changed 18 manifests; all 82 FBXs retained those exact
 bytes. A byte-pattern scan found no common local-path prefixes. Helper/texture/shader edit boundaries, reversed
-native action order, corrupt source/native output repair, missing native output repair, world preservation,
-loading and cooking remain acceptance gates.
+native action order, corrupt or missing native output repair, world preservation, loading and cooking remain
+acceptance gates. Both missing and corrupt generated-FBX repairs passed for the earlier 64-mesh catalogue;
+these do not certify native-package repair or the 74-mesh catalogue.
 Source `cache=True` and automatic native package caching stay disabled.
 
 **Current-main integration:** the ten tree specifications now preserve main's additional LOD4, screen-size cadence,
 card coverage and interior-branch reductions. This changes the source catalogue from 64 to 74 mesh records.
 The retained measurements above describe the earlier catalogue; they do not certify these new LODs or the combined
-current source. Offline policy and ownership checks cover the integration. A fresh source/native equivalence run
-against the updated main baseline is still required before merging the pilot or enabling either cache.
+current source. The later October 15 source proof compared legacy `65d9085d` with split `bd2e76ea`: all
+74 source mesh records matched, with 222 serialized-geometry comparisons across three split rounds. Each round produced the same
+110 owned files, including a fresh-process reversed-order run. The legacy export's 124 auxiliary texture copies
+were checked separately against pinned material recipes and controlled texture bytes; missing, changed or
+unexpected copies failed the comparison. The five exporter/catalogue modules remain byte-identical at `fb42b784`;
+that observation does not extend the proof to every current input, Blender version or native package.
+
+**Native geometry validation (October 16):** at clean `3e66db03`, a fresh Unreal 5.8.2 comparison matched all
+18 assets and 74 LOD levels. The control used the retained legacy source exports and unchanged import functions
+from `65d9085d`, with the current project's shared materials. Before the normal candidate build, its temporary
+packages were removed by verified restoration of all 7,544 original Content files; source, configuration and
+stamps stayed unchanged. The ordinary material and 18-owner build then ran 20 of 63 selected steps in a
+builder-reported 66s, including its queue wait; the native import batch lived 34s. A subsequent ordinary no-op
+took 3s externally, ran no steps and created no guards.
+
+The comparison checked every native LOD's triangles, vertices, UVs, material sections, screen sizes, bounds and
+build settings, plus material bindings, collision geometry/counts/trace flags and the inspected runtime flags.
+Every exported FBX's serialized render and collision geometry matched, with complete LOD model inventories and
+unchanged package bytes during both read-only exports. This proves geometry/LOD migration parity with the pinned
+legacy import logic under the **current shared materials**, not equivalence to a historical shipped package or
+its shader graphs. FBX headers, global settings and material/texture object bodies are outside this comparison;
+distance-field and card generation were disabled during import/export and are not certified by it.
+
+PR #244 is merged, and the 74-mesh source and scoped native geometry proofs are complete at their stated pins.
+Helper/texture/shader edit boundaries, current-catalogue package repair, reversed native action order, world
+preservation, loading and cooking remain integration gates. The earlier 64-mesh edit/repair trials do not certify
+those cases for the extra LODs. Complete the remaining checks before claiming full migration acceptance or enabling
+either cache. A successful ordinary game build is useful integration evidence, but does not replace these checks.
 
 ## Edit one asset
 
@@ -43,13 +70,32 @@ uv run atelier build yorimichi unreal.foliage.Tree_Maple_A --plan --explain
 nice -n 10 uv run atelier build yorimichi unreal.foliage.Tree_Maple_A
 ```
 
-Use normal render-board admission before the second command. The selector builds prerequisites and only the
+In full capacity mode, run the second command with `ATELIER_AGENT=OWNER` and `ATELIER_CAPACITY_CLIENT` unset.
+The broker and guards handle admission; no coordinator message or manual handoff is required. In legacy mode,
+follow the machine's render-board turn ledger. The selector builds prerequisites and only the
 selected tree's source/native owner. `world.foliage_lods` selects all exports; `unreal.foliage` selects all imports.
 An ordinary `atelier build yorimichi` includes the library and the final content/network data assembly.
 
 An existing Interchange-imported mesh first passes through its owned FBX seed to establish legacy import data.
 The final pass then applies the declared metre-to-centimetre settings while preserving the package object and
 path. Bounds are checked before importing LODs and again after assembly; a failed migration stays uncertified.
+
+Missing mesh packages rebuild through their ordinary owner. Before the editor starts, a preflight in the
+admitted guarded child preserves a LOD0 mesh package with an invalid UE file tag. It verifies the exact
+`.uasset` and optional `.uexp`/`.ubulk` bytes under
+`build/yorimichi/logs/foliage-repair/<name>/`, with a receipt, then atomically moves the originals into that private
+folder for fresh import. The `claimed-*` originals remain alongside their verified copies; no package is unlinked.
+Each claimed file must still match its pinned identity and copied bytes. A concurrent replacement is retained
+and refuses the import, with the claim intent and outcome in the receipt; no destination is overwritten.
+Content and the build logs must be on the same volume for the atomic move; a different volume refuses safely.
+The preflight uses file IO in fresh Python, then execs the unchanged editor command with the same PID and guards;
+every selected batch owner is prepared before that one editor starts. It never imports Unreal or starts
+another native process. Linked files, changed batch plans and concurrent edits refuse the repair; damage
+that appears after preparation fails in the importer. A valid file tag does not prove a valid body:
+deeper corruption and invalid-header LOD1+ mesh packages still fail normally. No failure restores old certificates or
+certifies a partial replacement. Fresh imports explicitly retain the legacy lightmap resolution 4 and UV channel 0.
+If a later batch owner's preparation fails, earlier preserved packages stay missing with their bytes retained;
+the next ordinary build rebuilds those owners instead of restoring their old certificates.
 
 `import_trunk_collision` is an explicit native policy, separate from the FBX's authored UCX geometry and the
 `collision` trace flag. Every current specification disables it: the read-only native baseline measured zero
@@ -99,9 +145,10 @@ Independent export/import misses can share a guarded process. Blender resets its
 assets; Unreal scripts read their per-action environment inside `main()`. Every asset keeps its own key, validation
 and success stamp. A failed later action leaves earlier verified work available for the next invocation.
 
-The session uses the normal BIG lock and 10 GiB guard, measured growth, and a 240-second between-action budget.
-Exit 75 (`BATCH YIELDED`) saves the completed prefix and prints the resume command. Check Waiting and hand off
-before resuming without `--force`, keeping the original first-ready age. `--plan` shows the remaining actions as
+The session uses normal broker admission in full capacity mode (the BIG lock in legacy mode), a 10 GiB guard,
+measured growth, and a 240-second between-action budget. Exit 75 (`BATCH YIELDED`) saves the completed prefix
+and prints the resume command. Resume normally without `--force`; full mode needs no handoff, while legacy mode
+follows Waiting and keeps the original first-ready age. `--plan` shows the remaining actions as
 `run`. Full logs and guard telemetry are under `logs/batch.<id>.*`; individual action logs and stamps remain.
 Session logs and `.state/batches/<id>` receipts are local diagnostics; prune completed sessions with routine log
 maintenance after retaining needed evidence. They are excluded from whole-build reuse and artifact publication.

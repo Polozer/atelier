@@ -34,7 +34,10 @@ def shipped(tmp_path_factory):
     if shutil.which('node') is None:
         pytest.skip('editor compiler needs Node.js')
     doc = json.loads((APP / 'shipped.json').read_text())
-    boosts = boosted_ids(doc)
+    # a boosted decal bowl (the Prado) is cut into its own graphics: test_craterpark_editor_prado
+    decals = {p['id'] for p in doc['pieces'] for key in eg.DECALS
+              if p['type'] == 'bowl' and key in (p.get('name') or '')}
+    boosts = boosted_ids(doc) - decals
     lines = {p['line'] for p in doc['pieces'] if p['id'] in boosts}
     chosen = eg.select(doc, lines)
     tmp = tmp_path_factory.mktemp('boost')
@@ -45,8 +48,6 @@ def shipped(tmp_path_factory):
     params = {p['id']: p.get('params') or {} for p in chosen['pieces']}
     for piece in pieces:
         piece.metadata['params'] = params[piece.metadata['id']]
-    decals = {p['id'] for p in chosen['pieces'] for key in eg.DECALS
-              if p['type'] == 'bowl' and key in (p.get('name') or '')}
     parts = {p.metadata['id']: eg.piece_mesh(p) for p in pieces if p.metadata['id'] not in decals}
     return types.SimpleNamespace(doc=doc, boosts=boosts, pieces={p.metadata['id']: p for p in pieces}, parts=parts)
 
@@ -58,7 +59,7 @@ def plain(piece):
 
 
 def test_the_shipped_boost_zones_are_the_flow_bowl_and_both_u_turns(shipped):
-    assert shipped.boosts == {'p45', 'p47', 'p51'}
+    assert shipped.boosts == {'p45', 'p47', 'p51'} and boosted_ids(shipped.doc) == shipped.boosts | {'p5'}
     assert all(eb.boosted(shipped.pieces[i]) for i in shipped.boosts)
 
 
@@ -206,7 +207,9 @@ def test_a_future_boosted_straight_run_gets_the_look_automatically():
 def test_the_paints_are_registered_after_every_older_material():
     import craterpark_textures as ct
     assert dsl.MATERIALS.index('coping_steel') == 46, 'older material indices never move'
-    assert dsl.MATERIALS[-4:] == eb.PAINTS
+    from craterpark.v2 import editor_prado as ep
+    i = dsl.MATERIALS.index(eb.PAINTS[0])
+    assert dsl.MATERIALS[i:i + 4] == eb.PAINTS and dsl.MATERIALS[i + 4:] == ep.PAINTS
     specs = {m['id']: m for m in json.loads((GAME / 'assets' / 'craterpark' / 'materials.json').read_text())}
     for name in (eb.MAGENTA, eb.YELLOW, eb.SUN):
         spec = specs[name]

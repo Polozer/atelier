@@ -7,7 +7,7 @@ from mathutils import Matrix
 ROOT=yori.REGIONS
 from village import build as v
 from village.layout import upper_surface
-from zeppelin.layout import STATIONS,MESHES,PARK_WALK,PARK_BRIDGE,DECK_EDGE,PROPELLER_CENTERS,PROPELLER_RADIUS
+from zeppelin.layout import STATIONS,MESHES,PARK_WALK,PARK_BRIDGE,DECK_EDGE,PROPELLER_CENTERS,PROPELLER_RADIUS,belmonte_path
 M=v.Mesh;OUT=yori.OUT/'zeppelin';R=random.Random(980)
 CREAM=(.68,.61,.46);SAGE=(.19,.245,.14);GOLD=(.50,.32,.09);WOOD=(.18,.075,.026);PLANK=(.32,.17,.067);DARK=(.055,.027,.012);STONE=(.25,.25,.22)
 
@@ -180,6 +180,9 @@ def station(index,h):
   if index==2:
    from hidamari.layout import north_height
    return float(north_height(x+ox,y+oy))-oz
+  if index==3:
+   from belmonte import layout as bm_layout,source as bm_source
+   return float(bm_source.terrain().height(x+ox-bm_layout.ORIGIN[0],y+oy-bm_layout.ORIGIN[1])+bm_layout.ORIGIN[2])-oz
   return float(upper_surface(h,x+ox,y+oy))-oz
  with m.at(s['origin']):
   # Detailed ticket hut; its front sill and every furnishing share the slab datum.
@@ -222,7 +225,7 @@ def station(index,h):
   for xx in np.arange(-10,11,1.):
    for yy in np.arange(-8.8,-5.1,1.):
     z=ground(float(xx),float(yy));top=.03
-    m.box((float(xx)+.5,float(yy)+.5,(top+min(z-.2,-.2))/2),(1.,1.,top-min(z-.2,-.2)),tuple(c*R.uniform(.97,1.03) for c in (STONE if index==1 else (.23,.15,.075))))
+    m.box((float(xx)+.5,float(yy)+.5,(top+min(z-.2,-.2))/2),(1.,1.,top-min(z-.2,-.2)),tuple(c*R.uniform(.97,1.03) for c in (STONE if index in (1,3) else (.23,.15,.075))))
   # A continuous small staircase, with ten 16.5cm rises, leads to the boarding pier.
   for k in range(10):
    top=(k+1)*.165;y=-7.9+k*.49
@@ -266,6 +269,7 @@ def station(index,h):
    m.beam((x,-2.86,3.37),(x,-3.03,3.37),.08,.08,WOOD)
    v.lantern(m,x,-3.03,2.95,.42)
  if index==2:park_walk(m,oz)
+ if index==3:belmonte_walk(m)
  return m
 
 def park_walk(m,z):
@@ -301,6 +305,20 @@ def park_walk(m,z):
    m.box((x,y+side*.98,z+(bottom-.06)/2),(.2,.2,-.06-bottom),WOOD)
    m.box((x,y+side*.98,z+bottom+.25),(.5,.5,.5),STONE,.04)
   rail(m,(b0+.2,y+side*1.08),(b1-.3,y+side*1.08),top)
+
+def belmonte_walk(m):
+ from belmonte import layout as bm_layout,source as bm_source
+ surf=bm_source.terrain();path=belmonte_path()
+ d=np.gradient(path,axis=0);d/=np.linalg.norm(d,axis=1)[:,None];n=np.column_stack([-d[:,1],d[:,0]])
+ for i in range(len(path)-1):
+  p=[]
+  for k,side in [(i,-1),(i+1,-1),(i+1,1),(i,1)]:
+   q=path[k]+n[k]*1.3*side
+   z=float(surf.height(q[0]-bm_layout.ORIGIN[0],q[1]-bm_layout.ORIGIN[1])+bm_layout.ORIGIN[2])+.035
+   p.append((float(q[0]),float(q[1]),z))
+  m.poly(p,STONE)
+  for a,b in [(p[0],p[1]),(p[2],p[3])]:
+   m.poly([(a[0],a[1],a[2]-.18),(b[0],b[1],b[2]-.18),b,a],STONE)
 
 def gangway():
  m=M('ZP_Gangway')

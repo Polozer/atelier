@@ -67,6 +67,7 @@ struct ATELIERSKATE_API FSkateFeel
     // Camera.
     float CameraDistance = 1.f;                  // (0.6..1.6)
     float CameraFOV = 0.f;                       // degrees added to the skate camera's (-20..20)
+    float CameraPullback = 0.f;                  // farther back at speed: +this of the distance from 45 m/s (0..1.5)
 
     /** USkateSettings' values and the stock feel. */
     static FSkateFeel Defaults();
