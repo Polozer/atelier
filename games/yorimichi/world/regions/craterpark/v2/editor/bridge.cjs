@@ -22,6 +22,8 @@ function number(x, where) {
 // Optional parameters the editor reads but does not put in its type defaults (see the editor README).
 const EXTRA = { run: ['corner', 'vert_assist_max', 'shift', 'boost'], jump: ['vert_assist_max', 'wl', 'wr', 'deck'], kicker: ['vert_assist_max', 'wl', 'wr', 'deck'], landing: ['wl', 'wr', 'deck'], bowl: ['ext', 'deep', 'spines', 'exit_wl', 'exit_wr', 'boost'], deck: ['outline'] };
 const WALL_EXTRA = ['level'];
+// The wall overrides those extras carry ({h, R}, as a run's walls) are validated as walls, so an unknown field fails.
+const WALL_OVERRIDES = ['wl', 'wr', 'exit_wl', 'exit_wr'];
 function validate(park) {
   keys(park,['schema','about','frame','terrain','lines','pieces','rev','saved_at','notes'], 'park');
   if(park.schema!=='craterpark-editor/1') throw Error('unsupported editor schema');
@@ -45,7 +47,8 @@ function validate(park) {
           if(!Array.isArray(q)||(q.length!==2&&q.length!==4)) throw Error(`${at}: expected [u,v] or [u,v,top,under] points`);
           q.forEach(n=>number(n,at));
         }
-      } else if(d===undefined) { if(v===null||!['object','boolean','number'].includes(typeof v)) throw Error(`${at}: unexpected value`); }
+      } else if(d===undefined && WALL_OVERRIDES.includes(k)) params(v,P.TYPES.run.defaults.wl,at,WALL_EXTRA);
+      else if(d===undefined) { if(v===null||!['object','boolean','number'].includes(typeof v)) throw Error(`${at}: unexpected value`); }
       else if(d && typeof d==='object') params(v,d,at,WALL_EXTRA);
       else if(k==='width_end' && (v===null||v==='')) continue;
       else if(k==='template' && v===null) continue;   // the editor clears it when a template's value is edited (custom)

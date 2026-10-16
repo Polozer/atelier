@@ -137,6 +137,16 @@ def test_rejects_unknown_and_broken_designs(mutate, message):
     assert result.returncode != 0 and message in result.stderr
 
 
+@pytest.mark.parametrize('kind,key', [('jump', 'wl'), ('kicker', 'wr'), ('landing', 'wl'), ('bowl', 'exit_wr')])
+def test_wall_overrides_without_defaults_are_validated_as_walls(kind, key):
+    doc = document([piece(kind)])
+    doc['pieces'][0].setdefault('params', {})[key] = {'h': 3, 'R': 3}
+    assert validate(doc).returncode == 0
+    doc['pieces'][0]['params'][key]['unknown_wall_parameter'] = 123
+    result = validate(doc)
+    assert result.returncode != 0 and 'unknown parameter' in result.stderr
+
+
 def test_changed_snapshot_or_live_geometry_fails_closed(tmp_path):
     path = inputs(tmp_path, document([piece('run')]))
     (path.parent / 'pieces.js').write_text('changed geometry')
