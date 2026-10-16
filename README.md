@@ -374,16 +374,6 @@ in review; semantic findings are advisory and must be addressed with a fix or ex
 | `atelier capacity history GUARD_DIRECTORY [--json]` | [inspect retained process memory histories](docs/BUILD_CAPACITY.md#inspect-retained-resource-history) without launching work |
 | `atelier capacity serve CONFIG` / `status SOCKET` / `supervise CONFIG` | [configure and inspect resource admission](docs/BUILD_CAPACITY.md); machine activation is explicit |
 
-**Tests.** Hosted CI runs all Python tests on each PR head in three isolated macOS jobs: board, other studio,
-and games. Each uses normal pytest collection; new tests automatically belong to one group. All three must
-pass for the `Studio Python / macOS` merge check. Rust dependencies are cached from successful main builds;
-PRs only restore them, and the board server must compile successfully before its tests run. Each job retains
-its collected test list, JUnit results and slowest-test timings for diagnosis. Superseded PR runs are cancelled.
-Locally, run the tests affected by your change, for example `uv run pytest platform/studio/tests/test_build.py -q`;
-avoid repeating the full suite when CI already covers it. In-game checks use QA scenarios through the live bridge;
-with a local stream, the phone smoke tests in
-`games/yorimichi/phone/` and `platform/web/stream/player-smoke.mjs` run in a browser.
-
 ## Made with Atelier: Yorimichi
 
 Yorimichi (寄り道, "a detour on the way home") is a painterly Japanese island: walk, climb, swim and glide through a
