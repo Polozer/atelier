@@ -149,12 +149,12 @@ def test_a_fresh_target_reuses_a_cutoff_step_and_its_dependents(tmp_path, missin
         return [build.Step('digest', [], inputs=inputs, outputs=[ctx.out / 'digest.txt'], cutoff=True),
                 build.Step('import', [], needs=['digest'], outputs=[ctx.uproject.parent / 'Content/Result.uasset'])]
 
-    def inspect(repo, game):
+    def inspect(repo, game, donor=None):
         nonlocal current
         current = repo
         out = io.StringIO()
         with patch.object(paths, 'REPO', current), contextlib.redirect_stdout(out):
-            exec("GAME='standin'\n" + reuse.INSPECT, {})
+            exec("GAME='standin'\n" + ('DONOR=' + repr(json.dumps(donor)) + '\n' if donor is not None else '') + reuse.INSPECT, {})
         return json.loads(out.getvalue())
 
     with patch.object(build, 'Context', context), patch.object(build, 'load_recipe', lambda game: SimpleNamespace(steps=steps)), \

@@ -33,10 +33,13 @@ def git(repo, *args):
     return subprocess.check_output(['git', '-C', str(repo), *args], text=True).strip()
 
 
-def inspect(repo, game):
+def inspect(repo, game, donor=None):
+    """One checkout's step snapshot. donor: {step: source_inputs} from a donor snapshot, for a receiver
+    whose deferred memberships depend on generated files it does not have yet (see deferred_memberships)."""
     env = dict(os.environ)
     env.pop('ATELIER_BUILD_ROOT', None)
-    script = 'import sys\nsys.path.insert(0, ' + repr(str(repo / 'platform/studio')) + ')\nGAME=' + repr(game) + '\n' + INSPECT
+    script = ('import sys\nsys.path.insert(0, ' + repr(str(repo / 'platform/studio')) + ')\nGAME=' + repr(game) + '\n'
+              + ('DONOR=' + repr(json.dumps(donor)) + '\n' if donor is not None else '') + INSPECT)
     return json.loads(subprocess.check_output([sys.executable, '-c', script], cwd=repo, env=env, text=True))
 
 
@@ -70,6 +73,11 @@ def _inputs(snapshot):
 def _products(snapshot):
     """Include leaves: their bytes need not appear in any consumer's fingerprint."""
     return [(s['name'], s.get('products', {})) for s in snapshot['steps']]
+
+
+def deferred_memberships(snapshot):
+    """The non-copied deferred input paths each step observed, for the receiver's pre-copy comparison."""
+    return {s['name']: s['source_inputs'] for s in snapshot['steps'] if 'source_inputs' in s}
 
 
 def differing_sources(source, target):
@@ -232,7 +240,7 @@ def _copy(game, source, target=None, *, operation_id):
     if json.loads(engine_modules.read_text())['BuildId'] != json.loads(game_modules.read_text())['BuildId']:
         raise ValueError('Compiled game and installed engine build IDs differ')
     print('Inspecting receiving checkout', flush=True)
-    dest_before = inspect(target, game)
+    dest_before = inspect(target, game, deferred_memberships(before))
     if before['build_version'] != dest_before['build_version'] or before['engine'] != dest_before['engine']:
         raise ValueError('Source and target must use the same installed engine')
     if differ := differing_sources(before, dest_before):
@@ -261,8 +269,12 @@ def _copy(game, source, target=None, *, operation_id):
         print(f'Copying {item.relative_to(source)}', flush=True)
         copy_tree(item, target / item.relative_to(source), source, target, clone)
     print('Verifying copied inputs and products in both checkouts', flush=True)
+    # The receiver's own deferred observations now see the copied generated files.
     after = inspect(target, game)
     donor_after = inspect(source, game)
+    if differ := differing_sources(before, after):
+        raise ValueError('Receiver source inputs differ after copying; target stamps have not been created: '
+                         + ', '.join(differ))
     if _inputs(before) != _inputs(after) or _inputs(before) != _inputs(donor_after):
         raise ValueError('Inputs changed during copying; target stamps have not been created')
     if _products(before) != _products(after) or _products(before) != _products(donor_after):

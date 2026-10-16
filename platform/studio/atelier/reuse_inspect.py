@@ -17,7 +17,30 @@ def excluded(name):
     return name in EXCLUDED or name.startswith('.restore-') or name.endswith('.tmp')
 
 
-def inspect_game(game):
+def portable_path(path):
+    """A path's checkout-independent spelling, as fingerprints spell command and deferred paths."""
+    text = str(path)
+    return text.replace(str(build.paths.build_root()), '<build>').replace(str(build.paths.REPO), '<repo>')
+
+
+def local_path(text):
+    return Path(text.replace('<build>', str(build.paths.build_root())).replace('<repo>', str(build.paths.REPO)))
+
+
+def donor_membership(own, known, copied):
+    """@cc [owner:fontanierh,label:correctness] donor-deferred-membership
+    A receiver without the donor's generated files MUST compare its own bytes at the donor's observed
+    non-copied deferred paths. Only membership comes from the donor, never an identity. A receiver path
+    the donor did not observe, or a donor path that would be copied, MUST keep the receiver's own
+    observation so the source comparison refuses.
+    """
+    paths, members = tuple(map(local_path, known['paths'])), tuple(map(local_path, known['members']))
+    if any(copied(p) for p in paths) or not set(map(portable_path, own.paths)) <= set(known['paths']):
+        return own
+    return replace(own, paths=paths, members=members)
+
+
+def inspect_game(game, donor=None):
     ctx = build.Context(game)
     raw_hash_path = build._hash_path
     tools, input_index = {}, None
@@ -87,10 +110,16 @@ def inspect_game(game):
                 products = build_products.records(step)
             except (OSError, ValueError) as error:
                 problem = str(error)
-        observation = None
+        observation = source_observation = None
         if getattr(step, 'deferred_inputs', ()):
             from atelier.build_deferred import observe
             observation = observe(step)
+            source_observation = observation.excluding(copied)
+            # A collector may read its membership from generated files the receiver gets only by
+            # copying. Before the copy, compare this checkout's bytes at the donor's observed paths;
+            # after the copy the caller re-inspects with the receiver's own observation.
+            if donor is not None and step.name in donor:
+                source_observation = donor_membership(source_observation, donor[step.name], copied)
         value = fingerprint(step, done, observation)
         verified = portable(step, compared, observation)
         own_inputs = {'inputs': [p for p in step.inputs if not copied(p)]}
@@ -101,7 +130,7 @@ def inspect_game(game):
             # replace does not copy init=False fields. Keep this already-resolved immutable
             # selection while comparing source identities with copied generated inputs removed.
             own._query_bindings = step._query_bindings
-        source = portable(own, sources, observation.excluding(copied) if observation is not None else None)
+        source = portable(own, sources, source_observation)
         sources[step.name] = source
         # A fresh checkout lacks products. Compare the source identity of each producer here;
         # the full byte identities are compared after copying, before any stamp is installed.
@@ -118,6 +147,9 @@ def inspect_game(game):
         done[step.name], compared[step.name] = made or value, made or verified
         entry = dict(name=step.name, fingerprint=value, verified_fingerprint=verified,
                      source=source, stamp=stamp, outputs_ok=outputs_ok, made=made)
+        if source_observation is not None:
+            entry['source_inputs'] = {'paths': [portable_path(p) for p in source_observation.paths],
+                                      'members': [portable_path(p) for p in source_observation.members]}
         if named:
             build_products.feed_results(done, products)
             build_products.feed_results(compared, products)
@@ -129,4 +161,4 @@ def inspect_game(game):
 
 
 if 'GAME' in globals():
-    print(json.dumps(inspect_game(GAME)))
+    print(json.dumps(inspect_game(GAME, json.loads(globals().get('DONOR') or 'null'))))
