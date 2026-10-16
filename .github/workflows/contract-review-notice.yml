@@ -16,7 +16,10 @@ concurrency:
 
 jobs:
   notice:
-    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request
+    # The paid job owns its accepted-request refresh; do not race it with an early warning.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request && github.event.comment.body != 'r? cc')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
