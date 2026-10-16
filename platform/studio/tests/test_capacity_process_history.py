@@ -357,3 +357,43 @@ def test_archive_path_replacement_during_same_fd_validation_refuses(actor, monke
     with pytest.raises(wire.CapacityError, match='archive differs'):
         history.encode_state(actor.directory, original)
     assert original['records']['request']['roster']
+
+
+@pytest.mark.parametrize('terminal', [False, True])
+@pytest.mark.parametrize('damage', [None, 'epoch', 'boot', 'child', 'admission', 'state', 'both'])
+def test_completion_reply_is_fenced_and_never_acknowledges_process_deltas(monkeypatch, terminal, damage):
+    def respond(message, _):
+        reply = dict(state='released' if terminal else 'uncertain', admission=False, epoch=7, boot_id='boot', child=[10,100])
+        reply['terminal' if terminal else 'finish_required'] = True
+        reply.update({'epoch': {'epoch': 8}, 'boot': {'boot_id': 'wrong'}, 'child': {'child': [11,100]},
+                      'admission': {'admission': True}, 'state': {'state': 'running'},
+                      'both': {'terminal': True, 'finish_required': True}}.get(damage, {}))
+        return reply
+    session, calls = admitted(monkeypatch, respond)
+    session.child = (10,100)
+    if damage is not None:
+        with pytest.raises(wire.CapacityError, match='invalid or fenced'):
+            session.check(descendants=[(11,110)])
+    else:
+        response = session.check(descendants=[(11,110)])
+        assert response['admission'] is False
+    assert session._acknowledged == set() and len(calls) == 1
+
+
+def test_terminal_retransmission_survives_released_history_compaction(actor, monkeypatch):
+    fields = begin(actor)
+    send(actor, 'check', descendants=[[101,1010]], **fields)
+    for watch in actor._watches.values(): watch.exited = True
+    state = actor._load()
+    state['records']['helpers']['state'] = 'uncertain'
+    actor._save(state)
+    monkeypatch.setattr(history, 'TARGET_STATE', 1)
+    first = send(actor, 'check', descendants=[[101,1010]], **fields)
+    assert first['terminal'] is True and first['admission'] is False
+    compacted = read_state(actor)['records']['helpers']
+    assert 'roster' not in compacted and compacted['terminal_observed'] == [[101,1010]]
+    again = send(actor, 'check', descendants=[[101,1010]], **fields)
+    assert again['terminal'] is True and again['admission'] is False
+    with pytest.raises(wire.CapacityError, match='unretained process identities'):
+        send(actor, 'check', descendants=[[102,1020]], **fields)
+    assert read_state(actor)['records']['helpers']['state'] == 'released'

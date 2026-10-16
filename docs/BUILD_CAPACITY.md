@@ -636,6 +636,22 @@ explicit scope and expiry; agents cannot assign themselves a priority that defea
 
 ## Failure and recovery
 
+A guard can finish naturally while its controller is sending the last heartbeat. One shutdown-only
+reconciliation waits at most half a second for the positive root event or aggregate publication,
+keeping the reservation charged throughout. A fresh, bound,
+empty aggregate terminal receipt can now return `finish_required` with `admission: false` while
+the reservation remains charged. This is an instruction to finish checking the current child,
+not permission to continue running or launch another one. The controller must wait for its exact
+owned child within two seconds, wait naturally at most three seconds for a successful process guard
+exit, pass both final guards, obtain a fenced terminal response backed
+by positive release evidence, and complete normal affirmative close. An already released request
+can return that terminal response directly. Neither response acknowledges process batches or
+certifies build outputs. Validated new process observations are retained even on an unhealthy
+heartbeat; a released request refuses unknown new identities. At most one bounded final batch is
+retained for terminal retransmission across audit compaction; it cannot grant or release capacity.
+A surviving child, failed guard, stale/mismatched terminal receipt, expired lease,
+seal loss, broker restart or transport failure still fails; never bypass it or clear the record.
+
 Heartbeat expiry alone never releases a live job's reservation. Pin process identities and retain ownership of
 surviving descendants. On launcher/service failure, preserve guards, stop new admission, reconstruct live leases
 and reconcile named locks before resuming. A restarted service fences stale clients from making new grants;

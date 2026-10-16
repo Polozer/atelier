@@ -184,17 +184,27 @@ class AdmissionSession:
         if response.get('epoch') != self.epoch or response.get('boot_id') != self.boot:
             raise CapacityError('Capacity process acknowledgement was fenced')
         if response.get('state') not in ('running', 'draining') or response.get('admission') is not True:
-            raise CapacityError('Capacity grant is no longer healthy')
+            state = response.get('state') if response.get('state') in ('uncertain', 'released', 'waiting', 'queued') else 'invalid'
+            raise CapacityError('Capacity grant is no longer healthy (' + state + ')')
 
     def check(self, *, descendants=()):
         """@cc [owner:fontanierh,label:safety] acknowledged-process-deltas
         Every observed identity MUST be registered in discovery order. Only a healthy fenced
         acknowledgement MAY suppress retransmission; failed batches MUST remain pending.
+        A fenced completion observation MUST NOT acknowledge a batch or authorize more work.
         """
         pending = self._pending(descendants)
         for index in range(0, max(1, len(pending)), wire.MAX_ROSTER):
             batch = pending[index:index + wire.MAX_ROSTER]
             response, _ = self._call('check', descendants=[list(pin) for pin in batch])
+            if response.get('terminal') is True or response.get('finish_required') is True:
+                if (response.get('epoch') != self.epoch or response.get('boot_id') != self.boot
+                        or (response.get('terminal') is True and response.get('finish_required') is True)
+                        or response.get('admission') is not False or self.child is None
+                        or wire.identity(response.get('child')) != self.child
+                        or response.get('state') != ('released' if response.get('terminal') is True else 'uncertain')):
+                    raise CapacityError('Capacity completion observation is invalid or fenced')
+                return response  # No healthy acknowledgement, process-delta ACK or permission to keep running.
             self._healthy(response)
             self._acknowledged.update(batch)
         return response
