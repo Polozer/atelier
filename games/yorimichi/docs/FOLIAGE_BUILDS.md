@@ -22,15 +22,25 @@ auto-numbered collision data-block names in nine trunk FBXs while preserving UCX
 All 100 split files were byte-identical across repeated exports, another directory and reversed asset order in a
 fresh process. The later explicit native-collision policy changed 18 manifests; all 82 FBXs retained those exact
 bytes. A byte-pattern scan found no common local-path prefixes. Helper/texture/shader edit boundaries, reversed
-native action order, corrupt source/native output repair, missing native output repair, world preservation,
-loading and cooking remain acceptance gates.
+native action order, corrupt or missing native output repair, world preservation, loading and cooking remain
+acceptance gates. Both missing and corrupt generated-FBX repair have passed in the earlier catalogue.
 Source `cache=True` and automatic native package caching stay disabled.
 
 **Current-main integration:** the ten tree specifications now preserve main's additional LOD4, screen-size cadence,
 card coverage and interior-branch reductions. This changes the source catalogue from 64 to 74 mesh records.
 The retained measurements above describe the earlier catalogue; they do not certify these new LODs or the combined
-current source. Offline policy and ownership checks cover the integration. A fresh source/native equivalence run
-against the updated main baseline is still required before merging the pilot or enabling either cache.
+current source. The later October 15 source proof compared legacy `65d9085d` with split `bd2e76ea`: all
+74 source mesh records matched, with 222 serialized-geometry comparisons across three split rounds. Each round produced the same
+110 owned files, including a fresh-process reversed-order run. The legacy export's 124 auxiliary texture copies
+were checked separately against pinned material recipes and controlled texture bytes; missing, changed or
+unexpected copies failed the comparison. The five exporter/catalogue modules remain byte-identical at `fb42b784`;
+that observation does not extend the proof to every current input, Blender version or native package.
+
+PR #244 is merged. Its 74-mesh **source** proof is complete at those pins; native equivalence for the 74-mesh
+catalogue remains open. The earlier 64-mesh native comparison and edit/repair trials do not certify the extra
+LODs. Run a fresh native baseline/candidate comparison and the remaining integration checks before claiming
+complete migration acceptance or enabling either cache. A successful ordinary game build is useful integration
+evidence, but does not replace a controlled comparison of these assets.
 
 ## Edit one asset
 
@@ -43,7 +53,9 @@ uv run atelier build yorimichi unreal.foliage.Tree_Maple_A --plan --explain
 nice -n 10 uv run atelier build yorimichi unreal.foliage.Tree_Maple_A
 ```
 
-Use normal render-board admission before the second command. The selector builds prerequisites and only the
+In full capacity mode, run the second command with `ATELIER_AGENT=OWNER` and `ATELIER_CAPACITY_CLIENT` unset.
+The broker and guards handle admission; no coordinator message or manual handoff is required. In legacy mode,
+follow the machine's render-board turn ledger. The selector builds prerequisites and only the
 selected tree's source/native owner. `world.foliage_lods` selects all exports; `unreal.foliage` selects all imports.
 An ordinary `atelier build yorimichi` includes the library and the final content/network data assembly.
 
@@ -99,9 +111,10 @@ Independent export/import misses can share a guarded process. Blender resets its
 assets; Unreal scripts read their per-action environment inside `main()`. Every asset keeps its own key, validation
 and success stamp. A failed later action leaves earlier verified work available for the next invocation.
 
-The session uses the normal BIG lock and 10 GiB guard, measured growth, and a 240-second between-action budget.
-Exit 75 (`BATCH YIELDED`) saves the completed prefix and prints the resume command. Check Waiting and hand off
-before resuming without `--force`, keeping the original first-ready age. `--plan` shows the remaining actions as
+The session uses normal broker admission in full capacity mode (the BIG lock in legacy mode), a 10 GiB guard,
+measured growth, and a 240-second between-action budget. Exit 75 (`BATCH YIELDED`) saves the completed prefix
+and prints the resume command. Resume normally without `--force`; full mode needs no handoff, while legacy mode
+follows Waiting and keeps the original first-ready age. `--plan` shows the remaining actions as
 `run`. Full logs and guard telemetry are under `logs/batch.<id>.*`; individual action logs and stamps remain.
 Session logs and `.state/batches/<id>` receipts are local diagnostics; prune completed sessions with routine log
 maintenance after retaining needed evidence. They are excluded from whole-build reuse and artifact publication.
