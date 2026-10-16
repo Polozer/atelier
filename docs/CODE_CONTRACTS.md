@@ -50,11 +50,43 @@ for changed behavior; do not repeat the entire suite after successful CI or for 
 run is reserved for diagnosing a specific integration failure or unavailable CI, with the reason recorded.
 Native Unreal validation stays on a guarded machine when the change needs it; CI does not allocate render capacity.
 
-The bot starts for ready, same-repository PRs submitted by a writer, and runs again when their head changes.
-An existing status on the same head prevents another automatic paid call, including when only the base moves.
-Base-only re-reviews need an explicit `r? cc` request. Fork PRs must first be moved to a maintainer-owned
-branch for paid review. An authorized writer can comment exactly `r? cc` to request a new review after
-reconciling a failure. Do not use GitHub's “Re-run jobs” for a paid operation.
+## Requesting a paid review
+
+Paid review is **manual only**: an authorized repository writer account posts a new PR comment
+containing exactly `r? cc` when an open, same-repository code PR is ready (not a draft). Agents must request it for every
+ready code PR. Batch intermediate edits before requesting; opening, pushing, reopening or marking a PR
+ready never starts a paid call. After substantive changes to reviewed code, explicitly request another
+review of the ready revision. A resolved false positive or wording-only edit does not require another call.
+Do not edit an existing comment to trigger review, and do not use GitHub's “Re-run jobs” for a paid operation.
+Reconcile a failed or uncertain attempt before requesting another; each new request can incur a charge.
+Fork PRs must first move to a maintainer-owned branch for paid review.
+
+**Exemptions:** documentation-only, formatting-only and trivial non-code PRs need neither a paid request
+nor a missing-request warning. The lightweight reminder recognizes `.md` and `.rst` files, and PNG/JPEG/WebP/GIF
+files under `docs/`, automatically. Both sides of a rename must qualify, and the API's complete changed-file
+count must match. Unknown files, configuration and dependency changes are not automatically exempt.
+For a formatting-only or other trivial non-code change outside that set, a writer posts:
+
+```text
+cc: exempt FULL_HEAD_SHA
+Explain concretely why this revision does not change behavior.
+```
+
+Use the full current head SHA. This declaration expires on the next push, so it cannot silently exempt new
+code. Whitespace alone is not proof of unchanged behavior (Python indentation can change execution).
+Never declare behavior changes trivial. Independent peer review, contract checks and exact-head Python CI
+still apply to exempt PRs.
+
+A separate, metadata-only workflow maintains one **Paid review** PR comment. It warns on ready code PRs
+without a recorded paid review on that head or an applicable exemption. It updates on PR and comment
+changes, makes no provider call and has no provider secret. Only the current head's
+`Code contracts / review` status proves the request was accepted; arbitrary or edited request comments
+do not clear the warning. Acceptance is not review completion or approval.
+A new head without that status warns again: batch intermediate edits before requesting on the ready code,
+or declare an exact-head trivial exemption when appropriate. The paid workflow refreshes the notice after
+accepting a request; a reminder failure cannot block the paid review. A request made while draft must be
+posted again once ready. Check the status and receipt for the exact reviewed commits. The notice is advisory
+and never a required merge check. Existing pre-migration review statuses count, avoiding duplicate charges.
 
 The secret-bearing workflow runs from the trusted base and checks out its controller separately from the
 PR. The pinned upstream action supplies the checker and review prompt. PR code is data: the model gets a
@@ -76,8 +108,9 @@ Updating the upstream revision requires reviewing and updating the expected hash
 Every attempt records `atelier.ai.ledger` submission intent and uploads it **before** the provider action.
 An always-run step records completion or uncertainty and uploads the final receipt. Hard runner loss may leave
 only the submitted artifact; treat that as uncertain. Receipts are retained for 90 days. A repeated workflow
-attempt cannot submit another paid request automatically. The persistent commit status prevents resubmission
-across runners; the local ledger's exclusive creation protects its path within one run.
+attempt cannot submit another paid request automatically. Only a newly created writer request comment may
+start a fresh workflow submission; the local ledger's exclusive creation protects its path within one run.
+Automatic PR events cannot submit a paid call.
 
 ## Token usage and spend
 
@@ -118,22 +151,25 @@ are not guessed. Unknown prices remain visible. Identical copied receipts and Tr
 
 ## GitHub event policy
 
-GitHub's [default public-repository policy](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
-blocks `pull_request_target` from November 2, 2026. This bot needs a trusted base workflow with a provider secret
-and permission to post reviews. Keep its controller on `pull_request_target`: changing it to `pull_request` would
-let a same-repository PR change the secret-bearing workflow before review.
+The paid workflow runs only on `issue_comment`, whose controller comes from the default branch. Never
+change it to `pull_request`: PR code must not control a secret-bearing review job. The lightweight reminder
+uses `pull_request_target` and `issue_comment`, checks out only its trusted base controller and reads GitHub
+metadata; it never checks out or runs PR programs and has no provider credentials.
 
-The reviewed [event policy](../.github/policies/contract-review.json) allows only `pull_request_target` and
-`issue_comment`, scoped to `.github/workflows/contract-review.yml`. The workflow still checks the human writer,
-same-repository head, draft state and prior paid attempt. Other workflow paths retain their own applicable policies.
+The reviewed [paid event policy](../.github/policies/contract-review.json) allows only `issue_comment`,
+scoped to `.github/workflows/contract-review.yml`. The separate
+[reminder policy](../.github/policies/contract-review-notice.json) allows `pull_request_target` and
+`issue_comment` only for `.github/workflows/contract-review-notice.yml`. The paid workflow still checks the
+human writer, same-repository head, draft state and prior workflow attempt.
 The JSON file documents the intended repository setting; GitHub does not apply it just because it is committed.
 
 A repository administrator installs it using the [Actions policies API](https://docs.github.com/en/rest/actions/policies):
 
 ```sh
 gh api repos/{owner}/{repo}/actions/policies
-# Create only if "Contract review events" is absent; otherwise PUT its existing ID.
+# For each policy, create only if its name is absent; otherwise PUT its existing ID.
 gh api --method POST repos/{owner}/{repo}/actions/policies --input .github/policies/contract-review.json
+gh api --method POST repos/{owner}/{repo}/actions/policies --input .github/policies/contract-review-notice.json
 gh api repos/{owner}/{repo}/actions/policies/POLICY_ID
 ```
 
