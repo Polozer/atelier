@@ -159,6 +159,26 @@ def last_line(path):
         return ''
 
 
+def check_aggregate_guard(child, monitor):
+    """@cc [owner:fontanierh,label:safety] aggregate-terminal-wait-reconciliation
+    A fresh identity-bound clean aggregate exit receipt MAY precede waitpid completion.
+    Only that receipt and a nonfailed monitor permit a bounded wait for the owned child.
+    A surviving child or an unexpected monitor death MUST still fail. The normal final
+    aggregate finish and actual child return code MUST remain mandatory.
+    """
+    try:
+        monitor.check()
+    except RuntimeError:
+        if child.poll() is not None:
+            return  # The mandatory final finish below still judges the monitor's terminal result.
+        if monitor.process.poll() not in (None, 0) or not monitor.receipt('child_exited'):
+            raise
+        try:
+            child.wait(timeout=CHILD_EXIT_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError('aggregate memory guard certified exit before a surviving launcher') from None
+
+
 def check_root_guard(child, monitor, report, final=False):
     """Reconcile a clean monitor exit with the owned child's status, without leaving a live child unguarded."""
     if monitor is None:
@@ -540,13 +560,7 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                 print(f'{(spoken-started)/60:.0f} min{f" [{watched}]" if watched else ""}: {last_line(folder/"stdout.log")}', flush=True)
             check_root_guard(child, monitor, folder/'memory-health.json')
             if aggregate is not None and child.poll() is None:
-                try:
-                    aggregate.check()
-                except RuntimeError:
-                    # The launcher may have exited between the loop condition and its monitor's
-                    # final receipt. The mandatory finish check below judges that terminal result.
-                    if child.poll() is None:
-                        raise
+                check_aggregate_guard(child, aggregate)
             if deadline is not None and time.monotonic() > deadline:
                 raise SystemExit(f'child exceeded {timeout} s')
             if admission is not None and child.poll() is None:
