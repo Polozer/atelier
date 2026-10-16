@@ -678,8 +678,9 @@ def texture_steps(ctx):
 
 
 SWORDCAMP_MESHES = (
-    'SM_RoninKasa', 'SM_RoninMenpo', 'SM_RoninSode', 'SM_RoninSashimono',
-    'SM_RoninKatana', 'SM_RoninNodachi',
+    'SM_RoninKasa', 'SM_GuardJingasa', 'SM_CaptainKabuto',
+    'SM_RoninMenpo', 'SM_RoninDo', 'SM_RoninSode', 'SM_RoninSashimono',
+    'SM_RoninKatana', 'SM_RoninNodachi', 'SM_RoninWakizashi',
     'SM_CampJinmaku', 'SM_CampFirePit', 'SM_CampWeaponRack', 'SM_CampBales',
 )
 
@@ -1055,6 +1056,7 @@ def unreal_steps(ctx):
              outputs=[out / 'swordcamp' / 'import-report.json',
                       GAME / 'unreal' / 'Content' / 'SwordCamp' / 'Textures' / 'T_SwordCampAtlas.uasset',
                       GAME / 'unreal' / 'Content' / 'SwordCamp' / 'Materials' / 'M_SwordCamp.uasset',
+                      GAME / 'unreal' / 'Content' / 'SwordCamp' / 'Materials' / 'M_RoninBody.uasset',
                       *(GAME / 'unreal' / 'Content' / 'SwordCamp' / 'Assets' / f'{n}.uasset' for n in SWORDCAMP_MESHES)],
              heavy=True, about='/Game/SwordCamp: Kasa Ronin equipment and roadside mini-camp props'),
         # Do not build distance fields or cards while replacing the seed mesh's material sections: UE 5.8 can read

@@ -466,7 +466,7 @@ bool UAdventureMoveSet::ControlsRotation() const
 {
     if (Mode == EAdventureMoveMode::Glide || Mode == EAdventureMoveMode::Climb || Mode == EAdventureMoveMode::Swim) return true;
     if (FlipTime >= 0.f) return true;   // the somersault keeps the heading it set off on
-    if (bLocked || bDriving || bDown) return true;
+    if (bLocked || bDriving || bDown || CombatTarget.IsValid()) return true;
     return IsLocking(CurrentName());
 }
 
@@ -498,15 +498,27 @@ void UAdventureMoveSet::AdvanceGround(float Dt)
     if (bWater && Feet() < Surface - HalfHeight() * 1.1f) { StartSwim(); return; }
 
     // Lock-on while the guard button is held: face the target (or the way he faced), strafe, the camera behind.
-    const bool bWantLock = bGuardHeld && !Character->bIsCrouched;
+    const bool bCombatLock = CombatTarget.IsValid() && IsTargetable(CombatTarget.Get()) && !Character->Stamina.Sprinting;
+    const bool bWantLock = (bGuardHeld || bCombatLock) && !Character->bIsCrouched;
     if (bWantLock != bLocked)
     {
         bLocked = bWantLock;
-        if (bLocked) { Target = !JapanNetwork::IsOnline(Character->GetWorld()) || Character->HasAuthority() ? FindTarget(1500.f, 70.f) : nullptr; LockYaw = Character->GetActorRotation().Yaw; }
+        if (bLocked)
+        {
+            Target = bCombatLock ? CombatTarget : (!JapanNetwork::IsOnline(Character->GetWorld()) || Character->HasAuthority() ? FindTarget(1500.f, 70.f) : nullptr);
+            LockYaw = Character->GetActorRotation().Yaw;
+        }
         else { Target = nullptr; bLockPoint = false; }
     }
     const FAdventureMove* Now = Current();
     FName Name = Now ? Now->Name : NAME_None;
+    if (bCombatLock) Target = CombatTarget;
+    else if (CombatTarget.IsValid() && IsTargetable(CombatTarget.Get()) && !Busy())
+    {
+        const FVector To = (CombatTarget->GetActorLocation() - Here) * FVector(1, 1, 0);
+        if (To.SizeSquared() > 1.f)
+            Character->SetActorRotation(FRotator(0, FMath::FixedTurn(Character->GetActorRotation().Yaw, To.Rotation().Yaw, 720.f * Dt), 0));
+    }
     if (bLocked)
     {
         // Locked on with nothing to face (nothing was in front at the press): look again a few times a second.
@@ -599,6 +611,12 @@ void UAdventureMoveSet::AdvanceAir(float Dt)
     float Surface = 0.f;
     if (WaterAt(Here, Surface) && Feet() < Surface - 10.f) { StartSwim(); return; }
     bLocked = false;
+    if (FlipTime < 0.f && CombatTarget.IsValid() && IsTargetable(CombatTarget.Get()))
+    {
+        const FVector To = (CombatTarget->GetActorLocation() - Here) * FVector(1, 1, 0);
+        if (To.SizeSquared() > 1.f)
+            Character->SetActorRotation(FRotator(0, FMath::FixedTurn(Character->GetActorRotation().Yaw, To.Rotation().Yaw, 720.f * Dt), 0));
+    }
     const FAdventureMove* Now = Current();
     const FName Name = Now ? Now->Name : NAME_None;
     if (In(Name, { TEXT("Jump"), TEXT("RunJumpL"), TEXT("RunJumpR") })) { if (Over()) Play(TEXT("Fall"), .2f); }
@@ -943,7 +961,7 @@ void UAdventureMoveSet::Reset()
     ShowGlider(false);
     SetArmed(false);
     bLocked = bGuardHeld = bAttackHeld = bJumpHeld = bCharging = bDown = bDriving = bJumped = false;
-    Target = nullptr; bLockPoint = false; HopVelocity = DriveVelocity = FVector::ZeroVector;
+    Target = CombatTarget = nullptr; bLockPoint = false; HopVelocity = DriveVelocity = FVector::ZeroVector;
     // An activity reset cannot retain an old cut's lunge or actor reference.
     LungeTarget = nullptr; LungeTime = 0.f; bLungePoint = false;
     JumpBuffer = AttackBuffer = NoClimb = Invulnerable = JustAvoid = SwimDashTime = GuardBroken = 0.f;

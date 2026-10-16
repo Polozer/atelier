@@ -112,7 +112,7 @@ public:
     EAdventureMoveMode GetMode() const { return Mode; }
     FString ModeName() const;
     bool LocksMovement() const;
-    bool CanSprint() const { return Mode == EAdventureMoveMode::Ground && !bLocked && !bGuardHeld && !bCharging; }
+    bool CanSprint() const { return Mode == EAdventureMoveMode::Ground && (!bLocked || CombatTarget.IsValid()) && !bGuardHeld && !bCharging; }
     /** Stamina recovers only standing on the ground (the adventure library's EnergyAutoRecoverInAir is 0). */
     bool HoldsStamina() const { return Mode != EAdventureMoveMode::Ground || bCharging; }
     bool IsArmed() const { return bArmed; }
@@ -186,6 +186,8 @@ public:
     float GetParam(const TCHAR* Key, float Default = 0.f) const;
     const FAdventureMove* Find(FName Name) const { return Moves.Find(Name); }
     AActor* GetTarget() const { return Target.Get(); }
+    void SetCombatTarget(AActor* NewTarget) { CombatTarget = NewTarget; }
+    AActor* GetCombatTarget() const { return CombatTarget.Get(); }
     int32 HitsLanded() const { return HitCount; }
     int32 Parries() const { return ParryCount; }
     int32 Dodges() const { return DodgeCount; }
@@ -253,6 +255,7 @@ private:
     TMap<FString, float> Params;
     TMap<FName, FSlot> Slots;
     TWeakObjectPtr<AActor> Target;
+    TWeakObjectPtr<AActor> CombatTarget;
 
     EAdventureMoveMode Mode = EAdventureMoveMode::Ground;
     // Input

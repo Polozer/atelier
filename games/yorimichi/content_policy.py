@@ -28,7 +28,7 @@ CHARACTER_ROOTS = ({folder(p) for c in MOVERS for p in (c.unreal_path, c.adventu
 ASSET_ROOTS = frozenset({
     'Adventure', 'AtelierValidation', 'Audio', 'Belmonte', 'Collections', 'CraterPark', 'Data', 'Developers',
     'Experiments', 'FX', 'FoxHunter', 'Hippodrome', 'Horses', 'Japan', 'MegaPark', 'SeeThrough', 'SkateMotion', 'SkatePark',
-    'SkateRide', 'SkateRuntime', 'Wanderer',
+    'SkateRide', 'SkateRuntime', 'SwordCamp', 'Wanderer',
     'BelmonteTrack', 'BelmonteTrain',
 } | CHARACTER_ROOTS)
 DATA_ROOTS = frozenset({

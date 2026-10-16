@@ -147,20 +147,20 @@ or wait output means delivered/queued output, not agent acknowledgement. Notific
 full mailbox when awakened. Detached `subscribe --background` listeners survive the launching shell, but are not login services:
 restart/check them when resuming a session or after a machine restart. Completion-based waits must be re-armed.
 
-## Coordinate proactively
+## Coordinate incidents and explicit handoffs
+
+Normal builds and games request capacity themselves. They need no pre-build message, acknowledgement or
+coordinator permission. Use messages for reviews, actual blockers, ownership changes, release priorities and
+specific maintenance or quiet-capture windows. See [capacity admission](BUILD_CAPACITY.md#agent-workflow).
 
 ```sh
-uv run atelier board post --agent park-review --to move-sets --topic request \
-  'Ready 19:27: guarded park review, big slot, ~10 min, private port 8843. Please yield at the next safe boundary.'
-uv run atelier board read --agent move-sets --after 0
-uv run atelier board post --agent move-sets --to park-review --topic ack --reply-to 1 \
-  'Acknowledged: current compile ETA 20:55; your review gets the next big-slot release.'
-uv run atelier board post --agent move-sets --to park-review --topic handoff \
-  'Released compile; recheck live locks and telemetry, then attempt guarded admission. Evidence and exit status are in render-board.md Log.'
-uv run atelier board post --agent move-sets --to park-review --topic evidence --reply-to 1 \
-  --attach build/review/ride.mp4 --attach build/review/checks.json 'Review film and checks for the ramp fix.'
+uv run atelier board post --agent world-build --to mesh-review --topic request \
+  'Please review the import changes in the PR. The source and validation results are attached.'
+uv run atelier board read --agent mesh-review --after 0
+uv run atelier board post --agent mesh-review --to world-build --topic ack --reply-to 1 \
+  'Reviewing the changed import and its validation results; findings in about ten minutes.'
 uv run atelier board thread 1
-uv run atelier board task --agent move-sets 'Agent board web app: native mobile UX, threads, attachments'
+uv run atelier board task --agent mesh-review 'Review import changes'
 ```
 
 Write messages that are clear, concise and well formatted, in simple words. The hard limit is 8000
@@ -243,17 +243,17 @@ Read is non-destructive;
 All owners on this machine can read the database: addressed messages are routing, not access control.
 Keep credentials out of messages and repository commits.
 
-Before a heavy job, post one ready job in Waiting with owner, checkout, exact guarded command, slot,
-first-ready time and estimate; message the current owner to agree on a safe handoff. Distinguish ready
-work from blocked plans. Retain first-ready age on refusals/requeues; never reserve an idle slot. Give
-ready jobs under five minutes useful quick turns, but after two short bypasses give the oldest compatible
-ready long job the next turn. Re-read Waiting and messages between build steps; do not reacquire for
-another step or game while an agreed handoff is waiting. If a handoff recipient is blocked, proceed with
-other compatible ready work rather than holding a slot for it.
+In full capacity mode, ordinary `atelier build/play` submits and releases its own requests. No Waiting/Holding
+entry or release message is needed. Keep routine timings in logs and receipts. The broker handles queue age and
+compatible work; the board does not add another admission step.
 
-Acknowledge requests and alerts promptly with a diagnosis, revised ETA or next safe boundary. On release,
-quit your test game, record command/exit status/duration/evidence in Log, then message the next owner.
-Credit verified artifact reuse, useful small-slot overlap, accurate estimates and prompt release.
+For legacy mode or a specifically agreed release, maintenance or quiet-capture window, record the owner,
+checkout, ready time, expected duration and next boundary. Honor that boundary without stopping another
+owner's process. When the coordinated window ends, report its result and release the handoff. Do not turn
+an exceptional window into a standing requirement for normal builds.
+
+Acknowledge actionable requests promptly. Report actual incidents with the error, retained evidence and next
+safe action. Routine telemetry and acknowledgements need no reply.
 
 ## Readable messages and acknowledgements
 
