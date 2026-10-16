@@ -127,6 +127,41 @@ The full-pool entries above describe the current fallback, not evidence that eve
 cores. Lowering only that number does not remove the separate exclusion flag. Known bounded workloads should
 get a measured profile instead of keeping a broad classification indefinitely.
 
+#### Compiler workers are not the whole build
+
+Treat these as separate measurements and policy choices:
+
+- **Actual tool settings:** editor compilation uses the machine's capped `Build.sh`; UAT explicitly passes
+  `-ubtargs=-MaxParallelActions=3`. That limits concurrent build actions, not every thread in UAT or its
+  descendants. Shader workers, mesh distance-field construction, engine task graphs, SDK helpers and staging
+  have their own behavior. A three-action compiler cap does not establish a three-CPU cook/import envelope.
+- **Reserved CPU:** the current full-pool fallback is a conservative scheduling charge. CPU units are soft
+  budgets, not a kernel CPU limit. Five or six is a calibration candidate for a specific phase, not a default
+  agents may select privately. Bounded Blender generation remains charged from its explicit worker count.
+- **Exclusion:** the performance flag is separate from the vector. Lowering an eight-unit charge to five
+  while leaving exclusion enabled still prevents overlap; it must not be presented as increased concurrency.
+  Existing exclusive terminal-cleanup rules must also be respected when validating a shareable profile.
+
+Guard history inspected on 2026-10-16 included Unreal import roots with brief sampled intervals around
+6.6 CPU units, before counting helpers. These are attributed process observations from warm, uncontrolled
+builds, not benchmark results or a hard upper bound. They rule out assuming every unchanged import fits five
+or six just because its mean is much lower. Whole-machine compile percentiles likewise cannot establish a
+per-job limit: they include the broker, other tools and unrelated background work.
+
+For the next calibrated profile, retain the exact command, tool version, worker settings and source/input
+identity, and measure the **whole owned process tree**. Use PID plus birth identity when taking CPU deltas;
+record missing samples, helper births/exits and incomplete coverage rather than treating them as idle time.
+`memory-health.jsonl` describes only its pinned process: a `bash` launcher's low counter says nothing about
+its compiler children. Watched-process reports are separate and must not be double-counted. Darwin's raw
+`proc_pid_rusage` CPU counters require the host's `mach_timebase_info` conversion before comparison with
+wall-clock seconds.
+
+Compare useful work per elapsed second, memory peaks, host responsiveness and output equivalence under
+normal guards. Keep all existing memory ceilings and the host reserve. Validate command recognition and
+matching launcher/broker enforcement, then verify overlap and cleanup with the real intended neighboring
+workload before changing a phase's default or removing exclusion. Keep unknown commands conservative;
+never claim that lower reservations alone made the underlying tool faster.
+
 For a **new non-rendering Blender generator**, start with `Blender(script, threads=3)` (or an established smaller
 setting). Do not omit `threads` and accidentally inherit six. Existing recipes retain their declared settings
 until the worker-count comparison passes; never retune a running build. Compare 3, 4 and 6 only where relevant,

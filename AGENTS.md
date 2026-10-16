@@ -233,6 +233,11 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   Ordinary bounded generation must not request an unnecessary performance window or global lock. Compile/UAT,
   games and unclassified commands currently receive the full managed CPU budget and exclusion automatically;
   report overbroad classification with command, guard/timing evidence and a measured alternative, not a private override.
+  The three-action compiler cap does not cap the whole cook, Unreal import, distance-field or engine task graph.
+  Keep direct editor compilation, commandlet imports and compound UAT builds separate when calibrating profiles.
+  A shell wrapper's CPU counter excludes its children; whole-machine CPU percentages include other jobs.
+  Neither establishes the complete job's CPU need. A smaller profile must cover its actual worker controls and
+  helper load, and its separate exclusion/release policy must be validated before claiming extra concurrency.
   Explicit sealed maintenance is one guarded job at a time,
   with read-only exclusive ownership of all sealed lanes and normal nominal guard ceilings; it is not full
   concurrency. Keep the pilot client until the operator announces maintenance or full cutover; then use the
