@@ -2,6 +2,7 @@
 #include "BelmonteTrack.h"
 #include "AtelierData.h"
 #include "JapanNetwork.h"
+#include "Net/UnrealNetwork.h"
 #include "SkateComponent.h"
 #include "Algo/BinarySearch.h"
 #include "Algo/Reverse.h"
@@ -205,23 +206,37 @@ ABelmonteTrainService::ABelmonteTrainService()
     PrimaryActorTick.bCanEverTick = true;
     // Before the characters: riders standing on a vehicle are carried by it (based movement) in the same frame.
     PrimaryActorTick.TickGroup = TG_PrePhysics;
-    bReplicates = false;
+    bReplicates = true;
+    bAlwaysRelevant = true;
+    SetNetUpdateFrequency(20.f);
+    SetMinNetUpdateFrequency(20.f);
     Tags.Add(TEXT("NoClimb"));   // the coaches' walls and furniture are not climbing holds (AdventureMoveSet::Climbable)
     RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
     RootComponent->SetMobility(EComponentMobility::Static);
 }
 
+void ABelmonteTrainService::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+    DOREPLIFETIME(ABelmonteTrainService, NetworkState);
+}
+
+void ABelmonteTrainService::BeginPlay()
+{
+    Super::BeginPlay();
+    if (Vehicles.IsEmpty() && IsEnabled())
+        Initialize(AtelierDataPath(TEXT("belmonte_train/service.json")));
+}
+
 bool ABelmonteTrainService::IsEnabled()
 {
-    const TCHAR* Cmd = FCommandLine::Get();
-    FString Dummy;
-    return FParse::Param(Cmd, TEXT("belmontetrain")) || FParse::Param(Cmd, TEXT("trainview")) || FParse::Param(Cmd, TEXT("traingo"))
-        || FParse::Value(Cmd, TEXT("trainview="), Dummy) || FParse::Value(Cmd, TEXT("traingo="), Dummy);
+    return !FParse::Param(FCommandLine::Get(), TEXT("nobelmontetrain"));
 }
 
 ABelmonteTrainService* ABelmonteTrainService::Spawn(UWorld* World, const FString& Path)
 {
     if (!World || !IsEnabled() || !FPaths::FileExists(Path)) return nullptr;
+    if (ABelmonteTrainService* Existing = Find(World)) return Existing;
     auto* Service = World->SpawnActor<ABelmonteTrainService>();
     if (Service && !Service->Initialize(Path)) { Service->Destroy(); return nullptr; }
     return Service;
@@ -240,8 +255,7 @@ double ABelmonteTrainService::ServiceTime() const
     const UWorld* World = GetWorld();
     const AGameStateBase* State = World ? World->GetGameState() : nullptr;
     const double Now = State ? State->GetServerWorldTimeSeconds() : (World ? World->GetTimeSeconds() : 0.);
-    const double Offset = (World && JapanNetwork::IsOnline(World)) ? 0. : DevOffset;
-    return Now + Line.ClockStart + Offset;
+    return Now + Line.ClockStart + DevOffset;
 }
 
 static UStaticMeshComponent* Block(AActor* Owner, USceneComponent* Parent, const FString& Name, UStaticMesh* Cube, const TSharedPtr<FJsonObject>& Spec, const FLinearColor& Colour)
@@ -287,6 +301,7 @@ void ABelmonteTrainService::BuildStations(const TSharedPtr<FJsonObject>& Root)
 
 bool ABelmonteTrainService::Initialize(const FString& Path)
 {
+    if (!Vehicles.IsEmpty()) return true;
     const TSharedPtr<FJsonObject> Root = AtelierReadJson(Path);
     FString Error;
     if (!Line.Parse(Root, Error)) { UE_LOG(LogTemp, Error, TEXT("TRAIN SERVICE cannot read %s: %s"), *Path, *Error); return false; }
@@ -326,6 +341,7 @@ bool ABelmonteTrainService::Initialize(const FString& Path)
             Body->SetCachedMaxDrawDistance(Cull);
             Body->LDMaxDrawDistance = Cull;
             Body->PrimaryComponentTick.bCanEverTick = false;
+            Body->SetNetAddressable();
             Body->RegisterComponent();
             Bodies.Add(Body);
             const auto& Bogies = V->GetArrayField(TEXT("bogies"));
@@ -389,6 +405,7 @@ bool ABelmonteTrainService::Initialize(const FString& Path)
                     Shape->SetGenerateOverlapEvents(false);
                     Shape->SetCanEverAffectNavigation(false);
                     Shape->PrimaryComponentTick.bCanEverTick = false;
+                    Shape->SetNetAddressable();
                     Shape->RegisterComponent();
                     Door.Box = Shape; Parts.Add(Shape);
                     for (const auto& LeafValue : D->GetArrayField(TEXT("leaves")))
@@ -462,6 +479,8 @@ bool ABelmonteTrainService::Initialize(const FString& Path)
     { PendingView = TEXT("go:") + (Where.IsEmpty() ? FString(TEXT("belmonte")) : Where); PendingViewDelay = 4.f; }
     PlaceVehicles(ServiceTime(), true);
     UpdateDoors(ServiceTime(), 1.f);
+    if (GetNetMode() == NM_Client) OnRep_NetworkState();
+    else if (JapanNetwork::IsOnline(GetWorld())) PublishNetworkState();
     int32 Ways = 0;
     for (const FVehicle& V : Vehicles) for (const FDoor& D : V.Doors) Ways += D.Boarding.Num() > 0;
     UE_LOG(LogTemp, Display, TEXT("TRAIN SERVICE ready vehicles=%d trains=%d furniture=%d instances=%d leaves=%d stations=%d boarding=%d exteriors=%d missing=%d cycle=%.1f loop=%.0f-%.0f"),
@@ -616,6 +635,12 @@ void ABelmonteTrainService::StandUp(FRider& Rider)
     C->SetAction(NAME_None, false, .2f);
     UE_LOG(LogTemp, Display, TEXT("TRAIN RIDER %s stood vehicle=%s seat=%s"), *C->GetName(), *V.Id, *Seat.Id);
     Rider.Seat = INDEX_NONE;
+    if (HasAuthority() && JapanNetwork::IsOnline(GetWorld()))
+    {
+        C->SetBase(V.Body);
+        C->BeginNetworkActivity(EJapanActivity::OnFoot, false);
+        PublishNetworkState();
+    }
 }
 
 void ABelmonteTrainService::UpdateCamera(FRider& Rider, bool bInside, float Dt)
@@ -700,7 +725,11 @@ void ABelmonteTrainService::UpdateBoarding(FRider& Rider, float Dt)
     constexpr float Speed = 135.f;   // a careful walk up two steps
     Rider.BoardTime += Dt;
     float Along = FMath::Max(0.f, Rider.BoardTime) * Speed;
-    if (Rider.BoardTime >= 0.f && Along >= Rider.BoardLength) { FinishBoarding(Rider); return; }
+    if (Rider.BoardTime >= 0.f && Along >= Rider.BoardLength)
+    {
+        if (!JapanNetwork::IsOnline(GetWorld()) || HasAuthority()) { FinishBoarding(Rider); return; }
+        Along = Rider.BoardLength;
+    }
     int32 I = 1;
     while (I < P.Num() - 1 && Along > FVector::Dist(P[I - 1], P[I])) { Along -= float(FVector::Dist(P[I - 1], P[I])); ++I; }
     const FVector A = P[I - 1], B = P.IsValidIndex(I) ? P[I] : P.Last();
@@ -758,6 +787,12 @@ void ABelmonteTrainService::FinishBoarding(FRider& Rider)
     Door.bOpen = false; Door.bBusy = false;
     Rider.BoardDoor = Rider.BoardVehicle = INDEX_NONE;
     Rider.BoardPath.Reset();
+    if (C && HasAuthority() && JapanNetwork::IsOnline(GetWorld()))
+    {
+        C->SetBase(Rider.bAboard && Vehicles.IsValidIndex(Rider.Vehicle) ? Vehicles[Rider.Vehicle].Body.Get() : nullptr);
+        C->BeginNetworkActivity(EJapanActivity::OnFoot, false);
+        PublishNetworkState();
+    }
 }
 
 bool ABelmonteTrainService::GroundNear(const FVector& Point, double Near, double MaxOff, const AActor* Ignore, double& Z) const
@@ -794,20 +829,189 @@ bool ABelmonteTrainService::GroundNear(const FVector& Point, double Near, double
     return false;
 }
 
+void ABelmonteTrainService::PublishNetworkState()
+{
+    if (!HasAuthority() || !JapanNetwork::IsOnline(GetWorld())) return;
+    ++NetworkState.Serial;
+    NetworkState.DevOffset = DevOffset;
+    NetworkState.OpenDoors.Reset();
+    for (const FVehicle& V : Vehicles)
+        for (const FDoor& D : V.Doors)
+            NetworkState.OpenDoors.Add(D.bOpen ? 1 : 0);
+    NetworkState.Passengers.Reset();
+    for (const FRider& R : Riders)
+        if (AWandererCharacter* C = R.Character.Get())
+            if (R.bAboard || R.Seat != INDEX_NONE || R.BoardDoor != INDEX_NONE)
+            {
+                FBelmonteTrainPassenger& P = NetworkState.Passengers.AddDefaulted_GetRef();
+                P.Rider = C;
+                P.Vehicle = int16(R.Vehicle);
+                P.Seat = int16(R.Seat);
+                P.BoardVehicle = int16(R.BoardVehicle);
+                P.BoardDoor = int16(R.BoardDoor);
+                P.bBoardUp = R.bBoardUp;
+                P.bAboard = R.bAboard;
+                P.BoardTime = R.BoardTime;
+                P.BoardLength = R.BoardLength;
+                P.BoardPath = R.BoardPath;
+            }
+    LastNetworkPublication = GetWorld()->GetTimeSeconds();
+    ForceNetUpdate();
+}
+
+void ABelmonteTrainService::OnRep_NetworkState()
+{
+    if (Vehicles.IsEmpty() || !NetworkState.Serial) return;
+    DevOffset = NetworkState.DevOffset;
+    int32 DoorCursor = 0;
+    for (FVehicle& V : Vehicles)
+        for (FDoor& D : V.Doors)
+            if (NetworkState.OpenDoors.IsValidIndex(DoorCursor))
+                D.bOpen = NetworkState.OpenDoors[DoorCursor++] != 0;
+    for (const FBelmonteTrainPassenger& P : NetworkState.Passengers)
+    {
+        AWandererCharacter* C = P.Rider.Get();
+        if (!C) continue;
+        FRider& R = RiderFor(C);
+        if (P.BoardDoor != INDEX_NONE && R.BoardDoor != P.BoardDoor &&
+            Vehicles.IsValidIndex(P.BoardVehicle) && Vehicles[P.BoardVehicle].Doors.IsValidIndex(P.BoardDoor) && P.BoardPath.Num() >= 2)
+        {
+            R.BoardVehicle = P.BoardVehicle; R.BoardDoor = P.BoardDoor;
+            R.bBoardUp = P.bBoardUp; R.BoardTime = P.BoardTime; R.BoardLength = P.BoardLength; R.BoardPath = P.BoardPath;
+            FDoor& Door = Vehicles[R.BoardVehicle].Doors[R.BoardDoor];
+            Door.bOpen = true; Door.bBusy = true;
+            auto* M = C->GetCharacterMovement();
+            C->MoveIntent = FVector2D::ZeroVector; C->bJog = C->bWalk = C->bSprintHeld = false;
+            M->StopMovementImmediately(); M->ClearAccumulatedForces(); M->SetMovementMode(MOVE_None);
+            C->SetActorEnableCollision(false);
+            C->SetAction(NAME_None, false, .15f);
+        }
+        else if (P.BoardDoor == INDEX_NONE && R.BoardDoor != INDEX_NONE)
+            FinishBoarding(R);
+        if (P.Seat != INDEX_NONE && R.Seat != P.Seat)
+            SitDown(R, P.Vehicle, P.Seat);
+        else if (P.Seat == INDEX_NONE && R.Seat != INDEX_NONE)
+            StandUp(R);
+        if (P.bAboard != R.bAboard)
+        {
+            R.Vehicle = P.Vehicle;
+            Board(R, P.bAboard);
+        }
+    }
+    for (FRider& R : Riders)
+        if (AWandererCharacter* C = R.Character.Get())
+            if (!NetworkState.Passengers.ContainsByPredicate([C](const FBelmonteTrainPassenger& P) { return P.Rider == C; }))
+            {
+                if (R.BoardDoor != INDEX_NONE) FinishBoarding(R);
+                if (R.Seat != INDEX_NONE) StandUp(R);
+                if (R.bAboard) Board(R, false);
+            }
+}
+
+bool ABelmonteTrainService::CanInteract(const AWandererCharacter* C)
+{
+    const ABelmonteTrainService* Service = Find(C);
+    if (!Service || !C) return false;
+    if ((C->GetSkate() && C->GetSkate()->IsRiding()) || C->OnVehicle() || C->IsZeppelinPassenger()) return false;
+    const FRider* Rider = Service->FindRider(C);
+    if (Rider && (Rider->BoardDoor != INDEX_NONE || Rider->Seat != INDEX_NONE)) return true;
+    int32 VehicleIndex, Index; bool bSeat;
+    return Service->Nearest(C, VehicleIndex, Index, bSeat);
+}
+
+bool ABelmonteTrainService::IsDrivingRider(const AWandererCharacter* C)
+{
+    const ABelmonteTrainService* Service = Find(C);
+    if (!Service || !C) return false;
+    const FRider* Rider = Service->FindRider(C);
+    return Rider && (Rider->BoardDoor != INDEX_NONE || Rider->Seat != INDEX_NONE);
+}
+
+void ABelmonteTrainService::Cancel(AWandererCharacter* C)
+{
+    if (!C) return;
+    FRider* Rider = const_cast<FRider*>(FindRider(C));
+    if (!Rider) return;
+    if (Rider->BoardDoor != INDEX_NONE)
+    {
+        if (Vehicles.IsValidIndex(Rider->BoardVehicle) && Vehicles[Rider->BoardVehicle].Doors.IsValidIndex(Rider->BoardDoor))
+        {
+            Vehicles[Rider->BoardVehicle].Doors[Rider->BoardDoor].bOpen = false;
+            Vehicles[Rider->BoardVehicle].Doors[Rider->BoardDoor].bBusy = false;
+        }
+        Rider->BoardDoor = Rider->BoardVehicle = INDEX_NONE;
+        Rider->BoardPath.Reset();
+        C->SetActorEnableCollision(true);
+    }
+    if (Rider->Seat != INDEX_NONE)
+    {
+        if (Vehicles.IsValidIndex(Rider->Vehicle) && Vehicles[Rider->Vehicle].SeatTaken.IsValidIndex(Rider->Seat))
+            Vehicles[Rider->Vehicle].SeatTaken[Rider->Seat] = 0;
+        Rider->Seat = INDEX_NONE;
+        C->SetActorEnableCollision(true);
+    }
+    if (Rider->bAboard) Board(*Rider, false);
+    Rider->Vehicle = INDEX_NONE;
+    UpdateCamera(*Rider, false, 1.f);
+    if (HasAuthority()) PublishNetworkState();
+}
+
+bool ABelmonteTrainService::ReplacePassenger(AWandererCharacter* From, AWandererCharacter* To)
+{
+    if (!From || !To) return false;
+    for (FRider& R : Riders)
+        if (R.Character.Get() == From)
+        {
+            R.Character = To;
+            R.bTickOrdered = false;
+            if (R.bAboard)
+            {
+                R.bAboard = false;
+                Board(R, true);
+            }
+            if (R.Seat != INDEX_NONE || R.BoardDoor != INDEX_NONE)
+            {
+                To->GetCharacterMovement()->SetMovementMode(MOVE_None);
+                To->SetActorEnableCollision(false);
+                if (R.Seat != INDEX_NONE) To->SetAction(TEXT("SitIdle"), true, .1f, true);
+            }
+            if (HasAuthority()) PublishNetworkState();
+            return true;
+        }
+    return false;
+}
+
+bool ABelmonteTrainService::AnyRiderAboardMovingTrain(double Time) const
+{
+    for (const FRider& R : Riders)
+        if (R.Character.IsValid() && (R.bAboard || R.Seat != INDEX_NONE || R.BoardDoor != INDEX_NONE) && Vehicles.IsValidIndex(R.Vehicle))
+            if (!AtStation(Vehicles[R.Vehicle].Train, Time))
+                return true;
+    return false;
+}
+
+void ABelmonteTrainService::SnapToStationDwell(const FVector& Target)
+{
+    if (JapanNetwork::IsOnline(GetWorld()) && !HasAuthority()) return;
+    const FStation* Station = Stations.FindByPredicate([&](const FStation& S) { return FVector::Dist2D(S.Arrival, Target) < 500.; });
+    if (!Station) return;
+    const double Now = ServiceTime();
+    if (AnyRiderAboardMovingTrain(Now)) return;
+    double Wait = -1.;
+    for (double T = Now; T < Now + Line.Cycle + 1. && Wait < 0.; T += 1.)
+        for (int32 Train = 0; Train < Line.Trains.Num(); ++Train)
+            if (FMath::Abs(Line.Chainage(Train, T) - Station->Chainage) < 1. && AtStation(Train, T + 45.))
+            { Wait = T - Now; break; }
+    if (Wait > 0.)
+    {
+        DevOffset += Wait - 2.;
+        PlaceVehicles(ServiceTime(), true);
+        if (HasAuthority()) PublishNetworkState();
+    }
+}
+
 void ABelmonteTrainService::UpdateRiders(float Dt)
 {
-    if (JapanNetwork::IsOnline(GetWorld()))
-    {
-        for (FRider& Rider : Riders)
-            if (Rider.Character.IsValid())
-            {
-                if (Rider.BoardDoor != INDEX_NONE) FinishBoarding(Rider);
-                if (Rider.Seat != INDEX_NONE) StandUp(Rider);
-                if (Rider.bAboard) Board(Rider, false);
-                UpdateCamera(Rider, false, 1.f);
-            }
-        return;
-    }
     for (int32 R = Riders.Num() - 1; R >= 0; --R)
         if (!Riders[R].Character.IsValid())
         {
@@ -818,6 +1022,43 @@ void ABelmonteTrainService::UpdateRiders(float Dt)
     for (TActorIterator<AWandererCharacter> It(GetWorld()); It; ++It)
     {
         AWandererCharacter* C = *It;
+        if (C->IsNpc()) continue;
+        FRider& Rider = RiderFor(C);
+        if (!Rider.bTickOrdered)
+        {
+            // The vehicles move first; the rider's movement then follows its base without a frame of lag.
+            C->PrimaryActorTick.AddPrerequisite(this, PrimaryActorTick);
+            C->GetCharacterMovement()->PrimaryComponentTick.AddPrerequisite(this, PrimaryActorTick);
+            Rider.bTickOrdered = true;
+        }
+        if (Rider.BoardDoor != INDEX_NONE) { UpdateBoarding(Rider, Dt); UpdateCamera(Rider, Rider.bAboard, Dt); continue; }
+        const float Half = C->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+        if (Rider.Seat != INDEX_NONE && Rider.Seated > 0.f && (C->IsLocallyControlled() || HasAuthority()) && FVector::Dist(C->GetActorLocation(), Rider.SeatedAt) > 300.)
+        {
+            // Teleported or respawned while seated: free the seat and give the character back its collision and walk.
+            Vehicles[Rider.Vehicle].SeatTaken[Rider.Seat] = 0;
+            Rider.Seat = INDEX_NONE;
+            C->SetActorEnableCollision(true);
+            C->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+            C->SetAction(NAME_None, false, .2f);
+            if (HasAuthority()) PublishNetworkState();
+            UE_LOG(LogTemp, Display, TEXT("TRAIN RIDER %s left the seat by teleport"), *C->GetName());
+        }
+        if (Rider.Seat != INDEX_NONE && Vehicles.IsValidIndex(Rider.Vehicle) && Vehicles[Rider.Vehicle].Seats.IsValidIndex(Rider.Seat))
+        {
+            const FVehicle& V = Vehicles[Rider.Vehicle];
+            const FSeat& Seat = V.Seats[Rider.Seat];
+            const FTransform& T = V.Body->GetComponentTransform();
+            // The seat marker is on the cushion; the sitting pose's root sits a little below it.
+            C->SetActorLocationAndRotation(T.TransformPosition(Seat.Location) + FVector(0, 0, Half - 12.f),
+                FRotator(0., T.Rotator().Yaw + Seat.Yaw, 0.), false, nullptr, ETeleportType::TeleportPhysics);
+            Rider.SeatedAt = C->GetActorLocation();
+            C->GetCharacterMovement()->Velocity = FVector::ZeroVector;
+            Rider.Seated += Dt;
+            if (Rider.Seated > 1.1f) C->SetAction(TEXT("SitIdle"), true, .2f);
+            UpdateCamera(Rider, true, Dt);
+            continue;
+        }
         if (!C->IsPlayerControlled() || !(C->IsLocallyControlled() || C->HasAuthority())) continue;
         FRider& Rider = RiderFor(C);
         if (!Rider.bTickOrdered)
@@ -873,7 +1114,7 @@ void ABelmonteTrainService::UpdateRiders(float Dt)
         // Carried by the vehicle. Standing on its floor the character movement follows it as its base; when it does
         // not (online, a process-local train is never a network base; or a moment off the floor, jumping), the
         // service moves the rider with the vehicle itself, before the character's own movement this frame.
-        if (Inside != INDEX_NONE && Vehicles[Inside].bMoved)
+        if (Inside != INDEX_NONE && Vehicles[Inside].bMoved && C->IsLocallyControlled())
         {
             const FVehicle& V = Vehicles[Inside];
             const UPrimitiveComponent* Base = C->GetMovementBase();
@@ -887,8 +1128,10 @@ void ABelmonteTrainService::UpdateRiders(float Dt)
                     C->Controller->SetControlRotation(C->Controller->GetControlRotation() + FRotator(0., Turn, 0.));
             }
         }
+        const bool bWasAboard = Rider.bAboard;
         Rider.Vehicle = Inside;
         Board(Rider, Inside != INDEX_NONE);
+        if (HasAuthority() && Rider.bAboard != bWasAboard) PublishNetworkState();
         C->bNoSprint = Inside != INDEX_NONE && bNoSprint;
         // No climbing anywhere aboard (the walls, partitions, furniture; the terrain the line still clips).
         if (Inside != INDEX_NONE)
@@ -952,20 +1195,25 @@ bool ABelmonteTrainService::Nearest(const AWandererCharacter* C, int32& VehicleI
 bool ABelmonteTrainService::TryInteract(AWandererCharacter* C)
 {
     ABelmonteTrainService* Service = Find(C);
-    if (!Service || !C || JapanNetwork::IsOnline(Service->GetWorld())) return false;
+    if (!Service || !C) return false;
     if ((C->GetSkate() && C->GetSkate()->IsRiding()) || C->OnVehicle() || C->IsZeppelinPassenger()) return false;
     FRider& Rider = Service->RiderFor(C);
     if (Rider.BoardDoor != INDEX_NONE) return true;
     if (Rider.Seat != INDEX_NONE) { Service->StandUp(Rider); return true; }
     int32 VehicleIndex, Index; bool bSeat;
     if (!Service->Nearest(C, VehicleIndex, Index, bSeat)) return false;
-    if (bSeat) { Service->SitDown(Rider, VehicleIndex, Index); return true; }
+    if (bSeat) { Service->SitDown(Rider, VehicleIndex, Index); Service->PublishNetworkState(); return true; }
     FVehicle& V = Service->Vehicles[VehicleIndex];
     FDoor& Door = V.Doors[Index];
-    if (Door.bLocked) { ULiveLibrary::Say(Door.Kind == TEXT("staff") ? TEXT("Réservé au personnel") : TEXT("Porte verrouillée"), 2.f); return true; }
-    if (Door.bStation && (!Service->TrainAtStation[V.Train] || !Door.bPlatformSide)) { ULiveLibrary::Say(TEXT("Fermé"), 2.f); return true; }
+    if (Door.bLocked) { if (C->IsLocallyControlled()) ULiveLibrary::Say(Door.Kind == TEXT("staff") ? TEXT("Réservé au personnel") : TEXT("Porte verrouillée"), 2.f); return true; }
+    if (Door.bStation && (!Service->TrainAtStation[V.Train] || !Door.bPlatformSide)) { if (C->IsLocallyControlled()) ULiveLibrary::Say(TEXT("Fermé"), 2.f); return true; }
     // Station doors with steps: Monter from the platform, Descendre from inside.
-    if (Door.Boarding.Num()) return Service->StartBoarding(Rider, VehicleIndex, Index);
+    if (Door.Boarding.Num())
+    {
+        const bool bStarted = Service->StartBoarding(Rider, VehicleIndex, Index);
+        if (bStarted) Service->PublishNetworkState();
+        return bStarted;
+    }
     Door.bOpen = !Door.bOpen;
     UE_LOG(LogTemp, Display, TEXT("TRAIN DOOR %s %s %s"), *V.Id, *Door.Id, Door.bOpen ? TEXT("open") : TEXT("closed"));
     // A crossing has a gangway door on each coach: one Interact opens (or shuts) both, so the way through is one press.
@@ -982,13 +1230,14 @@ bool ABelmonteTrainService::TryInteract(AWandererCharacter* C)
                     Facing.bOpen = Door.bOpen;
         }
     }
+    Service->PublishNetworkState();
     return true;
 }
 
 FString ABelmonteTrainService::Hint(const AWandererCharacter* C)
 {
     const ABelmonteTrainService* Service = Find(C);
-    if (!Service || !C || JapanNetwork::IsOnline(Service->GetWorld())) return FString();
+    if (!Service || !C) return FString();
     if ((C->GetSkate() && C->GetSkate()->IsRiding()) || C->OnVehicle() || C->IsZeppelinPassenger()) return FString();
     const FRider* Rider = Service->FindRider(C);
     if (Rider && Rider->BoardDoor != INDEX_NONE) return FString();
@@ -1038,7 +1287,7 @@ void ABelmonteTrainService::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     const float Scale = FMath::Clamp(CVarTrainTimeScale.GetValueOnGameThread(), 0.f, 100.f);
-    if (Scale != 1.f && !JapanNetwork::IsOnline(GetWorld())) DevOffset += double(DeltaSeconds) * (Scale - 1.);
+    if (Scale != 1.f && HasAuthority()) DevOffset += double(DeltaSeconds) * (Scale - 1.);
     if (PendingViewDelay >= 0.f && (PendingViewDelay -= DeltaSeconds) < 0.f)
     {
         const bool bDone = PendingView.StartsWith(TEXT("go:")) ? GoToStation(PendingView.Mid(3), true) : View(PendingView);
@@ -1048,6 +1297,8 @@ void ABelmonteTrainService::Tick(float DeltaSeconds)
     PlaceVehicles(Time, false);
     UpdateDoors(Time, DeltaSeconds);
     UpdateRiders(DeltaSeconds);
+    if (HasAuthority() && JapanNetwork::IsOnline(GetWorld()) && Scale != 1.f && GetWorld()->GetTimeSeconds() - LastNetworkPublication >= .2)
+        PublishNetworkState();
     const double Now = GetWorld()->GetRealTimeSeconds();
     if (Now >= NextReport) { NextReport = Now + 5.; Report(Time); }
 }
@@ -1061,7 +1312,7 @@ bool ABelmonteTrainService::GoToStation(const FString& Where, bool bWaitForTrain
     auto* Player = PC ? Cast<AWandererCharacter>(PC->GetPawn()) : nullptr;
     if (!Player) return false;
     double Wait = -1.;
-    if (bWaitForTrain && !JapanNetwork::IsOnline(World))
+    if (bWaitForTrain && HasAuthority() && !AnyRiderAboardMovingTrain(ServiceTime()))
     {
         // The start of the next dwell there (or now, if a train already stands there with time to spare).
         const double Now = ServiceTime();
@@ -1069,7 +1320,7 @@ bool ABelmonteTrainService::GoToStation(const FString& Where, bool bWaitForTrain
             for (int32 Train = 0; Train < Line.Trains.Num(); ++Train)
                 if (FMath::Abs(Line.Chainage(Train, T) - Station->Chainage) < 1. && AtStation(Train, T + 45.))
                 { Wait = T - Now; break; }
-        if (Wait > 0.) DevOffset += Wait - 2.;
+        if (Wait > 0.) { DevOffset += Wait - 2.; PublishNetworkState(); }
     }
     const bool bMoved = Player->TravelTo(Station->Arrival, Station->Yaw, TEXT("train station"), 3000.f);
     UE_LOG(LogTemp, Display, TEXT("TRAIN GO %s moved=%d skipped=%.0fs at=(%.0f,%.0f,%.0f)"), *Station->Name, bMoved, FMath::Max(Wait, 0.), Station->Arrival.X, Station->Arrival.Y, Station->Arrival.Z);
@@ -1098,7 +1349,7 @@ bool ABelmonteTrainService::View(const FString& Where)
         if (Where.IsNumeric()) At = FCString::Atod(*Where);
         When = Line.NextPassing(Now + 1., At, &Train);
     }
-    if (When >= 0. && !JapanNetwork::IsOnline(World)) DevOffset += (When - Lead) - Now;
+    if (When >= 0. && HasAuthority() && !AnyRiderAboardMovingTrain(Now)) { DevOffset += (When - Lead) - Now; PublishNetworkState(); }
     // Stand 14 m to the side of the main line, on the side away from the loop's second track, facing the rails.
     const FVector Rail = Line.Point(At, false), Ahead = Line.Point(At + 5., false);
     FVector Side = FVector::CrossProduct(FVector::UpVector, (Ahead - Rail).GetSafeNormal2D());

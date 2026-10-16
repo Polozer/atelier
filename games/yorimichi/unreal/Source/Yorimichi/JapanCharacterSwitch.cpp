@@ -13,6 +13,7 @@
 #include "SailboatComponent.h"
 #include "SkateComponent.h"
 #include "ZeppelinService.h"
+#include "BelmonteTrainService.h"
 #include "JapanWorld.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -154,6 +155,7 @@ void AJapanPlayerController::FinishCharacterSwitch()
         if (!Ship || !Ship->ReplacePassenger(From,To))
         { To->Destroy(); PendingCharacter.Reset(); ClientCharacterResult(TEXT("Could not transfer the zeppelin seat.")); return; }
     }
+    if (auto* Train = ABelmonteTrainService::Find(From)) Train->ReplacePassenger(From, To);
     PendingCharacter.Reset(); CharacterSource.Reset();
     From->Leave();
     From->SetActorEnableCollision(false);

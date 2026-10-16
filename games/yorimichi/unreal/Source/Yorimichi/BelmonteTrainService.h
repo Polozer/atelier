@@ -76,18 +76,51 @@ struct YORIMICHI_API FBelmonteTrainLine
  * a terminus platform at the start of the next dwell. Launch flags: -trainview[=where], -traingo[=station],
  * -traintimescale=N.
  */
+USTRUCT()
+struct FBelmonteTrainPassenger
+{
+    GENERATED_BODY()
+    UPROPERTY() TObjectPtr<AWandererCharacter> Rider;
+    UPROPERTY() int16 Vehicle = INDEX_NONE;
+    UPROPERTY() int16 Seat = INDEX_NONE;
+    UPROPERTY() int16 BoardVehicle = INDEX_NONE;
+    UPROPERTY() int16 BoardDoor = INDEX_NONE;
+    UPROPERTY() bool bBoardUp = true;
+    UPROPERTY() bool bAboard = false;
+    UPROPERTY() float BoardTime = 0.f;
+    UPROPERTY() float BoardLength = 0.f;
+    UPROPERTY() TArray<FVector> BoardPath;
+};
+
+USTRUCT()
+struct FBelmonteTrainNetworkState
+{
+    GENERATED_BODY()
+    UPROPERTY() uint32 Serial = 0;
+    UPROPERTY() double DevOffset = 0.;
+    UPROPERTY() TArray<uint8> OpenDoors;
+    UPROPERTY() TArray<FBelmonteTrainPassenger> Passengers;
+};
+
 UCLASS()
 class YORIMICHI_API ABelmonteTrainService : public AActor
 {
     GENERATED_BODY()
 public:
     ABelmonteTrainService();
-    /** True when the Belmonte railway is enabled for this session (-belmontetrain, -trainview or -traingo). */
+    /** True unless -nobelmontetrain disables the railway for this session. */
     static bool IsEnabled();
     static ABelmonteTrainService* Spawn(UWorld* World, const FString& Path);
     static ABelmonteTrainService* Find(const UObject* WorldContext);
+    virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
+    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+    static bool CanInteract(const AWandererCharacter* Character);
+    static bool IsDrivingRider(const AWandererCharacter* Character);
+    void Cancel(AWandererCharacter* Character);
+    bool ReplacePassenger(AWandererCharacter* From, AWandererCharacter* To);
+    void SnapToStationDwell(const FVector& Target);
     double ServiceTime() const;
     /** Puts the player beside the line where a train passes soon; returns false when there is no player yet. */
     bool View(const FString& Where);
@@ -199,6 +232,11 @@ private:
     UPROPERTY() TArray<TObjectPtr<UPrimitiveComponent>> Parts;
     /** The vehicles' outer boxes (train_exterior): no climbing onto the train (the actor's NoClimb tag does it today). */
     int32 Exteriors = 0;
+    UPROPERTY(ReplicatedUsing=OnRep_NetworkState) FBelmonteTrainNetworkState NetworkState;
+    UFUNCTION() void OnRep_NetworkState();
+    void PublishNetworkState();
+    bool AnyRiderAboardMovingTrain(double Time) const;
+    double LastNetworkPublication = -1.;
     double DevOffset = 0.;
     double NextReport = 0.;
     float PendingViewDelay = -1.f;

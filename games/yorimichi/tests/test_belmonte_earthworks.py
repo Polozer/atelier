@@ -105,7 +105,7 @@ def samples():
     return ln, pick('x'), pick('y'), pick('rail_z')
 
 
-@unittest.skipUnless(E.ENABLED and C.LINE.exists(), 'earthworks disabled or line not built (world.belmonte_train_route)')
+@unittest.skipUnless(E.ENABLED and C.ROUTE.exists() and (yori.OUT / 'farhills.npy').exists(), 'earthworks disabled or route/world.layout not built')
 class Built(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

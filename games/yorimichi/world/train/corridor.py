@@ -20,7 +20,7 @@ import numpy as np
 import yori
 
 ROUTE = yori.OUT / 'belmonte-train' / 'route' / 'route.json'
-LINE = ROUTE.with_name('line.json')
+LINE = yori.ASSETS / 'vehicles' / 'belmonte-train' / 'planning' / 'line.json'
 HALF_WIDTH = 10.        # metres either side of the centreline: half the train (1.8) plus a tree's crown and a margin
 MAX_HALF_WIDTH = 40.
 FORMATION, SLOPE = 8., 1.5      # route.py's: formation width and earthwork slope (horizontal per vertical)

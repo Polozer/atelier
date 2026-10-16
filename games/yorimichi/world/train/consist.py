@@ -80,8 +80,7 @@ def assembly():
         entry = dict(dimensions_m=a['dimensions_m'], pivot=a['pivot'], name_fr=a['name_fr'], glb=None)
         if fitted.exists():
             entry['glb'] = fitted.name
-            lod0 = OUT / 'furniture' / 'lod' / f'{a["id"]}_LOD0.glb'     # lod_furniture.py: the viewer shows what the game draws
-            entry['web'] = web_copy(lod0 if lod0.exists() else fitted, ASSEMBLY)
+            entry['web'] = web_copy(fitted, ASSEMBLY)
             report = OUT / 'furniture' / f'{a["id"]}.json'
             if report.exists():
                 fit = json.loads(report.read_text())

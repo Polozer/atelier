@@ -368,10 +368,16 @@ def volcano_distance(x, y):
 
 @lru_cache(maxsize=1)
 def _belmonte_surfaces():
-    from belmonte import source
+    from belmonte import source, terrain
     # The natural ground (belmonte/build.py keeps it before the railway's earthworks carve the built meshes).
     paths = [yori.OUT / f'belmonte/natural/{name}.glb' for name in ('SM_BM_NorthCountry', 'SM_BM_NorthApron')]
-    north = [source.Surface(source.triangles(p)) for p in paths if p.is_file()]
+    if all(p.is_file() for p in paths):
+        north = [source.Surface(source.triangles(p)) for p in paths]
+    else:
+        collar, _ = terrain.collar()
+        country = terrain.country()
+        north = [source.Surface(np.asarray(m.p, np.float32)[np.asarray(m.i, np.int32).reshape(-1, 3)])
+                 for m in (country, collar)]
     return source.terrain(), north
 
 

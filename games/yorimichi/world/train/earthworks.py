@@ -50,7 +50,7 @@ CUT = ('cutting', 'deep cutting', 'embankment')
 
 # Off in default builds while the railway track and train steps remain explicit;
 # flip to True when unreal.belmonte_track joins the default build.
-ENABLED = False
+ENABLED = True
 
 
 def _smooth(t):

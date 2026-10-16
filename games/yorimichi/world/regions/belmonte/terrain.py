@@ -30,7 +30,7 @@ def old_height(x, y):
 
 @lru_cache(maxsize=1)
 def country_grid():
-    xs = np.unique(np.r_[np.linspace(-3200., 3200., 96), OUTER[0], OUTER[2]])
+    xs = np.unique(np.r_[np.linspace(-3200., 3200., 96), OUTER[0], OUTER[2], H.mountains.BOUNDS[0], H.mountains.BOUNDS[2]])
     ys = np.unique(np.r_[L.SOUTH_JOIN, np.linspace(-3200., 3200., 96)[-3:],
                          np.arange(3200., SEA, 50.), OUTER[3], SEA])
     x, y = np.meshgrid(xs, ys)
@@ -105,7 +105,7 @@ def country():
     # North of the far hills the foothills (hidamari/mountains.py) reach on to SOUTH_JOIN; as the far hills do, the
     # country sinks under them so that their eased edges cover it.
     x, y = np.meshgrid(xs, ys)
-    under = H.mountains.contains(x, y) & (y < L.SOUTH_JOIN)
+    under = (x > H.mountains.BOUNDS[0]) & (x < H.mountains.BOUNDS[2]) & (y > H.mountains.BOUNDS[1]) & (y < L.SOUTH_JOIN)
     if under.any():
         z = z.copy()
         z[under] = np.minimum(z[under], H.north_height(x[under], y[under]) - 25.)

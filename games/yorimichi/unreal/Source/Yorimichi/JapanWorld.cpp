@@ -664,11 +664,11 @@ void AJapanWorld::Load()
     if (!Hippodrome || !Hippodrome->bGameplayReady) Incomplete.Add(TEXT("hippodrome"));
     const auto* Belmonte = ABelmonteRegion::Spawn(this, AtelierDataPath(TEXT("belmonte/runtime.json")));
     if (!Belmonte || !Belmonte->bGameplayReady) Incomplete.Add(TEXT("belmonte"));
-    // The Belmonte trains and track are explicit until the railway joins the default build (ABelmonteTrainService::IsEnabled).
     if (ABelmonteTrainService::IsEnabled())
     {
         ABelmonteTrack::Spawn(GetWorld(), AtelierDataPath(TEXT("belmonte_track/track.json")));
-        ABelmonteTrainService::Spawn(GetWorld(), AtelierDataPath(TEXT("belmonte_train/service.json")));
+        if (GetNetMode() != NM_Client)
+            ABelmonteTrainService::Spawn(GetWorld(), AtelierDataPath(TEXT("belmonte_train/service.json")));
     }
     // The far hills' trees stand on the hills' original heights, but the northern
     // surface and the Mega Park approach lowered that ground. Once every region's

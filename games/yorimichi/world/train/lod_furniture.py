@@ -665,7 +665,7 @@ def main():
         print(f'LOD [{k + 1}/{len(assets)}] {a}', flush=True)
         summary[a] = make(a)
     path = LOD / 'summary.json'
-    old = json.loads(path.read_text()) if path.exists() else {}
+    old = json.loads(path.read_text()) if (args and path.exists()) else {}
     old.update(summary)
     path.write_text(json.dumps(old, indent=1))
     print('BELMONTE TRAIN FURNITURE LODS COMPLETE', flush=True)

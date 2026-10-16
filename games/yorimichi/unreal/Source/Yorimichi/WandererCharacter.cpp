@@ -366,6 +366,7 @@ bool AWandererCharacter::TravelTo(FVector Target, float Yaw, const TCHAR* Reason
     }
     if (JapanNetwork::IsOnline(GetWorld())) GetWorld()->GetSubsystem<UJapanCombatResolver>()->Flush(this);
     if(GetZeppelin())GetZeppelin()->Cancel(this);
+    if(auto* Train = ABelmonteTrainService::Find(this)) { Train->Cancel(this); Train->SnapToStationDwell(Target); }
     auto* Movement = GetCharacterMovement();
     // Leave custom ramp physics before restoring the ordinary character pose.
     Movement->SetMovementMode(MOVE_Falling);
@@ -997,14 +998,15 @@ void AWandererCharacter::ZeppelinStep(int32 Direction)
     else if(bReady&&!bMenuOpen)GetZeppelin()->ChooseDestination(this,Direction);
 }
 void AWandererCharacter::Interact(const FInputActionValue&) {
- // The Belmonte train's doors and seats are local to each machine (docs/BELMONTE_TRAIN_SHELL.md).
- if(bReady&&!bMenuOpen&&IsLocallyControlled()&&!SkateRide->IsRiding()&&!Horse->IsEquipped()&&ABelmonteTrainService::TryInteract(this))return;
  if (JapanNetwork::IsOnline(GetWorld()))
  {
+  if (IsLocallyControlled() && bReady && !bMenuOpen && !SkateRide->IsRiding() && !OnVehicle() && !IsZeppelinPassenger() && ABelmonteTrainService::CanInteract(this))
+  { ServerTrainInteract(NetworkActivity.Epoch); return; }
   auto* Ship=GetZeppelin();
   if(IsLocallyControlled()&&bReady&&!bMenuOpen&&Ship&&(Ship->IsPassenger(this)||Ship->CanReach(this)))ServerZeppelinInput(NetworkActivity.Epoch,0);
   return;
  }
+ if(bReady&&!bMenuOpen&&IsLocallyControlled()&&!SkateRide->IsRiding()&&!OnVehicle()&&!IsZeppelinPassenger()&&ABelmonteTrainService::TryInteract(this))return;
  // In the saddle nothing is used (online the host refuses boarding off foot, ServerZeppelinInput).
  if(SkateRide->IsRiding()||Horse->IsEquipped())return; if(bReady&&!bMenuOpen&&Sword&&!Sword->CancelForInterrupt(true))return; if(bReady&&!bMenuOpen&&GetZeppelin()&&GetZeppelin()->TryInteract(this))return; if(bReady&&!bMenuOpen&&ASwordTrainer::TryInteract(this))return; if (CanAct() && StandForAction()) SetAction(TEXT("Interact")); }
 void AWandererCharacter::ToggleMenu(const FInputActionValue&)
@@ -1407,7 +1409,7 @@ void AWandererCharacter::Tick(float Dt)
             // A full-body stream may still cover a board transition on foot.
             // Equipment attachments and guard layers must keep consuming their
             // presentation even while that stream supplies the skeleton.
-            if (NetworkActivity.Kind == EJapanActivity::OnFoot && Moves && bNetworkAvatarReceived) Moves->ApplyPresentation(NetworkAvatar, Dt);
+            if (NetworkActivity.Kind == EJapanActivity::OnFoot && Moves && bNetworkAvatarReceived && !ABelmonteTrainService::IsDrivingRider(this)) Moves->ApplyPresentation(NetworkAvatar, Dt);
             return;
         }
         if (HasAuthority())
