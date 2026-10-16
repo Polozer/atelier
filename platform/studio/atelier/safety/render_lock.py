@@ -134,6 +134,13 @@ def available_bytes():
     return parse_vm_stat(text)
 
 
+class ObserverReapError(OSError):
+    """The owned observer's cleanup still lacks a positive exit."""
+    def __init__(self, process):
+        super().__init__('Owned process observer did not exit within its reap bound')
+        self.process = process
+
+
 def _bounded_process_listing(timeout):
     """A failed, truncated or oversized observation is never an empty machine."""
     deadline = time.monotonic() + timeout
@@ -159,13 +166,18 @@ def _bounded_process_listing(timeout):
     except subprocess.SubprocessError:
         raise OSError('Native process observation failed to complete within its bound') from None
     finally:
-        process.stdout.close()
-        if process.poll() is None:
-            process.kill()  # Only this observer's own bounded ps child.
+        try:
+            process.stdout.close()
+        finally:
             try:
-                process.wait(timeout=1.)
-            except subprocess.SubprocessError:
-                raise OSError('Owned process observer did not exit within its reap bound') from None
+                if process.poll() is None:
+                    try:
+                        process.kill()  # Only this observer's own bounded ps child.
+                    except ProcessLookupError:
+                        pass  # Still wait for its affirmative exit below.
+                    process.wait(timeout=1.)
+            except (OSError, subprocess.SubprocessError):
+                raise ObserverReapError(process) from None
 
 
 def process_table(timeout=None):
@@ -212,10 +224,9 @@ def render_processes(ignore=(), table=None):
             if pid not in skip and Path(command).name in RENDER_NAMES]
 
 
-def native_candidates():
+def _pin_native_candidates(table):
     """Pin every observed native candidate; a failed identity lookup is not absence."""
     from .. import capacity_protocol as wire
-    table = process_table(timeout=2.)
     values = []
     for item in render_processes(table=table):
         pin = (item['pid'], wire.process_start(item['pid']))
@@ -225,6 +236,31 @@ def native_candidates():
     if len(values) > wire.MAX_ROSTER:
         raise wire.CapacityError('Native ownership observation exceeds the complete bounded query')
     return values
+
+
+def native_candidates():
+    """@cc [owner:fontanierh,label:safety] bounded-native-observation-retry
+    A transient observation error MAY retry once before child launch, using a fresh complete snapshot.
+    The failed attempt's owned observer MUST positively exit before retry. Incomplete data MUST NOT be reused;
+    persistent failure, unstable native identities and unregistered native work MUST still refuse admission.
+    """
+    for attempt in range(2):
+        try:
+            table = process_table(timeout=2.)
+            break
+        except ObserverReapError as error:
+            if attempt:
+                raise
+            try:
+                error.process.wait(timeout=1.)  # One final bounded settlement of our observer.
+            except subprocess.SubprocessError:
+                raise error from None
+        except OSError:
+            if attempt:
+                raise
+        print('Native process observation failed; observer exited; retrying once with a fresh snapshot',
+              flush=True)
+    return _pin_native_candidates(table)  # Identity/ownership failures are never retried.
 
 
 @contextmanager
