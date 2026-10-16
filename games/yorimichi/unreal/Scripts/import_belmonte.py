@@ -243,7 +243,9 @@ def main():
                 E.delete_asset(ROOT + '/Meshes/' + collision_name)
             collision = import_mesh(OUT / 'glb' / Path(entry['collision']['path']).name, collision_name)
             # This asset supplies physics through complex_collision_mesh; no component draws it.
+            unreal.load_module('StaticMeshEditor')       # the commandlet loads it only on request
             editor = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+            assert editor is not None, 'StaticMeshEditor subsystem is unavailable'
             settings = editor.get_lod_build_settings(collision, 0)
             settings.set_editor_property('distance_field_resolution_scale', 0.)
             editor.set_lod_build_settings(collision, 0, settings)

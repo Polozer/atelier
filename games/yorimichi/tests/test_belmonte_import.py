@@ -47,7 +47,9 @@ def test_import_disables_distance_fields_only_on_separate_physics_hull(tmp_path,
         asset='/Game/Belmonte/Meshes/SM_BM_House.SM_BM_House', materials=['paint'])])))
     assets = SimpleNamespace(make_directory=lambda *_: None, does_asset_exist=lambda *_: False,
         load_asset=lambda path: path, save_loaded_asset=saved.append, delete_directory=lambda *_: None)
-    unreal = SimpleNamespace(StaticMeshEditorSubsystem=object(), get_editor_subsystem=lambda _: editor,
+    loaded = set()                                   # like the commandlet: no subsystem until its module is loaded
+    unreal = SimpleNamespace(StaticMeshEditorSubsystem=object(), load_module=loaded.add,
+        get_editor_subsystem=lambda _: editor if 'StaticMeshEditor' in loaded else None,
         CollisionTraceFlag=SimpleNamespace(CTF_USE_COMPLEX_AS_SIMPLE='complex-as-simple'), log=lambda *_: None)
     script = Path(__file__).parents[1] / 'unreal/Scripts/import_belmonte.py'
     # Execute the actual import loop without Unreal-only module initialization/material compilation.
