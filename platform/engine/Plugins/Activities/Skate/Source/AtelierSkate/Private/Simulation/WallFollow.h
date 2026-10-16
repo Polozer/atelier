@@ -41,6 +41,16 @@ inline WallFollowArc WallFollowArcAt(float vx,float vz,float curvature,float tur
     return {ax+wx*straight,az+wz*straight,float(wx),float(wz)};
 }
 
+// The acceleration a query's chords over a turned arc must bound (AirTrajectoryQuery's subdivision), as a negative
+// gravity: a chord dt long sags a dt^2 / 8 from a path accelerating at a, so stock steps by gravity alone. A turned arc
+// also accelerates towards the wall's centre, curvature x horizontal speed squared, horizontally and so at right angles
+// to gravity: the bound is their hypotenuse. The turn lasts at most the arc's whole duration, so this bounds it all.
+inline float WallFollowChordAcceleration(float gravity_y,float vx,float vz,float curvature)
+{
+    const double centripetal=std::abs(double(curvature))*(double(vx)*vx+double(vz)*vz);
+    return -float(std::sqrt(double(gravity_y)*gravity_y+centripetal*centripetal));
+}
+
 // Whether a path along velocity v turning at `curvature` bends towards the side the wall's normal n faces (the
 // centre is in front of the wall, as inside a bowl), not round behind it (the outside of a round pillar).
 inline bool WallFollowConcave(float curvature,Vec4 v,Vec4 n)

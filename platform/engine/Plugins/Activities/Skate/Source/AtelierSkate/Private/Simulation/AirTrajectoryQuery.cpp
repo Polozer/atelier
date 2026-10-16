@@ -173,9 +173,15 @@ bool QueryAirTrajectory(AirTrajectoryQueryRequest request, AirTrajectoryWorldQue
                         AirTrajectoryQueryResult &output, std::string &error) {
   const auto &trajectory = request.trajectory;
   float start_step = trajectory.scalar_48, end_step = trajectory.scalar_48;
-  if (trajectory.acceleration[1] < 0) {
-    start_step = StepSize(trajectory.acceleration[1], request.start_error * request.radius);
-    end_step = StepSize(trajectory.acceleration[1], request.end_error * request.radius);
+  // The chords sag from the path by its acceleration: gravity's, and on a wall-follow arc the turn's as well (a stock
+  // arc's curvature is 0 and steps by gravity exactly as before).
+  const float bound = trajectory.wall_curvature != 0
+      ? WallFollowChordAcceleration(trajectory.acceleration[1], trajectory.velocity[0], trajectory.velocity[2],
+                                    trajectory.wall_curvature)
+      : trajectory.acceleration[1];
+  if (bound < 0) {
+    start_step = StepSize(bound, request.start_error * request.radius);
+    end_step = StepSize(bound, request.end_error * request.radius);
   }
   const float minimum_square = ((request.start_error * request.radius) * request.start_error) * request.radius;
   float time = 0;

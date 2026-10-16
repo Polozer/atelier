@@ -7,7 +7,7 @@ flick pops higher with a lower flick pace, the 120 Hz flick reading reads the sa
 and keeps a fast hardflip's bottom point that 60 Hz misses, rolling resistance and braking change the coast, and rail magnetism catches
 a rail from farther. Drift powerslides start with the stick straight down, grip as far as it is pulled and keep the
 speed and the line when let go, a lower powerslide turn turns the board less, an assist zone's vert assist limit
-rides as that much assist, and wall follow brings an air off a curved vert wall back down onto it (stock lands on the
+rides as that much assist, and wall follow brings an air off a curved vert wall back down onto its transition to ride away (stock lands on the
 deck behind the lip) while a zero-assist zone or no vert assist rides exactly as stock. Requires the assembled simulation package (skate.runtime) and the explicitly built test-only gameplay-session-cli
 (Tests/build_simulation_session_cli.py --compile, under the render lock and memory guard). Results go to
 build/yorimichi/skate-simulation/feel.
@@ -249,17 +249,43 @@ def bowl_wall(lip, transition=12., vert=2., start=-20., end=200., step=1.):
     return triangles
 
 
-def landing(session, rows):
-    """The first air after riding the wall: its time, and where the board comes down (distance from the bowl's centre
-    and height) on the first frame out of the air."""
-    deck = lambda r: [sum(r['bones'][session.deck][12 + k] * r['root'][k * 4 + j] for k in range(4)) for j in range(3)]
+RECOVER = 30  # frames (0.5 s) a landing must ride on afterwards without a wipeout
+
+
+def wall_height(radius, lip=LIP, transition=12.):
+    """The height of bowl_wall's transition `radius` m from the centre, or None off it (the floor, or behind the lip)."""
+    base = lip - transition
+    if not base < radius <= lip:
+        return None
+    return transition * (1 - math.sqrt(max(0., 1 - ((radius - base) / transition) ** 2)))
+
+
+def landing(rows, deck):
+    """The first air after riding the wall: its time, and where the board comes down (deck(row) its position; distance
+    from the bowl's centre, height, and the wall's transition height there) on the first frame out of the air. An air
+    that never leaves the air within the ride is not landed, and reports its last frame."""
     start = next((i for i, r in enumerate(rows) if 'Air' in r['state']), None)
     if start is None:
-        return {'air_s': 0, 'radius_m': 0, 'height_m': 0, 'states': sorted({r['state'] for r in rows})}
-    end = next((i for i in range(start, len(rows)) if 'Air' not in rows[i]['state']), len(rows) - 1)
+        return {'landed': False, 'air_s': 0, 'radius_m': 0, 'height_m': 0, 'states': sorted({r['state'] for r in rows})}
+    end = next((i for i in range(start, len(rows)) if 'Air' not in rows[i]['state']), None)
+    landed = end is not None
+    end = len(rows) - 1 if end is None else end
     p = deck(rows[end])
-    return {'air_s': (end - start) / 60, 'radius_m': math.hypot(p[0], p[2]), 'height_m': p[1], 'state_after': rows[end]['state'],
-            'launch_speed_along_mps': speed(rows[start]), 'bailed': any('Wipeout' in r['state'] for r in rows[start:end + 30])}
+    after = rows[end:end + RECOVER]
+    return {'landed': landed, 'air_s': (end - start) / 60, 'radius_m': math.hypot(p[0], p[2]), 'height_m': p[1],
+            'wall_height_m': wall_height(math.hypot(p[0], p[2])), 'state_after': rows[end]['state'],
+            'launch_speed_along_mps': speed(rows[start]),
+            'recovered': landed and len(after) == RECOVER and all('Ground' in r['state'] and 'Wipeout' not in r['state'] for r in after),
+            'bailed': any('Wipeout' in r['state'] for r in rows[start:end + RECOVER])}
+
+
+def on_wall(land):
+    """A landing back on the wall: out of the air onto riding ground, on the transition (not the floor, not behind the
+    lip, the board within 1 m of the wall's surface there) and riding on for RECOVER frames without a wipeout."""
+    surface = land.get('wall_height_m')
+    return bool(land['landed'] and land['recovered'] and not land['bailed'] and land['air_s'] > 1
+                and 'Ground' in land['state_after'] and 'Wipeout' not in land['state_after']
+                and surface is not None and land['height_m'] > 1 and abs(land['height_m'] - surface) < 1)
 
 
 def main():
@@ -439,6 +465,16 @@ def main():
     # 3 s of air. Stock flies on along the tangent and lands behind the lip, or off the deck; with wall_follow 1 the air
     # turns round the bowl and comes back down onto the wall. A zero-assist zone, or no vert assist, rides
     # wall_follow 1 exactly as 0, bit for bit.
+    # The landing check itself first, on made-up frames: an air still flying at the end of the ride (30 frames riding,
+    # then 390 in the air 95 m out and 50 m up) or one landing on the floor is not a landing on the wall.
+    frame = lambda state, p: {'state': state, 'p': p, 'velocity': [0, 0, 30]}
+    still_flying = [frame('PhysicsGround', [LIP, 50, 0])] * 30 + [frame('PhysicsAir', [LIP, 50, 0])] * 390
+    on_floor = [frame('PhysicsGround', [LIP, 0, 0])] * 30 + [frame('PhysicsAir', [LIP, 20, 0])] * 120 + [frame('PhysicsGround', [80, .1, 0])] * 60
+    on_transition = [frame('PhysicsGround', [LIP, 0, 0])] * 30 + [frame('PhysicsAir', [LIP, 20, 0])] * 120 + [frame('PhysicsGround', [94.3, 8.2, 0])] * 60
+    synthetic = {name: on_wall(landing(rows, lambda r: r['p'])) for name, rows in
+                 (('still_flying', still_flying), ('on_floor', on_floor), ('on_transition', on_transition))}
+    check('wall_follow_landing_check', synthetic == {'still_flying': False, 'on_floor': False, 'on_transition': True}, synthetic)
+
     triangles = bowl_wall(LIP)
     spawn = [LIP - 12.5, 0, 0]
     session = Session(args.binary, args.simulation_package, {'triangles': triangles, 'rails': [], 'spawn': spawn, 'heading': 0}, 'bowl')
@@ -447,12 +483,13 @@ def main():
         ride = lambda wall, speed, limit=None, assist=1: session.ride(420, still, {'wall_follow': wall}, velocity=(0, 0, speed),
                                                                      spawn=spawn, tune={'vert_assist': assist}, limit=limit)
         same = lambda a, b: all(x['root'] == y['root'] and x['bones'] == y['bones'] and x['velocity'] == y['velocity'] for x, y in zip(a, b))
-        walls = {str(v): {'stock': landing(session, ride(0, v)), 'followed': landing(session, ride(1, v))} for v in (38, 40)}
+        deck = lambda r: [sum(r['bones'][session.deck][12 + k] * r['root'][k * 4 + j] for k in range(4)) for j in range(3)]
+        walls = {str(v): {'stock': landing(ride(0, v), deck), 'followed': landing(ride(1, v), deck)} for v in (38, 40)}
         exact = {'zero_assist_zone': same(ride(1, 40, 0), ride(0, 40, 0)), 'no_assist': same(ride(1, 40, None, 0), ride(0, 40, None, 0))}
         report['wall_follow'] = {**walls, 'exact': exact}
-        check('wall_follow_stock_lands_behind', all(w['stock']['air_s'] > 1 and w['stock']['radius_m'] > LIP + 3 for w in walls.values()), walls)
-        check('wall_follow_lands_on_wall', all(w['followed']['air_s'] > 1 and w['followed']['radius_m'] < LIP + .5
-                                               and not w['followed']['bailed'] for w in walls.values()), walls)
+        check('wall_follow_stock_lands_behind', all(w['stock']['air_s'] > 1 and w['stock']['radius_m'] > LIP + 3
+                                                    and not on_wall(w['stock']) for w in walls.values()), walls)
+        check('wall_follow_lands_on_wall', all(on_wall(w['followed']) for w in walls.values()), walls)
         check('wall_follow_zero_assist_exact', all(exact.values()), exact)
     finally:
         session.close()
