@@ -1,9 +1,12 @@
 """Preserve an owned package with an invalid header before a fresh FBX import."""
+import ctypes
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
 import stat
+import sys
 import uuid
 
 
@@ -33,6 +36,25 @@ def _sync(directory):
         os.close(fd)
 
 
+def _claim(source, destination):
+    """Atomically move this directory entry without replacing any destination or discarding bytes."""
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == 'darwin' and hasattr(library, 'renamex_np'):
+        rename = library.renamex_np
+        rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        args = (os.fsencode(source), os.fsencode(destination), 4)  # RENAME_EXCL, sys/stdio.h
+    elif sys.platform.startswith('linux') and hasattr(library, 'renameat2'):
+        rename = library.renameat2
+        rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        args = (-100, os.fsencode(source), -100, os.fsencode(destination), 1)  # AT_FDCWD, RENAME_NOREPLACE
+    else:
+        raise OSError(errno.ENOTSUP, 'Atomic exclusive package quarantine is unavailable')
+    rename.restype = ctypes.c_int
+    if rename(*args) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), str(source))
+
+
 def _receipt(folder, value):
     temporary = folder / 'receipt.next'
     with temporary.open('x') as stream:
@@ -59,9 +81,11 @@ def require_valid_or_missing(content, name):
 def quarantine_invalid_package(content, output, name, *, require_unloaded):
     """@cc [owner:fontanierh,label:correctness] preserve-invalid-owned-foliage-package
     The caller MUST validate the exact foliage owner before calling this function.
-    Only a main package with an invalid UE package tag may be removed, together with its
-    exact optional sidecars. Every removed byte MUST first have a durable verified copy.
-    Links, foreign files and concurrent changes MUST refuse. Valid packages MUST stay intact.
+    Only a main package with an invalid UE package tag may be quarantined, together with its
+    exact optional sidecars. Every selected original MUST first have a durable verified copy.
+    Originals MUST be atomically claimed without replacement and never unlinked. A claimed
+    concurrent replacement MUST remain retained and refuse before editor startup.
+    Links, foreign files and concurrent changes MUST refuse. An initially valid main MUST bypass quarantine.
     This operation MUST run inside the native owner's existing guard before editor startup;
     it neither certifies the replacement nor restores old packages after an import failure.
     require_unloaded MUST positively reject any already loaded owner/LOD package before removal.
@@ -133,20 +157,44 @@ def quarantine_invalid_package(content, output, name, *, require_unloaded):
     receipt['state'] = 'preserved'
     _receipt(folder, receipt)
     require_unloaded()
-    # Recheck every leaf before the first removal. Remove the invalid main last:
+    # Recheck every leaf before the first claim. Claim the invalid main last:
     # interruption leaves either that same invalid main or a complete fresh-import hole.
     for path, expected in entries:
         source, observed = _open(path)
         source.close()
         if _pin(observed) != _pin(expected):
             raise ValueError('Foliage package changed before quarantine')
-    for path, expected in entries:
-        source, observed = _open(path)
-        source.close()
-        if _pin(observed) != _pin(expected):
-            raise ValueError('Foliage package changed during quarantine')
-        path.unlink()
-        _sync(path.parent)
+    receipt['claims'] = {}
+    try:
+        for path, expected in entries:
+            source, observed = _open(path)
+            source.close()
+            if _pin(observed) != _pin(expected):
+                raise ValueError('Foliage package changed during quarantine')
+            claimed = folder / ('claimed-' + path.name)
+            receipt['state'] = 'claiming'
+            receipt['claims'][path.name] = {'path': claimed.name, 'state': 'intent'}
+            _receipt(folder, receipt)
+            _claim(path, claimed)
+            _sync(path.parent)
+            _sync(folder)
+            source, observed = _open(claimed)
+            with source:
+                os.fsync(source.fileno())
+                digest = hashlib.file_digest(source, 'sha256').hexdigest()
+                stable = _pin(os.fstat(source.fileno())) == _pin(observed)
+            # A rename may update ctime; every other identity field and the bytes must agree.
+            same = _pin(observed)[:-1] == _pin(expected)[:-1]
+            receipt['claims'][path.name].update(state='claimed', sha256=digest, size=observed.st_size)
+            _receipt(folder, receipt)
+            if not stable or not same or digest != receipt['files'][path.name]['sha256']:
+                raise ValueError('Foliage package changed at atomic quarantine; claimed bytes retained')
+            if path.exists() or path.is_symlink():
+                raise ValueError('Foliage package replaced after atomic quarantine; both versions retained')
+    except BaseException:
+        receipt['state'] = 'claim_failed'
+        _receipt(folder, receipt)
+        raise
     receipt['state'] = 'quarantined'
     _receipt(folder, receipt)
     return folder
