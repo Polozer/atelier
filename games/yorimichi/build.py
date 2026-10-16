@@ -660,7 +660,8 @@ def world_steps(ctx):
              about='original Super Ultra Mega Park geometry, riding collision and grind curves -> FBX', heavy=True),
         Step('world.craterpark_restyle', [Python(TOOLS / 'craterpark_textures.py', ('finish',))],
              inputs=[TOOLS / 'craterpark_textures.py', ASSETS / 'craterpark' / 'restyle', ASSETS / 'craterpark' / 'textures',
-                     ASSETS / 'craterpark' / 'materials.json'],
+                     ASSETS / 'craterpark' / 'materials.json', ASSETS / 'craterpark' / 'shrine',
+                     REGIONS / 'craterpark' / 'v2' / 'shrine.py', REGIONS / 'craterpark' / 'v2' / 'dsl.py'],
              outputs=[out / 'craterpark' / 'textures' / 'textures.json'],
              about="Crater Park restyle: painted textures in the island's style, world-aligned ground and concrete"),
         *(craterpark_v2_steps(out) if CRATERPARK_V2 else [

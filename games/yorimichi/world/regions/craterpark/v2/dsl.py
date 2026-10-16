@@ -21,8 +21,9 @@ import math
 import numpy as np
 
 # ---------------------------------------------------------------- the Unreal contract's vocabulary
-MATERIALS = tuple(f'material_{i:03d}' for i in range(46)) + ('coping_steel',)
-"""Material ids, as assets/craterpark/materials.json plus the steel coping. Faces store an index into this tuple."""
+MATERIALS = tuple(f'material_{i:03d}' for i in range(46)) + ('coping_steel',) + tuple(f'material_{i:03d}' for i in range(46, 50))
+"""Material ids, as assets/craterpark/materials.json plus the steel coping. Faces store an index into this tuple.
+material_046 to 049, after the steel so no older index moves, are the tower shrine's textured models (shrine.MODELS)."""
 MATERIAL = {name: i for i, name in enumerate(MATERIALS)}
 CONCRETE = 'material_010'       # seamless transition concrete
 DECK = 'material_000'           # concrete deck

@@ -103,7 +103,9 @@ def test_a_high_solid_deck_stands_on_a_timber_frame_with_a_torii_over_the_drop_i
     assert rail[:, 0].max() < 8.5 + es.RIM, 'no railing across the drop-in'
     frame = vertices([by[es.KEYAKI], by[es.ROCK]])
     reach = es.TOWER_POST * (es.PLINTH_WIDE * (1 + es.PLINTH_STEP * (es.PLINTH_COURSES - 1)) + es.STAGE_TENON + 1.)
-    assert np.abs(frame[:, 0]).max() < 8. + reach and np.abs(frame[:, 2]).max() < 11. + reach, 'no flare past the deck'
+    assert frame[:, 0].max() < 8. + reach and np.abs(frame[:, 2]).max() < 11. + reach, 'no flare past the deck'
+    # ...except the shrine balcony's posts off its back (-x, away from the drop-in)
+    assert frame[:, 0].min() > -(8. + es.RIM + es.SHRINE_DEPTH + reach) and summary['shrines']['t']['posts'] >= 2
     assert len(frame) and frame[:, 1].min() < 0. and frame[:, 1].max() > 55., 'posts from the ground up to the deck'
 
 

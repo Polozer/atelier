@@ -52,7 +52,7 @@ COURSE = (1.5, 2.6)   # pier courses: heights between these
 VOUSSOIR = 1.         # arch stones: about this long round the arch
 # the start tower: a solid deck standing high above the ground becomes a Japanese castle keep: a curved stone base
 # (ishigaki) under a white-plastered turret (yagura) with a tiled skirt roof, a balcony with a vermilion railing round
-# the deck, a torii over the drop-in and a tiled pavilion roof with upturned eaves over the back of the deck
+# the deck, a torii over the drop-in and a shrine balcony off the back of the deck
 VERMILION = 'material_038'    # lacquered vermilion: torii, posts and railing
 TILE = 'material_039'         # dark blue-grey roof tiles, the torii's black lintel
 PLASTER = 'material_040'      # white lime plaster
@@ -75,7 +75,17 @@ TORII_BACK = 6.       # its pillars stand on the deck this far back from the dro
 TORII_CLEAR = 3.5     # ...this far from any wall or coping above the deck,
 RUNWAY_CLEAR = 4.     # ...and this far from the run-in (RUNWAY m back from its first station) of a line starting there
 RUNWAY = 12.
-PAVILION = (.5, 5.4, 2.4)  # the pavilion over the back of the deck: share of the deck it covers, post height, overhang
+# the shrine balcony off the back of the deck (concept C, tower-top-shrine-balcony.jpg; its models are shrine.py's)
+SHRINE_DEPTH = 12.    # its depth out from the tower's rim...
+SHRINE_STEP = .45     # ...its floor this far above the rim's boards, behind the deck's railing...
+SHRINE_SLAB = .9      # ...boards over a timber frame this deep
+SHRINE_CLEAR = 3.5    # kept this far (plan) from any other piece's surface from SHRINE_BELOW under its floor to over its
+SHRINE_BELOW = 4.     # roofs, RUNWAY_CLEAR from every run-in and over no other piece at all...
+SHRINE_WIDE, SHRINE_DEEP = 10., 11.   # ...at least this wide and deep, or no shrine
+SHRINE_POST = 1.1     # its posts' half thickness (the tower's are TOWER_POST)
+SHRINE_FRONT = 2.8    # the pavilion stands this far back from the balcony's front edge...
+SHRINE_TORII = 1.3    # ...the torii this far back, just behind the deck's railing
+SHRINE_BANNERS = 3.   # metres between the nobori along the back
 TOWER_TIMBER = True   # the tower stands on an open timber frame as the Vert drop's concept, not on the stone keep
 TOWER_POST = 1.5      # its posts' half thickness...
 TOWER_BAY = 8.        # ...about this far apart round the deck's outline...
@@ -159,6 +169,8 @@ def _orient(V, F, N):
 class Builder:
     def __init__(self):
         self.parts = {}
+        self.models = []          # the shrine's textured models: (slug, base point, facing), shrine.place's arguments
+        self.shrine = None
 
     def add(self, material, VFN):
         V, F, N = VFN
@@ -749,7 +761,8 @@ def tower(b, plan, ground, piece, open_sides, k=-1, gates=None, halves=None, run
     """The start tower under a high solid deck, a Japanese castle keep: a curved ishigaki of stone courses sweeping
     out toward its foot; a white-plastered turret with dark boards and timber frame on top of it, a tiled skirt roof
     round its foot; a balcony with a vermilion railing round the deck on the sides no ramp leaves from; a torii over
-    the drop-in and a pavilion with an upturned tiled roof over the back of the deck. Returns the boulders placed, or None if the deck is not high enough for one."""
+    the drop-in where it fits, and the shrine balcony (_shrine) off the back of the deck, so the deck stays open.
+    Returns the boulders placed, or None if the deck is not high enough for one."""
     V = np.asarray(piece.mesh.V, 'f8')
     c, fwd, acr, a, w, top = _rect(V)
     corners = [c + u * fwd + v * acr for u in (-a, 0, a) for v in (-w, 0, w)]
@@ -866,43 +879,15 @@ def tower(b, plan, ground, piece, open_sides, k=-1, gates=None, halves=None, run
         _box(b, VERMILION, base, n, t, .28, .3, floor + gate_h - 2.1, floor + gate_h - 1.05)
         _beam(b, VERMILION, base, t, n, span + 1.3, floor + gate_h - 1.05, floor + gate_h - .55, .38)
         _beam(b, TILE, base, t, n, span + 1.8, floor + gate_h - .55, floor + gate_h + .05, .48, lift=.7)
-    # the pavilion over the back of the deck: vermilion posts, tie beams, an upturned hip roof with a ridge
+    # the shrine balcony off the back of the deck (concept C): never off a ledge or another ramp's start
     back = {0: 1, 1: 0, 2: 3, 3: 2}.get(gate, 1)
-    if back in open_sides:                                    # never over a ledge or another ramp's start
+    if back in open_sides:
         back = next((sd for sd in (back, 1, 0, 3, 2) if sd not in open_sides), None)
-    if back is None:
-        return 0 if TOWER_TIMBER else None
-    _, n, t, half_face, other = sides[back]
-    share, post, over = PAVILION
-    depth = share * other
-    pc = c + (other - depth) * n
-    pa, pw = depth - .8, half_face - .8
-    beside = open_sides & {sd for sd in range(4) if sd // 2 != back // 2}
-    if beside:                                        # a ramp or ledge beside it: a smaller roof, moved away from it
-        pw = max(half_face - over - 3.5, 1.5)
-        for sd in beside:
-            pc = pc - sides[sd][1] * max(half_face - pw - over - .5, 0.) / len(beside)
-    roof_top = top + post + .2 + .5 * (pw + over) + 4.
-    for _ in range(8):                                # smaller still while another piece's wall rises near its eaves
-        if not any(_beside(plan, pc + su * (pa + over) * n + sv * (pw + over) * t, OVER, floor + .3, roof_top, k)
-                   for su in (-1, 0, 1) for sv in (-1, 0, 1) if su or sv):
-            break
-        pa, pw = pa * .85, pw * .85
-    else:
-        return 0 if TOWER_TIMBER else None
-    for su in (-1, 0, 1):
-        for sv in (-1, 1):
-            x, z = pc + su * pa * n + sv * pw * t
-            _cylinder(b, VERMILION, x, z, floor - .02, top + post, .32)
-    for sv in (-1, 1):
-        _beam(b, VERMILION, pc + sv * pw * t, n, t, pa + .5, top + post - .7, top + post, .22)
-    for su in (-1, 1):
-        _beam(b, VERMILION, pc + su * pa * n, t, n, pw + .5, top + post - .7, top + post, .22)
-    eave = top + post + .2
-    rise = .5 * (pw + over)
-    _roof(b, pc, n, t, [(pa + over, pw + over, eave, SORI), (.62 * (pa + over), .62 * (pw + over), eave + .42 * rise,
-                                                             .25 * SORI), (max(pa * .3, .3), .05, eave + rise, 0.)])
-    _beam(b, TILE, pc + 0 * n, n, t, max(pa * .3, .3) + .6, eave + rise - .1, eave + rise + .55, .35)
+    if back is None and not TOWER_TIMBER:
+        return None
+    if back is not None:
+        _, n, t, half_face, other = sides[back]
+        _shrine(b, plan, ground, k, c, n, t, half_face, other, floor, runways)
     placed = 0
     if TOWER_TIMBER:
         return placed
@@ -968,6 +953,161 @@ def _tower_frame(b, plan, ground, k, c, fwd, acr, a, w, y_top):
             level += TOWER_NUKI
         _timber(b, [(A['p'][0], y_top - cap * .5, A['p'][1]), (B['p'][0], y_top - cap * .5, B['p'][1])], n, hp * .85,
                 cap * .5)
+
+
+def _surface_points(plan, k, centre, reach, y0, y1, step=.3):
+    """Plan points (x, z) every `step` or closer over the faces of every piece but k within `reach` of centre that lie
+    between y0 and y1 (a face reaching into the band counts whole)."""
+    T = plan.T[(plan.owner != k)]
+    keep = (np.linalg.norm(T[:, :, [0, 2]].mean(1) - centre, axis=1) < reach) & (T[:, :, 1].max(1) > y0) & \
+        (T[:, :, 1].min(1) < y1)
+    out = []
+    for tri in T[keep]:
+        P = tri[:, [0, 2]]
+        m = max(1, int(math.ceil(max(np.linalg.norm(P[i] - P[(i + 1) % 3]) for i in range(3)) / step)))
+        i, j = np.meshgrid(np.arange(m + 1), np.arange(m + 1))
+        ok = (i + j) <= m
+        a, bb = i[ok] / m, j[ok] / m
+        out.append(P[0] + a[:, None] * (P[1] - P[0]) + bb[:, None] * (P[2] - P[0]))
+    return np.concatenate(out) if out else np.zeros((0, 2))
+
+
+def _rail_run(b, P, Q, y, ends=(True, True)):
+    """A vermilion railing from P to Q (plan points) on a floor at y: posts about 2 m apart, two rails, the end posts
+    (where `ends`) taller with black caps, as the tower's balcony railing."""
+    d = Q - P
+    L = float(np.linalg.norm(d))
+    if L < .5:
+        return
+    d = d / L
+    nrm = np.array([-d[1], d[0]])
+    count = max(2, int(round(L / 2.)))
+    for j in range(count + 1):
+        p = P + d * L * j / count
+        end = (j == 0 and ends[0]) or (j == count and ends[1])
+        _box(b, VERMILION, p, d, nrm, .11, .11, y, y + RAIL + (.3 if end else 0.))
+        if end:
+            _cylinder(b, TILE, *p, y + RAIL + .3, y + RAIL + .55, .16, seg=8)
+    for yy in (y + .45, y + RAIL - .1):
+        _beam(b, VERMILION, (P + Q) / 2, d, nrm, L / 2, yy, yy + .12, .07)
+
+
+def _shrine(b, plan, ground, k, c, n, t, half_face, other, floor, runways):
+    """The shrine balcony off the deck's back side (n out of it, t along it), after concept C: a timber floor a step
+    above the tower's rim, behind the deck's railing, as wide as the deck and its rim where it stays SHRINE_CLEAR from
+    every other piece near its height, RUNWAY_CLEAR from every run-in and over no piece at all; a vermilion railing
+    round its three outer sides; standing on its own row of keyaki posts on stone plinths down to the ground, tied by
+    nuki to each other and back into the tower's frame. On it (shrine.py, b.models): the bell pavilion, a stone lantern
+    either side of its front, the torii at the deck's back corner with the more room (its posts on the balcony, off
+    the deck and its rim) and a row of nobori along the back. Sets b.shrine (its plan rectangle in the deck's frame,
+    floor height and model count) and returns it, or None (no room: no shrine)."""
+    from . import shrine
+    u0, u1 = other + RIM, other + RIM + SHRINE_DEPTH
+    v0, v1 = -(half_face + RIM), half_face + RIM
+    y = floor + SHRINE_STEP
+    height = y + max(shrine.footprint(s)[2] for s in shrine.MODELS) + 1.
+    at = lambda u, v: c + u * n + v * t
+    # what it must keep clear of, in the deck's frame (u along n, v along t): other pieces' surfaces from SHRINE_BELOW
+    # under its floor to over its roofs (SHRINE_CLEAR), the run-ins (RUNWAY_CLEAR)
+    near = _surface_points(plan, k, at((u0 + u1) / 2, 0.), SHRINE_DEPTH + half_face + 30., y - SHRINE_BELOW, height)
+    run = [a + f * (e - a) for a, e in runways for f in np.linspace(0., 1., 1 + int(np.linalg.norm(e - a) / .25))]
+    pts = np.array([*near, *run]).reshape(-1, 2) - c
+    pts = np.stack([pts @ n, pts @ t], 1)
+    need = np.r_[np.full(len(near), SHRINE_CLEAR), np.full(len(run), RUNWAY_CLEAR)]
+
+    def gap(u0, u1, v0, v1):              # each point's plan distance from the balcony
+        du = np.maximum(np.maximum(u0 - pts[:, 0], pts[:, 0] - u1), 0.)
+        dv = np.maximum(np.maximum(v0 - pts[:, 1], pts[:, 1] - v1), 0.)
+        return np.hypot(du, dv)
+
+    def under(u0, u1, v0, v1):            # another piece below (or through) the balcony anywhere
+        for u in np.linspace(u0, u1, int(math.ceil(u1 - u0)) + 1):
+            for v in np.linspace(v0, v1, int(math.ceil(v1 - v0)) + 1):
+                who, ys = plan.heights(*at(u, v))
+                if ((who != k) & (ys < height)).any():
+                    return (u, v)
+        return None
+
+    while v1 - v0 >= SHRINE_WIDE and u1 - u0 >= SHRINE_DEEP:
+        d = gap(u0, u1, v0, v1)
+        bad = np.flatnonzero(d < need)
+        hit = under(u0, u1, v0, v1) if not len(bad) else None
+        if not len(bad) and hit is None:
+            break
+        su, sv = pts[bad[np.argmin(d[bad] - need[bad])]] if len(bad) else hit
+        if su > u1 or (hit is not None and su > u0 + SHRINE_DEEP):
+            u1 -= .5                                          # beyond its back: a shallower balcony
+        elif sv < (v0 + v1) / 2:
+            v0 += .5                                          # beside (or in front of) one end: narrower there
+        else:
+            v1 -= .5
+    else:
+        b.shrine = None
+        return None
+    clear = gap(u0, u1, v0, v1)
+    # the floor: boards over a dark timber frame, the railing round its outer sides
+    um, vm, hu, hv = (u0 + u1) / 2, (v0 + v1) / 2, (u1 - u0) / 2, (v1 - v0) / 2
+    _box(b, KEYAKI, at(um, vm), n, t, hu, hv, y - .15, y)
+    _box(b, TIMBER, at(um, vm), n, t, hu - .1, hv - .1, y - SHRINE_SLAB, y - .15)
+    _rail_run(b, at(u0 + .2, v0 + .2), at(u1 - .2, v0 + .2), y, (False, True))
+    _rail_run(b, at(u1 - .2, v0 + .2), at(u1 - .2, v1 - .2), y, (False, False))
+    _rail_run(b, at(u1 - .2, v1 - .2), at(u0 + .2, v1 - .2), y, (True, False))
+    # its posts: a row under the outer edge, on stone plinths, capped by a beam under the floor; joists from each back
+    # into the tower's top; nuki between them and back to the tower's posts every TOWER_NUKI
+    hp = SHRINE_POST
+    cap_top = y - SHRINE_SLAB
+    tower_u = other - 1.6 * TOWER_POST                           # the tower's posts on this side (_tower_frame)
+    posts = []
+    for v in np.linspace(v0 + 1.3 * hp, v1 - 1.3 * hp, max(2, int(round((v1 - v0) / 7.)) + 1)):
+        p = at(u1 - 1.3 * hp, v)
+        g = _column(plan, ground, p, hp, cap_top)
+        if g is not None:
+            posts.append((p, v, g, min(cap_top - 2., g[1] + PLINTH_RISE[1])))
+    for p, v, (g_lo, g_hi), foot in posts:
+        _plinth(b, p, n, t, hp * PLINTH_WIDE, g_lo - SINK, min(g_hi, foot - .3), foot)
+        _post(b, p, hp, foot - .2, cap_top - hp)
+        _box(b, KEYAKI, p, n, t, hp * CAPITAL[0], hp * CAPITAL[0], cap_top - hp - hp * CAPITAL[1], cap_top - hp)
+        q = at(tower_u, v)                                      # its joist back into the tower's top
+        _timber(b, [(q[0], cap_top - hp * .6, q[1]), (p[0], cap_top - hp * .6, p[1])], t, hp * .55, hp * .6)
+    if len(posts) >= 2:
+        A, B = posts[0][0], posts[-1][0]
+        _timber(b, [(A[0], cap_top - hp * .6, A[1]), (B[0], cap_top - hp * .6, B[1])], n, hp * .7, hp * .6)
+        level = math.ceil((max(q[3] for q in posts) + .5 * TOWER_NUKI) / TOWER_NUKI) * TOWER_NUKI
+        while level <= cap_top - .4 * TOWER_NUKI:
+            _timber(b, [(A[0] - hp * 1.5 * t[0], level, A[1] - hp * 1.5 * t[1]),
+                        (B[0] + hp * 1.5 * t[0], level, B[1] + hp * 1.5 * t[1])], n, hp * .6, hp * .75)
+            for p, v, _, _ in posts:
+                if abs(v) <= half_face - 1.6 * TOWER_POST + TOWER_POST:
+                    q = at(tower_u, v)
+                    _timber(b, [(q[0], level, q[1]), (p[0], level, p[1])], t, hp * .6, hp * .75)
+            level += TOWER_NUKI
+    # the shrine on it (shrine.py): models placed on the floor, their fronts toward the deck
+    face = -n
+    _, tw, _ = shrine.footprint('torii')
+    pd, pw, _ = shrine.footprint('bell_pavilion')
+    ld, lw, _ = shrine.footprint('stone_lantern')
+    bd, bw, _ = shrine.footprint('nobori')
+    side = 1. if v1 >= -v0 else -1.                          # the back corner with more room past the deck's corner
+    v_torii = side * ((v1 if side > 0 else -v0) - tw - .3)
+    v_pav = min(max(vm, v0 + pw + .5), v1 - pw - .5)
+    u_pav = u0 + SHRINE_FRONT + pd
+    models = [('torii', at(u0 + SHRINE_TORII, v_torii), face), ('bell_pavilion', at(u_pav, v_pav), face)]
+    for sgn in (-1, 1):
+        v = v_pav + sgn * (pw + .5 + lw)
+        if v0 + .5 + lw <= v <= v1 - .5 - lw:
+            models.append(('stone_lantern', at(u0 + SHRINE_FRONT - ld + .4, v), face))
+    count = max(2, int(round((v1 - v0 - 2.) / SHRINE_BANNERS)))
+    for v in np.linspace(v0 + .6 + bw, v1 - .6 - bw, count):
+        models.append(('nobori', at(u1 - .5 - bd, v), face))
+    b.models = [(slug, (p[0], y, p[1]), f) for slug, p, f in models]
+    # what it keeps clear of, as built: the nearest other piece's surface near its height and the nearest run-in
+    # (plan metres from the balcony's outline, which every model stands inside), and the gap to the deck's edge
+    nearest = lambda m: round(float(clear[m].min()), 2) if m.any() else None
+    b.shrine = {'rect_uv': [round(float(x), 2) for x in (u0, u1, v0, v1)], 'floor_y': round(float(y), 3),
+                'top_y': round(float(height - 1.), 2), 'models': len(b.models), 'posts': len(posts),
+                'clear_m': nearest(need == SHRINE_CLEAR), 'runin_m': nearest(need == RUNWAY_CLEAR),
+                'deck_gap_m': round(float(u0 - other), 2)}
+    return b.shrine
 
 
 # The Vert drop's timber stage (kakezukuri), after the approved Sunburst concept
@@ -1322,7 +1462,7 @@ def open_sides(piece, pieces, k, halves=None, types=None):
 
 def ledge_sides(piece, plan, k):
     """The sides of a deck another piece adjoins at its own height (a takeoff ledge, a ramp's top), probed just outside
-    each edge: no railing nor pavilion there."""
+    each edge: no railing nor shrine there."""
     c, fwd, acr, a, w, top = _rect(np.asarray(piece.mesh.V, 'f8'))
     out = set()
     for side, (n, t, half_face, other) in enumerate(((fwd, acr, w, a), (-fwd, acr, w, a), (acr, fwd, a, w),
@@ -1357,7 +1497,8 @@ def build(pieces, heights, grid):
     """The supports for the kept editor pieces (bridge Pieces), as dsl Mesh parts, and a summary."""
     ground = Ground(heights, grid)
     plan = Plan(pieces)
-    out, summary = [], {'piers': 0, 'arches': 0, 'posts': 0, 'beams': 0, 'metres': 0., 'boulders': 0, 'towers': [], 'pieces': {}}
+    out, summary = [], {'piers': 0, 'arches': 0, 'posts': 0, 'beams': 0, 'metres': 0., 'boulders': 0, 'towers': [], 'pieces': {},
+                    'shrines': {}}
     for k, piece in enumerate(pieces):
         meta = piece.metadata
         if meta['type'] == 'deck' and (meta.get('params') or {}).get('solid'):
@@ -1370,6 +1511,10 @@ def build(pieces, heights, grid):
                           halves=halves)
             if rocks is not None:
                 out += b.meshes(f"{meta['id']}_tower")
+                if b.models:
+                    from . import shrine
+                    out += [shrine.part(shrine.place(*m), f"{meta['id']}_shrine") for m in b.models]
+                    summary['shrines'][meta['id']] = b.shrine
                 summary['boulders'] += rocks
                 summary['towers'].append(meta['id'])
                 summary['pieces'][meta['id']] = 'tower'

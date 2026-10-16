@@ -14,7 +14,8 @@ never submitted again: --redo (with --only) moves a done record and its copy to 
 for a new one; a record whose call is uncertain is never retried.
 
 finish: offline, any Python with NumPy and Pillow. Writes build/yorimichi/craterpark/textures/<slug>.png for every
-original texture and <material>.png for the world textures, and textures.json:
+original texture, <material>.png for the world textures, shrine_<slug>.png for the tower shrine's models (their GLB's
+own image, under the key shrine/<slug>/<slug>.glb), and textures.json:
 
     {"textures": {"textures/tex-0073.png": {"png", "sha256", "slug", "how"}},
      "world_aligned": {"material_024": {"png", "sha256", "slug", "metres", "how"}}}
@@ -46,6 +47,7 @@ MEGAPARK = GAME / 'assets' / 'megapark'
 LIBRARY = GAME / 'assets' / 'source-library.json'
 WORK = yori.OUT / 'craterpark' / 'restyle'
 OUT = yori.OUT / 'craterpark' / 'textures'
+SHRINE_TEXTURE = 'shrine/{slug}/{slug}.glb'     # materials.json `texture` of a shrine model: its GLB's own image
 # Style crops (file, box in its pixels): the tiled plaza with its pale concrete, terracotta and wooden ramps; the dark
 # snake-run bowls with their pale walls and wooden deck tops; the Mega Park paintover's lavender-grey rock close up.
 STYLES = {
@@ -518,6 +520,14 @@ def finish():
         report['world_aligned'][material] = {**save(material, a), 'slug': slug, 'metres': metres,
                                              'how': f'world-aligned {rel(src)}, wraps xy ({how}), mean {list(mean)}, '
                                                     f'detail x{gain:.2f}; Tint white'}
+    # the tower shrine's Tripo models (world/regions/craterpark/v2/shrine.py) keep their own base colour on their UVs
+    sys.path.insert(0, str(GAME / 'world' / 'regions'))
+    from craterpark.v2 import shrine
+    import io
+    for slug, (material, _, _) in shrine.MODELS.items():
+        a = np.asarray(Image.open(io.BytesIO(shrine.texture(slug))).convert('RGB'), 'f4') / 255.
+        report['textures'][SHRINE_TEXTURE.format(slug=slug)] = {**save(f'shrine_{slug}', a), 'slug': slug,
+                                                                'how': f'the Tripo model\'s own texture, {material}'}
     (OUT / 'textures.json').write_text(json.dumps(report, indent=1, sort_keys=True) + '\n')
     print('CRATERPARK TEXTURES', len(report['textures']), 'restyled,', len(report['world_aligned']), 'world-aligned',
           flush=True)
