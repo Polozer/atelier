@@ -1,0 +1,37 @@
+name: Paid review reminder
+
+# This workflow only posts an advisory notice. It has no provider secret or paid action.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+  issue_comment:
+    types: [created, edited, deleted]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paid-review-reminder-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  notice:
+    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out only the trusted controller
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Update the advisory PR notice without running PR code
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { updateNotice } = require('./.github/scripts/contract-review-notice.cjs');
+            await updateNotice({ github, context });

@@ -33,8 +33,15 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   Preserve completed remote assets and rerun the same command after interruption; never clobber conflicts or publish
   an unfinished draft manually. Uploading an existing verified package does not require another cook.
 - Never prefix pull request titles with `[codex]` unless explicitly asked.
-- GitHub-hosted CI runs the Python suite on macOS, checks code contracts, and runs an advisory review with
-  `gpt-6.1-sol`, medium reasoning.
+- GitHub-hosted CI runs the Python suite on macOS and checks code contracts. Paid advisory review uses
+  `gpt-6.1-sol`, medium reasoning, only when a writer posts a new PR comment containing exactly `r? cc`.
+  **Agents must request this paid review once every code PR is ready**, after batching intermediate edits.
+  Pushes/opening a PR never request it. Request again after substantive changes to reviewed code, not for
+  every push or a resolved false positive. Documentation-only PRs are automatically exempt from both the
+  request rule and missing-request warning. Formatting-only or trivial non-code PRs are also exempt: a writer
+  must post `cc: exempt FULL_HEAD_SHA`, a newline, and a concrete explanation of why behavior is unchanged.
+  That declaration applies only to that head; never use it to exempt behavior changes. See
+  [the review guide](docs/CODE_CONTRACTS.md#requesting-a-paid-review) for scope and notice behavior.
   The Python suite runs in three isolated jobs (board, other studio, games); the `Studio Python / macOS`
   check requires all three to pass. New tests are partitioned automatically; no per-file CI list needs updating.
   Before merging, run `uv run atelier lint` and `uv run atelier contracts check`, verify a successful

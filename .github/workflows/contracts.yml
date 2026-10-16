@@ -23,6 +23,8 @@ jobs:
           package-manager-cache: false
       - run: npm install --global npm@11.11.0 --ignore-scripts
       - run: npm ci --ignore-scripts --prefix platform/studio/contracts
+      - name: Test the metadata-only paid-review reminder
+        run: node --test .github/scripts/contract-review-notice.test.cjs
       - name: Check syntax and ownership
         env:
           PYTHONPATH: platform/studio
