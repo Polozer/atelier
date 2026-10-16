@@ -126,6 +126,13 @@ class NorthernLandscape(unittest.TestCase):
         np.testing.assert_allclose(H.north_height(x[open_],y[open_]),z,atol=1e-6)
         self.assertTrue(M.in_apron(np.array([2430.]),np.array([1600.]))[0])
 
+    def test_the_south_edge_meets_the_forest_floor_beside_the_city_grass(self):
+        # Away from the city the edge takes the far hills' forest floor (M_ForestGround); beside it, the city's grass.
+        y=np.array([470.,470.,470.,470.]);x=np.array([-500.,100.,1800.,800.])
+        colours=M.colours(x,y,np.full_like(x,100.))
+        np.testing.assert_allclose(colours[:3],np.tile([.055,.11,.035],(3,1)),atol=3e-3)   # the Mega Park's litter
+        np.testing.assert_allclose(colours[3],[.24,.30,.12],atol=3e-3)
+
     def test_fine_cells_are_excluded_at_both_patch_edges(self):
         for bounds,inside in [(gate.GATE,gate.cell_inside)]:
             x0,y0,x1,y1=bounds
