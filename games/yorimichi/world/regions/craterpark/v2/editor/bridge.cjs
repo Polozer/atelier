@@ -88,10 +88,31 @@ function validate(park) {
   park.pieces.forEach(visit);
 }
 
+// A joint the pinned editor marks joined (markJoins) is drawn without end faces, as one surface. It compares the two
+// ends' centres, slopes, widths and walls but not their banks, and a bank tilts the floor about its centre line: a
+// split lane (shift) beside a banked parent's centre, or a bank changing at the joint, would leave an open step marked
+// joined. Such a design MUST fail here; it is not repaired.
+const JOIN_STEP=0.05;   // m: markJoins' own tolerance
+function checkJoins(park, built) {
+  const tan=deg=>Math.tan((deg||0)*Math.PI/180);
+  for(const p of park.pieces) {
+    const b=built.get(p.id), pb=p.attach&&built.get(p.attach);
+    if(!b||!pb||!b.joins||!b.joins.start||b.type==='bowl'||pb.type==='bowl'||!b.stations.length||!pb.segs.length) continue;
+    const s0=b.stations[0], s1=pb.stations[pb.segs[pb.segs.length-1][1]], shift=Number((p.params||{}).shift)||0;
+    // the floor's height either side of the joint at the lane's two edges (lateral offsets from its centre line)
+    const edge=s0.w/2*Math.cos((s0.bank||0)*Math.PI/180);
+    const step=Math.max(...[-edge,edge].map(u=>Math.abs(s0.y+u*tan(s0.bank)-(s1.y+(shift+u)*tan(s1.bank)))));
+    if(step>JOIN_STEP) throw Error(`${p.id}: joins ${p.attach} with a ${step.toFixed(3)} m step across its floor `+
+      `(bank ${s1.bank||0} deg at the parent's end, ${shift?`shift ${shift} m, `:''}bank ${s0.bank||0} deg here); the pinned `+
+      `editor joins only floors banked alike${shift?', and splits only an unbanked floor':''}: unsupported, change the design`);
+  }
+}
+
 function compile(input, terrainDir, out) {
   const bytes=fs.readFileSync(input), park=JSON.parse(bytes);
   validate(park);
   const terrain=loadTerrain(terrainDir,park.terrain), built=P.layout(park);
+  checkJoins(park,built);
   terrain.carve(H=>P.carveGround(park,built,H,terrain.meta.inner));
   const index={schema:'craterpark-editor-mesh/1',accepted:false,pieces_sha256:pin.pieces_sha256,
     park_sha256:sha(bytes),terrain:park.terrain,rev:park.rev,lines:park.lines,pieces:[],ground:[]};
@@ -138,4 +159,4 @@ if(require.main===module) {
     compile(input,terrain,out);
   } catch(e) { console.error(e.message); process.exitCode=1; }
 }
-module.exports={validate,compile};
+module.exports={validate,checkJoins,compile};
