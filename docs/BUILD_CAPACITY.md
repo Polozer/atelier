@@ -206,6 +206,20 @@ claims that every possible descendant was discovered. Missing, mismatched, faile
 retain uncertainty when exact exit evidence is unavailable. Output certification remains separate. The legacy bridge
 and foreign-process scan remain necessary while stronger ownership coverage and client migration are validated.
 
+Process tracking distinguishes the live guard/RPC batch bound (512 identities) from a grant's cumulative
+history (8192 identities). Clients send newly observed identities in discovery order, and suppress a repeat only
+after a healthy, epoch-fenced acknowledgement. Close is a single atomic bounded message: an oversized unsent tail
+refuses close and retains the reservation. Missing identities and failed watch registration remain unknown.
+The broker retains exact historical identities and positive exits, but stops polling positively exited processes.
+
+To bound the active SQLite record, released histories move to private immutable SHA-256-named JSON files in the
+broker's `process-history/` directory once state exceeds 2 MiB. File and directory sync precede the SQLite commit;
+failed publication preserves the previous database. Active or uncertain histories are never compacted. Archives
+retain the request ID, nonce generation, exact rosters, counts and release witness; public status keeps the counts.
+They are audit evidence, never ownership or release authority. Reoffering or pruning a released summary does not
+delete its archive. Archive cleanup requires a separate explicit evidence-retention decision. The 4 MiB active
+state ceiling still refuses further mutations if held histories alone exceed it.
+
 The agent board rollout must show the real machine mode: legacy slots, capacity migration bridge, or full capacity.
 It should show reserved resources separately from measured usage, ready age and wait reasons, named locks, and
 uncertain reservations that still consume capacity. An unavailable broker must be visible rather than displayed

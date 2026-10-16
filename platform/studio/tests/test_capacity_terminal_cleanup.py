@@ -180,6 +180,7 @@ def test_recovery_commits_before_disposal_and_reconcile_is_idempotent(terminal, 
     broker, record, bound_path, receipt = terminal
     broker.compatible, broker.lease_seconds, broker.boot = True, 10, 'fixture'
     broker._watches, broker._gates, broker._lock = {}, {}, threading.RLock()
+    broker.directory = bound_path.parent
     broker._clock = lambda: 20
     broker.total, broker.reserve = Resources(memory_mib=10), Resources()
     record['epoch'] = 1
@@ -196,13 +197,18 @@ def test_recovery_commits_before_disposal_and_reconcile_is_idempotent(terminal, 
     state = dict(namespace=wire.NAMESPACE, epoch=1, boot_id=broker.boot, records={'job': record})
     broker.connection.execute('INSERT INTO state VALUES (1,?)', (json.dumps(state),))
     disposed = []
-    def dispose(nonce):
+    def dispose():
         assert not broker.connection.in_transaction
         durable = json.loads(broker.connection.execute('SELECT value FROM state').fetchone()[0])
         assert durable['records']['job']['state'] == 'released'
         assert durable['records']['job']['release_witness']['kind'] == 'guarded-tree-exit'
-        disposed.append(nonce)
-    broker._dispose = dispose
+        disposed.append('fixture')
+    class Handle:
+        def poll(self):
+            return False
+        def close(self):
+            dispose()
+    broker._watches[('fixture', (100, 1000))] = Handle()
     try:
         for _ in range(1 if action == 'close' else 2):
             message = dict(namespace=wire.NAMESPACE, action='reconcile' if action == 'preserved' else action)

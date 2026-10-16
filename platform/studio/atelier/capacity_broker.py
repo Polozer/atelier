@@ -23,6 +23,7 @@ import time
 
 from .capacity import Request, Resources, conflicts
 from . import capacity_protocol as wire
+from . import capacity_process_history as history
 
 APPLICATION_ID = 0x41434231
 SCHEMA = 'CREATE TABLE state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL)'
@@ -113,8 +114,9 @@ class CapacityBroker:
                                           'from': previous_boot, 'to': self.boot})
                         else:
                             record['state'] = 'uncertain'
+                            exited = {tuple(pin) for pin in record.get('exited', [])}
                             for pin in record.get('roster', []):
-                                if pin not in record.get('exited', []):
+                                if tuple(pin) not in exited:
                                     self._watches[(record['nonce'], tuple(pin))] = self.watch_factory(pin)
                     elif record['state'] != 'released':
                         record['state'] = 'waiting'
@@ -204,14 +206,14 @@ class CapacityBroker:
         return value
 
     def _save(self, state):
-        data = json.dumps(state, separators=(',', ':'), allow_nan=False)
-        if len(data) > 4 * 1024 * 1024:
-            raise wire.CapacityError('Capacity state exceeds its limit')
+        data = history.encode_state(self.directory, state)
         self.connection.execute('UPDATE state SET value=? WHERE id=1', (data,))
         self.connection.commit()
-        for record in state['records'].values():
-            if record['state'] == 'released':
-                self._dispose(record.get('nonce'))
+        released = {r.get('nonce') for r in state['records'].values() if r['state'] == 'released'}
+        for nonce in released & self._gates.keys():
+            self._gate_close(nonce)
+        for key in [key for key in self._watches if key[0] in released]:
+            self._watches.pop(key).close()
 
     def _clock(self):
         now = time.monotonic()
@@ -220,17 +222,24 @@ class CapacityBroker:
         self._last_clock = now
         return now
 
+    def _batch(self, message):
+        pins = message.get('descendants', [])
+        if type(pins) is not list or len(pins) > wire.MAX_ROSTER:
+            raise wire.CapacityError('Capacity process batch exceeds its limit')
+        return pins
+
     def _watch(self, record, pins):
+        pins = [wire.identity(pin) for pin in pins]
         roster = {tuple(pin) for pin in record.get('roster', [])}
         verified = {tuple(pin) for pin in record.get('verified_roster', [])}
+        if len(roster | set(pins)) > wire.MAX_RETAINED:
+            raise wire.CapacityError('Retained process roster exceeds its limit')
         pending = {}
         for value in pins:
             pin = wire.identity(value)
             if pin == tuple(record['principal']):
                 raise wire.CapacityError('The controller is not a workload descendant')
             if pin not in roster:
-                if len(roster) >= wire.MAX_ROSTER:
-                    raise wire.CapacityError('Retained process roster exceeds its limit')
                 roster.add(pin)
                 self._watches[(record['nonce'], pin)] = self.watch_factory(pin)
                 pending[pin] = self.parent(pin)
@@ -298,6 +307,8 @@ class CapacityBroker:
                     phase='compatibility', error_type=type(error).__name__,
                     errno=error.errno if isinstance(error, OSError) else None)), file=sys.stderr, flush=True)
         for record in state['records'].values():
+            if record['state'] == 'released':
+                continue  # Historical proof is immutable, not a live polling roster.
             if not self.compatible and record['state'] in HELD and record['state'] != 'uncertain':
                 record['state'] = 'uncertain'
                 changed = True
@@ -308,12 +319,16 @@ class CapacityBroker:
             if record['state'] in ('running', 'draining') and now - record['heartbeat'] > self.lease_seconds:
                 record['state'] = 'uncertain'
                 changed = True
+            exited = {tuple(pin) for pin in record.get('exited', [])}
             for pin in record.get('roster', []):
+                if tuple(pin) in exited:
+                    continue
                 watch = self._watches.get((record['nonce'], tuple(pin)))
-                if watch is not None and watch.poll() and pin not in record.setdefault('exited', []):
-                    record['exited'].append(pin)
+                if watch is not None and watch.poll():
+                    record.setdefault('exited', []).append(pin)
+                    exited.add(tuple(pin))
                     changed = True
-            if record['state'] == 'running' and record.get('child') in record.get('exited', []):
+            if record['state'] == 'running' and tuple(record['child']) in exited:
                 record['state'] = 'draining'
                 changed = True
             if record['state'] in ('running', 'draining'):
@@ -339,8 +354,8 @@ class CapacityBroker:
         """
         if record['state'] != 'uncertain' or not record.get('roster'):
             return False
-        if (not record.get('ancestry_unknown')
-                and all(pin in record.get('exited', []) for pin in record['roster'])):
+        exited = {tuple(pin) for pin in record.get('exited', [])}
+        if (not record.get('ancestry_unknown') and all(tuple(pin) in exited for pin in record['roster'])):
             witness = {'kind': 'retained-kernel-exits'}
         else:
             witness = self._terminal_tree_exit(record)
@@ -369,6 +384,7 @@ class CapacityBroker:
             receipt = (wire.decode(wire.private_file(report, limit=wire.MAX_FRAME, private=False))
                        if preserved is None else preserved)
             observed, ready = receipt.get('time'), record.get('first_ready')
+            exited = {tuple(pin) for pin in record.get('exited', [])}
             if (type(observed) not in (int, float) or not math.isfinite(observed)
                     or type(ready) not in (int, float) or not math.isfinite(ready)
                     or not 0 < ready <= observed <= time.time()
@@ -377,7 +393,7 @@ class CapacityBroker:
                     or receipt.get('state') != 'child_exited' or receipt.get('cleanup_complete') is not True
                     or receipt.get('termination_reason') is not None or receipt.get('processes') != []
                     or type(receipt.get('footprint_bytes')) is not int or receipt['footprint_bytes'] != 0
-                    or any(self.alive(wire.identity(pin)) for pin in record['roster'])):
+                    or any(self.alive(wire.identity(pin)) for pin in record['roster'] if tuple(pin) not in exited)):
                 return None
         except (OSError, ValueError, KeyError, TypeError, wire.CapacityError):
             return None
@@ -517,7 +533,8 @@ class CapacityBroker:
                     self.guards(record['guards'], tuple(record['child']), tuple(record['principal']),
                                 record['limit_bytes'], record['request']['resources']['memory_mib'])
                 elif (not record.get('roster') or record.get('ancestry_unknown')
-                      or any(pin not in record.get('exited', []) for pin in record['roster'])):
+                      or not {tuple(pin) for pin in record['roster']} <=
+                             {tuple(pin) for pin in record.get('exited', [])}):
                     raise wire.CapacityError('Draining holder lacks complete retained exit evidence')
                 owner = tuple(record['principal'])
                 if self.started(owner[0]) != owner[1] or not self.alive(owner):
@@ -588,8 +605,8 @@ class CapacityBroker:
                         purpose=request.get('purpose'), phase=request.get('phase'),
                         state=record['state'], charged=record['state'] in HELD, resources=request['resources'],
                         locks=request['locks'], first_ready=record['first_ready'], sequence=record['sequence'],
-                        bypasses=record['bypasses'], retained=len(record.get('roster', [])),
-                        witnessed=len(record.get('exited', [])), wait_reason=reason,
+                        bypasses=record['bypasses'], retained=history.count(record, 'roster'),
+                        witnessed=history.count(record, 'exited'), wait_reason=reason,
                         measured_memory_mib=record.get('measured_memory_mib'),
                         measured_at=record.get('measured_at'), ancestry_unknown=record.get('ancestry_unknown', False))
             result['records'].append(item)
@@ -610,8 +627,11 @@ class CapacityBroker:
                 or type(candidates) is not list or len(candidates) > wire.MAX_ROSTER):
             raise wire.CapacityError('Capacity ownership observation is unavailable or incomplete')
         pins = [wire.identity(pin) for pin in candidates]
-        known = {tuple(pin) for record in state['records'].values() if record['state'] in HELD
-                 for pin in record.get('verified_roster', []) if pin not in record.get('exited', [])}
+        known = set()
+        for record in state['records'].values():
+            if record['state'] in HELD:
+                exited = {tuple(pin) for pin in record.get('exited', [])}
+                known.update(tuple(pin) for pin in record.get('verified_roster', []) if tuple(pin) not in exited)
         return [list(pin) for pin in pins if pin in known and self.started(pin[0]) == pin[1] and self.alive(pin)]
 
     def _foreign_check(self, state):
@@ -680,6 +700,7 @@ class CapacityBroker:
                         self._dispose(record.get('nonce'))
                         record.update(nonce=secrets.token_hex(32), principal=list(principal), roster=[], exited=[],
                                       verified_roster=[], ancestry_unknown=False)
+                        record.pop('process_history', None)
                     record.update(request=request, state='queued', epoch=state['epoch'], heartbeat=now)
                     selected = self._selection(state) is record
                     result = {'selected': selected, 'state': 'offered' if selected else 'queued',
@@ -695,6 +716,8 @@ class CapacityBroker:
                         raise wire.CapacityError('Capacity session was fenced by restart')
                     if self.started(principal[0]) != principal[1] or not self.alive(principal):
                         raise wire.CapacityError('Capacity controller identity is no longer live')
+                    if action in ('check', 'close'):
+                        batch = self._batch(message)
                     if action == 'gate':
                         if record['state'] != 'queued' or record['nonce'] in self._gates:
                             raise wire.CapacityError('Capacity gate is unavailable')
@@ -735,7 +758,7 @@ class CapacityBroker:
                     elif action == 'check':
                         if record['state'] not in ('running', 'draining'):
                             raise wire.CapacityError('Capacity grant is uncertain or inactive')
-                        self._watch(record, message.get('descendants', []))
+                        self._watch(record, batch)
                         self._refresh(state, now)
                         if record['state'] not in ('running', 'draining'):
                             raise wire.CapacityError('Capacity grant is uncertain or inactive')
@@ -755,7 +778,7 @@ class CapacityBroker:
                             record['state'] = 'waiting'
                             result = {'state': 'waiting', 'released': True}
                         else:
-                            self._watch(record, message.get('descendants', []))
+                            self._watch(record, batch)
                             witness = message.get('witness')
                             if witness is not None:
                                 wire.fields(witness, ('kind', 'parent', 'child', 'returncode'))

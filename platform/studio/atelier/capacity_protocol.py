@@ -23,6 +23,7 @@ from .capacity import Resources
 NAMESPACE = 'atelier.capacity-broker.v1'
 MAX_FRAME = 65536
 MAX_ROSTER = 512
+MAX_RETAINED = 8192  # Cumulative identities, independent of live-report and RPC batch limits.
 RESOURCE_FIELDS = frozenset(Resources.__dataclass_fields__)
 
 
