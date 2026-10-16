@@ -24,7 +24,7 @@ function Reservation({job, now, fresh}: {job: Job; now: number; fresh: boolean})
   return (
     <article className={`capacity-job${uncertain ? ' uncertain' : ''}`}>
       <div className="capacity-job-head"><strong>{job.purpose || job.id}</strong>
-        <span className={`capacity-tag${uncertain ? ' warning' : ''}`}>{job.state === 'waiting' ? 'awaiting retry' : job.state === 'queued' ? 'ready' : job.state}</span></div>
+        <span className={`capacity-tag${uncertain ? ' warning' : ''}`}>{uncertain ? 'locked' : job.state === 'waiting' ? 'awaiting retry' : job.state === 'queued' ? 'ready' : job.state}</span></div>
       <p className="capacity-meta">{[job.owner, job.checkout, job.phase].filter(Boolean).join(' · ') || 'Owner not reported'}
         {' · '}first ready {since(job.first_ready, now)}</p>
       <p>{gib(job.resources.memory_mib)} {job.charged ? 'reserved' : 'requested'} · {cpu(job.resources.cpu_millis)}
@@ -34,9 +34,9 @@ function Reservation({job, now, fresh}: {job: Job; now: number; fresh: boolean})
         {job.resources.io_slots > 0 && <>{job.resources.io_slots} I/O contention budget slots · </>}
         {gib(job.resources.gpu_mib)} GPU {job.charged ? 'reserved' : 'requested'}</p>
       {job.locks.length > 0 && <p className="capacity-locks">Locks {job.charged ? 'held' : 'required'}: {job.locks.map((lock, i) => <code key={i}>{lock}</code>)}</p>}
-      {job.wait_reason && <p className="capacity-reason">{job.wait_reason}</p>}
-      {uncertain && <p className="capacity-reason">Reservation retained while waiting for verified process exits.</p>}
-      {job.ancestry_unknown && <p className="capacity-reason">Process ancestry is uncertain.</p>}
+      {uncertain ? <p className="capacity-reason">Exit verification is incomplete. Resources and locks are still held.</p>
+        : job.wait_reason && <p className="capacity-reason">{job.wait_reason}</p>}
+      {job.ancestry_unknown && <p className="capacity-reason">Some helper exits still need verification.</p>}
     </article>
   );
 }
@@ -61,7 +61,7 @@ export function Capacity({status, connected, bridge, serverTime}: {status?: Stat
   const legacy = status?.configuration === 'legacy';
   const full = snapshot?.mode === 'capacity' && snapshot.cutover;
   const maintenance = snapshot?.mode === 'sealed-maintenance' && !snapshot.cutover;
-  const title = legacy ? 'Legacy slots' : fresh ? full ? snapshot.recovering ? 'Capacity recovery' : 'Capacity admission'
+  const title = legacy ? 'Legacy slots' : fresh ? full ? snapshot.recovering ? 'Locked' : 'Open'
     : maintenance ? snapshot.recovering ? 'Maintenance recovery' : 'Exclusive maintenance'
     : snapshot?.recovering ? 'Capacity bridge recovery' : 'Capacity bridge' : 'Capacity status unavailable';
   const active = snapshot?.records.filter((job) => job.charged || job.state === 'gated') || [];
@@ -73,8 +73,8 @@ export function Capacity({status, connected, bridge, serverTime}: {status?: Stat
         <span className={`capacity-tag${!legacy && (!fresh || snapshot?.recovering) ? ' warning' : ''}`}>{title}</span></div>
       {legacy ? <p>{bridge ? 'A capacity bridge holds all legacy lanes. Its broker is not visible to this board.'
         : 'Capacity admission is not configured for this board. Existing slot locks and guards apply.'}</p>
-        : <p>{fresh ? full ? snapshot.recovering ? 'New grants are paused while compatibility or ownership is checked.'
-          : 'The broker admits work within resource budgets and named locks. Legacy mutexes remain sealed.'
+        : <p>{fresh ? full ? snapshot.recovering ? 'New jobs are blocked until exit and compatibility checks pass.'
+          : 'New jobs start automatically when their resources and locks are available.'
           : maintenance ? snapshot.recovering ? 'New grants are paused while sealed compatibility or ownership is checked.'
           : 'One guarded job at a time. Sealed legacy locks remain exclusive; full concurrency awaits a verified reboot.'
           : 'Broker reservations and all legacy lane locks are required. Extra concurrency is not enabled.'
@@ -84,10 +84,10 @@ export function Capacity({status, connected, bridge, serverTime}: {status?: Stat
       {snapshot && <>
         {!fresh && <p className="capacity-warning">Last known state · observed {since(snapshot.observed_at, now)}. These figures are stale.</p>}
         {snapshot.recovering && <p className="capacity-warning">{uncertain.length > 0
-          ? <>New grants are paused while waiting for verified process exits: {uncertain.map((job) => `${job.purpose || job.id} (${job.owner || 'owner not reported'})`).join('; ')}.</>
+          ? <>Locked for cleanup: {uncertain.map((job) => `${job.purpose || job.id} (${job.owner || 'owner not reported'})`).join('; ')}. The broker is verifying process exits.</>
           : snapshot.truncated
-            ? 'New grants are paused. Compatibility or uncertain reservations outside this visible list still need verification.'
-            : 'New grants are paused while broker compatibility is verified.'}</p>}
+            ? 'Locked. Compatibility or reservations outside this visible list still need verification.'
+            : 'Locked while broker compatibility is verified.'}</p>}
         <dl className="capacity-budget">
           {dimensions.filter(({key}) => !['io_slots', 'temp_mib'].includes(key) || snapshot.total[key] !== 0
             || snapshot.reserve[key] !== 0 || snapshot.charged_resources[key] !== 0).map(({key, label, format}) => {
