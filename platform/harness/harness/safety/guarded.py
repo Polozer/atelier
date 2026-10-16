@@ -28,7 +28,7 @@ It samples the simultaneous physical footprint of the wrapper and its owned desc
 excluding shared services, under the same ceiling and admission. `memory-health-tree.json` is this aggregate
 receipt, separate from per-process reports. Lost telemetry or a missing successful terminal receipt fails the run.
 """
-import argparse, hashlib, json, os, signal, subprocess, sys, time, uuid
+import argparse, hashlib, json, os, shutil, signal, subprocess, sys, time, uuid
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -274,10 +274,33 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
     events = {}
     completion = {} if completion_path is not None else None
     try:
-        code = _run(command, folder, timeout, purpose, lock, env, limit_gib, small_gib, kind,
-                    on_slot, watch, progress, track_tree, fitting_gib, pass_fds, aggregate_tree,
-                    on_poll, admission, performance, worker_binding=worker_binding, _timings=events,
-                    **({'_completion': completion} if completion is not None else {}))
+        from atelier.harness.capacity_client import CapacityOfferLost, CapacityError
+        previous = None
+        for attempt in range(3):
+            try:
+                code = _run(command, folder, timeout, purpose, lock, env, limit_gib, small_gib, kind,
+                            on_slot, watch, progress, track_tree, fitting_gib, pass_fds, aggregate_tree,
+                            on_poll, admission, performance, worker_binding=worker_binding, _timings=events,
+                            _requeue=previous, _queue_deadline=entered + 1800.,
+                            **({'_completion': completion} if completion is not None else {}))
+                break
+            except CapacityOfferLost as error:
+                # The typed broker denial is necessary but not sufficient: _run must also
+                # have completed its actual child/tree cleanup and affirmative uncharged close.
+                if admission is not None or error.cleanup is None:
+                    raise
+                archive = Path(folder) / ('lost-offer-' + identifier + '-' + str(attempt + 1))
+                archive.mkdir()
+                for name in ('memory-health.json', 'memory-health-tree.json', 'stdout.log'):
+                    shutil.copy2(Path(folder) / name, archive / name)
+                (archive / 'no-go.json').write_text(json.dumps(error.cleanup, indent=2) + '\n')
+                if attempt == 2 or time.monotonic() >= entered + 1800.:
+                    raise CapacityError('Capacity pre-GO requeue bound reached; no resources held') from error
+                previous = error.session
+                for name in ('spawned', 'exited', 'go'):
+                    events.pop(name, None)
+                print('Capacity selection changed before GO: owned gate child reaped, tree empty, '
+                      'uncharged close confirmed; returning to the same queue', flush=True)
         # _run's ExitStack has now completed child cleanup, capacity close and monitor detach.
         # This affirmative receipt is deliberately independent from diagnostic timings.
         if completion is not None and code == 0:
@@ -326,7 +349,8 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
 
 def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gib=10., small_gib=None, kind='job',
         on_slot=None, watch=(), progress=0., track_tree=False, fitting_gib=None, pass_fds=(), aggregate_tree=False,
-        on_poll=None, admission=None, performance=False, *, worker_binding=None, _timings, _completion=None):
+        on_poll=None, admission=None, performance=False, *, worker_binding=None, _timings, _completion=None,
+        _requeue=None, _queue_deadline=None):
     """@cc [owner:fontanierh,label:safety] compile-tree-monitor-lifecycle
     Aggregate mode MUST release the command only after a matching monitor readiness receipt, and MUST
     require a successful matching terminal receipt proving observed tree exit before returning success.
@@ -338,8 +362,13 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
     failed monitor or matching memory/duration stop receipt MUST fail, including without a callback.
     Capacity-managed work MUST hold either the exclusive migration bridge or all three sealed
     shared compatibility mutexes and await the broker's own exec gate after both guards are ready.
-    Shared admission MUST verify the durable boot-bound compatibility barrier. Broker failure MUST fail the run, without falling back to
-    slots. Capacity cleanup MUST follow owned-child cleanup/reap and precede guard detachment.
+    Shared admission MUST verify the durable boot-bound compatibility barrier. Broker failures MUST fail
+    without falling back to slots. Only an automatic full session's typed, fenced selection-change
+    no-GO denial MAY requeue after its exact child is positively reaped, its aggregate tree is
+    affirmatively empty and its close confirms an uncharged waiting state. Requeues MUST retain
+    request/configuration and broker epoch/boot, use at most two retries within the original
+    1800-second admission deadline, and MUST NOT repeat useful execution or certify success.
+    Capacity cleanup MUST follow owned-child cleanup/reap and precede guard detachment.
     Requested performance exclusion MUST reach the configured broker or already belong to an explicit session.
     Optional completion evidence MUST contain the positively waited launcher and matching terminal
     aggregate receipt. Its caller MUST publish it only after successful cleanup and capacity close.
@@ -374,6 +403,7 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
         raise ValueError('performance request must be a boolean')
     if performance and admission is not None and getattr(admission, 'request', {}).get('performance') is not True:
         raise ValueError('explicit capacity admission must request performance exclusion')
+    automatic = admission is None
     if admission is None:
         from atelier.harness.capacity_runtime import configured_session
         admission = configured_session(kind=kind, limit_gib=limit_gib, timeout=timeout, folder=folder,
@@ -385,6 +415,10 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                 if type(selected) not in (int, float) or selected not in (limit_gib, min(limit_gib, SMALL_LIMIT_GIB)):
                     raise ValueError('Configured guard ceiling must retain the nominal or established SMALL envelope')
                 limit_gib = selected
+    if _requeue is not None:
+        if not automatic or admission is None or admission.mode != 'capacity':
+            raise ValueError('Capacity requeue requires an automatic full session')
+        admission.requeue_after(_requeue)
     if admission is not None and (not lock or fitting_gib is not None):
         raise ValueError('capacity admission requires the legacy bridge or sealed shared mutexes, without a fitting-lane request')
     if admission is not None and getattr(admission, 'mode', None) in ('capacity', 'sealed-maintenance'):
@@ -403,6 +437,7 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
         child, root_start, tree, aggregate = None, None, None, None
         capacity_closed = False
         aggregate_settled = False
+        lost_offer = None
 
         def finish_aggregate():
             nonlocal aggregate_settled
@@ -428,14 +463,31 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                     if child is not None and child.poll() is not None:
                         finish_aggregate()
                 finally:
-                    admission.close(child=child, child_start=root_start, descendants=retained())
+                    response = admission.close(child=child, child_start=root_start, descendants=retained())
+                if (lost_offer is not None and automatic and admission.mode == 'capacity'
+                        and lost_offer.session is admission and lost_offer.child == (child.pid, root_start)
+                        and response.get('released') is True and response.get('state') == 'waiting'
+                        and child.wait(timeout=0) is not None and aggregate is not None
+                        and aggregate.receipt('child_exited') and monitor.poll() in (None, 0)):
+                    terminal = json.loads(aggregate.report.read_text())
+                    if (terminal.get('owner'), terminal.get('owner_started'), terminal.get('state'),
+                            terminal.get('cleanup_complete'), terminal.get('processes'), terminal.get('footprint_bytes')) == (
+                            child.pid, root_start, 'child_exited', True, [], 0):
+                        lost_offer.cleanup = dict(schema=1, reason='selection-changed', no_go=True,
+                            child=[child.pid, root_start], returncode=child.returncode,
+                            epoch=admission.epoch, boot_id=admission.boot, uncharged_close=True,
+                            terminal=terminal)
 
         if admission is not None:
             # Also cancel a queued offer when acquiring the bridge fails. The later callback
             # moves successful-spawn cleanup before monitor detachment; this fallback is a no-op.
             stack.callback(close_capacity)
             from atelier.harness.capacity_client import wait_for_offer
-            wait_for_offer(admission)
+            remaining = 1800. if _queue_deadline is None else _queue_deadline - time.monotonic()
+            if remaining <= 0:
+                from atelier.harness.capacity_client import CapacityError
+                raise CapacityError('Capacity admission deadline reached; no resources held')
+            wait_for_offer(admission, seconds=min(1800., remaining))
         slot = None
         if lock:
             def taken(name, why):
@@ -517,13 +569,18 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                 limit_bytes = int(limit_gib * 1024**3)
                 wait_ready(monitor, child.pid, root_start, folder/'memory-health.json', limit_bytes)
             if admission is not None:
-                admission.start(child_pid=child.pid, child_start=root_start,
-                                process_guard=dict(pid=monitor.pid, start=process_tree.started(monitor.pid),
-                                                   report=str((folder/'memory-health.json').resolve())),
-                                tree_guard=dict(pid=aggregate.process.pid,
-                                                start=process_tree.started(aggregate.process.pid),
-                                                report=str((folder/'memory-health-tree.json').resolve())),
-                                limit_bytes=limit_bytes)
+                from atelier.harness.capacity_client import CapacityOfferLost
+                try:
+                    admission.start(child_pid=child.pid, child_start=root_start,
+                                    process_guard=dict(pid=monitor.pid, start=process_tree.started(monitor.pid),
+                                                       report=str((folder/'memory-health.json').resolve())),
+                                    tree_guard=dict(pid=aggregate.process.pid,
+                                                    start=process_tree.started(aggregate.process.pid),
+                                                    report=str((folder/'memory-health-tree.json').resolve())),
+                                    limit_bytes=limit_bytes)
+                except CapacityOfferLost as error:
+                    lost_offer = error
+                    raise
             else:
                 gate.write(b'1')
                 gate.close()

@@ -609,6 +609,32 @@ class CapacityBroker:
         return Request(request['id'], wire.resources(request['resources']), tuple(request['locks']),
                        record['sequence'], request['seconds'], record.get('bypasses', 0), request['performance'])
 
+    def _start_refusal(self, reason):
+        print('capacity start refused: ' + json.dumps(dict(reason=reason, observed_at=time.time())),
+              file=sys.stderr, flush=True)
+
+    def _lost_offer(self, state, record, principal, message):
+        """@cc [owner:fontanierh,label:safety] unexecuted-selection-loss
+        A typed selection-change denial MUST require a queued, fenced session, a still-pending
+        broker-owned gate and a verified direct child. It MUST close that gate without writing GO,
+        changing the request age or charging resources. Other refusal reasons MUST stay errors.
+        """
+        reason = ('not-queued' if record['state'] != 'queued' else
+                  'gate-unavailable' if record['nonce'] not in self._gates else
+                  'compatibility' if not self.compatible else
+                  'recovery' if any(r['state'] == 'uncertain' for r in state['records'].values()) else None)
+        if reason is not None:
+            self._start_refusal(reason)
+            raise wire.CapacityError('Capacity offer is no longer selected')
+        child = wire.identity(message['child'])
+        if not self.child_of(principal, child):
+            self._start_refusal('child-identity')
+            raise wire.CapacityError('Launcher is not the pinned direct child')
+        self._start_refusal('selection-changed')
+        self._gate_close(record['nonce'])  # EOF may end this owned gate child; no GO was written.
+        return dict(state='queued', admission=False, no_go=True, reason='selection-changed',
+                    nonce=record['nonce'], epoch=state['epoch'], child=list(child))
+
     def _selection(self, state):
         if not self.compatible or any(r['state'] == 'uncertain' for r in state['records'].values()):
             return None  # Accounting alone cannot replace a lost enforcement/ownership boundary.
@@ -798,6 +824,8 @@ class CapacityBroker:
                     raise wire.CapacityError('Preserved terminal evidence is allowed only for reconciliation')
                 if self.mode in ('capacity', 'sealed-maintenance') and action not in ('status', 'reconcile', 'close'):
                     if not self.compatible or message.get('activation_id') != self.activation_id:
+                        if action == 'start':
+                            self._start_refusal('compatibility-fence')
                         raise wire.CapacityError('Full-capacity compatibility proof is unavailable or mismatched')
                 if action in ('status', 'reconcile'):
                     if action == 'reconcile':
@@ -812,6 +840,9 @@ class CapacityBroker:
                         raise wire.CapacityError('Capacity ownership observation was fenced')
                     result = dict(owned=self._owned(state, message.get('candidates')), epoch=state['epoch'])
                 elif action == 'offer':
+                    if ('epoch' in message or 'boot_id' in message) and (
+                            message.get('epoch') != state['epoch'] or message.get('boot_id') != self.boot):
+                        raise wire.CapacityError('Capacity requeue was fenced by restart')
                     request = self._request(message['request'])
                     record = state['records'].get(request['id'])
                     if any(r['state'] in HELD and tuple(r['principal']) == principal for r in state['records'].values()):
@@ -850,11 +881,15 @@ class CapacityBroker:
                 else:
                     record = state['records'].get(message.get('id'))
                     if (record is None or tuple(record['principal']) != principal or message.get('nonce') != record['nonce']):
+                        if action == 'start':
+                            self._start_refusal('session-identity')
                         raise wire.CapacityError('Capacity session identity mismatch')
                     wire.integer(message.get('epoch'), minimum=1)
                     old_close = action == 'close' and message['epoch'] == record['epoch']
                     if message.get('boot_id') != self.boot or (not old_close and
                             (message['epoch'] != state['epoch'] or record['epoch'] != state['epoch'])):
+                        if action == 'start':
+                            self._start_refusal('restart-fence')
                         raise wire.CapacityError('Capacity session was fenced by restart')
                     if self.started(principal[0]) != principal[1] or not self.alive(principal):
                         raise wire.CapacityError('Capacity controller identity is no longer live')
@@ -869,34 +904,35 @@ class CapacityBroker:
                         result = {'state': 'gated', 'epoch': state['epoch']}
                     elif action == 'start':
                         if record['state'] != 'queued' or self._selection(state) is not record or record['nonce'] not in self._gates:
-                            raise wire.CapacityError('Capacity offer is no longer selected')
-                        child = wire.identity(message['child'])
-                        if not self.child_of(principal, child):
-                            raise wire.CapacityError('Launcher is not the pinned direct child')
-                        guards = {name: message[name] for name in ('process_guard', 'tree_guard')}
-                        facts = self.guards(guards, child, principal, message['limit_bytes'],
-                                             record['request']['resources']['memory_mib'])
-                        if self.mode in ('capacity', 'sealed-maintenance'):
-                            self._foreign_check(state)
-                        self._pressure(state, record)
-                        self._validate_compatibility(state)
-                        self._validate_holders(state, record)
-                        # Revalidate after all compatibility, process-scan and pressure I/O.
-                        facts = self.guards(guards, child, principal, message['limit_bytes'],
-                                            record['request']['resources']['memory_mib'])
-                        if self.started(child[0]) != child[1] or self.started(principal[0]) != principal[1]:
-                            raise wire.CapacityError('Launcher/controller changed before admission')
-                        record['child'] = list(child)
-                        self._watch(record, [child, *facts.roster])
-                        record.update(state='running', child=list(child), guards=guards,
-                                      limit_bytes=message['limit_bytes'], heartbeat=self._clock(),
-                                      measured_memory_mib=facts.footprint_bytes // 1024**2, measured_at=time.time())
-                        for earlier in state['records'].values():
-                            if (earlier['state'] == 'queued' and earlier['sequence'] < record['sequence']
-                                    and earlier['request']['seconds'] > 300 and request_seconds(record) <= 300):
-                                earlier['bypasses'] += 1
-                        go = record['nonce']
-                        result = {'state': 'running', 'epoch': state['epoch'], 'admission': True}
+                            result = self._lost_offer(state, record, principal, message)
+                        else:
+                            child = wire.identity(message['child'])
+                            if not self.child_of(principal, child):
+                                raise wire.CapacityError('Launcher is not the pinned direct child')
+                            guards = {name: message[name] for name in ('process_guard', 'tree_guard')}
+                            facts = self.guards(guards, child, principal, message['limit_bytes'],
+                                                 record['request']['resources']['memory_mib'])
+                            if self.mode in ('capacity', 'sealed-maintenance'):
+                                self._foreign_check(state)
+                            self._pressure(state, record)
+                            self._validate_compatibility(state)
+                            self._validate_holders(state, record)
+                            # Revalidate after all compatibility, process-scan and pressure I/O.
+                            facts = self.guards(guards, child, principal, message['limit_bytes'],
+                                                record['request']['resources']['memory_mib'])
+                            if self.started(child[0]) != child[1] or self.started(principal[0]) != principal[1]:
+                                raise wire.CapacityError('Launcher/controller changed before admission')
+                            record['child'] = list(child)
+                            self._watch(record, [child, *facts.roster])
+                            record.update(state='running', child=list(child), guards=guards,
+                                          limit_bytes=message['limit_bytes'], heartbeat=self._clock(),
+                                          measured_memory_mib=facts.footprint_bytes // 1024**2, measured_at=time.time())
+                            for earlier in state['records'].values():
+                                if (earlier['state'] == 'queued' and earlier['sequence'] < record['sequence']
+                                        and earlier['request']['seconds'] > 300 and request_seconds(record) <= 300):
+                                    earlier['bypasses'] += 1
+                            go = record['nonce']
+                            result = {'state': 'running', 'epoch': state['epoch'], 'admission': True}
                     elif action == 'check':
                         result = self._heartbeat(state, record, batch, now)
                     elif action == 'close':

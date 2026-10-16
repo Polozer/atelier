@@ -1323,3 +1323,87 @@ def test_bounded_public_status_keeps_active_and_queue_order_then_newest_released
         assert status['charged_count'] == 1 and status['waiting_count'] == 2
         assert status['charged_resources']['memory_mib'] == 1024
         assert len(records) == 38 and records['1']['state'] == 'released'
+
+
+@pytest.mark.parametrize('blocked_cleanup', [None, 'aggregate', 'close'])
+def test_automatic_full_launch_requeues_only_after_real_no_go_cleanup(barrier, monkeypatch, blocked_cleanup):
+    """Real socket, gate children, sealed flocks and both monitors; payload executes once."""
+    from atelier.harness import capacity_client
+    activated(barrier)
+    instance = broker.CapacityBroker(**broker.load_config(barrier.config),
+        observe=lambda: dict(observed_monotonic=time.monotonic(), available_memory_mib=99999))
+    errors = []
+    def serve():
+        try:
+            instance.serve_forever()
+        except BaseException as error:
+            errors.append(error)
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    profile = dict(resources=asdict(Resources(memory_mib=256, cpu_millis=1000)), locks=[])
+    config = barrier.root / 'requeue-client.json'
+    config.write_text(json.dumps(dict(schema=2, cutover=str(compat.DEFAULT_RECORD),
+        socket=str(instance.socket_path), profiles={kind: profile for kind in ('job', 'game', 'compile')})))
+    config.chmod(0o600)
+    monkeypatch.setenv('ATELIER_CAPACITY_CLIENT', str(config))
+    monkeypatch.setattr(locks, 'native_candidates', lambda **kwargs: [])
+    original = capacity_client.AdmissionSession.start
+    starts, ready = [], []
+    folder, marker = barrier.root / 'requeue-guard', barrier.root / 'useful-work'
+    def interleave(admission, **kwargs):
+        starts.append((kwargs['child_pid'], kwargs['child_start']))
+        row = next(r for r in capacity_client.status(instance.socket_path)['records']
+                   if r['id'] == admission.request['id'])
+        ready.append(row['first_ready'])
+        if len(starts) != 1:
+            assert not marker.exists()
+            archive, = folder.glob('lost-offer-*/no-go.json')
+            proof = json.loads(archive.read_text())
+            assert tuple(proof['child']) == starts[0]
+            assert proof['no_go'] and proof['uncharged_close']
+            assert proof['terminal']['processes'] == [] and proof['terminal']['footprint_bytes'] == 0
+            return original(admission, **kwargs)
+        short = capacity_client.AdmissionSession(instance.socket_path,
+            {**admission.request, 'id': 'intervening-short', 'seconds': 1}, cutover=compat.DEFAULT_RECORD)
+        assert short.offer()['selected']
+        try:
+            return original(admission, **kwargs)
+        finally:
+            short.close()
+    monkeypatch.setattr(capacity_client.AdmissionSession, 'start', interleave)
+    if blocked_cleanup == 'aggregate':
+        from atelier.harness.safety.guard import TreeMonitor
+        finish = TreeMonitor.finish
+        def failed_finish(monitor, *args, **kwargs):
+            finish(monitor, *args, **kwargs)
+            raise RuntimeError('injected failed aggregate settlement')
+        monkeypatch.setattr(TreeMonitor, 'finish', failed_finish)
+    elif blocked_cleanup == 'close':
+        close = capacity_client.AdmissionSession.close
+        def failed_close(admission, **kwargs):
+            response = close(admission, **kwargs)
+            if admission.request['id'] != 'intervening-short':
+                raise capacity_client.CapacityError('injected unconfirmed close')
+            return response
+        monkeypatch.setattr(capacity_client.AdmissionSession, 'close', failed_close)
+    try:
+        command = [sys.executable, '-c',
+            'import pathlib,sys; pathlib.Path(sys.argv[1]).open("a").write("executed\\n")', str(marker)]
+        if blocked_cleanup:
+            with pytest.raises((RuntimeError, capacity_client.CapacityError), match='injected'):
+                guarded.run(command, folder, limit_gib=.25, timeout=600)
+            assert len(starts) == 1 and not marker.exists()
+            assert not list(folder.glob('lost-offer-*'))
+            assert capacity_client.status(instance.socket_path)['charged_count'] == 0
+            return
+        assert guarded.run(command, folder, limit_gib=.25, timeout=600) == 0
+        assert marker.read_text() == 'executed\n'
+        assert len(starts) == 2 and starts[0] != starts[1] and ready[0] == ready[1]
+        report = capacity_client.status(instance.socket_path)
+        assert report['charged_count'] == report['waiting_count'] == 0
+        assert not instance._gates
+    finally:
+        instance._stop.set()
+        thread.join(timeout=3)
+        instance.close()
+        assert not thread.is_alive() and not errors, errors

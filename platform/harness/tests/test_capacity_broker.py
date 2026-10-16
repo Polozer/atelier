@@ -728,3 +728,64 @@ def test_terminal_monitor_hint_stays_charged_until_positive_exit_then_reports_co
     finally:
         if child.poll() is None: child.kill()
         child.wait()
+
+
+def test_lost_selection_denies_go_and_retains_ready_age(broker, capsys):
+    long = session(broker, 'long', seconds=600)
+    before = long.offer()['first_ready']
+    child = gated_child(long)
+    short = session(broker, 'short')
+    short.offer()
+    try:
+        with pytest.raises(client.CapacityOfferLost) as denial:
+            start(long, child)
+        assert denial.value.session is long and denial.value.cleanup is None
+        assert child.communicate(timeout=3)[0] == b''  # The broker closed the gate without GO.
+        assert not broker._gates and client.status(broker.socket_path)['charged_count'] == 0
+        assert long.close(child=child, child_start=long.child[1]) == {
+            'ok': True, 'namespace': wire.NAMESPACE, 'boot_id': broker.boot, 'mode': 'legacy-bridge',
+            'state': 'waiting', 'released': True}
+        short.close()
+        retry = session(broker, 'long', seconds=600)
+        retry.requeue_after(long)
+        assert retry.offer()['first_ready'] == before
+        retry.close()
+        assert '"reason": "selection-changed"' in capsys.readouterr().err
+    finally:
+        short.close()
+        if child.poll() is None:
+            child.kill()
+        child.wait()
+
+
+def test_requeue_restart_is_refused_before_mutating_queue(broker, monkeypatch):
+    original = session(broker, 'requeue', seconds=600)
+    original.offer()
+    original.close()
+    retry = session(broker, 'requeue', seconds=600)
+    retry.requeue_after(original)
+    with broker._lock:
+        state = broker._load()
+        state['epoch'] += 1
+        broker._save(state)
+    with pytest.raises(client.CapacityError, match='requeue was fenced'):
+        retry.offer()
+    assert retry.nonce is None
+    report = client.status(broker.socket_path)
+    assert report['waiting_count'] == report['charged_count'] == 0
+    assert report['records'][0]['state'] == 'waiting'
+
+
+def test_missing_gate_is_a_plain_refusal_with_its_own_reason(broker, capsys):
+    admission = session(broker, 'missing-gate', seconds=600)
+    admission.offer()
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+    try:
+        with pytest.raises(client.CapacityError) as error:
+            start(admission, child)
+        assert type(error.value) is client.CapacityError
+        assert '"reason": "gate-unavailable"' in capsys.readouterr().err
+        assert client.status(broker.socket_path)['charged_count'] == 0
+    finally:
+        child.kill(); child.wait()
+        admission.close(child=child, child_start=admission.child[1])
