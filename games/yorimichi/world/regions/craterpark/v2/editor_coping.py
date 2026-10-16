@@ -6,7 +6,8 @@ deck face, for runs, roll-ins, jumps and bowls alike. Each lip becomes the pipel
 render-only steel tube) and its dsl.Rail, which the game grinds (export.py cp_lip_###).
 
 A bowl in `brick` (the decal bowls: Prado) gets the concept's glazed terracotta brick coping instead of steel: a
-bullnose band over its lip, the same grind line on top.
+bullnose band over its lip, the same grind line on top. A boost zone's lips (`gold`: editor_boost) are polished gold
+over the same tube, up to where the piece ends, so a rail running on into a plain piece turns steel there.
 
 Left out: a jump's kicker (its stations up to the lip), and the launch end of a run the owner capped
 (params.vert_assist_max, the same KICK_REACH as the assist zones). Lips that continue from one piece into the next are
@@ -22,6 +23,7 @@ WELD = 1e-3          # metres: vertices this close are one point
 JOIN = .05           # metres: lips whose ends are this close continue into each other
 MIN_LENGTH = 2.      # metres: shorter lips are left out
 KICK_REACH = 30.     # metres of a capped run's end that count as its launch ramp (editor_generate.KICK_REACH)
+GOLD = 'material_053'    # polished gold coping on a boost zone (editor_boost.GOLD)
 BRICK = 'material_033'   # glazed terracotta brick coping (a Sunburst painting, tools/craterpark_textures.py)
 BRICK_LENGTH = 2.4       # metres the brick texture spans along the lip (six bricks)
 # the brick band's profile (out of the bowl, up) about the lip: from 1 cm inside the wall face (no light leak under it)
@@ -296,9 +298,22 @@ def deck_reach(lip, into):
     return float(min(full, min(widths) / 2)) if widths else full
 
 
-def build(pieces, caps, brick=()):
+def gild(mesh, lip, gold):
+    """The coping tube `mesh` (coping.coping along the lip points (k, 3)) turned GOLD on the faces whose nearest lip
+    point is a gold one (`gold`, (k,) bool)."""
+    if not gold.any():
+        return mesh
+    c = mesh.V[mesh.F].mean(1)
+    near = np.zeros(len(c), 'i8')
+    for a in range(0, len(c), 2048):
+        near[a:a + 2048] = (((c[a:a + 2048, None] - lip[None]) ** 2).sum(2)).argmin(1)
+    mesh.material = np.where(gold[near], dsl.MATERIAL[GOLD], mesh.material).astype(mesh.material.dtype)
+    return mesh
+
+
+def build(pieces, caps, brick=(), gold=()):
     """(coping meshes, rails, summary) for the kept bridge pieces. `caps` maps piece id -> vert_assist_max (or None);
-    the bowls in `brick` get brick coping."""
+    the bowls in `brick` get brick coping, the pieces in `gold` (the boost zones) gold steel coping."""
     lips, bricks = [], []
     for piece in pieces:
         if piece.metadata['type'] in ('deck', 'rail'):
@@ -306,11 +321,12 @@ def build(pieces, caps, brick=()):
         if piece.metadata['id'] in brick:
             bricks.extend(lip_frames(piece, caps.get(piece.metadata['id'])))
         else:
-            lips.extend(piece_lips(piece, caps.get(piece.metadata['id'])))
+            flag = float(piece.metadata['id'] in gold)
+            lips.extend((q, n, np.full(len(q), flag)) for q, n in piece_lips(piece, caps.get(piece.metadata['id'])))
     meshes, rails = [], []
-    for k, (p, n, closed) in enumerate(_join(lips)):
+    for k, (p, n, g, closed) in enumerate(_join(lips)):
         mesh, rail = coping_mod.coping(p, n, closed=closed, feature=f'editor_coping_{k:03d}')
-        meshes.append(mesh)
+        meshes.append(gild(mesh, p, g > .5))
         rails.append(rail)
     for k, (p, n, run, closed) in enumerate(_join(bricks)):
         mesh, rail = brick_coping(p, n, closed, f'editor_brick_{k:03d}', run, deck_reach(p, n))

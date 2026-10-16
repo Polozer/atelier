@@ -237,6 +237,17 @@ DETAIL_MIN = 8.
 DETAIL_GAIN = 2.5
 # paintings that already carry the concepts' calm surface keep their own variation (at most this gain)
 CALM = {'ramp_planks': 1., 'masonry': 1.2, 'ramp_fascia': 1., 'brick_coping': 1.2}
+# The boost zones' Giant sunburst (world/regions/craterpark/v2/editor_boost.py, concepts/editor/boost-look-sunrays.jpg):
+# glossy lacquer over the ramps' boards, its material's parent glossy (import_craterpark.py, materials.json finish
+# 'lacquer'). Each is the boards' own painting recoloured here, offline (no new call): the paint's albedo, with the
+# boards' seams and grain kept at GRAIN of their contrast, so the wood shows faintly through saturated colour.
+# texture: (painting, albedo sRGB), the albedos the concept's colours taken back through the island's light (PALE)
+BOOST_PAINTS = {
+    'textures/boost_magenta.png': ('ramp_planks', (212, 28, 92)),     # hot magenta rays
+    'textures/boost_yellow.png': ('ramp_planks', (246, 184, 22)),     # warm yellow rays
+    'textures/boost_sun.png': ('ramp_planks', (240, 150, 14)),        # the sun disc, a deeper gold
+}
+GRAIN = .35
 
 
 def sha(data):
@@ -511,6 +522,15 @@ def finish():
         a, gain = detail(srgb(tile(lin(load(src, (1024, 1024))), 'xy', how)), mean, CALM.get(slug, DETAIL_GAIN))
         report['textures'][texture] = {**save(slug, a), 'slug': slug,
                                        'how': f'painted, wraps xy ({how}), mean {list(mean)}, detail x{gain:.2f}'}
+    for texture, (painting, colour) in BOOST_PAINTS.items():
+        src = PAINTED / f'{painting}.jpg'
+        if not src.exists():
+            print('not painted yet:', painting); continue
+        wood = tile(lin(load(src, (1024, 1024))), 'xy', UV_PAINTINGS[painting][2])
+        luma = wood @ np.array([.2126, .7152, .0722])
+        a = srgb(lin(np.asarray(colour, float) / 255) * ((luma / luma.mean()) ** GRAIN)[..., None])
+        report['textures'][texture] = {**save(Path(texture).stem, a), 'slug': Path(texture).stem,
+                                       'how': f'{painting} recoloured to albedo {list(colour)}, grain x{GRAIN}'}
     for material, (slug, metres, mean) in WORLD_ALIGNED.items():
         src = (MEGAPARK / 'restyle' / f'{slug.split(":")[1]}.jpg') if slug.startswith('megapark:') else PAINTED / f'{slug}.jpg'
         if not src.exists():

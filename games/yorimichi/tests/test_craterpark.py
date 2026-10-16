@@ -35,6 +35,10 @@ class LibraryTests(unittest.TestCase):
                 # the tower shrine's models carry their own texture (world/regions/craterpark/v2/shrine.py)
                 self.assertTrue((placement.SOURCE / m['texture']).is_file(), m['texture'])
                 continue
+            if m.get('derivedFrom'):
+                # the boost zones' paint: a restyle painting recoloured (tools/craterpark_textures.py BOOST_PAINTS)
+                self.assertTrue((placement.SOURCE / m['derivedFrom']).is_file(), m['derivedFrom'])
+                continue
             if m['texture']:
                 # a texture painted from nothing is the Sunburst restyle's own (tools/craterpark_textures.py)
                 painted = placement.SOURCE / 'restyle' / (Path(m['texture']).stem + '.jpg')
