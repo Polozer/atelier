@@ -154,6 +154,34 @@ def test_a_stage_over_another_piece_is_carried_on_a_truss_from_outriggers():
     assert (V[:, 1] < 0.).any() and (np.abs(V[V[:, 1] < 0., 2]) > 14.).all(), 'the outriggers stand clear beside it'
 
 
+def test_no_truss_hangs_through_a_piece_close_under_the_stage():
+    # an upper L2 floor at 20 m over a lower one at 16 m: no room for a truss (it hung to 14.9 m, through the lower floor)
+    high = sheet('high', 20., length=60., width=18., x0=0., z0=0., line='L2')
+    low = sheet('low', 16., length=60., width=30., x0=0., z0=0., line='L2')
+    parts, summary = es.build([high, low], FLAT, GRID)
+    V = vertices([p for p in parts if p.features[0] == 'high_supports'])
+    over = (V[:, 0] > -1.) & (V[:, 0] < 61.) & (np.abs(V[:, 2]) < 15.5) if len(V) else np.zeros(0, bool)
+    assert not over.any(), 'no timber between the two floors, nor through the lower one'
+    assert 'high' not in summary['pieces'], 'no outrigger frame is left standing for a truss left out'
+    assert summary['pieces']['low'] == 'stage'
+
+
+def test_a_truss_is_sized_to_the_room_over_the_piece_below():
+    # 10.25 m under the ramp: the truss is made shallower to keep OVER over the lower floor, not left at its full depth
+    high, low = sheet('high', 40., length=60., line='L2'), sheet('low', 29.5, length=60., width=30., line='L2')
+    parts, summary = es.build([high, low], FLAT, GRID)
+    assert summary['pieces']['high'] == 'stage'
+    V = vertices([p for p in parts if p.features[0] == 'high_supports'])
+    over = (V[:, 0] > -1.) & (V[:, 0] < 61.) & (np.abs(V[:, 2]) < 15.5)
+    assert over.any() and (V[over, 1] >= 29.5 + es.OVER - 1e-6).all(), 'the truss keeps OVER over the lower floor'
+    assert V[over, 1].min() < 29.5 + es.OVER + .05, 'and hangs as deep as that room allows'
+    full, _ = es.build([sheet('high', 40., length=60., line='L2'), sheet('low', 10., length=60., width=30., line='L2')],
+                       FLAT, GRID)
+    F = vertices([p for p in full if p.features[0] == 'high_supports'])
+    assert F[(F[:, 0] > -1.) & (F[:, 0] < 61.) & (np.abs(F[:, 2]) < 15.5), 1].min() < V[over, 1].min() - .2, \
+        'with room to spare the truss keeps its full depth'
+
+
 def test_other_lines_keep_their_stone_viaducts():
     _, summary = es.build([sheet('p1', 30., length=120.), sheet('p2', 30., length=120., z0=60., line='L2')], FLAT, GRID)
     assert summary['pieces'] == {'p1': 'viaduct', 'p2': 'stage'}

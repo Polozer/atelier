@@ -1058,10 +1058,29 @@ def _column(plan, ground, p, w, top):
     return (min(g), max(g)) if top - max(g) >= STAGE_MIN else None
 
 
+def _truss_room(plan, piece, chain, half):
+    """How far a truss along a chain of nodes (each with its plan point p and ramp top) may hang under the tops and stay
+    OVER clear of every other piece's surface below them, its members `half` wide each side of the chain's line (m)."""
+    room = np.inf
+    for A, B in zip(chain, chain[1:]):
+        d = B['p'] - A['p']
+        L = float(np.linalg.norm(d))
+        n = np.array([-d[1], d[0]]) / max(L, 1e-6)
+        for s in np.linspace(0., 1., max(2, int(L / 1.) + 1)):
+            p, top = A['p'] + s * d, A['top'] + s * (B['top'] - A['top'])
+            for q in (-half, 0., half):
+                who, y = plan.heights(*(p + q * n))
+                y = y[(who != piece) & (y < top)]
+                if len(y):
+                    room = min(room, top - float(y.max()) - OVER)
+    return room
+
+
 def stage(b, plan, ground, piece, stations):
     """The timber stage under one piece: (posts, beams, metres). Where another piece runs underneath, a timber truss
     under the ramp carries it across to the nearest posts beside it: a post of the grid, or an outrigger standing on
-    clear ground outside the pieces below."""
+    clear ground outside the pieces below. The truss keeps OVER over the pieces below it, made shallower where they
+    come close; where even the shallowest truss would not, that stretch of the stage is left out."""
     got = _samples(stations)
     if got is None:
         return 0, 0, 0.
@@ -1122,7 +1141,7 @@ def stage(b, plan, ground, piece, stations):
             e = j
             while e + 1 < len(row) and row[e + 1] and row[e + 1].get('hung'):
                 e += 1
-            ends = []
+            ends, found = [], {}
             for side, k, edge in ((-1, j - 1, row[j]), (1, e + 1, row[e])):
                 if 0 <= k < len(row):
                     ends.append(row[k] if row[k] and not row[k].get('hung') else None)
@@ -1132,14 +1151,27 @@ def stage(b, plan, ground, piece, stations):
                     p = c + side * v * acr
                     g = _column(plan, ground, p, w, edge['top'])
                     if g is not None:
-                        post = out[side] = standing(p, edge['top'], *g)
+                        post = found[side] = standing(p, edge['top'], *g)
                         break
                 ends.append(post)
-            if ends[0] is None or ends[1] is None:
+            # the truss hangs no deeper than the pieces below it leave room for (OVER over their surfaces), and at least
+            # under the deepest beam it carries; with less room the run is left out, never through the piece below
+            # (a run missing an end keeps an outrigger found for its other end, as before; one without the room keeps none)
+            fit = None
+            if ends[0] is not None and ends[1] is not None:
+                chain = [ends[0]] + row[j:e + 1] + [ends[1]]
+                fit = min(depth, _truss_room(plan, piece, chain, w * .75) - w * .7)
+                if fit < w * (STAGE_EDGE + .7):
+                    fit = None
+            else:
+                out.update(found)
+            if fit is None:
                 for k in range(j, e + 1):
                     row[k] = None
             else:
-                row[j:e + 1] = [dict(n, truss=(ends[0], ends[1])) for n in row[j:e + 1]]
+                out.update(found)
+                row[j:e + 1] = [dict(n, truss=(ends[0], ends[1]), depth=fit, base=n['top'] - fit, foot=n['top'] - fit)
+                                for n in row[j:e + 1]]
             j = e + 1
         grid.append(row)
         outs.append(out)
@@ -1220,8 +1252,9 @@ def stage(b, plan, ground, piece, stations):
         _timber(b, pts, n, w * .85, top * .5)
         beams += 1
 
-    def truss(chain):
-        """A truss's bottom chord, verticals and diagonals under the cap beams along a chain of nodes."""
+    def truss(chain, depth):
+        """A truss's bottom chord, verticals and diagonals under the cap beams along a chain of nodes, `depth` under
+        the ramp (its room over the pieces below, _truss_room)."""
         nonlocal beams
         for a, (A, B) in enumerate(zip(chain, chain[1:])):
             d = B['p'] - A['p']
@@ -1251,7 +1284,7 @@ def stage(b, plan, ground, piece, stations):
                 e = j
                 while e + 1 < len(row) and row[e + 1] and row[e + 1].get('hung'):
                     e += 1
-                truss([q['truss'][0]] + row[j:e + 1] + [q['truss'][1]])
+                truss([q['truss'][0]] + row[j:e + 1] + [q['truss'][1]], q['depth'])
                 j = e + 1
             else:
                 j += 1
