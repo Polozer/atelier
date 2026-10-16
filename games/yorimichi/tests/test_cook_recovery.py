@@ -28,6 +28,9 @@ def tool(name):
 def sample(tmp_path, monkeypatch):
     cook = tool('package_cook')
     monkeypatch.setattr(cook, 'recovery_config_inputs', lambda _: [])
+    monkeypatch.setattr(cook, 'recovery_default_policy', lambda _: None)
+    monkeypatch.setattr(cook, 'recovery_tool_selection', lambda: {})
+    monkeypatch.setattr(cook, 'recovery_dotnet_input', lambda _: None)
     out = tmp_path / 'build'; out.mkdir()
     content = tmp_path / 'Content'; content.mkdir(); (content / 'probe.uasset').write_bytes(b'original asset')
     source = tmp_path / 'source.cpp'; source.write_text('source')
@@ -222,6 +225,7 @@ def test_default_cook_keeps_recording_opt_in(sample):
 
 def test_missing_ubt_defaults_refuse_recording_before_old_archive_is_removed(tmp_path, monkeypatch):
     cook = tool('package_cook')
+    monkeypatch.setattr(cook, 'recovery_default_policy', lambda _: None)
     monkeypatch.setenv('UE_HEADLESS_USER_DIR', str(tmp_path / 'headless'))
     monkeypatch.setattr(Path, 'home', lambda: tmp_path / 'home')
     ctx = SimpleNamespace(game_dir=tmp_path / 'game', unreal_root=tmp_path / 'engine',
@@ -452,3 +456,19 @@ def test_late_process_guard_stop_after_final_check_never_publishes_positive_rece
     finally:
         for descriptor in held: os.close(descriptor)
     assert not (tmp_path / 'positive.json').exists()
+
+
+def test_snapshot_records_one_native_selection_for_roots_and_link_owners(sample):
+    calls = []
+    def selected(_):
+        calls.append(True)
+        return recovery.NativeCookInputs([sample.content], [sample.content], {'sdk': 'original'})
+    sample.step.cook_recovery = recovery.CookRecovery(sample.cook.source_snapshot, sample.cook.finish, selected)
+    direct = recovery.snapshot(sample.ctx, sample.step, ['mock UAT'], sample.ctx.env())
+    assert calls == [True] and direct['native_selection'] == {'sdk': 'original'}
+    # The mock native adapter calls snapshot once before exec; no separate owner discovery.
+    assert sample.run() == 0
+    attempt = next((sample.ctx.out / 'cook-attempts').iterdir())
+    captured = recovery.read(attempt / 'prepared.json')['snapshot']
+    assert captured['native_selection'] == {'sdk': 'original'}
+    assert captured['link_owners'] == [str(sample.content)]

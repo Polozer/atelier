@@ -23,6 +23,15 @@ class CookRecovery:
     link_owners: object = ()
 
 
+@dataclass(frozen=True)
+class NativeCookInputs:
+    """One discovery result binds consumed roots and link ownership to the same selection."""
+    roots: object
+    link_owners: object
+    selection: object
+    repeat_chmod_files: object = ()
+
+
 def require(value, message):
     if not value:
         raise RuntimeError('Cook recovery: ' + message)
@@ -51,12 +60,15 @@ def write(path, value):
     sync_directory(path.parent)
 
 
-def inventory(roots, *, hashes, hasher=None, link_owners=()):
+def inventory(roots, *, hashes, hasher=None, link_owners=(), repeat_chmod_files=()):
     """Complete membership, including absent roots and internal relative links; reject escaped reads."""
     result, observed = {}, []
     spoken = started = time.monotonic()
     queue, included = list(roots), set()
     owners = [Path(owner).resolve(strict=True) for owner in link_owners]
+    chmod_files = {Path(path).resolve(strict=True) for path in repeat_chmod_files}
+    require(not chmod_files or hashes, 'repeat-chmod inputs require actual content hashes')
+    chmod_seen = set()
     for root_index, original in enumerate(queue):
         root = Path(original)
         require(not root.is_symlink(), 'input/archive root is a symlink')
@@ -90,6 +102,12 @@ def inventory(roots, *, hashes, hasher=None, link_owners=()):
             elif stat.S_ISDIR(info.st_mode):
                 pending.extend(reversed(sorted(path.iterdir())))
             elif stat.S_ISREG(info.st_mode):
+                if path in chmod_files:
+                    # SetupDotnet repeats chmod u+x even when the executable bit is already set.
+                    # Keep full ctime in read stability and HashIndex validation; omit ONLY this
+                    # tool's ctime from the cross-checkpoint proof. Bytes/mode/inode/mtime stay exact.
+                    entry['identity'] = token[:-1]
+                    chmod_seen.add(path)
                 if hashes:
                     if hasher is not None:
                         entry['sha256'] = hasher(path)
@@ -116,6 +134,7 @@ def inventory(roots, *, hashes, hasher=None, link_owners=()):
             info = path.lstat()
             require(before == [info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns],
                     'input/archive changed during inventory')
+    require(chmod_seen == chmod_files, 'repeat-chmod input is not an inventoried regular file')
     return result
 
 
@@ -163,7 +182,17 @@ def snapshot(ctx, step, argv, environment):
                             and p.suffix not in SKIP_SUFFIXES and (p.is_file() or p.is_symlink()))
         else:
             declared.append(root)
-    roots.extend(map(Path, step.cook_recovery.native_inputs(ctx)))
+    native = step.cook_recovery.native_inputs(ctx)
+    if isinstance(native, NativeCookInputs):
+        roots.extend(map(Path, native.roots))
+        owners, selection = list(native.link_owners), native.selection
+        repeat_chmod_files = list(native.repeat_chmod_files)
+    else:
+        roots.extend(map(Path, native))
+        owners = step.cook_recovery.link_owners
+        owners = list(owners(ctx) if callable(owners) else owners)
+        selection = None
+        repeat_chmod_files = []
     # Actual adapter and guard implementation are part of the retained execution identity.
     roots.extend([Path(__file__), Path(__file__).with_name('build.py'), Path(sys.executable).resolve()])
     roots.extend(sorted(Path(__file__).with_name('safety').glob('*.py')))
@@ -171,16 +200,17 @@ def snapshot(ctx, step, argv, environment):
     from .build_hashes import HashIndex
     # Local continuity proof shares the existing stat/ctime-validated hash hint. Archive
     # certification itself still hashes real bytes twice without consulting this index.
-    owners = step.cook_recovery.link_owners
-    owners = list(owners(ctx) if callable(owners) else owners)
     with HashIndex(ctx.out / '.state/cook-input-hashes.sqlite3') as index:
-        inputs = inventory(roots, hashes=True, hasher=index.digest, link_owners=owners)
+        inputs = inventory(roots, hashes=True, hasher=index.digest, link_owners=owners,
+                           repeat_chmod_files=repeat_chmod_files)
         declared_inputs = inventory(declared, hashes=True, hasher=index.digest)
     return dict(schema=1, checkout=str(paths.REPO.resolve()), game=ctx.game, step=step.name,
                 source=step.cook_recovery.snapshot(ctx), revision=provenance.head(),
                 patch_sha256=hashlib.sha256(provenance.git('diff', '--binary', 'HEAD').encode()).hexdigest(),
                 action_fingerprint=fingerprint(step, done), argv=argv, environment_sha256=identity(environment),
-                roots=list(map(str, roots)), link_owners=list(map(str, owners)), inputs=inputs, declared_members=list(map(str, declared)), declared_inputs=declared_inputs)
+                roots=list(map(str, roots)), link_owners=list(map(str, owners)), native_selection=selection,
+                repeat_chmod_files=list(map(str, repeat_chmod_files)),
+                inputs=inputs, declared_members=list(map(str, declared)), declared_inputs=declared_inputs)
 
 
 def read(path):

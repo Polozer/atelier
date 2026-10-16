@@ -18,18 +18,31 @@ The project and user UBT default XML files must already exist: UAT creates them 
 which would change the frozen input set. Recording refuses before deleting an earlier archive if
 these defaults are absent; prime them with an ordinary nonrecording cook first. Their bytes remain
 part of every recovery check.
+Recording supports the bundled default .NET runtime and the default Xcode selection only. It refuses
+shell startup hooks (`.unrealrc`, `.autosdk`), command-line injection, SDK/.NET/AutoSDK overrides,
+UnrealBuildTool environment configuration overrides and PATH-shadowed selectors. These checks run
+before an old archive is removed and again at every input checkpoint; the ordinary nonrecording build
+does not acquire these restrictions. Refusals name environment keys without disclosing their values.
 The opted-in launcher first runs a small Python capture adapter inside the normal charged admission and
 both memory guards, then `exec`s the original UAT command in that same PID. Normal guard polling, capacity
 heartbeats and the original timeout stay active during capture. There is no second lock or ungated UAT.
 
 Recording conservatively inventories actual Content (including staged Data), prerequisite outputs, source,
 configuration, installed engine tools/content/plugin inputs, editor modules and the selected SDK/toolchain.
-This includes selected Xcode tools and BuildConfiguration XML inputs/absence; unsupported headless
+This includes the complete selected Xcode Contents, both macOS and iPhoneOS SDKs, resolved Metal tools
+and their complete toolchain resource owners, the Metal library search paths, selected packaging tools,
+and BuildConfiguration XML inputs/absence. One discovery record supplies roots and permitted link owners
+within a checkpoint; every later checkpoint discovers them again. Unsupported headless
 configuration or escaped links refuse instead of guessing. UAT-written game Binaries/Intermediate remain
 outputs; declared source membership follows the existing source/output boundary.
 The first inventory may read many GiB; this has no measured speed benefit. Subsequent local input checks use
 the existing hash-index implementation with fresh device/inode/mode/size/nanosecond modification/change
-identity and complete membership checks. Losing that disposable index causes fresh hashing. Archive
+identity and complete membership checks. Losing that disposable index causes fresh hashing.
+The bundled `dotnet` executable has one narrow identity exception: Unreal's SetupDotnet repeats
+`chmod u+x` even when it is already executable. Its change-time alone may differ between checkpoints;
+its device, inode, mode, size, modification-time and content hash must still match. Read stability and
+hash-index validation still check the full change-time, so permission changes during a read refuse
+and changed bytes are rehashed. No other tool, input or archive receives this exception. Archive
 certification still hashes the actual app bytes twice. Each input inventory has a 45-minute bound and emits
 progress; first review progress after 10 minutes and inspect any stall rather than silently waiting.
 Each inventory is limited to 500,000 entries. Post-UAT and recovery certification remain bounded single-thread

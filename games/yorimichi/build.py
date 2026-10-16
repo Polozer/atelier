@@ -280,7 +280,7 @@ def cook_step(ctx, steps):
                 inputs=[SOURCE, ctx.uproject, paths.ENGINE_PLUGINS, GAME / 'unreal' / 'Config', TOOLS / 'package_cook.py', *engine_inputs],
                 needs=[s.name for s in steps if s.name.startswith('unreal.')] + ['data.stage', 'data.network'], heavy=True, explicit=True,
                 outputs=[out / 'package' / 'cook.json'], verify=lambda: package_cook.cook_present(out / 'package'),
-                cook_recovery=CookRecovery(package_cook.source_snapshot, package_cook.finish, package_cook.recovery_inputs, package_cook.recovery_link_owners),
+                cook_recovery=CookRecovery(package_cook.source_snapshot, package_cook.finish, package_cook.recovery_inputs),
                 about='cook the macOS app once and certify its source and immutable archived files')
 
 

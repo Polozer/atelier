@@ -106,23 +106,24 @@ def recovery_inputs(ctx):
     precompiled editor modules, Content (including Data), engine installation and selected SDK
     are inputs. This conservative local proof has no cross-checkout reuse contract.
     """
-    import subprocess
     from pathlib import Path
     from atelier import paths
+    from atelier.build_cook_recovery import NativeCookInputs
+    recovery_default_policy(ctx)
     configurations = recovery_config_inputs(ctx)
-    sdk = Path(subprocess.check_output(['xcrun', '--show-sdk-path'], text=True, timeout=10).strip()).resolve(strict=True)
-    developer = Path(subprocess.check_output(['xcode-select', '-p'], text=True, timeout=10).strip()).resolve(strict=True)
+    dotnet = recovery_dotnet_input(ctx)
+    selection = recovery_tool_selection()
+    developer = Path(selection['developer'])
+    toolchains = list(map(Path, selection['toolchains']))
+    sdks = [Path(sdk['path']) for sdk in selection['sdks'].values()]
+    tools = list(map(Path, selection['tools'].values()))
     roots = [ctx.game_dir / 'unreal/Content', ctx.unreal_root / 'Engine/Build',
              ctx.unreal_root / 'Engine/Binaries', ctx.unreal_root / 'Engine/Content',
              ctx.unreal_root / 'Engine/Config', ctx.unreal_root / 'Engine/Shaders', ctx.unreal_root / 'Engine/Source',
-             sdk, developer / 'Toolchains/XcodeDefault.xctoolchain',
+             developer.parent, *sdks, *toolchains, *tools,
              ctx.game_dir / 'build.py', Path(__file__), paths.REPO / 'uv.lock']
     roots.extend(configurations)
-    roots.extend([developer / 'Platforms/MacOSX.platform/Info.plist', developer.parent / 'Info.plist',
-                  developer.parent / 'SharedFrameworks', developer.parent / 'Frameworks',
-                  developer.parent / 'OtherFrameworks', Path('/System/Library/CoreServices/SystemVersion.plist')])
-    for name in ('xcodebuild', 'ibtool', 'actool', 'codesign', 'xcrun', 'ditto', 'strip', 'install_name_tool', 'dsymutil'):
-        roots.append(Path(subprocess.check_output(['xcrun', '--find', name], text=True, timeout=10).strip()).resolve(strict=True))
+    roots.extend([*recovery_shell_hooks(ctx), Path('/System/Library/CoreServices/SystemVersion.plist')])
     # Cook-all can consume engine plugin content/config and prebuilt native modules.
     for plugins in (ctx.unreal_root / 'Engine/Plugins', paths.ENGINE_PLUGINS, ctx.game_dir / 'unreal/Plugins'):
         if plugins.exists():
@@ -138,21 +139,102 @@ def recovery_inputs(ctx):
     roots.extend(p for p in sorted((ctx.game_dir / 'unreal/Binaries/Mac').glob('UnrealEditor*'))
                  if p.suffix in ('.dylib', '.modules', '.target'))
     roots.append(ctx.game_dir / 'unreal/Binaries/Mac' / (ctx.uproject.stem + 'Editor.target'))
-    return roots
+    return NativeCookInputs(roots, [ctx.unreal_root / 'Engine', developer.parent, *sdks, *toolchains],
+                            dict(**selection, dotnet=str(dotnet)), [dotnet])
 
 
+def recovery_shell_hooks(ctx):
+    from pathlib import Path
+    return [Path.home() / '.unrealrc', ctx.unreal_root / 'Engine/.unrealrc', Path.home() / '.config/.autosdk']
 
-def recovery_link_owners(ctx):
-    """Only the selected immutable tool installations may contribute cross-root link targets."""
+
+def recovery_default_policy(ctx):
+    """Recovery supports default tools only; never source or sanitize unknown launch hooks."""
+    names = {'DEVELOPER_DIR', 'TOOLCHAINS', 'SDKROOT', 'BASH_ENV', 'ENV', 'UE-CmdLineArgs',
+             'UE_DOTNET_DIR', 'UE_USE_SYSTEM_DOTNET', 'UE_SDKS_ROOT', 'MSBuildSDKsPath', 'MSBuildExtensionsPath'}
+    unsupported = sorted(name for name in os.environ if name in names
+                         or name.startswith(('UE_AUTOSDK_', 'DOTNET_', 'COREHOST_', 'CORECLR_', 'COMPlus_',
+                                             'DYLD_', 'MSBUILD', 'NUGET_'))
+                         or (name.startswith(('UnrealBuildTool_', 'UBT_')) and '__' in name)
+                         or name.endswith(('AutoSDKSetup', 'ManualSDKSetup')))
+    if unsupported:
+        raise RuntimeError('Cook recovery supports default launch/tool inputs only; unsupported environment names: '
+                           + ', '.join(unsupported))
+    if any(path.exists() or path.is_symlink() for path in recovery_shell_hooks(ctx)):
+        raise RuntimeError('Cook recovery does not support .unrealrc or .autosdk startup hooks')
+
+
+def recovery_dotnet_input(ctx):
+    """The UE 5.8 SetupDotnet script's bundled default; alternative runtimes are refused."""
+    import stat
+    architecture = 'arm64' if os.uname().machine == 'arm64' else 'x64'
+    executable = ctx.unreal_root / 'Engine/Binaries/ThirdParty/DotNet/10.0' / ('mac-' + architecture) / 'dotnet'
+    if executable.is_symlink() or not executable.is_file() or not executable.stat().st_mode & stat.S_IXUSR:
+        raise RuntimeError('Cook recovery requires the already executable bundled default dotnet runtime')
+    return executable.resolve(strict=True)
+
+
+def recovery_tool_selection():
+    """Pin actual default Xcode and both Metal SDK selections, including downloaded tool resources."""
     import subprocess
     from pathlib import Path
-    developer = Path(subprocess.check_output(['xcode-select', '-p'], text=True, timeout=10).strip()).resolve(strict=True)
-    return [ctx.unreal_root / 'Engine', developer.parent]
+    started = time.monotonic()
+    def output(argv):
+        remaining = 30 - (time.monotonic() - started)
+        if remaining <= 0:
+            raise RuntimeError('Cook recovery tool selection exceeded 30 seconds')
+        return subprocess.check_output(argv, text=True, timeout=min(10, remaining)).strip()
+    def selected(argv):
+        return Path(output(argv)).resolve(strict=True)
+    selectors = {}
+    for name in ('xcode-select', 'xcrun', 'uname'):
+        expected = Path('/usr/bin') / name
+        found = shutil.which(name)
+        if not found or Path(found).resolve(strict=True) != expected.resolve(strict=True):
+            raise RuntimeError('Cook recovery refuses a PATH-shadowed tool selector: ' + name)
+        selectors[name] = str(expected.resolve(strict=True))
+    developer = selected(['/usr/bin/xcode-select', '-p'])
+    if developer.name != 'Developer' or not (developer / 'Toolchains').is_dir():
+        raise RuntimeError('Cook recovery requires a complete default Xcode developer installation')
+    sdks, toolchains = {}, set()
+    for sdk in ('macosx', 'iphoneos'):
+        sdk_path = selected(['/usr/bin/xcrun', '--sdk', sdk, '--show-sdk-path'])
+        if sdk == 'macosx':
+            alias = developer / 'Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk'
+            if alias.resolve(strict=True) != sdk_path:
+                raise RuntimeError('Cook recovery cannot reconcile the UBT and xcrun macOS SDK selections')
+        chosen = {}
+        for tool in ('metal', 'metal-ar', 'metallib', 'metal-pack', 'metal-strip'):
+            executable = selected(['/usr/bin/xcrun', '--sdk', sdk, '--find', tool])
+            if not executable.is_file() or not os.access(executable, os.X_OK):
+                raise RuntimeError('Cook recovery requires an executable selected Metal tool')
+            owner = next((parent for parent in executable.parents if parent.suffix == '.xctoolchain'), None)
+            if owner is None or not owner.is_dir():
+                raise RuntimeError('Cook recovery cannot prove the selected Metal tool resource owner')
+            toolchains.add(owner)
+            chosen[tool] = str(executable)
+            if tool == 'metal':
+                lines = [line[len('libraries: ='):].strip() for line in output([str(executable), '--print-search-dirs']).splitlines()
+                         if line.startswith('libraries: =')]
+                if len(lines) != 1:
+                    raise RuntimeError('Cook recovery cannot resolve the selected Metal library resource')
+                library = Path(lines[0]).resolve(strict=True)
+                if not library.is_dir() or not library.is_relative_to(owner):
+                    raise RuntimeError('Cook recovery cannot prove the selected Metal library resource owner')
+                chosen['library'] = str(library)
+        sdks[sdk] = dict(path=str(sdk_path), metal=chosen)
+    tools = dict(selectors)
+    for name in ('xcodebuild', 'ibtool', 'actool', 'codesign', 'ditto', 'strip', 'install_name_tool', 'dsymutil'):
+        tools[name] = str(selected(['/usr/bin/xcrun', '--find', name]))
+    return dict(developer=str(developer), sdks=sdks, toolchains=sorted(map(str, toolchains)), tools=tools)
 
 
 def prepare(ctx, log):
     if getattr(ctx, 'record_cook_recovery', False):
+        recovery_default_policy(ctx)
         recovery_config_inputs(ctx)  # Refuse unprimed UAT defaults before deleting an earlier archive.
+        recovery_dotnet_input(ctx)
+        recovery_tool_selection()
     root = ctx.out / 'package'
     root.mkdir(parents=True, exist_ok=True)
     (root / 'cook.json').unlink(missing_ok=True)
