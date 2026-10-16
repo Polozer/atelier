@@ -143,8 +143,11 @@ class Built(unittest.TestCase):
         from belmonte.source import Surface
         built = Surface(sheet['vertices'][sheet['faces']])
         natural = lambda x, y: mountains.height(x, y, north_base_height)   # noqa: E731
+        # The sheet also carries the far hills' aprons round the foothills (mountains.apron_grids), at their own height:
+        # compare the foothills' footprint only.
+        foothills = lambda x, y: np.where(mountains.contains(x, y), built.height(x, y), np.nan)   # noqa: E731
         inside = mountains.contains(self.x, self.y)
-        self.check('HD_NorthMountains', built.height, natural, inside)
+        self.check('HD_NorthMountains', foothills, natural, inside)
 
     def test_belmonte_valley_banks(self):
         from belmonte import layout as BM
