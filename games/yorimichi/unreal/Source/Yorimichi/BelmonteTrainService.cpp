@@ -505,7 +505,7 @@ void ABelmonteTrainService::UpdateDoors(double Time, float Dt)
         {
             // A door a rider is stepping through stays open until they are through (the move takes about two seconds;
             // AtStation already ends eight seconds before departure).
-            if (Door.bStation && !Door.bBusy && !TrainAtStation[V.Train]) Door.bOpen = false;
+            if (Door.bStation && !Door.bBusy && (!TrainAtStation[V.Train] || !Door.bPlatformSide)) Door.bOpen = false;
             if (Door.bLocked) Door.bOpen = false;
             const float Target = Door.bOpen ? 1.f : 0.f;
             const bool bMoving = Door.Open != Target;
@@ -866,6 +866,7 @@ bool ABelmonteTrainService::Nearest(const AWandererCharacter* C, int32& VehicleI
     const FVector Feet = At - FVector(0, 0, C->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
     const FRider* Rider = FindRider(C);
     const bool bAboard = Rider && Rider->bAboard;
+    const FVector Facing = C->GetActorForwardVector().GetSafeNormal2D();
     double Best = TNumericLimits<double>::Max();
     for (int32 I = 0; I < Vehicles.Num(); ++I)
     {
@@ -875,10 +876,15 @@ bool ABelmonteTrainService::Nearest(const AWandererCharacter* C, int32& VehicleI
         for (int32 D = 0; D < V.Doors.Num(); ++D)
         {
             const FDoor& Door = V.Doors[D];
+            // In a vestibule three doors are within reach: the one the player faces wins, and a door that can't open
+            // now (the far side's exterior door, a moving train's) only answers when nothing else is in reach.
+            const bool bShut = Door.bLocked || (Door.bStation && (!TrainAtStation[V.Train] || !Door.bPlatformSide));
             for (const FVector& Handle : Door.Handles)
             {
-                const double Distance = FVector::Dist(T.TransformPosition(Handle), At);
-                if (Distance < 150. && Distance < Best) { Best = Distance; VehicleIndex = I; Index = D; bSeat = false; }
+                const FVector Point = T.TransformPosition(Handle);
+                const double Distance = FVector::Dist(Point, At);
+                const double Score = Distance + (bShut ? 300. : 0.) + 60. * (1. - FVector::DotProduct(Facing, (Point - At).GetSafeNormal2D()));
+                if (Distance < 150. && Score < Best) { Best = Score; VehicleIndex = I; Index = D; bSeat = false; }
             }
             // A door with steps is also reached from where its way starts: outside on the ground, inside at the top.
             if (Door.Boarding.Num())
@@ -913,11 +919,25 @@ bool ABelmonteTrainService::TryInteract(AWandererCharacter* C)
     FVehicle& V = Service->Vehicles[VehicleIndex];
     FDoor& Door = V.Doors[Index];
     if (Door.bLocked) { ULiveLibrary::Say(Door.Kind == TEXT("staff") ? TEXT("Réservé au personnel") : TEXT("Porte verrouillée"), 2.f); return true; }
-    if (Door.bStation && !Service->TrainAtStation[V.Train]) { ULiveLibrary::Say(TEXT("Fermé"), 2.f); return true; }
+    if (Door.bStation && (!Service->TrainAtStation[V.Train] || !Door.bPlatformSide)) { ULiveLibrary::Say(TEXT("Fermé"), 2.f); return true; }
     // Station doors with steps: Monter from the platform, Descendre from inside.
     if (Door.Boarding.Num()) return Service->StartBoarding(Rider, VehicleIndex, Index);
     Door.bOpen = !Door.bOpen;
     UE_LOG(LogTemp, Display, TEXT("TRAIN DOOR %s %s %s"), *V.Id, *Door.Id, Door.bOpen ? TEXT("open") : TEXT("closed"));
+    // A crossing has a gangway door on each coach: one Interact opens (or shuts) both, so the way through is one press.
+    if (Door.Kind == TEXT("gangway"))
+    {
+        const FTransform& T = V.Body->GetComponentTransform();
+        for (FVehicle& Other : Service->Vehicles)
+        {
+            if (&Other == &V || Other.Train != V.Train) continue;
+            const FTransform& OT = Other.Body->GetComponentTransform();
+            for (FDoor& Facing : Other.Doors)
+                if (Facing.Kind == TEXT("gangway") && !Facing.bLocked && Facing.Handles.Num() && Door.Handles.Num()
+                    && FVector::Dist(OT.TransformPosition(Facing.Handles[0]), T.TransformPosition(Door.Handles[0])) < 300.)
+                    Facing.bOpen = Door.bOpen;
+        }
+    }
     return true;
 }
 
@@ -934,7 +954,7 @@ FString ABelmonteTrainService::Hint(const AWandererCharacter* C)
     const FVehicle& V = Service->Vehicles[VehicleIndex];
     const FDoor& Door = V.Doors[Index];
     if (Door.bLocked) return Door.Kind == TEXT("staff") ? TEXT("Réservé au personnel") : TEXT("Porte verrouillée");
-    if (Door.bStation && !Service->TrainAtStation[V.Train]) return TEXT("Fermé");
+    if (Door.bStation && (!Service->TrainAtStation[V.Train] || !Door.bPlatformSide)) return TEXT("Fermé");
     if (Door.Boarding.Num()) return Rider && Rider->bAboard ? TEXT("Use: descendre") : TEXT("Use: monter");
     return Door.bOpen ? TEXT("Use: fermer la porte") : TEXT("Use: ouvrir la porte");
 }

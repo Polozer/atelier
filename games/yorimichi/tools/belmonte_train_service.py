@@ -313,7 +313,7 @@ def doors(v, p, name, switchable):
                 item.update(motion='hinged', yaw=-float(leaf.get('swing_deg', 90)))
             leaves.append(item)
         out.append({'id': d['id'], 'kind': d['kind'], 'opens': d.get('opens', 'any'),
-                    'locked': bool(d.get('locked')) or d['kind'] == 'staff', 'side': side,
+                    'locked': bool(d.get('locked')), 'side': side,
                     'handles': [to_ue(*h['point']) for h in d.get('handles', [])],
                     'collision': boxes.get(d.get('collision')) or box_ue(d['box']), 'leaves': leaves})
     return out

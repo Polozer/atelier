@@ -100,7 +100,7 @@ class Collision(unittest.TestCase):
         ds = {d['id']: d for d in CO.doors(loco)}
         self.assertEqual(sorted(ds), ['cab-l', 'cab-r'])
         for d in ds.values():
-            self.assertEqual((d['kind'], d['opens'], CO.group(d['part'])), ('staff', 'station', 'door'))
+            self.assertEqual((d['kind'], d['opens'], CO.group(d['part']), d['locked']), ('staff', 'station', 'door', A.LOCKED_DOORS))
 
     def test_a_shut_inside_door_does_not_cut_the_walk_but_a_missing_one_is_caught(self):
         c = L.first_class()

@@ -25,7 +25,7 @@ open, so you can integrate it into `main` and keep working with the train in min
 - **In game:** `ABelmonteTrainService` runs both trains deterministically from the game clock, like the zeppelin, with
   no movement replication. `ABelmonteTrack` places the track, the tunnel lights and the exposure boxes. Players teleport
   through the map's "Gare de Belmonte" or "Gare de Hidamari", or with `-traingo=belmonte`. Interact (D-pad down) opens a
-  door at a station (either side) and boards or alights ("Monter" / "Descendre"). Interact also sits on the nearest free seat. Aboard,
+  door on the platform side at a station and boards or alights ("Monter" / "Descendre"). Interact also sits on the nearest free seat. Aboard,
   the player cannot sprint or climb and gets a short train camera. Build steps: `world.belmonte_train_service`,
   `world.belmonte_track_data`, `unreal.belmonte_train`, `unreal.belmonte_track` (all explicit).
 
@@ -48,8 +48,9 @@ environment, and does nothing when `line.json` has not been built.
 ## Open
 
 - **Doors:** every door opens for everyone (Paul, 2026-10-16): no locked gangways, no class separation.
-  `world/train/access.py` keeps the old class rules behind `LOCKED_DOORS`. Exterior doors still open only while a train
-  stands at a station.
+  `world/train/access.py` keeps the old class rules behind `LOCKED_DOORS`. One Interact on a gangway door opens the
+  facing coach's door too, and Interact picks the door the player faces, passing over one that can't open now. Exterior doors open only on the platform side,
+  while a train stands at a station.
 
 - **Multiplayer:** the trains are computed locally on each machine from the shared clock. A rider is carried locally
   by the service, because the movement base isn't replicated. It is solid in single player; with clients it needs

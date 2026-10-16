@@ -209,6 +209,7 @@ def doors(c):
             box = (ca, ce, *sorted((sy * L.CAB_IN, sy * L.LOCO_HALF)), F, F + CAB_DOOR_H)
             rec(f'cab-{side}', None, 'staff', 'hinged', box, free_edge(ca, ce, ce), 'x',
                 (('cab', sy * (L.CAB_IN - HANDLE_OUT)), ('outside', sy * (L.LOCO_HALF + HANDLE_OUT))))
+            out[-1]['locked'] = A.LOCKED_DOORS         # crew only while the class rules are on
     for s, end in ((-1, 'a'), (1, 'b')):
         if b.end(s) != 'balcony':
             continue
