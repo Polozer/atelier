@@ -11,6 +11,7 @@ import yori
 from asset_catalog import FOLIAGE
 from import_foliage_lods import apply_lods
 from mesh_import import import_mesh
+from foliage_package_repair import require_valid_or_missing
 
 
 def verify_bounds(mesh, authored):
@@ -42,11 +43,15 @@ def main():
     if meshes is None:
         raise RuntimeError('StaticMeshEditor subsystem is unavailable')
     path = '/Game/Japan/Assets/' + name
+    folder = '/Game/Japan/FoliageLODs/' + name
+    expected = {folder + f'/{name}_LOD{i}' for i in range(1, len(data['screen_sizes']))}
+    require_valid_or_missing(yori.GAME / 'unreal/Content', name)
     if editor.does_asset_exist(path):
         previous = editor.load_asset(path)
-        # Reimport must also remove a deleted LOD or a collision hull, not just add new data.
-        previous.set_num_source_models(1)
-        meshes.remove_collisions(previous)
+        if previous is not None:
+            # Reimport must also remove a deleted LOD or a collision hull, not just add new data.
+            previous.set_num_source_models(1)
+            meshes.remove_collisions(previous)
     seed = source / (name + '_Seed.fbx')
     mesh = import_mesh(source / (name + '.fbx'), '/Game/Japan/Assets', name, seed=seed, fresh_slots=True)
     verify_bounds(mesh, data['bounds'])
@@ -69,8 +74,6 @@ def main():
         raise RuntimeError('Missing body setup: ' + name)
     flag = {'complex': U.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE, 'default': U.CollisionTraceFlag.CTF_USE_DEFAULT}
     body.set_editor_property('collision_trace_flag', flag[data['collision']])
-    folder = '/Game/Japan/FoliageLODs/' + name
-    expected = {folder + f'/{name}_LOD{i}' for i in range(1, len(data['screen_sizes']))}
     for asset in editor.list_assets(folder, recursive=True):
         package = asset.split('.')[0]
         if package not in expected and not editor.delete_asset(asset):
@@ -87,6 +90,11 @@ def main():
     assert report['simple_collisions'] == 0, (name, 'unexpected collision primitives', report)
     assert report['convex_collisions'] == int(import_trunk), (name, 'collision hulls', report)
     assert meshes.get_collision_complexity(mesh) == flag[data['collision']], (name, 'collision policy', report)
+    # Fresh FBX packages default to 64; the legacy catalogue uses resolution 4 and UV0.
+    # Apply this after LOD assembly so repairs do not inherit a factory or previous-package default.
+    for key, value in (('light_map_resolution', 4), ('light_map_coordinate_index', 0)):
+        mesh.set_editor_property(key, value)
+        assert mesh.get_editor_property(key) == value, (name, key, value)
     if not editor.save_loaded_asset(mesh, False):
         raise RuntimeError('Could not save foliage package: ' + path)
     report_path = yori.OUT / 'imports/foliage' / (name + '.json')
