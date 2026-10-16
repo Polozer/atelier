@@ -1,6 +1,7 @@
 """Real private sockets, SQLite and ordinary Python children; no native workloads or admission activation."""
 from dataclasses import asdict
 import os
+import json
 from pathlib import Path
 import select
 import sqlite3
@@ -57,6 +58,33 @@ def broker_factory(short_path):
 @pytest.fixture
 def broker(broker_factory):
     return broker_factory()
+
+
+@pytest.mark.parametrize('action', ['status', 'private unknown action'])
+def test_operation_error_logs_only_safe_phase_metadata(broker, monkeypatch, capsys, action):
+    def fail(message, principal):
+        raise OSError(5, 'private transport details')
+    monkeypatch.setattr(broker, 'handle', fail)
+    with pytest.raises(wire.CapacityError, match='broker refused'):
+        client._rpc(broker.socket_path, {'action': action, 'nonce': 'private request details'}, 2.)
+    output = capsys.readouterr().err
+    report = json.loads(output.split('capacity operation refused: ')[1].splitlines()[0])
+    assert report['action'] == ('status' if action == 'status' else 'invalid')
+    assert report['phase'] == 'handle' and report['error_type'] == 'OSError' and report['errno'] == 5
+    assert report['elapsed_seconds'] >= 0 and report['observed_at'] > 0
+    assert 'private' not in output and 'nonce' not in output
+
+
+def test_slow_success_logs_elapsed_operation_without_changing_result(broker, monkeypatch, capsys):
+    original = broker.handle
+    def slow(message, principal):
+        time.sleep(.26)
+        return original(message, principal)
+    monkeypatch.setattr(broker, 'handle', slow)
+    assert client.status(broker.socket_path)['charged_count'] == 0
+    report = json.loads(capsys.readouterr().err.split('capacity slow operation: ')[1].splitlines()[0])
+    assert report['action'] == 'status' and report['phase'] == 'send'
+    assert report['elapsed_seconds'] >= .25 and report['observed_at'] > 0
 
 
 def session(broker, name='leaf', **changes):

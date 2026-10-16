@@ -981,6 +981,8 @@ class CapacityBroker:
                         selector.register(channel, selectors.EVENT_READ)
                         continue
                     buffer, deadline, principal = clients[channel]
+                    operation_started = deadline - self.rpc_timeout
+                    action, phase = 'invalid', 'receive'
                     try:
                         data = channel.recv(wire.MAX_FRAME + 1 - len(buffer))
                         if not data:
@@ -992,15 +994,26 @@ class CapacityBroker:
                             continue
                         if not buffer.endswith(b'\n') or buffer.count(b'\n') != 1:
                             raise wire.CapacityError('One capacity operation per connection is required')
-                        result, fd = self.handle(wire.decode(bytes(buffer[:-1])), principal)
+                        message = wire.decode(bytes(buffer[:-1]))
+                        action = wire.action_name(message)
+                        phase = 'handle'
+                        result, fd = self.handle(message, principal)
+                        phase = 'send'
                         try:
                             channel.settimeout(self.rpc_timeout)
                             wire.send(channel, {'ok': True, **result}, fd)
                         finally:
                             if fd is not None:
                                 os.close(fd)
+                        elapsed = time.monotonic() - operation_started
+                        if elapsed >= .25:
+                            print('capacity slow operation: ' + json.dumps(dict(
+                                action=action, phase=phase, elapsed_seconds=round(elapsed, 3),
+                                observed_at=time.time())), file=sys.stderr, flush=True)
                     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, wire.CapacityError) as error:
                         print('capacity operation refused: ' + json.dumps(dict(
+                            action=action, phase=phase,
+                            elapsed_seconds=round(time.monotonic() - operation_started, 3), observed_at=time.time(),
                             error_type=type(error).__name__,
                             errno=error.errno if isinstance(error, OSError) else None)), file=sys.stderr, flush=True)
                         try:

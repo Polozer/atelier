@@ -25,6 +25,13 @@ MAX_FRAME = 65536
 MAX_ROSTER = 512
 MAX_RETAINED = 8192  # Cumulative identities, independent of live-report and RPC batch limits.
 RESOURCE_FIELDS = frozenset(Resources.__dataclass_fields__)
+_ACTION_NAMES = frozenset(('status', 'reconcile', 'owned', 'offer', 'gate', 'start', 'check', 'replace', 'close'))
+
+
+def action_name(message):
+    """Diagnostic label only: never echo an unknown action or request contents."""
+    value = message.get('action') if type(message) is dict else None
+    return value if type(value) is str and value in _ACTION_NAMES else 'invalid'
 
 
 class CapacityError(RuntimeError):
