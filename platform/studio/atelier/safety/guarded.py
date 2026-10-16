@@ -314,8 +314,16 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
     _timings['ready'] = True
     horizon = timeout if timeout > 0 else None
     with ExitStack() as stack:
-        child, root_start, tree = None, None, None
+        child, root_start, tree, aggregate = None, None, None, None
         capacity_closed = False
+        aggregate_settled = False
+
+        def finish_aggregate():
+            nonlocal aggregate_settled
+            if aggregate is not None and not aggregate_settled:
+                # One existing bounded settlement, including when its result is a failure.
+                aggregate_settled = True
+                aggregate.finish()
 
         def retained():
             if tree is None:
@@ -327,7 +335,14 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
             nonlocal capacity_closed
             if not capacity_closed:
                 capacity_closed = True
-                admission.close(child=child, child_start=root_start, descendants=retained())
+                try:
+                    # ExitStack has already unwound/reaped the owned workload here. On an
+                    # exception, let the still-attached monitor publish its post-drain receipt
+                    # before asking the broker to judge cleanup; never wait over a live root.
+                    if child is not None and child.poll() is not None:
+                        finish_aggregate()
+                finally:
+                    admission.close(child=child, child_start=root_start, descendants=retained())
 
         if admission is not None:
             # Also cancel a queued offer when acquiring the bridge fails. The later callback
@@ -398,7 +413,6 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
             stack.callback(tree.unwind, grace=0. if aggregate_tree else 10.)
         monitor = monitors.enter_context(attach_memory_guard(child.pid, folder/'memory-health.json',
                                                              duration=horizon, limit_gib=limit_gib))
-        aggregate = None
         if aggregate_tree:
             if monitor is None:
                 raise RuntimeError('the gated launcher has no process memory guard')
@@ -480,8 +494,7 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
             except subprocess.TimeoutExpired:
                 pass
         observed_exit()
-        if aggregate is not None:
-            aggregate.finish()
+        finish_aggregate()
         if capacity_finishing:
             try:
                 status = monitor.wait(timeout=3.)

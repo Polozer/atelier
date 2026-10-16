@@ -65,6 +65,35 @@ def test_real_broker_exec_and_release_with_actual_guard_receipts(tmp_path, broke
     assert own['state'] == 'released' and own['charged'] is False
 
 
+def test_failed_heartbeat_drains_real_monitors_before_terminal_close(tmp_path, broker):
+    # Deliberately lose live ancestry in this private broker. Only its existing exclusive
+    # terminal-tree policy can settle the independently guarded owned cleanup afterward.
+    broker.parent = lambda pin: None
+    request = dict(id='failed-heartbeat', resources=asdict(Resources(512, 1000, 16, 1)),
+                   locks=['checkout:test'], seconds=10)
+    session = AdmissionSession(broker.socket_path, request)
+    check = session.check
+    def fail_after_helper_registration(*, descendants):
+        response = check(descendants=descendants)
+        if any(pin != session.child for pin in descendants):
+            raise CapacityError('deliberate heartbeat transport failure after registration')
+        return response
+    session.check = fail_after_helper_registration
+    code = ('import subprocess,sys,time; '
+            'subprocess.Popen([sys.executable,"-c","import time; time.sleep(30)"]); '
+            'time.sleep(30)')
+    folder = tmp_path/'guard'
+    with pytest.raises(CapacityError, match='deliberate heartbeat'):
+        guarded.run([sys.executable, '-c', code], folder, admission=session, limit_gib=.5, timeout=10)
+    terminal = json.loads((folder/'memory-health-tree.json').read_text())
+    assert terminal['state'] == 'child_exited' and terminal['cleanup_complete'] is True
+    assert terminal['processes'] == [] and terminal['footprint_bytes'] == 0
+    report = status(broker.socket_path)
+    own = next(record for record in report['records'] if record['id'] == 'failed-heartbeat')
+    assert own['ancestry_unknown'] is True and own['state'] == 'released' and not own['charged']
+    assert report['charged_count'] == 0
+
+
 def test_ordinary_unchanged_launcher_still_works_without_machine_activation(tmp_path, broker, monkeypatch):
     from atelier import capacity_runtime
     monkeypatch.setattr(capacity_runtime, 'DEFAULT_CONFIG', tmp_path / 'not-enabled.json')
