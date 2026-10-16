@@ -55,26 +55,27 @@ def selection(tmp_path, monkeypatch):
         if argv[0] == '/usr/bin/xcrun':
             if '--sdk' in argv:
                 sdk = argv[2]
+                if argv[3:] == ['metal', '--print-search-dirs']:
+                    return 'programs: =irrelevant\nlibraries: =' + str(libraries[sdk])
                 return str(sdks[sdk] if argv[3] == '--show-sdk-path' else executables[sdk][argv[4]])
             return str(packaging)
-        for sdk in sdks:
-            if argv == [str(executables[sdk]['metal']), '--print-search-dirs']:
-                return 'programs: =irrelevant\nlibraries: =' + str(libraries[sdk])
         raise AssertionError(argv)
     import subprocess
     monkeypatch.setattr(subprocess, 'check_output', output)
-    monkeypatch.setattr(cook.shutil, 'which', lambda name: '/usr/bin/' + name)
+    system = lambda name: ('/bin/' if name in ('realpath', 'chmod', 'bash', 'sh') else '/usr/bin/') + name
+    monkeypatch.setattr(cook.shutil, 'which', system)
     monkeypatch.setattr(cook, 'recovery_config_inputs', lambda _: [])
     monkeypatch.setattr(paths, 'ENGINE_PLUGINS', tmp_path / 'platform-plugins')
     return SimpleNamespace(cook=cook, ctx=ctx, developer=developer, sdks=sdks, owners=owners,
-                           executables=executables, libraries=libraries, calls=calls, output=output, dotnet=dotnet)
+                           executables=executables, libraries=libraries, calls=calls, output=output, dotnet=dotnet, system=system)
 
 
 @pytest.mark.parametrize('name', ['DEVELOPER_DIR', 'TOOLCHAINS', 'SDKROOT', 'BASH_ENV', 'ENV', 'UE-CmdLineArgs',
     'UE_DOTNET_DIR', 'UE_USE_SYSTEM_DOTNET', 'UE_SDKS_ROOT', 'UE_AUTOSDK_SPECIFIC_LEVELS', 'DOTNET_ROOT',
     'COREHOST_TRACEFILE', 'CORECLR_ENABLE_PROFILING', 'COMPlus_AltJitName', 'DYLD_INSERT_LIBRARIES',
     'MSBuildSDKsPath', 'MSBuildExtensionsPath', 'MSBUILD_EXE_PATH', 'NUGET_PLUGIN_PATHS',
-    'UnrealBuildTool_Mac__Compiler', 'UBT_Mac__Compiler', 'LINUXAutoSDKSetup', 'MacManualSDKSetup'])
+    'UnrealBuildTool_Mac__Compiler', 'UBT_Mac__Compiler', 'LINUXAutoSDKSetup', 'MacManualSDKSetup',
+    'CDPATH', 'IFS', 'BASHOPTS', 'SHELLOPTS', 'POSIXLY_CORRECT', 'BASH_FUNC_realpath%%'])
 def test_override_refuses_before_deleting_archive_or_discovering_tools(selection, monkeypatch, name):
     cook, ctx = selection.cook, selection.ctx
     monkeypatch.setenv(name, 'private selector value')
@@ -108,10 +109,10 @@ def test_nonrecording_prepare_uses_no_new_policy_or_tool_discovery(selection, mo
     assert not selection.calls
 
 
-@pytest.mark.parametrize('name', ['xcode-select', 'xcrun', 'uname'])
+@pytest.mark.parametrize('name', ['xcode-select', 'xcrun', 'uname', 'which', 'dirname', 'env', 'realpath', 'chmod', 'bash', 'sh'])
 def test_path_shadowing_refuses_even_with_valid_absolute_discovery(selection, monkeypatch, name):
     shim = selection.ctx.out / 'shim'; shim.parent.mkdir(); shim.write_text('mutable shim')
-    monkeypatch.setattr(selection.cook.shutil, 'which', lambda item: str(shim) if item == name else '/usr/bin/' + item)
+    monkeypatch.setattr(selection.cook.shutil, 'which', lambda item: str(shim) if item == name else selection.system(item))
     with pytest.raises(RuntimeError, match='PATH-shadowed'):
         selection.cook.recovery_tool_selection()
     assert not selection.calls
@@ -124,6 +125,8 @@ def test_selection_covers_both_sdk_and_full_resources_once(selection, monkeypatc
     assert selection.developer.parent in result.roots and selection.developer.parent in result.link_owners
     assert set(selection.owners.values()) <= set(result.roots) & set(result.link_owners)
     assert selection.calls.count(['/usr/bin/xcode-select', '-p']) == 1
+    for sdk in ('macosx', 'iphoneos'):
+        assert ['/usr/bin/xcrun', '--sdk', sdk, 'metal', '--print-search-dirs'] in selection.calls
     for sdk, tools in result.selection['sdks'].items():
         assert tools['path'] == str(selection.sdks[sdk])
         assert set(tools['metal']) == {'metal', 'metal-ar', 'metallib', 'metal-pack', 'metal-strip', 'library'}
@@ -132,6 +135,22 @@ def test_selection_covers_both_sdk_and_full_resources_once(selection, monkeypatc
     before = recovery.inventory(roots, hashes=True)
     (selection.libraries['iphoneos'] / 'resource').write_bytes(b'changed library')
     assert recovery.inventory(roots, hashes=True) != before
+
+
+def test_metal_library_probe_uses_the_same_sdk_context_as_unreal(selection, monkeypatch):
+    import subprocess
+    def output(argv, **kwargs):
+        if argv[0] in {str(tools['metal']) for tools in selection.executables.values()}:
+            return 'libraries: =' + str(selection.developer)  # No SDK context gives a different resource path.
+        return selection.output(argv, **kwargs)
+    monkeypatch.setattr(subprocess, 'check_output', output)
+    selected = selection.cook.recovery_tool_selection()
+    for sdk in ('macosx', 'iphoneos'):
+        assert selected['sdks'][sdk]['metal']['library'] == str(selection.libraries[sdk])
+
+
+def test_platform_swift_plugin_resources_are_part_of_the_input_inventory(selection):
+    roots = [selection.developer.parent, *selection.owners.values()]
     plugin = selection.developer / 'Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins/plugin'
     plugin.parent.mkdir(parents=True); plugin.write_bytes(b'Swift plugin')
     before = recovery.inventory(roots, hashes=True)

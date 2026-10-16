@@ -151,10 +151,11 @@ def recovery_shell_hooks(ctx):
 def recovery_default_policy(ctx):
     """Recovery supports default tools only; never source or sanitize unknown launch hooks."""
     names = {'DEVELOPER_DIR', 'TOOLCHAINS', 'SDKROOT', 'BASH_ENV', 'ENV', 'UE-CmdLineArgs',
+             'CDPATH', 'IFS', 'BASHOPTS', 'SHELLOPTS', 'POSIXLY_CORRECT',
              'UE_DOTNET_DIR', 'UE_USE_SYSTEM_DOTNET', 'UE_SDKS_ROOT', 'MSBuildSDKsPath', 'MSBuildExtensionsPath'}
     unsupported = sorted(name for name in os.environ if name in names
                          or name.startswith(('UE_AUTOSDK_', 'DOTNET_', 'COREHOST_', 'CORECLR_', 'COMPlus_',
-                                             'DYLD_', 'MSBUILD', 'NUGET_'))
+                                             'DYLD_', 'MSBUILD', 'NUGET_', 'BASH_FUNC_'))
                          or (name.startswith(('UnrealBuildTool_', 'UBT_')) and '__' in name)
                          or name.endswith(('AutoSDKSetup', 'ManualSDKSetup')))
     if unsupported:
@@ -187,8 +188,10 @@ def recovery_tool_selection():
     def selected(argv):
         return Path(output(argv)).resolve(strict=True)
     selectors = {}
-    for name in ('xcode-select', 'xcrun', 'uname'):
-        expected = Path('/usr/bin') / name
+    commands = {name: '/usr/bin/' + name for name in ('xcode-select', 'xcrun', 'uname', 'which', 'dirname', 'env')}
+    commands.update({name: '/bin/' + name for name in ('realpath', 'chmod', 'bash', 'sh')})
+    for name, system_path in commands.items():
+        expected = Path(system_path)
         found = shutil.which(name)
         if not found or Path(found).resolve(strict=True) != expected.resolve(strict=True):
             raise RuntimeError('Cook recovery refuses a PATH-shadowed tool selector: ' + name)
@@ -214,7 +217,8 @@ def recovery_tool_selection():
             toolchains.add(owner)
             chosen[tool] = str(executable)
             if tool == 'metal':
-                lines = [line[len('libraries: ='):].strip() for line in output([str(executable), '--print-search-dirs']).splitlines()
+                search = ['/usr/bin/xcrun', '--sdk', sdk, 'metal', '--print-search-dirs']
+                lines = [line[len('libraries: ='):].strip() for line in output(search).splitlines()
                          if line.startswith('libraries: =')]
                 if len(lines) != 1:
                     raise RuntimeError('Cook recovery cannot resolve the selected Metal library resource')
