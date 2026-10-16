@@ -445,9 +445,11 @@ def main(argv=None):
     # after the park's bake, with its own baked in plan tiles: in this one the voxel grid would span the whole crater.
     from craterpark.v2 import editor_floor
     floor, floor_summary = editor_floor.build(scene.pieces, heights, grid, editor_floor.site(heights, weight, grid))
-    print(f"CRATERPARK EDITOR crater floor: {floor_summary['triangles']} triangles", flush=True)
+    print(f"CRATERPARK EDITOR crater floor: {floor_summary['triangles']} triangles, "
+          f"{floor_summary['conifers']} conifers", flush=True)
     park.mesh = dsl.Mesh.concat([park.mesh, *floor])
-    arrays, index = generate.bundle(park, entries, {})
+    # the floor's conifers are instances of the caldera's tree models (trees.py), planted by the park (park.json trees)
+    arrays, index = generate.bundle(park, entries, floor_summary['trees'])
     # the cut ground the volcano's terrain follows (v4_placement.ground_grid), instead of a park mesh over it
     arrays.update(ground_height=heights, ground_weight=weight)
     index.update(v4=provenance, editor_playtest={'rev': doc.get('rev'), 'lines': lines, 'pieces': len(chosen['pieces']),

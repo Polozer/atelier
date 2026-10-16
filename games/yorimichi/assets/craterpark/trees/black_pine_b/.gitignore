@@ -1,0 +1,5 @@
+
+api-private/
+*.part
+*.blend1
+blender/turntable-frames/

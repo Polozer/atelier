@@ -22,6 +22,7 @@ from pathlib import Path
 
 from . import manifest, paths
 from .build import Context, build, list_steps
+from .play_limits import GAME_GIB, GAME_MAX_GIB
 
 
 def _ok(flag, text):
@@ -64,10 +65,6 @@ def fetch(game):
         if code:
             return code
     return 0
-
-
-GAME_GIB = 10.        # the memory guard's limit for a game
-GAME_MAX_GIB = 14.    # the most a session may ask for (--memory-gib): a 32 GiB machine keeps room for a small-slot job
 
 
 def game_limit(memory_gib=None):
@@ -185,6 +182,8 @@ def make_parser():
     p.add_argument('--json', action='store_true')
     p = sub.add_parser('build'); p.add_argument('game'); p.add_argument('steps', nargs='*')
     p.add_argument('--list', action='store_true'); p.add_argument('--force', action='store_true')
+    p.add_argument('--rebuild-touched', action='store_true',
+                   help='rebuild selected touched certificates; preserve proven current steps and caches')
     p.add_argument('--max-heavy-commands', type=int, metavar='N',
                    help='run at most N heavy commands, then yield before the next one (exit 75)')
     p.add_argument('--dry-run', '--plan', action='store_true', help='read-only build decisions')
@@ -196,6 +195,8 @@ def make_parser():
     p.add_argument('--cook-mode', choices=('modern-full', 'modern-incremental'),
                    help='experimental UE5.8 package cook; --force recooks packages only')
     p.add_argument('--cook-reason', help='measurement reason required for experimental --force')
+    p.add_argument('--recover-cook', metavar='ATTEMPT_ID', help='retry only certification of a positively completed same-checkout cook')
+    p.add_argument('--record-cook-recovery', action='store_true', help='opt in before cooking to retain complete local recovery evidence (additional input inventory cost)')
     p.add_argument('--verify', action='store_true', help='read all named-product bytes instead of using the local hash index')
     p.add_argument('--touch', action='store_true', help='record the steps as built without running them (after a recipe refactor)')
     p = sub.add_parser('play'); p.add_argument('game'); p.add_argument('--profile', default='play')
@@ -316,6 +317,19 @@ def main(argv=None):
         from . import capacity
         return capacity.main(args.path, as_json=args.json)
     if args.command == 'build':
+        if args.rebuild_touched and (args.force or args.touch or args.recover_cook is not None
+                                    or args.record_cook_recovery or args.list or args.ddc or args.changes or args.timings):
+            raise SystemExit('--rebuild-touched requires a separate build or plan, without force/touch/cook recovery')
+        if args.record_cook_recovery:
+            if (args.steps not in (['unreal.cook'], ['unreal.package']) or args.list or args.ddc or args.changes
+                    or args.timings or args.dry_run or args.explain or args.json or args.touch
+                    or args.cook_mode is not None or args.recover_cook is not None):
+                raise SystemExit('--record-cook-recovery requires ordinary unreal.cook or unreal.package execution')
+        if args.recover_cook is not None:
+            if (args.steps not in (['unreal.cook'], ['unreal.package']) or args.list or args.ddc or args.changes
+                    or args.timings or args.dry_run or args.explain or args.json or args.force or args.touch
+                    or args.cook_mode is not None or args.max_heavy_commands is not None):
+                raise SystemExit('--recover-cook requires unreal.cook or unreal.package execution without force/touch/plan/experimental/budget flags')
         if args.max_heavy_commands is not None:
             if args.max_heavy_commands < 1:
                 raise SystemExit('--max-heavy-commands must be a positive integer')
@@ -348,8 +362,15 @@ def main(argv=None):
             if args.touch:
                 raise SystemExit('--touch cannot be combined with a read-only plan')
             from .build_plan import show
-            return show(args.game, args.steps, force=args.force, explain=args.explain, as_json=args.json, verify=args.verify, **experimental)
+            return show(args.game, args.steps, force=args.force, explain=args.explain, as_json=args.json, verify=args.verify,
+                        **({'rebuild_touched': True} if args.rebuild_touched else {}), **experimental)
         bounded = {'max_heavy_commands': args.max_heavy_commands} if args.max_heavy_commands is not None else {}
+        if args.recover_cook is not None:
+            bounded['recover_cook'] = args.recover_cook
+        if args.record_cook_recovery:
+            bounded['record_cook_recovery'] = True
+        if args.rebuild_touched:
+            bounded['rebuild_touched'] = True
         return build(args.game, args.steps, force=args.force, dry=args.dry_run, touch=args.touch, verify=args.verify,
                      **experimental, **bounded)
     if args.command == 'play':

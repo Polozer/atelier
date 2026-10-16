@@ -203,7 +203,9 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   [desktop performance](games/yorimichi/docs/DESKTOP_PERFORMANCE.md) for the launch and readiness contract.
 - Heavy jobs (Unreal, Blender renders) run under the render lock and memory guard (`atelier.safety`). `atelier play`
   and `atelier build` do this for you. A game's guard stops it above 10 GiB; `atelier play --memory-gib N` (10 to 14)
-  raises that for one session that needs it (Quality graphics at 1080p, for example). Retain the command and reason in its evidence.
+  raises that for one session that needs it (Quality graphics at 1080p, for example). In full capacity mode,
+  admission automatically reserves at least that selected ceiling for this session; the default stays 10 GiB.
+  Do not edit machine profiles to use this flag. Retain the command and reason in its evidence.
 - Follow the [capacity agent workflow](docs/BUILD_CAPACITY.md#agent-workflow) for live mode checks,
   safe update/stop boundaries and refusal recovery. Merge and `uv sync` only while
   the checkout has no owned native child and its caller cannot start the next one; preserve build artifacts.
@@ -303,6 +305,11 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   Use `uv run atelier reuse <game> --from <completed-checkout> --to <fresh-worktree>`; it verifies fingerprints,
   required outputs and engine build IDs before carrying over successful stamps. Run the incremental build afterward
   to confirm every unchanged step is up to date. It leaves absolute-path-dependent Intermediate files behind.
+  Reuse and `reuse --abandon` use the normal guarded child lifecycle, including full-capacity admission.
+  In full mode the transfer remains exclusive while it inspects, copies and verifies; no second legacy lock is needed.
+  The transfer has a 30-minute work deadline. A slow byte copy may hit it; the journal still blocks use until
+  `reuse --abandon` removes the partial copy. Success stamps publish only after guard cleanup and capacity close.
+  Final publication and abandonment share a receiver metadata mutex, acquired only for those file operations.
 - Make sure the machine's sound masters are fetched before reuse (`uv run atelier fetch <game>`).
   The download cache is shared by all checkouts on the machine.
   Yorimichi's model GLB sources are committed in the asset library, including the skate pier

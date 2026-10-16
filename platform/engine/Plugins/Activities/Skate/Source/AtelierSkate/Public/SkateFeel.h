@@ -36,6 +36,7 @@ struct ATELIERSKATE_API FSkateFeel
     float GrindFriction = 1.f;                   // how fast a grind slows (0..3)
     float GrindTolerance = 1.f;                  // how much a grind takes before it bails (0.5..3; USkateSettings)
     float CameraFollow = 1.f;                    // how fast the camera may chase the rider, times 40 m/s (1..3; USkateSettings)
+    float WallFollow = 0.f;                      // an air off a curved vert wall turns with the wall, 0 off (0..1; USkateSettings)
 
     // Rolling.
     float Braking = 1.f;                         // (0.25..3)

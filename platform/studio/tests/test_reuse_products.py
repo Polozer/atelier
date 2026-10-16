@@ -1,5 +1,4 @@
 """Whole-snapshot reuse through real inspector subprocesses, with tiny stand-in native files."""
-import contextlib
 import json
 from pathlib import Path
 import shutil
@@ -43,7 +42,6 @@ def steps(ctx):
     write(engine / 'Engine/Binaries/Mac/UnrealEditor.modules', '{"BuildId":"same"}')
     monkeypatch.setenv('UE_ROOT', str(engine))
     monkeypatch.delenv('ATELIER_BUILD_ROOT', raising=False)
-    monkeypatch.setattr(reuse, 'render_lock', lambda *args: contextlib.nullcontext())
     monkeypatch.setattr(reuse, 'git', lambda repo, *args: 'revision' if args[0] == 'rev-parse' else '')
     monkeypatch.setattr(reuse, 'occupied', lambda *args: [])
     for name, content in [('libUnrealEditor-Standin.dylib', 'module'), ('StandinEditor.target', '{"Version":{}}'),
@@ -64,7 +62,8 @@ def test_named_snapshot_clones_reads_references_and_optional_sidecars(snapshot):
     source, target = snapshot
     original = reuse.inspect(source, 'standin')
     assert reuse.differing_sources(original, reuse.inspect(target, 'standin')) == []
-    assert reuse.main('standin', source, target) == 0
+    assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+    reuse._publish('standin', target, '0' * 32)
     verified = reuse.inspect(target, 'standin')
     assert reuse._inputs(verified) == reuse._inputs(original)
     assert reuse._products(verified) == reuse._products(original)
@@ -78,6 +77,96 @@ def test_named_snapshot_clones_reads_references_and_optional_sidecars(snapshot):
     assert (source / leaf).read_text() == 'native leaf'
 
 
+def test_worker_stages_stamps_until_parent_observes_guard_success(snapshot):
+    source, target = snapshot
+    assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+    assert not (target / 'build/standin/stamps').exists()
+    staged = reuse._staging('standin', target, '0' * 32)
+    assert len(list(staged.glob('*.json'))) == 4
+    with pytest.raises(SystemExit, match='--abandon'):
+        build_snapshot.require_complete(target / 'build/standin', game='standin', repo=target)
+    reuse._publish('standin', target, '0' * 32)
+    assert len(list((target / 'build/standin/stamps').glob('*.json'))) == 4
+    assert not staged.exists()
+
+
+@pytest.mark.parametrize('first', ['publish', 'abandon'])
+def test_publication_and_abandonment_cannot_race_through_commit(snapshot, monkeypatch, first):
+    import concurrent.futures
+    import subprocess
+    import threading
+    source, target = snapshot
+    assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+    subprocess.run(['git', '-C', str(target), 'init', '-q'], check=True)
+    monkeypatch.setattr(reuse, 'TRANSACTION_WAIT_SECONDS', .15)
+    ready, proceed = threading.Event(), threading.Event()
+    staged = reuse._staging('standin', target, '0' * 32)
+    rename, remove = Path.rename, reuse._remove_partial
+    def paused_rename(path, destination):
+        if path == staged:
+            ready.set()
+            assert proceed.wait(3), 'publication test was not resumed'
+        return rename(path, destination)
+    def paused_remove(*args):
+        ready.set()
+        assert proceed.wait(3), 'abandonment test was not resumed'
+        return remove(*args)
+    monkeypatch.setattr(Path, 'rename', paused_rename)
+    monkeypatch.setattr(reuse, '_remove_partial', paused_remove)
+    publish = lambda: reuse._publish('standin', target, '0' * 32)
+    abandon = lambda: reuse._abandon('standin', target)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as workers:
+        operation = workers.submit(publish if first == 'publish' else abandon)
+        try:
+            assert ready.wait(3), 'first transaction did not reach the controlled commit window'
+            other = workers.submit(abandon if first == 'publish' else publish)
+            with pytest.raises(RuntimeError, match='still finalizing or abandoning'):
+                other.result(timeout=2)
+        finally:
+            proceed.set()
+        operation.result(timeout=3)
+    if first == 'publish':
+        assert (target / 'build/standin/stamps/export.json').is_file()
+        assert (target / 'games/standin/unreal/Content/Leaf.uasset').is_file()
+    else:
+        with pytest.raises(FileNotFoundError):
+            publish()
+        assert not (target / 'build/standin/stamps').exists()
+        assert not (target / 'games/standin/unreal/Content/Leaf.uasset').exists()
+
+
+@pytest.mark.parametrize('damage', ['changed', 'missing', 'extra'])
+def test_damaged_staged_stamps_cannot_be_published(snapshot, damage):
+    source, target = snapshot
+    assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+    staged = reuse._staging('standin', target, '0' * 32)
+    path = next(staged.glob('*.json'))
+    if damage == 'changed':
+        path.write_text('{}')
+    elif damage == 'missing':
+        path.unlink()
+    else:
+        (staged / 'unexpected.json').write_text('{}')
+    with pytest.raises(ValueError, match='Staged reuse stamp'):
+        reuse._publish('standin', target, '0' * 32)
+    assert not (target / 'build/standin/stamps').exists()
+    assert (target / 'build/standin' / build_snapshot.JOURNAL).exists()
+
+
+def test_queued_reuse_rechecks_revision_before_copy(snapshot, monkeypatch):
+    source, target = snapshot
+    def admitted(*args):
+        monkeypatch.setattr(reuse, 'git', lambda repo, *args:
+                            ('new donor revision' if repo == source else 'revision')
+                            if args[0] == 'rev-parse' else '')
+        return reuse._copy('standin', source, target, operation_id='0' * 32)
+    monkeypatch.setattr(reuse, '_launch', admitted)
+    with pytest.raises(ValueError, match='same source revision'):
+        reuse.main('standin', source, target)
+    assert not (target / 'games/standin/unreal/Content').exists()
+    assert not (target / 'build/standin/stamps').exists()
+
+
 def test_reuse_source_identity_filters_only_copied_optional_inputs(snapshot):
     source, target = snapshot
     before, empty = reuse.inspect(source, 'standin'), reuse.inspect(target, 'standin')
@@ -88,7 +177,7 @@ def test_reuse_source_identity_filters_only_copied_optional_inputs(snapshot):
     write(target / 'games/standin/optional-source.json', 'different source outside the copy')
     assert reuse.differing_sources(before, reuse.inspect(target, 'standin')) == ['map']
     with pytest.raises(ValueError, match='Source inputs differ'):
-        reuse.main('standin', source, target)
+        reuse._copy('standin', source, target, operation_id='0' * 32)
 
 
 def test_foreign_reuse_checks_ignore_controller_journal(snapshot, tmp_path, monkeypatch):
@@ -96,7 +185,8 @@ def test_foreign_reuse_checks_ignore_controller_journal(snapshot, tmp_path, monk
     controller = tmp_path / 'controller'
     write(controller / 'build/standin' / build_snapshot.JOURNAL, '{}')
     monkeypatch.setattr(paths, 'REPO', controller)
-    assert reuse.main('standin', source, target) == 0
+    assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+    reuse._publish('standin', target, '0' * 32)
     assert (controller / 'build/standin' / build_snapshot.JOURNAL).exists()
     assert (target / 'build/standin' / build_snapshot.COMPLETE).is_file()
 
@@ -113,7 +203,7 @@ def test_bad_donor_or_different_source_cannot_start_copy(snapshot, changed):
     else:
         write(target / 'games/standin/source.txt', 'different untracked source')
     with pytest.raises(ValueError, match='not complete/current|Source inputs differ'):
-        reuse.main('standin', source, target)
+        reuse._copy('standin', source, target, operation_id='0' * 32)
     assert not (target / 'games/standin/unreal/Content').exists()
     assert not (target / 'build/standin/stamps').exists()
 
@@ -132,7 +222,7 @@ def test_interrupted_or_corrupt_copy_blocks_build_and_play(snapshot, monkeypatch
 
     monkeypatch.setattr(reuse, 'copy_tree', copy)
     with pytest.raises((ValueError, OSError), match='Products changed|interrupted'):
-        reuse.main('standin', source, target)
+        reuse._copy('standin', source, target, operation_id='0' * 32)
     out = target / 'build/standin'
     assert (out / build_snapshot.JOURNAL).exists()
     assert not (out / 'stamps').exists()
@@ -148,7 +238,7 @@ def test_registry_cache_in_target_requires_a_fresh_checkout(snapshot):
     source, target = snapshot
     write(target / 'games/standin/unreal/Intermediate/CachedAssetRegistry.bin', 'stale registry')
     with pytest.raises(ValueError, match='registry discovery'):
-        reuse.main('standin', source, target)
+        reuse._copy('standin', source, target, operation_id='0' * 32)
     assert not (target / 'games/standin/unreal/Content').exists()
 
 
@@ -164,14 +254,14 @@ def test_supported_abandon_keeps_tracked_assets_logs_and_unrelated_files(snapsho
 
     monkeypatch.setattr(reuse, 'copy_tree', interrupt)
     with pytest.raises(OSError, match='interrupted'):
-        reuse.main('standin', source, target)
+        reuse._copy('standin', source, target, operation_id='0' * 32)
     kept = target / 'games/standin/unreal/Content/Kept.uasset'
     write(kept, 'authored tracked asset')
     subprocess.run(['git', '-C', str(target), 'init', '-q'], check=True)
     subprocess.run(['git', '-C', str(target), 'add', str(kept)], check=True)
     write(target / 'build/standin/logs/copy.log', 'diagnostic evidence')
     write(target / 'notes.txt', 'unrelated work')
-    assert reuse.abandon('standin', target) == 0
+    assert reuse._abandon('standin', target) == 0
     assert kept.read_text() == 'authored tracked asset'
     assert (target / 'build/standin/logs/copy.log').is_file()
     assert (target / 'notes.txt').read_text() == 'unrelated work'
@@ -186,9 +276,8 @@ def test_abandon_refuses_unsafe_scope_before_removing_anything(tmp_path, monkeyp
     journal = tmp_path / 'build/standin' / build_snapshot.JOURNAL
     write(journal, json.dumps({'schema': 1, 'copies': ['build/standin/mesh.json', relative]}))
     write(tmp_path / 'build/standin/mesh.json', 'keep on refused cleanup')
-    monkeypatch.setattr(reuse, 'render_lock', lambda *args: contextlib.nullcontext())
     with pytest.raises(SystemExit, match='Unsafe path'):
-        reuse.abandon('standin', tmp_path)
+        reuse._abandon('standin', tmp_path)
     assert journal.exists()
     assert (tmp_path / 'build/standin/mesh.json').exists()
 

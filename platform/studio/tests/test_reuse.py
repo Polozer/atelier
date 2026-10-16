@@ -158,8 +158,7 @@ def test_a_fresh_target_reuses_a_cutoff_step_and_its_dependents(tmp_path, missin
     with patch.object(build, 'Context', context), patch.object(build, 'load_recipe', lambda game: SimpleNamespace(steps=steps)), \
             patch.object(manifest, 'game', lambda game: {'editor_target': 'StandinEditor'}), \
             patch.object(reuse, 'inspect', inspect), patch.object(reuse, 'occupied', lambda *args: []), \
-            patch.object(reuse, 'git', lambda repo, *args: 'revision' if args[0] == 'rev-parse' else ''), \
-            patch.object(reuse, 'render_lock', lambda *args: contextlib.nullcontext()):
+            patch.object(reuse, 'git', lambda repo, *args: 'revision' if args[0] == 'rev-parse' else ''):
         producer, consumer = steps(context('standin'))
         published = build.outputs_digest(producer)
         write(source / 'build/standin/stamps/digest.json', json.dumps({'fingerprint': build.fingerprint(producer, {}), 'result': published}))
@@ -169,11 +168,12 @@ def test_a_fresh_target_reuses_a_cutoff_step_and_its_dependents(tmp_path, missin
             assert original['steps'][0]['fingerprint'] != inspect(target,'standin')['steps'][0]['fingerprint']
         if missing_input == 'escaped':
             with pytest.raises(ValueError,match='Source inputs differ'):
-                reuse.main('standin',source,target)
+                reuse._copy('standin', source, target, operation_id='0' * 32)
             assert not (target/'build/standin/stamps').exists()
             assert not (target/'games/standin/unreal/Content').exists()
             return
-        assert reuse.main('standin', source, target) == 0
+        assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+        reuse._publish('standin', target, '0' * 32)
         verified = inspect(target, 'standin')
         assert all(step['stamp']['fingerprint'] == step['fingerprint'] for step in verified['steps'])
         assert inspect(source,'standin')['steps'][0]['stamp'] == original['steps'][0]['stamp']

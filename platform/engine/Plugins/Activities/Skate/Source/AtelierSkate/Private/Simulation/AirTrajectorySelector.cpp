@@ -32,6 +32,8 @@ void AirTrajectorySelector::LaunchPass(AirSelectorInput input,const AirTrajector
     if (!launch_info_) std::abort();
     all_predictions_missed_=false;if (selection_) selection_->wall_ride=false;
     auto batch=BuildAirTrajectoryLaunchBatch(*launch_info_,input,s);
+    if (wall_curvature_!=0)
+        for (auto& request:batch.requests) {request.trajectory.wall_curvature=wall_curvature_;request.trajectory.wall_follow_time=wall_follow_time_;}
     while (candidates_.size()<batch.requests.size())
         candidates_.push_back({{AirTrajectoryQueryResult::Miss(),batch.requests[0]},{},{},{},{},0,0,false,std::nullopt});
     for (std::size_t index=0;index<batch.requests.size();++index)

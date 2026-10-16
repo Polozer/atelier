@@ -6,10 +6,12 @@ menu says: the defaults are bit-exact with no feel at all, gravity keeps jump he
 flick pops higher with a lower flick pace, the 120 Hz flick reading reads the same flicks with the same window and pace
 and keeps a fast hardflip's bottom point that 60 Hz misses, rolling resistance and braking change the coast, and rail magnetism catches
 a rail from farther. Drift powerslides start with the stick straight down, grip as far as it is pulled and keep the
-speed and the line when let go, a lower powerslide turn turns the board less, and an assist zone's vert assist limit
-rides as that much assist. In a boost zone, pumping across a halfpipe's walls gains speed wall after wall even where
-the physical pump adds nothing, a trigger held through them or a hard turn's crouch gains nothing, a powerslide gains, and outside every zone or
-on flat ground nothing changes, bit for bit. Requires the assembled simulation package (skate.runtime) and the explicitly built test-only gameplay-session-cli
+speed and the line when let go, a lower powerslide turn turns the board less, an assist zone's vert assist limit
+rides as that much assist, and wall follow brings an air off a curved vert wall back down onto its transition to ride away (stock lands on the
+deck behind the lip) while a zero-assist zone or no vert assist rides exactly as stock. In a boost zone, pumping across a halfpipe's walls gains
+speed wall after wall even where the physical pump adds nothing, a trigger held through them or a hard turn's crouch gains nothing, a powerslide
+gains, and outside every zone or on flat ground nothing changes, bit for bit. Requires the assembled simulation package (skate.runtime) and the
+explicitly built test-only gameplay-session-cli
 (Tests/build_simulation_session_cli.py --compile, under the render lock and memory guard). Results go to
 build/yorimichi/skate-simulation/feel.
 """
@@ -243,9 +245,9 @@ GROUND = ('PhysicsGround', 'RevertGround')
 PUMP_PULL = 200                 # of 255 on R2, as the simulation's reference pumps pull a trigger
 SLIDE_STICK = [round(math.sin(math.radians(25)) * 32767), -32767]
 HARD_TURN = [30000, -16000]    # a full stick about 1.1 rad from backward: a hard turn's crouch, short of a slide
-# Yorimichi's skate settings (DefaultGame.ini): pop, spin and push scales, vert assist 1, drift powerslides.
+# Yorimichi's skate settings (DefaultGame.ini): pop, spin and push scales, vert assist 1, drift powerslides, wall follow.
 YORIMICHI_TUNE = {'pop': 1.15, 'spin': 1.6, 'push_speed': 1.15, 'push_power': 1.45, 'vert_assist': 1}
-YORIMICHI_FEEL = {'drift_powerslide': 1, 'grind_tolerance': 2, 'camera_follow': 2, 'tight_flicks': 1}
+YORIMICHI_FEEL = {'drift_powerslide': 1, 'grind_tolerance': 2, 'camera_follow': 2, 'tight_flicks': 1, 'wall_follow': 1}
 
 
 def carve(row, angle, radius, height, flat):
@@ -320,6 +322,64 @@ def coast(session, feel, buttons=0, seconds=3, start=6):
     return {'end_speed_mps': speed(rows[-1]), 'distance_m': rows[-1]['root'][14] - rows[0]['root'][14]}
 
 
+LIP = 95.
+
+
+def bowl_wall(lip, transition=12., vert=2., start=-20., end=200., step=1.):
+    """A bowl's outer wall round the origin: a floor ring, a `transition` m quarter rising to vertical at the lip `lip` m
+    from the centre, `vert` m of vert and a deck behind, swept from `start` to `end` degrees in `step` degree facets."""
+    base = lip - transition
+    profile = ([(base - 30, 0.)] + [(base + transition * math.sin(math.radians(a)), transition * (1 - math.cos(math.radians(a))))
+                                   for a in range(0, 91, 2)] + [(lip, transition + vert), (lip + 35, transition + vert)])
+    point = lambda r, y, a: [r * math.cos(a), y, r * math.sin(a)]
+    triangles = []
+    for i in range(int((end - start) / step)):
+        a0, a1 = math.radians(start + i * step), math.radians(start + (i + 1) * step)
+        for (r0, y0), (r1, y1) in zip(profile, profile[1:]):
+            q00, q01, q10, q11 = point(r0, y0, a0), point(r0, y0, a1), point(r1, y1, a0), point(r1, y1, a1)
+            triangles += [[q00, q11, q10], [q00, q01, q11]]
+    return triangles
+
+
+RECOVER = 30  # frames (0.5 s) a landing must ride on afterwards without a wipeout
+
+
+def wall_height(radius, lip=LIP, transition=12.):
+    """The height of bowl_wall's transition `radius` m from the centre, or None off it (the floor, or behind the lip)."""
+    base = lip - transition
+    if not base < radius <= lip:
+        return None
+    return transition * (1 - math.sqrt(max(0., 1 - ((radius - base) / transition) ** 2)))
+
+
+def landing(rows, deck):
+    """The first air after riding the wall: its time, and where the board comes down (deck(row) its position; distance
+    from the bowl's centre, height, and the wall's transition height there) on the first frame out of the air. An air
+    that never leaves the air within the ride is not landed, and reports its last frame."""
+    start = next((i for i, r in enumerate(rows) if 'Air' in r['state']), None)
+    if start is None:
+        return {'landed': False, 'air_s': 0, 'radius_m': 0, 'height_m': 0, 'states': sorted({r['state'] for r in rows})}
+    end = next((i for i in range(start, len(rows)) if 'Air' not in rows[i]['state']), None)
+    landed = end is not None
+    end = len(rows) - 1 if end is None else end
+    p = deck(rows[end])
+    after = rows[end:end + RECOVER]
+    return {'landed': landed, 'air_s': (end - start) / 60, 'radius_m': math.hypot(p[0], p[2]), 'height_m': p[1],
+            'wall_height_m': wall_height(math.hypot(p[0], p[2])), 'state_after': rows[end]['state'],
+            'launch_speed_along_mps': speed(rows[start]),
+            'recovered': landed and len(after) == RECOVER and all('Ground' in r['state'] and 'Wipeout' not in r['state'] for r in after),
+            'bailed': any('Wipeout' in r['state'] for r in rows[start:end + RECOVER])}
+
+
+def on_wall(land):
+    """A landing back on the wall: out of the air onto riding ground, on the transition (not the floor, not behind the
+    lip, the board within 1 m of the wall's surface there) and riding on for RECOVER frames without a wipeout."""
+    surface = land.get('wall_height_m')
+    return bool(land['landed'] and land['recovered'] and not land['bailed'] and land['air_s'] > 1
+                and 'Ground' in land['state_after'] and 'Wipeout' not in land['state_after']
+                and surface is not None and land['height_m'] > 1 and abs(land['height_m'] - surface) < 1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--simulation-package', type=Path, default=SIMULATION_PACKAGE)
@@ -342,7 +402,8 @@ def main():
                                'rail_magnetism', 'grind_pop', 'grind_friction', 'braking', 'steering', 'carve', 'grip',
                                'powerslide', 'rolling_friction', 'hill_speed', 'pump', 'wobble', 'wobble_onset',
                                'manual_drift', 'landing', 'impact', 'powerslide_turn', 'grind_tolerance', 'camera_follow')}
-        ones.update(auto_push=-1, assisted_air=-1, tight_flicks=0, flick_120hz=0, drift_powerslide=0, drift_grip=.3, drift_full_grip=.6)
+        ones.update(auto_push=-1, assisted_air=-1, tight_flicks=0, flick_120hz=0, drift_powerslide=0, drift_grip=.3, drift_full_grip=.6,
+                    wall_follow=0)
         rides = [flat.ride(330, flick(18, 2), feel, velocity=(0, 0, 5)) for feel in (None, ones)]
         same = all(a['root'] == b['root'] and a['bones'] == b['bones'] and a['velocity'] == b['velocity'] for a, b in zip(*rides))
         check('defaults_exact', same, 'stock feel spelled out matches no feel over 330 frames, bit for bit')
@@ -543,6 +604,40 @@ def main():
         report['boost_flat'] = {'boost_mps': flat_zone['boost']}
         check('boost_flat_none', all(x['root'] == y['root'] and x['velocity'] == y['velocity']
                                      for x, y in zip(flat_plain['rows'], flat_zone['rows'])) and flat_zone['boost'] == 0, report['boost_flat'])
+    finally:
+        session.close()
+
+    # Wall follow: a bowl's outer wall swept round a 95 m lip in 1 degree facets (a 12 m transition, 2 m of vert, a deck
+    # behind), ridden into from the floor at 38 and 40 m/s along it with no input: about 28 and 30 m/s along the lip and
+    # 3 s of air. Stock flies on along the tangent and lands behind the lip, or off the deck; with wall_follow 1 the air
+    # turns round the bowl and comes back down onto the wall. A zero-assist zone, or no vert assist, rides
+    # wall_follow 1 exactly as 0, bit for bit.
+    # The landing check itself first, on made-up frames: an air still flying at the end of the ride (30 frames riding,
+    # then 390 in the air 95 m out and 50 m up) or one landing on the floor is not a landing on the wall.
+    frame = lambda state, p: {'state': state, 'p': p, 'velocity': [0, 0, 30]}
+    still_flying = [frame('PhysicsGround', [LIP, 50, 0])] * 30 + [frame('PhysicsAir', [LIP, 50, 0])] * 390
+    on_floor = [frame('PhysicsGround', [LIP, 0, 0])] * 30 + [frame('PhysicsAir', [LIP, 20, 0])] * 120 + [frame('PhysicsGround', [80, .1, 0])] * 60
+    on_transition = [frame('PhysicsGround', [LIP, 0, 0])] * 30 + [frame('PhysicsAir', [LIP, 20, 0])] * 120 + [frame('PhysicsGround', [94.3, 8.2, 0])] * 60
+    synthetic = {name: on_wall(landing(rows, lambda r: r['p'])) for name, rows in
+                 (('still_flying', still_flying), ('on_floor', on_floor), ('on_transition', on_transition))}
+    check('wall_follow_landing_check', synthetic == {'still_flying': False, 'on_floor': False, 'on_transition': True}, synthetic)
+
+    triangles = bowl_wall(LIP)
+    spawn = [LIP - 12.5, 0, 0]
+    session = Session(args.binary, args.simulation_package, {'triangles': triangles, 'rails': [], 'spawn': spawn, 'heading': 0}, 'bowl')
+    try:
+        still = lambda frame: (0, [0, 0], [0, 0])
+        ride = lambda wall, speed, limit=None, assist=1: session.ride(420, still, {'wall_follow': wall}, velocity=(0, 0, speed),
+                                                                     spawn=spawn, tune={'vert_assist': assist}, limit=limit)
+        same = lambda a, b: all(x['root'] == y['root'] and x['bones'] == y['bones'] and x['velocity'] == y['velocity'] for x, y in zip(a, b))
+        deck = lambda r: [sum(r['bones'][session.deck][12 + k] * r['root'][k * 4 + j] for k in range(4)) for j in range(3)]
+        walls = {str(v): {'stock': landing(ride(0, v), deck), 'followed': landing(ride(1, v), deck)} for v in (38, 40)}
+        exact = {'zero_assist_zone': same(ride(1, 40, 0), ride(0, 40, 0)), 'no_assist': same(ride(1, 40, None, 0), ride(0, 40, None, 0))}
+        report['wall_follow'] = {**walls, 'exact': exact}
+        check('wall_follow_stock_lands_behind', all(w['stock']['air_s'] > 1 and w['stock']['radius_m'] > LIP + 3
+                                                    and not on_wall(w['stock']) for w in walls.values()), walls)
+        check('wall_follow_lands_on_wall', all(on_wall(w['followed']) for w in walls.values()), walls)
+        check('wall_follow_zero_assist_exact', all(exact.values()), exact)
     finally:
         session.close()
 

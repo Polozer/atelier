@@ -291,10 +291,15 @@ still verifiably live. This deliberately permits historical discovery gaps under
 The monitor now refreshes its terminal sample after draining helpers. For a preserved older pre-drain sample,
 every listed tail must have its exact retained affirmative exit, must no longer be live, and must contribute
 to the receipt's exact nonnegative footprint sum within its unchanged ceiling. The root cannot appear in that
-tail. A partial exit set, reused identity, duplicate, inconsistent sum, stop reason or live survivor still refuses
-release. Recovery does not rewrite the original monitor receipt or invent historical exits.
+tail. A partial exit set, reused identity, duplicate, inconsistent sum or live survivor still refuses
+that release. Recovery does not rewrite the original monitor receipt or invent historical exits.
 The witness is `guarded-tree-exit`, covering the **monitored owned tree**; it does not manufacture individual
 kernel exit evidence or claim universal descendant discovery. It releases capacity only, never certifies outputs.
+The same exclusive policy also releases a guard-stopped job after a `memory_limit` or `test_duration` receipt
+with explicit `cleanup_processes: []`, zero `cleanup_footprint_bytes` and completed cleanup. The positively
+exited root, original report binding, limit, time and no-live-retained-identity checks still apply. The offending
+sample and failure remain intact. This distinct `guarded-tree-stop` witness releases resources only: it cannot
+produce `finish_required`, a successful terminal response or a build certificate.
 `atelier capacity reconcile ABSOLUTE_SOCKET` applies the same two policies. Without either witness, uncertainty
 remains charged. Same-boot recovery rearms live registered identities and permits
 the original controller's fenced session to report exit only. A verified OS boot change proves prior local jobs
@@ -398,6 +403,11 @@ Schema 1 bridge configuration remains usable without a reboot and retains exclus
 uses broker configuration `schema: 2`, `mode: "capacity"`, and one additional `cutover` field pointing to the
 machine's default `~/.cache/atelier/capacity/cutover.json`. Its remaining fields match the bridge configuration.
 The client uses `schema: 2` and the same additional `cutover` field alongside `socket` and `profiles`.
+For `atelier play` and `atelier playtest`, an explicit `--memory-gib N` within the documented 10–14 GiB
+range raises only that session's memory reservation to at least the selected guard ceiling. The game
+profile must already cover the default 10 GiB ceiling. The default guard and profile, other resources,
+exclusion, named locks and host reserve remain unchanged; the broker still checks whether the request fits.
+This does not resize job/compile profiles, explicit admission sessions, bridge or sealed-maintenance clients.
 Budgets, disk pool, endpoint and the exact broker configuration hash are bound into the cutover record.
 Changing them requires a separately reviewed transition; neither service recovery nor clients rewrite that proof.
 

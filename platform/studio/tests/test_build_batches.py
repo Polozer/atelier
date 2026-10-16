@@ -87,6 +87,30 @@ def test_one_warm_process_keeps_individual_results_and_skips_current_actions(pro
         assert ((p.ctx.stamps / (step.name + '.json')).read_bytes() == before[step.name]) == (step.name != 'action3')
 
 
+def test_requested_touched_repair_is_not_skipped_for_a_later_stale_batch(project, monkeypatch):
+    p = project
+    p.steps[:] = p.steps[:3]
+    assert p.run() == 0
+    first = p.ctx.stamps / 'action1.json'
+    record = json.loads(first.read_text()); record['touched'] = True
+    first.write_text(json.dumps(record))
+    (p.ctx.stamps / 'action2.json').unlink()
+    untouched = (p.ctx.stamps / 'action3.json').read_bytes()
+    batch_launch = build.run_command
+    standalone = []
+    def launch(ctx, step, command, log, request=None, slots=None, **kwargs):
+        if command.script == build_batches.WORKER:
+            return batch_launch(ctx, step, command, log, request, slots)
+        standalone.append(step.name)
+        subprocess.run([sys.executable, str(command.script), *command.args], check=True)
+    monkeypatch.setattr(build, 'run_command', launch)
+    assert p.run(wanted=[s.name for s in p.steps], rebuild_touched=True) == 0
+    assert standalone == ['action1']
+    assert not json.loads(first.read_text()).get('touched')
+    assert json.loads((p.ctx.stamps / 'action2.json').read_text())['batch']
+    assert (p.ctx.stamps / 'action3.json').read_bytes() == untouched
+
+
 def test_batch_phase_ids_are_per_action_and_previous_inventory_survives_invalidation(project):
     p = project
     p.steps[:] = p.steps[:2]

@@ -123,7 +123,9 @@ def props_build(tmp_path, monkeypatch):
     folder = out / 'hidamari/props'
     source = tmp_path / 'props.py'
     state = {'revision': 0, 'run': 0, 'review': b'first review',
-             'manifest': {f'HD_P_{name}': {'gain': .07, 'boxes': 1} for name in ('first', 'middle', 'last')},
+             'manifest': {**{f'HD_P_{name}': {'gain': .07, 'boxes': 1} for name in ('first', 'middle', 'last')},
+                          # a caldera conifer: its distance LODs are exports of their own (props.py lods)
+                          'Tree_Caldera_Pine': {'gain': .07, 'boxes': 0, 'lods': [[900, 1.], [270, .25], [30, .04]]}},
              'vertices': {}, 'png': {}}
     imported, messages = [], []
     ctx = SimpleNamespace(game='yorimichi', out=out, logs=out / 'logs', stamps=out / 'stamps', uproject=None)
@@ -136,6 +138,10 @@ def props_build(tmp_path, monkeypatch):
             (folder / f'{name}.fbx').write_bytes(fbx(2025 + state['run'], (state['run'] * 100 + i, 20 + i),
                                                   state['vertices'].get(name, [0., 1., 2.])))
             (folder / f'{name}.png').write_bytes(state['png'].get(name, b'prop texture ' + name.encode()))
+            for n in range(1, len(state['manifest'][name].get('lods', ()))):
+                lod = f'{name}_LOD{n}'
+                (folder / f'{lod}.fbx').write_bytes(fbx(2025 + state['run'], (state['run'] * 100 + i, 40 + n),
+                                                     state['vertices'].get(lod, [0., 1., 2.])))
         (folder / 'review.png').write_bytes(state['review'])
 
     recipe = {s.name: s for s in RECIPE.steps(ctx)}
@@ -166,7 +172,7 @@ def test_identical_hidamari_prop_exports_leave_world_current_after_producer_edit
     assert digest.read_bytes() == before  # the FBX time and object IDs changed, its geometry did not
 
 
-@pytest.mark.parametrize('changed', ['geometry', 'png', 'metadata', 'receipt', 'add', 'remove'])
+@pytest.mark.parametrize('changed', ['geometry', 'png', 'metadata', 'receipt', 'add', 'remove', 'lod'])
 def test_every_consumed_hidamari_prop_export_invalidates_world(props_build, changed):
     state, imported, run, _, _ = props_build
     # Change the last entry: an inventory of a representative first prop would miss this.
@@ -179,6 +185,8 @@ def test_every_consumed_hidamari_prop_export_invalidates_world(props_build, chan
         state['manifest'][name]['gain'] = .12
     elif changed == 'receipt':
         state['manifest'][name]['source_sha256'] = 'changed manifest receipt'
+    elif changed == 'lod':
+        state['vertices']['Tree_Caldera_Pine_LOD2'] = [0., 1., 3.]
     elif changed == 'add':
         state['manifest']['HD_P_added'] = {'gain': .09, 'boxes': 2}
     else:
@@ -192,7 +200,7 @@ def test_hidamari_prop_review_images_do_not_invalidate_world(props_build):
     assert run() == 0 and imported == []
 
 
-@pytest.mark.parametrize('missing', ['props.json', 'HD_P_last.fbx', 'HD_P_last.png'])
+@pytest.mark.parametrize('missing', ['props.json', 'HD_P_last.fbx', 'HD_P_last.png', 'Tree_Caldera_Pine_LOD2.fbx'])
 def test_missing_hidamari_prop_export_fails_even_after_successful_cutoff(props_build, missing):
     _, imported, run, out, messages = props_build
     (out / 'hidamari/props' / missing).unlink()

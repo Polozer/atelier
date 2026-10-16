@@ -56,6 +56,10 @@ _foliage_spec.loader.exec_module(foliage_build)
 _v4_spec = importlib.util.spec_from_file_location('craterpark_v4_config', REGIONS / 'craterpark' / 'v2' / 'v4_config.py')
 craterpark_v4 = importlib.util.module_from_spec(_v4_spec)
 _v4_spec.loader.exec_module(craterpark_v4)
+# The caldera's conifers (craterpark/v2/trees.py): world.hidamari_props fits their committed models.
+_trees_spec = importlib.util.spec_from_file_location('craterpark_caldera_trees', REGIONS / 'craterpark' / 'v2' / 'trees.py')
+caldera_trees = importlib.util.module_from_spec(_trees_spec)
+_trees_spec.loader.exec_module(caldera_trees)
 CRATERPARK = (REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark' / 'scene.json', ASSETS / 'craterpark' / 'geometry',
               REGIONS / 'craterpark' / 'v2' / 'v4_config.py',
               *(craterpark_v4.input_paths() if not craterpark_v4.selected() else ()))
@@ -294,6 +298,7 @@ def engine_version(ctx):
 
 
 def cook_step(ctx, steps):
+    from atelier.build_cook_recovery import CookRecovery
     out = ctx.out
     engine_inputs = engine_version(ctx)
     return Step('unreal.cook',
@@ -302,6 +307,7 @@ def cook_step(ctx, steps):
                 inputs=[SOURCE, ctx.uproject, paths.ENGINE_PLUGINS, GAME / 'unreal' / 'Config', TOOLS / 'package_cook.py', *engine_inputs],
                 needs=[s.name for s in steps if s.name.startswith('unreal.')] + ['data.stage', 'data.network'], heavy=True, explicit=True,
                 outputs=[out / 'package' / 'cook.json'], verify=lambda: package_cook.cook_present(out / 'package'),
+                cook_recovery=CookRecovery(package_cook.source_snapshot, package_cook.finish, package_cook.recovery_inputs),
                 about='cook the macOS app once and certify its source and immutable archived files')
 
 
@@ -615,8 +621,11 @@ def world_steps(ctx):
              about='Hidamari city surfaces: seamless detail maps from the Sunburst paintings'),
         Step('world.hidamari_props', [Blender(REGIONS / 'hidamari' / 'props.py', threads=4)],
              inputs=[REGIONS / 'hidamari' / 'props.py', TREEHOUSE / 'props.py', TOOLS / 'hidamari_props.py',
-                     ASSETS / 'hidamari' / 'props'],
-             outputs=[out / 'hidamari' / 'props' / 'props.json'], about='the Hidamari Tripo street props fitted to their sizes', heavy=True),
+                     ASSETS / 'hidamari' / 'props', REGIONS / 'craterpark' / '__init__.py', REGIONS / 'craterpark' / 'v2' / '__init__.py',
+                     REGIONS / 'craterpark' / 'v2' / 'trees.py',
+                     *map(caldera_trees.source, caldera_trees.TREES)],
+             outputs=[out / 'hidamari' / 'props' / 'props.json'],
+             about="the Hidamari Tripo street props and the caldera's conifers fitted to their sizes, the conifers' LODs", heavy=True),
         hidamari_props_import_step(out),
         Step('world.treehouse_textures', [Python(TOOLS / 'treehouse_textures.py', ('finish',))],
              inputs=[TOOLS / 'treehouse_textures.py', ASSETS / 'treehouse' / 'textures'],

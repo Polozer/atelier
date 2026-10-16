@@ -84,6 +84,20 @@ slopes) lie in clusters over the floor, and about 70 low crags 15-30 m across si
 the zeppelin the floor reads as dark rock among the snow. No tree or stone stands within 7 m of the park's block. The
 caldera is a `near_trees` box, so its trees cast shadows and keep trunk collision.
 
+With the owner's editor park (the shipped one), the editor's site covers the whole caldera, so `dress_caldera`'s
+groves place nothing there: the crater floor round the pieces is dressed by
+[`v2/editor_floor.py`](../world/regions/craterpark/v2/editor_floor.py) (crags, snow, moss, shrubs, stones, grass and
+clusters of conifers near the wall). Its conifers are the owner's mixed grove (concept D): four Tripo models
+([`v2/trees.py`](../world/regions/craterpark/v2/trees.py), sources in `assets/craterpark/trees/`), twisted Japanese
+black pines with cloud-pad crowns (8 m) and tiered sugi cedars (12 m), scaled 0.85-1.25, each cluster mostly of one
+family. `world.hidamari_props` fits them like the city's Tripo props (upright to their height, stood on their trunk's
+base, one textured material, no collision) and makes three distance LODs: welded and decimated to a third from about
+30-45 m, then remeshed into closed shells (the cedars' thin tiers keep their mass) of a tenth from 80-115 m and about
+300 triangles from 200-290 m. A shell's trunk is decimated apart from its crown, so the far LODs still stand on their
+root. The floor keeps each tree's crown and height clear of the riding, its trunk sunk on slopes, and plants them in
+park.json `trees`; the park spawns them as instanced groups with shadows and the camera fade, and no collision, like
+the cones they replace.
+
 The volcano's own snow (`hidamari/mountains.py` `snow_cover`) leaves about a third of the caldera floor white, the
 rest dark cinder. Broad couloirs, tens of metres wide, run down the inner wall from just under the crest to its foot,
 between rock ribs, each narrowing upward to a point at its own height, breaking on the steepest cliff risers, so a

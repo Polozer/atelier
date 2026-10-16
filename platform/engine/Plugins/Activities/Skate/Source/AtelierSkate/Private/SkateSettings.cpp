@@ -13,6 +13,7 @@ FSkateFeel FSkateFeel::Defaults()
     F.Flick120Hz = int8(S->bFlick120Hz ? 1 : 0);
     F.DriftPowerslide = int8(S->bDriftPowerslide ? 1 : 0); F.PowerslideTurn = S->PowerslideTurn;
     F.DriftGrip = S->DriftGrip; F.DriftFullGrip = S->DriftFullGrip; F.GrindTolerance = S->GrindTolerance; F.CameraFollow = S->CameraFollow;
+    F.WallFollow = S->WallFollow;
     return F;
 }
 
@@ -29,6 +30,7 @@ bool FSkateFeel::Validate(FString& Error) const
         {TEXT("Gravity"), Gravity, .5f, 1.5f}, {TEXT("Boneless"), Boneless, .5f, 3}, {TEXT("Hippy"), Hippy, .5f, 3},
         {TEXT("RailMagnetism"), RailMagnetism, .25f, 3}, {TEXT("GrindPop"), GrindPop, .5f, 2}, {TEXT("GrindFriction"), GrindFriction, 0, 3},
         {TEXT("GrindTolerance"), GrindTolerance, .5f, 3}, {TEXT("CameraFollow"), CameraFollow, 1, 3},
+        {TEXT("WallFollow"), WallFollow, 0, 1},
         {TEXT("Braking"), Braking, .25f, 3}, {TEXT("Steering"), Steering, .5f, 2}, {TEXT("Carve"), Carve, .5f, 2}, {TEXT("Grip"), Grip, .5f, 2},
         {TEXT("Powerslide"), Powerslide, .25f, 3}, {TEXT("PowerslideTurn"), PowerslideTurn, .25f, 1.5f},
         {TEXT("DriftGrip"), DriftGrip, 0, 1.5f}, {TEXT("DriftFullGrip"), DriftFullGrip, 0, 1.5f},

@@ -1,6 +1,6 @@
 """The crater floor round the owner's editor park, after the approved Sunburst concept
 (assets/craterpark/concepts/editor/crater-floor.jpg): broad fields of snow over cool grey volcanic ground, mats of
-yellow-green and olive moss, jagged grey crags and slabs gathered toward the crater's wall, clusters of small conifers,
+yellow-green and olive moss, jagged grey crags and slabs gathered toward the crater's wall, clusters of conifers,
 yellow and orange autumn shrubs, angular rocks, stones and dry grass.
 
 Everything stands on the ground the game draws (Site): the volcano's natural ground blended into the editor's cut
@@ -13,14 +13,16 @@ The riding stays clear: nothing within CLEAR of a piece's plan (BOWL_CLEAR round
 viaduct's battered foot), nothing taller than LOW within END_REACH of a piece's end, and nothing at all in the run-out
 past an end that meets the ground. No snow lies on anything ridden: the fields are on the volcano's ground only.
 
-The rocks and crags are solid (side faces, with collision); the snow, moss, grass, shrubs and conifers are drawn only
-(the coping role: rendered, no collision), so a rider crossing the floor is never tripped by a mat's edge.
+The rocks and crags are solid (side faces, with collision); the snow, moss, grass and shrubs are drawn only (the coping
+role: rendered, no collision), so a rider crossing the floor is never tripped by a mat's edge. The conifers are not in
+the mesh: they are the caldera's Tripo black pines and sugi cedars (trees.py, the owner's mixed grove), planted as
+instances in park.json `trees` (build's summary `trees`), which the park spawns with no collision.
 """
 import math
 
 import numpy as np
 
-from . import dsl
+from . import dsl, trees as caldera
 from .editor_supports import Builder, Ground, _outer_half
 
 ROCK = 'material_027'         # the volcano's restyled rock (as the viaducts' boulders)
@@ -29,7 +31,6 @@ GRASS = 'material_035'        # dry golden grass, two-sided blades
 MOSS = 'material_036'         # yellow-green moss and low bushes
 SHRUB = 'material_037'        # autumn orange shrubs
 OLIVE = 'material_042'        # olive moss mats
-CONIFER = 'material_043'      # dark green conifers
 GOLD = 'material_044'         # golden-yellow autumn shrubs
 SOLID = {ROCK}                # materials with collision; the rest are drawn only (the crags and rocks are ROCK too:
                               # the basalt painting's columns read as flutes on a crag)
@@ -56,6 +57,10 @@ SLOPE_CRAG = 45.      # degrees: crags stand on the wall's foot too
 SNOW_CELL, MOSS_CELL = 3., 2.   # metres between the fields' samples
 SITE_STEP = 5.        # the volcano's mesh spacing (hidamari/mountains.py STEP)
 BAKE_TILE = 48.       # metres: the dressing's occlusion is baked in plan tiles, each grid this and ao.AO_REACH round it
+TREE_SINK = .17       # metres a conifer's base is sunk into the ground per unit of its scale (over trees.FLOAT, so a
+                      # LOD standing that far off its base is still under the ground at every scale)...
+TREE_FOOT = .8        # ...and more on a slope, by the drop across this much of its root flare per unit of scale
+TREE_GAP = .5         # two conifers' trunks stand at least this share of their crowns' radii apart
 
 
 # ---------------------------------------------------------------- deterministic noise
@@ -535,33 +540,14 @@ def _splat(field, xs, zs, x, z, reach, value):
     field[j0:j1, i0:i1] = np.maximum(field[j0:j1, i0:i1], value(dx, dz))
 
 
-def _conifer(b, site, x, z, h, seed):
-    """A small stylised conifer h tall: a short trunk and three stacked cones, dark green. Returns its triangles."""
-    n = 7
-    g = float(site.ground(x, z)) - .2
-    th = (np.arange(n) + _r(seed, 1)) * 2 * np.pi / n
-    T = []
-    r0 = h * (.3 + .06 * _r(seed, 2))
-    trunk = .06 * h
-    for t in range(n):                                   # the trunk, up into the lowest cone
-        a, c = th[t], th[(t + 1) % n]
-        p = [np.array([x + trunk * math.cos(q), y, z + trunk * math.sin(q)]) for q in (a, c) for y in (g, g + .3 * h)]
-        T += [(p[0], p[2], p[3]), (p[0], p[3], p[1])]
-    for k in range(3):
-        r = r0 * (1 - .27 * k)
-        y0 = g + h * (.2 + .24 * k)
-        apex = np.array([x, g + h * (.55 + .225 * k) if k < 2 else g + h, z])
-        ring = [np.array([x + r * math.cos(q), y0 + .04 * h * (_r(seed, 10 * k + t) - .5), z + r * math.sin(q)])
-                for t, q in enumerate(th)]
-        hub = np.array([x, y0 + .06 * h, z])
-        for t in range(n):
-            T += [(ring[t], ring[(t + 1) % n], apex), (ring[(t + 1) % n], ring[t], hub)]
-    T = np.array(T)
-    nrm = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
-    centre = np.array([x, g + .5 * h, z])
-    flip = (nrm * (T.mean(1) - centre)).sum(1) < 0
-    T[flip] = T[flip][:, [0, 2, 1]]
-    return _add_flat(b, CONIFER, T)
+def _planting(site, x, z, yaw, scale):
+    """A conifer's park.json `trees` entry, [x, y, z, yaw, scale] in park-local Unreal cm (ue(native) = 100 (x, z, y),
+    as dressing.plant): its base TREE_SINK times its scale into the ground, and deeper on a slope so its root flare's
+    downhill side does not float."""
+    x_, z_ = np.array([x]), np.array([z])
+    drop = math.tan(math.radians(float(site.slope(x_, z_)[0]))) * TREE_FOOT * scale
+    y = float(site.ground(x_, z_)[0]) - TREE_SINK * scale - drop
+    return [round(100 * x, 1), round(100 * z, 1), round(100 * y, 1), round(yaw, 1), round(scale, 3)]
 
 
 def _tuft(b, site, x, z, h, seed):
@@ -614,7 +600,8 @@ def _smooth(t):
 
 
 def build(pieces, heights, grid, site=None, bake=True):
-    """The crater floor's dressing round the kept editor pieces (bridge Pieces), as dsl Mesh parts, and a summary.
+    """The crater floor's dressing round the kept editor pieces (bridge Pieces), as dsl Mesh parts, and a summary whose
+    `trees` are the conifers' park.json `trees` ({mesh: [[x, y, z cm, yaw, scale], ...]}, _planting).
     `site` is the ground to stand on (Site.volcano in the build; the cut ground alone, Site.flat, by default); `bake`
     bakes the parts' own occlusion (bake_tiles).
 
@@ -773,14 +760,26 @@ def build(pieces, heights, grid, site=None, bake=True):
     for cx, cz, k in zip(x[on], z[on], key[on]):
         bushes(cx, cz, 5 + int(_r(k, 1) * 6), 4., int(k))
 
-    # conifers: clusters near the wall (up its foot and just inside), a few round the crags
+    # conifers: clusters near the wall (up its foot and just inside), a few round the crags. Each cluster is mostly
+    # black pines or mostly sugi cedars (trees.py), each tree kept clear of the riding by its own crown and height and
+    # clear of the trees already planted by TREE_GAP of their crowns.
+    planted, stems = {}, []
+
     def conifers(cx, cz, n, spread, k):
+        pines = _r(k, 2) < caldera.PINE_SHARE
         for m in range(n):
             a, d = 2 * np.pi * _r(k, 10 + m), (0. if m == 0 else 2.5 + spread * _r(k, 20 + m))
             tx, tz = cx + d * math.cos(a), cz + d * math.sin(a)
-            h = 4. + 5. * _r(k, 30 + m) ** 1.2
-            if one(tx, tz, .4 * h, SLOPE_ROCK, h):
-                _conifer(b, site, tx, tz, h, int(k) * 17 + m)
+            names = caldera.family('pine' if pines != (_r(k, 40 + m) < caldera.MIXED) else 'cedar')
+            name = names[min(int(_r(k, 50 + m) * len(names)), len(names) - 1)]
+            _, _, height, crown = caldera.TREES[name]
+            scale = caldera.SCALE[0] + (caldera.SCALE[1] - caldera.SCALE[0]) * _r(k, 30 + m)
+            reach = crown * scale
+            if any(math.hypot(tx - px, tz - pz) < TREE_GAP * (reach + pr) for px, pz, pr in stems):
+                continue
+            if one(tx, tz, reach, SLOPE_ROCK, height * scale):
+                planted.setdefault(name, []).append(_planting(site, tx, tz, 360. * _r(k, 60 + m), scale))
+                stems.append((tx, tz, reach))
                 count['conifers'] += 1
 
     x, z, key = _jitter(bounds, 28., 71)
@@ -830,7 +829,7 @@ def build(pieces, heights, grid, site=None, bake=True):
             mesh.role[:] = dsl.ROLE[dsl.COPING]          # drawn only, no collision
         tris[material] = int(len(mesh.F))
         parts.append(mesh)
-    summary = dict(count, triangles=sum(tris.values()), by_material=tris)
+    summary = dict(count, triangles=sum(tris.values()), by_material=tris, trees=planted)
     if bake and parts:
         bake_tiles(parts)
     return parts, summary

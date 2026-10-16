@@ -81,6 +81,8 @@ void Live::Footplant(const KnownAirState& state,const KnownAirFrame& frame)
     auto t=selection.com_trajectory;const auto time=static_cast<float>(state.trajectory_index_216)*Bits(0x3c888889);
     // Both source updates sample the unshifted trajectory before writing it.
     const auto position=AirTrajectoryPositionAt(t,time),velocity=AirTrajectoryVelocityAt(t,time);t.position=position;t.velocity=velocity;
+    // Rebased to now, a wall-follow arc has only the rest of its turn left (WallFollow.h).
+    if (t.wall_curvature!=0) t.wall_follow_time=VectorMax(t.wall_follow_time-time,0);
     const KnownAirFootplantInput input{t,state.collision_time_196-state.time_in_state_180,state.collision_position_112,state.landing_normal_64};
     const FootplantPredictionFrame f{owners.processed,toolkit,owners.animated,owners.physical,owners.grind_world.Primitives()};
     owners.footplant.UpdateCandidate(input,f);owners.footplant.UpdateLaunch(input);std::string error;

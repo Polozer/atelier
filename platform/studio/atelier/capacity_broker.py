@@ -380,8 +380,10 @@ class CapacityBroker:
         """@cc [owner:fontanierh,label:safety] exclusive-terminal-tree-release
         Only bridge or sealed-mode performance-exclusive grants MAY use this policy. The root MUST
         have affirmative exit evidence and its previously bound aggregate report MUST match
-        identity, ceiling and invocation time, with child_exited and completed cleanup.
-        Its processes/footprint MUST be empty/zero, or an older pre-cleanup sample whose
+        identity, ceiling and invocation time, with completed cleanup. A normal child exit
+        MUST satisfy the normal terminal sample checks. A memory/duration stop MUST have
+        explicitly empty, zero post-drain cleanup and MUST NOT certify successful completion.
+        A normal exit's processes/footprint MUST be empty/zero, or an older pre-cleanup sample whose
         entire reported tail has retained positive exits and an exact footprint sum.
         Any verifiably live retained identity MUST refuse release. This
         witnesses monitored-owned-tree cleanup, never individual historical kernel exits.
@@ -391,7 +393,31 @@ class CapacityBroker:
             return None
         if record.get('child') not in record.get('exited', []):
             return None
-        return self._tree_end_observation(record, preserved=preserved)
+        return self._tree_end_observation(record, preserved=preserved, allow_stopped=True)
+
+    def _stopped_terminal_sample(self, record, receipt):
+        """Guard stops retain the offending sample separately from the observed cleanup."""
+        if (receipt.get('cleanup_processes') != []
+                or type(receipt.get('cleanup_footprint_bytes')) is not int
+                or receipt['cleanup_footprint_bytes'] != 0):
+            return False
+        samples, footprint, peak = receipt.get('processes'), receipt.get('footprint_bytes'), receipt.get('peak_bytes')
+        if (type(samples) is not list or len(samples) > wire.MAX_ROSTER
+                or type(footprint) is not int or footprint < 0
+                or type(peak) is not int or peak < footprint
+                or (receipt['state'] == 'memory_limit') != (footprint > record['limit_bytes'])):
+            return False
+        seen, total = set(), 0
+        for sample in samples:
+            if type(sample) is not dict:
+                return False
+            pin = wire.identity((sample.get('pid'), sample.get('started')))
+            amount = sample.get('footprint_bytes')
+            if pin in seen or type(amount) is not int or amount < 0:
+                return False
+            seen.add(pin)
+            total += amount
+        return total == footprint
 
     def _settled_terminal_sample(self, record, receipt, exited):
         """Older monitors published the pre-drain sample beside successful post-drain cleanup.
@@ -417,7 +443,7 @@ class CapacityBroker:
             total += amount
         return total == footprint
 
-    def _tree_end_observation(self, record, *, preserved=None, pending=False):
+    def _tree_end_observation(self, record, *, preserved=None, pending=False, allow_stopped=False):
         """A pending observation hints to wait; it is never an exit witness or release authority."""
         try:
             item = wire.fields(record.get('guards', {}).get('tree_guard'), ('pid', 'start', 'report'))
@@ -427,14 +453,18 @@ class CapacityBroker:
                        if preserved is None else preserved)
             observed, ready = receipt.get('time'), record.get('first_ready')
             exited = {tuple(pin) for pin in record.get('exited', [])}
+            stopped = receipt.get('state') in ('memory_limit', 'test_duration')
+            sample_valid = (self._stopped_terminal_sample(record, receipt) if stopped and allow_stopped and not pending
+                            else receipt.get('state') == 'child_exited'
+                            and self._settled_terminal_sample(record, receipt, exited))
             if (type(observed) not in (int, float) or not math.isfinite(observed)
                     or type(ready) not in (int, float) or not math.isfinite(ready)
                     or not 0 < ready <= observed <= time.time()
                     or wire.identity((receipt.get('owner'), receipt.get('owner_started'))) != tuple(record['child'])
                     or type(receipt.get('limit_bytes')) is not int or receipt['limit_bytes'] != record['limit_bytes']
-                    or receipt.get('state') != 'child_exited' or receipt.get('cleanup_complete') is not True
+                    or receipt.get('cleanup_complete') is not True
                     or receipt.get('termination_reason') is not None
-                    or not self._settled_terminal_sample(record, receipt, exited)
+                    or not sample_valid
                     or (pending and (time.time() - observed > 3
                                      or type(receipt.get('observed_monotonic')) not in (int, float)
                                      or not 0 <= self._clock() - receipt['observed_monotonic'] <= 3))
@@ -443,7 +473,7 @@ class CapacityBroker:
                 return None
         except (OSError, ValueError, KeyError, TypeError, wire.CapacityError):
             return None
-        return {'kind': 'guarded-tree-observation' if pending else 'guarded-tree-exit',
+        return {'kind': 'guarded-tree-stop' if stopped else 'guarded-tree-observation' if pending else 'guarded-tree-exit',
                 'coverage': 'monitored-owned-tree', 'observed_at': observed}
 
     def _check_completion(self, record, *, reconcile=False):

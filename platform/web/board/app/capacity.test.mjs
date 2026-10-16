@@ -58,15 +58,25 @@ test('every nonzero I/O accounting dimension remains visible', () => {
 
 test('uncertain recovery names the job and owner and waits for verified exits', () => {
   const html = render(snapshot({recovering: true, records: [job()], charged_count: 1}));
-  assert.match(html, /capacity-tag warning">Capacity recovery/);
-  assert.match(html, /waiting for verified process exits: City export \(builder\)/);
+  assert.match(html, /capacity-tag warning">Locked/);
+  assert.match(html, /Locked for cleanup: City export \(builder\)/);
+  assert.match(html, /capacity-tag warning">locked</);
+  assert.doesNotMatch(html, />uncertain<|Process ancestry is uncertain/);
 });
 
 test('compatibility recovery and truncated unknown recovery are distinct', () => {
   const html = render(snapshot({recovering: true}));
   assert.match(html, /broker compatibility is verified/);
   assert.doesNotMatch(html, /waiting for verified process exits/);
-  assert.match(render(snapshot({recovering: true, truncated: true})), /uncertain reservations outside this visible list/);
+  assert.match(render(snapshot({recovering: true, truncated: true})), /reservations outside this visible list/);
+});
+
+test('open admission still reports resources held by a running job', () => {
+  const html = render(snapshot({records: [job({state: 'running'})], charged_count: 1}));
+  assert.match(html, /capacity-tag">Open</);
+  assert.match(html, /1 reservations · 0 waiting/);
+  assert.match(html, /resources and locks are available/);
+  assert.match(html, /1.0 GiB reserved/);
 });
 
 test('bridge recovery remains a bridge until actual cutover', () => {
@@ -89,7 +99,7 @@ test('maintenance recovery retains visible owner and reservation evidence', () =
   const html = render(snapshot({mode: 'sealed-maintenance', cutover: false, recovering: true,
     records: [job()], charged_count: 1}));
   assert.match(html, /capacity-tag warning">Maintenance recovery/);
-  assert.match(html, /waiting for verified process exits: City export \(builder\)/);
+  assert.match(html, /Locked for cleanup: City export \(builder\)/);
   assert.doesNotMatch(html, />Capacity admission<|>Capacity bridge recovery</);
 });
 
@@ -104,6 +114,7 @@ test('stale, disconnected and missing observations never claim current admission
   for (const html of [render(snapshot({observed_at: 80})), render(snapshot(), {connected: false}), render(null)]) {
     assert.match(html, /capacity-tag warning">Capacity status unavailable/);
     assert.doesNotMatch(html, />Capacity admission</);
+    assert.doesNotMatch(html, /capacity-tag">Open</);
   }
   assert.match(render(snapshot({observed_at: 80})), /These figures are stale/);
   assert.match(render(null), /Capacity availability is unknown/);
