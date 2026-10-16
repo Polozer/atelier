@@ -125,11 +125,11 @@ void GameplaySession::ApplyBoost(float before)
     const bool sliding=state==PhysicalStateId::SlideGround;
     const auto& pumping=gameplay->ground.pumping;
     const float pump=ground && pumping.intentional_pumping && pumping.pump_acceleration>0?pumping.pump_acceleration:0;
-    const float scale=(ground||sliding)?boost.zone*gameplay->Feel().bowl_boost:0;
     const auto deck=gameplay->physical->board.PartTransforms()[std::size_t(BoardBodyId::Deck)];
     const float after=BoostSpeed();
-    const float gain=boost.zone>0?boost.Gain(scale>0?scale:0,deck.basis.columns[1][1],pump,sliding,before,after,Period()):0;
-    if(!(boost.zone>0))boost.inside=false;
+    // The zone holds the board (and its entry speed) through an air; only the gain needs the ground (BowlBoost::Tick).
+    const float gain=boost.Tick(boost.zone,gameplay->Feel().bowl_boost,ground||sliding,deck.basis.columns[1][1],pump,sliding,
+        before,after,Period());
     if(!(gain>0) || !(after>0.5f))return;
     // Along the travel, the same for every body (GameplayRuntime::Launch), so the board and rider keep their motion.
     const auto v=gameplay->physical->board.Bodies()[std::size_t(BoardBodyId::Deck)].rates.linear_velocity;

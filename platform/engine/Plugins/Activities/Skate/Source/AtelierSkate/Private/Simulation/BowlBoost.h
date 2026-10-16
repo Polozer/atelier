@@ -11,6 +11,9 @@ namespace atelier::skate
 // - a powerslide keeps up to SlideKeep m/s^2 of the speed the slide (and the climb) took, and gains SlideGain m/s^2.
 // Nothing raises the speed past the cap: the speed the board came into the zone with, times 1 + CapRise x the scale, or
 // CapFloor, whichever is more. All speeds m/s.
+// Being in a zone and being able to gain in it are separate: the entry speed is taken when the board comes into the zone
+// and held for as long as it stays in it, through its airs (no gain there) and the landings after them, so an air
+// landed back in the same zone keeps the cap it had rather than raising it to the landing's speed.
 struct BowlBoost
 {
     static constexpr float TransitionCos=0.978f;   // cos 12 degrees: the ground's up must lean further than this
@@ -19,18 +22,29 @@ struct BowlBoost
     float entry=0;         // the speed the board came into the zone with
     bool inside=false;
     float total=0;         // speed added since the host last read it (logging)
-    // The speed to add after a tick. scale: the zone's times the feel's; up_cos: the deck's up against world up; pump:
-    // the tick's intentional pump gain (0 when not pumping on the ground); before, after: the speed either side of it.
-    float Gain(float scale,float up_cos,float pump,bool sliding,float before,float after,float dt)
+    // The speed to add after a tick. in_zone: the board is in a boost zone (its scale over 0), whatever it is doing;
+    // scale: the gain's scale this tick, the zone's times the feel's, or 0 where it cannot gain (in the air); up_cos: the
+    // deck's up against world up; pump: the tick's intentional pump gain (0 when not pumping on the ground); before,
+    // after: the speed either side of it.
+    float Gain(bool in_zone,float scale,float up_cos,float pump,bool sliding,float before,float after,float dt)
     {
-        if(!(scale>0) || !std::isfinite(before) || !std::isfinite(after)){inside=false;return 0;}
+        if(!in_zone){inside=false;return 0;}
+        if(!std::isfinite(before) || !std::isfinite(after))return 0;
         if(!inside){inside=true;entry=before;}
-        if(!(up_cos<TransitionCos))return 0;
+        if(!(scale>0) || !(up_cos<TransitionCos))return 0;
         float gain=0;
         if(pump>0)gain+=pump*PumpExtra*scale;
         if(sliding)gain+=(std::min(std::max(before-after,0.0f),SlideKeep*dt)+SlideGain*dt)*scale;
         const float cap=std::max(entry*(1+CapRise*scale),CapFloor);
         return std::clamp(cap-after,0.0f,gain);
+    }
+    // The session's tick (GameplaySession::ApplyBoost): zone_scale is the host's zone scale (0 outside every zone), feel
+    // the feel's bowl_boost, grounded whether the board is on the ground or powersliding, the only states that gain. In
+    // the air the board stays in its zone; it only gains nothing.
+    float Tick(float zone_scale,float feel,bool grounded,float up_cos,float pump,bool sliding,float before,float after,float dt)
+    {
+        const float scale=grounded?zone_scale*feel:0;
+        return Gain(zone_scale>0,scale>0?scale:0,up_cos,pump,sliding,before,after,dt);
     }
 };
 }

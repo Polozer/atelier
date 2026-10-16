@@ -231,6 +231,8 @@ decks never boost:
 
 The gain goes along the travel, the same to every body, as `GameplayRuntime::Launch` does. It never raises the speed
 past the cap: the speed the board came into the zone with, times 1 + 0.35 x the scale, or 18 m/s, whichever is more.
+That entry speed is kept while the board stays in the zone, through its airs (which gain nothing), so an air landed
+back in the same zone keeps the cap it had (`BowlBoost::Tick`).
 The component logs `SKATE boost` for each half metre per second added. Outside every zone the scale is 0 and nothing
 changes, so sessions without zones (the CLI, parity traces) ride exactly as before.
 
