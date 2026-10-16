@@ -263,7 +263,9 @@ def snapshot(ctx, step, argv, environment):
         selection = None
         repeat_chmod_files = []
     # Actual adapter and guard implementation are part of the retained execution identity.
-    roots.extend([Path(__file__), Path(__file__).with_name('build.py'), Path(sys.executable).resolve()])
+    roots.extend([Path(__file__), Path(__file__).with_name('build.py'),
+                  Path(__file__).with_name('build_cook.py'), Path(__file__).with_name('build_zen.py'),
+                  Path(sys.executable).resolve()])
     from atelier.harness import safety
     roots.extend(sorted(Path(safety.__file__).parent.glob('*.py')))
     roots = list(dict.fromkeys(roots))

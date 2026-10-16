@@ -41,14 +41,15 @@ def context(tmp_path, monkeypatch):
                            logs=tmp_path / 'logs', env=lambda extra: dict(extra), out=tmp_path / 'out')
 
 
-def test_default_repr_and_fingerprint_match_preexisting_command():
+def test_default_repr_stays_stable_and_lifecycle_enters_package_identity():
     command = build.UnrealPackage('Fixture', Path('archive'))
     old = "UnrealPackage(target='Fixture', archive=PosixPath('archive'), config='Development', workers=3, marker='BUILD SUCCESSFUL', timeout=14400, watch=('UnrealEditor-Cmd', 'UnrealEditor', 'ShaderCompileWorker', 'dotnet'), progress=25.0)"
     assert repr(command) == old
     class OldCommand:
         def __repr__(self):
             return old
-    assert build.fingerprint(build.Step('cook', [command]), {}) == build.fingerprint(build.Step('cook', [OldCommand()]), {})
+    assert build.fingerprint(build.Step('cook', [command]), {}) != build.fingerprint(build.Step('cook', [OldCommand()]), {})
+    assert {p.name for p in command.runs()} == {'build_cook.py', 'build_zen.py'}
     identities = [build.fingerprint(build.Step('cook', [build.UnrealPackage('Fixture', Path('archive'), cook_mode=mode)]), {})
                   for mode in CookMode]
     assert len(set(identities)) == 3
