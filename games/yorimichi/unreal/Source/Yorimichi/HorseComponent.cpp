@@ -48,6 +48,9 @@ namespace HorseRide
         {TEXT("HorseMount"), TEXT("Idle"), TEXT("Getting on"), false},
         {TEXT("HorseDismount"), TEXT("Idle"), TEXT("Getting off"), false}};
     constexpr int32 RoleCount = int32(EHorseRole::Count);
+    const TCHAR* TurnClips[] = {TEXT("TurnLeft"), TEXT("TurnRight")};
+    constexpr int32 HorseClipCount = RoleCount + UE_ARRAY_COUNT(TurnClips);
+    constexpr float TurnDeadzone = .1f, PivotYawRate = 45.f, PivotDegreesPerCycle = 36.f;
     static_assert(UE_ARRAY_COUNT(Roles) == RoleCount, "one row per EHorseRole");
     // The shared game's checkpoint indexes the same order (JapanHorseState.cpp).
     static_assert(RoleCount == FJapanHorseState::RoleCount && int32(EHorseRole::Walk) == FJapanHorseState::IdleRoles &&
@@ -219,13 +222,14 @@ bool UHorseComponent::LoadRoster()
         }
         Breed.MeshYaw = float(Yaw);
         if (!(*Object)->TryGetStringField(TEXT("name"), Breed.Name)) Breed.Name = Breed.Slug;
-        Breed.Clips.SetNum(HorseRide::RoleCount);
+        Breed.Clips.SetNum(HorseRide::HorseClipCount);
         const TSharedPtr<FJsonObject>* BreedClips = nullptr;
         if ((*Object)->TryGetObjectField(TEXT("clips"), BreedClips))
-            for (int32 R = 0; R < HorseRide::RoleCount; ++R)
+            for (int32 R = 0; R < HorseRide::HorseClipCount; ++R)
             {
                 const TSharedPtr<FJsonObject>* Clip = nullptr;
-                if ((*BreedClips)->TryGetObjectField(HorseRide::Roles[R].Horse, Clip)) (*Clip)->TryGetStringField(TEXT("path"), Breed.Clips[R]);
+                const TCHAR* Name = R < HorseRide::RoleCount ? HorseRide::Roles[R].Horse : HorseRide::TurnClips[R - HorseRide::RoleCount];
+                if ((*BreedClips)->TryGetObjectField(Name, Clip)) (*Clip)->TryGetStringField(TEXT("path"), Breed.Clips[R]);
             }
         if (Breed.Clips[int32(EHorseRole::Idle)].IsEmpty()) Missing(FString::Printf(TEXT("breed %s has no Idle clip"), *Breed.Slug));
         auto ReadTack = [&](const TCHAR* Field, TMap<FString, FString>& Paths)
@@ -347,8 +351,8 @@ void UHorseComponent::ApplyCurrentBreedAndTack()
     HorseRoot->SetRelativeRotation(FRotator(0.f, Breed.MeshYaw - MeshRotation.Yaw, 0.f));
     HorseMesh->SetSkeletalMesh(LoadObject<USkeletalMesh>(nullptr, *Breed.Mesh));
     HorseMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
-    HorseClips.Init(nullptr, HorseRide::RoleCount);
-    for (int32 R = 0; R < HorseRide::RoleCount; ++R)
+    HorseClips.Init(nullptr, HorseRide::HorseClipCount);
+    for (int32 R = 0; R < HorseRide::HorseClipCount; ++R)
         if (!Breed.Clips[R].IsEmpty()) HorseClips[R] = LoadObject<UAnimSequence>(nullptr, *Breed.Clips[R]);
     // The import gives each slot an instance of a horse master with its own texture (and cutoff). The coat and the mane and
     // tail get a dynamic instance of it, so a look overrides only what it changes; eyes, hooves and tack stay as imported.
@@ -691,8 +695,9 @@ bool UHorseComponent::AdvanceSimulation(float Dt, const FHorseInput& In)
     // Coming to a halt (reined in, coasted down or stopped by a wall) ends the sprint, as the bike's coast does.
     if (SpeedBefore >= HorseRide::IdleSpeed && Speed < HorseRide::IdleSpeed) bSprint = false;
     // Nimble at a walk, a wide arc at the gallop; loose in the air.
-    Steering = StickX;
-    const float TurnRate = FMath::Lerp(135.f, 68.f, FMath::Clamp(Speed / HorseRide::SprintMaxSpeed, 0.f, 1.f)) * Steering * (bGround ? 1.f : .35f);
+    Steering = Speed < HorseRide::IdleSpeed && FMath::Abs(StickX) <= HorseRide::TurnDeadzone ? 0.f : StickX;
+    const float YawRate = IsTurningInPlace() ? HorseRide::PivotYawRate : FMath::Lerp(135.f, 68.f, FMath::Clamp(Speed / HorseRide::SprintMaxSpeed, 0.f, 1.f));
+    const float TurnRate = YawRate * Steering * (bGround ? 1.f : .35f);
     Rider->AddActorWorldRotation(FRotator(0.f, TurnRate * Dt, 0.f));
     FVector V = Rider->GetActorForwardVector() * Speed;
     V.Z = M->Velocity.Z;
@@ -702,7 +707,7 @@ bool UHorseComponent::AdvanceSimulation(float Dt, const FHorseInput& In)
 
     // Standing, now and then an idle variant plays out: chosen from the clip serial, not a random stream, so every machine
     // replaying this step picks the same one.
-    if (Speed < HorseRide::IdleSpeed)
+    if (Speed < HorseRide::IdleSpeed && !IsTurningInPlace())
     {
         if (ForcedIdle != EHorseRole::Idle)
         {
@@ -737,11 +742,19 @@ void UHorseComponent::Play(EHorseRole NewRole)
 
 EHorseRole UHorseComponent::SelectRole() const
 {
+    // A pivot uses the walk's unchanged saddle/rider motion and wire role; only the breed's leg clip differs.
+    if (IsTurningInPlace()) return EHorseRole::Walk;
     if (Speed < HorseRide::IdleSpeed) return ForcedIdle;
     if (Speed <= HorseRide::WalkMaxSpeed) return EHorseRole::Walk;
     if (Speed <= HorseRide::TrotMaxSpeed) return EHorseRole::Trot;
     if (Speed <= HorseRide::CanterMaxSpeed) return EHorseRole::Canter;
     return Speed <= HorseRide::GallopMaxSpeed || !bSprint ? EHorseRole::Gallop : EHorseRole::Sprint;
+}
+
+bool UHorseComponent::IsTurningInPlace() const
+{
+    return Phase == EPhase::Riding && Speed < HorseRide::IdleSpeed && FMath::Abs(Steering) > HorseRide::TurnDeadzone &&
+        Rider && Rider->GetCharacterMovement()->IsMovingOnGround();
 }
 
 bool UHorseComponent::Loops(EHorseRole Of) { return int32(Of) < HorseRide::RoleCount && HorseRide::RoleOf(Of).bLoop; }
@@ -770,7 +783,9 @@ void UHorseComponent::AdvanceGait(float Dt)
     float PlayRate = 1.f;
     switch (Role)
     {
-        case EHorseRole::Walk: PlayRate = Rate(10.f, HorseRide::WalkMaxSpeed, .82f, 1.22f); break;
+        // Angular travel drives a pivot's normalized phase, independent of imported rider clip trimming.
+        case EHorseRole::Walk: PlayRate = IsTurningInPlace() ? Length * HorseRide::PivotYawRate / HorseRide::PivotDegreesPerCycle * FMath::Abs(Steering)
+            : Rate(10.f, HorseRide::WalkMaxSpeed, .82f, 1.22f); break;
         case EHorseRole::Trot: PlayRate = Rate(HorseRide::WalkMaxSpeed, HorseRide::TrotMaxSpeed, .88f, 1.20f); break;
         case EHorseRole::Canter: PlayRate = Rate(HorseRide::TrotMaxSpeed, HorseRide::CanterMaxSpeed, .90f, 1.18f); break;
         case EHorseRole::Gallop: PlayRate = Rate(HorseRide::CanterMaxSpeed, HorseRide::GallopMaxSpeed, .92f, 1.16f); break;
@@ -786,7 +801,7 @@ void UHorseComponent::Present(float Dt)
     if (Dt <= 0.f) return;
     Dt = FMath::Min(Dt, .05f);   // the springs below stay stable through a hitch
     UAnimSequence* const Clip = GetHorseSequence();
-    if (PresentedSerial != Serial || bHorseClipStale)
+    if (PresentedSerial != Serial || bHorseClipStale || Clip != PresentedHorseClip.Get())
     {
         // A new clip on the horse; its first frame is no footfall.
         if (Clip)
@@ -795,6 +810,7 @@ void UHorseComponent::Present(float Dt)
             HorseMesh->SetPlayRate(0.f);
         }
         PresentedSerial = Serial;
+        PresentedHorseClip = Clip;
         bHorseClipStale = false;
     }
     else EmitHoofsteps(PresentedGaitPhase, GaitPhase);
@@ -839,7 +855,7 @@ void UHorseComponent::FollowGround(float Dt)
 
 void UHorseComponent::EmitHoofsteps(float From, float To)
 {
-    if (Phase != EPhase::Riding || Speed < 15.f || int32(Role) < int32(EHorseRole::Walk) || int32(Role) > int32(EHorseRole::Sprint)) return;
+    if (Phase != EPhase::Riding || (Speed < 15.f && !IsTurningInPlace()) || int32(Role) < int32(EHorseRole::Walk) || int32(Role) > int32(EHorseRole::Sprint)) return;
     UJapanFootstepComponent* Steps = Rider->GetFootsteps();
     if (!Steps) return;
     auto Crossed = [From, To](float At) { return To >= From ? From < At && To >= At : From < At || To >= At; };
@@ -958,6 +974,13 @@ FName UHorseComponent::GetRiderClip() const { return HorseRide::RoleOf(Role).Rid
 
 UAnimSequence* UHorseComponent::GetHorseSequence() const
 {
+    if (IsTurningInPlace())
+    {
+        const int32 Index = HorseRide::RoleCount + (Steering < 0.f ? 0 : 1);
+        if (HorseClips.IsValidIndex(Index) && HorseClips[Index]) return HorseClips[Index];
+        // Old installations still step with their walk until the new clips are imported.
+        if (HorseClips.IsValidIndex(int32(EHorseRole::Walk))) return HorseClips[int32(EHorseRole::Walk)];
+    }
     // A role the breed has no clip for plays its Idle, as GetSequence does for the rider: the horse never freezes.
     UAnimSequence* Clip = HorseClips.IsValidIndex(int32(Role)) ? HorseClips[int32(Role)].Get() : nullptr;
     return Clip ? Clip : HorseClips.IsValidIndex(int32(EHorseRole::Idle)) ? HorseClips[int32(EHorseRole::Idle)].Get() : nullptr;
