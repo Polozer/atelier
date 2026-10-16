@@ -108,6 +108,7 @@ def bake_glb(source, arm, scene, play, fps=60):
     # The walking toe roll belongs to forward propulsion. Keep each complete hoof
     # in its idle shape so a planted wrist/ankle also plants the actual hoof.
     toes = {b.name: b.matrix_basis.copy() for b in arm.pose.bones if b.name.startswith('Toe_')}
+    assert len(toes) == 2 * len(LEGS), 'Pivot clips require both toe bones on all four hooves'
     # The imported armature has its own rotated basis. Author trajectories in Blender
     # world (+Z up), around the actor/mesh origin, then solve in armature space.
     centre = Vector((0., 0., 0.))
