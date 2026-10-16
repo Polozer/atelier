@@ -137,7 +137,8 @@ def test_the_conifers_are_the_caldera_trees_in_mixed_groves(built):
     for name, x, y, z, yaw, scale in planted:
         assert caldera.SCALE[0] - 1e-3 <= scale <= caldera.SCALE[1] + 1e-3 and 0 <= yaw <= 360
         sunk = float(site.ground(np.array([x]), np.array([z]))[0]) - y
-        assert ef.TREE_SINK - .01 <= sunk <= ef.TREE_SINK + ef.TREE_FOOT * scale + .01, (name, sunk)
+        assert ef.TREE_SINK * scale - .01 <= sunk <= (ef.TREE_SINK + ef.TREE_FOOT) * scale + .01, (name, sunk)
+        assert sunk > caldera.FLOAT * scale, (name, sunk)
 
 
 def test_the_conifers_keep_clear_of_the_riding_and_of_one_another(built):

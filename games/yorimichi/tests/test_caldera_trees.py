@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import types
 
 import numpy as np
 import pytest
@@ -44,7 +45,17 @@ def test_lods_get_lighter_and_farther():
     assert shares[-1] * 11000 < 400, 'the last LOD is a few hundred triangles'
     # the shells' trunks are decimated on their own, and what a LOD may float the planting sinks into the ground
     assert 0 < caldera.BASE[0] < .25 and 0 < caldera.BASE[1] < .5
-    assert 0 < caldera.FLOAT <= ef.TREE_SINK
+    assert 0 < caldera.FLOAT < ef.TREE_SINK
+
+
+def test_a_floating_lod_is_planted_under_the_ground_at_every_scale():
+    """The planting sinks by scale: a LOD whose lowest point is just under FLOAT (BlackPine_B's far LOD stands
+    0.14 m off its base) is still under flat ground at the largest and smallest scales."""
+    flat = types.SimpleNamespace(ground=lambda x, z: np.zeros(len(x)), slope=lambda x, z: np.zeros(len(x)))
+    for scale in caldera.SCALE:
+        x, z, y, yaw, s = ef._planting(flat, 3., 4., 10., scale)
+        assert s == round(scale, 3) and (x, z) == (300., 400.)
+        assert y / 100 + caldera.FLOAT * scale < 0, (scale, y)
 
 
 def test_only_the_crater_floor_plants_them():

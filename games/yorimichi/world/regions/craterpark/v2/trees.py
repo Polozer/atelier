@@ -34,7 +34,7 @@ MIXED = .25              # ...and the share of each cluster's trees of the other
 LODS = ((1., 1., None), (.3, .25, 'weld'), (.1, .1, 'shell'), (.03, .04, 'shell'))
 SHELL = (.02, .02)
 BASE = (.1, .1)
-FLOAT = .15              # metres the lowest point of a LOD may stand off the ground (editor_floor sinks it deeper)
+FLOAT = .15              # metres the lowest point of a LOD may stand off the ground (editor_floor sinks it deeper, by scale)
 TARGET = .055            # the texture's mean linear luminance over the surface (the old cones' dark green, about .05)
 
 

@@ -57,7 +57,8 @@ SLOPE_CRAG = 45.      # degrees: crags stand on the wall's foot too
 SNOW_CELL, MOSS_CELL = 3., 2.   # metres between the fields' samples
 SITE_STEP = 5.        # the volcano's mesh spacing (hidamari/mountains.py STEP)
 BAKE_TILE = 48.       # metres: the dressing's occlusion is baked in plan tiles, each grid this and ao.AO_REACH round it
-TREE_SINK = .15       # metres a conifer's base is sunk into the ground...
+TREE_SINK = .17       # metres a conifer's base is sunk into the ground per unit of its scale (over trees.FLOAT, so a
+                      # LOD standing that far off its base is still under the ground at every scale)...
 TREE_FOOT = .8        # ...and more on a slope, by the drop across this much of its root flare per unit of scale
 TREE_GAP = .5         # two conifers' trunks stand at least this share of their crowns' radii apart
 
@@ -541,11 +542,11 @@ def _splat(field, xs, zs, x, z, reach, value):
 
 def _planting(site, x, z, yaw, scale):
     """A conifer's park.json `trees` entry, [x, y, z, yaw, scale] in park-local Unreal cm (ue(native) = 100 (x, z, y),
-    as dressing.plant): its base TREE_SINK into the ground, and deeper on a slope so its root flare's downhill side does
-    not float."""
+    as dressing.plant): its base TREE_SINK times its scale into the ground, and deeper on a slope so its root flare's
+    downhill side does not float."""
     x_, z_ = np.array([x]), np.array([z])
     drop = math.tan(math.radians(float(site.slope(x_, z_)[0]))) * TREE_FOOT * scale
-    y = float(site.ground(x_, z_)[0]) - TREE_SINK - drop
+    y = float(site.ground(x_, z_)[0]) - TREE_SINK * scale - drop
     return [round(100 * x, 1), round(100 * z, 1), round(100 * y, 1), round(yaw, 1), round(scale, 3)]
 
 
