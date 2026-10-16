@@ -116,7 +116,7 @@ class Session:
         self.folder = ctx.out / '.state/batches' / self.nonce
         # Never let a session's cumulative report replace an individual action's standalone peak.
         self.guard = ctx.logs / ('batch.' + self.nonce + '.guard')
-        self.started = time.monotonic()
+        self.started = None
         self.completed, self.error = {}, None
         self.memory, self.last_memory, self.action_peak, self.growth = None, None, 0, 0
         self.log = ''
@@ -154,6 +154,13 @@ class Session:
             pass
 
     def poll(self, pid):
+        """@cc [owner:fontanierh,label:correctness] batch-active-time-budget
+        The between-action clock MUST start on the first guarded child observation, after admission,
+        never at session construction. Queued time MUST NOT consume it; later polls MUST NOT reset it.
+        The independent guard's memory and child-duration limits remain authoritative.
+        """
+        if self.started is None:
+            self.started = time.monotonic()
         self.observe(pid)
         if self.error:
             return
