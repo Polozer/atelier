@@ -613,7 +613,9 @@ def world_steps(ctx):
         # Keep the old build order; track tree metadata read by the imported treehouse layout directly.
         Step('world.zeppelin', [Blender(REGIONS / 'zeppelin' / 'build.py', threads=2)],
              inputs=[REGIONS / 'zeppelin', REGIONS / 'village' / 'build.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
-                     REGIONS / 'belmonte' / 'layout.py', REGIONS / 'belmonte' / 'source.py', ASSETS / 'belmonte' / 'source.json',
+                     ASSETS / 'belmonte' / 'source.json',
+                     *(ASSETS / 'belmonte' / entry['path'] for entry in json.loads((ASSETS / 'belmonte/source.json').read_text())['meshes']
+                       if entry['name'].startswith('SM_BM_BT_Terrain_')),
                      REGIONS / 'megapark' / 'gate.py', ASSETS / 'megapark' / 'map.json',
                      ASSETS / 'megapark' / 'geometry', ASSETS / 'megapark' / 'collision'],
              needs=['world.layout', 'world.treehouse_trees'], after=['world.hidamari'],

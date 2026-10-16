@@ -38,6 +38,11 @@ def test_targeted_zeppelin_keeps_selection_order_and_complete_source_closure(tmp
     assert 'world.hidamari' not in zeppelin.needs and 'world.hidamari' in zeppelin.after
     script = RECIPE.REGIONS / 'zeppelin' / 'build.py'
     assert set(RECIPE.local_imports(script)) <= set(zeppelin.inputs)
+    assert RECIPE.ASSETS / 'belmonte' / 'source.json' in zeppelin.inputs
+    belmonte_meshes = json.loads((RECIPE.ASSETS / 'belmonte' / 'source.json').read_text())['meshes']
+    for entry in belmonte_meshes:
+        if entry['name'].startswith('SM_BM_BT_Terrain_'):
+            assert RECIPE.ASSETS / 'belmonte' / entry['path'] in zeppelin.inputs
     assert {RECIPE.ASSETS / 'megapark' / name for name in ('map.json','geometry','collision')} <= set(zeppelin.inputs)
     catalog = json.loads((RECIPE.ASSETS / 'megapark' / 'map.json').read_text())
     for item in catalog['models'] + catalog['collision']:
