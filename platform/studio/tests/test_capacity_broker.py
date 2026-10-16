@@ -183,6 +183,58 @@ def test_real_socket_gate_commit_and_pinned_wait_release(broker):
         child.wait()
 
 
+def lose_response_once(monkeypatch, action):
+    original = client._rpc
+    calls = []
+    def rpc(path, message, timeout, **kwargs):
+        result = original(path, message, timeout, **kwargs)
+        if message.get('action') == action:
+            calls.append((dict(message), result[0]))
+            if len(calls) == 1:
+                raise client.CapacityTransportError('response lost after broker commit')
+        return result
+    monkeypatch.setattr(client, '_rpc', rpc)
+    return calls
+
+
+def test_lost_offer_response_preserves_queue_age_without_charge_or_gate(broker, monkeypatch):
+    admission = session(broker)
+    calls = lose_response_once(monkeypatch, 'offer')
+    response = admission.offer()
+    assert len(calls) == 2 and calls[0][0] == calls[1][0]
+    assert response['first_ready'] == calls[0][1]['first_ready']
+    assert response['epoch'] == calls[0][1]['epoch']
+    assert client.status(broker.socket_path)['charged_count'] == 0 and not broker._gates
+    admission.close()
+
+
+def test_lost_check_and_close_responses_keep_one_grant_and_affirmative_release(broker, monkeypatch):
+    admission = session(broker)
+    admission.offer()
+    child = gated_child(admission, hold=True)
+    pin = start(admission, child)
+    try:
+        # Retransmit the root identity as an unacknowledged batch. The server already retains it.
+        admission._acknowledged.clear()
+        checks = lose_response_once(monkeypatch, 'check')
+        assert admission.check(descendants=[(child.pid, pin)])['admission'] is True
+        assert len(checks) == 2 and checks[0][0] == checks[1][0]
+        assert checks[0][0]['descendants'] == [[child.pid, pin]]
+        assert client.status(broker.socket_path)['charged_count'] == 1
+        assert admission._acknowledged == {(child.pid, pin)}
+        assert child.communicate(input=b'x', timeout=3)[0] == b'useful'
+        closes = lose_response_once(monkeypatch, 'close')
+        assert admission.close(child=child, child_start=pin)['released'] is True
+        assert len(closes) == 2 and closes[0][0] == closes[1][0]
+        assert closes[0][1]['released'] is True
+        assert closes[0][0]['witness']['child'] == [child.pid, pin]
+        assert client.status(broker.socket_path)['charged_count'] == 0 and not broker._gates
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.wait()
+
+
 def test_singleton_does_not_replace_live_socket_or_advance_epoch(broker):
     before = client.status(broker.socket_path)
     inode = broker.socket_path.stat().st_ino
