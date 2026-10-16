@@ -121,7 +121,8 @@ const TArray<FSkateGroup>& SkateGroups()
             {TEXT("skate_drift_powerslide"), TEXT("Drift powerslides"), TEXT("The left stick straight down powerslides too, from half tilt, gripping as far as it is pulled down. Let go, the board comes back round under you and you keep your speed and line."), 0, 1, 1, nullptr, true},
             {TEXT("skate_flick_120hz"), TEXT("120 Hz flick reading"), TEXT("Reads the trick stick twice a tick, between frames too, so a quick flick such as a hardflip keeps every point of its shape. The flick window and pace keep their times."), 0, 1, 1, nullptr, true},
             {TEXT("skate_cam_dist"), TEXT("Skate camera distance"), TEXT("Nearer or farther than the skate camera's own."), .6f, 1.6f, .05f, &FSkateFeel::CameraDistance, true},
-            {TEXT("skate_cam_fov"), TEXT("Skate camera field of view"), TEXT("Degrees added to the skate camera's view."), -20, 20, 1, &FSkateFeel::CameraFOV, true}}}};
+            {TEXT("skate_cam_fov"), TEXT("Skate camera field of view"), TEXT("Degrees added to the skate camera's view."), -20, 20, 1, &FSkateFeel::CameraFOV, true},
+            {TEXT("skate_cam_pullback"), TEXT("Camera pull-back at speed"), TEXT("How much farther the camera drifts back when you go fast. 0 keeps it at the same distance."), 0, 1.5f, .05f, &FSkateFeel::CameraPullback, true}}}};
     return Groups;
 }
 const TCHAR* const SkateDifficulties[] = {TEXT("easy"), TEXT("normal"), TEXT("hardcore")};

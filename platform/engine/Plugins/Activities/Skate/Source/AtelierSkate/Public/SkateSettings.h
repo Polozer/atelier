@@ -67,6 +67,9 @@ public:
     UPROPERTY(Config, EditAnywhere, Category = "Skate", meta=(ClampMin="0.5", ClampMax="3")) float GrindTolerance = 1.f;
     /** How fast the camera may chase the rider, times the authored 40 m/s (README, "Feel": CameraFollow; 1 is stock). */
     UPROPERTY(Config, EditAnywhere, Category = "Skate", meta=(ClampMin="1", ClampMax="3")) float CameraFollow = 1.f;
+    /** How much farther back the camera sits at speed: from 25 m/s it eases out to this much more of its distance at
+     *  45 m/s and holds there (README, "Feel": CameraPullback; 0 is stock). The player's Skate menu default. */
+    UPROPERTY(Config, EditAnywhere, Category = "Skate", meta=(ClampMin="0", ClampMax="1.5")) float CameraPullback = 0.f;
     /** How far an air off a curved vert wall turns with the wall instead of flying straight off it along the tangent
      *  (README, "Feel": WallFollow; 0 is stock, off; 1 the wall's own curvature). */
     UPROPERTY(Config, EditAnywhere, Category = "Skate", meta=(ClampMin="0", ClampMax="1")) float WallFollow = 0.f;

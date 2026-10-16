@@ -209,6 +209,8 @@ private:
     void TickSimulation(float Dt);
     void LaunchSimulation(const FVector& V);
     void ConfigureSimulation();
+    /** The camera's pull-back at speed (FSkateFeel::CameraPullback), eased toward the rider's speed. */
+    void EaseCameraPull(float Dt);
     void RetargetRiderPose();
     /** The visible board's growth about the ground contact Pos (ISkateRider::GetSkateBoardScale). */
     float BoardScale() const;

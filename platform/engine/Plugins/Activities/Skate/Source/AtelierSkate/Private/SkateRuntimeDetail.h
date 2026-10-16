@@ -856,6 +856,7 @@ public:
     // The shown pose's health for QA (the simulation's bones).
     FRidePoseMeasure PoseMeasure;float PoseTravel=1;
     FTransform Root=FTransform::Identity,Camera=FTransform::Identity;float CameraFOV=0;
+    float CameraPull=1;    // the camera's distance at speed, eased (USkateComponent::EaseCameraPull)
     // The pose of the tick before the latest one (Root, Bones, Camera at Tick), the generation of the pose last taken
     // and the latest step's kept time in ticks: Present shows the frame between the two (RideShownMotion.h).
     FTransform PreviousRoot=FTransform::Identity,PreviousCamera=FTransform::Identity;TArray<FTransform> PreviousBones;
