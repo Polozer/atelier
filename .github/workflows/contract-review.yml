@@ -58,6 +58,15 @@ jobs:
           path: .ci-controller
           persist-credentials: false
 
+      - name: Refresh the advisory request notice
+        if: steps.request.outputs.request != ''
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { updateNotice } = require('./.ci-controller/.github/scripts/contract-review-notice.cjs');
+            await updateNotice({ github, context });
+
       - name: Check out the reviewed upstream tool revision
         if: steps.request.outputs.request != ''
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5

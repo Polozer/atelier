@@ -52,8 +52,8 @@ Native Unreal validation stays on a guarded machine when the change needs it; CI
 
 ## Requesting a paid review
 
-Paid review is **manual only**: a human repository writer posts a new PR comment containing exactly
-`r? cc` when an open, same-repository code PR is ready (not a draft). Agents must request it for every
+Paid review is **manual only**: an authorized repository writer account posts a new PR comment
+containing exactly `r? cc` when an open, same-repository code PR is ready (not a draft). Agents must request it for every
 ready code PR. Batch intermediate edits before requesting; opening, pushing, reopening or marking a PR
 ready never starts a paid call. After substantive changes to reviewed code, explicitly request another
 review of the ready revision. A resolved false positive or wording-only edit does not require another call.
@@ -78,12 +78,15 @@ Never declare behavior changes trivial. Independent peer review, contract checks
 still apply to exempt PRs.
 
 A separate, metadata-only workflow maintains one **Paid review** PR comment. It warns on ready code PRs
-without a writer's `r? cc` request or an applicable exemption. It updates on PR and comment changes, makes
-no provider call and has no provider secret. A recorded request means only that the writer asked; it does
-not mean the request was accepted, completed, or reviewed the current head. A request made while draft
-must be posted again once ready. Check `Code contracts / review` and its receipt for exact reviewed commits.
-The notice is advisory and never a required merge check. Existing request comments persist across pushes;
-the notice does not demand a paid review on every intermediate head.
+without a recorded paid review on that head or an applicable exemption. It updates on PR and comment
+changes, makes no provider call and has no provider secret. Only the current head's
+`Code contracts / review` status proves the request was accepted; arbitrary or edited request comments
+do not clear the warning. Acceptance is not review completion or approval.
+A new head without that status warns again: batch intermediate edits before requesting on the ready code,
+or declare an exact-head trivial exemption when appropriate. The paid workflow refreshes the notice after
+accepting a request; a reminder failure cannot block the paid review. A request made while draft must be
+posted again once ready. Check the status and receipt for the exact reviewed commits. The notice is advisory
+and never a required merge check. Existing pre-migration review statuses count, avoiding duplicate charges.
 
 The secret-bearing workflow runs from the trusted base and checks out its controller separately from the
 PR. The pinned upstream action supplies the checker and review prompt. PR code is data: the model gets a

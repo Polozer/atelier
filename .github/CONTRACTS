@@ -15,7 +15,7 @@ compile: CI MUST remove the board crate's artifacts and successfully rebuild it 
 Only successful board jobs on main MAY publish the shared Rust cache; PRs only restore it.
 
 @cc [owner:fontanierh,label:correctness] explicit-paid-review-request
-Paid contract review MUST start only from a newly created exact `r? cc` comment by an authorized human
-writer, never from a PR open/push event. Missing-request notices MUST remain advisory and cost no
+Paid contract review MUST start only from a newly created exact `r? cc` comment by an authorized writer
+account, never from a PR open/push event. Missing-request notices MUST remain advisory and cost no
 provider calls. Documentation-only and writer-declared exact-head trivial changes MUST be exempt
 from the request rule and warning; a declaration MUST NOT carry over to a new head.

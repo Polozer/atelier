@@ -1,6 +1,6 @@
 // @cc [owner:fontanierh,label:security] metadata-only-review-reminder
 // The reminder MUST use GitHub metadata only, never PR programs or provider credentials.
-// Only a human writer's explicit request/exemption may suppress a code PR's warning.
+// A current-head accepted-review status or writer exemption may suppress a code PR's warning.
 // A request notice MUST NOT claim that a paid review completed or approved the code.
 const MARKER = '<!-- atelier-paid-review-notice -->';
 const WRITERS = new Set(['write', 'maintain', 'admin']);
@@ -16,7 +16,7 @@ function docsOnly(files, changedFiles) {
     documentation(file.filename) && (!file.previous_filename || documentation(file.previous_filename)));
 }
 
-async function disposition({ github, repo, pr, files, comments }) {
+async function disposition({ github, repo, pr, files, comments, statuses = [], reviewHead = null }) {
   if (pr.draft) return 'Draft: request review when the code is ready.';
   if (docsOnly(files, pr.changed_files)) {
     return 'Exempt: documentation-only changes. No paid review request is required.';
@@ -38,14 +38,11 @@ async function disposition({ github, repo, pr, files, comments }) {
         'The declaration must explain why behavior is unchanged; it expires on the next push.';
     }
   }
-  for (const comment of comments) {
-    if (comment.body === 'r? cc' && await writer(comment)) {
-      return 'Paid review requested by a writer. This notice records the request only, not completion ' +
-        'or approval. Inspect Code contracts / review and its receipt for the reviewed commits. ' +
-        'After substantive changes, request again on the ready revision.';
-    }
+  if (reviewHead === pr.head.sha && statuses.some(status => status.context === 'Code contracts / review')) {
+    return 'Paid review recorded for this head. This notice records acceptance of the request, not ' +
+      'completion or approval. Inspect Code contracts / review and its receipt for the reviewed base/head.';
   }
-  return '**Warning: paid review has not been requested.** When this code PR is ready, a writer must ' +
+  return '**Warning: paid review has not been recorded for this head.** When this code PR is ready, a writer must ' +
     'post a new comment containing exactly `r? cc`. Pushes never request a paid review. ' +
     'For formatting-only or trivial non-code changes, a writer may instead post ' +
     '`cc: exempt FULL_HEAD_SHA` followed by a newline and an explanation. ' +
@@ -59,7 +56,8 @@ async function updateNotice({ github, context }) {
   if (pr.state !== 'open') return;
   const files = await github.paginate(github.rest.pulls.listFiles, { ...repo, pull_number: issue_number, per_page: 100 });
   const comments = await github.paginate(github.rest.issues.listComments, { ...repo, issue_number, per_page: 100 });
-  const decision = await disposition({ github, repo, pr, files, comments });
+  const statuses = await github.paginate(github.rest.repos.listCommitStatusesForRef, { ...repo, ref: pr.head.sha, per_page: 100 });
+  const decision = await disposition({ github, repo, pr, files, comments, statuses, reviewHead: pr.head.sha });
   // Recheck before publication; an old event must not exempt a newly pushed revision.
   const { data: current } = await github.rest.pulls.get({ ...repo, pull_number: issue_number });
   if (current.state !== 'open' || current.head.sha !== pr.head.sha || current.draft !== pr.draft) return;

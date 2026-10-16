@@ -11,9 +11,10 @@ function fixture(overrides = {}) {
   const pr = { state: 'open', draft: false, head: { sha: SHA }, changed_files: 1, ...overrides };
   const files = [file('source.py')];
   const comments = [];
+  const statuses = [];
   const github = {
     rest: {
-      repos: { getCollaboratorPermissionLevel: async ({ username }) => {
+      repos: { listCommitStatusesForRef: Symbol('statuses'), getCollaboratorPermissionLevel: async ({ username }) => {
         calls.push(['permission', username]);
         return { data: { permission: username === 'writer' ? 'write' : 'read' } };
       } },
@@ -24,9 +25,10 @@ function fixture(overrides = {}) {
         updateComment: async args => calls.push(['update', args]),
       },
     },
-    paginate: async endpoint => endpoint === github.rest.pulls.listFiles ? files : comments,
+    paginate: async endpoint => endpoint === github.rest.pulls.listFiles ? files :
+      endpoint === github.rest.repos.listCommitStatusesForRef ? statuses : comments,
   };
-  return { github, repo, pr, files, comments, calls, context: { repo, payload: { issue: { number: 7 } } } };
+  return { github, repo, pr, files, comments, statuses, reviewHead: SHA, calls, context: { repo, payload: { issue: { number: 7 } } } };
 }
 
 test('documentation exemptions require a complete list and both sides of renames', () => {
@@ -41,7 +43,7 @@ test('documentation exemptions require a complete list and both sides of renames
 
 test('ready code warns; draft and documentation do not', async () => {
   const f = fixture();
-  assert.match(await disposition(f), /Warning: paid review has not been requested/);
+  assert.match(await disposition(f), /Warning: paid review has not been recorded/);
   f.pr.draft = true;
   assert.match(await disposition(f), /^Draft:/);
   f.pr.draft = false;
@@ -50,17 +52,18 @@ test('ready code warns; draft and documentation do not', async () => {
   assert.deepEqual(f.calls, []);
 });
 
-test('only an exact human writer request clears the missing-request warning', async () => {
+test('a request comment alone never proves acceptance, including an edited one', async () => {
   const f = fixture();
-  for (const [body, author] of [['r? cc', bot], ['r? cc', { ...user, login: 'reader' }], ['r? cc\n', user]]) {
-    f.comments.splice(0, Infinity, { body, user: author });
+  for (const author of [bot, { ...user, login: 'reader' }, user]) {
+    f.comments.splice(0, Infinity, { body: 'r? cc', user: author });
     assert.match(await disposition(f), /Warning:/);
   }
-  f.comments[0] = { body: 'r? cc', user };
-  assert.match(await disposition(f), /request only, not completion or approval/);
-  // One request is a PR-level notice, not a demand to pay again for every push.
+  f.statuses.push({ context: 'Code contracts / review', state: 'pending' });
+  assert.match(await disposition(f), /not completion or approval/);
   f.pr.head.sha = 'b'.repeat(40);
-  assert.match(await disposition(f), /^Paid review requested/);
+  assert.match(await disposition(f), /Warning:/);
+  f.statuses[0] = { context: 'Unrelated check' };
+  assert.match(await disposition(f), /Warning:/);
 });
 
 test('trivial declaration needs current full SHA, a reason and writer permission', async () => {
@@ -95,11 +98,11 @@ test('one bot notice is updated without overwriting human content or spamming un
   f.comments.push({ id: 2, user: bot, body: created.body });
   await updateNotice(f);
   assert.deepEqual(f.calls, []);
-  f.comments.push({ body: 'r? cc', user });
+  f.statuses.push({ context: 'Code contracts / review', state: 'pending' });
   await updateNotice(f);
   const updated = f.calls.find(([action]) => action === 'update')[1];
   assert.equal(updated.comment_id, 2);
-  assert.match(updated.body, /Paid review requested/);
+  assert.match(updated.body, /Paid review recorded/);
   assert.equal(f.calls.filter(([action]) => action === 'create').length, 0);
 });
 
