@@ -6,6 +6,7 @@
 #include "JapanWorld.h"
 #include "WandererDefinition.h"
 #include "WandererSword.h"
+#include "JapanEncounters.h"
 #include "YorimichiCombatFX.h"
 #include "SkateComponent.h"
 #include "SailboatComponent.h"
@@ -13,6 +14,9 @@
 #include "GameFramework/PlayerController.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshActor.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
@@ -134,6 +138,28 @@ ASwordTrainer* ASwordTrainer::Find(const UObject* WorldContext)
 {
     UWorld* World = WorldContext ? WorldContext->GetWorld() : nullptr;
     if (!World) return nullptr;
+    const AWandererCharacter* Viewer = Cast<AWandererCharacter>(WorldContext);
+    if (!Viewer && World->GetFirstPlayerController())
+        Viewer = Cast<AWandererCharacter>(World->GetFirstPlayerController()->GetPawn());
+    // Prefer an actively fighting opponent (or the player's current lock-on target), otherwise the peaceful village trainer.
+    if (Viewer && Viewer->GetMoves())
+        if (ASwordTrainer* Locked = Cast<ASwordTrainer>(Viewer->GetMoves()->GetTarget()))
+            return Locked;
+    ASwordTrainer* BestActive = nullptr;
+    float BestDist = 3500.f;
+    ASwordTrainer* VillageTrainer = nullptr;
+    for (TActorIterator<ASwordTrainer> It(World); It; ++It)
+    {
+        if (!It->IsHostileRonin()) VillageTrainer = *It;
+        const float D = Viewer ? FVector::Dist2D(Viewer->GetActorLocation(), It->GetActorLocation()) : 0.f;
+        if ((It->Bout == EBout::Ready || It->Bout == EBout::Fighting || It->CalloutTime > 0.f) && D < BestDist)
+        {
+            BestDist = D;
+            BestActive = *It;
+        }
+    }
+    if (BestActive) return BestActive;
+    if (VillageTrainer) return VillageTrainer;
     TActorIterator<ASwordTrainer> It(World);
     return It ? *It : nullptr;
 }
@@ -159,15 +185,216 @@ void ASwordTrainer::PlaceAt(const FVector& Ground, float Yaw)
 
 bool ASwordTrainer::CanTalk(const AWandererCharacter* Player) const
 {
-    return Player && Player != this && IsReady() && Bout == EBout::Home && !Menu.IsValid() &&
+    return !bHostileRonin && Player && Player != this && IsReady() && Bout == EBout::Home && !Menu.IsValid() &&
         FVector::Dist2D(Player->GetActorLocation(), GetActorLocation()) < TalkReach &&
         FMath::Abs(Player->GetActorLocation().Z - GetActorLocation().Z) < 200.f;
 }
 
 bool ASwordTrainer::IsSparringWith(const AActor* Other) const
 {
+    if (bHostileRonin)
+    {
+        const AWandererCharacter* Player = Cast<AWandererCharacter>(Other);
+        return Player && Player != this && !Player->IsNpc() && Bout != EBout::Over && Bout != EBout::Return &&
+            (!GetSword() || GetSword()->GetHealth() > 0.f);
+    }
     // From the stance (so each side's lock-on finds the other) to the end of the bout.
     return Other && Other == Opponent.Get() && (Bout == EBout::Ready || Bout == EBout::Fighting);
+}
+
+FString ASwordTrainer::GetDisplayName() const
+{
+    if (!bHostileRonin) return TEXT("KAEDE");
+    switch (RoninRole)
+    {
+    case 0: return TEXT("KASA RONIN · SCOUT");
+    case 1: return TEXT("KASA RONIN · GUARD");
+    default: return TEXT("KASA RONIN · CAPTAIN");
+    }
+}
+
+void ASwordTrainer::SetupRonin(int32 InRole, const FVector& InCampOrigin, const FVector& InMakiwaraTarget)
+{
+    bHostileRonin = true;
+    RoninRole = FMath::Clamp(InRole, 0, 2);
+    Level = RoninRole == 2 ? 2 : 1;
+    CampOrigin = InCampOrigin;
+    MakiwaraTarget = InMakiwaraTarget;
+    Home = GetActorLocation();
+    HomeYaw = GetActorRotation().Yaw;
+
+    auto MakeAttachment = [this](const TCHAR* CompName, const TCHAR* AssetPath) -> UStaticMeshComponent*
+    {
+        UStaticMesh* MeshAsset = LoadObject<UStaticMesh>(nullptr, AssetPath, nullptr, LOAD_NoWarn | LOAD_Quiet);
+        if (!MeshAsset) return nullptr;
+        UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this, CompName);
+        Comp->SetStaticMesh(MeshAsset);
+        Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Comp->SetCastShadow(true);
+        Comp->SetRenderCustomDepth(true);
+        Comp->SetCustomDepthStencilValue(1);
+        Comp->RegisterComponent();
+        Comp->AttachToComponent(GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+        return Comp;
+    };
+
+    RoninKasa = MakeAttachment(TEXT("RoninKasa"), TEXT("/Game/SwordCamp/Assets/SM_RoninKasa.SM_RoninKasa"));
+    RoninMenpo = MakeAttachment(TEXT("RoninMenpo"), TEXT("/Game/SwordCamp/Assets/SM_RoninMenpo.SM_RoninMenpo"));
+    RoninSodeL = MakeAttachment(TEXT("RoninSodeL"), TEXT("/Game/SwordCamp/Assets/SM_RoninSode.SM_RoninSode"));
+    RoninSodeR = MakeAttachment(TEXT("RoninSodeR"), TEXT("/Game/SwordCamp/Assets/SM_RoninSode.SM_RoninSode"));
+    RoninSashimono = MakeAttachment(TEXT("RoninSashimono"), TEXT("/Game/SwordCamp/Assets/SM_RoninSashimono.SM_RoninSashimono"));
+    RoninWeapon = MakeAttachment(
+        TEXT("RoninWeapon"),
+        RoninRole == 2
+            ? TEXT("/Game/SwordCamp/Assets/SM_RoninNodachi.SM_RoninNodachi")
+            : TEXT("/Game/SwordCamp/Assets/SM_RoninKatana.SM_RoninKatana"));
+
+    if (Moves)
+        Moves->UseProceduralBlade(RoninRole == 2 ? 98.f : 72.f);
+    UpdateRoninAttachments();
+}
+
+void ASwordTrainer::UpdateRoninAttachments()
+{
+    if (!bHostileRonin || !GetMesh()) return;
+    const USkeletalMeshComponent* Body = GetMesh();
+    const FQuat ActorQuat = GetActorQuat();
+    const FQuat HeadFlinch = Moves ? Moves->FlinchRotation(3) : FQuat::Identity;
+    const FQuat ChestFlinch = Moves ? Moves->FlinchRotation(1) : FQuat::Identity;
+    const FQuat HeadRot = ActorQuat * HeadFlinch;
+    const FQuat ChestRot = ActorQuat * ChestFlinch;
+
+    const FName HeadBone = GetSkateBone(TEXT("head"));
+    const FName ChestBone = GetSkateBone(TEXT("chest"));
+    const FName ArmLBone = GetSkateBone(TEXT("upperarm_L"));
+    const FName ArmRBone = GetSkateBone(TEXT("upperarm_R"));
+
+    const FVector HeadPos = Body->GetBoneIndex(HeadBone) != INDEX_NONE ? Body->GetBoneLocation(HeadBone) : GetActorLocation() + FVector(0, 0, 62.f);
+    const FVector ChestPos = Body->GetBoneIndex(ChestBone) != INDEX_NONE ? Body->GetBoneLocation(ChestBone) : GetActorLocation() + FVector(0, 0, 26.f);
+    const FVector ArmLPos = Body->GetBoneIndex(ArmLBone) != INDEX_NONE ? Body->GetBoneLocation(ArmLBone) : ChestPos + ActorQuat.RotateVector(FVector(0, -18.f, 10.f));
+    const FVector ArmRPos = Body->GetBoneIndex(ArmRBone) != INDEX_NONE ? Body->GetBoneLocation(ArmRBone) : ChestPos + ActorQuat.RotateVector(FVector(0, 18.f, 10.f));
+
+    if (RoninKasa)
+        RoninKasa->SetWorldLocationAndRotation(HeadPos + HeadRot.RotateVector(FVector(0.f, 0.f, 8.f)), HeadRot);
+    if (RoninMenpo)
+        RoninMenpo->SetWorldLocationAndRotation(HeadPos + HeadRot.RotateVector(FVector(2.5f, 0.f, -2.f)), HeadRot);
+    if (RoninSodeL)
+        RoninSodeL->SetWorldLocationAndRotation(ArmLPos + ChestRot.RotateVector(FVector(0.f, -6.f, -4.f)), ChestRot * FRotator(0.f, -90.f, 0.f).Quaternion());
+    if (RoninSodeR)
+        RoninSodeR->SetWorldLocationAndRotation(ArmRPos + ChestRot.RotateVector(FVector(0.f, 6.f, -4.f)), ChestRot * FRotator(0.f, 90.f, 0.f).Quaternion());
+    if (RoninSashimono)
+        RoninSashimono->SetWorldLocationAndRotation(ChestPos + ChestRot.RotateVector(FVector(-12.f, 0.f, -10.f)), ChestRot);
+    if (RoninWeapon && Moves)
+    {
+        FVector Base, Tip, Major;
+        if (Moves->GetBladePose(Base, Tip, Major))
+        {
+            const FVector BladeDir = (Tip - Base).GetSafeNormal();
+            const FVector EdgeDir = Major.IsNearlyZero() ? GetActorForwardVector() : Major;
+            const FQuat WeaponRot = FRotationMatrix::MakeFromZX(BladeDir, EdgeDir).ToQuat();
+            RoninWeapon->SetWorldLocationAndRotation(Base, WeaponRot);
+        }
+    }
+}
+
+void ASwordTrainer::AlertCamp(AWandererCharacter* Player)
+{
+    if (!bHostileRonin || !Player || Bout == EBout::Fighting || Bout == EBout::Over) return;
+    for (TActorIterator<ASwordTrainer> It(GetWorld()); It; ++It)
+    {
+        ASwordTrainer* Member = *It;
+        if (!Member || !Member->IsHostileRonin() || Member->Bout == EBout::Fighting || Member->Bout == EBout::Over) continue;
+        if (FVector::Dist2D(Member->CampOrigin, CampOrigin) > 2500.f) continue;
+        Member->Opponent = Player;
+        Member->ReleaseAll();
+        if (Member->Moves && !Member->Moves->IsArmed() && !Member->Moves->IsBusy()) Member->Press(TEXT("weapon"));
+        if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>())
+            Encounters->Engage(Member, 3200.f, 100);
+        Member->Bout = EBout::Fighting;
+        Member->BoutTime = 0.f;
+        Member->Cooldown = Member->RoninRole == 2 ? .35f : .65f;
+        Member->SetIntent(TEXT("circle"));
+        if (Member == this)
+        {
+            const TCHAR* Line = RoninRole == 2
+                ? TEXT("Kasa Ronin · Captain: \"To arms! Hold the coastal bluff!\"")
+                : (RoninRole == 1 ? TEXT("Kasa Ronin · Guard: \"An intruder! Draw your steel!\"")
+                                  : TEXT("Kasa Ronin · Scout: \"Blades out! Don't let them pass!\""));
+            Member->Say(Line, 2.8f);
+        }
+    }
+}
+
+void ASwordTrainer::SpawnRoninCamp(AJapanWorld* World)
+{
+    const TCHAR* Line = FCommandLine::Get();
+    if (!World || !World->bLoaded || FParse::Param(Line, TEXT("noronincamp"))) return;
+    if (AJapanGameMode::IsScriptedSession() && !FParse::Param(Line, TEXT("ronincamp"))) return;
+    UWorld* U = World->GetWorld();
+    if (!U) return;
+
+    // Site A: Coastal Bluff Overlook (-54.0, -94.0) facing the main coastal road bend (s=243 at (-55.0, -71.0)).
+    const FVector2D CampCenter(-54.0, -94.0);
+    const FVector2D RoadPoint(-55.0, -71.0);
+    const FVector2D Fwd2D = (RoadPoint - CampCenter).GetSafeNormal();
+    const FVector2D Left2D(-Fwd2D.Y, Fwd2D.X);
+    const float BaseYawBlender = FMath::RadiansToDegrees(FMath::Atan2(Fwd2D.Y, Fwd2D.X));
+
+    auto GroundAt = [&](double Bx, double By, float ExtraZ = 0.f) -> FVector
+    {
+        const FVector Probe = AJapanWorld::ToUE(Bx, By, 200.0);
+        FHitResult Hit;
+        FCollisionQueryParams Params(SCENE_QUERY_STAT(RoninCampSpawn), false);
+        if (U->LineTraceSingleByChannel(Hit, Probe, Probe - FVector(0, 0, 40000.f), ECC_Visibility, Params))
+            return Hit.ImpactPoint + FVector(0, 0, ExtraZ);
+        return AJapanWorld::ToUE(Bx, By, 8.1) + FVector(0, 0, ExtraZ);
+    };
+
+    auto SpawnProp = [&](const TCHAR* AssetPath, double ForwardM, double LeftM, float LocalYawDeg) -> FVector
+    {
+        const FVector2D Pos = CampCenter + Fwd2D * ForwardM + Left2D * LeftM;
+        const FVector Loc = GroundAt(Pos.X, Pos.Y, -2.f);
+        UStaticMesh* MeshAsset = LoadObject<UStaticMesh>(nullptr, AssetPath, nullptr, LOAD_NoWarn | LOAD_Quiet);
+        if (!MeshAsset) return Loc;
+        FActorSpawnParameters Spawn;
+        Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        if (AStaticMeshActor* Prop = U->SpawnActor<AStaticMeshActor>(Loc, FRotator(0, -(BaseYawBlender + LocalYawDeg), 0), Spawn))
+        {
+            Prop->SetMobility(EComponentMobility::Stationary);
+            if (UStaticMeshComponent* Comp = Prop->GetStaticMeshComponent())
+            {
+                Comp->SetStaticMesh(MeshAsset);
+                Comp->SetCollisionProfileName(TEXT("BlockAll"));
+                Comp->SetCastShadow(true);
+            }
+        }
+        return Loc;
+    };
+
+    const FVector FireLoc = SpawnProp(TEXT("/Game/SwordCamp/Assets/SM_CampFirePit.SM_CampFirePit"), 0.0, 0.0, 0.f);
+    SpawnProp(TEXT("/Game/SwordCamp/Assets/SM_CampJinmaku.SM_CampJinmaku"), -6.2, 0.0, 90.f);
+    const FVector RackLoc = SpawnProp(TEXT("/Game/SwordCamp/Assets/SM_CampWeaponRack.SM_CampWeaponRack"), -2.4, 4.4, -35.f);
+    SpawnProp(TEXT("/Game/SwordCamp/Assets/SM_CampBales.SM_CampBales"), -2.6, -4.4, 30.f);
+
+    struct FRoninSpawn { int32 Role; double ForwardM; double LeftM; float YawOffset; };
+    const FRoninSpawn Squad[3] = {
+        { 0,  5.8,  1.6,   0.f },   // Lookout Scout watching the road approach
+        { 1, -1.2,  3.2, -55.f },   // Guard practicing before the Makiwara post
+        { 2, -2.8, -1.2,  15.f },   // Camp Captain by the fire and Jinmaku curtain
+    };
+    for (const FRoninSpawn& S : Squad)
+    {
+        const FVector2D Pos = CampCenter + Fwd2D * S.ForwardM + Left2D * S.LeftM;
+        const FVector Where = GroundAt(Pos.X, Pos.Y, 90.f);
+        FActorSpawnParameters Spawn;
+        Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+        if (ASwordTrainer* Ronin = U->SpawnActor<ASwordTrainer>(Where, FRotator(0, -(BaseYawBlender + S.YawOffset), 0), Spawn))
+        {
+            Ronin->EnterWorld(World);
+            Ronin->SetupRonin(S.Role, FireLoc, RackLoc);
+        }
+    }
+    UE_LOG(LogTemp, Display, TEXT("Kasa Ronin mini-camp spawned at %s (3 Kasa Ronin + 4 procedural camp props)"), *FireLoc.ToString());
 }
 
 float ASwordTrainer::SparringDamage(int32 Power) const
@@ -363,11 +590,51 @@ void ASwordTrainer::Tick(float Dt)
         case EBout::Return: AdvanceReturn(Dt); break;
         }
     Super::Tick(Dt);
+    UpdateRoninAttachments();
 }
 
 void ASwordTrainer::AdvanceHome(float Dt)
 {
     Drive(FVector2D::ZeroVector, 0);
+    if (bHostileRonin)
+    {
+        AWandererCharacter* Player = Cast<AWandererCharacter>(GetWorld()->GetFirstPlayerController() ? GetWorld()->GetFirstPlayerController()->GetPawn() : nullptr);
+        if (GetHealthFraction() < .999f && Player)
+        {
+            AlertCamp(Player);
+            return;
+        }
+        if (Player && !Player->IsNpc() && Player->IsReady() && (!Player->GetSword() || !Player->GetSword()->IsDown()))
+        {
+            const FVector ToPlayer = Player->GetActorLocation() - GetActorLocation();
+            const float Dist = ToPlayer.Size2D();
+            const float CosAngle = FVector::DotProduct(GetActorForwardVector(), ToPlayer.GetSafeNormal2D());
+            const float BackSense = Player->bIsCrouched ? 190.f : 560.f;
+            if ((Dist < 1400.f && CosAngle > -.2f && FMath::Abs(ToPlayer.Z) < 420.f) || Dist < BackSense)
+            {
+                AlertCamp(Player);
+                return;
+            }
+        }
+        // Camp idle routines: Guard practices cuts against the Makiwara post; Scout scans the road; Captain watches by the fire.
+        if (RoninRole == 1)
+        {
+            if (!Moves->IsArmed() && !Moves->IsBusy()) Press(TEXT("weapon"));
+            PracticeTimer -= Dt;
+            if (PracticeTimer <= 0.f && !Moves->IsBusy())
+            {
+                Press(TEXT("attack")); Press(TEXT("attack_release"));
+                PracticeTimer = Dice.FRandRange(2.6f, 4.2f);
+            }
+        }
+        else if (RoninRole == 0)
+        {
+            const float ScanYaw = HomeYaw + 28.f * FMath::Sin(BoutTime * .85f);
+            if (!Moves->IsBusy() && GetCharacterMovement()->IsMovingOnGround())
+                SetActorRotation(FRotator(0, FMath::FixedTurn(float(GetActorRotation().Yaw), ScanYaw, 90.f * Dt), 0));
+        }
+        return;
+    }
     // She turns to watch the player when they come close, and back to the lane when they leave.
     APawn* Player = GetWorld()->GetFirstPlayerController() ? GetWorld()->GetFirstPlayerController()->GetPawn() : nullptr;
     const bool bNear = Player && FVector::Dist2D(Player->GetActorLocation(), GetActorLocation()) < 800.f;
@@ -401,6 +668,18 @@ void ASwordTrainer::AdvanceOver(float Dt)
 {
     Drive(FVector2D::ZeroVector, 0);
     Hold(TEXT("guard"), false); Hold(TEXT("attack"), false);
+    if (bHostileRonin)
+    {
+        if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>()) Encounters->End(this);
+        if (GetHealthFraction() <= 0.f)
+        {
+            // Defeated Ronin stays down until the respite expires, then returns to camp duty.
+            if (BoutTime > 18.f) { Bout = EBout::Return; BoutTime = 0.f; SetIntent(TEXT("return")); Restore(this); }
+            return;
+        }
+        if (BoutTime > 4.f) { Bout = EBout::Return; BoutTime = 0.f; SetIntent(TEXT("return")); Restore(this); }
+        return;
+    }
     if (AWandererCharacter* P = Opponent.Get()) if (!Moves->IsDown()) FaceToward(P->GetActorLocation(), Dt);
     if (!Moves->IsDown() && Moves->IsArmed() && !Moves->IsBusy() && BoutTime > 1.8f) Press(TEXT("weapon"));
     if (BoutTime > 2.2f && BoutTime - Dt <= 2.2f && !Moves->IsDown() && GetDefinition() && GetDefinition()->FindAction(TEXT("Bow"))) PlayGesture(TEXT("Bow"));
@@ -421,16 +700,34 @@ void ASwordTrainer::AdvanceFight(float Dt)
 {
     AWandererCharacter* P = Opponent.Get();
     UAdventureMoveSet* Theirs = P ? P->GetMoves() : nullptr;
-    if (!P || !Theirs || P->GetSkate()->IsRiding() || P->OnVehicle()) { EndBout(TEXT("Kaede: \"Another time, then.\"")); return; }
-    if (FVector::Dist2D(P->GetActorLocation(), Home) > LeaveReach) { EndBout(TEXT("Kaede: \"Running is a lesson too.\"")); return; }
+    if (!P || !Theirs || (!bHostileRonin && (P->GetSkate()->IsRiding() || P->OnVehicle()))) { EndBout(bHostileRonin ? TEXT("") : TEXT("Kaede: \"Another time, then.\"")); return; }
+    if (FVector::Dist2D(P->GetActorLocation(), Home) > (bHostileRonin ? 3800.f : LeaveReach))
+    {
+        if (bHostileRonin)
+        {
+            if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>()) Encounters->End(this);
+            ReleaseAll(); Bout = EBout::Return; BoutTime = 0.f; SetIntent(TEXT("return")); Restore(this);
+            return;
+        }
+        EndBout(TEXT("Kaede: \"Running is a lesson too.\"")); return;
+    }
     // Someone is down at no health: the bout is over.
     const float Mine = GetSword() ? GetSword()->GetHealth() : 1.f, Their = P->GetSword() ? P->GetSword()->GetHealth() : 1.f;
     if (Mine <= 0.f || Their <= 0.f)
     {
         ReleaseAll();
+        if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>()) Encounters->End(this);
         Bout = EBout::Over; BoutTime = 0.f; SetIntent(TEXT("over"));
-        if (Their <= 0.f) { ++Wins; Say(Level == 2 ? TEXT("Kaede: \"Again. Watch my shoulders, not my blade.\"") : TEXT("Kaede: \"Up you get. Guard, then strike.\""), 4.f); }
-        else { ++Losses; Say(Level == 2 ? TEXT("Kaede: \"...Well struck. You've nothing left to learn from me.\"") : TEXT("Kaede: \"Well struck! Try a harder level.\""), 4.f); }
+        if (bHostileRonin)
+        {
+            if (Mine <= 0.f) { ++Losses; Say(FString::Printf(TEXT("%s: \"A clean cut...\""), *GetDisplayName()), 3.f); }
+            else { ++Wins; Say(FString::Printf(TEXT("%s: \"Stay down, traveler.\""), *GetDisplayName()), 3.f); }
+        }
+        else
+        {
+            if (Their <= 0.f) { ++Wins; Say(Level == 2 ? TEXT("Kaede: \"Again. Watch my shoulders, not my blade.\"") : TEXT("Kaede: \"Up you get. Guard, then strike.\""), 4.f); }
+            else { ++Losses; Say(Level == 2 ? TEXT("Kaede: \"...Well struck. You've nothing left to learn from me.\"") : TEXT("Kaede: \"Well struck! Try a harder level.\""), 4.f); }
+        }
         UE_LOG(LogTemp, Display, TEXT("SWORD TRAINER bout over: %s won at level %s"), Their <= 0.f ? TEXT("Kaede") : TEXT("the player"), GetStyle().Name);
         return;
     }
@@ -440,6 +737,8 @@ void ASwordTrainer::AdvanceFight(float Dt)
     FaceToward(There, Dt);
     Cooldown = FMath::Max(0.f, Cooldown - Dt);
     PressGap = FMath::Max(0.f, PressGap - Dt);
+    OpponentGuardTime = Theirs->IsGuarding() && !Theirs->IsAttacking() ? OpponentGuardTime + Dt : 0.f;
+    if (!Moves->IsArmed() && !Moves->IsBusy()) { Press(TEXT("weapon")); return; }
     // The flurry rush after her perfect dodge: blow after blow.
     if (Moves->InFlurry())
     {
@@ -448,6 +747,14 @@ void ASwordTrainer::AdvanceFight(float Dt)
         return;
     }
     if (Moves->IsDown()) { ReleaseAll(); SetIntent(TEXT("down")); return; }
+    // Instant riposte after landing a parry or absorbing a blow on guard (OpenGothic / BotW counter-slash).
+    const FName MyAction = Moves->GetActionName();
+    if ((MyAction == TEXT("SwordParry") || MyAction == TEXT("Parry") || MyAction == TEXT("SwordGuardHit") || MyAction == TEXT("GuardHit")) &&
+        Level > 0 && Distance < 290.f && Moves->GetActionClipTime() >= .12f && !Intent.StartsWith(TEXT("attack")))
+    {
+        Cooldown = 0.f; Forced = TEXT("combo"); Open(Distance);
+        return;
+    }
     // The player is down: she steps back and waits for them to stand.
     if (Theirs->IsDown())
     {
@@ -457,14 +764,48 @@ void ASwordTrainer::AdvanceFight(float Dt)
         Cooldown = FMath::Max(Cooldown, .8f);
         return;
     }
+    // OpenGothic whiff punishment: if the opponent swings out of reach (205..420 cm), step back out of the arc and punish recovery.
+    if (Level > 0 && !Intent.StartsWith(TEXT("attack")) && !Moves->IsBusy())
+    {
+        const bool bOpponentSwinging = Theirs->IsAttacking() && !Theirs->IsCharging();
+        if (bOpponentSwinging && Distance > 205.f && Distance < 420.f && Theirs->NextBlowIn() >= 0.f)
+        {
+            bWhiffWatching = true;
+            Hold(TEXT("guard"), true);
+            Drive(FVector2D(StrafeSign * .4f, -1.f), 1);
+            SetIntent(TEXT("whiff_space"));
+            return;
+        }
+        if (bWhiffWatching && (!bOpponentSwinging || Theirs->NextBlowIn() < 0.f) && Distance < 440.f)
+        {
+            bWhiffWatching = false;
+            Cooldown = 0.f;
+            Forced = Distance > 275.f ? TEXT("dash") : TEXT("combo");
+            Open(Distance);
+            return;
+        }
+        if (!bOpponentSwinging) bWhiffWatching = false;
+    }
     if (Defend(Dt, Distance)) return;
     if (!Forced.IsEmpty() && Cooldown <= 0.f && !Intent.StartsWith(TEXT("attack"))) Open(Distance);
     if (Intent.StartsWith(TEXT("attack")) && Press_Attack(Dt, Distance)) return;
+    // Group encounter ticket check for the hostile Kasa Ronin camp: up to 2 Ronin attack at once while the 3rd flanks.
+    bool bCanTakeTicket = true;
+    if (bHostileRonin)
+        if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>())
+        {
+            Encounters->Refresh(this, 3200.f);
+            int32 OtherAttackers = 0;
+            for (TActorIterator<ASwordTrainer> It(GetWorld()); It; ++It)
+                if (*It != this && It->IsHostileRonin() && It->Bout == EBout::Fighting && It->Intent.StartsWith(TEXT("attack")))
+                    ++OtherAttackers;
+            if (OtherAttackers >= 2) bCanTakeTicket = false;
+        }
     // Circling at a fair distance, guard up (strafing on the lock-on), waiting for an opening.
     SetIntent(TEXT("circle"));
     StrafeSwitch -= Dt;
     if (StrafeSwitch <= 0.f) { StrafeSign = Dice.FRand() < .5f ? -1.f : 1.f; StrafeSwitch = Dice.FRandRange(1.2f, 3.2f); }
-    const float Want = Level == 0 ? 340.f : 300.f;
+    const float Want = !bCanTakeTicket ? 390.f : (Level == 0 ? 340.f : 285.f);
     const float Radial = Distance > Want + 50.f ? 1.f : Distance < Want - 60.f ? -1.f : 0.f;
     // The player winding up a charged spin: she backs off (or, at the top level, cuts in before it is ready).
     if (Theirs->IsCharging() && Level > 0)
@@ -473,10 +814,18 @@ void ASwordTrainer::AdvanceFight(float Dt)
         Hold(TEXT("guard"), true); Drive(FVector2D(StrafeSign * .5f, -1.f), 1); SetIntent(TEXT("evade charge"));
         return;
     }
+    // Anti-turtle guard-break mixup: if the opponent holds guard continuously, pressure with a guard-breaking heavy/charge opening.
+    if (bCanTakeTicket && OpponentGuardTime > .5f && Level > 0 && Cooldown <= .15f && Distance < 340.f && !Moves->IsBusy())
+    {
+        Cooldown = 0.f;
+        Forced = Dice.FRand() < .6f ? TEXT("charge") : TEXT("jump");
+        Open(Distance);
+        return;
+    }
     // Her guard is up for a share of the time (the level's), down for the rest: then she steps in or out, facing.
     GuardSwitch -= Dt;
     if (GuardSwitch <= 0.f) { bGuardUp = Dice.FRand() < S.GuardUp; GuardSwitch = Dice.FRandRange(.8f, 2.2f); }
-    Hold(TEXT("guard"), bGuardUp);
+    Hold(TEXT("guard"), bGuardUp || !bCanTakeTicket);
     if (bGuardUp) Drive(FVector2D(StrafeSign * .8f, Radial), S.Strafe > .5f && Distance > Want + 120.f ? 1 : 0);
     else
     {
@@ -484,7 +833,7 @@ void ASwordTrainer::AdvanceFight(float Dt)
         if (!Moves->IsBusy() && Radial == 0.f)
             SetActorRotation(FRotator(0, FMath::FixedTurn(float(GetActorRotation().Yaw), float((There - Here).Rotation().Yaw), 360.f * Dt), 0));
     }
-    if (Cooldown <= 0.f && !Moves->IsBusy() && Dice.FRand() < S.Aggression * Dt) Open(Distance);
+    if (bCanTakeTicket && Cooldown <= 0.f && !Moves->IsBusy() && Dice.FRand() < S.Aggression * Dt) Open(Distance);
 }
 
 bool ASwordTrainer::Defend(float Dt, float Distance)

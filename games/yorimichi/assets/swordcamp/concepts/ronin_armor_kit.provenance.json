@@ -1,0 +1,29 @@
+{
+  "stage": "swordcamp-concept",
+  "concept": "ronin_armor_kit",
+  "prompt_file": "ronin_armor_kit.prompt.txt",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "endpoint": "/v1/images/edits",
+  "prompt_sha256": "d4521ce962ecddb922b091f2730c7b9382131ad6df78ef11d898db858b8b0e16",
+  "status": "done",
+  "started_at": "2026-10-16T16:26:01.141501+00:00",
+  "output": "ronin_armor_kit.png",
+  "output_sha256": "241d61ba689bd0a6e6b3d4424bc0a706f8f225b0f2936233b6777195d0de15e3",
+  "usage": {
+    "input_tokens": 2379,
+    "input_tokens_details": {
+      "image_tokens": 2104,
+      "text_tokens": 275
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 3751
+  },
+  "elapsed_seconds": 38.2,
+  "finished_at": "2026-10-16T16:26:39.383030+00:00"
+}

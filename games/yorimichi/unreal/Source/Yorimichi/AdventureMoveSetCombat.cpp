@@ -128,13 +128,13 @@ void UAdventureMoveSet::StartCut(int32 Index)
     // Adventure homes a cut onto the enemy it is aimed at: a quick step in when it stands beyond the blade's reach. The cuts'
     // clips open mid-swing, so the step is short and the blow keeps landing until it has closed in.
     LungeTime = 0.f; LungeTarget = nullptr; bLungePoint = false;
-    if (AActor* Focus = Target.IsValid() ? Target.Get() : FindTarget(Reach() + 250.f, 60.f))
+    if (AActor* Focus = Target.IsValid() ? Target.Get() : FindTarget(Reach() + 300.f, 75.f))
     {
         float Radius = 0.f, Half = 0.f;
         Focus->GetSimpleCollisionCylinder(Radius, Half);
-        const float Stand = Character->GetCapsuleComponent()->GetScaledCapsuleRadius() + Radius + BladeLength() * .7f;
+        const float Stand = Character->GetCapsuleComponent()->GetScaledCapsuleRadius() + Radius + BladeLength() * .55f;
         const float Gap = float(FVector::Dist2D(Focus->GetActorLocation(), Character->GetActorLocation())) - Stand;
-        if (Gap > 5.f) { LungeTarget = Focus; LungePoint = Focus->GetActorLocation(); bLungePoint = true; LungeStand = Stand; LungeTime = FMath::Clamp(Gap / 1100.f, .06f, .16f); }
+        if (Gap > 5.f) { LungeTarget = Focus; LungePoint = Focus->GetActorLocation(); bLungePoint = true; LungeStand = Stand; LungeTime = FMath::Clamp(Gap / 1050.f, .07f, .18f); }
     }
     if (const FAdventureMove* M = Current())
     {
@@ -251,7 +251,9 @@ void UAdventureMoveSet::AdvanceCombat(float Dt)
     // The blade hits inside the playing clip's active windows: what it sweeps through, and what stands in its arc; a
     // homing cut's arc lasts until it has closed in.
     const bool bActive = Now && bArmed && Now->Active.Num() && Now->InWindow(Now->Active, SourceTime());
-    if (bActive) SweepBlade(); else PreviousBlade.Reset();
+    if (bActive) SweepBlade();
+    else if (Now && bArmed && IsAttack(Name)) BladePoints(PreviousBlade);
+    else PreviousBlade.Reset();
     if (bActive || (Now && bArmed && IsAttack(Name) && SourceTime() <= ArcEnd)) SweepArc();
     if (Mode != EAdventureMoveMode::Ground && Mode != EAdventureMoveMode::Air) { AttackBuffer = 0.f; bCharging = false; return; }
     // The draw that an attack press started cuts from its input point.
@@ -305,17 +307,32 @@ void UAdventureMoveSet::SweepBlade()
     if (PreviousBlade.Num() == Now.Num())
     {
         FCollisionQueryParams Query(SCENE_QUERY_STAT(AdventureBlade), false, Character);
-        for (int32 I = 0; I < Now.Num(); ++I)
+        auto CheckHits = [&](const TArray<FHitResult>& Hits, const FVector& FromPt, const FVector& ToPt)
         {
-            TArray<FHitResult> Hits;
-            Character->GetWorld()->SweepMultiByChannel(Hits, PreviousBlade[I], Now[I], FQuat::Identity, ECC_Visibility, FCollisionShape::MakeSphere(8.f), Query);
             for (const FHitResult& H : Hits)
             {
                 AActor* A = H.GetActor();
                 if (!A || A == Character || HitThisSwing.Contains(A) || !IsTargetable(A)) continue;
                 HitThisSwing.Add(A);
-                Strike(A, Strength, H.bStartPenetrating ? Now[I] : FVector(H.ImpactPoint), Now[I] - PreviousBlade[I]);
+                Strike(A, Strength, H.bStartPenetrating ? ToPt : FVector(H.ImpactPoint), ToPt - FromPt);
             }
+        };
+        for (int32 I = 0; I < Now.Num(); ++I)
+        {
+            for (const ECollisionChannel Chan : { ECC_Visibility, ECC_Pawn })
+            {
+                TArray<FHitResult> Hits;
+                Character->GetWorld()->SweepMultiByChannel(Hits, PreviousBlade[I], Now[I], FQuat::Identity, Chan, FCollisionShape::MakeSphere(10.f), Query);
+                CheckHits(Hits, PreviousBlade[I], Now[I]);
+            }
+        }
+        for (const float Alpha : { 0.5f, 1.f })
+        {
+            const FVector Base = FMath::Lerp(PreviousBlade[0], Now[0], Alpha);
+            const FVector Tip = FMath::Lerp(PreviousBlade.Last(), Now.Last(), Alpha);
+            TArray<FHitResult> SpineHits;
+            Character->GetWorld()->SweepMultiByChannel(SpineHits, Base, Tip, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(10.f), Query);
+            CheckHits(SpineHits, Base, Tip);
         }
     }
     PreviousBlade = Now;
@@ -325,15 +342,15 @@ void UAdventureMoveSet::SweepArc()
 {
     const FVector Here = Character->GetActorLocation();
     const FVector Forward = Character->GetActorForwardVector();
-    const float Range = Character->GetCapsuleComponent()->GetScaledCapsuleRadius() + BladeLength() + 20.f;
+    const float Range = Character->GetCapsuleComponent()->GetScaledCapsuleRadius() + BladeLength() + 36.f;
     auto Consider = [&](AActor* A)
     {
         if (!A || A == Character || HitThisSwing.Contains(A) || !IsTargetable(A)) return;
         float Radius = 0.f, Half = 0.f;
         A->GetSimpleCollisionCylinder(Radius, Half);
         const FVector To = (A->GetActorLocation() - Here) * FVector(1, 1, 0);
-        if (To.Size() - Radius > Range || (Forward | To.GetSafeNormal()) < FMath::Cos(FMath::DegreesToRadians(75.f))) return;
-        if (FMath::Abs(A->GetActorLocation().Z - Here.Z) > Half + HalfHeight()) return;
+        if (To.Size() - Radius > Range || (Forward | To.GetSafeNormal()) < FMath::Cos(FMath::DegreesToRadians(82.f))) return;
+        if (FMath::Abs(A->GetActorLocation().Z - Here.Z) > Half + HalfHeight() + 85.f) return;
         HitThisSwing.Add(A);
         const FVector At = A->GetActorLocation() - To.GetSafeNormal() * Radius + FVector(0, 0, HalfHeight() * .3f);
         Strike(A, Strength, At, Forward);
@@ -347,8 +364,27 @@ void UAdventureMoveSet::SweepArc()
 
 float UAdventureMoveSet::BladeLength() const
 {
+    if (CustomBladeLength > 0.f) return CustomBladeLength;
     const TObjectPtr<UStaticMeshComponent>* Sword = Props.Find(TEXT("sword"));
     return Sword && *Sword ? float((BladeTip * (*Sword)->GetComponentScale()).Size()) : 60.f;
+}
+
+bool UAdventureMoveSet::GetBladePose(FVector& OutBase, FVector& OutTip, FVector& OutMajor) const
+{
+    const TObjectPtr<UStaticMeshComponent>* Sword = Props.Find(TEXT("sword"));
+    if (!Sword || !*Sword || BladeTip.IsNearlyZero()) return false;
+    const FTransform& T = (*Sword)->GetComponentTransform();
+    OutBase = T.TransformPosition(BladeBase);
+    OutTip = T.TransformPosition(BladeTip);
+    OutMajor = T.TransformVectorNoScale(SwordMajor).GetSafeNormal();
+    return true;
+}
+
+void UAdventureMoveSet::UseProceduralBlade(float CustomBladeLengthCm)
+{
+    CustomBladeLength = CustomBladeLengthCm;
+    if (const TObjectPtr<UStaticMeshComponent>* Sword = Props.Find(TEXT("sword")); Sword && *Sword)
+        (*Sword)->SetVisibility(false, true);
 }
 
 void UAdventureMoveSet::Strike(AActor* Victim, int32 Power, const FVector& At, const FVector& Direction)

@@ -1,0 +1,29 @@
+{
+  "stage": "swordcamp-texture",
+  "slug": "sandogasa_weave",
+  "prompt_file": "sandogasa_weave.prompt.txt",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/edits",
+  "prompt_sha256": "e0dad6f3afb8c99ae2ebad0d5b3c35ead3f532331fadad0e20902309b71bce6e",
+  "status": "done",
+  "started_at": "2026-10-16T16:32:04.392432+00:00",
+  "output": "sandogasa_weave.png",
+  "output_sha256": "49886caa297be71509ba1fcc8f514b4bf3733e36c05c7b797396c9845f4dad55",
+  "usage": {
+    "input_tokens": 1216,
+    "input_tokens_details": {
+      "image_tokens": 1080,
+      "text_tokens": 136
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 2972
+  },
+  "elapsed_seconds": 37.5,
+  "finished_at": "2026-10-16T16:32:41.965997+00:00"
+}

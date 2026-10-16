@@ -206,6 +206,9 @@ public:
     /** In a combo cut that can be followed: real seconds until the next cut may come (its input point), 0 from then on;
      *  -1 otherwise. The cuts strike from their first frame, so a watcher answers the next one, not the one swinging. */
     float NextCutIn() const;
+    /** World-space blade base, tip and cutting-edge forward axis, plus hiding the default prop when a procedural blade replaces it. */
+    bool GetBladePose(FVector& OutBase, FVector& OutTip, FVector& OutMajor) const;
+    void UseProceduralBlade(float CustomBladeLengthCm = 0.f);
     /** Live and QA: the facts the scenarios check, as JSON. */
     FString Describe() const;
 
@@ -382,6 +385,7 @@ private:
     FVector BladeBase = FVector::ZeroVector, BladeTip = FVector::ZeroVector;   // in the sword mesh's frame
     FVector HiltEnd = FVector::ZeroVector;   // the handle's end behind the grip, in the sword mesh's frame
     FVector SwordMajor = FVector::ForwardVector;   // across the blade's width (its grip's oval's major axis), sword mesh frame
+    float CustomBladeLength = 0.f;
     FName LastPlayed;
 
     // Actions

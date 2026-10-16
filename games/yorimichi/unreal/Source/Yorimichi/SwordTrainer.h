@@ -6,6 +6,7 @@
 class AJapanWorld;
 class SWidget;
 class FJsonObject;
+class UStaticMeshComponent;
 
 /** How hard Kaede pushes: the three levels the player picks when asking her to train (docs/SWORD_TRAINER.md). */
 struct FTrainerStyle
@@ -46,11 +47,18 @@ public:
 
     /** Her place in Momiji Hamlet (the village record's offset carries the authored spot); -notrainer leaves her out. */
     static ASwordTrainer* SpawnInVillage(AJapanWorld* World, const TSharedPtr<FJsonObject>& Village);
+    /** The coastal bluff Kasa Ronin mini-camp (-54, -94): four procedural camp props and three hostile Kasa Ronin. */
+    static void SpawnRoninCamp(AJapanWorld* World);
     static ASwordTrainer* Find(const UObject* WorldContext);
     /** The player's Interact: talks to her when she is near and free (her menu); false when she is not there. */
     static bool TryInteract(AWandererCharacter* Player);
     /** Move her home (a ground point, UE cm) and the way she waits there; ends a bout. */
     void PlaceAt(const FVector& Ground, float Yaw);
+    void SetupRonin(int32 InRole, const FVector& InCampOrigin, const FVector& InMakiwaraTarget = FVector::ZeroVector);
+    void AlertCamp(AWandererCharacter* Player);
+    bool IsHostileRonin() const { return bHostileRonin; }
+    bool IsAlerted() const { return Bout == EBout::Fighting || Bout == EBout::Ready; }
+    FString GetDisplayName() const;
 
     enum class EBout : uint8 { Home, Talking, Ready, Fighting, Over, Return };
     EBout GetBout() const { return Bout; }
@@ -97,10 +105,21 @@ private:
     // The brain: what she holds and presses, like a player's hands.
     FString Intent = TEXT("home"), Forced, ForcedDefence;
     float Think = 0.f, IntentTime = 0.f, Cooldown = 0.f, StrafeSign = 1.f, StrafeSwitch = 0.f, PressGap = 0.f, HoldFor = 0.f;
+    float OpponentGuardTime = 0.f, PracticeTimer = 2.f;
+    bool bWhiffWatching = false;
     int32 CombosLeft = 0;
     bool bGuardDown = false, bAttackDown = false, bAirStep = false, bGuardUp = true;
     float GuardSwitch = 0.f;
     FRandomStream Dice;
+    bool bHostileRonin = false;
+    int32 RoninRole = 0;
+    FVector CampOrigin = FVector::ZeroVector, MakiwaraTarget = FVector::ZeroVector;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninKasa;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninMenpo;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninSodeL;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninSodeR;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninSashimono;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninWeapon;
     // The player's blow she is watching, and how she will meet it (decided once, after her reaction time).
     FName SeenAction;
     float SeenTime = -1.f, SeenFor = 0.f;
@@ -127,4 +146,5 @@ private:
     void Open(float Distance);
     /** Carry on with the attack under way; false when it is over. */
     bool Press_Attack(float Dt, float Distance);
+    void UpdateRoninAttachments();
 };

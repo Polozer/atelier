@@ -498,6 +498,14 @@ void UJapanMap::Initialize(AWandererCharacter* Pawn)
             Zones.Add(Zone);
         }
     }
+    if (!Zones.ContainsByPredicate([](const FJapanMapZone& Zone) { return Zone.Key == TEXT("ronin_camp"); }))
+    {
+        FJapanMapZone Zone; Zone.Key = TEXT("ronin_camp"); Zone.Name = TEXT("Kasa Ronin camp");
+        Zone.Hint = TEXT("Coastal bluff overlook: test your blade against the three Kasa Ronin");
+        Zone.Location = AJapanWorld::ToUE(-55.0, -74.0, 11.5);
+        Zone.Yaw = 92.f;
+        Zones.Add(Zone);
+    }
     // Crater Park's stop is its tower: the hero line's roll-in crest from the generated park (park.json `lines`), not
     // the r4 drop-in map.json was built with (CraterParkTower.h).
     if (CraterParkTower::HasLines())

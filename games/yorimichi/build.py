@@ -665,6 +665,10 @@ def world_steps(ctx):
              outputs=[out / 'southwest' / 'fbx' / 'SW_Temple.fbx'], about='fishing village, cove, island temple', heavy=True),
         Step('world.mega', [Blender(REGIONS / 'mega' / 'build.py')], inputs=[REGIONS / 'mega', REGIONS / 'village' / 'build.py', *VILLAGE_LAYOUT],
              needs=['world.layout'], outputs=[out / 'mega' / 'manifest.json'], about='the mini-mega ramp and its trail', heavy=True),
+        Step('world.swordcamp', [Blender(REGIONS / 'swordcamp' / 'build.py', threads=3)],
+             inputs=[REGIONS / 'swordcamp' / 'build.py', ASSETS / 'swordcamp' / 'textures' / 'swordcamp_atlas.jpg', YORI],
+             outputs=[out / 'swordcamp' / 'manifest.json'],
+             about='Kasa Ronin equipment and roadside mini-camp procedural meshes', heavy=True),
         Step('world.megapark_restyle', [Python(TOOLS / 'megapark_textures.py', ('finish',))],
              inputs=[TOOLS / 'megapark_textures.py', ASSETS / 'megapark' / 'restyle', ASSETS / 'megapark' / 'map.json',
                      REGIONS / 'megapark' / 'sign.py', REGIONS / 'hidamari' / 'fonts' / 'NotoSansJP.ttf'],
@@ -824,6 +828,11 @@ def unreal_steps(ctx):
              about='south-west props, the terrain and the sea'),
         Step('unreal.mega', [UnrealScript(SCRIPTS / 'import_mega.py', 'MEGA IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_mega.py'], needs=['unreal.world', 'world.mega'], heavy=True, about='the mini-mega ramp'),
+        Step('unreal.swordcamp', [UnrealScript(SCRIPTS / 'import_swordcamp.py', 'SWORDCAMP IMPORT COMPLETE', null_rhi=True)],
+             inputs=[SCRIPTS / 'import_swordcamp.py', SCRIPTS / 'mesh_import.py', SCRIPTS / 'atmosphere.py'],
+             after=['unreal.compile'], needs=['world.swordcamp'],
+             outputs=[out / 'swordcamp' / 'import-report.json', GAME / 'unreal' / 'Content' / 'SwordCamp' / 'Assets' / 'SM_CampFirePit.uasset'],
+             heavy=True, about='/Game/SwordCamp: Kasa Ronin equipment and roadside mini-camp props'),
         # Do not build distance fields or cards while replacing the seed mesh's material sections: UE 5.8 can read
         # that map concurrently. The final meshes already disable distance fields; normal runtime settings build
         # their cards once the imported meshes and material slots are stable.
