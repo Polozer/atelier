@@ -365,7 +365,9 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
     Shared admission MUST verify the durable boot-bound compatibility barrier. Broker failures MUST fail
     without falling back to slots. Only an automatic full session's typed, fenced selection-change
     no-GO denial MAY requeue after its exact child is positively reaped, its aggregate tree is
-    affirmatively empty and its close confirms an uncharged waiting state. Requeues MUST retain
+    affirmatively empty and its close confirms an uncharged waiting state. All process guards MUST
+    settle naturally and their final bound receipts MUST exclude memory/duration stops before retry.
+    Requeues MUST retain
     request/configuration and broker epoch/boot, use at most two retries within the original
     1800-second admission deadline, and MUST NOT repeat useful execution or certify success.
     Capacity cleanup MUST follow owned-child cleanup/reap and precede guard detachment.
@@ -469,6 +471,21 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                         and response.get('released') is True and response.get('state') == 'waiting'
                         and child.wait(timeout=0) is not None and aggregate is not None
                         and aggregate.receipt('child_exited') and monitor.poll() in (None, 0)):
+                    # A memory/duration stop also exits its process monitor with status zero.
+                    # Wait for all writers before inspecting the final bound stop receipts.
+                    settle_completion_guards(monitor, tree)
+                    check_root_guard(child, monitor, folder/'memory-health.json', final=True)
+                    completion_watches(tree)
+                    if not aggregate.receipt('child_exited'):
+                        raise RuntimeError('Capacity requeue aggregate terminal became stale')
+                    process_receipt = json.loads((folder/'memory-health.json').read_text())
+                    if (process_receipt.get('pid'), process_receipt.get('process_start'),
+                            process_receipt.get('limit_bytes'), process_receipt.get('state')) != (
+                            child.pid, root_start, int(limit_gib * 1024**3), 'running'):
+                        raise RuntimeError('Capacity requeue lacks the final bound process guard receipt')
+                    observed = process_receipt.get('time')
+                    if type(observed) not in (int, float) or not 0 <= time.time() - observed <= 5.:
+                        raise RuntimeError('Capacity requeue process guard receipt became stale')
                     terminal = json.loads(aggregate.report.read_text())
                     if (terminal.get('owner'), terminal.get('owner_started'), terminal.get('state'),
                             terminal.get('cleanup_complete'), terminal.get('processes'), terminal.get('footprint_bytes')) == (

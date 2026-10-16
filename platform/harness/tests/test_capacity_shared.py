@@ -1325,7 +1325,7 @@ def test_bounded_public_status_keeps_active_and_queue_order_then_newest_released
         assert len(records) == 38 and records['1']['state'] == 'released'
 
 
-@pytest.mark.parametrize('blocked_cleanup', [None, 'aggregate', 'close'])
+@pytest.mark.parametrize('blocked_cleanup', [None, 'aggregate', 'close', 'memory_limit', 'test_duration'])
 def test_automatic_full_launch_requeues_only_after_real_no_go_cleanup(barrier, monkeypatch, blocked_cleanup):
     """Real socket, gate children, sealed flocks and both monitors; payload executes once."""
     from atelier.harness import capacity_client
@@ -1371,7 +1371,17 @@ def test_automatic_full_launch_requeues_only_after_real_no_go_cleanup(barrier, m
         finally:
             short.close()
     monkeypatch.setattr(capacity_client.AdmissionSession, 'start', interleave)
-    if blocked_cleanup == 'aggregate':
+    if blocked_cleanup in ('memory_limit', 'test_duration'):
+        settle = guarded.settle_completion_guards
+        def stopped(monitor, tree):
+            settle(monitor, tree)
+            assert monitor.poll() == 0  # The real monitor's zero status cannot certify no stop.
+            path = folder / 'memory-health.json'
+            value = json.loads(path.read_text())
+            value['state'] = blocked_cleanup
+            path.write_text(json.dumps(value))
+        monkeypatch.setattr(guarded, 'settle_completion_guards', stopped)
+    elif blocked_cleanup == 'aggregate':
         from atelier.harness.safety.guard import TreeMonitor
         finish = TreeMonitor.finish
         def failed_finish(monitor, *args, **kwargs):
@@ -1390,7 +1400,9 @@ def test_automatic_full_launch_requeues_only_after_real_no_go_cleanup(barrier, m
         command = [sys.executable, '-c',
             'import pathlib,sys; pathlib.Path(sys.argv[1]).open("a").write("executed\\n")', str(marker)]
         if blocked_cleanup:
-            with pytest.raises((RuntimeError, capacity_client.CapacityError), match='injected'):
+            error = SystemExit if blocked_cleanup in ('memory_limit', 'test_duration') else (RuntimeError, capacity_client.CapacityError)
+            message = 'memory guard stopped the child' if isinstance(error, type) else 'injected'
+            with pytest.raises(error, match=message):
                 guarded.run(command, folder, limit_gib=.25, timeout=600)
             assert len(starts) == 1 and not marker.exists()
             assert not list(folder.glob('lost-offer-*'))
