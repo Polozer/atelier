@@ -108,6 +108,7 @@ def test_capacity_go_follows_guards_and_close_follows_reap(tmp_path, guards):
     assert guards.index('offer') < guards.index('bridge') < guards.index('gate')
     assert guards.index('close') < guards.index('tree-detach') < guards.index('unlock')
     assert guards.count('close') == 1
+    assert guards.count('tree-finish') == 1
     assert session.child['limit_bytes'] == 10 * 1024**3
     assert session.final[0].returncode == 0
 
@@ -156,6 +157,41 @@ def test_capacity_failure_does_not_fall_back_and_owned_child_is_reaped(tmp_path,
     if session.final[0] is not None:
         assert session.final[0].returncode is not None
         assert guards.index('close') < guards.index('process-detach') < guards.index('unlock')
+
+
+@pytest.mark.parametrize('failure', ['grant', 'heartbeat'])
+def test_failed_workload_settles_monitor_once_before_capacity_close(tmp_path, guards, failure):
+    session = Admission(guards, fail=failure)
+    close = session.close
+    def release_only_after_terminal(**kwargs):
+        assert guards.count('tree-finish') == 1, 'broker close preceded terminal publication'
+        close(**kwargs)
+    session.close = release_only_after_terminal
+    with pytest.raises(RuntimeError, match='broker'):
+        guarded.run([sys.executable, '-c', 'import time; time.sleep(30)'],
+                    tmp_path/'guard', admission=session)
+    assert session.final[0].returncode is not None
+    assert guards.index('tree-finish') < guards.index('close') < guards.index('tree-detach')
+    assert guards.count('tree-finish') == 1 and guards.count('close') == 1
+
+
+def test_failed_terminal_settlement_is_not_retried_and_still_attempts_close(tmp_path, guards, monkeypatch):
+    original = guarded.attach_tree
+    @contextmanager
+    def failed(*args, **kwargs):
+        with original(*args, **kwargs) as monitor:
+            def finish():
+                guards.append('tree-finish')
+                raise RuntimeError('terminal monitor failed')
+            monitor.finish = finish
+            yield monitor
+    monkeypatch.setattr(guarded, 'attach_tree', failed)
+    session = Admission(guards)
+    with pytest.raises(RuntimeError, match='terminal monitor failed'):
+        guarded.run([sys.executable, '-c', 'pass'], tmp_path/'guard', admission=session)
+    assert session.final[0].returncode == 0
+    assert guards.count('tree-finish') == guards.count('close') == 1
+    assert guards.index('tree-finish') < guards.index('close') < guards.index('tree-detach')
 
 
 def test_lock_refusal_cancels_unallocated_offer(tmp_path, guards, monkeypatch):

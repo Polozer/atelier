@@ -100,6 +100,11 @@ transport failure refuses normally. Gate creation, launch/start and phase replac
 a lost response can conceal a state change. A broker restart or changed session identity still fences the
 caller; reconciliation never clears an uncertain reservation or grants local fallback admission.
 
+On an admitted launch failure, the launcher reaps its owned workload, waits once for its existing
+aggregate monitor's bounded terminal settlement, and only then asks the broker to close the reservation.
+This keeps a late post-drain receipt from racing the close. A failed command remains failed, and a failed
+monitor still fails the job. A refused broker release retains its reservation. Cleanup authorizes no new launch.
+
 Read board reservations as scheduling budgets, separately from measured process memory and host availability.
 Recovery pauses new grants; inspect the uncertain jobs and their owners, or the compatibility reason, rather than
 treating the warning as spare capacity. Optional I/O tokens are a contention budget, not disk-space protection.
