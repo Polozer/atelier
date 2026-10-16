@@ -536,9 +536,10 @@ def letters(concrete):
     bw, bh = editor_prado.BOX
     ppm = LETTER_PX / editor_prado.TILE
     W, H = round(bw * ppm), round(bh * ppm)
-    # the box's texels in the floor's tiles: (u, v) to the plan fractions (tx, tz) box_uv inverts, to the tile's texel
+    # the box's texels in the floor's tiles: each texel's place up the letters (v, 0 at the baseline) and along them
+    # (u), to the plan fractions (tx, tz) box_uv lays them at, to the floor tile's texel (UV rows run down the image)
     u = (np.arange(W) + .5) / W
-    v = 1 - (np.arange(H) + .5) / H                    # row 0 is the image's top: v = 1
+    v = 1 - (np.arange(H) + .5) / H                    # row 0, the image's top, is the letters' top
     along, side = editor_prado.READ
     a, c = (1 - u, 1 - v) if side > 0 else (u, v)
     if along == 0:
@@ -548,7 +549,7 @@ def letters(concrete):
     tx, tz = np.broadcast_to(tx, (H, W)), np.broadcast_to(tz, (H, W))
     n = concrete.shape[0]
     col = np.floor((tx % 1) * n).astype(int) % n
-    row = np.floor((1 - tz % 1) * n).astype(int) % n   # the tile's v up, its rows down
+    row = np.floor((tz % 1) * n).astype(int) % n       # tile_uv's v is the tile's row
     base = lin(concrete.astype('f4'))[row, col]
     # coverage: each pixel's distance (pixels) to the nearest stroke, within half the stroke's width
     d = np.full((H, W), np.inf, 'f4')

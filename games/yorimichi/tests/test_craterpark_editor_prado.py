@@ -248,10 +248,11 @@ def test_boosted_prado_sun_and_letters_lie_on_level_floor(boosted):
 
 
 def test_box_uv_reads_left_to_right_from_its_side():
-    """Facing +z (reader at -z) the reader's right is -x; facing +x it is +z: u grows to the right, v away."""
+    """Facing +z (reader at -z) the reader's right is -x; facing +x it is +z: u grows to the right, v (image rows) toward
+    the reader, the baseline (v = 1) on the reader's side, as the r5 render read them."""
     V = np.array([[0., 0., 0.], [32., 0., 0.], [0., 0., 8.]])
     uv = ep.box_uv(V, {'x0': 0., 'z0': 0., 'along': 0, 'side': -1})
-    assert np.allclose(uv, [[1, 0], [0, 0], [1, 1]])
+    assert np.allclose(uv, [[1, 1], [0, 1], [1, 0]])
     V = np.array([[0., 0., 0.], [0., 0., 32.], [8., 0., 0.]])
     uv = ep.box_uv(V, {'x0': 0., 'z0': 0., 'along': 1, 'side': -1})
-    assert np.allclose(uv, [[0, 0], [1, 0], [0, 1]])
+    assert np.allclose(uv, [[0, 1], [1, 1], [0, 0]])

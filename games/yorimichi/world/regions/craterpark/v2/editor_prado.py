@@ -200,13 +200,14 @@ def plan(V, N, F, cls, ride=0):
 
 
 def box_uv(V, box):
-    """The letters' UVs over their box: u left to right along the reading line (0 to 1), v up the letters from their
-    baseline (0), the edge on the reader's side (box['side'] along the axis across the line). Plan (x, z) with y up is
-    right-handed: facing +z the reader's right is -x; facing +x it is +z."""
+    """The letters' UVs over their box: u left to right along the reading line (0 to 1), v down the letters to their
+    baseline (1: rows run down the image, as editor_generate.tile_uv's, the export flipping them to Blender's), the edge
+    on the reader's side (box['side'] along the axis across the line). Plan (x, z) with y up is right-handed: facing +z
+    the reader's right is -x; facing +x it is +z."""
     size = np.array(BOX if box['along'] == 0 else BOX[::-1])
     t = (V[:, [0, 2]] - [box['x0'], box['z0']]) / size
     a, c = box['along'], 1 - box['along']
-    v = t[:, c] if box['side'] < 0 else 1 - t[:, c]
+    v = 1 - t[:, c] if box['side'] < 0 else t[:, c]
     u = t[:, a] if (box['side'] < 0) == (a == 1) else 1 - t[:, a]
     return np.c_[u, v]
 
