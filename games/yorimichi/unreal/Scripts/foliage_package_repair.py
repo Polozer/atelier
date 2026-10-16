@@ -36,6 +36,15 @@ def _sync(directory):
         os.close(fd)
 
 
+def _require_absent(paths):
+    for path in paths:
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            continue
+        raise ValueError('Foliage package member appeared during quarantine: ' + str(path))
+
+
 def _claim(source, destination):
     """Atomically move this directory entry without replacing any destination or discarding bytes."""
     library = ctypes.CDLL(None, use_errno=True)
@@ -89,6 +98,7 @@ def quarantine_invalid_package(content, output, name, *, require_unloaded):
     exact optional sidecars. Every selected original MUST first have a durable verified copy.
     Originals MUST be atomically claimed without replacement and never unlinked. A claimed
     concurrent replacement MUST remain retained and refuse before editor startup.
+    Initially absent and already claimed members MUST stay absent through the final check.
     Links, foreign files and concurrent changes MUST refuse. An initially valid main MUST bypass quarantine.
     This operation MUST run inside the native owner's existing guard before editor startup;
     it neither certifies the replacement nor restores old packages after an import failure.
@@ -109,13 +119,14 @@ def quarantine_invalid_package(content, output, name, *, require_unloaded):
             return None
     invalid_pin = _pin(info)
     require_unloaded()
-    entries = []
+    entries, absent = [], []
     for path in (main.with_suffix('.uexp'), main.with_suffix('.ubulk'), main):
         try:
             stream, info = _open(path)
         except FileNotFoundError:
             if path == main:
                 raise ValueError('Invalid foliage package disappeared before preservation')
+            absent.append(path)
             continue
         stream.close()
         if path == main and _pin(info) != invalid_pin:
@@ -161,6 +172,7 @@ def quarantine_invalid_package(content, output, name, *, require_unloaded):
     receipt['state'] = 'preserved'
     _receipt(folder, receipt)
     require_unloaded()
+    _require_absent(absent)
     # Recheck every leaf before the first claim. Claim the invalid main last:
     # interruption leaves either that same invalid main or a complete fresh-import hole.
     for path, expected in entries:
@@ -171,6 +183,7 @@ def quarantine_invalid_package(content, output, name, *, require_unloaded):
     receipt['claims'] = {}
     try:
         for path, expected in entries:
+            _require_absent(absent)
             source, observed = _open(path)
             source.close()
             if _pin(observed) != _pin(expected):
@@ -179,6 +192,7 @@ def quarantine_invalid_package(content, output, name, *, require_unloaded):
             receipt['state'] = 'claiming'
             receipt['claims'][path.name] = {'path': claimed.name, 'state': 'intent'}
             _receipt(folder, receipt)
+            _require_absent(absent)
             _claim(path, claimed)
             _sync(path.parent)
             _sync(folder)
@@ -195,10 +209,13 @@ def quarantine_invalid_package(content, output, name, *, require_unloaded):
                 raise ValueError('Foliage package changed at atomic quarantine; claimed bytes retained')
             if path.exists() or path.is_symlink():
                 raise ValueError('Foliage package replaced after atomic quarantine; both versions retained')
+            absent.append(path)
+        _require_absent(absent)
+        receipt['state'] = 'quarantined'
+        _receipt(folder, receipt)
+        _require_absent(absent)
     except BaseException:
         receipt['state'] = 'claim_failed'
         _receipt(folder, receipt)
         raise
-    receipt['state'] = 'quarantined'
-    _receipt(folder, receipt)
     return folder

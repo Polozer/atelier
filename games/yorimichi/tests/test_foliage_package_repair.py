@@ -371,6 +371,50 @@ def test_atomic_claim_never_replaces_an_existing_destination(repair):
     assert destination.read_bytes() == b'keep destination'
 
 
+@pytest.mark.parametrize('suffix', ['.uexp', '.ubulk'])
+@pytest.mark.parametrize('stage', ['preserving', 'preserved', 'claiming', 'quarantined'])
+def test_initially_absent_sidecar_created_during_preservation_refuses(repair, monkeypatch, suffix, stage):
+    repair.member.write_bytes(b'invalid package bytes')
+    sidecar = repair.member.with_suffix(suffix)
+    real_receipt = repair._receipt
+    created = False
+    def create_sidecar(folder, value):
+        nonlocal created
+        real_receipt(folder, value)
+        if value['state'] == stage and not created:
+            sidecar.write_bytes(b'new concurrent sidecar')
+            created = True
+    monkeypatch.setattr(repair, '_receipt', create_sidecar)
+    with pytest.raises(ValueError, match='member appeared'):
+        run(repair)
+    assert sidecar.read_bytes() == b'new concurrent sidecar'
+    folder, = (repair.output / 'logs/foliage-repair/Tree_Test').iterdir()
+    assert (folder / repair.member.name).read_bytes() == b'invalid package bytes'
+    if stage in ('preserving', 'preserved'):
+        assert repair.member.read_bytes() == b'invalid package bytes'
+    else:
+        assert json.loads((folder / 'receipt.json').read_text())['state'] == 'claim_failed'
+
+
+def test_claimed_sidecar_reappearing_while_main_is_claimed_refuses(repair, monkeypatch):
+    repair.member.write_bytes(b'invalid package bytes')
+    sidecar = repair.member.with_suffix('.uexp')
+    sidecar.write_bytes(b'original exports')
+    real_claim = repair._claim
+    def recreate_earlier_sidecar(path, destination):
+        real_claim(path, destination)
+        if path == repair.member:
+            sidecar.write_bytes(b'new concurrent exports')
+    monkeypatch.setattr(repair, '_claim', recreate_earlier_sidecar)
+    with pytest.raises(ValueError, match='member appeared'):
+        run(repair)
+    assert sidecar.read_bytes() == b'new concurrent exports'
+    folder, = (repair.output / 'logs/foliage-repair/Tree_Test').iterdir()
+    assert (folder / sidecar.name).read_bytes() == b'original exports'
+    assert (folder / ('claimed-' + sidecar.name)).read_bytes() == b'original exports'
+    assert json.loads((folder / 'receipt.json').read_text())['state'] == 'claim_failed'
+
+
 def test_failed_receipt_write_cleans_only_its_temporary_and_allows_failure_receipt(repair, tmp_path, monkeypatch):
     folder = tmp_path / 'receipt'
     folder.mkdir()
