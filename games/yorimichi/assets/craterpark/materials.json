@@ -532,5 +532,48 @@
     "doubleSided": true,
     "wrap": "repeat",
     "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_050",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/boost_magenta.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB",
+    "finish": "lacquer",
+    "derivedFrom": "restyle/ramp_planks.jpg"
+  },
+  {
+    "id": "material_051",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/boost_yellow.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB",
+    "finish": "lacquer",
+    "derivedFrom": "restyle/ramp_planks.jpg"
+  },
+  {
+    "id": "material_052",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "textures/boost_sun.png",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB",
+    "finish": "lacquer",
+    "derivedFrom": "restyle/ramp_planks.jpg"
+  },
+  {
+    "id": "material_053",
+    "baseColor": [0.96, 0.74, 0.3],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB",
+    "finish": "metal"
   }
 ]

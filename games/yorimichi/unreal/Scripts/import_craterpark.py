@@ -24,6 +24,9 @@ ROUGHNESS = 1.
 # The added steel coping (build.py, additions.coping): galvanised pipe, brushed by the boards.
 STEEL_ROUGHNESS = .38
 STEEL = (.62, .63, .64)    # sRGB
+# The boost zones' sunburst paint (materials.json finish 'lacquer', world/regions/craterpark/v2/editor_boost.py): glossy
+# lacquer over the boards, a clear coat's sheen; its gold (finish 'metal') takes the steel's parent with its own colour.
+LACQUER_ROUGHNESS = .3
 # The baked occlusion (build.py ao, vertex colour R): how much it takes from the sky's fill (Ambient Occlusion, as the
 # Mega Park's lightmap occlusion) and from the albedo itself (a cavity darkening the sun sees too).
 OCCLUSION = .6
@@ -38,8 +41,9 @@ TINTS = {'material_024': (1.30, 1.06, .74)}
 
 
 def parent(kind):
-    """A lit opaque parent, kind 'Textured' (Base on UV0), 'World' (Base world-aligned on three axes, Metres per tile),
-    'Flat' or 'Steel' (flat, metallic and a little glossy: the added coping); its colour times Tint, darkened by the mesh's baked occlusion (Occlusion, Cavity). Where Snow is 1, snow
+    """A lit opaque parent, kind 'Textured' (Base on UV0), 'Lacquer' (as Textured, glossy: the boost paint), 'World'
+    (Base world-aligned on three axes, Metres per tile), 'Flat' or 'Steel' (flat, metallic and a little glossy: the added
+    coping, and the boost zones' gold); its colour times Tint, darkened by the mesh's baked occlusion (Occlusion, Cavity). Where Snow is 1, snow
     lies on the faces that look up, in world-space patches with crisp edges that follow the placed park."""
     name = 'M_CP_' + kind; path = ROOT + '/Materials/' + name
     if E.does_asset_exist(path):
@@ -66,7 +70,7 @@ def parent(kind):
     snow = node(unreal.MaterialExpressionScalarParameter, parameter_name='Snow', default_value=0.)
     normal = node(unreal.MaterialExpressionVertexNormalWS); world = node(unreal.MaterialExpressionWorldPosition)
     colour = tint
-    if kind == 'Textured':
+    if kind in ('Textured', 'Lacquer'):
         sample = node(unreal.MaterialExpressionTextureSampleParameter2D, parameter_name='Base', texture=white)
         colour = node(unreal.MaterialExpressionMultiply)
         MEL.connect_material_expressions(sample, 'RGB', colour, 'A'); MEL.connect_material_expressions(tint, '', colour, 'B')
@@ -96,10 +100,11 @@ def parent(kind):
     cover = noise + 'float m=S*saturate((N.z-.84)/.06)*saturate(((v0+.5*v1)/1.5-.50)/.12);'
     base = custom(cover + 'return lerp(B*lerp(1.,A,C),float3(.80,.83,.88),m);', inputs)
     shade = custom('return lerp(1.,A,K);', {'A': (ao, ''), 'K': (occlusion, '')}, unreal.CustomMaterialOutputType.CMOT_FLOAT1)
-    steel = kind == 'Steel'
-    rough = custom(cover + 'return lerp(%.2f,.6,m);' % (STEEL_ROUGHNESS if steel else ROUGHNESS), inputs,
-                   unreal.CustomMaterialOutputType.CMOT_FLOAT1)
-    specular = custom(cover + 'return lerp(%.2f,.35,m);' % (.5 if steel else 0.), inputs, unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+    steel, lacquer = kind == 'Steel', kind == 'Lacquer'
+    roughness = STEEL_ROUGHNESS if steel else LACQUER_ROUGHNESS if lacquer else ROUGHNESS
+    rough = custom(cover + 'return lerp(%.2f,.6,m);' % roughness, inputs, unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+    specular = custom(cover + 'return lerp(%.2f,.35,m);' % (.5 if steel or lacquer else 0.), inputs,
+                      unreal.CustomMaterialOutputType.CMOT_FLOAT1)
     dark = node(unreal.MaterialExpressionConstant3Vector, constant=unreal.LinearColor(0., 0., 0., 1.))
     metal = node(unreal.MaterialExpressionConstant, r=1. if steel else 0.)
     for n, prop in ((base, unreal.MaterialProperty.MP_BASE_COLOR), (rough, unreal.MaterialProperty.MP_ROUGHNESS),
@@ -114,7 +119,7 @@ def materials():
     """One instance per source material, with the restyled textures (tools/craterpark_textures.py finish): a painted
     texture on its own UVs, or a world-aligned one for the untextured hillside, foundations, bridges and edge guard."""
     restyle = json.loads((RESTYLE / 'textures.json').read_text())
-    parents = {kind: parent(kind) for kind in ('Textured', 'World', 'Flat', 'Steel')}
+    parents = {kind: parent(kind) for kind in ('Textured', 'Lacquer', 'World', 'Flat', 'Steel')}
     result = {}
     for spec in json.loads((SOURCE / 'materials.json').read_text()):
         name = 'MI_CP_' + spec['id']; dest = ROOT + '/Materials'; path = dest + '/' + name
@@ -122,6 +127,8 @@ def materials():
         painted = restyle['textures'].get(spec['texture']) if spec['texture'] else None
         aligned = restyle.get('world_aligned', {}).get(spec['id'])
         kind = 'Textured' if painted else 'World' if aligned else 'Flat'
+        finish = spec.get('finish')         # the boost zones' paint and gold (materials.json)
+        kind = 'Lacquer' if finish == 'lacquer' and painted else 'Steel' if finish == 'metal' else kind
         MEL.set_material_instance_parent(mi, parents[kind])
         entry = painted or aligned
         if entry:
