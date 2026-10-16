@@ -37,11 +37,27 @@ were checked separately against pinned material recipes and controlled texture b
 unexpected copies failed the comparison. The five exporter/catalogue modules remain byte-identical at `fb42b784`;
 that observation does not extend the proof to every current input, Blender version or native package.
 
-PR #244 is merged. Its 74-mesh **source** proof is complete at those pins; native equivalence for the 74-mesh
-catalogue remains open. The earlier 64-mesh native comparison and edit/repair trials do not certify the extra
-LODs. Run a fresh native baseline/candidate comparison and the remaining integration checks before claiming
-complete migration acceptance or enabling either cache. A successful ordinary game build is useful integration
-evidence, but does not replace a controlled comparison of these assets.
+**Native geometry validation (October 16):** at clean `3e66db03`, a fresh Unreal 5.8.2 comparison matched all
+18 assets and 74 LOD levels. The control used the retained legacy source exports and unchanged import functions
+from `65d9085d`, with the current project's shared materials. Before the normal candidate build, its temporary
+packages were removed by verified restoration of all 7,544 original Content files; source, configuration and
+stamps stayed unchanged. The ordinary material and 18-owner build then ran 20 of 63 selected steps in a
+builder-reported 66s, including its queue wait; the native import batch lived 34s. A subsequent ordinary no-op
+took 3s externally, ran no steps and created no guards.
+
+The comparison checked every native LOD's triangles, vertices, UVs, material sections, screen sizes, bounds and
+build settings, plus material bindings, collision geometry/counts/trace flags and the inspected runtime flags.
+Every exported FBX's serialized render and collision geometry matched, with complete LOD model inventories and
+unchanged package bytes during both read-only exports. This proves geometry/LOD migration parity with the pinned
+legacy import logic under the **current shared materials**, not equivalence to a historical shipped package or
+its shader graphs. FBX headers, global settings and material/texture object bodies are outside this comparison;
+distance-field and card generation were disabled during import/export and are not certified by it.
+
+PR #244 is merged, and the 74-mesh source and scoped native geometry proofs are complete at their stated pins.
+Helper/texture/shader edit boundaries, current-catalogue package repair, reversed native action order, world
+preservation, loading and cooking remain integration gates. The earlier 64-mesh edit/repair trials do not certify
+those cases for the extra LODs. Complete the remaining checks before claiming full migration acceptance or enabling
+either cache. A successful ordinary game build is useful integration evidence, but does not replace these checks.
 
 ## Edit one asset
 
