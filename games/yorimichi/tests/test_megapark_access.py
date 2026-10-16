@@ -37,7 +37,8 @@ def city_instances():
 
 
 def ground(x, y):
-    """The island's ground: the square heightmap, else the north terrain and far hills (hidamari.layout)."""
+    """The island's ground: the square heightmap, Belmonte's valley terrain, else the north terrain and far hills."""
+    from belmonte import layout as bm_layout, source as bm_source
     from hidamari.layout import north_height
     from village.layout import sample
     x, y = np.asarray(x, 'f8'), np.asarray(y, 'f8')
@@ -45,6 +46,9 @@ def ground(x, y):
     h = np.load(OUT / 'heightmap.npy')
     for i in np.flatnonzero((abs(x) <= 300) & (abs(y) <= 300)):      # the square's heightmap reaches its edges
         z[i] = float(sample(h, x[i], y[i]))
+    in_bm = bm_layout.contains(x, y)
+    if np.any(in_bm):
+        z[in_bm] = bm_source.terrain().height(x[in_bm] - bm_layout.ORIGIN[0], y[in_bm] - bm_layout.ORIGIN[1]) + bm_layout.ORIGIN[2]
     return z
 
 
@@ -152,6 +156,32 @@ class MegaParkStopTests(unittest.TestCase):
             a = np.asarray(rows, 'f8')
             self.assertFalse(((abs(a[:, 0] - ox - 3) < 25) & (abs(a[:, 1] - oy) < 23)).any(), name)
             self.assertGreaterEqual(float(nearest(a[:, 0], a[:, 1], path)[0].min()), 7.5, name)
+
+
+class BelmonteStopTests(unittest.TestCase):
+    station = zeppelin.STATIONS[3]
+
+    def test_ground_sits_cleanly_under_the_station_apron_and_hut(self):
+        from belmonte import layout as bm_layout, source as bm_source
+        ox, oy, oz = self.station['origin']
+        xs, ys = np.meshgrid(np.linspace(ox - 10., ox + 11., 15), np.linspace(oy - 8.8, oy + 1.2, 11))
+        z = bm_source.terrain().height(xs - bm_layout.ORIGIN[0], ys - bm_layout.ORIGIN[1]) + bm_layout.ORIGIN[2]
+        self.assertTrue(np.isfinite(z).all())
+        self.assertLessEqual(float(z.max()), oz)
+        self.assertGreater(float(z.min()), oz - .55)
+
+    def test_footpath_reaches_porta_nw_street_and_clears_planted_trees(self):
+        from belmonte import layout as bm_layout, planting as bm_planting, source as bm_source
+        path = zeppelin.belmonte_path()
+        self.assertLess(math.dist(path[0], (416., 4651.2)), .1)
+        self.assertLess(math.dist(path[-1], (418.2, 4591.8)), .1)
+        selected, _ = bm_planting.replacements(bm_source.manifest())
+        for name, rows in selected.items():
+            if not name.startswith('Tree_'):
+                continue
+            pts = np.array([[r['translation_cm'][0] / 100. + bm_layout.ORIGIN[0],
+                             -r['translation_cm'][1] / 100. + bm_layout.ORIGIN[1]] for r in rows])
+            self.assertFalse(zeppelin.belmonte_clear(pts[:, 0], pts[:, 1], 'tree').any(), name)
 
 
 class LegTests(unittest.TestCase):

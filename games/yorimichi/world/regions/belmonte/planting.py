@@ -7,6 +7,7 @@ import hashlib
 import math
 
 import numpy as np
+from zeppelin.layout import belmonte_clear
 from . import layout as L
 
 BUDGETS = {'tree': 26000, 'bush': 18000, 'grass': 2500}
@@ -108,6 +109,8 @@ def replacements(data, ground=None):
         count = 0
         for _, mesh, transform in sorted(rows, key=lambda row: (row[0], row[1])):
             x, y, _ = transform['translation_cm']
+            if bool(belmonte_clear(x / 100. + L.ORIGIN[0], -y / 100. + L.ORIGIN[1], kind)):
+                continue
             urban = abs(x) < 24000 and abs(y) < 26000
             spacing = min(cell_size, 250.) if urban else cell_size
             key = (math.floor(x / spacing), math.floor(y / spacing), urban)
