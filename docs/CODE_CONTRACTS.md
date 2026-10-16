@@ -79,6 +79,41 @@ only the submitted artifact; treat that as uncertain. Receipts are retained for 
 attempt cannot submit another paid request automatically. The persistent commit status prevents resubmission
 across runners; the local ledger's exclusive creation protects its path within one run.
 
+## Token usage and spend
+
+The trusted workflow captures the pinned Codex CLI's `--json` stream while preserving its final review
+output and exit status. Only validated numeric `turn.completed.usage` counters enter the final ledger:
+input, cached input, output, and reasoning output where reported. Model/tool text is not copied into the
+receipt. An interrupted stream retains any observed usage as partial; absent counters are unknown, not zero.
+The action and CLI versions remain pinned, the model remains unprivileged/read-only, and there is no paid retry.
+
+Each run's **Paid contract review** job summary shows the counters and a standard list-price estimate.
+The final `contract-review-final-RUN_ID` artifact retains that information with the exact model, pricing
+date/source, assumptions, run ID and reviewed SHAs. Download the receipts you want to total:
+
+```sh
+gh run download RUN_ID -n contract-review-final-RUN_ID -D receipts/RUN_ID
+uv run python -m atelier.ai.usage summary receipts/*/ledger.json
+```
+
+The command reads only supplied local files, makes no provider calls, and counts a submitted/final CI
+receipt pair once by run ID. Its totals include priced-operation coverage, unknown-cost counts and partial
+usage. It is a total of the supplied receipts, not a claim that the entire account or history is covered.
+Old receipts cannot yield exact tokens that were never retained; downloading them will show unknown cost.
+Do not rerun a paid review to reconstruct missing usage.
+
+The initial rate snapshot is [GPT-6.1 Sol standard pricing](https://developers.openai.com/api/docs/models/gpt-6.1-sol),
+checked 2026-10-16: $2 input, $0.10 cached input and $10 output per million tokens. Cached input is included
+in input, and reasoning is included in output; neither is charged twice. The estimate assumes short-context
+standard rates and excludes cache-write surcharges, regional premiums, taxes and account discounts.
+CLI aggregate counters do not establish every request's context tier or cache-write billing, so this is
+explicitly an estimate, not an exact invoice. See [the CLI event format](https://learn.chatgpt.com/docs/non-interactive-mode).
+
+The same summary accepts existing image provenance and Tripo job receipts. `atelier.ai.images.paint` already
+retains provider token usage, and Tripo job receipts retain `credits_consumed` when supplied by the provider.
+Those counters/credits are totaled separately; image USD prices and a Tripo credit-to-currency conversion
+are not guessed. Unknown prices remain visible. Identical copied receipts and Tripo task IDs count once.
+
 ## GitHub event policy
 
 GitHub's [default public-repository policy](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)

@@ -77,11 +77,22 @@ jobs:
           path: .review-tool
           persist-credentials: false
 
+      - name: Check out pinned Codex action for numeric usage capture
+        if: steps.request.outputs.request != ''
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: openai/codex-action
+          ref: 1d82a3dba7c7988ec71ecae1ed5b8e8db96495c5
+          path: .review-codex
+          persist-credentials: false
+
       - name: Verify upstream bytes and pin transitive review tools
         if: steps.request.outputs.request != ''
         env:
           PYTHONPATH: .ci-controller/platform/studio
-        run: python3 -m atelier.contract_review_tools .review-tool/.github/actions/contract-review/action.yml
+        run: >-
+          python3 -m atelier.contract_review_tools .review-tool/.github/actions/contract-review/action.yml
+          .review-codex/action.yml
 
       - name: Keep nested Node setup uncached
         # The pinned codex-action has its own setup-node. Its automatic cache detection
@@ -124,6 +135,7 @@ jobs:
           ACTUAL_REQUEST: ${{ steps.review.outputs.request }}
           REVIEW_RESULT: ${{ steps.review.outputs.review }}
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          REVIEW_USAGE_PATH: ${{ runner.temp }}/paid-review/usage.json
         run: python3 -m atelier.contract_review finish "$RUNNER_TEMP/paid-review/ledger.json"
 
       - name: Persist final paid-operation receipt
