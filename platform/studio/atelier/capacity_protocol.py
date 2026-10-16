@@ -23,6 +23,7 @@ from .capacity import Resources
 NAMESPACE = 'atelier.capacity-broker.v1'
 MAX_FRAME = 65536
 MAX_ROSTER = 512
+MAX_RETAINED = 8192  # Cumulative identities, independent of live-report and RPC batch limits.
 RESOURCE_FIELDS = frozenset(Resources.__dataclass_fields__)
 
 
@@ -251,6 +252,7 @@ class ExitWatch:
     """@cc [owner:fontanierh,label:safety] pinned-kernel-exit-witness
     An exit event MUST come from a kernel watch bound while both start-identity checks matched.
     Missing processes, failed registration and PID reuse MUST remain unknown, never exited.
+    A positive event MUST remain cached after promptly closing its kernel descriptor.
     This watch proves only the retained identity's exit, not undiscovered descendants' exit.
     """
     def __init__(self, pin, *, started=process_start):
@@ -278,6 +280,8 @@ class ExitWatch:
                                   for event in self.handle.control(None, 1, 0))
             else:
                 self.exited = bool(select.select([self.handle], [], [], 0)[0])
+            if self.exited:
+                self.close()  # The cached positive event remains; departed helpers need no kernel descriptor.
         return self.exited
 
     def close(self):

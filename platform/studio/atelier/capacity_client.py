@@ -106,6 +106,7 @@ class AdmissionSession:
         self.nonce = self.epoch = self.boot = None
         self.child = None
         self.closed = False
+        self._acknowledged = set()
 
     @property
     def guard_limit_gib(self):
@@ -135,6 +136,9 @@ class AdmissionSession:
     def offer(self):
         response, _ = self._response(*_rpc(self.socket_path, {'action': 'offer', 'request': self.request,
                                             **self._fence(), **({'nonce': self.nonce} if self.nonce else {})}, self.timeout))
+        if response['nonce'] != self.nonce:
+            self._acknowledged.clear()
+            self.child = None
         self.nonce, self.epoch = response['nonce'], response['epoch']
         self.boot = response['boot_id']
         if response.get('selected') is not True:
@@ -165,14 +169,44 @@ class AdmissionSession:
         self.child = wire.identity((child_pid, child_start))
         response, _ = self._call('start', child=list(self.child), process_guard=process_guard,
                                  tree_guard=tree_guard, limit_bytes=limit_bytes)
-        if response.get('state') not in ('running', 'draining') or response.get('admission') is not True:
-            raise CapacityError('Capacity launch was not durably admitted')
+        self._healthy(response)
+        self._acknowledged.add(self.child)
         return response
 
-    def check(self, *, descendants=()):
-        response, _ = self._call('check', descendants=[list(wire.identity(pin)) for pin in descendants])
+    def _pending(self, descendants):
+        # Discovery order keeps observed parents before their children, even across PID wrap.
+        pins = list(dict.fromkeys(wire.identity(pin) for pin in descendants))
+        if len(self._acknowledged | set(pins)) > wire.MAX_RETAINED:
+            raise CapacityError('Retained process roster exceeds its limit')
+        return [pin for pin in pins if pin not in self._acknowledged]
+
+    def _healthy(self, response):
+        if response.get('epoch') != self.epoch or response.get('boot_id') != self.boot:
+            raise CapacityError('Capacity process acknowledgement was fenced')
         if response.get('state') not in ('running', 'draining') or response.get('admission') is not True:
-            raise CapacityError('Capacity grant is no longer healthy')
+            state = response.get('state') if response.get('state') in ('uncertain', 'released', 'waiting', 'queued') else 'invalid'
+            raise CapacityError('Capacity grant is no longer healthy (' + state + ')')
+
+    def check(self, *, descendants=()):
+        """@cc [owner:fontanierh,label:safety] acknowledged-process-deltas
+        Every observed identity MUST be registered in discovery order. Only a healthy fenced
+        acknowledgement MAY suppress retransmission; failed batches MUST remain pending.
+        A fenced completion observation MUST NOT acknowledge a batch or authorize more work.
+        """
+        pending = self._pending(descendants)
+        for index in range(0, max(1, len(pending)), wire.MAX_ROSTER):
+            batch = pending[index:index + wire.MAX_ROSTER]
+            response, _ = self._call('check', descendants=[list(pin) for pin in batch])
+            if response.get('terminal') is True or response.get('finish_required') is True:
+                if (response.get('epoch') != self.epoch or response.get('boot_id') != self.boot
+                        or (response.get('terminal') is True and response.get('finish_required') is True)
+                        or response.get('admission') is not False or self.child is None
+                        or wire.identity(response.get('child')) != self.child
+                        or response.get('state') != ('released' if response.get('terminal') is True else 'uncertain')):
+                    raise CapacityError('Capacity completion observation is invalid or fenced')
+                return response  # No healthy acknowledgement, process-delta ACK or permission to keep running.
+            self._healthy(response)
+            self._acknowledged.update(batch)
         return response
 
     def replace(self, resources, locks):
@@ -203,7 +237,10 @@ class AdmissionSession:
                 witness = {'kind': 'direct-parent-wait', 'parent': [os.getpid(), wire.process_start(os.getpid())],
                            'child': list(pin), 'returncode': code}
         try:
-            response, _ = self._call('close', descendants=[list(wire.identity(pin)) for pin in descendants], witness=witness)
+            pending = self._pending(descendants)
+            if len(pending) > wire.MAX_ROSTER:
+                raise CapacityError('Atomic capacity close exceeds its process batch limit; reservation retained')
+            response, _ = self._call('close', descendants=[list(pin) for pin in pending], witness=witness)
         finally:
             self.closed = True
         if response.get('released') is not True:

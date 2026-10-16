@@ -323,6 +323,9 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
     Requested performance exclusion MUST reach the configured broker or already belong to an explicit session.
     Optional completion evidence MUST contain the positively waited launcher and matching terminal
     aggregate receipt. Its caller MUST publish it only after successful cleanup and capacity close.
+    A typed broker completion observation MUST NOT grant continued execution. The actual bound
+    launcher MUST exit within two seconds, both final guards MUST pass, a terminal capacity
+    observation MUST be established, and normal affirmative capacity close MUST still succeed.
     Only automatic full sessions MAY select the existing measured-small 4 GiB envelope. Both
     process and aggregate guards MUST use that actual ceiling and the matching reservation.
     Explicit sessions MUST retain and cover the caller's actual requested ceiling.
@@ -499,6 +502,7 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
         started = time.monotonic()
         deadline = started+horizon if horizon else None
         spoken = started
+        capacity_finishing = False
         while child.poll() is None:
             if fitting_gib is not None:
                 executable = process_tree.name(child.pid).lower()
@@ -531,7 +535,14 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
             if deadline is not None and time.monotonic() > deadline:
                 raise SystemExit(f'child exceeded {timeout} s')
             if admission is not None and child.poll() is None:
-                admission.check(descendants=retained())
+                response = admission.check(descendants=retained())
+                if response.get('terminal') is True or response.get('finish_required') is True:
+                    try:
+                        child.wait(timeout=2.)
+                    except subprocess.TimeoutExpired:
+                        raise RuntimeError('capacity completion observation preceded a surviving launcher') from None
+                    capacity_finishing = True
+                    break
             if on_poll is not None and child.poll() is None:
                 on_poll(child.pid)
             try:
@@ -541,7 +552,18 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
         observed_exit()
         if aggregate is not None:
             aggregate.finish()
+        if capacity_finishing:
+            try:
+                status = monitor.wait(timeout=3.)
+            except subprocess.TimeoutExpired:
+                raise RuntimeError('process memory guard did not finish after capacity completion') from None
+            if status != 0:
+                raise RuntimeError('process memory guard failed after capacity completion')
         check_root_guard(child, monitor, folder/'memory-health.json', final=True)
+        if capacity_finishing:
+            response = admission.check(descendants=retained())
+            if response.get('terminal') is not True or response.get('admission') is not False:
+                raise RuntimeError('capacity terminal completion was not affirmatively established')
         if on_poll is not None and child.returncode == 0:
             if tree is not None:
                 tree.check()

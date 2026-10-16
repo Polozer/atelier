@@ -177,7 +177,7 @@ def make_parser():
     p = sub.add_parser('fetch'); p.add_argument('game')
     p = sub.add_parser('capacity', help='inspect capacity or run the supervised admission broker')
     p.add_argument('action', choices=['plan', 'history', 'shadow', 'probe', 'serve', 'status', 'reconcile',
-                                    'supervise', 'prepare-cutover', 'activate-cutover', 'migrate-volume-seal'])
+                                    'supervise', 'prepare-cutover', 'activate-cutover', 'migrate-volume-seal', 'promote-prior-boot'])
     p.add_argument('path', help='snapshot, guard directory, experiment database, broker config, or status socket')
     p.add_argument('--state', help='explicit absolute simulation database path (shadow only)')
     p.add_argument('--request-id', help='request whose preserved terminal receipt is attested (reconcile only)')
@@ -286,12 +286,14 @@ def main(argv=None):
             return shadow_main(args.state, args.path)
         if args.state:
             raise SystemExit('--state is only supported by capacity shadow')
-        if args.action in ('prepare-cutover', 'activate-cutover', 'migrate-volume-seal'):
+        if args.action in ('prepare-cutover', 'activate-cutover', 'migrate-volume-seal', 'promote-prior-boot'):
             from . import capacity_compat
             operation = {'prepare-cutover': capacity_compat.prepare, 'activate-cutover': capacity_compat.activate,
-                         'migrate-volume-seal': capacity_compat.migrate_volume_seal}[args.action]
+                         'migrate-volume-seal': capacity_compat.migrate_volume_seal,
+                         'promote-prior-boot': capacity_compat.promote_prior_boot}[args.action]
             operation(args.path)
-            print('Legacy lanes sealed; a verified new OS boot is required before activation.' if args.action != 'activate-cutover'
+            print('Legacy lanes sealed; a verified new OS boot is required before ordinary activation.'
+                  if args.action in ('prepare-cutover', 'migrate-volume-seal')
                   else 'Full capacity compatibility barrier activated; clients still require broker admission.')
             return 0
         if args.action == 'serve':

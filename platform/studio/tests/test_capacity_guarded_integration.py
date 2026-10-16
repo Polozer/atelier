@@ -18,6 +18,11 @@ from atelier.safety import guarded
 
 @pytest.fixture
 def broker(tmp_path, monkeypatch):
+    from atelier import capacity_compat, capacity_runtime
+    # This private legacy-bridge fixture must never read the host's installed cutover/client.
+    monkeypatch.setattr(capacity_compat, 'DEFAULT_RECORD', tmp_path / 'fixture-cutover.json')
+    monkeypatch.setattr(capacity_runtime, 'DEFAULT_CONFIG', tmp_path / 'fixture-client.json')
+    monkeypatch.delenv('ATELIER_CAPACITY_CLIENT', raising=False)
     monkeypatch.setenv('ATELIER_RENDER_LOCK', str(tmp_path / 'render.lock'))
     monkeypatch.setenv('ATELIER_RENDER_LOCK_SCAN', '0')
     # pytest's default Darwin temp hierarchy exceeds sockaddr_un.sun_path.

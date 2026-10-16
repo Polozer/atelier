@@ -69,16 +69,19 @@ def test_no_failed_process_lookup_is_needed_to_recover_known_exits():
     assert disposed == []
 
 
-def test_refused_rpc_preserves_exit_watches_until_recovery_commits():
+def test_refused_rpc_preserves_exit_watches_until_recovery_commits(tmp_path):
     broker, record, disposed = broker_record()
     record.update(request=dict(id='job', resources=asdict(Resources(memory_mib=128, cpu_millis=1000)),
                                locks=[], seconds=60, performance=False), sequence=1, first_ready=1, bypasses=0)
-    broker._watches = {('fixture', tuple(pin)): SimpleNamespace(poll=lambda: True)
+    def dispose(pin):
+        assert not broker.connection.in_transaction
+        durable = json.loads(broker.connection.execute('SELECT value FROM state').fetchone()[0])
+        assert durable['records']['job']['state'] == 'released'
+        assert durable['records']['job']['release_witness'] == {'kind': 'retained-kernel-exits'}
+        disposed.append(pin)
+    broker._watches = {('fixture', tuple(pin)): SimpleNamespace(poll=lambda: True, close=lambda pin=pin: dispose(pin))
                        for pin in record['roster']}
-    def dispose(nonce):
-        disposed.append(nonce)
-        broker._watches.clear()
-    broker._dispose = dispose
+    broker._gates, broker.directory = {}, tmp_path
     broker._lock = threading.RLock()
     broker._clock = lambda: 20
     broker.boot = 'fixture-boot'
@@ -97,7 +100,7 @@ def test_refused_rpc_preserves_exit_watches_until_recovery_commits():
         status, _ = broker.handle(dict(namespace=wire.NAMESPACE, action='status'), (100, 1000))
         assert status['charged_count'] == 0
         assert not status['recovering']
-        assert disposed == ['fixture']
+        assert {tuple(pin) for pin in disposed} == {tuple(pin) for pin in record['roster']}
         assert not broker._watches
         durable = json.loads(broker.connection.execute('SELECT value FROM state').fetchone()[0])
         assert durable['records']['job']['release_witness'] == {'kind': 'retained-kernel-exits'}

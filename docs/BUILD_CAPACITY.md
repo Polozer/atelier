@@ -33,7 +33,7 @@ migration may require one refresh; report repeated broad rebuilds with the plan 
 inputs and output verification intact: do not manufacture stamps, use `--touch` to hide a required build, or
 force regeneration to make the plan look simpler. Prefer the specific required steps and retain reusable outputs.
 
-During the current bridge pilot, use your registered board owner and the explicit pilot client for ordinary jobs:
+Only on a machine explicitly announced as a bridge pilot, use your registered board owner and its pilot client:
 
 ```sh
 ATELIER_AGENT=YOUR_OWNER ATELIER_CAPACITY_CLIENT="$HOME/.cache/atelier/capacity/pilot-client.json" nice -n 10 uv run atelier build yorimichi
@@ -53,7 +53,10 @@ If admission or a running grant is refused, retain the command, source revision,
 phase and the next safe boundary. A charged or uncertain reservation still holds capacity even when measured
 memory is small. Recovery accepts complete known-ancestry retained exits, or, for bridge and sealed-mode
 performance-exclusive grants, a positively exited root plus its matching bound aggregate guard's successful
-terminal empty-tree cleanup receipt. The latter witnesses the monitored owned tree rather than inventing
+terminal empty-tree cleanup receipt. Older monitors could retain their pre-cleanup sample despite successful
+cleanup; that sample is accepted only when every reported tail identity is retained and has an affirmative
+exit witness, no tail is live, and its nonnegative footprint sum exactly matches the receipt within the guard
+ceiling. Names, missing PIDs and elapsed time never substitute for those exits. The latter witnesses the monitored owned tree rather than inventing
 individual historical exits. Neither policy certifies outputs; uncertainty remains charged without its required
 evidence. PID absence or heartbeat expiry alone never establishes release. If a later invocation overwrote the
 bound report, authorized recovery can attest the preserved original with
@@ -101,11 +104,11 @@ an old nonexclusive record never gains terminal-tree release eligibility merely 
 The maintenance broker configuration is schema3: the schema2 broker keys with `mode: "sealed-maintenance"` and
 an additional `seal_policy_sha256` containing the unchanged original sealed full-policy SHA256. The service pins
 the new configuration's own digest independently. Its socket, resource totals, non-memory reserve dimensions
-and disk pool must exactly match the sealed policy. The unchanged original sealed reserve remains valid. Only
-this exclusive maintenance mode permits a deliberately reviewed **reduction** of the host memory reserve, with
+and disk pool must exactly match the sealed policy. The unchanged original sealed reserve remains valid.
+This maintenance configuration permits a deliberately reviewed **reduction** of the host memory reserve, with
 the selected value between 4096 MiB and the original sealed reserve. The 4096 MiB floor applies to reductions;
 it does not silently raise an unchanged originally sealed reserve. The original full-policy bytes
-and full-mode reserve remain unchanged; full mode requires the exact original reserve. This temporary calibration
+remain unchanged; ordinary schema2 full mode requires its exact original reserve. This maintenance calibration
 policy does not lower a job's actual memory guard or reservation, change available-memory measurement, relax
 pressure admission, or enable overlap. A normal 10 GiB job with a 4 GiB host reserve still requires at least
 14 GiB freshly observed available memory; any lower observation refuses. Operators validate the tail under the
@@ -114,8 +117,8 @@ this floor or tune the buffer to fit a particular snapshot. The client has exact
 `cutover` and `seal_policy_sha256`. No environment flag enables this mode or bypasses the seal. Both client and
 broker fence the exact mode and activation identity; board status shows **Exclusive maintenance**, `cutover: false`.
 
-A later full-mode activation still requires a verified new boot after the current seal and an explicit drained
-transition to the original full policy/client. Full activation takes all three lanes exclusively and refuses while
+A later full-mode activation still requires positive boot closure and an explicit drained transition. Eligible
+historical seals can use the supported prior-boot promotion below without another reboot. Full activation takes all three lanes exclusively and refuses while
 maintenance owns any of them. Neither an implementation merge nor maintenance operation activates that path.
 Do not reboot, edit sealed files, replace lane inodes or change service configuration as an agent workaround.
 
@@ -130,6 +133,11 @@ process has a verified exit and ancestry is known. Bridge and sealed-mode perfor
 positively exited root plus its previously bound aggregate guard's final `child_exited` receipt: matching root
 identity and limit, invocation time, completed cleanup, no processes and zero footprint, with no retained identity
 still verifiably live. This deliberately permits historical discovery gaps under the exclusive guard policy.
+The monitor now refreshes its terminal sample after draining helpers. For a preserved older pre-drain sample,
+every listed tail must have its exact retained affirmative exit, must no longer be live, and must contribute
+to the receipt's exact nonnegative footprint sum within its unchanged ceiling. The root cannot appear in that
+tail. A partial exit set, reused identity, duplicate, inconsistent sum, stop reason or live survivor still refuses
+release. Recovery does not rewrite the original monitor receipt or invent historical exits.
 The witness is `guarded-tree-exit`, covering the **monitored owned tree**; it does not manufacture individual
 kernel exit evidence or claim universal descendant discovery. It releases capacity only, never certifies outputs.
 `atelier capacity reconcile ABSOLUTE_SOCKET` applies the same two policies. Without either witness, uncertainty
@@ -206,6 +214,20 @@ claims that every possible descendant was discovered. Missing, mismatched, faile
 retain uncertainty when exact exit evidence is unavailable. Output certification remains separate. The legacy bridge
 and foreign-process scan remain necessary while stronger ownership coverage and client migration are validated.
 
+Process tracking distinguishes the live guard/RPC batch bound (512 identities) from a grant's cumulative
+history (8192 identities). Clients send newly observed identities in discovery order, and suppress a repeat only
+after a healthy, epoch-fenced acknowledgement. Close is a single atomic bounded message: an oversized unsent tail
+refuses close and retains the reservation. Missing identities and failed watch registration remain unknown.
+The broker retains exact historical identities and positive exits, but stops polling positively exited processes.
+
+To bound the active SQLite record, released histories move to private immutable SHA-256-named JSON files in the
+broker's `process-history/` directory once state exceeds 2 MiB. File and directory sync precede the SQLite commit;
+failed publication preserves the previous database. Active or uncertain histories are never compacted. Archives
+retain the request ID, nonce generation, exact rosters, counts and release witness; public status keeps the counts.
+They are audit evidence, never ownership or release authority. Reoffering or pruning a released summary does not
+delete its archive. Archive cleanup requires a separate explicit evidence-retention decision. The 4 MiB active
+state ceiling still refuses further mutations if held histories alone exceed it.
+
 The agent board rollout must show the real machine mode: legacy slots, capacity migration bridge, or full capacity.
 It should show reserved resources separately from measured usage, ready age and wait reasons, named locks, and
 uncertain reservations that still consume capacity. An unavailable broker must be visible rather than displayed
@@ -223,6 +245,27 @@ machine's default `~/.cache/atelier/capacity/cutover.json`. Its remaining fields
 The client uses `schema: 2` and the same additional `cutover` field alongside `socket` and `profiles`.
 Budgets, disk pool, endpoint and the exact broker configuration hash are bound into the cutover record.
 Changing them requires a separately reviewed transition; neither service recovery nor clients rewrite that proof.
+
+### Explicit full-mode memory calibration
+
+The ordinary schema2 full configuration remains exact. A separately installed **schema4** broker configuration
+can select only a calibrated host memory reserve between 4096 MiB and the original sealed reserve. It uses
+`mode: "capacity"`, the same schema2 keys and `seal_policy_sha256` naming the unchanged original full policy.
+Its own complete configuration digest is pinned independently by service supervision. The original sealed
+policy, boot proof, lane identities, totals, endpoint, disk pool and every other reserve dimension remain exact.
+No agent environment flag enables calibration, and adopting maintenance never carries its buffer into full mode.
+Both calibrated full and maintenance service startup refuse a missing own-configuration digest; prepare and
+install supervision rather than starting either with an unpinned manual `capacity serve` command.
+
+This controls host headroom, not job limits: a 10 GiB job still reserves and enforces 10 GiB. With a 4 GiB host
+reserve it requires at least 14 GiB of fresh available memory, plus the full remaining memory growth of every
+charged peer. Unknown or failed observations still refuse. Worker counts, exclusive jobs, foreign-process checks,
+CPU/GPU/disk accounting and both memory guards are unchanged. The full default client remains schema2.
+
+Install a reviewed calibration only at a coordinated child-free, uncharged boundary. Keep the original full
+policy and seal bytes; never edit or re-seal them to fit a memory snapshot. Require measured host-pressure and
+cleanup acceptance under the selected reserve before advertising useful overlap. The board shows the actual
+selected headroom from live status. This source capability alone does not change the machine policy.
 
 Full jobs retain one `render_lock` context. It opens the same three existing legacy lane inodes read-only and
 takes all three shared flocks nonblocking, releasing any partial acquisition on refusal. It never writes or
@@ -276,9 +319,30 @@ differ. It binds the current volume UUIDs, preserves the original record bytes i
 `cutover.schema1.ACTIVATION_ID.json`, and resets `seal_boot_id` to the current boot. The archive and its directory
 are synced before the new record replaces the old one. An interrupted migration can reuse only an owned,
 private, single-link archive whose bytes exactly match the original; differing archives refuse.
-**Another real OS reboot after migration is required before activation.** Migration does not establish the old
+**Ordinary schema2 activation requires another real OS reboot after migration.** Migration does not establish the old
 volume's identity, activate capacity, alter lane files or unseal them. Other states and schemas refuse migration;
 do not edit records, delete archives or substitute files to force the transition.
+
+An explicit `atelier capacity promote-prior-boot ABSOLUTE_FULL_CONFIG` can instead preserve the completed earlier
+reboot's descriptor-closure proof. It is eligible only for a current-boot schema2 migration backed by the unchanged
+private schema1 sealed archive from an earlier boot. It holds admission and all three read-only lane mutexes
+exclusively, then fetches fresh broker state itself and requires healthy maintenance mode, matching activation/boot,
+zero charged resources and no recovery hold. A saved status JSON or an empty process scan cannot substitute.
+
+Promotion preserves both seal dates and every lane inode, byte, permission and change-time pin. It durably archives
+the exact schema2 bytes before publishing a distinct schema3 `active` record that binds both archive hashes and the
+actual promotion boot. Verification rechecks both archived seals, the earlier boot change and current stable-volume
+identity/write denial. Fresh same-boot prepares cannot qualify. The original full policy, including its host reserve,
+stays exact; maintenance calibration does not silently carry into full mode. This is an explicit source-supported
+transition, never permission to edit a record or relax a failed check.
+
+Coordinate a child-free owner boundary before promotion. After publication, restart the single reviewed broker
+with its original full policy and the same SQLite history, verify a fresh healthy full-mode epoch, and only then
+install the full default client. Old maintenance clients refuse the active record; no automatic fallback exists.
+If interrupted after ACTIVE publication, repeat the promotion command to revalidate and sync the already-published
+proof under all three exclusive mutexes, then complete the same service/client transition. It never rewrites ACTIVE
+as SEALED or clears retained grants. Keep native launches held through recovery controls and measured overlap proof;
+neither a merged PR nor successful provenance publication alone demonstrates useful or safe concurrency.
 
 Every full startup and GO checks the seal. A replaced inode, writable ACL, changed policy or unavailable boot
 observation refuses new work; held allocations become uncertain and stay charged. A controller/broker crash may
@@ -600,6 +664,22 @@ for large requests without forcibly preempting other owners. Approved interactiv
 explicit scope and expiry; agents cannot assign themselves a priority that defeats fairness.
 
 ## Failure and recovery
+
+A guard can finish naturally while its controller is sending the last heartbeat. One shutdown-only
+reconciliation waits at most half a second for the positive root event or aggregate publication,
+keeping the reservation charged throughout. A fresh, bound,
+empty aggregate terminal receipt can now return `finish_required` with `admission: false` while
+the reservation remains charged. This is an instruction to finish checking the current child,
+not permission to continue running or launch another one. The controller must wait for its exact
+owned child within two seconds, wait naturally at most three seconds for a successful process guard
+exit, pass both final guards, obtain a fenced terminal response backed
+by positive release evidence, and complete normal affirmative close. An already released request
+can return that terminal response directly. Neither response acknowledges process batches or
+certifies build outputs. Validated new process observations are retained even on an unhealthy
+heartbeat; a released request refuses unknown new identities. At most one bounded final batch is
+retained for terminal retransmission across audit compaction; it cannot grant or release capacity.
+A surviving child, failed guard, stale/mismatched terminal receipt, expired lease,
+seal loss, broker restart or transport failure still fails; never bypass it or clear the record.
 
 Heartbeat expiry alone never releases a live job's reservation. Pin process identities and retain ownership of
 surviving descendants. On launcher/service failure, preserve guards, stop new admission, reconstruct live leases
