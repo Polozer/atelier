@@ -403,6 +403,11 @@ Schema 1 bridge configuration remains usable without a reboot and retains exclus
 uses broker configuration `schema: 2`, `mode: "capacity"`, and one additional `cutover` field pointing to the
 machine's default `~/.cache/atelier/capacity/cutover.json`. Its remaining fields match the bridge configuration.
 The client uses `schema: 2` and the same additional `cutover` field alongside `socket` and `profiles`.
+For `atelier play` and `atelier playtest`, an explicit `--memory-gib N` within the documented 10–14 GiB
+range raises only that session's memory reservation to at least the selected guard ceiling. The game
+profile must already cover the default 10 GiB ceiling. The default guard and profile, other resources,
+exclusion, named locks and host reserve remain unchanged; the broker still checks whether the request fits.
+This does not resize job/compile profiles, explicit admission sessions, bridge or sealed-maintenance clients.
 Budgets, disk pool, endpoint and the exact broker configuration hash are bound into the cutover record.
 Changing them requires a separately reviewed transition; neither service recovery nor clients rewrite that proof.
 

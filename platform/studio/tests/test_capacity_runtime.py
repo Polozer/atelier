@@ -1,6 +1,7 @@
 """Machine configuration cannot silently weaken a guarded launch's reservation."""
 import copy
 import json
+import math
 import sys
 from types import SimpleNamespace
 
@@ -101,6 +102,61 @@ def configure_schema(client, monkeypatch, schema):
         value.update(schema=2, cutover=str(compat.DEFAULT_RECORD))
         monkeypatch.setattr(compat, 'verify', lambda path: dict(socket=value['socket'],
             total=dict(cpu_millis=10000), reserve=dict(cpu_millis=2000)))
+
+
+@pytest.mark.parametrize('limit_gib', [10, 10.0001, 10.5, 12, 14])
+@pytest.mark.parametrize('profile_mib', [10240, 13312])
+def test_full_game_reserves_selected_session_ceiling_without_changing_guard_or_config(
+        client, monkeypatch, limit_gib, profile_mib):
+    configure_schema(client, monkeypatch, 2)
+    path, value, write, _ = client
+    value['profiles']['game']['resources']['memory_mib'] = profile_mib
+    write()
+    before = path.read_bytes()
+    monkeypatch.setitem(sys.modules, 'atelier.capacity_client', SimpleNamespace(
+        AdmissionSession=lambda socket, request, **kwargs: SimpleNamespace(request=request, **kwargs)))
+    admission = runtime.configured_session(kind='game', limit_gib=limit_gib, timeout=0,
+                                           command=['UnrealEditor'])
+    assert admission.guard_limit_gib == limit_gib
+    assert admission.request['resources'] == value['profiles']['game']['resources'] | {
+        'memory_mib': max(profile_mib, math.ceil(limit_gib * 1024)), 'cpu_millis': 8000}
+    assert admission.request['performance'] is True
+    assert admission.request['locks'] == sorted(['graphics', 'checkout:' + str(runtime.REPO)])
+    assert path.read_bytes() == before
+    runtime.validate_session_profile(admission, kind='game', command=['UnrealEditor'], limit_gib=limit_gib)
+
+
+@pytest.mark.parametrize('kind,schema', [('job', 2), ('compile', 2), ('game', 1), ('game', 3)])
+def test_session_game_resizing_does_not_apply_to_other_profiles_or_modes(client, monkeypatch, kind, schema):
+    configure_schema(client, monkeypatch, 2 if schema == 3 else schema)
+    if schema == 3:
+        from atelier import capacity_compat as compat
+        client[1].update(schema=3, mode='sealed-maintenance', seal_policy_sha256='a' * 64)
+        monkeypatch.setattr(compat, 'verify_maintenance', lambda path, **kwargs: dict(
+            socket=client[1]['socket'], total=dict(cpu_millis=10000), reserve=dict(cpu_millis=2000)))
+    client[2]()
+    with pytest.raises(ValueError, match='smaller than the actual guard'):
+        runtime.configured_session(kind=kind, limit_gib=12, timeout=0)
+    assert client[3] == []
+
+
+@pytest.mark.parametrize('limit_gib', [14.001, 15, float('inf'), float('nan'), -1])
+def test_full_game_cannot_resize_outside_the_documented_session_range(client, monkeypatch, limit_gib):
+    configure_schema(client, monkeypatch, 2)
+    client[2]()
+    with pytest.raises(ValueError, match='guard ceiling'):
+        runtime.configured_session(kind='game', limit_gib=limit_gib, timeout=0)
+    assert client[3] == []
+
+
+def test_full_game_cannot_repair_a_profile_below_the_default_guard(client, monkeypatch):
+    configure_schema(client, monkeypatch, 2)
+    client[1]['profiles']['game']['resources']['memory_mib'] = 4096
+    client[1]['profiles']['game']['resources']['gpu_mib'] = 0
+    client[2]()
+    with pytest.raises(ValueError, match='smaller than the actual guard'):
+        runtime.configured_session(kind='game', limit_gib=12, timeout=0)
+    assert client[3] == []
 
 
 @pytest.mark.parametrize('schema', [1, 2])

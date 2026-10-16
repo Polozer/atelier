@@ -404,8 +404,14 @@ def test_profiles_cover_unchanged_workers_and_actual_guard(barrier, monkeypatch,
     assert result['resources']['memory_mib'] == 10240
     assert result['performance'] is exclusive
     assert command[-1] != '1000'  # Profiling never substitutes narrower worker arguments.
-    with pytest.raises(ValueError, match='actual guard ceiling'):
-        runtime.configured_session(kind=kind, command=command, limit_gib=14, timeout=60, config=config)
+    if kind == 'game':
+        larger = runtime.configured_session(kind=kind, command=command, limit_gib=14, timeout=60, config=config)
+        assert larger['resources'] == result['resources'] | {'memory_mib': 14336}
+        assert larger['locks'] == result['locks']
+        assert larger['performance'] is exclusive
+    else:
+        with pytest.raises(ValueError, match='actual guard ceiling'):
+            runtime.configured_session(kind=kind, command=command, limit_gib=14, timeout=60, config=config)
 
 
 def test_missing_client_cannot_restore_slots_after_seal(barrier, monkeypatch):
