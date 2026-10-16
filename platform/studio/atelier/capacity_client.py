@@ -14,6 +14,36 @@ from .capacity import Resources
 CapacityError = wire.CapacityError
 
 
+class CapacityQueued(CapacityError):
+    """A positive broker response says this uncharged request is waiting."""
+
+
+def wait_for_offer(admission, *, seconds=1800.):
+    """@cc [owner:fontanierh,label:safety] uncharged-capacity-wait
+    Only a positive queued response MAY retry admission, retaining this controller's request and nonce.
+    Waiting MUST hold no capacity, launch gate, child or legacy lock. Transport, policy, fencing and
+    other failures MUST propagate without retry or fallback. The wait MUST have a bounded deadline
+    and progress, and cancellation MUST unwind through the guard's normal queued-session close.
+    """
+    if type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 < seconds <= 1800:
+        raise ValueError('Capacity queue wait must be positive and at most 1800 seconds')
+    started = time.monotonic()
+    spoken = None
+    while True:
+        try:
+            return admission.offer()
+        except CapacityQueued:
+            now = time.monotonic()
+            if now - started >= seconds:
+                raise CapacityError('Capacity queue wait deadline reached; no resources held. '
+                                    'Rerunning the same job retains its ready age.') from None
+            if spoken is None or now - spoken >= 25:
+                print(f'Waiting for capacity: {now-started:.0f}/{seconds:.0f}s; '
+                      'broker queue active, no resources or child held', flush=True)
+                spoken = now
+            time.sleep(min(1., seconds - (now - started)))
+
+
 def _endpoint(path):
     path = Path(path)
     if not path.is_absolute():
@@ -156,7 +186,9 @@ class AdmissionSession:
         self.nonce, self.epoch = response['nonce'], response['epoch']
         self.boot = response['boot_id']
         if response.get('selected') is not True:
-            raise CapacityError('Capacity request remains queued without holding resources')
+            if response.get('selected') is False and response.get('state') == 'queued':
+                raise CapacityQueued('Capacity request remains queued without holding resources')
+            raise CapacityError('Capacity offer response is not a selected or queued request')
         return response
 
     def owned(self, candidates):

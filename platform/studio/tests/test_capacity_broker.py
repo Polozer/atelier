@@ -113,6 +113,29 @@ def test_retry_required_records_remain_durable_but_are_not_active_waiters(broker
     dormant.close()
 
 
+def test_normal_wait_keeps_ready_age_and_nonce_without_capacity_or_gate(broker, monkeypatch):
+    first, waiting = session(broker, 'short'), session(broker, 'waiting', seconds=600)
+    first.offer()
+    observed = []
+    def next_boundary(seconds):
+        report = client.status(broker.socket_path)
+        row = next(row for row in report['records'] if row['id'] == 'waiting')
+        assert report['charged_count'] == 0 and report['waiting_count'] == 2
+        assert row['state'] == 'queued' and not broker._gates
+        observed.append((row['first_ready'], waiting.nonce))
+        first.close()
+    monkeypatch.setattr(client.time, 'sleep', next_boundary)
+    try:
+        result = client.wait_for_offer(waiting, seconds=5)
+        assert len(observed) == 1
+        assert result['first_ready'] == observed[0][0] and waiting.nonce == observed[0][1]
+        assert result['selected'] is True and client.status(broker.socket_path)['charged_count'] == 0
+        assert not broker._gates
+    finally:
+        first.close()
+        waiting.close()
+
+
 def test_memory_pressure_does_not_query_disk_availability(short_path, monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, 'disk_usage', lambda *_: pytest.fail('disk used for admission'))

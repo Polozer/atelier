@@ -84,6 +84,14 @@ and parseable, and native identity/ownership checks still apply without retry. A
 persistent observation failure or unregistered native process refuses admission. Job durations, resource
 budgets, broker RPC deadlines and both memory guards are unchanged.
 
+Normal guarded commands wait automatically when the broker positively queues them. They refresh the
+same uncharged request once a second, retain its first-ready age, and print progress at least every 25 seconds.
+No child, launch gate, resources or legacy locks are held while waiting. The wait ends when selected,
+on cancellation, or after 30 minutes; rerunning the same job after the deadline retains its ready age.
+Broker/transport, policy and fencing failures still refuse immediately without retry or fallback.
+The queue wait happens before the normal launch/guard lifecycle and does not extend any RPC or child
+execution deadline. No board announcement or coordinator permission is required.
+
 Read board reservations as scheduling budgets, separately from measured process memory and host availability.
 Recovery pauses new grants; inspect the uncertain jobs and their owners, or the compatibility reason, rather than
 treating the warning as spare capacity. Optional I/O tokens are a contention budget, not disk-space protection.
