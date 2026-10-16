@@ -113,6 +113,8 @@ def recovery_inputs(ctx):
     configurations = recovery_config_inputs(ctx)
     dotnet = recovery_dotnet_input(ctx)
     selection = recovery_tool_selection()
+    sdkroot = recovery_sdkroot()
+    selection['environment_sdkroot'] = str(sdkroot) if sdkroot is not None else None
     developer = Path(selection['developer'])
     toolchains = list(map(Path, selection['toolchains']))
     sdks = [Path(sdk['path']) for sdk in selection['sdks'].values()]
@@ -123,6 +125,8 @@ def recovery_inputs(ctx):
              developer.parent, *sdks, *toolchains, *tools,
              ctx.game_dir / 'build.py', Path(__file__), paths.REPO / 'uv.lock']
     roots.extend(configurations)
+    if sdkroot is not None:
+        roots.append(sdkroot)
     roots.extend([*recovery_shell_hooks(ctx), Path('/System/Library/CoreServices/SystemVersion.plist')])
     # Cook-all can consume engine plugin content/config and prebuilt native modules.
     for plugins in (ctx.unreal_root / 'Engine/Plugins', paths.ENGINE_PLUGINS, ctx.game_dir / 'unreal/Plugins'):
@@ -139,7 +143,8 @@ def recovery_inputs(ctx):
     roots.extend(p for p in sorted((ctx.game_dir / 'unreal/Binaries/Mac').glob('UnrealEditor*'))
                  if p.suffix in ('.dylib', '.modules', '.target'))
     roots.append(ctx.game_dir / 'unreal/Binaries/Mac' / (ctx.uproject.stem + 'Editor.target'))
-    return NativeCookInputs(roots, [ctx.unreal_root / 'Engine', developer.parent, *sdks, *toolchains],
+    return NativeCookInputs(roots, [ctx.unreal_root / 'Engine', developer.parent, *sdks, *toolchains,
+                                   *([sdkroot] if sdkroot is not None else [])],
                             dict(**selection, dotnet=str(dotnet)), [dotnet])
 
 
@@ -148,9 +153,24 @@ def recovery_shell_hooks(ctx):
     return [Path.home() / '.unrealrc', ctx.unreal_root / 'Engine/.unrealrc', Path.home() / '.config/.autosdk']
 
 
+def recovery_sdkroot():
+    """An explicit SDKROOT remains an exact input, including its complete selected SDK bytes."""
+    from pathlib import Path
+    value = os.environ.get('SDKROOT')
+    if value is None:
+        return None
+    selected = Path(value)
+    if not selected.is_absolute() or not selected.is_dir():
+        raise RuntimeError('Cook recovery needs SDKROOT to select an existing absolute .sdk directory')
+    selected = selected.resolve(strict=True)
+    if selected.suffix != '.sdk':
+        raise RuntimeError('Cook recovery needs SDKROOT to select an existing absolute .sdk directory')
+    return selected
+
+
 def recovery_default_policy(ctx):
     """Recovery supports default tools only; never source or sanitize unknown launch hooks."""
-    names = {'DEVELOPER_DIR', 'TOOLCHAINS', 'SDKROOT', 'BASH_ENV', 'ENV', 'UE-CmdLineArgs',
+    names = {'DEVELOPER_DIR', 'TOOLCHAINS', 'BASH_ENV', 'ENV', 'UE-CmdLineArgs',
              'CDPATH', 'IFS', 'BASHOPTS', 'SHELLOPTS', 'POSIXLY_CORRECT',
              'UE_DOTNET_DIR', 'UE_USE_SYSTEM_DOTNET', 'UE_SDKS_ROOT', 'MSBuildSDKsPath', 'MSBuildExtensionsPath'}
     unsupported = sorted(name for name in os.environ if name in names
@@ -163,6 +183,7 @@ def recovery_default_policy(ctx):
                            + ', '.join(unsupported))
     if any(path.exists() or path.is_symlink() for path in recovery_shell_hooks(ctx)):
         raise RuntimeError('Cook recovery does not support .unrealrc or .autosdk startup hooks')
+    recovery_sdkroot()  # Reject unsupported selectors before removing an earlier archive.
 
 
 def recovery_dotnet_input(ctx):

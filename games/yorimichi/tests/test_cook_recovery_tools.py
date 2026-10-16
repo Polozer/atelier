@@ -70,7 +70,7 @@ def selection(tmp_path, monkeypatch):
                            executables=executables, libraries=libraries, calls=calls, output=output, dotnet=dotnet, system=system)
 
 
-@pytest.mark.parametrize('name', ['DEVELOPER_DIR', 'TOOLCHAINS', 'SDKROOT', 'BASH_ENV', 'ENV', 'UE-CmdLineArgs',
+@pytest.mark.parametrize('name', ['DEVELOPER_DIR', 'TOOLCHAINS', 'BASH_ENV', 'ENV', 'UE-CmdLineArgs',
     'UE_DOTNET_DIR', 'UE_USE_SYSTEM_DOTNET', 'UE_SDKS_ROOT', 'UE_AUTOSDK_SPECIFIC_LEVELS', 'DOTNET_ROOT',
     'COREHOST_TRACEFILE', 'CORECLR_ENABLE_PROFILING', 'COMPlus_AltJitName', 'DYLD_INSERT_LIBRARIES',
     'MSBuildSDKsPath', 'MSBuildExtensionsPath', 'MSBUILD_EXE_PATH', 'NUGET_PLUGIN_PATHS',
@@ -98,6 +98,31 @@ def test_startup_hooks_refuse_before_deletion(selection, hook, kind):
     with pytest.raises(RuntimeError, match='startup hooks'):
         cook.prepare(ctx, io.StringIO())
     assert archive.is_dir() and not selection.calls
+
+
+@pytest.mark.parametrize('value', ['', 'macosx', '/missing/SDK.sdk'])
+def test_unsupported_sdkroot_refuses_before_deleting_archive(selection, monkeypatch, value):
+    monkeypatch.setenv('SDKROOT', value)
+    archive = selection.ctx.out / 'package/archive/old.app'; archive.mkdir(parents=True)
+    with pytest.raises(RuntimeError, match='SDKROOT.*absolute .sdk directory'):
+        selection.cook.prepare(selection.ctx, io.StringIO())
+    assert archive.is_dir() and not selection.calls
+
+
+def test_explicit_sdkroot_is_selected_and_its_complete_bytes_are_inputs(selection, monkeypatch):
+    sdk = selection.ctx.out / 'Other.sdk'; sdk.mkdir(parents=True)
+    header = sdk / 'usr/include/version.h'; header.parent.mkdir(parents=True); header.write_bytes(b'first')
+    alias = selection.ctx.out / 'Current.sdk'; alias.symlink_to(sdk)
+    monkeypatch.setenv('SDKROOT', str(alias))
+    result = selection.cook.recovery_inputs(selection.ctx)
+    assert result.selection['environment_sdkroot'] == str(sdk)
+    assert sdk in result.roots and sdk in result.link_owners
+    before = recovery.inventory([sdk], hashes=True)
+    header.write_bytes(b'second')
+    assert recovery.inventory([sdk], hashes=True) != before
+    other = selection.ctx.out / 'Third.sdk'; other.mkdir()
+    alias.unlink(); alias.symlink_to(other)
+    assert selection.cook.recovery_inputs(selection.ctx).selection['environment_sdkroot'] != result.selection['environment_sdkroot']
 
 
 def test_nonrecording_prepare_uses_no_new_policy_or_tool_discovery(selection, monkeypatch):

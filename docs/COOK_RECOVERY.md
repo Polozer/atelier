@@ -23,6 +23,10 @@ shell startup hooks (`.unrealrc`, `.autosdk`), command-line injection, SDK/.NET/
 UnrealBuildTool environment configuration overrides and PATH-shadowed selectors. These checks run
 before an old archive is removed and again at every input checkpoint; the ordinary nonrecording build
 does not acquire these restrictions. Refusals name environment keys without disclosing their values.
+An existing absolute `.sdk` directory selected through `SDKROOT` is supported: its exact environment
+value, resolved selection and complete SDK bytes join the input proof. A redirected SDK link or changed
+SDK content refuses recovery. Empty, relative or missing SDK selectors refuse before removing an archive;
+recording never silently unsets `SDKROOT` or substitutes another SDK.
 The opted-in launcher first runs a small Python capture adapter inside the normal charged admission and
 both memory guards, then `exec`s the original UAT command in that same PID. Normal guard polling, capacity
 heartbeats and the original timeout stay active during capture. There is no second lock or ungated UAT.
