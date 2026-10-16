@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from atelier import build
+from atelier import build, build_inputs
 from test_volcano_layers import RECIPE
 
 
@@ -135,6 +135,9 @@ def test_recipe_keeps_generator_code_and_existing_unreal_cutoffs(tmp_path):
         assert cutoff.cutoff and not cutoff.heavy and cutoff.needs == ['world.hidamari']
         assert 'world.hidamari' not in consumer.needs and cutoff.name in consumer.needs
         assert consumer.commands[0].script in consumer.inputs
+        closure = set(build_inputs.local_imports(consumer.commands[0].script, (RECIPE.WORLD, RECIPE.REGIONS)))
+        assert closure <= set(consumer.inputs)  # Test the assembled recipe, after its ImportScanner pass.
         assert steps[consumer.name + '.meshes'].needs == [consumer.name]
     assert RECIPE.REGIONS/'hidamari/arcade.py' in steps['world.city_trees'].inputs
     assert RECIPE.REGIONS/'hidamari/plaza.py' in steps['world.city_trees'].inputs
+    assert RECIPE.REGIONS/'village/build.py' in steps['world.city_trees'].inputs
