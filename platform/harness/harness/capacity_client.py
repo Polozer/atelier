@@ -19,6 +19,15 @@ class CapacityQueued(CapacityError):
     """A positive broker response says this uncharged request is waiting."""
 
 
+class CapacityOfferLost(CapacityError):
+    """A fenced broker response positively denies GO for this pending gate child."""
+    def __init__(self, session):
+        super().__init__('Capacity selection changed before GO; launch gate closed without execution')
+        self.session = session
+        self.child = session.child
+        self.cleanup = None
+
+
 class CapacityTransportError(CapacityError):
     """A transient transport failure; whether the broker acted is unknown."""
 
@@ -179,6 +188,21 @@ class AdmissionSession:
         self.child = None
         self.closed = False
         self._acknowledged = set()
+        self._requeue_fence = None
+
+    def requeue_after(self, previous):
+        """@cc [owner:fontanierh,label:safety] fenced-requeue-configuration
+        A renewed automatic launch MUST retain the exact request, endpoint, guard ceiling and
+        compatibility binding. Its first offer MUST carry and verify the previous epoch/boot;
+        a restart or changed configuration MUST refuse rather than rebind or grant work.
+        The guard caller MUST first establish no-GO, owned cleanup and uncharged close.
+        """
+        fields = ('socket_path', 'request', 'timeout', 'cutover', 'mode', 'seal_policy_sha256',
+                  'activation_id', '_guard_limit_gib')
+        if (not previous.closed or previous.nonce is None or self.nonce is not None
+                or any(getattr(self, field) != getattr(previous, field) for field in fields)):
+            raise CapacityError('Capacity requeue configuration changed')
+        self._requeue_fence = (previous.epoch, previous.boot)
 
     @property
     def guard_limit_gib(self):
@@ -209,7 +233,11 @@ class AdmissionSession:
         if self.closed:
             raise CapacityError('Capacity session is closed')
         response, _ = self._response(*_session_rpc(self.socket_path, {'action': 'offer', 'request': self.request,
-                                            **self._fence(), **({'nonce': self.nonce} if self.nonce else {})}, self.timeout))
+                                            **self._fence(), **({'nonce': self.nonce} if self.nonce else {}),
+                                            **(dict(epoch=self._requeue_fence[0], boot_id=self._requeue_fence[1])
+                                               if self._requeue_fence else {})}, self.timeout))
+        if self._requeue_fence is not None and (response.get('epoch'), response.get('boot_id')) != self._requeue_fence:
+            raise CapacityError('Capacity requeue response was fenced by restart')
         if self.nonce is not None and (response.get('nonce'), response.get('epoch'), response.get('boot_id')) != (
                 self.nonce, self.epoch, self.boot):
             raise CapacityError('Capacity offer was fenced by a session or broker change')
@@ -248,6 +276,13 @@ class AdmissionSession:
         self.child = wire.identity((child_pid, child_start))
         response, _ = self._call('start', child=list(self.child), process_guard=process_guard,
                                  tree_guard=tree_guard, limit_bytes=limit_bytes)
+        if response.get('no_go') is True:
+            if (response.get('state') != 'queued' or response.get('admission') is not False
+                    or response.get('reason') != 'selection-changed' or response.get('nonce') != self.nonce
+                    or response.get('epoch') != self.epoch or response.get('boot_id') != self.boot
+                    or wire.identity(response.get('child')) != self.child):
+                raise CapacityError('Capacity no-GO response is incomplete or fenced')
+            raise CapacityOfferLost(self)
         self._healthy(response)
         self._acknowledged.add(self.child)
         return response

@@ -89,6 +89,15 @@ same uncharged request once a second, retain its first-ready age, and print prog
 No child, launch gate, resources or legacy locks are held while waiting. The wait ends when selected,
 on cancellation, or after 30 minutes; rerunning the same job after the deadline retains its ready age.
 Policy, protocol, ownership and fencing failures still refuse immediately without fallback.
+If a selected offer loses its turn before GO, a current broker can positively report
+`selection-changed` for that exact pending gate child. An automatic full-capacity launcher may
+return to the queue only after its owned child is reaped, its bound aggregate terminal confirms
+empty cleanup, and close affirmatively confirms the request is uncharged. It keeps the same
+request and ready age, allows at most two such requeues within the original 30-minute admission
+budget, and refuses a changed profile or broker epoch/boot. Each denied attempt's receipts are
+retained under `lost-offer-*` in the guard directory. This does not replay start: every new attempt
+has a fresh gate and undergoes the normal admission checks. Explicit sessions, generic refusals,
+transport failures and incomplete cleanup do not use this recovery.
 The queue wait happens before the normal launch/guard lifecycle and does not extend any RPC or child
 execution deadline. No board announcement or coordinator permission is required.
 
@@ -103,7 +112,8 @@ caller; reconciliation never clears an uncertain reservation or grants local fal
 On an admitted launch failure, the launcher reaps its owned workload, waits once for its existing
 aggregate monitor's bounded terminal settlement, and only then asks the broker to close the reservation.
 This keeps a late post-drain receipt from racing the close. A failed command remains failed, and a failed
-monitor still fails the job. A refused broker release retains its reservation. Cleanup authorizes no new launch.
+monitor still fails the job. A refused broker release retains its reservation. Cleanup alone authorizes
+no new launch; a recovered pre-GO attempt must obtain fresh normal admission.
 
 Read board reservations as scheduling budgets, separately from measured process memory and host availability.
 Recovery pauses new grants; inspect the uncertain jobs and their owners, or the compatibility reason, rather than
