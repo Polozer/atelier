@@ -74,6 +74,8 @@ another native process. Linked files, changed batch plans and concurrent edits r
 that appears after preparation fails in the importer. A valid file tag does not prove a valid body:
 deeper corruption and invalid-header LOD1+ mesh packages still fail normally. No failure restores old certificates or
 certifies a partial replacement. Fresh imports explicitly retain the legacy lightmap resolution 4 and UV channel 0.
+If a later batch owner's preparation fails, earlier preserved packages stay missing with their bytes retained;
+the next ordinary build rebuilds those owners instead of restoring their old certificates.
 
 `import_trunk_collision` is an explicit native policy, separate from the FBX's authored UCX geometry and the
 `collision` trace flag. Every current specification disables it: the read-only native baseline measured zero
