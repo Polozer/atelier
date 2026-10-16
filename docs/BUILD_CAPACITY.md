@@ -74,6 +74,16 @@ the broker applies the same scoped checks and records the evidence hash and pres
 Do not clear the database or locks, restart a live broker, drop the client environment, or launch through another
 path. Ask the operator for help when the documented recovery cannot establish a safe next step.
 
+Before the launcher's start RPC, a transient process-observation error retries once automatically. The
+broker actor keeps its existing single-shot observation and never performs this retry. Each complete
+snapshot attempt retains its two-second bound and owned-observer cleanup; if the first observer's exit is
+pending, one additional one-second wait must positively settle it before another observer starts. An attempt
+can also spend at most one second reaping its own killed observer, so the worst-case preflight is bounded
+by seven seconds. No useful child starts during this retry. The second observation must be fresh, complete
+and parseable, and native identity/ownership checks still apply without retry. An unsettled observer,
+persistent observation failure or unregistered native process refuses admission. Job durations, resource
+budgets, broker RPC deadlines and both memory guards are unchanged.
+
 Read board reservations as scheduling budgets, separately from measured process memory and host availability.
 Recovery pauses new grants; inspect the uncertain jobs and their owners, or the compatibility reason, rather than
 treating the warning as spare capacity. Optional I/O tokens are a contention budget, not disk-space protection.
