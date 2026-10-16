@@ -305,7 +305,7 @@ def cook_step(ctx, steps):
                 [Call('prepare_cook', package_cook.prepare), UnrealPackage('Yorimichi', out / 'package' / 'archive'),
                  Call('certify_cook', package_cook.finish)],
                 inputs=[SOURCE, ctx.uproject, paths.ENGINE_PLUGINS, GAME / 'unreal' / 'Config', TOOLS / 'package_cook.py', *engine_inputs],
-                needs=[s.name for s in steps if s.name.startswith('unreal.')] + ['data.stage', 'data.network'], heavy=True, explicit=True,
+                needs=[s.name for s in steps if s.name.startswith('unreal.') and not s.explicit] + ['data.stage', 'data.network'], heavy=True, explicit=True,
                 outputs=[out / 'package' / 'cook.json'], verify=lambda: package_cook.cook_present(out / 'package'),
                 cook_recovery=CookRecovery(package_cook.source_snapshot, package_cook.finish, package_cook.recovery_inputs),
                 about='cook the macOS app once and certify its source and immutable archived files')
@@ -515,26 +515,16 @@ def hippodrome_steps(out):
     ]
 
 
+TRAIN_VEHICLES = ('locomotive', 'tender', 'baggage-van', 'restaurant', 'first-class', 'second-class', 'brake-van')
+TRAIN_FURNITURE = tuple(a['id'] for a in json.loads((ASSETS / 'vehicles/belmonte-train/planning/furniture-dimensions.json').read_text())['assets'])
+
+
 def belmonte_train_corridor(out):
     """The railway corridor the region planting clears (world/train/corridor.py reads the route): inputs of the steps
-    that plant trees, so a new route clears them again. line.json (geometry only, written by the route step) is listed
-    once the explicit route step has made it; route.json also counts trees, so depending on it would loop."""
+    that plant trees, so a new route clears them again. line.json (geometry only, written by the route step) carries
+    an explicit absent identity when missing, so its appearance, removal and content changes invalidate consumers."""
     line = out / 'belmonte-train' / 'route' / 'line.json'
-    return [WORLD / 'train' / 'corridor.py', WORLD / 'train' / 'earthworks.py', *([line] if line.exists() else [])]
-
-
-def belmonte_train_sources(out):
-    """The Train Builder's outputs the service data reads (present ones: they are built by explicit steps)."""
-    train = out / 'belmonte-train'
-    return sorted([p for p in [train / 'route' / 'route.json', train / 'assembly' / 'consist.json'] if p.exists()]
-                  + list(train.glob('*/*-placements.json')) + list((train / 'furniture').glob('*.json')))
-
-
-def belmonte_train_meshes(out):
-    """The vehicle and furniture GLBs unreal.belmonte_train imports."""
-    train = out / 'belmonte-train'
-    return sorted(list(train.glob('*/SM_BT_*_LOD[0-9].glb')) + list((train / 'furniture').glob('*.glb'))
-                  + list((train / 'furniture' / 'lod').glob('*')))
+    return [WORLD / 'train' / 'corridor.py', WORLD / 'train' / 'earthworks.py', line]
 
 
 def belmonte_steps(out):
@@ -739,55 +729,86 @@ def world_steps(ctx):
              inputs=[ASSETS / 'vehicles' / 'kei', REGIONS / 'village' / 'build.py'],
              outputs=[out / 'kei' / 'manifest.json'], about='the four kei cars in the Mega Park car park', heavy=True),
         # the Belmonte train's coach shells are not in the game yet: build them only when named
-        Step('world.belmonte_train', [Blender(WORLD / 'train' / 'build.py', threads=4)],
-             inputs=[WORLD / 'train', ASSETS / 'vehicles' / 'belmonte-train' / 'planning', YORI],
-             outputs=[out / 'belmonte-train' / 'manifest.json'], explicit=True,
+        Step('world.belmonte_train', [Blender(WORLD / 'train' / 'build.py', threads=3)],
+             inputs=[WORLD / 'train', ASSETS / 'vehicles' / 'belmonte-train' / 'planning',
+                     ASSETS / 'vehicles' / 'belmonte-train' / 'textures',
+                     *(out / 'belmonte-train' / 'furniture' / f'{a}.glb' for a in TRAIN_FURNITURE), YORI],
+             outputs=[out / 'belmonte-train' / 'manifest.json',
+                      *(out / 'belmonte-train' / v / f'{v}-placements.json' for v in TRAIN_VEHICLES)],
+             heavy=True, explicit=True,
              about='Belmonte train: restaurant and first-class coach shells, collision, reservations, placements'),
         Step('world.belmonte_train_plan', [Python(WORLD / 'train' / 'plan.py')],
              inputs=[WORLD / 'train' / 'plan.py', WORLD / 'train' / 'layout.py', ASSETS / 'vehicles' / 'belmonte-train' / 'planning'],
              outputs=[out / 'belmonte-train' / 'plan' / 'section.svg'], explicit=True, about='Belmonte train dimensioned plans (SVG)'),
         Step('world.belmonte_train_assembly', [Python(WORLD / 'train' / 'consist.py')],
-             inputs=[WORLD / 'train' / 'consist.py', WORLD / 'train' / 'viewer.html'], needs=['world.belmonte_train'], explicit=True,
+             inputs=[WORLD / 'train' / 'consist.py', WORLD / 'train' / 'layout.py', WORLD / 'train' / 'viewer.html',
+                     ASSETS / 'vehicles' / 'belmonte-train' / 'planning', out / 'belmonte-train' / 'furniture',
+                     *(out / 'belmonte-train' / v for v in TRAIN_VEHICLES)],
+             needs=['world.belmonte_train'], explicit=True,
              outputs=[out / 'belmonte-train' / 'assembly' / 'consist.json'], about='Belmonte train assembly: consist.json, GLBs and the viewer page'),
-        Step('world.belmonte_train_review', [Blender(WORLD / 'train' / 'render.py', threads=6)],
-             inputs=[WORLD / 'train' / 'render.py'], needs=['world.belmonte_train'], heavy=True, explicit=True,
+        Step('world.belmonte_train_review', [Blender(WORLD / 'train' / 'render.py', threads=3)],
+             inputs=[WORLD / 'train' / 'render.py', WORLD / 'train' / 'layout.py',
+                     ASSETS / 'vehicles' / 'belmonte-train' / 'planning',
+                     *(out / 'belmonte-train' / v for v in TRAIN_VEHICLES)],
+             needs=['world.belmonte_train'], heavy=True, explicit=True,
              outputs=[out / 'belmonte-train' / 'review' / 'consist-profile.png'],
              about='Belmonte train control renders (white background)'),
         # the Belmonte railway: the route study, then the track it lays (not in the game until imported; built only when named)
         Step('world.belmonte_train_route', [Python(WORLD / 'train' / 'route.py')],
-             inputs=[WORLD / 'train' / 'route.py', WORLD / 'train' / 'corridor.py'], needs=['world.layout', 'world.hidamari', 'world.belmonte'], explicit=True,
+             inputs=[WORLD / 'train' / 'route.py', WORLD / 'train' / 'corridor.py', *CRATERPARK, *NORTH_LAYOUT,
+                     REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py',
+                     REGIONS / 'belmonte' / 'layout.py', REGIONS / 'belmonte' / 'source.py', REGIONS / 'belmonte' / 'terrain.py',
+                     ASSETS / 'belmonte'],
+             needs=['world.layout', 'world.hidamari', 'world.belmonte'], explicit=True,
              outputs=[out / 'belmonte-train' / 'route' / 'route.json', out / 'belmonte-train' / 'route' / 'line.json',
                       out / 'belmonte-train' / 'route' / 'terrain_mask.json'],
              about='Belmonte railway route study: alignment, profile, structures, timetable (route.json, plan and profile)'),
-        Step('world.belmonte_track', [Blender(WORLD / 'train' / 'track_build.py', threads=4)],
-             inputs=[WORLD / 'train' / 'track.py', WORLD / 'train' / 'track_build.py', WORLD / 'train' / 'earthworks.py'], needs=['world.belmonte_train_route'],
-             explicit=True, outputs=[out / 'belmonte-track' / 'track.json', out / 'belmonte-track' / 'manifest.json'],
+        Step('world.belmonte_track', [Blender(WORLD / 'train' / 'track_build.py', threads=3)],
+             inputs=[WORLD / 'train' / 'track.py', WORLD / 'train' / 'track_build.py', WORLD / 'train' / 'earthworks.py',
+                     WORLD / 'train' / 'corridor.py', *CRATERPARK, *NORTH_LAYOUT,
+                     REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py',
+                     REGIONS / 'belmonte' / 'layout.py', REGIONS / 'belmonte' / 'source.py', REGIONS / 'belmonte' / 'terrain.py',
+                     ASSETS / 'belmonte' / 'source.json',
+                     *(ASSETS / 'belmonte' / entry['path'] for entry in json.loads((ASSETS / 'belmonte/source.json').read_text())['meshes']
+                       if entry['name'].startswith('SM_BM_BT_Terrain_')),
+                     out / 'belmonte-train' / 'route' / 'route.json', out / 'belmonte-train' / 'route' / 'line.json'],
+             needs=['world.belmonte_train_route'],
+             heavy=True, explicit=True, outputs=[out / 'belmonte-track' / 'track.json', out / 'belmonte-track' / 'manifest.json'],
              about='Belmonte railway track: ballast and rail chunks, sleepers, loop, turnouts, buffer stops, tunnels, viaduct (GLBs + track.json)'),
-        Step('world.belmonte_track_review', [Blender(WORLD / 'train' / 'track_render.py', threads=6)],
-             inputs=[WORLD / 'train' / 'track_render.py'], needs=['world.belmonte_track'], heavy=True, explicit=True,
+        Step('world.belmonte_track_review', [Blender(WORLD / 'train' / 'track_render.py', threads=3)],
+             inputs=[WORLD / 'train' / 'track_render.py', WORLD / 'train' / 'track.py', WORLD / 'train' / 'track_build.py',
+                     out / 'belmonte-track' / 'track.json', out / 'belmonte-track' / 'meshes'],
+             needs=['world.belmonte_track'], heavy=True, explicit=True,
              outputs=[out / 'belmonte-track' / 'review' / 'viaduct.png'], about='Belmonte railway track control renders'),
-        Step('world.belmonte_train_furniture_lods', [Blender(WORLD / 'train' / 'lod_furniture.py', threads=6)],
+        Step('world.belmonte_train_furniture_lods', [Blender(WORLD / 'train' / 'lod_furniture.py', threads=3)],
              inputs=[WORLD / 'train' / 'lod_furniture.py', WORLD / 'train' / 'budgets.py',
-                     *sorted((out / 'belmonte-train' / 'furniture').glob('*.glb'))], heavy=True, explicit=True,
+                     ASSETS / 'vehicles' / 'belmonte-train' / 'planning',
+                     *(out / 'belmonte-train' / 'furniture' / f'{a}.glb' for a in TRAIN_FURNITURE)],
+             heavy=True, explicit=True,
              outputs=[out / 'belmonte-train' / 'furniture' / 'lod' / 'summary.json'],
              about='Belmonte train furniture: LOD0/LOD1 decimated from the fitted Tripo meshes, maps baked (Cycles)'),
-        Step('world.belmonte_train_furniture_review', [Blender(WORLD / 'train' / 'review_lods.py', threads=6),
+        Step('world.belmonte_train_furniture_review', [Blender(WORLD / 'train' / 'review_lods.py', threads=3),
                                                        Python(WORLD / 'train' / 'review_sheets.py')],
-             inputs=[WORLD / 'train' / 'review_lods.py', WORLD / 'train' / 'review_sheets.py', WORLD / 'train' / 'render.py'],
+             inputs=[WORLD / 'train' / 'review_lods.py', WORLD / 'train' / 'review_sheets.py', WORLD / 'train' / 'render.py',
+                     WORLD / 'train' / 'budgets.py', WORLD / 'train' / 'layout.py',
+                     ASSETS / 'vehicles' / 'belmonte-train' / 'planning', out / 'belmonte-train' / 'furniture',
+                     *(out / 'belmonte-train' / v for v in TRAIN_VEHICLES)],
              needs=['world.belmonte_train', 'world.belmonte_train_furniture_lods'], heavy=True, explicit=True,
              outputs=[out / 'belmonte-train' / 'review-perf' / 'second-class-saloon.png'],
              about='Belmonte train furniture LODs: before/after renders, assets and furnished interiors'),
         # The watch-only trains on the map: the service data (line, consist, timetable) from the route and the consist,
         # then the vehicles and furniture in Unreal (unreal.belmonte_train). Explicit until the train is in the game.
         Step('world.belmonte_train_service', [Python(TOOLS / 'belmonte_train_service.py')],
-             inputs=[TOOLS / 'belmonte_train_service.py', *belmonte_train_sources(out)],
+             inputs=[TOOLS / 'belmonte_train_service.py', TOOLS / 'gltf_subset.py',
+                     out / 'belmonte-train' / 'route' / 'route.json', out / 'belmonte-train' / 'assembly' / 'consist.json',
+                     out / 'belmonte-train' / 'furniture', *(out / 'belmonte-train' / v for v in TRAIN_VEHICLES)],
+             needs=['world.belmonte_train_route', 'world.belmonte_train', 'world.belmonte_train_assembly'],
              outputs=[out / 'belmonte-train' / 'service' / 'service.json'], explicit=True,
              about='Belmonte train service: line, loop, consist, collision boxes and timetable for Unreal'),
         # The railway's track for Unreal (unreal.belmonte_track): the Train Builder's track.json in Unreal units.
         Step('world.belmonte_track_data', [Python(TOOLS / 'belmonte_track_data.py')],
-             inputs=[TOOLS / 'belmonte_track_data.py', *[p for p in [out / 'belmonte-track' / 'track.json'] if p.exists()]],
-             # Like the service data, it reads the Train Builder's built track (an explicit step of theirs) as a file
-             # rather than needing it: a terrain or region change does not rebuild the railway for the game.
+             inputs=[TOOLS / 'belmonte_track_data.py', out / 'belmonte-track' / 'track.json', out / 'belmonte-track' / 'meshes'],
+             needs=['world.belmonte_track'],
              outputs=[out / 'belmonte-track' / 'runtime' / 'track.json'], explicit=True,
              about='Belmonte track runtime data: pieces, instances, tunnel lights and exposure boxes in Unreal units'),
         Step('world.map', [Python(WORLD / 'map' / 'build_map.py')],
@@ -963,14 +984,21 @@ def unreal_steps(ctx):
              needs=['unreal.world', 'audio.footsteps', 'audio.combat', 'audio.skate', 'audio.bike'], heavy=True, about='footstep library, combat, skate and bike sounds'),
         Step('unreal.belmonte_train', [UnrealScript(SCRIPTS / 'import_belmonte_train.py', 'BELMONTE TRAIN IMPORT COMPLETE', null_rhi=True,
                                                    args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
-             inputs=[SCRIPTS / 'import_belmonte_train.py', *belmonte_train_meshes(out)], needs=['world.belmonte_train_service'],
+             inputs=[SCRIPTS / 'import_belmonte_train.py',
+                     SOURCE / 'Yorimichi' / 'BelmonteTrainService.h', SOURCE / 'Yorimichi' / 'BelmonteTrainService.cpp',
+                     out / 'belmonte-train' / 'manifest.json', out / 'belmonte-train' / 'service' / 'service.json',
+                     out / 'belmonte-train' / 'service' / 'glb', out / 'belmonte-train' / 'furniture',
+                     *(out / 'belmonte-train' / v for v in TRAIN_VEHICLES)],
+             needs=['world.belmonte_train', 'world.belmonte_train_service'],
              after=['unreal.compile'], heavy=True, explicit=True,
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'belmonte_train' / 'service.json', out / 'belmonte-train' / 'service' / 'import-report.json'],
              about='/Game/BelmonteTrain: the train vehicles (3 LODs, box collision) and furniture, and the service data'),
         Step('unreal.belmonte_track', [UnrealScript(SCRIPTS / 'import_belmonte_track.py', 'BELMONTE TRACK IMPORT COMPLETE', null_rhi=True,
                                                    args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
-             inputs=[SCRIPTS / 'import_belmonte_track.py', *sorted((out / 'belmonte-track' / 'meshes').glob('*.glb'))],
-             needs=['world.belmonte_track_data'], after=['unreal.compile'], heavy=True, explicit=True,
+             inputs=[SCRIPTS / 'import_belmonte_track.py', out / 'belmonte' / 'build-report.json',
+                     out / 'belmonte-track' / 'runtime' / 'track.json', out / 'belmonte-track' / 'meshes'],
+             needs=['world.belmonte_track', 'world.belmonte_track_data', 'world.belmonte.meshes', 'unreal.belmonte'],
+             after=['unreal.compile'], heavy=True, explicit=True,
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'belmonte_track' / 'track.json', out / 'belmonte-track' / 'runtime' / 'import-report.json'],
              about='/Game/BelmonteTrack: track chunks, loop, turnouts, buffers, tunnel linings and portals, viaduct, banks, lamps'),
         Step('unreal.fx', [UnrealScript(SCRIPTS / 'import_combat_fx.py', 'COMBAT FX IMPORT COMPLETE')],

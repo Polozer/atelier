@@ -245,6 +245,9 @@ def atlas_key(c, furniture_dir):
     here = Path(__file__).resolve().parent
     for name in ATLAS_SOURCES:
         h.update((here / name).read_bytes())
+    from train import textures as T
+    for tex in sorted(T.SOURCES.glob('*.jpg')):
+        h.update(tex.name.encode() + tex.read_bytes())
     h.update(L.CONTRACT.read_bytes())
     h.update(json.dumps(L.as_dict(c), sort_keys=True, default=str).encode())
     for asset in sorted({p.asset for p in c.placements}):

@@ -97,7 +97,7 @@ def line_data(route):
 
 def load(path=None):
     """The corridor of the built route, or None before world.belmonte_train_route has run."""
-    for p in ([path] if path else [LINE, ROUTE]):
+    for p in ([path] if path else [LINE]):
         try:
             return Corridor(json.loads(p.read_text()))
         except (OSError, ValueError, KeyError):

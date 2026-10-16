@@ -31,6 +31,7 @@ The study, in order:
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[1])); import yori  # noqa: E402,F401
 import argparse
+import hashlib
 import json
 import math
 from dataclasses import dataclass
@@ -428,9 +429,11 @@ class Raster:
         x0, y0, x1, y1 = self.bounds
         self.xs = np.arange(x0, x1 + step / 2, step)
         self.ys = np.arange(y0, y1 + step / 2, step)
+        digest = self._source_digest() if cache is not None else ''
         if cache is not None and cache.exists():
             data = np.load(cache)
-            if tuple(data['bounds']) == self.bounds and float(data['step']) == self.step:
+            if (tuple(data['bounds']) == self.bounds and float(data['step']) == self.step
+                    and 'source_sha256' in data.files and str(data['source_sha256']) == digest):
                 self.z = data['z']
                 return
         gx, gy = np.meshgrid(self.xs, self.ys)
@@ -440,7 +443,31 @@ class Raster:
             print(f'  ground raster rows {min(row + 40, gx.shape[0])}/{gx.shape[0]}', flush=True)
         if cache is not None:
             cache.parent.mkdir(parents=True, exist_ok=True)
-            np.savez_compressed(cache, z=self.z, bounds=np.array(self.bounds), step=self.step)
+            np.savez_compressed(cache, z=self.z, bounds=np.array(self.bounds), step=self.step, source_sha256=digest)
+
+    @staticmethod
+    def _source_digest():
+        h = hashlib.sha256()
+        regions = Path(__file__).resolve().parents[1] / 'regions'
+        files = [
+            Path(__file__).resolve(),
+            regions / 'hidamari' / 'layout.py',
+            regions / 'hidamari' / 'mountains.py',
+            regions / 'belmonte' / 'layout.py',
+            regions / 'belmonte' / 'source.py',
+            regions / 'belmonte' / 'terrain.py',
+            yori.ASSETS / 'belmonte' / 'source.json',
+            yori.OUT / 'world.json',
+            yori.OUT / 'heightmap.npy',
+            yori.OUT / 'farhills.npy',
+            yori.OUT / 'belmonte' / 'natural' / 'SM_BM_NorthApron.glb',
+            yori.OUT / 'belmonte' / 'natural' / 'SM_BM_NorthCountry.glb',
+            yori.OUT / 'belmonte' / 'glb' / 'SM_BM_NorthApron.glb',
+            yori.OUT / 'belmonte' / 'glb' / 'SM_BM_NorthCountry.glb',
+        ]
+        for p in files:
+            h.update(str(p.name).encode() + (p.read_bytes() if p.is_file() else b'missing'))
+        return h.hexdigest()
 
     def __call__(self, x, y):
         return _bilinear(self.z, (np.asarray(x) - self.bounds[0]) / self.step, (np.asarray(y) - self.bounds[1]) / self.step)

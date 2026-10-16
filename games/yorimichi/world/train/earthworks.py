@@ -187,12 +187,10 @@ def line():
     """The built line, or None (no line.json yet, or RAILWAY_EARTHWORKS=0)."""
     if not ENABLED:
         return None
-    for path in (C.LINE, C.ROUTE):
-        try:
-            return Line(json.loads(path.read_text()))
-        except (OSError, ValueError, KeyError):
-            continue
-    return None
+    try:
+        return Line(json.loads(C.LINE.read_text()))
+    except (OSError, ValueError, KeyError):
+        return None
 
 
 def _excess(u, half):
