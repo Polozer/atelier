@@ -302,7 +302,7 @@ def test_shared_contexts_overlap_without_rewriting_holder_records(barrier, monke
     before = {key: (path.read_bytes(), path.stat().st_ctime_ns) for key, path in barrier.paths.items()}
     admission = SimpleNamespace(mode='capacity', cutover=compat.DEFAULT_RECORD,
                                 activation_id=proof['activation_id'], owned=lambda pins: set())
-    monkeypatch.setattr(locks, 'native_candidates', lambda: [])
+    monkeypatch.setattr(locks, 'native_candidates', lambda **kwargs: [])
     monkeypatch.setattr(locks, '_write', lambda *a, **kw: pytest.fail('shared context wrote legacy record'))
     monkeypatch.setattr(locks, '_release', lambda *a, **kw: pytest.fail('shared context truncated legacy record'))
     with locks.render_lock('first', capacity=admission):
@@ -321,7 +321,10 @@ def test_shared_attempt_releases_partial_locks_and_refuses_unknown_native(barrie
     proof = activated(barrier)
     admission = SimpleNamespace(mode='capacity', cutover=compat.DEFAULT_RECORD,
                                 activation_id=proof['activation_id'], owned=lambda pins: set())
-    monkeypatch.setattr(locks, 'native_candidates', lambda: [[654, 987]])
+    def unregistered(*, retry):
+        assert retry is True  # Only the launcher opts into the bounded preflight retry.
+        return [[654, 987]]
+    monkeypatch.setattr(locks, 'native_candidates', unregistered)
     with barrier.paths['fitting'].open('rb') as blocker:
         fcntl.flock(blocker, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with pytest.raises(locks.RenderBusy, match='legacy exclusive'):
@@ -857,7 +860,7 @@ def test_full_socket_configured_python_runs_under_real_guards_and_releases(barri
     config.chmod(0o600)
     monkeypatch.setenv('ATELIER_CAPACITY_CLIENT', str(config))
     # Only native inventory is injected; real Python, socket, SQLite, SH flocks, exec gate and both monitors run.
-    monkeypatch.setattr(locks, 'native_candidates', lambda: [])
+    monkeypatch.setattr(locks, 'native_candidates', lambda **kwargs: [])
     folder = barrier.root / 'real-guard'
     try:
         assert guarded.run([sys.executable, '-c', 'print("full capacity executed")'], folder,
@@ -935,7 +938,7 @@ def test_maintenance_takes_every_readonly_lane_exclusively_and_releases_partial(
     settings, proof = maintenance_settings(barrier)
     admission = SimpleNamespace(mode='sealed-maintenance', cutover=compat.DEFAULT_RECORD,
         seal_policy_sha256=settings['policy_sha256'], activation_id=proof['activation_id'], owned=lambda pins: set())
-    monkeypatch.setattr(locks, 'native_candidates', lambda: [])
+    monkeypatch.setattr(locks, 'native_candidates', lambda **kwargs: [])
     before = {name: (path.read_bytes(), path.stat().st_ino, path.stat().st_ctime_ns)
               for name, path in barrier.paths.items()}
     with barrier.paths[lane].open('rb') as shared:
