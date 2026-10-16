@@ -1,5 +1,6 @@
 """Shared zeppelin stations, walkable trail and terrain clearances (Blender metres)."""
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[2])); import yori  # noqa: E402,F401
+from functools import lru_cache
 import json, math
 from pathlib import Path
 import numpy as np
@@ -9,12 +10,13 @@ ROOT=yori.REGIONS
 # zeppelin carries on the way it came and turns back at either end, and a passenger can choose any other stop.
 STATIONS=[dict(key='zeppelin_forest',name='Woodland air station',origin=[-205.,230.,70.4]),
           dict(key='zeppelin_city',name='Hidamari air station',origin=[1273.,308.,34.3]),
-          dict(key='zeppelin_megapark',name='Mega Park air station',origin=[-200.,1484.,130.])]
-MESHES=['ZP_Woodland','ZP_City','ZP_MegaPark']
+          dict(key='zeppelin_megapark',name='Mega Park air station',origin=[-200.,1484.,130.]),
+          dict(key='zeppelin_belmonte',name='Belmonte air station',origin=[410.,4660.,217.75])]
+MESHES=['ZP_Woodland','ZP_City','ZP_MegaPark','ZP_Belmonte']
 # Every pair of stops is a leg. Its cruise height (metres) clears the ground and trees under a 40 m corridor with room
 # for the trailing camera: the Mega Park legs cross the western foothills (116 m) and the volcano's flank (163 m).
 # All legs keep the first leg's speed, 1480 m in 28 s.
-LEG_HEIGHTS={(0,1):155.,(0,2):185.,(1,2):240.}
+LEG_HEIGHTS={(0,1):155.,(0,2):185.,(0,3):600.,(1,2):240.,(1,3):910.,(2,3):520.}
 CRUISE_SPEED=1480/28
 # The Mega Park stop stands on the crest west of the park's top road, on the gate's ground (megapark/gate.py): level
 # under the station and the docked ship, and along its footpath east to x -170. From there a level footbridge crosses
@@ -24,6 +26,8 @@ PARK_PAD=(-222.,1472.,-184.,1496.)
 PARK_WALK=((-189.,1477.),(-170.,1477.))
 PARK_BRIDGE=((-170.5,1477.),(-156.2,1477.))
 DECK_EDGE=((-155.1,1477.,129.987),-.59,.056)
+# The Belmonte stop stands on the naturally level meadow outside Porta NW, joined to the northwest gate road by a stone footpath.
+BELMONTE_WALK=((416.,4651.2),(414.8,4626.),(413.2,4602.),(415.8,4594.),(418.2,4591.8))
 PROPELLER_CENTERS=[[3.6,-6.0,6.1],[3.6,6.0,6.1]]
 PROPELLER_RADIUS=1.65
 SHIP=[6.,4.,1.65]; ENTRY=[6.,-.8,1.65]; SAFE=[6.,-8.7,.05]
@@ -52,6 +56,23 @@ def megapark_pad(x,y,z):
     walk=(x>wx0-6)&(x<-159.5)
     w=np.maximum(smooth((10-d)/10),walk*smooth((17-abs(y-wy))/10))*~contains(x,y)
     return z+(oz-z)*w
+
+@lru_cache(maxsize=1)
+def belmonte_path():
+    return spline(list(BELMONTE_WALK))[0]
+
+def belmonte_clear(x,y,kind='tree'):
+    """Whether (x, y) in world metres lies over the Belmonte station or within reach of its Porta NW footpath."""
+    x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
+    ox,oy,_=STATIONS[3]['origin']
+    tree=kind=='tree'
+    mask=np.array((abs(x-(ox+3))<(25 if tree else 18))&(abs(y-oy)<(23 if tree else 14)),bool)
+    inside=(x>400.)&(x<430.)&(y>4580.)&(y<4662.)
+    if np.any(inside):
+        xy=belmonte_path();p=np.column_stack([xy,np.zeros(len(xy))])
+        d,_=nearest(x[inside],y[inside],p)
+        mask[inside]|=d<(7.5 if tree else 2.1)
+    return mask
 
 def clear(instances,station=0,path=None,h=None,before=None):
     """Clear the vegetation over station `station` and within reach of its footpath `path` (x, y[, z] points).
@@ -89,7 +110,7 @@ def integrate(world,h):
     path=np.column_stack([xy,z]);dist,pz=nearest(x,y,path);w=smooth((5.3-dist)/3.4)
     h[:]=h*(1-w)+pz*w
     removed=clear(world['instances'],path=path,h=h,before=before)
-    for name in ['ZP_Woodland','ZP_Trail']:
+    for name in ['ZP_Woodland','ZP_Belmonte','ZP_Trail']:
         world['instances'][name]=[[0,0,0,0,1]]
     world['zeppelin']={**metadata(),'trail':path.tolist(),'removed':removed}
     out=yori.OUT/'zeppelin';out.mkdir(parents=True,exist_ok=True)
