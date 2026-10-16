@@ -89,8 +89,22 @@ def test_donor_membership_never_names_a_path_the_receiver_would_copy(snapshot):
     before = reuse.inspect(source, 'standin')
     known = reuse.deferred_memberships(before)
     assert known['digest']['paths'] and all('<build>' not in p for p in known['digest']['paths'])
-    poisoned = {'digest': dict(known['digest'], paths=[*known['digest']['paths'], '<build>/identity.json'])}
+    poisoned = {'digest': dict(known['digest'], paths=[*known['digest']['paths'], '<build>/standin/identity.json'])}
     assert reuse.differing_sources(before, reuse.inspect(target, 'standin', poisoned)) == ['digest']
+
+
+def test_donor_membership_keeps_the_receivers_own_observation_when_it_cannot_apply(tmp_path):
+    from atelier import reuse_inspect
+    from atelier.build_deferred import InputObservation
+    source, copied = tmp_path / 'source.txt', tmp_path / 'build/standin/identity.json'
+    own = InputObservation((source,), 'metadata', ())
+    known = {'paths': [str(source), str(tmp_path / 'other.txt')], 'members': [str(tmp_path / 'other.txt')]}
+    adopted = reuse_inspect.donor_membership(own, known, lambda p: p == copied)
+    assert adopted.paths == (source, tmp_path / 'other.txt') and adopted.metadata == 'metadata'
+    assert reuse_inspect.donor_membership(own, dict(known, paths=[*known['paths'], str(copied)]),
+                                          lambda p: p == copied) is own                # a donor path under a copied root
+    assert reuse_inspect.donor_membership(InputObservation((source, tmp_path / 'new.txt')), known,
+                                          lambda p: False).paths == (source, tmp_path / 'new.txt')   # a path the donor never saw
 
 
 def test_receiver_input_changed_after_copying_refuses_before_publication(snapshot, monkeypatch):
