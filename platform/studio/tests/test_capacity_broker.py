@@ -511,3 +511,71 @@ broker.serve_forever()
             if child.poll() is None:
                 child.kill()
             child.wait(timeout=3)
+
+
+@pytest.mark.parametrize('loss_on', [1, 3])
+@pytest.mark.parametrize('live_tail', [False, True])
+def test_terminal_monitor_hint_stays_charged_until_positive_exit_then_reports_completion(broker_factory, tmp_path, loss_on, live_tail):
+    import json
+    from dataclasses import asdict
+    class Watch:
+        exited = False
+        def __init__(self, pin): self.pin = pin
+        def poll(self): return self.exited
+        def close(self): pass
+    armed, calls = [False], [0]
+    def guards(*args):
+        if armed[0]:
+            calls[0] += 1
+            if calls[0] >= loss_on:
+                raise wire.CapacityError('Capacity guard identity is not live and owned')
+        return wire.GuardFacts((), 0)
+    broker = broker_factory(watch=Watch, guards=guards)
+    admission = session(broker)
+    admission.offer()
+    child = gated_child(admission, hold=True)
+    pin = wire.process_start(child.pid)
+    receipt = tmp_path / 'terminal.json'
+    limit = 128 * 1024**2
+    binding = dict(pid=os.getpid(), start=wire.process_start(os.getpid()), report=str(receipt))
+    admission.start(child_pid=child.pid, child_start=pin, process_guard={}, tree_guard=binding, limit_bytes=limit)
+    try:
+        receipt.write_text(json.dumps(dict(owner=child.pid, owner_started=pin, time=time.time(),
+            observed_monotonic=time.monotonic(), state='child_exited', cleanup_complete=True,
+            processes=[], footprint_bytes=0, limit_bytes=limit)))
+        armed[0] = True
+        if live_tail:
+            helper = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+            try:
+                with pytest.raises(wire.CapacityError, match='no longer healthy'):
+                    admission.check(descendants=[(helper.pid, wire.process_start(helper.pid))])
+                held = client.status(broker.socket_path)
+                assert held['charged_count'] == 1
+                assert next(row for row in held['records'] if row['id'] == admission.request['id'])['retained'] == 2
+            finally:
+                helper.terminate(); helper.wait(timeout=3)
+        before = set(admission._acknowledged)
+        hint = admission.check()
+        assert hint['finish_required'] is True and hint['admission'] is False and hint['state'] == 'uncertain'
+        assert admission._acknowledged == before
+        assert child.poll() is None  # A hint cannot claim the actual root has exited.
+        report = client.status(broker.socket_path)
+        assert report['charged_count'] == 1 and report['recovering'] is True
+        assert child.communicate(input=b'x', timeout=3)[0] == b'useful'
+        Watch.exited = True
+        completion = admission.check()
+        assert completion['terminal'] is True and completion['admission'] is False
+        assert completion['state'] == 'released' and completion['child'] == [child.pid, pin]
+        assert client.status(broker.socket_path)['charged_count'] == 0
+        helper = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+        try:
+            with pytest.raises(wire.CapacityError, match='unretained process identities'):
+                admission.check(descendants=[(helper.pid, wire.process_start(helper.pid))])
+        finally:
+            helper.terminate(); helper.wait(timeout=3)
+        with pytest.raises(wire.CapacityError, match='live grant'):
+            admission.replace(Resources(memory_mib=128), ['fixture'])
+        assert admission.close(child=child, child_start=pin)['released'] is True
+    finally:
+        if child.poll() is None: child.kill()
+        child.wait()

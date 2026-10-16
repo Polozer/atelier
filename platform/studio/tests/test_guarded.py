@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from contextlib import contextmanager
 from pathlib import Path
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from atelier.safety import guarded as guarded_run
@@ -26,6 +27,14 @@ from atelier.safety.render_lock import RenderBusy, render_lock
 
 SLEEPER = [sys.executable, '-c', 'import time; time.sleep(60)']
 QUICK = [sys.executable, '-c', 'print("done")']
+
+
+@pytest.fixture(autouse=True)
+def isolated_legacy_fixture_policy(tmp_path, monkeypatch):
+    from atelier import capacity_compat, capacity_runtime
+    monkeypatch.setattr(capacity_compat, 'DEFAULT_RECORD', tmp_path / 'fixture-cutover.json')
+    monkeypatch.setattr(capacity_runtime, 'DEFAULT_CONFIG', tmp_path / 'fixture-client.json')
+    monkeypatch.delenv('ATELIER_CAPACITY_CLIENT', raising=False)
 
 
 def alive(pid):

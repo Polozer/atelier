@@ -276,6 +276,10 @@ class CapacityBroker:
             # A normal child exit can occur between the first watch poll and receipt validation.
             # Only an already bound positive kernel witness resolves that race.
             record['state'] = 'draining' if self._root_exited(record) else 'uncertain'
+            record['guard_completion_candidate'] = isinstance(error, wire.CapacityError) and str(error) in {
+                'Capacity guard identity is not live and owned',
+                'Capacity guard identity changed during validation',
+                'Capacity guard receipt is stale or mismatched'}
             known = {'Capacity guard identity is not live and owned',
                      'Capacity guard identity changed during validation',
                      'Capacity guard receipt is stale or mismatched',
@@ -309,6 +313,8 @@ class CapacityBroker:
         for record in state['records'].values():
             if record['state'] == 'released':
                 continue  # Historical proof is immutable, not a live polling roster.
+            if not self.compatible:
+                changed |= record.pop('guard_completion_candidate', None) is not None
             if not self.compatible and record['state'] in HELD and record['state'] != 'uncertain':
                 record['state'] = 'uncertain'
                 changed = True
@@ -377,6 +383,10 @@ class CapacityBroker:
             return None
         if record.get('child') not in record.get('exited', []):
             return None
+        return self._tree_end_observation(record, preserved=preserved)
+
+    def _tree_end_observation(self, record, *, preserved=None, pending=False):
+        """A pending observation hints to wait; it is never an exit witness or release authority."""
         try:
             item = wire.fields(record.get('guards', {}).get('tree_guard'), ('pid', 'start', 'report'))
             wire.identity((item['pid'], item['start']))  # Bound at start; terminal monitor may now have exited.
@@ -393,11 +403,79 @@ class CapacityBroker:
                     or receipt.get('state') != 'child_exited' or receipt.get('cleanup_complete') is not True
                     or receipt.get('termination_reason') is not None or receipt.get('processes') != []
                     or type(receipt.get('footprint_bytes')) is not int or receipt['footprint_bytes'] != 0
-                    or any(self.alive(wire.identity(pin)) for pin in record['roster'] if tuple(pin) not in exited)):
+                    or (pending and (time.time() - observed > 3
+                                     or type(receipt.get('observed_monotonic')) not in (int, float)
+                                     or not 0 <= self._clock() - receipt['observed_monotonic'] <= 3))
+                    or any(self.alive(wire.identity(pin)) for pin in record['roster']
+                           if tuple(pin) not in exited and (not pending or pin != record['child']))):
                 return None
         except (OSError, ValueError, KeyError, TypeError, wire.CapacityError):
             return None
-        return {'kind': 'guarded-tree-exit', 'coverage': 'monitored-owned-tree', 'observed_at': observed}
+        return {'kind': 'guarded-tree-observation' if pending else 'guarded-tree-exit',
+                'coverage': 'monitored-owned-tree', 'observed_at': observed}
+
+    def _check_completion(self, record, *, reconcile=False):
+        witness = record.get('release_witness', {})
+        if (record['state'] == 'released' and record.get('child')
+                and witness.get('kind') in ('retained-kernel-exits', 'guarded-tree-exit')):
+            return dict(state='released', admission=False, terminal=True, child=record['child'])
+        if (record['state'] == 'uncertain' and record.get('guard_completion_candidate') is True
+                and self.compatible and self._clock() - record['heartbeat'] <= self.lease_seconds):
+            observation = self._tree_end_observation(record, pending=True)
+            if observation is None and reconcile and not record.get('completion_reconciled'):
+                # Process and aggregate monitors publish independently. Keep the charge and all
+                # ownership barriers while reconciling this one shutdown window, below RPC timeout.
+                record['completion_reconciled'] = True
+                deadline = time.monotonic() + .5
+                while time.monotonic() < deadline:
+                    if self._root_exited(record):
+                        record['state'] = 'draining'  # Positive root event; still charged, no new GO.
+                        return None
+                    observation = self._tree_end_observation(record, pending=True)
+                    if observation is not None:
+                        break
+                    time.sleep(.01)
+            if observation is not None:
+                return dict(state='uncertain', admission=False, finish_required=True, child=record['child'])
+        return None
+
+    def _heartbeat(self, state, record, batch, now):
+        # A validated new observation must survive a refused heartbeat, rather than disappear
+        # when the caller is told its grant is unhealthy. No refused resource vector is copied.
+        if record['state'] in HELD:
+            self._watch(record, batch)
+        elif record['state'] == 'released':
+            retained = {tuple(pin) for pin in record.get('roster', [])}
+            retained.update(tuple(pin) for pin in record.get('terminal_observed', []))
+            if any(tuple(pin) not in retained for pin in batch):
+                raise wire.CapacityError('Terminal capacity check includes unretained process identities')
+        for refresh in (False, True):
+            if refresh:
+                self._refresh(state, now)
+            completion = self._check_completion(record, reconcile=True)
+            if completion is not None:
+                if completion.get('terminal') is True:
+                    record['terminal_observed'] = [list(pin) for pin in batch]
+                return dict(completion, epoch=state['epoch'])
+            if record['state'] not in ('running', 'draining'):
+                return dict(state=record['state'], admission=False, epoch=state['epoch'])
+        if record['child'] in record.get('exited', []):
+            record['state'] = 'draining'
+        else:
+            facts = self._guard_health(record)
+            if facts is not None:
+                self._watch(record, facts.roster)
+                record.update(measured_memory_mib=facts.footprint_bytes // 1024**2, measured_at=time.time())
+            completion = self._check_completion(record, reconcile=True)
+            if completion is not None:
+                if completion.get('terminal') is True:
+                    record['terminal_observed'] = [list(pin) for pin in batch]
+                return dict(completion, epoch=state['epoch'])
+            if record['state'] not in ('running', 'draining'):
+                return dict(state=record['state'], admission=False, epoch=state['epoch'])
+        record['heartbeat'] = now
+        return dict(state=record['state'], epoch=state['epoch'], admission=True)
+
 
     def _preserved_terminal(self, state, evidence):
         """@cc [owner:fontanierh,label:safety] attested-preserved-terminal-recovery
@@ -698,6 +776,9 @@ class CapacityBroker:
                     if (record.get('state') != 'queued' or tuple(record.get('principal', ())) != principal
                             or message.get('nonce') != record.get('nonce') or changed_request):
                         self._dispose(record.get('nonce'))
+                        record.pop('guard_completion_candidate', None)
+                        record.pop('completion_reconciled', None)
+                        record.pop('terminal_observed', None)
                         record.update(nonce=secrets.token_hex(32), principal=list(principal), roster=[], exited=[],
                                       verified_roster=[], ancestry_unknown=False)
                         record.pop('process_history', None)
@@ -756,26 +837,13 @@ class CapacityBroker:
                         go = record['nonce']
                         result = {'state': 'running', 'epoch': state['epoch'], 'admission': True}
                     elif action == 'check':
-                        if record['state'] not in ('running', 'draining'):
-                            raise wire.CapacityError('Capacity grant is uncertain or inactive')
-                        self._watch(record, batch)
-                        self._refresh(state, now)
-                        if record['state'] not in ('running', 'draining'):
-                            raise wire.CapacityError('Capacity grant is uncertain or inactive')
-                        if record['child'] in record.get('exited', []):
-                            record['state'] = 'draining'
-                        else:
-                            facts = self._guard_health(record)
-                            if facts is not None:
-                                self._watch(record, facts.roster)
-                                record.update(measured_memory_mib=facts.footprint_bytes // 1024**2, measured_at=time.time())
-                        record['heartbeat'] = now
-                        result = {'state': record['state'], 'epoch': state['epoch'], 'admission': True}
+                        result = self._heartbeat(state, record, batch, now)
                     elif action == 'close':
                         self._gate_close(record['nonce'])
                         if record['state'] not in HELD:
                             self._dispose(record['nonce'])
                             record['state'] = 'waiting'
+                            record.pop('terminal_observed', None)
                             result = {'state': 'waiting', 'released': True}
                         else:
                             self._watch(record, batch)
@@ -793,6 +861,8 @@ class CapacityBroker:
                                 record['state'] = 'uncertain'
                                 self._settle_exited(record)
                             complete = record['state'] == 'released'
+                            if complete:
+                                record.pop('terminal_observed', None)
                             if not complete:
                                 print('capacity close retained: ' + json.dumps(dict(
                                     owner=record['request'].get('owner'), purpose=record['request'].get('purpose'),
