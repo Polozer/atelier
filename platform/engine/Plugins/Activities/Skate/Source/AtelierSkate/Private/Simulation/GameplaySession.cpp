@@ -119,12 +119,14 @@ float GameplaySession::BoostSpeed() const
 }
 void GameplaySession::ApplyBoost(float before)
 {
-    // BowlBoost.h: on the ground only, the pump the tick added (as GameplayPumps counts it) or the powerslide.
+    // BowlBoost.h: on the ground only, a pump (an intentional pump with no trigger pulled: the rider standing up from
+    // the crouch, however much the physical pump added) or the powerslide.
     const auto state=gameplay->player_state->Current();
     const bool ground=state==PhysicalStateId::PhysicsGround||state==PhysicalStateId::RevertGround;
     const bool sliding=state==PhysicalStateId::SlideGround;
-    const auto& pumping=gameplay->ground.pumping;
-    const float pump=ground && pumping.intentional_pumping && pumping.pump_acceleration>0?pumping.pump_acceleration:0;
+    const auto triggers=input.CurrentRawInput().triggers;
+    const bool crouched=triggers[0]>BowlBoost::Crouch || triggers[1]>BowlBoost::Crouch;
+    const bool pump=ground && gameplay->ground.pumping.intentional_pumping && !crouched;
     const auto deck=gameplay->physical->board.PartTransforms()[std::size_t(BoardBodyId::Deck)];
     const float after=BoostSpeed();
     // The zone holds the board (and its entry speed) through an air; only the gain needs the ground (BowlBoost::Tick).

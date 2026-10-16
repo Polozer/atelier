@@ -299,6 +299,13 @@ bool Publish(const GameplaySession& session,bool ready,std::uint32_t generation,
     out<<",\"manual\":";Number(out,game.animation_input.fields.balance);
     const auto ground=ReportGroundSurface(game.physical->riding);
     out<<",\"surface\":["<<ground.physics<<','<<ground.sound<<','<<ground.wheels<<']';
+    // Boost zones (BowlBoost.h): the speed the zones have added this session, the last tick's pump (its speed gain and
+    // whether it was intentional) and the deck's up against world up, for measuring boosts.
+    const auto& pumping=game.ground.pumping;
+    const auto deck=game.physical->board.PartTransforms()[std::size_t(BoardBodyId::Deck)];
+    out<<",\"boost\":{\"total\":";Number(out,session.boost.total);
+    out<<",\"pump\":";Number(out,pumping.pump_acceleration);
+    out<<",\"intentional\":"<<int(pumping.intentional_pumping)<<",\"up\":";Number(out,deck.basis.columns[1][1]);out.put('}');
     out<<",\"camera\":";
     if(pose.camera)
     {
@@ -502,6 +509,13 @@ bool Run(int argc,char** argv,std::string& error)
             if(!Fields(command,{"op","limit"},{"op","limit"},error))return false;
             float limit=1;
             if(!FloatField(command,"limit",limit,error) || !session.LimitVertAssist(limit,error))return false;
+        }
+        else if(op=="boost")
+        {
+            // The boost zone the board is in (its scale, 0 none; GameplaySession::Boost), for the next steps; no reply.
+            if(!Fields(command,{"op","zone"},{"op","zone"},error))return false;
+            float zone=0;
+            if(!FloatField(command,"zone",zone,error) || !session.Boost(zone,error))return false;
         }
         else if(op=="suspend" || op=="quit")
         {
