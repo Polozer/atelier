@@ -176,6 +176,9 @@ private:
     bool StartBoarding(FRider& Rider, int32 Vehicle, int32 Door);
     void UpdateBoarding(FRider& Rider, float Dt);
     void FinishBoarding(FRider& Rider);
+    /** The world's ground (WorldStatic: terrain, platform, ballast; never the train) under a world point, within MaxOff cm
+     *  of Near (a world z); the nearest such ground in a small ring around it when the point itself has none. */
+    bool GroundNear(const FVector& Point, double Near, double MaxOff, const AActor* Ignore, double& Z) const;
     /** Inside a coach, the short train camera; it blends back to the rider's own outside. */
     void UpdateCamera(FRider& Rider, bool bInside, float Dt);
     void StandUp(FRider& Rider);

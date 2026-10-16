@@ -630,19 +630,27 @@ bool ABelmonteTrainService::StartBoarding(FRider& Rider, int32 VehicleIndex, int
     const FTransform& T = V.Body->GetComponentTransform();
     const float Half = C->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
     const FVector Feet = T.InverseTransformPosition(C->GetActorLocation() - FVector(0, 0, Half));
-    // The ground outside (platform or ballast) under the path's outer end: the steps below it are not climbed.
+    // The ground outside under the path's outer end: the record's outside point sits at rail level plus the steps, but
+    // the platform reserve, banks and earthworks put the real ground elsewhere. Boarding starts from the rider's own feet
+    // when they stand there; alighting ends on the traced world ground (WorldStatic, never the train). Steps at or below
+    // that ground are not climbed.
     TArray<FVector> Way = Door.Boarding;
+    Rider.bBoardUp = !Rider.bAboard;
     {
         const FVector Out = T.TransformPosition(Way[0]);
-        FCollisionQueryParams Params(SCENE_QUERY_STAT(TrainBoarding), false, this);
-        Params.AddIgnoredActor(C);
-        FHitResult Hit;
-        if (GetWorld()->LineTraceSingleByChannel(Hit, Out + FVector(0, 0, 300), Out - FVector(0, 0, 400), ECC_Visibility, Params))
-            Way[0].Z = T.InverseTransformPosition(Hit.ImpactPoint).Z;
+        double Z = 0.;
+        if (Rider.bBoardUp && FVector::Dist2D(Way[0], Feet) < 120.)
+            Way[0].Z = Feet.Z;
+        // Alighting, the ground is searched from the coach floor down (the platform stands just below it, the ballast
+        // about 2 m below), keeping the highest ground near the floor rather than the record's rail-level point.
+        else if (Rider.bBoardUp ? GroundNear(Out, T.TransformPosition(Feet).Z, 150., C, Z)
+                                : GroundNear(Out, T.TransformPosition(Way.Last()).Z, 250., C, Z))
+            Way[0].Z = T.InverseTransformPosition(FVector(Out.X, Out.Y, Z)).Z;
+        else if (Rider.bBoardUp)
+            Way[0].Z = Feet.Z;   // no ground found: from the feet, never from below them
         const double Ground = Way[0].Z;
         for (int32 I = Way.Num() - 2; I >= 1; --I) if (Way[I].Z <= Ground + 3.) Way.RemoveAt(I);
     }
-    Rider.bBoardUp = !Rider.bAboard;
     if (!Rider.bBoardUp) Algo::Reverse(Way);
     // From where the rider stands to the path's start (unless already on it), then along it.
     Rider.BoardPath.Reset();
@@ -683,7 +691,11 @@ void ABelmonteTrainService::UpdateBoarding(FRider& Rider, float Dt)
     const FVector Local = A + (B - A) * FMath::Clamp(Along / Segment, 0., 1.);
     // Facing the way through the door (the path's ends), not each little segment.
     const FVector Heading = T.TransformVector(P.Last() - P[0]).GetSafeNormal2D();
-    C->SetActorLocationAndRotation(T.TransformPosition(Local) + FVector(0, 0, Half + 1.f), Heading.Rotation(), false, nullptr, ETeleportType::TeleportPhysics);
+    FVector Foot = T.TransformPosition(Local);
+    // Stepping down onto the ground, the last segment blends to the ground under the feet: never below it.
+    double Ground = 0.;
+    if (!Rider.bBoardUp && I == P.Num() - 1 && GroundNear(Foot, Foot.Z, 150., C, Ground) && Ground > Foot.Z) Foot.Z = Ground;
+    C->SetActorLocationAndRotation(Foot + FVector(0, 0, Half + 1.f), Heading.Rotation(), false, nullptr, ETeleportType::TeleportPhysics);
     // The walk cycle reads the movement's velocity: it walks up the steps.
     C->GetCharacterMovement()->Velocity = Rider.BoardTime >= 0.f ? T.TransformVector((B - A) / Segment) * Speed : FVector::ZeroVector;
 }
@@ -699,9 +711,27 @@ void ABelmonteTrainService::FinishBoarding(FRider& Rider)
         const FTransform& T = V.Body->GetComponentTransform();
         const float Half = C->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
         const FVector Heading = T.TransformVector(Rider.BoardPath.Last() - Rider.BoardPath[0]).GetSafeNormal2D();
-        C->SetActorLocationAndRotation(T.TransformPosition(Rider.BoardPath.Last()) + FVector(0, 0, Half + 2.f), Heading.Rotation(), false, nullptr, ETeleportType::TeleportPhysics);
+        FVector Foot = T.TransformPosition(Rider.BoardPath.Last());
+        double Ground = 0.;
+        if (!Rider.bBoardUp && GroundNear(Foot, Foot.Z, 250., C, Ground)) Foot.Z = Ground;
+        C->SetActorLocationAndRotation(Foot + FVector(0, 0, Half + 2.f), Heading.Rotation(), false, nullptr, ETeleportType::TeleportPhysics);
         if (Rider.bBoardUp) { Rider.Vehicle = Rider.BoardVehicle; Board(Rider, true); }
         else Board(Rider, false);
+        if (!Rider.bBoardUp)
+        {
+            // Off the train, the capsule must not start inside the platform or the bank: nudge it up until it is free.
+            const UCapsuleComponent* Capsule = C->GetCapsuleComponent();
+            // The ground (terrain, banks, the platform: WorldStatic) only, not the coach the rider just left.
+            FCollisionQueryParams Params(SCENE_QUERY_STAT(TrainAlight), false, C);
+            const FCollisionObjectQueryParams Objects(ECC_WorldStatic);
+            const FCollisionShape Shape = FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius() - 1.f, Half - 1.f);
+            FVector At = C->GetActorLocation();
+            int32 Nudges = 0;
+            while (Nudges < 30 && GetWorld()->OverlapAnyTestByObjectType(At, FQuat::Identity, Objects, Shape, Params)) { At.Z += 5.; ++Nudges; }
+            if (Nudges) C->SetActorLocation(At, false, nullptr, ETeleportType::TeleportPhysics);
+            UE_LOG(LogTemp, Display, TEXT("TRAIN ALIGHT %s ground=%.0f record=%.0f nudged=%d"), *C->GetName(), Foot.Z,
+                T.TransformPosition(Rider.BoardPath.Last()).Z, Nudges * 5);
+        }
         C->SetActorEnableCollision(true);
         auto* M = C->GetCharacterMovement();
         M->Velocity = FVector::ZeroVector;
@@ -711,6 +741,40 @@ void ABelmonteTrainService::FinishBoarding(FRider& Rider)
     Door.bOpen = false; Door.bBusy = false;
     Rider.BoardDoor = Rider.BoardVehicle = INDEX_NONE;
     Rider.BoardPath.Reset();
+}
+
+bool ABelmonteTrainService::GroundNear(const FVector& Point, double Near, double MaxOff, const AActor* Ignore, double& Z) const
+{
+    // The service's own makeshift platforms are WorldStatic and count as ground; its vehicles are ECC_Vehicle and do not.
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(TrainGround), true);
+    if (Ignore) Params.AddIgnoredActor(Ignore);
+    const FCollisionObjectQueryParams Objects(ECC_WorldStatic);
+    auto Probe = [&](const FVector& At, double& Best) -> bool
+    {
+        TArray<FHitResult> Hits;
+        GetWorld()->LineTraceMultiByObjectType(Hits, FVector(At.X, At.Y, Near + 400.), FVector(At.X, At.Y, Near - 400.), Objects, Params);
+        bool bFound = false;
+        for (const FHitResult& Hit : Hits)
+            if (Hit.bBlockingHit || Hit.GetComponent())
+                if (FMath::Abs(Hit.ImpactPoint.Z - Near) <= MaxOff && (!bFound || FMath::Abs(Hit.ImpactPoint.Z - Near) < FMath::Abs(Best - Near)))
+                { Best = Hit.ImpactPoint.Z; bFound = true; }
+        return bFound;
+    };
+    if (Probe(Point, Z)) return true;
+    // The nearest safe ground in two rings around the point.
+    for (const double Radius : {40., 80.})
+    {
+        double BestZ = 0.; bool bAny = false;
+        for (int32 K = 0; K < 8; ++K)
+        {
+            const double A = K * PI / 4.;
+            double Candidate = 0.;
+            if (Probe(Point + FVector(FMath::Cos(A), FMath::Sin(A), 0.) * Radius, Candidate) &&
+                (!bAny || FMath::Abs(Candidate - Near) < FMath::Abs(BestZ - Near))) { BestZ = Candidate; bAny = true; }
+        }
+        if (bAny) { Z = BestZ; return true; }
+    }
+    return false;
 }
 
 void ABelmonteTrainService::UpdateRiders(float Dt)
