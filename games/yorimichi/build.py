@@ -214,6 +214,22 @@ def city_tree_cpu_access_present(ctx):
 _digest_spec = importlib.util.spec_from_file_location('yorimichi_export_digest', GAME / 'export_digest.py')
 export_digest = importlib.util.module_from_spec(_digest_spec)
 _digest_spec.loader.exec_module(export_digest)
+_city_spec = importlib.util.spec_from_file_location('yorimichi_city_inputs', GAME / 'city_inputs.py')
+city_inputs = importlib.util.module_from_spec(_city_spec)
+_city_spec.loader.exec_module(city_inputs)
+
+
+def city_input_step(out, part):
+    """Fingerprint the selected generator's receipt fields and exact source FBXs after Hidamari."""
+    names = {'tiles': city_inputs.TILES, 'trees': city_inputs.TREES}[part]
+    output = out / 'digests' / f'world.hidamari.{part}.json'
+    helper = GAME / 'city_inputs.py'
+    return Step(f'world.hidamari.{part}',
+                [Call(f'city {part} inputs', lambda ctx, log:
+                      export_digest.record(output, city_inputs.snapshot(out, names), log))],
+                inputs=[helper, GAME / 'export_digest.py'], needs=['world.hidamari'],
+                deferred_inputs=[DeferredInputs('city-inputs', city_inputs.paths, (out, names), support=(helper,))],
+                outputs=[output], cutoff=True, about=f'the three city {part} inputs, independent of other city exports')
 
 
 def digest_step(out, export, part, about, root=None, names=(), north=None):
@@ -692,13 +708,15 @@ def world_steps(ctx):
                                                     'SM_BM_BVV_Farm_', 'SM_BM_BC_Water_', 'SM_BM_BC_Pave', 'SM_BM_BC_Ponte')))],
              needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', *crater_geometry],
              outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png'], about='map zones and the painted sheet'),
+        city_input_step(out, 'tiles'),
         Step('world.city_tiles', [Blender(WORLD / 'city_surface_tiles.py', ('--tag', 'v1_128m'), threads=3)],
-             inputs=[WORLD / 'city_surface_tiles.py'], needs=['world.hidamari'],
+             inputs=[WORLD / 'city_surface_tiles.py'], needs=['world.hidamari.tiles'],
              outputs=[out / 'city_surface_tiles' / 'v1_128m' / 'manifest.json'], about='desktop profile: city surfaces in 128 m tiles', heavy=True),
         digest_step(out, 'world.city_tiles', 'meshes', 'the city tiles unreal.desktop reads', out / 'city_surface_tiles', ['v1_128m']),
+        city_input_step(out, 'trees'),
         Step('world.city_trees', [Blender(WORLD / 'city_tree_lods.py', ('--tag', 'v4'), threads=3)],
              inputs=[WORLD / 'city_tree_lods.py', REGIONS / 'hidamari' / 'arcade.py', REGIONS / 'hidamari' / 'plaza.py'],
-             needs=['world.hidamari'], outputs=[out / 'city_tree_lods' / 'v4' / 'manifest.json'], about='desktop profile: city tree LODs', heavy=True),
+             needs=['world.hidamari.trees'], outputs=[out / 'city_tree_lods' / 'v4' / 'manifest.json'], about='desktop profile: city tree LODs', heavy=True),
         digest_step(out, 'world.city_trees', 'meshes', 'the city tree LODs unreal.desktop reads', out / 'city_tree_lods', ['v4']),
     ]
 
