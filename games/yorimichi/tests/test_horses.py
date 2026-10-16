@@ -23,6 +23,22 @@ VARIANT_LIST = json.loads((VARIANTS / 'manifest.json').read_text())['variants']
 _spec = importlib.util.spec_from_file_location('horse_data_under_test', SCRIPTS / 'horse_data.py')
 horse_data = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(horse_data)
+
+
+def test_turn_declares_jump_and_running_tail_clearance():
+    source = (HORSES / 'turn.py').read_text()
+    tree = ast.parse(source)
+    assigns = {n.targets[0].id: ast.literal_eval(n.value) for n in tree.body
+               if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
+               and n.targets[0].id in ('PIVOT_CLIPS', 'JUMP_CLIP', 'TAIL_LIFT')}
+    assert assigns['PIVOT_CLIPS'] == ('TurnLeft', 'TurnRight')
+    assert assigns['JUMP_CLIP'] == 'Jump'
+    assert (*assigns['PIVOT_CLIPS'], assigns['JUMP_CLIP']) == horse_data.TURN_CLIPS
+    lifts = assigns['TAIL_LIFT']
+    assert set(lifts) == {'Walk', 'Trot', 'Canter', 'Gallop', 'Sprint', 'TurnLeft', 'TurnRight', 'Jump'}
+    for clip, angles in lifts.items():
+        assert len(angles) == 7, clip
+        assert all(a > 0 for a in angles[:3]) and all(a < 0 for a in angles[3:]), clip
 RECIPE = build.load_recipe('yorimichi')
 PARTS = ('Saddle', 'Reins')
 # What world.horses samples (assets/horses/build.py SAMPLED) and import_horses.py restyles by name.
@@ -196,7 +212,7 @@ def imported():
             'mesh': f"{folder}/SK_Horse_{breed['name']}.SK_Horse_{breed['name']}",
             'skeleton': f"{folder}/SKEL_Horse_{breed['name']}.SKEL_Horse_{breed['name']}",
             'clips': {c: {'path': f'{folder}/A_{c}.A_{c}', 'length': 1.5, 'loop': spec['loop']}
-                      for c, spec in {**lib['clips'], **{n: {'loop': True} for n in horse_data.TURN_CLIPS}}.items()},
+                      for c, spec in {**lib['clips'], **horse_data.GENERATED_CLIPS}.items()},
             'saddles': {sid: f'{folder}/Tack/Saddle_{sid}/S.S' for sid in lib['tack_sets']},
             'reins': {sid: f'{folder}/Tack/Reins_{sid}/R.R' for sid in lib['tack_sets']},
         }
@@ -218,8 +234,9 @@ def test_roster_contract():
     for slug, b in roster['breeds'].items():
         assert set(b['contacts']) == {'saddle_root', 'seat_z', 'scale_ratio', 'stirrup_L', 'stirrup_R', 'grip_L', 'grip_R'}
         assert b['mesh_yaw'] == -90. and list(b['clips']) == [*LIBRARY['clips'], *horse_data.TURN_CLIPS]
+        assert b['clips']['Jump']['loop'] is False
     assert 'seconds' not in json.dumps(roster) and 'textures' not in roster['breeds'][LIBRARY['reference_breed']]
-    assert len(list(horse_data.asset_paths(roster))) == 4 + 5 + 16 + 6 * (2 + 13 + 2 * 7)
+    assert len(list(horse_data.asset_paths(roster))) == 4 + 5 + 16 + 6 * (2 + 14 + 2 * 7)
     for broken in (lambda r: r.pop('tints'), lambda r: r['breeds']['arabian']['contacts'].pop('grip_L'),
                    lambda r: r['breeds']['quarter']['clips'].pop('Walk'), lambda r: r.update(fps=60.0),
                    lambda r: r['breeds']['friesian']['saddles'].pop('03'), lambda r: r.update(seconds=3)):

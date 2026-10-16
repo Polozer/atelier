@@ -646,7 +646,8 @@ void AWandererCharacter::RequestJump(const FInputActionValue&)
     const bool bSkating = SkateRide->IsRiding();
     if (bSkating && !(GetCharacterMovement()->IsFalling() && SkateRide->CanYieldToCharacter())) return;
     if (Bike->IsEquipped()) { if (bReady && !bMenuOpen) Bike->Hop(); return; }
-    if (Sailboat->IsEquipped() || Horse->IsEquipped()) return;
+    if (Horse->IsEquipped()) { if (bReady && !bMenuOpen) Horse->Jump(); return; }
+    if (Sailboat->IsEquipped()) return;
     if (Moves) { PressMove(TEXT("jump")); return; }
     if (bReady && !bMenuOpen && Sword && !Sword->CancelForInterrupt(false)) return;   // a draw, sheathe or deflection finishes first
     if (!bReady || bMenuOpen || MovementLocked() || bPendingTakeoff) return;

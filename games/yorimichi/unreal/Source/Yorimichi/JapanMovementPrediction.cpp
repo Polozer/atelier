@@ -469,7 +469,8 @@ void UJapanCharacterMovement::PerformMovement(float Dt)
             if (!Rider->bReady || HorseInput.bMenu || Horse->NeedsNetworkStow()) return;
             const FName Button = FJapanMoveInput::ButtonName(Edge);
             bool Accepted = false;
-            if (Button == TEXT("bike_sprint")) Accepted = Horse->ToggleSprint();
+            if (Button == TEXT("jump")) Accepted = Horse->Jump();
+            else if (Button == TEXT("bike_sprint")) Accepted = Horse->ToggleSprint();
             JapanVehicleTelemetry::Action(Rider, Button, ProcessedEdge, Accepted, bReplaying);
         });
         if (Rider->HasAuthority() && Rider->IsLocallyControlled()) AcknowledgeEdges(ProcessedEdge);

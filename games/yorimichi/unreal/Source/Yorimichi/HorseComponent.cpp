@@ -48,9 +48,13 @@ namespace HorseRide
         {TEXT("HorseMount"), TEXT("Idle"), TEXT("Getting on"), false},
         {TEXT("HorseDismount"), TEXT("Idle"), TEXT("Getting off"), false}};
     constexpr int32 RoleCount = int32(EHorseRole::Count);
-    const TCHAR* TurnClips[] = {TEXT("TurnLeft"), TEXT("TurnRight")};
+    const TCHAR* TurnClips[] = {TEXT("TurnLeft"), TEXT("TurnRight"), TEXT("Jump")};
     constexpr int32 HorseClipCount = RoleCount + UE_ARRAY_COUNT(TurnClips);
     constexpr float TurnDeadzone = .1f, PivotYawRate = 45.f, PivotDegreesPerCycle = 36.f;
+    // Jumping: vertical takeoff speed (cm/s), minimum forward leap speed (cm/s), airborne clip duration (s),
+    // extra foreleg obstacle clearance while rising (cm) and bascule pitch range (deg).
+    constexpr float JumpZVelocity = 560.f, JumpMinSpeed = 240.f, JumpDuration = .76f, JumpClearance = 40.f;
+    constexpr float JumpTakeoffPitch = 16.f, JumpLandingPitch = 12.f;
     static_assert(UE_ARRAY_COUNT(Roles) == RoleCount, "one row per EHorseRole");
     // The shared game's checkpoint indexes the same order (JapanHorseState.cpp).
     static_assert(RoleCount == FJapanHorseState::RoleCount && int32(EHorseRole::Walk) == FJapanHorseState::IdleRoles &&
@@ -424,6 +428,7 @@ bool UHorseComponent::ApplyAppearance(const FJapanHorseAppearance& NewAppearance
     const bool bBody = NewAppearance.Breed != Appearance.Breed || NewAppearance.Tack != Appearance.Tack;
     const bool bTextures = NewAppearance.Coat != Appearance.Coat || NewAppearance.Mask != Appearance.Mask;
     Appearance = NewAppearance;
+    if (Phase == EPhase::Stowed) bPendingAppearance = true;
     if (bBody) ApplyCurrentBreedAndTack();
     ApplyCurrentMaterials();
     // Local look changes can replace whole meshes and texture sets. Request collection at the engine's next safe
@@ -435,11 +440,16 @@ bool UHorseComponent::ApplyAppearance(const FJapanHorseAppearance& NewAppearance
 
 FJapanHorseAppearance UHorseComponent::RandomAppearance() const
 {
-    // Appearance only: never part of the ride's simulation.
+    // Appearance only: never part of the ride's simulation. Advance breed, tack and coat when choices exist so
+    // consecutive summons or randomizations never repeat the same horse.
     FJapanHorseAppearance A = Appearance;
-    A.Breed = uint8(FMath::RandHelper(Breeds.Num()));
-    A.Tack = uint8(FMath::RandHelper(TackIds.Num()));
-    A.Coat = uint8(FMath::RandHelper(1 + CoatVariants.Num()));
+    A.Breed = Breeds.Num() > 1 ? uint8((Appearance.Breed + 1 + FMath::RandHelper(Breeds.Num() - 1)) % Breeds.Num())
+                               : uint8(FMath::RandHelper(Breeds.Num()));
+    A.Tack = TackIds.Num() > 1 ? uint8((Appearance.Tack + 1 + FMath::RandHelper(TackIds.Num() - 1)) % TackIds.Num())
+                               : uint8(FMath::RandHelper(TackIds.Num()));
+    const int32 CoatCount = 1 + CoatVariants.Num();
+    A.Coat = CoatCount > 1 ? uint8((Appearance.Coat + 1 + FMath::RandHelper(CoatCount - 1)) % CoatCount)
+                           : uint8(FMath::RandHelper(CoatCount));
     A.Mask = uint8(FMath::RandHelper(CoatMasks.Num()));
     A.HairColor = uint8(FMath::RandHelper(1 + HairColors.Num()));
     A.HairPattern = uint8(FMath::RandHelper(HairPatterns.Num()));
@@ -502,6 +512,9 @@ bool UHorseComponent::Toggle()
     }
     if (Phase != EPhase::Stowed) return false;
     if (!M->IsMovingOnGround() || Rider->bIsCrouched) { Hint = TEXT("Stand on the ground, not crouching, to get the horse"); return false; }
+    // Every fresh summon picks a new random horse unless the player pre-selected a look while on foot.
+    if (!bPendingAppearance) RandomizeHorse();
+    bPendingAppearance = false;
     // The horse appears under him. Walking physics carries them both; nothing brakes the speed the horse sets.
     M->StopMovementImmediately();
     HoldFriction();
@@ -595,6 +608,25 @@ bool UHorseComponent::ToggleSprint()
     return true;
 }
 
+bool UHorseComponent::Jump()
+{
+    bool Accepted = false;
+    if (QueueNetworkAction(TEXT("jump"), Accepted)) return Accepted;
+    UCharacterMovementComponent* M = Rider ? Rider->GetCharacterMovement() : nullptr;
+    if (Phase != EPhase::Riding || Input.bMenu || !M || !M->IsMovingOnGround() || IsInDeepWater()) return false;
+    Speed = FMath::Max(Speed, HorseRide::JumpMinSpeed);
+    FVector V = Rider->GetActorForwardVector() * Speed;
+    V.Z = HorseRide::JumpZVelocity + FMath::Max(float(M->Velocity.Z), 0.f);
+    M->Velocity = V;
+    M->SetMovementMode(MOVE_Falling);
+    ForcedIdle = EHorseRole::Idle;
+    IdleTimer = 0.f;
+    Role = EHorseRole::Gallop;
+    GaitPhase = 0.f;
+    ++Serial;
+    return true;
+}
+
 void UHorseComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -682,7 +714,8 @@ bool UHorseComponent::AdvanceSimulation(float Dt, const FHorseInput& In)
         const FVector Ahead = Rider->GetActorForwardVector();
         for (const HorseRide::FProbe& AheadProbe : HorseRide::Probes)
         {
-            const FVector From = Feet + FVector(0.f, 0.f, AheadProbe.Height);
+            const float ProbeHeight = !bGround && AheadProbe.Height < 100.f ? AheadProbe.Height + HorseRide::JumpClearance : AheadProbe.Height;
+            const FVector From = Feet + FVector(0.f, 0.f, ProbeHeight);
             FHitResult Hit;
             if (GetWorld()->LineTraceSingleByChannel(Hit, From, From + Ahead * (AheadProbe.Reach + Speed * Dt),
                     Online ? JapanGameplayCollision::Channel : ECC_Visibility, Q) && Hit.ImpactNormal.Z < .6f)
@@ -742,6 +775,7 @@ void UHorseComponent::Play(EHorseRole NewRole)
 
 EHorseRole UHorseComponent::SelectRole() const
 {
+    if (IsJumping()) return EHorseRole::Gallop;
     // A pivot uses the walk's unchanged saddle/rider motion and wire role; only the breed's leg clip differs.
     if (IsTurningInPlace()) return EHorseRole::Walk;
     if (Speed < HorseRide::IdleSpeed) return ForcedIdle;
@@ -755,6 +789,12 @@ bool UHorseComponent::IsTurningInPlace() const
 {
     return Phase == EPhase::Riding && Speed < HorseRide::IdleSpeed && FMath::Abs(Steering) > HorseRide::TurnDeadzone &&
         Rider && Rider->GetCharacterMovement()->IsMovingOnGround();
+}
+
+bool UHorseComponent::IsJumping() const
+{
+    return Phase == EPhase::Riding && Speed >= HorseRide::IdleSpeed &&
+        Rider && Rider->GetCharacterMovement()->IsFalling();
 }
 
 bool UHorseComponent::Loops(EHorseRole Of) { return int32(Of) < HorseRide::RoleCount && HorseRide::RoleOf(Of).bLoop; }
@@ -778,6 +818,7 @@ void UHorseComponent::AdvanceGait(float Dt)
 {
     const float Length = ClipLength(Role);
     if (Phase != EPhase::Riding) { GaitPhase = FMath::Clamp(PhaseTime / Length, 0.f, 1.f); return; }
+    if (IsJumping()) { GaitPhase = FMath::Min(GaitPhase + Dt / HorseRide::JumpDuration, 1.f); return; }
     // Each gait's clip plays faster as the horse runs up through its range.
     auto Rate = [this](float Low, float High, float Slow, float Fast) { return FMath::GetMappedRangeValueClamped(FVector2f(Low, High), FVector2f(Slow, Fast), Speed); };
     float PlayRate = 1.f;
@@ -850,12 +891,17 @@ void UHorseComponent::FollowGround(float Dt)
             GetWorld()->LineTraceSingleByChannel(Back, At - Ahead + FVector(0, 0, 120), At - Ahead - FVector(0, 0, 240), Channel, Q))
             Want = FMath::Clamp(FMath::RadiansToDegrees(FMath::Atan2(float(Front.ImpactPoint.Z - Back.ImpactPoint.Z), 2.f * Span)), -25.f, 25.f);
     }
-    GroundPitch = FMath::FInterpTo(GroundPitch, Want, Dt, 10.f);
+    else if (IsJumping())
+    {
+        Want = FMath::Clamp(float(Rider->GetCharacterMovement()->Velocity.Z) / HorseRide::JumpZVelocity * HorseRide::JumpTakeoffPitch,
+            -HorseRide::JumpLandingPitch, HorseRide::JumpTakeoffPitch);
+    }
+    GroundPitch = FMath::FInterpTo(GroundPitch, Want, Dt, IsJumping() ? 14.f : 10.f);
 }
 
 void UHorseComponent::EmitHoofsteps(float From, float To)
 {
-    if (Phase != EPhase::Riding || (Speed < 15.f && !IsTurningInPlace()) || int32(Role) < int32(EHorseRole::Walk) || int32(Role) > int32(EHorseRole::Sprint)) return;
+    if (Phase != EPhase::Riding || IsJumping() || (Speed < 15.f && !IsTurningInPlace()) || int32(Role) < int32(EHorseRole::Walk) || int32(Role) > int32(EHorseRole::Sprint)) return;
     UJapanFootstepComponent* Steps = Rider->GetFootsteps();
     if (!Steps) return;
     auto Crossed = [From, To](float At) { return To >= From ? From < At && To >= At : From < At || To >= At; };
@@ -974,6 +1020,12 @@ FName UHorseComponent::GetRiderClip() const { return HorseRide::RoleOf(Role).Rid
 
 UAnimSequence* UHorseComponent::GetHorseSequence() const
 {
+    if (IsJumping())
+    {
+        const int32 Index = HorseRide::RoleCount + 2;
+        if (HorseClips.IsValidIndex(Index) && HorseClips[Index]) return HorseClips[Index];
+        if (HorseClips.IsValidIndex(int32(EHorseRole::Gallop))) return HorseClips[int32(EHorseRole::Gallop)];
+    }
     if (IsTurningInPlace())
     {
         const int32 Index = HorseRide::RoleCount + (Steering < 0.f ? 0 : 1);
@@ -995,7 +1047,8 @@ FName UHorseComponent::GetHorseClip() const
 FString UHorseComponent::GetStatus() const
 {
     if (!Breeds.IsValidIndex(Appearance.Breed)) return Hint;
-    const FString Status = FString::Printf(TEXT("%s (%s, tack %s) - %s"), *Breeds[Appearance.Breed].Name, *GetCoatId(), *GetTackId(), HorseRide::RoleOf(Role).Label);
+    const TCHAR* Label = IsJumping() ? TEXT("Jumping") : HorseRide::RoleOf(Role).Label;
+    const FString Status = FString::Printf(TEXT("%s (%s, tack %s) - %s"), *Breeds[Appearance.Breed].Name, *GetCoatId(), *GetTackId(), Label);
     return Hint.IsEmpty() ? Status : Status + TEXT("   ") + Hint;
 }
 

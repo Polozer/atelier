@@ -16,12 +16,14 @@ character (Cairo, Modori, Nox, Paul) rides it with clips authored on his own rig
 | Steer | A / D | Left stick left / right |
 | Hold to a walk / a trot | Alt / J (held) | |
 | Sprint (on / off) | Shift | Sprint (press the left stick) |
+| Jump | Space | A / Cross / B (mounted) |
 | Random horse: breed, tack, coat, mask, hair, pattern and tint | N | X / Square / Y (mounted) |
 | Next breed | U | D-pad Up (mounted) |
 | Next tack set | I | D-pad Right (mounted) |
 | Next coat | O | D-pad Left (mounted) |
 
-The keyboard's N, U, I and O work on foot too and change the next horse. The gamepad's look buttons work only in the
+Summoning a horse (H or hold RB) automatically rolls a new random look unless the player already picked a look while on
+foot. The keyboard's N, U, I and O work on foot too and pre-select the next horse. The gamepad's look buttons work in the
 saddle, because on foot they are the dash, the sailboat, the skateboard to the hand and the sword. Beside a docked
 zeppelin and aboard one the shoulders choose its stop or flight speed, so the hold leaves the horse alone there. The
 coat mask, the hair colour and pattern and the tint change only with the random horse or `live.L.horse_configure`.
@@ -70,12 +72,15 @@ the sprint's top speed.
   as the rider's HorseMount and HorseDismount clips (1.60 s and 1.40 s as authored), so each plays to its end; the
   horse stands still meanwhile. Getting off needs the horse stopped (40 cm/s, 1.4 km/h, or less) and the ground under
   him; faster, the HUD says "Slow down to get off", and in the air "Land to get off". Then the horse goes away.
+- **Jumping.** Pressing Jump (Space or the gamepad's south button) while riding on the ground launches the horse forward
+  and upward (560 cm/s vertical takeoff, at least 240 cm/s forward speed) through its Jump clip, tucking the forelegs and
+  folding the hind legs over the apex while pitching along the flight arc.
 - **Water.** The horse does not swim. It queries the move set's sea and woodland lake and ends the ride at the same
   depth that starts swimming on foot: feet below the surface by 1.1 capsule half-heights while grounded, or 10 cm
   while falling. Offline it stows immediately; online the host confirms the stow. The player is told "The horse will
   not swim: you are on foot" and the normal move set takes over. Engine swimming volumes also end the ride.
   The bike has no such rule.
-- **In the saddle.** Jump, Attack, Guard, the sword and the move set do nothing, and the bike, sailboat and
+- **In the saddle.** Attack, Guard, the sword and the move set do nothing, and the bike, sailboat and
   skateboard cannot be taken out. Crouch, Wave and Interact do nothing either (on the bike Crouch skids and Wave waves,
   but the horse has no such clips): he cannot crouch, wave, talk to the sword trainer, or call or board the zeppelin
   from the saddle. Online the same presses are refused: the move set takes no presses on a vehicle, and the host

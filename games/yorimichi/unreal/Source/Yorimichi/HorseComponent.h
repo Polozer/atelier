@@ -56,6 +56,8 @@ public:
     /** Shift / left stick press while riding: sprint until pressed again or the horse comes to a halt. False when he is
      *  not riding. */
     bool ToggleSprint();
+    /** Space / gamepad south button while riding on the ground: leap forward and upward. */
+    bool Jump();
     /** One step of the ride, deterministic from this state, the input and the world: speed, heading (the actor's yaw), the
      *  movement component's velocity, the phase, the clip and its clock. No presentation, sound or randomness, so a shared
      *  game can run it inside the movement component's moves and replay it. False when the horse has gone (offline, at the
@@ -109,6 +111,7 @@ public:
     bool IsEquipped() const { return Phase != EPhase::Stowed; }
     bool IsRiding() const { return Phase == EPhase::Riding; }
     bool IsSprinting() const { return bSprint; }
+    bool IsJumping() const;
     EPhase GetState() const { return Phase; }
     EHorseRole GetRole() const { return Role; }
     /** Bumped by every new clip, so the animation instance blends into it. */
@@ -209,6 +212,7 @@ private:
     TArray<FTint> Tints;
     FJapanHorseAppearance Appearance;
     bool bAssetsReady = false;
+    bool bPendingAppearance = false;
 
     // The simulation (AdvanceSimulation): what a shared game checkpoints (FJapanHorseState).
     EPhase Phase = EPhase::Stowed;
