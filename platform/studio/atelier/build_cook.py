@@ -217,7 +217,7 @@ class Observer:
     unsupported decisions and malformed evidence MUST refuse. Valid full invalidation MUST remain
     full, never be reported as observed reuse. Missing counters/timings MUST remain unknown.
     """
-    def __init__(self, folder, mode):
+    def __init__(self, folder, mode, *, on_line=None):
         self.path = Path(folder) / 'stdout.log'
         self.report_path = Path(folder) / 'cook-observation.json'
         self.observation = Observation(mode)
@@ -230,6 +230,7 @@ class Observer:
         self.reason = None
         self.invocation = uuid.uuid4().hex
         self.digest = hashlib.sha256()
+        self.on_line = on_line
 
     def poll(self, pid):
         if self.pid is None:
@@ -263,7 +264,10 @@ class Observer:
         self.buffer += data
         while b'\n' in self.buffer:
             line, self.buffer = self.buffer.split(b'\n', 1)
-            self.observation.line(line.decode('utf-8', errors='strict'))
+            decoded = line.decode('utf-8', errors='strict')
+            self.observation.line(decoded)
+            if self.on_line is not None:
+                self.on_line(decoded)
         if len(self.buffer) > MAX_LINE:
             raise ValueError('Cook log line exceeds bound')
         return bool(data)

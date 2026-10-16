@@ -111,11 +111,15 @@ class UnrealPackage:
 
     def __repr__(self):
         """@cc [owner:fontanierh,label:correctness] explicit-cook-mode-identity
-        Default package representation and argv MUST retain the preexisting fingerprint/state.
+        Default package representation and argv MUST retain their preexisting shape. Package
+        lifecycle implementation MUST enter the action inputs without invalidating unrelated commands.
         Nondefault cook mode MUST enter command identity on every recipe and receipt reload.
         """
         shown = [f for f in fields(self) if f.name != 'cook_mode' or self.cook_mode != CookMode.DEFAULT]
         return f'UnrealPackage({", ".join(f"{f.name}={getattr(self, f.name)!r}" for f in shown)})'
+
+    def runs(self):
+        return [Path(__file__).with_name(name) for name in ('build_cook.py', 'build_zen.py')]
 
     def argv(self, ctx):
         from .build_cook import options
@@ -483,16 +487,20 @@ def run_argv(ctx, step, command, argv, env, log, request, slots, *, pass_fds=())
             log.write(f'render slot: {slot}' + (f' ({why})' if why else '') + '\n'); log.flush()
         inherited = {'pass_fds': pass_fds} if pass_fds else {}
         cook = None
+        zen = None
         callback = getattr(command, 'on_poll', None)
         if isinstance(command, UnrealPackage):
             from .build_cook import Observer
-            cook = Observer(folder, command.cook_mode)
+            from .build_zen import Lifecycle
+            zen = Lifecycle(folder, ctx.unreal_root, env)
+            cook = Observer(folder, command.cook_mode, on_line=zen.line)
             cook.reason = getattr(ctx, 'cook_reason', None)
             original_callback = callback
             def callback(pid):
                 if original_callback is not None:
                     original_callback(pid)
                 cook.poll(pid)
+                zen.poll(pid)
         attempt = None
         if isinstance(command, UnrealPackage) and step.cook_recovery is not None and getattr(ctx, 'record_cook_recovery', False):
             from . import build_cook_recovery
@@ -508,6 +516,9 @@ def run_argv(ctx, step, command, argv, env, log, request, slots, *, pass_fds=())
             if cook is not None:
                 cook.finish(success=False)
             raise
+        finally:
+            if zen is not None:
+                zen.close()
         text = (folder / 'stdout.log').read_text(errors='ignore')
         log.write(text)
         if code and used == ['small']:

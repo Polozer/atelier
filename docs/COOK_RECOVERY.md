@@ -4,6 +4,20 @@ An opt-in local journal can preserve a successfully guarded cook when certificat
 hashing its archived app. Recovery repeats certification, then the normal package assembly consumes that
 certified cook. It does not run UAT again, touch stamps, restore a native cache or certify gameplay.
 
+Normal Mac `UnrealPackage` builds keep the local Zen service (port 8558) sponsored by the admitted
+UAT process for the whole BuildCookRun, including staging after the cook process exits. The launcher
+uses the installed `zen attach` client; it never starts or stops a shared server. Health probes and
+attach calls run outside the guard polling thread, with bounded HTTP and client timeouts. Readiness
+is checked every two seconds on `::1`, matching UAT; a successful attachment is refreshed every
+30 seconds and immediately after an observed unhealthy-to-healthy transition.
+If staging has begun reading the local Zen store and health checks fail continuously for 60 seconds,
+the step fails through normal owned-process cleanup instead of waiting on UAT's long HTTP timeout.
+A healthy slow read is allowed to continue. Repeated attach failures also fail explicitly after
+60 seconds when no sponsorship has succeeded for the continuously healthy server. A failed refresh
+does not discard an established sponsor. `logs/<step>.guard/zen-lifecycle.json` records the admitted
+sponsor, health checks and result.
+This applies to default and experimental cooking alike; it changes neither engine files nor UAT arguments.
+
 Enable recording **before** the original cook, in its own checkout under normal admission:
 
 ```sh
