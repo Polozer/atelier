@@ -82,7 +82,13 @@ def test_attach_discards_previous_receipt_before_starting_monitor(tmp_path, monk
 
 
 @pytest.fixture
-def admissions(monkeypatch):
+def admissions(monkeypatch, tmp_path):
+    from atelier import capacity_runtime, capacity_compat
+    # These cases own a mocked legacy admission; never contact an installed broker
+    # or read this developer machine's sealed cutover/default client.
+    monkeypatch.setattr(capacity_runtime, 'DEFAULT_CONFIG', tmp_path / 'absent-client.json')
+    monkeypatch.setattr(capacity_compat, 'DEFAULT_RECORD', tmp_path / 'absent-cutover.json')
+    monkeypatch.delenv('ATELIER_CAPACITY_CLIENT', raising=False)
     calls = []
 
     @contextmanager
