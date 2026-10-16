@@ -88,9 +88,17 @@ Normal guarded commands wait automatically when the broker positively queues the
 same uncharged request once a second, retain its first-ready age, and print progress at least every 25 seconds.
 No child, launch gate, resources or legacy locks are held while waiting. The wait ends when selected,
 on cancellation, or after 30 minutes; rerunning the same job after the deadline retains its ready age.
-Broker/transport, policy and fencing failures still refuse immediately without retry or fallback.
+Policy, protocol, ownership and fencing failures still refuse immediately without fallback.
 The queue wait happens before the normal launch/guard lifecycle and does not extend any RPC or child
 execution deadline. No board announcement or coordinator permission is required.
+
+A session may reconcile one transient connection/timeout failure for `offer`, `owned`, `check` or `close`
+by resending the identical request once. Each call retains its two-second deadline (at most four seconds
+for both attempts with the normal client). Offers remain uncharged; checks retain the same process delta,
+epoch and nonce; close still requires an affirmative released response after normal cleanup. A second
+transport failure refuses normally. Gate creation, launch/start and phase replacement never replay, because
+a lost response can conceal a state change. A broker restart or changed session identity still fences the
+caller; reconciliation never clears an uncertain reservation or grants local fallback admission.
 
 Read board reservations as scheduling budgets, separately from measured process memory and host availability.
 Recovery pauses new grants; inspect the uncertain jobs and their owners, or the compatibility reason, rather than

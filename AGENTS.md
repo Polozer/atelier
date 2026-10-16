@@ -213,7 +213,9 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   Routine builds need no pre-announcement or permission from a coordinator. Broker admission and guards decide.
   A confirmed queued request waits automatically for up to 30 minutes, with progress and no held resources,
   child, launch gate or legacy locks. Keep the command in the normal background job facility; cancellation
-  closes its uncharged session. Other broker/transport/safety refusals still fail without retry or fallback.
+  closes its uncharged session. Transient transport failures on offer/ownership/check/close reconcile once
+  with the identical request and unchanged per-call deadline; start/gate/replace never replay. A second
+  transport failure or a policy, protocol, ownership or fencing refusal still fails without fallback.
   Do not request an extra legacy slot or edit `render-slots.json`. Existing sealed compatibility files remain
   protected and must never be removed, replaced or chmodded. Memory reservations cover actual-child and
   aggregate guard ceilings; CPU is a scheduling budget, not dedicated cores. Let normal admission select
