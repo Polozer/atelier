@@ -3,7 +3,7 @@
 
 The Rust channel implementation is an exact verbatim source prefix; shared tree
 probe scaffolding is reused without changing any implementation file. Guard the
-compile and corpus execution through atelier.safety.
+compile and corpus execution through atelier.harness.safety.
 """
 import argparse
 import hashlib

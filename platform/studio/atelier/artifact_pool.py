@@ -16,7 +16,7 @@ import tempfile
 from . import paths
 from .build import Context, Python, fingerprint, load_recipe, order, result
 from .reuse import copy_tree
-from .safety.render_lock import render_lock
+from atelier.harness.safety.render_lock import render_lock
 
 
 def digest(path):

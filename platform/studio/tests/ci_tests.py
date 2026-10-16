@@ -16,7 +16,7 @@ def group_for(nodeid):
     path = PurePosixPath(nodeid.split('::', 1)[0])
     if path.parts[0] == 'games':
         return 'games'
-    if path.parent == PurePosixPath('platform/studio/tests') and path.name.startswith('test_board'):
+    if path.parent in {PurePosixPath('platform/studio/tests'), PurePosixPath('platform/harness/tests')} and path.name.startswith('test_board'):
         return 'board'
     return 'studio'
 

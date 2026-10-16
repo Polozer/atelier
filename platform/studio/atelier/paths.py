@@ -12,6 +12,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 PLATFORM = REPO / 'platform'
 STUDIO = PLATFORM / 'studio'
+HARNESS = PLATFORM / 'harness'
 CONVENTIONS = PLATFORM / 'conventions'
 ENGINE_PLUGINS = PLATFORM / 'engine' / 'Plugins'
 GAMES = REPO / 'games'

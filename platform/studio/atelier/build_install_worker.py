@@ -7,7 +7,9 @@ import socket
 import stat
 import sys
 
-from . import build_install as install, capacity_protocol as wire, paths
+from atelier import build_install as install
+from atelier.harness import capacity_protocol as wire
+from atelier import paths
 
 
 def _parent(value):
@@ -43,7 +45,7 @@ def _install(descriptor, binding_descriptor):
     nonce, checkout and recovery transaction MUST remain bound; a
     caller assertion or alternate command MUST NOT substitute for the normal guarded lifecycle.
     """
-    from .safety.worker_binding import WorkerProof, require_legacy
+    from atelier.harness.safety.worker_binding import WorkerProof, require_legacy
     with os.fdopen(descriptor, 'rb') as request, socket.socket(fileno=binding_descriptor) as channel:
         require_legacy()
         value = _spec(request.fileno())
@@ -70,7 +72,7 @@ def _install_bound(value, proof):
 
 
 def _registry():
-    from .safety.worker_binding import require_legacy
+    from atelier.harness.safety.worker_binding import require_legacy
     require_legacy()
     value = install._decode(sys.stdin.buffer.read(install.MAX_JSON + 1))
     install._fields(value, ('schema', 'backend', 'nonce', 'repo', 'game', 'content_pin', 'parent', 'child'))

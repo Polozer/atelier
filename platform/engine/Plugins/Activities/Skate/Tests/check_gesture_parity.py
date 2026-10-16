@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare original Rust/PAT input with the C++ recognizer and simulation data, bit for bit.
 
-Run under atelier.safety: this command compiles and executes both probes.
+Run under atelier.harness.safety: this command compiles and executes both probes.
 All generated binaries, simulation data, replay inputs, outputs and reports go to --output.
 """
 import argparse

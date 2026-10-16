@@ -8,8 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from atelier import capacity_compat as compat, setup, stream
-from atelier.capacity_protocol import CapacityError
+from atelier.harness import capacity_compat as compat
+from atelier import setup
+from atelier import stream
+from atelier.harness.capacity_protocol import CapacityError
 
 GAME = Path(__file__).resolve().parents[1]
 
@@ -169,7 +171,7 @@ def test_absent_cutover_preserves_model_warmup_and_single_worker(monkeypatch, mo
     python.touch()
     child = SimpleNamespace(pid=123)
     monkeypatch.setattr(subprocess, 'Popen', lambda argv, **options: warmed.append(argv) or child)
-    from atelier.safety import guard
+    from atelier.harness.safety import guard
     from contextlib import nullcontext
     monkeypatch.setattr(guard, 'attach', lambda *args, **options: nullcontext('monitor'))
     monkeypatch.setattr(guard, 'reap', lambda process: None)

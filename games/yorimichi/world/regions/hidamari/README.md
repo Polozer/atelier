@@ -29,7 +29,7 @@ uv run atelier build yorimichi world.city_tiles world.city_trees unreal.desktop 
 
 For an art iteration on a few meshes, set `HIDAMARI_ASSETS` to comma-separated mesh names for both the Blender build
 and the importer, and `HIDAMARI_TERRAIN=1` on the importer to replace the base terrain too. This is an isolated art
-experiment: use the guarded `kit/lab.py` workflow, or run `import_hidamari.py` under `atelier.safety.guarded` after
+experiment: use the guarded `kit/lab.py` workflow, or run `import_hidamari.py` under `atelier.harness.safety.guarded` after
 normal board admission. Never certify this filtered output through an ordinary `atelier build`: `unreal.world`
 still purges legacy regional packages under `/Game/Japan`, preserving only the independently owned shared-material
 and foliage catalogues. A filtered run would remove the other legacy meshes. A layout or height change can need

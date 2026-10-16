@@ -5,7 +5,7 @@ The reference calls untouched SkaterAnimation::from_source and ::advance with
 the real original ActionHost and MotionHost. Project stock data is used
 only by C++; optional override JSON is the project's own format. This bounded
 fixture check does not establish complete authored gameplay or session parity.
-Run compilation/execution through atelier.safety.
+Run compilation/execution through atelier.harness.safety.
 """
 import argparse
 from collections import Counter

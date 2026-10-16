@@ -1,0 +1,62 @@
+"""A relocation must preserve public imports, embedded interpreters and packaged entry points."""
+import importlib
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+import pytest
+
+from atelier import paths
+
+
+@pytest.mark.parametrize('name', ['board', 'board_store', 'capacity', 'capacity_client',
+                                  'safety', 'safety.guarded', 'safety.memory_guard'])
+def test_legacy_import_is_the_canonical_module(name):
+    old = importlib.import_module('atelier.' + name)
+    current = importlib.import_module('atelier.harness.' + name)
+    assert old is current
+    assert current.__spec__.name == 'atelier.harness.' + name
+    assert Path(current.__file__).is_relative_to(paths.PLATFORM / 'harness')
+
+
+def test_legacy_types_keep_their_identity():
+    from atelier.capacity import Resources as old
+    from atelier.harness.capacity import Resources as current
+    assert old is current
+
+
+def test_embedded_python_needs_only_the_existing_studio_path():
+    code = ('import atelier.capacity_client as old; '
+            'import atelier.harness.capacity_client as new; '
+            'assert old is new; assert old.AdmissionSession is new.AdmissionSession')
+    subprocess.run([sys.executable, '-S', '-c', code], check=True, timeout=10,
+                   env={**os.environ, 'PYTHONPATH': str(paths.STUDIO)}, capture_output=True)
+
+
+@pytest.mark.parametrize('name', ['atelier.safety.guarded', 'atelier.harness.safety.guarded'])
+def test_module_entry_point(name):
+    result = subprocess.run([sys.executable, '-m', name, '--help'], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert '--report' in result.stdout and '--kind' in result.stdout
+
+
+def test_server_sources_and_assets_are_in_harness():
+    from atelier.harness import board_web
+    assert board_web.SERVER == paths.PLATFORM / 'harness' / 'web' / 'server'
+    assert (board_web.SERVER / 'Cargo.toml').is_file()
+    assert (board_web.ASSETS / 'app.js').is_file()
+
+
+def test_static_recipe_scan_reaches_harness_and_shared_studio_code(tmp_path):
+    from atelier.build_inputs import ImportScanner
+    script = tmp_path / 'recipe.py'
+    script.write_text('from atelier.harness import board_web\n')
+    found = ImportScanner().local_imports(script)
+    assert paths.HARNESS / 'harness' / 'board_web.py' in found
+    assert paths.STUDIO / 'atelier' / 'paths.py' in found
+    assert paths.STUDIO / 'atelier' / '__init__.py' in found
+    assert paths.HARNESS / 'harness' / '__init__.py' in found
+    assert paths.HARNESS / 'harness' / 'compat.py' in found
+    script.write_text('from atelier import board_web\n')
+    assert paths.HARNESS / 'harness' / 'board_web.py' in ImportScanner().local_imports(script)

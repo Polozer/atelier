@@ -9,7 +9,7 @@ from pathlib import Path
 import json
 import subprocess
 from PIL import Image, ImageDraw, ImageFont
-from atelier.capacity_compat import refuse_unmanaged
+from atelier.harness.capacity_compat import refuse_unmanaged
 
 refuse_unmanaged('Character sprint comparison')
 

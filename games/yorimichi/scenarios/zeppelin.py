@@ -33,7 +33,7 @@ def main():
     if '--unlit' in sys.argv:commands+=',viewmode unlit'
     if '--cvars' in sys.argv:commands+=','+sys.argv[sys.argv.index('--cvars')+1]
     cmd=[str(yori.REPO) and __import__('atelier.build',fromlist=['Context']).Context('yorimichi').unreal_app.as_posix(),str(ROOT/'unreal/Yorimichi.uproject'),'-game','-RenderOffscreen','-ForceRes','-resx=1920','-resy=1080',f'-zeppelindock={index}','-buildingreview='+str(spec),'-reviewdir='+str(folder),'-unattended','-nosplash','-stdout','-abslog='+str(folder/'game.log'),'-ExecCmds='+commands]
-    subprocess.run([sys.executable,'-m','atelier.safety.guarded','--report',str(folder),'--',*cmd],check=True,env={**__import__('os').environ,'PYTHONPATH':str(yori.REPO/'platform/studio')})
+    subprocess.run([sys.executable,'-m','atelier.harness.safety.guarded','--report',str(folder),'--',*cmd],check=True,env={**__import__('os').environ,'PYTHONPATH':str(yori.REPO/'platform/studio')})
     result=json.loads((folder/'completed.json').read_text());print('PASS',result['passed'],result['errors']);assert result['passed']
     log=(folder/'game.log').read_text()
     assert 'Failed to compile Material' not in log, 'A material fell back to the checkerboard shader'

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact original-core steering/truck/wobble states and verbatim host settings.
 
-Compile/run only through atelier.safety. Ground scheduling and trainer tuning
+Compile/run only through atelier.harness.safety. Ground scheduling and trainer tuning
 remain separate owners; these probes call unchanged public Rust core routines.
 """
 import argparse

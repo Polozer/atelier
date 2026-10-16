@@ -8,7 +8,7 @@ import subprocess
 import threading
 import urllib.error
 import urllib.request
-from atelier.capacity_compat import refuse_unmanaged
+from atelier.harness.capacity_compat import refuse_unmanaged
 
 from server import HERE, Lab, original_library, presets_for, validate_request
 
@@ -41,7 +41,7 @@ class Backend:
         self.address = Path(runtime) / generator / 'address.json'
         if not start or not (self.root / 'venv/bin/python').is_file():
             return
-        from atelier.safety.guard import attach, reap
+        from atelier.harness.safety.guard import attach, reap
         try:
             self.address.parent.mkdir(parents=True, exist_ok=True)
             self.address.unlink(missing_ok=True)
@@ -64,7 +64,7 @@ class Backend:
         if self.process is None or self.process.poll() is not None:
             raise RuntimeError(f'{NAMES[self.generator]} worker is unavailable; run setup')
         if self.monitor is not None and self.monitor.poll() is not None:
-            from atelier.safety.guard import reap
+            from atelier.harness.safety.guard import reap
             reap(self.process)
             raise RuntimeError(f'{NAMES[self.generator]} memory guard stopped')
         try:

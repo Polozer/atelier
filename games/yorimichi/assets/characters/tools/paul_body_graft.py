@@ -2,7 +2,7 @@
 
 Run it only under the guard, after a render-board turn:
 
-nice -n 10 uv run python -m atelier.safety.guarded --report build/yorimichi/paul-graft.guard --timeout 900 -- \
+nice -n 10 uv run python -m atelier.harness.safety.guarded --report build/yorimichi/paul-graft.guard --timeout 900 -- \
     /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --threads 3 --python-exit-code 1 --python \
     games/yorimichi/assets/characters/tools/paul_body_graft.py -- \
     --body <tripo body>.glb --head <previous Paul.glb, haras-r01> --output <dir> \

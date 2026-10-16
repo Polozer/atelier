@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare simulation graph values, lookup and binding with the unmodified Rust reader.
 
-Compiles both probes: run through atelier.safety. Original input and simulation data
+Compiles both probes: run through atelier.harness.safety. Original input and simulation data
 are read independently. Whole-graph execution is checked separately after porting.
 """
 import argparse

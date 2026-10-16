@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bounded real MotionHost/controller lifecycle comparison.
 
-Compile only through atelier.safety. Simulation metadata/settings/graphs and the
+Compile only through atelier.harness.safety. Simulation metadata/settings/graphs and the
 unchanged pinned host consume the same explicit completed physical inputs.
 """
 import argparse

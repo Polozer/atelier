@@ -4,9 +4,12 @@ import json
 
 import pytest
 
-from atelier import build_snapshot, capacity_compat, reuse, reuse_worker
-from atelier.capacity_protocol import CapacityError
-from atelier.safety import guarded
+from atelier import build_snapshot
+from atelier.harness import capacity_compat
+from atelier import reuse
+from atelier import reuse_worker
+from atelier.harness.capacity_protocol import CapacityError
+from atelier.harness.safety import guarded
 
 
 @pytest.mark.parametrize('action,code', [('copy', 0), ('copy', 7), ('abandon', 7)])

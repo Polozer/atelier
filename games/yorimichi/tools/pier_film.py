@@ -13,7 +13,7 @@ import sys
 import time
 
 from atelier import live
-from atelier.safety.render_lock import lock_path
+from atelier.harness.safety.render_lock import lock_path
 
 GAME=Path(__file__).resolve().parents[1]
 ROOT=GAME.parents[1]

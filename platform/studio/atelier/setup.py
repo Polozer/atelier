@@ -17,9 +17,9 @@ import subprocess
 import tempfile
 
 from . import engine, paths
-from .capacity_compat import refuse_unmanaged
-from .safety import guarded
-from .safety.render_lock import render_lock
+from atelier.harness.capacity_compat import refuse_unmanaged
+from atelier.harness.safety import guarded
+from atelier.harness.safety.render_lock import render_lock
 
 HEADLESS_VARIABLE = 'UE_HEADLESS_USER_DIR'
 METHOD = '\t\tprivate static DirectoryReference? GetUserDirectory()\n\t\t{\n'

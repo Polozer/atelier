@@ -4,7 +4,7 @@
 The Rust oracle includes the untouched frozen core and host builder/selection
 modules. Private owner methods and channel-container declarations are extracted
 verbatim from the same Git revision, with exact byte boundaries and hashes.
-No original implementation file is modified. Run under atelier.safety.
+No original implementation file is modified. Run under atelier.harness.safety.
 """
 import argparse
 from collections import Counter

@@ -25,7 +25,7 @@ def test_higher_limits_refuse_a_headless_pair(monkeypatch, option, value):
 
 @pytest.mark.parametrize('view', ['host', 'guest'])
 def test_explicit_rendered_limits_reach_only_the_guarded_worker(tmp_path, monkeypatch, view):
-    from atelier.safety import guarded
+    from atelier.harness.safety import guarded
     module = session_module()
     observed = {}
 
@@ -48,7 +48,7 @@ def test_explicit_rendered_limits_reach_only_the_guarded_worker(tmp_path, monkey
 
 
 def test_every_session_aggregate_limit_is_accepted_by_the_monitor(tmp_path, monkeypatch):
-    from atelier.safety import guarded
+    from atelier.harness.safety import guarded
     session = session_module()
     choices = []
     parse = session.argparse.ArgumentParser.parse_args

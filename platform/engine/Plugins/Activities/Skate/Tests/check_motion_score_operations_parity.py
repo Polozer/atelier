@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Original full MotionHost score, tweak, height, RNG and registry phase parity.
 
-Parent exclusively runs this under atelier.safety. Generated authored trees make
+Parent exclusively runs this under atelier.harness.safety. Generated authored trees make
 parameter effects visible through real cached animation output, not test sinks.
 """
 import argparse

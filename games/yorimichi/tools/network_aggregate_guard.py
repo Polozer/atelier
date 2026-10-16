@@ -6,7 +6,7 @@ larger choices require operator authorization before launching that QA session.
 import argparse
 from pathlib import Path
 
-from atelier.safety.tree_guard import run
+from atelier.harness.safety.tree_guard import run
 
 
 def main():

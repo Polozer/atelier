@@ -294,7 +294,7 @@ def test_real_worker_dry_run_uses_no_credentials(public_bundle, objects, monkeyp
 
 
 def test_hard_deadline_reaps_only_owned_worker(public_bundle, objects, monkeypatch):
-    from atelier.safety import process
+    from atelier.harness.safety import process
     children = []
     def sleeper(command, **kwargs):
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], **kwargs)

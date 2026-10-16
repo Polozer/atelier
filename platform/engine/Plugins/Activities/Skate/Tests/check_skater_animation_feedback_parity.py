@@ -5,7 +5,7 @@ The baseline protocol remains unchanged. Version two adds explicit completed
 riding/grind/landing/wipeout/prelanding publications and reads public persistent
 score, channel and construction owners. All original host and actor methods run
 unchanged; no implementation slices, producer callbacks or accessors replace
-production. Compile/run only through atelier.safety.
+production. Compile/run only through atelier.harness.safety.
 """
 from collections import Counter
 import json

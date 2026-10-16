@@ -25,6 +25,8 @@ def test_groups_cover_normal_collection_once(tmp_path):
     (tmp_path / 'pytest.ini').write_text('[pytest]\ntestpaths = platform games future\n')
     files = {
         'platform/studio/tests/test_board_new.py': 'board',
+        'platform/harness/tests/test_board_harness_new.py': 'board',
+        'platform/harness/tests/test_capacity_new.py': 'studio',
         'platform/studio/tests/test_new.py': 'studio',
         'games/new/tests/test_new_game.py': 'games',
         'future/test_new_location.py': 'studio',

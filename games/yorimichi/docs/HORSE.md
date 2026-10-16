@@ -307,7 +307,7 @@ nice -n 10 uv run python games/yorimichi/tools/review_network_session.py --featu
   and every asset they name, materials and textures included, is saved; `unreal.<key>_horse` checks each clip's imported length against `export.json`;
   the fit gate holds every horse clip's `reach_error_cm` to the 4 cm bound (waivers aside) and, once the character has
   a horse baseline, to it ([PLAYABLE_CHARACTER.md](PLAYABLE_CHARACTER.md)).
-- **Review renders.** The Blender run goes under `atelier.safety.guarded`, for several breeds and tack sets
+- **Review renders.** The Blender run goes under `atelier.harness.safety.guarded`, for several breeds and tack sets
   (`--review-video` with clip names adds MP4s). It writes into the build (see `characters.<key>_horse` above).
 - **Checkpoint.** The native wire suite runs `Yorimichi.Network.HorseCheckpoint` with the other network fixtures
   ([MULTIPLAYER.md](MULTIPLAYER.md)).

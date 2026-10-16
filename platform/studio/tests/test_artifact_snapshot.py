@@ -208,7 +208,7 @@ def test_interrupted_snapshot_restore_blocks_every_launch_until_same_scope_resum
         d.run('world.placements')
     with pytest.raises(SystemExit, match='Portable snapshot'):
         cli.play('sandbox', 'unused', {}, [])
-    from atelier.safety import process
+    from atelier.harness.safety import process
     with monkeypatch.context() as patch:
         patch.setattr(process.subprocess, 'Popen', lambda *a, **k: pytest.fail('partial snapshot reached spawn'))
         with pytest.raises(SystemExit, match='Portable snapshot'):
@@ -272,7 +272,7 @@ def test_default_and_selected_portable_journals_both_fence_direct_launch(tmp_pat
     marker.write_text('{}')  # Ordinary launchers refuse even a malformed/incomplete marker.
     with pytest.raises(SystemExit, match='Portable snapshot'):
         build_snapshot.require_complete(output, game='fixture', repo=repo)
-    from atelier.safety import process
+    from atelier.harness.safety import process
     monkeypatch.setattr(process.subprocess, 'Popen', lambda *a, **k: pytest.fail('barrier allowed native spawn'))
     with pytest.raises(SystemExit, match='Portable snapshot'):
         process.spawn(['UnrealEditor', str(project)], env=dict(os.environ, ATELIER_BUILD_ROOT=str(output.parent)))

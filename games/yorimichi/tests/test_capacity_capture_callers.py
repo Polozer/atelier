@@ -76,7 +76,7 @@ def test_benchmark_wait_retries_only_unallocated_legacy_refusal(benchmark, tmp_p
 
 @pytest.mark.parametrize('failure', ['broker', 'exit', 'deadline'])
 def test_benchmark_failure_never_becomes_a_retry_or_success(benchmark, tmp_path, monkeypatch, failure):
-    from atelier.capacity_client import CapacityError
+    from atelier.harness.capacity_client import CapacityError
     calls = []
 
     def run(*args, **options):

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from atelier import artifact_pool, build, build_plan, build_snapshot, cli, paths, playtest, stream
-from atelier.safety import process
+from atelier.harness.safety import process
 
 
 @pytest.fixture

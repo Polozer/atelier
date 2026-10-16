@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from atelier import capacity_protocol as wire
-from atelier.safety import render_lock as locks
+from atelier.harness import capacity_protocol as wire
+from atelier.harness.safety import render_lock as locks
 
 
 def stable_pins(monkeypatch):
@@ -108,7 +108,7 @@ def test_incomplete_listing_is_discarded_before_a_complete_retry(monkeypatch):
 
 @pytest.mark.parametrize('pending', [False, True])
 def test_broker_foreign_check_is_single_shot_without_observer_settlement(monkeypatch, pending):
-    from atelier.capacity_broker import CapacityBroker
+    from atelier.harness.capacity_broker import CapacityBroker
     calls = []
     def table(**kwargs):
         calls.append(kwargs)

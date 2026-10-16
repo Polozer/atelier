@@ -9,8 +9,8 @@ same outputs, they stay current.
 Commands are plain data (`Python`, `Blender`, `UnrealScript`, `UnrealCompile`, `UnrealPackage`, `Call`), so the fingerprint changes
 when a command does.
 
-A `heavy` step's commands run under `atelier.safety.guarded`: a render slot and the memory guard, whose report is
-`logs/<step>.guard/memory-health.json`. When two render slots are on (`atelier.safety.render_lock`), a step whose last
+A `heavy` step's commands run under `atelier.harness.safety.guarded`: a render slot and the memory guard, whose report is
+`logs/<step>.guard/memory-health.json`. When two render slots are on (`atelier.harness.safety.render_lock`), a step whose last
 guard reports peaked at 3 GiB or less asks for the small slot; a compile, or a step with no report yet, takes the big
 one. The step's log names the slot each command used, and the summary line names it too when two slots are on.
 """
@@ -26,8 +26,8 @@ from .build_products import Product
 from .build_deferred import DeferredInputs
 from .build_spatial import BBoxQuery
 from .build_cook import CookMode
-from .safety import guarded
-from .safety.render_lock import GiB, slot_count
+from atelier.harness.safety import guarded
+from atelier.harness.safety.render_lock import GiB, slot_count
 
 SKIP_PARTS = build_inputs.SKIP_PARTS
 SKIP_SUFFIXES = build_inputs.SKIP_SUFFIXES
@@ -519,7 +519,7 @@ def run_argv(ctx, step, command, argv, env, log, request, slots, *, pass_fds=())
                 raise RuntimeError(f'{step.name}: stopped at the small render slot\'s memory limit; '
                                    f'its report now sends it to the big slot, run it again')
     else:
-        from .safety.process import policy_command
+        from atelier.harness.safety.process import policy_command
         result = subprocess.run(policy_command(argv), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
                                 text=True, errors='ignore', **({'pass_fds': pass_fds, 'stdin': subprocess.DEVNULL} if pass_fds else {}))
         code, text = result.returncode, result.stdout

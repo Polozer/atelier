@@ -142,7 +142,7 @@ def _stop(child):
 
 
 def _worker_transfer(base, key, trust_file, directory, timeout, echo):
-    from .safety.process import spawn
+    from atelier.harness.safety.process import spawn
     request = directory.parent / 'request.json'
     result = directory.parent / 'result.json'
     request.write_text(json.dumps({'base': base, 'key': key, 'trust': str(Path(trust_file).absolute()),

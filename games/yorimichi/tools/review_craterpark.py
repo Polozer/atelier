@@ -297,7 +297,7 @@ def main():
         sys.exit('--memory-gib must be 10 to 14')
     from atelier import live
     from atelier.build import Context
-    from atelier.safety import guarded
+    from atelier.harness.safety import guarded
     live.URL = f'http://127.0.0.1:{args.port}'
     out = Path(args.out) if args.out else yori.OUT / 'craterpark' / 'review'
     out.mkdir(parents=True, exist_ok=True)
@@ -314,8 +314,8 @@ def main():
 
 
 def worker(args, out, shots, frames, ctx, live, duration):
-    from atelier.safety.guard import attach as attach_memory_guard, reap
-    from atelier.safety.process import spawn_game
+    from atelier.harness.safety.guard import attach as attach_memory_guard, reap
+    from atelier.harness.safety.process import spawn_game
     (out / 'passed.json').unlink(missing_ok=True)
     (out / 'tour.json').write_text(json.dumps({'shots': shots}, indent=1) + '\n')
     log = (out / 'game.log').open('w')

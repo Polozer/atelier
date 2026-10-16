@@ -153,7 +153,7 @@ P=platform/engine/Plugins/Activities/Skate
 O=build/<game>/skate-cpp
 python3 $P/Tests/historical_oracle.py --game <game> --check-history --output $O/oracle   # pinned objects present?
 python3 $P/Tests/historical_oracle.py --game <game> --output $O/assets                   # restore the source assets
-uv run python -m atelier.safety.guarded --report $O/guard --kind compile --purpose "skate session parity" -- \
+uv run python -m atelier.harness.safety.guarded --report $O/guard --kind compile --purpose "skate session parity" -- \
   python3 $P/Tests/check_gameplay_session_parity.py --assets $O/assets \
     --simulation-package build/<game>/skate-simulation/package --output $O/session --target-dir $O/cargo
 ```
@@ -173,7 +173,7 @@ reference binary `atelier-skate-runtime` with `cargo +1.97.1 build --release --l
 rustup toolchain install 1.97.1
 mkdir -p $O/snapshot && git archive 46513a6:$P/ThirdParty/skate-runtime | tar -x -C $O/snapshot
 cargo +1.97.1 fetch --locked --manifest-path $O/snapshot/atelier-host/Cargo.toml
-uv run python -m atelier.safety.guarded --report $O/guard --kind compile -- \
+uv run python -m atelier.harness.safety.guarded --report $O/guard --kind compile -- \
   python3 $P/Tests/build_reference.py --output $O/reference --target-dir $O/cargo
 ```
 

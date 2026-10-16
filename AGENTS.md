@@ -5,7 +5,7 @@ is here and how to build it; [ARCHITECTURE.md](ARCHITECTURE.md) says how the par
 
 ## Layout
 
-- `platform/`: `studio/` (the `atelier` command, Python), `engine/Plugins/` (Unreal plugins), `web/` (stream pages,
+- `platform/`: `studio/` (the `atelier` command, Python), `harness/` (agent board, session delivery, capacity/admission and guards), `engine/Plugins/` (Unreal plugins), `web/` (stream pages,
   motion helpers, Rust/React agent board and board-world), `conventions/` (units, bone contract, clip roles,
   sound cues). Platform files never name a game.
 - `games/<game>/`: `game.toml` (play profiles, fetches, stream), `build.py` (build steps), `unreal/`, `world/`,
@@ -201,7 +201,7 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   before disabling tree optimization. The launcher handles the confirmed renderer restart. Keep normal memory
   guards unless the user explicitly authorizes an exception for that session. See
   [desktop performance](games/yorimichi/docs/DESKTOP_PERFORMANCE.md) for the launch and readiness contract.
-- Heavy jobs (Unreal, Blender renders) run under the render lock and memory guard (`atelier.safety`). `atelier play`
+- Heavy jobs (Unreal, Blender renders) run under the render lock and memory guard (`atelier.harness.safety`). `atelier play`
   and `atelier build` do this for you. A game's guard stops it above 10 GiB; `atelier play --memory-gib N` (10 to 14)
   raises that for one session that needs it (Quality graphics at 1080p, for example). In full capacity mode,
   admission automatically reserves at least that selected ceiling for this session; the default stays 10 GiB.
@@ -248,7 +248,7 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
 - On macOS, the shared process launcher gives builds and games application resource policies instead of an
   inherited background launchd role. It keeps normal thread QoS and at least nice 10; explicit `taskpolicy -b`
   or `-c background` policies are separate and are not cleared by it.
-  Use `atelier.safety.process.spawn` (`spawn_game` for Unreal games) for a harness
+  Use `atelier.harness.safety.process.spawn` (`spawn_game` for Unreal games) for a harness
   that owns its launch, together with its existing lock and actual-child memory guard. Do not add a second lock.
   When diagnosing slow work, check the actual child PID in `memory-health.json`, not just the lock owner's PID:
   `ps -o pid,ni,pri -p PID`. A child still in the background band invalidates normal-performance comparisons.
@@ -268,7 +268,7 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
 - **Legacy mode only:** a machine may reserve an additional Blender fitting lane with `fitting_checkout` in `render-slots.json`, keeping
   `slots` at 2. Before enabling it, update every active build/play client to the guard that understands all three
   mutexes; a fitting job refuses live holders with older guards. Only that checkout may request it, through
-  `atelier.safety.guarded --fitting GIB`, with one background Blender child expected to peak at most 3 GiB.
+  `atelier.harness.safety.guarded --fitting GIB`, with one background Blender child expected to peak at most 3 GiB.
   It needs at least 10 GiB available and retains the 4 GiB actual-child memory ceiling. It never falls back to BIG,
   and compiles wait for all three lanes. Set `fitting_paused` to true for performance or filming windows and wait
   for any admitted fitting job to exit. The reservation grants capacity only; take its lock only while working.
