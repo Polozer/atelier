@@ -76,13 +76,14 @@ and remain in durable history without counting as active waiters.
 
 Temporary-disk estimates do not constrain the planner, shadow service, production selection, start, phase
 replacement or pressure checks. No fixed temporary-space pool or free-space threshold delays admission.
-The board's Disk card continues to show real free space and folder usage. Legacy `temp_mib` wire/configuration
-fields stay readable so installed clients and sealed policy evidence remain compatible; public admission totals
-report zero for that retired dimension and the UI omits it. Sealed policy files are not rewritten.
+The board's Disk card shows real free space and folder usage. `temp_mib` wire/configuration fields are
+compatibility inputs; public admission totals report zero for disk and the admission UI omits it.
 
 Memory, CPU, GPU, configured I/O tokens, named ownership locks, fairness and native guards remain enforced.
-There is no independent low-disk guard in this launcher. A tool can still fail with ENOSPC if the filesystem fills;
-such a failure never produces a successful build certificate. Existing tool failures are not suppressed.
+Build/play admission has no independent low-disk guard. The Content package installer checks that its staging
+filesystem has room for two complete package copies plus 64 MiB before starting its atomic transaction.
+That transaction check does not reserve disk capacity or serialize other jobs. Tools can fail with ENOSPC
+if the filesystem fills; a failed tool never produces a successful build certificate.
 
 When asked to stop or yield, let the current owned child finish normally and arrange for its caller to stop before
 another heavy admission. First check `uv run atelier build --help`: if this checkout offers
@@ -283,7 +284,7 @@ install supervision rather than starting either with an unpinned manual `capacit
 This controls host headroom, not job limits: a 10 GiB job still reserves and enforces 10 GiB. With a 4 GiB host
 reserve it requires at least 14 GiB of fresh available memory, plus the full remaining memory growth of every
 charged peer. Unknown or failed observations still refuse. Worker counts, exclusive jobs, foreign-process checks,
-CPU/GPU/disk accounting and both memory guards are unchanged. The full default client remains schema2.
+CPU/GPU accounting and both memory guards are unchanged. The full default client remains schema2.
 
 Install a reviewed calibration only at a coordinated child-free, uncharged boundary. Keep the original full
 policy and seal bytes; never edit or re-seal them to fit a memory snapshot. Require measured host-pressure and
