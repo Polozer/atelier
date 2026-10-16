@@ -161,3 +161,53 @@ def test_cleanup_refreshes_shared_ancestry_between_live_candidates():
     tree.stop_owned(exited)
     assert sent == [3, 1]
     assert set(api.rows) == {2, 4, 5}, 'a new shared service and its children must survive cleanup'
+
+
+def test_terminal_receipt_reports_the_post_cleanup_sample(tmp_path, monkeypatch):
+    import json
+    from atelier.safety import tree_guard
+    before = [dict(pid=2, started=20, footprint_bytes=77, name='helper', depth=1)]
+    samples = iter((before, []))
+    tree = SimpleNamespace(root=(1, 10), same=lambda pin: True, sample=lambda: next(samples))
+    monkeypatch.setattr(tree_guard, 'OwnedTree', lambda *args: tree)
+    monkeypatch.setattr(tree_guard, 'drain_owned', lambda candidate: candidate is tree)
+    path = tmp_path / 'tree.json'
+    assert tree_guard.run_child(1, 10, path) == 0
+    value = json.loads(path.read_text())
+    assert value['state'] == 'child_exited' and value['cleanup_complete'] is True
+    assert value['processes'] == [] and value['footprint_bytes'] == 0
+    assert value['peak_bytes'] == 77
+
+
+def test_new_survivor_after_cleanup_cannot_publish_success(tmp_path, monkeypatch):
+    import json
+    from atelier.safety import tree_guard
+    before = [dict(pid=2, started=20, footprint_bytes=77, name='helper', depth=1)]
+    after = [dict(pid=3, started=30, footprint_bytes=88, name='helper', depth=2)]
+    samples = iter((before, after))
+    tree = SimpleNamespace(root=(1, 10), same=lambda pin: True, sample=lambda: next(samples))
+    monkeypatch.setattr(tree_guard, 'OwnedTree', lambda *args: tree)
+    monkeypatch.setattr(tree_guard, 'drain_owned', lambda candidate: True)
+    path = tmp_path / 'tree.json'
+    assert tree_guard.run_child(1, 10, path) == 1
+    value = json.loads(path.read_text())
+    assert value['state'] == 'cleanup_incomplete' and value['cleanup_complete'] is False
+    assert value['processes'] == after and value['footprint_bytes'] == 88
+    assert value['peak_bytes'] == 88 and value['termination_reason'] == 'child_exited'
+
+
+def test_stop_receipts_preserve_the_offending_pre_cleanup_sample(tmp_path, monkeypatch):
+    import json
+    from atelier.safety import tree_guard
+    for state, options in [('memory_limit', dict(limit_gib=1e-8)), ('test_duration', dict(duration=0))]:
+        before = [dict(pid=2, started=20, footprint_bytes=77, name='helper', depth=1)]
+        samples = iter((before, []))
+        tree = SimpleNamespace(root=(1, 10), same=lambda pin: True, sample=lambda: next(samples))
+        monkeypatch.setattr(tree_guard, 'OwnedTree', lambda *args: tree)
+        monkeypatch.setattr(tree_guard, 'drain_owned', lambda candidate: True)
+        path = tmp_path / (state + '.json')
+        assert tree_guard.run_child(1, 10, path, **options) == 1
+        value = json.loads(path.read_text())
+        assert value['state'] == state and value['cleanup_complete'] is True
+        assert value['processes'] == before and value['footprint_bytes'] == 77 and value['peak_bytes'] == 77
+        assert value['cleanup_processes'] == [] and value['cleanup_footprint_bytes'] == 0
