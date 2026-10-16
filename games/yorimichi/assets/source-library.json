@@ -6293,6 +6293,34 @@
       "bytes": 297403,
       "sha256": "66b4bf6a8bba64065ba48e7ef7ba3fa1de609cf50a2d45d6c025beb8ea1a025a"
     },
+    "swordcamp/concepts/camp_kit.jpg": {
+      "bytes": 281129,
+      "sha256": "76329eef9b62e7c9dacd1480a88ccbd04e06f92b174212ab699346481c65e41f"
+    },
+    "swordcamp/concepts/ronin_armor_kit.jpg": {
+      "bytes": 257378,
+      "sha256": "72399c28af0007ec8e0aadea4d27f46b7c907f819d47ff4cacb9f48354f55743"
+    },
+    "swordcamp/textures/jinmaku_stripe.jpg": {
+      "bytes": 364880,
+      "sha256": "795313237cc21473d47e22ab5d4e0135f9f5fb50dc7b438bb7ee4eab0888a0ff"
+    },
+    "swordcamp/textures/sandogasa_weave.jpg": {
+      "bytes": 401771,
+      "sha256": "a049555b71acbd35b1300fa864bef21bd49b9f4faaaee0c5f37b9dd187c3129d"
+    },
+    "swordcamp/textures/sashimono_maple.jpg": {
+      "bytes": 415346,
+      "sha256": "9eb168312a81fe8ff053cee68c0d4aa5408a87799d3d862f368067ff609923bd"
+    },
+    "swordcamp/textures/sode_lacquer.jpg": {
+      "bytes": 354113,
+      "sha256": "9915cdf809b27d01ddc12c9a0016b11a3e3f4ee2b2404449a19dedd9f3228b39"
+    },
+    "swordcamp/textures/swordcamp_atlas.jpg": {
+      "bytes": 1483032,
+      "sha256": "8669a9d5ac484ee3aac7c4adb9d178c145810e4ed69d0350ad3c89b0bf08a9a7"
+    },
     "treehouse/concepts/glimpse-day.jpg": {
       "bytes": 307838,
       "sha256": "c8701576712dc3ab25d890b8cd4cfb2c0b0cd3bfc3ff7989a580872d44ab495d"
