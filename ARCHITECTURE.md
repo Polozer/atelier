@@ -79,12 +79,11 @@ bundle upload and the older explicit reuse commands.
 Imports require pinned publisher keys, explicit redistribution grants and complete byte verification;
 an operator-controlled producer can freshly build an independent audited Python action and export a signed
 directory. Automatic publication and hostile-source signer isolation remain separate work.
-The [Harness capacity guide](docs/BUILD_CAPACITY.md) describes resource admission in place of fixed execution slots with
-measured resource reservations while preserving memory guards and exclusive-resource locks. Its current commands
-evaluate supplied snapshots, inspect retained guard histories and exercise durable queue/lease transactions in an
-explicit simulation database. A separate supervised Unix broker integrates with the common guarded launcher;
-its migration bridge also takes all legacy lane locks. Machine activation, custom-client migration and removing
-slot exclusion remain separate gates; simulation advice cannot authorize work.
+The [Harness capacity guide](docs/BUILD_CAPACITY.md) covers resource reservations, named locks and guarded process
+ownership. A supervised Unix broker admits configured build/play clients; offline plans and shadow simulations do
+not grant admission. Full mode allows compatible jobs to overlap without manual slot coordination. Legacy slots,
+the migration bridge and sealed maintenance remain distinct supported modes; machine activation is explicit and
+clients must never fall back after a configured broker refusal.
 
 ## Why the studio is Python
 

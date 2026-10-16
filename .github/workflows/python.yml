@@ -36,6 +36,11 @@ jobs:
       - run: uv sync --frozen --managed-python
       - if: matrix.group == 'studio'
         run: uv run atelier lint
+      - name: Verify the distributable package
+        if: matrix.group == 'studio'
+        run: |
+          uv build --wheel --out-dir build/ci/wheels
+          uv run python platform/harness/tests/wheel_smoke.py build/ci/wheels/*.whl
       - name: Identify Rust cache
         if: matrix.group == 'board'
         id: rust
