@@ -69,6 +69,68 @@ def test_any_live_retained_identity_blocks_terminal_release(terminal):
     assert not broker._settle_exited(record)
 
 
+def stopped_receipt(record, receipt, reason):
+    footprint = record['limit_bytes'] + 1 if reason == 'memory_limit' else 77
+    return receipt | dict(state=reason, footprint_bytes=footprint, peak_bytes=footprint,
+                          processes=[dict(pid=100, started=1000, footprint_bytes=footprint)],
+                          cleanup_processes=[], cleanup_footprint_bytes=0)
+
+
+@pytest.mark.parametrize('reason', ['memory_limit', 'test_duration'])
+def test_guard_stop_releases_capacity_without_successful_completion(terminal, reason):
+    broker, record, path, receipt = terminal
+    broker.mode = 'capacity'
+    record['request']['performance'] = True
+    path.write_text(json.dumps(stopped_receipt(record, receipt, reason)))
+    assert broker._tree_end_observation(record, pending=True) is None
+    assert broker._settle_exited(record)
+    assert record['release_witness']['kind'] == 'guarded-tree-stop'
+    assert record['state'] == 'released' and len(record['exited']) == 32
+    assert broker._check_completion(record) is None  # Resource release is not native success.
+
+
+@pytest.mark.parametrize('reason', ['memory_limit', 'test_duration'])
+@pytest.mark.parametrize('bad', ['cleanup', 'missing-cleanup', 'cleanup-bytes', 'bool-bytes', 'sum',
+                                 'negative', 'duplicate', 'peak', 'state', 'root', 'birth', 'limit',
+                                 'time', 'missing-root-exit', 'live-retained', 'not-exclusive'])
+def test_guard_stop_never_loosens_exit_and_cleanup_proof(terminal, reason, bad):
+    broker, record, path, receipt = terminal
+    broker.mode = 'capacity'
+    record['request']['performance'] = True
+    stopped = stopped_receipt(record, receipt, reason)
+    if bad == 'cleanup':
+        stopped['cleanup_processes'] = [dict(pid=100, started=1000)]
+    elif bad == 'missing-cleanup':
+        del stopped['cleanup_processes']
+    elif bad == 'cleanup-bytes':
+        stopped['cleanup_footprint_bytes'] = 1
+    elif bad == 'bool-bytes':
+        stopped['cleanup_footprint_bytes'] = False
+    elif bad == 'sum':
+        stopped['footprint_bytes'] += 1
+    elif bad == 'negative':
+        stopped['processes'][0]['footprint_bytes'] = -1
+    elif bad == 'duplicate':
+        stopped['processes'] *= 2
+    elif bad == 'peak':
+        stopped['peak_bytes'] = 0
+    elif bad == 'state':
+        stopped['state'] = 'cleanup_incomplete'
+    elif bad in ('root', 'birth', 'limit'):
+        stopped[{'root': 'owner', 'birth': 'owner_started', 'limit': 'limit_bytes'}[bad]] += 1
+    elif bad == 'time':
+        stopped['time'] = 1
+    elif bad == 'missing-root-exit':
+        record['exited'] = record['exited'][1:]
+    elif bad == 'live-retained':
+        broker.alive = lambda pin: pin == tuple(record['roster'][-1])
+    elif bad == 'not-exclusive':
+        record['request']['performance'] = False
+    path.write_text(json.dumps(stopped))
+    assert not broker._settle_exited(record)
+    assert record['state'] == 'uncertain'
+
+
 def test_pre_cleanup_tail_requires_actual_retained_positive_exit(terminal):
     broker, record, path, receipt = terminal
     tail = record['roster'][2]
