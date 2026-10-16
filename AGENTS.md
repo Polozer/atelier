@@ -212,6 +212,16 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   Disk free space is telemetry only: there are no temporary-disk reservations or disk admission limits.
   Legacy `temp_mib` fields remain readable for old clients/history but do not block or serialize jobs.
   The board's waiting count includes live queued requests only; retry-required history holds no capacity.
+  Follow the [job resource table](docs/BUILD_CAPACITY.md#choosing-resources-for-a-job) when authoring a command.
+  New non-rendering Blender generators start with explicit `Blender(script, threads=3)`; use an existing smaller
+  setting where appropriate, and increase only after same-input timing/output checks show a useful gain.
+  Six is an inherited tool default, not a recommendation for every task. The launcher charges the actual explicit
+  worker count; never request three CPU units while running six workers. Memory reservations must cover both
+  enforced guard ceilings: normally 10 GiB, or the automatic 4 GiB Blender envelope with valid small-history evidence.
+  Do not choose a memory reservation from average usage or add the machine's host reserve to it a second time.
+  Ordinary bounded generation must not request an unnecessary performance window or global lock. Compile/UAT,
+  games and unclassified commands currently receive the full managed CPU budget and exclusion automatically;
+  report overbroad classification with command, guard/timing evidence and a measured alternative, not a private override.
   Explicit sealed maintenance is one guarded job at a time,
   with read-only exclusive ownership of all sealed lanes and normal nominal guard ceilings; it is not full
   concurrency. Keep the pilot client until the operator announces maintenance or full cutover; then use the
