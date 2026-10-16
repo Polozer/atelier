@@ -13,6 +13,7 @@ FSkateFeel FSkateFeel::Defaults()
     F.Flick120Hz = int8(S->bFlick120Hz ? 1 : 0);
     F.DriftPowerslide = int8(S->bDriftPowerslide ? 1 : 0); F.PowerslideTurn = S->PowerslideTurn;
     F.DriftGrip = S->DriftGrip; F.DriftFullGrip = S->DriftFullGrip; F.GrindTolerance = S->GrindTolerance; F.CameraFollow = S->CameraFollow;
+    F.CameraPullback = S->CameraPullback;
     F.WallFollow = S->WallFollow;
     return F;
 }
@@ -37,7 +38,7 @@ bool FSkateFeel::Validate(FString& Error) const
         {TEXT("RollingFriction"), RollingFriction, 0, 3}, {TEXT("HillSpeed"), HillSpeed, 0, 2},
         {TEXT("Pump"), Pump, 0, 3}, {TEXT("BowlBoost"), BowlBoost, 0, 2}, {TEXT("Wobble"), Wobble, 0, 3}, {TEXT("WobbleOnset"), WobbleOnset, .5f, 3}, {TEXT("ManualDrift"), ManualDrift, 0, 3},
         {TEXT("Landing"), Landing, .5f, 3}, {TEXT("Impact"), Impact, .5f, 3}, {TEXT("GetUpDelay"), GetUpDelay, .25f, 2},
-        {TEXT("CameraDistance"), CameraDistance, .6f, 1.6f}, {TEXT("CameraFOV"), CameraFOV, -20, 20}};
+        {TEXT("CameraDistance"), CameraDistance, .6f, 1.6f}, {TEXT("CameraFOV"), CameraFOV, -20, 20}, {TEXT("CameraPullback"), CameraPullback, 0, 1.5f}};
     for (const FRange& R : Ranges)
         if (!FMath::IsFinite(R.Value) || R.Value < R.Low || R.Value > R.High)
         { Error = FString::Printf(TEXT("%s %g is outside %g..%g"), R.Name, R.Value, R.Low, R.High); return false; }
