@@ -11,6 +11,7 @@
 #include "YorimichiCombatFX.h"
 #include "JapanPreferences.h"
 #include "FoxHunter.h"
+#include "SwordTrainer.h"
 #include "MegaRamp.h"
 #include "SuperUltraMegaPark.h"
 #include "Animation/AnimSequence.h"
@@ -906,6 +907,8 @@ bool UAdventureMoveSet::IsTargetable(AActor* Actor) const
 
 bool UAdventureMoveSet::IsUnawareTarget(AActor* Actor) const
 {
+    if (const ASwordTrainer* Trainer = Cast<ASwordTrainer>(Actor))
+        return Trainer->IsHostileRonin() && !Trainer->IsAlerted();
     return Actor && Actor->IsA<ASwordDummy>();
 }
 

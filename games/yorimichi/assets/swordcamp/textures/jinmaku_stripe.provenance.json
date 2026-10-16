@@ -1,0 +1,37 @@
+{
+  "stage": "swordcamp-texture",
+  "slug": "jinmaku_stripe",
+  "prompt_file": "jinmaku_stripe.prompt.txt",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/edits",
+  "prompt_sha256": "4e51298cd9d77c9c2f70e2e6c60c9e4612d70e478b721440d31cfd216a701d96",
+  "status": "done",
+  "started_at": "2026-10-16T16:32:04.393182+00:00",
+  "output": "jinmaku_stripe.png",
+  "output_sha256": "a5bb8df63f58c3db7448aebed973970916a00317f974b5e8cbfd3f5c19ca7c1e",
+  "usage": {
+    "input_tokens": 1222,
+    "input_tokens_details": {
+      "image_tokens": 1080,
+      "text_tokens": 142
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 2978
+  },
+  "elapsed_seconds": 41.4,
+  "finished_at": "2026-10-16T16:32:45.831109+00:00",
+  "compact_copy": {
+    "file": "jinmaku_stripe.jpg",
+    "size": "1024x1024",
+    "jpeg_quality": 92,
+    "chroma": "4:2:0",
+    "bytes": 364880,
+    "sha256": "795313237cc21473d47e22ab5d4e0135f9f5fb50dc7b438bb7ee4eab0888a0ff"
+  }
+}

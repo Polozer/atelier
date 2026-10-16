@@ -58,5 +58,9 @@ void AJapanGameMode::BeginPlay()
     AWandererCharacter* T = Cast<AWandererCharacter>(UGameplayStatics::GetPlayerPawn(this, 0));
     if (T) T->EnterWorld(W);
     SpawnFoxHunter(W, T);
-    if (W && W->bLoaded) ASwordTrainer::SpawnInVillage(W, W->VillageRecord);
+    if (W && W->bLoaded)
+    {
+        ASwordTrainer::SpawnInVillage(W, W->VillageRecord);
+        ASwordTrainer::SpawnRoninCamp(W);
+    }
 }

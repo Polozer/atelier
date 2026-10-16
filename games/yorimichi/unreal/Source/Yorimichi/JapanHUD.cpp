@@ -138,11 +138,12 @@ void AJapanHUD::DrawHUD()
         if (Bout == ASwordTrainer::EBout::Ready || Bout == ASwordTrainer::EBout::Fighting || Bout == ASwordTrainer::EBout::Over)
         {
             const float W = 420 * Scale, X = Canvas->SizeX * .5f - W * .5f, Y = 64 * Scale;
-            DrawText(FString::Printf(TEXT("KAEDE  ·  %s%s"), Trainer->GetStyle().Name, Trainer->HasOwnShield() ? TEXT("  ·  sword and shield") : TEXT("")),
+            DrawText(FString::Printf(TEXT("%s  ·  %s%s"), *Trainer->GetDisplayName(), Trainer->GetStyle().Name, Trainer->HasOwnShield() ? TEXT("  ·  sword and shield") : TEXT("")),
                 FLinearColor(.97f, .9f, .76f), X, Y - 28 * Scale, Font, 1.4f * Scale);
             DrawRect(FLinearColor(0, 0, 0, .45f), X - 3 * Scale, Y - 3 * Scale, W + 6 * Scale, 16 * Scale);
             DrawRect(FLinearColor(.95f, .45f, .22f), X, Y, W * Trainer->GetHealthFraction(), 10 * Scale);
-            DrawText(FString::Printf(TEXT("bouts  you %d  ·  Kaede %d"), Trainer->GetLosses(), Trainer->GetWins()), FLinearColor(.85f, .82f, .74f), X, Y + 16 * Scale, Font, 1.f * Scale);
+            if (!Trainer->IsHostileRonin())
+                DrawText(FString::Printf(TEXT("bouts  you %d  ·  Kaede %d"), Trainer->GetLosses(), Trainer->GetWins()), FLinearColor(.85f, .82f, .74f), X, Y + 16 * Scale, Font, 1.f * Scale);
         }
         float Alpha = 0.f;
         const FString Said = Trainer->GetCallout(Alpha);

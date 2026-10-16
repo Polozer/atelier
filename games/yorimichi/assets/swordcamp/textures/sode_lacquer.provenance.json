@@ -1,0 +1,37 @@
+{
+  "stage": "swordcamp-texture",
+  "slug": "sode_lacquer",
+  "prompt_file": "sode_lacquer.prompt.txt",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/edits",
+  "prompt_sha256": "ca02e832ebf4252f638ca0e6127c6106fe8cfc029382f534cfcbde6a5bb66793",
+  "status": "done",
+  "started_at": "2026-10-16T16:32:04.392747+00:00",
+  "output": "sode_lacquer.png",
+  "output_sha256": "b52bb94d7e8bedd3686fbfa118b82a0a8a60d504df33e436d1f325b835b7d4bb",
+  "usage": {
+    "input_tokens": 1219,
+    "input_tokens_details": {
+      "image_tokens": 1080,
+      "text_tokens": 139
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 2975
+  },
+  "elapsed_seconds": 41.4,
+  "finished_at": "2026-10-16T16:32:45.798718+00:00",
+  "compact_copy": {
+    "file": "sode_lacquer.jpg",
+    "size": "1024x1024",
+    "jpeg_quality": 92,
+    "chroma": "4:2:0",
+    "bytes": 354113,
+    "sha256": "9915cdf809b27d01ddc12c9a0016b11a3e3f4ee2b2404449a19dedd9f3228b39"
+  }
+}

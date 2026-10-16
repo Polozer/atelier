@@ -1,0 +1,37 @@
+{
+  "stage": "swordcamp-concept",
+  "concept": "camp_kit",
+  "prompt_file": "camp_kit.prompt.txt",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "endpoint": "/v1/images/edits",
+  "prompt_sha256": "40645c8842118b2202371e6e162ad816ab437bb2f8117d95a043e66b9ec39018",
+  "status": "done",
+  "started_at": "2026-10-16T16:26:01.141269+00:00",
+  "output": "camp_kit.png",
+  "output_sha256": "9f4fad7a44855332b4677323906bae11ce96575bf9e54b1359ef5d5df709b70c",
+  "usage": {
+    "input_tokens": 2401,
+    "input_tokens_details": {
+      "image_tokens": 2104,
+      "text_tokens": 297
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 3773
+  },
+  "elapsed_seconds": 34.9,
+  "finished_at": "2026-10-16T16:26:36.075099+00:00",
+  "compact_copy": {
+    "file": "camp_kit.jpg",
+    "size": "1536x1024",
+    "jpeg_quality": 90,
+    "chroma": "4:2:0",
+    "bytes": 281129,
+    "sha256": "76329eef9b62e7c9dacd1480a88ccbd04e06f92b174212ab699346481c65e41f"
+  }
+}

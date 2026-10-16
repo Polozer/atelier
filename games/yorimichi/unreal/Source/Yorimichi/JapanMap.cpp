@@ -1,7 +1,9 @@
 #include "JapanMap.h"
 #include "AtelierData.h"
 #include "CraterParkTower.h"
+#include "JapanGameMode.h"
 #include "JapanHUD.h"
+#include "JapanNetwork.h"
 #include "SkatePark.h"
 #include "WandererCharacter.h"
 #include "JapanWorld.h"
@@ -498,6 +500,17 @@ void UJapanMap::Initialize(AWandererCharacter* Pawn)
             Zone.Yaw = -float((*Return)->GetNumberField(TEXT("yaw")));
             Zones.Add(Zone);
         }
+    }
+    const bool bCampSpawned = !JapanNetwork::IsOnline(Owner ? Owner->GetWorld() : nullptr) &&
+        !FParse::Param(FCommandLine::Get(), TEXT("noronincamp")) &&
+        (!AJapanGameMode::IsScriptedSession() || FParse::Param(FCommandLine::Get(), TEXT("ronincamp")));
+    if (bCampSpawned && !Zones.ContainsByPredicate([](const FJapanMapZone& Zone) { return Zone.Key == TEXT("ronin_camp"); }))
+    {
+        FJapanMapZone Zone; Zone.Key = TEXT("ronin_camp"); Zone.Name = TEXT("Kasa Ronin camp");
+        Zone.Hint = TEXT("Coastal bluff overlook: test your blade against the three Kasa Ronin");
+        Zone.Location = AJapanWorld::ToUE(-55.0, -74.0, 11.5);
+        Zone.Yaw = 92.f;
+        Zones.Add(Zone);
     }
     // Crater Park's stop is its tower: the hero line's roll-in crest from the generated park (park.json `lines`), not
     // the r4 drop-in map.json was built with (CraterParkTower.h).
