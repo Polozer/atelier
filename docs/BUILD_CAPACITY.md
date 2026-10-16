@@ -72,6 +72,49 @@ treating the warning as spare capacity. Optional I/O tokens are a contention bud
 The queue includes only current `queued` requests. `waiting` records require a fresh retry, hold no capacity,
 and remain in durable history without counting as active waiters.
 
+### Choosing resources for a job
+
+Choose the command and its supported worker setting, then use ordinary `atelier build`/`play` or the shared
+guarded launcher. The launcher derives the reservation; agents do not edit `client.json`, broker settings or
+resource fields to fit the current free budget. A CPU unit is a scheduling budget, not a dedicated core or a
+kernel throttle. A low average CPU reading alone does not establish a lower safe worker envelope.
+
+| Job | CPU request | Memory request | Exclusion |
+| --- | --- | --- | --- |
+| Board commands, planning and other lightweight metadata work | No heavy reservation | No heavy reservation | None |
+| Headless Blender generation with explicit `--threads N` | Exactly N CPU units; e.g. 3 threads requests 3 | Nominal guard ceiling, normally 10 GiB; automatic 4 GiB only with valid prior peak at most 3 GiB and a compatible GPU envelope | Ordinary bounded generation can share capacity when all budgets and named locks fit |
+| Blender rendering, baking or simulation | Explicit supported worker setting justified by that workload's measurements | Guard ceiling covering its measured peak and growth margin | Quiet window only when its capture/measurement contract requires one |
+| Editor compile | Currently the complete managed CPU pool, despite the existing three-action UBT cap | Normally 10 GiB, covering both guards | Currently automatic; compile classification is conservative |
+| Unreal imports, UAT cook/package, game and unclassified compound commands | Currently the complete managed CPU pool | Normal configured guard ceiling; an explicitly larger supported game limit must also fit its reservation | Currently automatic until a bounded profile has been validated |
+| Benchmark or capture that requires an otherwise quiet machine | Its normal command envelope | Its normal guard ceiling | Explicit performance window; do not use this for routine generation |
+
+The complete managed pool is the live CPU total minus host reserve: for example 10 minus 2 is 8 CPU units.
+The full-pool entries above describe the current fallback, not evidence that every such process consumes eight
+cores. Lowering only that number does not remove the separate exclusion flag. Known bounded workloads should
+get a measured profile instead of keeping a broad classification indefinitely.
+
+For a **new non-rendering Blender generator**, start with `Blender(script, threads=3)` (or an established smaller
+setting). Do not omit `threads` and accidentally inherit six. Existing recipes retain their declared settings
+until the worker-count comparison passes; never retune a running build. Compare 3, 4 and 6 only where relevant,
+using the same source, inputs and tool version, separate output folders, normal guards, and a quiet native turn.
+Compare wall time and output equivalence as well as observed CPU. Adopt more workers only for a repeatable,
+useful throughput gain. Change the actual tool setting and reservation together, rather than understating the
+same six-worker command. Worker-setting changes still follow ordinary fingerprinting and incremental rebuilds.
+
+Memory protects the laptop and must be a comfortable **ceiling**, not mean usage. The reservation must cover
+both actual-child and owned-tree guard limits. The normal launcher selects its 4 GiB Blender envelope only from
+valid small-history eligibility; unknown, larger or unbounded work keeps the nominal ceiling. Do not manually
+shrink a profile to a recent low sample, or treat old measurements as proof after a substantial input-scale change.
+Host headroom and every active peer's remaining growth are added centrally; do not charge host reserve twice.
+GPU allocation is already part of unified memory and also has its own subset constraint.
+
+Reserve only while the child is admitted. Queueing, offline preparation, source checks, review gates and uploads
+must not retain a heavy reservation. Lightweight work can be active while the board correctly shows zero
+reservations. Heavy archive/hash/restore work still uses its normal guarded path; calling a large job metadata
+does not make it lightweight. Keep checkout/engine ownership locks required by the actual command, without
+adding an unrelated global lock. When a profile appears excessive, retain the exact command, input identity,
+wall time, explicit workers and guard observations for a focused classification or worker-count correction.
+
 ### Disk is telemetry only
 
 Temporary-disk estimates do not constrain the planner, shadow service, production selection, start, phase
