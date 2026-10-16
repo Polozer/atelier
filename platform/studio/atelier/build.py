@@ -555,7 +555,15 @@ def slot_summary(slots):
 
 
 def build(game, wanted=(), force=False, dry=False, touch=False, echo=print, verify=False, cook_mode=None, cook_reason=None,
-          max_heavy_commands=None, recover_cook=None, record_cook_recovery=False):
+          max_heavy_commands=None, recover_cook=None, record_cook_recovery=False, rebuild_touched=False):
+    """@cc [owner:fontanierh,label:correctness] rebuild-touched-certificates
+    An explicit touched-only rebuild MUST replace selected touched certificates through normal
+    execution or verified product restoration, without changing action keys or skipping guards.
+    Current proven certificates MUST remain current. Planning MUST explain the same rebuild rule.
+    The repair MUST NOT combine with force, touch or cook recording/recovery.
+    """
+    if rebuild_touched and (force or touch or recover_cook is not None or record_cook_recovery):
+        raise ValueError('Rebuilding touched prerequisites is a separate build, without force/touch/cook recovery')
     if recover_cook is not None and (force or dry or touch or cook_mode is not None or max_heavy_commands is not None):
         raise ValueError('Cook recovery requires ordinary execution without force/touch/experimental/budget flags')
     if recover_cook is not None and list(wanted) not in (['unreal.cook'], ['unreal.package']):
@@ -569,10 +577,12 @@ def build(game, wanted=(), force=False, dry=False, touch=False, echo=print, veri
     if dry:
         from .build_plan import show
         return show(game, wanted, force=force, echo=echo, verify=verify,
+                    **({'rebuild_touched': True} if rebuild_touched else {}),
                     **({'cook_mode': cook_mode, 'cook_reason': cook_reason} if cook_mode is not None else {}))
     ctx = Context(game, **({'cook_mode': cook_mode, 'cook_reason': cook_reason} if cook_mode is not None else {}),
                   **({'recover_cook': recover_cook} if recover_cook is not None else {}))
     ctx.record_cook_recovery = record_cook_recovery
+    ctx.rebuild_touched = rebuild_touched
     from .build_hashes import HashIndex
     with HashIndex(ctx.out / '.state' / 'file-hashes.sqlite3', verify=verify) as index:
         return _build(ctx, wanted, force=force, touch=touch, echo=echo, index=index,
@@ -735,7 +745,8 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
         if (recovering or (step.name == 'unreal.cook' and getattr(ctx, 'record_cook_recovery', False))) and step.cook_recovery is None:
             echo(f'{print_} FAILED: this recipe does not support cook recovery')
             return 1
-        if not recovering and not force_step and previous.get('fingerprint') == current and outputs_ok:
+        rebuilding_touched = getattr(ctx, 'rebuild_touched', False) and previous.get('touched')
+        if not recovering and not force_step and not rebuilding_touched and previous.get('fingerprint') == current and outputs_ok:
             done[step.name] = result(step, current, previous)
             build_products.feed_results(done, previous.get('products', {}))
             echo(f'{print_} up to date')

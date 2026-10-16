@@ -170,6 +170,71 @@ def test_recovery_requires_the_actual_launch_directory_even_when_pwd_is_ignored(
     assert len(sample.calls) == 1
 
 
+@pytest.mark.parametrize('change_output', [False, True])
+def test_explicit_touched_rebuild_executes_owner_and_checks_downstream_bytes(sample, change_output):
+    from atelier.build_plan import inspect
+    need = sample.steps[0]
+    events = []
+    original = sample.prerequisite.read_bytes()
+    def execute(ctx, log):
+        events.append('owner')
+        sample.prerequisite.write_bytes(b'new editor' if change_output else original)
+    need.commands = [build.Call('real prerequisite', execute)]
+    fingerprint = build.fingerprint(need, {})
+    stamp = sample.ctx.stamps / (need.name + '.json')
+    stamp.write_text(json.dumps(dict(fingerprint=fingerprint, touched=True)))
+    output = sample.ctx.out / 'consumer.bin'; output.write_bytes(b'consumer')
+    def consume(ctx, log):
+        events.append('consumer')
+        output.write_bytes(b'updated')
+    consumer = build.Step('consumer', [build.Call('consume', consume)], inputs=[sample.prerequisite],
+                          needs=[need.name], outputs=[output])
+    sample.steps.append(consumer)
+    (sample.ctx.stamps / 'consumer.json').write_text(json.dumps(dict(fingerprint=build.fingerprint(consumer, {need.name:fingerprint}))))
+    sample.ctx.rebuild_touched = True
+    prior = stamp.read_bytes()
+    planned = inspect(sample.ctx, sample.steps, [consumer.name])
+    assert planned['steps'][0]['status'] == 'run'
+    assert 'replace touched certificate' in planned['steps'][0]['reasons'][0]
+    assert stamp.read_bytes() == prior and not events
+    assert sample.run(consumer.name) == 0
+    assert events == (['owner', 'consumer'] if change_output else ['owner'])
+    completed = json.loads(stamp.read_text())
+    assert not completed.get('touched') and completed['fingerprint'] == fingerprint
+    assert completed['commands'][0]['kind'] == 'Call'
+    events.clear()
+    assert sample.run(consumer.name) == 0 and not events
+
+
+def test_normal_build_preserves_current_touched_prerequisite_until_explicit_rebuild(sample):
+    need = sample.steps[0]
+    stamp = sample.ctx.stamps / (need.name + '.json')
+    record = json.loads(stamp.read_text()); record['touched'] = True
+    stamp.write_text(json.dumps(record)); prior = stamp.read_bytes()
+    assert sample.run(need.name) == 0 and stamp.read_bytes() == prior
+
+
+@pytest.mark.parametrize('flags', [['--force'], ['--touch'], ['--recover-cook','0'*32], ['--record-cook-recovery']])
+def test_touched_rebuild_cli_refuses_certification_shortcuts(flags):
+    from atelier.cli import main
+    with pytest.raises(SystemExit, match='separate build or plan'):
+        main(['build', 'yorimichi', 'unreal.cook', '--rebuild-touched', *flags])
+
+
+@pytest.mark.parametrize('planning', [False, True])
+def test_touched_rebuild_cli_routes_the_same_rule_to_execution_and_plan(monkeypatch, planning):
+    from atelier import cli, build_plan
+    observed = []
+    def action(game, steps, **kwargs):
+        observed.append((game, steps, kwargs))
+        return 0
+    monkeypatch.setattr(cli, 'build', action)
+    monkeypatch.setattr(build_plan, 'show', action)
+    assert cli.main(['build', 'yorimichi', 'world.example', '--rebuild-touched', *(['--plan'] if planning else [])]) == 0
+    assert len(observed) == 1 and observed[0][:2] == ('yorimichi', ['world.example'])
+    assert observed[0][2]['rebuild_touched'] is True and observed[0][2]['force'] is False
+
+
 @pytest.mark.parametrize('damage', ['source', 'tool', 'prerequisite', 'native', 'archive', 'archive-restored-mtime',
     'missing-positive', 'missing-prepared', 'wrong-invocation', 'guard-failure', 'wrong-root'])
 def test_changed_or_unproven_attempt_refuses_without_native_fallback(sample, monkeypatch, damage):

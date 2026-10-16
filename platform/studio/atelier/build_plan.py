@@ -77,6 +77,8 @@ def _inspect(ctx, steps, wanted, *, force, index):
         from .build_cook import forced
         if forced(ctx, step, force):
             reasons.append('forced')
+        if getattr(ctx, 'rebuild_touched', False) and stamp.get('touched'):
+            reasons.append('replace touched certificate through a completed build')
         if (ctx.stamps / f'{step.name}.restore.json').exists():
             reasons.append('interrupted product restoration')
         if not stamp:
@@ -113,8 +115,10 @@ def _inspect(ctx, steps, wanted, *, force, index):
     return report
 
 
-def show(game, wanted=(), *, force=False, explain=False, as_json=False, echo=print, verify=False, cook_mode=None, cook_reason=None):
+def show(game, wanted=(), *, force=False, explain=False, as_json=False, echo=print, verify=False, cook_mode=None, cook_reason=None,
+         rebuild_touched=False):
     ctx = engine.Context(game, create=False, **({'cook_mode': cook_mode, 'cook_reason': cook_reason} if cook_mode is not None else {}))
+    ctx.rebuild_touched = rebuild_touched
     report = inspect(ctx, engine.load_recipe(game).steps(ctx), wanted, force=force, verify=verify)
     if as_json:
         echo(json.dumps(report, indent=2))
