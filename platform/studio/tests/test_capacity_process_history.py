@@ -397,3 +397,5 @@ def test_terminal_retransmission_survives_released_history_compaction(actor, mon
     with pytest.raises(wire.CapacityError, match='unretained process identities'):
         send(actor, 'check', descendants=[[102,1020]], **fields)
     assert read_state(actor)['records']['helpers']['state'] == 'released'
+    assert send(actor, 'close', descendants=[], witness=None, **fields)['released'] is True
+    assert 'terminal_observed' not in read_state(actor)['records']['helpers']

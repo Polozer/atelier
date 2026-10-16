@@ -843,6 +843,7 @@ class CapacityBroker:
                         if record['state'] not in HELD:
                             self._dispose(record['nonce'])
                             record['state'] = 'waiting'
+                            record.pop('terminal_observed', None)
                             result = {'state': 'waiting', 'released': True}
                         else:
                             self._watch(record, batch)
@@ -860,6 +861,8 @@ class CapacityBroker:
                                 record['state'] = 'uncertain'
                                 self._settle_exited(record)
                             complete = record['state'] == 'released'
+                            if complete:
+                                record.pop('terminal_observed', None)
                             if not complete:
                                 print('capacity close retained: ' + json.dumps(dict(
                                     owner=record['request'].get('owner'), purpose=record['request'].get('purpose'),
