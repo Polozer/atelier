@@ -265,15 +265,19 @@ def test_publication_syncs_file_and_both_directories_before_summary(actor, monke
     assert 'process_history' in state['records']['request']
 
 
-def test_new_nonce_clears_prior_generation_acknowledgements(monkeypatch):
+def test_new_generation_requires_a_new_session_without_prior_acknowledgements(monkeypatch):
     def respond(message, response):
         if message['action'] == 'offer':
             response.update(nonce='new-generation', selected=True)
         return response
     session, calls = admitted(monkeypatch, respond)
     session.check(descendants=[(10, 100)])
-    session.offer()
-    session.check(descendants=[(10, 100)])
+    with pytest.raises(wire.CapacityError, match='fenced'):
+        session.offer()
+    assert session.nonce == 'nonce' and session._acknowledged == {(10, 100)}
+    replacement = client.AdmissionSession(Path('/unused'), {'id': 'test'})
+    replacement.offer()
+    replacement.check(descendants=[(10, 100)])
     assert calls[-1]['descendants'] == [[10, 100]]
 
 
