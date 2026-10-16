@@ -51,14 +51,11 @@ Embedded Blender and Unreal interpreters can keep adding only `platform/studio` 
 the Harness source package from there. Wheel installs contain the nested package normally. The static build-input
 scanner also follows Harness imports so source changes remain part of action fingerprints.
 
-Adopting this source relocation invalidates affected build inputs once, including world generators that import
-Atelier's shared package initializer. Preserve warm products and run the ordinary incremental plan/build at a
-child-free update boundary; downstream content cutoffs still decide which native imports need work. Never edit
-or fabricate old stamps to hide that refresh. Later Harness-only loader edits do not enter an unrelated generator's
-input closure.
+Update a checkout only at a child-free caller boundary, then run `uv sync` and the normal incremental build.
+Preserve generated files and stamps; the planner decides what changed. Do not rewrite stamps to hide a refresh.
 
-This relocation does not migrate machine state. Cache paths, service labels, wire formats, guard reports and broker
-policies retain their identities. Installed frozen service checkouts keep running until an explicit service update.
+Installed services use frozen checkouts. A source update does not move their bindings or change machine state;
+service changes follow the [operator reference](../../docs/CAPACITY_ADMIN.md).
 
 ## Develop and test
 

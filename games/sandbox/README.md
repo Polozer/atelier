@@ -72,11 +72,8 @@ The example validates dependency selection and cached outputs; its JSON shapes d
 or any native world. Authors must declare conservative bounds and the full reach of their actual operation.
 
 
-## Explicit native cook experiment
+## Optional cook development modes
 
-Normal builds do not cook. After native source review and an agreed machine turn, the explicit
-`unreal.cook` step can compare `--cook-mode modern-full` with `modern-incremental` in the same checkout.
-Experimental `--force` repeats only package steps and requires `--cook-reason`, preserving current
-compile/import prerequisites. See the [runnable experiment and native acceptance matrix](../../docs/COOK_EXPERIMENT.md).
-Modern runtime evidence and a complete app inventory are required before the experiment receipt appears;
-this has no native parity/speed acceptance or default enablement yet.
+Normal sandbox builds do not cook. The explicit `unreal.cook` step exists for separately planned engine
+experiments; it has no complete native correctness acceptance or established speedup. It is not part of
+normal setup or a recommended build optimization. See [cook experiment status](../../docs/COOK_EXPERIMENT.md).

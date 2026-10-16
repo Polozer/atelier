@@ -156,10 +156,9 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   for something urgent that needs them now (a decision blocking you, a broken release, a safety issue). Never for
   routine progress or acknowledgements; at most 3 per agent per hour. Attached files appear
   as absolute paths at the end of a message. Do not acknowledge routine telemetry or acknowledgements;
-  state a concrete next safe boundary and revised ETA when late. Recheck messages and Waiting between heavy
-  steps, and yield an agreed turn before per-step reacquisition or a game session. Retain first-ready time on
-  refusals/requeues, distinguish blocked from ready, and never reserve a slot while idle. Prefer ready jobs under
-  five minutes; after two short bypasses offer the oldest compatible ready long job the next turn.
+  state a concrete next safe boundary and revised ETA when late. Read incident and maintenance messages between
+  heavy steps, and honor an explicitly agreed handoff. Normal full-mode builds need no per-step handoff.
+  The broker preserves queue age and schedules compatible work. Never reserve resources while idle.
 - Subscribers send advisory lack-of-stdout-progress notices for their own validated live jobs. On an alert,
   inspect stdout, memory-health.json and supervisor telemetry, publish diagnosis/ETA, and safely end only your
   own blocked job if needed. Never signal another owner's process, remove shared mutexes, steal locks or bypass
@@ -213,48 +212,23 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   raises that for one session that needs it (Quality graphics at 1080p, for example). In full capacity mode,
   admission automatically reserves at least that selected ceiling for this session; the default stays 10 GiB.
   Do not edit machine profiles to use this flag. Retain the command and reason in its evidence.
-- Follow the [capacity agent workflow](docs/BUILD_CAPACITY.md#agent-workflow) for live mode checks,
-  safe update/stop boundaries and refusal recovery. Merge and `uv sync` only while
-  the checkout has no owned native child and its caller cannot start the next one; preserve build artifacts.
-  A merged capacity PR does not activate full mode; check the machine's installed client and live broker.
-  In confirmed full mode (`capacity`, `cutover=true`), use `ATELIER_AGENT=OWNER nice -n 10 uv run atelier build/play`
-  with `ATELIER_CAPACITY_CLIENT` unset. Resource budgets and named locks replace BIG/SMALL/fitting scheduling.
-  Routine builds need no pre-announcement or permission from a coordinator. Broker admission and guards decide.
-  A confirmed queued request waits automatically for up to 30 minutes, with progress and no held resources,
-  child, launch gate or legacy locks. Keep the command in the normal background job facility; cancellation
-  closes its uncharged session. Transient transport failures on offer/ownership/check/close reconcile once
-  with the identical request and unchanged per-call deadline; start/gate/replace never replay. A second
-  transport failure or a policy, protocol, ownership or fencing refusal still fails without fallback.
-  Do not request an extra legacy slot or edit `render-slots.json`. Existing sealed compatibility files remain
-  protected and must never be removed, replaced or chmodded. Memory reservations cover actual-child and
-  aggregate guard ceilings; CPU is a scheduling budget, not dedicated cores. Let normal admission select
-  compatible work; never lower a profile or increase workers to squeeze in another job.
-  Disk free space is telemetry only: there are no temporary-disk reservations or disk admission limits.
-  Legacy `temp_mib` fields remain readable for old clients/history but do not block or serialize jobs.
-  The board's waiting count includes live queued requests only; retry-required history holds no capacity.
-  Follow the [job resource table](docs/BUILD_CAPACITY.md#choosing-resources-for-a-job) when authoring a command.
-  New non-rendering Blender generators start with explicit `Blender(script, threads=3)`; use an existing smaller
-  setting where appropriate, and increase only after same-input timing/output checks show a useful gain.
-  Six is an inherited tool default, not a recommendation for every task. The launcher charges the actual explicit
-  worker count; never request three CPU units while running six workers. Memory reservations must cover both
-  enforced guard ceilings: normally 10 GiB, or the automatic 4 GiB Blender envelope with valid small-history evidence.
-  Do not choose a memory reservation from average usage or add the machine's host reserve to it a second time.
-  Ordinary bounded generation must not request an unnecessary performance window or global lock. Compile/UAT,
-  games and unclassified commands currently receive the full managed CPU budget and exclusion automatically;
-  report overbroad classification with command, guard/timing evidence and a measured alternative, not a private override.
-  The three-action compiler cap does not cap the whole cook, Unreal import, distance-field or engine task graph.
-  Keep direct editor compilation, commandlet imports and compound UAT builds separate when calibrating profiles.
-  A shell wrapper's CPU counter excludes its children; whole-machine CPU percentages include other jobs.
-  Neither establishes the complete job's CPU need. A smaller profile must cover its actual worker controls and
-  helper load, and its separate exclusion/release policy must be validated before claiming extra concurrency.
-  For a focused macOS CPU investigation, use `atelier capacity observe-cpu GUARD_DIR --output NEW_DIR`
-  in the background; its paired owned-tree samples retain gaps and never establish a hard peak bound.
-  This is optional diagnostic work, not a pre-build message or an extra admission requirement.
-  Explicit sealed maintenance is one guarded job at a time,
-  with read-only exclusive ownership of all sealed lanes and normal nominal guard ceilings; it is not full
-  concurrency. Keep the pilot client until the operator announces maintenance or full cutover; then use the
-  installed default client after checking the matching live mode. Never edit broker settings, clear uncertain reservations,
-  lower profiles below guard ceilings or bypass a refusal. Keep incident delivery and normal guards active.
+- Use the [capacity workflow](docs/BUILD_CAPACITY.md#agent-workflow) and its
+  [job resource table](docs/BUILD_CAPACITY.md#choosing-resources-for-a-job). In confirmed full mode,
+  run `ATELIER_AGENT=OWNER nice -n 10 uv run atelier build/play` with the installed default client and
+  `ATELIER_CAPACITY_CLIENT` unset. Commands queue and release themselves; no per-build board message,
+  manual Holding/Waiting edit or coordinator permission is needed. Honor specific release priorities,
+  quiet captures and maintenance windows. Keep the persistent listener active.
+- Start new non-rendering Blender generators with explicit `threads=3`, or an established smaller setting.
+  Increase only after same-input timing and output checks show a useful gain. The launcher charges the
+  actual worker count. Memory reservations cover both guard ceilings: normally 10 GiB, or an automatic
+  4 GiB Blender envelope backed by valid prior peak evidence. Never understate resources to fit a free budget.
+  Compile, UAT, imports, games and unclassified commands currently reserve the managed CPU pool with
+  performance exclusion. Three compiler workers do not cap all engine threads; lowering a reservation alone
+  does not throttle a tool or remove exclusion. Use the capacity guide for measurements and profile changes.
+- Merge and run `uv sync` only after the checkout's native child and its enclosing caller have stopped at a
+  boundary where neither can start another child. Preserve generated files and caches. Agents must not edit
+  client profiles, broker settings or protected compatibility files, restart a live broker, clear uncertain
+  reservations, or bypass refusal. Disk is telemetry only; it never reserves or locks capacity.
 - Standalone CPU-heavy native builds also need admission, including tools and dependencies outside this
   repository. Run CMake, Cargo, Make or Ninja through the [standalone compile workflow](docs/BUILD_CAPACITY.md#standalone-native-tool-builds)
   with `--kind compile`, from your own current-main checkout after `uv sync`. Keep the supported worker cap
@@ -274,20 +248,8 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   are still the same processes and still orphaned: a Turnkey `VerifySdk` left behind otherwise holds UnrealBuildTool's
   mutex and the next game waits in `SDKSetup`. Shared services (Zen, Trace) are never ended; never end another
   agent's helpers by name.
-- **Legacy mode only:** the render lock has one big slot. A small slot sits beside it when `~/.cache/atelier/render-slots.json` says
-  `{"slots": 2}` (`ATELIER_RENDER_SLOTS` overrides the file; no file means one slot). The small slot takes a job
-  expected to peak at 3 GiB or less, never a game or a compile, when at least 10 GiB is free and the big slot's job is
-  in another checkout; its memory ceiling is 4 GiB. `atelier build` sends a heavy step there when the step's last
-  guard report allows it, and says which slot each step used. A compile waits for a small job to finish.
-- **Legacy mode only:** a checkout whose code predates the slots refuses to start while a small job runs: merge main into
-  every checkout before switching to two slots.
-- **Legacy mode only:** a machine may reserve an additional Blender fitting lane with `fitting_checkout` in `render-slots.json`, keeping
-  `slots` at 2. Before enabling it, update every active build/play client to the guard that understands all three
-  mutexes; a fitting job refuses live holders with older guards. Only that checkout may request it, through
-  `atelier.harness.safety.guarded --fitting GIB`, with one background Blender child expected to peak at most 3 GiB.
-  It needs at least 10 GiB available and retains the 4 GiB actual-child memory ceiling. It never falls back to BIG,
-  and compiles wait for all three lanes. Set `fitting_paused` to true for performance or filming windows and wait
-  for any admitted fitting job to exit. The reservation grants capacity only; take its lock only while working.
+- Machines still using legacy slots follow the [operator reference](docs/CAPACITY_ADMIN.md#legacy-slot-mode).
+  Do not add legacy slots or fitting lanes alongside full capacity admission, or change machine modes during a task.
 - The live bridge (Unreal plugin, port 8830) stays loopback-only.
 - Every machine has its own `~/.cache/atelier/render-board.md`. Read current incident/maintenance instructions
   before heavy work. In full mode, normal build/play submits resources and ownership directly: no manual

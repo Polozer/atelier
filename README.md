@@ -80,6 +80,9 @@ uv run atelier build moon_garden                      # compiles it and makes it
 uv run atelier play moon_garden                       # WASD or a controller
 ```
 
+[Incremental builds](docs/INCREMENTAL_BUILDS.md) explains rebuild reasons, verified worktree reuse and cache use.
+Keep generated outputs between builds; normal commands request capacity automatically.
+
 <img src="docs/media/new-game.jpg" width="640" alt="Moon Garden right after atelier new: a capsule character on a test ground, with a message from the live bridge">
 
 With the game running, talk to it from another terminal:
@@ -370,7 +373,6 @@ in review; semantic findings are advisory and must be addressed with a fix or ex
 | `atelier pr-media push <key> FILE... [--dry-run]` | publish PR screenshots and films under `refs/pr-media/<key>`, which default clones skip; prints Markdown links |
 | `atelier lint [--staged]` | the public-repository rules: no secrets, no personal paths, no game names in the platform |
 | `atelier contracts check` | contract syntax and owner policy; semantic review is separate and advisory |
-| `atelier capacity plan snapshot.json [--json]` | offline capacity simulation; does not admit or launch work |
 | `atelier capacity history GUARD_DIRECTORY [--json]` | [inspect retained process memory histories](docs/BUILD_CAPACITY.md#inspect-retained-resource-history) without launching work |
 | `atelier capacity serve CONFIG` / `status SOCKET` / `supervise CONFIG` | [configure and inspect resource admission](docs/BUILD_CAPACITY.md); machine activation is explicit |
 
