@@ -3177,6 +3177,38 @@
       "bytes": 420413,
       "sha256": "b1855d13f9b71b28bbfd2264fe0dbf91b4bce6e95879d2d3c68784cfa7846785"
     },
+    "craterpark/trees/black_pine_a/raw/output_model_url.glb": {
+      "bytes": 4824444,
+      "sha256": "c9920432966c4e34f30e300166cb249c96f6aba7fbcec36d2c7227d003b11e06"
+    },
+    "craterpark/trees/black_pine_b/raw/output_model_url.glb": {
+      "bytes": 3314468,
+      "sha256": "2e0c378b68c9fa96d46ee31ba31a479108a5a9b2399f39d645fe8388e41d2e01"
+    },
+    "craterpark/trees/cedar_a/raw/output_model_url.glb": {
+      "bytes": 4667620,
+      "sha256": "78f62c042570b6fbfe065b4eebc45ad40249222331fa7eebb6a01f4b318945a9"
+    },
+    "craterpark/trees/cedar_b/raw/output_model_url.glb": {
+      "bytes": 3087800,
+      "sha256": "72394cfc367e812e4f377aed42671552fddb601b7aa7d92902420733442ac7ad"
+    },
+    "craterpark/trees/sugi_black_pine/reference_v1.jpg": {
+      "bytes": 112901,
+      "sha256": "85a16137a971c3460f718dd6e7b46b89476b1191c47504a12ea4635b603444aa"
+    },
+    "craterpark/trees/sugi_black_pine/reference_v2.jpg": {
+      "bytes": 122480,
+      "sha256": "70f10a716443608eff4ae2c4730d84b5616936c78304539d32f8abb785fbf835"
+    },
+    "craterpark/trees/sugi_cedar/reference_v1.jpg": {
+      "bytes": 120839,
+      "sha256": "78fd7dff062fb926f3dc0c8b52754d9a37aca870f2ababbf6a8efe92b9939ea3"
+    },
+    "craterpark/trees/sugi_cedar/reference_v2.jpg": {
+      "bytes": 101053,
+      "sha256": "fca787f0d08cfae14989a9950064eac5445c6cb24b5788a6f2d2781bdfac7f62"
+    },
     "environment/concepts/transition.jpg": {
       "bytes": 1167905,
       "sha256": "4da961112dbcb3f2ea02940abd8ab93554400e1ecdd220d42856b7b07c07df10"

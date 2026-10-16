@@ -122,15 +122,16 @@ def hidamari(out, north):
 
 def hidamari_props_exports(out):
     """@cc [owner:fontanierh,label:correctness] hidamari-props-consumed-exports
-    The import identity MUST include the complete props manifest and every named FBX and PNG.
-    Missing required exports MUST fail; review images MUST NOT affect the identity.
+    The import identity MUST include the complete props manifest and every named FBX and PNG, a prop's LOD FBXs
+    (its `lods` after the first) included. Missing required exports MUST fail; review images MUST NOT affect the identity.
     """
     folder = Path(out) / 'hidamari' / 'props'
     manifest = json.loads((folder / 'props.json').read_text())
     if not isinstance(manifest, dict):
         raise ValueError('Hidamari props manifest must be an object')
-    exports = {f'{name}{suffix}': folder / f'{name}{suffix}'
-               for name in sorted(manifest) for suffix in ('.fbx', '.png')}
+    names = [f'{name}{suffix}' for name in sorted(manifest) for suffix in ('.fbx', '.png')]
+    names += [f'{name}_LOD{n}.fbx' for name in sorted(manifest) for n in range(1, len(manifest[name].get('lods', ())))]
+    exports = {name: folder / name for name in sorted(names)}
     for path in exports.values():
         if not path.is_file():
             raise FileNotFoundError(f'{path}: the prop export did not write it')

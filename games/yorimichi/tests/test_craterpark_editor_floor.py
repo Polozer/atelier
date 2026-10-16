@@ -1,5 +1,5 @@
 """Editor-park crater floor: basalt crags, snow drifts, moss, shrubs and conifers round the pieces, deterministic and
-clear of the riding."""
+clear of the riding. The conifers are instances of the caldera's Tripo trees (trees.py) in park.json `trees`."""
 import math
 from pathlib import Path
 import sys
@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world' / 'regions'))
-from craterpark.v2 import dsl, editor_floor as ef  # noqa: E402
+from craterpark.v2 import dsl, editor_floor as ef, trees as caldera  # noqa: E402
 
 GRID = dict(x0=-150., z0=-150., G=2., nx=150, nz=150)
 _x = GRID['x0'] + (np.arange(150) + .5) * 2.
@@ -81,8 +81,7 @@ def test_every_kind_is_placed_on_a_budget(built):
     for kind in ('crags', 'spires', 'rocks', 'stones', 'conifers', 'shrubs', 'tufts', 'cushions', 'snow_m2', 'moss_m2'):
         assert summary[kind] > 0, kind
     assert summary['triangles'] == sum(len(p.F) for p in parts) < 100000
-    assert set(summary['by_material']) == {ef.ROCK, ef.SNOW, ef.GRASS, ef.MOSS, ef.OLIVE, ef.SHRUB, ef.GOLD,
-                                           ef.CONIFER}
+    assert set(summary['by_material']) == {ef.ROCK, ef.SNOW, ef.GRASS, ef.MOSS, ef.OLIVE, ef.SHRUB, ef.GOLD}
     assert all(m in dsl.MATERIAL for m in summary['by_material'])
 
 
@@ -105,7 +104,7 @@ def test_snow_lies_in_broad_fields_over_its_share_of_the_open_floor(built):
     assert len(fields) < summary['snow_m2'] / 150., (len(fields), summary['snow_m2'])
 
 
-def test_crags_are_big_dark_and_gather_at_the_wall_conifers_stylised(built):
+def test_crags_are_big_dark_and_gather_at_the_wall(built):
     parts, _ = built
     site = floor_site()
     rock = [p for p in parts if dsl.MATERIALS[int(p.material[0])] == ef.ROCK][0]
@@ -119,9 +118,42 @@ def test_crags_are_big_dark_and_gather_at_the_wall_conifers_stylised(built):
     f = site.foot(plan[:, 0], plan[:, 1])
     share = ((f < ef.BAND) & (f > -ef.WALL_UP)).mean()
     assert band.mean() / share > 3 * (1 - band.mean()) / (1 - share)
-    tree = [p for p in parts if dsl.MATERIALS[int(p.material[0])] == ef.CONIFER][0]
-    over = tree.V[:, 1] - site.ground(tree.V[:, 0], tree.V[:, 2])
-    assert 3.5 < over.max() <= 9.5
+
+
+def trees(summary):
+    """(mesh, native x, ground y, z, yaw, scale) of every planted conifer (park.json `trees`: ue = 100 (x, z, y))."""
+    return [(name, x / 100, y / 100, z / 100, yaw, scale)
+            for name, items in summary['trees'].items() for x, z, y, yaw, scale in items]
+
+
+def test_the_conifers_are_the_caldera_trees_in_mixed_groves(built):
+    _, summary = built
+    planted = trees(summary)
+    assert len(planted) == summary['conifers'] > 20
+    assert set(summary['trees']) <= set(caldera.TREES)
+    families = [caldera.TREES[name][1] for name, *_ in planted]
+    assert .2 < families.count('pine') / len(families) < .8, 'black pines and sugi cedars both stand in the groves'
+    site = floor_site()
+    for name, x, y, z, yaw, scale in planted:
+        assert caldera.SCALE[0] - 1e-3 <= scale <= caldera.SCALE[1] + 1e-3 and 0 <= yaw <= 360
+        sunk = float(site.ground(np.array([x]), np.array([z]))[0]) - y
+        assert ef.TREE_SINK - .01 <= sunk <= ef.TREE_SINK + ef.TREE_FOOT * scale + .01, (name, sunk)
+
+
+def test_the_conifers_keep_clear_of_the_riding_and_of_one_another(built):
+    _, summary = built
+    planted = trees(summary)
+    stems = [types.SimpleNamespace(V=np.array([[x, y, z] for _, x, y, z, *_ in planted]))]
+    reach = np.array([caldera.TREES[name][3] * scale for name, *_, scale in planted])
+    d = plan_distance(stems, scene())
+    assert (d['pieces'] - reach >= ef.CLEAR - 1.).all(), (d['pieces'] - reach).min()
+    assert (d['bowl'] - reach >= ef.BOWL_CLEAR - 1.).all(), (d['bowl'] - reach).min()
+    xz = stems[0].V[:, [0, 2]]
+    ends = np.array([(st[k]['x'], st[k]['z']) for p in scene() if (st := p.metadata['stations']) for k in (0, -1)])
+    near = np.sqrt(((xz[:, None] - ends[None]) ** 2).sum(-1)).min(1)
+    assert (near >= ef.END_REACH + reach - 1.).all(), 'a tree is taller than LOW: none near an end'
+    gap = np.hypot(*(xz[:, None] - xz[None]).transpose(2, 0, 1)) - ef.TREE_GAP * (reach[:, None] + reach[None])
+    assert (gap + np.eye(len(xz)) * 1e9 >= -1e-6).all(), 'trunks stand apart'
 
 
 def test_snow_drifts_are_never_fragments(built):
@@ -163,7 +195,7 @@ def test_rocks_are_solid_the_rest_drawn_only(built):
 def test_deterministic():
     a, sa = ef.build(scene(), GROUND, GRID, floor_site(), bake=False)
     b, sb = ef.build(scene(), GROUND, GRID, floor_site(), bake=False)
-    assert sa == sb
+    assert sa == sb and sa['trees']
     assert np.array_equal(vertices(a), vertices(b))
 
 

@@ -40,8 +40,11 @@ def one(slug):
                TARGET[slug], slug in SOLID, OUT)
 
 
-def fit(slug, glb, key, size, turn, target, solid, out):
-    """One Tripo GLB as a game mesh key in out (the steps above); world/regions/hidamari/props.py fits the city's."""
+def fit(slug, glb, key, size, turn, target, solid, out, upright=False):
+    """One Tripo GLB as a game mesh key in out (the steps above); world/regions/hidamari/props.py fits the city's.
+    `upright` (a tree): its height, not its longest side, is scaled to size, and it stands centred on its trunk's base
+    (the middle of its lowest 4%, the root flare), not on its footprint, so a leaning crown keeps its trunk on the spot;
+    the report adds `crown`, the farthest any vertex reaches from that axis in plan."""
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=str(glb))
     meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
@@ -58,8 +61,13 @@ def fit(slug, glb, key, size, turn, target, solid, out):
     v = np.zeros(len(me.vertices)*3); me.vertices.foreach_get('co', v); v = v.reshape(-1, 3)
     t = math.radians(turn); rz = np.array([[math.cos(t), -math.sin(t), 0], [math.sin(t), math.cos(t), 0], [0, 0, 1]])
     v = v@rz.T
-    ext = v.max(0)-v.min(0); k = size/ext.max()
-    v = v*k; lo, hi = v.min(0), v.max(0); v -= [(lo[0]+hi[0])/2, (lo[1]+hi[1])/2, lo[2]]
+    ext = v.max(0)-v.min(0); k = size/(ext[2] if upright else ext.max())
+    v = v*k; lo, hi = v.min(0), v.max(0)
+    if upright:
+        root = v[v[:, 2] < lo[2]+.04*(hi[2]-lo[2])]
+        v -= [float(np.median(root[:, 0])), float(np.median(root[:, 1])), lo[2]]
+    else:
+        v -= [(lo[0]+hi[0])/2, (lo[1]+hi[1])/2, lo[2]]
     me.vertices.foreach_set('co', v.ravel()); me.update()
     # the texture, and its brightness over the surface
     mat = me.materials[0]; img = None
@@ -92,8 +100,10 @@ def fit(slug, glb, key, size, turn, target, solid, out):
     bpy.ops.export_scene.fbx(filepath=str(out/f'{key}.fbx'), use_selection=True, apply_unit_scale=True, apply_scale_options='FBX_SCALE_ALL',
                              axis_forward='-Y', axis_up='Z', object_types={'MESH'}, mesh_smooth_type='FACE', bake_anim=False,
                              use_custom_props=False, path_mode='STRIP')
-    return key, dict(gain=round(target/max(lum, 1e-4), 4), surface_luminance=round(lum, 4), triangles=sum(len(p.vertices)-2 for p in me.polygons),
-                     size=[round(float(x), 3) for x in (v.max(0)-v.min(0))], boxes=int(solid), turn=turn)
+    info = dict(gain=round(target/max(lum, 1e-4), 4), surface_luminance=round(lum, 4), triangles=sum(len(p.vertices)-2 for p in me.polygons),
+                size=[round(float(x), 3) for x in (v.max(0)-v.min(0))], boxes=int(solid), turn=turn)
+    if upright: info['crown'] = round(float(np.hypot(v[:, 0], v[:, 1]).max()), 3)
+    return key, info
 
 
 def render(slug, obj, img, v, out=OUT):

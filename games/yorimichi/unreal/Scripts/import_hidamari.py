@@ -76,6 +76,36 @@ def distance_lods(mesh,name,levels):
     return result
 
 
+def prop_lods(mesh,name,mi,levels):
+    """A fitted prop's authored distance LODs (props.json `lods`: [triangles, screen size] per LOD, world/regions/hidamari
+    /props.py): <name>_LOD<n>.fbx imported under /Game/Japan/Hidamari/PropLODs/<name> with the prop's material, set as
+    LOD n of the mesh, at its screen size. LOD0 and the mesh's (absent) collision stay as imported."""
+    unreal.load_module('StaticMeshEditor')
+    subsystem=unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+    assert subsystem is not None,'StaticMeshEditor subsystem is unavailable'
+    if subsystem.get_lod_count(mesh)>1:mesh.set_num_source_models(1)   # a reimport keeps no stale LOD
+    original=mesh.get_num_triangles(0)
+    folder='/Game/Japan/Hidamari/PropLODs/'+name
+    for level in range(1,len(levels)):
+        source=import_mesh(OUT/'props'/f'{name}_LOD{level}.fbx',folder,f'{name}_LOD{level}',fresh_slots=True)
+        assert len(source.static_materials)==1,(name,level,'material slots',len(source.static_materials))
+        source.set_material(0,mi)
+        assert unreal.EditorAssetLibrary.save_loaded_asset(source,False),(name,level,'save LOD source')
+        assert subsystem.set_lod_from_static_mesh(mesh,level,source,0,True)==level,(name,level,'LOD')
+    sizes=[float(size) for _,size in levels]
+    assert subsystem.set_lod_screen_sizes(mesh,sizes),(name,'LOD screen sizes')
+    result={'count':subsystem.get_lod_count(mesh),'triangles':[mesh.get_num_triangles(i) for i in range(len(levels))],
+            'screen_sizes':list(subsystem.get_lod_screen_sizes(mesh))}
+    assert result['count']==len(levels),(name,'missing LOD',result)
+    assert result['triangles'][0]==original,(name,'LOD0 changed',result)
+    # Unreal drops degenerate faces: within 2% of what Blender wrote, and each LOD lighter than the one before.
+    assert all(abs(a-b)<=max(2,.02*b) for a,b in zip(result['triangles'],[t for t,_ in levels])),(name,'LOD triangles',result,levels)
+    assert all(a>b for a,b in zip(result['triangles'],result['triangles'][1:])),(name,'LOD reduction',result)
+    assert all(abs(a-b)<1e-5 for a,b in zip(result['screen_sizes'],sizes)),(name,'LOD screen sizes',result)
+    unreal.log('PROP LODS '+name+' '+str(result))
+    return result
+
+
 for name,entry in manifest.items():
     if (only and name not in only) or (not north and name.startswith('HD_North')):continue
     mesh=import_mesh(OUT/'assets'/f'{name}.fbx','/Game/Japan/Assets',name,fresh_slots='slots' in entry)
@@ -123,7 +153,8 @@ for name,entry in manifest.items():
     report[name]={'imported':True,'triangles':entry['triangles'],'max_z_cm':box.max.z,'material':selected.get_path_name()}
     if 'slots' in entry:report[name]['surfaces']=entry['slots']
     if lod_report:report[name]['lods']=lod_report
-# The Tripo street props (world/regions/hidamari/props.py), placed by city.json like the rest of the city.
+# The Tripo street props (world/regions/hidamari/props.py), placed by city.json like the rest of the city, and the
+# caldera's conifers (Tree_Caldera_*, craterpark/v2/trees.py), which the crater park plants from park.json `trees`.
 if (OUT/'props'/'props.json').exists() and (not only or any(n.startswith('HD_P_') for n in only)):
     par=city_mis.get('_parent') or city_material.materials()['_parent']
     props=json.loads((OUT/'props'/'props.json').read_text())
@@ -134,10 +165,12 @@ if (OUT/'props'/'props.json').exists() and (not only or any(n.startswith('HD_P_'
         mesh=import_mesh(OUT/'props'/f'{key}.fbx','/Game/Japan/Assets',key,fresh_slots=True)
         assert len(mesh.static_materials)==1,(key,'material slots',len(mesh.static_materials))
         mesh.set_material(0,mi)
-        # Solid props have a box; the others (plants, bicycles) are walked through.
+        # Solid props have a box; the others (plants, bicycles, the conifers) are walked through.
         mesh.get_editor_property('body_setup').set_editor_property('collision_trace_flag',unreal.CollisionTraceFlag.CTF_USE_DEFAULT if props[key]['boxes'] else unreal.CollisionTraceFlag.CTF_USE_SIMPLE_AS_COMPLEX)
+        lods=prop_lods(mesh,key,mi,props[key]['lods']) if props[key].get('lods') else None
         unreal.EditorAssetLibrary.save_loaded_asset(mesh)
         report[key]={'imported':True,'triangles':props[key]['triangles'],'material':mi.get_path_name()}
+        if lods:report[key]['lods']=lods
 if not only or os.environ.get('HIDAMARI_TERRAIN')=='1':
     # Fresh slots: setup_project's Interchange import is migrated through the village seed, whose one slot
     # (VillagePalette) would otherwise stay; the terrain's slots are its own (Ground, Road, Sand, ...).
