@@ -1,6 +1,7 @@
 """Unsupported cutover launchers refuse before side effects; no native programs or models run."""
 import importlib.util
 from pathlib import Path
+import signal
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -106,8 +107,13 @@ def test_model_start_load_and_generation_refuse_before_allocation(cutover, model
     with pytest.raises(CapacityError, match='Animation generation'):
         unified.Backend.__new__(unified.Backend).request('/api/generate', {})
     monkeypatch.setattr(sys, 'argv', ['server.py'])
-    with pytest.raises(CapacityError, match='Animation lab server'):
-        server.main()
+    # main() installs its SIGTERM handler before refusing; keep it out of the test process.
+    previous = signal.getsignal(signal.SIGTERM)
+    try:
+        with pytest.raises(CapacityError, match='Animation lab server'):
+            server.main()
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 def test_building_kit_refuses_before_local_locks_or_output(cutover, monkeypatch, tmp_path):
