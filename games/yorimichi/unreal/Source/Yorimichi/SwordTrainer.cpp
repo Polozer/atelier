@@ -239,18 +239,21 @@ void ASwordTrainer::SetupRonin(int32 InRole, const FVector& InCampOrigin, const 
 
     if (USkeletalMeshComponent* Body = GetMesh())
     {
-        if (UMaterialInterface* BodyMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/SwordCamp/Materials/M_RoninBody.M_RoninBody"), nullptr, LOAD_NoWarn | LOAD_Quiet))
+        UMaterialInterface* BodyMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/SwordCamp/Materials/M_RoninBody.M_RoninBody"), nullptr, LOAD_NoWarn | LOAD_Quiet);
+        UTexture* CharTex = LoadObject<UTexture>(nullptr, TEXT("/Game/SwordTrainer/Textures/T_tripo_mat_ee5a1a4b.T_tripo_mat_ee5a1a4b"), nullptr, LOAD_NoWarn | LOAD_Quiet);
+        if (BodyMat && CharTex)
         {
             UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(BodyMat, this);
-            if (UTexture* CharTex = LoadObject<UTexture>(nullptr, TEXT("/Game/SwordTrainer/Textures/T_tripo_mat_ee5a1a4b.T_tripo_mat_ee5a1a4b"), nullptr, LOAD_NoWarn | LOAD_Quiet))
-                MID->SetTextureParameterValue(TEXT("BaseTex"), CharTex);
-            else
-                UE_LOG(LogTemp, Warning, TEXT("Kasa Ronin: missing /Game/SwordTrainer/Textures/T_tripo_mat_ee5a1a4b; build unreal.sword_trainer"));
+            MID->SetTextureParameterValue(TEXT("BaseTex"), CharTex);
             const FLinearColor CoatTint = RoninRole == 0
                 ? FLinearColor(.14f, .28f, .62f, 1.f)
                 : (RoninRole == 1 ? FLinearColor(.16f, .42f, .24f, 1.f) : FLinearColor(.68f, .10f, .13f, 1.f));
             MID->SetVectorParameterValue(TEXT("CoatTint"), CoatTint);
             Body->SetMaterial(0, MID);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Kasa Ronin: missing M_RoninBody or T_tripo_mat_ee5a1a4b; keeping default body material"));
         }
     }
 
@@ -987,13 +990,14 @@ void ASwordTrainer::AdvanceFight(float Dt)
         const FVector SlotDir = AnchorAxis.RotateAngleAxis(FMath::RadiansToDegrees(DesiredSlotRad), FVector::UpVector);
         const FVector CurDir = (Here - There).GetSafeNormal2D();
         const float CrossZ = CurDir.X * SlotDir.Y - CurDir.Y * SlotDir.X;
-        const float FlankBias = FMath::Abs(CrossZ) > .18f ? FMath::Clamp(CrossZ * 2.2f, -1.f, 1.f) : StrafeSign * .28f;
-        const float Lateral = FMath::Clamp(FlankBias * .75f + FVector::DotProduct(PeerRepulse, RightOfView) * 1.35f, -1.f, 1.f);
+        const float FlankBias = FMath::Abs(CrossZ) > .18f ? FMath::Clamp(-CrossZ * 2.2f, -1.f, 1.f) : StrafeSign * .28f;
+        const bool bApproachSprint = Distance > RoleWant + 85.f;
+        const float Lateral = bApproachSprint ? 0.f : FMath::Clamp(FlankBias * .75f + FVector::DotProduct(PeerRepulse, RightOfView) * 1.35f, -1.f, 1.f);
         const float Forward = FMath::Clamp(RoleRadial + FVector::DotProduct(PeerRepulse, ToPlayerDir) * .75f, -1.f, 1.f);
         GuardSwitch -= Dt;
         if (GuardSwitch <= 0.f) { bGuardUp = Dice.FRand() < S.GuardUp; GuardSwitch = Dice.FRandRange(.7f, 1.8f); }
-        Hold(TEXT("guard"), bGuardUp || (!bCanTakeTicket && Distance < 340.f));
-        Drive(FVector2D(Lateral, Forward), Distance > RoleWant + 85.f ? 1 : 0);
+        Hold(TEXT("guard"), !bApproachSprint && (bGuardUp || (!bCanTakeTicket && Distance < 340.f)));
+        Drive(FVector2D(Lateral, Forward), bApproachSprint ? 1 : 0);
         if (bCanTakeTicket && Cooldown <= 0.f && !Moves->IsBusy() && Dice.FRand() < S.Aggression * Dt) Open(Distance);
         return;
     }
