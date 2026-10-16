@@ -8,6 +8,9 @@ struct AirTrajectory
 {
     Vec4 position{},velocity{},acceleration{};
     float scalar_48=-1;
+    // Wall-follow air (WallFollow.h): the horizontal velocity turns about +Y at this curvature (1/m) for the first
+    // wall_follow_time seconds. 0, every stock arc, is the plain parabola.
+    float wall_curvature=0,wall_follow_time=0;
 };
 struct PhysicsAirState
 {

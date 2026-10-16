@@ -223,7 +223,7 @@ bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
         || t.tight_flicks<0 || t.tight_flicks>1 || t.flick_120hz<0 || t.flick_120hz>1
         || !in(t.powerslide_turn,0.25f,1.5f) || t.drift_powerslide<0 || t.drift_powerslide>1
         || !in(t.drift_grip,0.0f,1.5f) || !in(t.drift_full_grip,0.0f,1.5f) || !in(t.grind_tolerance,0.5f,3.0f)
-        || !in(t.camera_follow,1.0f,3.0f))
+        || !in(t.camera_follow,1.0f,3.0f) || !in(t.wall_follow,0.0f,1.0f))
     {error="Invalid skating feel";return false;}
     auto* gestures=controls->MutableGestures();
     if(!gestures){error="Skating feel requires the gesture recogniser";return false;}
@@ -277,6 +277,9 @@ bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
     // about 4 s, not 1.3 s.
     if(input->grind){input->grind->entry_tolerance=entry;input->grind->slide_hold=std::max(1.0f,2*t.grind_tolerance-1);}
     camera.settings.manager.rig.anchor.speed_clamp=stock.camera_anchor_speed*t.camera_follow;
+    // Wall-follow air (WallFollow.h): a change restarts it, so an air already turning stops and nothing is half latched.
+    if(t.wall_follow!=trajectory.wall_follow.strength)
+    {trajectory.wall_follow.Reset();trajectory.wall_follow.strength=t.wall_follow;trajectory.selector.SetWallFollow(0,0);}
     feel_=t;error.clear();return true;
 }
 void GameplayRuntime::Launch(Vec3 velocity)

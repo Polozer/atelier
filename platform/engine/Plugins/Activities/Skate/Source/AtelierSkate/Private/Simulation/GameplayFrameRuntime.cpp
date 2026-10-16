@@ -67,6 +67,69 @@ public:
     explicit TrajectoryPublication(const AirTrajectorySelector& s):selector(s){}
     bool GrindLockedToMiddle() const override{return selector.GrindLockedToMiddle();}
 };
+// Wall-follow air (FeelTuning::wall_follow, WallFollow.h), right after the physics step so the post-physics phases,
+// publication, camera and next update all see the same turned state. On steep ground it measures the wall's plan
+// curvature for the next launch. Through an air AirTrajectoryRuntime::Launch latched, every update turns each body's
+// velocity, the board's and the rider's, about world up by the latched curvature times the board's horizontal speed
+// (a pure centripetal turn: the speed and the climb stay), and yaws the air reckoning's up and heading with it so the
+// rider and the board turn with the path; the first air update also gives every body that yaw rate. Positions follow
+// by integration. It stops when the air does (a landing, a bail, a grind or a plant) or after MaximumTime. At strength 0
+// (stock) it returns before reading or writing anything.
+void AdvanceWallFollowAir(PlayerStatePhaseOwners& s,bool teleported)
+{
+    auto& w=s.air.trajectory.wall_follow;if(!(w.strength>0.0f))return;
+    auto& f=s.player.physical;auto& selector=s.air.trajectory.selector;
+    if(teleported){w.Reset();selector.SetWallFollow(0,0);return;}
+    using S=PhysicalStateId;const auto state=s.player.state.Current();
+    const bool air=state==S::PhysicsAir||state==S::KnownAir||state==S::PhysicsAirSecondary;
+    const bool ground=state==S::PhysicsGround||state==S::SlideGround||state==S::RevertGround||state==S::GroundAnimation;
+    const float dt=s.player.input.processed.timestep_2604;
+    const auto& deck=f.board.Bodies()[std::size_t(BoardBodyId::Deck)].rates;
+    const float speed=std::sqrt(deck.linear_velocity.x*deck.linear_velocity.x+deck.linear_velocity.z*deck.linear_velocity.z);
+    if(w.pending)
+    {
+        if(air)
+        {
+            // The air leaves the wall straight up (any speed away from it dropped) and takes the turn's yaw rate.
+            w.pending=false;w.active=true;w.elapsed=0;
+            const float rate=w.curvature*speed;
+            const auto start=[&w,rate](auto& body){
+                body.rates.linear_velocity=WallFollowInward(body.rates.linear_velocity,w.inward_x,w.inward_z);
+                body.rates.angular_velocity.y+=rate;};
+            for(auto& body:f.board.BodiesMut())start(body);
+            for(auto& body:f.skeleton.BodiesMut())start(body);
+            auto& com=s.physics_air.state.centre_of_mass_trajectory.velocity;
+            const auto straight=WallFollowInward(Vec3(com[0],com[1],com[2]),w.inward_x,w.inward_z);com[0]=straight.x;com[2]=straight.z;
+        }
+        else if(++w.pending_ticks>WallFollowAir::PendingTicks){w.Stop();selector.SetWallFollow(0,0);}
+    }
+    if(w.active)
+    {
+        if(!air || w.elapsed>=WallFollowAir::MaximumTime){w.Stop();selector.SetWallFollow(0,0);}
+        else
+        {
+            const float turn=w.curvature*speed*dt;
+            const auto yaw=[turn](auto& body){
+                body.rates.linear_velocity=YawAboutUp(body.rates.linear_velocity,turn);
+                body.rates.angular_velocity=YawAboutUp(body.rates.angular_velocity,turn);};
+            for(auto& body:f.board.BodiesMut())yaw(body);
+            for(auto& body:f.skeleton.BodiesMut())yaw(body);
+            auto& reckoning=f.riding.reckoning;
+            reckoning.up=YawAboutUp(reckoning.up,turn);reckoning.dynamic_up=YawAboutUp(reckoning.dynamic_up,turn);
+            reckoning.target=YawAboutUp(reckoning.target,turn);
+            f.riding.reckoning_frames.heading=YawAboutUp(f.riding.reckoning_frames.heading,turn);
+            // PhysicsAir's own centre-of-mass arc (once every prediction missed) is integrated a step at a time.
+            auto& com=s.physics_air.state.centre_of_mass_trajectory;com.velocity=YawAboutUp(com.velocity,turn);
+            w.elapsed+=dt;
+        }
+    }
+    if(ground)
+    {
+        const auto normal=Xyz(Value(s.player.input.processed.vectors_464_480_496_512_528[0]));
+        w.tracker.Observe(normal,deck.position,WallFollowSteepNormalY);w.ticks_since_ground=0;
+    }
+    else {w.tracker.Reset();if(w.ticks_since_ground<0xffff)++w.ticks_since_ground;}
+}
 bool PublishExchange(GameplayFrameOwners o,std::uint64_t tick,std::string& error)
 {
     const auto& states=o.post.states;const auto& f=states.player.physical;
@@ -175,6 +238,7 @@ bool AdvanceGameplayFrame(GameplayFrameOwners o,ActionMap& original_actions,bool
     skeleton_queries.Publish(shared.input.player);
     if(!DeckTorqueFinite(f,"board possession",error))return false;
     if(!f.Solve(s.ground.ground.steering.targets,error))return false;
+    AdvanceWallFollowAir(s,teleported);
     ResetPhysicalPlayerOutputs(shared.input.physical);
     if(!FinishPlayerPostPhysics(o.post,error))return false;
     const auto simulation=f.settings.board.step.simulation;

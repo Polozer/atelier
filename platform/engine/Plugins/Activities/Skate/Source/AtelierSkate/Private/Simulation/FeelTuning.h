@@ -22,6 +22,12 @@ struct FeelTuning
     // Camera: how fast the camera's anchor may chase the rider, times the authored 40 m/s (1..3). At stock a rider
     // faster than that pulls away from the camera and the gap jitters as the limit catches and lets go.
     float camera_follow=1;
+    // Air off a curved wall (0..1; 0 stock, off). The stock vert alignment keeps a launch's whole speed along the wall,
+    // which flies straight on along the tangent while a curved wall turns away beneath: off a bowl's outer wall the rider
+    // lands behind the lip. Above 0, a vert-aligned launch (vert assist above 0, no transfer) off a concave curved wall
+    // turns round the wall's centre at this times the wall's curvature, measured riding it (WallFollow.h), leaving the
+    // wall straight up: climb and speed along the wall unchanged, so at 1 the rider stays over the wall and lands back on it.
+    float wall_follow=0;
     // Rolling: braking, steering, carve strength, wheel grip, powerslide bite, rolling resistance, downhill pull and pumping.
     float braking=1,steering=1,carve=1,grip=1,powerslide=1,rolling_friction=1,hill_speed=1,pump=1;
     // Balance: speed wobble size and the speed at which it starts, manual balance drift.
