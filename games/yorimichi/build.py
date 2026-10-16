@@ -564,6 +564,13 @@ def texture_steps(ctx):
                         about='all island source textures, retaining the legacy consumer boundary')]
 
 
+SWORDCAMP_MESHES = (
+    'SM_RoninKasa', 'SM_RoninMenpo', 'SM_RoninSode', 'SM_RoninSashimono',
+    'SM_RoninKatana', 'SM_RoninNodachi',
+    'SM_CampJinmaku', 'SM_CampFirePit', 'SM_CampWeaponRack', 'SM_CampBales',
+)
+
+
 def world_steps(ctx):
     """World exports."""
     out = ctx.out
@@ -665,10 +672,15 @@ def world_steps(ctx):
              outputs=[out / 'southwest' / 'fbx' / 'SW_Temple.fbx'], about='fishing village, cove, island temple', heavy=True),
         Step('world.mega', [Blender(REGIONS / 'mega' / 'build.py')], inputs=[REGIONS / 'mega', REGIONS / 'village' / 'build.py', *VILLAGE_LAYOUT],
              needs=['world.layout'], outputs=[out / 'mega' / 'manifest.json'], about='the mini-mega ramp and its trail', heavy=True),
+        Step('world.swordcamp_atlas', [Python(REGIONS / 'swordcamp' / 'make_atlas.py')],
+             inputs=[REGIONS / 'swordcamp' / 'make_atlas.py', ASSETS / 'swordcamp', ASSETS / 'treehouse' / 'textures'],
+             outputs=[out / 'swordcamp' / 'swordcamp_atlas.jpg'],
+             about='2048x2048 Sunburst UV texture atlas for the Kasa Ronin and roadside mini-camp'),
         Step('world.swordcamp', [Blender(REGIONS / 'swordcamp' / 'build.py', threads=3)],
-             inputs=[REGIONS / 'swordcamp' / 'build.py', REGIONS / 'swordcamp' / 'make_atlas.py',
-                     ASSETS / 'swordcamp', ASSETS / 'treehouse' / 'textures', YORI],
-             outputs=[out / 'swordcamp' / 'manifest.json', out / 'swordcamp' / 'swordcamp_atlas.jpg'],
+             inputs=[REGIONS / 'swordcamp' / 'build.py', YORI],
+             needs=['world.swordcamp_atlas'],
+             outputs=[out / 'swordcamp' / 'manifest.json',
+                      *(out / 'swordcamp' / 'fbx' / f'{n}.fbx' for n in SWORDCAMP_MESHES)],
              about='Kasa Ronin equipment and roadside mini-camp procedural meshes', heavy=True),
         Step('world.megapark_restyle', [Python(TOOLS / 'megapark_textures.py', ('finish',))],
              inputs=[TOOLS / 'megapark_textures.py', ASSETS / 'megapark' / 'restyle', ASSETS / 'megapark' / 'map.json',
@@ -832,7 +844,10 @@ def unreal_steps(ctx):
         Step('unreal.swordcamp', [UnrealScript(SCRIPTS / 'import_swordcamp.py', 'SWORDCAMP IMPORT COMPLETE', null_rhi=True)],
              inputs=[SCRIPTS / 'import_swordcamp.py', SCRIPTS / 'mesh_import.py', SCRIPTS / 'atmosphere.py', SCRIPTS / 'sea_look.py'],
              after=['unreal.compile'], needs=['world.swordcamp'],
-             outputs=[out / 'swordcamp' / 'import-report.json', GAME / 'unreal' / 'Content' / 'SwordCamp' / 'Assets' / 'SM_CampFirePit.uasset'],
+             outputs=[out / 'swordcamp' / 'import-report.json',
+                      GAME / 'unreal' / 'Content' / 'SwordCamp' / 'Textures' / 'T_SwordCampAtlas.uasset',
+                      GAME / 'unreal' / 'Content' / 'SwordCamp' / 'Materials' / 'M_SwordCamp.uasset',
+                      *(GAME / 'unreal' / 'Content' / 'SwordCamp' / 'Assets' / f'{n}.uasset' for n in SWORDCAMP_MESHES)],
              heavy=True, about='/Game/SwordCamp: Kasa Ronin equipment and roadside mini-camp props'),
         # Do not build distance fields or cards while replacing the seed mesh's material sections: UE 5.8 can read
         # that map concurrently. The final meshes already disable distance fields; normal runtime settings build

@@ -25,5 +25,13 @@
     "total_tokens": 2975
   },
   "elapsed_seconds": 41.4,
-  "finished_at": "2026-10-16T16:32:45.798718+00:00"
+  "finished_at": "2026-10-16T16:32:45.798718+00:00",
+  "compact_copy": {
+    "file": "sode_lacquer.jpg",
+    "size": "1024x1024",
+    "jpeg_quality": 92,
+    "chroma": "4:2:0",
+    "bytes": 354113,
+    "sha256": "9915cdf809b27d01ddc12c9a0016b11a3e3f4ee2b2404449a19dedd9f3228b39"
+  }
 }

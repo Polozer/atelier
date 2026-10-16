@@ -25,5 +25,13 @@
     "total_tokens": 3751
   },
   "elapsed_seconds": 38.2,
-  "finished_at": "2026-10-16T16:26:39.383030+00:00"
+  "finished_at": "2026-10-16T16:26:39.383030+00:00",
+  "compact_copy": {
+    "file": "ronin_armor_kit.jpg",
+    "size": "1536x1024",
+    "jpeg_quality": 90,
+    "chroma": "4:2:0",
+    "bytes": 257378,
+    "sha256": "72399c28af0007ec8e0aadea4d27f46b7c907f819d47ff4cacb9f48354f55743"
+  }
 }

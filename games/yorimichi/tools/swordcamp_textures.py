@@ -78,7 +78,13 @@ def paint_one(item):
         metadata={'stage': 'swordcamp-texture', 'slug': slug, 'prompt_file': prompt_path.name},
     )
     if png_path.exists():
-        images.compact(png_path, jpg_path, 1024, 92)
+        import hashlib, json
+        info = images.compact(png_path, jpg_path, 1024, 92)
+        info['sha256'] = hashlib.sha256(jpg_path.read_bytes()).hexdigest()
+        info['bytes'] = len(jpg_path.read_bytes())
+        rec = json.loads(record_path.read_text())
+        rec['compact_copy'] = info
+        record_path.write_text(json.dumps(rec, indent=2) + '\n')
         shutil.copy2(jpg_path, SITE_ASSETS / f'tex_{slug}.jpg')
         print(f'[sunburst-tex] Completed {slug} -> {jpg_path}', flush=True)
 

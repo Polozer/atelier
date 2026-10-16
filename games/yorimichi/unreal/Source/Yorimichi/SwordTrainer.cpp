@@ -195,7 +195,7 @@ bool ASwordTrainer::IsSparringWith(const AActor* Other) const
     if (bHostileRonin)
     {
         const AWandererCharacter* Player = Cast<AWandererCharacter>(Other);
-        return Player && Player != this && !Player->IsNpc() && !bDefeated && Bout != EBout::Over && Bout != EBout::Return &&
+        return Player && Player != this && !Player->IsNpc() && !bDefeated && DefeatCooldown <= 0.f && Bout != EBout::Over && Bout != EBout::Return &&
             (!GetSword() || GetSword()->GetHealth() > 0.f);
     }
     // From the stance (so each side's lock-on finds the other) to the end of the bout.
@@ -779,7 +779,7 @@ void ASwordTrainer::AdvanceFight(float Dt)
     }
     // Instant riposte after landing a parry or absorbing a blow on guard (OpenGothic / BotW counter-slash).
     const FName MyAction = Moves->GetActionName();
-    if (bCanTakeTicket && (MyAction == TEXT("SwordParry") || MyAction == TEXT("Parry") || MyAction == TEXT("SwordGuardHit") || MyAction == TEXT("GuardHit")) &&
+    if (bHostileRonin && bCanTakeTicket && (MyAction == TEXT("SwordParry") || MyAction == TEXT("Parry") || MyAction == TEXT("SwordGuardHit") || MyAction == TEXT("GuardHit")) &&
         Level > 0 && Distance < 290.f && Moves->GetActionClipTime() >= .12f && !Intent.StartsWith(TEXT("attack")))
     {
         Cooldown = 0.f; Forced = TEXT("combo"); Open(Distance);
@@ -796,7 +796,7 @@ void ASwordTrainer::AdvanceFight(float Dt)
     }
     if (Defend(Dt, Distance)) return;
     // OpenGothic whiff punishment: if the opponent swings beyond lunge reach (280..440 cm), step back out of the arc and punish recovery.
-    if (bCanTakeTicket && Level > 0 && !Intent.StartsWith(TEXT("attack")) && !Moves->IsBusy())
+    if (bHostileRonin && bCanTakeTicket && Level > 0 && !Intent.StartsWith(TEXT("attack")) && !Moves->IsBusy())
     {
         const bool bOpponentSwinging = Theirs->IsAttacking() && !Theirs->IsCharging();
         if (bOpponentSwinging && Distance > 280.f && Distance < 440.f && Theirs->NextBlowIn() >= 0.f)
@@ -823,17 +823,17 @@ void ASwordTrainer::AdvanceFight(float Dt)
     SetIntent(TEXT("circle"));
     StrafeSwitch -= Dt;
     if (StrafeSwitch <= 0.f) { StrafeSign = Dice.FRand() < .5f ? -1.f : 1.f; StrafeSwitch = Dice.FRandRange(1.2f, 3.2f); }
-    const float Want = !bCanTakeTicket ? 390.f : (Level == 0 ? 340.f : 285.f);
+    const float Want = !bCanTakeTicket ? 390.f : (Level == 0 ? 340.f : (bHostileRonin ? 285.f : 300.f));
     const float Radial = Distance > Want + 50.f ? 1.f : Distance < Want - 60.f ? -1.f : 0.f;
     // The player winding up a charged spin: she backs off (or, at the top level, cuts in before it is ready).
     if (Theirs->IsCharging() && Level > 0)
     {
-        if (Level == 2 && Distance < 260.f && Cooldown <= 0.f && !Theirs->IsFullyCharged()) { Forced = TEXT("combo"); Open(Distance); return; }
+        if (bCanTakeTicket && Level == 2 && Distance < 260.f && Cooldown <= 0.f && !Theirs->IsFullyCharged()) { Forced = TEXT("combo"); Open(Distance); return; }
         Hold(TEXT("guard"), true); Drive(FVector2D(StrafeSign * .5f, -1.f), 1); SetIntent(TEXT("evade charge"));
         return;
     }
     // Anti-turtle guard-break mixup: if the opponent holds guard continuously, pressure with a guard-breaking heavy/charge opening.
-    if (bCanTakeTicket && OpponentGuardTime > .5f && Level > 0 && Cooldown <= .15f && Distance < 340.f && !Moves->IsBusy())
+    if (bHostileRonin && bCanTakeTicket && OpponentGuardTime > .5f && Level > 0 && Cooldown <= .15f && Distance < 340.f && !Moves->IsBusy())
     {
         Cooldown = 0.f;
         Forced = Dice.FRand() < .6f ? TEXT("charge") : TEXT("jump");

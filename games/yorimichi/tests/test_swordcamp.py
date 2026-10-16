@@ -12,6 +12,7 @@ SOURCE = GAME / 'unreal' / 'Source' / 'Yorimichi'
 
 
 def test_sunburst_concepts_and_provenance_records_exist():
+    import hashlib
     for slug in ('ronin_armor_kit', 'camp_kit'):
         jpg = CONCEPTS / f'{slug}.jpg'
         prov = CONCEPTS / f'{slug}.provenance.json'
@@ -23,9 +24,12 @@ def test_sunburst_concepts_and_provenance_records_exist():
         assert data['requested_model'] == 'gpt-image-2.5-sunburst'
         assert data['quality'] == 'high'
         assert data['status'] == 'done'
+        assert data['compact_copy']['file'] == jpg.name
+        assert data['compact_copy']['sha256'] == hashlib.sha256(jpg.read_bytes()).hexdigest()
 
 
-def test_sunburst_textures_and_atlas_exist():
+def test_sunburst_textures_and_atlas_exist(tmp_path):
+    import hashlib
     for slug in ('sandogasa_weave', 'sode_lacquer', 'jinmaku_stripe', 'sashimono_maple'):
         jpg = TEXTURES / f'{slug}.jpg'
         prov = TEXTURES / f'{slug}.provenance.json'
@@ -34,10 +38,12 @@ def test_sunburst_textures_and_atlas_exist():
         data = json.loads(prov.read_text())
         assert data['requested_model'] == 'gpt-image-2.5-sunburst'
         assert data['quality'] == 'high'
+        assert data['compact_copy']['file'] == jpg.name
+        assert data['compact_copy']['sha256'] == hashlib.sha256(jpg.read_bytes()).hexdigest()
     import sys
     sys.path.insert(0, str(REGION))
     import make_atlas
-    out = REPO / 'build' / 'yorimichi' / 'swordcamp' / 'swordcamp_atlas.jpg'
+    out = tmp_path / 'swordcamp_atlas.jpg'
     make_atlas.build_atlas(out)
     im = Image.open(out)
     assert im.size == (2048, 2048)

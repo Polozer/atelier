@@ -25,5 +25,13 @@
     "total_tokens": 2972
   },
   "elapsed_seconds": 37.5,
-  "finished_at": "2026-10-16T16:32:41.965997+00:00"
+  "finished_at": "2026-10-16T16:32:41.965997+00:00",
+  "compact_copy": {
+    "file": "sandogasa_weave.jpg",
+    "size": "1024x1024",
+    "jpeg_quality": 92,
+    "chroma": "4:2:0",
+    "bytes": 401771,
+    "sha256": "a049555b71acbd35b1300fa864bef21bd49b9f4faaaee0c5f37b9dd187c3129d"
+  }
 }

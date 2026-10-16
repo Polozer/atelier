@@ -21,9 +21,7 @@ from mathutils import Euler, Matrix, Vector
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[4]
 sys.path.insert(0, str(HERE.parents[1]))
-sys.path.insert(0, str(HERE))
 import yori  # noqa: E402
-import make_atlas  # noqa: E402
 
 OUT = yori.OUT / 'swordcamp'
 ATLAS_PATH = OUT / 'swordcamp_atlas.jpg'
@@ -97,20 +95,21 @@ class ProcMesh:
             glow = 1.0 if (uvs is UV_LANTERN or uvs is UV_EMBER) else 0.0
         face_indices = []
         for k, p in enumerate(pts):
+            a_val = float(alpha[k]) if isinstance(alpha, (list, tuple)) else float(alpha)
             wp = tuple(self.xf @ Vector(p))
             if smooth:
-                key = (round(wp[0], 4), round(wp[1], 4), round(wp[2], 4), round(alpha, 3), round(glow, 3))
+                key = (round(wp[0], 4), round(wp[1], 4), round(wp[2], 4), round(a_val, 3), round(glow, 3))
                 idx = self._vmap.get(key)
                 if idx is None:
                     idx = len(self.verts)
                     self._vmap[key] = idx
                     self.verts.append(wp)
-                    self.alphas.append(alpha)
+                    self.alphas.append(a_val)
                     self.glows.append(glow)
             else:
                 idx = len(self.verts)
                 self.verts.append(wp)
-                self.alphas.append(alpha)
+                self.alphas.append(a_val)
                 self.glows.append(glow)
             face_indices.append(idx)
         if len(set(face_indices)) < 3:
@@ -156,6 +155,7 @@ class ProcMesh:
         x = up.cross(dn).normalized()
         y = dn.cross(x).normalized()
         uv = uvs or UV_BAMBOO
+        glow = 1.0 if (uv is UV_LANTERN or uv is UV_EMBER) else 0.0
         ring0, ring1 = [], []
         for i in range(segs):
             a = 2 * math.pi * i / segs
@@ -164,12 +164,12 @@ class ProcMesh:
             ring1.append(p1 + (x * cs + y * sn) * r1)
         for i in range(segs):
             j = (i + 1) % segs
-            self.quad([ring0[i], ring0[j], ring1[j], ring1[i]], uv, smooth=smooth)
+            self.quad([ring0[i], ring0[j], ring1[j], ring1[i]], uv, smooth=smooth, glow=glow)
         if cap:
             if r0 > 1e-4:
-                self.quad(list(reversed(ring0)), [uv[0]] * segs, smooth=False)
+                self.quad(list(reversed(ring0)), [uv[0]] * segs, smooth=False, glow=glow)
             if r1 > 1e-4:
-                self.quad(ring1, [uv[0]] * segs, smooth=False)
+                self.quad(ring1, [uv[0]] * segs, smooth=False, glow=glow)
 
     def torus(self, center, r_major, r_minor, uvs=None, n_maj=18, n_min=8, axis='Z', arc=2*math.pi):
         cx, cy, cz = center
@@ -388,9 +388,9 @@ def build_sashimono(m: ProcMesh, origin=(0, 0, 0)):
             wy1 = 0.008 * math.sin(u1 * math.pi) * math.sin(v1 * math.pi * 1.5)
             uv_q = rect_uvs(u0 * 1024, 1024 + vt0 * 1024, u1 * 1024, 1024 + vt1 * 1024)
             p00, p01, p11, p10 = (xx0, wy0 - 0.003, zz0), (xx1, wy1 - 0.003, zz0), (xx1, wy1 - 0.003, zz1), (xx0, wy0 - 0.003, zz1)
-            m.quad([p10, p11, p01, p00], uv_q, smooth=True, alpha=u0 * 0.6)
+            m.quad([p10, p11, p01, p00], uv_q, smooth=True, alpha=[u0 * 0.6, u1 * 0.6, u1 * 0.6, u0 * 0.6])
             q00, q01, q11, q10 = (xx0, wy0 + 0.003, zz0), (xx1, wy1 + 0.003, zz0), (xx1, wy1 + 0.003, zz1), (xx0, wy0 + 0.003, zz1)
-            m.quad([q00, q01, q11, q10], uv_q, smooth=True, alpha=u0 * 0.6)
+            m.quad([q00, q01, q11, q10], uv_q, smooth=True, alpha=[u0 * 0.6, u1 * 0.6, u1 * 0.6, u0 * 0.6])
     m.xf = old
 
 
@@ -476,8 +476,10 @@ def build_jinmaku(m: ProcMesh, origin=(0, 0, 0)):
             y0 = 0.028 * math.sin(u0 * math.pi * 6.0) * (0.3 + 0.7 * v0)
             y1 = 0.028 * math.sin(u1 * math.pi * 6.0) * (0.3 + 0.7 * v1)
             uv_q = rect_uvs(1024 + u0 * 512, 1024 + v0 * 512, 1024 + u1 * 512, 1024 + v1 * 512)
-            m.quad([(xx0, y0 - 0.008, zz1), (xx1, y1 - 0.008, zz1), (xx1, y1 - 0.008, zz0), (xx0, y0 - 0.008, zz0)], uv_q, smooth=True, alpha=v0 * 0.5)
-            m.quad([(xx0, y0 + 0.008, zz0), (xx1, y1 + 0.008, zz0), (xx1, y1 + 0.008, zz1), (xx0, y0 + 0.008, zz1)], uv_q, smooth=True, alpha=v0 * 0.5)
+            m.quad([(xx0, y0 - 0.008, zz1), (xx1, y1 - 0.008, zz1), (xx1, y1 - 0.008, zz0), (xx0, y0 - 0.008, zz0)],
+                   uv_q, smooth=True, alpha=[v1 * 0.5, v1 * 0.5, v0 * 0.5, v0 * 0.5])
+            m.quad([(xx0, y0 + 0.008, zz0), (xx1, y1 + 0.008, zz0), (xx1, y1 + 0.008, zz1), (xx0, y0 + 0.008, zz1)],
+                   uv_q, smooth=True, alpha=[v0 * 0.5, v0 * 0.5, v1 * 0.5, v1 * 0.5])
     lx = span * 0.5 + 0.26
     m.box((span * 0.5 + 0.16, 0, 2.15), (0.32, 0.09, 0.09), UV_TIMBER_TILE, bevel=0.01)
     m.tube((lx, 0, 2.12), (lx, 0, 1.94), 0.012, 0.012, UV_IRON, segs=8)
@@ -708,7 +710,7 @@ def render_showcase(proc: ProcMesh, out_png: Path, cam_loc, cam_target, ortho_sc
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     FBX_DIR.mkdir(parents=True, exist_ok=True)
-    make_atlas.build_atlas(ATLAS_PATH)
+    assert ATLAS_PATH.is_file(), f'Missing {ATLAS_PATH}; run world.swordcamp_atlas first'
     showcase = '--showcase' in sys.argv
     manifest = {}
     assets = [

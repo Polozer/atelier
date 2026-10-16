@@ -25,5 +25,13 @@
     "total_tokens": 2978
   },
   "elapsed_seconds": 41.4,
-  "finished_at": "2026-10-16T16:32:45.831109+00:00"
+  "finished_at": "2026-10-16T16:32:45.831109+00:00",
+  "compact_copy": {
+    "file": "jinmaku_stripe.jpg",
+    "size": "1024x1024",
+    "jpeg_quality": 92,
+    "chroma": "4:2:0",
+    "bytes": 364880,
+    "sha256": "795313237cc21473d47e22ab5d4e0135f9f5fb50dc7b438bb7ee4eab0888a0ff"
+  }
 }
