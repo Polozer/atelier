@@ -69,6 +69,61 @@ def test_any_live_retained_identity_blocks_terminal_release(terminal):
     assert not broker._settle_exited(record)
 
 
+def test_pre_cleanup_tail_requires_actual_retained_positive_exit(terminal):
+    broker, record, path, receipt = terminal
+    tail = record['roster'][2]
+    sample = dict(pid=tail[0], started=tail[1], footprint_bytes=77, name='any-helper', depth=5)
+    path.write_text(json.dumps(receipt | dict(processes=[sample], footprint_bytes=77)))
+    original_exits = list(record['exited'])
+    assert broker._settle_exited(record)
+    assert record['release_witness']['kind'] == 'guarded-tree-exit'
+    assert record['exited'] == original_exits and record['ancestry_unknown'] is True
+
+
+@pytest.mark.parametrize('bad', ['unretained', 'unwitnessed', 'reused', 'duplicate', 'root',
+                                'live', 'negative', 'bool', 'sum', 'missing', 'over-limit'])
+def test_pre_cleanup_tail_never_uses_absence_or_names_as_exit_proof(terminal, bad):
+    broker, record, path, receipt = terminal
+    tail = record['roster'][2]
+    sample = dict(pid=tail[0], started=tail[1], footprint_bytes=77, name='ibtoold', depth=5)
+    if bad == 'unretained':
+        record['roster'].remove(tail)
+    elif bad == 'unwitnessed':
+        record['exited'].remove(tail)
+    elif bad == 'reused':
+        sample['started'] += 1
+    elif bad == 'root':
+        sample.update(pid=record['child'][0], started=record['child'][1])
+    elif bad == 'live':
+        broker.alive = lambda pin: pin == tuple(tail)
+    elif bad == 'negative':
+        sample['footprint_bytes'] = -1
+    elif bad == 'bool':
+        sample['footprint_bytes'] = True
+    elif bad == 'missing':
+        del sample['started']
+    elif bad == 'over-limit':
+        sample['footprint_bytes'] = record['limit_bytes'] + 1
+    samples = [sample, sample] if bad == 'duplicate' else [sample]
+    total = sample['footprint_bytes'] if bad == 'over-limit' else 78 if bad == 'sum' else 77
+    value = receipt | dict(processes=samples, footprint_bytes=total)
+    path.write_text(json.dumps(value))
+    assert not broker._settle_exited(record)
+    assert record['state'] == 'uncertain'
+
+
+@pytest.mark.parametrize('mode', ['capacity', 'sealed-maintenance'])
+def test_old_terminal_sample_still_requires_exclusive_admission(terminal, mode):
+    broker, record, path, receipt = terminal
+    tail = record['roster'][2]
+    path.write_text(json.dumps(receipt | dict(processes=[dict(pid=tail[0], started=tail[1], footprint_bytes=77)],
+                                             footprint_bytes=77)))
+    broker.mode = mode
+    assert not broker._settle_exited(record)
+    record['request']['performance'] = True
+    assert broker._settle_exited(record)
+
+
 @pytest.mark.parametrize('mode', ['capacity', 'sealed-maintenance'])
 @pytest.mark.parametrize('performance,allowed', [(False, False), (True, True)])
 def test_full_mode_requires_performance_exclusion(terminal, performance, allowed, mode):

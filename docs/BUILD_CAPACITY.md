@@ -53,7 +53,10 @@ If admission or a running grant is refused, retain the command, source revision,
 phase and the next safe boundary. A charged or uncertain reservation still holds capacity even when measured
 memory is small. Recovery accepts complete known-ancestry retained exits, or, for bridge and sealed-mode
 performance-exclusive grants, a positively exited root plus its matching bound aggregate guard's successful
-terminal empty-tree cleanup receipt. The latter witnesses the monitored owned tree rather than inventing
+terminal empty-tree cleanup receipt. Older monitors could retain their pre-cleanup sample despite successful
+cleanup; that sample is accepted only when every reported tail identity is retained and has an affirmative
+exit witness, no tail is live, and its nonnegative footprint sum exactly matches the receipt within the guard
+ceiling. Names, missing PIDs and elapsed time never substitute for those exits. The latter witnesses the monitored owned tree rather than inventing
 individual historical exits. Neither policy certifies outputs; uncertainty remains charged without its required
 evidence. PID absence or heartbeat expiry alone never establishes release. If a later invocation overwrote the
 bound report, authorized recovery can attest the preserved original with
@@ -130,6 +133,11 @@ process has a verified exit and ancestry is known. Bridge and sealed-mode perfor
 positively exited root plus its previously bound aggregate guard's final `child_exited` receipt: matching root
 identity and limit, invocation time, completed cleanup, no processes and zero footprint, with no retained identity
 still verifiably live. This deliberately permits historical discovery gaps under the exclusive guard policy.
+The monitor now refreshes its terminal sample after draining helpers. For a preserved older pre-drain sample,
+every listed tail must have its exact retained affirmative exit, must no longer be live, and must contribute
+to the receipt's exact nonnegative footprint sum within its unchanged ceiling. The root cannot appear in that
+tail. A partial exit set, reused identity, duplicate, inconsistent sum, stop reason or live survivor still refuses
+release. Recovery does not rewrite the original monitor receipt or invent historical exits.
 The witness is `guarded-tree-exit`, covering the **monitored owned tree**; it does not manufacture individual
 kernel exit evidence or claim universal descendant discovery. It releases capacity only, never certifies outputs.
 `atelier capacity reconcile ABSOLUTE_SOCKET` applies the same two policies. Without either witness, uncertainty
