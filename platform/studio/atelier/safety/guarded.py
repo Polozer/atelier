@@ -399,7 +399,8 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
             # Also cancel a queued offer when acquiring the bridge fails. The later callback
             # moves successful-spawn cleanup before monitor detachment; this fallback is a no-op.
             stack.callback(close_capacity)
-            admission.offer()
+            from ..capacity_client import wait_for_offer
+            wait_for_offer(admission)
         slot = None
         if lock:
             def taken(name, why):

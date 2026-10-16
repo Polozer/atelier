@@ -29,6 +29,7 @@ MESH_YAW = -90.   # glTF faces -Y in Blender (+Z in glTF), which Interchange tur
 CONTACTS = ('saddle_root', 'seat_z', 'scale_ratio', 'stirrup_L', 'stirrup_R', 'grip_L', 'grip_R')
 MASTERS = ('coat', 'hair', 'tack', 'tack_masked')
 FLOAT, VEC3, VEC4, MAT4 = 5126, 3, 4, 16
+TURN_CLIPS = ('TurnLeft', 'TurnRight')
 
 
 def _floats(binary, doc, index, width):
@@ -131,7 +132,7 @@ def roster(library, built, masters, coat_masks, coat_variants, breeds):
             'skeleton': breeds[slug]['skeleton'],
             'mesh_yaw': MESH_YAW,
             'contacts': {key: built['breeds'][slug]['contacts'][key] for key in CONTACTS},
-            'clips': {clip: breeds[slug]['clips'][clip] for clip in library['clips']},
+            'clips': {clip: breeds[slug]['clips'][clip] for clip in (*library['clips'], *TURN_CLIPS)},
             'saddles': {sid: breeds[slug]['saddles'][sid] for sid in library['tack_sets']},
             'reins': {sid: breeds[slug]['reins'][sid] for sid in library['tack_sets']},
         } for slug in library['breeds']},

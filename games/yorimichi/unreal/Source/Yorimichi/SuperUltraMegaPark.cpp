@@ -94,25 +94,34 @@ ASuperUltraMegaPark* ASuperUltraMegaPark::Spawn(UWorld* World, const FString& Pa
     Park->RegisterRails();
     // Where the rider's vert assist is limited (docs/CRATERPARK.md, "Assist zones"): boxes in world centimetres, turned
     // yaw_deg about up. The kickers into a big gap's landing limit it, so the air goes forward, not back into the ramp.
-    int32 Zones = 0;
-    const TArray<TSharedPtr<FJsonValue>>* ZoneList = nullptr;
-    if (USkateAssistSubsystem* Assist = World->GetSubsystem<USkateAssistSubsystem>(); Assist && Root->TryGetArrayField(TEXT("assist_zones"), ZoneList))
-        for (const TSharedPtr<FJsonValue>& Value : *ZoneList)
+    // Boost zones ("Boost zones") are the same boxes with a boost scale: pumping and powersliding on their transitions
+    // gain speed (the bowls the owner chose).
+    int32 Zones = 0, Boosts = 0;
+    if (USkateAssistSubsystem* Assist = World->GetSubsystem<USkateAssistSubsystem>())
+        for (const bool bBoost : {false, true})
         {
-            const TSharedPtr<FJsonObject> Entry = Value->AsObject();
-            const TArray<TSharedPtr<FJsonValue>>* Centre = nullptr; const TArray<TSharedPtr<FJsonValue>>* Half = nullptr;
-            double Limit = 1.;
-            if (!Entry.IsValid() || !Entry->TryGetArrayField(TEXT("center_cm"), Centre) || !Entry->TryGetArrayField(TEXT("half_extent_cm"), Half)
-                || !Entry->TryGetNumberField(TEXT("vert_assist_max"), Limit) || Centre->Num() < 3 || Half->Num() < 3)
-            { UE_LOG(LogTemp, Warning, TEXT("%s: an assist zone without center_cm, half_extent_cm and vert_assist_max is skipped"), *Tag); continue; }
-            FSkateAssistZone Zone;
-            Zone.Id = FName(Entry->HasField(TEXT("id")) ? Entry->GetStringField(TEXT("id")) : FString::Printf(TEXT("zone_%d"), Zones));
-            Zone.Centre = JsonVector(*Centre); Zone.HalfExtent = JsonVector(*Half);
-            Zone.YawDeg = Entry->HasField(TEXT("yaw_deg")) ? float(Entry->GetNumberField(TEXT("yaw_deg"))) : 0.f;
-            Zone.VertAssistMax = float(Limit); Zone.Owner = Park;
-            Assist->Add(MoveTemp(Zone)); ++Zones;
+            const TCHAR* const ListField = bBoost ? TEXT("boost_zones") : TEXT("assist_zones");
+            const TCHAR* const ValueField = bBoost ? TEXT("boost") : TEXT("vert_assist_max");
+            const TArray<TSharedPtr<FJsonValue>>* ZoneList = nullptr;
+            if (!Root->TryGetArrayField(ListField, ZoneList)) continue;
+            for (const TSharedPtr<FJsonValue>& Value : *ZoneList)
+            {
+                const TSharedPtr<FJsonObject> Entry = Value->AsObject();
+                const TArray<TSharedPtr<FJsonValue>>* Centre = nullptr; const TArray<TSharedPtr<FJsonValue>>* Half = nullptr;
+                double Number = 1.;
+                if (!Entry.IsValid() || !Entry->TryGetArrayField(TEXT("center_cm"), Centre) || !Entry->TryGetArrayField(TEXT("half_extent_cm"), Half)
+                    || !Entry->TryGetNumberField(ValueField, Number) || Centre->Num() < 3 || Half->Num() < 3)
+                { UE_LOG(LogTemp, Warning, TEXT("%s: a %s entry without center_cm, half_extent_cm and %s is skipped"), *Tag, ListField, ValueField); continue; }
+                FSkateAssistZone Zone;
+                Zone.Id = FName(Entry->HasField(TEXT("id")) ? Entry->GetStringField(TEXT("id")) : FString::Printf(TEXT("zone_%d"), Zones + Boosts));
+                Zone.Centre = JsonVector(*Centre); Zone.HalfExtent = JsonVector(*Half);
+                Zone.YawDeg = Entry->HasField(TEXT("yaw_deg")) ? float(Entry->GetNumberField(TEXT("yaw_deg"))) : 0.f;
+                if (bBoost) Zone.Boost = float(Number); else Zone.VertAssistMax = float(Number);
+                Zone.Owner = Park;
+                Assist->Add(MoveTemp(Zone)); ++(bBoost ? Boosts : Zones);
+            }
         }
-    if (Zones) UE_LOG(LogTemp, Display, TEXT("%s: %d assist zones"), *Tag, Zones);
+    if (Zones || Boosts) UE_LOG(LogTemp, Display, TEXT("%s: %d assist zones, %d boost zones"), *Tag, Zones, Boosts);
     // The island trees and bushes where the original desert plants stood. They have no collision, so the riding
     // surfaces and the skating snapshot stay the original ones (docs/MEGAPARK.md, "Restyle").
     int32 Trees = 0;

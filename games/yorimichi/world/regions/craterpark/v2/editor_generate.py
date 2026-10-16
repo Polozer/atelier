@@ -3,7 +3,8 @@
 The geometry is the editor's own: the pinned pieces.js (editor/pieces.cjs) meshes every piece through the Node bridge,
 exactly as the editor draws it. `--lines` keeps only those lines (by id, or single pieces by id), plus the pieces they
 ride into and the decks they start from. The ramps are laid with planks running across them (piece_uv); a bowl named
-in DECALS is painted with its own graphic from above. Supports (editor_supports: stone viaducts under every ramp) are
+in DECALS is painted with its own graphic (editor_decal: from above on its floor, laid down its walls, with a tile band
+under its brick coping and a concrete deck). Supports (editor_supports: stone viaducts under every ramp) are
 generated from the pieces and the cut ground; they are not the v4 validated supports, so the geometry is still marked
 an editor playtest instead of a validated v4 park.
 
@@ -34,7 +35,7 @@ WOOD = 'material_030'     # ramp planks, a Sunburst painting on piece_uv (assets
 PLANKS = 4.             # metres the ramp-plank texture spans each way (eight boards: half-metre boards)
 SIDES = 'material_029'    # the ramps' outer sides: the viaducts' masonry (editor_supports.STONE), world-aligned, so the
                           # stone runs up to the planks as in the concept and only the riding faces are wood
-# a bowl named with a key here is painted with that decal material, laid over it from above (decal_frame, decal_uv):
+# a bowl named with a key here is painted with that decal material (editor_decal), its plan frame decal_frame:
 # tools/craterpark_textures.py DECALS paints it onto a plan rendered with the same frame
 DECALS = {'Prado': 'material_031'}
 KICK_REACH = 30.        # metres of a capped run's end that count as its launch ramp
@@ -64,7 +65,7 @@ def select(doc, lines):
             if by[n]['type'] in ('bowl', 'deck'):
                 keep.add(n)
     # the start decks: decks of the structure line that the kept roll-ins stand on (within 30 m of their top)
-    tops = [(p['x'], p['z']) for p in doc['pieces'] if p['id'] in keep and p['type'] == 'rollin']
+    tops = [(p['x'], p['z']) for p in doc['pieces'] if p['id'] in keep and (p['type'] == 'rollin' or p.get('start'))]
     for p in doc['pieces']:
         if p['type'] == 'deck' and p['id'] not in keep and any(np.hypot(p['x'] - x, p['z'] - z) < 60 for x, z in tops):
             keep.add(p['id'])
@@ -152,8 +153,49 @@ def bowl_uv(piece, size=PLANKS):
     return uv / size
 
 
-def piece_mesh(piece, decal=None, tower=False):
-    """The piece's riding faces and sides; a tower deck (editor_supports.tower) keeps only its top."""
+DECK_SINK = .03      # a deck lying flush on another piece sinks this much under it; wheels do not feel 3 cm
+
+
+def settle_decks(pieces):
+    """Sink a deck whose top lies flush (within 2 cm) on another piece's surface over an area, so the two never
+    z-fight: the tower floor flickered where the owner's deck met the tower deck at the same height. The solid deck
+    (the tower) stays, else the earlier piece. Returns the ids sunk."""
+    from craterpark.v2 import editor_supports
+    plan = editor_supports.Plan(pieces)
+    sink = set()
+    for k, piece in enumerate(pieces):
+        if piece.metadata['type'] != 'deck':
+            continue
+        V = piece.mesh.V
+        top = V[:, 1].max()
+        flush = {}
+        for x in np.arange(V[:, 0].min() + .25, V[:, 0].max(), .5):
+            for z in np.arange(V[:, 2].min() + .25, V[:, 2].max(), .5):
+                who, y = plan.heights(x, z)
+                if not ((who == k) & (np.abs(y - top) < .005)).any():
+                    continue
+                for j in set(who[(who != k) & (np.abs(y - top) < .02)].tolist()):
+                    flush[j] = flush.get(j, 0) + 1
+        for j, count in flush.items():
+            if count < 4:
+                continue
+            other = pieces[j]
+            solid = lambda p: bool((p.metadata.get('params') or {}).get('solid'))
+            if other.metadata['type'] != 'deck' or solid(other) and not solid(piece) or \
+                    solid(other) == solid(piece) and j < k:
+                sink.add(k)
+            else:
+                sink.add(j)
+    for k in sink:
+        V = pieces[k].mesh.V.copy()
+        V[:, 1] -= DECK_SINK
+        pieces[k].mesh.V = V
+    return sorted(pieces[k].metadata['id'] for k in sink)
+
+
+def piece_mesh(piece, decal=None, tower=False, sides=SIDES):
+    """The piece's riding faces and sides (`sides`: the timber stage's ramps have keyaki sides, as the concept); a tower
+    deck (editor_supports.tower) keeps only its top."""
     m, meta = piece.mesh, piece.metadata
     V, N, F, col = m.V, m.N, orient(m.V, m.F, m.N), piece.colors
     side = np.zeros(len(F), bool)
@@ -167,11 +209,15 @@ def piece_mesh(piece, decal=None, tower=False):
     ride, ride_uv = (dsl.CONCRETE if concrete else WOOD), (piece_uv(V, meta['stations']) if laid else None)
     if bowl and not concrete:
         ride_uv = bowl_uv(piece)
+    surfaces = [(~side, dsl.RIDING, ride, ride_uv)]
     if decal:
-        ride, ride_uv = decal, decal_uv(V, decal_frame(V))
-    for mask, role, material, uv in (
-            (~side, dsl.RIDING, ride, ride_uv),
-            (side, dsl.SIDE, dsl.SIDE_WALL if concrete else SIDES, None)):
+        # the painting on the floor and down the walls, a tile band under the coping, a concrete deck (editor_decal)
+        from craterpark.v2 import editor_coping, editor_decal
+        ride_faces, deck_faces = editor_coping._classes(piece)
+        got, _ = editor_decal.parts(piece, decal, ride_faces & ~side, deck_faces & ~side, decal_frame(V), meta['id'])
+        parts += got
+        surfaces = []
+    for mask, role, material, uv in surfaces + [(side, dsl.SIDE, dsl.SIDE_WALL if concrete else sides, None)]:
         uv = tile_uv(V, N) if uv is None else uv
         if tower:
             mask = mask & (V[F][:, :, 1].min(1) > V[:, 1].max() - .05)
@@ -276,6 +322,35 @@ def assist_zones(pieces, doc):
     return zones
 
 
+BOOST_CHUNK = 10.   # m of a boosted run's length per boost box, so a curved run's boxes hug it
+
+
+def boost_zones(pieces, doc):
+    """The bowls and runs the owner gave a pump and powerslide boost (params.boost, a scale; 0 or absent is none):
+    the piece's own riding mesh, walls included, as native point sets. A bowl is one set; a run is cut every
+    BOOST_CHUNK metres along its stations, so a U-turn's boxes follow its curve. export.py fits a box to each."""
+    import numpy as np
+    zones, params = [], {p['id']: p.get('params', {}) for p in doc['pieces']}
+    for piece in pieces:
+        meta = piece.metadata
+        boost = params[meta['id']].get('boost') or 0
+        if boost <= 0 or meta['type'] not in ('bowl', 'run'):
+            continue
+        V = np.asarray(piece.mesh.V, 'f8')
+        if meta['type'] == 'bowl' or not meta.get('stations'):
+            groups = [V]
+        else:
+            st = meta['stations']
+            S = np.asarray([[s['x'], s['z']] for s in st], 'f8')
+            d = np.asarray([s['d'] for s in st], 'f8')
+            near = np.argmin(((V[:, None, [0, 2]] - S[None]) ** 2).sum(-1), 1)
+            chunk = np.floor((d[near] - d[0]) / BOOST_CHUNK).astype(int)
+            groups = [V[chunk == k] for k in np.unique(chunk)]
+        for k, pts in enumerate(g for g in groups if len(g) >= 3):
+            zones.append({'id': f"{meta['id']}_{k}", 'boost': float(boost), 'points': pts.round(3).tolist()})
+    return zones
+
+
 def main(argv=None):
     import yori
     parser = argparse.ArgumentParser(description=__doc__)
@@ -317,13 +392,19 @@ def main(argv=None):
         grid = {k: scene.metadata['ground_grid'][k] for k in ('x0', 'z0', 'G', 'nx', 'nz')}
         supports, support_summary = editor_supports.build(scene.pieces, heights, grid)
         print(f"CRATERPARK EDITOR supports: stone viaducts, {support_summary['piers']} piers, "
-              f"{support_summary['arches']} arches, {support_summary['metres']} m", flush=True)
+              f"{support_summary['arches']} arches; timber stages, {support_summary['posts']} posts, "
+              f"{support_summary['beams']} beams; {support_summary['metres']} m", flush=True)
         parts += supports
         towers = set(support_summary['towers'])
         if towers:
             print(f"CRATERPARK EDITOR towers: {sorted(towers)}", flush=True)
+        sunk = settle_decks(scene.pieces)
+        if sunk:
+            print(f"CRATERPARK EDITOR flush decks sunk {DECK_SINK * 100:.0f} cm: {sunk}", flush=True)
         for piece in scene.pieces:
-            parts += piece_mesh(piece, decals.get(piece.metadata['id']), tower=piece.metadata['id'] in towers)
+            parts += piece_mesh(piece, decals.get(piece.metadata['id']), tower=piece.metadata['id'] in towers,
+                                sides=editor_supports.KEYAKI if piece.metadata.get('line') in editor_supports.STAGE_LINES
+                                else SIDES)
         caps = {p['id']: (p.get('params') or {}).get('vert_assist_max') for p in chosen['pieces']}
         copings, rails, coping_summary = editor_coping.build(scene.pieces, caps, brick=set(decals))
         print(f"CRATERPARK EDITOR coping: {coping_summary['rails']} grind rails, {coping_summary['metres']} m", flush=True)
@@ -334,8 +415,11 @@ def main(argv=None):
     ride_lines, labels = [], {}
     for line in lines:
         name = next((l['name'] for l in doc['lines'] if l['id'] == line), line)
-        first = next((p for p in scene.pieces if p.metadata['line'] == line and p.metadata['type'] == 'rollin'), None)
-        if first is None:          # a single piece (or a line without a roll-in): no riding line of its own
+        # the line's start: its roll-in, or a piece the owner marked as the start (a drop off a deck edge into the void)
+        starts = {p['id'] for p in doc['pieces'] if p.get('start')}
+        first = next((p for p in scene.pieces if p.metadata['line'] == line and p.metadata['type'] == 'rollin'), None) \
+            or next((p for p in scene.pieces if p.metadata['line'] == line and p.metadata['id'] in starts), None)
+        if first is None:          # a single piece (or a line without a start): no riding line of its own
             continue
         order, seen, cur = [], set(), first.metadata['id']
         while cur and cur not in seen and cur in by:
@@ -343,8 +427,13 @@ def main(argv=None):
             order.append(cur)
             cur = next(iter(by[cur].metadata['next']), None)
         path = np.concatenate([by[i].centerline for i in order if len(by[i].centerline)])
-        st = first.metadata['stations'][min(3, len(first.metadata['stations']) - 1)]
-        spawn = ((st['x'], st['y'], st['z']), float(st['h']))
+        if first.metadata['type'] == 'rollin':
+            st = first.metadata['stations'][min(3, len(first.metadata['stations']) - 1)]
+            spawn = ((st['x'], st['y'], st['z']), float(st['h']))
+        else:                      # a start off an edge: on the deck behind it, back from the edge, facing the drop
+            st = first.metadata['stations'][0]
+            hr = np.radians(float(st['h']))
+            spawn = ((st['x'] - 6 * np.cos(hr), st['y'], st['z'] - 6 * np.sin(hr)), float(st['h']))
         ride_lines.append(dsl.RideLine(line, order, path, spawn, path[-1]))
         labels[line] = name
     park = dsl.Park(mesh, rails, ride_lines, [dict(kind='editor_playtest', rev=doc.get('rev'), lines=lines)])
@@ -368,6 +457,7 @@ def main(argv=None):
                  supports={k: v for k, v in support_summary.items() if k != 'pieces'}, coping=coping_summary,
                  bounds_native=[park.mesh.V.min(0).tolist(), park.mesh.V.max(0).tolist()])
     index['assist_zones_native'] = assist_zones(scene.pieces, doc)
+    index['boost_zones_native'] = boost_zones(scene.pieces, doc)
     arrays['index'] = np.asarray(json.dumps(index))
     (out / 'lines').mkdir(exist_ok=True)
     for stale in (out / 'lines').glob('*.npz'):

@@ -1,6 +1,7 @@
 """Fault injection for recovery decisions, process protection, and session isolation."""
 import copy
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -137,6 +138,8 @@ class SessionIsolation(unittest.TestCase):
             self.assertEqual(states[labels[0]]["health"], "recovery_deferred_active_render_holder")
 
     def test_api_auth_outage_does_not_restart_any_service(self):
+        # main() gives the watchdog process a private umask; keep it from leaking into later tests.
+        self.addCleanup(os.umask, os.umask(0o077))
         with tempfile.TemporaryDirectory() as directory, \
              patch.object(w, "ROOT", Path(directory)), \
              patch.object(w, "keychain_token", side_effect=w.CheckError("keychain_auth_unavailable")), \

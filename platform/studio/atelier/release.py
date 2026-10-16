@@ -17,7 +17,7 @@ import threading
 import time
 from urllib.parse import quote
 
-from . import manifest, paths, playtest
+from . import manifest, paths, playtest, release_claim
 
 ATTEMPTS = playtest.TRANSFER_ATTEMPTS
 PART_MIB = 200
@@ -285,8 +285,8 @@ def ensure_asset(github, release, path, digest):
 
 
 def check_release(value, metadata, release_id=None):
-    require(value is not None and (release_id is None or value['id'] == release_id), 'release identity changed')
-    require(type(value['id']) is int and value['id'] > 0 and type(value.get('draft')) is bool, 'invalid release identity/state')
+    require(type(value) is dict and (release_id is None or value.get('id') == release_id), 'release identity changed')
+    require(type(value.get('id')) is int and value['id'] > 0 and type(value.get('draft')) is bool, 'invalid release identity/state')
     for name in ('tag_name', 'name', 'body', 'prerelease', 'target_commitish'):
         require(value.get(name) == metadata[name], f'release {name} conflicts; choose a new tag instead of editing it')
 
@@ -318,29 +318,64 @@ def find_release(github, tag):
     return found[0] if found else None
 
 
+def select_release(github, metadata, claim):
+    tag = metadata['tag_name']
+    if claim.value['state'] == 'selected':
+        identifier = claim.value['release_id']
+        release = github.read(f'releases/{identifier}', missing=True)
+        require(release is not None, 'previously selected release is not observable; no new draft was created')
+        check_release(release, metadata, identifier)
+        return release
+    release = find_release(github, tag)
+    if release is not None:
+        check_release(release, metadata)
+        claim.save('selected', release['id'])
+        return release
+    if claim.value['state'] == 'not-created':
+        claim.save('creating')  # Durable before sending the non-idempotent POST.
+        try:
+            release = github.api('releases', method='POST', data={**metadata, 'draft': True})
+        except TransportError as error:
+            # These responses affirm rejection. Unknown/timeout/5xx outcomes can
+            # have committed and stay observation-only, including on a new CLI run.
+            if error.certificate or error.code in (400, 401, 403, 404, 405, 410, 422, 429):
+                claim.save('not-created')
+                raise
+        else:
+            check_release(release, metadata)
+            require(release['draft'], 'create response unexpectedly describes a published release')
+            claim.save('selected', release['id'])
+            return release  # The successful response already pins the exact ID.
+    for attempt in range(ATTEMPTS):
+        release = find_release(github, tag)
+        if release is not None:
+            check_release(release, metadata)
+            claim.save('selected', release['id'])
+            return release
+        if attempt + 1 < ATTEMPTS:
+            github.stop.wait(attempt + 1)
+    raise PublishError('release creation remains unconfirmed; no second create was sent; '
+                       'rerun the same command to observe it, or choose a new tag; '
+                       f'retained claim: {claim.path}')
+
+
 def publish_assets(github, stage, metadata, *, workers, revalidate):
     """@cc [owner:fontanierh,label:correctness] manifest-last-release-publication
     Archive and evidence assets MUST all be remotely verified before SHA256SUMS is uploaded last.
     Only a complete verified draft MAY be published. Existing published releases MUST be complete
     and identical; source/input/output mutations MUST refuse final publication. No clobber is allowed.
     """
+    try:
+        with release_claim.acquire(github.repo, metadata) as claim:
+            return _publish_assets(github, stage, metadata, workers=workers, revalidate=revalidate, claim=claim)
+    except release_claim.ClaimError as error:
+        raise PublishError(str(error)) from None
+
+
+def _publish_assets(github, stage, metadata, *, workers, revalidate, claim):
     tag = metadata['tag_name']
     check_tag(github, tag, metadata['target_commitish'])
-    release = find_release(github, tag)
-    for attempt in range(ATTEMPTS):
-        if release is not None:
-            break
-        failure = None
-        try:
-            github.api('releases', method='POST', data={**metadata, 'draft': True})
-        except TransportError as error:
-            failure = error
-        release = find_release(github, tag)
-        if release is None and ((failure and not failure.retryable) or attempt + 1 == ATTEMPTS):
-            raise failure or PublishError('release creation was not remotely observed')
-        if release is None:
-            github.stop.wait(attempt + 1)
-    check_release(release, metadata)
+    release = select_release(github, metadata, claim)
     files = sorted(stage.iterdir())
     digests = {p.name: playtest._digest(p).hexdigest() for p in files}
     snapshots = {p: snapshot(p) for p in files}

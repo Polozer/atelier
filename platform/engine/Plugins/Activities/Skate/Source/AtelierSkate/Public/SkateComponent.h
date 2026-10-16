@@ -276,6 +276,10 @@ private:
     /** A step whose session lost the rider (its own recovery teleport, a jump, its board down through Unreal's floor:
      *  Private/Ride/RideLostSimulation.h) is not shown: the body bails where the rider is. Whether it did. */
     bool BailOffLostSimulation(float Dt);
+    // The floor a kept step of the ride's air went into and ended under (RideLostSimulation::Hold): the next step's trace
+    // starts over it, so a board that goes on down through it is still caught.
+    bool bLostFloorHeld = false;
+    FVector LostFloorAt = FVector::ZeroVector, LostFloorNormal = FVector::ZeroVector;
     void AfterSimulationRideFrame(float Dt);
     void GetUpFromSimulationBail();
     // The simulation's rider off the board on foot (its Biped states) becomes the character once that outlasts the frames a

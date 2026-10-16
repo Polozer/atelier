@@ -20,8 +20,10 @@ function number(x, where) {
   if(typeof x!=='number' || !Number.isFinite(x) || Math.abs(x)>100000) throw Error(`${where}: expected bounded finite number`);
 }
 // Optional parameters the editor reads but does not put in its type defaults (see the editor README).
-const EXTRA = { run: ['corner', 'vert_assist_max'], jump: ['vert_assist_max'], bowl: ['ext', 'deep', 'spines', 'exit_wl', 'exit_wr'], deck: ['outline'] };
+const EXTRA = { run: ['corner', 'vert_assist_max', 'shift', 'boost'], jump: ['vert_assist_max', 'wl', 'wr', 'deck'], kicker: ['vert_assist_max', 'wl', 'wr', 'deck'], landing: ['wl', 'wr', 'deck'], bowl: ['ext', 'deep', 'spines', 'exit_wl', 'exit_wr', 'boost'], deck: ['outline'] };
 const WALL_EXTRA = ['level'];
+// The wall overrides those extras carry ({h, R}, as a run's walls) are validated as walls, so an unknown field fails.
+const WALL_OVERRIDES = ['wl', 'wr', 'exit_wl', 'exit_wr'];
 function validate(park) {
   keys(park,['schema','about','frame','terrain','lines','pieces','rev','saved_at','notes'], 'park');
   if(park.schema!=='craterpark-editor/1') throw Error('unsupported editor schema');
@@ -45,9 +47,11 @@ function validate(park) {
           if(!Array.isArray(q)||(q.length!==2&&q.length!==4)) throw Error(`${at}: expected [u,v] or [u,v,top,under] points`);
           q.forEach(n=>number(n,at));
         }
-      } else if(d===undefined) { if(v===null||!['object','boolean','number'].includes(typeof v)) throw Error(`${at}: unexpected value`); }
+      } else if(d===undefined && WALL_OVERRIDES.includes(k)) params(v,P.TYPES.run.defaults.wl,at,WALL_EXTRA);
+      else if(d===undefined) { if(v===null||!['object','boolean','number'].includes(typeof v)) throw Error(`${at}: unexpected value`); }
       else if(d && typeof d==='object') params(v,d,at,WALL_EXTRA);
       else if(k==='width_end' && (v===null||v==='')) continue;
+      else if(k==='template' && v===null) continue;   // the editor clears it when a template's value is edited (custom)
       else if(typeof d==='boolean') { if(typeof v!=='boolean') throw Error(`${at}: expected boolean`); }
       else if(typeof d==='string') {
         if(typeof v!=='string'||(k==='template'&&v!==''&&v!=='custom'&&!Object.hasOwn(P.TEMPLATES,v))) throw Error(`${at}: unknown template`);
@@ -84,10 +88,31 @@ function validate(park) {
   park.pieces.forEach(visit);
 }
 
+// A joint the pinned editor marks joined (markJoins) is drawn without end faces, as one surface. It compares the two
+// ends' centres, slopes, widths and walls but not their banks, and a bank tilts the floor about its centre line: a
+// split lane (shift) beside a banked parent's centre, or a bank changing at the joint, would leave an open step marked
+// joined. Such a design MUST fail here; it is not repaired.
+const JOIN_STEP=0.05;   // m: markJoins' own tolerance
+function checkJoins(park, built) {
+  const tan=deg=>Math.tan((deg||0)*Math.PI/180);
+  for(const p of park.pieces) {
+    const b=built.get(p.id), pb=p.attach&&built.get(p.attach);
+    if(!b||!pb||!b.joins||!b.joins.start||b.type==='bowl'||pb.type==='bowl'||!b.stations.length||!pb.segs.length) continue;
+    const s0=b.stations[0], s1=pb.stations[pb.segs[pb.segs.length-1][1]], shift=Number((p.params||{}).shift)||0;
+    // the floor's height either side of the joint at the lane's two edges (lateral offsets from its centre line)
+    const edge=s0.w/2*Math.cos((s0.bank||0)*Math.PI/180);
+    const step=Math.max(...[-edge,edge].map(u=>Math.abs(s0.y+u*tan(s0.bank)-(s1.y+(shift+u)*tan(s1.bank)))));
+    if(step>JOIN_STEP) throw Error(`${p.id}: joins ${p.attach} with a ${step.toFixed(3)} m step across its floor `+
+      `(bank ${s1.bank||0} deg at the parent's end, ${shift?`shift ${shift} m, `:''}bank ${s0.bank||0} deg here); the pinned `+
+      `editor joins only floors banked alike${shift?', and splits only an unbanked floor':''}: unsupported, change the design`);
+  }
+}
+
 function compile(input, terrainDir, out) {
   const bytes=fs.readFileSync(input), park=JSON.parse(bytes);
   validate(park);
   const terrain=loadTerrain(terrainDir,park.terrain), built=P.layout(park);
+  checkJoins(park,built);
   terrain.carve(H=>P.carveGround(park,built,H,terrain.meta.inner));
   const index={schema:'craterpark-editor-mesh/1',accepted:false,pieces_sha256:pin.pieces_sha256,
     park_sha256:sha(bytes),terrain:park.terrain,rev:park.rev,lines:park.lines,pieces:[],ground:[]};
@@ -134,4 +159,4 @@ if(require.main===module) {
     compile(input,terrain,out);
   } catch(e) { console.error(e.message); process.exitCode=1; }
 }
-module.exports={validate,compile};
+module.exports={validate,checkJoins,compile};

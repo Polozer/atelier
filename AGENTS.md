@@ -113,7 +113,11 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   labels, bullets, inline code for commands/paths, and fenced blocks only when useful. Include evidence links,
   the next step and an ETA; keep updates concise. Address one owner with `--to OWNER`; use a broadcast only
   when everyone needs it. Do not wrap a whole prose update in a code fence or print JSON instead of a message.
-- Proactively coordinate render turns with the current owner and other waiters. Acknowledge actionable requests
+- In full capacity mode, ordinary builds/plays self-admit: no message, acknowledgement, coordinator permission,
+  manual Holding/Waiting edit or hold/release handshake is required before or after each build/step.
+  Collect routine timings from logs, guard receipts and cook observations. Coordinate concrete incidents,
+  checkout ownership changes and explicitly bounded maintenance/quiet captures; legacy mode keeps its turn ledger.
+  Acknowledge actionable requests
   within 60 seconds of receiving them using `--topic ack --reply-to ID`, before lengthy work; acknowledgement
   is receipt plus a next step/ETA, not completion. Keep each conversation in one thread: reply to a request,
   question or follow-up with `--reply-to ID`, and read the context with `atelier board thread ID`. Attach
@@ -152,7 +156,8 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
 - Subscribers send advisory lack-of-stdout-progress notices for their own validated live jobs. On an alert,
   inspect stdout, memory-health.json and supervisor telemetry, publish diagnosis/ETA, and safely end only your
   own blocked job if needed. Never signal another owner's process, remove shared mutexes, steal locks or bypass
-  safety. On release, post exit/duration/evidence and send a named handoff; credit reuse and prompt releases.
+  safety. For an explicitly coordinated turn, post exit/duration/evidence and its handoff; routine full-mode
+  jobs release through the broker without a message.
 - Persistent sessions keep their listener between tasks and idle turns. Only when permanently retiring the
   session, use `atelier board retire --agent OWNER`; keep messages/evidence history. `unsubscribe` stops
   unsupervised fallbacks; it does not retire a service-owned listener. Never run a one-shot wait alongside
@@ -198,15 +203,41 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   [desktop performance](games/yorimichi/docs/DESKTOP_PERFORMANCE.md) for the launch and readiness contract.
 - Heavy jobs (Unreal, Blender renders) run under the render lock and memory guard (`atelier.safety`). `atelier play`
   and `atelier build` do this for you. A game's guard stops it above 10 GiB; `atelier play --memory-gib N` (10 to 14)
-  raises that for one session that needs it (Quality graphics at 1080p, for example). Say so in your Holding entry.
-- Follow the [capacity agent workflow](docs/BUILD_CAPACITY.md#agent-workflow) for the current bridge launch
-  environment, mode checks, safe update/stop boundaries and refusal recovery. Merge and `uv sync` only while
+  raises that for one session that needs it (Quality graphics at 1080p, for example). Retain the command and reason in its evidence.
+- Follow the [capacity agent workflow](docs/BUILD_CAPACITY.md#agent-workflow) for live mode checks,
+  safe update/stop boundaries and refusal recovery. Merge and `uv sync` only while
   the checkout has no owned native child and its caller cannot start the next one; preserve build artifacts.
-  A merged capacity PR does not activate full mode. Explicit sealed maintenance is one guarded job at a time,
+  A merged capacity PR does not activate full mode; check the machine's installed client and live broker.
+  In confirmed full mode (`capacity`, `cutover=true`), use `ATELIER_AGENT=OWNER nice -n 10 uv run atelier build/play`
+  with `ATELIER_CAPACITY_CLIENT` unset. Resource budgets and named locks replace BIG/SMALL/fitting scheduling.
+  Routine builds need no pre-announcement or permission from a coordinator. Broker admission and guards decide.
+  A confirmed queued request waits automatically for up to 30 minutes, with progress and no held resources,
+  child, launch gate or legacy locks. Keep the command in the normal background job facility; cancellation
+  closes its uncharged session. Transient transport failures on offer/ownership/check/close reconcile once
+  with the identical request and unchanged per-call deadline; start/gate/replace never replay. A second
+  transport failure or a policy, protocol, ownership or fencing refusal still fails without fallback.
+  Do not request an extra legacy slot or edit `render-slots.json`. Existing sealed compatibility files remain
+  protected and must never be removed, replaced or chmodded. Memory reservations cover actual-child and
+  aggregate guard ceilings; CPU is a scheduling budget, not dedicated cores. Let normal admission select
+  compatible work; never lower a profile or increase workers to squeeze in another job.
+  Disk free space is telemetry only: there are no temporary-disk reservations or disk admission limits.
+  Legacy `temp_mib` fields remain readable for old clients/history but do not block or serialize jobs.
+  The board's waiting count includes live queued requests only; retry-required history holds no capacity.
+  Follow the [job resource table](docs/BUILD_CAPACITY.md#choosing-resources-for-a-job) when authoring a command.
+  New non-rendering Blender generators start with explicit `Blender(script, threads=3)`; use an existing smaller
+  setting where appropriate, and increase only after same-input timing/output checks show a useful gain.
+  Six is an inherited tool default, not a recommendation for every task. The launcher charges the actual explicit
+  worker count; never request three CPU units while running six workers. Memory reservations must cover both
+  enforced guard ceilings: normally 10 GiB, or the automatic 4 GiB Blender envelope with valid small-history evidence.
+  Do not choose a memory reservation from average usage or add the machine's host reserve to it a second time.
+  Ordinary bounded generation must not request an unnecessary performance window or global lock. Compile/UAT,
+  games and unclassified commands currently receive the full managed CPU budget and exclusion automatically;
+  report overbroad classification with command, guard/timing evidence and a measured alternative, not a private override.
+  Explicit sealed maintenance is one guarded job at a time,
   with read-only exclusive ownership of all sealed lanes and normal nominal guard ceilings; it is not full
   concurrency. Keep the pilot client until the operator announces maintenance or full cutover; then use the
   installed default client after checking the matching live mode. Never edit broker settings, clear uncertain reservations,
-  lower profiles below guard ceilings or bypass a refusal. Keep board coordination and normal guards active.
+  lower profiles below guard ceilings or bypass a refusal. Keep incident delivery and normal guards active.
 - On macOS, the shared process launcher gives builds and games application resource policies instead of an
   inherited background launchd role. It keeps normal thread QoS and at least nice 10; explicit `taskpolicy -b`
   or `-c background` policies are separate and are not cleared by it.
@@ -220,14 +251,14 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   are still the same processes and still orphaned: a Turnkey `VerifySdk` left behind otherwise holds UnrealBuildTool's
   mutex and the next game waits in `SDKSetup`. Shared services (Zen, Trace) are never ended; never end another
   agent's helpers by name.
-- The render lock has one big slot. A small slot sits beside it when `~/.cache/atelier/render-slots.json` says
+- **Legacy mode only:** the render lock has one big slot. A small slot sits beside it when `~/.cache/atelier/render-slots.json` says
   `{"slots": 2}` (`ATELIER_RENDER_SLOTS` overrides the file; no file means one slot). The small slot takes a job
   expected to peak at 3 GiB or less, never a game or a compile, when at least 10 GiB is free and the big slot's job is
   in another checkout; its memory ceiling is 4 GiB. `atelier build` sends a heavy step there when the step's last
   guard report allows it, and says which slot each step used. A compile waits for a small job to finish.
-- A checkout whose code predates the slots stays safe but refuses to start while a small job runs: merge main into
+- **Legacy mode only:** a checkout whose code predates the slots refuses to start while a small job runs: merge main into
   every checkout before switching to two slots.
-- A machine may reserve an additional Blender fitting lane with `fitting_checkout` in `render-slots.json`, keeping
+- **Legacy mode only:** a machine may reserve an additional Blender fitting lane with `fitting_checkout` in `render-slots.json`, keeping
   `slots` at 2. Before enabling it, update every active build/play client to the guard that understands all three
   mutexes; a fitting job refuses live holders with older guards. Only that checkout may request it, through
   `atelier.safety.guarded --fitting GIB`, with one background Blender child expected to peak at most 3 GiB.
@@ -235,16 +266,18 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   and compiles wait for all three lanes. Set `fitting_paused` to true for performance or filming windows and wait
   for any admitted fitting job to exit. The reservation grants capacity only; take its lock only while working.
 - The live bridge (Unreal plugin, port 8830) stays loopback-only.
-- Every machine has its own `~/.cache/atelier/render-board.md`. Read its Holding, Waiting and latest Log entries
-  before a heavy job. Post the task, checkout, requested slot and estimated duration under Waiting; while actually
-  running, record the holder and expected finish under Holding. Take the lock per job, never while idle. Prefer
-  ready jobs under five minutes when several agents are waiting, and remove your entry when the job finishes.
-  The live lock record is authoritative when the board is stale; never start a competing job or signal its owner.
+- Every machine has its own `~/.cache/atelier/render-board.md`. Read current incident/maintenance instructions
+  before heavy work. In full mode, normal build/play submits resources and ownership directly: no manual
+  Waiting/Holding entry, per-step post or coordinator handshake. For legacy mode or an explicitly coordinated
+  maintenance/capture turn, record the task, checkout, resources/exclusion, duration and first-ready time under
+  Waiting, then the active holder under Holding; remove the entry when finished. Never reserve while idle.
+  Live broker grants and guard ownership (or legacy lock records) are authoritative when the board is stale;
+  never bypass admission or signal another owner.
 - Check the current job's render log (`build/<game>/logs/<step>.guard/stdout.log`, or a play run's `stdout.log`) and
   `memory-health.json` before retrying or diagnosing a stall. When installed, the machine's resource log is
   `~/.cache/atelier/render-supervisor/latest.json` with history in `telemetry.jsonl`. Add the command, exit status
-  and evidence paths to the board's Log when releasing a slot. Quit test games promptly and use only your own
-  live bridge port. `atelier live` targets port 8830. A game launched with `-liveport=N` needs a client explicitly
+  and evidence paths to the board's Log for an incident or explicitly coordinated turn. Quit test games promptly
+  and use only your own live bridge port. `atelier live` targets port 8830. A game launched with `-liveport=N` needs a client explicitly
   configured for that loopback port; the CLI currently has no port option.
 
 ## Reusing builds

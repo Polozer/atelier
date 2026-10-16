@@ -140,13 +140,15 @@ public:
 
 private:
     friend class FJapanHorseWaterTest;
+    friend class FJapanHorseTurnTest;
+    bool IsTurningInPlace() const;
     bool IsInDeepWater() const;
     struct FBreed
     {
         FString Slug, Name, Mesh;
         float MeshYaw = 0.f;
         float ScaleRatio = 1.f;
-        TArray<FString> Clips;   // per EHorseRole: the breed's clip path, empty when it has none
+        TArray<FString> Clips;   // per EHorseRole, then TurnLeft/Right: empty when absent
         TMap<FString, FString> Saddles, Reins;   // tack id -> mesh path
         // Contacts less the reference breed's, in the rider mesh's component space (cm, +X forward, +Y right, +Z up).
         FVector Seat = FVector::ZeroVector, StirrupL = FVector::ZeroVector, StirrupR = FVector::ZeroVector;
@@ -193,9 +195,10 @@ private:
     UPROPERTY() TObjectPtr<UMaterialInterface> HairMaster;
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> CoatMaterials;
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> HairMaterials;
-    // Per EHorseRole: the rider's clip on his rig, and the current breed's.
+    // Per EHorseRole: rider clips; horse clips append TurnLeft/Right without changing wire role IDs.
     UPROPERTY() TArray<TObjectPtr<UAnimSequence>> RiderClips;
     UPROPERTY() TArray<TObjectPtr<UAnimSequence>> HorseClips;
+    UPROPERTY() TWeakObjectPtr<UAnimSequence> PresentedHorseClip;
 
     TArray<FBreed> Breeds;
     TArray<FString> TackIds;

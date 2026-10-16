@@ -8,8 +8,9 @@ bool FSkateAssistZone::Contains(const FVector& At) const
 
 void USkateAssistSubsystem::Add(FSkateAssistZone Zone)
 {
-    if (Zone.HalfExtent.GetMin() <= 0. || !FMath::IsFinite(Zone.VertAssistMax)) return;
+    if (Zone.HalfExtent.GetMin() <= 0. || !FMath::IsFinite(Zone.VertAssistMax) || !FMath::IsFinite(Zone.Boost)) return;
     Zone.VertAssistMax = FMath::Clamp(Zone.VertAssistMax, 0.f, 1.f);
+    Zone.Boost = FMath::Clamp(Zone.Boost, 0.f, 3.f);
     Zones.Add(MoveTemp(Zone));
 }
 
@@ -27,4 +28,15 @@ float USkateAssistSubsystem::VertAssistLimit(std::initializer_list<FVector> At) 
         for (const FVector& P : At) if (Zone.Contains(P)) { Limit = Zone.VertAssistMax; break; }
     }
     return Limit;
+}
+
+float USkateAssistSubsystem::BoostScale(const FVector& At) const
+{
+    float Scale = 0.f;
+    for (const FSkateAssistZone& Zone : Zones)
+    {
+        if (Zone.Boost <= Scale || (!Zone.Owner.IsExplicitlyNull() && !Zone.Owner.IsValid())) continue;
+        if (Zone.Contains(At)) Scale = Zone.Boost;
+    }
+    return Scale;
 }

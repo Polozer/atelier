@@ -72,7 +72,12 @@ bool AirTrajectoryRuntime::Launch(AirLaunchInfo info, AirSelectorInput input,
       input.ground_normal,info.start_velocity,input.directional_input,vert_assist);
   input.ground_normal=departure.first;info.start_velocity=departure.second;
   bool did_launch;
-  if (!selector.Launch(info, input, settings, did_launch, error))
+  // In a zone that allows no vert assist the stock alignment (AdjustAirTrajectoryLaunchVelocity) would still bend a
+  // near-vertical lip's air straight up and back into the ramp; with no transfer held it keeps the lip's own direction.
+  AirTrajectorySelectorSettings plain;
+  const bool ballistic=vert_assist_limit<=0.0f && input.directional_input<0.5f;
+  if (ballistic) {plain=settings;plain.vert_jump_align_max_ground_normal_y=-2.0f;}
+  if (!selector.Launch(info, input, ballistic?plain:settings, did_launch, error))
     return false;
   if (did_launch && !Submit(world, error))
     return false;

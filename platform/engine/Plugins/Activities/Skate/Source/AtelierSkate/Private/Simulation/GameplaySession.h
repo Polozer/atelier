@@ -1,6 +1,7 @@
 #pragma once
 #include "GameplayWorld.h"
 #include "SessionMarkerRuntime.h"
+#include "BowlBoost.h"
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -47,6 +48,7 @@ public:
     ControllerInputRuntime input;
     SessionMarkerRuntime markers;
     GameplayPumps pumps;
+    BowlBoost boost;
     bool Configure(std::string_view difficulty,bool goofy,float trucks,std::string& error);
     bool Tune(float pop,float spin,float speed,float power,float vert_assist,std::string& error)
     {return gameplay->Tune(pop,spin,speed,power,vert_assist,error);}
@@ -55,6 +57,12 @@ public:
     bool Feel(const FeelTuning& feel,std::string& error) {return gameplay->Feel(feel,error);}
     // At most this much of the tuned vert assistance (an assist zone; GameplayRuntime::LimitVertAssist).
     bool LimitVertAssist(float limit,std::string& error) {return gameplay->LimitVertAssist(limit,error);}
+    // The boost zone the board is in (its scale, 0 none; BowlBoost.h), for the next step.
+    bool Boost(float zone,std::string& error)
+    {
+        if(!(zone>=0.0f && zone<=3.0f)){error="Invalid boost zone scale";return false;}
+        boost.zone=zone;error.clear();return true;
+    }
     bool Activate(Vec3,float heading,std::string& error);
     // A session on no world, ticked once where nothing is: made ahead of a ride (on any thread), it takes a live
     // session's collision (AdoptWorld) and Activate places it, so no ride inherits another's state.
@@ -79,6 +87,8 @@ public:
     void Launch(Vec3 velocity){gameplay->Launch(velocity);}
     float Elapsed() const{return elapsed_;}
 private:
+    float BoostSpeed() const;
+    void ApplyBoost(float before);
     float elapsed_=0;
     bool floor_seams_=false;   // the installed world's imported floor seams, which AdoptWorld carries over
     bool AdvancePublished(std::string& error);

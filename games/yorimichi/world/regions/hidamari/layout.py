@@ -663,6 +663,9 @@ def north_surface(x,y):
     # Existing city terrain extends through y=500.
     city=(x>=300)&(x<=1420)&(y<=500)&(y>=-300)
     z=np.where(city,height(x,y),np.where(mountains.contains(x,y),z,base))
+    # The foothills' apron over the far hills' sagging last cells (mountains.apron_grids).
+    apron=mountains.in_apron(x,y)
+    if apron.any():z[apron]=mountains.skirt_height(x[apron],y[apron],north_base_height)
     approach=park_trail.in_approach(x,y)
     if approach.any():z[approach]=park_trail.approach_height(x[approach],y[approach])
     # Where the Mega Park meets its air station the ground is the gate's own finer patch (megapark/gate.py).

@@ -333,8 +333,8 @@ checks that the bridge meshes the frozen park, then runs the guarded build with 
 `ATELIER_CRATERPARK_EDITOR_LINES`. Without `--build` it prints that command.
 
 The build ships the owner's last approved design by default:
-[`tools/craterpark_editor/shipped.json`](../tools/craterpark_editor/shipped.json) (rev 78), with its terrain in
-`tools/craterpark_editor/data/` beside it, and its lines `L1,p5` (orange and Prado), so a plain `atelier build` from
+[`tools/craterpark_editor/shipped.json`](../tools/craterpark_editor/shipped.json) (rev 111), with its terrain in
+`tools/craterpark_editor/data/` beside it, and its lines `L1,L2,p5` (orange, the tower vert drop and Prado), so a plain `atelier build` from
 main builds the editor park. `ATELIER_CRATERPARK_EDITOR_PARK` selects another frozen park.json and
 `ATELIER_CRATERPARK_EDITOR_LINES` other lines; `ATELIER_CRATERPARK_EDITOR_PARK=off` (or a v4 design in
 `ATELIER_CRATERPARK_V4_DESIGN`) builds the older generator instead. To ship a new revision, copy its frozen park.json
@@ -354,7 +354,42 @@ cut (a bowl's) the grid keeps the ground 0.5 m under every piece within 7.5 m: n
 its outer walls can show a few metres above the coarser pit edge. Each line spawns at its roll-in. The rest of the
 chain (`world.craterpark`, `unreal.craterpark`, `data.stage`) is unchanged; `world.hidamari` needs the geometry, so
 the volcano is rebuilt with it.
-Editor parks have no supports yet, so their geometry is marked `editor_playtest` and skips the v4 acceptance checks.
+Supports come from [`editor_supports.py`](../world/regions/craterpark/v2/editor_supports.py). Most ramps stand on
+stone viaducts. The Vert drop (`STAGE_LINES`, L2), the roll-in and the start tower stand on a Kiyomizu-style timber
+stage instead, after `concepts/editor/vertdrop-kiyomizu-overview.jpg`:
+- **Frame.** Frames stand along each ramp's edges and across its two ends, not under the whole ramp, with a girder
+  under the ramp from edge to edge.
+  - **Posts and plinths.** Heavy squared posts with capitals stand on rough stone plinths. The posts are weathered
+    keyaki (`material_045`, the `keyaki` world painting), and the corner posts are doubled.
+  - **Nuki.** They pass through the posts three to five levels high, ending in square blocks, with black iron plates
+    over the outer joints.
+  - **Cap beam.** It follows the ramp's underside, deeper along the outer frames.
+  - **Scale.** Members grow with the stage's height, and there are no diagonal braces.
+- **Over a lower piece.** Where another piece runs underneath, no post stands on it. A truss under the ramp carries it
+  to the nearest frame post, or to an outrigger on clear ground beside the pieces below.
+- **Catch walls.** A piece that drops steeply from its start gets a frame behind its lip.
+- **Tower.** It stands on an open frame round the deck's own outline, with no stone flare. Its tenons stay flush
+  toward the ramps that leave it.
+- **Clearance.** Every post and plinth keeps `STAGE_CLEAR` (3 m) from any other piece beside it, and an arcade lifts
+  `OVER` (4.5 m) clear of a piece below.
+- **Open air.** Nothing spans from one piece to the next, and nothing stands behind a piece's end. So the slot between
+  the vert kicker and the reverse catch, and the air under the mega jump, stay open.
+
+Editor parks still skip the v4 acceptance checks: their geometry is marked `editor_playtest`.
+
+The Prado bowl (`p5`, a bowl in `editor_generate.DECALS`) is finished by
+[`editor_decal.py`](../world/regions/craterpark/v2/editor_decal.py). Its painting (drawn on the bowl's plan) lies on
+the floor from straight above. On the walls it is laid down the fall line instead, from the painted tile band's inner
+edge (3.6 m in from the lip, nearer on a wall too short for that at 6:1) to the wall's foot, so a vert keeps 1 to 8
+texels per metre instead of none. The top 0.9 m of wall under the lip is a real tile band (`material_007`, 0.3 m
+tiles), sliced out of the wall along that line. The deck is plain concrete. Where the editor's floor grid stands a
+face on edge (a grid line 2 mm from a wall's foot), that face is flipped into the floor. The floor's grid points on the walls' foot edges are split into the walls first, so
+there are no T-junctions. The brick coping ([`editor_coping.py`](../world/regions/craterpark/v2/editor_coping.py))
+takes its side of each lip from every face on the lip edge. Its normals face out of the band, and it leans with a
+sloping wall. A whole number of brick textures goes round a closed loop. On a spine's narrow top, the two sides' bands
+meet along the middle instead of overlapping.
+[`test_craterpark_editor_prado.py`](../tests/test_craterpark_editor_prado.py) checks the shipped bowl: no open deck
+edges, T-junctions, slivers or coplanar overlaps, and bounded texture stretch.
 
 ## Tower
 
@@ -380,6 +415,21 @@ Unreal cm turned `yaw_deg` about up (`id` and `yaw_deg` are optional). While the
 vert assist is at most `vert_assist_max`; an air launched inside one keeps that limit until it lands, so the whole jump
 rides with it. `ASuperUltraMegaPark::Spawn` adds them to the Skate plugin's `USkateAssistSubsystem` (plugin README,
 "Assist zones"); a park without the key changes nothing.
+
+`vert_assist_max: 0` means no vert at all. The Vert drop's 86 degree kicker (p305) launches the plain ballistic air
+it was fitted for, up and over into the reverse catch, unless the rider transfers. Before r3 the stock vert-jump
+alignment still bent it straight up and back into the kicker (the plugin README, "Assist zones").
+
+## Boost zones
+
+The orange line's flow bowl (p45) and its two U-turn bowls (p47, p51) have `params.boost: 1` in the editor. Pumping or
+powersliding on their transitions gains speed there and nowhere else (plugin README, "Boost zones"). Players set the
+intensity with **Bowl boost** on the Skate feel page: 0 is off, 1 the tuned boost, up to 2. It applies in every
+skating mode. `editor_generate.boost_zones` takes each boosted piece's own mesh, walls included. A bowl stays whole,
+and a run is cut every 10 m along its stations so a U-turn's boxes follow its curve. `export.boost_boxes` fits a box to
+each piece along its long axis, grown by 1 m (2 m up and down), and writes them to `park.json` as
+`boost_zones: [{id, center_cm, half_extent_cm, yaw_deg, boost}]`. `ASuperUltraMegaPark::Spawn` adds them beside the
+assist zones. Boxes also cover some flat ground, which never boosts.
 
 ## Cap cloud
 

@@ -27,6 +27,14 @@ DEFAULT_RECORD = Path.home() / '.cache/atelier/capacity/cutover.json'
 PROTOCOL = 3
 
 
+class _VolumeAttributes(ctypes.Structure):
+    # POINTER(Structure) is cached strongly by ctypes. Reuse this ABI type across polling calls.
+    _fields_ = [('count', ctypes.c_uint16), ('reserved', ctypes.c_uint16),
+                ('common', ctypes.c_uint32), ('volume', ctypes.c_uint32),
+                ('directory', ctypes.c_uint32), ('file', ctypes.c_uint32),
+                ('fork', ctypes.c_uint32)]
+
+
 def read(path=None):
     path = Path(path or DEFAULT_RECORD)
     try:
@@ -86,21 +94,20 @@ def _uuid(value):
 
 
 def _volume_uuid(path):
-    """Read the actual filesystem UUID; a device number is not stable across Darwin boots."""
+    """@cc [owner:fontanierh,label:safety] bounded-volume-observation
+    Each call MUST observe the actual volume UUID without caching filesystem results. Repeated
+    checks MUST reuse the fixed native ABI type, so ctypes' strong pointer cache stays bounded.
+    A device number is not stable across Darwin boots.
+    """
     if sys.platform != 'darwin':
         raise wire.CapacityError('Stable capacity volume UUID observation is unavailable')
-    class AttrList(ctypes.Structure):
-        _fields_ = [('count', ctypes.c_uint16), ('reserved', ctypes.c_uint16),
-                    ('common', ctypes.c_uint32), ('volume', ctypes.c_uint32),
-                    ('directory', ctypes.c_uint32), ('file', ctypes.c_uint32),
-                    ('fork', ctypes.c_uint32)]
     # Darwin sys/attr.h: ATTR_BIT_MAP_COUNT=5, ATTR_VOL_INFO|ATTR_VOL_UUID.
-    attributes = AttrList(5, 0, 0, 0x80040000, 0, 0, 0)
+    attributes = _VolumeAttributes(5, 0, 0, 0x80040000, 0, 0, 0)
     result = ctypes.create_string_buffer(20)  # uint32 length followed by uuid_t.
     libc = ctypes.CDLL(None, use_errno=True)
     descriptor = type(path) is int
     operation = libc.fgetattrlist if descriptor else libc.getattrlist
-    operation.argtypes = [ctypes.c_int if descriptor else ctypes.c_char_p, ctypes.POINTER(AttrList), ctypes.c_void_p,
+    operation.argtypes = [ctypes.c_int if descriptor else ctypes.c_char_p, ctypes.POINTER(_VolumeAttributes), ctypes.c_void_p,
                           ctypes.c_size_t, ctypes.c_ulong]
     operation.restype = ctypes.c_int
     if operation(path if descriptor else os.fsencode(path), ctypes.byref(attributes), result, len(result), 0) != 0:

@@ -311,8 +311,9 @@ def test_agents_see_every_recipient_and_direct_views_exclude_broadcast_copies(ht
 def test_notification_footer_is_short_with_no_numeric_message_cap():
     item = {'id': 7, 'sender': 'two', 'recipient': 'one', 'topic': 'request', 'body': 'Please review.'}
     footer = board.notification([item]).splitlines()[-1]
-    assert len(footer) < 320 and 'characters' not in footer and ' lines' not in footer
-    for essential in ('atelier board read', '--topic ack --reply-to ID', 'render-board.md and live locks',
+    assert len(footer) < 400 and 'characters' not in footer and ' lines' not in footer
+    for essential in ('atelier board read', '--topic ack --reply-to ID', 'render-board.md and live broker/guards',
+                      'legacy locks only in legacy mode', 'normal build/play',
                       'first-ready age', 'never signal other owners or bypass safety', 'operator-task open'):
         assert essential in footer
 

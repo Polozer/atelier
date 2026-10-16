@@ -47,17 +47,17 @@ static int32 ConnectedControllerStyle()
 
 struct FControllerLabels
 {
-    const TCHAR *Jump, *Roll, *Dash, *Skate, *Map, *Menu, *Sprint, *Crouch, *Attack, *Parry, *Weapon, *RightBumper;
+    const TCHAR *Jump, *Roll, *Dash, *Skate, *Map, *Menu, *Sprint, *Crouch, *Attack, *Parry, *Weapon, *RightBumper, *LeftBumper;
 };
 
 static FControllerLabels ControllerLabels(int32 Style)
 {
     switch (Style)
     {
-        case 1: return {TEXT("A"),TEXT("B"),TEXT("X"),TEXT("Y"),TEXT("View"),TEXT("Menu"),TEXT("LS click"),TEXT("RS click"),TEXT("RT"),TEXT("LT"),TEXT("D-pad Left"),TEXT("RB")};
-        case 2: return {TEXT("Cross"),TEXT("Circle"),TEXT("Square"),TEXT("Triangle"),TEXT("Touchpad"),TEXT("Options"),TEXT("L3"),TEXT("R3"),TEXT("R2"),TEXT("L2"),TEXT("D-pad Left"),TEXT("R1")};
-        case 3: return {TEXT("B"),TEXT("A"),TEXT("Y"),TEXT("X"),TEXT("Minus"),TEXT("Plus"),TEXT("LS click"),TEXT("RS click"),TEXT("ZR"),TEXT("ZL"),TEXT("D-pad Left"),TEXT("R")};
-        default: return {TEXT("Bottom button"),TEXT("Right button"),TEXT("Left button"),TEXT("Top button"),TEXT("View / Select"),TEXT("Menu / Start"),TEXT("LS click"),TEXT("RS click"),TEXT("Right trigger"),TEXT("Left trigger"),TEXT("D-pad Left"),TEXT("Right bumper")};
+        case 1: return {TEXT("A"),TEXT("B"),TEXT("X"),TEXT("Y"),TEXT("View"),TEXT("Menu"),TEXT("LS click"),TEXT("RS click"),TEXT("RT"),TEXT("LT"),TEXT("D-pad Left"),TEXT("RB"),TEXT("LB")};
+        case 2: return {TEXT("Cross"),TEXT("Circle"),TEXT("Square"),TEXT("Triangle"),TEXT("Touchpad"),TEXT("Options"),TEXT("L3"),TEXT("R3"),TEXT("R2"),TEXT("L2"),TEXT("D-pad Left"),TEXT("R1"),TEXT("L1")};
+        case 3: return {TEXT("B"),TEXT("A"),TEXT("Y"),TEXT("X"),TEXT("Minus"),TEXT("Plus"),TEXT("LS click"),TEXT("RS click"),TEXT("ZR"),TEXT("ZL"),TEXT("D-pad Left"),TEXT("R"),TEXT("L")};
+        default: return {TEXT("Bottom button"),TEXT("Right button"),TEXT("Left button"),TEXT("Top button"),TEXT("View / Select"),TEXT("Menu / Start"),TEXT("LS click"),TEXT("RS click"),TEXT("Right trigger"),TEXT("Left trigger"),TEXT("D-pad Left"),TEXT("Right bumper"),TEXT("Left bumper")};
     }
 }
 
@@ -229,10 +229,11 @@ void AJapanHUD::DrawHUD()
         Secondary += bController ? FString::Printf(TEXT("   %s skateboard"),Pad.Skate) : TEXT("   B skateboard");
     if(bRide)
     {
-        // skate. controls (docs/SKATE.md): Flick-It on the right stick or the mouse with the left button held.
+        // skate. controls (docs/SKATE.md): Flick-It on the right stick or the mouse with the left button held. Both
+        // triggers pump and grab; the left stick pushed up or the left bumper is the transfer; the right bumper handplants.
         const float Kmh=Ride->GetSpeed()*.036f;
         Controls=bController
-            ? FString::Printf(TEXT("%s push   %s brake   Left stick steer / spin / down powerslide   %s transfer   Right stick tricks / manual   %s / %s pump / grab   %s step off      %s   %.0f km/h"),Pad.Jump,Pad.Roll,Pad.RightBumper,Pad.Parry,Pad.Attack,Pad.Skate,*Ride->GetStatus(),Kmh)
+            ? FString::Printf(TEXT("%s push   %s brake   Left stick steer / spin / down powerslide / up transfer   Right stick tricks / manual   %s / %s pump / grab   %s transfer   %s handplant   %s step off      %s   %.0f km/h"),Pad.Jump,Pad.Roll,Pad.Parry,Pad.Attack,Pad.LeftBumper,Pad.RightBumper,Pad.Skate,*Ride->GetStatus(),Kmh)
             : FString::Printf(TEXT("W push   S brake   A / D steer / spin   C powerslide   hold left mouse + flick: tricks, hold part-way: manual   Space ollie   Q / E pump / grab   Shift transfer   B step off      %s   %.0f km/h"),*Ride->GetStatus(),Kmh);
         // Goofy stance mirrors the gestures, so the kickflip and heelflip sides swap.
         const TCHAR* Kick=Ride->IsGoofy()?TEXT("right"):TEXT("left");

@@ -1,5 +1,6 @@
 """Bounded guard-facing capacity RPC. A failed broker never grants a local fallback."""
 from dataclasses import asdict
+import errno
 import math
 import os
 from pathlib import Path
@@ -12,6 +13,41 @@ from . import capacity_protocol as wire
 from .capacity import Resources
 
 CapacityError = wire.CapacityError
+
+
+class CapacityQueued(CapacityError):
+    """A positive broker response says this uncharged request is waiting."""
+
+
+class CapacityTransportError(CapacityError):
+    """A transient transport failure; whether the broker acted is unknown."""
+
+
+def wait_for_offer(admission, *, seconds=1800.):
+    """@cc [owner:fontanierh,label:safety] uncharged-capacity-wait
+    Only a positive queued response MAY retry admission, retaining this controller's request and nonce.
+    Waiting MUST hold no capacity, launch gate, child or legacy lock. The queue loop MUST NOT catch
+    transport, policy, fencing or other failures; session RPC reconciliation is separate and bounded.
+    The wait MUST have a bounded deadline
+    and progress, and cancellation MUST unwind through the guard's normal queued-session close.
+    """
+    if type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 < seconds <= 1800:
+        raise ValueError('Capacity queue wait must be positive and at most 1800 seconds')
+    started = time.monotonic()
+    spoken = None
+    while True:
+        try:
+            return admission.offer()
+        except CapacityQueued:
+            now = time.monotonic()
+            if now - started >= seconds:
+                raise CapacityError('Capacity queue wait deadline reached; no resources held. '
+                                    'Rerunning the same job retains its ready age.') from None
+            if spoken is None or now - spoken >= 25:
+                print(f'Waiting for capacity: {now-started:.0f}/{seconds:.0f}s; '
+                      'broker queue active, no resources or child held', flush=True)
+                spoken = now
+            time.sleep(min(1., seconds - (now - started)))
 
 
 def _endpoint(path):
@@ -29,19 +65,29 @@ def _endpoint(path):
 
 
 def _rpc(path, message, timeout, *, descriptor=False):
+    """@cc [owner:fontanierh,label:safety] bounded-rpc-diagnostics
+    Transport diagnostics MUST expose only bounded operation/phase/type/errno/timing metadata,
+    never request contents or raw transport errors. Diagnostics MUST NOT retry or extend deadlines.
+    """
     if type(timeout) not in (int, float) or not .05 <= timeout <= 5:
         raise CapacityError('Capacity RPC deadline must be between .05 and 5 seconds')
     fd = None
+    started = time.monotonic()
+    phase = 'endpoint'
     try:
-        deadline = time.monotonic() + timeout
+        deadline = started + timeout
         endpoint = _endpoint(path)
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as channel:
             if time.monotonic() >= deadline:
                 raise CapacityError('Capacity RPC deadline exceeded')
             channel.settimeout(deadline - time.monotonic())
+            phase = 'connect'
             channel.connect(str(endpoint))
+            phase = 'send'
             wire.send(channel, {'namespace': wire.NAMESPACE, **message}, deadline=deadline)
+            phase = 'receive'
             response, fd = wire.receive(channel, descriptor=descriptor, deadline=deadline)
+        phase = 'response'
         if response.get('namespace') != wire.NAMESPACE:
             raise CapacityError('Capacity broker refused this operation')
         if response.get('ok') is not True:
@@ -51,10 +97,36 @@ def _rpc(path, message, timeout, *, descriptor=False):
         if fd is not None:
             os.close(fd)
         raise
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError) as error:
         if fd is not None:
             os.close(fd)
-        raise CapacityError('Capacity broker unavailable or operation refused; no fallback admission') from None
+        metadata = (f'action={wire.action_name(message)}, phase={phase}, error={type(error).__name__}, '
+                    f'errno={error.errno if isinstance(error, OSError) else None}, '
+                    f'elapsed={time.monotonic() - started:.3f}s, timeout={timeout:.3f}s')
+        transient = (phase in ('connect', 'send', 'receive') and isinstance(error, OSError)
+                     and (isinstance(error, TimeoutError) or error.errno in (
+                         errno.EINTR, errno.EAGAIN, errno.ECONNRESET, errno.ECONNREFUSED,
+                         errno.EPIPE, errno.ETIMEDOUT)))
+        error_class = CapacityTransportError if transient else CapacityError
+        raise error_class('Capacity broker unavailable or operation refused; no fallback admission ('
+                          + metadata + ')') from None
+
+
+def _session_rpc(path, message, timeout, *, descriptor=False):
+    """@cc [owner:fontanierh,label:safety] bounded-fenced-rpc-replay
+    Only offer, owned, check and close MAY replay once after a typed transient transport failure.
+    The identical request MUST be resent under the existing per-call deadline and normal response
+    fencing; no response may be assumed. Gate, start and replace MUST NOT replay. Protocol, policy,
+    ownership and fencing refusals MUST propagate without retry, fallback or local release authority.
+    """
+    try:
+        return _rpc(path, message, timeout, descriptor=descriptor)
+    except CapacityTransportError:
+        if descriptor or message.get('action') not in ('offer', 'owned', 'check', 'close'):
+            raise
+        print(f'Capacity transport interrupted: reconciling {wire.action_name(message)} once; '
+              'same request, normal fencing and guards', flush=True)
+        return _rpc(path, message, timeout, descriptor=descriptor)
 
 
 def status(socket_path, *, timeout=2.):
@@ -129,20 +201,27 @@ class AdmissionSession:
             raise CapacityError('Capacity session is closed')
         if self.nonce is None:
             raise CapacityError('Capacity offer has not been obtained')
-        return self._response(*_rpc(self.socket_path, {'action': action, 'id': self.request['id'],
+        return self._response(*_session_rpc(self.socket_path, {'action': action, 'id': self.request['id'],
                                       'nonce': self.nonce, 'epoch': self.epoch, 'boot_id': self.boot,
                                       **self._fence(), **fields}, self.timeout, descriptor=descriptor))
 
     def offer(self):
-        response, _ = self._response(*_rpc(self.socket_path, {'action': 'offer', 'request': self.request,
+        if self.closed:
+            raise CapacityError('Capacity session is closed')
+        response, _ = self._response(*_session_rpc(self.socket_path, {'action': 'offer', 'request': self.request,
                                             **self._fence(), **({'nonce': self.nonce} if self.nonce else {})}, self.timeout))
+        if self.nonce is not None and (response.get('nonce'), response.get('epoch'), response.get('boot_id')) != (
+                self.nonce, self.epoch, self.boot):
+            raise CapacityError('Capacity offer was fenced by a session or broker change')
         if response['nonce'] != self.nonce:
             self._acknowledged.clear()
             self.child = None
         self.nonce, self.epoch = response['nonce'], response['epoch']
         self.boot = response['boot_id']
         if response.get('selected') is not True:
-            raise CapacityError('Capacity request remains queued without holding resources')
+            if response.get('selected') is False and response.get('state') == 'queued':
+                raise CapacityQueued('Capacity request remains queued without holding resources')
+            raise CapacityError('Capacity offer response is not a selected or queued request')
         return response
 
     def owned(self, candidates):

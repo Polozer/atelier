@@ -1,6 +1,7 @@
 """Real private sockets, SQLite and ordinary Python children; no native workloads or admission activation."""
 from dataclasses import asdict
 import os
+import json
 from pathlib import Path
 import select
 import sqlite3
@@ -59,11 +60,89 @@ def broker(broker_factory):
     return broker_factory()
 
 
+@pytest.mark.parametrize('action', ['status', 'private unknown action'])
+def test_operation_error_logs_only_safe_phase_metadata(broker, monkeypatch, capsys, action):
+    def fail(message, principal):
+        raise OSError(5, 'private transport details')
+    monkeypatch.setattr(broker, 'handle', fail)
+    with pytest.raises(wire.CapacityError, match='broker refused'):
+        client._rpc(broker.socket_path, {'action': action, 'nonce': 'private request details'}, 2.)
+    output = capsys.readouterr().err
+    report = json.loads(output.split('capacity operation refused: ')[1].splitlines()[0])
+    assert report['action'] == ('status' if action == 'status' else 'invalid')
+    assert report['phase'] == 'handle' and report['error_type'] == 'OSError' and report['errno'] == 5
+    assert report['elapsed_seconds'] >= 0 and report['observed_at'] > 0
+    assert 'private' not in output and 'nonce' not in output
+
+
+def test_slow_success_logs_elapsed_operation_without_changing_result(broker, monkeypatch, capsys):
+    original = broker.handle
+    def slow(message, principal):
+        time.sleep(.26)
+        return original(message, principal)
+    monkeypatch.setattr(broker, 'handle', slow)
+    assert client.status(broker.socket_path)['charged_count'] == 0
+    report = json.loads(capsys.readouterr().err.split('capacity slow operation: ')[1].splitlines()[0])
+    assert report['action'] == 'status' and report['phase'] == 'send'
+    assert report['elapsed_seconds'] >= .25 and report['observed_at'] > 0
+
+
 def session(broker, name='leaf', **changes):
     request = {'id': name, 'owner': 'fixture', 'checkout': str(broker.directory.parent),
                'resources': asdict(Resources(memory_mib=128, cpu_millis=1000)), 'locks': ['fixture'], 'seconds': 1}
     request.update(changes)
     return client.AdmissionSession(broker.socket_path, request, timeout=2.)
+
+
+def test_retry_required_records_remain_durable_but_are_not_active_waiters(broker):
+    dormant, ready = session(broker, 'dormant'), session(broker, 'ready')
+    dormant.offer()
+    assert dormant.close()['released'] is True
+    ready.offer()
+    report = client.status(broker.socket_path)
+    assert report['waiting_count'] == 1 and report['charged_count'] == 0
+    rows = {row['id']: row for row in report['records']}
+    assert rows['dormant']['state'] == 'waiting' and rows['ready']['state'] == 'queued'
+    assert 'retry required' in rows['dormant']['wait_reason']
+    before = rows['dormant']['first_ready']
+    ready.close()
+    assert client.status(broker.socket_path)['waiting_count'] == 0
+    # Retrying preserves the original ready age and re-enters the live queue normally.
+    dormant = session(broker, 'dormant')
+    assert dormant.offer()['first_ready'] == before
+    assert client.status(broker.socket_path)['waiting_count'] == 1
+    dormant.close()
+
+
+def test_normal_wait_keeps_ready_age_and_nonce_without_capacity_or_gate(broker, monkeypatch):
+    first, waiting = session(broker, 'short'), session(broker, 'waiting', seconds=600)
+    first.offer()
+    observed = []
+    def next_boundary(seconds):
+        report = client.status(broker.socket_path)
+        row = next(row for row in report['records'] if row['id'] == 'waiting')
+        assert report['charged_count'] == 0 and report['waiting_count'] == 2
+        assert row['state'] == 'queued' and not broker._gates
+        observed.append((row['first_ready'], waiting.nonce))
+        first.close()
+    monkeypatch.setattr(client.time, 'sleep', next_boundary)
+    try:
+        result = client.wait_for_offer(waiting, seconds=5)
+        assert len(observed) == 1
+        assert result['first_ready'] == observed[0][0] and waiting.nonce == observed[0][1]
+        assert result['selected'] is True and client.status(broker.socket_path)['charged_count'] == 0
+        assert not broker._gates
+    finally:
+        first.close()
+        waiting.close()
+
+
+def test_memory_pressure_does_not_query_disk_availability(short_path, monkeypatch):
+    import shutil
+    monkeypatch.setattr(shutil, 'disk_usage', lambda *_: pytest.fail('disk used for admission'))
+    observation = wire.pressure(short_path / 'missing-disk-path')
+    assert observation['available_memory_mib'] > 0
+    assert 'available_temp_mib' not in observation
 
 
 def gated_child(admission, *, hold=False):
@@ -98,6 +177,58 @@ def test_real_socket_gate_commit_and_pinned_wait_release(broker):
         assert admission.check()['state'] == 'draining'
         assert admission.close(child=child, child_start=pin)['released'] is True
         assert client.status(broker.socket_path)['charged_count'] == 0
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.wait()
+
+
+def lose_response_once(monkeypatch, action):
+    original = client._rpc
+    calls = []
+    def rpc(path, message, timeout, **kwargs):
+        result = original(path, message, timeout, **kwargs)
+        if message.get('action') == action:
+            calls.append((dict(message), result[0]))
+            if len(calls) == 1:
+                raise client.CapacityTransportError('response lost after broker commit')
+        return result
+    monkeypatch.setattr(client, '_rpc', rpc)
+    return calls
+
+
+def test_lost_offer_response_preserves_queue_age_without_charge_or_gate(broker, monkeypatch):
+    admission = session(broker)
+    calls = lose_response_once(monkeypatch, 'offer')
+    response = admission.offer()
+    assert len(calls) == 2 and calls[0][0] == calls[1][0]
+    assert response['first_ready'] == calls[0][1]['first_ready']
+    assert response['epoch'] == calls[0][1]['epoch']
+    assert client.status(broker.socket_path)['charged_count'] == 0 and not broker._gates
+    admission.close()
+
+
+def test_lost_check_and_close_responses_keep_one_grant_and_affirmative_release(broker, monkeypatch):
+    admission = session(broker)
+    admission.offer()
+    child = gated_child(admission, hold=True)
+    pin = start(admission, child)
+    try:
+        # Retransmit the root identity as an unacknowledged batch. The server already retains it.
+        admission._acknowledged.clear()
+        checks = lose_response_once(monkeypatch, 'check')
+        assert admission.check(descendants=[(child.pid, pin)])['admission'] is True
+        assert len(checks) == 2 and checks[0][0] == checks[1][0]
+        assert checks[0][0]['descendants'] == [[child.pid, pin]]
+        assert client.status(broker.socket_path)['charged_count'] == 1
+        assert admission._acknowledged == {(child.pid, pin)}
+        assert child.communicate(input=b'x', timeout=3)[0] == b'useful'
+        closes = lose_response_once(monkeypatch, 'close')
+        assert admission.close(child=child, child_start=pin)['released'] is True
+        assert len(closes) == 2 and closes[0][0] == closes[1][0]
+        assert closes[0][1]['released'] is True
+        assert closes[0][0]['witness']['child'] == [child.pid, pin]
+        assert client.status(broker.socket_path)['charged_count'] == 0 and not broker._gates
     finally:
         if child.poll() is None:
             child.kill()
@@ -158,7 +289,7 @@ def test_simultaneous_full_vector_claims_are_atomic(broker):
         assert not thread.is_alive()
     assert sorted(success for _, success in outcomes) == [False, True]
     observed = client.status(broker.socket_path)
-    assert observed['charged_count'] == 1 and observed['charged_resources'] == asdict(broker.total)
+    assert observed['charged_count'] == 1 and observed['charged_resources'] == asdict(broker.total.admission())
     for index, success in outcomes:
         if success:
             complete(admissions[index], children[index], pins[index])
@@ -234,6 +365,22 @@ def test_same_boot_restart_before_go_closes_gate_and_fences_session(broker_facto
     retry = session(after)
     assert retry.offer()['first_ready'] == offer['first_ready']
     retry.close()
+
+
+def test_restart_while_queued_refuses_reoffer_without_resources_or_gate(broker_factory, monkeypatch):
+    before = broker_factory()
+    first, waiting = session(before, 'first'), session(before, 'waiting', seconds=600)
+    first.offer()
+    with pytest.raises(client.CapacityQueued):
+        waiting.offer()
+    pin = waiting.nonce, waiting.epoch, waiting.boot
+    stop(before)
+    after = broker_factory()
+    monkeypatch.setattr(client.time, 'sleep', lambda _: pytest.fail('fenced wait retried'))
+    with pytest.raises(client.CapacityError, match='fenced'):
+        client.wait_for_offer(waiting)
+    assert (waiting.nonce, waiting.epoch, waiting.boot) == pin
+    assert client.status(after.socket_path)['charged_count'] == 0 and not after._gates
 
 
 @pytest.mark.parametrize('parent_receipt', [True, False])

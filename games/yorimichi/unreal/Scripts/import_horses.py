@@ -349,7 +349,7 @@ def import_breed(slug, breed, masters):
     E.make_directory(folder)
 
     # The upright horse.glb: SkeletalMesh, Skeleton, AnimSequences and its materials' textures
-    norm_glb = upright(ASSETS / slug / 'horse.glb', OUT / 'glb' / f'SK_Horse_{bname}.glb')
+    norm_glb = upright(OUT / 'turns' / f'{slug}.glb', OUT / 'glb' / f'SK_Horse_{bname}.glb')
     found = import_glb(norm_glb, folder, pipelines(skeleton=None, static=False, animations=True))
     meshes = found.get('SkeletalMesh', [])
     skeletons = found.get('Skeleton', [])
@@ -361,7 +361,7 @@ def import_breed(slug, breed, masters):
 
     imported_anims = found.get('AnimSequence', [])
     clips = {}
-    for clip_name, clip in LIBRARY['clips'].items():
+    for clip_name, clip in {**LIBRARY['clips'], **{n: {'loop': True} for n in horse_data.TURN_CLIPS}}.items():
         apath = match_clip(imported_anims, clip_name)
         assert apath, (bname, 'missing horse clip', clip_name, imported_anims)
         seq = E.load_asset(rename(apath, f'A_Horse_{bname}_{clip_name}'))

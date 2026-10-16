@@ -9,7 +9,7 @@ struct PlayerGrindBalanceContact
     std::uint32_t kind;PlayerGrindEntryKind entry_kind;
 };
 struct PlayerGrindTargetUpInput {std::uint32_t category,previous_state;Vec4 board_up;};
-struct PlayerGrindExitLeanInput {std::uint32_t category,current_state,grind_substate;float timestep;};
+struct PlayerGrindExitLeanInput {std::uint32_t category,current_state,grind_substate;float timestep;float slide_hold=1;};
 struct PlayerGrindBalanceVectors {Vec4 grind_normal,target_up;};
 class PlayerGrindForceExitQueries
 {
