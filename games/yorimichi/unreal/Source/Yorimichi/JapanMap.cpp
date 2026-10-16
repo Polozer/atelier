@@ -510,7 +510,7 @@ void UJapanMap::Initialize(AWandererCharacter* Pawn)
                 Zone.Hint = TEXT("The skate park in the volcano's caldera, from the top of its tower. Triangle / Y or B for the board");
             }
     // The Belmonte train's termini (tools/belmonte_train_service.py): arrive on the platform as the next train comes in.
-    if (ABelmonteTrainService::Find(Pawn))
+    if (ABelmonteTrainService::IsEnabled() && FPaths::FileExists(AtelierDataPath(TEXT("belmonte_train/service.json"))))
         if (const TSharedPtr<FJsonObject> Train = AtelierReadJson(AtelierDataPath(TEXT("belmonte_train/service.json"))))
         {
             const TArray<TSharedPtr<FJsonValue>>* Stations = nullptr;

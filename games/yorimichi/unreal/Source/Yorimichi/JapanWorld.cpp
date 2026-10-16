@@ -664,10 +664,12 @@ void AJapanWorld::Load()
     if (!Hippodrome || !Hippodrome->bGameplayReady) Incomplete.Add(TEXT("hippodrome"));
     const auto* Belmonte = ABelmonteRegion::Spawn(this, AtelierDataPath(TEXT("belmonte/runtime.json")));
     if (!Belmonte || !Belmonte->bGameplayReady) Incomplete.Add(TEXT("belmonte"));
-    // The Belmonte trains run on every machine from the server clock (watch-only, docs/BELMONTE_TRAIN_SHELL.md); the data
-    // exists once `atelier build yorimichi unreal.belmonte_train` has imported them.
-    ABelmonteTrack::Spawn(GetWorld(), AtelierDataPath(TEXT("belmonte_track/track.json")));
-    ABelmonteTrainService::Spawn(GetWorld(), AtelierDataPath(TEXT("belmonte_train/service.json")));
+    // The Belmonte trains and track are explicit until the railway joins the default build (ABelmonteTrainService::IsEnabled).
+    if (ABelmonteTrainService::IsEnabled())
+    {
+        ABelmonteTrack::Spawn(GetWorld(), AtelierDataPath(TEXT("belmonte_track/track.json")));
+        ABelmonteTrainService::Spawn(GetWorld(), AtelierDataPath(TEXT("belmonte_train/service.json")));
+    }
     // The far hills' trees stand on the hills' original heights, but the northern
     // surface and the Mega Park approach lowered that ground. Once every region's
     // ground is in place, drop each backdrop tree with no ground under its base.

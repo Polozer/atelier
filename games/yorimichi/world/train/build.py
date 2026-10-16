@@ -2218,8 +2218,6 @@ def ensure_furniture(mat):
         aid = spec['id']
         glb = furn / f'{aid}.glb'
         rep = furn / f'{aid}.json'
-        if glb.is_file() and rep.is_file():
-            continue
         dim = spec['dimensions_m']
         tw, td, th = float(dim['width']), float(dim['depth']), float(dim['height'])
         z0 = {'wall_mount_center': -th / 2, 'hook_top': -th}.get(spec['pivot'], 0.)

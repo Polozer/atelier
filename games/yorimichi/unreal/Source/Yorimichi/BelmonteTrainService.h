@@ -82,6 +82,8 @@ class YORIMICHI_API ABelmonteTrainService : public AActor
     GENERATED_BODY()
 public:
     ABelmonteTrainService();
+    /** True when the Belmonte railway is enabled for this session (-belmontetrain, -trainview or -traingo). */
+    static bool IsEnabled();
     static ABelmonteTrainService* Spawn(UWorld* World, const FString& Path);
     static ABelmonteTrainService* Find(const UObject* WorldContext);
     virtual void Tick(float DeltaSeconds) override;

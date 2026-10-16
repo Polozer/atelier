@@ -211,9 +211,17 @@ ABelmonteTrainService::ABelmonteTrainService()
     RootComponent->SetMobility(EComponentMobility::Static);
 }
 
+bool ABelmonteTrainService::IsEnabled()
+{
+    const TCHAR* Cmd = FCommandLine::Get();
+    FString Dummy;
+    return FParse::Param(Cmd, TEXT("belmontetrain")) || FParse::Param(Cmd, TEXT("trainview")) || FParse::Param(Cmd, TEXT("traingo"))
+        || FParse::Value(Cmd, TEXT("trainview="), Dummy) || FParse::Value(Cmd, TEXT("traingo="), Dummy);
+}
+
 ABelmonteTrainService* ABelmonteTrainService::Spawn(UWorld* World, const FString& Path)
 {
-    if (!World || !FPaths::FileExists(Path)) return nullptr;
+    if (!World || !IsEnabled() || !FPaths::FileExists(Path)) return nullptr;
     auto* Service = World->SpawnActor<ABelmonteTrainService>();
     if (Service && !Service->Initialize(Path)) { Service->Destroy(); return nullptr; }
     return Service;
@@ -788,7 +796,18 @@ bool ABelmonteTrainService::GroundNear(const FVector& Point, double Near, double
 
 void ABelmonteTrainService::UpdateRiders(float Dt)
 {
-    if (JapanNetwork::IsOnline(GetWorld())) return;
+    if (JapanNetwork::IsOnline(GetWorld()))
+    {
+        for (FRider& Rider : Riders)
+            if (Rider.Character.IsValid())
+            {
+                if (Rider.BoardDoor != INDEX_NONE) FinishBoarding(Rider);
+                if (Rider.Seat != INDEX_NONE) StandUp(Rider);
+                if (Rider.bAboard) Board(Rider, false);
+                UpdateCamera(Rider, false, 1.f);
+            }
+        return;
+    }
     for (int32 R = Riders.Num() - 1; R >= 0; --R)
         if (!Riders[R].Character.IsValid())
         {

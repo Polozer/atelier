@@ -40,6 +40,7 @@ import json
 import math
 import os
 import sys
+import time
 
 try:
     import bpy
@@ -738,7 +739,7 @@ def main():
 def _run_guarded():
     from atelier import engine
     from atelier.harness.safety import guarded
-    report = yori.OUT / 'logs' / 'fit_furniture.guard'
+    report = yori.OUT / 'logs' / f'fit_furniture-{int(time.time() * 1000)}.guard'
     cmd = [
         str(engine.blender()), '-b', '-t', '3',
         '--python', str(_Path(__file__).resolve()), '--', *sys.argv[1:],
