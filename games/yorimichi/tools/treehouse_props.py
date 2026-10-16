@@ -146,12 +146,17 @@ def model(slug, faces, approval, dry, out=None, tripo=None, originals=None, stag
     try:
         with httpx.Client(headers={'Authorization': 'Bearer '+credential()}, timeout=httpx.Timeout(180, connect=20)) as client:
             job_path = work/'job.json'
-            if not job_path.exists() or made_from(read_json(job_path)) != wanted:
+            recorded = lambda: job_path.exists() and made_from(read_json(job_path)) == wanted
+            if not recorded():
                 # The marker is claimed by exclusive creation before any upload, so of two processes modelling the same
                 # prop only one submits; a marker left by a crash may mean a POST succeeded and is never claimed over.
                 try: os.close(os.open(private/'submission-started.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)); claimed = True
                 except FileExistsError:
                     return slug, f'another submission is running or an earlier Tripo POST may have succeeded; reconcile {rel(private)} first'
+                # Rechecked once claimed: another process may have recorded this concept's task and released the
+                # marker between the check above and the claim; that task is fetched, never submitted again.
+                if recorded(): (private/'submission-started.json').unlink(); claimed = False
+            if claimed:
                 kind = 'image/png' if image.suffix == '.png' else 'image/jpeg'
                 with image.open('rb') as f:
                     token = call(client, 'POST', '/files', files={'file': (image.name, f, kind)})['data']['file_token']

@@ -68,3 +68,27 @@ def test_a_failed_generation_post_keeps_the_marker(props, tmp_path, monkeypatch)
     marker = tmp_path / 'tripo' / 'lantern' / 'api-private' / 'submission-started.json'
     assert json.loads(marker.read_text())['request']['input'] == 'token'
     assert model(module, tmp_path)[1].startswith('another submission is running') and len(calls) == 2
+
+
+def test_a_task_recorded_before_a_late_claim_is_not_submitted_again(props, tmp_path, monkeypatch):
+    """A second caller decides no task is recorded, and before it claims the marker the first caller submits, records
+    the task and releases the marker: once claimed, the second caller sees the recorded task and only fetches it."""
+    module, tripo = props
+    calls = []
+    def call(client, method, path, **kw):
+        calls.append(path)
+        return {'data': {'file_token': 'token'}} if path == '/files' else {'data': {'task_id': 'task'}}
+    monkeypatch.setattr(tripo, 'call', call)
+    def fetch(client, work, wait):
+        raise RuntimeError('fetched the recorded task')
+    monkeypatch.setattr(tripo, 'fetch', fetch)
+    claim, interleaved = module.os.open, []
+    def late_open(path, flags, *args):
+        if str(path).endswith('submission-started.json') and not interleaved:
+            interleaved.append(True)
+            assert 'fetched the recorded task' in model(module, tmp_path)[1]
+        return claim(path, flags, *args)
+    monkeypatch.setattr(module.os, 'open', late_open)
+    assert 'fetched the recorded task' in model(module, tmp_path)[1]
+    assert calls == ['/files', '/generation/image-to-model']
+    assert not (tmp_path / 'tripo' / 'lantern' / 'api-private' / 'submission-started.json').exists()
