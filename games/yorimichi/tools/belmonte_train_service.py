@@ -294,6 +294,11 @@ def door_mesh(name, leaf):
     return f'{MESH_ROOT}/Doors/{asset}.{asset}'
 
 
+def seat_yaw(yaw):
+    """Unreal actor yaw (degrees, -180..180) of a passenger seated facing `yaw` in the layout (0 = -Y, 90 = +X)."""
+    return (90. - float(yaw) + 180.) % 360. - 180.
+
+
 def doors(v, p, name, switchable):
     """The vehicle's doors for Interact: handles, the collision box that follows the door, and each leaf's motion.
     `side` is the side of the train a door is on (l: +y, the left looking up the line; r: -y; '' inside)."""
@@ -387,7 +392,9 @@ def consist(assembly, placements, records=None):
             'collision': [box_ue(b['box']) for b in boxes if b.get('group', 'fixed') == 'fixed'],
             'switchable': switchable,
             'doors': doors(v, p, name, switchable),
-            'seats': [{'id': s['id'], 'at': [*to_ue(s['x'], s['y'], s['z']), -float(s.get('yaw', 0))]}
+            # a seat's yaw is the way the passenger faces in the layout's convention (0 = -Y, 90 = +X); in Unreal a
+            # character faces +X at yaw 0 and Y is mirrored, so -Y there is +90
+            'seats': [{'id': s['id'], 'at': [*to_ue(s['x'], s['y'], s['z']), seat_yaw(s.get('yaw', 0))]}
                       for s in vehicle_field(v, p, 'seats')],
             'interiors': [{'name': i['name'], 'box': box_ue(i['box']), 'no_sprint': 'no_sprint' in i.get('tags', []),
                            'no_climb': 'no_climb' in i.get('tags', ['no_climb']), 'camera': 'interior' in i.get('tags', ['interior'])}

@@ -891,16 +891,20 @@ bool ABelmonteTrainService::Nearest(const AWandererCharacter* C, int32& VehicleI
             {
                 const FVector End = T.TransformPosition(bAboard ? Door.Boarding.Last() : Door.Boarding[0]);
                 const double Distance = FVector::Dist2D(End, Feet);
-                if (Distance < 140. && FMath::Abs(End.Z - Feet.Z) < (bAboard ? 60. : 200.) && Distance < Best) { Best = Distance; VehicleIndex = I; Index = D; bSeat = false; }
+                const double Score = Distance + (bShut ? 300. : 0.) + 60. * (1. - FVector::DotProduct(Facing, (End - Feet).GetSafeNormal2D()));
+                if (Distance < 140. && FMath::Abs(End.Z - Feet.Z) < (bAboard ? 60. : 200.) && Score < Best) { Best = Score; VehicleIndex = I; Index = D; bSeat = false; }
             }
         }
-        for (int32 S = 0; S < V.Seats.Num(); ++S)
+        // Only from inside: a seat behind the wall is not one to sit on from the platform.
+        for (int32 S = 0; bAboard && S < V.Seats.Num(); ++S)
         {
             if (V.SeatTaken[S]) continue;
             const FVector Seat = T.TransformPosition(V.Seats[S].Location);
             const double Distance = FVector::Dist2D(Seat, Feet);
-            // Seats win over a door handle at the same distance: a door is usually a step further.
-            if (Distance < 100. && FMath::Abs(Seat.Z - Feet.Z) < 120. && Distance - 25. < Best) { Best = Distance - 25.; VehicleIndex = I; Index = S; bSeat = true; }
+            // Seats win over a door handle at the same distance (a door is usually a step further), and like doors
+            // the one the player faces wins.
+            const double Score = Distance - 25. + 60. * (1. - FVector::DotProduct(Facing, (Seat - At).GetSafeNormal2D()));
+            if (Distance < 100. && FMath::Abs(Seat.Z - Feet.Z) < 120. && Score < Best) { Best = Score; VehicleIndex = I; Index = S; bSeat = true; }
         }
     }
     return VehicleIndex != INDEX_NONE;

@@ -129,6 +129,10 @@ class BelmonteTrainServiceTests(unittest.TestCase):
         self.assertTrue(lamp['two_sided'])
         self.assertFalse(self.data['furniture']['second-class-bench']['two_sided'])
 
+    def test_a_seated_passenger_faces_the_way_the_layout_says(self):
+        # layout: 0 faces -Y, 90 faces +X; Unreal: a character faces +X at yaw 0, with Y mirrored (-Y is +90 there)
+        self.assertEqual([S.seat_yaw(y) for y in (90, -90, 0, 180)], [0., -180., 90., -90.])
+
     def test_boarding_path_runs_up_the_treads(self):
         coach = self.data['consist']['vehicles'][1]
         self.assertEqual(coach['doors'][0]['side'], 'l')
