@@ -76,7 +76,10 @@ test('trivial declaration needs current full SHA, a reason and writer permission
   f.comments[0] = { body: `cc: exempt ${SHA}\nFormatting only; behavior unchanged.`, user: { ...user, login: 'reader' } };
   assert.match(await disposition(f), /Warning:/);
   f.comments[0].user = user;
-  assert.match(await disposition(f), /^Exempt: a writer declared/);
+  for (const newline of ['\n', '\r\n']) {
+    f.comments[0].body = `cc: exempt ${SHA}${newline}Formatting only; behavior unchanged.`;
+    assert.match(await disposition(f), /^Exempt: a writer declared/);
+  }
   f.pr.head.sha = 'b'.repeat(40);
   assert.match(await disposition(f), /Warning:/);
 });

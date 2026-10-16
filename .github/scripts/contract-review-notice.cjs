@@ -32,7 +32,7 @@ async function disposition({ github, repo, pr, files, comments, statuses = [], r
     return permissions.get(login);
   }
   for (const comment of comments) {
-    const match = /^cc: exempt ([0-9a-f]{40})\n\S[\s\S]*$/.exec(comment.body || '');
+    const match = /^cc: exempt ([0-9a-f]{40})\r?\n\S[\s\S]*$/.exec(comment.body || '');
     if (match?.[1] === pr.head.sha && await writer(comment)) {
       return 'Exempt: a writer declared this exact head formatting-only or trivial non-code. ' +
         'The declaration must explain why behavior is unchanged; it expires on the next push.';
