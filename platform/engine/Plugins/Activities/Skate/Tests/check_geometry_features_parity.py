@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact GP projection/axis/maximum-feature callbacks against frozen Rust.
 
-Run through atelier.safety. Public original callbacks preserve and compare the
+Run through atelier.harness.safety. Public original callbacks preserve and compare the
 complete simulation output records, including opaque incoming scratch words.
 """
 import argparse

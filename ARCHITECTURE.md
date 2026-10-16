@@ -7,9 +7,10 @@ games/            each game: world, characters, look, sounds, tuning, its own C+
   yorimichi/      the full game
   sandbox/        a plain game made only of platform parts, and the template for `atelier new`
 platform/
-  studio/         the `atelier` command and Python package: build, play, live, QA, AI helpers, review, safety
+  studio/         the `atelier` command and Python package: build, play, live, QA, AI helpers, review
   engine/Plugins/ Unreal plugins any game can switch on
-  web/            stream pages, motion helpers, the Rust/React agent board and board-world
+  harness/        agent board, session delivery, capacity admission and guarded processes
+  web/            stream pages and motion helpers
   conventions/    units, the humanoid bone contract, clip roles, sound cue names, naming
 build/            ignored: everything a build generates, per game
 ```
@@ -18,7 +19,8 @@ build/            ignored: everything a build generates, per game
 
 | Piece | Where | What |
 |---|---|---|
-| `atelier` command | `platform/studio/atelier` | `new`, `doctor`, `setup`, `fetch`, `build` (incremental steps/products), `reuse`, `pool`, `play` (profiles), `playtest`, `stream`, `live`, `qa`, `lint`, `contracts`, `capacity` (shadow plans, resource history and admission broker), `board`; the lock and memory guard around heavy processes (`atelier.safety`) |
+| Studio | `platform/studio/atelier` | The `atelier` CLI, incremental builds/products, verified reuse, game launch, live QA and releases |
+| Harness | `platform/harness` | Durable board messages, session delivery, resource admission and process guards (`atelier.harness`) |
 | AI and review tools | `platform/studio/atelier/{ai,review,blender}`, `platform/studio/node` | Tripo, Sunburst, H3 and Seedance helpers, the paid-call ledger, the UniMate and Kimodo runners, contact sheets, glTF previews |
 | Conventions | `platform/conventions` | units and axes, humanoid bones, clip roles, sound cues, naming |
 | AtelierCore | `engine/Plugins/AtelierCore` | runtime data files (`AtelierDataPath`), sprint stamina |
@@ -29,7 +31,7 @@ build/            ignored: everything a build generates, per game
 | LiveBridge | `engine/Plugins/Dev/LiveBridge` | the loopback live bridge: Python in the running game, runtime GLB props, overlays |
 | Stream pages | `platform/web/stream` | stream server, browser connection, page lifecycle, touch primitives, the plain player, smoke-test helpers |
 | Motion helpers | `platform/web/motion` | Three.js helpers that capture a rig's rest pose, apply generated motion to an existing skin and close authored loops |
-| Agent board | `platform/web/board`, `platform/web/board-world` | Rust coordination server, React web UI and world view |
+| Agent board | `platform/harness/web`, `platform/harness/world` | Rust coordination server, React web UI and world view |
 
 Systems that only one game uses stay in that game. In Yorimichi these are the player character (on-foot movement,
 actions, camera), sword combat and the fox hunter, the sailboat, the bike, the horse, the zeppelin, the mini-mega
@@ -77,12 +79,11 @@ bundle upload and the older explicit reuse commands.
 Imports require pinned publisher keys, explicit redistribution grants and complete byte verification;
 an operator-controlled producer can freshly build an independent audited Python action and export a signed
 directory. Automatic publication and hostile-source signer isolation remain separate work.
-The related [capacity admission proposal](docs/BUILD_CAPACITY.md) describes replacing fixed execution slots with
-measured resource reservations while preserving memory guards and exclusive-resource locks. Its current commands
-evaluate supplied snapshots, inspect retained guard histories and exercise durable queue/lease transactions in an
-explicit simulation database. A separate supervised Unix broker integrates with the common guarded launcher;
-its migration bridge also takes all legacy lane locks. Machine activation, custom-client migration and removing
-slot exclusion remain separate gates; simulation advice cannot authorize work.
+The [Harness capacity guide](docs/BUILD_CAPACITY.md) covers resource reservations, named locks and guarded process
+ownership. A supervised Unix broker admits configured build/play clients; offline plans and shadow simulations do
+not grant admission. Full mode allows compatible jobs to overlap without manual slot coordination. Legacy slots,
+the migration bridge and sealed maintenance remain distinct supported modes; machine activation is explicit and
+clients must never fall back after a configured broker refusal.
 
 ## Why the studio is Python
 

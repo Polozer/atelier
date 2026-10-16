@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 from . import paths
-from .safety import guarded
+from atelier.harness.safety import guarded
 
 
 @dataclass
@@ -104,7 +104,7 @@ def run_argv(ctx, step, command, argv, env, log, request, slots, *, pass_fds=())
                 raise RuntimeError(f'{step.name}: stopped at the small render slot\'s memory limit; '
                                    f'its report now sends it to the big slot, run it again')
     else:
-        from .safety.process import policy_command
+        from atelier.harness.safety.process import policy_command
         result = subprocess.run(policy_command(argv), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
                                 text=True, errors='ignore', **({'pass_fds': pass_fds, 'stdin': subprocess.DEVNULL} if pass_fds else {}))
         code, text = result.returncode, result.stdout

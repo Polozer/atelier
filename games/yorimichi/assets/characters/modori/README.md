@@ -79,7 +79,7 @@ Game rebuilds use the committed blend and its packed textures. The original Trip
 inputs to the authoring tools, rather than the game build. They stay in the author's ignored
 `build/yorimichi/characters/modori/` (`tripo-body-r01/` with its `rigged/modori-rigged.fbx`, `tripo-coat-r01/`).
 To author a replacement from those files, under the guard
-(`uv run python -m atelier.safety.guarded --small 3 ...`):
+(`uv run python -m atelier.harness.safety.guarded --small 3 ...`):
 
 ```sh
 T=games/yorimichi/assets/characters/tools; M=build/yorimichi/characters/modori; B=$M/tripo-body-r01

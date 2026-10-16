@@ -43,8 +43,8 @@ def guarded_big_holder():
     The guard launcher remains responsible for the validator Python process.
     This check never reserves a second slot and never writes the lock record.
     """
-    from atelier.safety.memory_guard import usage
-    from atelier.safety.render_lock import family, holder, lock_path
+    from atelier.harness.safety.memory_guard import usage
+    from atelier.harness.safety.render_lock import family, holder, lock_path
     message = 'native collision requires an owned live BIG-slot guarded job'
     try:
         path = lock_path()
@@ -113,8 +113,8 @@ class ObservedSession(feel.Session):
         if self._started:
             raise RuntimeError('ObservedSession is one-shot; create a fresh Session per trial')
         self._started = True
-        from atelier.safety.guard import attach, reap
-        from atelier.safety.process import spawn
+        from atelier.harness.safety.guard import attach, reap
+        from atelier.harness.safety.process import spawn
         guarded_big_holder()
         self.proc = spawn(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=self.log, text=True, bufsize=1)

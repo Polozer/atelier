@@ -20,9 +20,9 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'world')); import yori  # noqa: E402
 from atelier.engine import unreal_root
 from atelier.provenance import head, status
-from atelier.safety import guarded
-from atelier.safety.render_lock import RenderBusy, render_processes
-from atelier.safety.provenance import profile_from_log
+from atelier.harness.safety import guarded
+from atelier.harness.safety.render_lock import RenderBusy, render_processes
+from atelier.harness.safety.provenance import profile_from_log
 
 ROOT = yori.GAME
 PROJECT = ROOT / 'unreal'

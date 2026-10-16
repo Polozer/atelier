@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bounded source-faithful physical predicates and explicit absence semantics.
 
-Run under atelier.safety. Original factories/conditions execute through the full
+Run under atelier.harness.safety. Original factories/conditions execute through the full
 unchanged pinned MotionHost; the candidate reads only completed input records.
 """
 import argparse

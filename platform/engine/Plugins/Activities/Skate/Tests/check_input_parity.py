@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact differential input, encoded-name and intent-store validation.
 
-Run through atelier.safety. Expected output is produced by unchanged skate-core
+Run through atelier.harness.safety. Expected output is produced by unchanged skate-core
 from the pinned reference revision. Only this probe target is added to its Cargo
 manifest; no implementation is copied into the corpus generator.
 """

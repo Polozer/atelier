@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from benchmark import other_render_processes
 from atelier.engine import unreal_root
 from atelier.provenance import head, status
-from atelier.safety import guarded
+from atelier.harness.safety import guarded
 
 
 def main():

@@ -6,7 +6,7 @@ games/yorimichi/tools/modori_tpose.py).
     python modori_texture.py --input <model.fbx> --output <out> --stage paint [--variant redo]
     blender -b --python-exit-code 1 --python modori_texture.py -- --input <model.fbx> --output <out> --stage pack [--variant redo]
 
-Run the Blender stages under the guard (python -m atelier.safety.guarded --small 3 ...).
+Run the Blender stages under the guard (python -m atelier.harness.safety.guarded --small 3 ...).
 
 1. Raster (Blender): every texel's place on the body and its normal, from the mesh's UV triangles, in the model's
    world frame (Z up, the face toward -Y, 1 m tall as Tripo exports it), its UV chart and its triangle.

@@ -264,7 +264,8 @@ def snapshot(ctx, step, argv, environment):
         repeat_chmod_files = []
     # Actual adapter and guard implementation are part of the retained execution identity.
     roots.extend([Path(__file__), Path(__file__).with_name('build.py'), Path(sys.executable).resolve()])
-    roots.extend(sorted(Path(__file__).with_name('safety').glob('*.py')))
+    from atelier.harness import safety
+    roots.extend(sorted(Path(safety.__file__).parent.glob('*.py')))
     roots = list(dict.fromkeys(roots))
     from .build_hashes import HashIndex
     # Local continuity proof shares the existing stat/ctime-validated hash hint. Archive

@@ -11,7 +11,7 @@ import time
 
 def main():
     from atelier.build import Context
-    from atelier.safety import guarded
+    from atelier.harness.safety import guarded
     from network_review_common import require_clean_source, source_revision, current_native_build
     ctx = Context('yorimichi')
     revision = require_clean_source()

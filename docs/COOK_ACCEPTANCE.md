@@ -117,7 +117,7 @@ Use the editor/project chosen by normal discovery. Exact guarded authoring shape
 ```sh
 UNREAL_CMD="$(uv run python -c 'from atelier import engine; print(engine.unreal_cmd())')"
 PROJECT="$PWD/games/sandbox/unreal/Sandbox.uproject"
-nice -n 10 uv run python -m atelier.safety.guarded --kind compile --timeout 900 \
+nice -n 10 uv run python -m atelier.harness.safety.guarded --kind compile --timeout 900 \
   --report "$PRE/asset-edit.guard" --purpose "cook acceptance asset edit" -- \
   "$UNREAL_CMD" "$PROJECT" -run=pythonscript "-script=$FIXTURES/local-asset.py" \
   -unattended -nop4 -nosplash -stdout -AllowStdOutLogVerbosity -NullRHI
@@ -132,7 +132,7 @@ Request a separate owned game turn for each retained app:
 
 ```sh
 APP="$EVIDENCE/$LABEL/app/Sandbox.app"
-nice -n 10 uv run python -m atelier.safety.guarded --kind game --timeout 60 \
+nice -n 10 uv run python -m atelier.harness.safety.guarded --kind game --timeout 60 \
   --report "$EVIDENCE/load-$LABEL.guard" --purpose "cook acceptance packaged load" -- \
   "$APP/Contents/MacOS/Sandbox" -CookAcceptance -windowed -ResX=1600 -ResY=900 \
   -unattended -stdout -FullStdOutLogOutput
@@ -147,7 +147,7 @@ for packaged-load/renderer proof. The fixture's native compilation and first act
 Inspect the retained app's actual IoStore inventory in a separate admitted command:
 
 ```sh
-nice -n 10 uv run python -m atelier.safety.guarded --kind compile --timeout 300 \
+nice -n 10 uv run python -m atelier.harness.safety.guarded --kind compile --timeout 300 \
   --report "$EVIDENCE/list-$LABEL.guard" --purpose "cook acceptance container inventory" -- \
   "$UNREAL_CMD" "$PROJECT" -run=IoStore "-List=$APP/Contents/UE/Sandbox/Content/Paks/*.utoc" \
   "-CSV=$EVIDENCE/$LABEL.containers.csv" -unattended -NullRHI

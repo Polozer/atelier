@@ -23,7 +23,7 @@ from benchmark import other_render_processes
 from desktop_preview import renderer_arguments
 from atelier.engine import unreal_root
 from atelier.provenance import head
-from atelier.safety import guarded
+from atelier.harness.safety import guarded
 
 
 def read_telemetry(path, expected):

@@ -17,7 +17,7 @@ from pathlib import Path
 
 GAME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GAME / 'world')); import yori  # noqa: E402
-from atelier.safety import guarded  # noqa: E402
+from atelier.harness.safety import guarded  # noqa: E402
 from atelier.build import Context  # noqa: E402
 
 PROJECT = GAME / 'unreal'

@@ -5,7 +5,7 @@ skeleton, and the skirt simulated as cloth (the torso and sleeves ride the skele
         --coat <coat.fbx> --output <out> --stage fit
     blender -b --python-exit-code 1 --python modori_coat.py -- ... --stage sim
 
-Run both under the guard (python -m atelier.safety.guarded --small 3 ...).
+Run both under the guard (python -m atelier.harness.safety.guarded --small 3 ...).
 
 1. Fit: Tripo exports each model normalised (the body 1 m tall, the coat 1 m from cuff to cuff), so the coat is scaled
    until its cuffs sit on the wrist bones, moved so the cuff centres meet the wrists and the coat's chest is centred on

@@ -77,11 +77,23 @@ class ImportScanner:
         key = (root, tuple(parts))
         if key in self.resolved:
             return self.resolved[key]
+        # atelier's source namespace spans Studio and Harness. Resolve it statically,
+        # including old public aliases, without importing code from a recipe.
+        namespace_parents = []
+        if root == paths.STUDIO / 'atelier':
+            root, parts = paths.STUDIO, ['atelier', *parts]
+        if root == paths.STUDIO and parts and parts[0] == 'atelier':
+            namespace_parents = [paths.STUDIO / 'atelier' / '__init__.py']
+            if len(parts) > 1 and parts[1] == 'harness':
+                root, parts = paths.HARNESS, parts[1:]
+            elif len(parts) > 1 and (parts[1] in {'board', 'capacity', 'safety'}
+                                    or parts[1].startswith(('board_', 'capacity_'))):
+                root, parts = paths.HARNESS, ['harness', *parts[1:]]
         target = root.joinpath(*parts)
         candidates = [target / '__init__.py'] if not parts else [target.with_suffix('.py'), target / '__init__.py']
         found = next((p for p in candidates if p.is_file()), None)
         parents = [root.joinpath(*parts[:i], '__init__.py') for i in range(1, len(parts))]
-        result = [found, *(p for p in parents if p.is_file())] if found else []
+        result = [found, *(p for p in [*parents, *namespace_parents] if p.is_file())] if found else []
         self.resolved[key] = result
         return result
 

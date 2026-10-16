@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact typed graph conditions, intent operations and production sliding checks.
 
-Compile only through atelier.safety. The oracle executes unchanged pinned core
+Compile only through atelier.harness.safety. The oracle executes unchanged pinned core
 and host modules; the sliding animation input is an explicit IntentMap provider.
 """
 import argparse

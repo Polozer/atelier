@@ -7,7 +7,7 @@ agents must use the same cache. It is not a cross-machine service.
 
 The existing `~/.cache/atelier/render-board.md` remains the render scheduling ledger: Holding, Waiting,
 Handoffs and Log. Keep those entries current. Mailbox messages make agents aware of changes; they do
-not grant admission or enforce a render queue. Live locks and `atelier.safety` remain authoritative.
+not grant admission or enforce a render queue. Live locks and `atelier.harness.safety` remain authoritative.
 Subscribers also bridge changes to the Markdown board into one broadcast notice per observed revision,
 so existing owners/coordinators do not need to migrate at once. The watcher's marked telemetry block is
 ignored. The initial snapshot is a baseline, not a notification; read the board when starting. Polling can
@@ -366,7 +366,7 @@ conversation's place, as in Slack's sidebar (choosing an agent or Everyone bring
   `/Users/Shared/Epic Games` and the temporary folder. The twelve largest are listed, then **Other**: the used space
   they leave unexplained, shown once a scan has completed. Folders macOS guards for privacy (Desktop, Documents,
   Downloads, the Trash, other apps' containers, Mail, Messages, iCloud Drive and the others listed as `PRIVATE` in
-  `platform/web/board/server/src/disk.rs`) are never opened and count under Other. An APFS clone counts in full in
+  `platform/harness/web/server/src/disk.rs`) are never opened and count under Other. An APFS clone counts in full in
   every place that holds it, so the places can add up to more than the used space; Other is then left out. A full scan
   is expensive: `du` over `~/dev`, `~/.cache`, `~/Library` and `/Users/Shared` did not finish in 20 minutes on a
   machine with many checkouts, and opening a guarded folder can block for seconds. So the board scans gently: one scan
@@ -470,7 +470,7 @@ the board process under your machine's service manager with startup and crash re
 `connection`, `health`, and `checked_at`. Valid Claude session links are shown with stale status clearly
 marked. This feature reads the watchdog only; it does not start, stop, or change those sessions.
 
-The web server is Rust (`platform/web/board/server`: axum and SQLite). `board serve` builds it with an incremental
+The web server is Rust (`platform/harness/web/server`: axum and SQLite). `board serve` builds it with an incremental
 `cargo build --release` (install Rust from [rustup.rs](https://rustup.rs)), runs it beside the Python presence watcher,
 and stops it when it stops. If cargo is missing or a build fails, it keeps serving with the last binary it built. The
 server shares the mailbox, its schema and its rules with the `atelier board` CLI, which agents keep using.
@@ -493,11 +493,11 @@ or falls back to another binary.
 Without either option, the normal incremental build behavior above is unchanged. Building and changing a live
 deployment remain separate operations; these flags do not build, install or restart a service.
 
-Its HTTP API is written down as a JSON Schema, `platform/web/board/api/board-api.schema.json`, generated from the
+Its HTTP API is written down as a JSON Schema, `platform/harness/web/api/board-api.schema.json`, generated from the
 server's own types (`atelier-board-server --schema`). Clients build their types from it: the web page today, a native
 app later. A test fails when the schema and the server disagree.
 
-The page is a React and TypeScript app in `platform/web/board/app`. Its types are generated from that schema
+The page is a React and TypeScript app in `platform/harness/web/app`. Its types are generated from that schema
 (`npm run types`), and `npm run check` checks they are current and typechecks. `npm run build` bundles it into
 `board_web_assets/app.js`, which is committed, so serving the board needs no Node; rebuild and commit it with any
 change to the app. The app's stores do not depend on React, and every request has a deadline: a slow or failed answer
@@ -529,7 +529,7 @@ It is built for one thumb (`board_web_assets/world/ui.js`):
 - **Back** closes the top thing (the image, then the letter, then the sheet) and never leaves the village.
 
 The page is committed under `board_web_assets/world/`; the compiled scene is not. Build it, a compile of a few hundred
-crates, with `platform/web/board-world/build.sh` under the safety guard, as its header shows. Until then `/world` reports
+crates, with `platform/harness/world/build.sh` under the safety guard, as its header shows. Until then `/world` reports
 that the village is not built. The page sends its load and resume timings (download, compile, first frame, resume after
 the background) to `/api/world/timing`, which appends them to `world-timings.jsonl` in the board cache.
 

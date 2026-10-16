@@ -6,7 +6,7 @@ import argparse
 import os
 from pathlib import Path
 import subprocess
-from atelier.capacity_compat import refuse_unmanaged
+from atelier.harness.capacity_compat import refuse_unmanaged
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -25,7 +25,7 @@ def prepare(generator, root):
         from atelier.ai.unimate.install import install
     install(root, atelier_source=REPO)
     # This small export only samples transforms and writes glTF, without rendering.
-    from atelier.safety import guarded
+    from atelier.harness.safety import guarded
     code = guarded.run([os.environ.get('BLENDER', 'blender'), '-b', '--threads', '2', '--python-exit-code', '1',
         '--python', str(HERE / 'export_rig.py'), '--', '--source',
         str(REPO / 'games/yorimichi/assets/characters/fox-hunter/FoxHunter-Anim-r05.blend'),

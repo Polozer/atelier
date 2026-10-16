@@ -156,7 +156,7 @@ def main():
     command = [str(ctx.unreal_app), str(ctx.uproject), '-game', '-RenderOffscreen', '-ForceRes', '-resx=1920', '-resy=1080',
                '-noshaderworker', '-buildingreview='+str(spec), '-reviewdir='+str(folder), '-unattended', '-nosplash', '-stdout',
                '-abslog='+str(folder/'game.log'), '-set='+SETTINGS, '-ExecCmds='+COMMANDS]
-    subprocess.run([sys.executable, '-m', 'atelier.safety.guarded', '--report', str(folder), '--', *command], check=True,
+    subprocess.run([sys.executable, '-m', 'atelier.harness.safety.guarded', '--report', str(folder), '--', *command], check=True,
                    env={**os.environ, 'PYTHONPATH': str(yori.REPO/'platform/studio')})
     result = json.loads((folder/'completed.json').read_text()); print('PASS', result['passed'], result.get('errors'))
     assert result['passed']

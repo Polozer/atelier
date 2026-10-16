@@ -88,7 +88,7 @@ def test_native_audit_uses_existing_guard_and_owns_argv_and_report(native_action
 @pytest.mark.parametrize('refusal', ['busy', 'failed'])
 @pytest.mark.parametrize('product', ['file', 'directory', 'content'])
 def test_refused_native_admission_keeps_prior_outputs(native_action, monkeypatch, refusal, product):
-    from atelier.safety.render_lock import RenderBusy
+    from atelier.harness.safety.render_lock import RenderBusy
     a = native_action
     if product == 'content' and isinstance(a.step.commands[0], build.Blender):
         pytest.skip('Content ownership belongs to the Unreal adapter')

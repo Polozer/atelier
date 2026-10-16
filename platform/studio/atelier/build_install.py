@@ -799,8 +799,8 @@ def registry_catalog(scope, request):
 
 
 def _query_registry(scope, value):
-    from . import capacity_protocol as wire
-    from .safety.process import spawn
+    from atelier.harness import capacity_protocol as wire
+    from atelier.harness.safety.process import spawn
     content_pin = _directory(scope.content)
     request = dict(schema=1, backend=BACKEND, nonce=value['nonce'], repo=str(scope.repo), game=scope.game,
                    content_pin=content_pin, parent=[os.getpid(), wire.process_start(os.getpid())])
@@ -890,9 +890,9 @@ def _execute(scope, plan=None, source=None, *, resume=False, nonce=None):
 
 def _guarded(game, plan=None, source=None, *, resume=False, timeout=300):
     """The only installation entry owns one normal checkout mutation/admission lifecycle."""
-    from . import capacity_protocol as wire
-    from .safety import guarded
-    from .safety.worker_binding import WorkerBinding, require_legacy
+    from atelier.harness import capacity_protocol as wire
+    from atelier.harness.safety import guarded
+    from atelier.harness.safety.worker_binding import WorkerBinding, require_legacy
     require_legacy()
     if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 1 <= timeout <= 3600:
         raise InstallError('Package worker requires a finite bounded deadline')
@@ -947,7 +947,7 @@ def _guarded(game, plan=None, source=None, *, resume=False, timeout=300):
 
 def install(game, snapshot_path, source_root, *, timeout=300):
     """Install an eligible snapshot through one legacy guarded worker; native/broker modes refuse."""
-    from .safety.worker_binding import require_legacy
+    from atelier.harness.safety.worker_binding import require_legacy
     require_legacy()
     return _guarded(game, _read(Path(snapshot_path)), source_root, timeout=timeout)
 

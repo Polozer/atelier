@@ -3,7 +3,7 @@
 
 The expected values are read directly from the original dataset, not decoded from
 the converted file. Name hashing has a separate independent Rust differential test.
-Run under atelier.safety because this command compiles the C++ settings probe.
+Run under atelier.harness.safety because this command compiles the C++ settings probe.
 """
 import argparse
 from functools import lru_cache

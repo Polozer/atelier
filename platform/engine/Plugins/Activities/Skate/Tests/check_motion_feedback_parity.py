@@ -6,7 +6,7 @@ calls, independently absent completed producer records and real B_PUMP trees.
 Project data is the candidate's only stock input. Observer trees are
 synthetic fixture data that expose consumed parameters through public queries;
 there are no private accessor substitutes or original-method replacements.
-Run builds/execution only through atelier.safety.
+Run builds/execution only through atelier.harness.safety.
 """
 import argparse
 from collections import Counter

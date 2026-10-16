@@ -14,7 +14,7 @@ import pytest
 from atelier import build, build_cook_recovery as recovery, provenance
 from atelier.build_cook import CookMode
 from atelier.build_hashes import HashIndex
-from atelier.safety import guarded
+from atelier.harness.safety import guarded
 
 
 def tool(name):
@@ -622,7 +622,7 @@ def test_touched_or_unproven_native_prerequisite_cannot_create_recovery_proof(sa
 @pytest.mark.parametrize('state', ['memory_limit', 'test_duration'])
 def test_late_process_guard_stop_after_final_check_never_publishes_positive_receipt(tmp_path, monkeypatch, state):
     from contextlib import contextmanager
-    from atelier import capacity_runtime
+    from atelier.harness import capacity_runtime
     monkeypatch.setattr(capacity_runtime, 'configured_session', lambda **kwargs: None)
     @contextmanager
     def admitted(*args, **kwargs):

@@ -3,13 +3,13 @@
 `validate_park_lines.py` runs the game's existing compiled `GameplaySession` through
 `check_skate_feel.Session`. It does not compile a runtime or substitute ballistic calculations for gameplay.
 Coordinates are native metres, y up; paths are `[x,z]`. Run every native trial at nice 10 through
-`atelier.safety.guarded`, after render-board admission. The outer guard monitors Python's collision/JSON
+`atelier.harness.safety.guarded`, after render-board admission. The outer guard monitors Python's collision/JSON
 allocations. Each Session attaches a separate 10 GiB actual-child monitor before waiting for readiness,
 checks it before transport operations and reaps its child before detaching, including startup failures.
 Both monitors use the same BIG-slot turn; no second render slot is acquired.
 
 ```sh
-nice -n 10 uv run python -m atelier.safety.guarded \
+nice -n 10 uv run python -m atelier.harness.safety.guarded \
   --report build/yorimichi/line-validation.guard --timeout 300 \
   --purpose 'offline park ride validation' -- \
   uv run python games/yorimichi/tools/validate_park_lines.py layout.json \

@@ -36,13 +36,18 @@ jobs:
       - run: uv sync --frozen --managed-python
       - if: matrix.group == 'studio'
         run: uv run atelier lint
+      - name: Verify the distributable package
+        if: matrix.group == 'studio'
+        run: |
+          uv build --wheel --out-dir build/ci/wheels
+          uv run python platform/harness/tests/wheel_smoke.py build/ci/wheels/*.whl
       - name: Identify Rust cache
         if: matrix.group == 'board'
         id: rust
         shell: bash
         run: |
           toolchain=$( { rustc --version --verbose; clang --version; printf '%s\n' "$ImageOS" "$ImageVersion"; } | shasum -a 256 | cut -d ' ' -f 1)
-          echo "prefix=board-v1-${RUNNER_OS}-${RUNNER_ARCH}-${toolchain}-${{ hashFiles('platform/web/board/server/Cargo.lock', 'platform/web/board/server/Cargo.toml', 'platform/web/board/server/.cargo/config.toml') }}" >> "$GITHUB_OUTPUT"
+          echo "prefix=board-v1-${RUNNER_OS}-${RUNNER_ARCH}-${toolchain}-${{ hashFiles('platform/harness/web/server/Cargo.lock', 'platform/harness/web/server/Cargo.toml', 'platform/harness/web/server/.cargo/config.toml') }}" >> "$GITHUB_OUTPUT"
       - name: Restore Rust dependencies
         if: matrix.group == 'board'
         id: rust-cache
@@ -54,13 +59,13 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/registry/src
-          key: ${{ steps.rust.outputs.prefix }}-${{ hashFiles('platform/web/board/server/src/**') }}
+          key: ${{ steps.rust.outputs.prefix }}-${{ hashFiles('platform/harness/web/server/src/**') }}
           restore-keys: ${{ steps.rust.outputs.prefix }}-
       # Production can serve the last working binary after a failed build. CI must never do that:
       # remove this crate's artifacts and require a successful compile, keeping dependency artifacts.
       - name: Build the current board server
         if: matrix.group == 'board'
-        working-directory: platform/web/board/server
+        working-directory: platform/harness/web/server
         run: |
           cargo clean --release --locked --package atelier-board-server
           cargo build --release --locked
@@ -79,7 +84,7 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/registry/src
-          key: ${{ steps.rust.outputs.prefix }}-${{ hashFiles('platform/web/board/server/src/**') }}
+          key: ${{ steps.rust.outputs.prefix }}-${{ hashFiles('platform/harness/web/server/src/**') }}
       - name: Keep test results and collection
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24

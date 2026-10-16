@@ -9,7 +9,7 @@ Cairo's outfits went through the same stages ([FOX_HUNTER_ANIMATION.md](FOX_HUNT
 Every stage writes a revision folder in the archive (`YORIMICHI_ARCHIVE`, `assets/characters/tools/_archive.py`); only
 the approved revision comes into the repository (`promote.py`). Paid calls go through `atelier.ai.ledger`; Tripo's
 client (`atelier.ai.tripo_asset`) refuses inputs whose hashes are not in an approval file and never resubmits an
-uncertain POST. Blender stages run under the guard (`python -m atelier.safety.guarded --small 3 ...`).
+uncertain POST. Blender stages run under the guard (`python -m atelier.harness.safety.guarded --small 3 ...`).
 
 To get faces that need less fixing, [Charakuru's workflow](CHARAKURU_WORKFLOW.md) makes the head and the body as
 separate Tripo jobs, so the face gets its own images, mesh budget and 4K texture; the notes list experiments to try.
@@ -64,7 +64,7 @@ python platform/studio/atelier/blender/tripo_character_texture.py --input ... --
 blender -b --python-exit-code 1 --python platform/studio/atelier/blender/tripo_character_texture.py -- --input ... --output <out> --face ... --stage pack
 ```
 
-Run each under the guard (`python -m atelier.safety.guarded --small 3 ...`; paint peaks near 3 GiB). Raster once;
+Run each under the guard (`python -m atelier.harness.safety.guarded --small 3 ...`; paint peaks near 3 GiB). Raster once;
 paint and pack again after each change to the spec or the options (8 minutes for a 4096 texture).
 
 1. **Raster.** Every texel's place on the body, its facing, its **mesh piece** (the welded parts: head, each eye, each

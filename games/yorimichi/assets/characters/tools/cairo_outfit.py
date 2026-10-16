@@ -38,7 +38,7 @@ REPO = TOOLS.parents[4]
 sys.path.insert(0, str(TOOLS)); sys.path.insert(0, str(REPO / 'platform/studio'))
 from _archive import ROOT  # noqa: E402
 from atelier import env  # noqa: E402
-from atelier.capacity_compat import refuse_unmanaged  # noqa: E402
+from atelier.harness.capacity_compat import refuse_unmanaged  # noqa: E402
 
 CHAR = ROOT / 'output/imagegen/yorimichi-yellow-boy-2026-09-12'
 BLENDER = os.environ.get('BLENDER', '/Applications/Blender.app/Contents/MacOS/Blender')

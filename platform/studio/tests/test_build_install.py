@@ -349,6 +349,9 @@ def test_public_install_uses_actual_guarded_worker_and_registry(project, tmp_pat
     module_root = project.repo / 'platform' / 'studio'
     shutil.copytree(Path(atelier.__file__).parent, module_root / 'atelier',
                     ignore=shutil.ignore_patterns('__pycache__'))
+    from atelier import paths
+    shutil.copytree(paths.HARNESS / 'harness', module_root.parent / 'harness/harness',
+                    ignore=shutil.ignore_patterns('__pycache__'))
     manifest = tmp_path / 'snapshot.json'
     manifest.write_text(json.dumps(plan))
     script = '''
@@ -361,7 +364,7 @@ try:
     capacity_compat.DEFAULT_RECORD = Path(sys.argv[3]) / 'absent-cutover.json'
 except ImportError:
     pass
-from atelier.safety import guarded, worker_binding
+from atelier.harness.safety import guarded, worker_binding
 failure = sys.argv[4]
 def refused(*args, **kwargs):
     raise RuntimeError('injected guard proof failure')
@@ -408,8 +411,9 @@ def test_public_guarded_request_and_completion_binding(project, tmp_path, monkey
     import fcntl
     import os
     import stat
-    from atelier import capacity_runtime, paths
-    from atelier.safety import guarded
+    from atelier.harness import capacity_runtime
+    from atelier import paths
+    from atelier.harness.safety import guarded
     root, plan = source(tmp_path, [('/Game/One', [], {})])
     manifest = tmp_path / 'snapshot.json'
     manifest.write_text(json.dumps(plan))
@@ -509,7 +513,7 @@ def test_portable_resume_cannot_bypass_package_barrier(project, tmp_path):
 
 @pytest.mark.parametrize('recover', [False, True])
 def test_configured_installer_refuses_before_scope_creation(tmp_path, monkeypatch, recover):
-    from atelier import capacity_runtime
+    from atelier.harness import capacity_runtime
     monkeypatch.setattr(capacity_runtime, 'DEFAULT_CONFIG', tmp_path / 'client.json')
     capacity_runtime.DEFAULT_CONFIG.write_text('{}')
     monkeypatch.setattr(install, 'Scope', lambda *a: pytest.fail('configured installer created a scope'))
@@ -531,6 +535,9 @@ def test_ordinary_unguarded_parent_cannot_forge_installer_lifecycle(project, tmp
     root, plan = source(tmp_path, [('/Game/One', [], {'.uexp': b'forged-replacement'})], label='second')
     module_root = project.repo / 'platform' / 'studio'
     shutil.copytree(Path(atelier.__file__).parent, module_root / 'atelier', ignore=shutil.ignore_patterns('__pycache__'))
+    from atelier import paths
+    shutil.copytree(paths.HARNESS / 'harness', module_root.parent / 'harness/harness',
+                    ignore=shutil.ignore_patterns('__pycache__'))
     manifest = tmp_path / 'snapshot.json'
     manifest.write_text(json.dumps(plan))
     script = '''
@@ -570,7 +577,7 @@ os.close(request); left.close(); right.close()
 
 
 def test_lost_worker_proof_before_recovery_mutation_retains_barrier(project, tmp_path):
-    from atelier import capacity_protocol as wire
+    from atelier.harness import capacity_protocol as wire
     root, first = source(tmp_path, [('/Game/One', [], {'.uexp': b'old'})])
     run(project, root, first)
     root, second = source(tmp_path, [('/Game/One', [], {'.uexp': b'new'})], label='second')
@@ -590,7 +597,8 @@ def test_lost_worker_proof_before_recovery_mutation_retains_barrier(project, tmp
 def test_worker_refuses_config_before_scope_and_closes_private_inputs(tmp_path, monkeypatch):
     import os
     import socket
-    from atelier import build_install_worker, capacity_runtime
+    from atelier import build_install_worker
+    from atelier.harness import capacity_runtime
     monkeypatch.setattr(capacity_runtime, 'DEFAULT_CONFIG', tmp_path / 'client.json')
     capacity_runtime.DEFAULT_CONFIG.symlink_to(tmp_path / 'missing')
     monkeypatch.setattr(install, 'Scope', lambda *a: pytest.fail('configured worker created scope'))

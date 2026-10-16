@@ -90,7 +90,7 @@ def occupied(repo, folders):
 
 def _launch(action, game, target, source=None):
     """Run file inspection/copy/removal under the ordinary owned-child admission lifecycle."""
-    from .safety import guarded
+    from atelier.harness.safety import guarded
     identifier = uuid.uuid4().hex
     folder = target / 'build' / game / 'logs' / (f'reuse-{action}-{identifier}.guard')
     command = [sys.executable, '-m', 'atelier.reuse_worker', action, game, str(target)]

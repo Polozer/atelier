@@ -330,7 +330,7 @@ def test_full_scene_capacity_requires_pinned_ancestor_and_held_lock(monkeypatch,
     import json
     import os
     from types import SimpleNamespace
-    from atelier.safety import memory_guard, render_lock
+    from atelier.harness.safety import memory_guard, render_lock
     import validate_park_lines as validator
     path = tmp_path/'render.lock'
     monkeypatch.setattr(render_lock, 'lock_path', lambda: path)
@@ -374,7 +374,7 @@ def test_native_session_guard_covers_startup_and_cleanup(monkeypatch, tmp_path):
     from contextlib import contextmanager
     from types import SimpleNamespace
     import io
-    from atelier.safety import guard, process
+    from atelier.harness.safety import guard, process
     import validate_park_lines as validator
     events = []
     child = SimpleNamespace(pid=1234, stdout=io.StringIO(

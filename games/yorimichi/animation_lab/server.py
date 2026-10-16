@@ -9,7 +9,7 @@ import threading
 import time
 from urllib.parse import unquote, urlsplit
 import uuid
-from atelier.capacity_compat import refuse_unmanaged
+from atelier.harness.capacity_compat import refuse_unmanaged
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]

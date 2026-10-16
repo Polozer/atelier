@@ -164,7 +164,7 @@ def _execute(directory, trust, profile, *, dry_run, timeout, work, echo=None):
 
 
 def _worker_upload(directory, trust, profile, *, dry_run, timeout, work, echo):
-    from .safety.process import spawn
+    from atelier.harness.safety.process import spawn
     work = Path(work)
     request, result = work / 'request.json', work / 'result.json'
     request.write_text(json.dumps({'directory': str(Path(directory).absolute()), 'trust': str(Path(trust).absolute()),

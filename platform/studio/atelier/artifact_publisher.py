@@ -31,8 +31,7 @@ MAX_GIT_OUTPUT = 1024 * 1024
 REF = re.compile(r'refs/heads/[A-Za-z0-9][A-Za-z0-9_./-]{0,200}\Z')
 # Pin the executed adapter and cache support, plus the publisher's host build/certification
 # engine. The latter is a trust check, not an input to the source action's execution key.
-TOOL_SUPPORT = tuple(Path(build_cache.__file__).parent / name for name in
-                     ('build.py', *build_cache.TOOL_SUPPORT))
+TOOL_SUPPORT = (Path(build_cache.__file__).with_name('build.py'), *build_cache.tool_support().values())
 
 
 class PublisherError(ValueError):

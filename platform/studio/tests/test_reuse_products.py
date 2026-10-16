@@ -18,6 +18,8 @@ def snapshot(tmp_path, monkeypatch):
     source, target, engine = (tmp_path / name for name in ('source', 'target', 'engine'))
     shutil.copytree(paths.STUDIO / 'atelier', source / 'platform/studio/atelier',
                     ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copytree(paths.HARNESS / 'harness', source / 'platform/harness/harness',
+                    ignore=shutil.ignore_patterns('__pycache__'))
     game = source / 'games/standin'
     write(game / 'game.toml', 'editor_target = "StandinEditor"\n')
     write(game / 'source.txt', 'source')
@@ -283,7 +285,7 @@ def test_abandon_refuses_unsafe_scope_before_removing_anything(tmp_path, monkeyp
 
 
 def test_direct_native_launcher_refuses_partial_snapshot_before_spawning(tmp_path, monkeypatch):
-    from atelier.safety import process
+    from atelier.harness.safety import process
     project = tmp_path / 'games/standin/unreal/Standin.uproject'
     write(project, '{}')
     write(tmp_path / 'build/standin' / build_snapshot.JOURNAL, '{}')

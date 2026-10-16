@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Whole frozen physics/controls.rs owner/sampling/camera-remap parity.
 
-Root must run compilation/execution through atelier.safety. --preflight only
+Root must run compilation/execution through atelier.harness.safety. --preflight only
 generates input, audits original/simulation source identities and checks protocol.
 Physical/camera observations are explicit caller records; no world or complete
 frame producer is claimed by this focused controls proof.

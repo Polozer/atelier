@@ -101,7 +101,7 @@ nice -n 10 uv run atelier build yorimichi unreal.<key>_pawn unreal.<key>_bike un
 | `characters.<key>_fit` | the fit gate (step 4) |
 | `unreal.<key>_pawn` | its pawn, registered with the game (step 6; players only), after the horse clips but without needing them |
 
-Use `atelier build` or `atelier.safety.guarded` for every heavy step, as `AGENTS.md` requires.
+Use `atelier build` or `atelier.harness.safety.guarded` for every heavy step, as `AGENTS.md` requires.
 
 ## 4. Check the fit
 

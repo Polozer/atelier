@@ -59,7 +59,7 @@ prints `verified: {...}` or `not verified: ...` (exit code 1):
 
 This is a local build run from the editor binary, not a cooked package.
 
-Agent-launched processes use `atelier.safety.process` on macOS: application scheduling policies, at least
+Agent-launched processes use `atelier.harness.safety.process` on macOS: application scheduling policies, at least
 nice 10, without imposing a thread QoS clamp. This prevents a background launchd role from distorting imports
 and game measurements. Native review and benchmark launchers use the same helper. The command still owns the
 actual child PID, render admission, memory ceiling and cleanup; worker counts and caches stay unchanged.

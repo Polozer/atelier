@@ -224,7 +224,7 @@ def _fetch(assets, name, folder, expected=None, say=say, *, cache_bust=False):
 
 def unpack(archive, destination, game, tag):
     """`ditto -x -k` under the render lock and memory guard, like the release check's extraction."""
-    from .safety import guarded
+    from atelier.harness.safety import guarded
     destination.mkdir(parents=True)
     code = guarded.run(['ditto', '-x', '-k', str(archive), str(destination)], destination.parent / 'unpack.guard',
                        timeout=900, kind='job', small_gib=3, watch=('ditto',), purpose=f'atelier playtest {game}: unpack {tag}')
@@ -346,7 +346,7 @@ def main(game, tag=None, download_only=False, extra=(), limit_gib=10.):
     stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     logs = paths.build_dir(game) / 'logs' / f'playtest-{release["tag_name"]}-{stamp}'
     logs.mkdir(parents=True, exist_ok=True)
-    from .safety import guarded
+    from atelier.harness.safety import guarded
     print(f'playing {release["tag_name"]}; guard reports in {logs}')
     started = time.time()
     code = guarded.run(['/bin/bash', str(launcher), *extra], logs, purpose=f'atelier playtest {game} {release["tag_name"]}',

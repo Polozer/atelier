@@ -315,10 +315,10 @@ def mixed_character_checks(folder):
 
 def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, loss_percent=0, tailnet=False, combat=False, combat_host_fps=20, enemy=False, app=None, cook_receipt=None, expected_identity=None, plain_package=False, movement_hitch_ms=0, skate_hitch_ms=0, modori_shield=None, vehicle_case=None, jump_replay=None, reaction_delivery_case=None, reaction_delivery_moving=False, feature_case=None, render_view=None, aggregate_memory_gib=10, rendered_memory_gib=10, mixed_characters=False):
     from atelier.build import Context
-    from atelier.safety import process_tree
-    from atelier.safety.guard import attach, reap
-    from atelier.safety.process import spawn_game
-    from atelier.safety.render_lock import available_bytes
+    from atelier.harness.safety import process_tree
+    from atelier.harness.safety.guard import attach, reap
+    from atelier.harness.safety.process import spawn_game
+    from atelier.harness.safety.render_lock import available_bytes
     from network_review_common import require_clean_source, source_revision, current_native_build
     revision = require_clean_source()
     free = available_bytes()
@@ -663,7 +663,7 @@ def main():
     elif args.cook_receipt or args.expected_identity or args.plain_package:
         parser.error('Package options require --app')
     from atelier.build import Context
-    from atelier.safety import guarded
+    from atelier.harness.safety import guarded
     ctx = Context('yorimichi')
     if args.app:
         from network_package_target import runtime_directory, package_layout

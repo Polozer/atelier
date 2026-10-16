@@ -242,7 +242,7 @@ def test_invalid_deadline_refused_before_network(package, server, value):
 
 
 def test_worker_hard_deadline_reaps_a_stuck_resolver_process(package, tmp_path, monkeypatch):
-    from atelier.safety import process
+    from atelier.harness.safety import process
     children = []
     def stuck(argv, **kwargs):
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], **kwargs)
@@ -374,7 +374,7 @@ def test_read_only_plan_does_not_even_load_remote_configuration(project, monkeyp
 @pytest.fixture
 def worker_script(tmp_path, monkeypatch):
     """Keep real worker lifecycle assertions, with deterministic subprocess HTTP responses."""
-    from atelier.safety import process
+    from atelier.harness.safety import process
     children = []
     script = tmp_path / 'download_standin.py'
     def install(source):

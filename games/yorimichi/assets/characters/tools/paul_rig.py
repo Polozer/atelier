@@ -2,7 +2,7 @@
 
 Run it only under the guard, after a render-board turn:
 
-nice -n 10 uv run python -m atelier.safety.guarded --report build/yorimichi/paul-rig.guard --timeout 600 -- \
+nice -n 10 uv run python -m atelier.harness.safety.guarded --report build/yorimichi/paul-rig.guard --timeout 600 -- \
     /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --threads 3 --python-exit-code 1 --python \
     games/yorimichi/assets/characters/tools/paul_rig.py -- \
     --graft <dir>/Paul-graft.blend --rigged <tripo rigged>.glb --output <dir> [--poses]
