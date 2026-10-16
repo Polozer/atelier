@@ -74,3 +74,26 @@ def test_ordinary_authoring_scan_does_not_depend_on_harness(tmp_path):
     script = tmp_path / 'generator.py'
     script.write_text('from atelier import paths\n')
     assert not any(p.is_relative_to(paths.HARNESS) for p in ImportScanner().local_imports(script))
+
+
+def test_source_tool_support_resolves_the_moved_guard_files():
+    from atelier import build_cache, artifact_publisher
+    support = build_cache.tool_support()
+    for name in ('process.py', 'exec_gate.py'):
+        source = paths.HARNESS / 'harness' / 'safety' / name
+        assert support['safety/' + name] == source
+        assert source.is_file() and source in artifact_publisher.TOOL_SUPPORT
+
+
+def test_ordinary_import_performs_no_path_metadata_probes():
+    # Audited generators can import the shared initializer while their reads are
+    # restricted. Mounting the namespace must not inspect unrelated directories.
+    code = '''
+from pathlib import Path
+def refuse(*args, **kwargs):
+    raise AssertionError('ordinary package import probed filesystem metadata')
+Path.resolve = Path.stat = refuse
+import atelier
+'''
+    subprocess.run([sys.executable, '-S', '-c', code], check=True, timeout=10,
+                   env={**os.environ, 'PYTHONPATH': str(paths.STUDIO)}, capture_output=True)

@@ -26,6 +26,15 @@ DIGEST = re.compile(r'[0-9a-f]{64}')
 NATIVE_SUFFIXES = {'.uasset', '.umap', '.uexp', '.ubulk', '.dylib', '.dll', '.so'}
 
 
+def tool_support():
+    """Stable support labels, resolved to the actual component owning each file."""
+    from atelier.harness.safety import process
+    safety = Path(process.__file__).parent
+    studio = Path(__file__).parent
+    return {name: safety / name.removeprefix('safety/') if name.startswith('safety/') else studio / name
+            for name in TOOL_SUPPORT}
+
+
 def atomic_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, prefix='.write-', delete=False) as stream:
@@ -110,7 +119,7 @@ def tool_context(step, hasher, *, cache=None):
     if kinds - {build.Python, build.Blender}:
         raise ValueError('Only Python/Blender source products have a portable tool context')
     context = {'schema': SCHEMA, 'system': platform.system(), 'machine': platform.machine(),
-               'support': {name: hasher(Path(__file__).parent / name) for name in TOOL_SUPPORT}}
+               'support': {name: hasher(path) for name, path in tool_support().items()}}
     cache = {} if cache is None else cache
     if build.Python in kinds:
         context['lock'] = hasher(paths.REPO / 'uv.lock')

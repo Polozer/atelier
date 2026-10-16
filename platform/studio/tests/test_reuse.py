@@ -58,6 +58,8 @@ def test_inspect_legacy_and_named_products(tmp_path, monkeypatch, named_products
     repo = tmp_path / 'repo'
     shutil.copytree(paths.STUDIO / 'atelier', repo / 'platform/studio/atelier',
                     ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copytree(paths.HARNESS / 'harness', repo / 'platform/harness/harness',
+                    ignore=shutil.ignore_patterns('__pycache__'))
     game = repo / 'games/standin'
     (game / 'unreal').mkdir(parents=True)
     (game / 'unreal/Standin.uproject').write_text('{}')

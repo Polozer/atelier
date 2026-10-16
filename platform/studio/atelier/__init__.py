@@ -9,8 +9,8 @@ __version__ = '0.1.0'
 # Embedded Blender/Unreal interpreters add only platform/studio to sys.path. Installed
 # wheels already contain atelier/harness; source checkouts mount its dedicated tree.
 from pathlib import Path as _Path
-_harness_source = _Path(__file__).resolve().parents[2] / 'harness'
-if (_harness_source / 'harness' / '__init__.py').is_file():
+_harness_source = _Path(__file__).parents[2] / 'harness'
+if _Path(__file__).parent.parent.name == 'studio':
     __path__.append(str(_harness_source))
 
 # Load the legacy adapter only when a legacy Harness name is requested. Ordinary

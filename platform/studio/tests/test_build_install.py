@@ -349,6 +349,9 @@ def test_public_install_uses_actual_guarded_worker_and_registry(project, tmp_pat
     module_root = project.repo / 'platform' / 'studio'
     shutil.copytree(Path(atelier.__file__).parent, module_root / 'atelier',
                     ignore=shutil.ignore_patterns('__pycache__'))
+    from atelier import paths
+    shutil.copytree(paths.HARNESS / 'harness', module_root.parent / 'harness/harness',
+                    ignore=shutil.ignore_patterns('__pycache__'))
     manifest = tmp_path / 'snapshot.json'
     manifest.write_text(json.dumps(plan))
     script = '''
@@ -532,6 +535,9 @@ def test_ordinary_unguarded_parent_cannot_forge_installer_lifecycle(project, tmp
     root, plan = source(tmp_path, [('/Game/One', [], {'.uexp': b'forged-replacement'})], label='second')
     module_root = project.repo / 'platform' / 'studio'
     shutil.copytree(Path(atelier.__file__).parent, module_root / 'atelier', ignore=shutil.ignore_patterns('__pycache__'))
+    from atelier import paths
+    shutil.copytree(paths.HARNESS / 'harness', module_root.parent / 'harness/harness',
+                    ignore=shutil.ignore_patterns('__pycache__'))
     manifest = tmp_path / 'snapshot.json'
     manifest.write_text(json.dumps(plan))
     script = '''

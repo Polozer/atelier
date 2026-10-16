@@ -18,6 +18,8 @@ def snapshot(tmp_path, monkeypatch):
     source, target, engine = (tmp_path / name for name in ('source', 'target', 'engine'))
     shutil.copytree(paths.STUDIO / 'atelier', source / 'platform/studio/atelier',
                     ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copytree(paths.HARNESS / 'harness', source / 'platform/harness/harness',
+                    ignore=shutil.ignore_patterns('__pycache__'))
     game = source / 'games/standin'
     write(game / 'game.toml', 'editor_target = "StandinEditor"\n')
     write(game / 'source.txt', 'source')
