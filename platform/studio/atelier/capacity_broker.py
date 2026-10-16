@@ -44,8 +44,9 @@ class CapacityBroker:
     ownership of every sealed legacy lane in explicit maintenance mode. Maintenance or an explicit
     calibrated full configuration MAY reduce only the host memory reserve, with a 4096 MiB floor
     and the sealed reserve as its ceiling. Ordinary full configuration MUST keep the exact sealed
-    reserve; every other sealed resource dimension MUST remain exact. Actual job reservations,
-    guard ceilings and complete remaining-growth pressure checks MUST NOT shrink.
+    reserve; every other sealed configuration value MUST remain exact. Legacy temp_mib fields
+    remain readable but MUST NOT constrain admission. Actual memory reservations, guard ceilings
+    and complete remaining-memory-growth pressure checks MUST NOT shrink.
     """
     def __init__(self, state_directory, *, total, reserve=Resources(), disk_pool=None,
                  observe=None, lease_seconds=10., rpc_timeout=2., started=wire.process_start,
@@ -604,9 +605,8 @@ class CapacityBroker:
                 or not 0 <= now - observation['observed_monotonic'] <= 2):
             raise wire.CapacityError('Fresh capacity pressure observation unavailable')
         memory = wire.integer(observation.get('available_memory_mib'))
-        disk = wire.integer(observation.get('available_temp_mib'))
         required = wire.resources(candidate['request']['resources']) + self.reserve
-        growth_memory, growth_temp = 0, 0
+        growth_memory = 0
         for record in state['records'].values():
             if record is candidate or record['state'] not in HELD:
                 continue
@@ -621,8 +621,7 @@ class CapacityBroker:
                     record['state'] = 'draining' if self._root_exited(record) else 'uncertain'
                     raise wire.CapacityError('Existing holder enforcement is unavailable; reservation retained') from None
             growth_memory += max(0, vector.memory_mib - measured)
-            growth_temp += vector.temp_mib
-        if memory < required.memory_mib + growth_memory or disk < required.temp_mib + growth_temp:
+        if memory < required.memory_mib + growth_memory:
             raise wire.CapacityError('Capacity pressure refuses the complete reservation')
 
     def _validate_holders(self, state, candidate):
@@ -694,8 +693,9 @@ class CapacityBroker:
         result = dict(epoch=state['epoch'], boot_id=self.boot, mode=self.mode, cutover=self.mode == 'capacity',
                       observed_at=time.time(), observed_monotonic=time.monotonic(),
                       recovering=not self.compatible or any(r['state'] == 'uncertain' for r in records),
-                      total=asdict(self.total), reserve=asdict(self.reserve), charged_resources=asdict(used),
-                      charged_count=len(charged), waiting_count=sum(r['state'] in ('queued', 'waiting') for r in records),
+                      total=asdict(self.total.admission()), reserve=asdict(self.reserve.admission()),
+                      charged_resources=asdict(used.admission()),
+                      charged_count=len(charged), waiting_count=sum(r['state'] == 'queued' for r in records),
                       total_records=len(records), records=[], truncated=False)
         if self.mode in ('capacity', 'sealed-maintenance'):
             result['compatibility_healthy'] = self.compatible

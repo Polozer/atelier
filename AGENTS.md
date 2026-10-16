@@ -209,6 +209,9 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   protected and must never be removed, replaced or chmodded. Memory reservations cover actual-child and
   aggregate guard ceilings; CPU is a scheduling budget, not dedicated cores. Let normal admission select
   compatible work; never lower a profile or increase workers to squeeze in another job.
+  Disk free space is telemetry only: there are no temporary-disk reservations or disk admission limits.
+  Legacy `temp_mib` fields remain readable for old clients/history but do not block or serialize jobs.
+  The board's waiting count includes live queued requests only; retry-required history holds no capacity.
   Explicit sealed maintenance is one guarded job at a time,
   with read-only exclusive ownership of all sealed lanes and normal nominal guard ceilings; it is not full
   concurrency. Keep the pilot client until the operator announces maintenance or full cutover; then use the
