@@ -290,9 +290,30 @@ differ. It binds the current volume UUIDs, preserves the original record bytes i
 `cutover.schema1.ACTIVATION_ID.json`, and resets `seal_boot_id` to the current boot. The archive and its directory
 are synced before the new record replaces the old one. An interrupted migration can reuse only an owned,
 private, single-link archive whose bytes exactly match the original; differing archives refuse.
-**Another real OS reboot after migration is required before activation.** Migration does not establish the old
+**Ordinary schema2 activation requires another real OS reboot after migration.** Migration does not establish the old
 volume's identity, activate capacity, alter lane files or unseal them. Other states and schemas refuse migration;
 do not edit records, delete archives or substitute files to force the transition.
+
+An explicit `atelier capacity promote-prior-boot ABSOLUTE_FULL_CONFIG` can instead preserve the completed earlier
+reboot's descriptor-closure proof. It is eligible only for a current-boot schema2 migration backed by the unchanged
+private schema1 sealed archive from an earlier boot. It holds admission and all three read-only lane mutexes
+exclusively, then fetches fresh broker state itself and requires healthy maintenance mode, matching activation/boot,
+zero charged resources and no recovery hold. A saved status JSON or an empty process scan cannot substitute.
+
+Promotion preserves both seal dates and every lane inode, byte, permission and change-time pin. It durably archives
+the exact schema2 bytes before publishing a distinct schema3 `active` record that binds both archive hashes and the
+actual promotion boot. Verification rechecks both archived seals, the earlier boot change and current stable-volume
+identity/write denial. Fresh same-boot prepares cannot qualify. The original full policy, including its host reserve,
+stays exact; maintenance calibration does not silently carry into full mode. This is an explicit source-supported
+transition, never permission to edit a record or relax a failed check.
+
+Coordinate a child-free owner boundary before promotion. After publication, restart the single reviewed broker
+with its original full policy and the same SQLite history, verify a fresh healthy full-mode epoch, and only then
+install the full default client. Old maintenance clients refuse the active record; no automatic fallback exists.
+If interrupted after ACTIVE publication, repeat the promotion command to revalidate and sync the already-published
+proof under all three exclusive mutexes, then complete the same service/client transition. It never rewrites ACTIVE
+as SEALED or clears retained grants. Keep native launches held through recovery controls and measured overlap proof;
+neither a merged PR nor successful provenance publication alone demonstrates useful or safe concurrency.
 
 Every full startup and GO checks the seal. A replaced inode, writable ACL, changed policy or unavailable boot
 observation refuses new work; held allocations become uncertain and stay charged. A controller/broker crash may
