@@ -517,14 +517,23 @@ def hippodrome_steps(out):
 
 TRAIN_VEHICLES = ('locomotive', 'tender', 'baggage-van', 'restaurant', 'first-class', 'second-class', 'brake-van')
 TRAIN_FURNITURE = tuple(a['id'] for a in json.loads((ASSETS / 'vehicles/belmonte-train/planning/furniture-dimensions.json').read_text())['assets'])
+_train_ew_spec = importlib.util.spec_from_file_location('yorimichi_train_earthworks', WORLD / 'train' / 'earthworks.py')
+train_earthworks = importlib.util.module_from_spec(_train_ew_spec)
+_sys_path = list(os.sys.path)
+os.sys.path.insert(0, str(WORLD))
+try:
+    _train_ew_spec.loader.exec_module(train_earthworks)
+finally:
+    os.sys.path[:] = _sys_path
 
 
 def belmonte_train_corridor(out):
     """The railway corridor the region planting clears (world/train/corridor.py reads the route): inputs of the steps
-    that plant trees, so a new route clears them again. line.json (geometry only, written by the route step) carries
-    an explicit absent identity when missing, so its appearance, removal and content changes invalidate consumers."""
+    that plant trees, so enabling the railway in earthworks.py invalidates them cleanly. While earthworks.ENABLED is
+    False, the default world build never reads line.json."""
     line = out / 'belmonte-train' / 'route' / 'line.json'
-    return [WORLD / 'train' / 'corridor.py', WORLD / 'train' / 'earthworks.py', line]
+    return [WORLD / 'train' / 'corridor.py', WORLD / 'train' / 'earthworks.py',
+            *([line] if train_earthworks.ENABLED else [])]
 
 
 def belmonte_steps(out):
@@ -536,7 +545,9 @@ def belmonte_steps(out):
                      ASSETS / 'environment/textures/tuscan-ground.provenance.json', REGIONS / 'megapark/forest.py', REGIONS / 'hippodrome' / 'build.py',
                      REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py',
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK, YORI, *NORTH_LAYOUT, *belmonte_train_corridor(out)],
-             needs=['world.layout', 'world.treehouse_trees'], outputs=[out / 'belmonte' / 'runtime.json', out / 'belmonte' / 'build-report.json'],
+             needs=['world.layout', 'world.treehouse_trees'],
+             outputs=[out / 'belmonte' / 'runtime.json', out / 'belmonte' / 'build-report.json',
+                      out / 'belmonte' / 'natural' / 'SM_BM_NorthApron.glb', out / 'belmonte' / 'natural' / 'SM_BM_NorthCountry.glb'],
              about='Belmonte environment: committed models, northern terrain join and island flora'),
         digest_step(out, 'world.belmonte', 'meshes', 'what unreal.belmonte reads of the environment', out, ['belmonte']),
         # Keep derived-mesh workers out of material sections while the importer edits them.
@@ -731,10 +742,11 @@ def world_steps(ctx):
         # the Belmonte train's coach shells are not in the game yet: build them only when named
         Step('world.belmonte_train', [Blender(WORLD / 'train' / 'build.py', threads=3)],
              inputs=[WORLD / 'train', ASSETS / 'vehicles' / 'belmonte-train' / 'planning',
-                     ASSETS / 'vehicles' / 'belmonte-train' / 'textures',
-                     *(out / 'belmonte-train' / 'furniture' / f'{a}.glb' for a in TRAIN_FURNITURE), YORI],
+                     ASSETS / 'vehicles' / 'belmonte-train' / 'textures', YORI],
              outputs=[out / 'belmonte-train' / 'manifest.json',
-                      *(out / 'belmonte-train' / v / f'{v}-placements.json' for v in TRAIN_VEHICLES)],
+                      *(out / 'belmonte-train' / v / f'{v}-placements.json' for v in TRAIN_VEHICLES),
+                      *(out / 'belmonte-train' / 'furniture' / f'{a}.glb' for a in TRAIN_FURNITURE),
+                      *(out / 'belmonte-train' / 'furniture' / f'{a}.json' for a in TRAIN_FURNITURE)],
              heavy=True, explicit=True,
              about='Belmonte train: restaurant and first-class coach shells, collision, reservations, placements'),
         Step('world.belmonte_train_plan', [Python(WORLD / 'train' / 'plan.py')],
@@ -784,7 +796,7 @@ def world_steps(ctx):
              inputs=[WORLD / 'train' / 'lod_furniture.py', WORLD / 'train' / 'budgets.py',
                      ASSETS / 'vehicles' / 'belmonte-train' / 'planning',
                      *(out / 'belmonte-train' / 'furniture' / f'{a}.glb' for a in TRAIN_FURNITURE)],
-             heavy=True, explicit=True,
+             needs=['world.belmonte_train'], heavy=True, explicit=True,
              outputs=[out / 'belmonte-train' / 'furniture' / 'lod' / 'summary.json'],
              about='Belmonte train furniture: LOD0/LOD1 decimated from the fitted Tripo meshes, maps baked (Cycles)'),
         Step('world.belmonte_train_furniture_review', [Blender(WORLD / 'train' / 'review_lods.py', threads=3),

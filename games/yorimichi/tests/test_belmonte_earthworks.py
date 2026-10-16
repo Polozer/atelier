@@ -29,6 +29,15 @@ class Design(unittest.TestCase):
     ln = made_up_line()
     floor = 100. - E.FORMATION_DROP
 
+    def setUp(self):
+        self._saved_enabled = E.ENABLED
+        E.ENABLED = True
+        E.line.cache_clear()
+
+    def tearDown(self):
+        E.ENABLED = self._saved_enabled
+        E.line.cache_clear()
+
     def carve(self, x, y, z):
         return float(E.carve(np.array([x]), np.array([y]), np.array([z]), self.ln)[0])
 
@@ -96,7 +105,7 @@ def samples():
     return ln, pick('x'), pick('y'), pick('rail_z')
 
 
-@unittest.skipUnless(C.LINE.exists(), 'line not built (world.belmonte_train_route)')
+@unittest.skipUnless(E.ENABLED and C.LINE.exists(), 'earthworks disabled or line not built (world.belmonte_train_route)')
 class Built(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

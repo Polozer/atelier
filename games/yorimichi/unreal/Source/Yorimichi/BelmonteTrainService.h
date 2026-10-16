@@ -156,7 +156,7 @@ private:
         /** The capsule's responses before boarding (aboard, only the train holds the rider). */
         FCollisionResponseContainer Responses;
         /** The short train camera's blend (0 outside, 1 inside a coach) and the arm it came from. */
-        float Camera = 0.f, SavedArm = -1.f;
+        float Camera = 0.f, SavedArm = -1.f, LastAppliedArm = -1.f;
         /** The scripted step up or down at a door: the path in vehicle cm, the time along it and its length. */
         int32 BoardVehicle = INDEX_NONE, BoardDoor = INDEX_NONE;
         TArray<FVector> BoardPath;

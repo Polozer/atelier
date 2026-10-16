@@ -19,7 +19,7 @@ Built:
 - The ends of the line. At each terminus the track runs to a buffer stop, and a stop board marks the stopping point.
   There are no station buildings. The 200 m station reserves stay in the data, but nothing is built on them.
 - Tunnels: four portals in Belmonte stone, and a simple horseshoe lining for both tunnels, the spiral included.
-- Dark tunnels with lamps (Paul, 14 October 2026): the lining is soot-black stone (`MI_TK_TunnelLining`). A wall lamp
+- Dark tunnels with lamps (14 October 2026): the lining is soot-black stone (`MI_TK_TunnelLining`). A wall lamp
   (`SM_TK_TunnelLamp`: iron bracket, emissive globe `MI_TK_LampGlow`) stands every ~30 m, 3.0 m over the rail, on
   alternating walls. track.json's `tunnel_lighting` holds one warm point light per lamp (2700 K, 80 cd, 14 m reach,
   no shadows) grouped by tunnel, to be spawned with the tunnel's data layer. Each lining piece also carries an
@@ -31,7 +31,7 @@ Built:
 
 Not built:
 
-- No terrain carving. That needs Henry's agreement first.
+- No terrain carving. That is gated behind earthworks.ENABLED.
 - The rail floats on placeholder ground where the far hills have not been rebuilt (route.json flags those samples).
 - No Nanite anywhere.
 

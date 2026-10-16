@@ -49,7 +49,7 @@ Before riding, check the whole train against the playable characters, and make t
   - It follows a fixed timetable, computed on every machine from the server clock, the way the zeppelin's position
     is computed.
   - Departure boards in the stations. Yorimichi has no in-game clock yet, so the boards need one to be designed.
-  - Hidamari station is Henry's to design and Belmonte station the owner's. Reserve their space; build neither here.
+  - Hidamari and Belmonte stations are designed separately. Reserve their space; build neither here.
   - Sitting: on the controller, D-pad down (Yorimichi's Interact) near a seat sits the player on the nearest free
     seat marker (each bench and sofa exports its seats with position, height and facing), and again stands them
     up. A seat taken in multiplayer is unavailable to others. The characters' seat correctives

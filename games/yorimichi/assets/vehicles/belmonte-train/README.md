@@ -46,7 +46,7 @@ Coupling: every coach shares `layout.coupling()` (buffers, draw hook, gangway, f
 ## Assembling the Studio furniture on the shells
 
 1. Export each Tripo Studio model (FBX or GLB) and fit it:
-   `blender -b --python games/yorimichi/world/train/fit_furniture.py -- first-class-table model.fbx --column .15 .85`.
+   `uv run python games/yorimichi/world/train/fit_furniture.py first-class-table model.fbx --column .15 .85`.
    It scales uniformly to the contract width, sets the pivot, and with `--column` lengthens only the legs or
    pedestal to the contract height. It stops if a dimension misses by more than 2 cm: then fix the model or revise
    the contract, never stretch the whole object on one axis.

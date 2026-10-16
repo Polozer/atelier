@@ -24,7 +24,6 @@ vertex colours. Frame: route.json's (metres, x east, y north, z up).
 """
 import json
 import math
-import os
 from functools import lru_cache
 
 import numpy as np
@@ -49,7 +48,9 @@ SEAM_FADE = 20.             # a terrain sharing a seam with ground that is not c
                             # carving to nothing over this many metres from the seam, so the seam stays closed
 CUT = ('cutting', 'deep cutting', 'embankment')
 
-ENABLED = os.environ.get('RAILWAY_EARTHWORKS', '1') != '0'
+# Off in default builds while the railway track and train steps remain explicit;
+# flip to True when unreal.belmonte_track joins the default build.
+ENABLED = False
 
 
 def _smooth(t):

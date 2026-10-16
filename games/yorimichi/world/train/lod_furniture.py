@@ -1,6 +1,6 @@
 """Levels of detail for the fitted Tripo furniture (Blender, headless): `atelier build yorimichi world.belmonte_train_furniture_lods`.
 
-    blender -b --python games/yorimichi/world/train/lod_furniture.py -- [ASSET ...]
+    uv run atelier build yorimichi world.belmonte_train_furniture_lods
 
 Reads each fitted asset, build/yorimichi/belmonte-train/furniture/<asset>.glb (fit_furniture.py), and leaves it as it
 is: it stays the high-poly source. For each asset in budgets.FURNITURE it writes furniture/lod/<asset>_LOD0.glb and,

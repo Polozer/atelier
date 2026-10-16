@@ -15,6 +15,7 @@
 
 static FVector TrackVector(const TArray<TSharedPtr<FJsonValue>>& A, int32 First = 0)
 {
+    if (A.Num() < First + 3) return FVector::ZeroVector;
     return FVector(A[First]->AsNumber(), A[First + 1]->AsNumber(), A[First + 2]->AsNumber());
 }
 
@@ -102,6 +103,7 @@ bool ABelmonteTrack::Initialize(const FString& Path)
         for (const auto& Row : G->GetArrayField(TEXT("instances")))
         {
             const auto& A = Row->AsArray();
+            if (A.Num() < 5) continue;
             C->AddInstance(FTransform(FRotator(0., A[3]->AsNumber(), 0.), TrackVector(A), FVector(1., A[4]->AsNumber(), 1.)), true);
             ++Instances;
         }

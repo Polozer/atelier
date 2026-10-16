@@ -1,11 +1,11 @@
-"""Fit a Tripo Studio furniture export to the train's dimension contract (Blender, headless).
+"""Fit a furniture export to the train's dimension contract under the Atelier render/memory guard.
 
-    blender -b --python games/yorimichi/world/train/fit_furniture.py -- ASSET_ID SOURCE.fbx|.glb [--column Z0 Z1]
+    uv run python games/yorimichi/world/train/fit_furniture.py ASSET_ID SOURCE.fbx|.glb [--column Z0 Z1]
         [--yaw DEG] [--scale-by width|height] [--side-panels Y0 Y1 Z0 Z1] [--back-panel X0 X1 Z0 Z1]
         [--erase X0 X1 Z0 Z1 SHIFT] [--as OUTPUT_ID] [--table-top] [--side-wood] [--shallow-gaps]
         [--metal HUE0 HUE1 SAT VAL [--metal-skip X0 X1 Y0 Y1 Z0 Z1]] [--cut-box X0 X1 Y0 Y1 Z0 Z1]
         [--drop-along AX AY AZ BX BY BZ R] [--drop-islands X0 X1 Y0 Y1 Z0 Z1] [--porridge Z R] [--hang]
-    blender -b --python games/yorimichi/world/train/fit_furniture.py -- --metal-only OUTPUT_ID [HUE0 HUE1 SAT VAL]
+    uv run python games/yorimichi/world/train/fit_furniture.py --metal-only OUTPUT_ID [HUE0 HUE1 SAT VAL]
 
 Imports the mesh, puts its origin at the contract's pivot (floor footprint centre, table lamp base, sconce wall
 mount), scales it uniformly so its width matches the contract, then, with --column, lengthens only the part between
@@ -38,10 +38,15 @@ import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_
 import hashlib
 import json
 import math
+import os
 import sys
 
-import bpy
-from mathutils import Vector
+try:
+    import bpy
+    from mathutils import Vector
+except ImportError:
+    bpy = None
+    Vector = None
 
 from train import layout as L
 
@@ -730,5 +735,24 @@ def main():
         raise SystemExit(f'{asset}: fitted size misses the contract by {errors}')
 
 
+def _run_guarded():
+    from atelier import engine
+    from atelier.harness.safety import guarded
+    report = yori.OUT / 'logs' / 'fit_furniture.guard'
+    cmd = [
+        str(engine.blender()), '-b', '-t', '3',
+        '--python', str(_Path(__file__).resolve()), '--', *sys.argv[1:],
+    ]
+    raise SystemExit(guarded.run(
+        cmd, report, timeout=600, purpose='fit belmonte train furniture',
+        small_gib=3.0, kind='job',
+        env={**os.environ, 'ATELIER_GUARDED_FIT_FURNITURE': '1'},
+    ))
+
+
 if __name__ == '__main__':
+    if bpy is None:
+        _run_guarded()
+    if os.environ.get('ATELIER_GUARDED_FIT_FURNITURE') != '1' and not os.environ.get('ATELIER_MEMORY_GUARD'):
+        raise SystemExit('Run fit_furniture.py via uv run python games/yorimichi/world/train/fit_furniture.py ... so it executes under atelier.harness.safety.guarded')
     main()
