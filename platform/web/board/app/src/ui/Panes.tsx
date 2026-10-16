@@ -457,8 +457,8 @@ export function RenderPane() {
     <aside className="pane render-pane" id="renderPane" aria-label="Render floor">
       <header className="pane-head"><h1>Render floor</h1>
         <p className="pane-sub" id="renderSummary">{!state ? 'Checking live jobs' : failed ? 'Live status unavailable'
-          : full ? state.capacity.fresh ? state.capacity.snapshot?.recovering ? 'Capacity recovery · grants paused'
-          : 'Capacity admission · broker reservations' : 'Capacity observation stale'
+          : full ? state.capacity.fresh ? state.capacity.snapshot?.recovering ? 'Locked · exit or compatibility check'
+          : 'Admission open · broker reservations' : 'Capacity observation stale'
           : maintenance ? state.capacity.fresh ? state.capacity.snapshot?.recovering ? 'Maintenance recovery · grants paused'
           : 'Exclusive maintenance · one job at a time' : 'Maintenance observation stale'
           : bridge ? 'Capacity bridge · legacy lanes held' : jobs.length ? `${jobs.length} reported ${jobs.length === 1 ? 'job' : 'jobs'}`
@@ -469,7 +469,7 @@ export function RenderPane() {
           <h2 className="eyebrow" id="liveHeading">{sealed ? 'Compatibility locks' : 'Live legacy holders'}</h2>
           <div id="liveJobs">
             {sealed && <p className="quiet">{state?.capacity.fresh && !failed
-              ? state.capacity.snapshot?.recovering ? 'Recovery is checking compatibility and ownership. New grants are paused.'
+              ? state.capacity.snapshot?.recovering ? 'Admission is locked. Exit or compatibility checks must finish before new jobs can start.'
               : maintenance ? 'Sealed legacy mutexes stay exclusive. Broker reservations below report the single guarded job.'
               : 'Legacy mutexes are sealed. Broker reservations below report active work.'
               : 'The last observation used sealed legacy mutexes. Current admission state is unknown.'}</p>}
