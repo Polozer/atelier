@@ -41,6 +41,18 @@ If the bench generator changes but produces the same bounds, clearance stays cur
 placement and its actual consumers. Reference cycles are permitted; read/order cycles are rejected. A reference
 must not conceal a read of bounds, collision, material state or any other derived data.
 
+Yorimichi's selected Crater Park uses a validated placement cutoff, `world.craterpark_layout`.
+The geometry compiler still fingerprints the complete selected park and referenced terrain inputs.
+The cutoff first checks current geometry provenance and acceptance, then records the ground triangles,
+cut-ground grid and weights, site envelope, caldera depth, coordinate frame and spawn. Island layout,
+terrain, planting and map exports depend on that identity, rather than the full riding document.
+If those placement values stay identical, a riding or material edit leaves the surrounding exports
+current. Moving pieces can change the cut-ground weights and therefore still rebuild the terrain;
+the cutoff never discards an actual landform change. Invalid or stale geometry fails before a
+consumer can reuse its stamp. The legacy park path keeps its original source dependencies.
+The first adoption adds a new dependency boundary; native timing and clean/incremental equivalence
+must be measured separately before claiming an import or cook speedup.
+
 Each output has exactly one owner. Product roots cannot overlap, including case-insensitive aliases; a step cannot
 consume its own output. A product also cannot overlap another step's legacy `outputs` or `pool_roots`, because
 restoration and audited generation replace entire owned roots. Declare every required file and sidecar, or a wholly owned directory. Inventories include
