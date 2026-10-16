@@ -209,5 +209,5 @@ def test_stop_receipts_preserve_the_offending_pre_cleanup_sample(tmp_path, monke
         assert tree_guard.run_child(1, 10, path, **options) == 1
         value = json.loads(path.read_text())
         assert value['state'] == state and value['cleanup_complete'] is True
-        assert value['stopped_processes'] == before and value['stopped_footprint_bytes'] == 77
-        assert value['processes'] == [] and value['footprint_bytes'] == 0 and value['peak_bytes'] == 77
+        assert value['processes'] == before and value['footprint_bytes'] == 77 and value['peak_bytes'] == 77
+        assert value['cleanup_processes'] == [] and value['cleanup_footprint_bytes'] == 0

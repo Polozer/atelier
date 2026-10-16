@@ -141,15 +141,18 @@ def run_child(pid, started, report, duration=None, limit_gib=10.):
                          footprint_bytes=total, peak_bytes=peak, limit_bytes=limit,
                          state=state, processes=samples)
             if state != 'running':
-                if state != 'child_exited':
-                    value.update(stopped_processes=samples, stopped_footprint_bytes=total)
                 value['cleanup_complete'] = drain_owned(tree)
                 # drain_owned may have ended helpers from the pre-cleanup sample. Publish
                 # the observed post-drain tree, including any newly discovered survivor.
                 remaining = tree.sample()
-                value.update(processes=remaining, footprint_bytes=sum(p['footprint_bytes'] for p in remaining))
+                remaining_total = sum(p['footprint_bytes'] for p in remaining)
+                if state == 'child_exited':
+                    value.update(processes=remaining, footprint_bytes=remaining_total)
+                else:
+                    # Keep the established offending sample for failure diagnostics.
+                    value.update(cleanup_processes=remaining, cleanup_footprint_bytes=remaining_total)
                 value['cleanup_complete'] = value['cleanup_complete'] and not remaining
-                value['peak_bytes'] = max(value['peak_bytes'], value['footprint_bytes'])
+                value['peak_bytes'] = max(value['peak_bytes'], remaining_total)
                 if not value['cleanup_complete']:
                     value['termination_reason'], value['state'] = state, 'cleanup_incomplete'
                     state = 'cleanup_incomplete'
