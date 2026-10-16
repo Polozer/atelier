@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 from .ai import ledger
+from .ai import usage
 
 
 MODEL = 'gpt-6.1-sol'
@@ -80,7 +81,27 @@ def main(argv=None):
         details = {'completed': False, 'error_type': type(error).__name__}
     if status != 'done':
         details['completed'] = False
+    details['usage'] = usage.load_capture(os.environ.get('REVIEW_USAGE_PATH', ''), MODEL)
     ledger.finish(args.path, status=status, result=details)
+    if summary := os.environ.get('GITHUB_STEP_SUMMARY'):
+        counters = details['usage'].get('tokens')
+        cost = details['usage'].get('cost')
+        with open(summary, 'a') as output:
+            output.write('\n### Paid contract review\n\n')
+            if counters and cost:
+                reasoning = counters['reasoning_output_tokens']
+                detail = f'{reasoning} reasoning, included in output' if reasoning is not None else 'reasoning detail unreported'
+                output.write(f"Reported tokens: {counters['input_tokens']} input "
+                             f"({counters['cached_input_tokens']} cached), {counters['output_tokens']} output "
+                             f"({detail}).\n\n")
+                output.write(f"Standard list-price estimate: **${cost['usd']} USD**. "
+                             f"Usage coverage: {details['usage']['status']}. "
+                             f"{usage.PRICING['assumption']}. This is not an invoice.\n\n")
+            else:
+                output.write('Token usage/cost unavailable; do not count this run as zero spend.\n\n')
+            output.write('Download final receipt artifacts and total them with '
+                         '`uv run python -m atelier.ai.usage summary PATH/ledger.json ...`. '
+                         'The total reports supplied-receipt coverage and unknown costs.\n')
     # Only a boolean reaches workflow control; model text is never interpreted as shell code.
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write(f"completed={str(details['completed']).lower()}\n")

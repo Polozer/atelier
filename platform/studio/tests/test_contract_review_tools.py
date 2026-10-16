@@ -35,3 +35,27 @@ def test_added_mutable_action_is_rejected(tmp_path, monkeypatch):
     original = action.read_text()
     with pytest.raises(ValueError, match='Unpinned'): tools.prepare(action)
     assert action.read_text() == original
+
+
+def test_usage_collector_adapts_only_pinned_codex_invocation(tmp_path, monkeypatch):
+    outer = fixture_action(tmp_path, monkeypatch)
+    source = ('        exec env -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 node --disable-sigusr1 '
+              '"$ACTION_PATH/dist/main.js" run-codex-exec \\\n'
+              '            --codex-user "$CODEX_USER"\n')
+    inner = tmp_path/'codex.yml'; inner.write_text(source)
+    monkeypatch.setattr(tools, 'CODEX_ACTION_SHA256', hashlib.sha256(source.encode()).hexdigest())
+    tools.prepare(outer, inner)
+    assert 'uses: ./.review-codex' in outer.read_text()
+    assert 'codex-args: \'["--json"]\'' in outer.read_text()
+    assert 'set -o pipefail' in inner.read_text()
+    assert 'python3 -m atelier.ai.usage capture "$RUNNER_TEMP/paid-review/usage.json"' in inner.read_text()
+    assert 'env -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 node --disable-sigusr1' in inner.read_text()
+
+
+def test_unreviewed_codex_bytes_leave_both_actions_unchanged(tmp_path, monkeypatch):
+    outer = fixture_action(tmp_path, monkeypatch)
+    before = outer.read_text()
+    inner = tmp_path/'codex.yml'; inner.write_text('unexpected action')
+    with pytest.raises(ValueError, match='Codex action differs'):
+        tools.prepare(outer, inner)
+    assert outer.read_text() == before and inner.read_text() == 'unexpected action'
