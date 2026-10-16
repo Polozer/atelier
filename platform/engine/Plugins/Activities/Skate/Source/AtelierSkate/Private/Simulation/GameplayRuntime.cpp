@@ -205,7 +205,7 @@ bool GameplayRuntime::DriftAcross() const
 bool GameplayRuntime::LimitVertAssist(float limit,std::string& error)
 {
     if(!(limit>=0.0f && limit<=1.0f)){error="Invalid vert assist limit";return false;}
-    vert_assist_limit_=limit;trajectory.vert_assist=std::min(vert_assist_,vert_assist_limit_);
+    vert_assist_limit_=limit;trajectory.vert_assist=std::min(vert_assist_,vert_assist_limit_);trajectory.vert_assist_limit=limit;
     error.clear();return true;
 }
 bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)

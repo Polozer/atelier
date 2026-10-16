@@ -282,7 +282,6 @@ FQuat USkateComponent::AlignUp(const FQuat& Q, const FVector& NewUp, float Alpha
 void USkateComponent::ReadInput(float Dt)
 {
     FrameSticks.bValid = false;
-    bRightTriggerTransfer = false;
     if (bScripted) { In = Scripted; return; }
     APlayerController* PC = Rider ? Cast<APlayerController>(Rider->GetController()) : nullptr;
     FSkateInput I;
@@ -353,16 +352,13 @@ void USkateComponent::ReadInput(float Dt)
     // The triggers in the pad's 255 steps, as the simulation reads them (SkateRuntime): any press grabs.
     auto Trigger = [&](const FKey& Key, const FKey& Axis) { return Down(Key) ? 1.f : FMath::Clamp(FMath::RoundToFloat(255.f * PC->GetInputAnalogKeyState(Axis)), 0.f, 255.f) / 255.f; };
     I.TriggerLeft = Trigger(EKeys::Q, EKeys::Gamepad_LeftTriggerAxis);
-    // Shift, or the right trigger (R2): held into a lip, the air goes over the coping instead of back into the ramp.
-    // The right bumper stays the session's (handplants). R2 held from the board is only the transfer, not a pump or a
-    // right-hand grab; let go in the air, it grabs again until the board is down (SkatePad.h). Both stick clicks with
-    // both triggers stay the bail.
-    const bool bChord = Down(EKeys::Gamepad_LeftThumbstick) && Down(EKeys::Gamepad_RightThumbstick);
-    bRightTriggerTransfer = atelier::skate_pad::RightTriggerTransfers(PC->GetInputAnalogKeyState(EKeys::Gamepad_RightTriggerAxis) > 0.f,
-        Mode == ESkateMode::Air, bRightTriggerGrabs) && !bChord;
-    I.TriggerRight = bRightTriggerTransfer ? (Down(EKeys::E) ? 1.f : 0.f) : Trigger(EKeys::E, EKeys::Gamepad_RightTriggerAxis);
+    I.TriggerRight = Trigger(EKeys::E, EKeys::Gamepad_RightTriggerAxis);
     I.bGrabLeft = I.TriggerLeft > 0; I.bGrabRight = I.TriggerRight > 0;
-    I.bTransfer = Down(EKeys::LeftShift) || Down(EKeys::RightShift) || bRightTriggerTransfer;
+    // The transfer: Shift, the left stick pushed forward (it steers sideways and powerslides back, never forward), or
+    // the left bumper (L1). Held into a lip, the air goes over the coping instead of back into the ramp. Both triggers
+    // stay pump and grab, and R1 the session's handplant.
+    I.bTransfer = atelier::skate_pad::Transfers(Down(EKeys::LeftShift) || Down(EKeys::RightShift), I.Left.X, I.Left.Y,
+        Down(EKeys::Gamepad_LeftShoulder));
     In = I;
 }
 
@@ -406,7 +402,7 @@ FString USkateComponent::GetLoopState() const
 void USkateComponent::ResetInput()
 {
     In={}; MouseStick=FVector2D::ZeroVector; MouseQuiet=0; bMouseSwiped=false;
-    SpaceHeld=SpaceRelease=-1.f; bRightTriggerTransfer=bRightTriggerGrabs=false;
+    SpaceHeld=SpaceRelease=-1.f;
 }
 void USkateComponent::PhysSkate(float Dt) { if (!bNetworkProxy) TickSimulation(Dt); }
 void USkateComponent::Launch(const FVector& Velocity) { LaunchSimulation(Velocity); }

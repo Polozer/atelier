@@ -56,14 +56,11 @@ namespace atelier::skate_pad
 
     using HostPad = FSkateHostPad;
 
-    /** Whether the controller's right trigger is the transfer this frame. Pulled on the board (rolling, up a ramp, into
-     *  the lip) it is, and its pull is not the session's, so a transfer is not also a pump or a right-hand grab; held
-     *  on into the air it stays one. Let go in the air, Grabs is set and a pull grabs again until the board is down. */
-    inline bool RightTriggerTransfers(bool bPulled, bool bAirborne, bool& bGrabs)
+    /** Whether the rider asks for a transfer this frame: Shift, the left bumper (L1), or the left stick pushed
+     *  forward (Y over .7 and more forward than sideways; the stick steers sideways and powerslides back). */
+    inline bool Transfers(bool bShift, double StickX, double StickY, bool bLeftShoulder)
     {
-        if (!bAirborne) bGrabs = false;
-        else if (!bPulled) bGrabs = true;
-        return bPulled && !bGrabs;
+        return bShift || bLeftShoulder || (StickY > .7 && std::abs(StickX) < StickY);
     }
 
     /** The packet: push A, brake B, transfer on the host bit; X on its own bit (and no longer A unless A, W or Up is

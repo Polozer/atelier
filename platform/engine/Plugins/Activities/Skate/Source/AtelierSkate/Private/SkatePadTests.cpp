@@ -1,26 +1,23 @@
-// SkatePad.h's right trigger: the transfer from the board and on into the air it was held into, a grab once let go and
-// pulled again in the air, and the transfer again once the board is down.
+// SkatePad.h's transfer: Shift, the left bumper (L1), or the left stick pushed forward; the stick steering sideways
+// or pulled back (the powerslide) is not one. Both triggers stay pump and grab.
 #include "SkatePad.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSkatePadRightTriggerTest, "AtelierSkate.Pad.RightTrigger",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSkatePadTransferTest, "AtelierSkate.Pad.Transfer",
     EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
-bool FSkatePadRightTriggerTest::RunTest(const FString&)
+bool FSkatePadTransferTest::RunTest(const FString&)
 {
-    using atelier::skate_pad::RightTriggerTransfers;
-    bool bGrabs = false;
-    TestFalse(TEXT("Let go on the board, it is nothing"), RightTriggerTransfers(false, false, bGrabs));
-    TestTrue(TEXT("Pulled rolling up the ramp, it is the transfer"), RightTriggerTransfers(true, false, bGrabs));
-    TestTrue(TEXT("Held on over the lip, it stays the transfer"), RightTriggerTransfers(true, true, bGrabs));
-    TestFalse(TEXT("Let go in the air, it is nothing"), RightTriggerTransfers(false, true, bGrabs));
-    TestFalse(TEXT("Pulled again in the air, it grabs"), RightTriggerTransfers(true, true, bGrabs));
-    TestFalse(TEXT("Held as the grab, it is still not the transfer"), RightTriggerTransfers(true, true, bGrabs));
-    TestTrue(TEXT("Still held when the board is down, it is the transfer again"), RightTriggerTransfers(true, false, bGrabs));
-    bGrabs = false;
-    TestFalse(TEXT("An air launched without it: the first air frame lets it grab"), RightTriggerTransfers(false, true, bGrabs));
-    TestFalse(TEXT("Pulled in that air, it grabs"), RightTriggerTransfers(true, true, bGrabs));
+    using atelier::skate_pad::Transfers;
+    TestFalse(TEXT("Nothing held, no transfer"), Transfers(false, 0., 0., false));
+    TestTrue(TEXT("Shift"), Transfers(true, 0., 0., false));
+    TestTrue(TEXT("The left bumper"), Transfers(false, 0., 0., true));
+    TestTrue(TEXT("The stick pushed forward"), Transfers(false, 0., 1., false));
+    TestTrue(TEXT("Forward and a little sideways"), Transfers(false, .4, .85, false));
+    TestFalse(TEXT("Half forward is still steering"), Transfers(false, 0., .5, false));
+    TestFalse(TEXT("More sideways than forward is steering"), Transfers(false, .9, .75, false));
+    TestFalse(TEXT("Pulled back is the powerslide"), Transfers(false, 0., -1., false));
     return true;
 }
 #endif

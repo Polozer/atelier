@@ -50,8 +50,8 @@ Riding into the sea puts Cairo back on the board at the last dry spot.
 | Ollie | Right stick down, then up | Hold Space, release |
 | Tricks | Right stick gestures | Hold the left mouse button and flick |
 | Manual, nose manual | Right stick partly down / up | Hold the left mouse button, move part-way |
-| Pump on the ground, grab in the air | L2 / R2 (LT / RT); R2 grabs once pulled in the air | Q / E |
-| Transfer over the coping | Hold R2 / RT from the board into the lip | Hold Shift |
+| Pump on the ground, grab in the air | L2 / R2 (LT / RT) | Q / E |
+| Transfer over the coping | Hold the left stick up, or L1 / LB, into the lip | Hold Shift |
 | Handplant | R1 / RB at the coping | |
 | Look | (follows the board) | Mouse, without the left button |
 
@@ -78,11 +78,10 @@ across the line.
 frames too, so a quick hardflip keeps the point at the bottom of its arc. The flick window, pace and tolerance keep
 their meaning. It reads a controller between frames on macOS. See the plugin README's "120 Hz flicks".
 
-A grab never sends Cairo over the coping; only the transfer input does. R2 pulled on the board (rolling, up the ramp,
-into the lip) is only the transfer: it does not pump or grab, so a transfer is not also a right-hand grab, and it stays
-the transfer while held on into the air. Let go in the air, R2 grabs again until the board is down. L2 still pumps and
-grabs as before, and both stick clicks with both triggers are still the bail. R1 is the simulation's own: a handplant
-at the coping.
+A grab never sends Cairo over the coping; only the transfer input does: the left stick pushed up (more up than
+sideways; the stick steers sideways and powerslides down), or L1 held into the lip. L1 is not sent to the simulation,
+so it never blocks a handplant. Both triggers pump and grab, both stick clicks with both triggers are the bail, and R1
+is the simulation's own: a handplant at the coping.
 
 ### Trick line and HUD
 
@@ -95,7 +94,7 @@ line.
 
 ### Pumping
 
-Pull a trigger to crouch and let it go to stand up: L2 any part of the way (R2 on the board is the transfer), or
+Pull a trigger to crouch and let it go to stand up: L2 or R2 any part of the way, or
 Q / E fully. Standing up while the board rides through a curve gains speed: crouch across the flat or high on the
 descent and let go through the curve at the bottom; crouch again for the next wall. Timing matters: holding a trigger
 is not a boost, and holding it through the curve gains less than coasting, which pumps a little by itself (the

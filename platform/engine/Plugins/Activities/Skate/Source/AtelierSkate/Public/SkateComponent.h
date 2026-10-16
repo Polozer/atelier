@@ -223,8 +223,6 @@ private:
     void ReadFineSticks(FSkateRuntime& Runtime, float Dt, const FSkateHostPad& Pad);
     float MouseQuiet=0; bool bMouseSwiped=false;
     float SpaceHeld=-1.f,SpaceRelease=-1.f;
-    // The right trigger held as the transfer this frame (its pull then not sent), and a pull in this air that grabs.
-    bool bRightTriggerTransfer=false,bRightTriggerGrabs=false;
     FVector Pos=FVector::ZeroVector,Vel=FVector::ZeroVector;
     FQuat Rot=FQuat::Identity;
     float BodyLift=77.f,SavedRadius=30.f,SavedHalf=74.f,SavedStep=45.f;
