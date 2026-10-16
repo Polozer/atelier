@@ -23,7 +23,7 @@ def test_transient_scan_uses_new_complete_snapshot_and_keeps_native_candidates(m
         return [(os.getpid(), 1, 'Python'), (42, 1, 'Blender')]
     monkeypatch.setattr(locks, 'process_table', table)
     stable_pins(monkeypatch)
-    assert locks.native_candidates() == [[42, 123]]
+    assert locks.native_candidates(retry=True) == [[42, 123]]
     assert calls == [2., 2.]
     assert 'retrying once with a fresh snapshot' in capsys.readouterr().out
 
@@ -35,7 +35,7 @@ def test_persistent_observation_failure_has_only_one_retry(monkeypatch):
         raise OSError('Native process observation timed out')
     monkeypatch.setattr(locks, 'process_table', failed)
     with pytest.raises(OSError, match='timed out'):
-        locks.native_candidates()
+        locks.native_candidates(retry=True)
     assert len(calls) == 2
 
 
@@ -55,11 +55,11 @@ def test_pending_observer_must_positively_exit_before_fresh_scan(monkeypatch, se
         return [(os.getpid(), 1, 'Python')]
     monkeypatch.setattr(locks, 'process_table', table)
     if settled:
-        assert locks.native_candidates() == []
+        assert locks.native_candidates(retry=True) == []
         assert calls == [('scan',), ('wait', 1.), ('scan',)]
     else:
         with pytest.raises(locks.ObserverReapError) as stopped:
-            locks.native_candidates()
+            locks.native_candidates(retry=True)
         assert stopped.value is error
         assert calls == [('scan',), ('wait', 1.)]
 
@@ -73,7 +73,7 @@ def test_failed_second_observer_does_not_start_a_third(monkeypatch):
         raise locks.ObserverReapError(SimpleNamespace(wait=lambda **kw: pytest.fail('third attempt')))
     monkeypatch.setattr(locks, 'process_table', table)
     with pytest.raises(locks.ObserverReapError):
-        locks.native_candidates()
+        locks.native_candidates(retry=True)
     assert calls == ['scan', 'scan']
 
 
@@ -94,7 +94,7 @@ def test_native_identity_failures_are_not_retried(monkeypatch, failure):
         monkeypatch.setattr(wire, 'process_start', missing)
         expected = ProcessLookupError
     with pytest.raises(expected):
-        locks.native_candidates()
+        locks.native_candidates(retry=True)
     assert calls == ['scan']
 
 
@@ -103,7 +103,23 @@ def test_incomplete_listing_is_discarded_before_a_complete_retry(monkeypatch):
                      f'{os.getpid()} 1 Python\n42 1 Blender\n'])
     monkeypatch.setattr(locks, '_bounded_process_listing', lambda timeout: next(listings))
     stable_pins(monkeypatch)
-    assert locks.native_candidates() == [[42, 123]]
+    assert locks.native_candidates(retry=True) == [[42, 123]]
+
+
+@pytest.mark.parametrize('pending', [False, True])
+def test_broker_foreign_check_is_single_shot_without_observer_settlement(monkeypatch, pending):
+    from atelier.capacity_broker import CapacityBroker
+    calls = []
+    def table(**kwargs):
+        calls.append(kwargs)
+        if pending:
+            raise locks.ObserverReapError(SimpleNamespace(wait=lambda **kw: pytest.fail('broker retry')))
+        raise OSError('single broker observation failed')
+    monkeypatch.setattr(locks, 'process_table', table)
+    broker = SimpleNamespace(foreign=None)
+    with pytest.raises(OSError):
+        CapacityBroker._foreign_check(broker, {})
+    assert calls == [{'timeout': 2.}]
 
 
 @pytest.mark.parametrize('failure', ['close-error', 'kill-race', 'reap-timeout'])

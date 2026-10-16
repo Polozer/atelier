@@ -238,25 +238,26 @@ def _pin_native_candidates(table):
     return values
 
 
-def native_candidates():
+def native_candidates(*, retry=False):
     """@cc [owner:fontanierh,label:safety] bounded-native-observation-retry
-    A transient observation error MAY retry once before child launch, using a fresh complete snapshot.
+    Only a launcher preflight MAY opt into one transient observation retry before its start RPC.
+    Broker actor observations MUST remain single-shot. A retry MUST use a fresh complete snapshot.
     The failed attempt's owned observer MUST positively exit before retry. Incomplete data MUST NOT be reused;
     persistent failure, unstable native identities and unregistered native work MUST still refuse admission.
     """
-    for attempt in range(2):
+    for attempt in range(2 if retry else 1):
         try:
             table = process_table(timeout=2.)
             break
         except ObserverReapError as error:
-            if attempt:
+            if not retry or attempt:
                 raise
             try:
                 error.process.wait(timeout=1.)  # One final bounded settlement of our observer.
             except subprocess.SubprocessError:
                 raise error from None
         except OSError:
-            if attempt:
+            if not retry or attempt:
                 raise
         print('Native process observation failed; observer exited; retrying once with a fresh snapshot',
               flush=True)
@@ -298,7 +299,7 @@ def _shared_capacity(admission, on_slot, *, ignore, scan):
         verify(handles=handles)
         if acquisition is not None:
             fcntl.flock(acquisition, fcntl.LOCK_UN)
-        candidates = native_candidates()
+        candidates = native_candidates(retry=True)
         owned = admission.owned(candidates)
         if any(tuple(pin) not in owned for pin in candidates):
             raise RenderBusy('unregistered native processes refuse full capacity')

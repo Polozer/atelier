@@ -321,7 +321,10 @@ def test_shared_attempt_releases_partial_locks_and_refuses_unknown_native(barrie
     proof = activated(barrier)
     admission = SimpleNamespace(mode='capacity', cutover=compat.DEFAULT_RECORD,
                                 activation_id=proof['activation_id'], owned=lambda pins: set())
-    monkeypatch.setattr(locks, 'native_candidates', lambda: [[654, 987]])
+    def unregistered(*, retry):
+        assert retry is True  # Only the launcher opts into the bounded preflight retry.
+        return [[654, 987]]
+    monkeypatch.setattr(locks, 'native_candidates', unregistered)
     with barrier.paths['fitting'].open('rb') as blocker:
         fcntl.flock(blocker, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with pytest.raises(locks.RenderBusy, match='legacy exclusive'):

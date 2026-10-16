@@ -74,7 +74,8 @@ the broker applies the same scoped checks and records the evidence hash and pres
 Do not clear the database or locks, restart a live broker, drop the client environment, or launch through another
 path. Ask the operator for help when the documented recovery cannot establish a safe next step.
 
-Before a native launch, a transient process-observation error retries once automatically. Each complete
+Before the launcher's start RPC, a transient process-observation error retries once automatically. The
+broker actor keeps its existing single-shot observation and never performs this retry. Each complete
 snapshot attempt retains its two-second bound and owned-observer cleanup; if the first observer's exit is
 pending, one additional one-second wait must positively settle it before another observer starts. An attempt
 can also spend at most one second reaping its own killed observer, so the worst-case preflight is bounded
