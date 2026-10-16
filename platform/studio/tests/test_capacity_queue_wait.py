@@ -70,6 +70,29 @@ def test_offer_distinguishes_positive_queued_from_invalid_responses(monkeypatch,
     assert admission.nonce == 'nonce' and admission.epoch == 2
 
 
+@pytest.mark.parametrize('field,value', [('nonce', 'new-nonce'), ('epoch', 3), ('boot_id', 'new-boot')])
+def test_reoffer_fences_changed_session_without_rebinding(monkeypatch, tmp_path, field, value):
+    response = dict(selected=True, state='offered', nonce='nonce', epoch=2, boot_id='boot')
+    monkeypatch.setattr(client, '_rpc', lambda *args, **kwargs: (dict(response), None))
+    admission = client.AdmissionSession(tmp_path/'socket', {'id': 'job'})
+    admission.offer()
+    admission.child = (100, 200)
+    admission._acknowledged.add(admission.child)
+    response[field] = value
+    with pytest.raises(client.CapacityError, match='fenced'):
+        admission.offer()
+    assert (admission.nonce, admission.epoch, admission.boot) == ('nonce', 2, 'boot')
+    assert admission.child == (100, 200) and admission._acknowledged == {(100, 200)}
+
+
+def test_closed_session_cannot_reoffer(monkeypatch, tmp_path):
+    admission = client.AdmissionSession(tmp_path/'socket', {'id': 'job'})
+    admission.close()
+    monkeypatch.setattr(client, '_rpc', lambda *args, **kwargs: pytest.fail('closed session offered'))
+    with pytest.raises(client.CapacityError, match='closed'):
+        admission.offer()
+
+
 def test_guard_cancellation_closes_queued_session_before_any_child_or_lock(monkeypatch, tmp_path):
     events = []
     class Admission:

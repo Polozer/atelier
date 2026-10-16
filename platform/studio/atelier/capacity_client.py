@@ -178,8 +178,13 @@ class AdmissionSession:
                                       **self._fence(), **fields}, self.timeout, descriptor=descriptor))
 
     def offer(self):
+        if self.closed:
+            raise CapacityError('Capacity session is closed')
         response, _ = self._response(*_rpc(self.socket_path, {'action': 'offer', 'request': self.request,
                                             **self._fence(), **({'nonce': self.nonce} if self.nonce else {})}, self.timeout))
+        if self.nonce is not None and (response.get('nonce'), response.get('epoch'), response.get('boot_id')) != (
+                self.nonce, self.epoch, self.boot):
+            raise CapacityError('Capacity offer was fenced by a session or broker change')
         if response['nonce'] != self.nonce:
             self._acknowledged.clear()
             self.child = None

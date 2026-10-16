@@ -108,6 +108,7 @@ def test_retry_required_records_remain_durable_but_are_not_active_waiters(broker
     ready.close()
     assert client.status(broker.socket_path)['waiting_count'] == 0
     # Retrying preserves the original ready age and re-enters the live queue normally.
+    dormant = session(broker, 'dormant')
     assert dormant.offer()['first_ready'] == before
     assert client.status(broker.socket_path)['waiting_count'] == 1
     dormant.close()
@@ -312,6 +313,22 @@ def test_same_boot_restart_before_go_closes_gate_and_fences_session(broker_facto
     retry = session(after)
     assert retry.offer()['first_ready'] == offer['first_ready']
     retry.close()
+
+
+def test_restart_while_queued_refuses_reoffer_without_resources_or_gate(broker_factory, monkeypatch):
+    before = broker_factory()
+    first, waiting = session(before, 'first'), session(before, 'waiting', seconds=600)
+    first.offer()
+    with pytest.raises(client.CapacityQueued):
+        waiting.offer()
+    pin = waiting.nonce, waiting.epoch, waiting.boot
+    stop(before)
+    after = broker_factory()
+    monkeypatch.setattr(client.time, 'sleep', lambda _: pytest.fail('fenced wait retried'))
+    with pytest.raises(client.CapacityError, match='fenced'):
+        client.wait_for_offer(waiting)
+    assert (waiting.nonce, waiting.epoch, waiting.boot) == pin
+    assert client.status(after.socket_path)['charged_count'] == 0 and not after._gates
 
 
 @pytest.mark.parametrize('parent_receipt', [True, False])
