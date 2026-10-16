@@ -107,6 +107,25 @@ class NorthernLandscape(unittest.TestCase):
         self.assertEqual(len(actual),len(rows))
         self.assertEqual(sorted(tuple(row[:4]) for row in actual),sorted(tuple(row[:4]) for row in rows))
 
+    @unittest.skipUnless(BUILT,'needs world.layout')
+    def test_the_apron_closes_the_slit_under_the_foothills_edges(self):
+        from megapark.trail import _far_hills
+        xs=np.arange(M.BOUNDS[0],M.BOUNDS[2]+1,M.STEP);ys=np.arange(M.BOUNDS[1],M.BOUNDS[3]+1,M.STEP)
+        (sx,sy),_,(ex,ey)=M.apron_grids(xs,ys)
+        # It meets the foothills' south edge, where the city does not, and the far hills' first unlowered line.
+        edge=M.apron_cell_open(xs,np.full_like(xs,M.BOUNDS[1]-1.))
+        np.testing.assert_allclose(M.skirt_height(xs[edge],np.full(edge.sum(),M.BOUNDS[1]),H.north_base_height),
+                                   M.height(xs[edge],np.full(edge.sum(),M.BOUNDS[1]),H.north_base_height),atol=1e-3)
+        outer=sx[M.apron_cell_open(sx,np.full_like(sx,sy[0]+1.))]
+        np.testing.assert_allclose(M.skirt_height(outer,np.full_like(outer,sy[0]),H.north_base_height),
+                                   _far_hills(outer,np.full_like(outer,sy[0]),upper=True),atol=1e-3)
+        # Nowhere does it sink below the far hills, so no opening is left; trees placed on north_height stand on it.
+        x,y=np.meshgrid(sx[::7],sy);open_=M.in_apron(x,y)
+        z=M.skirt_height(x[open_],y[open_],H.north_base_height)
+        self.assertGreaterEqual(float((z-_far_hills(x[open_],y[open_])).min()),-1e-3)
+        np.testing.assert_allclose(H.north_height(x[open_],y[open_]),z,atol=1e-6)
+        self.assertTrue(M.in_apron(np.array([2430.]),np.array([1600.]))[0])
+
     def test_fine_cells_are_excluded_at_both_patch_edges(self):
         for bounds,inside in [(gate.GATE,gate.cell_inside)]:
             x0,y0,x1,y1=bounds
