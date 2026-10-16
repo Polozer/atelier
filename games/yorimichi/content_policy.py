@@ -14,15 +14,6 @@ _spec = importlib.util.spec_from_file_location('character_definition', Path(__fi
 definition = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(definition)
 MOVERS = definition.movers()   # every character with the merged move set, the donor first
-_ew_spec = importlib.util.spec_from_file_location('yorimichi_train_earthworks', Path(__file__).parent / 'world/train/earthworks.py')
-_train_ew = importlib.util.module_from_spec(_ew_spec)
-_sys_path = list(sys.path)
-sys.path.insert(0, str(Path(__file__).parent / 'world'))
-try:
-    _ew_spec.loader.exec_module(_train_ew)
-finally:
-    sys.path[:] = _sys_path
-TRAIN_ENABLED = bool(_train_ew.ENABLED)
 
 
 def folder(path):
@@ -38,11 +29,13 @@ ASSET_ROOTS = frozenset({
     'Adventure', 'AtelierValidation', 'Audio', 'Belmonte', 'Collections', 'CraterPark', 'Data', 'Developers',
     'Experiments', 'FX', 'FoxHunter', 'Hippodrome', 'Horses', 'Japan', 'MegaPark', 'SeeThrough', 'SkateMotion', 'SkatePark',
     'SkateRide', 'SkateRuntime', 'SwordCamp', 'Wanderer',
-} | ({'BelmonteTrack', 'BelmonteTrain'} if TRAIN_ENABLED else set()) | CHARACTER_ROOTS)
+    'BelmonteTrack', 'BelmonteTrain',
+} | CHARACTER_ROOTS)
 DATA_ROOTS = frozenset({
     'Network', 'SkateRide', 'adventure', 'belmonte', 'bike', 'city_surface_tiles', 'craterpark', 'heightmap.bin',
     'hidamari', 'hippodrome', 'horses', 'map', 'megapark', 'skatepark', 'treehouse', 'world.json',
-} | ({'belmonte_track', 'belmonte_train'} if TRAIN_ENABLED else set()) | {c.id for c in MOVERS})
+    'belmonte_track', 'belmonte_train',
+} | {c.id for c in MOVERS})
 # Each mover's runtime data: its move record, its readiness record, bike report if playable, and its posed grips if
 # committed; and the runtime data of the imports that write their own (unreal.hippodrome, unreal.horses).
 CHARACTER_DATA = {

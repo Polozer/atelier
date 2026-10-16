@@ -372,7 +372,7 @@ def generate():
     north_xy=north_rng.uniform([-680,2940],[2380,join-60],size=(round(155000*(join-60-2940)/2570),2))
     seam_rng=np.random.default_rng(745)
     forest_xy=np.concatenate([forest_xy,north_xy,seam_rng.uniform([-650,join-60],[1750,join],size=(2840,2))])
-    forest_z=north_height(forest_xy[:,0],forest_xy[:,1])
+    forest_z=north_height(forest_xy[:,0],forest_xy[:,1],carved=False)
     forest_snow=mountains.snow(forest_xy[:,0],forest_xy[:,1],north_base_height)
     forest_distance=trail_distance(forest_xy[:,0],forest_xy[:,1])
     from forest.ecotone import kinds
@@ -421,7 +421,7 @@ def generate():
     centres=np.stack((mountains.VOLCANO[0]+radii*np.cos(angles),mountains.VOLCANO[1]+radii*np.sin(angles)),axis=-1)
     rock_xy=(np.repeat(centres,6,axis=0)+rock_rng.normal(0,5.,size=(len(centres)*6,2)))
     rx,ry=rock_xy[:,0],rock_xy[:,1]
-    rz=north_height(rx,ry);cover=mountains.snow(rx,ry,north_base_height)
+    rz=north_height(rx,ry,carved=False);cover=mountains.snow(rx,ry,north_base_height)
     slope=np.hypot(north_height(rx+1,ry)-rz,north_height(rx,ry+1)-rz)
     _,_,radius,angle=mountains.polar(rx,ry)
     keep=((radius>mountains.rim_radius(angle)+5)&(radius<outer)&(rz>mountains.lifted(250))
@@ -443,7 +443,7 @@ def generate():
     for x,y,z in zip(rx[shrubs],ry[shrubs],rz[shrubs]):
         for _ in range(3):
             px=float(x+rock_rng.uniform(-2.5,2.5));py=float(y+rock_rng.uniform(-2.5,2.5))
-            pz=float(north_height(px,py))
+            pz=float(north_height(px,py,carved=False))
             if float(mountains.snow(px,py,north_base_height))>.25:continue
             put('Bush_Ochre_A' if rock_rng.random()<.6 else 'Grass_B',px,py,pz-.08,
                 yaw=float(rock_rng.uniform(0,360)),scale=float(rock_rng.uniform(.35,.65)))
@@ -476,7 +476,7 @@ def generate():
         for side in (-1,1):
             px=x+side*r.uniform(3.2,9.5);py=y+r.uniform(-2.5,2.5)
             if float(mountains.trail_distance(px,py))<2.8:continue
-            pz=float(north_height(px,py))
+            pz=float(north_height(px,py,carved=False))
             name=r.choices(['Grass_A','Grass_B','Bush_Ochre_A','Rock_B'],[.42,.40,.13,.05])[0]
             put(name,px,py,pz-.08,yaw=r.uniform(0,360),scale=r.uniform(.6,1.0))
     put('HD_NorthMountains',0,0,0)
@@ -636,32 +636,36 @@ def backdrop_grid():
         BACKDROP=original*(1-weight)+target*weight
     return BACKDROP
 
-def backdrop_height(x,y):
+def backdrop_height(x,y,*,carved=False):
     h=backdrop_grid();n=h.shape[0]
     fx=np.clip((np.asarray(x)+3200)/6400*(n-1),0,n-1.001);fy=np.clip((np.asarray(y)+3200)/6400*(n-1),0,n-1.001)
     i=fx.astype(int);j=fy.astype(int);u=fx-i;v=fy-j
-    return (h[j,i]*(1-u)+h[j,i+1]*u)*(1-v)+(h[j+1,i]*(1-u)+h[j+1,i+1]*u)*v
+    out=(h[j,i]*(1-u)+h[j,i+1]*u)*(1-v)+(h[j+1,i]*(1-u)+h[j+1,i+1]*u)*v
+    if carved:
+        from train import earthworks
+        out=earthworks.carve(x,y,out)
+    return out
 
-def far_height(x,y):
+def far_height(x,y,*,carved=False):
     """The far hills up to y=3200, where their grid ends, and Belmonte's country (belmonte/terrain.py) beyond."""
     x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
-    base=np.array(backdrop_height(x,y),dtype=float)
+    base=np.array(backdrop_height(x,y,carved=carved),dtype=float)
     beyond=y>3200
     if beyond.any():
         from belmonte.terrain import country_height
-        base[beyond]=country_height(x[beyond],y[beyond])
+        base[beyond]=country_height(x[beyond],y[beyond],carved=carved)
     return base
 
 def north_base_height(x,y):
     x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
-    base=far_height(x,y)
+    base=far_height(x,y,carved=False)
     city_edge=mountains.smooth((x-280)/60)*mountains.smooth((1440-x)/60)
-    return base+(height(x,500)-backdrop_height(x,500))*city_edge*mountains.smooth((800-y)/300)
+    return base+(height(x,500)-backdrop_height(x,500,carved=False))*city_edge*mountains.smooth((800-y)/300)
 
-def north_surface(x,y):
+def north_surface(x,y,*,carved=True):
     x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
-    base=far_height(x,y)
-    z=mountains.height(x,y,north_base_height)
+    base=far_height(x,y,carved=carved)
+    z=mountains.height(x,y,north_base_height,carved=carved)
     # Existing city terrain extends through y=500.
     city=(x>=300)&(x<=1420)&(y<=500)&(y>=-300)
     z=np.where(city,height(x,y),np.where(mountains.contains(x,y),z,base))
@@ -676,9 +680,9 @@ def north_surface(x,y):
     if on.any():z[on]=gate.height(x[on],y[on],north_base_height)
     return z
 
-def north_height(x,y):
+def north_height(x,y,*,carved=True):
     """The island's collision surface."""
-    return north_surface(x,y)
+    return north_surface(x,y,carved=carved)
 
 def trail_distance(x,y):
     """Metres to the nearer of the north trail and the Mega Park trail."""

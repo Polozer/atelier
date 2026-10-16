@@ -229,7 +229,8 @@ CITY = {'world.hidamari', 'world.hidamari.city', 'world.hidamari.north', 'world.
         'world.terrain', 'world.terrain.meshes', 'world.map', 'world.hidamari.tiles', 'world.hidamari.trees',
         'world.city_trees', 'world.city_trees.meshes', 'data.stage'} | LATER
 # The regions that also read mountains.py and hidamari/layout.py, and the layout itself (a cutoff step).
-NORTHERN = {'world.layout', 'world.belmonte', 'world.belmonte.meshes', 'world.hippodrome', 'world.hippodrome.meshes'}
+NORTHERN = {'world.layout', 'world.belmonte', 'world.belmonte.meshes', 'world.hippodrome', 'world.hippodrome.meshes',
+            'world.belmonte_train_route', 'world.belmonte_track', 'world.belmonte_track_data', 'world.belmonte_track.meshes'}
 
 
 def test_volcano_snow_or_colours_reimport_only_the_volcano(tmp_path):

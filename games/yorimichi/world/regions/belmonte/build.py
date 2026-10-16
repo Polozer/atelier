@@ -96,7 +96,7 @@ def surroundings():
         mesh.save(OUT / 'natural' / (name + '.glb'), 'BM_000_Ground')
         # The valley's committed terrain is not carved: the apron's carving eases out towards their seam (the bank
         # mesh, train/track.py, covers the line there) so the rim stays closed.
-        earthworks.quads(mesh, L.ORIGIN, step, hidden=lambda x, y: mountains.contains(x, y) & (y < L.SOUTH_JOIN),
+        earthworks.quads(mesh, L.ORIGIN, step, hidden=lambda x, y: (x > mountains.BOUNDS[0]) & (x < mountains.BOUNDS[2]) & (y > mountains.BOUNDS[1]) & (y < L.SOUTH_JOIN),
                          weight=lambda x, y: earthworks.seam_weight(x, y, L.BOUNDS))
     # Apron and country are refined at different steps: their outer seam shares every vertex where the line crosses.
     earthworks.stitch([collar, parts[1][1]], L.ORIGIN, [(0, terrain.OUTER[0]), (0, terrain.OUTER[2]), (1, terrain.OUTER[3])])

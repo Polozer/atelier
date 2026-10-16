@@ -14,6 +14,7 @@
 #include "HorseComponent.h"
 #include "SailboatComponent.h"
 #include "ZeppelinService.h"
+#include "BelmonteTrainService.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
@@ -285,6 +286,17 @@ void AWandererCharacter::ServerZeppelinInput_Implementation(uint32 Epoch, int32 
          GetWorld()->GetSubsystem<UJapanCombatResolver>()->HasPending(this)))
     { ClientActivityRejected(TEXT("Finish the current action before boarding.")); return; }
     if (!Ship->TryInteract(this)) ClientActivityRejected(TEXT("Use the zeppelin beside its platform when it is ready to board."));
+}
+
+void AWandererCharacter::ServerTrainInteract_Implementation(uint32 Epoch)
+{
+    if (Epoch != NetworkActivity.Epoch || !bReady || bMenuOpen || SkateRide->IsRiding() || OnVehicle() || IsZeppelinPassenger()) return;
+    if (!ABelmonteTrainService::IsDrivingRider(this) &&
+        (NetworkActivity.Kind != EJapanActivity::OnFoot || MovementLocked() ||
+         GetWorld()->GetSubsystem<UJapanEncounters>()->HoldsPlayer(this) ||
+         GetWorld()->GetSubsystem<UJapanCombatResolver>()->HasPending(this)))
+    { ClientActivityRejected(TEXT("Finish the current action before using the train.")); return; }
+    ABelmonteTrainService::TryInteract(this);
 }
 
 bool AWandererCharacter::RequestNetworkSkate()

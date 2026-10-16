@@ -369,9 +369,12 @@ def volcano_distance(x, y):
 @lru_cache(maxsize=1)
 def _belmonte_surfaces():
     from belmonte import source
-    # The natural ground (belmonte/build.py keeps it before the railway's earthworks carve the built meshes).
+    # The natural ground (belmonte/build.py writes it before the railway's earthworks carve the built meshes).
     paths = [yori.OUT / f'belmonte/natural/{name}.glb' for name in ('SM_BM_NorthCountry', 'SM_BM_NorthApron')]
-    north = [source.Surface(source.triangles(p)) for p in paths if p.is_file()]
+    for p in paths:
+        if not p.is_file():
+            raise FileNotFoundError(f'missing Belmonte natural ground {p}; run world.belmonte first')
+    north = [source.Surface(source.triangles(p)) for p in paths]
     return source.terrain(), north
 
 
@@ -396,7 +399,7 @@ def ground(x, y):
     from belmonte import layout as BM
     from hidamari import layout as CITY
     x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
-    z = np.array(CITY.north_height(x, y), float)
+    z = np.array(CITY.north_height(x, y, carved=False), float)
     square = _square()
     if square is not None:
         grid, size = square
@@ -447,9 +450,9 @@ class Raster:
     @staticmethod
     def _source_digest():
         h = hashlib.sha256()
-        regions = Path(__file__).resolve().parents[1] / 'regions'
+        regions = _Path(__file__).resolve().parents[1] / 'regions'
         files = [
-            Path(__file__).resolve(),
+            _Path(__file__).resolve(),
             regions / 'hidamari' / 'layout.py',
             regions / 'hidamari' / 'mountains.py',
             regions / 'belmonte' / 'layout.py',

@@ -30,12 +30,9 @@ class Design(unittest.TestCase):
     floor = 100. - E.FORMATION_DROP
 
     def setUp(self):
-        self._saved_enabled = E.ENABLED
-        E.ENABLED = True
         E.line.cache_clear()
 
     def tearDown(self):
-        E.ENABLED = self._saved_enabled
         E.line.cache_clear()
 
     def carve(self, x, y, z):
@@ -79,16 +76,10 @@ class Design(unittest.TestCase):
         far = np.abs(v[:, 1]) > E.REACH + 25
         self.assertTrue(np.allclose(out[:len(v)][far, 2], 115.))
 
-    def test_the_flag_turns_the_earthworks_off(self):
-        saved = E.ENABLED
-        try:
-            E.ENABLED = False
-            E.line.cache_clear()
-            self.assertIsNone(E.line())
-            self.assertEqual(E.carve(np.array([0.]), np.array([0.]), np.array([5.])).tolist(), [5.])
-        finally:
-            E.ENABLED = saved
-            E.line.cache_clear()
+    def test_committed_line_is_loaded_unconditionally(self):
+        E.line.cache_clear()
+        self.assertIsNotNone(E.line())
+        self.assertIsNotNone(C.load())
 
 
 def samples():
@@ -105,7 +96,7 @@ def samples():
     return ln, pick('x'), pick('y'), pick('rail_z')
 
 
-@unittest.skipUnless(E.ENABLED and C.LINE.exists(), 'earthworks disabled or line not built (world.belmonte_train_route)')
+@unittest.skipUnless(C.ROUTE.exists() and (yori.OUT / 'farhills.npy').exists(), 'route or world.layout not built')
 class Built(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -151,7 +142,7 @@ class Built(unittest.TestCase):
         sheet = mountains.mesh(north_base_height)
         from belmonte.source import Surface
         built = Surface(sheet['vertices'][sheet['faces']])
-        natural = lambda x, y: mountains.height(x, y, north_base_height)   # noqa: E731
+        natural = lambda x, y: mountains.height(x, y, north_base_height, carved=False)   # noqa: E731
         # The sheet also carries the far hills' aprons round the foothills (mountains.apron_grids), at their own height:
         # compare the foothills' footprint only.
         foothills = lambda x, y: np.where(mountains.contains(x, y), built.height(x, y), np.nan)   # noqa: E731

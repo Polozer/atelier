@@ -142,6 +142,7 @@ public:
     UFUNCTION(Server, Reliable) void ServerTravelTo(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch);
     UFUNCTION(Server, Reliable) void ServerRequestSkate(uint32 Epoch);
     UFUNCTION(Server, Reliable) void ServerZeppelinInput(uint32 Epoch, int32 Direction);
+    UFUNCTION(Server, Reliable) void ServerTrainInteract(uint32 Epoch);
     UFUNCTION(Server, Reliable) void ServerFinishSkate(uint32 Epoch, FVector_NetQuantize100 Location,
         FRotator Rotation, FVector_NetQuantize100 Velocity, bool bFalling);
     UFUNCTION(Client, Reliable) void ClientActivityRejected(const FString& Reason);
@@ -318,7 +319,7 @@ public:
     class AZeppelinService* GetZeppelin() const;
     bool IsZeppelinPassenger() const;
     /** Inside a no-sprint volume (aboard the Belmonte train): sprint is unavailable. */
-    bool bNoSprint = false;
+    bool bNoSprint = false, bTrainAboard = false, bTrainDriving = false;
     /** The flight buttons: aboard, ride speed; at the docked ship, its next stop. -1 or +1. */
     void ZeppelinStep(int32 Direction);
 private:

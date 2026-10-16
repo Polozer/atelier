@@ -2207,9 +2207,11 @@ def export_parts(c, lod_sets, out, mesh_name, files, window_tiles):
     return record
 
 
-def ensure_furniture(mat):
+def ensure_furniture(images):
     """Ensure every contract furniture asset has a valid GLB and report in build/yorimichi/belmonte-train/furniture/
     so downstream assembly, LOD, service and Unreal import steps are self-contained from a clean checkout."""
+    MAT.clear()
+    make_materials(images)
     furn = OUT / 'furniture'
     furn.mkdir(parents=True, exist_ok=True)
     coll = bpy.data.collections.new('Furniture_Fallback')

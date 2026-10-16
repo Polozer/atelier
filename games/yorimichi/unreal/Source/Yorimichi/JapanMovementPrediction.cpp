@@ -8,6 +8,7 @@
 #include "JapanSkateNetwork.h"
 #include "JapanSession.h"
 #include "WandererCharacter.h"
+#include "BelmonteTrainService.h"
 #include "WandererDefinition.h"
 #include "WandererSword.h"
 #include "AdventureMoveSet.h"
@@ -69,6 +70,7 @@ bool UJapanCharacterMovement::PredictsMoves() const
 {
     const auto* Rider = Cast<AWandererCharacter>(CharacterOwner);
     return Rider && JapanNetwork::IsOnline(GetWorld()) && !Rider->IsNpc() && Rider->GetMoves() &&
+        !ABelmonteTrainService::IsDrivingRider(Rider) &&
         // Simulated root-motion copies also call PerformMovement. They consume
         // replicated presentation, never the predictor's neutral input holds.
         (Rider->HasAuthority() || Rider->GetLocalRole() == ROLE_AutonomousProxy) &&

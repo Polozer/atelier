@@ -30,7 +30,7 @@ def old_height(x, y):
 
 @lru_cache(maxsize=1)
 def country_grid():
-    xs = np.unique(np.r_[np.linspace(-3200., 3200., 96), OUTER[0], OUTER[2]])
+    xs = np.unique(np.r_[np.linspace(-3200., 3200., 96), OUTER[0], OUTER[2], H.mountains.BOUNDS[0], H.mountains.BOUNDS[2]])
     ys = np.unique(np.r_[L.SOUTH_JOIN, np.linspace(-3200., 3200., 96)[-3:],
                          np.arange(3200., SEA, 50.), OUTER[3], SEA])
     x, y = np.meshgrid(xs, ys)
@@ -45,8 +45,12 @@ def country_grid():
     return xs, ys, z
 
 
-def country_height(x, y):
-    return np.where(np.asarray(y) <= 3200., old_height(x, y), grid_height(*country_grid(), x, y))
+def country_height(x, y, *, carved=False):
+    out = np.where(np.asarray(y) <= 3200., old_height(x, y), grid_height(*country_grid(), x, y))
+    if carved:
+        from train import earthworks
+        out = earthworks.carve(x, y, out)
+    return out
 
 
 def collar_contains(x, y):
@@ -84,7 +88,7 @@ def collar():
         ix, iy = (lo + u * (hi - lo), np.full_like(u, edge)) if along == 0 else (np.full_like(u, edge), lo + u * (hi - lo))
         ox, oy = (olo + u * (ohi - olo), np.full_like(u, rim)) if along == 0 else (np.full_like(u, rim), olo + u * (ohi - olo))
         iz = source.terrain().height(ix - L.ORIGIN[0], iy - L.ORIGIN[1]) + L.ORIGIN[2]
-        oz = H.north_height(ox, oy) if across == 1 and edge == inner[1] else country_height(ox, oy)
+        oz = H.north_height(ox, oy, carved=False) if across == 1 and edge == inner[1] else country_height(ox, oy, carved=False)
         assert np.isfinite(iz).all() and np.isfinite(oz).all(), 'Open Belmonte collar edge'
         previous = None
         for t in np.linspace(0., 1., 40):
@@ -105,10 +109,10 @@ def country():
     # North of the far hills the foothills (hidamari/mountains.py) reach on to SOUTH_JOIN; as the far hills do, the
     # country sinks under them so that their eased edges cover it.
     x, y = np.meshgrid(xs, ys)
-    under = H.mountains.contains(x, y) & (y < L.SOUTH_JOIN)
+    under = (x > H.mountains.BOUNDS[0]) & (x < H.mountains.BOUNDS[2]) & (y > H.mountains.BOUNDS[1]) & (y < L.SOUTH_JOIN)
     if under.any():
         z = z.copy()
-        z[under] = np.minimum(z[under], H.north_height(x[under], y[under]) - 25.)
+        z[under] = np.minimum(z[under], H.north_height(x[under], y[under], carved=False) - 25.)
     for j, (ay, by) in enumerate(zip(ys[:-1], ys[1:])):
         if ay < 3200.:
             continue  # Existing FarHills owns this band outside the fine collar.
