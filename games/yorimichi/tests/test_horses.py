@@ -72,7 +72,7 @@ def test_the_manifest_declares_the_library_once_and_matches_disk_and_source_libr
         assert entry == {'bytes': len(data), 'sha256': sha(data)} == library['horses/' + rel], rel
     # Only the declared sources remain: no loose texture copies, coat JPEGs, breed.json or prompt batches.
     sources = {p.relative_to(HORSES).as_posix() for p in HORSES.rglob('*') if p.is_file() and p.name != '.DS_Store' and '__pycache__' not in p.parts}
-    declared = (expected | {'manifest.json', 'build.py', 'rider.py', 'coats/variants/manifest.json'}
+    declared = (expected | {'manifest.json', 'build.py', 'turn.py', 'rider.py', 'coats/variants/manifest.json'}
                 | {f'coats/T_Coat_{mask}_Mask.png' for mask in LIBRARY['coat_masks']}
                 | {f'coats/variants/{v[key]}' for v in VARIANT_LIST for key in ('file', 'provenance')})
     assert sources == declared
@@ -195,7 +195,8 @@ def imported():
         breeds[slug] = {
             'mesh': f"{folder}/SK_Horse_{breed['name']}.SK_Horse_{breed['name']}",
             'skeleton': f"{folder}/SKEL_Horse_{breed['name']}.SKEL_Horse_{breed['name']}",
-            'clips': {c: {'path': f'{folder}/A_{c}.A_{c}', 'length': 1.5, 'loop': spec['loop']} for c, spec in lib['clips'].items()},
+            'clips': {c: {'path': f'{folder}/A_{c}.A_{c}', 'length': 1.5, 'loop': spec['loop']}
+                      for c, spec in {**lib['clips'], **{n: {'loop': True} for n in horse_data.TURN_CLIPS}}.items()},
             'saddles': {sid: f'{folder}/Tack/Saddle_{sid}/S.S' for sid in lib['tack_sets']},
             'reins': {sid: f'{folder}/Tack/Reins_{sid}/R.R' for sid in lib['tack_sets']},
         }
@@ -216,9 +217,9 @@ def test_roster_contract():
     assert [v['id'] for v in roster['coat_variants']] == [v['id'] for v in VARIANT_LIST]
     for slug, b in roster['breeds'].items():
         assert set(b['contacts']) == {'saddle_root', 'seat_z', 'scale_ratio', 'stirrup_L', 'stirrup_R', 'grip_L', 'grip_R'}
-        assert b['mesh_yaw'] == -90. and list(b['clips']) == list(LIBRARY['clips'])
+        assert b['mesh_yaw'] == -90. and list(b['clips']) == [*LIBRARY['clips'], *horse_data.TURN_CLIPS]
     assert 'seconds' not in json.dumps(roster) and 'textures' not in roster['breeds'][LIBRARY['reference_breed']]
-    assert len(list(horse_data.asset_paths(roster))) == 4 + 5 + 16 + 6 * (2 + 11 + 2 * 7)
+    assert len(list(horse_data.asset_paths(roster))) == 4 + 5 + 16 + 6 * (2 + 13 + 2 * 7)
     for broken in (lambda r: r.pop('tints'), lambda r: r['breeds']['arabian']['contacts'].pop('grip_L'),
                    lambda r: r['breeds']['quarter']['clips'].pop('Walk'), lambda r: r.update(fps=60.0),
                    lambda r: r['breeds']['friesian']['saddles'].pop('03'), lambda r: r.update(seconds=3)):
@@ -320,8 +321,12 @@ def script_reads(script, *roots):
 def test_horse_steps_hash_exactly_what_their_scripts_read(tmp_path):
     s = steps(tmp_path)
     world = s['world.horses']
-    assert world.cutoff and world.verify is None and world.outputs == [tmp_path / 'horses' / 'manifest.json']
-    assert all(covers(world, p) for p in (HORSES / 'build.py', HORSES / 'manifest.json', RECIPE.YORI,
+    assert world.cutoff and world.verify is None
+    assert world.outputs == [tmp_path / 'horses' / 'manifest.json',
+                             *(tmp_path / 'horses' / 'turns' / f'{slug}.glb' for slug in LIBRARY['breeds'])]
+    assert world.commands[0].threads == 3
+    assert all(covers(world, p) for p in (HORSES / 'build.py', HORSES / 'turn.py', HORSES / 'manifest.json', RECIPE.YORI,
+                                           paths.STUDIO / 'atelier' / 'gltf.py',
                                            *(HORSES / rel for rel in LIBRARY['glbs'])))
     assert not any(covers(world, p) for p in (HORSES / 'coats' / 'variants' / 'manifest.json', HORSES / 'rider.py'))
 
@@ -360,3 +365,18 @@ def test_horse_steps_hash_exactly_what_their_scripts_read(tmp_path):
     # The game reads no rider horse report, so none is staged and data.stage waits on no horse export.
     assert not any(rel.endswith('horse/export.json') for rel in staged)
     assert not any(n.startswith('characters.') and n.endswith('_horse') for n in s['data.stage'].needs)
+
+
+def test_turn_output_changes_invalidate_the_horse_import(tmp_path):
+    producer = steps(tmp_path)['world.horses']
+    consumer = steps(tmp_path)['unreal.horses']
+    for output in producer.outputs:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b'original')
+    before = build.outputs_digest(producer)
+    first = build.fingerprint(consumer, {'world.horses': before})
+    generated = tmp_path / 'horses' / 'turns' / 'arabian.glb'
+    generated.write_bytes(b'new pivot footwork')
+    after = build.outputs_digest(producer)
+    assert after != before
+    assert build.fingerprint(consumer, {'world.horses': after}) != first

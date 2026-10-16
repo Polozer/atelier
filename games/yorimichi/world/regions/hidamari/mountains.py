@@ -351,8 +351,13 @@ def colours(x,y,z):
             *smooth((noise(x,y,45,88)+.55)/.3)*smooth((stretch(1120)-radius)/180))
     grass=np.stack([.15+.03*noise(x,y,30,89),.165+.02*noise(x,y,30,89),np.full_like(x,.045)],axis=-1)
     colors=colors*(1-.85*meadow[...,None])+grass*.85*meadow[...,None]
+    # The south edge meets the city's grass (x 300-1420) in its light apron grass, and the far hills' forest floor
+    # (build_terrain.py FarHills, M_ForestGround) elsewhere in that floor's colour, as the north edge does: a light band
+    # there read as a pale strip against the dark forest below it.
+    city=smooth((x-240)/60)*smooth((1480-x)/60)
+    edge=np.array((.24,.30,.12))*city[...,None]+np.array((.055,.11,.035))*(1-city[...,None])
     apron=smooth((y-500)/190)
-    colors=np.array((.24,.30,.12))*(1-apron[...,None])+colors*apron[...,None]
+    colors=edge*(1-apron[...,None])+colors*apron[...,None]
     # Round the Mega Park the ground under the closed canopy is forest floor, leaf litter and moss (megapark/forest.py).
     from megapark import forest as megapark_forest
     under=megapark_forest.floor(x,y)*(1-smooth((z-205)/30))

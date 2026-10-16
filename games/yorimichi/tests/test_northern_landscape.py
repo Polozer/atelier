@@ -111,7 +111,7 @@ class NorthernLandscape(unittest.TestCase):
     def test_the_apron_closes_the_slit_under_the_foothills_edges(self):
         from megapark.trail import _far_hills
         xs=np.arange(M.BOUNDS[0],M.BOUNDS[2]+1,M.STEP);ys=np.arange(M.BOUNDS[1],M.BOUNDS[3]+1,M.STEP)
-        (sx,sy),_,(ex,ey)=M.apron_grids(xs,ys)
+        (sx,sy),(wx,wy),(ex,ey)=M.apron_grids(xs,ys)
         # It meets the foothills' south edge, where the city does not, and the far hills' first unlowered line.
         edge=M.apron_cell_open(xs,np.full_like(xs,M.BOUNDS[1]-1.))
         np.testing.assert_allclose(M.skirt_height(xs[edge],np.full(edge.sum(),M.BOUNDS[1]),H.north_base_height),
@@ -125,6 +125,30 @@ class NorthernLandscape(unittest.TestCase):
         self.assertGreaterEqual(float((z-_far_hills(x[open_],y[open_])).min()),-1e-3)
         np.testing.assert_allclose(H.north_height(x[open_],y[open_]),z,atol=1e-6)
         self.assertTrue(M.in_apron(np.array([2430.]),np.array([1600.]))[0])
+        # The west and east seams too: the foothills' edge, the far hills' outer line, and never below the far hills.
+        for (bx,by),seam in (((wx,wy),M.BOUNDS[0]),((ex,ey),M.BOUNDS[2])):
+            rows=by[::9];outer=bx[0] if seam==M.BOUNDS[0] else bx[-1]
+            np.testing.assert_allclose(M.skirt_height(np.full_like(rows,seam),rows,H.north_base_height),
+                                       M.height(np.full_like(rows,seam),rows,H.north_base_height),atol=1e-3)
+            np.testing.assert_allclose(M.skirt_height(np.full_like(rows,outer),rows,H.north_base_height),
+                                       _far_hills(np.full_like(rows,outer),rows,upper=True),atol=1e-3)
+            x,y=np.meshgrid(bx,rows);z=M.skirt_height(x,y,H.north_base_height)
+            self.assertGreaterEqual(float((z-_far_hills(x,y)).min()),-1e-3)
+
+    @unittest.skipUnless(BUILT,'needs world.layout')
+    def test_backdrop_trees_on_the_apron_stand_on_it(self):
+        from hidamari.forest_backdrop import ground
+        x=np.array([100.,150.,1800.,2000.,2430.,-704.]);y=np.array([450.,480.,460.,495.,1500.,900.])
+        self.assertTrue(M.in_apron(x,y).all())
+        np.testing.assert_allclose(ground(x,y,H.height,H.backdrop_grid,H.terrain_axes,H.north_height),
+                                   H.north_height(x,y),atol=1e-6)
+
+    def test_the_south_edge_meets_the_forest_floor_beside_the_city_grass(self):
+        # Away from the city the edge takes the far hills' forest floor (M_ForestGround); beside it, the city's grass.
+        y=np.array([470.,470.,470.,470.]);x=np.array([-500.,100.,1800.,800.])
+        colours=M.colours(x,y,np.full_like(x,100.))
+        np.testing.assert_allclose(colours[:3],np.tile([.055,.11,.035],(3,1)),atol=3e-3)   # the Mega Park's litter
+        np.testing.assert_allclose(colours[3],[.24,.30,.12],atol=3e-3)
 
     def test_fine_cells_are_excluded_at_both_patch_edges(self):
         for bounds,inside in [(gate.GATE,gate.cell_inside)]:

@@ -29,6 +29,8 @@ from mathutils import Vector
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / 'world'))
 import yori  # noqa: E402
+sys.path.insert(0, str(HERE))
+import turn  # noqa: E402
 
 OUT = yori.OUT / 'horses'
 FPS = 60
@@ -204,6 +206,13 @@ def verify_and_build():
         measured[slug] = measure_breed_contacts(slug)
         contacts = measured[slug][0]
         print(f'VERIFIED BREED {slug}: seat_z={contacts["seat_z"]:.3f}m scale={contacts["scale_ratio"]:.4f}', flush=True)
+
+        scene, arm = open_horse(slug)
+        generated, proof = turn.bake_glb((HERE / slug / 'horse.glb').read_bytes(), arm, scene, play, FPS)
+        target = OUT / 'turns' / f'{slug}.glb'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(generated)
+        print(f'PIVOT CLIPS {slug}: {proof}', flush=True)
 
     ref_clips = sample_reference_clips(*measured[REFERENCE])
     build_manifest = {

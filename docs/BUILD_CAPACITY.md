@@ -20,9 +20,17 @@ seeing a quiet machine does not change its live mode. Check the actual broker st
 observation: `(legacy-bridge, false)` means bridge; `(sealed-maintenance, false)` means exclusive maintenance;
 `(capacity, true)` means full capacity. Maintenance is one guarded job at a time, not full concurrency. Use the socket selected
 by the installed client when running `uv run atelier capacity status ABSOLUTE_SOCKET`. Missing or stale status
-means availability is unknown. Preserve the machine board, live locks and guard checks at every heavy boundary.
+means availability is unknown. The launcher enforces live admission and guard checks at every heavy boundary.
 
-Before adopting main, finish the checkout's current native child and stop its enclosing caller at an agreed
+In confirmed full capacity mode, normal builds and plays **self-admit**. Run the ordinary command with
+`ATELIER_AGENT` and the default client: no pre-announcement, acknowledgement, coordinator permission,
+manual Holding/Waiting edit or hold/release handshake is required per build or step. Keep the listener active
+for real incidents and owner steering. Read current maintenance/incident instructions; report an actual refusal
+or failure when help is needed. Coordinators collect routine timings from logs, receipts and cook observations
+instead of asking builders to post them. A deliberately quiet capture or a bounded service maintenance remains
+an explicit exception, with a stated end condition; it must not become a standing gate for future normal work.
+
+Before adopting main, finish the checkout's current native child and stop its enclosing caller at a child-free
 boundary so it cannot automatically launch another child. Only then merge and run `uv sync`. Keep generated
 Content, Binaries, build stamps and caches; use the verified [reuse procedure](../AGENTS.md#reusing-builds) for a
 fresh checkout instead of rebuilding everything or sharing mutable directories. Do not change a running job's
@@ -72,17 +80,75 @@ treating the warning as spare capacity. Optional I/O tokens are a contention bud
 The queue includes only current `queued` requests. `waiting` records require a fresh retry, hold no capacity,
 and remain in durable history without counting as active waiters.
 
+### Choosing resources for a job
+
+Choose the command and its supported worker setting, then use ordinary `atelier build`/`play` or the shared
+guarded launcher. The launcher derives the reservation; agents do not edit `client.json`, broker settings or
+resource fields to fit the current free budget. A CPU unit is a scheduling budget, not a dedicated core or a
+kernel throttle. A low average CPU reading alone does not establish a lower safe worker envelope.
+
+| Job | CPU request | Memory request | Exclusion |
+| --- | --- | --- | --- |
+| Board commands, planning and other lightweight metadata work | No heavy reservation | No heavy reservation | None |
+| Headless Blender generation with explicit `--threads N` | Exactly N CPU units; e.g. 3 threads requests 3 | Nominal guard ceiling, normally 10 GiB; automatic 4 GiB only with valid prior peak at most 3 GiB and a compatible GPU envelope | Ordinary bounded generation can share capacity when all budgets and named locks fit |
+| Blender rendering, baking or simulation | Explicit supported worker setting justified by that workload's measurements | Guard ceiling covering its measured peak and growth margin | Quiet window only when its capture/measurement contract requires one |
+| Editor compile | Currently the complete managed CPU pool, despite the existing three-action UBT cap | Normally 10 GiB, covering both guards | Currently automatic; compile classification is conservative |
+| Unreal imports, UAT cook/package, game and unclassified compound commands | Currently the complete managed CPU pool | Normal configured guard ceiling; an explicitly larger supported game limit must also fit its reservation | Currently automatic until a bounded profile has been validated |
+| Benchmark or capture that requires an otherwise quiet machine | Its normal command envelope | Its normal guard ceiling | Explicit performance window; do not use this for routine generation |
+
+The complete managed pool is the live CPU total minus host reserve: for example 10 minus 2 is 8 CPU units.
+The full-pool entries above describe the current fallback, not evidence that every such process consumes eight
+cores. Lowering only that number does not remove the separate exclusion flag. Known bounded workloads should
+get a measured profile instead of keeping a broad classification indefinitely.
+
+For a **new non-rendering Blender generator**, start with `Blender(script, threads=3)` (or an established smaller
+setting). Do not omit `threads` and accidentally inherit six. Existing recipes retain their declared settings
+until the worker-count comparison passes; never retune a running build. Compare 3, 4 and 6 only where relevant,
+using the same source, inputs and tool version, separate output folders, normal guards, and a quiet native turn.
+Compare wall time and output equivalence as well as observed CPU. Adopt more workers only for a repeatable,
+useful throughput gain. Change the actual tool setting and reservation together, rather than understating the
+same six-worker command. Worker-setting changes still follow ordinary fingerprinting and incremental rebuilds.
+
+The city generators were compared on 2026-10-16 with the same frozen input files and installed Blender,
+two runs per worker count in reversed order, separate output folders and normal guarded performance windows.
+Median generator wall times (seconds) were:
+
+| Generator | 3 workers | 4 workers | 6 workers |
+| --- | ---: | ---: | ---: |
+| City surface tiles | 10.381 | 10.158 | 10.083 |
+| City-tree LODs | 1.641 | 1.628 | 1.684 |
+
+All 83 tile and 6 tree-LOD FBXs per run had identical parsed nodes/properties with deterministic export
+metadata applied uniformly; no path normalization was needed. Three workers cost about 3% on the tile case
+and halved its CPU request; the tree times were similar. These two recipes explicitly use three workers.
+This small historical-input comparison does not calibrate other generators, rendering, imports or compiles.
+
+Memory protects the laptop and must be a comfortable **ceiling**, not mean usage. The reservation must cover
+both actual-child and owned-tree guard limits. The normal launcher selects its 4 GiB Blender envelope only from
+valid small-history eligibility; unknown, larger or unbounded work keeps the nominal ceiling. Do not manually
+shrink a profile to a recent low sample, or treat old measurements as proof after a substantial input-scale change.
+Host headroom and every active peer's remaining growth are added centrally; do not charge host reserve twice.
+GPU allocation is already part of unified memory and also has its own subset constraint.
+
+Reserve only while the child is admitted. Queueing, offline preparation, source checks, review gates and uploads
+must not retain a heavy reservation. Lightweight work can be active while the board correctly shows zero
+reservations. Heavy archive/hash/restore work still uses its normal guarded path; calling a large job metadata
+does not make it lightweight. Keep checkout/engine ownership locks required by the actual command, without
+adding an unrelated global lock. When a profile appears excessive, retain the exact command, input identity,
+wall time, explicit workers and guard observations for a focused classification or worker-count correction.
+
 ### Disk is telemetry only
 
 Temporary-disk estimates do not constrain the planner, shadow service, production selection, start, phase
 replacement or pressure checks. No fixed temporary-space pool or free-space threshold delays admission.
-The board's Disk card continues to show real free space and folder usage. Legacy `temp_mib` wire/configuration
-fields stay readable so installed clients and sealed policy evidence remain compatible; public admission totals
-report zero for that retired dimension and the UI omits it. Sealed policy files are not rewritten.
+The board's Disk card shows real free space and folder usage. `temp_mib` wire/configuration fields are
+compatibility inputs; public admission totals report zero for disk and the admission UI omits it.
 
 Memory, CPU, GPU, configured I/O tokens, named ownership locks, fairness and native guards remain enforced.
-There is no independent low-disk guard in this launcher. A tool can still fail with ENOSPC if the filesystem fills;
-such a failure never produces a successful build certificate. Existing tool failures are not suppressed.
+Build/play admission has no independent low-disk guard. The Content package installer checks that its staging
+filesystem has room for two complete package copies plus 64 MiB before starting its atomic transaction.
+That transaction check does not reserve disk capacity or serialize other jobs. Tools can fail with ENOSPC
+if the filesystem fills; a failed tool never produces a successful build certificate.
 
 When asked to stop or yield, let the current owned child finish normally and arrange for its caller to stop before
 another heavy admission. First check `uv run atelier build --help`: if this checkout offers
@@ -283,7 +349,7 @@ install supervision rather than starting either with an unpinned manual `capacit
 This controls host headroom, not job limits: a 10 GiB job still reserves and enforces 10 GiB. With a 4 GiB host
 reserve it requires at least 14 GiB of fresh available memory, plus the full remaining memory growth of every
 charged peer. Unknown or failed observations still refuse. Worker counts, exclusive jobs, foreign-process checks,
-CPU/GPU/disk accounting and both memory guards are unchanged. The full default client remains schema2.
+CPU/GPU accounting and both memory guards are unchanged. The full default client remains schema2.
 
 Install a reviewed calibration only at a coordinated child-free, uncharged boundary. Keep the original full
 policy and seal bytes; never edit or re-seal them to fit a memory snapshot. Require measured host-pressure and

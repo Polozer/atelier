@@ -187,7 +187,7 @@ def horses_imported_present(out):
         if (roster['breed_order'] != list(library['breeds']) or roster['tack_sets'] != library['tack_sets']
                 or list(roster['coat_masks']) != library['coat_masks']
                 or [v['id'] for v in roster['coat_variants']] != [v['id'] for v in variants]
-                or any(list(b['clips']) != list(library['clips']) for b in roster['breeds'].values())):
+                or any(list(b['clips']) != [*library['clips'], *horse_data.TURN_CLIPS] for b in roster['breeds'].values())):
             return False
         content = GAME / 'unreal' / 'Content'
         dependencies = [path for used in materials.values() for pair in used.items() for path in pair]
@@ -674,9 +674,10 @@ def world_steps(ctx):
              outputs=[out / 'bike' / 'manifest.json'], about="Cairo's bike: frame, steering, wheels, crank, pedals, kickstand, rack board", heavy=True),
         # Verifies every library GLB, measures each breed's contacts and samples the reference breed's clips. A cutoff:
         # its dependents (the riders, unreal.horses) list what else they read, so a palette edit reruns only the import.
-        Step('world.horses', [Blender(HORSES / 'build.py')],
-             inputs=[HORSES / 'build.py', HORSES / 'manifest.json', YORI, *(HORSES / slug for slug in HORSE_LIBRARY['breeds'])],
-             outputs=[out / 'horses' / 'manifest.json'], cutoff=True,
+        Step('world.horses', [Blender(HORSES / 'build.py', threads=3)],
+             inputs=[HORSES / 'build.py', HORSES / 'turn.py', HORSES / 'manifest.json', YORI,
+                     paths.STUDIO / 'atelier' / 'gltf.py', *(HORSES / slug for slug in HORSE_LIBRARY['breeds'])],
+             outputs=[out / 'horses' / 'manifest.json', *(out / 'horses' / 'turns' / f'{slug}.glb' for slug in HORSE_LIBRARY['breeds'])], cutoff=True,
              about="the horses' rider contacts and 60 Hz clip trajectories", heavy=True),
         Step('world.kei', [Blender(ASSETS / 'vehicles' / 'kei' / 'build.py')],
              inputs=[ASSETS / 'vehicles' / 'kei', REGIONS / 'village' / 'build.py'],
@@ -691,11 +692,11 @@ def world_steps(ctx):
                                                     'SM_BM_BVV_Farm_', 'SM_BM_BC_Water_', 'SM_BM_BC_Pave', 'SM_BM_BC_Ponte')))],
              needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', *crater_geometry],
              outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png'], about='map zones and the painted sheet'),
-        Step('world.city_tiles', [Blender(WORLD / 'city_surface_tiles.py', ('--tag', 'v1_128m'))],
+        Step('world.city_tiles', [Blender(WORLD / 'city_surface_tiles.py', ('--tag', 'v1_128m'), threads=3)],
              inputs=[WORLD / 'city_surface_tiles.py'], needs=['world.hidamari'],
              outputs=[out / 'city_surface_tiles' / 'v1_128m' / 'manifest.json'], about='desktop profile: city surfaces in 128 m tiles', heavy=True),
         digest_step(out, 'world.city_tiles', 'meshes', 'the city tiles unreal.desktop reads', out / 'city_surface_tiles', ['v1_128m']),
-        Step('world.city_trees', [Blender(WORLD / 'city_tree_lods.py', ('--tag', 'v4'))],
+        Step('world.city_trees', [Blender(WORLD / 'city_tree_lods.py', ('--tag', 'v4'), threads=3)],
              inputs=[WORLD / 'city_tree_lods.py', REGIONS / 'hidamari' / 'arcade.py', REGIONS / 'hidamari' / 'plaza.py'],
              needs=['world.hidamari'], outputs=[out / 'city_tree_lods' / 'v4' / 'manifest.json'], about='desktop profile: city tree LODs', heavy=True),
         digest_step(out, 'world.city_trees', 'meshes', 'the city tree LODs unreal.desktop reads', out / 'city_tree_lods', ['v4']),

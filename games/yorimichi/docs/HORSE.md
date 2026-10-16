@@ -44,8 +44,11 @@ the sprint's top speed.
 - **Speed.** Riding on gathers speed at 520 cm/s² (720 sprinting) towards the throttle's share of the top speed. With
   no throttle the horse slows at 420 cm/s²; reining in, or opening a menu or the map, slows it at 1400 cm/s². Only the
   ground changes the speed: in the air the horse carries what it had.
-- **Turning.** 135 degrees a second standing, narrowing with speed to 68 at the sprint's top speed, and about a third of
-  that in the air. He and the horse bank into a turn together, up to 16 degrees at speed.
+- **Turning.** Stopped on the ground, left/right steering plays pivot footwork at up to 45 degrees a second.
+  Stick deflection scales both the rotation and the stepping clock; a stationary deadzone of 0.1 prevents stick drift
+  from turning the horse. Releasing steering returns to standing, and turning interrupts idle gestures. Moving turns
+  narrow from 135 degrees a second to 68 at the sprint's top speed, and about a third of that in the air. He and the
+  horse bank into a turn together, up to 16 degrees at speed.
 - **Gaits.** The rider's and the horse's clips share one phase, kept on the rider's clip, and play faster through
   the gait's speed range (for example the walk from 0.82 to 1.22 times). From one gait to the next the cycle carries
   on, so the legs stay in step. A breed without a clip for a role plays its Idle there, as the rider does.
