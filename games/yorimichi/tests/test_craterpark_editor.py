@@ -137,6 +137,66 @@ def test_rejects_unknown_and_broken_designs(mutate, message):
     assert result.returncode != 0 and message in result.stderr
 
 
+@pytest.mark.parametrize('kind,key', [('jump', 'wl'), ('kicker', 'wr'), ('landing', 'wl'), ('bowl', 'exit_wr')])
+def test_wall_overrides_without_defaults_are_validated_as_walls(kind, key):
+    doc = document([piece(kind)])
+    doc['pieces'][0].setdefault('params', {})[key] = {'h': 3, 'R': 3}
+    assert validate(doc).returncode == 0
+    doc['pieces'][0]['params'][key]['unknown_wall_parameter'] = 123
+    result = validate(doc)
+    assert result.returncode != 0 and 'unknown parameter' in result.stderr
+
+
+def split(parent_bank=10., lane_bank=None, shift=5.):
+    """A width-20 run split into two width-10 lanes shifted +/- shift beside its centre line, banked as given."""
+    flat = dict(len=10, wall_blend=0, deck=0, wl={'h': 0, 'R': 3}, wr={'h': 0, 'R': 3})
+    parent = piece('run', 'parent', width=20, bank=parent_bank, **flat)
+    lanes = []
+    for name, side in (('left', 1), ('right', -1)):
+        lane = piece('run', name, width=10 if shift else 20, bank=parent_bank if lane_bank is None else lane_bank,
+                     shift=side * shift, **flat)
+        lane.update(attach='parent')
+        lanes.append(lane)
+    return document([parent] + (lanes if shift else lanes[:1]))
+
+
+def joints(doc):
+    """The pinned editor's own join marks and floors at each attached run's start, and checkJoins' verdict."""
+    code = ("const P=require(process.argv[1]),B=require(process.argv[2]);const park=JSON.parse(require('fs').readFileSync(0,'utf8'));"
+            "const built=P.layout(park);const out={};for(const p of park.pieces){const b=built.get(p.id),pb=p.attach&&built.get(p.attach);"
+            "if(!pb)continue;const s1=pb.stations[pb.segs[pb.segs.length-1][1]];out[p.id]={joined:b.joins.start,parent_end:pb.joins.end,"
+            "centre_step:s1.y+((p.params||{}).shift||0)*Math.tan(s1.bank*Math.PI/180)-b.stations[0].y};}"
+            "try{B.checkJoins(park,built);out.error=null;}catch(e){out.error=e.message;}console.log(JSON.stringify(out));")
+    result = subprocess.run([NODE, '-e', code, str(frontend.HERE / 'pieces.cjs'), str(frontend.HERE / 'bridge.cjs')],
+                            input=json.dumps(doc), capture_output=True, text=True, timeout=10, check=True)
+    return json.loads(result.stdout)
+
+
+def test_split_lanes_of_a_banked_run_fail_instead_of_joining_with_a_step(tmp_path):
+    # the pinned editor starts each lane at its parent's centre height and marks the ends joined: on a 10 degree bank
+    # the parent's floor under each lane's centre is 0.88 m higher or lower
+    marks = joints(split())
+    for lane, sign in (('left', 1), ('right', -1)):
+        assert marks[lane]['joined'] and marks[lane]['centre_step'] == pytest.approx(sign * 5 * np.tan(np.radians(10)))
+    assert marks['left']['parent_end'] and 'split' in marks['error'] and 'step' in marks['error']
+    with pytest.raises(ValueError, match='m step across its floor'):
+        compile_at(tmp_path, split())
+
+
+@pytest.mark.parametrize('doc,ok', [
+    (split(parent_bank=0.), True),                          # level lanes (as the shipped park's) join as before
+    (split(parent_bank=0., lane_bank=10.), False),          # a banked lane on a level parent steps at its outer edge
+    (split(parent_bank=10., shift=0.), True),               # a banked run carrying straight on, banked alike
+    (split(parent_bank=10., lane_bank=0., shift=0.), False),  # a bank changing at a joint
+])
+def test_joints_are_continuous_across_the_floor(tmp_path, doc, ok):
+    marks = joints(doc)
+    assert all(m['joined'] for k, m in marks.items() if k != 'error')
+    assert (marks['error'] is None) == ok, marks['error']
+    if ok:
+        assert len(compile_at(tmp_path, doc).pieces) == len(doc['pieces'])
+
+
 def test_changed_snapshot_or_live_geometry_fails_closed(tmp_path):
     path = inputs(tmp_path, document([piece('run')]))
     (path.parent / 'pieces.js').write_text('changed geometry')
@@ -179,7 +239,7 @@ def test_the_build_ships_the_committed_editor_park_by_default(monkeypatch):
     monkeypatch.delenv(v4_config.EDITOR_SWITCH, raising=False)
     monkeypatch.delenv(v4_config.SWITCH, raising=False)
     monkeypatch.delenv('ATELIER_CRATERPARK_EDITOR_LINES', raising=False)
-    assert v4_config.editor_path() == v4_config.SHIPPED and v4_config.editor_lines() == 'L1,p5'
+    assert v4_config.editor_path() == v4_config.SHIPPED and v4_config.editor_lines() == 'L1,L2,p5'
     assert json.loads(v4_config.SHIPPED.read_text())['schema'] == v4_config.EDITOR_SCHEMA
     assert [p.name for p in v4_config.input_paths()][:2] == ['shipped.json', 'terrain.json']
     monkeypatch.setenv(v4_config.EDITOR_SWITCH, 'off')

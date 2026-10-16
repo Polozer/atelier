@@ -139,6 +139,32 @@ def assist_boxes(zones, placement):
     return boxes
 
 
+BOOST_PAD = 100.    # cm round each boost box, so the board on the coping and a rider leaning out are inside
+
+
+def boost_boxes(zones, placement):
+    """Editor boost zones (a bowl or a run cut along its length, as its own mesh points) -> boxes in island
+    centimetres turned yaw_deg about +Z along the points' long axis, grown by BOOST_PAD. The skating applies the
+    boost only on a tilted surface (a transition) inside one, so the flat a box takes in does not boost."""
+    boxes = []
+    for zone in zones:
+        pts = np.asarray(placement.to_unreal(np.asarray(zone['points'], 'f8')), 'f8')
+        xy = pts[:, :2] - pts[:, :2].mean(0)
+        w, v = np.linalg.eigh(xy.T @ xy)
+        yaw = math.atan2(v[1, -1], v[0, -1])
+        c, s = math.cos(yaw), math.sin(yaw)
+        local = np.stack([pts[:, 0] * c + pts[:, 1] * s, -pts[:, 0] * s + pts[:, 1] * c], 1)
+        lo, hi = local.min(0), local.max(0)
+        mid = (lo + hi) / 2
+        centre = [mid[0] * c - mid[1] * s, mid[0] * s + mid[1] * c, (pts[:, 2].min() + pts[:, 2].max()) / 2]
+        half = [(hi[0] - lo[0]) / 2 + BOOST_PAD, (hi[1] - lo[1]) / 2 + BOOST_PAD,
+                (pts[:, 2].max() - pts[:, 2].min()) / 2 + 2 * BOOST_PAD]
+        boxes.append({'id': zone['id'], 'center_cm': [round(float(x), 1) for x in centre],
+                      'half_extent_cm': [round(float(x), 1) for x in half], 'yaw_deg': round(math.degrees(yaw), 3),
+                      'boost': zone['boost']})
+    return boxes
+
+
 def write(out, source, geometry, placement, entry_mesh=export_mesh):
     """Every FBX, build.json and park.json under `out` from the arrays in `geometry` (generate.bundle's npz)."""
     out = Path(out); (out / 'fbx').mkdir(parents=True, exist_ok=True)
@@ -223,6 +249,8 @@ def write(out, source, geometry, placement, entry_mesh=export_mesh):
         park['trees'] = index['trees']           # the park's own planting (dressing.plant), Spawn's HISM path
     if index.get('assist_zones_native'):
         park['assist_zones'] = assist_boxes(index['assist_zones_native'], placement)
+    if index.get('boost_zones_native'):
+        park['boost_zones'] = boost_boxes(index['boost_zones_native'], placement)
     if index.get('lines'):
         # one start per designed line (generate.line_spawns, CraterParkTower.cpp); the first is the hero line
         park['lines'] = index['lines']

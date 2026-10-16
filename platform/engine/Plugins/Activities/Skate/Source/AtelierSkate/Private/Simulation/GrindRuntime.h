@@ -58,6 +58,10 @@ public:
     std::optional<Vec4> pending_wipeout_impulse;
     GrindChromosome chromosome;
     GrindCamera camera;
+    // FeelTuning::grind_tolerance (GameplayRuntime::Feel), 1 stock: a push-off has 35 updates times this to clear the
+    // rail before it bails, and above 1 a rail boardslide or darkslide that stalls is pushed off the rail as on a
+    // ledge instead of wiping out.
+    float tolerance=1;
     bool Load(const SettingsDatabase&,std::string& error);
     void Observe(PlayerGrindObservation value){manager=value;}
     bool Enter(PhysicalStateId,GrindRuntimeOwners,std::string& error);

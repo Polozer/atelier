@@ -68,6 +68,8 @@ bool GameplayRuntime::Create(std::shared_ptr<const GameplayResources> source,Wor
     if(!Adopt(FootPhysicalOutputs::Load(data,error),result->foot_physical))return false;
     if(!Adopt(PlayerInputRuntime::Load(data,error),result->input))return false;
     if(!Adopt(PlayerStateRuntime::Load(data,mode,error),result->player_state))return false;
+    // Game raises air timeout from 300 ticks (5 s) to 1800 (30 s) for long airs.
+    result->player_state->selector.max_air_frames=1800;
     if(!result->player_state->conditioning.Load(data,error))return false;
     if(!result->ground.Load(data,true,error) || !result->ground_runtime.Load(data,error)
         || !result->ground_profiles.Load(data,error) || !result->ground_settings.Load(data,mode,"smooth",error))return false;
@@ -91,8 +93,9 @@ bool GameplayRuntime::Create(std::shared_ptr<const GameplayResources> source,Wor
     stock.pumping=result->ground.pumping_settings.modes;stock.auto_push=result->ground.auto_push_enabled;
     stock.reckoning=result->air_reckoning.modes;
     for(std::size_t i=0;i<stock.known_air_flips.size();++i)stock.known_air_flips[i]=result->known_air.configuration.modes[i].perfect_body_flips_28;
-    stock.wipeout=result->wipeout.settings;stock.wipeout_modes=result->wipeout.modes;
+    stock.wipeout=result->wipeout.settings;stock.wipeout_modes=result->wipeout.modes;stock.grind_post=result->grind.settings.post;
     for(std::size_t i=0;i<stock.slide_speed_to_force.size();++i)stock.slide_speed_to_force[i]=result->slide.settings.surfaces[i].surface.speed_to_force;
+    stock.camera_anchor_speed=result->camera.settings.manager.rig.anchor.speed_clamp;
     output=std::move(result);error.clear();return true;
 }
 GameplayFrameOwners GameplayRuntime::BorrowFrame()
@@ -203,7 +206,7 @@ bool GameplayRuntime::DriftAcross() const
 bool GameplayRuntime::LimitVertAssist(float limit,std::string& error)
 {
     if(!(limit>=0.0f && limit<=1.0f)){error="Invalid vert assist limit";return false;}
-    vert_assist_limit_=limit;trajectory.vert_assist=std::min(vert_assist_,vert_assist_limit_);
+    vert_assist_limit_=limit;trajectory.vert_assist=std::min(vert_assist_,vert_assist_limit_);trajectory.vert_assist_limit=limit;
     error.clear();return true;
 }
 bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
@@ -215,11 +218,12 @@ bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
         || !in(t.rail_magnetism,0.25f,3.0f) || !in(t.grind_pop,0.5f,2.0f) || !in(t.grind_friction,0.0f,3.0f)
         || !in(t.braking,0.25f,3.0f) || !in(t.steering,0.5f,2.0f) || !in(t.carve,0.5f,2.0f) || !in(t.grip,0.5f,2.0f)
         || !in(t.powerslide,0.25f,3.0f) || !in(t.rolling_friction,0.0f,3.0f) || !in(t.hill_speed,0.0f,2.0f)
-        || !in(t.pump,0.0f,3.0f) || !in(t.wobble,0.0f,3.0f) || !in(t.wobble_onset,0.5f,3.0f) || !in(t.manual_drift,0.0f,3.0f)
+        || !in(t.pump,0.0f,3.0f) || !in(t.bowl_boost,0.0f,2.0f) || !in(t.wobble,0.0f,3.0f) || !in(t.wobble_onset,0.5f,3.0f) || !in(t.manual_drift,0.0f,3.0f)
         || !in(t.landing,0.5f,3.0f) || !in(t.impact,0.5f,3.0f) || !switch_ok(t.auto_push) || !switch_ok(t.assisted_air)
         || t.tight_flicks<0 || t.tight_flicks>1 || t.flick_120hz<0 || t.flick_120hz>1
         || !in(t.powerslide_turn,0.25f,1.5f) || t.drift_powerslide<0 || t.drift_powerslide>1
-        || !in(t.drift_grip,0.0f,1.5f) || !in(t.drift_full_grip,0.0f,1.5f))
+        || !in(t.drift_grip,0.0f,1.5f) || !in(t.drift_full_grip,0.0f,1.5f) || !in(t.grind_tolerance,0.5f,3.0f)
+        || !in(t.camera_follow,1.0f,3.0f))
     {error="Invalid skating feel";return false;}
     auto* gestures=controls->MutableGestures();
     if(!gestures){error="Skating feel requires the gesture recogniser";return false;}
@@ -265,6 +269,14 @@ bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
     auto& w=wipeout.settings;
     w.ground.y_acceleration*=t.impact;
     w.air.xz_acceleration*=t.impact;w.air.y_acceleration*=t.impact;w.air.xz_trick*=t.impact;w.air.y_trick*=t.impact;
+    // Grind tolerance: the in-grind bails and the push-off's time in full, the entry's bails half as much more.
+    const float entry=(1+t.grind_tolerance)*0.5f;
+    w.air.max_grind_speed*=entry;
+    grind.settings.post=GrindPostTolerance(stock.grind_post,t.grind_tolerance);grind.tolerance=t.grind_tolerance;
+    // Slides hold on twice as long again as the tolerance: at 2, a tail slide ridden into a coping leans off after
+    // about 4 s, not 1.3 s.
+    if(input->grind){input->grind->entry_tolerance=entry;input->grind->slide_hold=std::max(1.0f,2*t.grind_tolerance-1);}
+    camera.settings.manager.rig.anchor.speed_clamp=stock.camera_anchor_speed*t.camera_follow;
     feel_=t;error.clear();return true;
 }
 void GameplayRuntime::Launch(Vec3 velocity)
