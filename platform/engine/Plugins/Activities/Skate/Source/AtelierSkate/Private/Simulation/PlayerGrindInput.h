@@ -83,6 +83,8 @@ public:
     // The entry bails' share (GameplayRuntime::Feel), 1 stock: the impact snapping onto the rail and the speed
     // across it that bail are this times the authored.
     float entry_tolerance=1;
+    // A slide's lean-off clock (PlayerGrindBalanceState::UpdateExitLean) runs this many times slower, 1 stock.
+    float slide_hold=1;
     static std::optional<PlayerGrindInputState> Load(const SettingsDatabase&,std::string& error);
     void Reset();
     void Permission(const ProcessedPhysicsInput&,std::int32_t air_counter);

@@ -177,7 +177,10 @@ most, and this game's pop 1.15, spin 1.6, push speed 1.15, push strength 1.45, v
 
 **Grind balance** (`GrindTolerance`, 2 in this game, in every mode) is how much a grind takes before Cairo bails. At 2
 the grind rides through twice the knocks, the twist of the deck off the rail and the time a push-off has to clear the
-rail; a rail boardslide that stalls drops off the rail and rides away instead of wiping out. The entry takes half as
+rail; a rail boardslide that stalls drops off the rail and rides away instead of wiping out. Slides hold too: a tail or
+nose slide, a blunt and a boardslide on a coping are sprung back onto its line as a 50-50 is, a slide caught again
+after a moment off the line is not cut off as a fresh one, and a slide leans off three times later (about 4 s ridden
+into a coping, not 1.3 s); grinds keep their stock timing. The entry takes half as
 much more: hitting the rail 12 m/s sideways or slamming on with a 12 m/s jolt still bails, as does an air entry pitched
 more than 30° along the rail. Some useful starting points:
 

@@ -271,7 +271,9 @@ bool GameplayRuntime::Feel(const FeelTuning& t,std::string& error)
     const float entry=(1+t.grind_tolerance)*0.5f;
     w.air.max_grind_speed*=entry;
     grind.settings.post=GrindPostTolerance(stock.grind_post,t.grind_tolerance);grind.tolerance=t.grind_tolerance;
-    if(input->grind)input->grind->entry_tolerance=entry;
+    // Slides hold on twice as long again as the tolerance: at 2, a tail slide ridden into a coping leans off after
+    // about 4 s, not 1.3 s.
+    if(input->grind){input->grind->entry_tolerance=entry;input->grind->slide_hold=std::max(1.0f,2*t.grind_tolerance-1);}
     feel_=t;error.clear();return true;
 }
 void GameplayRuntime::Launch(Vec3 velocity)

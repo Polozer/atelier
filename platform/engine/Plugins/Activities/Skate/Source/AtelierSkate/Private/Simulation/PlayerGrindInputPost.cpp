@@ -43,7 +43,7 @@ bool PlayerGrindInputState::PostUpdate(ProcessedPhysicsInput& p,const WorldGeome
         contact.emplace(PlayerGrindBalanceContact{*surface,Float4(fields.tangent_1104),Float4(fields.direction_1136),fields.family_1248,PlayerGrindEntryKind(fields.entry_kind_1252)});}
     PlayerGrindBalanceVectors vectors{Float4(fields.normal_1152),Float4(fields.target_up_1168)};
     balance.UpdateTargetUp({p.category_2512,p.state_2504,Float4(p.vectors_544_560_592_608[0])},contact?&*contact:nullptr,vectors);
-    fields.exit_lean_1500=balance.UpdateExitLean({p.category_2512,p.state_2508,p.grind_words_2532_2536[1],p.timestep_2604},contact?&*contact:nullptr,settings_.exit_lean,vectors);
+    fields.exit_lean_1500=balance.UpdateExitLean({p.category_2512,p.state_2508,p.grind_words_2532_2536[1],p.timestep_2604,slide_hold},contact?&*contact:nullptr,settings_.exit_lean,vectors);
     fields.normal_1152=Raw4(vectors.grind_normal);fields.target_up_1168=Raw4(vectors.target_up);
     ExitQueries query(host,world,{p.actor_query_2948,p.actor_query_2952});
     if(!balance.UpdateForceExit(Float4(fields.point_1120),fields.flags_1516,query,error))return false;

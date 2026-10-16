@@ -21,11 +21,17 @@ bool GrindRuntime::Contact(GrindRuntimeOwners o,const PlayerGrindObservation& ma
     using K=Kind;
     switch(family){
     case PlayerGrindFamily::Darkslide:case PlayerGrindFamily::Boardslide:
-        operations={{K::Orient},{K::Translate},{K::Pin},{K::Friction,{55,55,60}},{K::Coping},{K::ExitLean},{K::Wheels}};break;
+        operations={{K::Orient},{K::Translate},{K::Pin},{K::Friction,{55,55,60}},{K::Coping},{K::ExitLean},{K::Wheels}};
+        // A forgiving grind (tolerance above 1) springs a slide on a coping back onto its line, as a 50-50's: the
+        // stock one has only the stick's push there, and drifts off a curved lip within half a second.
+        if(tolerance>1&&manager.geometry.kind_1464==2)operations.insert(operations.begin()+1,{K::Align,{800,0,0.07f}});break;
     case PlayerGrindFamily::FiftyFifty:
         operations={{K::Friction,{50,40,40}},{K::Align,{800,0,0.07f}},{K::Coping},{K::Pin},{K::ExitLean},{K::Orient}};break;
     case PlayerGrindFamily::Tipslide:
-        operations={{K::Orient},{K::TipStability},{K::Friction,{60,60,60}},{K::Coping},{K::Pin},{K::ExitLean},{K::Wheels}};break;
+        operations={{K::Orient},{K::TipStability},{K::Friction,{60,60,60}},{K::Coping},{K::Pin},{K::ExitLean},{K::Wheels}};
+        // Forgiving, a tail or nose slide springs its tip back onto the line, as a blunt's: aimed at the middle of the
+        // 21.5 cm tip zone it must stay in (PlayerGrindTipContacts), so it no longer slides out of it.
+        if(tolerance>1)operations.insert(operations.begin()+1,{K::Align,{3000,0.35f,0.025f}});break;
     case PlayerGrindFamily::FiveO:
         operations={{K::Orient},{K::Align,{3000,0.234f,0.07f}},{K::Pin},{K::Friction,{50,40,40}},{K::Coping},{K::ExitLean}};break;
     case PlayerGrindFamily::Backslash:
