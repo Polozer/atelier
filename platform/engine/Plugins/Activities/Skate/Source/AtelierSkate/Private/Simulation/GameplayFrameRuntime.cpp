@@ -90,10 +90,16 @@ void AdvanceWallFollowAir(PlayerStatePhaseOwners& s,bool teleported)
     {
         if(air)
         {
+            // The air leaves the wall straight up (any speed away from it dropped) and takes the turn's yaw rate.
             w.pending=false;w.active=true;w.elapsed=0;
             const float rate=w.curvature*speed;
-            for(auto& body:f.board.BodiesMut())body.rates.angular_velocity.y+=rate;
-            for(auto& body:f.skeleton.BodiesMut())body.rates.angular_velocity.y+=rate;
+            const auto start=[&w,rate](auto& body){
+                body.rates.linear_velocity=WallFollowInward(body.rates.linear_velocity,w.inward_x,w.inward_z);
+                body.rates.angular_velocity.y+=rate;};
+            for(auto& body:f.board.BodiesMut())start(body);
+            for(auto& body:f.skeleton.BodiesMut())start(body);
+            auto& com=s.physics_air.state.centre_of_mass_trajectory.velocity;
+            const auto straight=WallFollowInward(Vec3(com[0],com[1],com[2]),w.inward_x,w.inward_z);com[0]=straight.x;com[2]=straight.z;
         }
         else if(++w.pending_ticks>WallFollowAir::PendingTicks){w.Stop();selector.SetWallFollow(0,0);}
     }

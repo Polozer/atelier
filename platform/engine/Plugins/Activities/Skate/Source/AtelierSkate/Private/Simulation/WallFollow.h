@@ -51,25 +51,39 @@ inline bool WallFollowConcave(float curvature,Vec4 v,Vec4 n)
 }
 
 // Ground at least this steep (normal y below it, about 41 degrees) is measured as a wall: the upper transition and
-// the vert. Lower down a bowl's wall has a smaller radius, so a window reaching there reads a little more curvature
-// and the air turns a little tighter (lands a little further onto the transition), never wider.
+// the vert.
 inline constexpr float WallFollowSteepNormalY=0.75f;
+// A launch latches the wall's curvature this much tighter (WallFollowLaunchCurvature).
+inline constexpr float WallFollowMargin=1.03f;
 
-// The plan curvature of the steep wall under the board, measured while riding it: the turn of the ground normal's
-// horizontal part (about +Y) per metre ridden along the wall, over the last Window updates. A circular wall of radius R
-// reads 1/R whichever way it is ridden (the sign says which way the line turns); a straight wall reads 0 however the
-// board moves on it. Faceted collision turns the normal in steps, so the window spans several facets.
+// A velocity with any part away from the wall dropped: `inward` is the wall's horizontal normal (unit, towards the
+// bowl). An air that turns with the wall leaves it as the vert alignment aims it, straight up; a little speed away from
+// the wall would carry the turned air outward over the lip however tight the turn (its circle, tangent to the
+// velocity, crosses the wall's own).
+inline Vec3 WallFollowInward(Vec3 v,float inward_x,float inward_z)
+{
+    const float into=v.x*inward_x+v.z*inward_z;
+    if(!(into<0.0f))return v;
+    v.x-=inward_x*into;v.z-=inward_z*into;return v;
+}
+
+// The plan curvature of the steep wall under the board, measured while riding it. On a wall swept round a centre (a
+// bowl's wall, at any height on its transition) every ground normal's horizontal line passes through the centre, so
+// the centre is the point nearest all the normal lines of the last Window updates (least squares), and the curvature
+// is 1 over the board's distance from it now: the radius of the air's circle. Faceted collision holds a facet's
+// normal across it, which offsets each line by up to half a facet; the fit averages that out where counting the
+// normal's turn per metre would read whole facets. A straight wall's lines are parallel and read 0. The sign is the
+// way the line turns as ridden (as YawAboutUp); the side of the wall the centre is on is WallFollowConcave's.
 struct WallCurvatureTracker
 {
     static constexpr int Window=24;           // 0.4 s at 60 updates a second
     static constexpr int Needed=12;           // at least 0.2 s of steep wall in a row
     static constexpr float MinimumRadius=8.0f,MaximumRadius=400.0f;
     static constexpr float MinimumDistance=4.0f; // metres ridden along the wall in the window
-    std::array<float,Window> turn{},distance{};
+    struct Sample {float x,z,nx,nz;};
+    std::array<Sample,Window> samples{};
     int count=0,next=0;
-    float last_x=0,last_z=0,last_px=0,last_pz=0;
-    bool has_last=false;
-    void Reset(){count=0;next=0;has_last=false;}
+    void Reset(){count=0;next=0;}
     // One update on the ground: the ground normal under the board and the board's position. Ground no steeper than
     // max_normal_y (normal y at or above it), or with too little horizontal normal, restarts the measurement.
     void Observe(Vec3 normal,Vec3 position,float max_normal_y)
@@ -77,28 +91,34 @@ struct WallCurvatureTracker
         const float horizontal=std::sqrt(normal.x*normal.x+normal.z*normal.z);
         if(!(normal.y<max_normal_y) || !(horizontal>0.3f)
             || !std::isfinite(position.x) || !std::isfinite(position.z)){Reset();return;}
-        const float nx=normal.x/horizontal,nz=normal.z/horizontal;
-        if(has_last)
-        {
-            // Signed turn from the last normal to this one about +Y, and the distance ridden along the wall (its
-            // tangent is up x n = (nz, -nx)), whichever way.
-            const float sine=last_z*nx-last_x*nz,cosine=last_x*nx+last_z*nz;
-            const float dx=position.x-last_px,dz=position.z-last_pz;
-            turn[std::size_t(next)]=std::atan2(sine,cosine);
-            distance[std::size_t(next)]=std::abs(dx*nz-dz*nx);
-            next=(next+1)%Window;if(count<Window)++count;
-        }
-        last_x=nx;last_z=nz;last_px=position.x;last_pz=position.z;has_last=true;
+        samples[std::size_t(next)]={position.x,position.z,normal.x/horizontal,normal.z/horizontal};
+        next=(next+1)%Window;if(count<Window)++count;
     }
     // 1/m, signed as YawAboutUp; 0 while unknown, or outside radii MinimumRadius to MaximumRadius.
     float Curvature() const
     {
         if(count<Needed)return 0;
-        double turned=0,ridden=0;
-        for(int i=0;i<count;++i){turned+=turn[std::size_t(i)];ridden+=distance[std::size_t(i)];}
-        if(!(ridden>=MinimumDistance))return 0;
-        const double k=turned/ridden,a=std::abs(k);
-        return a>=1.0/MaximumRadius && a<=1.0/MinimumRadius?float(k):0.0f;
+        const auto& first=samples[std::size_t((next-count+Window)%Window)];
+        const auto& last=samples[std::size_t((next-1+Window)%Window)];
+        // Ridden along the wall: the travel along the wall's tangent up x n = (nz, -nx).
+        const double vx=double(last.x)-first.x,vz=double(last.z)-first.z;
+        if(!(std::abs(vx*last.nz-vz*last.nx)>=MinimumDistance))return 0;
+        // The point c nearest every line p + s n: minimise the sum of ((c - p) . t)^2 with t = (nz, -nx), relative to
+        // the latest position for precision.
+        double a=0,b=0,d=0,e=0,f=0;
+        for(int i=0;i<count;++i)
+        {
+            const auto& q=samples[std::size_t(i)];
+            const double tx=q.nz,tz=-q.nx,along=tx*(double(q.x)-last.x)+tz*(double(q.z)-last.z);
+            a+=tx*tx;b+=tx*tz;d+=tz*tz;e+=tx*along;f+=tz*along;
+        }
+        const double n=count,det=a*d-b*b;
+        if(!(det/(n*n)>1e-9))return 0;
+        const double cx=(d*e-b*f)/det,cz=(a*f-b*e)/det,radius=std::sqrt(cx*cx+cz*cz);
+        if(!(radius>=MinimumRadius && radius<=MaximumRadius))return 0;
+        // Turning towards the centre: positive (as YawAboutUp) when the centre is along up x v = (vz, -vx).
+        const double side=vz*cx-vx*cz;
+        return side==0?0.0f:float((side>0?1.0:-1.0)/radius);
     }
 };
 
@@ -107,7 +127,7 @@ struct WallCurvatureTracker
 // rider and the board until the board is down, the rider bails, grinds or plants, or after MaximumTime.
 struct WallFollowAir
 {
-    static constexpr float MaximumTime=4.0f;
+    static constexpr float MaximumTime=6.0f;
     static constexpr std::uint32_t PendingTicks=10; // a launch that has not left the ground by then is dropped
     float strength=0;                // FeelTuning::wall_follow: 0 off (stock), 1 the wall's full curvature
     WallCurvatureTracker tracker;
@@ -115,7 +135,8 @@ struct WallFollowAir
     bool pending=false,active=false;
     std::uint32_t pending_ticks=0;
     float curvature=0,elapsed=0;     // latched: strength x the wall's curvature (1/m), seconds turned so far
-    void Stop(){pending=false;active=false;pending_ticks=0;curvature=0;elapsed=0;}
+    float inward_x=0,inward_z=0;     // latched: the wall's horizontal normal at the launch (unit, towards the bowl)
+    void Stop(){pending=false;active=false;pending_ticks=0;curvature=0;elapsed=0;inward_x=inward_z=0;}
     void Reset(){Stop();tracker.Reset();ticks_since_ground=0xffff;}
     float Remaining() const {return std::max(MaximumTime-elapsed,0.0f);}
 };
@@ -130,7 +151,9 @@ inline float WallFollowLaunchCurvature(const WallFollowAir& w,bool vert_aligned,
 {
     if(!(w.strength>0.0f) || w.pending || w.active || !vert_aligned || !(vert_assist>0.0f) || !(vert_assist_limit>0.0f)
         || !(directional_input<=0.25f) || w.ticks_since_ground>2)return 0;
+    // The measured radius can read up to about 2% wide on fine facets: 3% tighter keeps the turned air over the wall
+    // (a wider one lands behind the lip, a tighter one a little further down onto the wall).
     const float k=w.tracker.Curvature();
-    return WallFollowConcave(k,velocity,ground_normal)?k*w.strength:0.0f;
+    return WallFollowConcave(k,velocity,ground_normal)?k*w.strength*WallFollowMargin:0.0f;
 }
 }

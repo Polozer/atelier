@@ -96,7 +96,9 @@ bool AirTrajectoryRuntime::Launch(AirLaunchInfo info, AirSelectorInput input,
   if (!selector.Launch(info, input, used, did_launch, error))
     return false;
   if (did_launch && latch!=0.0f) {
-    wall_follow.pending=true;wall_follow.pending_ticks=0;wall_follow.curvature=latch;wall_follow.elapsed=0;
+    auto& w=wall_follow;w.pending=true;w.pending_ticks=0;w.curvature=latch;w.elapsed=0;
+    const float h=std::sqrt(input.ground_normal[0]*input.ground_normal[0]+input.ground_normal[2]*input.ground_normal[2]);
+    w.inward_x=input.ground_normal[0]/h;w.inward_z=input.ground_normal[2]/h;
   }
   if (did_launch && !Submit(world, error))
     return false;

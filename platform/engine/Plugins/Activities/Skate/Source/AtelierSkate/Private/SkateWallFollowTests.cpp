@@ -1,6 +1,6 @@
 // Wall-follow air (WallFollow, FeelTuning::wall_follow): the wall's plan curvature is measured riding a steep wall (a
 // circle reads 1/R whichever way it is ridden and however finely it is faceted; a straight wall reads 0); an air turned
-// at it stays over a circular lip that a straight air leaves (Crater Park's Vert drop U-turn: 95 m to the lip, 40 m/s
+// at it (leaving the wall straight up) stays over a circular lip that a straight air leaves (Crater Park's Vert drop U-turn: 95 m to the lip, 40 m/s
 // along it), with its speed and climb unchanged; the predicted arc follows the turned air; and only a vert-aligned launch
 // with vert assist and no transfer latches it, so a zero-assist zone or a transfer flies exactly as stock.
 #include "Simulation/WallFollow.h"
@@ -43,15 +43,15 @@ namespace SkateWallFollow
         return T.Curvature();
     }
 
-    struct Flight { double WorstRadiusError, FinalRadius, SpeedChange, HeightError; };
+    struct Flight { double WorstRadiusError, WorstOutside, FinalRadius, SpeedChange, HeightError; };
     // An air off the U-turn's lip, 95 m from its centre: 40 m/s along the wall (+Z at (95, 34, 0)) and 10 m/s up, for
     // Seconds at 60 updates a second, each update turning the horizontal velocity by curvature x speed x dt (none:
     // stock). Its worst distance off the lip's circle, its last distance from the centre, the change in horizontal speed
     // and how far its height is from the stock air's.
-    Flight Fly(float Curvature, float Seconds)
+    Flight Fly(float Curvature, float Seconds, float Outward = 0.f)
     {
-        Vec3 P(95.f, 34.f, 0.f), V(0.f, 10.f, 40.f);
-        double Worst = 0, Stock = 34;
+        Vec3 P(95.f, 34.f, 0.f), V(Outward, 10.f, 40.f);
+        double Worst = 0, Outside = 0, Stock = 34;
         double StockV = 10;
         for (int Update = 0; Update < int(Seconds * 60.f); ++Update)
         {
@@ -59,9 +59,10 @@ namespace SkateWallFollow
             const float Speed = std::sqrt(V.x * V.x + V.z * V.z);
             V = YawAboutUp(V, Curvature * Speed * Dt);
             P.x += V.x * Dt;P.y += V.y * Dt;P.z += V.z * Dt;Stock += StockV * Dt;
-            Worst = std::max(Worst, std::abs(std::sqrt(double(P.x) * P.x + double(P.z) * P.z) - 95.));
+            const double Off = std::sqrt(double(P.x) * P.x + double(P.z) * P.z) - 95.;
+            Worst = std::max(Worst, std::abs(Off));Outside = std::max(Outside, Off);
         }
-        return {Worst, std::sqrt(double(P.x) * P.x + double(P.z) * P.z), std::sqrt(V.x * V.x + V.z * V.z) - 40., std::abs(P.y - Stock)};
+        return {Worst, Outside, std::sqrt(double(P.x) * P.x + double(P.z) * P.z), std::sqrt(V.x * V.x + V.z * V.z) - 40., std::abs(P.y - Stock)};
     }
 
     // How far the predicted arc (AirTrajectoryPositionAt's WallFollowArcAt) ends from the air turned update by update,
@@ -96,8 +97,8 @@ bool FSkateWallFollowTest::RunTest(const FString&)
     TestTrue(TEXT("A smooth 95 m wall reads 1/95 within 1%"), std::abs(Smooth + 1.f / 95.f) < .01f / 95.f);
     TestTrue(TEXT("Ridden the other way it reads the opposite turn"), std::abs(Back - 1.f / 95.f) < .01f / 95.f);
     TestTrue(TEXT("The 55 m centre line's radius reads 1/55 within 1%"), std::abs(Ride(55.f, 40.f, .4f, 0.f).Curvature() + 1.f / 55.f) < .01f / 55.f);
-    TestTrue(TEXT("Crater Park's riding facets (0.74 degrees at 95 m) read 1/95 within 10%"),
-        std::abs(Ride(95.f, 40.f, .1f, .74f).Curvature() + 1.f / 95.f) < .1f / 95.f);
+    TestTrue(TEXT("Crater Park's riding facets (0.74 degrees at 95 m) read 1/95 within 5%"),
+        std::abs(Ride(95.f, 40.f, .1f, .74f).Curvature() + 1.f / 95.f) < .05f / 95.f);
     TestTrue(TEXT("Coarse 3 degree facets read 1/95 within 30%"), std::abs(Ride(95.f, 40.f, .1f, 3.f).Curvature() + 1.f / 95.f) < .3f / 95.f);
     TestTrue(TEXT("A straight wall reads 0"), StraightWall() == 0.f);
     TestTrue(TEXT("Ground shallower than 41 degrees is not a wall"), Ride(95.f, 40.f, .8f, 0.f).Curvature() == 0.f);
@@ -119,13 +120,22 @@ bool FSkateWallFollowTest::RunTest(const FString&)
     TestTrue(TEXT("Past its time the arc runs straight on, turned only as far as then"),
         std::abs(std::atan2(-Capped.vx, Capped.vz) - 40.f / 95.f) < 1e-4f);
 
+    // The air leaves the wall straight up: speed away from the wall is dropped, along it and into the bowl kept.
+    const Vec3 Out = WallFollowInward(Vec3(.3f, 17.f, 30.f), -1.f, 0.f), In = WallFollowInward(Vec3(-.3f, 17.f, 30.f), -1.f, 0.f);
+    TestTrue(TEXT("Speed away from the wall is dropped"), Out.x == 0.f && Out.y == 17.f && Out.z == 30.f);
+    TestTrue(TEXT("Speed into the bowl is kept"), In.x == -.3f && In.z == 30.f);
+    const auto Drifting = Fly(Smooth, 3.f, .3f), Straightened = Fly(Smooth, 3.f, 0.f);
+    TestTrue(TEXT("0.3 m/s away from the wall carries a turned air outside the lip"), Drifting.WorstOutside > .25);
+    TestTrue(TEXT("Dropped, the turned air stays inside it"), Straightened.WorstOutside < .05);
+
     // The bend is towards the bowl's centre, never round behind a convex wall.
     TestTrue(TEXT("Inside the bowl the centre is in front of the wall"), WallFollowConcave(-1.f / 95.f, {0.f, 0.f, 40.f, 0.f}, {-1.f, 0.f, 0.f, 0.f}));
     TestTrue(TEXT("Outside a round pillar it is behind the wall"), !WallFollowConcave(-1.f / 95.f, {0.f, 0.f, 40.f, 0.f}, {1.f, 0.f, 0.f, 0.f}));
 
     // Only a vert-aligned launch with vert assist above zero and no transfer latches it.
     const float Full = Latch(1.f, true, 1.f, 1.f, 0.f);
-    TestTrue(TEXT("A vert-aligned launch with assist, no transfer, latches the wall's curvature"), std::abs(Full + 1.f / 95.f) < .1f / 95.f);
+    TestTrue(TEXT("A vert-aligned launch with assist, no transfer, latches the wall's curvature, a little tight"),
+        Full < -1.f / 95.f && Full > -1.1f / 95.f);
     TestTrue(TEXT("Half strength latches half"), std::abs(Latch(.5f, true, 1.f, 1.f, 0.f) - Full * .5f) < 1e-7f);
     TestTrue(TEXT("Strength 0 (stock) never latches"), Latch(0.f, true, 1.f, 1.f, 0.f) == 0.f);
     TestTrue(TEXT("A zero-assist zone (limit 0) never latches"), Latch(1.f, true, 0.f, 0.f, 0.f) == 0.f && Latch(1.f, true, 1.f, 0.f, 0.f) == 0.f);
