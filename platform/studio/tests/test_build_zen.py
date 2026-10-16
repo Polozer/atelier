@@ -29,7 +29,10 @@ def live(tmp_path, monkeypatch):
         def submit(self, fn, *args):
             calls.append(('check', args))
             future = Future()
-            future.set_result(dict(state))
+            result = dict(state)
+            if not args[-1]:
+                result.update(attached=False, error=None)
+            future.set_result(result)
             return future
 
         def shutdown(self, **kwargs):
@@ -63,10 +66,43 @@ def test_sponsor_uses_admitted_root_through_cook_completion(live):
     assert len([c for c in live.calls if c[0] == 'check']) == 3
     for _, args in [c for c in live.calls if c[0] == 'check']:
         assert args[2:4] == (55, 1234)
+    tick(live, 31)
+    tick(live)
     live.watch.close()
     report = json.loads(live.watch.path.read_text())
     assert report['attached_count'] == 2 and report['child'] == dict(pid=55, started=1234)
     assert report['first_attached_at'] <= report['cook_completed_at'] < report['last_attached_at']
+
+
+def test_health_keeps_polling_but_attach_is_not_repeated_every_two_seconds(live):
+    for _ in range(14):
+        tick(live)
+    assert live.watch.report['health_checks'] == 13
+    assert live.watch.report['attached_count'] == 1
+    assert sum(call[1][-1] for call in live.calls if call[0] == 'check') == 1
+
+
+def test_failed_refresh_keeps_established_sponsorship(live):
+    tick(live)
+    tick(live)
+    live.state.update(attached=False, error='zen attach exited 1')
+    for _ in range(6):
+        tick(live, 31)
+    assert live.watch.sponsored and live.watch.report['failure'] is None
+
+
+def test_server_recovery_requires_immediate_fresh_sponsorship(live):
+    tick(live)
+    tick(live)
+    live.state.update(healthy=False, attached=False)
+    tick(live)
+    tick(live)
+    assert not live.watch.sponsored and live.watch.next_attach == 0
+    live.state.update(healthy=True, error='zen attach exited 1')
+    tick(live)
+    tick(live)
+    with pytest.raises(RuntimeError, match='Cannot sponsor Zen'):
+        tick(live, 60)
 
 
 def test_healthy_slow_zen_read_has_no_elapsed_timeout(live):
@@ -202,7 +238,13 @@ def test_attach_only_runs_installed_client_with_owned_pid_and_finite_bounds(clie
     argv, options = client[-1]
     assert argv == ['/engine/zen', 'attach', '--port', '8558', '--owner-pid', '55']
     assert options['timeout'] == 3 and options['env'] == {'EXACT': 'env'}
-    assert client[0] == ('127.0.0.1', 8558, .5) and 'closed' in client
+    assert client[0] == ('::1', 8558, .5) and 'closed' in client
+
+
+def test_health_only_check_does_not_launch_attach_client(client):
+    result = build_zen.check(Path('/engine/zen'), {}, 55, 1234, threading.Event(), False)
+    assert result == dict(healthy=True, attached=False, error=None)
+    assert client[-1] == 'closed'
 
 
 @pytest.mark.parametrize('dead', [True, False])

@@ -37,7 +37,7 @@ def key(step, changed=None):
     return build.fingerprint(step, {}, index=SimpleNamespace(digest=digest))
 
 
-@pytest.mark.parametrize('orchestration', ['build.py', 'build_cook.py', 'build_timings.py'])
+@pytest.mark.parametrize('orchestration', ['build.py', 'build_cook.py', 'build_zen.py', 'build_timings.py'])
 def test_budget_cook_and_progress_edits_do_not_invalidate_source_actions(action, orchestration):
     assert key(action.step) == key(action.step, orchestration)
 

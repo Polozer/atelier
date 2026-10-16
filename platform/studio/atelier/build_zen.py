@@ -15,6 +15,7 @@ import threading
 import time
 
 INTERVAL = 2.
+ATTACH_INTERVAL = 30.
 UNAVAILABLE_SECONDS = 60.
 ATTACH_TIMEOUT = 3.
 READ = re.compile(r'Reading oplog from (?:Zen|http://(?:\[::1\]|127\.0\.0\.1|localhost):8558/)')
@@ -26,9 +27,9 @@ def started(pid):
     return birth(pid)
 
 
-def check(zen, env, pid, birth, stopped):
+def check(zen, env, pid, birth, stopped, attach=True):
     """One bounded health/attach attempt; never launch a server or target another process."""
-    connection = http.client.HTTPConnection('127.0.0.1', 8558, timeout=.5)
+    connection = http.client.HTTPConnection('::1', 8558, timeout=.5)
     try:
         connection.request('GET', '/health/ready')
         healthy = connection.getresponse().status == 200
@@ -38,7 +39,7 @@ def check(zen, env, pid, birth, stopped):
         connection.close()
     if not healthy:
         return dict(healthy=False, attached=False, error=None)
-    if stopped.is_set() or started(pid) != birth:
+    if not attach or stopped.is_set() or started(pid) != birth:
         return dict(healthy=True, attached=False, error=None)
     try:
         result = subprocess.run([str(zen), 'attach', '--port', '8558', '--owner-pid', str(pid)],
@@ -67,6 +68,8 @@ class Lifecycle:
         self.stopped = threading.Event()
         self.pid = self.birth = None
         self.next_check = 0.
+        self.next_attach = 0.
+        self.sponsored = False
         self.reading = False
         self.unavailable_since = self.attach_failed_since = None
         self.report = dict(schema=1, port=8558, child=None, attached_count=0,
@@ -105,9 +108,18 @@ class Lifecycle:
                 self.report['attached_count'] += 1
                 self.report.setdefault('first_attached_at', now)
                 self.report['last_attached_at'] = now
+                self.sponsored = True
+                self.next_attach = now + ATTACH_INTERVAL
+            elif not result['healthy']:
+                # A server may have restarted; its replacement needs a fresh sponsor.
+                self.sponsored = False
+                self.next_attach = 0.
+            elif result['error'] and self.sponsored:
+                # Do not discard an established sponsor because a refresh failed.
+                self.next_attach = now + ATTACH_INTERVAL
             self.unavailable_since = (None if result['healthy'] or not self.reading else
                                       self.unavailable_since if self.unavailable_since is not None else now)
-            self.attach_failed_since = (None if not result['error'] else
+            self.attach_failed_since = (None if not result['error'] or self.sponsored else
                                         self.attach_failed_since if self.attach_failed_since is not None else now)
             if self.unavailable_since is not None and now - self.unavailable_since >= UNAVAILABLE_SECONDS:
                 self.fail('Zen is unavailable for 60 seconds during staging reads; ending owned package step')
@@ -116,7 +128,8 @@ class Lifecycle:
         if self.future is None and now >= self.next_check:
             if self.pool is None:
                 self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='atelier-zen')
-            self.future = self.pool.submit(check, self.zen, self.env, pid, birth, self.stopped)
+            self.future = self.pool.submit(check, self.zen, self.env, pid, birth, self.stopped,
+                                           now >= self.next_attach)
             self.next_check = now + INTERVAL
 
     def fail(self, message):
