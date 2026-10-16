@@ -133,6 +133,26 @@ def assert_uncertified(owner):
     assert ('save', owner.imported) not in owner.mutations
 
 
+def test_registered_but_unloadable_package_reaches_fresh_import(owner, monkeypatch):
+    monkeypatch.setattr(sys.modules['unreal'].EditorAssetLibrary, 'load_asset', lambda path: None)
+    owner.run()
+    assert ('import', owner.imported) in owner.mutations
+    assert ('reset-lods', owner.previous, 1) not in owner.mutations
+    assert ('remove', owner.imported) in owner.mutations
+    assert owner.report.is_file()
+
+
+def test_failed_fresh_import_of_unloadable_package_stays_uncertified(owner, monkeypatch):
+    monkeypatch.setattr(sys.modules['unreal'].EditorAssetLibrary, 'load_asset', lambda path: None)
+    def fail_import(*args, **kwargs):
+        raise RuntimeError('FBX import failed')
+    monkeypatch.setitem(owner.run.__globals__, 'import_mesh', fail_import)
+    with pytest.raises(RuntimeError, match='FBX import failed'):
+        owner.run()
+    assert owner.mutations == []
+    assert_uncertified(owner)
+
+
 def test_failed_final_collision_removal_cannot_certify_the_import(owner):
     owner.fail_removal = True
     with pytest.raises(RuntimeError, match='clear disabled trunk collision'):

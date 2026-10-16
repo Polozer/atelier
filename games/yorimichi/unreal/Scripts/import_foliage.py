@@ -44,9 +44,10 @@ def main():
     path = '/Game/Japan/Assets/' + name
     if editor.does_asset_exist(path):
         previous = editor.load_asset(path)
-        # Reimport must also remove a deleted LOD or a collision hull, not just add new data.
-        previous.set_num_source_models(1)
-        meshes.remove_collisions(previous)
+        if previous is not None:
+            # Reimport must also remove a deleted LOD or a collision hull, not just add new data.
+            previous.set_num_source_models(1)
+            meshes.remove_collisions(previous)
     seed = source / (name + '_Seed.fbx')
     mesh = import_mesh(source / (name + '.fbx'), '/Game/Japan/Assets', name, seed=seed, fresh_slots=True)
     verify_bounds(mesh, data['bounds'])
