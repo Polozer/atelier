@@ -3061,6 +3061,38 @@
       "bytes": 381456,
       "sha256": "511a371ca08c0c9d9cda4f0f70e5adb360cd7d5c8fcb8899e9d7cddc85c22e28"
     },
+    "craterpark/shrine/bell_pavilion/bell_pavilion.glb": {
+      "bytes": 994356,
+      "sha256": "e119bf391c8817d65c91ec4501d7d6f3b66a9a96f3192bc87929ffb7efa1ffff"
+    },
+    "craterpark/shrine/bell_pavilion/concept.jpg": {
+      "bytes": 196239,
+      "sha256": "918b9342c91471e608860c076720e4f91cfcd817afc667c3295c8b04d031bc59"
+    },
+    "craterpark/shrine/nobori/concept.jpg": {
+      "bytes": 77722,
+      "sha256": "54ea0b713c2eacf84a6d62d78d35cfeebd6ebf91c52be7b787612a9e3723c8f7"
+    },
+    "craterpark/shrine/nobori/nobori.glb": {
+      "bytes": 538032,
+      "sha256": "fc89c4e80f88b7ee2daf628c2e6d7899ec831f4102e58b7581e664fbf08f837e"
+    },
+    "craterpark/shrine/stone_lantern/concept.jpg": {
+      "bytes": 111989,
+      "sha256": "71346bab2008c250ca8fe5481e6d330473b1dd8d2f386cfb8969b5b6035a193e"
+    },
+    "craterpark/shrine/stone_lantern/stone_lantern.glb": {
+      "bytes": 649076,
+      "sha256": "0174e8f8a05ac5f059e418cb4916dc49070e27a24bf7d096970d8af6e12108ef"
+    },
+    "craterpark/shrine/torii/concept.jpg": {
+      "bytes": 112467,
+      "sha256": "eb5fef60088cc4c8c0a5a7c6fd2f8d9dd118cec6a4eb2245546b4e92d65e2ac2"
+    },
+    "craterpark/shrine/torii/torii.glb": {
+      "bytes": 805996,
+      "sha256": "fa5899dcbfbeb1396738b8345e68839d55745d29176ca6f8b78d52ca79b2bd24"
+    },
     "craterpark/textures/tex-0001.png": {
       "bytes": 147980,
       "sha256": "26d9f2db90188b5fdd85ac4c8cad0921953ca8bd16f67224bd812dc2e0347c5f"

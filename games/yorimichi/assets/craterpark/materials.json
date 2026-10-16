@@ -496,5 +496,41 @@
     "doubleSided": true,
     "wrap": "repeat",
     "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_046",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "shrine/bell_pavilion/bell_pavilion.glb",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_047",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "shrine/stone_lantern/stone_lantern.glb",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_048",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "shrine/torii/torii.glb",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_049",
+    "baseColor": [1.0, 1.0, 1.0],
+    "texture": "shrine/nobori/nobori.glb",
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
   }
 ]
