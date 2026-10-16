@@ -162,7 +162,8 @@ namespace RidePhysicalRiderDetail
     // The surfaces made physical follow the body once it has moved this far, and let go beyond twice the radius.
     constexpr float PhysicalFollow = 600.f;
     constexpr int32 MinBodies = 6;
-    // A mesh that moves further than this in one frame was placed, not ridden (60 m/s at 60 fps).
+    // A mesh that moves further than this in one frame, plus what the rider's speed covers in a step, was placed, not
+    // ridden (RideShownMotion::PlacedReach).
     constexpr float PlacedDistance = 100.f;
     // For this many frames after a placement, a change of the rider's speed above LaunchStep in one frame (12 g at
     // 60 fps: a scripted launch, not riding) is given to the body as well.
@@ -181,6 +182,10 @@ namespace RidePhysicalRiderDetail
     // from where it was while that is this near (cm); a crossing counts when the pelvis is cut off from this high over
     // the bail's floor (cm).
     constexpr float ThroughTouch = 2.f, ThroughKeep = 30.f, ThroughFloorUp = 30.f;
+    // A bail's body in trouble is held this many updates (about 70 ms) before it is unstable, its speed brought back to
+    // this share of the bail's limit while it is flung.
+    constexpr int32 UnstableHold = 4;
+    constexpr float HeldSpeed = .6f;
     // A body fitted to the skin is the convex hull of its vertices furthest out in this many directions, from at
     // least this many vertices; a hull under this share of the capsule's volume (a bone that carries little skin of
     // its own) leaves the capsule. With 64 directions the hull cut up to 3 cm off a limb's side (none of them

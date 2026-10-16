@@ -1,5 +1,6 @@
 #include "JapanMap.h"
 #include "AtelierData.h"
+#include "CraterParkTower.h"
 #include "JapanHUD.h"
 #include "SkatePark.h"
 #include "WandererCharacter.h"
@@ -498,6 +499,16 @@ void UJapanMap::Initialize(AWandererCharacter* Pawn)
             Zones.Add(Zone);
         }
     }
+    // Crater Park's stop is its tower: the hero line's roll-in crest from the generated park (park.json `lines`), not
+    // the r4 drop-in map.json was built with (CraterParkTower.h).
+    if (CraterParkTower::HasLines())
+        for (FJapanMapZone& Zone : Zones)
+            if (Zone.Key == TEXT("craterpark"))
+            {
+                const FCraterParkStart& Tower = CraterParkTower::Starts()[0];
+                Zone.Location = Tower.Ground; Zone.Yaw = Tower.Yaw;
+                Zone.Hint = TEXT("The skate park in the volcano's caldera, from the top of its tower. Triangle / Y or B for the board");
+            }
     // The Belmonte train's termini (tools/belmonte_train_service.py): arrive on the platform as the next train comes in.
     if (const TSharedPtr<FJsonObject> Train = AtelierReadJson(AtelierDataPath(TEXT("belmonte_train/service.json"))))
     {
@@ -684,6 +695,7 @@ bool UJapanMap::TeleportToZone(const FString& Key)
     if (Key.StartsWith(MarkerPrefix)) return SelectMarker(Key) && ReturnToMarker();
     const FJapanMapZone* Z = FindZone(Key);
     if (!Z || !Owner) return false;
+    if (Key == TEXT("craterpark") && CraterParkTower::HasLines()) return CraterParkTower::Return(Owner,0);
     if (Key.EndsWith(TEXT("_station")))
         if (auto* Train = ABelmonteTrainService::Find(Owner)) return Train->GoToStation(Key, true);
     return Owner->TravelTo(Z->Location,Z->Yaw,*Z->Name);

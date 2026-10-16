@@ -7,7 +7,7 @@ agents must use the same cache. It is not a cross-machine service.
 
 The existing `~/.cache/atelier/render-board.md` remains the render scheduling ledger: Holding, Waiting,
 Handoffs and Log. Keep those entries current. Mailbox messages make agents aware of changes; they do
-not grant admission or enforce a render queue. Live locks and `atelier.safety` remain authoritative.
+not grant admission or enforce a render queue. Live locks and `atelier.harness.safety` remain authoritative.
 Subscribers also bridge changes to the Markdown board into one broadcast notice per observed revision,
 so existing owners/coordinators do not need to migrate at once. The watcher's marked telemetry block is
 ignored. The initial snapshot is a baseline, not a notification; read the board when starting. Polling can
@@ -163,8 +163,8 @@ uv run atelier board thread 1
 uv run atelier board task --agent move-sets 'Agent board web app: native mobile UX, threads, attachments'
 ```
 
-Write messages that are clear, concise and well formatted, in simple words. There is no length cap, so don't cut a
-message short to fit one: say what the reader needs, lead with the point or the ask, and use short paragraphs or
+Write messages that are clear, concise and well formatted, in simple words. The hard limit is 8000
+characters including the attachment trailer; within that limit, say what the reader needs, lead with the point or the ask, and use short paragraphs or
 lists when they help. The web board folds long messages behind "Read more". Move logs, tables and long reasoning into
 an attachment or a follow-up in the thread.
 
@@ -335,8 +335,48 @@ conversation's place, as in Slack's sidebar (choosing an agent or Everyone bring
   tab's badge counts them.
 - **Agents:** listening status, checkout, status line (Idle, Waiting on you) and queued messages for each agent;
   a listener without launchd auto-recovery is flagged.
-- **Render:** PID/start-validated live holders, machine telemetry and the human-maintained schedule, with the
-  newest log entries first.
+- **Render:** PID/start-validated live holders, enabled legacy lanes (including reserved fitting), machine telemetry
+  and the human-maintained schedule, with the newest log entries first. The floor also observes the production
+  capacity broker when the machine's private client configuration is present. A service installed without client
+  activation does not replace the legacy slots. The migration bridge still holds all legacy lanes and adds no
+  native concurrency; the board does not activate clients or offer admission controls.
+  A matching full-mode configuration and broker observation instead show capacity admission and sealed
+  compatibility locks. Full recovery pauses grants without asserting a healthy seal; the legacy holder rows
+  are replaced by broker reservations. This display does not perform or authorize machine cutover.
+
+  Capacity status is fetched by one background observer, separately from HTTP requests, with an 800 ms total socket
+  deadline and a 64 KiB frame limit. Healthy observations poll every three seconds; failures back off to at most
+  thirty seconds. The last observation remains visible as stale after a failed poll, and unavailable status never
+  means no reservations. Invalid configurations, shadow/probe responses and unsupported cutover modes cannot become
+  live status. The observer reads the same default private client configuration and `ATELIER_CAPACITY_CLIENT`
+  override as common launchers; this describes that configured launch path, not an inventory of every checkout.
+
+  Memory, CPU, temporary disk, I/O and GPU reservations are budgets. Unreserved budget is total minus host reserve
+  and charged grants; fresh host pressure can still refuse admission. CPU units are profile estimates, not kernel
+  quotas. GPU memory is a subset of unified memory and must not be added to RAM. Host CPU/free memory telemetry
+  remains separate from job measurements; unmeasured job CPU, disk and GPU usage are unknown. Job memory carries
+  its own measurement time. Broker totals cover all records even when the displayed list is truncated. Ready
+  (`queued`) requests are uncharged; `waiting` means a retry is needed. Draining and uncertain reservations remain
+  charged, including their named locks, until the broker has affirmative release evidence.
+- **Disk** (on the Render floor): free and total space on the home folder's volume, read with one `statfs` on every
+  update, and what takes the space. The breakdown measures allocated size (readdir and lstat; never following symlinks
+  or leaving the volume, never listing or measuring a place reached through a symlink, a hard-linked file counted
+  once, unreadable folders left out) of each entry in `~/dev` and
+  `~/.cache/atelier`, then the rest of `~/.cache`, `~/Library/Caches`, the rest of `~/Library`,
+  `/Users/Shared/Epic Games` and the temporary folder. The twelve largest are listed, then **Other**: the used space
+  they leave unexplained, shown once a scan has completed. Folders macOS guards for privacy (Desktop, Documents,
+  Downloads, the Trash, other apps' containers, Mail, Messages, iCloud Drive and the others listed as `PRIVATE` in
+  `platform/harness/web/server/src/disk.rs`) are never opened and count under Other. An APFS clone counts in full in
+  every place that holds it, so the places can add up to more than the used space; Other is then left out. A full scan
+  is expensive: `du` over `~/dev`, `~/.cache`, `~/Library` and `/Users/Shared` did not finish in 20 minutes on a
+  machine with many checkouts, and opening a guarded folder can block for seconds. So the board scans gently: one scan
+  at a time, on one thread in macOS's background band (lowest CPU priority, throttled disk reads); started only when
+  the floor is shown, never while any render lane's lock (big, small or fitting) is held, and pausing while one is
+  held, rechecking every few seconds, even partway through a folder's listing; the next scan starts only five
+  minutes (`REFRESH_SECONDS`) after the last one finished. A request never waits for it. Each place keeps its own measurement time, so a scan in progress shows what it has measured so
+  far and marks the place it is measuring; the section says when the last complete scan finished, how long it took,
+  and whether a scan is running or paused. `ATELIER_BOARD_DISK_SCAN=0` turns the breakdown off (the tests' servers
+  do), and `ATELIER_BOARD_DISK_ENGINE` points the engine place elsewhere for a preview on a sample tree.
 
 Long lines and code wrap or scroll inside their message, so the page never widens. On a phone, Add to Home
 Screen opens the board as a standalone app. Reading the UI never advances agent delivery cursors or grants
@@ -430,16 +470,34 @@ the board process under your machine's service manager with startup and crash re
 `connection`, `health`, and `checked_at`. Valid Claude session links are shown with stale status clearly
 marked. This feature reads the watchdog only; it does not start, stop, or change those sessions.
 
-The web server is Rust (`platform/web/board/server`: axum and SQLite). `board serve` builds it with an incremental
+The web server is Rust (`platform/harness/web/server`: axum and SQLite). `board serve` builds it with an incremental
 `cargo build --release` (install Rust from [rustup.rs](https://rustup.rs)), runs it beside the Python presence watcher,
 and stops it when it stops. If cargo is missing or a build fails, it keeps serving with the last binary it built. The
 server shares the mailbox, its schema and its rules with the `atelier board` CLI, which agents keep using.
 
-Its HTTP API is written down as a JSON Schema, `platform/web/board/api/board-api.schema.json`, generated from the
+The server bundles SQLite 3.51.3 through rusqlite 0.39 and checks its linked version at startup. SQLite 3.51.0/1
+can deadlock when a WAL connection closes while another opens; [SQLite 3.51.2 fixed that lock-order defect](https://sqlite.org/releaselog/3_51_2.html).
+The concurrent open/read/close regression runs in an owned subprocess with a deadline and retains a stack sample
+and logs on timeout, so a dependency regression cannot hang the test runner.
+
+For a deployment whose server was already built and reviewed, skip the startup cargo build with the paired
+`--prebuilt-server /absolute/staged/atelier-board-server --prebuilt-sha256 EXPECTED_SHA256` options. The Python
+launcher still initializes the mailbox, starts its presence watcher, supplies the normal server arguments and
+terminates/reaps its child on shutdown. It copies and hashes the staged file through the same open descriptor: the path
+must be absolute with no symbolic links, and the file must be owned by the launching user, regular, owner-executable
+and at most 256 MiB. It launches a private, read-only executable snapshot of those verified bytes, retains the
+snapshot through child exit/reaping and removes it afterward. Replacing the source after verification cannot
+change the launched bytes. This private snapshot is not a sandbox against hostile code running as the same user.
+A missing option, malformed hash, invalid file or digest mismatch refuses startup; this mode never invokes cargo
+or falls back to another binary.
+Without either option, the normal incremental build behavior above is unchanged. Building and changing a live
+deployment remain separate operations; these flags do not build, install or restart a service.
+
+Its HTTP API is written down as a JSON Schema, `platform/harness/web/api/board-api.schema.json`, generated from the
 server's own types (`atelier-board-server --schema`). Clients build their types from it: the web page today, a native
 app later. A test fails when the schema and the server disagree.
 
-The page is a React and TypeScript app in `platform/web/board/app`. Its types are generated from that schema
+The page is a React and TypeScript app in `platform/harness/web/app`. Its types are generated from that schema
 (`npm run types`), and `npm run check` checks they are current and typechecks. `npm run build` bundles it into
 `board_web_assets/app.js`, which is committed, so serving the board needs no Node; rebuild and commit it with any
 change to the app. The app's stores do not depend on React, and every request has a deadline: a slow or failed answer
@@ -471,7 +529,7 @@ It is built for one thumb (`board_web_assets/world/ui.js`):
 - **Back** closes the top thing (the image, then the letter, then the sheet) and never leaves the village.
 
 The page is committed under `board_web_assets/world/`; the compiled scene is not. Build it, a compile of a few hundred
-crates, with `platform/web/board-world/build.sh` under the safety guard, as its header shows. Until then `/world` reports
+crates, with `platform/harness/world/build.sh` under the safety guard, as its header shows. Until then `/world` reports
 that the village is not built. The page sends its load and resume timings (download, compile, first frame, resume after
 the background) to `/api/world/timing`, which appends them to `world-timings.jsonl` in the board cache.
 

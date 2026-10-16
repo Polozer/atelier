@@ -50,7 +50,7 @@ blender -b --python-exit-code 1 --python games/yorimichi/world/regions/houses/pr
 
 `world.houses` writes `build/yorimichi/houses/`: the FBX files in `assets/`, `Houses.blend` (every house on its
 lot), `manifest.json` (triangles, materials, collision boxes, bounds) and `build-identity.json`. The preview writes
-`build/yorimichi/review/houses/preview/lot<k>_road.png` and `lot<k>_above.png`; run it through `atelier.safety`
+`build/yorimichi/review/houses/preview/lot<k>_road.png` and `lot<k>_above.png`; run it through `atelier.harness.safety`
 (render lock and memory guard).
 
 `layout.py` checks that nothing from the scatter stands on a lot, its walls' berm or its verge, and that no tree

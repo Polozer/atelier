@@ -29,8 +29,8 @@ including the game itself while it plays.
 - **[Let agents drive the game](#agents-in-the-loop)**: run Python inside it, script QA checks, take screenshots and
   review sheets.
 - **[Play anywhere](#play-anywhere)**: stream the game to a browser, a phone or a friend's laptop.
-- **[Run several agents on one Mac](#many-agents-one-machine)**: separate worktrees, reused builds, one heavy job at
-  a time under a memory guard, and a shared message board.
+- **[Work with a team of agents](#harness-agents-working-together)**: Harness keeps conversations, tasks and
+  resource admission in one place, while agents work in independent checkouts.
 
 <p align="center">
   <picture>
@@ -48,14 +48,19 @@ including the game itself while it plays.
 | macOS on Apple silicon | 15+ | the only platform tested |
 | Unreal Engine | 5.8 (`/Users/Shared/Epic Games/UE_5.8`, or set `UE_ROOT`) | the games |
 | Full Xcode | licence accepted, selected with `xcode-select`, macOS SDK and Metal toolchain installed | C++ and shaders; CLI tools alone are insufficient |
-| Blender | 5.2.1 LTS on `PATH` (or set `BLENDER`) | meshes, rigs, clips |
+| Blender | 5.2.1 LTS at `/Applications/Blender.app`, via a `PATH` symlink, or set `BLENDER` to the app executable | meshes, rigs, clips |
 | Python | 3.11+ with numpy, Pillow and fontTools (`uv sync`) | the studio |
 | ffmpeg | 7+ on `PATH` | sound slicing, films, review sheets |
-| Node | 24+ (optional) | streaming pages, H3 and Seedance scripts |
+| Node / npm | 24.16+ / 11.11+ for contracts | contract checks; Node also serves streaming pages and AI scripts |
+| Rust / Cargo | current stable (optional) | the agent board server (`atelier board serve`) |
 | coturn, Tailscale | (optional) | streaming to other devices (`brew install coturn`) |
 
 Install full Xcode and its Metal toolchain first: [Setting up a Mac](docs/SETUP.md) has the commands, and the extra
 preparation a Mac reached over SSH needs (`atelier setup --headless`).
+
+Blender app symlinks and simple shell wrappers that only forward arguments to the app are resolved automatically.
+Product fingerprints include its complete app bundle. For a custom wrapper with settings or extra flags, set
+`BLENDER` to the app executable and put the required flags in the build recipe.
 
 ```sh
 git clone https://github.com/fontanierh/atelier && cd atelier
@@ -158,7 +163,7 @@ from atelier.build import Blender, Step, UnrealScript
 def steps(ctx):
     garden, importer = GAME / 'world' / 'garden.py', SCRIPTS / 'import_garden.py'
     return [
-        Step('world.garden', [Blender(garden)], inputs=[garden],
+        Step('world.garden', [Blender(garden, threads=3)], inputs=[garden],
              outputs=[ctx.out / 'garden' / 'manifest.json'], about='the garden meshes'),
         Step('unreal.garden', [UnrealScript(importer, 'GARDEN IMPORTED')], inputs=[importer],
              needs=['world.garden'], after=['unreal.compile'], heavy=True, about='the garden in the level'),
@@ -174,6 +179,26 @@ gameplay, so gameplay edits rebuild only the code.
 
 `atelier build <game> --list` shows every step; name one to run just it and what it needs. Yorimichi's
 [build.py](games/yorimichi/build.py) has examples from textures to a whole city, a harbour and three skate parks.
+For small rebuilds, name independently consumed products and declare which ones each step reads or merely
+references. Opted-in portable products are restored automatically from the local cache across worktrees; the
+[sandbox](games/sandbox/README.md) demonstrates independent geometry and placements without Unreal.
+Its explicit `spatial.demo` example also tracks nearby products: additions, removals and moves update the
+affected tiles, while distant edits and unread preview outputs leave them current.
+Python generators can opt into an input audit that catches undeclared reads and writes outside their products.
+`atelier build <game> --timings` shows historical execution, restore and instrumented phase durations;
+`--changes` lists differences between certified output inventories. Both inspect receipts without running a build.
+`--ddc` reads retained Unreal logs for cache configuration and recorded hit/miss counts, preserving unknowns.
+Named actions can declare exact optional source files, tracking their appearance and removal without depending on a whole directory.
+Signed source-product bundles can be verified and imported with an explicit publisher allowlist.
+[Optional HTTPS lookup](docs/ARTIFACT_POOL.md#fetch-signed-products-over-https) fills local cache misses and falls
+back to generation when the remote store is unavailable; the guide describes configuration and trust limits.
+An operator-controlled [Python producer](docs/ARTIFACT_POOL.md#export-from-a-trusted-python-producer) can build
+one approved audited action and export its signed bundle; this does not upload it.
+An explicit [upload command](docs/ARTIFACT_POOL.md#upload-an-approved-public-bundle) can publish a verified public
+V2 export to a compatible HTTPS object store, using a separate protected operator credential profile.
+[Build recipes](docs/BUILD_RECIPES.md) cover the API, audit limits, input checks and read-only reports.
+Opt-in compatible misses can share a guarded process while retaining individual results. If a batch exits 75
+(`BATCH YIELDED`), coordinate the next render turn and resume the printed command; completed actions stay current.
 
 ### A prop from a sentence
 
@@ -248,7 +273,8 @@ Tailscale. `/play/` is the plain player, and `/` serves the game's own touch pag
 
 | Part | Where | What |
 |---|---|---|
-| The `atelier` command | [platform/studio](platform/studio/atelier) | new, setup, doctor, fetch, build, reuse, pool, play, stream, live, qa, lint, board; review sheets; machine safety |
+| Studio | [platform/studio](platform/studio/atelier) | The `atelier` command, incremental builds, verified reuse, asset tools, live QA and releases |
+| Harness | [platform/harness](platform/harness) | Agent messaging and session delivery, the operator board, resource admission and process guards |
 | AI runners | [platform/studio/atelier/ai](platform/studio/atelier/ai) | Tripo and image generation, UniMate, Kimodo and GVHMR, and the ledger every paid call goes through |
 | Engine plugins | [platform/engine/Plugins](platform/engine/Plugins) | core runtime data, animation nodes (foot planting, sailboat stance, bike grip), effects, skateboarding, streaming, the live bridge |
 | Skating | [Skate](platform/engine/Plugins/Activities/Skate/README.md) | C++ board and rider physics, Flick-It, animation, tricks, camera |
@@ -268,30 +294,62 @@ A game supplies the static collision, rails, controls, meshes, sounds and HUD, a
 planting, the animation nodes and skating; a clip named by role plays wherever a game asks for that role. Platform code never names
 a game. [ARCHITECTURE.md](ARCHITECTURE.md) explains how the parts fit and the rules that keep the platform reusable.
 
-## Many agents, one machine
+## Harness: agents working together
 
-Atelier is built for several AI agents working on one Mac at once, each in its own Git worktree.
+Give several agents a shared picture of the work without turning every build into a coordination meeting.
+[Harness](platform/harness/README.md) brings the agent board, durable messaging, capacity admission and process
+guards together. Agents keep their own worktrees; you can follow progress, answer a blocked task and inspect what
+is running from one board.
 
-- **Reuse a build.** A fresh worktree at the same clean revision takes independent copy-on-write clones of a
-  completed checkout's generated assets and compiled modules. The command checks source fingerprints, outputs, the
-  engine version and module build IDs, and refuses stale, dirty or mismatched sources; code changes still rebuild what
-  they touch.
+- **Conversations reach the working session.** Address an agent or reply in a thread. Supervised listeners deliver
+  messages to the existing Codex or Claude session and recover after a listener crash or login. History and evidence
+  stay on the board across turns and checkouts.
+- **Your attention goes where it is needed.** Agents show their current task and ask for operator input when blocked.
+  The board groups conversations, open tasks, team status and resource observations in one place.
+- **Jobs wait for room automatically.** On a configured capacity machine, normal `atelier build` and `atelier play`
+  request their resources and named locks directly. Compatible jobs can overlap; queued jobs hold no resources.
+  Agents do not need a coordinator's permission for each build. Independent memory and ownership guards supervise
+  the actual child processes and retain locks until cleanup is verified.
+- **Separate checkouts keep work independent.** Verified build reuse copies matching products instead of sharing
+  mutable generated folders. Incremental builds and the local product cache avoid repeating unchanged work.
 
-  ```sh
-  uv run atelier reuse yorimichi --from ../completed-checkout --to ../fresh-worktree
-  cd ../fresh-worktree && uv sync && uv run atelier build yorimichi   # confirms the carried-over steps
-  ```
+<details>
+<summary>See the agent board — fictional demonstration data</summary>
 
-- **Pool portable outputs** across feature revisions with `atelier pool` ([artifact pool](docs/ARTIFACT_POOL.md)).
-- **One heavy job at a time.** `atelier build` and `atelier play` take the machine's render lock (one big slot,
-  optionally a small one beside it) and run Unreal and Blender under a memory guard that stops a job before it
-  exhausts the machine. [AGENTS.md](AGENTS.md) describes the render board and the resource logs.
-- **A message board between agents.** `atelier board` delivers addressed handoffs and lack-of-progress notices to
-  background subscribers across worktrees, with a web view ([agent board](docs/AGENT_BOARD.md)).
-- **Paid AI calls are recorded before they are sent.** The ledger writes the record first, refuses a call whose record
-  already exists and never retries one, so a rerun cannot pay again for the same revision.
-- **The repository is public.** `atelier lint` and the pre-commit hook refuse secrets, personal paths and game names in
-  the platform.
+The names, conversations, tasks and resource figures below are mock data. These dark-mode screenshots show the real board UI;
+no project collaboration data or live machine state is used.
+
+<img src="platform/harness/docs/media/board-team.png" width="1000" alt="Harness board with fictional agents Cedar, Iris and Moss discussing a lantern garden preview, with team status beside their messages">
+
+<img src="platform/harness/docs/media/board-capacity.png" width="1000" alt="Harness resource view with fictional admission open, a three CPU lantern generation job and available capacity">
+
+[Reproduce these views](platform/harness/README.md#documentation-screenshots) from the included mock fixture.
+
+</details>
+
+Start with the [board setup guide](docs/AGENT_BOARD.md) for session delivery and the
+[capacity guide](docs/BUILD_CAPACITY.md) for machine setup, resource profiles and refusal recovery.
+The board is advisory; broker admission and process guards enforce the machine's safety rules.
+
+### Keep builds and reviews dependable
+
+A fresh worktree at the same clean revision can take independent copy-on-write clones of a completed build.
+Reuse checks source fingerprints, output bytes, engine version and module build IDs; code changes still rebuild
+what they affect.
+
+```sh
+uv run atelier fetch yorimichi
+uv run atelier reuse yorimichi --from ../completed-checkout --to ../fresh-worktree
+cd ../fresh-worktree && uv sync && uv run atelier build yorimichi
+```
+
+Named products carry byte inventories, and an interrupted copy cannot publish successful build stamps.
+[The reuse guide](docs/ARTIFACT_POOL.md#verified-whole-build-reuse) covers recovery and the automatic cache for
+portable products across feature revisions.
+
+Paid AI calls are recorded before submission and are never retried blindly. Public-repository lint checks protect
+against committed credentials and personal paths. [Code contracts](docs/CODE_CONTRACTS.md) make invariants visible
+in review; semantic findings are advisory and must be addressed with a fix or explanation.
 
 ## Commands
 
@@ -299,20 +357,31 @@ Atelier is built for several AI agents working on one Mac at once, each in its o
 |---|---|
 | `atelier new <game>` | start a game from the sandbox |
 | `atelier doctor <game>` / `fetch <game>` | check the tools and sources; download what may not be redistributed |
-| `atelier setup [--headless]` | verify Xcode and Metal; prepare the tested installed UE 5.8.2 for SSH builds |
+| `atelier setup [--headless] [--workers N]` | verify Xcode and Metal; prepare the tested installed UE 5.8.2 for SSH builds |
 | `atelier reuse <game> --from PATH [--to PATH]` | copy verified artifacts into a fresh worktree at the same revision |
-| `atelier pool publish/restore/status <game> <step>` | [pool explicitly owned portable outputs](docs/ARTIFACT_POOL.md) across feature revisions |
-| `atelier build <game> [step ...]` | build what changed; `--list`, `--force`, `--dry-run`, `--touch` |
-| `atelier play <game> [--profile P]` | play under the render lock and memory guard; profiles come from the game's `game.toml` |
-| `atelier playtest <game> [--tag T] [--download-only]` | play the game's latest GitHub release, downloading, checking and unpacking it the first time; its `game.toml` `[release]` section names the tags and launcher |
+| `atelier build <game> [step ...]` | build what changed; inspect rebuild reasons with `--plan --explain` ([recipe guide](docs/BUILD_RECIPES.md)) |
+| `atelier play <game> [--profile P] [--set K=V] [--memory-gib N]` | play with resource admission and memory guards; profiles come from the game's `game.toml` |
+| `atelier playtest <game> [--tag T] [--download-only] [--memory-gib N]` | download, verify and play a GitHub release; `[release]` sets the tag prefix, launcher, watched processes and log |
+| `atelier release publish <game> PACKAGE_DIR --tag T --verification REPORT` | [publish an existing verified package](docs/RELEASES.md) with bounded, resumable uploads and the checksum manifest last |
 | `atelier live state` / `py "..."` / `shot` | work on the running game |
 | `atelier qa <game> <scenario>` | run `games/<game>/scenarios/<scenario>.py` against the running game |
-| `atelier stream <game> start [--local]` / `status` / `stop` | play in a browser elsewhere: `/play/` is the plain player, `/` the game's touch page when it has one |
+| `atelier stream <game> start [--local]` / `status` / `stop` / `build-web [--install]` | play in a browser; build the web assets, optionally reinstalling their dependencies |
 | `atelier board` | messages and handoffs between agents ([guide](docs/AGENT_BOARD.md)) |
-| `atelier lint` | the public-repository rules: no secrets, no personal paths, no game names in the platform |
+| `atelier pr-media push <key> FILE... [--dry-run]` | publish PR screenshots and films under `refs/pr-media/<key>`, which default clones skip; prints Markdown links |
+| `atelier lint [--staged]` | the public-repository rules: no secrets, no personal paths, no game names in the platform |
+| `atelier contracts check` | contract syntax and owner policy; semantic review is separate and advisory |
+| `atelier capacity plan snapshot.json [--json]` | offline capacity simulation; does not admit or launch work |
+| `atelier capacity history GUARD_DIRECTORY [--json]` | [inspect retained process memory histories](docs/BUILD_CAPACITY.md#inspect-retained-resource-history) without launching work |
+| `atelier capacity serve CONFIG` / `status SOCKET` / `supervise CONFIG` | [configure and inspect resource admission](docs/BUILD_CAPACITY.md); machine activation is explicit |
 
-**Tests.** `uv run pytest` runs the studio tests (`platform/studio/tests`) and the games' Python tests. In-game
-checks use QA scenarios through the live bridge; with a local stream, the phone smoke tests in
+**Tests.** Hosted CI runs all Python tests on each PR head in three isolated macOS jobs: board, other studio,
+and games. Each uses normal pytest collection; new tests automatically belong to one group. All three must
+pass for the `Studio Python / macOS` merge check. Rust dependencies are cached from successful main builds;
+PRs only restore them, and the board server must compile successfully before its tests run. Each job retains
+its collected test list, JUnit results and slowest-test timings for diagnosis. Superseded PR runs are cancelled.
+Locally, run the tests affected by your change, for example `uv run pytest platform/studio/tests/test_build.py -q`;
+avoid repeating the full suite when CI already covers it. In-game checks use QA scenarios through the live bridge;
+with a local stream, the phone smoke tests in
 `games/yorimichi/phone/` and `platform/web/stream/player-smoke.mjs` run in a browser.
 
 ## Made with Atelier: Yorimichi
@@ -337,7 +406,7 @@ a fox-masked hunter with a sword. Its models, rigs, animation, world and code we
   and body generations, with a repaired face, rigged locs and the same movement, bike and skating systems;
 - **an island built by scripts**: a coastal road, a hamlet, a city with a harbour and an arcade, a woodland lake and
   a zeppelin line;
-- **two skate parks**: the skate pier and the Super Ultra Mega Park;
+- **three skate parks**: the skate pier, Super Ultra Mega Park and Crater Park;
 - **sounds** cut and levelled automatically: footsteps by surface, combat cues with hit-stop and sparks;
 - **phone play** through the streaming plugin.
 

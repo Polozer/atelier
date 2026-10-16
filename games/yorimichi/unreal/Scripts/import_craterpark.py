@@ -21,20 +21,29 @@ MEL = unreal.MaterialEditingLibrary
 AT = unreal.AssetToolsHelpers.get_asset_tools()
 # Matte like the terrain and the Mega Park: the engine's default specular put a pale sky sheen on every surface.
 ROUGHNESS = 1.
+# The added steel coping (build.py, additions.coping): galvanised pipe, brushed by the boards.
+STEEL_ROUGHNESS = .38
+STEEL = (.62, .63, .64)    # sRGB
+# The boost zones' sunburst paint (materials.json finish 'lacquer', world/regions/craterpark/v2/editor_boost.py): glossy
+# lacquer over the boards, a clear coat's sheen; its gold (finish 'metal') takes the steel's parent with its own colour.
+LACQUER_ROUGHNESS = .3
 # The baked occlusion (build.py ao, vertex colour R): how much it takes from the sky's fill (Ambient Occlusion, as the
 # Mega Park's lightmap occlusion) and from the albedo itself (a cavity darkening the sun sees too).
 OCCLUSION = .6
 CAVITY = .3
 
 
-# The park's own hillside carries snow like the caldera round it (docs/CRATERPARK.md, "Snow"); the skating surfaces,
-# the edge guard and its coping, foundations and bridges stay clear.
-SNOWY = {'material_024'}
+# No snow anywhere in the park (owner: none near anything ridable). The park's ground (material_024, the v2
+# landform) is warm dry earth and autumn grass: its grey volcanic ground texture tinted warm (TINTS, sRGB multipliers
+# over the restyled texture), so no new texture or parent is needed.
+SNOWY = set()
+TINTS = {'material_024': (1.30, 1.06, .74)}
 
 
 def parent(kind):
-    """A lit opaque parent, kind 'Textured' (Base on UV0), 'World' (Base world-aligned on three axes, Metres per tile)
-    or 'Flat'; its colour times Tint, darkened by the mesh's baked occlusion (Occlusion, Cavity). Where Snow is 1, snow
+    """A lit opaque parent, kind 'Textured' (Base on UV0), 'Lacquer' (as Textured, glossy: the boost paint), 'World'
+    (Base world-aligned on three axes, Metres per tile), 'Flat' or 'Steel' (flat, metallic and a little glossy: the added
+    coping, and the boost zones' gold); its colour times Tint, darkened by the mesh's baked occlusion (Occlusion, Cavity). Where Snow is 1, snow
     lies on the faces that look up, in world-space patches with crisp edges that follow the placed park."""
     name = 'M_CP_' + kind; path = ROOT + '/Materials/' + name
     if E.does_asset_exist(path):
@@ -61,7 +70,7 @@ def parent(kind):
     snow = node(unreal.MaterialExpressionScalarParameter, parameter_name='Snow', default_value=0.)
     normal = node(unreal.MaterialExpressionVertexNormalWS); world = node(unreal.MaterialExpressionWorldPosition)
     colour = tint
-    if kind == 'Textured':
+    if kind in ('Textured', 'Lacquer'):
         sample = node(unreal.MaterialExpressionTextureSampleParameter2D, parameter_name='Base', texture=white)
         colour = node(unreal.MaterialExpressionMultiply)
         MEL.connect_material_expressions(sample, 'RGB', colour, 'A'); MEL.connect_material_expressions(tint, '', colour, 'B')
@@ -91,12 +100,16 @@ def parent(kind):
     cover = noise + 'float m=S*saturate((N.z-.84)/.06)*saturate(((v0+.5*v1)/1.5-.50)/.12);'
     base = custom(cover + 'return lerp(B*lerp(1.,A,C),float3(.80,.83,.88),m);', inputs)
     shade = custom('return lerp(1.,A,K);', {'A': (ao, ''), 'K': (occlusion, '')}, unreal.CustomMaterialOutputType.CMOT_FLOAT1)
-    rough = custom(cover + 'return lerp(%.2f,.6,m);' % ROUGHNESS, inputs, unreal.CustomMaterialOutputType.CMOT_FLOAT1)
-    specular = custom(cover + 'return lerp(0.,.35,m);', inputs, unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+    steel, lacquer = kind == 'Steel', kind == 'Lacquer'
+    roughness = STEEL_ROUGHNESS if steel else LACQUER_ROUGHNESS if lacquer else ROUGHNESS
+    rough = custom(cover + 'return lerp(%.2f,.6,m);' % roughness, inputs, unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+    specular = custom(cover + 'return lerp(%.2f,.35,m);' % (.5 if steel or lacquer else 0.), inputs,
+                      unreal.CustomMaterialOutputType.CMOT_FLOAT1)
     dark = node(unreal.MaterialExpressionConstant3Vector, constant=unreal.LinearColor(0., 0., 0., 1.))
+    metal = node(unreal.MaterialExpressionConstant, r=1. if steel else 0.)
     for n, prop in ((base, unreal.MaterialProperty.MP_BASE_COLOR), (rough, unreal.MaterialProperty.MP_ROUGHNESS),
                     (specular, unreal.MaterialProperty.MP_SPECULAR), (dark, unreal.MaterialProperty.MP_EMISSIVE_COLOR),
-                    (shade, unreal.MaterialProperty.MP_AMBIENT_OCCLUSION)):
+                    (shade, unreal.MaterialProperty.MP_AMBIENT_OCCLUSION), (metal, unreal.MaterialProperty.MP_METALLIC)):
         assert MEL.connect_material_property(n, '', prop)
     MEL.layout_material_expressions(m); MEL.recompile_material(m); E.save_loaded_asset(m)
     return m
@@ -106,7 +119,7 @@ def materials():
     """One instance per source material, with the restyled textures (tools/craterpark_textures.py finish): a painted
     texture on its own UVs, or a world-aligned one for the untextured hillside, foundations, bridges and edge guard."""
     restyle = json.loads((RESTYLE / 'textures.json').read_text())
-    parents = {kind: parent(kind) for kind in ('Textured', 'World', 'Flat')}
+    parents = {kind: parent(kind) for kind in ('Textured', 'Lacquer', 'World', 'Flat', 'Steel')}
     result = {}
     for spec in json.loads((SOURCE / 'materials.json').read_text()):
         name = 'MI_CP_' + spec['id']; dest = ROOT + '/Materials'; path = dest + '/' + name
@@ -114,6 +127,8 @@ def materials():
         painted = restyle['textures'].get(spec['texture']) if spec['texture'] else None
         aligned = restyle.get('world_aligned', {}).get(spec['id'])
         kind = 'Textured' if painted else 'World' if aligned else 'Flat'
+        finish = spec.get('finish')         # the boost zones' paint and gold (materials.json)
+        kind = 'Lacquer' if finish == 'lacquer' and painted else 'Steel' if finish == 'metal' else kind
         MEL.set_material_instance_parent(mi, parents[kind])
         entry = painted or aligned
         if entry:
@@ -124,7 +139,7 @@ def materials():
             MEL.set_material_instance_scalar_parameter_value(mi, 'Metres', float(aligned['metres']))
         # The restyled images carry their colour, already an albedo for the island's light (craterpark_textures.py
         # palette means); a flat material keeps the source's sRGB base colour.
-        colour = [1., 1., 1.] if entry else spec['baseColor']
+        colour = list(TINTS.get(spec['id'], (1., 1., 1.))) if entry else spec['baseColor']
         tint = [c / 12.92 if c <= .04045 else ((c + .055) / 1.055) ** 2.4 for c in colour]
         MEL.set_material_instance_vector_parameter_value(mi, 'Tint', unreal.LinearColor(*tint, 1.))
         MEL.set_material_instance_scalar_parameter_value(mi, 'Snow', float(spec['id'] in SNOWY))
@@ -132,7 +147,34 @@ def materials():
         overrides.set_editor_property('override_two_sided', True); overrides.set_editor_property('two_sided', spec['doubleSided'])
         mi.set_editor_property('base_property_overrides', overrides)
         MEL.update_material_instance(mi); E.save_loaded_asset(mi); result[spec['id']] = mi
+    # The steel coping the build adds along the grind lines (additions.COPING_MATERIAL).
+    name = 'MI_CP_coping_steel'; dest = ROOT + '/Materials'; path = dest + '/' + name
+    mi = E.load_asset(path) if E.does_asset_exist(path) else AT.create_asset(name, dest, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+    MEL.set_material_instance_parent(mi, parents['Steel'])
+    tint = [c / 12.92 if c <= .04045 else ((c + .055) / 1.055) ** 2.4 for c in STEEL]
+    MEL.set_material_instance_vector_parameter_value(mi, 'Tint', unreal.LinearColor(*tint, 1.))
+    MEL.set_material_instance_scalar_parameter_value(mi, 'Snow', 0.)
+    MEL.update_material_instance(mi); E.save_loaded_asset(mi); result['coping_steel'] = mi
     return result
+
+
+def delete_stale(report):
+    """Delete the SM_CP_* / UC_CP_* meshes under ROOT/Meshes that this build.json no longer names (the seed stays):
+    /Game/CraterPark is always cooked (DefaultGame.ini DirectoriesToAlwaysCook), so a dead mesh would ship."""
+    wanted = {e['name'] for e in report['render'] + report['collision']} | {'SM_CP_ImportSeed'}
+    deleted = []
+    for path in E.list_assets(ROOT + '/Meshes', recursive=False, include_folder=False):
+        name = str(path).rsplit('/', 1)[-1].split('.')[0]
+        if name.startswith(('SM_CP_', 'UC_CP_')) and name not in wanted:
+            assert E.delete_asset(str(path).split('.')[0]), f'Could not delete the stale mesh {path}'
+            deleted.append(name)
+    # the import's geometry audit (imported-geometry/<name>.bin) would otherwise keep r4's dead meshes in analyses
+    audit = OUT / 'imported-geometry'
+    for stale in (audit.glob('*.bin') if audit.exists() else ()):
+        if stale.stem not in wanted:
+            stale.unlink(); deleted.append(stale.name)
+    print('CRATERPARK stale meshes deleted:', len(deleted), flush=True)
+    return deleted
 
 
 def main():
@@ -148,6 +190,7 @@ def main():
     megapark.import_mesh = lambda path, name, dest=None, seed=None, vertex_colors=False: plain(
         path, name, dest, seed, vertex_colors or name.startswith('SM_CP_'))
     E.make_directory(ROOT + '/Meshes')
+    deleted = delete_stale(report)
     mis = materials(); results = []
     # The riding collision is placed in a throwaway level, so the editor cooks it here into the shared cache instead of
     # the game cooking about 600k triangles as the island loads (over the memory guard).
@@ -162,6 +205,7 @@ def main():
             mesh.set_editor_property('allow_cpu_access', False); E.save_loaded_asset(mesh)
     E.save_directory(ROOT, only_if_is_dirty=True, recursive=True)
     result = {'root': ROOT, 'source_sha256': report['scene_sha256'], 'meshes': results, 'materials': len(mis),
+              'deleted_stale': deleted,
               'render_triangles': sum(e['triangles'] for e in results if not e['collision']),
               'collision_triangles': sum(e['triangles'] for e in results if e['collision'])}
     (OUT / 'import-report.json').write_text(json.dumps(result, indent=2) + '\n')

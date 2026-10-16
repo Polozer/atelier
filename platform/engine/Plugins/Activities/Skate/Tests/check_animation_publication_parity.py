@@ -3,7 +3,7 @@
 
 Original actor state is included unchanged; the two actor stance getter bodies
 are extracted verbatim with byte boundaries. Core packet reset/publication use
-the untouched frozen implementations. Run this job under atelier.safety.
+the untouched frozen implementations. Run this job under atelier.harness.safety.
 """
 import argparse
 import hashlib

@@ -59,7 +59,7 @@ prints `verified: {...}` or `not verified: ...` (exit code 1):
 
 This is a local build run from the editor binary, not a cooked package.
 
-Agent-launched processes use `atelier.safety.process` on macOS: application scheduling policies, at least
+Agent-launched processes use `atelier.harness.safety.process` on macOS: application scheduling policies, at least
 nice 10, without imposing a thread QoS clamp. This prevents a background launchd role from distorting imports
 and game measurements. Native review and benchmark launchers use the same helper. The command still owns the
 actual child PID, render admission, memory ceiling and cleanup; worker counts and caches stay unchanged.
@@ -99,6 +99,11 @@ Set by the game's preferences with `desktop=1` and `performance=1` (`JapanPrefer
 | `r.TemporalAA.Quality` | 3 | about 0.3 ms, character edges kept in sprint and double-jump frames |
 | `r.InstanceCulling.OcclusionCull` | 1 | culls instances the depth buffer hides (both profiles) |
 | `japan.HarborFillAuto` | 1 | no cascades for the harbor's second directional light when every receiver is beyond cascade range |
+
+Laptop mode (`laptop=1`) also selects Performance, with one shadow cascade, forest detail capped at 0.25,
+tree shadows capped at 40 m and sway at 20 m. Its dynamic-resolution floor is 50%, or the saved render-scale
+ceiling if that is lower. It uses scene color format 2 and TAA quality 3 through `LightFrame`, even outside a
+desktop profile. The sliders retain their saved values for when Laptop mode is switched off.
 
 The player's mesh casts an inset (per-object) shadow in both profiles, shared by what is attached to it (sword, props,
 bike; `WandererCharacter.cpp`). With only two 1024 cascades, the first one spans about 43 m at roughly 8 cm per texel,

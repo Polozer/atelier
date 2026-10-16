@@ -3,6 +3,7 @@
 #include "AirTrajectoryGrindRuntime.h"
 #include "AirTrajectorySelector.h"
 #include "PlantTrajectoryQueries.h"
+#include "WallFollow.h"
 #include <memory>
 #include <utility>
 namespace atelier::skate {
@@ -14,6 +15,13 @@ public:
   AirTrajectorySelectorSettings settings{};
   // Host preference: zero retains the original near-vertical band.
   float vert_assist=0.0f;
+  // A host's assist-zone limit (GameplayRuntime::LimitVertAssist). At zero, a kicker marked "no assist", the launch also
+  // skips the stock vert-jump alignment unless the rider transfers: the air is the plain ballistic one off the lip.
+  float vert_assist_limit=1.0f;
+  // Wall-follow air (FeelTuning::wall_follow, WallFollow.h). Launch latches it for a vert-aligned launch off a curved
+  // wall with vert assist above zero and no transfer, and bends the predicted arcs; GameplayRuntime's frame measures
+  // the wall and turns the bodies. Strength 0 (stock) never reads or writes any of it.
+  WallFollowAir wall_follow;
   bool Load(const SettingsDatabase &, std::string &);
   bool Launch(AirLaunchInfo, AirSelectorInput, const WorldGeometry &,
               bool &launched, std::string &);

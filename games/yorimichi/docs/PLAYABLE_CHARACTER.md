@@ -1,18 +1,18 @@
 # Make a character playable
 
 This guide takes an approved, rigged humanoid to a character you can choose in the game. It gets the full merged
-move set, the bike, skating, the sword and the paraglider. Everything after the rig is data, and the build does the
-rest. Making the model itself is covered in [the character pipeline](../../../docs/CHARACTER_PIPELINE.md) and, for a
+move set, the bike, the horse, skating, the sword and the paraglider. Everything after the rig is data, and the build
+does the rest. Making the model itself is covered in [the character pipeline](../../../docs/CHARACTER_PIPELINE.md) and, for a
 case study, [Nox](NOX_CHARACTER_RECIPE.md).
 
-Cairo, Kaede, Modori, Nox and Paul all go through the steps below. None of them has its own exporter, importer,
-build steps or game class.
+Cairo, Modori, Nox and Paul use the shared export, import, recipe and player class described below.
+Kaede also uses the shared asset pipeline, with the game-specific `ASwordTrainer` subclass for her training behavior.
 
 ## What you need
 
 - **A rigged humanoid source** in `assets/characters/<id>/`: a `.glb` or a `.blend` with textures packed. Its skeleton
-  follows the [humanoid contract](../../../platform/conventions/rigs/humanoid.toml) by name. It can use the contract's
-  own names or Mixamo's, as Tripo's auto-rig produces. Fingers are optional but needed for grips. Extra bones (hair,
+  follows the [humanoid contract](../../../platform/conventions/rigs/humanoid.toml) by name, using Mixamo's names as
+  Tripo's auto-rig produces them. Fingers are optional but needed for grips. Extra bones (hair,
   extra spine joints) are allowed; you tell the export what to do with them.
 - **A `source-manifest.json`** with the source's SHA-256 (`native`, `native_sha256`). The export refuses a source that
   does not match it.
@@ -26,7 +26,7 @@ The smallest definition is an id, a role, a source and a height:
 ```toml
 id = "new-one"
 display_name = "New One"
-role = "player"                       # "player": choosable, rides the bike. "npc": the move set only.
+role = "player"                       # "player": choosable, rides the bike and the horse. "npc": the move set only.
 rig = "humanoid"
 height_cm = 170
 source = "NewOne.glb"
@@ -39,15 +39,16 @@ only what differs. Unknown keys are refused, so a typo fails at once.
 | Table | What it sets | Examples |
 |---|---|---|
 | top level | names | `asset_name` (default: the id in PascalCase), `unreal_path` (`/Game/<Name>`), `output` (the build folder) |
-| `[export]` | how the source becomes the game's body | `names = "contract"`, `extra_bones = "follow"` (or `"drop"`), `mesh_names`, `actions = "authored"` to keep the source's own clips |
+| `[export]` | how the source becomes the game's body | `extra_bones = "drop"` (or `"follow"`), `mesh_names`, `actions = "authored"` to keep the source's own clips |
 | `[export.materials]` | its materials | name and texture templates, `two_sided`, roughness, metallic and specular (a number or `"shader"`), `atlas` |
 | `[unreal]` | the Unreal import | `camera_height`, `cpu_access`, `physics_asset`, `vertex_colors`, `morph_targets`, `contact_morphs`, `modules` |
 | `[blender]` | how its Blender steps run | `threads` (3 for a heavy source) |
 | `[game]` | its pawn (step 6) | `capsule_radius`, `cloth_teleport`, `hair_spring_morphs` |
 | `[[fit]]` | fit waivers (step 4) | `report`, `clip`, `metric`, `bound`, `reason` |
 
-Paul is a complete example: a vendored GLB already on the contract's names, with three extra torso and neck bones
-that follow their parents ([paul/character.toml](../assets/characters/paul/character.toml)).
+Paul is a complete example: Tripo's auto-rig with Mixamo names, whose unweighted end bones are dropped
+([paul/character.toml](../assets/characters/paul/character.toml)). Nox keeps a hair rig as bones that follow their
+parents ([nox/character.toml](../assets/characters/nox/character.toml)).
 
 Some geometry needs code. A body-specific step goes in an optional `<id>/export_hooks.py` with
 `body(prepared, report)`. It runs after the rig is prepared and before the FBX is written. Modori's hook gives his coat
@@ -84,7 +85,7 @@ planted ankles and keeps the idle's breathing ([`adventure/stance.py`](../assets
 ## 3. Build it
 
 ```sh
-nice -n 10 uv run atelier build yorimichi unreal.<key>_pawn unreal.<key>_bike characters.<key>_fit
+nice -n 10 uv run atelier build yorimichi unreal.<key>_pawn unreal.<key>_bike unreal.<key>_horse characters.<key>_fit
 ```
 
 `<key>` is the id with dashes as underscores. The build generates these steps from the two files:
@@ -95,11 +96,12 @@ nice -n 10 uv run atelier build yorimichi unreal.<key>_pawn unreal.<key>_bike ch
 | `unreal.<key>` | the mesh, materials, physics asset and base definition (`Scripts/import_character.py`) |
 | `characters.<key>_adventure`, `unreal.<key>_adventure` | the merged move set, retargeted and imported |
 | `characters.<key>_bike`, `unreal.<key>_bike` | every bike action authored on its rig (players only) |
+| `characters.<key>_horse`, `unreal.<key>_horse` | the 13 horseback riding clips authored on its rig and imported to `/Game/<bike_rig>Horse` (players only; needs `world.horses`, see [HORSE.md](HORSE.md)) |
 | `characters.<key>_grips` | its posed grips, when `grips/<id>/` is committed |
 | `characters.<key>_fit` | the fit gate (step 4) |
-| `unreal.<key>_pawn` | its pawn, registered with the game (step 6; players only) |
+| `unreal.<key>_pawn` | its pawn, registered with the game (step 6; players only), after the horse clips but without needing them |
 
-Use `atelier build` or `atelier.safety.guarded` for every heavy step, as `AGENTS.md` requires.
+Use `atelier build` or `atelier.harness.safety.guarded` for every heavy step, as `AGENTS.md` requires.
 
 ## 4. Check the fit
 
@@ -107,10 +109,13 @@ Use `atelier build` or `atelier.safety.guarded` for every heavy step, as `AGENTS
 build fails when a clip fits badly:
 
 - `ankle_cm`: how far an ankle falls short of where the leg was asked to put it (default bound 4 cm);
-- `reach_<limb>_cm`: how far a hand or foot falls short of its bike grip, pedal or ground spot (default bound 4 cm);
+- `reach_<limb>_cm`: how far a hand or foot falls short of its bike grip, pedal or ground spot, or of its rein grip or
+  stirrup tread on the horse (`reach_error_cm` in the bike and horse reports; default bound 4 cm);
 - `lowest_toe_cm` and the stance checks, against the baseline.
 
-A missing, non-finite or zero-sample report fails. So does a clip worse than its baseline by more than 0.5 cm.
+A missing, non-finite or zero-sample report fails. So does a clip worse than its baseline by more than 0.5 cm. A
+report the baseline does not have yet (no committed baseline has a horse report) is held to the bounds alone until
+one is recorded.
 
 When a value is above the bound for a reason you accept, waive that one clip and metric with the measured value:
 
@@ -154,7 +159,7 @@ seven eighths of it, and the mesh sits 0.65 cm lower. Override only what differs
 | Key | What it sets |
 |---|---|
 | `capsule_radius`, `half_height`, `crouched_half_height` | the capsule (cm) |
-| `bike_rig` | the bike clips' folder, `/Game/<bike_rig>Bike` (default: the asset name) |
+| `bike_rig` | the riding clips' folders, `/Game/<bike_rig>Bike` and `/Game/<bike_rig>Horse` (default: the asset name) |
 | `skate_clothing_clearance`, `skate_hull_directions` | how far clothes reach beyond the body's capsules; the bail hull's resolution |
 | `leg_scaled_sailboat` | move the sailboat stance by the leg length |
 | `cloth_teleport` | `[cm, degrees]`: a cloth restarts from the skinned pose after a jump this far or this sharp |
@@ -182,6 +187,10 @@ character, under the guard, and quit each game promptly:
 - **The move set:** `scenarios/adventure_moves.py` with `RIDER='<Name>'` (39 checks: jumps, sword, glider, swim, climb).
 - **The bike:** `tools/review_bike.py --rider <Name>`. It films the circuit and checks every move. On every rider,
   two checks fail for shared physics reasons, not the character: sprint speed and the ramp wheel.
+- **The horse:** `characters.<key>_fit` must pass with the horse report (every clip's `reach_error_cm` within its
+  bound), then `assets/horses/rider.py` with `--character <id> --review DIR` renders the clips on a breed, and a ride in
+  the game covers mounting, each gait, the sprint and getting off ([HORSE.md](HORSE.md#validation)). There is no
+  scripted horse review yet.
 - **Skating:** mount, push, tricks, bails and recoveries on the live retargeter. Check the skin against the board
   (`skate.RideSkinCheck 1`).
 - **Grips:** `grips/sample.py --held`, then `grips/check.py`. It exits 1 on a drifting grip.
@@ -198,8 +207,12 @@ Commit:
 - the fit baseline;
 - committed grips.
 
-Build outputs, Unreal Content, FBXs and captures stay ignored. Run `uv run atelier lint` and `uv run pytest -q`, read
-`git diff`, and ask another agent for review on the board.
+Build outputs, Unreal Content, FBXs and captures stay ignored. Run `uv run atelier lint`,
+`uv run atelier contracts check` and focused Python tests for the changed behavior, then read `git diff` and ask
+another agent for review on the board. Hosted CI supplies the full-suite result: require a successful
+`Studio Python / macOS` check on the final PR head before merging. Do not repeat the full suite locally;
+documentation-only changes need no local Python run. Follow [the repository rules](../../../AGENTS.md) for
+integration-failure diagnosis and tests that need local resources.
 
 ## Changing the pipeline
 

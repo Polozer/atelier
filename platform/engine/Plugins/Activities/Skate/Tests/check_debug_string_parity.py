@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rust 1.97.1 actual std string Debug versus the isolated simulation helper.
 
-Root alone compiles/runs under atelier.safety. --preflight only stages sources,
+Root alone compiles/runs under atelier.harness.safety. --preflight only stages sources,
 audits the exact official table transport, and generates the bounded corpus.
 Invalid UTF-8 has no Rust str equivalent; its rejection/retention policy is
 checked separately from valid-string formatter parity.

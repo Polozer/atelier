@@ -55,16 +55,20 @@ RestoreVelocityGeometry RestoreGeometry(Vec4 v,Vec4 normal)
 }
 KnownAirTrajectory Trajectory(AirTrajectory t)
 {
-    std::uint32_t word;std::memcpy(&word,&t.scalar_48,4);return {t.position,t.velocity,t.acceleration,t.scalar_48,word,word,word};
+    std::uint32_t word;std::memcpy(&word,&t.scalar_48,4);
+    return {t.position,t.velocity,t.acceleration,t.scalar_48,word,word,word,t.wall_curvature,t.wall_follow_time};
 }
-AirTrajectory Actual(const KnownAirTrajectory& t){return {t.position,t.velocity,t.acceleration,t.scalar_48};}
+AirTrajectory Actual(const KnownAirTrajectory& t)
+{return {t.position,t.velocity,t.acceleration,t.scalar_48,t.wall_curvature,t.wall_follow_time};}
 Vec4 Position(const KnownAirTrajectory& t,float time)
 {
+    // A wall-follow arc turns round the wall (WallFollow.h); every stock arc takes the parabola below.
+    if (t.wall_curvature!=0) return AirTrajectoryPositionAt(Actual(t),time);
     const auto square=time*time;Vec4 out{};
     for (std::size_t i=0;i<4;++i) {const auto linear=std::fma(t.velocity[i],time,t.position[i]);const auto half=t.acceleration[i]*0.5f;out[i]=std::fma(half,square,linear);}return out;
 }
 Vec4 Velocity(const KnownAirTrajectory& t,float time)
-{Vec4 out{};for (std::size_t i=0;i<4;++i) out[i]=std::fma(t.acceleration[i],time,t.velocity[i]);return out;}
+{if (t.wall_curvature!=0) return AirTrajectoryVelocityAt(Actual(t),time);Vec4 out{};for (std::size_t i=0;i<4;++i) out[i]=std::fma(t.acceleration[i],time,t.velocity[i]);return out;}
 std::int32_t WrappingAdd(std::int32_t value,std::uint32_t increment)
 {std::uint32_t word;std::memcpy(&word,&value,4);word+=increment;std::memcpy(&value,&word,4);return value;}
 }

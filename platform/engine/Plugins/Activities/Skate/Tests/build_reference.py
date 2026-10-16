@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Freeze and build the reference revision, without modifying the running game.
 
-Run through atelier.safety. Output and Cargo cache belong under build/. The source
+Run through atelier.harness.safety. Output and Cargo cache belong under build/. The source
 snapshot is extracted from Git, so later working-tree changes cannot affect it.
 """
 import argparse

@@ -28,12 +28,15 @@ uv run atelier play yorimichi -- -rider=Nox
 For a checkout whose world is already built:
 
 ```sh
-uv run atelier build yorimichi unreal.nox_adventure unreal.nox_bike data.network
+uv run atelier build yorimichi unreal.nox_pawn unreal.horses unreal.nox_horse data.network
 ```
 
 `characters.nox` exports the approved mesh. `characters.nox_adventure` retargets every merged movement,
-action and donor gesture. `characters.nox_bike` authors every bike action on his skeleton.
-The three `unreal.nox*` steps import their results. The character menu and `-rider=Nox` both select him.
+action and donor gesture. `characters.nox_bike` authors every bike action on his skeleton, and `characters.nox_horse`
+every horseback riding action ([HORSE.md](HORSE.md)).
+The five `unreal.nox*` steps import body, adventure, bike and horse assets, then create the pawn and roster record;
+the pawn does not wait for `unreal.nox_horse`, so a pawn-only build leaves the horse uninstalled.
+The character menu and `-rider=Nox` both select him.
 The menu refuses him until his merged definition and move record are built.
 
 Skating retargets the shared library onto the character's humanoid bones in the live animation graph.
@@ -227,10 +230,13 @@ failures. Those remain shared physics issues, not a passing bike suite. Hair spr
 These initial playability receipts did not establish close-up garment quality: later screenshots found underarm,
 torso and seat deformation, which required the additional pass below.
 
-Run the source-library verifier, repository lint and the full Python suite. Record native validation and screenshots
-in the review workspace, then request another agent's PR review. Generated Unreal Content, exported FBXs and captures
-stay ignored. The committed GLB with embedded textures is sufficient to regenerate the game imports; paid generation
-is an optional authoring step, never a build dependency.
+Run the source-library verifier, repository lint, contract checks and focused Python tests for the changed behavior.
+Hosted CI supplies the full-suite result: require a successful `Studio Python / macOS` check on the final PR head
+before merging. Do not repeat the full suite locally; documentation-only changes need no local Python run.
+Follow [the repository rules](../../../AGENTS.md) for integration-failure diagnosis and tests that need local resources.
+Record native validation and screenshots in the review workspace, then request another agent's PR review.
+Generated Unreal Content, exported FBXs and captures stay ignored. The committed GLB with embedded textures is
+sufficient to regenerate the game imports; paid generation is an optional authoring step, never a build dependency.
 
 ## 11. Repair pose deformation while preserving the garment design
 

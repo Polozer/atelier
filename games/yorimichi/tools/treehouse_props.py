@@ -18,7 +18,7 @@ reads PROPS and OUT from here and fits each GLB to its size for the game, so not
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / 'world')); import yori  # noqa: E402
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
-import argparse, json, time
+import argparse, json, os, time
 from concurrent.futures import ThreadPoolExecutor
 
 from treehouse_art import (MODEL, QUALITY, ORIGINALS, REFS, SHEETS, TRIPO, compact_glb, keep, now, redact,
@@ -142,13 +142,21 @@ def model(slug, faces, approval, dry, out=None, tripo=None, originals=None, stag
         return slug, None
     from atelier.ai.tripo_asset import call, credential, write_json, read_json, private_folder, fetch
     import httpx
-    private = private_folder(work)
+    private = private_folder(work); claimed = posted = False
     try:
         with httpx.Client(headers={'Authorization': 'Bearer '+credential()}, timeout=httpx.Timeout(180, connect=20)) as client:
             job_path = work/'job.json'
-            if not job_path.exists() or made_from(read_json(job_path)) != wanted:
-                if (private/'submission-started.json').exists() and not job_path.exists():
-                    return slug, f'an earlier Tripo POST may have succeeded; reconcile {rel(private)} first'
+            recorded = lambda: job_path.exists() and made_from(read_json(job_path)) == wanted
+            if not recorded():
+                # The marker is claimed by exclusive creation before any upload, so of two processes modelling the same
+                # prop only one submits; a marker left by a crash may mean a POST succeeded and is never claimed over.
+                try: os.close(os.open(private/'submission-started.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)); claimed = True
+                except FileExistsError:
+                    return slug, f'another submission is running or an earlier Tripo POST may have succeeded; reconcile {rel(private)} first'
+                # Rechecked once claimed: another process may have recorded this concept's task and released the
+                # marker between the check above and the claim; that task is fetched, never submitted again.
+                if recorded(): (private/'submission-started.json').unlink(); claimed = False
+            if claimed:
                 kind = 'image/png' if image.suffix == '.png' else 'image/jpeg'
                 with image.open('rb') as f:
                     token = call(client, 'POST', '/files', files={'file': (image.name, f, kind)})['data']['file_token']
@@ -157,6 +165,7 @@ def model(slug, faces, approval, dry, out=None, tripo=None, originals=None, stag
                             'texture_alignment': 'original_image'}
                 payload = {'input': token, **settings}
                 write_json(private/'submission-started.json', {'started_at': now(), 'request': payload}, private=True)
+                posted = True   # from here the POST may have reached Tripo, so the marker stays on a failure
                 response = call(client, 'POST', '/generation/image-to-model', json=payload)
                 write_json(private/'submission-response.json', response, private=True)
                 if job_path.exists(): job_path.rename(work/f'job.{int(time.time())}.json')
@@ -169,6 +178,7 @@ def model(slug, faces, approval, dry, out=None, tripo=None, originals=None, stag
                 print(slug, 'submitted', response['data']['task_id'], flush=True)
             fetch(client, work, True)
     except (Exception, SystemExit) as e:  # noqa: BLE001 - a missing key stops only this prop, with its message
+        if claimed and not posted: (private/'submission-started.json').unlink(missing_ok=True)
         return slug, redact(e)[:400]
     downloads = read_json(work/'downloads.json')
     glbs = [d for d in downloads if d['file'].endswith('.glb')]

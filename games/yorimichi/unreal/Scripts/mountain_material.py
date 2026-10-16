@@ -2,11 +2,42 @@
 import unreal
 import atmosphere
 import ground_grain
+import hashlib
 import json
 import sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'world'))
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'tools'))
 import yori  # noqa: E402
+import craterpark_textures  # noqa: E402
+
+# The caldera floor reads as the painting (tools/craterpark_textures.py 'crater_floor'): the vertex colour times its
+# variation about its mean, and this share of the painting's own colour.
+CRATER_PAINT=.5
+
+def crater_hlsl(meta):
+    """HLSL setting `crater`: how much of the painted floor lies at P (the mask, north_crater.json's texel-centred
+    footprint), on flat enough ground, never on a loose rock (Caps)."""
+    x0,y0,_,_=meta['bounds']
+    return (f'float2 craterUV=((float2(P.x,-P.y)/100.-float2({x0},{y0}))/{meta["step_m"]}+.5)/{meta["size"][0]}.;'
+            'float crater=Texture2DSampleLevel(Crater,CraterSampler,craterUV,0.).r*saturate((N.z-.72)/.16)*(1-Caps);')
+
+
+def floor_hlsl(metres,mean):
+    """HLSL laying the painting (Floor, sRGB mean `mean`) over `ground` by `crater`: on three axes at its own tile
+    (P/800 for 8 m), varied by a second, larger sample about its mean so its repeats do not show across the floor;
+    the vertex colour times the painting's variation about its mean, with CRATER_PAINT of the painting's own colour."""
+    lin=[c/255./12.92 if c/255.<=.04045 else ((c/255.+.055)/1.055)**2.4 for c in mean]
+    def sample(q):
+        return ('(Texture2DSample(Floor,FloorSampler,%s.yz).rgb*cw.x+Texture2DSample(Floor,FloorSampler,%s.xz).rgb*cw.y'
+                '+Texture2DSample(Floor,FloorSampler,%s.xy).rgb*cw.z)'%(q,q,q))
+    return ('float3 cw=pow(abs(N),4);cw/=max(cw.x+cw.y+cw.z,.001);'
+            'float3 cp=P/%.1f;float3 cq=P/%.1f+.41;'%(metres*100,metres*100*2.9)
+            +'float3 CFM=float3(%.5f,%.5f,%.5f);'%tuple(lin)
+            +'float3 floorTex=%s*sqrt(max(%s/CFM,.05));'%(sample('cp'),sample('cq'))
+            +'float3 painted=lerp(base*floorTex/CFM,floorTex,%s);'%CRATER_PAINT
+            +'ground=lerp(ground,painted,crater);')
+
 
 def material():
     e=unreal.EditorAssetLibrary;l=unreal.MaterialEditingLibrary
@@ -35,6 +66,32 @@ def material():
     snow_texture.set_editor_property('address_x',unreal.TextureAddress.TA_CLAMP)
     snow_texture.set_editor_property('address_y',unreal.TextureAddress.TA_CLAMP)
     snow_texture.set_editor_property('never_stream',True);e.save_loaded_asset(snow_texture)
+    # The caldera floor's painted ground: its mask on the snow mask's footprint (hidamari/mountains.py crater_floor) and
+    # the world-aligned Sunburst painting (tools/craterpark_textures.py finish).
+    crater_meta=json.loads((yori.OUT/'hidamari/north_crater.json').read_text())
+    assert crater_meta['linear'] and crater_meta['bounds']==snow_meta['bounds'] and crater_meta['step_m']==snow_meta['step_m']
+    assert crater_meta['size']==[1024,1024]
+    task=unreal.AssetImportTask();task.filename=str(yori.OUT/'hidamari/north_crater.png')
+    task.destination_path='/Game/Japan/Textures';task.destination_name='T_NorthCraterMask'
+    task.automated=True;task.replace_existing=True;task.save=True
+    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+    crater_texture=e.load_asset('/Game/Japan/Textures/T_NorthCraterMask');assert crater_texture
+    crater_texture.set_editor_property('srgb',False)
+    crater_texture.set_editor_property('compression_settings',unreal.TextureCompressionSettings.TC_GRAYSCALE)
+    crater_texture.set_editor_property('mip_gen_settings',unreal.TextureMipGenSettings.TMGS_SIMPLE_AVERAGE)
+    crater_texture.set_editor_property('address_x',unreal.TextureAddress.TA_CLAMP)
+    crater_texture.set_editor_property('address_y',unreal.TextureAddress.TA_CLAMP)
+    crater_texture.set_editor_property('never_stream',True);e.save_loaded_asset(crater_texture)
+    painted=json.loads((yori.OUT/'craterpark/textures/textures.json').read_text())['world_aligned']['crater_floor']
+    floor_png=yori.OUT/'craterpark/textures'/painted['png']
+    assert hashlib.sha256(floor_png.read_bytes()).hexdigest()==painted['sha256'],floor_png
+    task=unreal.AssetImportTask();task.filename=str(floor_png)
+    task.destination_path='/Game/Japan/Textures';task.destination_name='T_NorthCraterFloor'
+    task.automated=True;task.replace_existing=True;task.save=True
+    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+    floor_texture=e.load_asset('/Game/Japan/Textures/T_NorthCraterFloor');assert floor_texture
+    floor_texture.set_editor_property('srgb',True);floor_texture.set_editor_property('max_texture_size',1024)
+    e.save_loaded_asset(floor_texture)
     x0,y0,_,_=snow_meta['bounds']
     snow_code=(f'float2 snowUV=(float2(P.x,-P.y)/100.-float2({x0},{y0}))/{step};'
                'snowUV=(snowUV+.5)/1024.;'
@@ -49,6 +106,8 @@ def material():
                 # ground's mask cut across it: white blocks on snow and bare grey ones beside it read as no rock at all.
                 'float around=Texture2DSampleLevel(Snow,SnowSampler,snowUV,4.).r;'
                 'snowMask=lerp(snowMask,saturate((N.z-.88)/.07)*saturate((around-.3)*2.5)*saturate(edgeNoise*2.+1.2),Caps);')
+    crater_code=crater_hlsl(crater_meta)
+    floor_code=floor_hlsl(float(painted['metres']),craterpark_textures.WORLD_ALIGNED['crater_floor'][2])
     # The volcano's exposed-rock band and the join to Belmonte's palette, in centimetres (hidamari/mountains.py).
     (vx,vy),(r0,r1),(p0,p1),join=snow_meta['volcano_m'],snow_meta['rock_radius_m'],snow_meta['rock_prominence_m'],snow_meta['south_join_m']
     rock_band=(f'float join=smoothstep({(join-420)*100:.0f}.,{join*100:.0f}.,-P.y);'
@@ -107,12 +166,13 @@ float litFacet=saturate(dot(normalize(N+h*float3(1.1,1.1,.55)+h2*float3(.8,.8,.4
 float3 facet=(.28+1.15*litFacet)/(.28+1.15*litSmooth)*lerp(float3(.92,.94,1.06),float3(1.08,1.02,.92),saturate(litFacet*1.4-.2));
 ground*=lerp(float3(1.,1.,1.),facet,high*(1-smoothstep(60000.,250000.,D)));
 float strata=1.-.08*sin(P.z*.0021+sin(P.x*.0007)*2.)*(1-abs(N.z))*(1-smoothstep(35000.,100000.,D))*(1-join);
+'''+crater_code+floor_code+'''
 float3 snow=float3(.80,.83,.89)*lerp(.9,1.05,saturate((g3-.6)/.9))*lerp(1.,.92,saturate(1-N.z));
 '''+snow_code+'''
 return lerp(ground*strata,snow,snowMask)*(1-'''+atmosphere.SHARE+');')
     c.set_editor_property('output_type',unreal.CustomMaterialOutputType.CMOT_FLOAT3)
     args=[]
-    for key in ('C','D','A','P','N','Tex','Ground','Snow','Sun','Caps'):
+    for key in ('C','D','A','P','N','Tex','Ground','Snow','Sun','Caps','Crater','Floor'):
         a=unreal.CustomInput();a.set_editor_property('input_name',key);args.append(a)
     c.set_editor_property('inputs',args)
     l.connect_material_expressions(vc,'',c,'C');l.connect_material_expressions(depth,'',c,'D')
@@ -128,20 +188,27 @@ return lerp(ground*strata,snow,snowMask)*(1-'''+atmosphere.SHARE+');')
     l.connect_material_expressions(p,'',c,'P');l.connect_material_expressions(n,'',c,'N');l.connect_material_expressions(tex,'',c,'Tex')
     l.connect_material_expressions(ground,'',c,'Ground')
     l.connect_material_expressions(snow_object,'',c,'Snow')
+    crater_object=l.create_material_expression(m,unreal.MaterialExpressionTextureObject,-600,1100)
+    crater_object.set_editor_property('texture',crater_texture)
+    crater_object.set_editor_property('sampler_type',unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_GRAYSCALE)
+    floor_object=l.create_material_expression(m,unreal.MaterialExpressionTextureObject,-600,1200)
+    floor_object.set_editor_property('texture',floor_texture)
+    l.connect_material_expressions(crater_object,'',c,'Crater');l.connect_material_expressions(floor_object,'',c,'Floor')
     l.connect_material_property(c,'',unreal.MaterialProperty.MP_BASE_COLOR)
     # Exposed volcanic rock has a neutral sky-bounce floor. It is zero at the
     # woodland/collar joins, and snow retains its existing physical lighting.
     ambient=l.create_material_expression(m,unreal.MaterialExpressionCustom,200,150)
     ambient.set_editor_property('output_type',unreal.CustomMaterialOutputType.CMOT_FLOAT3)
-    ambient.set_editor_property('code',snow_code+rock_band+'''
-float bounce=dot(Base,float3(.299,.587,.114))*.25*high*(1-snowMask)*(1-saturate(dot(N,normalize(Sun.xyz))))*Sun.w;
+    ambient.set_editor_property('code',snow_code+rock_band+crater_code+'''
+float bounce=dot(Base,float3(.299,.587,.114))*.25*high*(1-snowMask)*(1-crater)*(1-saturate(dot(N,normalize(Sun.xyz))))*Sun.w;
 return float3(bounce,bounce,bounce);''')
     inputs=[]
-    for key in ('Base','P','N','D','Snow','Tex','Sun','Caps'):
+    for key in ('Base','P','N','D','Snow','Tex','Sun','Caps','Crater'):
         value=unreal.CustomInput();value.set_editor_property('input_name',key);inputs.append(value)
     ambient.set_editor_property('inputs',inputs)
     l.connect_material_expressions(c,'',ambient,'Base');l.connect_material_expressions(p,'',ambient,'P')
     l.connect_material_expressions(snow_object,'',ambient,'Snow')
+    l.connect_material_expressions(crater_object,'',ambient,'Crater')
     l.connect_material_expressions(n,'',ambient,'N');l.connect_material_expressions(depth,'',ambient,'D')
     l.connect_material_expressions(tex,'',ambient,'Tex')
     wind=e.load_asset('/Game/Japan/Materials/MPC_Wind');assert wind

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact original gesture catalog, trick priority and retained lifecycle parity.
 
-Run compilation through atelier.safety. Original source modules stay unchanged;
+Run compilation through atelier.harness.safety. Original source modules stay unchanged;
 the corpus reads their authored names only, and the Rust oracle computes outputs.
 """
 import argparse

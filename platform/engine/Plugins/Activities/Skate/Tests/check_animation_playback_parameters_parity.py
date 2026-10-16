@@ -3,7 +3,7 @@
 
 Read/write callbacks are compared in original order, including consumed graph
 overrides, missing context producers, the simulation play refusal and explicit failures.
-Run both probe compiles through atelier.safety's render lock and memory guard.
+Run both probe compiles through atelier.harness.safety's render lock and memory guard.
 """
 import argparse
 import hashlib

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact remaining grind, landing and wipeout predicates against original host.
 
-Compile only through atelier.safety. Inputs are explicit completed owner records.
+Compile only through atelier.harness.safety. Inputs are explicit completed owner records.
 """
 import argparse
 import hashlib

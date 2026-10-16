@@ -79,8 +79,8 @@ def bind_checks(code, dedicated, text, owners, blocker_pid, receipt=None, live=N
 
 def worker(folder):
     from atelier.build import Context
-    from atelier.safety.guard import attach, reap
-    from atelier.safety.process import spawn_game
+    from atelier.harness.safety.guard import attach, reap
+    from atelier.harness.safety.process import spawn_game
     from network_review_common import tailnet_ipv4, require_clean_source, source_revision, current_native_build
     ctx = Context('yorimichi')
     revision = require_clean_source()
@@ -163,7 +163,7 @@ def main():
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     from atelier.build import Context
-    from atelier.safety import guarded
+    from atelier.harness.safety import guarded
     ctx = Context('yorimichi')
     folder = args.output or ctx.out / 'network-bind' / time.strftime('%Y%m%d-%H%M%S')
     folder.mkdir(parents=True, exist_ok=True)

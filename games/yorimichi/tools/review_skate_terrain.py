@@ -19,9 +19,9 @@ import yori
 from mega.layout import ORIGIN
 from zeppelin.layout import PARK_BRIDGE, DECK_EDGE
 from atelier.build import Context
-from atelier.safety import guarded
-from atelier.safety.guard import attach as attach_memory_guard, reap
-from atelier.safety.process import spawn_game
+from atelier.harness.safety import guarded
+from atelier.harness.safety.guard import attach as attach_memory_guard, reap
+from atelier.harness.safety.process import spawn_game
 from atelier import live
 
 parser = argparse.ArgumentParser(description=__doc__)

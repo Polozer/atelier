@@ -29,6 +29,6 @@ def main():
     spec=folder/'shots.json';spec.write_text(json.dumps(dict(shots=shots,probes=probes,settle_frames=90,initial_settle_frames=180),indent=2))
     engine=str(yori.REPO) and __import__('atelier.build',fromlist=['Context']).Context('yorimichi').unreal_app.as_posix()
     command=[engine,str(ROOT/'unreal/Yorimichi.uproject'),'-game','-RenderOffscreen','-ForceRes','-resx=1920','-resy=1080','-buildingreview='+str(spec),'-reviewdir='+str(folder),'-unattended','-nosplash','-stdout','-abslog='+str(folder/'game.log'),'-ExecCmds=r.DynamicRes.OperationMode 0,r.ScreenPercentage 100']
-    subprocess.run([sys.executable,'-m','atelier.safety.guarded','--report',str(folder),'--',*command],check=True,env={**__import__('os').environ,'PYTHONPATH':str(yori.REPO/'platform/studio')})
+    subprocess.run([sys.executable,'-m','atelier.harness.safety.guarded','--report',str(folder),'--',*command],check=True,env={**__import__('os').environ,'PYTHONPATH':str(yori.REPO/'platform/studio')})
     result=json.loads((folder/'completed.json').read_text());print(result);assert result['passed']
 if __name__=='__main__':main()

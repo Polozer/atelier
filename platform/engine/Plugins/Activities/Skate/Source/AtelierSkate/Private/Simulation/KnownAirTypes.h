@@ -11,6 +11,8 @@ struct KnownAirTrajectory
     std::uint32_t word_52{};
     std::uint32_t word_56{};
     std::uint32_t word_60{};
+    // AirTrajectory's wall-follow turn (WallFollow.h); 0 is the plain parabola.
+    float wall_curvature=0,wall_follow_time=0;
 };
 struct KnownAirPrediction
 {

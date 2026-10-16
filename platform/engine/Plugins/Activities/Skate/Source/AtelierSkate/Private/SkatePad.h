@@ -56,6 +56,13 @@ namespace atelier::skate_pad
 
     using HostPad = FSkateHostPad;
 
+    /** Whether the rider asks for a transfer this frame: Shift, the left bumper (L1), or the left stick pushed
+     *  forward (Y over .7 and more forward than sideways; the stick steers sideways and powerslides back). */
+    inline bool Transfers(bool bShift, double StickX, double StickY, bool bLeftShoulder)
+    {
+        return bShift || bLeftShoulder || (StickY > .7 && std::abs(StickX) < StickY);
+    }
+
     /** The packet: push A, brake B, transfer on the host bit; X on its own bit (and no longer A unless A, W or Up is
      *  held too); shoulders and stick clicks; triggers from the grabs (full) or the pulls, or the controller's analog
      *  axes (Q and E full); the sticks quantised to 32767. */

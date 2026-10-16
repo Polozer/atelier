@@ -34,7 +34,9 @@ float PlayerGrindBalanceState::UpdateExitLean(PlayerGrindExitLeanInput i,const P
     if(frames_away>20){exit_angle_degrees=0;elapsed=0;entry_delay=2;}
     else if(elapsed>0||(active&&droppable&&c)){
         if(elapsed==0){if(c){entry_delay=c->entry_kind==PlayerGrindEntryKind::RideFromBelow?.8f:c->entry_kind==PlayerGrindEntryKind::RideIntoCoping?.1f:2;}started=true;}
-        if(i.grind_substate!=2)elapsed=i.timestep+elapsed;
+        // A slide (not a 50-50 or 5-0) leans off slide_hold times slower.
+        const bool slide=c&&c->kind!=0&&c->kind!=3;
+        if(i.grind_substate!=2)elapsed=(slide?i.timestep/i.slide_hold:i.timestep)+elapsed;
     }
     if(elapsed<=0)return exit_angle_degrees;
     const auto time=elapsed-entry_delay;exit_angle_degrees=time<=0?0:graph.Evaluate(time);

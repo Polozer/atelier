@@ -212,6 +212,7 @@ public:
 private:
     friend class FJapanCheckpointTest;
     friend class ABelmonteTrainService;
+    friend class FJapanHorseWaterTest;
     friend class AJapanPlayerController;
     friend struct FJapanMultiplayerQAAccess;
     friend class FJapanReactionTransportTest;

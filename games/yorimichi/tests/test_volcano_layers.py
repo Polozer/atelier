@@ -4,6 +4,8 @@ import struct
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from atelier import build
 
 from test_mega_ramp_layers import changed_by
@@ -47,6 +49,18 @@ def test_snow_rock_and_mountain_material_reimport_only_the_volcano(tmp_path, mon
     for edited in (tmp_path / 'hidamari' / 'north_snow.png', tmp_path / 'hidamari' / 'north_snow.json',
                    RECIPE.ASSETS / 'environment/textures/volcanic-rock.jpg', RECIPE.SCRIPTS / 'mountain_material.py'):
         assert changed_by(edited, tmp_path, monkeypatch) == {'unreal.north'} | LATER, edited
+
+
+def test_the_crater_floor_reimports_only_the_volcano(tmp_path, monkeypatch):
+    """The crater floor's mask and painting (mountain_material.py) reimport the volcano and nothing else."""
+    for edited in (tmp_path / 'hidamari' / 'north_crater.png', tmp_path / 'hidamari' / 'north_crater.json',
+                   tmp_path / 'craterpark' / 'textures' / 'crater_floor.png'):
+        assert changed_by(edited, tmp_path, monkeypatch) == {'unreal.north'} | LATER, edited
+    ctx = SimpleNamespace(game='yorimichi', out=tmp_path, uproject=tmp_path / 'Yorimichi.uproject')
+    steps = {s.name: s for s in RECIPE.steps(ctx)}
+    assert 'world.craterpark_restyle' in steps['unreal.north'].needs
+    assert {tmp_path / 'hidamari' / 'north_crater.png', tmp_path / 'hidamari' / 'north_crater.json'} <= set(
+        steps['world.hidamari'].outputs)
 
 
 def test_the_world_import_reads_no_volcano_input(tmp_path):
@@ -102,6 +116,99 @@ def test_a_rerun_export_reimports_only_what_its_meshes_changed(tmp_path, monkeyp
     assert build.build('yorimichi', echo=lambda line: None) == 0 and imported == ['unreal.north']
 
 
+@pytest.fixture
+def props_build(tmp_path, monkeypatch):
+    """Run the recipe's real cutoff with a deterministic stand-in for Blender and native world import."""
+    out = tmp_path / 'build'
+    folder = out / 'hidamari/props'
+    source = tmp_path / 'props.py'
+    state = {'revision': 0, 'run': 0, 'review': b'first review',
+             'manifest': {**{f'HD_P_{name}': {'gain': .07, 'boxes': 1} for name in ('first', 'middle', 'last')},
+                          # a caldera conifer: its distance LODs are exports of their own (props.py lods)
+                          'Tree_Caldera_Pine': {'gain': .07, 'boxes': 0, 'lods': [[900, 1.], [270, .25], [30, .04]]}},
+             'vertices': {}, 'png': {}}
+    imported, messages = [], []
+    ctx = SimpleNamespace(game='yorimichi', out=out, logs=out / 'logs', stamps=out / 'stamps', uproject=None)
+
+    def export(ctx, log):
+        state['run'] += 1
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'props.json').write_text(json.dumps(state['manifest']))
+        for i, name in enumerate(state['manifest']):
+            (folder / f'{name}.fbx').write_bytes(fbx(2025 + state['run'], (state['run'] * 100 + i, 20 + i),
+                                                  state['vertices'].get(name, [0., 1., 2.])))
+            (folder / f'{name}.png').write_bytes(state['png'].get(name, b'prop texture ' + name.encode()))
+            for n in range(1, len(state['manifest'][name].get('lods', ()))):
+                lod = f'{name}_LOD{n}'
+                (folder / f'{lod}.fbx').write_bytes(fbx(2025 + state['run'], (state['run'] * 100 + i, 40 + n),
+                                                     state['vertices'].get(lod, [0., 1., 2.])))
+        (folder / 'review.png').write_bytes(state['review'])
+
+    recipe = {s.name: s for s in RECIPE.steps(ctx)}
+    needs = [n for n in recipe['unreal.world'].needs if n.startswith('world.hidamari_props')]
+    assert needs == ['world.hidamari_props.import']
+    steps = [build.Step('world.hidamari_props', [build.Call('export', export)], inputs=[source]),
+             recipe['world.hidamari_props.import'],
+             build.Step('unreal.world', [build.Call('import', lambda ctx, log: imported.append('world'))], needs=needs)]
+    monkeypatch.setattr(build, 'Context', lambda game: ctx)
+    monkeypatch.setattr(build, 'load_recipe', lambda game: SimpleNamespace(steps=lambda context: steps))
+
+    def run(*, edited=True):
+        if edited:
+            state['revision'] += 1
+            source.write_text(str(state['revision']))
+        return build.build('yorimichi', echo=messages.append)
+
+    assert run() == 0 and imported == ['world']
+    imported.clear()
+    return state, imported, run, out, messages
+
+
+def test_identical_hidamari_prop_exports_leave_world_current_after_producer_edit(props_build):
+    state, imported, run, out, _ = props_build
+    digest = out / 'digests/world.hidamari_props.import.json'
+    before = digest.read_bytes()
+    assert run() == 0 and state['run'] == 2 and imported == []
+    assert digest.read_bytes() == before  # the FBX time and object IDs changed, its geometry did not
+
+
+@pytest.mark.parametrize('changed', ['geometry', 'png', 'metadata', 'receipt', 'add', 'remove', 'lod'])
+def test_every_consumed_hidamari_prop_export_invalidates_world(props_build, changed):
+    state, imported, run, _, _ = props_build
+    # Change the last entry: an inventory of a representative first prop would miss this.
+    name = 'HD_P_last'
+    if changed == 'geometry':
+        state['vertices'][name] = [0., 1., 3.]
+    elif changed == 'png':
+        state['png'][name] = b'changed texture'
+    elif changed == 'metadata':
+        state['manifest'][name]['gain'] = .12
+    elif changed == 'receipt':
+        state['manifest'][name]['source_sha256'] = 'changed manifest receipt'
+    elif changed == 'lod':
+        state['vertices']['Tree_Caldera_Pine_LOD2'] = [0., 1., 3.]
+    elif changed == 'add':
+        state['manifest']['HD_P_added'] = {'gain': .09, 'boxes': 2}
+    else:
+        del state['manifest'][name]  # stale exports remain on disk but cease to be consumed
+    assert run() == 0 and imported == ['world']
+
+
+def test_hidamari_prop_review_images_do_not_invalidate_world(props_build):
+    state, imported, run, _, _ = props_build
+    state['review'] = b'new review image'
+    assert run() == 0 and imported == []
+
+
+@pytest.mark.parametrize('missing', ['props.json', 'HD_P_last.fbx', 'HD_P_last.png', 'Tree_Caldera_Pine_LOD2.fbx'])
+def test_missing_hidamari_prop_export_fails_even_after_successful_cutoff(props_build, missing):
+    _, imported, run, out, messages = props_build
+    (out / 'hidamari/props' / missing).unlink()
+    assert run(edited=False) == 1 and imported == []
+    assert not (out / 'stamps/world.hidamari_props.import.json').exists()
+    assert any('FAILED' in message for message in messages)
+
+
 def reruns(edited, changed, out):
     """Steps that rerun when `edited` changes: an input is or holds it, or a need reran; a cutoff need only when its
     outputs changed (`changed`: the cutoff steps whose files differ). World exports are taken to write the same files
@@ -117,9 +224,9 @@ def reruns(edited, changed, out):
     return ran
 
 
-# What follows any re-export of the city: the digests, the exports that need world.hidamari, staging and packaging.
+# City projections rerun, but unchanged tile inputs stop there. Tree generator code also imports the edited modules.
 CITY = {'world.hidamari', 'world.hidamari.city', 'world.hidamari.north', 'world.zeppelin', 'world.zeppelin.meshes',
-        'world.terrain', 'world.terrain.meshes', 'world.map', 'world.city_tiles', 'world.city_tiles.meshes',
+        'world.terrain', 'world.terrain.meshes', 'world.map', 'world.hidamari.tiles', 'world.hidamari.trees',
         'world.city_trees', 'world.city_trees.meshes', 'data.stage'} | LATER
 # The regions that also read mountains.py and hidamari/layout.py, and the layout itself (a cutoff step).
 NORTHERN = {'world.layout', 'world.belmonte', 'world.belmonte.meshes', 'world.hippodrome', 'world.hippodrome.meshes'}
@@ -170,3 +277,18 @@ def test_layout_dependents_hash_every_module_their_scripts_import(tmp_path):
             assert not missing, (step.name, missing)
             checked += 1
     assert checked >= 12
+
+
+def test_the_crater_floor_shader_tiles_the_painting_at_its_metres(monkeypatch):
+    """mountain_material.floor_hlsl: the painting at P/(metres*100) cm, about its linear mean, over the ground by the
+    mask; crater_hlsl samples the mask on its texel centres, as the snow mask."""
+    import sys
+    from unittest import mock
+    monkeypatch.setitem(sys.modules, 'unreal', mock.MagicMock())
+    monkeypatch.syspath_prepend(str(RECIPE.SCRIPTS))
+    import mountain_material
+    hlsl = mountain_material.floor_hlsl(8., (92, 84, 80))
+    assert 'cp=P/800.0;' in hlsl and 'CFM=float3(0.10702,0.08866,0.08022)' in hlsl
+    assert hlsl.endswith('ground=lerp(ground,painted,crater);')
+    mask = mountain_material.crater_hlsl({'bounds': [-430., 1120., 0., 0.], 'step_m': 2.5, 'size': [1024, 1024]})
+    assert 'float2(-430.0,1120.0))/2.5+.5)/1024.;' in mask and '(1-Caps)' in mask

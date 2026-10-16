@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Complete unchanged host clock.rs, ordered requests and exact error strings.
 
-Only root builds/executes under atelier.safety. --preflight stages/hash-audits
+Only root builds/executes under atelier.harness.safety. --preflight stages/hash-audits
 without compiling or running either numerical probe.
 """
 import argparse

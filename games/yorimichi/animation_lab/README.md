@@ -16,7 +16,7 @@ From the repository root, with Git, `uv`, Node/npm and Blender on PATH:
 ```sh
 uv sync
 uv run python games/yorimichi/animation_lab/setup.py
-uv run python -m atelier.safety.guarded --no-lock \
+uv run python -m atelier.harness.safety.guarded --no-lock \
   --report build/yorimichi/motion_lab/server-health --timeout 0 \
   --purpose 'shared fox motion lab' -- \
   .venv/bin/python games/yorimichi/animation_lab/server.py
@@ -94,7 +94,7 @@ Generation itself needs neither the playground nor a browser. After installing/e
 
 ```sh
 uv run python games/yorimichi/animation_lab/setup.py --generator kimodo
-uv run python -m atelier.safety.guarded --no-lock \
+uv run python -m atelier.harness.safety.guarded --no-lock \
   --report build/yorimichi/kimodo/headless-health --timeout 1200 \
   --purpose 'local headless Kimodo generation' -- \
   build/yorimichi/kimodo/venv/bin/python games/yorimichi/animation_lab/kimodo_generate.py \

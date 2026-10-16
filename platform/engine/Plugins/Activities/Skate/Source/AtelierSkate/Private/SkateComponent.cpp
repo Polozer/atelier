@@ -354,8 +354,11 @@ void USkateComponent::ReadInput(float Dt)
     I.TriggerLeft = Trigger(EKeys::Q, EKeys::Gamepad_LeftTriggerAxis);
     I.TriggerRight = Trigger(EKeys::E, EKeys::Gamepad_RightTriggerAxis);
     I.bGrabLeft = I.TriggerLeft > 0; I.bGrabRight = I.TriggerRight > 0;
-    // Shift, or the left stick pushed forward (it steers sideways and powerslides back, never forward).
-    I.bTransfer = Down(EKeys::LeftShift) || Down(EKeys::RightShift) || (I.Left.Y > .7f && FMath::Abs(I.Left.X) < I.Left.Y);
+    // The transfer: Shift, the left stick pushed forward (it steers sideways and powerslides back, never forward), or
+    // the left bumper (L1). Held into a lip, the air goes over the coping instead of back into the ramp. Both triggers
+    // stay pump and grab, and R1 the session's handplant.
+    I.bTransfer = atelier::skate_pad::Transfers(Down(EKeys::LeftShift) || Down(EKeys::RightShift), I.Left.X, I.Left.Y,
+        Down(EKeys::Gamepad_LeftShoulder));
     In = I;
 }
 
