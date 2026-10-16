@@ -1118,7 +1118,7 @@ def steps(ctx):
     policy = importlib.util.module_from_spec(policy_spec)
     policy_spec.loader.exec_module(policy)
     result.append(Step('data.content', [Call('archive_retired_content', policy.archive)],
-                       inputs=[GAME / 'content_policy.py'],
+                       inputs=[GAME / 'content_policy.py', WORLD / 'train' / 'earthworks.py'],
                        needs=[s.name for s in result if s.name.startswith('unreal.') and not s.explicit] + ['data.stage'],
                        outputs=[ctx.out / 'runtime-content.json'],
                        verify=lambda: not any(policy.retired(content)),
