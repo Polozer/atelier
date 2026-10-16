@@ -335,7 +335,6 @@ def build_jingasa(m: ProcMesh, origin=(0, 0, 0)):
             p10 = (rt1 * math.cos(a0), rt1 * math.sin(a0), zt1)
             uv_q = rect_uvs(1036 + u0 * 980, 100 + tier * 260, 1036 + u1 * 980, 340 + tier * 260)
             m.quad([p00, p01, p11, p10], uv_q, smooth=True)
-            m.quad([p01, p00, p10, p11], UV_IRON, smooth=True)
     m.xf = old
 
 
@@ -386,7 +385,6 @@ def build_kabuto(m: ProcMesh, origin=(0, 0, 0)):
         p11 = (r_out1 * math.cos(a1), r_out1 * math.sin(a1), -0.008)
         p10 = (r_out * math.cos(a0), r_out * math.sin(a0), -0.008)
         m.quad([p00, p01, p11, p10], UV_CRIMSON, smooth=True)
-        m.quad([p01, p00, p10, p11], UV_BRASS, smooth=True)
     m.box((R_bowl + 0.015, 0, 0.055), (0.022, 0.088, 0.052), UV_BRASS, bevel=0.005)
     m.tube((R_bowl + 0.018, 0, 0.095), (R_bowl + 0.032, 0, 0.095), 0.046, 0.044, UV_CRIMSON, segs=18)
     m.torus((R_bowl + 0.025, 0, 0.095), 0.046, 0.007, UV_BRASS, n_maj=18, n_min=6, axis='X')
@@ -429,7 +427,6 @@ def build_kabuto(m: ProcMesh, origin=(0, 0, 0)):
             p10 = (rt1 * math.cos(a0) - 0.012, rt1 * math.sin(a0), zt1)
             uv_q = rect_uvs(1036 + u0 * 980, 40 + tier * 230, 1036 + u1 * 980, 260 + tier * 230)
             m.quad([p00, p01, p11, p10], uv_q, smooth=True)
-            m.quad([p01, p00, p10, p11], UV_IRON, smooth=True)
     m.xf = old
 
 
@@ -538,7 +535,6 @@ def build_do(m: ProcMesh, origin=(0, 0, 0)):
                 p10 = k_pt(a0, fl1, zv1)
                 uv_q = rect_uvs(1036 + u0 * 980, 120 + kt * 280, 1036 + u1 * 980, 380 + kt * 280)
                 m.quad([p00, p01, p11, p10], uv_q, smooth=True)
-                m.quad([p01, p00, p10, p11], UV_IRON, smooth=True)
     m.xf = old
 
 

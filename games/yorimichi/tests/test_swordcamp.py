@@ -50,23 +50,33 @@ def test_sunburst_textures_and_atlas_exist(tmp_path):
 
 
 def test_combat_hit_registration_and_ronin_camp_wired():
+    import importlib.util
+    import re
+    build_spec = importlib.util.spec_from_file_location('yorimichi_build', GAME / 'build.py')
+    yori_build = importlib.util.module_from_spec(build_spec)
+    build_spec.loader.exec_module(yori_build)
+    policy_spec = importlib.util.spec_from_file_location('yorimichi_content_policy', GAME / 'content_policy.py')
+    policy = importlib.util.module_from_spec(policy_spec)
+    policy_spec.loader.exec_module(policy)
+    assert 'SwordCamp' in policy.ASSET_ROOTS
+
     combat_cpp = (SOURCE / 'AdventureMoveSetCombat.cpp').read_text()
     assert 'else if (Now && bArmed && IsAttack(Name)) BladePoints(PreviousBlade);' in combat_cpp
     assert 'for (const ECollisionChannel Chan : { ECC_Visibility, ECC_Pawn })' in combat_cpp
     assert 'bool UAdventureMoveSet::GetBladePose' in combat_cpp
+    assert 'if (CombatTarget.IsValid()) Face(700.f);' in combat_cpp
     moveset_h = (SOURCE / 'AdventureMoveSet.h').read_text()
     assert 'void SetCombatTarget(AActor* NewTarget)' in moveset_h
+    assert '(!bLocked || CombatTarget.IsValid())' in moveset_h
     trainer_cpp = (SOURCE / 'SwordTrainer.cpp').read_text()
     assert 'void ASwordTrainer::SpawnRoninCamp' in trainer_cpp
     assert 'void ASwordTrainer::AlertCamp' in trainer_cpp
     assert 'whiff_space' in trainer_cpp
-    assert 'SM_GuardJingasa' in trainer_cpp
-    assert 'SM_CaptainKabuto' in trainer_cpp
-    assert 'SM_RoninDo' in trainer_cpp
-    assert 'SM_RoninWakizashi' in trainer_cpp
     assert 'M_RoninBody' in trainer_cpp
     assert 'GetAnimatedWorldQuat' in trainer_cpp
-    assert 'SetCombatTarget' in trainer_cpp
+    assert 'if (bHostileRonin && Moves) Moves->SetCombatTarget(P);' in trainer_cpp
     assert 'PeerRepulse' in trainer_cpp
+    cpp_meshes = set(re.findall(r'/Game/SwordCamp/Assets/(SM_[A-Za-z0-9_]+).', trainer_cpp))
+    assert cpp_meshes == set(yori_build.SWORDCAMP_MESHES)
     gamemode_cpp = (SOURCE / 'JapanGameMode.cpp').read_text()
     assert 'ASwordTrainer::SpawnRoninCamp(W);' in gamemode_cpp

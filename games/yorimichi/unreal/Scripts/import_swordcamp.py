@@ -127,7 +127,12 @@ def build_ronin_body_material(atlas_tex):
 
     tex = MEL.create_material_expression(m, unreal.MaterialExpressionTextureSampleParameter2D, -640, 0)
     tex.set_editor_property('parameter_name', 'BaseTex')
-    tex.set_editor_property('texture', atlas_tex)
+    char_tex_path = '/Game/SwordTrainer/Textures/T_tripo_mat_ee5a1a4b'
+    default_tex = EAL.load_asset(char_tex_path) if EAL.does_asset_exist(char_tex_path) else None
+    if not default_tex:
+        unreal.log_warning(f'M_RoninBody: {char_tex_path} not yet imported; using atlas_tex placeholder until runtime override')
+        default_tex = atlas_tex
+    tex.set_editor_property('texture', default_tex)
 
     tint = MEL.create_material_expression(m, unreal.MaterialExpressionVectorParameter, -640, 260)
     tint.set_editor_property('parameter_name', 'CoatTint')

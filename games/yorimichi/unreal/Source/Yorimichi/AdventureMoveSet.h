@@ -112,7 +112,7 @@ public:
     EAdventureMoveMode GetMode() const { return Mode; }
     FString ModeName() const;
     bool LocksMovement() const;
-    bool CanSprint() const { return Mode == EAdventureMoveMode::Ground && !bLocked && !bGuardHeld && !bCharging; }
+    bool CanSprint() const { return Mode == EAdventureMoveMode::Ground && (!bLocked || CombatTarget.IsValid()) && !bGuardHeld && !bCharging; }
     /** Stamina recovers only standing on the ground (the adventure library's EnergyAutoRecoverInAir is 0). */
     bool HoldsStamina() const { return Mode != EAdventureMoveMode::Ground || bCharging; }
     bool IsArmed() const { return bArmed; }

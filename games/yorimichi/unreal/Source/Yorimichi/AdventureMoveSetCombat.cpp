@@ -299,7 +299,7 @@ void UAdventureMoveSet::AdvanceCombat(float Dt)
             if (!bAttackHeld || Character->Stamina.Exhausted)
             {
                 bCharging = false;
-                if (ChargeTime >= GetParam(TEXT("MinCharge"), .5f)) { Face(700.f); Play(TEXT("ChargeSpin"), .06f); BeginDrive(true); }
+                if (ChargeTime >= GetParam(TEXT("MinCharge"), .5f)) { if (CombatTarget.IsValid()) Face(700.f); Play(TEXT("ChargeSpin"), .06f); BeginDrive(true); }
                 else Stop(.15f);
             }
         }

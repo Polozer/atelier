@@ -244,6 +244,8 @@ void ASwordTrainer::SetupRonin(int32 InRole, const FVector& InCampOrigin, const 
             UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(BodyMat, this);
             if (UTexture* CharTex = LoadObject<UTexture>(nullptr, TEXT("/Game/SwordTrainer/Textures/T_tripo_mat_ee5a1a4b.T_tripo_mat_ee5a1a4b"), nullptr, LOAD_NoWarn | LOAD_Quiet))
                 MID->SetTextureParameterValue(TEXT("BaseTex"), CharTex);
+            else
+                UE_LOG(LogTemp, Warning, TEXT("Kasa Ronin: missing /Game/SwordTrainer/Textures/T_tripo_mat_ee5a1a4b; build unreal.sword_trainer"));
             const FLinearColor CoatTint = RoninRole == 0
                 ? FLinearColor(.14f, .28f, .62f, 1.f)
                 : (RoninRole == 1 ? FLinearColor(.16f, .42f, .24f, 1.f) : FLinearColor(.68f, .10f, .13f, 1.f));
@@ -320,7 +322,7 @@ void ASwordTrainer::UpdateRoninAttachments()
             RefComp = RefComp * RefSkel.GetRefBonePose()[Cur];
         const FQuat CurComp = Body->GetSocketTransform(BoneName, RTS_Component).GetRotation();
         const FQuat AnimDelta = CurComp * RefComp.GetRotation().Inverse();
-        return Body->GetComponentQuat() * Flinch * AnimDelta;
+        return Body->GetComponentQuat() * AnimDelta;
     };
 
     const FQuat HeadRot = GetAnimatedWorldQuat(HeadBone, HeadFlinch);
@@ -681,8 +683,8 @@ void ASwordTrainer::FaceToward(const FVector& Where, float Dt)
     if (To.SizeSquared() < 1.f || !Controller) return;
     const float TargetYaw = float(To.Rotation().Yaw);
     Controller->SetControlRotation(FRotator(0, TargetYaw, 0));
-    // OpenGothic Npc::turnToEnemy: hostile Ronin continuously pivot their body toward the target when not knocked down.
-    if (bHostileRonin && (!Moves || !Moves->IsDown()))
+    // OpenGothic Npc::turnToEnemy: hostile Ronin pivot toward the target when not knocked down or committed to a swing.
+    if (bHostileRonin && (!Moves || (!Moves->IsDown() && !Moves->IsAttacking())))
         SetActorRotation(FRotator(0, FMath::FixedTurn(float(GetActorRotation().Yaw), TargetYaw, 720.f * Dt), 0));
 }
 
@@ -776,7 +778,7 @@ void ASwordTrainer::AdvanceReady(float Dt)
 {
     AWandererCharacter* P = Opponent.Get();
     if (!P) { EndBout(TEXT("")); return; }
-    if (Moves) Moves->SetCombatTarget(P);
+    if (bHostileRonin && Moves) Moves->SetCombatTarget(P);
     FaceToward(P->GetActorLocation(), Dt);
     const float D = FVector::Dist2D(P->GetActorLocation(), GetActorLocation());
     // Sword out, then a step back to a fair distance, guard up.
@@ -874,7 +876,7 @@ void ASwordTrainer::AdvanceFight(float Dt)
     const FTrainerStyle& S = GetStyle();
     const FVector Here = GetActorLocation(), There = P->GetActorLocation();
     const float Distance = FVector::Dist2D(Here, There);
-    if (Moves) Moves->SetCombatTarget(P);
+    if (bHostileRonin && Moves) Moves->SetCombatTarget(P);
     FaceToward(There, Dt);
     Cooldown = FMath::Max(0.f, Cooldown - Dt);
     PressGap = FMath::Max(0.f, PressGap - Dt);
@@ -979,12 +981,18 @@ void ASwordTrainer::AdvanceFight(float Dt)
         const float RoleRadial = Distance > RoleWant + 35.f ? 1.f : (Distance < RoleWant - 45.f ? -.85f : 0.f);
         const FVector ToPlayerDir = (There - Here).GetSafeNormal2D();
         const FVector RightOfView = FVector(-ToPlayerDir.Y, ToPlayerDir.X, 0.f);
-        const float FlankBias = RoninRole == 0 ? 1.f : (RoninRole == 1 ? -1.f : StrafeSign * .65f);
+        const FVector AnchorAxis = (CampOrigin - There).SizeSquared2D() > 25.f
+            ? (CampOrigin - There).GetSafeNormal2D() : FVector(1.f, 0.f, 0.f);
+        const float DesiredSlotRad = FMath::DegreesToRadians(RoninRole == 0 ? -48.f : (RoninRole == 1 ? 48.f : 0.f));
+        const FVector SlotDir = AnchorAxis.RotateAngleAxis(FMath::RadiansToDegrees(DesiredSlotRad), FVector::UpVector);
+        const FVector CurDir = (Here - There).GetSafeNormal2D();
+        const float CrossZ = CurDir.X * SlotDir.Y - CurDir.Y * SlotDir.X;
+        const float FlankBias = FMath::Abs(CrossZ) > .18f ? FMath::Clamp(CrossZ * 2.2f, -1.f, 1.f) : StrafeSign * .28f;
         const float Lateral = FMath::Clamp(FlankBias * .75f + FVector::DotProduct(PeerRepulse, RightOfView) * 1.35f, -1.f, 1.f);
         const float Forward = FMath::Clamp(RoleRadial + FVector::DotProduct(PeerRepulse, ToPlayerDir) * .75f, -1.f, 1.f);
         GuardSwitch -= Dt;
         if (GuardSwitch <= 0.f) { bGuardUp = Dice.FRand() < S.GuardUp; GuardSwitch = Dice.FRandRange(.7f, 1.8f); }
-        Hold(TEXT("guard"), bGuardUp || !bCanTakeTicket || Distance < 340.f);
+        Hold(TEXT("guard"), bGuardUp || (!bCanTakeTicket && Distance < 340.f));
         Drive(FVector2D(Lateral, Forward), Distance > RoleWant + 85.f ? 1 : 0);
         if (bCanTakeTicket && Cooldown <= 0.f && !Moves->IsBusy() && Dice.FRand() < S.Aggression * Dt) Open(Distance);
         return;
@@ -1122,10 +1130,13 @@ bool ASwordTrainer::Press_Attack(float Dt, float Distance)
         if (bHostileRonin)
         {
             Hold(TEXT("guard"), false);
-            if (const AWandererCharacter* P = Opponent.Get())
+            if (!Moves->IsAttacking())
             {
-                const FVector To = (P->GetActorLocation() - GetActorLocation()) * FVector(1, 1, 0);
-                if (To.SizeSquared() > 1.f) SetActorRotation(FRotator(0, To.Rotation().Yaw, 0));
+                if (const AWandererCharacter* P = Opponent.Get())
+                {
+                    const FVector To = (P->GetActorLocation() - GetActorLocation()) * FVector(1, 1, 0);
+                    if (To.SizeSquared() > 1.f) SetActorRotation(FRotator(0, To.Rotation().Yaw, 0));
+                }
             }
         }
         Drive(FVector2D::ZeroVector, 1);
