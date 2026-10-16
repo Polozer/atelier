@@ -526,7 +526,9 @@ def belmonte_steps(out):
                                              null_rhi=True, modules=IMPORT_CODE,
                                              args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
              inputs=[SCRIPTS / 'import_belmonte.py', SCRIPTS / 'atmosphere.py', SCRIPTS / 'ground_grain.py', ASSETS / 'environment/textures/tuscan-ground.jpg'],
-             needs=['world.belmonte.meshes', 'unreal.forest', 'unreal.world', *unreal_modules.needs(IMPORT_CODE)], heavy=True,
+             # Reused plants are runtime references, not reads by this library importer.
+             needs=['world.belmonte.meshes', 'unreal.world', *unreal_modules.needs(IMPORT_CODE)],
+             after=['unreal.forest'], heavy=True,
              outputs=[out / 'belmonte' / 'import-report.json', GAME / 'unreal' / 'Content' / 'Belmonte' / 'Meshes' / 'SM_BM_NorthApron.uasset'],
              about='/Game/Belmonte: environment meshes, collision and painterly surfaces'),
     ]
