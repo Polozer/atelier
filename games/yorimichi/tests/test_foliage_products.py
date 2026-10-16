@@ -46,6 +46,13 @@ def test_props_generator_is_not_a_foliage_input(tmp_path, monkeypatch):
     assert not any('.foliage.' in name for name in changed)
 
 
+def test_package_repair_code_invalidates_native_owners_without_reexporting_geometry(tmp_path, monkeypatch):
+    changed = changed_by(SCRIPTS / 'foliage_package_repair.py', tmp_path, monkeypatch)
+    native = {name for name in changed if name.startswith('unreal.foliage.')}
+    assert len(native) == 18
+    assert changed == native | PACKAGING
+
+
 def test_alpha_texture_is_an_input_only_of_foliage_that_reads_it(tmp_path, monkeypatch):
     texture = tmp_path / 'textures/T_leaf_ginkgo.png'
     texture.parent.mkdir()

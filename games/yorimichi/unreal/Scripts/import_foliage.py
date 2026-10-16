@@ -11,6 +11,7 @@ import yori
 from asset_catalog import FOLIAGE
 from import_foliage_lods import apply_lods
 from mesh_import import import_mesh
+from foliage_package_repair import quarantine_invalid_package
 
 
 def verify_bounds(mesh, authored):
@@ -42,6 +43,17 @@ def main():
     if meshes is None:
         raise RuntimeError('StaticMeshEditor subsystem is unavailable')
     path = '/Game/Japan/Assets/' + name
+    folder = '/Game/Japan/FoliageLODs/' + name
+    expected = {folder + f'/{name}_LOD{i}' for i in range(1, len(data['screen_sizes']))}
+    def require_unloaded():
+        loaded = [package for package in (path, *sorted(expected)) if U.find_package(package) is not None]
+        if loaded:
+            raise RuntimeError('Cannot repair invalid foliage already loaded in this process: ' + ', '.join(loaded))
+    preserved = quarantine_invalid_package(yori.GAME / 'unreal/Content', yori.OUT, name,
+                                          require_unloaded=require_unloaded)
+    if preserved is not None:
+        require_unloaded()
+        U.log('Preserved invalid foliage package before fresh import: ' + str(preserved))
     if editor.does_asset_exist(path):
         previous = editor.load_asset(path)
         if previous is not None:
@@ -70,8 +82,6 @@ def main():
         raise RuntimeError('Missing body setup: ' + name)
     flag = {'complex': U.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE, 'default': U.CollisionTraceFlag.CTF_USE_DEFAULT}
     body.set_editor_property('collision_trace_flag', flag[data['collision']])
-    folder = '/Game/Japan/FoliageLODs/' + name
-    expected = {folder + f'/{name}_LOD{i}' for i in range(1, len(data['screen_sizes']))}
     for asset in editor.list_assets(folder, recursive=True):
         package = asset.split('.')[0]
         if package not in expected and not editor.delete_asset(asset):

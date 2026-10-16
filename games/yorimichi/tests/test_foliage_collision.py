@@ -91,10 +91,11 @@ def owner(monkeypatch, tmp_path):
         load_module=lambda name: None, get_editor_subsystem=lambda kind: meshes, StaticMeshEditorSubsystem=object(),
         CollisionTraceFlag=SimpleNamespace(CTF_USE_COMPLEX_AS_SIMPLE='complex', CTF_USE_DEFAULT='default'), log=logs.append)
     for name, module in {
-        'unreal': unreal, 'yori': SimpleNamespace(OUT=tmp_path),
+        'unreal': unreal, 'yori': SimpleNamespace(OUT=tmp_path, GAME=tmp_path / 'game'),
         'asset_catalog': SimpleNamespace(FOLIAGE=('Tree_Test',)),
         'mesh_import': SimpleNamespace(import_mesh=import_mesh),
         'import_foliage_lods': SimpleNamespace(apply_lods=apply_lods),
+        'foliage_package_repair': SimpleNamespace(quarantine_invalid_package=lambda *args, **kwargs: None),
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
     monkeypatch.setattr(sys, 'path', list(sys.path))
@@ -140,6 +141,28 @@ def test_registered_but_unloadable_package_reaches_fresh_import(owner, monkeypat
     assert ('reset-lods', owner.previous, 1) not in owner.mutations
     assert ('remove', owner.imported) in owner.mutations
     assert owner.report.is_file()
+
+
+def test_invalid_header_preservation_precedes_any_existing_asset_load(owner, monkeypatch):
+    calls = []
+    editor = sys.modules['unreal'].EditorAssetLibrary
+    original = editor.does_asset_exist
+    monkeypatch.setattr(editor, 'does_asset_exist', lambda path: (calls.append('lookup'), original(path))[1])
+    monkeypatch.setitem(owner.run.__globals__, 'quarantine_invalid_package', lambda *args, **kwargs: calls.append('preserve'))
+    owner.run()
+    assert calls[0] == 'preserve' and calls[1] == 'lookup'
+
+
+def test_already_loaded_invalid_owner_refuses_before_quarantine_or_import(owner, monkeypatch):
+    def preserve(*args, require_unloaded):
+        require_unloaded()
+        pytest.fail('Loaded package must refuse before quarantine')
+    monkeypatch.setattr(sys.modules['unreal'], 'find_package', lambda path: object(), raising=False)
+    monkeypatch.setitem(owner.run.__globals__, 'quarantine_invalid_package', preserve)
+    with pytest.raises(RuntimeError, match='already loaded'):
+        owner.run()
+    assert owner.mutations == []
+    assert_uncertified(owner)
 
 
 @pytest.mark.parametrize('registered', [False, True])

@@ -64,6 +64,13 @@ An existing Interchange-imported mesh first passes through its owned FBX seed to
 The final pass then applies the declared metre-to-centimetre settings while preserving the package object and
 path. Bounds are checked before importing LODs and again after assembly; a failed migration stays uncertified.
 
+Missing mesh packages rebuild through their ordinary owner. Before loading a package with an invalid UE file tag,
+the guarded owner preserves and verifies its exact `.uasset` and optional `.uexp`/`.ubulk` bytes under
+`build/yorimichi/logs/foliage-repair/<name>/`, with a receipt, then removes those invalid originals for fresh import.
+An already loaded owner/LOD package, a linked file or a concurrent edit refuses this repair. A valid file tag
+does not prove a valid body: deeper corruption still fails normally. No failure restores old certificates or
+certifies a partial replacement. Fresh imports explicitly retain the legacy lightmap resolution 4 and UV channel 0.
+
 `import_trunk_collision` is an explicit native policy, separate from the FBX's authored UCX geometry and the
 `collision` trace flag. Every current specification disables it: the read-only native baseline measured zero
 primitive and convex shapes for all 18 legacy assets. Seven trees still use complex-as-simple collision.
