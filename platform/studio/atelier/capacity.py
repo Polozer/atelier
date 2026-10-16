@@ -3,6 +3,7 @@
 All quantities are integers: MiB for memory/disk, thousandths of a core for CPU. On this unified-
 memory model, memory_mib includes GPU allocations; gpu_mib is an additional subset ceiling. The caller
 supplies a snapshot; a plan is advice, never a lease or a replacement for the live render lock.
+temp_mib remains readable for old clients/history but never constrains admission.
 """
 from dataclasses import asdict, dataclass, fields
 import json
@@ -28,7 +29,12 @@ class Resources:
         return Resources(**{f.name: getattr(self, f.name) + getattr(other, f.name) for f in fields(self)})
 
     def excess(self, limit):
-        return [f.name for f in fields(self) if getattr(self, f.name) > getattr(limit, f.name)]
+        return [f.name for f in fields(self) if f.name != 'temp_mib'
+                and getattr(self, f.name) > getattr(limit, f.name)]
+
+    def admission(self):
+        """Keep legacy disk estimates out of scheduling and public reserved-resource totals."""
+        return Resources(**(asdict(self) | {'temp_mib': 0}))
 
 
 @dataclass(frozen=True)
@@ -56,8 +62,9 @@ class Request:
 
 def conflicts(request, holders, total, reserve):
     """@cc [owner:fontanierh,label:safety] all-resources-or-none
-    A request MUST fit every resource dimension and named lock simultaneously. A performance
-    request MUST wait for all holders to drain; existing performance holders exclude all requests.
+    A request MUST fit memory, CPU, GPU, configured I/O tokens and named locks simultaneously.
+    Temporary disk estimates MUST NOT constrain admission. A performance request MUST wait for
+    all holders to drain; existing performance holders exclude all requests.
     """
     used = reserve
     locks = set()

@@ -94,6 +94,33 @@ def session(broker, name='leaf', **changes):
     return client.AdmissionSession(broker.socket_path, request, timeout=2.)
 
 
+def test_retry_required_records_remain_durable_but_are_not_active_waiters(broker):
+    dormant, ready = session(broker, 'dormant'), session(broker, 'ready')
+    dormant.offer()
+    assert dormant.close()['released'] is True
+    ready.offer()
+    report = client.status(broker.socket_path)
+    assert report['waiting_count'] == 1 and report['charged_count'] == 0
+    rows = {row['id']: row for row in report['records']}
+    assert rows['dormant']['state'] == 'waiting' and rows['ready']['state'] == 'queued'
+    assert 'retry required' in rows['dormant']['wait_reason']
+    before = rows['dormant']['first_ready']
+    ready.close()
+    assert client.status(broker.socket_path)['waiting_count'] == 0
+    # Retrying preserves the original ready age and re-enters the live queue normally.
+    assert dormant.offer()['first_ready'] == before
+    assert client.status(broker.socket_path)['waiting_count'] == 1
+    dormant.close()
+
+
+def test_memory_pressure_does_not_query_disk_availability(short_path, monkeypatch):
+    import shutil
+    monkeypatch.setattr(shutil, 'disk_usage', lambda *_: pytest.fail('disk used for admission'))
+    observation = wire.pressure(short_path / 'missing-disk-path')
+    assert observation['available_memory_mib'] > 0
+    assert 'available_temp_mib' not in observation
+
+
 def gated_child(admission, *, hold=False):
     fd = admission.gate()
     try:
@@ -186,7 +213,7 @@ def test_simultaneous_full_vector_claims_are_atomic(broker):
         assert not thread.is_alive()
     assert sorted(success for _, success in outcomes) == [False, True]
     observed = client.status(broker.socket_path)
-    assert observed['charged_count'] == 1 and observed['charged_resources'] == asdict(broker.total)
+    assert observed['charged_count'] == 1 and observed['charged_resources'] == asdict(broker.total.admission())
     for index, success in outcomes:
         if success:
             complete(admissions[index], children[index], pins[index])

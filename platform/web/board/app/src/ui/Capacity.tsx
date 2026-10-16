@@ -30,9 +30,9 @@ function Reservation({job, now, fresh}: {job: Job; now: number; fresh: boolean})
       <p>{gib(job.resources.memory_mib)} {job.charged ? 'reserved' : 'requested'} · {cpu(job.resources.cpu_millis)}
         {' · '}{!job.charged ? 'no current process observation' : job.measured_memory_mib == null ? 'memory observation unavailable'
           : `${gib(job.measured_memory_mib)} observed${measured ? '' : ' (stale)'}`}</p>
-      <p className="capacity-meta">{gib(job.resources.temp_mib)} temporary disk
-        {job.resources.io_slots > 0 && <> · {job.resources.io_slots} I/O contention budget slots</>}
-        {' · '}{gib(job.resources.gpu_mib)} GPU {job.charged ? 'reserved' : 'requested'}</p>
+      <p className="capacity-meta">
+        {job.resources.io_slots > 0 && <>{job.resources.io_slots} I/O contention budget slots · </>}
+        {gib(job.resources.gpu_mib)} GPU {job.charged ? 'reserved' : 'requested'}</p>
       {job.locks.length > 0 && <p className="capacity-locks">Locks {job.charged ? 'held' : 'required'}: {job.locks.map((lock, i) => <code key={i}>{lock}</code>)}</p>}
       {job.wait_reason && <p className="capacity-reason">{job.wait_reason}</p>}
       {uncertain && <p className="capacity-reason">Reservation retained while waiting for verified process exits.</p>}
@@ -66,7 +66,7 @@ export function Capacity({status, connected, bridge, serverTime}: {status?: Stat
     : snapshot?.recovering ? 'Capacity bridge recovery' : 'Capacity bridge' : 'Capacity status unavailable';
   const active = snapshot?.records.filter((job) => job.charged || job.state === 'gated') || [];
   const uncertain = active.filter((job) => job.state === 'uncertain');
-  const waiting = snapshot?.records.filter((job) => job.state === 'queued' || job.state === 'waiting') || [];
+  const waiting = snapshot?.records.filter((job) => job.state === 'queued') || [];
   return (
     <section className={`card capacity-card${snapshot && !fresh ? ' capacity-stale' : ''}`} aria-labelledby="capacityHeading">
       <div className="capacity-heading"><h2 className="eyebrow" id="capacityHeading">Admission</h2>
@@ -89,15 +89,15 @@ export function Capacity({status, connected, bridge, serverTime}: {status?: Stat
             ? 'New grants are paused. Compatibility or uncertain reservations outside this visible list still need verification.'
             : 'New grants are paused while broker compatibility is verified.'}</p>}
         <dl className="capacity-budget">
-          {dimensions.filter(({key}) => key !== 'io_slots' || snapshot.total.io_slots !== 0
-            || snapshot.reserve.io_slots !== 0 || snapshot.charged_resources.io_slots !== 0).map(({key, label, format}) => {
+          {dimensions.filter(({key}) => !['io_slots', 'temp_mib'].includes(key) || snapshot.total[key] !== 0
+            || snapshot.reserve[key] !== 0 || snapshot.charged_resources[key] !== 0).map(({key, label, format}) => {
             const remaining = snapshot.total[key] - snapshot.reserve[key] - snapshot.charged_resources[key];
             return <div key={key}><dt>{label}</dt><dd><strong>{format(snapshot.charged_resources[key])}</strong> reserved
               <small>{format(Math.max(0, remaining))} unreserved · {format(snapshot.reserve[key])} held back · {format(snapshot.total[key])} total</small>
               {remaining < 0 && <small className="capacity-warning">Reservations exceed the configured budget</small>}</dd></div>;
           })}
         </dl>
-        <p className="capacity-meta">GPU memory is part of unified memory. CPU is a scheduling budget, not a process limit. Per-job CPU, disk and GPU observations are unavailable.</p>
+        <p className="capacity-meta">GPU memory is part of unified memory. CPU is a scheduling budget, not a process limit. Per-job CPU and GPU observations are unavailable.</p>
         <div className="capacity-section"><h3>{snapshot.charged_count} reservations · {snapshot.waiting_count} waiting</h3>
           {active.map((job) => <Reservation key={job.id} job={job} now={now} fresh={fresh} />)}
           {waiting.length > 0 && <h3>Queue</h3>}

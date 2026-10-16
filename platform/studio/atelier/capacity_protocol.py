@@ -393,9 +393,8 @@ def validate_guards(guards, child, owner, limit_bytes, reserved_mib, *, started=
     return GuardFacts(tuple(roster), footprint)
 
 
-def pressure(disk_pool):
-    """Fresh availability is separate from ownership; no recursive process scan is performed."""
-    import shutil
+def pressure(_disk_pool):
+    """Fresh memory availability is separate from ownership. Disk is not an admission input."""
     memory = None
     try:
         if sys.platform == 'darwin':
@@ -406,8 +405,7 @@ def pressure(disk_pool):
             for line in Path('/proc/meminfo').read_text().splitlines():
                 if line.startswith('MemAvailable:'):
                     memory = int(line.split()[1]) * 1024
-        disk = shutil.disk_usage(disk_pool).free
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
-    return {'observed_monotonic': time.monotonic(), 'available_memory_mib': memory // 1024**2,
-            'available_temp_mib': disk // 1024**2} if memory is not None else None
+    return {'observed_monotonic': time.monotonic(),
+            'available_memory_mib': memory // 1024**2} if memory is not None else None

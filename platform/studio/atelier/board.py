@@ -35,9 +35,9 @@ def notification(batch):
         lines.append(f"#{item['id']} {item['sender']} -> {item['recipient']} ({audience_text(item)}{thread}) "
                      f"[{item['topic']}]: {item['body'][:600]}")
     lines.append('Full text and threads: atelier board read. Ack actionable requests: board post --topic ack '
-                 '--reply-to ID. Heavy work: check render-board.md and live locks; keep first-ready age; never signal '
-                 'other owners or bypass safety. Truly blocked on the operator? board operator-task open; dismiss when '
-                 'unblocked.')
+                 '--reply-to ID. Heavy work: check render-board.md and live broker/guards '
+                 '(legacy locks only in legacy mode); use normal build/play. Keep first-ready age; never signal '
+                 'other owners or bypass safety. Blocked on the operator? board operator-task open; dismiss when unblocked.')
     return '\n'.join(lines)
 
 

@@ -87,13 +87,13 @@ def test_machine_profile_selects_real_broker_automatically(tmp_path, broker, mon
     assert any(record['state'] == 'released' for record in report['records'])
 
 
-@pytest.mark.parametrize('pressure', ['missing', 'stale', 'memory', 'disk'])
+@pytest.mark.parametrize('pressure', ['missing', 'stale', 'memory'])
 def test_pressure_refusal_never_releases_useful_work(tmp_path, broker, pressure):
     observation = dict(observed_monotonic=time.monotonic(), available_memory_mib=4096, available_temp_mib=8192)
     if pressure == 'stale':
         observation['observed_monotonic'] -= 10
-    if pressure in ('memory', 'disk'):
-        observation['available_memory_mib' if pressure == 'memory' else 'available_temp_mib'] = 0
+    if pressure == 'memory':
+        observation['available_memory_mib'] = 0
     broker.observe = lambda: None if pressure == 'missing' else observation
     request = dict(id='pressure', resources=asdict(Resources(256, 1000, 16, 1)), locks=[], seconds=10)
     marker = tmp_path / 'executed'
@@ -102,6 +102,22 @@ def test_pressure_refusal_never_releases_useful_work(tmp_path, broker, pressure)
                     admission=AdmissionSession(broker.socket_path, request), limit_gib=.25, timeout=10)
     assert not marker.exists()
     assert status(broker.socket_path)['charged_count'] == 0
+
+
+@pytest.mark.parametrize('disk', [0, None])
+def test_disk_availability_does_not_block_an_ordinary_guarded_child(tmp_path, broker, disk):
+    observation = dict(observed_monotonic=time.monotonic(), available_memory_mib=4096)
+    if disk is not None:
+        observation['available_temp_mib'] = disk
+    broker.observe = lambda: observation
+    request = dict(id='disk', resources=asdict(Resources(256, 1000, 999999)), locks=[], seconds=10)
+    marker = tmp_path / 'executed'
+    assert guarded.run([sys.executable, '-c', f'open({str(marker)!r},"w").write("ran")'], tmp_path / 'guard',
+                       admission=AdmissionSession(broker.socket_path, request), limit_gib=.25, timeout=10) == 0
+    assert marker.read_text() == 'ran'
+    report = status(broker.socket_path)
+    assert report['charged_count'] == 0
+    assert all(report[key]['temp_mib'] == 0 for key in ('total', 'reserve', 'charged_resources'))
 
 
 @pytest.mark.parametrize('invalid', ['process-pin', 'guard-limit', 'stale-process', 'stale-tree', 'malformed'])

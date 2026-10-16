@@ -9,6 +9,7 @@ RESERVE = Resources(memory_mib=4000, cpu_millis=1000, temp_mib=10000)
 
 def test_each_dimension_can_independently_refuse_admission():
     for name, value in vars(TOTAL).items():
+        if name == 'temp_mib': continue  # Legacy estimates are not admission budgets.
         amounts = {name: value + 1}
         if name == 'gpu_mib': amounts['memory_mib'] = value + 1
         request = Request('job', Resources(**amounts))
@@ -75,7 +76,7 @@ def test_unified_gpu_memory_cannot_escape_the_system_memory_budget():
         Request('gpu', Resources(memory_mib=21000, gpu_mib=1000)), [], TOTAL, RESERVE)
 
 
-@pytest.mark.parametrize('dimension', list(vars(TOTAL)))
+@pytest.mark.parametrize('dimension', [key for key in vars(TOTAL) if key != 'temp_mib'])
 def test_ready_request_that_cannot_fit_an_empty_snapshot_names_each_exceeded_dimension(dimension):
     amount = getattr(TOTAL, dimension) - getattr(RESERVE, dimension) + 1
     resources = {dimension: amount}
@@ -146,3 +147,12 @@ def test_future_impossible_request_keeps_not_ready_behavior():
     result = plan(TOTAL, RESERVE, [], [future, fitting], now=1)['decisions']
     assert result[0]['recommendation'] == 'wait' and result[0]['reasons'] == ['not ready']
     assert result[1]['recommendation'] == 'would-admit'
+
+
+def test_legacy_disk_estimates_never_refuse_or_protect_the_queue():
+    holder = Request('holder', Resources(temp_mib=999999))
+    request = Request('request', Resources(memory_mib=1000, temp_mib=999999), bypasses=2)
+    assert conflicts(request, [holder], TOTAL, RESERVE) == []
+    decision, = plan(TOTAL, RESERVE, [holder], [request], now=0)['decisions']
+    assert decision['recommendation'] == 'would-admit' and decision['reasons'] == []
+    assert replace('holder', Request('holder', Resources(temp_mib=9999999)), [holder], TOTAL, RESERVE) == []
