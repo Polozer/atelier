@@ -29,7 +29,8 @@ MESH_YAW = -90.   # glTF faces -Y in Blender (+Z in glTF), which Interchange tur
 CONTACTS = ('saddle_root', 'seat_z', 'scale_ratio', 'stirrup_L', 'stirrup_R', 'grip_L', 'grip_R')
 MASTERS = ('coat', 'hair', 'tack', 'tack_masked')
 FLOAT, VEC3, VEC4, MAT4 = 5126, 3, 4, 16
-TURN_CLIPS = ('TurnLeft', 'TurnRight')
+TURN_CLIPS = ('TurnLeft', 'TurnRight', 'Jump')
+GENERATED_CLIPS = {'TurnLeft': {'loop': True}, 'TurnRight': {'loop': True}, 'Jump': {'loop': False}}
 
 
 def _floats(binary, doc, index, width):

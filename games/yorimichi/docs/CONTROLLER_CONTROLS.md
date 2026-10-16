@@ -41,7 +41,7 @@ On the bike (see [BIKE.md](BIKE.md)) the left stick pedals, brakes and steers, a
 is a skid stop, Attack rings the bell and Wave waves.
 On the horse (see [HORSE.md](HORSE.md)) the bike's controls ride: the right trigger (W) rides on, the left trigger (S)
 reins in and the left stick (A / D) steers. Alt and J hold it to a walk and a trot, and a press of Sprint sprints until
-pressed again or the horse comes to a halt. Attack, Guard, Jump, Crouch, Wave and Interact do nothing in the saddle.
+pressed again or the horse comes to a halt. Jump leaps over obstacles; Attack, Guard, Crouch, Wave and Interact do nothing in the saddle.
 The look buttons (Dash, D-pad Up, Right and Left) act on the horse only while mounted, since on foot they are the
 dash, the sailboat, the skateboard and the sword; the keyboard's N, U, I and O work on foot too. Beside a docked
 zeppelin and aboard one RB chooses the stop or the flight speed, so its hold leaves the horse alone there.

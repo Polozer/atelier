@@ -361,7 +361,7 @@ def import_breed(slug, breed, masters):
 
     imported_anims = found.get('AnimSequence', [])
     clips = {}
-    for clip_name, clip in {**LIBRARY['clips'], **{n: {'loop': True} for n in horse_data.TURN_CLIPS}}.items():
+    for clip_name, clip in {**LIBRARY['clips'], **horse_data.GENERATED_CLIPS}.items():
         apath = match_clip(imported_anims, clip_name)
         assert apath, (bname, 'missing horse clip', clip_name, imported_anims)
         seq = E.load_asset(rename(apath, f'A_Horse_{bname}_{clip_name}'))

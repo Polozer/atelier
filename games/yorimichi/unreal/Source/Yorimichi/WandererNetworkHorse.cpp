@@ -59,6 +59,11 @@ void AWandererCharacter::ServerRequestHorse_Implementation(uint32 Epoch)
     { ClientActivityRejected(TEXT("Finish the current action before riding the horse.")); return; }
     // Mounts standing on the ground, not crouching; dismounts once stopped, on the ground (UHorseComponent::Toggle).
     if (!Horse->Toggle()) { ClientActivityRejected(Horse->GetStatus()); return; }
+    if (!Riding)
+    {
+        NetworkHorseAppearance = Horse->GetAppearance();
+        NetworkHorseAppearance.bChosen = true;
+    }
     if (Moves) Moves->Reset();
     SetAction(NAME_None); JumpBuffer = 0.f; bPendingTakeoff = false; StopJumping();
     BeginNetworkActivity(EJapanActivity::Horse, GetCharacterMovement()->IsFalling());

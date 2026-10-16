@@ -256,8 +256,8 @@ void AJapanHUD::DrawHUD()
     {
         const float Kmh=Horse->GetSpeed()*.036f;
         Controls=bController
-            ? FString::Printf(TEXT("%s ride   %s rein in   Left stick steer   %s sprint (on / off)   %s random horse   D-pad Up breed   D-pad Right tack   D-pad Left coat   Hold %s get off (when stopped)      %s   %.0f km/h"),Pad.Attack,Pad.Parry,Pad.Sprint,Pad.Dash,Pad.RightBumper,*Horse->GetStatus(),Kmh)
-            : FString::Printf(TEXT("W ride   S rein in   A / D steer   Alt walk   J trot   Shift sprint (on / off)   N random horse   U breed   I tack   O coat   H get off (when stopped)      %s   %.0f km/h"),*Horse->GetStatus(),Kmh);
+            ? FString::Printf(TEXT("%s ride   %s rein in   Left stick steer   %s sprint (on / off)   %s jump   %s random horse   D-pad Up breed   D-pad Right tack   D-pad Left coat   Hold %s get off (when stopped)      %s   %.0f km/h"),Pad.Attack,Pad.Parry,Pad.Sprint,Pad.Jump,Pad.Dash,Pad.RightBumper,*Horse->GetStatus(),Kmh)
+            : FString::Printf(TEXT("W ride   S rein in   A / D steer   Alt walk   J trot   Shift sprint (on / off)   Space jump   N random horse   U breed   I tack   O coat   H get off (when stopped)      %s   %.0f km/h"),*Horse->GetStatus(),Kmh);
         Secondary=bController?FString::Printf(TEXT("Right stick look   %s map (hold: places)   %s settings"),Pad.Map,Pad.Menu):TEXT("Mouse look   M map & travel   Esc settings");
     }
     else if (!bRide && !bSailboat && !Pawn->IsZeppelinPassenger())
