@@ -54,7 +54,10 @@ Environment values are hashed, not written into the journal. The original launch
 hash of the full, unmodified environment. Recovery compares every build/tool variable, including unknown
 keys; a refusal names changed keys without their values. Only this explicit session-bookkeeping set may
 change: `TERM_SESSION_ID`, `TERM_PROGRAM_SESSION_ID`, `ITERM_SESSION_ID`, `SSH_AUTH_SOCK`, `SHLVL`,
-`OLDPWD`, `PWD`, `_`, `ATELIER_AGENT`, `CODEX_THREAD_ID` and `CLAUDE_SESSION_ID`. The actual working
+`OLDPWD`, `PWD`, `_`, `ATELIER_AGENT`, `CODEX_THREAD_ID`, `CODEX_SESSION_ID`, `CODEX_TOOL_CALL_ID`,
+`CLAUDE_SESSION_ID`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_PID`, `CLAUDE_CODE_MESSAGING_SOCKET`,
+`CLAUDE_CODE_MESSAGING_TOKEN`, `CLAUDE_CODE_WORKER_EPOCH`, `CLAUDE_CODE_CHILD_SESSION`,
+`CLAUDE_CODE_SESSION_ATTENDED` and `CLAUDECODE`. The actual working
 directory is separately pinned, so start recovery from the same checkout directory, including in a new
 terminal or agent session. No environment prefix or unknown variable is silently ignored.
 Source changes, changed prerequisites, inputs, tools, SDK selection or consumed environment refuse recovery.
