@@ -26,7 +26,9 @@ does not acquire these restrictions. Refusals name environment keys without disc
 An existing absolute `.sdk` directory selected through `SDKROOT` is supported: its exact environment
 value, resolved selection and complete SDK bytes join the input proof. A redirected SDK link or changed
 SDK content refuses recovery. Empty, relative or missing SDK selectors refuse before removing an archive;
-recording never silently unsets `SDKROOT` or substitutes another SDK.
+recording never silently unsets `SDKROOT` or substitutes another SDK. Selector links, including ancestor
+and chained links, retain their link text and full filesystem identity even when the resolved SDK is
+already covered by another inventoried tree.
 The opted-in launcher first runs a small Python capture adapter inside the normal charged admission and
 both memory guards, then `exec`s the original UAT command in that same PID. Normal guard polling, capacity
 heartbeats and the original timeout stay active during capture. There is no second lock or ungated UAT.
@@ -49,7 +51,11 @@ hash-index validation still check the full change-time, so permission changes du
 and changed bytes are rehashed. No other tool, input or archive receives this exception. Archive
 certification still hashes the actual app bytes twice. Each input inventory has a 45-minute bound and emits
 progress; first review progress after 10 minutes and inspect any stall rather than silently waiting.
-Each inventory is limited to 500,000 entries. Post-UAT and recovery certification remain bounded single-thread
+Each inventory is limited to 500,000 entries. Fully covered roots are walked once, using actual directory
+device/inode ancestry (including case aliases), while all original root declarations stay in the snapshot.
+Owned link targets covered by another complete root retain their link identity and use that root's byte
+inventory. Missing paths, unsupported links and changed membership still refuse.
+Post-UAT and recovery certification remain bounded single-thread
 Python file work, as before; coordinate their disk/CPU activity around an owner's quiet benchmark window.
 They do not acquire an exclusive native reservation just for hashing. Actual package assembly retains its
 separate normal guarded admission. The conservative native-input selection still needs an admitted native

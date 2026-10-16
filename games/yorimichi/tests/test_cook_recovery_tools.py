@@ -125,6 +125,23 @@ def test_explicit_sdkroot_is_selected_and_its_complete_bytes_are_inputs(selectio
     assert selection.cook.recovery_inputs(selection.ctx).selection['environment_sdkroot'] != result.selection['environment_sdkroot']
 
 
+def test_sdkroot_retains_ancestor_and_chained_link_identity_even_for_same_resolved_sdk(selection, monkeypatch):
+    sdk = selection.ctx.out / 'SDKs/Version.sdk'; sdk.mkdir(parents=True)
+    link = sdk.parent / 'Current.sdk'; link.symlink_to(sdk.name)
+    indirect = sdk.parent / 'Indirect.sdk'; indirect.symlink_to(link.name)
+    alias = selection.ctx.out / 'SDK-alias'; alias.symlink_to(sdk.parent)
+    monkeypatch.setenv('SDKROOT',str(alias/indirect.name))
+    before = selection.cook.recovery_inputs(selection.ctx)
+    links = before.selection['environment_sdkroot_links']
+    assert links[str(alias)]['link'] == str(sdk.parent)
+    assert links[str(alias/indirect.name)]['link'] == link.name
+    assert links[str(alias/link.name)]['link'] == sdk.name
+    link.unlink(); link.symlink_to(sdk.name)
+    after = selection.cook.recovery_inputs(selection.ctx)
+    assert after.selection['environment_sdkroot'] == before.selection['environment_sdkroot']
+    assert after.selection['environment_sdkroot_links'] != links
+
+
 def test_nonrecording_prepare_uses_no_new_policy_or_tool_discovery(selection, monkeypatch):
     cook, ctx = selection.cook, selection.ctx
     ctx.record_cook_recovery = False

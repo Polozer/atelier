@@ -115,6 +115,7 @@ def recovery_inputs(ctx):
     selection = recovery_tool_selection()
     sdkroot = recovery_sdkroot()
     selection['environment_sdkroot'] = str(sdkroot) if sdkroot is not None else None
+    selection['environment_sdkroot_links'] = recovery_sdkroot_links()
     developer = Path(selection['developer'])
     toolchains = list(map(Path, selection['toolchains']))
     sdks = [Path(sdk['path']) for sdk in selection['sdks'].values()]
@@ -166,6 +167,34 @@ def recovery_sdkroot():
     if selected.suffix != '.sdk':
         raise RuntimeError('Cook recovery needs SDKROOT to select an existing absolute .sdk directory')
     return selected
+
+
+def recovery_sdkroot_links():
+    """Retain every link in the selected path/target chain, even when its SDK tree is covered."""
+    from pathlib import Path
+    import stat
+    value = os.environ.get('SDKROOT')
+    if value is None:
+        return {}
+    pending, seen, links = [Path(value)], set(), {}
+    token = lambda info: [info.st_dev,info.st_ino,info.st_mode,info.st_size,info.st_mtime_ns,info.st_ctime_ns]
+    while pending:
+        path = pending.pop()
+        for part in [*reversed(path.parents),path]:
+            if part in seen:
+                continue
+            seen.add(part)
+            info = part.lstat()
+            if not stat.S_ISLNK(info.st_mode):
+                continue
+            if len(links) >= 64:
+                raise RuntimeError('Cook recovery SDKROOT selector exceeds 64 links')
+            target = os.readlink(part)
+            if token(info) != token(part.lstat()):
+                raise RuntimeError('Cook recovery SDKROOT link changed during discovery')
+            links[str(part)] = dict(identity=token(info),link=target)
+            pending.append(Path(os.path.normpath(target if os.path.isabs(target) else part.parent / target)))
+    return links
 
 
 def recovery_default_policy(ctx):

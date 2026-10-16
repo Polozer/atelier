@@ -41,6 +41,64 @@ def test_invalid_native_input_types_refuse_explicitly(sample, native):
         recovery.snapshot(sample.ctx,sample.step,['UAT'],sample.ctx.env())
 
 
+def test_inventory_collapses_nested_roots_without_losing_membership_or_hashes(tmp_path):
+    root = tmp_path / 'root'; child = root / 'sdk'; child.mkdir(parents=True)
+    leaf = child / 'header'; leaf.write_bytes(b'input')
+    absent = child / 'missing'
+    calls = []
+    def digest(path):
+        calls.append(path)
+        return recovery.hashlib.sha256(path.read_bytes()).hexdigest()
+    before = recovery.inventory([leaf, child, root, root, absent],hashes=True,hasher=digest)
+    assert calls == [leaf]
+    assert len(before) == 3 and before == recovery.inventory([root],hashes=True)
+    absent.write_bytes(b'new input')
+    assert recovery.inventory([leaf,child,root,absent],hashes=True) != before
+    leaf.write_bytes(b'changed')
+    assert recovery.inventory([root],hashes=True)['0/sdk/header']['sha256'] != before['0/sdk/header']['sha256']
+
+
+def test_inventory_keeps_absent_roots_and_does_not_hide_symlink_roots(tmp_path):
+    missing = tmp_path / 'missing'
+    assert recovery.inventory([missing],hashes=False) == {str(missing):{'absent':True}}
+    root = tmp_path / 'root'; root.mkdir()
+    alias = root / 'alias'; alias.symlink_to(missing)
+    with pytest.raises(RuntimeError,match='root is a symlink'):
+        recovery.inventory([root,alias],hashes=False)
+
+
+def test_owned_link_target_already_covered_by_another_root_is_hashed_once(tmp_path):
+    root = tmp_path / 'input'; root.mkdir()
+    owner = tmp_path / 'owner'; owner.mkdir()
+    file = owner / 'tool'; file.write_bytes(b'compiler')
+    (root / 'tool').symlink_to(file)
+    calls = []
+    def digest(path):
+        calls.append(path)
+        return recovery.hashlib.sha256(path.read_bytes()).hexdigest()
+    result = recovery.inventory([root,owner,file],hashes=True,hasher=digest,link_owners=[owner])
+    assert calls == [file]
+    assert result['0/tool']['resolved_owned_target'] == str(file)
+    file.write_bytes(b'changed tool')
+    assert recovery.inventory([root,owner,file],hashes=True,link_owners=[owner]) != result
+    with pytest.raises(RuntimeError,match='external/absolute symlink'):
+        recovery.inventory([root,owner,file],hashes=True)
+
+
+def test_inventory_uses_real_directory_identity_for_case_aliases_or_distinct_roots(tmp_path):
+    root = tmp_path / 'CaseRoot'; root.mkdir()
+    file = root / 'header'; file.write_bytes(b'first')
+    alias = tmp_path / 'caseroot'
+    if alias.exists():
+        assert os.path.samefile(root,alias)
+        assert recovery.inventory([root,alias,alias/'header'],hashes=True) == recovery.inventory([root],hashes=True)
+    else:
+        alias.mkdir(); (alias/'header').write_bytes(b'second')
+        result = recovery.inventory([root,alias],hashes=True)
+        assert len([v for v in result.values() if 'sha256' in v]) == 2
+        assert result['0/header']['sha256'] != result['1/header']['sha256']
+
+
 @pytest.fixture
 def sample(tmp_path, monkeypatch):
     cook = tool('package_cook')

@@ -90,11 +90,45 @@ def write(path, value):
     sync_directory(path.parent)
 
 
+def directory_identity(path):
+    try:
+        info = path.stat()
+        return (info.st_dev, info.st_ino) if stat.S_ISDIR(info.st_mode) else None
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+
+
+def covered_path(path, directories):
+    return any(directory_identity(parent) in directories for parent in path.parents)
+
+
+def inventory_roots(roots):
+    """Collapse only actual directory ancestry; inode comparisons also handle APFS case aliases."""
+    normalized = []
+    for original in roots:
+        root = Path(original)
+        require(not root.is_symlink(), 'input/archive root is a symlink')
+        normalized.append(root.parent.resolve() / root.name)
+    directories = {token for root in normalized if (token := directory_identity(root)) is not None}
+    # A complete directory inventory already observes all descendant roots, including absent
+    # leaves. Keep their declarations in snapshot.roots, but walk and charge each leaf only once.
+    queue, seen = [], set()
+    for root in dict.fromkeys(normalized):
+        token = directory_identity(root)
+        if covered_path(root, directories) or (token is not None and token in seen):
+            continue
+        queue.append(root)
+        if token is not None:
+            seen.add(token)
+    return queue, seen
+
+
 def inventory(roots, *, hashes, hasher=None, link_owners=(), repeat_chmod_files=()):
     """Complete membership, including absent roots and internal relative links; reject escaped reads."""
     result, observed = {}, []
     spoken = started = time.monotonic()
-    queue, included = list(roots), set()
+    queue, covered_directories = inventory_roots(roots)
+    included = set(queue)
     owners = [Path(owner).resolve(strict=True) for owner in link_owners]
     chmod_files = {Path(path).resolve(strict=True) for path in repeat_chmod_files}
     require(not chmod_files or hashes, 'repeat-chmod inputs require actual content hashes')
@@ -126,9 +160,12 @@ def inventory(roots, *, hashes, hasher=None, link_owners=(), repeat_chmod_files=
                 entry['link'] = link
                 if not inside:
                     entry['resolved_owned_target'] = str(target)
-                    if target not in included:
+                    if target not in included and not covered_path(target, covered_directories):
                         included.add(target)
                         queue.append(target)
+                        token = directory_identity(target)
+                        if token is not None:
+                            covered_directories.add(token)
             elif stat.S_ISDIR(info.st_mode):
                 pending.extend(reversed(sorted(path.iterdir())))
             elif stat.S_ISREG(info.st_mode):
