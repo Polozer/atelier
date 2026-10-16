@@ -292,8 +292,11 @@ class CapacityBroker:
             try:
                 proof = self._compatibility_proof()
                 self.compatible = proof['activation_id'] == self.activation_id
-            except (OSError, ValueError, wire.CapacityError):
+            except (OSError, ValueError, wire.CapacityError) as error:
                 self.compatible = False
+                print('capacity compatibility failure: ' + json.dumps(dict(
+                    phase='compatibility', error_type=type(error).__name__,
+                    errno=error.errno if isinstance(error, OSError) else None)), file=sys.stderr, flush=True)
         for record in state['records'].values():
             if not self.compatible and record['state'] in HELD and record['state'] != 'uncertain':
                 record['state'] = 'uncertain'
@@ -873,6 +876,9 @@ class CapacityBroker:
                             if fd is not None:
                                 os.close(fd)
                     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, wire.CapacityError) as error:
+                        print('capacity operation refused: ' + json.dumps(dict(
+                            error_type=type(error).__name__,
+                            errno=error.errno if isinstance(error, OSError) else None)), file=sys.stderr, flush=True)
                         try:
                             channel.settimeout(.1)
                             wire.send(channel, {'ok': False, 'namespace': wire.NAMESPACE,
