@@ -15,6 +15,30 @@ from belmonte import layout as L, source, planting, terrain, appearance
 OUT = yori.OUT / 'belmonte'
 
 
+def clear_railway(plants):
+    """Clear the Belmonte railway's corridor (train/corridor.py settle): trees off it, shrubs and grass down to the
+    line's soft edge, set on the carved ground; {name: removed}."""
+    from train import corridor
+    line = corridor.load()
+    removed = {}
+    if line is None:
+        return removed
+    for name, transforms in plants.items():
+        if not transforms:
+            continue
+        t = np.asarray([tr['translation_cm'] for tr in transforms], float)
+        x, y = t[:, 0] / 100 + L.ORIGIN[0], -t[:, 1] / 100 + L.ORIGIN[1]
+        keep, z = corridor.settle(name, x, y, t[:, 2] / 100 + L.ORIGIN[2], line)
+        moved = np.abs(z - (t[:, 2] / 100 + L.ORIGIN[2])) > .005
+        for tr, zz, m in zip(transforms, z, moved):
+            if m:
+                tr['translation_cm'] = [tr['translation_cm'][0], tr['translation_cm'][1], round((zz - L.ORIGIN[2]) * 100, 1)]
+        if (~keep).any():
+            removed[name] = int((~keep).sum())
+            plants[name] = [tr for tr, k in zip(transforms, keep) if k]
+    return removed
+
+
 def finish_surfaces(data):
     """Current scenery and a Tuscan ground palette with neutral texture grain."""
     materials, images = {}, {}
@@ -61,9 +85,22 @@ def finish_surfaces(data):
 
 
 def surroundings():
+    from hidamari import mountains
+    from train import earthworks
     collar, seam = terrain.collar()
     entries = []
-    for name, mesh in [('SM_BM_NorthApron', collar), ('SM_BM_NorthCountry', terrain.country())]:
+    (OUT / 'natural').mkdir(exist_ok=True)
+    parts = [('SM_BM_NorthApron', collar, 2.5), ('SM_BM_NorthCountry', terrain.country(), 4.)]
+    for name, mesh, step in parts:
+        # The natural ground stays beside the built one: the route study samples it, never the railway's own cuttings.
+        mesh.save(OUT / 'natural' / (name + '.glb'), 'BM_000_Ground')
+        # The valley's committed terrain is not carved: the apron's carving eases out towards their seam (the bank
+        # mesh, train/track.py, covers the line there) so the rim stays closed.
+        earthworks.quads(mesh, L.ORIGIN, step, hidden=lambda x, y: mountains.contains(x, y) & (y < L.SOUTH_JOIN),
+                         weight=lambda x, y: earthworks.seam_weight(x, y, L.BOUNDS))
+    # Apron and country are refined at different steps: their outer seam shares every vertex where the line crosses.
+    earthworks.stitch([collar, parts[1][1]], L.ORIGIN, [(0, terrain.OUTER[0]), (0, terrain.OUTER[2]), (1, terrain.OUTER[3])])
+    for name, mesh, _ in parts:
         path = OUT / 'glb' / (name + '.glb')
         info = mesh.save(path, 'BM_000_Ground')
         appearance.paint_join(path, mesh)
@@ -129,6 +166,7 @@ def main():
         plants.setdefault(name, []).extend(transforms)
     plant_report['connecting_woodland'] = sum(len(v) for v in woods.values())
     plant_report['tree_detail'] = 'Original detailed leaf geometry; no backdrop or _lo assets'
+    plant_report['railway_corridor_removed'] = clear_railway(plants)
     for name, transforms in plants.items():
         tree = name.startswith(('Tree_', 'HD_'))
         grass = name.startswith('Grass_')

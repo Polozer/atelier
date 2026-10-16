@@ -13,6 +13,7 @@
 #include "FoxHunter.h"
 #include "SwordTrainer.h"
 #include "LiveLibrary.h"
+#include "BelmonteTrainService.h"
 #include "YorimichiLive.h"
 #include "EngineUtils.h"
 #include "Engine/Canvas.h"
@@ -222,6 +223,10 @@ void AJapanHUD::DrawHUD()
         // The flight speed buttons choose the stop before boarding.
         if(Zeppelin->CanChooseStop(Pawn))
             Controls+=FString::Printf(TEXT("   %s change stop"),!bController?TEXT("[ / ]"):ControllerStyle==2?TEXT("L1 / R1"):ControllerStyle==3?TEXT("L / R"):TEXT("LB / RB"));
+    }
+    {
+        const FString TrainHint=ABelmonteTrainService::Hint(Pawn);
+        if(!TrainHint.IsEmpty())Controls=TrainHint.Replace(TEXT("Use"),bController?TEXT("D-pad Down"):TEXT("E"));
     }
     const USkateComponent* Ride=Pawn->GetSkate();
     const bool bRide=Ride && Ride->IsRiding();

@@ -1,0 +1,141 @@
+"""The Belmonte train's consist: which vehicles, in which order, and where each sits once coupled (plain Python).
+
+The head of the train (the locomotive's front buffers) is at the most positive x; every vehicle's own frame keeps
+x along the train, so its origin is simply shifted along X. Two coupled vehicles touch buffer to buffer: the distance
+between their origins is the sum of their half-lengths over buffers. Vehicles not built yet are listed as `planned`
+with their target length so the train's order and total length are already right.
+
+`assembly()` writes build/yorimichi/belmonte-train/assembly/: consist.json (engine-agnostic: vehicles, offsets,
+placements, doors, seats, collision boxes, fitted furniture) and copies of the GLBs it names, next to the viewer
+page (viewer.html) that the Claude artifact publishes. Unreal reads the same consist.json and GLBs later.
+"""
+import json
+import shutil
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import yori  # noqa: E402,F401
+
+from train import layout as L  # noqa: E402
+
+OUT = yori.OUT / 'belmonte-train'
+ASSEMBLY = OUT / 'assembly'
+VIEWER = Path(__file__).with_name('viewer.html')
+
+# front to back; length over buffers in metres
+VEHICLES = [
+    dict(id='locomotive', title='Locomotive 4-6-2', length=L.LOCO_LENGTH, status='built', concept='locomotive/locomotive-tender--locomotive-profile.png'),
+    dict(id='tender', title='Tender', length=L.TENDER_LENGTH, status='built', concept='locomotive/locomotive-tender--tender-profile-v2.png'),
+    dict(id='baggage-van', title='Fourgon à bagages', length=L.LENGTH_OVER_BUFFERS, status='built'),
+    dict(id='restaurant', title='Voiture restaurant', length=L.LENGTH_OVER_BUFFERS, status='built'),
+    dict(id='first-class', title='Première classe', length=L.LENGTH_OVER_BUFFERS, status='built'),
+    dict(id='second-class', title='Deuxième classe et cantine', length=L.LENGTH_OVER_BUFFERS, status='built'),
+    dict(id='brake-van', title='Fourgon-frein de queue', length=L.BRAKE_LENGTH, status='built'),
+]
+
+
+def web_copy(glb, out_dir):
+    """Copy a GLB next to the viewer, plus a glTF-JSON twin with its buffer embedded as base64 (`<name>.gltf.json`):
+    artifacts serve .json but not .glb, and three.js reads both."""
+    import base64
+    import struct
+    data = glb.read_bytes()
+    shutil.copy2(glb, out_dir / glb.name)
+    length = struct.unpack_from('<I', data, 8)[0]
+    pos, doc, binary = 12, None, b''
+    while pos < length:
+        size, kind = struct.unpack_from('<II', data, pos)
+        chunk = data[pos + 8:pos + 8 + size]
+        if kind == 0x4E4F534A:
+            doc = json.loads(chunk)
+        elif kind == 0x004E4942:
+            binary = chunk
+        pos += 8 + size
+    doc['buffers'][0]['uri'] = 'data:application/octet-stream;base64,' + base64.b64encode(binary).decode()
+    name = glb.stem + '.gltf.json'
+    (out_dir / name).write_text(json.dumps(doc, separators=(',', ':')))
+    return name
+
+
+BUILDERS = {'locomotive': L.locomotive, 'tender': L.tender, 'baggage-van': L.baggage_van, 'restaurant': L.restaurant, 'first-class': L.first_class, 'second-class': L.second_class, 'brake-van': L.brake_van}
+
+
+def offsets():
+    """Origin x of each vehicle, the locomotive's front buffer at x = 0."""
+    x, out = 0., {}
+    for v in VEHICLES:
+        out[v['id']] = x - v['length'] / 2
+        x -= v['length']
+    return out
+
+
+def assembly():
+    ASSEMBLY.mkdir(parents=True, exist_ok=True)
+    xs = offsets()
+    contract = L.contract()
+    furniture = {}
+    for a in contract['assets']:
+        fitted = OUT / 'furniture' / f'{a["id"]}.glb'
+        entry = dict(dimensions_m=a['dimensions_m'], pivot=a['pivot'], name_fr=a['name_fr'], glb=None)
+        if fitted.exists():
+            entry['glb'] = fitted.name
+            lod0 = OUT / 'furniture' / 'lod' / f'{a["id"]}_LOD0.glb'     # lod_furniture.py: the viewer shows what the game draws
+            entry['web'] = web_copy(lod0 if lod0.exists() else fitted, ASSEMBLY)
+            report = OUT / 'furniture' / f'{a["id"]}.json'
+            if report.exists():
+                fit = json.loads(report.read_text())
+                entry['fit'] = fit['fitted_m']
+                if 'lods' in fit:
+                    entry['lods'] = [dict(level=r['level'], glb=f'lod/{r["glb"]}', triangles=r['triangles'], screen_size=r['screen_size'])
+                                     for r in fit['lods']['levels']]
+                    entry['cull_screen_size'] = fit['lods']['cull_screen_size']
+        furniture[a['id']] = entry
+    vehicles, door_rules = [], None
+    for v in VEHICLES:
+        rec = dict(v, x=round(xs[v['id']], 4))
+        if v['status'] == 'built':
+            title = ''.join(p.title() for p in v['id'].split('-'))
+            glb = OUT / v['id'] / f'SM_BT_{title}_LOD0.glb'
+            rec['web'] = web_copy(glb, ASSEMBLY)
+            p = json.loads((OUT / v['id'] / f'{v["id"]}-placements.json').read_text())
+            door_rules = p['door_rules']
+            body = BUILDERS[v['id']]().body
+            rec.update(walk=list(body.walk_limits()), walk_y=body.walk_y, ends=[body.end_a, body.end_b], body_faces=[body.x_a, body.x_b],
+                       railings=[list(r) for r in L.railings(body)])
+            rec.update(glb=glb.name, placements=p['placements'], seats=p['seats'], doors=p['doors_runtime'],
+                       door_interactions=p['doors'], interior_volumes=p['interior_volumes'],
+                       exterior_volumes=p['exterior_volumes'], boarding=p['boarding'],
+                       collision=[b['box'] for b in p['collision_boxes'] if b['group'] == 'fixed'],
+                       collision_boxes=p['collision_boxes'],
+                       rooms=[dict(name=r['name'], kind=r['kind'], box=[r['x0'], r['x1'], r['y0'], r['y1']]) for r in p['rooms']],
+                       mounts=p['mounts'], reservations=p['reservations'])
+        vehicles.append(rec)
+    doc = dict(
+        version=1, name='Belmonte train',
+        frame='metres; x along the train (head at +x), y across (+Y compartment/galley side), z up from the top of the rail; '
+              'each vehicle at its own origin shifted by x. Unreal: atelier.conventions.to_unreal. glTF/three.js: (x, z, -y).',
+        floor_z=L.FLOOR_Z, interior_half_width=L.IN, interior_half_length=L.IN_X, body_half_length=L.BODY_X,
+        gangway=dict(width=L.GANGWAY_W, height=L.GANGWAY_H), coupling=L.coupling(),
+        human=dict(adult=L.HUMAN, cairo=L.CAIRO), furniture=furniture, vehicles=vehicles, door_rules=door_rules,
+        notes=dict(
+            collision="per vehicle, 'collision_boxes' is the full simple collision (name, part, group, box): build game "
+                      "collision from it (or from the _Collision.glb). 'collision' is only the fixed boxes' extents, the "
+                      "viewer's obstacles; it has no switchable door or gangway-lock boxes",
+            door_interactions="one per door: Interact opens it alone, under door_rules",
+            interior_volumes="tags ['interior', 'no_sprint', 'no_climb']: inside any of them a player walks (no sprint) "
+                             "and cannot climb",
+            boarding="per passenger door and balcony gate: outside start (ground, z 0), the two treads upper first, the "
+                     "inside end on the floor, board and alight yaws (0 faces -Y); Interact boards or alights, at a "
+                     "station only",
+            exterior_volumes="one 'train_exterior' box per vehicle over its body and roof, tags ['no_climb']: nobody "
+                             "climbs onto the train"),
+        length_m=sum(v['length'] for v in VEHICLES),
+    )
+    (ASSEMBLY / 'consist.json').write_text(json.dumps(doc, indent=1))
+    shutil.copy2(VIEWER, ASSEMBLY / 'index.html')
+    print(f'BELMONTE TRAIN ASSEMBLY: {len(vehicles)} vehicles, {doc["length_m"]:.1f} m', flush=True)
+
+
+if __name__ == '__main__':
+    assembly()

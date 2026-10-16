@@ -510,7 +510,7 @@ void UJapanCharacterMovement::PerformMovement(float Dt)
     if (Rider->HasAuthority() && Rider->IsLocallyControlled()) AcknowledgeEdges(ProcessedEdge);
     // The clock and action transitions advance once per simulated move, including each replayed move.
     Moves->Advance(StepDt);
-    const bool CanSprint = !Rider->bWalk && !Rider->bJog && !Rider->bIsCrouched && !Rider->MovementLocked() &&
+    const bool CanSprint = !Rider->bNoSprint && !Rider->bWalk && !Rider->bJog && !Rider->bIsCrouched && !Rider->MovementLocked() &&
         !Rider->MoveIntent.IsNearlyZero() && Velocity.Size2D() > 40.f && Moves->CanSprint();
     Rider->Stamina.Tick(StepDt, Rider->bSprintHeld, CanSprint, Rider->bMenuOpen || Moves->HoldsStamina());
     const auto* Definition = Rider->Definition.Get();

@@ -40,6 +40,9 @@ def paint_join(path, mesh):
     colours = colours*(1.-weight[:, None]) + outer*weight[:, None]
     if path.stem == 'SM_BM_NorthCountry':
         colours = far_palette(points[:,0],points[:,1])
+    if getattr(mesh, 'natural', None) is not None:      # the railway's cuttings and banks (train/earthworks.py)
+        from train import earthworks
+        colours = earthworks.paint(colours, points[:, 0], points[:, 1], points[:, 2], mesh.natural + L.ORIGIN[2])
     rgba = np.c_[source.srgb(colours), weight].astype('<f4')
     doc, binary = glb_parts(path.read_bytes())
     assert doc['accessors'][doc['meshes'][0]['primitives'][0]['attributes']['POSITION']]['count'] == len(rgba)

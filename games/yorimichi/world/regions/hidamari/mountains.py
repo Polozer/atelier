@@ -596,8 +596,10 @@ def mesh(base_sampler):
             normals.reshape(-1,3)[used])]
     parts+=[_apron_part(*grid,base_sampler) for grid in apron_grids(xs,ys)]
     offsets=np.cumsum([0]+[len(p[0]) for p in parts])
-    return dict(vertices=np.concatenate([p[0] for p in parts]),faces=np.concatenate([p[1]+o for p,o in zip(parts,offsets)]),
-                colours=np.concatenate([p[2] for p in parts]),normals=np.concatenate([p[3] for p in parts]))
+    sheet=dict(vertices=np.concatenate([p[0] for p in parts]),faces=np.concatenate([p[1]+o for p,o in zip(parts,offsets)]),
+               colours=np.concatenate([p[2] for p in parts]),normals=np.concatenate([p[3] for p in parts]))
+    from train import earthworks  # the Belmonte railway's cuttings, banks and portal holes (RAILWAY_EARTHWORKS=0: none)
+    return earthworks.sheet(sheet)
 
 
 def apron_grids(xs,ys):

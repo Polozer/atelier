@@ -892,7 +892,7 @@ bool UAdventureMoveSet::Climbable(const FHitResult& Hit) const
     // Not people, creatures or props, and not the skate parks' ramps and rails.
     const AActor* A = Hit.GetActor();
     return !(A && (A->IsA<APawn>() || A->IsA<ASwordDummy>() || A->IsA<AMegaRamp>() ||
-        A->IsA<ASuperUltraMegaPark>() || A->ActorHasTag(TEXT("SkatePark"))));
+        A->IsA<ASuperUltraMegaPark>() || A->ActorHasTag(TEXT("SkatePark")) || A->ActorHasTag(TEXT("NoClimb"))));
 }
 
 bool UAdventureMoveSet::IsTargetable(AActor* Actor) const

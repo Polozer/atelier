@@ -139,13 +139,20 @@ def woodland(surface, limit=17000):
     dy = surface.height(x - L.ORIGIN[0], y + 1. - L.ORIGIN[1]) + L.ORIGIN[2] - z
     patch = woodland_density(x, y)
     keep = np.isfinite(z) & np.isfinite(dx) & np.isfinite(dy) & (np.hypot(dx, dy) < .7) & (rng.random(len(x)) < patch)
-    # Keep the future eastern rail corridor open; these are planting data only.
-    distance = np.full(len(x), np.inf)
-    for a, b in zip(L.RAILWAY, L.RAILWAY[1:]):
-        a, b = np.asarray(a), np.asarray(b); d = b - a
-        t = np.clip(((x - a[0]) * d[0] + (y - a[1]) * d[1]) / np.dot(d, d), 0., 1.)
-        distance = np.minimum(distance, np.hypot(x - a[0] - t * d[0], y - a[1] - t * d[1]))
-    indices = np.flatnonzero(keep & (distance > 24.))
+    # Keep the railway open: route v3's corridor (train/corridor.py) where the route is built, else the first
+    # sketch of the eastern corridor; these are planting data only.
+    from train import corridor
+    line = corridor.load()
+    if line is not None:
+        clear = ~line.blocked(x, y)
+    else:
+        distance = np.full(len(x), np.inf)
+        for a, b in zip(L.RAILWAY, L.RAILWAY[1:]):
+            a, b = np.asarray(a), np.asarray(b); d = b - a
+            t = np.clip(((x - a[0]) * d[0] + (y - a[1]) * d[1]) / np.dot(d, d), 0., 1.)
+            distance = np.minimum(distance, np.hypot(x - a[0] - t * d[0], y - a[1] - t * d[1]))
+        clear = distance > 24.
+    indices = np.flatnonzero(keep & clear)
     rng.shuffle(indices)
     result = {}
     from forest.ecotone import kinds, tuscan_mask
