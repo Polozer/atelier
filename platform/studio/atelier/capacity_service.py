@@ -54,7 +54,10 @@ def identity(value):
 
 @dataclass(frozen=True)
 class Observation:
-    """Supplied simulation facts; absence never means a process exited."""
+    """Supplied simulation facts; absence never means a process exited.
+
+    Disk fields remain accepted for shadow-fixture JSON compatibility; admission ignores them.
+    """
     at: int
     healthy: bool = False
     complete: bool = False
