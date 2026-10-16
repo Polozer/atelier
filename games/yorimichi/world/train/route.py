@@ -450,9 +450,9 @@ class Raster:
     @staticmethod
     def _source_digest():
         h = hashlib.sha256()
-        regions = Path(__file__).resolve().parents[1] / 'regions'
+        regions = _Path(__file__).resolve().parents[1] / 'regions'
         files = [
-            Path(__file__).resolve(),
+            _Path(__file__).resolve(),
             regions / 'hidamari' / 'layout.py',
             regions / 'hidamari' / 'mountains.py',
             regions / 'belmonte' / 'layout.py',

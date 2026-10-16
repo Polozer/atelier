@@ -662,7 +662,7 @@ def north_base_height(x,y):
     city_edge=mountains.smooth((x-280)/60)*mountains.smooth((1440-x)/60)
     return base+(height(x,500)-backdrop_height(x,500,carved=False))*city_edge*mountains.smooth((800-y)/300)
 
-def north_surface(x,y,*,carved=True):
+def north_surface(x,y,*,carved=False):
     x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
     base=far_height(x,y,carved=carved)
     z=mountains.height(x,y,north_base_height,carved=carved)
@@ -680,9 +680,9 @@ def north_surface(x,y,*,carved=True):
     if on.any():z[on]=gate.height(x[on],y[on],north_base_height)
     return z
 
-def north_height(x,y):
+def north_height(x,y,*,carved=False):
     """The island's collision surface."""
-    return north_surface(x,y)
+    return north_surface(x,y,carved=carved)
 
 def trail_distance(x,y):
     """Metres to the nearer of the north trail and the Mega Park trail."""

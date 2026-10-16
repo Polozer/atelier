@@ -317,7 +317,7 @@ def _cell(x,y):
 def _barycentric(z00,z10,z01,z11,u,v):
     return np.where(u>=v,z00*(1-u)+z10*(u-v)+z11*v,z00*(1-v)+z11*u+z01*(v-u))
 
-def height(x,y,base_sampler,*,carved=True):
+def height(x,y,base_sampler,*,carved=False):
     """Barycentric sampling of the single cached grid exported as actual collision."""
     ix,iy,u,v=_cell(x,y)
     z=surface_grid(base_sampler)[2]

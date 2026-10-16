@@ -945,8 +945,8 @@ void ABelmonteTrainService::CancelLocal(FRider& Rider)
     }
     if (Rider.Seat != INDEX_NONE)
     {
-        if (Vehicles.IsValidIndex(Rider.Vehicle) && Vehicles[Rider->Vehicle].SeatTaken.IsValidIndex(Rider.Seat))
-            Vehicles[Rider->Vehicle].SeatTaken[Rider.Seat] = 0;
+        if (Vehicles.IsValidIndex(Rider.Vehicle) && Vehicles[Rider.Vehicle].SeatTaken.IsValidIndex(Rider.Seat))
+            Vehicles[Rider.Vehicle].SeatTaken[Rider.Seat] = 0;
         Rider.Seat = INDEX_NONE;
         if (C) C->SetActorEnableCollision(true);
     }
