@@ -22,6 +22,11 @@ METADATA = dict(tag_name=TAG, target_commitish=REVISION, name=TAG, body='', prer
 sha = lambda body: hashlib.sha256(body).hexdigest()
 
 
+@pytest.fixture(autouse=True)
+def isolated_publication_claims(tmp_path, monkeypatch):
+    monkeypatch.setattr(release.release_claim, 'CLAIMS', tmp_path / 'claims')
+
+
 @pytest.fixture
 def package(tmp_path):
     root, stage = tmp_path / 'package', tmp_path / 'stage'
@@ -65,6 +70,7 @@ class Stop:
 
 class GitHub:
     def __init__(self):
+        self.repo = 'owner/repo'
         self.stop = Stop()
         self.release = None
         self.files = {}
@@ -280,6 +286,134 @@ def test_ambiguous_release_mutation_is_observed_not_blindly_repeated(package, op
     github = GitHub(); github.failures[operation] = release.TransportError()
     assert publish(github, stage)['draft'] is False
     assert sum(action == operation for action, _ in github.events) == 1
+
+
+def test_successful_create_response_survives_permanently_stale_listings(package):
+    stage = package[2]; prepare(package)
+    github = GitHub()
+    original = github.read
+    def read(path, **options):
+        if path == 'releases?per_page=100':
+            return [[]]  # Even after POST committed, the index is stale.
+        return original(path, **options)
+    github.read = read
+    assert publish(github, stage)['draft'] is False
+    assert github.events.count(('POST', 'releases')) == 1
+
+
+def test_accepted_ambiguous_create_waits_for_listing_without_another_post(package):
+    stage = package[2]; prepare(package)
+    github = GitHub(); github.failures['POST'] = release.TransportError()
+    original = github.read
+    hidden = 2
+    def read(path, **options):
+        nonlocal hidden
+        if path == 'releases?per_page=100' and github.release and hidden:
+            hidden -= 1
+            return [[]]
+        return original(path, **options)
+    github.read = read
+    assert publish(github, stage)['draft'] is False
+    assert github.events.count(('POST', 'releases')) == 1
+    assert github.stop.delays == [1, 2]
+
+
+def test_unconfirmed_create_survives_new_invocations_without_another_post(package):
+    stage = package[2]; prepare(package)
+    github = GitHub(); original = github.api
+    def api(path, **options):
+        github.events.append((options['method'], path))
+        raise release.TransportError()
+    github.api = api
+    for _ in range(2):
+        with pytest.raises(release.PublishError, match='no second create'):
+            publish(github, stage)
+    assert github.events.count(('POST', 'releases')) == 1
+    github.api = original
+    # The server's accepted draft finally becomes visible on a later CLI run.
+    github.release = dict(id=1, draft=True, **METADATA)
+    assert publish(github, stage)['draft'] is False
+    assert github.events.count(('POST', 'releases')) == 1
+
+
+def test_selected_release_id_survives_retry_without_relying_on_tag_listing(package):
+    stage = package[2]; prepare(package)
+    github = GitHub()
+    def interrupted():
+        raise release.PublishError('stop after selection')
+    with pytest.raises(release.PublishError, match='stop after selection'):
+        publish(github, stage, revalidate=interrupted)
+    original = github.read
+    github.read = lambda path, **options: ([[]] if path == 'releases?per_page=100'
+                                         else original(path, **options))
+    assert publish(github, stage)['draft'] is False
+    assert github.events.count(('POST', 'releases')) == 1
+
+
+@pytest.mark.parametrize('response', [None, [], {}, {'id': True, 'draft': True}])
+def test_invalid_success_response_preserves_intent_then_observes_accepted_draft(package, response):
+    stage = package[2]; prepare(package)
+    github = GitHub(); original = github.api
+    def api(path, **options):
+        original(path, **options)  # The request committed before its invalid response.
+        return response
+    github.api = api
+    with pytest.raises(release.PublishError):
+        publish(github, stage)
+    github.api = original
+    assert publish(github, stage)['draft'] is False
+    assert github.events.count(('POST', 'releases')) == 1
+
+
+@pytest.mark.parametrize('code,certificate', [(401, False), (403, False), (None, True)])
+def test_confirmed_rejected_create_can_retry_after_auth_or_certificate_fix(package, code, certificate):
+    stage = package[2]; prepare(package)
+    github = GitHub(); original = github.api
+    def rejected(path, **options):
+        github.events.append((options['method'], path))
+        raise release.TransportError(code, certificate=certificate)
+    github.api = rejected
+    with pytest.raises(release.TransportError):
+        publish(github, stage)
+    github.api = original
+    assert publish(github, stage)['draft'] is False
+    assert github.events.count(('POST', 'releases')) == 2  # One rejected, one committed.
+
+
+def test_same_destination_has_one_publisher_but_other_destinations_are_independent(package):
+    from atelier import release_claim
+    stage = package[2]; prepare(package)
+    github = GitHub()
+    with release_claim.acquire('OWNER/REPO', METADATA):
+        with pytest.raises(release.PublishError, match='another publisher owns'):
+            publish(github, stage)
+        assert not github.events
+        with release_claim.acquire('owner/repo', {**METADATA, 'tag_name': TAG + '-other'}):
+            pass
+        with release_claim.acquire('other/repo', METADATA):
+            pass
+    assert publish(github, stage)['draft'] is False
+
+
+def test_unknown_create_cannot_be_rebound_to_different_metadata(package):
+    from atelier import release_claim
+    stage = package[2]; prepare(package)
+    with release_claim.acquire('owner/repo', METADATA) as claim:
+        claim.save('creating')
+    with pytest.raises(release_claim.ClaimError, match='saved publication request differs'):
+        with release_claim.acquire('owner/repo', {**METADATA, 'target_commitish': 'b' * 40}):
+            pytest.fail('different source adopted an uncertain create')
+
+
+def test_selected_release_disappearance_never_creates_a_replacement(package):
+    from atelier import release_claim
+    stage = package[2]; prepare(package)
+    with release_claim.acquire('owner/repo', METADATA) as claim:
+        claim.save('selected', 123)
+    github = GitHub()
+    with pytest.raises(release.PublishError, match='no new draft'):
+        publish(github, stage)
+    assert github.events.count(('POST', 'releases')) == 0
 
 
 @pytest.mark.parametrize('kind', ['input', 'output'])
