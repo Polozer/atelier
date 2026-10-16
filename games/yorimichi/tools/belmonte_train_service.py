@@ -229,9 +229,20 @@ def timeline(legs, cycle, profiles, stop, waiting, loop):
     return start, s, loop_track
 
 
+def centred(rows, shift):
+    return [[s + shift, t, v] for s, t, v in rows]
+
+
 def service(route):
-    up = Profile(route['speed_profile'], route['speed_profile_down'][0][0])
-    down = Profile(route['speed_profile_down'], route['speed_profile'][0][0])
+    up_rows, down_rows = route['speed_profile'], route['speed_profile_down']
+    summary = route['summary'].get('service') or {}
+    if summary.get('profile_reference') == 'head':
+        # The route gives the leading end's chainage (the head stops at the end of the line); the game places the
+        # consist by its centre, half a train behind the head in each direction.
+        h = float(summary['train_length_m']) / 2
+        up_rows, down_rows = centred(up_rows, -h), centred(down_rows, h)
+    up = Profile(up_rows, down_rows[0][0])
+    down = Profile(down_rows, up_rows[0][0])
     cycle, trains, stop, waiting = legs_from_schedule(route, up, down)
     loop = line(route)['loop']
     out = []

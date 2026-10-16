@@ -774,6 +774,8 @@ def service(line, rail, loop, up=None, down=None):
             'loop_wait_s': round(wait, 1), 'crossing_margin_s': CROSSING_MARGIN,
             'run_up_s': round(up_time, 1), 'run_down_s': round(down_time, 1),
             'asked_for_headway_s': ASKED_INTERVAL, 'asked_for_works': half <= ASKED_INTERVAL,
+            # the speed profiles' chainage is the leading end's (the head stops STOP_CLEARANCE from the line's end)
+            'profile_reference': 'head', 'train_length_m': TRAIN_LENGTH,
             'times_note': 'seconds from train A leaving Hidamari; the pattern repeats every cycle_s and each station '
                           'sees a departure every headway_s; a waiting train\'s run time includes its stop and wait',
             'schedule': schedule}

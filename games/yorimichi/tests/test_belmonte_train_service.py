@@ -139,6 +139,17 @@ class BelmonteTrainServiceTests(unittest.TestCase):
         self.assertEqual(way['path'][0][:2], [-1095.0, -230.0])
         self.assertEqual(self.data['consist']['vehicles'][0]['boarding'], [])
 
+    def test_head_referenced_profiles_place_the_consist_by_its_centre(self):
+        r = route(schedule=False)
+        r['speed_profile'] = profile(140., 1140., 180.)          # the head leads: up it ends 40 m past the centre ...
+        r['speed_profile_down'] = profile(1060., 60., 180.)      # ... and down it leads 40 m ahead of it
+        r['summary']['service'] = {'profile_reference': 'head', 'train_length_m': 80.0, 'dwell_s': 90.0}
+        out = S.service(r)
+        self.assertEqual(out['terminals'], [100.0, 1100.0])       # the centre, half a train behind each head
+        a = out['trains'][0]
+        self.assertAlmostEqual(S.position(a, out['cycle_s'], a['t0']), 100.0, places=3)
+        self.assertAlmostEqual(max(a['s']), 1100.0, places=3)     # stops with its centre where the down run starts
+
     def test_schedule_is_followed(self):
         service = self.data['service']
         self.assertEqual(service['cycle_s'], 600.0)
