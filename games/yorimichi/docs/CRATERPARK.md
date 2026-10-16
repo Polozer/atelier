@@ -354,7 +354,18 @@ cut (a bowl's) the grid keeps the ground 0.5 m under every piece within 7.5 m: n
 its outer walls can show a few metres above the coarser pit edge. Each line spawns at its roll-in. The rest of the
 chain (`world.craterpark`, `unreal.craterpark`, `data.stage`) is unchanged; `world.hidamari` needs the geometry, so
 the volcano is rebuilt with it.
-Editor parks have no supports yet, so their geometry is marked `editor_playtest` and skips the v4 acceptance checks.
+Supports come from [`editor_supports.py`](../world/regions/craterpark/v2/editor_supports.py). Most ramps stand on
+stone viaducts, and a high solid deck becomes the castle-keep tower. The Vert drop (`STAGE_LINES`, L2) stands on a
+Kiyomizu-style timber stage instead, after `concepts/editor/vertdrop-kiyomizu-overview.jpg`:
+- **Frame.** Each piece has its own grid of squared posts on stone plinths. Horizontal nuki pass through the posts at
+  even levels, and a cap beam follows the ramp's underside. Members grow with the stage's height.
+- **Over a lower piece.** Where another piece runs underneath, no post stands on it. A truss under the ramp carries it
+  to the nearest grid post, or to an outrigger on clear ground beside the pieces below.
+- **Catch walls.** A piece that drops steeply from its start gets a row of posts behind its lip.
+- **Open air.** Nothing spans from one piece to the next, and nothing stands behind a piece's end. So the slot between
+  the vert kicker and the reverse catch, and the air under the mega jump, stay open.
+
+Editor parks still skip the v4 acceptance checks: their geometry is marked `editor_playtest`.
 
 The Prado bowl (`p5`, a bowl in `editor_generate.DECALS`) is finished by
 [`editor_decal.py`](../world/regions/craterpark/v2/editor_decal.py). Its painting (drawn on the bowl's plan) lies on

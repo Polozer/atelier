@@ -351,7 +351,8 @@ def main(argv=None):
         grid = {k: scene.metadata['ground_grid'][k] for k in ('x0', 'z0', 'G', 'nx', 'nz')}
         supports, support_summary = editor_supports.build(scene.pieces, heights, grid)
         print(f"CRATERPARK EDITOR supports: stone viaducts, {support_summary['piers']} piers, "
-              f"{support_summary['arches']} arches, {support_summary['metres']} m", flush=True)
+              f"{support_summary['arches']} arches; timber stages, {support_summary['posts']} posts, "
+              f"{support_summary['beams']} beams; {support_summary['metres']} m", flush=True)
         parts += supports
         towers = set(support_summary['towers'])
         if towers:

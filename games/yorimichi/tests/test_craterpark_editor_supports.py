@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world' / 'regions'
 from craterpark.v2 import dsl, editor_supports as es  # noqa: E402
 
 
-def sheet(pid, y, length=60., width=18., x0=0., z0=0.):
+def sheet(pid, y, length=60., width=18., x0=0., z0=0., line='L1'):
     """A flat run along +x at height y, as the bridge would hand it over (a triangulated sheet plus stations)."""
     xs, zs = np.meshgrid(np.arange(0, length + .1, 2.), np.arange(-width / 2, width / 2 + .1, 3.))
     V = np.stack([x0 + xs.ravel(), np.full(xs.size, y), z0 + zs.ravel()], 1)
@@ -18,7 +18,7 @@ def sheet(pid, y, length=60., width=18., x0=0., z0=0.):
     F = np.concatenate([np.stack([i, i + nx, i + 1], 1), np.stack([i + 1, i + nx, i + nx + 1], 1)])
     stations = [dict(d=float(d), x=x0 + d, y=y, z=z0, h=0., a=0., w=width - 2, wl={'h': 0., 'R': 1.}, wr={'h': 0., 'R': 1.},
                      deck=0.) for d in np.arange(0, length + .1, 1.)]
-    return types.SimpleNamespace(mesh=types.SimpleNamespace(V=V, F=F), metadata=dict(id=pid, type='run', stations=stations))
+    return types.SimpleNamespace(mesh=types.SimpleNamespace(V=V, F=F), metadata=dict(id=pid, type='run', line=line, stations=stations))
 
 
 GRID = dict(x0=-60., z0=-60., G=2., nx=150, nz=150)
@@ -112,3 +112,41 @@ def test_a_piece_whose_every_pier_would_stand_on_another_is_left_open():
     V = vertices([p for p in parts if p.features[0] == 'high_supports'])
     assert not len(V) or (V[:, 1] >= 10. + es.OVER - 1e-6).all(), 'no stone through the piece below'
     assert np.isfinite(vertices(parts)).all()
+
+
+def test_the_vert_drop_stands_on_a_timber_stage_on_stone_plinths():
+    parts, summary = es.build([sheet('p1', 30., length=80., line='L2')], FLAT, GRID)
+    assert summary['pieces'] == {'p1': 'stage'} and summary['piers'] == 0 and summary['posts'] >= 6
+    assert {dsl.MATERIALS[p.material[0]] for p in parts} == {es.TIMBER, es.STONE}
+    V = vertices(parts)
+    assert V[:, 1].max() <= 30. + es.EMBED + 1e-6, 'the cap beams meet the ramp in one line'
+    assert V[:, 1].min() >= -es.SINK - 1e-6 and np.isfinite(V).all()
+    assert sum(len(p.F) for p in parts) < 20000
+    a, _ = es.build([sheet('p1', 30., length=80., line='L2')], FLAT, GRID)
+    assert np.array_equal(vertices(a), V), 'deterministic'
+
+
+def test_no_timber_spans_the_gap_between_two_pieces():
+    # the vert kicker and the reverse catch: each stands on its own frame, the air between them stays open
+    kicker = sheet('kicker', 30., length=40., line='L2')
+    catch = sheet('catch', 20., length=40., x0=70., line='L2')
+    parts, summary = es.build([kicker, catch], FLAT, GRID)
+    assert summary['pieces'] == {'kicker': 'stage', 'catch': 'stage'}
+    V = vertices(parts)
+    assert not ((V[:, 0] > 41.) & (V[:, 0] < 69.)).any(), 'nothing between the two pieces'
+
+
+def test_a_stage_over_another_piece_is_carried_on_a_truss_from_outriggers():
+    # rev 110's vert drop runs 100 m above its own reverse catch and U-turn: no post may stand on them
+    high, low = sheet('high', 60., length=60., line='L2'), sheet('low', 10., length=60., width=30., line='L2')
+    parts, summary = es.build([high, low], FLAT, GRID)
+    assert summary['pieces']['high'] == 'stage'
+    V = vertices([p for p in parts if p.features[0] == 'high_supports'])
+    over = (V[:, 0] > -1.) & (V[:, 0] < 61.) & (np.abs(V[:, 2]) < 14.)
+    assert over.any() and (V[over, 1] >= 60. - es.STAGE_TRUSS[1] - 3.).all(), 'nothing hangs down onto the piece below'
+    assert (V[:, 1] < 0.).any() and (np.abs(V[V[:, 1] < 0., 2]) > 14.).all(), 'the outriggers stand clear beside it'
+
+
+def test_other_lines_keep_their_stone_viaducts():
+    _, summary = es.build([sheet('p1', 30., length=120.), sheet('p2', 30., length=120., z0=60., line='L2')], FLAT, GRID)
+    assert summary['pieces'] == {'p1': 'viaduct', 'p2': 'stage'}

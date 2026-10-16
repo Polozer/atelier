@@ -9,7 +9,8 @@ no pier stands there.
 
 The arcade is lofted along the piece's own stations, its top just under the piece's underside (the pieces' own
 vertices) and its foot sunk into the cut ground the volcano follows, so nothing floats. Bowls (in their own pits) and
-decks get none.
+decks get none. The Vert drop line stands on a timber stage instead (`stage`, after
+concepts/editor/vertdrop-kiyomizu-overview.jpg).
 """
 import math
 
@@ -868,6 +869,242 @@ def tower(b, plan, ground, piece, open_sides):
     return placed
 
 
+# The Vert drop's timber stage (kakezukuri), after the approved Sunburst concept
+# (assets/craterpark/concepts/editor/vertdrop-kiyomizu-overview.jpg): instead of an arcade, each of the line's ramps
+# stands on its own grid of massive posts on stone plinths, tied by horizontal nuki that pass through the posts at
+# even levels and stick out past the outer ones, with a cap beam following the ramp's underside. Nothing spans from one
+# piece to the next, so the air between the vert kicker and the reverse catch (and under the mega air) stays open.
+STAGE_LINES = {'L2'}          # the lines that stand on timber stages instead of stone arcades
+STAGE_TALL = 120.             # members grow with the stage's height, up to this many metres of clearance
+STAGE_BAY = (9., 16.)         # post spacing along and across (low to tall stages)
+STAGE_POST = (.6, 1.4)       # post half thickness
+STAGE_NUKI = (4.5, 9.)        # height between tie-beam levels
+STAGE_MIN = 2.                # a post shorter than this is left out: the ramp sits on (or in) the ground there
+STAGE_CAP = 1.5               # the cap beam's height under the ramp, in post half thicknesses
+STAGE_TENON = 1.9             # a nuki runs this many post half thicknesses past the posts it ties
+STAGE_TRUSS = (3., 9.)        # a truss's depth under the ramp, where another piece runs underneath
+STAGE_REACH = 80.             # metres beyond the edge searched for clear ground to stand a truss's outrigger post
+STAGE_BACK_RUN, STAGE_BACK_STEEP = 15., 60.   # a piece this steep (deg) within this far of its start is a catch wall
+STAGE_BRACE = 30.             # a stage this tall gets diagonal braces on its outer faces, every other level
+PLINTH_RISE = (.7, 2.4)       # the stone plinth stands this far above the highest ground under it...
+PLINTH_WIDE = 1.7             # ...is this many post half thicknesses wide at its top, and splays out to its foot
+PLINTH_SPLAY = 1.3
+
+
+def _lerp(pair, f):
+    return pair[0] + (pair[1] - pair[0]) * f
+
+
+def _post(b, c, half, y0, y1):
+    """A squared timber post with chamfered corners."""
+    ch = .22 * half
+    ring = lambda y: np.array([(c[0] + p, y, c[1] + q) for p, q in
+                               ((half, half - ch), (half - ch, half), (ch - half, half), (-half, half - ch),
+                                (-half, ch - half), (ch - half, -half), (half - ch, -half), (half, ch - half))])
+    _rings(b, TIMBER, [ring(y0), ring(y1)])
+
+
+def _plinth(b, c, fwd, acr, half, y0, y1):
+    """A dressed stone plinth, splaying out toward its foot."""
+    ring = lambda w, y: np.array([(c[0] + p * w * fwd[0] + q * w * acr[0], y, c[1] + p * w * fwd[1] + q * w * acr[1])
+                                  for p, q in ((1, 1), (-1, 1), (-1, -1), (1, -1))])
+    _rings(b, STONE, [ring(half * PLINTH_SPLAY, y0), ring(half, y1)])
+
+
+def _timber(b, pts, n, depth, height):
+    """A beam through centre points (each (x, y, z)), `depth` thick (half) along the plan direction n, `height` tall
+    (half): sections are vertical, so it follows a sloped or curved line."""
+    _rings(b, TIMBER, [np.array([(p[0] + q * depth * n[0], p[1] + r * height, p[2] + q * depth * n[1])
+                                 for q, r in ((-1, -1), (1, -1), (1, 1), (-1, 1))]) for p in pts])
+
+
+def _column(plan, ground, p, w, top):
+    """(lowest, highest) ground round a post standing at p up to `top` without meeting any piece, else None."""
+    r, g = w * PLINTH_WIDE * PLINTH_SPLAY, []
+    for q in (p, p + (r, r), p + (-r, r), p + (-r, -r), p + (r, -r)):
+        gg = float(ground(*q))
+        _, y = plan.heights(*q)
+        if ((y > gg - SINK - 1.) & (y < top + 1.)).any():
+            return None
+        g.append(gg)
+    return (min(g), max(g)) if top - max(g) >= STAGE_MIN else None
+
+
+def stage(b, plan, ground, piece, stations):
+    """The timber stage under one piece: (posts, beams, metres). Where another piece runs underneath, a timber truss
+    under the ramp carries it across to the nearest posts beside it: a post of the grid, or an outrigger standing on
+    clear ground outside the pieces below."""
+    got = _samples(stations)
+    if got is None:
+        return 0, 0, 0.
+    t, x, z, h, half = got
+    clear = []
+    for i in range(0, len(t), 4):
+        sp = plan.span(x[i], z[i], piece)
+        if sp is not None:
+            clear.append(sp[0] - float(ground(x[i], z[i])))
+    if not clear:
+        return 0, 0, 0.
+    f = float(np.clip(np.median(clear) / STAGE_TALL, 0., 1.))
+    bay, w, nuki, depth = _lerp(STAGE_BAY, f), _lerp(STAGE_POST, f), _lerp(STAGE_NUKI, f), _lerp(STAGE_TRUSS, f)
+    rise, cap, end = _lerp(PLINTH_RISE, f), w * STAGE_CAP, w + .5
+    if t[-1] - t[0] < 2 * end + 1.:
+        return 0, 0, 0.
+    rows = np.linspace(t[0] + end, t[-1] - end, max(1, round((t[-1] - t[0] - 2 * end) / bay)) + 1)
+    cols = max(1, math.ceil((2 * float(half.min()) - 2 * end) / bay))
+
+    def standing(p, top, g_lo, g_hi):
+        return dict(p=p, top=top, base=g_lo - SINK, foot=min(top - 1., g_hi + rise), fwd=fwd, acr=acr)
+
+    # the post grid: grid[i][j] a standing post, a node hung from a truss ('hung') or None, and the outriggers
+    grid, outs = [], []
+    for s in rows:
+        hh = float(np.interp(s, t, h))
+        c = np.array([np.interp(s, t, x), np.interp(s, t, z)])
+        fwd, acr = np.array([math.cos(hh), math.sin(hh)]), np.array([-math.sin(hh), math.cos(hh)])
+        reach = float(np.interp(s, t, half)) - end
+        row = []
+        for v in np.linspace(-reach, reach, cols + 1):
+            p = c + v * acr
+            corners = [p + a * w * fwd + q * w * acr for a, q in ((0, 0), (1, 1), (-1, 1), (-1, -1), (1, -1))]
+            spans = [plan.span(*q, piece) for q in corners]
+            if any(sp is None for sp in spans):
+                row.append(None)                      # off the piece
+                continue
+            g = [float(ground(*q)) for q in corners]
+            top = min(sp[0] for sp in spans) + EMBED
+            if max(sp[1] for sp in spans) > min(g) - SINK:
+                row.append(dict(p=p, top=top, base=top - depth, foot=top - depth, hung=True))
+            elif top - max(g) >= STAGE_MIN:
+                row.append(standing(p, top, min(g), max(g)))
+            else:
+                row.append(None)                      # the ramp sits on (or in) the ground here
+        # every run of hung nodes needs a post at each end, else it is left out
+        out = {}
+        j = 0
+        while j < len(row):
+            if not (row[j] and row[j].get('hung')):
+                j += 1
+                continue
+            e = j
+            while e + 1 < len(row) and row[e + 1] and row[e + 1].get('hung'):
+                e += 1
+            ends = []
+            for side, k, edge in ((-1, j - 1, row[j]), (1, e + 1, row[e])):
+                if 0 <= k < len(row):
+                    ends.append(row[k] if row[k] and not row[k].get('hung') else None)
+                    continue
+                post = None
+                for v in np.arange(reach + 3 * w + 1., reach + STAGE_REACH, 2.):
+                    p = c + side * v * acr
+                    g = _column(plan, ground, p, w, edge['top'])
+                    if g is not None:
+                        post = out[side] = standing(p, edge['top'], *g)
+                        break
+                ends.append(post)
+            if ends[0] is None or ends[1] is None:
+                for k in range(j, e + 1):
+                    row[k] = None
+            else:
+                row[j:e + 1] = [dict(n, truss=(ends[0], ends[1])) for n in row[j:e + 1]]
+            j = e + 1
+        grid.append(row)
+        outs.append(out)
+    # a catch wall (the piece drops away steeply from its start) gets a row of posts behind its top, up to its lip;
+    # never behind a piece's end, where the rider flies off
+    if max(abs(st['a']) for st in stations if st['d'] - stations[0]['d'] < STAGE_BACK_RUN) > STAGE_BACK_STEEP:
+        h0 = math.radians(stations[0]['h'])
+        fwd, acr = np.array([math.cos(h0), math.sin(h0)]), np.array([-math.sin(h0), math.cos(h0)])
+        c = np.array([stations[0]['x'], stations[0]['z']]) - (end + w * PLINTH_WIDE * PLINTH_SPLAY) * fwd
+        top, reach, back = stations[0]['y'] + EMBED, float(half[0]) - end, []
+        for v in np.linspace(-reach, reach, cols + 1):
+            g = _column(plan, ground, c + v * acr, w, top)
+            back.append(None if g is None else standing(c + v * acr, top, *g))
+        if any(back):
+            grid.insert(0, back)
+            outs.insert(0, {})
+            rows = np.concatenate([[rows[0] - bay], rows])
+    posts = beams = 0
+    for q in [q for row in grid for q in row if q and not q.get('hung')] + [q for o in outs for q in o.values()]:
+        _plinth(b, q['p'], q['fwd'], q['acr'], w * PLINTH_WIDE, q['base'], q['foot'])
+        _post(b, q['p'], w, q['foot'] - .2, q['top'] - cap * .5)
+        posts += 1
+
+    def tie(A, B, outer):
+        """Nuki between two neighbouring posts at every level both stand through, and the cap beam over them."""
+        nonlocal beams
+        d = B['p'] - A['p']
+        L = float(np.linalg.norm(d))
+        if L < 1e-6:
+            return
+        u = d / L
+        n = np.array([-u[1], u[0]])
+        lo, hi = max(A['foot'], B['foot']) + .5 * nuki, min(A['top'], B['top']) - cap - .6 * nuki
+        level, k, ext = math.ceil(lo / nuki) * nuki, 0, w * STAGE_TENON
+        while level <= hi:
+            a, e = A['p'] - ext * u, B['p'] + ext * u
+            _timber(b, [(a[0], level, a[1]), (e[0], level, e[1])], n, w * .55, w * .6)
+            beams += 1
+            # braces on the outer faces of a tall stage, rising alternately left and right, every other level
+            if outer and f * STAGE_TALL > STAGE_BRACE and k % 2 == 1 and level + nuki <= hi + 1e-6:
+                p0, p1 = (A['p'], B['p']) if int(round(level / nuki)) % 4 == 1 else (B['p'], A['p'])
+                _timber(b, [(p0[0], level, p0[1]), (p1[0], level + nuki, p1[1])], n, w * .4, w * .5)
+                beams += 1
+            level += nuki
+            k += 1
+        # the cap beam hugs the ramp's underside between the two posts (level between them off the piece)
+        pts = []
+        for s in np.linspace(0., 1., max(2, int(L / 1.5) + 1)):
+            p = A['p'] + s * d
+            sp = plan.span(*p, piece)
+            y = sp[0] + EMBED if sp is not None else A['top'] + s * (B['top'] - A['top'])
+            pts.append((p[0], y - cap * .5, p[1]))
+        _timber(b, pts, n, w * .8, cap * .5)
+        beams += 1
+
+    def truss(chain):
+        """A truss's bottom chord, verticals and diagonals under the cap beams along a chain of nodes."""
+        nonlocal beams
+        for a, (A, B) in enumerate(zip(chain, chain[1:])):
+            d = B['p'] - A['p']
+            n = np.array([-d[1], d[0]]) / max(float(np.linalg.norm(d)), 1e-6)
+            _timber(b, [(A['p'][0], A['top'] - depth, A['p'][1]), (B['p'][0], B['top'] - depth, B['p'][1])], n,
+                    w * .7, w * .7)
+            lo, hi = (A, B) if a % 2 == 0 else (B, A)
+            _timber(b, [(lo['p'][0], lo['top'] - depth, lo['p'][1]), (hi['p'][0], hi['top'] - cap, hi['p'][1])], n,
+                    w * .5, w * .55)
+            beams += 2
+        for q in chain[1:-1]:
+            _post(b, q['p'], w * .75, q['top'] - depth - w * .7, q['top'] - cap * .5)
+            beams += 1
+
+    for i, row in enumerate(grid):
+        left, right = outs[i].get(-1), outs[i].get(1)
+        ordered = ([left] if left else []) + row + ([right] if right else [])
+        for A, B in zip(ordered, ordered[1:]):
+            if A is not None and B is not None:
+                tie(A, B, i in (0, len(grid) - 1))
+        j = 0
+        while j < len(row):
+            q = row[j]
+            if q and q.get('hung'):
+                e = j
+                while e + 1 < len(row) and row[e + 1] and row[e + 1].get('hung'):
+                    e += 1
+                truss([q['truss'][0]] + row[j:e + 1] + [q['truss'][1]])
+                j = e + 1
+            else:
+                j += 1
+        if i + 1 < len(grid):
+            for j, q in enumerate(row):
+                if q is not None and grid[i + 1][j] is not None:
+                    tie(q, grid[i + 1][j], j in (0, len(row) - 1))
+            for side in (-1, 1):
+                if side in outs[i] and side in outs[i + 1]:
+                    tie(outs[i][side], outs[i + 1][side], True)
+    return posts, beams, (float(rows[-1] - rows[0]) if posts else 0.)
+
+
 def open_sides(piece, pieces, k):
     """The sides of a deck (0 +fwd, 1 -fwd, 2 +acr, 3 -acr) a ramp leaves from at its top (or arrives at): where the
     ramp's first or last station stands on the deck's edge. No railing there, and the torii over the first."""
@@ -890,7 +1127,7 @@ def build(pieces, heights, grid):
     """The supports for the kept editor pieces (bridge Pieces), as dsl Mesh parts, and a summary."""
     ground = Ground(heights, grid)
     plan = Plan(pieces)
-    out, summary = [], {'piers': 0, 'arches': 0, 'metres': 0., 'boulders': 0, 'towers': [], 'pieces': {}}
+    out, summary = [], {'piers': 0, 'arches': 0, 'posts': 0, 'beams': 0, 'metres': 0., 'boulders': 0, 'towers': [], 'pieces': {}}
     for k, piece in enumerate(pieces):
         meta = piece.metadata
         if meta['type'] == 'deck' and (meta.get('params') or {}).get('solid'):
@@ -905,6 +1142,15 @@ def build(pieces, heights, grid):
         if meta['type'] in ('bowl', 'deck', 'rail') or not meta.get('stations'):
             continue
         b = Builder()
+        if meta.get('line') in STAGE_LINES:
+            posts, beams, metres = stage(b, plan, ground, k, meta['stations'])
+            if posts:
+                out += b.meshes(f"{meta['id']}_supports")
+                summary['posts'] += posts
+                summary['beams'] += beams
+                summary['metres'] += round(metres, 1)
+                summary['pieces'][meta['id']] = 'stage'
+            continue
         piers, arches, metres, rocks = arcade(b, plan, ground, k, meta['stations'])
         if not metres:
             continue
