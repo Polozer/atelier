@@ -875,20 +875,25 @@ def tower(b, plan, ground, piece, open_sides):
 # even levels and stick out past the outer ones, with a cap beam following the ramp's underside. Nothing spans from one
 # piece to the next, so the air between the vert kicker and the reverse catch (and under the mega air) stays open.
 STAGE_LINES = {'L2'}          # the lines that stand on timber stages instead of stone arcades
+KEYAKI = 'material_045'       # weathered keyaki, warm mid-brown: the stage's posts and beams
+IRON = TILE                   # the black iron plates over the outer joints
 STAGE_TALL = 120.             # members grow with the stage's height, up to this many metres of clearance
-STAGE_BAY = (9., 16.)         # post spacing along and across (low to tall stages)
-STAGE_POST = (.6, 1.4)       # post half thickness
-STAGE_NUKI = (4.5, 9.)        # height between tie-beam levels
+STAGE_BAY = (10., 16.)        # post spacing along the piece (low to tall stages)...
+STAGE_SPAN = (16., 24.)       # ...and across it: posts in a few long rows, not a forest
+STAGE_POST = (.8, 1.6)        # post half thickness
+STAGE_NUKI = (5., 10.)        # height between tie-beam levels
 STAGE_MIN = 2.                # a post shorter than this is left out: the ramp sits on (or in) the ground there
-STAGE_CAP = 1.5               # the cap beam's height under the ramp, in post half thicknesses
-STAGE_TENON = 1.9             # a nuki runs this many post half thicknesses past the posts it ties
+STAGE_CAP = 1.6               # the cap beam's height under the ramp, in post half thicknesses...
+STAGE_EDGE = 2.4              # ...deeper along the outer frames, the heavy edge beam under the ramp's sides
+STAGE_TENON = 2.6             # a nuki runs this many post half thicknesses past the posts it ties
+PLATE = 1.1                   # an iron plate's half size, in post half thicknesses
 STAGE_TRUSS = (3., 9.)        # a truss's depth under the ramp, where another piece runs underneath
 STAGE_REACH = 80.             # metres beyond the edge searched for clear ground to stand a truss's outrigger post
 STAGE_BACK_RUN, STAGE_BACK_STEEP = 15., 60.   # a piece this steep (deg) within this far of its start is a catch wall
-STAGE_BRACE = 30.             # a stage this tall gets diagonal braces on its outer faces, every other level
-PLINTH_RISE = (.7, 2.4)       # the stone plinth stands this far above the highest ground under it...
-PLINTH_WIDE = 1.7             # ...is this many post half thicknesses wide at its top, and splays out to its foot
-PLINTH_SPLAY = 1.3
+PLINTH_RISE = (1.6, 4.)       # the stone plinth stands this far above the highest ground under it...
+PLINTH_WIDE = 1.9             # ...is this many post half thicknesses wide at its top...
+PLINTH_COURSES = 3            # ...in this many dressed courses, each stepping out this much of its width below
+PLINTH_STEP = .14
 
 
 def _lerp(pair, f):
@@ -896,31 +901,32 @@ def _lerp(pair, f):
 
 
 def _post(b, c, half, y0, y1):
-    """A squared timber post with chamfered corners."""
+    """A squared keyaki post with chamfered corners."""
     ch = .22 * half
     ring = lambda y: np.array([(c[0] + p, y, c[1] + q) for p, q in
                                ((half, half - ch), (half - ch, half), (ch - half, half), (-half, half - ch),
                                 (-half, ch - half), (ch - half, -half), (half - ch, -half), (half, ch - half))])
-    _rings(b, TIMBER, [ring(y0), ring(y1)])
+    _rings(b, KEYAKI, [ring(y0), ring(y1)])
 
 
-def _plinth(b, c, fwd, acr, half, y0, y1):
-    """A dressed stone plinth, splaying out toward its foot."""
-    ring = lambda w, y: np.array([(c[0] + p * w * fwd[0] + q * w * acr[0], y, c[1] + p * w * fwd[1] + q * w * acr[1])
-                                  for p, q in ((1, 1), (-1, 1), (-1, -1), (1, -1))])
-    _rings(b, STONE, [ring(half * PLINTH_SPLAY, y0), ring(half, y1)])
+def _plinth(b, c, fwd, acr, half, y0, yg, y1):
+    """A dressed stone plinth from y0 (sunk) to y1, its courses above the ground yg each stepping in from the one below."""
+    levels = [y0] + [yg + (y1 - yg) * k / PLINTH_COURSES for k in range(1, PLINTH_COURSES + 1)]
+    for k in range(PLINTH_COURSES):
+        w = half * (1 + PLINTH_STEP * (PLINTH_COURSES - 1 - k))
+        _box(b, STONE, c, fwd, acr, w, w, levels[k], levels[k + 1])
 
 
 def _timber(b, pts, n, depth, height):
     """A beam through centre points (each (x, y, z)), `depth` thick (half) along the plan direction n, `height` tall
     (half): sections are vertical, so it follows a sloped or curved line."""
-    _rings(b, TIMBER, [np.array([(p[0] + q * depth * n[0], p[1] + r * height, p[2] + q * depth * n[1])
+    _rings(b, KEYAKI, [np.array([(p[0] + q * depth * n[0], p[1] + r * height, p[2] + q * depth * n[1])
                                  for q, r in ((-1, -1), (1, -1), (1, 1), (-1, 1))]) for p in pts])
 
 
 def _column(plan, ground, p, w, top):
     """(lowest, highest) ground round a post standing at p up to `top` without meeting any piece, else None."""
-    r, g = w * PLINTH_WIDE * PLINTH_SPLAY, []
+    r, g = w * PLINTH_WIDE * (1 + PLINTH_STEP * (PLINTH_COURSES - 1)), []
     for q in (p, p + (r, r), p + (-r, r), p + (-r, -r), p + (r, -r)):
         gg = float(ground(*q))
         _, y = plan.heights(*q)
@@ -947,14 +953,15 @@ def stage(b, plan, ground, piece, stations):
         return 0, 0, 0.
     f = float(np.clip(np.median(clear) / STAGE_TALL, 0., 1.))
     bay, w, nuki, depth = _lerp(STAGE_BAY, f), _lerp(STAGE_POST, f), _lerp(STAGE_NUKI, f), _lerp(STAGE_TRUSS, f)
-    rise, cap, end = _lerp(PLINTH_RISE, f), w * STAGE_CAP, w + .5
+    rise, cap = _lerp(PLINTH_RISE, f), w * STAGE_CAP
+    end = w * max(STAGE_TENON, PLINTH_WIDE * (1 + PLINTH_STEP * (PLINTH_COURSES - 1))) + .3   # all within the piece
     if t[-1] - t[0] < 2 * end + 1.:
         return 0, 0, 0.
     rows = np.linspace(t[0] + end, t[-1] - end, max(1, round((t[-1] - t[0] - 2 * end) / bay)) + 1)
-    cols = max(1, math.ceil((2 * float(half.min()) - 2 * end) / bay))
+    cols = max(1, math.ceil((2 * float(half.min()) - 2 * end) / _lerp(STAGE_SPAN, f)))
 
     def standing(p, top, g_lo, g_hi):
-        return dict(p=p, top=top, base=g_lo - SINK, foot=min(top - 1., g_hi + rise), fwd=fwd, acr=acr)
+        return dict(p=p, top=top, base=g_lo - SINK, ground=g_hi, foot=min(top - 1., g_hi + rise), fwd=fwd, acr=acr)
 
     # the post grid: grid[i][j] a standing post, a node hung from a truss ('hung') or None, and the outriggers
     grid, outs = [], []
@@ -1015,7 +1022,7 @@ def stage(b, plan, ground, piece, stations):
     if max(abs(st['a']) for st in stations if st['d'] - stations[0]['d'] < STAGE_BACK_RUN) > STAGE_BACK_STEEP:
         h0 = math.radians(stations[0]['h'])
         fwd, acr = np.array([math.cos(h0), math.sin(h0)]), np.array([-math.sin(h0), math.cos(h0)])
-        c = np.array([stations[0]['x'], stations[0]['z']]) - (end + w * PLINTH_WIDE * PLINTH_SPLAY) * fwd
+        c = np.array([stations[0]['x'], stations[0]['z']]) - (end + w * PLINTH_WIDE * (1 + PLINTH_STEP * (PLINTH_COURSES - 1))) * fwd
         top, reach, back = stations[0]['y'] + EMBED, float(half[0]) - end, []
         for v in np.linspace(-reach, reach, cols + 1):
             g = _column(plan, ground, c + v * acr, w, top)
@@ -1026,12 +1033,16 @@ def stage(b, plan, ground, piece, stations):
             rows = np.concatenate([[rows[0] - bay], rows])
     posts = beams = 0
     for q in [q for row in grid for q in row if q and not q.get('hung')] + [q for o in outs for q in o.values()]:
-        _plinth(b, q['p'], q['fwd'], q['acr'], w * PLINTH_WIDE, q['base'], q['foot'])
+        _plinth(b, q['p'], q['fwd'], q['acr'], w * PLINTH_WIDE, q['base'], min(q['ground'], q['foot'] - .3), q['foot'])
         _post(b, q['p'], w, q['foot'] - .2, q['top'] - cap * .5)
         posts += 1
 
+    every = [q['p'] for row in grid for q in row if q] + [q['p'] for o in outs for q in o.values()]
+    middle = np.mean(every, 0) if every else np.zeros(2)
+
     def tie(A, B, outer):
-        """Nuki between two neighbouring posts at every level both stand through, and the cap beam over them."""
+        """Nuki between two neighbouring posts at every level both stand through, with iron plates over the joints on
+        an outer frame's face, and the cap beam over them (the deep edge beam on an outer frame)."""
         nonlocal beams
         d = B['p'] - A['p']
         L = float(np.linalg.norm(d))
@@ -1039,27 +1050,26 @@ def stage(b, plan, ground, piece, stations):
             return
         u = d / L
         n = np.array([-u[1], u[0]])
-        lo, hi = max(A['foot'], B['foot']) + .5 * nuki, min(A['top'], B['top']) - cap - .6 * nuki
-        level, k, ext = math.ceil(lo / nuki) * nuki, 0, w * STAGE_TENON
+        out = n if float(n @ ((A['p'] + B['p']) / 2 - middle)) >= 0 else -n
+        top = w * STAGE_EDGE if outer else cap
+        lo, hi = max(A['foot'], B['foot']) + .5 * nuki, min(A['top'], B['top']) - top - .6 * nuki
+        level, ext = math.ceil(lo / nuki) * nuki, w * STAGE_TENON
         while level <= hi:
             a, e = A['p'] - ext * u, B['p'] + ext * u
-            _timber(b, [(a[0], level, a[1]), (e[0], level, e[1])], n, w * .55, w * .6)
+            _timber(b, [(a[0], level, a[1]), (e[0], level, e[1])], n, w * .6, w * .75)
             beams += 1
-            # braces on the outer faces of a tall stage, rising alternately left and right, every other level
-            if outer and f * STAGE_TALL > STAGE_BRACE and k % 2 == 1 and level + nuki <= hi + 1e-6:
-                p0, p1 = (A['p'], B['p']) if int(round(level / nuki)) % 4 == 1 else (B['p'], A['p'])
-                _timber(b, [(p0[0], level, p0[1]), (p1[0], level + nuki, p1[1])], n, w * .4, w * .5)
-                beams += 1
+            if outer:
+                for P in (A['p'], B['p']):
+                    _box(b, IRON, P + out * (w + .06), u, out, w * PLATE, .06, level - w * PLATE, level + w * PLATE)
             level += nuki
-            k += 1
         # the cap beam hugs the ramp's underside between the two posts (level between them off the piece)
         pts = []
         for s in np.linspace(0., 1., max(2, int(L / 1.5) + 1)):
             p = A['p'] + s * d
             sp = plan.span(*p, piece)
             y = sp[0] + EMBED if sp is not None else A['top'] + s * (B['top'] - A['top'])
-            pts.append((p[0], y - cap * .5, p[1]))
-        _timber(b, pts, n, w * .8, cap * .5)
+            pts.append((p[0], y - top * .5, p[1]))
+        _timber(b, pts, n, w * .85, top * .5)
         beams += 1
 
     def truss(chain):

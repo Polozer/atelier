@@ -487,5 +487,14 @@
     "doubleSided": false,
     "wrap": "repeat",
     "colorSpace": "sRGB"
+  },
+  {
+    "id": "material_045",
+    "baseColor": [0.6, 0.42, 0.26],
+    "texture": null,
+    "sourceTextureName": null,
+    "doubleSided": true,
+    "wrap": "repeat",
+    "colorSpace": "sRGB"
   }
 ]

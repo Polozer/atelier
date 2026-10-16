@@ -117,7 +117,7 @@ def test_a_piece_whose_every_pier_would_stand_on_another_is_left_open():
 def test_the_vert_drop_stands_on_a_timber_stage_on_stone_plinths():
     parts, summary = es.build([sheet('p1', 30., length=80., line='L2')], FLAT, GRID)
     assert summary['pieces'] == {'p1': 'stage'} and summary['piers'] == 0 and summary['posts'] >= 6
-    assert {dsl.MATERIALS[p.material[0]] for p in parts} == {es.TIMBER, es.STONE}
+    assert {dsl.MATERIALS[p.material[0]] for p in parts} == {es.KEYAKI, es.STONE, es.IRON}
     V = vertices(parts)
     assert V[:, 1].max() <= 30. + es.EMBED + 1e-6, 'the cap beams meet the ramp in one line'
     assert V[:, 1].min() >= -es.SINK - 1e-6 and np.isfinite(V).all()

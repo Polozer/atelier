@@ -357,8 +357,10 @@ the volcano is rebuilt with it.
 Supports come from [`editor_supports.py`](../world/regions/craterpark/v2/editor_supports.py). Most ramps stand on
 stone viaducts, and a high solid deck becomes the castle-keep tower. The Vert drop (`STAGE_LINES`, L2) stands on a
 Kiyomizu-style timber stage instead, after `concepts/editor/vertdrop-kiyomizu-overview.jpg`:
-- **Frame.** Each piece has its own grid of squared posts on stone plinths. Horizontal nuki pass through the posts at
-  even levels, and a cap beam follows the ramp's underside. Members grow with the stage's height.
+- **Frame.** Each piece has its own grid of heavy squared posts in weathered keyaki (`material_045`), on stepped
+  stone plinths. Horizontal nuki pass through the posts at even levels and stick out past them, with black iron plates
+  over the outer joints. A cap beam follows the ramp's underside, and is deeper along the outer frames. There are no
+  diagonal braces. Members grow with the stage's height.
 - **Over a lower piece.** Where another piece runs underneath, no post stands on it. A truss under the ramp carries it
   to the nearest grid post, or to an outrigger on clear ground beside the pieces below.
 - **Catch walls.** A piece that drops steeply from its start gets a row of posts behind its lip.
