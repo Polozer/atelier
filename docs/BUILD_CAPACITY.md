@@ -82,6 +82,15 @@ there, report that limitation and keep maintenance pending. A momentarily empty 
 that the chain is finished. Schedule approved reboot/cutover work only after all owners confirm their complete
 chains have drained and retained reservations have resolved.
 
+### Diagnosing transport refusals
+
+A capacity transport error names its operation, endpoint/connect/send/receive phase, error type,
+errno and elapsed/deadline seconds. It does not print request data, credentials or raw OS error text.
+Keep that message with the guard reports. The supervised broker log records the same safe operation
+and phase metadata on errors, and elapsed time for operations taking at least 250 ms. These diagnostics
+do not retry an operation, extend its deadline or authorize work after a refusal. A staging/tool stall
+and an RPC timeout can coincide; establish their timing and cause before retrying either.
+
 ## Sealed exclusive maintenance
 
 This explicit interim mode permits ordinary guarded work without another reboot after a reviewed stable-volume
