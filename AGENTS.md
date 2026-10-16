@@ -203,7 +203,9 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   [desktop performance](games/yorimichi/docs/DESKTOP_PERFORMANCE.md) for the launch and readiness contract.
 - Heavy jobs (Unreal, Blender renders) run under the render lock and memory guard (`atelier.safety`). `atelier play`
   and `atelier build` do this for you. A game's guard stops it above 10 GiB; `atelier play --memory-gib N` (10 to 14)
-  raises that for one session that needs it (Quality graphics at 1080p, for example). Retain the command and reason in its evidence.
+  raises that for one session that needs it (Quality graphics at 1080p, for example). In full capacity mode,
+  admission automatically reserves at least that selected ceiling for this session; the default stays 10 GiB.
+  Do not edit machine profiles to use this flag. Retain the command and reason in its evidence.
 - Follow the [capacity agent workflow](docs/BUILD_CAPACITY.md#agent-workflow) for live mode checks,
   safe update/stop boundaries and refusal recovery. Merge and `uv sync` only while
   the checkout has no owned native child and its caller cannot start the next one; preserve build artifacts.

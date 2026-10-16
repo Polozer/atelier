@@ -22,6 +22,7 @@ from pathlib import Path
 
 from . import manifest, paths
 from .build import Context, build, list_steps
+from .play_limits import GAME_GIB, GAME_MAX_GIB
 
 
 def _ok(flag, text):
@@ -64,10 +65,6 @@ def fetch(game):
         if code:
             return code
     return 0
-
-
-GAME_GIB = 10.        # the memory guard's limit for a game
-GAME_MAX_GIB = 14.    # the most a session may ask for (--memory-gib): a 32 GiB machine keeps room for a small-slot job
 
 
 def game_limit(memory_gib=None):

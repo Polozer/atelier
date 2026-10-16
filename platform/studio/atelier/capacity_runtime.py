@@ -14,6 +14,7 @@ import uuid
 
 from .capacity import Resources
 from .paths import REPO
+from .play_limits import GAME_GIB, GAME_MAX_GIB
 
 DEFAULT_CONFIG = Path.home() / '.cache/atelier/capacity/client.json'
 MAX_CONFIG_BYTES = 65536
@@ -125,6 +126,9 @@ def configured_session(*, kind, limit_gib, timeout, folder=None, purpose=None, c
     That SMALL memory reservation MUST equal the actual selected guard ceiling; bridge and
     explicit-session limits MUST NOT be changed by this selection. Sealed maintenance MUST retain
     nominal guard ceilings and reserve all managed CPU with performance exclusion for every job.
+    Full automatic games MAY increase only their session memory reservation to cover a caller's
+    explicitly selected guard ceiling within the documented game range. The configured profile
+    MUST already cover the default game ceiling; neither the configuration nor the guard changes.
     """
     if type(performance) is not bool:
         raise ValueError('capacity performance request must be a boolean')
@@ -169,6 +173,9 @@ def configured_session(*, kind, limit_gib, timeout, folder=None, purpose=None, c
     if (not math.isfinite(limit_gib) or limit_gib <= 0
             or not math.isfinite(timeout) or timeout < 0):
         raise ValueError('capacity launch needs a positive finite guard ceiling and nonnegative finite timeout')
+    if (full and kind == 'game' and GAME_GIB <= limit_gib <= GAME_MAX_GIB
+            and resources.memory_mib >= math.ceil(GAME_GIB * 1024)):
+        resources = replace(resources, memory_mib=max(resources.memory_mib, math.ceil(limit_gib * 1024)))
     if resources.memory_mib < math.ceil(limit_gib * 1024):
         raise ValueError('capacity profile reservation is smaller than the actual guard ceiling')
     if resources.cpu_millis == 0:
