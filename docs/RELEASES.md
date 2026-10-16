@@ -55,8 +55,21 @@ archive files in the existing downloader/package format. The published manifest 
 and adds the exact source, archive, original-manifest, verification and notes identities.
 
 Each transfer gets at most three attempts. An ambiguous upload failure observes the remote asset before
-retrying; a completed matching upload is reused. Metadata reads and ambiguous draft creation/final publication
-also have bounded attempts and observations. Missing GitHub digests, wrong size/hash, duplicate/unexpected
+retrying; a completed matching upload is reused. Metadata reads and final publication also have bounded
+attempts and observations. Draft creation is sent once: its successful response pins the numeric release ID,
+without waiting for a tag/listing index to catch up. Local publishers for the same repository/tag share an
+automatic destination mutex, with no native-capacity reservation; other tags and builds are independent.
+
+The publisher stores the create intent before sending it, then retains the returned release ID under
+the machine-local `~/.cache/atelier/release-publication/` directory; changing `ATELIER_CACHE` does not split
+this ownership namespace. An interrupted or uncertain create becomes
+observation-only, even in a new process: retry the identical command to find the accepted draft, never delete
+its claim to make it send another create. If no accepted draft can be observed, the command reports that
+uncertainty and sends no second create. A confirmed authentication/certificate or validation rejection can
+retry after its cause is fixed. A selected release that was externally deleted is not silently recreated.
+These local claims cannot serialize an independent publisher on another machine; keep one publisher per tag.
+
+Missing GitHub digests, wrong size/hash, duplicate/unexpected
 assets, changed metadata or a tag pointing elsewhere refuse. There is no clobber, delete or automatic repair.
 Use a fresh authorized tag, or have the owner inspect the conflict before a separate repair.
 
