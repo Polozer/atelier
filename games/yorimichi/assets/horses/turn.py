@@ -105,6 +105,9 @@ def bake_glb(source, arm, scene, play, fps=60):
     bpy.context.view_layer.update()
     feet = {end: arm.matrix_world @ arm.pose.bones[end].head for _, _, end, _ in LEGS}
     rotations = {end: (arm.matrix_world @ arm.pose.bones[end].matrix).to_quaternion() for end in feet}
+    # The walking toe roll belongs to forward propulsion. Keep each complete hoof
+    # in its idle shape so a planted wrist/ankle also plants the actual hoof.
+    toes = {b.name: b.matrix_basis.copy() for b in arm.pose.bones if b.name.startswith('Toe_')}
     # The imported armature has its own rotated basis. Author trajectories in Blender
     # world (+Z up), around the actor/mesh origin, then solve in armature space.
     centre = Vector((0., 0., 0.))
@@ -155,6 +158,8 @@ def bake_glb(source, arm, scene, play, fps=60):
             # IK writes unkeyed location channels too. Restore the complete original pose,
             # so no result from the previous frame/direction can accumulate into this one.
             for name, basis in walk_poses[frame % end_frame].items():
+                arm.pose.bones[name].matrix_basis = basis
+            for name, basis in toes.items():
                 arm.pose.bones[name].matrix_basis = basis
             bpy.context.view_layer.update()
             for upper, lower, end, offset in LEGS:
