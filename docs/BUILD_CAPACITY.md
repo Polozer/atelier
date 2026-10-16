@@ -20,9 +20,17 @@ seeing a quiet machine does not change its live mode. Check the actual broker st
 observation: `(legacy-bridge, false)` means bridge; `(sealed-maintenance, false)` means exclusive maintenance;
 `(capacity, true)` means full capacity. Maintenance is one guarded job at a time, not full concurrency. Use the socket selected
 by the installed client when running `uv run atelier capacity status ABSOLUTE_SOCKET`. Missing or stale status
-means availability is unknown. Preserve the machine board, live locks and guard checks at every heavy boundary.
+means availability is unknown. The launcher enforces live admission and guard checks at every heavy boundary.
 
-Before adopting main, finish the checkout's current native child and stop its enclosing caller at an agreed
+In confirmed full capacity mode, normal builds and plays **self-admit**. Run the ordinary command with
+`ATELIER_AGENT` and the default client: no pre-announcement, acknowledgement, coordinator permission,
+manual Holding/Waiting edit or hold/release handshake is required per build or step. Keep the listener active
+for real incidents and owner steering. Read current maintenance/incident instructions; report an actual refusal
+or failure when help is needed. Coordinators collect routine timings from logs, receipts and cook observations
+instead of asking builders to post them. A deliberately quiet capture or a bounded service maintenance remains
+an explicit exception, with a stated end condition; it must not become a standing gate for future normal work.
+
+Before adopting main, finish the checkout's current native child and stop its enclosing caller at a child-free
 boundary so it cannot automatically launch another child. Only then merge and run `uv sync`. Keep generated
 Content, Binaries, build stamps and caches; use the verified [reuse procedure](../AGENTS.md#reusing-builds) for a
 fresh checkout instead of rebuilding everything or sharing mutable directories. Do not change a running job's
@@ -100,6 +108,20 @@ using the same source, inputs and tool version, separate output folders, normal 
 Compare wall time and output equivalence as well as observed CPU. Adopt more workers only for a repeatable,
 useful throughput gain. Change the actual tool setting and reservation together, rather than understating the
 same six-worker command. Worker-setting changes still follow ordinary fingerprinting and incremental rebuilds.
+
+The city generators were compared on 2026-10-16 with the same frozen input files and installed Blender,
+two runs per worker count in reversed order, separate output folders and normal guarded performance windows.
+Median generator wall times (seconds) were:
+
+| Generator | 3 workers | 4 workers | 6 workers |
+| --- | ---: | ---: | ---: |
+| City surface tiles | 10.381 | 10.158 | 10.083 |
+| City-tree LODs | 1.641 | 1.628 | 1.684 |
+
+All 83 tile and 6 tree-LOD FBXs per run had identical parsed nodes/properties with deterministic export
+metadata applied uniformly; no path normalization was needed. Three workers cost about 3% on the tile case
+and halved its CPU request; the tree times were similar. These two recipes explicitly use three workers.
+This small historical-input comparison does not calibrate other generators, rendering, imports or compiles.
 
 Memory protects the laptop and must be a comfortable **ceiling**, not mean usage. The reservation must cover
 both actual-child and owned-tree guard limits. The normal launcher selects its 4 GiB Blender envelope only from
