@@ -228,7 +228,7 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
 - Merge and run `uv sync` only after the checkout's native child and its enclosing caller have stopped at a
   boundary where neither can start another child. Preserve generated files and caches. Agents must not edit
   client profiles or broker settings, restart a live broker, clear uncertain reservations, or bypass refusal.
-  Protected compatibility files must never be removed, replaced or chmodded. Disk is telemetry only;
+  Protected compatibility files must never be edited, removed, replaced or chmodded. Disk is telemetry only;
   it never reserves or locks capacity.
 - Standalone CPU-heavy native builds also need admission, including tools and dependencies outside this
   repository. Run CMake, Cargo, Make or Ninja through the [standalone compile workflow](docs/BUILD_CAPACITY.md#standalone-native-tool-builds)
