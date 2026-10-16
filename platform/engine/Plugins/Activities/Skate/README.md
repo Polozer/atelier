@@ -84,6 +84,7 @@ with its own build step. `skate.RideTune` overrides the transitions' tuning live
 | `DriftGrip`, `DriftFullGrip` | 0.3, 0.6 | 0 to 1.5; a drift powerslide's wheel friction at half and at full tilt, as shares of the slide's own |
 | `PowerslideTurn` | 1 | 0.25 to 1.5; how far a powerslide turns the board across the travel |
 | `GrindTolerance` | 1 | 0.5 to 3; how much a grind takes before it bails (see Feel) |
+| `CameraFollow` | 1 | 1 to 3; how fast the camera may chase the rider, times 40 m/s (see Feel) |
 | `DeckMesh`, `TruckMesh`, `WheelMesh` | none | Board parts (see the board contract); skating is unavailable without all three |
 | `BoardDissolveMaterial` | none | A masked material with a scalar `Dissolve` (0 whole, 1 gone) that fades the board in and out; without one the board shows and hides |
 | `SoundFolder` | none | Content folder of the board sounds |
@@ -148,6 +149,7 @@ bit-exact with stock.
 | `GrindPop` | 0.5 to 2 | The ollie out of a grind |
 | `GrindFriction` | 0 to 3 | Grind and slide friction |
 | `GrindTolerance` | 0.5 to 3 | `GrindTolerance`: what a grind rides through before it bails. In full: every in-grind bail limit (`GrindPostTolerance`: the body pushed off its pose, 2; a knock to the body or arms, 8.5 and 30; the board's closing speed across the rail, 6, and through it, 100; the deck twisted off its target, 1.3 rad) and the 35 updates a push-off has to clear the rail before it bails. Half as much more, `(1 + GrindTolerance) / 2`: the entry's (the impact snapping on, 8 m/s; the speed across the rail, 7 m/s; the speed landing into it, 8 m/s times `Landing`). The 30° pitch along the rail an air entry bails at is kept. Above 1, a rail boardslide or darkslide that stalls is pushed off across the rail, as on a ledge, instead of wiping out. Above 1, slides also hold: a tipslide (tail, nose and some blunt slides) gets the Backslash's tip spring (3000, aimed 0.35 m out, the middle of its tip zone) and a boardslide or darkslide on a ledge or coping the 50-50's centring spring (800), where stock has only the stick's push; re-catching a slide from the generic state (701) adds nothing to the lockout counter (`PlayerGrindInput.cpp`); and a slide's lean-off clock (`ExitLeanAngleVsTime`) runs `2 × GrindTolerance − 1` times slower (`slide_hold`), so at 2 a slide ridden into a coping leans off after about 4 s, not 1.3 s. 50-50s and 5-0s keep the stock clock (`AtelierSkate.Grind.SlideHold`) |
+| `CameraFollow` | 1 to 3 | `camera_follow`: the camera's anchor chases the rider through a tracker capped at the authored `SubjectTrackerMaxSpeed`, 40 m/s; this multiplies the cap. At stock a rider faster than 40 m/s pulls away from the camera (5 m a second at 45 m/s) and the gap jitters as the cap catches and lets go (`AtelierSkate.Camera.Follow`) |
 | `Braking` | 0.25 to 3 | Foot-brake force |
 | `Steering`, `Carve`, `Grip` | 0.5 to 2 | Steering scalar, heading turn strength, wheel friction |
 | `Powerslide` | 0.25 to 3 | A powerslide's slowing force |
