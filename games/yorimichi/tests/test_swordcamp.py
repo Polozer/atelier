@@ -54,9 +54,19 @@ def test_combat_hit_registration_and_ronin_camp_wired():
     assert 'else if (Now && bArmed && IsAttack(Name)) BladePoints(PreviousBlade);' in combat_cpp
     assert 'for (const ECollisionChannel Chan : { ECC_Visibility, ECC_Pawn })' in combat_cpp
     assert 'bool UAdventureMoveSet::GetBladePose' in combat_cpp
+    moveset_h = (SOURCE / 'AdventureMoveSet.h').read_text()
+    assert 'void SetCombatTarget(AActor* NewTarget)' in moveset_h
     trainer_cpp = (SOURCE / 'SwordTrainer.cpp').read_text()
     assert 'void ASwordTrainer::SpawnRoninCamp' in trainer_cpp
     assert 'void ASwordTrainer::AlertCamp' in trainer_cpp
     assert 'whiff_space' in trainer_cpp
+    assert 'SM_GuardJingasa' in trainer_cpp
+    assert 'SM_CaptainKabuto' in trainer_cpp
+    assert 'SM_RoninDo' in trainer_cpp
+    assert 'SM_RoninWakizashi' in trainer_cpp
+    assert 'M_RoninBody' in trainer_cpp
+    assert 'GetAnimatedWorldQuat' in trainer_cpp
+    assert 'SetCombatTarget' in trainer_cpp
+    assert 'PeerRepulse' in trainer_cpp
     gamemode_cpp = (SOURCE / 'JapanGameMode.cpp').read_text()
     assert 'ASwordTrainer::SpawnRoninCamp(W);' in gamemode_cpp

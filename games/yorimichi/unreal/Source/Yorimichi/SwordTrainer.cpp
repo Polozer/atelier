@@ -16,12 +16,15 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/Texture.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Framework/Application/SlateApplication.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Misc/CommandLine.h"
@@ -60,6 +63,13 @@ namespace
         { TEXT("Gentle"), .45f, 0.f,  .15f, .3f,   0.f,   .35f, 2,    1.1f,  .08f,  .06f, .06f, 0.f,   0.f,  .6f,  0.f,   .3f },
         { TEXT("Steady"), .25f, .25f, .25f, .25f,  .35f,  .65f, 3,    .6f,   .15f,  .14f, .12f, .08f,  .06f, .85f, .5f,   .55f },
         { TEXT("Master"), .12f, .45f, .3f,  .15f,  .75f,  1.05f, 4,   .3f,   .2f,   .16f, .14f, .14f,  .12f, 1.f,  1.f,   .7f },
+    };
+    // Distinct OpenGothic / BotW combat personalities for the three Kasa Ronin roles (Scout skirmisher, Guard counter-vanguard, Captain warlord).
+    const FTrainerStyle RoninStyles[3] = {
+        //  name          react parry dodge guard perfect aggr  combo recov charge dash  jump  double feint damage strafe guard up
+        { TEXT("Scout"),    .18f, .22f, .40f, .22f,  .45f,  1.05f, 3,    .36f,  .08f,  .28f, .22f, .10f,  .14f, .80f,  1.f,   .58f },
+        { TEXT("Vanguard"), .15f, .42f, .20f, .30f,  .52f,   .92f, 3,    .40f,  .18f,  .14f, .12f, .06f,  .06f, .90f,   .65f, .84f },
+        { TEXT("Warlord"),  .11f, .48f, .28f, .18f,  .78f,  1.35f, 4,    .24f,  .24f,  .18f, .16f, .16f,  .10f, 1.f,   1.f,   .76f },
     };
     // The training ground: the lawn beside the tea house, between the lane and the trees (8 m clear of every bed,
     // bush, tree and building), in the hamlet's authored metres (before `village_point`'s offset), and the way she
@@ -219,10 +229,28 @@ void ASwordTrainer::SetupRonin(int32 InRole, const FVector& InCampOrigin, const 
     bHostileRonin = true;
     RoninRole = FMath::Clamp(InRole, 0, 2);
     Level = RoninRole == 2 ? 2 : 1;
+    RoleScale = RoninRole == 0 ? .94f : (RoninRole == 1 ? 1.03f : 1.12f);
     CampOrigin = InCampOrigin;
     MakiwaraTarget = InMakiwaraTarget;
+    SetActorScale3D(FVector(RoleScale));
+    SetActorLocation(GetActorLocation() + FVector(0.f, 0.f, (RoleScale - 1.f) * 84.f), false, nullptr, ETeleportType::TeleportPhysics);
     Home = GetActorLocation();
     HomeYaw = GetActorRotation().Yaw;
+
+    if (USkeletalMeshComponent* Body = GetMesh())
+    {
+        if (UMaterialInterface* BodyMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/SwordCamp/Materials/M_RoninBody.M_RoninBody"), nullptr, LOAD_NoWarn | LOAD_Quiet))
+        {
+            UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(BodyMat, this);
+            if (UTexture* CharTex = LoadObject<UTexture>(nullptr, TEXT("/Game/SwordTrainer/Textures/T_tripo_mat_ee5a1a4b.T_tripo_mat_ee5a1a4b"), nullptr, LOAD_NoWarn | LOAD_Quiet))
+                MID->SetTextureParameterValue(TEXT("BaseTex"), CharTex);
+            const FLinearColor CoatTint = RoninRole == 0
+                ? FLinearColor(.14f, .28f, .62f, 1.f)
+                : (RoninRole == 1 ? FLinearColor(.16f, .42f, .24f, 1.f) : FLinearColor(.68f, .10f, .13f, 1.f));
+            MID->SetVectorParameterValue(TEXT("CoatTint"), CoatTint);
+            Body->SetMaterial(0, MID);
+        }
+    }
 
     auto MakeAttachment = [this](const TCHAR* CompName, const TCHAR* AssetPath) -> UStaticMeshComponent*
     {
@@ -239,11 +267,24 @@ void ASwordTrainer::SetupRonin(int32 InRole, const FVector& InCampOrigin, const 
         return Comp;
     };
 
-    RoninKasa = MakeAttachment(TEXT("RoninKasa"), TEXT("/Game/SwordCamp/Assets/SM_RoninKasa.SM_RoninKasa"));
-    RoninMenpo = MakeAttachment(TEXT("RoninMenpo"), TEXT("/Game/SwordCamp/Assets/SM_RoninMenpo.SM_RoninMenpo"));
-    RoninSodeL = MakeAttachment(TEXT("RoninSodeL"), TEXT("/Game/SwordCamp/Assets/SM_RoninSode.SM_RoninSode"));
-    RoninSodeR = MakeAttachment(TEXT("RoninSodeR"), TEXT("/Game/SwordCamp/Assets/SM_RoninSode.SM_RoninSode"));
-    RoninSashimono = MakeAttachment(TEXT("RoninSashimono"), TEXT("/Game/SwordCamp/Assets/SM_RoninSashimono.SM_RoninSashimono"));
+    const TCHAR* HatAsset = RoninRole == 0
+        ? TEXT("/Game/SwordCamp/Assets/SM_RoninKasa.SM_RoninKasa")
+        : (RoninRole == 1 ? TEXT("/Game/SwordCamp/Assets/SM_GuardJingasa.SM_GuardJingasa")
+                          : TEXT("/Game/SwordCamp/Assets/SM_CaptainKabuto.SM_CaptainKabuto"));
+    RoninKasa = MakeAttachment(TEXT("RoninKasa"), HatAsset);
+    if (RoninRole >= 1)
+    {
+        RoninMenpo = MakeAttachment(TEXT("RoninMenpo"), TEXT("/Game/SwordCamp/Assets/SM_RoninMenpo.SM_RoninMenpo"));
+        RoninDo = MakeAttachment(TEXT("RoninDo"), TEXT("/Game/SwordCamp/Assets/SM_RoninDo.SM_RoninDo"));
+        RoninSodeL = MakeAttachment(TEXT("RoninSodeL"), TEXT("/Game/SwordCamp/Assets/SM_RoninSode.SM_RoninSode"));
+        RoninSodeR = MakeAttachment(TEXT("RoninSodeR"), TEXT("/Game/SwordCamp/Assets/SM_RoninSode.SM_RoninSode"));
+    }
+    else
+    {
+        RoninSubWeapon = MakeAttachment(TEXT("RoninSubWeapon"), TEXT("/Game/SwordCamp/Assets/SM_RoninWakizashi.SM_RoninWakizashi"));
+    }
+    if (RoninRole == 2)
+        RoninSashimono = MakeAttachment(TEXT("RoninSashimono"), TEXT("/Game/SwordCamp/Assets/SM_RoninSashimono.SM_RoninSashimono"));
     RoninWeapon = MakeAttachment(
         TEXT("RoninWeapon"),
         RoninRole == 2
@@ -251,7 +292,7 @@ void ASwordTrainer::SetupRonin(int32 InRole, const FVector& InCampOrigin, const 
             : TEXT("/Game/SwordCamp/Assets/SM_RoninKatana.SM_RoninKatana"));
 
     if (Moves)
-        Moves->UseProceduralBlade(RoninRole == 2 ? 98.f : 72.f);
+        Moves->UseProceduralBlade(RoninRole == 2 ? 104.f : (RoninRole == 1 ? 76.f : 68.f));
     UpdateRoninAttachments();
 }
 
@@ -262,29 +303,76 @@ void ASwordTrainer::UpdateRoninAttachments()
     const FQuat ActorQuat = GetActorQuat();
     const FQuat HeadFlinch = Moves ? Moves->FlinchRotation(3) : FQuat::Identity;
     const FQuat ChestFlinch = Moves ? Moves->FlinchRotation(1) : FQuat::Identity;
-    const FQuat HeadRot = ActorQuat * HeadFlinch;
-    const FQuat ChestRot = ActorQuat * ChestFlinch;
 
     const FName HeadBone = GetSkateBone(TEXT("head"));
     const FName ChestBone = GetSkateBone(TEXT("chest"));
     const FName ArmLBone = GetSkateBone(TEXT("upperarm_L"));
     const FName ArmRBone = GetSkateBone(TEXT("upperarm_R"));
 
-    const FVector HeadPos = Body->GetBoneIndex(HeadBone) != INDEX_NONE ? Body->GetBoneLocation(HeadBone) : GetActorLocation() + FVector(0, 0, 62.f);
-    const FVector ChestPos = Body->GetBoneIndex(ChestBone) != INDEX_NONE ? Body->GetBoneLocation(ChestBone) : GetActorLocation() + FVector(0, 0, 26.f);
-    const FVector ArmLPos = Body->GetBoneIndex(ArmLBone) != INDEX_NONE ? Body->GetBoneLocation(ArmLBone) : ChestPos + ActorQuat.RotateVector(FVector(0, -18.f, 10.f));
-    const FVector ArmRPos = Body->GetBoneIndex(ArmRBone) != INDEX_NONE ? Body->GetBoneLocation(ArmRBone) : ChestPos + ActorQuat.RotateVector(FVector(0, 18.f, 10.f));
+    auto GetAnimatedWorldQuat = [&](FName BoneName, const FQuat& Flinch) -> FQuat
+    {
+        const USkeletalMesh* SkelAsset = Body->GetSkeletalMeshAsset();
+        const int32 BoneIdx = Body->GetBoneIndex(BoneName);
+        if (!SkelAsset || BoneIdx == INDEX_NONE) return ActorQuat * Flinch;
+        const FReferenceSkeleton& RefSkel = SkelAsset->GetRefSkeleton();
+        FTransform RefComp = FTransform::Identity;
+        for (int32 Cur = BoneIdx; Cur != INDEX_NONE; Cur = RefSkel.GetParentIndex(Cur))
+            RefComp = RefComp * RefSkel.GetRefBonePose()[Cur];
+        const FQuat CurComp = Body->GetSocketTransform(BoneName, RTS_Component).GetRotation();
+        const FQuat AnimDelta = CurComp * RefComp.GetRotation().Inverse();
+        return Body->GetComponentQuat() * Flinch * AnimDelta;
+    };
+
+    const FQuat HeadRot = GetAnimatedWorldQuat(HeadBone, HeadFlinch);
+    const FQuat ChestRot = GetAnimatedWorldQuat(ChestBone, ChestFlinch);
+    const FVector ScaleVec(RoleScale);
+
+    const FVector HeadPos = Body->GetBoneIndex(HeadBone) != INDEX_NONE ? Body->GetBoneLocation(HeadBone) : GetActorLocation() + FVector(0, 0, 62.f * RoleScale);
+    const FVector ChestPos = Body->GetBoneIndex(ChestBone) != INDEX_NONE ? Body->GetBoneLocation(ChestBone) : GetActorLocation() + FVector(0, 0, 26.f * RoleScale);
+    const FVector ArmLPos = Body->GetBoneIndex(ArmLBone) != INDEX_NONE ? Body->GetBoneLocation(ArmLBone) : ChestPos + ChestRot.RotateVector(FVector(0, -18.f, 10.f) * RoleScale);
+    const FVector ArmRPos = Body->GetBoneIndex(ArmRBone) != INDEX_NONE ? Body->GetBoneLocation(ArmRBone) : ChestPos + ChestRot.RotateVector(FVector(0, 18.f, 10.f) * RoleScale);
 
     if (RoninKasa)
-        RoninKasa->SetWorldLocationAndRotation(HeadPos + HeadRot.RotateVector(FVector(0.f, 0.f, 8.f)), HeadRot);
+    {
+        RoninKasa->SetWorldScale3D(ScaleVec);
+        RoninKasa->SetWorldLocationAndRotation(HeadPos + HeadRot.RotateVector(FVector(-4.0f, 0.f, 24.8f) * RoleScale), HeadRot);
+    }
     if (RoninMenpo)
-        RoninMenpo->SetWorldLocationAndRotation(HeadPos + HeadRot.RotateVector(FVector(2.5f, 0.f, -2.f)), HeadRot);
+    {
+        RoninMenpo->SetWorldScale3D(ScaleVec);
+        RoninMenpo->SetWorldLocationAndRotation(HeadPos + HeadRot.RotateVector(FVector(6.5f, 0.f, 9.5f) * RoleScale), HeadRot);
+    }
+    if (RoninDo)
+    {
+        RoninDo->SetWorldScale3D(ScaleVec);
+        RoninDo->SetWorldLocationAndRotation(ChestPos + ChestRot.RotateVector(FVector(-0.4f, 0.f, -5.0f) * RoleScale), ChestRot);
+    }
     if (RoninSodeL)
-        RoninSodeL->SetWorldLocationAndRotation(ArmLPos + ChestRot.RotateVector(FVector(0.f, -6.f, -4.f)), ChestRot * FRotator(0.f, -90.f, 0.f).Quaternion());
+    {
+        RoninSodeL->SetWorldScale3D(ScaleVec);
+        RoninSodeL->SetWorldLocationAndRotation(
+            ArmLPos + ChestRot.RotateVector(FVector(0.f, -9.5f, -5.5f) * RoleScale),
+            ChestRot * FRotator(0.f, -90.f, 0.f).Quaternion() * FRotator(16.f, 0.f, 0.f).Quaternion());
+    }
     if (RoninSodeR)
-        RoninSodeR->SetWorldLocationAndRotation(ArmRPos + ChestRot.RotateVector(FVector(0.f, 6.f, -4.f)), ChestRot * FRotator(0.f, 90.f, 0.f).Quaternion());
+    {
+        RoninSodeR->SetWorldScale3D(ScaleVec);
+        RoninSodeR->SetWorldLocationAndRotation(
+            ArmRPos + ChestRot.RotateVector(FVector(0.f, 9.5f, -5.5f) * RoleScale),
+            ChestRot * FRotator(0.f, 90.f, 0.f).Quaternion() * FRotator(16.f, 0.f, 0.f).Quaternion());
+    }
+    if (RoninSubWeapon)
+    {
+        RoninSubWeapon->SetWorldScale3D(ScaleVec);
+        RoninSubWeapon->SetWorldLocationAndRotation(
+            ChestPos + ChestRot.RotateVector(FVector(-4.0f, -20.0f, -22.0f) * RoleScale),
+            ChestRot * FRotator(-65.f, -12.f, 0.f).Quaternion());
+    }
     if (RoninSashimono)
-        RoninSashimono->SetWorldLocationAndRotation(ChestPos + ChestRot.RotateVector(FVector(-12.f, 0.f, -10.f)), ChestRot);
+    {
+        RoninSashimono->SetWorldScale3D(ScaleVec);
+        RoninSashimono->SetWorldLocationAndRotation(ChestPos + ChestRot.RotateVector(FVector(-17.5f, 0.f, -10.f) * RoleScale), ChestRot);
+    }
     if (RoninWeapon && Moves)
     {
         FVector Base, Tip, Major;
@@ -293,6 +381,7 @@ void ASwordTrainer::UpdateRoninAttachments()
             const FVector BladeDir = (Tip - Base).GetSafeNormal();
             const FVector EdgeDir = Major.IsNearlyZero() ? GetActorForwardVector() : Major;
             const FQuat WeaponRot = FRotationMatrix::MakeFromZX(BladeDir, EdgeDir).ToQuat();
+            RoninWeapon->SetWorldScale3D(ScaleVec);
             RoninWeapon->SetWorldLocationAndRotation(Base, WeaponRot);
         }
     }
@@ -309,6 +398,7 @@ void ASwordTrainer::AlertCamp(AWandererCharacter* Player)
         if (FVector::Dist2D(Member->CampOrigin, CampOrigin) > 2500.f) continue;
         Member->Opponent = Player;
         Member->ReleaseAll();
+        if (Member->Moves) Member->Moves->SetCombatTarget(Player);
         if (Member->Moves && !Member->Moves->IsArmed() && !Member->Moves->IsBusy()) Member->Press(TEXT("weapon"));
         if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>())
             Encounters->Engage(Member, 3200.f, 100);
@@ -421,7 +511,10 @@ float ASwordTrainer::SparringDamage(int32 Power) const
     return Super::SparringDamage(Power) * GetStyle().Damage;
 }
 
-const FTrainerStyle& ASwordTrainer::GetStyle() const { return Styles[FMath::Clamp(Level, 0, 2)]; }
+const FTrainerStyle& ASwordTrainer::GetStyle() const
+{
+    return bHostileRonin ? RoninStyles[FMath::Clamp(RoninRole, 0, 2)] : Styles[FMath::Clamp(Level, 0, 2)];
+}
 
 float ASwordTrainer::GetHealthFraction() const
 {
@@ -551,6 +644,7 @@ void ASwordTrainer::EndBout(const FString& Why)
     if (Bout == EBout::Home || Bout == EBout::Return) return;
     CloseMenu();
     ReleaseAll();
+    if (Moves) Moves->SetCombatTarget(nullptr);
     Bout = EBout::Return; BoutTime = 0.f;
     SetIntent(TEXT("return"));
     if (!Why.IsEmpty()) Say(Why);
@@ -585,7 +679,11 @@ void ASwordTrainer::FaceToward(const FVector& Where, float Dt)
 {
     const FVector To = (Where - GetActorLocation()) * FVector(1, 1, 0);
     if (To.SizeSquared() < 1.f || !Controller) return;
-    Controller->SetControlRotation(FRotator(0, To.Rotation().Yaw, 0));
+    const float TargetYaw = float(To.Rotation().Yaw);
+    Controller->SetControlRotation(FRotator(0, TargetYaw, 0));
+    // OpenGothic Npc::turnToEnemy: hostile Ronin continuously pivot their body toward the target when not knocked down.
+    if (bHostileRonin && (!Moves || !Moves->IsDown()))
+        SetActorRotation(FRotator(0, FMath::FixedTurn(float(GetActorRotation().Yaw), TargetYaw, 720.f * Dt), 0));
 }
 
 // ----------------------------------------------------------------------------------------------------------- Brain
@@ -615,6 +713,7 @@ void ASwordTrainer::Tick(float Dt)
 void ASwordTrainer::AdvanceHome(float Dt)
 {
     Drive(FVector2D::ZeroVector, 0);
+    if (Moves) Moves->SetCombatTarget(nullptr);
     if (bHostileRonin)
     {
         DefeatCooldown = FMath::Max(0.f, DefeatCooldown - Dt);
@@ -677,6 +776,7 @@ void ASwordTrainer::AdvanceReady(float Dt)
 {
     AWandererCharacter* P = Opponent.Get();
     if (!P) { EndBout(TEXT("")); return; }
+    if (Moves) Moves->SetCombatTarget(P);
     FaceToward(P->GetActorLocation(), Dt);
     const float D = FVector::Dist2D(P->GetActorLocation(), GetActorLocation());
     // Sword out, then a step back to a fair distance, guard up.
@@ -697,6 +797,7 @@ void ASwordTrainer::AdvanceOver(float Dt)
 {
     Drive(FVector2D::ZeroVector, 0);
     Hold(TEXT("guard"), false); Hold(TEXT("attack"), false);
+    if (Moves) Moves->SetCombatTarget(nullptr);
     if (bHostileRonin)
     {
         if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>()) Encounters->End(this);
@@ -725,6 +826,7 @@ void ASwordTrainer::AdvanceOver(float Dt)
 void ASwordTrainer::AdvanceReturn(float Dt)
 {
     ReleaseAll();
+    if (Moves) Moves->SetCombatTarget(nullptr);
     if (Moves->IsArmed() && !Moves->IsBusy()) Press(TEXT("weapon"));
     const float D = FVector::Dist2D(Home, GetActorLocation());
     if (D > 60.f && BoutTime < 12.f) { FaceToward(Home, Dt); Drive(FVector2D(0.f, 1.f), 0); return; }
@@ -742,6 +844,7 @@ void ASwordTrainer::AdvanceFight(float Dt)
         if (bHostileRonin)
         {
             if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>()) Encounters->End(this);
+            if (Moves) Moves->SetCombatTarget(nullptr);
             ReleaseAll(); Bout = EBout::Return; BoutTime = 0.f; SetIntent(TEXT("return")); Restore(this);
             return;
         }
@@ -752,6 +855,7 @@ void ASwordTrainer::AdvanceFight(float Dt)
     if (Mine <= 0.f || Their <= 0.f)
     {
         ReleaseAll();
+        if (Moves) Moves->SetCombatTarget(nullptr);
         if (UJapanEncounters* Encounters = GetWorld()->GetSubsystem<UJapanEncounters>()) Encounters->End(this);
         Bout = EBout::Over; BoutTime = 0.f; SetIntent(TEXT("over"));
         if (bHostileRonin)
@@ -770,6 +874,7 @@ void ASwordTrainer::AdvanceFight(float Dt)
     const FTrainerStyle& S = GetStyle();
     const FVector Here = GetActorLocation(), There = P->GetActorLocation();
     const float Distance = FVector::Dist2D(Here, There);
+    if (Moves) Moves->SetCombatTarget(P);
     FaceToward(There, Dt);
     Cooldown = FMath::Max(0.f, Cooldown - Dt);
     PressGap = FMath::Max(0.f, PressGap - Dt);
@@ -851,11 +956,37 @@ void ASwordTrainer::AdvanceFight(float Dt)
         return;
     }
     // Anti-turtle guard-break mixup: if the opponent holds guard continuously, pressure with a guard-breaking heavy/charge opening.
-    if (bHostileRonin && bCanTakeTicket && OpponentGuardTime > .5f && Level > 0 && Cooldown <= .15f && Distance < 340.f && !Moves->IsBusy())
+    if (bHostileRonin && bCanTakeTicket && OpponentGuardTime > .4f && Level > 0 && Cooldown <= .2f && Distance < 350.f && !Moves->IsBusy())
     {
         Cooldown = 0.f;
         Forced = Dice.FRand() < .6f ? TEXT("charge") : TEXT("jump");
         Open(Distance);
+        return;
+    }
+    if (bHostileRonin)
+    {
+        // Zelda BotW / OpenGothic 3-man crescent surround formation with peer separation so foes flank from distinct angles.
+        FVector PeerRepulse = FVector::ZeroVector;
+        for (TActorIterator<ASwordTrainer> It(GetWorld()); It; ++It)
+        {
+            if (*It == this || !It->IsHostileRonin() || It->bDefeated || It->Bout != EBout::Fighting) continue;
+            const FVector Away = (Here - It->GetActorLocation()) * FVector(1, 1, 0);
+            const float PeerDist = Away.Size2D();
+            if (PeerDist > 1.f && PeerDist < 220.f)
+                PeerRepulse += Away.GetSafeNormal2D() * ((220.f - PeerDist) / 220.f);
+        }
+        const float RoleWant = !bCanTakeTicket ? 345.f : (RoninRole == 0 ? 245.f : (RoninRole == 1 ? 265.f : 285.f));
+        const float RoleRadial = Distance > RoleWant + 35.f ? 1.f : (Distance < RoleWant - 45.f ? -.85f : 0.f);
+        const FVector ToPlayerDir = (There - Here).GetSafeNormal2D();
+        const FVector RightOfView = FVector(-ToPlayerDir.Y, ToPlayerDir.X, 0.f);
+        const float FlankBias = RoninRole == 0 ? 1.f : (RoninRole == 1 ? -1.f : StrafeSign * .65f);
+        const float Lateral = FMath::Clamp(FlankBias * .75f + FVector::DotProduct(PeerRepulse, RightOfView) * 1.35f, -1.f, 1.f);
+        const float Forward = FMath::Clamp(RoleRadial + FVector::DotProduct(PeerRepulse, ToPlayerDir) * .75f, -1.f, 1.f);
+        GuardSwitch -= Dt;
+        if (GuardSwitch <= 0.f) { bGuardUp = Dice.FRand() < S.GuardUp; GuardSwitch = Dice.FRandRange(.7f, 1.8f); }
+        Hold(TEXT("guard"), bGuardUp || !bCanTakeTicket || Distance < 340.f);
+        Drive(FVector2D(Lateral, Forward), Distance > RoleWant + 85.f ? 1 : 0);
+        if (bCanTakeTicket && Cooldown <= 0.f && !Moves->IsBusy() && Dice.FRand() < S.Aggression * Dt) Open(Distance);
         return;
     }
     // Her guard is up for a share of the time (the level's), down for the rest: then she steps in or out, facing.
@@ -982,10 +1113,20 @@ bool ASwordTrainer::Press_Attack(float Dt, float Distance)
     if (Kind == TEXT("combo") || Kind == TEXT("charge"))
     {
         // Close in (guard down, running), then cut; the move set homes the cut the last steps.
-        if (Distance > 175.f && !Moves->IsAttacking() && !bAirStep)
+        const float StrikeReach = bHostileRonin ? (RoninRole == 2 ? 235.f : 195.f) : 175.f;
+        if (Distance > StrikeReach && !Moves->IsAttacking() && !bAirStep)
         {
-            Hold(TEXT("guard"), false); Drive(FVector2D(0.f, 1.f), 1);
+            Hold(TEXT("guard"), bHostileRonin); Drive(FVector2D(0.f, 1.f), 1);
             return true;
+        }
+        if (bHostileRonin)
+        {
+            Hold(TEXT("guard"), false);
+            if (const AWandererCharacter* P = Opponent.Get())
+            {
+                const FVector To = (P->GetActorLocation() - GetActorLocation()) * FVector(1, 1, 0);
+                if (To.SizeSquared() > 1.f) SetActorRotation(FRotator(0, To.Rotation().Yaw, 0));
+            }
         }
         Drive(FVector2D::ZeroVector, 1);
         bAirStep = true;   // in range: the attack has begun

@@ -186,6 +186,8 @@ public:
     float GetParam(const TCHAR* Key, float Default = 0.f) const;
     const FAdventureMove* Find(FName Name) const { return Moves.Find(Name); }
     AActor* GetTarget() const { return Target.Get(); }
+    void SetCombatTarget(AActor* NewTarget) { CombatTarget = NewTarget; }
+    AActor* GetCombatTarget() const { return CombatTarget.Get(); }
     int32 HitsLanded() const { return HitCount; }
     int32 Parries() const { return ParryCount; }
     int32 Dodges() const { return DodgeCount; }
@@ -253,6 +255,7 @@ private:
     TMap<FString, float> Params;
     TMap<FName, FSlot> Slots;
     TWeakObjectPtr<AActor> Target;
+    TWeakObjectPtr<AActor> CombatTarget;
 
     EAdventureMoveMode Mode = EAdventureMoveMode::Ground;
     // Input

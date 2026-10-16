@@ -8,14 +8,11 @@ Exports:
 """
 import json
 import math
-import os
 import random
-import shutil
 import sys
 from pathlib import Path
 
 import bpy
-import numpy as np
 from mathutils import Euler, Matrix, Vector
 
 HERE = Path(__file__).resolve().parent
@@ -221,22 +218,23 @@ class ProcMesh:
 
 
 def build_kasa(m: ProcMesh, origin=(0, 0, 0)):
+    """Scout's woven bamboo Sandogasa with domed crown, inner hachimaki headband, and cheek-to-chin cord."""
     old = m.push(origin)
     n_rad = 32
-    n_rings = 10
-    R_outer = 0.34
-    H_cone = 0.145
+    n_rings = 12
+    R_outer = 0.36
+    H_cone = 0.230
     rings_top, rings_bot, rings_uv = [], [], []
     for jr in range(n_rings + 1):
         f = jr / n_rings
         r = 0.02 + (R_outer - 0.02) * f
-        z = H_cone * (1.0 - f ** 0.88)
+        z = H_cone * (1.0 - (f ** 1.55))
         rt, rb, ruv = [], [], []
         for i in range(n_rad):
             a = 2 * math.pi * i / n_rad
             cs, sn = math.cos(a), math.sin(a)
             rt.append((r * cs, r * sn, z))
-            rb.append((r * cs, r * sn, z - 0.007))
+            rb.append((r * cs, r * sn, z - 0.008))
             px = 512.0 + (f * 462.0) * cs
             py = 512.0 + (f * 462.0) * sn
             ruv.append(px_uv(px, py))
@@ -249,26 +247,189 @@ def build_kasa(m: ProcMesh, origin=(0, 0, 0)):
             uv_q = [rings_uv[jr][i], rings_uv[jr][i1], rings_uv[jr+1][i1], rings_uv[jr+1][i]]
             m.quad([rings_top[jr][i], rings_top[jr][i1], rings_top[jr+1][i1], rings_top[jr+1][i]], uv_q, smooth=True)
             m.quad([rings_bot[jr][i1], rings_bot[jr][i], rings_bot[jr+1][i], rings_bot[jr+1][i1]], uv_q, smooth=True)
-    m.torus((0, 0, -0.002), R_outer, 0.014, UV_INDIGO, n_maj=32, n_min=8)
+    m.tube((0.015, 0, -0.022), (0.015, 0, 0.035), 0.162, 0.158, UV_INDIGO, segs=24, cap=False)
+    m.torus((0, 0, -0.002), R_outer, 0.015, UV_INDIGO, n_maj=32, n_min=8)
     for i in range(20):
         a = 2 * math.pi * i / 20
         cs, sn = math.cos(a), math.sin(a)
-        p0 = (0.035 * cs, 0.035 * sn, H_cone * 0.90 + 0.004)
-        p1 = ((R_outer - 0.012) * cs, (R_outer - 0.012) * sn, 0.004)
-        m.tube(p0, p1, 0.0045, 0.0055, UV_BAMBOO, segs=6, cap=False)
         rx, ry = R_outer * cs, R_outer * sn
-        m.box((rx, ry, -0.002), (0.034, 0.014, 0.032), UV_BAMBOO, bevel=0.003, rot=(0, 0, math.degrees(a)))
-    m.tube((0, 0, H_cone - 0.012), (0, 0, H_cone + 0.016), 0.052, 0.038, UV_INDIGO, segs=16, cap=True)
-    m.tube((0, 0, H_cone + 0.016), (0, 0, H_cone + 0.026), 0.034, 0.018, UV_INDIGO, segs=16, cap=True)
+        m.box((rx, ry, -0.002), (0.034, 0.014, 0.030), UV_BAMBOO, bevel=0.003, rot=(0, 0, math.degrees(a)))
+    m.tube((0, 0, H_cone - 0.012), (0, 0, H_cone + 0.018), 0.056, 0.040, UV_INDIGO, segs=16, cap=True)
+    m.tube((0, 0, H_cone + 0.018), (0, 0, H_cone + 0.030), 0.036, 0.018, UV_BRASS, segs=16, cap=True)
     cord_pts = []
-    for k in range(13):
-        u = (k / 12.0) * 2.0 - 1.0
-        cord_pts.append((u * 0.155, 0.0, -0.155 + 0.145 * (u ** 2)))
+    for k in range(15):
+        u = (k / 14.0) * 2.0 - 1.0
+        cy = u * 0.145
+        cx = 0.04 + 0.065 * (1.0 - u ** 2)
+        cz = -0.210 + 0.205 * (u ** 2)
+        cord_pts.append((cx, cy, cz))
     for p0, p1 in zip(cord_pts[:-1], cord_pts[1:]):
-        m.tube(p0, p1, 0.0085, 0.0085, UV_CRIMSON, segs=8, cap=False)
-    m.torus((0, 0, -0.158), 0.016, 0.009, UV_CRIMSON, n_maj=12, n_min=6, axis='Y')
-    m.tube((-0.009, 0, -0.165), (-0.016, 0, -0.235), 0.007, 0.009, UV_CRIMSON, segs=8, cap=True)
-    m.tube(( 0.009, 0, -0.165), ( 0.016, 0, -0.235), 0.007, 0.009, UV_CRIMSON, segs=8, cap=True)
+        m.tube(p0, p1, 0.0075, 0.0075, UV_CRIMSON, segs=8, cap=False)
+    m.torus((0.105, 0, -0.212), 0.014, 0.007, UV_CRIMSON, n_maj=12, n_min=6, axis='X')
+    m.xf = old
+
+
+def build_jingasa(m: ProcMesh, origin=(0, 0, 0)):
+    """Guard's dark lacquered iron war-hat (Jingasa) with brass ribs, front crescent crest, and rear shikoro neck lames."""
+    old = m.push(origin)
+    n_rad = 32
+    n_rings = 10
+    R_outer = 0.33
+    H_dome = 0.225
+    rings_top, rings_bot, rings_uv = [], [], []
+    for jr in range(n_rings + 1):
+        f = jr / n_rings
+        r = 0.02 + (R_outer - 0.02) * f
+        z = H_dome * (1.0 - (f ** 1.55)) - 0.022 * (f ** 2)
+        rt, rb, ruv = [], [], []
+        for i in range(n_rad):
+            a = 2 * math.pi * i / n_rad
+            cs, sn = math.cos(a), math.sin(a)
+            rt.append((r * cs, r * sn, z))
+            rb.append((r * cs, r * sn, z - 0.009))
+            px = 1536.0 + (f * 450.0) * cs
+            py = 512.0 + (f * 450.0) * sn
+            ruv.append(px_uv(px, py))
+        rings_top.append(rt)
+        rings_bot.append(rb)
+        rings_uv.append(ruv)
+    for jr in range(n_rings):
+        for i in range(n_rad):
+            i1 = (i + 1) % n_rad
+            uv_q = [rings_uv[jr][i], rings_uv[jr][i1], rings_uv[jr+1][i1], rings_uv[jr+1][i]]
+            m.quad([rings_top[jr][i], rings_top[jr][i1], rings_top[jr+1][i1], rings_top[jr+1][i]], uv_q, smooth=True)
+            m.quad([rings_bot[jr][i1], rings_bot[jr][i], rings_bot[jr+1][i], rings_bot[jr+1][i1]], UV_IRON, smooth=True)
+    m.tube((0.012, 0, -0.020), (0.012, 0, 0.030), 0.164, 0.160, UV_IRON, segs=24, cap=False)
+    m.torus((0, 0, -0.022), R_outer, 0.011, UV_BRASS, n_maj=32, n_min=8)
+    for i in range(8):
+        a = 2 * math.pi * i / 8
+        cs, sn = math.cos(a), math.sin(a)
+        pts_rib = []
+        for k in range(7):
+            fk = 0.12 + 0.85 * (k / 6.0)
+            rk = 0.02 + (R_outer - 0.02) * fk
+            zk = H_dome * (1.0 - (fk ** 1.55)) - 0.022 * (fk ** 2) + 0.005
+            pts_rib.append((rk * cs, rk * sn, zk))
+        for p0, p1 in zip(pts_rib[:-1], pts_rib[1:]):
+            m.tube(p0, p1, 0.006, 0.005, UV_BRASS if i == 0 else UV_IRON, segs=6, cap=False)
+    m.tube((0, 0, H_dome - 0.01), (0, 0, H_dome + 0.024), 0.048, 0.022, UV_BRASS, segs=16, cap=True)
+    for side in (-1, 1):
+        for k in range(6):
+            t0, t1 = k / 6.0, (k + 1) / 6.0
+            p0 = (0.22 - 0.02 * t0, side * (0.010 + 0.105 * t0), 0.055 + 0.095 * (t0 ** 1.35))
+            p1 = (0.22 - 0.02 * t1, side * (0.010 + 0.105 * t1), 0.055 + 0.095 * (t1 ** 1.35))
+            m.tube(p0, p1, 0.015 * (1.0 - 0.65 * t0), 0.015 * (1.0 - 0.65 * t1), UV_BRASS, segs=8, cap=True)
+    for tier in range(3):
+        zt0 = -0.018 - tier * 0.040
+        zt1 = zt0 - 0.036
+        rt0 = 0.195 + tier * 0.016
+        rt1 = rt0 + 0.018
+        n_arc = 14
+        for ia in range(n_arc):
+            u0, u1 = ia / n_arc, (ia + 1) / n_arc
+            a0 = math.radians(48.0 + u0 * 264.0)
+            a1 = math.radians(48.0 + u1 * 264.0)
+            p00 = (rt0 * math.cos(a0), rt0 * math.sin(a0), zt0)
+            p01 = (rt0 * math.cos(a1), rt0 * math.sin(a1), zt0)
+            p11 = (rt1 * math.cos(a1), rt1 * math.sin(a1), zt1)
+            p10 = (rt1 * math.cos(a0), rt1 * math.sin(a0), zt1)
+            uv_q = rect_uvs(1036 + u0 * 980, 100 + tier * 260, 1036 + u1 * 980, 340 + tier * 260)
+            m.quad([p00, p01, p11, p10], uv_q, smooth=True)
+            m.quad([p01, p00, p10, p11], UV_IRON, smooth=True)
+    m.xf = old
+
+
+def build_kabuto(m: ProcMesh, origin=(0, 0, 0)):
+    """Captain's ornate horned Samurai Kabuto helmet with smooth continuous forged golden Kuwagata horns."""
+    old = m.push(origin)
+    n_rad = 32
+    n_rings = 10
+    R_bowl = 0.225
+    H_bowl = 0.230
+    rings_top, rings_bot, rings_uv = [], [], []
+    for jr in range(n_rings + 1):
+        f = jr / n_rings
+        r = 0.02 + (R_bowl - 0.02) * f
+        z = H_bowl * (1.0 - (f ** 2.1))
+        rt, rb, ruv = [], [], []
+        for i in range(n_rad):
+            a = 2 * math.pi * i / n_rad
+            cs, sn = math.cos(a), math.sin(a)
+            rx = r * cs * 1.06 - 0.012
+            ry = r * sn * 0.96
+            rt.append((rx, ry, z))
+            rb.append((rx * 0.96, ry * 0.96, z - 0.008))
+            px = 1288 + (0.5 + 0.45 * cs * f) * 240
+            py = 1800 + (0.5 + 0.45 * sn * f) * 240
+            ruv.append(px_uv(px, py))
+        rings_top.append(rt)
+        rings_bot.append(rb)
+        rings_uv.append(ruv)
+    for jr in range(n_rings):
+        for i in range(n_rad):
+            i1 = (i + 1) % n_rad
+            uv_q = [rings_uv[jr][i], rings_uv[jr][i1], rings_uv[jr+1][i1], rings_uv[jr+1][i]]
+            m.quad([rings_top[jr][i], rings_top[jr][i1], rings_top[jr+1][i1], rings_top[jr+1][i]], uv_q, smooth=True)
+            m.quad([rings_bot[jr][i1], rings_bot[jr][i], rings_bot[jr+1][i], rings_bot[jr+1][i1]], UV_IRON, smooth=True)
+    m.tube((0.005, 0, -0.020), (0.005, 0, 0.025), 0.168, 0.165, UV_IRON, segs=24, cap=False)
+    m.torus((-0.012, 0, H_bowl), 0.036, 0.010, UV_BRASS, n_maj=18, n_min=6)
+    m.torus((-0.012, 0, 0.004), R_bowl, 0.012, UV_BRASS, n_maj=32, n_min=8)
+    n_vis = 12
+    for iv in range(n_vis):
+        u0, u1 = iv / n_vis, (iv + 1) / n_vis
+        a0 = math.radians(-62.0 + u0 * 124.0)
+        a1 = math.radians(-62.0 + u1 * 124.0)
+        r_in, r_out = R_bowl * 0.98, R_bowl + 0.068 * math.cos((u0 - 0.5) * math.pi * 0.9)
+        r_out1 = R_bowl + 0.068 * math.cos((u1 - 0.5) * math.pi * 0.9)
+        p00 = (r_in * math.cos(a0), r_in * math.sin(a0), 0.018)
+        p01 = (r_in * math.cos(a1), r_in * math.sin(a1), 0.018)
+        p11 = (r_out1 * math.cos(a1), r_out1 * math.sin(a1), -0.008)
+        p10 = (r_out * math.cos(a0), r_out * math.sin(a0), -0.008)
+        m.quad([p00, p01, p11, p10], UV_CRIMSON, smooth=True)
+        m.quad([p01, p00, p10, p11], UV_BRASS, smooth=True)
+    m.box((R_bowl + 0.015, 0, 0.055), (0.022, 0.088, 0.052), UV_BRASS, bevel=0.005)
+    m.tube((R_bowl + 0.018, 0, 0.095), (R_bowl + 0.032, 0, 0.095), 0.046, 0.044, UV_CRIMSON, segs=18)
+    m.torus((R_bowl + 0.025, 0, 0.095), 0.046, 0.007, UV_BRASS, n_maj=18, n_min=6, axis='X')
+    for side in (-1, 1):
+        n_h = 14
+        ring_list = []
+        for k in range(n_h + 1):
+            t = k / n_h
+            cy = side * (0.028 + 0.215 * (t ** 0.92))
+            cz = 0.052 + 0.255 * (t ** 1.18)
+            cx = R_bowl + 0.022 - 0.040 * (t ** 1.4)
+            w = 0.034 * (1.0 + 0.35 * math.sin(t * math.pi * 0.85)) * (1.0 - 0.78 * (t ** 2.2))
+            th = 0.006 * (1.0 - 0.5 * t)
+            ty, tz = -side * 0.65, 0.76
+            ring_list.append([
+                (cx + th, cy - ty * w, cz - tz * w),
+                (cx + th, cy + ty * w, cz + tz * w),
+                (cx - th, cy + ty * w, cz + tz * w),
+                (cx - th, cy - ty * w, cz - tz * w),
+            ])
+        for k in range(n_h):
+            r0, r1 = ring_list[k], ring_list[k+1]
+            for j in range(4):
+                j1 = (j + 1) % 4
+                m.quad([r0[j], r0[j1], r1[j1], r1[j]], UV_BRASS, smooth=True)
+        m.quad(ring_list[-1], UV_BRASS, smooth=False)
+    for tier in range(4):
+        zt0 = 0.002 - tier * 0.040
+        zt1 = zt0 - 0.036
+        rt0 = 0.205 + tier * 0.018
+        rt1 = rt0 + 0.020
+        n_arc = 16
+        for ia in range(n_arc):
+            u0, u1 = ia / n_arc, (ia + 1) / n_arc
+            a0 = math.radians(65.0 + u0 * 230.0)
+            a1 = math.radians(65.0 + u1 * 230.0)
+            p00 = (rt0 * math.cos(a0) - 0.012, rt0 * math.sin(a0), zt0)
+            p01 = (rt0 * math.cos(a1) - 0.012, rt0 * math.sin(a1), zt0)
+            p11 = (rt1 * math.cos(a1) - 0.012, rt1 * math.sin(a1), zt1)
+            p10 = (rt1 * math.cos(a0) - 0.012, rt1 * math.sin(a0), zt1)
+            uv_q = rect_uvs(1036 + u0 * 980, 40 + tier * 230, 1036 + u1 * 980, 260 + tier * 230)
+            m.quad([p00, p01, p11, p10], uv_q, smooth=True)
+            m.quad([p01, p00, p10, p11], UV_IRON, smooth=True)
     m.xf = old
 
 
@@ -312,6 +473,72 @@ def build_menpo(m: ProcMesh, origin=(0, 0, 0)):
     for side in (-1, 1):
         m.torus((0.015, side * 0.092, 0.032), 0.014, 0.006, UV_CRIMSON, n_maj=10, n_min=6, axis='Y')
         m.torus((0.012, side * 0.082, -0.025), 0.012, 0.005, UV_CRIMSON, n_maj=10, n_min=6, axis='Y')
+    m.xf = old
+
+
+def build_do(m: ProcMesh, origin=(0, 0, 0)):
+    """Lacquered Samurai Do torso cuirass with clear arm channels and front/back kusazuri waist tassets."""
+    old = m.push(origin)
+    n_tiers = 5
+    n_seg = 28
+    for tier in range(n_tiers):
+        v0, v1 = tier / n_tiers, (tier + 1) / n_tiers
+        z0 = -0.145 + v0 * 0.220
+        z1 = -0.145 + v1 * 0.220 + 0.005
+        scale_xy0 = 0.98 + 0.05 * math.sin(v0 * math.pi * 0.85)
+        scale_xy1 = 0.98 + 0.05 * math.sin(v1 * math.pi * 0.85)
+        for i in range(n_seg):
+            u0, u1 = i / n_seg, (i + 1) / n_seg
+            a0, a1 = 2 * math.pi * u0, 2 * math.pi * u1
+            am = 0.5 * (a0 + a1)
+            if tier >= 3 and (abs(math.sin(am)) > 0.76):
+                continue
+            def ring_pt(ang, sc_xy, zz):
+                cs, sn = math.cos(ang), math.sin(ang)
+                corner = 0.022 * (cs * cs) * (sn * sn) * 4.0
+                rx = ((0.166 if cs >= 0 else 0.168) + corner) * sc_xy
+                ry = (0.192 + corner) * sc_xy
+                return (rx * cs, ry * sn, zz)
+            p00 = ring_pt(a0, scale_xy0, z0)
+            p01 = ring_pt(a1, scale_xy0, z0)
+            p11 = ring_pt(a1, scale_xy1, z1)
+            p10 = ring_pt(a0, scale_xy1, z1)
+            uv_q = rect_uvs(1036 + u0 * 980, 40 + v0 * 920, 1036 + u1 * 980, 40 + v1 * 920)
+            m.quad([p00, p01, p11, p10], uv_q, smooth=True)
+            b00 = (p00[0]*0.95, p00[1]*0.95, z0)
+            b01 = (p01[0]*0.95, p01[1]*0.95, z0)
+            b11 = (p11[0]*0.95, p11[1]*0.95, z1)
+            b10 = (p10[0]*0.95, p10[1]*0.95, z1)
+            m.quad([b01, b00, b10, b11], UV_IRON, smooth=True)
+    m.torus((0, 0, -0.142), 0.182, 0.022, UV_CRIMSON, n_maj=28, n_min=8)
+    m.tube((0.164, 0, 0.015), (0.176, 0, 0.015), 0.044, 0.042, UV_BRASS, segs=16)
+    for side in (-1, 1):
+        sy = side * 0.115
+        for k in range(6):
+            t0, t1 = k / 6.0, (k + 1) / 6.0
+            a0, a1 = math.radians(-55 + t0 * 110), math.radians(-55 + t1 * 110)
+            p0 = (0.142 * math.sin(a0), sy, 0.070 + 0.068 * math.cos(a0))
+            p1 = (0.142 * math.sin(a1), sy, 0.070 + 0.068 * math.cos(a1))
+            m.box(((p0[0]+p1[0])*0.5, sy, (p0[2]+p1[2])*0.5), (0.042, 0.040, 0.018), UV_CRIMSON, bevel=0.004)
+    for base_ang in (-42, 0, 42, 138, 180, 222):
+        for kt in range(3):
+            zv0, zv1 = -0.152 - kt * 0.036, -0.152 - (kt + 1) * 0.036
+            fl0, fl1 = 1.05 + kt * 0.06, 1.05 + (kt + 1) * 0.06
+            for ks in range(4):
+                u0, u1 = ks / 4.0, (ks + 1) / 4.0
+                a0 = math.radians(base_ang - 19.0 + u0 * 38.0)
+                a1 = math.radians(base_ang - 19.0 + u1 * 38.0)
+                def k_pt(ang, fl, zz):
+                    cs, sn = math.cos(ang), math.sin(ang)
+                    corner = 0.024 * (cs * cs) * (sn * sn) * 4.0
+                    return ((0.172 + corner) * fl * cs, (0.192 + corner) * fl * sn, zz)
+                p00 = k_pt(a0, fl0, zv0)
+                p01 = k_pt(a1, fl0, zv0)
+                p11 = k_pt(a1, fl1, zv1)
+                p10 = k_pt(a0, fl1, zv1)
+                uv_q = rect_uvs(1036 + u0 * 980, 120 + kt * 280, 1036 + u1 * 980, 380 + kt * 280)
+                m.quad([p00, p01, p11, p10], uv_q, smooth=True)
+                m.quad([p01, p00, p10, p11], UV_IRON, smooth=True)
     m.xf = old
 
 
@@ -715,11 +942,15 @@ def main():
     manifest = {}
     assets = [
         ('SM_RoninKasa', lambda m: build_kasa(m)),
+        ('SM_GuardJingasa', lambda m: build_jingasa(m)),
+        ('SM_CaptainKabuto', lambda m: build_kabuto(m)),
         ('SM_RoninMenpo', lambda m: build_menpo(m)),
+        ('SM_RoninDo', lambda m: build_do(m)),
         ('SM_RoninSode', lambda m: build_sode(m)),
         ('SM_RoninSashimono', lambda m: build_sashimono(m)),
         ('SM_RoninKatana', lambda m: build_sword(m, blade_len=0.72, hilt_len=0.24, curve=0.030, sheathed=False)),
         ('SM_RoninNodachi', lambda m: build_sword(m, blade_len=1.06, hilt_len=0.34, curve=0.046, sheathed=False)),
+        ('SM_RoninWakizashi', lambda m: build_sword(m, blade_len=0.46, hilt_len=0.16, curve=0.018, sheathed=True, red_saya=False)),
         ('SM_CampJinmaku', lambda m: build_jinmaku(m)),
         ('SM_CampFirePit', lambda m: build_firepit(m)),
         ('SM_CampWeaponRack', lambda m: build_weapon_rack_clean(m)),
@@ -735,33 +966,32 @@ def main():
     if showcase:
         SITE_ASSETS.mkdir(parents=True, exist_ok=True)
         kit_ronin = ProcMesh('RoninArmorKit')
-        build_kasa(kit_ronin, origin=(-0.62, 0.0, 0.42))
-        old = kit_ronin.push((-0.05, 0.0, 0.56), rot=(78, 0, 0), scale=(0.68, 0.68, 0.68))
-        build_kasa(kit_ronin)
-        kit_ronin.xf = old
+        build_kasa(kit_ronin, origin=(-0.72, 0.0, 0.45))
+        build_jingasa(kit_ronin, origin=(0.0, 0.0, 0.45))
+        build_kabuto(kit_ronin, origin=(0.68, 0.0, 0.45))
         old = kit_ronin.push((-0.72, -0.05, -0.02), rot=(0, 0, -90), scale=(1.28, 1.28, 1.28))
         build_menpo(kit_ronin)
+        kit_ronin.xf = old
+        old = kit_ronin.push((0.0, 0.0, -0.05), rot=(0, 0, -90))
+        build_do(kit_ronin)
         kit_ronin.xf = old
         old = kit_ronin.push((-0.38, 0.0, -0.04), rot=(0, -8, -72))
         build_sode(kit_ronin)
         kit_ronin.xf = old
-        old = kit_ronin.push((0.02, 0.0, -0.04), rot=(0, 8, -108))
+        old = kit_ronin.push((0.38, 0.0, -0.04), rot=(0, 8, -108))
         build_sode(kit_ronin)
         kit_ronin.xf = old
-        old = kit_ronin.push((0.68, 0.0, -0.32), rot=(0, 0, 0))
+        old = kit_ronin.push((0.82, 0.0, -0.32), rot=(0, 0, 0))
         build_sashimono(kit_ronin)
         kit_ronin.xf = old
-        old = kit_ronin.push((-0.68, 0.0, -0.30), rot=(0, 90, 0))
-        build_sword(kit_ronin, blade_len=0.68, hilt_len=0.22, curve=0.028, sheathed=False)
+        old = kit_ronin.push((-0.68, 0.0, -0.34), rot=(0, 90, 0))
+        build_sword(kit_ronin, blade_len=0.72, hilt_len=0.24, curve=0.030, sheathed=False)
         kit_ronin.xf = old
-        old = kit_ronin.push((-0.74, 0.0, -0.46), rot=(0, 90, 0))
-        build_sword(kit_ronin, blade_len=0.88, hilt_len=0.28, curve=0.038, sheathed=False)
-        kit_ronin.xf = old
-        old = kit_ronin.push((0.12, 0.0, -0.32), rot=(0, 90, 0))
-        build_sword(kit_ronin, blade_len=0.68, hilt_len=0.22, curve=0.028, sheathed=True, red_saya=False)
+        old = kit_ronin.push((-0.74, 0.0, -0.50), rot=(0, 90, 0))
+        build_sword(kit_ronin, blade_len=1.06, hilt_len=0.34, curve=0.046, sheathed=False)
         kit_ronin.xf = old
         export_fbx_and_glb(kit_ronin, None, glb_name='ronin_kit_scene')
-        render_showcase(kit_ronin, SITE_ASSETS / 'render_ronin_kit.png', cam_loc=(0.0, -2.8, 0.15), cam_target=(0.0, 0.0, 0.10), ortho_scale=2.25)
+        render_showcase(kit_ronin, SITE_ASSETS / 'render_ronin_kit.png', cam_loc=(0.0, -2.9, 0.15), cam_target=(0.0, 0.0, 0.10), ortho_scale=2.45)
 
         kit_camp = ProcMesh('CampPropsKit')
         old = kit_camp.push((-1.45, 0.55, 0.35), rot=(0, 0, 18), scale=(0.68, 0.68, 0.68))

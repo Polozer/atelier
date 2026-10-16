@@ -21,11 +21,26 @@ for f in os.listdir(OUT):
 
 pc = unreal.GameplayStatics.get_player_controller(L.game_world(), 0)
 rng = random.Random(19)
-st = {'frames': [], 'errors': [], 'sim': 0, 'film': 0, 'rec': False, 'label': '', 'cam_eye': None, 't': 0., 'next': 0.}
+st = {'frames': [], 'errors': [], 'facing_samples': [], 'sim': 0, 'film': 0, 'rec': False, 'label': '', 'cam_eye': None, 't': 0., 'next': 0.}
 
 # Camp center in Blender (-54.0, -94.0, 8.1) -> UE cm (-5400.0, 9400.0, 810.0)
 CAMP_UE = unreal.Vector(-5400.0, 9400.0, 810.0)
 APPROACH_UE = unreal.Vector(-5450.0, 8350.0, 950.0)
+
+
+def camp_ronin():
+    actors = unreal.GameplayStatics.get_all_actors_of_class(L.game_world(), unreal.SwordTrainer)
+    out = []
+    for a in actors:
+        loc = a.get_actor_location()
+        if math.hypot(loc.x - CAMP_UE.x, loc.y - CAMP_UE.y) < 3200.0:
+            out.append(a)
+    out.sort(key=lambda a: a.get_actor_scale3d().z)
+    return out
+
+
+def wrap_deg(d):
+    return (d + 180.0) % 360.0 - 180.0
 
 
 def trainer():
@@ -57,20 +72,39 @@ def cut():
 
 def camp_camera(mode='side'):
     p = L.player().get_actor_location()
+    ronin = camp_ronin()
     k = trainer().get('location') or [CAMP_UE.x, CAMP_UE.y, CAMP_UE.z + 90.0]
     if mode == 'overview':
-        eye = unreal.Vector(CAMP_UE.x + 120.0, CAMP_UE.y - 720.0, CAMP_UE.z + 280.0)
-        at = unreal.Vector(CAMP_UE.x - 40.0, CAMP_UE.y + 120.0, CAMP_UE.z + 95.0)
-        MV.review_camera(eye, at, 65.0)
+        eye = unreal.Vector(CAMP_UE.x + 110.0, CAMP_UE.y - 640.0, CAMP_UE.z + 240.0)
+        at = unreal.Vector(CAMP_UE.x - 20.0, CAMP_UE.y + 110.0, CAMP_UE.z + 95.0)
+        MV.review_camera(eye, at, 60.0)
         return
-    mx, my, mz = (p.x + k[0]) * 0.5, (p.y + k[1]) * 0.5, (p.z + k[2]) * 0.5
+    if mode == 'squad_closeup' and ronin:
+        cx = sum(a.get_actor_location().x for a in ronin) / len(ronin)
+        cy = sum(a.get_actor_location().y for a in ronin) / len(ronin)
+        cz = sum(a.get_actor_location().z for a in ronin) / len(ronin)
+        dx, dy = p.x - cx, p.y - cy
+        n = math.hypot(dx, dy) or 1.0
+        ux, uy = dx / n, dy / n
+        rx, ry = -uy, ux
+        eye = unreal.Vector(cx + ux * 280.0 + rx * 95.0, cy + uy * 280.0 + ry * 95.0, cz + 52.0)
+        at = unreal.Vector(cx, cy, cz + 28.0)
+        MV.review_camera(eye, at, 50.0)
+        return
+    if ronin:
+        cx = (p.x + sum(a.get_actor_location().x for a in ronin)) / (1 + len(ronin))
+        cy = (p.y + sum(a.get_actor_location().y for a in ronin)) / (1 + len(ronin))
+        cz = (p.z + sum(a.get_actor_location().z for a in ronin)) / (1 + len(ronin))
+        mx, my, mz = (p.x + cx) * 0.5, (p.y + cy) * 0.5, (p.z + cz) * 0.5
+    else:
+        mx, my, mz = (p.x + k[0]) * 0.5, (p.y + k[1]) * 0.5, (p.z + k[2]) * 0.5
     dx, dy = k[0] - p.x, k[1] - p.y
     n = math.hypot(dx, dy) or 1.0
-    ex, ey = mx - dy / n * 330.0, my + dx / n * 330.0
-    eye = unreal.Vector(ex, ey, mz + 125.0)
+    ex, ey = mx - dy / n * 310.0 - dx / n * 85.0, my + dx / n * 310.0 - dy / n * 85.0
+    eye = unreal.Vector(ex, ey, mz + 95.0)
     st['cam_eye'] = eye if st.get('cam_eye') is None else st['cam_eye'] * 0.88 + eye * 0.12
-    at = unreal.Vector(mx, my, mz + 30.0)
-    MV.review_camera(st['cam_eye'], at, 62.0)
+    at = unreal.Vector(mx, my, mz + 24.0)
+    MV.review_camera(st['cam_eye'], at, 56.0)
 
 
 def approach_scene():
@@ -100,21 +134,30 @@ def approach_scene():
 def combat_scene():
     """Scene 2 & 3: Camp alert, sword combos, parries, whiff-punishes, and charged spin."""
     st['cam_eye'] = None
-    label('Camp Alert: Kasa Ronin draw their blades & coordinate via UJapanEncounters')
+    label('Camp Alert: Scout (Indigo Kasa), Guard (Jade Jingasa) & Captain (Crimson Kabuto)')
     t = 0.0
-    while t < 11.0:
+    while t < 12.0:
         dt = (yield)
         st['t'] += dt
         t += dt
         p = L.player().get_actor_location()
+        ronin = camp_ronin()
+        if t > 1.2 and ronin:
+            errs = []
+            for a in ronin:
+                al = a.get_actor_location()
+                want_yaw = math.degrees(math.atan2(p.y - al.y, p.x - al.x))
+                cur_yaw = a.get_actor_rotation().yaw
+                errs.append(round(abs(wrap_deg(want_yaw - cur_yaw)), 1))
+            st['facing_samples'].append(errs)
         k = trainer().get('location') or [CAMP_UE.x, CAMP_UE.y, CAMP_UE.z + 90.0]
         yaw = math.degrees(math.atan2(k[1] - p.y, k[0] - p.x))
         pc.set_control_rotation(unreal.Rotator(roll=0, pitch=-8, yaw=yaw))
         d = math.hypot(k[0] - p.x, k[1] - p.y)
-        if t > 3.5 and t < 7.0:
-            st['label'] = 'Sword Clash: Pre-primed blade sweeps, directional staggers & parries'
-        elif t >= 7.0:
-            st['label'] = 'Charged Spin & Guard Break against the Kasa Ronin squad'
+        if t > 2.4 and t < 7.2:
+            st['label'] = 'Crescent Flank & Sword Clash: 360-deg lock-on, parries & blade sweeps'
+        elif t >= 7.2:
+            st['label'] = 'Warlord Duel: Charged Spin & Guard Break against the Ronin squad'
         if st.get('release') and st['t'] > st['release']:
             live.press('guard_release')
             st['release'] = None
@@ -149,7 +192,10 @@ def combat_scene():
                     live.drive(rng.choice([-1.0, 1.0]), 0.0, 'run')
                     live.press('dodge')
                     st['next'] = st['t'] + 0.9
-        camp_camera('side')
+        if t < 2.2:
+            camp_camera('squad_closeup')
+        else:
+            camp_camera('side')
     cut()
 
 
@@ -189,7 +235,7 @@ def finish():
     live.drive(0.0)
     L.fixed_step(0)
     MV.restore_player_camera()
-    json.dump({'frames': st['frames'], 'errors': st['errors']}, open(os.path.join(OUT, 'done.json'), 'w'))
+    json.dump({'frames': st['frames'], 'errors': st['errors'], 'facing_samples': st['facing_samples']}, open(os.path.join(OUT, 'done.json'), 'w'))
     unreal.log('RONIN FILM DONE')
 
 

@@ -128,7 +128,9 @@ void UAdventureMoveSet::StartCut(int32 Index)
     // Adventure homes a cut onto the enemy it is aimed at: a quick step in when it stands beyond the blade's reach. The cuts'
     // clips open mid-swing, so the step is short and the blow keeps landing until it has closed in.
     LungeTime = 0.f; LungeTarget = nullptr; bLungePoint = false;
-    if (AActor* Focus = Target.IsValid() ? Target.Get() : FindTarget(Reach() + 300.f, 75.f))
+    AActor* DirectFocus = (CombatTarget.IsValid() && IsTargetable(CombatTarget.Get())) ? CombatTarget.Get()
+        : (Target.IsValid() ? Target.Get() : FindTarget(Reach() + 300.f, 75.f));
+    if (AActor* Focus = DirectFocus)
     {
         float Radius = 0.f, Half = 0.f;
         Focus->GetSimpleCollisionCylinder(Radius, Half);
@@ -149,7 +151,8 @@ void UAdventureMoveSet::StartCut(int32 Index)
 /** Turns to the nearest enemy in reach and in front (a soft lock), else to the stick. */
 void UAdventureMoveSet::Face(float Range)
 {
-    AActor* Focus = Target.IsValid() ? Target.Get() : FindTarget(Range, 70.f);
+    AActor* Focus = (CombatTarget.IsValid() && IsTargetable(CombatTarget.Get())) ? CombatTarget.Get()
+        : (Target.IsValid() ? Target.Get() : FindTarget(Range, 70.f));
     FVector Toward = Focus ? FVector(Focus->GetActorLocation() - Character->GetActorLocation()) : Wish();
     Toward.Z = 0.;
     if (Toward.SizeSquared() > 1.) Character->SetActorRotation(FRotator(0, Toward.Rotation().Yaw, 0));
@@ -248,6 +251,16 @@ void UAdventureMoveSet::AdvanceCombat(float Dt)
     const FName Name = Now ? Now->Name : NAME_None;
     LungeTime = FMath::Max(0.f, LungeTime - Dt);
     if (!IsAttack(Name)) { LungeTime = 0.f; ArcEnd = -1.f; }
+    if (Now && bArmed && IsAttack(Name) && !bDriving && CombatTarget.IsValid() && IsTargetable(CombatTarget.Get()))
+    {
+        const float FirstActive = Now->Active.Num() ? Now->Active[0].X : Now->End;
+        if (SourceTime() <= FirstActive + .04f)
+        {
+            const FVector To = (CombatTarget->GetActorLocation() - Character->GetActorLocation()) * FVector(1, 1, 0);
+            if (To.SizeSquared() > 1.f)
+                Character->SetActorRotation(FRotator(0, FMath::FixedTurn(Character->GetActorRotation().Yaw, To.Rotation().Yaw, 900.f * Dt), 0));
+        }
+    }
     // The blade hits inside the playing clip's active windows: what it sweeps through, and what stands in its arc; a
     // homing cut's arc lasts until it has closed in.
     const bool bActive = Now && bArmed && Now->Active.Num() && Now->InWindow(Now->Active, SourceTime());
@@ -277,10 +290,16 @@ void UAdventureMoveSet::AdvanceCombat(float Dt)
             TArray<FVector> Blade; BladePoints(Blade);
             if (FX && Blade.Num()) FX->ChargeTick(Blade[0], Blade.Last(), FMath::Clamp(ChargeTime / Full, 0.f, 1.f), Dt);
             if (!bFullCharge && ChargeTime >= Full) { bFullCharge = true; if (Blade.Num() && !JapanCombat::Publish(Character, EJapanCombatCue::ChargeReady, Blade.Last(), FVector::ZeroVector, 0.f, Character) && FX) FX->ChargeReady(Blade.Last()); }
+            if (CombatTarget.IsValid() && IsTargetable(CombatTarget.Get()))
+            {
+                const FVector To = (CombatTarget->GetActorLocation() - Character->GetActorLocation()) * FVector(1, 1, 0);
+                if (To.SizeSquared() > 1.f)
+                    Character->SetActorRotation(FRotator(0, FMath::FixedTurn(Character->GetActorRotation().Yaw, To.Rotation().Yaw, 720.f * Dt), 0));
+            }
             if (!bAttackHeld || Character->Stamina.Exhausted)
             {
                 bCharging = false;
-                if (ChargeTime >= GetParam(TEXT("MinCharge"), .5f)) { Play(TEXT("ChargeSpin"), .06f); BeginDrive(true); }
+                if (ChargeTime >= GetParam(TEXT("MinCharge"), .5f)) { Face(700.f); Play(TEXT("ChargeSpin"), .06f); BeginDrive(true); }
                 else Stop(.15f);
             }
         }
