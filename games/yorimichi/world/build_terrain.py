@@ -147,7 +147,7 @@ def main():
         # The old inset rectangle exposed a tall pale wall at the northern edge.
         # So does the Mega Park trail's approach ground north of the square (megapark/trail.py).
         mask=contains(FX,FY)|in_approach(FX,FY)
-        FZ[mask]=np.minimum(FZ[mask],north_height(FX,FY)[mask]-25)
+        FZ[mask]=np.minimum(FZ[mask],north_height(FX,FY,carved=False)[mask]-25)
         from belmonte import terrain as belmonte_terrain
         FZ=belmonte_terrain.old_backdrop(FZ,FX,FY)
 
