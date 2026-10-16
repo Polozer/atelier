@@ -388,9 +388,9 @@ def build_sashimono(m: ProcMesh, origin=(0, 0, 0)):
             wy1 = 0.008 * math.sin(u1 * math.pi) * math.sin(v1 * math.pi * 1.5)
             uv_q = rect_uvs(u0 * 1024, 1024 + vt0 * 1024, u1 * 1024, 1024 + vt1 * 1024)
             p00, p01, p11, p10 = (xx0, wy0 - 0.003, zz0), (xx1, wy1 - 0.003, zz0), (xx1, wy1 - 0.003, zz1), (xx0, wy0 - 0.003, zz1)
-            m.quad([p10, p11, p01, p00], uv_q, smooth=True, alpha=[u0 * 0.6, u1 * 0.6, u1 * 0.6, u0 * 0.6])
+            m.quad([p10, p11, p01, p00], uv_q, smooth=True, alpha=[(1.0 - u0) * 0.6, (1.0 - u1) * 0.6, (1.0 - u1) * 0.6, (1.0 - u0) * 0.6])
             q00, q01, q11, q10 = (xx0, wy0 + 0.003, zz0), (xx1, wy1 + 0.003, zz0), (xx1, wy1 + 0.003, zz1), (xx0, wy0 + 0.003, zz1)
-            m.quad([q00, q01, q11, q10], uv_q, smooth=True, alpha=[u0 * 0.6, u1 * 0.6, u1 * 0.6, u0 * 0.6])
+            m.quad([q00, q01, q11, q10], uv_q, smooth=True, alpha=[(1.0 - u0) * 0.6, (1.0 - u1) * 0.6, (1.0 - u1) * 0.6, (1.0 - u0) * 0.6])
     m.xf = old
 
 

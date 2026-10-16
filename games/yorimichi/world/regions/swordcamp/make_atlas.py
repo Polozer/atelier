@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Assemble the 2048x2048 Sunburst UV texture atlas for the procedural Kasa Ronin & Mini-Camp assets."""
-import math
+import sys
 from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-REPO = Path(__file__).resolve().parents[5]
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[4]
+sys.path.insert(0, str(HERE.parents[1]))
+import yori  # noqa: E402
+
 CONCEPTS = REPO / 'games' / 'yorimichi' / 'assets' / 'swordcamp' / 'concepts'
 TEX = REPO / 'games' / 'yorimichi' / 'assets' / 'swordcamp' / 'textures'
 TH_TEX = REPO / 'games' / 'yorimichi' / 'assets' / 'treehouse' / 'textures'
-SITE_ASSETS = REPO / 'build' / 'yorimichi' / 'swordcamp' / 'site'
 
 
 def clean_sandogasa(im):
@@ -25,7 +28,7 @@ def clean_sandogasa(im):
 
 def build_atlas(out_jpg=None):
     if out_jpg is None:
-        out_jpg = REPO / 'build' / 'yorimichi' / 'swordcamp' / 'swordcamp_atlas.jpg'
+        out_jpg = yori.OUT / 'swordcamp' / 'swordcamp_atlas.jpg'
     out_jpg = Path(out_jpg)
     out_jpg.parent.mkdir(parents=True, exist_ok=True)
     atlas = Image.new('RGB', (2048, 2048), (45, 42, 38))
