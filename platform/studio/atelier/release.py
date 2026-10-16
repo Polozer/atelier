@@ -338,7 +338,7 @@ def select_release(github, metadata, claim):
         except TransportError as error:
             # These responses affirm rejection. Unknown/timeout/5xx outcomes can
             # have committed and stay observation-only, including on a new CLI run.
-            if error.certificate or error.code in (400, 401, 403, 404, 405, 410, 422):
+            if error.certificate or error.code in (400, 401, 403, 404, 405, 410, 422, 429):
                 claim.save('not-created')
                 raise
         else:
@@ -355,7 +355,8 @@ def select_release(github, metadata, claim):
         if attempt + 1 < ATTEMPTS:
             github.stop.wait(attempt + 1)
     raise PublishError('release creation remains unconfirmed; no second create was sent; '
-                       'rerun the same command to observe it, or choose a new tag')
+                       'rerun the same command to observe it, or choose a new tag; '
+                       f'retained claim: {claim.path}')
 
 
 def publish_assets(github, stage, metadata, *, workers, revalidate):

@@ -365,7 +365,7 @@ def test_invalid_success_response_preserves_intent_then_observes_accepted_draft(
     assert github.events.count(('POST', 'releases')) == 1
 
 
-@pytest.mark.parametrize('code,certificate', [(401, False), (403, False), (None, True)])
+@pytest.mark.parametrize('code,certificate', [(401, False), (403, False), (429, False), (None, True)])
 def test_confirmed_rejected_create_can_retry_after_auth_or_certificate_fix(package, code, certificate):
     stage = package[2]; prepare(package)
     github = GitHub(); original = github.api
