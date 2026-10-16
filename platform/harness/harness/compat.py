@@ -53,5 +53,12 @@ class _LegacyHarness(importlib.abc.MetaPathFinder):
 
 
 def install():
-    if not any(isinstance(finder, _LegacyHarness) for finder in sys.meta_path):
-        sys.meta_path.insert(0, _LegacyHarness())
+    # Replace Studio's deferred adapter once Harness is actually used. Keeping it
+    # out of ordinary imports also avoids unrelated world-input dependencies.
+    sys.meta_path[:] = [finder for finder in sys.meta_path
+                        if not getattr(finder, '_atelier_harness_bootstrap', False)]
+    finder = next((finder for finder in sys.meta_path if isinstance(finder, _LegacyHarness)), None)
+    if finder is None:
+        finder = _LegacyHarness()
+        sys.meta_path.insert(0, finder)
+    return finder

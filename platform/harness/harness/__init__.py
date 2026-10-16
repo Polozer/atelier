@@ -1,1 +1,4 @@
-"""Agent messaging, shared-machine admission and guarded execution for Atelier."""
+"""Agent communication, resource admission and guarded process ownership."""
+from .compat import install as _install
+_install()
+del _install

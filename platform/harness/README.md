@@ -44,11 +44,18 @@ machines that have not activated full admission.
 The implementation namespace is `atelier.harness`, installed with the same Atelier distribution. Existing imports
 such as `atelier.board`, `atelier.capacity_client` and `atelier.safety.guarded` remain lazy aliases to the same module
 objects, including their class identities. Existing `python -m atelier.safety.guarded` commands continue to work.
-New code should import `atelier.harness` directly.
+New code should import `atelier.harness` directly. Ordinary Studio imports load no Harness modules; the legacy
+adapter is deferred until a legacy coordination import is requested.
 
 Embedded Blender and Unreal interpreters can keep adding only `platform/studio` to their Python path: Atelier mounts
 the Harness source package from there. Wheel installs contain the nested package normally. The static build-input
 scanner also follows Harness imports so source changes remain part of action fingerprints.
+
+Adopting this source relocation invalidates affected build inputs once, including world generators that import
+Atelier's shared package initializer. Preserve warm products and run the ordinary incremental plan/build at a
+child-free update boundary; downstream content cutoffs still decide which native imports need work. Never edit
+or fabricate old stamps to hide that refresh. Later Harness-only loader edits do not enter an unrelated generator's
+input closure.
 
 This relocation does not migrate machine state. Cache paths, service labels, wire formats, guard reports and broker
 policies retain their identities. Installed frozen service checkouts keep running until an explicit service update.

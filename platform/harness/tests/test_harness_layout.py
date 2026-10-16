@@ -60,3 +60,17 @@ def test_static_recipe_scan_reaches_harness_and_shared_studio_code(tmp_path):
     assert paths.HARNESS / 'harness' / 'compat.py' in found
     script.write_text('from atelier import board_web\n')
     assert paths.HARNESS / 'harness' / 'board_web.py' in ImportScanner().local_imports(script)
+
+
+def test_ordinary_authoring_import_does_not_load_harness():
+    code = ('import sys; from atelier import paths; '
+            'assert not any(n.startswith("atelier.harness") for n in sys.modules)')
+    subprocess.run([sys.executable, '-S', '-c', code], check=True, timeout=10,
+                   env={**os.environ, 'PYTHONPATH': str(paths.STUDIO)}, capture_output=True)
+
+
+def test_ordinary_authoring_scan_does_not_depend_on_harness(tmp_path):
+    from atelier.build_inputs import ImportScanner
+    script = tmp_path / 'generator.py'
+    script.write_text('from atelier import paths\n')
+    assert not any(p.is_relative_to(paths.HARNESS) for p in ImportScanner().local_imports(script))
