@@ -8,6 +8,8 @@ its own is overwritten. After copying, every full fingerprint must match. APFS c
 used elsewhere. Only successful, current source stamps are carried over.
 """
 import ctypes
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import os
@@ -15,6 +17,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import stat
+import time
 import uuid
 
 from . import paths
@@ -22,6 +26,7 @@ from . import build_snapshot
 
 # Send our inspector to the receiving checkout's interpreter; its imports resolve there.
 INSPECT = Path(__file__).with_name('reuse_inspect.py').read_text()
+TRANSACTION_WAIT_SECONDS = 30.
 
 
 def git(repo, *args):
@@ -104,7 +109,38 @@ def _staging(game, target, identifier):
     return target / 'build' / game / 'logs' / f'reuse-copy-{identifier}.guard' / 'stamps'
 
 
+@contextmanager
+def _transaction(game, target):
+    """Serialize final publication with abandonment, without holding it during admission waits."""
+    folder = target / 'build' / game / 'logs'
+    folder.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(folder / '.reuse-transaction.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(descriptor, 'r+b') as lock:
+        info = os.fstat(lock.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            raise ValueError('Reuse transaction mutex must be an owned regular single-link file')
+        deadline = time.monotonic() + TRANSACTION_WAIT_SECONDS
+        spoken = time.monotonic()
+        while True:
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Receiving checkout is still finalizing or abandoning reuse; no files changed') from None
+                if time.monotonic() - spoken >= 5:
+                    print('Waiting for the receiving checkout reuse transaction to finish', flush=True)
+                    spoken = time.monotonic()
+                time.sleep(.05)
+        yield
+
+
 def _publish(game, target, identifier):
+    with _transaction(game, target):
+        return _publish_locked(game, target, identifier)
+
+
+def _publish_locked(game, target, identifier):
     """Publish the complete stamp directory only after successful outer guarded execution."""
     out = target / 'build' / game
     journal = out / build_snapshot.JOURNAL
@@ -259,6 +295,14 @@ def _copy(game, source, target=None, *, operation_id):
 
 
 def _abandon(game, target=None):
+    target = Path(target or paths.REPO).resolve()
+    if '/' in game or game in ('.', '..'):
+        raise ValueError('Invalid game ID')
+    with _transaction(game, target):
+        return _remove_partial(game, target)
+
+
+def _remove_partial(game, target):
     """Remove only the recorded generated copy, preserving tracked sources and diagnostic logs."""
     target = Path(target or paths.REPO).resolve()
     if '/' in game or game in ('.', '..'):

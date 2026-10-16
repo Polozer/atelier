@@ -90,6 +90,51 @@ def test_worker_stages_stamps_until_parent_observes_guard_success(snapshot):
     assert not staged.exists()
 
 
+@pytest.mark.parametrize('first', ['publish', 'abandon'])
+def test_publication_and_abandonment_cannot_race_through_commit(snapshot, monkeypatch, first):
+    import concurrent.futures
+    import subprocess
+    import threading
+    source, target = snapshot
+    assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+    subprocess.run(['git', '-C', str(target), 'init', '-q'], check=True)
+    monkeypatch.setattr(reuse, 'TRANSACTION_WAIT_SECONDS', .15)
+    ready, proceed = threading.Event(), threading.Event()
+    staged = reuse._staging('standin', target, '0' * 32)
+    rename, remove = Path.rename, reuse._remove_partial
+    def paused_rename(path, destination):
+        if path == staged:
+            ready.set()
+            assert proceed.wait(3), 'publication test was not resumed'
+        return rename(path, destination)
+    def paused_remove(*args):
+        ready.set()
+        assert proceed.wait(3), 'abandonment test was not resumed'
+        return remove(*args)
+    monkeypatch.setattr(Path, 'rename', paused_rename)
+    monkeypatch.setattr(reuse, '_remove_partial', paused_remove)
+    publish = lambda: reuse._publish('standin', target, '0' * 32)
+    abandon = lambda: reuse._abandon('standin', target)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as workers:
+        operation = workers.submit(publish if first == 'publish' else abandon)
+        try:
+            assert ready.wait(3), 'first transaction did not reach the controlled commit window'
+            other = workers.submit(abandon if first == 'publish' else publish)
+            with pytest.raises(RuntimeError, match='still finalizing or abandoning'):
+                other.result(timeout=2)
+        finally:
+            proceed.set()
+        operation.result(timeout=3)
+    if first == 'publish':
+        assert (target / 'build/standin/stamps/export.json').is_file()
+        assert (target / 'games/standin/unreal/Content/Leaf.uasset').is_file()
+    else:
+        with pytest.raises(FileNotFoundError):
+            publish()
+        assert not (target / 'build/standin/stamps').exists()
+        assert not (target / 'games/standin/unreal/Content/Leaf.uasset').exists()
+
+
 @pytest.mark.parametrize('damage', ['changed', 'missing', 'extra'])
 def test_damaged_staged_stamps_cannot_be_published(snapshot, damage):
     source, target = snapshot
