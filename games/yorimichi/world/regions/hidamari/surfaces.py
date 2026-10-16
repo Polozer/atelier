@@ -7,7 +7,8 @@ name their colours after what they are (iz_tin, mc_plaster, sento_granite...). A
 the key of the nearest palette colour (same hue, any brightness within a factor 1.5). 'flat' is the vertex colour
 alone: lamps and glass, which glow; cloth, paper, signs and lettering, which carry their own pattern; leaves and
 water. Painted colours and any key no rule names get 'paint'. UVs stay as the village Mesh writes them, in metres; the material tiles by the texture's
-size.
+size. 'road' is the island road's own MI_Road (shared_materials.py) on faces that carry their own UVs (Mesh.uvs: face
+index to its corners' UVs), so the arrival road runs on from the island road in its tone, grain and markings.
 """
 import math, re
 from functools import lru_cache
@@ -15,6 +16,7 @@ import bpy
 from village import build as v
 
 RULES = [
+    ('road', r'^ar_island_road$'),          # MI_Road, on the UVs the face carries
     ('rice', r'^ar_rice'),                  # before 'flat' (stalk) and 'grass' (lawn)
     ('drystone', r'drystone'),
     ('blockwall', r'block_concrete'),
@@ -110,6 +112,9 @@ def export(m):
     def textured(_material):
         ob = make(material(used[0]))
         data = ob.data
+        uv = data.uv_layers['UVMap'].data
+        for f, corners in getattr(m, 'uvs', {}).items():
+            for li, c in zip(data.polygons[f].loop_indices, corners): uv[li].uv = c
         for s in used[1:]: data.materials.append(material(s))
         data.polygons.foreach_set('material_index', [index[s] for s in per_face])
         return ob

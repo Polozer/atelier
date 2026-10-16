@@ -18,12 +18,12 @@ def is_skirt(points):
     return any(p[:2] == q[:2] and p[2] != q[2] for p in points for q in points)
 
 
-class Mesh:
+class Mesh:   # village.build.Mesh, as far as the ribbon uses it
     def __init__(self):
-        self.polys = []
+        self.polys, self.faces = [], []
 
     def poly(self, points, key):
-        self.polys.append((points, key))
+        self.polys.append((points, key)); self.faces.append(tuple(range(len(points))))
 
 
 def hillside(x, y):
@@ -115,3 +115,21 @@ def test_skirts_hang_only_below_the_shoulders_outer_edges_and_start(island):
     assert len(start) == 2 * 2 * across
     for s in start:   # under the shoulders only, never a lip across the road
         assert all(abs((x - c[0])*n[0] + (y - c[1])*n[1]) > arrival.SHOULDER[0] for x, y, _ in s)
+
+
+def test_asphalt_carries_the_island_roads_own_uvs_in_phase(island):
+    m = Mesh()
+    arrival._ribbon(m, hillside)
+    asphalt = [i for i, (points, key) in enumerate(m.polys) if key == 'ar_island_road']
+    assert asphalt and sorted(m.uvs) == asphalt          # every asphalt face, and only those, carries the road's UVs
+    assert not any(key == 'ar_road_line' for _, key in m.polys)   # the markings are the road texture's own
+    step = np.hypot(END[0] - 250., END[1] - 60.)          # the fixture road: two points, the last of index 1
+    pts, normals, dist = arrival._samples()
+    for i in asphalt:
+        for (x, y, _), (u, v) in zip(m.polys[i][0], m.uvs[i]):
+            k = min(range(len(pts)), key=lambda j: np.hypot(x - pts[j][0] - normals[j][0]*(u*5.2 - 2.6),
+                                                             y - pts[j][1] - normals[j][1]*(u*5.2 - 2.6)))
+            assert 0. <= u <= 1. and v == pytest.approx((1 + dist[k]/step)/8)
+    start = [uv for i in asphalt for (x, y, _), uv in zip(m.polys[i][0], m.uvs[i])
+             if np.hypot(x - END[0], y - END[1]) < 2.7 and uv[1] == pytest.approx(1/8)]
+    assert sorted(round(u, 6) for u, _ in start) == [0., .25, .25, .5, .5, .75, .75, 1.]   # right edge 0, left 1

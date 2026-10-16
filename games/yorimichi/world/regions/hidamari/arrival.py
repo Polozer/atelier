@@ -29,7 +29,7 @@ PALETTE = {'ar_paddy_earth': (.22, .15, .065), 'ar_stubble_row': (.40, .29, .10)
            'ar_hokora_timber': (.30, .17, .08), 'ar_hokora_roof': (.08, .09, .10), 'ar_red_cloth': (.60, .07, .04),
            'ar_shrine_stone': (.32, .31, .28), 'ar_gate_timber': (.22, .12, .06), 'ar_gate_roof': (.07, .08, .09),
            'ar_gate_stone': (.30, .29, .26), 'ar_gate_sign': (.70, .64, .50), 'ar_lantern_glow': (1., .55, .25),
-           'ar_road_asphalt': (.085, .085, .09), 'ar_road_gravel': (.17, .155, .13), 'ar_road_line': (.62, .60, .55),
+           'ar_island_road': (.085, .085, .09), 'ar_road_gravel': (.17, .155, .13),
            'ar_rice_canopy': (.42, .32, .09), 'ar_rice_canopy_shade': (.29, .22, .07), 'ar_rice_side': (.22, .19, .07)}
 
 
@@ -299,7 +299,6 @@ def _samples():
 ASPHALT = (-2.6, -1.3, 0., 1.3, 2.6)                   # cross-section offsets (left positive): the island road's width
 SHOULDER = (2.6, 2.8, 3., 3.2, 3.4)                     # a gravel shoulder, from the asphalt's edge out to the ground:
 #                                                         fine enough across to follow the island terrain's creases
-LINES = ((-2.45, -2.33), (2.33, 2.45))
 
 
 def _shoulder(side):
@@ -327,25 +326,32 @@ def _sections(height):
     return out
 
 
+def road_uv(s, t):
+    """The island road's own UV (build_terrain.py) carried on t metres past its end, s metres left of the centre line:
+    u from its right edge (0) to its left (1), v an eighth per road point, so its markings run on in phase."""
+    road = _world()['road']; k = max(range(len(road)), key=lambda i: road[i][0])
+    step = math.hypot(road[k][0]-road[k-1][0], road[k][1]-road[k-1][1])
+    return (s-ASPHALT[0])/(ASPHALT[-1]-ASPHALT[0]), (k+t/step)/8
+
+
 def _ribbon(m, height):
-    """The road itself, draped on the hillside from the island road's end to the gate: asphalt with white edge
-    lines and gravel shoulders (the terrain's grid is too coarse to draw a narrow diagonal road)."""
-    sections = _sections(height)
+    """The road itself, draped on the hillside from the island road's end to the gate: the island road's asphalt and
+    markings (MI_Road, on its UVs) and gravel shoulders (the terrain's grid is too coarse to draw a narrow diagonal
+    road)."""
+    sections = _sections(height); dist = _samples()[2]
+    if not hasattr(m, 'uvs'): m.uvs = {}                # surfaces.export: the faces that carry their own UVs
     point = lambda c, n, s, z: (c[0]+n[0]*s, c[1]+n[1]*s, z)
-    def strip(offsets, key, lift=0., z=None):
-        for (c, n, zc), (d, o, zd) in zip(sections, sections[1:]):
+    def strip(offsets, key, uv=None):
+        for (c, n, zc), (d, o, zd), t0, t1 in zip(sections, sections[1:], dist, dist[1:]):
             for lo, hi in zip(offsets, offsets[1:]):
-                za = (lambda zz, s: zz[s]) if z is None else z
-                m.poly([point(c, n, hi, za(zc, hi)+lift), point(c, n, lo, za(zc, lo)+lift),
-                        point(d, o, lo, za(zd, lo)+lift), point(d, o, hi, za(zd, hi)+lift)], key)
-    strip(ASPHALT, 'ar_road_asphalt')
-    def on_asphalt(zz, s):                              # the asphalt's own surface between its section offsets
-        lo = max(a for a in ASPHALT if a <= s); hi = min(a for a in ASPHALT if a >= s)
-        return zz[lo] if hi == lo else zz[lo]+(zz[hi]-zz[lo])*(s-lo)/(hi-lo)
-    for lo, hi in LINES: strip((lo, hi), 'ar_road_line', .01, on_asphalt)
+                faces = len(m.faces)
+                m.poly([point(c, n, hi, zc[hi]), point(c, n, lo, zc[lo]), point(d, o, lo, zd[lo]), point(d, o, hi, zd[hi])], key)
+                if uv and len(m.faces) > faces and len(m.faces[-1]) == 4:
+                    m.uvs[faces] = [uv(hi, t0), uv(lo, t0), uv(lo, t1), uv(hi, t1)]
+    strip(ASPHALT, 'ar_island_road', road_uv)
     for side in (-1, 1):
         offsets = _shoulder(side)
-        strip(offsets if side > 0 else offsets[::-1], 'ar_road_gravel', 0., lambda zz, s: zz[s])
+        strip(offsets if side > 0 else offsets[::-1], 'ar_road_gravel')
     # A short gravel skirt under each shoulder's outer edge and across its start: the shoulder ends FLUSH above the
     # drawn ground, and the skirt closes what little light could show under it.
     g = ground(height)

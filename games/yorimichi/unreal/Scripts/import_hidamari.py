@@ -29,6 +29,10 @@ water_mat=harbor_material(water=True) if not only or 'HD_Sea' in only else None
 report=json.loads((OUT/'import-report.json').read_text()) if only and (OUT/'import-report.json').exists() else {}
 # The textured city (world/regions/hidamari/surfaces.py): a manifest entry with slots has one per surface.
 city_mis=city_material.materials() if any('slots' in e for n,e in manifest.items() if not only or n in only) else {}
+if any('road' in e.get('slots',{}) for n,e in manifest.items() if not only or n in only):
+    # The arrival road runs on from the island road in the island road's own material (shared_materials.py).
+    city_mis['road']=unreal.EditorAssetLibrary.load_asset('/Game/Japan/Materials/MI_Road')
+    assert city_mis['road'],'MI_Road (setup_project) must exist before the arrival road is imported'
 mountain_mat=gate_mat=rock_mat=None
 if north:
     from mountain_material import material as mountain_material,gate_material,rock_material
