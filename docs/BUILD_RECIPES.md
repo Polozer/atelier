@@ -155,7 +155,8 @@ The positive integer limits actual heavy command invocations, including compile 
 cache hits, plain prerequisites and in-process `Call` commands do not spend the budget. A warm batch counts
 as one process, regardless of its action count. After the budget is spent, the build yields with exit 75
 before preparing or admitting the next heavy command; if none remains it succeeds normally. Completed
-stamps and outputs are retained. Recheck Waiting and rerun the same command to resume from those stamps.
+stamps and outputs are retained. Rerun the same command to resume through normal admission.
+Honor a specific release priority or maintenance window before resuming.
 For a step containing multiple heavy commands, a yield partway through leaves that step uncertified;
 resuming reruns it from its first command, so choose a budget large enough for that step. This option
 requires execution and cannot be combined with inspection or `--touch`.
@@ -191,7 +192,7 @@ receipts remain historical diagnostics and do not change product identity or adm
 New individual command receipts identify their command-invocation scope. Historical commands without a recorded
 scope remain labelled unknown; they are not assumed to include shared process startup or shutdown.
 
-A batch uses BIG and the normal 10 GiB actual-child guard. Before each further action, its memory predictor reserves
+A batch uses normal guarded admission and the 10 GiB actual-child guard (BIG only in legacy slot mode). Before each further action, its memory predictor reserves
 headroom using the next action's measured batch growth and the current session's growth. Without batch history it
 falls back to the standalone peak or conservative unknown headroom. Session reports stay separate from standalone
 action peaks. Missing fresh telemetry ends the batch.
@@ -200,8 +201,8 @@ exceed it. This is a cooperative boundary, not a deadline that interrupts an imp
 
 Budget exhaustion saves completed results, exits **75 (yielded)**, and prints `BATCH YIELDED` with counts and a resume
 command. It does not reacquire capacity automatically. `atelier build ... && atelier play ...` intentionally stops
-there. Remaining actions stay `run` in `--plan`; rerun the printed command without `--force` after checking Waiting
-and handing off to other ready work. Retain the original first-ready time in the render board's Waiting entry.
+there. Remaining actions stay `run` in `--plan`; rerun the printed command without `--force` through normal
+admission. Honor any specific release priority or maintenance window; no routine coordinator handoff is needed.
 
 ## Compare certified outputs
 
