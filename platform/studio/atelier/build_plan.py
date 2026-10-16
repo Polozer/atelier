@@ -53,6 +53,7 @@ def _inspect(ctx, steps, wanted, *, force, index):
     from .build_cook import validate_force
     validate_force(ctx, force)
     engine.check_modules(steps)
+    rebuild_names = engine.touched_targets(ctx, steps, wanted)
     graph = build_products.Graph(steps)
     done, uncertain_steps, uncertain_products, decisions = {}, set(), set(), []
     tool_cache = {}
@@ -77,7 +78,7 @@ def _inspect(ctx, steps, wanted, *, force, index):
         from .build_cook import forced
         if forced(ctx, step, force):
             reasons.append('forced')
-        if getattr(ctx, 'rebuild_touched', False) and stamp.get('touched'):
+        if step.name in rebuild_names and stamp.get('touched'):
             reasons.append('replace touched certificate through a completed build')
         if (ctx.stamps / f'{step.name}.restore.json').exists():
             reasons.append('interrupted product restoration')

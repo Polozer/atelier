@@ -557,7 +557,7 @@ def slot_summary(slots):
 def build(game, wanted=(), force=False, dry=False, touch=False, echo=print, verify=False, cook_mode=None, cook_reason=None,
           max_heavy_commands=None, recover_cook=None, record_cook_recovery=False, rebuild_touched=False):
     """@cc [owner:fontanierh,label:correctness] rebuild-touched-certificates
-    An explicit touched-only rebuild MUST replace selected touched certificates through normal
+    An explicit touched-only rebuild MUST replace only explicitly named touched certificates through normal
     execution or verified product restoration, without changing action keys or skipping guards.
     Current proven certificates MUST remain current. Planning MUST explain the same rebuild rule.
     The repair MUST NOT combine with force, touch or cook recording/recovery.
@@ -587,6 +587,15 @@ def build(game, wanted=(), force=False, dry=False, touch=False, echo=print, veri
     with HashIndex(ctx.out / '.state' / 'file-hashes.sqlite3', verify=verify) as index:
         return _build(ctx, wanted, force=force, touch=touch, echo=echo, index=index,
                       max_heavy_commands=max_heavy_commands)
+
+
+def touched_targets(ctx, steps, wanted):
+    if not getattr(ctx, 'rebuild_touched', False):
+        return set()
+    names = set(wanted)
+    if not names or names - {step.name for step in steps}:
+        raise SystemExit('--rebuild-touched requires explicit exact step names, not prefixes or the default build')
+    return names
 
 
 def _build(ctx, wanted, *, force, touch, echo, index, steps=None, produced=None, max_heavy_commands=None):
@@ -653,6 +662,7 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
     game = ctx.game
     if steps is None:
         steps = load_recipe(game).steps(ctx)
+    rebuild_names = touched_targets(ctx, steps, wanted)
     check_modules(steps)
     plan = order(steps, list(wanted))
     from .build_cook import validate_selection
@@ -745,7 +755,7 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
         if (recovering or (step.name == 'unreal.cook' and getattr(ctx, 'record_cook_recovery', False))) and step.cook_recovery is None:
             echo(f'{print_} FAILED: this recipe does not support cook recovery')
             return 1
-        rebuilding_touched = getattr(ctx, 'rebuild_touched', False) and previous.get('touched')
+        rebuilding_touched = step.name in rebuild_names and previous.get('touched')
         if not recovering and not force_step and not rebuilding_touched and previous.get('fingerprint') == current and outputs_ok:
             done[step.name] = result(step, current, previous)
             build_products.feed_results(done, previous.get('products', {}))

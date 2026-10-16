@@ -193,17 +193,44 @@ def test_explicit_touched_rebuild_executes_owner_and_checks_downstream_bytes(sam
     (sample.ctx.stamps / 'consumer.json').write_text(json.dumps(dict(fingerprint=build.fingerprint(consumer, {need.name:fingerprint}))))
     sample.ctx.rebuild_touched = True
     prior = stamp.read_bytes()
-    planned = inspect(sample.ctx, sample.steps, [consumer.name])
+    wanted = [need.name, consumer.name]
+    planned = inspect(sample.ctx, sample.steps, wanted)
     assert planned['steps'][0]['status'] == 'run'
     assert 'replace touched certificate' in planned['steps'][0]['reasons'][0]
     assert stamp.read_bytes() == prior and not events
-    assert sample.run(consumer.name) == 0
+    # sample.run takes one selector; the prerequisite target is explicitly selected for repair.
+    with HashIndex(sample.ctx.out / 'hashes.sqlite3') as index:
+        assert build._build(sample.ctx, wanted, force=False, touch=False, echo=lambda *_: None, index=index, steps=sample.steps) == 0
     assert events == (['owner', 'consumer'] if change_output else ['owner'])
     completed = json.loads(stamp.read_text())
     assert not completed.get('touched') and completed['fingerprint'] == fingerprint
     assert completed['commands'][0]['kind'] == 'Call'
     events.clear()
     assert sample.run(consumer.name) == 0 and not events
+
+
+def test_touched_rebuild_does_not_execute_an_unnamed_touched_ancestor(sample):
+    from atelier.build_plan import inspect
+    need = sample.steps[0]
+    stamp = sample.ctx.stamps / (need.name + '.json')
+    record = json.loads(stamp.read_text()); record['touched'] = True
+    stamp.write_text(json.dumps(record)); prior = stamp.read_bytes()
+    output = sample.ctx.out / 'consumer'; output.write_bytes(b'current')
+    consumer = build.Step('consumer', [], needs=[need.name], outputs=[output])
+    sample.steps.append(consumer)
+    (sample.ctx.stamps / 'consumer.json').write_text(json.dumps(dict(fingerprint=build.fingerprint(consumer,{need.name:record['fingerprint']}))))
+    sample.ctx.rebuild_touched = True
+    assert inspect(sample.ctx,sample.steps,[consumer.name])['steps'][0]['status'] == 'current'
+    assert sample.run(consumer.name) == 0 and stamp.read_bytes() == prior
+
+
+@pytest.mark.parametrize('wanted', [[], ['unreal']])
+def test_touched_rebuild_requires_explicit_exact_names_before_any_execution(sample, wanted):
+    sample.ctx.rebuild_touched = True
+    with HashIndex(sample.ctx.out / 'hashes.sqlite3') as index:
+        with pytest.raises(SystemExit, match='explicit exact step names'):
+            build._build(sample.ctx,wanted,force=False,touch=False,echo=lambda *_:None,index=index,steps=sample.steps)
+    assert not sample.calls
 
 
 def test_normal_build_preserves_current_touched_prerequisite_until_explicit_rebuild(sample):

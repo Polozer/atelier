@@ -75,7 +75,9 @@ uv run atelier build yorimichi STEP... --rebuild-touched --plan --explain
 nice -n 10 uv run atelier build yorimichi STEP... --rebuild-touched
 ```
 
-This replaces touched certificates through normal execution or verified portable-product restoration.
+Use exact step names; prefixes and the default whole-game selection refuse. Only named touched
+certificates are replaced; unnamed touched ancestors are left as they were.
+Replacement uses normal execution or verified portable-product restoration.
 It preserves current proven steps, action keys, caches and normal per-child guards; it never edits the old
 certificate into a success. Inspect the downstream plan afterward and coordinate any required imports
 before the cook. This is separate from recording/recovery and cannot combine with force or touch.
