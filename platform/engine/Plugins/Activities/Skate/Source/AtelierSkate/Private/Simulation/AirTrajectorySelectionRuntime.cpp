@@ -77,8 +77,27 @@ bool AirTrajectoryRuntime::Launch(AirLaunchInfo info, AirSelectorInput input,
   AirTrajectorySelectorSettings plain;
   const bool ballistic=vert_assist_limit<=0.0f && input.directional_input<0.5f;
   if (ballistic) {plain=settings;plain.vert_jump_align_max_ground_normal_y=-2.0f;}
-  if (!selector.Launch(info, input, ballistic?plain:settings, did_launch, error))
+  const auto& used=ballistic?plain:settings;
+  // Wall-follow air: an air already turning keeps turning for what is left of it. A new one takes a launch the
+  // stock alignment aims up a vert wall (never the ballistic zero-assist case), with vert assist above zero, no lean
+  // forward (the align's lean, directional_input - 0.25, at most 0: no transfer), off a concave curved wall measured
+  // just before (WallFollow.h). Its arcs are predicted turning, so the landing found is the one the turn reaches.
+  float latch=0;
+  if (wall_follow.strength>0.0f) {
+    auto& w=wall_follow;
+    if (w.pending||w.active) selector.SetWallFollow(w.curvature,w.Remaining());
+    else {
+      AirLaunchInfo probe=info;const bool aligned=AdjustAirTrajectoryLaunchVelocity(probe,input,used);
+      latch=WallFollowLaunchCurvature(w,aligned,vert_assist,vert_assist_limit,input.directional_input,
+                                      info.start_velocity,input.ground_normal);
+      selector.SetWallFollow(latch,latch!=0.0f?WallFollowAir::MaximumTime:0.0f);
+    }
+  }
+  if (!selector.Launch(info, input, used, did_launch, error))
     return false;
+  if (did_launch && latch!=0.0f) {
+    wall_follow.pending=true;wall_follow.pending_ticks=0;wall_follow.curvature=latch;wall_follow.elapsed=0;
+  }
   if (did_launch && !Submit(world, error))
     return false;
   launched = did_launch;

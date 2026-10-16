@@ -1,4 +1,5 @@
 #include "AirTrajectoryQuery.h"
+#include "WallFollow.h"
 #include <cstring>
 #include <limits>
 #if defined(__clang__)
@@ -140,12 +141,26 @@ Vec4 AirTrajectoryPositionAt(const AirTrajectory &trajectory, float time) {
   for (std::size_t i = 0; i < 4; ++i)
     result[i] = std::fma(trajectory.acceleration[i] * 0.5f, square,
                          std::fma(trajectory.velocity[i], time, trajectory.position[i]));
+  if (trajectory.wall_curvature != 0) {
+    // A wall-follow arc: the horizontal velocity's part turns round the wall (WallFollow.h); the climb and any
+    // horizontal acceleration are the parabola's.
+    const auto arc = WallFollowArcAt(trajectory.velocity[0], trajectory.velocity[2], trajectory.wall_curvature,
+                                     trajectory.wall_follow_time, time);
+    result[0] = float(double(trajectory.position[0]) + arc.dx + 0.5 * trajectory.acceleration[0] * square);
+    result[2] = float(double(trajectory.position[2]) + arc.dz + 0.5 * trajectory.acceleration[2] * square);
+  }
   return result;
 }
 Vec4 AirTrajectoryVelocityAt(const AirTrajectory &trajectory, float time) {
   Vec4 result;
   for (std::size_t i = 0; i < 4; ++i)
     result[i] = std::fma(trajectory.acceleration[i], time, trajectory.velocity[i]);
+  if (trajectory.wall_curvature != 0) {
+    const auto arc = WallFollowArcAt(trajectory.velocity[0], trajectory.velocity[2], trajectory.wall_curvature,
+                                     trajectory.wall_follow_time, time);
+    result[0] = std::fma(trajectory.acceleration[0], time, arc.vx);
+    result[2] = std::fma(trajectory.acceleration[2], time, arc.vz);
+  }
   return result;
 }
 std::pair<Vec4, float> AirTrajectoryHighestPosition(const AirTrajectory &trajectory) {

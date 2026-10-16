@@ -186,6 +186,15 @@ more than 30° along the rail. Some useful starting points:
 
 **Camera follow** (`CameraFollow`, 2 in this game): the camera keeps up with the rider up to 80 m/s, twice the authored 40. Crater Park's big lines run at 130 to 170 km/h; at the stock limit the rider pulled away from the camera and the gap jittered.
 
+**Wall follow** (`WallFollow`, 1 in this game): an air off a curved vert wall turns with the wall. Stock aims a vert
+air straight up the wall but keeps all the speed along it, so it flies on along the wall's tangent while the wall curves
+away underneath: off the Vert drop's U-turn, whose lip is 95 m from its centre, a 40 m/s rider landed 8 m behind the lip
+after 1 s of air and about 30 m after 2 s, whatever they did. Now the air bends round the U-turn's centre at the
+wall's own curvature, measured while riding it, keeping the speed and the height, and Cairo comes back down onto the
+wall. Only an air the vert alignment aims up the wall turns, with vert assist and without the transfer: the transfer, a
+kicker in a zero-assist zone (the Vert drop's kicker before the reverse catch) and anything off a straight or gentle
+ramp fly exactly as before.
+
 | To get | Try |
 | --- | --- |
 | Flick tricks that land more easily | Flick tolerance 1.3, Flick time window 1.5, Flick speed for full pop 0.8 |

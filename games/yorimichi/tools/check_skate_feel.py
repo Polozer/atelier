@@ -251,7 +251,8 @@ def main():
                                'rail_magnetism', 'grind_pop', 'grind_friction', 'braking', 'steering', 'carve', 'grip',
                                'powerslide', 'rolling_friction', 'hill_speed', 'pump', 'wobble', 'wobble_onset',
                                'manual_drift', 'landing', 'impact', 'powerslide_turn', 'grind_tolerance', 'camera_follow')}
-        ones.update(auto_push=-1, assisted_air=-1, tight_flicks=0, flick_120hz=0, drift_powerslide=0, drift_grip=.3, drift_full_grip=.6)
+        ones.update(auto_push=-1, assisted_air=-1, tight_flicks=0, flick_120hz=0, drift_powerslide=0, drift_grip=.3, drift_full_grip=.6,
+                    wall_follow=0)
         rides = [flat.ride(330, flick(18, 2), feel, velocity=(0, 0, 5)) for feel in (None, ones)]
         same = all(a['root'] == b['root'] and a['bones'] == b['bones'] and a['velocity'] == b['velocity'] for a, b in zip(*rides))
         check('defaults_exact', same, 'stock feel spelled out matches no feel over 330 frames, bit for bit')
