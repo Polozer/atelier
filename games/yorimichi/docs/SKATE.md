@@ -102,6 +102,10 @@ transitions crouch Cairo). Any pull grabs in the air, so release the triggers be
 a grab, and keep off the right stick, which pops. A grab held into the landing rides away; a Christ air or a one-foot
 air held into it, or let go too late, is a bail.
 
+In Crater Park's boost bowls (the orange line's flow bowl and its two U-turns) every stand-up on a wall also gains a set
+boost, however fast you go, and so does a powerslide; holding the trigger through the wall still gains nothing. **Bowl
+boost** on the Skate feel page scales it (0 is off).
+
 ### Camera
 
 The follow camera comes 20 cm lower and 22% closer while riding, and its field of view widens by up to 9° between

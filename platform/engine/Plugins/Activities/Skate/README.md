@@ -228,15 +228,22 @@ after each tick. It multiplies the zone's scale by `FSkateFeel::BowlBoost` (`Fee
 default 1), and works only on the ground with the deck leaning more than 12 degrees from level, so flat bottoms and
 decks never boost:
 
-- a tick's intentional pump gains 1.5 times the speed the pump itself added, more;
-- a powerslide gets back up to 6 m/s^2 of the speed the slide (and a climb) took, and gains 2.5 m/s^2 on top.
+- a pump gains 6 m/s^2 for its stand-up: the 0.7 s after a trigger's crouch of at least 0.15 s on the ground is let go
+  (`BowlBoost::Trigger`, which reads the triggers every tick). The gain is its own, not a multiple of what the physical
+  pump added: at speed on a short transition a stand-up can hardly be timed to the curve, so the physical pump adds
+  almost nothing there. It reads the trigger, not the simulation's intentional pump, which a hard turn's crouch raises
+  too: holding a trigger through the transition is a crouch, and a carve with no trigger, or held on after the stand-up,
+  gains nothing;
+- a powerslide gets back up to 6 m/s^2 of the speed the slide (and a climb) took, and gains 5 m/s^2 on top.
 
 The gain goes along the travel, the same to every body, as `GameplayRuntime::Launch` does. It never raises the speed
-past the cap: the speed the board came into the zone with, times 1 + 0.35 x the scale, or 18 m/s, whichever is more.
+past the cap: the speed the board came into the zone with, times 1 + 0.8 x the scale, or 24 m/s, whichever is more.
 That entry speed is kept while the board stays in the zone, through its airs (which gain nothing), so an air landed
 back in the same zone keeps the cap it had (`BowlBoost::Tick`).
 The component logs `SKATE boost` for each half metre per second added. Outside every zone the scale is 0 and nothing
-changes, so sessions without zones (the CLI, parity traces) ride exactly as before.
+changes, so sessions without zones (the CLI, parity traces) ride exactly as before. The test-only session CLI takes a
+`boost` command (the zone's scale) and reports the boost, the tick's pump and the deck's up in every pose, for a
+game's feel checks to measure the boost over pumped passes.
 
 ### 120 Hz flicks
 

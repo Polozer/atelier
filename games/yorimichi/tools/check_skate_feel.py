@@ -8,7 +8,10 @@ and keeps a fast hardflip's bottom point that 60 Hz misses, rolling resistance a
 a rail from farther. Drift powerslides start with the stick straight down, grip as far as it is pulled and keep the
 speed and the line when let go, a lower powerslide turn turns the board less, an assist zone's vert assist limit
 rides as that much assist, and wall follow brings an air off a curved vert wall back down onto its transition to ride away (stock lands on the
-deck behind the lip) while a zero-assist zone or no vert assist rides exactly as stock. Requires the assembled simulation package (skate.runtime) and the explicitly built test-only gameplay-session-cli
+deck behind the lip) while a zero-assist zone or no vert assist rides exactly as stock. In a boost zone, pumping across a halfpipe's walls gains
+speed wall after wall even where the physical pump adds nothing, a trigger held through them or a hard turn's crouch gains nothing, a powerslide
+gains, and outside every zone or on flat ground nothing changes, bit for bit. Requires the assembled simulation package (skate.runtime) and the
+explicitly built test-only gameplay-session-cli
 (Tests/build_simulation_session_cli.py --compile, under the render lock and memory guard). Results go to
 build/yorimichi/skate-simulation/feel.
 """
@@ -27,6 +30,7 @@ OUTPUT = ROOT / 'build/yorimichi/skate-simulation/feel'
 FLAT = [[[-200, 0, -200], [-200, 0, 200], [200, 0, 200]], [[-200, 0, -200], [200, 0, 200], [200, 0, -200]]]
 FLAT_WORLD = {'triangles': FLAT, 'rails': [], 'spawn': [0, 0, 0], 'heading': 0}
 PUSH, BRAKE = 0x1000, 0x2000
+BOOST_WALL_MIN, BOOST_AHEAD_MIN = 3., 1.  # m/s: a pumped wall's boost at scale 1, and how far ahead per wall it keeps the ride
 
 
 class Session:
@@ -223,6 +227,94 @@ def powerslide(session, feel, degrees, depth, start=10, hold=60):
     return {'frames': len(slid), 'loss_mps_per_s': (speed(rows[slid[0]]) - speed(rows[slid[-1]])) / max(1, len(slid) - 1) * 60,
             'board_peak_deg': max(across(rows[i]) for i in slid), 'speed_after': speed(rows[-1]),
             'line_turn_deg': wrap(heading(rows[-1]) - heading(rows[59]))}
+
+
+def halfpipe(radius, height, flat=6., width=40., steps=24):
+    """Two transitions of `radius` facing across `flat` m along z, rising to `height` (vertical above the radius)."""
+    arc = math.pi / 2 if height >= radius else math.acos(1 - height / radius)
+    side = [(flat / 2 + radius * math.sin(arc * k / steps), radius * (1 - math.cos(arc * k / steps))) for k in range(steps + 1)]
+    side += [(flat / 2 + radius, height)] if height > radius else []
+    profile = [(-z, y) for z, y in reversed(side)] + side
+    triangles = [t for (z0, y0), (z1, y1) in zip(profile, profile[1:])
+                 for t in ([[-width / 2, y0, z0], [-width / 2, y1, z1], [width / 2, y1, z1]],
+                           [[-width / 2, y0, z0], [width / 2, y1, z1], [width / 2, y0, z0]])]
+    return {'triangles': triangles, 'rails': [], 'spawn': [0, 0, 0], 'heading': 0}
+
+
+GROUND = ('PhysicsGround', 'RevertGround')
+PUMP_PULL = 200                 # of 255 on R2, as the simulation's reference pumps pull a trigger
+SLIDE_STICK = [round(math.sin(math.radians(25)) * 32767), -32767]
+HARD_TURN = [30000, -16000]    # a full stick about 1.1 rad from backward: a hard turn's crouch, short of a slide
+# Yorimichi's skate settings (DefaultGame.ini): pop, spin and push scales, vert assist 1, drift powerslides, wall follow.
+YORIMICHI_TUNE = {'pop': 1.15, 'spin': 1.6, 'push_speed': 1.15, 'push_power': 1.45, 'vert_assist': 1}
+YORIMICHI_FEEL = {'drift_powerslide': 1, 'grind_tolerance': 2, 'camera_follow': 2, 'tight_flicks': 1, 'wall_follow': 1}
+
+
+def carve(row, angle, radius, height, flat):
+    """A player's left stick x carving the halfpipe: across the flat, the travel held `angle` degrees off straight
+    across (either way); on a wall, a turn downhill about the wall's normal, as far as the climb would take the board
+    past 75% of the wall's height. Positive x turns the board right (its heading atan2(vx, vz) falls on the flat)."""
+    vx, vy, vz = row['velocity']
+    y, z = row['root'][13], row['root'][14]
+    if abs(z) <= flat / 2 + .05 and y < .2:
+        error = ((angle if vz >= 0 else 180 - angle) - math.degrees(math.atan2(vx, vz)) + 180) % 360 - 180
+        return max(-32767, min(32767, round(-error * 32767 / 10)))
+    side = 1 if z > 0 else -1
+    if y < radius:
+        ny, nz = radius - y, side * flat / 2 - z
+        k = math.hypot(ny, nz) or 1
+        n = (0, ny / k, nz / k)
+    else:
+        n = (0, 0, -side)
+    down = (0, -1 + n[1] * n[1], n[1] * n[2])   # gravity less its part along the normal
+    v = (vx, vy, vz)
+    cross = (v[1] * down[2] - v[2] * down[1], v[2] * down[0] - v[0] * down[2], v[0] * down[1] - v[1] * down[0])
+    turn = 1 if sum(a * b for a, b in zip(cross, n)) > 0 else -1
+    want = min(1, max(0, (y + max(vy, 0) ** 2 / 19.62 - .75 * height) / .5))
+    return max(-32767, min(32767, round(-turn * want * 32767)))
+
+
+def boost_ride(session, start, zone, recipe, wall=(4, 4), flat=6., frames=900):
+    """Across the halfpipe of `wall` (radius, height) from `start` m/s in a boost zone of `zone` (None: no boost command
+    at all), set off at the angle whose climb reaches 75% of the wall, carving as a player does, with Yorimichi's skate
+    settings. `recipe`: 'pump' crouches (R2) on the flat and stands up through each wall, 'held' keeps R2 pulled, 'slide'
+    powerslides on each wall, 'hard' holds a hard turn on each wall with no trigger, 'pump_hard' pumps and then holds a
+    hard turn on each wall, 'coast' does none. Each frame's controls read the last frame's state. Returns the speed at
+    each crossing of the flat's middle (between two of them is one wall) and the boost and physical pump over each wall."""
+    radius, height = wall
+    angle = math.degrees(math.acos(min(1, math.sqrt(2 * 9.81 * .75 * height) / start)))
+    if session.generation:
+        session.stop()
+        session.start()
+    session.generation += 1
+    session.send('activate', spawn=[0, 0, 0], heading=math.radians(angle), goofy=False, difficulty='normal', trucks=.5,
+                 generation=session.generation, feel=YORIMICHI_FEEL, **YORIMICHI_TUNE,
+                 velocity=[start * math.sin(math.radians(angle)), 0, start * math.cos(math.radians(angle))])
+    last, rows = session.read(), []
+    if zone is not None:
+        session.send('boost', zone=zone)
+    for frame in range(frames):
+        up, state = last['boost']['up'], last['state']
+        ground = state in GROUND or state == 'SlideGround'
+        trigger = PUMP_PULL if (recipe in ('pump', 'pump_hard') and ground and up > .985) or recipe == 'held' else 0
+        wall = ground and up < .978
+        left = (SLIDE_STICK if recipe == 'slide' and wall else HARD_TURN if recipe in ('hard', 'pump_hard') and wall
+                else [carve(last, angle, radius, height, flat) if ground else 0, 0])
+        session.send('step', dt=1 / 60, buttons=0, left=left, right=[0, 0], triggers=[0, trigger])
+        last = session.read()
+        rows.append(last)
+    z = [r['root'][14] for r in rows]
+    at = [i for i in range(1, len(rows)) if (z[i - 1] < 0) != (z[i] < 0)]
+    speed3 = lambda r: math.sqrt(sum(v * v for v in r['velocity']))
+    walls = [{'boost_mps': rows[j]['boost']['total'] - rows[i]['boost']['total'],
+              'physical_pump_mps': sum(r['boost']['pump'] for r in rows[i + 1:j + 1]
+                                       if r['state'] in GROUND and r['boost']['intentional'] and r['boost']['pump'] > 0),
+              # ticks on the wall the simulation calls an intentional pump (a crouch, the trigger's or a hard turn's)
+              'flagged_ticks': sum(1 for r in rows[i + 1:j + 1] if r['state'] in GROUND and r['boost']['up'] < .978
+                                   and r['boost']['intentional'])}
+             for i, j in zip(at, at[1:])]
+    return {'crossings': [speed3(rows[i]) for i in at], 'walls': walls, 'boost': rows[-1]['boost']['total'], 'rows': rows,
+            'bailed': any('Wipeout' in r['state'] for r in rows)}
 
 
 def coast(session, feel, buttons=0, seconds=3, start=6):
@@ -457,6 +549,61 @@ def main():
         limited = {'1': same(air(1, 1), full), '0.5': same(air(1, .5), half), '0': same(air(1, 0), none)}
         report['vert_assist_limit'] = limited
         check('vert_assist_limit', all(limited.values()) and not same(full, none), limited)
+    finally:
+        session.close()
+
+    # Boost zones (README "Boost zones"): across a halfpipe of 4 m transitions from 20 m/s as a player carves it,
+    # pumping (R2 pulled on the flat, let go through each wall). At this speed the physical pump adds almost nothing, and
+    # a boost that only multiplied it added nothing either. Now each wall a pump stands up on gains its own boost, so the
+    # ride in a zone of scale 1 stays well ahead of the same ride out of one, wall after wall, below the cap (20 m/s x
+    # 1.8, BowlBoost::CapRise); holding R2 through the walls is a crouch and gains nothing; out of every zone (scale 0)
+    # the ride is the plain one, bit for bit. A powerslide on a 3 m bank gains 3 m/s or more over the wall, where out of
+    # a zone it scrubs off more than that. On a flat world the zone adds nothing, bit for bit.
+    session = Session(args.binary, args.simulation_package, halfpipe(4, 4, width=1200), 'boost_halfpipe')
+    try:
+        plain, outside, pumped, held, held_plain = (boost_ride(session, 20, zone, recipe) for zone, recipe in
+                                                    ((None, 'pump'), (0, 'pump'), (1, 'pump'), (1, 'held'), (0, 'held')))
+        same = lambda a, b: all(x['root'] == y['root'] and x['velocity'] == y['velocity'] for x, y in zip(a['rows'], b['rows']))
+        summary = lambda ride: {'crossings_mps': [round(v, 2) for v in ride['crossings'][:6]], 'boost_mps': round(ride['boost'], 2),
+                                'walls': [{k: round(v, 2) for k, v in w.items()} for w in ride['walls'][:5]], 'bailed': ride['bailed']}
+        report['boost_halfpipe'] = {'plain': summary(plain), 'zone_0': summary(outside), 'zone_1': summary(pumped),
+                                    'held_zone_1': summary(held), 'held_zone_0': summary(held_plain)}
+        check('boost_outside_exact', same(plain, outside) and plain['boost'] == outside['boost'] == 0, report['boost_halfpipe'])
+        walls = pumped['walls'][:3]
+        check('boost_pump_gains', len(walls) >= 2 and all(w['boost_mps'] >= BOOST_WALL_MIN and w['physical_pump_mps'] < .5 for w in walls)
+              and len(outside['crossings']) >= 3 and not pumped['bailed']
+              and pumped['crossings'][2] >= outside['crossings'][2] + 2 * BOOST_AHEAD_MIN, report['boost_halfpipe'])
+        check('boost_held_none', held['boost'] < .5 and len(held['crossings']) >= 2 and len(held_plain['crossings']) >= 2
+              and abs(held['crossings'][1] - held_plain['crossings'][1]) < .5, report['boost_halfpipe'])
+        check('boost_pump_cap', max(pumped['crossings']) <= 20 * 1.8, report['boost_halfpipe'])
+        # A hard turn crouches the rider and the simulation calls it an intentional pump; with no trigger it is no pump,
+        # however long it is held: the ride is the plain one, bit for bit. After a real R2 pump, a hard turn held on
+        # through the wall gains only that pump's stand-up (0.7 s x 6 m/s^2, BowlBoost::StandTime), not the turn's.
+        hard, hard_plain, pump_hard = (boost_ride(session, 20, zone, recipe) for zone, recipe in
+                                       ((1, 'hard'), (0, 'hard'), (1, 'pump_hard')))
+        report['boost_hard_turn'] = {'hard_zone_1': summary(hard), 'pump_hard_zone_1': summary(pump_hard)}
+        check('boost_hard_turn_none', same(hard, hard_plain) and hard['boost'] == 0
+              and sum(w['flagged_ticks'] for w in hard['walls']) > 30, report['boost_hard_turn'])
+        check('boost_pump_expires', len(pump_hard['walls']) >= 2 and all(w['boost_mps'] <= .7 * 6 + .1 for w in pump_hard['walls'])
+              and any(w['flagged_ticks'] > 42 for w in pump_hard['walls']) and pump_hard['walls'][0]['boost_mps'] >= BOOST_WALL_MIN,
+              report['boost_hard_turn'])
+    finally:
+        session.close()
+    session = Session(args.binary, args.simulation_package, halfpipe(8, 3, width=1200), 'boost_bank')
+    try:
+        slid, slid_plain = (boost_ride(session, 10, zone, 'slide', wall=(8, 3), frames=600) for zone in (1, 0))
+        report['boost_slide'] = {'zone_1': {'crossings_mps': [round(v, 2) for v in slid['crossings'][:3]], 'boost_mps': round(slid['boost'], 2)},
+                                 'zone_0': {'crossings_mps': [round(v, 2) for v in slid_plain['crossings'][:3]]}}
+        check('boost_slide_gains', len(slid['crossings']) >= 2 and len(slid_plain['crossings']) >= 2
+              and slid['crossings'][1] > slid['crossings'][0] + 3 and slid['crossings'][1] > slid_plain['crossings'][1] + 3, report['boost_slide'])
+    finally:
+        session.close()
+    session = Session(args.binary, args.simulation_package, FLAT_WORLD, 'boost_flat')
+    try:
+        flat_plain, flat_zone = (boost_ride(session, 12, zone, 'pump', frames=240) for zone in (None, 1))
+        report['boost_flat'] = {'boost_mps': flat_zone['boost']}
+        check('boost_flat_none', all(x['root'] == y['root'] and x['velocity'] == y['velocity']
+                                     for x, y in zip(flat_plain['rows'], flat_zone['rows'])) and flat_zone['boost'] == 0, report['boost_flat'])
     finally:
         session.close()
 
