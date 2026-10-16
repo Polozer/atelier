@@ -15,6 +15,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/Engine.h"
@@ -340,13 +341,30 @@ void ASwordTrainer::SpawnRoninCamp(AJapanWorld* World)
     const FVector2D Fwd2D = (RoadPoint - CampCenter).GetSafeNormal();
     const FVector2D Left2D(-Fwd2D.Y, Fwd2D.X);
     const float BaseYawBlender = FMath::RadiansToDegrees(FMath::Atan2(Fwd2D.Y, Fwd2D.X));
+    const FVector CampCenterUE = AJapanWorld::ToUE(CampCenter.X, CampCenter.Y, 8.1);
+
+    // Clear instanced trees, bushes and rocks within 15.5 m of the camp center so the arena and sightlines to the road are open.
+    TArray<UInstancedStaticMeshComponent*> InstancedComps;
+    World->GetComponents<UInstancedStaticMeshComponent>(InstancedComps);
+    for (UInstancedStaticMeshComponent* Comp : InstancedComps)
+    {
+        if (!Comp) continue;
+        for (int32 Idx = Comp->GetInstanceCount() - 1; Idx >= 0; --Idx)
+        {
+            FTransform InstXf;
+            if (!Comp->GetInstanceTransform(Idx, InstXf, true)) continue;
+            const FVector Loc = InstXf.GetLocation();
+            if (FVector::DistSquared2D(Loc, CampCenterUE) < FMath::Square(1550.f))
+                Comp->RemoveInstance(Idx);
+        }
+    }
 
     auto GroundAt = [&](double Bx, double By, float ExtraZ = 0.f) -> FVector
     {
-        const FVector Probe = AJapanWorld::ToUE(Bx, By, 200.0);
+        const FVector Probe = AJapanWorld::ToUE(Bx, By, 28.0);
         FHitResult Hit;
         FCollisionQueryParams Params(SCENE_QUERY_STAT(RoninCampSpawn), false);
-        if (U->LineTraceSingleByChannel(Hit, Probe, Probe - FVector(0, 0, 40000.f), ECC_Visibility, Params))
+        if (U->LineTraceSingleByChannel(Hit, Probe, Probe - FVector(0, 0, 4000.f), ECC_Visibility, Params))
             return Hit.ImpactPoint + FVector(0, 0, ExtraZ);
         return AJapanWorld::ToUE(Bx, By, 8.1) + FVector(0, 0, ExtraZ);
     };

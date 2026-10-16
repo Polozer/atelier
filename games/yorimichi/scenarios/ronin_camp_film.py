@@ -25,7 +25,7 @@ st = {'frames': [], 'errors': [], 'sim': 0, 'film': 0, 'rec': False, 'label': ''
 
 # Camp center in Blender (-54.0, -94.0, 8.1) -> UE cm (-5400.0, 9400.0, 810.0)
 CAMP_UE = unreal.Vector(-5400.0, 9400.0, 810.0)
-APPROACH_UE = unreal.Vector(-5500.0, 7600.0, 1050.0)
+APPROACH_UE = unreal.Vector(-5450.0, 8350.0, 950.0)
 
 
 def trainer():
@@ -59,18 +59,18 @@ def camp_camera(mode='side'):
     p = L.player().get_actor_location()
     k = trainer().get('location') or [CAMP_UE.x, CAMP_UE.y, CAMP_UE.z + 90.0]
     if mode == 'overview':
-        eye = unreal.Vector(CAMP_UE.x - 620.0, CAMP_UE.y - 680.0, CAMP_UE.z + 360.0)
-        at = unreal.Vector(CAMP_UE.x + 40.0, CAMP_UE.y + 80.0, CAMP_UE.z + 110.0)
-        MV.review_camera(eye, at, 60.0)
+        eye = unreal.Vector(CAMP_UE.x + 120.0, CAMP_UE.y - 720.0, CAMP_UE.z + 280.0)
+        at = unreal.Vector(CAMP_UE.x - 40.0, CAMP_UE.y + 120.0, CAMP_UE.z + 95.0)
+        MV.review_camera(eye, at, 65.0)
         return
     mx, my, mz = (p.x + k[0]) * 0.5, (p.y + k[1]) * 0.5, (p.z + k[2]) * 0.5
     dx, dy = k[0] - p.x, k[1] - p.y
     n = math.hypot(dx, dy) or 1.0
-    ex, ey = mx - dy / n * 480.0, my + dx / n * 480.0
-    eye = unreal.Vector(ex, ey, mz + 145.0)
+    ex, ey = mx - dy / n * 330.0, my + dx / n * 330.0
+    eye = unreal.Vector(ex, ey, mz + 125.0)
     st['cam_eye'] = eye if st.get('cam_eye') is None else st['cam_eye'] * 0.88 + eye * 0.12
     at = unreal.Vector(mx, my, mz + 30.0)
-    MV.review_camera(st['cam_eye'], at, 58.0)
+    MV.review_camera(st['cam_eye'], at, 62.0)
 
 
 def approach_scene():

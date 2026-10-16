@@ -673,7 +673,7 @@ def world_steps(ctx):
         Step('world.mega', [Blender(REGIONS / 'mega' / 'build.py')], inputs=[REGIONS / 'mega', REGIONS / 'village' / 'build.py', *VILLAGE_LAYOUT],
              needs=['world.layout'], outputs=[out / 'mega' / 'manifest.json'], about='the mini-mega ramp and its trail', heavy=True),
         Step('world.swordcamp_atlas', [Python(REGIONS / 'swordcamp' / 'make_atlas.py')],
-             inputs=[REGIONS / 'swordcamp' / 'make_atlas.py', ASSETS / 'swordcamp', ASSETS / 'treehouse' / 'textures'],
+             inputs=[REGIONS / 'swordcamp' / 'make_atlas.py', ASSETS / 'swordcamp', ASSETS / 'treehouse' / 'textures', YORI],
              outputs=[out / 'swordcamp' / 'swordcamp_atlas.jpg'],
              about='2048x2048 Sunburst UV texture atlas for the Kasa Ronin and roadside mini-camp'),
         Step('world.swordcamp', [Blender(REGIONS / 'swordcamp' / 'build.py', threads=3)],
