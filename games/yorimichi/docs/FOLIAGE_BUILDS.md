@@ -23,7 +23,8 @@ All 100 split files were byte-identical across repeated exports, another directo
 fresh process. The later explicit native-collision policy changed 18 manifests; all 82 FBXs retained those exact
 bytes. A byte-pattern scan found no common local-path prefixes. Helper/texture/shader edit boundaries, reversed
 native action order, corrupt or missing native output repair, world preservation, loading and cooking remain
-acceptance gates. Both missing and corrupt generated-FBX repair have passed in the earlier catalogue.
+acceptance gates. Both missing and corrupt generated-FBX repairs passed for the earlier 64-mesh catalogue;
+these do not certify native-package repair or the 74-mesh catalogue.
 Source `cache=True` and automatic native package caching stay disabled.
 
 **Current-main integration:** the ten tree specifications now preserve main's additional LOD4, screen-size cadence,
