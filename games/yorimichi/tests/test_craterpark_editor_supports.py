@@ -79,8 +79,9 @@ def box_deck(pid, top, a=8., w=11., bottom=-5.):
                                  metadata=dict(id=pid, type='deck', stations=[], params={'solid': True}))
 
 
-def test_a_high_solid_deck_is_a_japanese_keep_with_a_torii_over_the_drop_in():
+def test_a_high_solid_deck_stands_on_a_timber_frame_with_a_torii_over_the_drop_in():
     ramp = sheet('ramp', 60., length=60., z0=0., x0=0.)
+    ramp.metadata['type'] = 'rollin'                         # the drop-in: the torii stands over a roll-in only
     for st in ramp.metadata['stations']:                     # leaves the deck's +x side (x = 8) at its top
         st['x'] += 8.
     ramp.mesh.V[:, 0] += 8.
@@ -91,13 +92,15 @@ def test_a_high_solid_deck_is_a_japanese_keep_with_a_torii_over_the_drop_in():
     assert V[:, 1].min() < 0. and V[:, 1].max() > 60. + es.TORII - .5, 'from below the ground to the torii and roofs'
     assert sum(len(p.F) for p in tower) < 20000
     by = {dsl.MATERIALS[p.material[0]]: p for p in tower}
-    assert {es.STONE, es.VERMILION, es.TILE, es.PLASTER, es.TIMBER} <= set(by)
+    assert {es.ROCK, es.KEYAKI, es.IRON, es.VERMILION, es.TILE, es.TIMBER} <= set(by)
     torii = by[es.VERMILION].V[by[es.VERMILION].V[:, 1] > 60. + es.TORII - 3.]
     assert len(torii) and torii[:, 0].min() > 5., 'the torii stands over the drop-in (+x), not elsewhere'
     rail = by[es.VERMILION].V[(by[es.VERMILION].V[:, 1] > 60.) & (by[es.VERMILION].V[:, 1] < 61.5)]
     assert rail[:, 0].max() < 8.5 + es.RIM, 'no railing across the drop-in'
-    foot = vertices([by[es.STONE]])
-    assert np.abs(foot[foot[:, 1] < 5.][:, 2]).max() > 11. + es.YAGURA_OUT + 5., 'the ishigaki sweeps out at its foot'
+    frame = vertices([by[es.KEYAKI], by[es.ROCK]])
+    reach = es.TOWER_POST * (es.PLINTH_WIDE * (1 + es.PLINTH_STEP * (es.PLINTH_COURSES - 1)) + es.STAGE_TENON + 1.)
+    assert np.abs(frame[:, 0]).max() < 8. + reach and np.abs(frame[:, 2]).max() < 11. + reach, 'no flare past the deck'
+    assert len(frame) and frame[:, 1].min() < 0. and frame[:, 1].max() > 55., 'posts from the ground up to the deck'
 
 
 def test_a_low_solid_deck_stays_a_deck():
@@ -117,7 +120,7 @@ def test_a_piece_whose_every_pier_would_stand_on_another_is_left_open():
 def test_the_vert_drop_stands_on_a_timber_stage_on_stone_plinths():
     parts, summary = es.build([sheet('p1', 30., length=80., line='L2')], FLAT, GRID)
     assert summary['pieces'] == {'p1': 'stage'} and summary['piers'] == 0 and summary['posts'] >= 6
-    assert {dsl.MATERIALS[p.material[0]] for p in parts} == {es.KEYAKI, es.STONE, es.IRON}
+    assert {dsl.MATERIALS[p.material[0]] for p in parts} == {es.KEYAKI, es.ROCK, es.IRON}
     V = vertices(parts)
     assert V[:, 1].max() <= 30. + es.EMBED + 1e-6, 'the cap beams meet the ramp in one line'
     assert V[:, 1].min() >= -es.SINK - 1e-6 and np.isfinite(V).all()
@@ -150,3 +153,19 @@ def test_a_stage_over_another_piece_is_carried_on_a_truss_from_outriggers():
 def test_other_lines_keep_their_stone_viaducts():
     _, summary = es.build([sheet('p1', 30., length=120.), sheet('p2', 30., length=120., z0=60., line='L2')], FLAT, GRID)
     assert summary['pieces'] == {'p1': 'viaduct', 'p2': 'stage'}
+
+
+def test_no_stage_post_stands_beside_another_piece():
+    # a U-turn bowl running past the frame: every post (and its plinth) keeps STAGE_CLEAR from it
+    stage = sheet('stage', 40., length=80., line='L2')
+    beside = sheet('bowl', 6., length=80., width=10., z0=16., line='L2')
+    parts, _ = es.build([stage, beside], FLAT, GRID)
+    rock = vertices([p for p in parts if p.features[0] == 'stage_supports' and dsl.MATERIALS[p.material[0]] == es.ROCK])
+    assert len(rock) and (rock[:, 2] < 11. - es.STAGE_CLEAR + 1e-6).all(), 'plinths keep clear of the piece beside'
+
+
+def test_a_roll_in_stands_on_timber_like_the_tower():
+    roll = sheet('roll', 40., length=80.)
+    roll.metadata['type'] = 'rollin'
+    _, summary = es.build([roll], FLAT, GRID)
+    assert summary['pieces'] == {'roll': 'stage'}

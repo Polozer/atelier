@@ -355,15 +355,23 @@ its outer walls can show a few metres above the coarser pit edge. Each line spaw
 chain (`world.craterpark`, `unreal.craterpark`, `data.stage`) is unchanged; `world.hidamari` needs the geometry, so
 the volcano is rebuilt with it.
 Supports come from [`editor_supports.py`](../world/regions/craterpark/v2/editor_supports.py). Most ramps stand on
-stone viaducts, and a high solid deck becomes the castle-keep tower. The Vert drop (`STAGE_LINES`, L2) stands on a
-Kiyomizu-style timber stage instead, after `concepts/editor/vertdrop-kiyomizu-overview.jpg`:
-- **Frame.** Each piece has its own grid of heavy squared posts in weathered keyaki (`material_045`), on stepped
-  stone plinths. Horizontal nuki pass through the posts at even levels and stick out past them, with black iron plates
-  over the outer joints. A cap beam follows the ramp's underside, and is deeper along the outer frames. There are no
-  diagonal braces. Members grow with the stage's height.
+stone viaducts. The Vert drop (`STAGE_LINES`, L2), the roll-in and the start tower stand on a Kiyomizu-style timber
+stage instead, after `concepts/editor/vertdrop-kiyomizu-overview.jpg`:
+- **Frame.** Frames stand along each ramp's edges and across its two ends, not under the whole ramp, with a girder
+  under the ramp from edge to edge.
+  - **Posts and plinths.** Heavy squared posts with capitals stand on rough stone plinths. The posts are weathered
+    keyaki (`material_045`, the `keyaki` world painting), and the corner posts are doubled.
+  - **Nuki.** They pass through the posts three to five levels high, ending in square blocks, with black iron plates
+    over the outer joints.
+  - **Cap beam.** It follows the ramp's underside, deeper along the outer frames.
+  - **Scale.** Members grow with the stage's height, and there are no diagonal braces.
 - **Over a lower piece.** Where another piece runs underneath, no post stands on it. A truss under the ramp carries it
-  to the nearest grid post, or to an outrigger on clear ground beside the pieces below.
-- **Catch walls.** A piece that drops steeply from its start gets a row of posts behind its lip.
+  to the nearest frame post, or to an outrigger on clear ground beside the pieces below.
+- **Catch walls.** A piece that drops steeply from its start gets a frame behind its lip.
+- **Tower.** It stands on an open frame round the deck's own outline, with no stone flare. Its tenons stay flush
+  toward the ramps that leave it.
+- **Clearance.** Every post and plinth keeps `STAGE_CLEAR` (3 m) from any other piece beside it, and an arcade lifts
+  `OVER` (4.5 m) clear of a piece below.
 - **Open air.** Nothing spans from one piece to the next, and nothing stands behind a piece's end. So the slot between
   the vert kicker and the reverse catch, and the air under the mega jump, stay open.
 

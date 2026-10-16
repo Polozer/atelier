@@ -54,6 +54,8 @@ STYLES = {
     'rock': (MEGAPARK / 'concepts' / 'improve-riding.jpg', (0, 330, 820, 1024)),
     # the editor park's approved concepts: a viaduct pier, and a ramp's boards
     'viaduct': (CONCEPTS / 'editor' / 'support-design-viaduct.jpg', (1080, 90, 1536, 700)),
+    # the Vert drop's timber stage: the concept's big portal frame by the U-turn bowl
+    'stage': (CONCEPTS / 'editor' / 'vertdrop-kiyomizu-overview.jpg', (540, 262, 735, 660)),
     'ramps': (CONCEPTS / 'editor' / 'prado-graphics-layout.jpg', (1150, 690, 1536, 1024)),
     # the crater floor's dark cinder, stones, moss and grass tufts (concepts/editor/crater-floor-layout.jpg)
     'crater': (CONCEPTS / 'editor' / 'crater-floor-layout.jpg', (680, 400, 1360, 1000)),
@@ -150,6 +152,12 @@ WORLD_PAINTINGS = {
                 'grey-brown basalt blocks of slightly varied sizes in rough courses, soft rounded worn edges, thin joints '
                 'only a little lighter than the stone so they stay subtle, gentle painterly variation from block to block, '
                 'two or three tiny yellow-green moss tufts; not blue, no bright mortar grid, no snow'),
+    # the Vert drop's timber stage (v2/editor_supports.py stage), after concepts/editor/vertdrop-kiyomizu-overview.jpg
+    'keyaki': ('stage', 'blend', 'the weathered timber of an old Japanese temple stage frame as in Image 1: the surface of a '
+               'massive rough-hewn wooden beam, long straight wood grain running from top to bottom, warm grey-brown and '
+               'soft honey-brown wood with darker brown grain lines and a few long narrow cracks, gently greyed by '
+               'weather, soft painterly variation; one continuous surface, no plank seams, no grid, no nails, no knots, '
+               'no metal, no moss'),
     'cast_concrete': ('bowls', 'edges', 'a large smooth cast-concrete wall in pale warm grey, faint rectangular formwork panel '
                       'joints in a regular grid of four equal panels, very subtle soft tonal variation, clean'),
     # the editor park's crater floor, for the volcano's ground inside the crater (not a park material: WORLD_ALIGNED)
@@ -171,7 +179,8 @@ WORLD_ALIGNED = {
     'material_026': ('cast_concrete', 4, (148, 142, 132)),      # bridge supports
     'material_027': ('megapark:rock', 10, (150, 146, 152)),     # the edge guard (darker read as black shards in shade)
     'material_028': ('basalt', 6, (104, 106, 114)),             # editor-park basalt support towers
-    'material_029': ('masonry', 5, (84, 80, 80)),              # editor-park viaducts and ramp sides: the concept's charcoal stone
+    'material_029': ('masonry', 5, (84, 80, 80)),
+    'material_045': ('keyaki', 3, (128, 94, 64)),               # the Vert drop's timber stage: the concept's weathered wood              # editor-park viaducts and ramp sides: the concept's charcoal stone
     # not a park material: the volcano's ground inside the crater (hidamari/mountains.py), for M_NorthMountains
     'crater_floor': ('crater_floor', 16, (100, 98, 100)),       # the concept's warm dark grey gravel
 }

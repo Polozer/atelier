@@ -153,8 +153,9 @@ def bowl_uv(piece, size=PLANKS):
     return uv / size
 
 
-def piece_mesh(piece, decal=None, tower=False):
-    """The piece's riding faces and sides; a tower deck (editor_supports.tower) keeps only its top."""
+def piece_mesh(piece, decal=None, tower=False, sides=SIDES):
+    """The piece's riding faces and sides (`sides`: the timber stage's ramps have keyaki sides, as the concept); a tower
+    deck (editor_supports.tower) keeps only its top."""
     m, meta = piece.mesh, piece.metadata
     V, N, F, col = m.V, m.N, orient(m.V, m.F, m.N), piece.colors
     side = np.zeros(len(F), bool)
@@ -176,7 +177,7 @@ def piece_mesh(piece, decal=None, tower=False):
         got, _ = editor_decal.parts(piece, decal, ride_faces & ~side, deck_faces & ~side, decal_frame(V), meta['id'])
         parts += got
         surfaces = []
-    for mask, role, material, uv in surfaces + [(side, dsl.SIDE, dsl.SIDE_WALL if concrete else SIDES, None)]:
+    for mask, role, material, uv in surfaces + [(side, dsl.SIDE, dsl.SIDE_WALL if concrete else sides, None)]:
         uv = tile_uv(V, N) if uv is None else uv
         if tower:
             mask = mask & (V[F][:, :, 1].min(1) > V[:, 1].max() - .05)
@@ -358,7 +359,9 @@ def main(argv=None):
         if towers:
             print(f"CRATERPARK EDITOR towers: {sorted(towers)}", flush=True)
         for piece in scene.pieces:
-            parts += piece_mesh(piece, decals.get(piece.metadata['id']), tower=piece.metadata['id'] in towers)
+            parts += piece_mesh(piece, decals.get(piece.metadata['id']), tower=piece.metadata['id'] in towers,
+                                sides=editor_supports.KEYAKI if piece.metadata.get('line') in editor_supports.STAGE_LINES
+                                else SIDES)
         caps = {p['id']: (p.get('params') or {}).get('vert_assist_max') for p in chosen['pieces']}
         copings, rails, coping_summary = editor_coping.build(scene.pieces, caps, brick=set(decals))
         print(f"CRATERPARK EDITOR coping: {coping_summary['rails']} grind rails, {coping_summary['metres']} m", flush=True)

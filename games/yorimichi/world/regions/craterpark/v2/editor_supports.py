@@ -31,7 +31,7 @@ BATTER = .05          # each pier side leans out this much per metre down to its
 BATTER_MAX = 6.       # metres: at most
 RING_MIN, RING_MAX = 1.6, 3.5   # stone kept above an arch's crown
 MIN_RISE = 2.        # an opening lower than this is left solid
-OVER = 2.5            # metres kept clear above another piece running underneath
+OVER = 4.5            # metres kept clear above another piece running underneath: a rider and an ollie
 TIER = 26.           # an opening taller than this gets a lower tier of arches (as an aqueduct's)
 TALL_BLOCK = 25.     # a stretch too short for a span but this tall gets one arch through it
 # the concept's relief (support-design-viaduct.jpg): piers standing proud of the faces, arch rings, a cornice under the
@@ -70,7 +70,13 @@ SORI = .7             # ...and every eave's upturn at the corners
 RIM = 1.7             # the balcony round the deck, outside its planks
 RAIL = 1.1            # the railing's height
 TORII = 10.           # the torii over the drop-in: its height
+TORII_LIFT = 5.       # ...and this much more over a walled roll-in, its pillars TORII_CLEAR beyond the ramp's coping
+TORII_CLEAR = 5.
 PAVILION = (.5, 5.4, 2.4)  # the pavilion over the back of the deck: share of the deck it covers, post height, overhang
+TOWER_TIMBER = True   # the tower stands on an open timber frame as the Vert drop's concept, not on the stone keep
+TOWER_POST = 1.5      # its posts' half thickness...
+TOWER_BAY = 8.        # ...about this far apart round the deck's outline...
+TOWER_NUKI = 20.      # ...tied by nuki this far apart in height
 
 
 class Ground:
@@ -736,7 +742,7 @@ def _beam(b, material, c, t, n, half, y0, y1, depth, lift=0.):
     _rings(b, material, rings)
 
 
-def tower(b, plan, ground, piece, open_sides):
+def tower(b, plan, ground, piece, open_sides, k=-1, gates=None, halves=None):
     """The start tower under a high solid deck, a Japanese castle keep: a curved ishigaki of stone courses sweeping
     out toward its foot; a white-plastered turret with dark boards and timber frame on top of it, a tiled skirt roof
     round its foot; a balcony with a vermilion railing round the deck on the sides no ramp leaves from; a torii over
@@ -758,36 +764,40 @@ def tower(b, plan, ground, piece, open_sides):
     flare = min(ISHIGAKI_FLARE * height, ISHIGAKI_MAX)
     spread = lambda y: .4 + flare * (max(stone_top - y, 0.) / height) ** ISHIGAKI_CURVE
 
-    # the ishigaki: courses of stone tapering with the curve, true to each other so it sweeps up as one face, with no
-    # corner stones standing out of it (upright blocks on a sloping face step like stairs)
-    y, k = foot, 0
-    while y < stone_top - .3:
-        h = COURSE[0] + (COURSE[1] - COURSE[0]) * _rand(key0, k, 11.)
-        y1 = min(y + h, stone_top) if stone_top - (y + h) > .8 else stone_top
-        s0, s1 = spread(y), spread(y1)
-        _course(b, c, fwd, acr, ya + s0, yw + s0, y - .02, y1, key0 * 13 + k, top=(ya + s1, yw + s1))
-        y, k = y1, k + 1
-    # the skirt roof round the turret's foot, over the top of the stone
-    _roof(b, c, fwd, acr, [(ya + .05, yw + .05, yagura_foot + .9, 0.), (ya + .55 * SKIRT, yw + .55 * SKIRT,
-                           yagura_foot - .45 * SKIRT_DROP, .3 * SORI), (ya + SKIRT, yw + SKIRT, yagura_foot - SKIRT_DROP,
-                                                                        SORI)])
-    # the turret: dark boards below, white plaster above, a dark timber frame and barred windows on the plaster
-    split = yagura_foot + BOARDS * YAGURA
-    _rings(b, TIMBER, [_rounded(c, fwd, acr, ya, yw, yagura_foot, .05, seg=1)[0],
-                       _rounded(c, fwd, acr, ya, yw, split, .05, seg=1)[0]])
-    _rings(b, PLASTER, [_rounded(c, fwd, acr, ya - .05, yw - .05, split, .05, seg=1)[0],
-                        _rounded(c, fwd, acr, ya - .05, yw - .05, yagura_top, .05, seg=1)[0]])
-    for n, t, half_face, other in ((fwd, acr, yw, ya), (-fwd, acr, yw, ya), (acr, fwd, ya, yw), (-acr, fwd, ya, yw)):
-        count = max(2, int(round(2 * half_face / 3.2)))
-        for j in range(count + 1):
-            u = -half_face + 2 * half_face * j / count
-            _box(b, TIMBER, c + other * n + u * t, n, t, .1, .18, split, yagura_top)
-        _beam(b, TIMBER, c + (other + .02) * n, t, n, half_face, split - .12, split + .15, .1)
-        _beam(b, TIMBER, c + (other + .02) * n, t, n, half_face, yagura_top - .35, yagura_top, .1)
-        for j in range(count):
-            u = -half_face + 2 * half_face * (j + .5) / count
-            wy = split + .55 * (yagura_top - split)
-            _box(b, TIMBER, c + (other + .03) * n + u * t, n, t, .08, .6, wy - .45, wy + .45)
+    if TOWER_TIMBER:
+        # as the Vert drop's concept: the deck stands on an open timber frame (the stage's), not a stone keep
+        _tower_frame(b, plan, ground, k, c, fwd, acr, a, w, yagura_top)
+    else:
+        # the ishigaki: courses of stone tapering with the curve, true to each other so it sweeps up as one face, with no
+        # corner stones standing out of it (upright blocks on a sloping face step like stairs)
+        y, k = foot, 0
+        while y < stone_top - .3:
+            h = COURSE[0] + (COURSE[1] - COURSE[0]) * _rand(key0, k, 11.)
+            y1 = min(y + h, stone_top) if stone_top - (y + h) > .8 else stone_top
+            s0, s1 = spread(y), spread(y1)
+            _course(b, c, fwd, acr, ya + s0, yw + s0, y - .02, y1, key0 * 13 + k, top=(ya + s1, yw + s1))
+            y, k = y1, k + 1
+        # the skirt roof round the turret's foot, over the top of the stone
+        _roof(b, c, fwd, acr, [(ya + .05, yw + .05, yagura_foot + .9, 0.), (ya + .55 * SKIRT, yw + .55 * SKIRT,
+                               yagura_foot - .45 * SKIRT_DROP, .3 * SORI), (ya + SKIRT, yw + SKIRT, yagura_foot - SKIRT_DROP,
+                                                                            SORI)])
+        # the turret: dark boards below, white plaster above, a dark timber frame and barred windows on the plaster
+        split = yagura_foot + BOARDS * YAGURA
+        _rings(b, TIMBER, [_rounded(c, fwd, acr, ya, yw, yagura_foot, .05, seg=1)[0],
+                           _rounded(c, fwd, acr, ya, yw, split, .05, seg=1)[0]])
+        _rings(b, PLASTER, [_rounded(c, fwd, acr, ya - .05, yw - .05, split, .05, seg=1)[0],
+                            _rounded(c, fwd, acr, ya - .05, yw - .05, yagura_top, .05, seg=1)[0]])
+        for n, t, half_face, other in ((fwd, acr, yw, ya), (-fwd, acr, yw, ya), (acr, fwd, ya, yw), (-acr, fwd, ya, yw)):
+            count = max(2, int(round(2 * half_face / 3.2)))
+            for j in range(count + 1):
+                u = -half_face + 2 * half_face * j / count
+                _box(b, TIMBER, c + other * n + u * t, n, t, .1, .18, split, yagura_top)
+            _beam(b, TIMBER, c + (other + .02) * n, t, n, half_face, split - .12, split + .15, .1)
+            _beam(b, TIMBER, c + (other + .02) * n, t, n, half_face, yagura_top - .35, yagura_top, .1)
+            for j in range(count):
+                u = -half_face + 2 * half_face * (j + .5) / count
+                wy = split + .55 * (yagura_top - split)
+                _box(b, TIMBER, c + (other + .03) * n + u * t, n, t, .08, .6, wy - .45, wy + .45)
     # brackets under the balcony, then its boards
     for n, t, half_face, other in ((fwd, acr, w + RIM, a), (-fwd, acr, w + RIM, a), (acr, fwd, a + RIM, w),
                                    (-acr, fwd, a + RIM, w)):
@@ -825,26 +835,44 @@ def tower(b, plan, ground, piece, open_sides):
             _beam(b, VERMILION, c + edge * n + (lo + hi) / 2 * t, t, n, (hi - lo) / 2, yy, yy + .12, .07)
     # the torii over the drop-in: two vermilion pillars on black feet, the tie beam through them, the lintel and its
     # black, upturned cap
-    gate = next(iter(sorted(open_sides)), None)
+    gate = next(iter(sorted(open_sides if gates is None else gates)), None)
     if gate is not None:
         _, n, t, half_face, other = sides[gate]
-        span = half_face + .9
+        span = max(half_face + .9, (halves or {}).get(gate, 0.) + TORII_CLEAR)   # clear of the ramp's walls and coping
+        gate_h = TORII + TORII_LIFT                        # tall enough that its beams stay over a rider on the walls
         base = c + (other - 1.) * n
         for sgn in (-1, 1):
             x, z = base + sgn * span * t
             _cylinder(b, TILE, x, z, floor - .02, floor + .7, .62)
-            _cylinder(b, VERMILION, x, z, floor + .7, floor + TORII - .6, .45)
-        _beam(b, VERMILION, base, t, n, span + 1.2, floor + TORII - 2.6, floor + TORII - 2.05, .3)
-        _box(b, VERMILION, base, n, t, .28, .3, floor + TORII - 2.1, floor + TORII - 1.05)
-        _beam(b, VERMILION, base, t, n, span + 1.6, floor + TORII - 1.05, floor + TORII - .55, .38)
-        _beam(b, TILE, base, t, n, span + 2.3, floor + TORII - .55, floor + TORII + .05, .48, lift=.7)
+            _cylinder(b, VERMILION, x, z, floor + .7, floor + gate_h - .6, .45)
+        _beam(b, VERMILION, base, t, n, span + 1.2, floor + gate_h - 2.6, floor + gate_h - 2.05, .3)
+        _box(b, VERMILION, base, n, t, .28, .3, floor + gate_h - 2.1, floor + gate_h - 1.05)
+        _beam(b, VERMILION, base, t, n, span + 1.3, floor + gate_h - 1.05, floor + gate_h - .55, .38)
+        _beam(b, TILE, base, t, n, span + 1.8, floor + gate_h - .55, floor + gate_h + .05, .48, lift=.7)
     # the pavilion over the back of the deck: vermilion posts, tie beams, an upturned hip roof with a ridge
     back = {0: 1, 1: 0, 2: 3, 3: 2}.get(gate, 1)
+    if back in open_sides:                                    # never over a ledge or another ramp's start
+        back = next((sd for sd in (back, 1, 0, 3, 2) if sd not in open_sides), None)
+    if back is None:
+        return 0 if TOWER_TIMBER else None
     _, n, t, half_face, other = sides[back]
     share, post, over = PAVILION
     depth = share * other
     pc = c + (other - depth) * n
     pa, pw = depth - .8, half_face - .8
+    beside = open_sides & {sd for sd in range(4) if sd // 2 != back // 2}
+    if beside:                                        # a ramp or ledge beside it: a smaller roof, moved away from it
+        pw = max(half_face - over - 3.5, 1.5)
+        for sd in beside:
+            pc = pc - sides[sd][1] * max(half_face - pw - over - .5, 0.) / len(beside)
+    roof_top = top + post + .2 + .5 * (pw + over) + 4.
+    for _ in range(8):                                # smaller still while another piece's wall rises near its eaves
+        if not any(_beside(plan, pc + su * (pa + over) * n + sv * (pw + over) * t, OVER, floor + .3, roof_top, k)
+                   for su in (-1, 0, 1) for sv in (-1, 0, 1) if su or sv):
+            break
+        pa, pw = pa * .85, pw * .85
+    else:
+        return 0 if TOWER_TIMBER else None
     for su in (-1, 0, 1):
         for sv in (-1, 1):
             x, z = pc + su * pa * n + sv * pw * t
@@ -859,6 +887,8 @@ def tower(b, plan, ground, piece, open_sides):
                                                              .25 * SORI), (max(pa * .3, .3), .05, eave + rise, 0.)])
     _beam(b, TILE, pc + 0 * n, n, t, max(pa * .3, .3) + .6, eave + rise - .1, eave + rise + .55, .35)
     placed = 0
+    if TOWER_TIMBER:
+        return placed
     reach_a, reach_w = ya + spread(g_hi) + .5, yw + spread(g_hi) + .5
     count = 10 + int((top - g_hi) / 8)
     for k in range(count):
@@ -869,31 +899,90 @@ def tower(b, plan, ground, piece, open_sides):
     return placed
 
 
+def _tower_frame(b, plan, ground, k, c, fwd, acr, a, w, y_top):
+    """The start tower's timber frame (the Vert drop concept's): posts round the deck's own outline on rough stone
+    plinths, through nuki every TOWER_NUKI with iron plates and end blocks on the outer faces, and a ring beam under the
+    balcony. A post is left out where any other piece lies below the deck there."""
+    hp, cap = TOWER_POST, TOWER_POST * STAGE_EDGE
+    ua = np.linspace(-(a - 1.6 * hp), a - 1.6 * hp, max(2, round(2 * a / TOWER_BAY)) + 1)
+    vw = np.linspace(-(w - 1.6 * hp), w - 1.6 * hp, max(2, round(2 * w / TOWER_BAY)) + 1)
+    ring = ([(u, vw[0]) for u in ua] + [(ua[-1], v) for v in vw[1:]] + [(u, vw[-1]) for u in ua[-2::-1]]
+            + [(ua[0], v) for v in vw[-2:0:-1]])
+    posts = []
+    for u, v in ring:
+        p = c + u * fwd + v * acr
+        gs = [float(ground(*(p + su * hp * fwd + sv * hp * acr))) for su in (-1, 1) for sv in (-1, 1)]
+        who, y = plan.heights(*p)
+        if ((who != k) & (y > min(gs) - SINK - 1.) & (y < y_top - .5)).any() or y_top - max(gs) < STAGE_MIN + 3. \
+                or _beside(plan, p, hp * PLINTH_WIDE * 1.8 + STAGE_CLEAR, min(gs) - SINK - 1., y_top - 2., k):
+            posts.append(None)
+            continue
+        posts.append(dict(p=p, base=min(gs) - SINK, ground=max(gs), foot=min(y_top - 2., max(gs) + PLINTH_RISE[1])))
+    for q in posts:
+        if q:
+            _plinth(b, q['p'], fwd, acr, hp * PLINTH_WIDE, q['base'], min(q['ground'], q['foot'] - .3), q['foot'])
+            _post(b, q['p'], hp, q['foot'] - .2, y_top - cap * .5)
+            _box(b, KEYAKI, q['p'], fwd, acr, hp * CAPITAL[0], hp * CAPITAL[0], y_top - cap - hp * CAPITAL[1],
+                 y_top - cap * .5)
+    ea, eh, el = END_BLOCK
+    for A, B in zip(posts, posts[1:] + posts[:1]):
+        if not (A and B):
+            continue
+        d = B['p'] - A['p']
+        L = float(np.linalg.norm(d))
+        u = d / L
+        n = np.array([-u[1], u[0]])
+        out = n if float(n @ ((A['p'] + B['p']) / 2 - c)) >= 0 else -n
+        level = math.ceil((max(A['foot'], B['foot']) + .5 * TOWER_NUKI) / TOWER_NUKI) * TOWER_NUKI
+        while level <= y_top - cap - .4 * TOWER_NUKI:
+            # the tenons stick out past the posts, except toward another piece nearby (a ramp leaving the tower)
+            near = lambda P: _beside(plan, P, hp * 2 + STAGE_CLEAR, level - 4., level + 4., k)
+            ends = [(A['p'], -1.), (B['p'], 1.)]
+            if near((A['p'] + B['p']) / 2):
+                level += TOWER_NUKI
+                continue
+            tips = [P + sgn * (hp if near(P + sgn * hp * STAGE_TENON * u) else hp * STAGE_TENON) * u for P, sgn in ends]
+            _timber(b, [(tips[0][0], level, tips[0][1]), (tips[1][0], level, tips[1][1])], n, hp * .6, hp * .75)
+            for P in (A['p'], B['p']):
+                _box(b, IRON, P + out * (hp + .06), u, out, hp * PLATE, .06, level - hp * PLATE, level + hp * PLATE)
+            for (P, sgn), T in zip(ends, tips):
+                if float(np.linalg.norm(T - P)) > hp * 1.5:
+                    _box(b, KEYAKI, T + sgn * hp * el * u, u, n, hp * el, hp * ea, level - hp * eh, level + hp * eh)
+            level += TOWER_NUKI
+        _timber(b, [(A['p'][0], y_top - cap * .5, A['p'][1]), (B['p'][0], y_top - cap * .5, B['p'][1])], n, hp * .85,
+                cap * .5)
+
+
 # The Vert drop's timber stage (kakezukuri), after the approved Sunburst concept
 # (assets/craterpark/concepts/editor/vertdrop-kiyomizu-overview.jpg): instead of an arcade, each of the line's ramps
 # stands on its own grid of massive posts on stone plinths, tied by horizontal nuki that pass through the posts at
 # even levels and stick out past the outer ones, with a cap beam following the ramp's underside. Nothing spans from one
 # piece to the next, so the air between the vert kicker and the reverse catch (and under the mega air) stays open.
 STAGE_LINES = {'L2'}          # the lines that stand on timber stages instead of stone arcades
+STAGE_TYPES = {'rollin'}      # ...and the roll-ins, which leave the timber tower (the concept's ramp down from it)
 KEYAKI = 'material_045'       # weathered keyaki, warm mid-brown: the stage's posts and beams
 IRON = TILE                   # the black iron plates over the outer joints
 STAGE_TALL = 120.             # members grow with the stage's height, up to this many metres of clearance
-STAGE_BAY = (10., 16.)        # post spacing along the piece (low to tall stages)...
-STAGE_SPAN = (16., 24.)       # ...and across it: posts in a few long rows, not a forest
-STAGE_POST = (.8, 1.6)        # post half thickness
-STAGE_NUKI = (5., 10.)        # height between tie-beam levels
+STAGE_BAY = (10., 22.)        # post spacing along the piece (low to tall stages)...
+STAGE_SPAN = (16., 30.)       # ...and across it: posts in a few long rows, not a forest
+STAGE_POST = (.9, 2.4)        # post half thickness: massive, as the concept's frames (about a twelfth of their height)
+STAGE_NUKI = (5., 26.)        # height between tie-beam levels: three to five levels on any frame, as the concept's
 STAGE_MIN = 2.                # a post shorter than this is left out: the ramp sits on (or in) the ground there
+STAGE_CLEAR = 3.              # metres kept between a post (or its plinth) and any other piece beside it
 STAGE_CAP = 1.6               # the cap beam's height under the ramp, in post half thicknesses...
 STAGE_EDGE = 2.4              # ...deeper along the outer frames, the heavy edge beam under the ramp's sides
 STAGE_TENON = 2.6             # a nuki runs this many post half thicknesses past the posts it ties
-PLATE = 1.1                   # an iron plate's half size, in post half thicknesses
+PLATE = .8                    # an iron plate's half size, in post half thicknesses
 STAGE_TRUSS = (3., 9.)        # a truss's depth under the ramp, where another piece runs underneath
 STAGE_REACH = 80.             # metres beyond the edge searched for clear ground to stand a truss's outrigger post
 STAGE_BACK_RUN, STAGE_BACK_STEEP = 15., 60.   # a piece this steep (deg) within this far of its start is a catch wall
-PLINTH_RISE = (1.6, 4.)       # the stone plinth stands this far above the highest ground under it...
-PLINTH_WIDE = 1.9             # ...is this many post half thicknesses wide at its top...
-PLINTH_COURSES = 3            # ...in this many dressed courses, each stepping out this much of its width below
-PLINTH_STEP = .14
+PLINTH_RISE = (2.5, 9.)       # the stone plinth stands this far above the highest ground under it...
+PLINTH_WIDE = 2.2             # ...is this many post half thicknesses wide at its top...
+PLINTH_COURSES = 3            # ...in this many rough courses, each stepping out this much of its width below
+PLINTH_STEP = .12
+CAPITAL = (1.3, 1.1)          # a block capping each post under the beams: half width and height, in post halves
+TWIN = 2.3                    # a frame's corner posts are doubled, the second this many post halves inward
+END_BLOCK = (.75, .9, .35)    # the square block on a nuki's outer end: half width, half height, length (post halves)
 
 
 def _lerp(pair, f):
@@ -910,11 +999,14 @@ def _post(b, c, half, y0, y1):
 
 
 def _plinth(b, c, fwd, acr, half, y0, yg, y1):
-    """A dressed stone plinth from y0 (sunk) to y1, its courses above the ground yg each stepping in from the one below."""
+    """A rough stone plinth (the volcano's grey rock) from y0 (sunk) to y1, its courses above the ground yg each stepping
+    in from the one below."""
     levels = [y0] + [yg + (y1 - yg) * k / PLINTH_COURSES for k in range(1, PLINTH_COURSES + 1)]
     for k in range(PLINTH_COURSES):
         w = half * (1 + PLINTH_STEP * (PLINTH_COURSES - 1 - k))
-        _box(b, STONE, c, fwd, acr, w, w, levels[k], levels[k + 1])
+        r = [_rand(c[0], c[1], k, i) - .5 for i in range(3)]       # rough-laid: each course a little off square
+        q = c + .06 * half * (r[0] * fwd + r[1] * acr)
+        _box(b, ROCK, q, fwd, acr, w * (1 + .05 * r[2]), w * (1 - .05 * r[2]), levels[k], levels[k + 1], yaw=.04 * r[1])
 
 
 def _timber(b, pts, n, depth, height):
@@ -924,8 +1016,19 @@ def _timber(b, pts, n, depth, height):
                                  for q, r in ((-1, -1), (1, -1), (1, 1), (-1, 1))]) for p in pts])
 
 
+def _beside(plan, p, r, y0, y1, piece=-1):
+    """Whether any piece other than `piece` has a surface between y0 and y1 within r (plan) of p."""
+    for ang in np.linspace(0, 2 * np.pi, 24, endpoint=False):
+        for f in (.35, .7, 1.):
+            who, y = plan.heights(*(p + f * r * np.array([math.cos(ang), math.sin(ang)])))
+            if ((who != piece) & (y > y0) & (y < y1)).any():
+                return True
+    return False
+
+
 def _column(plan, ground, p, w, top):
-    """(lowest, highest) ground round a post standing at p up to `top` without meeting any piece, else None."""
+    """(lowest, highest) ground round a post standing at p up to `top` without meeting any piece, nor standing within
+    STAGE_CLEAR of one beside it, else None."""
     r, g = w * PLINTH_WIDE * (1 + PLINTH_STEP * (PLINTH_COURSES - 1)), []
     for q in (p, p + (r, r), p + (-r, r), p + (-r, -r), p + (r, -r)):
         gg = float(ground(*q))
@@ -933,6 +1036,8 @@ def _column(plan, ground, p, w, top):
         if ((y > gg - SINK - 1.) & (y < top + 1.)).any():
             return None
         g.append(gg)
+    if _beside(plan, p, r * 1.42 + STAGE_CLEAR, min(g) - SINK - 1., top + 1.):
+        return None
     return (min(g), max(g)) if top - max(g) >= STAGE_MIN else None
 
 
@@ -951,10 +1056,13 @@ def stage(b, plan, ground, piece, stations):
             clear.append(sp[0] - float(ground(x[i], z[i])))
     if not clear:
         return 0, 0, 0.
-    f = float(np.clip(np.median(clear) / STAGE_TALL, 0., 1.))
+    catch = max(abs(st['a']) for st in stations if st['d'] - stations[0]['d'] < STAGE_BACK_RUN) > STAGE_BACK_STEEP
+    if catch:                                                  # its back frame stands up to the lip
+        clear.append(stations[0]['y'] - float(ground(stations[0]['x'], stations[0]['z'])))
+    f = float(np.clip(max(clear) / STAGE_TALL, 0., 1.))     # members sized for the stage's tallest frame
     bay, w, nuki, depth = _lerp(STAGE_BAY, f), _lerp(STAGE_POST, f), _lerp(STAGE_NUKI, f), _lerp(STAGE_TRUSS, f)
     rise, cap = _lerp(PLINTH_RISE, f), w * STAGE_CAP
-    end = w * max(STAGE_TENON, PLINTH_WIDE * (1 + PLINTH_STEP * (PLINTH_COURSES - 1))) + .3   # all within the piece
+    end = w * max(STAGE_TENON + 2 * END_BLOCK[2], PLINTH_WIDE * (1 + PLINTH_STEP * (PLINTH_COURSES - 1))) + .3   # all within the piece
     if t[-1] - t[0] < 2 * end + 1.:
         return 0, 0, 0.
     rows = np.linspace(t[0] + end, t[-1] - end, max(1, round((t[-1] - t[0] - 2 * end) / bay)) + 1)
@@ -982,7 +1090,8 @@ def stage(b, plan, ground, piece, stations):
             top = min(sp[0] for sp in spans) + EMBED
             if max(sp[1] for sp in spans) > min(g) - SINK:
                 row.append(dict(p=p, top=top, base=top - depth, foot=top - depth, hung=True))
-            elif top - max(g) >= STAGE_MIN:
+            elif top - max(g) >= STAGE_MIN and not _beside(plan, p, w * PLINTH_WIDE * 1.8 + STAGE_CLEAR,
+                                                            min(g) - SINK - 1., top - 1., piece):
                 row.append(standing(p, top, min(g), max(g)))
             else:
                 row.append(None)                      # the ramp sits on (or in) the ground here
@@ -1019,7 +1128,7 @@ def stage(b, plan, ground, piece, stations):
         outs.append(out)
     # a catch wall (the piece drops away steeply from its start) gets a row of posts behind its top, up to its lip;
     # never behind a piece's end, where the rider flies off
-    if max(abs(st['a']) for st in stations if st['d'] - stations[0]['d'] < STAGE_BACK_RUN) > STAGE_BACK_STEEP:
+    if catch:
         h0 = math.radians(stations[0]['h'])
         fwd, acr = np.array([math.cos(h0), math.sin(h0)]), np.array([-math.sin(h0), math.cos(h0)])
         c = np.array([stations[0]['x'], stations[0]['z']]) - (end + w * PLINTH_WIDE * (1 + PLINTH_STEP * (PLINTH_COURSES - 1))) * fwd
@@ -1031,16 +1140,34 @@ def stage(b, plan, ground, piece, stations):
             grid.insert(0, back)
             outs.insert(0, {})
             rows = np.concatenate([[rows[0] - bay], rows])
+    # as the concept, the frames stand along the ramp's edges and across its two ends, not under the whole ramp: the
+    # posts between them are left out (except where a truss lands), and a girder crosses under the ramp from edge to edge
+    keep = {id(e) for row in grid for q in row if q and q.get('hung') for e in q['truss']}
+    for row in grid[1:-1]:
+        for j in range(1, len(row) - 1):
+            if row[j] and not row[j].get('hung') and id(row[j]) not in keep:
+                row[j] = None
     posts = beams = 0
-    for q in [q for row in grid for q in row if q and not q.get('hung')] + [q for o in outs for q in o.values()]:
-        _plinth(b, q['p'], q['fwd'], q['acr'], w * PLINTH_WIDE, q['base'], min(q['ground'], q['foot'] - .3), q['foot'])
-        _post(b, q['p'], w, q['foot'] - .2, q['top'] - cap * .5)
-        posts += 1
+    standing_posts = [q for row in grid for q in row if q and not q.get('hung')] + [q for o in outs for q in o.values()]
+    corners = {id(grid[i][j]): 1 if i == 0 else -1 for i in (0, len(grid) - 1) for j in (0, len(grid[i]) - 1)
+               if grid[i][j] and not grid[i][j].get('hung')}
+    for q in standing_posts:
+        here = [q['p']]
+        if id(q) in corners:                          # the corner posts are doubled, as the concept's
+            p2 = q['p'] + corners[id(q)] * TWIN * w * q['fwd']
+            if _column(plan, ground, p2, w, q['top']) is not None:
+                here.append(p2)
+        for p in here:
+            _plinth(b, p, q['fwd'], q['acr'], w * PLINTH_WIDE, q['base'], min(q['ground'], q['foot'] - .3), q['foot'])
+            _post(b, p, w, q['foot'] - .2, q['top'] - cap * .5)
+            ca, ch = CAPITAL
+            _box(b, KEYAKI, p, q['fwd'], q['acr'], w * ca, w * ca, q['top'] - cap - w * ch, q['top'] - cap * .5)
+            posts += 1
 
     every = [q['p'] for row in grid for q in row if q] + [q['p'] for o in outs for q in o.values()]
     middle = np.mean(every, 0) if every else np.zeros(2)
 
-    def tie(A, B, outer):
+    def tie(A, B, outer, ties=True):
         """Nuki between two neighbouring posts at every level both stand through, with iron plates over the joints on
         an outer frame's face, and the cap beam over them (the deep edge beam on an outer frame)."""
         nonlocal beams
@@ -1054,20 +1181,24 @@ def stage(b, plan, ground, piece, stations):
         top = w * STAGE_EDGE if outer else cap
         lo, hi = max(A['foot'], B['foot']) + .5 * nuki, min(A['top'], B['top']) - top - .6 * nuki
         level, ext = math.ceil(lo / nuki) * nuki, w * STAGE_TENON
-        while level <= hi:
+        while ties and level <= hi:
             a, e = A['p'] - ext * u, B['p'] + ext * u
             _timber(b, [(a[0], level, a[1]), (e[0], level, e[1])], n, w * .6, w * .75)
             beams += 1
             if outer:
                 for P in (A['p'], B['p']):
                     _box(b, IRON, P + out * (w + .06), u, out, w * PLATE, .06, level - w * PLATE, level + w * PLATE)
+                ea, eh, el = END_BLOCK
+                for P, sgn in ((a, -1.), (e, 1.)):
+                    _box(b, KEYAKI, P + sgn * w * el * u, u, n, w * el, w * ea, level - w * eh, level + w * eh)
             level += nuki
         # the cap beam hugs the ramp's underside between the two posts (level between them off the piece)
         pts = []
         for s in np.linspace(0., 1., max(2, int(L / 1.5) + 1)):
             p = A['p'] + s * d
-            sp = plan.span(*p, piece)
-            y = sp[0] + EMBED if sp is not None else A['top'] + s * (B['top'] - A['top'])
+            sps = [plan.span(*(p + q * w * .85 * n), piece) for q in (-1., 0., 1.)]   # its top under the ramp all across
+            ys = [sp[0] for sp in sps if sp is not None]
+            y = min(ys) + EMBED if ys else A['top'] + s * (B['top'] - A['top'])
             pts.append((p[0], y - top * .5, p[1]))
         _timber(b, pts, n, w * .85, top * .5)
         beams += 1
@@ -1094,6 +1225,8 @@ def stage(b, plan, ground, piece, stations):
         for A, B in zip(ordered, ordered[1:]):
             if A is not None and B is not None:
                 tie(A, B, i in (0, len(grid) - 1))
+        if 0 < i < len(grid) - 1 and row[0] and row[-1] and not any(row[1:-1]):
+            tie(row[0], row[-1], False, ties=False)
         j = 0
         while j < len(row):
             q = row[j]
@@ -1115,21 +1248,40 @@ def stage(b, plan, ground, piece, stations):
     return posts, beams, (float(rows[-1] - rows[0]) if posts else 0.)
 
 
-def open_sides(piece, pieces, k):
+def open_sides(piece, pieces, k, halves=None, types=None):
     """The sides of a deck (0 +fwd, 1 -fwd, 2 +acr, 3 -acr) a ramp leaves from at its top (or arrives at): where the
-    ramp's first or last station stands on the deck's edge. No railing there, and the torii over the first."""
+    ramp's first or last station stands on the deck's edge. No railing there, and the torii over the first. `halves`, if
+    given, gets each such side's widest ramp half width (floor, walls and coping)."""
     c, fwd, acr, a, w, top = _rect(np.asarray(piece.mesh.V, 'f8'))
     out = set()
     for j, other in enumerate(pieces):
         stations = other.metadata.get('stations') or []
-        if j == k or not stations:
+        if j == k or not stations or (types and other.metadata['type'] not in types):
             continue
         for st in (stations[0], stations[-1]):
             d = np.array([st['x'], st['z']]) - c
             u, v = d @ fwd, d @ acr
             if abs(st['y'] - top) > 1.5 or abs(u) > a + 2. or abs(v) > w + 2.:
                 continue
-            out.add(int(np.argmax([u / a, -u / a, v / w, -v / w])))
+            side = int(np.argmax([u / a, -u / a, v / w, -v / w]))
+            out.add(side)
+            if halves is not None:
+                halves[side] = max(halves.get(side, 0.), _outer_half(st))
+    return out
+
+
+def ledge_sides(piece, plan, k):
+    """The sides of a deck another piece adjoins at its own height (a takeoff ledge, a ramp's top), probed just outside
+    each edge: no railing nor pavilion there."""
+    c, fwd, acr, a, w, top = _rect(np.asarray(piece.mesh.V, 'f8'))
+    out = set()
+    for side, (n, t, half_face, other) in enumerate(((fwd, acr, w, a), (-fwd, acr, w, a), (acr, fwd, a, w),
+                                                     (-acr, fwd, a, w))):
+        for u in np.linspace(-half_face + .5, half_face - .5, 9):
+            who, y = plan.heights(*(c + (other + 1.) * n + u * t))
+            if ((who != k) & (np.abs(y - top) < 1.5)).any():
+                out.add(side)
+                break
     return out
 
 
@@ -1142,7 +1294,11 @@ def build(pieces, heights, grid):
         meta = piece.metadata
         if meta['type'] == 'deck' and (meta.get('params') or {}).get('solid'):
             b = Builder()
-            rocks = tower(b, plan, ground, piece, open_sides(piece, pieces, k))
+            halves = {}
+            drops = open_sides(piece, pieces, k, halves, types={'rollin'})     # the torii stands over a roll-in only
+            gates = open_sides(piece, pieces, k)
+            rocks = tower(b, plan, ground, piece, gates | drops | ledge_sides(piece, plan, k), k, gates=drops,
+                          halves=halves)
             if rocks is not None:
                 out += b.meshes(f"{meta['id']}_tower")
                 summary['boulders'] += rocks
@@ -1152,7 +1308,7 @@ def build(pieces, heights, grid):
         if meta['type'] in ('bowl', 'deck', 'rail') or not meta.get('stations'):
             continue
         b = Builder()
-        if meta.get('line') in STAGE_LINES:
+        if meta.get('line') in STAGE_LINES or meta['type'] in STAGE_TYPES:
             posts, beams, metres = stage(b, plan, ground, k, meta['stations'])
             if posts:
                 out += b.meshes(f"{meta['id']}_supports")
