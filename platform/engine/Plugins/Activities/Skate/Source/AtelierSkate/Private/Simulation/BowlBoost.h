@@ -7,8 +7,10 @@ namespace atelier::skate
 // "Boost zones"). The host sets the zone's scale before each step (0 outside every zone, which changes nothing) and the
 // feel's bowl_boost multiplies it. Only on ground tilted more than 12 degrees from level, so a bowl's flat bottom and
 // decks never boost:
-// - a tick the rider pumps gains PumpGain m/s^2: standing up from a trigger's crouch, which the simulation reads as an
-//   intentional pump (a trigger held is a crouch, not a pump), whatever the physical pump made of it;
+// - a tick the rider pumps gains PumpGain m/s^2: the StandTime after a trigger's crouch of at least CrouchTime on the
+//   ground is let go (Trigger), whatever the physical pump made of it. The host reads the trigger itself, not the
+//   simulation's intentional pump, which a hard turn's crouch raises too: a trigger held is a crouch, and a carve with
+//   no trigger, or held on after the stand-up, gains nothing;
 // - a powerslide keeps up to SlideKeep m/s^2 of the speed the slide (and the climb) took, and gains SlideGain m/s^2.
 // The pump's gain is its own, not a multiple of the physical pump's: at speed on a short transition a stand-up can hardly
 // be timed, so that pump adds almost nothing, and a multiple of it nothing more.
@@ -22,10 +24,22 @@ struct BowlBoost
     static constexpr float TransitionCos=0.978f;   // cos 12 degrees: the ground's up must lean further than this
     static constexpr float PumpGain=6.0f,SlideGain=5.0f,SlideKeep=6.0f,CapRise=0.8f,CapFloor=24.0f;
     static constexpr float Crouch=30.0f/255.0f;    // a trigger pulled further than this crouches (XInput's threshold)
+    static constexpr float CrouchTime=0.15f,StandTime=0.7f;   // s: the shortest crouch that pumps, and its stand-up
     float zone=0;          // this step's zone scale, set by the host (0..3)
     float entry=0;         // the speed the board came into the zone with
     bool inside=false;
     float total=0;         // speed added since the host last read it (logging)
+    float crouched=0;      // how long a trigger has been pulled on the ground (s)
+    float stand=0;         // what is left of the stand-up after the last crouch was let go (s)
+    // Every tick, in a zone or not (it moves nothing): pulled, either trigger is pulled past Crouch; grounded, the board
+    // is on the ground or powersliding (a trigger pulled in the air is a grab, and its release no pump).
+    void Trigger(bool pulled,bool grounded,float dt)
+    {
+        if(pulled){stand=0;crouched=grounded?crouched+dt:0;return;}
+        stand=crouched>=CrouchTime?StandTime:std::max(stand-dt,0.0f);
+        crouched=0;
+    }
+    bool Standing() const {return stand>1.0e-4f;}   // past rounding: StandTime is whole ticks at 60 Hz (42)
     // The speed to add after a tick. in_zone: the board is in a boost zone (its scale over 0), whatever it is doing;
     // scale: the gain's scale this tick, the zone's times the feel's, or 0 where it cannot gain (in the air); up_cos: the
     // deck's up against world up; pumping: the rider pumps this tick (on the ground); before, after: the speed either

@@ -96,10 +96,10 @@ bool GameplaySession::Activate(Vec3 spawn,float heading,std::string& error)
     auto respawn=RespawnRuntime::Load(gameplay->resources->settings,deck,gameplay->animation->CheckpointStance(),error);
     if(!respawn)return false;
     *gameplay->respawn=std::move(*respawn);gameplay->teleport->SetCheckpoint({deck,true});
-    input=ControllerInputRuntime{};elapsed_=0;error.clear();return true;
+    input=ControllerInputRuntime{};boost.crouched=boost.stand=0;elapsed_=0;error.clear();return true;
 }
 void GameplaySession::SuspendInput()
-{input=ControllerInputRuntime{};markers.Suspend();elapsed_=0;}
+{input=ControllerInputRuntime{};markers.Suspend();boost.crouched=boost.stand=0;elapsed_=0;}
 void GameplaySession::Collect(const std::array<DeviceSample,InputDeviceSlots>& samples,float dt)
 {input.Collect(samples);markers.CollectTime(double(dt));}
 bool GameplaySession::Advance(std::string& error)
@@ -109,6 +109,13 @@ bool GameplaySession::AdvancePublished(std::string& error)
     const float before=boost.zone>0?BoostSpeed():0;
     markers.Advance(input,*gameplay);if(!gameplay->Advance(input.PublishedInput(),error))return false;
     pumps.Observe(*gameplay,Period());
+    {
+        // The pump input for BowlBoost (host-only, it moves nothing): the triggers as the player holds them.
+        const auto triggers=input.CurrentRawInput().triggers;
+        const auto state=gameplay->player_state->Current();
+        boost.Trigger(triggers[0]>BowlBoost::Crouch || triggers[1]>BowlBoost::Crouch,state==PhysicalStateId::PhysicsGround
+            || state==PhysicalStateId::RevertGround || state==PhysicalStateId::SlideGround,Period());
+    }
     if(boost.zone>0 || boost.inside)ApplyBoost(before);
     return true;
 }
@@ -119,14 +126,12 @@ float GameplaySession::BoostSpeed() const
 }
 void GameplaySession::ApplyBoost(float before)
 {
-    // BowlBoost.h: on the ground only, a pump (an intentional pump with no trigger pulled: the rider standing up from
-    // the crouch, however much the physical pump added) or the powerslide.
+    // BowlBoost.h: on the ground only, a pump (the stand-up after a trigger's crouch, however much the physical pump
+    // added; BowlBoost::Trigger) or the powerslide.
     const auto state=gameplay->player_state->Current();
     const bool ground=state==PhysicalStateId::PhysicsGround||state==PhysicalStateId::RevertGround;
     const bool sliding=state==PhysicalStateId::SlideGround;
-    const auto triggers=input.CurrentRawInput().triggers;
-    const bool crouched=triggers[0]>BowlBoost::Crouch || triggers[1]>BowlBoost::Crouch;
-    const bool pump=ground && gameplay->ground.pumping.intentional_pumping && !crouched;
+    const bool pump=ground && boost.Standing();
     const auto deck=gameplay->physical->board.PartTransforms()[std::size_t(BoardBodyId::Deck)];
     const float after=BoostSpeed();
     // The zone holds the board (and its entry speed) through an air; only the gain needs the ground (BowlBoost::Tick).

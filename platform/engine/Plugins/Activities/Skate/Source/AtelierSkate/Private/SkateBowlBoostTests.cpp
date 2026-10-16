@@ -1,6 +1,7 @@
 // Boost zones (Simulation/BowlBoost.h): a tick's speed gain from pumping or powersliding on a boost zone's transition,
 // at 60 Hz. Nothing outside a zone, with the setting at 0, or on ground under 12 degrees; a pump gains 6 m/s^2 however
-// little the physical pump added; a slide gains instead of scrubbing; 200% doubles the gain; the cap holds.
+// little the physical pump added, for the 0.7 s after a trigger's crouch is let go and never without one; a slide gains
+// instead of scrubbing; 200% doubles the gain; the cap holds.
 #include "Simulation/BowlBoost.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
@@ -53,6 +54,42 @@ bool FSkateBowlBoostTest::RunTest(const FString&)
         float Speed = 20.f;
         for (int32 I = 0; I < 60; ++I) Speed += Second.Gain(true, 1.f, Wall, true, false, Speed, Speed, Dt);
         TestTrue(TEXT("A second of pumping on the transition gains 6 m/s"), FMath::IsNearlyEqual(Speed, 26.f, 1e-3f));
+    }
+    {
+        // The pump input (BowlBoost::Trigger): a crouch of 0.3 s on the ground, let go, stands up for 0.7 s (42 ticks).
+        BowlBoost B;
+        for (int32 I = 0; I < 18; ++I) B.Trigger(true, true, Dt);
+        TestFalse(TEXT("A trigger held is a crouch, not a pump"), B.Standing());
+        int32 Up = 0;
+        float Gained = 0.f, Speed = 20.f;
+        for (int32 I = 0; I < 120; ++I)
+        {
+            B.Trigger(false, true, Dt);
+            Up += B.Standing() ? 1 : 0;
+            const float Gain = B.Gain(true, 1.f, Wall, B.Standing(), false, Speed, Speed, Dt);
+            Gained += Gain; Speed += Gain;
+        }
+        TestEqual(TEXT("A crouch let go stands up for 0.7 s, then the pump is over"), Up, 42);
+        TestTrue(TEXT("One stand-up on the transition gains 4.2 m/s"), FMath::IsNearlyEqual(Gained, 4.2f, 1e-3f));
+        // A carve with no trigger at all (a hard turn crouches the rider, and the simulation calls that an intentional
+        // pump) never pumps, however long it lasts.
+        BowlBoost Carve;
+        bool Ever = false;
+        for (int32 I = 0; I < 600; ++I) { Carve.Trigger(false, true, Dt); Ever = Ever || Carve.Standing(); }
+        TestFalse(TEXT("No trigger, no pump"), Ever);
+        BowlBoost Tap;
+        for (int32 I = 0; I < 5; ++I) Tap.Trigger(true, true, Dt);
+        Tap.Trigger(false, true, Dt);
+        TestFalse(TEXT("A tap under 0.15 s is no crouch to stand up from"), Tap.Standing());
+        BowlBoost Grab;
+        for (int32 I = 0; I < 30; ++I) Grab.Trigger(true, false, Dt);
+        Grab.Trigger(false, true, Dt);
+        TestFalse(TEXT("A trigger let go after an air (a grab) is no pump"), Grab.Standing());
+        BowlBoost Again;
+        for (int32 I = 0; I < 18; ++I) Again.Trigger(true, true, Dt);
+        Again.Trigger(false, true, Dt);
+        Again.Trigger(true, true, Dt);
+        TestFalse(TEXT("Pulling the trigger again ends the stand-up"), Again.Standing());
     }
     {
         // A powerslide that took 0.08 m/s this tick: the keep is at most 6 m/s^2 (0.1 m/s a tick), the gain 5 m/s^2.

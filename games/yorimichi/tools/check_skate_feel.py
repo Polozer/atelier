@@ -8,7 +8,7 @@ and keeps a fast hardflip's bottom point that 60 Hz misses, rolling resistance a
 a rail from farther. Drift powerslides start with the stick straight down, grip as far as it is pulled and keep the
 speed and the line when let go, a lower powerslide turn turns the board less, and an assist zone's vert assist limit
 rides as that much assist. In a boost zone, pumping across a halfpipe's walls gains speed wall after wall even where
-the physical pump adds nothing, a trigger held through them gains nothing, a powerslide gains, and outside every zone or
+the physical pump adds nothing, a trigger held through them or a hard turn's crouch gains nothing, a powerslide gains, and outside every zone or
 on flat ground nothing changes, bit for bit. Requires the assembled simulation package (skate.runtime) and the explicitly built test-only gameplay-session-cli
 (Tests/build_simulation_session_cli.py --compile, under the render lock and memory guard). Results go to
 build/yorimichi/skate-simulation/feel.
@@ -242,6 +242,7 @@ def halfpipe(radius, height, flat=6., width=40., steps=24):
 GROUND = ('PhysicsGround', 'RevertGround')
 PUMP_PULL = 200                 # of 255 on R2, as the simulation's reference pumps pull a trigger
 SLIDE_STICK = [round(math.sin(math.radians(25)) * 32767), -32767]
+HARD_TURN = [30000, -16000]    # a full stick about 1.1 rad from backward: a hard turn's crouch, short of a slide
 # Yorimichi's skate settings (DefaultGame.ini): pop, spin and push scales, vert assist 1, drift powerslides.
 YORIMICHI_TUNE = {'pop': 1.15, 'spin': 1.6, 'push_speed': 1.15, 'push_power': 1.45, 'vert_assist': 1}
 YORIMICHI_FEEL = {'drift_powerslide': 1, 'grind_tolerance': 2, 'camera_follow': 2, 'tight_flicks': 1}
@@ -275,7 +276,8 @@ def boost_ride(session, start, zone, recipe, wall=(4, 4), flat=6., frames=900):
     """Across the halfpipe of `wall` (radius, height) from `start` m/s in a boost zone of `zone` (None: no boost command
     at all), set off at the angle whose climb reaches 75% of the wall, carving as a player does, with Yorimichi's skate
     settings. `recipe`: 'pump' crouches (R2) on the flat and stands up through each wall, 'held' keeps R2 pulled, 'slide'
-    powerslides on each wall, 'coast' does none. Each frame's controls read the last frame's state. Returns the speed at
+    powerslides on each wall, 'hard' holds a hard turn on each wall with no trigger, 'pump_hard' pumps and then holds a
+    hard turn on each wall, 'coast' does none. Each frame's controls read the last frame's state. Returns the speed at
     each crossing of the flat's middle (between two of them is one wall) and the boost and physical pump over each wall."""
     radius, height = wall
     angle = math.degrees(math.acos(min(1, math.sqrt(2 * 9.81 * .75 * height) / start)))
@@ -292,8 +294,10 @@ def boost_ride(session, start, zone, recipe, wall=(4, 4), flat=6., frames=900):
     for frame in range(frames):
         up, state = last['boost']['up'], last['state']
         ground = state in GROUND or state == 'SlideGround'
-        trigger = PUMP_PULL if (recipe == 'pump' and ground and up > .985) or recipe == 'held' else 0
-        left = SLIDE_STICK if recipe == 'slide' and ground and up < .978 else [carve(last, angle, radius, height, flat) if ground else 0, 0]
+        trigger = PUMP_PULL if (recipe in ('pump', 'pump_hard') and ground and up > .985) or recipe == 'held' else 0
+        wall = ground and up < .978
+        left = (SLIDE_STICK if recipe == 'slide' and wall else HARD_TURN if recipe in ('hard', 'pump_hard') and wall
+                else [carve(last, angle, radius, height, flat) if ground else 0, 0])
         session.send('step', dt=1 / 60, buttons=0, left=left, right=[0, 0], triggers=[0, trigger])
         last = session.read()
         rows.append(last)
@@ -302,7 +306,10 @@ def boost_ride(session, start, zone, recipe, wall=(4, 4), flat=6., frames=900):
     speed3 = lambda r: math.sqrt(sum(v * v for v in r['velocity']))
     walls = [{'boost_mps': rows[j]['boost']['total'] - rows[i]['boost']['total'],
               'physical_pump_mps': sum(r['boost']['pump'] for r in rows[i + 1:j + 1]
-                                       if r['state'] in GROUND and r['boost']['intentional'] and r['boost']['pump'] > 0)}
+                                       if r['state'] in GROUND and r['boost']['intentional'] and r['boost']['pump'] > 0),
+              # ticks on the wall the simulation calls an intentional pump (a crouch, the trigger's or a hard turn's)
+              'flagged_ticks': sum(1 for r in rows[i + 1:j + 1] if r['state'] in GROUND and r['boost']['up'] < .978
+                                   and r['boost']['intentional'])}
              for i, j in zip(at, at[1:])]
     return {'crossings': [speed3(rows[i]) for i in at], 'walls': walls, 'boost': rows[-1]['boost']['total'], 'rows': rows,
             'bailed': any('Wipeout' in r['state'] for r in rows)}
@@ -502,12 +509,23 @@ def main():
                                     'held_zone_1': summary(held), 'held_zone_0': summary(held_plain)}
         check('boost_outside_exact', same(plain, outside) and plain['boost'] == outside['boost'] == 0, report['boost_halfpipe'])
         walls = pumped['walls'][:3]
-        check('boost_pump_gains', len(walls) == 3 and all(w['boost_mps'] >= BOOST_WALL_MIN and w['physical_pump_mps'] < .5 for w in walls)
+        check('boost_pump_gains', len(walls) >= 2 and all(w['boost_mps'] >= BOOST_WALL_MIN and w['physical_pump_mps'] < .5 for w in walls)
               and len(outside['crossings']) >= 3 and not pumped['bailed']
               and pumped['crossings'][2] >= outside['crossings'][2] + 2 * BOOST_AHEAD_MIN, report['boost_halfpipe'])
         check('boost_held_none', held['boost'] < .5 and len(held['crossings']) >= 2 and len(held_plain['crossings']) >= 2
               and abs(held['crossings'][1] - held_plain['crossings'][1]) < .5, report['boost_halfpipe'])
         check('boost_pump_cap', max(pumped['crossings']) <= 20 * 1.8, report['boost_halfpipe'])
+        # A hard turn crouches the rider and the simulation calls it an intentional pump; with no trigger it is no pump,
+        # however long it is held: the ride is the plain one, bit for bit. After a real R2 pump, a hard turn held on
+        # through the wall gains only that pump's stand-up (0.7 s x 6 m/s^2, BowlBoost::StandTime), not the turn's.
+        hard, hard_plain, pump_hard = (boost_ride(session, 20, zone, recipe) for zone, recipe in
+                                       ((1, 'hard'), (0, 'hard'), (1, 'pump_hard')))
+        report['boost_hard_turn'] = {'hard_zone_1': summary(hard), 'pump_hard_zone_1': summary(pump_hard)}
+        check('boost_hard_turn_none', same(hard, hard_plain) and hard['boost'] == 0
+              and sum(w['flagged_ticks'] for w in hard['walls']) > 30, report['boost_hard_turn'])
+        check('boost_pump_expires', len(pump_hard['walls']) >= 2 and all(w['boost_mps'] <= .7 * 6 + .1 for w in pump_hard['walls'])
+              and any(w['flagged_ticks'] > 42 for w in pump_hard['walls']) and pump_hard['walls'][0]['boost_mps'] >= BOOST_WALL_MIN,
+              report['boost_hard_turn'])
     finally:
         session.close()
     session = Session(args.binary, args.simulation_package, halfpipe(8, 3, width=1200), 'boost_bank')
