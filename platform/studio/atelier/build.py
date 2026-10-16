@@ -776,7 +776,10 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
             echo(f'{print_} touched')
             continue
         try:
-            batch = build_batches.select(ctx, plan, position, done, force=force_step, index=index, tool_cache=tool_cache)
+            # The batch selector skips current certificates; this explicitly requested repair
+            # must execute or restore normally before handing later actions to a batch.
+            batch = [] if rebuilding_touched else build_batches.select(
+                ctx, plan, position, done, force=force_step, index=index, tool_cache=tool_cache)
         except (OSError, ValueError, SyntaxError) as error:
             echo(f'{print_} FAILED: {error}')
             return 1
