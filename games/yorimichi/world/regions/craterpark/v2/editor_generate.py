@@ -198,24 +198,32 @@ def settle_decks(pieces):
 def piece_mesh(piece, decal=None, tower=False, sides=SIDES):
     """The piece's riding faces and sides (`sides`: the timber stage's ramps have keyaki sides, as the concept); a tower
     deck (editor_supports.tower) keeps only its top. A boost zone (editor_boost: params.boost > 0) is cut into its
-    sunburst, its riding faces painted (a decal bowl keeps its own graphic)."""
+    sunburst, its riding faces painted; a boosted decal bowl (the Prado) drops its painting for editor_prado's graphics,
+    cut into its mesh as sharp as the rest."""
     from craterpark.v2 import editor_boost
     m, meta = piece.mesh, piece.metadata
     V, N, F, col = m.V, m.N, orient(m.V, m.F, m.N), piece.colors
     side = np.zeros(len(F), bool)
     for c in SIDE_COLOURS:
         side |= (np.abs(col[F] - c).max(2) < 0.02).all(1)
-    paint = None
-    if decal is None and editor_boost.boosted(piece):
-        from craterpark.v2 import editor_coping
+    paint, prado, box = None, False, None
+    if editor_boost.boosted(piece):
+        from craterpark.v2 import editor_coping, editor_prado
         ride_faces, _ = editor_coping._classes(piece)
         classes = np.where(side, 2, np.where(ride_faces, 0, 1))
-        V, N, F, classes, paint, _ = editor_boost.paint(piece, np.asarray(V, 'f8'), np.asarray(N, 'f8'), F, classes)
+        V, N = np.asarray(V, 'f8'), np.asarray(N, 'f8')
+        rays, centre, box = editor_boost.RAYS, None, None
+        if decal:
+            rays, (centre, box) = editor_boost.BIG_RAYS, editor_prado.plan(V, N, F, classes)
+        V, N, F, classes, paint, sun = editor_boost.paint(piece, V, N, F, classes, rays=rays, centre=centre)
+        if decal:
+            V, N, F, classes, paint = editor_prado.floor(V, N, F, classes, paint, sun, box=box)
+            decal, prado = None, True                      # the graphics are cut in: no painting, no tile band
         side = classes == 2
     parts = []
     # wooden ramps (the park's ramp boards) and wooden bowls; a bowl with its own graphic (DECALS) stays poured concrete
     bowl = meta['type'] == 'bowl'
-    concrete = bowl and decal is not None
+    concrete = bowl and (decal is not None or prado)
     laid = not bowl and meta.get('stations')
     ride, ride_uv = (dsl.CONCRETE if concrete else WOOD), (piece_uv(V, meta['stations']) if laid else None)
     if bowl and not concrete:
@@ -223,7 +231,8 @@ def piece_mesh(piece, decal=None, tower=False, sides=SIDES):
     surfaces = [(~side, dsl.RIDING, ride, ride_uv)]
     if paint is not None:
         surfaces = [(~side & (paint == None), dsl.RIDING, ride, ride_uv)] + [  # noqa: E711 (an object array)
-            (paint == p, dsl.RIDING, p, ride_uv) for p in editor_boost.PAINTS]
+            (paint == p, dsl.RIDING, p, editor_prado.box_uv(V, box) if p == editor_prado.LETTERS and box else ride_uv)
+            for p in editor_boost.PAINTS + editor_prado.PAINTS]
     if decal:
         # the painting on the floor and down the walls, a tile band under the coping, a concrete deck (editor_decal)
         from craterpark.v2 import editor_coping, editor_decal
@@ -421,10 +430,11 @@ def main(argv=None):
                                 else SIDES)
         caps = {p['id']: (p.get('params') or {}).get('vert_assist_max') for p in chosen['pieces']}
         from craterpark.v2 import editor_boost
-        boosts = {p.metadata['id'] for p in scene.pieces if editor_boost.boosted(p) and p.metadata['id'] not in decals}
+        boosts = {p.metadata['id'] for p in scene.pieces if editor_boost.boosted(p)}   # a boosted decal bowl too
         if boosts:
             print(f"CRATERPARK EDITOR boost zones painted (sunburst): {sorted(boosts)}", flush=True)
-        copings, rails, coping_summary = editor_coping.build(scene.pieces, caps, brick=set(decals), gold=boosts)
+        copings, rails, coping_summary = editor_coping.build(scene.pieces, caps, brick=set(decals) - boosts,
+                                                             gold=boosts)
         print(f"CRATERPARK EDITOR coping: {coping_summary['rails']} grind rails, {coping_summary['metres']} m", flush=True)
         parts += copings
     mesh = dsl.Mesh.concat(parts)

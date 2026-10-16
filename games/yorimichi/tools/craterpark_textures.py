@@ -246,8 +246,23 @@ BOOST_PAINTS = {
     'textures/boost_magenta.png': ('ramp_planks', (212, 28, 92)),     # hot magenta rays
     'textures/boost_yellow.png': ('ramp_planks', (246, 184, 22)),     # warm yellow rays
     'textures/boost_sun.png': ('ramp_planks', (240, 150, 14)),        # the sun disc, a deeper gold
+    # the Prado bowl's (v2/editor_prado.py): the same lacquers over its poured concrete, and its wave bands
+    'textures/prado_magenta.png': ('concrete', (212, 28, 92)),
+    'textures/prado_yellow.png': ('concrete', (246, 184, 22)),
+    'textures/prado_sun.png': ('concrete', (240, 150, 14)),
+    'textures/prado_teal.png': ('concrete', (18, 128, 140)),          # wave band by the walls' foot
+    'textures/prado_navy.png': ('concrete', (30, 46, 112)),           # the band inside it
+    'textures/prado_orange.png': ('concrete', (238, 116, 34)),        # the thin line inside that
 }
 GRAIN = .35
+# The Prado's PRADO letters (v2/editor_prado.py LETTERS, BOX, box_uv): its floor's restyled concrete at the floor's 4 m
+# a tile, laid as box_uv lays the shipped box (editor_prado.READ), so the grain runs on across the box's edges; and over
+# it the letters in the navy band's paint, drawn from geometric strokes (no font): straight lines and arcs with round
+# ends, each pixel covered by its exact distance to them (antialiased at any size).
+LETTERS = 'textures/prado_letters.png'
+LETTER_INK = (30, 46, 112)
+LETTER_PX = 1024              # pixels per 4 m tile (about 4 mm a pixel)
+LETTER_H, LETTER_W, LETTER_GAP, LETTER_STROKE = 6., 4.4, 1.3, .9     # metres
 
 
 def sha(data):
@@ -483,6 +498,76 @@ def load(path, size):
     return np.asarray(im, float) / 255
 
 
+def letter_strokes():
+    """PRADO's strokes, metres in the box (x along the line, y up from its baseline edge): [(a, b)] segments, the arcs as
+    short chords."""
+    import math
+    import numpy as np
+    h, W, H = LETTER_STROKE / 2, LETTER_W, LETTER_H
+    arc = lambda cx, cy, r, a0, a1: [(cx + r * math.cos(a), cy + r * math.sin(a))
+                                     for a in np.linspace(math.radians(a0), math.radians(a1), 25)]
+    bowl_y = H * .44                                   # the P's and R's bowl from here up
+    r = (H - h - bowl_y) / 2
+    bowl = [(h, H - h)] + arc(W - h - r, (H - h + bowl_y) / 2, r, 90, -90) + [(h, bowl_y)]
+    D = (H - 2 * h) / 2
+    o = (W - 2 * h) / 2
+    shapes = {
+        'P': [[(h, h), (h, H - h)], bowl],
+        'R': [[(h, h), (h, H - h)], bowl, [(W * .5, bowl_y), (W - h, h)]],
+        'A': [[(h, h), (W / 2, H - h), (W - h, h)], [(W * .27, H * .36), (W * .73, H * .36)]],
+        'D': [[(h, h), (h, H - h)] + arc(W - h - D, H / 2, D, 90, -90) + [(h, h)]],
+        'O': [arc(W / 2, H - h - o, o, 0, 180) + arc(W / 2, h + o, o, 180, 360) + [(W - h, H - h - o)]],
+    }
+    total = 5 * W + 4 * LETTER_GAP
+    from craterpark.v2 import editor_prado
+    x0, y0 = (editor_prado.BOX[0] - total) / 2, (editor_prado.BOX[1] - H) / 2
+    segs = []
+    for k, ch in enumerate('PRADO'):
+        dx = x0 + k * (W + LETTER_GAP)
+        for line in shapes[ch]:
+            segs += [((a[0] + dx, a[1] + y0), (b[0] + dx, b[1] + y0)) for a, b in zip(line, line[1:])]
+    return segs
+
+
+def letters(concrete):
+    """The Prado's letters texture (LETTERS) over `concrete` (the restyled concrete tile, (n, n, 3) sRGB 0-1)."""
+    import numpy as np
+    from craterpark.v2 import editor_prado
+    bw, bh = editor_prado.BOX
+    ppm = LETTER_PX / editor_prado.TILE
+    W, H = round(bw * ppm), round(bh * ppm)
+    # the box's texels in the floor's tiles: each texel's place up the letters (v, 0 at the baseline) and along them
+    # (u), to the plan fractions (tx, tz) box_uv lays them at, to the floor tile's texel (UV rows run down the image)
+    u = (np.arange(W) + .5) / W
+    v = 1 - (np.arange(H) + .5) / H                    # row 0, the image's top, is the letters' top
+    along, side = editor_prado.READ
+    a, c = (1 - u, 1 - v) if side > 0 else (u, v)
+    if along == 0:
+        a = 1 - a                                      # box_uv: facing along +-z the reader's right is -+x
+    t_along, t_across = a * bw / editor_prado.TILE, c * bh / editor_prado.TILE
+    tx, tz = (t_along[None, :], t_across[:, None]) if along == 0 else (t_across[:, None], t_along[None, :])
+    tx, tz = np.broadcast_to(tx, (H, W)), np.broadcast_to(tz, (H, W))
+    n = concrete.shape[0]
+    col = np.floor((tx % 1) * n).astype(int) % n
+    row = np.floor((tz % 1) * n).astype(int) % n       # tile_uv's v is the tile's row
+    base = lin(concrete.astype('f4'))[row, col]
+    # coverage: each pixel's distance (pixels) to the nearest stroke, within half the stroke's width
+    d = np.full((H, W), np.inf, 'f4')
+    half = LETTER_STROKE / 2 * ppm
+    for (ax, ay), (bx, by) in letter_strokes():
+        A, B = np.array([ax, (bh - ay)]) * ppm, np.array([bx, (bh - by)]) * ppm      # pixels, rows down
+        x0, x1 = int(max(min(A[0], B[0]) - half - 2, 0)), int(min(max(A[0], B[0]) + half + 2, W))
+        y0, y1 = int(max(min(A[1], B[1]) - half - 2, 0)), int(min(max(A[1], B[1]) + half + 2, H))
+        X, Y = np.meshgrid(np.arange(x0, x1) + .5, np.arange(y0, y1) + .5)
+        e = B - A
+        t = np.clip(((X - A[0]) * e[0] + (Y - A[1]) * e[1]) / max(e @ e, 1e-9), 0, 1)
+        d[y0:y1, x0:x1] = np.minimum(d[y0:y1, x0:x1], np.hypot(X - A[0] - t * e[0], Y - A[1] - t * e[1]))
+    cover = np.clip(half - d + .5, 0, 1)[..., None]
+    luma = base @ np.array([.2126, .7152, .0722], 'f4')
+    ink = lin(np.asarray(LETTER_INK, 'f4') / 255) * ((luma / luma.mean()) ** GRAIN)[..., None]
+    return srgb(base * (1 - cover) + ink * cover)
+
+
 def finish():
     import numpy as np
     from PIL import Image
@@ -526,11 +611,16 @@ def finish():
         src = PAINTED / f'{painting}.jpg'
         if not src.exists():
             print('not painted yet:', painting); continue
-        wood = tile(lin(load(src, (1024, 1024))), 'xy', UV_PAINTINGS[painting][2])
+        how = UV_PAINTINGS[painting][2] if painting in UV_PAINTINGS else SURFACES[painting][3]
+        wood = tile(lin(load(src, (1024, 1024))), 'xy', how)
         luma = wood @ np.array([.2126, .7152, .0722])
         a = srgb(lin(np.asarray(colour, float) / 255) * ((luma / luma.mean()) ** GRAIN)[..., None])
         report['textures'][texture] = {**save(Path(texture).stem, a), 'slug': Path(texture).stem,
                                        'how': f'{painting} recoloured to albedo {list(colour)}, grain x{GRAIN}'}
+    if (OUT / 'concrete.png').exists():
+        a = letters(np.asarray(Image.open(OUT / 'concrete.png').convert('RGB'), 'f4') / 255)
+        report['textures'][LETTERS] = {**save(Path(LETTERS).stem, a), 'slug': Path(LETTERS).stem,
+                                       'how': f'the restyled concrete under navy PRADO strokes, {a.shape[1]}x{a.shape[0]}'}
     for material, (slug, metres, mean) in WORLD_ALIGNED.items():
         src = (MEGAPARK / 'restyle' / f'{slug.split(":")[1]}.jpg') if slug.startswith('megapark:') else PAINTED / f'{slug}.jpg'
         if not src.exists():
