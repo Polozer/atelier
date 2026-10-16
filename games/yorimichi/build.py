@@ -284,6 +284,62 @@ def package_present(out):
         return False
 
 
+def belmonte_train_present(out):
+    """Every coach GLB/blend/placement and furniture GLB/report recorded by world.belmonte_train."""
+    root = out / 'belmonte-train'
+    try:
+        manifest = json.loads((root / 'manifest.json').read_text())
+        coaches = manifest['coaches']
+        return (bool(coaches)
+                and all((root / v / name).stat().st_size == meta['bytes']
+                        for v, info in coaches.items() for name, meta in info['files'].items())
+                and all((root / 'furniture' / f'{a}.glb').is_file() and (root / 'furniture' / f'{a}.json').is_file()
+                        for a in TRAIN_FURNITURE))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def belmonte_track_present(out):
+    """Every track LOD GLB recorded in manifest.json and track.json, at its recorded size."""
+    root = out / 'belmonte-track'
+    try:
+        manifest = json.loads((root / 'manifest.json').read_text())
+        track = json.loads((root / 'track.json').read_text())
+        files = manifest['files']
+        return (bool(files)
+                and all((root / 'meshes' / name).stat().st_size == meta['bytes'] for name, meta in files.items())
+                and all((root / rel).is_file() for info in track['meshes'].values() for rel in info['lods']))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def belmonte_train_furniture_lods_present(out):
+    """Every baked furniture LOD GLB listed in summary.json, at its recorded size."""
+    root = out / 'belmonte-train' / 'furniture' / 'lod'
+    try:
+        summary = json.loads((root / 'summary.json').read_text())
+        return (bool(summary)
+                and all((root / level['glb']).stat().st_size == level['bytes']
+                        for item in summary.values() for level in item['levels']))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def belmonte_train_service_present(out):
+    """Every split vehicle body LOD and door leaf GLB referenced by service.json."""
+    root = out / 'belmonte-train'
+    try:
+        data = json.loads((root / 'service' / 'service.json').read_text())
+        vehicles = data['consist']['vehicles']
+        return (bool(vehicles)
+                and all((root / rel).is_file() for v in vehicles for rel in v['levels'])
+                and all((root / leaf['glb']).is_file()
+                        for v in vehicles for d in v.get('doors', []) for leaf in d.get('leaves', [])
+                        if leaf.get('glb')))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 # The cook and download have independent implementation inputs and success stamps.
 _cook_spec = importlib.util.spec_from_file_location('yorimichi_package_cook', TOOLS / 'package_cook.py')
 package_cook = importlib.util.module_from_spec(_cook_spec)
@@ -305,7 +361,7 @@ def cook_step(ctx, steps):
                 [Call('prepare_cook', package_cook.prepare), UnrealPackage('Yorimichi', out / 'package' / 'archive'),
                  Call('certify_cook', package_cook.finish)],
                 inputs=[SOURCE, ctx.uproject, paths.ENGINE_PLUGINS, GAME / 'unreal' / 'Config', TOOLS / 'package_cook.py', *engine_inputs],
-                needs=[s.name for s in steps if s.name.startswith('unreal.') and not s.explicit] + ['data.stage', 'data.network'], heavy=True, explicit=True,
+                needs=[s.name for s in steps if s.name.startswith('unreal.')] + ['data.stage', 'data.network'], heavy=True, explicit=True,
                 outputs=[out / 'package' / 'cook.json'], verify=lambda: package_cook.cook_present(out / 'package'),
                 cook_recovery=CookRecovery(package_cook.source_snapshot, package_cook.finish, package_cook.recovery_inputs),
                 about='cook the macOS app once and certify its source and immutable archived files')
@@ -560,6 +616,26 @@ def belmonte_steps(out):
              after=['unreal.forest'], heavy=True,
              outputs=[out / 'belmonte' / 'import-report.json', GAME / 'unreal' / 'Content' / 'Belmonte' / 'Meshes' / 'SM_BM_NorthApron.uasset'],
              about='/Game/Belmonte: environment meshes, collision and painterly surfaces'),
+        *([Step('unreal.belmonte_train', [UnrealScript(SCRIPTS / 'import_belmonte_train.py', 'BELMONTE TRAIN IMPORT COMPLETE', null_rhi=True,
+                                                       args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
+                inputs=[SCRIPTS / 'import_belmonte_train.py',
+                        SOURCE / 'Yorimichi' / 'BelmonteTrainService.h', SOURCE / 'Yorimichi' / 'BelmonteTrainService.cpp',
+                        out / 'belmonte-train' / 'manifest.json', out / 'belmonte-train' / 'service' / 'service.json',
+                        out / 'belmonte-train' / 'service' / 'glb', out / 'belmonte-train' / 'furniture',
+                        *(out / 'belmonte-train' / v for v in TRAIN_VEHICLES)],
+                needs=['world.belmonte_train', 'world.belmonte_train_service'],
+                after=['unreal.compile'], heavy=True,
+                outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'belmonte_train' / 'service.json', out / 'belmonte-train' / 'service' / 'import-report.json'],
+                about='/Game/BelmonteTrain: the train vehicles (3 LODs, box collision) and furniture, and the service data'),
+           Step('unreal.belmonte_track', [UnrealScript(SCRIPTS / 'import_belmonte_track.py', 'BELMONTE TRACK IMPORT COMPLETE', null_rhi=True,
+                                                       args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
+                inputs=[SCRIPTS / 'import_belmonte_track.py', out / 'belmonte' / 'build-report.json',
+                        out / 'belmonte-track' / 'runtime' / 'track.json', out / 'belmonte-track' / 'meshes'],
+                needs=['world.belmonte_track', 'world.belmonte_track_data', 'world.belmonte.meshes', 'unreal.belmonte'],
+                after=['unreal.compile'], heavy=True,
+                outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'belmonte_track' / 'track.json', out / 'belmonte-track' / 'runtime' / 'import-report.json'],
+                about='/Game/BelmonteTrack: track chunks, loop, turnouts, buffers, tunnel linings and portals, viaduct, banks, lamps')]
+          if train_earthworks.ENABLED else []),
     ]
 
 
@@ -747,6 +823,7 @@ def world_steps(ctx):
                       *(out / 'belmonte-train' / v / f'{v}-placements.json' for v in TRAIN_VEHICLES),
                       *(out / 'belmonte-train' / 'furniture' / f'{a}.glb' for a in TRAIN_FURNITURE),
                       *(out / 'belmonte-train' / 'furniture' / f'{a}.json' for a in TRAIN_FURNITURE)],
+             verify=lambda: belmonte_train_present(out),
              heavy=True, explicit=True,
              about='Belmonte train: restaurant and first-class coach shells, collision, reservations, placements'),
         Step('world.belmonte_train_plan', [Python(WORLD / 'train' / 'plan.py')],
@@ -786,6 +863,7 @@ def world_steps(ctx):
                      out / 'belmonte-train' / 'route' / 'route.json', out / 'belmonte-train' / 'route' / 'line.json'],
              needs=['world.belmonte_train_route'],
              heavy=True, explicit=True, outputs=[out / 'belmonte-track' / 'track.json', out / 'belmonte-track' / 'manifest.json'],
+             verify=lambda: belmonte_track_present(out),
              about='Belmonte railway track: ballast and rail chunks, sleepers, loop, turnouts, buffer stops, tunnels, viaduct (GLBs + track.json)'),
         Step('world.belmonte_track_review', [Blender(WORLD / 'train' / 'track_render.py', threads=3)],
              inputs=[WORLD / 'train' / 'track_render.py', WORLD / 'train' / 'track.py', WORLD / 'train' / 'track_build.py',
@@ -798,6 +876,7 @@ def world_steps(ctx):
                      *(out / 'belmonte-train' / 'furniture' / f'{a}.glb' for a in TRAIN_FURNITURE)],
              needs=['world.belmonte_train'], heavy=True, explicit=True,
              outputs=[out / 'belmonte-train' / 'furniture' / 'lod' / 'summary.json'],
+             verify=lambda: belmonte_train_furniture_lods_present(out),
              about='Belmonte train furniture: LOD0/LOD1 decimated from the fitted Tripo meshes, maps baked (Cycles)'),
         Step('world.belmonte_train_furniture_review', [Blender(WORLD / 'train' / 'review_lods.py', threads=3),
                                                        Python(WORLD / 'train' / 'review_sheets.py')],
@@ -816,6 +895,7 @@ def world_steps(ctx):
                      out / 'belmonte-train' / 'furniture', *(out / 'belmonte-train' / v for v in TRAIN_VEHICLES)],
              needs=['world.belmonte_train_route', 'world.belmonte_train', 'world.belmonte_train_assembly'],
              outputs=[out / 'belmonte-train' / 'service' / 'service.json'], explicit=True,
+             verify=lambda: belmonte_train_service_present(out),
              about='Belmonte train service: line, loop, consist, collision boxes and timetable for Unreal'),
         # The railway's track for Unreal (unreal.belmonte_track): the Train Builder's track.json in Unreal units.
         Step('world.belmonte_track_data', [Python(TOOLS / 'belmonte_track_data.py')],
@@ -994,25 +1074,6 @@ def unreal_steps(ctx):
              inputs=[SCRIPTS / 'import_footsteps.py', SCRIPTS / 'import_combat_audio.py', SCRIPTS / 'import_skate_audio.py', SCRIPTS / 'import_bike_audio.py'],
              # The footstep library lives in /Game/Japan, which the world import clears, so a world import reruns this.
              needs=['unreal.world', 'audio.footsteps', 'audio.combat', 'audio.skate', 'audio.bike'], heavy=True, about='footstep library, combat, skate and bike sounds'),
-        Step('unreal.belmonte_train', [UnrealScript(SCRIPTS / 'import_belmonte_train.py', 'BELMONTE TRAIN IMPORT COMPLETE', null_rhi=True,
-                                                   args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
-             inputs=[SCRIPTS / 'import_belmonte_train.py',
-                     SOURCE / 'Yorimichi' / 'BelmonteTrainService.h', SOURCE / 'Yorimichi' / 'BelmonteTrainService.cpp',
-                     out / 'belmonte-train' / 'manifest.json', out / 'belmonte-train' / 'service' / 'service.json',
-                     out / 'belmonte-train' / 'service' / 'glb', out / 'belmonte-train' / 'furniture',
-                     *(out / 'belmonte-train' / v for v in TRAIN_VEHICLES)],
-             needs=['world.belmonte_train', 'world.belmonte_train_service'],
-             after=['unreal.compile'], heavy=True, explicit=True,
-             outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'belmonte_train' / 'service.json', out / 'belmonte-train' / 'service' / 'import-report.json'],
-             about='/Game/BelmonteTrain: the train vehicles (3 LODs, box collision) and furniture, and the service data'),
-        Step('unreal.belmonte_track', [UnrealScript(SCRIPTS / 'import_belmonte_track.py', 'BELMONTE TRACK IMPORT COMPLETE', null_rhi=True,
-                                                   args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
-             inputs=[SCRIPTS / 'import_belmonte_track.py', out / 'belmonte' / 'build-report.json',
-                     out / 'belmonte-track' / 'runtime' / 'track.json', out / 'belmonte-track' / 'meshes'],
-             needs=['world.belmonte_track', 'world.belmonte_track_data', 'world.belmonte.meshes', 'unreal.belmonte'],
-             after=['unreal.compile'], heavy=True, explicit=True,
-             outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'belmonte_track' / 'track.json', out / 'belmonte-track' / 'runtime' / 'import-report.json'],
-             about='/Game/BelmonteTrack: track chunks, loop, turnouts, buffers, tunnel linings and portals, viaduct, banks, lamps'),
         Step('unreal.fx', [UnrealScript(SCRIPTS / 'import_combat_fx.py', 'COMBAT FX IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_combat_fx.py'], after=['unreal.compile'], needs=['fx.textures'], heavy=True, about='/Game/FX materials'),
         Step('unreal.fox_hunter', [UnrealScript(SCRIPTS / 'import_fox_hunter.py', 'FOX HUNTER IMPORT COMPLETE')],
@@ -1119,7 +1180,7 @@ def steps(ctx):
     policy_spec.loader.exec_module(policy)
     result.append(Step('data.content', [Call('archive_retired_content', policy.archive)],
                        inputs=[GAME / 'content_policy.py', WORLD / 'train' / 'earthworks.py'],
-                       needs=[s.name for s in result if s.name.startswith('unreal.') and not s.explicit] + ['data.stage'],
+                       needs=[s.name for s in result if s.name.startswith('unreal.')] + ['data.stage'],
                        outputs=[ctx.out / 'runtime-content.json'],
                        verify=lambda: not any(policy.retired(content)),
                        about='archive retired generated imports before multiplayer identity and cooking'))
@@ -1128,7 +1189,7 @@ def steps(ctx):
                                paths.ENGINE_PLUGINS],
                        deferred_inputs=[DeferredInputs('content', identity.content_files, (content,),
                                                        support=(GAME / 'network_identity.py',))],
-                       needs=[s.name for s in result if s.name.startswith('unreal.') and not s.explicit] + ['data.stage', 'data.content'],
+                       needs=[s.name for s in result if s.name.startswith('unreal.')] + ['data.stage', 'data.content'],
                        outputs=[content / 'Data/Network/session.json'],
                        about='matching multiplayer code, imported assets and staged gameplay data'))
     return result + [cook_step(ctx, result), package_step(ctx, result)]
