@@ -305,6 +305,8 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   to confirm every unchanged step is up to date. It leaves absolute-path-dependent Intermediate files behind.
   Reuse and `reuse --abandon` use the normal guarded child lifecycle, including full-capacity admission.
   In full mode the transfer remains exclusive while it inspects, copies and verifies; no second legacy lock is needed.
+  The transfer has a 30-minute work deadline. A slow byte copy may hit it; the journal still blocks use until
+  `reuse --abandon` removes the partial copy. Success stamps publish only after guard cleanup and capacity close.
 - Make sure the machine's sound masters are fetched before reuse (`uv run atelier fetch <game>`).
   The download cache is shared by all checkouts on the machine.
   Yorimichi's model GLB sources are committed in the asset library, including the skate pier

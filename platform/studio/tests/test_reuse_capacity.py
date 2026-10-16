@@ -25,9 +25,10 @@ def test_full_mode_transfer_uses_one_guarded_owned_child(tmp_path, monkeypatch, 
         if action == 'copy':
             out = target / 'build/standin'
             out.mkdir(parents=True)
-            record = dict(schema=1, operation_id=options['invocation_id'], revision='same', steps=[])
+            record = dict(schema=1, operation_id=options['invocation_id'], revision='same', steps=[], stamp_sha256={})
             (out / build_snapshot.JOURNAL).write_text(json.dumps(record))
             (out / build_snapshot.COMPLETE).write_text(json.dumps(record))
+            reuse._staging('standin', target, options['invocation_id']).mkdir(parents=True)
         return code
     monkeypatch.setattr(guarded, 'run', run)
     result = reuse.main('standin', source, target) if action == 'copy' else reuse.abandon('standin', target)
@@ -42,6 +43,7 @@ def test_full_mode_transfer_uses_one_guarded_owned_child(tmp_path, monkeypatch, 
     assert 'admission' not in options and 'lock' not in options and 'small_gib' not in options
     if action == 'copy':
         assert (target / 'build/standin' / build_snapshot.JOURNAL).exists() is (code != 0)
+        assert (target / 'build/standin/stamps').exists() is (code == 0)
     else:
         assert not target.exists()
 

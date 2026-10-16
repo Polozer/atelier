@@ -63,17 +63,49 @@ def test_named_snapshot_clones_reads_references_and_optional_sidecars(snapshot):
     original = reuse.inspect(source, 'standin')
     assert reuse.differing_sources(original, reuse.inspect(target, 'standin')) == []
     assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+    reuse._publish('standin', target, '0' * 32)
     verified = reuse.inspect(target, 'standin')
     assert reuse._inputs(verified) == reuse._inputs(original)
     assert reuse._products(verified) == reuse._products(original)
     assert all(s['stamp']['products'] == s['products'] for s in verified['steps'])
     out = target / 'build/standin'
     assert (out / build_snapshot.COMPLETE).is_file()
-    assert json.loads((out / build_snapshot.JOURNAL).read_text())['operation_id'] == '0' * 32
+    assert not (out / build_snapshot.JOURNAL).exists()
     assert (target / 'platform/engine/Plugins/Fixture/Binaries/Mac/library.dylib').read_text() == 'compiled plugin'
     leaf = Path('games/standin/unreal/Content/Leaf.uasset')
     (target / leaf).write_text('changed copy')
     assert (source / leaf).read_text() == 'native leaf'
+
+
+def test_worker_stages_stamps_until_parent_observes_guard_success(snapshot):
+    source, target = snapshot
+    assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+    assert not (target / 'build/standin/stamps').exists()
+    staged = reuse._staging('standin', target, '0' * 32)
+    assert len(list(staged.glob('*.json'))) == 4
+    with pytest.raises(SystemExit, match='--abandon'):
+        build_snapshot.require_complete(target / 'build/standin', game='standin', repo=target)
+    reuse._publish('standin', target, '0' * 32)
+    assert len(list((target / 'build/standin/stamps').glob('*.json'))) == 4
+    assert not staged.exists()
+
+
+@pytest.mark.parametrize('damage', ['changed', 'missing', 'extra'])
+def test_damaged_staged_stamps_cannot_be_published(snapshot, damage):
+    source, target = snapshot
+    assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+    staged = reuse._staging('standin', target, '0' * 32)
+    path = next(staged.glob('*.json'))
+    if damage == 'changed':
+        path.write_text('{}')
+    elif damage == 'missing':
+        path.unlink()
+    else:
+        (staged / 'unexpected.json').write_text('{}')
+    with pytest.raises(ValueError, match='Staged reuse stamp'):
+        reuse._publish('standin', target, '0' * 32)
+    assert not (target / 'build/standin/stamps').exists()
+    assert (target / 'build/standin' / build_snapshot.JOURNAL).exists()
 
 
 def test_queued_reuse_rechecks_revision_before_copy(snapshot, monkeypatch):
@@ -109,6 +141,7 @@ def test_foreign_reuse_checks_ignore_controller_journal(snapshot, tmp_path, monk
     write(controller / 'build/standin' / build_snapshot.JOURNAL, '{}')
     monkeypatch.setattr(paths, 'REPO', controller)
     assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+    reuse._publish('standin', target, '0' * 32)
     assert (controller / 'build/standin' / build_snapshot.JOURNAL).exists()
     assert (target / 'build/standin' / build_snapshot.COMPLETE).is_file()
 

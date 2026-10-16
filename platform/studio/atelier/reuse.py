@@ -8,6 +8,7 @@ its own is overwritten. After copying, every full fingerprint must match. APFS c
 used elsewhere. Only successful, current source stamps are carried over.
 """
 import ctypes
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -95,17 +96,38 @@ def _launch(action, game, target, source=None):
     code = guarded.run(command, folder, kind='job', aggregate_tree=True, timeout=1800,
                        progress=30, purpose=f'{action} verified {game} artifacts', invocation_id=identifier)
     if action == 'copy' and code == 0:
-        out = target / 'build' / game
-        journal = out / build_snapshot.JOURNAL
-        record = json.loads(journal.read_text())
-        completed = json.loads((out / build_snapshot.COMPLETE).read_text())
-        if (record.get('schema') != 1 or completed.get('schema') != 1
-                or record.get('operation_id') != identifier or completed.get('operation_id') != identifier
-                or completed.get('revision') != record.get('revision') or not isinstance(completed.get('steps'), list)):
-            raise ValueError('Reuse completion differs from this guarded transfer; journal retained')
-        journal.unlink()  # Only an affirmative outer guard/cleanup/capacity close unblocks the receiver.
-        print(f'Reused {len(completed["steps"])} verified steps in {target}; run uv sync there, then atelier build/play.', flush=True)
+        _publish(game, target, identifier)
     return code
+
+
+def _staging(game, target, identifier):
+    return target / 'build' / game / 'logs' / f'reuse-copy-{identifier}.guard' / 'stamps'
+
+
+def _publish(game, target, identifier):
+    """Publish the complete stamp directory only after successful outer guarded execution."""
+    out = target / 'build' / game
+    journal = out / build_snapshot.JOURNAL
+    record = json.loads(journal.read_text())
+    completed = json.loads((out / build_snapshot.COMPLETE).read_text())
+    if (record.get('schema') != 1 or completed.get('schema') != 1
+            or record.get('operation_id') != identifier or completed.get('operation_id') != identifier
+            or completed.get('revision') != record.get('revision') or not isinstance(completed.get('steps'), list)):
+        raise ValueError('Reuse completion differs from this guarded transfer; journal retained')
+    staging = _staging(game, target, identifier)
+    expected = {name + '.json' for name, _ in completed['steps']}
+    files = list(staging.iterdir())
+    if (set(completed.get('stamp_sha256', {})) != expected
+            or {p.name for p in files} != expected
+            or any(p.is_symlink() or not p.is_file() for p in files)):
+        raise ValueError('Staged reuse stamps differ; journal retained')
+    for path in files:
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != completed['stamp_sha256'][path.name]:
+            raise ValueError('Staged reuse stamp bytes differ; journal retained')
+    staging.rename(out / 'stamps')  # One atomic publication; a nonempty destination refuses replacement.
+    journal.unlink()
+    print(f'Reused {len(completed["steps"])} verified steps in {target}; run uv sync there, then atelier build/play.', flush=True)
 
 
 def main(game, source, target=None):
@@ -214,19 +236,23 @@ def _copy(game, source, target=None, *, operation_id):
             raise ValueError('Source revision changed during copying; target stamps have not been created')
     if not all(s['outputs_ok'] for s in after['steps']):
         raise ValueError('Required outputs are missing; target stamps have not been created')
-    stamps = target / 'build' / game / 'stamps'
+    stamps = _staging(game, target, operation_id)
     stamps.mkdir(parents=True, exist_ok=True)
+    stamp_sha256 = {}
     target_steps = {step['name']: step for step in after['steps']}
     for step in before['steps']:
         stamp = dict(step['stamp'], fingerprint=target_steps[step['name']]['fingerprint'], reused_from=str(source))
-        (stamps / (step['name'] + '.json')).write_text(json.dumps(stamp) + '\n')
+        name = step['name'] + '.json'
+        raw = (json.dumps(stamp) + '\n').encode()
+        (stamps / name).write_bytes(raw)
+        stamp_sha256[name] = hashlib.sha256(raw).hexdigest()
         peak = source / 'build' / game / 'logs' / (step['name'] + '.guard') / 'step-peak.json'
         if peak.exists():
             copy_tree(peak, target / 'build' / game / 'logs' / (step['name'] + '.guard') / 'step-peak.json', source, target, clone)
     completion = out / build_snapshot.COMPLETE
     temporary = completion.with_suffix('.tmp')
     temporary.write_text(json.dumps({'schema': 1, 'revision': revision, 'operation_id': operation_id,
-                                     'steps': _inputs(after)}) + '\n')
+                                     'steps': _inputs(after), 'stamp_sha256': stamp_sha256}) + '\n')
     temporary.replace(completion)
     print(f'Verified {len(before["steps"])} copied steps; finishing guarded transfer.', flush=True)
     return 0

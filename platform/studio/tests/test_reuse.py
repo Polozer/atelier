@@ -173,6 +173,7 @@ def test_a_fresh_target_reuses_a_cutoff_step_and_its_dependents(tmp_path, missin
             assert not (target/'games/standin/unreal/Content').exists()
             return
         assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+        reuse._publish('standin', target, '0' * 32)
         verified = inspect(target, 'standin')
         assert all(step['stamp']['fingerprint'] == step['fingerprint'] for step in verified['steps'])
         assert inspect(source,'standin')['steps'][0]['stamp'] == original['steps'][0]['stamp']
