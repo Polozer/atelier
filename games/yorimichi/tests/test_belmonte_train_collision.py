@@ -37,8 +37,16 @@ class Collision(unittest.TestCase):
                 for part in ('floor', 'side-l', 'side-r', 'roof'):
                     q = boxes[f'gangway-{end}-{part}']
                     self.assertAlmostEqual(q[1] if s > 0 else -q[0], abs(c.body.buffer(s)) + CO.GANGWAY_OVERLAP, msg=(c.name, end, part))
-        locked = A.locked_gangways()
-        self.assertTrue(locked)
+        saved, A.LOCKED_DOORS = A.LOCKED_DOORS, True       # the lock boxes, for when the class rules come back
+        try:
+            locked = A.locked_gangways()
+            self.assertTrue(locked)
+            self._locked_gangways_are_shut(locked)
+        finally:
+            A.LOCKED_DOORS = saved
+        self.assertFalse(any(g == 'gangway-lock' for c in L.vehicles() for _, _, g, _ in CO.named_boxes(c, 'SM')))
+
+    def _locked_gangways_are_shut(self, locked):
         for v, door in locked:
             c = next(c for c in L.vehicles() if c.name == v)
             self.assertIn(f'gangway-lock-{door[-1]}', dict(CO.collision_boxes(c)), (v, door))

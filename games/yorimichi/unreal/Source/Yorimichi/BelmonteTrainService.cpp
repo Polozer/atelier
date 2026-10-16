@@ -505,7 +505,7 @@ void ABelmonteTrainService::UpdateDoors(double Time, float Dt)
         {
             // A door a rider is stepping through stays open until they are through (the move takes about two seconds;
             // AtStation already ends eight seconds before departure).
-            if (Door.bStation && !Door.bBusy && (!TrainAtStation[V.Train] || !Door.bPlatformSide)) Door.bOpen = false;
+            if (Door.bStation && !Door.bBusy && !TrainAtStation[V.Train]) Door.bOpen = false;
             if (Door.bLocked) Door.bOpen = false;
             const float Target = Door.bOpen ? 1.f : 0.f;
             const bool bMoving = Door.Open != Target;
@@ -913,7 +913,7 @@ bool ABelmonteTrainService::TryInteract(AWandererCharacter* C)
     FVehicle& V = Service->Vehicles[VehicleIndex];
     FDoor& Door = V.Doors[Index];
     if (Door.bLocked) { ULiveLibrary::Say(Door.Kind == TEXT("staff") ? TEXT("Réservé au personnel") : TEXT("Porte verrouillée"), 2.f); return true; }
-    if (Door.bStation && (!Service->TrainAtStation[V.Train] || !Door.bPlatformSide)) { ULiveLibrary::Say(TEXT("Fermé"), 2.f); return true; }
+    if (Door.bStation && !Service->TrainAtStation[V.Train]) { ULiveLibrary::Say(TEXT("Fermé"), 2.f); return true; }
     // Station doors with steps: Monter from the platform, Descendre from inside.
     if (Door.Boarding.Num()) return Service->StartBoarding(Rider, VehicleIndex, Index);
     Door.bOpen = !Door.bOpen;
@@ -934,7 +934,7 @@ FString ABelmonteTrainService::Hint(const AWandererCharacter* C)
     const FVehicle& V = Service->Vehicles[VehicleIndex];
     const FDoor& Door = V.Doors[Index];
     if (Door.bLocked) return Door.Kind == TEXT("staff") ? TEXT("Réservé au personnel") : TEXT("Porte verrouillée");
-    if (Door.bStation && (!Service->TrainAtStation[V.Train] || !Door.bPlatformSide)) return TEXT("Fermé");
+    if (Door.bStation && !Service->TrainAtStation[V.Train]) return TEXT("Fermé");
     if (Door.Boarding.Num()) return Rider && Rider->bAboard ? TEXT("Use: descendre") : TEXT("Use: monter");
     return Door.bOpen ? TEXT("Use: fermer la porte") : TEXT("Use: ouvrir la porte");
 }

@@ -122,8 +122,8 @@ class Profile:
         self.v = [v for _, v in ordered]
         # The rates the profile starts and stops at: a stop in the loop uses the same.
         first, last = rows[1], rows[-2]
-        self.accel = min(max(first[2] ** 2 / (2 * abs(first[0] - rows[0][0])), .2), 1.)
-        self.brake = min(max(last[2] ** 2 / (2 * abs(rows[-1][0] - last[0])), .2), 1.)
+        self.accel = min(max(first[2] ** 2 / (2 * abs(first[0] - rows[0][0])), .2), 1.5)
+        self.brake = min(max(last[2] ** 2 / (2 * abs(rows[-1][0] - last[0])), .2), 1.5)
         self.seconds = rows[-1][1]
 
     def speed(self, c):
@@ -133,7 +133,10 @@ class Profile:
         if i >= len(self.s):
             return self.v[-1]
         a, b = self.s[i - 1], self.s[i]
-        return self.v[i - 1] + (c - a) / (b - a) * (self.v[i] - self.v[i - 1])
+        # v^2 is linear in distance under a constant rate: interpolating v itself made the last samples into a stop a
+        # slow exponential crawl, and warping the run to the timetable then sped up everything else.
+        f = (c - a) / (b - a)
+        return math.sqrt(max(self.v[i - 1] ** 2 + f * (self.v[i] ** 2 - self.v[i - 1] ** 2), 0.))
 
     def run(self, origin, target):
         """(seconds, chainage) from a stop at `origin` to a stop at `target`, along the profile's direction."""

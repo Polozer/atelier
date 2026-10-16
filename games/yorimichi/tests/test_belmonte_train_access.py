@@ -34,6 +34,25 @@ class Access(unittest.TestCase):
     def test_the_rules_hold(self):
         self.assertEqual(A.check_access(), [])
 
+    def test_every_door_opens_for_everyone(self):
+        self.assertFalse(A.LOCKED_DOORS)                # Paul, 2026-10-16: no locked doors
+        self.assertEqual(A.locked_gangways(), [])
+        # every coach is one walk; the engine (locomotive and tender) has no gangway to the baggage van, only cab doors
+        self.assertEqual([sorted(g) for g in A.passenger_groups()],
+                         [['baggage-van', 'brake-van', 'first-class', 'restaurant', 'second-class'], ['locomotive', 'tender']])
+
+
+class LockedAccess(unittest.TestCase):
+    """The class rules, kept behind LOCKED_DOORS for when they come back."""
+    def setUp(self):
+        self.saved, A.LOCKED_DOORS = A.LOCKED_DOORS, True
+
+    def tearDown(self):
+        A.LOCKED_DOORS = self.saved
+
+    def test_the_rules_hold(self):
+        self.assertEqual(A.check_access(), [])
+
     def test_second_class_is_on_its_own(self):
         groups = [sorted(g) for g in A.passenger_groups()]
         self.assertIn(['second-class'], groups)

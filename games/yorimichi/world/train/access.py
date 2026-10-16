@@ -28,6 +28,9 @@ import definition  # noqa: E402
 # who may board each vehicle: first class and the restaurant share a class; second class is on its own
 ACCESS = {'locomotive': 'staff', 'tender': 'staff', 'baggage-van': 'staff', 'restaurant': 'first',
           'first-class': 'first', 'second-class': 'second', 'brake-van': 'staff'}
+# Paul, 2026-10-16: every door opens for everyone, no locked doors. True brings back the class rules: second class on
+# its own between stops, the staff vehicles shut to passengers behind locked gangway doors.
+LOCKED_DOORS = False
 HEAD_MARGIN = .05               # clearance kept above the tallest capsule (m)
 OVERHEAD = ('Fittings_Lamps', 'Fittings_LampCords', 'Fittings_Racks', 'Fittings_RackNets', 'Fittings_MenuBoard')
 
@@ -52,14 +55,14 @@ def junctions():
         b = BUILDERS[rear['id']]().body.end_b
         joined = a == b and a in ('gangway', 'footplate')
         cls = ACCESS[front['id']]
-        open_ = joined and cls != 'staff' and cls == ACCESS[rear['id']]
+        open_ = joined and (not LOCKED_DOORS or cls != 'staff' and cls == ACCESS[rear['id']])
         out.append((front['id'], rear['id'], (a, b), joined, open_))
     return out
 
 
 def passenger_groups():
     """The sets of vehicles a passenger can walk between, one per boarding class."""
-    groups = {v['id']: {v['id']} for v in VEHICLES if ACCESS[v['id']] != 'staff'}
+    groups = {v['id']: {v['id']} for v in VEHICLES if not LOCKED_DOORS or ACCESS[v['id']] != 'staff'}
     for front, rear, _, _, open_ in junctions():
         if open_:
             merged = groups[front] | groups[rear]
@@ -80,7 +83,8 @@ def locked_gangways():
 
 def check_access():
     bad = []
-    groups = passenger_groups()
+    # one open train (LOCKED_DOORS off): the class rules don't apply, only same-class neighbours must be joined
+    groups = passenger_groups() if LOCKED_DOORS else []
     by_class = {}
     for g in groups:
         classes = {ACCESS[v] for v in g}

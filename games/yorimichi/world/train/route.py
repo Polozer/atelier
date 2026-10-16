@@ -104,7 +104,7 @@ RUN_COST = 500.             # m3 of earthwork worth one second of running time, 
 LATERAL_ACCELERATION = .85  # with cant (was .65 without): v = sqrt(a R), posted in POSTED_STEP steps rounded down
 POSTED_STEP = 10 / 3.6
 ACCELERATION = .4           # at most; less when the engine's power runs out
-BRAKING = .8                # a firm, believable stop (was .5: the arrival began far too early)
+BRAKING = 1.2               # Paul: still stopped far too slowly at .8 (was .5); a firm stop for a game
 # A steam train for a game: locomotive 70 t, tender 40 t and five vehicles of about 36 t (consist.py has no masses).
 MASS = (70. + 40. + 5 * 36.) * 1e3
 POWER = 1.5e6               # watts at the rail
