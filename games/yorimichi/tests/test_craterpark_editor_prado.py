@@ -3,6 +3,7 @@
 The bowl is meshed by the pinned editor compiler (Node), as the build does, then laid out by editor_generate.piece_mesh
 (editor_decal) and editor_coping. No Blender, game or native physics needed.
 """
+import copy
 import json
 from pathlib import Path
 import shutil
@@ -13,7 +14,8 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world' / 'regions'))
-from craterpark.v2 import dsl, editor_coping as ec, editor_decal as ed, editor_generate as eg, tjunction  # noqa: E402
+from craterpark.v2 import dsl, editor_boost as eb, editor_coping as ec, editor_decal as ed, editor_generate as eg  # noqa: E402
+from craterpark.v2 import editor_prado as ep, tjunction  # noqa: E402
 from craterpark.v2.editor import frontend  # noqa: E402
 
 APP = Path(__file__).resolve().parents[1] / 'tools' / 'craterpark_editor'
@@ -34,6 +36,22 @@ def prado(tmp_path_factory):
     parts = eg.piece_mesh(piece, eg.DECALS['Prado'])
     copings, rails, _ = ec.build([piece], {}, brick={'p5'})
     return types.SimpleNamespace(piece=piece, parts=parts, copings=copings, rails=rails)
+
+
+@pytest.fixture(scope='module')
+def boosted(prado):
+    """The shipped Prado as the build makes it, a boost zone (editor_prado): sunburst walls, a level sun, the letters."""
+    piece = copy.copy(prado.piece)
+    piece.metadata = {**piece.metadata, 'params': {**(piece.metadata.get('params') or {}), 'boost': 1}}
+    V, N, F = np.asarray(piece.mesh.V, 'f8'), np.asarray(piece.mesh.N, 'f8'), eg.orient(piece.mesh.V, piece.mesh.F,
+                                                                                         piece.mesh.N)
+    side = np.zeros(len(F), bool)
+    for c in eg.SIDE_COLOURS:
+        side |= (np.abs(piece.colors[F] - c).max(2) < 0.02).all(1)
+    ride, _ = ec._classes(piece)
+    centre, box = ep.plan(V, N, F, np.where(side, 2, np.where(ride, 0, 1)))
+    return types.SimpleNamespace(parts=eg.piece_mesh(piece, eg.DECALS['Prado']), centre=centre, box=box,
+                                 floor=(V, N, F, ride & ~side))
 
 
 def material(parts, name):
@@ -194,3 +212,46 @@ def test_slice_splits_faces_conformingly():
     assert all(((f2[f] <= .5 + 1e-9).all() or (f2[f] >= .5 - 1e-9).all()) for f in F2)
     (_, count), _, _ = welded_edges(V2, F2)
     assert count.max() == 2                                    # the cut vertices are shared, no T-junction
+
+
+def test_boosted_prado_is_its_graphics_cut_in(boosted):
+    names = {dsl.MATERIALS[int(m.material[0])] for m in boosted.parts}
+    assert set(ep.PAINTS) | {eb.GOLD} <= names and eg.DECALS['Prado'] not in names and ed.TILE not in names
+    mesh = dsl.Mesh.concat(boosted.parts)
+    assert tjunction.check(mesh)['tjunctions'] == 0
+    for m in boosted.parts:
+        # the sunburst's straight cuts (editor_boost.paint) leave a few collinear faces where one runs along a row of
+        # vertices: no area, nothing drawn, the mesh still conforming
+        ok = areas(m) > 1e-6
+        assert ok.mean() > .98
+        t = m.V[m.F[ok]]
+        fn = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        assert ((fn * m.N[m.F[ok]].sum(1)).sum(1) > 0).all(), 'a face winds against its normals'
+    assert len(mesh.F) < 300_000, "the bands' refinement splits only the faces that need it"
+
+
+def test_boosted_prado_sun_and_letters_lie_on_level_floor(boosted):
+    V, N, F, ride = boosted.floor
+    flat = ride & (N[F][:, :, 1] > ep.FLAT).all(1)
+    P, Y = ep._level(V, F, flat)
+    under = np.linalg.norm(P - boosted.centre, axis=1) < eb.SUN_RADIUS
+    assert np.ptp(Y[under]) <= ep.LEVEL + 1e-6, 'the sun lies on level floor, not down the slope to the deep end'
+    box = boosted.box
+    assert box and (box['along'], box['side']) == ep.READ, 'the letters texture lays its concrete for this box'
+    assert box['x0'] % ep.TILE == 0 and box['z0'] % ep.TILE == 0, "on the floor's concrete tiles"
+    letters, = material(boosted.parts, ep.LETTERS)
+    size = np.array(ep.BOX if box['along'] == 0 else ep.BOX[::-1])
+    assert np.isclose(areas(letters).sum(), size.prod(), rtol=1e-3), 'the whole box, flat'
+    uv = letters.UV[letters.F]
+    assert uv.min() > -1e-6 and uv.max() < 1 + 1e-6
+    assert np.ptp(letters.V[letters.F][..., 1]) <= ep.LEVEL + 1e-6
+
+
+def test_box_uv_reads_left_to_right_from_its_side():
+    """Facing +z (reader at -z) the reader's right is -x; facing +x it is +z: u grows to the right, v away."""
+    V = np.array([[0., 0., 0.], [32., 0., 0.], [0., 0., 8.]])
+    uv = ep.box_uv(V, {'x0': 0., 'z0': 0., 'along': 0, 'side': -1})
+    assert np.allclose(uv, [[1, 0], [0, 0], [1, 1]])
+    V = np.array([[0., 0., 0.], [0., 0., 32.], [8., 0., 0.]])
+    uv = ep.box_uv(V, {'x0': 0., 'z0': 0., 'along': 1, 'side': -1})
+    assert np.allclose(uv, [[0, 0], [1, 0], [0, 1]])

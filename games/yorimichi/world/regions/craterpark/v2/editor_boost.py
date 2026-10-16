@@ -30,6 +30,8 @@ SUN = 'material_052'        # the sun disc: deeper gold lacquer
 GOLD = 'material_053'       # polished gold: the sun's ring and the boost pieces' coping (editor_coping.build)
 PAINTS = (MAGENTA, YELLOW, SUN, GOLD)
 RAYS = 14                   # rays round a full circle, alternating magenta and yellow (an even number)
+BIG_RAYS = 36               # ...round a decal bowl (editor_prado: the Prado), far longer than the others, so its
+                            # rays stay a few metres wide up its walls
 SUN_RADIUS = 6.5            # metres: the sun disc's radius on a bowl's or a straight run's floor
 SUN_REACH = 5.              # metres a U-turn's sun reaches past the turn's inner floor edge
 RING = .3                   # metres: the gold ring's width, inside the sun's edge
@@ -52,14 +54,14 @@ def _circle(points):
     return np.array([cx, cz]), math.sqrt(max(c + cx * cx + cz * cz, 0.))
 
 
-def layout(piece, V, N, F, ride):
+def layout(piece, V, N, F, ride, rays=RAYS, centre=None):
     """The sunburst of a boosted piece: {'centre': (x, z), 'start': angle (rad) of the first ray edge, 'width': a
     ray's angle (rad), 'count': rays (None: round the full circle), 'radius': the sun's radius}. V, N, F, `ride` (face
-    mask) are the piece's riding mesh."""
+    mask) are the piece's riding mesh; `centre` (plan) places a bowl's or a run's sun instead (editor_prado.plan)."""
     meta = piece.metadata
     floor = ride & (N[F][:, :, 1] > FLAT).all(1)
     stations = meta.get('stations') or []
-    width = 2 * math.pi / RAYS
+    width = 2 * math.pi / rays
     if meta['type'] == 'run' and (meta.get('params') or {}).get('corner') and len(stations) >= 3:
         S = np.array([[s['x'], s['z']] for s in stations])
         centre, _ = _circle(S)
@@ -70,7 +72,9 @@ def layout(piece, V, N, F, ride):
         inner = np.hypot(*(V[np.unique(F[floor])][:, [0, 2]] - centre).T).min() if floor.any() else 0.
         return {'centre': centre, 'start': float(min(angles[0], angles[-1])), 'width': abs(turn) / count,
                 'count': count, 'radius': float(inner + SUN_REACH)}
-    if meta['type'] == 'bowl' and floor.any():
+    if centre is not None:
+        pass                                                        # placed by the caller
+    elif meta['type'] == 'bowl' and floor.any():
         t = V[F[floor]]
         area = np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
         centre = (t.mean(1)[:, [0, 2]] * area[:, None]).sum(0) / area.sum()
@@ -81,7 +85,7 @@ def layout(piece, V, N, F, ride):
         centre = V[:, [0, 2]].mean(0)
     heading = math.radians(stations[0]['h']) if stations else 0.
     return {'centre': np.asarray(centre, 'f8'), 'start': heading - width / 2, 'width': width, 'count': None,
-            'radius': SUN_RADIUS}
+            'radius': SUN_RADIUS, 'rays': rays}
 
 
 def _cut(V, F, X, parent, field, crossing, faces=None):
@@ -154,15 +158,16 @@ def _angles(sun):
     """The ray edges' angles (rad) and the sun outline's extra cut angles."""
     w, start = sun['width'], sun['start']
     if sun['count'] is None:
-        rays = [start + k * w for k in range(RAYS // 2)]             # a line through the centre cuts both halves
-        fine = [start + (k + j / OUTLINE) * w for k in range(RAYS // 2) for j in range(1, OUTLINE)]
+        half = sun.get('rays', RAYS) // 2
+        rays = [start + k * w for k in range(half)]                  # a line through the centre cuts both halves
+        fine = [start + (k + j / OUTLINE) * w for k in range(half) for j in range(1, OUTLINE)]
     else:
         rays = [start + k * w for k in range(sun['count'] + 1)]
         fine = [start + (k + j / OUTLINE) * w for k in range(sun['count']) for j in range(1, OUTLINE)]
     return rays, fine
 
 
-def paint(piece, V, N, F, classes, ride=0):
+def paint(piece, V, N, F, classes, ride=0, rays=RAYS, centre=None):
     """The boosted piece's faces cut into its sunburst: (V, N, F, cls, material, sun). `classes` (per original face,
     small ints: the riding faces `ride`, the decks, the sides) comes back per new face as `cls`; `material` (per face) is
     the paint of a riding face and None elsewhere (decks and sides keep theirs). Every face of the piece is cut, so the
@@ -170,7 +175,7 @@ def paint(piece, V, N, F, classes, ride=0):
     where they stop are split (tjunction.fix_tjunctions)."""
     from .tjunction import fix_tjunctions
     classes = np.asarray(classes)
-    sun = layout(piece, V, N, F, classes == ride)
+    sun = layout(piece, V, N, F, classes == ride, rays, centre)
     centre, radius = sun['centre'], sun['radius']
     parent = np.arange(len(F))
     rays, fine = _angles(sun)
