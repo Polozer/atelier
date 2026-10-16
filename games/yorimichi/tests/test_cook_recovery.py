@@ -131,6 +131,45 @@ def test_interruption_during_hash_recovers_and_normal_package_consumes_without_u
     assert sample.run('unreal.package') == 0 and len(sample.calls) == 1
 
 
+def test_recovery_accepts_a_new_shell_and_owner_but_keeps_original_guard_binding(sample, monkeypatch):
+    for key in recovery.SESSION_ENVIRONMENT:
+        monkeypatch.setenv(key, 'original-session')
+    attempt = interrupted(sample, monkeypatch)
+    for key in recovery.SESSION_ENVIRONMENT:
+        monkeypatch.setenv(key, 'new-session')
+    assert sample.run() == 0 and len(sample.calls) == 1
+    request = recovery.read(attempt / 'launch-request.json')
+    proof = recovery.read(attempt / 'guarded-success.json')
+    assert proof['environment_sha256'] == request['environment_sha256']
+    assert proof['environment_sha256'] != recovery.identity(sample.ctx.env())
+
+
+@pytest.mark.parametrize('change', ['changed', 'added', 'removed'])
+def test_recovery_names_changed_consumed_environment_keys_without_values(sample, monkeypatch, change):
+    key = 'COOK_UNKNOWN_INPUT'
+    if change != 'added':
+        monkeypatch.setenv(key, 'private-original-value')
+    attempt = interrupted(sample, monkeypatch)
+    if change == 'removed':
+        monkeypatch.delenv(key)
+    else:
+        monkeypatch.setenv(key, 'private-new-value')
+    with pytest.raises(RuntimeError, match='consumed environment differs: COOK_UNKNOWN_INPUT') as error:
+        recovery.recover(sample.ctx, sample.step, attempt.name, io.StringIO())
+    assert 'private-' not in str(error.value)
+    assert len(sample.calls) == 1
+    assert not (sample.ctx.stamps / 'unreal.cook.json').exists()
+
+
+def test_recovery_requires_the_actual_launch_directory_even_when_pwd_is_ignored(sample, monkeypatch, tmp_path):
+    attempt = interrupted(sample, monkeypatch)
+    other = tmp_path / 'other-shell'; other.mkdir()
+    monkeypatch.chdir(other)
+    with pytest.raises(RuntimeError, match='current recipe/source/native inputs/tools/environment differ'):
+        recovery.recover(sample.ctx, sample.step, attempt.name, io.StringIO())
+    assert len(sample.calls) == 1
+
+
 @pytest.mark.parametrize('damage', ['source', 'tool', 'prerequisite', 'native', 'archive', 'archive-restored-mtime',
     'missing-positive', 'missing-prepared', 'wrong-invocation', 'guard-failure', 'wrong-root'])
 def test_changed_or_unproven_attempt_refuses_without_native_fallback(sample, monkeypatch, damage):

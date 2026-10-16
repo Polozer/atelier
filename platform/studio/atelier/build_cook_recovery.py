@@ -41,6 +41,33 @@ def identity(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
+SESSION_ENVIRONMENT = frozenset({
+    'TERM_SESSION_ID', 'TERM_PROGRAM_SESSION_ID', 'ITERM_SESSION_ID', 'SSH_AUTH_SOCK',
+    'SHLVL', 'OLDPWD', 'PWD', '_', 'ATELIER_AGENT', 'CODEX_THREAD_ID', 'CLAUDE_SESSION_ID',
+})
+
+
+def consumed_environment(environment):
+    """Keep unknown/build/tool variables exact; omit only enumerated session bookkeeping.
+
+    The actual working directory is separately bound, so a shell's PWD spelling is not an input.
+    Original launch-to-guard binding still hashes the entire unmodified environment.
+    """
+    return {key: identity(value) for key, value in environment.items() if key not in SESSION_ENVIRONMENT}
+
+
+def require_environment(before, environment):
+    expected, actual = before['environment'], consumed_environment(environment)
+    changed = sorted(key for key in expected.keys() | actual.keys() if expected.get(key) != actual.get(key))
+    require(not changed, 'consumed environment differs: ' + ', '.join(changed))
+
+
+def require_snapshot(ctx, step, argv, before, message):
+    environment = ctx.env()
+    require_environment(before, environment)  # Name keys, never values, before expensive input checks.
+    require(snapshot(ctx, step, argv, environment) == before, message)
+
+
 def sync_directory(path):
     descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
@@ -204,10 +231,10 @@ def snapshot(ctx, step, argv, environment):
         inputs = inventory(roots, hashes=True, hasher=index.digest, link_owners=owners,
                            repeat_chmod_files=repeat_chmod_files)
         declared_inputs = inventory(declared, hashes=True, hasher=index.digest)
-    return dict(schema=1, checkout=str(paths.REPO.resolve()), game=ctx.game, step=step.name,
+    return dict(schema=2, checkout=str(paths.REPO.resolve()), cwd=str(Path.cwd().resolve()), game=ctx.game, step=step.name,
                 source=step.cook_recovery.snapshot(ctx), revision=provenance.head(),
                 patch_sha256=hashlib.sha256(provenance.git('diff', '--binary', 'HEAD').encode()).hexdigest(),
-                action_fingerprint=fingerprint(step, done), argv=argv, environment_sha256=identity(environment),
+                action_fingerprint=fingerprint(step, done), argv=argv, environment=consumed_environment(environment),
                 roots=list(map(str, roots)), link_owners=list(map(str, owners)), native_selection=selection,
                 repeat_chmod_files=list(map(str, repeat_chmod_files)),
                 inputs=inputs, declared_members=list(map(str, declared)), declared_inputs=declared_inputs)
@@ -279,7 +306,7 @@ def complete(ctx, step, attempt, observation):
             and proof.get('cleanup_and_capacity_close') is True and proof.get('invocation_id') == folder.name,
             'missing positive guarded completion')
     require(proof['command_sha256'] == identity(adapter)
-            and proof['environment_sha256'] == before['environment_sha256'], 'guarded command differs')
+            and proof['environment_sha256'] == request['environment_sha256'], 'guarded command differs')
     require(observation.get('command_succeeded') is True, 'cook observation is not successful')
     command = next(c for c in step.commands if type(c).__name__ == 'UnrealPackage')
     archive = command.archive
@@ -287,7 +314,7 @@ def complete(ctx, step, attempt, observation):
     # The pre-command prepare removed the previous archive; retain the current tree identity BEFORE
     # expensive certification hashes. This is local filesystem continuity, not a preexisting content hash.
     metadata = inventory([archive], hashes=False)
-    require(snapshot(ctx, step, before['argv'], ctx.env()) == before, 'consumed inputs changed during cook')
+    require_snapshot(ctx, step, before['argv'], before, 'consumed inputs changed during cook')
     require(inventory([archive], hashes=False) == metadata, 'archive changed while checking consumed inputs')
     write(folder / 'completed.json', dict(schema=1, prepared_sha256=identity(prepared),
           guarded_sha256=identity(proof), archive=str(archive.resolve()), metadata=metadata,
@@ -310,7 +337,7 @@ def recover(ctx, step, identifier, log):
     completed = read(folder / 'completed.json')
     proof = read(folder / 'guarded-success.json')
     require(prepared['request_sha256'] == identity(request), 'launch request changed')
-    require(proof['command_sha256'] == identity(request['adapter_argv']) and proof['environment_sha256'] == before['environment_sha256'], 'guarded launch differs')
+    require(proof['command_sha256'] == identity(request['adapter_argv']) and proof['environment_sha256'] == request['environment_sha256'], 'guarded launch differs')
     require(completed['prepared_sha256'] == identity(prepared) and completed['guarded_sha256'] == identity(proof), 'attempt evidence changed')
     require(proof.get('kind') == 'guarded-success' and proof.get('invocation_id') == identifier
             and proof.get('returncode') == 0 and proof.get('cleanup_and_capacity_close') is True, 'positive guarded success is absent')
@@ -320,7 +347,7 @@ def recover(ctx, step, identifier, log):
             'terminal guard does not match the positively waited root')
     command = next(c for c in step.commands if type(c).__name__ == 'UnrealPackage')
     argv = command.argv(ctx)
-    require(snapshot(ctx, step, argv, ctx.env()) == before, 'current recipe/source/native inputs/tools/environment differ')
+    require_snapshot(ctx, step, argv, before, 'current recipe/source/native inputs/tools/environment differ')
     archive = command.archive
     require(str(archive.resolve()) == completed['archive'] and inventory([archive], hashes=False) == completed['metadata'],
             'archive changed since guarded completion')
@@ -328,8 +355,8 @@ def recover(ctx, step, identifier, log):
     ctx.cook_observation = completed['observation']
     try:
         step.cook_recovery.certify(ctx, log)
-        require(snapshot(ctx, step, argv, ctx.env()) == before
-                and inventory([archive], hashes=False) == completed['metadata'], 'inputs/archive changed during recovery')
+        require_snapshot(ctx, step, argv, before, 'inputs changed during recovery')
+        require(inventory([archive], hashes=False) == completed['metadata'], 'archive changed during recovery')
     except BaseException:
         # A failed post-check must not leave a newly published receipt consumable by assembly.
         for output in step.outputs:

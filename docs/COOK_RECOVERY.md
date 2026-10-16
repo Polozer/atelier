@@ -50,8 +50,14 @@ Python file work, as before; coordinate their disk/CPU activity around an owner'
 They do not acquire an exclusive native reservation just for hashing. Actual package assembly retains its
 separate normal guarded admission. The conservative native-input selection still needs an admitted native
 trial; these mocked correctness tests do not claim every installed toolchain's mutable outputs are recoverable.
-Environment values are hashed, not written into the journal. Source changes, changed prerequisites, inputs,
-tools, SDK selection or environment refuse recovery rather than silently weakening the proof.
+Environment values are hashed, not written into the journal. The original launch and guard retain an exact
+hash of the full, unmodified environment. Recovery compares every build/tool variable, including unknown
+keys; a refusal names changed keys without their values. Only this explicit session-bookkeeping set may
+change: `TERM_SESSION_ID`, `TERM_PROGRAM_SESSION_ID`, `ITERM_SESSION_ID`, `SSH_AUTH_SOCK`, `SHLVL`,
+`OLDPWD`, `PWD`, `_`, `ATELIER_AGENT`, `CODEX_THREAD_ID` and `CLAUDE_SESSION_ID`. The actual working
+directory is separately pinned, so start recovery from the same checkout directory, including in a new
+terminal or agent session. No environment prefix or unknown variable is silently ignored.
+Source changes, changed prerequisites, inputs, tools, SDK selection or consumed environment refuse recovery.
 Verified named portable products may be restored prerequisites when the current action key and complete
 actual byte records match. Manually touched or unproven native prerequisites still refuse.
 
