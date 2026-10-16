@@ -331,15 +331,11 @@ class ShadowService:
             reasons = conflicts(replacement, [request(r) for r in others],
                                 Resources(**state['total']), Resources(**state['reserve']))
             measured = observation.measured_mib.get(record['request_id'], 0 if record['state'] == 'reserved' else None)
-            allocated = observation.allocated_temp_mib.get(record['request_id'], 0 if record['state'] == 'reserved' else None)
-            if measured is None or allocated is None:
+            if measured is None:
                 reasons.append('replacement growth headroom is unknown')
             else:
-                growth = Resources(memory_mib=max(0, replacement.resources.memory_mib - measured),
-                                   temp_mib=max(0, replacement.resources.temp_mib - allocated))
+                growth = Resources(memory_mib=max(0, replacement.resources.memory_mib - measured))
                 reasons += self._pressure(growth, others, observation, state)
-                if allocated > replacement.resources.temp_mib:
-                    reasons.append('replacement ceiling lacks observed disk headroom')
             if measured is None or measured > replacement.resources.memory_mib:
                 reasons.append('replacement ceiling lacks observed memory headroom')
             if reasons:
@@ -397,22 +393,18 @@ class ShadowService:
 
     @staticmethod
     def _pressure(resources, holders, observation, state):
-        memory, disk = resources.memory_mib, resources.temp_mib
+        memory = resources.memory_mib
         for holder in holders:
             rid = holder['request_id']
             measured = observation.measured_mib.get(rid, 0 if holder['state'] == 'reserved' else None)
-            allocated = observation.allocated_temp_mib.get(rid, 0 if holder['state'] == 'reserved' else None)
-            if measured is None or allocated is None:
+            if measured is None:
                 return ['holder growth headroom is unknown']
-            if measured > holder['resources']['memory_mib'] or allocated > holder['resources']['temp_mib']:
+            if measured > holder['resources']['memory_mib']:
                 return ['holder exceeded its reservation']
             memory += holder['resources']['memory_mib'] - measured
-            disk += holder['resources']['temp_mib'] - allocated
         reasons = []
         if memory + state['reserve']['memory_mib'] > observation.available_mib:
             reasons.append('live memory growth headroom')
-        if disk + state['reserve']['temp_mib'] > observation.disk_available_mib:
-            reasons.append('live disk growth headroom')
         return reasons
 
     def _schedule(self, state, holders, observation, now, fresh):

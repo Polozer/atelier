@@ -1,6 +1,7 @@
 """Real private sockets, SQLite and ordinary Python children; no native workloads or admission activation."""
 from dataclasses import asdict
 import os
+import json
 from pathlib import Path
 import select
 import sqlite3
@@ -59,11 +60,65 @@ def broker(broker_factory):
     return broker_factory()
 
 
+@pytest.mark.parametrize('action', ['status', 'private unknown action'])
+def test_operation_error_logs_only_safe_phase_metadata(broker, monkeypatch, capsys, action):
+    def fail(message, principal):
+        raise OSError(5, 'private transport details')
+    monkeypatch.setattr(broker, 'handle', fail)
+    with pytest.raises(wire.CapacityError, match='broker refused'):
+        client._rpc(broker.socket_path, {'action': action, 'nonce': 'private request details'}, 2.)
+    output = capsys.readouterr().err
+    report = json.loads(output.split('capacity operation refused: ')[1].splitlines()[0])
+    assert report['action'] == ('status' if action == 'status' else 'invalid')
+    assert report['phase'] == 'handle' and report['error_type'] == 'OSError' and report['errno'] == 5
+    assert report['elapsed_seconds'] >= 0 and report['observed_at'] > 0
+    assert 'private' not in output and 'nonce' not in output
+
+
+def test_slow_success_logs_elapsed_operation_without_changing_result(broker, monkeypatch, capsys):
+    original = broker.handle
+    def slow(message, principal):
+        time.sleep(.26)
+        return original(message, principal)
+    monkeypatch.setattr(broker, 'handle', slow)
+    assert client.status(broker.socket_path)['charged_count'] == 0
+    report = json.loads(capsys.readouterr().err.split('capacity slow operation: ')[1].splitlines()[0])
+    assert report['action'] == 'status' and report['phase'] == 'send'
+    assert report['elapsed_seconds'] >= .25 and report['observed_at'] > 0
+
+
 def session(broker, name='leaf', **changes):
     request = {'id': name, 'owner': 'fixture', 'checkout': str(broker.directory.parent),
                'resources': asdict(Resources(memory_mib=128, cpu_millis=1000)), 'locks': ['fixture'], 'seconds': 1}
     request.update(changes)
     return client.AdmissionSession(broker.socket_path, request, timeout=2.)
+
+
+def test_retry_required_records_remain_durable_but_are_not_active_waiters(broker):
+    dormant, ready = session(broker, 'dormant'), session(broker, 'ready')
+    dormant.offer()
+    assert dormant.close()['released'] is True
+    ready.offer()
+    report = client.status(broker.socket_path)
+    assert report['waiting_count'] == 1 and report['charged_count'] == 0
+    rows = {row['id']: row for row in report['records']}
+    assert rows['dormant']['state'] == 'waiting' and rows['ready']['state'] == 'queued'
+    assert 'retry required' in rows['dormant']['wait_reason']
+    before = rows['dormant']['first_ready']
+    ready.close()
+    assert client.status(broker.socket_path)['waiting_count'] == 0
+    # Retrying preserves the original ready age and re-enters the live queue normally.
+    assert dormant.offer()['first_ready'] == before
+    assert client.status(broker.socket_path)['waiting_count'] == 1
+    dormant.close()
+
+
+def test_memory_pressure_does_not_query_disk_availability(short_path, monkeypatch):
+    import shutil
+    monkeypatch.setattr(shutil, 'disk_usage', lambda *_: pytest.fail('disk used for admission'))
+    observation = wire.pressure(short_path / 'missing-disk-path')
+    assert observation['available_memory_mib'] > 0
+    assert 'available_temp_mib' not in observation
 
 
 def gated_child(admission, *, hold=False):
@@ -158,7 +213,7 @@ def test_simultaneous_full_vector_claims_are_atomic(broker):
         assert not thread.is_alive()
     assert sorted(success for _, success in outcomes) == [False, True]
     observed = client.status(broker.socket_path)
-    assert observed['charged_count'] == 1 and observed['charged_resources'] == asdict(broker.total)
+    assert observed['charged_count'] == 1 and observed['charged_resources'] == asdict(broker.total.admission())
     for index, success in outcomes:
         if success:
             complete(admissions[index], children[index], pins[index])

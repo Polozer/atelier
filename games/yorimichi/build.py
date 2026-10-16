@@ -57,7 +57,8 @@ _v4_spec = importlib.util.spec_from_file_location('craterpark_v4_config', REGION
 craterpark_v4 = importlib.util.module_from_spec(_v4_spec)
 _v4_spec.loader.exec_module(craterpark_v4)
 CRATERPARK = (REGIONS / 'craterpark' / 'placement.py', ASSETS / 'craterpark' / 'scene.json', ASSETS / 'craterpark' / 'geometry',
-              REGIONS / 'craterpark' / 'v2' / 'v4_config.py', *craterpark_v4.input_paths())
+              REGIONS / 'craterpark' / 'v2' / 'v4_config.py',
+              *(craterpark_v4.input_paths() if not craterpark_v4.selected() else ()))
 # Crater Park v2 (regions/craterpark/v2): the park generated from a layout, clean by construction. False rolls back to
 # the r4 build (craterpark/build.py); both write the same build.json, park.json and FBX names for unreal.craterpark.
 CRATERPARK_V2 = True
@@ -88,6 +89,12 @@ def craterpark_v2_steps(out):
              needs=['world.craterpark_geometry'],
              outputs=[out / 'craterpark' / 'build.json', out / 'craterpark' / 'park.json', out / 'craterpark' / 'fbx' / 'SM_CP_ImportSeed.fbx'],
              about='Crater Park v2 export: FBX, build.json and park.json in the r4 contract', heavy=True),
+        *([Step('world.craterpark_layout', [Python(WORLD / 'craterpark_layout.py')],
+                inputs=[WORLD / 'craterpark_layout.py', *CRATERPARK, *craterpark_v4.input_paths()],
+                needs=['world.craterpark_geometry'], outputs=[out / 'craterpark' / 'layout-identity.json'],
+                cutoff=True, heavy=True,
+                about='validated Crater Park landform, exclusion and spawn identity for island consumers')]
+          if craterpark_v4.selected() else []),
     ]
 
 
@@ -536,7 +543,7 @@ def texture_steps(ctx):
 def world_steps(ctx):
     """World exports."""
     out = ctx.out
-    crater_geometry = ['world.craterpark_geometry'] if craterpark_v4.selected() else []
+    crater_geometry = ['world.craterpark_layout'] if craterpark_v4.selected() else []
     return [*texture_steps(ctx),
         # ------------------------------------------------------------ world
         # The tree house's tall canopy trees come first: its layout sizes them from trees.json.
@@ -929,6 +936,13 @@ def steps(ctx):
         for command in step.commands:
             if isinstance(command, (Python, Blender)) and WORLD in Path(command.script).parents:
                 step.inputs += [f for f in scanner.local_imports(command.script, (WORLD, REGIONS)) if f not in step.inputs]
+        # Scripts that import placement validate the raw geometry themselves. Its cutoff
+        # covers their complete consumed landform, site and spawn values, after validating
+        # current source provenance; render-only changes can therefore leave them current.
+        if (craterpark_v4.selected() and REGIONS / 'craterpark' / 'placement.py' in step.inputs
+                and step.name not in ('world.craterpark_geometry', 'world.craterpark', 'world.craterpark_layout')
+                and 'world.craterpark_layout' not in step.needs):
+            step.needs.append('world.craterpark_layout')
         if SCRIPTS / 'import_village.py' in step.inputs and SCRIPTS / 'mesh_import.py' not in step.inputs:
             step.inputs.append(SCRIPTS / 'mesh_import.py')
         if step.name in ('unreal.forest', 'unreal.treehouse', 'unreal.see_through'):

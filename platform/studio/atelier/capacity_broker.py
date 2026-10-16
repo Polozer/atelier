@@ -41,17 +41,23 @@ class CapacityBroker:
     cleanup receipt; that witnesses the monitored owned tree, not every descendant's kernel exit.
     The adapter MUST retain exclusive legacy exclusion in bridge
     mode, verified sealed shared compatibility mutexes in full mode, or read-only exclusive
-    ownership of every sealed legacy lane in explicit maintenance mode. Only maintenance MAY
-    explicitly reduce the sealed host memory reserve, with a 4096 MiB floor; every other sealed
-    resource dimension MUST remain exact. Actual job reservations and pressure checks MUST NOT shrink.
+    ownership of every sealed legacy lane in explicit maintenance mode. Maintenance or an explicit
+    calibrated full configuration MAY reduce only the host memory reserve, with a 4096 MiB floor
+    and the sealed reserve as its ceiling. Ordinary full configuration MUST keep the exact sealed
+    reserve; every other sealed configuration value MUST remain exact. Legacy temp_mib fields
+    remain readable but MUST NOT constrain admission. Actual memory reservations, guard ceilings
+    and complete remaining-memory-growth pressure checks MUST NOT shrink.
     """
     def __init__(self, state_directory, *, total, reserve=Resources(), disk_pool=None,
                  observe=None, lease_seconds=10., rpc_timeout=2., started=wire.process_start,
                  watch=wire.ExitWatch, guards=wire.validate_guards, child_of=wire.direct_child,
                  parent=wire.parent_pin, boot=wire.boot_id, alive=wire.live, mode='legacy-bridge',
-                 cutover=None, policy_sha256=None, foreign=None):
+                 cutover=None, policy_sha256=None, foreign=None, calibrated_memory_reserve=False):
         if mode not in ('legacy-bridge', 'capacity', 'sealed-maintenance'):
             raise wire.CapacityError('Unsupported production capacity mode')
+        if (type(calibrated_memory_reserve) is not bool
+                or (calibrated_memory_reserve and mode != 'capacity')):
+            raise wire.CapacityError('Memory reserve calibration requires explicit full capacity')
         self.mode, self.cutover, self.policy_sha256 = mode, cutover, policy_sha256
         self.activation_id, self.compatible = None, True
         if mode in ('capacity', 'sealed-maintenance'):
@@ -83,7 +89,7 @@ class CapacityBroker:
         if mode in ('capacity', 'sealed-maintenance'):
             selected_reserve = asdict(self.reserve)
             reserve_matches = selected_reserve == proof['reserve']
-            if mode == 'sealed-maintenance' and not reserve_matches:
+            if calibrated_memory_reserve or (mode == 'sealed-maintenance' and not reserve_matches):
                 reserve_matches = (4096 <= self.reserve.memory_mib <= proof['reserve']['memory_mib']
                     and {**selected_reserve, 'memory_mib': proof['reserve']['memory_mib']} == proof['reserve'])
         if mode in ('capacity', 'sealed-maintenance') and (proof['socket'] != str(self.socket_path)
@@ -599,9 +605,8 @@ class CapacityBroker:
                 or not 0 <= now - observation['observed_monotonic'] <= 2):
             raise wire.CapacityError('Fresh capacity pressure observation unavailable')
         memory = wire.integer(observation.get('available_memory_mib'))
-        disk = wire.integer(observation.get('available_temp_mib'))
         required = wire.resources(candidate['request']['resources']) + self.reserve
-        growth_memory, growth_temp = 0, 0
+        growth_memory = 0
         for record in state['records'].values():
             if record is candidate or record['state'] not in HELD:
                 continue
@@ -616,8 +621,7 @@ class CapacityBroker:
                     record['state'] = 'draining' if self._root_exited(record) else 'uncertain'
                     raise wire.CapacityError('Existing holder enforcement is unavailable; reservation retained') from None
             growth_memory += max(0, vector.memory_mib - measured)
-            growth_temp += vector.temp_mib
-        if memory < required.memory_mib + growth_memory or disk < required.temp_mib + growth_temp:
+        if memory < required.memory_mib + growth_memory:
             raise wire.CapacityError('Capacity pressure refuses the complete reservation')
 
     def _validate_holders(self, state, candidate):
@@ -689,8 +693,9 @@ class CapacityBroker:
         result = dict(epoch=state['epoch'], boot_id=self.boot, mode=self.mode, cutover=self.mode == 'capacity',
                       observed_at=time.time(), observed_monotonic=time.monotonic(),
                       recovering=not self.compatible or any(r['state'] == 'uncertain' for r in records),
-                      total=asdict(self.total), reserve=asdict(self.reserve), charged_resources=asdict(used),
-                      charged_count=len(charged), waiting_count=sum(r['state'] in ('queued', 'waiting') for r in records),
+                      total=asdict(self.total.admission()), reserve=asdict(self.reserve.admission()),
+                      charged_resources=asdict(used.admission()),
+                      charged_count=len(charged), waiting_count=sum(r['state'] == 'queued' for r in records),
                       total_records=len(records), records=[], truncated=False)
         if self.mode in ('capacity', 'sealed-maintenance'):
             result['compatibility_healthy'] = self.compatible
@@ -976,6 +981,8 @@ class CapacityBroker:
                         selector.register(channel, selectors.EVENT_READ)
                         continue
                     buffer, deadline, principal = clients[channel]
+                    operation_started = deadline - self.rpc_timeout
+                    action, phase = 'invalid', 'receive'
                     try:
                         data = channel.recv(wire.MAX_FRAME + 1 - len(buffer))
                         if not data:
@@ -987,15 +994,26 @@ class CapacityBroker:
                             continue
                         if not buffer.endswith(b'\n') or buffer.count(b'\n') != 1:
                             raise wire.CapacityError('One capacity operation per connection is required')
-                        result, fd = self.handle(wire.decode(bytes(buffer[:-1])), principal)
+                        message = wire.decode(bytes(buffer[:-1]))
+                        action = wire.action_name(message)
+                        phase = 'handle'
+                        result, fd = self.handle(message, principal)
+                        phase = 'send'
                         try:
                             channel.settimeout(self.rpc_timeout)
                             wire.send(channel, {'ok': True, **result}, fd)
                         finally:
                             if fd is not None:
                                 os.close(fd)
+                        elapsed = time.monotonic() - operation_started
+                        if elapsed >= .25:
+                            print('capacity slow operation: ' + json.dumps(dict(
+                                action=action, phase=phase, elapsed_seconds=round(elapsed, 3),
+                                observed_at=time.time())), file=sys.stderr, flush=True)
                     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, wire.CapacityError) as error:
                         print('capacity operation refused: ' + json.dumps(dict(
+                            action=action, phase=phase,
+                            elapsed_seconds=round(time.monotonic() - operation_started, 3), observed_at=time.time(),
                             error_type=type(error).__name__,
                             errno=error.errno if isinstance(error, OSError) else None)), file=sys.stderr, flush=True)
                         try:
@@ -1064,7 +1082,11 @@ def load_config(configpath, *, expected_sha256=None):
                    and 'cutover' in config and isinstance(config.get('seal_policy_sha256'), str)
                    and len(config['seal_policy_sha256']) == 64
                    and all(c in '0123456789abcdef' for c in config['seal_policy_sha256']))
-    if not (bridge or full or maintenance):
+    calibrated = (type(config['schema']) is int and config['schema'] == 4 and config['mode'] == 'capacity'
+                  and 'cutover' in config and isinstance(config.get('seal_policy_sha256'), str)
+                  and len(config['seal_policy_sha256']) == 64
+                  and all(c in '0123456789abcdef' for c in config['seal_policy_sha256']))
+    if not (bridge or full or maintenance or calibrated):
         raise wire.CapacityError('Unsupported capacity broker configuration')
     state, disk = Path(config['state_directory']), Path(config['disk_pool'])
     if (not state.is_absolute() or not disk.is_absolute() or not disk.is_dir()
@@ -1079,17 +1101,24 @@ def load_config(configpath, *, expected_sha256=None):
     if reserve.excess(total):
         raise wire.CapacityError('Capacity reserve exceeds total')
     settings = dict(state_directory=state, total=total, reserve=reserve, disk_pool=disk)
-    if full or maintenance:
+    if full or maintenance or calibrated:
         from . import capacity_compat
         if Path(config['cutover']) != capacity_compat.DEFAULT_RECORD:
             raise wire.CapacityError('Full capacity must use the machine default compatibility record')
         settings.update(mode=config['mode'], cutover=Path(config['cutover']),
-                        policy_sha256=config['seal_policy_sha256'] if maintenance else hashlib.sha256(raw).hexdigest())
+                        policy_sha256=config['seal_policy_sha256'] if maintenance or calibrated else hashlib.sha256(raw).hexdigest())
+    if calibrated:
+        settings['calibrated_memory_reserve'] = True
     return settings
 
 
 def main(configpath):
-    broker = CapacityBroker(**load_config(configpath, expected_sha256=os.environ.get('ATELIER_CAPACITY_SERVICE_CONFIG_SHA256')))
+    expected = os.environ.get('ATELIER_CAPACITY_SERVICE_CONFIG_SHA256')
+    settings = load_config(configpath, expected_sha256=expected)
+    if expected is None and (settings.get('mode') == 'sealed-maintenance'
+                             or settings.get('calibrated_memory_reserve')):
+        raise wire.CapacityError('Calibrated policy requires a supervised configuration digest')
+    broker = CapacityBroker(**settings)
     try:
         broker.serve_forever()
     finally:

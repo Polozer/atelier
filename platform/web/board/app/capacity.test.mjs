@@ -28,6 +28,25 @@ test('zero I/O budgets and per-job zero requests are omitted', () => {
   assert.doesNotMatch(html, /I\/O|0 slots/);
 });
 
+test('disk is absent from admission when the broker reports no disk budget', () => {
+  const nodisk = () => ({...vector(), temp_mib: 0});
+  const html = render(snapshot({total: nodisk(), reserve: nodisk(), charged_resources: nodisk(),
+    records: [job({resources: {...vector(), temp_mib: 8192}})]}));
+  assert.doesNotMatch(html, /[Tt]emporary disk/);
+  // An older broker still enforcing a nonzero disk budget must not be hidden.
+  assert.match(render(snapshot()), /Temporary disk/);
+});
+
+test('retry-required history is not shown in the active queue', () => {
+  const html = render(snapshot({waiting_count: 1, records: [
+    job({id: 'old', purpose: 'Old retry', state: 'waiting', charged: false}),
+    job({id: 'ready', purpose: 'Current request', state: 'queued', charged: false}),
+  ]}));
+  assert.match(html, /0 reservations · 1 waiting/);
+  assert.match(html, /Current request/);
+  assert.doesNotMatch(html, /Old retry|awaiting retry/);
+});
+
 test('every nonzero I/O accounting dimension remains visible', () => {
   for (const key of ['total', 'reserve', 'charged_resources']) {
     const html = render(snapshot({[key]: vector(2)}));

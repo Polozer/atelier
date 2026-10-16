@@ -1,7 +1,8 @@
 # Capacity admission
 
-Atelier should admit work against available memory and CPU capacity, with additional constraints for GPU use,
-temporary disk space and resources that require exclusive access. Agents request a workload profile; the machine
+Atelier should admit work against available memory and CPU capacity, with additional constraints for GPU use
+and resources that require exclusive access. Disk space is telemetry, not an admission budget or lock.
+Agents request a workload profile; the machine
 admits it when all requirements fit. A small job need not wait for a particular lane to become free.
 
 **Status: the supervised broker supports the conservative legacy-lock bridge and a sealed, boot-bound full
@@ -33,7 +34,7 @@ migration may require one refresh; report repeated broad rebuilds with the plan 
 inputs and output verification intact: do not manufacture stamps, use `--touch` to hide a required build, or
 force regeneration to make the plan look simpler. Prefer the specific required steps and retain reusable outputs.
 
-During the current bridge pilot, use your registered board owner and the explicit pilot client for ordinary jobs:
+Only on a machine explicitly announced as a bridge pilot, use your registered board owner and its pilot client:
 
 ```sh
 ATELIER_AGENT=YOUR_OWNER ATELIER_CAPACITY_CLIENT="$HOME/.cache/atelier/capacity/pilot-client.json" nice -n 10 uv run atelier build yorimichi
@@ -67,8 +68,21 @@ path. Ask the operator for help when the documented recovery cannot establish a 
 
 Read board reservations as scheduling budgets, separately from measured process memory and host availability.
 Recovery pauses new grants; inspect the uncertain jobs and their owners, or the compatibility reason, rather than
-treating the warning as spare capacity. Optional I/O tokens are a contention budget, not disk-space protection;
-zero tokens do not disable temporary-disk pressure checks. An unavailable observation never means a free pool.
+treating the warning as spare capacity. Optional I/O tokens are a contention budget, not disk-space protection.
+The queue includes only current `queued` requests. `waiting` records require a fresh retry, hold no capacity,
+and remain in durable history without counting as active waiters.
+
+### Disk is telemetry only
+
+Temporary-disk estimates do not constrain the planner, shadow service, production selection, start, phase
+replacement or pressure checks. No fixed temporary-space pool or free-space threshold delays admission.
+The board's Disk card continues to show real free space and folder usage. Legacy `temp_mib` wire/configuration
+fields stay readable so installed clients and sealed policy evidence remain compatible; public admission totals
+report zero for that retired dimension and the UI omits it. Sealed policy files are not rewritten.
+
+Memory, CPU, GPU, configured I/O tokens, named ownership locks, fairness and native guards remain enforced.
+There is no independent low-disk guard in this launcher. A tool can still fail with ENOSPC if the filesystem fills;
+such a failure never produces a successful build certificate. Existing tool failures are not suppressed.
 
 When asked to stop or yield, let the current owned child finish normally and arrange for its caller to stop before
 another heavy admission. First check `uv run atelier build --help`: if this checkout offers
@@ -81,6 +95,15 @@ wait for the agreed caller boundary before an update, service change or reboot. 
 there, report that limitation and keep maintenance pending. A momentarily empty native process list is not proof
 that the chain is finished. Schedule approved reboot/cutover work only after all owners confirm their complete
 chains have drained and retained reservations have resolved.
+
+### Diagnosing transport refusals
+
+A capacity transport error names its operation, endpoint/connect/send/receive phase, error type,
+errno and elapsed/deadline seconds. It does not print request data, credentials or raw OS error text.
+Keep that message with the guard reports. The supervised broker log records the same safe operation
+and phase metadata on errors, and elapsed time for operations taking at least 250 ms. These diagnostics
+do not retry an operation, extend its deadline or authorize work after a refusal. A staging/tool stall
+and an RPC timeout can coincide; establish their timing and cause before retrying either.
 
 ## Sealed exclusive maintenance
 
@@ -104,11 +127,11 @@ an old nonexclusive record never gains terminal-tree release eligibility merely 
 The maintenance broker configuration is schema3: the schema2 broker keys with `mode: "sealed-maintenance"` and
 an additional `seal_policy_sha256` containing the unchanged original sealed full-policy SHA256. The service pins
 the new configuration's own digest independently. Its socket, resource totals, non-memory reserve dimensions
-and disk pool must exactly match the sealed policy. The unchanged original sealed reserve remains valid. Only
-this exclusive maintenance mode permits a deliberately reviewed **reduction** of the host memory reserve, with
+and disk pool must exactly match the sealed policy. The unchanged original sealed reserve remains valid.
+This maintenance configuration permits a deliberately reviewed **reduction** of the host memory reserve, with
 the selected value between 4096 MiB and the original sealed reserve. The 4096 MiB floor applies to reductions;
 it does not silently raise an unchanged originally sealed reserve. The original full-policy bytes
-and full-mode reserve remain unchanged; full mode requires the exact original reserve. This temporary calibration
+remain unchanged; ordinary schema2 full mode requires its exact original reserve. This maintenance calibration
 policy does not lower a job's actual memory guard or reservation, change available-memory measurement, relax
 pressure admission, or enable overlap. A normal 10 GiB job with a 4 GiB host reserve still requires at least
 14 GiB freshly observed available memory; any lower observation refuses. Operators validate the tail under the
@@ -117,8 +140,8 @@ this floor or tune the buffer to fit a particular snapshot. The client has exact
 `cutover` and `seal_policy_sha256`. No environment flag enables this mode or bypasses the seal. Both client and
 broker fence the exact mode and activation identity; board status shows **Exclusive maintenance**, `cutover: false`.
 
-A later full-mode activation still requires a verified new boot after the current seal and an explicit drained
-transition to the original full policy/client. Full activation takes all three lanes exclusively and refuses while
+A later full-mode activation still requires positive boot closure and an explicit drained transition. Eligible
+historical seals can use the supported prior-boot promotion below without another reboot. Full activation takes all three lanes exclusively and refuses while
 maintenance owns any of them. Neither an implementation merge nor maintenance operation activates that path.
 Do not reboot, edit sealed files, replace lane inodes or change service configuration as an agent workaround.
 
@@ -172,8 +195,8 @@ The broker configuration is an owner-only JSON file in an owner-only directory, 
 }
 ```
 
-These values are illustrative, not this machine's calibrated budget. Disk reservations apply to the one explicit
-filesystem; multi-filesystem actions still need profiles and enforcement for each pool. Preserve the installed
+These values are illustrative, not this machine's calibrated budget. The legacy disk pool and temp_mib
+values remain part of sealed configuration identity, but they do not enforce disk admission. Preserve the installed
 service's checkout and Python environment. Drain before changing its service configuration; supervision never
 replaces an already running broker with different settings.
 
@@ -185,8 +208,8 @@ is refused, including a session using a higher game limit. CPU reservations must
 optional calibrated scheduling tokens, defaulting to zero: there is no automatic universal I/O charge per job.
 Use a nonzero I/O reservation only for an identified workload whose measured contention warrants a limit.
 Existing configured nonzero I/O reservations and their limits remain enforced; this does not change machine
-settings. I/O tokens are not disk bandwidth or free-space enforcement; `temp_mib` and observed disk pressure
-still constrain temporary disk space. Profiles do not alter worker settings or provide kernel CPU quotas;
+settings. I/O tokens are not disk bandwidth or free-space enforcement. Legacy `temp_mib` estimates are ignored
+by admission. Profiles do not alter worker settings or provide kernel CPU quotas;
 initial budgets must conservatively cover unchanged workers. For a literal Blender job with an explicit
 thread limit, the request charges exactly that many CPU units in bridge and full mode, even when the generic
 profile reserves more; a three-thread job charges 3000 `cpu_millis`. The launch arguments remain unchanged.
@@ -246,6 +269,27 @@ The client uses `schema: 2` and the same additional `cutover` field alongside `s
 Budgets, disk pool, endpoint and the exact broker configuration hash are bound into the cutover record.
 Changing them requires a separately reviewed transition; neither service recovery nor clients rewrite that proof.
 
+### Explicit full-mode memory calibration
+
+The ordinary schema2 full configuration remains exact. A separately installed **schema4** broker configuration
+can select only a calibrated host memory reserve between 4096 MiB and the original sealed reserve. It uses
+`mode: "capacity"`, the same schema2 keys and `seal_policy_sha256` naming the unchanged original full policy.
+Its own complete configuration digest is pinned independently by service supervision. The original sealed
+policy, boot proof, lane identities, totals, endpoint, disk pool and every other reserve dimension remain exact.
+No agent environment flag enables calibration, and adopting maintenance never carries its buffer into full mode.
+Both calibrated full and maintenance service startup refuse a missing own-configuration digest; prepare and
+install supervision rather than starting either with an unpinned manual `capacity serve` command.
+
+This controls host headroom, not job limits: a 10 GiB job still reserves and enforces 10 GiB. With a 4 GiB host
+reserve it requires at least 14 GiB of fresh available memory, plus the full remaining memory growth of every
+charged peer. Unknown or failed observations still refuse. Worker counts, exclusive jobs, foreign-process checks,
+CPU/GPU/disk accounting and both memory guards are unchanged. The full default client remains schema2.
+
+Install a reviewed calibration only at a coordinated child-free, uncharged boundary. Keep the original full
+policy and seal bytes; never edit or re-seal them to fit a memory snapshot. Require measured host-pressure and
+cleanup acceptance under the selected reserve before advertising useful overlap. The board shows the actual
+selected headroom from live status. This source capability alone does not change the machine policy.
+
 Full jobs retain one `render_lock` context. It opens the same three existing legacy lane inodes read-only and
 takes all three shared flocks nonblocking, releasing any partial acquisition on refusal. It never writes or
 truncates the legacy holder records. Resource vectors and named locks then decide compatible overlap in the
@@ -258,8 +302,8 @@ actual guard ceiling. Full-mode automatic, non-performance Blender jobs with exp
 the existing legacy SMALL eligibility: a valid previous peak of at most 3 GiB selects a guard ceiling of
 `min(nominal, 4 GiB)` and a memory reservation equal to that ceiling. Both actual-child and aggregate guards
 use it. The configured profile must still cover the nominal ceiling, and an unchanged GPU reservation larger
-than the selected envelope keeps the nominal guard and reservation. CPU, arguments, temporary-disk and GPU
-reservations are unchanged. Unknown or first-run work, games, compiles, performance windows and explicit
+than the selected envelope keeps the nominal guard and reservation. CPU, arguments and GPU
+reservations are unchanged. Legacy temporary-disk estimates do not constrain admission. Unknown or first-run work, games, compiles, performance windows and explicit
 sessions retain their nominal ceilings; the migration bridge is unchanged. A stop at 4 GiB fails the invocation
 without raising the limit or retrying automatically. Its recorded peak informs the next invocation and removes
 SMALL eligibility when above 3 GiB. Explicit sessions undergo the same command, checkout-lock and resource
@@ -430,8 +474,8 @@ this first protocol. No scheduler process or startup service is installed.
 
 The pressure check charges a candidate plus existing holders' unconsumed growth and host headroom against observed
 availability, separately from the total reservation ceiling. It does not subtract complete reservations from free
-memory that already reflects their allocations. Temporary disk is one explicitly modeled pool; multi-filesystem
-accounting, shared named locks, queue deadlines and supported worker controls remain future protocol work.
+memory that already reflects their allocations. Disk availability and allocated disk estimates do not participate
+in this check. Shared named locks, queue deadlines and supported worker controls remain future protocol work.
 
 Focused tests exercise concurrent SQLite clients, process death during a transaction, restart fencing, PID reuse,
 detached descendants, refused upgrades, queue age and pressure failures without native imports or render admission.
@@ -516,7 +560,7 @@ but cannot obtain admission by understating a known workload or exceeding machin
 | Memory reservation | A conservative ceiling for the owned process tree during this phase, including a margin |
 | CPU budget | A configured amount of sustained worker capacity, translated to supported tool worker limits |
 | GPU requirement | A compatibility class or exclusive graphics reservation until concurrent use is characterized |
-| Temporary disk | Expected additional unique bytes on each affected filesystem, with recovery headroom |
+| Disk space | Observed free space only; no disk reservation, quota or admission lock |
 | Named locks | Exclusive or shared access to a checkout, compiler mutex, output inventory or other real resource |
 | Profile identity | Tool, phase, input scale, renderer and worker settings used to interpret past measurements |
 
@@ -537,7 +581,7 @@ reservation is admission accounting, not physical preallocation or an OS-enforce
 ## One authority and an atomic grant
 
 Use a machine-local capacity service shared by all checkouts. Durable state and a single writer transaction
-cover the entire request: memory, CPU, disk and named locks are granted together or none are. Two agents cannot
+cover the entire request: memory, CPU, GPU, configured I/O tokens and named locks are granted together or none are. Two agents cannot
 both observe the same free memory and launch. The advisory board displays the result; it does not grant capacity.
 
 The service issues an unforgeable local lease tied to the request, launcher identity and process start identity.
@@ -549,18 +593,16 @@ lookups should not require an Unreal-sized reservation.
 Separate two safeguards:
 
 1. **Accounting:** total reservations cannot exceed configured budgets, including phase headroom.
-2. **Live pressure:** current available memory, compression/swap pressure, CPU load and disk availability must
-   also permit admission. Unmanaged applications and shared services can consume capacity outside the ledger.
+2. **Live pressure:** fresh available memory must cover the candidate, remaining peer growth and host headroom. Unmanaged applications and shared services can consume capacity outside the ledger.
 
 Do not subtract an active job's whole reservation from an available-memory reading that already includes its
 current usage. The extra risk is its remaining growth: a candidate needs its reservation plus the sum of existing
 reservations' unconsumed headroom, and host safety headroom. Reconcile this conservative check with the total
 reservation limit. If sampling is stale, missing or contradictory, refuse new heavy work rather than guess.
 
-Disk reservations are conservative estimates, not exact predictions of APFS copy-on-write allocation. Check the
-live filesystem free-space floor at admission, every phase boundary and during large transfers/cooks. Charge
-remaining expected growth without double-counting bytes already allocated, and preserve completion/recovery
-headroom. Do not credit another job's planned deletion or assume a clone will remain cheap after modification.
+Disk observations inform cleanup and diagnosis only. They do not reserve bytes, serialize jobs or impose
+a free-space admission floor. APFS clone sizes can change as files are modified; the Disk card reports actual
+filesystem availability separately from folder estimates.
 
 Count shared Zen/Trace services once in host/service accounting, not once per job. Track their observed growth
 and reserve service headroom. On unified-memory hardware, GPU allocation also competes for memory; do not count
@@ -612,7 +654,7 @@ allocations, that memory remains reserved until it is released or the process en
 Avoid upgrade deadlocks across the entire resource vector, including named locks. An upgrade atomically requests
 all additions and never blocks while retaining a partial grant. On refusal, the job can continue only within its
 existing grant; it must finish or checkpoint/exit and release **all** reservations and named locks before queueing
-again. A queued phase holds neither memory/CPU/disk reservations nor a checkout lock. This prevents a checkout
+again. A queued phase holds neither memory/CPU reservations nor a checkout lock. This prevents a checkout
 owner waiting for memory while that memory's owner waits for the checkout.
 
 A job that cannot release a checkout between phases declares all locks it must retain and its maximum resource

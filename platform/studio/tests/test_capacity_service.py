@@ -138,7 +138,7 @@ def test_cancelling_released_request_cannot_hide_its_launcher_reset(client):
 
 
 @pytest.mark.parametrize('resources,reason', [
-    ({'cpu_millis': 4001}, 'cpu_millis'), ({'temp_mib': 9001}, 'temp_mib'),
+    ({'cpu_millis': 4001}, 'cpu_millis'),
     ({'io_slots': 3}, 'io_slots'), ({'gpu_mib': 3001, 'memory_mib': 4000}, 'gpu_mib'),
 ])
 def test_every_resource_dimension_is_accounted(client, resources, reason):
@@ -146,6 +146,18 @@ def test_every_resource_dimension_is_accounted(client, resources, reason):
     decision, = client.schedule()
     assert decision['result'] == 'cannot-fit' and reason in decision['reasons']
     assert client.records()['oversized']['state'] == 'queued'
+
+
+def test_shadow_disk_estimates_and_unknown_disk_growth_do_not_block(client):
+    client.world.disk = 0
+    token = allocate(client, resources=dict(temp_mib=999999))
+    register(client, token)
+    client.world.allocated.clear()  # No per-job disk measurement is needed.
+    client.submit('next', pid=11, resources=dict(temp_mib=999999))
+    assert client.schedule()[0]['result'] == 'reserved'
+    result = client.call('replace', request_id='job', token=token,
+                         resources=dict(memory_mib=1000, temp_mib=1))
+    assert result['result'] == 'running'
 
 
 def test_named_locks_and_performance_exclude_otherwise_fitting_work(client):
@@ -266,14 +278,13 @@ def test_unrelated_reused_pid_cannot_register_as_the_actual_child(client):
         client.call('register', request_id='job', token=token, child=[20, 2])
 
 
-@pytest.mark.parametrize('change', ['stale', 'future', 'pressure', 'incomplete', 'disk'])
+@pytest.mark.parametrize('change', ['stale', 'future', 'pressure', 'incomplete'])
 def test_missing_stale_or_unsafe_pressure_fails_closed(client, change):
     client.submit('job')
     if change == 'stale': client.world.now = 100; client.world.at = 1
     if change == 'future': client.world.at = 11
     if change == 'pressure': client.world.healthy = False
     if change == 'incomplete': client.world.complete = False
-    if change == 'disk': client.world.disk = 0
     result = client.call('schedule')
     assert result['result'] == 'wait' or result['decisions'][0]['result'] == 'wait'
     assert client.records()['job']['state'] == 'queued'

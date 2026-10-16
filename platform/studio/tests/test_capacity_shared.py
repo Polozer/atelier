@@ -1118,6 +1118,164 @@ def test_full_mode_refuses_reduced_host_memory_reserve(barrier):
         broker.CapacityBroker(**settings)
 
 
+def calibrated_full_settings(barrier, memory=4096):
+    settings, _ = maintenance_with_eight_gib_sealed_reserve(barrier)
+    barrier.boot[0] = BOOT_C
+    proof = compat.activate(barrier.config)
+    value = dict(barrier.value, schema=4, seal_policy_sha256=proof['policy_sha256'])
+    value['reserve'] = dict(value['reserve'], memory_mib=memory)
+    path = barrier.root / 'full-calibrated.json'
+    path.write_text(json.dumps(value))
+    path.chmod(0o600)
+    return path, proof
+
+
+@pytest.mark.parametrize('memory,accepted', [(4095, False), (4096, True), (6144, True), (8192, True), (8193, False)])
+def test_explicit_full_calibration_preserves_seal_and_memory_bounds(barrier, memory, accepted):
+    path, proof = calibrated_full_settings(barrier, memory)
+    before = compat.DEFAULT_RECORD.read_bytes()
+    settings = broker.load_config(path)
+    assert settings['calibrated_memory_reserve'] is True
+    if accepted:
+        with closing(broker.CapacityBroker(**settings)) as instance:
+            assert instance.mode == 'capacity' and instance.reserve.memory_mib == memory
+            assert instance.policy_sha256 == proof['policy_sha256']
+    else:
+        with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
+            broker.CapacityBroker(**settings)
+    assert compat.DEFAULT_RECORD.read_bytes() == before
+    assert proof['reserve']['memory_mib'] == 8192
+
+
+@pytest.mark.parametrize('dimension', ['cpu_millis', 'temp_mib', 'io_slots', 'gpu_mib'])
+def test_calibrated_full_never_changes_other_reserves(barrier, dimension):
+    path, _ = calibrated_full_settings(barrier)
+    settings = broker.load_config(path)
+    settings['reserve'] = Resources(**(asdict(settings['reserve']) | {dimension: 1 + getattr(settings['reserve'], dimension)}))
+    with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
+        broker.CapacityBroker(**settings)
+
+
+@pytest.mark.parametrize('available,accepted', [(14335, False), (14336, True), (14337, True)])
+def test_calibrated_full_still_requires_entire_job_guard_plus_host_reserve(barrier, available, accepted):
+    path, _ = calibrated_full_settings(barrier)
+    with closing(broker.CapacityBroker(**broker.load_config(path), observe=lambda: dict(
+            observed_monotonic=time.monotonic(), available_memory_mib=available, available_temp_mib=99999))) as instance:
+        request = instance._request(dict(id='normal', resources=asdict(Resources(memory_mib=10240, cpu_millis=11000)),
+            workers=3, phase='job', checkout=str(barrier.root), locks=['checkout:' + str(barrier.root)], performance=True))
+        candidate = dict(state='queued', request=request)
+        if accepted:
+            instance._pressure({'records': {'normal': candidate}}, candidate)
+        else:
+            with pytest.raises(wire.CapacityError, match='pressure refuses the complete reservation'):
+                instance._pressure({'records': {'normal': candidate}}, candidate)
+        assert request['resources']['memory_mib'] == 10240
+
+
+@pytest.mark.parametrize('available,accepted', [(11263, False), (11264, True)])
+def test_calibrated_full_keeps_a_running_peers_entire_remaining_growth(barrier, available, accepted):
+    path, _ = calibrated_full_settings(barrier)
+    with closing(broker.CapacityBroker(**broker.load_config(path),
+            guards=lambda *args: wire.GuardFacts((), 1024**3), observe=lambda: dict(
+                observed_monotonic=time.monotonic(), available_memory_mib=available, available_temp_mib=99999))) as instance:
+        request = dict(id='new', resources=asdict(Resources(memory_mib=4096, cpu_millis=1000)))
+        candidate = dict(state='queued', request=request)
+        peer = dict(state='running', request=request, child=[99, 999], principal=[88, 888],
+                    guards={}, limit_bytes=4 * 1024**3)
+        if accepted:
+            instance._pressure({'records': {'new': candidate, 'peer': peer}}, candidate)
+        else:
+            with pytest.raises(wire.CapacityError, match='pressure refuses the complete reservation'):
+                instance._pressure({'records': {'new': candidate, 'peer': peer}}, candidate)
+
+
+def test_calibrated_full_pins_its_config_original_seal_and_totals(barrier):
+    import hashlib
+    path, proof = calibrated_full_settings(barrier)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    settings = broker.load_config(path, expected_sha256=digest)
+    assert settings['policy_sha256'] == proof['policy_sha256']
+    with pytest.raises(wire.CapacityError, match='policy changed'):
+        broker.load_config(path, expected_sha256='f' * 64)
+    settings['total'] = Resources(**(asdict(settings['total']) | {'memory_mib': 65536}))
+    with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
+        broker.CapacityBroker(**settings)
+    settings = broker.load_config(path)
+    settings['policy_sha256'] = 'f' * 64
+    with pytest.raises(wire.CapacityError):
+        broker.CapacityBroker(**settings)
+
+
+@pytest.mark.parametrize('digest', [None, '', 'f' * 63, 'g' * 64])
+def test_calibrated_full_refuses_missing_or_invalid_original_seal_digest(barrier, digest):
+    path, _ = calibrated_full_settings(barrier)
+    value = json.loads(path.read_bytes())
+    if digest is None:
+        value.pop('seal_policy_sha256')
+    else:
+        value['seal_policy_sha256'] = digest
+    path.write_text(json.dumps(value))
+    with pytest.raises(wire.CapacityError, match='Unsupported capacity broker configuration'):
+        broker.load_config(path)
+
+
+@pytest.mark.parametrize('value,mode', [(True, 'legacy-bridge'), (True, 'sealed-maintenance'),
+                                      (1, 'capacity'), (None, 'capacity')])
+def test_reserve_calibration_flag_is_typed_and_full_mode_only(barrier, value, mode):
+    settings, _ = maintenance_with_eight_gib_sealed_reserve(barrier)
+    settings.update(mode=mode, calibrated_memory_reserve=value)
+    with pytest.raises(wire.CapacityError, match='calibration requires explicit full capacity'):
+        broker.CapacityBroker(**settings)
+
+
+def test_calibrated_full_cannot_select_a_subfloor_unchanged_seal(barrier):
+    barrier.value['reserve']['memory_mib'] = 2048
+    barrier.config.write_text(json.dumps(barrier.value))
+    activated(barrier)
+    settings = broker.load_config(barrier.config)
+    # The normal unchanged policy is valid, but it must not enter the explicit calibrated schema.
+    with closing(broker.CapacityBroker(**settings)) as instance:
+        assert instance.reserve.memory_mib == 2048
+    settings['calibrated_memory_reserve'] = True
+    with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
+        broker.CapacityBroker(**settings)
+
+
+@pytest.mark.parametrize('mode', ['maintenance', 'calibrated-full'])
+def test_serve_requires_an_own_configuration_pin_before_starting_calibrated_broker(barrier, monkeypatch, mode):
+    if mode == 'maintenance':
+        maintenance_with_eight_gib_sealed_reserve(barrier)
+        path = barrier.root / 'maintenance.json'
+    else:
+        path, _ = calibrated_full_settings(barrier)
+    monkeypatch.delenv('ATELIER_CAPACITY_SERVICE_CONFIG_SHA256', raising=False)
+    monkeypatch.setattr(broker, 'CapacityBroker', lambda **kwargs: pytest.fail('unbound broker started'))
+    with pytest.raises(wire.CapacityError, match='supervised configuration digest'):
+        broker.main(path)
+
+
+def test_supervised_calibrated_configuration_binds_own_bytes_before_serve(barrier, monkeypatch):
+    import hashlib
+    path, _ = calibrated_full_settings(barrier)
+    from atelier import capacity_supervision
+    recipe = capacity_supervision.configuration(path)
+    digest = recipe['EnvironmentVariables']['ATELIER_CAPACITY_SERVICE_CONFIG_SHA256']
+    assert digest == hashlib.sha256(path.read_bytes()).hexdigest()
+    monkeypatch.setenv('ATELIER_CAPACITY_SERVICE_CONFIG_SHA256', digest)
+    calls = []
+    class Service:
+        def __init__(self, **settings): calls.append(settings)
+        def serve_forever(self): calls.append('serve')
+        def close(self): calls.append('close')
+    monkeypatch.setattr(broker, 'CapacityBroker', Service)
+    assert broker.main(path) == 0
+    assert calls[0]['calibrated_memory_reserve'] is True and calls[1:] == ['serve', 'close']
+    path.write_bytes(path.read_bytes() + b' ')
+    with pytest.raises(wire.CapacityError, match='policy changed'):
+        broker.main(path)
+    assert calls[1:] == ['serve', 'close']
+
+
 def test_reduced_maintenance_reserve_still_pins_total_and_own_configuration(barrier):
     import hashlib
     settings, proof = maintenance_with_eight_gib_sealed_reserve(barrier)

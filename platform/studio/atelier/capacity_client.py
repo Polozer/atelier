@@ -29,19 +29,29 @@ def _endpoint(path):
 
 
 def _rpc(path, message, timeout, *, descriptor=False):
+    """@cc [owner:fontanierh,label:safety] bounded-rpc-diagnostics
+    Transport diagnostics MUST expose only bounded operation/phase/type/errno/timing metadata,
+    never request contents or raw transport errors. Diagnostics MUST NOT retry or extend deadlines.
+    """
     if type(timeout) not in (int, float) or not .05 <= timeout <= 5:
         raise CapacityError('Capacity RPC deadline must be between .05 and 5 seconds')
     fd = None
+    started = time.monotonic()
+    phase = 'endpoint'
     try:
-        deadline = time.monotonic() + timeout
+        deadline = started + timeout
         endpoint = _endpoint(path)
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as channel:
             if time.monotonic() >= deadline:
                 raise CapacityError('Capacity RPC deadline exceeded')
             channel.settimeout(deadline - time.monotonic())
+            phase = 'connect'
             channel.connect(str(endpoint))
+            phase = 'send'
             wire.send(channel, {'namespace': wire.NAMESPACE, **message}, deadline=deadline)
+            phase = 'receive'
             response, fd = wire.receive(channel, descriptor=descriptor, deadline=deadline)
+        phase = 'response'
         if response.get('namespace') != wire.NAMESPACE:
             raise CapacityError('Capacity broker refused this operation')
         if response.get('ok') is not True:
@@ -51,10 +61,14 @@ def _rpc(path, message, timeout, *, descriptor=False):
         if fd is not None:
             os.close(fd)
         raise
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError) as error:
         if fd is not None:
             os.close(fd)
-        raise CapacityError('Capacity broker unavailable or operation refused; no fallback admission') from None
+        metadata = (f'action={wire.action_name(message)}, phase={phase}, error={type(error).__name__}, '
+                    f'errno={error.errno if isinstance(error, OSError) else None}, '
+                    f'elapsed={time.monotonic() - started:.3f}s, timeout={timeout:.3f}s')
+        raise CapacityError('Capacity broker unavailable or operation refused; no fallback admission ('
+                            + metadata + ')') from None
 
 
 def status(socket_path, *, timeout=2.):

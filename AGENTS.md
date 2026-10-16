@@ -199,10 +199,20 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
 - Heavy jobs (Unreal, Blender renders) run under the render lock and memory guard (`atelier.safety`). `atelier play`
   and `atelier build` do this for you. A game's guard stops it above 10 GiB; `atelier play --memory-gib N` (10 to 14)
   raises that for one session that needs it (Quality graphics at 1080p, for example). Say so in your Holding entry.
-- Follow the [capacity agent workflow](docs/BUILD_CAPACITY.md#agent-workflow) for the current bridge launch
-  environment, mode checks, safe update/stop boundaries and refusal recovery. Merge and `uv sync` only while
+- Follow the [capacity agent workflow](docs/BUILD_CAPACITY.md#agent-workflow) for live mode checks,
+  safe update/stop boundaries and refusal recovery. Merge and `uv sync` only while
   the checkout has no owned native child and its caller cannot start the next one; preserve build artifacts.
-  A merged capacity PR does not activate full mode. Explicit sealed maintenance is one guarded job at a time,
+  A merged capacity PR does not activate full mode; check the machine's installed client and live broker.
+  In confirmed full mode (`capacity`, `cutover=true`), use `ATELIER_AGENT=OWNER nice -n 10 uv run atelier build/play`
+  with `ATELIER_CAPACITY_CLIENT` unset. Resource budgets and named locks replace BIG/SMALL/fitting scheduling;
+  do not request an extra legacy slot or edit `render-slots.json`. Existing sealed compatibility files remain
+  protected and must never be removed, replaced or chmodded. Memory reservations cover actual-child and
+  aggregate guard ceilings; CPU is a scheduling budget, not dedicated cores. Let normal admission select
+  compatible work; never lower a profile or increase workers to squeeze in another job.
+  Disk free space is telemetry only: there are no temporary-disk reservations or disk admission limits.
+  Legacy `temp_mib` fields remain readable for old clients/history but do not block or serialize jobs.
+  The board's waiting count includes live queued requests only; retry-required history holds no capacity.
+  Explicit sealed maintenance is one guarded job at a time,
   with read-only exclusive ownership of all sealed lanes and normal nominal guard ceilings; it is not full
   concurrency. Keep the pilot client until the operator announces maintenance or full cutover; then use the
   installed default client after checking the matching live mode. Never edit broker settings, clear uncertain reservations,
@@ -220,14 +230,14 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   are still the same processes and still orphaned: a Turnkey `VerifySdk` left behind otherwise holds UnrealBuildTool's
   mutex and the next game waits in `SDKSetup`. Shared services (Zen, Trace) are never ended; never end another
   agent's helpers by name.
-- The render lock has one big slot. A small slot sits beside it when `~/.cache/atelier/render-slots.json` says
+- **Legacy mode only:** the render lock has one big slot. A small slot sits beside it when `~/.cache/atelier/render-slots.json` says
   `{"slots": 2}` (`ATELIER_RENDER_SLOTS` overrides the file; no file means one slot). The small slot takes a job
   expected to peak at 3 GiB or less, never a game or a compile, when at least 10 GiB is free and the big slot's job is
   in another checkout; its memory ceiling is 4 GiB. `atelier build` sends a heavy step there when the step's last
   guard report allows it, and says which slot each step used. A compile waits for a small job to finish.
-- A checkout whose code predates the slots stays safe but refuses to start while a small job runs: merge main into
+- **Legacy mode only:** a checkout whose code predates the slots refuses to start while a small job runs: merge main into
   every checkout before switching to two slots.
-- A machine may reserve an additional Blender fitting lane with `fitting_checkout` in `render-slots.json`, keeping
+- **Legacy mode only:** a machine may reserve an additional Blender fitting lane with `fitting_checkout` in `render-slots.json`, keeping
   `slots` at 2. Before enabling it, update every active build/play client to the guard that understands all three
   mutexes; a fitting job refuses live holders with older guards. Only that checkout may request it, through
   `atelier.safety.guarded --fitting GIB`, with one background Blender child expected to peak at most 3 GiB.
@@ -236,10 +246,11 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   for any admitted fitting job to exit. The reservation grants capacity only; take its lock only while working.
 - The live bridge (Unreal plugin, port 8830) stays loopback-only.
 - Every machine has its own `~/.cache/atelier/render-board.md`. Read its Holding, Waiting and latest Log entries
-  before a heavy job. Post the task, checkout, requested slot and estimated duration under Waiting; while actually
+  before a heavy job. Post the task, checkout, requested resources/exclusion (or legacy slot) and duration under Waiting; while actually
   running, record the holder and expected finish under Holding. Take the lock per job, never while idle. Prefer
   ready jobs under five minutes when several agents are waiting, and remove your entry when the job finishes.
-  The live lock record is authoritative when the board is stale; never start a competing job or signal its owner.
+  Live broker grants and guard ownership (or legacy lock records) are authoritative when the board is stale;
+  never start a competing job or signal its owner.
 - Check the current job's render log (`build/<game>/logs/<step>.guard/stdout.log`, or a play run's `stdout.log`) and
   `memory-health.json` before retrying or diagnosing a stall. When installed, the machine's resource log is
   `~/.cache/atelier/render-supervisor/latest.json` with history in `telemetry.jsonl`. Add the command, exit status
