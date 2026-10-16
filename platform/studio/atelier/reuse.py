@@ -14,10 +14,10 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import uuid
 
 from . import paths
 from . import build_snapshot
-from .safety.render_lock import render_lock
 
 # Send our inspector to the receiving checkout's interpreter; its imports resolve there.
 INSPECT = Path(__file__).with_name('reuse_inspect.py').read_text()
@@ -82,12 +82,44 @@ def occupied(repo, folders):
     return [line[3:] for line in out.splitlines() if line[:2] in ('??', '!!')]
 
 
+def _launch(action, game, target, source=None):
+    """Run file inspection/copy/removal under the ordinary owned-child admission lifecycle."""
+    from .safety import guarded
+    identifier = uuid.uuid4().hex
+    folder = target / 'build' / game / 'logs' / (f'reuse-{action}-{identifier}.guard')
+    command = [sys.executable, '-m', 'atelier.reuse_worker', action, game, str(target)]
+    if source is not None:
+        command.append(str(source))
+    command += ['--invocation', identifier]
+    print(f'{action} {game}: guarded artifact transfer; log {folder / "stdout.log"}', flush=True)
+    code = guarded.run(command, folder, kind='job', aggregate_tree=True, timeout=1800,
+                       progress=30, purpose=f'{action} verified {game} artifacts', invocation_id=identifier)
+    if action == 'copy' and code == 0:
+        out = target / 'build' / game
+        journal = out / build_snapshot.JOURNAL
+        record = json.loads(journal.read_text())
+        completed = json.loads((out / build_snapshot.COMPLETE).read_text())
+        if (record.get('schema') != 1 or completed.get('schema') != 1
+                or record.get('operation_id') != identifier or completed.get('operation_id') != identifier
+                or completed.get('revision') != record.get('revision') or not isinstance(completed.get('steps'), list)):
+            raise ValueError('Reuse completion differs from this guarded transfer; journal retained')
+        journal.unlink()  # Only an affirmative outer guard/cleanup/capacity close unblocks the receiver.
+        print(f'Reused {len(completed["steps"])} verified steps in {target}; run uv sync there, then atelier build/play.', flush=True)
+    return code
+
+
 def main(game, source, target=None):
-    """@cc [owner:fontanierh,label:correctness] verified-snapshot-reuse
-    Named products MUST match the donor stamps and the independently copied target byte for byte.
-    A journal MUST block build/play/package until all checks and stamp installation complete.
-    Registry caches MUST NOT be carried over or left stale in the receiving checkout.
-    """
+    source, target, _ = _preflight(game, source, target)
+    return _launch('copy', game, target, source)
+
+
+def abandon(game, target=None):
+    if '/' in game or game in ('.', '..'):
+        raise ValueError('Invalid game ID')
+    return _launch('abandon', game, Path(target or paths.REPO).resolve())
+
+
+def _preflight(game, source, target):
     source, target = Path(source).resolve(), Path(target or paths.REPO).resolve()
     if source == target:
         raise ValueError('Use a separate fresh worktree as the target')
@@ -104,128 +136,145 @@ def main(game, source, target=None):
         raise ValueError('Use the default per-worktree build folders when reusing artifacts')
     if any((target / 'build' / game / 'stamps').glob('*.json')):
         raise ValueError('Target already has build stamps; use its incremental build instead')
+    return source, target, revision
+
+
+def _copy(game, source, target=None, *, operation_id):
+    """@cc [owner:fontanierh,label:correctness] verified-snapshot-reuse
+    Named products MUST match the donor stamps and the independently copied target byte for byte.
+    A journal MUST block build/play/package until all checks and stamp installation complete.
+    Registry caches MUST NOT be carried over or left stale in the receiving checkout.
+    A guarded worker MUST keep the receiving journal until its parent observes successful guard
+    cleanup and capacity close, bound to the same operation identity.
+    """
+    # Recheck after admission: a queued receiver/donor may have changed while waiting.
+    source, target, revision = _preflight(game, source, target)
+    if type(operation_id) is not str or uuid.UUID(operation_id).hex != operation_id:
+        raise ValueError('Invalid reuse operation identity')
     clone = None
     if sys.platform == 'darwin':
         clone = ctypes.CDLL('/usr/lib/libSystem.B.dylib', use_errno=True).clonefile
         clone.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
         clone.restype = ctypes.c_int
-    with render_lock('reuse verified ' + game + ' artifacts'):
-        before = inspect(source, game)
-        invalid = [s['name'] for s in before['steps'] if not s['outputs_ok'] or s['stamp'].get('fingerprint') != s['fingerprint']
-                   or s.get('made') and s['stamp'].get('result') != s['made']
-                   or 'products' in s and s['stamp'].get('products', {}) != s['products']]
-        game_root = source / 'games' / game / 'unreal'
-        module = game_root / 'Binaries/Mac' / ('libUnrealEditor-' + before['project'] + '.dylib')
-        if invalid or not module.is_file():
-            raise ValueError('Source build is not complete/current: ' + ', '.join(invalid or ['compiled module missing']))
-        receipt = json.loads((module.parent / (before['editor_target'] + '.target')).read_text())
-        for field in ('MajorVersion', 'MinorVersion', 'PatchVersion', 'Changelist', 'CompatibleChangelist', 'BranchName'):
-            if receipt['Version'].get(field) != before['build_version'].get(field):
-                raise ValueError('The compiled game uses a different engine version')
-        engine_modules = Path(before['engine']) / 'Engine/Binaries/Mac/UnrealEditor.modules'
-        game_modules = module.parent / 'UnrealEditor.modules'
-        if json.loads(engine_modules.read_text())['BuildId'] != json.loads(game_modules.read_text())['BuildId']:
-            raise ValueError('Compiled game and installed engine build IDs differ')
-        dest_before = inspect(target, game)
-        if before['build_version'] != dest_before['build_version'] or before['engine'] != dest_before['engine']:
-            raise ValueError('Source and target must use the same installed engine')
-        if differ := differing_sources(before, dest_before):
-            raise ValueError('Source inputs differ, including untracked inputs; artifacts cannot be reused: ' + ', '.join(differ))
-        from .reuse_inspect import excluded
-        copies = [item for item in (source / 'build' / game).iterdir() if not excluded(item.name)]
-        copies += [game_root / 'Content', game_root / 'Binaries']
-        copies += [b for b in (source / 'platform/engine/Plugins').rglob('Binaries') if b.is_dir() and 'Intermediate' not in b.parts]
-        if found := occupied(target, [item.relative_to(source) for item in copies]):
-            raise ValueError('Target already has its own files where artifacts would be copied; use a fresh worktree: '
-                             + ', '.join(found[:5]) + (f' and {len(found) - 5} more' if len(found) > 5 else ''))
-        # A fresh editor/cooker discovers copied packages from disk. Refuse a target with local
-        # discovery caches rather than transplanting the donor's Intermediate/Saved registry.
-        target_project = target / game_root.relative_to(source)
-        if any((target_project / name).exists() for name in ('Intermediate', 'Saved')):
-            raise ValueError('Target has Unreal Intermediate/Saved state; use a fresh worktree for registry discovery')
-        out = target / 'build' / game
-        out.mkdir(parents=True, exist_ok=True)
-        journal = out / build_snapshot.JOURNAL
-        with journal.open('x') as handle:
-            json.dump({'schema': 1, 'revision': revision, 'source': str(source),
-                       'copies': [item.relative_to(source).as_posix() for item in copies]}, handle)
-            handle.flush()
-            os.fsync(handle.fileno())
-        for item in copies:
-            copy_tree(item, target / item.relative_to(source), source, target, clone)
-        after = inspect(target, game)
-        donor_after = inspect(source, game)
-        if _inputs(before) != _inputs(after) or _inputs(before) != _inputs(donor_after):
-            raise ValueError('Inputs changed during copying; target stamps have not been created')
-        if _products(before) != _products(after) or _products(before) != _products(donor_after):
-            raise ValueError('Products changed during copying; target stamps have not been created')
-        for repo in (source, target):
-            if git(repo, 'rev-parse', 'HEAD') != revision or git(repo, 'status', '--porcelain', '--untracked-files=no'):
-                raise ValueError('Source revision changed during copying; target stamps have not been created')
-        if not all(s['outputs_ok'] for s in after['steps']):
-            raise ValueError('Required outputs are missing; target stamps have not been created')
-        stamps = target / 'build' / game / 'stamps'
-        stamps.mkdir(parents=True, exist_ok=True)
-        target_steps = {step['name']: step for step in after['steps']}
-        for step in before['steps']:
-            stamp = dict(step['stamp'], fingerprint=target_steps[step['name']]['fingerprint'], reused_from=str(source))
-            (stamps / (step['name'] + '.json')).write_text(json.dumps(stamp) + '\n')
-            peak = source / 'build' / game / 'logs' / (step['name'] + '.guard') / 'step-peak.json'
-            if peak.exists():
-                copy_tree(peak, target / 'build' / game / 'logs' / (step['name'] + '.guard') / 'step-peak.json', source, target, clone)
-        completion = out / build_snapshot.COMPLETE
-        temporary = completion.with_suffix('.tmp')
-        temporary.write_text(json.dumps({'schema': 1, 'revision': revision, 'steps': _inputs(after)}) + '\n')
-        temporary.replace(completion)
-        journal.unlink()
-    print(f'Reused {len(before["steps"])} verified steps in {target}; run uv sync there, then atelier build/play.')
+    print('Inspecting donor fingerprints and products', flush=True)
+    before = inspect(source, game)
+    invalid = [s['name'] for s in before['steps'] if not s['outputs_ok'] or s['stamp'].get('fingerprint') != s['fingerprint']
+               or s.get('made') and s['stamp'].get('result') != s['made']
+               or 'products' in s and s['stamp'].get('products', {}) != s['products']]
+    game_root = source / 'games' / game / 'unreal'
+    module = game_root / 'Binaries/Mac' / ('libUnrealEditor-' + before['project'] + '.dylib')
+    if invalid or not module.is_file():
+        raise ValueError('Source build is not complete/current: ' + ', '.join(invalid or ['compiled module missing']))
+    receipt = json.loads((module.parent / (before['editor_target'] + '.target')).read_text())
+    for field in ('MajorVersion', 'MinorVersion', 'PatchVersion', 'Changelist', 'CompatibleChangelist', 'BranchName'):
+        if receipt['Version'].get(field) != before['build_version'].get(field):
+            raise ValueError('The compiled game uses a different engine version')
+    engine_modules = Path(before['engine']) / 'Engine/Binaries/Mac/UnrealEditor.modules'
+    game_modules = module.parent / 'UnrealEditor.modules'
+    if json.loads(engine_modules.read_text())['BuildId'] != json.loads(game_modules.read_text())['BuildId']:
+        raise ValueError('Compiled game and installed engine build IDs differ')
+    print('Inspecting receiving checkout', flush=True)
+    dest_before = inspect(target, game)
+    if before['build_version'] != dest_before['build_version'] or before['engine'] != dest_before['engine']:
+        raise ValueError('Source and target must use the same installed engine')
+    if differ := differing_sources(before, dest_before):
+        raise ValueError('Source inputs differ, including untracked inputs; artifacts cannot be reused: ' + ', '.join(differ))
+    from .reuse_inspect import excluded
+    copies = [item for item in (source / 'build' / game).iterdir() if not excluded(item.name)]
+    copies += [game_root / 'Content', game_root / 'Binaries']
+    copies += [b for b in (source / 'platform/engine/Plugins').rglob('Binaries') if b.is_dir() and 'Intermediate' not in b.parts]
+    if found := occupied(target, [item.relative_to(source) for item in copies]):
+        raise ValueError('Target already has its own files where artifacts would be copied; use a fresh worktree: '
+                         + ', '.join(found[:5]) + (f' and {len(found) - 5} more' if len(found) > 5 else ''))
+    # A fresh editor/cooker discovers copied packages from disk. Refuse a target with local
+    # discovery caches rather than transplanting the donor's Intermediate/Saved registry.
+    target_project = target / game_root.relative_to(source)
+    if any((target_project / name).exists() for name in ('Intermediate', 'Saved')):
+        raise ValueError('Target has Unreal Intermediate/Saved state; use a fresh worktree for registry discovery')
+    out = target / 'build' / game
+    out.mkdir(parents=True, exist_ok=True)
+    journal = out / build_snapshot.JOURNAL
+    with journal.open('x') as handle:
+        json.dump({'schema': 1, 'revision': revision, 'source': str(source), 'operation_id': operation_id,
+                   'copies': [item.relative_to(source).as_posix() for item in copies]}, handle)
+        handle.flush()
+        os.fsync(handle.fileno())
+    for item in copies:
+        print(f'Copying {item.relative_to(source)}', flush=True)
+        copy_tree(item, target / item.relative_to(source), source, target, clone)
+    print('Verifying copied inputs and products in both checkouts', flush=True)
+    after = inspect(target, game)
+    donor_after = inspect(source, game)
+    if _inputs(before) != _inputs(after) or _inputs(before) != _inputs(donor_after):
+        raise ValueError('Inputs changed during copying; target stamps have not been created')
+    if _products(before) != _products(after) or _products(before) != _products(donor_after):
+        raise ValueError('Products changed during copying; target stamps have not been created')
+    for repo in (source, target):
+        if git(repo, 'rev-parse', 'HEAD') != revision or git(repo, 'status', '--porcelain', '--untracked-files=no'):
+            raise ValueError('Source revision changed during copying; target stamps have not been created')
+    if not all(s['outputs_ok'] for s in after['steps']):
+        raise ValueError('Required outputs are missing; target stamps have not been created')
+    stamps = target / 'build' / game / 'stamps'
+    stamps.mkdir(parents=True, exist_ok=True)
+    target_steps = {step['name']: step for step in after['steps']}
+    for step in before['steps']:
+        stamp = dict(step['stamp'], fingerprint=target_steps[step['name']]['fingerprint'], reused_from=str(source))
+        (stamps / (step['name'] + '.json')).write_text(json.dumps(stamp) + '\n')
+        peak = source / 'build' / game / 'logs' / (step['name'] + '.guard') / 'step-peak.json'
+        if peak.exists():
+            copy_tree(peak, target / 'build' / game / 'logs' / (step['name'] + '.guard') / 'step-peak.json', source, target, clone)
+    completion = out / build_snapshot.COMPLETE
+    temporary = completion.with_suffix('.tmp')
+    temporary.write_text(json.dumps({'schema': 1, 'revision': revision, 'operation_id': operation_id,
+                                     'steps': _inputs(after)}) + '\n')
+    temporary.replace(completion)
+    print(f'Verified {len(before["steps"])} copied steps; finishing guarded transfer.', flush=True)
     return 0
 
 
-def abandon(game, target=None):
+def _abandon(game, target=None):
     """Remove only the recorded generated copy, preserving tracked sources and diagnostic logs."""
     target = Path(target or paths.REPO).resolve()
     if '/' in game or game in ('.', '..'):
         raise ValueError('Invalid game ID')
     out = target / 'build' / game
     journal = out / build_snapshot.JOURNAL
-    with render_lock('abandon interrupted ' + game + ' reuse'):
-        if not journal.exists():
-            raise SystemExit('No interrupted reuse to abandon')
-        record = json.loads(journal.read_text())
-        if record.get('schema') != 1 or not isinstance(record.get('copies'), list):
-            raise SystemExit('Unrecognised reuse journal; preserve it and use a fresh worktree')
-        roots = []
-        from .reuse_inspect import excluded
-        for relative in record['copies']:
-            path = Path(relative)
-            parts = path.parts
-            in_build = parts[:2] == ('build', game) and len(parts) >= 3 and not excluded(parts[2])
-            in_game = parts in (('games', game, 'unreal', 'Content'), ('games', game, 'unreal', 'Binaries'))
-            in_plugin = parts[:3] == ('platform', 'engine', 'Plugins') and len(parts) >= 5 and parts[-1] == 'Binaries'
-            if path.is_absolute() or '..' in parts or not (in_build or in_game or in_plugin):
-                raise SystemExit('Unsafe path in reuse journal; no files removed')
-            absolute = target / path
-            roots.append(absolute)
-        roots += [out / 'stamps', out / build_snapshot.COMPLETE]
-        for absolute in [*roots, journal]:
-            if any(p.is_symlink() for p in absolute.parents if p != target and p.is_relative_to(target)):
-                raise SystemExit('Linked ancestor of a copied path; no files removed')
-        tracked = set(subprocess.check_output(['git', '-C', str(target), 'ls-files', '-z']).decode().split('\0'))
+    if not journal.exists():
+        raise SystemExit('No interrupted reuse to abandon')
+    record = json.loads(journal.read_text())
+    if record.get('schema') != 1 or not isinstance(record.get('copies'), list):
+        raise SystemExit('Unrecognised reuse journal; preserve it and use a fresh worktree')
+    roots = []
+    from .reuse_inspect import excluded
+    for relative in record['copies']:
+        path = Path(relative)
+        parts = path.parts
+        in_build = parts[:2] == ('build', game) and len(parts) >= 3 and not excluded(parts[2])
+        in_game = parts in (('games', game, 'unreal', 'Content'), ('games', game, 'unreal', 'Binaries'))
+        in_plugin = parts[:3] == ('platform', 'engine', 'Plugins') and len(parts) >= 5 and parts[-1] == 'Binaries'
+        if path.is_absolute() or '..' in parts or not (in_build or in_game or in_plugin):
+            raise SystemExit('Unsafe path in reuse journal; no files removed')
+        absolute = target / path
+        roots.append(absolute)
+    roots += [out / 'stamps', out / build_snapshot.COMPLETE]
+    for absolute in [*roots, journal]:
+        if any(p.is_symlink() for p in absolute.parents if p != target and p.is_relative_to(target)):
+            raise SystemExit('Linked ancestor of a copied path; no files removed')
+    tracked = set(subprocess.check_output(['git', '-C', str(target), 'ls-files', '-z']).decode().split('\0'))
 
-        def remove(path):
-            if path.relative_to(target).as_posix() in tracked:
-                return
-            if path.is_symlink() or path.is_file():
-                path.unlink()
-            elif path.is_dir():
-                for child in path.iterdir():
-                    remove(child)
-                if not any(path.iterdir()):
-                    path.rmdir()
+    def remove(path):
+        if path.relative_to(target).as_posix() in tracked:
+            return
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            for child in path.iterdir():
+                remove(child)
+            if not any(path.iterdir()):
+                path.rmdir()
 
-        for root in roots:
-            remove(root)
-        journal.unlink()
+    for root in roots:
+        remove(root)
+    journal.unlink()
     print('Partial generated copy removed; tracked sources and logs preserved. Reuse again or build normally.')
     return 0
