@@ -88,6 +88,11 @@ def main():
     assert report['simple_collisions'] == 0, (name, 'unexpected collision primitives', report)
     assert report['convex_collisions'] == int(import_trunk), (name, 'collision hulls', report)
     assert meshes.get_collision_complexity(mesh) == flag[data['collision']], (name, 'collision policy', report)
+    # Fresh FBX packages default to 64; the legacy catalogue uses resolution 4 and UV0.
+    # Apply this after LOD assembly so repairs do not inherit a factory or previous-package default.
+    for key, value in (('light_map_resolution', 4), ('light_map_coordinate_index', 0)):
+        mesh.set_editor_property(key, value)
+        assert mesh.get_editor_property(key) == value, (name, key, value)
     if not editor.save_loaded_asset(mesh, False):
         raise RuntimeError('Could not save foliage package: ' + path)
     report_path = yori.OUT / 'imports/foliage' / (name + '.json')

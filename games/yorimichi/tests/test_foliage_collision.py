@@ -142,6 +142,15 @@ def test_registered_but_unloadable_package_reaches_fresh_import(owner, monkeypat
     assert owner.report.is_file()
 
 
+@pytest.mark.parametrize('registered', [False, True])
+def test_rebuild_applies_the_legacy_lightmap_policy(owner, monkeypatch, registered):
+    monkeypatch.setattr(sys.modules['unreal'].EditorAssetLibrary, 'does_asset_exist', lambda path: registered)
+    owner.imported.values.update(light_map_resolution=64, light_map_coordinate_index=1)
+    owner.run()
+    assert owner.imported.values['light_map_resolution'] == 4
+    assert owner.imported.values['light_map_coordinate_index'] == 0
+
+
 def test_failed_fresh_import_of_unloadable_package_stays_uncertified(owner, monkeypatch):
     monkeypatch.setattr(sys.modules['unreal'].EditorAssetLibrary, 'load_asset', lambda path: None)
     def fail_import(*args, **kwargs):
