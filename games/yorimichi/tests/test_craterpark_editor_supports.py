@@ -94,7 +94,11 @@ def test_a_high_solid_deck_stands_on_a_timber_frame_with_a_torii_over_the_drop_i
     by = {dsl.MATERIALS[p.material[0]]: p for p in tower}
     assert {es.ROCK, es.KEYAKI, es.IRON, es.VERMILION, es.TILE, es.TIMBER} <= set(by)
     torii = by[es.VERMILION].V[by[es.VERMILION].V[:, 1] > 60. + es.TORII - 3.]
-    assert len(torii) and torii[:, 0].min() > 5., 'the torii stands over the drop-in (+x), not elsewhere'
+    assert len(torii) and torii[:, 0].min() > 2., 'the torii stands before the drop-in (+x), not elsewhere'
+    deck = box_deck('t', 60.).mesh.V
+    pillars = by[es.VERMILION].V[(by[es.VERMILION].V[:, 1] > 62.) & (by[es.VERMILION].V[:, 1] < 60. + es.TORII - 3.)]
+    assert (np.abs(pillars[:, 0]) < deck[:, 0].max()).all() and (np.abs(pillars[:, 2]) < deck[:, 2].max()).all(), \
+        'its pillars stand on the deck, not in the air beside it'
     rail = by[es.VERMILION].V[(by[es.VERMILION].V[:, 1] > 60.) & (by[es.VERMILION].V[:, 1] < 61.5)]
     assert rail[:, 0].max() < 8.5 + es.RIM, 'no railing across the drop-in'
     frame = vertices([by[es.KEYAKI], by[es.ROCK]])
@@ -169,3 +173,15 @@ def test_a_roll_in_stands_on_timber_like_the_tower():
     roll.metadata['type'] = 'rollin'
     _, summary = es.build([roll], FLAT, GRID)
     assert summary['pieces'] == {'roll': 'stage'}
+
+
+def test_a_deck_flush_on_the_solid_tower_deck_sinks_under_it():
+    from craterpark.v2 import editor_generate
+    tower = sheet('p1', 20., length=30., width=24.)
+    beside = sheet('p2', 20., length=30., width=24., x0=18.)       # overlaps the tower's last 12 m at the same height
+    away = sheet('p3', 20., length=10., width=10., x0=100.)
+    for piece, solid in ((tower, True), (beside, False), (away, False)):
+        piece.metadata.update(type='deck', params={'solid': solid})
+    assert editor_generate.settle_decks([tower, beside, away]) == ['p2']
+    assert tower.mesh.V[:, 1].max() == 20. and away.mesh.V[:, 1].max() == 20.
+    assert np.isclose(beside.mesh.V[:, 1].max(), 20. - editor_generate.DECK_SINK)

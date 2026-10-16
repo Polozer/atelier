@@ -70,8 +70,11 @@ SORI = .7             # ...and every eave's upturn at the corners
 RIM = 1.7             # the balcony round the deck, outside its planks
 RAIL = 1.1            # the railing's height
 TORII = 10.           # the torii over the drop-in: its height
-TORII_LIFT = 5.       # ...and this much more over a walled roll-in, its pillars TORII_CLEAR beyond the ramp's coping
-TORII_CLEAR = 5.
+TORII_LIFT = 2.       # ...and this much more over a roll-in
+TORII_BACK = 6.       # its pillars stand on the deck this far back from the drop-in's edge, clear of the ramp's walls
+TORII_CLEAR = 3.5     # ...this far from any wall or coping above the deck,
+RUNWAY_CLEAR = 4.     # ...and this far from the run-in (RUNWAY m back from its first station) of a line starting there
+RUNWAY = 12.
 PAVILION = (.5, 5.4, 2.4)  # the pavilion over the back of the deck: share of the deck it covers, post height, overhang
 TOWER_TIMBER = True   # the tower stands on an open timber frame as the Vert drop's concept, not on the stone keep
 TOWER_POST = 1.5      # its posts' half thickness...
@@ -742,7 +745,7 @@ def _beam(b, material, c, t, n, half, y0, y1, depth, lift=0.):
     _rings(b, material, rings)
 
 
-def tower(b, plan, ground, piece, open_sides, k=-1, gates=None, halves=None):
+def tower(b, plan, ground, piece, open_sides, k=-1, gates=None, halves=None, runways=()):
     """The start tower under a high solid deck, a Japanese castle keep: a curved ishigaki of stone courses sweeping
     out toward its foot; a white-plastered turret with dark boards and timber frame on top of it, a tiled skirt roof
     round its foot; a balcony with a vermilion railing round the deck on the sides no ramp leaves from; a torii over
@@ -838,9 +841,23 @@ def tower(b, plan, ground, piece, open_sides, k=-1, gates=None, halves=None):
     gate = next(iter(sorted(open_sides if gates is None else gates)), None)
     if gate is not None:
         _, n, t, half_face, other = sides[gate]
-        span = max(half_face + .9, (halves or {}).get(gate, 0.) + TORII_CLEAR)   # clear of the ramp's walls and coping
-        gate_h = TORII + TORII_LIFT                        # tall enough that its beams stay over a rider on the walls
-        base = c + (other - 1.) * n
+        gate_h = TORII + TORII_LIFT
+        # its pillars on the deck's own planks (or a deck flush with it), RUNWAY_CLEAR from every run-in onto a line
+        # that starts here and TORII_CLEAR from any wall or coping standing above the deck: as wide and as near the
+        # drop-in as that allows, else no torii
+        def clear(q):
+            for a, e in runways:
+                d = e - a
+                u = np.clip(np.dot(q - a, d) / max(np.dot(d, d), 1e-9), 0., 1.)
+                if np.linalg.norm(q - (a + u * d)) < RUNWAY_CLEAR:
+                    return False
+            return not _beside(plan, q, TORII_CLEAR, floor + .3, floor + 3., k)
+        fit = next(((b, w) for b in np.arange(min(TORII_BACK, .45 * other), .9 * other, 1.)
+                    for w in np.arange(half_face - 1.2, 3.9, -.5)
+                    if clear(c + (other - b) * n + w * t) and clear(c + (other - b) * n - w * t)), None)
+    if gate is not None and fit is not None:
+        span = fit[1]
+        base = c + (other - fit[0]) * n
         for sgn in (-1, 1):
             x, z = base + sgn * span * t
             _cylinder(b, TILE, x, z, floor - .02, floor + .7, .62)
@@ -1285,6 +1302,24 @@ def ledge_sides(piece, plan, k):
     return out
 
 
+def _runways(piece, pieces, k):
+    """The run-ins across a deck: for every other piece whose first station stands on it (a roll-in's mouth, an edge
+    the rider runs off), the plan segment RUNWAY m back from that station along its heading."""
+    V = np.asarray(piece.mesh.V, 'f8')
+    top, lo, hi = V[:, 1].max(), V[:, [0, 2]].min(0) - 3., V[:, [0, 2]].max(0) + 3.
+    out = []
+    for j, other in enumerate(pieces):
+        st = other.metadata.get('stations') or []
+        if j == k or not st:
+            continue
+        s0 = st[0]
+        p = np.array([s0['x'], s0['z']], 'f8')
+        if abs(s0['y'] - top) < 2. and (p >= lo).all() and (p <= hi).all():
+            h = np.radians(float(s0['h']))
+            out.append((p - RUNWAY * np.array([np.cos(h), np.sin(h)]), p))
+    return out
+
+
 def build(pieces, heights, grid):
     """The supports for the kept editor pieces (bridge Pieces), as dsl Mesh parts, and a summary."""
     ground = Ground(heights, grid)
@@ -1297,7 +1332,8 @@ def build(pieces, heights, grid):
             halves = {}
             drops = open_sides(piece, pieces, k, halves, types={'rollin'})     # the torii stands over a roll-in only
             gates = open_sides(piece, pieces, k)
-            rocks = tower(b, plan, ground, piece, gates | drops | ledge_sides(piece, plan, k), k, gates=drops,
+            runways = _runways(piece, pieces, k)
+            rocks = tower(b, plan, ground, piece, gates | drops | ledge_sides(piece, plan, k), k, gates=drops, runways=runways,
                           halves=halves)
             if rocks is not None:
                 out += b.meshes(f"{meta['id']}_tower")

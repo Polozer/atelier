@@ -153,6 +153,46 @@ def bowl_uv(piece, size=PLANKS):
     return uv / size
 
 
+DECK_SINK = .03      # a deck lying flush on another piece sinks this much under it; wheels do not feel 3 cm
+
+
+def settle_decks(pieces):
+    """Sink a deck whose top lies flush (within 2 cm) on another piece's surface over an area, so the two never
+    z-fight: the tower floor flickered where the owner's deck met the tower deck at the same height. The solid deck
+    (the tower) stays, else the earlier piece. Returns the ids sunk."""
+    from craterpark.v2 import editor_supports
+    plan = editor_supports.Plan(pieces)
+    sink = set()
+    for k, piece in enumerate(pieces):
+        if piece.metadata['type'] != 'deck':
+            continue
+        V = piece.mesh.V
+        top = V[:, 1].max()
+        flush = {}
+        for x in np.arange(V[:, 0].min() + .25, V[:, 0].max(), .5):
+            for z in np.arange(V[:, 2].min() + .25, V[:, 2].max(), .5):
+                who, y = plan.heights(x, z)
+                if not ((who == k) & (np.abs(y - top) < .005)).any():
+                    continue
+                for j in set(who[(who != k) & (np.abs(y - top) < .02)].tolist()):
+                    flush[j] = flush.get(j, 0) + 1
+        for j, count in flush.items():
+            if count < 4:
+                continue
+            other = pieces[j]
+            solid = lambda p: bool((p.metadata.get('params') or {}).get('solid'))
+            if other.metadata['type'] != 'deck' or solid(other) and not solid(piece) or \
+                    solid(other) == solid(piece) and j < k:
+                sink.add(k)
+            else:
+                sink.add(j)
+    for k in sink:
+        V = pieces[k].mesh.V.copy()
+        V[:, 1] -= DECK_SINK
+        pieces[k].mesh.V = V
+    return sorted(pieces[k].metadata['id'] for k in sink)
+
+
 def piece_mesh(piece, decal=None, tower=False, sides=SIDES):
     """The piece's riding faces and sides (`sides`: the timber stage's ramps have keyaki sides, as the concept); a tower
     deck (editor_supports.tower) keeps only its top."""
@@ -358,6 +398,9 @@ def main(argv=None):
         towers = set(support_summary['towers'])
         if towers:
             print(f"CRATERPARK EDITOR towers: {sorted(towers)}", flush=True)
+        sunk = settle_decks(scene.pieces)
+        if sunk:
+            print(f"CRATERPARK EDITOR flush decks sunk {DECK_SINK * 100:.0f} cm: {sunk}", flush=True)
         for piece in scene.pieces:
             parts += piece_mesh(piece, decals.get(piece.metadata['id']), tower=piece.metadata['id'] in towers,
                                 sides=editor_supports.KEYAKI if piece.metadata.get('line') in editor_supports.STAGE_LINES

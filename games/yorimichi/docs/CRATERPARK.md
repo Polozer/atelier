@@ -333,7 +333,7 @@ checks that the bridge meshes the frozen park, then runs the guarded build with 
 `ATELIER_CRATERPARK_EDITOR_LINES`. Without `--build` it prints that command.
 
 The build ships the owner's last approved design by default:
-[`tools/craterpark_editor/shipped.json`](../tools/craterpark_editor/shipped.json) (rev 110), with its terrain in
+[`tools/craterpark_editor/shipped.json`](../tools/craterpark_editor/shipped.json) (rev 111), with its terrain in
 `tools/craterpark_editor/data/` beside it, and its lines `L1,L2,p5` (orange, the tower vert drop and Prado), so a plain `atelier build` from
 main builds the editor park. `ATELIER_CRATERPARK_EDITOR_PARK` selects another frozen park.json and
 `ATELIER_CRATERPARK_EDITOR_LINES` other lines; `ATELIER_CRATERPARK_EDITOR_PARK=off` (or a v4 design in
@@ -415,6 +415,10 @@ Unreal cm turned `yaw_deg` about up (`id` and `yaw_deg` are optional). While the
 vert assist is at most `vert_assist_max`; an air launched inside one keeps that limit until it lands, so the whole jump
 rides with it. `ASuperUltraMegaPark::Spawn` adds them to the Skate plugin's `USkateAssistSubsystem` (plugin README,
 "Assist zones"); a park without the key changes nothing.
+
+`vert_assist_max: 0` means no vert at all. The Vert drop's 86 degree kicker (p305) launches the plain ballistic air
+it was fitted for, up and over into the reverse catch, unless the rider transfers. Before r3 the stock vert-jump
+alignment still bent it straight up and back into the kicker (the plugin README, "Assist zones").
 
 ## Boost zones
 
