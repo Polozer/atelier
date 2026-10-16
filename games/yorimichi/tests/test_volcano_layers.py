@@ -216,9 +216,9 @@ def reruns(edited, changed, out):
     return ran
 
 
-# What follows any re-export of the city: the digests, the exports that need world.hidamari, staging and packaging.
+# City projections rerun, but unchanged tile inputs stop there. Tree generator code also imports the edited modules.
 CITY = {'world.hidamari', 'world.hidamari.city', 'world.hidamari.north', 'world.zeppelin', 'world.zeppelin.meshes',
-        'world.terrain', 'world.terrain.meshes', 'world.map', 'world.city_tiles', 'world.city_tiles.meshes',
+        'world.terrain', 'world.terrain.meshes', 'world.map', 'world.hidamari.tiles', 'world.hidamari.trees',
         'world.city_trees', 'world.city_trees.meshes', 'data.stage'} | LATER
 # The regions that also read mountains.py and hidamari/layout.py, and the layout itself (a cutoff step).
 NORTHERN = {'world.layout', 'world.belmonte', 'world.belmonte.meshes', 'world.hippodrome', 'world.hippodrome.meshes'}

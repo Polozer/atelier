@@ -53,6 +53,15 @@ consumer can reuse its stamp. The legacy park path keeps its original source dep
 The first adoption adds a new dependency boundary; native timing and clean/incremental equivalence
 must be measured separately before claiming an import or cook speedup.
 
+The city tile and tree generators use separate `world.hidamari.tiles` and `.trees` cutoffs.
+Each records only its three selected meshes' triangle counts, bounds and exact FBX bytes.
+An unrelated city or volcano export can therefore leave these generators current; changed selected
+meshes, missing files and changed consumed receipt fields cannot. Raw FBX bytes remain part of this
+boundary because both generators publish their source file checksums. Their code, imported helpers
+and existing placement dependencies still invalidate normally. The existing Unreal mesh digests stay
+in place downstream. First adoption changes these two dependency keys once; inspect the normal plan
+and preserve the warm products and stamps.
+
 Each output has exactly one owner. Product roots cannot overlap, including case-insensitive aliases; a step cannot
 consume its own output. A product also cannot overlap another step's legacy `outputs` or `pool_roots`, because
 restoration and audited generation replace entire owned roots. Declare every required file and sidecar, or a wholly owned directory. Inventories include
