@@ -351,8 +351,13 @@ def colours(x,y,z):
             *smooth((noise(x,y,45,88)+.55)/.3)*smooth((stretch(1120)-radius)/180))
     grass=np.stack([.15+.03*noise(x,y,30,89),.165+.02*noise(x,y,30,89),np.full_like(x,.045)],axis=-1)
     colors=colors*(1-.85*meadow[...,None])+grass*.85*meadow[...,None]
+    # The south edge meets the city's grass (x 300-1420) in its light apron grass, and the far hills' forest floor
+    # (build_terrain.py FarHills, M_ForestGround) elsewhere in that floor's colour, as the north edge does: a light band
+    # there read as a pale strip against the dark forest below it.
+    city=smooth((x-240)/60)*smooth((1480-x)/60)
+    edge=np.array((.24,.30,.12))*city[...,None]+np.array((.055,.11,.035))*(1-city[...,None])
     apron=smooth((y-500)/190)
-    colors=np.array((.24,.30,.12))*(1-apron[...,None])+colors*apron[...,None]
+    colors=edge*(1-apron[...,None])+colors*apron[...,None]
     # Round the Mega Park the ground under the closed canopy is forest floor, leaf litter and moss (megapark/forest.py).
     from megapark import forest as megapark_forest
     under=megapark_forest.floor(x,y)*(1-smooth((z-205)/30))
@@ -587,8 +592,71 @@ def mesh(base_sampler):
             faces.extend([(a,b,c),(a,c,d)])
     faces=np.asarray(faces,dtype=np.int32)
     used=np.unique(faces);remap=np.full(x.size,-1,dtype=np.int32);remap[used]=np.arange(len(used))
-    return dict(vertices=np.stack([x,y,z],-1).reshape(-1,3)[used],faces=remap[faces],
-                colours=np.dstack([colors,mask]).reshape(-1,4)[used],normals=normals.reshape(-1,3)[used])
+    parts=[(np.stack([x,y,z],-1).reshape(-1,3)[used],remap[faces],np.dstack([colors,mask]).reshape(-1,4)[used],
+            normals.reshape(-1,3)[used])]
+    parts+=[_apron_part(*grid,base_sampler) for grid in apron_grids(xs,ys)]
+    offsets=np.cumsum([0]+[len(p[0]) for p in parts])
+    return dict(vertices=np.concatenate([p[0] for p in parts]),faces=np.concatenate([p[1]+o for p,o in zip(parts,offsets)]),
+                colours=np.concatenate([p[2] for p in parts]),normals=np.concatenate([p[3] for p in parts]))
+
+
+def apron_grids(xs,ys):
+    """The far hills' last coarse cells round the foothills' south, west and east edges, as (x, y) axes. build_terrain.py
+    lowers every far-hill vertex under the foothills 25 m, so these cells sag from the edge down to their lowered corners,
+    and the ground's edge stood over a 20-30 m open slit (the hole seen from the zeppelin west of the city, and the trees
+    floating east of it). An apron at the far hills' own height closes each, from the edge to the coarse grid's first
+    unlowered line, where it meets the far hills exactly. North of y=3200 Belmonte's ground joins instead."""
+    FAR_AXIS=_far_axis()
+    step=FAR_AXIS[1]-FAR_AXIS[0]
+    south=FAR_AXIS[FAR_AXIS<BOUNDS[1]][-1];west=FAR_AXIS[FAR_AXIS<BOUNDS[0]][-1];east=FAR_AXIS[FAR_AXIS>BOUNDS[2]][0]
+    def axis(a,b):return np.linspace(a,b,max(2,int(math.ceil((b-a)/STEP))+1))
+    rows=ys[ys<=FAR_AXIS[-1]]
+    assert step>STEP
+    return [(np.concatenate([[west],xs,[east]]),axis(south,BOUNDS[1])),(axis(west,BOUNDS[0]),rows),(axis(BOUNDS[2],east),rows)]
+
+def apron_cell_open(x,y):
+    """Whether an apron cell is the far hills' (not the city's terrain, nor the Mega Park trail's approach, which have
+    their own edges)."""
+    from megapark.trail import in_approach
+    city=(x>=300)&(x<=1420)&(y>=-300)&(y<=BOUNDS[1])
+    return ~city&~in_approach(x,y)
+
+def skirt_height(x,y,base_sampler):
+    """The apron's ground: the far hills' (hidamari/layout.py far_height), eased in the south band to the foothills'
+    base at their edge (it is lifted beside the city), so the apron meets both exactly."""
+    from hidamari.layout import far_height
+    x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
+    south=_far_axis()[_far_axis()<BOUNDS[1]][-1]
+    t=np.clip((y-south)/(BOUNDS[1]-south),0,1)*(y<BOUNDS[1])
+    edge=np.asarray(base_sampler(x,np.full_like(y,BOUNDS[1])),float)-far_height(x,np.full_like(y,BOUNDS[1]))
+    return np.where(y<BOUNDS[1],far_height(x,y)+edge*t,np.asarray(base_sampler(x,y),float))
+
+def in_apron(x,y):
+    """Whether (x, y) lies on the apron (apron_grids), off the foothills' own footprint."""
+    x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
+    axis=_far_axis();south=axis[axis<BOUNDS[1]][-1];west=axis[axis<BOUNDS[0]][-1];east=axis[axis>BOUNDS[2]][0]
+    band=(x>=west)&(x<=east)&(y>=south)&(y<=min(BOUNDS[3],axis[-1]))&~contains(x,y)
+    out=np.zeros(x.shape,bool)
+    if band.any():out[band]=apron_cell_open(x[band],y[band])
+    return out
+
+def _far_axis():
+    from hidamari.layout import backdrop_grid
+    return np.linspace(-3200,3200,backdrop_grid().shape[0])     # build_terrain.py's FarHills grid
+
+def _apron_part(ax,ay,base_sampler):
+    x,y=np.meshgrid(ax,ay);z=skirt_height(x,y,base_sampler)
+    tint=np.dstack([colours(x,y,z),snow(x,y,base_sampler)])
+    w=len(ax);faces=[]
+    open_=apron_cell_open((x[:-1,:-1]+x[1:,1:])/2,(y[:-1,:-1]+y[1:,1:])/2)
+    for j,i in zip(*np.nonzero(open_)):
+        a=j*w+i;b=a+1;c=a+w+1;d=a+w
+        faces.extend([(a,b,c),(a,c,d)])
+    dy,dx=np.gradient(z,ay,ax) if min(z.shape)>1 else (np.zeros_like(z),np.zeros_like(z))
+    normals=np.stack([-dx,-dy,np.ones_like(z)],-1);normals/=np.linalg.norm(normals,axis=-1,keepdims=True)
+    faces=np.asarray(faces,dtype=np.int32).reshape(-1,3)
+    used=np.unique(faces);remap=np.full(x.size,-1,dtype=np.int32);remap[used]=np.arange(len(used))
+    return (np.stack([x,y,z],-1).reshape(-1,3)[used],remap[faces],tint.reshape(-1,4)[used],normals.reshape(-1,3)[used])
 
 
 def trail_mesh(surface):
