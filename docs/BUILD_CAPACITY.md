@@ -33,7 +33,7 @@ migration may require one refresh; report repeated broad rebuilds with the plan 
 inputs and output verification intact: do not manufacture stamps, use `--touch` to hide a required build, or
 force regeneration to make the plan look simpler. Prefer the specific required steps and retain reusable outputs.
 
-During the current bridge pilot, use your registered board owner and the explicit pilot client for ordinary jobs:
+Only on a machine explicitly announced as a bridge pilot, use your registered board owner and its pilot client:
 
 ```sh
 ATELIER_AGENT=YOUR_OWNER ATELIER_CAPACITY_CLIENT="$HOME/.cache/atelier/capacity/pilot-client.json" nice -n 10 uv run atelier build yorimichi
@@ -104,11 +104,11 @@ an old nonexclusive record never gains terminal-tree release eligibility merely 
 The maintenance broker configuration is schema3: the schema2 broker keys with `mode: "sealed-maintenance"` and
 an additional `seal_policy_sha256` containing the unchanged original sealed full-policy SHA256. The service pins
 the new configuration's own digest independently. Its socket, resource totals, non-memory reserve dimensions
-and disk pool must exactly match the sealed policy. The unchanged original sealed reserve remains valid. Only
-this exclusive maintenance mode permits a deliberately reviewed **reduction** of the host memory reserve, with
+and disk pool must exactly match the sealed policy. The unchanged original sealed reserve remains valid.
+This maintenance configuration permits a deliberately reviewed **reduction** of the host memory reserve, with
 the selected value between 4096 MiB and the original sealed reserve. The 4096 MiB floor applies to reductions;
 it does not silently raise an unchanged originally sealed reserve. The original full-policy bytes
-and full-mode reserve remain unchanged; full mode requires the exact original reserve. This temporary calibration
+remain unchanged; ordinary schema2 full mode requires its exact original reserve. This maintenance calibration
 policy does not lower a job's actual memory guard or reservation, change available-memory measurement, relax
 pressure admission, or enable overlap. A normal 10 GiB job with a 4 GiB host reserve still requires at least
 14 GiB freshly observed available memory; any lower observation refuses. Operators validate the tail under the
@@ -117,8 +117,8 @@ this floor or tune the buffer to fit a particular snapshot. The client has exact
 `cutover` and `seal_policy_sha256`. No environment flag enables this mode or bypasses the seal. Both client and
 broker fence the exact mode and activation identity; board status shows **Exclusive maintenance**, `cutover: false`.
 
-A later full-mode activation still requires a verified new boot after the current seal and an explicit drained
-transition to the original full policy/client. Full activation takes all three lanes exclusively and refuses while
+A later full-mode activation still requires positive boot closure and an explicit drained transition. Eligible
+historical seals can use the supported prior-boot promotion below without another reboot. Full activation takes all three lanes exclusively and refuses while
 maintenance owns any of them. Neither an implementation merge nor maintenance operation activates that path.
 Do not reboot, edit sealed files, replace lane inodes or change service configuration as an agent workaround.
 
@@ -245,6 +245,27 @@ machine's default `~/.cache/atelier/capacity/cutover.json`. Its remaining fields
 The client uses `schema: 2` and the same additional `cutover` field alongside `socket` and `profiles`.
 Budgets, disk pool, endpoint and the exact broker configuration hash are bound into the cutover record.
 Changing them requires a separately reviewed transition; neither service recovery nor clients rewrite that proof.
+
+### Explicit full-mode memory calibration
+
+The ordinary schema2 full configuration remains exact. A separately installed **schema4** broker configuration
+can select only a calibrated host memory reserve between 4096 MiB and the original sealed reserve. It uses
+`mode: "capacity"`, the same schema2 keys and `seal_policy_sha256` naming the unchanged original full policy.
+Its own complete configuration digest is pinned independently by service supervision. The original sealed
+policy, boot proof, lane identities, totals, endpoint, disk pool and every other reserve dimension remain exact.
+No agent environment flag enables calibration, and adopting maintenance never carries its buffer into full mode.
+Both calibrated full and maintenance service startup refuse a missing own-configuration digest; prepare and
+install supervision rather than starting either with an unpinned manual `capacity serve` command.
+
+This controls host headroom, not job limits: a 10 GiB job still reserves and enforces 10 GiB. With a 4 GiB host
+reserve it requires at least 14 GiB of fresh available memory, plus the full remaining memory growth of every
+charged peer. Unknown or failed observations still refuse. Worker counts, exclusive jobs, foreign-process checks,
+CPU/GPU/disk accounting and both memory guards are unchanged. The full default client remains schema2.
+
+Install a reviewed calibration only at a coordinated child-free, uncharged boundary. Keep the original full
+policy and seal bytes; never edit or re-seal them to fit a memory snapshot. Require measured host-pressure and
+cleanup acceptance under the selected reserve before advertising useful overlap. The board shows the actual
+selected headroom from live status. This source capability alone does not change the machine policy.
 
 Full jobs retain one `render_lock` context. It opens the same three existing legacy lane inodes read-only and
 takes all three shared flocks nonblocking, releasing any partial acquisition on refusal. It never writes or
