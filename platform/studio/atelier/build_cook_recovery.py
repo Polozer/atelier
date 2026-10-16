@@ -218,6 +218,8 @@ def snapshot(ctx, step, argv, environment):
         owners, selection = list(native.link_owners), native.selection
         repeat_chmod_files = list(native.repeat_chmod_files)
     else:
+        require(isinstance(native, (list, tuple)) and all(isinstance(path, (str, os.PathLike)) for path in native),
+                'native inputs must be canonical NativeCookInputs or an explicit list/tuple of paths')
         roots.extend(map(Path, native))
         owners = step.cook_recovery.link_owners
         owners = list(owners(ctx) if callable(owners) else owners)
@@ -378,4 +380,7 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
-    main()
+    # Recipes import NativeCookInputs from this canonical module. Execute there too:
+    # -m otherwise creates a second __main__ class and defeats the typed input record.
+    from . import build_cook_recovery
+    build_cook_recovery.main()

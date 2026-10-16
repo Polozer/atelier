@@ -24,6 +24,23 @@ def tool(name):
     return module
 
 
+def test_module_entrypoint_uses_canonical_native_input_types(monkeypatch):
+    import runpy
+    events = []
+    monkeypatch.setattr(recovery, 'main', lambda: events.append(recovery.NativeCookInputs))
+    monkeypatch.setattr('sys.argv', ['cook-recovery-adapter'])
+    with pytest.warns(RuntimeWarning, match='found in sys.modules'):
+        runpy.run_module('atelier.build_cook_recovery', run_name='__main__')
+    assert events == [recovery.NativeCookInputs]
+
+
+@pytest.mark.parametrize('native', [None, '/input', Path('/input'), {'roots': ['/input']}, [object()]])
+def test_invalid_native_input_types_refuse_explicitly(sample, native):
+    sample.step.cook_recovery = recovery.CookRecovery(sample.cook.source_snapshot, sample.cook.finish, lambda _:native)
+    with pytest.raises(RuntimeError, match='native inputs must be canonical NativeCookInputs'):
+        recovery.snapshot(sample.ctx,sample.step,['UAT'],sample.ctx.env())
+
+
 @pytest.fixture
 def sample(tmp_path, monkeypatch):
     cook = tool('package_cook')
