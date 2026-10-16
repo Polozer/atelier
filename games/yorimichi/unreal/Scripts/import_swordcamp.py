@@ -113,12 +113,71 @@ def build_material(atlas_tex):
     return m
 
 
+def build_ronin_body_material(atlas_tex):
+    """Skeletal-mesh material allowing per-role tunic color variation (Scout indigo, Guard jade, Captain crimson)."""
+    path = f'{DEST_MAT}/M_RoninBody'
+    m = EAL.load_asset(path) if EAL.does_asset_exist(path) else None
+    if not m:
+        m = AT.create_asset('M_RoninBody', DEST_MAT, unreal.Material, unreal.MaterialFactoryNew())
+    MEL.delete_all_material_expressions(m)
+    m.set_editor_property('blend_mode', unreal.BlendMode.BLEND_OPAQUE)
+    m.set_editor_property('two_sided', False)
+    m.set_editor_property('used_with_skeletal_mesh', True)
+    m.set_editor_property('used_with_static_lighting', False)
+
+    tex = MEL.create_material_expression(m, unreal.MaterialExpressionTextureSampleParameter2D, -640, 0)
+    tex.set_editor_property('parameter_name', 'BaseTex')
+    tex.set_editor_property('texture', atlas_tex)
+
+    tint = MEL.create_material_expression(m, unreal.MaterialExpressionVectorParameter, -640, 260)
+    tint.set_editor_property('parameter_name', 'CoatTint')
+    tint.set_editor_property('default_value', unreal.LinearColor(0.16, 0.30, 0.62, 1.0))
+
+    recol = MEL.create_material_expression(m, unreal.MaterialExpressionCustom, -240, 80)
+    recol.set_editor_property(
+        'code',
+        'float coat=saturate((C.r-C.g*2.15-0.02)*18.0)*saturate((0.18-C.g)*16.0); '
+        'float luma=dot(C,float3(0.299,0.587,0.114)); '
+        'float3 dyed=saturate((luma/0.11)*pow(saturate(T),1.35)); '
+        'return lerp(C,dyed,coat);',
+    )
+    recol.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT3)
+    inputs = []
+    for key in ('C', 'T'):
+        arg = unreal.CustomInput()
+        arg.set_editor_property('input_name', key)
+        inputs.append(arg)
+    recol.set_editor_property('inputs', inputs)
+    assert MEL.connect_material_expressions(tex, 'RGB', recol, 'C')
+    assert MEL.connect_material_expressions(tint, '', recol, 'T')
+    assert MEL.connect_material_property(recol, '', unreal.MaterialProperty.MP_BASE_COLOR)
+
+    fill = MEL.create_material_expression(m, unreal.MaterialExpressionMultiply, 80, 120)
+    fill.set_editor_property('const_b', 0.30)
+    assert MEL.connect_material_expressions(recol, '', fill, 'A')
+    assert MEL.connect_material_property(fill, '', unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+
+    for val, prop, y in [
+        (0.7, unreal.MaterialProperty.MP_ROUGHNESS, 320),
+        (0.0, unreal.MaterialProperty.MP_METALLIC, 400),
+        (0.3, unreal.MaterialProperty.MP_SPECULAR, 480),
+    ]:
+        c = MEL.create_material_expression(m, unreal.MaterialExpressionConstant, 80, y)
+        c.set_editor_property('r', val)
+        assert MEL.connect_material_property(c, '', prop)
+
+    MEL.recompile_material(m)
+    EAL.save_loaded_asset(m)
+    return m
+
+
 def main():
     unreal.SystemLibrary.execute_console_command(None, 'Interchange.FeatureFlags.Import.FBX 0')
     manifest = json.loads((OUT / 'manifest.json').read_text())
     atlas = import_atlas()
     mat = build_material(atlas)
-    report = {}
+    body_mat = build_ronin_body_material(atlas)
+    report = {'M_RoninBody': body_mat.get_path_name()}
     for name in sorted(manifest):
         fbx = FBX_DIR / f'{name}.fbx'
         mesh = import_fbx(fbx, DEST_MESH, name, seed=SEED)
@@ -135,7 +194,7 @@ def main():
         report[name] = mesh.get_path_name()
         unreal.log(f'SWORDCAMP imported {name}')
     (OUT / 'import-report.json').write_text(json.dumps(report, indent=2) + '\n')
-    unreal.log(f'SWORDCAMP IMPORT COMPLETE ({len(report)} meshes)')
+    unreal.log(f'SWORDCAMP IMPORT COMPLETE ({len(report)} assets)')
 
 
 if __name__ == '__main__':

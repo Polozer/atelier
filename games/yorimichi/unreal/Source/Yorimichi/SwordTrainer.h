@@ -113,13 +113,16 @@ private:
     FRandomStream Dice;
     bool bHostileRonin = false;
     int32 RoninRole = 0;
+    float RoleScale = 1.f;
     FVector CampOrigin = FVector::ZeroVector, MakiwaraTarget = FVector::ZeroVector;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninKasa;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninMenpo;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninDo;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninSodeL;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninSodeR;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninSashimono;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninWeapon;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> RoninSubWeapon;
     // The player's blow she is watching, and how she will meet it (decided once, after her reaction time).
     FName SeenAction;
     float SeenTime = -1.f, SeenFor = 0.f;
