@@ -12,7 +12,8 @@ MAX_BYTES = 4 * 1024**2
 PRICING = dict(model='gpt-6.1-sol', checked='2026-10-16', currency='USD',
                input_per_million='2.00', cached_input_per_million='0.10', output_per_million='10.00',
                source='https://developers.openai.com/api/docs/models/gpt-6.1-sol',
-               assumption='Standard short-context rates; cache-write surcharges, regional premiums and taxes excluded')
+               assumption='Standard short-context rates assumed; per-request context and service tiers unobserved; '
+                          'cache-write surcharges, regional premiums and taxes excluded')
 
 
 def numeric_usage(value):

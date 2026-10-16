@@ -106,8 +106,10 @@ The initial rate snapshot is [GPT-6.1 Sol standard pricing](https://developers.o
 checked 2026-10-16: $2 input, $0.10 cached input and $10 output per million tokens. Cached input is included
 in input, and reasoning is included in output; neither is charged twice. The estimate assumes short-context
 standard rates and excludes cache-write surcharges, regional premiums, taxes and account discounts.
-CLI aggregate counters do not establish every request's context tier or cache-write billing, so this is
-explicitly an estimate, not an exact invoice. See [the CLI event format](https://learn.chatgpt.com/docs/non-interactive-mode).
+CLI aggregate counters do not establish every request's context tier, service tier or cache-write billing,
+so this is explicitly an estimate, not an exact invoice. A turn may contain multiple provider requests;
+its combined input count alone cannot select the long-context rate for those requests. The receipt's
+pricing assumptions retain these limits. See [the CLI event format](https://learn.chatgpt.com/docs/non-interactive-mode).
 
 The same summary accepts existing image provenance and Tripo job receipts. `atelier.ai.images.paint` already
 retains provider token usage, and Tripo job receipts retain `credits_consumed` when supplied by the provider.
