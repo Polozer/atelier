@@ -7,7 +7,7 @@ function renderCoastComparisons(data, container) {
   const title=document.createElement('h3');title.textContent=comparison.title;article.append(title);
   if (comparison.note) {const note=document.createElement('p');note.textContent=comparison.note;article.append(note);}
   const pair=document.createElement('div');pair.className='coast-comparison-pair';
-  for (const [src,label] of [[comparison.reference,'Sunburst reference'],[comparison.capture,'Native visual pilot']]) {
+  for (const [src,label] of [[comparison.reference,'Sunburst reference'],[comparison.capture,'In-game revision']]) {
    const figure=document.createElement('figure');const link=document.createElement('a');link.href=src;
    const image=document.createElement('img');image.src=src;image.alt=comparison.title+' — '+label;image.loading='lazy';
    const caption=document.createElement('figcaption');caption.textContent=label;
