@@ -52,7 +52,7 @@ def salon_surfaces():
     return np.concatenate(surfaces)
 
 
-def test_salon_trace_hits_floor_with_standing_clearance(salon_surfaces):
+def test_salon_trace_hits_floor_across_the_standing_footprint(salon_surfaces):
     zone = salon_zone()
     top = zone['z'] + zone['above_m']
     # Include the whole standing footprint, not only a ray that might graze a fixture.

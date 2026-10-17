@@ -265,7 +265,7 @@ void Contact(AWandererCharacter* Victim, int32 Person, int32 Phase, const TShare
         Report->SetBoolField(TEXT("unlocked_before"), Unlocked);
         const uint32 BeforeSkate = Resolver->PendingSkateRefusals, BeforeTravel = Resolver->PendingTravelRefusals;
         Victim->ServerRequestSkate(Epoch);
-        Victim->ServerTravelTo(BeforePosition + FVector(500,0,0), 0.f, Epoch);
+        Victim->ServerTravelTo(BeforePosition + FVector(500,0,0), 0.f, Epoch, 2500.f);
         Report->SetNumberField(TEXT("pending_skate_refusals"), Resolver->PendingSkateRefusals - BeforeSkate);
         Report->SetNumberField(TEXT("pending_travel_refusals"), Resolver->PendingTravelRefusals - BeforeTravel);
         Report->SetBoolField(TEXT("pending_gate_passed"), Pending && Unlocked && Resolver->HasPending(Victim) &&

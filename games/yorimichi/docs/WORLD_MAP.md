@@ -53,6 +53,9 @@ Absent or invalid values retain the 25 m outdoor default. The salon uses 1.5 m t
 both local travel and the host's multiplayer landing use that height. Its target is clear hall paving,
 facing the betting counters.
 
+After the guarded game is ready, `Automation RunTests Yorimichi.Map.SalonLanding` checks the real map
+and host-handler landings, standing capsule clearance, heading and health against a roof-landing control.
+
 | Region | Zone keys |
 | --- | --- |
 | Main road and hamlet | `spawn`, `hamlet`, `mega` |

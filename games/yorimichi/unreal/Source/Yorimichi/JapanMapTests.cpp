@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
+#include <limits>
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FJapanMapSalonTest, "Yorimichi.Map.SalonLanding",
     EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
@@ -58,6 +59,8 @@ bool FJapanMapSalonTest::RunTest(const FString&)
     const FVector Before = Player->GetActorLocation();
     TestFalse(TEXT("Negative trace height refuses travel"), Player->TravelTo(Zone.Location,0.f,TEXT("invalid trace"),-1.f));
     TestFalse(TEXT("Excessive trace height refuses travel"), Player->TravelTo(Zone.Location,0.f,TEXT("invalid trace"),6001.f));
+    TestFalse(TEXT("NaN trace height refuses travel"), Player->TravelTo(Zone.Location,0.f,TEXT("invalid trace"),std::numeric_limits<float>::quiet_NaN()));
+    TestFalse(TEXT("Infinite trace height refuses travel"), Player->TravelTo(Zone.Location,0.f,TEXT("invalid trace"),std::numeric_limits<float>::infinity()));
     TestTrue(TEXT("Invalid heights preserve the player"), Player->GetActorLocation().Equals(Before));
     return true;
 }

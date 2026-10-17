@@ -140,7 +140,7 @@ public:
         TFunction<void()> FootReaction = {});
     /** Host-only supported park/stow followed by one foot epoch; clock resets also discard vehicle momentum. */
     bool ExitNetworkVehicle(uint8 ClockCorrection = 0, TFunction<void()> FootReaction = {});
-    UFUNCTION(Server, Reliable) void ServerTravelTo(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch, float Above = 2500.f);
+    UFUNCTION(Server, Reliable) void ServerTravelTo(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch, float Above);
     UFUNCTION(Server, Reliable) void ServerRequestSkate(uint32 Epoch);
     UFUNCTION(Server, Reliable) void ServerZeppelinInput(uint32 Epoch, int32 Direction);
     UFUNCTION(Server, Reliable) void ServerTrainInteract(uint32 Epoch);
