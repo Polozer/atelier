@@ -18,7 +18,8 @@ uv run atelier build yorimichi world.belmonte_train_review # control renders, un
 The steps are explicit: a plain `atelier build yorimichi` does not run them. Sources are in
 [`world/train/`](../../../world/train/): `layout.py` holds every number (plain Python, tested by
 `tests/test_belmonte_train_layout.py`), `build.py` makes the meshes, `textures.py` draws the detail maps with numpy,
-`render.py` the control views, `plan.py` the plans, `fit_furniture.py` fits a Tripo export to the contract.
+`render.py` the control views, `plan.py` the plans, `fit_furniture.py` fits a Tripo export to the contract. Its output goes into
+[`furniture/`](furniture/) here, where the build reads it: commit each fitted `<asset>.glb` with its `<asset>.json`.
 
 ## Outputs (`build/yorimichi/belmonte-train/`)
 
@@ -32,7 +33,7 @@ The steps are explicit: a plain `atelier build yorimichi` does not run them. Sou
 | `<coach>/<coach>-blockout.glb` | furniture reservations `FURN_<id>` (origin and yaw of each placement), `RES_` fixed fittings, `SEAT_` and `MOUNT_` markers |
 | `<coach>/<coach>-placements.json` | rooms, walls, openings, windows, doors with pivots and motion, placements, seats, mounts, reservations, collision boxes |
 | `plan/*.svg`, `review/*.png` | dimensioned plans and control renders |
-| `furniture/<asset>.glb/.json/.png` | fitted Tripo furniture and its fitting report |
+| `furniture/<asset>.glb/.json` | fitted Tripo furniture and its fitting report, copied from this folder's `furniture/` (a walnut box of the contract's size when an asset has none) |
 | `manifest.json` | sizes, SHA-256, triangle counts, mesh and layout checks |
 
 Coach frame (metres): x along the coach, end A at −X, end B (bar and galley) at +X; +Y is the compartment and galley

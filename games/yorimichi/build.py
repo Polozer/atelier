@@ -849,7 +849,7 @@ def world_steps(ctx):
              outputs=[out / 'kei' / 'manifest.json'], about='the four kei cars in the Mega Park car park', heavy=True),
         Step('world.belmonte_train', [Blender(WORLD / 'train' / 'build.py', threads=3)],
              inputs=[WORLD / 'train', ASSETS / 'vehicles' / 'belmonte-train' / 'planning',
-                     ASSETS / 'vehicles' / 'belmonte-train' / 'textures', YORI],
+                     ASSETS / 'vehicles' / 'belmonte-train' / 'textures', ASSETS / 'vehicles' / 'belmonte-train' / 'furniture', YORI],
              outputs=[out / 'belmonte-train' / 'manifest.json',
                       *(out / 'belmonte-train' / v / f'{v}-placements.json' for v in TRAIN_VEHICLES),
                       *(out / 'belmonte-train' / 'furniture' / f'{a}.glb' for a in TRAIN_FURNITURE),

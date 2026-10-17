@@ -332,3 +332,25 @@ class Coaches(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FittedFurniture(unittest.TestCase):
+    """The committed Tripo furniture (assets/vehicles/belmonte-train/furniture/) fits the dimension contract."""
+
+    def test_every_committed_model_fits_its_contract_entry(self):
+        import hashlib
+        import json
+        root = L.CONTRACT.parents[1] / 'furniture'
+        specs = {a['id']: a for a in L.contract()['assets']}
+        reports = sorted(root.glob('*.json'))
+        self.assertTrue(reports)
+        for path in reports:
+            with self.subTest(asset=path.stem):
+                report = json.loads(path.read_text())
+                spec = specs[path.stem]
+                self.assertTrue(report['ok'])
+                self.assertEqual(report['pivot'], spec['pivot'])
+                for k in ('width', 'depth', 'height'):
+                    self.assertAlmostEqual(report['target_m'][k], float(spec['dimensions_m'][k]), delta=0.005)
+                glb = root / f'{path.stem}.glb'
+                self.assertEqual(hashlib.sha256(glb.read_bytes()).hexdigest(), report['glb']['sha256'])

@@ -1,0 +1,106 @@
+{
+ "asset": "wall-sconce",
+ "source": "sconce.glb",
+ "source_sha256": "f86d6ec61586a432f03ae8a687516009790fd481ea040d58991909c80f62021f",
+ "target_m": {
+  "width": 0.2513634264469147,
+  "depth": 0.3187675178050995,
+  "height": 0.4
+ },
+ "source_size": [
+  0.6224,
+  0.7893,
+  0.9904
+ ],
+ "quarter_turn": false,
+ "uniform_scale": 0.40386,
+ "column_fraction": null,
+ "column_stretch_m": 0.0,
+ "fitted_m": {
+  "width": 0.2514,
+  "depth": 0.3188,
+  "height": 0.4
+ },
+ "errors_m": {
+  "width": 0.0014,
+  "depth": 0.0012,
+  "height": 0.0
+ },
+ "ok": true,
+ "triangles": 16150,
+ "pivot": "wall_mount_center",
+ "glb": {
+  "file": "wall-sconce.glb",
+  "bytes": 946728,
+  "sha256": "5c7e2a1545b57e356f9ce3dbc9bdf7ba527d493bd5ce8fac0d85bbc9bfffa875"
+ },
+ "output_id": "wall-sconce",
+ "metal": {
+  "hue": [
+   28.0,
+   58.0
+  ],
+  "min_saturation": 0.45,
+  "min_value": 0.4,
+  "skip": [
+   0.0,
+   1.0,
+   0.0,
+   0.75,
+   0.45,
+   1.0
+  ],
+  "share": [
+   0.38527894020080566
+  ]
+ },
+ "lods": {
+  "source": "wall-sconce.glb",
+  "source_sha256": "5c7e2a1545b57e356f9ce3dbc9bdf7ba527d493bd5ce8fac0d85bbc9bfffa875",
+  "source_triangles": 16150,
+  "levels": [
+   {
+    "level": 0,
+    "glb": "wall-sconce_LOD0.glb",
+    "triangles": 399,
+    "screen_size": 1.0,
+    "textures": {
+     "base": [
+      512,
+      512
+     ],
+     "normal": [
+      512,
+      512
+     ],
+     "mr": [
+      512,
+      512
+     ]
+    },
+    "bytes": 519624,
+    "sha256": "4d878c1e1bab018e992d16c61d4d98e6e659c898a8cdd3d0dd9c4de0f2ff7daa"
+   }
+  ],
+  "cull_screen_size": 0.02035,
+  "bounds_radius_m": 0.285,
+  "textures": {
+   "base": [
+    512,
+    512
+   ],
+   "normal": [
+    512,
+    512
+   ],
+   "mr": [
+    512,
+    512
+   ]
+  },
+  "materials": 1,
+  "metal_roughness_map": true,
+  "constants": null,
+  "tool": "games/yorimichi/world/train/lod_furniture.py"
+ }
+}

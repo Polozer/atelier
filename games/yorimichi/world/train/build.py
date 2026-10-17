@@ -17,6 +17,7 @@ import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_
 import hashlib
 import json
 import math
+import shutil
 
 import bmesh
 import bpy
@@ -2209,17 +2210,24 @@ def export_parts(c, lod_sets, out, mesh_name, files, window_tiles):
 
 def ensure_furniture(images):
     """Ensure every contract furniture asset has a valid GLB and report in build/yorimichi/belmonte-train/furniture/
-    so downstream assembly, LOD, service and Unreal import steps are self-contained from a clean checkout."""
+    so downstream assembly, LOD, service and Unreal import steps are self-contained from a clean checkout. The fitted
+    Tripo models are committed in assets/vehicles/belmonte-train/furniture/ (fit_furniture.py output, copied there);
+    an asset without one gets a walnut box of the contract's size."""
     MAT.clear()
     make_materials(images)
     furn = OUT / 'furniture'
     furn.mkdir(parents=True, exist_ok=True)
+    fitted = L.CONTRACT.parents[1] / 'furniture'
     coll = bpy.data.collections.new('Furniture_Fallback')
     bpy.context.scene.collection.children.link(coll)
     for spec in L.contract()['assets']:
         aid = spec['id']
         glb = furn / f'{aid}.glb'
         rep = furn / f'{aid}.json'
+        if (fitted / f'{aid}.glb').is_file() and (fitted / f'{aid}.json').is_file():
+            shutil.copyfile(fitted / f'{aid}.glb', glb)
+            shutil.copyfile(fitted / f'{aid}.json', rep)
+            continue
         dim = spec['dimensions_m']
         tw, td, th = float(dim['width']), float(dim['depth']), float(dim['height'])
         z0 = {'wall_mount_center': -th / 2, 'hook_top': -th}.get(spec['pivot'], 0.)

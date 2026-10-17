@@ -1,0 +1,121 @@
+{
+ "asset": "loco-backhead",
+ "source": "backhead.glb",
+ "source_sha256": "6baa2f8ba19681e66e48dde4d19a8dc37eb15f73b2809368ff95d4538bddc89b",
+ "target_m": {
+  "width": 1.9,
+  "depth": 0.412,
+  "height": 1.928
+ },
+ "source_size": [
+  0.9849,
+  0.2134,
+  0.9995
+ ],
+ "quarter_turn": false,
+ "uniform_scale": 1.9292,
+ "column_fraction": null,
+ "column_stretch_m": 0.0,
+ "fitted_m": {
+  "width": 1.9,
+  "depth": 0.4117,
+  "height": 1.9283
+ },
+ "errors_m": {
+  "width": 0.0,
+  "depth": 0.0003,
+  "height": 0.0003
+ },
+ "ok": true,
+ "triangles": 10300,
+ "pivot": "floor_footprint_center",
+ "glb": {
+  "file": "loco-backhead.glb",
+  "bytes": 986120,
+  "sha256": "565838cf1e067c230dc31a37c6fb274c50226331e6fafb2e2ea73d54e56d7bb2"
+ },
+ "output_id": "loco-backhead",
+ "metal": {
+  "hue": [
+   12.0,
+   58.0
+  ],
+  "min_saturation": 0.4,
+  "min_value": 0.35,
+  "skip": null,
+  "share": [
+   0.8975101709365845
+  ]
+ },
+ "lods": {
+  "source": "loco-backhead.glb",
+  "source_sha256": "565838cf1e067c230dc31a37c6fb274c50226331e6fafb2e2ea73d54e56d7bb2",
+  "source_triangles": 10300,
+  "levels": [
+   {
+    "level": 0,
+    "glb": "loco-backhead_LOD0.glb",
+    "triangles": 3845,
+    "screen_size": 1.0,
+    "textures": {
+     "base": [
+      1024,
+      1024
+     ],
+     "normal": [
+      1024,
+      1024
+     ],
+     "mr": [
+      1024,
+      1024
+     ]
+    },
+    "bytes": 3226100,
+    "sha256": "e6b7cc85f7ca6755992cdc3ba3f402c249d15420facb7954f6f6f3966d493791"
+   },
+   {
+    "level": 1,
+    "glb": "loco-backhead_LOD1.glb",
+    "triangles": 781,
+    "screen_size": 0.22818,
+    "textures": {
+     "base": [
+      256,
+      256
+     ],
+     "normal": [
+      256,
+      256
+     ],
+     "mr": [
+      256,
+      256
+     ]
+    },
+    "bytes": 293508,
+    "sha256": "ddd9d36f295ac56d19c8f461e9b2497c28aca1599a08d6b86378b5713203f9b6"
+   }
+  ],
+  "cull_screen_size": 0.03423,
+  "bounds_radius_m": 1.3691,
+  "textures": {
+   "base": [
+    1024,
+    1024
+   ],
+   "normal": [
+    1024,
+    1024
+   ],
+   "mr": [
+    1024,
+    1024
+   ]
+  },
+  "materials": 1,
+  "metal_roughness_map": true,
+  "constants": null,
+  "tool": "games/yorimichi/world/train/lod_furniture.py"
+ }
+}
