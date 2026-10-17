@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'world'))
+import yori  # noqa: E402,F401
 import shorelines as S  # noqa: E402
 
 
@@ -88,3 +89,40 @@ def test_beach_clearance_preserves_town_planting_and_the_separate_islet():
     assert S.clear_vegetation(instances)==1
     assert instances['Tree_Maple_A']==rows[1:]
     assert instances['SW_Stand']==rows
+
+
+def test_refined_country_vertices_match_the_public_ground_sampler(monkeypatch):
+    from belmonte import terrain
+    xs=np.array([2650.,2800.,3000.]);ys=np.array([4400.,4500.])
+    z=np.array([[90.,230.,35.],[180.,80.,25.]])
+    monkeypatch.setattr(terrain,'country_grid',lambda:(xs,ys,z))
+    monkeypatch.setattr(terrain,'old_height',lambda x,y:np.zeros_like(x))
+    vertices,_=S.grid_mesh(xs,ys,z)
+    p=np.asarray(vertices)
+    np.testing.assert_allclose(p[:,2],terrain.country_height(p[:,0],p[:,1]),atol=1e-10)
+
+
+def test_city_and_main_coastal_rims_share_exported_edge_heights(monkeypatch):
+    from hidamari import layout
+    axis=np.linspace(-300.,300.,301);x,y=np.meshgrid(axis,axis)
+    monkeypatch.setattr(layout,'H',S.height(x,y,8.+.02*y))
+    monkeypatch.setattr(layout.street_height,'start',[300.,70.],raising=False)
+    city_x=np.arange(300.,1421.,4.);city_y=np.arange(-300.,501.,4.)
+    monkeypatch.setattr(layout,'terrain_axes',lambda:(city_x,city_y))
+    ys=np.unique(np.r_[np.linspace(-300.,-125.,101),city_y[city_y<=-125.]])
+    east=layout.coastal_backdrop_height(1420.,ys,-6.)
+    np.testing.assert_allclose(east,np.interp(ys,city_y,layout.height(1420.,city_y)),atol=1e-12)
+    west=layout.coastal_backdrop_height(-300.,ys,-6.)
+    np.testing.assert_allclose(west,np.interp(ys,axis,layout.H[:,0]),atol=1e-12)
+    # The internal x300 seam cannot attract exterior terrain, and the repair
+    # ends below occupied streets and the inland railway's final earthworks.
+    np.testing.assert_allclose(layout.coastal_backdrop_height(300.,-150.,3.),S.height(300.,-150.,3.))
+    np.testing.assert_allclose(layout.coastal_backdrop_height(1440.,460.,32.),32.)
+    assert abs(float(layout.coastal_backdrop_height(1420.001,-135.,-6.))-float(np.interp(-135.,city_y,layout.height(1420.,city_y))))<.1
+
+    # Refinement also inserts vertices between the edge knots. Their heights
+    # stay on the same straight fine-edge segments after export.
+    coarse_y=np.unique(np.r_[ys,city_y[(city_y>=-300.)&(city_y<=-125.)]])
+    vertices,_=S.grid_mesh([1420.,1490.],coarse_y,np.full((len(coarse_y),2),-6.),shape=layout.coastal_backdrop_height)
+    p=np.asarray(vertices);edge=p[np.isclose(p[:,0],1420.)]
+    np.testing.assert_allclose(edge[:,2],np.interp(edge[:,1],city_y,layout.height(1420.,city_y)),atol=1e-12)

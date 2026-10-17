@@ -25,7 +25,8 @@ def ground(x,y,height,backdrop_grid,terrain_axes,north_height):
     fy=np.clip((y+3200)/6400*(len(axis)-1),0,len(axis)-1.001)
     ix=fx.astype(int);iy=fy.astype(int);u=fx-ix;v=fy-iy
     z=triangular(u,v,far[iy,ix],far[iy,ix+1],far[iy+1,ix],far[iy+1,ix+1])
-    z=shorelines.height(x,y,z)
+    from hidamari.layout import coastal_backdrop_height
+    z=coastal_backdrop_height(x,y,z)
     # The foothills' apron covers the far hills' sagging last cells (mountains.apron_grids): it is the ground there.
     mask=mountains.contains(x,y)|park_trail.in_approach(x,y)|mountains.in_apron(x,y)
     z[mask]=north_height(x[mask],y[mask],carved=False)

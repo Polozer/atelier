@@ -161,11 +161,15 @@ def main():
     # Shaping both buried and visible ground onto one coast would recreate the
     # original coplanar flicker under the new beaches.
     from belmonte.terrain import grid_height
-    xs=np.unique(np.r_[fx_,-300.,300.,1420.]);ys=np.unique(np.r_[fx_,-300.,300.,500.])
+    from hidamari.layout import coastal_backdrop_height,terrain_axes
+    # All cells share the fine shoreline edge knots, including adjacent far cells.
+    fine_y=np.unique(np.r_[np.linspace(-300.,300.,n),terrain_axes()[1]])
+    fine_y=fine_y[(fine_y>=-300.) & (fine_y<=-100.)]
+    xs=np.unique(np.r_[fx_,-300.,300.,1420.]);ys=np.unique(np.r_[fx_,fine_y,-300.,300.,500.])
     xx,yy=np.meshgrid(xs,ys);z=grid_height(fx_,fx_,FZ,xx,yy)
     def owned(x,y):
         return (-300.<x<300. and -300.<y<300.) or (300.<x<1420. and -300.<y<500.)
-    fverts,ffaces=shorelines.grid_mesh(xs,ys,z,hidden=owned)
+    fverts,ffaces=shorelines.grid_mesh(xs,ys,z,hidden=owned,shape=coastal_backdrop_height)
     print('coastal far hills: %d vertices, %d quads'%(len(fverts),len(ffaces)),flush=True)
     from train import earthworks  # the Belmonte railway's cuttings through the far hills (RAILWAY_EARTHWORKS=0: none)
     from hidamari.mountains import contains as under_foothills

@@ -659,12 +659,47 @@ def backdrop_grid():
         BACKDROP=original*(1-weight)+target*weight
     return BACKDROP
 
+def coastal_backdrop_height(x,y,base):
+    """Shape the exposed coast, sharing the already-shaped southern fine-terrain rim.
+
+    Only the exterior of the combined main/city footprint is stitched. The
+    correction ends below the city streets and precedes railway earthworks.
+    """
+    x,y,base=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float),np.asarray(base,float))
+    out=shorelines.height(x,y,base)
+    px=np.clip(x,-300.,1420.);py=np.clip(y,-300.,300.)
+    distance=np.hypot(x-px,y-py)
+    amount=(1-mountains.smooth(distance/80.))*mountains.smooth((-100.-y)/25.)
+    mask=(distance>0.) | (x==-300.) | (x==1420.) | (y==-300.)
+    mask &= amount>0.
+    if not np.any(mask):return out
+    # Projection onto this southern part of the union's exposed perimeter.
+    # Edge interpolation is exactly the fine mesh's straight edge segments.
+    qx,qy=px[mask],py[mask]
+    global H
+    if H is None:H=np.load(yori.OUT/'heightmap.npy')
+    axis=np.linspace(-300.,300.,H.shape[0])
+    target=np.interp(qy,axis,H[:,0])
+    east=qx>=300.
+    if np.any(east):
+        ys=np.asarray(terrain_axes()[1]);target[east]=np.interp(qy[east],ys,height(1420.,ys))
+    bottom=y[mask]<=-300.
+    if np.any(bottom):
+        bx=qx[bottom];bz=np.interp(bx,axis,H[0,:])
+        city=bx>=300.
+        if np.any(city):
+            xs=np.asarray(terrain_axes()[0]);bz[city]=np.interp(bx[city],xs,height(xs,-300.))
+        target[bottom]=bz
+    out=np.array(out,copy=True);out[mask]+=(target-out[mask])*amount[mask]
+    return out
+
+
 def backdrop_height(x,y,*,carved=False):
     h=backdrop_grid();n=h.shape[0]
     fx=np.clip((np.asarray(x)+3200)/6400*(n-1),0,n-1.001);fy=np.clip((np.asarray(y)+3200)/6400*(n-1),0,n-1.001)
     i=fx.astype(int);j=fy.astype(int);u=fx-i;v=fy-j
     out=(h[j,i]*(1-u)+h[j,i+1]*u)*(1-v)+(h[j+1,i]*(1-u)+h[j+1,i+1]*u)*v
-    out=shorelines.height(x,y,out)
+    out=coastal_backdrop_height(x,y,out)
     if carved:
         from train import earthworks
         out=earthworks.carve(x,y,out)

@@ -143,10 +143,10 @@ def sea_mesh(radius=24000.):
     return vertices,faces
 
 
-def grid_mesh(xs, ys, z, *, hidden=None, step=STEP):
+def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height):
     """Refine only coastal cells of an existing grid, retaining every original grid edge.
 
-    The unmodified bilinear cell is the source for each refinement. Shared cell
+    The source cell uses the exported a-c triangle diagonal for each refinement. Shared cell
     edges use identical knots and heights; at the inland transition the shape
     weight is zero, so hanging edge vertices remain on the coarse neighbour.
     Returns vertices and upward quads in world metres, without Blender.
@@ -164,8 +164,9 @@ def grid_mesh(xs, ys, z, *, hidden=None, step=STEP):
             ny = max(1, math.ceil((by-ay)/step)) if refine else 1
             u, v = np.meshgrid(np.linspace(0., 1., nx+1), np.linspace(0., 1., ny+1))
             x, y = ax+(bx-ax)*u, ay+(by-ay)*v
-            base = (z[j, i]*(1.-u)+z[j, i+1]*u)*(1.-v)+(z[j+1, i]*(1.-u)+z[j+1, i+1]*u)*v
-            h = height(x, y, base)
+            a,b,c,d = z[j,i],z[j,i+1],z[j+1,i+1],z[j+1,i]
+            base = np.where(u>=v,a+u*(b-a)+v*(c-b),a+u*(c-d)+v*(d-a))
+            h = shape(x, y, base)
             first = len(vertices)
             vertices.extend(np.stack((x, y, h), -1).reshape(-1, 3).tolist())
             faces.extend((first+k*(nx+1)+l, first+k*(nx+1)+l+1,
