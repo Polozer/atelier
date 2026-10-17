@@ -62,6 +62,11 @@ def material(water=False):
     if water:
         FLOAT1=unreal.CustomMaterialOutputType.CMOT_FLOAT1
         S=sea_look
+        # Read the same underlying depth as the open sea. A constant "deep"
+        # depth here would leave a rectangular blue seam across turquoise bays.
+        m.set_editor_property('blend_mode',unreal.BlendMode.BLEND_TRANSLUCENT)
+        m.set_editor_property('translucency_lighting_mode',unreal.TranslucencyLightingMode.TLM_SURFACE_PER_PIXEL_LIGHTING)
+        prop(node(unreal.MaterialExpressionConstant,r=1.),unreal.MaterialProperty.MP_OPACITY)
         # E: 0 on the rectangle's outline .. 1 once EDGE m inside. On the outline this is the open sea (M_Sea, sea_look.py):
         # its waves, its authored emissive colour, black base colour and its roughness and specular. Inward the
         # harbour's own lit water takes over, so the rectangle does not show on the sea around it.
@@ -108,10 +113,13 @@ return lerp(%s,water*lerp(.90,1.10,tide),E)*(1-H);
         prop(custom(f'return lerp({S.num(S.ROUGHNESS)},.20,E);',[('E',edge,'')],FLOAT1),unreal.MaterialProperty.MP_ROUGHNESS)
         prop(custom(f'return lerp({S.num(S.SPECULAR)},.5,E)*(1-H);',[('E',edge,''),('H',haze,'')],FLOAT1),unreal.MaterialProperty.MP_SPECULAR)
         prop(node(unreal.MaterialExpressionConstant,r=0.0),unreal.MaterialProperty.MP_METALLIC)
-        # the open sea's colour on the outline (opaque here, so no scene depth: no surf, no shallows), and inward only
-        # the haze over the lit water
+        # Identical depth, surf and shallows on the shared open-water boundary;
+        # inward the harbor's calm lit surface takes over.
+        behind=node(unreal.MaterialExpressionSubtract)
+        link(node(unreal.MaterialExpressionSceneDepth),'',behind,'A')
+        link(depth,'',behind,'B')
         look=custom(S.LOOK,[('W',sea,''),('V',node(unreal.MaterialExpressionCameraVectorWS),''),('D',depth,''),
-                            ('L',node(unreal.MaterialExpressionConstant,r=1e7),''),('P',pos,''),('T',time,'')])
+                            ('L',behind,''),('P',pos,''),('T',time,'')])
         prop(custom('return lerp(C,%s*H,E);' % S.f3(S.FAR_COLOUR),[('C',look,''),('E',edge,''),('H',haze,'')]),
              unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     else:

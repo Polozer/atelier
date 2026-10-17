@@ -60,6 +60,21 @@ def test_profile_has_dry_land_and_a_continuous_underwater_toe():
         assert np.max(np.abs(np.diff(z))) < 4.
 
 
+def test_reference_bays_have_broad_walkable_sand_between_rocky_points():
+    x = np.arange(2500., 3200., .25)
+    for y in [4680., 5810.]:
+        z = S.height(x, np.full_like(x, y), 80.)
+        dry = (z > .2) & (z < 3.)
+        assert np.count_nonzero(dry)*.25 >= 45.
+        assert np.max(abs(np.gradient(z, .25)[dry])) < .20
+    # The point between those bays has an actual elevated rock shelf.
+    y = np.full_like(x, 5250.)
+    distance, rock = S.field(x, y)
+    assert rock[np.argmin(abs(distance))] > .9
+    z = S.height(x, y, 80.)
+    assert np.max(z[(distance > 25.) & (distance < 38.)]) > 10.
+
+
 def test_country_export_has_no_sea_level_quads_and_faces_up():
     xs = np.array([2800., 3000., 3200.]); ys = np.array([4500., 4550.])
     vertices, faces = S.grid_mesh(xs, ys, np.zeros((2, 3)))

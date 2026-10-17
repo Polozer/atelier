@@ -50,14 +50,14 @@ ZENITH = (0.0235, 0.113, 0.531)
 
 # The water's own colour: deep blue-teal, and a lighter teal over the first SHALLOW_M metres behind the surface.
 BODY = (0.004, 0.060, 0.130)
-SHALLOW = (0.020, 0.120, 0.125)
-SHALLOW_M = 5.0
+SHALLOW = (0.024, 0.230, 0.205)
+SHALLOW_M = 12.0
 FOAM = (1.20, 1.25, 1.30)
 
 # Share of the dome reflection: water's Fresnel term times REFLECT, rising to GRAZE where the view grazes the sea
 # (sin of the view's elevation under ~.01: beyond ~300 m from the beach, and near the horizon from anywhere).
-REFLECT = 0.35
-GRAZE = 0.74
+REFLECT = 0.20
+GRAZE = 0.48
 GRAZE_POWER = 100.0
 
 # Haze with pixel depth D (cm): 1 - exp(-D / HAZE_CM), .1 at 1 km, .36 at 4 km, .9 at 20 km (the dome), toward the
@@ -83,7 +83,7 @@ A0 = 0.065
 # pixels, so a cliff 400 m off still gets its white line. None beyond SURF_FAR metres (the dome meets the sea at 20 km).
 SURF_M = 1.6
 SURF_FAR = (2500.0, 4000.0)
-FLECK = 0.45
+FLECK = 0.16
 
 # P: world position (cm), T: time (s) -> float3(slope x, slope y, crest). The crest is the short trains' sum, -1..1;
 # the flecks sit on its rare peaks.
@@ -110,8 +110,9 @@ return float3(slope,crest/6);
 # W: WAVES -> world-space normal (the material's tangent_space_normal is off)
 NORMAL = 'return normalize(float3(-W.xy,1));'
 
-# W: WAVES, V: camera vector (world, toward the camera), D: pixel depth (cm), L: scene depth behind the surface (cm;
-# M_HarborWater, opaque, passes 1e7), P: world position (cm), T: time (s) -> emissive colour
+# W: WAVES, V: camera vector (world, toward the camera), D: pixel depth (cm),
+# L: scene depth behind the surface (cm), P: world position (cm), T: time (s) -> emissive colour.
+# Harbor and open sea both supply real scene depth at their shared boundary.
 LOOK = '''
 float2 p=P.xy*.01;
 float3 N=normalize(float3(-W.xy,1));
@@ -122,7 +123,9 @@ float graze=pow(saturate(1-V.z),%(graze_power)s);
 float fres=(.02+.98*pow(1-nv,5))*lerp(%(reflect)s*(.8+.4*gust),%(graze)s,graze);
 float3 R=reflect(-V,N);
 float3 sky=lerp(%(horizon)s,%(zenith)s,pow(asin(saturate(R.z))/1.5708,.6));
-float l=L*.01;
+// Convert the view-depth interval into an approximate vertical water column.
+// Raw view depth erased the shallow band when looking along a beach.
+float l=max(0,L)*.01*max(V.z,.03);
 float3 c=lerp(lerp(%(shallow)s,%(body)s,saturate(l/%(shallow_m)s)),sky,fres);
 // surf: white at the waterline, fading over w metres behind the surface, with a wobbling edge and a slow wash
 float fp=max(length(ddx(p)),length(ddy(p)));

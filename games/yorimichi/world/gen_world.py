@@ -370,6 +370,8 @@ clear_instances(inst)
 print('coast: cleared %d mainland beach vegetation instances'%shorelines.clear_vegetation(inst),flush=True)
 np.save(os.path.join(OUT, "heightmap.npy"), H.astype(np.float32))
 H.astype("<f4").tofile(os.path.join(OUT, "heightmap.bin"))  # runtime cosmetic-particle ground sampling
+from coastal_dressing import integrate as integrate_coastal_features
+integrate_coastal_features(world, H)
 with open(os.path.join(OUT, "world.json"), "w") as fh:
     json.dump(world, fh)
 counts = {k: len(v) for k, v in inst.items()}

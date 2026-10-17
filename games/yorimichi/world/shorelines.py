@@ -35,6 +35,11 @@ def _base_field(x, y):
     """Signed inland distance and rock share; the rounded outline stays inside the old envelope."""
     x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
     east = 2970.+90.*np.sin(y/690.)+38.*np.sin(y/177.+.7)
+    # Belmonte's reference has two deep sand bays between compact rock points.
+    # Broad inlets change the silhouette; small noise alone only frays a straight bank.
+    country = smooth((y-3500.)/350.)
+    east -= country*(150.*np.exp(-((y-4680.)/340.)**2)
+                     +135.*np.exp(-((y-5810.)/330.)**2))
     west = -2970.+85.*np.sin(y/740.+1.2)+42.*np.sin(y/193.)
     north = 6835.-100.*(x/3000.)**2+65.*np.sin(x/530.)
     # The existing quay owns the central frontage: its water stays open under
@@ -52,8 +57,11 @@ def _base_field(x, y):
     phase = np.where(de < dw, .4, 2.1)
     bays = (.5+.5*np.sin(y/420.+phase))**4
     flank = .88+.12*np.sin(y/280.+phase)
-    country = .08+.87*bays
-    side_rock = flank*(1.-smooth((y-3400.)/500.))+country*smooth((y-3400.)/500.)
+    country_rock = smooth((bays-.30)/.50)
+    east_bays = np.maximum(np.exp(-((y-4680.)/380.)**4),
+                           np.exp(-((y-5810.)/370.)**4))
+    country_rock = np.where(de < dw, 1.-smooth((east_bays-.25)/.55), country_rock)
+    side_rock = flank*(1.-smooth((y-3400.)/500.))+country_rock*smooth((y-3400.)/500.)
     cap = .85*smooth((np.abs(x)-1450.)/1100.)
     side_rock = side_rock*(1.-smooth((np.minimum(de, dw)-dn)/180.))+cap*smooth((np.minimum(de, dw)-dn)/180.)
     shoulders = .8*np.exp(-((x+340.)/70.)**2)+.75*np.exp(-((x-260.)/65.)**2)
@@ -120,9 +128,22 @@ def height(x, y, base):
     x, y, base = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float), np.asarray(base, float))
     d, rock = field(x, y)
     inland = np.maximum(d, 0.)
-    beach = .075*inland+.0005*inland**2
+    # Sixty metres of usable sand in the open bays, rather than a thin pale
+    # stripe below a smooth hillside. Dunes begin behind the dry walking strip.
+    beach = .025*inland+.0003*inland**2
+    dunes = (.65+.35*np.sin(x/23.+y/31.))*smooth((inland-55.)/30.)
+    beach += dunes
     crown = np.minimum(68.+12.*np.sin(y/320.+x/430.), np.maximum(8., base+10.))
-    cliff = crown*smooth(inland/24.)+.05*np.maximum(inland-24., 0.)
+    country = smooth((y-3400.)/500.)
+    crown = crown*(1.-country)+(22.+9.*np.sin(y/190.+x/300.))*country
+    # Two risers separated by a physical rock shelf; their widths vary along
+    # the coast so the face reads as joined rock masses from a distant lookout.
+    rib = 1.8*np.sin(x/17.+y/23.)+1.1*np.sin(y/8.-x/29.)
+    ledge = inland+rib*smooth(inland/8.)
+    cliff = 1.2*smooth(inland/8.)
+    cliff += (crown-1.2)*(.54*smooth((ledge-4.)/12.)+.13*smooth((ledge-23.)/10.)
+                         +.33*smooth((ledge-41.)/14.))
+    cliff += .05*np.maximum(inland-46., 0.)
     target = beach*(1.-rock)+cliff*rock
     target = np.where(d < 0., np.maximum(FLOOR, d*(.18+.42*rock)), target)
     w = weight(x, y)
@@ -153,7 +174,7 @@ def paint(x, y, z, normal_z):
     _, rock = field(x, y)
     wet = 1.-smooth((z-.05)/1.8)
     sand = SAND*(1.-wet[..., None])+WET_SAND*wet[..., None]
-    facet = .91+.09*np.sin(x/9.+y/13.)+.04*np.sin(z/3.3+y/37.)
+    facet = .86+.16*np.sin(x/12.+y/19.)+.08*np.sin(z/6.+y/37.)
     stone = ROCK*facet[..., None]*(.70+.30*normal_z[..., None])
     stone *= (1.-.35*wet[..., None])
     exposure = np.maximum(rock*(1.-smooth((z-45.)/35.)), smooth((.85-normal_z)/.22))
