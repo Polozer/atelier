@@ -155,6 +155,7 @@ public:
     FVector GetBoardVelocity() const { return Vel; }
 
 private:
+    friend class FRemoteVehiclePresentationTest;
     UPROPERTY() TObjectPtr<ACharacter> Rider;
     ISkateRider* RiderApi = nullptr;
     UPROPERTY() TObjectPtr<USceneComponent> BoardRoot;

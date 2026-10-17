@@ -147,8 +147,9 @@ public:
                 const float R = bHot ? 11.f : 8.f;
                 Disc(Out,Layer+1,G,P,R+2.5f,FLinearColor(1,.97f,.9f,1));
                 const bool bMarker = Zones[I].Key.StartsWith(MarkerPrefix);
-                Disc(Out,Layer+2,G,P,R,bMarker ? FLinearColor(.12f,.45f,.85f,1) : bHot ? FLinearColor(.95f,.45f,.18f,1) : FLinearColor(.72f,.18f,.12f,1));
-                const FString Number=bMarker ? TEXT("M") : FString::FromInt(I+1);
+                const bool bPlayer = Zones[I].Key.StartsWith(TEXT("player_"));
+                Disc(Out,Layer+2,G,P,R,bPlayer ? FLinearColor(.1f,.65f,.4f,1) : bMarker ? FLinearColor(.12f,.45f,.85f,1) : bHot ? FLinearColor(.95f,.45f,.18f,1) : FLinearColor(.72f,.18f,.12f,1));
+                const FString Number=bPlayer ? TEXT("P") : bMarker ? TEXT("M") : FString::FromInt(I+1);
                 const FVector2D NumberSize=Measure->Measure(Number,Font);
                 FSlateDrawElement::MakeText(Out,Layer+3,G.ToPaintGeometry(FVector2f(NumberSize),FSlateLayoutTransform(FVector2f(P-NumberSize*.5f))),Number,Font,ESlateDrawEffect::None,FLinearColor::White);
                 if(!bHot)continue;
@@ -563,6 +564,7 @@ FJapanMarkers* UJapanMap::MarkerStore() const
 
 const TArray<FJapanMapZone>& UJapanMap::GetZones() const
 {
+    RefreshPlayerZones();
     const auto* Store = MarkerStore();
     Zones.RemoveAll([Store](const FJapanMapZone& Z)
     {
@@ -707,6 +709,13 @@ const FJapanMapZone* UJapanMap::FindZone(const FString& Key) const
 
 bool UJapanMap::TeleportToZone(const FString& Key)
 {
+    if (Key.StartsWith(TEXT("player_")))
+    {
+        if (!Owner || Owner->IsCinematic() || Owner->AreControlsSuspended()) return false;
+        const uint32 Before = Owner->GetActivityEpoch();
+        Owner->ServerTravelToPlayer(Key.Mid(7), Before);
+        return Owner->HasAuthority() && Owner->GetActivityEpoch() != Before; // The server resolves the live pawn and reports acceptance.
+    }
     if (Key.StartsWith(MarkerPrefix)) return SelectMarker(Key) && ReturnToMarker();
     const FJapanMapZone* Z = FindZone(Key);
     if (!Z || !Owner) return false;
