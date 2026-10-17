@@ -91,6 +91,35 @@ bound report-path hash and monitor identity. This is an explicit preservation at
 same-user administrative socket, not cryptographic proof of the archive's origin. It never invents historical
 per-process exits, replaces the current report, or certifies build outputs. Missing or invalid archives refuse.
 
+### Interrupted compiler with lost monitors
+
+If an external session timeout kills the controller and both monitors, no terminal cleanup report may
+survive. Never manufacture one or mark the build successful. An operator may explicitly direct
+`atelier capacity abandon-interrupted SOCKET --administrative-evidence ABSOLUTE_JSON` after independent
+review. Ordinary agents and automatic `close`/`reconcile` do not use this action.
+
+The private evidence JSON binds `id`, `nonce`, `epoch`, `boot_id`, `administrator`, `operator_reference`
+and `services`. Use the current retained record, not a truncated public status row. The administrator
+must differ from the job owner. The reference records the operator instruction; it is an audit reference,
+not a cryptographic authorization boundary between processes running as the same OS user.
+
+The broker itself requires healthy full-mode compatibility, an uncertain performance-exclusive compile,
+a recorded positive root exit, no other charged job, and strictly absent controller, monitors and retained
+PID/start identities. Permission or observation errors refuse. Two complete same-user kernel censuses
+must exclude live build/render/compiler processes and unexplained processes born after the compile.
+Current positive ancestry to a process older than the compile excludes independent work. Recent orphans
+refuse except the OS Spotlight/help workers at their exact system paths, or explicitly reviewed live
+launchd services. Each service exemption binds its exact PID/start, label and plist SHA256, rechecked
+against launchd. Never exempt a compiler, UBT/Turnkey helper, or an unexplained Python process.
+
+Release records `administrative-interruption`, the original report hashes, census digest, service
+exceptions, administrator and operator reference, and missing historical exit count. It proves current
+observed quiescence under this explicit administrative policy; it does not reconstruct historical exit
+events or claim complete descendant discovery. Original reports and failure remain intact. The nonce
+is one-use; a repeated action or stale binding refuses. No outputs, stamps or build completion are
+certified. Rerun the interrupted step normally after release. Games, imports and nonexclusive jobs are
+not eligible. Do not edit SQLite, compatibility files or profiles to recover a reservation.
+
 The broker configuration is an owner-only JSON file in an owner-only directory, with exactly these fields:
 
 ```json
