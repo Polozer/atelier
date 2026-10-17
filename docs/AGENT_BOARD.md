@@ -70,14 +70,16 @@ with the absolute path of the canonical checkout's installed `atelier` command:
 }
 ```
 
-`guard-claude` limits foreground Bash execution to 30 seconds and blocking `TaskOutput` checks to
-10 seconds, including omitted/default timeouts. It returns the complete input with only the timeout
-changed, preserving permission decisions, commands and other arguments. Native background Bash jobs
-keep their original timeouts and render guards. A foreground command can time out, so launch lengthy
-or uncertain work with `run_in_background` from the start. This protects steering from a wait loop
-even when its output pattern can never match a completed job. It does not interrupt existing tools,
-restart the session, detect every application stall, or replace progress updates. Settings hooks are
-normally picked up by Claude's file watcher; verify a subsequent tool invocation in the live session.
+`guard-claude` refuses foreground native builds and plays. Launch them with `run_in_background`
+and an explicit positive timeout that covers queue time, the whole command and cleanup. It also
+refuses native background launches with a missing or invalid timeout; it never guesses a deadline.
+Keep the hook command bound to an updated Atelier installation, including when using a separate
+frozen checkout for board delivery.
+
+For other commands, the hook limits foreground Bash execution to 30 seconds and blocking `TaskOutput`
+checks to 10 seconds. It preserves the other tool arguments and permission decisions. It does not
+interrupt existing tools or replace progress updates. Settings hooks are normally picked up by
+Claude's file watcher; verify the updated hook in the live session.
 See [Claude's hook input control](https://code.claude.com/docs/en/hooks#pretooluse-decision-control).
 
 `--permission-class` describes the authorized sender, not the recipient: its conservative default is
