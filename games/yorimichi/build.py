@@ -303,11 +303,17 @@ def belmonte_train_assembly_present(out):
         doc = json.loads((root / 'consist.json').read_text())
         vehicles = doc['vehicles']
         furniture = doc['furniture']
+        baked = train_bake.read(root.parent / 'furniture')
         return (bool(vehicles) and (root / 'index.html').is_file()
+                and doc['furniture_bake_sha256'] == train_bake.sha(root.parent / 'furniture' / 'lod' / 'summary.json')
+                and set(furniture) == set(TRAIN_FURNITURE)
                 and all((root / v['glb']).is_file() and (root / v['web']).is_file()
                         for v in vehicles if v.get('status') == 'built')
-                and all((root / f['glb']).is_file() and (root / f['web']).is_file()
-                        for f in furniture.values() if f.get('glb')))
+                and all(f['glb'] == baked[aid]['levels'][0]['glb']
+                        and train_bake.sha(root / f['glb']) == baked[aid]['levels'][0]['sha256']
+                        and f['lods'] == [dict(r, glb='lod/' + r['glb']) for r in baked[aid]['levels']]
+                        and (root / f['web']).is_file()
+                        for aid, f in furniture.items()))
     except (OSError, ValueError, KeyError, TypeError):
         return False
 
@@ -342,20 +348,10 @@ def belmonte_track_present(out):
 
 
 def belmonte_train_furniture_lods_present(out):
-    """@cc [owner:fontanierh,label:correctness] furniture-lod-metadata-complete
-    A current furniture bake MUST cover every expected asset, retain its generated report metadata
-    equal to the summary, and have every recorded LOD file at its recorded size. Reset source reports
-    MUST invalidate the bake even when source GLB bytes and old summary files are unchanged.
-    """
-    root = out / 'belmonte-train' / 'furniture'
+    """A complete, source-bound and budgeted furniture bake, independently owned by its step."""
     try:
-        summary = json.loads((root / 'lod' / 'summary.json').read_text())
-        return (set(summary) == set(TRAIN_FURNITURE)
-                and all(item['levels'] and json.loads((root / f'{aid}.json').read_text())['lods'] == item
-                        for aid, item in summary.items())
-                and all((root / 'lod' / level['glb']).stat().st_size == level['bytes']
-                        for item in summary.values() for level in item['levels']))
-    except (OSError, ValueError, KeyError, TypeError):
+        return set(train_bake.read(out / 'belmonte-train' / 'furniture')) == set(TRAIN_FURNITURE)
+    except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError):
         return False
 
 
@@ -364,6 +360,7 @@ def belmonte_train_service_present(out):
     root = out / 'belmonte-train'
     try:
         data = json.loads((root / 'service' / 'service.json').read_text())
+        train_bake.preflight_service(root, data)
         vehicles = data['consist']['vehicles']
         return (bool(vehicles)
                 and all((root / rel).is_file() for v in vehicles for rel in v['levels'])
@@ -605,6 +602,10 @@ def hippodrome_steps(out):
     ]
 
 
+_train_bake_spec = importlib.util.spec_from_file_location('train_furniture_bake', WORLD / 'train' / 'bake_manifest.py')
+train_bake = importlib.util.module_from_spec(_train_bake_spec)
+_train_bake_spec.loader.exec_module(train_bake)
+
 TRAIN_VEHICLES = ('locomotive', 'tender', 'baggage-van', 'restaurant', 'first-class', 'second-class', 'brake-van')
 TRAIN_FURNITURE = tuple(a['id'] for a in json.loads((ASSETS / 'vehicles/belmonte-train/planning/furniture-dimensions.json').read_text())['assets'])
 def belmonte_train_corridor(out):
@@ -640,7 +641,7 @@ def belmonte_steps(out):
              about='/Game/Belmonte: environment meshes, collision and painterly surfaces'),
         Step('unreal.belmonte_train', [UnrealScript(SCRIPTS / 'import_belmonte_train.py', 'BELMONTE TRAIN IMPORT COMPLETE', null_rhi=True,
                                                        args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
-                inputs=[SCRIPTS / 'import_belmonte_train.py',
+                inputs=[SCRIPTS / 'import_belmonte_train.py', WORLD / 'train' / 'bake_manifest.py', WORLD / 'train' / 'budgets.py',
                         SOURCE / 'Yorimichi' / 'BelmonteTrainService.h', SOURCE / 'Yorimichi' / 'BelmonteTrainService.cpp',
                         out / 'belmonte-train' / 'manifest.json', out / 'belmonte-train' / 'service' / 'service.json',
                         out / 'belmonte-train' / 'service' / 'glb', out / 'belmonte-train' / 'furniture',
@@ -854,7 +855,8 @@ def world_steps(ctx):
              inputs=[ASSETS / 'vehicles' / 'kei', REGIONS / 'village' / 'build.py'],
              outputs=[out / 'kei' / 'manifest.json'], about='the four kei cars in the Mega Park car park', heavy=True),
         Step('world.belmonte_train', [Blender(WORLD / 'train' / 'build.py', threads=3)],
-             inputs=[WORLD / 'train', ASSETS / 'vehicles' / 'belmonte-train' / 'planning',
+             inputs=[*build_inputs.local_imports(WORLD / 'train' / 'build.py', (WORLD,)),
+                     ASSETS / 'vehicles' / 'belmonte-train' / 'planning',
                      ASSETS / 'vehicles' / 'belmonte-train' / 'textures',
                      ASSETS / 'vehicles' / 'belmonte-train' / 'furniture',
                      ASSETS / 'vehicles' / 'belmonte-train' / 'source.toml', YORI],
@@ -870,9 +872,10 @@ def world_steps(ctx):
              outputs=[out / 'belmonte-train' / 'plan' / 'section.svg'], explicit=True, about='Belmonte train dimensioned plans (SVG)'),
         Step('world.belmonte_train_assembly', [Python(WORLD / 'train' / 'consist.py')],
              inputs=[WORLD / 'train' / 'consist.py', WORLD / 'train' / 'layout.py', WORLD / 'train' / 'viewer.html',
+                     WORLD / 'train' / 'bake_manifest.py', WORLD / 'train' / 'budgets.py',
                      ASSETS / 'vehicles' / 'belmonte-train' / 'planning', out / 'belmonte-train' / 'furniture',
                      *(out / 'belmonte-train' / v for v in TRAIN_VEHICLES)],
-             needs=['world.belmonte_train'],
+             needs=['world.belmonte_train', 'world.belmonte_train_furniture_lods'],
              outputs=[out / 'belmonte-train' / 'assembly' / 'consist.json', out / 'belmonte-train' / 'assembly' / 'index.html'],
              verify=lambda: belmonte_train_assembly_present(out),
              about='Belmonte train assembly: consist.json, GLBs and the viewer page'),
@@ -915,10 +918,13 @@ def world_steps(ctx):
              outputs=[out / 'belmonte-track' / 'review' / 'viaduct.png'], about='Belmonte railway track control renders'),
         Step('world.belmonte_train_furniture_lods', [Blender(WORLD / 'train' / 'lod_furniture.py', threads=3)],
              inputs=[WORLD / 'train' / 'lod_furniture.py', WORLD / 'train' / 'budgets.py',
+                     WORLD / 'train' / 'bake_manifest.py',
                      ASSETS / 'vehicles' / 'belmonte-train' / 'planning',
                      *(out / 'belmonte-train' / 'furniture' / f'{a}.glb' for a in TRAIN_FURNITURE)],
-             needs=['world.belmonte_train'], heavy=True, explicit=True,
-             outputs=[out / 'belmonte-train' / 'furniture' / 'lod' / 'summary.json'],
+             needs=['world.belmonte_train'], heavy=True,
+             outputs=[out / 'belmonte-train' / 'furniture' / 'lod' / 'summary.json',
+                      *(out / 'belmonte-train' / 'furniture' / 'lod' / f'{a}_LOD{k}.glb'
+                        for a in TRAIN_FURNITURE for k in ([0, 1] if train_bake.B.FURNITURE[a][1] else [0]))],
              verify=lambda: belmonte_train_furniture_lods_present(out),
              about='Belmonte train furniture: LOD0/LOD1 decimated from the fitted Tripo meshes, maps baked (Cycles)'),
         Step('world.belmonte_train_furniture_review', [Blender(WORLD / 'train' / 'review_lods.py', threads=3),
@@ -932,6 +938,7 @@ def world_steps(ctx):
              about='Belmonte train furniture LODs: before/after renders, assets and furnished interiors'),
         Step('world.belmonte_train_service', [Python(TOOLS / 'belmonte_train_service.py')],
              inputs=[TOOLS / 'belmonte_train_service.py', TOOLS / 'gltf_subset.py',
+                     WORLD / 'train' / 'bake_manifest.py', WORLD / 'train' / 'budgets.py',
                      out / 'belmonte-train' / 'route' / 'route.json', out / 'belmonte-train' / 'assembly' / 'consist.json',
                      out / 'belmonte-train' / 'furniture', *(out / 'belmonte-train' / v for v in TRAIN_VEHICLES)],
              needs=['world.belmonte_train_route', 'world.belmonte_train', 'world.belmonte_train_assembly'],

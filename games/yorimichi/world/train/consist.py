@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import yori  # noqa: E402,F401
 
+from train import bake_manifest as BM
 from train import layout as L  # noqa: E402
 
 OUT = yori.OUT / 'belmonte-train'
@@ -71,24 +72,26 @@ def offsets():
 
 
 def assembly():
+    """@cc [owner:fontanierh,label:correctness] production-furniture-assembly
+    Assembly MUST validate the complete furniture bake before writing outputs, select baked LOD0
+    for viewer geometry and record the summary checksum consumed by service generation.
+    """
+    baked = BM.read(OUT / 'furniture')
     ASSEMBLY.mkdir(parents=True, exist_ok=True)
     xs = offsets()
     contract = L.contract()
     furniture = {}
     for a in contract['assets']:
-        fitted = OUT / 'furniture' / f'{a["id"]}.glb'
-        entry = dict(dimensions_m=a['dimensions_m'], pivot=a['pivot'], name_fr=a['name_fr'], glb=None)
-        if fitted.exists():
-            entry['glb'] = fitted.name
-            entry['web'] = web_copy(fitted, ASSEMBLY)
-            report = OUT / 'furniture' / f'{a["id"]}.json'
-            if report.exists():
-                fit = json.loads(report.read_text())
-                entry['fit'] = fit['fitted_m']
-                if 'lods' in fit:
-                    entry['lods'] = [dict(level=r['level'], glb=f'lod/{r["glb"]}', triangles=r['triangles'], screen_size=r['screen_size'])
-                                     for r in fit['lods']['levels']]
-                    entry['cull_screen_size'] = fit['lods']['cull_screen_size']
+        aid = a['id']
+        record = baked[aid]
+        fitted = OUT / 'furniture' / f'{aid}.json'
+        entry = dict(dimensions_m=a['dimensions_m'], pivot=a['pivot'], name_fr=a['name_fr'],
+                     fit=json.loads(fitted.read_text())['fitted_m'])
+        lod0 = OUT / 'furniture' / 'lod' / record['levels'][0]['glb']
+        entry['glb'] = lod0.name
+        entry['web'] = web_copy(lod0, ASSEMBLY)
+        entry['lods'] = [dict(r, glb=f'lod/{r["glb"]}') for r in record['levels']]
+        entry['cull_screen_size'] = record['cull_screen_size']
         furniture[a['id']] = entry
     vehicles, door_rules = [], None
     for v in VEHICLES:
@@ -112,6 +115,7 @@ def assembly():
         vehicles.append(rec)
     doc = dict(
         version=1, name='Belmonte train',
+        furniture_bake_sha256=BM.sha(OUT / 'furniture' / 'lod' / 'summary.json'),
         frame='metres; x along the train (head at +x), y across (+Y compartment/galley side), z up from the top of the rail; '
               'each vehicle at its own origin shifted by x. Unreal: atelier.conventions.to_unreal. glTF/three.js: (x, z, -y).',
         floor_z=L.FLOOR_Z, interior_half_width=L.IN, interior_half_length=L.IN_X, body_half_length=L.BODY_X,
