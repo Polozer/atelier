@@ -26,6 +26,10 @@ def forest_weight(x, y):
 
 
 def paint_join(path, mesh):
+    """@cc [owner:fontanierh,label:correctness] country-earthworks-colour-frame
+    Railway colour blending MUST compare carved and natural heights in the same
+    world frame. Unchanged ground MUST retain its forest or shoreline palette.
+    """
     points = np.asarray(mesh.p) + L.ORIGIN
     # The inner rim keeps the four-layer palette at the actual terrain triangles.
     x = np.clip(points[:, 0], L.BOUNDS[0], L.BOUNDS[2]) - L.ORIGIN[0]
@@ -45,7 +49,7 @@ def paint_join(path, mesh):
                                      np.asarray(mesh.n)[:,2],colours)
     if getattr(mesh, 'natural', None) is not None:      # the railway's cuttings and banks (train/earthworks.py)
         from train import earthworks
-        colours = earthworks.paint(colours, points[:, 0], points[:, 1], points[:, 2], mesh.natural + L.ORIGIN[2])
+        colours = earthworks.paint(colours, points[:, 0], points[:, 1], points[:, 2], mesh.natural)
     rgba = np.c_[source.srgb(colours), weight].astype('<f4')
     doc, binary = glb_parts(path.read_bytes())
     assert doc['accessors'][doc['meshes'][0]['primitives'][0]['attributes']['POSITION']]['count'] == len(rgba)
