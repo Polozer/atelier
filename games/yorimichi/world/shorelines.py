@@ -7,11 +7,11 @@ not almost-coplanar ribbons over the sea or the original terrain.
 import math
 
 import numpy as np
+from coast_water import HARBOR_RECT
 
 REACH = 260.
 FLOOR = -32.
 STEP = 6.
-HARBOR_RECT = (300., -1600., 1800., 600.)
 SAND = np.array([.38, .305, .185])
 WET_SAND = np.array([.145, .119, .080])
 ROCK = np.array([.105, .111, .104])
@@ -131,7 +131,10 @@ def colours(x, y, z, normal_z, base):
 
 
 def sea_mesh(radius=24000.):
-    """Four disjoint sea rectangles around HD_Sea; both owners sit at z=0."""
+    """@cc [owner:fontanierh,label:correctness] ocean-surface-ownership
+    Open-ocean faces MUST exclude HARBOR_RECT and share its z=0 datum.
+    The four rectangles and harbor MUST partition the sea without overlap.
+    """
     x0,y0,x1,y1=HARBOR_RECT
     rectangles=[(-radius,-radius,x0,radius),(x1,-radius,radius,radius),
                 (x0,-radius,x1,y0),(x0,y1,x1,radius)]
