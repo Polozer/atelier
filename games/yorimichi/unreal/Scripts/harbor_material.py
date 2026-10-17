@@ -7,12 +7,13 @@ import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_
 from pathlib import Path
 import unreal
 import sea_look
+import shorelines
 
 EAL=unreal.EditorAssetLibrary
 MEL=unreal.MaterialEditingLibrary
 
 # HD_Sea's rectangle in Blender metres (x0, y0, x1, y1: hidamari/build.py sea_mesh) and the width of its calm border (m)
-SEA_RECT=(300,-1600,1800,600)
+SEA_RECT=shorelines.HARBOR_RECT
 EDGE=200
 FAR_FADE=(300,900)   # metres: the lit harbour water gives way to the open sea look with distance
 
