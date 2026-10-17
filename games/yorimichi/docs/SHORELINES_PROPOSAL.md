@@ -1,7 +1,9 @@
 # Island shoreline proposal
 
-Design proposal, 17 October 2026. This work surveys the complete current island perimeter and the separate temple
-islet, and proposes ten coastal treatments. It does not change game geometry or water materials.
+Approved concept proposal, 17 October 2026. The original survey covers the complete island perimeter and separate
+temple islet, with ten coastal treatments. Implementation follows this direction on the review branch. Actual game
+captures, checks and current limits are published in the [implementation review](shorelines/review.html); the
+Sunbursts below remain design references.
 
 The tailnet presentation is mounted at `/shorelines/` on the development machine's existing HTTPS endpoint.
 It contains a selectable survey map, southern detail, ten Sunburst concepts, location briefs and a proposed build
@@ -32,8 +34,9 @@ x east, y north, z up. The sea is at z=0.
   changes on the landing cove, its connection to the stairs, and the wet/submerged transition.
 
 The zero-height geometry is confirmed from source and grid topology. Its contribution to the owner's reported
-flicker is a hypothesis pending a controlled in-game A/B. At the original proposal stage, no new Unreal session or temporal flicker measurement had been
-run. Subsequent implementation evidence belongs to the separate review page. The regional map samples at 12.5 m, omits park stamps on the volcano and shows imported
+flicker is a hypothesis pending a controlled in-game A/B. At the original proposal stage, no new Unreal session or
+temporal flicker measurement had been run. Subsequent implementation evidence belongs to the separate review page.
+The regional map samples at 12.5 m, omits park stamps on the volcano and shows imported
 Belmonte relief as a footprint. Input hashes and limits are recorded in the site's `assets/survey.json`.
 
 ## Complete perimeter coverage
@@ -66,10 +69,11 @@ Build the ground through sea level as one coherent profile with a dry backshore,
 Stitch adjacent terrain boundaries; avoid nearly coplanar duplicate sand ribbons. Audit the harbor/open-sea water
 ownership. Use broad rock masses and material bands that survive distance, then add restrained surf detail.
 
-Acceptance requires an orbit from the volcano rim looking toward Belmonte while the camera moves, a complete
-perimeter sail, walks along accessible beaches, and near/far LOD checks. Compare matched views and motion under
-normal forward lighting and saved renderer/tree preferences. Check for shimmer, open edges, floating foliage,
-blocked boat approaches and exposed terrain seams. The concept proposal does not establish that those runtime checks passed; consult the implementation review for their current results and limits.
+Acceptance covers a moving view from a standing volcano-rim camera toward Belmonte, a complete perimeter camera
+tour, accessible beach ground/collision checks and near/far views. Boat launch and landing checks follow the game's
+existing southern-ocean sailing bounds. Use normal forward lighting and saved renderer/tree preferences. Check for
+shimmer, open edges, floating foliage, blocked boat approaches and exposed terrain seams. Consult the implementation
+review for the actual results and limits; the concept images establish the design direction.
 
 ## Concepts and validation
 
