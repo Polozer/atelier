@@ -87,6 +87,7 @@ def belmonte_clear(x,y,kind='tree'):
 def clear(instances,station=0,path=None,h=None,before=None):
     """Clear the vegetation over station `station` and within reach of its footpath `path` (x, y[, z] points).
     With h and before, heightmaps after and before levelling, re-seat what is kept on the levelled ground."""
+    if station==1 and path is None:path=city_path()
     removed={}
     for name,placements in list(instances.items()):
         if not name.startswith(('Tree','Bush','Grass','Rock','Litter')) and not (station and ('Tree' in name or 'Bush' in name)):continue

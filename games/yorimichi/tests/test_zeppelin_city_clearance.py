@@ -34,6 +34,13 @@ def test_air_station_grading_does_not_change_the_rail_cutting_or_roads():
     assert air.city_pad(ox + air.SAFE[0], oy + air.SAFE[1], 20.) == oz
 
 
+def test_city_station_clears_its_walking_link_by_default():
+    instances = {'Tree_Maple_A': [[1242., 329., 36.], [1242., 350., 36.]]}
+    removed = air.clear(instances, station=1)
+    assert removed['Tree_Maple_A'] == 1
+    assert instances['Tree_Maple_A'] == [[1242., 350., 36.]]
+
+
 def test_air_service_and_flight_durations_follow_the_moved_station(monkeypatch):
     before = air.metadata()
     stations = [{**s, 'origin': list(s['origin'])} for s in air.STATIONS]
