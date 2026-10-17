@@ -32,8 +32,8 @@ x east, y north, z up. The sea is at z=0.
   changes on the landing cove, its connection to the stairs, and the wet/submerged transition.
 
 The zero-height geometry is confirmed from source and grid topology. Its contribution to the owner's reported
-flicker is a hypothesis pending a controlled in-game A/B. No new Unreal session or temporal flicker measurement was
-run for this proposal. The regional map samples at 12.5 m, omits park stamps on the volcano and shows imported
+flicker is a hypothesis pending a controlled in-game A/B. At the original proposal stage, no new Unreal session or temporal flicker measurement had been
+run. Subsequent implementation evidence belongs to the separate review page. The regional map samples at 12.5 m, omits park stamps on the volcano and shows imported
 Belmonte relief as a footprint. Input hashes and limits are recorded in the site's `assets/survey.json`.
 
 ## Complete perimeter coverage
@@ -69,7 +69,7 @@ ownership. Use broad rock masses and material bands that survive distance, then 
 Acceptance requires an orbit from the volcano rim looking toward Belmonte while the camera moves, a complete
 perimeter sail, walks along accessible beaches, and near/far LOD checks. Compare matched views and motion under
 normal forward lighting and saved renderer/tree preferences. Check for shimmer, open edges, floating foliage,
-blocked boat approaches and exposed terrain seams. The current proposal does not claim those runtime checks passed.
+blocked boat approaches and exposed terrain seams. The concept proposal does not establish that those runtime checks passed; consult the implementation review for their current results and limits.
 
 ## Concepts and validation
 
