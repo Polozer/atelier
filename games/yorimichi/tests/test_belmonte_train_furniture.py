@@ -155,6 +155,28 @@ def test_source_report_reset_preserves_an_existing_lod_bake(recipe, baked_furnit
     assert recipe.belmonte_train_furniture_lods_present(tmp_path)
 
 
+def test_review_sheets_use_bake_summary_without_mutating_source_reports(baked_furniture, monkeypatch):
+    from PIL import Image
+    from train import review_sheets as review
+    summary_path = baked_furniture / 'lod' / 'summary.json'
+    summary = json.loads(summary_path.read_text())
+    aid = 'wall-sconce'
+    summary[aid].update(source_triangles=1234, textures={'base': [4, 4]})
+    summary_path.write_text(json.dumps(summary))
+    source = baked_furniture / f'{aid}.json'
+    before = source.read_bytes()
+    assert 'lods' not in json.loads(before)
+    frames = baked_furniture.parent / 'review-perf' / 'frames'
+    frames.mkdir(parents=True)
+    Image.new('RGB', (32, 32), '#876543').save(frames / f'{aid}-lod0.png')
+    monkeypatch.setattr(review, 'OUT', baked_furniture.parent)
+    monkeypatch.setattr(review, 'REVIEW', frames.parent)
+    monkeypatch.setattr(review, 'FRAMES', frames)
+    review.main()
+    assert (frames.parent / f'{aid}.png').is_file()
+    assert source.read_bytes() == before
+
+
 @pytest.mark.parametrize('change', ['stale-source', 'checksum', 'incomplete-summary', 'empty-summary', 'empty-levels',
                                     'missing-level', 'unbaked-level', 'truncated-glb', 'triangle-budget'])
 def test_incomplete_lod_bake_is_not_current(recipe, baked_furniture, tmp_path, change):
