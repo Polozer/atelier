@@ -45,12 +45,13 @@ FYorimichiPhone::FYorimichiPhone(AWandererCharacter* InRider) : Rider(InRider), 
     });
     Stream->OnAction(TEXT("teleport"), [this](const FString& Player, const FJsonObject& J)
     {
-        AWandererCharacter* C = Rider.Get(); FString Zone; bool bOk = false;
+        AWandererCharacter* C = Rider.Get(); FString Zone; bool bOk = false; bool bPending = false;
         if (!C) return;
         if (J.TryGetStringField(TEXT("zone"), Zone) && Zone.Len() <= 64 && C->GetMap() && !C->IsCinematic()) bOk = C->GetMap()->TeleportToZone(Zone);
-        if (bOk) { Stream->ResetControls(); C->ReleaseJump(FInputActionValue(false)); }
-        UE_LOG(LogTemp, Display, TEXT("PHONE STREAM teleport %s: %s"), *Zone, bOk ? TEXT("ok") : TEXT("unknown zone"));
-        auto Reply = Object(); Reply->SetStringField(TEXT("zone"), Zone); Reply->SetBoolField(TEXT("ok"), bOk);
+        bPending = !bOk && !C->HasAuthority() && !C->IsCinematic() && !C->AreControlsSuspended() && Zone.StartsWith(TEXT("player_")) && C->GetMap() && C->GetMap()->FindZone(Zone);
+        if (bOk || bPending) { Stream->ResetControls(); C->ReleaseJump(FInputActionValue(false)); }
+        UE_LOG(LogTemp, Display, TEXT("PHONE STREAM teleport %s: %s"), *Zone, bOk ? TEXT("ok") : bPending ? TEXT("pending") : TEXT("unavailable"));
+        auto Reply = Object(); Reply->SetStringField(TEXT("zone"), Zone); Reply->SetBoolField(TEXT("ok"), bOk); Reply->SetBoolField(TEXT("pending"), bPending);
         Stream->Send(Player, Reply, TEXT("teleport"));
     });
     Stream->OnAction(TEXT("flightSpeed"), [this](const FString&, const FJsonObject& J)
@@ -112,6 +113,7 @@ void FYorimichiPhone::SendMap(const FString& Player)
         auto Row = Object();
         Row->SetStringField(TEXT("key"), Z.Key); Row->SetStringField(TEXT("name"), Z.Name); Row->SetStringField(TEXT("hint"), Z.Hint);
         Row->SetStringField(TEXT("region"),M->RegionForZone(Z));
+        if (Z.Key.StartsWith(TEXT("player_"))) Row->SetStringField(TEXT("category"),TEXT("player"));
         Row->SetNumberField(TEXT("x"), Z.Location.X / 100.0); Row->SetNumberField(TEXT("y"), -Z.Location.Y / 100.0);   // Blender metres, north up
         Zones.Add(MakeShared<FJsonValueObject>(Row));
     }

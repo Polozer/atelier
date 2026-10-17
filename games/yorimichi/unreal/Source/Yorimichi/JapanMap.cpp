@@ -259,6 +259,7 @@ FJapanMarkers* UJapanMap::MarkerStore() const
 
 const TArray<FJapanMapZone>& UJapanMap::GetZones() const
 {
+    RefreshPlayerZones();
     const auto* Store = MarkerStore();
     Zones.RemoveAll([Store](const FJapanMapZone& Z)
     {
@@ -403,6 +404,13 @@ const FJapanMapZone* UJapanMap::FindZone(const FString& Key) const
 
 bool UJapanMap::TeleportToZone(const FString& Key)
 {
+    if (Key.StartsWith(TEXT("player_")))
+    {
+        if (!Owner || Owner->IsCinematic() || Owner->AreControlsSuspended()) return false;
+        const uint32 Before = Owner->GetActivityEpoch();
+        Owner->ServerTravelToPlayer(Key.Mid(7), Before);
+        return Owner->HasAuthority() && Owner->GetActivityEpoch() != Before; // The server resolves the live pawn and reports acceptance.
+    }
     if (Key.StartsWith(MarkerPrefix)) return SelectMarker(Key) && ReturnToMarker();
     const FJapanMapZone* Z = FindZone(Key);
     if (!Z || !Owner) return false;

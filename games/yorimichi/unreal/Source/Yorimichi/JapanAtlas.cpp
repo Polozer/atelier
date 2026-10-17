@@ -200,7 +200,7 @@ TArray<FJapanAtlasTarget> UJapanMap::GetAtlasTargets() const
     for (const auto& Z:GetZones()) if (ActiveRegion==TEXT("world") || !SearchText.IsEmpty() || RegionForZone(Z)==ActiveRegion)
     {
         FJapanAtlasTarget T; T.Key=Z.Key; T.Name=Z.Name; T.Hint=Z.Hint; T.Location=Z.Location; T.bTravel=true;
-        T.Region=RegionForZone(Z); T.Category=Z.Key.StartsWith(TEXT("marker_")) ? TEXT("marker") : Z.Key.Contains(TEXT("station")) ? TEXT("station") : TEXT("place");
+        T.Region=RegionForZone(Z); T.Category=Z.Key.StartsWith(TEXT("player_")) ? TEXT("player") : Z.Key.StartsWith(TEXT("marker_")) ? TEXT("marker") : Z.Key.Contains(TEXT("station")) ? TEXT("station") : TEXT("place");
         if (SearchText.IsEmpty() || T.Name.Contains(SearchText)) Out.Add(MoveTemp(T));
     }
     if (ActiveRegion!=TEXT("world") || !SearchText.IsEmpty()) for (const auto& L:AtlasLandmarks) if (L.Region==ActiveRegion || !SearchText.IsEmpty())

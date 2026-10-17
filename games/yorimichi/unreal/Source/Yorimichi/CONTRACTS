@@ -31,3 +31,16 @@ Every on-sheet destination MUST remain individually selectable with a controller
 pins. Controller camera pan MUST retain the screen-space reticle away from sheet boundaries. Map focus
 MUST consume controller movement instead of driving gameplay. Back MUST return from region to world,
 then close the world view; selection MUST use the destination's existing travel resolver.
+
+@cc [owner:fontanierh,label:correctness] remote-vehicle-presentation
+Releasing a remote skate pose, including repeated stow or travel after its bone buffer is empty,
+MUST restore capsule-relative mesh placement without changing the authoritative capsule. A new activity
+epoch MUST discard the previous streamed mesh frame. Listen-host horse visual interpolation MUST NOT
+change the authoritative horse checkpoint. Zeppelin passengers MUST follow the rendered ship without
+an additional character smoothing offset.
+
+@cc [owner:fontanierh,label:correctness] live-player-map-travel
+Online player map targets MUST use session player identity, follow the current pawn, and disappear
+when that player leaves. Travel MUST resolve the identity on the host at request time and retain epoch,
+encounter, pending-contact and rate admission. A destination MUST have walkable ground and standing
+capsule clearance; the chosen floor MUST NOT be replaced by an overhead bridge or roof.

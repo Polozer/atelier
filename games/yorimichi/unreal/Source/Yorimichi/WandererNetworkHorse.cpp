@@ -84,6 +84,7 @@ void AWandererCharacter::TickNetworkHorse()
         NetworkHorsePresentation.Stamp = GetWorld()->GetTimeSeconds();
         NetworkHorsePresentation.State = Horse->CaptureNetworkState();
         LastHorsePublication = GetWorld()->GetTimeSeconds();
+        if (!IsLocallyControlled()) OnRep_NetworkHorsePresentation();
     }
     else if (!HasAuthority() && !IsLocallyControlled()) OnRep_NetworkHorsePresentation();
     // Terminal simulation only marks intent; actor Tick is outside any saved-move replay and may safely reset the

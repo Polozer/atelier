@@ -7,8 +7,10 @@ const evidence=new URL('map/atlas-browser/',BUILD);await fs.mkdir(evidence,{recu
 const source=JSON.parse(await fs.readFile(new URL('map/map.json',BUILD),'utf8'));
 if(source.atlas?.regions.length!==7)throw Error('Build the complete regional atlas first');
 const marker='marker_0123456789abcdef0123456789abcdef';
+const peer='player_0123456789abcdef0123456789abcdef';
 const home=source.atlas.landmarks.find(p=>p.key==='home_stables');
 const data={...source,current_region:'haras_valley',loaded:true,image:'/map/map.jpg',zones:[...source.zones,
+ {key:peer,name:'Online rider',x:home.x+30,y:home.y+30,region:'haras_valley',category:'player',hint:'Online player · teleport nearby'},
  {key:marker,name:'My saved ridge',x:home.x,y:home.y,region:'haras_valley',hint:'Saved place'}]};
 const browser=await chromium.launch({executablePath:CHROME,headless:true});
 try{
@@ -45,6 +47,7 @@ document.getElementById('close-map').onclick=()=>document.getElementById('map-di
   const rename=await page.evaluate(()=>window.sent.at(-1));
   if(rename.action!=='renameStable'||rename.key!=='alder_stables')throw Error('Stable ID changed with its name');
   await back();
+  if(!(await page.locator(`.map-pin[data-key="${peer}"]`).textContent()).startsWith('P'))throw Error('World overview hid the online player pin');
   const labels=await page.locator('.map-region').evaluateAll(nodes=>nodes.map(n=>({key:n.dataset.key,box:n.getBoundingClientRect().toJSON()})));
   for(let i=0;i<labels.length;i++)for(let j=i+1;j<labels.length;j++){
    const a=labels[i].box,b=labels[j].box;

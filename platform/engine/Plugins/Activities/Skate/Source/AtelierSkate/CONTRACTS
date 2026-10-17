@@ -1,0 +1,3 @@
+@cc [owner:fontanierh,label:correctness] streamed-pose-release
+A network proxy stow MUST restore capsule-relative mesh placement even if its bone pose has already
+been discarded. Stowing a visual proxy MUST NOT restore local simulation capsule dimensions or position.

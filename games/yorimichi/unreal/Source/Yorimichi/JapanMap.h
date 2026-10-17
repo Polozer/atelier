@@ -134,6 +134,9 @@ public:
     int32 AtlasRevision = 0;
 private:
     friend class SJapanAtlas;
+
+    friend class FRemoteVehiclePresentationTest;
+    void RefreshPlayerZones() const;
     UPROPERTY() TObjectPtr<AWandererCharacter> Owner;
     UPROPERTY() TObjectPtr<UTexture2D> Texture;
     UPROPERTY() TArray<TObjectPtr<UTexture2D>> AtlasTextures;

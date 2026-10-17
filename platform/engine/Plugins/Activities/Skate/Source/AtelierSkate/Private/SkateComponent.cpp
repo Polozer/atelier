@@ -215,6 +215,15 @@ bool USkateComponent::Toggle()
 
 void USkateComponent::StowImmediately()
 {
+    if (bNetworkProxy)
+    {
+        // A visual proxy never saved a local ride's capsule/position. In
+        // particular, do not erase RiderPose before releasing its absolute mesh.
+        ClearNetworkPose();
+        if (BoardRoot) BoardRoot->SetVisibility(false, true);
+        for (int32 I = 0; I < Loops.Num(); ++I) { if (Loops[I]) Loops[I]->Stop(); LoopVolume[I] = 0.f; }
+        return;
+    }
     SuspendSimulation();
     // A cut: no board left lying, no carried speed, the body back on its capsule.
     ResetTransition(); RequestPoseBlend(0.f);

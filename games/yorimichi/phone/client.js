@@ -47,7 +47,7 @@ for(const [id,delta] of [['slower',-1],['faster',1]]){
 on('hint',state=>toast(state.text));
 on('settings',state=>{window.yorimichi.settings=state.values;renderSettings(state.values,changeSetting);const renderer=state.values.find(row=>row.key==='renderer');$('settings-status').textContent=state.error||(renderer&&renderer.running!==renderer.value?(renderer.restart_supported?'Settings saved · restarting the game…':'Lighting saved · applies on the next launch'):'Saved in the game');});
 on('map',state=>{map.receive(state);window.yorimichi.map=state;});
-on('teleport',state=>{const zone=map.data?.zones.find(z=>z.key===state.zone);toast(state.ok?`Arrived: ${zone?.name||state.zone}`:'That place is not on the map');});
+on('teleport',state=>{const zone=map.data?.zones.find(z=>z.key===state.zone);toast(state.pending?`Travelling to ${zone?.name||"player"}…`:state.ok?`Arrived: ${zone?.name||state.zone}`:'That place is not on the map');});
 on('status',state=>{
  const hint=state.rampHint;
  $('ramp-hint').textContent=hint||'';$('ramp-hint').hidden=!hint;

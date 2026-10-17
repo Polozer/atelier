@@ -185,7 +185,7 @@ public:
             {
                 Disc(Out,Layer+3,G,P,Hover?11.f:8.f,C(TEXT("21382D")));
                 Ring(Out,Layer+4,G,P,Hover?12.f:9.f,1.4f,Gold);
-                DrawText(Out,Layer+5,G,Marker?TEXT("M"):Stable?TEXT("◇"):T.Category==TEXT("station")?TEXT("T"):TEXT("•"),P,11,Gold,false,true);
+                DrawText(Out,Layer+5,G,T.Category==TEXT("player")?TEXT("P"):Marker?TEXT("M"):Stable?TEXT("◇"):T.Category==TEXT("station")?TEXT("T"):TEXT("•"),P,11,Gold,false,true);
             }
             const int32 PointSize=Region?17:Hover?15:12;
             const auto TextSize=Measure(T.Name,PointSize,true);
@@ -296,7 +296,7 @@ private:
     {
         const auto* M=Map.Get();if(!M)return {};auto T=M->GetAtlasTargets();
         T.RemoveAll([M](const FJapanAtlasTarget& P){const auto UV=M->ToAtlas(P.Location);return UV.X<0 || UV.X>1 || UV.Y<0 || UV.Y>1;});
-        if(View==TEXT("world") && M->SearchText.IsEmpty())T.RemoveAll([](const FJapanAtlasTarget& P){return P.Category!=TEXT("region") && P.Region!=TEXT("world");});return T;
+        if(View==TEXT("world") && M->SearchText.IsEmpty())T.RemoveAll([](const FJapanAtlasTarget& P){return P.Category!=TEXT("region") && P.Category!=TEXT("player") && P.Region!=TEXT("world");});return T;
     }
     void Fit(const FGeometry& G) const
     {

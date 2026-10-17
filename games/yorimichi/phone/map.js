@@ -8,7 +8,7 @@ function project(v,knots){
 }
 export function createMap({send,onTravel}){
  let data=null,state=null,imageSource='',scale=1,offset={x:0,y:0},base={w:1,h:1},initialized=false,gesture=null,suppressClick=false,region=null,stable=null;
- const touches=new Map();
+ const touches=new Map();let lastMapRefresh=0;
  const dialog=$('map-dialog'),layout=$('map-layout'),frame=$('map-frame'),canvas=$('map-canvas'),img=$('map-image'),pins=$('map-pins'),list=$('map-zones'),player=$('map-player'),status=$('map-status');
  const frames=()=>data?.atlas?[data.atlas.world,...data.atlas.regions]:[];
  function frameData(){return frames().find(f=>f.key===region)||data;}
@@ -85,10 +85,10 @@ export function createMap({send,onTravel}){
    const match=!query||z.name.toLowerCase().includes(query);if(!match)return;
    const [l,t]=pct(z.x,z.y),pin=document.createElement('button');
    const action=()=>{if(suppressClick)return;if(type==='region')choose(z.key);else if(type==='stable'){stable=z;$('map-stable-name').value=z.name;$('map-stable-editor').hidden=false;$('map-stable-name').focus();}else travel(z);};
-   pin.className='map-pin '+(type==='region'?'map-region':type==='stable'?'map-estate':'');pin.dataset.key=z.key;pin.style.left=l+'%';pin.style.top=t+'%';pin.textContent=type==='region'?z.name:type==='stable'?'◇':z.key.startsWith('marker_')?'M':index+1;pin.setAttribute('aria-label',(type==='region'?'Open ':type==='stable'?'Rename ':'Travel to ')+z.name);pin.onclick=action;
+   pin.className='map-pin '+(type==='region'?'map-region':type==='stable'?'map-estate':'');pin.dataset.key=z.key;pin.style.left=l+'%';pin.style.top=t+'%';pin.textContent=type==='region'?z.name:type==='stable'?'◇':z.category==='player'?'P':z.key.startsWith('marker_')?'M':index+1;pin.setAttribute('aria-label',(type==='region'?'Open ':type==='stable'?'Rename ':'Travel to ')+z.name);pin.onclick=action;
    if(type==='region'){pin.dataset.u=l;pin.dataset.v=t;}
    if(type!=='region'){const name=document.createElement('span');name.className='map-pin-label';name.textContent=z.name;pin.append(name);}
-   if(l>=0&&l<=100&&t>=0&&t<=100&&(region!=='world'||type==='region'||z.region==='world'||query))pins.append(pin);
+   if(l>=0&&l<=100&&t>=0&&t<=100&&(region!=='world'||type==='region'||z.category==='player'||z.region==='world'||query))pins.append(pin);
    const li=document.createElement('li'),button=document.createElement('button');button.dataset.key=z.key;
    const n=document.createElement('b');n.textContent=type==='region'?'›':type==='stable'?'◇':index+1;
    const name=document.createElement('span');name.textContent=z.name;
@@ -106,6 +106,7 @@ export function createMap({send,onTravel}){
   if(!initialized){if(data.atlas)whole();else focus();initialized=true;}update(state);
  }
  function update(s){
+  if(dialog.open&&Date.now()-lastMapRefresh>1000){lastMapRefresh=Date.now();send({action:"map"});}
   state=s;if(!data||!s||typeof s.x!=='number'){player.hidden=true;return;}
   const [l,t]=pct(s.x/100,-s.y/100);player.hidden=l<0||l>100||t<0||t>100;player.style.left=l+'%';player.style.top=t+'%';player.style.setProperty('--heading',`${s.yaw||0}deg`);
  }
