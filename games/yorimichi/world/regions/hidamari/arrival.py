@@ -29,7 +29,7 @@ PALETTE = {'ar_paddy_earth': (.22, .15, .065), 'ar_stubble_row': (.40, .29, .10)
            'ar_hokora_timber': (.30, .17, .08), 'ar_hokora_roof': (.08, .09, .10), 'ar_red_cloth': (.60, .07, .04),
            'ar_shrine_stone': (.32, .31, .28), 'ar_gate_timber': (.22, .12, .06), 'ar_gate_roof': (.07, .08, .09),
            'ar_gate_stone': (.30, .29, .26), 'ar_gate_sign': (.70, .64, .50), 'ar_lantern_glow': (1., .55, .25),
-           'ar_island_road': (.085, .085, .09), 'ar_road_gravel': (.17, .155, .13), 'ar_verge_lawn': (.163, .183, .036),
+           'ar_island_road': (.085, .085, .09), 'ar_road_gravel': (.17, .155, .13), 'ar_verge_lawn': (.126, .141, .028),
            'ar_rice_canopy': (.42, .32, .09), 'ar_rice_canopy_shade': (.29, .22, .07), 'ar_rice_side': (.22, .19, .07)}
 
 
@@ -356,7 +356,7 @@ def _ribbon(m, height):
             from village import build as v
             k = len(m.faces[-1]); hd = v.PALETTE['hd_grass']
             for i, (x, _, _) in enumerate(m.vertices[-k:]):
-                w = float(layout.island_fade(x)); m.colors[len(m.colors)-k+i] = (*(a*(1-w)+b*w for a, b in zip(layout.ISLAND_GRASS, hd)), 0)
+                w = float(layout.island_fade(x)); m.colors[len(m.colors)-k+i] = (*(a*(1-w)+b*w for a, b in zip(layout.ISLAND_LAWN, hd)), 0)
     # Each shoulder is gravel out to a width that grows from nothing at the island road's end (which runs straight
     # onto the grass) to the whole shoulder over BLEND metres; the rest of it is lawn. Its column at a section is cut
     # where that width ends, on the section's line between its two points, so a face that narrows to nothing is

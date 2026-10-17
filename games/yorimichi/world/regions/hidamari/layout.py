@@ -36,6 +36,9 @@ def _base_height(x,y):
 
 ISLAND_FADE=24.   # metres east of the island terrain's edge over which the arrival road's corridor levels
 ISLAND_GRASS=(.163,.183,.036)   # the island ground's colour (T_ground's mean, linear; megapark/gate.py GROUND)
+# The lawn colour that looks like it in M_HDCity, which renders a colour about 1.3 times as bright as the island's
+# M_Painted ground does (measured on the two grasses either side of x 300 in packaged shots).
+ISLAND_LAWN=tuple(c*.77 for c in ISLAND_GRASS)
 
 def island_fade(x):
     """0 on the island terrain's edge (x 300) to 1 ISLAND_FADE metres east, smoothstepped: street_height's corridor

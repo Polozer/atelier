@@ -245,7 +245,7 @@ def surface(name,xs,ys,color):
                     # the lawn takes the island ground's colour at its edge (x 300), so the two grasses meet without a line
                     lawn=v.PALETTE['hd_grass'];n=len(m.faces[-1])
                     for k,(px,_,_) in enumerate(m.vertices[-n:]):
-                        w=float(layout.island_fade(px));m.colors[len(m.colors)-n+k]=(*(i*(1-w)+h*w for i,h in zip(layout.ISLAND_GRASS,lawn)),0)
+                        w=float(layout.island_fade(px));m.colors[len(m.colors)-n+k]=(*(i*(1-w)+h*w for i,h in zip(layout.ISLAND_LAWN,lawn)),0)
     # Inset warm stone paving pattern: broad enough to read without fine texture noise.
     if name=='HD_Terrain':
         for y in np.arange(-119,240,6):
