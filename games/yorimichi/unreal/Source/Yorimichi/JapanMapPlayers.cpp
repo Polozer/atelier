@@ -29,8 +29,11 @@ bool HasPlayerClearance(const AWandererCharacter* Traveller, const AWandererChar
     // train body or another moving obstruction can occupy otherwise safe ground.
     FCollisionQueryParams Clearance(SCENE_QUERY_STAT(PlayerMapClearance),false,Traveller);
     Clearance.AddIgnoredActor(Peer);
-    return !Traveller->GetWorld()->OverlapBlockingTestByProfile(Ground+FVector(0,0,Half+3), FQuat::Identity,
-        Capsule->GetCollisionProfileName(), FCollisionShape::MakeCapsule(Radius,Half), Clearance);
+    // Online Pawn overlap customizes the profile; a named-profile lookup would
+    // fall back to WorldStatic/default responses. Use the live collision mask.
+    return !Traveller->GetWorld()->OverlapBlockingTestByChannel(Ground+FVector(0,0,Half+3), FQuat::Identity,
+        Capsule->GetCollisionObjectType(), FCollisionShape::MakeCapsule(Radius,Half), Clearance,
+        FCollisionResponseParams(Capsule->GetCollisionResponseToChannels()));
 }
 
 }
@@ -115,6 +118,7 @@ bool FPlayerMapClearanceTest::RunTest(const FString&)
         if (Obstruction) Obstruction->Destroy();
     };
     if (!Traveller || !Peer || !Obstruction) return false;
+    JapanNetwork::ConfigurePlayerCollision(Traveller->GetCapsuleComponent());
     const FVector Ground(300000,200000,10000);
     auto* Box = NewObject<UBoxComponent>(Obstruction);
     Obstruction->SetRootComponent(Box);
@@ -124,8 +128,9 @@ bool FPlayerMapClearanceTest::RunTest(const FString&)
     Box->SetCollisionObjectType(ECC_WorldDynamic);
     Box->SetCollisionResponseToAllChannels(ECR_Block);
     Box->SetCollisionResponseToChannel(JapanGameplayCollision::Channel,ECR_Ignore);
+    Box->SetCollisionResponseToChannel(ECC_WorldStatic,ECR_Ignore);
     Box->SetWorldLocation(Ground+FVector(0,0,75)); Box->RegisterComponent();
-    TestFalse(TEXT("A dynamic blocker outside fixed gameplay geometry refuses the occupied candidate"),HasPlayerClearance(Traveller,Peer,Ground));
+    TestFalse(TEXT("An online custom capsule detects Pawn blockers that ignore WorldStatic and fixed geometry"),HasPlayerClearance(Traveller,Peer,Ground));
     TestTrue(TEXT("A clear nearby candidate is still available"),HasPlayerClearance(Traveller,Peer,Ground+FVector(180,0,0)));
     Traveller->GetCapsuleComponent()->SetCapsuleHalfHeight(45);
     Box->SetBoxExtent(FVector(45,45,10)); Box->SetWorldLocation(Ground+FVector(0,0,130));
