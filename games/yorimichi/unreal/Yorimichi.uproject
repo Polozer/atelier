@@ -73,6 +73,10 @@
       "Enabled": true
     },
     {
+      "Name": "HorseRacing",
+      "Enabled": true
+    },
+    {
       "Name": "AtelierStream",
       "Enabled": true
     }
