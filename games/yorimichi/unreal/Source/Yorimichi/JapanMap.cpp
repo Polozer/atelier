@@ -711,9 +711,10 @@ bool UJapanMap::TeleportToZone(const FString& Key)
 {
     if (Key.StartsWith(TEXT("player_")))
     {
-        if (Owner && !Owner->IsCinematic() && !Owner->AreControlsSuspended())
-            Owner->ServerTravelToPlayer(Key.Mid(7), Owner->GetActivityEpoch());
-        return false; // The server resolves the live pawn and reports acceptance.
+        if (!Owner || Owner->IsCinematic() || Owner->AreControlsSuspended()) return false;
+        const uint32 Before = Owner->GetActivityEpoch();
+        Owner->ServerTravelToPlayer(Key.Mid(7), Before);
+        return Owner->HasAuthority() && Owner->GetActivityEpoch() != Before; // The server resolves the live pawn and reports acceptance.
     }
     if (Key.StartsWith(MarkerPrefix)) return SelectMarker(Key) && ReturnToMarker();
     const FJapanMapZone* Z = FindZone(Key);

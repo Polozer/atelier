@@ -199,6 +199,7 @@ protected:
     void StopGesture(float BlendSeconds = .3f) { SetAction(NAME_None, false, BlendSeconds); }
 
 private:
+    friend class FRemoteVehiclePresentationTest;
     void InitializeLocalPlayer();
     TWeakObjectPtr<ULocalPlayer> InputOwner;
     bool RequestNetworkBike();

@@ -41,7 +41,7 @@ void USkateComponent::ClearNetworkPose()
     // A travel/stow can already have discarded the pose. Absolute attachment is
     // independent state and must still be restored before ordinary movement.
     auto* Mesh = Rider->GetMesh();
-    if (RiderPose.IsEmpty() && !Mesh->IsUsingAbsoluteLocation() && !Mesh->IsUsingAbsoluteRotation()) return;
+    if (RiderPose.IsEmpty() && !Mesh->IsUsingAbsoluteLocation() && !Mesh->IsUsingAbsoluteRotation() && !Mesh->IsUsingAbsoluteScale()) return;
     RiderPose.Reset();
     ++PoseBlendSerial; PoseBlendTime = .12f;
     Mesh->SetAbsolute(false, false, false);

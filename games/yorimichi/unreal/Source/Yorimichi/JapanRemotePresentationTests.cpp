@@ -3,6 +3,8 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #include "WandererCharacter.h"
+#include "JapanMap.h"
+#include "JapanSession.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
@@ -61,6 +63,40 @@ bool FRemoteVehiclePresentationTest::RunTest(const FString&)
     TestTrue(TEXT("Listen-host visual sampling leaves authoritative checkpoint byte-identical"), A == B);
     TestTrue(TEXT("Host rider animation consumes the buffered visual state"), Horse->HasPresentedNetworkState());
     TestEqual(TEXT("Presented clock differs from current authority clock"), Horse->PresentedNetworkState.GaitPhase, .2f);
+    // A single stable session identity follows its replacement pawn and is
+    // removed on departure, without opening the UI or loading world artwork.
+    auto* OriginalState = World->GetGameState();
+    auto* State = World->SpawnActor<AJapanGameState>(Spawn);
+    auto* Player = World->SpawnActor<AJapanPlayerState>(Spawn);
+    auto* Replacement = World->SpawnActor<AWandererCharacter>(At,FRotator::ZeroRotator,Spawn);
+    ON_SCOPE_EXIT
+    {
+        World->SetGameState(OriginalState);
+        if (Replacement) Replacement->Destroy();
+        if (Player) Player->Destroy();
+        if (State) State->Destroy();
+    };
+    if (!State || !Player || !Replacement) return false;
+    World->SetGameState(State);
+    State->PlayerArray.AddUnique(Player);
+    Player->SessionPlayerId = TEXT("0123456789abcdef0123456789abcdef");
+    Player->RiderName = TEXT("cairo"); Player->bWorldReady = true;
+    Replacement->bReady = true; Replacement->SetPlayerState(Player);
+    auto* Map = NewObject<UJapanMap>(Rider); Map->Owner = Rider;
+    const FString Key = TEXT("player_")+Player->SessionPlayerId;
+    TestEqual(TEXT("Joined peer contributes one map target"),Map->GetZones().Num(),1);
+    Replacement->SetActorLocation(At+FVector(1300,900,0));
+    const auto* Target = Map->FindZone(Key);
+    TestTrue(TEXT("Moving peer updates its target"),Target && Target->Location.Equals(Replacement->GetActorLocation()));
+    Replacement->SetPlayerState(nullptr); Rider->SetPlayerState(Player); Rider->bReady = true;
+    Map->Owner = Replacement;
+    Target = Map->FindZone(Key);
+    TestTrue(TEXT("Character replacement retains identity and follows current pawn"),Target && Target->Location.Equals(Rider->GetActorLocation()));
+    Player->bWorldReady = false;
+    TestEqual(TEXT("A departed or unready peer is removed"),Map->GetZones().Num(),0);
+    Player->bWorldReady = true;
+    Map->Owner = Rider;
+    TestEqual(TEXT("The local player never becomes a teleport target"),Map->GetZones().Num(),0);
     return true;
 }
 #endif
