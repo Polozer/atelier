@@ -26,7 +26,7 @@
   "requested_model": "gpt-image-2.5-sunburst",
   "quality": "high",
   "prompt": "Correct ONLY the southern beach of image 1, keeping the entire town, streets, buildings, north edge and right vertical edge unchanged at the exact same pixels. Image 2 is the EXACT DRY LAND MASK. Image 3 is the exact plan.\nThe current image has too much ocean: extend the existing dry sand beach SOUTH by about 45 output pixels until it exactly fills ALL WHITE of image 2. The southern beach must be VERY WIDE: the whole strip from row740 through row841 is DRY SAND, across x180 through x1515, on the final1536x1024 image. The blue ocean begins ONLY at row842. Keep this lower beach edge perfectly HORIZONTAL. Do not round it. The model's previous narrow beach is wrong.\nCRITICAL UNUSUAL REAL GEOGRAPHY: The two timber structures are DRY BOARDWALKS standing ON THIS BROAD BEACH, not piers reaching into the ocean. Their ends remain ON DRY SAND. Do NOT bring water up to them. Small objects above row842 stand on dry sand too. Do not assume boats/boardwalks need surrounding water. The white/black terrain mask overrides that assumption. Keep existing boardwalk positions unchanged; paint dry sand underneath them out to the straight mask edge.\nPreserve the exact top-down orthographic framing, scale, painterly style, all buildings and every other feature. No text, labels, numbers, symbols, border or UI. No camera changes. This is a local dry-beach extension, not a new town painting.",
-  "output_sha256": "30c0a48b3fcafe441a343800559b7e58758e0fc342bcf585b3d14c38ff707f45",
+  "output_sha256": "aa7eeb609acbb38cbf8315a4063e4da1543b616c499a66fa143ffe0e9b4d73f7",
   "generation": {
     "bounds": [
       280.0,
@@ -92,7 +92,7 @@
     "finished_at": "2026-10-17T23:20:55.319109+00:00"
   },
   "registration": {
-    "method": "water-only-terrain-mask-v2",
+    "method": "water-only-local-sea-colour-v4",
     "source_sha256": "238ea7423d205456dcc872745c3cfdd3a83514411b77b8e16d60af8fdd027a9e",
     "mask_sha256": "d57b375096da956e132e36e76bba861ed42be6697c00fc7ca2c6dafc19232375",
     "water_texture_box": [
@@ -101,13 +101,11 @@
       1536,
       929
     ],
-    "sea_colour_shift_rgb": [
-      11.414,
-      40.092,
-      23.309
-    ],
-    "changed_pixels": 37780,
-    "changed_fraction": 0.024019877115885418,
+    "local_colour_radius": 24,
+    "texture_detail_weight": 0.4,
+    "feather_pixels": 8,
+    "changed_pixels": 39847,
+    "changed_fraction": 0.02533404032389323,
     "outside_edit_identical": true,
     "all_reference_land_identical": true
   },
@@ -129,7 +127,7 @@
       "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
       "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f"
     },
-    "painting_sha256": "30c0a48b3fcafe441a343800559b7e58758e0fc342bcf585b3d14c38ff707f45",
+    "painting_sha256": "aa7eeb609acbb38cbf8315a4063e4da1543b616c499a66fa143ffe0e9b4d73f7",
     "coast_sha256": "d57b375096da956e132e36e76bba861ed42be6697c00fc7ca2c6dafc19232375",
     "reference_sha256": "2d8330cb7985ad519b8ff25ae0ae45c9a7d2d6a1161917a086400c17eb31b130"
   }

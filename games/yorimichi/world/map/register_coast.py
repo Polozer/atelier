@@ -40,25 +40,35 @@ def register(source, record, mask_path, water_box, target):
         ocean = np.asarray(connected) == 2
         painted_water = atlas.water_pixels(image)
         bad = ocean & ~painted_water
-        edit = (np.asarray(Image.fromarray((bad*255).astype('uint8')).filter(ImageFilter.MaxFilter(5))) > 127) & ocean
-        alpha = np.asarray(Image.fromarray((edit*255).astype('uint8')).filter(ImageFilter.GaussianBlur(4)), dtype=float)/255.
-        alpha[bad] = 1.
+        core = (np.asarray(Image.fromarray((bad*255).astype('uint8')).filter(ImageFilter.MaxFilter(7))) > 127) & ocean
+        alpha = core.astype(float)
+        grown = core
+        # Start the feather at full opacity; forcing a blurred binary core to
+        # one would create a half-opacity jump on the first surrounding row.
+        for distance in range(1, 9):
+            expanded = (np.asarray(Image.fromarray((grown*255).astype('uint8')).filter(ImageFilter.MaxFilter(3))) > 127) & ocean
+            alpha[expanded & ~grown] = .5+.5*np.cos(np.pi*distance/9.)
+            grown = expanded
         alpha[~ocean] = 0.
-        alpha[alpha < 1.5/255.] = 0.
         edit = alpha > 0.
         if edit.mean() > .03:
             raise ValueError('More than 3% needs shore registration; repaint the source')
         patch = image.crop(water_box)
         if patch.width < 32 or patch.height < 32 or not atlas.water_pixels(patch).all():
             raise ValueError('Registration requires a verified open-water texture patch')
-        sea = np.asarray(patch, dtype=float)
-        ring = (np.asarray(Image.fromarray((bad*255).astype('uint8')).filter(ImageFilter.MaxFilter(31))) > 127) & ocean & painted_water
-        shift = a[ring].mean(0)-sea.mean((0, 1)) if ring.any() else np.zeros(3)
-        sea = np.clip(sea+shift, 0, 255)
+        # Match colour locally, rather than tinting a whole rectangular strip
+        # with one mean. Exclude bright shore foam from the colour extension.
+        samples = ocean & painted_water & (a[:, :, 0] < 20)
+        weights = np.asarray(Image.fromarray((samples*255).astype('uint8')).filter(ImageFilter.GaussianBlur(24)), dtype=float)/255.
+        colours = np.asarray(Image.fromarray(a*samples[:, :, None]).filter(ImageFilter.GaussianBlur(24)), dtype=float)
+        if (weights[edit] <= 0.).any():
+            raise ValueError('No nearby open-water colour for the correction')
+        field = colours/np.maximum(weights[:, :, None], 1./255.)
+        sea = np.asarray(patch, dtype=float)-np.asarray(patch.filter(ImageFilter.GaussianBlur(6)), dtype=float)
         y, x = np.nonzero(edit)
         if len(y):
             # Preserve world-x texture continuity; tile only the small sea strip.
-            texture = sea[(y-y.min()) % patch.height, (x-water_box[0]) % patch.width]
+            texture = np.clip(field[y, x]+.4*sea[(y-y.min()) % patch.height, (x-water_box[0]) % patch.width], 0, 255)
             a[y, x] = np.rint(a[y, x]*(1-alpha[y, x, None])+texture*alpha[y, x, None]).astype('uint8')
         result = Image.fromarray(a)
         atlas.verify_coast(result, mask, source.stem)
@@ -73,9 +83,9 @@ def register(source, record, mask_path, water_box, target):
     output = dict(kind='registered-sunburst-painting', bounds=original['bounds'], labels_baked=False,
                   geography=atlas.geography_signature(), requested_model=original['requested_model'], quality=original['quality'],
                   prompt=original['prompt'], output_sha256=hashlib.sha256(target.read_bytes()).hexdigest(), generation=original,
-                  registration=dict(method='water-only-terrain-mask-v2', source_sha256=source_sha,
+                  registration=dict(method='water-only-local-sea-colour-v4', source_sha256=source_sha,
                                     mask_sha256=hashlib.sha256(mask_path.read_bytes()).hexdigest(), water_texture_box=list(water_box),
-                                    sea_colour_shift_rgb=[round(float(v), 3) for v in shift],
+                                    local_colour_radius=24, texture_detail_weight=.4, feather_pixels=8,
                                     changed_pixels=int(changed.sum()), changed_fraction=float(changed.mean()),
                                     outside_edit_identical=True, all_reference_land_identical=True))
     target.with_suffix('.json').write_text(json.dumps(output, indent=2)+'\n')
