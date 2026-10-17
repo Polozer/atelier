@@ -10,6 +10,7 @@ fetch('assets/runtime-review.json', {cache:'no-cache'}).then(response => {
  if (!response.ok) throw Error('Review unavailable');
  return response.json();
 }).then(data => {
+ renderCoastComparisons(data, document.querySelector('[data-coast-comparisons]'));
  document.querySelector('#review-state').textContent = data.state;
  document.querySelector('#review-summary').textContent = data.summary;
  document.querySelector('#review-scope').textContent = data.scope;

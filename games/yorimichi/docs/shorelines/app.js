@@ -48,6 +48,9 @@ fetch('assets/runtime-review.json', {cache:'no-cache'}).then(response=>{
  if (!response.ok) throw Error('Native evidence unavailable');
  return response.json();
 }).then(data=>{
+ $('#native-state').textContent=data.state || 'Game captures';
+ $('#native-summary').textContent=data.summary || '';
+ renderCoastComparisons(data, $('[data-coast-comparisons]'));
  const shots=data.highlights || (data.stills || []).slice(0,6);
  if (!shots.length) return;
  for (const shot of shots) {
