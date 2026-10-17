@@ -17,3 +17,7 @@ Copy `review-status.json` to `assets/runtime-review.json` for the initial pendin
 replace that generated data with the captured revision, clearly scoped checks/limits, original screenshots, film
 paths and evidence links. Runtime captures stay in build/archive/hosting storage; do not relabel a Sunburst as game
 evidence. The survey map remains the original baseline and is identified as surveyed terrain.
+
+The main page loads native images from the same generated `assets/runtime-review.json`. An optional
+`highlights` list selects its featured images; otherwise it shows the first six stills. The section stays hidden
+until actual stills are published, so a fresh assembly has no references to unavailable runtime captures.

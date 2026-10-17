@@ -44,3 +44,19 @@ zoomButtons.forEach(id=>$('#'+id).addEventListener('click',()=>{
 }));
 document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>applyFilter(b.dataset.filter)));
 $('#lightbox .close').addEventListener('click',()=>$('#lightbox').close());$('#lightbox').addEventListener('click',e=>{if(e.target===$('#lightbox')){const r=$('#lightbox').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('#lightbox').close();}});
+fetch('assets/runtime-review.json', {cache:'no-cache'}).then(response=>{
+ if (!response.ok) throw Error('Native evidence unavailable');
+ return response.json();
+}).then(data=>{
+ const shots=data.highlights || (data.stills || []).slice(0,6);
+ if (!shots.length) return;
+ for (const shot of shots) {
+  const figure=document.createElement('figure');
+  const link=document.createElement('a');link.href=shot.src;
+  const image=document.createElement('img');image.src=shot.src;image.alt=shot.title;image.loading='lazy';image.width=1600;image.height=900;
+  const caption=document.createElement('figcaption');caption.textContent=shot.title;
+  link.append(image);figure.append(link,caption);$('#native-highlights').append(figure);
+ }
+ $('#ingame').hidden=false;$('#ingame-nav').hidden=false;
+ $('.build-note a').textContent='View the in-game captures ↗';
+}).catch(()=>{});
