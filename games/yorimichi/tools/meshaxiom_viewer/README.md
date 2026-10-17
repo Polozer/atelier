@@ -43,6 +43,22 @@ uv run python games/yorimichi/tools/meshaxiom_viewer.py \
 
 Repeat with `--asset skater-head`, a clay title and `head_clay.glb` for the matching unpainted entry.
 
+The selected eight-view 2K comparison is also committed and needs no paid calls or model weights:
+
+```sh
+uv run python games/yorimichi/tools/meshaxiom_viewer.py \
+  --asset skater-head-multiview --title 'Skater head · eight views' --render-glb \
+  --mesh games/yorimichi/assets/characters/meshaxiom-skater-head/mesh.source.json.gz \
+  --model games/yorimichi/assets/characters/meshaxiom-skater-head-multiview/head.glb \
+  --reference games/yorimichi/assets/characters/meshaxiom-skater-head/reference.png \
+  --benchmark games/yorimichi/assets/characters/meshaxiom-skater-head/benchmark.json \
+  --note 'Eight-view front-first projection; all native triangles preserved. Seams and surface defects remain. Generation timing excludes texture authoring.'
+```
+
+See [the quality experiment](../../docs/MESHAXIOM_HEAD_QUALITY.md) for measured 2K/4K
+comparisons and exact photo replay. Viewer generation statistics describe the original native
+geometry run; texture timings and memory are recorded separately in the selected asset's provenance.
+
 For tailnet access, proxy this loopback port using an available Tailscale Serve path:
 
 ```sh
@@ -57,3 +73,21 @@ Rendering is on demand, stops when hidden and caps pixel ratio at 1.5. Only an e
 turntable renders continuously. Orbit, zoom, wireframe, gray/color comparison and reset work on
 mouse and touch layouts. Open edges can be highlighted in red, with boundary/nonmanifold
 counts computed from the loaded mesh. All geometry and GLB transfers stay on the serving host/tailnet.
+
+The head comparison also stages `skater-head-native-pixal` (native learned PBR),
+`skater-head-native-front` (native PBR with the original front photograph), and
+`skater-head-native-multiview` (native PBR with eight-view front-first projection).
+All three retain the same 18,931 native triangles. See the head-quality report
+for the smaller 512-pixel conditioning setting and measured memory limits.
+
+## Best lit local setup
+
+The selected detailed head now uses native TRELLIS vertex RGB plus
+`head_models/lit_normals.py --iterations 16`, with the original conventionally lit
+material. The normal pass duplicates coincident attributes at normal seams while
+verifying every ordered triangle position, winding and corner color. It never
+moves or removes geometric triangles. The old raw lit and unlit variants remain
+controls. See the exact guarded commands in
+[APPLE_HEAD_MODELS.md](../../docs/APPLE_HEAD_MODELS.md#reproduce-the-best-lit-head).
+This is a lower-quality local fallback when Tripo credits run out. Existing or
+self-made reference images avoid paid generation calls; new Sunburst images are paid.

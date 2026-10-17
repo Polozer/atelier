@@ -46,7 +46,8 @@ def stage(args):
         raise ValueError('GLB rendering requires the supplied export')
     record = dict(id=args.asset, title=args.title, palette=args.palette, note=args.note,
                   triangles=len(mesh['faces']), vertices=len(mesh['vertices']),
-                  seconds=None, peak_gib=None, render_glb=args.render_glb)
+                  seconds=None, peak_gib=None, render_glb=args.render_glb,
+                  defer_topology=bool(args.render_glb and len(mesh['faces']) > 200000))
     if args.benchmark:
         benchmark = json.loads(args.benchmark.read_text())
         if (benchmark['vertex_count'] != len(mesh['vertices']) or benchmark['face_count'] != len(mesh['faces'])
@@ -60,7 +61,13 @@ def stage(args):
                   model=prefix+'model.glb' if args.model else None)
     catalog_path = output / 'catalog.json'
     catalog = json.loads(catalog_path.read_text()) if catalog_path.exists() else {'assets': []}
-    catalog['assets'] = [record, *(r for r in catalog['assets'] if r['id'] != args.asset)]
+    if getattr(args, 'keep_default', False):
+        existing = any(r['id'] == args.asset for r in catalog['assets'])
+        catalog['assets'] = [record if r['id'] == args.asset else r for r in catalog['assets']]
+        if not existing:
+            catalog['assets'].append(record)
+    else:
+        catalog['assets'] = [record, *(r for r in catalog['assets'] if r['id'] != args.asset)]
     target = output / 'assets' / args.asset
     target.mkdir(parents=True, exist_ok=True)
     shutil.copytree(VENDOR, output/'vendor', dirs_exist_ok=True)
@@ -80,6 +87,7 @@ def main():
     p.add_argument('--reference', type=Path, required=True)
     p.add_argument('--model', type=Path)
     p.add_argument('--render-glb', action='store_true', help='Display the actual exported materials and texture')
+    p.add_argument('--keep-default', action='store_true', help='Keep the current landing model and catalog order')
     p.add_argument('--benchmark', type=Path)
     p.add_argument('--palette', choices=['bin', 'cart', 'clay'], default='clay')
     p.add_argument('--note', default='MeshAxiom geometry. Inspect the wireframe for open surfaces and broken faces.')

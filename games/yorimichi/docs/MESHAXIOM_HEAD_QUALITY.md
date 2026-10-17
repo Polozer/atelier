@@ -1,0 +1,547 @@
+# Local textured-head comparison
+
+**Best setup: native TRELLIS.2 cascade at an actual 768 grid, native learned RGB
+vertex colors, then automated lit-normal correction with 16 tensor-filter iterations.**
+This keeps the complete 11,386,792-triangle surface and now works with conventional
+lighting. The normal pass largely removes the fine shading grain visible in the raw
+lit export. It uses the original lit material, uniform roughness 0.85 and metallic 0;
+spatially varying native PBR is still omitted.
+
+Native generation, exact export and eight review views took **20m07s**, peaking at
+**13.06 GiB** under a 14 GiB aggregate ceiling on the 32 GiB M1 Max. Normal correction
+adds **38.87 seconds**, peaking at **3.92 GiB** under an 8 GiB guard. The separate jobs
+sum to **20m46s**, excluding queues/downloads and the final browser review. No neural
+regeneration, manual Blender editing or geometric smoothing is involved.
+
+About 13.89% of sampled raw edges had opposing endpoint normals. A sign-independent,
+area-weighted normal tensor avoids cancellation from face-normal sign disagreement.
+Sixteen half-step averages use only triangle-connected neighbors. The principal axes
+become shading normals; automatic coincident vertex copies align each triangle's
+normal signs with its existing winding, as required for standard double-sided lighting.
+Every ordered triangle's **position bytes, winding and corner-color bytes remain exact**,
+including duplicates and degenerates. No triangle is removed, repaired or reordered.
+Exported vertices increase from 5,598,831 to 8,580,395 solely for normal seams. The GLB
+therefore changes its attribute/index layout while its geometric surface stays exact.
+
+The zero-iteration control fixes most of the grain in 13.27 seconds at 3.15 GiB peak;
+16 iterations give a modest further smoothing of shading. Both have eight actual lit
+WebGL views. A gray eight-view control shows the selected normals without texture, and
+changing light intensity changes the selected render. This is genuine lit shading,
+not the earlier unlit workaround. Small geometric pits, holes, hair artifacts and
+learned color speckles remain. The original lit and unlit variants remain diagnostics.
+
+**Best compact conventionally lit asset:** MeshAxiom 18K + native Pixal image1024/NAF512 PBR + original
+front photograph, committed as the 7 MB
+[`head.glb`](../assets/characters/meshaxiom-skater-head-native/head.glb). It retains
+the full native metallic/roughness map and every mesh buffer. Geometry + selected
+UV preparation + native texture + photo projection sum to 67m33s across measured
+stages, excluding downloads, queues, paid images and diagnostic views. Peak memory
+is 12.75 GiB. The corrected dense TRELLIS export is about 425 MiB (the raw export is 323 MiB).
+Normal seams increase storage; native spatial PBR variation is not represented.
+
+The [eight-view gallery](MESHAXIOM_HEAD_GALLERY.md) compares the actual GLBs from
+five independent neural geometries. Rankings are qualitative judgments of facial
+coherence, likeness, profile/rear continuity and visible defects. No post-generation
+geometric editing is used; the final pass changes shading attributes only. [Apple Silicon recipes](APPLE_HEAD_MODELS.md) include pinned
+weights, actual tensor sizes, guarded installation and exact reproduction commands.
+The [earlier experiment](MESHAXIOM_EXPERIMENT.md) documents the MeshAxiom geometry port.
+
+| Rank | Approach / variants | Finding |
+| --- | --- | --- |
+| **1** | TRELLIS actual768, native colors + normal tensors/seams, 16 iterations | Best lit appearance; zero-iteration control fixes most grain, 16 gives modest further smoothing |
+| **2** | MeshAxiom 18K, native image1024 PBR + original front | Best compact head and sharp reference face; coarser native geometry |
+| **3** | MeshAxiom 18K, native image512 PBR + original front | Similar compact hybrid; softer unseen details |
+| 4 | Front-first eight-view 2K, 4K and bounded completion | Best photo-only replay; side seams persist; 4K gives modest benefit |
+| 5 | Native image1024 / image512 PBR and 512-PBR/eight-view hybrid | Learned coverage helps unseen sides; softer face or inherited photo seams |
+| 6 | MeshAxiom 29K, eight-view texture / completion | More ear detail, worse eye/lip placement in these samples |
+| 7 | TRELLIS 512 native / original-photo overlay | Raw pupils pale; overlay sharpens eyes but doubles feature outlines |
+| 8 | Original UV/single, Smart UV/single, geometry-guided front | Most unseen surfaces stay neutral despite better atlas occupancy |
+| Rejected | Weighted, best-angle and guided-opposite photo variants | Doubled features or pupil discontinuities |
+| Rejected | TRELLIS two-image 512 and 768 photo overlay | Cheek hair artifact / feature misregistration |
+| Diagnostic | TRELLIS cascade768, original lit / unlit material | Raw lighting grain / lighting bypass; both superseded by corrected lit normals |
+
+All five neural meshes remain unretouched experimental outputs. No same-reference
+Tripo model was evaluated, so these results do not establish Tripo quality parity
+or production/rigging readiness. The native TRELLIS result is the strongest local
+recipe tested here.
+
+The comparison contains **24 recipes**, with eight matched views of each, across
+five neural geometries. The last two change shading normals and coincident normal
+seams only. WebGL sheets explicitly compare raw, corrected and unlit shading; the
+other sheets compare base color without relighting.
+
+## When to use this instead of Tripo
+
+**This is a lower-quality fallback to Tripo. Prefer Tripo when credits are available.**
+The local result still has small holes/pits, imperfect hair and likeness, no rigging
+qualification, no spatial PBR variation in the dense export, and a very large triangle
+count. It is useful for local concepts and drafts when Tripo credits run out, rather
+than a production-ready replacement. No controlled same-reference Tripo benchmark was
+run here; this is the practical quality recommendation, not a measured parity claim.
+
+For free generation on hardware you already own, use an existing or self-made input
+image, the pinned MLX TRELLIS cascade, `--vertex-colors`, then `lit_normals.py
+--iterations 16`. All 3D inference and normal processing are local, with no Tripo
+credits or per-generation API calls. **New Sunburst reference images cost money**;
+the paid references in this comparison were generated earlier. Reusing the committed
+reference or supplying your own image avoids that paid step. The exact best commands
+are in [the Apple Silicon recipe](APPLE_HEAD_MODELS.md#reproduce-the-best-lit-head).
+This was measured on 32 GiB total RAM, not a 16 GiB-total MacBook.
+
+## Measured photo comparisons
+
+The baseline has 18,931 native triangles (18,925 nondegenerate), 1,323 boundary edges
+and six connected components. UV authoring and projection preserve those defects.
+The previous atlas occupied 5.44% of its pixels. Three automated Smart UV trials
+occupied 46.52%, 46.86% and 48.85%; the last used an 89-degree angle and 0.00005
+island margin. Its 2,048,854 occupied texels provide about nine times the previous
+texel area. This is a packing measurement, not proof of better visual quality.
+Preparation took 19.89 seconds and peaked at 1.26 GiB on the M1 Max.
+
+The following eight-view comparison reproduced **on the M1 Max** under a 4 GiB
+aggregate guard. Its five GLBs match the earlier hosted macOS results byte for byte.
+All five outputs preserved every native triangle and winding. Times include
+projection and buffer validation, but exclude the
+eight diagnostic renders per output and remote image generation.
+
+| Projection | Occupied texels painted | Seconds | Observed result |
+| --- | ---: | ---: | --- |
+| Original single image | 16.11% | 3.94 | Most sides and back stay neutral |
+| Geometry-guided front | 16.33% | 4.53 | Better alignment, similar limited coverage |
+| Eight-view weighted blend | 55.11% | 16.65 | Doubled facial features |
+| Eight-view best angle | 55.11% | 17.21 | Broken pupil shapes at view boundaries |
+| Eight-view front first | 56.06% | 17.08 | Coherent eyes; side seams and neck patches remain |
+
+The complete local five-variant run, including forty diagnostic renders, took
+108.24 seconds and peaked at 1.96 GiB. The earlier hosted run took 164.10 seconds
+and peaked at 1.91 GiB; those hosted timings are separate from laptop benchmarks.
+The nine additional Sunburst
+reference calls include eight selected views and one rejected guided opposite-view candidate;
+the identity image comes from the earlier experiment. A further eight calls supplied
+the independently generated denser head below.
+
+On the laptop, the selected eight-view recipe reproduced the hosted 2K GLB
+byte for byte. Its projection and validation took 17.07 seconds at 2K and
+35.10 seconds at 4K. The complete pair, including sixteen diagnostic views,
+took 75.78 seconds and peaked at 7.14 GiB under the unchanged 10 GiB CPU guard.
+The 2K output is 2.96 MB; 4K is 7.05 MB. Painted coverage was 56.06% and 56.08%
+of occupied texels respectively. Both preserve all 18,931 triangles and winding.
+At matched viewing size, 4K adds modest detail but does not remove side seams,
+patches, or the original surface defects. The 2K output is the cheaper default.
+
+A separate deterministic color-completion pass extrapolated nearby surface-cell
+colors into 352,560 previously unobserved occupied texels (17.21% of occupied
+texels). All 1,148,583 observed texels remain byte-identical, as do every
+non-image GLB buffer and the original native triangles/winding. This is color
+extrapolation, not additional observed coverage. It took 15.23 seconds and peaked
+at 1.10 GiB under a 4 GiB aggregate guard. It removes some neutral hair patches,
+but the cheek seam and existing shape defects remain visible.
+
+## Native learned PBR and hybrid textures
+
+The native texture recipe named by MeshAxiom uses Tencent Pixal3D's image/shape
+texture flow with TRELLIS.2's supplied-shape encoder and PBR decoder. It now runs
+locally on MPS without changing the supplied mesh or its UVs. The successful trial
+used 512-pixel DINO/NAF conditioning, 1024 shape support, twelve texture sampling
+steps, seed 42 and a 2K atlas. This is the documented model stack adapted to a
+smaller conditioner, not a successful run of its full 1024-pixel default recipe.
+
+The complete guarded job took 590.93 seconds, including eight diagnostic renders;
+the verified GLB was ready after 582.59 seconds. Peak aggregate physical footprint
+was **11.75 GiB**, under a 14 GiB process-tree ceiling and a separate 12 GiB MPS
+allocator ceiling. No new swap-out was observed. Every original non-image buffer
+and all 18,931 native triangles/winding remain unchanged. The decoder produced
+5,872,775 finite PBR voxels. Materials cover unseen sides well, but the eyes and
+facial details are softer than the projected photographs. The CPU comparison
+renders show base color with matched cameras; the interactive viewer also loads
+the native metallic/roughness map.
+
+Full-size conditioning attempts hit their explicit MPS allocator limits and
+exited cleanly. A 16 GiB aggregate attempt was refused before work because the
+reservation plus unchanged host headroom did not fit. These failures are not
+claims that the default model recipe runs within the available envelope.
+
+Two deterministic hybrid trials retain that native PBR base outside calibrated
+photo coverage. The original image replaces 16.11% of occupied texels; eight
+front-first views replace 56.06%. The two-output job, including sixteen renders,
+took 40.98 seconds and peaked at 2.04 GiB under a 4 GiB aggregate guard. The
+single-front hybrid has sharper eyes and smoother sides than the eight-view
+hybrid, which inherits the photo disagreement and cheek seam. Unobserved base
+colors are learned predictions, not observed texture coverage. Neither hybrid
+changes geometry, normals, UVs, indices or the native metallic/roughness image.
+
+`paint --material-base PATH` checks the original prepared mesh's nodes, accessors,
+primitives and every non-image buffer before using a different material base.
+It rejects position, normal, UV, index or node-transform differences. Reference
+generation cameras remain bound to their original clay guides; projection
+records separately identify the PBR target GLB.
+
+## Larger native image conditioner
+
+Increasing DINO image conditioning to 1024 pixels while keeping NAF at 512 completed
+locally in 629.91 seconds through the verified GLB, or 639.07 seconds including eight
+views. Peak aggregate footprint was **12.75 GiB**, under the same 14 GiB tree and
+12 GiB MPS ceilings, with no new swap-out observed. This modestly improves eye and
+mouth boundaries; it still does not run the full upstream NAF1024 default.
+
+Projecting the original front photograph over this learned material took another
+4.05 seconds through verified output. The whole overlay job, including eight views,
+took 17.60 seconds and peaked at 1.68 GiB. This is the selected compact
+MeshAxiom candidate: sharp front features, coherent learned colors on the sides and
+back, and the native metallic/roughness map retained. The photograph observes only
+16.11% of occupied texels. The remainder is model prediction. Geometry, UVs, normals,
+indices, material bindings and every non-image buffer remain unchanged.
+
+## TRELLIS.2 native generation
+
+The 512 MLX trial completed native structure, shape and PBR inference locally. It
+produced **2,401,454 vertices and 4,916,486 raw triangles**. Constructing UVs on that
+unaltered surface exceeded the ten-minute phase bound; the owned attempt ended
+cleanly after 858.29 seconds, retaining complete checkpoints. No simplified or
+repaired mesh was substituted.
+
+A deterministic UV-free bake assigns each dual-grid vertex its own native decoder
+voxel color and preserves every raw position/index, with only the fixed axis
+rotation. It took 82.59 seconds through the verified 139 MiB GLB and complete gzip
+source archive; the full bake plus eight renders took 137.04 seconds and peaked
+at 1.57 GiB. The neural attempt peaked at 7.19 GiB under a 12 GiB aggregate ceiling.
+The learned PBR alpha field is opaque (minimum 0.9949); the pale pupils cannot be
+explained by simply forgetting transparency.
+
+The measured stages sum to **331.22 seconds**: 248.62 seconds from neural process
+launch to the completed PBR checkpoint plus 82.59 seconds for verified export.
+This is a sum of separate measured stages, **not an uninterrupted end-to-end run**.
+It excludes the discarded UV work, downloads, queues and diagnostic views.
+
+The native geometry has more coherent hair and a smoother silhouette than MeshAxiom,
+but these samples have pale pupil centers, facial speckles and weaker reference
+identity. Vertex color preserves the learned RGB field, not its spatially varying
+roughness/metallic values; the preview uses uniform 0.85 roughness and zero metallic.
+All eight camera labels match the MeshAxiom comparisons semantically: TRELLIS uses
+a recorded -90-degree camera-yaw offset because its face points along a different
+world axis. The model itself is unchanged.
+
+The higher cascade requested 1024 but selected an actual **768** grid with 13,128
+shape tokens under the strict 16,384-token bound. High stages use DINO1024 and the
+published 1024 texture flow. It generated **5,598,831 vertices / 11,386,792 triangles**
+and completed its whole guarded job, including exact export and eight views, in
+**1,206.88 seconds (20m07s)**. Peak physical footprint was **13.06 GiB** under the
+14 GiB aggregate guard, with positive empty cleanup and no new swap-out. Native
+inference through shape/PBR checkpoints took 896.5 seconds inside that job; verified
+GLB/source export took 194.21 seconds. The 323 MiB GLB preserves every raw triangle.
+
+This visibly fixes the 512 sample's pale pupil centers and improves hair and facial
+shape across both profiles. Skin speckles remain. It changes resolution, high-stage
+conditioning and model checkpoints together, so this is a comparison of complete
+recipes, not a controlled density-only experiment. The MLX memory setting is a
+guideline: the selected 10 GiB setting reported 11.04 GiB by MLX accounting. The
+separate physical process-tree guard supplies the enforced safety ceiling.
+
+The two-image 512 trial combines the original identity image with one previously
+generated side view by concatenating DINO tokens, without camera labels. It produced
+**4,385,654 native triangles**, completing the whole guarded job and eight views in
+400.84 seconds at 7.13 GiB peak. It is rejected: a new hair tuft crosses the cheek,
+eye detail deteriorates and the higher single-image cascade is visibly stronger.
+The extra DINO construction also changes the RNG state before sampling, so this
+is not a controlled view-count-only comparison. No compatible multiview-trained
+geometry checkpoint was introduced.
+
+The deterministic original-photo overlay on the 512 head changes only native
+COLOR_0 bytes. It touches 11.49% of vertices (not surface-area coverage), preserves
+every zero-weight color and all scene/material/geometry buffers, and finishes its
+whole job plus eight views in 100.84 seconds at 1.80 GiB peak. Nine rigid camera
+poses select yaw -30/pitch -5 with 94.95% silhouette overlap. This is a fresh
+registration of the original identity photograph, not transfer of a calibrated
+multiview receipt or a change to the earlier 95% transfer gate.
+
+The overlay recovers dark pupils and reference detail but leaves doubled brow/lid
+outlines and color patches at the neck and side boundary. It is not selected.
+A good silhouette match still does not guarantee internal facial correspondence.
+
+The same overlay on the 768 head touches 10.53% of vertices. It takes 102.72 seconds
+through verified output, or 207.29 seconds including all eight renders, peaking
+at 4.34 GiB under an 8 GiB aggregate guard. Camera silhouette overlap is 94.26%. The
+original native geometry and every non-color byte remain identical. It is rejected
+for doubled brow/lid outlines, nose misregistration and side/neck color transitions.
+The unoverlaid native 768 colors with corrected lit normals are the selected
+appearance result. The earlier standard-unlit trial preserves the raw binary but
+bypasses lighting; it is retained as a diagnostic. The compact MeshAxiom hybrid
+remains the selected compact PBR asset.
+
+## Higher native density
+
+The 30,000-face request produced 14,936 vertices and **29,427 native triangles**
+(29,420 nondegenerate), using the original identity image, seeds and 20 sampling
+steps. Vertex generation took 3,470.25 seconds; topology took 1,670.99 seconds.
+The combined worker time was 85 minutes 41 seconds, excluding queues, references,
+UVs and painting. Peak physical footprint was 7.85 GiB for vertices and 7.52 GiB
+for topology. The stages used actual 16 GiB and 12 GiB aggregate ceilings respectively.
+
+The new head has 1,197 boundary edges, three components, no nonmanifold edges and
+seven degenerate faces. Its UV atlas occupies 53.40%, up from 48.85% on the earlier
+head. Every native triangle and winding survives UV authoring and texturing.
+It remains an open experimental mesh; the face count is not a rigging approval.
+
+Reusing the earlier eight photos failed the independent target-silhouette gate:
+overlap ranged from 88.44% to 94.93%. No threshold or source receipt was changed.
+Eight fresh Sunburst high references were generated from the new head's own
+cameras. Front-first projection painted 62.64% of occupied texels in a complete
+28.39-second run, including eight diagnostic renders, peaking at 2.03 GiB under
+a 4 GiB guard. Color completion filled another 250,921 occupied texels while
+preserving observations; it took 13.32 seconds and peaked at 1.03 GiB.
+
+At matched viewing size the denser head adds some ear and silhouette detail,
+but it still has the cheek seam and introduces worse eye/lip alignment and pale
+hair patches in these texture samples. The earlier completed 2K photo-only head is stronger
+than this denser photo-only trial. This comparison changes both native geometry and geometry-guided reference
+images: it does not isolate face density as the cause of any texture difference.
+
+## Memory and a cheaper replay
+
+These measurements come from a 32 GiB M1 Max. A 16 GiB process ceiling does not
+demonstrate operation on a laptop with 16 GiB total: macOS and other processes
+also need memory. Texture replay needs neither MeshAxiom weights nor a GPU model.
+The measured 2K projection peaks near 2 GiB, whereas the complete 2K/4K pair
+peaks near 7.14 GiB. Reuse the committed eight images and run only the 2K
+`front-first` variant under a 4 GiB guard for the cheaper texture pipeline.
+The guard must still obtain normal admission on a shared machine.
+
+The first 16 GiB topology reservation was refused before useful work because the
+full reservation plus the existing 4 GiB host headroom did not fit. Its guarded
+launcher exited with empty, complete cleanup. The subsequent successful topology run used a **lower 12 GiB
+actual-child and aggregate ceiling**, with a matching 12 GiB broker reservation;
+no shared profile, reserve or guard was changed. The owner's 16 GiB maximum is
+an upper bound, not a requirement to reserve unavailable memory.
+
+Native generation uses the sequential, mmap-backed model lifecycle documented in
+the Apple Silicon experiment. The 30,000-face vertex request completed with 14,936
+vertices in 3,470.25 seconds and peaked at 7.85 GiB. The requested face count is
+conditioning, not an exact output count; its topology and geometry comparison
+are measured separately. No disk-streaming performance estimate substitutes for
+these actual runs.
+
+## Constraint and experiment matrix
+
+The geometry is never edited after native MeshAxiom generation. No retopology,
+decimation, subdivision, hole filling, vertex movement, sculpting, or manual Blender
+work is used. The published topology decoder remains part of native generation.
+UV seams may duplicate exported vertices. Every triangle's three positions and winding
+are compared with the original output at float32 precision after the same uniform
+scale, origin and Z-up to Y-up conversion used by the baseline.
+
+Compare the original 18,931-triangle head with:
+
+1. Better UV packing, the original image, and a 2K atlas.
+2. A geometry-guided front image, then seven and eight geometry-guided Sunburst views.
+3. Weighted blending versus best-angle reference selection, without changing UVs or geometry.
+4. A 4K atlas with the same UVs and geometry.
+5. A new 30,000-face native request using the original reference, seed and 20-step recipe.
+   Requested density is conditioning; it is not a guarantee of actual face count.
+
+The original request was 16,000 faces. The higher request stays within upstream's public
+30,000-face limit and the existing 26,000-vertex safety bound. The native stages use
+separate aggregate ceilings and matching full broker reservations, up to the owner's
+16 GiB maximum; shared machine profiles and host reserves stay unchanged. Each stage
+has a two-hour deadline.
+
+## Pipeline
+
+`meshaxiom_quality.py prepare` runs Blender headlessly for three Smart UV configurations,
+verifies all native triangles, measures actual atlas occupancy, and chooses the fullest
+packing. It renders eight known perspective cameras from the fixed surface. This is
+scripted UV authoring and rendering, not manual mesh editing.
+
+`references` makes eight sequential GPT Image 2.5 Sunburst high-quality edits. Each call
+receives the identity reference and one fixed-camera clay render. It requests exact
+silhouette, feature positions and framing, with flat material colors. Every paid request
+has an exclusive provenance ledger, full prompt, input hashes and camera matrix; an
+uncertain call is never retried automatically. Successful calls can be run in separate
+explicit view subsets; rerunning an existing ledger refuses before submission.
+
+`paint` rejects generated views with silhouette overlap below 95%. This checks the outer
+shape, not facial feature consistency. It compares the original and geometry-guided
+single-view projections, the pinned
+Pixel Match weighted blend, and a deterministic most-frontal visible-view selection.
+Occlusion, matte and grazing-angle weights protect unseen texels, which remain neutral.
+Neither painting method repairs mesh defects or invents unseen geometry.
+
+The first seven-view results exposed doubled eyes in weighted blending and broken
+pupils in per-texel best-angle selection. The next variant keeps the front image
+where its visibility confidence is at least 0.3, then fills remaining texels from
+the opposite face, profiles, rear, top and underside. It samples accepted colors
+at full weight. Triangle normals are used only for projection confidence, avoiding
+cancellation in averaged normals; the stored mesh normals also remain unchanged.
+Its facing thresholds are 0.08/0.35 and silhouette fade is two pixels. These choices
+are recorded with each result. The 4K variant uses this same coherent projection.
+
+An additional opposite-view experiment uses the already projected front as guidance.
+The `guide` stage crops that camera from the completed diagnostic contact sheet and
+records the source model/contact hashes and crop rectangle. It preserves the original
+camera and pure-clay silhouette check. Sunburst fills its neutral-gray regions while
+using the existing face colors and gaze as context. The new reference has a separate
+filename and paid receipt; previous paid inputs remain in the experiment archive.
+The candidate worsened rendered eye alignment even with the projected front as context.
+The selected recipe therefore retains the earlier eight independent geometry-guided views.
+Its rejected candidate inputs remain available with `guides/cameras-coherent.json` for
+reproducing the negative experiment. No geometry changes are made when constructing
+its guide or projecting the result.
+
+That candidate initially failed silhouette overlap at 90.7%. `register` corrected its
+image framing with a 1.03725 uniform scale and translation of (-16.52, -20.33) pixels,
+raising overlap to 96.8%. The raw paid PNG remains unchanged. Its registered copy and
+sidecar record identify both inputs, output hash and transform. No nonuniform warp,
+mesh change or camera-threshold exception is used. Registration rejects scales beyond
+0.85–1.15, shifts beyond 12% of image width, or final overlap below 95%.
+
+For each result it verifies both the native triangle multiset and byte-identical
+non-image GLB buffers. It saves confidence, protected/changed masks and eight diagnostic
+renders. Coverage means the fraction of occupied UV texels reached by a reference;
+it is not a measurement of physical surface area or a visual-quality score.
+
+For a separately generated denser head, `paint --reference-set PATH` can reuse the
+earlier photos after a fresh `prepare` on the new native output. The source UV mesh,
+paid cameras and guide hashes remain bound to the original generation; the new UV
+mesh and projection cameras are recorded separately. Both the original image/guide
+fit and the image/new-guide fit must reach 95% silhouette overlap. A passing outline
+does not prove facial correspondence, so rendered eyes, mouth and ears still decide
+whether this transfer is useful. A failure is rejected rather than hidden by changing
+the camera receipt or weakening the threshold. This is texture transfer, not multiview
+conditioning of MeshAxiom's geometry model.
+
+The committed `meshaxiom-head-reference-set` contains the exact UV clay mesh, camera
+guides, generated views and paid receipts. The hosted `Fixed geometry head textures`
+workflow projects its five 2K variants under a 4 GiB aggregate guard, without downloading
+model weights, launching Blender or making paid calls. It retains models, renders and
+geometry evidence. These hosted CPU results are separate from laptop measurements.
+Local preparation and painting default to 10 GiB; `--memory-gib 4` selects a lower ceiling.
+
+## Quality limits
+
+More views substantially improve coverage, but their facial features must agree in
+3D. A 98% silhouette match can coexist with incorrectly placed pupils or a different
+mouth. Blending those views averages incompatible features; choosing the most frontal
+view independently at each texel can cut across a pupil. The front-first ordering is
+a reproducible compromise, and the rejected projected-front guide shows that asking
+an image model to preserve existing pixels does not guarantee it will do so.
+
+The source photographs are 1024 pixels square. A 4K atlas gives their projection more
+storage resolution, but it does not create additional source detail or correct feature
+placement. The source mesh's open boundaries and inconsistent winding also survive
+every texture variant. The viewer exposes those edges on the exact native triangles.
+No same-reference Tripo output was evaluated; native surface defects remain.
+
+Geometry uses the released single-image-conditioned MeshAxiom weights and published
+mean/sample topology decoder. Multiview photographs are used for texture projection.
+An experimental multiview inference hook in the pinned vendor tree is not a substitute
+for a compatible checkpoint trained for multiview geometry. This pipeline does not
+claim that its additional photographs improve MeshAxiom's underlying reconstruction.
+
+## Reproduction
+
+Use the runtime from the Apple Silicon document. Commands run from a repository checkout;
+the public entry points own their existing admission and aggregate memory guard. Do not
+wrap preparation in another render lock. Set `ATELIER_AGENT` to your registered board owner
+on a managed machine. Keep paid credentials in the ignored environment.
+
+To replay the fixed head without new image charges, copy the committed reference set
+to an ignored build directory and run only `paint`. This also avoids Blender and model
+weights for texture experiments. Use a new output/report directory for each run.
+
+```sh
+uv run python - <<'PY'
+import shutil
+shutil.copytree('games/yorimichi/assets/characters/meshaxiom-head-reference-set',
+                'build/yorimichi/meshaxiom/head-quality/replay')
+PY
+uv run python games/yorimichi/tools/meshaxiom_quality.py paint \
+  --mesh games/yorimichi/assets/characters/meshaxiom-skater-head/mesh.source.json.gz \
+  --image games/yorimichi/assets/characters/meshaxiom-skater-head/reference.png \
+  --output build/yorimichi/meshaxiom/head-quality/replay \
+  --report build/yorimichi/logs/meshaxiom-quality-replay.guard \
+  --variants front-first --memory-gib 4
+```
+
+For a new reference set, prepare its cameras and explicitly make the paid image calls:
+
+```sh
+uv run python games/yorimichi/tools/meshaxiom_quality.py prepare \
+  --mesh games/yorimichi/assets/characters/meshaxiom-skater-head/mesh.source.json.gz \
+  --image games/yorimichi/assets/characters/meshaxiom-skater-head/reference.png \
+  --output build/yorimichi/meshaxiom/head-quality/original \
+  --report build/yorimichi/logs/meshaxiom-quality-uv.guard
+
+uv run python games/yorimichi/tools/meshaxiom_quality.py references \
+  --mesh games/yorimichi/assets/characters/meshaxiom-skater-head/mesh.source.json.gz \
+  --image games/yorimichi/assets/characters/meshaxiom-skater-head/reference.png \
+  --output build/yorimichi/meshaxiom/head-quality/original
+
+uv run python games/yorimichi/tools/meshaxiom_quality.py paint \
+  --mesh games/yorimichi/assets/characters/meshaxiom-skater-head/mesh.source.json.gz \
+  --image games/yorimichi/assets/characters/meshaxiom-skater-head/reference.png \
+  --output build/yorimichi/meshaxiom/head-quality/original \
+  --report build/yorimichi/logs/meshaxiom-quality-paint.guard
+```
+
+To create a front-projected opposite-view candidate, first generate only the front
+reference and bake it with `paint --views yaw60-pitch-5 --variants guided-single`.
+Then use the completed GLB and contact sheet in a new, uniquely named experiment:
+
+```sh
+uv run python games/yorimichi/tools/meshaxiom_quality.py guide \
+  --mesh games/yorimichi/assets/characters/meshaxiom-skater-head/mesh.source.json.gz \
+  --image games/yorimichi/assets/characters/meshaxiom-skater-head/reference.png \
+  --output build/yorimichi/meshaxiom/head-quality/original \
+  --from-model build/yorimichi/meshaxiom/head-quality/original/guided-single/head-pixel-match.glb \
+  --from-contact build/yorimichi/meshaxiom/head-quality/original/guided-single/contact.png \
+  --reference-stem yaw120-coherent
+```
+
+Run `references --views yaw120-pitch-5` with the same mesh/image/output to make its
+new paid call. The guide stage itself only crops completed files and verifies their
+identity; it launches no native work or model. An existing receipt blocks both guide
+replacement and another submission. The current saved candidate used the 384-pixel
+camera crop as context and requested a 1024-pixel output.
+
+If only image framing drifted, run the same arguments with stage `register` and
+`--guide-view yaw120-pitch-5`. Painting verifies the registered source/output hashes and
+measures overlap again. A view that still fails the threshold is rejected.
+
+On this shared Mac prefix native commands with `nice -n 10`. The image stage is remote
+and does not hold render capacity while waiting. Use only available normal admission;
+check current board, live records and resource telemetry before native launches.
+
+Generate higher density with two separate normally admitted stages, allowing resources
+to release between them. Use a new guard report path for each stage and preserve failed
+or uncertain evidence. A completed vertex result is bound to its image, requested faces,
+seed, diffusion steps, pinned revisions and actual vertex-file hash.
+
+```sh
+uv run python -m atelier.ai.meshaxiom.guarded \
+  --root build/yorimichi/meshaxiom \
+  --image games/yorimichi/assets/characters/meshaxiom-skater-head/reference.png \
+  --output build/yorimichi/meshaxiom/head-quality/30k \
+  --report build/yorimichi/logs/meshaxiom-quality-30k-vertex.guard \
+  --stage vertex --face-budget 30000 --steps 20 --max-nodes 26000 \
+  --memory-gib 16 --timeout 7200
+```
+
+Repeat with `--stage topology` and a new topology report directory. A larger ceiling
+requires the managed full-capacity broker; unmanaged machines keep the ordinary 10 GiB
+ceiling. Do not claim an unmeasured 30K run fits a smaller laptop.
+
+After a new native output completes, prepare its UVs/cameras with `prepare`, then try
+the frozen photo set without another paid request:
+
+```sh
+uv run python games/yorimichi/tools/meshaxiom_quality.py paint \
+  --mesh build/yorimichi/meshaxiom/head-quality/30k/mesh.json \
+  --image games/yorimichi/assets/characters/meshaxiom-skater-head/reference.png \
+  --output build/yorimichi/meshaxiom/head-quality/30k-quality \
+  --reference-set games/yorimichi/assets/characters/meshaxiom-head-reference-set \
+  --report build/yorimichi/logs/meshaxiom-quality-transfer.guard \
+  --variants front-first
+```
+
+Use a new report directory for each attempt. A failed fit needs a different documented
+reference setup; do not rewrite the paid receipt or treat the earlier mesh's guide as
+if it had been generated from the new mesh.
