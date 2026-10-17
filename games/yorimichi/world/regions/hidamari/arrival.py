@@ -29,7 +29,7 @@ PALETTE = {'ar_paddy_earth': (.22, .15, .065), 'ar_stubble_row': (.40, .29, .10)
            'ar_hokora_timber': (.30, .17, .08), 'ar_hokora_roof': (.08, .09, .10), 'ar_red_cloth': (.60, .07, .04),
            'ar_shrine_stone': (.32, .31, .28), 'ar_gate_timber': (.22, .12, .06), 'ar_gate_roof': (.07, .08, .09),
            'ar_gate_stone': (.30, .29, .26), 'ar_gate_sign': (.70, .64, .50), 'ar_lantern_glow': (1., .55, .25),
-           'ar_island_road': (.085, .085, .09), 'ar_road_gravel': (.17, .155, .13),
+           'ar_island_road': (.085, .085, .09), 'ar_road_gravel': (.17, .155, .13), 'ar_verge_lawn': (.126, .141, .028),
            'ar_rice_canopy': (.42, .32, .09), 'ar_rice_canopy_shade': (.29, .22, .07), 'ar_rice_side': (.22, .19, .07)}
 
 
@@ -349,21 +349,42 @@ def _ribbon(m, height):
                 if uv and len(m.faces) > faces and len(m.faces[-1]) == 4:
                     m.uvs[faces] = [uv(hi, t0), uv(lo, t0), uv(lo, t1), uv(hi, t1)]
     strip(ASPHALT, 'ar_island_road', road_uv)
+    def lawn(points):   # a verge face in the grass under it: the island ground's colour, fading to HD_Terrain's lawn
+        faces = len(m.faces); m.poly(points, 'ar_verge_lawn')
+        if len(m.faces) > faces and hasattr(m, 'colors'):
+            from hidamari import layout
+            from village import build as v
+            k = len(m.faces[-1]); hd = v.PALETTE['hd_grass']
+            for i, (x, _, _) in enumerate(m.vertices[-k:]):
+                w = float(layout.island_fade(x)); m.colors[len(m.colors)-k+i] = (*(a*(1-w)+b*w for a, b in zip(layout.ISLAND_LAWN, hd)), 0)
+    # Each shoulder is gravel out to a width that grows from nothing at the island road's end (which runs straight
+    # onto the grass) to the whole shoulder over BLEND metres; the rest of it is lawn. Its column at a section is cut
+    # where that width ends, on the section's line between its two points, so a face that narrows to nothing is
+    # dropped (Mesh.poly) rather than drawn.
+    def cut(c, n, z, lo, hi, s):
+        u = min(max((s-lo)/(hi-lo), 0.), 1.); return point(c, n, lo+(hi-lo)*u, z[lo]+(z[hi]-z[lo])*u)
     for side in (-1, 1):
         offsets = _shoulder(side)
-        strip(offsets if side > 0 else offsets[::-1], 'ar_road_gravel')
-    # A short gravel skirt under each shoulder's outer edge and across its start: the shoulder ends FLUSH above the
-    # drawn ground, and the skirt closes what little light could show under it.
+        for (c, n, zc), (d, o, zd), t0, t1 in zip(sections, sections[1:], dist, dist[1:]):
+            b0, b1 = (side*(SHOULDER[0]+(SHOULDER[-1]-SHOULDER[0])*_smooth(t/BLEND)) for t in (t0, t1))
+            for lo, hi in zip(offsets, offsets[1:]):
+                p0, p1 = cut(c, n, zc, lo, hi, b0), cut(d, o, zd, lo, hi, b1)
+                ring = [point(c, n, lo, zc[lo]), p0, p1, point(d, o, lo, zd[lo])]
+                verge = [p0, point(c, n, hi, zc[hi]), point(d, o, hi, zd[hi]), p1]
+                if side > 0: ring, verge = ring[::-1], verge[::-1]
+                m.poly(ring, 'ar_road_gravel'); lawn(verge)
+    # A short skirt under each shoulder's outer edge and across its start, in the shoulder's surface there: the
+    # shoulder ends FLUSH above the drawn ground, and the skirt closes what little light could show under it.
     g = ground(height)
-    def skirt(p, q):
+    def skirt(p, q, gravel):
         quad = [p, q, (q[0], q[1], g(q[0], q[1])-SKIRT), (p[0], p[1], g(p[0], p[1])-SKIRT)]
-        m.poly(quad, 'ar_road_gravel'); m.poly(quad[::-1], 'ar_road_gravel')
+        for face in (quad, quad[::-1]): m.poly(face, 'ar_road_gravel') if gravel else lawn(face)
     for side in (-1, 1):
         offsets = _shoulder(side); outer = offsets[-1]
-        for (c, n, zc), (d, o, zd) in zip(sections, sections[1:]):
-            skirt(point(c, n, outer, zc[outer]), point(d, o, outer, zd[outer]))
+        for (c, n, zc), (d, o, zd), t0 in zip(sections, sections[1:], dist):
+            skirt(point(c, n, outer, zc[outer]), point(d, o, outer, zd[outer]), t0 >= BLEND)
         c, n, zc = sections[0]
-        for a, b in zip(offsets, offsets[1:]): skirt(point(c, n, a, zc[a]), point(c, n, b, zc[b]))
+        for a, b in zip(offsets, offsets[1:]): skirt(point(c, n, a, zc[a]), point(c, n, b, zc[b]), False)
 
 
 def arrival(m, height):
