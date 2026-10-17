@@ -18,6 +18,21 @@ AWandererCharacter* FindPlayer(UWorld* World, const FString& Id)
             return Cast<AWandererCharacter>(Player->GetPawn());
     return nullptr;
 }
+
+bool HasPlayerClearance(const AWandererCharacter* Traveller, const AWandererCharacter* Peer, const FVector& Ground)
+{
+    const auto* Capsule = Traveller->GetCapsuleComponent();
+    const auto* Standing = Traveller->GetClass()->GetDefaultObject<AWandererCharacter>()->GetCapsuleComponent();
+    const float Half = FMath::Max(Capsule->GetUnscaledCapsuleHalfHeight(),Standing->GetUnscaledCapsuleHalfHeight())*Capsule->GetShapeScale();
+    const float Radius = FMath::Max(Capsule->GetUnscaledCapsuleRadius(),Standing->GetUnscaledCapsuleRadius())*Capsule->GetShapeScale();
+    // Ground selection ignores moving actors. Clearance must retain them: a
+    // train body or another moving obstruction can occupy otherwise safe ground.
+    FCollisionQueryParams Clearance(SCENE_QUERY_STAT(PlayerMapClearance),false,Traveller);
+    Clearance.AddIgnoredActor(Peer);
+    return !Traveller->GetWorld()->OverlapBlockingTestByProfile(Ground+FVector(0,0,Half+3), FQuat::Identity,
+        Capsule->GetCollisionProfileName(), FCollisionShape::MakeCapsule(Radius,Half), Clearance);
+}
+
 }
 
 void UJapanMap::RefreshPlayerZones() const
@@ -52,19 +67,13 @@ void AWandererCharacter::ServerTravelToPlayer_Implementation(const FString& Id, 
     // including below an airborne rider. Never copy a stale client map position.
     auto Params = JapanGameplayCollision::Query(GetWorld(), SCENE_QUERY_STAT(PlayerMapTravel), false);
     Params.AddIgnoredActor(this); Params.AddIgnoredActor(Peer);
-    const auto* Capsule = GetCapsuleComponent();
-    const auto* Standing = GetClass()->GetDefaultObject<AWandererCharacter>()->GetCapsuleComponent();
-    const float Half = FMath::Max(Capsule->GetScaledCapsuleHalfHeight(), Standing->GetUnscaledCapsuleHalfHeight()*Capsule->GetShapeScale());
-    const float Radius = Capsule->GetScaledCapsuleRadius();
     for (int32 I = 0; I < 8; ++I)
     {
         const float Angle = Peer->GetActorRotation().Yaw + 45.f * I;
         const FVector Near = Peer->GetActorLocation() + FRotator(0,Angle,0).Vector()*180.f;
         FHitResult Hit;
         if (!GetWorld()->LineTraceSingleByChannel(Hit, Near+FVector(0,0,100), Near-FVector(0,0,100000), JapanGameplayCollision::Channel, Params) ||
-            !GetCharacterMovement()->IsWalkable(Hit) ||
-            GetWorld()->OverlapBlockingTestByChannel(Hit.ImpactPoint+FVector(0,0,Half+3), FQuat::Identity,
-                JapanGameplayCollision::Channel, FCollisionShape::MakeCapsule(Radius,Half), Params)) continue;
+            !GetCharacterMovement()->IsWalkable(Hit) || !HasPlayerClearance(this,Peer,Hit.ImpactPoint)) continue;
         // Reuse encounter, pending-hit, epoch and travel-rate admission. The
         // short trace retains the selected floor beneath bridges and roofs.
         if (PerformNetworkTravel(Hit.ImpactPoint, Peer->GetActorRotation().Yaw, Epoch, 30.f)) ClientPlayerTravelled();
@@ -77,3 +86,52 @@ void AWandererCharacter::ClientPlayerTravelled_Implementation()
 {
     if (GetMap()) GetMap()->Close();
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+#include "Misc/AutomationTest.h"
+#include "Components/BoxComponent.h"
+#include "Engine/Engine.h"
+#include "Misc/ScopeExit.h"
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlayerMapClearanceTest, "Yorimichi.Network.PlayerTravelClearance",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FPlayerMapClearanceTest::RunTest(const FString&)
+{
+    UWorld* World = nullptr;
+    for (const FWorldContext& Context : GEngine->GetWorldContexts())
+        if (Context.World() && Context.World()->IsGameWorld()) { World=Context.World(); break; }
+    if (!TestNotNull(TEXT("Native world"),World)) return false;
+    FActorSpawnParameters Spawn;
+    Spawn.ObjectFlags |= RF_Transient; Spawn.bDeferConstruction = true;
+    Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    auto* Traveller = World->SpawnActor<AWandererCharacter>(Spawn);
+    auto* Peer = World->SpawnActor<AWandererCharacter>(Spawn);
+    auto* Obstruction = World->SpawnActor<AActor>(Spawn);
+    ON_SCOPE_EXIT
+    {
+        if (Traveller) Traveller->Destroy();
+        if (Peer) Peer->Destroy();
+        if (Obstruction) Obstruction->Destroy();
+    };
+    if (!Traveller || !Peer || !Obstruction) return false;
+    const FVector Ground(300000,200000,10000);
+    auto* Box = NewObject<UBoxComponent>(Obstruction);
+    Obstruction->SetRootComponent(Box);
+    Box->SetMobility(EComponentMobility::Movable);
+    Box->SetBoxExtent(FVector(45,45,100));
+    Box->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+    Box->SetCollisionObjectType(ECC_WorldDynamic);
+    Box->SetCollisionResponseToAllChannels(ECR_Block);
+    Box->SetCollisionResponseToChannel(JapanGameplayCollision::Channel,ECR_Ignore);
+    Box->SetWorldLocation(Ground+FVector(0,0,75)); Box->RegisterComponent();
+    TestFalse(TEXT("A dynamic blocker outside fixed gameplay geometry refuses the occupied candidate"),HasPlayerClearance(Traveller,Peer,Ground));
+    TestTrue(TEXT("A clear nearby candidate is still available"),HasPlayerClearance(Traveller,Peer,Ground+FVector(180,0,0)));
+    Traveller->GetCapsuleComponent()->SetCapsuleHalfHeight(45);
+    Box->SetBoxExtent(FVector(45,45,10)); Box->SetWorldLocation(Ground+FVector(0,0,130));
+    TestFalse(TEXT("Crouching does not bypass standing headroom"),HasPlayerClearance(Traveller,Peer,Ground));
+    Box->SetWorldLocation(Ground+FVector(1000,0,0));
+    TestTrue(TEXT("Moving obstruction away restores the candidate"),HasPlayerClearance(Traveller,Peer,Ground));
+    return true;
+}
+#endif
