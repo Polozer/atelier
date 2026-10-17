@@ -1,0 +1,11 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1 (experimental)",
+  "FriendlyName": "Atelier Horse Racing",
+  "Description": "The pure rules of a living horse racing world: horses with genes, ageing and injuries, stables that race, breed and trade, jockeys with careers and transfers, Grand Prix formats, win betting, a continuous clock and lossless JSON saves.",
+  "Category": "Atelier",
+  "CreatedBy": "Atelier",
+  "CanContainContent": false,
+  "Modules": [{ "Name": "AtelierHorseRacing", "Type": "Runtime", "LoadingPhase": "Default" }]
+}
