@@ -8,7 +8,7 @@ function project(v,knots){
 }
 export function createMap({send,onTravel}){
  let data=null,state=null,imageSource='',scale=1,offset={x:0,y:0},base={w:1,h:1},initialized=false,gesture=null,suppressClick=false;
- const touches=new Map();
+ const touches=new Map();let lastMapRefresh=0;
  const dialog=$('map-dialog'),layout=$('map-layout'),frame=$('map-frame'),canvas=$('map-canvas'),img=$('map-image'),pins=$('map-pins'),list=$('map-zones'),player=$('map-player'),status=$('map-status');
  function pct(x,y){const [x0,y0,x1,y1]=data.bounds;return [(project(x,data.projection_x)-x0)/(x1-x0)*100,(y1-project(y,data.projection_y))/(y1-y0)*100];}
  function apply(){
@@ -45,7 +45,7 @@ export function createMap({send,onTravel}){
   pins.replaceChildren();list.replaceChildren();
   data.zones.forEach((z,i)=>{
    const [l,t]=pct(z.x,z.y),pin=document.createElement('button');
-   pin.className='map-pin';pin.dataset.key=z.key;pin.style.left=l+'%';pin.style.top=t+'%';pin.textContent=i+1;pin.setAttribute('aria-label',`Travel to ${z.name}`);pin.onclick=()=>{if(!suppressClick)travel(z);};pins.append(pin);
+   pin.className='map-pin';pin.dataset.key=z.key;pin.style.left=l+'%';pin.style.top=t+'%';pin.textContent=z.key.startsWith('player_')?'P':i+1;pin.setAttribute('aria-label',`Travel to ${z.name}`);pin.onclick=()=>{if(!suppressClick)travel(z);};pins.append(pin);
    const li=document.createElement('li'),b=document.createElement('button');b.dataset.key=z.key;
    const n=document.createElement('b');n.textContent=i+1;const name=document.createElement('span');name.textContent=z.name;
    const hint=document.createElement('small');hint.textContent=z.hint||'';name.append(hint);b.append(n,name);b.onclick=()=>travel(z);li.append(b);list.append(li);
@@ -54,6 +54,7 @@ export function createMap({send,onTravel}){
   if(!initialized){focus();initialized=true;}update(state);
  }
  function update(s){
+  if(dialog.open&&Date.now()-lastMapRefresh>1000){lastMapRefresh=Date.now();send({action:"map"});}
   state=s;if(!data||!s||typeof s.x!=='number'){player.hidden=true;return;}
   const [l,t]=pct(s.x/100,-s.y/100);player.hidden=false;player.style.left=l+'%';player.style.top=t+'%';player.style.setProperty('--heading',`${s.yaw||0}deg`);
  }

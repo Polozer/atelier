@@ -38,12 +38,13 @@ FYorimichiPhone::FYorimichiPhone(AWandererCharacter* InRider) : Rider(InRider), 
     });
     Stream->OnAction(TEXT("teleport"), [this](const FString& Player, const FJsonObject& J)
     {
-        AWandererCharacter* C = Rider.Get(); FString Zone; bool bOk = false;
+        AWandererCharacter* C = Rider.Get(); FString Zone; bool bOk = false; bool bPending = false;
         if (!C) return;
-        if (J.TryGetStringField(TEXT("zone"), Zone) && Zone.Len() <= 32 && C->GetMap() && !C->IsCinematic()) bOk = C->GetMap()->TeleportToZone(Zone);
-        if (bOk) { Stream->ResetControls(); C->ReleaseJump(FInputActionValue(false)); }
-        UE_LOG(LogTemp, Display, TEXT("PHONE STREAM teleport %s: %s"), *Zone, bOk ? TEXT("ok") : TEXT("unknown zone"));
-        auto Reply = Object(); Reply->SetStringField(TEXT("zone"), Zone); Reply->SetBoolField(TEXT("ok"), bOk);
+        if (J.TryGetStringField(TEXT("zone"), Zone) && Zone.Len() <= 64 && C->GetMap() && !C->IsCinematic()) bOk = C->GetMap()->TeleportToZone(Zone);
+        bPending = !bOk && !C->HasAuthority() && !C->IsCinematic() && !C->AreControlsSuspended() && Zone.StartsWith(TEXT("player_")) && C->GetMap() && C->GetMap()->FindZone(Zone);
+        if (bOk || bPending) { Stream->ResetControls(); C->ReleaseJump(FInputActionValue(false)); }
+        UE_LOG(LogTemp, Display, TEXT("PHONE STREAM teleport %s: %s"), *Zone, bOk ? TEXT("ok") : bPending ? TEXT("pending") : TEXT("unavailable"));
+        auto Reply = Object(); Reply->SetStringField(TEXT("zone"), Zone); Reply->SetBoolField(TEXT("ok"), bOk); Reply->SetBoolField(TEXT("pending"), bPending);
         Stream->Send(Player, Reply, TEXT("teleport"));
     });
     Stream->OnAction(TEXT("flightSpeed"), [this](const FString&, const FJsonObject& J)

@@ -85,10 +85,10 @@ bool UHorseComponent::ApplyNetworkActivity(const FJapanHorseState& Snapshot)
 
 void UHorseComponent::ReceiveNetworkPresentation(uint32 Epoch, double Stamp, const FJapanHorseState& Snapshot)
 {
-    if (!Rider || Rider->HasAuthority() || Rider->IsLocallyControlled() || !Snapshot.IsValid() || !FMath::IsFinite(Stamp)) return;
+    if (!Rider || Rider->IsLocallyControlled() || !Snapshot.IsValid() || !FMath::IsFinite(Stamp)) return;
     if (Epoch != Rider->GetActivityEpoch()) return;
     if (PresentationBufferEpoch != Epoch)
-    { PresentationBufferEpoch = Epoch; NetworkPoses.Reset(); NetworkPlayout = FJapanSkatePlayout(); LastPresentationStamp = -1.; }
+    { PresentationBufferEpoch = Epoch; NetworkPoses.Reset(); PresentedNetworkState = FJapanHorseState(); NetworkPlayout = FJapanSkatePlayout(); LastPresentationStamp = -1.; }
     if (Stamp <= LastPresentationStamp) return;
     LastPresentationStamp = Stamp;
     const double Now = GetWorld()->GetTimeSeconds();
@@ -101,7 +101,7 @@ void UHorseComponent::ReceiveNetworkPresentation(uint32 Epoch, double Stamp, con
 
 void UHorseComponent::SampleNetworkPresentation()
 {
-    if (!Rider || Rider->HasAuthority() || Rider->IsLocallyControlled() || NetworkPoses.IsEmpty() ||
+    if (!Rider || Rider->IsLocallyControlled() || NetworkPoses.IsEmpty() ||
         PresentationBufferEpoch != Rider->GetActivityEpoch()) return;
     const auto Sample = FJapanSkatePlayout::Sample(NetworkPoses, NetworkPlayout.Advance(GetWorld()->GetTimeSeconds()),
         [](const FNetworkPose& P) { return P.At; });
@@ -121,13 +121,26 @@ void UHorseComponent::SampleNetworkPresentation()
         StateToShow.PhaseTime = FMath::Lerp(A.PhaseTime, B.PhaseTime, Sample.Alpha);
     }
     // CMC owns and smooths the proxy's root; the presented state never turns it.
-    if (ApplyNetworkState(StateToShow, false)) JapanVehicleTelemetry::Presentation(Rider, NetworkPoses[Sample.Alpha >= 1.f ? Sample.B : Sample.A].At);
+    if (ApplyNetworkState(StateToShow, false))
+    {
+        PresentedNetworkState = StateToShow;
+        JapanVehicleTelemetry::Presentation(Rider, NetworkPoses[Sample.Alpha >= 1.f ? Sample.B : Sample.A].At);
+    }
 }
 
 void UHorseComponent::PresentNetwork(float Dt)
 {
     // Prediction and the remote presentation both reach this once, after any movement replay.
+    const FJapanHorseState Simulation = CaptureNetworkState();
     SampleNetworkPresentation();
-    if (Phase == EPhase::Stowed) return;
-    Present(Dt);
+    if (Phase != EPhase::Stowed) Present(Dt);
+    // Listen-server presentation must never become the next authoritative move's
+    // starting state. Animation reads PresentedNetworkState after restoration.
+    if (Rider && Rider->HasAuthority() && !Rider->IsLocallyControlled()) ApplyNetworkState(Simulation, false);
+}
+
+bool UHorseComponent::HasPresentedNetworkState() const
+{
+    return Rider && !Rider->IsLocallyControlled() && PresentationBufferEpoch == Rider->GetActivityEpoch() &&
+        !NetworkPoses.IsEmpty() && PresentedNetworkState.Phase != uint8(EPhase::Stowed);
 }

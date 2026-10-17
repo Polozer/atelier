@@ -115,7 +115,7 @@ public:
     EPhase GetState() const { return Phase; }
     EHorseRole GetRole() const { return Role; }
     /** Bumped by every new clip, so the animation instance blends into it. */
-    uint32 GetSerial() const { return Serial; }
+    uint32 GetSerial() const { return HasPresentedNetworkState() ? PresentedNetworkState.Serial : Serial; }
     float GetSpeed() const { return Speed; }
     float GetSteering() const { return Steering; }
     /** The pitch (degrees, nose up) he and the horse take from the ground under its hooves. */
@@ -143,6 +143,7 @@ public:
 
 private:
     friend class FJapanHorseWaterTest;
+    friend class FRemoteVehiclePresentationTest;
     friend class FJapanHorseTurnTest;
     bool IsTurningInPlace() const;
     bool IsInDeepWater() const;
@@ -244,6 +245,8 @@ private:
     struct FNetworkPose { double At; FJapanHorseState State; };
     TArray<FNetworkPose> NetworkPoses;
     FJapanSkatePlayout NetworkPlayout;
+    FJapanHorseState PresentedNetworkState;
+    bool HasPresentedNetworkState() const;
     double LastPresentationStamp = -1.;
 
     FString Hint;

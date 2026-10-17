@@ -17,3 +17,16 @@ Guard pressure MUST change only on resolved contacts and decay with the authorit
 movement replay MUST NOT reapply pressure, damage or contact counters. NPC hit immunity MUST allow
 separate combo cuts while retaining player recovery protection. Projectile damage MUST resolve only
 on authority through the shared defence resolver; flight MUST stop at cover and MUST NOT home after release.
+
+@cc [owner:fontanierh,label:correctness] remote-vehicle-presentation
+Releasing a remote skate pose, including repeated stow or travel after its bone buffer is empty,
+MUST restore capsule-relative mesh placement without changing the authoritative capsule. A new activity
+epoch MUST discard the previous streamed mesh frame. Listen-host horse visual interpolation MUST NOT
+change the authoritative horse checkpoint. Zeppelin passengers MUST follow the rendered ship without
+an additional character smoothing offset.
+
+@cc [owner:fontanierh,label:correctness] live-player-map-travel
+Online player map targets MUST use session player identity, follow the current pawn, and disappear
+when that player leaves. Travel MUST resolve the identity on the host at request time and retain epoch,
+encounter, pending-contact and rate admission. A destination MUST have walkable ground and standing
+capsule clearance; the chosen floor MUST NOT be replaced by an overhead bridge or roof.
