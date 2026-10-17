@@ -100,7 +100,7 @@ double UJapanSkateNetwork::GetMeshWorldError() const
 
 void UJapanSkateNetwork::RestoreStreamedMeshFrame()
 {
-    if (!Rider || !LastAppliedFrame || !Rider->GetSkate()->IsNetworkProxy() || Rider->GetSkate()->GetRiderPose().IsEmpty()) return;
+    if (!Rider || !LastAppliedFrame || LastAppliedEpoch != Rider->GetActivityEpoch() || !Rider->GetSkate()->IsNetworkProxy() || Rider->GetSkate()->GetRiderPose().IsEmpty()) return;
     auto* Mesh = Rider->GetMesh();
     if (Mesh->IsUsingAbsoluteLocation() && Mesh->IsUsingAbsoluteRotation()) Mesh->SetWorldTransform(AppliedMeshWorld);
 }
@@ -124,6 +124,7 @@ void UJapanSkateNetwork::TickComponent(float Dt, ELevelTick Type, FActorComponen
     {
         Epoch = Rider->GetActivityEpoch();
         HostAssembly.Reset(); ViewAssembly.Reset(); Frames.Reset();
+        LastAppliedEpoch = LastAppliedFrame = 0;
         ReceivedFrame = HostFrame = ReceivedBodies = HostBodies = 0; Bodies.Reset();
         bWarnedRoot = false; HostMode = 0;
         ArrivalClock = FJapanSkateClock(); Playout = FJapanSkatePlayout();
@@ -294,7 +295,7 @@ void UJapanSkateNetwork::Show(float Dt)
     {
         if (Rider->GetNetworkActivity() == EJapanActivity::Skate) { ++HeldFrameCount; ++AfterBufferCount; }
         Rider->GetSkate()->SilenceNetworkAudio(Dt);
-        if (Rider->GetNetworkActivity() == EJapanActivity::OnFoot) Rider->GetSkate()->ClearNetworkPose();
+        if (Rider->GetNetworkActivity() != EJapanActivity::Skate) Rider->GetSkate()->ClearNetworkPose();
         ShowBoard(RequestedTime);
         return; // Freeze a stale skater; never extrapolate through the ground.
     }

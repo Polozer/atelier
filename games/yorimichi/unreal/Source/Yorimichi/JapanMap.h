@@ -78,6 +78,7 @@ public:
     const TArray<FVector2D>& GetProjectionX() const { return ProjectionX; }
     const TArray<FVector2D>& GetProjectionY() const { return ProjectionY; }
 private:
+    void RefreshPlayerZones() const;
     UPROPERTY() TObjectPtr<AWandererCharacter> Owner;
     UPROPERTY() TObjectPtr<UTexture2D> Texture;
     FSlateBrush Brush;

@@ -206,6 +206,9 @@ bool AZeppelinService::PlaceNetworkPassengers(float Dt)
    C->SetActorRotation(FMath::RInterpTo(C->GetActorRotation(),FRotator(0,Walking.Rotation().Yaw,0),Dt,7.f));
   else if(!Walk)C->SetActorRotation(FRotator(0,ShipRoot->GetComponentRotation().Yaw,0));
   C->GetCharacterMovement()->Velocity=FVector::ZeroVector;
+  // The passenger is positioned from the same ship transform on each machine.
+  // Remove any residual character correction so it cannot slide against the deck.
+  C->GetMesh()->SetRelativeLocationAndRotation(C->GetBaseTranslationOffset(),C->GetBaseRotationOffset());
   if(C->IsLocallyControlled())
   {
    if(!PassengerCameras.Contains(C))

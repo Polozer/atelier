@@ -37,11 +37,15 @@ bool USkateComponent::ApplyNetworkPose(const TArray<FTransform>& ComponentPose, 
 
 void USkateComponent::ClearNetworkPose()
 {
-    if (!bNetworkProxy || !Rider || RiderPose.IsEmpty()) return;
+    if (!bNetworkProxy || !Rider) return;
+    // A travel/stow can already have discarded the pose. Absolute attachment is
+    // independent state and must still be restored before ordinary movement.
+    auto* Mesh = Rider->GetMesh();
+    if (RiderPose.IsEmpty() && !Mesh->IsUsingAbsoluteLocation() && !Mesh->IsUsingAbsoluteRotation()) return;
     RiderPose.Reset();
     ++PoseBlendSerial; PoseBlendTime = .12f;
-    Rider->GetMesh()->SetAbsolute(false, false, false);
-    Rider->GetMesh()->SetRelativeLocationAndRotation(Rider->GetBaseTranslationOffset(), Rider->GetBaseRotationOffset());
+    Mesh->SetAbsolute(false, false, false);
+    Mesh->SetRelativeLocationAndRotation(Rider->GetBaseTranslationOffset(), Rider->GetBaseRotationOffset());
 }
 
 float USkateComponent::GetBoardShown() const
