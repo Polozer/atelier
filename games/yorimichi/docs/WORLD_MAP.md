@@ -49,6 +49,13 @@ the previous image and receipt. On success, a `verified_geography` witness binds
 mask and painting hashes while keeping the original generation prompt and input hashes intact. New terrain must
 be checked again; copying an old witness cannot approve changed artwork or masks.
 
+For a small painted shore overshoot, `register_coast.py` follows the existing local-map registration workflow:
+it samples a verified open-water texture patch from the same painting, matches its sea colour and blends only
+inside reference ocean connected to the frame edge. It changes at most 3% of the frame, keeps every real-land
+and landmark pixel identical, and must pass both coast checks. Missing land requires a repaint. The registered
+asset's provenance nests the untouched original Sunburst receipt and records the mask, texture patch, colour
+shift and changed-pixel count. Registration and normal builds make no paid calls.
+
 ## Build
 
 ```sh
