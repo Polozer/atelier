@@ -383,8 +383,9 @@ class CapacityBroker:
         Only bridge or sealed-mode performance-exclusive grants MAY use this policy. The root MUST
         have affirmative exit evidence and its previously bound aggregate report MUST match
         identity, ceiling and invocation time, with completed cleanup. A normal child exit
-        MUST satisfy the normal terminal sample checks. A memory/duration stop MUST have
+        MUST satisfy the normal terminal sample checks. A memory/duration/controller-loss stop MUST have
         explicitly empty, zero post-drain cleanup and MUST NOT certify successful completion.
+        A controller-loss receipt MUST bind the original controller and require that identity no longer live.
         A normal exit's processes/footprint MUST be empty/zero, or an older pre-cleanup sample whose
         entire reported tail has retained positive exits and an exact footprint sum.
         Any verifiably live retained identity MUST refuse release. This
@@ -399,6 +400,9 @@ class CapacityBroker:
 
     def _stopped_terminal_sample(self, record, receipt):
         """Guard stops retain the offending sample separately from the observed cleanup."""
+        if receipt.get('state') == 'controller_exited' and (
+                receipt.get('controller') != record.get('principal') or self.alive(tuple(record['principal']))):
+            return False
         if (receipt.get('cleanup_processes') != []
                 or type(receipt.get('cleanup_footprint_bytes')) is not int
                 or receipt['cleanup_footprint_bytes'] != 0):
@@ -455,7 +459,7 @@ class CapacityBroker:
                        if preserved is None else preserved)
             observed, ready = receipt.get('time'), record.get('first_ready')
             exited = {tuple(pin) for pin in record.get('exited', [])}
-            stopped = receipt.get('state') in ('memory_limit', 'test_duration')
+            stopped = receipt.get('state') in ('memory_limit', 'test_duration', 'controller_exited')
             sample_valid = (self._stopped_terminal_sample(record, receipt) if stopped and allow_stopped and not pending
                             else receipt.get('state') == 'child_exited'
                             and self._settled_terminal_sample(record, receipt, exited))
@@ -934,6 +938,8 @@ class CapacityBroker:
                             facts = self.guards(guards, child, principal, message['limit_bytes'],
                                                  record['request']['resources']['memory_mib'])
                             if self.mode in ('capacity', 'sealed-maintenance'):
+                                if self.guards is wire.validate_guards:
+                                    wire.require_independent_guards(guards, principal)
                                 self._foreign_check(state)
                             self._pressure(state, record)
                             self._validate_compatibility(state)
@@ -941,6 +947,8 @@ class CapacityBroker:
                             # Revalidate after all compatibility, process-scan and pressure I/O.
                             facts = self.guards(guards, child, principal, message['limit_bytes'],
                                                 record['request']['resources']['memory_mib'])
+                            if self.mode in ('capacity', 'sealed-maintenance') and self.guards is wire.validate_guards:
+                                wire.require_independent_guards(guards, principal)
                             if self.started(child[0]) != child[1] or self.started(principal[0]) != principal[1]:
                                 raise wire.CapacityError('Launcher/controller changed before admission')
                             record['child'] = list(child)

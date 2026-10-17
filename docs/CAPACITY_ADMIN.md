@@ -50,6 +50,10 @@ Do not reboot, edit sealed files, replace lane inodes or change service configur
 
 ## Broker and client configuration
 
+New full-mode starts require independent guard process groups and an aggregate receipt binding the
+controller. Install this requirement at a child-free caller boundary and update active launch checkouts.
+Already running jobs retain their original guards; old clients refuse their next start before GO.
+
 The production broker uses its own private Unix socket and SQLite namespace. Offline planner output never
 grants admission. `atelier capacity serve ABSOLUTE_CONFIG` runs it; `atelier capacity status ABSOLUTE_SOCKET`
 reads its state. `atelier capacity supervise ABSOLUTE_CONFIG` installs macOS login/crash supervision. Installing
@@ -67,8 +71,8 @@ tail. A partial exit set, reused identity, duplicate, inconsistent sum or live s
 that release. Recovery does not rewrite the original monitor receipt or invent historical exits.
 The witness is `guarded-tree-exit`, covering the **monitored owned tree**; it does not manufacture individual
 kernel exit evidence or claim universal descendant discovery. It releases capacity only, never certifies outputs.
-The same exclusive policy also releases a guard-stopped job after a `memory_limit` or `test_duration` receipt
-with explicit `cleanup_processes: []`, zero `cleanup_footprint_bytes` and completed cleanup. The positively
+The same exclusive policy also releases a guard-stopped job after a `memory_limit`, `test_duration` or `controller_exited` receipt
+with explicit `cleanup_processes: []`, zero `cleanup_footprint_bytes` and completed cleanup. A controller-loss receipt must bind the original controller, which must no longer be live. The positively
 exited root, original report binding, limit, time and no-live-retained-identity checks still apply. The offending
 sample and failure remain intact. This distinct `guarded-tree-stop` witness releases resources only: it cannot
 produce `finish_required`, a successful terminal response or a build certificate.
