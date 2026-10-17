@@ -620,8 +620,8 @@ def generate():
     # Round the Mega Park the forest is the detailed autumn kind, as the skater gets close to it there, closed beyond.
     from megapark import forest as megapark_forest
     megapark_forest.grow(inst,lambda x,y:backdrop_ground(np.asarray(x,float),np.asarray(y,float),height,backdrop_grid,terrain_axes,north_height),trail_distance)
-    from zeppelin.layout import clear as clear_air_station,PARK_WALK,PARK_BRIDGE
-    clear_air_station(inst,1)
+    from zeppelin.layout import clear as clear_air_station,PARK_WALK,PARK_BRIDGE,city_path
+    clear_air_station(inst,1,path=city_path())
     clear_air_station(inst,2,path=[*PARK_WALK,PARK_BRIDGE[1]])
     # The Mega Park's own ground, rock and ramps replace the forest on its footprint; only the undergrowth by the seam
     # comes closer than 4 m (megapark/forest.py).
