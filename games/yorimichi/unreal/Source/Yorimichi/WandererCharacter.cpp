@@ -204,6 +204,7 @@ void AWandererCharacter::OnRep_NetworkHealth() { if (Sword) Sword->ApplyNetworkH
 
 void AWandererCharacter::ConfigureNetworkRider(const FString& Name, bool bShield)
 {
+    bAlwaysRelevant = true; // Live player map pins remain available across the shared world.
     NetworkRiderName = Name;
     bNetworkShield = bShield;
     OnRep_NetworkLoadout();

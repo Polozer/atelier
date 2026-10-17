@@ -141,6 +141,8 @@ public:
     /** Host-only supported park/stow followed by one foot epoch; clock resets also discard vehicle momentum. */
     bool ExitNetworkVehicle(uint8 ClockCorrection = 0, TFunction<void()> FootReaction = {});
     UFUNCTION(Server, Reliable) void ServerTravelTo(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch, float Above);
+    UFUNCTION(Client, Reliable) void ClientPlayerTravelled();
+    UFUNCTION(Server, Reliable) void ServerTravelToPlayer(const FString& SessionPlayerId, uint32 Epoch);
     UFUNCTION(Server, Reliable) void ServerRequestSkate(uint32 Epoch);
     UFUNCTION(Server, Reliable) void ServerZeppelinInput(uint32 Epoch, int32 Direction);
     UFUNCTION(Server, Reliable) void ServerTrainInteract(uint32 Epoch);
@@ -197,6 +199,7 @@ protected:
     void StopGesture(float BlendSeconds = .3f) { SetAction(NAME_None, false, BlendSeconds); }
 
 private:
+    friend class FRemoteVehiclePresentationTest;
     void InitializeLocalPlayer();
     TWeakObjectPtr<ULocalPlayer> InputOwner;
     bool RequestNetworkBike();
@@ -247,6 +250,7 @@ private:
     friend class FSwordCombatContactTest;
     friend class FJapanCheckpointTest;
     friend class FJapanHorseWaterTest;
+    bool PerformNetworkTravel(FVector Location, float Yaw, uint32 Epoch, float Above);
     friend class AJapanPlayerController;
     friend class FYorimichiPhone;
     friend class UWandererSwordComponent;

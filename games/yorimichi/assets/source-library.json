@@ -6885,6 +6885,70 @@
       "bytes": 385333,
       "sha256": "8de60cf7892e108b9815e6954d8e157100c3929b25a4b2b88c44457746b41ec3"
     },
+    "vehicles/belmonte-train/furniture/canteen-counter.glb": {
+      "bytes": 950108,
+      "sha256": "95701bf580b1fef2b063fb174880554ad479a2818081ccc882ebab020f06cdf0"
+    },
+    "vehicles/belmonte-train/furniture/canteen-ladle.glb": {
+      "bytes": 595396,
+      "sha256": "4dd0a25281471aceadde718f73f6d92bfd63e38a7839b19c5cbd415e2f27b0ee"
+    },
+    "vehicles/belmonte-train/furniture/canteen-mug.glb": {
+      "bytes": 232580,
+      "sha256": "c28fe4514b183433f6ea7437245a06120e9183943cd60c7ffef7bf8ae46a83a4"
+    },
+    "vehicles/belmonte-train/furniture/canteen-pot.glb": {
+      "bytes": 882692,
+      "sha256": "af864859f3c19e6ae4f1926c002f2705e638581b3ee6961b3484dcd26b39c941"
+    },
+    "vehicles/belmonte-train/furniture/canteen-shelves.glb": {
+      "bytes": 1569088,
+      "sha256": "d500498e081068e2263b6daf13301e0edb82e5141f8c44c453a7ce9a8de6d27a"
+    },
+    "vehicles/belmonte-train/furniture/canteen-sink.glb": {
+      "bytes": 648904,
+      "sha256": "316cb8c7e13f6cf3a98dcdcaeb6dcf154e14422c6043488668afb8fca2e35f0d"
+    },
+    "vehicles/belmonte-train/furniture/canteen-stove.glb": {
+      "bytes": 775932,
+      "sha256": "058a39d649e865795004a907825b69817f74d76e2949472387ff3656d2990a49"
+    },
+    "vehicles/belmonte-train/furniture/first-class-sofa.glb": {
+      "bytes": 1461464,
+      "sha256": "210441c9ab0570f1b53304ce2d53e458f638041d4f84e66b4a2c3f2a92fa8b81"
+    },
+    "vehicles/belmonte-train/furniture/first-class-table.glb": {
+      "bytes": 630556,
+      "sha256": "e2bc07f9b564be741521db94a104531a32e648ea14c5adc6ece161bf1c73f4c7"
+    },
+    "vehicles/belmonte-train/furniture/loco-backhead.glb": {
+      "bytes": 986120,
+      "sha256": "565838cf1e067c230dc31a37c6fb274c50226331e6fafb2e2ea73d54e56d7bb2"
+    },
+    "vehicles/belmonte-train/furniture/restaurant-banquette.glb": {
+      "bytes": 1427244,
+      "sha256": "0757fc487154eedcc481f383fdefa9ef7ce27a71f2bbf69b088a8a61fec39f09"
+    },
+    "vehicles/belmonte-train/furniture/restaurant-table.glb": {
+      "bytes": 865048,
+      "sha256": "ef393a824e3defd57f0a5fbda620e2171c91d06d6f4247b03e9308a6da135e7f"
+    },
+    "vehicles/belmonte-train/furniture/second-class-bench-carved.glb": {
+      "bytes": 2563868,
+      "sha256": "065902fed4e9fabb25c35bce334f15bd0bb58fa8d183b039a2ddf178943c0aad"
+    },
+    "vehicles/belmonte-train/furniture/second-class-bench.glb": {
+      "bytes": 1281372,
+      "sha256": "3699e983b9a68ca0fc4615e095e923950f92f48c2e72ed301c905c05076ee618"
+    },
+    "vehicles/belmonte-train/furniture/table-lamp.glb": {
+      "bytes": 1391572,
+      "sha256": "cd453f793ca29d4b2899902103c72f533a7a8aebd601fdc4184f5308707a34f0"
+    },
+    "vehicles/belmonte-train/furniture/wall-sconce.glb": {
+      "bytes": 946728,
+      "sha256": "5c7e2a1545b57e356f9ce3dbc9bdf7ba527d493bd5ce8fac0d85bbc9bfffa875"
+    },
     "vehicles/belmonte-train/textures/backhead.jpg": {
       "bytes": 287581,
       "sha256": "2a9d50d014da71e8d8714a4287caa92f3e3e75beeb28720bd30bbb96bd636e06"
