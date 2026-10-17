@@ -17,7 +17,7 @@ from pathlib import Path
 
 GAME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GAME / 'world')); import yori  # noqa: E402
-from atelier.safety import guarded  # noqa: E402
+from atelier.harness.safety import guarded  # noqa: E402
 from atelier.build import Context  # noqa: E402
 
 PROJECT = GAME / 'unreal'
@@ -126,7 +126,7 @@ PROFILE="desktop=1"
 [ -n "$(saved render_scale)" ] || PROFILE="$PROFILE;render_scale=100"
 RENDERER=0; RENDER=(@FORWARD@); COMMANDS=@FORWARD_COMMANDS@
 LOG="$LOGS/game.log"
-ARGS=(-fullscreen -ForceRes -resx=2560 -resy=1440 -desktopnative1440 -nosplash -abslog="$LOG"
+ARGS=(-fullscreen -ForceRes -resx=2560 -resy=1440 -desktopnative1440 -characterselect -nosplash -abslog="$LOG"
   -set="$PROFILE;renderer=$RENDERER" -preferencesfile="$PREFS" "${RENDER[@]}" -ExecCmds="$COMMANDS" "$@")
 # A Development package can segfault at startup, before it logs anything. Crash reports and engine source point to
 # the memory tracker freeing itself on the game thread while AppKit's launch event allocates through it on the main
@@ -186,8 +186,10 @@ def parse_ready(log, baseline=False, windowed=False, tile_manifest=None, tree_op
     if not re.search(r'r\.ForwardShading = "' + ('0' if baseline else '1') + '"', log):
         raise ValueError('requested renderer not verified')
     originals, tiles = tile_counts(tile_manifest or PROJECT / 'Content' / 'Data' / 'city_surface_tiles' / TILE_TAG / 'manifest.json')
-    markers = [f'CITY TILES tag={TILE_TAG} enabled=1 originals={originals} tiles={tiles}',
-               f'CITY TREE LODS tag={TREE_TAG} enabled={int(tree_optimization)} forced={tree_lod_mode} groups=3']
+    markers = [f'CITY TILES tag={TILE_TAG} enabled=1 originals={originals} tiles={tiles}']
+    trees = re.findall(re.escape(f'CITY TREE LODS tag={TREE_TAG} enabled={int(tree_optimization)} forced={tree_lod_mode} groups=') + r'(\d+)(?=\s|$)', log)
+    if not trees or int(trees[-1]) < 3:
+        raise ValueError('desktop profile did not load: CITY TREE LODS requires at least the three city tree groups')
     if not baseline:
         markers.append('FORWARD FILL nominal_lux=3.000 lights=1')
     missing = [marker for marker in markers if not re.search(re.escape(marker) + r'(?=\s|$)', log)]

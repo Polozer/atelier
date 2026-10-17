@@ -1,0 +1,37 @@
+{
+  "stage": "swordcamp-texture",
+  "slug": "sashimono_maple",
+  "prompt_file": "sashimono_maple.prompt.txt",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/edits",
+  "prompt_sha256": "3b7514c05fd83bcf0ac4ed2da73cfb6971f063798cae3c1b01ad7c2b7c82404f",
+  "status": "done",
+  "started_at": "2026-10-16T16:32:04.393086+00:00",
+  "output": "sashimono_maple.png",
+  "output_sha256": "0934ed9a1f7b43b4d5b2caa0b14a2004e9171a1f57736e2743d050e4c369e944",
+  "usage": {
+    "input_tokens": 1224,
+    "input_tokens_details": {
+      "image_tokens": 1080,
+      "text_tokens": 144
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 2980
+  },
+  "elapsed_seconds": 41.5,
+  "finished_at": "2026-10-16T16:32:45.942704+00:00",
+  "compact_copy": {
+    "file": "sashimono_maple.jpg",
+    "size": "1024x1024",
+    "jpeg_quality": 92,
+    "chroma": "4:2:0",
+    "bytes": 415346,
+    "sha256": "9eb168312a81fe8ff053cee68c0d4aa5408a87799d3d862f368067ff609923bd"
+  }
+}

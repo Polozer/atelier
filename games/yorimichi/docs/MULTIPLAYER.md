@@ -10,22 +10,71 @@ two-machine or packaged release certification.
 
 - Ordinary Solo play retains its immediate combat path. A remote autonomous
   player's on-foot reaction uses the scheduled path described below.
-- Online bike and sail support is implemented behind
-  `AJapanGameState::bPredictedVehicles`, which remains **false by default**.
-  The development vehicle fixture enables it explicitly. Do not mistake those
-  fixture results for vehicles being enabled in ordinary online play.
-- Online zeppelin integration is unfinished. World
-  editing are unavailable online.
-- Rendered multiplayer, packaged sessions, real Tailscale connections between
-  machines and Windows native acceptance remain unverified. Source work for
-  Windows portability and tunnel binding remains in PRs #175 and #173.
+- Bike, sail and horse support uses `AJapanGameState::bPredictedVehicles`, enabled
+  by default. A host can still disable vehicles; the vehicle regression explicitly
+  tests that opt-out before restoring normal availability.
+- The horse is predicted like the bike: its simulation sets CMC velocity and yaw
+  inside each saved move, host checkpoints carry `FJapanHorseState` (36 bytes,
+  fixed role indices), and remote players show the host's 20 Hz presentation.
+  The host mounts it (standing on the ground, not crouching) and dismounts it
+  (stopped, on the ground); there is no parked horse. Getting on and off last
+  the pawn's own HorseMount and HorseDismount clips, the same content on every
+  machine. Swimming ends the ride in the simulation, and the host stows it as at
+  the end of getting off. In the saddle Crouch, Wave and Interact are refused as
+  offline. Its look is roster indices, validated and rate-limited by the host and
+  replicated outside the activity epoch; the owner does not predict it, and the
+  simulation never reads it.
+- The zeppelin is one replicated host-owned service with separate passenger
+  seats. Boarding, destination and speed controls use the owning player's RPCs.
+- Every player chooses their own character independently. `--mixed-characters`
+  runs the ordinary listen/gameplay probe with a Cairo host and Modori guest;
+  both observers must bind each player's identity to the exact native class and
+  applied equipment. It can share the private-address 60/15/2 session check.
+- Character selection is available during a session. The persistent controller
+  replaces its pawn, preserving health, player identity and activity, and advances
+  the activity epoch. Pending combat resolves before replacement. Bike, sail and
+  horse checkpoints resume (a mounted change to a character without horse clips
+  is refused before it spawns), and the horse keeps its look; skating carries
+  the existing simulation, stance and trick state into the replacement rig.
+  Requests during physical bail/get-up or a transition clip stay queued until
+  that recovery finishes.
+- Same-machine tests do not establish packaged or two-machine acceptance.
 
-The October 8 wrap-up integrates current main, including the character registry
-and Modori changes. The operator requested no further Unreal sessions: the
-integrated revision has source review and Python validation, but **has not been
-natively compiled or run**. Earlier native receipts do not transfer to it.
-Native rebuilding and real-machine testing are deferred to the joint session on
-Sunday, October 11, 2026.
+## Native multiplayer checks (on demand)
+
+These checks run only when the operator asks for them, for example to accept a
+multiplayer change. A playtest release does not run them. Its notes name the
+revision of the latest native multiplayer evidence instead.
+
+Run the clean revision's compile and `data.network` staging, then the native
+wire suite. All 19 named fixtures must pass, including encounter replacement and
+the horse checkpoint;
+an engine exit code alone is insufficient.
+Run a listen pair at zero lag and at 60 ms delay / 15 ms variance / 2% loss. Both
+observers must receive sustained skate poses and evaluate the expected skeleton.
+Skate replacement receipts also require the finalized mesh world frame to match
+the applied stream frame. Matching local bones alone can miss a misplaced body.
+
+The session runner supports `--feature-case equipment|switch-foot|switch-bike|
+switch-sail|switch-horse|switch-skate|switch-skate-air|switch-skate-bail|zeppelin` and
+`--render-view host|guest`. Run both observer
+views; one process renders while its peer uses NullRHI. The aggregate guard defaults
+to 10 GiB. A rendered observer can use `--aggregate-memory-gib 14`, `16` or `18`
+only with explicit authorization for that session. Individual guards default to
+10 GiB; `--rendered-memory-gib 12` also requires explicit session authorization
+and applies only to the process that renders. Its NullRHI peer stays at 10 GiB.
+Startup requires the selected aggregate ceiling plus 2 GiB available, and receipts
+check and record the actual individual and aggregate ceilings and peaks.
+Inspect the captures as well as the receipts. A full acceptance also covers the bike,
+sail, horse (`switch-horse`), pending mount, parking, crash and combat routes. A two-device Tailscale playtest
+with matching packaged identities is what establishes multiplayer on separate machines.
+
+The `switch-skate-bail` QA stimulus currently sets an unread scripted-input
+field, so its phase-2 timeout does not exercise a bail or character request.
+Its failed receipt is retained; bail replacement has source review only, while
+mid-trick continuation is covered by the air case. The QA follow-up must press
+and release the existing controller bail chord before accepting native bail
+coverage. This limitation does not establish a gameplay failure.
 
 ## Scheduled combat reactions
 
@@ -68,6 +117,7 @@ the ignored build archive and the corresponding agent-board review threads.
 | `39f9e8ea` | Compile and all 17 network automation fixtures; eight stationary delivery cases at zero lag, and moving cases 0/5 both at zero lag and 60 ms lag / 15 ms variance / 2% loss. All 12 pairs passed and were independently reviewed. |
 | `7e5bf9ac` | Compile and all 17 fixtures; moving lethal cases 8/9 both at zero lag and 60/15/2. All four passed independent raw-receipt review. Both orderings of old payload versus activity reset were observed. Combat with a 20 fps host and 30 fps owner at 60/15/2 passed 106 checks. |
 | Earlier vehicle revisions | Bike, sail, outage recovery, parking and crash receipts are historical only. Pending-mount bike/sail have not been rerun with the scheduled reaction fix. |
+| None yet | The horse (HorseCheckpoint fixture, `switch-horse` case) has source and Python receipt review only; it has not been compiled or run natively. |
 
 The reaction/death checker keeps zero corrections above 1 cm, maximum error
 strictly below 1 cm, and zero rejected checkpoints. The maximum in the accepted
@@ -83,9 +133,8 @@ native checks on the final integrated revision remain open.
 
 ## Development checks
 
-These are instructions for the next testing session, not steps run during the
-October 8 wrap-up. Follow the machine render ledger, live locks and normal
-memory guards. Build assets and identity before accepting a native receipt:
+Like the checks above, these run on demand. Follow the machine render ledger,
+live locks and normal memory guards. Build assets and identity before accepting a native receipt:
 
 ```sh
 nice -n 10 uv run atelier build yorimichi unreal.compile data.network
@@ -115,17 +164,12 @@ with `--lag-ms 60 --variance-ms 15 --loss-percent 2`. The deliberate holds and
 stale deliveries are Development-only and labelled in the receipts. Case 2
 holds CMC responses; it does not hold the reliable reaction RPC.
 
-## Sunday real-machine session
+## Two-device playtest
 
-1. Build the same reviewed revision and matching network identity on both
-   machines; resolve the pending Windows portability/tunnel work if using
-   Windows. Run the integrated native compile and wire17 first.
-2. Verify ordinary Solo startup and controls, then host/join over the private
-   Tailscale connection. Confirm the listener address, identity check and clean
-   return to Solo after disconnect.
-3. Exercise walking, jumping, skating, ordinary hits, guard/parry/dodge,
-   knockdown/death and recovery. Observe both the local player and the remote
-   rendered player, including Modori equipment and animation.
-4. Record failures with both logs and build identities. Keep online vehicles
-   disabled until their final-head pending-mount and rendered checks pass.
-   Packaged acceptance and online zeppelin work remain separate follow-ups.
+Use the same reviewed revision and network identity on both machines. Verify Solo
+startup first, then host and join over Tailscale. Check sword draw, attack, held
+guard and sheath; observe both players' skating, walking and jumps. Ride bikes,
+sailboats and the shared zeppelin, and change character during each activity.
+Exercise hits, guard/parry/dodge, knockdown/death and recovery, then verify that a
+guest disconnect returns to Solo and that leaving as host ends the shared session.
+Record both logs and build identities with any failure.

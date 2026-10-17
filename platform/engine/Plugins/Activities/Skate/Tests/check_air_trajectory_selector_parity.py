@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact pure selector/launch/scoring/grind and ordered original stock loader.
 
-Only the parent coordinator compiles/executes through atelier.safety. --preflight
+Only the parent coordinator compiles/executes through atelier.harness.safety. --preflight
 stages immutable original source, transport and corpus without compiling.
 """
 import argparse

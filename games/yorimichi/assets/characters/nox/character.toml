@@ -7,3 +7,75 @@ revision = "assembled-r03"
 source = "Nox.glb"
 manifest = "source-manifest.json"
 licence = "own (Sunburst references, Tripo mesh and body rig, local texture repairs and hair rig)"
+
+# How pipeline/export.py makes his body (the defaults, a Tripo model's, are in pipeline/definition.py). His seat
+# corrective shapes are checked by export_hooks.py.
+[export]
+extra_bones = "follow"                # the hair rig and Mixamo's end bones stay as neutral followers of their parents
+followers = { NoxLoc_ = 180 }
+mesh_names = [{ group_prefix = "NoxLoc_", name = "Head" }, { name = "Body" }]
+
+[export.materials]
+format = "png"
+two_sided = true
+require_texture = true
+atlas = 4096
+
+# How unreal/Scripts/import_character.py brings his body in (the defaults are in pipeline/definition.py).
+[unreal]
+physics_asset = false                 # skating fits its own physical rider to him
+vertex_colors = true
+morph_targets = true                  # his seat correctives
+modules = ["YorimichiImport", "YorimichiAssets", "AtelierCore"]   # AtelierCore: the skin-morph contact data
+
+[blender]
+threads = 3                           # two 4K atlases
+
+[game]
+crouched_half_height = 77.0
+skate_clothing_clearance = 3.0
+skate_hull_directions = 1024          # keeps his rounded soles
+leg_scaled_sailboat = true
+seat_correctives = "NoxSeat"          # export_hooks.py's seat correctives
+
+[[fit]]
+report = "adventure"
+clip = "Nml_Lockon_Jump_B_Ed"
+metric = "ankle_cm"
+bound = 4.75
+reason = "an ankle falls 4.64 cm short of its solved goal, as before this gate"
+
+[[fit]]
+report = "adventure"
+clip = "Nml_Lockon_Jump_B_St"
+metric = "ankle_cm"
+bound = 4.5
+reason = "an ankle falls 4.19 cm short of its solved goal, as before this gate"
+
+[[fit]]
+report = "adventure"
+clip = "Swim_Move_Dash"
+metric = "ankle_cm"
+bound = 7.5
+reason = "an ankle falls 7.24 cm short of its solved goal, as before this gate"
+
+[[fit]]
+report = "bike"
+clip = "BikeCrash"
+metric = "reach_hand_L_cm"
+bound = 8.5
+reason = "the left hand falls 8.26 cm short of its keyed target, as before this gate (bike pose fit follow-up)"
+
+[[fit]]
+report = "bike"
+clip = "BikeCrash"
+metric = "reach_hand_R_cm"
+bound = 7.75
+reason = "the right hand falls 7.41 cm short of its keyed target, as before this gate (bike pose fit follow-up)"
+
+[[fit]]
+report = "bike"
+clip = "BikeKickstand"
+metric = "reach_hand_L_cm"
+bound = 10.5
+reason = "the left hand falls 10.37 cm short of its keyed target, as before this gate (bike pose fit follow-up)"

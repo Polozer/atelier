@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact static-world queries against unmodified frozen public BoardWorld APIs.
 
-Run through atelier.safety. Evidence and compiler snapshots belong in the given
+Run through atelier.harness.safety. Evidence and compiler snapshots belong in the given
 game build directory. PrimitiveBounds has no public direct oracle in this slice.
 """
 import argparse

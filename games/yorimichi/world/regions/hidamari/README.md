@@ -4,7 +4,7 @@ The city at the eastern end of the coastal road: arrival terraces, a clock hall 
 shopping arcade, two temples and a shrine on the hillside, a sunlit park with a pond and a cedar bridge, the station
 district, and a fishing harbour with a fish market, lighthouse, breakwater and canal. Street lamps, benches, flower
 beds, street trees and resident groups fill it. North of it rise the foothills and a distant volcano, with a trail
-up from the park. Buildings are exteriors; there is no shopping, fishing or train travel.
+up from the park. Buildings are exteriors; the Belmonte train serves the clock-tower station's extended platform.
 
 ## Build and check
 
@@ -18,17 +18,22 @@ uv run atelier build yorimichi world.city_tiles world.city_trees unreal.desktop 
   `build/yorimichi/hidamari/city.json`; then it builds the modular meshes, their collision and `manifest.json`. Streets
   and the terrain under them share one height profile, intersections included, and the far terrain is lowered
   smoothly round the city.
-- `unreal.world` imports them with `unreal/Scripts/import_hidamari.py`, keeping the authored collision.
+- `unreal.world` imports them with `unreal/Scripts/import_hidamari.py`, keeping the authored collision, all but the
+  volcano: `unreal.north` imports `HD_North*` after it, with `M_NorthMountains`, the rock texture and the snow mask
+  (`HIDAMARI_ASSETS=HD_North*`; a name ending in `*` selects the meshes it begins). Each needs a digest of the meshes
+  it reads (`world.hidamari.city`, `world.hidamari.north`, `export_digest.py`) rather than `world.hidamari`, so a
+  layout-only change (`city.json`) or a volcano change reimports nothing else.
 - `data.stage` stages `city.json`; the game merges it into the world when it builds the instanced meshes.
 - `world.city_tiles` and `world.city_trees` build the desktop profile's 128 m city surface tiles and city tree LODs,
   and `unreal.desktop` imports them into `/Game/Experiments`.
 
 For an art iteration on a few meshes, set `HIDAMARI_ASSETS` to comma-separated mesh names for both the Blender build
-and the importer, and `HIDAMARI_TERRAIN=1` on the importer to replace the base terrain too. Run the importer on its own
-(`kit/lab.py`, or `import_hidamari.py` through `-run=pythonscript`), never through `atelier build`: `unreal.world`
-purges `/Game/Japan` first, so a filtered import there leaves only the named meshes. A layout or height
-change can need `HD_Terrain`, `HD_Streets` and the ground-anchored public spaces rebuilt; rerun the collision audit
-after it.
+and the importer, and `HIDAMARI_TERRAIN=1` on the importer to replace the base terrain too. This is an isolated art
+experiment: use the guarded `kit/lab.py` workflow, or run `import_hidamari.py` under `atelier.harness.safety.guarded` after
+normal board admission. Never certify this filtered output through an ordinary `atelier build`: `unreal.world`
+still purges legacy regional packages under `/Game/Japan`, preserving only the independently owned shared-material
+and foliage catalogues. A filtered run would remove the other legacy meshes. A layout or height change can need
+`HD_Terrain`, `HD_Streets` and the ground-anchored public spaces rebuilt; rerun the collision audit afterward.
 
 A capture shot spec with `"validate_hidamari": true` (`tools/capture.py SESSION --file SHOTS.json`) makes the game
 audit the city's live collision before filming and write `hidamari-physics.json` (`HidamariReview.cpp`): ground
@@ -52,7 +57,7 @@ Do not run a benchmark beside Blender or another Unreal session; it rejects cont
 | [`arcade.py`](arcade.py), [`plaza.py`](plaza.py), [`harbor.py`](harbor.py) | The arcade, clock-square and harbour kits |
 | [`living_streets.py`](living_streets.py), [`living_plaza.py`](living_plaza.py), [`working_harbor.py`](working_harbor.py) | Street details, plaza furniture, the fish market |
 | [`pond_garden.py`](pond_garden.py), [`garden_bridge.py`](garden_bridge.py), [`civic_gardens.py`](civic_gardens.py), [`hero_approaches.py`](hero_approaches.py) | The park, its bridge, temple gardens, the station forecourt and the stone approaches |
-| [`mountains.py`](mountains.py), [`forest_backdrop.py`](forest_backdrop.py) | The north foothills, volcano and trail; tree cover on the eastern hills |
+| [`mountains.py`](mountains.py), [`forest_backdrop.py`](forest_backdrop.py) | The north foothills, the volcano and its caldera ([docs/VOLCANO.md](../../../docs/VOLCANO.md)) and trail; tree cover on the eastern hills |
 | [`arrival.py`](arrival.py), [`park_grounds.py`](park_grounds.py), [`temple_precinct.py`](temple_precinct.py), [`station_yard.py`](station_yard.py) | The arrival road's rice terraces, the pond park's grounds, the temple precinct, the railway behind the station |
 | [`lane_edges.py`](lane_edges.py), [`city_poles.py`](city_poles.py) | What lines the narrow lanes; utility poles and their wires |
 | [`garden_shrubs.py`](garden_shrubs.py), [`house_gardens.py`](house_gardens.py) | The clipped garden shrubs; the planting of the back-lane houses' front plots |

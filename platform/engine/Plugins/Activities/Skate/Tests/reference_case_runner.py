@@ -54,7 +54,7 @@ def join_case_outputs(outputs):
 
 def _memory_guard():
     # Derive the project guard location from this checkout, never a home path.
-    relative = Path('platform/studio/atelier/safety/memory_guard.py')
+    relative = Path('platform/harness/harness/safety/memory_guard.py')
     path = next((p / relative for p in Path(__file__).resolve().parents
                  if (p / relative).is_file()), None)
     if path is None:

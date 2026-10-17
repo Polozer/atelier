@@ -11,8 +11,12 @@
 #include "AdventureMoveSet.h"
 #include "SkateComponent.h"
 #include "BikeComponent.h"
+#include "HorseComponent.h"
 #include "SailboatComponent.h"
+#include "ZeppelinService.h"
+#include "BelmonteTrainService.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
 
@@ -49,6 +53,8 @@ bool AWandererCharacter::ExitNetworkVehicle(uint8 ClockCorrection,TFunction<void
     }
     else if(NetworkActivity.Kind==EJapanActivity::Sailboat)
     {Sailboat->StowImmediately();Falling=true;}
+    // No parked horse: it goes at once. Falling stays the movement component's.
+    else if(NetworkActivity.Kind==EJapanActivity::Horse)Horse->StowImmediately();
     else return false;
     SetAction(NAME_None);
     // Timeout/budget recovery must not carry bike/sail velocity into walking.
@@ -79,7 +85,10 @@ void AWandererCharacter::BeginNetworkActivity(EJapanActivity Kind, bool bFalling
     NetworkActivity.bFalling = bFalling;
     NetworkActivity.ClockCorrection = ClockCorrection;
     NetworkActivity.Sail = Kind == EJapanActivity::Sailboat ? Sailboat->CaptureNetworkState() : FJapanSailState();
+    NetworkActivity.Zeppelin = Kind == EJapanActivity::Zeppelin ? GetZeppelin() : nullptr;
+    NetworkActivity.bCharacterReplacement = false;
     NetworkActivity.Bike = Kind == EJapanActivity::Bike ? Bike->CaptureNetworkState() : FJapanBikeState();
+    NetworkActivity.Horse = Kind == EJapanActivity::Horse ? Horse->CaptureNetworkState() : FJapanHorseState();
     NetworkActivity.bFootReaction = false; NetworkActivity.FootBytes.Reset(); NetworkActivity.FootAction = NAME_None;
     OnRep_NetworkActivity();
     if (Kind == EJapanActivity::OnFoot && FootReaction)
@@ -109,6 +118,9 @@ void AWandererCharacter::BeginNetworkActivity(EJapanActivity Kind, bool bFalling
 void AWandererCharacter::OnRep_NetworkActivity()
 {
     if (AppliedActivityEpoch == NetworkActivity.Epoch) return;
+    if (!Moves || !Landscape || !Landscape->bGameplayReady) return;
+    if (NetworkActivity.bCharacterReplacement && IsLocallyControlled() && !bReady) return;
+    if (NetworkActivity.Kind == EJapanActivity::Zeppelin && (!NetworkActivity.Zeppelin || !NetworkActivity.Zeppelin->IsReady())) return;
     if ((NetworkActivity.Kind==EJapanActivity::Sailboat&&!Sailboat->IsAvailable()) ||
         (NetworkActivity.Kind==EJapanActivity::Bike&&!Bike->IsAvailable()))
     {
@@ -116,12 +128,34 @@ void AWandererCharacter::OnRep_NetworkActivity()
             Session->ReturnWithError(TEXT("The vehicle data does not match the host. Rejoin using the same build."));
         return; // Assets may still be loading before world readiness.
     }
+    if (NetworkActivity.Kind == EJapanActivity::Horse && !Horse->IsAvailable())
+    {
+        if (auto* Session = GetWorld()->GetGameInstance<UJapanGameInstance>())
+            Session->ReturnWithError(TEXT("The horse data does not match the host. Rejoin using the same build."));
+        return;
+    }
     AppliedActivityEpoch = NetworkActivity.Epoch;
+    if (NetworkActivity.bCharacterReplacement && IsLocallyControlled() && NetworkActivity.Kind != EJapanActivity::Skate)
+        if (auto* Player = Cast<AJapanPlayerController>(GetController())) Player->DiscardCharacterRide();
     bNetworkActivityPending = false; bNetworkSkateObserved = false;
     auto* Movement = CastChecked<UJapanCharacterMovement>(GetCharacterMovement());
+    // Release the previous stream's world-space mesh before any handoff changes
+    // its capsule or authored mesh base. A new epoch must never show old bones.
+    SkateRide->ClearNetworkPose();
     Movement->ResetActivityPrediction();
     Movement->RecordClockCorrection(NetworkActivity.ClockCorrection);
     if (Moves) { Moves->Reset(); Moves->DropHolds(); }
+    if (NetworkActivity.bCharacterReplacement && Moves)
+    {
+        FJapanMoveCheckpoint State; State.Bytes = NetworkActivity.FootBytes; State.Action = NetworkActivity.FootAction;
+        if (!Moves->ApplyNetworkState(State))
+        {
+            if (auto* Session=GetWorld()->GetGameInstance<UJapanGameInstance>())
+                Session->ReturnWithError(TEXT("The replacement character state does not match the host."));
+            return;
+        }
+        ReadyTime = 2.f;
+    }
     MoveIntent = FVector2D::ZeroVector; bSprintHeld = bWalk = bJog = false;
     JumpBuffer = RollBuffer = 0.f; bPendingTakeoff = false;
     StopJumping();
@@ -129,13 +163,22 @@ void AWandererCharacter::OnRep_NetworkActivity()
     Movement->Velocity = NetworkActivity.Velocity;
     Movement->bForceNextFloorCheck = true;
     GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    SetActorEnableCollision(true);
     if (NetworkActivity.Kind == EJapanActivity::OnFoot)
     {
+        if (Landscape && Landscape->Zeppelin) GetMesh()->RemoveTickPrerequisiteActor(Landscape->Zeppelin);
         if (SkateRide->IsRiding()) SkateRide->StowImmediately();
         if (Bike->IsEquipped()) Bike->StowImmediately();
         if (Sailboat->IsEquipped()) Sailboat->StowImmediately();
+        if (Horse->IsEquipped()) Horse->StowImmediately();
         OnRep_NetworkParkedBike();
         Movement->SetMovementMode(NetworkActivity.bFalling ? MOVE_Falling : MOVE_Walking);
+        if (NetworkActivity.bCharacterReplacement)
+        {
+            Movement->ApplyNetworkMovementMode(NetworkActivity.ReplacementMovementMode);
+            if (NetworkActivity.bReplacementCrouched) Movement->Crouch(false);
+            Movement->Velocity = NetworkActivity.Velocity;
+        }
         if (NetworkActivity.bFootReaction)
         {
             // Stowing the old vehicle above clears movement. The committed
@@ -160,6 +203,7 @@ void AWandererCharacter::OnRep_NetworkActivity()
     if (NetworkActivity.Kind == EJapanActivity::Sailboat)
     {
         if (SkateRide->IsRiding()) SkateRide->StowImmediately();
+        if (Horse->IsEquipped()) Horse->StowImmediately();
         Movement->SetMovementMode(MOVE_Flying);
         if(!Sailboat->ApplyNetworkActivity(NetworkActivity.Sail))
             if(auto* Session=GetWorld()->GetGameInstance<UJapanGameInstance>())
@@ -169,19 +213,43 @@ void AWandererCharacter::OnRep_NetworkActivity()
     if (NetworkActivity.Kind == EJapanActivity::Bike)
     {
         if (SkateRide->IsRiding()) SkateRide->StowImmediately();
+        if (Horse->IsEquipped()) Horse->StowImmediately();
         Movement->SetMovementMode(NetworkActivity.bFalling ? MOVE_Falling : MOVE_Walking);
         if (!Bike->ApplyNetworkActivity(NetworkActivity.Bike))
             if (auto* Session = GetWorld()->GetGameInstance<UJapanGameInstance>())
                 Session->ReturnWithError(TEXT("The bike data does not match the host. Rejoin using the same build."));
         return;
     }
+    if (NetworkActivity.Kind == EJapanActivity::Horse)
+    {
+        // Mounting starts on foot; a skipped epoch can still leave another ride to put away first.
+        if (SkateRide->IsRiding()) SkateRide->StowImmediately();
+        if (Bike->IsEquipped()) Bike->StowImmediately();
+        if (Sailboat->IsEquipped()) Sailboat->StowImmediately();
+        Movement->Velocity = NetworkActivity.Velocity;
+        Movement->SetMovementMode(NetworkActivity.bFalling ? MOVE_Falling : MOVE_Walking);
+        if (!Horse->ApplyNetworkActivity(NetworkActivity.Horse))
+            if (auto* Session = GetWorld()->GetGameInstance<UJapanGameInstance>())
+                Session->ReturnWithError(TEXT("The horse data does not match the host. Rejoin using the same build."));
+        return;
+    }
     if (NetworkActivity.Kind == EJapanActivity::Skate)
     {
+        if (Horse->IsEquipped()) Horse->StowImmediately();
         if (IsLocallyControlled())
         {
             Movement->SetMovementMode(NetworkActivity.bFalling ? MOVE_Falling : MOVE_Walking);
             TGuardValue<bool> Applying(bApplyingNetworkActivity, true);
-            ToggleSkateboard(FInputActionValue(true));
+            if (NetworkActivity.bCharacterReplacement)
+            {
+                auto* Player = Cast<AJapanPlayerController>(GetController());
+                if (!Player || !Player->ResumeCharacterRide(this))
+                {
+                    ClientActivityRejected(TEXT("The skate ride could not be transferred."));
+                    ServerFinishSkate(NetworkActivity.Epoch, GetActorLocation(), GetActorRotation(), NetworkActivity.Velocity, true);
+                }
+            }
+            else ToggleSkateboard(FInputActionValue(true));
             NetworkActivityRequestTime = GetWorld()->GetTimeSeconds();
         }
         else
@@ -191,6 +259,47 @@ void AWandererCharacter::OnRep_NetworkActivity()
             GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         }
     }
+    else if (NetworkActivity.Kind == EJapanActivity::Zeppelin)
+    {
+        if (SkateRide->IsRiding()) SkateRide->StowImmediately();
+        if (Bike->IsEquipped()) Bike->StowImmediately();
+        if (Sailboat->IsEquipped()) Sailboat->StowImmediately();
+        if (Horse->IsEquipped()) Horse->StowImmediately();
+        Movement->DisableMovement(); Movement->StopMovementImmediately();
+        SetActorEnableCollision(false);
+        GetMesh()->AddTickPrerequisiteActor(NetworkActivity.Zeppelin);
+        if (Landscape) Landscape->Zeppelin = NetworkActivity.Zeppelin;
+    }
+}
+
+void AWandererCharacter::ServerZeppelinInput_Implementation(uint32 Epoch, int32 Direction)
+{
+    if (Epoch != NetworkActivity.Epoch || !bReady || bMenuOpen || Direction < -1 || Direction > 1) return;
+    auto* Ship = GetZeppelin();
+    if (!Ship || !Ship->IsReady()) { ClientActivityRejected(TEXT("The zeppelin is still loading.")); return; }
+    if (Direction)
+    {
+        if (Ship->IsPassenger(this)) Ship->AdjustFlightSpeed(Direction);
+        else if (!Ship->ChooseDestination(this, Direction)) ClientActivityRejected(TEXT("Choose a destination beside the docked zeppelin."));
+        return;
+    }
+    if (!Ship->IsPassenger(this) &&
+        (NetworkActivity.Kind != EJapanActivity::OnFoot || MovementLocked() ||
+         GetWorld()->GetSubsystem<UJapanEncounters>()->HoldsPlayer(this) ||
+         GetWorld()->GetSubsystem<UJapanCombatResolver>()->HasPending(this)))
+    { ClientActivityRejected(TEXT("Finish the current action before boarding.")); return; }
+    if (!Ship->TryInteract(this)) ClientActivityRejected(TEXT("Use the zeppelin beside its platform when it is ready to board."));
+}
+
+void AWandererCharacter::ServerTrainInteract_Implementation(uint32 Epoch)
+{
+    if (Epoch != NetworkActivity.Epoch || !bReady || bMenuOpen || SkateRide->IsRiding() || OnVehicle() || IsZeppelinPassenger()) return;
+    if (!ABelmonteTrainService::IsDrivingRider(this) &&
+        (NetworkActivity.Kind != EJapanActivity::OnFoot || MovementLocked() ||
+         GetWorld()->GetSubsystem<UJapanEncounters>()->HoldsPlayer(this) ||
+         GetWorld()->GetSubsystem<UJapanCombatResolver>()->HasPending(this)))
+    { ClientActivityRejected(TEXT("Finish the current action before using the train.")); return; }
+    ABelmonteTrainService::TryInteract(this);
 }
 
 bool AWandererCharacter::RequestNetworkSkate()
@@ -241,21 +350,28 @@ void AWandererCharacter::ServerFinishSkate_Implementation(uint32 Epoch, FVector_
 
 void AWandererCharacter::ServerTravelTo_Implementation(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch)
 {
+    PerformNetworkTravel(Location, Yaw, Epoch, 2500.f);
+}
+
+bool AWandererCharacter::PerformNetworkTravel(FVector Location, float Yaw, uint32 Epoch, float Above)
+{
     // The host can already have recovered from water and advanced the epoch. Its
     // replicated handoff supersedes this late request; do not show a false failure.
-    if (Epoch != NetworkActivity.Epoch) return;
+    if (Epoch != NetworkActivity.Epoch) return false;
     auto* Combat = GetWorld()->GetSubsystem<UJapanCombatResolver>();
-    if (!Combat) { ClientActivityRejected(TEXT("Combat state is unavailable.")); return; }
+    if (!Combat) { ClientActivityRejected(TEXT("Combat state is unavailable.")); return false; }
     if (Combat->HasPending(this))
-    { ++Combat->PendingTravelRefusals; ClientActivityRejected(TEXT("Finish the incoming hit before travelling.")); return; }
+    { ++Combat->PendingTravelRefusals; ClientActivityRejected(TEXT("Finish the incoming hit before travelling.")); return false; }
     if (!FiniteInWorld(Location, 2000000.) || !FMath::IsFinite(Yaw) ||
         GetWorld()->GetTimeSeconds() - LastNetworkTravel < 1.)
-    { ClientActivityRejected(TEXT("Travel is unavailable just now.")); return; }
+    { ClientActivityRejected(TEXT("Travel is unavailable just now.")); return false; }
     if (GetWorld()->GetSubsystem<UJapanEncounters>()->HoldsPlayer(this) ||
         GetWorld()->GetSubsystem<UJapanCombatResolver>()->HasPending(this))
-    { ClientActivityRejected(TEXT("Finish or leave the encounter before travelling.")); return; }
+    { ClientActivityRejected(TEXT("Finish or leave the encounter before travelling.")); return false; }
     LastNetworkTravel = GetWorld()->GetTimeSeconds();
-    if (!TravelTo(Location, Yaw, TEXT("player map"))) ClientActivityRejected(TEXT("Could not find a safe destination."));
+    if (!TravelTo(Location, Yaw, TEXT("player map"), Above))
+    { ClientActivityRejected(TEXT("Could not find a safe destination.")); return false; }
+    return true;
 }
 
 void AWandererCharacter::ClientActivityRejected_Implementation(const FString& Reason)
@@ -267,8 +383,10 @@ void AWandererCharacter::ClientActivityRejected_Implementation(const FString& Re
 void AWandererCharacter::TickNetworkActivity()
 {
     if (AppliedActivityEpoch != NetworkActivity.Epoch) OnRep_NetworkActivity();
+    if (NetworkActivity.bCharacterReplacement && (AppliedActivityEpoch != NetworkActivity.Epoch || !bReady)) return;
     TickNetworkBike();
     TickNetworkSail();
+    TickNetworkHorse();
     if (!IsLocallyControlled()) return;
     if (bNetworkActivityPending && GetWorld()->GetTimeSeconds() - NetworkActivityRequestTime > 8.)
     {

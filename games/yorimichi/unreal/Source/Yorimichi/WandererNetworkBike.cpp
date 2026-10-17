@@ -14,7 +14,12 @@ bool AWandererCharacter::RequestNetworkBike()
 {
     const bool Exiting=NetworkActivity.Kind==EJapanActivity::Bike;
     const auto* Rules=GetWorld()->GetGameState<AJapanGameState>();
-    if((!Rules||!Rules->bPredictedVehicles)&&!Exiting)return false;
+    if((!Rules||!Rules->bPredictedVehicles)&&!Exiting)
+    {
+        if(auto* Session=GetWorld()->GetGameInstance<UJapanGameInstance>())
+            Session->SetSessionStatus(TEXT("The host has disabled vehicles."));
+        return false;
+    }
     if(!Bike||!Bike->IsAvailable())
     {
         if(auto* Session=GetWorld()->GetGameInstance<UJapanGameInstance>())
@@ -32,7 +37,7 @@ void AWandererCharacter::ServerRequestBike_Implementation(uint32 Epoch)
 {
     auto* Combat=GetWorld()->GetSubsystem<UJapanCombatResolver>();
 #if !UE_BUILD_SHIPPING
-    JapanVehicleTelemetry::Request(this,true,Epoch,Combat->HasPending(this),MovementLocked(),
+    JapanVehicleTelemetry::Request(this,TEXT("bike"),Epoch,Combat->HasPending(this),MovementLocked(),
         GetWorld()->GetSubsystem<UJapanEncounters>()->HoldsPlayer(this));
 #endif
     const bool Exiting=NetworkActivity.Kind==EJapanActivity::Bike;

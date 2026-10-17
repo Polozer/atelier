@@ -3,6 +3,7 @@
 #include "WandererCharacter.h"
 #include "JapanHUD.h"
 #include "SkateRails.h"
+#include "SkateAssistZones.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -53,6 +54,12 @@ ASuperUltraMegaPark* ASuperUltraMegaPark::Spawn(UWorld* World, const FString& Pa
     ASuperUltraMegaPark* Park = World->SpawnActor<ASuperUltraMegaPark>(StaticClass(), Placement);
     if (!Park) return nullptr;
     Park->Layout.SourceManifestHash = Root->GetStringField(TEXT("source_sha256"));
+    // Another park (Crater Park, docs/CRATERPARK.md) names its own mesh folder and log tag, and may have no grind paths.
+    FString MeshRoot = TEXT("/Game/MegaPark/Meshes"), Tag = TEXT("MEGAPARK");
+    bool bRailsRequired = true;
+    Root->TryGetStringField(TEXT("mesh_root"), MeshRoot);
+    Root->TryGetStringField(TEXT("name"), Tag);
+    Root->TryGetBoolField(TEXT("rails_required"), bRailsRequired);
     int32 Meshes = 0, Missing = 0;
     for (const TCHAR* Kind : {TEXT("render"), TEXT("collision")})
     {
@@ -61,7 +68,7 @@ ASuperUltraMegaPark* ASuperUltraMegaPark::Spawn(UWorld* World, const FString& Pa
         {
             const TSharedPtr<FJsonObject> Entry = Value->AsObject();
             const FString Name = Entry->GetStringField(TEXT("name"));
-            UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *FString::Printf(TEXT("/Game/MegaPark/Meshes/%s.%s"), *Name, *Name));
+            UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *FString::Printf(TEXT("%s/%s.%s"), *MeshRoot, *Name, *Name));
             if (!Mesh) { ++Missing; continue; }
             auto* C = NewObject<UStaticMeshComponent>(Park, *Name);
             C->SetStaticMesh(Mesh); C->SetMobility(EComponentMobility::Static); C->SetupAttachment(Park->GetRootComponent());
@@ -85,6 +92,36 @@ ASuperUltraMegaPark* ASuperUltraMegaPark::Spawn(UWorld* World, const FString& Pa
         for (const TSharedPtr<FJsonValue>& Point : Entry->GetArrayField(TEXT("points_cm"))) Rail.Points.Add(JsonVector(Point->AsArray()));
     }
     Park->RegisterRails();
+    // Where the rider's vert assist is limited (docs/CRATERPARK.md, "Assist zones"): boxes in world centimetres, turned
+    // yaw_deg about up. The kickers into a big gap's landing limit it, so the air goes forward, not back into the ramp.
+    // Boost zones ("Boost zones") are the same boxes with a boost scale: pumping and powersliding on their transitions
+    // gain speed (the bowls the owner chose).
+    int32 Zones = 0, Boosts = 0;
+    if (USkateAssistSubsystem* Assist = World->GetSubsystem<USkateAssistSubsystem>())
+        for (const bool bBoost : {false, true})
+        {
+            const TCHAR* const ListField = bBoost ? TEXT("boost_zones") : TEXT("assist_zones");
+            const TCHAR* const ValueField = bBoost ? TEXT("boost") : TEXT("vert_assist_max");
+            const TArray<TSharedPtr<FJsonValue>>* ZoneList = nullptr;
+            if (!Root->TryGetArrayField(ListField, ZoneList)) continue;
+            for (const TSharedPtr<FJsonValue>& Value : *ZoneList)
+            {
+                const TSharedPtr<FJsonObject> Entry = Value->AsObject();
+                const TArray<TSharedPtr<FJsonValue>>* Centre = nullptr; const TArray<TSharedPtr<FJsonValue>>* Half = nullptr;
+                double Number = 1.;
+                if (!Entry.IsValid() || !Entry->TryGetArrayField(TEXT("center_cm"), Centre) || !Entry->TryGetArrayField(TEXT("half_extent_cm"), Half)
+                    || !Entry->TryGetNumberField(ValueField, Number) || Centre->Num() < 3 || Half->Num() < 3)
+                { UE_LOG(LogTemp, Warning, TEXT("%s: a %s entry without center_cm, half_extent_cm and %s is skipped"), *Tag, ListField, ValueField); continue; }
+                FSkateAssistZone Zone;
+                Zone.Id = FName(Entry->HasField(TEXT("id")) ? Entry->GetStringField(TEXT("id")) : FString::Printf(TEXT("zone_%d"), Zones + Boosts));
+                Zone.Centre = JsonVector(*Centre); Zone.HalfExtent = JsonVector(*Half);
+                Zone.YawDeg = Entry->HasField(TEXT("yaw_deg")) ? float(Entry->GetNumberField(TEXT("yaw_deg"))) : 0.f;
+                if (bBoost) Zone.Boost = float(Number); else Zone.VertAssistMax = float(Number);
+                Zone.Owner = Park;
+                Assist->Add(MoveTemp(Zone)); ++(bBoost ? Boosts : Zones);
+            }
+        }
+    if (Zones || Boosts) UE_LOG(LogTemp, Display, TEXT("%s: %d assist zones, %d boost zones"), *Tag, Zones, Boosts);
     // The island trees and bushes where the original desert plants stood. They have no collision, so the riding
     // surfaces and the skating snapshot stay the original ones (docs/MEGAPARK.md, "Restyle").
     int32 Trees = 0;
@@ -139,9 +176,10 @@ ASuperUltraMegaPark* ASuperUltraMegaPark::Spawn(UWorld* World, const FString& Pa
     const TSharedPtr<FJsonObject> Start = Root->GetObjectField(TEXT("spawn"));
     Park->Layout.SpawnGround = JsonVector(Start->GetArrayField(TEXT("location_cm")));
     Park->Layout.SpawnYaw = Start->GetNumberField(TEXT("yaw_deg"));
-    UE_LOG(LogTemp, Display, TEXT("MEGAPARK placed at %s yaw %.1f: %d meshes (%d not imported), %d rails, %d trees, %d props"),
-        *Placement.GetLocation().ToString(), Placement.Rotator().Yaw, Meshes, Missing, Park->Layout.Rails.Num(), Trees, Props);
-    Park->bGameplayReady = Missing == 0 && Meshes > 0 && !Park->Layout.Rails.IsEmpty() && Park->RegisteredRailCount == Park->Layout.Rails.Num();
+    UE_LOG(LogTemp, Display, TEXT("%s placed at %s yaw %.1f: %d meshes (%d not imported), %d rails, %d trees, %d props"),
+        *Tag, *Placement.GetLocation().ToString(), Placement.Rotator().Yaw, Meshes, Missing, Park->Layout.Rails.Num(), Trees, Props);
+    Park->bGameplayReady = Missing == 0 && Meshes > 0 && (!bRailsRequired || !Park->Layout.Rails.IsEmpty())
+        && Park->RegisteredRailCount == Park->Layout.Rails.Num();
     return Park;
 }
 
@@ -161,7 +199,10 @@ void ASuperUltraMegaPark::RegisterRails()
         for (const FVector& Point : Source.Points)
             Rail.Points.Add(GetActorTransform().TransformPosition(Point));
         if (Source.Closed && !Rail.Points[0].Equals(Rail.Points.Last(), .01f))
-            Rail.Points.Add(Rail.Points[0]);
+        {
+            const FVector First = Rail.Points[0];       // a copy: Add may reallocate the array the reference points into
+            Rail.Points.Add(First);
+        }
         if (Registry->Add(MoveTemp(Rail)) != INDEX_NONE) ++Count;
     }
     UE_LOG(LogTemp, Display, TEXT("MEGAPARK registered %d original grind paths"), Count);
@@ -171,12 +212,13 @@ void ASuperUltraMegaPark::RegisterRails()
 UClass* AMegaParkGameMode::GetDefaultPawnClassForController_Implementation(AController* Controller)
 {
     if (UClass* Rider = FPlayableCharacter::PawnOverride()) return Rider;
+    // Resolved here, not in the constructor: the characters register from their records once the game is running.
+    if (UClass* Player = FPlayableCharacter::Default().Class()) return Player;
     return Super::GetDefaultPawnClassForController_Implementation(Controller);
 }
 
 AMegaParkGameMode::AMegaParkGameMode()
 {
-    DefaultPawnClass = FPlayableCharacter::Default().Class();
     HUDClass = AJapanHUD::StaticClass();
 }
 

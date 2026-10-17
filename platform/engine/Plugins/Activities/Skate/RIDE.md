@@ -77,6 +77,15 @@ nears its edge or, on foot, when the rider changes cell; in lockstep (QA, replay
 gathers its own at once. Over open water, where there is nothing to snapshot, the old one stays and the rebuild is
 retried 20 m further on. Moving objects, skeletal and procedural meshes and streamed-out terrain are not in it.
 
+Riding, the board is looked ahead (`SkateCollisionCoverage.h`) by a build's time: half as long again as the slowest
+recent build plus a quarter second (0.25-2 s), falling under gravity in the air. A world is asked for once that point
+passes the reach, centred there (at most a reach from the board), so a fast air's world comes in where the board
+arrives, the landing below a falling board included. A board within a tenth of a second of leaving its world waits for
+the one building if that covers it, or has one gathered at once on the game thread (a hitch, logged). In lockstep (a
+fixed step or frame rate) a world building is waited for at once, so fixed-step QA rides do not see the lag. At rest
+the rules are the old ones, and the budget and the radii are unchanged. `AtelierSkate.Ride.CollisionCoverage` tests
+the plans.
+
 ### Threading and lockstep
 
 The session runs on `AtelierSkateSimulation` (32 MiB stack), which owns every mutable simulation object, in the standalone
@@ -88,6 +97,13 @@ Each activation carries a generation number, so a previous ride's output never m
 
 `skate.Lockstep` (-1, the default: on under a fixed time step or frame rate; 1 always; 0 never) makes each frame wait
 up to 2 s for the last step, so the same controls ride the same way. A mount waits for the session's first pose.
+
+The rider and the camera are shown a tick behind the session, between its last two ticks (`Ride/RideShownMotion.h`,
+`skate.ShowBetweenTicks`, 1 by default; lockstep shows the ticks). Shown at its last whole tick, a 60 fps frame about a
+tick long showed runs of no tick and two ticks: on a 35 m/s air the rider stood still, then jumped 117 cm. The body
+read a jump over 1 m as a placement and put its bodies back on the animation, which stopped their spin. A placement is
+now a move beyond 1 m plus what the rider's speed covers in the longest step (0.1 s), for the body's test and Physics
+Control's teleport alike. `AtelierSkate.Ride.ShownMotion` tests both.
 
 ### Bails
 
@@ -108,6 +124,17 @@ out where it lies and a board dissolves in under the feet.
 A session error never stows the board under a moving rider (`skate.FailSimulation 1` forces one): the body bails with the
 momentum shown and `RelaunchSimulationRide` loads a fresh session off the game thread while it falls. Two failures in a
 row (a failure during the get-up) stow the board (H23).
+
+A session that loses the rider is not followed either (`BailOffLostSimulation`, `Ride/RideLostSimulation.h`). Its own
+recovery (`Teleporting`: an air over 300 ticks (5 s) in tests and the CLI, raised to 1800 ticks (30 s) in the game, or a
+wipeout's automatic reset) puts its rider back on its respawn history when it has no ground under it, the ground ridden
+seconds before; the glue read that state as the ground and carried the rider there. A board that misses an overshot mega
+gap's landing in the session falls on through Unreal's floor until then: a teleport back to the run-in. A step that is
+`Teleporting`, moves the board further than its speed takes it, or takes it in the air 25 cm down through a floor and
+under it is not shown: the body bails from where the rider is with the momentum shown, the session is suspended, and the
+get-up starts a fresh one where the body lies. The through-floor threshold scales with speed at landing (25 cm plus
+1.5 × per-tick travel) to allow high-speed touchdowns, while strict checks catch real fall-throughs.
+Without a body the session's recovery plays as before. `AtelierSkate.Ride.LostSimulation` tests the verdicts.
 
 ### Modes and display
 
@@ -287,7 +314,8 @@ board settles the start onto the floor (`SettleRideStart`, `RideComponent.cpp`).
   runs on as momentum that fades (`MomentumDecay`, `MomentumBrake`).
 - **Air dismount and kick-out.** The skate button in the air: with a grab held (`RideGrab`: Indy `FS`, Melon `BS`,
   Christ air `STALE`, tuck knee `DBL`, a one-foot `MUTE`) the rider steps off holding the board; without one the feet
-  kick the board away and it flies on as a projectile, settling flat.
+  kick the board away and it flies on as a projectile, settling flat. The transfer is the left stick up or LB, never a
+  grab (the plugin README's "Controls").
 - **Caveman.** The skate button in a jump: the board goes under the feet; the ride starts airborne when the ground is
   more than 70 cm below.
 - **Carry.** The board stays in hand for `BoardHoldTime` (6 s), then dissolves. It goes at once when the hands are
@@ -321,7 +349,7 @@ recaches and resets.
 - **The simulation's own tests**, the parity checks in `Tests/` ([RUNTIME.md](RUNTIME.md#verification)), check the session
   bit for bit against the reference implementation.
 - **Console variables.** `skate.FailSimulation 1` (the session fails, to test recovery), `skate.RidePhysical` (0: no
-  active ragdoll), `skate.Lockstep` (-1, 0 or 1), `skate.PumpTrick` (the m/s one pump must add to show as `Pump`, 0.5), `skate.RideTrace N`, `skate.RideBailTrace N`,
+  active ragdoll), `skate.Lockstep` (-1, 0 or 1), `skate.ShowBetweenTicks` (0: the last whole tick), `skate.PumpTrick` (the m/s one pump must add to show as `Pump`, 0.5), `skate.RideTrace N`, `skate.RideBailTrace N`,
   `skate.RideJointCheck`, `skate.RideSkinCheck 1`, `skate.RidePhysicalDump`, `skate.RideTune`.
 
 ## Known gaps and bugs
@@ -335,7 +363,7 @@ in but no one has ridden it yet.
 | H23 | Simulation maths on the game thread runs outside the floating-point scope; two session failures in a row (one during the get-up) stow the board | The scope covers the worker's calls only | `FScopedSimulationFloatEnvironment` callers in `SkateRuntime.cpp`; `RelaunchSimulationRide` |
 | H26 | Hands inside the thighs at rest: the main rider -7.8 / -4.3 cm, a second rider -5.2 cm | The simulation's idle pose on our riders' proportions; `ClearArms` runs on the simulation's pose, but whether it covers this case is unchecked | `RetargetRiderPose`, `ClearArms`, the `arm_need=` field |
 | H29 | The board inside geometry: 19.3 cm into a wall in a run-out carrying the board; one frame 104 cm past a floor at a corner | The run-out case is the transition's carried board, not the simulation's; the floor case is unexplained | The run-out in `RideTransitionMount.cpp`; the snapshot near thin meshes |
-| H30 | A 360 hardflip onto a rail lands into a 5-0 5 cm from the rail's line, then bails | Unknown: the simulation's own outcome or the rail's polyline | Rail registration, `Grind*` |
+| H30 | A 360 hardflip onto a rail lands into a 5-0 5 cm from the rail's line, then bails | Unknown: the simulation's own outcome or the rail's polyline; `GrindTolerance` 2 (README, "Feel") rides through twice the in-grind knocks, to playtest | Rail registration, `Grind*` |
 | H35 | A foot joint goes 1.8–3.5 degrees past its range in the joint check | Unknown | `skate.RideJointCheck`, `BailJoints` |
 | H37 | A quarter pipe's straight air is not repeatable (an occasional 70-degree yaw on the face, a bail at the landing) | Possibly fixed by fresh sessions; to measure again | The same launch repeated |
 | H43 | A grind's exit at the end of a long ledge drifts outward; the board yaws 15–20 degrees on the lock | Unknown: the simulation's grind exit or the rail's end | The rail's polyline and end, `Grind*` |

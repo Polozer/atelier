@@ -1,6 +1,6 @@
 """Video to SMPL-X motion: `python -m atelier.ai.gvhmr --root build/gvhmr VIDEO --out DIR (--static-cam | --moving-cam)`.
 
-Run it with the installed environment's Python, inside `atelier.safety.guarded`. Writes `gvhmr.pt`, `provenance.json`
+Run it with the installed environment's Python, inside `atelier.harness.safety.guarded`. Writes `gvhmr.pt`, `provenance.json`
 and `motion.json` (world frame, see motion.py) into DIR. `gvhmr.pt` always holds GVHMR's raw predictions; `--root-height
 camera` (experimental, `--static-cam` only) changes just the height of the root in `motion.json`.
 """

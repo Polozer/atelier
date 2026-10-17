@@ -1,10 +1,14 @@
 #include "JapanMap.h"
 #include "AtelierData.h"
+#include "CraterParkTower.h"
+#include "JapanGameMode.h"
 #include "JapanHUD.h"
+#include "JapanNetwork.h"
 #include "SkatePark.h"
 #include "WandererCharacter.h"
 #include "JapanWorld.h"
 #include "LiveLibrary.h"
+#include "BelmonteTrainService.h"
 #include "SkateComponent.h"
 #include "Engine/World.h"
 #include "Components/CapsuleComponent.h"
@@ -143,8 +147,9 @@ public:
                 const float R = bHot ? 11.f : 8.f;
                 Disc(Out,Layer+1,G,P,R+2.5f,FLinearColor(1,.97f,.9f,1));
                 const bool bMarker = Zones[I].Key.StartsWith(MarkerPrefix);
-                Disc(Out,Layer+2,G,P,R,bMarker ? FLinearColor(.12f,.45f,.85f,1) : bHot ? FLinearColor(.95f,.45f,.18f,1) : FLinearColor(.72f,.18f,.12f,1));
-                const FString Number=bMarker ? TEXT("M") : FString::FromInt(I+1);
+                const bool bPlayer = Zones[I].Key.StartsWith(TEXT("player_"));
+                Disc(Out,Layer+2,G,P,R,bPlayer ? FLinearColor(.1f,.65f,.4f,1) : bMarker ? FLinearColor(.12f,.45f,.85f,1) : bHot ? FLinearColor(.95f,.45f,.18f,1) : FLinearColor(.72f,.18f,.12f,1));
+                const FString Number=bPlayer ? TEXT("P") : bMarker ? TEXT("M") : FString::FromInt(I+1);
                 const FVector2D NumberSize=Measure->Measure(Number,Font);
                 FSlateDrawElement::MakeText(Out,Layer+3,G.ToPaintGeometry(FVector2f(NumberSize),FSlateLayoutTransform(FVector2f(P-NumberSize*.5f))),Number,Font,ESlateDrawEffect::None,FLinearColor::White);
                 if(!bHot)continue;
@@ -336,12 +341,12 @@ private:
     {
         FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(FVector2f(Radius*2,Radius*2),FSlateLayoutTransform(FVector2f(Centre-FVector2D(Radius,Radius)))),&DiscBrush,ESlateDrawEffect::None,Colour);
     }
-    int32 PickAt(const FGeometry& G, const FVector2D& Local, float Reach = 26.f) const
+    int32 PickAt(const FGeometry& G, const FVector2D& Local, float PickRadius = 26.f) const
     {
         const UJapanMap* M = Map.Get();
         if (!M) return -1;
         Fit(G);
-        int32 Best = -1; float BestD = Reach;
+        int32 Best = -1; float BestD = PickRadius;
         for (int32 I = 0; I < M->GetZones().Num(); ++I)
         {
             const float D = FVector2D::Distance(Local,SheetOffset + M->ToSheet(M->GetZones()[I].Location)*SheetSize);
@@ -497,6 +502,46 @@ void UJapanMap::Initialize(AWandererCharacter* Pawn)
             Zones.Add(Zone);
         }
     }
+    const bool bCampSpawned = !JapanNetwork::IsOnline(Owner ? Owner->GetWorld() : nullptr) &&
+        !FParse::Param(FCommandLine::Get(), TEXT("noronincamp")) &&
+        (!AJapanGameMode::IsScriptedSession() || FParse::Param(FCommandLine::Get(), TEXT("ronincamp")));
+    if (bCampSpawned && !Zones.ContainsByPredicate([](const FJapanMapZone& Zone) { return Zone.Key == TEXT("ronin_camp"); }))
+    {
+        FJapanMapZone Zone; Zone.Key = TEXT("ronin_camp"); Zone.Name = TEXT("Kasa Ronin camp");
+        Zone.Hint = TEXT("Coastal bluff overlook: test your blade against the three Kasa Ronin");
+        Zone.Location = AJapanWorld::ToUE(-55.0, -74.0, 11.5);
+        Zone.Yaw = 92.f;
+        Zones.Add(Zone);
+    }
+    // Crater Park's stop is its tower: the hero line's roll-in crest from the generated park (park.json `lines`), not
+    // the r4 drop-in map.json was built with (CraterParkTower.h).
+    if (CraterParkTower::HasLines())
+        for (FJapanMapZone& Zone : Zones)
+            if (Zone.Key == TEXT("craterpark"))
+            {
+                const FCraterParkStart& Tower = CraterParkTower::Starts()[0];
+                Zone.Location = Tower.Ground; Zone.Yaw = Tower.Yaw;
+                Zone.Hint = TEXT("The skate park in the volcano's caldera, from the top of its tower. Triangle / Y or B for the board");
+            }
+    // The Belmonte train's termini (tools/belmonte_train_service.py): arrive on the platform as the next train comes in.
+    if (ABelmonteTrainService::IsEnabled() && FPaths::FileExists(AtelierDataPath(TEXT("belmonte_train/service.json"))))
+        if (const TSharedPtr<FJsonObject> Train = AtelierReadJson(AtelierDataPath(TEXT("belmonte_train/service.json"))))
+        {
+            const TArray<TSharedPtr<FJsonValue>>* Stations = nullptr;
+            if (Train->TryGetArrayField(TEXT("stations"), Stations))
+                for (const auto& Value : *Stations)
+                {
+                    const auto S = Value->AsObject();
+                    const auto Arrival = S->GetObjectField(TEXT("arrival"));
+                    const auto& L = Arrival->GetArrayField(TEXT("location"));
+                    if (L.Num() < 3) continue;
+                    FJapanMapZone Zone; Zone.Key = S->GetStringField(TEXT("key")); Zone.Name = S->GetStringField(TEXT("name"));
+                    Zone.Hint = TEXT("Le train de Belmonte : quai provisoire, le prochain train arrive");
+                    Zone.Location = FVector(L[0]->AsNumber(), L[1]->AsNumber(), L[2]->AsNumber());
+                    Zone.Yaw = float(Arrival->GetNumberField(TEXT("yaw")));
+                    if (!Zones.ContainsByPredicate([&](const FJapanMapZone& Z) { return Z.Key == Zone.Key; })) Zones.Add(Zone);
+                }
+        }
     ImageFile = Dir/TEXT("map.png");
     Texture = FImageUtils::ImportFileAsTexture2D(ImageFile);
     if (Texture)
@@ -519,6 +564,7 @@ FJapanMarkers* UJapanMap::MarkerStore() const
 
 const TArray<FJapanMapZone>& UJapanMap::GetZones() const
 {
+    RefreshPlayerZones();
     const auto* Store = MarkerStore();
     Zones.RemoveAll([Store](const FJapanMapZone& Z)
     {
@@ -663,9 +709,19 @@ const FJapanMapZone* UJapanMap::FindZone(const FString& Key) const
 
 bool UJapanMap::TeleportToZone(const FString& Key)
 {
+    if (Key.StartsWith(TEXT("player_")))
+    {
+        if (!Owner || Owner->IsCinematic() || Owner->AreControlsSuspended()) return false;
+        const uint32 Before = Owner->GetActivityEpoch();
+        Owner->ServerTravelToPlayer(Key.Mid(7), Before);
+        return Owner->HasAuthority() && Owner->GetActivityEpoch() != Before; // The server resolves the live pawn and reports acceptance.
+    }
     if (Key.StartsWith(MarkerPrefix)) return SelectMarker(Key) && ReturnToMarker();
     const FJapanMapZone* Z = FindZone(Key);
     if (!Z || !Owner) return false;
+    if (Key == TEXT("craterpark") && CraterParkTower::HasLines()) return CraterParkTower::Return(Owner,0);
+    if (Key.EndsWith(TEXT("_station")))
+        if (auto* Train = ABelmonteTrainService::Find(Owner)) return Train->GoToStation(Key, true);
     return Owner->TravelTo(Z->Location,Z->Yaw,*Z->Name);
 }
 

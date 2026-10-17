@@ -1,0 +1,1643 @@
+{
+  "hardware": {
+    "chip": "Apple M1 Max",
+    "gpu_cores": 32,
+    "unified_memory_gib": 32
+  },
+  "interpretation": "Native local measurements, excluding paid image generation and queues. Peak physical footprint includes owned process trees, not just RSS.",
+  "baseline_native_mesh_sha256": "584a364105a85de07159f9fab28b2f5bcafcf7ea10cb45bec4c938c0b298b85f",
+  "diagnostic_views": [
+    "yaw0-pitch-5",
+    "yaw60-pitch-5",
+    "yaw120-pitch-5",
+    "yaw180-pitch-5",
+    "yaw240-pitch-5",
+    "yaw300-pitch-5",
+    "yaw60-pitch55",
+    "yaw240-pitch-40"
+  ],
+  "local_texture_matrix": {
+    "variants": [
+      {
+        "variant": "single",
+        "model_sha256": "6133863700c991adad131b6b15c1f3f3a80dc185be9a4361dcdcf9b0f1b8e3ea",
+        "painted_fraction": 0.1610758990147663,
+        "covered_texels": 2048854,
+        "views": 1,
+        "projection_validation_seconds": 3.938
+      },
+      {
+        "variant": "guided-single",
+        "model_sha256": "d6b3c86f8ca3bed6e3dfcd27b899ecd7f0ff8e43eb5072eab78720b429d6110b",
+        "painted_fraction": 0.16328249841130701,
+        "covered_texels": 2048854,
+        "views": 1,
+        "projection_validation_seconds": 4.533
+      },
+      {
+        "variant": "weighted",
+        "model_sha256": "48ddcb3a116a4029cd4392c5fabd6d2db04a6de35f1c880458307fd85da0c96b",
+        "painted_fraction": 0.5510602512428899,
+        "covered_texels": 2048854,
+        "views": 8,
+        "projection_validation_seconds": 16.649
+      },
+      {
+        "variant": "best-angle",
+        "model_sha256": "2e13914599155f49236737701dddfcc813d7af79978c72f807b8b1b8086eb201",
+        "painted_fraction": 0.5510602512428899,
+        "covered_texels": 2048854,
+        "views": 8,
+        "projection_validation_seconds": 17.213
+      },
+      {
+        "variant": "front-first",
+        "model_sha256": "06f711d8a8694e9b04c8e876c0a26b13c187b74da58c2d6359a6c695be47220a",
+        "painted_fraction": 0.5605977780749629,
+        "covered_texels": 2048854,
+        "views": 8,
+        "projection_validation_seconds": 17.081
+      }
+    ],
+    "guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 108.24374004101264,
+      "peak_bytes": 2102826624,
+      "limit_bytes": 4294967296
+    }
+  },
+  "local_surface_completion": {
+    "report": {
+      "input_sha256": "06f711d8a8694e9b04c8e876c0a26b13c187b74da58c2d6359a6c695be47220a",
+      "output_sha256": "53883122d8124ffc9beb28efab94b8531da4a8672bc2fa7aaf709e02bedc7b1f",
+      "projection_receipt_sha256": "82ec7c3871389868160f7da3269ff2112cf57af7431b06d1977719bea16cedd4",
+      "observation_mask_sha256": "613aea480200c484d6f6612eed3a6eda1ec658b36edfba9a85106490ff21a049",
+      "tool_sha256": "66273a6e79b119585c70315fb09b3d6c3cde1bdf2b83b16ccd0ee631177a2eee",
+      "observed_texels": 1148583,
+      "extrapolated_texels": 352560,
+      "occupied_texels": 2048854,
+      "observed_texels_unchanged": true,
+      "observed_rgb_sha256": "632e0264c63e5b71cab4c5c269c27cecd7ee36293b3e19c75a8fece403fc39b4",
+      "non_image_buffers_identical": true,
+      "voxel_metres": 0.002734375,
+      "search_radius_metres": 0.00546875,
+      "neighbouring_cells_per_axis": 5,
+      "method": "Nearest occupied surface-cell mean within radius; not a new observation",
+      "remaining_unseen": "Original neutral texels retained beyond the bounded search",
+      "diagnostic_camera_manifest_sha256": "1990ee17f46c740ef2a4a27c1f60e20c06e85366982e1ed4fa79dce17f68bede"
+    },
+    "guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 15.225011167000048,
+      "peak_bytes": 1185173056,
+      "limit_bytes": 4294967296
+    }
+  },
+  "higher_density": {
+    "native_audit": {
+      "source_mesh_sha256": "999eed48a1df10eed84919f2f3038fbbcc32ff4ac77a7bf083194350a1def475",
+      "raw_faces": 29427,
+      "minimum_faces": 15000,
+      "usable_faces": 29420,
+      "meets_minimum_faces": true,
+      "metrics": {
+        "vertices": 14936,
+        "faces": 29427,
+        "edges": 44739,
+        "boundary_edges": 1197,
+        "nonmanifold_edges": 0,
+        "isolated_vertices": 0,
+        "components": 3,
+        "euler": -376,
+        "faces_per_vertex": 1.9702062131762186,
+        "used_vertices": 14936,
+        "min_angle_mean_deg": 31.57264180068374,
+        "sliver_share": 0.09406327522343426,
+        "degenerate_faces": 7,
+        "degree_mean": 5.990760578468131,
+        "degree_hist": {
+          "0": 0,
+          "1": 0,
+          "2": 8,
+          "3": 100,
+          "4": 1025,
+          "5": 3575,
+          "6": 6160,
+          "7": 2825,
+          "8": 925,
+          "9": 218,
+          "10": 64,
+          "11": 18,
+          "12": 18
+        },
+        "edge_length_mean": 0.03423402412183055,
+        "edge_length_p95": 0.07297477223542737,
+        "area_total": 13.993254086155343
+      },
+      "geometry_changes": "none; inspection only",
+      "acceptance": "Counts and topology metrics are not a visual or rigging approval"
+    },
+    "vertex_worker_seconds": 3470.25,
+    "topology_worker_seconds": 1670.99,
+    "vertex_guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 3472.070746790996,
+      "peak_bytes": 8428916992,
+      "limit_bytes": 17179869184
+    },
+    "topology_guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 1672.4924244590075,
+      "peak_bytes": 8075136704,
+      "limit_bytes": 12884901888
+    },
+    "uv_trials": [
+      {
+        "name": "uv-89-5e-05",
+        "angle": 89,
+        "margin": 5e-05,
+        "covered_texels": 2239666,
+        "atlas_texels": 4194304,
+        "occupancy": 0.5339779853820801,
+        "model_sha256": "0d58d543c6b5677aa883991f70ae46b992d672f436348bc67d7b7f2a2641e539"
+      },
+      {
+        "name": "uv-89-0.0002",
+        "angle": 89,
+        "margin": 0.0002,
+        "covered_texels": 2148859,
+        "atlas_texels": 4194304,
+        "occupancy": 0.5123279094696045,
+        "model_sha256": "8219ad24ce311c073818682102c33dc181c457d4879e1909a523fbe5c513ba5a"
+      },
+      {
+        "name": "uv-66-0.0002",
+        "angle": 66,
+        "margin": 0.0002,
+        "covered_texels": 2016616,
+        "atlas_texels": 4194304,
+        "occupancy": 0.48079872131347656,
+        "model_sha256": "f4da609eb06f3d0abc08c9701b21371a85a7ee32b9c382f95babbfabfa464a0a"
+      }
+    ],
+    "uv_guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 20.80684224999277,
+      "peak_bytes": 1067243712,
+      "limit_bytes": 4294967296
+    },
+    "texture_variants": [
+      {
+        "variant": "front-first",
+        "model_sha256": "f8ef4ec9c8417375cc16736f6300da19dcd229cf1e72f98c6d615388b6596a97",
+        "painted_fraction": 0.6263505361960221,
+        "covered_texels": 2239666,
+        "views": 8,
+        "projection_validation_seconds": 15.634
+      }
+    ],
+    "texture_guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 28.387185666011646,
+      "peak_bytes": 2178635136,
+      "limit_bytes": 4294967296
+    },
+    "completion_report": {
+      "input_sha256": "f8ef4ec9c8417375cc16736f6300da19dcd229cf1e72f98c6d615388b6596a97",
+      "output_sha256": "900a26ca85f2b3d9bd843f740bf0f985f3e9f5d68df87e6a6133beee82d5a725",
+      "projection_receipt_sha256": "91d1f6593dd3d8c01a2e3d70343d0fd3789995091bf382c14513743ab4e929f9",
+      "observation_mask_sha256": "a0587bed860f762fa0313fa7b1d38c97e603e07b66e80ac2fa9992a5a8164b08",
+      "tool_sha256": "66273a6e79b119585c70315fb09b3d6c3cde1bdf2b83b16ccd0ee631177a2eee",
+      "observed_texels": 1402816,
+      "extrapolated_texels": 250921,
+      "occupied_texels": 2239666,
+      "observed_texels_unchanged": true,
+      "observed_rgb_sha256": "f504ca5b7744eb5deb251ab47d76fea2b85a8bf686fc8a5883c4c83278542d18",
+      "non_image_buffers_identical": true,
+      "voxel_metres": 0.002734375,
+      "search_radius_metres": 0.00546875,
+      "neighbouring_cells_per_axis": 5,
+      "method": "Nearest occupied surface-cell mean within radius; not a new observation",
+      "remaining_unseen": "Original neutral texels retained beyond the bounded search",
+      "diagnostic_camera_manifest_sha256": "d9f776f89adf459d9f53f9ab59f0b5bebbee34c3ad28a20010ca98ce542d1c58"
+    },
+    "completion_guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 13.32320433302084,
+      "peak_bytes": 1104842176,
+      "limit_bytes": 4294967296
+    },
+    "assessment": "Additional ear/silhouette detail, but cheek seam and poorer eye/lip alignment remain; new guided photos confound a density-only comparison."
+  },
+  "new_sunburst_high_calls_for_quality_phase": 17,
+  "learned_texturing_and_trellis2_status": "Complete:24 recipes across5 native geometries, eight views each. Selected: native TRELLIS actual768 plus16 normal-tensor diffusion iterations and winding-aligned normal seams. Local lower-quality fallback to Tripo; reference images may be paid.",
+  "native_pixal_pbr_512": {
+    "report": {
+      "method": "MeshAxiom documented Pixal3D texture flow + TRELLIS.2 supplied-shape encoder/PBR decoder; MPS adapter",
+      "output_sha256": "72a2764b7ecf99afe8c64e62cdcf1e7c2ec4474649e1b6487a70036b4df515c8",
+      "native_triangles": 18931,
+      "geometry_changed": false,
+      "non_image_buffers_identical": true,
+      "naf_target_size": 512,
+      "image_conditioning_size": 512,
+      "texture_resolution": [
+        2048,
+        2048
+      ],
+      "shape_resolution": 1024,
+      "steps": 12,
+      "seed": 42,
+      "model_key_checks": {
+        "shape_enc_next_dc_f16c32_fp16": {
+          "keys": 284,
+          "strict_complete_state": true
+        },
+        "slat_flow_imgshape2tex_dit_1_3B_1024_bf16": {
+          "keys": 700,
+          "strict_complete_state": true
+        },
+        "tex_dec_next_dc_f16c32_fp16": {
+          "keys": 284,
+          "strict_complete_state": true
+        }
+      },
+      "seconds": 582.592,
+      "source_commit": "0be9e69a729432323dfb60a418801e5e9e7a1437",
+      "reference_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "camera_manifest_sha256": "1990ee17f46c740ef2a4a27c1f60e20c06e85366982e1ed4fa79dce17f68bede"
+    },
+    "guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 590.930395125004,
+      "peak_bytes": 12620160960,
+      "limit_bytes": 15032385536
+    },
+    "field_voxels": 5872775,
+    "new_swapout_observed": false
+  },
+  "native_pbr_hybrids": {
+    "variants": [
+      {
+        "variant": "single",
+        "model_sha256": "8a8dc6455a6fa49e5891e49184765fb13d6a57cb3f76d5e5e92341bc2c08900b",
+        "painted_fraction": 0.1610758990147663,
+        "covered_texels": 2048854,
+        "views": 1,
+        "projection_validation_seconds": 4.044
+      },
+      {
+        "variant": "front-first",
+        "model_sha256": "0edb7402948afe8f302ae0462ffd1c3691910072ddf99aa883cd50453d62e3d8",
+        "painted_fraction": 0.5605977780749629,
+        "covered_texels": 2048854,
+        "views": 8,
+        "projection_validation_seconds": 15.58
+      }
+    ],
+    "guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 40.98058274999494,
+      "peak_bytes": 2194200320,
+      "limit_bytes": 4294967296
+    },
+    "assessment": "Original-front hybrid has sharper face and smoother sides; eight-view hybrid retains the cheek seam. All native mesh buffers and PBR metallic/roughness data unchanged."
+  },
+  "trellis_512_uv_attempt": {
+    "outcome": "Native shape and PBR checkpoints completed; raw xatlas unwrap ended after its600s phase bound without an atlas. No UV GLB produced.",
+    "exit_code": 143,
+    "native_vertices": 2401454,
+    "native_triangles": 4916486,
+    "guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 858.2875342920015,
+      "peak_bytes": 7715243328,
+      "limit_bytes": 12884901888
+    },
+    "cleanup": "Positive empty process-tree receipt; checkpoints retained for deterministic vertex-color bake"
+  },
+  "native_pixal_pbr_image1024": {
+    "report": {
+      "worker_sha256": "b7fbdd895403fa95149c4e2602aed867a55380c6a5b7e01018be2554fc40b572",
+      "method": "MeshAxiom documented Pixal3D texture flow + TRELLIS.2 supplied-shape encoder/PBR decoder; MPS adapter",
+      "output_sha256": "0e9a9bfd33adda28b6cb1a03ddc9d67ecea1b9b86e6ee0b8997e86e0637e0921",
+      "native_triangles": 18931,
+      "geometry_changed": false,
+      "non_image_buffers_identical": true,
+      "naf_target_size": 512,
+      "image_conditioning_size": 1024,
+      "texture_resolution": [
+        2048,
+        2048
+      ],
+      "shape_resolution": 1024,
+      "steps": 12,
+      "seed": 42,
+      "weight_bindings": [
+        {
+          "repo": "microsoft/TRELLIS.2-4B",
+          "revision": "af44b45f2e35a493886929c6d786e563ec68364d",
+          "file": "ckpts/shape_enc_next_dc_f16c32_fp16.json",
+          "size_bytes": 653,
+          "sha256": "5a960a5c419d70f8d4a7a6b6e52ae689cd948c88bd7ed92346adfbf82cd12007",
+          "expected_lfs_sha256": null
+        },
+        {
+          "repo": "microsoft/TRELLIS.2-4B",
+          "revision": "af44b45f2e35a493886929c6d786e563ec68364d",
+          "file": "ckpts/shape_enc_next_dc_f16c32_fp16.safetensors",
+          "size_bytes": 708797208,
+          "sha256": "f37c5ff5b983b68e9946060000f09bc131f3e84318a2c8b7430a81e4b4636c41",
+          "expected_lfs_sha256": "f37c5ff5b983b68e9946060000f09bc131f3e84318a2c8b7430a81e4b4636c41"
+        },
+        {
+          "repo": "microsoft/TRELLIS.2-4B",
+          "revision": "af44b45f2e35a493886929c6d786e563ec68364d",
+          "file": "ckpts/tex_dec_next_dc_f16c32_fp16.json",
+          "size_bytes": 705,
+          "sha256": "22074e4ab5b28e2b72d33a3fe61bf416134b89e12d0fc5c729f37da75da0c4d1",
+          "expected_lfs_sha256": null
+        },
+        {
+          "repo": "microsoft/TRELLIS.2-4B",
+          "revision": "af44b45f2e35a493886929c6d786e563ec68364d",
+          "file": "ckpts/tex_dec_next_dc_f16c32_fp16.safetensors",
+          "size_bytes": 948458812,
+          "sha256": "97ea69addea2ecd9312910f5f548234665eef51c088386180b7cd5b258645e3c",
+          "expected_lfs_sha256": "97ea69addea2ecd9312910f5f548234665eef51c088386180b7cd5b258645e3c"
+        },
+        {
+          "repo": "TencentARC/Pixal3D",
+          "revision": "b0cb2e1b794cab9aa0ac38a95d794a4d9337437f",
+          "file": "pipeline.json",
+          "size_bytes": 4068,
+          "sha256": "1647217de06e32477702d14895e826fea73497d94537b809a53637f13482a237",
+          "expected_lfs_sha256": null
+        },
+        {
+          "repo": "TencentARC/Pixal3D",
+          "revision": "b0cb2e1b794cab9aa0ac38a95d794a4d9337437f",
+          "file": "ckpts/slat_flow_imgshape2tex_dit_1_3B_1024_bf16.json",
+          "size_bytes": 535,
+          "sha256": "f18455729d08d2ce7ef809f947ffa47f6f468b3bcf8a86473e8c326e80128ac2",
+          "expected_lfs_sha256": null
+        },
+        {
+          "repo": "TencentARC/Pixal3D",
+          "revision": "b0cb2e1b794cab9aa0ac38a95d794a4d9337437f",
+          "file": "ckpts/slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors",
+          "size_bytes": 5546960656,
+          "sha256": "65df179ad02f9e92bc18335d7861fadd95f268e6249217352468dd83cb79d1d0",
+          "expected_lfs_sha256": "65df179ad02f9e92bc18335d7861fadd95f268e6249217352468dd83cb79d1d0"
+        },
+        {
+          "repo": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
+          "revision": "3c276edd87d6f6e569ff0c4400e086807d0f3881",
+          "file": "config.json",
+          "size_bytes": 745,
+          "sha256": "135ecd23e34a70b6fbed8b083fdecb319b7e3a54e3d849258bbe4ddcf1783bb5",
+          "expected_lfs_sha256": null
+        },
+        {
+          "repo": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
+          "revision": "3c276edd87d6f6e569ff0c4400e086807d0f3881",
+          "file": "preprocessor_config.json",
+          "size_bytes": 585,
+          "sha256": "960c41d1f3a7778b936365769a2d90550b318a6c0a53a0296957adacfe5e0dd7",
+          "expected_lfs_sha256": null
+        },
+        {
+          "repo": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
+          "revision": "3c276edd87d6f6e569ff0c4400e086807d0f3881",
+          "file": "model.safetensors",
+          "size_bytes": 1212559808,
+          "sha256": "dcb2e45127cccbf1601e5f42fef165eea275c8e5213197e8dcf3f48822718179",
+          "expected_lfs_sha256": "dcb2e45127cccbf1601e5f42fef165eea275c8e5213197e8dcf3f48822718179"
+        },
+        {
+          "repo": "valeoai/NAF",
+          "revision": "37f2dfc180f2de53d98bd601109c0da0dd6b0f43",
+          "release_tag": "model",
+          "file": "naf_release.pth",
+          "size_bytes": 2664431,
+          "sha256": "c096c1ab2217a5c3ac136365f721685e2201379cb69d509cfb0261183847c98f"
+        }
+      ],
+      "model_key_checks": {
+        "shape_enc_next_dc_f16c32_fp16": {
+          "keys": 284,
+          "strict_complete_state": true
+        },
+        "slat_flow_imgshape2tex_dit_1_3B_1024_bf16": {
+          "keys": 700,
+          "strict_complete_state": true
+        },
+        "tex_dec_next_dc_f16c32_fp16": {
+          "keys": 284,
+          "strict_complete_state": true
+        }
+      },
+      "seconds": 629.912,
+      "source_commit": "0be9e69a729432323dfb60a418801e5e9e7a1437",
+      "encoder_decoder_import_adapter_sha256": "386de12e3c10b1ec48d2f864a40ffd34adc802fd55a7b2dbf7e9b3fc23590212",
+      "reference_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "camera_manifest_sha256": "1990ee17f46c740ef2a4a27c1f60e20c06e85366982e1ed4fa79dce17f68bede"
+    },
+    "benchmark": {
+      "hardware": {
+        "chip": "Apple M1 Max",
+        "gpu_cores": 32,
+        "unified_memory_gib": 32
+      },
+      "software": {
+        "python": "3.12.12",
+        "torch": "2.7.1",
+        "transformers": "4.57.3",
+        "macos": "26.2"
+      },
+      "source_revision": "6504db7126ec58e9d275833fb0e5f66640b01abe",
+      "model_revision": "b80240ce4f77a28bc4debdcca895e96c78ddb294",
+      "timing_scope": "Geometry workers plus selected UV preparation and native texture worker through verified PBR GLB; excludes image API, installation, downloads, queues and final diagnostic renders.",
+      "input_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "face_budget": 16000,
+      "steps": 20,
+      "vertex_seed": 2026082301,
+      "topology_seed": 1574365204,
+      "vertex_seconds": 2522.16,
+      "topology_seconds": 876.49,
+      "total_worker_seconds": 4048.452,
+      "vertex_count": 9554,
+      "face_count": 18931,
+      "usable_face_count": 18925,
+      "guards": {
+        "vertex": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "peak_bytes": 7336481024,
+          "limit_bytes": 17179869184,
+          "elapsed_seconds": 2524.1922850420087
+        },
+        "topology": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "peak_bytes": 6932401600,
+          "limit_bytes": 17179869184,
+          "elapsed_seconds": 878.0575261250051
+        },
+        "native_texture": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 639.0728104159934,
+          "peak_bytes": 13694607360,
+          "limit_bytes": 15032385536
+        }
+      },
+      "topology_policy": {
+        "version": "meshaxiom-topology-decode-policy-v1",
+        "cfg": 3.0,
+        "steps": 20,
+        "sampler": "dpmpp2m",
+        "face_thresh": null,
+        "edge_thresh": null,
+        "adaptive": null,
+        "ladder": [
+          0.0,
+          0.005,
+          0.01,
+          0.015,
+          0.02,
+          0.03,
+          0.04,
+          0.06,
+          0.08,
+          0.1,
+          0.13,
+          0.16,
+          0.2,
+          0.25,
+          0.3,
+          0.4,
+          0.5,
+          0.6
+        ],
+        "prune": "edge_capacity2",
+        "note": "original protocol",
+        "latent": "mean_and_sample",
+        "onestep_cfg": 1.0,
+        "mean_k": 4,
+        "edge_cap": 2.0,
+        "merge": "draw_first_attached",
+        "veto": -100.0,
+        "mean_estimator": "onestep_mean",
+        "extra_draws": 0,
+        "noise_scale": 0.5,
+        "extra_noise_scale": 1.0
+      },
+      "mesh_audit": {
+        "vertices": 9554,
+        "faces": 18931,
+        "edges": 29058,
+        "boundary_edges": 1323,
+        "nonmanifold_edges": 0,
+        "isolated_vertices": 0,
+        "components": 6,
+        "euler": -573,
+        "faces_per_vertex": 1.9814737282813482,
+        "used_vertices": 9554,
+        "min_angle_mean_deg": 30.90143030137008,
+        "sliver_share": 0.11557762400295811,
+        "degenerate_faces": 6,
+        "degree_mean": 6.082897215825832,
+        "degree_hist": {
+          "0": 0,
+          "1": 0,
+          "2": 3,
+          "3": 66,
+          "4": 729,
+          "5": 2248,
+          "6": 3641,
+          "7": 1761,
+          "8": 697,
+          "9": 232,
+          "10": 99,
+          "11": 41,
+          "12": 37
+        },
+        "edge_length_mean": 0.04436016826431331,
+        "edge_length_p95": 0.1060458746913924,
+        "area_total": 16.715217791260063
+      },
+      "face_acceptance": {
+        "minimum_faces": 15000,
+        "usable_faces": 18925,
+        "meets_minimum_faces": true
+      },
+      "export_orientation": {
+        "version": "meshaxiom-export-orientation-v1",
+        "module": "meshaxiom/vendor/recipe/orient_faces.py",
+        "module_sha256": "90458f3c690429d378a7a35e9e6d87944f1be2011f14ef2c85462bfcdfc325de",
+        "faces": 18931,
+        "inconsistent_edges_before": 20127,
+        "inconsistent_edges_after": 455,
+        "two_face_edges": 27735,
+        "pieces": 16,
+        "nonorientable_pieces": 1,
+        "flipped_faces": 9498,
+        "outward_flipped_pieces": 8,
+        "applied_to": [
+          "mesh.obj",
+          "mesh.json"
+        ]
+      },
+      "extraction": {
+        "edge": {
+          "cap_hit": false,
+          "candidate_edges": 32659,
+          "returned_edges": 32659,
+          "max_edges": 48000
+        },
+        "triangles": {
+          "cap_hit": false,
+          "enumerated_candidates": 26001,
+          "returned_candidates": 26001,
+          "max_triangles": 20000000,
+          "order_dependent": false
+        },
+        "modified_by_cap": false,
+        "returned_faces": 24116
+      },
+      "adapter_identity": {
+        "adapter_revision": "225f24c14e2201bd2b9950fbfc4b509a38afe7e0",
+        "sha256": {
+          "platform/studio/atelier/ai/meshaxiom/apple.py": "0a11e236f970b4f5b1391b105a216ca3d732305764920ede258628e9e5fe39e1",
+          "platform/studio/atelier/ai/meshaxiom/worker.py": "24b92826a5a068fd06d4218ce6f4187e469c98053dd2c472b131bffa3a278e5d",
+          "platform/studio/atelier/ai/meshaxiom/requirements.lock.txt": "61c3c09909f0bf61ff90c59e2e787a3770cbf3f858b4b8705bdc1b30c36913c9"
+        }
+      },
+      "new_swapout_observed": false,
+      "geometry_worker_seconds": 3398.65,
+      "native_texture_worker_seconds": 629.912,
+      "uv_preparation_seconds": 19.89,
+      "native_texture_software": {
+        "python": "3.10.19",
+        "torch": "2.12.0",
+        "device": "MPS"
+      },
+      "native_texture_configuration": {
+        "naf_target_size": 512,
+        "image_conditioning_size": 1024,
+        "shape_resolution": 1024,
+        "steps": 12,
+        "seed": 42,
+        "output_sha256": "0e9a9bfd33adda28b6cb1a03ddc9d67ecea1b9b86e6ee0b8997e86e0637e0921"
+      }
+    },
+    "assessment": "Modestly sharper eyes and mouth than image512; NAF remains512, so not the full upstream default."
+  },
+  "native_image1024_front_hybrid": {
+    "variants": [
+      {
+        "variant": "single",
+        "model_sha256": "93c8b332e35e8c724d06ef2ac7ba22f722a4070e5d95f6921f924040a321ca69",
+        "painted_fraction": 0.1610758990147663,
+        "covered_texels": 2048854,
+        "views": 1,
+        "projection_validation_seconds": 4.048
+      }
+    ],
+    "benchmark": {
+      "hardware": {
+        "chip": "Apple M1 Max",
+        "gpu_cores": 32,
+        "unified_memory_gib": 32
+      },
+      "software": {
+        "python": "3.12.12",
+        "torch": "2.7.1",
+        "transformers": "4.57.3",
+        "macos": "26.2"
+      },
+      "source_revision": "6504db7126ec58e9d275833fb0e5f66640b01abe",
+      "model_revision": "b80240ce4f77a28bc4debdcca895e96c78ddb294",
+      "timing_scope": "Geometry workers plus selected UV preparation and native texture worker through verified PBR GLB; excludes image API, installation, downloads, queues and final diagnostic renders.",
+      "input_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "face_budget": 16000,
+      "steps": 20,
+      "vertex_seed": 2026082301,
+      "topology_seed": 1574365204,
+      "vertex_seconds": 2522.16,
+      "topology_seconds": 876.49,
+      "total_worker_seconds": 4052.5,
+      "vertex_count": 9554,
+      "face_count": 18931,
+      "usable_face_count": 18925,
+      "guards": {
+        "vertex": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "peak_bytes": 7336481024,
+          "limit_bytes": 17179869184,
+          "elapsed_seconds": 2524.1922850420087
+        },
+        "topology": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "peak_bytes": 6932401600,
+          "limit_bytes": 17179869184,
+          "elapsed_seconds": 878.0575261250051
+        },
+        "native_texture": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 639.0728104159934,
+          "peak_bytes": 13694607360,
+          "limit_bytes": 15032385536
+        },
+        "photo_overlay": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 17.601139249978587,
+          "peak_bytes": 1800704896,
+          "limit_bytes": 4294967296
+        }
+      },
+      "topology_policy": {
+        "version": "meshaxiom-topology-decode-policy-v1",
+        "cfg": 3.0,
+        "steps": 20,
+        "sampler": "dpmpp2m",
+        "face_thresh": null,
+        "edge_thresh": null,
+        "adaptive": null,
+        "ladder": [
+          0.0,
+          0.005,
+          0.01,
+          0.015,
+          0.02,
+          0.03,
+          0.04,
+          0.06,
+          0.08,
+          0.1,
+          0.13,
+          0.16,
+          0.2,
+          0.25,
+          0.3,
+          0.4,
+          0.5,
+          0.6
+        ],
+        "prune": "edge_capacity2",
+        "note": "original protocol",
+        "latent": "mean_and_sample",
+        "onestep_cfg": 1.0,
+        "mean_k": 4,
+        "edge_cap": 2.0,
+        "merge": "draw_first_attached",
+        "veto": -100.0,
+        "mean_estimator": "onestep_mean",
+        "extra_draws": 0,
+        "noise_scale": 0.5,
+        "extra_noise_scale": 1.0
+      },
+      "mesh_audit": {
+        "vertices": 9554,
+        "faces": 18931,
+        "edges": 29058,
+        "boundary_edges": 1323,
+        "nonmanifold_edges": 0,
+        "isolated_vertices": 0,
+        "components": 6,
+        "euler": -573,
+        "faces_per_vertex": 1.9814737282813482,
+        "used_vertices": 9554,
+        "min_angle_mean_deg": 30.90143030137008,
+        "sliver_share": 0.11557762400295811,
+        "degenerate_faces": 6,
+        "degree_mean": 6.082897215825832,
+        "degree_hist": {
+          "0": 0,
+          "1": 0,
+          "2": 3,
+          "3": 66,
+          "4": 729,
+          "5": 2248,
+          "6": 3641,
+          "7": 1761,
+          "8": 697,
+          "9": 232,
+          "10": 99,
+          "11": 41,
+          "12": 37
+        },
+        "edge_length_mean": 0.04436016826431331,
+        "edge_length_p95": 0.1060458746913924,
+        "area_total": 16.715217791260063
+      },
+      "face_acceptance": {
+        "minimum_faces": 15000,
+        "usable_faces": 18925,
+        "meets_minimum_faces": true
+      },
+      "export_orientation": {
+        "version": "meshaxiom-export-orientation-v1",
+        "module": "meshaxiom/vendor/recipe/orient_faces.py",
+        "module_sha256": "90458f3c690429d378a7a35e9e6d87944f1be2011f14ef2c85462bfcdfc325de",
+        "faces": 18931,
+        "inconsistent_edges_before": 20127,
+        "inconsistent_edges_after": 455,
+        "two_face_edges": 27735,
+        "pieces": 16,
+        "nonorientable_pieces": 1,
+        "flipped_faces": 9498,
+        "outward_flipped_pieces": 8,
+        "applied_to": [
+          "mesh.obj",
+          "mesh.json"
+        ]
+      },
+      "extraction": {
+        "edge": {
+          "cap_hit": false,
+          "candidate_edges": 32659,
+          "returned_edges": 32659,
+          "max_edges": 48000
+        },
+        "triangles": {
+          "cap_hit": false,
+          "enumerated_candidates": 26001,
+          "returned_candidates": 26001,
+          "max_triangles": 20000000,
+          "order_dependent": false
+        },
+        "modified_by_cap": false,
+        "returned_faces": 24116
+      },
+      "adapter_identity": {
+        "adapter_revision": "225f24c14e2201bd2b9950fbfc4b509a38afe7e0",
+        "sha256": {
+          "platform/studio/atelier/ai/meshaxiom/apple.py": "0a11e236f970b4f5b1391b105a216ca3d732305764920ede258628e9e5fe39e1",
+          "platform/studio/atelier/ai/meshaxiom/worker.py": "24b92826a5a068fd06d4218ce6f4187e469c98053dd2c472b131bffa3a278e5d",
+          "platform/studio/atelier/ai/meshaxiom/requirements.lock.txt": "61c3c09909f0bf61ff90c59e2e787a3770cbf3f858b4b8705bdc1b30c36913c9"
+        }
+      },
+      "new_swapout_observed": false,
+      "geometry_worker_seconds": 3398.65,
+      "native_texture_worker_seconds": 629.912,
+      "uv_preparation_seconds": 19.89,
+      "native_texture_software": {
+        "python": "3.10.19",
+        "torch": "2.12.0",
+        "device": "MPS"
+      },
+      "native_texture_configuration": {
+        "naf_target_size": 512,
+        "image_conditioning_size": 1024,
+        "shape_resolution": 1024,
+        "steps": 12,
+        "seed": 42,
+        "output_sha256": "0e9a9bfd33adda28b6cb1a03ddc9d67ecea1b9b86e6ee0b8997e86e0637e0921"
+      },
+      "hybrid": {
+        "variant": "single",
+        "model_sha256": "93c8b332e35e8c724d06ef2ac7ba22f722a4070e5d95f6921f924040a321ca69",
+        "painted_fraction": 0.1610758990147663,
+        "covered_texels": 2048854,
+        "views": 1,
+        "projection_validation_seconds": 4.048
+      }
+    },
+    "assessment": "Selected compact MeshAxiom result: original front sharpness and learned PBR color elsewhere. Geometry and non-image GLB buffers unchanged."
+  },
+  "trellis_512_vertex_color": {
+    "report": {
+      "method": "Learned native voxel color to raw dual-grid vertex bake, no UVs",
+      "worker_sha256": "6370c88f27221b0c59c931a23c3e60c86be2066a5490e85085c6a5c3b72337ca",
+      "native_checkpoint_sha256": "43a98675937d5103ecc1e16ed3a6f292c70cc33f20a5fb5969537571533fa442",
+      "texture_checkpoint_sha256": "6fd7a72880613175e77cc46c19b549a982117560695735d9cdf6432d3db33f5f",
+      "output_sha256": "126df574f3d6cd91a0f599487c9ea67413d47da1c35d2500e9c8c60287c53bf0",
+      "vertices": 2401454,
+      "triangles": 4916486,
+      "all_native_positions_and_indices_exact": true,
+      "material": "sRGB field converted to linear vertex RGB; uniform roughness.85/metallic0; PBR variation omitted",
+      "transform": "Only fixed Z-up to Y-up axis rotation",
+      "seconds": 82.593
+    },
+    "benchmark": {
+      "hardware": {
+        "chip": "Apple M1 Max",
+        "gpu_cores": 32,
+        "unified_memory_gib": 32
+      },
+      "vertex_count": 2401454,
+      "face_count": 4916486,
+      "input_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "total_worker_seconds": 331.217,
+      "timing_scope": "From guarded neural process launch to completed shape/PBR checkpoint (filesystem timestamp minus bound guard start), plus complete verified vertex GLB/source bake. Excludes discarded UV attempt, queues, downloads and diagnostic views.",
+      "neural_checkpoint_seconds_from_guard_start": 248.624,
+      "vertex_bake_seconds": 82.593,
+      "discarded_uv_attempt_exit": 143,
+      "guards": {
+        "neural": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 858.2875342920015,
+          "peak_bytes": 7715243328,
+          "limit_bytes": 12884901888
+        },
+        "vertex_bake": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 137.04375437501585,
+          "peak_bytes": 1685901824,
+          "limit_bytes": 8589934592
+        },
+        "matched_views": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 56.091601624997566,
+          "peak_bytes": 1106332992,
+          "limit_bytes": 4294967296
+        }
+      }
+    },
+    "camera_yaw_offset_degrees": -90,
+    "assessment": "More coherent hair and silhouette, but pale pupils and facial speckles remain. Vertex color preview omits learned roughness/metallic variation."
+  },
+  "trellis_cascade_actual768": {
+    "report": {
+      "worker_sha256": "43c0e46379673a117041614388a3429aa6f75f3b448697a7c89373d719991dca",
+      "backend": "Microsoft TRELLIS.2 MLX, native vertex colors",
+      "native_vertices": 5598831,
+      "native_triangles": 11386792,
+      "output_sha256": "a283437cadfed67e88baff5adc3179c88942568d0fcf358ec0ce909500dd3748",
+      "native_checkpoint_sha256": "da518226bf65afcd233ba5b6497c0ab9a00eda4a79cc307a0cc1887d2bcae758",
+      "all_native_positions_and_indices_exact": true,
+      "seconds": 1196.521,
+      "strict_model_key_checks": [
+        {
+          "file": "ss_flow_img_dit_1_3B_64_bf16.safetensors",
+          "keys": 640,
+          "strict_complete_state": true
+        },
+        {
+          "file": "ss_dec_conv3d_16l8_fp16.safetensors",
+          "keys": 74,
+          "strict_complete_state": true
+        },
+        {
+          "file": "slat_flow_img2shape_dit_1_3B_512_bf16.safetensors",
+          "keys": 640,
+          "strict_complete_state": true
+        },
+        {
+          "file": "shape_dec_next_dc_f16c32_fp16.safetensors",
+          "keys": 292,
+          "strict_complete_state": true
+        },
+        {
+          "file": "slat_flow_img2shape_dit_1_3B_1024_bf16.safetensors",
+          "keys": 640,
+          "strict_complete_state": true
+        },
+        {
+          "file": "shape_dec_next_dc_f16c32_fp16.safetensors",
+          "keys": 292,
+          "strict_complete_state": true
+        },
+        {
+          "file": "slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors",
+          "keys": 640,
+          "strict_complete_state": true
+        },
+        {
+          "file": "tex_dec_next_dc_f16c32_fp16.safetensors",
+          "keys": 284,
+          "strict_complete_state": true
+        }
+      ],
+      "mlx_peak_bytes": 11857778932,
+      "quantize": 0,
+      "resolution_requested": 1024,
+      "actual_mesh_grid_size": 768
+    },
+    "benchmark": {
+      "hardware": {
+        "chip": "Apple M1 Max",
+        "gpu_cores": 32,
+        "unified_memory_gib": 32
+      },
+      "vertex_count": 5598831,
+      "face_count": 11386792,
+      "input_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "total_worker_seconds": 1206.883886208001,
+      "timing_scope": "Whole guarded process including weight checks, conditioning, native inference, exact vertex-color GLB/source export and eight diagnostic renders; excludes queues and downloads.",
+      "guards": {
+        "generation": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 1206.883886208001,
+          "peak_bytes": 14024776832,
+          "limit_bytes": 15032385536
+        }
+      }
+    },
+    "native_vertex_bake": {
+      "method": "Learned native voxel color to raw dual-grid vertex bake, no UVs",
+      "worker_sha256": "5df7406dec6a74d3794391344076466332ec8dd3f56e0e8d1cdb72c4b63bc8b7",
+      "native_checkpoint_sha256": "da518226bf65afcd233ba5b6497c0ab9a00eda4a79cc307a0cc1887d2bcae758",
+      "texture_checkpoint_sha256": "58cf0e7e89cc3e5523d8624189314de2d99269db3210a5e28d1da4d40a93ebf7",
+      "output_sha256": "a283437cadfed67e88baff5adc3179c88942568d0fcf358ec0ce909500dd3748",
+      "vertices": 5598831,
+      "triangles": 11386792,
+      "all_native_positions_and_indices_exact": true,
+      "material": "sRGB field converted to linear vertex RGB; uniform roughness.85/metallic0; PBR variation omitted",
+      "transform": "Only fixed Z-up to Y-up axis rotation",
+      "seconds": 194.207
+    },
+    "actual_shape_tokens": 13128,
+    "new_swapout_observed": false,
+    "assessment": "Much improved pupils and more coherent shape/hair than512; small skin speckles remain. Raw native geometry is unchanged."
+  },
+  "trellis_two_image_512": {
+    "report": {
+      "worker_sha256": "43c0e46379673a117041614388a3429aa6f75f3b448697a7c89373d719991dca",
+      "backend": "Microsoft TRELLIS.2 MLX, native vertex colors",
+      "native_vertices": 2119830,
+      "native_triangles": 4385654,
+      "output_sha256": "a406d1e13771630dc63e20392bb84e20b41eb082e0009a457e6d6560f4570b7e",
+      "native_checkpoint_sha256": "bf092fd956bca0e0a2534e34af2436c38ed6d39f2843659cc3fa0937d46cd877",
+      "all_native_positions_and_indices_exact": true,
+      "seconds": 389.769,
+      "strict_model_key_checks": [
+        {
+          "file": "ss_flow_img_dit_1_3B_64_bf16.safetensors",
+          "keys": 640,
+          "strict_complete_state": true
+        },
+        {
+          "file": "ss_dec_conv3d_16l8_fp16.safetensors",
+          "keys": 74,
+          "strict_complete_state": true
+        },
+        {
+          "file": "slat_flow_img2shape_dit_1_3B_512_bf16.safetensors",
+          "keys": 640,
+          "strict_complete_state": true
+        },
+        {
+          "file": "shape_dec_next_dc_f16c32_fp16.safetensors",
+          "keys": 292,
+          "strict_complete_state": true
+        },
+        {
+          "file": "slat_flow_imgshape2tex_dit_1_3B_512_bf16.safetensors",
+          "keys": 640,
+          "strict_complete_state": true
+        },
+        {
+          "file": "tex_dec_next_dc_f16c32_fp16.safetensors",
+          "keys": 284,
+          "strict_complete_state": true
+        }
+      ],
+      "mlx_peak_bytes": 5322742000,
+      "quantize": 0,
+      "resolution_requested": 512,
+      "actual_mesh_grid_size": 512
+    },
+    "benchmark": {
+      "hardware": {
+        "chip": "Apple M1 Max",
+        "gpu_cores": 32,
+        "unified_memory_gib": 32
+      },
+      "vertex_count": 2119830,
+      "face_count": 4385654,
+      "input_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "total_worker_seconds": 400.843822209019,
+      "timing_scope": "Whole guarded two-image process including checks, preprocessing, native inference, verified GLB/source export and eight views; excludes queues and downloads.",
+      "guards": {
+        "generation": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 400.843822209019,
+          "peak_bytes": 7654965824,
+          "limit_bytes": 15032385536
+        }
+      }
+    },
+    "configuration": {
+      "resolution": 512,
+      "steps": 12,
+      "seed": 42,
+      "quantize": 0,
+      "max_tokens": 16384,
+      "mlx_limit_gib": 10,
+      "vertex_colors": true,
+      "target_faces": 0,
+      "cleanup": false,
+      "hole_fill": false,
+      "texture_size": 2048,
+      "camera_yaw_offset": -90,
+      "high_stage_image_size": 512,
+      "texture_model_resolution": 512
+    },
+    "image_count": 2,
+    "fusion": "Concatenated DINO feature sequences, no camera labels or multiview-trained checkpoint",
+    "assessment": "Rejected: a new hair tuft crosses the cheek, eyes become muddied; higher single-image cascade is much stronger.",
+    "control_limit": "Extra DINO construction consumes RNG before sampling; this is a whole-recipe trial, not a view-count-only causal comparison."
+  },
+  "trellis_512_photo_overlay": {
+    "report": {
+      "method": "Depth/facing/matte-weighted original photo over native learned vertex colors",
+      "worker_sha256": "d3b0f553dcd1c8b29ba93d81003996c324bb546e9ba471d473157c81fdd3defd",
+      "input_sha256": "126df574f3d6cd91a0f599487c9ea67413d47da1c35d2500e9c8c60287c53bf0",
+      "output_sha256": "f98474187a07a45856a8f6fb08905e8fa22b3aa6d0f95d0ce8351b5c3963e653",
+      "reference_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "triangles": 4916486,
+      "vertices": 2401454,
+      "painted_vertices": 275991,
+      "painted_vertex_fraction": 0.11492662362052324,
+      "protected_vertex_color_sha256": "5d048ab4848da042895bdb25fc63228fc5636fd596918ff8cca75662fb4ef988",
+      "geometry_normals_indices_materials_identical": true,
+      "camera": {
+        "yaw": -30,
+        "pitch": -5,
+        "silhouette_iou_96px": 0.949474224160041,
+        "transform_matrix": [
+          [
+            0.8660254037844387,
+            -0.043577871373829076,
+            -0.4980973490458727,
+            -1.8046058833308827
+          ],
+          [
+            -0.0,
+            0.9961946980917457,
+            -0.08715574274765817,
+            -0.3139993528377043
+          ],
+          [
+            0.49999999999999994,
+            0.07547908730517333,
+            0.862729915662821,
+            3.1344053515889563
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "camera_angle_x": 0.3141592653589793
+      },
+      "limitations": "Silhouette registration does not establish eye/mouth correspondence. Inspect eight views. Vertex fraction is not surface area.",
+      "seconds": 46.883
+    },
+    "guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 100.83825729202363,
+      "peak_bytes": 1930957696,
+      "limit_bytes": 8589934592
+    },
+    "benchmark": {
+      "hardware": {
+        "chip": "Apple M1 Max",
+        "gpu_cores": 32,
+        "unified_memory_gib": 32
+      },
+      "vertex_count": 2401454,
+      "face_count": 4916486,
+      "input_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "total_worker_seconds": 432.0552572920236,
+      "timing_scope": "Sum of the separately measured native checkpoint/export stages (discarded UV work and base views excluded) plus whole photo-overlay job including eight views. Not one uninterrupted run.",
+      "neural_checkpoint_seconds_from_guard_start": 248.624,
+      "vertex_bake_seconds": 82.593,
+      "discarded_uv_attempt_exit": 143,
+      "guards": {
+        "neural": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 858.2875342920015,
+          "peak_bytes": 7715243328,
+          "limit_bytes": 12884901888
+        },
+        "vertex_bake": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 137.04375437501585,
+          "peak_bytes": 1685901824,
+          "limit_bytes": 8589934592
+        },
+        "matched_views": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 56.091601624997566,
+          "peak_bytes": 1106332992,
+          "limit_bytes": 4294967296
+        },
+        "photo_overlay": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 100.83825729202363,
+          "peak_bytes": 1930957696,
+          "limit_bytes": 8589934592
+        }
+      }
+    },
+    "assessment": "Sharper reference eyes, but doubled brow/lid outlines and neck color patches remain; not selected."
+  },
+  "trellis_768_photo_overlay": {
+    "report": {
+      "method": "Depth/facing/matte-weighted original photo over native learned vertex colors",
+      "worker_sha256": "d3b0f553dcd1c8b29ba93d81003996c324bb546e9ba471d473157c81fdd3defd",
+      "input_sha256": "a283437cadfed67e88baff5adc3179c88942568d0fcf358ec0ce909500dd3748",
+      "output_sha256": "2966c3fded6303f99f4fe63c76825ac217cf2956a3de1fd68817ae37ab471951",
+      "reference_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "triangles": 11386792,
+      "vertices": 5598831,
+      "painted_vertices": 589573,
+      "painted_vertex_fraction": 0.1053028748322641,
+      "protected_vertex_color_sha256": "96180e67418805f79f31fc5a536f96e646c4b52893ac3cd276cb57486c20e8e5",
+      "geometry_normals_indices_materials_identical": true,
+      "camera": {
+        "yaw": -30,
+        "pitch": -5,
+        "silhouette_iou_96px": 0.9425813008130082,
+        "transform_matrix": [
+          [
+            0.8660254037844387,
+            -0.043577871373829076,
+            -0.4980973490458727,
+            -1.751771265864453
+          ],
+          [
+            -0.0,
+            0.9961946980917457,
+            -0.08715574274765817,
+            -0.30623198168468724
+          ],
+          [
+            0.49999999999999994,
+            0.07547908730517333,
+            0.862729915662821,
+            3.0458694497351018
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "camera_angle_x": 0.3141592653589793
+      },
+      "limitations": "Silhouette registration does not establish eye/mouth correspondence. Inspect eight views. Vertex fraction is not surface area.",
+      "seconds": 102.723
+    },
+    "guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 207.29029049997916,
+      "peak_bytes": 4657260608,
+      "limit_bytes": 8589934592
+    },
+    "benchmark": {
+      "hardware": {
+        "chip": "Apple M1 Max",
+        "gpu_cores": 32,
+        "unified_memory_gib": 32
+      },
+      "vertex_count": 5598831,
+      "face_count": 11386792,
+      "input_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "total_worker_seconds": 1414.1741767079802,
+      "timing_scope": "Sum of the complete guarded cascade job and complete photo-overlay job, both including eight diagnostic views; excludes queues/downloads.",
+      "guards": {
+        "generation": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 1206.883886208001,
+          "peak_bytes": 14024776832,
+          "limit_bytes": 15032385536
+        },
+        "photo_overlay": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 207.29029049997916,
+          "peak_bytes": 4657260608,
+          "limit_bytes": 8589934592
+        }
+      }
+    },
+    "assessment": "Not selected: stronger reference detail but doubled brow/lid outlines, nose projection mismatch and visible side/neck transition."
+  },
+  "selection": {
+    "best_overall": "trellis_cascade768_lit_normals16",
+    "best_overall_sha256": "cbe576a9e80697a9424593fe8033f8b3f3bca4c2210b15b9c2c637f28548d433",
+    "best_compact": "native_image1024_front_hybrid",
+    "best_compact_sha256": "93c8b332e35e8c724d06ef2ac7ba22f722a4070e5d95f6921f924040a321ca69",
+    "criteria": "Qualitative eight-view facial coherence, likeness, profile/rear continuity and visible defects; no numerical Tripo parity claim.",
+    "material_scope": "Best conventionally lit appearance: native learned RGB, uniform roughness/metallic and corrected shading normals. All ordered geometric triangles/winding/corner colors are exact; automatic coincident normal-seam copies only. Compact PBR choice remains MeshAxiom native image1024/front hybrid."
+  },
+  "final_viewer_validation": {
+    "results": [
+      {
+        "asset": "trellis-head-cascade768",
+        "triangles": 11386792,
+        "loaded": true,
+        "edge_audit_deferred": true,
+        "raw_mesh_json_requested": false,
+        "page_errors": []
+      },
+      {
+        "asset": "trellis-head-multiview512",
+        "triangles": 4385654,
+        "loaded": true,
+        "edge_audit_deferred": true,
+        "raw_mesh_json_requested": false,
+        "page_errors": []
+      },
+      {
+        "asset": "trellis-head-512-photo",
+        "triangles": 4916486,
+        "loaded": true,
+        "edge_audit_deferred": true,
+        "raw_mesh_json_requested": false,
+        "page_errors": []
+      },
+      {
+        "asset": "trellis-head-cascade768-photo",
+        "triangles": 11386792,
+        "loaded": true,
+        "edge_audit_deferred": true,
+        "raw_mesh_json_requested": false,
+        "page_errors": []
+      },
+      {
+        "asset": "skater-head-smart-uv-single",
+        "triangles": 18931,
+        "loaded": true,
+        "edge_audit_deferred": false,
+        "raw_mesh_json_requested": true,
+        "page_errors": []
+      },
+      {
+        "asset": "skater-head-guided-front",
+        "triangles": 18931,
+        "loaded": true,
+        "edge_audit_deferred": false,
+        "raw_mesh_json_requested": true,
+        "page_errors": []
+      },
+      {
+        "asset": "skater-head-guided-rejected",
+        "triangles": 18931,
+        "loaded": true,
+        "edge_audit_deferred": false,
+        "raw_mesh_json_requested": true,
+        "page_errors": []
+      }
+    ],
+    "guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 49.54486033300054,
+      "peak_bytes": 3921872640,
+      "limit_bytes": 8589934592
+    },
+    "scope": "Desktop Chrome with desktop/mobile viewport layouts, all available controls, exact complete GLB triangle counts, no dense raw JSON fetch, no page errors. This is not real-device Safari validation."
+  },
+  "trellis_cascade_actual768_unlit": {
+    "report": {
+      "method": "Standard KHR_materials_unlit over native learned vertex RGB",
+      "worker_sha256": "a0c8a0c59dd8fd069e37db967941391fd55047b50c2af56c6a57b1f2290a854c",
+      "input_sha256": "a283437cadfed67e88baff5adc3179c88942568d0fcf358ec0ce909500dd3748",
+      "output_sha256": "c933fa90dcd2bacfd526567c216afb78bb127b4662cf4df7452c467431e3a283",
+      "reference_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "vertices": 5598831,
+      "triangles": 11386792,
+      "complete_binary_identical": true,
+      "scene_geometry_bindings_identical": true,
+      "positions_normals_indices_colors_unchanged": true,
+      "limitations": "Unlit appearance preview. Raw lit normal grain remains in the retained lit model; no geometry or normal repair.",
+      "seconds": 0.974
+    },
+    "guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 96.68709504199796,
+      "peak_bytes": 2454067072,
+      "limit_bytes": 8589934592
+    },
+    "benchmark": {
+      "hardware": {
+        "chip": "Apple M1 Max",
+        "gpu_cores": 32,
+        "unified_memory_gib": 32
+      },
+      "vertex_count": 5598831,
+      "face_count": 11386792,
+      "input_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "total_worker_seconds": 1303.570981249999,
+      "timing_scope": "Sum of complete native generation/export job and complete material-only unlit job, each with eight review views; excludes queues/downloads. Same native geometry and complete binary payload.",
+      "guards": {
+        "generation": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 1206.883886208001,
+          "peak_bytes": 14024776832,
+          "limit_bytes": 15032385536
+        },
+        "unlit_export": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 96.68709504199796,
+          "peak_bytes": 2454067072,
+          "limit_bytes": 8589934592
+        }
+      }
+    },
+    "assessment": "Selected unlit appearance prototype. Faithful native RGB with identical full binary payload; disables lighting without repairing raw normal/surface grain."
+  },
+  "unlit_viewer_validation": {
+    "results": [
+      {
+        "asset": "trellis-head-cascade768",
+        "triangles": 11386792,
+        "material_types": [
+          "MeshStandardMaterial"
+        ],
+        "controls": true,
+        "mobile_layout": true,
+        "page_errors": [],
+        "pure_model_renders": 8
+      },
+      {
+        "asset": "trellis-head-cascade768-unlit",
+        "triangles": 11386792,
+        "material_types": [
+          "MeshBasicMaterial"
+        ],
+        "controls": true,
+        "mobile_layout": true,
+        "page_errors": [],
+        "pure_model_renders": 8
+      }
+    ],
+    "guard": {
+      "state": "child_exited",
+      "cleanup_complete": true,
+      "elapsed_seconds": 11.171945875015808,
+      "peak_bytes": 4189795648,
+      "limit_bytes": 8589934592
+    },
+    "capture": "Pure WebGL renderer PNG exports, identical cameras/lights for lit/unlit; no browser/page UI in archived evidence."
+  },
+  "trellis_cascade768_lit_normals0": {
+    "report": {
+      "native_vertices": 5598831,
+      "exported_vertices": 8574785,
+      "normal_seam_copies": 2975954,
+      "triangles": 11386792,
+      "ordered_triangle_positions_colors_winding_exact": true,
+      "scene_material_bindings_identical": true,
+      "method": "Area-weighted unoriented normal tensors, connected diffusion, winding-aligned normal seams",
+      "worker_sha256": "7c94dc8135fa34dcf9529fcf0941a4460b665c625d53ac430cc9b9cae300c5a0",
+      "input_sha256": "a283437cadfed67e88baff5adc3179c88942568d0fcf358ec0ce909500dd3748",
+      "output_sha256": "29e68129bcde2367826df0211eae9290e9f45f3dc287bc45254203a6dac5563d",
+      "iterations": 0,
+      "relaxation": 0.5,
+      "normal_field_sha256": "aaf3cf545d849709087c1a31d73277b9ea2275bd07d2ad4ac36e6525b7eb23d5",
+      "seconds": 12.947,
+      "limitations": "Only shading is filtered. Raw geometry, holes, self-intersections and learned color speckles remain."
+    },
+    "guard": {
+      "state": "child_exited",
+      "elapsed_seconds": 13.270821624988457,
+      "peak_bytes": 3382386176,
+      "limit_bytes": 8589934592,
+      "cleanup_complete": true
+    },
+    "benchmark": {
+      "hardware": {
+        "chip": "Apple M1 Max",
+        "gpu_cores": 32,
+        "unified_memory_gib": 32
+      },
+      "vertex_count": 5598831,
+      "face_count": 11386792,
+      "input_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "total_worker_seconds": 1220.1547078329895,
+      "timing_scope": "Sum of native generation/export/eight review views and deterministic lit-normal export; no geometry alteration",
+      "guards": {
+        "generation": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 1206.883886208001,
+          "peak_bytes": 14024776832,
+          "limit_bytes": 15032385536
+        },
+        "normal_filter": {
+          "state": "child_exited",
+          "elapsed_seconds": 13.270821624988457,
+          "peak_bytes": 3382386176,
+          "limit_bytes": 8589934592,
+          "cleanup_complete": true
+        }
+      }
+    }
+  },
+  "trellis_cascade768_lit_normals16": {
+    "report": {
+      "native_vertices": 5598831,
+      "exported_vertices": 8580395,
+      "normal_seam_copies": 2981564,
+      "triangles": 11386792,
+      "ordered_triangle_positions_colors_winding_exact": true,
+      "scene_material_bindings_identical": true,
+      "method": "Area-weighted unoriented normal tensors, connected diffusion, winding-aligned normal seams",
+      "worker_sha256": "7c94dc8135fa34dcf9529fcf0941a4460b665c625d53ac430cc9b9cae300c5a0",
+      "input_sha256": "a283437cadfed67e88baff5adc3179c88942568d0fcf358ec0ce909500dd3748",
+      "output_sha256": "cbe576a9e80697a9424593fe8033f8b3f3bca4c2210b15b9c2c637f28548d433",
+      "iterations": 16,
+      "relaxation": 0.5,
+      "normal_field_sha256": "92cee10de495a1d1b55005b058fa1006508b1db9befac445426cd06b1ced076b",
+      "seconds": 38.518,
+      "limitations": "Only shading is filtered. Raw geometry, holes, self-intersections and learned color speckles remain."
+    },
+    "guard": {
+      "state": "child_exited",
+      "elapsed_seconds": 38.8739477499912,
+      "peak_bytes": 4211664256,
+      "limit_bytes": 8589934592,
+      "cleanup_complete": true
+    },
+    "benchmark": {
+      "hardware": {
+        "chip": "Apple M1 Max",
+        "gpu_cores": 32,
+        "unified_memory_gib": 32
+      },
+      "vertex_count": 5598831,
+      "face_count": 11386792,
+      "input_sha256": "a4ccece26cf19825e840f37513710bc9da348be64227d8f2b7d982407439341e",
+      "total_worker_seconds": 1245.7578339579923,
+      "timing_scope": "Sum of native generation/export/eight review views and deterministic lit-normal export; no geometry alteration",
+      "guards": {
+        "generation": {
+          "state": "child_exited",
+          "cleanup_complete": true,
+          "elapsed_seconds": 1206.883886208001,
+          "peak_bytes": 14024776832,
+          "limit_bytes": 15032385536
+        },
+        "normal_filter": {
+          "state": "child_exited",
+          "elapsed_seconds": 38.8739477499912,
+          "peak_bytes": 4211664256,
+          "limit_bytes": 8589934592,
+          "cleanup_complete": true
+        }
+      }
+    }
+  },
+  "normal_diagnosis": {
+    "vertices": 5598831,
+    "faces": 11386792,
+    "normal_length_percentiles": [
+      0.0,
+      0.9999998807907104,
+      1.0,
+      1.0,
+      1.0000001192092896
+    ],
+    "edge_angle_percentiles": [
+      0.0,
+      1.9294525384902954,
+      14.367704629898071,
+      162.96617431640627,
+      177.29948348999022,
+      179.51622009277344,
+      179.99998474121094
+    ],
+    "edge_opposite_fraction": 0.13890294024660133,
+    "sample_degenerate_fraction": 0.0,
+    "face_disagrees_with_average_fraction": 0.15399936768890293,
+    "bounds": [
+      [
+        -0.3485506772994995,
+        -0.48628556728363037,
+        -0.4207848310470581
+      ],
+      [
+        0.3484790325164795,
+        0.4864288568496704,
+        0.4193815588951111
+      ]
+    ],
+    "seconds": 0.4414672499988228
+  },
+  "lit_normal_viewer_validation": {
+    "results": [
+      {
+        "asset": "trellis-head-cascade768",
+        "triangles": 11386792,
+        "material_types": [
+          "MeshStandardMaterial"
+        ],
+        "controls": true,
+        "mobile_layout": true,
+        "page_errors": [],
+        "pure_model_renders": 8,
+        "lighting_response": null
+      },
+      {
+        "asset": "trellis-head-lit-normal0",
+        "triangles": 11386792,
+        "material_types": [
+          "MeshStandardMaterial"
+        ],
+        "controls": true,
+        "mobile_layout": true,
+        "page_errors": [],
+        "pure_model_renders": 8,
+        "lighting_response": null
+      },
+      {
+        "asset": "trellis-head-lit-normal16",
+        "triangles": 11386792,
+        "material_types": [
+          "MeshStandardMaterial"
+        ],
+        "controls": true,
+        "mobile_layout": true,
+        "page_errors": [],
+        "pure_model_renders": 8,
+        "lighting_response": true
+      }
+    ],
+    "guard": {
+      "state": "child_exited",
+      "elapsed_seconds": 23.876712458994007,
+      "peak_bytes": 4262747392,
+      "limit_bytes": 8589934592,
+      "cleanup_complete": true
+    },
+    "capture": "Pure WebGL canvas exports; same cameras and lights, eight views per variant and eight selected gray views; selected material responds to scaled light intensity."
+  }
+}

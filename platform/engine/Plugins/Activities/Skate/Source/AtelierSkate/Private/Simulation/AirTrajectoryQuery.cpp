@@ -1,4 +1,5 @@
 #include "AirTrajectoryQuery.h"
+#include "WallFollow.h"
 #include <cstring>
 #include <limits>
 #if defined(__clang__)
@@ -140,12 +141,26 @@ Vec4 AirTrajectoryPositionAt(const AirTrajectory &trajectory, float time) {
   for (std::size_t i = 0; i < 4; ++i)
     result[i] = std::fma(trajectory.acceleration[i] * 0.5f, square,
                          std::fma(trajectory.velocity[i], time, trajectory.position[i]));
+  if (trajectory.wall_curvature != 0) {
+    // A wall-follow arc: the horizontal velocity's part turns round the wall (WallFollow.h); the climb and any
+    // horizontal acceleration are the parabola's.
+    const auto arc = WallFollowArcAt(trajectory.velocity[0], trajectory.velocity[2], trajectory.wall_curvature,
+                                     trajectory.wall_follow_time, time);
+    result[0] = float(double(trajectory.position[0]) + arc.dx + 0.5 * trajectory.acceleration[0] * square);
+    result[2] = float(double(trajectory.position[2]) + arc.dz + 0.5 * trajectory.acceleration[2] * square);
+  }
   return result;
 }
 Vec4 AirTrajectoryVelocityAt(const AirTrajectory &trajectory, float time) {
   Vec4 result;
   for (std::size_t i = 0; i < 4; ++i)
     result[i] = std::fma(trajectory.acceleration[i], time, trajectory.velocity[i]);
+  if (trajectory.wall_curvature != 0) {
+    const auto arc = WallFollowArcAt(trajectory.velocity[0], trajectory.velocity[2], trajectory.wall_curvature,
+                                     trajectory.wall_follow_time, time);
+    result[0] = std::fma(trajectory.acceleration[0], time, arc.vx);
+    result[2] = std::fma(trajectory.acceleration[2], time, arc.vz);
+  }
   return result;
 }
 std::pair<Vec4, float> AirTrajectoryHighestPosition(const AirTrajectory &trajectory) {
@@ -158,9 +173,15 @@ bool QueryAirTrajectory(AirTrajectoryQueryRequest request, AirTrajectoryWorldQue
                         AirTrajectoryQueryResult &output, std::string &error) {
   const auto &trajectory = request.trajectory;
   float start_step = trajectory.scalar_48, end_step = trajectory.scalar_48;
-  if (trajectory.acceleration[1] < 0) {
-    start_step = StepSize(trajectory.acceleration[1], request.start_error * request.radius);
-    end_step = StepSize(trajectory.acceleration[1], request.end_error * request.radius);
+  // The chords sag from the path by its acceleration: gravity's, and on a wall-follow arc the turn's as well (a stock
+  // arc's curvature is 0 and steps by gravity exactly as before).
+  const float bound = trajectory.wall_curvature != 0
+      ? WallFollowChordAcceleration(trajectory.acceleration[1], trajectory.velocity[0], trajectory.velocity[2],
+                                    trajectory.wall_curvature)
+      : trajectory.acceleration[1];
+  if (bound < 0) {
+    start_step = StepSize(bound, request.start_error * request.radius);
+    end_step = StepSize(bound, request.end_error * request.radius);
   }
   const float minimum_square = ((request.start_error * request.radius) * request.start_error) * request.radius;
   float time = 0;

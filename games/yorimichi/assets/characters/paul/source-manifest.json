@@ -1,0 +1,41 @@
+{
+  "native": "Paul.glb",
+  "native_sha256": "780923acd5d68883d3527c2443106c04aee2330f19dc923e2b54f94aef553f07",
+  "height_cm": 165,
+  "facing": "+X",
+  "floor_m": 0,
+  "revision": "tripo-body-r01",
+  "rig": {
+    "spec": "Tripo Studio auto-rig, Mixamo names",
+    "bones": 65,
+    "fingers": "4 bones per digit (the fourth an unweighted end)"
+  },
+  "geometry": {
+    "vertices": 45372,
+    "triangles": 72116
+  },
+  "materials": [
+    "M_Paul_0",
+    "M_Paul_1"
+  ],
+  "textures": {
+    "body": [
+      4096,
+      4096
+    ],
+    "head": [
+      4096,
+      4096
+    ]
+  },
+  "body": {
+    "made_by": "Tripo Studio P2 multiview from references/body (front, left, right, back), drawn by hand in ChatGPT from the boy's concept and turnaround",
+    "graft": "tools/paul_body_graft.py, head fraction 0.18 (provenance/graft.json)",
+    "rig": "tools/paul_rig.py: Tripo's skeleton and weights on the graft's textured mesh (provenance/rig.json)"
+  },
+  "head": {
+    "source": "the head section (M_Paul_1) of the previous Paul.glb, revision haras-r01, sha256 640719953e502ac660f07989d92afcc4fe7929918f956430906541fbd0517310",
+    "origin": "Polozer/HarasValley SKM_Garcon (the boy's face-sheet Tripo bust), vendored with the project owner's authorization"
+  },
+  "display_name": "Paul"
+}

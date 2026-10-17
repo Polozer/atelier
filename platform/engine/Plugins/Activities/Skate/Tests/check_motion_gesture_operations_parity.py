@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Full original MotionHost CharacterGesture/EndGesture/Shove lifecycle parity.
 
-Builds/probes run only by the parent under atelier.safety. Real stock gesture
+Builds/probes run only by the parent under atelier.harness.safety. Real stock gesture
 clips expose catalog and stage transitions; applied parameter observers expose
 height/direction. Source modules remain byte-identical in the independent oracle.
 """

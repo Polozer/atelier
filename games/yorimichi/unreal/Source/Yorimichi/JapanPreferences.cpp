@@ -1,7 +1,10 @@
 #include "JapanPreferences.h"
+#include "JapanCharacterSelect.h"
+#include "DevNotes.h"
 #include "AtelierSettings.h"
 #include "JapanHUD.h"
 #include "JapanNetwork.h"
+#include "CraterParkTower.h"
 #include "JapanSession.h"
 #include "PlayableCharacter.h"
 #include "SkateComponent.h"
@@ -31,6 +34,7 @@
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SWrapBox.h"
 #include "TimerManager.h"
+#include "ComponentRecreateRenderStateContext.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Input/SSlider.h"
 #include "Widgets/Input/SButton.h"
@@ -57,7 +61,7 @@ constexpr bool bLumenAvailable = WITH_EDITOR != 0;
 const TCHAR* const LumenUnavailable = TEXT("Lumen is not available in this build: it is packaged for forward lighting only.");
 // The Skate feel page (docs/SKATE.md, "Skate feel menu"): every value that changes how the board rides, saved as
 // skate_<name>. The mode picks Easy, Normal or Hardcore as made, or Custom, where every value below is tuned on a base
-// difficulty; the stick, mouse, tight and 120 Hz flicks and camera (bAlways) apply in every mode. A knob without a
+// difficulty; the stick, mouse, tight and 120 Hz flicks, bowl boost and camera (bAlways) apply in every mode. A knob without a
 // field is a choice: the mode (0 easy, 1 normal, 2 hardcore, 3 custom), the base difficulty (0 easy, 1 normal,
 // 2 hardcore), tight flicks and 120 Hz flicks (0 off, 1 on) or a switch (0 the difficulty's own, 1 off, 2 on).
 struct FSkateKnob { const TCHAR* Key; const TCHAR* Label; const TCHAR* Hint; float Minimum, Maximum, Step; float FSkateFeel::* Field; bool bAlways = false; };
@@ -85,12 +89,14 @@ const TArray<FSkateGroup>& SkateGroups()
         {TEXT("Rails"), {
             {TEXT("skate_rail_magnetism"), TEXT("Rail magnetism"), TEXT("How far, how sharply and how fast a jump is pulled onto a rail or ledge."), .25f, 3, .05f, &FSkateFeel::RailMagnetism},
             {TEXT("skate_grind_pop"), TEXT("Grind pop"), TEXT("Height of an ollie out of a grind."), .5f, 2, .05f, &FSkateFeel::GrindPop},
-            {TEXT("skate_grind_friction"), TEXT("Grind friction"), TEXT("How fast grinds and slides slow down. 0 never slows."), 0, 3, .05f, &FSkateFeel::GrindFriction}}},
+            {TEXT("skate_grind_friction"), TEXT("Grind friction"), TEXT("How fast grinds and slides slow down. 0 never slows."), 0, 3, .05f, &FSkateFeel::GrindFriction},
+            {TEXT("skate_grind_tolerance"), TEXT("Grind balance"), TEXT("How much knocking and twisting a grind takes before you bail. A slam onto the rail or sideways into it still bails."), .5f, 3, .05f, &FSkateFeel::GrindTolerance}}},
         {TEXT("Pushing and rolling"), {
             {TEXT("skate_push_speed"), TEXT("Top push speed"), TEXT("The speed pushing reaches."), .5f, 2, .05f, &FSkateFeel::PushSpeed},
             {TEXT("skate_push_power"), TEXT("Push strength"), TEXT("Speed gained with each push."), .5f, 3, .05f, &FSkateFeel::PushPower},
             {TEXT("skate_auto_push"), TEXT("Auto push"), TEXT("Keeps you rolling without pushing."), 0, 2, 1, nullptr},
             {TEXT("skate_pump"), TEXT("Pumping"), TEXT("Speed gained by pumping through transitions."), 0, 3, .05f, &FSkateFeel::Pump},
+            {TEXT("skate_bowl_boost"), TEXT("Bowl boost"), TEXT("Extra speed from pumping and powersliding on the walls of boost bowls (Crater Park's orange flow bowl and U-turns). 0 is off."), 0, 2, .05f, &FSkateFeel::BowlBoost, true},
             {TEXT("skate_rolling_friction"), TEXT("Rolling resistance"), TEXT("How fast speed above cruising bleeds off on the flat. 0 keeps every bit of speed."), 0, 3, .05f, &FSkateFeel::RollingFriction},
             {TEXT("skate_hill_speed"), TEXT("Hill speed"), TEXT("How hard slopes pull the board down."), 0, 2, .05f, &FSkateFeel::HillSpeed},
             {TEXT("skate_braking"), TEXT("Braking"), TEXT("How hard the foot brake stops."), .25f, 3, .05f, &FSkateFeel::Braking}}},
@@ -98,7 +104,8 @@ const TArray<FSkateGroup>& SkateGroups()
             {TEXT("skate_steering"), TEXT("Steering"), TEXT("How much the stick turns the board."), .5f, 2, .05f, &FSkateFeel::Steering},
             {TEXT("skate_carve"), TEXT("Carve"), TEXT("How hard a leaning board turns."), .5f, 2, .05f, &FSkateFeel::Carve},
             {TEXT("skate_grip"), TEXT("Wheel grip"), TEXT("How well the wheels hold a turn before sliding out."), .5f, 2, .05f, &FSkateFeel::Grip},
-            {TEXT("skate_powerslide"), TEXT("Powerslide bite"), TEXT("How hard a powerslide slows the board."), .25f, 3, .05f, &FSkateFeel::Powerslide}}},
+            {TEXT("skate_powerslide"), TEXT("Powerslide bite"), TEXT("How hard a powerslide slows the board."), .25f, 3, .05f, &FSkateFeel::Powerslide},
+            {TEXT("skate_powerslide_turn"), TEXT("Powerslide turn"), TEXT("How far a powerslide kicks the board across the way you go."), .25f, 1.5f, .05f, &FSkateFeel::PowerslideTurn}}},
         {TEXT("Balance"), {
             {TEXT("skate_wobble"), TEXT("Speed wobble"), TEXT("How much the board shakes at speed. 0 never wobbles."), 0, 3, .05f, &FSkateFeel::Wobble},
             {TEXT("skate_wobble_onset"), TEXT("Wobble starts at"), TEXT("The speed the wobble starts at, as a multiple of the difficulty's."), .5f, 3, .05f, &FSkateFeel::WobbleOnset},
@@ -112,9 +119,11 @@ const TArray<FSkateGroup>& SkateGroups()
             {TEXT("skate_stick_reach"), TEXT("Stick full tilt at"), TEXT("Stick travel that counts as fully pushed. Lower reaches the edge sooner."), .6f, 1, .01f, &FSkateFeel::StickReach, true},
             {TEXT("skate_mouse_flick"), TEXT("Mouse flick strength"), TEXT("How far a mouse movement moves the trick stick, beside look sensitivity."), .25f, 4, .05f, &FSkateFeel::MouseFlick, true},
             {TEXT("skate_tight_flicks"), TEXT("Tight hardflips and inwards"), TEXT("Also reads a hardflip or inward heelflip flicked close to straight down then up, as newer skate games do, beside the wide arc."), 0, 1, 1, nullptr, true},
+            {TEXT("skate_drift_powerslide"), TEXT("Drift powerslides"), TEXT("The left stick straight down powerslides too, from half tilt, gripping as far as it is pulled down. Let go, the board comes back round under you and you keep your speed and line."), 0, 1, 1, nullptr, true},
             {TEXT("skate_flick_120hz"), TEXT("120 Hz flick reading"), TEXT("Reads the trick stick twice a tick, between frames too, so a quick flick such as a hardflip keeps every point of its shape. The flick window and pace keep their times."), 0, 1, 1, nullptr, true},
             {TEXT("skate_cam_dist"), TEXT("Skate camera distance"), TEXT("Nearer or farther than the skate camera's own."), .6f, 1.6f, .05f, &FSkateFeel::CameraDistance, true},
-            {TEXT("skate_cam_fov"), TEXT("Skate camera field of view"), TEXT("Degrees added to the skate camera's view."), -20, 20, 1, &FSkateFeel::CameraFOV, true}}}};
+            {TEXT("skate_cam_fov"), TEXT("Skate camera field of view"), TEXT("Degrees added to the skate camera's view."), -20, 20, 1, &FSkateFeel::CameraFOV, true},
+            {TEXT("skate_cam_pullback"), TEXT("Camera pull-back at speed"), TEXT("How much farther the camera drifts back when you go fast. 0 keeps it at the same distance."), 0, 1.5f, .05f, &FSkateFeel::CameraPullback, true}}}};
     return Groups;
 }
 const TCHAR* const SkateDifficulties[] = {TEXT("easy"), TEXT("normal"), TEXT("hardcore")};
@@ -125,7 +134,7 @@ FString SkateChoice(const FString& Key, int32 Choice)
     if (Key == TEXT("skate_mode")) return SkateModes[FMath::Clamp(Choice, 0, SkateCustom)];
     if (Key == TEXT("skate_difficulty"))
         return Choice == 0 ? TEXT("Easy · forgiving") : Choice == 2 ? TEXT("Hardcore · strict") : TEXT("Normal");
-    if (Key == TEXT("skate_tight_flicks") || Key == TEXT("skate_flick_120hz")) return Choice == 1 ? TEXT("On") : TEXT("Off");
+    if (Key == TEXT("skate_tight_flicks") || Key == TEXT("skate_flick_120hz") || Key == TEXT("skate_drift_powerslide")) return Choice == 1 ? TEXT("On") : TEXT("Off");
     return Choice == 1 ? TEXT("Off") : Choice == 2 ? TEXT("On") : TEXT("As the difficulty has it");
 }
 // The value a knob starts at: the game's DefaultGame.ini for the settings it had, the stock feel for the rest.
@@ -139,6 +148,7 @@ float SkateDefault(const FSkateKnob& Knob, const FSkateFeel& Defaults)
     }
     if (FCString::Strcmp(Knob.Key, TEXT("skate_tight_flicks")) == 0) return float(Defaults.TightFlicks);
     if (FCString::Strcmp(Knob.Key, TEXT("skate_flick_120hz")) == 0) return float(Defaults.Flick120Hz);
+    if (FCString::Strcmp(Knob.Key, TEXT("skate_drift_powerslide")) == 0) return float(Defaults.DriftPowerslide);
     return float((FCString::Strcmp(Knob.Key, TEXT("skate_auto_push")) == 0 ? Defaults.AutoPush : Defaults.AssistedAir) + 1);
 }
 }
@@ -156,6 +166,8 @@ void UJapanPreferences::Initialize(AWandererCharacter* Pawn)
         {TEXT("desktop"),TEXT("Desktop profile"),0.f,0.f,1.f},
         {TEXT("show_fps"),TEXT("Frame rate"),1.f,0.f,1.f},
         {TEXT("fog"),TEXT("Volumetric fog"),1.f,0.f,1.f},
+        {TEXT("leaf_motion"),TEXT("Swaying leaves"),0.f,0.f,1.f},
+        {TEXT("laptop"),TEXT("Laptop mode"),0.f,0.f,1.f},
         // The fog's look (AJapanWorld::ApplyVolumetricFog, docs/VOLUMETRIC_FOG.md); the defaults are FVolumetricFogLook's.
         {TEXT("fog_density"),TEXT("Fog density"),.07f,0.f,.2f,.005f},
         {TEXT("fog_reach"),TEXT("Fog reach (m)"),30.f,10.f,120.f,5.f},
@@ -177,6 +189,9 @@ void UJapanPreferences::Initialize(AWandererCharacter* Pawn)
         {TEXT("toon_soft"),TEXT("Toon softness"),.45f,0.f,1.f},
         {TEXT("outline"),TEXT("Outlines"),0.f,0.f,1.f},
         {TEXT("wind"),TEXT("Wind (m/s)"),3.5f,0.f,12.f},
+        {TEXT("tree_sway"),TEXT("Tree sway distance (m)"),60.f,0.f,180.f,5.f},
+        {TEXT("forest_detail"),TEXT("Forest detail distance (x)"),.4f,.25f,2.f,.05f},
+        {TEXT("tree_shadow"),TEXT("Tree shadow distance (m)"),80.f,20.f,300.f,5.f},
         // The light (the menu's Light section, LightKeys): the map's sun, sky light and unbound volume
         // (setup_project.py build_level) as the player tunes them. The defaults are a low, warm afternoon sun
         // with long shadows, chosen in a live trial of five looks (build/yorimichi/scout/hidamari-light1). Its
@@ -254,7 +269,7 @@ float UJapanPreferences::Saved(const FString& Key, float Default)
 bool UJapanPreferences::IsToggle(const FString& Key)
 {
     return Key == TEXT("performance") || Key == TEXT("renderer") || Key == TEXT("tree_optimization") ||
-        Key == TEXT("show_fps") || Key == TEXT("fog") || Key == TEXT("goofy");
+        Key == TEXT("show_fps") || Key == TEXT("fog") || Key == TEXT("leaf_motion") || Key == TEXT("laptop") || Key == TEXT("goofy");
 }
 float UJapanPreferences::Get(const TCHAR* Key) const
 {
@@ -368,13 +383,28 @@ void UJapanPreferences::Apply()
         FString Error;
         if (!Skate->SetFeel(JapanNetwork::IsOnline(Owner->GetWorld()) ? FSkateFeel::Defaults() : GetSkateFeel(), Error)) UE_LOG(LogTemp, Warning, TEXT("PREFERENCES skate feel refused: %s"), *Error);
     }
-    const int32 PerformanceMode = Get(TEXT("performance")) > .5f ? 1 : 0;
+    // Laptop mode (a MacBook Air) implies the Performance profile and caps the forest's costliest settings below.
+    const bool Laptop = Get(TEXT("laptop")) > .5f;
+    const int32 PerformanceMode = Laptop || Get(TEXT("performance")) > .5f ? 1 : 0;
     const bool Desktop = Get(TEXT("desktop")) > .5f;
+    const bool LightFrame = Laptop || (Desktop && PerformanceMode);
     const auto Set = [](const TCHAR* Name, float Value)
     {
         if (auto* CVar = IConsoleManager::Get().FindConsoleVariable(Name))
             CVar->Set(Value,ECVF_SetByCode);
     };
+    // Static trees and bushes sway through world position offset. With motion vectors for that sway, forward
+    // shading draws each of them again in a separate velocity pass (2.3-2.8 ms of a 16 ms forest frame on an
+    // M1 Max). Proxies read the setting when created, so a change rebuilds them.
+    if (auto* LeafMotion = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Velocity.EnableVertexDeformation")))
+    {
+        const int32 Wanted = Get(TEXT("leaf_motion")) > .5f ? 1 : 0;
+        if (LeafMotion->GetInt() != Wanted)
+        {
+            LeafMotion->Set(Wanted,ECVF_SetByCode);
+            if (LeafMotion->GetInt() == Wanted) { FGlobalComponentRecreateRenderStateContext Recreate; }
+        }
+    }
     // Saved Unreal GameUserSettings can override the ini cap with zero.
     // Explicit console overrides still allow the benchmark to run uncapped.
     Set(TEXT("t.MaxFPS"),60.f);
@@ -388,25 +418,26 @@ void UJapanPreferences::Apply()
     // R11G11B10 retains HDR at half the scene-color bandwidth. Paired native
     // 1440p tests save ~1 ms in forest/harbor, with original resolution and TAA.
     // Keep FloatRGBA for the phone and full-quality mode; no saved setting changes.
-    Set(TEXT("r.SceneColorFormat"),Desktop && PerformanceMode ? 2.f : 4.f);
+    Set(TEXT("r.SceneColorFormat"),LightFrame ? 2.f : 4.f);
     // UE 5.8's lighter input filter retains anti-ghosting. Native 1440p paired
     // captures save ~0.3 ms; sprint/double-jump frames retain character edges.
-    Set(TEXT("r.TemporalAA.Quality"),Desktop && PerformanceMode ? 3.f : 2.f);
-    if (AppliedPerformanceMode != PerformanceMode)
+    Set(TEXT("r.TemporalAA.Quality"),LightFrame ? 3.f : 2.f);
+    const int32 ShadowProfile = PerformanceMode + (Laptop ? 1 : 0);
+    if (AppliedPerformanceMode != ShadowProfile)
     {
         // Use the engine's original medium irradiance-volume lighting in the
         // performance profile. The user reverted the screen-probe lighting change.
         Set(TEXT("sg.GlobalIlluminationQuality"),PerformanceMode ? 1.f : 3.f);
-        Set(TEXT("r.Shadow.CSM.MaxCascades"),PerformanceMode ? 2.f : 10.f);
+        Set(TEXT("r.Shadow.CSM.MaxCascades"),Laptop ? 1.f : PerformanceMode ? 2.f : 10.f);
         Set(TEXT("r.Shadow.MaxCSMResolution"),PerformanceMode ? 1024.f : 2048.f);
         Set(TEXT("r.Shadow.DistanceScale"),PerformanceMode ? .5f : 1.5f);
         Set(TEXT("r.DistanceFieldShadowing"),PerformanceMode ? 0.f : 1.f);
         Set(TEXT("foliage.LODDistanceScale"),PerformanceMode ? .75f : 1.f);
-        AppliedPerformanceMode = PerformanceMode;
+        AppliedPerformanceMode = ShadowProfile;
     }
     // Keep character edges near native resolution. The cheaper grass LODs leave
     // room for a higher floor; still respect a manually chosen lower ceiling.
-    Set(TEXT("r.DynamicRes.MinScreenPercentage"),FMath::Min(85.f,Get(TEXT("render_scale"))));
+    Set(TEXT("r.DynamicRes.MinScreenPercentage"),FMath::Min(Laptop ? 50.f : 85.f,Get(TEXT("render_scale"))));
     Set(TEXT("r.DynamicRes.MaxScreenPercentage"),Get(TEXT("render_scale")));
     Set(TEXT("r.DynamicRes.FrameTimeBudget"),1000.f/60.f);
     Set(TEXT("r.DynamicRes.TargetedGPUHeadRoomPercentage"),10.f);
@@ -443,7 +474,10 @@ void UJapanPreferences::Apply()
     for (TActorIterator<AJapanWorld> It(Owner->GetWorld()); It; ++It)
     {
         It->WindSpeed = Get(TEXT("wind"))*100.f;
-        It->ApplyPerformanceSettings(PerformanceMode != 0);
+        It->ApplyPerformanceSettings(PerformanceMode != 0,
+            Laptop ? FMath::Min(Get(TEXT("tree_sway")),20.f) : Get(TEXT("tree_sway")),
+            Laptop ? FMath::Min(Get(TEXT("forest_detail")),.25f) : Get(TEXT("forest_detail")),
+            Laptop ? FMath::Min(Get(TEXT("tree_shadow")),40.f) : Get(TEXT("tree_shadow")));
         if (!It->ApplyTreeOptimization(Get(TEXT("tree_optimization")) > .5f,
             FMath::RoundToInt(Get(TEXT("tree_lod_mode"))),Get(TEXT("tree_lod_distance"))) && It->bLoaded)
             GraphicsError = TEXT("Tree optimization could not be applied. Check that the game's tree assets are built.");
@@ -485,7 +519,7 @@ void UJapanPreferences::Apply()
 FSkateFeel UJapanPreferences::GetSkateFeel() const
 {
     // Easy, Normal and Hardcore are the difficulty as made; Custom tunes every value on its base difficulty. The stick,
-    // mouse, tight flicks, 120 Hz flicks and camera apply in every mode. Custom values stay saved while a preset is played.
+    // mouse, tight flicks, drift powerslides, 120 Hz flicks, bowl boost and camera apply in every mode. Custom values stay saved while a preset is played.
     FSkateFeel Feel = FSkateFeel::Defaults();
     const int32 Mode = FMath::Clamp(FMath::RoundToInt(Get(TEXT("skate_mode"))), 0, SkateCustom);
     for (const FSkateGroup& Group : SkateGroups())
@@ -493,6 +527,7 @@ FSkateFeel UJapanPreferences::GetSkateFeel() const
             if (Knob.Field && (Knob.bAlways || Mode == SkateCustom)) Feel.*Knob.Field = Get(Knob.Key);
     Feel.TightFlicks = int8(FMath::Clamp(FMath::RoundToInt(Get(TEXT("skate_tight_flicks"))), 0, 1));
     Feel.Flick120Hz = int8(FMath::Clamp(FMath::RoundToInt(Get(TEXT("skate_flick_120hz"))), 0, 1));
+    Feel.DriftPowerslide = int8(FMath::Clamp(FMath::RoundToInt(Get(TEXT("skate_drift_powerslide"))), 0, 1));
     if (Mode != SkateCustom) Feel.Difficulty = SkateDifficulties[Mode];
     else
     {
@@ -635,11 +670,16 @@ public:
 FString MainHint(const FString& Key)
 {
     static const TMap<FString,FString> Hints = {
-        {TEXT("performance"),TEXT("Performance keeps movement smooth with lighter shadows and distant detail; Quality sharpens shadows.")},
-        {TEXT("fog"),TEXT("Valley mist and light shafts through the trees. Off saves GPU time.")},
+        {TEXT("performance"),TEXT("Performance keeps shadows light for a steady 60 fps. Quality draws sharper, farther shadows: in the forest they take about 21 ms instead of 6.5, roughly doubling the frame time (1080p, M1 Max, moving through the forest).")},
+        {TEXT("fog"),TEXT("Valley mist and light shafts through the trees. About 0.15 ms a frame; off saves it.")},
+        {TEXT("laptop"),TEXT("For a MacBook Air or another light GPU: forest detail at most 0.25x, tree shadows at most 40 m, tree sway at most 20 m, one shadow cascade, the lighter scene format and anti-aliasing, and a resolution that may drop to 50% to hold 60 fps. Your sliders keep their own values for when it is off.")},
+        {TEXT("leaf_motion"),TEXT("Fast lets anti-aliasing ignore the wind sway, so leaf edges soften slightly in wind. Precise draws every swaying tree again to follow its leaves exactly: about 2.5 ms more a frame in the forest, up to 4 ms on a hot machine.")},
         {TEXT("show_fps"),TEXT("The frame rate in a corner of the screen.")},
+        {TEXT("tree_shadow"),TEXT("How far from the camera trees cast shadows; beyond it they cast none. Looking across the forest, tree shadows are the largest cost in the game: shorter is faster, longer darkens far forest floors. Shadows of everything else keep their own range.")},
+        {TEXT("forest_detail"),TEXT("How far forest trees keep their full leaf detail before their simpler crowns take over, as a multiple of their own distances. The forest is the biggest cost in the game: against 1x, 0.6x saves about 3 ms a frame and 0.4x about 4.5 ms (1080p, M1 Max, spawn view). Trees near the road look the same; higher sharpens distant crowns.")},
+        {TEXT("tree_sway"),TEXT("How far from the camera trees and bushes sway in the wind; beyond it they stand still. Cheap: 0 m and 180 m differ by about 0.5 ms a frame.")},
         {TEXT("goofy"),TEXT("Which foot leads on the skateboard: Regular is the left foot, Goofy the right.")},
-        {TEXT("tree_lod_distance"),TEXT("How far detailed trees reach, with Automatic tree detail. Farther costs more GPU time.")},
+        {TEXT("tree_lod_distance"),TEXT("How far detailed city trees reach, with Automatic tree detail. Farther costs more GPU time in Hidamari's streets.")},
         {TEXT("fog_density"),TEXT("How thick the volumetric fog is.")},
         {TEXT("fog_reach"),TEXT("How far the volumetric fog reaches from the camera, in metres.")},
         {TEXT("fog_falloff"),TEXT("How quickly the fog thins with height. Higher keeps it low in the valleys.")},
@@ -651,13 +691,13 @@ FString MainHint(const FString& Key)
         {TEXT("mouse"),TEXT("How fast the mouse turns the camera.")},
         {TEXT("cam_dist"),TEXT("How far the camera follows behind you.")},
         {TEXT("fov"),TEXT("The camera's field of view, in degrees.")},
-        {TEXT("render_scale"),TEXT("The highest resolution the game renders at, as a percentage of the screen. Lower is faster and softer.")},
-        {TEXT("painterly"),TEXT("How strongly the painted look brushes over the image. 0 turns it off.")},
+        {TEXT("render_scale"),TEXT("The highest resolution the game renders at, as a percentage of the screen. Lower is softer. In the forest the GPU is busy with trees, not pixels: 50% saved almost nothing there.")},
+        {TEXT("painterly"),TEXT("How strongly the painted look brushes over the image. It shares one pass with toon shading and outlines, about 0.5 ms a frame; with all three at 0 the pass is skipped.")},
         {TEXT("paint_radius"),TEXT("The size of the painted look's brush strokes.")},
-        {TEXT("toon"),TEXT("How strongly the shading is drawn in flat bands. 0 turns it off.")},
+        {TEXT("toon"),TEXT("How strongly the shading is drawn in flat bands. Shares the painted look's pass (about 0.5 ms, skipped when paint, toon and outlines are all 0).")},
         {TEXT("toon_bands"),TEXT("How many bands the toon shading uses.")},
         {TEXT("toon_soft"),TEXT("How softly the toon bands blend into each other.")},
-        {TEXT("outline"),TEXT("Ink outlines around shapes. 0 turns them off.")},
+        {TEXT("outline"),TEXT("Ink outlines around shapes. Shares the painted look's pass (about 0.5 ms, skipped when paint, toon and outlines are all 0).")},
         {TEXT("wind"),TEXT("The wind in the trees and grass, in metres per second.")},
         {TEXT("exposure"),TEXT("The overall brightness of the image.")},
         {TEXT("saturation"),TEXT("How rich the colours are.")},
@@ -1023,9 +1063,35 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
         Rows->AddSlot().AutoHeight().Padding(0,0,0,4)[Page->Add(Detail,TEXT("tree_lod_mode"),
             TEXT("Higher distance values keep detailed trees farther away and cost more GPU time. Forced intermediate/distant modes are comparisons, not the default."))];
     }
+    // Crater Park's tower (docs/CRATERPARK.md, "Tower"): back to a line's roll-in crest, out of the menu's click.
+    if (const TArray<FCraterParkStart>& Starts = CraterParkTower::Starts(); Starts.Num())
+    {
+        TSharedRef<SWrapBox> Tower = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(2,2));
+        Page->Section();
+        for (int32 I = 0; I < Starts.Num(); ++I)
+            Tower->AddSlot()[Page->Add(SNew(SButton).Text(FText::FromString(Starts[I].Name))
+                .OnClicked_Lambda([this,I]
+                {
+                    CloseMenu();
+                    if (AWandererCharacter* Pawn = Owner)
+                        Pawn->GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(Pawn,[Pawn,I] { CraterParkTower::Return(Pawn,I); }));
+                    return FReply::Handled();
+                }),TEXT("tower:")+Starts[I].Key,
+                FString::Printf(TEXT("Back to the top of %s, standing on the tower deck facing down the line (F7 repeats the last one)."),*Starts[I].Name))];
+        Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(STextBlock).Text(FText::FromString(TEXT("Crater Park tower"))).Font(FCoreStyle::GetDefaultFontStyle("Bold",16)).ColorAndOpacity(FLinearColor::White)];
+        Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Tower];
+    }
     Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Page->Add(SNew(SButton).Text(FText::FromString(TEXT("Play with friends")))
         .OnClicked_Lambda([this] { CloseMenu(); if (Owner) if (auto* Session=Owner->GetGameInstance<UJapanGameInstance>()) Session->Friends(); return FReply::Handled(); }),
         TEXT("friends"),TEXT("Host a shared game or join one."))];
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,4)[Page->Add(SNew(SButton)
+        .Text_Lambda([] { return FText::FromString(DevNotes::IsOn() ? TEXT("Dev mode: on · leave it") : TEXT("Dev mode: fly and take notes")); })
+        .OnClicked_Lambda([this] { CloseMenu(); DevNotes::Toggle(Owner ? Owner->GetWorld() : nullptr, this); return FReply::Handled(); }),
+        TEXT("dev_mode"),TEXT("Fly anywhere without gravity. N or Y: a note with a screenshot and the camera's position. X or View: export every note as a zip (Finder opens it)."))];
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Page->Add(SNew(SButton).IsEnabled_Lambda([] { return DevNotes::Count() > 0; })
+        .Text_Lambda([] { return FText::FromString(FString::Printf(TEXT("Export dev notes (%d) as a zip"), DevNotes::Count())); })
+        .OnClicked_Lambda([this] { CloseMenu(); DevNotes::Export(); return FReply::Handled(); }),
+        TEXT("dev_export"),TEXT("Every note, its screenshot and camera as one zip, shown in Finder; the notes are also copied as text."))];
     // The character switch waits for the next tick, out of the menu's click. Each character uses its merged move set.
     const auto Switch = [this](const FString& Name)
     {
@@ -1043,18 +1109,29 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
         for (const FString& Name : Names)
         {
             const FPlayableCharacter* Character = FPlayableCharacter::Find(Name);
-            Characters->AddSlot()[Page->Add(SNew(SButton).IsEnabled(!JapanNetwork::IsOnline(Owner->GetWorld()) && Name != Playing && Character && Character->Built())
+            Characters->AddSlot()[Page->Add(SNew(SButton).IsEnabled(Name != Playing && Character && Character->Built())
                 .Text(FText::FromString(FPlayableCharacter::Label(Name)))
                 .OnClicked_Lambda([Switch,Name] { Switch(Name); return FReply::Handled(); }),TEXT("character:")+Name,
                 FString::Printf(TEXT("Play as %s."),*FPlayableCharacter::Label(Name)))];
         }
         Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(STextBlock).Text(FText::FromString(TEXT("Character"))).Font(FCoreStyle::GetDefaultFontStyle("Bold",16)).ColorAndOpacity(FLinearColor::White)];
+        if (!JapanNetwork::IsOnline(Owner->GetWorld()))
+        {
+            Characters->AddSlot()[Page->Add(SNew(SButton).Text(FText::FromString(TEXT("Character gallery...")))
+                .OnClicked_Lambda([this]
+                {
+                    CloseMenu();
+                    if (AWandererCharacter* Pawn = Owner)
+                        Pawn->GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(Pawn,[Pawn] { FJapanCharacterSelect::Open(Pawn,false); }));
+                    return FReply::Handled();
+                }),TEXT("character_select"),TEXT("Open the character selection screen with portrait cards."))];
+        }
         Rows->AddSlot().AutoHeight().Padding(0,0,0,18)[Characters];
     }
     if (JapanNetwork::IsOnline(Owner->GetWorld()))
         Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(STextBlock).AutoWrapText(true).ColorAndOpacity(FLinearColor::White)
-            .Text(FText::FromString(TEXT("Choose your character before joining. Shared games use the merged move set, two stamina rings and default skate physics.")))];
-    TArray<FString> Toggles = {TEXT("performance"),TEXT("fog"),TEXT("show_fps"),TEXT("goofy")};
+            .Text(FText::FromString(TEXT("You can change characters during the session. Shared games use two stamina rings and default skate physics.")))];
+    TArray<FString> Toggles = {TEXT("performance"),TEXT("laptop"),TEXT("fog"),TEXT("leaf_motion"),TEXT("show_fps"),TEXT("goofy")};
     Page->Section();
     for (const FString& Key : Toggles)
     {
@@ -1068,6 +1145,12 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
                 if (Key == TEXT("fog")) return FText::FromString(Enabled
                     ? TEXT("Volumetric fog: on · valley mist and light shafts")
                     : TEXT("Volumetric fog: off"));
+                if (Key == TEXT("laptop")) return FText::FromString(Enabled
+                    ? TEXT("Laptop mode: on · lighter forest, shadows and resolution for a MacBook Air")
+                    : TEXT("Laptop mode: off"));
+                if (Key == TEXT("leaf_motion")) return FText::FromString(Enabled
+                    ? TEXT("Swaying leaves: Precise · motion-matched edges")
+                    : TEXT("Swaying leaves: Fast"));
                 return FText::FromString(Key == TEXT("performance")
                     ? (Enabled ? TEXT("Graphics: Performance · 60 fps target") : TEXT("Graphics: Quality"))
                     : (Enabled ? TEXT("Frame rate: shown") : TEXT("Frame rate: hidden")));

@@ -49,10 +49,39 @@ def test_differing_sources_names_each_step():
     assert reuse.differing_sources(snapshot(a='1', b='2'), snapshot(a='1', b='3', c='4')) == ['b', 'c']
 
 
-def test_inspect_reports_a_source_fingerprint_for_every_step():
+@pytest.mark.parametrize('named_products', [False, True])
+def test_inspect_legacy_and_named_products(tmp_path, monkeypatch, named_products):
+    import shutil
     from atelier import paths
-    snapshot = reuse.inspect(paths.REPO, 'sandbox')
+    # Keep a legacy recipe independent of the evolving sandbox template. Exercise the real child
+    # interpreter and inspector, including missing products in a fresh checkout.
+    repo = tmp_path / 'repo'
+    shutil.copytree(paths.STUDIO / 'atelier', repo / 'platform/studio/atelier',
+                    ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copytree(paths.HARNESS / 'harness', repo / 'platform/harness/harness',
+                    ignore=shutil.ignore_patterns('__pycache__'))
+    game = repo / 'games/standin'
+    (game / 'unreal').mkdir(parents=True)
+    (game / 'unreal/Standin.uproject').write_text('{}')
+    (game / 'game.toml').write_text('editor_target = "StandinEditor"\n')
+    (game / 'source.txt').write_text('source input')
+    products = "[Product('mesh', (ctx.out / 'mesh.json',))]" if named_products else '[]'
+    (game / 'build.py').write_text(
+        'from pathlib import Path\nfrom atelier.build import Product, Step\n'
+        'def steps(ctx):\n'
+        "    return [Step('mesh', [], inputs=[Path(__file__).with_name('source.txt')], "
+        f'products={products})]\n')
+    # Inspection needs version metadata, not an installed Unreal editor.
+    version = tmp_path / 'engine/Engine/Build/Build.version'
+    version.parent.mkdir(parents=True)
+    version.write_text('{}')
+    monkeypatch.setenv('UE_ROOT', str(tmp_path / 'engine'))
+    snapshot = reuse.inspect(repo, 'standin')
+    assert snapshot['build_version'] == {}
     assert snapshot['steps'] and all(len(s['source']) == 64 for s in snapshot['steps'])
+    if named_products:
+        assert not snapshot['steps'][0]['outputs_ok']
+        assert snapshot['steps'][0]['products'] == {}
 
 
 def test_target_files_in_copied_folders_are_found_tracked_ones_are_not(tmp_path):
@@ -78,7 +107,8 @@ def test_target_files_in_copied_folders_are_found_tracked_ones_are_not(tmp_path)
 
 
 
-def test_a_fresh_target_reuses_a_cutoff_step_and_its_dependents(tmp_path):
+@pytest.mark.parametrize('missing_input', [None, 'source', 'generated', 'escaped'])
+def test_a_fresh_target_reuses_a_cutoff_step_and_its_dependents(tmp_path, missing_input):
     """Copied cutoff outputs, with no stamps yet, give their dependents the fingerprints the source's stamps give: reuse
     copies, verifies and only then writes stamps. A copied output that differs is not certified."""
     import contextlib, io, json
@@ -91,6 +121,8 @@ def test_a_fresh_target_reuses_a_cutoff_step_and_its_dependents(tmp_path):
         path.write_text(content)
 
     source, target, engine = [tmp_path / x for x in ('source', 'target', 'engine')]
+    if missing_input == 'escaped':
+        source=source/'repo'; target=target/'repo'
     write(engine / 'Engine/Build/Build.version', '{}')
     write(engine / 'Engine/Binaries/Mac/UnrealEditor.modules', '{"BuildId":"1"}')
     for repo in (source, target):
@@ -110,30 +142,51 @@ def test_a_fresh_target_reuses_a_cutoff_step_and_its_dependents(tmp_path):
                                uproject=current / 'games/standin/unreal/Standin.uproject')
 
     def steps(ctx):
-        return [build.Step('digest', [], inputs=[ctx.out.parents[1] / 'source.txt'], outputs=[ctx.out / 'digest.txt'], cutoff=True),
+        inputs=[ctx.out.parents[1] / 'source.txt']
+        if missing_input == 'source': inputs.append(ctx.out.parents[1] / 'optional.toml')
+        if missing_input == 'generated': inputs.append(ctx.out / 'optional.toml')
+        if missing_input == 'escaped': inputs.append(ctx.out.parents[1] / '../optional.toml')
+        return [build.Step('digest', [], inputs=inputs, outputs=[ctx.out / 'digest.txt'], cutoff=True),
                 build.Step('import', [], needs=['digest'], outputs=[ctx.uproject.parent / 'Content/Result.uasset'])]
 
-    def inspect(repo, game):
+    def inspect(repo, game, donor=None):
         nonlocal current
         current = repo
         out = io.StringIO()
         with patch.object(paths, 'REPO', current), contextlib.redirect_stdout(out):
-            exec("GAME='standin'\n" + reuse.INSPECT, {})
+            exec("GAME='standin'\n" + ('DONOR=' + repr(json.dumps(donor)) + '\n' if donor is not None else '') + reuse.INSPECT, {})
         return json.loads(out.getvalue())
 
     with patch.object(build, 'Context', context), patch.object(build, 'load_recipe', lambda game: SimpleNamespace(steps=steps)), \
             patch.object(manifest, 'game', lambda game: {'editor_target': 'StandinEditor'}), \
             patch.object(reuse, 'inspect', inspect), patch.object(reuse, 'occupied', lambda *args: []), \
-            patch.object(reuse, 'git', lambda repo, *args: 'revision' if args[0] == 'rev-parse' else ''), \
-            patch.object(reuse, 'render_lock', lambda *args: contextlib.nullcontext()):
+            patch.object(reuse, 'git', lambda repo, *args: 'revision' if args[0] == 'rev-parse' else ''):
         producer, consumer = steps(context('standin'))
         published = build.outputs_digest(producer)
         write(source / 'build/standin/stamps/digest.json', json.dumps({'fingerprint': build.fingerprint(producer, {}), 'result': published}))
         write(source / 'build/standin/stamps/import.json', json.dumps({'fingerprint': build.fingerprint(consumer, {'digest': published})}))
-        assert reuse.main('standin', source, target) == 0
+        original=inspect(source,'standin')
+        if missing_input:
+            assert original['steps'][0]['fingerprint'] != inspect(target,'standin')['steps'][0]['fingerprint']
+        if missing_input == 'escaped':
+            with pytest.raises(ValueError,match='Source inputs differ'):
+                reuse._copy('standin', source, target, operation_id='0' * 32)
+            assert not (target/'build/standin/stamps').exists()
+            assert not (target/'games/standin/unreal/Content').exists()
+            return
+        assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+        reuse._publish('standin', target, '0' * 32)
         verified = inspect(target, 'standin')
         assert all(step['stamp']['fingerprint'] == step['fingerprint'] for step in verified['steps'])
+        assert inspect(source,'standin')['steps'][0]['stamp'] == original['steps'][0]['stamp']
         assert verified['steps'][0]['stamp']['result'] == published
+        if missing_input:
+            absent=target / ('optional.toml' if missing_input == 'source' else 'build/standin/optional.toml')
+            write(absent,'unexpected source input')
+            assert reuse._inputs(inspect(target,'standin')) != reuse._inputs(verified)
+            if missing_input == 'source':
+                assert reuse.differing_sources(original,inspect(target,'standin'))
+            absent.unlink()
         (target / 'build/standin/digest.txt').write_text('another digest')
         assert reuse._inputs(inspect(target, 'standin')) != reuse._inputs(verified)
     (target / 'games/standin/unreal/Content/Result.uasset').write_text('changed target asset')

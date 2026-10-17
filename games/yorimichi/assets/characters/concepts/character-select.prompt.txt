@@ -1,0 +1,13 @@
+Production 16:9 UI design reference sheet (2560x1440 layout proportion) for the startup Character Selection Screen of Yorimichi, a stylised 3D Japanese coastal island exploration game in Unreal Engine. Use the attached character references for the four playable characters and the island overview for the world atmosphere.
+
+BACKDROP & FRAME: Behind the UI, show a softly dimmed golden-hour view of Yorimichi's coastal road, autumn ginkgo trees and distant sea under a deep forest-green glass vignette (#0b1713 at 75% opacity). Centred on screen is an architectural dark forest-slate and warm cedar selection board (#0f221b surface, #163026 card wells) framed with thin brushed-brass hairline rules (#c9a05a) and subtle bevelled corners.
+
+HEADER: Top eyebrow in tracked warm brass capitals: "YORIMICHI". Below it, a clean display title in warm cream (#fff6e5): "Choose Your Wanderer".
+
+FOUR PLAYABLE CHARACTER CARDS (equal-width vertical cards side by side in a 4-column row, with VERY SHORT text):
+1. CAIRO (left card, highlighted as selected with a warm mustard-gold #e2b44c border glow and top badge "DEFAULT"): bust portrait of Cairo (boy with dark-chocolate sculpted hair, dark vertical pill eyes, warm peach skin, mustard-yellow tee over white long sleeves). Plaque text: name "Cairo", short line "Knows every shortcut.", bottom brass button "Selected  ·  Play".
+2. MODORI (second card, frost-blue #8fb8d8 accent and badge "RIVAL"): bust portrait of Modori (Image 1: dark sculpted hair with one thin frost-white streak over one eye, half-lidded pill eyes, charcoal coat-haori with braided rope and bell weight). Plaque text: name "Modori", short line "Came back from the woods.", bottom button "Select".
+3. NOX (third card, violet-silver #9b7fd4 accent and badge "NIGHT RIDER"): bust portrait of Nox (Images 2 & 3: warm brown skin, black-charcoal shoulder-length locs, heavy-lidded eyes, temple star mark, black leather bomber over dark hoodie and silver chain). Plaque text: name "Nox", short line "Up all night.", bottom button "Select".
+4. PAUL (right card, moss-emerald #6eb37e accent and badge "CHALLENGER"): bust portrait of Paul (Image 4: tousled dark-brown hair, golden-hazel eyes, warm sunlit skin, moss-green crew-neck tee). Plaque text: name "Paul", short line "New in town.", bottom button "Select".
+
+FOOTER BAR: Bottom control legend bar in warm brass and cream: "Left / Right or Mouse: Choose   ·   Enter / Space / A: Play   ·   1–4: Quick Pick". Keep card text ultra-short (only the name and 3-5 word line, no outfit descriptions). Clean editorial game UI design with cohesive painted 3D character portraits.

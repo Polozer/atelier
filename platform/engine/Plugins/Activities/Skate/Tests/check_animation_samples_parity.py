@@ -3,7 +3,7 @@
 
 Simulation tracks collapse only bit-identical constant values. This is data conversion,
 not animation evaluation; interpolation and runtime blend behavior need later tests.
-Run through atelier.safety because both code and animation export execute here.
+Run through atelier.harness.safety because both code and animation export execute here.
 """
 import argparse
 import hashlib

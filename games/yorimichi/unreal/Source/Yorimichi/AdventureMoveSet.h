@@ -1,5 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
+#include "SwordCombatRules.h"
 #include "UObject/Object.h"
 #include "JapanDefenceTimeline.h"
 #include "JapanDefenceClock.h"
@@ -112,12 +113,12 @@ public:
     EAdventureMoveMode GetMode() const { return Mode; }
     FString ModeName() const;
     bool LocksMovement() const;
-    bool CanSprint() const { return Mode == EAdventureMoveMode::Ground && !bLocked && !bGuardHeld && !bCharging; }
+    bool CanSprint() const { return Mode == EAdventureMoveMode::Ground && (!bLocked || CombatTarget.IsValid()) && !bGuardHeld && !bCharging; }
     /** Stamina recovers only standing on the ground (the adventure library's EnergyAutoRecoverInAir is 0). */
     bool HoldsStamina() const { return Mode != EAdventureMoveMode::Ground || bCharging; }
     bool IsArmed() const { return bArmed; }
     /** The guard is up: held, the sword out, and not just broken by a heavy blow. */
-    bool IsGuarding() const { return bGuardHeld && bArmed && GuardBroken <= 0.f; }
+    bool IsGuarding() const { return bGuardHeld && bArmed && !bDown && !IsAttacking() && GuardBroken <= 0.f; }
     bool HasInputHolds() const { return bAttackHeld || bGuardHeld || bJumpHeld; }
     bool IsSwordGuarding() const { return IsGuarding() && !HasShield(); }
     bool IsLocked() const { return bLocked; }
@@ -186,8 +187,11 @@ public:
     float GetParam(const TCHAR* Key, float Default = 0.f) const;
     const FAdventureMove* Find(FName Name) const { return Moves.Find(Name); }
     AActor* GetTarget() const { return Target.Get(); }
+    void SetCombatTarget(AActor* NewTarget) { CombatTarget = NewTarget; }
+    AActor* GetCombatTarget() const { return CombatTarget.Get(); }
     int32 HitsLanded() const { return HitCount; }
     int32 Parries() const { return ParryCount; }
+    float GuardPressure() const;
     int32 Dodges() const { return DodgeCount; }
     int32 DoubleJumps() const { return DoubleJumpCount; }
     // For a character the game drives (ASwordTrainer) reading its own body and its opponent's, like a player watching.
@@ -206,12 +210,21 @@ public:
     /** In a combo cut that can be followed: real seconds until the next cut may come (its input point), 0 from then on;
      *  -1 otherwise. The cuts strike from their first frame, so a watcher answers the next one, not the one swinging. */
     float NextCutIn() const;
+    /** World-space blade base, tip and cutting-edge forward axis, plus hiding the default prop when a procedural blade replaces it. */
+    bool GetBladePose(FVector& OutBase, FVector& OutTip, FVector& OutMajor) const;
+    void UseProceduralBlade(float CustomBladeLengthCm = 0.f);
     /** Live and QA: the facts the scenarios check, as JSON. */
     FString Describe() const;
 
 private:
+    friend class FJapanCheckpointTest;
+    friend class ABelmonteTrainService;
+    friend class FJapanHorseWaterTest;
+    friend class AJapanPlayerController;
+    friend struct FJapanMultiplayerQAAccess;
     friend class FJapanReactionTransportTest;
     friend class FJapanReactionPayloadTest;
+    friend class FSwordCombatContactTest;
     void SubmitMovementReaction(const FAdventureMovementReaction& Reaction);
     void FreezeReactionAction(FAdventureMovementReaction& Reaction, FName Name, float Blend) const;
     void FreezeReactionFlinch(FAdventureMovementReaction& Reaction, const FVector& Away, float Degrees, float Peak, float Side) const;
@@ -245,6 +258,7 @@ private:
     TMap<FString, float> Params;
     TMap<FName, FSlot> Slots;
     TWeakObjectPtr<AActor> Target;
+    TWeakObjectPtr<AActor> CombatTarget;
 
     EAdventureMoveMode Mode = EAdventureMoveMode::Ground;
     // Input
@@ -369,6 +383,9 @@ private:
     float FlinchTime = -1.f, FlinchAngle = 0.f, FlinchPeak = .07f, FlinchTwist = 0.f, GuardBroken = 0.f, SinceHit = 99.f;
     FVector FlinchAxis = FVector::ZeroVector;
     int32 HitStreak = 0, StaggerCount = 0, GuardBreakCount = 0;
+    SwordCombat::FGuardPressure Pressure;
+    uint32 ParriedActionSerial = 0;
+    bool bAttackTell = false;
     void Flinch(const FVector& Away, float Degrees, float Peak, float Side);
     // Effects: the sprint's dust and speed lines, the glider's wind.
     float SprintFX = 0.f, GlideFX = 0.f;
@@ -378,6 +395,7 @@ private:
     FVector BladeBase = FVector::ZeroVector, BladeTip = FVector::ZeroVector;   // in the sword mesh's frame
     FVector HiltEnd = FVector::ZeroVector;   // the handle's end behind the grip, in the sword mesh's frame
     FVector SwordMajor = FVector::ForwardVector;   // across the blade's width (its grip's oval's major axis), sword mesh frame
+    float CustomBladeLength = 0.f;
     FName LastPlayed;
 
     // Actions

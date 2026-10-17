@@ -2,7 +2,7 @@
 """Compare authored graphs all the way to executable topology and operation IDs.
 
 Uses the unmodified reference host compiler, not a second test implementation of
-the mapping. Run under atelier.safety because both probes are compiled here.
+the mapping. Run under atelier.harness.safety because both probes are compiled here.
 """
 import argparse
 import hashlib

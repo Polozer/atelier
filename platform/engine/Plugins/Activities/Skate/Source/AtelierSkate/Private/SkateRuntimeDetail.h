@@ -6,16 +6,19 @@
 #include "Simulation/GroundSurfaceRuntime.h"
 #include "Simulation/HostScalar.h"
 #include "SkatePad.h"
+#include "Ride/RideShownMotion.h"
 #include <deque>
 #include <limits>
 #include <cfenv>
 #include "Engine/Engine.h"
 #include "SkateRider.h"
+#include "SkinMorphOffsets.h"
 #include "SkateSettings.h"
 #include "SkateMotionAdapter.h"
 #include "SkateRuntimeAdapter.h"
 #include "SkateFeel.h"
 #include "SkateRails.h"
+#include "SkateCollisionCoverage.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -66,12 +69,16 @@ namespace SkateRuntimeDetail
     // The retargeted limbs against this rider's own body and the ground (RetargetRiderPose): how far each forearm and
     // hand stays out of its pelvis, spine, chest and thighs, and how far above the ground under it each foot's sole
     // stays (cm; below 0 off).
+    extern TAutoConsoleVariable<FString> CVarSkateGrabReach;
     extern TAutoConsoleVariable<float> CVarSkateArmClear;
     extern TAutoConsoleVariable<float> CVarSkateFootGround;
     // The simulation thread steps in lockstep with the game: each frame waits for the last frame's step, so no frame's
     // step or controls are skipped and the same controls replay the same ride. Its collision rebuilds install on the
     // frame after they start.
     extern TAutoConsoleVariable<int32> CVarSkateLockstep;
+    // The ride shows the frame's time between the session's last two ticks, a tick behind it (RideShownMotion.h), not its
+    // last whole tick. Lockstep shows the ticks themselves, as QA's fixed-step rides always have.
+    extern TAutoConsoleVariable<int32> CVarSkateShowBetweenTicks;
     extern TAutoConsoleVariable<int32> CVarSkateSurfaceDebug;
     // QA: complex-as-simple meshes read their cooked collision triangles even where their render data keeps CPU copies.
     extern TAutoConsoleVariable<int32> CVarSkateCookedSurface;
@@ -87,7 +94,11 @@ namespace SkateRuntimeDetail
     }
 
     // Match the standalone runtime's floating environment (the defaults, denormals flushed to zero), and restore
-    // the caller's complete environment before returning to Unreal.
+    // the caller's complete environment before returning to Unreal. MSVC accepts fenv_access only at namespace
+    // scope, so it brackets the class; Clang takes the standard pragma inside each function.
+#if defined(_MSC_VER) && !defined(__clang__)
+#pragma fenv_access(on)
+#endif
     class FScopedSimulationFloatEnvironment
     {
     public:
@@ -95,8 +106,6 @@ namespace SkateRuntimeDetail
         {
 #if defined(__clang__)
 #pragma STDC FENV_ACCESS ON
-#elif defined(_MSC_VER)
-#pragma fenv_access(on)
 #endif
             SavedOkay_=std::fegetenv(&Saved_)==0;
             Ready_=SavedOkay_&&std::fesetenv(FE_DFL_ENV)==0&&atelier::skate::FlushDenormalsToZero();
@@ -105,8 +114,6 @@ namespace SkateRuntimeDetail
         {
 #if defined(__clang__)
 #pragma STDC FENV_ACCESS ON
-#elif defined(_MSC_VER)
-#pragma fenv_access(on)
 #endif
             if(SavedOkay_)std::fesetenv(&Saved_);
         }
@@ -117,6 +124,9 @@ namespace SkateRuntimeDetail
         std::fenv_t Saved_{};
         bool SavedOkay_=false,Ready_=false;
     };
+#if defined(_MSC_VER) && !defined(__clang__)
+#pragma fenv_access(off)
+#endif
 
     // The simulation left/up/forward metres -> UE forward/right/up centimetres (change handedness).
     inline FVector FromSimulation(const FVector& V) { return FVector(V.Z, -V.X, V.Y) * 100.; }
@@ -395,7 +405,8 @@ namespace SkateRuntimeDetail
         // A part's bounds and its instances' (an instanced mesh's, else one), for each smaller snapshot to skip what
         // lies outside it as the single-pass gather did.
         struct FPart { FMeshSurfaceRef Surface; const UBodySetup* Body=nullptr; FBox Bounds; TArray<FTransform> Instances; TArray<FBox> InstanceBounds;
-                       TArray<uint16> SlotSurfaces; };   // packed, per material slot (a body's shapes ride slot 0's)
+                       TArray<uint16> SlotSurfaces;      // packed, per material slot (a body's shapes ride slot 0's)
+                       bool bPark=false; };               // a skate park's own surface, kept whole at every radius
         TArray<FPart> Parts;
         TArray<TPair<FBox,TArray<FVector>>> Rails;
         TArray<TStrongObjectPtr<UObject>> Keep;
@@ -420,7 +431,11 @@ namespace SkateRuntimeDetail
             UBodySetup* Body=Mesh ? Mesh->GetBodySetup() : nullptr;
             if (!Body) continue;
             FGatherJob::FPart Part; Part.Bounds=C->Bounds.GetBox();
-            if (Body->GetCollisionTraceFlag()==CTF_UseComplexAsSimple) { Part.Surface=MeshSurface(Mesh); if (!Part.Surface) continue; }
+            Part.bPark=C->GetOwner() && C->GetOwner()->ActorHasTag(TEXT("SkatePark"));
+            // A component tagged SkateSimpleCollision (a tree whose leaves stop walkers) rides its simple shapes, its
+            // trunk, so a forest's leaf cards neither fill the budget nor catch the board.
+            const bool bSimple=C->ComponentHasTag(TEXT("SkateSimpleCollision")) && Body->AggGeom.GetElementCount()>0;
+            if (!bSimple && Body->GetCollisionTraceFlag()==CTF_UseComplexAsSimple) { Part.Surface=MeshSurface(Mesh); if (!Part.Surface) continue; }
             else { Part.Body=Body; if (bKeep) Job.Keep.Emplace(Body); }
             const ESkateSurface Override=ComponentSurface(C,Mesh,Settings);
             for (int32 Slot=0; Slot<FMath::Max(1,C->GetNumMaterials()); ++Slot) Part.SlotSurfaces.Add(SlotSurface(C,Slot,Override,Settings));
@@ -453,6 +468,7 @@ namespace SkateRuntimeDetail
     inline bool FillWorld(const FGatherJob& Job, FSnapshot& Snapshot, double& Reach)
     {
         double Radius=0; const double Began=FPlatformTime::Seconds();
+        const FBox Whole(Job.Centre-FVector(GatherRadii[0]),Job.Centre+FVector(GatherRadii[0]));
         for (const double Try : GatherRadii)
         {
             Radius=Try; Snapshot.Region=FBox(Job.Centre-FVector(Radius),Job.Centre+FVector(Radius)); Snapshot.Points.Reset(); Snapshot.Surfaces.Reset();
@@ -460,11 +476,14 @@ namespace SkateRuntimeDetail
             // makes (over budget the same way: a snapshot over it is dropped for the next radius either way).
             TArray<TArray<FVector3f>> PartPoints; PartPoints.SetNum(Job.Parts.Num());
             TArray<TArray<uint16>> PartSurfaces; PartSurfaces.SetNum(Job.Parts.Num());
-            ParallelFor(Job.Parts.Num(), [&Job,&Snapshot,&PartPoints,&PartSurfaces](int32 P)
+            ParallelFor(Job.Parts.Num(), [&Job,&Snapshot,&PartPoints,&PartSurfaces,&Whole](int32 P)
             {
                 const FGatherJob::FPart& Part=Job.Parts[P];
-                if (!Part.Bounds.Intersect(Snapshot.Region)) return;
-                FSnapshot Local; Local.Region=Snapshot.Region; Local.Budget=MAX_int32/4;
+                // A dense surround (a forest) that shrinks the radius shrinks only the surround: a park's surfaces
+                // stay within the largest radius, so its far ramps and deck keep their collision.
+                const FBox& Region=Part.bPark ? Whole : Snapshot.Region;
+                if (!Part.Bounds.Intersect(Region)) return;
+                FSnapshot Local; Local.Region=Region; Local.Budget=MAX_int32/4;
                 for (int32 I=0; I<Part.Instances.Num(); ++I)
                 {
                     const FTransform& T=Part.Instances[I];
@@ -487,8 +506,11 @@ namespace SkateRuntimeDetail
             if (!Snapshot.Full()) break;
         }
         if (Snapshot.Num()==0 || Snapshot.Full()) return false;
-        Reach=Radius*.6;
-        for (const auto& Rail : Job.Rails) if (Rail.Key.Intersect(Snapshot.Region))
+        Reach=Radius*SkateCoverage::ReachFraction;
+        // A park's rails stay with its surfaces (the job holds the rails within the largest radius).
+        TArray<FBox> Parks;
+        for (const FGatherJob::FPart& Part : Job.Parts) if (Part.bPark) Parks.Add(Part.Bounds);
+        for (const auto& Rail : Job.Rails) if (Rail.Key.Intersect(Snapshot.Region) || Parks.ContainsByPredicate([&Rail](const FBox& B) { return B.Intersect(Rail.Key); }))
         {
             TArray<FVector3f>& Line=Snapshot.Rails.AddDefaulted_GetRef();
             for (const FVector& P : Rail.Value) Line.Add(FVector3f(ToSimulation(P)));
@@ -546,6 +568,8 @@ public:
     {
         ECommand Kind=ECommand::Step;skate_simulation::XboxState Input{};float Dt=0,Heading=0;
         std::vector<skate_simulation::StickReading> Readings;   // a Step's 120 Hz stick readings (empty: the packet's)
+        float VertAssistLimit=1;   // a Step's assist-zone limit on the vert assist (USkateComponent::UpdateAssistZones)
+        float BoostZone=0;   // a Step's boost zone scale where the board is (0 none; BowlBoost.h)
         skate_simulation::Vec3 Spawn{},Velocity{};uint32 Generation=0;FPreferences Preferences;
         std::optional<skate_simulation::GameplayWorldSnapshot> Snapshot;
         std::optional<skate_simulation::PreparedGameplayWorld> World;std::string Error;bool Background=false;
@@ -559,8 +583,10 @@ public:
         skate_simulation::ContactMaterial Floor;skate_simulation::Vec3 Spin{};bool Switch=false,Fakie=false;
         bool TrickSwitch=false,TrickFakie=false;   // the stance the trick the simulation's scoring announced started in
         float StepMs=0;   // the session's step (and its collision installs) on the thread, ms
+        float Fraction=0;   // the frame's time the session keeps for its next step, in ticks (RideShownMotion::Alpha)
         float RenewMs=0;   // a placement's new runtime on the thread, ms
         uint32 Pumps=0;float PumpGain=0;   // the session's successful pumps and the last one's gain (m/s)
+        float Boosted=0;   // speed the boost zones added during the step (m/s; BowlBoost.h)
         uint8 Surface=0,Wheels=0;   // the surface the wheels are on (ESkateSurface, 0 untagged) and the wheels in contact
     };
     FSkateSimulationWorker(skate_simulation::GameplayWorldSnapshot World,skate_simulation::Vec3 Spawn,float Heading,
@@ -618,7 +644,9 @@ public:
                 for(auto& Pending:PendingCollisions_)
                     if(!InstallWorld(Pending,Error)){Okay=false;break;}
                 PendingCollisions_.clear();
-                if(Okay)Okay=Session_->Step(Command.Input,Command.Dt,Command.Readings,Error);
+                if(Okay)Okay=Session_->LimitVertAssist(Command.VertAssistLimit,Error)
+                    &&Session_->Boost(Command.BoostZone,Error)
+                    &&Session_->Step(Command.Input,Command.Dt,Command.Readings,Error);
                 if(Okay)Okay=Publish(false,Error,float((FPlatformTime::Seconds()-Began)*1000.));
                 break;
             }
@@ -711,6 +739,7 @@ private:
     {
         if(!Session_->CheckPublishedPose(Error))return false;
         const auto& G=*Session_->gameplay;FOutput Out;Out.Ready=Ready;Out.Generation=Generation_;Out.StepMs=StepMs;Out.RenewMs=RenewMs;
+        Out.Fraction=Session_->Period()>0?Session_->Elapsed()/Session_->Period():0;
         auto Pose=Session_->Pose();Out.Root=Pose.root;Out.Bones=std::move(Pose.bones);
         Out.Velocity=Pose.velocity;Out.Tick=Pose.tick;Out.State=std::move(Pose.state);
         Out.Spin=G.physical->board.Bodies()[std::size_t(skate_simulation::BoardBodyId::Deck)].rates.angular_velocity;
@@ -719,7 +748,7 @@ private:
         if(HideTrick_&&G.scoring.State().announces!=HiddenAnnounces_)HideTrick_=false;
         if(!HideTrick_)Out.Trick=G.scoring.CurrentTrick();
         Out.TrickSwitch=G.scoring.State().start_stance[0];Out.TrickFakie=G.scoring.State().start_stance[1];
-        Out.Pumps=Session_->pumps.count;Out.PumpGain=Session_->pumps.last_gain;
+        Out.Pumps=Session_->pumps.count;Out.PumpGain=Session_->pumps.last_gain;Out.Boosted=Session_->boost.total;Session_->boost.total=0;
         const auto Ground=skate_simulation::ReportGroundSurface(G.physical->riding);Out.Surface=uint8(Ground.sound);Out.Wheels=uint8(Ground.wheels);
         const auto& Score=G.scoring.session.holder.State().snapshot;
         Out.Score=Score.completed_lines+Score.line;Out.Manual=G.animation_input.fields.balance;Out.Camera=Pose.camera;
@@ -751,9 +780,12 @@ class FSkateRuntime
 public:
     // Bind-space samples from the actual rendered rider. Kept only while this mesh is in use.
     struct Influence { int32 Bone; FVector Position; float Weight; };
-    struct Vertex { TArray<Influence,TInlineAllocator<4>> Influences; };
+    struct Vertex { int32 Index=INDEX_NONE; TArray<Influence,TInlineAllocator<4>> Influences; };
     TWeakObjectPtr<USkeletalMesh> ContactMesh;
     TArray<Vertex> ContactVertices;
+    // The rider's morphs (pose-driven ones for the pose, the rest as shown) as pre-skin offsets of those vertices.
+    FSkinMorphOffsets ContactMorphs;
+    FString ContactMorphError;
     // Skin samples (a bone and a point in its bind space) of each forearm's hand end with its hand, and of each foot,
     // and the bodies of this rider's pelvis, spine, chest and thighs (from its physics asset), for RetargetRiderPose.
     struct FSkinPoint { int32 Bone; FVector Local; };
@@ -785,6 +817,9 @@ public:
     // The simulation's stance (its animation packet's): riding switch, riding fakie, and how many times the stance turned.
     bool Switch=false,Fakie=false;uint32 Turns=0;
     double CollisionReach=6000.;
+    float VertAssistLimit=1;   // sent with every step: the assist zones' limit on the vert assist (1: none)
+    float BoostZone=0;   // sent with every step: the boost zone scale where the board is (0: none)
+    float Boosted=0;     // speed the boost zones added in the last step read (m/s), logged by AfterSimulationRideFrame
     // Where a gather last found nothing to snapshot (open water): the next try waits 20 m from it. The coverage
     // (CollisionCentre, CollisionReach) stays the installed world's.
     FVector GatherRetryAt=FVector(UE_BIG_NUMBER);
@@ -794,6 +829,9 @@ public:
     // the rider on foot was last seen in.
     FVector WantCentre=FVector::ZeroVector,IdleCell=FVector(UE_BIG_NUMBER);
     TFuture<TSharedPtr<FWorldResult,ESPMode::ThreadSafe>> PendingWorld;
+    // The world being built: its centre, and when it was asked for (FPlatformTime). BuildSeconds: the slowest recent
+    // build, from the ask to the frame that saw it ready (SkateCollisionCoverage.h looks the board ahead by it).
+    FVector PendingCentre=FVector::ZeroVector;double PendingSince=-1;double BuildSeconds=SkateCoverage::FirstBuildSeconds;
     TArray<TStrongObjectPtr<UObject>> PendingKeep;   // the meshes PendingWorld's gather reads, released on the game thread
     skate_simulation::ContactMaterial Floor;
     TOptional<FVector> PendingLaunch;
@@ -818,6 +856,11 @@ public:
     // The shown pose's health for QA (the simulation's bones).
     FRidePoseMeasure PoseMeasure;float PoseTravel=1;
     FTransform Root=FTransform::Identity,Camera=FTransform::Identity;float CameraFOV=0;
+    float CameraPull=1;    // the camera's distance at speed, eased (USkateComponent::EaseCameraPull)
+    // The pose of the tick before the latest one (Root, Bones, Camera at Tick), the generation of the pose last taken
+    // and the latest step's kept time in ticks: Present shows the frame between the two (RideShownMotion.h).
+    FTransform PreviousRoot=FTransform::Identity,PreviousCamera=FTransform::Identity;TArray<FTransform> PreviousBones;
+    uint64 PreviousTick=0;uint32 PoseGeneration=MAX_uint32;float Fraction=0;
     // The rider's feel (USkateComponent::SetFeel), sent with every Activate and Configure.
     FSkateFeel Feel=FSkateFeel::Defaults();
     TArray<FName> Names;TArray<FTransform> Reference,Bones;
@@ -831,9 +874,11 @@ public:
         auto& N=P.Feel;
         N.flick_radius=S.FlickRadius;N.flick_window=S.FlickWindow;N.flick_pace=S.FlickPace;N.tight_flicks=S.TightFlicks;N.flick_120hz=S.Flick120Hz;
         N.gravity=S.Gravity;N.boneless=S.Boneless;N.hippy=S.Hippy;
-        N.rail_magnetism=S.RailMagnetism;N.grind_pop=S.GrindPop;N.grind_friction=S.GrindFriction;
+        N.rail_magnetism=S.RailMagnetism;N.grind_pop=S.GrindPop;N.grind_friction=S.GrindFriction;N.grind_tolerance=S.GrindTolerance;N.camera_follow=S.CameraFollow;N.wall_follow=S.WallFollow;
         N.braking=S.Braking;N.steering=S.Steering;N.carve=S.Carve;N.grip=S.Grip;N.powerslide=S.Powerslide;
-        N.rolling_friction=S.RollingFriction;N.hill_speed=S.HillSpeed;N.pump=S.Pump;
+        N.powerslide_turn=S.PowerslideTurn;N.drift_powerslide=S.DriftPowerslide;
+        N.drift_grip=S.DriftGrip;N.drift_full_grip=S.DriftFullGrip;
+        N.rolling_friction=S.RollingFriction;N.hill_speed=S.HillSpeed;N.pump=S.Pump;N.bowl_boost=S.BowlBoost;
         N.wobble=S.Wobble;N.wobble_onset=S.WobbleOnset;N.manual_drift=S.ManualDrift;
         N.landing=S.Landing;N.impact=S.Impact;N.auto_push=S.AutoPush;N.assisted_air=S.AssistedAir;
         return P;
@@ -842,6 +887,7 @@ public:
     {
         if(!PendingWorld.IsValid())return;
         const auto Result=PendingWorld.Get();PendingWorld={};PendingKeep.Reset();
+        PendingSince=-1;
         // Nothing to snapshot (open water): keep the old world and try again 20 m on, not on every frame.
         if(Result->Empty){GatherRetryAt=Result->At;return;}
         CollisionCentre=Result->Centre;CollisionReach=Result->Reach;++Worlds;WorldTriangles=Result->Triangles;GatherRetryAt=FVector(UE_BIG_NUMBER);
@@ -879,14 +925,26 @@ public:
                 if(Now-CostSince>=1.){CostMean=float(CostSum/CostSteps);CostWorst=CostPeak;CostSum=0;CostPeak=0;CostSteps=0;CostSince=Now;}
             }
             if(Out.Bones.empty()||Out.Bones.size()>256){Error=TEXT("Invalid simulation skeleton");continue;}
-            Root=MatrixValue(Out.Root);Bones.Reset();for(const auto& M:Out.Bones)Bones.Add(MatrixValue(M));
-            Velocity=FromSimulation(FVector(Out.Velocity.x,Out.Velocity.y,Out.Velocity.z));State=UTF8_TO_TCHAR(Out.State.c_str());
+            const FTransform NewRoot=MatrixValue(Out.Root);
+            const FVector NewVelocity=FromSimulation(FVector(Out.Velocity.x,Out.Velocity.y,Out.Velocity.z));
+            // A step that ran ticks moves on from the latest pose; one that ran none keeps the pose before it. A ride's
+            // start, a new session or a jump has nothing to blend from: the latest is shown as it comes.
+            if(Out.Tick!=Tick||Out.Generation!=PoseGeneration)
+            {
+                if(!Out.Ready&&Out.Generation==PoseGeneration&&Bones.Num()==int32(Out.Bones.size())&&RideShownMotion::Continues(
+                    Root.GetLocation(),NewRoot.GetLocation(),Tick,Out.Tick,float(FMath::Max(Velocity.Size(),NewVelocity.Size()))))
+                {PreviousRoot=Root;PreviousBones=Bones;PreviousCamera=Camera;PreviousTick=Tick;}
+                else PreviousTick=Out.Tick;
+            }
+            PoseGeneration=Out.Generation;Fraction=Out.Fraction;
+            Root=NewRoot;Bones.Reset();for(const auto& M:Out.Bones)Bones.Add(MatrixValue(M));
+            Velocity=NewVelocity;State=UTF8_TO_TCHAR(Out.State.c_str());
             Spin=FVector(-Out.Spin.z,Out.Spin.x,-Out.Spin.y);
             if(HasPose&&Out.Switch!=Switch)++Turns;Switch=Out.Switch;Fakie=Out.Fakie;
             // The stance as the game shows it: the simulation's IDs name the trick, its scoring the stance it was done in.
             Trick=TrickLabel(UTF8_TO_TCHAR(Out.Trick.c_str()));
             if(!Trick.IsEmpty()&&(Out.TrickFakie||Out.TrickSwitch))Trick=(Out.TrickFakie?TEXT("Fakie "):TEXT("Switch "))+Trick;
-            Score=Out.Score;Tick=Out.Tick;ManualBalance=Out.Manual;Pumps=Out.Pumps;PumpGain=Out.PumpGain;
+            Score=Out.Score;Tick=Out.Tick;ManualBalance=Out.Manual;Pumps=Out.Pumps;PumpGain=Out.PumpGain;Boosted+=Out.Boosted;
             Surface=Out.Surface<=uint8(ESkateSurface::Sand)?ESkateSurface(Out.Surface):ESkateSurface::None;Wheels=Out.Wheels;
             if(Root.ContainsNaN()||Velocity.ContainsNaN()||Bones.ContainsByPredicate([](const FTransform& T){return T.ContainsNaN();}))
             {Error=TEXT("Nonfinite simulation output");continue;}
@@ -920,8 +978,17 @@ public:
     /** Show another runtime's latest pose and state (Ride's presentation of its simulation session). */
     void Present(const FSkateRuntime& S)
     {
-        Root=S.Root;Bones=S.Bones;Velocity=S.Velocity;Spin=S.Spin;Switch=S.Switch;Fakie=S.Fakie;Turns=S.Turns;State=S.State;Trick=S.Trick;Score=S.Score;
-        ManualBalance=S.ManualBalance;Camera=S.Camera;CameraFOV=S.CameraFOV;Tick=S.Tick;Floor=S.Floor;HasPose=true;
+        // The pose and the camera between the last two ticks (RideShownMotion.h); the state and the speed are the latest's.
+        const float A=CVarSkateShowBetweenTicks.GetValueOnGameThread()>0&&!Lockstep()&&S.PreviousBones.Num()==S.Bones.Num()
+            ?RideShownMotion::Alpha(S.PreviousTick,S.Tick,S.Fraction):1.f;
+        if(A>=1.f){Root=S.Root;Bones=S.Bones;}
+        else
+        {
+            Root=RideShownMotion::Blend(S.PreviousRoot,S.Root,A);Bones.SetNum(S.Bones.Num());
+            for(int32 I=0;I<Bones.Num();++I)Bones[I]=RideShownMotion::Blend(S.PreviousBones[I],S.Bones[I],A);
+        }
+        Velocity=S.Velocity;Spin=S.Spin;Switch=S.Switch;Fakie=S.Fakie;Turns=S.Turns;State=S.State;Trick=S.Trick;Score=S.Score;
+        ManualBalance=S.ManualBalance;Camera=RideShownMotion::Blend(S.PreviousCamera,S.Camera,A);CameraFOV=S.CameraFOV;Tick=S.Tick;Floor=S.Floor;HasPose=true;
         Surface=S.Surface;Wheels=S.Wheels;
         if(Names!=S.Names){Names=S.Names;Reference=S.Reference;}
     }

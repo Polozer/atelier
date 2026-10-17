@@ -29,11 +29,13 @@ def main():
     for x,y,z in [(6,-3.15,1.65),(6,-2,1.65),(6,.55,1.65),(6,1.7,1.65),(-6,-4.9,.11),(6,-8.6,.03)]:probes.append(dict(id=f'landing-{len(probes)}',kind='walkable_landing',position=p(x,y,z),expected_z=oz+z,tolerance_cm=4))
     if '--visual' in sys.argv:shots=[s for s in shots if s['id'] in ('hero','rotors-front','backdrop')];probes=[]
     spec=folder/'shots.json';spec.write_text(json.dumps(dict(shots=shots,probes=probes,settle_frames=90,initial_settle_frames=180),indent=2))
-    commands='r.DynamicRes.OperationMode 0,r.ScreenPercentage 100'
+    commands='r.Streaming.PoolSize 250,r.DynamicRes.OperationMode 0,r.ScreenPercentage 100'
     if '--unlit' in sys.argv:commands+=',viewmode unlit'
     if '--cvars' in sys.argv:commands+=','+sys.argv[sys.argv.index('--cvars')+1]
-    cmd=[str(yori.REPO) and __import__('atelier.build',fromlist=['Context']).Context('yorimichi').unreal_app.as_posix(),str(ROOT/'unreal/Yorimichi.uproject'),'-game','-RenderOffscreen','-ForceRes','-resx=1920','-resy=1080',f'-zeppelindock={index}','-buildingreview='+str(spec),'-reviewdir='+str(folder),'-unattended','-nosplash','-stdout','-abslog='+str(folder/'game.log'),'-ExecCmds='+commands]
-    subprocess.run([sys.executable,'-m','atelier.safety.guarded','--report',str(folder),'--',*cmd],check=True,env={**__import__('os').environ,'PYTHONPATH':str(yori.REPO/'platform/studio')})
+    cmd=[str(yori.REPO) and __import__('atelier.build',fromlist=['Context']).Context('yorimichi').unreal_app.as_posix(),str(ROOT/'unreal/Yorimichi.uproject'),'-game','-RenderOffscreen','-ForceRes','-resx=1920','-resy=1080','-nofox','-nosound','-ForceDPCVars=r.Streaming.PoolSize=250','-set=desktop=1',f'-zeppelindock={index}','-buildingreview='+str(spec),'-reviewdir='+str(folder),'-unattended','-nosplash','-stdout','-abslog='+str(folder/'game.log'),'-ExecCmds='+commands]
+    from atelier.harness.safety import guarded
+    code=guarded.run(cmd,folder,purpose=f'zeppelin station {index}',timeout=900,kind='game',limit_gib=12.)
+    if code:raise subprocess.CalledProcessError(code,cmd)
     result=json.loads((folder/'completed.json').read_text());print('PASS',result['passed'],result['errors']);assert result['passed']
     log=(folder/'game.log').read_text()
     assert 'Failed to compile Material' not in log, 'A material fell back to the checkerboard shader'

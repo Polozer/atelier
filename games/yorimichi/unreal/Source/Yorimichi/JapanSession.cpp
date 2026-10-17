@@ -256,6 +256,8 @@ void AJapanPlayerController::OpenFriends()
 void AJapanPlayerController::Tick(float Dt)
 {
     Super::Tick(Dt);
+    if (IsLocalController() && !LocalCharacter.IsEmpty()) DispatchCharacterRequest();
+    if (HasAuthority() && !PendingCharacter.IsEmpty()) FinishCharacterSwitch();
     DrainCombatResults();
     if (IsLocalController()) if (auto* Session = GetGameInstance<UJapanGameInstance>()) Session->ShowPendingStatus();
     if (!JapanNetwork::IsOnline(GetWorld())) return;
@@ -314,7 +316,6 @@ AJapanNetworkGameMode::AJapanNetworkGameMode()
     PlayerControllerClass = AJapanPlayerController::StaticClass();
     PlayerStateClass = AJapanPlayerState::StaticClass();
     GameStateClass = AJapanGameState::StaticClass();
-    DefaultPawnClass = FPlayableCharacter::Default().Class();
     HUDClass = AJapanHUD::StaticClass();
     bStartPlayersAsSpectators = true;
     bPauseable = false;
@@ -456,14 +457,14 @@ void AJapanPlayerController::ClientCombatResult_Implementation(const FJapanComba
 
 void AJapanPlayerController::DrainCombatResults()
 {
-    const auto* Player = Cast<AWandererCharacter>(GetPawn());
+    const auto* Rider = Cast<AWandererCharacter>(GetPawn());
     const double Now = FPlatformTime::Seconds();
     while (!PendingCombatResults.IsEmpty())
     {
         const FJapanCombatEvent& Event = PendingCombatResults[0];
         const bool bExpired = Now >= PendingCombatDeadlines[0];
-        const bool bCurrentPawn = Player && Event.Actor == Player;
-        const int32 EpochDelta = bCurrentPawn ? int32(Event.ActivityEpoch - Player->GetActivityEpoch()) : 1;
+        const bool bCurrentPawn = Rider && Event.Actor == Rider;
+        const int32 EpochDelta = bCurrentPawn ? int32(Event.ActivityEpoch - Rider->GetActivityEpoch()) : 1;
         if (!bExpired && (!bCurrentPawn || EpochDelta > 0)) break;
         if (!bExpired && EpochDelta == 0 && int32(Event.Serial - LastCombatResult) > 0)
             JapanCombat::Present(this, Event, true);

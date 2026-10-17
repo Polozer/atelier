@@ -1,0 +1,34 @@
+{
+  "model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "prompt": "Use case: art-direction design for the support structures of a skate park in a stylized open-world game. Image 1 is an in-game screenshot: giant wooden skate ramps and a mega gap high on a volcano's crater rim, floating with nothing under them. Keep its camera, horizon, field of view, terrain and every ramp exactly where and how they are: do not move, reshape or remove any riding surface. Image 2 is the approved art direction: keep its soft painterly style, warm light, dark blue-grey columnar basalt, snow patches, yellow-green moss and autumn shrubs, and paint the ramps as warm wooden ramps with thin steel coping. The supports must look designed, calm and monumental, never like a forest of thin sticks: FEW large solid forms, each clearly readable, rising from the ground to meet the underside of the ramps. Design: a few monolithic basalt piers, widely spaced (about one every 40 to 50 metres), each a single massive solid pier as wide as the ramp, gently tapering upward and flaring into a broad capital that cradles the ramp's underside, its surface faceted with subtle vertical basalt column joints, its foot merging into a skirt of boulders and talus. No thin posts, no scaffolding.",
+  "references": {
+    "build/yorimichi/craterpark/shots/mega_side_a/view.png": "85dfbfa7e708be51d0af77c2a8ec348938c20b554288e9f4563fbe443493a528",
+    "assets/craterpark/concepts/editor/supports-rock.jpg": "a8c2c5fd8cebc8b8d39887e03d42c2b800ed093bcdba757dbb0544e3a938cb77"
+  },
+  "purpose": "Crater Park editor park art direction",
+  "status": "done",
+  "started_at": "2026-10-15T16:14:51.875909+00:00",
+  "usage": {
+    "input_tokens": 2288,
+    "input_tokens_details": {
+      "image_tokens": 2000,
+      "text_tokens": 288
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 3660
+  },
+  "png_sha256": "8fff854490799fea176d3349c45a25f03fca74ca77bed24f618182d91abb62c4",
+  "output": {
+    "file": "support-design-piers.jpg",
+    "size": "1536x1024",
+    "jpeg_quality": 88,
+    "chroma": "4:2:0"
+  },
+  "finished_at": "2026-10-15T16:15:30.199394+00:00"
+}

@@ -1,8 +1,9 @@
 # Zeppelin line
 
-One open-deck airship serves three air stations: Woodland, at the end of a trail west of the hidden woodland lake;
-Hidamari, in the city's station district; and the Mega Park, on the crest above the park's top road. The player rides
-as a passenger; there is no piloting. All three stations are in the map's destination list.
+One open-deck airship serves four air stations: Woodland, at the end of a trail west of the hidden woodland lake;
+Hidamari, in the city's station district; the Mega Park, on the crest above the park's top road; and Belmonte, on the
+meadow outside Porta NW between the walled hill town and the racecourse. The player rides as a passenger; there is no
+piloting. All four stations are in the map's destination list.
 
 ## Build and check
 
@@ -19,13 +20,13 @@ uv run atelier qa yorimichi zeppelin SESSION [STATION]
   `games/yorimichi/world/regions`) to reapply it to the pre-zeppelin snapshot in `build/yorimichi/zeppelin/source/`.
   The Hidamari pad (`city_pad`) and the Mega Park pad (`megapark_pad`) are levelled where those terrains are built.
 - `world.zeppelin` ([`build.py`](build.py), Blender) builds `ZP_Airship` (envelope and deck), `ZP_Motors`,
-  `ZP_Propeller`, `ZP_Gate`, `ZP_Gangway`, `ZP_Trail` and the three stations `ZP_Woodland`, `ZP_City` and
-  `ZP_MegaPark`. Fittings and stations use the village material; the envelope fabric has its own slot. The build
+  `ZP_Propeller`, `ZP_Gate`, `ZP_Gangway`, `ZP_Trail` and the four stations `ZP_Woodland`, `ZP_City`,
+  `ZP_MegaPark` and `ZP_Belmonte`. Fittings and stations use the village material; the envelope fabric has its own slot. The build
   runs [`check_rotors.py`](check_rotors.py), which proves the swept propeller disc clears the hull by more than 30 cm
   at every angle and writes `build/yorimichi/zeppelin/rotor-clearance.json`.
 - `unreal.world` imports them through `unreal/Scripts/import_zeppelin.py`, which also builds `M_ZeppelinFabric`
   (sun-driven shading and distance haze). `ZEPPELIN_ASSETS_ONLY=1` reimports the meshes without the terrain.
-- The `zeppelin` scenario launches its own game under the render guard at station `STATION` (0, 1 or 2; default 0),
+- The `zeppelin` scenario launches its own game under the render guard at station `STATION` (0, 1, 2 or 3; default 0),
   captures thirteen views round it and probes the ten entry treads and six landings to 4 cm, into
   `build/yorimichi/zeppelin/SESSION/`. `--visual` keeps three views and no probes.
 
@@ -38,6 +39,7 @@ Coordinates are Blender metres (x east, y north). Station-local x points east an
 | `zeppelin_forest` | Woodland air station | (-205, 230), 70.4 m |
 | `zeppelin_city` | Hidamari air station | (1273, 308), 34.3 m |
 | `zeppelin_megapark` | Mega Park air station | (-200, 1484), 130 m |
+| `zeppelin_belmonte` | Belmonte air station | (410, 4660), 217.75 m |
 
 Woodland keeps the lake cabin, water and islet untouched. Hidamari stands on dry grass east of the x 1240 road, with
 local grading and a paved forecourt joined to the streets; it never touches the x 1240 road or the y 335 road and
@@ -73,7 +75,7 @@ docked deck can board from there.
 
 ## The Mega Park stop
 
-The line runs **Woodland → Hidamari → Mega Park** (the order of `STATIONS`). The ship carries on the way it came and
+The line runs **Woodland → Hidamari → Mega Park → Belmonte** (the order of `STATIONS`). The ship carries on the way it came and
 turns back at either end; whoever stands at the docked ship can choose another stop before boarding.
 
 - **Mega Park: (-200, 1484)**, 130 m, on the crest just west of the park's top road. The station, the docked ship and
@@ -82,6 +84,10 @@ turns back at either end; whoever stands at the docked ship can choose another s
   [MEGAPARK.md](../../../docs/MEGAPARK.md#gate)), which replaces the terrain there, keeps it level. From there a level
   timber footbridge (part of `ZP_MegaPark`) crosses a grassy dell beside the park to a stone sill against the road
   deck's slanted west edge (`DECK_EDGE`), at 130 m. Trees are cleared over the station and within 7.5 m of the path.
+- **Belmonte: (410, 4660)**, 217.75 m, on the naturally level meadow outside Porta NW between the walled hill town and
+  the racecourse's south stand. A stone footpath (`BELMONTE_WALK`, part of `ZP_Belmonte`) runs south from the station
+  apron through the open archway of `SM_BM_BH_Porta_NW` onto the cobbled town street (`SM_BM_BC_Pave_0_3`).
+  `belmonte/planting.py` clears planted trees, bushes and grass over the station and along the path.
 - **Legs.** Every pair of stops is a leg with its own cruise height, clearing the ground and trees under a 40 m
   corridor with room for the trailing camera. All legs fly at 53 m/s (1480 m in 28 s), and the ship turns to the
   leg's true heading on take-off. Climbs take at least 5 s and descents at least 4 s, longer for a bigger height change.
@@ -90,7 +96,10 @@ turns back at either end; whoever stands at the docked ship can choose another s
 | --- | --- | --- |
 | Woodland-Hidamari | 155 m | 28 s |
 | Woodland-Mega Park | 185 m, over the western foothills and the park | 23.7 s |
-| Hidamari-Mega Park | 225 m, past the volcano's flank (163 m) | 35.7 s |
+| Hidamari-Mega Park | 240 m, past the volcano's flank (163 m) | 35.7 s |
+| Mega Park-Belmonte | 520 m, over the volcano's western shoulder | 61.2 s |
+| Woodland-Belmonte | 600 m, over the western flank | 84.6 s |
+| Hidamari-Belmonte | 910 m, high above the volcano caldera and Crater Park | 84.0 s |
 
 - **Choosing the stop.** At the docked ship the hint names the next stop, and `[` / `]` (shoulder buttons on a
   gamepad, **‹ Stop** / **Stop ›** on the phone) step through the others (`zeppelinChoose` in the telemetry says when

@@ -1,4 +1,5 @@
 #include "AdventureMoveSet.h"
+#include "JapanVehicleVisuals.h"
 #include "JapanNetwork.h"
 #include "JapanCharacterMovement.h"
 #include "AdventureMoveSetDetail.h"
@@ -10,6 +11,7 @@
 #include "YorimichiCombatFX.h"
 #include "JapanPreferences.h"
 #include "FoxHunter.h"
+#include "SwordTrainer.h"
 #include "MegaRamp.h"
 #include "SuperUltraMegaPark.h"
 #include "Animation/AnimSequence.h"
@@ -271,7 +273,8 @@ void UAdventureMoveSet::Play(FName Name, float Blend, float StartAt, float Speed
     Character->ActionPlayRate = M->Rate * Speed;
     Character->ActionDuration = FMath::Max(M->End - Character->ActionSourceStartTime, 0.f) / Character->ActionPlayRate;
     bDriving = false; DriveVelocity = FVector::ZeroVector; DriveMesh = FVector::ZeroVector;
-    HitThisSwing.Reset(); PreviousBlade.Reset(); bSwung = false;
+    HitThisSwing.Reset(); PreviousBlade.Reset(); bSwung = false; ArcEnd = -1.f;
+    bAttackTell = false;
     Strength = StrengthOf(Name);
     if (Character->HasAuthority() && !Character->IsLocallyControlled())
         if (auto* Movement = Cast<UJapanCharacterMovement>(Character->GetCharacterMovement()))
@@ -464,7 +467,7 @@ bool UAdventureMoveSet::ControlsRotation() const
 {
     if (Mode == EAdventureMoveMode::Glide || Mode == EAdventureMoveMode::Climb || Mode == EAdventureMoveMode::Swim) return true;
     if (FlipTime >= 0.f) return true;   // the somersault keeps the heading it set off on
-    if (bLocked || bDriving || bDown) return true;
+    if (bLocked || bDriving || bDown || CombatTarget.IsValid()) return true;
     return IsLocking(CurrentName());
 }
 
@@ -496,15 +499,27 @@ void UAdventureMoveSet::AdvanceGround(float Dt)
     if (bWater && Feet() < Surface - HalfHeight() * 1.1f) { StartSwim(); return; }
 
     // Lock-on while the guard button is held: face the target (or the way he faced), strafe, the camera behind.
-    const bool bWantLock = bGuardHeld && !Character->bIsCrouched;
+    const bool bCombatLock = CombatTarget.IsValid() && IsTargetable(CombatTarget.Get()) && !Character->Stamina.Sprinting;
+    const bool bWantLock = (bGuardHeld || bCombatLock) && !Character->bIsCrouched;
     if (bWantLock != bLocked)
     {
         bLocked = bWantLock;
-        if (bLocked) { Target = !JapanNetwork::IsOnline(Character->GetWorld()) || Character->HasAuthority() ? FindTarget(1500.f, 70.f) : nullptr; LockYaw = Character->GetActorRotation().Yaw; }
+        if (bLocked)
+        {
+            Target = bCombatLock ? CombatTarget : (!JapanNetwork::IsOnline(Character->GetWorld()) || Character->HasAuthority() ? FindTarget(1500.f, 70.f) : nullptr);
+            LockYaw = Character->GetActorRotation().Yaw;
+        }
         else { Target = nullptr; bLockPoint = false; }
     }
     const FAdventureMove* Now = Current();
     FName Name = Now ? Now->Name : NAME_None;
+    if (bCombatLock) Target = CombatTarget;
+    else if (CombatTarget.IsValid() && IsTargetable(CombatTarget.Get()) && !Busy())
+    {
+        const FVector To = (CombatTarget->GetActorLocation() - Here) * FVector(1, 1, 0);
+        if (To.SizeSquared() > 1.f)
+            Character->SetActorRotation(FRotator(0, FMath::FixedTurn(Character->GetActorRotation().Yaw, To.Rotation().Yaw, 720.f * Dt), 0));
+    }
     if (bLocked)
     {
         // Locked on with nothing to face (nothing was in front at the press): look again a few times a second.
@@ -597,6 +612,12 @@ void UAdventureMoveSet::AdvanceAir(float Dt)
     float Surface = 0.f;
     if (WaterAt(Here, Surface) && Feet() < Surface - 10.f) { StartSwim(); return; }
     bLocked = false;
+    if (FlipTime < 0.f && CombatTarget.IsValid() && IsTargetable(CombatTarget.Get()))
+    {
+        const FVector To = (CombatTarget->GetActorLocation() - Here) * FVector(1, 1, 0);
+        if (To.SizeSquared() > 1.f)
+            Character->SetActorRotation(FRotator(0, FMath::FixedTurn(Character->GetActorRotation().Yaw, To.Rotation().Yaw, 720.f * Dt), 0));
+    }
     const FAdventureMove* Now = Current();
     const FName Name = Now ? Now->Name : NAME_None;
     if (In(Name, { TEXT("Jump"), TEXT("RunJumpL"), TEXT("RunJumpR") })) { if (Over()) Play(TEXT("Fall"), .2f); }
@@ -658,8 +679,11 @@ void UAdventureMoveSet::Landed(const FHitResult& Hit)
         const FVector Ground = Character->GetActorLocation() - FVector(0, 0, HalfHeight());
         if (AYorimichiCombatFX* FX = AYorimichiCombatFX::Get(Character)) { FX->Dust(Ground, 1.6f); FX->Shake(.45f); }
         for (TActorIterator<AActor> It(Character->GetWorld()); It; ++It)
-            if (IsTargetable(*It) && FVector::Dist(It->GetActorLocation(), Ground) < 320.f)
+            if (IsTargetable(*It) && !HitThisSwing.Contains(*It) && FVector::Dist(It->GetActorLocation(), Ground) < 320.f)
+            {
+                HitThisSwing.Add(*It);
                 Strike(*It, 3, It->GetActorLocation(), FVector::DownVector);
+            }
         return;
     }
     const float Hard = GetParam(TEXT("HardLandHeight"), 450.f), Hurt = GetParam(TEXT("FallDamageHeight"), 900.f);
@@ -891,7 +915,7 @@ bool UAdventureMoveSet::Climbable(const FHitResult& Hit) const
     // Not people, creatures or props, and not the skate parks' ramps and rails.
     const AActor* A = Hit.GetActor();
     return !(A && (A->IsA<APawn>() || A->IsA<ASwordDummy>() || A->IsA<AMegaRamp>() ||
-        A->IsA<ASuperUltraMegaPark>() || A->ActorHasTag(TEXT("SkatePark"))));
+        A->IsA<ASuperUltraMegaPark>() || A->ActorHasTag(TEXT("SkatePark")) || A->ActorHasTag(TEXT("NoClimb"))));
 }
 
 bool UAdventureMoveSet::IsTargetable(AActor* Actor) const
@@ -905,6 +929,8 @@ bool UAdventureMoveSet::IsTargetable(AActor* Actor) const
 
 bool UAdventureMoveSet::IsUnawareTarget(AActor* Actor) const
 {
+    if (const ASwordTrainer* Trainer = Cast<ASwordTrainer>(Actor))
+        return Trainer->IsHostileRonin() && !Trainer->IsAlerted();
     return Actor && Actor->IsA<ASwordDummy>();
 }
 
@@ -939,17 +965,18 @@ void UAdventureMoveSet::Reset()
     ShowGlider(false);
     SetArmed(false);
     bLocked = bGuardHeld = bAttackHeld = bJumpHeld = bCharging = bDown = bDriving = bJumped = false;
-    Target = nullptr; bLockPoint = false; HopVelocity = DriveVelocity = FVector::ZeroVector;
+    Target = CombatTarget = nullptr; bLockPoint = false; HopVelocity = DriveVelocity = FVector::ZeroVector;
     // An activity reset cannot retain an old cut's lunge or actor reference.
     LungeTarget = nullptr; LungeTime = 0.f; bLungePoint = false;
     JumpBuffer = AttackBuffer = NoClimb = Invulnerable = JustAvoid = SwimDashTime = GuardBroken = 0.f;
     FlinchTime = -1.f; HitStreak = 0; SinceHit = 99.f;
+    ParriedActionSerial = 0; // Activity changes preserve contact-owned guard pressure and its recovery clock.
     if (FlurryTime > 0.f) { FlurryTime = 0.f; if (!JapanNetwork::IsOnline(Character->GetWorld())) Character->CustomTimeDilation = 1.f; }
     ClimbShift = ClimbShiftTarget = 0.f; MeshOffsetLength = 0.f; MeshDriveLocal = DriveMesh = FVector::ZeroVector;
     FlipTime = -1.f; FlipAngle = FlipLift = FlipSettle = 0.f; bAirJumpUsed = false;
     if ((bMeshOffset || bMeshTurned) && Character->GetMesh())
     {
-        Character->GetMesh()->SetRelativeLocationAndRotation(MeshBase, MeshBaseRotation);
+        JapanVehicleVisuals::SetRiderPose(Character, MeshBase, MeshBaseRotation);
         bMeshOffset = bMeshTurned = false;
     }
     FallStartZ = Character->GetActorLocation().Z; FallSpeed = 0.f;
@@ -979,6 +1006,8 @@ FString UAdventureMoveSet::Describe() const
     O->SetNumberField(TEXT("health"), Character->GetSword() ? Character->GetSword()->GetHealth() : 0.f);
     O->SetNumberField(TEXT("hits"), HitCount);
     O->SetNumberField(TEXT("parries"), ParryCount);
+    O->SetNumberField(TEXT("perfect_parries"), ParryCount);
+    O->SetNumberField(TEXT("guard_pressure"), GuardPressure());
     O->SetNumberField(TEXT("staggers"), StaggerCount);
     O->SetNumberField(TEXT("guard_breaks"), GuardBreakCount);
     O->SetBoolField(TEXT("guard_broken"), GuardBroken > 0.f);

@@ -225,6 +225,7 @@ def land_use(x,y):
 def surface(name,xs,ys,color):
     m=M(name)
     gx,gy=np.meshgrid(xs,ys);gz=height(gx,gy)
+    if name=='HD_Terrain':from train import earthworks;gz=earthworks.carve(gx,gy,gz)  # the Belmonte railway's bank and cutting by the city
     for j,y in enumerate(ys[:-1]):
         for i,x in enumerate(xs[:-1]):
             dx=xs[i+1]-x;dy=ys[j+1]-y
@@ -238,7 +239,13 @@ def surface(name,xs,ys,color):
                 xx,yy=np.meshgrid(sx,sy);zz=height(xx,yy)
                 for jj in range(len(sy)-1):
                     for ii in range(len(sx)-1):m.poly([(float(xx[b,a]),float(yy[b,a]),float(zz[b,a])) for a,b in [(ii,jj),(ii+1,jj),(ii+1,jj+1),(ii,jj+1)]],key)
-            else:m.poly(pts,key)
+            else:
+                faces=len(m.faces);m.poly(pts,key)
+                if key=='hd_grass' and x<300+layout.ISLAND_FADE and len(m.faces)>faces:
+                    # the lawn takes the island ground's colour at its edge (x 300), so the two grasses meet without a line
+                    lawn=v.PALETTE['hd_grass'];n=len(m.faces[-1])
+                    for k,(px,_,_) in enumerate(m.vertices[-n:]):
+                        w=float(layout.island_fade(px));m.colors[len(m.colors)-n+k]=(*(i*(1-w)+h*w for i,h in zip(layout.ISLAND_LAWN,lawn)),0)
     # Inset warm stone paving pattern: broad enough to read without fine texture noise.
     if name=='HD_Terrain':
         for y in np.arange(-119,240,6):
@@ -358,8 +365,8 @@ def inland_water():
         m.poly([(840,y,z),(856,y,z),(856,y+1,nz),(840,y+1,nz)],'water_city')
     return m
 
-class GateMesh:
-    """The gate's ground (megapark/gate.py mesh): one smooth sheet with shared vertices, its own normals, the island's
+class SheetMesh:
+    """A terrain surface: one smooth sheet with shared vertices, its own normals, the island's
     ground texture's UVs (metres / 6, as the terrain's) and Color = linear RGB and the texture's amount."""
     def __init__(self,name,data):
         self.name=name;self.vertices=data['vertices'];self.faces=data['faces'];self.colliders=[];self.data=data
@@ -435,22 +442,18 @@ def main():
     builders['HD_Graves']=temple_precinct.graves
     builders['HD_Precinct']=lambda:temple_precinct.precinct(M('HD_Precinct'),height)
     builders['HD_StationYard']=lambda:station_yard.yard(M('HD_StationYard'),height)
-    builders['HD_Railcar']=station_yard.railcar
     builders['HD_ParkGrounds']=lambda:park_grounds.grounds(M('HD_ParkGrounds'),height)
     builders['HD_Arrival']=lambda:arrival.arrival(M('HD_Arrival'),height)
     # Reference-led kit modules replace legacy shop variants by mesh name.
     builders.update(kit.builders(lettering))
-    builders['HD_NorthMountains']=lambda:mountains.mesh(north_base_height)
+    builders['HD_NorthMountains']=lambda:SheetMesh('HD_NorthMountains',mountains.mesh(north_base_height))
     from megapark import gate
-    builders['HD_NorthGate']=lambda:GateMesh('HD_NorthGate',gate.mesh(north_base_height))
+    builders['HD_NorthGate']=lambda:SheetMesh('HD_NorthGate',gate.mesh(north_base_height))
     for name in gate.ROCKS:builders[name]=lambda name=name:gate_rock(name)
     builders['HD_NorthTrail']=lambda:mountains.trail_mesh(north_height)
     from megapark import trail as park_trail
     builders['HD_NorthApproach']=park_trail.approach_mesh
     builders['HD_NorthParkTrail']=lambda:park_trail.trail_mesh(north_height)
-    for kind in ('Gold','Rust','Pine'):builders['HD_NorthTree'+kind]=lambda kind=kind:mountains.forest_tree(kind)
-    for kind in ('Gold','Rust','Pine','Green'):
-        builders['HD_NorthTreeBackdrop'+kind]=lambda kind=kind:mountains.forest_tree(kind,backdrop=True)
     only=set(filter(None,os.environ.get('HIDAMARI_ASSETS','').split(',')))
     if only-set(builders):raise ValueError('Unknown city assets: '+str(only-set(builders)))
     manifest=json.loads((OUT/'manifest.json').read_text()) if only and (OUT/'manifest.json').exists() else {}
@@ -459,6 +462,9 @@ def main():
         mesh=build()
         ob,entry=(surfaces.export(mesh) if surfaces.textured(mesh.name) else v.export(mesh,mat));manifest[mesh.name]=entry
         bpy.data.objects.remove(ob,do_unlink=True)
+    if not only or 'HD_NorthMountains' in only:
+        mountains.export_snow_mask(OUT,north_base_height)
+        mountains.export_crater_mask(OUT)
     (OUT/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     print('HIDAMARI BUILD COMPLETE',len(city['buildings']),'buildings;',len(manifest),'assets;',sum(v['triangles'] for v in manifest.values()),'unique triangles',flush=True)
 if __name__=='__main__':main()

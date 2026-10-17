@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check C++ and converter name identities against Rust for every database name plus boundary/fuzz inputs.
 
-Compiles both probes: run under atelier.safety, with generated output under build/.
+Compiles both probes: run under atelier.harness.safety, with generated output under build/.
 """
 import argparse
 import hashlib

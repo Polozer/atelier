@@ -35,9 +35,74 @@ void UJapanSkateNetwork::BeginPlay()
     Super::BeginPlay();
     Rider = Cast<AWandererCharacter>(GetOwner());
     if (!Rider || Rider->IsNpc() || !JapanNetwork::IsOnline(GetWorld())) { SetComponentTickEnabled(false); return; }
-    AddTickPrerequisiteComponent(Rider->GetMesh());
     AddTickPrerequisiteComponent(Rider->GetCharacterMovement());
+    ConfigureTickOrder();
+    Rider->GetSkate()->PrepareNetworkPose.BindUObject(this, &UJapanSkateNetwork::PreparePose);
+    FinalizedPose = Rider->GetMesh()->RegisterOnBoneTransformsFinalizedDelegate(
+        FOnBoneTransformsFinalizedMultiCast::FDelegate::CreateUObject(this, &UJapanSkateNetwork::ObserveDisplayedPose));
+}
 
+void UJapanSkateNetwork::EndPlay(const EEndPlayReason::Type Reason)
+{
+    if (Rider) Rider->GetSkate()->PrepareNetworkPose.Unbind();
+    if (Rider && FinalizedPose.IsValid()) Rider->GetMesh()->UnregisterOnBoneTransformsFinalizedDelegate(FinalizedPose);
+    Super::EndPlay(Reason);
+}
+
+void UJapanSkateNetwork::ConfigureTickOrder()
+{
+    const bool Capture = Rider->IsLocallyControlled();
+    if (bTickRoleKnown && bCaptureTick == Capture) return;
+    bTickRoleKnown = true; bCaptureTick = Capture;
+    auto* Mesh = Rider->GetMesh();
+    if (Capture)
+    {
+        Mesh->RemoveTickPrerequisiteComponent(this);
+        AddTickPrerequisiteComponent(Mesh);
+        PrimaryComponentTick.TickGroup = TG_PostPhysics;
+    }
+    else
+    {
+        RemoveTickPrerequisiteComponent(Mesh);
+        AddTickPrerequisiteActor(Rider);
+        Mesh->AddTickPrerequisiteComponent(this);
+        PrimaryComponentTick.TickGroup = TG_PrePhysics;
+    }
+}
+
+void UJapanSkateNetwork::ObserveDisplayedPose()
+{
+    if (Rider->IsLocallyControlled() || GetWorld()->GetNetMode() == NM_DedicatedServer ||
+        Rider->GetNetworkActivity() != EJapanActivity::Skate || !LastAppliedFrame) return;
+    const auto& Expected = Rider->GetSkate()->GetRiderPose();
+    const auto& Displayed = Rider->GetMesh()->GetBoneSpaceTransforms();
+    if (Expected.IsEmpty() || Expected.Num() != Displayed.Num()) return;
+    ++ObservedPoseCount;
+    if (AppliedMeshWorld.Equals(Rider->GetMesh()->GetComponentTransform(), .01f)) ++MatchingMeshCount;
+    for (int32 I = 0; I < Expected.Num(); ++I)
+        if (!Expected[I].Equals(Displayed[I], .001f))
+        {
+#if !UE_BUILD_SHIPPING
+            if (ObservedPoseCount - MatchingPoseCount <= 3)
+                UE_LOG(LogTemp, Display, TEXT("NETWORK displayed pose mismatch role=%d bone=%s expected=%s displayed=%s autonomous_only=%d"),
+                    int32(Rider->GetLocalRole()), *Rider->GetMesh()->GetBoneName(I).ToString(),
+                    *Expected[I].ToString(), *Displayed[I].ToString(), Rider->GetMesh()->bOnlyAllowAutonomousTickPose);
+#endif
+            return;
+        }
+    ++MatchingPoseCount;
+}
+
+double UJapanSkateNetwork::GetMeshWorldError() const
+{
+    return Rider && LastAppliedFrame ? FVector::Distance(AppliedMeshWorld.GetLocation(), Rider->GetMesh()->GetComponentLocation()) : -1.;
+}
+
+void UJapanSkateNetwork::RestoreStreamedMeshFrame()
+{
+    if (!Rider || !LastAppliedFrame || LastAppliedEpoch != Rider->GetActivityEpoch() || !Rider->GetSkate()->IsNetworkProxy() || Rider->GetSkate()->GetRiderPose().IsEmpty()) return;
+    auto* Mesh = Rider->GetMesh();
+    if (Mesh->IsUsingAbsoluteLocation() && Mesh->IsUsingAbsoluteRotation()) Mesh->SetWorldTransform(AppliedMeshWorld);
 }
 
 void UJapanSkateNetwork::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -50,6 +115,7 @@ void UJapanSkateNetwork::TickComponent(float Dt, ELevelTick Type, FActorComponen
 {
     Super::TickComponent(Dt, Type, Tick);
     if (!Rider) return;
+    ConfigureTickOrder();
     if (!Rider->IsLocallyControlled() && !Rider->GetSkate()->IsNetworkProxy() &&
         (Rider->GetLocalRole() == ROLE_SimulatedProxy || Rider->GetController()))
         Rider->GetSkate()->InitializeNetworkProxy(Rider);
@@ -58,6 +124,7 @@ void UJapanSkateNetwork::TickComponent(float Dt, ELevelTick Type, FActorComponen
     {
         Epoch = Rider->GetActivityEpoch();
         HostAssembly.Reset(); ViewAssembly.Reset(); Frames.Reset();
+        LastAppliedEpoch = LastAppliedFrame = 0;
         ReceivedFrame = HostFrame = ReceivedBodies = HostBodies = 0; Bodies.Reset();
         bWarnedRoot = false; HostMode = 0;
         ArrivalClock = FJapanSkateClock(); Playout = FJapanSkatePlayout();
@@ -67,7 +134,7 @@ void UJapanSkateNetwork::TickComponent(float Dt, ELevelTick Type, FActorComponen
             // The retained board is a visible snapshot, not a newly arrived clock
             // sample. Its stamp may precede this rider epoch by several seconds.
             FJapanBoardState Snapshot = Board;
-            Snapshot.Time = GetWorld()->GetTimeSeconds() - .5;
+            Snapshot.Time = GetWorld()->GetRealTimeSeconds() - .5;
             Boards.Add(MoveTemp(Snapshot));
         }
         LastHostRoot = Rider->GetActorLocation(); LastHostRootTime = GetWorld()->GetTimeSeconds();
@@ -81,16 +148,25 @@ void UJapanSkateNetwork::TickComponent(float Dt, ELevelTick Type, FActorComponen
         return;
     }
     if (Rider->IsLocallyControlled()) Capture();
-    else Show(Dt);
+    else PreparePose();
+}
+
+void UJapanSkateNetwork::PreparePose()
+{
+    if (!Rider || Rider->IsLocallyControlled() || !Rider->GetSkate()->IsNetworkProxy() || PreparedFrame == GFrameCounter) return;
+    PreparedFrame = GFrameCounter;
+    Show(GetWorld()->GetDeltaSeconds());
 }
 
 void UJapanSkateNetwork::Capture()
 {
     const double Now = GetWorld()->GetTimeSeconds();
     auto* Skate = Rider->GetSkate();
-    // Sender-local time is monotonic; the host maps its offset on arrival.
+    // Sender-local real time is monotonic; the host maps its offset on arrival.
     // GameState clock synchronization must never retime captures mid-stream.
-    const double CaptureTime = Now;
+    // World time loses everything past MaxUndilatedFrameTime in a hitch, which
+    // would map every later frame behind the observer's playout for seconds.
+    const double CaptureTime = GetWorld()->GetRealTimeSeconds();
     const FTransform Deck = Skate->GetDeckWorld();
     const float Shown = Skate->GetBoardShown();
     const bool bBoardChanged = Shown != LastCapturedBoard.Shown || !Deck.Equals(LastCapturedBoard.Deck, .01);
@@ -172,8 +248,7 @@ void UJapanSkateNetwork::ServerPose_Implementation(const FJapanSkateChunk& Chunk
         Rider->SetActorTransform(Complete.Root, false, nullptr, ETeleportType::TeleportPhysics);
         Rider->GetCharacterMovement()->Velocity = Complete.Velocity;
     }
-    const double ServerTime = Rules->GetServerWorldTimeSeconds();
-    Complete.Time = ArrivalClock.Map(Complete.Time, ServerTime);
+    Complete.Time = ArrivalClock.Map(Complete.Time, GetWorld()->GetRealTimeSeconds());
     HostMode = Complete.Mode;
     // Listen-host visuals consume the validated frame locally, with no network echo to its owner.
     if (!Rider->IsLocallyControlled() && GetWorld()->GetNetMode() != NM_DedicatedServer) Accept(Complete);
@@ -191,7 +266,7 @@ void UJapanSkateNetwork::ReceivePose(const FJapanSkateChunk& Chunk)
 void UJapanSkateNetwork::Accept(const FJapanSkateFrame& Frame)
 {
     ReceivedFrame = Frame.Frame;
-    const double Arrival = GetWorld()->GetTimeSeconds();
+    const double Arrival = GetWorld()->GetRealTimeSeconds();
     FJapanSkateFrame Local = Frame;
     // A newly joined client's replicated GameState clock can lag or lead while
     // loading. Presentation needs capture spacing on this observer's clock,
@@ -208,7 +283,8 @@ void UJapanSkateNetwork::Accept(const FJapanSkateFrame& Frame)
 
 void UJapanSkateNetwork::Show(float Dt)
 {
-    const double Now = GetWorld()->GetTimeSeconds();
+    // Presentation runs on real time, the clock that stamps and maps every stream.
+    const double Now = GetWorld()->GetRealTimeSeconds();
     const double RequestedTime = Playout.Advance(Now);
     if (Frames.IsEmpty()) { ShowBoard(RequestedTime); Rider->GetSkate()->ApplyNetworkAudio(0,0,0,FVector::ZeroVector,Dt); return; }
     const auto Sample = FJapanSkatePlayout::Sample(Frames, RequestedTime, [](const auto& Frame) { return double(Frame.Time); });
@@ -219,7 +295,7 @@ void UJapanSkateNetwork::Show(float Dt)
     {
         if (Rider->GetNetworkActivity() == EJapanActivity::Skate) { ++HeldFrameCount; ++AfterBufferCount; }
         Rider->GetSkate()->SilenceNetworkAudio(Dt);
-        if (Rider->GetNetworkActivity() == EJapanActivity::OnFoot) Rider->GetSkate()->ClearNetworkPose();
+        if (Rider->GetNetworkActivity() != EJapanActivity::Skate) Rider->GetSkate()->ClearNetworkPose();
         ShowBoard(RequestedTime);
         return; // Freeze a stale skater; never extrapolate through the ground.
     }
@@ -237,6 +313,7 @@ void UJapanSkateNetwork::Show(float Dt)
     Rider->GetSkate()->ApplyNetworkBoard(Deck, Shown);
     if (Rider->GetSkate()->ApplyNetworkPose(Pose, Mesh))
     {
+        AppliedMeshWorld = Mesh;
         if (Sample.bBefore) ++BeforeBufferCount;
         if (Sample.bAfter) ++AfterBufferCount;
         if (Alpha > 0.f && Alpha < 1.f) ++InterpolatedFrameCount; else ++HeldFrameCount;
@@ -258,7 +335,7 @@ void UJapanSkateNetwork::ServerBoard_Implementation(const FJapanBoardState& Stat
     if (Now - RateWindow >= 1.) { RateWindow = Now; ReceivedChunks = ReceivedBoards = ReceivedBodyPackets = 0; }
     if (++ReceivedBoards > 90) return;
     Board = State;
-    Board.Time = ArrivalClock.Map(State.Time, Now);
+    Board.Time = ArrivalClock.Map(State.Time, GetWorld()->GetRealTimeSeconds());
     OnRep_Board();
 }
 
@@ -276,7 +353,7 @@ void UJapanSkateNetwork::CaptureBodies(double Now)
     }
     const auto& ComponentPose = Mesh->GetComponentSpaceTransforms();
     FJapanSkateBodies State;
-    State.Pose.Epoch = Epoch; State.Pose.Frame = ++SentBodies; State.Pose.Time = Now;
+    State.Pose.Epoch = Epoch; State.Pose.Frame = ++SentBodies; State.Pose.Time = GetWorld()->GetRealTimeSeconds();
     State.Pose.Root = Rider->GetActorTransform(); State.Pose.Mesh = Mesh->GetComponentTransform();
     State.Pose.Velocity = Rider->GetCharacterMovement()->Velocity;
     State.Pose.Deck = Skate->GetDeckWorld(); State.Pose.Shown = Skate->GetBoardShown();
@@ -316,7 +393,7 @@ void UJapanSkateNetwork::ServerBodies_Implementation(const FJapanSkateBodies& St
     if (++ReceivedBodyPackets > 90) return;
     HostBodies = State.Pose.Frame;
     FJapanSkateBodies Relay = State;
-    Relay.Pose.Time = ArrivalClock.Map(State.Pose.Time, Now);
+    Relay.Pose.Time = ArrivalClock.Map(State.Pose.Time, GetWorld()->GetRealTimeSeconds());
     if (GetWorld()->GetNetMode() != NM_DedicatedServer) ReceiveBodies(Relay);
     for (auto It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
         if (auto* Player = Cast<AJapanPlayerController>(It->Get())) Player->SendSkateBodies(Rider, Relay);
@@ -327,7 +404,7 @@ void UJapanSkateNetwork::ReceiveBodies(const FJapanSkateBodies& State)
     if (!Rider || Rider->IsLocallyControlled() || !Newer(State.Pose.Frame, ReceivedBodies) || !ValidBodies(State)) return;
     ReceivedBodies = State.Pose.Frame;
     FJapanSkateBodies Local = State;
-    Local.Pose.Time = Playout.Map(State.Pose.Time, GetWorld()->GetTimeSeconds());
+    Local.Pose.Time = Playout.Map(State.Pose.Time, GetWorld()->GetRealTimeSeconds());
     if (!Bodies.IsEmpty() && Local.Pose.Time <= Bodies.Last().Pose.Time) { ++TimestampDropCount; return; }
     Bodies.Add(MoveTemp(Local));
     while (Bodies.Num() > 64) Bodies.RemoveAt(0, 1, EAllowShrinking::No);
@@ -363,7 +440,7 @@ void UJapanSkateNetwork::OnRep_Board()
 {
     if (!Boards.IsEmpty() && !Newer(Board.Sequence, Boards.Last().Sequence)) return;
     FJapanBoardState Local = Board;
-    Local.Time = Playout.Map(Board.Time, GetWorld()->GetTimeSeconds());
+    Local.Time = Playout.Map(Board.Time, GetWorld()->GetRealTimeSeconds());
     if (!Boards.IsEmpty() && Local.Time <= Boards.Last().Time) { ++TimestampDropCount; return; }
     Boards.Add(MoveTemp(Local));
     while (Boards.Num() > 64) Boards.RemoveAt(0, 1, EAllowShrinking::No);

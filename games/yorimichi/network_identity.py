@@ -11,6 +11,7 @@ from pathlib import Path
 PROTOCOL = 1
 CODE_SUFFIXES = {'.h', '.hpp', '.cpp', '.c', '.cs', '.uplugin', '.inl', '.inc', '.mm', '.m', '.ush', '.usf', '.ini', '.uproject'}
 IGNORED = {'Binaries', 'Intermediate', 'Saved', 'DerivedDataCache', '__pycache__'}
+DESKTOP_METADATA = {'.ds_store', 'thumbs.db'}
 
 
 def sha1_file(path):
@@ -37,17 +38,30 @@ def records_digest(records):
 
 
 def code_identity(repo):
-    return records_digest([{'path': p.relative_to(repo).as_posix(), 'sha1': sha1_file(p)}
+    # Match Build.cs: Git's Windows line endings do not change gameplay source.
+    # This normalization is source-only; imported assets and runtime data stay byte-exact.
+    return records_digest([{'path': p.relative_to(repo).as_posix(),
+                            'sha1': hashlib.sha1(p.read_bytes().replace(b'\r\n', b'\n')).hexdigest()}
                            for p in code_files(repo)])
 
 
 def content_files(content):
-    """Never include the identity's own output or generated editor/cache files."""
-    return sorted((p for p in content.rglob('*') if p.is_file()
-                   and not (set(p.relative_to(content).parts) & IGNORED)
-                   and p.name != '.DS_Store'
-                   and not p.is_relative_to(content / 'Data/Network')),
-                  key=lambda p: p.relative_to(content).as_posix())
+    """@cc [owner:fontanierh,label:correctness] content-input-membership
+    Enumeration MUST observe current membership and preserve relative-POSIX ordering and
+    lexical exclusions. It MUST NOT resolve symlinks or add filesystem/Git ignore policies.
+    """
+    files = []
+    depth = len(content.parts)
+    for path in content.rglob('*'):
+        if not path.is_file():
+            continue
+        # rglob retains the root's lexical prefix, including relative roots and linked ancestors.
+        relative = type(path)(*path.parts[depth:])
+        if (IGNORED.intersection(relative.parts) or path.name.casefold() in DESKTOP_METADATA
+                or relative.is_relative_to('Data/Network')):
+            continue
+        files.append((relative.as_posix(), path))
+    return [path for _, path in sorted(files, key=lambda item: item[0])]
 
 
 def signature(code, assets, records):

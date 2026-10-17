@@ -1,0 +1,42 @@
+{
+  "stage": "character-portrait",
+  "character": "nox",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/edits",
+  "execution": "games/yorimichi/tools/character_select_art.py",
+  "prompt_file": "nox.prompt.txt",
+  "prompt_sha256": "e57a610fe80a0fd92ccc51f042cbbd51acbd2deeca5afa5598a70c79cf224870",
+  "reference_files": {
+    "games/yorimichi/assets/characters/nox/references/head/front.png": "d20b66247c7dc4bb5f8dec651e1af26dee2813a48298cea1c9f6610bdecb8483",
+    "games/yorimichi/assets/characters/nox/references/body/front.png": "ce7f3f623e662cc01e8e07166ebc8df8c11bbd3778077f50c81d0d965ddcb225",
+    "games/yorimichi/assets/characters/nox/references/chain.png": "0c17570eef055bb29385997aed0233f328e2fe478c6ddd3b228cb0c06b283c7f"
+  },
+  "status": "done",
+  "started_at": "2026-10-16T21:46:54.692178+00:00",
+  "usage": {
+    "input_tokens": 3370,
+    "input_tokens_details": {
+      "image_tokens": 3072,
+      "text_tokens": 298
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 5126
+  },
+  "outputs": {
+    "nox.png": "e206f2a27ea9600a8f27fbb07702af6bc4640346aa90ecebd46c89cf390c7770"
+  },
+  "portrait": {
+    "file": "nox.png",
+    "size": "440x520",
+    "bytes": 341526,
+    "sha256": "7fe340c6a0c11de467714821af32970f2199559199df2a8c51d60c9e4dd9eb76"
+  },
+  "elapsed_seconds": 37.3,
+  "finished_at": "2026-10-16T21:47:32.015215+00:00"
+}

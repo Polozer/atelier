@@ -10,6 +10,8 @@
 #include "JapanParkedBikeState.h"
 #include "JapanBikePresentation.h"
 #include "JapanSailPresentation.h"
+#include "JapanHorsePresentation.h"
+#include "JapanHorseAppearance.h"
 #include "WandererCharacter.generated.h"
 
 class UWandererDefinition;
@@ -22,6 +24,7 @@ class UJapanPreferences;
 class USkateComponent;
 class USailboatComponent;
 class UBikeComponent;
+class UHorseComponent;
 class FJsonObject;
 class FYorimichiPhone;
 class UJapanMap;
@@ -59,6 +62,7 @@ public:
     /** The health a sparring blow of this strength (1 a cut, 2 a charged or finishing one, 3 full power) takes from
      *  the partner: a full-power blow knocks down (the move set's HeavyDamage, 25). */
     virtual float SparringDamage(int32 Power) const { return Power >= 3 ? 28.f : Power == 2 ? 18.f : 10.f; }
+    float GetNetworkGuardPressure() const { return NetworkGuardPressure; }
     /** Its name as -rider= and the character switch know it (FPlayableCharacter); empty: the default character's. */
     virtual FString GetPlayableName() const { return FString(); }
     /** Whose bike clips it rides with (/Game/<Rig>Bike, Content/Data/<rig>/bike); empty: the default character's. */
@@ -70,7 +74,7 @@ public:
     AJapanWorld* GetLandscape() const { return Landscape; }
     /** The character switch (FPlayableCharacter::SwitchPlayer) sets this on the new character before it finishes spawning: it
      *  starts where the old one stood (EnterWorld leaves it in place), with no second ambience and no settling wait. */
-    bool bSwitchedIn = false;
+    UPROPERTY(Replicated) bool bSwitchedIn = false;
     /** The character switch, before the player moves to another character: closes the menus, stows the board and the
      *  sailboat, and gives up the input mapping. */
     void Leave();
@@ -86,6 +90,8 @@ public:
     float GetActionPlayRate() const { return ActionPlayRate; }
     float GetActionTime() const { return ActionTime; }
     float GetActionSourceTime() const { return ActionSourceStartTime+ActionTime*ActionPlayRate; }
+    /** Render-time phase for the listen host's remote player; simulation and combat keep their own clock. */
+    float GetPresentationActionSourceTime() const;
     bool HasMovementIntent() const { return !MoveIntent.IsNearlyZero(); }
     bool DoesActionLoop() const { return bActionLoops; }
     bool IsReady() const { return bReady; }
@@ -119,7 +125,8 @@ public:
     ASwordDummy* GetSwordDummy() const { return SwordDummy; }
     USailboatComponent* GetSailboat() const { return Sailboat; }
     UBikeComponent* GetBike() const { return Bike; }
-    /** On the sailboat, the bike: the vehicle owns his movement, his animation and his buttons. */
+    UHorseComponent* GetHorse() const { return Horse; }
+    /** On the sailboat, the bike, or the horse: the vehicle owns his movement, his animation and his buttons. */
     bool OnVehicle() const;
     UJapanPreferences* GetPreferences() const { return Preferences; }
     UFUNCTION(BlueprintPure, Category = "Map")
@@ -134,13 +141,20 @@ public:
     /** Host-only supported park/stow followed by one foot epoch; clock resets also discard vehicle momentum. */
     bool ExitNetworkVehicle(uint8 ClockCorrection = 0, TFunction<void()> FootReaction = {});
     UFUNCTION(Server, Reliable) void ServerTravelTo(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch);
+    UFUNCTION(Client, Reliable) void ClientPlayerTravelled();
+    UFUNCTION(Server, Reliable) void ServerTravelToPlayer(const FString& SessionPlayerId, uint32 Epoch);
     UFUNCTION(Server, Reliable) void ServerRequestSkate(uint32 Epoch);
+    UFUNCTION(Server, Reliable) void ServerZeppelinInput(uint32 Epoch, int32 Direction);
+    UFUNCTION(Server, Reliable) void ServerTrainInteract(uint32 Epoch);
     UFUNCTION(Server, Reliable) void ServerFinishSkate(uint32 Epoch, FVector_NetQuantize100 Location,
         FRotator Rotation, FVector_NetQuantize100 Velocity, bool bFalling);
     UFUNCTION(Client, Reliable) void ClientActivityRejected(const FString& Reason);
     UFUNCTION(Client, Reliable) void ClientReceiveMovementReaction(const TArray<uint8>& Encoded);
     UFUNCTION(Server, Reliable) void ServerRecoverMovementReactions(uint32 Epoch);
     bool RequestNetworkSkate();
+    /** Online: ask the host for this horse look (roster indices); every machine shows it once the host has accepted it.
+     *  Offline it applies at once. False when it cannot be asked now. */
+    bool RequestHorseAppearance(const FJapanHorseAppearance& Appearance);
     void TickNetworkActivity();
     bool IsNetworkActivityPending() const { return bNetworkActivityPending; }
     void SetMenuOpen(bool bOpen);
@@ -185,7 +199,9 @@ protected:
     void StopGesture(float BlendSeconds = .3f) { SetAction(NAME_None, false, BlendSeconds); }
 
 private:
+    friend class FRemoteVehiclePresentationTest;
     void InitializeLocalPlayer();
+    TWeakObjectPtr<ULocalPlayer> InputOwner;
     bool RequestNetworkBike();
     bool RequestNetworkSail();
     void TickNetworkSail();
@@ -200,6 +216,16 @@ private:
     UPROPERTY(ReplicatedUsing=OnRep_NetworkBikePresentation) FJapanBikePresentation NetworkBikePresentation;
     double LastBikePublication=-1.;
     UPROPERTY(ReplicatedUsing=OnRep_NetworkParkedBike) FJapanParkedBikeState NetworkParkedBike;
+    bool RequestNetworkHorse();
+    void TickNetworkHorse();
+    UFUNCTION(Server, Reliable) void ServerRequestHorse(uint32 Epoch);
+    UFUNCTION(Server, Reliable) void ServerSetHorseAppearance(const FJapanHorseAppearance& Appearance);
+    UFUNCTION() void OnRep_NetworkHorsePresentation();
+    UFUNCTION() void OnRep_NetworkHorseAppearance();
+    UPROPERTY(ReplicatedUsing=OnRep_NetworkHorsePresentation) FJapanHorsePresentation NetworkHorsePresentation;
+    /** The host's accepted look for this player's horse, outside the activity epoch (the owner waits for it too). */
+    UPROPERTY(ReplicatedUsing=OnRep_NetworkHorseAppearance) FJapanHorseAppearance NetworkHorseAppearance;
+    double LastHorsePublication=-1., LastHorseAppearanceAt=-1.;
 
     UFUNCTION() void OnRep_NetworkLoadout();
     UPROPERTY(Replicated) FString NetworkRiderName;
@@ -215,19 +241,26 @@ private:
     UPROPERTY(ReplicatedUsing=OnRep_NetworkAvatar) FJapanAvatarState NetworkAvatar;
     UPROPERTY(ReplicatedUsing=OnRep_NetworkHealth) float NetworkHealth = 100.f;
     UPROPERTY(ReplicatedUsing=OnRep_NetworkHealth) int32 NetworkHitsTaken = 0;
+    UPROPERTY(Replicated) float NetworkGuardPressure = 0.f;
     UFUNCTION() void OnRep_NetworkAvatar();
     UFUNCTION() void OnRep_NetworkHealth();
     bool bNetworkAvatarReceived = false;
     float LastAvatarPublication = -1.f;
     friend class FJapanReactionTransportTest;
+    friend class FSwordCombatContactTest;
+    friend class FJapanCheckpointTest;
+    friend class FJapanHorseWaterTest;
+    bool PerformNetworkTravel(FVector Location, float Yaw, uint32 Epoch, float Above);
+    friend class AJapanPlayerController;
     friend class FYorimichiPhone;
     friend class UWandererSwordComponent;
     friend class AZeppelinService;
+    friend class ABelmonteTrainService;
     friend class UAdventureMoveSet;
     friend class UJapanCharacterMovement;
     friend struct FAdventureNetworkState;
     friend struct FJapanVehicleQAAccess;
-    float LookGrace=0.f, SkateCameraBlend=0.f, PreferredArmLength=0.f;
+    float LookGrace=0.f, SkateCameraBlend=0.f, HorseCameraBlend=0.f, PreferredArmLength=0.f;
     // Share of the skating camera in the view (CalcCamera), and its last frame for easing out after a ride.
     float BoardCameraBlend=0.f;
     FMinimalViewInfo BoardCamera;
@@ -236,6 +269,7 @@ private:
     UPROPERTY() TObjectPtr<USkateComponent> SkateRide;
     UPROPERTY() TObjectPtr<USailboatComponent> Sailboat;
     UPROPERTY() TObjectPtr<UBikeComponent> Bike;
+    UPROPERTY() TObjectPtr<UHorseComponent> Horse;
     UPROPERTY() TObjectPtr<UJapanFootstepComponent> Footsteps;
     UPROPERTY() TObjectPtr<UWandererSwordComponent> Sword;
     UPROPERTY() TObjectPtr<ASwordDummy> SwordDummy;
@@ -280,15 +314,19 @@ private:
     FString BenchmarkView, BenchmarkDirectory;
     FString BenchmarkCompareBefore, BenchmarkCompareAfter;
     int32 BenchmarkComparePhase=0, BenchmarkCompareScreenshot=-1;
-    float BenchmarkTime = 0.f, BenchmarkSeconds = 25.f;
-    bool bBenchmarkCapturing = false, bBenchmarkFinished = false;
+    float BenchmarkTime = 0.f, BenchmarkSeconds = 25.f, BenchmarkCaptureStart = 8.f;
+    bool bBenchmarkCapturing = false, bBenchmarkFinished = false, bBenchmarkBoarding = false, bBenchmarkStillTaken = false;
+    FVector BenchmarkLastPosition = FVector::ZeroVector;
     void AdvanceBenchmark(float Dt);
+    bool AdvanceZeppelinBenchmark();
     void AdvanceSailboatReview(float Dt);
     bool bCinematic=false;
 public:
     bool IsCinematic() const { return bCinematic; }
     class AZeppelinService* GetZeppelin() const;
     bool IsZeppelinPassenger() const;
+    /** Inside a no-sprint volume (aboard the Belmonte train): sprint is unavailable. */
+    bool bNoSprint = false, bTrainAboard = false, bTrainDriving = false;
     /** The flight buttons: aboard, ride speed; at the docked ship, its next stop. -1 or +1. */
     void ZeppelinStep(int32 Direction);
 private:
@@ -334,6 +372,12 @@ private:
     void ReturnToSpawn();
     void ToggleSailboat(const FInputActionValue& Value);
     void ToggleBike(const FInputActionValue& Value);
+    void ToggleHorse(const FInputActionValue& Value);
+    void HorsePad(const FInputActionValue& Value);
+    void RandomizeHorse(const FInputActionValue& Value);
+    void CycleHorseBreed(const FInputActionValue& Value);
+    void CycleHorseTack(const FInputActionValue& Value);
+    void CycleHorseCoat(const FInputActionValue& Value);
     void ToggleCrouch(const FInputActionValue& Value);
     void Dodge(const FInputActionValue& Value);
     void Wave(const FInputActionValue& Value);

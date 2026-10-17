@@ -9,20 +9,24 @@ body and nine authored donor clips: double jump, sword guard/parry/recoil, inter
 ## Build
 
 ```sh
-uv run atelier build yorimichi unreal.cairo_adventure
+uv run atelier build yorimichi unreal.cairo_pawn unreal.horses unreal.cairo_horse
 ```
 
-`characters.cairo` runs `export_unreal.py` once into `build/yorimichi/cairo/`, exporting his body and the nine donor
+The pawn does not wait for the horse imports, so without the last two the horse stays uninstalled
+([HORSE.md](../../../docs/HORSE.md)).
+
+`characters.cairo` runs the shared body export ([`../pipeline/export.py`](../pipeline/export.py), as `character.toml`
+`[export]` sets it) once into `build/yorimichi/cairo/`, exporting his body and the nine donor
 clips. The export checks the blend against `native_sha256` in `source-manifest.json` first. `unreal.cairo` imports
 `SK_Cairo`, the donor clips and `DA_CairoBase`, which supplies body and framing data to the merged importer.
 It creates no standalone movement or combat set. The content cleanup archives older movement/combat imports before cooking.
 
 Cairo has no skate clips: on the board, the skate runtime's solved pose is retargeted onto him at run time. See
-[skating](../../../docs/SKATE.md) and the [runtime assets](../../skate/README.md).
+[skating](../../../docs/SKATE.md) and the [runtime assets](../../../../../platform/engine/Plugins/Activities/Skate/Data/README.md).
 
 `characters.cairo_adventure` and `unreal.cairo_adventure` give Cairo the merged move set (the reference rig's moves with his own double jump),
 which he uses in every game session. `../adventure/retarget.py` retargets the reference rig's clips onto him, as
-`adventure.toml` lays out, using `export_unreal.prepare` for his rig. His base export supplies the body and donor clips;
+`adventure.toml` lays out, using `../pipeline/rig.py` for his rig. His base export supplies the body and donor clips;
 it is never a separate playable move set. See [the merged move set](../adventure/README.md).
 
 ## Files
@@ -30,11 +34,10 @@ it is never a separate playable move set. See [the merged move set](../adventure
 | File | Contents |
 | --- | --- |
 | `Cairo-Game-r18.blend` | mesh, rig, morphs, outfit, bokken and every clip |
-| `character.toml` | id, rig, height, current revision and source, clip role count, export arguments, Unreal path |
+| `character.toml` | id, rig, height, current revision and source, clip role count, Unreal path, and `[export]`: how the shared export reads his source |
 | `source-manifest.json` | every clip role with its reference, timing and contacts; the source hashes the export checks |
 | `combat-build.json` | the combat clips' build record, including each strike's aim (`contact_yaw_degrees`, `contact_distance`) |
 | `locomotion-build.json` | the armed locomotion's measurements (blade angles and clearances) |
-| `export_unreal.py` | the Blender export to FBX (`prepare` sets up the rig for it and for `../adventure/retarget.py`) |
 | `adventure.toml` | his merged move set: its paths, the carried pieces' fit to him, and the clips of his it lends every character (`[donor]`) |
 | `outfit_correctives.py` | cloth pose corrections (`set_clip`), used by the export |
 | `outfits/*.toml` | outfit specs for the [body swap](../../../docs/BODY_SWAP_GUIDE.md): `skate` (the outfit in the game), `hoodie`, `gi-hakama`, `jersey-shorts`, `long-coat` |

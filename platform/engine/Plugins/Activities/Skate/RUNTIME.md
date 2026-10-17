@@ -15,6 +15,7 @@ assistance), built with Rust 1.97.1. The plugin [README](README.md) covers the U
 | `CreateBlank(resources, out, error)` | A session on no world, made ahead of a ride on any thread |
 | `Configure(difficulty, goofy, trucks)` | Controller preset, stance and truck tightness |
 | `Tune(pop, spin, speed, power, vert_assist)` | Scales on the stock values; out-of-range values are an error |
+| `LimitVertAssist(limit)` | At most this much of the tuned vert assist (0..1; a host's assist zone), from the next trajectory selected; 1 is none |
 | `Feel(feel)` | The `FeelTuning` scales (flick, air, rails, rolling, balance; README "Feel"); out-of-range values are an error |
 | `Activate(position, heading)` | Puts the rider on the board at a spot |
 | `Step(pad, frame_interval)` | Adds host time and runs whole ticks |
@@ -152,7 +153,7 @@ P=platform/engine/Plugins/Activities/Skate
 O=build/<game>/skate-cpp
 python3 $P/Tests/historical_oracle.py --game <game> --check-history --output $O/oracle   # pinned objects present?
 python3 $P/Tests/historical_oracle.py --game <game> --output $O/assets                   # restore the source assets
-uv run python -m atelier.safety.guarded --report $O/guard --kind compile --purpose "skate session parity" -- \
+uv run python -m atelier.harness.safety.guarded --report $O/guard --kind compile --purpose "skate session parity" -- \
   python3 $P/Tests/check_gameplay_session_parity.py --assets $O/assets \
     --simulation-package build/<game>/skate-simulation/package --output $O/session --target-dir $O/cargo
 ```
@@ -172,7 +173,7 @@ reference binary `atelier-skate-runtime` with `cargo +1.97.1 build --release --l
 rustup toolchain install 1.97.1
 mkdir -p $O/snapshot && git archive 46513a6:$P/ThirdParty/skate-runtime | tar -x -C $O/snapshot
 cargo +1.97.1 fetch --locked --manifest-path $O/snapshot/atelier-host/Cargo.toml
-uv run python -m atelier.safety.guarded --report $O/guard --kind compile -- \
+uv run python -m atelier.harness.safety.guarded --report $O/guard --kind compile -- \
   python3 $P/Tests/build_reference.py --output $O/reference --target-dir $O/cargo
 ```
 
@@ -197,6 +198,9 @@ to check that it is deterministic.
   rejects. The C++ keeps the indexed behaviour.
 - Collision is a static snapshot: moving objects, skeletal meshes, procedural meshes and streamed-out terrain are
   not seen.
+- A component tagged `SkateSimpleCollision` contributes its simple shapes (a tree's trunk hull) even when its mesh is
+  complex-as-simple for walkers. A component of an actor tagged `SkatePark` keeps all its surface within the largest
+  snapshot radius, and so do the rails that touch it, while a dense surround shrinks the radius for everything else.
 - Every surface gets one collision material (friction and restitution). Ground kinds differ only by the
   surface profile that the wheels' vote selects (smooth, rough, slow, very slow), and by their sounds.
 - Rails reach the session as polylines.

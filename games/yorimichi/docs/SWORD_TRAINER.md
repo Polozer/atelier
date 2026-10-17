@@ -17,14 +17,14 @@ Concept to rig through the Tripo workflow, with the eyes and the baked light fix
 ([TRIPO_CHARACTERS.md](TRIPO_CHARACTERS.md)); source `assets/characters/sword-trainer/` (the rig revision's blend,
 `source-manifest.json`, `face.json`, `texture.json`). 1.68 m, the humanoid contract's 53 bones, her own clips Bow and
 Talk, and the merged move set retargeted onto her by `adventure/retarget.py --character sword-trainer`: the reference rig's motion clips, and
-Cairo's own four (his double jump, his two-handed guard stance, parry and recoil), sampled from his source
+Cairo's nine donor clips (double jump, guard, parry, recoil, interact, wave and three sitting clips), sampled from his source
 (`adventure/retarget.py --dump-own`) and retargeted bone for bone, so her set is Cairo's.
 
 ```sh
 atelier build yorimichi characters.sword_trainer unreal.sword_trainer characters.sword_trainer_adventure unreal.sword_trainer_adventure
 ```
 
-`unreal.sword_trainer` (`Scripts/import_sword_trainer.py`) imports `SK_SwordTrainer`, her material and clips and
+`unreal.sword_trainer` (`Scripts/import_character.py`) imports `SK_SwordTrainer`, her material and clips and
 `DA_SwordTrainerBase`; `unreal.sword_trainer_adventure` runs `import_adventure_moveset.py` with `ADVENTURE_CHARACTER=sword-trainer`:
 her move clips into `/Game/SwordTrainer/Adventure`, `DA_SwordTrainer` and her move record `Content/Data/sword-trainer/adventure.json`.
 Until her body is built, Cairo's merged-move-set body stands in for her (`DA_CairoAdventure`), so the fights work from a

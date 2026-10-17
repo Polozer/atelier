@@ -5,13 +5,16 @@
 #include "JapanReactionDeliveryQA.h"
 #include "JapanReactionDeliveryProbe.h"
 #include "JapanNetwork.h"
+#include "JapanSkateNetwork.h"
 #include "JapanSession.h"
 #include "WandererCharacter.h"
+#include "BelmonteTrainService.h"
 #include "WandererDefinition.h"
 #include "WandererSword.h"
 #include "AdventureMoveSet.h"
 #include "SkateComponent.h"
 #include "BikeComponent.h"
+#include "HorseComponent.h"
 #include "JapanBikeSubsteps.h"
 #include "SailboatComponent.h"
 #include "GameFramework/Controller.h"
@@ -19,6 +22,7 @@
 #include "Engine/World.h"
 #include "Interfaces/MovementBaseInterface.h"
 #include "Components/PrimitiveComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "TimerManager.h"
 #include "Misc/CommandLine.h"
 #include "Misc/ScopeExit.h"
@@ -28,7 +32,8 @@ namespace
 {
 bool TraceNetworkGameplay()
 {
-    static const bool Enabled = FParse::Param(FCommandLine::Get(), TEXT("networkgameplay"));
+    static const bool Enabled = FParse::Param(FCommandLine::Get(), TEXT("networkgameplay")) ||
+        FParse::Param(FCommandLine::Get(), TEXT("networkfeatures"));
 #if !UE_BUILD_SHIPPING
     static const bool Vehicles = FParse::Param(FCommandLine::Get(), TEXT("networkvehicles"));
     return Enabled || Vehicles;
@@ -40,6 +45,10 @@ bool TraceNetworkGameplay()
 
 UJapanCharacterMovement::UJapanCharacterMovement(const FObjectInitializer& Initializer) : Super(Initializer)
 {
+    // Allow two movement samples on ordinary Wi-Fi before the listen host's
+    // visual offset expires; the default 40 ms exposes packet cadence at a gallop.
+    ListenServerNetworkSimulatedSmoothLocationTime = .1f;
+    ListenServerNetworkSimulatedSmoothRotationTime = .1f;
     SetNetworkMoveDataContainer(NetworkMoves);
     SetMoveResponseDataContainer(NetworkResponse);
     // Spawn starts in the already-applied default activity: no OnRep/reset runs
@@ -65,7 +74,39 @@ bool UJapanCharacterMovement::PredictsMoves() const
 {
     const auto* Rider = Cast<AWandererCharacter>(CharacterOwner);
     return Rider && JapanNetwork::IsOnline(GetWorld()) && !Rider->IsNpc() && Rider->GetMoves() &&
-        (Rider->GetNetworkActivity() == EJapanActivity::OnFoot || Rider->GetNetworkActivity() == EJapanActivity::Bike || Rider->GetNetworkActivity() == EJapanActivity::Sailboat);
+        !ABelmonteTrainService::IsDrivingRider(Rider) &&
+        // Simulated root-motion copies also call PerformMovement. They consume
+        // replicated presentation, never the predictor's neutral input holds.
+        (Rider->HasAuthority() || Rider->GetLocalRole() == ROLE_AutonomousProxy) &&
+        (Rider->GetNetworkActivity() == EJapanActivity::OnFoot || Rider->GetNetworkActivity() == EJapanActivity::Bike ||
+         Rider->GetNetworkActivity() == EJapanActivity::Sailboat || Rider->GetNetworkActivity() == EJapanActivity::Horse);
+}
+
+void UJapanCharacterMovement::SmoothClientPosition(float Dt)
+{
+    const auto* Rider = Cast<AWandererCharacter>(CharacterOwner);
+    if (Rider && Rider->GetNetworkActivity() == EJapanActivity::Zeppelin) return;
+    if (Rider && Rider->GetSkate()->IsNetworkProxy() && !Rider->GetSkate()->GetRiderPose().IsEmpty())
+    {
+        // The skate stream owns an absolute mesh frame. CMC's visual smoothing
+        // writes capsule-relative offsets, which would become world coordinates
+        // on that mesh. Retire the smoothing interval without moving the body.
+        SmoothClientPosition_Interpolate(Dt);
+        return;
+    }
+    Super::SmoothClientPosition(Dt);
+}
+
+void UJapanCharacterMovement::SimulatedTick(float Dt)
+{
+    if (const auto* Rider = Cast<AWandererCharacter>(CharacterOwner); Rider && Rider->GetNetworkActivity() == EJapanActivity::Zeppelin)
+        return; // The shared ship clock places every passenger each render frame.
+    Super::SimulatedTick(Dt);
+    // Linear smoothing also resets relative rotation inside SimulatedTick,
+    // outside SmoothClientPosition. Restore the latest stream frame: animation
+    // PreUpdate inside Super may have advanced it, including transition clips.
+    if (auto* Rider = Cast<AWandererCharacter>(CharacterOwner))
+        if (auto* Stream = Rider->FindComponentByClass<UJapanSkateNetwork>()) Stream->RestoreStreamedMeshFrame();
 }
 
 uint32 UJapanCharacterMovement::GetActivityEpoch() const
@@ -76,6 +117,7 @@ uint32 UJapanCharacterMovement::GetActivityEpoch() const
 
 void UJapanCharacterMovement::ResetActivityPrediction()
 {
+    LastRemoteSimulationTime = -1.;
     JapanReactionDeliveryQA::State(this, TEXT("epoch_reset"), bReactionCheckpointPending, bReactionCheckpointCaptured);
     ResetPredictionData_Client(); ResetPredictionData_Server();
     PendingEdges.Reset(); JournalFirstEdge = 1; ProcessedEdge = PendingAcknowledgedEdge = 0;
@@ -145,6 +187,10 @@ void UJapanCharacterMovement::QueueClockReset(uint8 Reason)
 
 void UJapanCharacterMovement::TickComponent(float Dt, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
+    // A listen host renders its guest every frame. UE otherwise ticks that mesh only
+    // from ServerMove arrivals; the skating stream deliberately sends no ServerMoves.
+    if (CharacterOwner && GetNetMode() == NM_ListenServer && !CharacterOwner->IsLocallyControlled())
+        CharacterOwner->GetMesh()->bOnlyAllowAutonomousTickPose = false;
     Super::TickComponent(Dt, TickType, ThisTickFunction);
     TickScheduledReactions();
     if (bWaitingAfterClockReset && PredictsMoves() && CharacterOwner->HasAuthority() && !CharacterOwner->IsLocallyControlled())
@@ -303,7 +349,9 @@ FJapanMoveInput UJapanCharacterMovement::ReadMoveInput() const
         const bool Menu = Rider->bMenuOpen || Rider->bControlsSuspended ||
             (Rider->GetNetworkActivity()==EJapanActivity::Sailboat && Rider->bVehicleBrakeIntent);
         const bool OnBike = Rider->GetNetworkActivity() == EJapanActivity::Bike;
-        const FVector2D Stick = Menu ? FVector2D::ZeroVector : (OnBike ? Rider->GetBikeIntent() : Rider->MoveIntent).GetClampedToMaxSize(1.);
+        // The horse rides on the bike's controls (triggers or W / S), as offline.
+        const bool Ridden = OnBike || Rider->GetNetworkActivity() == EJapanActivity::Horse;
+        const FVector2D Stick = Menu ? FVector2D::ZeroVector : (Ridden ? Rider->GetBikeIntent() : Rider->MoveIntent).GetClampedToMaxSize(1.);
         Input.X = int8(FMath::Clamp(FMath::RoundToInt(Stick.X * 127.), -127, 127));
         Input.Y = int8(FMath::Clamp(FMath::RoundToInt(Stick.Y * 127.), -127, 127));
         Input.Lean = Menu || !OnBike ? 0 : int8(FMath::Clamp(FMath::RoundToInt(Rider->GetBikeLean() * 127.), -127, 127));
@@ -335,8 +383,9 @@ void UJapanCharacterMovement::ApplyMoveInput(const FJapanMoveInput& Input)
 {
     if (auto* Rider = Cast<AWandererCharacter>(CharacterOwner))
     {
-        // On the bike the stick's forward axis is the pedals; the rider's own MoveIntent keeps the stick.
-        if (Rider->GetNetworkActivity() != EJapanActivity::Bike) Rider->MoveIntent = Input.Stick();
+        // On the bike and the horse the stick's forward axis is the pedals or the reins; the rider's own MoveIntent keeps the stick.
+        if (Rider->GetNetworkActivity() != EJapanActivity::Bike && Rider->GetNetworkActivity() != EJapanActivity::Horse)
+            Rider->MoveIntent = Input.Stick();
         Rider->bWalk = (Input.Flags & FJapanMoveInput::Walk) != 0;
         Rider->bJog = (Input.Flags & FJapanMoveInput::Jog) != 0;
         Rider->bSprintHeld = (Input.Flags & FJapanMoveInput::Sprint) != 0;
@@ -413,6 +462,39 @@ void UJapanCharacterMovement::PerformMovement(float Dt)
         if (Rider->IsLocallyControlled() && !bReplaying) ApplyMoveInput(LiveInput);
         return;
     }
+    if (Rider->GetNetworkActivity() == EJapanActivity::Horse)
+    {
+        auto* Horse = Rider->GetHorse();
+        // Walk and Jog cap the gait; the menu reins in. A host's own menus never rein in its guest.
+        FHorseInput HorseInput;
+        HorseInput.Stick = ActiveInput.Stick();
+        HorseInput.bWalk = (ActiveInput.Flags & FJapanMoveInput::Walk) != 0;
+        HorseInput.bJog = (ActiveInput.Flags & FJapanMoveInput::Jog) != 0;
+        HorseInput.bMenu = (ActiveInput.Flags & FJapanMoveInput::Menu) != 0;
+        Horse->SetInput(HorseInput);
+        // Only the sprint (the bike's sprint edge, keeping the edge vocabulary); no combat from the saddle.
+        ActiveInput.ApplyNewEdges(ProcessedEdge, [&](uint8 Edge)
+        {
+            if (!Rider->bReady || HorseInput.bMenu || Horse->NeedsNetworkStow()) return;
+            const FName Button = FJapanMoveInput::ButtonName(Edge);
+            bool Accepted = false;
+            if (Button == TEXT("jump")) Accepted = Horse->Jump();
+            else if (Button == TEXT("bike_sprint")) Accepted = Horse->ToggleSprint();
+            JapanVehicleTelemetry::Action(Rider, Button, ProcessedEdge, Accepted, bReplaying);
+        });
+        if (Rider->HasAuthority() && Rider->IsLocallyControlled()) AcknowledgeEdges(ProcessedEdge);
+        // The turn rate depends on speed, so the horse and CMC advance together in the bike's bounded substeps.
+        JapanBikeSubsteps::Run(Dt, [&](float Step)
+        {
+            Horse->SimulateNetwork(Step, HorseInput);
+            Acceleration = FVector::ZeroVector; AnalogInputModifier = 0.f; MaxWalkSpeed = 1500.f;
+            Super::PerformMovement(Step);
+        });
+        JapanVehicleTelemetry::Move(Rider, ActiveInput, Dt, bReplaying, VehicleBefore, VehicleYawBefore);
+        bInputPrepared = false;
+        if (Rider->IsLocallyControlled() && !bReplaying) ApplyMoveInput(LiveInput);
+        return;
+    }
     SimulateReactionMove(Dt, [&](float StepDt, float Remaining, TOptional<uint16> EdgeThrough)
     {
     if (Rider->HasAuthority()) Moves->RecordDefence(ProcessedEdge, StepDt + Remaining, bAcceptedDefenceMove);
@@ -437,7 +519,7 @@ void UJapanCharacterMovement::PerformMovement(float Dt)
     if (Rider->HasAuthority() && Rider->IsLocallyControlled()) AcknowledgeEdges(ProcessedEdge);
     // The clock and action transitions advance once per simulated move, including each replayed move.
     Moves->Advance(StepDt);
-    const bool CanSprint = !Rider->bWalk && !Rider->bJog && !Rider->bIsCrouched && !Rider->MovementLocked() &&
+    const bool CanSprint = !Rider->bNoSprint && !Rider->bWalk && !Rider->bJog && !Rider->bIsCrouched && !Rider->MovementLocked() &&
         !Rider->MoveIntent.IsNearlyZero() && Velocity.Size2D() > 40.f && Moves->CanSprint();
     Rider->Stamina.Tick(StepDt, Rider->bSprintHeld, CanSprint, Rider->bMenuOpen || Moves->HoldsStamina());
     const auto* Definition = Rider->Definition.Get();
@@ -499,6 +581,8 @@ void UJapanCharacterMovement::MoveAutonomous(float Timestamp, float Dt, uint8 Fl
             if (CharacterOwner->Controller) CharacterOwner->Controller->SetControlRotation(Data->ControlRotation);
         }
     Super::MoveAutonomous(Timestamp, Dt, Flags, Accel);
+    if (CharacterOwner->HasAuthority() && !CharacterOwner->IsLocallyControlled() && Dt > 0.f)
+        LastRemoteSimulationTime = GetWorld()->GetTimeSeconds();
     if (FirstReactionMove) JapanReactionDeliveryQA::FirstMove(this, Timestamp, Dt, FirstReactionStart);
 #if !UE_BUILD_SHIPPING
     if (PredictsMoves() && CharacterOwner->HasAuthority()) JapanJumpReplayQA::HostMove(this, Timestamp, Dt);
@@ -514,6 +598,22 @@ void UJapanCharacterMovement::MoveAutonomous(float Timestamp, float Dt, uint8 Fl
             CastChecked<AWandererCharacter>(CharacterOwner)->GetActionTime(), *PendingLaunchVelocity.ToString());
     }
 #endif
+}
+
+void UJapanCharacterMovement::TickCharacterPose(float Dt)
+{
+    // The displayed graph follows the frame clock, not bursts of movement packets.
+    // Root-motion montages and dedicated-server pose sampling retain UE's path.
+    if (CharacterOwner && GetNetMode() == NM_ListenServer && !CharacterOwner->IsLocallyControlled() &&
+        !CharacterOwner->IsPlayingNetworkedRootMotionMontage()) return;
+    Super::TickCharacterPose(Dt);
+}
+
+float UJapanCharacterMovement::GetPresentationExtrapolation() const
+{
+    if (!CharacterOwner || GetNetMode() != NM_ListenServer || CharacterOwner->IsLocallyControlled() ||
+        LastRemoteSimulationTime < 0.) return 0.f;
+    return float(FMath::Clamp(GetWorld()->GetTimeSeconds() - LastRemoteSimulationTime, 0., .125));
 }
 
 bool UJapanCharacterMovement::ClientUpdatePositionAfterServerUpdate()

@@ -15,6 +15,11 @@ AREA = (301., 373., 8., 232.)          # x0, x1, y0, y1 of the paddy hillside
 CELL = (4., 6.)                        # a paddy, along x and y: narrow, the hillside is steep
 ROAD_CLEAR = 11.                       # metres from the arrival road's centre line
 STEP_MAX = 2.2                         # the most a paddy's wall may stand above the ground
+SKIRT = .3                             # how far a shoulder's edge skirt reaches below the ground it meets
+SPACING = .25                          # metres between the road ribbon's cross-sections
+BLEND = 12.                            # metres over which the ribbon leaves the island road's surface for the hillside
+FLUSH = .03                            # a shoulder's outer edge above the ground drawn under it
+ROAD_LIFT = .06                        # build_terrain.py: the island road strip above its centre line
 SHRINE = (356.1, 118.9)                # beside the road's bend, facing it
 BUS_STOP = (373.3, 136.7, 45)
 GATE_X = 399.; GATE_Y = 140.; GATE_HALF = 8.8
@@ -24,7 +29,7 @@ PALETTE = {'ar_paddy_earth': (.22, .15, .065), 'ar_stubble_row': (.40, .29, .10)
            'ar_hokora_timber': (.30, .17, .08), 'ar_hokora_roof': (.08, .09, .10), 'ar_red_cloth': (.60, .07, .04),
            'ar_shrine_stone': (.32, .31, .28), 'ar_gate_timber': (.22, .12, .06), 'ar_gate_roof': (.07, .08, .09),
            'ar_gate_stone': (.30, .29, .26), 'ar_gate_sign': (.70, .64, .50), 'ar_lantern_glow': (1., .55, .25),
-           'ar_road_asphalt': (.085, .085, .09), 'ar_road_gravel': (.17, .155, .13), 'ar_road_line': (.62, .60, .55),
+           'ar_island_road': (.085, .085, .09), 'ar_road_gravel': (.17, .155, .13), 'ar_verge_lawn': (.126, .141, .028),
            'ar_rice_canopy': (.42, .32, .09), 'ar_rice_canopy_shade': (.29, .22, .07), 'ar_rice_side': (.22, .19, .07)}
 
 
@@ -34,10 +39,60 @@ def palette():
 
 
 @lru_cache(maxsize=1)
-def _road():
+def _world():
     import json, yori
-    start = max(json.loads((yori.OUT/'world.json').read_text())['road'], key=lambda q: q[0])[:2]
+    return json.loads((yori.OUT/'world.json').read_text())
+
+
+@lru_cache(maxsize=1)
+def _road():
+    start = max(_world()['road'], key=lambda q: q[0])[:2]
     return [tuple(start), (335., 85.), (390., 140.), (420., 140.)]
+
+
+@lru_cache(maxsize=1)
+def _island():
+    import numpy as np, yori
+    world = _world()
+    return np.load(yori.OUT/'heightmap.npy'), world['n'], world['size']
+
+
+def _drawn(a, b, c, d, tx, ty):
+    """A terrain quad (corners a, b, c, d anticlockwise from its low x, low y corner) at (tx, ty), as Unreal draws it:
+    both terrains are imported as quads, and the importer splits each along its a-c diagonal."""
+    return a+(b-a)*tx+(c-b)*ty if tx >= ty else a+(c-d)*tx+(d-a)*ty
+
+
+def island_height(x, y):
+    """The island terrain mesh (build_terrain.py) at (x, y), on the triangle Unreal draws there."""
+    H, n, size = _island(); step = size/(n-1)
+    fx, fy = (x+size/2)/step, (y+size/2)/step
+    i, j = min(max(int(math.floor(fx)), 0), n-2), min(max(int(math.floor(fy)), 0), n-2)
+    return _drawn(float(H[j, i]), float(H[j, i+1]), float(H[j+1, i+1]), float(H[j+1, i]), fx-i, fy-j)
+
+
+@lru_cache(maxsize=1)
+def _hidamari_axes():
+    from hidamari import layout
+    return tuple(map(tuple, layout.terrain_axes()))
+
+
+def hidamari_height(height, x, y):
+    """HD_Terrain (build.surface) at (x, y): height sampled on its grid lines, drawn as the importer splits each quad,
+    not the smooth model between them (on the hillside the two differ by a decimetre)."""
+    import bisect
+    xs, ys = _hidamari_axes()
+    i = min(max(bisect.bisect_right(xs, x)-1, 0), len(xs)-2); j = min(max(bisect.bisect_right(ys, y)-1, 0), len(ys)-2)
+    x0, x1, y0, y1 = xs[i], xs[i+1], ys[j], ys[j+1]
+    g = lambda u, v: float(height(u, v))
+    return _drawn(g(x0, y0), g(x1, y0), g(x1, y1), g(x0, y1), (x-x0)/(x1-x0), (y-y0)/(y1-y0))
+
+
+def ground(height):
+    """The ground the road ribbon lies on, as drawn. The island road ends just west of x 300, the island terrain's east
+    edge, so the ribbon's first metres sit on the island terrain mesh, the rest on HD_Terrain; the two meet at x 300."""
+    edge = _island()[2]/2
+    return lambda x, y: island_height(x, y) if x < edge else hidamari_height(height, x, y)
 
 
 def road_distance(x, y):
@@ -208,34 +263,128 @@ def _gate(m, height):
     for s in (-1, 1):m.box((GATE_X+s*.23, GATE_Y, z+4.85), (.04, 4.2, .62), 'ar_gate_sign')
 
 
+def _smooth(u):
+    u = min(max(u, 0.), 1.); return u*u*(3-2*u)
+
+
+@lru_cache(maxsize=1)
+def _island_end():
+    """(x, y, z, grade, left normal) of the island road's last point: its strip lies flat at z+ROAD_LIFT across."""
+    road = _world()['road']; k = max(range(len(road)), key=lambda i: road[i][0]); p, q = road[k-1], road[k]
+    L = math.hypot(q[0]-p[0], q[1]-p[1])
+    return q[0], q[1], q[2], (q[2]-p[2])/L, (-(q[1]-p[1])/L, (q[0]-p[0])/L)
+
+
 @lru_cache(maxsize=1)
 def _samples():
-    """(points, left normals) every metre along the road from the island road's end to the gate, its bends rounded."""
+    """(points, left normals, distances) every SPACING metres along the road from the island road's end to the gate,
+    its bends rounded; the first normal is the island road's own, so the two strips share their joining edge."""
     road = _road()
     for _ in range(4):                                               # round the bends (Chaikin), the ends kept
         road = [road[0]]+[(p[0]*w+q[0]*(1-w), p[1]*w+q[1]*(1-w)) for p, q in zip(road, road[1:]) for w in (.75, .25)]+[road[-1]]
     pts = []
     for a, b in zip(road, road[1:]):
-        L = math.hypot(b[0]-a[0], b[1]-a[1]); n = max(1, int(L))
+        L = math.hypot(b[0]-a[0], b[1]-a[1]); n = max(1, round(L/SPACING))
         pts += [(a[0]+(b[0]-a[0])*k/n, a[1]+(b[1]-a[1])*k/n) for k in range(n)]
     pts = [p for p in pts+[road[-1]] if p[0] <= GATE_X]
     def side(k):                                                     # the left normal, from the neighbouring samples
+        if k == 0: return _island_end()[4]
         p, q = pts[max(0, k-1)], pts[min(len(pts)-1, k+1)]
         dx, dy = q[0]-p[0], q[1]-p[1]; L = math.hypot(dx, dy); return (-dy/L, dx/L)
-    return pts, [side(k) for k in range(len(pts))]
+    t = [0.]
+    for p, q in zip(pts, pts[1:]): t.append(t[-1]+math.hypot(q[0]-p[0], q[1]-p[1]))
+    return pts, [side(k) for k in range(len(pts))], t
+
+
+ASPHALT = (-2.6, -1.3, 0., 1.3, 2.6)                   # cross-section offsets (left positive): the island road's width
+SHOULDER = (2.6, 2.8, 3., 3.2, 3.4)                     # a gravel shoulder, from the asphalt's edge out to the ground:
+#                                                         fine enough across to follow the island terrain's creases
+
+
+def _shoulder(side):
+    """A shoulder's section offsets, from just outside the asphalt's edge out to the ground, on side -1 or 1."""
+    return (side*(SHOULDER[0]+1e-3),)+tuple(side*s for s in SHOULDER[1:])
+
+
+def _sections(height):
+    """[(point, normal, {offset: z})] down the ribbon. The asphalt starts as the island road's own flat strip (its end
+    height plus its grade) and eases over BLEND metres onto the hillside, 0.12 m above the ground drawn under it;
+    each shoulder falls (or climbs) from just under the asphalt's edge, never under the ground, to FLUSH above it."""
+    pts, normals, dist = _samples(); g = ground(height); ex, ey, ez, grade, _ = _island_end()
+    out = []
+    for c, n, t in zip(pts, normals, dist):
+        w = _smooth(t/BLEND); flat = ez+ROAD_LIFT+grade*t; at = lambda s: g(c[0]+n[0]*s, c[1]+n[1]*s); z = {}
+        for s in ASPHALT:
+            z[s] = max((1-w)*flat+w*(at(s)+.12), at(s)+.02)
+        for side in (-1, 1):
+            inner = side*SHOULDER[0]; edge, *between, outer = _shoulder(side)
+            z[outer] = at(outer)+FLUSH
+            z[edge] = min(z[inner], max(z[inner]-.02, at(inner)+.02))
+            for s in between:
+                u = (s-edge)/(outer-edge); z[s] = max((1-u)*z[edge]+u*z[outer], at(s)+FLUSH)
+        out.append((c, n, z))
+    return out
+
+
+def road_uv(s, t):
+    """The island road's own UV (build_terrain.py) carried on t metres past its end, s metres left of the centre line:
+    u from its right edge (0) to its left (1), v an eighth per road point, so its markings run on in phase."""
+    road = _world()['road']; k = max(range(len(road)), key=lambda i: road[i][0])
+    step = math.hypot(road[k][0]-road[k-1][0], road[k][1]-road[k-1][1])
+    return (s-ASPHALT[0])/(ASPHALT[-1]-ASPHALT[0]), (k+t/step)/8
 
 
 def _ribbon(m, height):
-    """The road itself, draped on the hillside from the island road's end to the gate: asphalt with white edge
-    lines and gravel shoulders (the terrain's grid is too coarse to draw a narrow diagonal road)."""
-    pts, normals = _samples()
-    bands = [(-3.4, -2.6, 'ar_road_gravel', .10), (-2.6, 2.6, 'ar_road_asphalt', .12), (2.6, 3.4, 'ar_road_gravel', .10),
-             (-2.45, -2.33, 'ar_road_line', .13), (2.33, 2.45, 'ar_road_line', .13)]
-    for k in range(len(pts)-1):
-        (p, n), (q, o) = (pts[k], normals[k]), (pts[k+1], normals[k+1])
-        for lo, hi, key, lift in bands:
-            corner = lambda c, v, w: (c[0]+v[0]*w, c[1]+v[1]*w, float(height(c[0]+v[0]*w, c[1]+v[1]*w))+lift)
-            m.poly([corner(p, n, hi), corner(p, n, lo), corner(q, o, lo), corner(q, o, hi)], key)
+    """The road itself, draped on the hillside from the island road's end to the gate: the island road's asphalt and
+    markings (MI_Road, on its UVs) and gravel shoulders (the terrain's grid is too coarse to draw a narrow diagonal
+    road)."""
+    sections = _sections(height); dist = _samples()[2]
+    if not hasattr(m, 'uvs'): m.uvs = {}                # surfaces.export: the faces that carry their own UVs
+    point = lambda c, n, s, z: (c[0]+n[0]*s, c[1]+n[1]*s, z)
+    def strip(offsets, key, uv=None):
+        for (c, n, zc), (d, o, zd), t0, t1 in zip(sections, sections[1:], dist, dist[1:]):
+            for lo, hi in zip(offsets, offsets[1:]):
+                faces = len(m.faces)
+                m.poly([point(c, n, hi, zc[hi]), point(c, n, lo, zc[lo]), point(d, o, lo, zd[lo]), point(d, o, hi, zd[hi])], key)
+                if uv and len(m.faces) > faces and len(m.faces[-1]) == 4:
+                    m.uvs[faces] = [uv(hi, t0), uv(lo, t0), uv(lo, t1), uv(hi, t1)]
+    strip(ASPHALT, 'ar_island_road', road_uv)
+    def lawn(points):   # a verge face in the grass under it: the island ground's colour, fading to HD_Terrain's lawn
+        faces = len(m.faces); m.poly(points, 'ar_verge_lawn')
+        if len(m.faces) > faces and hasattr(m, 'colors'):
+            from hidamari import layout
+            from village import build as v
+            k = len(m.faces[-1]); hd = v.PALETTE['hd_grass']
+            for i, (x, _, _) in enumerate(m.vertices[-k:]):
+                w = float(layout.island_fade(x)); m.colors[len(m.colors)-k+i] = (*(a*(1-w)+b*w for a, b in zip(layout.ISLAND_LAWN, hd)), 0)
+    # Each shoulder is gravel out to a width that grows from nothing at the island road's end (which runs straight
+    # onto the grass) to the whole shoulder over BLEND metres; the rest of it is lawn. Its column at a section is cut
+    # where that width ends, on the section's line between its two points, so a face that narrows to nothing is
+    # dropped (Mesh.poly) rather than drawn.
+    def cut(c, n, z, lo, hi, s):
+        u = min(max((s-lo)/(hi-lo), 0.), 1.); return point(c, n, lo+(hi-lo)*u, z[lo]+(z[hi]-z[lo])*u)
+    for side in (-1, 1):
+        offsets = _shoulder(side)
+        for (c, n, zc), (d, o, zd), t0, t1 in zip(sections, sections[1:], dist, dist[1:]):
+            b0, b1 = (side*(SHOULDER[0]+(SHOULDER[-1]-SHOULDER[0])*_smooth(t/BLEND)) for t in (t0, t1))
+            for lo, hi in zip(offsets, offsets[1:]):
+                p0, p1 = cut(c, n, zc, lo, hi, b0), cut(d, o, zd, lo, hi, b1)
+                ring = [point(c, n, lo, zc[lo]), p0, p1, point(d, o, lo, zd[lo])]
+                verge = [p0, point(c, n, hi, zc[hi]), point(d, o, hi, zd[hi]), p1]
+                if side > 0: ring, verge = ring[::-1], verge[::-1]
+                m.poly(ring, 'ar_road_gravel'); lawn(verge)
+    # A short skirt under each shoulder's outer edge and across its start, in the shoulder's surface there: the
+    # shoulder ends FLUSH above the drawn ground, and the skirt closes what little light could show under it.
+    g = ground(height)
+    def skirt(p, q, gravel):
+        quad = [p, q, (q[0], q[1], g(q[0], q[1])-SKIRT), (p[0], p[1], g(p[0], p[1])-SKIRT)]
+        for face in (quad, quad[::-1]): m.poly(face, 'ar_road_gravel') if gravel else lawn(face)
+    for side in (-1, 1):
+        offsets = _shoulder(side); outer = offsets[-1]
+        for (c, n, zc), (d, o, zd), t0 in zip(sections, sections[1:], dist):
+            skirt(point(c, n, outer, zc[outer]), point(d, o, outer, zd[outer]), t0 >= BLEND)
+        c, n, zc = sections[0]
+        for a, b in zip(offsets, offsets[1:]): skirt(point(c, n, a, zc[a]), point(c, n, b, zc[b]), False)
 
 
 def arrival(m, height):

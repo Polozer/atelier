@@ -32,7 +32,7 @@ TRACE = [(-56.0, 1325.4), (-68.7, 1327.3), (-78.3, 1324.0), (-91.3, 1316.5), (-1
 SAMURAI = (np.array([4.3, 1262.9, 124.6]), np.array([-.91, .41]))       # the billboard's centre and facing
 ONI = (np.array([-189.2, 1390.7, 69.3]), np.array([-154., 1411.1, 69.3]), np.array([.5, -.87]))
 SIGN = np.array([14.7, 1333.5, 145.7])                                  # 寄り道, facing west over the deck
-SUMMIT = np.array([550., 1930., 480.])
+SUMMIT = np.array([850., 2400., 650.])  # the caldera's crest (hidamari/mountains.py VOLCANO)
 
 
 @lru_cache(maxsize=1)
@@ -60,7 +60,7 @@ def crowns():
     city = json.loads((yori.OUT/'hidamari'/'city.json').read_text())['instances']
     rows = []
     for name, items in city.items():
-        if not name.startswith(('Tree', 'HD_NorthTree')): continue
+        if not name.startswith('Tree'): continue
         size = plants.MESHES.get(name, (13., 3.))
         for x, y, z, _, s in items:
             if -1000 < x < 400 and 800 < y < 1800: rows.append((x, y, z+.25*size[0]*s, z+size[0]*s, size[1]*s))
@@ -188,7 +188,7 @@ def film(label, preview=False):
                f'-reviewdir={folder}', '-UseFixedTimeStep', '-FPS=60', '-unattended', '-nosplash', '-stdout', '-noshaderworker',
                f'-set={V.SETTINGS};show_fps=0', f'-ExecCmds={V.COMMANDS}', f'-abslog={folder/"game.log"}']
     try:
-        subprocess.run([sys.executable, '-m', 'atelier.safety.guarded', '--report', str(folder/'guard'), '--timeout', '5400',
+        subprocess.run([sys.executable, '-m', 'atelier.harness.safety.guarded', '--report', str(folder/'guard'), '--timeout', '5400',
                         '--purpose', f'Mega Park tour {label}', '--', *command], check=True, stdout=subprocess.DEVNULL,
                        env={**os.environ, 'PYTHONPATH': str(yori.REPO/'platform'/'studio')})
     finally:

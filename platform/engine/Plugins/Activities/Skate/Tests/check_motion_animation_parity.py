@@ -3,7 +3,7 @@
 
 Combines main tree, channels, parameter sources, retained graph attributes,
 PlayAnimation/CreateAttribute factories and lifecycle against frozen original
-host bodies with exact extraction hashes. Run under atelier.safety.
+host bodies with exact extraction hashes. Run under atelier.harness.safety.
 """
 import argparse
 import hashlib

@@ -59,7 +59,7 @@ prints `verified: {...}` or `not verified: ...` (exit code 1):
 
 This is a local build run from the editor binary, not a cooked package.
 
-Agent-launched processes use `atelier.safety.process` on macOS: application scheduling policies, at least
+Agent-launched processes use `atelier.harness.safety.process` on macOS: application scheduling policies, at least
 nice 10, without imposing a thread QoS clamp. This prevents a background launchd role from distorting imports
 and game measurements. Native review and benchmark launchers use the same helper. The command still owns the
 actual child PID, render admission, memory ceiling and cleanup; worker counts and caches stay unchanged.
@@ -100,6 +100,11 @@ Set by the game's preferences with `desktop=1` and `performance=1` (`JapanPrefer
 | `r.InstanceCulling.OcclusionCull` | 1 | culls instances the depth buffer hides (both profiles) |
 | `japan.HarborFillAuto` | 1 | no cascades for the harbor's second directional light when every receiver is beyond cascade range |
 
+Laptop mode (`laptop=1`) also selects Performance, with one shadow cascade, forest detail capped at 0.25,
+tree shadows capped at 40 m and sway at 20 m. Its dynamic-resolution floor is 50%, or the saved render-scale
+ceiling if that is lower. It uses scene color format 2 and TAA quality 3 through `LightFrame`, even outside a
+desktop profile. The sliders retain their saved values for when Laptop mode is switched off.
+
 The player's mesh casts an inset (per-object) shadow in both profiles, shared by what is attached to it (sword, props,
 bike; `WandererCharacter.cpp`). With only two 1024 cascades, the first one spans about 43 m at roughly 8 cm per texel,
 so the rider's cascade shadow was a soft blob that changed shape every frame while skating on the pier. In a
@@ -137,7 +142,7 @@ uv run python games/yorimichi/tools/benchmark.py village-walk-01 --view road_wal
 
 | Option | Meaning |
 |---|---|
-| `--view` | static cameras: `spawn` (default), `portrait`, `forest`, `coast`, `village`, `north_overview`, `park`, `station`, `lake`, `harbor`, `arcade`, `plaza`, `city`, `custom` (with `--camera X Y Z PITCH YAW FOV`, player hidden); moving: `traverse` (walk, jog, run and a jump), `road_walk` (runs a scripted route) |
+| `--view` | static cameras: `spawn` (default), `portrait`, `forest`, `coast`, `village`, `north_overview`, `park`, `station`, `lake`, `harbor`, `arcade`, `plaza`, `city`, `custom` (with `--camera X Y Z PITCH YAW FOV`, player hidden); moving: `traverse` (walk, jog, run and a jump), `road_walk` (runs a scripted route), `zeppelin` (boards at the Woodland station and times the cruise to Hidamari, looking back at the lake over the forest; the capture ends where the landing begins, so `--seconds` is only a ceiling: the 28 s cruise fits in `--seconds 60`) |
 | `--route` | with `road_walk`: `village` (default), `village_loop`, `mega`, `hidamari`, `arcade`, `plaza`, `harbor`, `harbor_pier`, `north`; `--road-index N` starts at route sample N |
 | `--desktop-fullscreen` | the visible fullscreen game with the desktop viewport client and session-only `desktop=1`; needs `--height 1440` and a `--width` matching the display's aspect. An explicit `--settings 'desktop=0'` retains a baseline experiment. Without it the capture renders offscreen at `--width` × `--height` (default 1920×1080) |
 | `--capped` | `t.MaxFPS 60` instead of uncapped; VSync stays off unless `--commands` adds `r.VSync 1` |

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact original seven-recognizer manager/listener/action publication checks.
 
-Run through atelier.safety. The frozen original host owns all expected outcomes;
+Run through atelier.harness.safety. The frozen original host owns all expected outcomes;
 corpus construction uses authored PAT points and supplies physical/AG inputs.
 """
 import argparse

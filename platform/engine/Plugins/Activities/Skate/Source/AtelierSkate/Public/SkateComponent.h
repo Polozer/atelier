@@ -16,6 +16,7 @@ class UAudioComponent;
 class USoundWave;
 class USoundAttenuation;
 class FSkateRuntime;
+struct FSkateContinuation;
 class FRideClipPlayer;
 class UBoxComponent;
 class UPhysicsAsset;
@@ -99,6 +100,9 @@ public:
     void PhysSkate(float Dt);
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     const TArray<FTransform>& GetRiderPose() const { return RiderPose; }
+    /** Prepare a remote pose on the game thread immediately before the animation
+     * node copies it. Component ticks alone can follow the character's pose tick. */
+    FSimpleDelegate PrepareNetworkPose;
     /** The switches between the skate pose and the character's own that should be blended (FAnimNode_SkateRider):
      *  the count changes at each one, and the blend takes GetPoseBlendTime seconds (0: cut). */
     uint32 GetPoseBlendSerial() const { return PoseBlendSerial; }
@@ -115,6 +119,16 @@ public:
     bool PlaceAt(const FVector& GroundPoint, float Yaw);
     /** QA: set the board's velocity (cm/s, world). */
     void Launch(const FVector& Velocity);
+    /** Keep the existing simulation through a character replacement. Physical
+     * bails and transition clips must finish before detaching the rider. */
+    bool CanContinueRide() const;
+    TSharedPtr<FSkateContinuation> DetachRide();
+    bool ContinueRide(TSharedPtr<FSkateContinuation> Continuation);
+    uint64 GetSimulationTick() const;
+    uint64 GetContinuedAtTick() const { return ContinuedAtTick; }
+    ESkateMode GetContinuedMode() const { return ContinuedMode; }
+    float GetBodyLift() const { return BodyLift; }
+    FTransform GetRideRoot() const { return RideRoot(); }
 
     uint32 GetSerial() const { return Serial; }
     FTransform GetDeckWorld() const;
@@ -141,6 +155,7 @@ public:
     FVector GetBoardVelocity() const { return Vel; }
 
 private:
+    friend class FRemoteVehiclePresentationTest;
     UPROPERTY() TObjectPtr<ACharacter> Rider;
     ISkateRider* RiderApi = nullptr;
     UPROPERTY() TObjectPtr<USceneComponent> BoardRoot;
@@ -170,6 +185,9 @@ private:
     ESkateMode Mode=ESkateMode::Off;
     FSkateInput In,Scripted;
     TSharedPtr<FSkateRuntime> ShownRuntime;
+    TSharedPtr<FSkateContinuation> PendingContinuation;
+    uint64 ContinuedAtTick = 0;
+    ESkateMode ContinuedMode = ESkateMode::Off;
     bool bSimulationActive=false;
     TArray<FTransform> RiderPose;
     float BailVisualLift=0.f,ShownFloorClearance=0.f;
@@ -192,6 +210,8 @@ private:
     void TickSimulation(float Dt);
     void LaunchSimulation(const FVector& V);
     void ConfigureSimulation();
+    /** The camera's pull-back at speed (FSkateFeel::CameraPullback), eased toward the rider's speed. */
+    void EaseCameraPull(float Dt);
     void RetargetRiderPose();
     /** The visible board's growth about the ground contact Pos (ISkateRider::GetSkateBoardScale). */
     float BoardScale() const;
@@ -256,6 +276,13 @@ private:
     void BeginSimulationBoardInBail();
     void FollowSimulationBoardInBail(float Dt);
     void EndSimulationBoardInBail();
+    /** A step whose session lost the rider (its own recovery teleport, a jump, its board down through Unreal's floor:
+     *  Private/Ride/RideLostSimulation.h) is not shown: the body bails where the rider is. Whether it did. */
+    bool BailOffLostSimulation(float Dt);
+    // The floor a kept step of the ride's air went into and ended under (RideLostSimulation::Hold): the next step's trace
+    // starts over it, so a board that goes on down through it is still caught.
+    bool bLostFloorHeld = false;
+    FVector LostFloorAt = FVector::ZeroVector, LostFloorNormal = FVector::ZeroVector;
     void AfterSimulationRideFrame(float Dt);
     void GetUpFromSimulationBail();
     // The simulation's rider off the board on foot (its Biped states) becomes the character once that outlasts the frames a
@@ -371,6 +398,9 @@ private:
     bool TakeRunOut(ERideBailKind Kind);
     bool BeginRunOut();
     bool BeginRecover();
+    /** The assist zones' limit on the vert assist for the next step (SkateAssistZones.h), held through an air. */
+    void UpdateAssistZones();
+    float VertAssistHeld = 1.f;
     bool BeginStepOnClip();
     /** The board leaves the clip (kicked away, or rolling on after a run-out): it flies or rolls on by itself as a
      *  projectile, or settles where it is when it barely moves. */

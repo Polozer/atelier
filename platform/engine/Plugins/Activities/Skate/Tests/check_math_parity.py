@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact differential math/geometry/curve checks against frozen Rust modules.
 
-Run through atelier.safety. All generated sources, binaries and evidence stay in
+Run through atelier.harness.safety. All generated sources, binaries and evidence stay in
 the supplied game build directory. No Rust numerical implementation is edited.
 """
 import argparse

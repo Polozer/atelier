@@ -12,7 +12,7 @@ uv run atelier build yorimichi world.map data.stage
 ```
 
 `world.map` runs [`build_map.py`](../world/map/build_map.py) after `world.layout`, `world.hidamari`,
-`world.skatepark` and `world.zeppelin`. It writes `build/yorimichi/map/`:
+`world.skatepark`, `world.zeppelin` and `world.belmonte`. It writes `build/yorimichi/map/`:
 
 | File | Contents |
 | --- | --- |
@@ -28,12 +28,12 @@ uv run atelier build yorimichi world.map data.stage
 - Coordinates are Blender metres: x east, y north, z up, the frame of `gen_world.py` and `world.json`. Unreal uses
   the same values in centimetres with y negated (`AJapanWorld::ToUE`); zone yaws are negated on load.
 - The sheet uses the compact projection in [`map_projection.py`](../world/map/map_projection.py): piecewise-linear
-  knots on each axis (`X_KNOTS`, `Y_KNOTS`) over `BOUNDS = [-400, -650, 1685, 740]`. Gameplay scale is untouched; the
+  knots on each axis (`X_KNOTS`, `Y_KNOTS`) over `BOUNDS = [-400, -650, 1685, 1120]`. Gameplay scale is untouched; the
   distant north takes only a fifth of the sheet. The southern strip reaches world y -730, keeping the temple island
   visible after its 50 m offshore move; projection controls north of world y -461.31835938 are unchanged.
   `map.json` carries the knots, and the game and `phone/map.js` place
   the player and the pins through the same ones.
-- The sheet is 3:2, the aspect the image model paints at (the painted sheet is 1536 x 1024).
+- The committed painted sheet is 2085 × 1770 pixels; its dimensions follow the current projection bounds.
 
 ## What the sheet draws
 
@@ -54,7 +54,9 @@ Each zone is a travel target with a key, name, position, yaw and hint. Zones are
 | Main road and hamlet | `spawn`, `hamlet`, `mega` |
 | South-west island | `fishing`, `cove`, `landing`, `temple` |
 | Hidamari | `arrival`, `arcade`, `plaza`, `harbor`, `hillside`, `park`, `station`, `foothills` |
-| Elsewhere | `forest_lake`, `megapark`, `skatepier`, `hippodrome`, `zeppelin_forest`, `zeppelin_city`, `zeppelin_megapark` |
+| Elsewhere | `forest_lake`, `megapark`, `skatepier`, `hippodrome`, `zeppelin_forest`, `zeppelin_city`, `zeppelin_megapark`, `zeppelin_belmonte` |
+| Volcano | `craterpark` (Crater Park: its marked ramp drop-in, looking across the park; [CRATERPARK.md](CRATERPARK.md)) |
+| Belmonte | `belmonte`, `belmonte_course`, `belmonte_training` (from `belmonte/runtime.json`) |
 
 `UJapanMap` adds a `skatepier` stop from `skatepark/park.json`, and a `hippodrome` stop (by the grandstand, at the
 grandstand) from `hippodrome/hippodrome.json`, when `map.json` has none ([HIPPODROME.md](HIPPODROME.md)).
@@ -112,6 +114,7 @@ from data:
 | `world_map_provenance.json` | Model, prompt and inputs, with each earlier version's record nested under `parent` |
 | `island_repaint.provenance.json` | The ledger of the south-west island repaint call |
 | `sunset_pier_repaint.provenance.json` | The shared paid-call ledger for the enlarged pier and moved island |
+| `volcano_repaint.provenance.json` | The ledger of the enlarged volcano's repaint ([`repaint_volcano.py`](../world/map/repaint_volcano.py)) |
 
 `build_map.py` uses the painted sheet only while its bounds and knots match the current ones exactly; otherwise it
 falls back to the generated sheet. Never stretch old artwork over a changed world: every pin would move off its
@@ -179,9 +182,9 @@ belong in the archive; an existing ledger is never removed to retry an uncertain
   (`atelier stream yorimichi start`), and [`phone/map-scroll-smoke.mjs`](../phone/map-scroll-smoke.mjs) tests the
   touch gestures offline.
 
-Travel goes through `AWandererCharacter::TravelTo`: it cancels a zeppelin ride, stows the board and the sailboat,
-clears momentum, traces the ground under the target and places the character facing the zone's yaw. The phone's
-"back to spawn" button uses the same path.
+Travel goes through `AWandererCharacter::TravelTo`: it cancels a zeppelin ride, stows the board, the sailboat, the
+bike and the horse, clears momentum, traces the ground under the target and places the character facing the zone's
+yaw. The phone's "back to spawn" button uses the same path.
 
 `uv run atelier play yorimichi -- -mapqa -reviewdir=DIR` travels to every zone in turn, screenshots each
 (`map_NN_key.png`) and the open map (`map_overlay.png`), and writes `map_qa.json` (target, landed position, drift,

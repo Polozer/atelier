@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bounded full original MotionHost push phase, lifecycle and attribute parity.
 
-Only the parent runs builds/probes under atelier.safety. This exercises original
+Only the parent runs builds/probes under atelier.harness.safety. This exercises original
 host factories and phase callbacks; complete controller registration is separate.
 """
 import argparse

@@ -1,14 +1,14 @@
-"""Ride Cairo's bike through every move in the real game, check what happened and film it (docs/BIKE.md).
+"""Ride the bike through every move in the real game, check what happened and film it (docs/BIKE.md).
 
-    uv run python games/yorimichi/tools/review_bike.py [--port N] [--no-film] [--site x,y,yaw] [--crash x,y,yaw]
+    uv run python games/yorimichi/tools/review_bike.py [--rider NAME] [--port N] [--no-film] [--site x,y,yaw] [--crash x,y,yaw]
 
-Run after unreal.compile, unreal.bike, unreal.cairo_bike and data.stage. Under the render guard it launches the
+Run after unreal.compile, unreal.bike, the rider's unreal.<id>_bike and data.stage. Under the render guard it launches the
 island, finds open level ground for the ride and a clear run for the crash near the towns (or takes --site/--crash in
 Unreal cm and degrees), runs scenarios/bike_live.py on a fixed 60 fps step, then checks the recorded rows: the bike
 comes out beside him, he mounts, pedals, turns both ways, rings, waves, hops, skids to a foot-down stop, parks on the
 stand, gets back on the same parked bike, crashes at speed into a test wall put up across his path, and rides up a test
 ramp with both wheels on it. Writes
-build/yorimichi/bike/review/{checks.json, rows.json, sites.json, bike_*.png, bike.mp4, game.log}, and bike_sound.mp4
+build/yorimichi/bike/review/ (review-<rider>/ with --rider) {checks.json, rows.json, sites.json, bike_*.png, bike.mp4, game.log}, and bike_sound.mp4
 (and -720p): the film with its soundtrack mixed from the sounds the game played, the bike's loops and the camera
 (scenarios/skate_mix_showreel.py). The worker owns and quits only the game process it launches.
 """
@@ -18,9 +18,9 @@ import argparse, csv, json, math, shutil, subprocess, sys, time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world'))
 import yori
 from atelier.build import Context
-from atelier.safety import guarded
-from atelier.safety.guard import attach as attach_memory_guard, reap
-from atelier.safety.process import spawn_game
+from atelier.harness.safety import guarded
+from atelier.harness.safety.guard import attach as attach_memory_guard, reap
+from atelier.harness.safety.process import spawn_game
 from atelier import live
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -30,11 +30,12 @@ parser.add_argument('--no-film', action='store_true')
 parser.add_argument('--site', default='', help='x,y,yaw (Unreal cm, degrees): level ground for the ride')
 parser.add_argument('--crash', default='', help='x,y,yaw: at least 13 m of level, clear ground ahead (a test wall goes up at 11 m)')
 parser.add_argument('--keep-frames', action='store_true')
+parser.add_argument('--rider', default='', help='the playable character to ride as (-rider=; default: the default character)')
 parser.add_argument('--recheck', action='store_true', help='check the last run\'s rows.json again without the game')
 args = parser.parse_args()
 args.port = args.port or live.free_port()
 live.URL = f'http://127.0.0.1:{args.port}'
-ctx = Context('yorimichi'); out = yori.OUT / 'bike' / 'review'; out.mkdir(parents=True, exist_ok=True)
+ctx = Context('yorimichi'); out = yori.OUT / 'bike' / ('review-' + args.rider.lower() if args.rider else 'review'); out.mkdir(parents=True, exist_ok=True)
 
 ZONES = {z['key']: z for z in json.loads((yori.OUT / 'map' / 'map.json').read_text())['zones']}
 # Island metres to Unreal centimetres.
@@ -218,7 +219,8 @@ shutil.rmtree(out / 'film', ignore_errors=True)
 log = (out / 'game.log').open('w')
 cmd = [str(ctx.unreal_app), str(ctx.uproject), '-game', '-windowed', '-resx=1280', '-resy=720', '-nosplash', '-stdout', '-nofox',
        f'-liveport={args.port}', '-ini:Engine:[HTTPServer.Listeners]:DefaultBindAddress=localhost',
-       '-preferencesfile=' + str(out / 'settings.txt'), '-ExecCmds=t.MaxFPS 60,r.RHISetGPUCaptureOptions 0,DisableAllScreenMessages']
+       '-preferencesfile=' + str(out / 'settings.txt'), '-ExecCmds=t.MaxFPS 60,r.RHISetGPUCaptureOptions 0,DisableAllScreenMessages',
+       *([f'-rider={args.rider}'] if args.rider else [])]
 p = spawn_game(cmd, stdout=log, stderr=subprocess.STDOUT)
 guards = ExitStack(); monitor = None
 

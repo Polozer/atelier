@@ -62,6 +62,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Live") static bool HoldCamera(float Seconds);
     /** The Esc menu's character switch (FPlayableCharacter::SwitchPlayer): "Cairo" or a rider; returns the character playing. */
     UFUNCTION(BlueprintCallable, Category = "Live") static FString SwitchCharacter(const FString& Name);
+    /** The character selection screen (FJapanCharacterSelect): state as JSON, opening it, or choosing a character from it. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static FString CharacterSelectState();
+    UFUNCTION(BlueprintCallable, Category = "Live") static bool OpenCharacterSelect();
+    UFUNCTION(BlueprintCallable, Category = "Live") static FString SelectCharacter(const FString& Name);
     /** The sword trainer (ASwordTrainer): her state as JSON; a bout with the player (level 0 gentle, 1 steady, 2 master);
      *  her menu; ending a bout; forcing her next opening ("combo", "charge", "dash", "jump", "double", "feint") or her
      *  answer to the next blow ("parry", "dodge", "perfect", "guard", "take"); her location for filming (Ground Yaw). */
@@ -73,4 +77,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Live") static bool TrainerPlace(FVector Ground, float Yaw);
     /** Visit the hippodrome as a public venue. */
     UFUNCTION(BlueprintCallable, Category = "Live") static bool HippodromeVisit();
+    /** The horse (UHorseComponent) as text: phase, clips, speed, look, status and placement. HorseConfigure sets its look by
+     *  roster ids (breed slug, tack id, coat id or "native", coat mask, hair colour id or "native", hair pattern,
+     *  tint; empty keeps that part) and returns the state, or empty for an unknown id. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static FString HorseState();
+    UFUNCTION(BlueprintCallable, Category = "Live") static FString HorseConfigure(const FString& Breed, const FString& Tack = TEXT(""), const FString& Coat = TEXT(""), const FString& Mask = TEXT(""), const FString& HairColor = TEXT(""), const FString& HairPattern = TEXT(""), const FString& Tint = TEXT(""));
 };

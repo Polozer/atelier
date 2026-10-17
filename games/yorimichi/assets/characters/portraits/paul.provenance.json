@@ -1,0 +1,41 @@
+{
+  "stage": "character-portrait",
+  "character": "paul",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/edits",
+  "execution": "games/yorimichi/tools/character_select_art.py",
+  "prompt_file": "paul.prompt.txt",
+  "prompt_sha256": "5369a935b016813c5b61e7373c9cfa0242291fb5a75d7f1e8f94ad41400f40f4",
+  "reference_files": {
+    "games/yorimichi/assets/characters/paul/references/body/front.png": "d7dbd5b3f9f40b93f309a8e3dbf10b78dbccf683d7833bd49aa59c14513d79cf",
+    "games/yorimichi/assets/characters/paul/portrait.png": "0bfaf3c3514568aa45354ae2f68a2c99c2dac53a5d0bb473dd51e3cb5534f1a5"
+  },
+  "status": "done",
+  "started_at": "2026-10-16T21:46:54.687488+00:00",
+  "usage": {
+    "input_tokens": 1963,
+    "input_tokens_details": {
+      "image_tokens": 1759,
+      "text_tokens": 204
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 3719
+  },
+  "outputs": {
+    "paul.png": "c61b7865b89002ca4761282e5d13538244df147c891beb02c22e4cc3a183884c"
+  },
+  "portrait": {
+    "file": "paul.png",
+    "size": "440x520",
+    "bytes": 319231,
+    "sha256": "1df5dda4d44885a01a0fc17b5fb34c081c15d1b0d4f994a086cfca0f8717fcef"
+  },
+  "elapsed_seconds": 38.6,
+  "finished_at": "2026-10-16T21:47:33.275620+00:00"
+}

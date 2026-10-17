@@ -385,8 +385,8 @@ Each outfit adds a rule the key alone does not cover; all of them run on all fiv
   `cairo_body_swap_{references,sunburst,fit,assemble,capture,check,export}.py` (the stages), `cairo_body_key.py`
   (reading the key), `cairo_back_concepts.py` (design rounds), `promote.py`. The Tripo client is
   `platform/studio/atelier/ai/tripo_asset.py`; the game export is
-  `games/yorimichi/assets/characters/cairo/export_unreal.py`; the Unreal import is
-  `games/yorimichi/unreal/Scripts/import_cairo.py`.
+  `games/yorimichi/assets/characters/pipeline/export.py --character cairo`; the Unreal import is
+  `games/yorimichi/unreal/Scripts/import_character.py` (`CHARACTER=cairo`).
 - Outfit specs: `games/yorimichi/assets/characters/cairo/outfits/*.toml`.
 - Per outfit, in its revision folder: `review.jpg`, `captures/`, `qa/check.json`, `qa/findings-*.md`,
   `assembled/assembly.json`, `outfit-run.json`.

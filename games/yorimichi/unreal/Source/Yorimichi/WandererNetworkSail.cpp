@@ -13,7 +13,12 @@ bool AWandererCharacter::RequestNetworkSail()
 {
     const bool Exiting=NetworkActivity.Kind==EJapanActivity::Sailboat;
     const auto* Rules=GetWorld()->GetGameState<AJapanGameState>();
-    if((!Rules||!Rules->bPredictedVehicles)&&!Exiting)return false;
+    if((!Rules||!Rules->bPredictedVehicles)&&!Exiting)
+    {
+        if(auto* Session=GetWorld()->GetGameInstance<UJapanGameInstance>())
+            Session->SetSessionStatus(TEXT("The host has disabled vehicles."));
+        return false;
+    }
     if(!Sailboat||!Sailboat->IsAvailable())
     {
         if(auto* Session=GetWorld()->GetGameInstance<UJapanGameInstance>())
@@ -29,7 +34,7 @@ void AWandererCharacter::ServerRequestSail_Implementation(uint32 Epoch)
 {
     auto* Combat=GetWorld()->GetSubsystem<UJapanCombatResolver>();
 #if !UE_BUILD_SHIPPING
-    JapanVehicleTelemetry::Request(this,false,Epoch,Combat->HasPending(this),MovementLocked(),
+    JapanVehicleTelemetry::Request(this,TEXT("sail"),Epoch,Combat->HasPending(this),MovementLocked(),
         GetWorld()->GetSubsystem<UJapanEncounters>()->HoldsPlayer(this));
 #endif
     const bool Exiting=NetworkActivity.Kind==EJapanActivity::Sailboat;

@@ -87,7 +87,7 @@ def main(frames, out):
         (inputs / 'inputs.json').write_text(json.dumps({
             'source': 'games/yorimichi/assets/vehicles/bike/rider.py --frames', 'starting_frame': frame,
             'image_sha256': digest,
-            'method': 'Cairo on the approved rig (Cairo-Game-r18, sha checked by export_unreal.prepare) posed by rider.py at the '
+            'method': 'Cairo on the approved rig (Cairo-Game-r18, sha checked by pipeline/rig.py prepare) posed by rider.py at the '
                       'first frame of BikeMount (beside) or BikeRide (riding), with the approved bike model; Blender Eevee 768 px, '
                       'no generative editing'}, indent=2) + '\n')
         (rev / '.gitignore').write_text('api-private/\n*.part\nanalysis-frames/\n')

@@ -40,13 +40,13 @@ void AJapanGameMode::SpawnFoxHunter(AJapanWorld* W, AWandererCharacter* Player)
 UClass* AJapanGameMode::GetDefaultPawnClassForController_Implementation(AController* Controller)
 {
     if (UClass* Rider = FPlayableCharacter::PawnOverride()) return Rider;
+    // Resolved here, not in the constructor: the characters register from their records once the game is running.
+    if (UClass* Player = FPlayableCharacter::Default().Class()) return Player;
     return Super::GetDefaultPawnClassForController_Implementation(Controller);
 }
 
 AJapanGameMode::AJapanGameMode()
 {
-    // Wanderer is a village NPC; the yellow kid is the player character.
-    DefaultPawnClass = FPlayableCharacter::Default().Class();
     HUDClass = AJapanHUD::StaticClass();
     PlayerControllerClass = AJapanPlayerController::StaticClass();
 }
@@ -58,5 +58,9 @@ void AJapanGameMode::BeginPlay()
     AWandererCharacter* T = Cast<AWandererCharacter>(UGameplayStatics::GetPlayerPawn(this, 0));
     if (T) T->EnterWorld(W);
     SpawnFoxHunter(W, T);
-    if (W && W->bLoaded) ASwordTrainer::SpawnInVillage(W, W->VillageRecord);
+    if (W && W->bLoaded)
+    {
+        ASwordTrainer::SpawnInVillage(W, W->VillageRecord);
+        ASwordTrainer::SpawnRoninCamp(W);
+    }
 }

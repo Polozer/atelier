@@ -21,7 +21,7 @@ SHA-256 and the counts below.
 | `Modori-Body` | Tripo Studio's body (Smart Mesh and Smart UV), 5,172 vertices, skinned to the rig. One material, matte (specular 0, roughness 1), its normal map disconnected; base colour `basecolor-redo.png`, 4096 px |
 | `Modori-Coat` | Tripo's long coat, a separate mesh of 5,404 vertices fitted onto the body and skinned to the same rig, with a `cloth_pin` vertex group; base colour 4096 px |
 
-- **Scale and axes:** 1 m tall in the source, Z up, facing -Y. `export_unreal.py` scales him to 1.75 m (`height_cm`),
+- **Scale and axes:** 1 m tall in the source, Z up, facing -Y. The export scales him to 1.75 m (`height_cm`),
   places the soles at the floor and turns him to face +X. He is about 5 heads tall to Cairo's 4.
 - **Texture:** the *redo* variant of [`modori_texture.py`](../tools/modori_texture.py), chosen by the user on
   7 October 2026: each head triangle is labelled skin, hair or collar, and the skin and hair are painted fresh with soft
@@ -42,19 +42,26 @@ nice -n 10 uv run atelier build yorimichi
 nice -n 10 uv run atelier play yorimichi -- -rider=Modori
 ```
 
-The normal build includes him. `unreal.modori_adventure` selects his mesh and merged-motion imports with their
-dependencies when only those assets need rebuilding after an existing full build.
+The normal build includes him. `unreal.modori_pawn` selects his body, merged-motion, bike, grip and fit dependencies
+and writes the playable pawn and roster record when rebuilding only this character.
 
-- `characters.modori` runs [`export_unreal.py`](export_unreal.py), checks the source hash, renames the bones to the
-  humanoid contract and writes his body, coat, textures and cloth mask into `build/yorimichi/modori/`.
-- `unreal.modori` runs `unreal/Scripts/import_modori.py`, creating `SK_Modori`, materials, coat cloth and colliders,
+- `characters.modori` runs the shared body export ([`../pipeline/export.py`](../pipeline/export.py)) with his
+  [`export_hooks.py`](export_hooks.py) (the coat's cloth mask and colliders, the tucked trousers). It checks the
+  source hash, renames the bones to the humanoid contract and writes his body, coat, textures and cloth mask into
+  `build/yorimichi/modori/`.
+- `unreal.modori` runs `unreal/Scripts/import_character.py`, creating `SK_Modori`, materials, coat cloth and colliders,
   and `DA_ModoriBase`. The base supplies the mesh and measurements to the merged importer.
 - `characters.modori_adventure` runs `adventure/retarget.py --character modori`, using Cairo's donor clips and the
   committed motion reference. `unreal.modori_adventure` imports those clips into `/Game/Modori/Adventure` and writes
   `DA_Modori` and his move record. [`adventure.toml`](adventure.toml) records his equipment fit.
 - `characters.modori_grips` exports his posed hand grips for the sword and paraglider.
+- `unreal.modori_bike` imports his bike actions; `characters.modori_fit` computes equipment fit.
+- `characters.modori_horse` authors his horseback riding actions and `unreal.modori_horse` imports them; with
+  `unreal.horses` they install the horse ([HORSE.md](../../../docs/HORSE.md)). `unreal.modori_pawn` does not wait for
+  the two imports: a rebuild of only this character names them too.
+- `unreal.modori_pawn` creates `BP_Modori` and the runtime character record after those dependencies finish.
 
-`AModoriCharacter` is registered as a playable character and always uses his merged move set. His coat skirt is
+`BP_Modori` is registered as a playable character and always uses his merged move set. His coat skirt is
 simulated by Chaos Cloth, with the upper coat pinned and the free skirt colliding with capsules on his body.
 His skating arm fit includes the width of his coat, so his hands stay outside the skirt during turns.
 The cloth resets after teleports and board mounts. His story weapon, the rope and bell-metal weight, is still a
@@ -72,7 +79,7 @@ Game rebuilds use the committed blend and its packed textures. The original Trip
 inputs to the authoring tools, rather than the game build. They stay in the author's ignored
 `build/yorimichi/characters/modori/` (`tripo-body-r01/` with its `rigged/modori-rigged.fbx`, `tripo-coat-r01/`).
 To author a replacement from those files, under the guard
-(`uv run python -m atelier.safety.guarded --small 3 ...`):
+(`uv run python -m atelier.harness.safety.guarded --small 3 ...`):
 
 ```sh
 T=games/yorimichi/assets/characters/tools; M=build/yorimichi/characters/modori; B=$M/tripo-body-r01

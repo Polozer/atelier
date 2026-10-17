@@ -3,6 +3,7 @@
 #include "RidePhysicalRiderDetail.h"
 #include "SkateRider.h"
 #include "RideClipPlayer.h"
+#include "RideShownMotion.h"
 #include "PhysicsControlComponent.h"
 #include "PhysicsControlAsset.h"
 #include "PhysicsControlRecord.h"
@@ -568,8 +569,13 @@ void URidePhysicalRider::Update(float Dt, ERidePhysicalPhase NewPhase)
     AdvanceGetUp(Dt);
 
     const FVector MeshAt = Mesh->GetComponentLocation();
-    const bool bPlaced = FVector::DistSquared(MeshAt, LastMeshLocation) > FMath::Square(PlacedDistance);
     const FVector RiderVelocity = Rider->GetVelocity();
+    // A frame can show up to a step's worth of the session's ticks (RideShownMotion.h): a 35 m/s air moves 117 cm in
+    // two. A placement is a move beyond what the rider's speed covers in one, for this test and Physics Control's alike
+    // (its teleport drops the controls' velocities for a frame and resets the board-frame root body).
+    const float Reach = RideShownMotion::PlacedReach(PlacedDistance, float(FMath::Max(RiderVelocity.Size(), LastRiderVelocity.Size())));
+    Control->TeleportDistanceThreshold = Reach;
+    const bool bPlaced = FVector::DistSquared(MeshAt, LastMeshLocation) > FMath::Square(Reach);
     const FVector Launch = RiderVelocity - LastRiderVelocity;
     LastMeshLocation = MeshAt; LastRiderVelocity = RiderVelocity;
     if (!bSimulating || GetUpWait >= 0) PelvisError = WorstError = FootError = 0.f;
@@ -750,6 +756,17 @@ const TCHAR* URidePhysicalRider::SkinGroupName(int32 Group)
     return Group >= 0 && Group < SkinGroupCount ? SkinGroupNames[Group] : TEXT("-");
 }
 
+bool URidePhysicalRider::UpdateSkinMorphs(const USkeletalMeshComponent* Skinned) const
+{
+    SkinMorphLag = 0.f;
+    if (!Skinned) return SkinMorphs.Update(nullptr, {});
+    // The rider's driver names every morph it drives, 0 where this pose leaves one off; the others come as shown.
+    TArray<TPair<FName, float>> Morphs;
+    if (Api) Api->GetSkatePoseMorphs(Skinned, Skinned->GetComponentSpaceTransforms(), Morphs);
+    SkinMorphLag = FSkinMorphOffsets::MergeShown(Skinned, Morphs);
+    return SkinMorphs.Update(Skinned->GetSkeletalMeshAsset(), Morphs);
+}
+
 bool URidePhysicalRider::MeasureSkinDepth(float& Depth, FName& Bone, float* Groups, int32* Vertex, FVector* Position) const
 {
     Depth = -SkinProbe; Bone = NAME_None;
@@ -801,6 +818,7 @@ bool URidePhysicalRider::MeasureSkinDepth(float& Depth, FName& Bone, float* Grou
     const FSkeletalMeshLODRenderData& LOD = Render->LODRenderData[0];
     TArray<FMatrix44f> RefToLocals;
     Skinned->CacheRefToLocalMatrices(RefToLocals);
+    if (!UpdateSkinMorphs(Skinned)) return false;
     const FTransform ToWorld = Skinned->GetComponentTransform();
     UWorld* World = Rider->GetWorld();
     // The ground as it shows: its complex collision (the render mesh's triangles), which the bodies' simple shapes
@@ -809,7 +827,9 @@ bool URidePhysicalRider::MeasureSkinDepth(float& Depth, FName& Bone, float* Grou
     if (LooseBoard) Params.AddIgnoredComponent(LooseBoard.Get());
     for (int32 I = 0; I < SkinSamples.Num(); ++I)
     {
-        const FVector P = ToWorld.TransformPosition(FVector(USkeletalMeshComponent::GetSkinnedVertexPosition(Skinned, SkinSamples[I], LOD, *Weights, RefToLocals)));
+        FVector3f Local = USkeletalMeshComponent::GetSkinnedVertexPosition(Skinned, SkinSamples[I], LOD, *Weights, RefToLocals);
+        if (const FVector3f* Offset = SkinMorphs.Find(SkinSamples[I])) Local += FSkinMorphOffsets::Skin(LOD, *Weights, RefToLocals, SkinSamples[I], *Offset);
+        const FVector P = ToWorld.TransformPosition(FVector(Local));
         FHitResult Hit;
         if (!World->LineTraceSingleByChannel(Hit, P + FVector(0, 0, SkinProbe), P - FVector(0, 0, SkinProbe), ECC_Pawn, Params) || Hit.bStartPenetrating)
             continue;
@@ -857,6 +877,7 @@ bool URidePhysicalRider::MeasureHandGap(float Gap[2], FName Near[2]) const
     const FSkeletalMeshLODRenderData& LOD = Render->LODRenderData[0];
     TArray<FMatrix44f> RefToLocals;
     Skinned->CacheRefToLocalMatrices(RefToLocals);
+    if (!UpdateSkinMorphs(Skinned)) return false;
     const FTransform ToWorld = Skinned->GetComponentTransform();
     // The bodies a resting hand may reach: their shapes in their bones' spaces (which carry the bones' scale).
     struct FNearBody { FName Name; FTransform Bone; float Scale; const FKAggregateGeom* Geom; TArray<TArray<FPlane>> Planes; };
@@ -895,7 +916,9 @@ bool URidePhysicalRider::MeasureHandGap(float Gap[2], FName Near[2]) const
     for (int32 H = 0; H < 2; ++H)
         for (const int32 V : HandSamples[H])
         {
-            const FVector P = ToWorld.TransformPosition(FVector(USkeletalMeshComponent::GetSkinnedVertexPosition(Skinned, V, LOD, *Weights, RefToLocals)));
+            FVector3f Local = USkeletalMeshComponent::GetSkinnedVertexPosition(Skinned, V, LOD, *Weights, RefToLocals);
+            if (const FVector3f* Offset = SkinMorphs.Find(V)) Local += FSkinMorphOffsets::Skin(LOD, *Weights, RefToLocals, V, *Offset);
+            const FVector P = ToWorld.TransformPosition(FVector(Local));
             for (const FNearBody& N : Reach)
             {
                 const float D = float(Distance(N, N.Bone.InverseTransformPosition(P)) * N.Scale);
@@ -917,7 +940,7 @@ FString URidePhysicalRider::Describe() const
         {
             Skin = FString::Printf(TEXT(" skin=%.1f skin_bone=%s skin_groups="), Depth, Bone.IsNone() ? TEXT("-") : *Bone.ToString());
             for (int32 G = 0; G < SkinGroupCount; ++G) Skin += FString::Printf(TEXT("%s%s:%.1f"), G ? TEXT(",") : TEXT(""), SkinGroupNames[G], Groups[G]);
-            Skin += FString::Printf(TEXT(" skin_vertex=%d skin_point=%.1f,%.1f,%.1f"), Vertex, Point.X, Point.Y, Point.Z);
+            Skin += FString::Printf(TEXT(" skin_vertex=%d skin_point=%.1f,%.1f,%.1f morph_lag=%.9g"), Vertex, Point.X, Point.Y, Point.Z, SkinMorphLag);
             if (USkeletalMeshComponent* Skinned = Mesh.Get(); Skinned && Vertex != INDEX_NONE)
                 if (const USkeletalMesh* Skeletal = Skinned->GetSkeletalMeshAsset(); Skeletal && Skeletal->GetResourceForRendering())
                     if (const FSkinWeightVertexBuffer* Weights = Skinned->GetSkinWeightBuffer(0))
@@ -931,6 +954,8 @@ FString URidePhysicalRider::Describe() const
                                 break;
                             }
         }
+        // Not measured as shown: a check must not pass on the base skin.
+        else if (!UpdateSkinMorphs(Mesh.Get())) Skin = TEXT(" skin_error=") + SkinMorphs.GetError().Replace(TEXT(" "), TEXT("_"));
         float Gap[2]; FName Near[2];
         if (MeasureHandGap(Gap, Near))
             Skin += FString::Printf(TEXT(" hand_gap=%.1f,%.1f hand_near=%s,%s"), Gap[0], Gap[1], *Near[0].ToString(), *Near[1].ToString());

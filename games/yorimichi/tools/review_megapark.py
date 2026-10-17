@@ -13,9 +13,9 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'world'/'regions'))
 import yori
 from megapark import placement
 from atelier.build import Context
-from atelier.safety import guarded
-from atelier.safety.guard import attach as attach_memory_guard, reap
-from atelier.safety.process import spawn_game
+from atelier.harness.safety import guarded
+from atelier.harness.safety.guard import attach as attach_memory_guard, reap
+from atelier.harness.safety.process import spawn_game
 from atelier import live
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)
@@ -38,7 +38,7 @@ SHOTS=[('overview',(62000,-37000,39000),(32500,-65500,10500),65.),('upper',(3300
 if args.island:
  # Island metres. A camera given as ('ground', x, y, h) sits h metres above the highest surface under it.
  top=placement.native_to_island([330,132.006,-710]); deck=island(top[0],top[1],top[2]+1.7)
- park=island(-150,1300,110); summit=island(550,1930,480)
+ park=island(-150,1300,110); summit=island(850,2400,650)
  zone={z['key']:z for z in json.loads((yori.OUT/'map'/'map.json').read_text())['zones']}
  def eye(key):return island(zone[key]['x'],zone[key]['y'],zone[key]['z']+1.7)
  SHOTS=[('overview',island(-560,1120,280),island(-130,1320,105),65.),

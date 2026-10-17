@@ -25,7 +25,7 @@ must be byte-identical afterwards.
 """
 import os
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / 'world')); import yori  # noqa: E402  (build/yorimichi = yori.OUT)
-import hashlib, json, math, sys, tomllib
+import hashlib, json, math, sys
 from pathlib import Path
 import unreal as U
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -33,12 +33,13 @@ import animation_compression
 
 CHARACTER = os.environ.get('ADVENTURE_CHARACTER', 'cairo')
 CHARS = yori.ASSETS / 'characters'
-adventure = {p.parent.name: tomllib.loads(p.read_text()) for p in CHARS.glob('*/adventure.toml')}
-SPEC = adventure[CHARACTER]
+sys.path.insert(0, str(CHARS / 'pipeline'))
+import definition  # noqa: E402
+SPEC = definition.load(CHARACTER).adventure   # adventure.toml, its layout defaulting to the character's folder
 # The donor of the set's own clips (its double jump and bokken guard): the one character with a [donor] table.
-DONOR_ID = next(c for c, spec in adventure.items() if 'donor' in spec)
-DONOR = adventure[DONOR_ID]['donor']
-OUT = yori.OUT / CHARACTER / 'adventure'
+DONOR_ID = definition.movers()[0].id
+DONOR = definition.movers()[0].donor
+OUT = yori.OUT / definition.load(CHARACTER).output / 'adventure'
 CONFIG = json.loads((OUT / 'export.json').read_text())
 REFERENCE = next(c for c in json.loads((yori.OUT / 'adventure' / 'export.json').read_text())['characters'] if c['name'] == 'Reference')
 CONTENT = Path(__file__).resolve().parents[1] / 'Content'
@@ -219,7 +220,16 @@ def glider(reference, wearer, item, scale):
         grips.append((weapon, add(wearer.at(role), apply(Ft, mul(apply_t(Fs, sub(weapon, reference.at(role))), lt / ls)))))
     middle_s = mul(add(grips[0][0], grips[1][0]), .5)
     middle_t = mul(add(grips[0][1], grips[1][1]), .5)
-    to_wearer = lambda v: mul(apply(Bt, apply_t(Bs, v)), BODY)   # a length in Reference's body frame, in the wearer's
+    grip_scale = BODY
+    if FIT.get('glider', {}).get('fit_grip_span', False):
+        # Keep the canopy's body-relative angle; fit its rigid bar to this body's palm spacing.
+        span = apply(Bt, apply_t(Bs, sub(grips[0][0], grips[1][0])))
+        desired = sub(grips[0][1], grips[1][1])
+        assert dot(span, span) > 1e-9, 'the reference glider grip span is empty'
+        grip_scale = dot(span, desired) / dot(span, span)
+        assert math.isfinite(grip_scale) and grip_scale > 0., ('invalid glider grip scale', grip_scale)
+        scale *= grip_scale / BODY
+    to_wearer = lambda v: mul(apply(Bt, apply_t(Bs, v)), grip_scale)   # a length in Reference's body frame, in the wearer's
     R = compose(Bt, compose_t(Bs, reference.rotation(item['hand'])))
     p = add(middle_t, to_wearer(sub(reference.at(item['hand']), middle_s)))
     held = U.MathLibrary.make_relative_transform(transform(R, p, scale), wearer.transform('hand_R'))

@@ -4,7 +4,7 @@
 Stock simulation metadata/settings are the candidate boundary. Original host modules
 and arithmetic run unchanged; fixture records and parameter observers expose
 consumed values, retained behavior instances and actual stock spin channels.
-Compile and execute only under atelier.safety.
+Compile and execute only under atelier.harness.safety.
 """
 import argparse
 from collections import Counter

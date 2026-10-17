@@ -45,6 +45,7 @@ systems, the data bundle and how both are verified.
 | `GetSkateMouseSensitivity()` | The player's mouse sensitivity (default 0.4); scales the mouse flick |
 | `GetSkateBone(Contract)` | The rider's bone for a humanoid contract name, `NAME_None` when it has none (default: the name itself); the retargeter finds every bone through it |
 | `GetSkateClothingClearance()` | Preferred extra cm for loose clothing outside the body (default 0); falls back to `skate.ArmClear` alone if infeasible |
+| `GetSkatePoseMorphs(Mesh, Pose, Morphs)` | The morph weights the character's own driver shows for a component-space pose (default none); the bail's skin contact adds those morphs' deltas so it samples the skin as drawn |
 | `GetSkateBoardScale()` | The visible board's size (default 1): it grows about the wheels' contact and the pose rises onto its deck; the physics keep the standard board |
 | `CanCarrySkateBoard()` | The hands are free to carry the board on foot (default true); false puts a carried board away and refuses the board button |
 
@@ -79,6 +80,12 @@ with its own build step. `skate.RideTune` overrides the transitions' tuning live
 | `VertAssist` | 0 | 0 to 1; how far short of vertical a quarter pipe still sends a straight air back into it (1 reaches lips of about 50°) |
 | `bTightFlicks` | false | Also read a hardflip or inward heelflip flicked close to straight down then up (newer skate games' motion), beside the authored wide arc: the main gesture set gains a narrower copy of each (`GestureInputPublication::Tune`). Off is stock |
 | `bFlick120Hz` | false | Read Flick-It at 120 Hz (see 120 Hz flicks). Off is stock: one reading a tick |
+| `bDriftPowerslide` | false | Drift powerslides: the left stick straight down starts one too (to the right when dead straight; a rear diagonal picks its side as before), the slide holds from half tilt instead of full tilt, and its wheel friction follows how far down the stick is pulled, from `DriftGrip` of the slide's own at half tilt to `DriftFullGrip` at full tilt. Let go, the slide holds on (up to half a second, at `DriftGrip`) while the board turns back along its travel, so the rider comes out with the speed and the line instead of the line swinging round to the board. Off is stock |
+| `DriftGrip`, `DriftFullGrip` | 0.3, 0.6 | 0 to 1.5; a drift powerslide's wheel friction at half and at full tilt, as shares of the slide's own |
+| `PowerslideTurn` | 1 | 0.25 to 1.5; how far a powerslide turns the board across the travel |
+| `GrindTolerance` | 1 | 0.5 to 3; how much a grind takes before it bails (see Feel) |
+| `CameraFollow` | 1 | 1 to 3; how fast the camera may chase the rider, times 40 m/s (see Feel) |
+| `CameraPullback` | 0 | 0 to 1.5; how much farther back the camera sits at speed (the Skate menu's default; see Feel) |
 | `DeckMesh`, `TruckMesh`, `WheelMesh` | none | Board parts (see the board contract); skating is unavailable without all three |
 | `BoardDissolveMaterial` | none | A masked material with a scalar `Dissolve` (0 whole, 1 gone) that fades the board in and out; without one the board shows and hides |
 | `SoundFolder` | none | Content folder of the board sounds |
@@ -142,9 +149,15 @@ bit-exact with stock.
 | `RailMagnetism` | 0.25 to 3 | The grind lock distance, how far and how sharply a jump may be bent onto a rail, and the crossing and drop speeds still admitted |
 | `GrindPop` | 0.5 to 2 | The ollie out of a grind |
 | `GrindFriction` | 0 to 3 | Grind and slide friction |
+| `GrindTolerance` | 0.5 to 3 | `GrindTolerance`: what a grind rides through before it bails. In full: every in-grind bail limit (`GrindPostTolerance`: the body pushed off its pose, 2; a knock to the body or arms, 8.5 and 30; the board's closing speed across the rail, 6, and through it, 100; the deck twisted off its target, 1.3 rad) and the 35 updates a push-off has to clear the rail before it bails. Half as much more, `(1 + GrindTolerance) / 2`: the entry's (the impact snapping on, 8 m/s; the speed across the rail, 7 m/s; the speed landing into it, 8 m/s times `Landing`). The 30° pitch along the rail an air entry bails at is kept. Above 1, a rail boardslide or darkslide that stalls is pushed off across the rail, as on a ledge, instead of wiping out. Above 1, slides also hold: a tipslide (tail, nose and some blunt slides) gets the Backslash's tip spring (3000, aimed 0.35 m out, the middle of its tip zone) and a boardslide or darkslide on a ledge or coping the 50-50's centring spring (800), where stock has only the stick's push; re-catching a slide from the generic state (701) adds nothing to the lockout counter (`PlayerGrindInput.cpp`); and a slide's lean-off clock (`ExitLeanAngleVsTime`) runs `2 × GrindTolerance − 1` times slower (`slide_hold`), so at 2 a slide ridden into a coping leans off after about 4 s, not 1.3 s. 50-50s and 5-0s keep the stock clock (`AtelierSkate.Grind.SlideHold`) |
+| `CameraFollow` | 1 to 3 | `camera_follow`: the camera's anchor chases the rider through a tracker capped at the authored `SubjectTrackerMaxSpeed`, 40 m/s; this multiplies the cap. At stock a rider faster than 40 m/s pulls away from the camera (5 m a second at 45 m/s) and the gap jitters as the cap catches and lets go (`AtelierSkate.Camera.Follow`) |
+| `WallFollow` | 0 to 1 | `wall_follow`, 0 (stock) off: an air off a curved vert wall turns with the wall. The stock vert alignment (`AdjustAirTrajectoryLaunchVelocity`) aims the climb up the wall but keeps the whole speed along it, which flies on along the tangent while a curved wall turns away beneath: (v t)^2 / 2R outside the lip, 8 m after 1 s at 40 m/s off a 95 m lip. On the ground under 41° (normal y below 0.75), the session measures the wall's plan curvature: the centre nearest all the ground normals' horizontal lines over the last 0.4 s (at least 0.2 s and 4 m along the wall; on a wall swept round a centre every normal line passes through it, and the fit averages out facets), and 1 over the board's distance from it, radii 8 to 400 m (`WallCurvatureTracker`, `WallFollow.h`). A launch latches this times that curvature, read 3% tight (on fine facets the radius reads up to 2% wide), only when the stock alignment aimed it up the wall, the vert assist there is above 0 (the session's, at most an assist zone's limit), there is no lean forward (no transfer) and the wall is concave (its centre in front of it). Through that air, after each physics step, every board and rider body's velocity turns about up by the curvature times the board's horizontal speed, with the air reckoning's up and heading: a centripetal turn, speed, climb and gravity unchanged. At the start each body gets that yaw rate and loses any speed away from the wall (it leaves the wall straight up, as the alignment aims the predicted arc): a turn tangent to a velocity even 0.3 m/s outward crosses the wall's own circle and comes down on the lip. The predicted arcs turn the same way (`AirTrajectory::wall_curvature`), their landing query's chords bounded by the turn's centripetal acceleration (curvature times horizontal speed squared) as well as gravity so they keep to the arc, so the landing the air selects, its landing normal and heading, the rider's target path and the velocity restored on landing all follow the turned air. It ends at a landing, bail, grind or plant, or after 6 s; an air still going then flies on straight (`AtelierSkate.Air.WallFollow`) |
 | `Braking` | 0.25 to 3 | Foot-brake force |
 | `Steering`, `Carve`, `Grip` | 0.5 to 2 | Steering scalar, heading turn strength, wheel friction |
 | `Powerslide` | 0.25 to 3 | A powerslide's slowing force |
+| `PowerslideTurn` | 0.25 to 1.5 | `PowerslideTurn`: the board's slide angle across the travel |
+| `DriftPowerslide` | 0, 1 | `bDriftPowerslide` |
+| `DriftGrip`, `DriftFullGrip` | 0 to 1.5 | `DriftGrip`, `DriftFullGrip` |
 | `RollingFriction` | 0 to 3 | Surface, coasting and manual rolling friction: how fast speed above the board's cruising speed bleeds off (it holds its cruising speed on the flat either way) |
 | `HillSpeed` | 0 to 2 | The speed model's downhill pull |
 | `Pump` | 0 to 3 | Pumping acceleration |
@@ -156,6 +169,7 @@ bit-exact with stock.
 | `AutoPush` | -1, 0, 1 | Auto push |
 | `AssistedAir` | -1, 0, 1 | Easy body spins and perfect body flips |
 | `CameraDistance` | 0.6 to 1.6 | The skate camera's distance from the rider |
+| `CameraPullback` | 0 to 1.5 | How much farther back the camera sits at speed: from 25 m/s it eases out to 1 + this of its distance at 45 m/s and holds there, following the speed with a 0.8 s lag; a bail brings it back in (`USkateComponent::EaseCameraPull`) |
 | `CameraFOV` | -20 to 20 | Degrees added to the skate camera's field of view |
 
 `SoundFolder` holds the loops `roll_01`, `grind_01`, `slide_01`, `skid_01` (powerslide) and `scrape_01` (foot brake),
@@ -176,20 +190,62 @@ attenuate over a 500 cm inner radius and 4500 cm falloff.
 | Push | A (X pushes mongo) | W or Up |
 | Brake | B | S or Down |
 | Steer, spin | Left stick | A / D or Left / Right |
-| Powerslide | Left stick down-left / down-right | Hold C; A chooses the left side |
+| Powerslide | Left stick down-left / down-right (or straight down with drift powerslides) | Hold C; A chooses the left side |
 | Load, ollie | Right stick down, then up | Hold Space, release to pop |
 | Flick-It tricks | Right stick gestures | Hold the left mouse button and flick |
 | Manual, nose manual | Right stick partly down / up | Hold the left mouse button and move slowly |
 | Pump (ground), grab (air) | Left / right trigger | Q / E |
-| Transfer over the coping | Left stick forward | Hold Shift |
+| Transfer over the coping | Hold the left stick up, or LB (L1), into the lip | Hold Shift |
+| Handplant | RB (R1) at the coping | |
 
 Kickflips flick down then up-left, heelflips down then up-right; goofy mirrors the gestures. Holding the left-trigger
 grab, B makes it a Christ air and A a one-foot; holding the right stick to one side changes the grab, and the right
-trigger with the stick held left is a tuck knee. A grab never requests a transfer: the transfer has its own input. LB,
-RB and both stick clicks pass through to the session's pad; clicking both sticks with both triggers held is the
-deliberate bail. The adapter undoes the project's 0.25 per-axis stick dead zone, because Flick-It and the manual
+trigger with the stick held left is a tuck knee. A grab never requests a transfer: the transfer has its own input on the host's transfer bit, Shift, the left stick
+pushed up (more up than sideways) or LB held (`Transfers`, `SkatePad.h`). LB is therefore not sent to the session.
+RB (the session's handplant at the coping), both triggers and both stick clicks pass through to the session's pad;
+clicking both sticks with both triggers held is the deliberate bail. The adapter undoes the project's 0.25 per-axis stick dead zone, because Flick-It and the manual
 balance read real stick positions. A fast mouse flick points the stick in its direction and springs back after 0.1 s;
 slow movement moves it gradually.
+
+### Assist zones
+
+A game can limit the rider's assistance in places: `USkateAssistSubsystem` (`Public/SkateAssistZones.h`) holds boxes
+in world cm, each turned `YawDeg` about +Z with a `VertAssistMax`. While the board or the rider is inside one, the
+session's vert assist is at most the lowest such limit (`GameplaySession::LimitVertAssist`, sent with every step), and
+an air keeps the limit it was launched with until it lands. With no zones every step sends 1, which leaves the
+assistance exactly as tuned. A zone whose `Owner` is gone no longer applies.
+
+A limit of 0 removes all vert behaviour at a launch, not only the tuned assist. Off a near-vertical lip without a
+transfer held, the session also skips the stock vert-jump alignment (`AdjustAirTrajectoryLaunchVelocity`), which
+would otherwise bend the air straight up and slightly back into the ramp. The air is then the plain ballistic one
+along the lip (`AirTrajectoryRuntime::vert_assist_limit`). A transfer keeps its forward lean. A limit of 0 also leaves such an air
+straight on along the wall with `WallFollow` on: only a vert-aligned launch with assist turns.
+
+### Boost zones
+
+The same boxes can carry a `Boost` scale (0 none, up to 3) instead of a limit: pumping and powersliding on a boost
+zone's transitions gain speed. Each step sends the highest `Boost` of the zones holding the board (`BoostScale`,
+`GameplaySession::Boost`), and the session's host-only `BowlBoost` (`Private/Simulation/BowlBoost.h`) adds the gain
+after each tick. It multiplies the zone's scale by `FSkateFeel::BowlBoost` (`FeelTuning::bowl_boost`, 0 off to 2,
+default 1), and works only on the ground with the deck leaning more than 12 degrees from level, so flat bottoms and
+decks never boost:
+
+- a pump gains 6 m/s^2 for its stand-up: the 0.7 s after a trigger's crouch of at least 0.15 s on the ground is let go
+  (`BowlBoost::Trigger`, which reads the triggers every tick). The gain is its own, not a multiple of what the physical
+  pump added: at speed on a short transition a stand-up can hardly be timed to the curve, so the physical pump adds
+  almost nothing there. It reads the trigger, not the simulation's intentional pump, which a hard turn's crouch raises
+  too: holding a trigger through the transition is a crouch, and a carve with no trigger, or held on after the stand-up,
+  gains nothing;
+- a powerslide gets back up to 6 m/s^2 of the speed the slide (and a climb) took, and gains 5 m/s^2 on top.
+
+The gain goes along the travel, the same to every body, as `GameplayRuntime::Launch` does. It never raises the speed
+past the cap: the speed the board came into the zone with, times 1 + 0.8 x the scale, or 24 m/s, whichever is more.
+That entry speed is kept while the board stays in the zone, through its airs (which gain nothing), so an air landed
+back in the same zone keeps the cap it had (`BowlBoost::Tick`).
+The component logs `SKATE boost` for each half metre per second added. Outside every zone the scale is 0 and nothing
+changes, so sessions without zones (the CLI, parity traces) ride exactly as before. The test-only session CLI takes a
+`boost` command (the zone's scale) and reports the boost, the tick's pump and the deck's up in every pose, for a
+game's feel checks to measure the boost over pumped passes.
 
 ### 120 Hz flicks
 
