@@ -35,6 +35,13 @@ def _base_height(x,y):
     return z
 
 ISLAND_FADE=24.   # metres east of the island terrain's edge over which the arrival road's corridor levels
+ISLAND_GRASS=(.163,.183,.036)   # the island ground's colour (T_ground's mean, linear; megapark/gate.py GROUND)
+
+def island_fade(x):
+    """0 on the island terrain's edge (x 300) to 1 ISLAND_FADE metres east, smoothstepped: street_height's corridor
+    and HD_Terrain's lawn colour (build.surface) both fade from the island's on it."""
+    fade=np.clip((np.asarray(x,dtype=float)-300)/ISLAND_FADE,0,1)
+    return fade*fade*(3-2*fade)
 
 def street_height(x,y):
     x,y=np.broadcast_arrays(np.asarray(x,dtype=float),np.asarray(y,dtype=float))
@@ -61,7 +68,7 @@ def street_height(x,y):
     weight=np.clip((12-distance)/4,0,1);weight=weight*weight*(3-2*weight)
     # The island terrain (build_terrain.py) ends at x 300, carved only under its own road: start on its edge
     # there and level the arrival road's corridor over the next ISLAND_FADE metres, or the two meet in a step.
-    fade=np.clip((x-300)/ISLAND_FADE,0,1);weight=weight*fade*fade*(3-2*fade)
+    weight=weight*island_fade(x)
     if not np.any(weight):return z
     return z*(1-weight)+profile(tx,ty)*weight
 

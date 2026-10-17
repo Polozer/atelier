@@ -18,12 +18,24 @@ def is_skirt(points):
     return any(p[:2] == q[:2] and p[2] != q[2] for p in points for q in points)
 
 
-class Mesh:   # village.build.Mesh, as far as the ribbon uses it
+class Mesh:   # village.build.Mesh, as far as the ribbon uses it: repeated points merge, a face without area is dropped
     def __init__(self):
         self.polys, self.faces = [], []
 
     def poly(self, points, key):
-        self.polys.append((points, key)); self.faces.append(tuple(range(len(points))))
+        clean = []
+        for p in map(np.asarray, points):
+            if not any(((p - q)**2).sum() < 1e-16 for q in clean): clean.append(p)
+        if len(clean) < 3 or sum(np.linalg.norm(np.cross(clean[k] - clean[0], clean[k+1] - clean[0]))
+                                 for k in range(1, len(clean) - 1)) < 1e-10:
+            return
+        self.polys.append(([tuple(map(float, p)) for p in clean], key)); self.faces.append(tuple(range(len(clean))))
+
+
+def on_section(c, n, p):
+    """The point's offset across the section through c along n, or None when it is not on it."""
+    if abs((p[0] - c[0])*n[1] - (p[1] - c[1])*n[0]) > 1e-6: return None
+    return (p[0] - c[0])*n[0] + (p[1] - c[1])*n[1]
 
 
 def hillside(x, y):
@@ -102,10 +114,14 @@ def test_skirts_hang_only_below_the_shoulders_outer_edges_and_start(island):
     arrival._ribbon(m, hillside)
     g = arrival.ground(hillside)
     skirts = [points for points, key in m.polys if is_skirt(points)]
-    assert all(key == 'ar_road_gravel' for points, key in m.polys if is_skirt(points))
-    pts, _, _ = arrival._samples()
+    pts, _, dist = arrival._samples()
     c, n = pts[0], arrival._samples()[1][0]
     start = [s for s in skirts if all(abs((x - c[0])*n[1] - (y - c[1])*n[0]) < 1e-6 for x, y, _ in s)]
+    # in the shoulder's surface over it: lawn across the start and along the edge until the gravel has grown to it
+    keys = [key for points, key in m.polys if is_skirt(points)]
+    assert all(k == 'ar_verge_lawn' for s, k in zip(skirts, keys) if s in start)
+    grown = sum(t >= arrival.BLEND for t in dist[:-1])
+    assert keys.count('ar_road_gravel') == 2 * 2 * grown
     for s in skirts:   # no raised face: along the road a skirt's top is a shoulder's outer edge, FLUSH above the ground
         if s not in start:
             assert all(z <= g(x, y) + arrival.FLUSH + 1e-9 for x, y, z in s)
@@ -115,6 +131,28 @@ def test_skirts_hang_only_below_the_shoulders_outer_edges_and_start(island):
     assert len(start) == 2 * 2 * across
     for s in start:   # under the shoulders only, never a lip across the road
         assert all(abs((x - c[0])*n[0] + (y - c[1])*n[1]) > arrival.SHOULDER[0] for x, y, _ in s)
+
+
+def test_gravel_grows_from_nothing_at_the_island_road_end(island):
+    # The island road runs straight onto the grass; the shoulder's gravel widens to the whole shoulder over BLEND
+    # metres and the rest of it is lawn, cut on each section where the gravel ends.
+    m = Mesh()
+    arrival._ribbon(m, hillside)
+    pts, normals, dist = arrival._samples()
+    inner, outer = arrival.SHOULDER[0], arrival.SHOULDER[-1]
+    for c, n, t in list(zip(pts, normals, dist))[::8]:
+        width = (outer - inner)*arrival._smooth(t/arrival.BLEND)
+        for key, check in (('ar_road_gravel', lambda s: abs(s) <= inner + max(width, 1e-3) + 1e-6),
+                           # where the gravel's end crosses a column line between two sections, the lawn's
+                           # triangle there reaches that column's corner, at most one section's growth inside it
+                           ('ar_verge_lawn', lambda s: abs(s) >= inner + width - .03)):
+            across = [s for points, k in m.polys if k == key and not is_skirt(points)
+                      for s in (on_section(c, n, p) for p in points) if s is not None and abs(s) >= inner]
+            assert all(check(s) for s in across), (key, t)
+        if width < 1e-9:   # nothing of the gravel at the very start, only lawn out to the shoulder's edge
+            assert not [p for points, k in m.polys if k == 'ar_road_gravel' and not is_skirt(points)
+                        for p in points if (s := on_section(c, n, p)) is not None and abs(s) > inner + 2e-3]
+    assert all(len(points) >= 3 for points, _ in m.polys)
 
 
 def test_asphalt_carries_the_island_roads_own_uvs_in_phase(island):
@@ -133,3 +171,11 @@ def test_asphalt_carries_the_island_roads_own_uvs_in_phase(island):
     start = [uv for i in asphalt for (x, y, _), uv in zip(m.polys[i][0], m.uvs[i])
              if np.hypot(x - END[0], y - END[1]) < 2.7 and uv[1] == pytest.approx(1/8)]
     assert sorted(round(u, 6) for u, _ in start) == [0., .25, .25, .5, .5, .75, .75, 1.]   # right edge 0, left 1
+
+
+def test_island_fade_runs_from_the_island_edge_over_its_width():
+    # street_height's corridor and HD_Terrain's lawn colour (build.surface) fade from the island's on one curve
+    from hidamari import layout
+    x = np.array([250., 300., 300 + layout.ISLAND_FADE/2, 300 + layout.ISLAND_FADE, 400.])
+    assert layout.island_fade(x).tolist() == pytest.approx([0., 0., .5, 1., 1.])
+    assert np.all(np.diff(layout.island_fade(np.linspace(300, 330, 61))) >= 0)
