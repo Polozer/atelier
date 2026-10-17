@@ -1,9 +1,53 @@
 # World map
 
-The in-game map shows a painted sheet of the whole playable world with the player's position and heading, and lets
-the player travel to any zone on it. Every position on the sheet comes from the generated layout (`world.json`, the
+The landscape atlas opens on the player's current region. **World** goes up one level to the island overview;
+choose a region there to inspect it. All seven regions have label-free, orthographic paintings, live place labels,
+the player's position and heading, and the existing travel destinations. Every position comes from the generated layout (`world.json`, the
 heightmaps, `hidamari/city.json`, the island and city height functions), never from screenshots or hand placement;
 only the artwork is painted. The tools live in [`games/yorimichi/world/map/`](../world/map/).
+
+The regions are **Momiji Coast**, **Momiji Woods**, **Hidamari**, **Temple Island**, **Northern Foothills**,
+**Volcanic Highlands**, and **Haras Valley** (the countryside around Belmonte). Search works across every region.
+The world destination list always contains the complete current registry, including saved places, Ronin camp,
+air stations, both railway stations, the racecourses and skate parks. Travel still uses the original resolver,
+including safe marker returns, the active Crater Park drop-in and the train platform service.
+
+## Live labels and regional artwork
+
+Stable labels are editable data identified by permanent keys. Select a stable in Haras Valley, change its name,
+then **Save name**; **Reset** restores the default. No names, titles, pins or UI are painted into any atlas image.
+The current implementation saves overrides locally in `stable-names.json` beside the preferences file, shared
+across character switches. A future multiplayer naming policy can change ownership without repainting any map.
+An unreadable save is preserved; a failed write publishes neither a partial file nor a changed in-memory name.
+The phone uses the same frames, labels and travel registry as the native atlas.
+
+The native atlas supports controllers throughout. The left stick and d-pad choose places; triggers cycle
+every pin, including overlapping locations. The right stick pans, shoulders zoom, right-stick click fits
+the map, and left-stick click returns to the current region. The bottom face button selects, the right
+face button goes back through region → world → closed, the top button saves a place, and the left button
+returns to the selected saved place. Hints use Xbox, PlayStation or Nintendo button names when detected,
+and physical positions for unknown pads. Holding View/Touchpad outside the map still opens the saved-places bar.
+
+`atlas.py` defines the world and regional frames in Blender metres. The atlas uses a uniform **linear** scale
+with north up, preserving circles and aspect ratio. Outside regional artwork coverage, it opens the world view.
+Paintings live in `world/map/atlas/`, with matching JSON provenance: frame, geometry-source hashes, input hashes,
+full prompt, Sunburst model, high quality and the exclusive paid-operation receipt. `world.map` rejects stale
+frames, changed geography and paintings declared to contain baked labels. Signed coast masks also reject invented
+land and ocean extending into real land, allowing three source pixels for shore ink/surf and a small total
+allowance for boats/foam. This colour check complements source registration and visual inspection.
+
+Prepare a precise painting input with `build_map.py --atlas-reference REGION_KEY --data BUILD_DATA --out OUTPUT`.
+The plan uses current terrain, roads, rail, water, building footprints and actual tree variants; blue is reserved
+for water so dry contour rings cannot be confused with lakes. `paint_atlas.py REGION_KEY --references PLAN_ROOT
+--style STYLE_IMAGE` authors one painting through `atelier.ai.ledger`. Existing receipts prevent resubmission;
+normal builds never make paid calls. Review top view, water, alignment and absence of text before accepting art.
+
+After preparing all eight reference frames, run `coast_masks.py --references PLAN_ROOT --verify-paintings`.
+It records current terrain/water masks and checks every painting. If any fails, it writes no painting revalidation
+records: correct the failed image with `paint_atlas.py --coast-mask MASK --style PREVIOUS_IMAGE` after preserving
+the previous image and receipt. On success, a `verified_geography` witness binds the current geography, reference,
+mask and painting hashes while keeping the original generation prompt and input hashes intact. New terrain must
+be checked again; copying an old witness cannot approve changed artwork or masks.
 
 ## Build
 
@@ -19,15 +63,16 @@ uv run atelier build yorimichi world.map data.stage
 | `rough.png`, `rough.jpg` | The label-free sheet drawn from the data, the base for any painting |
 | `map.png`, `map.jpg` | The sheet the game (`map.png`) and the phone page (`map.jpg`) show: the committed painted sheet when it matches, otherwise the rough sheet |
 | `map.json` | `bounds`, `projection_x`/`projection_y`, `px_per_m`, `sea_level` and the `zones` |
+| `atlas/*.png` | The world overview and seven regional paintings in their declared linear frames |
 | `map_lines.json` | Every polyline drawn, to check that a painted sheet's roads sit on the data |
 
 `data.stage` copies them into `unreal/Content/Data/map/`, where `UJapanMap` reads them.
 
-## Frame and projection
+## Legacy compatibility sheet
 
 - Coordinates are Blender metres: x east, y north, z up, the frame of `gen_world.py` and `world.json`. Unreal uses
   the same values in centimetres with y negated (`AJapanWorld::ToUE`); zone yaws are negated on load.
-- The sheet uses the compact projection in [`map_projection.py`](../world/map/map_projection.py): piecewise-linear
+- The retained compatibility sheet uses the compact projection in [`map_projection.py`](../world/map/map_projection.py): piecewise-linear
   knots on each axis (`X_KNOTS`, `Y_KNOTS`) over `BOUNDS = [-400, -650, 1685, 1120]`. Gameplay scale is untouched; the
   distant north takes only a fifth of the sheet. The southern strip reaches world y -730, keeping the temple island
   visible after its 50 m offshore move; projection controls north of world y -461.31835938 are unchanged.
@@ -167,11 +212,13 @@ belong in the archive; an existing ledger is never removed to retry an uncertain
 
 ## In the game
 
-- **Desktop:** M opens and closes the map. `UJapanMap` draws the sheet fitted to the viewport, numbered pins with
-  names and the player arrow; clicking a pin travels.
+- **Desktop:** M opens and closes the atlas in the current region. The World button returns to the overview;
+  selecting a region opens its details. Place pins and the searchable sidebar share the complete travel registry.
 - **Controller:** View / Touchpad / Minus opens and closes it. The left stick moves a reticle that catches the nearest
   pin, the d-pad hops to the nearest pin in that direction, the right stick pans, the shoulders zoom about the
-  reticle, the bottom button travels and the right button closes. The top/left buttons set/return to the selected saved marker;
+  reticle, the bottom button selects or travels and the right button returns through region → world → closed.
+  Triggers cycle every target, including coincident pins; right-stick click fits and left-stick click opens the current region.
+  The top/left buttons set/return to the selected saved marker;
   holding View outside the map opens the saved-places bar instead (see Saved skate-line markers);
   other pad buttons are swallowed. Moving the mouse
   hands the sheet back to hover and click; the header and hint lines name the connected pad's buttons.

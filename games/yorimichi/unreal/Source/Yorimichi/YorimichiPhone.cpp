@@ -27,6 +27,13 @@ FYorimichiPhone::FYorimichiPhone(AWandererCharacter* InRider) : Rider(InRider), 
 {
     Stream->OnAction(TEXT("settings"), [this](const FString& Player, const FJsonObject&) { SendSettings(Player); });
     Stream->OnAction(TEXT("map"), [this](const FString& Player, const FJsonObject&) { SendMap(Player); });
+    Stream->OnAction(TEXT("renameStable"), [this](const FString& Player,const FJsonObject& J)
+    {
+        auto* C=Rider.Get();FString Key,Name;
+        if (C && C->GetMap() && J.TryGetStringField(TEXT("key"),Key) && Key.Len()<=64
+            && J.TryGetStringField(TEXT("name"),Name) && Name.Len()<=48) C->GetMap()->RenameStable(Key,Name);
+        SendMap(Player);
+    });
     Stream->OnAction(TEXT("setSetting"), [this](const FString& Player, const FJsonObject& J)
     {
         AWandererCharacter* C = Rider.Get(); FString Key; double Number = 0;
@@ -40,7 +47,7 @@ FYorimichiPhone::FYorimichiPhone(AWandererCharacter* InRider) : Rider(InRider), 
     {
         AWandererCharacter* C = Rider.Get(); FString Zone; bool bOk = false;
         if (!C) return;
-        if (J.TryGetStringField(TEXT("zone"), Zone) && Zone.Len() <= 32 && C->GetMap() && !C->IsCinematic()) bOk = C->GetMap()->TeleportToZone(Zone);
+        if (J.TryGetStringField(TEXT("zone"), Zone) && Zone.Len() <= 64 && C->GetMap() && !C->IsCinematic()) bOk = C->GetMap()->TeleportToZone(Zone);
         if (bOk) { Stream->ResetControls(); C->ReleaseJump(FInputActionValue(false)); }
         UE_LOG(LogTemp, Display, TEXT("PHONE STREAM teleport %s: %s"), *Zone, bOk ? TEXT("ok") : TEXT("unknown zone"));
         auto Reply = Object(); Reply->SetStringField(TEXT("zone"), Zone); Reply->SetBoolField(TEXT("ok"), bOk);
@@ -88,6 +95,8 @@ void FYorimichiPhone::SendMap(const FString& Player)
     auto Json = Object();
     Json->SetBoolField(TEXT("loaded"), M->IsLoaded());
     Json->SetStringField(TEXT("image"), TEXT("/map/map.jpg"));
+    if (const auto Atlas=M->GetAtlasJson()) Json->SetObjectField(TEXT("atlas"),Atlas);
+    Json->SetStringField(TEXT("current_region"),M->RegionForLocation(C->GetActorLocation()));
     const FBox2D& B = M->GetBounds();
     TArray<TSharedPtr<FJsonValue>> Bounds; for (double V : {B.Min.X, B.Min.Y, B.Max.X, B.Max.Y}) Bounds.Add(MakeShared<FJsonValueNumber>(V));
     Json->SetArrayField(TEXT("bounds"), Bounds);
@@ -102,6 +111,7 @@ void FYorimichiPhone::SendMap(const FString& Player)
     {
         auto Row = Object();
         Row->SetStringField(TEXT("key"), Z.Key); Row->SetStringField(TEXT("name"), Z.Name); Row->SetStringField(TEXT("hint"), Z.Hint);
+        Row->SetStringField(TEXT("region"),M->RegionForZone(Z));
         Row->SetNumberField(TEXT("x"), Z.Location.X / 100.0); Row->SetNumberField(TEXT("y"), -Z.Location.Y / 100.0);   // Blender metres, north up
         Zones.Add(MakeShared<FJsonValueObject>(Row));
     }

@@ -17,3 +17,17 @@ Guard pressure MUST change only on resolved contacts and decay with the authorit
 movement replay MUST NOT reapply pressure, damage or contact counters. NPC hit immunity MUST allow
 separate combo cuts while retaining player recovery protection. Projectile damage MUST resolve only
 on authority through the shared defence resolver; flight MUST stop at cover and MUST NOT home after release.
+
+@cc [owner:fontanierh,label:correctness] regional-atlas-travel
+Every registered teleport and saved marker MUST remain reachable through its existing travel resolver.
+Regional filtering MUST NOT mutate the destination registry or infer travel coordinates from artwork.
+Artwork and all overlays MUST share their declared world frame. Opening the atlas MUST choose the
+player's mapped region, falling back to the world overview outside regional artwork coverage.
+Stable names MUST be editable live labels, never baked into paintings. A failed name save MUST preserve
+the previous file and in-memory names; pawn switches MUST share the local world's saved names.
+
+@cc [owner:fontanierh,label:correctness] regional-atlas-controller
+Every on-sheet destination MUST remain individually selectable with a controller, including coincident
+pins. Controller camera pan MUST retain the screen-space reticle away from sheet boundaries. Map focus
+MUST consume controller movement instead of driving gameplay. Back MUST return from region to world,
+then close the world view; selection MUST use the destination's existing travel resolver.

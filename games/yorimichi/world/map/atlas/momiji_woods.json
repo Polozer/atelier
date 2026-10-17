@@ -1,0 +1,61 @@
+{
+  "bounds": [
+    -430.0,
+    -50.0,
+    440.0,
+    530.0
+  ],
+  "labels_baked": false,
+  "geography": {
+    "world/shorelines.py": "9b4c0905b4c8ee8b45d06f3ed831f48ba0c22e852685ae1317285abd3fdfd582",
+    "world/gen_world.py": "0c1e40474e7d64585c73502a044e77e0dce247c4149dc3bc2870a476787db3b3",
+    "world/build_terrain.py": "c03333fd3c02ca07320fe3dc166d30ed785d40b045f501749f9cc2cc890f7323",
+    "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
+    "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
+    "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
+    "world/regions/belmonte/terrain.py": "5eb28342800f4bbc8c3aa6ccc30e6316986273ec8b27b0c4f4781947a34fe508",
+    "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
+    "world/regions/southwest/island.py": "977f38a49fb5eb699f8164544fee1cde5f804372ddaeb03826125242e9c7b96f",
+    "world/train/route.py": "88a742f1d19cddbb56cf610a7cf6c2ca0b7fe7ebfb1928ce25e2b708e741817e",
+    "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
+    "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
+    "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
+    "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
+    "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f"
+  },
+  "prompt": "Use case: stylized-concept. Asset: production fantasy RPG atlas texture.\nImage 1 is the authoritative exact top-down geographical plan. Image 2, if present, is ONLY a painterly style reference; ignore all its text, layout, symbols and geography.\nPaint this plan as a beautiful, richly detailed hand-painted adventure atlas, with the clarity and craft of a classic World of Warcraft regional map. Warm parchment undertones, fine ink contours, softly shaded olive forests, earth and ochre paths, delicate roof plans, turquoise water with subtle coastal depth. An elegant, cohesive painted world, not a satellite photograph.\nScene: Deep autumn woodland, winding footpaths, a hidden irregular lake with a cabin and jetty, a small traditional hamlet, and the two separated timber ramp sections. Dense rounded tree crowns, warm gold and moss green.\nSTRICT CAMERA: orthographic TOP VIEW, north up, looking vertically down. No oblique view, no perspective, no horizon, no isometric buildings or mountain silhouettes. Mountain relief is shaded contour/rock texture seen directly from overhead. Circles remain circles. No camera rotation, recentering, zoom, crop or changed scale.\nGEOMETRY: preserve the first image's exact frame, coastline, land/water mask, river courses, road and rail alignments, islands, building positions and landmark footprints. Keep the empty sea where shown. Paint detail within those shapes; do not invent towns, bridges, rivers, islands, roads or mountains. Rectangular tint boundaries in the plan are rendering-layer seams: blend their colours naturally while preserving contours and physical geography. The first image always overrides the style reference.\nWATER SEMANTICS: only clearly saturated blue/cyan shapes in the plan are water. Muted grey/green/brown closed contour rings are DRY HILLTOPS, never lakes. White is snow or concrete, never water. Do not turn any northern contour depression or the volcanic caldera into a blue lake. Do not extend the river beyond its precise drawn course. Preserve exact roof/park geometry rather than inventing rock towers.\nNO TEXT OF ANY KIND: no letters, numbers, place names, stable names, title, legend, compass rose, banners, scrolls, map pins, icons, badges, borders or UI. All names and destinations will be rendered by the game as editable live overlays. Fill the entire image with the map terrain; no decorative margins. High finish, subtle fine paper grain, crisp paths, restrained contrast, clear terrain at game UI scale.",
+  "inputs": [
+    {
+      "role": "exact geography",
+      "sha256": "ec770f6853c40baa24a2cc10078a62cf7c885e9d512bec6012ef2ded5fe3f8c1"
+    },
+    {
+      "role": "style only",
+      "sha256": "39d5f4b260975237fa7915de54659c0a1cab44e75a1be212ce7d3f2d04618b0e"
+    }
+  ],
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "endpoint": "/v1/images/edits",
+  "prompt_sha256": "1cb4af8455bb25b1e600bb7e53777472ab440315c01980eddeed94c12fc5709f",
+  "status": "done",
+  "started_at": "2026-10-17T21:02:27.114226+00:00",
+  "output": "momiji_woods.png",
+  "output_sha256": "bd2f62f93974466d9b980805104206806235d057efbfc5d7cb22567d4bc99264",
+  "usage": {
+    "input_tokens": 2699,
+    "input_tokens_details": {
+      "image_tokens": 2160,
+      "text_tokens": 539
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 4071
+  },
+  "elapsed_seconds": 40.5,
+  "finished_at": "2026-10-17T21:03:07.641643+00:00"
+}

@@ -951,7 +951,10 @@ def world_steps(ctx):
                        if entry['name'].startswith(('SM_BM_BT_blk_', 'SM_BM_BH_', 'SM_BM_BE_', 'SM_BM_BHip_',
                                                     'SM_BM_BVV_Farm_', 'SM_BM_BC_Water_', 'SM_BM_BC_Pave', 'SM_BM_BC_Ponte')))],
              needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', *crater_geometry],
-             outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png'], about='map zones and the painted sheet'),
+             outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png',
+                      *(out / 'map' / 'atlas' / f'{key}.png' for key in ('world', 'momiji_coast', 'momiji_woods', 'hidamari', 'temple_island',
+                                                                     'northern_foothills', 'volcanic_highlands', 'haras_valley'))],
+             about='map zones and label-free regional atlas'),
         city_input_step(out, 'tiles'),
         Step('world.city_tiles', [Blender(WORLD / 'city_surface_tiles.py', ('--tag', 'v1_128m'), threads=3)],
              inputs=[WORLD / 'city_surface_tiles.py'], needs=['world.hidamari.tiles'],
@@ -1183,7 +1186,7 @@ def staging_steps(ctx):
     out = ctx.out
     return [
         Step('data.stage', [Call('stage_data', stage_data)],
-             inputs=[GAME / 'runtime_data.py', REGIONS / 'skatepark' / 'park.json',
+             inputs=[GAME / 'runtime_data.py', REGIONS / 'skatepark' / 'park.json', ASSETS / 'ui/fonts/atlas-serif.ttf',
                      *(CHARS / 'portraits' / f'{c.id}.png' for c in definition.movers() if c.playable)],
              needs=['world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.craterpark', 'world.crater_cloud', 'world.belmonte', 'world.bike',
                     *[f'characters.{key(c)}_{kind}' for c in definition.movers() for kind, wanted in
