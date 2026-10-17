@@ -356,7 +356,7 @@ void AWandererCharacter::ReturnToSpawn()
 
 bool AWandererCharacter::TravelTo(FVector Target, float Yaw, const TCHAR* Reason, float Above)
 {
-    if (bMoveSetUnavailable || !bReady || !Landscape || !Landscape->bLoaded) return false;
+    if (bMoveSetUnavailable || !bReady || !Landscape || !Landscape->bLoaded || !FMath::IsFinite(Above) || Above < 0.f || Above > 6000.f) return false;
     if (JapanNetwork::IsOnline(GetWorld()) && !HasAuthority())
     {
         if (IsLocallyControlled() && !bNetworkActivityPending && !CastChecked<UJapanCharacterMovement>(GetCharacterMovement())->IsExecutingMove() &&
@@ -364,7 +364,7 @@ bool AWandererCharacter::TravelTo(FVector Target, float Yaw, const TCHAR* Reason
         {
             bNetworkActivityPending = true;
             NetworkActivityRequestTime = GetWorld()->GetTimeSeconds();
-            ServerTravelTo(Target, Yaw, NetworkActivity.Epoch);
+            ServerTravelTo(Target, Yaw, NetworkActivity.Epoch, Above);
         }
         return false; // The map closes when the authoritative handoff arrives.
     }

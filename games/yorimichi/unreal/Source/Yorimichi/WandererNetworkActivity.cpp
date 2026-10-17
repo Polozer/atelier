@@ -345,7 +345,7 @@ void AWandererCharacter::ServerFinishSkate_Implementation(uint32 Epoch, FVector_
     BeginNetworkActivity(EJapanActivity::OnFoot, bFalling);
 }
 
-void AWandererCharacter::ServerTravelTo_Implementation(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch)
+void AWandererCharacter::ServerTravelTo_Implementation(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch, float Above)
 {
     // The host can already have recovered from water and advanced the epoch. Its
     // replicated handoff supersedes this late request; do not show a false failure.
@@ -354,14 +354,14 @@ void AWandererCharacter::ServerTravelTo_Implementation(FVector_NetQuantize100 Lo
     if (!Combat) { ClientActivityRejected(TEXT("Combat state is unavailable.")); return; }
     if (Combat->HasPending(this))
     { ++Combat->PendingTravelRefusals; ClientActivityRejected(TEXT("Finish the incoming hit before travelling.")); return; }
-    if (!FiniteInWorld(Location, 2000000.) || !FMath::IsFinite(Yaw) ||
+    if (!FiniteInWorld(Location, 2000000.) || !FMath::IsFinite(Yaw) || !FMath::IsFinite(Above) || Above < 0.f || Above > 6000.f ||
         GetWorld()->GetTimeSeconds() - LastNetworkTravel < 1.)
     { ClientActivityRejected(TEXT("Travel is unavailable just now.")); return; }
     if (GetWorld()->GetSubsystem<UJapanEncounters>()->HoldsPlayer(this) ||
         GetWorld()->GetSubsystem<UJapanCombatResolver>()->HasPending(this))
     { ClientActivityRejected(TEXT("Finish or leave the encounter before travelling.")); return; }
     LastNetworkTravel = GetWorld()->GetTimeSeconds();
-    if (!TravelTo(Location, Yaw, TEXT("player map"))) ClientActivityRejected(TEXT("Could not find a safe destination."));
+    if (!TravelTo(Location, Yaw, TEXT("player map"), Above)) ClientActivityRejected(TEXT("Could not find a safe destination."));
 }
 
 void AWandererCharacter::ClientActivityRejected_Implementation(const FString& Reason)

@@ -48,6 +48,10 @@ from `skatepark/park.json` by [`pier_plan.py`](../world/map/pier_plan.py).
 
 Each zone is a travel target with a key, name, position, yaw and hint. Zones are snapped to a walkable polyline
 (road, lane, route or stair), so travel lands on paved ground; the game traces the ground again on arrival.
+An indoor stop can set `above_m`, the trace height above its recorded position, in metres (finite, 0–60).
+Absent or invalid values retain the 25 m outdoor default. The salon uses 1.5 m to start below its roof;
+both local travel and the host's multiplayer landing use that height. Its target is clear hall paving,
+facing the betting counters.
 
 | Region | Zone keys |
 | --- | --- |
@@ -56,7 +60,7 @@ Each zone is a travel target with a key, name, position, yaw and hint. Zones are
 | Hidamari | `arrival`, `arcade`, `plaza`, `harbor`, `hillside`, `park`, `station`, `foothills` |
 | Elsewhere | `forest_lake`, `megapark`, `skatepier`, `hippodrome`, `zeppelin_forest`, `zeppelin_city`, `zeppelin_megapark`, `zeppelin_belmonte` |
 | Volcano | `craterpark` (Crater Park: its marked ramp drop-in, looking across the park; [CRATERPARK.md](CRATERPARK.md)) |
-| Belmonte | `belmonte`, `belmonte_course`, `belmonte_training` (from `belmonte/runtime.json`) |
+| Belmonte | `belmonte`, `belmonte_course`, `belmonte_training`, `belmonte_salon` (Salon des Paris, from `belmonte/runtime.json`) |
 
 `UJapanMap` adds a `skatepier` stop from `skatepark/park.json`, and a `hippodrome` stop (by the grandstand, at the
 grandstand) from `hippodrome/hippodrome.json`, when `map.json` has none ([HIPPODROME.md](HIPPODROME.md)).

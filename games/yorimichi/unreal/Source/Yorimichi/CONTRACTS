@@ -1,3 +1,9 @@
+@cc [owner:fontanierh,label:correctness] map-landing-trace
+A map zone's optional above_m MUST be converted from metres to centimetres; absent or invalid
+values MUST retain the 25 m outdoor default. Accepted heights MUST be finite and within 0–60 m.
+Travel MUST preserve the chosen height through the client request and authoritative landing,
+with the existing epoch, encounter, pending-hit and rate-limit checks intact.
+
 @cc [owner:fontanierh,label:performance] horse-appearance-residency
 An accepted appearance change on a locally controlled horse that replaces breed, tack, coat or mask
 assets MUST release the old component references and request deferred engine collection with incremental

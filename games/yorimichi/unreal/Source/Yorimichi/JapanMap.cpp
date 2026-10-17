@@ -470,6 +470,9 @@ void UJapanMap::Initialize(AWandererCharacter* Pawn)
             (*O)->TryGetStringField(TEXT("hint"),Zone.Hint);
             Zone.Location = AJapanWorld::ToUE((*O)->GetNumberField(TEXT("x")),(*O)->GetNumberField(TEXT("y")),(*O)->GetNumberField(TEXT("z")));
             Zone.Yaw = -(*O)->GetNumberField(TEXT("yaw"));
+            double AboveM = 0.;
+            if ((*O)->TryGetNumberField(TEXT("above_m"),AboveM) && FMath::IsFinite(AboveM) && AboveM >= 0. && AboveM <= 60.)
+                Zone.Above = float(AboveM * 100.);
             if (!Zone.Key.IsEmpty()) Zones.Add(Zone);
         }
     // The skate pier (world/regions/skatepark) is newer than the painted sheet: add its stop unless map.json already has one.
@@ -713,7 +716,7 @@ bool UJapanMap::TeleportToZone(const FString& Key)
     if (Key == TEXT("craterpark") && CraterParkTower::HasLines()) return CraterParkTower::Return(Owner,0);
     if (Key.EndsWith(TEXT("_station")))
         if (auto* Train = ABelmonteTrainService::Find(Owner)) return Train->GoToStation(Key, true);
-    return Owner->TravelTo(Z->Location,Z->Yaw,*Z->Name);
+    return Owner->TravelTo(Z->Location,Z->Yaw,*Z->Name,Z->Above);
 }
 
 FVector2D UJapanMap::ToSheet(const FVector& Location) const
