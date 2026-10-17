@@ -2,7 +2,7 @@
 
 This is the static presentation for [the shoreline proposal](../SHORELINES_PROPOSAL.md).
 
-Publish assembled files under `build/yorimichi/shorelines/site/`: copy `index.html`, `review.html`, `style.css`, `app.js` and `review.js` to its
+Publish assembled files under `build/yorimichi/shorelines/site/`: copy `index.html`, `review.html`, `style.css`, `app.js`, `review.js` and `comparisons.js` to its
 root and `sectors.json` to `assets/`. Copy the selected JPEGs and provenance JSON from
 `games/yorimichi/assets/shorelines/concepts/` to `assets/`. The generated `assets/survey-map.png` and
 `assets/survey.json` are retained with the proposal evidence under `build/yorimichi/shorelines/`; their survey
@@ -21,3 +21,7 @@ evidence. The survey map remains the original baseline and is identified as surv
 The main page loads native images from the same generated `assets/runtime-review.json`. An optional
 `highlights` list selects its featured images; otherwise it shows the first six stills. The section stays hidden
 until actual stills are published, so a fresh assembly has no references to unavailable runtime captures.
+
+An optional `comparisons` list pairs each original concept with its actual capture using `title`, `reference`,
+`capture` and an optional `note`. Both pages show these images uncropped and retain the published review state;
+comparison pairs do not imply visual acceptance. Omit the list until inspected captures are available.
