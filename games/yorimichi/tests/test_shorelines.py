@@ -80,3 +80,11 @@ def test_harbor_and_open_sea_partition_the_surface_without_an_overlap():
     for i,(x0,y0,x1,y1) in enumerate(rectangles):
         for a0,b0,a1,b1 in rectangles[i+1:]:
             assert max(0.,min(x1,a1)-max(x0,a0))*max(0.,min(y1,b1)-max(y0,b0))==0.
+
+
+def test_beach_clearance_preserves_town_planting_and_the_separate_islet():
+    rows=[[0.,-170.,2.,0.,1.],[600.,-112.,3.,0.,1.],[-150.,-530.,82.,0.,1.]]
+    instances={'Tree_Maple_A':rows.copy(),'SW_Stand':rows.copy()}
+    assert S.clear_vegetation(instances)==1
+    assert instances['Tree_Maple_A']==rows[1:]
+    assert instances['SW_Stand']==rows

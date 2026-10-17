@@ -93,7 +93,20 @@ def height(x, y, base):
 def vegetation(x, y):
     """Dry backshore for trees and undergrowth; never a canopy across a sand bay."""
     d, rock = field(x, y)
-    return d > 72.-40.*rock
+    return (weight(x,y)==0.) | (d > 72.-40.*rock)
+
+
+def clear_vegetation(instances):
+    """Keep town planting and the separate islet, clearing mainland sand and water."""
+    removed=0
+    for name,rows in instances.items():
+        if not rows or not (name.startswith(('Tree','Bush','Grass')) or name=='Litter'):
+            continue
+        p=np.asarray(rows,float)
+        keep=(p[:,1]<-300.) | vegetation(p[:,0],p[:,1])
+        removed+=int(np.count_nonzero(~keep))
+        instances[name]=[r for r,k in zip(rows,keep) if k]
+    return removed
 
 
 def paint(x, y, z, normal_z):

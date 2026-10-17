@@ -367,6 +367,7 @@ from train import earthworks as train_earthworks
 from train.corridor import clear_instances  # no trees or bushes where the Belmonte train runs (route v3)
 H[:] = train_earthworks.carve(X, Y, H)
 clear_instances(inst)
+print('coast: cleared %d mainland beach vegetation instances'%shorelines.clear_vegetation(inst),flush=True)
 np.save(os.path.join(OUT, "heightmap.npy"), H.astype(np.float32))
 H.astype("<f4").tofile(os.path.join(OUT, "heightmap.bin"))  # runtime cosmetic-particle ground sampling
 with open(os.path.join(OUT, "world.json"), "w") as fh:
