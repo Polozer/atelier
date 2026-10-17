@@ -1,0 +1,229 @@
+"""Tiny flat-shaded geometry builder shared by every Brinecove module.
+
+Faces are collected per material, then one Blender mesh is made per module. Keeping the module a single object makes
+the per-module GLB and the viewer's show/hide switches simple, and keeps draw calls low.
+"""
+import math
+
+MATERIALS = tuple(sorted(__import__('layout').COLORS))
+
+
+def _rot(x, y, yaw):
+    a = math.radians(yaw)
+    c, s = math.cos(a), math.sin(a)
+    return x * c - y * s, x * s + y * c
+
+
+def _unit(v):
+    n = math.sqrt(sum(c * c for c in v))
+    if n < 1e-9:
+        return (1.0, 0.0, 0.0)
+    return tuple(c / n for c in v)
+
+
+def _cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+class Builder:
+    def __init__(self, name):
+        self.name = name
+        self.verts = []
+        self.faces = []
+        self.mats = []
+
+    def face(self, points, mat):
+        i = len(self.verts)
+        self.verts.extend(tuple(float(c) for c in p) for p in points)
+        self.faces.append(tuple(range(i, i + len(points))))
+        self.mats.append(mat)
+
+    def tri(self, a, b, c, mat):
+        self.face((a, b, c), mat)
+
+    def quad(self, a, b, c, d, mat):
+        self.face((a, b, c, d), mat)
+
+    def box(self, center, size, mat, yaw=0.0, top=None):
+        cx, cy, cz = center
+        sx, sy, sz = size
+        hx, hy, hz = sx / 2, sy / 2, sz / 2
+        pts = []
+        for dz, sc in ((-hz, 1.0), (hz, 1.0 if top is None else top)):
+            for dx, dy in ((-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy)):
+                rx, ry = _rot(dx * sc, dy * sc, yaw)
+                pts.append((cx + rx, cy + ry, cz + dz))
+        b, t = pts[:4], pts[4:]
+        self.quad(b[3], b[2], b[1], b[0], mat)
+        self.quad(t[0], t[1], t[2], t[3], mat)
+        self.quad(b[0], b[1], t[1], t[0], mat)
+        self.quad(b[1], b[2], t[2], t[1], mat)
+        self.quad(b[2], b[3], t[3], t[2], mat)
+        self.quad(b[3], b[0], t[0], t[3], mat)
+
+    def beam(self, a, b, width, mat, depth=None):
+        """A square-ish timber from a to b, useful for posts, rails, rigging and rope."""
+        depth = width if depth is None else depth
+        a = tuple(float(c) for c in a); b = tuple(float(c) for c in b)
+        d = _unit(tuple(b[i] - a[i] for i in range(3)))
+        up = (0.0, 0.0, 1.0)
+        if abs(d[2]) > 0.94:
+            up = (0.0, 1.0, 0.0)
+        u = _unit(_cross(d, up))
+        v = _unit(_cross(d, u))
+        hu, hv = width / 2, depth / 2
+        p = []
+        for point in (a, b):
+            for su, sv in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+                p.append((point[0] + u[0] * hu * su + v[0] * hv * sv,
+                          point[1] + u[1] * hu * su + v[1] * hv * sv,
+                          point[2] + u[2] * hu * su + v[2] * hv * sv))
+        self.quad(p[3], p[2], p[1], p[0], mat)
+        self.quad(p[4], p[5], p[6], p[7], mat)
+        for i in range(4):
+            j = (i + 1) % 4
+            self.quad(p[i], p[j], p[4 + j], p[4 + i], mat)
+
+    def cylinder(self, a, b, radius, mat, sides=8, radius_b=None, caps=True):
+        radius_b = radius if radius_b is None else radius_b
+        a = tuple(float(c) for c in a); b = tuple(float(c) for c in b)
+        d = _unit(tuple(b[i] - a[i] for i in range(3)))
+        up = (0.0, 0.0, 1.0)
+        if abs(d[2]) > 0.94:
+            up = (0.0, 1.0, 0.0)
+        u = _unit(_cross(d, up)); v = _unit(_cross(d, u))
+        ring_a, ring_b = [], []
+        for i in range(sides):
+            ang = 2 * math.pi * i / sides
+            cu, sv = math.cos(ang), math.sin(ang)
+            ring_a.append((a[0] + (u[0] * cu + v[0] * sv) * radius,
+                           a[1] + (u[1] * cu + v[1] * sv) * radius,
+                           a[2] + (u[2] * cu + v[2] * sv) * radius))
+            ring_b.append((b[0] + (u[0] * cu + v[0] * sv) * radius_b,
+                           b[1] + (u[1] * cu + v[1] * sv) * radius_b,
+                           b[2] + (u[2] * cu + v[2] * sv) * radius_b))
+        for i in range(sides):
+            j = (i + 1) % sides
+            self.quad(ring_a[i], ring_a[j], ring_b[j], ring_b[i], mat)
+        if caps:
+            self.face(tuple(reversed(ring_a)), mat)
+            self.face(tuple(ring_b), mat)
+
+    def sphere(self, center, radius, mat, scale=(1.0, 1.0, 1.0), subdiv=1):
+        """Low-poly icosphere, scaled; flat facets are the point."""
+        t = (1.0 + math.sqrt(5.0)) / 2.0
+        base = [(-1, t, 0), (1, t, 0), (-1, -t, 0), (1, -t, 0),
+                (0, -1, t), (0, 1, t), (0, -1, -t), (0, 1, -t),
+                (t, 0, -1), (t, 0, 1), (-t, 0, -1), (-t, 0, 1)]
+        faces = [(0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11),
+                 (1, 5, 9), (5, 11, 4), (11, 10, 2), (10, 7, 6), (7, 1, 8),
+                 (3, 9, 4), (3, 4, 2), (3, 2, 6), (3, 6, 8), (3, 8, 9),
+                 (4, 9, 5), (2, 4, 11), (6, 2, 10), (8, 6, 7), (9, 8, 1)]
+        verts = [_unit(v) for v in base]
+        for _ in range(subdiv):
+            cache, new_faces = {}, []
+
+            def mid(i, j):
+                key = (min(i, j), max(i, j))
+                if key not in cache:
+                    a, b = verts[i], verts[j]
+                    cache[key] = len(verts)
+                    verts.append(_unit(tuple((a[k] + b[k]) / 2 for k in range(3))))
+                return cache[key]
+
+            for a, b, c in faces:
+                ab, bc, ca = mid(a, b), mid(b, c), mid(c, a)
+                new_faces.extend(((a, ab, ca), (b, bc, ab), (c, ca, bc), (ab, bc, ca)))
+            faces = new_faces
+        cx, cy, cz = center
+        points = [(cx + v[0] * radius * scale[0], cy + v[1] * radius * scale[1], cz + v[2] * radius * scale[2])
+                  for v in verts]
+        for f in faces:
+            self.face(tuple(points[i] for i in f), mat)
+
+    def gable_roof(self, center, width, depth, z, rise, mat, yaw=0.0, ridge='x', overhang=0.8):
+        """Gable roof with deep eaves, ridge along x or y."""
+        cx, cy, _ = center
+        w, d = width / 2 + overhang, depth / 2 + overhang
+        if ridge == 'x':
+            e1 = (cx - w, cy - d, z); e2 = (cx + w, cy - d, z)
+            e3 = (cx + w, cy + d, z); e4 = (cx - w, cy + d, z)
+            r1 = (cx - w, cy, z + rise); r2 = (cx + w, cy, z + rise)
+            self.quad(e1, e2, r2, r1, mat)
+            self.quad(e4, r1, r2, e3, mat)
+            self.tri(e1, r1, e4, mat)
+            self.tri(e2, e3, r2, mat)
+            # fascia and a few battens
+            for yy in (-d, d):
+                self.beam((cx - w, cy + yy, z), (cx + w, cy + yy, z), 0.18, 'wood_dark')
+            for t in (0.25, 0.5, 0.75):
+                yy = cy - d + 2 * d * t
+                zz = z + rise * (1 - abs(t - 0.5) * 2)
+                self.beam((cx - w, yy, zz), (cx + w, yy, zz), 0.08, 'roof_slate')
+        else:
+            e1 = (cx - w, cy - d, z); e2 = (cx + w, cy - d, z)
+            e3 = (cx + w, cy + d, z); e4 = (cx - w, cy + d, z)
+            r1 = (cx, cy - d, z + rise); r2 = (cx, cy + d, z + rise)
+            self.quad(e1, r1, r2, e4, mat)
+            self.quad(e2, e3, r2, r1, mat)
+            self.tri(e1, e2, r1, mat)
+            self.tri(e4, r2, e3, mat)
+            for xx in (-w, w):
+                self.beam((cx + xx, cy - d, z), (cx + xx, cy + d, z), 0.18, 'wood_dark')
+            for t in (0.25, 0.5, 0.75):
+                xx = cx - w + 2 * w * t
+                zz = z + rise * (1 - abs(t - 0.5) * 2)
+                self.beam((xx, cy - d, zz), (xx, cy + d, zz), 0.08, 'roof_slate')
+        # ridge cap
+        if ridge == 'x':
+            self.beam((cx - w, cy, z + rise), (cx + w, cy, z + rise), 0.22, 'roof_slate')
+        else:
+            self.beam((cx, cy - d, z + rise), (cx, cy + d, z + rise), 0.22, 'roof_slate')
+
+    def hip_roof(self, center, width, depth, z, rise, mat, yaw=0.0, overhang=0.8):
+        cx, cy, _ = center
+        w, d = width / 2 + overhang, depth / 2 + overhang
+        e = [(cx - w, cy - d, z), (cx + w, cy - d, z), (cx + w, cy + d, z), (cx - w, cy + d, z)]
+        # ridge shorter than the long axis
+        if w >= d:
+            r1 = (cx - w * 0.35, cy, z + rise); r2 = (cx + w * 0.35, cy, z + rise)
+            self.quad(e[0], e[1], r2, r1, mat)
+            self.quad(e[3], r1, r2, e[2], mat)
+            self.tri(e[0], r1, e[3], mat)
+            self.tri(e[1], e[2], r2, mat)
+            self.beam(r1, r2, 0.2, 'roof_slate')
+        else:
+            r1 = (cx, cy - d * 0.35, z + rise); r2 = (cx, cy + d * 0.35, z + rise)
+            self.quad(e[0], r1, r2, e[3], mat)
+            self.quad(e[1], e[2], r2, r1, mat)
+            self.tri(e[0], e[1], r1, mat)
+            self.tri(e[3], r2, e[2], mat)
+            self.beam(r1, r2, 0.2, 'roof_slate')
+
+    def rope(self, a, b, sag=1.0, radius=0.09, mat='rope', segments=8):
+        a = tuple(float(c) for c in a); b = tuple(float(c) for c in b)
+        prev = a
+        for i in range(1, segments + 1):
+            t = i / segments
+            p = tuple(a[k] + (b[k] - a[k]) * t for k in range(3))
+            p = (p[0], p[1], p[2] - sag * math.sin(math.pi * t))
+            self.beam(prev, p, radius, mat)
+            prev = p
+
+    def ring(self, center, radius, tube, mat, axis='z', sides=10, tube_sides=6):
+        cx, cy, cz = center
+        pts = []
+        for i in range(sides):
+            ang = 2 * math.pi * i / sides
+            if axis == 'z':
+                pts.append((cx + math.cos(ang) * radius, cy + math.sin(ang) * radius, cz))
+            elif axis == 'x':
+                pts.append((cx, cy + math.cos(ang) * radius, cz + math.sin(ang) * radius))
+            else:
+                pts.append((cx + math.cos(ang) * radius, cy, cz + math.sin(ang) * radius))
+        for i in range(sides):
+            self.cylinder(pts[i], pts[(i + 1) % sides], tube, mat, tube_sides, caps=False)
+
+    def triangle_fan(self, center, points, mat):
+        for i in range(len(points)):
+            self.tri(center, points[i], points[(i + 1) % len(points)], mat)
