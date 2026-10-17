@@ -393,6 +393,25 @@ def validate_guards(guards, child, owner, limit_bytes, reserved_mib, *, started=
     return GuardFacts(tuple(roster), footprint)
 
 
+
+def require_independent_guards(guards, owner, *, started=process_start, group=None):
+    """@cc [owner:fontanierh,label:safety] independent-controller-loss-supervision
+    Before full-mode GO, both guards MUST own process groups separate from the controller,
+    retain their exact birth identities, and the aggregate receipt MUST bind this controller.
+    Old clients lacking this protection MUST refuse before useful execution.
+    """
+    group = group or os.getpgid
+    owner = identity(owner)
+    for kind in ('process_guard', 'tree_guard'):
+        item = fields(guards[kind], ('pid','start','report'))
+        pin = identity((item['pid'],item['start']))
+        if (started(pin[0]) != pin[1] or group(pin[0]) != pin[0] or group(owner[0]) == group(pin[0])
+                or started(pin[0]) != pin[1]):
+            raise CapacityError('Capacity guards require independent supervision; update the launching checkout')
+    receipt = decode(guard_report(guards['tree_guard']['report']))
+    if receipt.get('controller') != list(owner):
+        raise CapacityError('Capacity aggregate guard requires controller-loss supervision; update the launching checkout')
+
 def pressure(_disk_pool):
     """Fresh memory availability is separate from ownership. Disk is not an admission input."""
     memory = None
