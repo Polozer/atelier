@@ -36,7 +36,9 @@ class CapacityBroker:
     Queued offers MUST charge no resources. Final complete-vector and lock accounting MUST commit
     before this broker's sole gate writer releases a child, in one serialized actor turn. Restart,
     lost health and missing exit evidence MUST retain grants. No process MAY be signalled here.
-    Exact exit evidence covers the retained roster only. Bridge and performance-exclusive grants
+    Explicit operator-directed administrative abandonment of an interrupted exclusive compile MAY
+    separately use current kernel quiescence under the administrative policy; it MUST NOT certify
+    outputs or run through ordinary close/reconcile. Exact exit evidence covers the retained roster only. Bridge and performance-exclusive grants
     MAY instead use a positively exited root plus its bound aggregate guard's terminal empty-tree
     cleanup receipt; that witnesses the monitored owned tree, not every descendant's kernel exit.
     The adapter MUST retain exclusive legacy exclusion in bridge
@@ -816,18 +818,37 @@ class CapacityBroker:
                 refreshed = self._refresh(state, now)
                 wire.fields(message, ('namespace', 'action'), ('request', 'id', 'nonce', 'epoch', 'boot_id', 'child',
                             'process_guard', 'tree_guard', 'limit_bytes', 'descendants', 'witness', 'resources', 'locks',
-                            'activation_id', 'candidates', 'preserved_terminal'))
+                            'activation_id', 'candidates', 'preserved_terminal', 'interrupted_compile'))
                 if message['namespace'] != wire.NAMESPACE:
                     raise wire.CapacityError('Production broker namespace required')
                 action = message['action']
+                if 'interrupted_compile' in message and action != 'abandon-interrupted':
+                    raise wire.CapacityError('Interrupted compile evidence requires explicit administrative action')
                 if 'preserved_terminal' in message and action != 'reconcile':
                     raise wire.CapacityError('Preserved terminal evidence is allowed only for reconciliation')
-                if self.mode in ('capacity', 'sealed-maintenance') and action not in ('status', 'reconcile', 'close'):
+                if self.mode in ('capacity', 'sealed-maintenance') and action not in ('status', 'reconcile', 'close', 'abandon-interrupted'):
                     if not self.compatible or message.get('activation_id') != self.activation_id:
                         if action == 'start':
                             self._start_refusal('compatibility-fence')
                         raise wire.CapacityError('Full-capacity compatibility proof is unavailable or mismatched')
-                if action in ('status', 'reconcile'):
+                if action == 'abandon-interrupted':
+                    from atelier.harness import capacity_abandon
+                    evidence = wire.fields(message.get('interrupted_compile', {}),
+                        ('id', 'nonce', 'epoch', 'boot_id', 'operator_reference', 'administrator', 'services'))
+                    print(json.dumps({'event': 'capacity administrative abandon attempt',
+                                      'epoch': state['epoch'], 'peer_pid': principal[0]}), file=sys.stderr, flush=True)
+                    if self.mode != 'capacity' or not self.compatible:
+                        raise wire.CapacityError('Administrative recovery requires healthy full-capacity compatibility')
+                    record = state['records'].get(evidence.get('id'))
+                    if record is None:
+                        raise wire.CapacityError('Interrupted compile request does not exist')
+                    if any(other is not record and other['state'] in HELD for other in state['records'].values()):
+                        raise wire.CapacityError('Another charged job prevents interrupted compile recovery')
+                    witness = capacity_abandon.recover(record, evidence, principal=principal, boot=self.boot,
+                                                       epoch=state['epoch'])
+                    record.update(state='released', release_witness=witness)
+                    result = {'released': True, 'state': 'released', 'witness': witness}
+                elif action in ('status', 'reconcile'):
                     if action == 'reconcile':
                         if 'preserved_terminal' in message:
                             refreshed |= self._preserved_terminal(state, message['preserved_terminal'])
