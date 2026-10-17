@@ -16,6 +16,30 @@ BUILT = all((OUT / name).exists() for name in ('hidamari/city.json', 'belmonte/r
                                                'belmonte/natural/SM_BM_NorthCountry.glb', 'belmonte/natural/SM_BM_NorthApron.glb'))
 
 
+def test_route_ground_cache_refreshes_when_coast_inputs_change(tmp_path, monkeypatch):
+    world, assets = tmp_path / 'world', tmp_path / 'assets'
+    monkeypatch.setattr(R, '__file__', str(world / 'train' / 'route.py'))
+    monkeypatch.setattr(yori, 'ASSETS', assets)
+    monkeypatch.setattr(yori, 'OUT', tmp_path / 'out')
+    level = [1.]
+    monkeypatch.setattr(R, 'ground', lambda x, y: np.full_like(x, level[0]))
+    inputs = [world / 'shorelines.py', world / 'coast_water.py',
+              assets / 'vehicles' / 'belmonte-train' / 'line.json']
+    for p in inputs:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text('first')
+    cache = tmp_path / 'ground.npz'
+    bounds = (0., 0., 20., 20.)
+    np.testing.assert_array_equal(R.Raster(bounds, 20., cache).z, 1.)
+    for p in inputs:
+        level[0] += 1.
+        p.write_text('changed')
+        np.testing.assert_array_equal(R.Raster(bounds, 20., cache).z, level[0])
+    # Matching inputs reuse the stored result without calling the sampler.
+    monkeypatch.setattr(R, 'ground', lambda x, y: (_ for _ in ()).throw(AssertionError('cache miss')))
+    np.testing.assert_array_equal(R.Raster(bounds, 20., cache).z, level[0])
+
+
 class Alignment(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
