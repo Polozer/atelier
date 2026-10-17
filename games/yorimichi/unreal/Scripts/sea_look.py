@@ -24,12 +24,9 @@ own units is seen exactly as chosen, next to the sky it has to differ from:
 The engine still lights the surface for sun glints only: black base colour, specular .02. Below .25 the engine scales
 its grazing reflection by 50 x F0 (here .08), so the captured sky no longer washes the authored colour out.
 
-Values were chosen against the in-game screenshots: under the fixed exposure and film curve, the dome just above the
-horizon (HORIZON) shows about 125,160,194 and its cloud tops about 219,216,214. A film curve fitted to those predicts,
-from the beach at eye height, about 51,94,128 at 9 m (wave facets 40,88,122 to 55,98,134), 74,113,151 at 40 m,
-95,131,169 at 300 m, 110,143,180 at 1 km and 113,146,182 at the horizon, 12 to 16 levels under the sky; from the
-crow's nest (89 m), 49,94,129 at 300 m, 84,121,159 at 2 km and 114,145,182 at the horizon. The surf shows about
-200,204,208, a little under the cloud tops.
+Judge the palette in the native fixed-exposure renderer. The shallow tint uses the approximate vertical water
+column, so it remains visible when looking along a beach. Surf thickness and its pixel antialiasing use that same
+depth measure; a horizontal pixel footprint would spread white foam across a broad band at grazing angles.
 """
 
 
@@ -79,9 +76,9 @@ WIND = -1.2645
 K0 = 0.30
 A0 = 0.065
 
-# Surf: a band SURF_M metres deep behind the surface near the camera; far away it widens to about one and a half
+# Surf: a band SURF_M vertical metres deep near the camera; far away it widens to about one and a half
 # pixels, so a cliff 400 m off still gets its white line. None beyond SURF_FAR metres (the dome meets the sea at 20 km).
-SURF_M = 1.6
+SURF_M = 0.35
 SURF_FAR = (2500.0, 4000.0)
 FLECK = 0.16
 
@@ -128,7 +125,7 @@ float3 sky=lerp(%(horizon)s,%(zenith)s,pow(asin(saturate(R.z))/1.5708,.6));
 float l=max(0,L)*.01*max(V.z,.03);
 float3 c=lerp(lerp(%(shallow)s,%(body)s,saturate(l/%(shallow_m)s)),sky,fres);
 // surf: white at the waterline, fading over w metres behind the surface, with a wobbling edge and a slow wash
-float fp=max(length(ddx(p)),length(ddy(p)));
+float fp=max(abs(ddx(l)),abs(ddy(l)));
 float w=%(surf_m)s+1.5*fp;
 float wob=.5+.25*sin(p.x*.83+p.y*.37+T*.6)+.25*sin(p.y*1.13-p.x*.51-T*.45);
 float edge=saturate(1-l/(w*(.55+.9*wob)));
