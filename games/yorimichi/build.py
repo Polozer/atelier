@@ -342,12 +342,18 @@ def belmonte_track_present(out):
 
 
 def belmonte_train_furniture_lods_present(out):
-    """Every baked furniture LOD GLB listed in summary.json, at its recorded size."""
-    root = out / 'belmonte-train' / 'furniture' / 'lod'
+    """@cc [owner:fontanierh,label:correctness] furniture-lod-metadata-complete
+    A current furniture bake MUST cover every expected asset, retain its generated report metadata
+    equal to the summary, and have every recorded LOD file at its recorded size. Reset source reports
+    MUST invalidate the bake even when source GLB bytes and old summary files are unchanged.
+    """
+    root = out / 'belmonte-train' / 'furniture'
     try:
-        summary = json.loads((root / 'summary.json').read_text())
-        return (bool(summary)
-                and all((root / level['glb']).stat().st_size == level['bytes']
+        summary = json.loads((root / 'lod' / 'summary.json').read_text())
+        return (set(summary) == set(TRAIN_FURNITURE)
+                and all(item['levels'] and json.loads((root / f'{aid}.json').read_text())['lods'] == item
+                        for aid, item in summary.items())
+                and all((root / 'lod' / level['glb']).stat().st_size == level['bytes']
                         for item in summary.values() for level in item['levels']))
     except (OSError, ValueError, KeyError, TypeError):
         return False

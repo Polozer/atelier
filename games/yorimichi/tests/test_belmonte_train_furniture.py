@@ -129,3 +129,65 @@ def test_invalid_fit_is_rejected_even_with_a_matching_checksum(library, tmp_path
     with pytest.raises(ValueError):
         F.stage(destination, library)
     assert not destination.exists()
+
+
+@pytest.fixture(scope='module')
+def recipe():
+    from atelier.build import load_recipe
+    return load_recipe('yorimichi')
+
+
+@pytest.fixture
+def baked_furniture(tmp_path):
+    root = tmp_path / 'belmonte-train' / 'furniture'
+    F.stage(root)
+    lod = root / 'lod'
+    lod.mkdir()
+    summary = {}
+    for aid in SPECS:
+        glb = lod / f'{aid}_LOD0.glb'
+        glb.write_bytes(b'baked mesh fixture')
+        record = {'levels': [{'glb': glb.name, 'bytes': glb.stat().st_size, 'level': 0, 'screen_size': 1.}]}
+        path = root / f'{aid}.json'
+        report = json.loads(path.read_text())
+        report['lods'] = summary[aid] = record
+        path.write_text(json.dumps(report))
+    (lod / 'summary.json').write_text(json.dumps(summary))
+    return root
+
+
+def test_source_report_reset_invalidates_an_existing_lod_bake(recipe, baked_furniture, tmp_path):
+    assert recipe.belmonte_train_furniture_lods_present(tmp_path)
+    old_glb = (baked_furniture / 'wall-sconce.glb').read_bytes()
+    old_summary = (baked_furniture / 'lod' / 'summary.json').read_bytes()
+    F.stage(baked_furniture)
+    assert (baked_furniture / 'wall-sconce.glb').read_bytes() == old_glb
+    assert (baked_furniture / 'lod' / 'summary.json').read_bytes() == old_summary
+    assert not recipe.belmonte_train_furniture_lods_present(tmp_path)
+
+
+@pytest.mark.parametrize('change', ['missing-report', 'mismatched-report', 'incomplete-summary', 'empty-summary', 'empty-levels', 'truncated-glb'])
+def test_incomplete_lod_bake_is_not_current(recipe, baked_furniture, tmp_path, change):
+    report_path = baked_furniture / 'wall-sconce.json'
+    summary_path = baked_furniture / 'lod' / 'summary.json'
+    if change == 'missing-report':
+        report_path.unlink()
+    elif change == 'mismatched-report':
+        report = json.loads(report_path.read_text())
+        report['lods']['levels'][0]['screen_size'] = .5
+        report_path.write_text(json.dumps(report))
+    elif change == 'truncated-glb':
+        (baked_furniture / 'lod' / 'wall-sconce_LOD0.glb').write_bytes(b'truncated')
+    else:
+        summary = json.loads(summary_path.read_text())
+        if change == 'incomplete-summary':
+            del summary['wall-sconce']
+        elif change == 'empty-summary':
+            summary = {}
+        else:
+            summary['wall-sconce']['levels'] = []
+            report = json.loads(report_path.read_text())
+            report['lods'] = summary['wall-sconce']
+            report_path.write_text(json.dumps(report))
+        summary_path.write_text(json.dumps(summary))
+    assert not recipe.belmonte_train_furniture_lods_present(tmp_path)
