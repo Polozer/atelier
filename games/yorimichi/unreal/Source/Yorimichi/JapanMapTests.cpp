@@ -26,7 +26,8 @@ bool FJapanMapSalonTest::RunTest(const FString&)
     const FJapanMapZone* Salon = Map->FindZone(TEXT("belmonte_salon"));
     if (!TestNotNull(TEXT("The generated map includes the salon"), Salon)) return false;
     const FJapanMapZone Zone = *Salon; // GetZones can refresh its array during travel.
-    const float Half = Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+    const auto* Capsule = Player->GetCapsuleComponent();
+    const float Half = Capsule->GetScaledCapsuleHalfHeight();
     const FVector OriginalGround = Player->GetActorLocation() - FVector(0,0,Half);
     const float OriginalYaw = Player->GetActorRotation().Yaw, Health = Player->GetSword()->GetHealth();
     ON_SCOPE_EXIT { Player->TravelTo(OriginalGround,OriginalYaw,TEXT("map regression return"),30.f); };
@@ -41,9 +42,10 @@ bool FJapanMapSalonTest::RunTest(const FString&)
         TestTrue(TEXT("The player faces the counters"), FMath::Abs(FMath::FindDeltaAngleDegrees(Player->GetActorRotation().Yaw,Zone.Yaw)) < .1f);
         TestTrue(TEXT("The floor is walkable"), Player->GetWorld()->LineTraceSingleByChannel(Hit,Position+FVector(0,0,5),
             Position-FVector(0,0,50),ECC_Visibility,Params) && Player->GetCharacterMovement()->IsWalkable(Hit));
-        TestFalse(TEXT("The standing capsule has clear space"), Player->GetWorld()->OverlapBlockingTestByProfile(
-            Player->GetActorLocation(),FQuat::Identity,Player->GetCapsuleComponent()->GetCollisionProfileName(),
-            FCollisionShape::MakeCapsule(Player->GetCapsuleComponent()->GetScaledCapsuleRadius(),Half),Params));
+        TestFalse(TEXT("The standing capsule has clear space"), Player->GetWorld()->OverlapBlockingTestByChannel(
+            Player->GetActorLocation(),FQuat::Identity,Capsule->GetCollisionObjectType(),
+            FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius(),Half),Params,
+            FCollisionResponseParams(Capsule->GetCollisionResponseToChannels())));
         TestEqual(TEXT("Travel preserves health"), Player->GetSword()->GetHealth(), Health);
     };
     TestEqual(TEXT("Indoor clearance is converted from metres"), Zone.Above, 150.f);
