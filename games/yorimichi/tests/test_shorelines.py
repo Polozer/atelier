@@ -61,6 +61,15 @@ def test_harbor_piers_and_canal_approach_remain_over_water():
     assert S.height(848., -145., 3.) < -1.
 
 
+def test_spawn_beach_clears_the_existing_skate_pier_frontage():
+    from skatepark.pier_site import ORIGIN, HALF_X, HALF_Y
+    x = np.linspace(ORIGIN[0]-HALF_X, ORIGIN[0]+HALF_X, 171)
+    y = np.full_like(x, ORIGIN[1]+HALF_Y)
+    # The path's last ring joins this fixed deck. A raised beach here buries
+    # the pier and makes its terrain-clearing, grade-limited path infeasible.
+    assert np.max(S.height(x, y, 8.)) < ORIGIN[2]-.05
+
+
 def test_shore_vegetation_clearance_and_palette_are_finite():
     x, y = np.meshgrid(np.linspace(-3200., 3200., 151), np.linspace(-300., 7100., 101))
     z = S.height(x, y, 200.)

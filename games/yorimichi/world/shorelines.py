@@ -35,9 +35,10 @@ def field(x, y):
     north = 6835.-100.*(x/3000.)**2+65.*np.sin(x/530.)
     # The existing quay owns the central frontage: its water stays open under
     # the piers. Sand bays sit outside its ends, below the protected city streets.
+    # The spawn inlet also clears Sunset Pier's fixed 1.8 m deck and access path.
     south = np.interp(x, [-3200., -1800., -600., -300., -150., 300., 380., 420.,
                          900., 1000., 1420., 1800., 2800., 3200.],
-                        [-25., -45., -60., -175., -195., -185., -190., -124.,
+                        [-25., -45., -60., -175., -185., -185., -190., -124.,
                          -124., -195., -185., -60., -45., -25.])
     wild = smooth((np.abs(x)-600.)/500.)
     south += wild*(14.*np.sin(x/175.)+7.*np.sin(x/62.))
