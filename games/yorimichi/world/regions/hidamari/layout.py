@@ -34,6 +34,8 @@ def _base_height(x,y):
     z=z*(1-blend)+30.8*blend
     return z
 
+ISLAND_FADE=24.   # metres east of the island terrain's edge over which the arrival road's corridor levels
+
 def street_height(x,y):
     x,y=np.broadcast_arrays(np.asarray(x,dtype=float),np.asarray(y,dtype=float))
     cuts=[];values=[]
@@ -57,6 +59,9 @@ def street_height(x,y):
         px=a[0]+t*vx;py=a[1]+t*vy;dd=np.hypot(x-px,y-py)
         near=dd<distance;tx=np.where(near,px,tx);ty=np.where(near,py,ty);distance=np.minimum(distance,dd)
     weight=np.clip((12-distance)/4,0,1);weight=weight*weight*(3-2*weight)
+    # The island terrain (build_terrain.py) ends at x 300, carved only under its own road: start on its edge
+    # there and level the arrival road's corridor over the next ISLAND_FADE metres, or the two meet in a step.
+    fade=np.clip((x-300)/ISLAND_FADE,0,1);weight=weight*fade*fade*(3-2*fade)
     if not np.any(weight):return z
     return z*(1-weight)+profile(tx,ty)*weight
 
@@ -213,6 +218,9 @@ def height(x,y):
 def terrain_axes():
     """Keep the coarse distant grid; resolve plateau edges and shoulder curves."""
     xs=set(np.arange(300.,1421.,4.));ys=set(np.arange(-300.,501.,4.))
+    # Where the arrival road leaves the island, every line of the island terrain's 2 m grid meets HD_Terrain's edge at
+    # x 300 (build_terrain.py), so the two share their vertices there: no step in the ground under the road.
+    ys.update(np.arange(30.,100.,4.))
     for p in terrain_pads():
         sign=1 if p['yaw']==0 else -1
         # A house row shares its y lines; its plots' x edges stay on the 4 m grid (the flat core still holds).

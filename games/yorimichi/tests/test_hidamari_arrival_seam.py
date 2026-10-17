@@ -1,4 +1,5 @@
-"""The arrival road ribbon meets the island road on the island terrain, not on Hidamari's ground model."""
+"""The arrival road ribbon runs on from the island road flush, with no step, and its shoulders meet the ground drawn
+under them on both terrains."""
 import sys
 from pathlib import Path
 
@@ -10,28 +11,37 @@ import yori  # noqa: E402,F401
 from hidamari import arrival  # noqa: E402
 
 N, SIZE = 301, 600.
+END = (294.51, 59.69, .05*294.51 + .25)   # the island road, its strip a little above the terrain
 
 
 def is_skirt(points):
     return any(p[:2] == q[:2] and p[2] != q[2] for p in points for q in points)
 
 
-class Mesh:
+class Mesh:   # village.build.Mesh, as far as the ribbon uses it
     def __init__(self):
-        self.polys = []
+        self.polys, self.faces = [], []
 
     def poly(self, points, key):
-        self.polys.append((points, key))
+        self.polys.append((points, key)); self.faces.append(tuple(range(len(points))))
+
+
+def hillside(x, y):
+    # Hidamari's ground: it meets the island terrain at x 300 and rolls away east of it.
+    return .05*np.asarray(x) + .5*np.sin((np.asarray(x) - 300)/7.)
 
 
 @pytest.fixture
 def island(monkeypatch):
-    # A steep hillside with alternating twisted quads: their two diagonals differ by 0.4 m.
+    # A slope rising east with alternating twisted quads (their two diagonals differ by 0.2 m), untwisted on its east
+    # edge, where it meets Hidamari's ground.
     axis = np.linspace(-SIZE/2, SIZE/2, N); x, y = np.meshgrid(axis, axis)
-    H = .2*y + .2*((np.arange(N)[:, None]+np.arange(N)[None, :]) % 2)
-    road = [[250., 30., 0.], [294.51, 59.69, 0.]]
+    H = .05*x + .1*((np.arange(N)[:, None]+np.arange(N)[None, :]) % 2)*(np.arange(N)[None, :] < N-1)
+    road = [[250., 60., .05*250 + .25], list(END)]
     monkeypatch.setattr(arrival, '_world', lambda: {'road': road, 'n': N, 'size': SIZE})
     monkeypatch.setattr(arrival, '_island', lambda: (H, N, SIZE))
+    xs = tuple(np.arange(300., 420.1, 4.)); ys = tuple(np.arange(0., 240.1, 4.))
+    monkeypatch.setattr(arrival, '_hidamari_axes', lambda: (xs, ys))
     for cached in (arrival._road, arrival._samples):
         cached.cache_clear()
     yield H
@@ -39,36 +49,87 @@ def island(monkeypatch):
         cached.cache_clear()
 
 
-def test_ribbon_west_of_the_island_edge_lies_on_the_island_terrain(island):
-    m = Mesh()
-    arrival._ribbon(m, lambda x, y: -50.)        # Hidamari's ground model, deliberately far off
-    surface = [p for points, key in m.polys if not is_skirt(points) for p in points]
-    west = [p for p in surface if p[0] < SIZE/2]
-    assert west
-    for x, y, z in west:
-        ground = arrival.island_height(x, y)
-        assert ground + .09 < z < ground + .14   # on the terrain, never under either diagonal
-    east = [p for points, key in m.polys if key == 'ar_road_asphalt' for p in points if p[0] > SIZE/2 + 1]
-    assert east and all(abs(z + 50 - .12) < 1e-9 for _, _, z in east)
+def test_drawn_follows_the_importers_a_c_diagonal():
+    a, b, c, d = 0., 1., 5., 2.
+    for tx, ty in [(.2, .1), (.9, .3), (.1, .8), (.4, .6), (.5, .5)]:
+        if tx >= ty:   # triangle a b c
+            expected = a + (b-a)*tx + (c-b)*ty
+        else:          # triangle a c d
+            expected = a + (c-d)*tx + (d-a)*ty
+        assert arrival._drawn(a, b, c, d, tx, ty) == pytest.approx(expected)
+    assert arrival._drawn(a, b, c, d, .5, .5) == pytest.approx((a+c)/2)   # on the diagonal itself
 
 
-def test_island_height_never_sinks_under_either_triangulation(island):
+def test_island_height_is_the_drawn_island_mesh(island):
     for x, y in [(294.3, 60.1), (295.7, 61.9), (293.1, 62.6), (296.9, 57.2)]:
-        fx, fy = (x+SIZE/2)/2, (y+SIZE/2)/2; i, j = int(fx), int(fy); tx, ty = fx-i, fy-j
+        fx, fy = (x+SIZE/2)/2, (y+SIZE/2)/2; i, j = int(fx), int(fy)
         a, b, c, d = island[j, i], island[j, i+1], island[j+1, i+1], island[j+1, i]
-        ac = a+(b-a)*tx+(c-b)*ty if tx >= ty else a+(c-d)*tx+(d-a)*ty
-        bd = a+(b-a)*tx+(d-a)*ty if tx+ty <= 1 else c+(c-d)*(tx-1)+(c-b)*(ty-1)
-        assert arrival.island_height(x, y) == pytest.approx(max(ac, bd))
+        assert arrival.island_height(x, y) == pytest.approx(arrival._drawn(a, b, c, d, fx-i, fy-j))
 
 
-def test_shoulders_and_start_carry_a_skirt_below_the_edge(island):
+def test_the_ribbon_starts_as_the_island_roads_own_flat_strip(island):
+    c, n, z = arrival._sections(hillside)[0]
+    road = [z[s] for s in arrival.ASPHALT]
+    assert road == pytest.approx([END[2] + arrival.ROAD_LIFT] * len(road))   # its height, flat across like the island strip
+    assert c == pytest.approx(END[:2])
+
+
+def test_asphalt_eases_onto_the_hillside_without_steps(island):
+    sections = arrival._sections(hillside)
+    g = arrival.ground(hillside)
+    centre = [z[0.] for _, _, z in sections]
+    assert max(abs(q - p) for p, q in zip(centre, centre[1:])) < .05       # every 0.25 m: no step
+    for c, n, z in sections:
+        for s in arrival.ASPHALT:
+            assert z[s] >= g(c[0]+n[0]*s, c[1]+n[1]*s) + .02 - 1e-9          # never under the ground drawn there
+    far = [(c, n, z) for c, n, z, t in zip(*zip(*sections), arrival._samples()[2]) if t > arrival.BLEND]
+    assert far and all(z[0.] == pytest.approx(g(*c) + .12) for c, n, z in far)
+
+
+def test_shoulders_meet_the_drawn_ground_flush(island):
+    g = arrival.ground(hillside)
+    at = lambda c, n, s: g(c[0]+n[0]*s, c[1]+n[1]*s)
+    for c, n, z in arrival._sections(hillside):
+        for side in (-1, 1):
+            edge, *between, outer = arrival._shoulder(side)
+            assert z[outer] == pytest.approx(at(c, n, outer) + arrival.FLUSH)
+            assert all(z[s] >= at(c, n, s) + arrival.FLUSH - 1e-9 for s in between)
+            assert at(c, n, edge) < z[edge] <= z[side*arrival.SHOULDER[0]]   # just under the asphalt's edge
+
+
+def test_skirts_hang_only_below_the_shoulders_outer_edges_and_start(island):
     m = Mesh()
-    arrival._ribbon(m, lambda x, y: 0.)
+    arrival._ribbon(m, hillside)
+    g = arrival.ground(hillside)
     skirts = [points for points, key in m.polys if is_skirt(points)]
     assert all(key == 'ar_road_gravel' for points, key in m.polys if is_skirt(points))
-    for s in skirts:                                    # each corner pairs with one exactly SKIRT above or below
-        assert all(any(q[:2] == p[:2] and abs(p[2] - q[2]) == pytest.approx(arrival.SKIRT) for q in s) for p in s)
-    pts, _ = arrival._samples()
-    assert len(skirts) == 2 * (2 * (len(pts) - 1) + 1)  # both edges per segment, plus the start, in both windings
-    start = [s for s in skirts if all(abs(p[0] - pts[0][0]) < 3.5 and abs(p[1] - pts[0][1]) < 3.5 for p in s)]
-    assert start
+    pts, _, _ = arrival._samples()
+    c, n = pts[0], arrival._samples()[1][0]
+    start = [s for s in skirts if all(abs((x - c[0])*n[1] - (y - c[1])*n[0]) < 1e-6 for x, y, _ in s)]
+    for s in skirts:   # no raised face: along the road a skirt's top is a shoulder's outer edge, FLUSH above the ground
+        if s not in start:
+            assert all(z <= g(x, y) + arrival.FLUSH + 1e-9 for x, y, z in s)
+    across = len(arrival.SHOULDER) - 1
+    assert len(skirts) == 2 * 2 * (len(pts) - 1 + across)   # each outer edge per segment and across each start,
+    #                                                       in both windings
+    assert len(start) == 2 * 2 * across
+    for s in start:   # under the shoulders only, never a lip across the road
+        assert all(abs((x - c[0])*n[0] + (y - c[1])*n[1]) > arrival.SHOULDER[0] for x, y, _ in s)
+
+
+def test_asphalt_carries_the_island_roads_own_uvs_in_phase(island):
+    m = Mesh()
+    arrival._ribbon(m, hillside)
+    asphalt = [i for i, (points, key) in enumerate(m.polys) if key == 'ar_island_road']
+    assert asphalt and sorted(m.uvs) == asphalt          # every asphalt face, and only those, carries the road's UVs
+    assert not any(key == 'ar_road_line' for _, key in m.polys)   # the markings are the road texture's own
+    step = np.hypot(END[0] - 250., END[1] - 60.)          # the fixture road: two points, the last of index 1
+    pts, normals, dist = arrival._samples()
+    for i in asphalt:
+        for (x, y, _), (u, v) in zip(m.polys[i][0], m.uvs[i]):
+            k = min(range(len(pts)), key=lambda j: np.hypot(x - pts[j][0] - normals[j][0]*(u*5.2 - 2.6),
+                                                             y - pts[j][1] - normals[j][1]*(u*5.2 - 2.6)))
+            assert 0. <= u <= 1. and v == pytest.approx((1 + dist[k]/step)/8)
+    start = [uv for i in asphalt for (x, y, _), uv in zip(m.polys[i][0], m.uvs[i])
+             if np.hypot(x - END[0], y - END[1]) < 2.7 and uv[1] == pytest.approx(1/8)]
+    assert sorted(round(u, 6) for u, _ in start) == [0., .25, .25, .5, .5, .75, .75, 1.]   # right edge 0, left 1
