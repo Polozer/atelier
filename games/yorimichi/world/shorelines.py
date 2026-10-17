@@ -4,7 +4,10 @@ Metres in the Blender frame. Inland terrain remains owned by its existing region
 only a narrow perimeter band is reshaped. Beaches and cliffs are actual ground,
 not almost-coplanar ribbons over the sea or the original terrain.
 """
+import json
 import math
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 from coast_water import HARBOR_RECT
@@ -12,6 +15,7 @@ from coast_water import HARBOR_RECT
 REACH = 260.
 FLOOR = -32.
 STEP = 6.
+RAIL_LINE = Path(__file__).resolve().parents[1]/'assets/vehicles/belmonte-train/line.json'
 SAND = np.array([.38, .305, .185])
 WET_SAND = np.array([.145, .119, .080])
 ROCK = np.array([.105, .111, .104])
@@ -27,7 +31,7 @@ def _smin(a, b, radius=150.):
     return b+(a-b)*h-radius*h*(1.-h)
 
 
-def field(x, y):
+def _base_field(x, y):
     """Signed inland distance and rock share; the rounded outline stays inside the old envelope."""
     x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
     east = 2970.+90.*np.sin(y/690.)+38.*np.sin(y/177.+.7)
@@ -58,6 +62,36 @@ def field(x, y):
     return d, side_rock*side_share+south_rock*(1.-side_share)
 
 
+@lru_cache(maxsize=1)
+def _rail_headlands():
+    """Natural cover around coastal parts of the committed line, including its spiral tunnel."""
+    rows = json.loads(RAIL_LINE.read_text())['samples']
+    p = np.array([[r['x'], r['y']] for r in rows])
+    d, _ = _base_field(p[:, 0], p[:, 1])
+    near = d < REACH+60.
+    edges = np.flatnonzero(np.diff(np.r_[False, near, False]))
+    return tuple((float(q[:, 0].min()-30.), float(q[:, 1].min()-30.),
+                  float(q[:, 0].max()+30.), float(q[:, 1].max()+30.))
+                 for a, b in zip(edges[::2], edges[1::2]) for q in [p[a:b]])
+
+
+def _headland_distance(x, y, box):
+    x0, y0, x1, y1 = box
+    return np.hypot(np.maximum(np.maximum(x0-x, x-x1), 0.),
+                    np.maximum(np.maximum(y0-y, y-y1), 0.))
+
+
+def field(x, y):
+    """Signed inland distance and rock share, with connected headlands over coastal railway cover."""
+    x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
+    d, rock = _base_field(x, y)
+    for box in _rail_headlands():
+        cape = 100.-_headland_distance(x, y, box)
+        rock = np.where(cape > d, np.maximum(rock, .95), rock)
+        d = np.maximum(d, cape)
+    return d, rock
+
+
 def weight(x, y):
     x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
     d, _ = field(x, y)
@@ -69,7 +103,10 @@ def weight(x, y):
     south = np.where(quay & (y <= -125.), 1., south)
     occupied = smooth((x+550.)/150.)*smooth((1650.-x)/230.)
     occupied *= 1.-smooth((y-400.)/100.)
-    return w*(1.-occupied*(1.-south))
+    w *= 1.-occupied*(1.-south)
+    for box in _rail_headlands():
+        w *= smooth(_headland_distance(x, y, box)/80.)
+    return w
 
 
 def height(x, y, base):
@@ -77,7 +114,8 @@ def height(x, y, base):
     Ground at least REACH metres inside the coast MUST remain unchanged.
     Exterior ground MUST pass through sea level into a submerged toe; it MUST
     NOT retain broad zero-height quads. The occupied southern road/quay ground
-    above y=-125 MUST remain unchanged.
+    above y=-125 MUST remain unchanged. The committed railway and its natural
+    tunnel cover MUST remain unchanged within 20 metres of the centre line.
     """
     x, y, base = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float), np.asarray(base, float))
     d, rock = field(x, y)

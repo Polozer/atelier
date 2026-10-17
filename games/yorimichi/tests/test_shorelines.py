@@ -16,6 +16,22 @@ def test_inland_town_and_railway_terrain_is_unchanged():
     np.testing.assert_array_equal(S.height(x, y, base), base)
 
 
+def test_entire_committed_railway_and_tunnel_cover_are_preserved():
+    import json
+    rows = json.loads(S.RAIL_LINE.read_text())['samples']
+    p = np.array([[r['x'], r['y'], r['ground_z']] for r in rows])
+    tangent = np.gradient(p[:, :2], axis=0)
+    tangent /= np.linalg.norm(tangent, axis=1)[:, None]
+    normal = np.c_[-tangent[:, 1], tangent[:, 0]]
+    for offset in [-20., 0., 20.]:
+        xy = p[:, :2]+normal*offset
+        np.testing.assert_array_equal(S.height(xy[:, 0], xy[:, 1], p[:, 2]), p[:, 2])
+    # The preserved spiral becomes one rocky headland whose outer edge is
+    # submerged inside the existing terrain extent, rather than an open wall.
+    y = np.linspace(1400., 2600., 241)
+    assert np.max(S.height(np.full_like(y, 3200.), y, 300.)) < -1.
+
+
 def test_existing_road_and_quay_top_are_protected():
     x, y = np.meshgrid(np.linspace(-300., 1420., 79), [-125., -100., -90., 0.])
     base = 2.4+.04*(y+125.)

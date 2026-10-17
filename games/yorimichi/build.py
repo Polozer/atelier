@@ -1210,6 +1210,10 @@ def steps(ctx):
         for command in step.commands:
             if isinstance(command, (Python, Blender)) and WORLD in Path(command.script).parents:
                 step.inputs += [f for f in scanner.local_imports(command.script, (WORLD, REGIONS)) if f not in step.inputs]
+        # Shorelines preserve natural cover from the committed railway geometry.
+        rail_line = ASSETS / 'vehicles' / 'belmonte-train' / 'line.json'
+        if WORLD / 'shorelines.py' in step.inputs and rail_line not in step.inputs:
+            step.inputs.append(rail_line)
         # Scripts that import placement validate the raw geometry themselves. Its cutoff
         # covers their complete consumed landform, site and spawn values, after validating
         # current source provenance; render-only changes can therefore leave them current.
