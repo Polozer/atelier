@@ -77,6 +77,7 @@ SURFACES = {
 MATERIAL_SURFACE = {
     'plaster': ('plaster', 2.8), 'cream': ('plaster', 2.8), 'ochre': ('plaster', 2.8),
     'coral': ('plaster', 2.8), 'sage_wall': ('plaster', 2.8), 'teal_wall': ('plaster', 2.8),
+    'azure_wall': ('plaster', 2.8), 'lime_wall': ('plaster', 2.8),
     'roof_terra': ('roof', 1.9), 'roof_terra_light': ('roof', 1.9), 'roof_teal': ('roof', 1.9),
     'roof_slate': ('roof', 1.9), 'roof_straw': ('roof', 1.4),
     'stone': ('stone', 3.2), 'stone_light': ('stone', 3.2), 'stone_dark': ('stone', 3.2),

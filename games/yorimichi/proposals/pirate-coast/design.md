@@ -57,7 +57,11 @@ Brinecove is built from a small kit, repeated with variation:
 - Cream, ochre, faded coral and pale teal limewash walls with dark timber posts, braces and lintels.
 - Deep eaves, gable or hipped roofs in terracotta, oxidized teal and dark slate.
 - External stairs, timber galleries, shutters, awning frames, rope, barrels, crates, anchors and lanterns.
+- Wide generated lots are split into two or three narrow facades with their own wall colour, height and roof
+  material, so the waterfront reads as a row of houses rather than one long block.
 - Buildings lean into the slope and step with the terraces. No two waterfront blocks share a roof height.
+- Striped canvas awnings, bunting, laundry, painted shutters, flower boxes, potted plants and street goods carry the
+  colour at eye level; the same kit builds all of it from flat primitives.
 - Big shapes first: a roofscape of overlapping planes, a forest of masts, a green canopy, and a cliff silhouette
   that stays readable from 500 m away.
 
@@ -69,6 +73,10 @@ Brinecove is built from a small kit, repeated with variation:
 | Ochre | `#c08a4d` |
 | Coral | `#b56248` |
 | Faded teal | `#4f7d77` |
+| Weathered blue | `#5f8fa0` |
+| Pale lime | `#a9b487` |
+| Shutters | teal `#3f7570`, blue `#3d6b83`, green `#4a6b3f`, red `#9c4a3c` |
+| Bougainvillea | `#d4626a` / `#e39a92` |
 | Weathered timber | `#6b4d35` |
 | Dark timber | `#3f3128` |
 | Galleon sail canvas | `#5f6b66` |

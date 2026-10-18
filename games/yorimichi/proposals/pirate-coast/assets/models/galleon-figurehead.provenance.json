@@ -1,7 +1,7 @@
 {
   "slug": "galleon-figurehead",
   "stage": "brinecove-trellis-processed",
-  "generated": "2026-10-18T02:40:01.640544+00:00",
+  "generated": "2026-10-18T11:20:19.543893+00:00",
   "source": "build/yorimichi/pirate-coast/trellis/out/figurehead/head.glb",
   "source_sha256": "1bac9ca1535de7c6b765f08386f2387b70014ccbc1873cc322520dbea50fc764",
   "reference": "games/yorimichi/proposals/pirate-coast/references/props/galleon-figurehead.png",
@@ -57,36 +57,43 @@
   "target_height_m": 6.5,
   "notes": "siren figurehead for the two galleons",
   "triangles_before": 2636242,
-  "triangles_after": 612386,
+  "triangles_after": 45000,
+  "pruned_faces": 0,
+  "shells": 0,
+  "filled_faces": 0,
+  "boundary_rim_edges": 0,
   "bounds": {
     "min": [
-      -3.2578,
-      -2.171,
-      0.0
+      -3.2767,
+      -2.1819,
+      -0.017
     ],
     "max": [
-      3.2578,
-      2.171,
-      6.5
+      3.2737,
+      2.191,
+      6.5195
     ]
   },
   "output": "games/yorimichi/proposals/pirate-coast/assets/models/galleon-figurehead.glb",
-  "output_sha256": "5a946e24c6b111fd3b5b4284f60f03b6370b7d9b4a8b9b0712fbf8b87e4e53b3",
+  "output_sha256": "93e0a4f07e4d44245e2b01262db31cf8a03059b2e671d9362d4045070ef54f17",
   "checks": {
-    "triangles": 612386,
-    "vertices": 229590,
+    "triangles": 45000,
+    "vertices": 22388,
     "uv_layers": 1,
-    "materials": 1,
-    "textured_materials": 1,
-    "images": 3
+    "materials": 6,
+    "textured_materials": 5,
+    "images": 8
   },
-  "texture_dilation": "build/yorimichi/pirate-coast/texture-dilation/galleon-figurehead-Image_0.png",
+  "texture_dilation": null,
   "processing": [
     "parent clear",
     "transform apply",
     "uniform scale to target height",
-    "centre XY and seat min Z at 0",
-    "collapse decimate with UV preservation",
+    "solidify open surface",
+    "voxel remesh to a manifold shell",
+    "collapse decimate",
+    "smart UV unwrap",
+    "nearest-surface palette paint",
     "UV/texture/material and finite-vertex validation",
     "three Blender review renders"
   ]

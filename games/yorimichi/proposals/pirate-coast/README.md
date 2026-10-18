@@ -12,8 +12,11 @@ the ships tied along the quay. The painting language, palette and low-poly const
 ## What is here
 
 - `design.md` records the plan, dimensions, district names and the art-direction rules used for every reference.
+- `references/bridge.py` paints middle-ground targets by editing the current Blender render with its matching
+  Sunburst concept. These keep the built camera and blocky kit while showing the achievable colour, awnings,
+  shutters, laundry, bunting and street life; the viewer gallery shows them beside the concepts.
 - `references/` paints a consistent set of Sunburst concepts, stores every prompt and paid-call record, and writes a
-  contact sheet. It also paints the eleven-surface tileable set (41 palette-tinted maps) and six isolated hero-prop
+  contact sheet. It also paints the eleven-surface tileable set (43 palette-tinted maps) and six isolated hero-prop
   references for the local TRELLIS
   workflow. The generated images live under `build/yorimichi/pirate-coast/references/` and `references/props/`.
 - `textures/` holds the seamless, palette-tinted Sunburst surface maps used by the Blender model and the viewer.
@@ -60,9 +63,11 @@ and 500 m of depth. That is deliberately in the same family as Belmonte's 2 km v
 - build/yorimichi/pirate-coast/references/ holds the 13 Sunburst PNGs, their prompts and paid-call provenance,
   plus a contact sheet.
 - build/yorimichi/pirate-coast/models/ holds the nine procedural module GLBs and `10_hero_assets.glb`, which carries
-  the six processed TRELLIS hero assets. The assembled scene is about 5.1 million triangles; the hero module alone
-  is about 3.3 million. scene/brinecove.blend is the assembled
-  Blender scene and scene/brinecove.glb is the same scene as one GLB.
+  the six processed TRELLIS hero assets. Each prop is retopoed to a fixed budget (12k-45k triangles, 155k for all
+  six) by solidifying the open neural surface, voxel-remeshing it, decimating to the budget and repainting it from
+  the original texture with the proposal palette. The assembled scene is about 2.8 million triangles; the hero
+  module, which repeats the figurehead, cannon and capstan on both sides, is 238k. scene/brinecove.blend is the
+  assembled Blender scene and scene/brinecove.glb is the same scene as one GLB.
 - build/yorimichi/pirate-coast/renders/ holds the Blender review views and the concept/render comparison sheets.
 - build/yorimichi/pirate-coast/viewer/ is the hosted page: module toggles, ten camera views, day-to-night lighting,
   a lighthouse beam, animated water and mist, district labels, the painted plan, the reference gallery, the

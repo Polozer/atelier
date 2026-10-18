@@ -11,22 +11,30 @@ def local(cx, cy, yaw, lx, ly):
     return cx + lx * math.cos(a) - ly * math.sin(a), cy + lx * math.sin(a) + ly * math.cos(a)
 
 
-def window(b, cx, cy, yaw, lx, ly, z, w=1.3, h=1.6, shutters=True, warm=False):
+SHUTTER_COLORS = ('shutter_teal', 'shutter_blue', 'shutter_green', 'shutter_red', 'wood_dark')
+
+
+def shutter_color(cx, cy, lx):
+    return SHUTTER_COLORS[int(abs(cx * 3.1 + cy * 7.3 + lx * 11.7)) % len(SHUTTER_COLORS)]
+
+
+def window(b, cx, cy, yaw, lx, ly, z, w=1.3, h=1.6, shutters=True, warm=False, shutter=None):
     x, y = local(cx, cy, yaw, lx, ly)
-    # Recessed dark glass and a chunky painted frame.
+    # Recessed dark glass, a chunky painted frame and a stone sill.
     b.box((x, y, z + h / 2), (w, 0.12, h), 'glass_warm' if warm else 'glass', yaw)
-    b.box((x, y, z + h / 2), (w + 0.22, 0.08, 0.14), 'cream', yaw)
-    b.box((x, y, z), (w + 0.22, 0.08, 0.14), 'cream', yaw)
-    b.box((x, y, z + h), (w + 0.22, 0.08, 0.14), 'cream', yaw)
-    b.box((x, y, z + h / 2), (0.11, 0.08, h), 'cream', yaw)
-    b.box((x, y, z + h / 2), (w + 0.22, 0.08, 0.11), 'cream', yaw)
+    b.box((x, y, z + h / 2), (w + 0.24, 0.08, 0.15), 'cream', yaw)
+    b.box((x, y, z + h), (w + 0.24, 0.08, 0.15), 'cream', yaw)
+    b.box((x, y, z + h / 2), (0.12, 0.08, h), 'cream', yaw)
+    b.box((x, y, z + h / 2), (w + 0.24, 0.08, 0.11), 'cream', yaw)
+    b.box((x, y, z - 0.06), (w + 0.62, 0.30, 0.13), 'stone_light', yaw)
     if shutters:
+        mat = shutter or shutter_color(cx, cy, lx)
         for side in (-1, 1):
-            sx, sy = local(cx, cy, yaw, lx + side * (w / 2 + 0.26), ly)
-            b.box((sx, sy, z + h / 2), (0.22, 0.10, h + 0.12), 'wood', yaw)
-            for i in range(3):
-                b.beam((sx - 0.08, sy - 0.07, z + 0.25 + i * h / 3),
-                       (sx + 0.08, sy - 0.07, z + 0.25 + i * h / 3), 0.05, 'wood_dark')
+            sx, sy = local(cx, cy, yaw, lx + side * (w / 2 + 0.30), ly)
+            b.box((sx, sy, z + h / 2), (0.36, 0.12, h + 0.16), mat, yaw)
+            for i in range(4):
+                b.beam((sx - 0.13, sy - 0.08, z + 0.18 + i * (h - 0.10) / 4),
+                       (sx + 0.13, sy - 0.08, z + 0.18 + i * (h - 0.10) / 4), 0.05, 'wood_dark')
 
 
 def side_window(b, cx, cy, yaw, lx, ly, z, w=1.15, h=1.45, shutters=True, warm=False):
@@ -38,13 +46,16 @@ def side_window(b, cx, cy, yaw, lx, ly, z, w=1.15, h=1.45, shutters=True, warm=F
     b.box((x, y, z + h), (0.08, w + 0.22, 0.14), 'cream', yaw)
     b.box((x, y, z + h / 2), (0.08, 0.11, h), 'cream', yaw)
     b.box((x, y, z + h / 2), (0.08, w + 0.22, 0.11), 'cream', yaw)
+    sx, sy = local(cx, cy, yaw, lx - 0.04, ly)
+    b.box((sx, sy, z - 0.06), (0.30, w + 0.62, 0.13), 'stone_light', yaw)
     if shutters:
+        mat = shutter_color(cx, cy, lx)
         for side in (-1, 1):
-            sy = ly + side * (w / 2 + 0.25)
+            sy = ly + side * (w / 2 + 0.28)
             sx, syy = local(cx, cy, yaw, lx + 0.02, sy)
-            b.box((sx, syy, z + h / 2), (0.10, 0.22, h + 0.12), 'wood', yaw)
-            for i in range(3):
-                b.box((sx, syy, z + 0.24 + i * h / 3), (0.12, 0.17, 0.04), 'wood_dark', yaw)
+            b.box((sx, syy, z + h / 2), (0.12, 0.34, h + 0.16), mat, yaw)
+            for i in range(4):
+                b.box((sx, syy, z + 0.18 + i * (h - 0.10) / 4), (0.13, 0.27, 0.045), 'wood_dark', yaw)
 
 
 def dormer(b, cx, cy, yaw, lx, ly, z, roof='roof_terra'):
@@ -60,10 +71,15 @@ def rng_bool(x, y, seed=0):
 
 def flower_box(b, cx, cy, yaw, lx, ly, z):
     x, y = local(cx, cy, yaw, lx, ly)
-    b.box((x, y, z), (1.25, 0.32, 0.28), 'wood_dark', yaw)
-    for i in range(4):
-        px, py = local(cx, cy, yaw, lx - 0.45 + i * 0.3, ly - 0.1)
-        b.sphere((px, py, z + 0.22), 0.18, ('coral', 'gold', 'cream', 'jungle')[i % 4],
+    b.box((x, y, z), (1.35, 0.34, 0.30), 'wood_dark', yaw)
+    for i in range(2):
+        px, py = local(cx, cy, yaw, lx - 0.3 + i * 0.6, ly - 0.08)
+        b.sphere((px, py, z + 0.24), 0.26, 'jungle' if i else 'jungle_light',
+                 (1.4, 0.9, 0.8), subdiv=0)
+    for i in range(6):
+        px, py = local(cx, cy, yaw, lx - 0.5 + i * 0.2, ly - 0.16)
+        b.sphere((px, py, z + 0.36 + 0.05 * (i % 2)), 0.15,
+                 ('blossom', 'coral', 'gold', 'blossom_pale', 'cream', 'blossom')[i % 6],
                  (1.0, 0.9, 0.9), subdiv=0)
 
 
@@ -85,7 +101,9 @@ def arcade(b, cx, cy, yaw, width, z, depth=2.0, columns=4):
 
 def door(b, cx, cy, yaw, lx, ly, z, w=1.6, h=2.6):
     x, y = local(cx, cy, yaw, lx, ly)
-    b.box((x, y, z + h / 2), (w, 0.16, h), 'wood_dark', yaw)
+    leaf = ('wood_dark', 'shutter_blue', 'shutter_teal', 'shutter_red', 'wood')[int(abs(cx * 2.3 + cy * 5.1)) % 5]
+    b.box((x, y, z + h / 2), (w, 0.16, h), leaf, yaw)
+    b.box((x, y, z - 0.06), (w + 0.55, 0.42, 0.14), 'stone_light', yaw)
     b.box((x, y, z + h + 0.12), (w + 0.35, 0.24, 0.22), 'wood', yaw)
     for side in (-1, 1):
         sx, sy = local(cx, cy, yaw, lx + side * (w / 2 + 0.14), ly)
@@ -93,8 +111,10 @@ def door(b, cx, cy, yaw, lx, ly, z, w=1.6, h=2.6):
     b.box((x, y + 0.02, z + h * 0.55), (0.09, 0.06, 0.09), 'gold', yaw)
 
 
-def awning(b, cx, cy, yaw, width, z, depth=2.3, colors=('canvas', 'canvas_red')):
-    n = max(3, round(width / 2.2))
+def awning(b, cx, cy, yaw, width, z, depth=2.3, colors=('canvas', 'canvas_red'), poles=True):
+    # Narrow alternating panels read as bold stripes from the street and the
+    # harbor, which is the strongest single cue in the painted references.
+    n = max(4, round(width / 1.7))
     for i in range(n):
         x0 = -width / 2 + width * i / n
         x1 = -width / 2 + width * (i + 1) / n
@@ -102,16 +122,16 @@ def awning(b, cx, cy, yaw, width, z, depth=2.3, colors=('canvas', 'canvas_red'))
         c = local(cx, cy, yaw, x1, -1.0)
         d = local(cx, cy, yaw, x1, -depth)
         e = local(cx, cy, yaw, x0, -depth)
+        mat = colors[i % len(colors)]
         b.quad((a[0], a[1], z), (c[0], c[1], z),
-               (d[0], d[1], z - 0.55), (e[0], e[1], z - 0.55), colors[i % len(colors)])
-    # Hanging valance and support poles.
-    for i in range(n + 1):
-        x0 = -width / 2 + width * i / n
-        p = local(cx, cy, yaw, x0, -depth)
-        b.box((p[0], p[1], z - 0.75), (0.06, 0.06, 0.40), colors[i % len(colors)])
-    for side in (-1, 1):
-        p = local(cx, cy, yaw, side * width * 0.46, -depth)
-        b.beam((p[0], p[1], groundless(z)), (p[0], p[1], z - 0.45), 0.12, 'wood_dark')
+               (d[0], d[1], z - 0.55), (e[0], e[1], z - 0.55), mat)
+        # Hanging valance, striped to match.
+        b.quad((e[0], e[1], z - 0.55), (d[0], d[1], z - 0.55),
+               (d[0], d[1], z - 0.98), (e[0], e[1], z - 0.98), mat)
+    if poles:
+        for side in (-1, 1):
+            p = local(cx, cy, yaw, side * width * 0.46, -depth)
+            b.beam((p[0], p[1], groundless(z)), (p[0], p[1], z - 0.45), 0.12, 'wood_dark')
 
 
 def groundless(z):
@@ -137,6 +157,17 @@ def balcony(b, cx, cy, yaw, width, z, depth=1.8):
         px, py = local(cx, cy, yaw, lx, -depth + 0.05)
         b.beam((px, py, z), (px, py, z - 0.42), 0.04, 'metal')
         b.box((px, py, z - 0.62), (0.28, 0.28, 0.38), 'lantern', yaw)
+    seed = int(abs(cx * 5.7 + cy * 9.1))
+    # Laundry and potted plants turn the galleries into lived-in rooms.
+    if seed % 3 != 0:
+        a = local(cx, cy, yaw, -width * 0.38, -depth * 0.55)
+        c = local(cx, cy, yaw, width * 0.38, -depth * 0.55)
+        laundry_line(b, (a[0], a[1], z + 1.25), (c[0], c[1], z + 1.25), 0.35,
+                     ('canvas_red', 'canvas_teal', 'canvas'))
+    if seed % 2 == 0:
+        for side in (-1, 1):
+            px, py = local(cx, cy, yaw, side * width * 0.40, -depth * 0.60)
+            potted_plant(b, px, py, z + 0.14, 0.42)
 
 
 def sign(b, cx, cy, yaw, z, side=1, icon='fish'):
@@ -180,9 +211,9 @@ def timber_frame(b, x, y, z, w, d, h, yaw, floors):
 def building(b, spec, rng):
     key, x, y, z, w, d, h, floors, style, yaw, roof = spec
     walls = {
-        'tavern': ['cream', 'ochre', 'coral', 'plaster'],
-        'house': ['plaster', 'cream', 'sage_wall', 'ochre'],
-        'shop': ['ochre', 'coral', 'teal_wall', 'cream'],
+        'tavern': ['cream', 'ochre', 'coral', 'plaster', 'azure_wall'],
+        'house': ['plaster', 'cream', 'sage_wall', 'ochre', 'lime_wall', 'coral'],
+        'shop': ['ochre', 'coral', 'teal_wall', 'cream', 'azure_wall'],
         'warehouse': ['wood_light', 'wood', 'stone_light'],
         'shack': ['wood_light', 'wood', 'plaster'],
     }[style]
@@ -205,13 +236,20 @@ def building(b, spec, rng):
         b.box((x, y, z + 0.65), (w + 0.4, d + 0.4, 1.3), 'stone', yaw)
         if style in ('tavern', 'house', 'shop'):
             timber_frame(b, x, y, z, w, d, h, yaw, floors)
-        has_arcade = style in ('tavern', 'shop') and w >= 14.0 and rng.random() < 0.48
+        has_arcade = style in ('tavern', 'shop') and w >= 9.0 and rng.random() < 0.55
         if has_arcade:
             arcade(b, x, y, yaw, w * 0.74, z + 0.15, 2.0, max(2, int(w / 6)))
         b.box((x, y, z + h - 0.18), (w + 0.5, d + 0.5, 0.5), 'wood_dark', yaw)
         # Front door, windows, awnings and gallery.
         door(b, x, y, yaw, rng.choice((-w * 0.28, 0.0, w * 0.28)), -d / 2 - 0.10, z + 0.02,
              w=1.5 if style != 'shack' else 1.2, h=2.4 if style != 'shack' else 2.1)
+        if style != 'shack' and rng.random() < 0.55:
+            plx = rng.choice((-w * 0.36, w * 0.36))
+            px, py = local(x, y, yaw, plx, -d / 2 - 0.75)
+            potted_plant(b, px, py, z + 0.05, rng.uniform(0.45, 0.70))
+        if style == 'tavern' and rng.random() < 0.5:
+            px, py = local(x, y, yaw, rng.uniform(-w * 0.3, w * 0.3), -d / 2 - 1.7)
+            bench(b, px, py, z + 0.05, yaw)
         face_x, face_y = local(x, y, yaw, 0, -d / 2)
         cols = max(2, int(w / 7))
         for f in range(floors):
@@ -222,15 +260,22 @@ def building(b, spec, rng):
                     continue
                 window(b, x, y, yaw, lx, -d / 2 - 0.05, zz, 1.15, 1.45,
                        shutters=style != 'shack', warm=(rng.random() < 0.18))
-                if f > 0 and rng.random() < 0.22:
+                if f > 0 and rng.random() < 0.42:
                     flower_box(b, x, y, yaw, lx, -d / 2 - 0.42, zz - 0.18)
+                elif f == 0 and style in ('shop', 'tavern') and rng.random() < 0.30:
+                    flower_box(b, x, y, yaw, lx, -d / 2 - 0.42, zz - 0.18)
+                if f > 0 and rng.random() < 0.24:
+                    pair = (('canvas', 'canvas_red'), ('canvas', 'canvas_teal'),
+                            ('canvas_red', 'canvas'), ('canvas_teal', 'canvas'))
+                    awning(b, x, y, yaw, 2.4, zz + 1.85, 0.95,
+                           pair[int(abs(lx)) % len(pair)], poles=False)
             for side in (-1, 1):
                 side_window(b, x, y, yaw, side * (w / 2 + 0.04), -d * 0.24, zz,
                             1.05, 1.35, shutters=style != 'shack', warm=(rng.random() < 0.14))
                 if d > 19.0:
                     side_window(b, x, y, yaw, side * (w / 2 + 0.04), d * 0.22, zz,
                                 1.05, 1.35, shutters=style != 'shack', warm=(rng.random() < 0.14))
-            if f == 1 and style in ('tavern', 'shop', 'house') and (style == 'tavern' or rng.random() < 0.48):
+            if f == 1 and style in ('tavern', 'shop', 'house') and (style == 'tavern' or rng.random() < 0.70):
                 by = z + min(h - 1.2, max(5.0, h * 0.52))
                 balcony(b, face_x, face_y, yaw, w * 0.78, by)
                 if rng.random() < 0.6:
@@ -239,9 +284,11 @@ def building(b, spec, rng):
                         b.quad((px - 0.55, py, by - 0.25), (px + 0.55, py, by - 0.25),
                                (px + 0.55, py + 0.04, by - 2.4), (px - 0.55, py + 0.04, by - 2.4),
                                ('canvas', 'canvas_red', 'canvas_teal')[k])
-            if f == 0 and style in ('shop', 'tavern') and not has_arcade:
-                awning(b, face_x, face_y, yaw, w * 0.72, z + 3.0, 2.1,
-                       ('canvas', 'canvas_red') if rng.random() < 0.55 else ('canvas', 'canvas_teal'))
+            if f == 0 and style in ('shop', 'tavern', 'house') and not has_arcade and rng.random() < 0.82:
+                pair = (('canvas', 'canvas_red'), ('canvas', 'canvas_teal'),
+                        ('canvas_red', 'canvas'), ('canvas_teal', 'canvas'))
+                awning(b, face_x, face_y, yaw, w * 0.78, z + 3.3, 2.2,
+                       pair[int(abs(x + y)) % len(pair)])
         # Bougainvillea and creepers break up the flat plaster and tie the
         # dressed waterfront to the jungle above it.
         if rng.random() < 0.34:
@@ -272,7 +319,7 @@ def building(b, spec, rng):
                      ridge='y' if rng.random() < 0.5 else 'x', overhang=0.9)
     else:
         b.hip_roof((x, y, z + h + 0.2), w, d, z + h + 0.2, 2.6 + (h % 4) * 0.2, roof, yaw, overhang=0.9)
-    if not flat_roof and style != 'warehouse' and h > 9.5 and rng.random() < 0.5:
+    if not flat_roof and style != 'warehouse' and h > 9.5 and rng.random() < 0.72:
         dormer(b, x, y, yaw, rng.choice((-w * 0.22, 0.0, w * 0.22)), -d * 0.10,
                z + h + 0.35, roof)
     # Chimneys, roof vents, and a bracket sign on roughly every third building.
@@ -281,7 +328,7 @@ def building(b, spec, rng):
         px, py = local(x, y, yaw, side * w * 0.25, d * 0.10)
         b.box((px, py, z + h + 2.1), (0.9, 0.9, 2.8), 'stone', yaw)
         b.box((px, py, z + h + 3.55), (1.2, 1.2, 0.25), 'stone_dark', yaw)
-    if style in ('tavern', 'shop') and rng.random() < 0.8:
+    if style in ('tavern', 'shop') and rng.random() < 0.9:
         sign(b, face_x, face_y, yaw, z + 2.8, side=rng.choice((-1, 1)),
              icon=rng.choice(('fish', 'mug', 'wheel', 'fish')))
     if style in ('tavern', 'shop', 'house') and rng.random() < 0.45:
@@ -339,11 +386,17 @@ def market_stall(b, x, y, z, w=10, d=6, cloth='canvas', yaw=0.0):
         lx = -w * 0.40 + i * w * 0.8 / max(1, int(w / 3) - 1)
         b.cylinder(P(lx, d / 2 - 1.0, 2.45), P(lx, d / 2 - 1.0, 2.85), 0.14,
                    ('glass_warm', 'clay', 'teal_wall')[i % 3], 7)
-    # A deep gable of canvas with a scalloped valance and a lantern.
-    b.quad(P(-w / 2 - 0.45, d / 2, 3.25), P(w / 2 + 0.45, d / 2, 3.25),
-           P(w / 2 + 0.45, -0.2, 4.35), P(-w / 2 - 0.45, -0.2, 4.35), cloth)
-    b.quad(P(-w / 2 - 0.45, -0.2, 4.35), P(w / 2 + 0.45, -0.2, 4.35),
-           P(w / 2 + 0.45, -d / 2, 3.25), P(-w / 2 - 0.45, -d / 2, 3.25), cloth)
+    # A deep gable of striped canvas with a scalloped valance and a lantern.
+    stripe = 'canvas' if cloth != 'canvas' else 'canvas_red'
+    strips = 7
+    for i in range(strips):
+        sx0 = -w / 2 - 0.45 + (w + 0.9) * i / strips
+        sx1 = -w / 2 - 0.45 + (w + 0.9) * (i + 1) / strips
+        mat = cloth if i % 2 == 0 else stripe
+        b.quad(P(sx0, d / 2, 3.25), P(sx1, d / 2, 3.25),
+               P(sx1, -0.2, 4.35), P(sx0, -0.2, 4.35), mat)
+        b.quad(P(sx0, -0.2, 4.35), P(sx1, -0.2, 4.35),
+               P(sx1, -d / 2, 3.25), P(sx0, -d / 2, 3.25), mat)
     for i in range(4):
         lx0 = -w / 2 + i * w / 4
         b.quad(P(lx0, -d / 2, 3.25), P(lx0 + w / 4, -d / 2, 3.25),
@@ -372,63 +425,227 @@ def market_stall(b, x, y, z, w=10, d=6, cloth='canvas', yaw=0.0):
     for i in range(2):
         b.box(P(-w / 2 + 0.5, d / 2 - 0.3 - i * 1.1, 0.42), (1.2, 0.9, 0.8), 'wood_light', yaw)
         b.sphere(P(w / 2 - 0.7, -d / 2 + 0.9 + i * 1.0, 0.5), 0.5, 'canvas', (0.8, 0.7, 1.1), subdiv=0)
+    for i in range(3):
+        px, py, pz = P(-w * 0.30 + i * w * 0.30, -d / 2 + 1.35, 0)
+        fish_crate(b, px, py, pz, yaw + (i - 1) * 8, 0.95)
+    for i in range(2):
+        px, py, pz = P(w * 0.30 + i * 0.9, d / 2 - 1.2, 0)
+        sack(b, px, py, pz + 0.2, 0.9)
+
+
+def laundry_line(b, a, c, sag=0.35, colors=('canvas', 'canvas_red', 'canvas_teal')):
+    """A rope with three flat cloth panels; cheap and reads at street distance."""
+    b.rope(a, c, sag, 0.03, segments=6)
+    for i in range(3):
+        t = (i + 0.5) / 3
+        px = a[0] + (c[0] - a[0]) * t
+        py = a[1] + (c[1] - a[1]) * t
+        pz = a[2] + (c[2] - a[2]) * t - sag * math.sin(math.pi * t)
+        b.box((px, py, pz - 0.48), (0.62 + 0.10 * (i % 2), 0.035, 0.95 + 0.15 * (i % 2)),
+              colors[i % len(colors)])
+
+
+def pennants(b, a, c, sag=0.5, count=9, colors=('flag_red', 'cream', 'canvas_teal', 'gold')):
+    """A sagging rope of small square flags across a street or the market."""
+    b.rope(a, c, sag, 0.035, segments=8)
+    for i in range(count):
+        t = (i + 0.5) / count
+        px = a[0] + (c[0] - a[0]) * t
+        py = a[1] + (c[1] - a[1]) * t
+        pz = a[2] + (c[2] - a[2]) * t - sag * math.sin(math.pi * t)
+        b.box((px, py, pz - 0.24), (0.42, 0.03, 0.46), colors[i % len(colors)])
+
+
+def fish_crate(b, x, y, z, yaw=0.0, scale=1.0):
+    b.box((x, y, z + 0.24 * scale), (1.35 * scale, 0.85 * scale, 0.48 * scale),
+          'wood_light', yaw)
+    for i in range(4):
+        px, py = local(x, y, yaw, -0.42 * scale + i * 0.28 * scale, 0)
+        b.sphere((px, py, z + 0.54 * scale), 0.16 * scale, 'sail',
+                 (1.9, 0.55, 0.45), subdiv=0)
+
+
+def rowboat(b, x, y, z, yaw=0.0, scale=1.0):
+    def P(lx, ly, lz):
+        px, py = local(x, y, yaw, lx * scale, ly * scale)
+        return (px, py, z + lz * scale)
+
+    b.quad(P(-0.75, -2.4, 0.12), P(0.75, -2.4, 0.12), P(0.75, 2.4, 0.12), P(-0.75, 2.4, 0.12),
+           'wood_dark')
+    b.quad(P(-0.75, -2.4, 0.12), P(-0.75, 2.4, 0.12), P(-1.05, 2.6, 0.55), P(-1.05, -2.6, 0.55),
+           'wood')
+    b.quad(P(0.75, -2.4, 0.12), P(1.05, -2.6, 0.55), P(1.05, 2.6, 0.55), P(0.75, 2.4, 0.12),
+           'wood')
+    b.tri(P(-0.75, 2.4, 0.12), P(0.75, 2.4, 0.12), P(0, 3.0, 0.55), 'wood_light')
+    b.tri(P(-0.75, -2.4, 0.12), P(0, -3.0, 0.55), P(0.75, -2.4, 0.12), 'wood_light')
+    for side in (-1, 1):
+        b.beam(P(side * 1.05, -2.6, 0.55), P(side * 1.05, 2.6, 0.55), 0.08, 'wood_dark')
+    for ly in (-1.0, 0.6):
+        b.beam(P(-1.0, ly, 0.50), P(1.0, ly, 0.50), 0.10, 'wood_light')
+    b.beam(P(-0.6, 0.2, 0.62), P(-1.8, -1.4, 0.20), 0.05, 'wood_light')
+    b.beam(P(0.6, 0.2, 0.62), P(1.8, -1.4, 0.20), 0.05, 'wood_light')
+
+
+def sack(b, x, y, z, scale=1.0):
+    b.sphere((x, y, z + 0.44 * scale), 0.52 * scale, 'canvas', (0.85, 0.85, 1.15), subdiv=0)
+    b.cylinder((x, y, z + 0.85 * scale), (x, y, z + 1.0 * scale), 0.13 * scale, 'cream', 6)
+
+
+def potted_plant(b, x, y, z, scale=1.0, rng=None):
+    b.cylinder((x, y, z), (x, y, z + 0.55 * scale), 0.44 * scale, 'clay', 8,
+               radius_b=0.32 * scale)
+    bush(b, x, y, z + 0.52 * scale, 0.0, 0.62 * scale, rng)
+
+
+def bench(b, x, y, z, yaw=0.0):
+    b.box((x, y, z + 0.46), (2.1, 0.60, 0.13), 'wood_light', yaw)
+    for side in (-1, 1):
+        px, py = local(x, y, yaw, side * 0.82, 0)
+        b.beam((px, py, z), (px, py, z + 0.46), 0.13, 'wood_dark')
+        px, py = local(x, y, yaw, side * 0.82, 0.24)
+        b.beam((px, py, z + 0.46), (px, py, z + 0.95), 0.11, 'wood_dark')
+    b.box((x, y, z + 0.88), (2.1, 0.12, 0.34), 'wood', yaw)
 
 
 def palm(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
     rng = rng or random.Random(int(x * 13 + y))
-    height = (7.5 + rng.random() * 3.5) * scale
-    lean = rng.uniform(-1.2, 1.2) * scale
-    top = (x + lean, y + rng.uniform(-0.6, 0.6), z + height)
-    segs = 6
+    height = (8.0 + rng.random() * 4.0) * scale
+    lean = rng.uniform(-1.6, 1.6) * scale
+    drift = rng.uniform(-0.8, 0.8) * scale
+    top = (x + lean, y + drift, z + height)
+    segs = 7
     for i in range(segs):
         t0, t1 = i / segs, (i + 1) / segs
-        p0 = (x + lean * t0 * t0, y + 0.0, z + height * t0)
-        p1 = (x + lean * t1 * t1, y + 0.0, z + height * t1)
-        b.cylinder(p0, p1, (0.33 - 0.18 * t0) * scale, 'wood', 7, radius_b=(0.33 - 0.18 * t1) * scale, caps=False)
-    for i in range(9):
-        ang = yaw + i * TAU / 9 + rng.uniform(-0.18, 0.18)
-        length = (4.8 + rng.random() * 2.2) * scale
+        p0 = (x + lean * t0 ** 1.7, y + drift * t0 * t0, z + height * t0)
+        p1 = (x + lean * t1 ** 1.7, y + drift * t1 * t1, z + height * t1)
+        b.cylinder(p0, p1, (0.36 - 0.19 * t0) * scale, 'wood', 7,
+                   radius_b=(0.36 - 0.19 * t1) * scale, caps=False)
+    for i in range(12):
+        ang = yaw + i * TAU / 12 + rng.uniform(-0.14, 0.14)
+        length = (5.2 + rng.random() * 2.6) * scale
+        droop = (1.3 + rng.random() * 0.9) * scale
+        mid = (top[0] + math.cos(ang) * length * 0.46, top[1] + math.sin(ang) * length * 0.46,
+               top[2] + 0.45 * scale)
         tip = (top[0] + math.cos(ang) * length, top[1] + math.sin(ang) * length,
-               top[2] - 1.1 * scale + rng.uniform(-0.4, 0.4))
-        mid = (top[0] + math.cos(ang) * length * 0.48, top[1] + math.sin(ang) * length * 0.48,
-               top[2] + 0.35 * scale)
-        side = (math.cos(ang + math.pi / 2) * 0.7 * scale, math.sin(ang + math.pi / 2) * 0.7 * scale, 0)
+               top[2] - droop)
+        side = (math.cos(ang + math.pi / 2) * 0.78 * scale,
+                math.sin(ang + math.pi / 2) * 0.78 * scale, 0)
         b.quad(top, (mid[0] + side[0], mid[1] + side[1], mid[2]),
-               (tip[0] + side[0] * 0.35, tip[1] + side[1] * 0.35, tip[2]), tip, 'palm')
-        b.quad(top, tip, (tip[0] - side[0] * 0.35, tip[1] - side[1] * 0.35, tip[2]),
+               (tip[0] + side[0] * 0.30, tip[1] + side[1] * 0.30, tip[2]), tip, 'palm')
+        b.quad(top, tip, (tip[0] - side[0] * 0.30, tip[1] - side[1] * 0.30, tip[2]),
                (mid[0] - side[0], mid[1] - side[1], mid[2]), 'palm_light')
-    for i in range(3):
-        a = yaw + i * TAU / 3
-        b.sphere((top[0] + math.cos(a) * 0.45, top[1] + math.sin(a) * 0.45, top[2] - 0.15), 0.28 * scale,
-                 'wood_dark', subdiv=0)
+        # A short folded leaflet at the tip keeps the frond from reading as a
+        # single flat blade.
+        tip2 = (top[0] + math.cos(ang) * length * 1.06,
+                top[1] + math.sin(ang) * length * 1.06, top[2] - droop * 1.18)
+        b.quad(tip, (tip2[0] + side[0] * 0.16, tip2[1] + side[1] * 0.16, tip2[2]),
+               tip2, (tip[0] - side[0] * 0.16, tip[1] - side[1] * 0.16, tip[2]), 'palm_light')
+    for i in range(4):
+        a = yaw + i * TAU / 4
+        b.sphere((top[0] + math.cos(a) * 0.42, top[1] + math.sin(a) * 0.42, top[2] - 0.18),
+                 0.26 * scale, ('wood_dark', 'autumn_olive')[i % 2], subdiv=0)
 
 
 def jungle_tree(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
     rng = rng or random.Random(int(x * 7 + y * 3))
-    height = (5.5 + rng.random() * 4.5) * scale
-    b.cylinder((x, y, z), (x, y, z + height * 0.62), 0.45 * scale, 'wood_dark', 7, radius_b=0.28 * scale)
+    height = (6.2 + rng.random() * 5.0) * scale
+    lean = rng.uniform(-0.7, 0.7) * scale
+    drift = rng.uniform(-0.35, 0.35) * scale
+    mid = (x + lean * 0.40, y + drift * 0.35, z + height * 0.55)
+    top = (x + lean, y + drift, z + height)
+    b.cylinder((x, y, z), mid, 0.50 * scale, 'wood_dark', 8, radius_b=0.34 * scale)
+    b.cylinder(mid, top, 0.34 * scale, 'wood_dark', 7, radius_b=0.20 * scale)
+    if scale > 1.15:
+        for i in range(4):
+            ang = yaw + i * TAU / 4 + 0.3
+            ex, ey = x + math.cos(ang) * 0.95 * scale, y + math.sin(ang) * 0.95 * scale
+            b.beam((x, y, z + 0.15 * scale), (ex, ey, z + 0.02), 0.16 * scale, 'wood_dark')
+    palette = ('jungle', 'jungle_light', 'jungle_dark', 'jungle_light')
     for i in range(4):
         ang = yaw + i * TAU / 4 + rng.uniform(-0.2, 0.2)
-        length = (2.8 + rng.random() * 1.6) * scale
-        end = (x + math.cos(ang) * length, y + math.sin(ang) * length, z + height * (0.55 + 0.08 * i))
-        b.beam((x, y, z + height * 0.45), end, 0.24 * scale, 'wood_dark')
-        leaf = rng.choice(('jungle', 'jungle_light', 'jungle_dark'))
-        if rng.random() < 0.08:
+        length = (3.0 + rng.random() * 1.8) * scale
+        end = (x + lean * 0.7 + math.cos(ang) * length,
+               y + drift * 0.7 + math.sin(ang) * length,
+               z + height * (0.55 + 0.09 * i))
+        b.beam((x, y, z + height * 0.44), end, 0.22 * scale, 'wood_dark')
+        leaf = rng.choice(palette)
+        if rng.random() < 0.20:
             leaf = rng.choice(('autumn_rust', 'autumn_gold', 'autumn_olive'))
-        b.sphere((end[0], end[1], end[2] + 0.7 * scale), (2.6 + rng.random() * 1.3) * scale,
-                 leaf, (1.0, 0.9, 0.72), subdiv=0)
-    leaf = rng.choice(('jungle', 'jungle_light'))
-    if rng.random() < 0.08:
+        b.sphere((end[0], end[1], end[2] + 0.65 * scale), (2.5 + rng.random() * 1.4) * scale,
+                 leaf, (1.0, 0.92, 0.74), subdiv=0)
+    leaf = rng.choice(palette)
+    if rng.random() < 0.20:
         leaf = rng.choice(('autumn_rust', 'autumn_gold', 'autumn_olive'))
-    b.sphere((x, y, z + height), 2.6 * scale, leaf, (1.05, 1.0, 0.7), subdiv=0)
+    leaf2 = rng.choice(palette)
+    b.sphere((top[0], top[1], top[2]), 2.9 * scale, leaf, (1.06, 1.02, 0.78), subdiv=1)
+    b.sphere((top[0] - 1.35 * scale, top[1] + 1.0 * scale, top[2] - 0.85 * scale),
+             2.15 * scale, leaf2, (1.0, 0.95, 0.80), subdiv=0)
+    if scale > 1.25 and rng.random() < 0.28:
+        for _ in range(1):
+            a = rng.uniform(0, TAU)
+            vx = top[0] + math.cos(a) * 2.3 * scale
+            vy = top[1] + math.sin(a) * 2.3 * scale
+            vine(b, vx, vy, top[2] - 0.5 * scale, rng.uniform(1.8, 3.8) * scale, rng)
 
 
 def bush(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
     rng = rng or random.Random(int(x * 11 + y * 5))
+    palette = ('jungle', 'jungle_light', 'jungle_dark')
     for i in range(3):
         b.sphere((x + rng.uniform(-0.6, 0.6) * scale, y + rng.uniform(-0.6, 0.6) * scale,
-                  z + (0.35 + rng.uniform(0, 0.35)) * scale), (0.75 + rng.random() * 0.35) * scale,
-                 rng.choice(('jungle', 'jungle_light', 'jungle_dark')), (1.0, 0.9, 0.75), subdiv=0)
+                  z + (0.35 + rng.uniform(0, 0.35)) * scale), (0.78 + rng.random() * 0.40) * scale,
+                 rng.choice(palette), (1.0, 0.9, 0.75), subdiv=0)
+    if rng.random() < 0.18:
+        for i in range(3):
+            b.sphere((x + rng.uniform(-0.5, 0.5) * scale, y + rng.uniform(-0.5, 0.5) * scale,
+                      z + (0.55 + rng.uniform(0, 0.3)) * scale), 0.16 * scale,
+                     ('blossom', 'coral', 'gold')[i % 3], subdiv=0)
+
+
+def fern(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
+    rng = rng or random.Random(int(x * 17 + y * 3))
+    for i in range(7):
+        ang = yaw + i * TAU / 7 + rng.uniform(-0.2, 0.2)
+        length = (1.3 + rng.random() * 1.0) * scale
+        tip = (x + math.cos(ang) * length, y + math.sin(ang) * length,
+               z + (0.65 + rng.uniform(0, 0.35)) * scale)
+        side = (math.cos(ang + math.pi / 2) * 0.22 * scale,
+                math.sin(ang + math.pi / 2) * 0.22 * scale, 0)
+        b.quad((x, y, z + 0.05), (tip[0] + side[0], tip[1] + side[1], tip[2]),
+               tip, (tip[0] - side[0], tip[1] - side[1], tip[2]),
+               'jungle_light' if i % 2 else 'jungle')
+
+
+def banana(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
+    rng = rng or random.Random(int(x * 23 + y * 5))
+    height = (1.5 + rng.random() * 0.8) * scale
+    top = (x + rng.uniform(-0.2, 0.2), y + rng.uniform(-0.2, 0.2), z + height)
+    b.cylinder((x, y, z), top, 0.16 * scale, 'jungle', 6, radius_b=0.11 * scale)
+    for i in range(6):
+        ang = yaw + i * TAU / 6 + rng.uniform(-0.2, 0.2)
+        length = (1.5 + rng.random() * 0.6) * scale
+        mid = (top[0] + math.cos(ang) * length * 0.55, top[1] + math.sin(ang) * length * 0.55,
+               top[2] + 0.55 * scale)
+        tip = (top[0] + math.cos(ang) * length, top[1] + math.sin(ang) * length,
+               top[2] + 0.10 * scale)
+        side = (math.cos(ang + math.pi / 2) * 0.42 * scale,
+                math.sin(ang + math.pi / 2) * 0.42 * scale, 0)
+        b.quad(top, (mid[0] + side[0], mid[1] + side[1], mid[2]),
+               (tip[0] + side[0] * 0.5, tip[1] + side[1] * 0.5, tip[2]), tip, 'jungle_light')
+        b.quad(top, tip, (tip[0] - side[0] * 0.5, tip[1] - side[1] * 0.5, tip[2]),
+               (mid[0] - side[0], mid[1] - side[1], mid[2]), 'jungle')
+
+
+def grass_tuft(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
+    rng = rng or random.Random(int(x * 31 + y * 7))
+    for i in range(3):
+        ang = yaw + i * TAU / 3 + rng.uniform(-0.3, 0.3)
+        h = (0.55 + rng.random() * 0.45) * scale
+        w = 0.28 * scale
+        dx, dy = math.cos(ang) * w, math.sin(ang) * w
+        b.quad((x - dx, y - dy, z), (x + dx, y + dy, z),
+               (x + dx * 0.3, y + dy * 0.3, z + h), (x - dx * 0.3, y - dy * 0.3, z + h),
+               'autumn_olive' if i % 2 else 'jungle_light')
 
 
 def person(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
@@ -474,3 +691,9 @@ def vine(b, x, y, z, length=8.0, rng=None):
         t = rng.uniform(0.2, 0.9)
         px = x + math.sin(t * 5 + x) * 0.4
         b.sphere((px, y - 0.05, z - length * t), 0.20, 'jungle', (1.3, 0.4, 0.7), subdiv=0)
+    if rng.random() < 0.40:
+        for i in range(3):
+            t = rng.uniform(0.25, 0.85)
+            px = x + math.sin(t * 5 + x) * 0.45
+            b.sphere((px, y - 0.12, z - length * t), 0.13,
+                     ('blossom', 'blossom_pale', 'coral')[i % 3], subdiv=0)

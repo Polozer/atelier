@@ -25,9 +25,9 @@ const MODULES = [
   { file: '10_hero_assets.glb', label: 'TRELLIS hero assets', colour: '#caa15b' },
 ];
 const VIEWS = {
-  harbor: { label: 'Harbor mouth', pos: [-140, 95, 700], target: [0, 22, -60], fov: 55 },
+  harbor: { label: 'Harbor mouth', pos: [-120, 30, 360], target: [0, 14, 10], fov: 52 },
   aerial: { label: 'Aerial', pos: [-300, 240, 560], target: [0, 18, 20], fov: 45 },
-  market: { label: 'Market', pos: [-55, 7.2, -118], target: [35, 9, -215], fov: 48 },
+  market: { label: 'Market', pos: [0, 7.6, -118], target: [20, 9, -212], fov: 50 },
   upper: { label: 'Upper town', pos: [-140, 68, -368], target: [0, 14, -190], fov: 50 },
   rum: { label: 'Rum Row', pos: [-296, 7, -94], target: [-250, 10, -130], fov: 38 },
   lighthouse: { label: 'Lighthouse', pos: [-500, 70, 280], target: [-650, 58, -60], fov: 50 },
@@ -35,6 +35,7 @@ const VIEWS = {
   waterfall: { label: 'Waterfall', pos: [300, 38, 130], target: [448, 55, -30], fov: 42 },
   cliff: { label: 'Cliff shacks', pos: [-430, 32, 170], target: [-512, 34, -10], fov: 48 },
   top: { label: 'Plan', pos: [0, 1780, 30], target: [0, 0, 20], fov: 52 },
+
 };
 // Blender coordinates (x east, y north, z up); the scene is converted to
 // three.js x east, y up, z south when these are projected.
@@ -63,6 +64,12 @@ const REFS = [
   ['12-prop-kit', 'Prop kit'],
   ['13-map', 'Painted plan'],
 ];
+const BRIDGE_REFS = [
+  ['02-harbor-approach', 'Harbor approach: buildable target'],
+  ['03-market-square', 'Market square: buildable target'],
+  ['04-upper-terrace', 'Upper terrace: buildable target'],
+  ['09-rum-row', 'Rum Row: buildable target'],
+];
 const PROP_REFS = [
   ['pirate-queen-statue', 'Pirate queen statue'],
   ['galleon-figurehead', 'Galleon figurehead'],
@@ -85,9 +92,9 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0xa7c5cb, 0.00035);
 const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 1, 6000);
-camera.position.set(-140, 95, 700);
+camera.position.set(-120, 30, 360);
 const controls = new OrbitControls(camera, canvas);
-controls.target.set(0, 22, -60);
+controls.target.set(0, 14, 10);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.maxPolarAngle = Math.PI * 0.495;
@@ -449,6 +456,20 @@ function buildUI() {
     figure.addEventListener('click', () => openLightbox(`refs/${slug}.png`, title));
     gallery.appendChild(figure);
   });
+  const bridgeTitle = document.createElement('div');
+  bridgeTitle.className = 'eyebrow';
+  bridgeTitle.style.marginTop = '22px';
+  bridgeTitle.textContent = 'Middle-ground targets · current build guided toward the paintings';
+  gallery.parentElement.insertBefore(bridgeTitle, gallery.nextSibling);
+  const bridgeGrid = document.createElement('div');
+  bridgeGrid.className = 'gallery-grid';
+  BRIDGE_REFS.forEach(([slug, title]) => {
+    const figure = document.createElement('figure');
+    figure.innerHTML = '<img loading="lazy" src="refs/bridge/' + slug + '.png" alt="' + title + '"><figcaption>' + title + '</figcaption>';
+    figure.addEventListener('click', () => openLightbox('refs/bridge/' + slug + '.png', title));
+    bridgeGrid.appendChild(figure);
+  });
+  gallery.parentElement.insertBefore(bridgeGrid, bridgeTitle.nextSibling);
   const renderTitle = document.createElement('div');
   renderTitle.className = 'eyebrow';
   renderTitle.style.marginTop = '22px';
@@ -546,8 +567,8 @@ document.querySelector('#labels').addEventListener('change', (e) => {
 });
 
 function applyMood(v) {
-  const day = { top: 0x4e92bf, horizon: 0xc7e1e7, bottom: 0xa8ccd2, fog: 0xb7d2d8, sun: 0xffd2a0,
-                sunI: 2.9, hemiI: 1.35, ambI: 0.22, exposure: 1.12, shallow: 0x3bb7c2, deep: 0x248fa8 };
+  const day = { top: 0x3f7fb8, horizon: 0xc9e6ef, bottom: 0xa9d0d8, fog: 0xb0cfd6, sun: 0xffcf9c,
+                sunI: 3.15, hemiI: 1.05, ambI: 0.18, exposure: 1.18, shallow: 0x3bbfc6, deep: 0x1d6f9d };
   const gold = { top: 0x4e7e9f, horizon: 0xf0c496, bottom: 0xb0a98c, fog: 0xc7b9a3, sun: 0xffab63,
                  sunI: 2.25, hemiI: 1.0, ambI: 0.18, exposure: 1.04, shallow: 0x4aa7a7, deep: 0x2a7c8f };
   const night = { top: 0x0a1c2b, horizon: 0x294a59, bottom: 0x0d2c33, fog: 0x16313a, sun: 0x8fb6e0,

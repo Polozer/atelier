@@ -4,8 +4,9 @@ import random
 from pathlib import Path
 import layout as L
 from geom import Builder
-from kit import (awning, balcony, barrel, bollard, building, bush, crate, door, jungle_tree,
-                 lantern_post, local, market_stall, palm, person, sign, vine, window)
+from kit import (awning, balcony, banana, barrel, bench, bollard, building, bush, crate, door,
+                 fern, fish_crate, grass_tuft, jungle_tree, lantern_post, laundry_line, local,
+                 market_stall, palm, pennants, person, potted_plant, rowboat, sack, sign, vine, window)
 
 TAU = math.pi * 2
 RNG = random.Random(49157)
@@ -299,6 +300,19 @@ def harbor():
         person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.9, 1.1), RNG)
     for i, (px, py) in enumerate(((-6, 8), (6, -24), (238, -30), (238, -62), (-238, -42), (0, -92), (12, -112))):
         person(b, px, py, 5.35, RNG.uniform(0, 360), RNG.uniform(0.9, 1.05), RNG)
+    # Cargo clusters along the working piers.
+    for name, px, y0, y1, width in L.PIERS:
+        for t, off in ((0.22, -4.2), (0.52, 3.4), (0.78, -2.6)):
+            py = y0 + (y1 - y0) * t
+            crate(b, px + off, py, 5.3, 0.9, RNG.uniform(0, 90))
+            barrel(b, px + off + 1.5, py + 0.9, 5.3, 0.85)
+            if t > 0.5:
+                b.ring((px + off - 1.2, py - 1.0, 5.32), 0.55, 0.07, 'rope', sides=10)
+    # Small boats give the open water scale and life.
+    for x, y, yaw in ((-250, -40, 22), (-150, -90, -14), (-30, -150, 8), (100, -70, 35),
+                      (180, -160, -8), (300, -60, 18), (-380, -40, -22), (420, -120, 12)):
+        if L.is_water(x, y):
+            rowboat(b, x, y, 0.0, yaw, 1.0)
     return b
 
 
@@ -361,7 +375,8 @@ def lower_town():
                            0.06, 'wood')
             if spec[8] == 'shack':
                 spec = (*spec[:3], L.ground(spec[1], spec[2]) + 0.1, *spec[4:])
-            building(b, spec, RNG)
+            for sub in split_lot(spec, RNG):
+                building(b, sub, RNG)
     # Stilt houses on the headland shores.
     for spec in L.SHORE_BUILDINGS:
         key, x, y, _, w, d, h, floors, style, yaw, roof = spec
@@ -396,6 +411,14 @@ def lower_town():
             if L.in_lot(x, y, 2.0) or L.on_market(x, y, 1.0):
                 continue
             person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.86, 1.12), RNG)
+    # Bunting and working clutter along the waterfront lane.
+    for x in (-300, -150, 0, 150, 300):
+        pennants(b, (x, 94, 9.2), (x + 140, 94, 9.2), 0.9, 11)
+    for x, y, yaw in ((-300, 91, 12), (-150, 91, -10), (0, 91, 8), (150, 91, -12), (300, 91, 10)):
+        fish_crate(b, x, y, L.ground(x, y) + 0.1, yaw, 1.1)
+    for x, y in ((-260, 166), (-90, 166), (60, 166), (220, 166)):
+        potted_plant(b, x, y, L.ground(x, y) + 0.05, 0.75, RNG)
+        sack(b, x + 1.4, y + 0.6, L.ground(x, y) + 0.1, 0.85)
     return b
 
 
@@ -534,6 +557,38 @@ def market():
         b.box((x, y, 5.2), (5.4, 1.1, 0.25), 'wood_light')
         for sx in (-2.2, 2.2):
             b.beam((x + sx, y, 4.4), (x + sx, y, 5.2), 0.14, 'wood_dark')
+    # Bunting over the stalls and a thicker layer of working clutter.
+    for y, z in ((118, 10.2), (160, 10.4), (205, 10.0)):
+        pennants(b, (-88, y, z), (88, y, z), 1.1, 15)
+    for x, y, yaw in ((-70, 150, 12), (-24, 208, -8), (52, 148, 18), (70, 206, -14)):
+        fish_crate(b, x, y, L.ground(x, y) + 0.1, yaw, 1.1)
+    for x, y in ((-58, 176), (-6, 122), (44, 190), (78, 156)):
+        sack(b, x, y, L.ground(x, y) + 0.1, 1.0)
+    for x, y in ((-88, 128), (88, 128), (-88, 198), (88, 198)):
+        potted_plant(b, x, y, L.ground(x, y) + 0.1, 0.8, RNG)
+    # Break up the open foreground of the market camera with a working cluster.
+    for x, y, yaw in ((-26, 128, 8), (24, 134, -12), (-42, 120, 0), (38, 120, 20)):
+        fish_crate(b, x, y, L.ground(x, y) + 0.1, yaw, 1.05)
+        sack(b, x + 1.5, y + 0.7, L.ground(x, y) + 0.1, 0.9)
+    potted_plant(b, 0, 124, L.ground(0, 124) + 0.1, 0.9, RNG)
+    # A low line of goods and bunting fills the market camera's foreground.
+    for x, y, yaw in ((-16, 120, 6), (-6, 118, -10), (6, 121, 12), (16, 119, -4)):
+        fish_crate(b, x, y, L.ground(x, y) + 0.1, yaw, 1.0)
+        sack(b, x + 1.2, y + 0.9, L.ground(x, y) + 0.1, 0.85)
+    for _ in range(6):
+        x = RNG.uniform(-18, 18)
+        y = RNG.uniform(116, 124)
+        person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.88, 1.05), RNG)
+    pennants(b, (-88, 128, 9.2), (88, 128, 9.2), 0.8, 21)
+    # A working stall just ahead of the market camera anchors the foreground.
+    market_stall(b, -16, 134, L.ground(-16, 134) + 0.1, 12, 7, 'canvas_teal', 4)
+    for x, y, yaw in ((-2, 131, 8), (6, 137, -12), (-28, 133, 16)):
+        fish_crate(b, x, y, L.ground(x, y) + 0.1, yaw, 1.0)
+        sack(b, x + 1.3, y + 0.8, L.ground(x, y) + 0.1, 0.85)
+    for _ in range(5):
+        x = RNG.uniform(-30, 8)
+        y = RNG.uniform(130, 140)
+        person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.9, 1.05), RNG)
     return b
 
 
@@ -573,6 +628,12 @@ def upper_town():
         if abs(vx) < 32:
             continue
         vine(b, vx, 278.9, L.UPPER_Z - 0.2, RNG.uniform(3.4, 9.5), RNG)
+    # Painted banners break up the long retaining wall.
+    for i, bx in enumerate(range(-300, 301, 74)):
+        mat = ('flag_red', 'cream', 'roof_teal', 'canvas_red')[i % 4]
+        b.quad((bx - 3.0, 278.2, 21.5), (bx + 3.0, 278.2, 21.5),
+               (bx + 2.4, 278.2, 12.5), (bx - 2.4, 278.2, 12.5), mat)
+        b.beam((bx - 3.2, 278.1, 21.6), (bx + 3.2, 278.1, 21.6), 0.12, 'wood_dark')
     # A planted string course halfway up breaks the 25 m wall into two tiers.
     for x0, x1 in ((-322, -252), (-224, -26), (26, 224), (262, 342)):
         b.box(((x0 + x1) / 2, 278.95, 17.5), (x1 - x0, 1.35, 0.55), 'stone_light')
@@ -610,7 +671,8 @@ def upper_town():
                            0.06, 'wood')
             if spec[8] == 'shack':
                 spec = (*spec[:3], L.ground(spec[1], spec[2]) + 0.1, *spec[4:])
-            building(b, spec, RNG)
+            for sub in split_lot(spec, RNG):
+                building(b, sub, RNG)
     # The stilted hamlet perched on the upper slope. Long foundations and
     # posts keep every hut grounded on the uneven ridge.
     for spec in L.HILLSIDE_BUILDINGS:
@@ -655,6 +717,13 @@ def upper_town():
         b.box((0, y, z), (10, 2.3, 0.8), 'stone_light')
         for side in (-1, 1):
             b.beam((side * 5.2, y, z - 1.8), (side * 5.2, y, z + 0.7), 0.30, 'stone')
+    # Bunting, pots and seating make the upper lane read as a street.
+    for y in (306, 342, 378):
+        pennants(b, (-240, y, L.UPPER_Z + 5.2), (240, y, L.UPPER_Z + 5.2), 1.2, 21)
+    for x, y in ((-120, 300), (120, 300), (-200, 336), (200, 336), (-90, 374), (90, 374)):
+        potted_plant(b, x, y, L.ground(x, y) + 0.05, 0.75, RNG)
+    for x in (-180, -60, 60, 180):
+        bench(b, x, 296, L.ground(x, 296) + 0.1, 180)
     return b
 
 
@@ -1204,8 +1273,56 @@ def vegetation():
         if RNG.random() < 0.25:
             for i in range(4):
                 b.sphere((x + RNG.uniform(-0.8, 0.8), y + RNG.uniform(-0.8, 0.8), z + 0.45 + RNG.uniform(0, 0.4)),
-                         0.16, ('coral', 'gold', 'cream')[i % 3], subdiv=0)
+                         0.16, ('blossom', 'gold', 'cream')[i % 3], subdiv=0)
+    # Ferns and banana plants give the understory a second layer.
+    for i, (x, y, z, _, scale) in enumerate(sc['bushes']):
+        if i % 5 == 0:
+            fern(b, x + RNG.uniform(-1, 1), y + RNG.uniform(-1, 1), z,
+                 RNG.uniform(0, 360), RNG.uniform(0.75, 1.25), RNG)
+        if i % 13 == 0:
+            banana(b, x + RNG.uniform(-1.5, 1.5), y + RNG.uniform(-1.5, 1.5), z,
+                   RNG.uniform(0, 360), RNG.uniform(0.8, 1.3), RNG)
+    # Dry crest grass catches the late light on both headlands.
+    for _ in range(900):
+        side = -1 if RNG.random() < 0.5 else 1
+        x = side * RNG.uniform(420, 790)
+        y = RNG.uniform(-220, 500)
+        z = L.height(x, y)
+        if z < 44.0 or L.is_water(x, y):
+            continue
+        grass_tuft(b, x, y, z + 0.05, RNG.uniform(0, 360), RNG.uniform(0.7, 1.4), RNG)
     return b
+
+
+def split_lot(spec, rng):
+    """Break a wide waterfront block into narrow houses with their own rooflines.
+
+    The painted references read as many 8-14 m facades, while the generated
+    lots are 34-46 m blocks.  Splitting them keeps the same footprint but gives
+    the town the varied height, colour and roof rhythm the cove needs.
+    """
+    key, x, y, z, w, d, h, floors, style, yaw, roof = spec
+    if style == 'warehouse' or w < 20.0:
+        return [spec]
+    n = 2 if w < 34.0 else 3
+    weights = ([0.46, 0.54] if n == 2 else [0.30, 0.38, 0.32])
+    jitter = [rng.uniform(-0.045, 0.045) for _ in range(n)]
+    scale = sum(weights)
+    weights = [max(0.2, weight / scale + jitter[i]) for i, weight in enumerate(weights)]
+    scale = sum(weights)
+    weights = [weight / scale for weight in weights]
+    roofs = ('roof_terra', 'roof_teal', 'roof_terra_light', 'roof_slate', 'roof_terra')
+    out = []
+    cursor = -w / 2
+    for i, weight in enumerate(weights):
+        sw = w * weight
+        cx = cursor + sw / 2
+        px, py = local(x, y, yaw, cx, 0.0)
+        out.append((f'{key}-{i}', px, py, z, max(6.0, sw - 0.35), d,
+                    h + rng.uniform(-1.1, 1.3), max(1, floors + (1 if rng.random() < 0.22 else 0)),
+                    style, yaw, roofs[(i + sum(map(ord, key))) % len(roofs)]))
+        cursor += sw
+    return out
 
 
 MODULES = {

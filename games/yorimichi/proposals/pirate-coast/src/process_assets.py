@@ -18,6 +18,9 @@ import bmesh
 import bpy
 from mathutils import Vector
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import layout as L  # noqa: E402
+
 PROPOSAL = Path(__file__).resolve().parents[1]
 REPO = PROPOSAL.parents[3]
 BUILD = REPO / 'build/yorimichi/pirate-coast'
@@ -26,23 +29,23 @@ REVIEWS = BUILD / 'asset-reviews'
 
 ASSETS = {
     'pirate-queen-statue': dict(
-        source=BUILD / 'trellis/out/statue/head.glb', height=22.0, triangles=140000,
+        source=BUILD / 'trellis/out/statue/head.glb', height=22.0, remesh=True, resolution=360, triangles=40000, prune=50, palette=('stone_light', 'stone', 'stone_dark', 'cream', 'rope', 'sail'),
         dilate=True, base=8.0,
         notes='harbor statue; full figure and plinth; dilated learned stone texture'),
     'galleon-figurehead': dict(
-        source=BUILD / 'trellis/out/figurehead/head.glb', height=6.5, triangles=120000,
+        source=BUILD / 'trellis/out/figurehead/head.glb', height=6.5, remesh=True, resolution=340, triangles=45000, prune=100, palette=('wood_light', 'wood', 'cream', 'coral', 'flag_red', 'gold'),
         dilate=True, base=0.0, notes='siren figurehead for the two galleons'),
     'harbor-cannon': dict(
-        source=BUILD / 'trellis/out/cannon/head.glb', height=4.8, triangles=30000,
+        source=BUILD / 'trellis/out/cannon/head.glb', height=4.8, remesh=True, resolution=300, triangles=20000, prune=50, palette=('metal', 'stone_dark', 'wood', 'wood_dark', 'rope'),
         dilate=True, base=0.0, notes='iron cannon on oak carriage'),
     'ship-anchor': dict(
-        source=BUILD / 'trellis/out/anchor/head.glb', height=4.8, triangles=30000,
+        source=BUILD / 'trellis/out/anchor/head.glb', height=4.8, remesh=True, resolution=300, triangles=20000, prune=100, palette=('metal', 'wood_dark', 'stone_dark', 'rope'),
         dilate=True, base=0.0, notes='quay anchor with rope'),
     'harbor-capstan': dict(
-        source=BUILD / 'trellis/out/capstan/head.glb', height=2.8, triangles=24000,
+        source=BUILD / 'trellis/out/capstan/head.glb', height=2.8, remesh=True, resolution=320, triangles=18000, prune=200, palette=('wood', 'wood_light', 'wood_dark', 'metal', 'rope'),
         dilate=True, base=0.0, notes='working pier capstan'),
     'ships-wheel': dict(
-        source=BUILD / 'trellis/out/wheel/head.glb', height=2.8, triangles=24000,
+        source=BUILD / 'trellis/out/wheel/head.glb', height=2.8, remesh=True, resolution=300, triangles=12000, prune=50, palette=('wood_light', 'wood', 'wood_dark', 'gold', 'metal', 'rope'),
         dilate=True, base=0.0, notes="ship's wheel for the stern deck"),
 }
 
@@ -118,26 +121,257 @@ def normalize(obj, target_height):
     return bounds(obj)
 
 
+def prune_islands(obj, max_faces):
+    """Drop the thousands of tiny disconnected shells TRELLIS leaves behind.
+
+    A collapse decimation can never go below roughly four faces per connected
+    shell.  The raw props contain 50k-150k shells, so pruning the specks first
+    is what makes a 12k-45k triangle budget reachable at all.
+    """
+    mesh = obj.data
+    n = len(mesh.vertices)
+    parent = list(range(n))
+    rank = [0] * n
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for edge in mesh.edges:
+        a, b = edge.vertices
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            continue
+        if rank[ra] < rank[rb]:
+            ra, rb = rb, ra
+        parent[rb] = ra
+        if rank[ra] == rank[rb]:
+            rank[ra] += 1
+    face_root = [find(poly.vertices[0]) for poly in mesh.polygons]
+    sizes = {}
+    for root in face_root:
+        sizes[root] = sizes.get(root, 0) + 1
+    doomed = [i for i, root in enumerate(face_root) if sizes[root] <= max_faces]
+    if not doomed:
+        return 0, len(sizes)
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.faces.ensure_lookup_table()
+    bmesh.ops.delete(bm, geom=[bm.faces[i] for i in doomed], context='FACES')
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+    print(f'pruned {len(doomed)} faces in shells <= {max_faces} faces '
+          f'({len(sizes)} -> {len(sizes) - sum(1 for size in sizes.values() if size <= max_faces)} shells)',
+          flush=True)
+    return len(doomed), len(sizes)
+
+
+PALETTE = ('stone_light', 'stone', 'stone_dark', 'cream', 'wood', 'wood_light', 'wood_dark',
+           'metal', 'gold', 'rope', 'coral', 'flag_red', 'sail')
+
+
+def srgb_channel(value):
+    value = value / 255.0
+    return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+
+def linear_color(name):
+    hex_color = L.COLORS.get(name, '#808080')
+    return tuple(srgb_channel(int(hex_color[i:i + 2], 16)) for i in (1, 3, 5))
+
+
+def palette_material(name):
+    material = bpy.data.materials.get(f'Brinecove {name}')
+    if material:
+        return material
+    material = bpy.data.materials.new(f'Brinecove {name}')
+    material.use_nodes = True
+    bsdf = material.node_tree.nodes.get('Principled BSDF')
+    texture = PROPOSAL / 'textures' / f'{name}.jpg'
+    if texture.exists():
+        image = bpy.data.images.load(str(texture), check_existing=True)
+        node = material.node_tree.nodes.new('ShaderNodeTexImage')
+        node.image = image
+        material.node_tree.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
+    else:
+        red, green, blue = linear_color(name)
+        bsdf.inputs['Base Color'].default_value = (red, green, blue, 1.0)
+    bsdf.inputs['Roughness'].default_value = 0.9
+    return material
+
+
+def basecolor_image(obj):
+    for material in obj.data.materials:
+        if not material or not material.use_nodes:
+            continue
+        for node in material.node_tree.nodes:
+            if node.type == 'TEX_IMAGE' and node.image and node.image.size[0] > 0:
+                return node.image
+    return None
+
+
+def remesh_retopo(obj, source, target, resolution, palette_names=None):
+    """Voxel-remesh a shredded TRELLIS surface, decimate it, and repaint it.
+
+    The neural meshes are triangle soup with tens of thousands of holes and
+    non-manifold rims, which pins a collapse decimation far above any game
+    budget.  A voxel remesh produces a clean manifold surface; the original
+    surface is then sampled per face so the new low-poly prop keeps the
+    painted wood, iron, stone and rope zones using the proposal palette.
+    """
+    import numpy as np
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+    from mathutils.geometry import barycentric_transform
+
+    image = basecolor_image(source)
+    src_mesh = source.data
+    bvh = BVHTree.FromPolygons([vertex.co.copy() for vertex in src_mesh.vertices],
+                               [tuple(poly.vertices) for poly in src_mesh.polygons],
+                               all_triangles=False)
+    pixels = None
+    if image is not None:
+        width, height = image.size
+        pixels = np.array(image.pixels[:], dtype=np.float32).reshape(height, width, 4)[..., :3]
+
+    thickness = max(0.008, source_height(source) * 0.006)
+    shell = obj.modifiers.new('Brinecove shell', 'SOLIDIFY')
+    shell.thickness = thickness
+    shell.offset = 0.0
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.modifier_apply(modifier=shell.name)
+    print(f'solidified by {thickness:.3f} m', flush=True)
+    voxel = max(0.004, source_height(source) / resolution)
+    modifier = obj.modifiers.new('Brinecove retopo', 'REMESH')
+    modifier.mode = 'VOXEL'
+    modifier.voxel_size = voxel
+    if hasattr(modifier, 'use_smooth_shade'):
+        modifier.use_smooth_shade = True
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.modifier_apply(modifier=modifier.name)
+    print(f'remeshed at {voxel:.4f} m: {len(obj.data.polygons)} faces', flush=True)
+    reduce_mesh(obj, target)
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.smart_project(angle_limit=math.radians(62), island_margin=0.02)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    names = tuple(palette_names or PALETTE)
+    materials = [palette_material(name) for name in names]
+    obj.data.materials.clear()
+    for material in materials:
+        obj.data.materials.append(material)
+    palette = [(i, linear_color(name)) for i, name in enumerate(names)]
+    src_uv = src_mesh.uv_layers.active.data if src_mesh.uv_layers.active else None
+    mesh = obj.data
+    counts = [0] * len(names)
+    for poly in mesh.polygons:
+        location, normal, index, distance = bvh.find_nearest(poly.center)
+        best = 0
+        if location is not None and index is not None and index < len(src_mesh.polygons):
+            source_poly = src_mesh.polygons[index]
+            verts = [src_mesh.vertices[v].co for v in source_poly.vertices[:3]]
+            if len(verts) == 3 and src_uv is not None:
+                weights = barycentric_transform(location, verts[0], verts[1], verts[2],
+                                                Vector((1.0, 0.0, 0.0)), Vector((0.0, 1.0, 0.0)),
+                                                Vector((0.0, 0.0, 1.0)))
+                loops = list(source_poly.loop_indices)[:3]
+                u = sum(weights[i] * src_uv[loops[i]].uv.x for i in range(3))
+                v = sum(weights[i] * src_uv[loops[i]].uv.y for i in range(3))
+                if pixels is not None:
+                    x = int((u % 1.0) * (pixels.shape[1] - 1))
+                    y = int((v % 1.0) * (pixels.shape[0] - 1))
+                    sample = pixels[y, x]
+                    best = min(palette, key=lambda item: sum((sample[k] - item[1][k]) ** 2 for k in range(3)))[0]
+                else:
+                    best = 1
+        poly.material_index = best
+        counts[best] += 1
+    mesh.update()
+    summary = ', '.join(f'{names[i]}:{count}' for i, count in enumerate(counts) if count)
+    print(f'palette faces: {summary}', flush=True)
+
+
+def source_height(obj):
+    lo, hi = bounds(obj)
+    return max(1e-6, hi.z - lo.z)
+
+
+def close_holes(obj):
+    """Fill the thousands of tiny boundary loops before decimation.
+
+    TRELLIS surfaces carry roughly 6k-10k small holes.  A collapse decimation
+    preserves boundary rims, so those holes pin the triangle count far above
+    any game budget.  Filling them (and carrying an averaged UV onto each new
+    patch) lets the quadric collapse run to the real target.
+    """
+    from mathutils import Vector
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    uv_layer = bm.loops.layers.uv.active
+    vert_uv = {}
+    if uv_layer is not None:
+        for face in bm.faces:
+            for loop in face.loops:
+                vert_uv.setdefault(loop.vert.index, []).append(loop[uv_layer].uv.copy())
+    boundary = [edge for edge in bm.edges if len(edge.link_faces) == 1]
+    if not boundary:
+        bm.free()
+        return 0, 0
+    before = len(bm.faces)
+    result = bmesh.ops.holes_fill(bm, edges=boundary, sides=0)
+    new_faces = result.get('faces', [])
+    if uv_layer is not None:
+        for face in new_faces:
+            for loop in face.loops:
+                uvs = vert_uv.get(loop.vert.index)
+                if uvs:
+                    total = Vector((0.0, 0.0))
+                    for uv in uvs:
+                        total += uv
+                    loop[uv_layer].uv = total / len(uvs)
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+    print(f'closed holes: {len(new_faces)} faces added from {len(boundary)} boundary edges '
+          f'({before} -> {len(obj.data.polygons)})', flush=True)
+    return len(new_faces), len(boundary)
+
+
 def reduce_mesh(obj, target):
-    before = len(obj.data.polygons)
+    def triangles():
+        return sum(len(poly.vertices) - 2 for poly in obj.data.polygons)
+
+    before = triangles()
     if before <= target:
         return before, before
-    # A single traversal can stall on dense TRELLIS boundaries.  Repeat from
-    # the reduced mesh until it reaches the budget or stops making progress.
-    for _ in range(4):
-        current = len(obj.data.polygons)
-        if current <= target * 1.15:
+    # A single traversal can stall on dense TRELLIS boundaries. Repeat from
+    # the reduced mesh until it reaches the budget or stops making progress,
+    # and report every pass so a plateau is visible in the build log.
+    for attempt in range(14):
+        current = triangles()
+        if current <= target * 1.05:
             break
-        modifier = obj.modifiers.new('Brinecove reduction', 'DECIMATE')
+        modifier = obj.modifiers.new(f'Brinecove reduction {attempt}', 'DECIMATE')
         modifier.decimate_type = 'COLLAPSE'
-        modifier.ratio = max(0.01, min(1.0, target / current))
+        modifier.ratio = max(0.002, min(1.0, target / current))
         modifier.use_collapse_triangulate = True
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.modifier_apply(modifier=modifier.name)
-        after = len(obj.data.polygons)
-        if after >= current * 0.9:
+        after = triangles()
+        print(f'reduce pass {attempt}: {current} -> {after} (target {target})', flush=True)
+        if after >= current * 0.995:
+            print(f'reduction plateau at {after} triangles', flush=True)
             break
-    return before, len(obj.data.polygons)
+    return before, triangles()
 
 
 def remesh_and_stone(obj, voxel, texture):
@@ -315,8 +549,24 @@ def process(slug):
     obj = import_one(source)
     obj.name = slug
     lo, hi = normalize(obj, config['height'])
-    before, after = reduce_mesh(obj, config['triangles'])
-    dilation = dilate_basecolor(obj, slug) if config.get('dilate') else None
+    if config.get('remesh'):
+        before = sum(len(poly.vertices) - 2 for poly in obj.data.polygons)
+        reference = obj.copy()
+        reference.data = obj.data.copy()
+        bpy.context.scene.collection.objects.link(reference)
+        remesh_retopo(obj, reference, config['triangles'], config.get('resolution', 340),
+                      config.get('palette'))
+        bpy.data.objects.remove(reference, do_unlink=True)
+        pruned, shells, filled, rims = 0, 0, 0, 0
+        after = sum(len(poly.vertices) - 2 for poly in obj.data.polygons)
+        lo, hi = bounds(obj)
+        dilation = None
+    else:
+        pruned, shells = prune_islands(obj, config.get('prune', 50))
+        filled, rims = close_holes(obj)
+        lo, hi = normalize(obj, config['height'])
+        before, after = reduce_mesh(obj, config['triangles'])
+        dilation = dilate_basecolor(obj, slug) if config.get('dilate') else None
     checks = validate(obj)
     review_views(obj, slug, config['height'])
     MODELS.mkdir(parents=True, exist_ok=True)
@@ -337,12 +587,14 @@ def process(slug):
         reference=str(reference.relative_to(REPO)) if reference.exists() else None,
         reference_sha256=sha(reference) if reference.exists() else None,
         generation=gen, target_height_m=config['height'], notes=config['notes'],
-        triangles_before=before, triangles_after=after, bounds=dict(
+        triangles_before=before, triangles_after=after, pruned_faces=pruned, shells=shells,
+        filled_faces=filled, boundary_rim_edges=rims, bounds=dict(
             min=[round(v, 4) for v in lo], max=[round(v, 4) for v in hi]),
         output=str(target.relative_to(REPO)), output_sha256=sha(target), checks=checks,
         texture_dilation=dilation,
         processing=['parent clear', 'transform apply', 'uniform scale to target height',
-                    'centre XY and seat min Z at 0', 'collapse decimate with UV preservation',
+                    'solidify open surface', 'voxel remesh to a manifold shell',
+                    'collapse decimate', 'smart UV unwrap', 'nearest-surface palette paint',
                     'UV/texture/material and finite-vertex validation', 'three Blender review renders'],
     )
     (MODELS / f'{slug}.provenance.json').write_text(json.dumps(report, indent=2) + '\n')

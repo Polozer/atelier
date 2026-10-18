@@ -382,6 +382,12 @@ def sync_viewer():
         shutil.rmtree(props_dst)
     if props_src.exists():
         shutil.copytree(props_src, props_dst)
+    bridge_src = OUT / 'references-bridge'
+    bridge_dst = refs_dst / 'bridge'
+    if bridge_src.exists():
+        bridge_dst.mkdir()
+        for src in sorted(bridge_src.glob('*.png')):
+            shutil.copy2(src, bridge_dst / src.name)
     review_sheet = OUT / 'asset-reviews' / 'contact-sheet.jpg'
     if review_sheet.exists():
         shutil.copy2(review_sheet, VIEWER_OUT / 'refs' / 'trellis-processed.jpg')

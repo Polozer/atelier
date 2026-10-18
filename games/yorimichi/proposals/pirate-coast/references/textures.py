@@ -102,14 +102,22 @@ def hex_rgb(value):
     return np.array([int(value[i:i + 2], 16) / 255.0 for i in (1, 3, 5)])
 
 
-def colorize(detail, hex_color, contrast=1.0, lift=0.0):
+def colorize(detail, hex_color, contrast=1.0, lift=0.0, keep_chroma=0.0):
     """Keep the painted detail, replace its mean colour with the palette colour."""
     import numpy as np
     lum = detail[..., 0] * .2126 + detail[..., 1] * .7152 + detail[..., 2] * .0722
     mean = max(1e-4, float(lum.mean()))
     factor = np.clip((lum / mean) ** contrast, .35, 2.1)
     target = hex_rgb(hex_color)
-    return np.clip(target[None, None, :] * factor[..., None] + lift, 0, 1)
+    out = target[None, None, :] * factor[..., None] + lift
+    if keep_chroma:
+        # The painted sources carry mossy teal, ochre and cream patches.  A
+        # flat mean replacement threw that variety away and left every wall
+        # the same grey-green.  Keep a share of the source chroma around its
+        # own mean while the body of the surface takes the palette colour.
+        source_mean = detail.mean(axis=(0, 1))
+        out = out + (detail - source_mean[None, None, :]) * keep_chroma
+    return np.clip(out, 0, 1)
 
 
 def finish():
@@ -144,7 +152,9 @@ def finish():
                 continue
             contrast = 1.15 if slug in ('foliage', 'roof', 'stone') else 1.0
             lift = .025 if slug in ('plaster', 'canvas') else .0
-            arr = colorize(detail, target, contrast, lift)
+            chroma = {'plaster': .42, 'roof': .48, 'stone': .40, 'cliff': .40,
+                      'wood': .30, 'canvas': .26, 'foliage': .40, 'sand': .28}.get(slug, .0)
+            arr = colorize(detail, target, contrast, lift, chroma)
         path = TEXTURES / f'{material}.jpg'
         Image.fromarray((np.clip(arr, 0, 1) * 255).astype(np.uint8)).save(path, 'JPEG', quality=92, subsampling=0)
         records[material] = dict(file=path.name, surface=slug, scale=scale, sha256=sha(path))

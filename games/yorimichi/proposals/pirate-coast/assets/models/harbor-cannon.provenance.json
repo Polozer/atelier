@@ -1,7 +1,7 @@
 {
   "slug": "harbor-cannon",
   "stage": "brinecove-trellis-processed",
-  "generated": "2026-10-18T03:08:21.793513+00:00",
+  "generated": "2026-10-18T11:18:22.104558+00:00",
   "source": "build/yorimichi/pirate-coast/trellis/out/cannon/head.glb",
   "source_sha256": "a92555ea8ffe5fb4fb827c4db5a6a7ac067d1f769300d6b63550828c4eb49cb2",
   "reference": "games/yorimichi/proposals/pirate-coast/references/props/harbor-cannon.png",
@@ -57,36 +57,43 @@
   "target_height_m": 4.8,
   "notes": "iron cannon on oak carriage",
   "triangles_before": 2375172,
-  "triangles_after": 278772,
+  "triangles_after": 20000,
+  "pruned_faces": 0,
+  "shells": 0,
+  "filled_faces": 0,
+  "boundary_rim_edges": 0,
   "bounds": {
     "min": [
-      -2.3873,
-      -4.0997,
-      0.0
+      -2.4015,
+      -4.1137,
+      -0.013
     ],
     "max": [
-      2.3873,
-      4.0997,
-      4.8
+      2.4022,
+      4.1154,
+      4.8146
     ]
   },
   "output": "games/yorimichi/proposals/pirate-coast/assets/models/harbor-cannon.glb",
-  "output_sha256": "93b5a109358e28f6d4902808fe2926d8dc0fb59d525c01e0bdd87fce5cd01503",
+  "output_sha256": "7b6b743b6ec6a85fbb69b7f8dec8e9f7dda12506cd671eadc48598060d7012b3",
   "checks": {
-    "triangles": 278772,
-    "vertices": 101138,
+    "triangles": 20000,
+    "vertices": 9932,
     "uv_layers": 1,
-    "materials": 1,
-    "textured_materials": 1,
-    "images": 3
+    "materials": 5,
+    "textured_materials": 4,
+    "images": 7
   },
-  "texture_dilation": "build/yorimichi/pirate-coast/texture-dilation/harbor-cannon-Image_0.png",
+  "texture_dilation": null,
   "processing": [
     "parent clear",
     "transform apply",
     "uniform scale to target height",
-    "centre XY and seat min Z at 0",
-    "collapse decimate with UV preservation",
+    "solidify open surface",
+    "voxel remesh to a manifold shell",
+    "collapse decimate",
+    "smart UV unwrap",
+    "nearest-surface palette paint",
     "UV/texture/material and finite-vertex validation",
     "three Blender review renders"
   ]
