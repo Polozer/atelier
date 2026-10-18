@@ -91,6 +91,15 @@ It revalidates unchanged paintings and masks while preserving their original
 generation records. It does not certify FBX export or native import; those
 remain separate refactor checks.
 
+The next standalone interface, `terrain_query.Surface`, indexes an explicitly
+owned natural/final `terrain_product.Mesh`. `intersections(x, y)` returns all
+vertical hits in original query/triangle order, with face IDs, barycentrics,
+heights and geometric normals. `upper(x, y)` explicitly selects the highest
+hit within that one owner, breaking exact ties by first face ID. Missing support
+raises by default; `require=False` returns uncovered entries with face ID -1
+and NaN values. Vertical/zero-area faces supply no ground. The API neither
+combines owners nor certifies freshness. No production caller uses it yet.
+
 1. Extract FarHills natural/final NumPy products in the **current discrete order**,
    keeping original parents, rail lattice, selected/retained adjacency and every
    triangle/index order. Compare complete arrays and exported payloads against
