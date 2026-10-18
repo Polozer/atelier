@@ -21,7 +21,8 @@ class CapacityQueued(CapacityError):
 
 class CapacityOfferLost(CapacityError):
     """A fenced broker response positively denies GO for this pending gate child."""
-    def __init__(self, session):
+    def __init__(self, session, reason='selection-changed'):
+        self.reason = reason
         super().__init__('Capacity selection changed before GO; launch gate closed without execution')
         self.session = session
         self.child = session.child
@@ -288,11 +289,11 @@ class AdmissionSession:
                                  tree_guard=tree_guard, limit_bytes=limit_bytes)
         if response.get('no_go') is True:
             if (response.get('state') != 'queued' or response.get('admission') is not False
-                    or response.get('reason') != 'selection-changed' or response.get('nonce') != self.nonce
+                    or response.get('reason') not in ('selection-changed', 'pressure-wait') or response.get('nonce') != self.nonce
                     or response.get('epoch') != self.epoch or response.get('boot_id') != self.boot
                     or wire.identity(response.get('child')) != self.child):
                 raise CapacityError('Capacity no-GO response is incomplete or fenced')
-            raise CapacityOfferLost(self)
+            raise CapacityOfferLost(self, response['reason'])
         self._healthy(response)
         self._acknowledged.add(self.child)
         return response

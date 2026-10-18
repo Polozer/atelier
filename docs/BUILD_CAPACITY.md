@@ -47,6 +47,21 @@ A selected request that loses its turn before execution may requeue at most twic
 The launcher first proves its gate child exited, the guarded tree is empty and the request is uncharged.
 It never replays a start or treats missing timing data as proof that a child did not execute.
 
+Offers test fresh available memory against the full candidate envelope, host reserve and
+validated charged peers' remaining growth before selecting work. A memory deficit keeps the
+request queued without a gate, child or resource charge. Smaller compatible work may proceed
+until the oldest statically feasible request has two bypasses or 300 seconds of original ready
+age; that protected request then drains before younger work, including for exclusive sessions.
+The final guarded start repeats its fresh pressure and ownership checks.
+
+An automatic build whose pressure eligibility changes before GO returns to the same queue only
+after a fenced no-GO response, verified empty owned cleanup and affirmative uncharged close.
+It retains the exact request, first-ready age, sequence and original admission deadline. Invalid
+guards, stale observations, transport failures and session fences are not ordinary resource waits.
+Explicit injected sessions still report a typed no-GO to their owning caller; they are not silently
+recreated. Older callers without this response support fail closed on a final pressure race;
+adopt the updated launcher only at a whole-caller child-free source boundary.
+
 `offer`, `owned`, `check` and `close` may replay one identical request after a transient transport failure.
 Their per-call deadlines stay unchanged. Start, gate and replacement operations never replay. A second
 transport failure or incomplete cleanup fails the command rather than starting work through another path.
