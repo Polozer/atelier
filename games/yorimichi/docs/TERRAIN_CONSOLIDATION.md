@@ -58,7 +58,7 @@ change requires an explicit behavior review and a separately named baseline.
 | Owner/layer | Current authority and final geometry | Current queries/consumers |
 | --- | --- | --- |
 | Fine main ground | `gen_world.py` heightmap, then `build_terrain.py` grid | Spawn/road placement, world map, Terrain export/import |
-| FarHills | `farhills_grid`, `shorelines.grid_mesh`, then conforming `earthworks.polygons`; `world.farhills` publishes ordered natural/final products | Export reads the verified final product; crown placement still reconstructs selected cells separately |
+| FarHills | `farhills_grid`, `shorelines.grid_mesh`, then conforming `earthworks.polygons`; `world.farhills` publishes ordered natural/final products | Export and owned crown support read the verified final product |
 | Hidamari city | `hidamari/layout.py`, city terrain meshes | City grading, roads, forest placement, HD_Terrain export and desktop tiles |
 | Foothills and apron | `hidamari/mountains.py` sheets and earthworks | North height/approach sampling and independent mountain exports |
 | Belmonte authored ground | Committed source triangles in `belmonte/source.py` | Triangle-indexed map/placement queries, authored terrain exports |
@@ -97,6 +97,15 @@ regenerate these geometry products. The city module's static import closure
 remains conservative and includes some appearance definitions; this phase
 does not exclude reachable source reads or claim all appearance invalidation
 has been separated.
+
+The crown-query increment makes `world.hidamari` read the final product before
+city generation. Only the existing owned-crown support correction uses the
+shared triangle query: its centre and four two-metre offsets retain the same
+finite-difference slope, keep/resize decisions and scaled root embedding.
+Original eligibility, RNG and overlap decisions remain earlier in the producer;
+unrelated rows and the initial analytical ground filter are unchanged. Missing
+final support fails instead of reconstructing a private surface. Geometric
+face normals are available from the API but do not replace placement slopes.
 
 The atlas signature and map recipe include the extracted geometry helpers.
 `map/atlas/coasts/extraction-equivalence.json` records exact original/extracted
