@@ -70,6 +70,7 @@ private:
     bool IsSkateCustomStock() const;
     float Get(const TCHAR* Key) const;
     bool Save();
+    bool SaveSoundBank(int32 Selection);
     static bool IsToggle(const FString& Key);
     static FString FilePath();
     static TMap<FString,FString> ReadSaved();

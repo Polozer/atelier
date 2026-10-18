@@ -9,6 +9,8 @@ class AJapanWorld;
 class USoundAttenuation;
 class USoundWave;
 class UJapanSoundBank;
+class UJapanFootstepComponent;
+DECLARE_MULTICAST_DELEGATE_OneParam(FJapanFootstepAudioReady, UJapanFootstepComponent*);
 
 /** One surface's pool of sliced one-shots. */
 USTRUCT(BlueprintType)
@@ -57,6 +59,8 @@ public:
     void Hoof(const FHitResult& Hit,float Weight);
     FName SurfaceAt(const FHitResult& Hit) const;
     bool IsReady() const { return Set != nullptr; }
+    bool IsAudioReady() const { return IsReady(); }
+    static FJapanFootstepAudioReady AudioReady;
     /** Loaded local presentation only; nullptr selects exact Original. No plant-state reset. */
     bool CanSetSoundBank(const UJapanSoundBank* Replacement, FString& Error) const;
     bool SetSoundBank(UJapanSoundBank* Replacement, FString& Error);

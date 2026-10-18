@@ -4,6 +4,8 @@
 #include "Engine/World.h"
 #include "Sound/SoundWave.h"
 
+FSkateAudioReady USkateComponent::AudioReady;
+
 bool USkateComponent::CanSetSoundSet(const USkateSoundSet* Replacement, FString& Error) const
 {
     Error.Reset();

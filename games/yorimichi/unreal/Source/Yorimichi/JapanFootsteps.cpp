@@ -51,6 +51,7 @@ void UJapanFootstepComponent::BeginPlay()
     int32 Total=0; for(const auto& Pair:Set->Surfaces) Total+=Pair.Value.Steps.Num();
     UE_LOG(LogTemp,Display,TEXT("Footsteps ready: %d surfaces, %d one-shots"),Set->Surfaces.Num(),Total);
     TActorIterator<AJapanWorld> It(GetWorld()); if(It) Landscape=*It;
+    AudioReady.Broadcast(this);
 }
 
 FName UJapanFootstepComponent::SurfaceAt(const FHitResult& Hit) const
