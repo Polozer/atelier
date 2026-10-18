@@ -9,7 +9,7 @@ from brinecove import rocks
 from brinecove.geom import Builder, _surface_scale as surface_scale
 from brinecove.kit import (awning, balcony, banana, barrel, bench, bollard, building, bush, crate, door,
                  fern, fish_crate, grass_tuft, lantern_post, laundry_line, local,
-                 goods, jungle_tree, market_stall, palm, parasol, pennants, person, potted_plant, rowboat, sack, sign,
+                 goods, jungle_tree, market_stall, palm, parasol, pennants, potted_plant, rowboat, sack, sign,
                  vine, window)
 
 TAU = math.pi * 2
@@ -367,16 +367,6 @@ def harbor():
         b.box((398, 72 + i * 2.2, 5.0 + i * 0.35), (28, 1.6, 0.32), 'wood_light', 8)
     b.box((326, 140, 8.0), (22, 14, 6.0), 'wood', 0)
     b.gable_roof((326, 140, 11.0), 23, 15, 11.0, 3.0, 'roof_terra', 0, ridge='x', overhang=0.8)
-    for x, y in ((320, 146), (332, 146), (344, 146)):
-        person(b, x, y, 4.8, RNG.uniform(0, 360), 1.0, RNG)
-    # A working quay needs scale figures: dockhands along the promenade and a
-    # few hands on the piers.
-    for i in range(24):
-        x = -356 + i * 30 + RNG.uniform(-5, 5)
-        y = 83 + RNG.uniform(-5, 9)
-        person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.9, 1.1), RNG)
-    for i, (px, py) in enumerate(((-6, 8), (6, -24), (238, -30), (238, -62), (-238, -42), (0, -92), (12, -112))):
-        person(b, px, py, 5.35, RNG.uniform(0, 360), RNG.uniform(0.9, 1.05), RNG)
     # Cargo clusters along the working piers.
     for name, px, y0, y1, width in L.PIERS:
         for t, off in ((0.22, -4.2), (0.52, 3.4), (0.78, -2.6)):
@@ -480,14 +470,6 @@ def lower_town():
         b.box((x, y, L.ground(x, y) + 0.65), (34, 1.0, 1.3), 'stone')
         if x % 3 == 0:
             b.sphere((x + RNG.uniform(-8, 8), y + 3.5, L.ground(x, y) + 0.5), 1.1, 'jungle', (1.2, 1, 0.8), subdiv=0)
-    # Street life: pairs of neighbours, porters and children along the lanes.
-    for row_y, count in ((88, 22), (168, 26), (232, 18), (262, 12)):
-        for i in range(count):
-            x = RNG.uniform(-360, 360)
-            y = row_y + RNG.uniform(-4.5, 4.5)
-            if L.in_lot(x, y, 2.0) or L.on_market(x, y, 1.0):
-                continue
-            person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.86, 1.12), RNG)
     # Bunting and working clutter along the waterfront lane.
     for x in (-300, -150, 0, 150, 300):
         pennants(b, (x, 94, 9.2), (x + 140, 94, 9.2), 0.9, 11)
@@ -519,18 +501,12 @@ def market():
         yaw = RNG.uniform(-16, 16)
         canvas = cloths[RNG.randrange(len(cloths))]
         market_stall(b, x, y, L.ground(x, y) + 0.1, w, d, canvas, yaw)
-        # A vendor behind every counter and a pair of customers in front.
-        person(b, x - w * 0.16, y + d * 0.27, L.ground(x, y) + 0.2, 180, RNG.uniform(0.92, 1.05), RNG)
-        for side in (-1, 1):
-            person(b, x + side * (w * 0.22 + RNG.uniform(0, 1.2)), y - d * 0.58,
-                   L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.88, 1.08), RNG)
         barrel(b, x - w * 0.58, y + d * 0.25, L.ground(x, y) + 0.1, 0.72)
         crate(b, x + w * 0.55, y - d * 0.18, L.ground(x, y) + 0.1, 0.8, RNG.uniform(0, 90))
     # South-edge stalls frame the market camera and close the empty cobbles.
     for x, cloth in ((-76, 'canvas_red'), (58, 'canvas_teal')):
         y = 98
         market_stall(b, x, y, L.ground(x, y) + 0.1, 13, 8, cloth, -7 if x < 0 else 8)
-        person(b, x - 2, y + 2.4, L.ground(x, y) + 0.2, 180, 1.0, RNG)
     for x, y, cloth in ((-96, 108, 'canvas_red'), (96, 112, 'canvas_teal')):
         b.cylinder((x, y, L.ground(x, y) + 0.1), (x, y, L.ground(x, y) + 7.5), 0.12, 'wood_dark', 6)
         b.quad((x, y, L.ground(x, y) + 7.4), (x + 4.0, y, L.ground(x, y) + 6.8),
@@ -560,22 +536,6 @@ def market():
         b.rope((-92, yy, 9.6), (92, yy, 9.6), 0.8, 0.06)
         for xx in range(-84, 85, 12):
             b.sphere((xx, yy, 9.3), 0.22, 'lantern', subdiv=0)
-    for row, count in ((110, 11), (146, 9), (184, 8), (208, 5)):
-        for i in range(count):
-            x = -78 + i * (156 / max(1, count - 1))
-            y = row + RNG.uniform(-2.2, 2.2)
-            person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.9, 1.12), RNG)
-    for row, count in ((126, 13), (160, 12), (196, 10), (220, 7)):
-        for i in range(count):
-            x = -82 + i * (164 / max(1, count - 1)) + RNG.uniform(-1.8, 1.8)
-            y = row + RNG.uniform(-2.6, 2.6)
-            person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.88, 1.1), RNG)
-    # A thicker, uneven crowd between the stall rows sells the market as a
-    # working place rather than a paved square with a few extras.
-    for _ in range(46):
-        x = RNG.uniform(-88, 88)
-        y = RNG.uniform(100, 223)
-        person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.82, 1.12), RNG)
     # Handcarts, fish baskets and sack piles fill the lanes between stalls.
     for cx, cy, cyaw in ((-66, 150, 18), (66, 152, -24), (-52, 206, 8), (54, 204, -12)):
         cz = L.ground(cx, cy) + 0.1
@@ -681,10 +641,6 @@ def market():
     for x, y, yaw in ((-16, 120, 6), (-6, 118, -10), (6, 121, 12), (16, 119, -4)):
         fish_crate(b, x, y, L.ground(x, y) + 0.1, yaw, 1.0)
         sack(b, x + 1.2, y + 0.9, L.ground(x, y) + 0.1, 0.85)
-    for _ in range(6):
-        x = RNG.uniform(-18, 18)
-        y = RNG.uniform(116, 124)
-        person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.88, 1.05), RNG)
     pennants(b, (-88, 128, 9.2), (88, 128, 9.2), 0.8, 21)
     # Fill the open cobbles with lanes of smaller stalls, as in the market painting: a bazaar, not a parade ground.
     taken = [(x, y, w / 2 + 3.5, d / 2 + 3.5) for x, y, w, d, _ in L.MARKET_STALLS]
@@ -702,22 +658,14 @@ def market():
             yaw = RNG.uniform(-6, 6)
             z = L.ground(x, y) + 0.1
             market_stall(b, x, y, z, w, d, ('canvas', 'canvas_red', 'canvas_teal', 'canvas')[RNG.randrange(4)], yaw)
-            person(b, x + RNG.uniform(-1.5, 1.5), y + d * 0.25, z + 0.1, 180 + yaw, RNG.uniform(0.92, 1.05), RNG)
             for side in (-1, 1):
                 gx2, gy2 = local(x, y, yaw, side * w * 0.3, -d * 0.62)
                 goods(b, gx2, gy2, z, yaw, RNG)
-            if RNG.random() < 0.7:
-                px, py = local(x, y, yaw, RNG.uniform(-w * 0.4, w * 0.4), -d * 0.9 - RNG.uniform(0.5, 2.0))
-                person(b, px, py, z + 0.1, RNG.uniform(0, 360), RNG.uniform(0.85, 1.1), RNG)
     # A working stall just ahead of the market camera anchors the foreground.
     market_stall(b, -16, 134, L.ground(-16, 134) + 0.1, 12, 7, 'canvas_teal', 4)
     for x, y, yaw in ((-2, 131, 8), (6, 137, -12), (-28, 133, 16)):
         fish_crate(b, x, y, L.ground(x, y) + 0.1, yaw, 1.0)
         sack(b, x + 1.3, y + 0.8, L.ground(x, y) + 0.1, 0.85)
-    for _ in range(5):
-        x = RNG.uniform(-30, 8)
-        y = RNG.uniform(130, 140)
-        person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.9, 1.05), RNG)
     return b
 
 
@@ -821,14 +769,6 @@ def upper_town():
         b.quad((cx - 6, cy + 4 + i * 0.4, L.UPPER_Z + 4.45), (cx - 4.3, cy + 4 + i * 0.4, L.UPPER_Z + 4.45),
                (cx - 4.3, cy + 4 + i * 0.4, L.UPPER_Z + 2.9), (cx - 6, cy + 4 + i * 0.4, L.UPPER_Z + 2.9),
                ('cream', 'flag_red', 'roof_teal')[i])
-    # The terrace lane is a lived-in street, not a viewing platform.
-    for row in (318, 352, 372):
-        for i in range(24):
-            x = RNG.uniform(-320, 320)
-            y = row + RNG.uniform(-3.0, 3.0)
-            if L.in_lot(x, y, 2.0):
-                continue
-            person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.88, 1.1), RNG)
     # Foreground pots and a laundry line frame the terrace view.
     for x, y in ((-14, 310), (14, 310), (-34, 306), (34, 306)):
         b.cylinder((x, y, L.UPPER_Z + 0.1), (x, y, L.UPPER_Z + 1.1), 0.9, 'clay', 8, radius_b=0.7)
