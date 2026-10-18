@@ -199,6 +199,7 @@ def test_wider_country_refinement_matches_ground_beyond_old_coast_band(monkeypat
     xs = np.array([1850., 2050., 2250.]); ys = np.array([4500., 4550.])
     z = np.array([[200., 230., 180.], [190., 210., 165.]])
     monkeypatch.setattr(terrain, 'country_grid', lambda: (xs, ys, z))
+    monkeypatch.setattr(terrain, 'old_height', lambda x,y: np.zeros_like(x))
     vertices, faces = S.grid_mesh(xs, ys, z)
     p = np.asarray(vertices)
     assert len(faces) > 100
