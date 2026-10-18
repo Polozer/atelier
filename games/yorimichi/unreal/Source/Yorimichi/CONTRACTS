@@ -59,3 +59,5 @@ Body and attached equipment hiding MUST affect only that player's current view, 
 existing component visibility/ownership, and include attachments added while viewing.
 Leaving or losing possession MUST release the train camera; map/menu input MUST NOT toggle
 it, and its controller bumper MUST NOT also operate a nearby zeppelin.
+Fixed and cinematic views MUST take over immediately without a residual train-camera blend
+or hidden passenger body. Suspended controls MUST NOT change the camera preference.

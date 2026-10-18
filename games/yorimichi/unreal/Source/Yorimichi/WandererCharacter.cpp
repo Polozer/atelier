@@ -1650,8 +1650,14 @@ void AWandererCharacter::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
     }
     if (auto* PC = Cast<AJapanPlayerController>(Controller); PC && IsLocallyControlled())
     {
-        TrainView.Update(IsTrainPassenger() && !bFixedView, PC->bPreferTrainFirstPerson, DeltaTime);
-        TrainView.Apply(*this, DeltaTime, OutResult);
+        // A fixed or cinematic view takes over immediately, without a residual first-person blend.
+        // The controller preference is retained and reapplied when the passenger camera resumes.
+        if (bFixedView || bCinematic) TrainView = FTrainPassengerView();
+        else
+        {
+            TrainView.Update(IsTrainPassenger(), PC->bPreferTrainFirstPerson, DeltaTime);
+            TrainView.Apply(*this, DeltaTime, OutResult);
+        }
     }
 }
 
@@ -1662,7 +1668,7 @@ bool AWandererCharacter::IsTrainPassenger() const
 
 void AWandererCharacter::ToggleTrainView(const FInputActionValue&)
 {
-    if (!bReady || IsSkateInputBlocked() || !IsLocallyControlled() || bFixedView) return;
+    if (!bReady || IsSkateInputBlocked() || !IsLocallyControlled() || bFixedView || bCinematic || AreControlsSuspended()) return;
     if (auto* PC = Cast<AJapanPlayerController>(Controller)) TrainView.Toggle(IsTrainPassenger(), PC->bPreferTrainFirstPerson);
 }
 

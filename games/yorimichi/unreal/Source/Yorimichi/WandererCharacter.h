@@ -331,7 +331,7 @@ public:
     bool bNoSprint = false, bTrainAboard = false, bTrainDriving = false;
     bool IsTrainPassenger() const;
     bool IsTrainFirstPerson() const { return TrainView.IsFirstPerson(); }
-    bool HidesTrainBody() const { return !bFixedView && TrainView.HidesBody(); }
+    bool HidesTrainBody() const { return !bFixedView && !bCinematic && TrainView.HidesBody(); }
     /** The flight buttons: aboard, ride speed; at the docked ship, its next stop. -1 or +1. */
     void ZeppelinStep(int32 Direction);
 private:
