@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -197,3 +198,15 @@ def test_coast_check_rejects_an_enlarged_island_or_filled_bay():
     ImageDraw.Draw(painting).ellipse((430, 430, 570, 570), fill=(120, 150, 65))
     with pytest.raises(ValueError, match='flooded by painted ocean'):
         atlas.verify_coast(painting, mask, 'island')
+
+
+def test_world_overview_is_island_shaped_without_changing_its_rgb_geography():
+    with Image.open(atlas.ASSETS / 'world.png') as image, Image.open(atlas.ASSETS / 'coasts/world.png') as mask:
+        assert 'A' in image.getbands()
+        alpha = np.asarray(image.getchannel('A'))
+        land = np.asarray(mask) > 127
+        assert int(alpha[land].min()) >= 250
+        for x, y in [(0, 0), (image.width - 1, 0), (0, image.height - 1),
+                     (image.width - 1, image.height - 1), (image.width - 1, image.height // 2)]:
+            assert int(alpha[y, x]) == 0
+        assert atlas.verify_coast(image, mask, 'world') < .0035
