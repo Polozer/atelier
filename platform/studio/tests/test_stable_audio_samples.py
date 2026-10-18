@@ -33,7 +33,7 @@ class PreparedAudioTests(unittest.TestCase):
             {'category': 'Footsteps', 'label': 'Walking · smooth concrete',
              'prompt': 'One walking sequence', 'seconds': 2}]}))
         web.mkdir()
-        for name in ('index.html', 'review.js', 'preview.js', 'review.css'):
+        for name in ('index.html', 'clips.html', 'review.js', 'sequences.js', 'review.css'):
             (web / name).write_text('test')
         manifest = review.prepare(catalog, output, web)
         raw = output / manifest['clips'][0]['file']
