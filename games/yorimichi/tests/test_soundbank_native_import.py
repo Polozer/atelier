@@ -66,13 +66,15 @@ def test_import_and_cold_reload_are_normal_owned_products_without_world_rebuild(
     selected = {s.name for s in graph.select([step.name])}
     assert not any(n.startswith(('world.', 'characters.')) for n in selected)
     assert {'audio.soundbanks', 'audio.soundbank_import_plan', 'audio.soundbank_previews', 'unreal.compile'} <= selected
-    assert 'soundbanks.native' in graph.by_name['data.stage'].reads
+    assert 'soundbanks.native' in graph.by_name['data.soundbanks'].reads
+    assert 'soundbanks.staged' in graph.by_name['data.stage'].reads
+    staged = {s.name for s in graph.select(['data.soundbanks'])}
+    assert selected | {'data.soundbanks'} == staged
 
 
 def test_registry_stage_path_and_cook_ownership(tmp_path):
     spec = importlib.util.spec_from_file_location('soundbank_runtime_data', GAME / 'runtime_data.py')
     stage = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(stage)
-    assert 'Soundbanks/registry.json' in stage.staged(tmp_path)
-    assert stage.staged_source(tmp_path, 'Soundbanks/registry.json') == tmp_path / 'soundbank_import/registry.json'
+    assert 'Soundbanks/registry.json' not in stage.staged(tmp_path)
     assert '+DirectoriesToAlwaysCook=(Path="/Game/AudioBanks")' in (GAME / 'unreal/Config/DefaultGame.ini').read_text()
