@@ -28,7 +28,7 @@ const VIEWS = {
   harbor: { label: 'Harbor mouth', pos: [-120, 30, 360], target: [0, 14, 10], fov: 52 },
   aerial: { label: 'Aerial', pos: [-300, 240, 560], target: [0, 18, 20], fov: 45 },
   market: { label: 'Market', pos: [0, 7.6, -118], target: [20, 9, -212], fov: 50 },
-  upper: { label: 'Upper town', pos: [-140, 68, -368], target: [0, 14, -190], fov: 50 },
+  upper: { label: 'Upper town', pos: [20, 54, -330], target: [-20, 2, -30], fov: 55 },
   rum: { label: 'Rum Row', pos: [-296, 7, -94], target: [-250, 10, -130], fov: 38 },
   lighthouse: { label: 'Lighthouse', pos: [-500, 70, 280], target: [-650, 58, -60], fov: 50 },
   shipyard: { label: 'Shipyard', pos: [290, 24, 200], target: [380, 14, -105], fov: 50 },
@@ -347,6 +347,8 @@ beamGroup.add(beam);
 scene.add(beamGroup);
 
 const groups = {};
+// Instanced trees, palms and shrubs; the density slider draws a prefix of each (the scatter order is random).
+const foliage = [];
 const emissive = [];
 const loader = new GLTFLoader();
 let totalTris = 0;
@@ -398,6 +400,7 @@ async function loadModules() {
       // Hero assets and the instanced foliage carry their own normals; everything else is flat-shaded.
       tuneMaterial(obj.material, !mod.file.includes('10_hero_assets') && !mod.file.includes('vegetation'));
       const copies = obj.isInstancedMesh ? obj.count : 1;
+      if (obj.isInstancedMesh) { obj.userData.fullCount = obj.count; foliage.push(obj); }
       if (obj.geometry.index) totalTris += copies * obj.geometry.index.count / 3;
       else if (obj.geometry.attributes.position) totalTris += copies * obj.geometry.attributes.position.count / 3;
     });
@@ -557,6 +560,11 @@ document.querySelector('#fullscreen').addEventListener('click', () => {
 });
 document.querySelector('#panel-close').addEventListener('click', () => document.querySelector('#panel').classList.remove('open'));
 document.querySelector('#panel-open').addEventListener('click', () => document.querySelector('#panel').classList.add('open'));
+document.querySelector('#density').addEventListener('input', (e) => {
+  const f = Number(e.target.value);
+  foliage.forEach((mesh) => { mesh.count = Math.max(1, Math.round(mesh.userData.fullCount * f)); });
+  document.querySelector('#density-label').textContent = f >= 0.99 ? 'All trees' : `${Math.round(f * 100)}% of trees`;
+});
 document.querySelector('#spin').addEventListener('change', (e) => { controls.autoRotate = e.target.checked; controls.autoRotateSpeed = 0.45; });
 document.addEventListener('keydown', (event) => {
   if (event.key === 'h' || event.key === 'H') document.body.classList.toggle('ui-hidden');

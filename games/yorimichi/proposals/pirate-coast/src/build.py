@@ -160,8 +160,12 @@ def add_foliage(collection, materials):
     collection.objects.link(root)
     placements = flora.scatter() + flora.bloom_spots(random.Random(5))
     counts = {}
+    # Shuffled names, so the exported instance order is spatially random and the viewer's density slider can draw
+    # any prefix evenly.
+    order = list(range(len(placements)))
+    random.Random(1).shuffle(order)
     for i, (proto, x, y, z, yaw, scale) in enumerate(placements):
-        obj = bpy.data.objects.new(f'{proto}.{i:05d}', meshes[proto])
+        obj = bpy.data.objects.new(f'{proto}.{order[i]:05d}', meshes[proto])
         obj.location = (x, y, z)
         obj.rotation_euler = (0.0, 0.0, math.radians(yaw))
         obj.scale = (scale, scale, scale)
@@ -355,7 +359,7 @@ VIEWS = {
     '01-aerial-hero': ((-300, -380, 220), (0, 120, 30), 38, 'day'),
     '02-harbor-approach': ((-90, -360, 32), (0, 80, 18), 48, 'day'),
     '03-market-square': ((-58, 102, 6.8), (54, 210, 9.0), 35, 'day'),
-    '04-upper-terrace': ((46, 372, 33.4), (-18, 296, 26.0), 40, 'day'),
+    '04-upper-terrace': ((20, 330, 54), (-20, 30, 2), 30, 'day'),
     '05-lighthouse-headland': ((-470, -315, 48), (-618, -38, 74), 55, 'day'),
     '06-shipyard': ((290, -200, 24), (380, 105, 14), 50, 'day'),
     '07-waterfall-bridge': ((300, -130, 38), (448, 30, 55), 42, 'day'),

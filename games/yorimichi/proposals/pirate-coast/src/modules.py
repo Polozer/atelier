@@ -4,7 +4,7 @@ import random
 from pathlib import Path
 import layout as L
 import rocks
-from geom import Builder
+from geom import Builder, _surface_scale as surface_scale
 from kit import (awning, balcony, banana, barrel, bench, bollard, building, bush, crate, door,
                  fern, fish_crate, grass_tuft, lantern_post, laundry_line, local,
                  goods, market_stall, palm, pennants, person, potted_plant, rowboat, sack, sign, vine, window)
@@ -54,8 +54,11 @@ def terrain():
                 mat = 'seabed'
             else:
                 mat = rocks.terrain_material(gx, gy, zavg, sl, i, j)
-            b.tri(a, bb, c, mat)
-            b.tri(a, c, d, mat)
+            # Project the ground straight down. Per-face box projection flips axis between neighbouring
+            # triangles on 45-degree slopes, which painted the hills as a diamond checkerboard.
+            k = 1.0 / max(0.05, surface_scale(mat))
+            b.face((a, bb, c), mat, [(a[0] * k, a[1] * k), (bb[0] * k, bb[1] * k), (c[0] * k, c[1] * k)])
+            b.face((a, c, d), mat, [(a[0] * k, a[1] * k), (c[0] * k, c[1] * k), (d[0] * k, d[1] * k)])
     # Angular coastal rock shelves break up the sampled heightfield edge.
     rock_points = []
     for y in range(-620, 61, 26):
@@ -923,6 +926,37 @@ def watchtower(b):
         a = i * TAU / 22
         px, py = x + math.cos(a) * 20, y + math.sin(a) * 17
         b.box((px, py, z + 1.9), (4.4, 1.5, 2.4), 'stone')
+    # A crenellated lower bastion with round corner turrets, so the crest reads as a fort in the paintings'
+    # silhouette rather than a lone tower.
+    hw, hd, wall = 17.0, 14.0, 7.0
+    for (ax, ay), (bx, by) in (((-hw, -hd), (hw, -hd)), ((hw, -hd), (hw, hd)), ((hw, hd), (-hw, hd)),
+                               ((-hw, hd), (-hw, -hd))):
+        length = math.hypot(bx - ax, by - ay)
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        b.beam((x + ax, y + ay, z + 0.5), (x + bx, y + by, z + 0.5), 1.6, 'stone', depth=1.0)
+        b.box((x + (ax + bx) / 2, y + (ay + by) / 2, z + wall / 2), (abs(bx - ax) + 1.6, abs(by - ay) + 1.6, wall),
+              'stone_light' if ax == bx else 'stone')
+        for k in range(int(length / 2.2)):
+            t = (k + 0.5) * 2.2
+            if k % 2 == 0:
+                b.box((x + ax + ux * t, y + ay + uy * t, z + wall + 0.55), (1.3, 1.3, 1.1), 'stone_light')
+        for k in range(1, int(length / 6)):
+            t = k * 6.0
+            b.box((x + ax + ux * t - uy * 0.85, y + ay + uy * t + ux * 0.85, z + wall * 0.62), (0.5, 0.5, 1.4),
+                  'wood_dark')
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            tx, ty = x + sx * hw, y + sy * hd
+            b.cylinder((tx, ty, z - 0.5), (tx, ty, z + wall + 2.5), 3.4, 'stone', 12, radius_b=3.0)
+            b.cylinder((tx, ty, z + wall + 2.5), (tx, ty, z + wall + 3.1), 3.5, 'stone_light', 12)
+            for k in range(6):
+                a = k * TAU / 6
+                b.box((tx + math.cos(a) * 3.1, ty + math.sin(a) * 3.1, z + wall + 3.7), (1.1, 1.1, 1.2),
+                      'stone_light', math.degrees(a))
+    b.box((x, y - hd - 0.2, z + 2.0), (5.2, 1.0, 4.0), 'wood_dark')
+    for k in range(5):
+        a = math.pi * (k + 0.5) / 5
+        b.box((x + math.cos(a) * 3.1, y - hd - 0.9, z + 4.2 + math.sin(a) * 1.6), (1.0, 0.8, 1.0), 'stone_light')
     # A taller, battered square tower with corner buttresses.
     b.box((x, y, z + 14.0), (12.0, 12.0, 26.0), 'stone')
     for side in (-1, 1):
