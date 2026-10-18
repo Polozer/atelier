@@ -148,6 +148,20 @@ class AudioReviewTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'manifest changed'):
                 review.validate_ready(self.output)
 
+    def test_ready_validation_rechecks_earlier_take_after_later_take(self):
+        manifest = self.completed_library()
+        first = self.output / manifest['clips'][0]['file']
+        last = self.output / manifest['clips'][-1]['file']
+        original = review.wav_details
+        def changed(path, seconds):
+            details = original(path, seconds)
+            if path.resolve() == last.resolve():
+                first.write_bytes(first.read_bytes()[:-2] + b'\x00\x00')
+            return details
+        with patch.object(review, 'wav_details', changed):
+            with self.assertRaisesRegex(ValueError, 'WAV changed during library validation'):
+                review.validate_ready(self.output)
+
     def test_streamed_wav_validation_never_reads_a_complete_large_take(self):
         target = self.make_wav(frames=44100 * 3)
         original = wave.Wave_read.readframes

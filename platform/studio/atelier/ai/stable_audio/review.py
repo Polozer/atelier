@@ -146,8 +146,19 @@ def _read_manifest(path):
     return manifest, raw
 
 
+def _file_identity(path):
+    value = path.stat()
+    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+
+def _check_file_identities(pins):
+    if any(_file_identity(path) != pin for path, pin in pins):
+        raise ValueError('WAV changed during library validation')
+
+
 def _verify_takes(output, manifest, *, byte_budget=None):
     ready, total, ids = 0, 0, set()
+    pins = []
     for clip in manifest['clips']:
         name = clip['id']
         if (not isinstance(name, str) or not name.startswith('clip-') or not name[5:].isdigit()
@@ -158,15 +169,18 @@ def _verify_takes(output, manifest, *, byte_budget=None):
             path = output / clip['file']
             if not path.resolve().is_relative_to(output / 'audio'):
                 raise ValueError('Ready take escaped its audio directory')
-            total += path.stat().st_size
+            pin = _file_identity(path)
+            total += pin[2]
             if byte_budget is not None and total > byte_budget:
                 raise ValueError('Ready validation exceeds total byte budget')
             if wav_details(path, clip['seconds']) != clip['audio']:
                 raise ValueError('Previously generated take changed')
+            pins.append((path, pin))
             ready += 1
         elif clip['status'] != 'pending':
             raise ValueError('Failed/interrupted take requires diagnosis and explicit reset')
-    return ready, total
+    _check_file_identities(pins)
+    return ready, total, pins
 
 
 def validate_ready(output):
@@ -181,9 +195,10 @@ def validate_ready(output):
     manifest, original = _read_manifest(path)
     if any(clip['status'] != 'ready' for clip in manifest['clips']):
         raise ValueError('Ready validation requires every take to be ready')
-    ready, total = _verify_takes(output, manifest, byte_budget=MAX_VALIDATION_BYTES)
+    ready, total, pins = _verify_takes(output, manifest, byte_budget=MAX_VALIDATION_BYTES)
     if _read_manifest(path)[1] != original:
         raise ValueError('Review manifest changed during validation')
+    _check_file_identities(pins)
     return {'ready': ready, 'bytes': total, 'manifest_sha256': hashlib.sha256(original).hexdigest()}
 
 
@@ -223,7 +238,7 @@ def generate(output, runtime, logs, limit=None):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         manifest_path = output / 'manifest.json'
         manifest, _ = _read_manifest(manifest_path)
-        ready, _ = _verify_takes(output, manifest)
+        ready, _, _ = _verify_takes(output, manifest)
         if ready == len(manifest['clips']):
             print(f"Library: {ready}/{ready} ready; verified existing audio, no generation needed", flush=True)
             return
