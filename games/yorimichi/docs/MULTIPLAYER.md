@@ -26,6 +26,10 @@ two-machine or packaged release certification.
   simulation never reads it.
 - The zeppelin is one replicated host-owned service with separate passenger
   seats. Boarding, destination and speed controls use the owning player's RPCs.
+- The Belmonte train is on foot only. The host admits a passenger only through the
+  boarding walk (`ServerTrainInteract`), refuses vehicle requests aboard, and puts
+  anyone else found inside a coach back on the ground beside it through
+  `TravelTo` (a new foot activity epoch). The first-person view is local only.
 - Every player chooses their own character independently. `--mixed-characters`
   runs the ordinary listen/gameplay probe with a Cairo host and Modori guest;
   both observers must bind each player's identity to the exact native class and

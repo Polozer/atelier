@@ -319,6 +319,8 @@ void AWandererCharacter::ServerRequestSkate_Implementation(uint32 Epoch)
     if (!Combat) { ClientActivityRejected(TEXT("Combat state is unavailable.")); return; }
     if (Epoch == NetworkActivity.Epoch && Combat->HasPending(this))
     { ++Combat->PendingSkateRefusals; ClientActivityRejected(TEXT("Finish the incoming hit before skating.")); return; }
+    if (Epoch == NetworkActivity.Epoch && !BelmonteTrainRules::MayTakeOutVehicle(bTrainAboard, bTrainDriving))
+    { ClientActivityRejected(BelmonteTrainRules::Refusal()); return; }
     const auto* Rules = GetWorld()->GetGameState<AJapanGameState>();
     if (Epoch != NetworkActivity.Epoch || NetworkActivity.Kind != EJapanActivity::OnFoot ||
         !Rules || !Rules->bTrustedSkating || !bReady || MovementLocked() || OnVehicle() ||

@@ -68,7 +68,9 @@ struct YORIMICHI_API FBelmonteTrainLine
  *
  * Riding (offline and on the host): the vehicles are the riders' movement base, moved before the characters each
  * frame; aboard (inside an interior volume) the rider ignores world-static collision so terrain the line still clips
- * cannot push them out, and cannot sprint. Interact opens doors (exterior ones only at a terminus, on the platform
+ * cannot push them out, and cannot sprint. On foot only: the one way aboard is the boarding walk at a station door;
+ * aboard no vehicle comes out, and anyone else found inside a coach (on a bike or horse through an open door, a jump,
+ * the paraglider) is put back on the ground beside it by the host (BelmonteTrainRules.h). Interact opens doors (exterior ones only at a terminus, on the platform
  * side), sits on the nearest free seat and stands up.
  *
  * Dev: `train.View [view|loop|a|b|<chainage>]` jumps the service clock and puts the player beside the line where a
@@ -184,6 +186,10 @@ private:
         TWeakObjectPtr<AWandererCharacter> Character;
         int32 Vehicle = INDEX_NONE, Seat = INDEX_NONE;
         bool bAboard = false, bCameraLag = true, bTickOrdered = false;
+        /** Boarded through a door (the boarding walk): only an admitted rider is carried as a passenger. Anyone else
+         *  found inside a coach is put back outside (Eject). Kept for a short grace outside the rooms (OutsideTime). */
+        bool bAdmitted = false;
+        float OutsideTime = 0.f, EjectCooldown = 0.f;
         float Seated = 0.f;
         /** Where the service last put the seated rider: moved elsewhere (a teleport, a respawn), they are let go. */
         FVector SeatedAt = FVector::ZeroVector;
@@ -216,6 +222,11 @@ private:
     /** Inside a coach, the short train camera; it blends back to the rider's own outside. */
     void UpdateCamera(FRider& Rider, bool bInside, float Dt);
     void StandUp(FRider& Rider);
+    /** The vehicle whose interior room (in last frame's vehicle frame, grown by Margin cm) holds Feet, or INDEX_NONE. */
+    int32 InteriorAt(const FVector& Feet, const FVector& Margin, bool& bNoSprint, bool& bCamera) const;
+    /** Host or offline: puts a player who is inside a coach without boarding back on the ground beside it, off any
+     *  vehicle (AWandererCharacter::TravelTo stows it and, online, hands the new foot activity to the owner). */
+    bool Eject(FRider& Rider, int32 Vehicle);
     FRider& RiderFor(AWandererCharacter* Character);
     const FRider* FindRider(const AWandererCharacter* Character) const;
     /** The nearest door handle or free seat within reach: (vehicle, door or seat, true for a seat), or INDEX_NONE. */

@@ -42,6 +42,7 @@ void AWandererCharacter::ServerRequestSail_Implementation(uint32 Epoch)
     if((!Rules||!Rules->bPredictedVehicles)&&!Exiting)
     {ClientActivityRejected(TEXT("The host has disabled vehicles."));return;}
     if(Epoch!=NetworkActivity.Epoch){ClientActivityRejected(TEXT("The activity changed; try the boat again."));return;}
+    if(!Exiting&&!BelmonteTrainRules::MayTakeOutVehicle(bTrainAboard,bTrainDriving)){ClientActivityRejected(BelmonteTrainRules::Refusal());return;}
     if(Combat->HasPending(this))
     {
         ++Combat->PendingSailRefusals;

@@ -66,6 +66,9 @@
 #include "HAL/FileManager.h"
 #include "Framework/Application/SlateApplication.h"
 
+// The last first-person choice aboard the Belmonte train, for the rest of the session (a character switch keeps it).
+static bool GTrainFirstPersonPreference = false;
+
 float AWandererCharacter::GetSprintSpeed() const
 {
     if (!Definition) return 0.f;
@@ -484,6 +487,10 @@ void AWandererCharacter::BuildInput()
     Key(Axis(TEXT("SkateboardHand"),EInputActionValueType::Boolean),EKeys::G);
     Key(Inputs[TEXT("SkateboardHand")],EKeys::Gamepad_DPad_Right);
     Key(Inputs[TEXT("FlightSlower")],EKeys::Gamepad_LeftShoulder);
+    // Aboard the Belmonte train: third or first person. P, or the left bumper (the zeppelin's flight button, unused on
+    // the train).
+    Key(Axis(TEXT("TrainView"),EInputActionValueType::Boolean),EKeys::P);
+    Key(Inputs[TEXT("TrainView")],EKeys::Gamepad_LeftShoulder);
     Key(Inputs[TEXT("FlightFaster")],EKeys::Gamepad_RightShoulder);
     if (APlayerController* PC = Cast<APlayerController>(Controller))
         if (ULocalPlayer* LP = PC->GetLocalPlayer())
@@ -536,6 +543,7 @@ void AWandererCharacter::SetupPlayerInputComponent(UInputComponent* Input)
             { if (bReady && !bMenuOpen && !bCinematic && Map) Map->OpenMarkerBar(); }));
         });
         E->BindAction(Inputs[TEXT("SkateboardHand")],ETriggerEvent::Started,this,&AWandererCharacter::SkateboardHand);
+        E->BindAction(Inputs[TEXT("TrainView")],ETriggerEvent::Started,this,&AWandererCharacter::ToggleTrainView);
         E->BindAction(Inputs[TEXT("SkateboardPad")],ETriggerEvent::Triggered,this,&AWandererCharacter::ToggleSkateboard);
         E->BindAction(Inputs[TEXT("BikePad")],ETriggerEvent::Triggered,this,&AWandererCharacter::ToggleBike);
         E->BindAction(Inputs[TEXT("HorsePad")],ETriggerEvent::Triggered,this,&AWandererCharacter::HorsePad);
@@ -692,6 +700,7 @@ bool AWandererCharacter::PressMove(FName Button)
 }
 void AWandererCharacter::ToggleSailboat(const FInputActionValue&)
 {
+    if (!Sailboat->IsEquipped() && RefuseVehicleOnTrain()) return;
     if (JapanNetwork::IsOnline(GetWorld())) { RequestNetworkSail(); return; } // Enabled by the vehicle prediction layer.
     if (!bReady || bMenuOpen || IsZeppelinPassenger() || SkateRide->IsRiding() || Horse->IsEquipped()) return;
     if (Sailboat->IsEquipped()) { Sailboat->Toggle(); return; }
@@ -701,6 +710,7 @@ void AWandererCharacter::ToggleSailboat(const FInputActionValue&)
 bool AWandererCharacter::OnVehicle() const { return Sailboat->IsEquipped() || Bike->IsEquipped() || Horse->IsEquipped(); }
 void AWandererCharacter::ToggleBike(const FInputActionValue&)
 {
+    if (!Bike->IsEquipped() && RefuseVehicleOnTrain()) return;
     if (JapanNetwork::IsOnline(GetWorld())) { RequestNetworkBike(); return; } // Enabled by the vehicle prediction layer.
     if (!bReady || bMenuOpen || IsZeppelinPassenger() || SkateRide->IsRiding() || Sailboat->IsEquipped() || Horse->IsEquipped()) return;
     if (Bike->IsEquipped()) { Bike->Toggle(); return; }
@@ -709,6 +719,7 @@ void AWandererCharacter::ToggleBike(const FInputActionValue&)
 }
 void AWandererCharacter::ToggleHorse(const FInputActionValue&)
 {
+    if (!Horse->IsEquipped() && RefuseVehicleOnTrain()) return;
     if (JapanNetwork::IsOnline(GetWorld())) { RequestNetworkHorse(); return; } // Enabled by the vehicle prediction layer.
     if (!bReady || bMenuOpen || IsZeppelinPassenger() || SkateRide->IsRiding() || Sailboat->IsEquipped() || Bike->IsEquipped()) return;
     if (Horse->IsEquipped()) { Horse->Toggle(); return; }
@@ -741,6 +752,7 @@ void AWandererCharacter::CycleHorseCoat(const FInputActionValue&)
 }
 void AWandererCharacter::ToggleSkateboard(const FInputActionValue&)
 {
+    if (!SkateRide->IsRiding() && !bApplyingNetworkActivity && RefuseVehicleOnTrain()) return;
     if (JapanNetwork::IsOnline(GetWorld()) && !bApplyingNetworkActivity && RequestNetworkSkate()) return;
     if (SkateRide->IsAvailable())
     {
@@ -754,7 +766,24 @@ void AWandererCharacter::ToggleSkateboard(const FInputActionValue&)
 }
 void AWandererCharacter::SkateboardHand(const FInputActionValue&)
 {
+    if (RefuseVehicleOnTrain()) return;
     if (bReady && !bMenuOpen && SkateRide->IsAvailable() && !SkateRide->IsRiding()) SkateRide->RecallBoard();
+}
+bool AWandererCharacter::RefuseVehicleOnTrain()
+{
+    if (BelmonteTrainRules::MayTakeOutVehicle(bTrainAboard, bTrainDriving)) return false;
+    if (IsLocallyControlled()) ULiveLibrary::Say(BelmonteTrainRules::Refusal(), 2.f);
+    else if (HasAuthority()) ClientActivityRejected(BelmonteTrainRules::Refusal());
+    return true;
+}
+void AWandererCharacter::ToggleTrainView(const FInputActionValue&)
+{
+    if (!bReady || bMenuOpen || !IsLocallyControlled()) return;
+    if (TrainView.Toggle(IsTrainPassenger()))
+    {
+        GTrainFirstPersonPreference = TrainView.bPreferFirstPerson;
+        UE_LOG(LogTemp, Display, TEXT("TRAIN VIEW %s"), TrainView.IsFirstPerson() ? TEXT("first person") : TEXT("third person"));
+    }
 }
 bool AWandererCharacter::CanCarrySkateBoard() const
 {
@@ -1638,6 +1667,42 @@ void AWandererCharacter::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
         OutResult.Rotation=FQuat::Slerp(OutResult.Rotation.Quaternion(),BoardCamera.Rotation.Quaternion(),A).Rotator();
         OutResult.FOV=FMath::Lerp(OutResult.FOV,BoardCamera.FOV,A);
     }
+    UpdateTrainView(DeltaTime,OutResult);
+}
+
+void AWandererCharacter::UpdateTrainView(float DeltaTime, FMinimalViewInfo& View)
+{
+    if (!IsLocallyControlled()) return;
+    const bool bPassenger = IsTrainPassenger() && !bFixedView;
+    if (!bPassenger) TrainView.bPreferFirstPerson = GTrainFirstPersonPreference;
+    const bool bFirst = TrainView.Update(bPassenger);
+    // About a quarter of a second in or out.
+    TrainViewBlend = FMath::FInterpConstantTo(TrainViewBlend, bFirst ? 1.f : 0.f, DeltaTime, 4.f);
+    // The body (and everything worn or held) is hidden from this player's own view once the camera is near the head;
+    // other players, on their own machines, still see it.
+    const bool bHide = TrainViewBlend > .5f;
+    if (bHide != bTrainBodyHidden)
+    {
+        bTrainBodyHidden = bHide;
+        TInlineComponentArray<UPrimitiveComponent*> Parts(this, true);
+        for (UPrimitiveComponent* Part : Parts)
+            if (Part != GetCapsuleComponent()) Part->SetOwnerNoSee(bHide);
+    }
+    if (TrainViewBlend <= 0.f) { TrainEye = FVector::ZeroVector; return; }
+    // The eye: just above and in front of the head bone, seated or standing, in the actor's frame and smoothed so the
+    // walk's head bob does not shake the view.
+    const FTransform Actor = GetActorTransform();
+    const float Half = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+    FVector Head = Actor.GetLocation() + FVector(0, 0, Half * .82f);
+    const FName HeadBone = GetSkateBone(TEXT("head"));
+    if (GetMesh() && GetMesh()->DoesSocketExist(HeadBone)) Head = GetMesh()->GetSocketLocation(HeadBone) + FVector(0, 0, 8.f);
+    const FVector Local = Actor.InverseTransformPositionNoScale(Head);
+    TrainEye = TrainEye.IsZero() ? Local : FMath::VInterpTo(TrainEye, Local, DeltaTime, 12.f);
+    const FRotator Look = Controller ? Controller->GetControlRotation() : View.Rotation;
+    const FVector Eye = Actor.TransformPositionNoScale(TrainEye) + FRotator(0, Look.Yaw, 0).Vector() * 10.f;
+    const float A = FMath::SmoothStep(0.f, 1.f, TrainViewBlend);
+    View.Location = FMath::Lerp(View.Location, Eye, A);
+    View.Rotation = FQuat::Slerp(View.Rotation.Quaternion(), Look.Quaternion(), A).Rotator();
 }
 
 void AWandererCharacter::SampleShake(FVector& Offset,FRotator& Rotation) const

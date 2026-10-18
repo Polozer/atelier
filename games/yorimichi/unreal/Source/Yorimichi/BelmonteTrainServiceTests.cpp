@@ -1,4 +1,5 @@
 #include "BelmonteTrainService.h"
+#include "BelmonteTrainRules.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #include "Dom/JsonObject.h"
@@ -49,6 +50,44 @@ bool FBelmonteTrainLineTest::RunTest(const FString&)
     // Asymmetric bogies (the brake van): the origin still sits at the vehicle's own chainage.
     const FTransform Van = Line.Place(100., -3.3, 3.55, false);
     TestTrue(TEXT("Asymmetric bogies keep the origin"), FMath::IsNearlyEqual(Van.GetLocation().X, 10000., .5));
+    return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBelmonteTrainRulesTest, "Yorimichi.Belmonte.TrainRules",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FBelmonteTrainRulesTest::RunTest(const FString&)
+{
+    using namespace BelmonteTrainRules;
+    // On foot only: no vehicle comes out aboard, seated or stepping through a door; off the train nothing changes.
+    TestTrue(TEXT("Off the train a vehicle may come out"), MayTakeOutVehicle(false, false));
+    TestFalse(TEXT("Aboard, no vehicle"), MayTakeOutVehicle(true, false));
+    TestFalse(TEXT("Seated or on the steps, no vehicle"), MayTakeOutVehicle(false, true));
+    TestFalse(TEXT("Seated aboard, no vehicle"), MayTakeOutVehicle(true, true));
+    TestTrue(TEXT("The refusal reads in French"), FString(Refusal()) == TEXT("Pas à bord du train"));
+    // Inside a coach without the boarding walk: put back outside; passengers and door steps are left alone.
+    TestTrue(TEXT("Inside without boarding is ejected"), MustEject(true, false, false, false));
+    TestFalse(TEXT("A boarded passenger stays"), MustEject(true, true, false, false));
+    TestFalse(TEXT("Stepping through the door stays"), MustEject(true, false, true, false));
+    TestFalse(TEXT("Seated stays"), MustEject(true, false, false, true));
+    TestFalse(TEXT("Outside the coach nothing happens"), MustEject(false, false, false, false));
+
+    // The camera aboard: third person by default, the toggle only aboard, and leaving restores third person.
+    FBelmonteTrainView View;
+    TestFalse(TEXT("Off the train, third person"), View.Update(false));
+    TestFalse(TEXT("The toggle is ignored off the train"), View.Toggle(false));
+    TestFalse(TEXT("Still third person off the train"), View.Update(false));
+    TestFalse(TEXT("Boarding starts in third person"), View.Update(true));
+    TestTrue(TEXT("The toggle works aboard"), View.Toggle(true));
+    TestTrue(TEXT("First person aboard"), View.Update(true));
+    TestTrue(TEXT("It stays on while aboard"), View.Update(true));
+    TestFalse(TEXT("Leaving the train restores third person"), View.Update(false));
+    TestFalse(TEXT("Off the train it stays third person"), View.IsFirstPerson());
+    TestTrue(TEXT("The choice is remembered"), View.bPreferFirstPerson);
+    TestTrue(TEXT("The next boarding uses the remembered choice"), View.Update(true));
+    TestTrue(TEXT("Toggling back aboard"), View.Toggle(true) && !View.Update(true));
+    TestFalse(TEXT("Third person is remembered too"), View.bPreferFirstPerson);
+    View.Update(false);
+    TestFalse(TEXT("Next boarding in third person"), View.Update(true));
     return true;
 }
 #endif
