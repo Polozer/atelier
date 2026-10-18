@@ -984,7 +984,7 @@ def world_steps(ctx):
              outputs=[out / 'digests' / 'world.belmonte_track.meshes.json'], cutoff=True,
              about='the track meshes and runtime data unreal.belmonte_track reads'),
         Step('world.map', [Python(WORLD / 'map' / 'build_map.py')],
-             inputs=[WORLD / 'map', WORLD / 'build_terrain.py', WORLD / 'farhills_surface.py', WORLD / 'farhills_grid.py', WORLD / 'terrain_product.py',
+             inputs=[WORLD / 'map', WORLD / 'north_mountain_surface.py', WORLD / 'build_terrain.py', WORLD / 'farhills_surface.py', WORLD / 'farhills_grid.py', WORLD / 'terrain_product.py',
                      *CRATERPARK, REGIONS / 'southwest', REGIONS / 'mega' / 'ramp.py', REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'gate.py',
                      *[REGIONS / 'belmonte' / (name + '.py') for name in ('plan', 'planting', 'source', 'layout')],
                      ASSETS / 'belmonte' / 'source.json',

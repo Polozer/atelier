@@ -65,8 +65,9 @@
       "world/farhills_surface.py": "3f1bcb705333efce9c3fce3349c16f88b3b8dbbf210f4794a695909cf9c7f2b3",
       "world/farhills_grid.py": "6451e5894c63e3eedcded121cef2f477a9615c36b1dd61715d16938ab53228c4",
       "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
+      "world/north_mountain_surface.py": "380fac8eece8794a9d8737444af73b3e3979227470aba3de49d415df42477816",
       "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
-      "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
+      "world/regions/hidamari/mountains.py": "f2a09621e6e6d61b070b284e79333b5312bcc118f681d8cedac53eb82a13aae6",
       "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
       "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
       "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
@@ -84,7 +85,7 @@
     "reference_sha256": "f327fce9de377836eb3a6a4b2b4ba49c0030d31ec1f243d0efab4bb0b4ad43be"
   },
   "refactor_revalidation": {
-    "witness": "coasts/producer-equivalence.json",
-    "sha256": "76ae8b4b3dfda89b56a8305ccfde49c28088876752d5df472270f7391783c6e1"
+    "witness": "coasts/mountain-equivalence.json",
+    "sha256": "9d973eed0d51cbba66088af58e304dac73d26e9249ac2dc29d0fe659a9c3a149"
   }
 }

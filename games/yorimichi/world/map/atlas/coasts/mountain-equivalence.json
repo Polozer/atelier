@@ -1,0 +1,270 @@
+{
+  "schema": 1,
+  "kind": "unchanged-regional-sheet-revalidation",
+  "owner": "HD_NorthMountains",
+  "baseline_source": "c4f0548b6e31d28c3466c59ec073e2531a8b3f2e",
+  "geometry_proof_source": "19b98da1b3b9fd430f82ec400e199c55c04217fb",
+  "current_source": "19b98da1b3b9fd430f82ec400e199c55c04217fb",
+  "previous_geography": {
+    "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
+    "world/build_terrain.py": "2a810d3a4698765c24044379e053f67e56817b90ab871b78814a2233d9515a09",
+    "world/farhills_surface.py": "3f1bcb705333efce9c3fce3349c16f88b3b8dbbf210f4794a695909cf9c7f2b3",
+    "world/farhills_grid.py": "6451e5894c63e3eedcded121cef2f477a9615c36b1dd61715d16938ab53228c4",
+    "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
+    "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
+    "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
+    "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
+    "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
+    "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
+    "world/regions/southwest/island.py": "977f38a49fb5eb699f8164544fee1cde5f804372ddaeb03826125242e9c7b96f",
+    "world/train/route.py": "88a742f1d19cddbb56cf610a7cf6c2ca0b7fe7ebfb1928ce25e2b708e741817e",
+    "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
+    "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
+    "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
+    "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
+    "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
+    "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
+  },
+  "current_geography": {
+    "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
+    "world/build_terrain.py": "2a810d3a4698765c24044379e053f67e56817b90ab871b78814a2233d9515a09",
+    "world/farhills_surface.py": "3f1bcb705333efce9c3fce3349c16f88b3b8dbbf210f4794a695909cf9c7f2b3",
+    "world/farhills_grid.py": "6451e5894c63e3eedcded121cef2f477a9615c36b1dd61715d16938ab53228c4",
+    "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
+    "world/north_mountain_surface.py": "380fac8eece8794a9d8737444af73b3e3979227470aba3de49d415df42477816",
+    "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
+    "world/regions/hidamari/mountains.py": "f2a09621e6e6d61b070b284e79333b5312bcc118f681d8cedac53eb82a13aae6",
+    "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
+    "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
+    "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
+    "world/regions/southwest/island.py": "977f38a49fb5eb699f8164544fee1cde5f804372ddaeb03826125242e9c7b96f",
+    "world/train/route.py": "88a742f1d19cddbb56cf610a7cf6c2ca0b7fe7ebfb1928ce25e2b708e741817e",
+    "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
+    "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
+    "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
+    "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
+    "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
+    "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
+  },
+  "previous_attestation": {
+    "witness": "coasts/producer-equivalence.json",
+    "sha256": "76ae8b4b3dfda89b56a8305ccfde49c28088876752d5df472270f7391783c6e1"
+  },
+  "unchanged_reference_renderers": {
+    "world/map/build_map.py": "0333a101c2b57caef4f1d515bc3ed82e81e14e08064408d848adcfe4e60ef98a",
+    "world/map/map_projection.py": "72ba80c9a59fd396203e2dd4fe00267c98496b2125fc445765bcbebe712a58dd"
+  },
+  "independent_legacy_mountains_sha256": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
+  "proof_report_sha256": {
+    "with-line": "003f6951785be249e541c6cab30ab50857ee3072b07974b13397d85db2d34375",
+    "without-line": "c60b025c536d4dad006cccd3d5f455e8d31bf0d9c123f046002965d18e713a98"
+  },
+  "geometry_source_hashes": {
+    "world/regions/hidamari/mountains.py": "f2a09621e6e6d61b070b284e79333b5312bcc118f681d8cedac53eb82a13aae6",
+    "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
+    "world/north_mountain_surface.py": "380fac8eece8794a9d8737444af73b3e3979227470aba3de49d415df42477816",
+    "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
+    "world/train/earthworks.py": "df83a60f4ea86dff9413d9972a9129fcbf21b7d9f74a9f605618515c8eaeeecf",
+    "world/regions/hidamari/build.py": "cf3d5945cd445155278dc6f24223091ca4a946658ff7eabe69aec687858cb286"
+  },
+  "recipe_dependency_carry": {
+    "proof_sha256": "f071db4720d60c13ab27f1e125db86a329e0dbc02d3c534ab98a8ac4e8138dbe",
+    "current_sha256": "b6c086115487e6a1fa46a6c145bd3a137b2d03d47972f0342d0224b7ec55fe84",
+    "only_change": "world.map declares the new helper input; exact text replacement checked"
+  },
+  "input_manifest_sha256": "66151ef11786d138de0b7e7e68a88b725552fa038f2165fbba571f070b58dcc9",
+  "generated_inputs": {
+    "yorimichi/heightmap.npy": "ef8b9726a3510bf101d841ece7df8887bf89dd25fcda10e3283e4515d619e35c",
+    "yorimichi/world.json": "bdf409ca410fd7989429a6056eeedc5f1b9761280145d22c76392e84d7b06342",
+    "yorimichi/farhills.npy": "3fdd1e1f80973c785b02ec49bdb264b2667ea3519601c9062b75e6ffa6f81a42",
+    "yorimichi/megapark/trail.json": "82b355b770234fd4835d5841bf85b712b2ef1d875a8e86ca8b54bfaa9632ceb9",
+    "yorimichi/hidamari/city.json": "2019031e96009ac73d1e9eab777c598eefc9039293e1b7fa571fe1a7c7071d96",
+    "yorimichi/craterpark/v2/geometry.npz": "244a8556f48a21d224391d4dfdd4ae1cb2fa44bfff590c6450c7dd2aaac4ba04",
+    "yorimichi/terrain/FarHills/final.npz": "dc95c9908a8f63816d7311b6cb376366b8dbcc103bd7d1f96f3741d19782209e",
+    "yorimichi/terrain/FarHills/natural.npz": "4dcee4391ed783fdc204f4a42599730eebf598b1d8db445e53ed841892a884de",
+    "yorimichi/terrain/FarHills/manifest.json": "908b9a9808a768bbaddedbcee1f47b25065509ec2d2d88b0bbb8c38ff39c7cb1"
+  },
+  "variants": [
+    {
+      "railway_line": true,
+      "stages": {
+        "natural": {
+          "vertices": {
+            "shape": [
+              397960,
+              3
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "aefd9dc25ac9a56e92a7504f813fee00a0a9215e5a7f4e223f2a80c96d6db64b"
+          },
+          "faces": {
+            "shape": [
+              790330,
+              3
+            ],
+            "dtype": "<i8",
+            "exact": true,
+            "ordered_sha256": "9f45682bd4a65461367bdbf894928b704c08e31cf73f777bf17171ea18b03b26"
+          },
+          "colours": {
+            "shape": [
+              397960,
+              4
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "3da75f5b65d679b338bef4a81761bc912e09b6a822b42dc97adfc5b034484625"
+          },
+          "normals": {
+            "shape": [
+              397960,
+              3
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "623d76e0b43c70e3e50679a9fb4366f2843f3f84f93a38949dd037a78aac8268"
+          },
+          "product_vertices_exact": true,
+          "product_faces_exact": true
+        },
+        "final": {
+          "vertices": {
+            "shape": [
+              448792,
+              3
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "429f3a4df76e60df1a9de6ac45b49a931e584f2a279d21d63461b5439dd7a323"
+          },
+          "faces": {
+            "shape": [
+              888398,
+              3
+            ],
+            "dtype": "<i4",
+            "exact": true,
+            "ordered_sha256": "6fdeadff76a83c9cd66b68cc6ebd205e43f0c41ddd87b92a16c727b7945a90ea"
+          },
+          "colours": {
+            "shape": [
+              448792,
+              4
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "e81d7548da9bc40144f76c3d167465ecf3fd4f19c2507a0a354a8906fbb8284d"
+          },
+          "normals": {
+            "shape": [
+              448792,
+              3
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "53c56faa0d51a9abe31d869f99ad9a0b1f60457637a581cba8cdd0e366dc320f"
+          },
+          "product_vertices_exact": true,
+          "product_faces_exact": true
+        }
+      },
+      "product_hashes": {
+        "final.npz": "e12e82e81b876fa3f57c7a483caa21aaf1a33ec55eda1c8ac028f110d0793c98",
+        "natural.npz": "f5fa6a6c1d32708e404714befacf4092e207dff6f722bafc73db1906cade704a",
+        "manifest.json": "ba9ba3e386ff1b99b1523e0573145af8753856d6644392f56069feed5c28a9bc"
+      }
+    },
+    {
+      "railway_line": false,
+      "stages": {
+        "natural": {
+          "vertices": {
+            "shape": [
+              397960,
+              3
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "aefd9dc25ac9a56e92a7504f813fee00a0a9215e5a7f4e223f2a80c96d6db64b"
+          },
+          "faces": {
+            "shape": [
+              790330,
+              3
+            ],
+            "dtype": "<i8",
+            "exact": true,
+            "ordered_sha256": "9f45682bd4a65461367bdbf894928b704c08e31cf73f777bf17171ea18b03b26"
+          },
+          "colours": {
+            "shape": [
+              397960,
+              4
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "3da75f5b65d679b338bef4a81761bc912e09b6a822b42dc97adfc5b034484625"
+          },
+          "normals": {
+            "shape": [
+              397960,
+              3
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "623d76e0b43c70e3e50679a9fb4366f2843f3f84f93a38949dd037a78aac8268"
+          },
+          "product_vertices_exact": true,
+          "product_faces_exact": true
+        },
+        "final": {
+          "vertices": {
+            "shape": [
+              397960,
+              3
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "aefd9dc25ac9a56e92a7504f813fee00a0a9215e5a7f4e223f2a80c96d6db64b"
+          },
+          "faces": {
+            "shape": [
+              790330,
+              3
+            ],
+            "dtype": "<i8",
+            "exact": true,
+            "ordered_sha256": "9f45682bd4a65461367bdbf894928b704c08e31cf73f777bf17171ea18b03b26"
+          },
+          "colours": {
+            "shape": [
+              397960,
+              4
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "3da75f5b65d679b338bef4a81761bc912e09b6a822b42dc97adfc5b034484625"
+          },
+          "normals": {
+            "shape": [
+              397960,
+              3
+            ],
+            "dtype": "<f8",
+            "exact": true,
+            "ordered_sha256": "623d76e0b43c70e3e50679a9fb4366f2843f3f84f93a38949dd037a78aac8268"
+          },
+          "product_vertices_exact": true,
+          "product_faces_exact": true
+        }
+      },
+      "product_hashes": {
+        "final.npz": "889eb8b6e0490b9461060ba2e7203a74716b190cda57799cb3df6f605c19ecd1",
+        "natural.npz": "f5fa6a6c1d32708e404714befacf4092e207dff6f722bafc73db1906cade704a",
+        "manifest.json": "ba9ba3e386ff1b99b1523e0573145af8753856d6644392f56069feed5c28a9bc"
+      }
+    }
+  ],
+  "scope": "Full ordered natural/final mountain and apron positions/faces/colours/mask/normals match the independent original producer with and without railway. Final attributed export input remains identical. Other geometry declarations and reference renderers are unchanged; painting/mask/frame bytes and original generation records are preserved. This is source/array revalidation, not export/native or shared-border acceptance."
+}
