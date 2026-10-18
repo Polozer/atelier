@@ -36,6 +36,15 @@ prove geometric continuity between duplicated vertices or separate owners.
 Degenerate, downward and vertical faces are reported separately. No automatic
 welding, triangulation, ownership selection or tolerance repair happens here.
 
+The next regional fixture, `tests/fixtures/terrain-sheet-r8.json`, captures a
+bounded call through the shipped `earthworks.sheet` path. It freezes ordered
+triangles and vertices together with RGBA (including the cleared snow mask),
+interpolated authored normals and an unrelated named field. It also records
+unchanged input arrays and the original-object no-line fallback. The generating
+earthworks source was checked byte-for-byte against r8; the fixture is not a
+production sheet or a proof of regional border continuity. This protects the
+attribute evaluation order before extracting the foothills/apron owner.
+
 The retained final FarHills export is recorded in
 `tests/fixtures/terrain-r8-production.json`. It is an observational witness with
 source/artifact provenance, explicit coordinate conversion and ordered hashes.
