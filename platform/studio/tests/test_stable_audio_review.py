@@ -102,6 +102,24 @@ class AudioReviewTests(unittest.TestCase):
                 urlopen(base + path, timeout=2)
             self.assertEqual(error.exception.code, 404)
 
+    def test_limited_resume_checks_later_ready_take_before_any_generation_or_manifest_write(self):
+        catalog = json.loads(self.catalog.read_text())
+        catalog['seeds'] = [1, 2, 3]
+        self.catalog.write_text(json.dumps(catalog))
+        manifest = review.prepare(self.catalog, self.output, self.web)
+        source = self.make_wav()
+        later = manifest['clips'][2]
+        later.update(status='ready', audio=review.wav_details(source, 1))
+        target = self.output / later['file']
+        target.write_bytes(source.read_bytes()[:-2] + b'\x00\x00')
+        review.write_json(self.output / 'manifest.json', manifest)
+        before = (self.output / 'manifest.json').read_bytes()
+        with patch.object(review, 'validate_runtime', return_value={}), patch.object(review.subprocess, 'Popen') as child:
+            with self.assertRaisesRegex(ValueError, 'Previously generated take changed'):
+                review.generate(self.output, self.root, self.root / 'logs', limit=1)
+            child.assert_not_called()
+        self.assertEqual((self.output / 'manifest.json').read_bytes(), before)
+
 
 if __name__ == '__main__':
     unittest.main()

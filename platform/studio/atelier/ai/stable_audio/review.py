@@ -132,6 +132,8 @@ def generate(output, runtime, logs, limit=None):
     WAV validation. Resume MUST verify hashes and runtime identity, and MUST NOT
     replay failed or interrupted takes automatically. Logs MUST stay outside the
     served review root. Generation MUST preserve an explicit seed for every take.
+    Every ready take MUST be verified before any manifest update or generation,
+    including ready takes beyond the requested batch limit.
     """
     output, runtime, logs = Path(output).resolve(), Path(runtime).resolve(), Path(logs).resolve()
     if logs.is_relative_to(output):
@@ -142,6 +144,14 @@ def generate(output, runtime, logs, limit=None):
         manifest_path = output / 'manifest.json'
         manifest = json.loads(manifest_path.read_text())
         verify_plan(manifest)
+        for clip in manifest['clips']:
+            if clip['file'] != f"audio/{clip['id']}.wav" or not clip['id'].startswith('clip-') or not clip['id'][5:].isdigit():
+                raise ValueError('Invalid clip path')
+            if clip['status'] == 'ready':
+                if wav_details(output / clip['file'], clip['seconds']) != clip['audio']:
+                    raise ValueError('Previously generated take changed')
+            elif clip['status'] != 'pending':
+                raise ValueError('Failed/interrupted take requires diagnosis and explicit reset')
         weights = validate_runtime(runtime)
         if manifest.get('weight_sha256', weights) != weights:
             raise ValueError('Weight bytes changed')
@@ -149,15 +159,9 @@ def generate(output, runtime, logs, limit=None):
         write_json(manifest_path, manifest)
         count = 0
         for clip in manifest['clips']:
-            if clip['file'] != f"audio/{clip['id']}.wav" or not clip['id'].startswith('clip-') or not clip['id'][5:].isdigit():
-                raise ValueError('Invalid clip path')
             target = output / clip['file']
             if clip['status'] == 'ready':
-                if wav_details(target, clip['seconds']) != clip['audio']:
-                    raise ValueError('Previously generated take changed')
                 continue
-            if clip['status'] != 'pending':
-                raise ValueError('Failed/interrupted take requires diagnosis and explicit reset')
             if limit is not None and count >= limit:
                 break
             clip['status'] = 'generating'
