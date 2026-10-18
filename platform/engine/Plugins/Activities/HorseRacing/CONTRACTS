@@ -9,3 +9,10 @@ or produce a fallback draw. Untrusted values MUST use the nonfatal checked APIs.
 @cc [owner:fontanierh,label:architecture] racing-rules-boundary
 Rules MUST remain independent of game names, actors, UI and rendering assets. A game owns
 its presentation, authored venue data, runtime authority and persistence admission.
+
+@cc [owner:fontanierh,label:correctness] racing-clock-boundaries
+The calendar MUST retain the reference two-hour days, twelve-day seasons, horse-age
+clock and Grand Prix dates. Schedule phases MUST use half-open boundaries and select
+the last slot whose computed start is not later than the query. External schedule
+admission MUST reject nonfinite/out-of-range times and negative counts without changing
+output. Searching a schedule MUST NOT perform work proportional to an untrusted count.
