@@ -45,6 +45,10 @@ bool TraceNetworkGameplay()
 
 UJapanCharacterMovement::UJapanCharacterMovement(const FObjectInitializer& Initializer) : Super(Initializer)
 {
+    // Allow two movement samples on ordinary Wi-Fi before the listen host's
+    // visual offset expires; the default 40 ms exposes packet cadence at a gallop.
+    ListenServerNetworkSimulatedSmoothLocationTime = .1f;
+    ListenServerNetworkSimulatedSmoothRotationTime = .1f;
     SetNetworkMoveDataContainer(NetworkMoves);
     SetMoveResponseDataContainer(NetworkResponse);
     // Spawn starts in the already-applied default activity: no OnRep/reset runs
@@ -81,6 +85,7 @@ bool UJapanCharacterMovement::PredictsMoves() const
 void UJapanCharacterMovement::SmoothClientPosition(float Dt)
 {
     const auto* Rider = Cast<AWandererCharacter>(CharacterOwner);
+    if (Rider && Rider->GetNetworkActivity() == EJapanActivity::Zeppelin) return;
     if (Rider && Rider->GetSkate()->IsNetworkProxy() && !Rider->GetSkate()->GetRiderPose().IsEmpty())
     {
         // The skate stream owns an absolute mesh frame. CMC's visual smoothing
@@ -94,6 +99,8 @@ void UJapanCharacterMovement::SmoothClientPosition(float Dt)
 
 void UJapanCharacterMovement::SimulatedTick(float Dt)
 {
+    if (const auto* Rider = Cast<AWandererCharacter>(CharacterOwner); Rider && Rider->GetNetworkActivity() == EJapanActivity::Zeppelin)
+        return; // The shared ship clock places every passenger each render frame.
     Super::SimulatedTick(Dt);
     // Linear smoothing also resets relative rotation inside SimulatedTick,
     // outside SmoothClientPosition. Restore the latest stream frame: animation

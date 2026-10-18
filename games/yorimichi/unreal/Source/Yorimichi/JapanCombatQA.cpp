@@ -160,7 +160,8 @@ void Drive(AWandererCharacter* Player, const FString& Folder, int32 Person, FStr
             if (!Move || Move->Guard.IsEmpty()) { Error = TEXT("The live parry has no authored defence window"); return; }
             const FVector2f Window = Move->Guard[0];
             StrikeAt = FMath::Max(Now, Started + (Window.X - Move->Start) / Move->Rate + .015);
-            WindowEnd = Started + (Window.Y - Move->Start) / Move->Rate;
+            WindowEnd = FMath::Min(Started + (Window.Y - Move->Start) / Move->Rate,
+                Started + (Window.X - Move->Start) / Move->Rate + SwordCombat::PerfectParrySeconds);
         }
         else { StrikeAt = Started + .1; WindowEnd = Started + .25; }
     }
@@ -264,7 +265,7 @@ void Contact(AWandererCharacter* Victim, int32 Person, int32 Phase, const TShare
         Report->SetBoolField(TEXT("unlocked_before"), Unlocked);
         const uint32 BeforeSkate = Resolver->PendingSkateRefusals, BeforeTravel = Resolver->PendingTravelRefusals;
         Victim->ServerRequestSkate(Epoch);
-        Victim->ServerTravelTo(BeforePosition + FVector(500,0,0), 0.f, Epoch);
+        Victim->ServerTravelTo(BeforePosition + FVector(500,0,0), 0.f, Epoch, 2500.f);
         Report->SetNumberField(TEXT("pending_skate_refusals"), Resolver->PendingSkateRefusals - BeforeSkate);
         Report->SetNumberField(TEXT("pending_travel_refusals"), Resolver->PendingTravelRefusals - BeforeTravel);
         Report->SetBoolField(TEXT("pending_gate_passed"), Pending && Unlocked && Resolver->HasPending(Victim) &&

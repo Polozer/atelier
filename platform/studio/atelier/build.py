@@ -11,7 +11,7 @@ when a command does.
 
 A `heavy` step's commands run under `atelier.harness.safety.guarded`: a render slot and the memory guard, whose report is
 `logs/<step>.guard/memory-health.json`. When two render slots are on (`atelier.harness.safety.render_lock`), a step whose last
-guard reports peaked at 3 GiB or less asks for the small slot; a compile, or a step with no report yet, takes the big
+completed run peaked at 3 GiB or less asks for the small slot; a compile, or a step with no completed run yet, takes the big
 one. The step's log names the slot each command used, and the summary line names it too when two slots are on.
 """
 import hashlib, importlib.util, json, os, subprocess, sys, time
@@ -445,15 +445,21 @@ def report_peak(path):
 
 
 def expected_peak_gib(folder):
-    """A heavy step's expected peak in GiB, from its last guard reports: memory-health.json (the last command run) and
-    step-peak.json (every command of the last complete run), whichever is higher. None before any report."""
-    peaks = [p for p in (report_peak(folder / 'memory-health.json'), report_peak(folder / 'step-peak.json')) if p]
-    return max(peaks) / GiB if peaks else None
+    """@cc [owner:fontanierh,label:safety] completed-peak-before-small-admission
+    Only a completed step's peak record MAY establish small-job eligibility. A raw guard report,
+    including a pre-GO launcher or interrupted command, MUST NOT establish it by itself. A later
+    guard peak MUST still raise the estimate above the completed run's peak when it is higher.
+    """
+    completed = report_peak(folder / 'step-peak.json')
+    if completed is None:
+        return None
+    latest = report_peak(folder / 'memory-health.json')
+    return max(completed, latest or 0) / GiB
 
 
 def slot_request(ctx, step):
     """How a heavy step asks for a render slot: (kind, expected peak in GiB). A compile always takes the big slot (and
-    holds the small one); a step with no guard report has no expected peak and takes the big one. render_lock decides
+    holds the small one); a step with no completed peak has no expected peak and takes the big one. render_lock decides
     the rest (the 3 GiB bound, the switch, free memory)."""
     if any(isinstance(c, (UnrealCompile, UnrealPackage)) for c in step.commands):
         return 'compile', None

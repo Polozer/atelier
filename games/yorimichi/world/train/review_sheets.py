@@ -3,7 +3,6 @@
 Reads build/yorimichi/belmonte-train/review-perf/frames/ (review_lods.py) and writes review-perf/<asset>.png (the fitted
 mesh, LOD0 and LOD1, then the fitted mesh and LOD0 close up) and review-perf/<coach>-<view>.png (fitted above, LOD0 below).
 """
-import json
 import sys
 from pathlib import Path
 
@@ -13,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import yori  # noqa: E402,F401
 
 from train import budgets as B  # noqa: E402
+from train import bake_manifest as BM  # noqa: E402
 
 OUT = yori.OUT / 'belmonte-train'
 REVIEW = OUT / 'review-perf'
@@ -53,10 +53,8 @@ def column(images):
     return out
 
 
-def asset_sheet(asset):
-    report = json.loads((OUT / 'furniture' / f'{asset}.json').read_text())
-    lods = report['lods']
-    src = report.get('triangles', lods['source_triangles'])
+def asset_sheet(asset, lods):
+    src = lods['source_triangles']
     levels = {r['level']: r for r in lods['levels']}
     tex = 'x'.join(map(str, lods['textures']['base']))
     names = [('before', f'fitted Tripo: {lods["source_triangles"]:,} tris, 2048 maps'),
@@ -85,10 +83,11 @@ def coach_sheets():
 
 
 def main():
+    summary = BM.read(OUT / 'furniture')
     REVIEW.mkdir(parents=True, exist_ok=True)
     for a in B.FURNITURE:
         if (FRAMES / f'{a}-lod0.png').exists():
-            asset_sheet(a)
+            asset_sheet(a, summary[a])
     coach_sheets()
     print('BELMONTE TRAIN FURNITURE REVIEW SHEETS COMPLETE', flush=True)
 

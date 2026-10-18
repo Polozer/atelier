@@ -4,8 +4,8 @@
 
 Reads each fitted asset, build/yorimichi/belmonte-train/furniture/<asset>.glb (fit_furniture.py), and leaves it as it
 is: it stays the high-poly source. For each asset in budgets.FURNITURE it writes furniture/lod/<asset>_LOD0.glb and,
-when the asset has one, <asset>_LOD1.glb, and adds a `lods` record (files, triangles, texture sizes, screen sizes) to
-furniture/<asset>.json.
+when the asset has one, <asset>_LOD1.glb, and records files, checksums, budgets and screen sizes in furniture/lod/summary.json.
+Fitted GLBs and source reports remain unchanged. This is a required incremental game-build step.
 
 LOD0: the fitted mesh welded (Tripo splits every vertex on its UV seams), decimated by edge collapse to the budget,
 smoothed with hard edges above 60 degrees, unwrapped again (smart projection, packed) and given one material whose
@@ -31,6 +31,7 @@ import bpy
 from mathutils import Vector
 
 from train import budgets as B
+from train import bake_manifest as BM
 
 FURN = yori.OUT / 'belmonte-train' / 'furniture'
 LOD = FURN / 'lod'
@@ -629,16 +630,13 @@ def make(asset):
         record.append(dict(level=1, glb=files[1].name, triangles=tris(l1), screen_size=sizes['lod1'], textures=tex1))
     for r, f in zip(record, files):
         r.update(bytes=f.stat().st_size, sha256=sha(f))
-    report_path = FURN / f'{asset}.json'
-    report = json.loads(report_path.read_text()) if report_path.exists() else dict(asset=asset)
-    report['lods'] = dict(source=src.name, source_sha256=sha(src), source_triangles=high_tris, levels=record,
-                          cull_screen_size=sizes['cull'], bounds_radius_m=round(radius, 4), textures=textures,
-                          materials=1 + len(extra), metal_roughness_map=mr,
-                          constants=None if mr else dict(roughness=constants[0], metallic=constants[1]),
-                          tool='games/yorimichi/world/train/lod_furniture.py')
-    report_path.write_text(json.dumps(report, indent=1))
+    result = dict(source=src.name, source_sha256=sha(src), source_triangles=high_tris, levels=record,
+                  cull_screen_size=sizes['cull'], bounds_radius_m=round(radius, 4), textures=textures,
+                  materials=1 + len(extra), metal_roughness_map=mr,
+                  constants=None if mr else dict(roughness=constants[0], metallic=constants[1]),
+                  tool='games/yorimichi/world/train/lod_furniture.py')
     print('LOD', asset, json.dumps(dict(source=high_tris, levels=[(r['level'], r['triangles']) for r in record], textures=textures)), flush=True)
-    return report['lods']
+    return result
 
 
 def join_copy(objs):
@@ -654,20 +652,24 @@ def join_copy(objs):
 
 
 def main():
+    """Bake every production asset, publishing a summary only after complete budget verification."""
     args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-    LOD.mkdir(parents=True, exist_ok=True)
-    assets = args or [a for a in B.FURNITURE if (FURN / f'{a}.glb').exists()]
-    missing = [a for a in B.FURNITURE if not (FURN / f'{a}.glb').exists()]
+    if args:
+        raise ValueError('production furniture baking requires the complete asset set')
+    missing = [a for a in B.FURNITURE if not (FURN / f'{a}.glb').is_file()]
     if missing:
-        print(f'LOD: not fitted yet, skipped: {missing}', flush=True)
-    summary = {}
-    for k, a in enumerate(assets):
-        print(f'LOD [{k + 1}/{len(assets)}] {a}', flush=True)
-        summary[a] = make(a)
+        raise FileNotFoundError(f'furniture sources missing: {missing}')
+    LOD.mkdir(parents=True, exist_ok=True)
     path = LOD / 'summary.json'
-    old = json.loads(path.read_text()) if (args and path.exists()) else {}
-    old.update(summary)
-    path.write_text(json.dumps(old, indent=1))
+    path.unlink(missing_ok=True)
+    summary = {}
+    for k, a in enumerate(B.FURNITURE):
+        print(f'LOD [{k + 1}/{len(B.FURNITURE)}] {a}', flush=True)
+        summary[a] = make(a)
+    pending = LOD / 'summary.pending.json'
+    pending.write_text(json.dumps(summary, indent=2) + '\n')
+    BM.read(FURN, summary_path=pending)
+    pending.replace(path)
     print('BELMONTE TRAIN FURNITURE LODS COMPLETE', flush=True)
 
 

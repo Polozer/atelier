@@ -109,6 +109,29 @@ def surroundings():
     return entries, seam
 
 
+def map_zones(town_z):
+    """@cc [owner:fontanierh,label:correctness] belmonte-indoor-map-stop
+    The salon stop MUST follow Belmonte's origin and land on its committed hall floor,
+    below the roof, facing the counters. Outdoor stops MUST retain their default landing trace.
+    """
+    return [
+        {'key': 'belmonte', 'name': 'Belmonte · town square', 'x': L.ORIGIN[0],
+         'y': L.ORIGIN[1] - 18., 'z': town_z, 'yaw': 90.,
+         'hint': 'Town, estates and countryside racecourses north of the volcano'},
+        {'key': 'belmonte_course', 'name': 'Belmonte · racecourse',
+         'x': 385., 'y': 4255. + L.NORTH_SHIFT, 'z': float(L.ORIGIN[2] + 30.2), 'yaw': 90.,
+         'hint': 'Explore the turf and sand course and its grandstands'},
+        {'key': 'belmonte_training', 'name': 'Belmonte · training grounds',
+         'x': 230., 'y': 4560. + L.NORTH_SHIFT, 'z': float(L.ORIGIN[2] + 30.2), 'yaw': 0.,
+         'hint': 'Countryside arenas and practice grounds'},
+        # Haras Valley's salon.inside, moved one metre west off the hall fixture; face the counters.
+        {'key': 'belmonte_salon', 'name': 'Belmonte · Salon des Paris',
+         'x': L.ORIGIN[0] + 67.8, 'y': L.ORIGIN[1] + 306.8, 'z': float(L.ORIGIN[2] + 30.2),
+         'yaw': 0., 'above_m': 1.5,
+         'hint': 'The betting hall by the racecourse: betting counters'},
+    ]
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / 'glb').mkdir(exist_ok=True)
@@ -180,15 +203,7 @@ def main():
     town_z = float(source.terrain().height(0., -18.)) + L.ORIGIN[2] + 1.
     runtime = {'version': 1, 'origin_cm': L.native_origin(), 'bounds_m': L.BOUNDS,
                'clearance_m': list(terrain.OUTER), 'groups': groups, 'signs': signs, 'railway_corridor': L.RAILWAY,
-               'zones': [{'key': 'belmonte', 'name': 'Belmonte · town square', 'x': L.ORIGIN[0],
-                          'y': L.ORIGIN[1] - 18., 'z': town_z, 'yaw': 90.,
-                          'hint': 'Town, estates and countryside racecourses north of the volcano'},
-                         {'key': 'belmonte_course', 'name': 'Belmonte · racecourse',
-                          'x': 385., 'y': 4255. + L.NORTH_SHIFT, 'z': float(L.ORIGIN[2] + 30.2), 'yaw': 90.,
-                          'hint': 'Explore the turf and sand course and its grandstands'},
-                         {'key': 'belmonte_training', 'name': 'Belmonte · training grounds',
-                          'x': 230., 'y': 4560. + L.NORTH_SHIFT, 'z': float(L.ORIGIN[2] + 30.2), 'yaw': 0.,
-                          'hint': 'Countryside arenas and practice grounds'}]}
+               'zones': map_zones(town_z)}
     (OUT / 'runtime.json').write_text(json.dumps(runtime, separators=(',', ':')) + '\n')
     (OUT / 'build-report.json').write_text(json.dumps({'meshes': meshes, 'materials': materials,
                                                      'planting': plant_report, 'seam': seam}, indent=1) + '\n')

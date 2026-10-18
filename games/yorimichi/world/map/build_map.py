@@ -9,7 +9,7 @@ targets: each one is snapped to a walkable polyline (road, lane, route or stair)
 Coordinates are Blender metres (x east, y north); the runtime converts to Unreal. See docs/WORLD_MAP.md.
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[1])); import yori  # noqa: E402,F401
-import argparse, json, math, os, sys
+import argparse, json, math, os, sys, time
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -18,8 +18,15 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--data', default=str(yori.OUT))
 ap.add_argument('--out', default=str(yori.OUT / 'map'))
 ap.add_argument('--px', type=float, default=2.0, help='pixels per metre')
+ap.add_argument('--atlas-reference', choices=['world', 'momiji_coast', 'momiji_woods', 'hidamari', 'temple_island',
+                                             'northern_foothills', 'volcanic_highlands', 'haras_valley'],
+                help='prepare a precise linear, label-free painting reference instead of staging production artwork')
 A = ap.parse_args()
 S = A.data
+if A.atlas_reference:
+    # Height helpers read yori.OUT too; the explicit data source must be shared
+    # by every layer of a reference, including the northern terrain meshes.
+    yori.OUT = _Path(S)
 W = json.load(open(f'{S}/world.json'))
 CITY_PATH = f'{S}/hidamari/city.json'
 C = json.load(open(CITY_PATH)) if os.path.exists(CITY_PATH) else None
@@ -34,7 +41,16 @@ from map_projection import X_KNOTS,Y_KNOTS,BOUNDS,project,unproject
 X0, X1 = -330.0, (1330.0 if C else 330.0)
 Y0 = -650.0; Y1 = (Y0 + (X1 - X0) * 2 / 3) if C else 330.0   # 3:2 sheet, the aspect gpt-image-2 paints at (1536 x 1024)
 if NORTH:X0,Y0,X1,Y1=BOUNDS
+if A.atlas_reference:
+    from atlas import REGIONS, WORLD_BOUNDS
+    X0,Y0,X1,Y1 = WORLD_BOUNDS if A.atlas_reference == 'world' else next(r['bounds'] for r in REGIONS if r['key'] == A.atlas_reference)
+    X_KNOTS = Y_KNOTS = [[-100000., -100000.], [100000., 100000.]]
+    PX = 1536. / (X1-X0)
 MW, MH = int((X1 - X0) * PX), int((Y1 - Y0) * PX)
+_started = time.monotonic()
+def progress(stage):
+    print(f'map reference {A.atlas_reference or "legacy"}: {stage}; elapsed {time.monotonic()-_started:.1f}s', flush=True)
+progress(f'sampling {MW} x {MH} height raster')
 
 def wp(x, y):
     """world metres -> image pixels (north up)"""
@@ -51,18 +67,27 @@ def bilinear(grid, fx, fy):
 xs = X0 + (np.arange(MW) + .5) / PX
 ys = Y1 - (np.arange(MH) + .5) / PX
 GX, GY = np.meshgrid(unproject(xs,X_KNOTS) if NORTH else xs, unproject(ys,Y_KNOTS) if NORTH else ys)
+# FarHills is a finite 6.4 km mesh. Sampling its clamped edge beyond that
+# footprint would invent dry land in the ocean on a whole-world atlas.
+far_ground = (np.abs(GX) <= 3200.) & (np.abs(GY) <= 3200.)
+Z = np.full(GX.shape, -40., dtype=np.float32)
 try:
     from hidamari import layout as CITY
-    Z = CITY.backdrop_height(GX, GY).astype(np.float32)        # far hills with the city transition applied
+    Z[far_ground] = CITY.backdrop_height(GX[far_ground], GY[far_ground])
 except Exception as e:  # noqa: BLE001
     print('city height helpers unavailable:', e); CITY = None
+    if A.atlas_reference and C:
+        raise RuntimeError('An atlas reference requires its authoritative city terrain helpers') from e
     FZ = np.load(f'{S}/farhills.npy').astype(np.float32)
-    Z = bilinear(FZ, (GX + 3200) / 6400 * (FZ.shape[1] - 1), (GY + 3200) / 6400 * (FZ.shape[0] - 1)).astype(np.float32)
+    Z[far_ground] = bilinear(FZ, (GX[far_ground] + 3200) / 6400 * (FZ.shape[1] - 1), (GY[far_ground] + 3200) / 6400 * (FZ.shape[0] - 1))
 square = (np.abs(GX) <= SIZE / 2) & (np.abs(GY) <= SIZE / 2)
 Z[square] = bilinear(H, (GX[square] + SIZE / 2) / SIZE * (H.shape[1] - 1), (GY[square] + SIZE / 2) / SIZE * (H.shape[0] - 1))
+city_ground = np.zeros(GX.shape, dtype=bool)
 if C and CITY:
-    bx0, by0, bx1, by1 = C['bounds']
-    inside = (GX >= bx0) & (GY >= by0) & (GX <= bx1) & (GY <= by1) & ~square
+    # Town bounds describe buildings, not the exported HD_Terrain footprint.
+    cx, cy = CITY.terrain_axes()
+    city_ground = (GX >= cx[0]) & (GY >= cy[0]) & (GX <= cx[-1]) & (GY <= cy[-1])
+    inside = city_ground & ~square
     Z[inside] = CITY.height(GX[inside], GY[inside])
 if NORTH and CITY:
     mask=(GX>=NORTH[0])&(GX<=NORTH[2])&(GY>=NORTH[1])&(GY<=NORTH[3])
@@ -74,10 +99,14 @@ if BELMONTE:
     assert np.isfinite(Z[mask]).all(), 'Belmonte map has uncovered terrain'
     north_extension = np.zeros(GX.shape, bool)
     for name in ('SM_BM_NorthCountry', 'SM_BM_NorthApron'):
+        progress(f'projecting terrain surface {name}')
         mesh = BM_SOURCE.Surface(BM_SOURCE.triangles(yori.OUT / f'belmonte/glb/{name}.glb'))
         height = mesh.height(GX - BM.ORIGIN[0], GY - BM.ORIGIN[1]) + BM.ORIGIN[2]
-        covered = (GY > BM.SOUTH_JOIN) & np.isfinite(height) & ~mask
-        Z[covered] = height[covered]
+        # The country mesh starts at y=3200, below SOUTH_JOIN. Its lower band
+        # lies under the northern terrain where they overlap; preserve the
+        # upper physical surface rather than inventing an ocean gap outside it.
+        covered = np.isfinite(height) & ~mask
+        Z[covered] = np.where(GY[covered] > BM.SOUTH_JOIN, height[covered], np.maximum(Z[covered], height[covered]))
         north_extension |= covered
 
 # the island lives outside the heightmap: sample its own height function in island-local coordinates
@@ -95,12 +124,13 @@ if SW:
         return ox + lx * ca - ly * sa, oy + lx * sa + ly * ca
 
 # the sea: one depth field from the distance to land, so the square, the city and the backdrop seas match at their seams
+progress('painting terrain, sea depth and forest cover')
 land = (Z >= 0).astype(np.float32)
 near = np.array(Image.fromarray((land * 255).astype(np.uint8), 'L').filter(ImageFilter.GaussianBlur(28 * PX))).astype(np.float32) / 255
 Z = np.where(Z < 0, np.minimum(Z, -1.5 - 30.0 * (1 - near) ** 1.6), Z).astype(np.float32)
 # the playable world: the square, the city, the island and the sea; everything else is scenery and fades to paper
 playable = square | (Z < 0)
-if C: playable |= (GX >= C['bounds'][0]) & (GY >= C['bounds'][1]) & (GX <= C['bounds'][2]) & (GY <= C['bounds'][3])
+if C: playable |= city_ground
 if NORTH: playable |= (GX>=NORTH[0])&(GX<=NORTH[2])&(GY>=NORTH[1])&(GY<=NORTH[3])
 if BELMONTE: playable |= BM.contains(GX, GY) | north_extension
 if SW: playable |= isl
@@ -115,6 +145,12 @@ sh = hillshade(Z)
 def ramp(z):
     stops = [(-40, (44, 78, 120)), (-8, (78, 126, 166)), (-1.5, (126, 172, 196)), (0, (176, 204, 208)), (0.01, (222, 206, 164)),
              (2.5, (200, 208, 146)), (12, (172, 192, 122)), (30, (148, 170, 106)), (60, (140, 152, 104)), (95, (166, 158, 138)), (130, (145, 162, 125)), (330, (130, 153, 156)), (480, (157, 174, 196)), (620, (229, 235, 235)), (1000, (251, 249, 238))]
+    if A.atlas_reference:
+        # Cool grey high ground was mistaken for water in painting trials.
+        # This semantic palette reserves blue for authored water features.
+        stops = [(-40, (38, 76, 120)), (-1.5, (69, 143, 174)), (0, (88, 165, 182)),
+                 (.01, (223, 207, 157)), (30, (157, 180, 107)), (130, (158, 175, 108)),
+                 (330, (171, 167, 125)), (480, (161, 143, 115)), (620, (207, 200, 182)), (1000, (250, 248, 235))]
     out = np.zeros(z.shape + (3,), np.float32)
     for (a, ca_), (b, cb) in zip(stops, stops[1:]):
         m = (z >= a) & (z < b); t = ((z - a) / (b - a))[..., None]
@@ -125,7 +161,8 @@ light = 0.62 + 0.55 * sh[..., None]
 col = col * np.where(Z[..., None] < 0, 0.92 + 0.16 * sh[..., None], light)
 
 # ---------- forest cover from the placed trees (the city loader drops the old backdrop trees inside its footprint)
-warm = ('Tree_Maple', 'Tree_Ginkgo', 'Tree_Broad'); cool = ('Tree_Pine', 'Tree_Cedar')
+warm = ('Tree_Maple', 'Tree_Ginkgo', 'Tree_Broad', 'Tree_Tuscan_Oak', 'Tree_Tuscan_Olive', 'Tree_Forest_Maple', 'Tree_Forest_Ginkgo')
+cool = ('Tree_Pine', 'Tree_Cedar', 'Tree_Tuscan_Cypress', 'Tree_Tuscan_Pine', 'Tree_Forest_Pine')
 def tree_points(prefixes):
     pts = []
     for k, v in W['instances'].items():
@@ -167,6 +204,7 @@ col = col * fade[..., None] + (0.22 * paper + 0.78 * (0.25 * grey + 0.75 * col))
 img = Image.fromarray(np.clip(col, 0, 255).astype(np.uint8))
 
 # ---------- contours (land only)
+progress('drawing contours, roads and landmark footprints')
 cont = np.zeros((MH, MW), np.uint8)
 for lvl in range(5, int(Z.max()) + 1, 5):
     m = (Z >= lvl).astype(np.uint8); e = (m[1:, 1:] != m[:-1, 1:]) | (m[1:, 1:] != m[1:, :-1])
@@ -275,6 +313,7 @@ if os.path.exists(PARK):
 # ---------- buildings, landmarks, props
 if BELMONTE:
     from belmonte.plan import draw as draw_belmonte
+    progress('drawing exact Belmonte buildings, water and racecourse')
     draw_belmonte(d, wp, PX)
 NAVY, NAVY_OUT = (52, 58, 92), (20, 22, 36)
 for b in V['buildings']: rect(b['position'][0], b['position'][1], b['width'], b['depth'], b['yaw'], NAVY, NAVY_OUT)
@@ -383,6 +422,7 @@ if W.get('zeppelin'):
         zones.append(dict(key=station['key'],name=station['name'],x=p[0],y=p[1],z=p[2],yaw=90.,hint='Climb the short steps and use the zeppelin to travel'))
 
 os.makedirs(A.out, exist_ok=True)
+progress('writing label-free plan and unchanged travel registry')
 img.save(os.path.join(A.out, 'rough.png'), optimize=True)
 img.convert('RGB').save(os.path.join(A.out, 'rough.jpg'), quality=86, progressive=True)
 # A painted sheet is valid only for the exact geographical bounds it depicts.
@@ -419,6 +459,10 @@ meta = dict(frame='blender_metres_north_up', bounds=[X0, Y0, X1, Y1], px_per_m=P
 if NORTH:meta.update(projection_x=X_KNOTS,projection_y=Y_KNOTS,
                      world_bounds=[X_KNOTS[0][0],Y_KNOTS[0][0],X_KNOTS[-1][0],Y_KNOTS[-1][0]])
 if BELMONTE: meta['sources'].append('belmonte/runtime.json')
+from atlas import metadata as atlas_metadata, stage as stage_atlas
+meta['atlas'] = atlas_metadata(zones, json.load(open(yori.ASSETS / 'belmonte' / 'source.json')))
+if not A.atlas_reference:
+    stage_atlas(A.out, meta['atlas'])
 json.dump(meta, open(os.path.join(A.out, 'map.json'), 'w'), indent=1)
 json.dump(LINES, open(os.path.join(A.out, 'map_lines.json'), 'w'))
 print('map', MW, 'x', MH, 'px,', len(zones), 'zones ->', A.out)

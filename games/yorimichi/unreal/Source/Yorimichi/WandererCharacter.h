@@ -62,6 +62,7 @@ public:
     /** The health a sparring blow of this strength (1 a cut, 2 a charged or finishing one, 3 full power) takes from
      *  the partner: a full-power blow knocks down (the move set's HeavyDamage, 25). */
     virtual float SparringDamage(int32 Power) const { return Power >= 3 ? 28.f : Power == 2 ? 18.f : 10.f; }
+    float GetNetworkGuardPressure() const { return NetworkGuardPressure; }
     /** Its name as -rider= and the character switch know it (FPlayableCharacter); empty: the default character's. */
     virtual FString GetPlayableName() const { return FString(); }
     /** Whose bike clips it rides with (/Game/<Rig>Bike, Content/Data/<rig>/bike); empty: the default character's. */
@@ -131,7 +132,7 @@ public:
     UFUNCTION(BlueprintPure, Category = "Map")
     UJapanMap* GetMap() const { return Map; }
     /** Travel to a world position (Unreal cm) facing Yaw: stows the board and sailboat, clears momentum, lands on the ground actually built there
-     *  (the highest surface from Above cm over the position down). */
+     *  (the highest surface from Above cm over the position down). Above is finite, 0–6000 cm, and preserved on host travel. */
     bool TravelTo(FVector Location, float Yaw, const TCHAR* Reason = TEXT("map"), float Above = 2500.f);
     uint32 GetActivityEpoch() const { return NetworkActivity.Epoch; }
     EJapanActivity GetNetworkActivity() const { return NetworkActivity.Kind; }
@@ -139,7 +140,9 @@ public:
         TFunction<void()> FootReaction = {});
     /** Host-only supported park/stow followed by one foot epoch; clock resets also discard vehicle momentum. */
     bool ExitNetworkVehicle(uint8 ClockCorrection = 0, TFunction<void()> FootReaction = {});
-    UFUNCTION(Server, Reliable) void ServerTravelTo(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch);
+    UFUNCTION(Server, Reliable) void ServerTravelTo(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch, float Above);
+    UFUNCTION(Client, Reliable) void ClientPlayerTravelled();
+    UFUNCTION(Server, Reliable) void ServerTravelToPlayer(const FString& SessionPlayerId, uint32 Epoch);
     UFUNCTION(Server, Reliable) void ServerRequestSkate(uint32 Epoch);
     UFUNCTION(Server, Reliable) void ServerZeppelinInput(uint32 Epoch, int32 Direction);
     UFUNCTION(Server, Reliable) void ServerTrainInteract(uint32 Epoch);
@@ -196,6 +199,7 @@ protected:
     void StopGesture(float BlendSeconds = .3f) { SetAction(NAME_None, false, BlendSeconds); }
 
 private:
+    friend class FRemoteVehiclePresentationTest;
     void InitializeLocalPlayer();
     TWeakObjectPtr<ULocalPlayer> InputOwner;
     bool RequestNetworkBike();
@@ -237,13 +241,16 @@ private:
     UPROPERTY(ReplicatedUsing=OnRep_NetworkAvatar) FJapanAvatarState NetworkAvatar;
     UPROPERTY(ReplicatedUsing=OnRep_NetworkHealth) float NetworkHealth = 100.f;
     UPROPERTY(ReplicatedUsing=OnRep_NetworkHealth) int32 NetworkHitsTaken = 0;
+    UPROPERTY(Replicated) float NetworkGuardPressure = 0.f;
     UFUNCTION() void OnRep_NetworkAvatar();
     UFUNCTION() void OnRep_NetworkHealth();
     bool bNetworkAvatarReceived = false;
     float LastAvatarPublication = -1.f;
     friend class FJapanReactionTransportTest;
+    friend class FSwordCombatContactTest;
     friend class FJapanCheckpointTest;
     friend class FJapanHorseWaterTest;
+    bool PerformNetworkTravel(FVector Location, float Yaw, uint32 Epoch, float Above);
     friend class AJapanPlayerController;
     friend class FYorimichiPhone;
     friend class UWandererSwordComponent;

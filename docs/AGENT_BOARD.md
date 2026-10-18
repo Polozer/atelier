@@ -21,7 +21,7 @@ agent session. Notification commands are JSON argument arrays, executed without 
 `{message}` argument is replaced with the notification text. This sends only to the specified session;
 there is no new chat or agent creation.
 
-For a local Codex session on the shared app-server daemon:
+For a local Codex session (main Codex or another Codex home such as OpenCodex):
 
 ```sh
 uv run atelier board supervise --agent park-review --addressed-only --checkout "$PWD" \
@@ -35,8 +35,15 @@ transcript, cancels a turn, or changes model/permission settings. A turn ending 
 fresh status check before retry. Unavailable sessions and failed deliveries retain the mailbox cursor.
 Use a full path to `atelier` in the notify argv when it isn't on the subscriber's `PATH`, and use the
 installed daemon-compatible Codex executable (`notify-codex --codex PATH`) when multiple CLI versions exist.
-The adapter resolves the current Unix socket through `codex app-server daemon version` and uses its
-WebSocket transport. See [the app-server steering contract](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn).
+Each Codex home (`CODEX_HOME`) runs its own app-server daemon, and a thread belongs to exactly one of them.
+By default the adapter finds the owning daemon: it asks each running daemon (the inherited `CODEX_HOME`,
+`~/.codex`, and any `~/.codex-*` home with an `app-server-daemon` folder) through
+`codex app-server daemon version` with that home, then uses the one whose `thread/read` accepts the thread.
+No owner, more than one owner, or an unreachable candidate without an owner fails delivery and retains the
+cursor; it never guesses. `--socket PATH` (an explicit existing socket) takes precedence, then
+`--codex-home PATH` (pin one home, for example `~/.codex-opencodex`), then discovery. The default supervise
+command above therefore works unchanged for main Codex and OpenCodex sessions. The adapter uses the
+daemon's WebSocket transport. See [the app-server steering contract](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn).
 Do not use `codex queue` for live board notifications: a queued message doesn't reach the running turn.
 
 For persistent local Claude sessions, use the existing native inbox:

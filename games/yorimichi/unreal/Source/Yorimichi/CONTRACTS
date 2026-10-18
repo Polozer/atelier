@@ -1,3 +1,9 @@
+@cc [owner:fontanierh,label:correctness] map-landing-trace
+A map zone's optional above_m MUST be converted from metres to centimetres; absent or invalid
+values MUST retain the 25 m outdoor default. Accepted heights MUST be finite and within 0–60 m.
+Travel MUST preserve the chosen height through the client request and authoritative landing,
+with the existing epoch, encounter, pending-hit and rate-limit checks intact.
+
 @cc [owner:fontanierh,label:performance] horse-appearance-residency
 An accepted appearance change on a locally controlled horse that replaces breed, tack, coat or mask
 assets MUST release the old component references and request deferred engine collection with incremental
@@ -8,3 +14,39 @@ MUST NOT collect inline. Remote horses, unchanged looks and colour-only changes 
 Stationary grounded steering MUST animate stepping in its turn direction, with rotation and animation phase
 scaled by the same steering magnitude. Pivot presentation MUST derive from existing checkpointed state without
 adding wire role IDs. When pivot clips are absent, the horse MAY use its walk clip as a stepping fallback.
+
+@cc [owner:fontanierh,label:correctness] sword-contact-defence
+Sword contact MUST resolve at most once per target per swing and MUST observe active windows crossed
+between simulation samples. A perfect parry MUST face the contact, last at most 120 ms of the authored
+guard window, and deflect at most one contact per attempt, locally and in server defence history.
+Guard pressure MUST change only on resolved contacts and decay with the authority world clock;
+movement replay MUST NOT reapply pressure, damage or contact counters. NPC hit immunity MUST allow
+separate combo cuts while retaining player recovery protection. Projectile damage MUST resolve only
+on authority through the shared defence resolver; flight MUST stop at cover and MUST NOT home after release.
+
+@cc [owner:fontanierh,label:correctness] regional-atlas-travel
+Every registered teleport and saved marker MUST remain reachable through its existing travel resolver.
+Regional filtering MUST NOT mutate the destination registry or infer travel coordinates from artwork.
+Artwork and all overlays MUST share their declared world frame. Opening the atlas MUST choose the
+player's mapped region, falling back to the world overview outside regional artwork coverage.
+Stable names MUST be editable live labels, never baked into paintings. A failed name save MUST preserve
+the previous file and in-memory names; pawn switches MUST share the local world's saved names.
+
+@cc [owner:fontanierh,label:correctness] regional-atlas-controller
+Every on-sheet destination MUST remain individually selectable with a controller, including coincident
+pins. Controller camera pan MUST retain the screen-space reticle away from sheet boundaries. Map focus
+MUST consume controller movement instead of driving gameplay. Back MUST return from region to world,
+then close the world view; selection MUST use the destination's existing travel resolver.
+
+@cc [owner:fontanierh,label:correctness] remote-vehicle-presentation
+Releasing a remote skate pose, including repeated stow or travel after its bone buffer is empty,
+MUST restore capsule-relative mesh placement without changing the authoritative capsule. A new activity
+epoch MUST discard the previous streamed mesh frame. Listen-host horse visual interpolation MUST NOT
+change the authoritative horse checkpoint. Zeppelin passengers MUST follow the rendered ship without
+an additional character smoothing offset.
+
+@cc [owner:fontanierh,label:correctness] live-player-map-travel
+Online player map targets MUST use session player identity, follow the current pawn, and disappear
+when that player leaves. Travel MUST resolve the identity on the host at request time and retain epoch,
+encounter, pending-contact and rate admission. A destination MUST have walkable ground and standing
+capsule clearance; the chosen floor MUST NOT be replaced by an overhead bridge or roof.

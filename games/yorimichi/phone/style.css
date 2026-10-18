@@ -55,3 +55,17 @@ button,#stick,#look{-webkit-tap-highlight-color:transparent}
 #controls.aboard #slower,#controls.aboard #faster{min-width:118px;background:#21342acc}
 #controls.aboard .actions{display:flex;gap:10px;justify-content:flex-end;align-items:flex-end}
 #controls.aboard #use{min-width:110px}
+
+/* The atlas uses the same frames and live labels as the native map. */
+#map-dialog{width:min(1440px,98vw);max-width:1440px;border-radius:4px;background:#192b24;border-color:#8f8055}
+.map-heading{display:flex;align-items:center;gap:14px;min-width:0}.map-heading h2{font-size:24px;color:#eadfc5}.map-heading button{width:auto;background:#263a2c;color:#dfc891;border:1px solid #776e4c;border-radius:3px;padding:7px 12px;font-size:12px}
+#map-sidebar{width:230px;align-self:stretch;flex:none;min-height:0;display:flex;flex-direction:column;gap:9px;overflow:hidden}
+#map-search,#map-stable-name{background:#11251c;color:#efe5ce;border:1px solid #697151;padding:9px 10px;font:13px system-ui;width:100%;min-height:38px;border-radius:3px;user-select:text;-webkit-user-select:text;touch-action:auto}
+#map-zones{width:100%;flex:1;min-height:0}#map-zones button{border-radius:3px;border-color:#6d704b55;background:#1c3027}#map-zones b{border-color:#d1b67a;background:#253d2c;color:#edd39a}
+#map-frame{border-radius:2px;background:#b9a379}.map-pin{background:#21382d;border-color:#d4b774;color:#f1ddb5;width:24px;height:24px;font-size:11px;overflow:visible}
+.map-pin-label{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);white-space:nowrap;background:#ebd7acdd;color:#332c20;padding:2px 5px;font:13px Georgia,serif;pointer-events:none}
+.map-region{width:auto;height:auto;white-space:nowrap;border-radius:2px;padding:5px 9px;font:clamp(11px,1.4vw,16px) Georgia,serif;background:#ebd7acee;color:#332c20;border:1px solid #b59a62}
+.map-region-link{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:.8}
+.map-estate{background:#6d7043}.map-estate .map-pin-label{font-size:12px}#map-controls button{width:auto;border-radius:3px;border-color:#786b48;background:#24382a;color:#e4d2a4}
+#map-stable-editor{border-top:1px solid #766d4a;padding-top:10px;font-size:11px;color:#d5bd88}#map-stable-editor[hidden]{display:none}#map-stable-editor input{margin-top:6px}#map-stable-editor button{margin-top:7px;border-radius:3px;padding:8px;font-size:12px}
+@media(orientation:portrait){#map-sidebar{width:100%;min-height:130px;flex:1}#map-zones{max-height:none}.map-heading h2{font-size:21px}.map-pin-label{display:none}.map-region{font-size:12px}}

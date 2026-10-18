@@ -972,9 +972,13 @@ void UHorseComponent::PopulateRiderNode(FHorseRiderNode& OutNode) const
         OutNode.TorsoWeight = OutNode.IKWeight = 0.f;
         return;
     }
+    const EPhase ShownPhase = HasPresentedNetworkState() ? EPhase(PresentedNetworkState.Phase) : this->Phase;
+    const float ShownTime = HasPresentedNetworkState() ? PresentedNetworkState.PhaseTime : this->PhaseTime;
+    const float ShownSteering = HasPresentedNetworkState() ? PresentedNetworkState.Steering : this->Steering;
+    const bool ShownReinIn = HasPresentedNetworkState() ? PresentedNetworkState.ReinIn : this->bReinIn;
     // In the saddle from late in mounting to early in dismounting.
-    const float Saddle = Phase == EPhase::Mounting ? FMath::SmoothStep(.58f, .92f, PhaseTime / TransitionLength(EHorseRole::Mount))
-        : Phase == EPhase::Dismounting ? 1.f - FMath::SmoothStep(.08f, .42f, PhaseTime / TransitionLength(EHorseRole::Dismount)) : 1.f;
+    const float Saddle = ShownPhase == EPhase::Mounting ? FMath::SmoothStep(.58f, .92f, ShownTime / TransitionLength(EHorseRole::Mount))
+        : ShownPhase == EPhase::Dismounting ? 1.f - FMath::SmoothStep(.08f, .42f, ShownTime / TransitionLength(EHorseRole::Dismount)) : 1.f;
     OutNode.TorsoWeight = OutNode.IKWeight = Saddle;
     // The rider mesh's component space: pitch about +Y (right), roll about +X (forward), yaw about +Z.
     auto Turn = [](float PitchDeg, float RollDeg, float YawDeg)
@@ -994,8 +998,8 @@ void UHorseComponent::PopulateRiderNode(FHorseRiderNode& OutNode) const
     OutNode.NeckDeltaCS = Turn(-TorsoPitchDeg * .32f, -TorsoRollDeg * .35f, TorsoYawDeg * .15f);
     OutNode.HeadDeltaCS = Turn(-TorsoPitchDeg * .35f, -TorsoRollDeg * .35f, TorsoYawDeg * .10f);
     // Steering pulls the inside rein back and opens it out; reining in pulls both.
-    const float Rein = bReinIn ? 2.8f : 0.f;
-    const float Left = FMath::Max(-Steering, 0.f), Right = FMath::Max(Steering, 0.f);
+    const float Rein = ShownReinIn ? 2.8f : 0.f;
+    const float Left = FMath::Max(-ShownSteering, 0.f), Right = FMath::Max(ShownSteering, 0.f);
     OutNode.LeftHandOffsetCS = Breed.GripL + FVector(-(Left * 3.2f + Rein), -Left * 2.2f, 0.f);
     OutNode.RightHandOffsetCS = Breed.GripR + FVector(-(Right * 3.2f + Rein), Right * 2.2f, 0.f);
     // The instep in the stirrup's hoop: the boot's toe through it, centred between its sides, on the tread.
@@ -1006,14 +1010,17 @@ void UHorseComponent::PopulateRiderNode(FHorseRiderNode& OutNode) const
 UAnimSequence* UHorseComponent::GetSequence() const
 {
     if (Phase == EPhase::Stowed || RiderClips.Num() != HorseRide::RoleCount) return nullptr;
-    UAnimSequence* Clip = RiderClips[int32(Role)];
+    const EHorseRole ShownRole = HasPresentedNetworkState() ? EHorseRole(PresentedNetworkState.Role) : Role;
+    UAnimSequence* Clip = RiderClips[int32(ShownRole)];
     return Clip ? Clip : RiderClips[int32(EHorseRole::Idle)].Get();
 }
 
 float UHorseComponent::GetPoseTime() const
 {
-    const float Length = ClipLength(Role);
-    return FMath::Min(GaitPhase * Length, Length - .001f);
+    const EHorseRole ShownRole = HasPresentedNetworkState() ? EHorseRole(PresentedNetworkState.Role) : Role;
+    const float ShownPhase = HasPresentedNetworkState() ? PresentedNetworkState.GaitPhase : GaitPhase;
+    const float Length = ClipLength(ShownRole);
+    return FMath::Min(ShownPhase * Length, Length - .001f);
 }
 
 FName UHorseComponent::GetRiderClip() const { return HorseRide::RoleOf(Role).Rider; }

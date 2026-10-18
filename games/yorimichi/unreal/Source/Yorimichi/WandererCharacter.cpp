@@ -190,6 +190,7 @@ void AWandererCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
     DOREPLIFETIME_CONDITION(AWandererCharacter, NetworkAvatar, COND_SimulatedOnly);
     DOREPLIFETIME(AWandererCharacter, NetworkHealth);
     DOREPLIFETIME(AWandererCharacter, NetworkHitsTaken);
+    DOREPLIFETIME(AWandererCharacter, NetworkGuardPressure);
     DOREPLIFETIME(AWandererCharacter, NetworkActivity);
     DOREPLIFETIME_CONDITION(AWandererCharacter, bNetworkMovementReady, COND_OwnerOnly);
     DOREPLIFETIME(AWandererCharacter, NetworkParkedBike);
@@ -203,6 +204,7 @@ void AWandererCharacter::OnRep_NetworkHealth() { if (Sword) Sword->ApplyNetworkH
 
 void AWandererCharacter::ConfigureNetworkRider(const FString& Name, bool bShield)
 {
+    bAlwaysRelevant = true; // Live player map pins remain available across the shared world.
     NetworkRiderName = Name;
     bNetworkShield = bShield;
     OnRep_NetworkLoadout();
@@ -355,7 +357,7 @@ void AWandererCharacter::ReturnToSpawn()
 
 bool AWandererCharacter::TravelTo(FVector Target, float Yaw, const TCHAR* Reason, float Above)
 {
-    if (bMoveSetUnavailable || !bReady || !Landscape || !Landscape->bLoaded) return false;
+    if (bMoveSetUnavailable || !bReady || !Landscape || !Landscape->bLoaded || !FMath::IsFinite(Above) || Above < 0.f || Above > 6000.f) return false;
     if (JapanNetwork::IsOnline(GetWorld()) && !HasAuthority())
     {
         if (IsLocallyControlled() && !bNetworkActivityPending && !CastChecked<UJapanCharacterMovement>(GetCharacterMovement())->IsExecutingMove() &&
@@ -363,7 +365,7 @@ bool AWandererCharacter::TravelTo(FVector Target, float Yaw, const TCHAR* Reason
         {
             bNetworkActivityPending = true;
             NetworkActivityRequestTime = GetWorld()->GetTimeSeconds();
-            ServerTravelTo(Target, Yaw, NetworkActivity.Epoch);
+            ServerTravelTo(Target, Yaw, NetworkActivity.Epoch, Above);
         }
         return false; // The map closes when the authoritative handoff arrives.
     }
@@ -1420,6 +1422,7 @@ void AWandererCharacter::Tick(float Dt)
         if (HasAuthority())
         {
             if (Sword) { NetworkHealth = Sword->GetHealth(); NetworkHitsTaken = Sword->HitsTaken(); }
+            if (Moves) NetworkGuardPressure = FMath::RoundToFloat(Moves->GuardPressure() * 100.f) / 100.f;
             if (Moves && NetworkActivity.Kind == EJapanActivity::OnFoot && GetWorld()->GetTimeSeconds() - LastAvatarPublication >= .05f)
             {
                 NetworkAvatar = Moves->CapturePresentation();

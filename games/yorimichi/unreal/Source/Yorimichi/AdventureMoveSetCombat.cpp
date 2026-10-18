@@ -13,6 +13,7 @@
 #include "JapanFootsteps.h"
 #include "YorimichiCombatFX.h"
 #include "FoxHunter.h"
+#include "RoninProjectile.h"
 #include "MegaRamp.h"
 #include "SuperUltraMegaPark.h"
 #include "Animation/AnimSequence.h"
@@ -138,13 +139,13 @@ void UAdventureMoveSet::StartCut(int32 Index)
         const float Gap = float(FVector::Dist2D(Focus->GetActorLocation(), Character->GetActorLocation())) - Stand;
         if (Gap > 5.f) { LungeTarget = Focus; LungePoint = Focus->GetActorLocation(); bLungePoint = true; LungeStand = Stand; LungeTime = FMath::Clamp(Gap / 1050.f, .07f, .18f); }
     }
+    Play(Clip, .05f);
     if (const FAdventureMove* M = Current())
     {
         float End = -1.f;
         for (const FVector2f& W : M->Active) End = FMath::Max(End, W.Y);
-        ArcEnd = LungeTime > 0.f ? FMath::Max(End, M->Start + (LungeTime + .08f) * M->Rate) : End;
+        ArcEnd = End >= 0.f && LungeTime > 0.f ? FMath::Max(End, M->Start + (LungeTime + .08f) * M->Rate) : -1.f;
     }
-    Play(Clip, .05f);
     JapanEnemyQA::StartedCut(Character, HadBufferedPress);
 }
 
@@ -247,9 +248,17 @@ void UAdventureMoveSet::StartAttack()
 
 void UAdventureMoveSet::AdvanceCombat(float Dt)
 {
+    const uint32 SwingSerial = Character->GetActionSerial();
     const FAdventureMove* Now = Current();
     const FName Name = Now ? Now->Name : NAME_None;
     LungeTime = FMath::Max(0.f, LungeTime - Dt);
+    if (Character->IsNpc() && !bAttackTell && IsAttack(Name) && NextBlowIn() > 0.f && NextBlowIn() <= .16f)
+    {
+        bAttackTell = true;
+        const FVector At = GuardPoint();
+        if (!JapanCombat::Publish(Character, EJapanCombatCue::AttackTell, At, FVector::ZeroVector, 0.f, Character))
+            if (auto* FX = AYorimichiCombatFX::Get(Character)) FX->AttackTell(At);
+    }
     if (!IsAttack(Name)) { LungeTime = 0.f; ArcEnd = -1.f; }
     if (Now && bArmed && IsAttack(Name) && !bDriving && CombatTarget.IsValid() && IsTargetable(CombatTarget.Get()))
     {
@@ -263,11 +272,17 @@ void UAdventureMoveSet::AdvanceCombat(float Dt)
     }
     // The blade hits inside the playing clip's active windows: what it sweeps through, and what stands in its arc; a
     // homing cut's arc lasts until it has closed in.
-    const bool bActive = Now && bArmed && Now->Active.Num() && Now->InWindow(Now->Active, SourceTime());
+    const float Before = FMath::Max(Now ? Now->Start : 0.f, SourceTime() - Dt * Character->GetActionPlayRate());
+    const bool bActive = Now && bArmed && Now->Active.ContainsByPredicate([&](const FVector2f& W)
+        { return SwordCombat::CrossesWindow(Before, SourceTime(), W); });
     if (bActive) SweepBlade();
     else if (Now && bArmed && IsAttack(Name)) BladePoints(PreviousBlade);
     else PreviousBlade.Reset();
-    if (bActive || (Now && bArmed && IsAttack(Name) && SourceTime() <= ArcEnd)) SweepArc();
+    if (Character->GetActionSerial() != SwingSerial) return; // A synchronous parry ended this swing.
+    const bool bLungeActive = Now && bArmed && IsAttack(Name) && !Now->Active.IsEmpty() && ArcEnd >= 0.f &&
+        SwordCombat::CrossesWindow(Before, SourceTime(), FVector2f(Now->Active[0].X, ArcEnd));
+    if (bActive || bLungeActive) SweepArc();
+    if (Character->GetActionSerial() != SwingSerial) return;
     if (Mode != EAdventureMoveMode::Ground && Mode != EAdventureMoveMode::Air) { AttackBuffer = 0.f; bCharging = false; return; }
     // The draw that an attack press started cuts from its input point.
     if (Name == TEXT("DrawSword") && bAttackAfterDraw && Now && SourceTime() >= Now->Input && bArmed) StartCut(0);
@@ -321,6 +336,7 @@ void UAdventureMoveSet::BladePoints(TArray<FVector>& Out) const
 
 void UAdventureMoveSet::SweepBlade()
 {
+    const uint32 SwingSerial = Character->GetActionSerial();
     TArray<FVector> Now; BladePoints(Now);
     if (Now.IsEmpty()) return;
     if (!bSwung) { bSwung = true; if (!JapanCombat::Publish(Character, EJapanCombatCue::Swing, Now.Last(), FVector::ZeroVector, FMath::Min(Strength, 3), Character))
@@ -336,7 +352,9 @@ void UAdventureMoveSet::SweepBlade()
                 if (!A || A == Character || HitThisSwing.Contains(A) || !IsTargetable(A)) continue;
                 HitThisSwing.Add(A);
                 Strike(A, Strength, H.bStartPenetrating ? ToPt : FVector(H.ImpactPoint), ToPt - FromPt);
+                if (Character->GetActionSerial() != SwingSerial) return false;
             }
+            return true;
         };
         for (int32 I = 0; I < Now.Num(); ++I)
         {
@@ -344,7 +362,7 @@ void UAdventureMoveSet::SweepBlade()
             {
                 TArray<FHitResult> Hits;
                 Character->GetWorld()->SweepMultiByChannel(Hits, PreviousBlade[I], Now[I], FQuat::Identity, Chan, FCollisionShape::MakeSphere(10.f), Query);
-                CheckHits(Hits, PreviousBlade[I], Now[I]);
+                if (!CheckHits(Hits, PreviousBlade[I], Now[I])) return;
             }
         }
         for (const float Alpha : { 0.5f, 1.f })
@@ -353,7 +371,7 @@ void UAdventureMoveSet::SweepBlade()
             const FVector Tip = FMath::Lerp(PreviousBlade.Last(), Now.Last(), Alpha);
             TArray<FHitResult> SpineHits;
             Character->GetWorld()->SweepMultiByChannel(SpineHits, Base, Tip, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(10.f), Query);
-            CheckHits(SpineHits, Base, Tip);
+            if (!CheckHits(SpineHits, Base, Tip)) return;
         }
     }
     PreviousBlade = Now;
@@ -361,6 +379,7 @@ void UAdventureMoveSet::SweepBlade()
 
 void UAdventureMoveSet::SweepArc()
 {
+    const uint32 SwingSerial = Character->GetActionSerial();
     const FVector Here = Character->GetActorLocation();
     const FVector Forward = Character->GetActorForwardVector();
     const float Range = Character->GetCapsuleComponent()->GetScaledCapsuleRadius() + BladeLength() + 36.f;
@@ -388,9 +407,9 @@ void UAdventureMoveSet::SweepArc()
     };
     // The few things a blade can strike (IsTargetable), found directly rather than through a collision channel.
     UWorld* World = Character->GetWorld();
-    for (TActorIterator<AFoxHunter> It(World); It; ++It) Consider(*It);
-    for (TActorIterator<ASwordDummy> It(World); It; ++It) Consider(*It);
-    for (TActorIterator<AWandererCharacter> It(World); It; ++It) Consider(*It);
+    for (TActorIterator<AFoxHunter> It(World); It && Character->GetActionSerial() == SwingSerial; ++It) Consider(*It);
+    for (TActorIterator<ASwordDummy> It(World); It && Character->GetActionSerial() == SwingSerial; ++It) Consider(*It);
+    for (TActorIterator<AWandererCharacter> It(World); It && Character->GetActionSerial() == SwingSerial; ++It) Consider(*It);
 }
 
 float UAdventureMoveSet::BladeLength() const
@@ -473,9 +492,20 @@ int32 UAdventureMoveSet::IncomingStrike(AActor* Source, float Damage, const FVec
     AYorimichiCombatFX* FX = AYorimichiCombatFX::Get(Character);
     const FVector Here = Character->GetActorLocation();
     const FVector Toward = (From - Here).GetSafeNormal2D();
-    // The parry, shield or sword: the strike bounces off and the striker staggers.
-    if (DefenceOverride.IsSet() ? DefenceOverride.GetValue() == EJapanDefence::Parry : (Now && IsParry(Name) && Now->InWindow(Now->Guard, SourceTime())))
+    const float Guardable = GetParam(TEXT("GuardableAngle"), 120.f) * .5f;
+    const bool Facing = (Character->GetActorForwardVector() | Toward) >= FMath::Cos(FMath::DegreesToRadians(Guardable));
+    const bool Perfect = Now && IsParry(Name) && ParriedActionSerial != Character->GetActionSerial() &&
+        Now->Guard.ContainsByPredicate([&](const FVector2f& W)
+        {
+            return SourceTime() >= W.X && SourceTime() <= W.Y &&
+                SourceTime() <= W.X + SwordCombat::PerfectParrySeconds * Character->GetActionPlayRate();
+        });
+    // A committed, directional perfect parry deflects one contact. Late presses still meet held guard.
+    if (DefenceOverride.IsSet() ? DefenceOverride.GetValue() == EJapanDefence::Parry :
+        (Perfect && Facing && bArmed && !bDown && GuardBroken <= 0.f && Mode == EAdventureMoveMode::Ground))
     {
+        ParriedActionSerial = Character->GetActionSerial();
+        Pressure.Parry(Character->GetWorld()->GetTimeSeconds());
         ++ParryCount;
         const bool NetworkParry = JapanCombat::Publish(Character, EJapanCombatCue::Parry, GuardPoint(), Toward, (!HasShield() && Has(TEXT("SwordParry"))) ? 1.f : 0.f, Character, Source);
         if (FX && !NetworkParry)
@@ -498,7 +528,7 @@ int32 UAdventureMoveSet::IncomingStrike(AActor* Source, float Damage, const FVec
     if (DefenceOverride.IsSet() ? (DefenceOverride.GetValue() == EJapanDefence::Dodge || DefenceOverride.GetValue() == EJapanDefence::PerfectDodge) : (IsHop(Name) && Invulnerable > 0.f))
     {
         ++DodgeCount;
-        if ((DefenceOverride.IsSet() ? DefenceOverride.GetValue() == EJapanDefence::PerfectDodge : JustAvoid > 0.f) && (bArmed || Has(TEXT("DrawSword"))) && Has(TEXT("Flurry")))
+        if (!(Source && Source->IsA<ARoninProjectile>()) && (DefenceOverride.IsSet() ? DefenceOverride.GetValue() == EJapanDefence::PerfectDodge : JustAvoid > 0.f) && (bArmed || Has(TEXT("DrawSword"))) && Has(TEXT("Flurry")))
         {
             FAdventureMovementReaction Reaction;
             Reaction.Flags = FAdventureMovementReaction::PerfectDodge | FAdventureMovementReaction::ClearHop;
@@ -528,12 +558,11 @@ int32 UAdventureMoveSet::IncomingStrike(AActor* Source, float Damage, const FVec
     }
     if (bDown || (DefenceOverride.IsSet() ? DefenceOverride.GetValue() == EJapanDefence::Recovering : (Invulnerable > 0.f || InFlurry()))) return 3;
     // Guarding with the shield toward the strike: absorbed, pushed back a little.
-    const float Guardable = GetParam(TEXT("GuardableAngle"), 120.f) * .5f;
     if (DefenceOverride.IsSet() ? DefenceOverride.GetValue() == EJapanDefence::Guard : (IsGuarding() && Mode == EAdventureMoveMode::Ground && (Character->GetActorForwardVector() | Toward) >= FMath::Cos(FMath::DegreesToRadians(Guardable))))
     {
         const float Side = Character->GetActorRotation().UnrotateVector(From - Here).Y;
         // A heavy blow (a full charge, full power) breaks the guard: the arms thrown wide, the guard down for a moment.
-        if (Damage >= GetParam(TEXT("GuardBreakDamage"), 25.f))
+        if (Pressure.Block(Damage, Character->GetWorld()->GetTimeSeconds(), GetParam(TEXT("GuardBreakDamage"), 25.f)))
         {
             const FName Break = !HasShield() && Has(TEXT("SwordGuardBreak")) ? FName(TEXT("SwordGuardBreak")) : FName(TEXT("GuardBreak"));
             FAdventureMovementReaction Reaction;
@@ -572,6 +601,12 @@ int32 UAdventureMoveSet::IncomingStrike(AActor* Source, float Damage, const FVec
     return 0;
 }
 
+float UAdventureMoveSet::GuardPressure() const
+{
+    if (!Character) return 0.f;
+    return Character->HasAuthority() ? Pressure.At(Character->GetWorld()->GetTimeSeconds()) : Character->GetNetworkGuardPressure();
+}
+
 FVector UAdventureMoveSet::GuardPoint() const
 {
     if (HasShield())
@@ -591,7 +626,7 @@ void UAdventureMoveSet::Deflected(AActor* By)
     // Thrown back off the guard: freeze the resolved direction, never the actor.
     const FVector Away = By ? FVector((Character->GetActorLocation() - By->GetActorLocation()).GetSafeNormal2D()) : -Character->GetActorForwardVector();
     FreezeReactionAction(Reaction, Has(TEXT("HitMF")) ? FName(TEXT("HitMF")) : FName(TEXT("HitF")), .04f);
-    Reaction.Impulse = Away * 320.f;
+    Reaction.Impulse = Away * 170.f; // Leave the deflected opponent within counterattack reach.
     FreezeReactionFlinch(Reaction, Away, 16.f, .08f, 0.f);
     SubmitMovementReaction(Reaction);
 }
@@ -642,7 +677,7 @@ void UAdventureMoveSet::TakeHit(float Damage, const FVector& From, bool bHeavy, 
     Sword->Health = FMath::Max(0.f, Sword->Health - Damage);
     FAdventureMovementReaction Reaction;
     Reaction.Flags = FAdventureMovementReaction::ClearHop | FAdventureMovementReaction::Immunity;
-    Reaction.Invulnerable = FAdventureMovementReaction::HitImmunitySeconds;
+    Reaction.Invulnerable = Character->IsNpc() ? SwordCombat::NpcHitImmunitySeconds : FAdventureMovementReaction::HitImmunitySeconds;
     ON_SCOPE_EXIT { SubmitMovementReaction(Reaction); };
     const bool bKnock = bHeavy || Sword->Health <= 0.f;
     if (!Character->IsNpc())
