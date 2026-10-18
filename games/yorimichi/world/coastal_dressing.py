@@ -184,6 +184,9 @@ def integrate(world, heightmap):
     # The world generator has just written this final grid. Keep the public
     # sampler on that same grid while locating the new coastal features.
     layout.H = heightmap
+    # The city's street profile starts where this world's road ends. world.json is written only after this
+    # step, so a fresh build has none to read yet, and an incremental one would read the previous road.
+    layout.street_height.start = max(world['road'], key=lambda q: q[0])[:2]
     n = len(heightmap)
 
     def ground(x, y):

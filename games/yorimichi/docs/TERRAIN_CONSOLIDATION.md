@@ -36,6 +36,15 @@ prove geometric continuity between duplicated vertices or separate owners.
 Degenerate, downward and vertical faces are reported separately. No automatic
 welding, triangulation, ownership selection or tolerance repair happens here.
 
+The next regional fixture, `tests/fixtures/terrain-sheet-r8.json`, captures a
+bounded call through the shipped `earthworks.sheet` path. It freezes ordered
+triangles and vertices together with RGBA (including the cleared snow mask),
+interpolated authored normals and an unrelated named field. It also records
+unchanged input arrays and the original-object no-line fallback. The generating
+earthworks source was checked byte-for-byte against r8; the fixture is not a
+production sheet or a proof of regional border continuity. This protects the
+attribute evaluation order before extracting the foothills/apron owner.
+
 The retained final FarHills export is recorded in
 `tests/fixtures/terrain-r8-production.json`. It is an observational witness with
 source/artifact provenance, explicit coordinate conversion and ordered hashes.
@@ -58,7 +67,7 @@ change requires an explicit behavior review and a separately named baseline.
 | Owner/layer | Current authority and final geometry | Current queries/consumers |
 | --- | --- | --- |
 | Fine main ground | `gen_world.py` heightmap, then `build_terrain.py` grid | Spawn/road placement, world map, Terrain export/import |
-| FarHills | `farhills_grid`, `shorelines.grid_mesh`, then conforming `earthworks.polygons`; `world.farhills` publishes ordered natural/final products | Export reads the verified final product; crown placement still reconstructs selected cells separately |
+| FarHills | `farhills_grid`, `shorelines.grid_mesh`, then conforming `earthworks.polygons`; `world.farhills` publishes ordered natural/final products | Export and owned crown support read the verified final product |
 | Hidamari city | `hidamari/layout.py`, city terrain meshes | City grading, roads, forest placement, HD_Terrain export and desktop tiles |
 | Foothills and apron | `hidamari/mountains.py` sheets and earthworks | North height/approach sampling and independent mountain exports |
 | Belmonte authored ground | Committed source triangles in `belmonte/source.py` | Triangle-indexed map/placement queries, authored terrain exports |
@@ -97,6 +106,15 @@ regenerate these geometry products. The city module's static import closure
 remains conservative and includes some appearance definitions; this phase
 does not exclude reachable source reads or claim all appearance invalidation
 has been separated.
+
+The crown-query increment makes `world.hidamari` read the final product before
+city generation. Only the existing owned-crown support correction uses the
+shared triangle query: its centre and four two-metre offsets retain the same
+finite-difference slope, keep/resize decisions and scaled root embedding.
+Original eligibility, RNG and overlap decisions remain earlier in the producer;
+unrelated rows and the initial analytical ground filter are unchanged. Missing
+final support fails instead of reconstructing a private surface. Geometric
+face normals are available from the API but do not replace placement slopes.
 
 The atlas signature and map recipe include the extracted geometry helpers.
 `map/atlas/coasts/extraction-equivalence.json` records exact original/extracted
