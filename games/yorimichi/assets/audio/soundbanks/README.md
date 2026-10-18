@@ -70,3 +70,16 @@ NumPy. A native consumer must recheck the plan and actual media, require current
 build certification, import bounded inline PCM assets, and publish a verified
 runtime registry. The plan itself neither imports packages nor installs or
 selects a bank.
+
+The normal `unreal.soundbanks` step consumes the checked import plan in two bounded
+editor invocations. The first preflights all media before rebuilding only
+`/Game/AudioBanks`, saves mono 48 kHz PCM/ForceInline waves and hard-reference data
+assets, and records a candidate with actual saved-package checksums. The second
+starts a fresh editor, repeats admission, verifies those unchanged packages and
+all loaded references, then publishes the registry. `data.stage` carries that
+registry into `Data/Soundbanks`; the owned packages are included in cooking and
+preserved by content cleanup. A candidate receipt is never runtime metadata.
+
+This import increment does not install a menu selector or activate an alternative.
+Native execution, audible playback, client ownership, saved preferences and cooked
+package acceptance remain required for the first Original/Dry Street menu slice.
