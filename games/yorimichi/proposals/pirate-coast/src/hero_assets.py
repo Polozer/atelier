@@ -50,8 +50,15 @@ def add_hero_assets(collection):
     if statue:
         placed.append(_place(statue, collection, L.STATUE[0], L.STATUE[1], 12.0, 0.0, 1.0))
         bpy.data.objects.remove(statue, do_unlink=True)
+    # The Tripo hero hull under each moored galleon's procedural rig: keel a third of the hull below the sea.
+    hull = _import('galleon-hull')
+    if hull:
+        depth = max(v.co.z for v in hull.data.vertices) * 0.24
+        for name, x, y, yaw, scale, sails in L.SHIPS:
+            placed.append(_place(hull, collection, x, y, -0.35 - depth * scale, yaw, scale))
+        bpy.data.objects.remove(hull, do_unlink=True)
     # Two carved figureheads on the moored galleons.
-    figurehead = _import('galleon-figurehead')
+    figurehead = None if hull else _import('galleon-figurehead')  # the Tripo hull carries its own mermaid
     if figurehead:
         for name, x, y, yaw, scale, sails in L.SHIPS[:2]:
             # The carving brackets onto the stem and leans forward under the
@@ -75,7 +82,7 @@ def add_hero_assets(collection):
         for x, y, yaw in ((8, -24, 0), (238, -50, 34)):
             placed.append(_place(capstan, collection, x, y, 5.35, yaw, 1.0))
         bpy.data.objects.remove(capstan, do_unlink=True)
-    wheel = _import('ships-wheel')
+    wheel = None if hull else _import('ships-wheel')  # the Tripo hull has its own deck furniture
     if wheel:
         # The central galleon's stern deck.
         name, x, y, yaw, scale, sails = L.SHIPS[0]

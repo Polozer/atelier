@@ -16,6 +16,8 @@ ASSETS = Path(__file__).resolve().parents[1] / 'assets' / 'models'
 HAS_STATUE = (ASSETS / 'pirate-queen-statue.glb').exists()
 HAS_FIGUREHEAD = (ASSETS / 'galleon-figurehead.glb').exists()
 HAS_WHEEL = (ASSETS / 'ships-wheel.glb').exists()
+# The Tripo hero hull (galleon_hull.py) replaces the lofted hull; the rig stays procedural.
+HAS_HULL = (ASSETS / 'galleon-hull.glb').exists()
 
 
 def jag_point(p):
@@ -1008,87 +1010,88 @@ def ship(b, x, y, z, yaw, scale=1.0, sails=True, unfinished=False, canvas='sail_
         (12.0, 7.4, 0.9, 8.9), (20.0, 6.0, 1.7, 8.5), (26.0, 4.0, 2.9, 7.8),
         (30.0, 1.2, 4.6, 6.8),
     ]
-    # Hull shell in four horizontal bands.  The upper bands pull inward for
-    # tumblehome; the wale is a darker band with a proud rubbing strake.
-    bands = ((0.24, 0.72, 0.0, 2.5, 'wood_dark'), (0.72, 1.0, 2.5, 4.7, 'hull'),
-             (1.0, 0.94, 4.7, 6.6, 'hull'), (0.94, 0.82, 6.6, 8.6, 'wood_light'))
-    for i in range(len(stations) - 1):
-        y0, w0, k0, g0 = stations[i]
-        y1, w1, k1, g1 = stations[i + 1]
+    if not (HAS_HULL and not unfinished):
+        # Hull shell in four horizontal bands.  The upper bands pull inward for
+        # tumblehome; the wale is a darker band with a proud rubbing strake.
+        bands = ((0.24, 0.72, 0.0, 2.5, 'wood_dark'), (0.72, 1.0, 2.5, 4.7, 'hull'),
+                 (1.0, 0.94, 4.7, 6.6, 'hull'), (0.94, 0.82, 6.6, 8.6, 'wood_light'))
+        for i in range(len(stations) - 1):
+            y0, w0, k0, g0 = stations[i]
+            y1, w1, k1, g1 = stations[i + 1]
+            for side in (-1, 1):
+                for fa, fb, za, zb, mat in bands:
+                    zz0 = k0 + (g0 - k0) * za / 8.6 if za else k0
+                    zz1 = k1 + (g1 - k1) * za / 8.6 if za else k1
+                    a = T(side * w0 * fa, y0, zz0)
+                    bb = T(side * w1 * fa, y1, zz1)
+                    c = T(side * w1 * fb, y1, k1 + (g1 - k1) * zb / 8.6)
+                    d = T(side * w0 * fb, y0, k0 + (g0 - k0) * zb / 8.6)
+                    b.quad(a, bb, c, d, mat)
+                # Proud wale and a row of iron nail heads.
+                b.beam(T(side * w0 * 1.01, y0, 4.8), T(side * w1 * 1.01, y1, 4.8), 0.20, 'wood_dark')
+                b.beam(T(side * w0 * 0.96, y0, 6.55), T(side * w1 * 0.96, y1, 6.55), 0.10, 'metal')
+                # Gun ports and cannon muzzles on the lower gun deck.
+                for yy in (y0 + 2.0, y0 + 7.0):
+                    if yy < y1:
+                        px, py = local(x, y, yaw, side * (w0 + 0.1) * scale, yy * scale)
+                        slot = py + 0.0
+                        b.box((px, slot, z + 5.7 * scale), (0.35 * scale, 1.4 * scale, 0.9 * scale), 'glass', yaw)
+                        b.cylinder((px, slot, z + 5.7 * scale),
+                                   T(side * (w0 + 1.5), yy, 5.7), 0.20 * scale, 'metal', 7)
+        # Deck planking, keel and deck beams.
+        for i in range(len(stations) - 1):
+            y0, w0, _, _ = stations[i]
+            y1, w1, _, _ = stations[i + 1]
+            b.quad(T(-w0 * 0.94, y0, 4.7), T(w0 * 0.94, y0, 4.7),
+                   T(w1 * 0.94, y1, 4.7), T(-w1 * 0.94, y1, 4.7), 'deck_planks')
+            b.beam(T(-w0 * 0.92, y0, 4.55), T(w0 * 0.92, y0, 4.55), 0.16, 'wood_dark')
+        b.beam(T(0, -32, 1.1), T(0, 30, 1.1), 0.7, 'wood_dark')
+        # Transom, stern galleries and the raised cabin.
+        b.quad(T(-2.3, -32.1, 4.4), T(2.3, -32.1, 4.4), T(2.7, -32.1, 8.7), T(-2.7, -32.1, 8.7), 'wood')
         for side in (-1, 1):
-            for fa, fb, za, zb, mat in bands:
-                zz0 = k0 + (g0 - k0) * za / 8.6 if za else k0
-                zz1 = k1 + (g1 - k1) * za / 8.6 if za else k1
-                a = T(side * w0 * fa, y0, zz0)
-                bb = T(side * w1 * fa, y1, zz1)
-                c = T(side * w1 * fb, y1, k1 + (g1 - k1) * zb / 8.6)
-                d = T(side * w0 * fb, y0, k0 + (g0 - k0) * zb / 8.6)
-                b.quad(a, bb, c, d, mat)
-            # Proud wale and a row of iron nail heads.
-            b.beam(T(side * w0 * 1.01, y0, 4.8), T(side * w1 * 1.01, y1, 4.8), 0.20, 'wood_dark')
-            b.beam(T(side * w0 * 0.96, y0, 6.55), T(side * w1 * 0.96, y1, 6.55), 0.10, 'metal')
-            # Gun ports and cannon muzzles on the lower gun deck.
-            for yy in (y0 + 2.0, y0 + 7.0):
-                if yy < y1:
-                    px, py = local(x, y, yaw, side * (w0 + 0.1) * scale, yy * scale)
-                    slot = py + 0.0
-                    b.box((px, slot, z + 5.7 * scale), (0.35 * scale, 1.4 * scale, 0.9 * scale), 'glass', yaw)
-                    b.cylinder((px, slot, z + 5.7 * scale),
-                               T(side * (w0 + 1.5), yy, 5.7), 0.20 * scale, 'metal', 7)
-    # Deck planking, keel and deck beams.
-    for i in range(len(stations) - 1):
-        y0, w0, _, _ = stations[i]
-        y1, w1, _, _ = stations[i + 1]
-        b.quad(T(-w0 * 0.94, y0, 4.7), T(w0 * 0.94, y0, 4.7),
-               T(w1 * 0.94, y1, 4.7), T(-w1 * 0.94, y1, 4.7), 'deck_planks')
-        b.beam(T(-w0 * 0.92, y0, 4.55), T(w0 * 0.92, y0, 4.55), 0.16, 'wood_dark')
-    b.beam(T(0, -32, 1.1), T(0, 30, 1.1), 0.7, 'wood_dark')
-    # Transom, stern galleries and the raised cabin.
-    b.quad(T(-2.3, -32.1, 4.4), T(2.3, -32.1, 4.4), T(2.7, -32.1, 8.7), T(-2.7, -32.1, 8.7), 'wood')
-    for side in (-1, 1):
-        b.box(T(side * 2.5, -32.4, 9.3), (0.32, 0.32, 0.52), 'lantern')
-        b.beam(T(side * 2.5, -32.4, 9.56), T(side * 2.5, -32.4, 9.9), 0.03, 'metal')
-    box(0, -24.0, 7.0, 11.0, 12.0, 3.2, 'wood')
-    box(0, -24.0, 9.0, 12.0, 13.0, 0.35, 'wood_dark')
-    for side in (-1, 1):
-        for yy in (-29.0, -26.0, -23.0, -20.0, -17.0):
-            box(side * 5.1, yy, 7.8, 0.18, 1.15, 1.25, 'glass_warm')
-            box(side * 5.2, yy, 6.65, 0.22, 1.4, 0.16, 'gold')
-        # Stern gallery rail and brackets.
-        b.beam(T(side * 5.4, -30.0, 9.25), T(side * 5.4, -15.0, 9.25), 0.12, 'wood_dark')
-        for yy in (-29, -25, -21, -17):
-            b.beam(T(side * 5.4, yy, 8.9), T(side * 5.4, yy, 10.1), 0.10, 'wood')
-    # Forecastle deck and its rail.
-    box(0, 22.0, 6.65, 10.0, 9.0, 3.2, 'wood')
-    box(0, 22.0, 8.15, 10.2, 9.2, 0.25, 'wood_dark')
-    for side in (-1, 1):
-        for yy in (18, 21, 24, 27):
-            b.beam(T(side * 4.8, yy, 8.2), T(side * 4.8, yy, 9.25), 0.10, 'wood')
-        b.beam(T(side * 4.8, 18.0, 9.2), T(side * 4.8, 27.0, 9.2), 0.13, 'wood_dark')
-    # Bowsprit, stem and a carved figurehead block (a TRELLIS figurehead is
-    # loaded over this when the asset is present).
-    b.beam(T(0, 29, 7.6), T(0, 44, 12.4), 0.38, 'wood_dark')
-    b.beam(T(0, 29, 7.6), T(0, 39, 9.6), 0.18, 'metal')
-    if not HAS_FIGUREHEAD:
-        b.sphere(T(0, 43.2, 11.8), 1.05, 'gold', (0.75, 1.4, 0.8), subdiv=0)
-        b.sphere(T(0, 45.0, 12.6), 0.55, 'gold', (0.7, 1.1, 0.7), subdiv=0)
-    # Deck furniture: hatch, capstan, ship's boat and a wheel.
-    box(0, 6.0, 5.0, 6.0, 5.0, 0.35, 'wood_dark')
-    box(0, 6.0, 5.2, 5.2, 4.2, 0.25, 'wood_light')
-    b.cylinder(T(0, 12, 4.8), T(0, 12, 6.4), 0.85, 'wood', 10, radius_b=0.65)
-    b.beam(T(-2.2, 12, 5.9), T(2.2, 12, 5.9), 0.16, 'wood_dark')
-    b.beam(T(0, 9.8, 5.9), T(0, 14.2, 5.9), 0.16, 'wood_dark')
-    box(0, -10.0, 5.15, 4.8, 7.2, 0.6, 'wood_light')
-    if not HAS_WHEEL:
-        b.ring(T(0, -16.5, 6.3), 1.05, 0.10, 'wood', axis='x', sides=12)
-        for i in range(8):
-            a = i * TAU / 8
-            b.beam(T(0, -16.5, 6.3), T(math.cos(a) * 1.1, -16.5, 6.3 + math.sin(a) * 1.1), 0.06, 'wood')
-    # Fenders and a pair of anchors stowed at the bow.
-    for yy in (-18, -2, 14):
-        b.cylinder(T(8.1, yy, 5.4), T(8.1, yy, 8.2), 0.34, 'rope', 7)
-    for side in (-1, 1):
-        b.ring(T(side * 3.4, 26.0, 5.8), 0.8, 0.12, 'metal', axis='x', sides=10)
+            b.box(T(side * 2.5, -32.4, 9.3), (0.32, 0.32, 0.52), 'lantern')
+            b.beam(T(side * 2.5, -32.4, 9.56), T(side * 2.5, -32.4, 9.9), 0.03, 'metal')
+        box(0, -24.0, 7.0, 11.0, 12.0, 3.2, 'wood')
+        box(0, -24.0, 9.0, 12.0, 13.0, 0.35, 'wood_dark')
+        for side in (-1, 1):
+            for yy in (-29.0, -26.0, -23.0, -20.0, -17.0):
+                box(side * 5.1, yy, 7.8, 0.18, 1.15, 1.25, 'glass_warm')
+                box(side * 5.2, yy, 6.65, 0.22, 1.4, 0.16, 'gold')
+            # Stern gallery rail and brackets.
+            b.beam(T(side * 5.4, -30.0, 9.25), T(side * 5.4, -15.0, 9.25), 0.12, 'wood_dark')
+            for yy in (-29, -25, -21, -17):
+                b.beam(T(side * 5.4, yy, 8.9), T(side * 5.4, yy, 10.1), 0.10, 'wood')
+        # Forecastle deck and its rail.
+        box(0, 22.0, 6.65, 10.0, 9.0, 3.2, 'wood')
+        box(0, 22.0, 8.15, 10.2, 9.2, 0.25, 'wood_dark')
+        for side in (-1, 1):
+            for yy in (18, 21, 24, 27):
+                b.beam(T(side * 4.8, yy, 8.2), T(side * 4.8, yy, 9.25), 0.10, 'wood')
+            b.beam(T(side * 4.8, 18.0, 9.2), T(side * 4.8, 27.0, 9.2), 0.13, 'wood_dark')
+        # Bowsprit, stem and a carved figurehead block (a TRELLIS figurehead is
+        # loaded over this when the asset is present).
+        b.beam(T(0, 29, 7.6), T(0, 44, 12.4), 0.38, 'wood_dark')
+        b.beam(T(0, 29, 7.6), T(0, 39, 9.6), 0.18, 'metal')
+        if not HAS_FIGUREHEAD:
+            b.sphere(T(0, 43.2, 11.8), 1.05, 'gold', (0.75, 1.4, 0.8), subdiv=0)
+            b.sphere(T(0, 45.0, 12.6), 0.55, 'gold', (0.7, 1.1, 0.7), subdiv=0)
+        # Deck furniture: hatch, capstan, ship's boat and a wheel.
+        box(0, 6.0, 5.0, 6.0, 5.0, 0.35, 'wood_dark')
+        box(0, 6.0, 5.2, 5.2, 4.2, 0.25, 'wood_light')
+        b.cylinder(T(0, 12, 4.8), T(0, 12, 6.4), 0.85, 'wood', 10, radius_b=0.65)
+        b.beam(T(-2.2, 12, 5.9), T(2.2, 12, 5.9), 0.16, 'wood_dark')
+        b.beam(T(0, 9.8, 5.9), T(0, 14.2, 5.9), 0.16, 'wood_dark')
+        box(0, -10.0, 5.15, 4.8, 7.2, 0.6, 'wood_light')
+        if not HAS_WHEEL:
+            b.ring(T(0, -16.5, 6.3), 1.05, 0.10, 'wood', axis='x', sides=12)
+            for i in range(8):
+                a = i * TAU / 8
+                b.beam(T(0, -16.5, 6.3), T(math.cos(a) * 1.1, -16.5, 6.3 + math.sin(a) * 1.1), 0.06, 'wood')
+        # Fenders and a pair of anchors stowed at the bow.
+        for yy in (-18, -2, 14):
+            b.cylinder(T(8.1, yy, 5.4), T(8.1, yy, 8.2), 0.34, 'rope', 7)
+        for side in (-1, 1):
+            b.ring(T(side * 3.4, 26.0, 5.8), 0.8, 0.12, 'metal', axis='x', sides=10)
     if unfinished:
         # Exposed ribs and staging make the shipyard hull read as work in progress.
         for y0, w0, k0, g0 in stations:
