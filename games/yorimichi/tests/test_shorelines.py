@@ -426,6 +426,53 @@ def test_initial_inserted_knots_keep_original_parent_breaklines(monkeypatch):
         np.testing.assert_allclose(S.sample_grid_mesh(xs,ys,z,qx,qy,step=step,shape=lambda x,y,base:base,parents=parents),expected,atol=2e-10)
 
 
+def test_rail_lattice_edges_conform_to_the_neighboring_coastal_grid(monkeypatch):
+    from belmonte.source import Surface
+    monkeypatch.setattr(S,'field',lambda x,y:(np.zeros_like(x),np.zeros_like(x)))
+    xs,ys=np.array([0.,100.,170.]),np.array([0.,80.,140.])
+    z=np.array([[0.,4.,7.],[3.,12.,8.],[5.,10.,2.]])
+    shape=lambda x,y,b:b+.001*y*y+.0003*x*x
+    parents=(xs,ys,z);refinement={(0,0):7}
+    v,f=S.grid_mesh(xs,ys,z,step=40.,shape=shape,parents=parents,parent_refinement=refinement)
+    p=np.asarray(v);tri=np.array([(f[0],f[k],f[k+1]) for f in f for k in range(1,len(f)-1)])
+    assert (np.cross(p[tri[:,1]]-p[tri[:,0]],p[tri[:,2]]-p[tri[:,0]])[:,2]>1e-10).all()
+    for axis,value,lo,hi in [(0,100.,0.,80.),(1,80.,0.,100.)]:
+        left=p[tri][np.max(p[tri][:,:,axis],axis=1)<=value+1e-9]
+        right=p[tri][np.min(p[tri][:,:,axis],axis=1)>=value-1e-9]
+        t=np.linspace(lo+.01,hi-.01,123);q=np.full_like(t,value)
+        a,b=(q,t) if axis==0 else (t,q)
+        np.testing.assert_allclose(Surface(left).height(a,b),Surface(right).height(a,b),atol=1e-10)
+    x,y=np.array([21.,99.,101.,55.]),np.array([15.,51.,51.,81.])
+    np.testing.assert_allclose(S.sample_grid_mesh(xs,ys,z,x,y,step=40.,shape=shape,parents=parents,parent_refinement=refinement),Surface(p[tri]).height(x,y),atol=1e-10)
+
+
+def test_original_rail_planner_prevents_the_observed_open_track_burial(monkeypatch):
+    from hidamari import forest_backdrop as F
+    from train import earthworks as E
+    from belmonte.source import Surface
+    # Actual original parent cell around committed s4780. Other coastal faces
+    # reproduce the global density statistic that buried this open-track point.
+    xs=np.array([2458.9473684210525,2526.315789473684])
+    ys=np.array([2324.210526315789,2391.578947368421])
+    z=np.array([[241.8931884765625,241.39047241210938],[238.57815551757812,237.49505615234375]])
+    monkeypatch.setattr(F,'source_grid',lambda **kwargs:(xs,ys,z))
+    monkeypatch.setattr(S,'field',lambda x,y:(np.full_like(x,2000.),np.zeros_like(x)))
+    F.rail_refinement.cache_clear()
+    try:refinement=F.rail_refinement()
+    finally:F.rail_refinement.cache_clear()
+    assert refinement[(0,0)]>=20
+    results=[]
+    for density in [None,refinement]:
+        v,f=S.grid_mesh(xs,ys,z,shape=lambda x,y,b:b,parents=(xs,ys,z),parent_refinement=density)
+        k=len(v);v.extend([(1250.,300.,35.),(1272.,300.,35.),(1250.,322.,35.)])
+        f.extend([(k,k+1,k+2)]*40)
+        v,f,_=E.polygons(v,f,4.)
+        results.append(float(Surface(np.asarray(v)[np.asarray(f)]).height(2487.02,2381.92)))
+    rail=213.87
+    assert results[0]>rail+.5
+    assert results[1]<rail-.5
+
+
 def test_country_landform_starts_after_the_existing_south_join():
     from belmonte import layout
     x=np.linspace(1575.,layout.BOUNDS[2]+layout.APRON,121);y=np.full_like(x,layout.SOUTH_JOIN)

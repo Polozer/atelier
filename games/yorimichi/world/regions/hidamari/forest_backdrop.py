@@ -4,6 +4,7 @@ Only appends instances. Existing terrain, mountain, buildings and paths are
 unchanged. Detailed forest crowns use matching distant LODs.
 """
 import math
+from functools import lru_cache
 from forest.specs import MODEL_BY_KIND
 
 import numpy as np
@@ -47,6 +48,31 @@ def mesh_grid(fine_count, *, city=True):
     xs=np.unique(np.r_[axis,-300.,300.,1420.]);ys=np.unique(np.r_[axis,fine_y,-300.,300.,500.])
     xx,yy=np.meshgrid(xs,ys)
     return xs,ys,B.grid_height(axis,axis,grid,xx,yy)
+
+
+@lru_cache(maxsize=2)
+def rail_refinement(*,city=True):
+    """@cc [owner:fontanierh,label:correctness] original-grid-railway-sampling
+    Derive rail-adjacent parent sampling from the original production earthworks
+    planner, before coastal faces can change its mesh-wide density statistic.
+    Export and owned placement MUST use the same lattice on immutable generator
+    inputs. Shared earthworks defaults and the committed alignment stay unchanged.
+    """
+    from train import earthworks as E
+    line=E.line()
+    if line is None:return {}
+    xs,ys,z=source_grid(city=city);x,y=np.meshgrid(xs,ys);width=len(xs)
+    vertices=np.stack([x,y,z],-1).reshape(-1,3)
+    faces=[(j*width+i,j*width+i+1,(j+1)*width+i+1,(j+1)*width+i)
+           for j in range(len(ys)-1) for i in range(len(xs)-1)]
+    _,_,report=E.polygons(vertices.tolist(),faces,4.,hidden=mountains.contains)
+    n=report.get('subdivision',1)
+    ax,ay=np.meshgrid(xs[:-1],ys[:-1]);bx,by=np.meshgrid(xs[1:],ys[1:])
+    near=np.zeros(ax.shape,bool)
+    for u,v in [(0.,0.),(1.,0.),(0.,1.),(1.,1.),(.5,.5),(2/3,1/3),(1/3,2/3)]:
+        s,_,_=line.project(ax+(bx-ax)*u,ay+(by-ay)*v)
+        near|=np.isfinite(s.reshape(ax.shape))
+    return {(int(i),int(j)):n for j,i in zip(*np.nonzero(near))}
 
 
 def ground(x,y,height,backdrop_grid,terrain_axes,north_height):
@@ -142,7 +168,7 @@ def append(instances,buildings,height,backdrop_grid,terrain_axes,north_height,ro
         # earthworks'120m reach even at neighboring source-cell corners.
         grid=mesh_grid(len(np.load(yori.OUT/'heightmap.npy')))
         samples=shorelines.sample_grid_mesh(*grid,np.r_[px,px+2.,px-2.,px,px],
-            np.r_[py,py,py,py+2.,py-2.],shape=final_shape,parents=source_grid()).reshape(5,-1)
+            np.r_[py,py,py,py+2.,py-2.],shape=final_shape,parents=source_grid(),parent_refinement=rail_refinement()).reshape(5,-1)
         crown_ground=samples[0]
         slope[crown]=np.hypot((samples[1]-samples[2])/4.,(samples[3]-samples[4])/4.)
     keep,resize=coastal_surface.forest_crowns(x,y,z,slope)

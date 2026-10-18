@@ -471,7 +471,7 @@ def sea_mesh(radius=24000.):
     return vertices,faces
 
 
-def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height, parents=None):
+def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height, parents=None, parent_refinement=None):
     """@cc [owner:fontanierh,label:correctness] coastal-planting-triangle-support
     Sample the same refined polygons and fan diagonals as grid_mesh and the
     terrain exporter. Do not evaluate the nonlinear shape at the query itself.
@@ -487,7 +487,7 @@ def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height, parents=None):
     keys=iy*(len(xs)-1)+ix
     for key in np.unique(keys):
         mask=keys==key;j,i=divmod(int(key),len(xs)-1)
-        vertices,faces=grid_mesh(xs[i:i+2],ys[j:j+2],z[j:j+2,i:i+2],step=step,shape=shape,parents=parents)
+        vertices,faces=grid_mesh(xs[i:i+2],ys[j:j+2],z[j:j+2,i:i+2],step=step,shape=shape,parents=parents,parent_refinement=parent_refinement)
         triangles=np.asarray(vertices)[np.asarray([(p[0],p[k],p[k+1]) for p in faces for k in range(1,len(p)-1)])]
         a,b,c=np.moveaxis(triangles,1,0)
         den=(b[:,1]-c[:,1])*(a[:,0]-c[:,0])+(c[:,0]-b[:,0])*(a[:,1]-c[:,1])
@@ -500,7 +500,7 @@ def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height, parents=None):
     return out.reshape(size)
 
 
-def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None):
+def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None, parent_refinement=None):
     """@cc [owner:fontanierh,label:correctness] coastal-parent-triangle-topology
     Refined faces MUST preserve the original parent a-c breakline, including
     initial inserted knots and asymmetric x/y subdivision counts. With parents,
@@ -514,6 +514,8 @@ def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None):
     xs, ys, z = np.asarray(xs), np.asarray(ys), np.asarray(z)
     if parents is not None:
         source_x,source_y,source_z=map(np.asarray,parents)
+    if parent_refinement and parents is None:
+        raise ValueError('Railway parent refinement requires original parents')
     vertices, faces = [], []
     for j, (ay, by) in enumerate(zip(ys[:-1], ys[1:])):
         for i, (ax, bx) in enumerate(zip(xs[:-1], xs[1:])):
@@ -535,18 +537,34 @@ def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None):
                 if ax<px0-1e-9 or bx>px1+1e-9 or ay<py0-1e-9 or by>py1+1e-9:
                     raise ValueError('Inserted grid cell crosses an original parent boundary')
                 a,b,c,d=source_z[pj,pi],source_z[pj,pi+1],source_z[pj+1,pi+1],source_z[pj+1,pi]
+            lattice=(parent_refinement or {}).get((pi,pj),0) if parents is not None else 0
+            if lattice:
+                # Keep the original railway planner's parent sampling lattice,
+                # independently of the number of newly refined coastal faces.
+                q=np.linspace(0.,1.,lattice+1)
+                xx=px0+(px1-px0)*q;yy=py0+(py1-py0)*q
+                xx=np.unique(np.r_[ax,xx[(xx>ax+1e-9)&(xx<bx-1e-9)],bx])
+                yy=np.unique(np.r_[ay,yy[(yy>ay+1e-9)&(yy<by-1e-9)],by])
+                nx,ny=len(xx)-1,len(yy)-1
+                x,y=np.meshgrid(xx,yy);u,v=(x-ax)/(bx-ax),(y-ay)/(by-ay)
             aligned=(ax==px0 and bx==px1 and ay==py0 and by==py1)
             pu,pv=(u,v) if aligned else ((x-px0)/(px1-px0),(y-py0)/(py1-py0))
             base = np.where(pu>=pv,a+pu*(b-a)+pv*(c-b),a+pu*(c-d)+pv*(d-a))
             h = shape(x, y, base)
             first = len(vertices)
             vertices.extend(np.stack((x, y, h), -1).reshape(-1, 3).tolist())
+            face_start=len(faces)
+            def finish_edges():
+                if not parent_refinement:return
+                _join_parent_lattice_edges(vertices,faces,face_start,(ax,bx,ay,by),
+                    (px0,px1,py0,py1,a,b,c,d),parents,parent_refinement,step,shape)
             signs=pu-pv
             if (nx == ny and aligned) or signs.min()>=-1e-12 or signs.max()<=1e-12:
                 # Every diagonal-crossing child already uses the parent a-c.
                 faces.extend((first+k*(nx+1)+l, first+k*(nx+1)+l+1,
                               first+(k+1)*(nx+1)+l+1, first+(k+1)*(nx+1)+l)
                              for k in range(ny) for l in range(nx))
+                finish_edges()
                 continue
             # Clip at ORIGINAL parent U=V, also when an inserted boundary
             # cuts that diagonal before the local refinement begins.
@@ -560,8 +578,9 @@ def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None):
             for t, zz in zip(knots, dz):
                 qx,qy=px0+(px1-px0)*t,py0+(py1-py0)*t
                 lu,lv=(qx-ax)/(bx-ax),(qy-ay)/(by-ay)
-                l,k=round(lu*nx),round(lv*ny)
-                if abs(l/nx-lu) < 1e-12 and abs(k/ny-lv) < 1e-12:
+                l,k=(int(np.argmin(abs(x[0]-qx))),int(np.argmin(abs(y[:,0]-qy)))) if lattice else (round(lu*nx),round(lv*ny))
+                matches=(abs(x[0,l]-qx)<1e-9 and abs(y[k,0]-qy)<1e-9) if lattice else (abs(l/nx-lu)<1e-12 and abs(k/ny-lv)<1e-12)
+                if matches:
                     index = first+k*(nx+1)+l
                 else:
                     index = len(vertices)
@@ -595,4 +614,49 @@ def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None):
                             faces.append(tuple(polygon))
                         else:
                             faces.extend((polygon[0], polygon[q], polygon[q+1]) for q in range(1, len(polygon)-1))
+            finish_edges()
     return vertices, faces
+
+
+def _join_parent_lattice_edges(vertices,faces,start,bounds,parent,parents,refinement,step,shape):
+    """Conform shared cell edges without propagating a rail grid across the island."""
+    ax,bx,ay,by=bounds;px0,px1,py0,py1,a,b,c,d=parent
+    sx,sy,_=parents
+    def density(x,y):
+        if x<sx[0] or x>sx[-1] or y<sy[0] or y>sy[-1]:return 0
+        i=int(np.clip(np.searchsorted(sx,x)-1,0,len(sx)-2));j=int(np.clip(np.searchsorted(sy,y)-1,0,len(sy)-2))
+        return refinement.get((i,j),0)
+    own=density((ax+bx)/2.,(ay+by)/2.);edges={}
+    for axis,value,lo,hi,outer,pa,pb in [
+        (0,ax,ay,by,(ax-1e-6,(ay+by)/2.),py0,py1),
+        (0,bx,ay,by,(bx+1e-6,(ay+by)/2.),py0,py1),
+        (1,ay,ax,bx,((ax+bx)/2.,ay-1e-6),px0,px1),
+        (1,by,ax,bx,((ax+bx)/2.,by+1e-6),px0,px1)]:
+        n=max(own,density(*outer))
+        if not n:continue
+        knots=pa+(pb-pa)*np.linspace(0.,1.,n+1)
+        knots=np.unique(np.r_[knots,np.linspace(lo,hi,math.ceil((hi-lo)/step)+1)])
+        edges[axis,value]=knots[(knots>lo+1e-9)&(knots<hi-1e-9)]
+    if not edges:return
+    lookup={tuple(np.round(vertices[i][:2],10)):i for f in faces[start:] for i in f}
+    def point(x,y):
+        key=tuple(np.round([x,y],10))
+        if key not in lookup:
+            u,v=(x-px0)/(px1-px0),(y-py0)/(py1-py0)
+            z=a+u*(b-a)+v*(c-b) if u>=v else a+u*(c-d)+v*(d-a)
+            lookup[key]=len(vertices);vertices.append((float(x),float(y),float(shape(x,y,z))))
+        return lookup[key]
+    result=[]
+    for face in faces[start:]:
+        polygon=[]
+        for p,q in zip(face,face[1:]+face[:1]):
+            polygon.append(p);vp,vq=vertices[p],vertices[q]
+            for (axis,value),knots in edges.items():
+                if abs(vp[axis]-value)>1e-9 or abs(vq[axis]-value)>1e-9:continue
+                lo,hi=sorted([vp[1-axis],vq[1-axis]]);selected=knots[(knots>lo+1e-9)&(knots<hi-1e-9)]
+                for t in selected[::1 if vq[1-axis]>vp[1-axis] else -1]:
+                    polygon.append(point(value,t) if axis==0 else point(t,value))
+        if len(polygon)==len(face):result.append(face);continue
+        x,y=np.asarray([vertices[i][:2] for i in face]).mean(0);centre=point(x,y)
+        result.extend((centre,p,q) for p,q in zip(polygon,polygon[1:]+polygon[:1]))
+    faces[start:]=result
