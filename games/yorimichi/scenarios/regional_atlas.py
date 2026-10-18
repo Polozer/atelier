@@ -19,7 +19,7 @@ DESTINATIONS = {'spawn', 'hamlet', 'mega', 'fishing', 'cove', 'landing', 'temple
                 'plaza', 'harbor', 'hillside', 'park', 'station', 'foothills', 'forest_lake', 'megapark',
                 'craterpark', 'skatepier', 'hippodrome', 'ronin_camp', 'zeppelin_forest', 'zeppelin_city',
                 'zeppelin_megapark', 'zeppelin_belmonte', 'belmonte', 'belmonte_course', 'belmonte_training',
-                'hidamari_station', 'belmonte_station'}
+                'hidamari_station', 'belmonte_station', 'belmonte_salon'}
 REGION_STOPS = dict(momiji_coast='spawn', momiji_woods='hamlet', hidamari='plaza', temple_island='temple',
                     northern_foothills='megapark', volcanic_highlands='craterpark', haras_valley='belmonte')
 
@@ -117,6 +117,8 @@ def main():
         record('all_seven_regions', set(regions) == REGIONS, regions)
         keys = value('list(m.get_atlas_zone_keys("world"))')
         record('complete_destination_registry', DESTINATIONS <= set(keys), keys)
+        record('salon_classified_haras_valley', value('"belmonte_salon" in list(m.get_atlas_zone_keys("haras_valley"))'),
+               value('list(m.get_atlas_zone_keys("haras_valley"))'))
         # Exercise each existing resolver, including special camp, train and
         # Crater Park paths. Region selection never supplies travel coordinates.
         for key in keys:

@@ -29,6 +29,7 @@ def test_all_current_destination_families_keep_their_travel_identity():
         'zeppelin_forest': (-199, 221), 'zeppelin_city': (1279, 299), 'zeppelin_megapark': (-194, 1475),
         'zeppelin_belmonte': (416, 4651), 'belmonte': (550, 4482), 'belmonte_course': (385, 4855),
         'belmonte_training': (230, 5160), 'hidamari_station': (1184, 335), 'belmonte_station': (1375, 4375),
+        'belmonte_salon': (617.8, 4806.8),
         'marker_custom': (5000, 8000),
     }
     zones = [dict(key=k, name=k, x=x, y=y, z=21.5, yaw=92., hint='same resolver') for k, (x, y) in positions.items()]
@@ -45,6 +46,19 @@ def test_all_current_destination_families_keep_their_travel_identity():
             b = next(r['bounds'] for r in result['regions'] if r['key'] == new['region'])
             assert b[0] <= new['x'] <= b[2] and b[1] <= new['y'] <= b[3]
     assert zones[-1]['region'] == 'world'
+
+
+def test_indoor_salon_keeps_its_landing_trace_when_added_to_haras_valley():
+    import sys
+    sys.path.insert(0, str(GAME / 'world'))
+    from belmonte.build import map_zones
+    zones = map_zones(241.)
+    before = copy.deepcopy(zones)
+    atlas.metadata(zones, source())
+    salon = next(z for z in zones if z['key'] == 'belmonte_salon')
+    assert salon['region'] == 'haras_valley'
+    assert salon['above_m'] == 1.5
+    assert [{k: v for k, v in z.items() if k != 'region'} for z in zones] == before
 
 
 def test_stable_identity_and_coordinates_do_not_depend_on_display_names():
