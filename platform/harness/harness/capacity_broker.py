@@ -720,13 +720,13 @@ class CapacityBroker:
 
     def _report_compatibility_failure(self, state, error, *, phase):
         """@cc [owner:fontanierh,label:safety] compatibility-failure-evidence
-        Compatibility failures MUST record a redacted reason, wall/monotonic time and activation,
+        Compatibility failures MUST attempt to record a redacted reason, wall/monotonic time and activation,
         epoch and affected request identities without changing refusal, charges or recovery rules.
         Request identity lists MUST be bounded, with the total affected count retained.
         """
-        from atelier.harness.capacity_compat_diagnostics import failure_reason
-        affected = sorted(key for key, record in state['records'].items() if record['state'] in HELD)
         try:
+            from atelier.harness.capacity_compat_diagnostics import failure_reason
+            affected = sorted(key for key, record in state['records'].items() if record['state'] in HELD)
             print('capacity compatibility failure: ' + json.dumps(dict(
                 phase=phase, reason=failure_reason(error), error_type=type(error).__name__,
                 errno=error.errno if isinstance(error, OSError) else None,
@@ -734,8 +734,8 @@ class CapacityBroker:
                 activation_id=self.activation_id, boot_id=self.boot,
                 affected_request_ids=affected[:32], affected_request_count=len(affected))),
                 file=sys.stderr, flush=True)
-        except OSError:
-            pass  # Broken diagnostic output must not affect enforcement.
+        except Exception:
+            pass  # Diagnostic/import/serialization failures cannot affect enforcement.
 
     def _compatibility_proof(self):
         from atelier.harness import capacity_compat
@@ -751,10 +751,10 @@ class CapacityBroker:
                 raise wire.CapacityError('Capacity activation changed')
         except (OSError, ValueError, wire.CapacityError) as error:
             self.compatible = False
-            self._report_compatibility_failure(state, error, phase='admission')
             retained = [record for record in state['records'].values() if record['state'] in HELD]
             for record in retained:
                 record['state'] = 'uncertain'
+            self._report_compatibility_failure(state, error, phase='admission')
             raise wire.CapacityError('Full-capacity compatibility changed before admission; charges retained') from None
 
     def _gate_close(self, nonce):

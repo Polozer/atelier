@@ -88,13 +88,40 @@ def test_activation_mismatch_is_logged_and_keeps_the_grant_uncertain(capsys):
     assert message['affected_request_ids'] == ['held']
 
 
-def test_broken_diagnostic_output_does_not_change_refusal_or_retention(monkeypatch):
+@pytest.mark.parametrize('error_type', [BrokenPipeError, ValueError, TypeError, ImportError])
+@pytest.mark.parametrize('phase', ['refresh', 'admission'])
+def test_broken_diagnostic_output_does_not_change_refusal_or_retention(monkeypatch, error_type, phase):
     broker = instance(wire.CapacityError('Capacity lane changed during verification'))
     record = dict(state='running', heartbeat=123.0, roster=[])
     state = dict(epoch=20, records={'held': record})
     def broken(*args, **kwargs):
-        raise BrokenPipeError('unavailable diagnostic sink')
+        raise error_type('unavailable diagnostic sink')
     monkeypatch.setattr('builtins.print', broken)
+    if phase == 'admission':
+        with pytest.raises(wire.CapacityError, match='compatibility changed'):
+            broker._validate_compatibility(state)
+    else:
+        assert broker._refresh(state, 123.0)
+    assert not broker.compatible
+    assert record['state'] == 'uncertain'
+
+
+@pytest.mark.parametrize('failure_point', ['import', 'serialize'])
+def test_diagnostic_setup_failure_cannot_keep_a_grant_running(monkeypatch, failure_point):
+    import builtins
+    broker = instance(wire.CapacityError('Capacity lane changed during verification'))
+    record = dict(state='running', heartbeat=123.0, roster=[])
+    state = dict(epoch=20, records={'held': record})
+    if failure_point == 'import':
+        original_import = builtins.__import__
+        def failing_import(name, *args, **kwargs):
+            if name == 'atelier.harness.capacity_compat_diagnostics':
+                raise ImportError('diagnostic module unavailable')
+            return original_import(name, *args, **kwargs)
+        monkeypatch.setattr(builtins, '__import__', failing_import)
+    else:
+        monkeypatch.setattr('atelier.harness.capacity_broker.json.dumps',
+                            lambda *args, **kwargs: (_ for _ in ()).throw(TypeError('not serializable')))
     with pytest.raises(wire.CapacityError, match='compatibility changed'):
         broker._validate_compatibility(state)
     assert not broker.compatible
