@@ -86,3 +86,22 @@ def test_new_rock_anchors_are_beneath_both_nonplanar_quad_diagonals():
     actual=D.shoulder_quad_floor(2.,7.,11.,-2.,u,v)
     assert (actual<=ac).all() and (actual<=bd).all()
     np.testing.assert_array_equal(actual,np.minimum(ac,bd))
+
+
+def test_city_street_starts_at_this_worlds_road_not_a_stale_or_missing_world_json(tmp_path, monkeypatch):
+    # gen_world dresses the coast before it writes world.json: a clean build directory has none, and an incremental
+    # one holds the previous world's road. The city street profile must start at the road being generated.
+    import json
+    from hidamari import layout
+    import train.corridor
+    monkeypatch.setattr(yori, 'OUT', tmp_path)
+    monkeypatch.delattr(layout.street_height, 'start', raising=False)
+    monkeypatch.setattr(D, 'placements', lambda ground: {})
+    monkeypatch.setattr(D, 'append_shoulders', lambda objects, ground: None)
+    monkeypatch.setattr(train.corridor, 'clear_instances', lambda objects: None)
+    world = {'road': [[-300., -99., 8.], [295., 82., 21.], [120., 40., 15.]], 'instances': {}}
+    D.integrate(world, np.zeros((64, 64), np.float32))
+    assert list(layout.street_height.start) == [295., 82.]
+    (tmp_path / 'world.json').write_text(json.dumps({'road': [[290., 70., 20.]]}))
+    D.integrate(world, np.zeros((64, 64), np.float32))
+    assert list(layout.street_height.start) == [295., 82.]
