@@ -13,6 +13,7 @@ try{
   await page.route('http://map.test/**',async route=>{
    const path=new URL(route.request().url()).pathname;
    if(path==='/client.js')return route.fulfill({contentType:'text/javascript',body:`import {createMap} from '/map.js';window.travels=[];const map=createMap({send:m=>{if(m.action==='map')map.receive(${JSON.stringify(data)});else window.travels.push(m);}});map.open(true);`});
+   if(path.startsWith('/map/atlas/'))return route.fulfill({contentType:'image/png',body:await fs.readFile(new URL(path.slice(1),BUILD))});
    const files={'/':'index.html','/style.css':'style.css','/map.js':'map.js','/map/map.jpg':new URL('map/map.jpg',BUILD).href};
    if(!files[path])return route.fulfill({status:404,body:''});
    const contentType=path.endsWith('.css')?'text/css':path.endsWith('.js')?'text/javascript':path.endsWith('.jpg')?'image/jpeg':'text/html';
@@ -50,7 +51,8 @@ try{
   await page.locator('#map-whole').tap();
   const sheet=page.locator('#map-canvas');
   const shape=await sheet.boundingBox();
-  if(Math.abs(shape.width/shape.height-1.5)>.01)throw Error('Map aspect distorted');
+  const bounds=data.atlas?.world.bounds,aspect=bounds?(bounds[2]-bounds[0])/(bounds[3]-bounds[1]):1.5;
+  if(Math.abs(shape.width/shape.height-aspect)>.01)throw Error('Map aspect distorted');
   await page.locator('#map-plus').tap();
   if(Number(await page.locator('#map-frame').getAttribute('data-zoom'))<=1)throw Error('Zoom button failed');
   const pinError=await page.locator('.map-pin').first().evaluate(el=>{const r=el.getBoundingClientRect(),c=document.getElementById('map-canvas').getBoundingClientRect();return Math.hypot(r.x+r.width/2-c.x-parseFloat(el.style.left)/100*c.width,r.y+r.height/2-c.y-parseFloat(el.style.top)/100*c.height);});

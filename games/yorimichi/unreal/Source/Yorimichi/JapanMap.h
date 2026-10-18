@@ -9,6 +9,33 @@ class UTexture2D;
 class SWidget;
 class SEditableTextBox;
 class FJapanMarkers;
+class FJapanAtlasNames;
+class FJsonObject;
+
+struct FJapanAtlasFrame
+{
+    FString Key, Name;
+    FBox2D Bounds;
+    FVector2D LabelPosition = FVector2D::ZeroVector;
+    TArray<FVector2D> Polygon;
+    FLinearColor Colour = FLinearColor(.65f,.6f,.4f);
+    FSlateBrush Brush;
+};
+
+struct FJapanAtlasLandmark
+{
+    FString Key, Name, Region, Category;
+    FVector Location = FVector::ZeroVector;
+    bool bEditable = false;
+};
+
+struct FJapanAtlasTarget
+{
+    FString Key, Name, Hint, Category, Region;
+    FVector Location = FVector::ZeroVector;
+    bool bTravel = false, bEditable = false;
+    FVector Link = FVector::ZeroVector;
+};
 
 /** A place the player can travel to from the map. Positions are Unreal centimetres, yaw is Unreal degrees. */
 struct FJapanMapZone
@@ -63,6 +90,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Map|Review") bool ReviewMarkerBarKey(const FString& Key);
     /** One key press or release through Slate's normal routing (the focused widget, else the game viewport). */
     UFUNCTION(BlueprintCallable, Category = "Map|Review") bool ReviewSlateKey(const FString& Key, bool bPressed);
+    /** Send an actual Slate gamepad axis event to the focused map widget. */
+    UFUNCTION(BlueprintCallable, Category = "Map|Review") bool ReviewSlateAnalog(const FString& Key, float Value);
+    /** Read the real rendered controller selection, zoom and pan for native acceptance. */
+    UFUNCTION(BlueprintPure, Category = "Map|Review") FString ReviewAtlasController() const;
     UFUNCTION(BlueprintPure, Category = "Map") bool IsMapOpen() const { return IsOpen(); }
     void CycleMarker(int32 Direction);
     bool IsEditingMarkerName() const;
@@ -79,11 +110,43 @@ public:
     FString GetImageFile() const { return ImageFile; }
     const TArray<FVector2D>& GetProjectionX() const { return ProjectionX; }
     const TArray<FVector2D>& GetProjectionY() const { return ProjectionY; }
+    const TArray<FJapanAtlasFrame>& GetAtlasRegions() const { return AtlasRegions; }
+    const FJapanAtlasFrame* GetAtlasFrame(const FString& Key) const;
+    const FSlateBrush* GetAtlasBrush() const;
+    FVector2D ToAtlas(const FVector& Location, const FString& Region = FString()) const;
+    TArray<FJapanAtlasTarget> GetAtlasTargets() const;
+    FString RegionForLocation(const FVector& Location) const;
+    FString RegionForZone(const FJapanMapZone& Zone) const;
+    TSharedPtr<FJsonObject> GetAtlasJson() const;
+    UFUNCTION(BlueprintPure, Category="Map|Atlas") FString GetAtlasRegion() const { return ActiveRegion; }
+    UFUNCTION(BlueprintPure, Category="Map|Atlas") FString GetAtlasTitle() const;
+    UFUNCTION(BlueprintPure, Category="Map|Atlas") TArray<FString> GetAtlasRegionKeys() const;
+    UFUNCTION(BlueprintCallable, Category="Map|Atlas") bool SelectAtlasRegion(const FString& Key);
+    UFUNCTION(BlueprintCallable, Category="Map|Atlas") void AtlasBack();
+    UFUNCTION(BlueprintCallable, Category="Map|Atlas") void AtlasCurrentRegion();
+    UFUNCTION(BlueprintPure, Category="Map|Atlas") TArray<FString> GetAtlasZoneKeys(const FString& Region) const;
+    UFUNCTION(BlueprintPure, Category="Map|Atlas") FString GetStableName(const FString& Key) const;
+    UFUNCTION(BlueprintPure, Category="Map|Atlas") FString GetAtlasError() const;
+    UFUNCTION(BlueprintCallable, Category="Map|Atlas") bool RenameStable(const FString& Key, const FString& Name);
+    UFUNCTION(BlueprintCallable, Category="Map|Atlas") bool ResetStableName(const FString& Key);
+    UFUNCTION(BlueprintCallable, Category="Map|Atlas") void SelectStable(const FString& Key);
+    UFUNCTION(BlueprintPure, Category="Map|Atlas") FString GetSelectedStable() const { return SelectedStable; }
+    bool IsEditingMapText() const;
+    FString SearchText;
+    int32 AtlasRevision = 0;
 private:
+    friend class SJapanAtlas;
+
     friend class FRemoteVehiclePresentationTest;
     void RefreshPlayerZones() const;
     UPROPERTY() TObjectPtr<AWandererCharacter> Owner;
     UPROPERTY() TObjectPtr<UTexture2D> Texture;
+    UPROPERTY() TArray<TObjectPtr<UTexture2D>> AtlasTextures;
+    TArray<FJapanAtlasFrame> AtlasRegions;
+    FJapanAtlasFrame WorldFrame;
+    TArray<FJapanAtlasLandmark> AtlasLandmarks;
+    TSharedPtr<FJsonObject> AtlasData;
+    FString ActiveRegion = TEXT("world"), SelectedStable;
     FSlateBrush Brush;
     mutable TArray<FJapanMapZone> Zones;
     TArray<FVector2D> ProjectionX,ProjectionY;
@@ -91,7 +154,10 @@ private:
     TSharedPtr<SWidget> Widget, MarkerBar;
     FString ImageFile;
     TSharedPtr<SEditableTextBox> MarkerName;
+    TSharedPtr<SEditableTextBox> AtlasSearch, StableName;
     FJapanMarkers* MarkerStore() const;
+    FJapanAtlasNames* AtlasNameStore() const;
+    void InitializeAtlas(const TSharedPtr<FJsonObject>& Root, const FString& Dir);
     bool MarkerResult(bool Result);
     bool bLoaded = false;
 };
