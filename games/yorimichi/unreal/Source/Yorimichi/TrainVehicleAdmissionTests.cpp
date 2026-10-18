@@ -1,6 +1,7 @@
 #include "WandererCharacter.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "JapanSession.h"
+#include "JapanSkateNetwork.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/ScopeExit.h"
 #include "Engine/Engine.h"
@@ -38,6 +39,10 @@ bool FTrainVehicleAdmissionTest::RunTest(const FString&)
     Rider->bReady = true;
     Rider->NetworkActivity.Kind = EJapanActivity::OnFoot;
     Rider->NetworkActivity.Epoch = 31;
+    UJapanSkateNetwork* Stream = Rider->NetworkSkate;
+    if (!TestNotNull(TEXT("Owner board transport"), Stream)) return false;
+    Stream->Rider = Rider; // Deferred fixture: exercise the real RPC without running art-dependent BeginPlay.
+    FJapanBoardState Board;
     const TCHAR* Refusal = TEXT("Pas à bord du train");
     auto CheckRefused = [&](const TCHAR* Action, TFunction<void()> Request)
     {
@@ -52,6 +57,14 @@ bool FTrainVehicleAdmissionTest::RunTest(const FString&)
         Rider->bTrainAboard = Flags.X != 0;
         Rider->bTrainDriving = Flags.Y != 0;
         TestFalse(TEXT("Carried boards are unavailable on the train"), Rider->CanCarrySkateBoard());
+        const uint32 Before = Stream->Board.Sequence;
+        ++Board.Sequence; Board.Shown = 1.f;
+        Stream->ServerBoard_Implementation(Board);
+        TestEqual(TEXT("Visible board transport is refused aboard/boarding"), Stream->Board.Sequence, Before);
+        ++Board.Sequence; Board.Shown = 0.f;
+        Stream->ServerBoard_Implementation(Board);
+        TestEqual(TEXT("Hide transport still advances aboard/boarding"), Stream->Board.Sequence, Board.Sequence);
+        TestEqual(TEXT("Accepted hide remains hidden"), Stream->Board.Shown, 0.f);
         CheckRefused(TEXT("Local skateboard"), [&]{ Rider->ToggleSkateboard(FInputActionValue()); });
         CheckRefused(TEXT("Local carried board"), [&]{ Rider->SkateboardHand(FInputActionValue()); });
         CheckRefused(TEXT("Local bike"), [&]{ Rider->ToggleBike(FInputActionValue()); });
@@ -79,6 +92,12 @@ bool FTrainVehicleAdmissionTest::RunTest(const FString&)
     }
     Rider->bTrainAboard = Rider->bTrainDriving = false;
     TestFalse(TEXT("The train gate releases when the rider leaves"), Rider->RefuseVehicleOnTrain());
+    ++Board.Sequence; Board.Shown = 1.f;
+    Stream->ServerBoard_Implementation(Board);
+    TestEqual(TEXT("Visible board transport resumes after leaving"), Stream->Board.Shown, 1.f);
+    --Board.Sequence; Board.Shown = 0.f;
+    Stream->ServerBoard_Implementation(Board);
+    TestEqual(TEXT("Stale transport still cannot replace the accepted board"), Stream->Board.Shown, 1.f);
     return true;
 }
 #endif

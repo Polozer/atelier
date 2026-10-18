@@ -217,6 +217,7 @@ bool UJapanSkateNetwork::ValidPeerFrame(const FJapanSkateFrame& Frame) const
     const auto* Mesh = Rider->GetMesh()->GetSkeletalMeshAsset();
     return Mesh && Frame.Epoch == Rider->GetActivityEpoch() && ValidTransform(Frame.Root) && ValidTransform(Frame.Mesh) && ValidTransform(Frame.Deck) &&
         FMath::IsFinite(Frame.Shown) && Frame.Shown >= 0.f && Frame.Shown <= 1.f &&
+        !(Rider->IsOnTrain() && Frame.Shown > 0.f) &&
         FVector::DistSquared(Frame.Root.GetLocation(), Frame.Mesh.GetLocation()) <= FMath::Square(5000.) &&
         !Frame.Velocity.ContainsNaN() && Frame.Velocity.GetAbsMax() <= 30000. &&
         (Frame.Bones.IsEmpty() || Frame.Bones.Num() == Mesh->GetRefSkeleton().GetNum());
@@ -334,6 +335,7 @@ void UJapanSkateNetwork::ServerBoard_Implementation(const FJapanBoardState& Stat
     const double Now = GetWorld()->GetTimeSeconds();
     if (Now - RateWindow >= 1.) { RateWindow = Now; ReceivedChunks = ReceivedBoards = ReceivedBodyPackets = 0; }
     if (++ReceivedBoards > 90) return;
+    if (Rider->IsOnTrain() && State.Shown > 0.f) return; // Hide/stow updates still advance normally.
     Board = State;
     Board.Time = ArrivalClock.Map(State.Time, GetWorld()->GetRealTimeSeconds());
     OnRep_Board();
@@ -373,7 +375,8 @@ bool UJapanSkateNetwork::ValidBodies(const FJapanSkateBodies& State) const
     if (!Mesh || State.Pose.Epoch != Rider->GetActivityEpoch() || State.Pose.Chunk != 0 ||
         State.Indices.IsEmpty() || State.Indices.Num() > 32 || State.Indices.Num() != State.Pose.Bones.Num() ||
         !ValidTransform(State.Pose.Root) || !ValidTransform(State.Pose.Mesh) || !ValidTransform(State.Pose.Deck) ||
-        !FMath::IsFinite(State.Pose.Shown) || State.Pose.Shown < 0.f || State.Pose.Shown > 1.f) return false;
+        !FMath::IsFinite(State.Pose.Shown) || State.Pose.Shown < 0.f || State.Pose.Shown > 1.f ||
+        (Rider->IsOnTrain() && State.Pose.Shown > 0.f)) return false;
     bool Used[256] = {};
     for (uint8 Index : State.Indices)
     {
