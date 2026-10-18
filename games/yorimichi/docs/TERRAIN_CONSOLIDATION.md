@@ -45,6 +45,23 @@ earthworks source was checked byte-for-byte against r8; the fixture is not a
 production sheet or a proof of regional border continuity. This protects the
 attribute evaluation order before extracting the foothills/apron owner.
 
+`tests/fixtures/terrain-city-r8.json` freezes the existing `HD_Terrain` emitter
+before extracting the city owner. Its function AST was checked against published
+r8. Ordinary Python tests compile just that production function, supply explicit
+bounded height/land-use/water/colour callbacks, and record emitted quads, corner
+colours, palette keys and callback order. The cases retain the coarse-grid carve,
+both existing fine terrace regions (which resample uncarved height), separate
+pond/canal omissions, coastal colouring, the island lawn fade, inset paving and
+the non-city path. They preserve this order rather than endorsing a future
+change to it. Numerical comparisons allow `1e-12`; polygon/key order is exact.
+
+The recording adapter does not reproduce Blender's vertex packing, duplicate
+cleanup, normals or export/import triangulation. These small callback fixtures
+are neither actual city geometry nor a production railway, support or shared-edge
+proof. Full original/extracted production arrays and native adapter parity remain
+separate gates for the subsequent city-product extraction. No production source
+or generated build dependency is introduced by this fixture.
+
 The retained final FarHills export is recorded in
 `tests/fixtures/terrain-r8-production.json`. It is an observational witness with
 source/artifact provenance, explicit coordinate conversion and ordered hashes.
