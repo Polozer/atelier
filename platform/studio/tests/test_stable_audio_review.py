@@ -84,6 +84,144 @@ class AudioReviewTests(unittest.TestCase):
                 review.generate(self.output, self.root, self.root / 'logs')
             child.assert_not_called()
 
+    def completed_library(self):
+        manifest = review.prepare(self.catalog, self.output, self.web)
+        source = self.make_wav()
+        for clip in manifest['clips']:
+            (self.output / clip['file']).write_bytes(source.read_bytes())
+            clip.update(status='ready', audio=review.wav_details(source, 1))
+        review.write_json(self.output / 'manifest.json', manifest)
+        return manifest
+
+    def test_complete_resume_skips_runtime_and_manifest_publication(self):
+        self.completed_library()
+        before = (self.output / 'manifest.json').read_bytes()
+        with patch.object(review, 'validate_runtime', side_effect=AssertionError('runtime accessed')), \
+                patch.object(review, 'write_json', side_effect=AssertionError('manifest rewritten')), \
+                patch.object(review.subprocess, 'Popen', side_effect=AssertionError('inference launched')):
+            review.generate(self.output, self.root / 'absent-runtime', self.root / 'logs')
+        self.assertEqual((self.output / 'manifest.json').read_bytes(), before)
+
+    def test_ready_validation_reads_only_and_rejects_later_corruption(self):
+        manifest = self.completed_library()
+        before = {p.relative_to(self.output): p.read_bytes() for p in self.output.rglob('*') if p.is_file()}
+        with patch.object(review, 'validate_runtime', side_effect=AssertionError('runtime accessed')), \
+                patch.object(review, 'write_json', side_effect=AssertionError('write')), \
+                patch.object(review.subprocess, 'Popen', side_effect=AssertionError('subprocess')):
+            result = review.validate_ready(self.output)
+        self.assertEqual(result['ready'], 2)
+        self.assertEqual(before, {p.relative_to(self.output): p.read_bytes()
+                                 for p in self.output.rglob('*') if p.is_file()})
+        target = self.output / manifest['clips'][-1]['file']
+        target.write_bytes(target.read_bytes()[:-2] + b'\x00\x00')
+        with self.assertRaisesRegex(ValueError, 'Previously generated take changed'):
+            review.validate_ready(self.output)
+
+    def test_ready_validation_caps_bytes_and_requires_complete_library(self):
+        review.prepare(self.catalog, self.output, self.web)
+        with self.assertRaisesRegex(ValueError, 'every take'):
+            review.validate_ready(self.output)
+        self.completed_library()
+        with patch.object(review, 'MAX_VALIDATION_BYTES', 1), \
+                patch.object(review, 'wav_details', side_effect=AssertionError('decoded over budget')):
+            with self.assertRaisesRegex(ValueError, 'total byte budget'):
+                review.validate_ready(self.output)
+
+    def test_ready_validation_rejects_manifest_symlink(self):
+        self.completed_library()
+        path = self.output / 'manifest.json'
+        original = self.root / 'saved-manifest.json'
+        path.rename(original)
+        path.symlink_to(original)
+        with self.assertRaises(OSError):
+            review.validate_ready(self.output)
+
+    def test_ready_validation_detects_manifest_change(self):
+        self.completed_library()
+        path = self.output / 'manifest.json'
+        original = review.wav_details
+        def changed(*args, **kwargs):
+            details = original(*args, **kwargs)
+            path.write_bytes(path.read_bytes() + b' ')
+            return details
+        with patch.object(review, 'wav_details', changed):
+            with self.assertRaisesRegex(ValueError, 'manifest changed'):
+                review.validate_ready(self.output)
+
+    def test_ready_validation_rechecks_earlier_take_after_later_take(self):
+        manifest = self.completed_library()
+        first = self.output / manifest['clips'][0]['file']
+        last = self.output / manifest['clips'][-1]['file']
+        original = review.wav_details
+        def changed(path, seconds, **kwargs):
+            details = original(path, seconds, **kwargs)
+            if path.resolve() == last.resolve():
+                first.write_bytes(first.read_bytes()[:-2] + b'\x00\x00')
+            return details
+        with patch.object(review, 'wav_details', changed):
+            with self.assertRaisesRegex(ValueError, 'WAV changed during library validation'):
+                review.validate_ready(self.output)
+
+    def test_growing_wav_never_reads_past_captured_extent(self):
+        target = self.make_wav()
+        captured = target.stat().st_size
+        original = review._BoundedAudioReader.read
+        positions = []
+        def growing(reader, count=-1):
+            with target.open('ab') as writer:
+                writer.write(b'\0' * 1024)
+            result = original(reader, count)
+            positions.append(reader.tell())
+            return result
+        with patch.object(review._BoundedAudioReader, 'read', growing):
+            with self.assertRaisesRegex(ValueError, 'WAV changed during validation'):
+                review.wav_details(target, 1)
+        self.assertTrue(positions)
+        self.assertLessEqual(max(positions), captured)
+
+    def test_replaced_fifo_path_is_never_reopened(self):
+        target = self.make_wav()
+        original = wave.open
+        def swapped(reader, mode):
+            self.assertIsInstance(reader, review._BoundedAudioReader)
+            target.rename(self.root / 'original.wav')
+            review.os.mkfifo(target)
+            return original(reader, mode)
+        with patch.object(wave, 'open', swapped):
+            with self.assertRaisesRegex(ValueError, 'WAV changed during validation'):
+                review.wav_details(target, 1)
+
+    def test_wav_chunk_cannot_seek_beyond_captured_extent(self):
+        target = self.root / 'oversized-chunk.wav'
+        target.write_bytes(b'RIFF' + (2**30).to_bytes(4, 'little') + b'WAVEJUNK'
+                           + (2**29).to_bytes(4, 'little'))
+        with self.assertRaisesRegex(ValueError, 'chunk exceeds captured size'):
+            review.wav_details(target, 1)
+
+    def test_file_growth_between_bank_budget_and_fd_open_refuses_before_read(self):
+        self.completed_library()
+        original = review.wav_details
+        def grown(path, seconds, **kwargs):
+            with path.open('ab') as writer:
+                writer.write(b'growth')
+            return original(path, seconds, **kwargs)
+        with patch.object(review, 'wav_details', grown), \
+                patch.object(wave, 'open', side_effect=AssertionError('Read exceeded bank budget')):
+            with self.assertRaisesRegex(ValueError, 'file budget'):
+                review.validate_ready(self.output)
+
+    def test_streamed_wav_validation_never_reads_a_complete_large_take(self):
+        target = self.make_wav(frames=44100 * 3)
+        original = wave.Wave_read.readframes
+        sizes = []
+        def read(handle, count):
+            sizes.append(count)
+            return original(handle, count)
+        with patch.object(wave.Wave_read, 'readframes', read):
+            details = review.wav_details(target, 3)
+        self.assertEqual(details['frames'], 44100 * 3)
+        self.assertTrue(len(sizes) > 1 and max(sizes) <= 16384)
+
     def test_server_rejects_logs_directories_traversal_and_symlink_escape(self):
         review.prepare(self.catalog, self.output, self.web)
         (self.output / 'private.log').write_text('private')
