@@ -13,6 +13,7 @@
 #include "LiveLibrary.h"
 #include "MoverCharacter.h"
 #include "PlayableCharacter.h"
+#include "RacingBroadcast.h"
 #include "WandererDefinition.h"
 #include "WandererCharacter.h"
 #include "Animation/AnimSequence.h"
@@ -1019,8 +1020,9 @@ void ARacingService::TickPresentation(float DeltaSeconds)
     const double Now = WorldNow();
     const double T = Now - Race.Start;
     const FRacingCourse* Course = Net.Serial && !Race.Key.IsEmpty() ? GetCourse(ERacingVenue(Race.Venue), Race.Track) : nullptr;
+    // Near the venue, or wherever the player watches the race on a TV (the broadcast camera films the field at the venue).
     const bool bWanted = Course && !Race.Runners.IsEmpty() && T >= -RacingMotion::ParadeSeconds && T <= HRClock::RaceSeconds &&
-        NearCourse(*Course, LocalViewer());
+        (bBroadcastAudience || NearCourse(*Course, LocalViewer()));
     if (!bWanted)
     {
         if (!Shown.IsEmpty()) ClearRunners();
@@ -1089,8 +1091,9 @@ void ARacingService::TickPresentation(float DeltaSeconds)
             if (S.Jockey && Ride) { S.Jockey->SetAnimation(Ride); S.Jockey->SetPlayRate(0.f); }
             S.Gait = Gait;
         }
-        // Off screen the pose waits (OnlyTickPoseWhenRendered); the phase still runs, so it is right when seen again.
-        if (!S.Horse->WasRecentlyRendered(.25f)) continue;
+        // Off screen the pose waits (OnlyTickPoseWhenRendered); the phase still runs, so it is right when seen again. The TVs'
+        // capture draws it too.
+        if (!bBroadcastAudience && !S.Horse->WasRecentlyRendered(.25f)) continue;
         S.Horse->SetPosition(FMath::Min(float(S.Phase) * Length, Length - .001f), false);
         if (S.Jockey && Ride)
         {
@@ -1123,10 +1126,18 @@ FString ARacingService::HudLine(const AWandererCharacter* Pawn) const
     if (Race.Key.IsEmpty())
         return FString::Printf(TEXT("%s   ·   %s%sProchaine réunion dans %s"), *Venue, *Result, Result.IsEmpty() ? TEXT("") : TEXT("   ·   "),
             *RacingLooks::Countdown(Net.NextMeeting - Now));
-    if (ERacingVenue(Race.Venue) != Near)
-        return FString::Printf(TEXT("%s   ·   Aujourd'hui les courses sont à %s : %s dans %s"), *Venue, RacingLooks::VenueName(ERacingVenue(Race.Venue)),
-            *Race.Name, *RacingLooks::Countdown(Race.Start - Now));
     const double T = Now - Race.Start;
+    if (ERacingVenue(Race.Venue) != Near)
+    {
+        // The race is at the other venue: its countdown, live there (on the TVs), then where the field arrived.
+        const TCHAR* There = RacingLooks::VenueName(ERacingVenue(Race.Venue));
+        double Home = 0.;
+        for (const FRacingNetRunner& R : Race.Runners) if (R.Place == 1 && R.SplitMs.Num() == 4) Home = R.SplitMs[3] / 1000.;
+        if (T < 0.)
+            return FString::Printf(TEXT("%s   ·   Aujourd'hui les courses sont à %s : %s dans %s"), *Venue, There, *Race.Name, *RacingLooks::Countdown(-T));
+        if (!Race.bRun || T < Home) return FString::Printf(TEXT("%s   ·   En direct de %s : %s"), *Venue, There, *Race.Name);
+        return FString::Printf(TEXT("%s   ·   %s à %s : arrivée"), *Venue, *Race.Name, There);
+    }
     if (T < 0.)
         return FString::Printf(TEXT("%s   ·   %s%sProchaine course : %s (%d m) — %s"), *Venue, *Result, Result.IsEmpty() ? TEXT("") : TEXT("   ·   "),
             *Race.Name, Race.Distance, *RacingLooks::Countdown(-T));
@@ -1221,4 +1232,16 @@ FVector URacingLive::RacingViewPoint(float Along, float Outwards, float& Yaw)
     const FVector Track = Course->At(Along, (Course->InnerLane + Course->OuterLane) * .5, nullptr);
     Yaw = float(FMath::RadiansToDegrees(FMath::Atan2(Track.Y - View.Y, Track.X - View.X)));
     return View;
+}
+
+FString URacingLive::RacingTvState()
+{
+    const ARacingBroadcast* Broadcast = ARacingBroadcast::Find(ULiveLibrary::GameWorld());
+    return Broadcast ? Broadcast->StateJson() : FString(TEXT("{}"));
+}
+
+bool URacingLive::RacingTvGo(const FString& Spot)
+{
+    ARacingBroadcast* Broadcast = ARacingBroadcast::Find(ULiveLibrary::GameWorld());
+    return Broadcast && Broadcast->GoToScreen(Spot);
 }

@@ -38,6 +38,7 @@
 #include "BelmonteRegion.h"
 #include "ZeppelinService.h"
 #include "BelmonteTrainService.h"
+#include "RacingBroadcast.h"
 #include "RacingService.h"
 #include "BelmonteTrack.h"
 #include "SeeThrough.h"
@@ -677,6 +678,8 @@ void AJapanWorld::Load()
     }
     // The racing world (docs/RACING.md): the host owns it; clients receive the replicated service.
     if (GetNetMode() != NM_Client) ARacingService::Spawn(GetWorld());
+    // Its TVs in Belmonte's osteria and Salon (docs/RACING.md, "TVs"): drawn on every machine that renders, never replicated.
+    if (GetNetMode() != NM_DedicatedServer) ARacingBroadcast::Spawn(GetWorld());
     // The far hills' trees stand on the hills' original heights, but the northern
     // surface and the Mega Park approach lowered that ground. Once every region's
     // ground is in place, drop each backdrop tree with no ground under its base.

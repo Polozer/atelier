@@ -193,6 +193,9 @@ public:
     FString HudLine(const AWandererCharacter* Pawn) const;
     FString StateJson() const;
     int32 NumRunnersShown() const { return Shown.Num(); }
+    /** The racing TVs (ARacingBroadcast) film the race on this machine: the field is shown wherever the player is, and its
+     *  poses are evaluated though the main view does not draw it. */
+    void SetBroadcastAudience(bool bOn) { bBroadcastAudience = bOn; }
     /** A runner's world position and speed (m/s) at world second Time, as every machine computes it. */
     bool RunnerAt(const FRacingNetRace& Race, int32 Index, double Time, FVector& Where, float& Yaw, double& Speed) const;
     /** Loads the Hidamari oval (from the hippodrome actor) and the Belmonte tracks (Data/racing/belmonte_courses.json, round
@@ -261,6 +264,7 @@ private:
     TArray<FShown> Shown;
     FString ShownKey, FailedKey;
     double ShownStart = 0.;
+    bool bBroadcastAudience = false;
 };
 
 /** Live-bridge helpers (atelier live py) for scripted racing checks. */
@@ -277,4 +281,8 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Live") static bool RacingGo(const FString& Venue);
     /** A point beside the race in focus to watch from (world cm), and the yaw facing the track. Zero when none. */
     UFUNCTION(BlueprintCallable, Category = "Live") static FVector RacingViewPoint(float Along, float Outwards, float& Yaw);
+    /** The racing TVs (ARacingBroadcast::StateJson): the screens, the capture, the shot and the frame times, as JSON. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static FString RacingTvState();
+    /** racing.Tv: travels to a TV's watch point ("osteria_front", "osteria_back", "salon_paris", "salon_bar"). */
+    UFUNCTION(BlueprintCallable, Category = "Live") static bool RacingTvGo(const FString& Spot);
 };

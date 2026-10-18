@@ -3,8 +3,8 @@
 Races run in the world on the rules of Yorimichi's `HorseRacing` plugin
 (`unreal/Plugins/HorseRacing`, module `AtelierHorseRacing`): a continuous clock with one race day
 every two real hours and up to six races a day, computer stables, jockeys and Grand Prix days. Yorimichi shows the
-races at two racecourses, the same for every player. There are no bets, stables or menus yet: later work adds TVs,
-betting and player stables.
+races at two racecourses, the same for every player. Four TVs in Belmonte show the races live. There are no bets, stables or menus yet: later work adds betting and player
+stables.
 
 ## The service
 
@@ -42,9 +42,9 @@ and positions computed on every machine from the replicated clock, never replica
 The rules decide a race when it starts (`HRRules::ResolveRace`): each horse's cumulative time at the end of its four
 stages (15, 35, 25 and 25 % of the distance). `RacingMotion::Distance` (`RacingMotion.h`) turns those splits into
 distance over time with a monotone cubic through the stage ends, from a standing start, so every machine draws the same
-race and each horse crosses the line at its official time in its official place. Before the start the field walks the
-last 120 m to the start and stands for 15 s; after the post each horse eases down to a trot until the race leaves the
-focus. Each runner keeps its draw lane (the entries' order) across the track. A two-run Grand Prix race shows the run
+race and each horse crosses the line at its official time in its official place. Before the off the field walks the last
+120 m to the start from 180 s to 125 s before it, then stands lined up there (the TVs' build-up, from 120 s, never
+shows it walking); after the post each horse eases down to a trot until the race leaves the focus. Each runner keeps its draw lane (the entries' order) across the track. A two-run Grand Prix race shows the run
 that counts.
 
 ## Venues
@@ -67,7 +67,7 @@ Belmonte's plan metres, pinned to the venue scene; the finish post is `finish_s`
 
 ## Horses
 
-While a player is within about 600 m of the course of the race in focus (from 120 s before its start to 180 s after),
+While a player is within about 600 m of the course of the race in focus (from 180 s before its start to 180 s after),
 the service shows its field: up to six runners (the rules' `MaxRunners`). Each is three skeletal components moved by the
 service: the roster's breed mesh (`Content/Data/horses/roster.json`) with its coat variant, the first tack set's saddle
 in the stable's colour (the saddle cloth), and a jockey, the default character on his own horse clips (authored on the
@@ -92,6 +92,46 @@ authored height, never on the last traced one; the traced offset follows the aut
 Performance: no runner exists away from the venue, out of the race window or on a dedicated server; the service then
 ticks four times a second. A shown runner evaluates its pose only when rendered.
 
+## TVs
+
+`ARacingBroadcast` (`RacingBroadcast.h/.cpp`) hangs four screens in Belmonte: two in the osteria's taproom on the piazza
+(`osteria_front` on the door wall, `osteria_back` on the back wall) and two in the Salon des Paris (`salon_paris`,
+`salon_bar`). Their places come from Haras Valley's `Data/tv_spots.json`: a pivot on the wall plane at the screen's
+centre, facing its yaw, in Belmonte-local cm. Haras Valley's frame is the region's, so a screen hangs at the region
+origin plus its pivot (the osteria's watch point is its map stop at plan (-30.4, 1.6) m). The screens are 1.4 times
+Haras Valley's 70-inch one (2.17 m of picture); the Salon's bar screen is 1.3 times and 15 cm higher, to stay over the
+mirror's frame. Each is a procedural frame and picture with no collision or shadow; the picture's material is
+`/Game/Racing/M_RacingTv` (`unreal.racing_tv`, `Scripts/racing_tv_material.py`): unlit, it decodes the picture's
+display-encoded colours.
+
+It is presentation only, on every machine that draws (never a dedicated server), from the service's replicated snapshot:
+nothing of its own is replicated. The broadcast camera is a pure function of the race in focus, the shared clock and
+the players' replicated pawns (`RacingTv::Direct`), so every player sees the same shot at the same moment. Until 15 s
+before the off it cuts every 10 s between the whole course from above, the stand, the crowd (the one of three cameras
+along the stand that frames the most players, `RacingTv::CrowdCamera`) and the field lined up at the start, head-on.
+Then: side-on at the start for the off; trackside cameras every 120 m on the infield, the field galloping towards one
+and past it; a view from above in the race's second and third stages; head-on past the post on the home straight
+(from 400 m out); side-on at the line from 70 m out until the last runner is home; a wide shot of the field pulling up.
+The stands are per venue (`RacingTv::VenueShots`). The lower third shows the event, the countdown, the distance left or
+the arrival, and the first three behind their saddle cloths, in large type.
+
+Between races (and away from a race's window, 120 s before its start to 180 s after) the screens show an idle card in
+large type: the venue and distance, the event, the countdown, the three favourites with their odds and the last winner,
+or the next meeting once the day's races are run.
+
+**Performance.** One scene capture films for all four screens into a 480x270 film, 10 times a second (`racing.TvHz`),
+and only while the local player is within 25 m of a screen, in front of it, during a race's window, and while a screen
+near the player was drawn in the last 0.3 s (looking away pauses it). The film and the graphics are drawn into the
+screens' 640x360 picture with a canvas, so the text stays sharp. It renders without Lumen (a post-process override),
+dynamic shadows, reflections, ambient occlusion, volumetric or height fog, clouds, grass, translucency, motion blur,
+bloom, particles, decals or temporal AA, with coarser LODs and nothing beyond 400 m except in the views from above,
+with a little more contrast and colour. Otherwise nothing is captured: the card is redrawn once a second within 40 m of
+a screen, and nothing at all further away. While the capture runs, the service shows the field wherever the race is
+(`ARacingService::SetBroadcastAudience`): a Hidamari race is filmed from Belmonte, and the runners' poses are evaluated
+though the main view does not draw them. The field is the same six runners the service shows near a venue: no proxies
+to keep in step. Each camera's sightline is checked with a trace from its subject against the static world; a blocked
+camera moves in front of the obstacle.
+
 ## HUD
 
 Near a racecourse the HUD shows one line at the top: the next race and its countdown, "Course en cours" while the
@@ -104,19 +144,24 @@ racing.Next [lead s]        # jump to lead seconds (default 100) before the next
 racing.TimeScale 10         # the racing clock ten times faster (host)
 racing.Go hidamari|belmonte # stand by the post of a racecourse
 racing.Save                 # write the world now
+racing.Tv osteria_front     # stand at a TV's watch point (osteria_front, osteria_back, salon_paris, salon_bar)
+racing.TvCapture 0          # keep the TVs' capture off (the idle card only), to measure it
 ```
 
 Launch flags: `-racingnext`, `-racingseed=`, `-racingsave=`. The live bridge has `unreal.RacingLive.racing_state()`
 (JSON: clock, race, each runner's distance, speed and position), `racing_next(lead)`, `racing_go(venue)` and
-`racing_view_point(along, outwards)` (a point by the course and the yaw facing it).
+`racing_view_point(along, outwards)` (a point by the course and the yaw facing it), `racing_tv_state()` (JSON: the screens,
+whether the capture is live, the shot, the nearest screen, frame and GPU times) and `racing_tv_go(spot)`.
 
 ## Tests
 
 `Yorimichi.Racing.*`: `BelmonteCourse` (lap lengths, continuity of every lane, the finish point and the post),
 `HippodromeCourse`, `Motion` (the same distances from the host's world and from a serialised snapshot, monotone, through
-each split on time, places in finishing order), `Snapshot` (size, the venue rule, the last result after a race),
-`Save` (create, save and reload through the service on a temporary path), `SaveSafety` (an invalid save kept aside; one
-that cannot be moved left untouched with no world opened; a failed save keeping the world in memory, then succeeding)
-and `Ground` (walls, rails, roofs and steep slopes ignored, the authored height after a miss). `uv run pytest
+each split on time, places in finishing order, lined up before the off), `Snapshot` (size, the venue rule, the last
+result after a race), `Save` (create, save and reload through the service on a temporary path), `SaveSafety` (an
+invalid save kept aside; one that cannot be moved left untouched with no world opened; a failed save keeping the world
+in memory, then succeeding), `Ground` (walls, rails, roofs and steep slopes ignored, the authored height after a miss), `TvPlacement` (the
+screens round the region origin, the osteria's watch point on its map stop, each watch point in front of its screen) and
+`TvDirector` (the shot list, the crowd camera, the same camera for the same clock, the leader in frame). `uv run pytest
 games/yorimichi/tests/test_racing_courses.py -q` checks the committed course data against the venue and its staging;
 `test_racing_assets.py` the asset validation and its lists against the service's.

@@ -1325,6 +1325,10 @@ def unreal_steps(ctx):
              inputs=[SCRIPTS / 'crater_cloud_material.py', SCRIPTS / 'atmosphere.py', SCRIPTS / 'sea_look.py'], after=['unreal.compile'],
              outputs=[GAME / 'unreal' / 'Content' / 'CraterPark' / 'Cloud' / f'{name}.uasset' for name in ('M_CraterCloud', 'M_CraterCloudVeil')],
              heavy=True, about="the cap cloud's translucent materials, plain and blurring veil (/Game/CraterPark/Cloud)"),
+        Step('unreal.racing_tv', [UnrealScript(SCRIPTS / 'racing_tv_material.py', 'RACING TV MATERIAL COMPLETE')],
+             inputs=[SCRIPTS / 'racing_tv_material.py'], after=['unreal.compile'],
+             outputs=[GAME / 'unreal' / 'Content' / 'Racing' / 'M_RacingTv.uasset'],
+             heavy=True, about="the racing TVs' picture material (/Game/Racing)"),
         Step('unreal.sounds', [
                 UnrealScript(SCRIPTS / 'import_footsteps.py', 'FOOTSTEP IMPORT COMPLETE'),
                 UnrealScript(SCRIPTS / 'import_combat_audio.py', 'COMBAT AUDIO IMPORT COMPLETE'),

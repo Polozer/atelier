@@ -1,5 +1,6 @@
 #include "RacingService.h"
 #if WITH_DEV_AUTOMATION_TESTS
+#include "RacingBroadcast.h"
 #include "AtelierData.h"
 #include "HRClock.h"
 #include "HRRules.h"
@@ -157,6 +158,11 @@ bool FRacingMotionTest::RunTest(const FString&)
         TestTrue(TEXT("Host and client place the runner alike"), bSame);
         TestTrue(TEXT("A runner never runs backwards"), bMonotone);
         TestTrue(TEXT("Standing at the start"), FMath::IsNearlyZero(RacingMotion::Distance(Host, 0.)));
+        // The parade: walking to the start, then lined up and still for the whole TV build-up.
+        double Walking = 0., Still = 1.;
+        TestTrue(TEXT("Walking to the start"), RacingMotion::Distance(Host, -150., &Walking) < 0. && Walking > 1.);
+        for (double T = -RacingTv::WindowSeconds; T < 0.; T += 1.)
+            if (!FMath::IsNearlyZero(RacingMotion::Distance(Host, T, &Still)) || Still != 0.) { AddError(FString::Printf(TEXT("Not lined up at t=%.0f"), T)); break; }
         TestTrue(TEXT("At the post on its finishing time"), FMath::IsNearlyEqual(RacingMotion::Distance(Host, Host.FinishTime()), double(Race.Distance), .01));
         for (int32 K = 0; K < 3; ++K)
             TestTrue(TEXT("Through each stage on its split"),
@@ -334,6 +340,125 @@ bool FRacingGroundTest::RunTest(const FString&)
     TestFalse(TEXT("A slope steeper than 45 degrees is not ground"), RacingGround::Pick({Steep}, 3000., Z));
     const FHit Bank{2990., FVector(.6, 0., .8)};
     TestTrue(TEXT("A banked turn is"), RacingGround::Pick({Bank}, 3000., Z) && Z == 2990.);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRacingTvPlacementTest, "Yorimichi.Racing.TvPlacement",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FRacingTvPlacementTest::RunTest(const FString&)
+{
+    const FVector Origin = RacingTest::BelmonteOrigin;
+    TestEqual(TEXT("Four screens"), RacingTv::Spots().Num(), 4);
+    const int32 Front = RacingTv::FindSpot(TEXT("osteria_front"));
+    if (!TestTrue(TEXT("The osteria's front screen"), Front != INDEX_NONE)) return false;
+    const RacingTv::FSpot& Spot = RacingTv::Spots()[Front];
+    // Haras Valley's frame is the region's: its watch point (-3040, -160) cm is the osteria's map stop, plan (-30.4, 1.6) m.
+    const FVector Watch = Origin + Spot.Watch;
+    TestTrue(FString::Printf(TEXT("The watch point is the osteria stop (%s)"), *Watch.ToString()),
+        Watch.Equals(Origin + FVector(-30.4 * 100., -1.6 * 100., 18.), .5));
+    // The picture stands 11.2 cm off the wall, facing west into the taproom, 2.3 m over the floor.
+    const FTransform Mount = RacingTv::SpotTransform(Spot, Origin);
+    TestTrue(TEXT("Facing west"), Mount.GetRotation().GetForwardVector().Equals(FVector(-1., 0., 0.), 1e-4));
+    TestTrue(TEXT("The picture's centre"), RacingTv::ScreenCentre(Spot, Origin).Equals(Origin + FVector(-2600. - RacingTv::PictureFront * Spot.Scale, -190., 248.), .01));
+    TestTrue(TEXT("1.3 to 1.5 times Haras Valley's screen"), Spot.Scale >= 1.3f && Spot.Scale <= 1.5f);
+    TestTrue(TEXT("2.3 m over the floor"), FMath::IsNearlyEqual(Spot.Pivot.Z - Spot.Watch.Z, 230., .01));
+    for (const RacingTv::FSpot& S : RacingTv::Spots())
+    {
+        // Every watch point is in front of its screen, within the capture's 25 m, and faces it within 50 degrees.
+        const FVector Centre = RacingTv::ScreenCentre(S, Origin), At = Origin + S.Watch;
+        const FVector Facing = FRotator(0.f, S.Yaw, 0.f).Vector();
+        TestTrue(FString::Printf(TEXT("%s: watched from the front"), S.Id), FVector::DotProduct(At - Centre, Facing) > 0.);
+        TestTrue(FString::Printf(TEXT("%s: within 25 m"), S.Id), FVector::Dist(At, Centre) < 2500.);
+        const float ToScreen = float(FMath::RadiansToDegrees(FMath::Atan2(Centre.Y - At.Y, Centre.X - At.X)));
+        TestTrue(FString::Printf(TEXT("%s: the viewer faces it"), S.Id), FMath::Abs(FMath::FindDeltaAngleDegrees(S.WatchYaw, ToScreen)) < 50.f);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRacingTvDirectorTest, "Yorimichi.Racing.TvDirector",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FRacingTvDirectorTest::RunTest(const FString&)
+{
+    // The shot list on its own: the build-up, the start, the race, the line, the field pulling up.
+    using RacingTv::EShot;
+    auto Shot = [](double T, double Run, double FirstHome = 90., double LastHome = 95., bool bStraight = false)
+    {
+        return RacingTv::ChooseShot(T, Run, 1600., FirstHome, LastHome, bStraight);
+    };
+    TestTrue(TEXT("The course from above first"), Shot(-115., 0.) == EShot::Course);
+    TestTrue(TEXT("Then the stand"), Shot(-105., 0.) == EShot::Stands);
+    TestTrue(TEXT("The crowd"), Shot(-95., 0.) == EShot::Crowd);
+    TestTrue(TEXT("The field lined up"), Shot(-85., 0.) == EShot::Lineup);
+    TestTrue(TEXT("Round again"), Shot(-75., 0.) == EShot::Course);
+    TestTrue(TEXT("Start"), Shot(-5., 0.) == EShot::Start && Shot(-14., 0.) == EShot::Start);
+    TestTrue(TEXT("Travelling"), Shot(30., 500.) == EShot::Travelling);
+    TestTrue(TEXT("From above in the second stage"), Shot(25., 400.) == EShot::Aerial);
+    TestTrue(TEXT("and in the third"), Shot(55., 900.) == EShot::Aerial);
+    TestTrue(TEXT("Face on the straight"), Shot(70., 1300., 90., 95., true) == EShot::Face);
+    TestTrue(TEXT("Not before the straight"), Shot(60., 1150., 90., 95., true) == EShot::Travelling);
+    TestTrue(TEXT("Line"), Shot(86., 1540., 90., 95., true) == EShot::Line);
+    TestTrue(TEXT("Line until the last is home"), Shot(98., 1640.) == EShot::Line);
+    TestTrue(TEXT("Finish"), Shot(100., 1660.) == EShot::Finish);
+
+    // A real race at Belmonte: the camera is the same for the same clock (every player sees one picture), the shots come in
+    // order and never go back, and the field is in front of the camera and in frame.
+    RacingTest::FRaceFixture Fixture;
+    if (!Fixture.Make(*this)) return false;
+    ARacingService* Service = NewObject<ARacingService>(GetTransientPackage());
+    FString Error;
+    if (!TestTrue(TEXT("The courses parse: ") + Error, Service->LoadBelmonteCourses(RacingTest::CoursesJson(), RacingTest::BelmonteOrigin, Error))) return false;
+    FRacingNetRace Race = Fixture.Snapshot.Race;
+    Race.Venue = uint8(ERacingVenue::Belmonte);
+    Race.Track = 0;
+    // A player in the stand's last third: the crowd shot frames that part of it.
+    const RacingTv::FVenueShots& Venue = RacingTv::VenueShots(Race.Venue);
+    const FRacingCourse& Course = *Service->GetCourse(ERacingVenue::Belmonte, 0);
+    const TArray<FVector> Players = {Course.At(Venue.StandS + Venue.StandHalf * .6, Venue.StandOut + 4.)};
+    TestEqual(TEXT("The crowd camera finds the player"), RacingTv::CrowdCamera(Course, Venue, Players), 2);
+    TestEqual(TEXT("The middle one with nobody there"), RacingTv::CrowdCamera(Course, Venue, {}), 1);
+    TArray<EShot> Seen;
+    int32 Framed = 0, Samples = 0;
+    for (double T = -RacingTv::WindowSeconds + 1.; T <= HRClock::RaceSeconds; T += .5)
+    {
+        RacingTv::FCamera A, B;
+        if (!TestTrue(TEXT("A camera"), RacingTv::Direct(*Service, Race, Race.Start + T, Players, A))) return false;
+        RacingTv::Direct(*Service, Race, Race.Start + T, Players, B);
+        if (!(A.Eye == B.Eye && A.Aim == B.Aim && A.Fov == B.Fov && A.Shot == B.Shot)) { AddError(FString::Printf(TEXT("Not deterministic at t=%.1f"), T)); return false; }
+        if (Seen.IsEmpty() || Seen.Last() != A.Shot)
+        {
+            // From the start on, the race goes forward: never back to the start, nor from the line to the race.
+            if (!Seen.IsEmpty() && T > 0. && (A.Shot == EShot::Start || (uint8(Seen.Last()) >= uint8(EShot::Line) && uint8(A.Shot) < uint8(Seen.Last()))))
+                AddError(FString::Printf(TEXT("Back from %s to %s at t=%.1f"), RacingTv::ShotName(Seen.Last()), RacingTv::ShotName(A.Shot), T));
+            Seen.Add(A.Shot);
+        }
+        TestTrue(TEXT("A sane field of view"), A.Fov >= 4.f && A.Fov <= 90.f);
+        // The leader in front of the camera, inside the frame.
+        int32 Leader = 0;
+        double Lead = -1e9;
+        for (int32 I = 0; I < Race.Runners.Num(); ++I)
+        {
+            const double D = RacingMotion::Distance(Race.Runners[I].Plan(Race.Distance), T);
+            if (D > Lead) { Lead = D; Leader = I; }
+        }
+        FVector Where;
+        float Yaw = 0.f;
+        double Speed = 0.;
+        Service->RunnerAt(Race, Leader, Race.Start + T, Where, Yaw, Speed);
+        const FVector L = (A.Aim - A.Eye).Rotation().UnrotateVector(Where + FVector(0., 0., 130.) - A.Eye);
+        // The leader is filmed during the race (the build-up films the stands and the paddock too).
+        if (T < 6. || A.Shot == EShot::Aerial) continue;
+        ++Samples;
+        if (L.X > 0. && FMath::RadiansToDegrees(FMath::Atan(FMath::Abs(L.Y) / L.X)) <= A.Fov * .5f) ++Framed;
+    }
+    FString Order;
+    for (const EShot S : Seen) Order += FString(Order.IsEmpty() ? TEXT("") : TEXT(" > ")) + RacingTv::ShotName(S);
+    AddInfo(TEXT("Shots: ") + Order);
+    for (const EShot S : {EShot::Course, EShot::Stands, EShot::Crowd, EShot::Lineup, EShot::Start, EShot::Travelling, EShot::Aerial, EShot::Line, EShot::Finish})
+        TestTrue(FString::Printf(TEXT("The %s shot is used: %s"), RacingTv::ShotName(S), *Order), Seen.Contains(S));
+    // The leader is always in frame but for the line (fixed on the post, the field enters it) and the pull-up (the group).
+    TestTrue(FString::Printf(TEXT("The leader is in frame most of the time (%d of %d)"), Framed, Samples), Framed >= Samples * 3 / 4);
     return true;
 }
 #endif
