@@ -144,6 +144,7 @@ class Builder:
     def gable_roof(self, center, width, depth, z, rise, mat, yaw=0.0, ridge='x', overhang=0.8):
         """Gable roof with deep eaves, ridge along x or y."""
         cx, cy, _ = center
+        start = len(self.verts)
         w, d = width / 2 + overhang, depth / 2 + overhang
         if ridge == 'x':
             e1 = (cx - w, cy - d, z); e2 = (cx + w, cy - d, z)
@@ -179,9 +180,17 @@ class Builder:
             self.beam((cx - w, cy, z + rise), (cx + w, cy, z + rise), 0.22, 'roof_slate')
         else:
             self.beam((cx, cy - d, z + rise), (cx, cy + d, z + rise), 0.22, 'roof_slate')
+        if yaw:
+            a = math.radians(yaw)
+            c, s = math.cos(a), math.sin(a)
+            for i in range(start, len(self.verts)):
+                x, y, zz = self.verts[i]
+                dx, dy = x - cx, y - cy
+                self.verts[i] = (cx + dx * c - dy * s, cy + dx * s + dy * c, zz)
 
     def hip_roof(self, center, width, depth, z, rise, mat, yaw=0.0, overhang=0.8):
         cx, cy, _ = center
+        start = len(self.verts)
         w, d = width / 2 + overhang, depth / 2 + overhang
         e = [(cx - w, cy - d, z), (cx + w, cy - d, z), (cx + w, cy + d, z), (cx - w, cy + d, z)]
         # ridge shorter than the long axis
@@ -199,6 +208,13 @@ class Builder:
             self.tri(e[0], e[1], r1, mat)
             self.tri(e[3], r2, e[2], mat)
             self.beam(r1, r2, 0.2, 'roof_slate')
+        if yaw:
+            a = math.radians(yaw)
+            c, s = math.cos(a), math.sin(a)
+            for i in range(start, len(self.verts)):
+                x, y, zz = self.verts[i]
+                dx, dy = x - cx, y - cy
+                self.verts[i] = (cx + dx * c - dy * s, cy + dx * s + dy * c, zz)
 
     def rope(self, a, b, sag=1.0, radius=0.09, mat='rope', segments=8):
         a = tuple(float(c) for c in a); b = tuple(float(c) for c in b)

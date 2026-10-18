@@ -62,7 +62,8 @@ def make_material(name, hex_color):
         bsdf.inputs['Metallic'].default_value = 0.1
     if name in ('water', 'sail') and name == 'water':
         bsdf.inputs['Alpha'].default_value = 0.78
-        mat.blend_method = 'BLEND'
+        if hasattr(mat, 'blend_method'):
+            mat.blend_method = 'BLEND'
     return mat
 
 
@@ -83,13 +84,13 @@ def make_object(builder, collection, materials):
     index = {name: i for i, name in enumerate(used)}
     mesh = bpy.data.meshes.new(builder.name)
     mesh.from_pydata(builder.verts, [], builder.faces)
-    mesh.validate(verbose=False)
-    mesh.update()
     for name in used:
         mesh.materials.append(materials[name])
     for poly, mat in zip(mesh.polygons, builder.mats):
         poly.material_index = index[mat]
         poly.use_smooth = False
+    mesh.validate(verbose=False)
+    mesh.update()
     bm = bmesh.new()
     bm.from_mesh(mesh)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
@@ -153,7 +154,9 @@ def sea_plane():
     bpy.ops.mesh.primitive_plane_add(size=5000, location=(0, 0, -0.35))
     obj = bpy.context.object
     obj.name = 'REVIEW_Sea'
-    mat = bpy.data.materials.get('water_deep')
+    mat = bpy.data.materials.get('sea')
+    if mat is None:
+        mat = make_material('sea', L.COLORS['sea'])
     obj.data.materials.append(mat)
     return obj
 
@@ -186,14 +189,23 @@ def add_render_objects():
     cam = bpy.data.objects.new('Review camera', cam_data)
     scene.collection.objects.link(cam)
     scene.camera = cam
-    scene.render.engine = 'BLENDER_EEVEE_NEXT'
+    cam.data.clip_end = 6000.0
+    try:
+        scene.render.engine = 'BLENDER_EEVEE_NEXT'
+    except TypeError:
+        # Blender 5.2 dropped the _NEXT suffix from the Eevee engine id.
+        scene.render.engine = 'BLENDER_EEVEE'
     scene.render.resolution_x = 1280
     scene.render.resolution_y = 720
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = 'PNG'
-    scene.eevee.taa_render_samples = 32
+    if hasattr(scene, 'eevee') and hasattr(scene.eevee, 'taa_render_samples'):
+        scene.eevee.taa_render_samples = 32
     scene.view_settings.view_transform = 'AgX'
-    scene.view_settings.look = 'AgX - Punchy'
+    try:
+        scene.view_settings.look = 'AgX - Punchy'
+    except Exception:
+        pass
     scene.view_settings.exposure = 0.25
     return cam, sun, fill, bg
 
@@ -206,33 +218,35 @@ def look_at(cam, location, target, lens=42):
 
 
 VIEWS = {
-    '01-aerial-hero': ((-780, -900, 560), (0, 20, 12), 52, 'day'),
-    '02-harbor-approach': ((0, -380, 9), (0, 64, 14), 42, 'day'),
-    '03-market-square': ((0, 86, 8), (0, 180, 12), 36, 'day'),
-    '04-upper-terrace': ((0, 362, 29), (0, 150, 7), 36, 'day'),
-    '05-lighthouse-headland': ((-560, -120, 68), (-618, -38, 66), 46, 'day'),
-    '06-shipyard': ((300, -235, 22), (388, 98, 14), 46, 'day'),
-    '07-waterfall-bridge': ((405, 158, 44), (488, 88, 25), 48, 'day'),
-    '08-night-harbor': ((0, -380, 9), (0, 64, 14), 42, 'night'),
-    '09-rum-row': ((-120, 70, 8), (-120, 150, 10), 38, 'day'),
-    '10-topdown': ((0, -40, 820), (0, -20, 0), 46, 'day'),
+    '01-aerial-hero': ((-200, -800, 380), (0, 25, 0), 35, 'day'),
+    '02-harbor-approach': ((-90, -420, 34), (-45, 60, 16), 42, 'day'),
+    '03-market-square': ((0, 95, 12), (0, 185, 10), 50, 'day'),
+    '04-upper-terrace': ((0, 380, 54), (0, 120, 6), 45, 'day'),
+    '05-lighthouse-headland': ((-570, -150, 100), (-618, -38, 78), 55, 'day'),
+    '06-shipyard': ((320, -150, 26), (380, 95, 10), 50, 'day'),
+    '07-waterfall-bridge': ((330, -80, 52), (470, 86, 35), 50, 'day'),
+    '08-night-harbor': ((-90, -420, 34), (-45, 60, 16), 42, 'night'),
+    '09-rum-row': ((-320, 65, 9), (-300, 150, 9), 40, 'day'),
+    '10-topdown': ((0, -40, 1580), (0, -20, 0), 52, 'day'),
 }
 
 
-def render_views():
+def render_views(only=()):
     RENDER_OUT.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.open_mainfile(filepath=str(SCENE_OUT / 'brinecove.blend'))
     cam, sun, fill, bg = add_render_objects()
     scene = bpy.context.scene
     files = []
-    for name, (loc, target, lens, mood) in VIEWS.items():
+    views = {k: v for k, v in VIEWS.items() if not only or k in only}
+    for name, (loc, target, lens, mood) in views.items():
         if mood == 'night':
-            bg.inputs['Color'].default_value = (0.035, 0.075, 0.13, 1.0)
-            bg.inputs['Strength'].default_value = 0.6
-            sun.data.energy = 0.35
+            bg.inputs['Color'].default_value = (0.06, 0.11, 0.21, 1.0)
+            bg.inputs['Strength'].default_value = 0.8
+            sun.data.energy = 0.55
             sun.data.color = (0.45, 0.62, 1.0)
-            fill.data.energy = 350
+            fill.data.energy = 700
             fill.data.color = (0.22, 0.35, 0.65)
+            scene.view_settings.exposure = 0.5
             add_night_lights(scene)
         else:
             bg.inputs['Color'].default_value = (0.38, 0.58, 0.73, 1.0)
@@ -241,6 +255,7 @@ def render_views():
             sun.data.color = (1.0, 0.84, 0.62)
             fill.data.energy = 900
             fill.data.color = (0.62, 0.78, 1.0)
+            scene.view_settings.exposure = 0.25
         look_at(cam, loc, target, lens)
         scene.render.filepath = str(RENDER_OUT / f'{name}.png')
         print('rendering', name, flush=True)
@@ -257,7 +272,7 @@ def add_night_lights(scene):
               (-618, -40, 86), (355, 92, 15)]
     for i, (x, y, z) in enumerate(points):
         data = bpy.data.lights.new(f'Lantern {i}', 'POINT')
-        data.energy = 450 if i < 8 else 700
+        data.energy = 900 if i < 8 else 1400
         data.color = (1.0, 0.62, 0.28)
         data.shadow_soft_size = 4.0
         obj = bpy.data.objects.new(f'Lantern {i}', data)
@@ -282,12 +297,24 @@ def sync_viewer():
     refs_dst.mkdir()
     for src in sorted(refs_src.glob('*.png')):
         shutil.copy2(src, refs_dst / src.name)
-    for src in (OUT / 'renders').glob('*.png'):
-        shutil.copy2(src, VIEWER_OUT / src.name)
+    for pattern in ('*.png', '*.jpg'):
+        for src in (OUT / 'renders').glob(pattern):
+            shutil.copy2(src, VIEWER_OUT / src.name)
     models_dst = VIEWER_OUT / 'models'
     if models_dst.exists():
         shutil.rmtree(models_dst)
     shutil.copytree(MODEL_OUT, models_dst)
+    shutil.make_archive(str(VIEWER_OUT / 'brinecove-models'), 'zip', MODEL_OUT)
+    scene_dst = VIEWER_OUT / 'scene'
+    if scene_dst.exists():
+        shutil.rmtree(scene_dst)
+    scene_dst.mkdir()
+    for name in ('brinecove.blend', 'brinecove.glb'):
+        src = SCENE_OUT / name
+        if src.exists():
+            shutil.copy2(src, scene_dst / name)
+    for src in (OUT / 'references').glob('contact-sheet.jpg'):
+        shutil.copy2(src, VIEWER_OUT / src.name)
     (VIEWER_OUT / 'build.json').write_text((OUT / 'build.json').read_text())
     print('viewer payload:', VIEWER_OUT, flush=True)
 
@@ -295,12 +322,13 @@ def sync_viewer():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--stage', choices=('all', 'build', 'render', 'sync'), default='all')
+    ap.add_argument('--view', default='', help='comma-separated render view names')
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     OUT.mkdir(parents=True, exist_ok=True)
     if args.stage in ('all', 'build'):
         build_modules()
     if args.stage in ('all', 'render'):
-        render_views()
+        render_views(tuple(v for v in args.view.split(',') if v))
     if args.stage in ('all', 'sync'):
         sync_viewer()
 

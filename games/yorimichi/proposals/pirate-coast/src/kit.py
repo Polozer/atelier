@@ -155,6 +155,7 @@ def building(b, spec, rng):
         # Front door, windows, awnings and gallery.
         door(b, x, y, yaw, rng.choice((-w * 0.28, 0.0, w * 0.28)), -d / 2 - 0.10, z + 0.02,
              w=1.5 if style != 'shack' else 1.2, h=2.4 if style != 'shack' else 2.1)
+        face_x, face_y = local(x, y, yaw, 0, -d / 2)
         cols = max(2, int(w / 7))
         for f in range(floors):
             zz = z + 2.0 + f * (h - 2.2) / max(1, floors)
@@ -165,9 +166,9 @@ def building(b, spec, rng):
                 window(b, x, y, yaw, lx, -d / 2 - 0.05, zz, 1.15, 1.45,
                        shutters=style != 'shack', warm=(rng.random() < 0.18))
             if style == 'tavern' and f == 1:
-                balcony(b, x, y, yaw, w * 0.72, z + 3.4)
+                balcony(b, face_x, face_y, yaw, w * 0.72, z + 6.2)
             if f == 0 and style in ('shop', 'tavern'):
-                awning(b, x, y, yaw, w * 0.72, z + 3.0, 2.1,
+                awning(b, face_x, face_y, yaw, w * 0.72, z + 3.0, 2.1,
                        ('cream', 'flag_red') if rng.random() < 0.55 else ('cream', 'roof_teal'))
     # Roof chooses a gable or hip silhouette, with ridge direction varied.
     if style == 'warehouse':
@@ -186,7 +187,7 @@ def building(b, spec, rng):
         b.box((px, py, z + h + 2.1), (0.9, 0.9, 2.8), 'stone', yaw)
         b.box((px, py, z + h + 3.55), (1.2, 1.2, 0.25), 'stone_dark', yaw)
     if style in ('tavern', 'shop') and rng.random() < 0.8:
-        sign(b, x, y, yaw, z + 2.8, side=rng.choice((-1, 1)),
+        sign(b, face_x, face_y, yaw, z + 2.8, side=rng.choice((-1, 1)),
              icon=rng.choice(('fish', 'mug', 'wheel', 'fish')))
     # Barrels and crates against the facade make the street feel occupied.
     if style in ('tavern', 'shop', 'house') and rng.random() < 0.55:
@@ -285,9 +286,15 @@ def jungle_tree(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
         length = (2.8 + rng.random() * 1.6) * scale
         end = (x + math.cos(ang) * length, y + math.sin(ang) * length, z + height * (0.55 + 0.08 * i))
         b.beam((x, y, z + height * 0.45), end, 0.24 * scale, 'wood_dark')
+        leaf = rng.choice(('jungle', 'jungle_light', 'jungle_dark'))
+        if rng.random() < 0.08:
+            leaf = rng.choice(('autumn_rust', 'autumn_gold', 'autumn_olive'))
         b.sphere((end[0], end[1], end[2] + 0.7 * scale), (2.6 + rng.random() * 1.3) * scale,
-                 rng.choice(('jungle', 'jungle_light', 'jungle_dark')), (1.0, 0.9, 0.72), subdiv=1)
-    b.sphere((x, y, z + height), 2.6 * scale, rng.choice(('jungle', 'jungle_light')), (1.05, 1.0, 0.7), subdiv=1)
+                 leaf, (1.0, 0.9, 0.72), subdiv=0)
+    leaf = rng.choice(('jungle', 'jungle_light'))
+    if rng.random() < 0.08:
+        leaf = rng.choice(('autumn_rust', 'autumn_gold', 'autumn_olive'))
+    b.sphere((x, y, z + height), 2.6 * scale, leaf, (1.05, 1.0, 0.7), subdiv=0)
 
 
 def bush(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
@@ -296,6 +303,26 @@ def bush(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
         b.sphere((x + rng.uniform(-0.6, 0.6) * scale, y + rng.uniform(-0.6, 0.6) * scale,
                   z + (0.35 + rng.uniform(0, 0.35)) * scale), (0.75 + rng.random() * 0.35) * scale,
                  rng.choice(('jungle', 'jungle_light', 'jungle_dark')), (1.0, 0.9, 0.75), subdiv=0)
+
+
+def person(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
+    """A tiny low-poly market-goer, enough to give the square a human scale."""
+    rng = rng or random.Random(int(x * 17 + y * 3))
+    shirt = rng.choice(('cream', 'teal_wall', 'sage_wall', 'coral', 'ochre'))
+    trousers = rng.choice(('wood_dark', 'roof_slate', 'stone_dark'))
+    b.cylinder((x, y, z), (x, y, z + 0.9 * scale), 0.24 * scale, trousers, 6)
+    b.cylinder((x, y, z + 0.82 * scale), (x, y, z + 1.4 * scale), 0.32 * scale, shirt, 6,
+               radius_b=0.27 * scale)
+    b.sphere((x, y, z + 1.53 * scale), 0.22 * scale, 'skin', (1.0, 0.9, 1.0), subdiv=0)
+    if rng.random() < 0.55:
+        b.cylinder((x, y, z + 1.63 * scale), (x, y, z + 1.68 * scale), 0.35 * scale,
+                   rng.choice(('wood_dark', 'flag_red', 'flag_black', 'roof_straw')), 7)
+    else:
+        b.sphere((x, y, z + 1.62 * scale), 0.24 * scale, 'wood_dark', (1.0, 1.0, 0.45), subdiv=0)
+    # Relaxed arms at the sides.
+    for side in (-1, 1):
+        b.beam((x + side * 0.25 * scale, y, z + 1.3 * scale),
+               (x + side * 0.33 * scale, y + 0.04 * scale, z + 0.85 * scale), 0.07 * scale, 'skin')
 
 
 def vine(b, x, y, z, length=8.0, rng=None):

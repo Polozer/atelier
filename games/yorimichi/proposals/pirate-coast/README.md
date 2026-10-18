@@ -29,10 +29,15 @@ uv run python games/yorimichi/proposals/pirate-coast/src/build.py --stage all
 The Blender stage is meant to run headless under the normal guard, never as an unguarded foreground job:
 
 ```sh
-python -m atelier.safety.guarded --report build/yorimichi/pirate-coast/guard \
-  --purpose "Brinecove proposal build" --memory-gib 4 -- \
-  nice -n 10 blender -b --factory-startup --python games/yorimichi/proposals/pirate-coast/src/build.py -- --stage all
+uv run python -m atelier.safety.guarded --report build/yorimichi/pirate-coast/guard \
+  --purpose "Brinecove proposal build" --small 3 --timeout 3600 -- \
+  /usr/local/bin/blender -b --factory-startup --threads 3 \
+  --python games/yorimichi/proposals/pirate-coast/src/build.py -- --stage all
 ```
+
+The guard already launches the child at normal application priority with nice 10. Keep Blender as the direct
+command and declare its thread count; wrapping it in another command makes full-capacity admission treat the job as
+an unknown exclusive launcher.
 
 `viewer/serve.py` serves the assembled page on the machine's Tailscale address. It is a plain static server: the
 page has no external requests and all of its three.js code is vendored from the character-review tool.
@@ -43,7 +48,37 @@ The playable basin is 1,600 m east-west by 1,200 m north-south, with the town oc
 and 500 m of depth. That is deliberately in the same family as Belmonte's 2 km valley and larger than Hidamari's
 900 x 600 m street grid, because the cliffs, headlands and cove need room to read as a separate destination.
 
+## Outputs
+
+- build/yorimichi/pirate-coast/references/ holds the 13 Sunburst PNGs, their prompts and paid-call provenance,
+  plus a contact sheet.
+- build/yorimichi/pirate-coast/models/ holds the nine module GLBs. scene/brinecove.blend is the assembled
+  Blender scene and scene/brinecove.glb is the same scene as one GLB.
+- build/yorimichi/pirate-coast/renders/ holds the Blender review views and the concept/render comparison sheets.
+- build/yorimichi/pirate-coast/viewer/ is the hosted page: module toggles, ten camera views, day-to-night lighting,
+  district labels, the painted plan and the full reference gallery.
+
+## Viewer
+
+Run:
+
+    uv run python games/yorimichi/proposals/pirate-coast/viewer/serve.py --port 8842
+
+The server prints the machine's Tailscale URL. The page makes no external requests: three.js and its loaders are
+copied from the existing character-review tool, and every reference and model is served from the same folder. On a
+phone, open that URL on the tailnet; the controls are drag, pinch and right-drag or two-finger pan. H hides the UI
+for a clean view.
+
+## What the review checks
+
+The comparison sheets put each concept beside the Blender camera that matches it: aerial, harbor approach, market,
+upper terrace, lighthouse, shipyard, waterfall and night harbor. The main masses to compare are the horseshoe bay,
+the three piers and two galleons, the stepped roofscape, the watchtower, the statue islet, the lighthouse and the
+east-cliff waterfall. The low-poly translation keeps those masses and the palette; it does not reproduce the
+painterly brushwork, crowds or every prop in the concepts.
+
 ## Status
 
-Proposal only. No game map, level, import or committed asset library entry is changed. The models are procedural
-review geometry, intended to prove silhouette, layout and scale before a production pass.
+Proposal only. No game map, level, import or committed asset library entry is changed. There is no collision, nav
+mesh, gameplay, audio or Unreal import yet. The models are procedural review geometry, intended to prove silhouette,
+layout and scale before a production pass.

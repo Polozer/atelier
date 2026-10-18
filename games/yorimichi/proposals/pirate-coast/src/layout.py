@@ -8,12 +8,15 @@ import random
 
 X_MIN, X_MAX = -800.0, 800.0
 Y_MIN, Y_MAX = -700.0, 500.0
+# The review terrain reaches past the playable basin so its edge is water, not a cut shelf.
+VIEW_X_MIN, VIEW_X_MAX = -1100.0, 1100.0
+VIEW_Y_MIN, VIEW_Y_MAX = -900.0, 850.0
 QUAY_Y = 60.0
 QUAY_Z = 4.5
-UPPER_Z = 22.5
+UPPER_Z = 30.0
 WATCHTOWER = (-120.0, 470.0, 42.0)
 LIGHTHOUSE = (-618.0, -38.0, 63.0)
-STATUE = (-120.0, -245.0, 0.0)
+STATUE = (-120.0, -220.0, 0.0)
 WATERFALL = (474.0, 86.0, 58.0)
 
 COLORS = {
@@ -23,12 +26,13 @@ COLORS = {
     'wood': '#6b4d35', 'wood_dark': '#3f3128', 'wood_light': '#95704b',
     'roof_terra': '#a8563e', 'roof_terra_light': '#bf7655', 'roof_teal': '#4f7f79',
     'roof_slate': '#4a5158', 'roof_straw': '#ad8b58',
-    'jungle_dark': '#3f5a2e', 'jungle': '#4d6a36', 'jungle_light': '#6f8245',
+    'jungle_dark': '#465f32', 'jungle': '#58713f', 'jungle_light': '#6f874c',
+    'autumn_rust': '#a45a35', 'autumn_gold': '#b98542', 'autumn_olive': '#7a7b3d',
     'palm': '#587a39', 'palm_light': '#78954a', 'sand': '#c7ad7d',
     'rock': '#6d6558', 'rock_light': '#8b8070', 'rock_dark': '#48443c',
-    'seabed': '#315f63', 'water': '#2d7e88', 'water_deep': '#164c63',
+    'seabed': '#315f63', 'water': '#2d7e88', 'water_deep': '#164c63', 'sea': '#2f96a4',
     'sail': '#e1d3b3', 'sail_stripe': '#a44d3d', 'metal': '#3b3a36', 'gold': '#d5a64a',
-    'lantern': '#f2c36b', 'glass': '#26424a', 'glass_warm': '#ffc46b',
+    'lantern': '#f2c36b', 'glass': '#26424a', 'glass_warm': '#ffc46b', 'skin': '#b98a63',
     'flag_black': '#292424', 'flag_red': '#a23c32', 'rope': '#bda77c',
 }
 
@@ -58,8 +62,8 @@ def is_water(x, y):
 
 
 def town_height(x, y):
-    z = QUAY_Z + 0.6 * smooth((y - QUAY_Y) / 90.0)
-    z += 18.0 * smooth((y - 252.0) / 68.0)
+    z = QUAY_Z
+    z += (UPPER_Z - QUAY_Z) * smooth((y - 280.0) / 8.0)
     z += 30.0 * smooth((y - 452.0) / 72.0)
     z += 8.0 * smooth((y - 520.0) / 90.0)
     # Gentle rise at the sides keeps the quay from reading as a ruler.
@@ -71,20 +75,36 @@ def town_height(x, y):
 
 def headland_height(x, y):
     d = abs(x) - bay_half(y)
-    z = 2.0 + 56.0 * smooth(d / 105.0)
-    z += 12.0 * smooth((y - 10.0) / 180.0)
+    # A high cliff right at the water, then lower, broken country inland.
+    cliff = 58.0 * smooth(d / 74.0)
+    back = 1.0 - 0.45 * smooth((d - 120.0) / 280.0)
+    z = 2.0 + cliff * back
+    z += 10.0 * smooth((y - 10.0) / 190.0)
     z += 3.0 * smooth((abs(x) - 600.0) / 150.0)
+    z += 8.0 * math.sin(x * 0.017) * math.cos(y * 0.014) * smooth(d / 90.0)
+    z += 4.0 * math.sin(x * 0.041 + y * 0.022) * smooth(d / 120.0)
     return z
 
 
 def raw_height(x, y):
     if y >= QUAY_Y:
         z = town_height(x, y)
-        # Fade the town plateau into the natural side hills.
+        # Fade the town plateau into the natural side hills, then raise the
+        # east and west walls into the cliffs that frame the cove.
         side = smooth((abs(x) - 390.0) / 140.0)
-        return lerp(z, headland_height(x, y), side)
+        z = lerp(z, headland_height(x, y), side)
+        cliff = 58.0 * smooth((abs(x) - 420.0) / 72.0)
+        z = max(z, QUAY_Z + cliff + 7.0 * smooth((abs(x) - 390.0) / 100.0) * smooth((y - QUAY_Y) / 280.0))
+        rolling = 7.0 * smooth((abs(x) - 420.0) / 180.0) + 7.0 * smooth((y - 460.0) / 150.0)
+        z += rolling * (0.7 * math.sin(x * 0.014) * math.cos(y * 0.011)
+                        + 0.35 * math.sin(x * 0.033 + y * 0.021))
+        if y > 520.0:
+            z += 20.0 * smooth((y - 520.0) / 260.0)
+        return z
     if not is_water(x, y):
-        return headland_height(x, y)
+        z = headland_height(x, y)
+        z += 6.0 * math.sin(x * 0.020) * math.cos(y * 0.017) * smooth((abs(x) - bay_half(y)) / 120.0)
+        return z
     return -3.5 - 0.035 * (QUAY_Y - y) - 0.25 * smooth((120.0 - abs(x)) / 240.0)
 
 
@@ -96,10 +116,14 @@ def noise(x, y):
 
 def height(x, y):
     z = raw_height(x, y)
-    if y < QUAY_Y - 2.0:
-        return z
-    town = smooth((y - QUAY_Y) / 30.0) * (1.0 - smooth((abs(x) - 380.0) / 130.0))
-    return z + noise(x, y) * (1.0 - 0.75 * town)
+    if y >= QUAY_Y - 2.0:
+        town = smooth((y - QUAY_Y) / 30.0) * (1.0 - smooth((abs(x) - 380.0) / 130.0))
+        z += noise(x, y) * (1.0 - 0.75 * town)
+    # Let the terrain run out into open water at the review edges.
+    edge = max(abs(x) - 840.0, -650.0 - y, y - 680.0)
+    if edge > 0.0:
+        z = lerp(z, -9.0, smooth(edge / 200.0))
+    return z
 
 
 def slope(x, y, step=6.0):
@@ -159,9 +183,69 @@ BUILDINGS = [
     ('cliff-w1', -398, 248, 12.0, 30, 22, 8.5, 2, 'shack', -8, 'roof_straw'),
     ('cliff-w2', -438, 292, 19.0, 26, 20, 7.5, 1, 'shack', -12, 'roof_terra'),
     ('cliff-e1', 405, 262, 14.0, 28, 20, 9.0, 2, 'shack', 8, 'roof_straw'),
+    # A third row fills the shelf between Rum Row and the retaining wall.
+    ('mid-w1', -330, 258, 5.0, 38, 25, 11.0, 2, 'house', 0, 'roof_terra'),
+    ('mid-w2', -270, 258, 5.0, 36, 24, 12.0, 2, 'shop', 0, 'roof_teal'),
+    ('mid-w3', -208, 258, 5.0, 38, 25, 10.5, 2, 'house', 0, 'roof_slate'),
+    ('mid-w4', -70, 258, 5.0, 34, 24, 11.0, 2, 'house', 0, 'roof_terra'),
+    ('mid-e1', 70, 258, 5.0, 34, 24, 11.0, 2, 'shop', 0, 'roof_slate'),
+    ('mid-e2', 150, 258, 5.0, 38, 25, 11.5, 2, 'house', 0, 'roof_terra'),
+    ('mid-e3', 212, 258, 5.0, 36, 24, 12.5, 2, 'tavern', 0, 'roof_teal'),
+    ('mid-e4', 272, 258, 5.0, 38, 25, 10.5, 2, 'shop', 0, 'roof_slate'),
 ]
 
+# Slight, deterministic yaw variation keeps the waterfront from reading as a
+# spreadsheet without moving any lot outside its graded pad.
+_organic = []
+for _b in BUILDINGS:
+    _key, _x, _y, _z, _w, _d, _h, _fl, _style, _yaw, _roof = _b
+    if _style != 'warehouse':
+        _yaw += ((sum(map(ord, _key)) * 7) % 11) - 5
+    _organic.append((_key, _x, _y, _z, _w, _d, _h, _fl, _style, _yaw, _roof))
+BUILDINGS = _organic
+
+# The reference roofscape climbs. Lift the lower town and add a third storey
+# where the extra height reads as another gallery row.
+_taller = []
+for _b in BUILDINGS:
+    _key, _x, _y, _z, _w, _d, _h, _fl, _style, _yaw, _roof = _b
+    if _y < 280 and _style != 'warehouse':
+        _h += 2.0
+        if _style in ('house', 'shop', 'tavern') and _h >= 14.0:
+            _fl = max(_fl, 3)
+    elif _y >= 280 and _style in ('house', 'shop', 'tavern'):
+        _h += 1.2
+    _taller.append((_key, _x, _y, _z, _w, _d, _h, _fl, _style, _yaw, _roof))
+BUILDINGS = _taller
 LOTS = {b[0]: b for b in BUILDINGS}
+
+# A handful of stilt houses on the two headland shores make the town wrap
+# around the cove instead of stopping at the quay.
+SHORE_BUILDINGS = [
+    ('shore-w1', -478, -28, 0, 24, 17, 8.5, 1, 'shack', -90, 'roof_straw'),
+    ('shore-w2', -492, 8, 0, 22, 16, 9.5, 2, 'shack', -96, 'roof_terra'),
+    ('shore-w3', -508, 42, 0, 20, 15, 7.5, 1, 'shack', -88, 'roof_straw'),
+    ('shore-e1', 478, -34, 0, 24, 17, 8.0, 1, 'shack', 90, 'roof_straw'),
+    ('shore-e2', 494, 2, 0, 22, 16, 9.0, 2, 'shack', 96, 'roof_terra'),
+    ('shore-e3', 508, 38, 0, 20, 15, 7.5, 1, 'shack', 88, 'roof_straw'),
+    ('shore-w4', -524, -58, 0, 22, 16, 8.0, 1, 'shack', -90, 'roof_terra'),
+    ('shore-w5', -540, -12, 0, 20, 15, 9.0, 2, 'shack', -96, 'roof_straw'),
+    ('shore-w6', -556, 34, 0, 18, 14, 7.0, 1, 'shack', -88, 'roof_terra'),
+    ('shore-e4', 524, -62, 0, 22, 16, 8.0, 1, 'shack', 90, 'roof_terra'),
+    ('shore-e5', 540, -16, 0, 20, 15, 9.0, 2, 'shack', 96, 'roof_straw'),
+    ('shore-e6', 556, 30, 0, 18, 14, 7.0, 1, 'shack', 88, 'roof_terra'),
+]
+
+# A high, stilted hamlet above the upper terrace gives the town a skyline.
+HILLSIDE_BUILDINGS = [
+    ('hill-w1', -330, 505, 0, 28, 18, 8.5, 1, 'shack', -6, 'roof_straw'),
+    ('hill-w2', -270, 518, 0, 26, 17, 9.0, 2, 'shack', -3, 'roof_terra'),
+    ('hill-w3', -210, 505, 0, 24, 16, 8.0, 1, 'shack', -8, 'roof_straw'),
+    ('hill-e1', 100, 508, 0, 26, 17, 8.5, 1, 'shack', 5, 'roof_straw'),
+    ('hill-e2', 165, 518, 0, 26, 17, 9.0, 2, 'shack', -4, 'roof_terra'),
+    ('hill-e3', 230, 505, 0, 24, 16, 8.0, 1, 'shack', 7, 'roof_straw'),
+    ('hill-e4', 300, 522, 0, 26, 17, 9.0, 2, 'shack', -3, 'roof_terra'),
+]
 
 PIERS = [
     ('central', 0.0, 60.0, -184.0, 24.0),
@@ -170,8 +254,8 @@ PIERS = [
 ]
 
 SHIPS = [
-    ('galleon-adventure', -30.0, -76.0, 0.0, 0.94, True),
-    ('galleon-nightjar', 34.0, -126.0, 180.0, 0.90, False),
+    ('galleon-adventure', -20.0, -76.0, 0.0, 0.94, True),
+    ('galleon-nightjar', 22.0, -126.0, 180.0, 0.90, False),
     ('sloop-east', 252.0, -72.0, 180.0, 0.45, True),
 ]
 
@@ -179,7 +263,12 @@ MARKET_STALLS = [
     (-72, 112, 12, 7, 'roof_sail'), (-42, 116, 12, 7, 'roof_red'), (-12, 110, 12, 7, 'roof_sail'),
     (24, 116, 12, 7, 'roof_red'), (60, 112, 12, 7, 'roof_sail'),
     (-74, 196, 11, 6, 'roof_red'), (70, 196, 11, 6, 'roof_sail'), (-68, 158, 10, 6, 'roof_sail'),
-    (64, 158, 10, 6, 'roof_red'),
+    (64, 158, 10, 6, 'roof_red'), (-38, 146, 10, 6, 'roof_sail'), (40, 146, 10, 6, 'roof_red'),
+    (-16, 202, 10, 6, 'roof_sail'), (18, 202, 10, 6, 'roof_red'),
+    (-55, 128, 10, 6, 'roof_sail'), (55, 128, 10, 6, 'roof_red'),
+    (-22, 132, 10, 6, 'roof_red'), (22, 132, 10, 6, 'roof_sail'),
+    (-24, 174, 10, 6, 'roof_sail'), (24, 174, 10, 6, 'roof_red'),
+    (-60, 176, 10, 6, 'roof_red'), (60, 176, 10, 6, 'roof_sail'),
 ]
 
 
@@ -215,7 +304,7 @@ def ground(x, y):
 
 
 def in_lot(x, y, margin=2.0):
-    for b in BUILDINGS:
+    for b in list(BUILDINGS) + list(SHORE_BUILDINGS) + list(HILLSIDE_BUILDINGS):
         lx, ly = yaw_point(x, y, b[1], b[2], -b[9])
         if abs(lx) <= b[4] / 2 + margin and abs(ly) <= b[5] / 2 + margin:
             return True
@@ -243,18 +332,61 @@ def on_street(x, y, margin=1.5):
     return False
 
 
+def on_shore_walkway(x, y, margin=3.0):
+    """The timber links between the stilt houses run along each headland shore."""
+    for side in (-1, 1):
+        specs = sorted([s for s in SHORE_BUILDINGS if s[1] * side > 0], key=lambda s: s[2])
+        for a, c in zip(specs, specs[1:]):
+            ax, ay = a[1], a[2]
+            bx, by = c[1], c[2]
+            vx, vy = bx - ax, by - ay
+            denom = vx * vx + vy * vy
+            t = 0.0 if denom == 0 else max(0.0, min(1.0, ((x - ax) * vx + (y - ay) * vy) / denom))
+            if math.hypot(x - (ax + vx * t), y - (ay + vy * t)) < margin:
+                return True
+    return False
+
+
 def plantable(x, y):
-    if y < QUAY_Y + 2:
+    if y < Y_MIN - 30 or y > Y_MAX + 250:
         return False
+    if abs(x) > 880:
+        return False
+    # South of the quay only the headland shelves are plantable; the bay and
+    # the beach edge stay clear.
+    if y < QUAY_Y + 2:
+        if is_water(x, y) or abs(x) < bay_half(y) + 6.0:
+            return False
     if in_lot(x, y, 3.0) or on_market(x, y, 4.0) or on_street(x, y, 3.0) or on_pier(x, y, 5.0):
+        return False
+    if on_shore_walkway(x, y, 3.5):
         return False
     if abs(x - WATCHTOWER[0]) < 28 and abs(y - WATCHTOWER[1]) < 28:
         return False
-    if abs(x - LIGHTHOUSE[0]) < 20 and abs(y - LIGHTHOUSE[1]) < 20:
+    if math.hypot(x - LIGHTHOUSE[0], y - LIGHTHOUSE[1]) < 34.0:
         return False
-    if abs(x - WATERFALL[0]) < 26 and 0 <= y <= 180:
+    if abs(x - WATERFALL[0]) < 30 and 0 <= y <= 180:
         return False
-    if slope(x, y) > 1.7:
+    if slope(x, y) > 1.8:
+        return False
+    return True
+
+
+def headland_plantable(x, y):
+    """Dense jungle cover for the cliffs and shelves that frame the cove."""
+    if y < -250 or y > 520 or abs(x) < 420 or abs(x) > 815:
+        return False
+    if y < QUAY_Y and (is_water(x, y) or abs(x) < bay_half(y) + 5.0):
+        return False
+    if in_lot(x, y, 3.5) or on_shore_walkway(x, y, 4.5):
+        return False
+    if math.hypot(x - LIGHTHOUSE[0], y - LIGHTHOUSE[1]) < 46.0:
+        return False
+    if abs(x - WATERFALL[0]) < 36.0 and -25.0 <= y <= 205.0:
+        return False
+    if abs(x - WATCHTOWER[0]) < 34.0 and abs(y - WATCHTOWER[1]) < 34.0:
+        return False
+    if height(x, y) < 4.0 or slope(x, y) > 1.55:
         return False
     return True
 
@@ -264,7 +396,7 @@ def scatter(seed=7319):
     rng = random.Random(seed)
     palms, trees, bushes = [], [], []
     # Palms favour the lower town, the quay ends and the sunny headland margins.
-    for _ in range(2600):
+    for _ in range(18000):
         x = rng.uniform(X_MIN + 20, X_MAX - 20)
         y = rng.uniform(Y_MIN + 20, Y_MAX - 20)
         if not plantable(x, y) or is_water(x, y):
@@ -272,13 +404,48 @@ def scatter(seed=7319):
         z = ground(x, y)
         if z < 1.5:
             continue
-        if len(palms) < 170 and (y < 320 or abs(x) > 390) and rng.random() < 0.55:
+        if len(palms) < 340 and (y < 320 or abs(x) > 390) and rng.random() < 0.55:
             palms.append((x, y, z, rng.uniform(0, 360), rng.uniform(0.75, 1.25)))
-        elif len(trees) < 260 and (y > 300 or abs(x) > 390 or rng.random() < 0.35):
+        elif len(trees) < 860 and (y > 300 or abs(x) > 390 or rng.random() < 0.35):
             trees.append((x, y, z, rng.uniform(0, 360), rng.uniform(0.75, 1.35)))
-        elif len(bushes) < 300:
+        elif len(bushes) < 760:
             bushes.append((x, y, z, rng.uniform(0, 360), rng.uniform(0.6, 1.2)))
-        if len(palms) >= 170 and len(trees) >= 260 and len(bushes) >= 300:
+        if len(palms) >= 340 and len(trees) >= 860 and len(bushes) >= 760:
+            break
+    # A dedicated headland pass keeps the framing cliffs lush rather than
+    # relying on a few strays from the town scatter.
+    for _ in range(26000):
+        side = -1 if rng.random() < 0.5 else 1
+        x = side * rng.uniform(425, 810)
+        y = rng.uniform(-245, 515)
+        if not headland_plantable(x, y):
+            continue
+        z = ground(x, y)
+        sl = slope(x, y)
+        if len(trees) < 1950 and sl < 1.15 and (y > 70 or rng.random() < 0.72):
+            trees.append((x, y, z, rng.uniform(0, 360), rng.uniform(1.15, 1.85)))
+        elif len(palms) < 540 and sl < 1.42 and (y < 170 or rng.random() < 0.5):
+            palms.append((x, y, z, rng.uniform(0, 360), rng.uniform(0.85, 1.35)))
+        elif len(bushes) < 1500:
+            bushes.append((x, y, z, rng.uniform(0, 360), rng.uniform(0.7, 1.35)))
+        if len(trees) >= 1950 and len(palms) >= 540 and len(bushes) >= 1500:
+            break
+    # Close the view behind the town with a forested ridge rather than a bare
+    # sample surface. The ridge is outside the playable basin but very visible
+    # from the harbor and the aerial camera.
+    for _ in range(9000):
+        x = rng.uniform(-770, 770)
+        y = rng.uniform(505, 670)
+        if not plantable(x, y):
+            continue
+        z = ground(x, y)
+        if z < 6.0 or slope(x, y) > 1.6:
+            continue
+        if len(trees) < 2500:
+            trees.append((x, y, z, rng.uniform(0, 360), rng.uniform(1.05, 1.8)))
+        elif len(bushes) < 2000:
+            bushes.append((x, y, z, rng.uniform(0, 360), rng.uniform(0.7, 1.3)))
+        if len(trees) >= 2500 and len(bushes) >= 2000:
             break
     return dict(palms=palms, trees=trees, bushes=bushes)
 

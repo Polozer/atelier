@@ -15,21 +15,22 @@ current island.
 | --- | --- |
 | Basin | x -800..800, y -700..500 |
 | Horseshoe bay | opens south; water from y -700 to about y 60 |
-| Main quay | x -380..380, y 60..100, deck z 4.2 |
-| Market square | x -90..90, y 100..220, z 4.6 |
+| Main quay | x -380..380, y 60..100, deck z 4.5 (piers 4.9) |
+| Market square | x -90..90, y 100..220, z 4.7 |
 | Lower town | y 100..260, z 4..8 |
-| Grand stair | x -20..30, y 230..330, rises 4.6 to 22 m |
-| Upper terrace | y 300..380, z 22..28 |
-| Watchtower crest | x -120, y 430, z 54 |
+| Grand stair | x -20..30, y 230..288, rises 4.6 to 30 m |
+| Upper terrace | y 300..380, z 30..34 |
+| Watchtower crest | x -120, y 470, z 42 |
 | West headland | x -780..-430, y -180..250, z up to 70 |
-| Lighthouse | x -620, y -40, base z 66 |
-| East cliff and waterfall | x 430..720, y 20..330; fall at x 505, y 90 |
+| Lighthouse | x -618, y -38, base z 63 |
+| East cliff and waterfall | x 430..720, y 20..330; fall at x 474, y 86, top z 58 |
 | Shipwreck rocks | x -540, y -290 |
-| Harbor statue | x -120, y -245, on a rock islet |
+| Harbor statue | x -120, y -220, on a rock islet |
 
-The bay is sheltered by two arms of land. The western arm is a bare, windy headland with the lighthouse. The
-eastern arm is a wet jungle cliff with a waterfall dropping into a rock pool behind the shipyard. The town sits
-between them, with the tallest roofs and the watchtower stepping back from the water.
+The bay is sheltered by two arms of land. The western arm is a rocky, jungle-covered headland with the lighthouse
+on a cleared lookout. The eastern arm is a wet jungle cliff with a waterfall dropping into a rock pool behind the
+shipyard. Both arms carry dense palm and hardwood canopy above exposed cliff bands; the town sits between them, with
+the tallest roofs and the watchtower stepping back from the water.
 
 ## Districts
 
@@ -44,7 +45,7 @@ between them, with the tallest roofs and the watchtower stepping back from the w
 5. **The Crest.** The watchtower, a small signal station, a cannon platform and the best view over the cove.
 6. **Shipyard.** Slipway, half-built hull, timber stacks and a crane on the east shore.
 7. **The Headlands.** Lighthouse and keeper's cottage to the west; waterfall, rope bridge and jungle shrine to the
-   east. These frame the town from the sea.
+   east. Dense canopy, vines and stilt shacks cover the shelves and cliff tops. These frame the town from the sea.
 
 ## Architecture
 
@@ -55,8 +56,8 @@ Brinecove is built from a small kit, repeated with variation:
 - Deep eaves, gable or hipped roofs in terracotta, oxidized teal and dark slate.
 - External stairs, timber galleries, shutters, awning frames, rope, barrels, crates, anchors and lanterns.
 - Buildings lean into the slope and step with the terraces. No two waterfront blocks share a roof height.
-- Big shapes first: a roofscape of overlapping planes, a forest of masts, and a cliff silhouette that stays
-  readable from 500 m away.
+- Big shapes first: a roofscape of overlapping planes, a forest of masts, a green canopy, and a cliff silhouette
+  that stays readable from 500 m away.
 
 ## Palette
 
