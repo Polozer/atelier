@@ -350,3 +350,14 @@ def test_apron_outer_east_edge_uses_the_same_shaped_country_height(monkeypatch):
     np.testing.assert_allclose(p[outer,2],terrain.country_height(p[outer,0],p[outer,1]),atol=1e-10)
     inner=np.isclose(p[:,0],x1)&(p[:,1]>=y0)&(p[:,1]<=y1)
     np.testing.assert_allclose(p[inner,2],210.,atol=1e-10)
+
+
+def test_new_rocky_toe_does_not_keep_an_old_front_ridge():
+    # This shoulder has its new wedge farther inland. Starting the new blend
+    # after the old cliff had risen left a narrow old wall in front of it.
+    d=np.arange(0.,46.,.25)
+    for y in [140.,720.]:
+        x=eastern_waterline(y)-d
+        z=S.height(x,y,180.)
+        assert np.max(z)<4.1
+        assert np.min(np.diff(z))>=-1e-7

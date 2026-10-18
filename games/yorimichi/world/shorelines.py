@@ -221,7 +221,8 @@ def landform_envelope(x, y):
     country, headland = landform_regions(x, y)
     d, rock = field(x, y)
     country *= smooth((d-3.)/10.)*smooth((1650.-d)/100.)
-    headland *= smooth((d-(60.-50.*rock))/12.)*smooth((850.-d)/180.)
+    front = np.maximum(smooth(d/4.)*smooth((rock-.02)/.20), smooth((d-60.)/12.))
+    headland *= front*smooth((850.-d)/180.)
     return np.maximum(country, headland)
 
 
@@ -274,7 +275,8 @@ def _landform_height(x,y,z):
         masses=np.maximum(0.,masses-cut)
     back=np.interp(d,[0.,60.,180.,400.,650.,850.],[0.,5.,9.,18.,48.,110.])
     target=back+masses*smooth(d/12.)
-    w=headland_region*smooth((d-(60.-50.*rock))/12.)*smooth((850.-d)/180.)
+    front=np.maximum(smooth(d/4.)*smooth((rock-.02)/.20),smooth((d-60.)/12.))
+    w=headland_region*front*smooth((850.-d)/180.)
     w*=protected_weight(x,y)
     return out*(1.-w)+target*w
 
