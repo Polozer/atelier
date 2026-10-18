@@ -135,6 +135,32 @@ is one-use; a repeated action or stale binding refuses. No outputs, stamps or bu
 certified. Rerun the interrupted step normally after release. Games, imports and nonexclusive jobs are
 not eligible. Do not edit SQLite, compatibility files or profiles to recover a reservation.
 
+### Completed nonexclusive job with a missed helper exit
+
+A short-lived helper can exit before the broker binds its kernel watch. A completed normal
+three-worker job may then retain an uncertain charge even when the aggregate monitor reports
+empty cleanup. Its ordinary `close` and `reconcile` still refuse; do not change the request or
+manufacture an exit event.
+
+After independent review, an operator may direct
+`atelier capacity abandon-completed SOCKET --administrative-evidence ABSOLUTE_JSON`.
+This separate action accepts only uncertain nonexclusive `job` requests with a recorded positive
+root exit and the original bound `child_exited` receipt: matching root, controller, ceiling,
+invocation time, completed cleanup and empty/zero terminal sample. Supply the same administrative
+fields above plus exact `guards` bindings and `report_sha256` for both original reports.
+The administrator must differ from the owner. Healthy compatibility, no other charged work,
+strictly absent controller/monitors/retained identities, two complete same-user censuses and
+unchanged report hashes are required, as for interrupted-compile recovery.
+
+Only this completed-job action may retain a process whose executable path is unavailable when
+stable kernel birth/parent/user observations positively place it before the workload root.
+The witness lists these exclusions. Newer unknown processes and all identity/query errors still
+refuse. Positive current ancestry can exclude independent work; a reparented unexplained process
+born after the root refuses. This is current quiescence evidence: lineage cannot detect work
+handed through IPC to an older daemon. It does not certify successful outputs or historical
+helper exits. The one-use `administrative-completed-job` witness preserves the original failure,
+report hashes and census digest. Games, stopped guards and interrupted nonexclusive jobs refuse.
+
 The broker configuration is an owner-only JSON file in an owner-only directory, with exactly these fields:
 
 ```json

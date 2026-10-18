@@ -1,4 +1,4 @@
-"""Explicit administrative release of an interrupted, performance-exclusive compile.
+"""Explicit administrative release after reviewed workload quiescence.
 
 This is current quiescence evidence, not reconstructed historical monitor success.
 Ordinary close/reconcile never selects this policy.
@@ -33,7 +33,7 @@ def absent(pin):
         raise wire.CapacityError('Interrupted compile identity probe failed') from None
 
 
-def census():
+def census(*, before_root=None):
     """Complete bounded same-UID kernel listing; no command-name-only ownership inference."""
     if sys.platform != 'darwin':
         raise wire.CapacityError('Administrative compile recovery currently requires macOS')
@@ -64,12 +64,23 @@ def census():
             raise wire.CapacityError('Interrupted compile census identity lookup failed') from None
         if before.exited or after.exited:
             continue
-        if n < 24 or size <= 0 or before.started != after.started:
+        predates = (before_root is not None and before.started == after.started < before_root)
+        if n < 24 or (size <= 0 and not predates) or before.started != after.started:
             raise wire.CapacityError('Interrupted compile census changed or could not read a process')
         fields = tuple(ctypes.c_uint32.from_buffer_copy(info.raw[i:i+4]).value for i in range(0,24,4))
+        if size <= 0 and predates:
+            checked = ctypes.create_string_buffer(1024)
+            n2 = lib.proc_pidinfo(pid, 3, 0, checked, len(checked))
+            final = usage(pid)
+            # Include PID, parent and UID in the stable kernel binding, not just birth time.
+            if n2 < 24 or checked.raw[12:24] != info.raw[12:24] or final.started != before.started or final.exited:
+                raise wire.CapacityError('Pre-root census identity changed')
         if fields[3] != pid or fields[5] != os.getuid() or pid in result:
             raise wire.CapacityError('Interrupted compile census has inconsistent identities')
         result[pid] = dict(pid=pid, started=before.started, parent=fields[4], executable=path.value.decode('utf-8'))
+        if size <= 0:
+            result[pid]['executable_unavailable_before_root'] = True
+            result[pid]['uid'] = fields[5]
     if os.getpid() not in result:
         raise wire.CapacityError('Interrupted compile census omitted its observer')
     return result
@@ -122,17 +133,21 @@ def validate_snapshot(rows, record, services):
             raise wire.CapacityError(f'Unclassified process {row["pid"]} born after the compile prevents administrative release')
 
 
-def recover(record, evidence, *, principal, boot, epoch, scan=None, missing=None, service=None):
+def recover(record, evidence, *, principal, boot, epoch, scan=None, missing=None, service=None, completed=False):
     """@cc [owner:fontanierh,label:safety] administrative-interrupted-compile-release
-    Explicit operator-directed administration MAY abandon only an uncertain exclusive compile
-    with a recorded positive root exit, absent controller/guards/retained identities and fresh
+    The default action MAY abandon only an uncertain exclusive compile. The separate completed-job
+    action MAY abandon a nonexclusive job only with its exact bound normal empty terminal receipt,
+    monitor bindings and original report hashes. Both MUST require a positive root exit, absent
+    controller/guards/retained identities and fresh
     complete same-user censuses. Unknown or live workload identities MUST refuse. A recent
     orphan MUST refuse unless it is an exact independently reviewed live launchd service or
     the specialized OS indexer. Normal close/reconcile MUST NOT use this policy. The witness
     MUST retain the original evidence hashes and operation binding, and MUST NOT certify outputs.
     """
-    scan, missing, service = scan or census, missing or absent, service or service_pin
-    wire.fields(evidence, ('id', 'nonce', 'epoch', 'boot_id', 'operator_reference', 'administrator', 'services'))
+    scan = scan or ((lambda: census(before_root=record['child'][1])) if completed else census)
+    missing, service = missing or absent, service or service_pin
+    required = ('id', 'nonce', 'epoch', 'boot_id', 'operator_reference', 'administrator', 'services')
+    wire.fields(evidence, required + (('guards', 'report_sha256') if completed else ()))
     request = record['request']
     if (evidence['id'] != request['id'] or evidence['nonce'] != record.get('nonce')
             or evidence['epoch'] != epoch or evidence['boot_id'] != boot):
@@ -141,9 +156,13 @@ def recover(record, evidence, *, principal, boot, epoch, scan=None, missing=None
     reference = wire.text(evidence['operator_reference'], maximum=512)
     if administrator == request.get('owner') or tuple(principal) == tuple(record['principal']):
         raise wire.CapacityError('Interrupted compile owner cannot administratively release itself')
-    if (record['state'] != 'uncertain' or request.get('phase') != 'compile'
-            or request.get('performance') is not True or record.get('child') not in record.get('exited', [])):
-        raise wire.CapacityError('Administrative recovery requires an interrupted exclusive compile with root exit')
+    eligible = (request.get('phase') == 'job' and request.get('performance') is False if completed
+                else request.get('phase') == 'compile' and request.get('performance') is True)
+    if (record['state'] != 'uncertain' or not eligible
+            or record.get('child') not in record.get('exited', [])):
+        raise wire.CapacityError('Administrative recovery requires an eligible uncertain job with root exit')
+    if completed and evidence['guards'] != record['guards']:
+        raise wire.CapacityError('Completed job monitor binding changed')
     pins = set(map(tuple, record['roster'])) | {tuple(record['principal'])}
     pins.update((g['pid'], g['start']) for g in record['guards'].values())
     if any(not missing(pin) for pin in pins):
@@ -156,6 +175,11 @@ def recover(record, evidence, *, principal, boot, epoch, scan=None, missing=None
     for kind, guard in record['guards'].items():
         raw = wire.private_file(guard['report'], limit=wire.MAX_FRAME, private=False)
         reports[kind] = hashlib.sha256(raw).hexdigest()
+    if completed:
+        if evidence['report_sha256'] != reports:
+            raise wire.CapacityError('Completed job report binding changed')
+        terminal = wire.decode(wire.private_file(record['guards']['tree_guard']['report'], limit=wire.MAX_FRAME, private=False))
+        validate_completed_terminal(record, terminal)
     observations = []
     for _ in range(2):
         rows = scan()
@@ -169,9 +193,33 @@ def recover(record, evidence, *, principal, boot, epoch, scan=None, missing=None
         if hashlib.sha256(raw).hexdigest() != reports[kind]:
             raise wire.CapacityError('Original interrupted compile reports changed during recovery')
     digest = hashlib.sha256(json.dumps(observations, sort_keys=True).encode()).hexdigest()
-    return dict(kind='administrative-interruption', coverage='current-observed-quiescence',
+    return dict(kind='administrative-completed-job' if completed else 'administrative-interruption', coverage='current-observed-quiescence',
         operator_reference=reference, administrator=administrator, administrative_principal=list(principal),
         nonce=record['nonce'], request_id=request['id'], epoch=epoch, boot_id=boot, observed_at=time.time(),
         checked_identities=len(pins), missing_historical_exits=len(set(map(tuple,record['roster']))-set(map(tuple,record['exited']))),
         ancestry_unknown=record.get('ancestry_unknown',False), original_report_sha256=reports,
-        census_sha256=digest, service_exemptions=items, output_certified=False)
+        census_sha256=digest, service_exemptions=items, output_certified=False,
+        pre_root_path_exemptions=[row for snapshot in observations for row in snapshot.values()
+                                  if row.get('executable_unavailable_before_root') is True])
+
+
+def validate_completed_terminal(record, receipt):
+    """@cc [owner:fontanierh,label:safety] administrative-completed-job-terminal
+    A completed nonexclusive job MUST retain its normal empty terminal receipt bound to the root,
+    controller, ceiling and invocation. This permits only explicit quiescence recovery with the
+    administrative checks above, never automatic release or reconstructed historical exits.
+    """
+    import math
+    observed, ready = receipt.get('time'), record.get('first_ready')
+    if (receipt.get('owner') != record['child'][0] or receipt.get('owner_started') != record['child'][1]
+            or receipt.get('controller') != record['principal']
+            or receipt.get('state') != 'child_exited' or receipt.get('cleanup_complete') is not True
+            or receipt.get('termination_reason') is not None
+            or receipt.get('processes') != [] or type(receipt.get('footprint_bytes')) is not int
+            or receipt['footprint_bytes'] != 0
+            or type(receipt.get('limit_bytes')) is not int or receipt['limit_bytes'] != record.get('limit_bytes')
+            or type(receipt.get('peak_bytes')) is not int or not 0 <= receipt['peak_bytes'] <= receipt['limit_bytes']
+            or type(observed) not in (int, float) or not math.isfinite(observed)
+            or type(ready) not in (int, float) or not math.isfinite(ready)
+            or not 0 < ready <= observed <= time.time()):
+        raise wire.CapacityError('Completed job requires its bound normal empty terminal cleanup')

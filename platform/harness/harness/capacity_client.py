@@ -158,6 +158,11 @@ def abandon_interrupted(socket_path, evidence, *, timeout=5.):
     return _rpc(socket_path, {'action': 'abandon-interrupted', 'interrupted_compile': evidence}, timeout)[0]
 
 
+def abandon_completed(socket_path, evidence, *, timeout=5.):
+    """Explicit reviewed administration; never automatic cleanup or output certification."""
+    return _rpc(socket_path, {'action': 'abandon-completed', 'completed_job': evidence}, timeout)[0]
+
+
 class AdmissionSession:
     """@cc [owner:fontanierh,label:safety] guard-facing-broker-admission
     Offers MUST be uncharged. Only the server's committed gate MAY release useful work; the
