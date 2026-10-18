@@ -1031,6 +1031,13 @@ def sound_effect_steps(ctx):
     out = ctx.out
     return [
         # ------------------------------------------------------------ sounds and effects
+        Step('audio.soundbanks', [Python(AUDIO / 'soundbanks' / 'prepare.py',
+                                       ('--output', str(out / 'audio' / 'soundbanks')))],
+             inputs=[AUDIO / 'soundbanks'], outputs=[out / 'audio' / 'soundbanks' / 'manifest.json'],
+             # Transactional publication retains prior indexed media on failure. Audited/cacheable
+             # actions deliberately clear/replace products, so this owner uses neither mechanism.
+             products=[Product('audio.soundbanks', (out / 'audio' / 'soundbanks',))],
+             about='validate committed selectable soundbanks; Original delegates to existing audio'),
         Step('audio.footsteps', [Python(AUDIO / 'footsteps' / 'slice.py')], inputs=[AUDIO / 'footsteps', paths.cache_dir('sonniss', 'footsteps', create=False)],
              outputs=[out / 'audio' / 'footsteps' / 'manifest.json'], about='531 footstep one-shots (needs `atelier fetch`)'),
         Step('audio.combat', [Python(AUDIO / 'combat' / 'slice.py')], inputs=[AUDIO / 'combat', paths.cache_dir('sonniss', 'combat', create=False)],
