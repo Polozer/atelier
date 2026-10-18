@@ -15,6 +15,28 @@ OUT = str(yori.OUT)
 TEX = str(yori.TEXTURES)
 
 
+def backdrop_owned(x, y, *, city):
+    """@cc [owner:fontanierh,label:correctness] backdrop-replacement-ownership
+    Omit ground only where an exported fine terrain owns its replacement.
+    Without a city, FarHills MUST retain the former HD_Terrain footprint.
+    """
+    return (-300.<x<300. and -300.<y<300.) or (city and 300.<x<1420. and -300.<y<500.)
+
+
+def ocean_mesh(*, city):
+    """@cc [owner:fontanierh,label:correctness] fallback-ocean-ownership
+    Preserve the open-ocean partition with a city; without HD_Sea, add its
+    missing harbor rectangle at the same datum, without overlaps.
+    """
+    vertices,faces=shorelines.sea_mesh()
+    if not city:
+        x0,y0,x1,y1=shorelines.HARBOR_RECT
+        i=len(vertices)
+        vertices.extend([(x0,y0,0.),(x1,y0,0.),(x1,y1,0.),(x0,y1,0.)])
+        faces.append((i,i+1,i+2,i+3))
+    return vertices,faces
+
+
 def mat(name, color=(0.5, 0.5, 0.5), texture=None):
     m = bpy.data.materials.new(name); m.use_nodes = True
     b = m.node_tree.nodes["Principled BSDF"]; b.inputs["Base Color"].default_value = (*color, 1); b.inputs["Roughness"].default_value = 1.0
@@ -179,7 +201,7 @@ def main():
     city=os.path.exists(os.path.join(OUT,"hidamari","city.json"))
     xs,ys,z=mesh_grid(n,city=city)
     def owned(x,y):
-        return (-300.<x<300. and -300.<y<300.) or (300.<x<1420. and -300.<y<500.)
+        return backdrop_owned(x,y,city=city)
     fverts,ffaces=shorelines.grid_mesh(xs,ys,z,hidden=owned,shape=coastal_backdrop_height,parents=source_grid(city=city),parent_refinement=rail_refinement(city=city))
     print('coastal far hills: %d vertices, %d quads'%(len(fverts),len(ffaces)),flush=True)
     from train import earthworks  # the Belmonte railway's cuttings through the far hills (RAILWAY_EARTHWORKS=0: none)
@@ -200,7 +222,7 @@ def main():
     # The sea reaches past the sky dome (a 20 km sphere, JapanWorld.cpp): every view ray that goes below the horizon meets
     # water, never the dome's lower half. At 3.4 km it stopped short, and a band of the dome's below-horizon colour showed
     # between the sea's far edge and the horizon.
-    sea_vertices,sea_faces=shorelines.sea_mesh()
+    sea_vertices,sea_faces=ocean_mesh(city=city)
     sea = obj("Sea", sea_vertices, sea_faces, water, uvs=lambda co: (co.x / 24.0, co.y / 24.0), smooth=False)
     bpy.ops.object.select_all(action="DESELECT"); sea.select_set(True); bpy.context.view_layer.objects.active = sea
     os.makedirs(os.path.join(OUT, "assets"), exist_ok=True)
