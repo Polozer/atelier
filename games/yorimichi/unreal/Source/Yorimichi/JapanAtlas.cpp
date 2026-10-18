@@ -92,8 +92,8 @@ void UJapanMap::InitializeAtlas(const TSharedPtr<FJsonObject>& Root, const FStri
             const TSharedPtr<FJsonObject>* O=nullptr; if (!V->TryGetObject(O)) continue;
             FJapanAtlasAirLeg Leg;
             Leg.From=(*O)->GetStringField(TEXT("from")); Leg.To=(*O)->GetStringField(TEXT("to"));
-            Leg.Seconds=float((*O)->GetNumberField(TEXT("seconds")));
-            Leg.Height=float((*O)->GetNumberField(TEXT("height")));
+            Leg.Seconds=(*O)->GetNumberField(TEXT("seconds"));
+            Leg.Height=(*O)->GetNumberField(TEXT("height"));
             AirRoute.Legs.Add(MoveTemp(Leg));
         }
         (*Air)->TryGetStringField(TEXT("note"),AirRoute.Note);

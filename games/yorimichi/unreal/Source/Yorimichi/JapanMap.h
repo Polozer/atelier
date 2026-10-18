@@ -46,7 +46,7 @@ struct FJapanAtlasAirStop
 struct FJapanAtlasAirLeg
 {
     FString From, To;
-    float Seconds = 0.f, Height = 0.f;
+    double Seconds = 0., Height = 0.;
 };
 
 struct FJapanAtlasAirRoute

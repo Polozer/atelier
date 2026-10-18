@@ -302,3 +302,17 @@ def test_zeppelin_itinerary_uses_the_line_order_and_real_leg_times():
     bad['stations'][0]['key'] = 'missing_air_station'
     with pytest.raises(ValueError, match='travel registry'):
         atlas.metadata(zones, source(), bad)
+
+
+def test_native_float32_route_time_is_compared_with_tolerance():
+    spec = importlib.util.spec_from_file_location('regional_atlas_scenario', GAME / 'scenarios/regional_atlas.py')
+    scenario = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scenario)
+    actual = [('zeppelin_forest', 'zeppelin_city', 28.),
+              ('zeppelin_city', 'zeppelin_megapark', 35.5),
+              ('zeppelin_megapark', 'zeppelin_belmonte', 61.20000076293945)]
+    expected = [('zeppelin_forest', 'zeppelin_city', 28.),
+                ('zeppelin_city', 'zeppelin_megapark', 35.5),
+                ('zeppelin_megapark', 'zeppelin_belmonte', 61.2)]
+    assert scenario.same_leg_times(actual, expected)
+    assert not scenario.same_leg_times([actual[0], actual[1], ('zeppelin_megapark', 'wrong', 61.2)], expected)

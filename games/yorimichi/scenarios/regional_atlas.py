@@ -24,6 +24,13 @@ REGION_STOPS = dict(momiji_coast='spawn', momiji_woods='hamlet', hidamari='plaza
                     northern_foothills='megapark', volcanic_highlands='craterpark', haras_valley='belmonte')
 
 
+def same_leg_times(actual, expected):
+    """Compare endpoint identity exactly and durations with a float32-sized tolerance."""
+    return len(actual) == len(expected) and all(
+        a[0] == e[0] and a[1] == e[1] and math.isclose(float(a[2]), float(e[2]), rel_tol=0., abs_tol=1e-4)
+        for a, e in zip(actual, expected))
+
+
 def py(code):
     result = live.request('/python', 'import json\np=unreal.LiveLibrary.player(); m=p.get_map()\n'+code, timeout=10)
     if not result.get('ok'):
@@ -117,9 +124,10 @@ def main():
         record('all_seven_regions', set(regions) == REGIONS, regions)
         air = json.loads(value('m.review_atlas_air_route()'))
         record('zeppelin_four_stops', air['line'] == ['zeppelin_forest', 'zeppelin_city', 'zeppelin_megapark', 'zeppelin_belmonte'], air['line'])
-        record('zeppelin_sequential_times', [(leg['from'], leg['to'], leg['seconds']) for leg in air['legs']] == [
-            ('zeppelin_forest', 'zeppelin_city', 28.), ('zeppelin_city', 'zeppelin_megapark', 35.5),
-            ('zeppelin_megapark', 'zeppelin_belmonte', 61.2)], air['legs'])
+        actual_times = [(leg['from'], leg['to'], leg['seconds']) for leg in air['legs']]
+        expected_times = [('zeppelin_forest', 'zeppelin_city', 28.), ('zeppelin_city', 'zeppelin_megapark', 35.5),
+                          ('zeppelin_megapark', 'zeppelin_belmonte', 61.2)]
+        record('zeppelin_sequential_times', same_leg_times(actual_times, expected_times), actual_times)
         record('zeppelin_stop_positions', len(air['stops']) == 4 and all(math.isfinite(p['x']) and math.isfinite(p['y']) for p in air['stops']), air['stops'])
         keys = value('list(m.get_atlas_zone_keys("world"))')
         record('complete_destination_registry', DESTINATIONS <= set(keys), keys)
