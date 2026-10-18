@@ -19,5 +19,6 @@ Public reflected data structures MUST be exported for consumers in other modules
 @cc [owner:fontanierh,label:correctness] racing-breed-inheritance
 Breed expression and inheritance MUST retain the four-allele dominance table and
 semantic founder/inheritance draw tags. Checked APIs MUST reject either malformed
-parent allele before changing their output. Missing genes MUST retain the reference
-Standard phenotype or per-side founder draw, and parents MUST remain unchanged.
+parent allele or output alias to any parent gene before changing their output.
+Missing genes MUST retain the reference Standard phenotype or per-side founder draw,
+and parents MUST remain unchanged.

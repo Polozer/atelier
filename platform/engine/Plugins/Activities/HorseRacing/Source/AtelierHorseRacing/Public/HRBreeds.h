@@ -14,7 +14,8 @@ namespace HRBreeds
      * Invalid alleles return false without changing Out. */
     ATELIERHORSERACING_API bool TryExpress(const FHRGenePair* Pair, FString& Out);
     /** One inherited allele per parent; an absent parent gene uses the founder distribution.
-     * Invalid parent alleles return false without changing Out. Does not mutate either genome. */
+     * Invalid parent alleles or output aliasing any parent gene return false without changing Out.
+     * Does not mutate either genome. */
     ATELIERHORSERACING_API bool TryGenerate(const FString& Seed, const TMap<FString, FHRGenePair>* Mother,
         const TMap<FString, FHRGenePair>* Father, FHRGenePair& Out);
 }

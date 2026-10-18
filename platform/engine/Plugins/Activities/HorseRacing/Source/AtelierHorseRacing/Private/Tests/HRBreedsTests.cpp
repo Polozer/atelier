@@ -51,6 +51,19 @@ bool FHRBreedsTest::RunTest(const FString&)
     TestEqual(TEXT("Mother remains unchanged"), Mother.FindChecked(HRBreeds::Gene)[1], 3);
     TestEqual(TEXT("Father remains unchanged"), Father.FindChecked(HRBreeds::Gene)[0], 1);
 
+    Mother.Add(TEXT("other"), FHRGenePair(42, 73));
+    Father.Add(TEXT("other"), FHRGenePair(19, 27));
+    for (auto* Genome : {&Mother, &Father})
+        for (const FString Key : {FString(HRBreeds::Gene), FString(TEXT("other"))})
+        {
+            FHRGenePair& Aliased = Genome->FindChecked(Key);
+            const FHRGenePair Before = Aliased;
+            TestFalse(TEXT("An output alias to either parent's gene is rejected"),
+                HRBreeds::TryGenerate(TEXT("seed"), &Mother, &Father, Aliased));
+            TestEqual(TEXT("Rejected alias preserves first allele"), Aliased.A, Before.A);
+            TestEqual(TEXT("Rejected alias preserves second allele"), Aliased.B, Before.B);
+        }
+
     for (const int32 Invalid : {MIN_int32, -1, 4, MAX_int32})
         for (int32 Side = 0; Side < 2; ++Side)
         {

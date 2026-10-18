@@ -32,6 +32,11 @@ bool HRBreeds::TryExpress(const FHRGenePair* Pair, FString& Out)
 bool HRBreeds::TryGenerate(const FString& Seed, const TMap<FString, FHRGenePair>* Mother,
     const TMap<FString, FHRGenePair>* Father, FHRGenePair& Out)
 {
+    // Output may be any gene value, not only the breed entry used below.
+    for (const auto* Genome : {Mother, Father})
+        if (Genome)
+            for (const auto& Entry : *Genome)
+                if (&Entry.Value == &Out) return false;
     const FHRGenePair* Parents[] = {Mother ? Mother->Find(Gene) : nullptr, Father ? Father->Find(Gene) : nullptr};
     if (!HRBreedsPrivate::Valid(Parents[0]) || !HRBreedsPrivate::Valid(Parents[1])) return false;
     int32 Alleles[2];
