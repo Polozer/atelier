@@ -616,7 +616,10 @@ def belmonte_train_corridor(out):
 
 
 def belmonte_steps(out):
-    """The current town and countryside library, with island planting and a northern apron."""
+    """@cc [owner:fontanierh,label:safety] country-generation-admission
+    The world.belmonte terrain export MUST use normal heavy-job admission and
+    actual-child and aggregate memory guards, preserving their failure status.
+    """
     region = REGIONS / 'belmonte'
     return [
         Step('world.belmonte', [Python(region / 'build.py')],
@@ -624,7 +627,7 @@ def belmonte_steps(out):
                      ASSETS / 'environment/textures/tuscan-ground.provenance.json', REGIONS / 'megapark/forest.py', REGIONS / 'hippodrome' / 'build.py',
                      REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py',
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK, YORI, *NORTH_LAYOUT, *belmonte_train_corridor(out)],
-             needs=['world.layout', 'world.treehouse_trees'],
+             needs=['world.layout', 'world.treehouse_trees'], heavy=True,
              outputs=[out / 'belmonte' / 'runtime.json', out / 'belmonte' / 'build-report.json',
                       out / 'belmonte' / 'natural' / 'SM_BM_NorthApron.glb', out / 'belmonte' / 'natural' / 'SM_BM_NorthCountry.glb'],
              about='Belmonte environment: committed models, northern terrain join and island flora'),
@@ -693,7 +696,10 @@ SWORDCAMP_MESHES = (
 
 
 def world_steps(ctx):
-    """World exports."""
+    """@cc [owner:fontanierh,label:safety] map-generation-admission
+    The world.map build command MUST use normal heavy-job admission and the
+    actual-child and aggregate memory guards, preserving their failure status.
+    """
     out = ctx.out
     crater_geometry = ['world.craterpark_layout'] if craterpark_v4.selected() else []
     return [*texture_steps(ctx),
@@ -969,7 +975,7 @@ def world_steps(ctx):
              outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png',
                       *(out / 'map' / 'atlas' / f'{key}.png' for key in ('world', 'momiji_coast', 'momiji_woods', 'hidamari', 'temple_island',
                                                                      'northern_foothills', 'volcanic_highlands', 'haras_valley'))],
-             about='map zones and label-free regional atlas'),
+             heavy=True, about='map zones and label-free regional atlas'),
         city_input_step(out, 'tiles'),
         Step('world.city_tiles', [Blender(WORLD / 'city_surface_tiles.py', ('--tag', 'v1_128m'), threads=3)],
              inputs=[WORLD / 'city_surface_tiles.py'], needs=['world.hidamari.tiles'],
@@ -1041,7 +1047,8 @@ def unreal_steps(ctx):
         *foliage_build.unreal_steps(ctx, IMPORT_CODE, engine_version(ctx)),
         Step('unreal.world', [UnrealScript(SCRIPTS / 'setup_project.py', 'level saved')],
              # The city's arcade and harbor materials read the region's committed paintings.
-             inputs=[WORLD / 'asset_catalog.py', REGIONS / 'hidamari' / 'textures',
+             inputs=[WORLD / 'asset_catalog.py', WORLD / 'coast_water.py', REGIONS / 'hidamari' / 'textures',
+                     ASSETS / 'environment/textures/volcanic-rock.jpg', SCRIPTS / 'coast_rock_look.py',
                      *[SCRIPTS / n for n in ('setup_project.py', 'material_assets.py', 'mesh_import.py',
                                           'import_wanderer.py', 'cape_boy_material.py', 'animation_compression.py', 'import_village.py',
                                           'import_hidamari.py', 'import_southwest.py', 'arcade_material.py', 'plaza_material.py',
@@ -1055,7 +1062,7 @@ def unreal_steps(ctx):
         # The volcano: its meshes, M_NorthMountains with the rock and snow mask textures, M_NorthGate. The world import
         # purges /Game/Japan and makes the textures and MPC these materials use, so this reruns after it.
         Step('unreal.north', [UnrealScript(SCRIPTS / 'import_hidamari.py', 'HIDAMARI IMPORT COMPLETE', env=(('HIDAMARI_ASSETS', 'HD_North*'),))],
-             inputs=[ASSETS / 'environment/textures/volcanic-rock.jpg', out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
+             inputs=[WORLD / 'coast_water.py', SCRIPTS / 'forest_ground.py', ASSETS / 'environment/textures/volcanic-rock.jpg', out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
                      out / 'hidamari' / 'north_crater.png', out / 'hidamari' / 'north_crater.json',
                      out / 'craterpark' / 'textures' / 'crater_floor.png', TOOLS / 'craterpark_textures.py',
                      *[SCRIPTS / n for n in ('import_hidamari.py', 'mountain_material.py', 'import_village.py', 'atmosphere.py', 'ground_grain.py', 'sea_look.py')]],
@@ -1064,7 +1071,8 @@ def unreal_steps(ctx):
         # The regions below layer onto the world (the south-west import replaces the terrain's and the sea's materials),
         # so they rerun when it is reimported.
         Step('unreal.southwest', [UnrealScript(SCRIPTS / 'import_southwest.py', 'SOUTHWEST IMPORT COMPLETE')],
-             inputs=[SCRIPTS / 'import_southwest.py', SCRIPTS / 'sea_look.py'], needs=['unreal.world', 'world.southwest', 'world.terrain.meshes'], heavy=True,
+             inputs=[SCRIPTS / 'import_southwest.py', SCRIPTS / 'sea_look.py', SCRIPTS / 'forest_ground.py',
+                     SCRIPTS / 'ground_grain.py', SCRIPTS / 'material_assets.py'], needs=['unreal.world', 'world.southwest', 'world.terrain.meshes'], heavy=True,
              about='south-west props, the terrain and the sea'),
         Step('unreal.mega', [UnrealScript(SCRIPTS / 'import_mega.py', 'MEGA IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_mega.py'], needs=['unreal.world', 'world.mega'], heavy=True, about='the mini-mega ramp'),
@@ -1227,6 +1235,10 @@ def steps(ctx):
         for command in step.commands:
             if isinstance(command, (Python, Blender)) and WORLD in Path(command.script).parents:
                 step.inputs += [f for f in scanner.local_imports(command.script, (WORLD, REGIONS)) if f not in step.inputs]
+        # Shorelines preserve natural cover from the committed railway geometry.
+        rail_line = ASSETS / 'vehicles' / 'belmonte-train' / 'line.json'
+        if WORLD / 'shorelines.py' in step.inputs and rail_line not in step.inputs:
+            step.inputs.append(rail_line)
         # Scripts that import placement validate the raw geometry themselves. Its cutoff
         # covers their complete consumed landform, site and spawn values, after validating
         # current source provenance; render-only changes can therefore leave them current.

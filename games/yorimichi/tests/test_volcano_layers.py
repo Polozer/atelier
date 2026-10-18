@@ -1,4 +1,4 @@
-"""A volcano look change reimports only the volcano; an export that reruns and writes the same meshes reimports nothing."""
+"""Volcano-only looks stay local; the shared coastal rock texture also reimports the world."""
 import json
 import struct
 from pathlib import Path
@@ -45,10 +45,19 @@ def test_an_fbx_digest_ignores_the_export_time_and_ids_but_not_the_mesh():
     assert DIGEST.fbx(fbx(2025, (11, 22), [0., 1., 2.], link=(0, 1))) != same     # the connection runs the other way
 
 
-def test_snow_rock_and_mountain_material_reimport_only_the_volcano(tmp_path, monkeypatch):
+def test_snow_and_mountain_material_reimport_only_the_volcano(tmp_path, monkeypatch):
     for edited in (tmp_path / 'hidamari' / 'north_snow.png', tmp_path / 'hidamari' / 'north_snow.json',
-                   RECIPE.ASSETS / 'environment/textures/volcanic-rock.jpg', RECIPE.SCRIPTS / 'mountain_material.py'):
+                   RECIPE.SCRIPTS / 'mountain_material.py'):
         assert changed_by(edited, tmp_path, monkeypatch) == {'unreal.north'} | LATER, edited
+
+
+def test_shared_rock_texture_reimports_both_owners_without_regenerating_geometry(tmp_path, monkeypatch):
+    changed = changed_by(RECIPE.ASSETS / 'environment/textures/volcanic-rock.jpg', tmp_path, monkeypatch)
+    assert {'unreal.world', 'unreal.north'} | LATER <= changed
+    assert not any(name.startswith('world.') for name in changed)
+    # CoastRock is built with the world ground materials; the texture must have
+    # the same downstream invalidation as its owning material implementation.
+    assert changed == changed_by(RECIPE.SCRIPTS / 'forest_ground.py', tmp_path, monkeypatch)
 
 
 def test_the_crater_floor_reimports_only_the_volcano(tmp_path, monkeypatch):

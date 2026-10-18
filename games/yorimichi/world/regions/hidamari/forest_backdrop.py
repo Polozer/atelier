@@ -4,15 +4,75 @@ Only appends instances. Existing terrain, mountain, buildings and paths are
 unchanged. Detailed forest crowns use matching distant LODs.
 """
 import math
+from functools import lru_cache
 from forest.specs import MODEL_BY_KIND
 
 import numpy as np
 from hidamari import mountains
 from megapark import trail as park_trail
+import shorelines
+import coastal_surface
 
 
 def triangular(u,v,z00,z10,z01,z11):
     return np.where(u>=v,z00*(1-u)+z10*(u-v)+z11*v,z00*(1-v)+z11*u+z01*(v-u))
+
+
+def source_grid(*, city=True):
+    """The original96-parent heights, including existing replacement lowering."""
+    from hidamari import layout as H
+    from belmonte import terrain as B
+    import yori
+    axis=np.linspace(-3200.,3200.,96);xx,yy=np.meshgrid(axis,axis)
+    grid=H.backdrop_grid().copy() if city else np.load(yori.OUT/'farhills.npy')
+    if city:
+        mask=mountains.contains(xx,yy)|park_trail.in_approach(xx,yy)
+        grid[mask]=np.minimum(grid[mask],H.north_height(xx,yy,carved=False)[mask]-25)
+        grid=B.old_backdrop(grid,xx,yy)
+    return axis,axis,grid
+
+
+def mesh_grid(fine_count, *, city=True):
+    """@cc [owner:fontanierh,label:correctness] shared-backdrop-source-grid
+    Preserve the original96-parent surface through inserted boundary knots,
+    including replacement lowering and the no-city fallback. Export and crown
+    placement MUST pass source_grid as the original parent topology, before
+    applying the separate intended coast/stitch/carve transformations.
+    """
+    from hidamari import layout as H
+    from belmonte import terrain as B
+    import yori
+    axis,_,grid=source_grid(city=city)
+    fine_y=np.unique(np.r_[np.linspace(-300.,300.,fine_count),H.terrain_axes()[1]])
+    fine_y=fine_y[(fine_y>=-300.)&(fine_y<=-100.)]
+    xs=np.unique(np.r_[axis,-300.,300.,1420.]);ys=np.unique(np.r_[axis,fine_y,-300.,300.,500.])
+    xx,yy=np.meshgrid(xs,ys)
+    return xs,ys,B.grid_height(axis,axis,grid,xx,yy)
+
+
+@lru_cache(maxsize=2)
+def rail_refinement(*,city=True):
+    """@cc [owner:fontanierh,label:correctness] original-grid-railway-sampling
+    Derive rail-adjacent parent sampling from the original production earthworks
+    planner, before coastal faces can change its mesh-wide density statistic.
+    Export and owned placement MUST use the same lattice on immutable generator
+    inputs. Shared earthworks defaults and the committed alignment stay unchanged.
+    """
+    from train import earthworks as E
+    line=E.line()
+    if line is None:return {}
+    xs,ys,z=source_grid(city=city);x,y=np.meshgrid(xs,ys);width=len(xs)
+    vertices=np.stack([x,y,z],-1).reshape(-1,3)
+    faces=[(j*width+i,j*width+i+1,(j+1)*width+i+1,(j+1)*width+i)
+           for j in range(len(ys)-1) for i in range(len(xs)-1)]
+    _,_,report=E.polygons(vertices.tolist(),faces,4.,hidden=mountains.contains)
+    n=report.get('subdivision',1)
+    ax,ay=np.meshgrid(xs[:-1],ys[:-1]);bx,by=np.meshgrid(xs[1:],ys[1:])
+    near=np.zeros(ax.shape,bool)
+    for u,v in [(0.,0.),(1.,0.),(0.,1.),(1.,1.),(.5,.5),(2/3,1/3),(1/3,2/3)]:
+        s,_,_=line.project(ax+(bx-ax)*u,ay+(by-ay)*v)
+        near|=np.isfinite(s.reshape(ax.shape))
+    return {(int(i),int(j)):n for j,i in zip(*np.nonzero(near))}
 
 
 def ground(x,y,height,backdrop_grid,terrain_axes,north_height):
@@ -24,6 +84,8 @@ def ground(x,y,height,backdrop_grid,terrain_axes,north_height):
     fy=np.clip((y+3200)/6400*(len(axis)-1),0,len(axis)-1.001)
     ix=fx.astype(int);iy=fy.astype(int);u=fx-ix;v=fy-iy
     z=triangular(u,v,far[iy,ix],far[iy,ix+1],far[iy+1,ix],far[iy+1,ix+1])
+    from hidamari.layout import coastal_backdrop_height
+    z=coastal_backdrop_height(x,y,z)
     # The foothills' apron covers the far hills' sagging last cells (mountains.apron_grids): it is the ground there.
     mask=mountains.contains(x,y)|park_trail.in_approach(x,y)|mountains.in_apron(x,y)
     z[mask]=north_height(x[mask],y[mask],carved=False)
@@ -59,7 +121,7 @@ def append(instances,buildings,height,backdrop_grid,terrain_axes,north_height,ro
         dx=x-cx;dy=y-cy;lx=dx*math.cos(a)+dy*math.sin(a);ly=-dx*math.sin(a)+dy*math.cos(a)
         keep&=~((abs(lx)<b['width']/2+13)&(abs(ly)<b['depth']/2+13))
     x=x[keep];y=y[keep];z=ground(x,y,height,backdrop_grid,terrain_axes,north_height)
-    valid=(z>4)&((x>2320)|(z<215+20*np.sin(x*.009)))
+    valid=(z>4)&shorelines.vegetation(x,y)&((x>2320)|(z<215+20*np.sin(x*.009)))
     x=x[valid];y=y[valid];z=z[valid]
     ever=mountains.noise(x,y,95.,85)+.5*mountains.noise(x,y,38.,86)+.2*mountains.noise(x,y,2.3,87)
     hue=mountains.noise(x,y,90.,88)+.5*mountains.noise(x,y,35.,89)+.2*mountains.noise(x,y,2.3,90)
@@ -90,6 +152,29 @@ def append(instances,buildings,height,backdrop_grid,terrain_axes,north_height,ro
                           for dx in (-1,0,1) for dy in (-1,0,1)
                           for ox,oy,os in bins.get((bx+dx,by+dy),()))
     x,y,z,yaw,scale,names=(a[unique] for a in (x,y,z,yaw,scale,names))
+    # Finish the existing random stream and old overlap decisions first. This
+    # producer alone opens the rocky crowns; unrelated forest rows stay exact.
+    crown=coastal_surface.crown_zone(x,y,z)
+    slope=np.zeros_like(z)
+    crown_ground=None
+    if crown.any():
+        from hidamari import layout as H
+        from train import earthworks
+        import yori
+        px,py=x[crown],y[crown]
+        def final_shape(qx,qy,base):
+            return earthworks.carve(qx,qy,H.coastal_backdrop_height(qx,qy,base))
+        # Crown ownership excludes the rail cover by >300m, beyond the
+        # earthworks'120m reach even at neighboring source-cell corners.
+        grid=mesh_grid(len(np.load(yori.OUT/'heightmap.npy')))
+        samples=shorelines.sample_grid_mesh(*grid,np.r_[px,px+2.,px-2.,px,px],
+            np.r_[py,py,py,py+2.,py-2.],shape=final_shape,parents=source_grid(),parent_refinement=rail_refinement()).reshape(5,-1)
+        crown_ground=samples[0]
+        slope[crown]=np.hypot((samples[1]-samples[2])/4.,(samples[3]-samples[4])/4.)
+    keep,resize=coastal_surface.forest_crowns(x,y,z,slope)
+    if crown_ground is not None:z[crown]=crown_ground
+    scale=scale*resize
+    x,y,z,yaw,scale,names=(a[keep] for a in (x,y,z,yaw,scale,names))
     ranges={}
     for name in sorted(set(names)):
         mask=names==name

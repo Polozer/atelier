@@ -349,11 +349,12 @@ def touched(points, ln=None, margin=.02):
     return moved | (np.isfinite(s) & (np.abs(np.nan_to_num(u, nan=1e9)) < 12.))
 
 
-def refine(vertices, faces, step, attributes=None, ln=None, holes=True, hidden=None, weight=None):
+def refine(vertices, faces, step, attributes=None, ln=None, holes=True, hidden=None, weight=None, *, conform_neighbors=False):
     """Subdivide the triangles the earthworks touch to about `step` metres, carve every vertex and leave the portal
     holes open. vertices (N, 3) in route metres; faces (M, 3); attributes {name: (N, k)} are interpolated (normals
     are recomputed where carved). `hidden(x, y)`: where this terrain lies under another one (left as it is);
     `weight(x, y)`: 0..1, how much of the carving applies (seam_weight).
+    With conform_neighbors, retained adjacent faces share selected edge nodes before carving.
     Returns (vertices, faces, attributes, report)."""
     ln = ln or line()
     shown = (lambda x, y: ~np.asarray(hidden(x, y), bool)) if hidden else (lambda x, y: np.ones(np.shape(x), bool))
@@ -423,6 +424,13 @@ def refine(vertices, faces, step, attributes=None, ln=None, holes=True, hidden=N
         interp = np.einsum('pk,tkc->tpc', bary, a[fs])[fresh][first]
         out_attr[name] = np.concatenate([a, interp])
     allv = np.concatenate([v, new_v])
+    retained=f[keep]
+    if conform_neighbors:
+        centres,retained,parents,joined=_conform_neighbors(v,retained,fs,ids,index,n,allv)
+        if len(centres):
+            allv=np.concatenate([allv,centres])
+            for name,a in attributes.items():out_attr[name]=np.concatenate([out_attr[name],a[parents].mean(1)])
+        report['conforming_neighbors']=joined
     z0 = allv[:, 2].copy()
     allv[:, 2] = carved(allv)
     new_f = ids[:, tmpl].reshape(-1, 3)
@@ -431,14 +439,54 @@ def refine(vertices, faces, step, attributes=None, ln=None, holes=True, hidden=N
         open_ = in_hole(c[:, 0], c[:, 1], c[:, 2], ln) & shown(c[:, 0], c[:, 1])
         report['hole_triangles'] = int(open_.sum())
         new_f = new_f[~open_]
-    faces_out = np.concatenate([f[keep], new_f])
+    faces_out = np.concatenate([retained, new_f])
     if 'normals' in out_attr:
         moved = np.abs(allv[:, 2] - z0) > 1e-3
         moved[len(v):] = True
         out_attr['normals'] = _normals(allv, faces_out, out_attr['normals'], moved)
-    report.update(subdivision=n, triangles_out=int(len(faces_out)), vertices_added=int(len(new_v)),
+    report.update(subdivision=n, triangles_out=int(len(faces_out)), vertices_added=int(len(allv)-len(v)),
                   moved=int((np.abs(allv[:, 2] - z0) > .01).sum()))
     return allv, faces_out, out_attr, report
+
+
+def _conform_neighbors(v,retained,selected,ids,index,n,allv):
+    """@cc [owner:fontanierh,label:correctness] selected-retained-edge-ownership
+    Retained neighbors MUST reuse selected template edge nodes before the shared
+    carve. No inferred nearby vertex may be welded. Original endpoint ownership
+    and conflicting selected chains MUST be checked; selected triangles and
+    vertices remain unchanged. The default refine path MUST remain unchanged.
+    """
+    if n<=1 or not len(retained):return np.empty((0,3)),retained,np.empty((0,3),int),0
+    # Adjacent grid cells may duplicate the same original endpoint. Quantized
+    # XYZ IDs only find candidates; actual original endpoints are checked below.
+    _,canonical=np.unique(np.round(v*1.e7).astype(np.int64),axis=0,return_inverse=True)
+    canonical=canonical.ravel();chains={}
+    templates=[[index[(i,0)] for i in range(n+1)],
+               [index[(n-i,i)] for i in range(n+1)],
+               [index[(0,n-i)] for i in range(n+1)]]
+    for face,nodes in zip(selected,ids):
+        for e,(a,b) in enumerate(zip(face,np.roll(face,-1))):
+            ca,cb=int(canonical[a]),int(canonical[b]);key=tuple(sorted((ca,cb)))
+            chain=nodes[templates[e]]
+            if ca>cb:chain=chain[::-1]
+            prior=chains.get(key)
+            if prior is not None and np.max(abs(allv[prior]-allv[chain]))>1.e-7:
+                raise ValueError('Conflicting selected earthworks edge ownership')
+            chains[key]=chain
+    output=[];centres=[];parents=[]
+    for face in retained:
+        polygon=[];changed=False
+        for a,b in zip(face,np.roll(face,-1)):
+            polygon.append(int(a));ca,cb=int(canonical[a]),int(canonical[b]);chain=chains.get(tuple(sorted((ca,cb))))
+            if chain is None:continue
+            if ca>cb:chain=chain[::-1]
+            if np.max(abs(v[[a,b]]-allv[chain[[0,-1]]]))>1.e-7:
+                raise ValueError('Distinct original earthworks endpoints')
+            polygon.extend(map(int,chain[1:-1]));changed=True
+        if not changed:output.append(face);continue
+        centre=len(allv)+len(centres);centres.append(v[face].mean(0));parents.append(face)
+        output.extend((centre,a,b) for a,b in zip(polygon,polygon[1:]+polygon[:1]))
+    return np.asarray(centres).reshape(-1,3),np.asarray(output).reshape(-1,3),np.asarray(parents).reshape(-1,3),len(centres)
 
 
 def _normals(v, f, old, which):
@@ -455,7 +503,7 @@ def _normals(v, f, old, which):
     return out
 
 
-def polygons(vertices, faces, step, ln=None, hidden=None):
+def polygons(vertices, faces, step, ln=None, hidden=None, *, conform_neighbors=False):
     """`refine` for Blender-style polygon lists (quads or triangles, no attributes): (vertices, faces, report).
     Unchanged without a line."""
     ln = ln or line()
@@ -464,7 +512,7 @@ def polygons(vertices, faces, step, ln=None, hidden=None):
     tris = []
     for p in faces:
         tris.extend((p[0], p[k], p[k + 1]) for k in range(1, len(p) - 1))
-    v, f, _, report = refine(np.asarray(vertices, float), np.asarray(tris), step, ln=ln, hidden=hidden)
+    v, f, _, report = refine(np.asarray(vertices, float), np.asarray(tris), step, ln=ln, hidden=hidden, conform_neighbors=conform_neighbors)
     print('RAILWAY EARTHWORKS', report, flush=True)
     if not report.get('refined'):
         return vertices, faces, report
@@ -513,12 +561,12 @@ def quads(mesh, origin, step, ln=None, hidden=None, weight=None):
     return report
 
 
-def stitch(meshes, origin, lines, ln=None, tol=1e-4):
+def stitch(meshes, origin, lines, ln=None, tol=1e-4, *, whole_seam=False):
     """Close the seams between hippodrome.build.Mesh terrains refined at different steps: along each straight seam
     (axis 0: x = value, axis 1: y = value), every seam vertex of one mesh near the line becomes a vertex of the other
     (its seam triangles are fanned), at the exact height the first mesh gives it. Returns the vertices added."""
     ln = ln or line()
-    if ln is None:
+    if ln is None and not whole_seam:
         return 0
     origin = np.asarray(origin, float)
     added = 0
@@ -528,8 +576,10 @@ def stitch(meshes, origin, lines, ln=None, tol=1e-4):
         for mesh in meshes:
             p = np.asarray(mesh.p, float) + origin
             on = np.abs(p[:, axis] - value) < tol
-            s, _, _ = ln.project(p[on, 0], p[on, 1])
-            near = np.flatnonzero(on)[np.isfinite(s)]
+            near = np.flatnonzero(on)
+            if not whole_seam:
+                s, _, _ = ln.project(p[on, 0], p[on, 1])
+                near = near[np.isfinite(s)]
             seams.append({round(float(p[k, across]), 4): float(p[k, 2]) for k in near})
         for m, mesh in enumerate(meshes):
             others = {}

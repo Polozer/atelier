@@ -5,6 +5,7 @@ import numpy as np
 from belmonte import layout as L, source
 from hidamari import layout as H
 from hippodrome.build import Mesh
+import shorelines
 
 OUTER = (L.BOUNDS[0] - L.APRON, L.SOUTH_JOIN, L.BOUNDS[2] + L.APRON, L.BOUNDS[3] + L.APRON)
 # The country runs out to sea NORTH_SHIFT metres further north than it first did, keeping its distance from the valley.
@@ -45,8 +46,14 @@ def country_grid():
     return xs, ys, z
 
 
-def country_height(x, y, *, carved=False):
+def country_profile_height(x, y):
+    """Existing triangular country and coast profile before local deformation."""
     out = np.where(np.asarray(y) <= 3200., old_height(x, y), grid_height(*country_grid(), x, y))
+    return shorelines.profile_height(x, y, out)
+
+
+def country_height(x, y, *, carved=False):
+    out = shorelines.landforms(x, y, country_profile_height(x, y))
     if carved:
         from train import earthworks
         out = earthworks.carve(x, y, out)
@@ -88,13 +95,14 @@ def collar():
         ix, iy = (lo + u * (hi - lo), np.full_like(u, edge)) if along == 0 else (np.full_like(u, edge), lo + u * (hi - lo))
         ox, oy = (olo + u * (ohi - olo), np.full_like(u, rim)) if along == 0 else (np.full_like(u, rim), olo + u * (ohi - olo))
         iz = source.terrain().height(ix - L.ORIGIN[0], iy - L.ORIGIN[1]) + L.ORIGIN[2]
-        oz = H.north_height(ox, oy, carved=False) if across == 1 and edge == inner[1] else country_height(ox, oy, carved=False)
+        oz = H.north_height(ox, oy, carved=False) if across == 1 and edge == inner[1] else country_profile_height(ox, oy)
         assert np.isfinite(iz).all() and np.isfinite(oz).all(), 'Open Belmonte collar edge'
         previous = None
         for t in np.linspace(0., 1., 40):
             smooth = t * t * (3. - 2. * t)
-            row = np.stack([ix * (1. - t) + ox * t, iy * (1. - t) + oy * t,
-                            iz * (1. - smooth) + oz * smooth], 1) - L.ORIGIN
+            x, y = ix*(1.-t)+ox*t, iy*(1.-t)+oy*t
+            z = shorelines.landforms(x, y, iz*(1.-smooth)+oz*smooth)
+            row = np.stack([x, y, z], 1) - L.ORIGIN
             if previous is not None:
                 for a, b, c, d in zip(previous[:-1], previous[1:], row[1:], row[:-1]):
                     mesh.quad(a, d, c, b)
@@ -113,14 +121,10 @@ def country():
     if under.any():
         z = z.copy()
         z[under] = np.minimum(z[under], H.north_height(x[under], y[under], carved=False) - 25.)
-    for j, (ay, by) in enumerate(zip(ys[:-1], ys[1:])):
-        if ay < 3200.:
-            continue  # Existing FarHills owns this band outside the fine collar.
-        for i, (ax, bx) in enumerate(zip(xs[:-1], xs[1:])):
-            if OUTER[0] <= ax and bx <= OUTER[2] and ay >= OUTER[1] and by <= OUTER[3]:
-                continue
-            mesh.quad(np.array([ax, ay, z[j, i]]) - L.ORIGIN,
-                      np.array([bx, ay, z[j, i + 1]]) - L.ORIGIN,
-                      np.array([bx, by, z[j + 1, i + 1]]) - L.ORIGIN,
-                      np.array([ax, by, z[j + 1, i]]) - L.ORIGIN)
+    vertices, faces = shorelines.grid_mesh(xs, ys, z, hidden=lambda x,y:
+        y < 3200. or (OUTER[0] < x < OUTER[2] and OUTER[1] < y < OUTER[3]))
+    vertices = np.asarray(vertices)-L.ORIGIN
+    for face in faces:
+        points = vertices[list(face)]
+        (mesh.triangle if len(face) == 3 else mesh.quad)(*points)
     return mesh

@@ -1,7 +1,13 @@
-"""The open-sea look, shared by the sea plane's M_Sea (import_southwest.py) and the Hidamari harbour's M_HarborWater
+"""@cc [owner:fontanierh,label:correctness] coastal-water-depth-seams
+Surf antialiasing MUST have a bounded vertical depth width, so a discontinuity
+behind deep water MUST NOT generate shoreline foam. Both water materials MUST
+use this shared depth look and per-pixel translucent fog at their shared edge.
+
+The open-sea look, shared by the sea plane's M_Sea (import_southwest.py) and the Hidamari harbour's M_HarborWater
 (harbor_material.py), so the two read as one sea from any distance.
 
-M_Sea covers the big sea plane; M_HarborWater covers the harbour's HD_Sea rectangle, which sits 2.5 cm above it. On
+M_Sea covers the sea outside the harbour's HD_Sea rectangle. M_HarborWater owns that rectangle at the same z=0;
+the meshes share their boundary and do not overlap. On
 the rectangle's outline the harbour water is exactly the open sea (these waves and this colour), and it turns into
 its own lit water over its 200 m border.
 
@@ -23,12 +29,9 @@ own units is seen exactly as chosen, next to the sky it has to differ from:
 The engine still lights the surface for sun glints only: black base colour, specular .02. Below .25 the engine scales
 its grazing reflection by 50 x F0 (here .08), so the captured sky no longer washes the authored colour out.
 
-Values were chosen against the in-game screenshots: under the fixed exposure and film curve, the dome just above the
-horizon (HORIZON) shows about 125,160,194 and its cloud tops about 219,216,214. A film curve fitted to those predicts,
-from the beach at eye height, about 51,94,128 at 9 m (wave facets 40,88,122 to 55,98,134), 74,113,151 at 40 m,
-95,131,169 at 300 m, 110,143,180 at 1 km and 113,146,182 at the horizon, 12 to 16 levels under the sky; from the
-crow's nest (89 m), 49,94,129 at 300 m, 84,121,159 at 2 km and 114,145,182 at the horizon. The surf shows about
-200,204,208, a little under the cloud tops.
+Judge the palette in the native fixed-exposure renderer. The shallow tint uses the approximate vertical water
+column, so it remains visible when looking along a beach. Surf thickness and its pixel antialiasing use that same
+depth measure; a horizontal pixel footprint would spread white foam across a broad band at grazing angles.
 """
 
 
@@ -49,14 +52,14 @@ ZENITH = (0.0235, 0.113, 0.531)
 
 # The water's own colour: deep blue-teal, and a lighter teal over the first SHALLOW_M metres behind the surface.
 BODY = (0.004, 0.060, 0.130)
-SHALLOW = (0.020, 0.120, 0.125)
-SHALLOW_M = 5.0
+SHALLOW = (0.024, 0.230, 0.205)
+SHALLOW_M = 12.0
 FOAM = (1.20, 1.25, 1.30)
 
 # Share of the dome reflection: water's Fresnel term times REFLECT, rising to GRAZE where the view grazes the sea
 # (sin of the view's elevation under ~.01: beyond ~300 m from the beach, and near the horizon from anywhere).
-REFLECT = 0.35
-GRAZE = 0.74
+REFLECT = 0.20
+GRAZE = 0.48
 GRAZE_POWER = 100.0
 
 # Haze with pixel depth D (cm): 1 - exp(-D / HAZE_CM), .1 at 1 km, .36 at 4 km, .9 at 20 km (the dome), toward the
@@ -78,11 +81,13 @@ WIND = -1.2645
 K0 = 0.30
 A0 = 0.065
 
-# Surf: a band SURF_M metres deep behind the surface near the camera; far away it widens to about one and a half
-# pixels, so a cliff 400 m off still gets its white line. None beyond SURF_FAR metres (the dome meets the sea at 20 km).
-SURF_M = 1.6
+# Surf: SURF_M vertical metres plus bounded pixel antialiasing. The bound avoids
+# treating a submerged terrain edge / sky depth discontinuity as a waterline.
+# None beyond SURF_FAR metres (the dome meets the sea at 20 km).
+SURF_M = 0.35
+SURF_AA_MAX_M = 1.0
 SURF_FAR = (2500.0, 4000.0)
-FLECK = 0.45
+FLECK = 0.16
 
 # P: world position (cm), T: time (s) -> float3(slope x, slope y, crest). The crest is the short trains' sum, -1..1;
 # the flecks sit on its rare peaks.
@@ -109,8 +114,9 @@ return float3(slope,crest/6);
 # W: WAVES -> world-space normal (the material's tangent_space_normal is off)
 NORMAL = 'return normalize(float3(-W.xy,1));'
 
-# W: WAVES, V: camera vector (world, toward the camera), D: pixel depth (cm), L: scene depth behind the surface (cm;
-# M_HarborWater, opaque, passes 1e7), P: world position (cm), T: time (s) -> emissive colour
+# W: WAVES, V: camera vector (world, toward the camera), D: pixel depth (cm),
+# L: scene depth behind the surface (cm), P: world position (cm), T: time (s) -> emissive colour.
+# Harbor and open sea both supply real scene depth at their shared boundary.
 LOOK = '''
 float2 p=P.xy*.01;
 float3 N=normalize(float3(-W.xy,1));
@@ -121,11 +127,15 @@ float graze=pow(saturate(1-V.z),%(graze_power)s);
 float fres=(.02+.98*pow(1-nv,5))*lerp(%(reflect)s*(.8+.4*gust),%(graze)s,graze);
 float3 R=reflect(-V,N);
 float3 sky=lerp(%(horizon)s,%(zenith)s,pow(asin(saturate(R.z))/1.5708,.6));
-float l=L*.01;
+// Convert the view-depth interval into an approximate vertical water column.
+// Raw view depth erased the shallow band when looking along a beach.
+float l=max(0,L)*.01*max(V.z,.03);
 float3 c=lerp(lerp(%(shallow)s,%(body)s,saturate(l/%(shallow_m)s)),sky,fres);
 // surf: white at the waterline, fading over w metres behind the surface, with a wobbling edge and a slow wash
-float fp=max(length(ddx(p)),length(ddy(p)));
-float w=%(surf_m)s+1.5*fp;
+float fp=max(abs(ddx(l)),abs(ddy(l)));
+// A submerged mesh edge can have an enormous depth derivative. It is not
+// a waterline: bound AA in vertical metres so deep water never becomes foam.
+float w=%(surf_m)s+min(1.5*fp,%(surf_aa_max_m)s);
 float wob=.5+.25*sin(p.x*.83+p.y*.37+T*.6)+.25*sin(p.y*1.13-p.x*.51-T*.45);
 float edge=saturate(1-l/(w*(.55+.9*wob)));
 float surf=edge*edge*(3-2*edge)*(.7+.3*sin(T*1.2+l/w*4))*(1-smoothstep(%(far0)s,%(far1)s,D*.01));
@@ -133,7 +143,7 @@ float fleck=smoothstep(.58,.84,W.z)*(.6+.8*gust)*%(fleck)s;
 c=lerp(c,%(foam)s,saturate(max(surf,fleck)));
 return lerp(c,%(far)s,1-exp(-D/%(haze)s));
 ''' % dict(graze_power=num(GRAZE_POWER), reflect=num(REFLECT), graze=num(GRAZE), horizon=f3(HORIZON), zenith=f3(ZENITH),
-           shallow=f3(SHALLOW), body=f3(BODY), shallow_m=num(SHALLOW_M), surf_m=num(SURF_M), far0=num(SURF_FAR[0]),
+           shallow=f3(SHALLOW), body=f3(BODY), shallow_m=num(SHALLOW_M), surf_m=num(SURF_M), surf_aa_max_m=num(SURF_AA_MAX_M), far0=num(SURF_FAR[0]),
            far1=num(SURF_FAR[1]), fleck=num(FLECK), foam=f3(FOAM), far=f3(FAR_COLOUR), haze=num(HAZE_CM))
 
 # D: pixel depth (cm) -> the haze's share, as in LOOK (the lit harbour water fades by it)

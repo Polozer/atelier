@@ -85,6 +85,16 @@ class Mesh:
     def __init__(self):
         self.p, self.n, self.t, self.i = [], [], [], []
 
+    def triangle(self, a, b, c):
+        """One upward-oriented triangle without a degenerate second half."""
+        a, b, c = (np.asarray(v, float) for v in (a, b, c))
+        normal = np.cross(b-a, c-a)
+        normal /= max(np.linalg.norm(normal), 1e-9)
+        base = len(self.p)
+        self.p += [a, b, c]; self.n += [normal]*3
+        self.t += [(v[0]/UV_METRES, v[1]/UV_METRES) for v in (a, b, c)]
+        self.i += [base, base+1, base+2]
+
     def quad(self, a, b, c, d, uv=None, normal=None):
         """Quad a-b-c-d counter-clockwise seen from its front."""
         a, b, c, d = (np.asarray(v, float) for v in (a, b, c, d))

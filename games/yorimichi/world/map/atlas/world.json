@@ -7,80 +7,86 @@
   ],
   "labels_baked": false,
   "geography": {
-    "world/gen_world.py": "bed6dab44b570c78e54e8b0d9a85c68cc270d2ae2a71d8300242798c1782b59a",
-    "world/build_terrain.py": "6a1a451f92fea466253d14da988af6a89524127093f2544816369a7307ca1b04",
-    "world/regions/hidamari/layout.py": "ef01796e97d488700ba93eb1c79c304a67cd98e96982eb104582ac1b4075d979",
+    "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
+    "world/build_terrain.py": "64c477db0cfdd91356171c8819fa0763900507255a8a524e86d8af97aa00ffe7",
+    "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
     "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
     "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
-    "world/regions/belmonte/terrain.py": "b42cbfed11379386af9dc85df8397d4e2a55403669cd67f1c7ef60de5ca94797",
+    "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
     "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
-    "world/regions/southwest/island.py": "b280ec69ecdbafbfe5ac8f561d0158be6712622f5389cc7394ddf0df7dce945b",
-    "world/train/route.py": "5dfbb629b175a796e50048e25990f2c6146048bdd812d5f65a048b42b23ed5b6",
+    "world/regions/southwest/island.py": "977f38a49fb5eb699f8164544fee1cde5f804372ddaeb03826125242e9c7b96f",
+    "world/train/route.py": "88a742f1d19cddbb56cf610a7cf6c2ca0b7fe7ebfb1928ce25e2b708e741817e",
     "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
     "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
     "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
     "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
-    "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f"
+    "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
+    "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
   },
-  "prompt": "Edit image 1 locally. Preserve its exact frame, scale, north-up orthographic top view, painterly style and all unchanged detail. Image 2 is the exact geographical plan; image 3 is the exact binary land mask (white dry land, black water). No text or UI. No recentering, zoom or perspective. Keep all roads, buildings, trees and shorelines outside the requested correction in exactly their original positions. ONLY correct the blue/turquoise fill inside the snowy volcanic caldera near output pixel (1000,860): this is NOT a lake. It is DRY dark basalt and a grey CONCRETE SKATE PARK on the crater floor. Replace ALL blue inside the caldera with dry warm-grey concrete/basalt, using the exact grey riding footprint and contour pattern of image 2. White rim is snow. Do not draw any blue water, pond, lake or river in this caldera. Preserve the snowy rim, mountain shape, every coastline and all other areas of image1 unchanged. The rest of the map, including the actual sea, river and small existing woodland lake, stays exactly as it is.",
+  "prompt": "Use case: precise-object-edit. Production north-up fantasy RPG world atlas.\nImage1 is the edit target, the already accepted-style world painting. Preserve its exact framing, all coastlines, mountains, country town, roads, railway, colours and ocean.\nMake ONLY this required landmark correction: the small pale cluster southwest of the volcano at about pixel(746,1080) is the Mega Park concrete skate park, NOT rocks or a tall white stone tower. Replace that small pale cluster with its correct flat grey concrete skatepark footprint, seen vertically from above, with tiny bowls, ramps and paved decks. Its location/outline is the white polygon in Image2 at the same coordinates. Image4 shows the same park in the regional painting and is a concrete-park appearance reference ONLY; do not import its framing or other geography.\nImage2 is the authoritative exact world plan. Image3 is the exact binary land/sea mask. Match them strictly; all other parts of Image1 must stay unchanged. No added landmarks or buildings, no perspective, no isometric mountains, no text, letters, names, icons, borders or UI. The park is a small flat landmark in the existing forest, not a mountain. Retain the same full1536x1536 north-up world frame and the exact coast silhouette.",
   "inputs": [
     {
-      "role": "painting to correct locally",
-      "sha256": "59470eed3973da78e50bcefe239fc9f9db6e080ce41cf240978b556e314cb71c"
+      "role": "edit target",
+      "sha256": "56e5473d87dd140269005c748f1dbc24721e0656c9046784e08d2ea59803c50a"
     },
     {
       "role": "exact geography",
-      "sha256": "21ff9b264fbdce2a119da91554f230a9e14690ffb7b6516da4c542ee808461e0"
+      "sha256": "ca5d881064ee480b3b3c4d57f1c8bfab59c00f1de4e1ab79a37e51c8e85f3ef7"
     },
     {
       "role": "exact coast mask",
-      "sha256": "587ad78acbe5a444a07cbeb32f87461bba1b606aa64733e0c30a259b38e91524"
+      "sha256": "1fc1bedf2acfc321c29cc20a2ed155046af48a7bb7dc9aaa8295d1cc1da503c0"
+    },
+    {
+      "role": "same park appearance",
+      "sha256": "9e03e5a3d90ee0835a0f294da8e5db7459cab6a9bad61c269b2cacda44dea3c0"
     }
   ],
   "requested_model": "gpt-image-2.5-sunburst",
   "quality": "high",
   "size": "1536x1536",
   "endpoint": "/v1/images/edits",
-  "prompt_sha256": "c72876d1378c118e2261ccfd94f564fbcb14a7e72d538aa0dd2ed111d8175c27",
+  "prompt_sha256": "5220d8dd6ae67fd6b7e6b1dc19e895e1c70ba3eeb0d807f29045af746ce4d61f",
   "status": "done",
-  "started_at": "2026-10-17T23:16:34.683086+00:00",
+  "started_at": "2026-10-18T11:45:55.620220+00:00",
   "output": "world.png",
-  "output_sha256": "62c0bb6ac48137897e2fc4066608914daa8ce7dfd22823da19087e509173e9e3",
+  "output_sha256": "e7ec9ecc384cc74df073ede48c0c18798f0d1a224265ebd0add70b6e2bab2c8c",
   "usage": {
-    "input_tokens": 4831,
+    "input_tokens": 5952,
     "input_tokens_details": {
-      "image_tokens": 4563,
-      "text_tokens": 268
+      "image_tokens": 5643,
+      "text_tokens": 309
     },
     "output_tokens": 2511,
     "output_tokens_details": {
       "image_tokens": 2511,
       "text_tokens": 0
     },
-    "total_tokens": 7342
+    "total_tokens": 8463
   },
-  "elapsed_seconds": 42.6,
-  "finished_at": "2026-10-17T23:17:17.293833+00:00",
+  "elapsed_seconds": 39.8,
+  "finished_at": "2026-10-18T11:46:35.447335+00:00",
   "verified_geography": {
     "kind": "terrain-reference-revalidation",
     "geography": {
-      "world/gen_world.py": "bed6dab44b570c78e54e8b0d9a85c68cc270d2ae2a71d8300242798c1782b59a",
-      "world/build_terrain.py": "6a1a451f92fea466253d14da988af6a89524127093f2544816369a7307ca1b04",
-      "world/regions/hidamari/layout.py": "ef01796e97d488700ba93eb1c79c304a67cd98e96982eb104582ac1b4075d979",
+      "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
+      "world/build_terrain.py": "64c477db0cfdd91356171c8819fa0763900507255a8a524e86d8af97aa00ffe7",
+      "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
       "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
       "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
-      "world/regions/belmonte/terrain.py": "b42cbfed11379386af9dc85df8397d4e2a55403669cd67f1c7ef60de5ca94797",
+      "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
       "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
-      "world/regions/southwest/island.py": "b280ec69ecdbafbfe5ac8f561d0158be6712622f5389cc7394ddf0df7dce945b",
-      "world/train/route.py": "5dfbb629b175a796e50048e25990f2c6146048bdd812d5f65a048b42b23ed5b6",
+      "world/regions/southwest/island.py": "977f38a49fb5eb699f8164544fee1cde5f804372ddaeb03826125242e9c7b96f",
+      "world/train/route.py": "88a742f1d19cddbb56cf610a7cf6c2ca0b7fe7ebfb1928ce25e2b708e741817e",
       "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
       "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
       "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
       "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
-      "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f"
+      "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
+      "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
     },
-    "painting_sha256": "62c0bb6ac48137897e2fc4066608914daa8ce7dfd22823da19087e509173e9e3",
-    "coast_sha256": "587ad78acbe5a444a07cbeb32f87461bba1b606aa64733e0c30a259b38e91524",
-    "reference_sha256": "21ff9b264fbdce2a119da91554f230a9e14690ffb7b6516da4c542ee808461e0"
+    "painting_sha256": "e7ec9ecc384cc74df073ede48c0c18798f0d1a224265ebd0add70b6e2bab2c8c",
+    "coast_sha256": "d15fde5a57d8935f7ca4d32b651d33301691d2ebc3d34edc641b0fb07110ca78",
+    "reference_sha256": "ca5d881064ee480b3b3c4d57f1c8bfab59c00f1de4e1ab79a37e51c8e85f3ef7"
   }
 }
