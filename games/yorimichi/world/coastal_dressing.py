@@ -197,6 +197,7 @@ def repair_west_forest(world, heightmap, owned_rows):
     parents=source_grid()
     def previous(x,y,base):return layout.coastal_backdrop_height(x,y,base,repair_west=False)
     def shape(x,y,base):
+        x,y,base=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float),np.asarray(base,float))
         ground=layout.coastal_backdrop_height(x,y,base)
         changed=ground!=previous(x,y,base)
         if np.any(changed) and not np.array_equal(ground[changed],earthworks.carve(x[changed],y[changed],ground[changed])):

@@ -88,3 +88,21 @@ def test_forest_repair_follows_changed_parent_support_beyond_the_analytical_fade
     assert world['instances']['Tree_Maple_A'][0][2]!=before[0][2]
     assert world['instances']['Tree_Maple_A'][1]==before[1]
     assert world['instances']['Tree_Cedar_B']==[[-300.77,436.59,9.,30.,1.]]
+
+
+def test_forest_repair_accepts_changed_scalar_points_inserted_on_the_fine_edge(monkeypatch):
+    xs=np.array([-400.,-300.,-200.]);ys=np.array([-160.,80.])
+    grid=(xs,ys,np.full((2,3),40.))
+    monkeypatch.setattr(farhills_grid,'mesh_grid',lambda n:grid)
+    monkeypatch.setattr(farhills_grid,'source_grid',lambda:grid)
+    monkeypatch.setattr(earthworks,'carve',lambda x,y,z:z)
+    monkeypatch.setattr(layout,'H',None)
+    owned={'Tree_Maple_A':[[-310.,-100.,39.7,10.,2.]]}
+    world={'instances':{'Tree_Maple_A':[r.copy() for r in owned['Tree_Maple_A']]}}
+    coastal_dressing.repair_west_forest(world,np.full((3,3),10.),owned)
+    vertices,faces=coast.grid_mesh(*grid,shape=layout.coastal_backdrop_height,parents=grid,
+        edge_knots={(0,-300.):np.array([-300.,0.,300.])})
+    assert any(x==-300. and y==0. for x,y,z in vertices)
+    actual=Surface(Mesh.from_polygons(vertices,faces),owner='FarHills',stage='natural').upper(-310.,-100.)
+    assert world['instances']['Tree_Maple_A'][0]==[-310.,-100.,round(float(actual.height-.3),2),10.,2.]
+    assert world['instances']['Tree_Maple_A'][0][2]!=39.7
