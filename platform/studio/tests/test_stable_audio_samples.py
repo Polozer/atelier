@@ -26,11 +26,11 @@ class PreparedAudioTests(unittest.TestCase):
             handle.writeframes(stereo.tobytes())
         return review.wav_details(path, len(signal) / RATE)
 
-    def bank_fixture(self, directory):
+    def bank_fixture(self, directory, label='Walking · smooth concrete'):
         root = Path(directory)
         catalog, web, output = root / 'catalog.json', root / 'web', root / 'output'
         catalog.write_text(json.dumps({'title': 'Test', 'seeds': [1], 'sounds': [
-            {'category': 'Footsteps', 'label': 'Walking · smooth concrete',
+            {'category': 'Footsteps', 'label': label,
              'prompt': 'One walking sequence', 'seconds': 2}]}))
         web.mkdir()
         for name in ('index.html', 'clips.html', 'review.js', 'sequences.js', 'review.css'):
@@ -45,6 +45,21 @@ class PreparedAudioTests(unittest.TestCase):
         manifest['clips'][0].update(status='ready', audio=self.write_raw(raw, signal))
         review.write_json(output / 'manifest.json', manifest)
         return output, raw, signal
+
+    def test_additional_material_labels_publish_their_own_contact_cues(self):
+        for label, surface in [('packed dirt', 'dirt'), ('fallen leaves', 'leaves'), ('tatami mat', 'tatami')]:
+            with self.subTest(material=label), tempfile.TemporaryDirectory() as directory:
+                root, raw, signal = self.bank_fixture(directory, 'Walking · ' + label)
+                original = raw.read_bytes()
+                with patch.object(prepare_samples, 'read_mono', return_value=signal):
+                    prepare_samples.prepare(root)
+                manifest = json.loads((root / 'prepared.json').read_text())
+                self.assertEqual(manifest['rejected'], [])
+                self.assertEqual(len(manifest['clips']), 3)
+                self.assertEqual({c['cue'] for c in manifest['clips']}, {'footstep.' + surface})
+                self.assertEqual({c['surface'] for c in manifest['clips']}, {surface})
+                self.assertTrue(all(not c['loop'] for c in manifest['clips']))
+                self.assertEqual(raw.read_bytes(), original)
 
     def test_each_contact_keeps_attack_and_excludes_following_step(self):
         samples = np.zeros(RATE * 3)
