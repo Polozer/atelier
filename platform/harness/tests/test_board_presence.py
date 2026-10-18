@@ -34,10 +34,12 @@ def job(folder, label, command):
 def test_transport_reads_the_listeners_wake_command(tmp_path):
     job(tmp_path, 'claude', ['atelier', 'board', 'notify-claude', '--session-dir', '/work/one', '{message}'])
     job(tmp_path, 'codex', ['atelier', 'board', 'notify-codex', '--thread', 'abc', '{message}'])
+    job(tmp_path, 'pinned', ['atelier', 'board', 'notify-codex', '--thread', 'abc', '--codex-home', '/h/ocx', '{message}'])
     job(tmp_path, 'other', ['say', '{message}'])
     assert board_presence.transport('claude', tmp_path) == {'kind': 'claude', 'dir': '/work/one'}
     assert board_presence.transport('codex', tmp_path) == {'kind': 'codex', 'thread': 'abc', 'codex': 'codex',
-                                                           'socket': None}
+                                                           'socket': None, 'home': None}
+    assert board_presence.transport('pinned', tmp_path)['home'] == '/h/ocx'
     assert board_presence.transport('other', tmp_path) is None
     assert board_presence.transport('missing', tmp_path) is None
 

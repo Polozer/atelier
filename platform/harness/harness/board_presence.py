@@ -36,7 +36,7 @@ def transport(label, folder=None):
         return {'kind': 'claude', 'dir': option('--session-dir')}
     if 'notify-codex' in command and option('--thread'):
         return {'kind': 'codex', 'thread': option('--thread'), 'codex': option('--codex') or 'codex',
-                'socket': option('--socket')}
+                'socket': option('--socket'), 'home': option('--codex-home')}
     return None
 
 
@@ -60,11 +60,11 @@ def claude_state(session_dir, registry=None):
     return found[0]['status'], since / 1000 if isinstance(since, (int, float)) else None
 
 
-def codex_state(thread, codex='codex', sock=None):
-    """('busy' or 'idle', None) for an existing Codex thread, read through the running daemon, or None."""
+def codex_state(thread, codex='codex', sock=None, home=None):
+    """('busy' or 'idle', None) for an existing Codex thread, read through its owning daemon, or None."""
     from atelier.harness import board_codex
     try:
-        with board_codex.Client(codex, sock) as client:
+        with board_codex.connect(thread, codex, sock, home) as client:
             status = client.call('thread/read', {'threadId': thread, 'includeTurns': False})['thread']
     except (board_codex.TransportError, KeyError, TypeError):
         return None
@@ -78,7 +78,7 @@ def session_state(label):
         return None
     if way['kind'] == 'claude':
         return claude_state(way['dir'])
-    return codex_state(way['thread'], way['codex'], way['socket'])
+    return codex_state(way['thread'], way['codex'], way['socket'], way.get('home'))
 
 
 def render_floor():
