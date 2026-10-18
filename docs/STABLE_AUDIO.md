@@ -101,7 +101,8 @@ ATELIER_AGENT=OWNER nice -n 10 uv run python -m atelier.harness.safety.guarded \
   --logs build/yorimichi/logs/stable-audio-takes --limit 24
 ```
 
-Each batch resumes verified ready takes and generates at most 24 pending takes.
+Libraries accept at most 512 takes and a 4 MiB manifest. Each batch resumes
+verified ready takes and generates at most 24 pending takes.
 Failed or interrupted takes require diagnosis and an explicit manifest status
 reset, never automatic replay. Each take has a 120-second child deadline; the
 outer guard also bounds the batch and reaps its owned children on interruption.
@@ -113,6 +114,20 @@ its stereo PCM WAV passes format, duration, truncation and non-silence checks.
 The runtime rejects non-finite samples before writing and clips its output to
 16-bit PCM; clipping, audible artifacts and semantic accuracy still need listening
 review. A valid WAV does not prove the desired sound was generated.
+
+To check a completed small library without loading models or waiting for native
+admission, run this read-only command:
+
+```sh
+uv run python -m atelier.ai.stable_audio.review validate-ready \
+  --output build/yorimichi/stable-audio-review
+```
+
+It requires every take to be ready and checks the recorded WAV hashes, format,
+duration and signal. It accepts at most 512 takes, 64 MiB of WAV files and a 4 MiB
+manifest; larger libraries must use the guarded workflow. A completed `generate`
+run also verifies existing audio and returns before accessing model weights.
+These checks verify retained files, not sound quality or a new inference run.
 
 ## Tailnet review
 

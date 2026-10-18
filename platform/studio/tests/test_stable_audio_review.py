@@ -84,6 +84,82 @@ class AudioReviewTests(unittest.TestCase):
                 review.generate(self.output, self.root, self.root / 'logs')
             child.assert_not_called()
 
+    def completed_library(self):
+        manifest = review.prepare(self.catalog, self.output, self.web)
+        source = self.make_wav()
+        for clip in manifest['clips']:
+            (self.output / clip['file']).write_bytes(source.read_bytes())
+            clip.update(status='ready', audio=review.wav_details(source, 1))
+        review.write_json(self.output / 'manifest.json', manifest)
+        return manifest
+
+    def test_complete_resume_skips_runtime_and_manifest_publication(self):
+        self.completed_library()
+        before = (self.output / 'manifest.json').read_bytes()
+        with patch.object(review, 'validate_runtime', side_effect=AssertionError('runtime accessed')), \
+                patch.object(review, 'write_json', side_effect=AssertionError('manifest rewritten')), \
+                patch.object(review.subprocess, 'Popen', side_effect=AssertionError('inference launched')):
+            review.generate(self.output, self.root / 'absent-runtime', self.root / 'logs')
+        self.assertEqual((self.output / 'manifest.json').read_bytes(), before)
+
+    def test_ready_validation_reads_only_and_rejects_later_corruption(self):
+        manifest = self.completed_library()
+        before = {p.relative_to(self.output): p.read_bytes() for p in self.output.rglob('*') if p.is_file()}
+        with patch.object(review, 'validate_runtime', side_effect=AssertionError('runtime accessed')), \
+                patch.object(review, 'write_json', side_effect=AssertionError('write')), \
+                patch.object(review.subprocess, 'Popen', side_effect=AssertionError('subprocess')):
+            result = review.validate_ready(self.output)
+        self.assertEqual(result['ready'], 2)
+        self.assertEqual(before, {p.relative_to(self.output): p.read_bytes()
+                                 for p in self.output.rglob('*') if p.is_file()})
+        target = self.output / manifest['clips'][-1]['file']
+        target.write_bytes(target.read_bytes()[:-2] + b'\x00\x00')
+        with self.assertRaisesRegex(ValueError, 'Previously generated take changed'):
+            review.validate_ready(self.output)
+
+    def test_ready_validation_caps_bytes_and_requires_complete_library(self):
+        review.prepare(self.catalog, self.output, self.web)
+        with self.assertRaisesRegex(ValueError, 'every take'):
+            review.validate_ready(self.output)
+        self.completed_library()
+        with patch.object(review, 'MAX_VALIDATION_BYTES', 1), \
+                patch.object(review, 'wav_details', side_effect=AssertionError('decoded over budget')):
+            with self.assertRaisesRegex(ValueError, 'total byte budget'):
+                review.validate_ready(self.output)
+
+    def test_ready_validation_rejects_manifest_symlink(self):
+        self.completed_library()
+        path = self.output / 'manifest.json'
+        original = self.root / 'saved-manifest.json'
+        path.rename(original)
+        path.symlink_to(original)
+        with self.assertRaises(OSError):
+            review.validate_ready(self.output)
+
+    def test_ready_validation_detects_manifest_change(self):
+        self.completed_library()
+        path = self.output / 'manifest.json'
+        original = review.wav_details
+        def changed(*args):
+            details = original(*args)
+            path.write_bytes(path.read_bytes() + b' ')
+            return details
+        with patch.object(review, 'wav_details', changed):
+            with self.assertRaisesRegex(ValueError, 'manifest changed'):
+                review.validate_ready(self.output)
+
+    def test_streamed_wav_validation_never_reads_a_complete_large_take(self):
+        target = self.make_wav(frames=44100 * 3)
+        original = wave.Wave_read.readframes
+        sizes = []
+        def read(handle, count):
+            sizes.append(count)
+            return original(handle, count)
+        with patch.object(wave.Wave_read, 'readframes', read):
+            details = review.wav_details(target, 3)
+        self.assertEqual(details['frames'], 44100 * 3)
+        self.assertTrue(len(sizes) > 1 and max(sizes) <= 16384)
+
     def test_server_rejects_logs_directories_traversal_and_symlink_escape(self):
         review.prepare(self.catalog, self.output, self.web)
         (self.output / 'private.log').write_text('private')
