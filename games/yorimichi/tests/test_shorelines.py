@@ -447,7 +447,7 @@ def test_rail_lattice_edges_conform_to_the_neighboring_coastal_grid(monkeypatch)
 
 
 def test_original_rail_planner_prevents_the_observed_open_track_burial(monkeypatch):
-    from hidamari import forest_backdrop as F
+    import farhills_grid as F
     from train import earthworks as E
     from belmonte.source import Surface
     # Actual original parent cell around committed s4780. Other coastal faces

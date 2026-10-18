@@ -58,7 +58,7 @@ change requires an explicit behavior review and a separately named baseline.
 | Owner/layer | Current authority and final geometry | Current queries/consumers |
 | --- | --- | --- |
 | Fine main ground | `gen_world.py` heightmap, then `build_terrain.py` grid | Spawn/road placement, world map, Terrain export/import |
-| FarHills | `forest_backdrop.source_grid/mesh_grid/rail_refinement`, `shorelines.grid_mesh`, then conforming `earthworks.polygons` | Export rebuilds the full surface; crown placement reconstructs selected cells separately |
+| FarHills | `farhills_grid`, `shorelines.grid_mesh`, then conforming `earthworks.polygons`; `world.farhills` publishes ordered natural/final products | Export reads the verified final product; crown placement still reconstructs selected cells separately |
 | Hidamari city | `hidamari/layout.py`, city terrain meshes | City grading, roads, forest placement, HD_Terrain export and desktop tiles |
 | Foothills and apron | `hidamari/mountains.py` sheets and earthworks | North height/approach sampling and independent mountain exports |
 | Belmonte authored ground | Committed source triangles in `belmonte/source.py` | Triangle-indexed map/placement queries, authored terrain exports |
@@ -74,7 +74,7 @@ explicit.
 
 ## Following increments
 
-The first extraction publishes `terrain.FarHills.natural`,
+The first extraction published `terrain.FarHills.natural`,
 `terrain.FarHills.final` and `terrain.FarHills.provenance` from the existing
 `world.terrain` caller. Its Blender/NumPy context, source grid, one railway carve,
 appearance and exports retain their order. Natural polygons keep their original
@@ -83,6 +83,20 @@ planner has consumed the original polygons. Product bytes contain explicit
 owner/stage/city mode and canonical arrays, with fixed archive timestamps.
 Missing, malformed or mismatched products fail when loaded. This initial
 extraction does not yet move crown placement or claim narrower invalidation.
+
+The subsequent producer phase moves those same products to the guarded
+`world.farhills` step, with three declared Blender workers. Its grid authority
+is `farhills_grid.py`; the forest module retains compatibility names. The
+normal terrain adapter reads `terrain.FarHills.final` through the recipe and
+fails on missing or mismatched data. Its explicit no-city direct-script path
+retains generation and fallback sea coverage. Crown placement still uses its
+previous sampler in this phase.
+
+The recipe regression verifies that an edit to `build_terrain.py` does not
+regenerate these geometry products. The city module's static import closure
+remains conservative and includes some appearance definitions; this phase
+does not exclude reachable source reads or claim all appearance invalidation
+has been separated.
 
 The atlas signature and map recipe include the extracted geometry helpers.
 `map/atlas/coasts/extraction-equivalence.json` records exact original/extracted

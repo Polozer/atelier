@@ -197,10 +197,9 @@ def main():
     # Include the exact fine-terrain boundaries, then omit their interiors.
     # Shaping both buried and visible ground onto one coast would recreate the
     # original coplanar flicker under the new beaches.
-    from farhills_surface import generate, publish
+    from farhills_surface import export_mesh
     city=os.path.exists(os.path.join(OUT,"hidamari","city.json"))
-    natural,final,report=generate(n,city=city)
-    publish(_Path(OUT)/'terrain/FarHills',natural,final,report,city=city)
+    final=export_mesh(n,_Path(OUT)/'terrain/FarHills',city=city)
     hills = obj("FarHills", final.vertices.tolist(), final.polygons(), far, uvs=lambda co: (co.x / 180.0, co.y / 180.0))
     coastal_colours(hills)
     rock_surface(hills)

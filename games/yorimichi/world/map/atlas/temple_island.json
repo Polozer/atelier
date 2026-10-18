@@ -61,8 +61,9 @@
     "kind": "terrain-reference-revalidation",
     "geography": {
       "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
-      "world/build_terrain.py": "474efc21bd9d9e98b46489b060ce82c790d0b195c1c025f53057cfe00274a533",
-      "world/farhills_surface.py": "1171f7b36f77020489cb44460b112d820aecbd049f86ecac9328951410b16580",
+      "world/build_terrain.py": "2a810d3a4698765c24044379e053f67e56817b90ab871b78814a2233d9515a09",
+      "world/farhills_surface.py": "3f1bcb705333efce9c3fce3349c16f88b3b8dbbf210f4794a695909cf9c7f2b3",
+      "world/farhills_grid.py": "6451e5894c63e3eedcded121cef2f477a9615c36b1dd61715d16938ab53228c4",
       "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
       "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
       "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
@@ -83,7 +84,7 @@
     "reference_sha256": "f327fce9de377836eb3a6a4b2b4ba49c0030d31ec1f243d0efab4bb0b4ad43be"
   },
   "refactor_revalidation": {
-    "witness": "coasts/extraction-equivalence.json",
-    "sha256": "7d06b808cd8d6fb2a17caa2ef811dee08dfa0d72f2fec093849439fc6cbbcd2a"
+    "witness": "coasts/producer-equivalence.json",
+    "sha256": "76ae8b4b3dfda89b56a8305ccfde49c28088876752d5df472270f7391783c6e1"
   }
 }
