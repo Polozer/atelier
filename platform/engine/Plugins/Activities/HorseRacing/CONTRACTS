@@ -1,0 +1,11 @@
+@cc [owner:fontanierh,label:correctness] deterministic-racing-draws
+Valid draws MUST be stateless, depend only on seed/tag/range, and retain the reference
+UTF-16 hash and JSON-string key semantics. Draws MUST use rejection sampling rather than
+biased modulo alone. Checked APIs MUST reject nonpositive or oversized bounds, negative
+weights and overflowing/zero weight sums without changing the output. Internal checked
+convenience calls MUST fail explicitly on invalid arguments in every build, never hang
+or produce a fallback draw. Untrusted values MUST use the nonfatal checked APIs.
+
+@cc [owner:fontanierh,label:architecture] racing-rules-boundary
+Rules MUST remain independent of game names, actors, UI and rendering assets. A game owns
+its presentation, authored venue data, runtime authority and persistence admission.
