@@ -313,11 +313,12 @@ class CapacityBroker:
             try:
                 proof = self._compatibility_proof()
                 self.compatible = proof['activation_id'] == self.activation_id
+                if not self.compatible:
+                    self._report_compatibility_failure(
+                        state, wire.CapacityError('Capacity activation changed'), phase='refresh')
             except (OSError, ValueError, wire.CapacityError) as error:
                 self.compatible = False
-                print('capacity compatibility failure: ' + json.dumps(dict(
-                    phase='compatibility', error_type=type(error).__name__,
-                    errno=error.errno if isinstance(error, OSError) else None)), file=sys.stderr, flush=True)
+                self._report_compatibility_failure(state, error, phase='refresh')
         for record in state['records'].values():
             if record['state'] == 'released':
                 continue  # Historical proof is immutable, not a live polling roster.
@@ -717,6 +718,25 @@ class CapacityBroker:
         if failed:
             raise wire.CapacityError('Existing holder lost ownership or enforcement; reservation retained')
 
+    def _report_compatibility_failure(self, state, error, *, phase):
+        """@cc [owner:fontanierh,label:safety] compatibility-failure-evidence
+        Compatibility failures MUST record a redacted reason, wall/monotonic time and activation,
+        epoch and affected request identities without changing refusal, charges or recovery rules.
+        Request identity lists MUST be bounded, with the total affected count retained.
+        """
+        from atelier.harness.capacity_compat_diagnostics import failure_reason
+        affected = sorted(key for key, record in state['records'].items() if record['state'] in HELD)
+        try:
+            print('capacity compatibility failure: ' + json.dumps(dict(
+                phase=phase, reason=failure_reason(error), error_type=type(error).__name__,
+                errno=error.errno if isinstance(error, OSError) else None,
+                observed_at=time.time(), observed_monotonic=self._clock(), epoch=state.get('epoch'),
+                activation_id=self.activation_id, boot_id=self.boot,
+                affected_request_ids=affected[:32], affected_request_count=len(affected))),
+                file=sys.stderr, flush=True)
+        except OSError:
+            pass  # Broken diagnostic output must not affect enforcement.
+
     def _compatibility_proof(self):
         from atelier.harness import capacity_compat
         verifier = capacity_compat.verify_maintenance if self.mode == 'sealed-maintenance' else capacity_compat.verify
@@ -729,8 +749,9 @@ class CapacityBroker:
             proof = self._compatibility_proof()
             if proof['activation_id'] != self.activation_id:
                 raise wire.CapacityError('Capacity activation changed')
-        except (OSError, ValueError, wire.CapacityError):
+        except (OSError, ValueError, wire.CapacityError) as error:
             self.compatible = False
+            self._report_compatibility_failure(state, error, phase='admission')
             retained = [record for record in state['records'].values() if record['state'] in HELD]
             for record in retained:
                 record['state'] = 'uncertain'
