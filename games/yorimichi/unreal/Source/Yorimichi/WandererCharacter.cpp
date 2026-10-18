@@ -1523,7 +1523,7 @@ void AWandererCharacter::Tick(float Dt)
         return;
     }
     if (bSailboatReview) AdvanceSailboatReview(Dt);
-    if (bMapReview) AdvanceMapReview(Dt);
+    if (bMapReview && IsLocallyControlled()) AdvanceMapReview(Dt);
     if (!BenchmarkView.IsEmpty()) AdvanceBenchmark(Dt);
     if (!TrailerSpecPath.IsEmpty()) AdvanceTrailer(Dt);
     if (PhoneInput) PhoneInput->Tick(Dt);
@@ -1651,7 +1651,13 @@ void AWandererCharacter::SampleShake(FVector& Offset,FRotator& Rotation) const
 void AWandererCharacter::AdvanceMapReview(float Dt)
 {
     if (!Map || !Map->IsLoaded()) { UE_LOG(LogTemp,Error,TEXT("MAP QA: map not loaded")); AtelierRequestExit(1); return; }
-    const TArray<FJapanMapZone>& Zones = Map->GetZones();
+    TArray<FJapanMapZone> Zones = Map->GetZones();
+    FString OnlyZone;
+    if (FParse::Value(FCommandLine::Get(), TEXT("mapqazone="), OnlyZone))
+    {
+        Zones.RemoveAll([&](const FJapanMapZone& Zone) { return Zone.Key != OnlyZone; });
+        if (Zones.Num() != 1) { UE_LOG(LogTemp, Error, TEXT("MAP QA: selected zone unavailable")); AtelierRequestExit(1); return; }
+    }
     const float StepSeconds = 2.5f;
     MapReviewTime += Dt;
     const int32 Step = FMath::FloorToInt(MapReviewTime/StepSeconds);
@@ -1663,8 +1669,28 @@ void AWandererCharacter::AdvanceMapReview(float Dt)
         {
             const auto& Z = Zones[MapReviewStep];
             const FVector P = GetActorLocation()-FVector(0,0,GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
-            MapTelemetry += FString::Printf(TEXT("{\"zone\":\"%s\",\"name\":\"%s\",\"target\":[%.1f,%.1f,%.1f],\"landed\":[%.1f,%.1f,%.1f],\"drift_cm\":%.1f,\"drop_cm\":%.1f,\"on_ground\":%s,\"speed\":%.1f},\n"),
-                *Z.Key,*Z.Name,Z.Location.X,Z.Location.Y,Z.Location.Z,P.X,P.Y,P.Z,FVector::Dist2D(P,Z.Location),Z.Location.Z-P.Z,GetCharacterMovement()->IsMovingOnGround() ? TEXT("true") : TEXT("false"),GetVelocity().Size());
+            const UCapsuleComponent* Capsule = GetCapsuleComponent();
+            FCollisionQueryParams Query(SCENE_QUERY_STAT(MapLandingQA), false, this);
+            FHitResult Floor;
+            const bool Walkable = GetWorld()->LineTraceSingleByChannel(Floor, P + FVector(0,0,5),
+                P - FVector(0,0,50), ECC_Visibility, Query) && GetCharacterMovement()->IsWalkable(Floor);
+            const bool Clear = !GetWorld()->OverlapBlockingTestByChannel(GetActorLocation(), FQuat::Identity,
+                Capsule->GetCollisionObjectType(), FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius(),
+                Capsule->GetScaledCapsuleHalfHeight()), Query, FCollisionResponseParams(Capsule->GetCollisionResponseToChannels()));
+            auto Row = MakeShared<FJsonObject>();
+            auto Vector = [](const FVector& V)
+            { return TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueNumber>(V.X), MakeShared<FJsonValueNumber>(V.Y), MakeShared<FJsonValueNumber>(V.Z)}; };
+            Row->SetStringField(TEXT("zone"), Z.Key); Row->SetStringField(TEXT("name"), Z.Name);
+            Row->SetArrayField(TEXT("target"), Vector(Z.Location)); Row->SetArrayField(TEXT("landed"), Vector(P));
+            Row->SetNumberField(TEXT("target_yaw"), Z.Yaw); Row->SetNumberField(TEXT("yaw"), GetActorRotation().Yaw);
+            Row->SetNumberField(TEXT("above_cm"), Z.Above);
+            Row->SetNumberField(TEXT("drift_cm"), FVector::Dist2D(P,Z.Location)); Row->SetNumberField(TEXT("drop_cm"), Z.Location.Z-P.Z);
+            Row->SetBoolField(TEXT("on_ground"), GetCharacterMovement()->IsMovingOnGround());
+            Row->SetBoolField(TEXT("walkable"), Walkable); Row->SetBoolField(TEXT("capsule_clear"), Clear);
+            Row->SetBoolField(TEXT("authority"), HasAuthority()); Row->SetNumberField(TEXT("net_mode"), int32(GetNetMode()));
+            Row->SetNumberField(TEXT("speed"), GetVelocity().Size());
+            FString JSON; FJsonSerializer::Serialize(Row, TJsonWriterFactory<>::Create(&JSON));
+            MapTelemetry += JSON + TEXT(",\n");
         }
         MapReviewStep = Step;
         if (Step < Zones.Num()) Map->TeleportToZone(Zones[Step].Key);
@@ -1673,9 +1699,19 @@ void AWandererCharacter::AdvanceMapReview(float Dt)
         {
             Map->Close();
             FString Json = TEXT("[\n")+MapTelemetry; Json.RemoveFromEnd(TEXT(",\n")); Json += TEXT("\n]\n");
-            FFileHelper::SaveStringToFile(Json,*(ReviewDirectory/TEXT("map_qa.json")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+            if (!FFileHelper::SaveStringToFile(Json,*(ReviewDirectory/TEXT("map_qa.json")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+            { UE_LOG(LogTemp, Error, TEXT("MAP QA: telemetry publication failed")); AtelierRequestExit(1); return; }
             UE_LOG(LogTemp,Display,TEXT("MAP QA COMPLETE: %d zones -> %s"),Zones.Num(),*ReviewDirectory);
-            FPlatformMisc::RequestExit(false);
+            bMapReview = false;
+            float KeepAlive = 0.f;
+            FParse::Value(FCommandLine::Get(), TEXT("mapqakeepalive="), KeepAlive);
+            // Only an explicitly bounded diagnostic listen-host may wait for its guest tour.
+            if (GetNetMode() == NM_ListenServer && FMath::IsFinite(KeepAlive) && KeepAlive > 0.f && KeepAlive <= 120.f)
+            {
+                FTimerHandle ExitTimer;
+                GetWorldTimerManager().SetTimer(ExitTimer, FTimerDelegate::CreateLambda([] { AtelierRequestExit(0); }), KeepAlive, false);
+            }
+            else FPlatformMisc::RequestExit(false);
         }
     }
     if (InStep >= 1.6f && InStep-Dt < 1.6f)
