@@ -1,4 +1,4 @@
-"""Indoor map travel must hit clear hall paving beneath the committed salon roof."""
+"""Indoor map travel must hit clear floors beneath the committed building roofs."""
 import json
 from pathlib import Path
 import sys
@@ -11,38 +11,41 @@ import yori  # noqa: E402,F401
 from belmonte import build, layout, planting, source  # noqa: E402
 
 
-def salon_zone():
-    return next(zone for zone in build.map_zones(241.) if zone['key'] == 'belmonte_salon')
+def indoor_zone(key):
+    return next(zone for zone in build.map_zones(241.) if zone['key'] == key)
 
 
-def test_salon_follows_the_region_origin(monkeypatch):
-    before = salon_zone()
+@pytest.mark.parametrize('key,yaw', [('belmonte_salon', 0.), ('belmonte_osteria', 4.)])
+def test_indoor_stop_follows_the_region_origin(monkeypatch, key, yaw):
+    before = indoor_zone(key)
     offset = np.array([13., 41., 7.])
     monkeypatch.setattr(layout, 'ORIGIN', layout.ORIGIN + offset)
-    after = salon_zone()
+    after = indoor_zone(key)
     np.testing.assert_allclose([after[k] - before[k] for k in ('x', 'y', 'z')], offset)
-    assert after['yaw'] == before['yaw'] == 0.
+    assert after['yaw'] == before['yaw'] == yaw
 
 
 def test_outdoor_stops_keep_their_positions_and_default_trace():
     zones = json.loads(json.dumps(build.map_zones(241.)))
-    assert [z['key'] for z in zones] == ['belmonte', 'belmonte_course', 'belmonte_training', 'belmonte_salon']
-    assert all('above_m' not in z for z in zones[:-1])
-    np.testing.assert_allclose([[z[k] for k in ('x', 'y', 'z', 'yaw')] for z in zones[:-1]], [
+    assert [z['key'] for z in zones] == [
+        'belmonte', 'belmonte_course', 'belmonte_training', 'belmonte_salon', 'belmonte_osteria',
+    ]
+    outdoor = [z for z in zones if z['key'] in ('belmonte', 'belmonte_course', 'belmonte_training')]
+    assert all('above_m' not in z for z in outdoor)
+    np.testing.assert_allclose([[z[k] for k in ('x', 'y', 'z', 'yaw')] for z in outdoor], [
         [layout.ORIGIN[0], layout.ORIGIN[1] - 18., 241., 90.],
         [385., 4255. + layout.NORTH_SHIFT, layout.ORIGIN[2] + 30.2, 90.],
         [230., 4560. + layout.NORTH_SHIFT, layout.ORIGIN[2] + 30.2, 0.],
     ])
 
 
-@pytest.fixture(scope='module')
-def salon_surfaces():
+def placed_surfaces(names):
     data = source.manifest()
     models = {m['source_asset']: m for m in data['meshes']}
     surfaces = []
     for placement in data['placements']:
         model = models[placement['asset']]
-        if model['name'] not in ('SM_BM_BHip_Salon', 'SM_BM_BHip_SalonHall'):
+        if model['name'] not in names:
             continue
         faces = source.triangles(source.LIBRARY / model['path'])
         transform = placement['transform']
@@ -52,16 +55,29 @@ def salon_surfaces():
     return np.concatenate(surfaces)
 
 
-def test_salon_trace_hits_floor_across_the_standing_footprint(salon_surfaces):
-    zone = salon_zone()
+@pytest.mark.parametrize('key,names,floor_offset', [
+    ('belmonte_salon', ('SM_BM_BHip_Salon', 'SM_BM_BHip_SalonHall'), 30.15),
+    ('belmonte_osteria', ('SM_BM_BH_Osteria', 'SM_BM_BH_Osteria_Taproom'), .18),
+])
+def test_indoor_trace_hits_floor_across_the_standing_footprint(key, names, floor_offset):
+    surfaces = placed_surfaces(names)
+    zone = indoor_zone(key)
     top = zone['z'] + zone['above_m']
     # Include the whole standing footprint, not only a ray that might graze a fixture.
     angle = np.linspace(0., 2. * np.pi, 17)
-    x = np.r_[zone['x'], zone['x'] + .5 * np.cos(angle)]
-    y = np.r_[zone['y'], zone['y'] + .5 * np.sin(angle)]
-    below = salon_surfaces[salon_surfaces[:, :, 2].max(1) < top]
+    x = np.r_[zone['x'], zone['x'] + .5 * np.cos(angle), zone['x'] + .25 * np.cos(angle)]
+    y = np.r_[zone['y'], zone['y'] + .5 * np.sin(angle), zone['y'] + .25 * np.sin(angle)]
+    below = surfaces[surfaces[:, :, 2].max(1) < top]
     floor = source.Surface(below).height(x, y)
-    np.testing.assert_allclose(floor, layout.ORIGIN[2] + 30.15, atol=.01)
-    roof = source.Surface(salon_surfaces).height(x, y)
+    np.testing.assert_allclose(floor, layout.ORIGIN[2] + floor_offset, atol=.01)
+    roof = source.Surface(surfaces).height(x, y)
     assert np.all(roof > top + 2.)
     assert np.all(roof < zone['z'] + 25.), 'The old outdoor trace must reproduce the roof landing'
+    # Conservatively reject any wall or furnishing triangle whose box overlaps a
+    # 1 m wide, 1.9 m tall standing volume above the floor (also catches vertical faces).
+    low, high = surfaces.min(1), surfaces.max(1)
+    foot = layout.ORIGIN[2] + floor_offset
+    obstacle = ((low[:, 0] < zone['x'] + .5) & (high[:, 0] > zone['x'] - .5)
+                & (low[:, 1] < zone['y'] + .5) & (high[:, 1] > zone['y'] - .5)
+                & (low[:, 2] < foot + 1.9) & (high[:, 2] > foot + .05))
+    assert not obstacle.any(), 'The landing must clear walls and furniture across the standing volume'

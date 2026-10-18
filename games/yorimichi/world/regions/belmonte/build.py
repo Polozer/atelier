@@ -116,8 +116,9 @@ def surroundings():
 
 def map_zones(town_z):
     """@cc [owner:fontanierh,label:correctness] belmonte-indoor-map-stop
-    The salon stop MUST follow Belmonte's origin and land on its committed hall floor,
-    below the roof, facing the counters. Outdoor stops MUST retain their default landing trace.
+    Indoor stops MUST follow Belmonte's origin and land on their committed floors below
+    the roofs, with a clear standing footprint. The salon faces the counters and the
+    osteria faces the front wall. Outdoor stops MUST retain their default landing trace.
     """
     return [
         {'key': 'belmonte', 'name': 'Belmonte · town square', 'x': L.ORIGIN[0],
@@ -134,6 +135,11 @@ def map_zones(town_z):
          'x': L.ORIGIN[0] + 67.8, 'y': L.ORIGIN[1] + 306.8, 'z': float(L.ORIGIN[2] + 30.2),
          'yaw': 0., 'above_m': 1.5,
          'hint': 'The betting hall by the racecourse: betting counters'},
+        # In the taproom, one metre west of the original watch spot to clear a stool.
+        {'key': 'belmonte_osteria', 'name': 'Belmonte · Osteria',
+         'x': L.ORIGIN[0] - 31.4, 'y': L.ORIGIN[1] + 1.6, 'z': float(L.ORIGIN[2] + .18),
+         'yaw': 4., 'above_m': 1.5,
+         'hint': 'The tavern on the piazza'},
     ]
 
 
