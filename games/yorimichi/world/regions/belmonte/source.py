@@ -163,11 +163,15 @@ class Surface:
         return result.reshape(x.shape + ((3,) if values is not None else ()))
 
 
-@lru_cache(maxsize=1)
-def terrain():
+@lru_cache(maxsize=2)
+def terrain(natural=False):
+    """The 56 terrain tiles. natural: the tiles the railway carved (tools/belmonte_station_terrain.py) as they were
+    before, from natural/ (the route study plans on that ground)."""
     entries = [entry for entry in manifest()['meshes'] if entry['name'].startswith('SM_BM_BT_Terrain_')]
     assert len(entries) == 56, 'Current Belmonte terrain coverage changed; review the source census'
-    return Surface(np.concatenate([triangles(LIBRARY / entry['path']) for entry in entries]))
+    paths = [LIBRARY / 'natural' / f"{entry['name']}.glb" if natural and entry.get('railway_carved')
+             else LIBRARY / entry['path'] for entry in entries]
+    return Surface(np.concatenate([triangles(path) for path in paths]))
 
 
 @lru_cache(maxsize=1)
