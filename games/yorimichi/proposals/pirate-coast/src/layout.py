@@ -21,9 +21,9 @@ WATERFALL = (448.0, 30.0, 55.0)
 
 COLORS = {
     'stone': '#8a7d67', 'stone_light': '#a89a80', 'stone_dark': '#63594a',
-    'plaster': '#d8c19a', 'cream': '#e9d6b1', 'ochre': '#c08a4d', 'coral': '#b56248',
-    'teal_wall': '#4f7d77', 'sage_wall': '#8d9670',
-    'azure_wall': '#5f8fa0', 'lime_wall': '#a9b487',
+    'plaster': '#dfc79c', 'cream': '#efdcb5', 'ochre': '#d39a55', 'coral': '#c96b4f',
+    'teal_wall': '#4f8b83', 'sage_wall': '#98a474', 'rose_wall': '#d9968a', 'yellow_wall': '#e6c06e', 'peach_wall': '#e6ad86',
+    'azure_wall': '#679fb4', 'lime_wall': '#bcc58b',
     'shutter_blue': '#3d6b83', 'shutter_teal': '#3f7570',
     'shutter_green': '#4a6b3f', 'shutter_red': '#9c4a3c',
     'blossom': '#d4626a', 'blossom_pale': '#e39a92',
@@ -31,19 +31,20 @@ COLORS = {
     'roof_terra': '#a8563e', 'roof_terra_light': '#bf7655', 'roof_teal': '#4f7f79',
     'roof_slate': '#4a5158', 'roof_straw': '#ad8b58',
     'cobble': '#9a8f7c', 'cobble_dark': '#756b5c',
-    'canvas': '#e3d5b4', 'canvas_red': '#a44d3d', 'canvas_teal': '#4f7f79', 'clay': '#a9684b',
+    'canvas': '#e3d5b4', 'canvas_red': '#b0483a', 'canvas_teal': '#3f8a83', 'canvas_gold': '#d9a640',
+    'canvas_blue': '#4c76a6', 'canvas_green': '#6f8f45', 'clay': '#a9684b',
     'jungle_dark': '#2f4522', 'jungle': '#3f5a2c', 'jungle_light': '#58733a',
     'autumn_rust': '#9c4f2c', 'autumn_gold': '#b07a34', 'autumn_olive': '#6d7034',
     'palm': '#4a6a2e', 'palm_light': '#6c8a3f', 'sand': '#c7ad7d',
     'planks': '#8a6a48', 'hull': '#4f3a2a', 'deck_planks': '#a08055',
     'leaf_mid': '#4f6b33', 'leaf_light': '#6c8a3f', 'leaf_deep': '#33471f',
     'leaf_warm': '#96703a', 'palm_frond': '#5b7a36',
-    'waterfall': '#dff2ef', 'mist': '#eef6f3',
+    'waterfall': '#dff2ef', 'mist': '#eef6f3', 'spray': '#f0f6f4',
     'leaf_sun': '#8aa046', 'leaf_rust': '#b0622c', 'leaf_gold': '#ba923a', 'palm_trunk': '#7a6448',
-    'rock': '#6d6558', 'rock_light': '#8b8070', 'rock_dark': '#48443c',
+    'rock': '#5f574b', 'rock_light': '#7d715e', 'rock_dark': '#3d3a34', 'rock_strata': '#7a6c58', 'moss': '#5f7c36',
     'seabed': '#315f63', 'water': '#1f7f8c', 'water_deep': '#0f4257', 'sea': '#1f8fa0',
     'water_shallow': '#57c4c6', 'water_mid': '#1f9fae', 'foam': '#e8f0e7',
-    'sail': '#e1d3b3', 'sail_dark': '#5f6b66', 'sail_stripe': '#a44d3d',
+    'sail': '#e1d3b3', 'sail_dark': '#3d3a37', 'sail_stripe': '#a44d3d',
     'metal': '#3b3a36', 'gold': '#d5a64a',
     'lantern': '#f2c36b', 'glass': '#26424a', 'glass_warm': '#ffc46b', 'skin': '#b98a63',
     'flag_black': '#292424', 'flag_red': '#a23c32', 'rope': '#bda77c',
@@ -115,7 +116,7 @@ def fall_lips():
 
 def in_gorge(x, y, margin=0.0):
     lower, _ = fall_lips()
-    return lower - 14.0 - margin <= x <= 700.0 + margin and abs(y - GORGE_Y) <= 13.0 + margin
+    return lower - 28.0 - margin <= x <= 700.0 + margin and abs(y - GORGE_Y) <= 16.0 + margin
 
 
 _LEVELS = {}
@@ -138,7 +139,7 @@ def river_level(x):
 
 def gorge_depth(x, y, raw=None):
     """How far the slot canyon, the ledge pool and the lower notch cut below the natural ground."""
-    if x < 430.0 or x > 720.0 or abs(y - GORGE_Y) > 40.0:
+    if x < 425.0 or x > 720.0 or abs(y - GORGE_Y) > 40.0:
         return 0.0
     raw = raw_height(x, y) if raw is None else raw
     g = gorge_levels()
@@ -155,9 +156,15 @@ def gorge_depth(x, y, raw=None):
         bed = g['pool'] - 1.4 + 20.0 * smooth((dy - 7.0) / 8.0) + 6.0 * (1.0 - edge)
         cut = max(cut, raw - bed)
     # The lower lip notch the pool spills through.
-    if g['lower'] - 4.0 <= x <= g['lower'] + 3.0:
+    if g['lower'] - 1.5 <= x <= g['lower'] + 3.0:
         bed = g['pool'] - 0.4 + 14.0 * smooth((dy - 5.0) / 7.0)
         cut = max(cut, raw - bed)
+    # A sea-level plunge alcove under the lip: a sheer back wall, so the lower fall drops free into a grotto
+    # instead of sliding down the 56-degree cliff.
+    if g['lower'] - 28.0 <= x <= g['lower'] - 1.5:
+        back = smooth((g['lower'] - 1.5 - x) / 1.4)
+        bed = -3.0 + 45.0 * smooth((dy - 10.0 - 0.12 * (g['lower'] - x)) / 5.0)
+        cut = max(cut, (raw - bed) * back)
     return max(0.0, cut)
 
 
@@ -601,10 +608,10 @@ def headland_plantable(x, y):
         return False
     if y < QUAY_Y and (is_water(x, y) or abs(x) < bay_half(y) + 5.0):
         return False
-    if in_lot(x, y, 3.5) or on_shore_walkway(x, y, 4.5):
+    if in_lot(x, y, 9.0) or on_shore_walkway(x, y, 4.5):  # keep the cliff cabins in view
         return False
-    if math.hypot(x - LIGHTHOUSE[0], y - LIGHTHOUSE[1]) < 46.0:
-        return False
+    if math.hypot(x - LIGHTHOUSE[0], y - LIGHTHOUSE[1]) < 85.0:
+        return False  # an open, rocky headland round the lighthouse, as painted
     if abs(x - WATERFALL[0]) < 36.0 and 45.0 <= y <= 205.0:
         return False
     if in_gorge(x, y, 4.0):

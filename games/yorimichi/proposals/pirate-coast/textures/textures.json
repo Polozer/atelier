@@ -16,6 +16,8 @@
     "hull_planks": "be2b247db89963f2440f754988d0ae8b879a111902213945b6114fc04febc8e2",
     "thatch": "6de563acfcbb4ab6f092602f1cfe45d562506dcc302fe17628de5d536323e27e",
     "planks": "9d7e9d970a5f1c7d3c0f5cbb77fa4bdc77c227b266e728f71ef8b2821fa0dff8",
+    "sea_rock": "137abbd05e08a8cf7a4af5a8cc7b038885da9ca7d394edec793c3aa1f49712d5",
+    "moss_rock": "fd102ff61f5e6f1e3586303ba064ebf0fff49aa6e949c76387ccb2d602ac5bb8",
     "sand": "aa584f3e7c9d4b7ac0f25ba1a81888094b8faaf46e60b1a611780154e696d0a7"
   },
   "materials": {
@@ -23,49 +25,67 @@
       "file": "plaster.jpg",
       "surface": "plaster",
       "scale": 2.8,
-      "sha256": "f85949841fb22d2a53dfc4271bd83835e8c0df4d350337e2b43e60c7d3cecd92"
+      "sha256": "e54f8fd51f6bab99ed9ecf234a74ec8f40a213135670e1c37dc12724012ea8ff"
     },
     "cream": {
       "file": "cream.jpg",
       "surface": "plaster",
       "scale": 2.8,
-      "sha256": "e3f19e77ccfdf960c323f03a8a5613506a909e77367d1275a454cabccc3b15dd"
+      "sha256": "fa69677fdbdf87ca3ddd3c960d7d4c0c14fe474803191f762b6c50c1e59fab72"
     },
     "ochre": {
       "file": "ochre.jpg",
       "surface": "plaster",
       "scale": 2.8,
-      "sha256": "6937bc2bd9abcd2f8a16357c05280bbf0f04597c3de81e6c9af9a772acf707da"
+      "sha256": "e64f77d96cd5b3094bab72aa7c78ab86c134d71eeae8ec43034e5b3590845260"
     },
     "coral": {
       "file": "coral.jpg",
       "surface": "plaster",
       "scale": 2.8,
-      "sha256": "aedb2ba7f48ba9ee18bee5e12ee4a3902e4816a48731edb5af1be7d3defa1a8b"
+      "sha256": "7a42da9f6730c364270b9e42aa57b2ed91c545eb147b256a947664fce8400c94"
     },
     "sage_wall": {
       "file": "sage_wall.jpg",
       "surface": "plaster",
       "scale": 2.8,
-      "sha256": "92990d86d95886c505d7ee7f56094727bdec9795e318bd023ab1a96a7b3ac3fc"
+      "sha256": "2c735b7690ff96778e5b1968f6ea5799a5a9e2405f5d75e2f5c3f891abbf291f"
     },
     "teal_wall": {
       "file": "teal_wall.jpg",
       "surface": "plaster",
       "scale": 2.8,
-      "sha256": "6468bffd5c56d6ecd6b68265f67416a7472546a0f0c5f8f2e862d56ddc5a5fdc"
+      "sha256": "6ea8b34c6164bc39cc0f62df20778478095dc277f28622a575fc3a0fa6f0d2c0"
     },
     "azure_wall": {
       "file": "azure_wall.jpg",
       "surface": "plaster",
       "scale": 2.8,
-      "sha256": "8d77dc492300f0dc571ca22139cfd1c82e036114a1bb1f1f34c008d1cbc97f28"
+      "sha256": "e8d278062489e87c347b01a57271bc1ab0e97f2e0119f1ad6c46fe623f14361e"
     },
     "lime_wall": {
       "file": "lime_wall.jpg",
       "surface": "plaster",
       "scale": 2.8,
-      "sha256": "631de9f8cb034d8ca4016a11b0a57a40959de6a8e406f54597dede8572412947"
+      "sha256": "47b8ff4f6ab727cd960d3dbd84aeb0884ace8dc3ad98e8843be582689de7ff87"
+    },
+    "rose_wall": {
+      "file": "rose_wall.jpg",
+      "surface": "plaster",
+      "scale": 2.8,
+      "sha256": "99bdcda50f5f5836a44c28807ffab5add00bca404924d19d20aa273546f0a235"
+    },
+    "yellow_wall": {
+      "file": "yellow_wall.jpg",
+      "surface": "plaster",
+      "scale": 2.8,
+      "sha256": "e6897e10d754ffe0dd8acbe33ac10421e27fbe6c1dd59b4203f6738c48d42e65"
+    },
+    "peach_wall": {
+      "file": "peach_wall.jpg",
+      "surface": "plaster",
+      "scale": 2.8,
+      "sha256": "47bb5152a64feccbf5b390b0935b2bd36ca0464ac486d7b2915ea62197b59eb4"
     },
     "roof_terra": {
       "file": "roof_terra.jpg",
@@ -161,19 +181,37 @@
       "file": "canvas_red.jpg",
       "surface": "canvas",
       "scale": 2.2,
-      "sha256": "c47d990996e4362d106c528e94c2c18a85859cb490170c9193f3bb2289503b6a"
+      "sha256": "82feb07040aa67cf00b619d69db7a6cbfc9d6cf03c5508063ba70a6f659fe305"
     },
     "sail_dark": {
       "file": "sail_dark.jpg",
       "surface": "canvas",
       "scale": 2.2,
-      "sha256": "9a8ee7e26ebe4070ad9dbee3b7f27a1c40bcbd33fdd89f64dcc202a8969c5a1c"
+      "sha256": "29b786e4c19c608b7ac24580a63ea721f23e9f8ec39f5e02eba7635a1a305d89"
     },
     "canvas_teal": {
       "file": "canvas_teal.jpg",
       "surface": "canvas",
       "scale": 2.2,
-      "sha256": "3fe2505436bbbe144d1ed4ed34c5b2f62156cb0fe3abf6c882a891eae6d21354"
+      "sha256": "ed248cc514c61fdc008abc173e232cc17a5d03174c9f5d6482d3a1d859519440"
+    },
+    "canvas_gold": {
+      "file": "canvas_gold.jpg",
+      "surface": "canvas",
+      "scale": 2.2,
+      "sha256": "89ba6037fc4dd5ef733c8cb74634a7bf194b78969d8c16fbd11220498142e6b2"
+    },
+    "canvas_blue": {
+      "file": "canvas_blue.jpg",
+      "surface": "canvas",
+      "scale": 2.2,
+      "sha256": "b8e21d80c55a96d15d8dee61bf6e183171e336b5e9ba9edf0e923be735e54339"
+    },
+    "canvas_green": {
+      "file": "canvas_green.jpg",
+      "surface": "canvas",
+      "scale": 2.2,
+      "sha256": "aeb71c2cd46fd3c7be9290578b1310b7ac73835c73dd5bee6f241dfff53040ef"
     },
     "metal": {
       "file": "metal.jpg",
@@ -207,21 +245,33 @@
     },
     "rock": {
       "file": "rock.jpg",
-      "surface": "cliff_strata",
-      "scale": 9.0,
-      "sha256": "81ed8d94b39d480f2a1bb5e39cd89a0b52dff397608b5297484237bbbb3269ba"
+      "surface": "sea_rock",
+      "scale": 11.0,
+      "sha256": "fb72de9342fed02426c41b32522d2337d9986008f4930badfa4c9c25f284715f"
     },
     "rock_light": {
       "file": "rock_light.jpg",
-      "surface": "cliff_strata",
-      "scale": 9.0,
-      "sha256": "b9eba7707f22df905bcc319f1e2852f5eeb87a5ff4321213bf99ef1589ebb729"
+      "surface": "sea_rock",
+      "scale": 11.0,
+      "sha256": "f541982813572418fe5f21e8054f2eaf00dd71039442de2f310fe1d87099d355"
     },
     "rock_dark": {
       "file": "rock_dark.jpg",
+      "surface": "sea_rock",
+      "scale": 11.0,
+      "sha256": "9b71237205ba2333c06c5253b98bb8083ce720bc676eeac53ef9f3eb1e88bce8"
+    },
+    "rock_strata": {
+      "file": "rock_strata.jpg",
       "surface": "cliff_strata",
       "scale": 9.0,
-      "sha256": "e0b2d8e3e797b0d8141e7d305ff8f13e0a66e5e684b33e23291342dddf4578d2"
+      "sha256": "55c8f447278f2610e1c3aef33ccc8026a16733d6c4b7c1f5b39fafe56ebe46e5"
+    },
+    "moss": {
+      "file": "moss.jpg",
+      "surface": "moss_rock",
+      "scale": 5.0,
+      "sha256": "fea74b9df8a57ebb8aa2fb6d2eafe177aaf9efec4d14c59d43ef795f5663c068"
     },
     "planks": {
       "file": "planks.jpg",

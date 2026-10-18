@@ -295,7 +295,7 @@ def _cabin(b, spec, rng, wall='planks', stilts=3.4):
     a1 = P(w * 0.46, -d / 2 - 2.5, 2.85)
     c0 = P(-w * 0.46, -d / 2 + 0.1, 3.55)
     c1 = P(w * 0.46, -d / 2 + 0.1, 3.55)
-    b.quad(a0, a1, c1, c0, 'roof_straw')
+    b.quad(a0, a1, c1, c0, rng.choice(('roof_straw', 'canvas_teal', 'canvas_red', 'roof_terra', 'canvas')))
     # Roof with a repaired patch and a stove pipe.
     b.gable_roof((x, y, z + h + 0.30), w, d, z + h + 0.30, max(1.4, min(w, d) * 0.36), roof, yaw,
                  ridge='y' if rng.random() < 0.6 else 'x', overhang=0.7)
@@ -335,9 +335,11 @@ def building(b, spec, rng):
     if style == 'shack':
         return shack_building(b, spec, rng)
     walls = {
-        'tavern': ['cream', 'ochre', 'coral', 'plaster', 'azure_wall'],
-        'house': ['plaster', 'cream', 'sage_wall', 'ochre', 'lime_wall', 'coral'],
-        'shop': ['ochre', 'coral', 'teal_wall', 'cream', 'azure_wall'],
+        # The paintings' walls are warm washes over stone; teal and green belong to roofs and shutters.
+        'tavern': ['cream', 'ochre', 'coral', 'plaster', 'peach_wall', 'yellow_wall'],
+        'house': ['plaster', 'cream', 'peach_wall', 'ochre', 'rose_wall', 'yellow_wall', 'cream', 'sage_wall',
+                  'peach_wall', 'coral'],
+        'shop': ['ochre', 'coral', 'cream', 'peach_wall', 'rose_wall', 'yellow_wall', 'plaster'],
         'warehouse': ['wood_light', 'wood', 'stone_light'],
         'shack': ['wood_light', 'wood', 'plaster'],
     }[style]
@@ -358,12 +360,57 @@ def building(b, spec, rng):
     else:
         b.box((x, y, z + h / 2), (w, d, h), wall, yaw)
         b.box((x, y, z + 0.65), (w + 0.4, d + 0.4, 1.3), 'stone', yaw)
-        if style in ('tavern', 'house', 'shop'):
+        # Timber framing only on taverns; posts on every plaster house drew a grid over the whole town.
+        if style == 'tavern' and rng.random() < 0.6:
             timber_frame(b, x, y, z, w, d, h, yaw, floors)
+        elif style in ('house', 'shop'):
+            # A painted string course at each floor and plain pilaster strips at the corners.
+            for f in range(1, floors):
+                zz = z + 2.0 + f * (h - 2.2) / max(1, floors) - 0.35
+                b.box((x, y, zz), (w + 0.28, d + 0.28, 0.24), 'stone_light' if wall != 'cream' else 'ochre', yaw)
         has_arcade = style in ('tavern', 'shop') and w >= 9.0 and rng.random() < 0.55
         if has_arcade:
             arcade(b, x, y, yaw, w * 0.74, z + 0.15, 2.0, max(2, int(w / 6)))
-        b.box((x, y, z + h - 0.18), (w + 0.5, d + 0.5, 0.5), 'wood_dark', yaw)
+        if style == 'tavern':
+            b.box((x, y, z + h - 0.18), (w + 0.5, d + 0.5, 0.5), 'wood_dark', yaw)
+        else:
+            # A stepped plaster cornice under the eaves.
+            b.box((x, y, z + h - 0.30), (w + 0.30, d + 0.30, 0.28), 'cream' if wall != 'cream' else 'stone_light', yaw)
+            b.box((x, y, z + h - 0.08), (w + 0.55, d + 0.55, 0.22), 'stone_light', yaw)
+        # Jettied upper floors on timber brackets, as on the paintings' rum row.
+        jet = 0.0
+        if style in ('house', 'tavern', 'shop') and floors >= 2 and rng.random() < 0.42:
+            jet = rng.uniform(0.55, 0.9)
+            z1 = z + 2.0 + (h - 2.2) / max(1, floors) - 0.55
+            jx, jy = local(x, y, yaw, 0, -d / 2 - jet / 2)
+            b.box((jx, jy, (z1 + z + h - 0.3) / 2), (w + 0.1, jet + 0.02, z + h - 0.3 - z1), wall, yaw)
+            b.box((jx, jy, z1 - 0.12), (w + 0.3, jet + 0.3, 0.26), 'wood_dark', yaw)
+            for k in range(max(3, int(w / 2.6)) + 1):
+                lx = -w / 2 + 0.3 + (w - 0.6) * k / max(3, int(w / 2.6))
+                a0 = local(x, y, yaw, lx, -d / 2 - 0.02)
+                a1 = local(x, y, yaw, lx, -d / 2 - jet + 0.1)
+                b.beam((a0[0], a0[1], z1 - 1.1), (a1[0], a1[1], z1 - 0.2), 0.14, 'wood_dark')
+        # Patches where the plaster has fallen away show the rubble stone underneath.
+        if style in ('house', 'tavern', 'shop') and rng.random() < 0.5:
+            for _ in range(rng.randint(1, 3)):
+                lx = rng.uniform(-w * 0.4, w * 0.4)
+                pz = z + rng.uniform(1.4, max(1.6, h - 2.5))
+                pw, ph = rng.uniform(0.9, 2.2), rng.uniform(0.6, 1.5)
+                ly = -d / 2 - (jet if pz > z + 2.0 + (h - 2.2) / max(1, floors) - 0.55 else 0.0) - 0.04
+                px, py = local(x, y, yaw, lx, ly)
+                b.box((px, py, pz), (pw, 0.06, ph), 'stone', yaw)
+        # An outside stone stair up the side wall to a first-floor door.
+        if style == 'house' and floors >= 2 and rng.random() < 0.3:
+            side = rng.choice((-1, 1))
+            top_z = z + 2.0 + (h - 2.2) / max(1, floors) - 0.4
+            steps = int((top_z - z) / 0.28)
+            for k in range(steps):
+                ly = -d / 2 + 0.6 + k * min(0.34, (d - 1.2) / steps)
+                px, py = local(x, y, yaw, side * (w / 2 + 0.75), ly)
+                rise = (k + 1) * (top_z - z) / steps
+                b.box((px, py, z + rise / 2), (1.4, 0.4, rise), 'stone_light', yaw)
+            px, py = local(x, y, yaw, side * (w / 2 + 0.06), -d / 2 + 0.6 + steps * min(0.34, (d - 1.2) / steps))
+            b.box((px, py, top_z + 1.1), (0.16, 1.1, 2.1), 'shutter_teal', yaw)
         # Front door, windows, awnings and gallery.
         door(b, x, y, yaw, rng.choice((-w * 0.28, 0.0, w * 0.28)), -d / 2 - 0.10, z + 0.02,
              w=1.5 if style != 'shack' else 1.2, h=2.4 if style != 'shack' else 2.1)
@@ -375,23 +422,24 @@ def building(b, spec, rng):
             px, py = local(x, y, yaw, rng.uniform(-w * 0.3, w * 0.3), -d / 2 - 1.7)
             bench(b, px, py, z + 0.05, yaw)
         face_x, face_y = local(x, y, yaw, 0, -d / 2)
-        cols = max(2, int(w / 7))
+        cols = max(2, int(w / 4.4))
         for f in range(floors):
             zz = z + 2.0 + f * (h - 2.2) / max(1, floors)
             for i in range(cols):
                 lx = -w / 2 + w * (i + 0.5) / cols
                 if f == 0 and abs(lx) < 2.2:
                     continue
-                window(b, x, y, yaw, lx, -d / 2 - 0.05, zz, 1.15, 1.45,
+                fj = jet if f > 0 else 0.0
+                window(b, x, y, yaw, lx, -d / 2 - 0.05 - fj, zz, 1.1, 1.8 if f else 1.6,
                        shutters=style != 'shack', warm=(rng.random() < 0.18))
                 if f > 0 and rng.random() < 0.42:
-                    flower_box(b, x, y, yaw, lx, -d / 2 - 0.42, zz - 0.18)
+                    flower_box(b, x, y, yaw, lx, -d / 2 - 0.42 - fj, zz - 0.18)
                 elif f == 0 and style in ('shop', 'tavern') and rng.random() < 0.30:
                     flower_box(b, x, y, yaw, lx, -d / 2 - 0.42, zz - 0.18)
                 if f > 0 and rng.random() < 0.24:
                     pair = (('canvas', 'canvas_red'), ('canvas', 'canvas_teal'),
                             ('canvas_red', 'canvas'), ('canvas_teal', 'canvas'))
-                    awning(b, x, y, yaw, 2.4, zz + 1.85, 0.95,
+                    awning(b, *local(x, y, yaw, lx, -d / 2 - fj + 1.0), yaw, 2.4, zz + 1.85, 1.95,
                            pair[int(abs(lx)) % len(pair)], poles=False)
             for side in (-1, 1):
                 side_window(b, x, y, yaw, side * (w / 2 + 0.04), -d * 0.24, zz,
@@ -430,6 +478,21 @@ def building(b, spec, rng):
                 lx = rng.uniform(-w * 0.44, w * 0.44)
                 px, py = local(x, y, yaw, lx, -d / 2 - 0.16)
                 vine(b, px, py, z + h - 0.4, rng.uniform(2.4, 6.2), rng)
+    # A lookout tower (mirador) on some tall houses and taverns breaks the roofline, as in the paintings.
+    if style in ('house', 'tavern') and h > 8.0 and w >= 9.0 and rng.random() < 0.24:
+        side = rng.choice((-1, 1))
+        tw = min(4.2, w * 0.32)
+        tx, ty = local(x, y, yaw, side * (w / 2 - tw / 2 - 0.2), d * 0.12)
+        th = h + rng.uniform(3.2, 4.8)
+        twall = rng.choice(('cream', 'ochre', 'yellow_wall', 'rose_wall', wall))
+        b.box((tx, ty, z + th / 2), (tw, tw, th), twall, yaw)
+        b.box((tx, ty, z + th - 0.1), (tw + 0.45, tw + 0.45, 0.24), 'stone_light', yaw)
+        for k in range(3):
+            # Arched openings of the belvedere: dark voids with cream frames.
+            ox, oy = local(tx, ty, yaw, (k - 1) * tw * 0.3, -tw / 2 - 0.04)
+            b.box((ox, oy, z + th - 1.5), (tw * 0.2, 0.1, 1.7), 'glass', yaw)
+            b.box((ox, oy, z + th - 0.6), (tw * 0.26, 0.12, 0.18), 'cream', yaw)
+        b.hip_roof((tx, ty, z + th + 0.05), tw, tw, z + th + 0.05, tw * 0.5, roof, yaw, overhang=0.6)
     # Roof chooses a flat terrace, gable or hip silhouette.
     flat_roof = style not in ('warehouse', 'shack') and h > 9.0 and rng.random() < 0.14
     if flat_roof:
@@ -522,6 +585,10 @@ def bollard(b, x, y, z):
     b.cylinder((x, y, z + 0.88), (x, y, z + 1.02), 0.38, 'metal', 8)
 
 
+def rng_choice_stripe(x, y):
+    return ('canvas_red', 'canvas_teal', 'canvas_gold', 'canvas_blue')[int(abs(x * 1.7 + y * 2.9)) % 4]
+
+
 def market_stall(b, x, y, z, w=10, d=6, cloth='canvas', yaw=0.0):
     """A loaded market stall: posts, deep canvas, shelves, produce and clutter."""
     def P(lx, ly, lz):
@@ -542,7 +609,7 @@ def market_stall(b, x, y, z, w=10, d=6, cloth='canvas', yaw=0.0):
         b.cylinder(P(lx, d / 2 - 1.0, 2.45), P(lx, d / 2 - 1.0, 2.85), 0.14,
                    ('glass_warm', 'clay', 'teal_wall')[i % 3], 7)
     # A deep gable of striped canvas with a scalloped valance and a lantern.
-    stripe = 'canvas' if cloth != 'canvas' else 'canvas_red'
+    stripe = 'canvas' if cloth != 'canvas' else rng_choice_stripe(x, y)
     strips = 7
     for i in range(strips):
         sx0 = -w / 2 - 0.45 + (w + 0.9) * i / strips
@@ -556,7 +623,7 @@ def market_stall(b, x, y, z, w=10, d=6, cloth='canvas', yaw=0.0):
         lx0 = -w / 2 + i * w / 4
         b.quad(P(lx0, -d / 2, 3.25), P(lx0 + w / 4, -d / 2, 3.25),
                P(lx0 + w / 4, -d / 2, 2.65), P(lx0, -d / 2, 2.65),
-               'canvas_red' if i % 2 else 'canvas')
+               stripe if i % 2 else cloth)
     b.beam(P(0, -d / 2 - 0.15, 3.3), P(0, -d / 2 - 0.15, 2.85), 0.04, 'metal')
     b.box(P(0, -d / 2 - 0.15, 2.7), (0.32, 0.32, 0.42), 'lantern', yaw)
     for i in range(3):
@@ -593,6 +660,21 @@ def market_stall(b, x, y, z, w=10, d=6, cloth='canvas', yaw=0.0):
     for i in range(2):
         px, py, pz = P(w * 0.30 + i * 0.9, d / 2 - 1.2, 0)
         sack(b, px, py, pz + 0.2, 0.9)
+
+
+def parasol(b, x, y, z, radius=2.6, colors=('canvas', 'canvas_red'), rng=None):
+    """A market parasol: a pole and an eight-panel cone in alternating cloth, with a little table under it."""
+    top = z + 3.1
+    b.beam((x, y, z), (x, y, top + 0.5), 0.09, 'wood_dark')
+    panels = 8
+    for i in range(panels):
+        a0 = TAU * i / panels
+        a1 = TAU * (i + 1) / panels
+        p0 = (x + math.cos(a0) * radius, y + math.sin(a0) * radius, top - 0.45)
+        p1 = (x + math.cos(a1) * radius, y + math.sin(a1) * radius, top - 0.45)
+        b.tri(p0, p1, (x, y, top + 0.45), colors[i % len(colors)])
+        b.tri(p1, p0, (x, y, top + 0.45), colors[i % len(colors)])
+    b.cylinder((x, y, z + 0.75), (x, y, z + 0.82), 0.7, 'wood_light', 8)
 
 
 def goods(b, x, y, z, yaw=0.0, rng=None):

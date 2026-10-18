@@ -70,7 +70,16 @@ def make_material(name, hex_color):
             bsdf.inputs['Roughness'].default_value = 0.94
         elif name.startswith(('wood', 'plaster', 'cream', 'ochre', 'coral', 'sage', 'teal')):
             bsdf.inputs['Roughness'].default_value = 0.9
-    if name.startswith(('leaf_', 'palm_', 'waterfall', 'mist')) and texture.exists():
+    if name == 'mist' and texture.exists():
+        # Spray is soft and see-through; a clipped mask turned it into cotton balls.
+        mat.node_tree.links.new(tex.outputs['Alpha'], bsdf.inputs['Alpha'])
+        try:
+            mat.surface_render_method = 'BLENDED'
+        except (AttributeError, TypeError):
+            pass
+        mat.use_backface_culling = False
+        bsdf.inputs['Roughness'].default_value = 0.9
+    elif name.startswith(('leaf_', 'palm_', 'waterfall', 'spray')) and texture.exists():
         # An explicit greater-than node makes the glTF exporter emit
         # alphaMode MASK with a cutoff instead of blended transparency.
         clip = nodes.new('ShaderNodeMath')
@@ -253,9 +262,36 @@ def sea_plane():
     bpy.ops.mesh.primitive_plane_add(size=5000, location=(0, 0, -0.35))
     obj = bpy.context.object
     obj.name = 'REVIEW_Sea'
-    mat = bpy.data.materials.get('water')
-    if mat is None:
-        mat = make_material('water', L.COLORS['water'])
+    mat = make_material('sea_review', L.COLORS['water'])
+    tex = bpy.data.images.load(str(TEXTURE_DIR / 'water.jpg'), check_existing=True)
+    nodes, links = mat.node_tree.nodes, mat.node_tree.links
+    bsdf = nodes['Principled BSDF']
+    bsdf.inputs['Roughness'].default_value = 0.32
+    for key in ('Specular IOR Level', 'Specular'):
+        if key in bsdf.inputs:
+            bsdf.inputs[key].default_value = 0.1  # the pale horizon sky washed the sea out
+            break
+    image = nodes.new('ShaderNodeTexImage')
+    image.image = tex
+    # The painted turquoise reads as shallow water. Out at sea, away from the cove and the headland toes,
+    # tint it towards the paintings' deep cobalt.
+    geo = nodes.new('ShaderNodeNewGeometry')
+    sep = nodes.new('ShaderNodeSeparateXYZ')
+    links.new(geo.outputs['Position'], sep.inputs['Vector'])
+    near = nodes.new('ShaderNodeMapRange')
+    near.inputs['From Min'].default_value = -620.0
+    near.inputs['From Max'].default_value = -180.0
+    links.new(sep.outputs['Y'], near.inputs['Value'])
+    tint = nodes.new('ShaderNodeMixRGB')
+    tint.inputs['Color1'].default_value = (0.20, 0.42, 1.0, 1.0)
+    tint.inputs['Color2'].default_value = (0.62, 0.88, 1.0, 1.0)
+    links.new(near.outputs['Result'], tint.inputs['Fac'])
+    mul = nodes.new('ShaderNodeMixRGB')
+    mul.blend_type = 'MULTIPLY'
+    mul.inputs['Fac'].default_value = 1.0
+    links.new(image.outputs['Color'], mul.inputs['Color1'])
+    links.new(tint.outputs['Color'], mul.inputs['Color2'])
+    links.new(mul.outputs['Color'], bsdf.inputs['Base Color'])
     obj.data.materials.append(mat)
     uv_layer = obj.data.uv_layers.active
     if uv_layer:
@@ -278,9 +314,9 @@ def add_render_objects():
     sep = nodes.new('ShaderNodeSeparateXYZ')
     ramp = nodes.new('ShaderNodeValToRGB')
     ramp.color_ramp.elements[0].position = 0.0
-    ramp.color_ramp.elements[0].color = (0.62, 0.80, 0.95, 1.0)
-    ramp.color_ramp.elements[1].position = 0.70
-    ramp.color_ramp.elements[1].color = (0.12, 0.36, 0.72, 1.0)
+    ramp.color_ramp.elements[0].color = (0.56, 0.72, 0.90, 1.0)
+    ramp.color_ramp.elements[1].position = 0.42
+    ramp.color_ramp.elements[1].color = (0.08, 0.30, 0.74, 1.0)
     links.new(coord.outputs['Generated'], sep.inputs['Vector'])
     links.new(sep.outputs['Z'], ramp.inputs['Fac'])
     noise = nodes.new('ShaderNodeTexNoise')
@@ -303,12 +339,12 @@ def add_render_objects():
     sun_data = bpy.data.lights.new('Sun', 'SUN')
     sun_data.energy = 6.2
     sun_data.angle = math.radians(4)
-    sun_data.color = (1.0, 0.84, 0.62)
+    sun_data.color = (1.0, 0.81, 0.56)
     sun = bpy.data.objects.new('Sun', sun_data)
     scene.collection.objects.link(sun)
-    sun.rotation_euler = (math.radians(52), math.radians(8), math.radians(-38))
+    sun.rotation_euler = (math.radians(57), math.radians(8), math.radians(-38))
     fill_data = bpy.data.lights.new('Sky fill', 'AREA')
-    fill_data.energy = 380
+    fill_data.energy = 320
     fill_data.size = 700
     fill_data.color = (0.62, 0.78, 1.0)
     fill = bpy.data.objects.new('Sky fill', fill_data)
@@ -400,12 +436,12 @@ def render_views(only=(), preview=False):
             cloud_mix.inputs['Color2'].default_value = (0.10, 0.15, 0.24, 1.0)
             add_night_lights(scene)
         else:
-            sky_ramp.color_ramp.elements[0].color = (0.62, 0.80, 0.95, 1.0)
-            sky_ramp.color_ramp.elements[1].color = (0.12, 0.36, 0.72, 1.0)
+            sky_ramp.color_ramp.elements[0].color = (0.56, 0.72, 0.90, 1.0)
+            sky_ramp.color_ramp.elements[1].color = (0.08, 0.30, 0.74, 1.0)
             bg.inputs['Strength'].default_value = 1.0
             sun.data.energy = 6.2
-            sun.data.color = (1.0, 0.84, 0.62)
-            fill.data.energy = 380
+            sun.data.color = (1.0, 0.81, 0.56)
+            fill.data.energy = 320
             fill.data.color = (0.62, 0.78, 1.0)
             scene.view_settings.exposure = 0.1
             cloud_mix.inputs['Color2'].default_value = (0.93, 0.91, 0.85, 1.0)

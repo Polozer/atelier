@@ -9,7 +9,8 @@ import rocks
 from geom import Builder, _surface_scale as surface_scale
 from kit import (awning, balcony, banana, barrel, bench, bollard, building, bush, crate, door,
                  fern, fish_crate, grass_tuft, lantern_post, laundry_line, local,
-                 goods, market_stall, palm, pennants, person, potted_plant, rowboat, sack, sign, vine, window)
+                 goods, jungle_tree, market_stall, palm, parasol, pennants, person, potted_plant, rowboat, sack, sign,
+                 vine, window)
 
 TAU = math.pi * 2
 RNG = random.Random(49157)
@@ -59,7 +60,7 @@ def terrain():
             elif zavg < 0.15:
                 mat = 'rock_dark' if sl > 0.45 else 'sand'
             elif zavg < 2.2:
-                mat = 'sand'
+                mat = 'rock_dark' if sl > 0.6 else 'sand'
             elif L.is_water(gx, gy):
                 mat = ('rock_dark' if sl > 0.45 else 'sand') if dry else 'seabed'
             elif L.in_gorge(gx, gy, 3.0):
@@ -204,8 +205,11 @@ def rock_cluster(b, x, y, z, radius, count, tall=False):
         sx = RNG.uniform(0.55, 1.15) * radius
         sy = RNG.uniform(0.55, 1.15) * radius
         sz = RNG.uniform(0.55, 1.3) * radius * (1.8 if tall else 1.0)
-        b.sphere((px, py, z + sz * 0.38), max(1.0, radius * 0.45),
-                 ('rock', 'rock_light', 'rock_dark')[i % 3], (sx / max(1, radius), sy / max(1, radius), sz / max(1, radius)))
+        # Eroded prisms, like the cliffs; icosphere boulders read as stone balls.
+        a = RNG.uniform(0, TAU)
+        rocks.prism(b, (px, py), z - 1.2, z + sz * 0.75, max(1.0, (sx + sy) * 0.3), (math.cos(a), math.sin(a)), RNG,
+                    ('rock', 'rock_dark', 'rock')[i % 3], 'moss' if RNG.random() < 0.4 else None,
+                    squash=RNG.uniform(0.6, 0.95), tilt=RNG.uniform(0.2, 0.9))
 
 
 def harbor():
@@ -458,9 +462,13 @@ def market():
     b.rope((-92, 96, 9.1), (92, 96, 9.1), 0.9, 0.05)
     for xx in range(-84, 85, 12):
         b.sphere((xx, 96, 8.8), 0.22, 'lantern', subdiv=0)
+    cloths = ('canvas', 'canvas_red', 'canvas_teal', 'canvas_gold', 'canvas_blue', 'canvas_green', 'canvas_red')
     for i, (x, y, w, d, cloth) in enumerate(L.MARKET_STALLS):
-        yaw = RNG.uniform(-9, 9) if i % 3 else 0.0
-        canvas = ('canvas', 'canvas_red', 'canvas_teal')[i % 3]
+        # Loosen the grid: real market rows drift, turn and leave gaps.
+        x += RNG.uniform(-2.5, 2.5)
+        y += RNG.uniform(-2.0, 2.0)
+        yaw = RNG.uniform(-16, 16)
+        canvas = cloths[RNG.randrange(len(cloths))]
         market_stall(b, x, y, L.ground(x, y) + 0.1, w, d, canvas, yaw)
         # A vendor behind every counter and a pair of customers in front.
         person(b, x - w * 0.16, y + d * 0.27, L.ground(x, y) + 0.2, 180, RNG.uniform(0.92, 1.05), RNG)
@@ -536,6 +544,31 @@ def market():
         for k in range(5):
             b.sphere((fx + RNG.uniform(-0.5, 0.5), fy + RNG.uniform(-0.5, 0.5), fz + 0.75),
                      RNG.uniform(0.16, 0.26), 'sail', (1.3, 0.8, 0.7), subdiv=0)
+    # Parasols, shade trees and paving rings break the square into rooms, as in the paintings' crowded markets.
+    pair = (('canvas', 'canvas_red'), ('canvas', 'canvas_teal'), ('canvas_gold', 'canvas'), ('canvas_blue', 'canvas'),
+            ('canvas_green', 'cream'), ('canvas_red', 'canvas_gold'))
+    placed = 0
+    for _ in range(400):
+        if placed >= 34:
+            break
+        px, py = RNG.uniform(-86, 86), RNG.uniform(104, 222)
+        if any(abs(px - sx) < sw / 2 + 3.2 and abs(py - sy) < sd / 2 + 3.2 for sx, sy, sw, sd, _ in L.MARKET_STALLS):
+            continue
+        if math.hypot(px - 0, py - 158) < 9 or math.hypot(px - 47, py - 137) < 6 or math.hypot(px + 44, py - 188) < 8:
+            continue
+        parasol(b, px, py, L.ground(px, py) + 0.1, RNG.uniform(2.2, 3.2), pair[RNG.randrange(len(pair))], RNG)
+        placed += 1
+    cz = L.ground(0, 158) + 0.1
+    for r, mat in ((13.0, 'stone_light'), (12.4, 'cobble_dark'), (8.0, 'stone_light')):
+        b.cylinder((0, 158, cz - 0.02), (0, 158, cz + 0.06), r, mat, 32)
+    for k in range(8):
+        a = TAU * k / 8
+        b.box((math.cos(a) * 30, 158 + math.sin(a) * 30, cz + 0.04), (60, 0.5, 0.06), 'stone_light', math.degrees(a))
+    for tx, ty in ((-60, 132), (60, 132), (-60, 196), (60, 196), (-24, 160), (24, 160)):
+        tz = L.ground(tx, ty)
+        b.cylinder((tx, ty, tz), (tx, ty, tz + 0.55), 2.3, 'stone_light', 12)
+        b.cylinder((tx, ty, tz + 0.5), (tx, ty, tz + 0.6), 2.0, 'moss', 12)
+        jungle_tree(b, tx, ty, tz + 0.5, RNG.uniform(0, 360), RNG.uniform(0.75, 0.95), RNG)
     # Potted palms soften the hard market edges and frame the two entrances.
     for px, py in ((-66, 102), (66, 102), (-66, 214), (66, 214), (0, 102), (0, 212)):
         pz = L.ground(px, py)
@@ -990,9 +1023,9 @@ def ships():
     b = Builder('07_ships')
     for i, spec in enumerate(L.SHIPS):
         name, x, y, yaw, scale, sails = spec
-        # The paintings pair one black-sailed pirate with cream-canvas merchantmen.
+        # The paintings' two pirate galleons fly black canvas; the sloop keeps cream.
         ship(b, x, y, -1.1, yaw, scale, sails=sails, unfinished=False,
-             canvas='sail_dark' if i == 0 else 'sail')
+             canvas='sail_dark' if name.startswith('galleon') else 'sail')
     # The broken hull on the western rocks is a dark, readable landmark from the harbor mouth.
     ship(b, -492, -246, -2.8, 34, 0.60, sails=False, unfinished=True)
     return b

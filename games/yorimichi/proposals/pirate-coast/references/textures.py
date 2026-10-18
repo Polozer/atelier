@@ -150,9 +150,10 @@ def finish():
             target = L.COLORS.get(material)
             if not target:
                 continue
-            contrast = 1.15 if slug in ('foliage', 'roof', 'stone') else 1.0
+            # Plaster at full contrast read as stained, blotchy walls; the paintings' walls are clean washes.
+            contrast = 1.15 if slug in ('foliage', 'roof', 'stone') else (0.7 if slug == 'plaster' else 1.0)
             lift = .025 if slug in ('plaster', 'canvas') else .0
-            chroma = {'plaster': .42, 'roof': .48, 'stone': .40, 'cliff': .40,
+            chroma = {'plaster': .28, 'roof': .48, 'stone': .40, 'cliff': .40, 'sea_rock': .55, 'moss_rock': .55,
                       'wood': .30, 'canvas': .26, 'foliage': .40, 'sand': .28}.get(slug, .0)
             arr = colorize(detail, target, contrast, lift, chroma)
         path = TEXTURES / f'{material}.jpg'

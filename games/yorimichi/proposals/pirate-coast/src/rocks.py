@@ -66,13 +66,41 @@ def prism(b, centre, z0, z1, radius, along, rng, mat, top_mat=None, squash=0.72,
         tx = centre[0] + (x - centre[0]) * shrink
         ty = centre[1] + (y - centre[1]) * shrink
         top.append((tx, ty, z1 - tilt * (v / max(radius * squash, 1e-3)) + rng.uniform(-0.25, 0.25)))
+    # A bulging middle ring rounds each drum into an eroded boss instead of a cut block.
+    mid = []
+    for (bx, by, bz), (tx, ty, tz) in zip(bottom, top):
+        k = rng.uniform(1.04, 1.16)
+        mx, my = (bx + tx) / 2, (by + ty) / 2
+        mid.append((centre[0] + (mx - centre[0]) * k, centre[1] + (my - centre[1]) * k,
+                    (bz + tz) / 2 + rng.uniform(-0.3, 0.3)))
     for i in range(sides):
         j = (i + 1) % sides
-        b.quad(bottom[i], bottom[j], top[j], top[i], mat)
+        b.quad(bottom[i], bottom[j], mid[j], mid[i], mat)
+        b.quad(mid[i], mid[j], top[j], top[i], mat)
     c = (sum(p[0] for p in top) / sides, sum(p[1] for p in top) / sides,
          sum(p[2] for p in top) / sides + rng.uniform(0.0, 0.35))
     for i in range(sides):
         b.tri(top[i], top[(i + 1) % sides], c, top_mat or mat)
+
+
+def vines(b, x, y, z_top, length, width, out, rng):
+    """A curtain of hanging leaf strips draped down a face; out is the unit downhill direction."""
+    ox, oy = out
+    tx, ty = -oy, ox
+    strips = max(2, int(width / 0.9))
+    for k in range(strips):
+        s = (k / (strips - 1) - 0.5) * width + rng.uniform(-0.2, 0.2)
+        ln = length * rng.uniform(0.45, 1.0)
+        w = rng.uniform(0.7, 1.2)
+        px, py = x + tx * s, y + ty * s
+        a = (px - tx * w / 2, py - ty * w / 2, z_top + 0.3)
+        bb = (px + tx * w / 2, py + ty * w / 2, z_top + 0.3)
+        sway = rng.uniform(0.2, 0.9)
+        c = (px + tx * w * 0.35 + ox * sway, py + ty * w * 0.35 + oy * sway, z_top - ln)
+        d = (px - tx * w * 0.35 + ox * sway, py - ty * w * 0.35 + oy * sway, z_top - ln)
+        u0 = rng.choice((0.0, 0.5))
+        b.face((a, bb, c, d), rng.choice(('leaf_deep', 'leaf_mid', 'leaf_deep')),
+               [(u0, 0.0), (u0 + 0.5, 0.0), (u0 + 0.5, ln / 3.0), (u0, ln / 3.0)])
 
 
 def cliff_rocks(b, rng, spacing=6.0):
@@ -116,18 +144,23 @@ def cliff_rocks(b, rng, spacing=6.0):
         # The top stops a little above the ground uphill of the outcrop, so it reads as a ledge, not a tower.
         crest = L.height(x + ux * radius * 1.2, y + uy * radius * 1.2) + rng.uniform(-0.8, 1.6)
         height = max(3.0, min(crest - base, rng.uniform(9.0, 26.0)))
+        # One rock per outcrop, chosen from smooth noise: alternating drums read as masonry courses.
         light = fbm(x, y, 90.0, 3, 17)
-        palette = ('rock_light', 'rock_light', 'rock') if light > 0.45 else ('rock', 'rock_light', 'rock_dark')
-        drums = 1 if height < 6 else max(2, min(5, int(height / rng.uniform(4.5, 7.0))))
+        mat = 'rock_light' if light > 0.58 else ('rock_dark' if light < 0.32 else 'rock')
+        drums = 1 if height < 7 else max(2, min(4, int(height / rng.uniform(6.0, 9.0))))
         z0 = base
         for k in range(drums):
-            z1 = base + height * (k + 1) / drums + rng.uniform(-0.4, 0.4)
-            r = radius * (1.0 - 0.1 * k) * rng.uniform(0.92, 1.05)
-            jitter = (rng.uniform(-0.6, 0.6), rng.uniform(-0.6, 0.6))
-            top = 'jungle_dark' if k == drums - 1 and rng.random() < 0.45 else None
-            prism(b, (cx + jitter[0] - ux * 0.35 * k, cy + jitter[1] - uy * 0.35 * k), z0, z1, r,
-                  along, rng, palette[k % len(palette)], top, tilt=rng.uniform(0.2, 1.2))
+            z1 = base + height * (k + 1) / drums + rng.uniform(-1.2, 1.2)
+            r = radius * (1.0 - 0.12 * k) * rng.uniform(0.85, 1.1)
+            jitter = (rng.uniform(-1.2, 1.2), rng.uniform(-1.2, 1.2))
+            # Moss and ferns take most ledges, as in the paintings' green-capped cliffs.
+            top = 'moss' if rng.random() < 0.72 else ('jungle_dark' if rng.random() < 0.5 else None)
+            prism(b, (cx + jitter[0] - ux * 0.45 * k, cy + jitter[1] - uy * 0.45 * k), z0, z1, r,
+                  along, rng, mat, top, squash=rng.uniform(0.6, 0.9), tilt=rng.uniform(0.2, 1.6))
             z0 = z1 - 0.15
+        if height > 8 and rng.random() < 0.38:
+            vines(b, cx - ux * radius * 0.75, cy - uy * radius * 0.75, base + height,
+                  min(height * 0.8, rng.uniform(5.0, 14.0)), rng.uniform(2.0, 5.0), (-ux, -uy), rng)
         # A loose block or two at the foot.
         if rng.random() < 0.4:
             fx, fy = cx - ux * radius * 1.1, cy - uy * radius * 1.1
@@ -173,9 +206,10 @@ def crag(b, x, y, base, top, radius, rng, count=9):
         z0 = base
         for j in range(drums):
             z1 = base + (h - base) * (j + 1) / drums
-            mat = 'rock_dark' if z0 < 1.5 else ('rock', 'rock_light')[(j + k) % 2]
+            mat = 'rock_dark' if z0 < 1.5 else 'rock'
             prism(b, (cx + rng.uniform(-0.4, 0.4), cy + rng.uniform(-0.4, 0.4)), z0, z1, r * (1 - 0.12 * j),
-                  along, rng, mat, 'rock_light', squash=rng.uniform(0.7, 1.0), tilt=rng.uniform(0.3, 1.5))
+                  along, rng, mat, 'moss' if j == drums - 1 else 'rock_light', squash=rng.uniform(0.7, 1.0),
+                  tilt=rng.uniform(0.3, 1.5))
             z0 = z1 - 0.2
 
 

@@ -29,30 +29,51 @@ def face_x(y, z, x_hi, x_lo=425.0):
 
 
 def sheet(b, lip_x, y0, y1, top, bottom, rng, throw=4.0, segments=12):
-    """Ribbons of falling water from a lip at lip_x, flowing toward -x, hugging but clearing the cliff face."""
-    count = max(3, int((y1 - y0) / 1.9))
-    for i in range(count):
-        if rng.random() < 0.12:
-            continue  # a dry gap
-        ya = y0 + (y1 - y0) * i / count
-        yb = y0 + (y1 - y0) * (i + 1) / count + rng.uniform(0.2, 0.9)
-        u0 = rng.uniform(0, 0.6)
-        reach = rng.uniform(0.75, 1.0)
-        rows = []
-        for k in range(segments + 1):
-            s = k / segments
-            z = top - (top - bottom) * s * reach
-            yc = (ya + yb) / 2 + math.sin(s * 3.0 + i) * 0.5
-            half = (yb - ya) / 2 * (1.0 + 0.6 * s)
-            x = lip_x - throw * math.sqrt(s) - 0.3
-            x = min(x, face_x(yc, z, lip_x) - 0.9)
-            rows.append((x, yc - half, yc + half, z, (top - z) / 7.0))
-        for (xa, la, ra, za, va), (xb, lb, rb, zb, vb) in zip(rows, rows[1:]):
-            out = (-1.0, 0.0, 0.15)
-            b.face(((xa, la, za), (xa, ra, za), (xb, rb, zb), (xb, lb, zb)), 'waterfall',
-                   ((u0, va), (u0 + 0.4, va), (u0 + 0.4, vb), (u0, vb)), (out, out, out, out))
-            # A darker water body just behind the white streaks.
-            b.face(((xa + 0.35, la, za), (xa + 0.35, ra, za), (xb + 0.35, rb, zb), (xb + 0.35, lb, zb)), 'water')
+    """One continuous curtain of falling water from a lip at lip_x toward -x, widening as it falls.
+
+    The streak texture's alpha breaks the curtain up; a darker water body sits just behind it. Strips of separate
+    ribbons overlapped into a shattered-glass staircase.
+    """
+    cols = max(4, int((y1 - y0) / 1.1))
+    rows = max(segments, 20)
+    u_span = (y1 - y0) / 5.0
+    phase = rng.uniform(0, TAU)
+    grid = []
+    for k in range(rows + 1):
+        s = k / rows
+        z = top - (top - bottom) * s
+        spread = 0.18 * (y1 - y0) * s * s
+        row = []
+        for c in range(cols + 1):
+            t = c / cols
+            y = y0 - spread + (y1 - y0 + 2 * spread) * t
+            # Ballistic throw off the lip, a little ripple across the width, and never inside the rock.
+            x = lip_x - throw * math.sqrt(s) - 0.3 + 0.35 * math.sin(t * 9.0 + phase) * s
+            x = min(x, face_x(y, z, lip_x) - 0.8)
+            row.append((x, y, z, t * u_span, (top - z) / 7.0))
+        grid.append(row)
+    out = (-1.0, 0.0, 0.1)
+    for k in range(rows):
+        for c in range(cols):
+            p = (grid[k][c], grid[k][c + 1], grid[k + 1][c + 1], grid[k + 1][c])
+            b.face([q[:3] for q in p], 'waterfall', [(q[3], q[4]) for q in p], (out, out, out, out))
+    # Loose strands peel off both edges, so the curtain has ragged sides instead of a cut slab.
+    for side in (0, cols):
+        for _ in range(3):
+            y = grid[0][side][1] + (rng.uniform(-1.6, -0.3) if side == 0 else rng.uniform(0.3, 1.6))
+            w = rng.uniform(0.4, 0.9)
+            reach = rng.uniform(0.5, 1.0)
+            u0 = rng.uniform(0, 3)
+            prev = None
+            for k in range(rows + 1):
+                s = k / rows * reach
+                z = top - (top - bottom) * s
+                x = min(lip_x - throw * math.sqrt(s) - 0.2, face_x(y, z, lip_x) - 0.6)
+                cur = ((x, y - w / 2, z), (x, y + w / 2, z), (top - z) / 7.0)
+                if prev:
+                    b.face((prev[0], prev[1], cur[1], cur[0]), 'waterfall',
+                           ((u0, prev[2]), (u0 + 0.15, prev[2]), (u0 + 0.15, cur[2]), (u0, cur[2])), (out,) * 4)
+                prev = cur
 
 
 def mist(b, x, y, z, radius, count, rng):
@@ -61,14 +82,23 @@ def mist(b, x, y, z, radius, count, rng):
         a = rng.uniform(0, TAU)
         d = rng.uniform(0, radius)
         px, py = x + math.cos(a) * d, y + math.sin(a) * d
-        pz = z + rng.uniform(0.2, 2.5)
-        size = rng.uniform(2.5, 6.0)
+        pz = z + rng.uniform(0.2, 2.5) + d * 0.25
+        size = rng.uniform(3.0, 8.0)
         for k in range(3):
             yaw = k * math.pi / 3 + rng.uniform(-0.2, 0.2)
             b.card((px, py, pz + size * 0.3), (math.cos(yaw), math.sin(yaw), 0.0), size, size * 0.8, 'mist',
                    ((0, 0), (1, 0), (1, 1), (0, 1)))
         if rng.random() < 0.5:
-            b.sphere((px, py, z + 0.2), rng.uniform(0.8, 2.0), 'foam', (1.4, 1.1, 0.35), subdiv=0)
+            foam_patch(b, px, py, z + 0.06, rng.uniform(3.0, 7.0), rng)
+
+
+def foam_patch(b, x, y, z, size, rng):
+    """A soft, ragged foam patch lying on the water: a flat alpha card at a random angle, never a white tile."""
+    a = rng.uniform(0, TAU)
+    ca, sa = math.cos(a), math.sin(a)
+    hx, hy = size / 2, size * rng.uniform(0.3, 0.5)
+    pts = [(x + ca * u - sa * v, y + sa * u + ca * v, z) for u, v in ((-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy))]
+    b.face(pts, 'spray', ((0, 0), (1, 0), (1, 1), (0, 1)))
 
 
 def pool_surface(b, x0, x1, y_half, level, mat, step=3.0):
@@ -104,21 +134,22 @@ def waterfall(b):
         y = L.GORGE_Y + rng.uniform(-4.0, 4.0)
         zz = L.river_level(x) + 0.05
         s = rng.uniform(0.8, 2.2)
-        b.quad((x - s, y - s * 0.4, zz), (x + s, y - s * 0.4, zz), (x + s, y + s * 0.4, zz), (x - s, y + s * 0.4, zz),
-               'foam')
+        foam_patch(b, x, y, zz, s * 1.4, rng)
     # Upper cascade: out of the slot onto the ledge pool.
     upper_lip = face_x(L.GORGE_Y, river - 0.5, upper + 4.0) + 0.6
     sheet(b, upper_lip, L.GORGE_Y - 4.8, L.GORGE_Y + 4.8, river + 0.2, pool - 0.3, rng, throw=2.5, segments=8)
-    mist(b, upper_lip - 4.0, L.GORGE_Y, pool, 4.0, 10, rng)
+    mist(b, upper_lip - 4.0, L.GORGE_Y, pool, 5.0, 18, rng)
     pool_surface(b, lower - 4.0, upper_lip, 14.0, pool, 'water_shallow')
     # Lower fall: the pool spills through the notch in a wide, 30 m sheet into the sea.
     lower_lip = face_x(L.GORGE_Y, pool - 0.6, lower + 4.0) + 0.4
-    sheet(b, lower_lip, L.GORGE_Y - 7.5, L.GORGE_Y + 7.5, pool, -0.2, rng, throw=5.0, segments=14)
+    sheet(b, lower_lip, L.GORGE_Y - 8.0, L.GORGE_Y + 8.0, pool, -0.4, rng, throw=4.5, segments=24)
+    # A second, slightly proud layer fills the gaps, so the curtain reads white and continuous.
+    sheet(b, lower_lip - 0.5, L.GORGE_Y - 6.5, L.GORGE_Y + 6.5, pool - 0.3, -0.4, rng, throw=5.2, segments=24)
     # A narrower second ribbon set beside it, as in the painting's paired falls.
     sheet(b, face_x(L.GORGE_Y + 10.5, pool - 2.5, lower + 2.0) + 0.3, L.GORGE_Y + 9.0, L.GORGE_Y + 12.0,
           pool - 2.0, 0.0, rng, throw=3.0, segments=12)
     base_x = face_x(L.GORGE_Y, 0.5, lower) - 6.0
-    mist(b, base_x, L.GORGE_Y, 0.0, 9.0, 26, rng)
+    mist(b, base_x, L.GORGE_Y, 0.0, 13.0, 40, rng)
     for k in range(3):
         rocks_ring = 10.0 + k * 5.0
         for j in range(16):
@@ -126,8 +157,7 @@ def waterfall(b):
             px, py = base_x + math.cos(a) * rocks_ring * 0.8, L.GORGE_Y + math.sin(a) * rocks_ring
             if L.height(px, py) > 1.0:
                 continue
-            b.quad((px - 1.8, py - 1.0, 0.08), (px + 1.8, py - 1.0, 0.08), (px + 1.8, py + 1.0, 0.08),
-                   (px - 1.8, py + 1.0, 0.08), 'foam')
+            foam_patch(b, px, py, 0.08, rng.uniform(2.5, 5.5), rng)
     # Wet boulders in the plunge and on the pool lip, and dark stone framing the falls.
     for _ in range(14):
         a = rng.uniform(0, TAU)

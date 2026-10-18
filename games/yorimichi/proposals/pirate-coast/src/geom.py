@@ -225,10 +225,6 @@ class Builder:
             # fascia and a few battens
             for yy in (-d, d):
                 self.beam((cx - w, cy + yy, z), (cx + w, cy + yy, z), 0.18, 'wood_dark')
-            for t in (0.25, 0.5, 0.75):
-                yy = cy - d + 2 * d * t
-                zz = z + rise * (1 - abs(t - 0.5) * 2)
-                self.beam((cx - w, yy, zz), (cx + w, yy, zz), 0.08, 'roof_slate')
         else:
             e1 = (cx - w, cy - d, z); e2 = (cx + w, cy - d, z)
             e3 = (cx + w, cy + d, z); e4 = (cx - w, cy + d, z)
@@ -239,15 +235,12 @@ class Builder:
             self.tri(e4, r2, e3, mat)
             for xx in (-w, w):
                 self.beam((cx + xx, cy - d, z), (cx + xx, cy + d, z), 0.18, 'wood_dark')
-            for t in (0.25, 0.5, 0.75):
-                xx = cx - w + 2 * w * t
-                zz = z + rise * (1 - abs(t - 0.5) * 2)
-                self.beam((xx, cy - d, zz), (xx, cy + d, zz), 0.08, 'roof_slate')
-        # ridge cap
+        # Ridge cap in fired clay; grey slate battens striped every terracotta roof.
+        cap = 'roof_slate' if mat == 'roof_slate' else 'clay'
         if ridge == 'x':
-            self.beam((cx - w, cy, z + rise), (cx + w, cy, z + rise), 0.22, 'roof_slate')
+            self.beam((cx - w, cy, z + rise), (cx + w, cy, z + rise), 0.3, cap)
         else:
-            self.beam((cx, cy - d, z + rise), (cx, cy + d, z + rise), 0.22, 'roof_slate')
+            self.beam((cx, cy - d, z + rise), (cx, cy + d, z + rise), 0.3, cap)
         if yaw:
             a = math.radians(yaw)
             c, s = math.cos(a), math.sin(a)
@@ -268,14 +261,20 @@ class Builder:
             self.quad(e[3], r1, r2, e[2], mat)
             self.tri(e[0], r1, e[3], mat)
             self.tri(e[1], e[2], r2, mat)
-            self.beam(r1, r2, 0.2, 'roof_slate')
+            self.beam(r1, r2, 0.3, 'roof_slate' if mat == 'roof_slate' else 'clay')
         else:
             r1 = (cx, cy - d * 0.35, z + rise); r2 = (cx, cy + d * 0.35, z + rise)
             self.quad(e[0], r1, r2, e[3], mat)
             self.quad(e[1], e[2], r2, r1, mat)
             self.tri(e[0], e[1], r1, mat)
             self.tri(e[3], r2, e[2], mat)
-            self.beam(r1, r2, 0.2, 'roof_slate')
+            self.beam(r1, r2, 0.3, 'roof_slate' if mat == 'roof_slate' else 'clay')
+        # Hip rafters down each corner and a fascia board along the eaves.
+        cap = 'roof_slate' if mat == 'roof_slate' else 'clay'
+        for k in range(4):
+            near = r1 if math.dist(e[k], r1) < math.dist(e[k], r2) else r2
+            self.beam(e[k], near, 0.2, cap)
+            self.beam(e[k], e[(k + 1) % 4], 0.16, 'wood_dark')
         if yaw:
             a = math.radians(yaw)
             c, s = math.cos(a), math.sin(a)
