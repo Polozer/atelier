@@ -2,6 +2,7 @@
 import numpy as np
 
 import shorelines as coast
+import coastal_surface
 from skatepark.pier_site import ORIGIN, HALF_X, HALF_Y
 from belmonte.terrain import OUTER as TOWN_JOIN_BOUNDS
 
@@ -109,7 +110,25 @@ def placements(ground):
         put(name, xx, yy, zz-.45, rng.uniform(1.55, 2.3))
         if rng.random() < .45:
             put('Bush_Ochre_A', xx, yy, zz-.12, rng.uniform(1.2, 2.))
+    shape_crowns(result)
     return result
+
+
+def shape_crowns(objects):
+    """@cc [owner:fontanierh,label:correctness] coastal-crown-producer-isolation
+    Only this producer's headland crown trees may be reduced. Preserve all
+    outside transforms and all random draws, and never filter another owner's trees.
+    """
+    for name,rows in objects.items():
+        if not rows or not name.startswith('Tree_'):continue
+        p=np.asarray(rows,float)
+        on=coastal_surface.crown_zone(p[:,0],p[:,1],p[:,2])
+        # Finish the original RNG stream first. This spatial postfilter cannot
+        # reshuffle later trees, shrubs, or objects outside the crown masses.
+        gaps=.5+.5*np.sin(p[:,0]/41.+p[:,1]/29.)
+        keep=~on | (gaps > .3)
+        objects[name]=[[*row[:4],round(row[4]*.55,3)] if selected else row
+                       for row,selected,k in zip(rows,on,keep) if k]
 
 
 def integrate(world, heightmap):

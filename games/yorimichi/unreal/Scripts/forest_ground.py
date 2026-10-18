@@ -13,10 +13,11 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'world'))
 import yori  # noqa: E402
 
 
-def material():
+def material(*, rock=False):
     E=U.EditorAssetLibrary;M=U.MaterialEditingLibrary;AT=U.AssetToolsHelpers.get_asset_tools()
-    path='/Game/Japan/Materials/M_ForestGround'
-    m=E.load_asset(path) if E.does_asset_exist(path) else AT.create_asset('M_ForestGround','/Game/Japan/Materials',U.Material,U.MaterialFactoryNew())
+    name='M_CoastRock' if rock else 'M_ForestGround'
+    path='/Game/Japan/Materials/'+name
+    m=E.load_asset(path) if E.does_asset_exist(path) else AT.create_asset(name,'/Game/Japan/Materials',U.Material,U.MaterialFactoryNew())
     M.delete_all_material_expressions(m)
     def node(cls,**props):
         n=M.create_material_expression(m,cls)
@@ -52,6 +53,22 @@ colour=lerp(colour,coast,Alpha);
     M.connect_material_property(emission,'',U.MaterialProperty.MP_EMISSIVE_COLOR)
     M.connect_material_property(node(U.MaterialExpressionConstant,r=1.),'',U.MaterialProperty.MP_ROUGHNESS)
     M.connect_material_property(node(U.MaterialExpressionConstant,r=0.),'',U.MaterialProperty.MP_SPECULAR)
+    if rock:
+        # This slot alone uses its geometric face normal. Other terrain slots
+        # retain their existing normals and the asset's normal-build settings.
+        vertex_normal=node(U.MaterialExpressionVertexNormalWS)
+        normal=node(U.MaterialExpressionCustom,output_type=U.CustomMaterialOutputType.CMOT_FLOAT3,
+                    code='float3 n=cross(ddx(P),ddy(P)); float l2=dot(n,n); '
+                         'n=l2>1.e-16?n*rsqrt(max(l2,1.e-16)):N; '
+                         'return dot(n,N)<0.?-n:n;')
+        inputs=[]
+        for key in ['P','N']:
+            a=U.CustomInput();a.set_editor_property('input_name',key);inputs.append(a)
+        normal.set_editor_property('inputs',inputs)
+        assert M.connect_material_expressions(p,'',normal,'P')
+        assert M.connect_material_expressions(vertex_normal,'',normal,'N')
+        assert M.connect_material_property(normal,'',U.MaterialProperty.MP_NORMAL)
+        m.set_editor_property('tangent_space_normal',False)
     m.set_editor_property('used_with_instanced_static_meshes',True)
     M.recompile_material(m);E.save_loaded_asset(m)
     return m
@@ -61,6 +78,19 @@ def coast_instance(parent=None):
     from material_assets import instance
     mi=instance('MI_Coast',parent or material())
     U.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(mi,'NearGround',1.)
+    U.MaterialEditingLibrary.update_material_instance(mi)
+    U.EditorAssetLibrary.save_loaded_asset(mi)
+    return mi
+
+
+def coast_rock_instance():
+    """@cc [owner:fontanierh,label:correctness] coastal-face-normal-isolation
+    CoastRock MUST have its own world-space geometric normal, oriented against
+    the vertex normal with a finite degenerate-derivative fallback. It MUST NOT
+    read PixelNormalWS or change the shared ground material's normal path.
+    """
+    from material_assets import instance
+    mi=instance('MI_CoastRock',material(rock=True))
     U.MaterialEditingLibrary.update_material_instance(mi)
     U.EditorAssetLibrary.save_loaded_asset(mi)
     return mi

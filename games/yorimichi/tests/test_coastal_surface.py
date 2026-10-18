@@ -1,0 +1,66 @@
+"""Rock shading and crown edits stay on the owned exposed headland faces."""
+import copy
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'world'))
+import yori  # noqa: E402,F401
+import coastal_surface as C  # noqa: E402
+import coastal_dressing as D  # noqa: E402
+
+
+def test_observed_cliff_face_is_selected_but_its_meadow_and_beach_are_not():
+    # Actual native06 face centroid; changing just its slope or height must
+    # leave smooth crowns and sand on their existing material/normal path.
+    x,y=2893.099,160.935
+    assert C.rock_faces(x,y,21.338,.725)
+    assert not C.rock_faces(x,y,21.338,.95)
+    assert not C.rock_faces(x,y,1.5,.725)
+    assert not C.rock_faces(x,y,-2.,.725)
+
+
+def test_other_coasts_town_and_rail_cover_never_get_the_headland_slot():
+    x=np.array([2850.,1231.,550.,-150.,2900.,-2900.])
+    y=np.array([2000.,301.8,4500.,-175.,5000.,5000.])
+    assert not C.rock_faces(x,y,np.full_like(x,30.),np.full_like(x,.3)).any()
+    assert not C.crown_zone(x,y,np.full_like(x,30.)).any()
+
+
+def test_rock_face_palette_is_finite_and_warm_without_changing_geometry():
+    x,y,z=np.array([2893.099,2912.]),np.array([160.935,408.]),np.array([21.338,40.])
+    before=[v.copy() for v in (x,y,z)]
+    colours=C.face_colour(x,y,z,np.array([.725,.4]))
+    assert colours.shape==(2,3) and np.isfinite(colours).all()
+    assert ((colours>=0.)&(colours<=1.)).all()
+    assert (colours[:,0]>colours[:,2]).all()
+    for actual,original in zip((x,y,z),before):np.testing.assert_array_equal(actual,original)
+
+
+def test_coastal_crown_postfilter_preserves_all_outside_transforms_and_other_objects():
+    rows={'Tree_Maple_A':[[2923.85,248.81,32.26,310.6,2.11],
+                          [2100.,4800.,40.,72.,2.11],
+                          [1231.,301.8,32.,25.,2.]],
+          'SW_Boulder_A':[[2923.85,248.81,32.26,310.6,10.]],
+          'Bush_Ochre_A':[[2923.85,248.81,32.26,310.6,1.5]]}
+    original=copy.deepcopy(rows)
+    D.shape_crowns(rows)
+    assert rows['Tree_Maple_A'][-2:]==original['Tree_Maple_A'][-2:]
+    assert rows['SW_Boulder_A']==original['SW_Boulder_A']
+    assert rows['Bush_Ochre_A']==original['Bush_Ochre_A']
+    for row in rows['Tree_Maple_A'][:-2]:
+        assert row[:4]==original['Tree_Maple_A'][0][:4] and row[4]<1.3
+
+
+def test_real_recipe_tracks_surface_selection_for_export_and_owned_planting(tmp_path):
+    from atelier import build
+    recipe=build.load_recipe('yorimichi')
+    ctx=SimpleNamespace(game='yorimichi',out=tmp_path,uproject=tmp_path/'Yorimichi.uproject')
+    steps={s.name:s for s in recipe.steps(ctx)}
+    helper=recipe.WORLD/'coastal_surface.py'
+    for name in ['world.layout','world.terrain']:
+        assert helper in steps[name].inputs,name
+    assert recipe.SCRIPTS/'forest_ground.py' in steps['unreal.world'].inputs
+    assert recipe.SCRIPTS/'import_hidamari.py' in steps['unreal.world'].inputs

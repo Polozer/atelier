@@ -8,6 +8,7 @@ import sys, os, json, math
 import bpy, bmesh
 import numpy as np
 import shorelines
+import coastal_surface
 from mathutils import Vector
 
 OUT = str(yori.OUT)
@@ -41,6 +42,36 @@ def coastal_colours(ob):
     attribute=ob.data.color_attributes.new(name='Color',type='FLOAT_COLOR',domain='POINT')
     attribute.data.foreach_set('color',np.c_[colours,amount].astype('f4').ravel())
     return amount
+
+
+def rock_surface(ob):
+    """Separate exposed FarHills faces without altering positions or normals."""
+    assert ob.name == 'FarHills'
+    me=ob.data
+    centres=np.asarray([p.center[:] for p in me.polygons])
+    nz=np.asarray([p.normal.z for p in me.polygons])
+    selected=coastal_surface.rock_faces(*centres.T,nz)
+    owned=[i for i,m in enumerate(me.materials) if m.name.split('.')[0]=='FarForest']
+    selected &= np.isin([p.material_index for p in me.polygons],owned)
+    if not selected.any():return
+    # Preserve every unselected corner's previous point color, including alpha.
+    original=me.color_attributes['Color']
+    assert original.domain in {'POINT','CORNER'}
+    rgba=np.empty((len(original.data),4),dtype='f4')
+    original.data.foreach_get('color',rgba.ravel())
+    vertices=np.asarray([loop.vertex_index for loop in me.loops])
+    colours=(rgba[vertices] if original.domain=='POINT' else rgba).copy()
+    me.color_attributes.remove(original)
+    attr=me.color_attributes.new(name='Color',type='FLOAT_COLOR',domain='CORNER')
+    me.materials.append(mat('CoastRock'))
+    slot=len(me.materials)-1
+    face_colours=coastal_surface.face_colour(*centres[selected].T,nz[selected])
+    for index,colour in zip(np.flatnonzero(selected),face_colours):
+        face=me.polygons[index]
+        face.material_index=slot
+        colours[face.loop_start:face.loop_start+face.loop_total]=[*colour,1.]
+    attr.data.foreach_set('color',colours.ravel())
+    print('coastal rock surface: %d faces, existing geometry/normals retained'%selected.sum(),flush=True)
 
 
 def main():
@@ -176,6 +207,7 @@ def main():
     fverts, ffaces, _ = earthworks.polygons(fverts, ffaces, 4., hidden=under_foothills)
     hills = obj("FarHills", fverts, ffaces, far, uvs=lambda co: (co.x / 180.0, co.y / 180.0))
     coastal_colours(hills)
+    rock_surface(hills)
     # export terrain fbx
     bpy.ops.object.select_all(action="DESELECT")
     for o in [terrain, road, wires, hills] + ([rail] if rail else []) + ([lane] if lane else []): o.select_set(True)
