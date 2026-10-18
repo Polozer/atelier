@@ -62,7 +62,9 @@
     "kind": "terrain-reference-revalidation",
     "geography": {
       "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
-      "world/build_terrain.py": "64c477db0cfdd91356171c8819fa0763900507255a8a524e86d8af97aa00ffe7",
+      "world/build_terrain.py": "474efc21bd9d9e98b46489b060ce82c790d0b195c1c025f53057cfe00274a533",
+      "world/farhills_surface.py": "1171f7b36f77020489cb44460b112d820aecbd049f86ecac9328951410b16580",
+      "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
       "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
       "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
       "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
@@ -80,5 +82,9 @@
     "painting_sha256": "bd2f62f93974466d9b980805104206806235d057efbfc5d7cb22567d4bc99264",
     "coast_sha256": "8cd6b927265b5cbedee5b6ab225a304d27968bf6a5f4ed787df0a64bc60dba15",
     "reference_sha256": "4d5d9c68f815b4e7ca763298c89562b3a51357f0d166bf33be57e1f0e8e0e747"
+  },
+  "refactor_revalidation": {
+    "witness": "coasts/extraction-equivalence.json",
+    "sha256": "7d06b808cd8d6fb2a17caa2ef811dee08dfa0d72f2fec093849439fc6cbbcd2a"
   }
 }
