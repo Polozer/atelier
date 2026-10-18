@@ -7,7 +7,9 @@ offsets and processing settings for listening review and later bank acceptance.
 import argparse
 import fcntl
 import hashlib
+import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -159,16 +161,44 @@ def write_sample(path, samples, loop=False):
         raise ValueError('Constant sample')
     samples = samples * (10 ** (-3 / 20) / peak)
     pcm = np.rint(samples * 32767).astype('<i2')
-    temporary = path.with_suffix('.partial.wav')
-    with wave.open(str(temporary), 'wb') as handle:
+    buffer = io.BytesIO()
+    with wave.open(buffer, 'wb') as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
         handle.setframerate(RATE)
         handle.writeframes(pcm.tobytes())
-    temporary.replace(path)
+    payload = buffer.getvalue()
+    expected = hashlib.sha256(payload).hexdigest()
+    if path.is_symlink():
+        raise ValueError('Sample path must not be a symlink')
+    if path.exists():
+        if digest(path) != expected:
+            raise ValueError('Existing sample bytes differ; immutable namespace cannot be overwritten')
+    else:
+        temporary = path.with_suffix('.partial.wav')
+        temporary.write_bytes(payload)
+        try:
+            # Publish complete bytes without replacing an existing name, even
+            # if an external writer creates it after the existence check.
+            os.link(temporary, path)
+        finally:
+            temporary.unlink()
     return {'sha256': digest(path), 'frames': len(pcm), 'sample_rate': RATE,
             'channels': 1, 'sample_width': 2, 'bytes': path.stat().st_size,
             'peak_dbfs': -3, 'rms_dbfs': round(20 * np.log10(np.sqrt(np.mean(samples ** 2))), 2)}
+
+
+def source_identities(root, raw):
+    identities = []
+    for clip in raw['clips']:
+        path = (root / clip['file']).resolve()
+        if not path.is_relative_to(root):
+            raise ValueError('Raw source escapes review root')
+        actual = digest(path)
+        if actual != clip['audio']['sha256']:
+            raise ValueError('Raw source checksum changed')
+        identities.append({'id': clip['id'], 'file': clip['file'], 'sha256': actual})
+    return identities
 
 
 def _prepare(root):
@@ -178,7 +208,10 @@ def _prepare(root):
     if any(c['status'] != 'ready' for c in raw['clips']):
         raise ValueError('Finish raw generation before preparing a sample bank')
     processor_hash = digest(Path(__file__))
-    bank_hash = hashlib.sha256((raw['plan_hash'] + processor_hash).encode()).hexdigest()
+    sources = source_identities(root, raw)
+    bank_identity = {'raw_plan_hash': raw['plan_hash'], 'processing_sha256': processor_hash,
+                     'sources': sources}
+    bank_hash = hashlib.sha256(json.dumps(bank_identity, sort_keys=True).encode()).hexdigest()
     output = root / 'samples' / bank_hash
     output.mkdir(parents=True, exist_ok=True)
     prepared = []
@@ -228,7 +261,10 @@ def _prepare(root):
     manifest.update(title=f"{raw['title']} · Contact samples and loops",
                     plan_hash=bank_hash,
                     raw_plan_hash=raw['plan_hash'], processing_sha256=processor_hash,
+                    source_identities=sources,
                     clips=prepared, rejected=rejected)
+    if source_identities(root, raw) != sources:
+        raise ValueError('Raw source identity changed during preparation')
     write_json(root / 'prepared.json', manifest)
     print(f'Prepared {len(prepared)} samples; {len(rejected)} sources need manual segmentation', flush=True)
 
@@ -236,8 +272,10 @@ def _prepare(root):
 def prepare(root):
     """@cc [owner:fontanierh,label:correctness] atomic-sample-bank-publication
     Preparation MUST exclude other writers and publish a complete manifest only
-    after all its samples exist. A changed processor or raw plan MUST write a
-    distinct sample namespace so an interrupted refresh cannot relabel old audio.
+    after all its samples exist and source hashes have been revalidated. Changed
+    source bytes, processor or raw plan MUST write a distinct sample namespace.
+    Existing namespace files MUST be verified/reused or fail without overwrite,
+    so an interrupted refresh cannot change audio referenced by the old manifest.
     """
     with (Path(root) / '.writer.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

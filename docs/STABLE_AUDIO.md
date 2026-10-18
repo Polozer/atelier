@@ -162,6 +162,13 @@ samples; `?bank=samples` opens the latter directly. Loops repeat in the player.
 Provenance includes each sample's cue, intended trigger, source interval and
 crossfade length. Listening acceptance is still required.
 
+Prepared namespaces include the ordered verified source WAV identities and
+hashes, the raw plan and processor hash. Regenerating different audio with the
+same prompt and seed therefore creates a different bank. Source hashes are
+checked again before manifest publication. Existing sample files are reused
+only when their bytes match the expected result; mismatches fail without
+overwriting published audio.
+
 The current game already has the relevant timing hooks:
 
 - `UJapanFootstepComponent` detects actual `foot_L` / `foot_R` plants, traces
