@@ -142,7 +142,7 @@ MATERIAL_SURFACE = {
     'rock_dark': ('cliff_block', 22.0), 'rock_strata': ('cliff_strata', 9.0), 'moss': ('moss_rock', 5.0),
     'planks': ('planks', 1.5),
     'hull': ('hull_planks', 2.0), 'deck_planks': ('hull_planks', 1.8),
-    'sand': ('sand', 4.5),
+    'sand': ('sand', 4.5), 'earth': ('sand', 4.5),
     'jungle': ('foliage', 3.0), 'jungle_light': ('foliage', 3.0), 'jungle_dark': ('foliage', 3.0),
     'palm': ('foliage', 3.0), 'palm_light': ('foliage', 3.0),
     'autumn_rust': ('foliage', 3.0), 'autumn_gold': ('foliage', 3.0),

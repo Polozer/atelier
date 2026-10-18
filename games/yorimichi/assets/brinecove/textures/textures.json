@@ -247,19 +247,19 @@
     "rock": {
       "file": "rock.jpg",
       "surface": "cliff_block",
-      "scale": 12.0,
+      "scale": 22.0,
       "sha256": "5e6c459fdcabe4e4474962a3adcd0568a8bf0d94bba3dced9f3617ca07c2d280"
     },
     "rock_light": {
       "file": "rock_light.jpg",
       "surface": "cliff_block",
-      "scale": 12.0,
+      "scale": 22.0,
       "sha256": "878d74b5d3c89bac66fda8268df787db017fc1cdb3ec33115fbb006823414f49"
     },
     "rock_dark": {
       "file": "rock_dark.jpg",
       "surface": "cliff_block",
-      "scale": 12.0,
+      "scale": 22.0,
       "sha256": "10a3caba5f0868d9e707cad91ccfa2be3fcc58f9c19f1143488f45baaa55aed5"
     },
     "rock_strata": {
@@ -297,6 +297,12 @@
       "surface": "sand",
       "scale": 4.5,
       "sha256": "bd046874d6f73d0d469907d9e579771d5c0cefdd4ad8e3755b499d494ef3f960"
+    },
+    "earth": {
+      "file": "earth.jpg",
+      "surface": "sand",
+      "scale": 4.5,
+      "sha256": "dfe845a1d7c80b90833c119fb020db8912f0fca1280b199916a5c2b3cdb87554"
     },
     "jungle": {
       "file": "jungle.jpg",

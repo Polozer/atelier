@@ -7173,6 +7173,10 @@
       "bytes": 196569,
       "sha256": "ea0ae64e9c48807e894ddbcd08cdc502c258252cabefdee28b3356033068c3ba"
     },
+    "brinecove/textures/earth.jpg": {
+      "bytes": 112848,
+      "sha256": "dfe845a1d7c80b90833c119fb020db8912f0fca1280b199916a5c2b3cdb87554"
+    },
     "brinecove/textures/gold.jpg": {
       "bytes": 187118,
       "sha256": "0dd15c0808748c4ec8ad98da8337000cec34a0b894bd9e3e151a67e037a0ae71"

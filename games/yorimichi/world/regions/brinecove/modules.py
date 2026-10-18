@@ -51,7 +51,15 @@ def cell_material(a, bb, c, d, gx, gy, sl, i, j):
         return ('rock_dark' if sl > 0.45 else 'sand') if dry else 'seabed'
     if L.in_gorge(gx, gy, 3.0):
         return 'rock_dark' if sl > 0.45 else 'seabed'
+    if sl < 0.4 and L.town_floor(gx, gy):
+        return yard_material(gx, gy)
     return rocks.terrain_material(gx, gy, zavg, sl, i, j)
+
+
+def yard_material(x, y):
+    """Beaten earth and old setts between the houses and the paved streets, never a lawn."""
+    n = rocks.fbm(x, y, 18.0, 3, 41)
+    return 'cobble_dark' if n > 0.58 else ('earth' if n > 0.3 else 'sand')
 
 
 def ground_face(b, a, bb, c, d, mat, gx, gy, sl):
@@ -317,7 +325,7 @@ def harbor():
         lantern_post(b, px - width / 2 + 1.4, y1 + 3, 5.3, 3.0)
         lantern_post(b, px + width / 2 - 1.4, y0 - 16, 5.3, 3.0)
     # Quay promenade paving and steps into the water.
-    b.box((0, 86, 4.62), (780, 42, 0.25), 'cobble')
+    paving(b, -390.0, 390.0, 65.0, 107.0, z=4.745, tile=7.0, thick=0.25, kerbs=(True, False), seed=7)
     for x in (-130, 135):
         for i in range(6):
             b.box((x, L.QUAY_Y - 1.0 - i * 0.8, 4.3 - i * 0.7), (9.0, 0.9, 0.3), 'stone')
@@ -383,20 +391,42 @@ def harbor():
     return b
 
 
+def paving_material(x, y, seed=0):
+    """Mostly cobble, with drifts of darker worn setts and patches of big flagstones, never a tile checkerboard."""
+    n = rocks.fbm(x, y, 34.0, 3, 61 + seed)
+    m = rocks.fbm(x, y, 13.0, 2, 83 + seed)
+    if n < 0.3:
+        return 'stone_light' if m > 0.45 else 'stone'
+    if n > 0.7 or (n > 0.6 and m > 0.62):
+        return 'cobble_dark'
+    return 'cobble'
+
+
+def paving(b, x0, x1, y0, y1, z=None, tile=6.5, thick=0.22, kerbs=(True, True), seed=0, skip=None):
+    """Tile a street rectangle in abutting slabs; z=None follows the ground per slab. Kerbs line the y edges."""
+    nx, ny = max(1, round((x1 - x0) / tile)), max(1, round((y1 - y0) / tile))
+    sx, sy = (x1 - x0) / nx, (y1 - y0) / ny
+    for i in range(nx):
+        cx = x0 + (i + 0.5) * sx
+        if skip and skip(cx):
+            continue
+        for j in range(ny):
+            cy = y0 + (j + 0.5) * sy
+            top = L.ground(cx, cy) + 0.16 if z is None else z
+            b.box((cx, cy, top - thick / 2), (sx, sy, thick), paving_material(cx, cy, seed))
+        for edge, on in zip((y0 + 0.25, y1 - 0.25), kerbs):
+            if on:
+                top = L.ground(cx, edge) + 0.16 if z is None else z
+                b.box((cx, edge, top + 0.06), (sx, 0.5, 0.36), 'stone_light')
+                # A dark gutter of upright setts just inside the kerb.
+                gy = edge + (0.6 if edge < (y0 + y1) / 2 else -0.6)
+                b.box((cx, gy, top + 0.005), (sx, 0.7, 0.03), 'cobble_dark')
+
+
 def pave_band(b, y0, y1, skip_market=True):
-    """Pave a street band in terrain-following tiles, leaving the market open."""
-    step = 26.0
-    x = -372.0
-    i = 0
-    while x < 372.0:
-        cx = x + step / 2
-        if not (skip_market and -108.0 < cx < 108.0 and y0 < 228.0):
-            cy = (y0 + y1) / 2
-            z = L.ground(cx, cy)
-            b.box((cx, cy, z + 0.05), (step + 0.4, y1 - y0, 0.22),
-                  'cobble_dark' if i % 7 == 0 else 'cobble')
-        x += step
-        i += 1
+    """Pave a street band in terrain-following slabs with kerbs, leaving the market open."""
+    paving(b, -372.0, 372.0, y0, y1, seed=int(y0),
+           skip=(lambda cx: -108.0 < cx < 108.0 and y0 < 228.0) if skip_market else None)
     # Planters and laundry break up the paved bands and tie them to the walls.
     for px in range(-350, 351, 44):
         if skip_market and -112 < px < 112 and y0 < 228.0:
@@ -424,7 +454,7 @@ def lower_town():
     # Street surfaces, edges and lanes.
     roads = [(-260, 230, 34, 10), (240, 230, 34, 10), (-390, 120, 12, 58), (390, 120, 12, 58)]
     for x, y, w, d in roads:
-        b.box((x, y, L.ground(x, y) + 0.04), (w, d, 0.22), 'cobble')
+        paving(b, x - w / 2, x + w / 2, y - d / 2, y + d / 2, kerbs=(False, False), seed=int(x))
     for y0, y1 in ((137, 179), (210, 242), (266, 282)):
         pave_band(b, y0, y1)
     # Lower quay houses and the two lanes behind them.
@@ -484,9 +514,18 @@ def lower_town():
 def market():
     b = Builder('04_market')
     b.box((0, 160, 4.68), (196, 132, 0.28), 'cobble')
-    # Simple cobble bands.
-    for y in range(102, 222, 9):
-        b.box((0, y, 4.83), (188, 0.18, 0.06), 'cobble_dark')
+    # A flagstone border and a grid of stone ribs divide the square into the paved bays of a piazza;
+    # darker setts fill a few bays so the field never reads as one flat sheet.
+    for cx, cy, sx, sy in ((0, 96.5, 196, 5), (0, 223.5, 196, 5), (-95.5, 160, 5, 132), (95.5, 160, 5, 132)):
+        b.box((cx, cy, 4.83), (sx, sy, 0.06), 'stone_light')
+    for gx in range(-84, 85, 12):
+        b.box((gx, 160, 4.83), (0.7, 122, 0.06), 'stone_light')
+    for gy in range(106, 215, 12):
+        b.box((0, gy, 4.83), (186, 0.7, 0.06), 'stone_light')
+    for gx in range(-84, 73, 12):
+        for gy in range(106, 203, 12):
+            if rocks.fbm(gx, gy, 30.0, 2, 17) > 0.62:
+                b.box((gx + 6, gy + 6, 4.825), (11.3, 11.3, 0.05), 'cobble_dark')
     # A low lantern string crosses just in front of the market camera.
     for xx in (-92, 92):
         lantern_post(b, xx, 96, L.ground(xx, 96) + 0.1, 5.0)
@@ -672,9 +711,12 @@ def market():
 def upper_town():
     b = Builder('05_town_upper')
     # Terrace surface and street.
-    b.box((0, 340, L.UPPER_Z + 0.02), (640, 106, 0.4), 'cobble')
-    b.box((0, 284, L.UPPER_Z + 0.02), (640, 10, 0.4), 'cobble')
+    paving(b, -320.0, 320.0, 287.0, 393.0, z=L.UPPER_Z + 0.22, tile=7.0, thick=0.4, kerbs=(False, False), seed=5)
+    paving(b, -320.0, 320.0, 279.0, 287.0, z=L.UPPER_Z + 0.22, tile=7.0, thick=0.4, kerbs=(False, False), seed=6)
+    # The terrace's carriageway: a band of dark setts between two flagstone kerbs.
     b.box((0, 340, L.UPPER_Z + 0.16), (620, 22, 0.18), 'cobble_dark')
+    for yy in (328.8, 351.2):
+        b.box((0, yy, L.UPPER_Z + 0.3), (620, 0.6, 0.2), 'stone_light')
     for y0, y1 in ((354, 400), (424, 452)):
         pave_band(b, y0, y1, skip_market=False)
     # Balustrade along the harbor edge, broken for the three stairs.

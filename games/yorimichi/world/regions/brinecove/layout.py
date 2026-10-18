@@ -35,7 +35,7 @@ COLORS = {
     'canvas_blue': '#4c76a6', 'canvas_green': '#6f8f45', 'clay': '#a9684b',
     'jungle_dark': '#2f4522', 'jungle': '#3f5a2c', 'jungle_light': '#58733a',
     'autumn_rust': '#9c4f2c', 'autumn_gold': '#b07a34', 'autumn_olive': '#6d7034',
-    'palm': '#4a6a2e', 'palm_light': '#6c8a3f', 'sand': '#c7ad7d',
+    'palm': '#4a6a2e', 'palm_light': '#6c8a3f', 'sand': '#c7ad7d', 'earth': '#93785a',
     'planks': '#8a6a48', 'hull': '#4f3a2a', 'deck_planks': '#a08055',
     'leaf_mid': '#4f6b33', 'leaf_light': '#6c8a3f', 'leaf_deep': '#33471f',
     'leaf_warm': '#96703a', 'palm_frond': '#5b7a36',
@@ -552,6 +552,32 @@ def in_lot(x, y, margin=2.0):
     for b in list(BUILDINGS) + list(SHORE_BUILDINGS) + list(HILLSIDE_BUILDINGS):
         lx, ly = local_point(x, y, b[1], b[2], -b[9])
         if abs(lx) <= b[4] / 2 + margin and abs(ly) <= b[5] / 2 + margin:
+            return True
+    return False
+
+
+_LOT_GRID = {}
+_LOT_CELL = 32.0
+
+
+def _lot_grid():
+    """Town buildings bucketed by 32 m cell, so per-ground-cell lookups stay cheap."""
+    if not _LOT_GRID:
+        for spec in list(BUILDINGS) + list(SHORE_BUILDINGS):
+            r = math.hypot(spec[4], spec[5]) / 2 + 8.0
+            for i in range(int((spec[1] - r) // _LOT_CELL), int((spec[1] + r) // _LOT_CELL) + 1):
+                for j in range(int((spec[2] - r) // _LOT_CELL), int((spec[2] + r) // _LOT_CELL) + 1):
+                    _LOT_GRID.setdefault((i, j), []).append(spec)
+    return _LOT_GRID
+
+
+def town_floor(x, y, margin=5.0):
+    """True on the trodden ground around the town's lots, streets and market, where grass must not show."""
+    if on_street(x, y, margin) or on_market(x, y, margin):
+        return True
+    for spec in _lot_grid().get((int(x // _LOT_CELL), int(y // _LOT_CELL)), ()):
+        lx, ly = local_point(x, y, spec[1], spec[2], -spec[9])
+        if abs(lx) <= spec[4] / 2 + margin and abs(ly) <= spec[5] / 2 + margin:
             return True
     return False
 

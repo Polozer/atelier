@@ -18,41 +18,58 @@ def shutter_color(cx, cy, lx):
     return SHUTTER_COLORS[int(abs(cx * 3.1 + cy * 7.3 + lx * 11.7)) % len(SHUTTER_COLORS)]
 
 
-def window(b, cx, cy, yaw, lx, ly, z, w=1.3, h=1.6, shutters=True, warm=False, shutter=None):
+def window(b, cx, cy, yaw, lx, ly, z, w=1.3, h=1.6, shutters=True, warm=False, shutter=None, trim='cream',
+           lintel=False):
     x, y = local(cx, cy, yaw, lx, ly)
-    # Recessed dark glass, a chunky painted frame and a stone sill.
+    # Dark glass set back behind a deep architrave, so the opening reads as a reveal rather than a decal.
     b.box((x, y, z + h / 2), (w, 0.12, h), 'glass_warm' if warm else 'glass', yaw)
-    b.box((x, y, z + h / 2), (w + 0.24, 0.08, 0.15), 'cream', yaw)
-    b.box((x, y, z + h), (w + 0.24, 0.08, 0.15), 'cream', yaw)
-    b.box((x, y, z + h / 2), (0.12, 0.08, h), 'cream', yaw)
-    b.box((x, y, z + h / 2), (w + 0.24, 0.08, 0.11), 'cream', yaw)
-    b.box((x, y, z - 0.06), (w + 0.62, 0.30, 0.13), 'stone_light', yaw)
+    for side in (-1, 1):
+        jx, jy = local(cx, cy, yaw, lx + side * (w / 2 + 0.10), ly - 0.08)
+        b.box((jx, jy, z + h / 2 + 0.05), (0.22, 0.30, h + 0.22), trim, yaw)
+    hx, hy = local(cx, cy, yaw, lx, ly - 0.08)
+    b.box((hx, hy, z + h / 2), (w, 0.08, 0.10), trim, yaw)
+    b.box((hx, hy, z + h / 2), (0.09, 0.08, h), trim, yaw)
+    if lintel:
+        # A dressed stone lintel with a proud keystone over the better rooms.
+        b.box((hx, hy, z + h + 0.17), (w + 0.70, 0.32, 0.30), 'stone_light', yaw)
+        kx, ky = local(cx, cy, yaw, lx, ly - 0.12)
+        b.box((kx, ky, z + h + 0.20), (0.34, 0.38, 0.46), 'stone_light', yaw, top=1.25)
+    else:
+        b.box((hx, hy, z + h + 0.12), (w + 0.44, 0.30, 0.22), trim, yaw)
+    sx, sy = local(cx, cy, yaw, lx, ly - 0.10)
+    b.box((sx, sy, z - 0.06), (w + 0.66, 0.38, 0.14), 'stone_light', yaw)
+    b.box((sx, sy, z - 0.22), (w + 0.36, 0.22, 0.18), 'stone_light', yaw, top=1.2)
     if shutters:
         mat = shutter or shutter_color(cx, cy, lx)
         for side in (-1, 1):
-            sx, sy = local(cx, cy, yaw, lx + side * (w / 2 + 0.30), ly)
+            slx = lx + side * (w / 2 + 0.42)
+            sx, sy = local(cx, cy, yaw, slx, ly)
             b.box((sx, sy, z + h / 2), (0.36, 0.12, h + 0.16), mat, yaw)
+            a0, a1 = local(cx, cy, yaw, slx - 0.13, ly - 0.08), local(cx, cy, yaw, slx + 0.13, ly - 0.08)
             for i in range(4):
-                b.beam((sx - 0.13, sy - 0.08, z + 0.18 + i * (h - 0.10) / 4),
-                       (sx + 0.13, sy - 0.08, z + 0.18 + i * (h - 0.10) / 4), 0.05, 'wood_dark')
+                zz = z + 0.18 + i * (h - 0.10) / 4
+                b.beam((a0[0], a0[1], zz), (a1[0], a1[1], zz), 0.05, 'wood_dark')
 
 
-def side_window(b, cx, cy, yaw, lx, ly, z, w=1.15, h=1.45, shutters=True, warm=False):
-    """A window on a wall whose normal runs along local X."""
+def side_window(b, cx, cy, yaw, lx, ly, z, w=1.15, h=1.45, shutters=True, warm=False, trim='cream'):
+    """A window on a wall whose normal runs along local X (outward is the sign of lx)."""
+    o = 1.0 if lx >= 0 else -1.0
     x, y = local(cx, cy, yaw, lx, ly)
     b.box((x, y, z + h / 2), (0.12, w, h), 'glass_warm' if warm else 'glass', yaw)
-    b.box((x, y, z + h / 2), (0.08, w + 0.22, 0.14), 'cream', yaw)
-    b.box((x, y, z), (0.08, w + 0.22, 0.14), 'cream', yaw)
-    b.box((x, y, z + h), (0.08, w + 0.22, 0.14), 'cream', yaw)
-    b.box((x, y, z + h / 2), (0.08, 0.11, h), 'cream', yaw)
-    b.box((x, y, z + h / 2), (0.08, w + 0.22, 0.11), 'cream', yaw)
-    sx, sy = local(cx, cy, yaw, lx - 0.04, ly)
-    b.box((sx, sy, z - 0.06), (0.30, w + 0.62, 0.13), 'stone_light', yaw)
+    for side in (-1, 1):
+        jx, jy = local(cx, cy, yaw, lx + o * 0.07, ly + side * (w / 2 + 0.10))
+        b.box((jx, jy, z + h / 2 + 0.05), (0.26, 0.20, h + 0.20), trim, yaw)
+    fx, fy = local(cx, cy, yaw, lx + o * 0.07, ly)
+    b.box((fx, fy, z + h / 2), (0.08, w, 0.10), trim, yaw)
+    b.box((fx, fy, z + h / 2), (0.08, 0.09, h), trim, yaw)
+    b.box((fx, fy, z + h + 0.11), (0.28, w + 0.40, 0.20), trim, yaw)
+    sx, sy = local(cx, cy, yaw, lx + o * 0.10, ly)
+    b.box((sx, sy, z - 0.06), (0.34, w + 0.62, 0.13), 'stone_light', yaw)
     if shutters:
         mat = shutter_color(cx, cy, lx)
         for side in (-1, 1):
-            sy = ly + side * (w / 2 + 0.28)
-            sx, syy = local(cx, cy, yaw, lx + 0.02, sy)
+            sy = ly + side * (w / 2 + 0.38)
+            sx, syy = local(cx, cy, yaw, lx + o * 0.02, sy)
             b.box((sx, syy, z + h / 2), (0.12, 0.34, h + 0.16), mat, yaw)
             for i in range(4):
                 b.box((sx, syy, z + 0.18 + i * (h - 0.10) / 4), (0.13, 0.27, 0.045), 'wood_dark', yaw)
@@ -99,16 +116,37 @@ def arcade(b, cx, cy, yaw, width, z, depth=2.0, columns=4):
     b.box((rx, ry, z + 1.55), (width - 2.5, 0.14, 3.0), 'wood_dark', yaw)
 
 
-def door(b, cx, cy, yaw, lx, ly, z, w=1.6, h=2.6):
+def door(b, cx, cy, yaw, lx, ly, z, w=1.6, h=2.6, surround=False):
     x, y = local(cx, cy, yaw, lx, ly)
     leaf = ('wood_dark', 'shutter_blue', 'shutter_teal', 'shutter_red', 'wood')[int(abs(cx * 2.3 + cy * 5.1)) % 5]
     b.box((x, y, z + h / 2), (w, 0.16, h), leaf, yaw)
+    # Vertical boards and two iron straps on the leaf.
+    for k in (-1, 1):
+        px, py = local(cx, cy, yaw, lx + k * w / 6, ly - 0.09)
+        b.box((px, py, z + h / 2), (0.05, 0.03, h - 0.1), 'wood_dark', yaw)
+    for zz in (0.35, h - 0.45):
+        px, py = local(cx, cy, yaw, lx, ly - 0.10)
+        b.box((px, py, z + zz), (w - 0.1, 0.03, 0.09), 'metal', yaw)
     b.box((x, y, z - 0.06), (w + 0.55, 0.42, 0.14), 'stone_light', yaw)
-    b.box((x, y, z + h + 0.12), (w + 0.35, 0.24, 0.22), 'wood', yaw)
-    for side in (-1, 1):
-        sx, sy = local(cx, cy, yaw, lx + side * (w / 2 + 0.14), ly)
-        b.box((sx, sy, z + h / 2), (0.18, 0.20, h + 0.16), 'wood', yaw)
-    b.box((x, y + 0.02, z + h * 0.55), (0.09, 0.06, 0.09), 'gold', yaw)
+    if surround:
+        # Dressed stone jambs and a lintel with keystone frame the doors of the masonry houses.
+        for side in (-1, 1):
+            sx, sy = local(cx, cy, yaw, lx + side * (w / 2 + 0.22), ly - 0.06)
+            b.box((sx, sy, z + h / 2 + 0.1), (0.42, 0.34, h + 0.2), 'stone_light', yaw)
+            for k in range(3):
+                bx, by = local(cx, cy, yaw, lx + side * (w / 2 + 0.30), ly - 0.08)
+                b.box((bx, by, z + 0.45 + k * h * 0.34), (0.58, 0.36, 0.32), 'stone_light', yaw)
+        px, py = local(cx, cy, yaw, lx, ly - 0.06)
+        b.box((px, py, z + h + 0.28), (w + 1.1, 0.36, 0.40), 'stone_light', yaw)
+        kx, ky = local(cx, cy, yaw, lx, ly - 0.10)
+        b.box((kx, ky, z + h + 0.30), (0.40, 0.42, 0.56), 'stone_light', yaw, top=1.25)
+    else:
+        b.box((x, y, z + h + 0.12), (w + 0.35, 0.24, 0.22), 'wood', yaw)
+        for side in (-1, 1):
+            sx, sy = local(cx, cy, yaw, lx + side * (w / 2 + 0.14), ly)
+            b.box((sx, sy, z + h / 2), (0.18, 0.20, h + 0.16), 'wood', yaw)
+    hx, hy = local(cx, cy, yaw, lx + w * 0.3, ly - 0.10)
+    b.box((hx, hy, z + h * 0.5), (0.09, 0.06, 0.09), 'gold', yaw)
 
 
 def awning(b, cx, cy, yaw, width, z, depth=2.3, colors=('canvas', 'canvas_red'), poles=True):
@@ -344,6 +382,10 @@ def building(b, spec, rng):
         'shack': ['wood_light', 'wood', 'plaster'],
     }[style]
     wall = walls[sum(map(ord, key)) % len(walls)]
+    # Trim decisions draw from their own stream so the rest of the facade keeps its layout.
+    detail = random.Random(key)
+    trim = 'stone_light' if wall in ('cream', 'plaster') else 'cream'
+    lintels = style in ('house', 'shop', 'tavern') and detail.random() < 0.55
     if style == 'warehouse':
         b.box((x, y, z + h / 2), (w, d, h), wall, yaw)
         b.box((x, y, z + 1.0), (w + 0.5, d + 0.5, 2.0), 'stone', yaw)
@@ -413,7 +455,8 @@ def building(b, spec, rng):
             b.box((px, py, top_z + 1.1), (0.16, 1.1, 2.1), 'shutter_teal', yaw)
         # Front door, windows, awnings and gallery.
         door(b, x, y, yaw, rng.choice((-w * 0.28, 0.0, w * 0.28)), -d / 2 - 0.10, z + 0.02,
-             w=1.5 if style != 'shack' else 1.2, h=2.4 if style != 'shack' else 2.1)
+             w=1.5 if style != 'shack' else 1.2, h=2.4 if style != 'shack' else 2.1,
+             surround=style in ('house', 'shop') and detail.random() < 0.6)
         if style != 'shack' and rng.random() < 0.55:
             plx = rng.choice((-w * 0.36, w * 0.36))
             px, py = local(x, y, yaw, plx, -d / 2 - 0.75)
@@ -431,7 +474,8 @@ def building(b, spec, rng):
                     continue
                 fj = jet if f > 0 else 0.0
                 window(b, x, y, yaw, lx, -d / 2 - 0.05 - fj, zz, 1.1, 1.8 if f else 1.6,
-                       shutters=style != 'shack', warm=(rng.random() < 0.18))
+                       shutters=style != 'shack', warm=(rng.random() < 0.18), trim=trim,
+                       lintel=lintels and f > 0)
                 if f > 0 and rng.random() < 0.42:
                     flower_box(b, x, y, yaw, lx, -d / 2 - 0.42 - fj, zz - 0.18)
                 elif f == 0 and style in ('shop', 'tavern') and rng.random() < 0.30:
@@ -443,10 +487,10 @@ def building(b, spec, rng):
                            pair[int(abs(lx)) % len(pair)], poles=False)
             for side in (-1, 1):
                 side_window(b, x, y, yaw, side * (w / 2 + 0.04), -d * 0.24, zz,
-                            1.05, 1.35, shutters=style != 'shack', warm=(rng.random() < 0.14))
+                            1.05, 1.35, shutters=style != 'shack', warm=(rng.random() < 0.14), trim=trim)
                 if d > 19.0:
                     side_window(b, x, y, yaw, side * (w / 2 + 0.04), d * 0.22, zz,
-                                1.05, 1.35, shutters=style != 'shack', warm=(rng.random() < 0.14))
+                                1.05, 1.35, shutters=style != 'shack', warm=(rng.random() < 0.14), trim=trim)
             if f == 1 and style in ('tavern', 'shop', 'house') and (style == 'tavern' or rng.random() < 0.70):
                 by = z + min(h - 1.2, max(5.0, h * 0.52))
                 balcony(b, face_x, face_y, yaw, w * 0.78, by)
@@ -466,8 +510,12 @@ def building(b, spec, rng):
             for side in (-1, 1):
                 for k in range(int((h - 1.4) / 0.85)):
                     long = k % 2 == 0
+                    qz = z + 1.75 + k * 0.85
                     qx, qy = local(x, y, yaw, side * (w / 2 - (0.3 if long else 0.2)), -d / 2 - 0.04)
-                    b.box((qx, qy, z + 1.75 + k * 0.85), (0.7 if long else 0.45, 0.14, 0.62), 'stone_light', yaw)
+                    b.box((qx, qy, qz), (0.7 if long else 0.45, 0.14, 0.62), 'stone_light', yaw)
+                    # The returning face round the street corner, alternating long and short with the front.
+                    qx, qy = local(x, y, yaw, side * (w / 2 + 0.04), -d / 2 + (0.2 if long else 0.3))
+                    b.box((qx, qy, qz), (0.14, 0.45 if long else 0.7, 0.62), 'stone_light', yaw)
         if rng.random() < 0.42:
             lx = rng.choice((-1, 1)) * rng.uniform(w * 0.18, w * 0.42)
             bougainvillea(b, x, y, yaw, lx, -d / 2 - 0.2, z + 1.2, z + h - 0.3, rng)
@@ -517,9 +565,12 @@ def building(b, spec, rng):
         span = (w if ridge == 'y' else d) / 2
         b.gable_roof((x, y, z + h + 0.2), w, d, z + h + 0.2, min(6.5, max(2.6, span * 0.58)), roof, yaw,
                      ridge=ridge, overhang=1.2)
+        rafter_tails(b, x, y, yaw, w, d, z + h, 'x' if ridge == 'x' else 'y')
     else:
         b.hip_roof((x, y, z + h + 0.2), w, d, z + h + 0.2, min(6.0, max(2.6, min(w, d) * 0.29)), roof, yaw,
                    overhang=1.2)
+        rafter_tails(b, x, y, yaw, w, d, z + h, 'x')
+        rafter_tails(b, x, y, yaw, w, d, z + h, 'y')
     if not flat_roof and style != 'warehouse' and h > 9.5 and rng.random() < 0.72:
         dormer(b, x, y, yaw, rng.choice((-w * 0.22, 0.0, w * 0.22)), -d * 0.10,
                z + h + 0.35, roof)
@@ -529,6 +580,9 @@ def building(b, spec, rng):
         px, py = local(x, y, yaw, side * w * 0.25, d * 0.10)
         b.box((px, py, z + h + 2.1), (0.9, 0.9, 2.8), 'stone', yaw)
         b.box((px, py, z + h + 3.55), (1.2, 1.2, 0.25), 'stone_dark', yaw)
+        for off in ((0.0,), (-0.21, 0.21), (-0.21, 0.21))[detail.randrange(3)]:
+            ox, oy = local(px, py, yaw, off, 0.0)
+            b.cylinder((ox, oy, z + h + 3.66), (ox, oy, z + h + 4.25), 0.17, 'clay', 6, radius_b=0.13)
     if style in ('tavern', 'shop') and rng.random() < 0.9:
         sign(b, face_x, face_y, yaw, z + 2.8, side=rng.choice((-1, 1)),
              icon=rng.choice(('fish', 'mug', 'wheel', 'fish')))
@@ -543,6 +597,21 @@ def building(b, spec, rng):
             lx = rng.uniform(-w * 0.42, w * 0.42)
             px, py = local(x, y, yaw, lx, -d / 2 - rng.uniform(0.8, 1.8))
             barrel(b, px, py, z, rng.uniform(0.75, 1.0))
+
+
+def rafter_tails(b, x, y, yaw, w, d, top, eaves):
+    """Exposed rafter ends under a deep eave: 'x' runs them along the front and back walls, 'y' along the sides."""
+    length = w if eaves == 'x' else d
+    half = (d if eaves == 'x' else w) / 2
+    n = max(3, int(length / 1.3))
+    for face in (-1, 1):
+        for k in range(n + 1):
+            t = -length / 2 + 0.25 + (length - 0.5) * k / n
+            if eaves == 'x':
+                a, c = local(x, y, yaw, t, face * (half - 0.1)), local(x, y, yaw, t, face * (half + 1.05))
+            else:
+                a, c = local(x, y, yaw, face * (half - 0.1), t), local(x, y, yaw, face * (half + 1.05), t)
+            b.beam((a[0], a[1], top - 0.02), (c[0], c[1], top + 0.16), 0.12, 'wood_dark', 0.18)
 
 
 def bougainvillea(b, x, y, yaw, lx, ly, z0, z1, rng):
