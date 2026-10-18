@@ -14,7 +14,7 @@ EXPECTED = dict(target=[100., -200., 300.], yaw=-4., above_cm=150.)
 def receipt(mode=2):
     return [dict(zone='indoor', target=EXPECTED['target'].copy(), landed=[100., -200., 318.],
                  target_yaw=-4., yaw=-4., above_cm=150., on_ground=True, walkable=True,
-                 capsule_clear=True, authority=mode == 2, net_mode=mode, speed=0.)]
+                 capsule_clear=True, crouched=False, authority=mode == 2, net_mode=mode, speed=0.)]
 
 
 @pytest.mark.parametrize('mode', [2, 3])
@@ -24,7 +24,7 @@ def test_independent_native_host_and_guest_roles(mode):
 
 @pytest.mark.parametrize('change', [
     {'zone': 'outdoor'}, {'net_mode': 0}, {'authority': False}, {'walkable': False},
-    {'on_ground': False}, {'capsule_clear': False}, {'landed': [100., -200., 1500.]},
+    {'on_ground': False}, {'crouched': True}, {'crouched': None}, {'capsule_clear': False}, {'landed': [100., -200., 1500.]},
     {'landed': [200., -200., 318.]}, {'yaw': 4.}, {'yaw': float('nan')},
     {'speed': 50.}, {'speed': float('inf')}, {'above_cm': 2500.},
     {'target': [100., -200., 1500.], 'landed': [100., -200., 1500.]},
@@ -81,3 +81,41 @@ def test_current_data_rejects_a_stale_producer_and_incomplete_install_before_rea
 def test_host_must_have_measurably_vacated_before_guest_starts(end, valid):
     from review_map_network import host_vacated
     assert host_vacated(end, 'indoor', EXPECTED) is valid
+
+
+@pytest.mark.parametrize('failure', [None, 'guest_nonzero', 'host_exit', 'invalid_guest', 'lost_guard', 'deadline'])
+def test_guest_clean_exit_can_precede_host_disconnect_receipt(monkeypatch, failure):
+    from types import SimpleNamespace
+    import review_map_network as review
+    clock = [0.]
+    host_receipt = [False]
+    polls = [0]
+    rows = receipt(3)
+    if failure == 'invalid_guest':
+        rows[0]['walkable'] = False
+    host = SimpleNamespace(poll=lambda: 0 if failure == 'host_exit' else None)
+    guest = SimpleNamespace(poll=lambda: 1 if failure == 'guest_nonzero' else 0)
+    host_guard = SimpleNamespace(poll=lambda: 0 if failure == 'lost_guard' else None)
+    guest_guard = SimpleNamespace(poll=lambda: 0)
+    monkeypatch.setattr(review.time, 'monotonic', lambda: clock[0])
+    def tick(seconds):
+        polls[0] += 1
+        clock[0] += 100. if failure == 'deadline' else seconds
+        if polls[0] == 2 and failure != 'deadline':
+            host_receipt[0] = True
+    monkeypatch.setattr(review.time, 'sleep', tick)
+    def run():
+        review.wait_for_native('guest disconnect', lambda: host_receipt[0],
+                               [('host', host, host_guard), ('guest', guest, guest_guard)], 0.,
+                               expected_exit=lambda role: role == 'guest' and all(
+                                   review.landing_checks(rows, 'indoor', 3, EXPECTED).values()))
+    if failure:
+        with pytest.raises(RuntimeError, match={
+            'guest_nonzero': 'guest exited 1', 'host_exit': 'Game exited before.*host',
+            'invalid_guest': 'Game exited before.*guest', 'lost_guard': 'guard lost: host',
+            'deadline': 'deadline expired'}[failure]):
+            run()
+    else:
+        run()
+        assert polls[0] == 2  # Guest was already exited during both pre-receipt polls.
+        assert host_receipt[0]

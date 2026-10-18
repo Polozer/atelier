@@ -1674,9 +1674,12 @@ void AWandererCharacter::AdvanceMapReview(float Dt)
             FHitResult Floor;
             const bool Walkable = GetWorld()->LineTraceSingleByChannel(Floor, P + FVector(0,0,5),
                 P - FVector(0,0,50), ECC_Visibility, Query) && GetCharacterMovement()->IsWalkable(Floor);
-            const bool Clear = !GetWorld()->OverlapBlockingTestByChannel(GetActorLocation(), FQuat::Identity,
-                Capsule->GetCollisionObjectType(), FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius(),
-                Capsule->GetScaledCapsuleHalfHeight()), Query, FCollisionResponseParams(Capsule->GetCollisionResponseToChannels()));
+            const UCapsuleComponent* Standing = GetClass()->GetDefaultObject<AWandererCharacter>()->GetCapsuleComponent();
+            const float StandingHalf = Standing->GetUnscaledCapsuleHalfHeight() * Capsule->GetShapeScale();
+            const float StandingRadius = Standing->GetUnscaledCapsuleRadius() * Capsule->GetShapeScale();
+            const bool Clear = !bIsCrouched && !GetWorld()->OverlapBlockingTestByChannel(P + FVector(0,0,StandingHalf), FQuat::Identity,
+                Capsule->GetCollisionObjectType(), FCollisionShape::MakeCapsule(StandingRadius, StandingHalf),
+                Query, FCollisionResponseParams(Capsule->GetCollisionResponseToChannels()));
             auto Row = MakeShared<FJsonObject>();
             auto Vector = [](const FVector& V)
             { return TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueNumber>(V.X), MakeShared<FJsonValueNumber>(V.Y), MakeShared<FJsonValueNumber>(V.Z)}; };
@@ -1687,6 +1690,7 @@ void AWandererCharacter::AdvanceMapReview(float Dt)
             Row->SetNumberField(TEXT("drift_cm"), FVector::Dist2D(P,Z.Location)); Row->SetNumberField(TEXT("drop_cm"), Z.Location.Z-P.Z);
             Row->SetBoolField(TEXT("on_ground"), GetCharacterMovement()->IsMovingOnGround());
             Row->SetBoolField(TEXT("walkable"), Walkable); Row->SetBoolField(TEXT("capsule_clear"), Clear);
+            Row->SetBoolField(TEXT("crouched"), bIsCrouched);
             Row->SetBoolField(TEXT("authority"), HasAuthority()); Row->SetNumberField(TEXT("net_mode"), int32(GetNetMode()));
             Row->SetNumberField(TEXT("speed"), GetVelocity().Size());
             FString JSON; FJsonSerializer::Serialize(Row, TJsonWriterFactory<>::Create(&JSON));

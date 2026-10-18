@@ -45,7 +45,7 @@ def landing_checks(rows, zone, mode, expected):
                 staged_target=vectors and math.dist(target, expected['target']) < 1,
                 staged_yaw=angles and abs((row['target_yaw']-expected['yaw']+180) % 360-180) < .01,
                 network_role=row.get('net_mode') == mode and row.get('authority') is (mode == 2),
-                floor=all(row.get(k) is True for k in ['on_ground', 'walkable', 'capsule_clear']),
+                floor=all(row.get(k) is True for k in ['on_ground', 'walkable', 'capsule_clear']) and row.get('crouched') is False,
                 settled=finite(row.get('speed')) and 0 <= row['speed'] < 5,
                 position=vectors and math.dist(target[:2], landed[:2]) < 5 and abs(target[2]-landed[2]) < 30,
                 facing=angles and abs((row['yaw']-row['target_yaw']+180) % 360-180) < 1,
@@ -97,6 +97,29 @@ def read(path):
         return None
 
 
+def wait_for_native(label, condition, active, started, expected_exit=None):
+    """A proven clean guest exit may precede the host's asynchronous disconnect receipt."""
+    spoken = 0.
+    while time.monotonic() - started < 235:
+        states = [(role, game.poll(), monitor.poll()) for role, game, monitor in active]
+        for role, status, guard_status in states:
+            if guard_status is not None and status is None:
+                raise RuntimeError('Actual-child guard lost: '+role)
+            if status not in (None, 0):
+                raise RuntimeError(f'{role} exited {status}')
+        if condition():
+            print(label+': complete', flush=True)
+            return
+        for role, status, _ in states:
+            if status is not None and not (expected_exit and expected_exit(role)):
+                raise RuntimeError('Game exited before '+label+': '+role)
+        if time.monotonic() - spoken > 15:
+            spoken = time.monotonic()
+            print(f'{label}: awaiting native progress, {spoken-started:.1f}s elapsed', flush=True)
+        time.sleep(.2)
+    raise RuntimeError('Native map travel deadline expired')
+
+
 def worker(out, zone, port):
     """@cc [owner:fontanierh,label:correctness] native-map-travel-acceptance
     Both native local players MUST use the ordinary map resolver and guest RPC.
@@ -111,7 +134,7 @@ def worker(out, zone, port):
     binary = current_native_build(ctx)
     data = current_data(ctx, zone)
     expected = data['expected']
-    started, spoken = time.monotonic(), 0.
+    started = time.monotonic()
     games = []
     with ExitStack() as stack:
         def launch(role, destination):
@@ -135,37 +158,20 @@ def worker(out, zone, port):
                 raise RuntimeError('Actual-child guard unavailable: '+role)
             return game, monitor
 
-        def wait(label, condition, active):
-            nonlocal spoken
-            while time.monotonic() - started < 235:
-                for role, game, monitor in active:
-                    if monitor.poll() is not None and game.poll() is None:
-                        raise RuntimeError('Actual-child guard lost: '+role)
-                    if game.poll() not in (None, 0):
-                        raise RuntimeError(f'{role} exited {game.returncode}')
-                if condition():
-                    print(label+': complete', flush=True)
-                    return
-                if any(game.poll() is not None for _, game, _ in active):
-                    raise RuntimeError('Game exited before '+label)
-                if time.monotonic() - spoken > 15:
-                    spoken = time.monotonic()
-                    print(f'{label}: awaiting native progress, {spoken-started:.1f}s elapsed', flush=True)
-                time.sleep(.2)
-            raise RuntimeError('Native map travel deadline expired')
-
         host, host_guard = launch('host', '/Game/Japan/Maps/Slice?game=/Script/Yorimichi.JapanNetworkGameMode?capacity=2?listen')
         active = [('host', host, host_guard)]
-        wait('host tour and vacated destination', lambda: read(out / 'host/map_qa.json') is not None and
-             read(out / 'session/server-world.json') is not None, active)
+        wait_for_native('host tour and vacated destination', lambda: read(out / 'host/map_qa.json') is not None and
+             read(out / 'session/server-world.json') is not None, active, started)
         checks = {'host_'+k: v for k, v in landing_checks(read(out / 'host/map_qa.json'), zone, 2, expected).items()}
         checks['host_vacated_destination'] = host_vacated(read(out / 'host/map_qa_end.json'), zone, expected)
         if not all(checks.values()):
             raise RuntimeError('Host landing rejected: '+str(checks))
         guest, guest_guard = launch('guest', f'127.0.0.1:{port}')
         active.append(('guest', guest, guest_guard))
-        wait('guest tour and native disconnect', lambda: read(out / 'guest/map_qa.json') is not None and
-             read(out / 'session/server-complete.json') is not None, active)
+        wait_for_native('guest tour and native disconnect', lambda: read(out / 'guest/map_qa.json') is not None and
+             read(out / 'session/server-complete.json') is not None, active, started,
+             expected_exit=lambda role: role == 'guest' and all(landing_checks(
+                 read(out / 'guest/map_qa.json'), zone, 3, expected).values()))
         for role, game in games:
             if game.wait(timeout=10) != 0:
                 raise RuntimeError('Nonzero native exit: '+role)
