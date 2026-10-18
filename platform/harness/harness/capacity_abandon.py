@@ -161,7 +161,12 @@ def recover(record, evidence, *, principal, boot, epoch, scan=None, missing=None
     controller/guards/retained identities and fresh
     complete same-user censuses. Unknown or live workload identities MUST refuse. A recent
     orphan MUST refuse unless it is an exact independently reviewed live launchd service or
-    the specialized OS indexer. Normal close/reconcile MUST NOT use this policy. The witness
+    specialized OS worker. Only completed-job recovery MAY additionally exclude the exact
+    iCloudHelper XPC executable with PPID 1, root ownership, no group/other write permission,
+    SIP protection and verified Apple signature, recording that exclusion. Its census MAY
+    record unavailable executable paths only with stable kernel birth/PID/parent/UID observations
+    strictly predating the root. All newer identity/query failures MUST refuse.
+    Normal close/reconcile MUST NOT use this policy. The witness
     MUST retain the original evidence hashes and operation binding, and MUST NOT certify outputs.
     """
     scan = scan or ((lambda: census(before_root=record['child'][1])) if completed else census)

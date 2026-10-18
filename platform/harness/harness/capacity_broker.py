@@ -36,9 +36,12 @@ class CapacityBroker:
     Queued offers MUST charge no resources. Final complete-vector and lock accounting MUST commit
     before this broker's sole gate writer releases a child, in one serialized actor turn. Restart,
     lost health and missing exit evidence MUST retain grants. No process MAY be signalled here.
-    Explicit operator-directed administrative abandonment of an interrupted exclusive compile MAY
-    separately use current kernel quiescence under the administrative policy; it MUST NOT certify
-    outputs or run through ordinary close/reconcile. Exact exit evidence covers the retained roster only. Bridge and performance-exclusive grants
+    Explicit operator-directed administrative abandonment MAY separately use current kernel
+    quiescence for an interrupted exclusive compile, or a completed nonexclusive job with its
+    original bound normal empty terminal, exact monitor/report fences and strictly absent
+    controller/guards/retained identities. Both MUST require no other charge and two complete
+    same-user censuses under the administrative policy. Neither MAY certify outputs or run
+    through ordinary close/reconcile. Exact exit evidence covers the retained roster only. Bridge and performance-exclusive grants
     MAY instead use a positively exited root plus its bound aggregate guard's terminal empty-tree
     cleanup receipt; that witnesses the monitored owned tree, not every descendant's kernel exit.
     The adapter MUST retain exclusive legacy exclusion in bridge
