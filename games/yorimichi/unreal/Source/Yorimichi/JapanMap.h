@@ -43,6 +43,8 @@ struct FJapanMapZone
     FString Key, Name, Hint;
     FVector Location = FVector::ZeroVector;
     float Yaw = 0.f;
+    /** Landing trace height above Location (cm); indoor stops start below their roof. */
+    float Above = 2500.f;
 };
 
 /** The world map (Content/Data/map: the painted sheet plus map.json with its bounds and the teleport zones).

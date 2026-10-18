@@ -96,7 +96,7 @@ class FurnitureLods(unittest.TestCase):
     def test_reports_carry_the_screen_sizes(self):
         for a in self.fitted:
             with self.subTest(asset=a):
-                lods = json.loads((FURN / f'{a}.json').read_text())['lods']
+                lods = json.loads((LOD / 'summary.json').read_text())[a]
                 sizes = [r['screen_size'] for r in lods['levels']] + [lods['cull_screen_size']]
                 self.assertEqual(sizes, sorted(sizes, reverse=True))
                 self.assertEqual(sizes[0], 1.0)

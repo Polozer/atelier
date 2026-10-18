@@ -6,8 +6,8 @@ Reads build/yorimichi/belmonte-train/service/service.json (tools/belmonte_train_
   in the service's `render`), and its simple collision: the fixed (UCX) boxes from the placements, set through
   UBelmonteTrainImportLibrary.SetSimpleBoxes and used as complex collision. The switchable boxes (doors, gangway
   locks) stay named data in service.json, not merged into the mesh.
-- each furniture asset as SM_BTF_<Asset>, from the LOD worker's levels (furniture/lod/) when recorded, else the
-  fitted Tripo GLB: re-running this step swaps in whatever levels exist.
+- each furniture asset as SM_BTF_<Asset>, from its required, verified LOD chain in furniture/lod/.
+  The complete bake and service mesh references are checked before any Unreal mutation.
 
 Then copies service.json to Content/Data/belmonte_train/ and writes import-report.json beside it in the build.
 """
@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'world'))
 import yori
+from train import bake_manifest as BM
 import hashlib
 import json
 import shutil
@@ -121,6 +122,7 @@ def sha(path):
 
 def main():
     data = json.loads(SERVICE.read_text())
+    BM.preflight_service(TRAIN, data)
     unreal.SystemLibrary.execute_console_command(None, 'Editor.AsyncStaticMeshCompilation 0')
     unreal.load_module('StaticMeshEditor')
     meshes = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
@@ -133,8 +135,6 @@ def main():
     for vehicle in data['consist']['vehicles']:
         name = vehicle['name']
         levels = [(TRAIN / p).resolve() for p in vehicle['levels']]
-        levels = [p for p in levels if p.exists()]
-        assert levels and levels[0].exists(), (name, 'no LOD0')
         mesh = with_lods(name, levels, sizes, meshes)
         count = unreal.BelmonteTrainImportLibrary.set_simple_boxes(mesh, [box(b) for b in vehicle['collision']])
         assert count == len(vehicle['collision']), (name, count, len(vehicle['collision']))

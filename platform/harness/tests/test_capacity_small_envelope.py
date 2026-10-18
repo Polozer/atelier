@@ -89,9 +89,32 @@ def test_selection_never_raises_a_lower_nominal_limit(configured):
 
 def test_guard_stop_peak_removes_small_eligibility_for_next_invocation(configured, tmp_path):
     from atelier.build import expected_peak_gib
+    (tmp_path / 'step-peak.json').write_text(json.dumps(dict(peak_bytes=2 * GiB)))
     (tmp_path / 'memory-health.json').write_text(json.dumps(dict(state='memory_limit', peak_bytes=4.1 * GiB)))
     session = configured[0](small_gib=expected_peak_gib(tmp_path))
     assert session.guard_limit_gib == 10 and session.request['resources']['memory_mib'] == 10240
+
+
+@pytest.mark.parametrize('state', ['running', 'child_exited', 'memory_limit'])
+def test_uncompleted_guard_peak_cannot_shrink_first_execution(configured, tmp_path, state):
+    from atelier.build import expected_peak_gib
+    # A pre-GO gate can exit cleanly with a tiny footprint, without ever running the payload.
+    (tmp_path / 'memory-health.json').write_text(json.dumps(dict(state=state, peak_bytes=6 * 1024**2)))
+    (tmp_path / 'execution-timings.json').write_text(json.dumps(dict(admission_seconds=None, execution_seconds=None)))
+    peak = expected_peak_gib(tmp_path)
+    assert peak is None
+    session = configured[0](small_gib=peak)
+    assert session.guard_limit_gib == 10 and session.request['resources']['memory_mib'] == 10240
+
+
+def test_refused_gate_does_not_replace_completed_step_peak(configured, tmp_path):
+    from atelier.build import expected_peak_gib
+    (tmp_path / 'step-peak.json').write_text(json.dumps(dict(peak_bytes=2 * GiB)))
+    (tmp_path / 'memory-health.json').write_text(json.dumps(dict(state='running', peak_bytes=6 * 1024**2)))
+    peak = expected_peak_gib(tmp_path)
+    assert peak == 2
+    session = configured[0](small_gib=peak)
+    assert session.guard_limit_gib == 4 and session.request['resources']['memory_mib'] == 4096
 
 
 @pytest.fixture
