@@ -83,6 +83,9 @@ class Client:
             raise
 
     def close(self):
+        # The close handshake also spends this client's deadline, at most one second, never past it.
+        if hasattr(self, 'socket'):
+            self.socket.close_timeout = max(0., min(1., self.deadline-time.monotonic()))
         self.connection.close()
 
     def __exit__(self, *_):

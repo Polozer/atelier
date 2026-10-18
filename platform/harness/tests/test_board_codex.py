@@ -261,3 +261,14 @@ def test_delivery_keeps_its_reserved_budget_after_discovery(daemons, monkeypatch
     assert time.monotonic()-started < 3.5
     board_codex.connect('x', sock=fakes.sockets['opencodex']).close()
     assert board_codex.DELIVERY_BUDGET*(1-board_codex.DISCOVERY_SHARE) >= 15 and board_codex.DELIVERY_BUDGET < 30
+
+
+def test_connection_cleanup_never_outlives_the_client_deadline(daemons):
+    fakes = daemons({'stuck': 'hang'})
+    spent = board_codex.Client(sock=fakes.sockets['stuck'], budget=.2)
+    time.sleep(.25)
+    spent.close()
+    assert spent.socket.close_timeout == 0.
+    fresh = board_codex.Client(sock=fakes.sockets['stuck'], budget=20)
+    fresh.close()
+    assert 0. < fresh.socket.close_timeout <= 1.
