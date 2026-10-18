@@ -7,7 +7,11 @@ No audited fork PR is accepted for direct merge as written.
 The audit on 2026-10-18 compared upstream main
 `cba74a0bfbec8310f01f7def2b59faebb8952df9` with the five open fork heads below.
 The fork's `upstream-main` was `b8a05e43827f0535c55fd031447dfad8b51722f2`.
-Recheck these boundaries before integrating later fork changes.
+The follow-up inventory compared current main
+`d132d4df1ac220a2631836b8262d45f27816375f` on the same date. The original five fork
+heads remain unchanged; fork PRs #7 and #8 below are additional deliveries.
+The original audit's checks and author-reported results are historical evidence,
+not acceptance against the newer main. Recheck these boundaries before integration.
 
 ## Delivered source missing from upstream
 
@@ -24,10 +28,24 @@ rules plugin twice. All five fork contract-review runs failed to start/read serv
 information; those failures provide no semantic approval. Native claims above have
 not been independently reproduced by this audit.
 
+## Additional fork deliveries since the original audit
+
+| Fork PR and frozen head | Delivered source scope | Required integration and acceptance |
+| --- | --- | --- |
+| [#7](https://github.com/Polozer/atelier/pull/7), `6ec2817759a6b021c32a4575947cbc0ebf6435ed` | Relocated Belmonte terminus, station buildings/platforms, overbridge, station earthworks and Salon walking path | Source audit pending. Split placement/route, terrain, station meshes/LODs/collision and access paths into reviewable units. Preserve upstream shoreline ownership and the Hidamari endpoint. Independently validate route reproducibility, final terrain support, road/rail/capsule clearances, vegetation exclusion, budgets, atlas references, host/guest and packaged consumption. Author-reported screenshots/tests do not establish upstream readiness. |
+| [#8](https://github.com/Polozer/atelier/pull/8), `3908ce16958d079ea9cbda6668ea4d3748cc3ffa` | Shared racing TV capture/materials, camera direction, idle/live overlays and osteria/Salon screens | Stacked on #5; not an independent rules/runtime delivery. Source audit pending. Derive screens from authored building transforms, validate asset/cook dependencies, deterministic host/guest direction and clock behavior, joins/venue changes, visibility gating and measured capture cost. No TV slice lands before the race state it consumes is accepted. |
+
+These two PRs were absent from the initial five-head audit. They extend the todo
+list; they do not make the existing rules, saves or network service accepted.
+
 ## Atomic upstream changes
 
-These PRs are drafts, outside r8. None has merged. Native work is deferred until
-verified r8 publication; no capacity is reserved while waiting. A Python CI pass
+The nine implementation PRs below remain drafts and none has merged at this
+inventory boundary. Release r8 is published at source
+`4ff62dabbc1a20350a3a849e58f00196db8a3dff`, tag
+[`yorimichi-macos-2026-10-18-r8`](https://github.com/fontanierh/atelier/releases/tag/yorimichi-macos-2026-10-18-r8).
+The publication-dependent native deferral has ended. Every slice must now rebase
+onto actual main, complete its acceptance and land independently. A Python CI pass
 does not certify C++ compilation, UHT, native behavior or multiplayer behavior.
 
 | Upstream PR | Fork scope | Remaining acceptance |
@@ -41,6 +59,35 @@ does not certify C++ compilation, UHT, native behavior or multiplayer behavior.
 | [#415](https://github.com/fontanierh/atelier/pull/415) | #3: clock/calendar | Stacked on #414. Compile/run native schedule boundaries and reference cases. Catch-up/world advancement is separate. |
 | [#416](https://github.com/fontanierh/atelier/pull/416) | #3: horse value structures | Stacked on #414. Verify UHT, exported structures and native arithmetic tests. Structures are not admitted saves or requests. |
 | [#417](https://github.com/fontanierh/atelier/pull/417) | #3: breed dominance/inheritance | Stacked on #416. Compile/run complete dominance table, reference draws and malformed-parent rejection tests. Migration and scaling are separate. |
+
+### Pre-refresh head inventory
+
+These are the heads before the current-main rebase pass. Their successful hosted
+checks apply only to these old revisions. No code PR below yet has final paid
+review or complete native acceptance; earlier peer source reviews must be
+reconfirmed after substantive changes.
+
+| PR | Pre-refresh head | Hosted Studio check | Dependency |
+| --- | --- | --- | --- |
+| #409 | `82cd22bf39cb770252f5f76aeada0129f9ba85d0` | Passed | Independent building-relative indoor landing |
+| #410 | `3963f11fe0e4fd2e0dc3701aa0820e93e5eb3d93` | Failed: atlas provenance | Independent route/timetable change; genuine reference refresh required |
+| #411 | `77975053aacc88bed13fbe7c35cde900da2a562a` | Passed | Independent vehicle request gates; not boarding recovery |
+| #412 | `5698c28c06f89a6183896cd0122bc30e14cc8a74` | Passed | Independent local camera; not boarding recovery |
+| #413 | `1682246159e7dd61df8662cf495559f439cac4d2` | Passed | Independent course data; no race runtime enabled |
+| #414 | `670093d129ed2fbbae125eca361c9c9da53b4e7c` | Passed | Random foundation |
+| #415 | `3ade21c823f55759f1ddceb38ec5dbcbee1a7f72` | Passed | #414 |
+| #416 | `c774144e7e90bc0ef8048033a41ac4e8a371a6d9` | Passed | #414 |
+| #417 | `8639725c549fdc13256dccc7e3385b188e4e1714` | Passed | #416 |
+
+The docs-only tracker is PR #418. It records acceptance, not completion of any
+fork scope. The first landing sequence is the refreshed tracker, random foundation
+#414, then its clock/value/inheritance dependents #415/#416/#417, each restacked
+and validated after its parent lands. In parallel with hosted checks, prepare
+#409 and #411/#412 for bounded native host/guest validation. Refresh #410's real
+atlas witnesses without weakening provenance. Keep #413's data acceptance
+separate from the future persistent/networked racing service. The station/terrain
+work in fork #7 requires explicit coordination with the terrain owner and must
+not absorb their ongoing PR #425.
 
 Every code PR still needs final exact-head hosted CI, paid contract review,
 independent peer approval and the relevant native acceptance before merging.
@@ -122,9 +169,10 @@ The Salon stop/indoor trace support, original railway and station arrival,
 production train furniture/LODs and Zeppelin clearance were already integrated at
 the compared upstream boundary.
 
-Race TVs, betting-counter/wallet UI, stable buildings/management UI, records hall
-and persistent guest ownership are future work described by the fork, not completed
-deliveries in these five heads. Do not include them in the delivered-source total.
+Race TVs are now delivered as source in additional fork #8, not in the original
+five heads. Betting-counter/wallet UI, stable buildings/management UI, records hall
+and persistent guest ownership remain future work described by the fork. Do not
+count those unimplemented features as delivered source.
 
 ## Fork completion notices
 
@@ -141,3 +189,5 @@ boarding admission and safe recovery remain outstanding.
 | #6 | Pending #411/#412 and admission/recovery | Pending |
 | #3 | Pending foundation and remaining rules | Pending |
 | #5 | Pending #3, course data and live-race integration | Pending |
+| #7 | Pending independent station/route/terrain/access integration | Pending |
+| #8 | Pending #3/#5 and TV presentation integration | Pending |
