@@ -3,8 +3,12 @@
 The RGB painting is never changed: its coastline still comes from the signed
 terrain mask and atlas.verify_coast still checks it. The alpha channel only
 controls where the UI reveals that painting, so the World view becomes the
-island silhouette instead of a rectangular ocean tile. The original paid-call
-receipt is nested unchanged in the new provenance record.
+island silhouette instead of a rectangular ocean tile.
+
+The source receipt must already bind its painting to the authoritative signed
+World mask, or carry an explicit terrain-reference-revalidation witness. The
+original paid-call receipt is nested unchanged; this tool never mints a new
+geography claim for an unverified painting.
 """
 import argparse
 import hashlib
@@ -25,11 +29,56 @@ def island_alpha(mask, dilation, feather, threshold):
     return np.where(alpha < threshold, 0, alpha).astype('uint8')
 
 
+def validate_source(original, source_sha, mask_path, witness_path=None, assets=None):
+    """Return the validated revalidation witness, or None when the receipt has current geography."""
+    assets = Path(assets) if assets is not None else atlas.ASSETS
+    if original.get('output_sha256') != source_sha:
+        raise ValueError('Source painting bytes differ from their receipt')
+    if original.get('labels_baked', True):
+        raise ValueError('Source painting contains baked labels')
+    if original.get('bounds') != atlas.WORLD_BOUNDS:
+        raise ValueError('Source painting is not the production World frame')
+    mask_path = Path(mask_path).resolve()
+    canonical = (Path(assets) / 'coasts' / 'world.png').resolve()
+    if mask_path != canonical:
+        raise ValueError('Use the authoritative signed World coast mask')
+    mask_sha = hashlib.sha256(mask_path.read_bytes()).hexdigest()
+    manifest_path = Path(assets) / 'coasts' / 'source.json'
+    manifest = json.loads(manifest_path.read_text())
+    current = atlas.geography_signature()
+    if manifest.get('geography') != current:
+        raise ValueError('Authoritative World coast reference is stale')
+    frame = (manifest.get('frames') or {}).get('world') or {}
+    if frame.get('bounds') != atlas.WORLD_BOUNDS or frame.get('sha256') != mask_sha:
+        raise ValueError('Coast mask is not the signed World reference')
+    reference_sha = frame.get('reference_sha256')
+    if not reference_sha:
+        raise ValueError('Signed World coast reference has no reference witness')
+    inputs = original.get('inputs') or []
+    roles = {item.get('role'): item.get('sha256') for item in inputs if isinstance(item, dict)}
+    if roles.get('exact coast mask') != mask_sha:
+        raise ValueError('Generation receipt did not use this signed World coast mask')
+    if 'exact geography' not in roles:
+        raise ValueError('Generation receipt did not record its exact geography reference')
+    witness = None
+    if original.get('geography') != current:
+        if witness_path is None:
+            raise ValueError('Source receipt has no current geography and no revalidation witness')
+        witness = json.loads(Path(witness_path).read_text())
+        expected = dict(kind='terrain-reference-revalidation', geography=current,
+                        painting_sha256=source_sha, coast_sha256=mask_sha,
+                        reference_sha256=reference_sha)
+        if witness != expected:
+            raise ValueError('Revalidation witness does not bind this painting, mask and reference')
+    return witness
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--record', type=Path, required=True)
     parser.add_argument('--mask', type=Path, required=True)
+    parser.add_argument('--witness', type=Path)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--out-record', type=Path, required=True)
     parser.add_argument('--dilation', type=int, default=9)
@@ -39,14 +88,7 @@ def main():
 
     original = json.loads(args.record.read_text())
     source_sha = hashlib.sha256(args.source.read_bytes()).hexdigest()
-    if original.get('output_sha256') != source_sha:
-        raise ValueError('Source painting bytes differ from their receipt')
-    if original.get('labels_baked', True):
-        raise ValueError('Source painting contains baked labels')
-    if original.get('bounds') != atlas.WORLD_BOUNDS:
-        raise ValueError('Source painting is not the production World frame')
-    if 'geography' in original and original['geography'] != atlas.geography_signature():
-        raise ValueError('Source painting geography is stale')
+    witness = validate_source(original, source_sha, args.mask, args.witness)
     if args.out.exists() or args.out_record.exists():
         raise FileExistsError('Preserve the existing World alpha and receipt')
 
@@ -72,7 +114,7 @@ def main():
                       geography=atlas.geography_signature(), prompt=original['prompt'],
                       requested_model=original.get('requested_model'), quality=original.get('quality'),
                       output_sha256=hashlib.sha256(args.out.read_bytes()).hexdigest(),
-                      generation=original,
+                      generation=original, generation_witness=witness,
                       display=dict(kind='island-alpha-from-signed-coast',
                                    mask_sha256=hashlib.sha256(args.mask.read_bytes()).hexdigest(),
                                    alpha_sha256=hashlib.sha256(alpha.tobytes()).hexdigest(),

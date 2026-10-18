@@ -1,6 +1,7 @@
 """A region is a view of the destination registry, never a replacement for it."""
 import copy
 import importlib.util
+import sys
 import hashlib
 import json
 from pathlib import Path
@@ -210,3 +211,55 @@ def test_world_overview_is_island_shaped_without_changing_its_rgb_geography():
                      (image.width - 1, image.height - 1), (image.width - 1, image.height // 2)]:
             assert int(alpha[y, x]) == 0
         assert atlas.verify_coast(image, mask, 'world') < .0035
+
+
+def test_alpha_requires_bound_generation_provenance(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, 'atlas', atlas)
+    spec = importlib.util.spec_from_file_location('yorimichi_alpha', GAME / 'world/map/mask_atlas_island.py')
+    alpha = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(alpha)
+    assets = tmp_path / 'assets'
+    (assets / 'coasts').mkdir(parents=True)
+    source = tmp_path / 'source.png'
+    Image.new('RGB', (1024, 1024)).save(source)
+    mask = assets / 'coasts' / 'world.png'
+    Image.new('L', (1024, 1024), 0).save(mask)
+    source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+    mask_sha = hashlib.sha256(mask.read_bytes()).hexdigest()
+    receipt = dict(output_sha256=source_sha, labels_baked=False, bounds=atlas.WORLD_BOUNDS,
+                   inputs=[dict(role='exact geography', sha256='reference'),
+                           dict(role='exact coast mask', sha256=mask_sha)])
+    (assets / 'coasts/source.json').write_text(json.dumps(dict(
+        geography=atlas.geography_signature(),
+        frames=dict(world=dict(bounds=atlas.WORLD_BOUNDS, sha256=mask_sha, reference_sha256='reference')))))
+    with pytest.raises(ValueError, match='no current geography'):
+        alpha.validate_source(receipt, source_sha, mask, None, assets=assets)
+    witness = dict(kind='terrain-reference-revalidation', geography=atlas.geography_signature(),
+                   painting_sha256=source_sha, coast_sha256=mask_sha, reference_sha256='reference')
+    witness_path = tmp_path / 'witness.json'
+    witness_path.write_text(json.dumps(witness))
+    assert alpha.validate_source(receipt, source_sha, mask, witness_path, assets=assets) == witness
+    witness['coast_sha256'] = 'not the signed mask'
+    witness_path.write_text(json.dumps(witness))
+    with pytest.raises(ValueError, match='does not bind'):
+        alpha.validate_source(receipt, source_sha, mask, witness_path, assets=assets)
+    bad = dict(receipt, inputs=[dict(role='exact geography', sha256='reference'),
+                                dict(role='exact coast mask', sha256='wrong')])
+    with pytest.raises(ValueError, match='did not use'):
+        alpha.validate_source(bad, source_sha, mask, None, assets=assets)
+    other = assets / 'coasts/other.png'
+    Image.new('L', (1024, 1024), 0).save(other)
+    with pytest.raises(ValueError, match='authoritative'):
+        alpha.validate_source(receipt, source_sha, other, None, assets=assets)
+
+
+def test_committed_world_alpha_binds_the_paid_generation_and_signed_mask():
+    record = json.loads((atlas.ASSETS / 'world.json').read_text())
+    mask_sha = hashlib.sha256((atlas.ASSETS / 'coasts/world.png').read_bytes()).hexdigest()
+    witness = record['generation_witness']
+    assert witness['kind'] == 'terrain-reference-revalidation'
+    assert witness['geography'] == atlas.geography_signature() == record['geography']
+    assert witness['painting_sha256'] == record['generation']['output_sha256']
+    assert witness['coast_sha256'] == mask_sha
+    assert any(item.get('role') == 'exact coast mask' and item.get('sha256') == mask_sha
+               for item in record['generation']['inputs'])

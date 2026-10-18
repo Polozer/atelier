@@ -24,7 +24,9 @@ The phone uses the same frames, labels and travel registry as the native atlas.
 The World overview is a single island plate rather than a rectangular ocean tile. Its painted RGB sheet is still
 checked against the signed coast mask; a deterministic feathered alpha edge derived from that mask fades the outer
 sea into the atlas background and makes the coastline the visible boundary. The alpha never clears real land. The
-alpha and its source receipt are recorded together:
+alpha and its source receipt are recorded together. The alpha tool rejects a source receipt with no current
+geography unless an explicit terrain-reference-revalidation witness binds the painting, signed mask and reference
+hashes; it never mints a new geography claim for an unverified painting.
 
 ~~~sh
 uv run python games/yorimichi/world/map/paint_atlas.py world --references PLAN_ROOT --style STYLE_IMAGE --coast-mask games/yorimichi/world/map/atlas/coasts/world.png

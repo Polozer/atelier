@@ -161,7 +161,8 @@ public:
     {
         const auto* M=Map.Get(); if (!M) return Layer; Fit(G);
         const FVector2D Area=G.GetLocalSize();
-        FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(),White(),ESlateDrawEffect::None,C(TEXT("0E1B18")));
+        const FLinearColor Background=View==TEXT("world")?C(TEXT("0E1B18")):C(TEXT("B9A379"));
+        FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(),White(),ESlateDrawEffect::None,Background);
         FSlateDrawElement::MakeBox(Out,Layer+1,G.ToPaintGeometry(FVector2f(Size),FSlateLayoutTransform(FVector2f(Offset))),M->GetAtlasBrush(),ESlateDrawEffect::None,FLinearColor::White);
         if (View==TEXT("world")) for (const auto& R:M->GetAtlasRegions()) if (R.Key==Hot)
         {
@@ -226,6 +227,18 @@ public:
             DrawText(Out,Layer+5,G,T.Category==TEXT("player")?TEXT("P"):Marker?TEXT("M"):Stable?TEXT("◇"):T.Category==TEXT("station")?TEXT("T"):TEXT("•"),P,11,Gold,false,true);
         }
 
+        if (const auto* Pawn=M->GetOwnerPawn())
+        {
+            const auto UV=M->ToAtlas(Pawn->GetActorLocation());
+            if (UV.X>=0 && UV.X<=1 && UV.Y>=0 && UV.Y<=1)
+            {
+                const auto P=Offset+UV*Size; const double A=FMath::DegreesToRadians(UJapanMap::SheetHeading(Pawn->GetActorRotation().Yaw));
+                const FVector2D D(FMath::Cos(A),FMath::Sin(A)),N(-D.Y,D.X);
+                Disc(Out,Layer+8,G,P,14,C(TEXT("132D41")).CopyWithNewOpacity(.8f));
+                TArray<FVector2f> Points={FVector2f(P+D*17),FVector2f(P-D*8+N*8),FVector2f(P-D*3),FVector2f(P-D*8-N*8),FVector2f(P+D*17)};
+                FSlateDrawElement::MakeLines(Out,Layer+9,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Cream,true,3.f);
+            }
+        }
         // Labels are drawn after the pins, with the hovered label last and on top.
         for (int32 Pass=0;Pass<2;++Pass) for (int32 I=0;I<TargetsNow.Num();++I)
         {
@@ -236,27 +249,15 @@ public:
             {
                 const FVector2D P=Anchors[I];
                 const FVector2D Edge(FMath::Clamp(P.X,Pos.X,Pos.X+Extent.X),FMath::Clamp(P.Y,Pos.Y,Pos.Y+Extent.Y));
-                FSlateDrawElement::MakeLines(Out,Layer+6,G.ToPaintGeometry(),{FVector2f(P),FVector2f(Edge)},ESlateDrawEffect::None,Ink.CopyWithNewOpacity(.55f),true,1.f);
+                FSlateDrawElement::MakeLines(Out,Layer+10,G.ToPaintGeometry(),{FVector2f(P),FVector2f(Edge)},ESlateDrawEffect::None,Ink.CopyWithNewOpacity(.55f),true,1.f);
             }
             const int32 PointSize=T.Category==TEXT("region")?17:Hover?15:12;
-            FSlateDrawElement::MakeBox(Out,Layer+7,G.ToPaintGeometry(FVector2f(Extent),FSlateLayoutTransform(FVector2f(Pos))),White(),ESlateDrawEffect::None,C(TEXT("EBD7AC")).CopyWithNewOpacity(Hover?.98f:.88f));
-            DrawText(Out,Layer+8,G,T.Name,Pos+FVector2D(5,2),PointSize,Ink,true,false);
+            FSlateDrawElement::MakeBox(Out,Layer+11,G.ToPaintGeometry(FVector2f(Extent),FSlateLayoutTransform(FVector2f(Pos))),White(),ESlateDrawEffect::None,C(TEXT("EBD7AC")).CopyWithNewOpacity(Hover?.98f:.88f));
+            DrawText(Out,Layer+12,G,T.Name,Pos+FVector2D(5,2),PointSize,Ink,true,false);
         }
 
-        if (const auto* Pawn=M->GetOwnerPawn())
-        {
-            const auto UV=M->ToAtlas(Pawn->GetActorLocation());
-            if (UV.X>=0 && UV.X<=1 && UV.Y>=0 && UV.Y<=1)
-            {
-                const auto P=Offset+UV*Size; const double A=FMath::DegreesToRadians(UJapanMap::SheetHeading(Pawn->GetActorRotation().Yaw));
-                const FVector2D D(FMath::Cos(A),FMath::Sin(A)),N(-D.Y,D.X);
-                Disc(Out,Layer+9,G,P,14,C(TEXT("132D41")).CopyWithNewOpacity(.8f));
-                TArray<FVector2f> Points={FVector2f(P+D*17),FVector2f(P-D*8+N*8),FVector2f(P-D*3),FVector2f(P-D*8-N*8),FVector2f(P+D*17)};
-                FSlateDrawElement::MakeLines(Out,Layer+10,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Cream,true,3.f);
-            }
-        }
-        if (bPad) {const auto P=Offset+Cursor*Size;Ring(Out,Layer+10,G,P,Hot.IsEmpty()?13:18,4,C(TEXT("182C23")));Ring(Out,Layer+11,G,P,Hot.IsEmpty()?13:18,1.5f,Cream);}
-        return Layer+12;
+        if (bPad) {const auto P=Offset+Cursor*Size;Ring(Out,Layer+13,G,P,Hot.IsEmpty()?13:18,4,C(TEXT("182C23")));Ring(Out,Layer+14,G,P,Hot.IsEmpty()?13:18,1.5f,Cream);}
+        return Layer+15;
     }
     virtual void Tick(const FGeometry& G,double Now,float Dt) override
     {
