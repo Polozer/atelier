@@ -62,6 +62,10 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   `UnrealEditor-Fake`. These can refuse admission of another agent's next build or play job. Prefer hosted CI
   for these tests; post on the board and check the render board and live locks before running them locally.
   An already running native job is unaffected.
+- Production features must include all asset preparation and optimization needed by their runtime budgets in the
+  normal build and packaging dependency graph. Do not retain prototype-only opt-ins or silent fallbacks that ship
+  unoptimized assets. Keep diagnostic renders and authoring experiments explicit; required production work is
+  incremental and must fail on missing, stale or invalid outputs.
 - Generated files go in `build/<game>/` or the game's ignored `unreal/Content/`, never next to sources.
 - Commit every GLB source a game consumes under its `assets/` library. Record its local path and checksum in the
   source manifest; fresh checkouts must use the committed model without a private fetch or personal cache.

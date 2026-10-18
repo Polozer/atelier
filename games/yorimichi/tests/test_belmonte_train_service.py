@@ -64,11 +64,15 @@ def write_fixture(root, schedule=True):
                     'treads': [{'box': [-11.2, -10.7, 1.7, 1.88], 'top_z': .96}, {'box': [-11.2, -10.7, 1.82, 2.12], 'top_z': .66}]}]
         extra = {'door_interactions': doors, 'boarding': records} if v == 'second-class' else {}
         (root / v / f'{v}-placements.json').write_text(json.dumps({'body': body, 'placements': placements, 'collision_boxes': boxes, **extra}))
-    (root / 'furniture').mkdir()
-    (root / 'furniture' / 'second-class-bench.json').write_text(json.dumps({'lods': {
-        'levels': [{'level': 0, 'glb': 'second-class-bench_LOD0.glb', 'screen_size': 1.0},
-                   {'level': 1, 'glb': 'second-class-bench_LOD1.glb', 'screen_size': .13}],
-        'cull_screen_size': .02, 'bounds_radius_m': .8}}))
+    from train_furniture_fixtures import bake
+    baked = bake(root / 'furniture')
+    path = root / 'assembly' / 'consist.json'
+    assembly = json.loads(path.read_text())
+    assembly['furniture_bake_sha256'] = S.BM.sha(root / 'furniture' / 'lod' / 'summary.json')
+    for aid, entry in assembly['furniture'].items():
+        entry['lods'] = [dict(r, glb='lod/' + r['glb']) for r in baked[aid]['levels']]
+    path.write_text(json.dumps(assembly))
+
 
 
 class BelmonteTrainServiceTests(unittest.TestCase):
@@ -121,11 +125,14 @@ class BelmonteTrainServiceTests(unittest.TestCase):
         self.assertAlmostEqual(bench['cull_cm'], 4000.0)
         self.assertTrue(bench['shadow'])
         mug = self.data['furniture']['canteen-mug']
-        self.assertEqual(mug['levels'], [{'glb': 'canteen-mug.glb', 'screen_size': 1.0}])
+        self.assertEqual([l['glb'] for l in mug['levels']], ['lod/canteen-mug_LOD0.glb'])
         self.assertFalse(mug['shadow'])
 
     def test_thin_sheets_are_two_sided(self):
-        lamp = S.furniture_entry('table-lamp', {'dimensions_m': {'width': .2, 'depth': .2, 'height': .4}}, None)
+        record = S.BM.read(Path(self.tmp.name) / 'scheduled' / 'furniture')['table-lamp']
+        spec = {'dimensions_m': {'width': .2, 'depth': .2, 'height': .4},
+                'lods': [dict(r, glb='lod/' + r['glb']) for r in record['levels']]}
+        lamp = S.furniture_entry('table-lamp', spec, record)
         self.assertTrue(lamp['two_sided'])
         self.assertFalse(self.data['furniture']['second-class-bench']['two_sided'])
 
@@ -186,3 +193,52 @@ class BelmonteTrainServiceTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_service_rejects_missing_bake_before_writing(tmp_path):
+    import pytest
+    root = tmp_path / 'train'
+    write_fixture(root)
+    (root / 'furniture/lod/summary.json').unlink()
+    with pytest.raises(FileNotFoundError):
+        S.build(root)
+    assert not (root / 'service').exists()
+
+
+def test_service_rejects_stale_assembly_before_writing(tmp_path):
+    import pytest
+    root = tmp_path / 'train'
+    write_fixture(root)
+    path = root / 'assembly/consist.json'
+    data = json.loads(path.read_text())
+    data['furniture_bake_sha256'] = '0' * 64
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match='assembly is stale'):
+        S.build(root)
+    assert not (root / 'service').exists()
+
+
+def test_service_has_no_unbaked_furniture_fallback():
+    import pytest
+    with pytest.raises(ValueError, match='bake is required'):
+        S.furniture_entry('canteen-mug', {'dimensions_m': {'width': .1}}, None)
+
+
+def test_service_cli_uses_the_production_bake(tmp_path):
+    root = tmp_path / 'train'
+    write_fixture(root)
+    output = root / 'service/service.json'
+    assert S.main(['--root', str(root), '--output', str(output)]) == 0
+    data = json.loads(output.read_text())
+    assert data['furniture']
+    assert all(level['glb'].startswith('lod/') for asset in data['furniture'].values() for level in asset['levels'])
+
+
+def test_assembly_requires_bake_before_publishing(tmp_path, monkeypatch):
+    import pytest
+    from train import consist as C
+    monkeypatch.setattr(C, 'OUT', tmp_path)
+    monkeypatch.setattr(C, 'ASSEMBLY', tmp_path / 'assembly')
+    with pytest.raises(FileNotFoundError):
+        C.assembly()
+    assert not (tmp_path / 'assembly').exists()

@@ -30,6 +30,7 @@ from pathlib import Path
 GAME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GAME / 'world'))
 import yori  # noqa: E402
+from train import bake_manifest as BM  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gltf_subset as G  # noqa: E402
 
@@ -410,28 +411,26 @@ THIN_SHEETS = ('restaurant-table', 'table-lamp', 'wall-sconce', 'curtain', 'shad
 
 
 def furniture_entry(asset, spec, record):
-    """A furniture asset's mesh, its levels and its cull distance. The levels are the LOD worker's (consist.json's
-    `lods`, else furniture/<asset>.json's), in furniture/lod/; without them, the fitted Tripo GLB alone. The cull
-    distance turns the recorded cull screen size into cm (Unreal's screen size is about radius / distance)."""
-    record_lods = (record or {}).get('lods') or {}
-    levels = spec.get('lods') if isinstance(spec.get('lods'), list) else record_lods.get('levels')
+    """@cc [owner:fontanierh,label:correctness] baked-furniture-only
+    Service furniture MUST use the verified bake's expected LOD chain. Absent or conflicting
+    assembly/bake metadata MUST fail; never substitute an unoptimized fitted source mesh.
+    """
+    if not record or not record.get('levels'):
+        raise ValueError(f'{asset}: production furniture bake is required')
+    levels = record['levels']
+    expected = [0, 1] if BM.B.FURNITURE[asset][1] else [0]
+    if [r['level'] for r in levels] != expected or any(r['glb'] != f'{asset}_LOD{r["level"]}.glb' for r in levels):
+        raise ValueError(f'{asset}: invalid production furniture LOD chain')
+    if spec.get('lods') != [dict(r, glb='lod/' + r['glb']) for r in levels]:
+        raise ValueError(f'{asset}: assembly differs from the furniture bake')
     size = spec.get('dimensions_m') or {}
     largest = max([size.get(k, 1.) for k in ('width', 'depth', 'height')] or [1.])
     entry = {'mesh': furniture_mesh(asset), 'shadow': largest > SMALL_ITEM, 'small': largest <= SMALL_ITEM}
     # Thin single-sheet parts (the restaurant tablecloth's drape, lamp and sconce shades, curtains) are seen from both
     # sides: their materials are drawn two-sided.
     entry['two_sided'] = bool(spec.get('two_sided', (record or {}).get('two_sided', any(t in asset for t in THIN_SHEETS))))
-    if levels:
-        entry['levels'] = [{'glb': level['glb'] if level['glb'].startswith('lod/') else 'lod/' + level['glb'],
-                            'screen_size': level['screen_size'], 'triangles': level.get('triangles')}
-                           for level in sorted(levels, key=lambda level: level['level'])]
-        cull = spec.get('cull_screen_size') or record_lods.get('cull_screen_size')
-        radius = record_lods.get('bounds_radius_m') or (math.sqrt(sum(v * v for v in size.values())) / 2 if size else None)
-        if cull and radius:
-            entry['cull_cm'] = round(100 * radius / cull, 1)
-    else:
-        entry['levels'] = [{'glb': f'{asset}.glb', 'screen_size': 1.0}]
-    entry.setdefault('cull_cm', RENDER['small_furniture_cull_cm'] if entry['small'] else RENDER['furniture_cull_cm'])
+    entry['levels'] = [dict(level, glb='lod/' + level['glb']) for level in levels]
+    entry['cull_cm'] = round(100 * record['bounds_radius_m'] / record['cull_screen_size'], 1)
     return entry
 
 
@@ -528,7 +527,7 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def build(root=TRAIN, glb=None, *, use_record_lods=True):
+def build(root=TRAIN, glb=None):
     route_path = root / 'route' / 'route.json'
     consist_path = root / 'assembly' / 'consist.json'
     route = json.loads(route_path.read_text())
@@ -538,18 +537,16 @@ def build(root=TRAIN, glb=None, *, use_record_lods=True):
         path = root / v['id'] / f'{v["id"]}-placements.json'
         if path.exists():
             placements[v['id']] = json.loads(path.read_text())
-    records = {}
-    for path in (sorted((root / 'furniture').glob('*.json')) if use_record_lods else ()):
-        try:
-            records[path.stem] = json.loads(path.read_text())
-        except ValueError:
-            pass
+    records = BM.read(root / 'furniture')
+    if assembly.get('furniture_bake_sha256') != BM.sha(root / 'furniture' / 'lod' / 'summary.json'):
+        raise ValueError('train assembly is stale relative to its furniture bake')
     train, furniture = consist(assembly, placements, records)
     data = {
         'version': 1,
         'about': 'Belmonte train service for ABelmonteTrainService (games/yorimichi/tools/belmonte_train_service.py)',
         'units': 'Unreal cm for points and boxes (y flipped from Blender); chainage, offsets and bogies in metres',
-        'sources': {'route': sha(route_path), 'consist': sha(consist_path)},
+        'sources': {'route': sha(route_path), 'consist': sha(consist_path),
+                    'furniture_bake': BM.sha(root / 'furniture' / 'lod' / 'summary.json')},
         'render': RENDER,
         'line': line(route),
         'consist': train,
@@ -569,7 +566,7 @@ def main(argv=None):
     parser.add_argument('--root', type=Path, default=TRAIN, help='the Train Builder output folder')
     parser.add_argument('--output', type=Path, default=OUTPUT)
     args = parser.parse_args(argv)
-    data = build(args.root, args.output.parent / 'glb', use_record_lods=False)
+    data = build(args.root, args.output.parent / 'glb')
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(data, separators=(',', ':')) + '\n')
     s = data['service']
