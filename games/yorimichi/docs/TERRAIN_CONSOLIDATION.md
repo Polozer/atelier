@@ -152,3 +152,21 @@ regressions before native import. Region looks and the existing FBX/GLB adapters
 remain in place during extraction. Geometry parity, export round trips and
 imported native support remain separate checks. No speedup has been measured by
 this first increment.
+
+The next regional extraction publishes `terrain.HD_NorthMountains.natural`,
+`.final` and `.provenance` from the existing `world.hidamari` invocation.
+`mountains.sheets` retains the current grid, gate exclusions, apron part order,
+authored colours/snow mask/normals and single railway carve. Publication copies
+only ordered geometry; export receives the original final attributed sheet.
+Gate, trail, approach and city surfaces remain separate owners. This increment
+does not move appearance evaluation after carving, add a second generation,
+declare shared borders seamless, or establish narrower invalidation cutoffs.
+
+The full original and extracted producers match bit-for-bit in railway and
+no-railway modes, including ordered positions, faces, colours/snow masks and
+authored normals. `map/atlas/coasts/mountain-equivalence.json` records the
+source/input hashes, independent proof hashes and geometry product hashes.
+All eight existing paintings, coast masks and original generation records are
+preserved; the new helper is included in map inputs and geography signatures.
+This attestation covers source and array equivalence. Export and imported
+native parity remain separate validation steps.

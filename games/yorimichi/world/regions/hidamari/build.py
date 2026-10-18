@@ -454,7 +454,8 @@ def main():
     builders['HD_Arrival']=lambda:arrival.arrival(M('HD_Arrival'),height)
     # Reference-led kit modules replace legacy shop variants by mesh name.
     builders.update(kit.builders(lettering))
-    builders['HD_NorthMountains']=lambda:SheetMesh('HD_NorthMountains',mountains.mesh(north_base_height))
+    from north_mountain_surface import generate as mountain_surface
+    builders['HD_NorthMountains']=lambda:SheetMesh('HD_NorthMountains',mountain_surface(north_base_height,yori.OUT/'terrain/HD_NorthMountains'))
     from megapark import gate
     builders['HD_NorthGate']=lambda:SheetMesh('HD_NorthGate',gate.mesh(north_base_height))
     for name in gate.ROCKS:builders[name]=lambda name=name:gate_rock(name)

@@ -83,6 +83,8 @@ def test_world_selector_includes_native_references_without_reading_their_bytes(t
     assert len(expected) == 60
     expected.update({f'terrain.FarHills.{stage}': 'world.farhills'
                      for stage in ('natural', 'final', 'provenance')})
+    expected.update({f'terrain.HD_NorthMountains.{stage}': 'world.hidamari'
+                     for stage in ('natural', 'final', 'provenance')})
     assert graph.owners == expected
     assert all(not graph.by_name[owner].cache for product, owner in expected.items()
                if not product.startswith('texture.'))
