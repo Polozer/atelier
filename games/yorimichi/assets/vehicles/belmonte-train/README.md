@@ -6,7 +6,7 @@ from Tripo Studio and is fitted to [the dimension contract](planning/furniture-d
 decisions: [the concept prompt](../../../docs/BELMONTE_TRAIN_PROMPT.md) and [the shell notes](../../../docs/BELMONTE_TRAIN_SHELL.md).
 
 The train is assembled into the Belmonte–Hidamari service by the game build. This folder holds its committed
-source assets; generated shells, fitted copies, assemblies and optional LODs stay under `build/yorimichi/`.
+source assets; generated shells, fitted copies, assemblies and baked LODs stay under `build/yorimichi/`.
 
 ## Build
 
@@ -16,7 +16,7 @@ uv run atelier build yorimichi world.belmonte_train_plan   # dimensioned plans a
 uv run atelier build yorimichi world.belmonte_train_review # control renders, under the render lock (a few minutes)
 ```
 
-The train shells and furniture are part of the normal game build; plan and review steps are explicit. Sources are in
+The train shells, furniture LOD bake, assembly and import are part of the normal game build; plan and review steps are explicit. Sources are in
 [`world/train/`](../../../world/train/): `layout.py` holds every number (plain Python, tested by
 `tests/test_belmonte_train_layout.py`), `build.py` makes the meshes, `textures.py` draws the detail maps with numpy,
 `render.py` the control views, `plan.py` the plans, and `fit_furniture.py` fits a Tripo export to the contract.
@@ -25,14 +25,19 @@ The train shells and furniture are part of the normal game build; plan and revie
 [Polozer/atelier#1](https://github.com/Polozer/atelier/pull/1). [`source.toml`](source.toml) records their local paths,
 SHA-256 checksums, fitting reports and project ownership (`licence = "own"`). The original exports were made in
 Tripo Studio; provider model versions, prompts and job receipts were not supplied with this contribution.
-The fitted GLB bytes are preserved. Reports describe those sources only: dimensions and errors are aligned with
+The fitted GLB bytes are preserved. Source reports describe those sources only: dimensions and errors are aligned with
 the current contract, the pot's triangle count includes its separate porridge mesh, and generated LOD records
 have been removed.
 
 `world.belmonte_train` verifies the complete inventory before copying the GLBs and reports into the build.
 Missing, corrupt or invalid sources fail the build. There is no placeholder fallback or private download.
-`world.belmonte_train_furniture_lods` remains an explicit Cycles bake; run it to generate budgeted LODs before
-assembly/service generation when needed. Without that step the service uses the full fitted meshes.
+`world.belmonte_train_furniture_lods` is a required incremental Cycles bake. It produces budgeted meshes,
+embedded textures and `furniture/lod/summary.json` without modifying fitted source reports. Assembly and service
+require a complete, source-matched bake; missing, corrupt or over-budget outputs fail instead of falling back to
+full fitted meshes. The assembly viewer uses baked LOD0 too. Unchanged inputs reuse the verified bake.
+
+`world.belmonte_train_furniture_review` produces optional comparison renders; it does not control whether
+production furniture is optimized.
 
 ## Outputs (`build/yorimichi/belmonte-train/`)
 
@@ -66,8 +71,8 @@ Coupling: every coach shares `layout.coupling()` (buffers, draw hook, gangway, f
    the contract, never stretch the whole object on one axis.
 2. Inspect the fitted GLB and report under `build/yorimichi/belmonte-train/furniture/`. Copy the accepted pair
    into this folder's `furniture/`, remove any generated `lods` record from the source report, and update both
-   checksums in `source.toml`. Keep the report's dimensions, pivot and triangle count consistent with the GLB
-   and contract. Run `uv run pytest games/yorimichi/tests/test_belmonte_train_furniture.py -q` before committing.
+   checksums in `source.toml` and the GLB size/checksum in `assets/source-library.json`. Keep the report's dimensions, pivot and triangle count consistent with the GLB
+   and contract. Run `uv run pytest games/yorimichi/tests/test_belmonte_train_furniture.py games/yorimichi/tests/test_asset_library.py -q` before committing.
 3. Each fitted asset faces −Y with its width on X. Place one instance per `placements` entry with that asset id:
    location `x, y, z`, rotation `yaw` degrees about +Z. Table lamps sit on their table (z is the table top); sconces'
    origin is the wall mount point, back against the panelling.

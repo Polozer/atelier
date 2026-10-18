@@ -88,6 +88,9 @@ bool FRemoteVehiclePresentationTest::RunTest(const FString&)
     Replacement->SetActorLocation(At+FVector(1300,900,0));
     const auto* Target = Map->FindZone(Key);
     TestTrue(TEXT("Moving peer updates its target"),Target && Target->Location.Equals(Replacement->GetActorLocation()));
+    const auto AtlasTargets = Map->GetAtlasTargets();
+    const auto* AtlasPeer = AtlasTargets.FindByPredicate([&](const FJapanAtlasTarget& T){return T.Key==Key;});
+    TestTrue(TEXT("Atlas retains the live player category and travel identity"),AtlasPeer && AtlasPeer->Category==TEXT("player") && AtlasPeer->bTravel && AtlasPeer->Location.Equals(Replacement->GetActorLocation()));
     Replacement->SetPlayerState(nullptr); Rider->SetPlayerState(Player); Rider->bReady = true;
     Map->Owner = Replacement;
     Target = Map->FindZone(Key);

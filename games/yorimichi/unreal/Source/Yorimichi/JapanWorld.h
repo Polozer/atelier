@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "JapanMarkers.h"
+#include "JapanAtlasNames.h"
 class FJsonObject;
 #include "JapanWorld.generated.h"
 
@@ -56,6 +57,7 @@ public:
     FTransform PlayerStart;
     /** Named player locations loaded from the save, shared across character switches. */
     FJapanMarkers Markers;
+    FJapanAtlasNames AtlasNames;
     TArray<FWorldShot> Shots;
     bool bLoaded = false;
     /** Completed all synchronous region/collision and rail bootstrap, not just the terrain. */

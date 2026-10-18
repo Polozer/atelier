@@ -1,0 +1,86 @@
+{
+  "bounds": [
+    -4200.0,
+    -1200.0,
+    4200.0,
+    7200.0
+  ],
+  "labels_baked": false,
+  "geography": {
+    "world/gen_world.py": "bed6dab44b570c78e54e8b0d9a85c68cc270d2ae2a71d8300242798c1782b59a",
+    "world/build_terrain.py": "6a1a451f92fea466253d14da988af6a89524127093f2544816369a7307ca1b04",
+    "world/regions/hidamari/layout.py": "ef01796e97d488700ba93eb1c79c304a67cd98e96982eb104582ac1b4075d979",
+    "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
+    "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
+    "world/regions/belmonte/terrain.py": "b42cbfed11379386af9dc85df8397d4e2a55403669cd67f1c7ef60de5ca94797",
+    "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
+    "world/regions/southwest/island.py": "b280ec69ecdbafbfe5ac8f561d0158be6712622f5389cc7394ddf0df7dce945b",
+    "world/train/route.py": "5dfbb629b175a796e50048e25990f2c6146048bdd812d5f65a048b42b23ed5b6",
+    "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
+    "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
+    "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
+    "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
+    "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f"
+  },
+  "prompt": "Edit image 1 locally. Preserve its exact frame, scale, north-up orthographic top view, painterly style and all unchanged detail. Image 2 is the exact geographical plan; image 3 is the exact binary land mask (white dry land, black water). No text or UI. No recentering, zoom or perspective. Keep all roads, buildings, trees and shorelines outside the requested correction in exactly their original positions. ONLY correct the blue/turquoise fill inside the snowy volcanic caldera near output pixel (1000,860): this is NOT a lake. It is DRY dark basalt and a grey CONCRETE SKATE PARK on the crater floor. Replace ALL blue inside the caldera with dry warm-grey concrete/basalt, using the exact grey riding footprint and contour pattern of image 2. White rim is snow. Do not draw any blue water, pond, lake or river in this caldera. Preserve the snowy rim, mountain shape, every coastline and all other areas of image1 unchanged. The rest of the map, including the actual sea, river and small existing woodland lake, stays exactly as it is.",
+  "inputs": [
+    {
+      "role": "painting to correct locally",
+      "sha256": "59470eed3973da78e50bcefe239fc9f9db6e080ce41cf240978b556e314cb71c"
+    },
+    {
+      "role": "exact geography",
+      "sha256": "21ff9b264fbdce2a119da91554f230a9e14690ffb7b6516da4c542ee808461e0"
+    },
+    {
+      "role": "exact coast mask",
+      "sha256": "587ad78acbe5a444a07cbeb32f87461bba1b606aa64733e0c30a259b38e91524"
+    }
+  ],
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1536",
+  "endpoint": "/v1/images/edits",
+  "prompt_sha256": "c72876d1378c118e2261ccfd94f564fbcb14a7e72d538aa0dd2ed111d8175c27",
+  "status": "done",
+  "started_at": "2026-10-17T23:16:34.683086+00:00",
+  "output": "world.png",
+  "output_sha256": "62c0bb6ac48137897e2fc4066608914daa8ce7dfd22823da19087e509173e9e3",
+  "usage": {
+    "input_tokens": 4831,
+    "input_tokens_details": {
+      "image_tokens": 4563,
+      "text_tokens": 268
+    },
+    "output_tokens": 2511,
+    "output_tokens_details": {
+      "image_tokens": 2511,
+      "text_tokens": 0
+    },
+    "total_tokens": 7342
+  },
+  "elapsed_seconds": 42.6,
+  "finished_at": "2026-10-17T23:17:17.293833+00:00",
+  "verified_geography": {
+    "kind": "terrain-reference-revalidation",
+    "geography": {
+      "world/gen_world.py": "bed6dab44b570c78e54e8b0d9a85c68cc270d2ae2a71d8300242798c1782b59a",
+      "world/build_terrain.py": "6a1a451f92fea466253d14da988af6a89524127093f2544816369a7307ca1b04",
+      "world/regions/hidamari/layout.py": "ef01796e97d488700ba93eb1c79c304a67cd98e96982eb104582ac1b4075d979",
+      "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
+      "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
+      "world/regions/belmonte/terrain.py": "b42cbfed11379386af9dc85df8397d4e2a55403669cd67f1c7ef60de5ca94797",
+      "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
+      "world/regions/southwest/island.py": "b280ec69ecdbafbfe5ac8f561d0158be6712622f5389cc7394ddf0df7dce945b",
+      "world/train/route.py": "5dfbb629b175a796e50048e25990f2c6146048bdd812d5f65a048b42b23ed5b6",
+      "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
+      "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
+      "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
+      "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
+      "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f"
+    },
+    "painting_sha256": "62c0bb6ac48137897e2fc4066608914daa8ce7dfd22823da19087e509173e9e3",
+    "coast_sha256": "587ad78acbe5a444a07cbeb32f87461bba1b606aa64733e0c30a259b38e91524",
+    "reference_sha256": "21ff9b264fbdce2a119da91554f230a9e14690ffb7b6516da4c542ee808461e0"
+  }
+}

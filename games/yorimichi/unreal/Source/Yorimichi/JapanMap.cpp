@@ -1,4 +1,6 @@
 #include "JapanMap.h"
+#include "JapanAtlasWidget.h"
+#include "JapanMapControls.h"
 #include "AtelierData.h"
 #include "CraterParkTower.h"
 #include "JapanGameMode.h"
@@ -46,315 +48,6 @@ static FSlateBrush ShapeBrush(float Radius)
     else { B.OutlineSettings.RoundingType = ESlateBrushRoundingType::FixedRadius; B.OutlineSettings.CornerRadii = FVector4(Radius,Radius,Radius,Radius); }
     return B;
 }
-
-/** The controller buttons the map names, in the HUD's label style (AJapanHUD::CurrentControllerStyle). */
-struct FMapPadLabels { const TCHAR *Travel, *Close, *Zoom, *Map, *Mark, *Return; };
-static FMapPadLabels MapPadLabels(int32 Style)
-{
-    switch (Style)
-    {
-        case 1: return {TEXT("A"),TEXT("B"),TEXT("LB / RB"),TEXT("View"),TEXT("Y"),TEXT("X")};
-        case 2: return {TEXT("Cross"),TEXT("Circle"),TEXT("L1 / R1"),TEXT("Touchpad"),TEXT("Triangle"),TEXT("Square")};
-        case 3: return {TEXT("B"),TEXT("A"),TEXT("L / R"),TEXT("Minus"),TEXT("X"),TEXT("Y")};
-        default: return {TEXT("Bottom button"),TEXT("Right button"),TEXT("Shoulder buttons"),TEXT("View / Select"),TEXT("Top button"),TEXT("Left button")};
-    }
-}
-
-/** Consume keys left unhandled by the text editor before they reach the game viewport. Character events still
- *  reach its inner editor, and navigation/clipboard/Enter keep their normal text-editing behavior. */
-class SMarkerNameBox : public SEditableTextBox
-{
-public:
-    TWeakObjectPtr<UJapanMap> Map;
-    virtual FReply OnPreviewKeyDown(const FGeometry&, const FKeyEvent& E) override
-    {
-        if (UJapanMap* M = Map.Get())
-        {
-            if (E.GetKey() == EKeys::Escape || E.GetKey() == EKeys::Gamepad_FaceButton_Right) { M->Close(); return FReply::Handled(); }
-            if (E.GetKey() == EKeys::F5)
-            {
-                if (!E.IsRepeat()) M->SaveMarker(GetText().ToString());
-                return FReply::Handled();
-            }
-        }
-        return FReply::Unhandled();
-    }
-    virtual FReply OnKeyDown(const FGeometry& G, const FKeyEvent& E) override
-    {
-        const FReply Reply = SEditableTextBox::OnKeyDown(G,E);
-        return Reply.IsEventHandled() ? Reply : FReply::Handled();
-    }
-};
-
-/** The sheet itself: the painted map fitted into the available space, the zone pins with their names, the player.
- *  Mouse: hover a pin and click it. Controller: the left stick moves a reticle that catches the nearest pin, the d-pad
- *  hops pin to pin, the right stick pans, the shoulders zoom, the bottom button travels and the right button closes. */
-class SJapanMapSheet : public SLeafWidget
-{
-public:
-    SLATE_BEGIN_ARGS(SJapanMapSheet) : _Map(nullptr), _PadStyle(0) {}
-        SLATE_ARGUMENT(UJapanMap*, Map)
-        SLATE_ARGUMENT(int32, PadStyle)
-    SLATE_END_ARGS()
-    void Construct(const FArguments& In)
-    {
-        Map = In._Map; PadStyle = In._PadStyle; bPad = PadStyle != 0;
-        SetCursor(EMouseCursor::Default); SetClipping(EWidgetClipping::ClipToBounds);
-        if (const UJapanMap* M = Map.Get()) if (const AWandererCharacter* Pawn = M->GetOwnerPawn())   // the reticle starts on the player
-            Cursor = M->ToSheet(Pawn->GetActorLocation()).ClampAxes(0.,1.);
-    }
-    FString GetHoveredHint() const
-    {
-        const UJapanMap* M = Map.Get();
-        if (!M || !M->GetZones().IsValidIndex(Hovered)) return FString();
-        const auto& Z = M->GetZones()[Hovered];
-        return Z.Name + (Z.Hint.IsEmpty() ? TEXT("") : TEXT("  —  ")) + Z.Hint + TEXT("   ·   ") + (bPad ? FString(Labels().Travel) + TEXT(" to travel") : FString(TEXT("click to travel")));
-    }
-    FString GetControlsHint() const
-    {
-        if (const auto* M = Map.Get(); M && M->IsEditingMarkerName()) return TEXT("Enter saves the name · Esc or the right pad button closes · click the sheet to choose pins");
-        if (!bPad) return TEXT("scroll to zoom · drag to explore · click a pin to travel · M or Esc closes");
-        const FMapPadLabels L = Labels();
-        return FString::Printf(TEXT("left stick or d-pad: choose a pin · right stick: pan · %s: zoom · %s: travel · %s or %s: close"),L.Zoom,L.Travel,L.Close,L.Map);
-    }
-    FString GetMarkerHint() const
-    {
-        const UJapanMap* M = Map.Get();
-        const FString State = M && M->HasMarker() ? M->GetMarkerName()+FString::Printf(TEXT(" · %d saved places"),M->GetMarkerKeys().Num()) : TEXT("No saved markers");
-        if (!bPad) return State + TEXT(" · F5: save a new place · F9: return");
-        const FMapPadLabels L = Labels();
-        return State + FString::Printf(TEXT(" · %s: save here · %s: return"),L.Mark,L.Return);
-    }
-    virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(900,600); }
-    virtual bool SupportsKeyboardFocus() const override { return true; }
-    virtual int32 OnPaint(const FPaintArgs& Args, const FGeometry& G, const FSlateRect& Clip, FSlateWindowElementList& Out, int32 Layer, const FWidgetStyle& Style, bool bParentEnabled) const override
-    {
-        const UJapanMap* M = Map.Get();
-        if (!M) return Layer;
-        Fit(G);
-        FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(FVector2f(SheetSize),FSlateLayoutTransform(FVector2f(SheetOffset))),M->GetBrush(),ESlateDrawEffect::None,FLinearColor::White);
-        const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle("Bold",13);
-        const FSlateFontInfo BigFont = FCoreStyle::GetDefaultFontStyle("Bold",15);
-        TSharedRef<FSlateFontMeasure> Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
-        // pins: a white halo, a red disc, the name on a dark tab
-        const TArray<FJapanMapZone>& Zones = M->GetZones();
-        for (int32 Pass = 0; Pass < 2; ++Pass)
-            for (int32 I = 0; I < Zones.Num(); ++I)
-            {
-                const bool bHot = I == Hovered;
-                if ((Pass == 1) != bHot) continue;               // the hovered pin paints last, on top
-                const FVector2D P = SheetOffset + M->ToSheet(Zones[I].Location) * SheetSize;
-                const float R = bHot ? 11.f : 8.f;
-                Disc(Out,Layer+1,G,P,R+2.5f,FLinearColor(1,.97f,.9f,1));
-                const bool bMarker = Zones[I].Key.StartsWith(MarkerPrefix);
-                const bool bPlayer = Zones[I].Key.StartsWith(TEXT("player_"));
-                Disc(Out,Layer+2,G,P,R,bPlayer ? FLinearColor(.1f,.65f,.4f,1) : bMarker ? FLinearColor(.12f,.45f,.85f,1) : bHot ? FLinearColor(.95f,.45f,.18f,1) : FLinearColor(.72f,.18f,.12f,1));
-                const FString Number=bPlayer ? TEXT("P") : bMarker ? TEXT("M") : FString::FromInt(I+1);
-                const FVector2D NumberSize=Measure->Measure(Number,Font);
-                FSlateDrawElement::MakeText(Out,Layer+3,G.ToPaintGeometry(FVector2f(NumberSize),FSlateLayoutTransform(FVector2f(P-NumberSize*.5f))),Number,Font,ESlateDrawEffect::None,FLinearColor::White);
-                if(!bHot)continue;
-                const FString& Name = Zones[I].Name;
-                const FVector2D TextSize = Measure->Measure(Name,bHot ? BigFont : Font);
-                const bool bLeft = P.X + R + 12 + TextSize.X + 12 > SheetOffset.X + SheetSize.X;
-                const FVector2D TabSize(TextSize.X+14, TextSize.Y+6);
-                const FVector2D Tab(bLeft ? P.X - R - 8 - TabSize.X : P.X + R + 8, P.Y - TabSize.Y*.5f);
-                FSlateDrawElement::MakeBox(Out,Layer+3,G.ToPaintGeometry(FVector2f(TabSize),FSlateLayoutTransform(FVector2f(Tab))),&TabBrush,ESlateDrawEffect::None,FLinearColor(.06f,.07f,.06f,bHot ? .92f : .72f));
-                FSlateDrawElement::MakeText(Out,Layer+4,G.ToPaintGeometry(FVector2f(TextSize),FSlateLayoutTransform(FVector2f(Tab.X+7,Tab.Y+3))),Name,bHot ? BigFont : Font,ESlateDrawEffect::None,FLinearColor(1,.96f,.86f,1));
-            }
-        // the player: a disc with a heading arrow, pulsing so it is easy to find
-        if (const AWandererCharacter* Pawn = M->GetOwnerPawn())
-        {
-            const FVector2D P = SheetOffset + M->ToSheet(Pawn->GetActorLocation()) * SheetSize;
-            const float A = FMath::DegreesToRadians(UJapanMap::SheetHeading(Pawn->GetActorRotation().Yaw));
-            const FVector2D Dir(FMath::Cos(A),FMath::Sin(A)), Perp(-Dir.Y,Dir.X);
-            const float Pulse = 12.f + 6.f*FMath::Sin(FPlatformTime::Seconds()*4.0);
-            Disc(Out,Layer+5,G,P,Pulse+10.f,FLinearColor(1,.85f,.35f,.18f));
-            Disc(Out,Layer+5,G,P,Pulse,FLinearColor(1,.85f,.35f,.35f));
-            TArray<FVector2f> Tri = { FVector2f(P+Dir*22.f), FVector2f(P-Dir*9.f+Perp*11.f), FVector2f(P-Dir*3.f), FVector2f(P-Dir*9.f-Perp*11.f), FVector2f(P+Dir*22.f) };
-            FSlateDrawElement::MakeLines(Out,Layer+6,G.ToPaintGeometry(),Tri,ESlateDrawEffect::None,FLinearColor(1,.98f,.9f,1),true,6.f);
-            FSlateDrawElement::MakeLines(Out,Layer+7,G.ToPaintGeometry(),Tri,ESlateDrawEffect::None,FLinearColor(.12f,.22f,.5f,1),true,3.f);
-            Disc(Out,Layer+8,G,P,5.f,FLinearColor(1,.98f,.9f,1));
-            Disc(Out,Layer+9,G,P,3.f,FLinearColor(.12f,.22f,.5f,1));
-        }
-        // the controller reticle: a ring that widens round the pin it has caught
-        if (bPad)
-        {
-            const FVector2D C = SheetOffset + Cursor * SheetSize;
-            const float R = Hovered >= 0 ? 18.f : 13.f;
-            Ring(Out,Layer+10,G,C,R,5.f,FLinearColor(.06f,.07f,.06f,.8f));
-            Ring(Out,Layer+11,G,C,R,2.5f,FLinearColor(1,.96f,.86f,1));
-            if (Hovered < 0) Disc(Out,Layer+11,G,C,2.5f,FLinearColor(1,.96f,.86f,1));
-        }
-        return Layer+12;
-    }
-    virtual void Tick(const FGeometry& G,const double Now,const float Dt) override
-    {
-        SLeafWidget::Tick(G,Now,Dt);
-        // the controller talks to the focused widget: keep it here (a click on the frame round the sheet gives it to the game view)
-        const UJapanMap* M = Map.Get();
-        if (!M) return;
-        if (!HasKeyboardFocus() && !M->IsEditingMarkerName()) FSlateApplication::Get().SetKeyboardFocus(AsShared(),EFocusCause::SetDirectly);
-        if (!bPad || !M) return;
-        Fit(G);
-        const FVector2D Area = G.GetLocalSize();
-        const double Speed = Area.Y*.6*Dt;
-        // the right stick pans (zoomed in); the reticle stays where it is on screen
-        if (const FVector2D Look = Shape(RightStick); !Look.IsZero() && Zoom > 1.)
-        {
-            const FVector2D Screen = SheetOffset + Cursor*SheetSize;
-            Pan -= FVector2D(Look.X,-Look.Y)*Speed*1.5; Fit(G);
-            Cursor = ((Screen-SheetOffset)/SheetSize).ClampAxes(0.,1.);
-        }
-        // the left stick moves the reticle, slower over a pin; let go and it settles on the pin it caught
-        const FVector2D Move = Shape(LeftStick);
-        if (!Move.IsZero()) Cursor = (Cursor + FVector2D(Move.X,-Move.Y)*Speed*(Hovered >= 0 ? .6 : 1.)/SheetSize).ClampAxes(0.,1.);
-        Hovered = PickAt(G,SheetOffset + Cursor*SheetSize,30.f);
-        if (Move.IsZero() && Hovered >= 0) Cursor = FMath::Lerp(Cursor,M->ToSheet(M->GetZones()[Hovered].Location),FMath::Min(1.,Dt*12.));
-        // zoomed in, the view follows the reticle towards the edges
-        const FVector2D Screen = SheetOffset + Cursor*SheetSize, Margin(90,90);
-        Pan += ((Margin-Screen).ComponentMax(FVector2D::ZeroVector) - (Screen-(Area-Margin)).ComponentMax(FVector2D::ZeroVector))*FMath::Min(1.,Dt*10.);
-        Fit(G);
-    }
-    virtual FReply OnKeyDown(const FGeometry& G,const FKeyEvent& E) override
-    {
-        const FKey K = E.GetKey();
-        UJapanMap* M = Map.Get();
-        if (M && (K == EKeys::F5 || K == EKeys::F9 || K == EKeys::Gamepad_FaceButton_Top || K == EKeys::Gamepad_FaceButton_Left))
-        {
-            bPad = K.IsGamepadKey();
-            if (!E.IsRepeat())
-            {
-                if (K == EKeys::F5 || K == EKeys::Gamepad_FaceButton_Top) M->SetMarker();
-                else if (M->ReturnToMarker()) M->Close();
-            }
-            return FReply::Handled();
-        }
-        // keyboard keys (M, Esc) and the controller's map and menu buttons go on to the game, which closes the map
-        if (!M || !K.IsGamepadKey() || K == EKeys::Gamepad_Special_Left || K == EKeys::Gamepad_Special_Right) return FReply::Unhandled();
-        const FVector2D Dir = K == EKeys::Gamepad_DPad_Up ? FVector2D(0,-1) : K == EKeys::Gamepad_DPad_Down ? FVector2D(0,1)
-            : K == EKeys::Gamepad_DPad_Left ? FVector2D(-1,0) : K == EKeys::Gamepad_DPad_Right ? FVector2D(1,0) : FVector2D::ZeroVector;
-        if (!Dir.IsZero()) { bPad = true; Hop(G,Dir); return FReply::Handled(); }
-        if (E.IsRepeat()) return FReply::Handled();
-        if (K == EKeys::Gamepad_FaceButton_Bottom && M->GetZones().IsValidIndex(Hovered))
-        {
-            const FString Key = M->GetZones()[Hovered].Key;
-            if (M->TeleportToZone(Key)) M->Close();
-        }
-        else if (K == EKeys::Gamepad_FaceButton_Right) M->Close();
-        else if (K == EKeys::Gamepad_LeftShoulder || K == EKeys::Gamepad_RightShoulder) { Fit(G); ZoomAbout(G,SheetOffset + Cursor*SheetSize,K == EKeys::Gamepad_RightShoulder ? 1.5 : 1/1.5); }
-        bPad = true;
-        return FReply::Handled();   // every other button is swallowed: no sword or jump behind the map
-    }
-    virtual FReply OnAnalogValueChanged(const FGeometry&,const FAnalogInputEvent& E) override
-    {
-        const FKey K = E.GetKey(); const float V = E.GetAnalogValue();
-        if (K == EKeys::Gamepad_LeftX) LeftStick.X = V; else if (K == EKeys::Gamepad_LeftY) LeftStick.Y = V;
-        else if (K == EKeys::Gamepad_RightX) RightStick.X = V; else if (K == EKeys::Gamepad_RightY) RightStick.Y = V;
-        else return K.IsGamepadKey() ? FReply::Handled() : FReply::Unhandled();
-        if (FMath::Abs(V) > .3f) bPad = true;
-        return FReply::Handled();
-    }
-    virtual FNavigationReply OnNavigation(const FGeometry&,const FNavigationEvent&) override { return FNavigationReply::Stop(); }
-    virtual FReply OnMouseMove(const FGeometry& G,const FPointerEvent& E) override
-    {
-        const FVector2D P=G.AbsoluteToLocal(E.GetScreenSpacePosition());
-        if(bHeld){bMoved|=FVector2D::Distance(P,DragStart)>5.;if(bMoved)Pan+=P-LastMouse;LastMouse=P;return FReply::Handled();}
-        if(E.GetCursorDelta().IsNearlyZero())return FReply::Unhandled();   // a synthesized move (the sheet moved under a still mouse)
-        bPad=false;Hovered=PickAt(G,P);return FReply::Unhandled();
-    }
-    virtual void OnMouseLeave(const FPointerEvent&) override { if(!bPad)Hovered=-1; }
-    virtual FReply OnMouseWheel(const FGeometry& G,const FPointerEvent& E) override
-    {
-        Fit(G);ZoomAbout(G,G.AbsoluteToLocal(E.GetScreenSpacePosition()),FMath::Pow(1.25,E.GetWheelDelta()));
-        return FReply::Handled();
-    }
-    virtual FReply OnMouseButtonDown(const FGeometry& G,const FPointerEvent& E) override
-    {
-        if(E.GetEffectingButton()!=EKeys::LeftMouseButton)return FReply::Unhandled();
-        bPad=false;bHeld=true;bMoved=false;DragStart=LastMouse=G.AbsoluteToLocal(E.GetScreenSpacePosition());
-        return FReply::Handled().CaptureMouse(AsShared());
-    }
-    virtual FReply OnMouseButtonUp(const FGeometry& G,const FPointerEvent& E) override
-    {
-        if(!bHeld)return FReply::Unhandled();bHeld=false;
-        if(!bMoved){const int32 I=PickAt(G,G.AbsoluteToLocal(E.GetScreenSpacePosition()));if(UJapanMap* M=Map.Get();M && M->GetZones().IsValidIndex(I))
-        {const FString Key=M->GetZones()[I].Key;if(M->TeleportToZone(Key))M->Close();}}
-        return FReply::Handled().ReleaseMouseCapture();
-    }
-private:
-    TWeakObjectPtr<UJapanMap> Map;
-    mutable FVector2D SheetOffset = FVector2D::ZeroVector, SheetSize = FVector2D(1,1);
-    int32 Hovered = -1;
-    double Zoom=1.;mutable FVector2D Pan=FVector2D::ZeroVector;FVector2D DragStart,LastMouse;bool bHeld=false,bMoved=false;
-    int32 PadStyle = 0; bool bPad = false;
-    FVector2D Cursor = FVector2D(.5,.5), LeftStick = FVector2D::ZeroVector, RightStick = FVector2D::ZeroVector;   // reticle in sheet uv
-    FSlateBrush DiscBrush = ShapeBrush(0.f), TabBrush = ShapeBrush(5.f);
-    FMapPadLabels Labels() const { return MapPadLabels(PadStyle ? PadStyle : 4); }
-    /** Dead zone, then a square curve: fine aim near the centre, speed at full tilt. */
-    static FVector2D Shape(const FVector2D& Stick)
-    {
-        const double L = Stick.Size();
-        if (L < .2) return FVector2D::ZeroVector;
-        const double T = FMath::Min((L-.2)/.8,1.);
-        return Stick/L*T*T;
-    }
-    void ZoomAbout(const FGeometry& G,const FVector2D& P,double Factor)
-    {
-        const double Old=Zoom;Zoom=FMath::Clamp(Zoom*Factor,1.,6.);
-        const FVector2D NewSize=SheetSize*(Zoom/Old);
-        Pan=P-(P-SheetOffset)*(Zoom/Old)-(G.GetLocalSize()-NewSize)*.5;
-    }
-    /** The d-pad: the nearest pin ahead in that direction, within about 56 degrees of it. */
-    void Hop(const FGeometry& G,const FVector2D& Dir)
-    {
-        const UJapanMap* M = Map.Get();
-        if (!M) return;
-        Fit(G);
-        const FVector2D From = SheetOffset + Cursor*SheetSize;
-        int32 Best = -1; double BestScore = TNumericLimits<double>::Max();
-        for (int32 I = 0; I < M->GetZones().Num(); ++I)
-        {
-            const FVector2D D = SheetOffset + M->ToSheet(M->GetZones()[I].Location)*SheetSize - From;
-            const double Along = D | Dir, Across = FMath::Abs(D ^ Dir);
-            if (Along < 8. || Across > Along*1.5) continue;
-            if (const double Score = Along + Across*2.; Score < BestScore) { BestScore = Score; Best = I; }
-        }
-        if (Best >= 0) { Cursor = M->ToSheet(M->GetZones()[Best].Location); Hovered = Best; }
-    }
-    void Ring(FSlateWindowElementList& Out, int32 Layer, const FGeometry& G, const FVector2D& Centre, float Radius, float Thickness, const FLinearColor& Colour) const
-    {
-        TArray<FVector2f> Points;
-        for (int32 I = 0; I <= 32; ++I) { const double A = I*UE_TWO_PI/32; Points.Add(FVector2f(Centre + FVector2D(FMath::Cos(A),FMath::Sin(A))*Radius)); }
-        FSlateDrawElement::MakeLines(Out,Layer,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Colour,true,Thickness);
-    }
-    void Fit(const FGeometry& G) const
-    {
-        const FVector2D Area = G.GetLocalSize();
-        const FVector2D Image = Map.IsValid() ? Map->GetBrush()->ImageSize : FVector2D(3,2);
-        const float Scale = FMath::Min(Area.X/Image.X, Area.Y/Image.Y);
-        SheetSize=Image*Scale*Zoom;SheetOffset=(Area-SheetSize)*.5f+Pan;
-        SheetOffset.X=SheetSize.X<=Area.X?(Area.X-SheetSize.X)*.5:FMath::Clamp(SheetOffset.X,Area.X-SheetSize.X,0.);
-        SheetOffset.Y=SheetSize.Y<=Area.Y?(Area.Y-SheetSize.Y)*.5:FMath::Clamp(SheetOffset.Y,Area.Y-SheetSize.Y,0.);
-        Pan=SheetOffset-(Area-SheetSize)*.5;
-    }
-    void Disc(FSlateWindowElementList& Out, int32 Layer, const FGeometry& G, const FVector2D& Centre, float Radius, const FLinearColor& Colour) const
-    {
-        FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(FVector2f(Radius*2,Radius*2),FSlateLayoutTransform(FVector2f(Centre-FVector2D(Radius,Radius)))),&DiscBrush,ESlateDrawEffect::None,Colour);
-    }
-    int32 PickAt(const FGeometry& G, const FVector2D& Local, float PickRadius = 26.f) const
-    {
-        const UJapanMap* M = Map.Get();
-        if (!M) return -1;
-        Fit(G);
-        int32 Best = -1; float BestD = PickRadius;
-        for (int32 I = 0; I < M->GetZones().Num(); ++I)
-        {
-            const float D = FVector2D::Distance(Local,SheetOffset + M->ToSheet(M->GetZones()[I].Location)*SheetSize);
-            if (D < BestD) { BestD = D; Best = I; }
-        }
-        return Best;
-    }
-};
 
 /** The saved-places bar: markers from the game itself, with a controller and no keyboard. Holding View opens it at the
  *  bottom of the screen. The d-pad, left stick or shoulders choose a place, the top button saves here, the bottom or left
@@ -471,6 +164,9 @@ void UJapanMap::Initialize(AWandererCharacter* Pawn)
             (*O)->TryGetStringField(TEXT("hint"),Zone.Hint);
             Zone.Location = AJapanWorld::ToUE((*O)->GetNumberField(TEXT("x")),(*O)->GetNumberField(TEXT("y")),(*O)->GetNumberField(TEXT("z")));
             Zone.Yaw = -(*O)->GetNumberField(TEXT("yaw"));
+            double AboveM = 0.;
+            if ((*O)->TryGetNumberField(TEXT("above_m"),AboveM) && FMath::IsFinite(AboveM) && AboveM >= 0. && AboveM <= 60.)
+                Zone.Above = float(AboveM * 100.);
             if (!Zone.Key.IsEmpty()) Zones.Add(Zone);
         }
     // The skate pier (world/regions/skatepark) is newer than the painted sheet: add its stop unless map.json already has one.
@@ -536,7 +232,8 @@ void UJapanMap::Initialize(AWandererCharacter* Pawn)
                     const auto& L = Arrival->GetArrayField(TEXT("location"));
                     if (L.Num() < 3) continue;
                     FJapanMapZone Zone; Zone.Key = S->GetStringField(TEXT("key")); Zone.Name = S->GetStringField(TEXT("name"));
-                    Zone.Hint = TEXT("Le train de Belmonte : quai provisoire, le prochain train arrive");
+                    Zone.Name = Zone.Key == TEXT("hidamari_station") ? TEXT("Hidamari Station") : TEXT("Belmonte Station");
+                    Zone.Hint = TEXT("The Belmonte railway: arrive on the platform for the next train");
                     Zone.Location = FVector(L[0]->AsNumber(), L[1]->AsNumber(), L[2]->AsNumber());
                     Zone.Yaw = float(Arrival->GetNumberField(TEXT("yaw")));
                     if (!Zones.ContainsByPredicate([&](const FJapanMapZone& Z) { return Z.Key == Zone.Key; })) Zones.Add(Zone);
@@ -552,6 +249,7 @@ void UJapanMap::Initialize(AWandererCharacter* Pawn)
         Brush.TintColor = FLinearColor::White;
     }
     else UE_LOG(LogTemp,Warning,TEXT("world map: %s failed to load"),*ImageFile);
+    InitializeAtlas(Root,Dir);
     bLoaded = Zones.Num() > 0 && Texture != nullptr;
     UE_LOG(LogTemp,Display,TEXT("world map: %d zones, sheet %s, bounds x %.0f..%.0f y %.0f..%.0f"),Zones.Num(),Texture ? *FString::Printf(TEXT("%dx%d"),Texture->GetSizeX(),Texture->GetSizeY()) : TEXT("missing"),Bounds.Min.X,Bounds.Max.X,Bounds.Min.Y,Bounds.Max.Y);
 }
@@ -722,7 +420,7 @@ bool UJapanMap::TeleportToZone(const FString& Key)
     if (Key == TEXT("craterpark") && CraterParkTower::HasLines()) return CraterParkTower::Return(Owner,0);
     if (Key.EndsWith(TEXT("_station")))
         if (auto* Train = ABelmonteTrainService::Find(Owner)) return Train->GoToStation(Key, true);
-    return Owner->TravelTo(Z->Location,Z->Yaw,*Z->Name);
+    return Owner->TravelTo(Z->Location,Z->Yaw,*Z->Name,Z->Above);
 }
 
 FVector2D UJapanMap::ToSheet(const FVector& Location) const
@@ -743,78 +441,19 @@ void UJapanMap::Open()
 {
     if (IsOpen() || !bLoaded || !Owner || !GEngine || !GEngine->GameViewport) return;
     CloseMarkerBar();
-    TSharedRef<SJapanMapSheet> Sheet = SNew(SJapanMapSheet).Map(this).PadStyle(AJapanHUD::CurrentControllerStyle());
-    TSharedRef<SMarkerNameBox> NameInput = SNew(SMarkerNameBox)
-        .HintText(FText::FromString(TEXT("Name this skate-line spot · Enter saves")))
-        .Text(FText::FromString(MarkerStore()->NextName()))
-        .ClearKeyboardFocusOnCommit(false)
-        .SelectAllTextWhenFocused(true)
-        .OnTextCommitted_Lambda([this](const FText& Text, ETextCommit::Type Type)
-        {
-            if (Type == ETextCommit::OnEnter && SaveMarker(Text.ToString()))
-                MarkerName->SetText(FText::FromString(MarkerStore()->NextName()));
-        });
-    NameInput->Map = this; MarkerName = NameInput;
-
-    Widget = SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(.02f,.03f,.03f,.86f)).Padding(FMargin(30,18,30,16))
-        [SNew(SVerticalBox)
-            + SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)
-                [SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot().FillWidth(1)[SNew(STextBlock).Text(FText::FromString(TEXT("Yorimichi  ·  world map"))).Font(FCoreStyle::GetDefaultFontStyle("Bold",22)).ColorAndOpacity(FLinearColor(1,.96f,.86f,1))]
-                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Bottom)[SNew(STextBlock).Text_Lambda([Sheet] { return FText::FromString(Sheet->GetControlsHint()); }).Font(FCoreStyle::GetDefaultFontStyle("Regular",13)).ColorAndOpacity(FLinearColor(.78f,.79f,.72f,1))]]
-            + SVerticalBox::Slot().FillHeight(1)[Sheet]
-            + SVerticalBox::Slot().AutoHeight().Padding(0,10,0,0)
-                [SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot().FillWidth(1).Padding(0,0,10,0)
-                        [NameInput]
-                    + SHorizontalBox::Slot().AutoWidth().Padding(0,0,10,0)
-                        [SNew(SButton).IsFocusable(false).Text(FText::FromString(TEXT("Save here")))
-                            .OnClicked_Lambda([this] { if (SaveMarker(MarkerName->GetText().ToString())) MarkerName->SetText(FText::FromString(MarkerStore()->NextName())); return FReply::Handled(); })]
-                    + SHorizontalBox::Slot().AutoWidth().Padding(0,0,10,0)
-                        [SNew(SButton).IsFocusable(false).Text(FText::FromString(TEXT("Rename selected")))
-                            .IsEnabled_Lambda([this] { return HasMarker(); })
-                            .OnClicked_Lambda([this] { RenameMarker(MarkerName->GetText().ToString()); return FReply::Handled(); })]
-                    + SHorizontalBox::Slot().AutoWidth()
-                        [SNew(SButton).IsFocusable(false).Text(FText::FromString(TEXT("Delete selected")))
-                            .IsEnabled_Lambda([this] { return HasMarker(); })
-                            .OnClicked_Lambda([this] { DeleteMarker(); return FReply::Handled(); })]]
-            + SVerticalBox::Slot().AutoHeight().Padding(0,8,0,0)
-                [SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot().AutoWidth().Padding(0,0,10,0)
-                        [SNew(SButton).IsFocusable(false).Text(FText::FromString(TEXT("Previous")))
-                            .IsEnabled_Lambda([this] { return HasMarker(); })
-                            .OnClicked_Lambda([this] { CycleMarker(-1); return FReply::Handled(); })]
-                    + SHorizontalBox::Slot().AutoWidth().Padding(0,0,10,0)
-                        [SNew(SButton).IsFocusable(false).Text(FText::FromString(TEXT("Next")))
-                            .IsEnabled_Lambda([this] { return HasMarker(); })
-                            .OnClicked_Lambda([this] { CycleMarker(1); return FReply::Handled(); })]
-                    + SHorizontalBox::Slot().AutoWidth().Padding(0,0,16,0)
-                        [SNew(SButton).IsFocusable(false).Text(FText::FromString(TEXT("Return (F9)")))
-                            .IsEnabled_Lambda([this] { return HasMarker(); })
-                            .OnClicked_Lambda([this] { if (ReturnToMarker()) Close(); return FReply::Handled(); })]
-                    + SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)
-                        [SNew(STextBlock).Text_Lambda([Sheet] { return FText::FromString(Sheet->GetMarkerHint()); })
-                            .Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).ColorAndOpacity(FLinearColor(.78f,.79f,.72f,1))]]
-            + SVerticalBox::Slot().AutoHeight().Padding(0,10,0,0)
-                [SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular",14)).ColorAndOpacity(FLinearColor(1,.9f,.6f,1))
-                    .Text_Lambda([Sheet,this]
-                    {
-                        const FString Hint = Sheet->GetHoveredHint();
-                        if (!Hint.IsEmpty()) return FText::FromString(Hint);
-                        if (Owner) { const FVector L = Owner->GetActorLocation(); return FText::FromString(FString::Printf(TEXT("You are here: %.0f m east, %.0f m north of the road's middle"),L.X/100.0,-L.Y/100.0)); }
-                        return FText::GetEmpty();
-                    })]];
+    AtlasCurrentRegion();
+    Widget = MakeJapanAtlasWidget(this);
     GEngine->GameViewport->AddViewportWidgetContent(Widget.ToSharedRef(),19);
     Owner->SetMenuOpen(true);
     GEngine->GameViewport->SetMouseCaptureMode(EMouseCaptureMode::NoCapture);
-    FSlateApplication::Get().SetKeyboardFocus(Sheet,EFocusCause::SetDirectly);
 }
 
 void UJapanMap::Close()
 {
     CloseMarkerBar();
     if (Widget && GEngine && GEngine->GameViewport) GEngine->GameViewport->RemoveViewportWidgetContent(Widget.ToSharedRef());
-    Widget.Reset(); MarkerName.Reset();
+    Widget.Reset(); MarkerName.Reset(); AtlasSearch.Reset(); StableName.Reset();
+    if (FSlateApplication::IsInitialized()) FSlateApplication::Get().SetAllUserFocusToGameViewport();
     if (Owner) Owner->SetMenuOpen(false);
 }
 
@@ -848,6 +487,20 @@ bool UJapanMap::ReviewSlateKey(const FString& Key, bool bPressed)
     const FKeyEvent Event(K,FModifierKeysState(),0,false,0,0);
     if (bPressed) FSlateApplication::Get().ProcessKeyDownEvent(Event); else FSlateApplication::Get().ProcessKeyUpEvent(Event);
     return true;
+}
+
+bool UJapanMap::ReviewSlateAnalog(const FString& Key, float Value)
+{
+    const FKey K(*Key);
+    if (!IsOpen() || !K.IsGamepadKey() || !K.IsAnalog() || !FMath::IsFinite(Value)) return false;
+    const FAnalogInputEvent Event(K,FModifierKeysState(),0,false,0,0,FMath::Clamp(Value,-1.f,1.f));
+    FSlateApplication::Get().ProcessAnalogInputEvent(Event);
+    return true;
+}
+
+FString UJapanMap::ReviewAtlasController() const
+{
+    return Widget.IsValid() ? JapanAtlasControllerSnapshot(Widget.ToSharedRef()) : TEXT("{}");
 }
 
 bool UJapanMap::ReviewMarkerBarKey(const FString& Key)

@@ -21,10 +21,14 @@ try{
  await page.waitForFunction(()=>{const i=document.getElementById('map-image');return i.complete&&i.naturalWidth>0;},{},{timeout:20000});
  const sheet=await page.evaluate(()=>({image:document.getElementById('map-image').naturalWidth+'x'+document.getElementById('map-image').naturalHeight,frame:document.getElementById('map-frame').getBoundingClientRect().toJSON(),pins:document.querySelectorAll('.map-pin').length,list:document.querySelectorAll('#map-zones button').length,player:!document.getElementById('map-player').hidden,playerStyle:document.getElementById('map-player').getAttribute('style'),zones:window.yorimichi.map.zones.map(z=>z.key)}));
  console.log('MAP',sheet);report.sheet=sheet;
- if(sheet.pins<10||sheet.list!==sheet.pins)throw Error('Map pins missing');
+ if(sheet.pins<1||sheet.list<1)throw Error('Map pins missing');
  if(!sheet.player)throw Error('Player marker hidden');
  await page.screenshot({path:new URL('phone-map.png',out).pathname});
  // travel to the clock square by its pin
+ if(await page.locator('#map-back').isVisible())await page.locator('#map-back').tap();
+ const registry=await page.locator('#map-zones button').evaluateAll(b=>b.map(x=>x.dataset.key));
+ for(const key of sheet.zones)if(!registry.includes(key))throw Error('Destination missing from world list: '+key);
+ const hidamari=page.locator('.map-region[data-key="hidamari"]');if(await hidamari.count())await hidamari.tap();
  const target=(await page.evaluate(()=>window.yorimichi.map.zones)).find(z=>z.key==='plaza')||(await page.evaluate(()=>window.yorimichi.map.zones))[1];
  await page.locator(`.map-pin[data-key="${target.key}"]`).tap();
  await page.waitForFunction(t=>{const p=window.yorimichi.state;return p&&Math.hypot(p.x/100-t.x,-p.y/100-t.y)<6&&!p.falling;},target,{timeout:8000});
@@ -43,6 +47,8 @@ try{
  await page.locator('#close-map').tap();
  // travel from the list too, then home
  await page.locator('#map-button').tap();await page.waitForTimeout(300);
+ if(await page.locator('#map-back').isVisible())await page.locator('#map-back').tap();
+ const island=page.locator('.map-region[data-key="temple_island"]');if(await island.count())await island.tap();
  const second=(await page.evaluate(()=>window.yorimichi.map.zones)).find(z=>z.key==='landing');
  await page.locator(`#map-zones button[data-key="${second.key}"]`).tap();
  await page.waitForFunction(t=>{const p=window.yorimichi.state;return p&&Math.hypot(p.x/100-t.x,-p.y/100-t.y)<6&&!p.falling;},second,{timeout:8000});

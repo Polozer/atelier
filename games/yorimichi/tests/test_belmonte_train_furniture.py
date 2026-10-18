@@ -139,55 +139,79 @@ def recipe():
 
 @pytest.fixture
 def baked_furniture(tmp_path):
+    from train_furniture_fixtures import bake
     root = tmp_path / 'belmonte-train' / 'furniture'
-    F.stage(root)
-    lod = root / 'lod'
-    lod.mkdir()
-    summary = {}
-    for aid in SPECS:
-        glb = lod / f'{aid}_LOD0.glb'
-        glb.write_bytes(b'baked mesh fixture')
-        record = {'levels': [{'glb': glb.name, 'bytes': glb.stat().st_size, 'level': 0, 'screen_size': 1.}]}
-        path = root / f'{aid}.json'
-        report = json.loads(path.read_text())
-        report['lods'] = summary[aid] = record
-        path.write_text(json.dumps(report))
-    (lod / 'summary.json').write_text(json.dumps(summary))
+    bake(root)
     return root
 
 
-def test_source_report_reset_invalidates_an_existing_lod_bake(recipe, baked_furniture, tmp_path):
+def test_source_report_reset_preserves_an_existing_lod_bake(recipe, baked_furniture, tmp_path):
     assert recipe.belmonte_train_furniture_lods_present(tmp_path)
-    old_glb = (baked_furniture / 'wall-sconce.glb').read_bytes()
-    old_summary = (baked_furniture / 'lod' / 'summary.json').read_bytes()
+    old = {p: p.read_bytes() for p in baked_furniture.iterdir() if p.is_file()}
+    summary = (baked_furniture / 'lod' / 'summary.json').read_bytes()
     F.stage(baked_furniture)
-    assert (baked_furniture / 'wall-sconce.glb').read_bytes() == old_glb
-    assert (baked_furniture / 'lod' / 'summary.json').read_bytes() == old_summary
-    assert not recipe.belmonte_train_furniture_lods_present(tmp_path)
+    assert all(p.read_bytes() == raw for p, raw in old.items())
+    assert (baked_furniture / 'lod' / 'summary.json').read_bytes() == summary
+    assert recipe.belmonte_train_furniture_lods_present(tmp_path)
 
 
-@pytest.mark.parametrize('change', ['missing-report', 'mismatched-report', 'incomplete-summary', 'empty-summary', 'empty-levels', 'truncated-glb'])
-def test_incomplete_lod_bake_is_not_current(recipe, baked_furniture, tmp_path, change):
-    report_path = baked_furniture / 'wall-sconce.json'
+def test_review_sheets_use_bake_summary_without_mutating_source_reports(baked_furniture, monkeypatch):
+    from PIL import Image
+    from train import review_sheets as review
     summary_path = baked_furniture / 'lod' / 'summary.json'
-    if change == 'missing-report':
-        report_path.unlink()
-    elif change == 'mismatched-report':
-        report = json.loads(report_path.read_text())
-        report['lods']['levels'][0]['screen_size'] = .5
-        report_path.write_text(json.dumps(report))
-    elif change == 'truncated-glb':
-        (baked_furniture / 'lod' / 'wall-sconce_LOD0.glb').write_bytes(b'truncated')
+    summary = json.loads(summary_path.read_text())
+    aid = 'wall-sconce'
+    summary[aid].update(source_triangles=1234, textures={'base': [4, 4]})
+    summary_path.write_text(json.dumps(summary))
+    source = baked_furniture / f'{aid}.json'
+    before = source.read_bytes()
+    assert 'lods' not in json.loads(before)
+    frames = baked_furniture.parent / 'review-perf' / 'frames'
+    frames.mkdir(parents=True)
+    Image.new('RGB', (32, 32), '#876543').save(frames / f'{aid}-lod0.png')
+    monkeypatch.setattr(review, 'OUT', baked_furniture.parent)
+    monkeypatch.setattr(review, 'REVIEW', frames.parent)
+    monkeypatch.setattr(review, 'FRAMES', frames)
+    review.main()
+    assert (frames.parent / f'{aid}.png').is_file()
+    assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize('change', ['stale-source', 'checksum', 'incomplete-summary', 'empty-summary', 'empty-levels',
+                                    'missing-level', 'unbaked-level', 'truncated-glb', 'triangle-budget'])
+def test_incomplete_lod_bake_is_not_current(recipe, baked_furniture, tmp_path, change):
+    path = baked_furniture / 'lod' / 'summary.json'
+    summary = json.loads(path.read_text())
+    if change == 'stale-source':
+        (baked_furniture / 'wall-sconce.glb').write_bytes(b'new source')
+    elif change == 'checksum':
+        summary['wall-sconce']['levels'][0]['sha256'] = '0' * 64
+    elif change == 'incomplete-summary':
+        del summary['wall-sconce']
+    elif change == 'empty-summary':
+        summary = {}
+    elif change == 'empty-levels':
+        summary['wall-sconce']['levels'] = []
+    elif change == 'missing-level':
+        summary['second-class-bench']['levels'].pop()
+    elif change == 'unbaked-level':
+        summary['wall-sconce']['levels'][0]['glb'] = 'wall-sconce.glb'
+    elif change == 'triangle-budget':
+        summary['wall-sconce']['levels'][0]['triangles'] = 100000
     else:
-        summary = json.loads(summary_path.read_text())
-        if change == 'incomplete-summary':
-            del summary['wall-sconce']
-        elif change == 'empty-summary':
-            summary = {}
-        else:
-            summary['wall-sconce']['levels'] = []
-            report = json.loads(report_path.read_text())
-            report['lods'] = summary['wall-sconce']
-            report_path.write_text(json.dumps(report))
-        summary_path.write_text(json.dumps(summary))
+        (baked_furniture / 'lod' / 'wall-sconce_LOD0.glb').write_bytes(b'truncated')
+    path.write_text(json.dumps(summary))
     assert not recipe.belmonte_train_furniture_lods_present(tmp_path)
+
+
+def test_default_and_import_dependency_closure_requires_furniture_bake(recipe, tmp_path):
+    from types import SimpleNamespace
+    steps = {s.name: s for s in recipe.steps(SimpleNamespace(game='yorimichi', out=tmp_path, uproject=None))}
+    bake = steps['world.belmonte_train_furniture_lods']
+    assert not bake.explicit
+    assert 'world.belmonte_train_furniture_lods' in steps['world.belmonte_train_assembly'].needs
+    assert 'world.belmonte_train_assembly' in steps['world.belmonte_train_service'].needs
+    assert 'world.belmonte_train_service' in steps['unreal.belmonte_train'].needs
+    assert steps['world.belmonte_train_furniture_review'].explicit
+    assert steps['world.belmonte_train_review'].explicit
+    assert len([p for p in bake.outputs if p.suffix == '.glb']) == sum(2 if cap[1] else 1 for cap in B.FURNITURE.values())

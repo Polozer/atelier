@@ -82,6 +82,8 @@ def configure(sub):
     p.add_argument('--thread', required=True, help='existing Codex thread UUID')
     p.add_argument('--codex', default='codex', help='Codex executable used to locate the running daemon')
     p.add_argument('--socket', type=Path, help='explicit existing app-server Unix socket')
+    p.add_argument('--codex-home', type=Path,
+                   help='Codex home whose daemon owns the thread (default: discover the owning daemon)')
     p.add_argument('message')
     p = actions.add_parser('remote-watch', help='bounded recovery for explicitly owned macOS Claude remote services')
     p.add_argument('--config', type=Path, required=True, help='private machine service configuration JSON')
@@ -210,7 +212,7 @@ def main(args):
         elif args.action == 'notify-codex':
             from atelier.harness import board_codex
             try:
-                with board_codex.Client(args.codex, args.socket) as client:
+                with board_codex.connect(args.thread, args.codex, args.socket, args.codex_home) as client:
                     print(board_codex.notify(client, args.thread, args.message))
             except (OSError, board_codex.TransportError) as error:
                 print(str(error), file=sys.stderr)
