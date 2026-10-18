@@ -16,7 +16,7 @@ def indoor_zone(key):
     return next(zone for zone in build.map_zones(241.) if zone['key'] == key)
 
 
-@pytest.mark.parametrize('key,yaw', [('belmonte_salon', 0.), ('belmonte_osteria', 4.)])
+@pytest.mark.parametrize('key,yaw', [('belmonte_salon', 0.), ('belmonte_osteria', -4.)])
 def test_indoor_stop_follows_the_region_origin(monkeypatch, key, yaw):
     before = indoor_zone(key)
     offset = np.array([13., 41., 7.])
@@ -38,7 +38,25 @@ def test_osteria_stop_follows_taproom_placement(monkeypatch):
     monkeypatch.setattr(source, 'manifest', lambda: data)
     zone = indoor_zone('belmonte_osteria')
     np.testing.assert_allclose([zone[k] for k in ('x', 'y', 'z')], layout.ORIGIN + [17.8, 27.2, 8.])
-    assert zone['yaw'] == pytest.approx(-86.)
+    assert zone['yaw'] == pytest.approx(86.)
+
+
+@pytest.mark.parametrize('native_degrees', [0., 90., -90., 33., 180.])
+def test_osteria_runtime_facing_follows_taproom_rotation(monkeypatch, native_degrees):
+    data = copy.deepcopy(source.manifest())
+    model = next(m for m in data['meshes'] if m['name'] == 'SM_BM_BH_Osteria_Taproom')
+    placement = next(p for p in data['placements'] if p['asset'] == model['source_asset'])
+    half = np.radians(native_degrees) / 2.
+    placement['transform']['rotation_xyzw'] = [0., 0., float(np.sin(half)), float(np.cos(half))]
+    monkeypatch.setattr(source, 'manifest', lambda: data)
+    zone = indoor_zone('belmonte_osteria')
+    # JapanMap.cpp loads plan-space map yaw as native -yaw. Compare the final
+    # runtime facing to the authored native direction rotated by the building,
+    # independently of the production quaternion helper and angle extraction.
+    runtime_angle = np.radians(-zone['yaw'])
+    expected_angle = np.radians(native_degrees - 86.)
+    np.testing.assert_allclose([np.cos(runtime_angle), np.sin(runtime_angle)],
+                               [np.cos(expected_angle), np.sin(expected_angle)], atol=1e-12)
 
 
 @pytest.mark.parametrize('duplicate', [False, True])

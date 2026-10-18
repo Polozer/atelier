@@ -127,10 +127,11 @@ def osteria_landing():
     local = np.array([.4, 2.1, 0.]) * [100., -100., 100.] * transform['scale']
     native = planting.rotate(transform['rotation_xyzw'], local) + transform['translation_cm']
     position = native / [100., -100., 100.] + L.ORIGIN
-    # Face the front wall, relative to the taproom, in the map's native yaw convention.
+    # Face the front wall relative to the taproom. The map uses plan-space yaw;
+    # JapanMap converts its Y axis and negates yaw when loading native runtime data.
     angle = np.radians(-86.)
     forward = planting.rotate(transform['rotation_xyzw'], np.array([np.cos(angle), np.sin(angle), 0.]))
-    return position, float(np.degrees(np.arctan2(forward[1], forward[0])))
+    return position, float(np.degrees(np.arctan2(-forward[1], forward[0])))
 
 
 def map_zones(town_z):
