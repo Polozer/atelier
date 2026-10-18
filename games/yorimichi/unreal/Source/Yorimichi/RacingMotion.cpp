@@ -8,8 +8,8 @@ namespace RacingMotion
         double D = 0.;
         if (T < 0.)
         {
-            // Walking to the start: ParadeDistance metres over the parade, standing for the last ParadeHold seconds.
-            const double Walk = ParadeSeconds - ParadeHold;
+            // Walking to the start over the parade's first minute, then lined up there for the last LineupSeconds.
+            const double Walk = ParadeSeconds - LineupSeconds;
             const double Into = FMath::Clamp(T + ParadeSeconds, 0., Walk);
             D = -ParadeDistance + ParadeDistance * Into / Walk;
             V = (Into > 0. && Into < Walk) ? ParadeDistance / Walk : 0.;
