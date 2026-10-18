@@ -23,6 +23,10 @@ PALETTES = {
     'leaf_light': ((108, 138, 63), (74, 100, 44), 30),
     'leaf_deep': ((52, 72, 34), (34, 50, 23), 20),
     'leaf_warm': ((150, 112, 48), (104, 74, 34), 34),
+    # Sunlit crown tops and the orange and gold accents of the Sunburst canopy.
+    'leaf_sun': ((138, 160, 70), (96, 118, 48), 28),
+    'leaf_rust': ((176, 98, 44), (120, 62, 30), 30),
+    'leaf_gold': ((186, 146, 58), (128, 96, 36), 30),
 }
 
 
@@ -48,14 +52,21 @@ def leaf_polygon(cx, cy, length, width, angle):
 
 
 def paint_canopy(draw, ox, oy, base, vein, spread, rng):
-    for _ in range(16):
+    # Back leaves first and darker, front leaves last and lit from the upper left, so one card already reads as
+    # a rounded clump instead of a flat decal.
+    leaves = []
+    for _ in range(30):
         angle = rng.uniform(0, math.tau)
-        distance = rng.uniform(10, 88)
+        distance = rng.uniform(4, 96) ** 0.92 * 1.2
+        leaves.append((angle, distance))
+    leaves.sort(key=lambda leaf: -math.sin(leaf[0]) * leaf[1])
+    for index, (angle, distance) in enumerate(leaves):
+        light = (index / len(leaves) - 0.5) * spread * 1.4
         cx = ox + 128 + math.cos(angle) * distance
         cy = oy + 128 + math.sin(angle) * distance * 0.86
         length = rng.uniform(72, 138)
         width = length * rng.uniform(0.34, 0.52)
-        tone = rng.randint(-spread, spread)
+        tone = rng.randint(-spread, spread) // 2 + light
         colour = shade(base, tone)
         rotation = angle + rng.uniform(-1.2, 1.2)
         polygon = leaf_polygon(cx, cy, length, width, rotation)
@@ -83,28 +94,47 @@ def leaf_atlas(name, base, vein, spread):
 
 
 def palm_frond():
+    """One coconut frond per cell: rachis up the middle (base at the bottom), long leaflets sweeping to the tip.
+
+    The cards are bent strips whose v runs from the trunk to the tip, so each cell is painted as a single frond
+    that fills the width, not a cone of leaves.
+    """
     rng = random.Random(9157)
     image = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
     for cell in range(4):
         ox, oy = (cell % 2) * CELL, (cell // 2) * CELL
         cx = ox + CELL / 2
-        base_y = oy + CELL - 14
-        tip_y = oy + 12
-        draw.line((cx, base_y, cx, tip_y), fill=(72, 94, 42, 255), width=4)
-        for i in range(9):
-            t = (i + 0.5) / 9
-            y = base_y + (tip_y - base_y) * t
-            span = (1.0 - t) ** 0.80 * 136 + 12
+        base_y = oy + CELL - 4
+        tip_y = oy + 6
+        base = ((92, 124, 52), (104, 132, 56), (82, 112, 46), (112, 128, 58))[cell]
+        leaflets = []
+        for i in range(34):
+            t = 0.04 + 0.94 * i / 33
             for side in (-1, 1):
-                angle = side * (0.34 - 0.14 * t)
-                length = span * rng.uniform(0.86, 1.04)
-                polygon = leaf_polygon(cx + side * 3, y, length,
-                                       max(9, 26 * (1 - t) + 7), angle + (0 if side > 0 else math.pi))
-                tone = rng.randint(-20, 20)
-                draw.polygon(polygon, fill=shade((84, 116, 50), tone) + (255,))
-                draw.line((cx + side * 3, y, cx + side * 3 + math.cos(angle) * length * 0.4,
-                           y + math.sin(angle) * length * 0.4), fill=(62, 84, 38, 180), width=1)
+                leaflets.append((t, side))
+        # Underside leaflets first, so the upper row overlaps them.
+        leaflets.sort(key=lambda leaf: (leaf[1], leaf[0]))
+        for t, side in leaflets:
+            y = base_y + (tip_y - base_y) * t
+            reach = (math.sin(math.pi * min(1.0, t * 1.15)) ** 0.6) * (CELL * 0.47) + 6
+            reach *= rng.uniform(0.88, 1.04)
+            # Leaflets angle forward toward the tip and droop a little at their ends.
+            angle = -math.pi / 2 + side * (1.05 - 0.35 * t) + rng.uniform(-0.06, 0.06)
+            tip = (cx + math.cos(angle) * reach, y + math.sin(angle) * reach * 0.62 + 10 * (1 - t))
+            mid = ((cx + tip[0]) / 2 + side * 2, (y + tip[1]) / 2 + 3)
+            width = 7.5 * (1.0 - 0.55 * t) + 2
+            tone = rng.randint(-18, 18) + int(18 * (side > 0)) - int(10 * t)
+            colour = shade(base, tone) + (255,)
+            normal = (-(tip[1] - y), tip[0] - cx)
+            length = math.hypot(*normal) or 1.0
+            nx, ny = normal[0] / length * width * 0.5, normal[1] / length * width * 0.5
+            draw.polygon([(cx, y), (mid[0] + nx, mid[1] + ny), tip, (mid[0] - nx, mid[1] - ny)], fill=colour)
+            draw.line((cx, y, mid[0], mid[1]), fill=shade(base, -30) + (170,), width=1)
+        for k in range(24):
+            t0, t1 = k / 24, (k + 1) / 24
+            draw.line((cx, base_y + (tip_y - base_y) * t0, cx, base_y + (tip_y - base_y) * t1),
+                      fill=(78, 92, 42, 255), width=max(1, int(5 * (1 - t0)) + 1))
     image.save(OUT / 'palm_frond.png')
     print('palm_frond', image.size)
 

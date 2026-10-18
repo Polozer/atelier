@@ -40,8 +40,11 @@ class Builder:
         self.uvs = []
         self.faces = []
         self.mats = []
+        # Optional per-vertex normals: foliage cards point away from their crown so a canopy shades as one mass.
+        # None for a vertex means the flat face normal.
+        self.normals = None
 
-    def face(self, points, mat, uvs=None):
+    def face(self, points, mat, uvs=None, normals=None):
         points = tuple(tuple(float(c) for c in p) for p in points)
         # Box-project each face in world metres.  Every face owns its vertices,
         # so a projected seam never drags a neighbouring wall's UVs with it.
@@ -65,6 +68,10 @@ class Builder:
         else:
             uvs = [(0.0, 0.0) for _ in points]
         i = len(self.verts)
+        if normals is not None and self.normals is None:
+            self.normals = [None] * i
+        if self.normals is not None:
+            self.normals.extend(normals if normals is not None else [None] * len(points))
         self.verts.extend(points)
         self.uvs.extend(uvs)
         self.faces.append(tuple(range(i, i + len(points))))
@@ -76,7 +83,7 @@ class Builder:
     def quad(self, a, b, c, d, mat, uvs=None):
         self.face((a, b, c, d), mat, uvs)
 
-    def card(self, center, normal, width, height, mat, uvs, up_hint=(0.0, 0.0, 1.0)):
+    def card(self, center, normal, width, height, mat, uvs, up_hint=(0.0, 0.0, 1.0), normal_from=None, lift=0.0):
         """A rectangular leaf card centred at center, facing normal."""
         nx, ny, nz = _unit(normal)
         ux, uy, uz = up_hint
@@ -98,7 +105,12 @@ class Builder:
         corners = []
         for du, dv in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)):
             corners.append((cx + rx * du + sx * dv, cy + ry * du + sy * dv, cz + rz * du + sz * dv))
-        self.face(tuple(corners), mat, uvs)
+        normals = None
+        if normal_from is not None:
+            # Shade the card as part of a rounded mass centred at normal_from, biased upward by lift.
+            normals = [_unit((p[0] - normal_from[0], p[1] - normal_from[1], p[2] - normal_from[2] + lift))
+                       for p in corners]
+        self.face(tuple(corners), mat, uvs, normals)
 
     def box(self, center, size, mat, yaw=0.0, top=None):
         cx, cy, cz = center

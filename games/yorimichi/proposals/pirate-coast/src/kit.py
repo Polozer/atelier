@@ -209,6 +209,45 @@ def timber_frame(b, x, y, z, w, d, h, yaw, floors):
 
 
 def shack_building(b, spec, rng):
+    """A cluster of small stilt cabins on one lot, stepped and joined by plank walks.
+
+    The lots are 18-28 m wide; one cabin that size reads as a barn. The paintings show huddles of cabins a few metres
+    across, each with its own roof, paint and stilts, so the lot is split into two to four of them.
+    """
+    key, x, y, z, w, d, h, floors, style, yaw, roof = spec
+    count = max(1, min(4, round(w / 7.5)))
+    slot = w / count
+    walls = ('planks', 'planks', 'wood_light', 'wood', 'teal_wall', 'plaster', 'sage_wall')
+    roofs = ('roof_straw', 'roof_terra', 'roof_straw', 'roof_teal', 'roof_slate', 'roof_terra_light')
+    previous = None
+    for i in range(count):
+        cw = slot * rng.uniform(0.62, 0.82)
+        cd = min(d * rng.uniform(0.5, 0.72), cw * rng.uniform(0.85, 1.25))
+        storeys = 2 if (floors > 1 and rng.random() < 0.6) else 1
+        ch = 3.1 * storeys + rng.uniform(-0.2, 0.5)
+        lx = -w / 2 + slot * (i + 0.5) + rng.uniform(-0.12, 0.12) * slot
+        ly = rng.uniform(-0.18, 0.18) * d
+        lift = rng.uniform(-0.6, 1.6)
+        cx, cy = local(x, y, yaw, lx, ly)
+        cyaw = yaw + rng.uniform(-9, 9)
+        wall = walls[rng.randrange(len(walls))] if i else 'planks'
+        r = roof if i == 0 else roofs[rng.randrange(len(roofs))]
+        _cabin(b, (key + str(i), cx, cy, z + lift, cw, cd, ch, storeys, 'shack', cyaw, r), rng, wall,
+               stilts=3.4 + lift)
+        here = local(x, y, yaw, lx, ly - cd / 2 - 1.2)
+        if previous is not None:
+            # A plank walk with rope rails ties each cabin's porch to the next.
+            a = (previous[0], previous[1], previous[2] + 0.12)
+            c = (here[0], here[1], z + lift + 0.12)
+            b.beam(a, c, 1.1, 'wood_light', depth=0.16)
+            for side in (-0.55, 0.55):
+                ra = (a[0], a[1] + side, a[2] + 1.0)
+                rc = (c[0], c[1] + side, c[2] + 1.0)
+                b.rope(ra, rc, sag=0.25, radius=0.04, segments=5)
+        previous = (here[0], here[1], z + lift)
+
+
+def _cabin(b, spec, rng, wall='planks', stilts=3.4):
     """A lived-in stilt cabin: planked walls, porch, ladder and patched roof."""
     key, x, y, z, w, d, h, floors, style, yaw, roof = spec
 
@@ -219,11 +258,11 @@ def shack_building(b, spec, rng):
     # Stilts, cross braces and the main deck.
     for sx in (-w / 2 + 0.4, 0.0, w / 2 - 0.4):
         for sy in (-d / 2 + 0.4, d / 2 - 0.4):
-            b.beam(P(sx, sy, -3.4), P(sx, sy, 0.0), 0.24, 'wood_dark')
+            b.beam(P(sx, sy, -stilts), P(sx, sy, 0.0), 0.24, 'wood_dark')
             if sy < 0:
-                b.beam(P(sx, sy, -2.8), P(sx, 0, -0.5), 0.11, 'wood_dark')
+                b.beam(P(sx, sy, -stilts * 0.8), P(sx, 0, -0.5), 0.11, 'wood_dark')
     b.box(P(0, 0, 0.08), (w + 0.5, d + 0.5, 0.28), 'wood_light', yaw)
-    b.box(P(0, 0, 0.24 + h / 2), (w, d, h), 'planks', yaw)
+    b.box(P(0, 0, 0.24 + h / 2), (w, d, h), wall, yaw)
     # Corner posts, a belt rail and vertical battens read as plank walls.
     for sx in (-1, 1):
         for sy in (-1, 1):
@@ -258,15 +297,15 @@ def shack_building(b, spec, rng):
     c1 = P(w * 0.46, -d / 2 + 0.1, 3.55)
     b.quad(a0, a1, c1, c0, 'roof_straw')
     # Roof with a repaired patch and a stove pipe.
-    b.gable_roof((x, y, z + h + 0.30), w, d, z + h + 0.30, 2.3, roof, yaw,
-                 ridge='y', overhang=1.0)
+    b.gable_roof((x, y, z + h + 0.30), w, d, z + h + 0.30, max(1.4, min(w, d) * 0.36), roof, yaw,
+                 ridge='y' if rng.random() < 0.6 else 'x', overhang=0.7)
     b.cylinder(P(w * 0.26, d * 0.18, h + 0.4), P(w * 0.26, d * 0.18, h + 2.3),
                0.16, 'metal', 7)
     # Ladder down from the porch, a lantern, laundry, crates and a pot.
     for side in (-1, 1):
-        b.beam(P(side * 0.55, -d / 2 - 2.45, 0.2), P(side * 0.55, -d / 2 - 2.45, -3.2),
+        b.beam(P(side * 0.55, -d / 2 - 2.45, 0.2), P(side * 0.55, -d / 2 - 2.45, -stilts + 0.2),
                0.09, 'wood')
-    for k in range(7):
+    for k in range(max(2, int(stilts / 0.42))):
         b.beam(P(-0.55, -d / 2 - 2.45, -0.2 - k * 0.42),
                P(0.55, -d / 2 - 2.45, -0.2 - k * 0.42), 0.07, 'wood_light')
     b.beam(P(-w * 0.34, -d / 2 - 0.25, 2.7), P(-w * 0.34, -d / 2 - 0.25, 2.25), 0.04, 'metal')
@@ -374,6 +413,16 @@ def building(b, spec, rng):
                         ('canvas_red', 'canvas'), ('canvas_teal', 'canvas'))
                 awning(b, face_x, face_y, yaw, w * 0.78, z + 3.3, 2.2,
                        pair[int(abs(x + y)) % len(pair)])
+        # Dressed stone quoins on the street corners.
+        if style in ('tavern', 'house', 'shop'):
+            for side in (-1, 1):
+                for k in range(int((h - 1.4) / 0.85)):
+                    long = k % 2 == 0
+                    qx, qy = local(x, y, yaw, side * (w / 2 - (0.3 if long else 0.2)), -d / 2 - 0.04)
+                    b.box((qx, qy, z + 1.75 + k * 0.85), (0.7 if long else 0.45, 0.14, 0.62), 'stone_light', yaw)
+        if rng.random() < 0.42:
+            lx = rng.choice((-1, 1)) * rng.uniform(w * 0.18, w * 0.42)
+            bougainvillea(b, x, y, yaw, lx, -d / 2 - 0.2, z + 1.2, z + h - 0.3, rng)
         # Bougainvillea and creepers break up the flat plaster and tie the
         # dressed waterfront to the jungle above it.
         if rng.random() < 0.34:
@@ -400,10 +449,14 @@ def building(b, spec, rng):
     elif style == 'shack':
         b.gable_roof((x, y, z + h + 0.1), w, d, z + h + 0.1, 2.4, roof, yaw, ridge='y', overhang=0.9)
     elif rng.random() < 0.45:
-        b.gable_roof((x, y, z + h + 0.2), w, d, z + h + 0.2, 2.8 + (h % 3) * 0.25, roof, yaw,
-                     ridge='y' if rng.random() < 0.5 else 'x', overhang=0.9)
+        # About 30 degrees across the short span, with deep eaves, as in the paintings.
+        ridge = 'y' if rng.random() < 0.5 else 'x'
+        span = (w if ridge == 'y' else d) / 2
+        b.gable_roof((x, y, z + h + 0.2), w, d, z + h + 0.2, min(6.5, max(2.6, span * 0.58)), roof, yaw,
+                     ridge=ridge, overhang=1.2)
     else:
-        b.hip_roof((x, y, z + h + 0.2), w, d, z + h + 0.2, 2.6 + (h % 4) * 0.2, roof, yaw, overhang=0.9)
+        b.hip_roof((x, y, z + h + 0.2), w, d, z + h + 0.2, min(6.0, max(2.6, min(w, d) * 0.29)), roof, yaw,
+                   overhang=1.2)
     if not flat_roof and style != 'warehouse' and h > 9.5 and rng.random() < 0.72:
         dormer(b, x, y, yaw, rng.choice((-w * 0.22, 0.0, w * 0.22)), -d * 0.10,
                z + h + 0.35, roof)
@@ -427,6 +480,23 @@ def building(b, spec, rng):
             lx = rng.uniform(-w * 0.42, w * 0.42)
             px, py = local(x, y, yaw, lx, -d / 2 - rng.uniform(0.8, 1.8))
             barrel(b, px, py, z, rng.uniform(0.75, 1.0))
+
+
+def bougainvillea(b, x, y, yaw, lx, ly, z0, z1, rng):
+    """A flowering creeper falling from the eaves: leaf cards flat to the wall and clusters of pink bracts."""
+    height = z1 - z0
+    for _ in range(int(10 + height * 2.2)):
+        t = rng.random() ** 0.6
+        spread = 0.6 + 1.6 * (1 - t)
+        px, py = local(x, y, yaw, lx + rng.uniform(-spread, spread), ly - rng.uniform(0.0, 0.35))
+        pz = z1 - height * (1 - t) * rng.uniform(0.6, 1.0)
+        nx, ny = local(0, 0, yaw, rng.uniform(-0.3, 0.3), -1.0)
+        size = rng.uniform(0.8, 1.3)
+        b.card((px, py, pz), (nx, ny, rng.uniform(-0.2, 0.5)), size, size,
+               ('leaf_mid', 'leaf_light', 'leaf_deep')[rng.randrange(3)], cell_uvs(rng.randrange(4)))
+        if rng.random() < 0.7:
+            b.sphere((px + rng.uniform(-0.3, 0.3), py - 0.2, pz + rng.uniform(-0.3, 0.3)), rng.uniform(0.18, 0.3),
+                     ('blossom', 'blossom_pale', 'blossom')[rng.randrange(3)], (1.0, 0.7, 1.0), subdiv=0)
 
 
 def barrel(b, x, y, z, s=1.0):
@@ -523,6 +593,37 @@ def market_stall(b, x, y, z, w=10, d=6, cloth='canvas', yaw=0.0):
     for i in range(2):
         px, py, pz = P(w * 0.30 + i * 0.9, d / 2 - 1.2, 0)
         sack(b, px, py, pz + 0.2, 0.9)
+
+
+def goods(b, x, y, z, yaw=0.0, rng=None):
+    """A vendor's spread: produce in crates, clay jars, a rope coil or a stack of fish, at counter height or below."""
+    rng = rng or random.Random(int(x * 13 + y * 7))
+    kind = rng.random()
+    if kind < 0.35:
+        for k in range(rng.randint(2, 4)):
+            lx = (k - 1.5) * 0.8
+            px, py = local(x, y, yaw, lx, rng.uniform(-0.2, 0.2))
+            crate(b, px, py, z, 0.7, yaw + rng.uniform(-8, 8))
+            fruit = rng.choice(('gold', 'coral', 'leaf_sun', 'shutter_red', 'ochre', 'cream'))
+            for _ in range(5):
+                b.sphere((px + rng.uniform(-0.22, 0.22), py + rng.uniform(-0.22, 0.22), z + 0.72),
+                         rng.uniform(0.1, 0.15), fruit, subdiv=0)
+    elif kind < 0.6:
+        for _ in range(rng.randint(3, 6)):
+            px, py = x + rng.uniform(-1.2, 1.2), y + rng.uniform(-0.8, 0.8)
+            h = rng.uniform(0.45, 0.8)
+            r = h * rng.uniform(0.35, 0.5)
+            b.cylinder((px, py, z), (px, py, z + h * 0.65), r * 0.7, 'clay', 8, radius_b=r)
+            b.cylinder((px, py, z + h * 0.65), (px, py, z + h), r, 'clay', 8, radius_b=r * 0.45)
+    elif kind < 0.78:
+        b.ring((x, y, z + 0.1), 0.45, 0.09, 'rope', sides=10)
+        b.ring((x, y, z + 0.24), 0.38, 0.09, 'rope', sides=10)
+        barrel(b, x + 1.0, y + 0.3, z, 0.7)
+        sack(b, x - 1.0, y + 0.2, z, 0.8)
+    else:
+        fish_crate(b, x, y, z, yaw, 1.0)
+        sack(b, x + 1.1, y + 0.4, z, 0.8)
+        barrel(b, x - 1.1, y + 0.2, z, 0.7)
 
 
 def laundry_line(b, a, c, sag=0.35, colors=('canvas', 'canvas_red', 'canvas_teal')):
@@ -791,33 +892,76 @@ def grass_tuft(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
 
 
 def person(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
-    """A tiny low-poly market-goer, enough to give the square a human scale."""
+    """A low-poly pirate-town local: legs, a tapered coat or shirt, sash, arms and a hat that reads at distance."""
     rng = rng or random.Random(int(x * 17 + y * 3))
     if rng.random() < 0.10:
         scale *= 0.68
-    shirt = rng.choice(('cream', 'teal_wall', 'sage_wall', 'coral', 'ochre'))
-    trousers = rng.choice(('wood_dark', 'roof_slate', 'stone_dark'))
-    b.cylinder((x, y, z), (x, y, z + 0.9 * scale), 0.24 * scale, trousers, 6)
-    b.cylinder((x, y, z + 0.82 * scale), (x, y, z + 1.4 * scale), 0.32 * scale, shirt, 6,
-               radius_b=0.27 * scale)
-    b.sphere((x, y, z + 1.53 * scale), 0.22 * scale, 'skin', (1.0, 0.9, 1.0), subdiv=0)
-    if rng.random() < 0.55:
-        b.cylinder((x, y, z + 1.63 * scale), (x, y, z + 1.68 * scale), 0.35 * scale,
-                   rng.choice(('wood_dark', 'flag_red', 'flag_black', 'roof_straw')), 7)
+    s = scale
+    shirt = rng.choice(('cream', 'canvas', 'cream', 'teal_wall', 'sage_wall', 'azure_wall'))
+    coat = rng.choice((None, None, 'flag_black', 'shutter_blue', 'wood_dark', 'shutter_red', 'shutter_teal'))
+    trousers = rng.choice(('wood_dark', 'roof_slate', 'stone_dark', 'canvas', 'ochre'))
+    sash = rng.choice(('flag_red', 'flag_red', 'gold', 'canvas_teal', 'coral'))
+    skirt = rng.random() < 0.3
+
+    def P(lx, ly, lz):
+        px, py = local(x, y, yaw, lx * s, ly * s)
+        return (px, py, z + lz * s)
+
+    if skirt:
+        b.cylinder(P(0, 0, 0.05), P(0, 0, 0.95), 0.36 * s, rng.choice(('shutter_blue', 'coral', 'sage_wall',
+                                                                        'wood')), 7, radius_b=0.22 * s)
     else:
-        b.sphere((x, y, z + 1.62 * scale), 0.24 * scale, 'wood_dark', (1.0, 1.0, 0.45), subdiv=0)
-    # Relaxed arms at the sides.
+        for side in (-1, 1):
+            b.beam(P(side * 0.11, 0, 0.0), P(side * 0.12, 0, 0.92), 0.15 * s, trousers)
+            b.box(P(side * 0.11, -0.05, 0.05), (0.15 * s, 0.26 * s, 0.1 * s), 'wood_dark', yaw)
+    body = coat or shirt
+    b.cylinder(P(0, 0, 0.88), P(0, 0, 1.42), 0.25 * s, body, 6, radius_b=0.29 * s)
+    if coat and rng.random() < 0.7:
+        # Coat tails below the sash.
+        b.cylinder(P(0, 0, 0.55), P(0, 0, 0.9), 0.3 * s, coat, 6, radius_b=0.26 * s, caps=False)
+        b.box(P(0, -0.22, 1.18), (0.18 * s, 0.06 * s, 0.4 * s), shirt, yaw)
+    b.cylinder(P(0, 0, 0.9), P(0, 0, 1.02), 0.275 * s, sash, 6)
+    b.box(P(0.18, -0.16, 0.86), (0.08 * s, 0.05 * s, 0.24 * s), sash, yaw)
+    reach = rng.random()
     for side in (-1, 1):
-        b.beam((x + side * 0.25 * scale, y, z + 1.3 * scale),
-               (x + side * 0.33 * scale, y + 0.04 * scale, z + 0.85 * scale), 0.07 * scale, 'skin')
-    if rng.random() < 0.24:
-        # A porter's basket or a fishwife's bundle.
-        b.cylinder((x, y, z + 1.72 * scale), (x, y, z + 1.92 * scale), 0.24 * scale, 'wood_light', 7)
-        b.sphere((x, y, z + 1.95 * scale), 0.20 * scale, rng.choice(('gold', 'coral', 'sail')),
-                 (1.2, 0.8, 0.7), subdiv=0)
-    if rng.random() < 0.18:
-        b.box((x, y - 0.25 * scale, z + 0.85 * scale), (0.48 * scale, 0.08 * scale, 0.85 * scale),
-              rng.choice(('canvas', 'canvas_red', 'sage_wall')), yaw)
+        shoulder = P(side * 0.31, 0, 1.36)
+        if reach < 0.25 and side > 0:
+            hand = P(side * 0.42, -0.25, 1.75)  # waving or hailing a ship
+        elif reach < 0.5:
+            hand = P(side * 0.24, -0.28, 1.02)  # carrying something in front
+        else:
+            hand = P(side * 0.36, 0.02, 0.86)
+        b.beam(shoulder, hand, 0.1 * s, coat or shirt)
+        b.sphere(hand, 0.06 * s, 'skin', subdiv=0)
+    b.cylinder(P(0, 0, 1.4), P(0, 0, 1.47), 0.08 * s, 'skin', 5)
+    b.sphere(P(0, 0, 1.6), 0.15 * s, 'skin', (1.0, 0.95, 1.1), subdiv=1)
+    hat = rng.random()
+    if hat < 0.35:
+        # Tricorn: a low crown and three upturned brims.
+        b.cylinder(P(0, 0, 1.68), P(0, 0, 1.82), 0.16 * s, 'flag_black', 7)
+        for k in range(3):
+            a = k * TAU / 3 + math.radians(yaw) - math.pi / 2
+            ox, oy = math.cos(a) * 0.17 * s, math.sin(a) * 0.17 * s
+            c = (P(0, 0, 0)[0] + ox, P(0, 0, 0)[1] + oy, z + 1.73 * s)
+            b.quad((c[0] - oy * 1.2, c[1] + ox * 1.2, c[2] - 0.02 * s),
+                   (c[0] + oy * 1.2, c[1] - ox * 1.2, c[2] - 0.02 * s),
+                   (c[0] + oy * 1.2 + ox * 0.5, c[1] - ox * 1.2 + oy * 0.5, c[2] + 0.12 * s),
+                   (c[0] - oy * 1.2 + ox * 0.5, c[1] + ox * 1.2 + oy * 0.5, c[2] + 0.12 * s), 'flag_black')
+    elif hat < 0.6:
+        b.sphere(P(0, 0, 1.68), 0.16 * s, rng.choice(('flag_red', 'canvas_red', 'canvas_teal', 'gold')),
+                 (1.05, 1.05, 0.7), subdiv=0)
+        b.beam(P(0, 0.14, 1.66), P(0.05, 0.3, 1.5), 0.06 * s, 'flag_red')
+    elif hat < 0.8:
+        b.cylinder(P(0, 0, 1.69), P(0, 0, 1.72), 0.34 * s, 'roof_straw', 8)
+        b.cylinder(P(0, 0, 1.72), P(0, 0, 1.86), 0.15 * s, 'roof_straw', 7, radius_b=0.12 * s)
+    else:
+        b.sphere(P(0, 0.02, 1.66), 0.16 * s, rng.choice(('wood_dark', 'stone_dark', 'ochre')), (1.0, 1.05, 0.8),
+                 subdiv=0)
+    if reach < 0.5 and reach >= 0.25:
+        b.box(P(0, -0.4, 1.05), (0.5 * s, 0.34 * s, 0.32 * s), rng.choice(('wood_light', 'wood', 'canvas')), yaw)
+    if rng.random() < 0.2:
+        b.cylinder(P(0, 0, 1.86), P(0, 0, 2.04), 0.24 * s, 'wood_light', 7)
+        b.sphere(P(0, 0, 2.06), 0.2 * s, rng.choice(('gold', 'coral', 'sail')), (1.2, 0.8, 0.7), subdiv=0)
 
 
 def vine(b, x, y, z, length=8.0, rng=None):

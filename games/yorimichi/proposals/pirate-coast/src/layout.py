@@ -38,6 +38,7 @@ COLORS = {
     'planks': '#8a6a48', 'hull': '#4f3a2a', 'deck_planks': '#a08055',
     'leaf_mid': '#4f6b33', 'leaf_light': '#6c8a3f', 'leaf_deep': '#33471f',
     'leaf_warm': '#96703a', 'palm_frond': '#5b7a36',
+    'leaf_sun': '#8aa046', 'leaf_rust': '#b0622c', 'leaf_gold': '#ba923a', 'palm_trunk': '#7a6448',
     'rock': '#6d6558', 'rock_light': '#8b8070', 'rock_dark': '#48443c',
     'seabed': '#315f63', 'water': '#1f7f8c', 'water_deep': '#0f4257', 'sea': '#1f8fa0',
     'water_shallow': '#57c4c6', 'water_mid': '#1f9fae', 'foam': '#e8f0e7',

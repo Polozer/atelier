@@ -10,6 +10,7 @@ viewer payload. No Unreal project, level or game asset is touched.
 import argparse
 import json
 import math
+import random
 import shutil
 import sys
 import time
@@ -27,6 +28,7 @@ from mathutils import Vector  # noqa: E402
 import layout as L  # noqa: E402
 import modules  # noqa: E402
 import hero_assets  # noqa: E402
+import flora  # noqa: E402
 import surfaces as S  # noqa: E402
 
 OUT = REPO / 'build/yorimichi/pirate-coast'
@@ -123,9 +125,10 @@ def make_object(builder, collection, materials):
         uv_layer.data[loop.index].uv = builder.uvs[loop.vertex_index]
     for name in used:
         mesh.materials.append(materials[name])
+    custom = builder.normals is not None
     for poly, mat in zip(mesh.polygons, builder.mats):
         poly.material_index = index[mat]
-        poly.use_smooth = False
+        poly.use_smooth = custom
     mesh.validate(verbose=False)
     mesh.update()
     bm = bmesh.new()
@@ -133,9 +136,42 @@ def make_object(builder, collection, materials):
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bm.to_mesh(mesh)
     bm.free()
-    obj = bpy.data.objects.new(builder.name, mesh)
-    collection.objects.link(obj)
-    return obj, len(used)
+    if custom:
+        # Every face owns its vertices, so per-vertex normals are per-corner: crown normals on the leaf cards,
+        # the flat face normal everywhere else.
+        normals = list(builder.normals)
+        for poly in mesh.polygons:
+            for v in poly.vertices:
+                if normals[v] is None:
+                    normals[v] = tuple(poly.normal)
+        mesh.normals_split_custom_set_from_vertices(normals)
+    obj = None
+    if collection is not None:
+        obj = bpy.data.objects.new(builder.name, mesh)
+        collection.objects.link(obj)
+    return (obj if obj is not None else mesh), len(used)
+
+
+def add_foliage(collection, materials):
+    """Linked instances of the flora library, parented to one empty so glTF writes EXT_mesh_gpu_instancing."""
+    protos = flora.prototypes()
+    meshes = {name: make_object(builder, None, materials)[0] for name, builder in protos.items()}
+    root = bpy.data.objects.new('09_foliage_instances', None)
+    collection.objects.link(root)
+    placements = flora.scatter() + flora.bloom_spots(random.Random(5))
+    counts = {}
+    for i, (proto, x, y, z, yaw, scale) in enumerate(placements):
+        obj = bpy.data.objects.new(f'{proto}.{i:05d}', meshes[proto])
+        obj.location = (x, y, z)
+        obj.rotation_euler = (0.0, 0.0, math.radians(yaw))
+        obj.scale = (scale, scale, scale)
+        obj.parent = root
+        collection.objects.link(obj)
+        counts[proto] = counts.get(proto, 0) + 1
+    tris = {name: sum(len(f) - 2 for f in b.faces) for name, b in protos.items()}
+    stats = dict(prototypes=len(protos), instances=len(placements), unique_triangles=sum(tris.values()),
+                 instanced_triangles=sum(tris[k] * n for k, n in counts.items()))
+    return root, stats
 
 
 def build_modules():
@@ -155,41 +191,52 @@ def build_modules():
         scene.collection.children.link(collection)
         obj, mat_count = make_object(builder, collection, materials)
         obj['brinecove_module'] = name
-        objects[name] = obj
+        objects[name] = [obj]
         report[name] = dict(vertices=len(builder.verts), triangles=sum(len(f) - 2 for f in builder.faces),
                             materials=mat_count, seconds=round(time.time() - started, 2))
+        if name == '09_vegetation':
+            root, stats = add_foliage(collection, materials)
+            objects[name] += [root] + list(root.children)
+            report[name]['triangles'] += stats['instanced_triangles']
+            report[name]['foliage'] = stats
+            report[name]['seconds'] = round(time.time() - started, 2)
         print(f'built {name}: {report[name]}', flush=True)
     hero_collection = bpy.data.collections.new('10_hero_assets')
     scene.collection.children.link(hero_collection)
     hero = hero_assets.add_hero_assets(hero_collection)
     if hero is not None:
-        objects['10_hero_assets'] = hero
+        objects['10_hero_assets'] = [hero]
         report['10_hero_assets'] = dict(vertices=len(hero.data.vertices),
                                         triangles=sum(len(p.vertices) - 2 for p in hero.data.polygons),
                                         materials=len(hero.data.materials), seconds=0.0)
         print(f'built 10_hero_assets: {report["10_hero_assets"]}', flush=True)
-    # Full scene and per-module GLBs.
-    for obj in objects.values():
-        obj.select_set(True)
-    bpy.context.view_layer.objects.active = objects['01_terrain']
-    bpy.ops.wm.save_as_mainfile(filepath=str(SCENE_OUT / 'brinecove.blend'))
-    bpy.ops.export_scene.gltf(filepath=str(SCENE_OUT / 'brinecove.glb'), export_format='GLB',
-                              use_selection=True, export_apply=True, export_yup=True,
-                              export_animations=False, export_skins=False, export_cameras=False,
-                              export_lights=False, export_extras=True,
-                              export_image_format='JPEG', export_image_quality=86, export_normals=False)
-    for name, obj in objects.items():
-        for other in objects.values():
-            other.select_set(False)
-        obj.select_set(True)
-        bpy.context.view_layer.objects.active = obj
-        bpy.ops.export_scene.gltf(filepath=str(MODEL_OUT / f'{name}.glb'), export_format='GLB',
+    # Full scene and per-module GLBs. Foliage carries its crown normals; every other module is flat-shaded, so
+    # its normals are left for the viewer to derive.
+    def select(names):
+        for group in objects.values():
+            for obj in group:
+                obj.select_set(False)
+        for name in names:
+            for obj in objects[name]:
+                obj.select_set(True)
+        bpy.context.view_layer.objects.active = objects[names[0]][0]
+
+    def export(path, foliage):
+        bpy.ops.export_scene.gltf(filepath=str(path), export_format='GLB',
                                   use_selection=True, export_apply=True, export_yup=True,
                                   export_animations=False, export_skins=False, export_cameras=False,
-                                  export_lights=False, export_extras=True,
-                                  export_image_format='JPEG', export_image_quality=86, export_normals=False)
-    for obj in objects.values():
-        obj.select_set(False)
+                                  export_lights=False, export_extras=True, export_gpu_instances=True,
+                                  export_image_format='JPEG', export_image_quality=86, export_normals=foliage)
+
+    select(list(objects))
+    bpy.ops.wm.save_as_mainfile(filepath=str(SCENE_OUT / 'brinecove.blend'))
+    export(SCENE_OUT / 'brinecove.glb', False)
+    for name in objects:
+        select([name])
+        export(MODEL_OUT / f'{name}.glb', name == '09_vegetation')
+    for group in objects.values():
+        for obj in group:
+            obj.select_set(False)
     report['_totals'] = dict(vertices=sum(v['vertices'] for k, v in report.items() if not k.startswith('_')),
                              triangles=sum(v['triangles'] for k, v in report.items() if not k.startswith('_')))
     report['_area'] = L.area()
@@ -227,9 +274,9 @@ def add_render_objects():
     sep = nodes.new('ShaderNodeSeparateXYZ')
     ramp = nodes.new('ShaderNodeValToRGB')
     ramp.color_ramp.elements[0].position = 0.0
-    ramp.color_ramp.elements[0].color = (0.58, 0.78, 0.88, 1.0)
-    ramp.color_ramp.elements[1].position = 0.72
-    ramp.color_ramp.elements[1].color = (0.10, 0.30, 0.56, 1.0)
+    ramp.color_ramp.elements[0].color = (0.62, 0.80, 0.95, 1.0)
+    ramp.color_ramp.elements[1].position = 0.70
+    ramp.color_ramp.elements[1].color = (0.12, 0.36, 0.72, 1.0)
     links.new(coord.outputs['Generated'], sep.inputs['Vector'])
     links.new(sep.outputs['Z'], ramp.inputs['Fac'])
     noise = nodes.new('ShaderNodeTexNoise')
@@ -250,14 +297,14 @@ def add_render_objects():
     links.new(cloud_ramp.outputs['Alpha'], cloud.inputs['Fac'])
     links.new(cloud.outputs['Color'], bg.inputs['Color'])
     sun_data = bpy.data.lights.new('Sun', 'SUN')
-    sun_data.energy = 4.4
-    sun_data.angle = math.radians(11)
-    sun_data.color = (1.0, 0.80, 0.57)
+    sun_data.energy = 6.2
+    sun_data.angle = math.radians(4)
+    sun_data.color = (1.0, 0.84, 0.62)
     sun = bpy.data.objects.new('Sun', sun_data)
     scene.collection.objects.link(sun)
     sun.rotation_euler = (math.radians(52), math.radians(8), math.radians(-38))
     fill_data = bpy.data.lights.new('Sky fill', 'AREA')
-    fill_data.energy = 560
+    fill_data.energy = 380
     fill_data.size = 700
     fill_data.color = (0.62, 0.78, 1.0)
     fill = bpy.data.objects.new('Sky fill', fill_data)
@@ -293,7 +340,7 @@ def add_render_objects():
         scene.view_settings.look = 'AgX - Punchy'
     except Exception:
         pass
-    scene.view_settings.exposure = 0.38
+    scene.view_settings.exposure = 0.1
     return cam, sun, fill, bg, ramp, cloud
 
 
@@ -316,6 +363,8 @@ VIEWS = {
     '09-rum-row': ((-296, 94, 7), (-250, 130, 10), 38, 'day'),
     '10-topdown': ((0, -40, 1580), (0, -20, 0), 52, 'day'),
     '11-cliff-shacks': ((-430, -170, 32), (-512, 10, 34), 48, 'day'),
+    '12-forest-canopy': ((470, 140, 86), (660, 330, 52), 40, 'day'),
+    '13-cliff-face': ((-380, -150, 12), (-505, -50, 30), 42, 'day'),
 }
 
 
@@ -347,14 +396,14 @@ def render_views(only=(), preview=False):
             cloud_mix.inputs['Color2'].default_value = (0.10, 0.15, 0.24, 1.0)
             add_night_lights(scene)
         else:
-            sky_ramp.color_ramp.elements[0].color = (0.58, 0.78, 0.88, 1.0)
-            sky_ramp.color_ramp.elements[1].color = (0.10, 0.30, 0.56, 1.0)
+            sky_ramp.color_ramp.elements[0].color = (0.62, 0.80, 0.95, 1.0)
+            sky_ramp.color_ramp.elements[1].color = (0.12, 0.36, 0.72, 1.0)
             bg.inputs['Strength'].default_value = 1.0
-            sun.data.energy = 4.4
-            sun.data.color = (1.0, 0.80, 0.57)
-            fill.data.energy = 560
+            sun.data.energy = 6.2
+            sun.data.color = (1.0, 0.84, 0.62)
+            fill.data.energy = 380
             fill.data.color = (0.62, 0.78, 1.0)
-            scene.view_settings.exposure = 0.38
+            scene.view_settings.exposure = 0.1
             cloud_mix.inputs['Color2'].default_value = (0.93, 0.91, 0.85, 1.0)
         look_at(cam, loc, target, lens)
         scene.render.filepath = str(RENDER_OUT / f'{name}.png')

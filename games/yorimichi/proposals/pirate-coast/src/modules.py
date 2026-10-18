@@ -3,10 +3,11 @@ import math
 import random
 from pathlib import Path
 import layout as L
+import rocks
 from geom import Builder
 from kit import (awning, balcony, banana, barrel, bench, bollard, building, bush, crate, door,
-                 fern, fish_crate, grass_tuft, jungle_tree, lantern_post, laundry_line, local,
-                 market_stall, palm, pennants, person, potted_plant, rowboat, sack, sign, vine, window)
+                 fern, fish_crate, grass_tuft, lantern_post, laundry_line, local,
+                 goods, market_stall, palm, pennants, person, potted_plant, rowboat, sack, sign, vine, window)
 
 TAU = math.pi * 2
 RNG = random.Random(49157)
@@ -49,38 +50,10 @@ def terrain():
                 mat = 'seabed'
             elif zavg < 2.2:
                 mat = 'sand'
-            elif sl > 1.25:
-                # Near-vertical faces read as layered strata, not one rock tone.
-                band = int((zavg + 2.0 * math.sin(gx * 0.05)) / 3.1) % 5
-                mat = ('rock', 'rock_light', 'rock_dark', 'rock_light', 'rock')[band]
-            elif sl > 0.95:
-                # On the steep cliff bands, leave ledges of jungle between the
-                # exposed rock so the shoreline does not read as a grey wall.
-                ledge = (i * 3 + j * 7) % 9
-                band = int((zavg + 1.5 * math.cos(gy * 0.06)) / 2.7) % 4
-                strata = ('rock', 'rock_dark', 'rock_light', 'rock')[band]
-                mat = 'jungle_dark' if ledge == 0 else strata
-            elif zavg > 42 and sl > 0.62:
-                # Broken outcrops on the upper slopes, mixed into the canopy.
-                mat = ('rock_light', 'rock', 'jungle_dark')[(i * 5 + j * 3) % 3]
-            elif zavg > 46:
-                # The headland crests are dry olive grass and pale rock, not
-                # the same saturated jungle floor as the sheltered slopes.
-                crest = math.sin(gx * 0.018 + 1.3) * math.cos(gy * 0.013 - 0.4)
-                if sl > 0.48 and crest > 0.15:
-                    mat = 'rock_light' if (i + j) % 5 else 'autumn_olive'
-                else:
-                    mat = ('autumn_olive', 'jungle_light', 'autumn_gold')[
-                        int((crest + 1.0) * 1.5) % 3]
             elif L.is_water(gx, gy):
                 mat = 'seabed'
             else:
-                pattern = math.sin(gx * 0.012 + 0.4) * math.cos(gy * 0.009 - 0.7)
-                mat = ('jungle', 'jungle_light', 'jungle_dark')[int((pattern + 1.0) * 1.5) % 3]
-                if pattern > 0.55 and (i * 7 + j * 5) % 17 == 0:
-                    mat = 'autumn_olive'
-                elif pattern < -0.6 and (i * 3 + j * 11) % 19 == 0:
-                    mat = 'autumn_rust'
+                mat = rocks.terrain_material(gx, gy, zavg, sl, i, j)
             b.tri(a, bb, c, mat)
             b.tri(a, c, d, mat)
     # Angular coastal rock shelves break up the sampled heightfield edge.
@@ -92,8 +65,9 @@ def terrain():
             rock_points.append((x, y + RNG.uniform(-8, 8), L.height(x, y), RNG.uniform(3.5, 8.5)))
     for x, y, z, r in rock_points:
         rock_cluster(b, x, y, z - 1.0, r, RNG.randint(2, 4))
+    crag_rng = random.Random(3307)
     for x, y, _, r in L.SEA_STACKS:
-        rock_cluster(b, x, y, -3.0, r, 7, tall=True)
+        rocks.crag(b, x, y, -3.0, r * crag_rng.uniform(1.1, 1.8), r, crag_rng, 7)
         foam_ring(b, x, y, r * 1.05, 16)
     # Broken rock shelves on both headlands keep the cliff silhouette from
     # reading as one smooth sampled surface.
@@ -107,8 +81,8 @@ def terrain():
             if z < 4.0:
                 continue
             rock_cluster(b, x, y, z - 1.2, RNG.uniform(2.0, 6.0), RNG.randint(1, 3))
-        # Layered ledges and fissures across the whole cliff face.
-        for _ in range(2400):
+        # Thin ledges and fissures between the outcrops.
+        for _ in range(900):
             x = side * RNG.uniform(420, 800)
             y = RNG.uniform(-260, 520)
             if L.is_water(x, y):
@@ -137,14 +111,13 @@ def terrain():
             elif RNG.random() < 0.30:
                 grass_tuft(b, x + nx * 1.0, y + ny * 1.0, z + RNG.uniform(-0.8, 1.2),
                            RNG.uniform(0, 360), RNG.uniform(0.6, 1.2), RNG)
-    # The statue islet.
-    rock_cluster(b, L.STATUE[0], L.STATUE[1], -2.5, 16.0, 10, tall=False)
-    # A jagged spire lifts the statue clear of the water.
-    for i in range(7):
-        z = -2.0 + i * 2.0
-        r = 8.5 - i * 0.8
-        b.cylinder((L.STATUE[0], L.STATUE[1], z), (L.STATUE[0], L.STATUE[1], z + 2.2),
-                   r, ('rock', 'rock_dark', 'rock_light')[i % 3], 9, radius_b=r * 0.86)
+    # Stepped prism outcrops dress every steep face (rocks.py).
+    rocks.cliff_rocks(b, random.Random(6113))
+    # The statue islet: a craggy spire whose core top is the statue's plinth.
+    rock_cluster(b, L.STATUE[0], L.STATUE[1], -2.5, 16.0, 6, tall=False)
+    rocks.crag(b, L.STATUE[0], L.STATUE[1], -3.0, 12.0, 15.0, random.Random(911), 11)
+    b.cylinder((L.STATUE[0], L.STATUE[1], 10.5), (L.STATUE[0], L.STATUE[1], 12.2), 5.2, 'rock_light', 9,
+               radius_b=4.6)
     for i in range(5):
         b.sphere((L.STATUE[0] + RNG.uniform(-7, 7), L.STATUE[1] + RNG.uniform(-7, 7),
                   RNG.uniform(1, 10)), RNG.uniform(1.0, 2.6), 'rock_light' if i % 2 else 'rock',
@@ -168,6 +141,7 @@ def terrain():
             rock_cluster(b, rx, ry, L.height(rx, ry) - 1.0, RNG.uniform(3.0, 5.5), 2)
     # Distant forested hills, low and rounded so they frame rather than
     # dominate the cove. Several overlapping domes make each ridge.
+    hill_rng = random.Random(7741)
     for x, y, r, mat in [
         (-720, 640, 210, 'jungle_dark'), (-470, 700, 240, 'jungle_dark'),
         (-210, 740, 220, 'jungle'), (60, 720, 250, 'jungle_dark'),
@@ -177,6 +151,9 @@ def terrain():
     ]:
         b.sphere((x, y, -5), r, mat, (1.35, 1.0, 0.27), subdiv=1)
         b.sphere((x + r * 0.55, y + r * 0.2, -5), r * 0.72, mat, (1.2, 1.0, 0.24), subdiv=1)
+        if mat != 'rock':
+            rocks.canopy_hill(b, x, y, r, 1.35, 0.27, hill_rng)
+            rocks.canopy_hill(b, x + r * 0.55, y + r * 0.2, r * 0.72, 1.2, 0.24, hill_rng)
     return b
 
 
@@ -627,6 +604,29 @@ def market():
         y = RNG.uniform(116, 124)
         person(b, x, y, L.ground(x, y) + 0.2, RNG.uniform(0, 360), RNG.uniform(0.88, 1.05), RNG)
     pennants(b, (-88, 128, 9.2), (88, 128, 9.2), 0.8, 21)
+    # Fill the open cobbles with lanes of smaller stalls, as in the market painting: a bazaar, not a parade ground.
+    taken = [(x, y, w / 2 + 3.5, d / 2 + 3.5) for x, y, w, d, _ in L.MARKET_STALLS]
+    taken += [(0, 158, 7, 7), (47, 137, 6, 6), (-44, 188, 7, 6), (0, 126, 30, 14), (-16, 134, 10, 7)]
+    lane = 0
+    for gy in range(112, 220, 15):
+        lane += 1
+        for gx in range(-84, 86, 13):
+            x = gx + RNG.uniform(-2.0, 2.0) + (6.5 if lane % 2 else 0.0)
+            y = gy + RNG.uniform(-1.5, 1.5)
+            w, d = RNG.uniform(6.5, 9.0), RNG.uniform(4.5, 5.8)
+            if abs(x) > 86 or any(abs(x - tx) < w / 2 + hw and abs(y - ty) < d / 2 + hd for tx, ty, hw, hd in taken):
+                continue
+            taken.append((x, y, w / 2 + 2.5, d / 2 + 2.5))
+            yaw = RNG.uniform(-6, 6)
+            z = L.ground(x, y) + 0.1
+            market_stall(b, x, y, z, w, d, ('canvas', 'canvas_red', 'canvas_teal', 'canvas')[RNG.randrange(4)], yaw)
+            person(b, x + RNG.uniform(-1.5, 1.5), y + d * 0.25, z + 0.1, 180 + yaw, RNG.uniform(0.92, 1.05), RNG)
+            for side in (-1, 1):
+                gx2, gy2 = local(x, y, yaw, side * w * 0.3, -d * 0.62)
+                goods(b, gx2, gy2, z, yaw, RNG)
+            if RNG.random() < 0.7:
+                px, py = local(x, y, yaw, RNG.uniform(-w * 0.4, w * 0.4), -d * 0.9 - RNG.uniform(0.5, 2.0))
+                person(b, px, py, z + 0.1, RNG.uniform(0, 360), RNG.uniform(0.85, 1.1), RNG)
     # A working stall just ahead of the market camera anchors the foreground.
     market_stall(b, -16, 134, L.ground(-16, 134) + 0.1, 12, 7, 'canvas_teal', 4)
     for x, y, yaw in ((-2, 131, 8), (6, 137, -12), (-28, 133, 16)):
@@ -1028,15 +1028,17 @@ def shrine(b):
 
 def ships():
     b = Builder('07_ships')
-    for spec in L.SHIPS:
+    for i, spec in enumerate(L.SHIPS):
         name, x, y, yaw, scale, sails = spec
-        ship(b, x, y, -1.1, yaw, scale, sails=sails, unfinished=False)
+        # The paintings pair one black-sailed pirate with cream-canvas merchantmen.
+        ship(b, x, y, -1.1, yaw, scale, sails=sails, unfinished=False,
+             canvas='sail_dark' if i == 0 else 'sail')
     # The broken hull on the western rocks is a dark, readable landmark from the harbor mouth.
     ship(b, -492, -246, -2.8, 34, 0.60, sails=False, unfinished=True)
     return b
 
 
-def ship(b, x, y, z, yaw, scale=1.0, sails=True, unfinished=False):
+def ship(b, x, y, z, yaw, scale=1.0, sails=True, unfinished=False, canvas='sail_dark'):
     """A three-masted galleon with a lofted hull, gun deck and layered rigging.
 
     Local +Y is the bow.  The hull stations carry width, keel and gunwale
@@ -1170,13 +1172,24 @@ def ship(b, x, y, z, yaw, scale=1.0, sails=True, unfinished=False):
             b.beam(T(-yard_w * 0.96, my + 0.12, zz), T(-yard_w * 0.96, my + 0.12, zz - 0.4), 0.08, 'wood_dark')
             b.beam(T(yard_w * 0.96, my + 0.12, zz), T(yard_w * 0.96, my + 0.12, zz - 0.4), 0.08, 'wood_dark')
             if sails and frac > 0.3:
-                for j in range(3):
-                    x0 = -yard_w + 2 * yard_w * j / 3 + 0.25
-                    x1 = -yard_w + 2 * yard_w * (j + 1) / 3 - 0.25
-                    b.quad(T(x0, my + 0.25, zz - 0.15), T(x1, my + 0.25, zz - 0.15),
-                           T(x1, my + 1.55, zz - 4.7), T(x0, my + 1.55, zz - 4.7), 'sail_dark')
-                    b.beam(T(x0 + 0.4, my + 1.2, zz - 4.3), T(x1 - 0.4, my + 1.2, zz - 4.3),
-                           0.035, 'canvas_red')
+                # One square sail per yard, bellied forward by the wind and narrowing a little at the foot.
+                cols, rows = 6, 4
+                grid = []
+                for r in range(rows + 1):
+                    v = r / rows
+                    row = []
+                    for c in range(cols + 1):
+                        u = c / cols
+                        half = yard_w * (0.97 - 0.08 * v)
+                        belly = 2.2 * math.sin(math.pi * u) * math.sin(math.pi * (0.15 + 0.8 * v)) * strength
+                        row.append(T(-half + 2 * half * u, my + 0.25 + belly + 1.0 * v, zz - 0.15 - 4.7 * v))
+                    grid.append(row)
+                for r in range(rows):
+                    for c in range(cols):
+                        b.quad(grid[r][c], grid[r][c + 1], grid[r + 1][c + 1], grid[r + 1][c], canvas)
+                # Bolt-rope along the foot.
+                for c in range(cols):
+                    b.beam(grid[rows][c], grid[rows][c + 1], 0.06, 'rope')
                 # Reef points across the sail foot.
                 for j in range(6):
                     xx = -yard_w + 2 * yard_w * (j + 0.5) / 6
@@ -1287,14 +1300,10 @@ def rowboat(b, x, y, z, yaw, scale=1.0):
 
 
 def vegetation():
+    # Trees, palms, shrubs and flowering mounds are instanced from flora.py by the build; this mesh carries the
+    # one-off understory: vines, ferns, bananas and crest grass.
     b = Builder('09_vegetation')
     sc = L.scatter()
-    for x, y, z, yaw, scale in sc['palms']:
-        palm(b, x, y, z, yaw, scale, RNG)
-    for x, y, z, yaw, scale in sc['trees']:
-        jungle_tree(b, x, y, z, yaw, scale, RNG)
-    for x, y, z, yaw, scale in sc['bushes']:
-        bush(b, x, y, z, yaw, scale, RNG)
     # Vines on the wet east cliff and the west headland.
     for y in range(90, 230, 12):
         vine(b, 438 - RNG.uniform(0, 8), y, 48 - RNG.uniform(0, 8), RNG.uniform(12, 26), RNG)
@@ -1315,15 +1324,6 @@ def vegetation():
             z = L.height(x, y)
             if z > 6.0:
                 vine(b, x, y, z + RNG.uniform(1.0, 3.0), RNG.uniform(8, 19), RNG)
-    for x, y in ((446, 120), (502, 132), (438, 150)):
-        if L.slope(x, y) < 1.2:
-            jungle_tree(b, x, y, L.ground(x, y), RNG.uniform(0, 360), 1.25, RNG)
-    # Flowers at the market and along the upper lane.
-    for x, y, z, _, _ in sc['bushes'][:80]:
-        if RNG.random() < 0.25:
-            for i in range(4):
-                b.sphere((x + RNG.uniform(-0.8, 0.8), y + RNG.uniform(-0.8, 0.8), z + 0.45 + RNG.uniform(0, 0.4)),
-                         0.16, ('blossom', 'gold', 'cream')[i % 3], subdiv=0)
     # Ferns and banana plants give the understory a second layer.
     for i, (x, y, z, _, scale) in enumerate(sc['bushes']):
         if i % 5 == 0:

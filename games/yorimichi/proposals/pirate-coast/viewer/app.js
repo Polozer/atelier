@@ -35,10 +35,8 @@ const VIEWS = {
   waterfall: { label: 'Waterfall', pos: [300, 38, 130], target: [448, 55, -30], fov: 42 },
   cliff: { label: 'Cliff shacks', pos: [-430, 32, 170], target: [-512, 34, -10], fov: 48 },
   top: { label: 'Plan', pos: [0, 1780, 30], target: [0, 0, 20], fov: 52 },
-  tShacks: { label: 'test-shacks', pos: [-440, 26, 120], target: [-515, 22, 10], fov: 52 },
-  tForest: { label: 'test-forest', pos: [-300, 48, 300], target: [-430, 40, 150], fov: 55 },
-  tCliff: { label: 'test-cliff', pos: [-120, 20, 240], target: [-420, 25, 60], fov: 60 },
-
+  forest: { label: 'East canopy', pos: [470, 86, -140], target: [660, 52, -330], fov: 40 },
+  cliffFace: { label: 'West cliff', pos: [-380, 12, 150], target: [-505, 30, 50], fov: 42 },
 };
 // Blender coordinates (x east, y north, z up); the scene is converted to
 // three.js x east, y up, z south when these are projected.
@@ -397,9 +395,11 @@ async function loadModules() {
       obj.castShadow = !mod.file.includes('vegetation') && !mod.file.includes('terrain');
       obj.receiveShadow = true;
       obj.frustumCulled = true;
-      tuneMaterial(obj.material, !mod.file.includes('10_hero_assets'));
-      if (obj.geometry.index) totalTris += obj.geometry.index.count / 3;
-      else if (obj.geometry.attributes.position) totalTris += obj.geometry.attributes.position.count / 3;
+      // Hero assets and the instanced foliage carry their own normals; everything else is flat-shaded.
+      tuneMaterial(obj.material, !mod.file.includes('10_hero_assets') && !mod.file.includes('vegetation'));
+      const copies = obj.isInstancedMesh ? obj.count : 1;
+      if (obj.geometry.index) totalTris += copies * obj.geometry.index.count / 3;
+      else if (obj.geometry.attributes.position) totalTris += copies * obj.geometry.attributes.position.count / 3;
     });
     group.add(gltf.scene);
     scene.add(group);
