@@ -445,6 +445,35 @@ def sea_mesh(radius=24000.):
     return vertices,faces
 
 
+def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height):
+    """@cc [owner:fontanierh,label:correctness] coastal-planting-triangle-support
+    Sample the same refined polygons and fan diagonals as grid_mesh and the
+    terrain exporter. Do not evaluate the nonlinear shape at the query itself.
+    Queries outside this grid or without a supporting face MUST fail.
+    """
+    xs,ys,z=np.asarray(xs),np.asarray(ys),np.asarray(z)
+    x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float));size=x.shape
+    x,y=x.ravel(),y.ravel();out=np.empty_like(x)
+    if np.any((x<xs[0])|(x>xs[-1])|(y<ys[0])|(y>ys[-1])):
+        raise ValueError('Coastal ground query outside the exported grid')
+    ix=np.clip(np.searchsorted(xs,x)-1,0,len(xs)-2)
+    iy=np.clip(np.searchsorted(ys,y)-1,0,len(ys)-2)
+    keys=iy*(len(xs)-1)+ix
+    for key in np.unique(keys):
+        mask=keys==key;j,i=divmod(int(key),len(xs)-1)
+        vertices,faces=grid_mesh(xs[i:i+2],ys[j:j+2],z[j:j+2,i:i+2],step=step,shape=shape)
+        triangles=np.asarray(vertices)[np.asarray([(p[0],p[k],p[k+1]) for p in faces for k in range(1,len(p)-1)])]
+        a,b,c=np.moveaxis(triangles,1,0)
+        den=(b[:,1]-c[:,1])*(a[:,0]-c[:,0])+(c[:,0]-b[:,0])*(a[:,1]-c[:,1])
+        u=((b[:,1]-c[:,1])[:,None]*(x[mask]-c[:,0,None])+(c[:,0]-b[:,0])[:,None]*(y[mask]-c[:,1,None]))/den[:,None]
+        v=((c[:,1]-a[:,1])[:,None]*(x[mask]-c[:,0,None])+(a[:,0]-c[:,0])[:,None]*(y[mask]-c[:,1,None]))/den[:,None]
+        on=(u>=-1e-9)&(v>=-1e-9)&(u+v<=1.+1e-9)
+        if not on.any(axis=0).all():raise ValueError('Coastal ground query has no exported support')
+        values=u*a[:,2,None]+v*b[:,2,None]+(1.-u-v)*c[:,2,None]
+        out[mask]=np.max(np.where(on,values,-np.inf),axis=0)
+    return out.reshape(size)
+
+
 def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height):
     """@cc [owner:fontanierh,label:correctness] coastal-parent-triangle-topology
     Refined faces MUST preserve the parent a-c breakline, including asymmetric

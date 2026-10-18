@@ -24,6 +24,32 @@ def test_observed_cliff_face_is_selected_but_its_meadow_and_beach_are_not():
     assert not C.rock_faces(x,y,-2.,.725)
 
 
+def test_shared_backdrop_grid_keeps_the_original_export_construction(tmp_path,monkeypatch):
+    from hidamari import forest_backdrop as F,layout as H
+    from belmonte import terrain as B
+    axis=np.linspace(-3200.,3200.,96);xx,yy=np.meshgrid(axis,axis)
+    raw=(.01*xx+.02*yy).astype('f4');city=raw.astype(float)+3.
+    monkeypatch.setattr(yori,'OUT',tmp_path);np.save(tmp_path/'farhills.npy',raw)
+    monkeypatch.setattr(H,'backdrop_grid',lambda:city.copy())
+    monkeypatch.setattr(H,'terrain_axes',lambda:([300.,1420.],[-300.,-180.,-100.,500.]))
+    monkeypatch.setattr(H,'north_height',lambda x,y,carved=False:np.full_like(x,-40.))
+    monkeypatch.setattr(F.mountains,'contains',lambda x,y:(x<0.)&(y>0.))
+    monkeypatch.setattr(F.park_trail,'in_approach',lambda x,y:np.zeros_like(x,dtype=bool))
+    fine_y=np.unique(np.r_[np.linspace(-300.,300.,301),H.terrain_axes()[1]])
+    fine_y=fine_y[(fine_y>=-300.)&(fine_y<=-100.)]
+    xs=np.unique(np.r_[axis,-300.,300.,1420.]);ys=np.unique(np.r_[axis,fine_y,-300.,300.,500.])
+    qx,qy=np.meshgrid(xs,ys)
+    for enabled in [False,True]:
+        expected=city.copy() if enabled else raw.copy()
+        if enabled:
+            mask=F.mountains.contains(xx,yy)|F.park_trail.in_approach(xx,yy)
+            expected[mask]=np.minimum(expected[mask],H.north_height(xx,yy,carved=False)[mask]-25.)
+            expected=B.old_backdrop(expected,xx,yy)
+        actual=F.mesh_grid(301,city=enabled)
+        for a,b in zip(actual,[xs,ys,B.grid_height(axis,axis,expected,qx,qy)]):
+            np.testing.assert_array_equal(a,b)
+
+
 def test_other_coasts_town_and_rail_cover_never_get_the_headland_slot():
     x=np.array([2850.,1231.,550.,-150.,2900.,-2900.])
     y=np.array([2000.,301.8,4500.,-175.,5000.,5000.])

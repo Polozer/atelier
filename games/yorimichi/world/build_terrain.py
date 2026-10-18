@@ -171,33 +171,12 @@ def main():
     wires = obj("Wires", wv, wf, metal, smooth=True)
     # A rolling forest-floor backdrop under the detailed distant canopy.
     far = mat("FarForest", (.055, .11, .035))
-    fn = 96; fsz = 6400.0; fstep = fsz / (fn - 1)
-    FZ = np.load(os.path.join(OUT, "farhills.npy"))
-    fx_ = np.linspace(-fsz / 2, fsz / 2, fn); FX, FY = np.meshgrid(fx_, fx_)
-    if os.path.exists(os.path.join(OUT,"hidamari","city.json")):
-        from hidamari.layout import backdrop_grid,north_height
-        from hidamari.mountains import contains
-        from megapark.trail import in_approach
-        FZ=backdrop_grid().copy()
-        # The detailed northern surface replaces this coarse, textured backdrop.
-        # Cover the entire replacement footprint, including the final coarse row.
-        # The old inset rectangle exposed a tall pale wall at the northern edge.
-        # So does the Mega Park trail's approach ground north of the square (megapark/trail.py).
-        mask=contains(FX,FY)|in_approach(FX,FY)
-        FZ[mask]=np.minimum(FZ[mask],north_height(FX,FY,carved=False)[mask]-25)
-        from belmonte import terrain as belmonte_terrain
-        FZ=belmonte_terrain.old_backdrop(FZ,FX,FY)
-
     # Include the exact fine-terrain boundaries, then omit their interiors.
     # Shaping both buried and visible ground onto one coast would recreate the
     # original coplanar flicker under the new beaches.
-    from belmonte.terrain import grid_height
-    from hidamari.layout import coastal_backdrop_height,terrain_axes
-    # All cells share the fine shoreline edge knots, including adjacent far cells.
-    fine_y=np.unique(np.r_[np.linspace(-300.,300.,n),terrain_axes()[1]])
-    fine_y=fine_y[(fine_y>=-300.) & (fine_y<=-100.)]
-    xs=np.unique(np.r_[fx_,-300.,300.,1420.]);ys=np.unique(np.r_[fx_,fine_y,-300.,300.,500.])
-    xx,yy=np.meshgrid(xs,ys);z=grid_height(fx_,fx_,FZ,xx,yy)
+    from hidamari.layout import coastal_backdrop_height
+    from hidamari.forest_backdrop import mesh_grid
+    xs,ys,z=mesh_grid(n,city=os.path.exists(os.path.join(OUT,"hidamari","city.json")))
     def owned(x,y):
         return (-300.<x<300. and -300.<y<300.) or (300.<x<1420. and -300.<y<500.)
     fverts,ffaces=shorelines.grid_mesh(xs,ys,z,hidden=owned,shape=coastal_backdrop_height)

@@ -17,6 +17,28 @@ def triangular(u,v,z00,z10,z01,z11):
     return np.where(u>=v,z00*(1-u)+z10*(u-v)+z11*v,z00*(1-v)+z11*u+z01*(v-u))
 
 
+def mesh_grid(fine_count, *, city=True):
+    """@cc [owner:fontanierh,label:correctness] shared-backdrop-source-grid
+    Preserve the exporter's source heights, lowered replacement footprints and
+    exact fine-boundary knots, including its no-city fallback. Export and crown
+    placement MUST share these same arrays without changing ground geometry.
+    """
+    from hidamari import layout as H
+    from belmonte import terrain as B
+    import yori
+    axis=np.linspace(-3200.,3200.,96);xx,yy=np.meshgrid(axis,axis)
+    grid=H.backdrop_grid().copy() if city else np.load(yori.OUT/'farhills.npy')
+    if city:
+        mask=mountains.contains(xx,yy)|park_trail.in_approach(xx,yy)
+        grid[mask]=np.minimum(grid[mask],H.north_height(xx,yy,carved=False)[mask]-25)
+        grid=B.old_backdrop(grid,xx,yy)
+    fine_y=np.unique(np.r_[np.linspace(-300.,300.,fine_count),H.terrain_axes()[1]])
+    fine_y=fine_y[(fine_y>=-300.)&(fine_y<=-100.)]
+    xs=np.unique(np.r_[axis,-300.,300.,1420.]);ys=np.unique(np.r_[axis,fine_y,-300.,300.,500.])
+    xx,yy=np.meshgrid(xs,ys)
+    return xs,ys,B.grid_height(axis,axis,grid,xx,yy)
+
+
 def ground(x,y,height,backdrop_grid,terrain_axes,north_height):
     """Sample the exported triangle surfaces, including the lowered far-hill grid."""
     far=backdrop_grid().copy();axis=np.linspace(-3200,3200,far.shape[0])
@@ -98,15 +120,23 @@ def append(instances,buildings,height,backdrop_grid,terrain_axes,north_height,ro
     # producer alone opens the rocky crowns; unrelated forest rows stay exact.
     crown=coastal_surface.crown_zone(x,y,z)
     slope=np.zeros_like(z)
+    crown_ground=None
     if crown.any():
+        from hidamari import layout as H
         from train import earthworks
+        import yori
         px,py=x[crown],y[crown]
-        def final_ground(qx,qy):
-            return earthworks.carve(qx,qy,ground(qx,qy,height,backdrop_grid,terrain_axes,north_height))
-        gx=(final_ground(px+2.,py)-final_ground(px-2.,py))/4.
-        gy=(final_ground(px,py+2.)-final_ground(px,py-2.))/4.
-        slope[crown]=np.hypot(gx,gy)
+        def final_shape(qx,qy,base):
+            return earthworks.carve(qx,qy,H.coastal_backdrop_height(qx,qy,base))
+        # Crown ownership excludes the rail cover by >300m, beyond the
+        # earthworks'120m reach even at neighboring source-cell corners.
+        grid=mesh_grid(len(np.load(yori.OUT/'heightmap.npy')))
+        samples=shorelines.sample_grid_mesh(*grid,np.r_[px,px+2.,px-2.,px,px],
+            np.r_[py,py,py,py+2.,py-2.],shape=final_shape).reshape(5,-1)
+        crown_ground=samples[0]
+        slope[crown]=np.hypot((samples[1]-samples[2])/4.,(samples[3]-samples[4])/4.)
     keep,resize=coastal_surface.forest_crowns(x,y,z,slope)
+    if crown_ground is not None:z[crown]=crown_ground
     scale=scale*resize
     x,y,z,yaw,scale,names=(a[keep] for a in (x,y,z,yaw,scale,names))
     ranges={}

@@ -9,6 +9,27 @@ import yori  # noqa: E402,F401
 import shorelines as S  # noqa: E402
 
 
+def test_planting_samples_the_asymmetric_refined_faces_instead_of_the_curved_formula(monkeypatch):
+    from belmonte.source import Surface
+    monkeypatch.setattr(S,'field',lambda x,y:(np.zeros_like(x),np.zeros_like(x)))
+    monkeypatch.setattr(S,'reach',lambda x,y:np.full_like(x,1000.))
+    xs,ys=np.array([0.,10.]),np.array([0.,14.])
+    z=np.array([[1.,2.],[3.,8.]])
+    shape=lambda x,y,base:base+.2*x*x-.07*y*y
+    vertices,faces=S.grid_mesh(xs,ys,z,shape=shape)
+    triangles=np.asarray(vertices)[np.asarray([(p[0],p[k],p[k+1]) for p in faces for k in range(1,len(p)-1)])]
+    surface=Surface(triangles)
+    x,y=np.array([2.5,7.,3.,9.]),np.array([3.5,4.,12.,13.])
+    sampled=S.sample_grid_mesh(xs,ys,z,x,y,shape=shape)
+    np.testing.assert_allclose(sampled,surface.height(x,y),rtol=0,atol=1.e-10)
+    u,v=x/10.,y/14.
+    base=np.where(u>=v,1.+u+v*6.,1.+u*5.+v*2.)
+    assert np.max(abs(sampled-shape(x,y,base)))>.2
+    import pytest
+    with pytest.raises(ValueError,match='outside'):
+        S.sample_grid_mesh(xs,ys,z,[11.],[4.],shape=shape)
+
+
 def test_inland_town_and_railway_terrain_is_unchanged():
     x = np.array([-475., 550., 1574., 2450., 2490., 1231., -700.])
     y = np.array([3900., 4500., 5692., 1550., 2220., 301., 2400.])
