@@ -18,6 +18,10 @@ bool FHRRandomTest::RunTest(const FString&)
     TestEqual(TEXT("Large draw"), HRRandom::Draw(TEXT("x"), TEXT("y"), 1000003), 345669);
     TestEqual(TEXT("Escaped key and non-BMP tag"), HRRandom::Draw(TEXT("a\"b\\c\n"), TEXT("é🦊"), 81), 16);
     TestEqual(TEXT("Maximum supported bound"), HRRandom::Draw(TEXT("seed"), TEXT("max"), MAX_int32), 1830695355);
+    FString LoneHigh, LoneLow;
+    LoneHigh.AppendChar(TCHAR(0xd800)); LoneLow.AppendChar(TCHAR(0xdc00));
+    TestEqual(TEXT("Lone high surrogate uses well-formed JSON escaping"), HRRandom::Draw(LoneHigh, TEXT("tag"), 81), 34);
+    TestEqual(TEXT("Lone low surrogate uses well-formed JSON escaping"), HRRandom::Draw(LoneLow, TEXT("tag"), 81), 65);
     for (int64 Bound : {int64(0), int64(-1), int64(MAX_int32) + 1, int64(1) << 32, int64(MAX_int64)})
     {
         int32 Out = 73;

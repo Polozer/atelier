@@ -6,8 +6,9 @@ namespace HRRandomPrivate
     void AppendJsonString(FString& Out, const FString& S)
     {
         Out += TEXT("\"");
-        for (const TCHAR C : S)
+        for (int32 I = 0; I < S.Len(); ++I)
         {
+            const TCHAR C = S[I];
             switch (C)
             {
             case TEXT('"'): Out += TEXT("\\\""); break;
@@ -18,7 +19,13 @@ namespace HRRandomPrivate
             case TEXT('\b'): Out += TEXT("\\b"); break;
             case TEXT('\f'): Out += TEXT("\\f"); break;
             default:
-                if ((uint32)C < 0x20)
+                // Well-formed JSON.stringify escapes lone UTF-16 surrogates,
+                // while keeping a valid pair (or native non-BMP character) literal.
+                const bool LoneHigh = uint32(C) >= 0xd800 && uint32(C) <= 0xdbff &&
+                    !(I + 1 < S.Len() && uint32(S[I + 1]) >= 0xdc00 && uint32(S[I + 1]) <= 0xdfff);
+                const bool LoneLow = uint32(C) >= 0xdc00 && uint32(C) <= 0xdfff &&
+                    !(I > 0 && uint32(S[I - 1]) >= 0xd800 && uint32(S[I - 1]) <= 0xdbff);
+                if ((uint32)C < 0x20 || LoneHigh || LoneLow)
                 {
                     Out += FString::Printf(TEXT("\\u%04x"), (uint32)C);
                 }
