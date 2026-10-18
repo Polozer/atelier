@@ -206,7 +206,7 @@ namespace HRRules
 		P->Coins -= L.Price;
 		FHRHorse& H = S.Horses.FindChecked(L.HorseId);
 		FHRStable* Seller = FindStable(S, L.SellerId);
-		if (Seller) { Seller->Coins += L.Price; Seller->Sales++; }
+		if (Seller) { Seller->Coins = Credit(Seller->Coins, L.Price); Seller->Sales++; }
 		St->Purchases++;
 		Own(S, H, *St);
 		AddNews(S, TEXT("sale"), FString::Printf(TEXT("Sale: %s leaves %s for %s, %d coins."), *H.Name,
@@ -260,7 +260,7 @@ namespace HRRules
 		if (P->Coins < Fee + R->Wage) return FString::Printf(TEXT("It costs %d coins (transfer and first wage)."), Fee + R->Wage);
 		P->Coins -= Fee;
 		const FString From = R->OwnerId;
-		if (FHRStable* Seller = From.IsEmpty() ? nullptr : FindStable(S, From)) Seller->Coins += Fee;
+		if (FHRStable* Seller = From.IsEmpty() ? nullptr : FindStable(S, From)) Seller->Coins = Credit(Seller->Coins, Fee);
 		R->OwnerId = St->Id;
 		R->ListedPrice = 0;
 		R->FreeSinceT = -1;
@@ -315,7 +315,7 @@ namespace HRRules
 		{
 			FHRPlayer* P = St.IsPlayerOwned() ? FindPlayer(S, St.OwnerPlayerId) : nullptr;
 			if (!P) continue;
-			if (St.Coins > 0) P->Coins += St.Coins;
+			if (St.Coins > 0) P->Coins = Credit(P->Coins, St.Coins);
 			St.Coins = 0;
 			St.Debt = 0;
 		}
@@ -332,7 +332,7 @@ namespace HRRules
 		const int32 Upkeep = DailyUpkeep(S, St) - RiderWages(S, St.Id);
 		const int32 Paid = FMath::Min(P->Coins, Upkeep);
 		P->Coins -= Paid;
-		St.UpkeepPaid += Paid;
+		St.UpkeepPaid = Tally(St.UpkeepPaid, Paid);
 		if (Paid < Upkeep)
 			AddNews(S, TEXT("debt"), FString::Printf(TEXT("%s's horses cost %d coins to keep today: %d are missing. Sell a horse or win races!"), *St.Name, Upkeep, Upkeep - Paid), {}, {St.Id});
 		TArray<FHRRider*> Staff;

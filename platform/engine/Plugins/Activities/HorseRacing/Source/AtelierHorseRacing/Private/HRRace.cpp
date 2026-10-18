@@ -365,7 +365,7 @@ namespace HRRules
 			const FForecast F = Forecast(H, E, Race.Distance, Entry.Preparation, S.T);
 			const FString Injury = Exert(H, F, S.T, true);
 			H.Starts++;
-			H.Earnings += Gross;
+			H.Earnings = Tally(H.Earnings, Gross);
 			if (!bSemi && I == 0)
 			{
 				H.Wins++;
