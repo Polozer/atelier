@@ -58,4 +58,5 @@ The train gate MUST NOT block stowing an existing vehicle or bypass activity epo
 pending-contact checks, encounter admission or movement replay protections. Merely
 holding a board MUST NOT be advertised or presented as available while on the train.
 Owner board, pose and bail-body transport MUST NOT introduce visible boards aboard;
-valid hide/stow packets MUST retain existing sequence and rate admission.
+valid hide/stow packets MUST retain existing sequence and rate admission. Retained
+board/pose/bail presentation MUST be masked while aboard even without an owner hide packet.

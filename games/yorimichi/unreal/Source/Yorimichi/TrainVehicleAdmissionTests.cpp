@@ -2,6 +2,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "JapanSession.h"
 #include "JapanSkateNetwork.h"
+#include "SkateComponent.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/ScopeExit.h"
 #include "Engine/Engine.h"
@@ -98,6 +99,27 @@ bool FTrainVehicleAdmissionTest::RunTest(const FString&)
     --Board.Sequence; Board.Shown = 0.f;
     Stream->ServerBoard_Implementation(Board);
     TestEqual(TEXT("Stale transport still cannot replace the accepted board"), Stream->Board.Shown, 1.f);
+    auto* Skate = Rider->GetSkate();
+    Skate->InitializeNetworkProxy(Rider);
+    if (!TestTrue(TEXT("Normal imported board meshes are ready for visibility checks"), Skate->IsAvailable())) return false;
+    // Already admitted before boarding. No new owner packet is delivered below.
+    Stream->Boards = {Stream->Board};
+    Stream->ShowBoard(World->GetRealTimeSeconds());
+    TestEqual(TEXT("The retained board is initially visible"), Skate->GetBoardShown(), 1.f);
+    for (const FIntPoint Flags : {FIntPoint(1,0), FIntPoint(0,1), FIntPoint(1,1)})
+    {
+        Rider->bTrainAboard = Flags.X != 0;
+        Rider->bTrainDriving = Flags.Y != 0;
+        Skate->ApplyNetworkBoard(Board.Deck, 1.f);
+        Stream->ShowBoard(World->GetRealTimeSeconds());
+        TestEqual(TEXT("Boarding masks retained visible presentation without a hide packet"), Skate->GetBoardShown(), 0.f);
+    }
+    Rider->bTrainAboard = Rider->bTrainDriving = false;
+    Stream->ShowBoard(World->GetRealTimeSeconds());
+    TestEqual(TEXT("Leaving restores the ordinary retained-board presentation"), Skate->GetBoardShown(), 1.f);
+    Stream->Boards.Reset(); Rider->bTrainAboard = true;
+    Stream->ShowBoard(World->GetRealTimeSeconds());
+    TestEqual(TEXT("An orphaned visible presentation is hidden even without buffered packets"), Skate->GetBoardShown(), 0.f);
     return true;
 }
 #endif

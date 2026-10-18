@@ -311,7 +311,7 @@ void UJapanSkateNetwork::Show(float Dt)
         Deck.Blend(A.Deck, B.Deck, Alpha); Shown = FMath::Lerp(A.Shown, B.Shown, Alpha);
     }
     ShowBodies(RequestedTime, Pose, Mesh, Deck, Shown);
-    Rider->GetSkate()->ApplyNetworkBoard(Deck, Shown);
+    Rider->GetSkate()->ApplyNetworkBoard(Deck, Rider->IsOnTrain() ? 0.f : Shown);
     if (Rider->GetSkate()->ApplyNetworkPose(Pose, Mesh))
     {
         AppliedMeshWorld = Mesh;
@@ -451,6 +451,11 @@ void UJapanSkateNetwork::OnRep_Board()
 
 void UJapanSkateNetwork::ShowBoard(double ShowAt)
 {
+    if (Rider->IsOnTrain())
+    {
+        Rider->GetSkate()->ApplyNetworkBoard(Rider->GetSkate()->GetDeckWorld(), 0.f);
+        return; // Retained presentation cannot depend on the owner sending a hide packet.
+    }
     if (Boards.IsEmpty()) return;
     const auto Sample = FJapanSkatePlayout::Sample(Boards, ShowAt, [](const auto& Frame) { return double(Frame.Time); });
     const auto& A = Boards[Sample.A]; const auto& B = Boards[Sample.B];
