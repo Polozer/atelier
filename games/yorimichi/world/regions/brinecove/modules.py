@@ -229,13 +229,13 @@ def cliff_surf(b, step=5.0):
         while x < L.VIEW_X_MAX - 40:
             jx, jy = x + rng.uniform(-2, 2), y + rng.uniform(-2, 2)
             h = L.height(jx, jy)
-            if -6.0 < h < 0.2 and not L.in_gorge(jx, jy, 2.0):
+            if h < 0.2 and not L.in_gorge(jx, jy, 2.0):
                 ux, uy, grad = rocks.uphill(jx, jy, 3.0)
                 # A sheer face jumps past a narrow waterline band between samples: test for dry rock just uphill.
                 if grad > 0.25 and L.height(jx + ux * 5.0, jy + uy * 5.0) > 0.8:
                     for k in range(2):
                         d = 1.0 + k * rng.uniform(2.0, 4.0)
-                        length, width = rng.uniform(6.0, 10.0), rng.uniform(1.6, 3.2) * (1.0 - 0.3 * k)
+                        length, width = rng.uniform(8.0, 14.0), rng.uniform(3.0, 6.0) * (1.0 - 0.3 * k)
                         cx, cy = jx - ux * (d - 1.0), jy - uy * (d - 1.0)
                         tx, ty = -uy, ux
                         pts = [(cx + tx * u - ux * v, cy + ty * u - uy * v, 0.07 + 0.01 * k) for u, v in

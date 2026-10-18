@@ -231,7 +231,7 @@ def waterfall(b):
         if L.in_gorge(px, py, 1.5) or L.is_water(px, py) or L.in_lot(px, py, 4.0) or L.on_street(px, py, 3.0):
             continue
         pz = L.height(px, py)
-        if pz < 4.0 or L.slope(px, py) > 0.75:
+        if pz < 4.0 or L.slope(px, py) > 1.0:
             continue
         if shelf.random() < 0.65:
             bush(b, px, py, pz - 0.1, 0.0, shelf.uniform(1.2, 2.4), shelf)

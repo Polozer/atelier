@@ -90,13 +90,18 @@ def spray():
     size = 256
     lace = Image.new('L', (size, size), 0)
     draw = ImageDraw.Draw(lace)
-    for _ in range(220):
+    # Dense enough to read as a white wash from the sea at clip 0.45: a sparse lace vanished at distance.
+    for _ in range(700):
         a = rng.uniform(0, math.tau)
-        d = rng.uniform(0, 1) ** 0.7 * 110
-        cx, cy = size / 2 + math.cos(a) * d, size / 2 + math.sin(a) * d * 0.7
-        r = rng.uniform(3, 14) * (1.2 - d / 140)
-        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=rng.randint(150, 255))
-    lace = lace.filter(ImageFilter.GaussianBlur(2.5))
+        d = rng.uniform(0, 1) ** 0.8 * 118
+        cx, cy = size / 2 + math.cos(a) * d, size / 2 + math.sin(a) * d * 0.55
+        r = rng.uniform(5, 17) * (1.25 - d / 150)
+        draw.ellipse((cx - r * 1.4, cy - r * 0.8, cx + r * 1.4, cy + r * 0.8), fill=rng.randint(200, 255))
+    # Dark holes keep it lace rather than a solid white tile.
+    for _ in range(160):
+        cx, cy, r = rng.uniform(0, size), rng.uniform(0, size), rng.uniform(2, 6)
+        draw.ellipse((cx - r * 1.5, cy - r, cx + r * 1.5, cy + r), fill=0)
+    lace = lace.filter(ImageFilter.GaussianBlur(1.6))
     tone = Image.new('RGB', (size, size), (240, 246, 244))
     image = Image.merge('RGBA', (*tone.split(), lace))
     image.save(OUT / 'spray.png')
