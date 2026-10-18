@@ -129,6 +129,12 @@ def map_zones(town_z):
          'x': L.ORIGIN[0] + 67.8, 'y': L.ORIGIN[1] + 306.8, 'z': float(L.ORIGIN[2] + 30.2),
          'yaw': 0., 'above_m': 1.5,
          'hint': 'The betting hall by the racecourse: betting counters'},
+        # The osteria on the piazza, in its taproom where the races will be on TV: Haras Valley's tv_spots.json
+        # osteria_front watch spot, facing the screen on the front wall.
+        {'key': 'belmonte_osteria', 'name': 'Belmonte · Osteria',
+         'x': L.ORIGIN[0] - 30.4, 'y': L.ORIGIN[1] + 1.6, 'z': float(L.ORIGIN[2] + 0.18),
+         'yaw': 4., 'above_m': 1.5,
+         'hint': 'The tavern on the piazza, where the races will be on TV'},
     ]
 
 
