@@ -55,3 +55,25 @@ def test_extended_groves_leave_the_region_join_and_complete_rail_clear():
     # the coastal country sampler must not place a second set across that join.
     assert not D.clear_footprint(1750.,4800.,13.)
     assert not D.clear_footprint(1760.,4800.,13.)
+
+
+def test_compact_shoulders_preserve_existing_rows_and_clear_whole_footprints():
+    import copy
+    sites=D.shoulder_sites()
+    assert len(sites)==74
+    x,y,size=np.asarray([(r[1],r[2],r[3]) for r in sites]).T
+    assert D.clear_footprint(x,y,3.*size).all()
+    assert size.min()>3. and size.max()<5.36
+    # Both transformed source assets and their colliders fit inside this radius.
+    for asset in ['SW_Boulder_A','SW_Boulder_B']:
+        hx,hy=(1.6,1.36) if asset.endswith('_A') else (2.24,1.12)
+        assert np.hypot(hx,hy)<3.
+    old={'SW_Boulder_A':[[500.,500.,20.,0.,5.]],'Tree_Pine_B':[[10.,20.,30.,40.,2.]]}
+    before=copy.deepcopy(old)
+    D.append_shoulders(old,lambda x,y: .01*x+.02*y)
+    assert old['Tree_Pine_B']==before['Tree_Pine_B']
+    assert old['SW_Boulder_A'][0]==before['SW_Boulder_A'][0]
+    added={n:rows[len(before.get(n,[])):] for n,rows in old.items()}
+    assert sum(map(len,added.values()))==74
+    for rows in added.values():
+        for x,y,z,yaw,size in rows:assert abs(z-(.01*x+.02*y+.2*size))<=.00051

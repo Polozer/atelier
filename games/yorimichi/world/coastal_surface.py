@@ -15,7 +15,8 @@ def rock_faces(x, y, z, normal_z):
     d, rock = coast.field(x, y)
     return ((headland > .25) & (coast.protected_weight(x, y) > .99)
             & (coast.weight(x, y) > .25) & (d > 0.) & (d < 500.)
-            & (rock > .25) & (z > 4.) & (normal_z < .85))
+            & (rock > .25) & (z > 4.) & (normal_z < .85)
+            & (coast.meadow_caps(x,y,z,normal_z) <= .2))
 
 
 def face_colour(x, y, z, normal_z):

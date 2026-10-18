@@ -131,6 +131,51 @@ def shape_crowns(objects):
                        for row,selected,k in zip(rows,on,keep) if k]
 
 
+def shoulder_sites():
+    """@cc [owner:fontanierh,label:correctness] connected-coastal-shoulders
+    Small interlocking source rocks may occupy these five existing shoulders
+    only after full-footprint clearance. Preserve pier, arrival, harbor, islet,
+    town and rail exclusions; do not consume the established dressing RNG.
+    """
+    centres=[]
+    for x in [-255.,245.]:
+        lo,hi=-300.,-100.
+        for _ in range(30):
+            mid=(lo+hi)/2.
+            if coast.field(x,mid)[0]>0.:hi=mid
+            else:lo=mid
+        centres.append((x,(lo+hi)/2.,1.,0.,0.,1.,0.))
+    for y in [4380.,5250.,6210.]:
+        lo,hi=2000.,3200.
+        for _ in range(30):
+            mid=(lo+hi)/2.
+            if coast.field(mid,y)[0]>0.:lo=mid
+            else:hi=mid
+        centres.append(((lo+hi)/2.,y,0.,1.,-1.,0.,90.))
+    result=[]
+    pattern=[(t,n) for n in [-1.,6.] for t in [-16.,-10.,-4.,3.,10.,16.]]+[(t,12.) for t in [-10.,0.,10.]]
+    for ci,(cx,cy,tx,ty,nx,ny,angle) in enumerate(centres):
+        for i,(t,n) in enumerate(pattern):
+            size=round(float(4.1+.9*np.sin(i*1.7+ci*.8)+.35*np.cos(i*2.1)),3)
+            x,y=round(cx+tx*t+nx*n,2),round(cy+ty*t+ny*n,2)
+            # This radius exceeds both source meshes and their collider bounds.
+            if not bool(clear_footprint(x,y,size*3.)):continue
+            asset='SW_Boulder_A' if i%3 else 'SW_Boulder_B'
+            yaw=round(float(angle+14.*np.sin(i*2.3+ci)),1)
+            result.append((asset,x,y,size,yaw))
+    return result
+
+
+def append_shoulders(objects, ground):
+    """Append only the small shoulder groups, seated on final exported triangles."""
+    sites=shoulder_sites()
+    x,y=np.asarray([(r[1],r[2]) for r in sites],float).T
+    z=ground(x,y)
+    assert np.isfinite(z).all(),'Missing triangle support for coastal shoulder'
+    for (name,x,y,size,yaw),height in zip(sites,z):
+        objects.setdefault(name,[]).append([x,y,round(float(height+size*.2),3),yaw,size])
+
+
 def integrate(world, heightmap):
     from hidamari import layout
     from belmonte import terrain
@@ -160,7 +205,19 @@ def integrate(world, heightmap):
         out[city] = layout.height(x[city], y[city])
         return out
 
+    def shoulder_ground(x,y):
+        out=ground(x,y)
+        north=y>3200.
+        # The country exporter refines its source cells before carving. New
+        # shoulders use those triangles rather than the nonlinear query height.
+        def shape(qx,qy,base):
+            return earthworks.carve(qx,qy,coast.height(qx,qy,base))
+        if north.any():
+            out[north]=coast.sample_grid_mesh(*terrain.country_grid(),x[north],y[north],shape=shape)
+        return out
+
     objects = placements(ground)
+    append_shoulders(objects,shoulder_ground)
     clear_instances(objects)
     for name, rows in objects.items():
         world['instances'].setdefault(name, []).extend(rows)

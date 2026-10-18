@@ -24,6 +24,20 @@ def test_observed_cliff_face_is_selected_but_its_meadow_and_beach_are_not():
     assert not C.rock_faces(x,y,-2.,.725)
 
 
+def test_meadow_caps_keep_upper_shoulders_green_and_steep_faces_stone():
+    import shorelines as S
+    assert S.meadow_caps(2900.,440.,45.,.9) > .99
+    assert S.meadow_caps(2900.,440.,45.,.3) == 0.
+    assert S.meadow_caps(2900.,440.,1.5,.9) == 0.
+    assert not C.rock_faces(2950.,250.,50.,.8)
+    # The unchanged observed steep foreground face retains its exact stone path.
+    assert C.rock_faces(2893.099,160.935,21.338,.725)
+    x=np.array([1231.,550.,-150.,2850.]);y=np.array([301.8,4500.,-175.,2000.])
+    np.testing.assert_array_equal(S.meadow_caps(x,y,50.,.95),np.zeros(4))
+    for nz in [.579999,.580001]:
+        assert S.meadow_caps(2900.,440.,45.,nz) < 1.e-8
+
+
 def test_shared_backdrop_grid_keeps_the_original_export_construction(tmp_path,monkeypatch):
     from hidamari import forest_backdrop as F,layout as H
     from belmonte import terrain as B

@@ -399,6 +399,29 @@ def clear_vegetation(instances):
     return removed
 
 
+def meadow_caps(x, y, z, normal_z):
+    """@cc [owner:fontanierh,label:correctness] coastal-meadow-cap-ownership
+    Only gentle upper shoulders of the editable eastern landforms may gain
+    meadow cover. Steep rock, pocket sand, occupied ground and rail cover MUST
+    retain their existing palette. This mask MUST NOT change ground geometry.
+    """
+    x,y,z,normal_z=np.broadcast_arrays(x,y,z,normal_z)
+    _,headland=landform_regions(x,y)
+    d,rock=field(x,y)
+    country=smooth((y-3500.)/400.)*smooth((6500.-y)/400.)*smooth((abs(x)-2200.)/250.)
+    region=np.maximum(headland,country)
+    high=smooth((z-(20.-14.*country))/18.)
+    return (region*protected_weight(x,y)*smooth((weight(x,y)-.1)/.2)
+            *smooth((d-28.)/35.)*smooth((500.-d)/100.)
+            *smooth((rock-.25)/.35)*smooth((normal_z-.58)/.28)*high)
+
+
+def meadow_cap_colour(x, y):
+    patch=np.clip(.5+.3*np.sin(np.asarray(x)/37.+np.asarray(y)/53.)
+                  +.2*np.cos(np.asarray(y)/29.),0.,1.)
+    return np.array([.17,.235,.065])*(1.-patch[...,None])+np.array([.32,.285,.11])*patch[...,None]
+
+
 def paint(x, y, z, normal_z):
     x, y, z, normal_z = np.broadcast_arrays(x, y, z, normal_z)
     _, rock = field(x, y)
@@ -415,6 +438,9 @@ def paint(x, y, z, normal_z):
     shore = sand*(1.-exposure[..., None])+stone*exposure[..., None]
     # Beach sand fades into meadow on the backshore; cliff faces stay rock.
     coverage = np.maximum(1.-smooth((z-3.)/5.), exposure)
+    cap=meadow_caps(x,y,z,normal_z)
+    shore=shore*(1.-cap[...,None])+meadow_cap_colour(x,y)*cap[...,None]
+    coverage=np.maximum(coverage,cap)
     w = weight(x, y)*coverage
     return shore, w
 
