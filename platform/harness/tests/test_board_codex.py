@@ -2,6 +2,7 @@
 import json
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -99,13 +100,14 @@ def test_actual_unix_websocket_rpc_initializes_ignores_notifications_and_steers(
 class Daemons:
     """Fake running daemons per Codex home: each knows its own threads, like separate app-server homes."""
     def __init__(self, directory, owned):
-        self.servers, self.sockets, self.reads, self.steers = [], {}, [], []
+        self.servers, self.sockets, self.reads, self.steers, self.timeouts = [], {}, [], [], []
+        self.lookup_delay = 0.
         for home, threads in owned.items():
             if threads is None:   # an installed home whose daemon isn't running
                 continue
             path = str(Path(directory) / f'{home}.sock')
             self.sockets[home] = path
-            server = unix_serve(self.handler(home, set(threads)), path=path)
+            server = unix_serve(self.handler(home, threads), path=path)
             threading.Thread(target=server.serve_forever, daemon=True).start()
             self.servers.append(server)
 
@@ -118,6 +120,8 @@ class Daemons:
                 method, params = request['method'], request['params']
                 if method == 'initialize':
                     reply = {'result': {}}
+                elif threads == 'hang':   # accepts the connection, then never answers
+                    continue
                 elif params['threadId'] not in threads:
                     reply = {'error': {'code': -32600, 'message': 'thread not loaded'}}
                 elif method == 'thread/read':
@@ -132,6 +136,8 @@ class Daemons:
         return handle
 
     def version(self, command, **options):
+        self.timeouts.append(options['timeout'])
+        time.sleep(min(self.lookup_delay, options['timeout']))
         home = Path(options['env']['CODEX_HOME']).name
         status = {'status': 'running', 'socketPath': self.sockets[home]} if home in self.sockets else {'status': 'stopped'}
         return type('Done', (), {'stdout': json.dumps(status)})()
@@ -218,3 +224,40 @@ def test_candidate_homes_include_inherited_default_and_daemon_homes(tmp_path, mo
     assert board_codex.codex_homes() == [(tmp_path / p).resolve() for p in ('custom', '.codex', '.codex-opencodex')]
     monkeypatch.delenv('CODEX_HOME')
     assert board_codex.codex_homes() == [(tmp_path / p).resolve() for p in ('.codex', '.codex-opencodex')]
+
+
+def test_hung_candidate_spends_only_the_shared_discovery_budget(daemons):
+    daemons({'stuck': 'hang', 'opencodex': ['ocx-thread']})
+    started = time.monotonic()
+    with pytest.raises(board_codex.TransportError, match='owner unavailable.*retained'):
+        board_codex.locate('ocx-thread', homes=[Path('/h/stuck'), Path('/h/opencodex')], budget=1.)
+    assert time.monotonic()-started < 1.6
+    # An owner found before the hung daemon is still used once the budget ends.
+    started = time.monotonic()
+    found = board_codex.locate('ocx-thread', homes=[Path('/h/opencodex'), Path('/h/stuck')], budget=1.)
+    assert found.endswith('opencodex.sock') and time.monotonic()-started < 1.6
+
+
+def test_many_slow_lookups_stay_inside_budget_and_retain_cursor(daemons):
+    fakes = daemons({f'home{i}': None for i in range(12)})
+    fakes.lookup_delay = .3
+    started = time.monotonic()
+    with pytest.raises(board_codex.TransportError, match='retained'):
+        board_codex.locate('thread', homes=[Path(f'/h/home{i}') for i in range(12)], budget=1.)
+    assert time.monotonic()-started < 1.6
+    assert len(fakes.timeouts) < 12 and all(t <= 1. for t in fakes.timeouts)
+
+
+def test_delivery_keeps_its_reserved_budget_after_discovery(daemons, monkeypatch):
+    fakes = daemons({'stuck': 'hang', 'opencodex': ['ocx-thread']})
+    asked = []
+    real = board_codex.locate
+    monkeypatch.setattr(board_codex, 'locate', lambda *a, budget: asked.append(budget) or real(*a, budget=budget))
+    started = time.monotonic()
+    with board_codex.connect('ocx-thread', homes=[Path('/h/opencodex'), Path('/h/stuck')], budget=3.) as client:
+        assert board_codex.notify(client, 'ocx-thread', 'handoff') == 'steered'
+        assert client.deadline-started > 3.*(1-board_codex.DISCOVERY_SHARE)-.05   # reserved share kept
+    assert asked == [pytest.approx(1.2)] and fakes.steers == [('opencodex', 'turn/steer')]
+    assert time.monotonic()-started < 3.5
+    board_codex.connect('x', sock=fakes.sockets['opencodex']).close()
+    assert board_codex.DELIVERY_BUDGET*(1-board_codex.DISCOVERY_SHARE) >= 15 and board_codex.DELIVERY_BUDGET < 30

@@ -11,6 +11,11 @@ from websockets.sync.client import unix_connect
 from websockets.exceptions import WebSocketException
 
 
+# The listener kills a notification command after 30 s. Discovery and delivery share 25 s, and
+# discovery may use at most 40% of it (10 s), so the steer itself always keeps at least 15 s.
+DELIVERY_BUDGET, DISCOVERY_SHARE, PROBE_BUDGET = 25., .4, 5.
+
+
 class TransportError(RuntimeError):
     pass
 
@@ -22,21 +27,28 @@ class RpcError(TransportError):
 
 
 class Client:
-    """A bounded connection to the existing daemon, never a new agent or server."""
-    def __init__(self, codex='codex', sock=None, home=None, budget=20):
+    """A bounded connection to the existing daemon, never a new agent or server.
+
+    One deadline covers the daemon lookup, the socket open and every call, so a whole delivery stays
+    inside the listener's 30 s notification command bound.
+    """
+    def __init__(self, codex='codex', sock=None, home=None, budget=DELIVERY_BUDGET):
         self.connection = ExitStack()
+        self.deadline = time.monotonic()+budget
         try:
             if not sock:
-                sock = daemon_socket(codex, home)
+                sock = daemon_socket(codex, home, timeout=self.remaining(5))
                 if not sock:
                     raise TransportError('Codex daemon is unavailable; board cursor retained.')
             self.socket = self.connection.enter_context(
-                unix_connect(str(sock), open_timeout=5, close_timeout=1, max_size=2*1024*1024))
+                unix_connect(str(sock), open_timeout=self.remaining(5), close_timeout=1, max_size=2*1024*1024))
         except (OSError, ValueError, KeyError, WebSocketException, subprocess.SubprocessError):
             self.connection.close()
             raise TransportError('Codex connection unavailable; board cursor retained.') from None
         self.sequence = 0
-        self.deadline = time.monotonic()+budget
+
+    def remaining(self, cap):
+        return max(.05, min(cap, self.deadline-time.monotonic()))
 
     def send(self, value):
         try:
@@ -77,11 +89,11 @@ class Client:
         self.close()
 
 
-def daemon_socket(codex='codex', home=None):
+def daemon_socket(codex='codex', home=None, timeout=5.):
     """The running app-server daemon's socket for one Codex home (default: the inherited one), or None."""
     env = dict(os.environ, CODEX_HOME=str(home)) if home else None
     result = subprocess.run([codex, 'app-server', 'daemon', 'version'], capture_output=True,
-                            text=True, timeout=5, check=True, env=env)
+                            text=True, timeout=timeout, check=True, env=env)
     status = json.loads(result.stdout)
     return status['socketPath'] if status.get('status') == 'running' else None
 
@@ -94,16 +106,22 @@ def codex_homes():
     return list(dict.fromkeys(p.expanduser().resolve() for p in found))
 
 
-def locate(thread, codex='codex', homes=None):
+def locate(thread, codex='codex', homes=None, budget=DELIVERY_BUDGET*DISCOVERY_SHARE):
     """@cc [owner:fontanierh,label:correctness] codex-thread-daemon
     Without an explicit socket or home, delivery MUST use the one running daemon that owns the thread.
     A daemon owns it when thread/read succeeds (any status, including notLoaded); other daemons reject
     it. No owner, or more than one, MUST fail with the board cursor retained, never guess a daemon.
+    All probes MUST share one bounded discovery budget; a candidate left unchecked counts as unreachable.
     """
+    deadline = time.monotonic()+budget
     owners, unreachable, seen = [], False, set()
     for home in codex_homes() if homes is None else homes:
+        left = deadline-time.monotonic()
+        if left <= 0:
+            unreachable = True
+            break
         try:
-            sock = daemon_socket(codex, home)
+            sock = daemon_socket(codex, home, timeout=min(PROBE_BUDGET, left))
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             sock = None
         if not sock:
@@ -113,8 +131,7 @@ def locate(thread, codex='codex', homes=None):
             continue
         seen.add(sock)
         try:
-            # Short read-only probes keep discovery plus delivery inside the listener's 30 s command bound.
-            with Client(codex, sock, budget=5) as client:
+            with Client(codex, sock, budget=min(PROBE_BUDGET, max(0., deadline-time.monotonic()))) as client:
                 client.call('thread/read', {'threadId': thread, 'includeTurns': False})
             owners.append(sock)
         except RpcError:
@@ -129,13 +146,16 @@ def locate(thread, codex='codex', homes=None):
     return owners[0]
 
 
-def connect(thread, codex='codex', sock=None, home=None, homes=None):
-    """Client for the thread's daemon: an explicit socket, then an explicit home, then the discovered owner."""
+def connect(thread, codex='codex', sock=None, home=None, homes=None, budget=DELIVERY_BUDGET):
+    """Client for the thread's daemon: an explicit socket, then an explicit home, then the discovered owner.
+    Discovery and delivery share one budget, and discovery never takes the delivery's reserved share."""
+    start = time.monotonic()
     if sock:
-        return Client(codex, sock)
+        return Client(codex, sock, budget=budget)
     if home:
-        return Client(codex, home=home)
-    return Client(codex, locate(thread, codex, homes))
+        return Client(codex, home=home, budget=budget)
+    owner = locate(thread, codex, homes, budget=budget*DISCOVERY_SHARE)
+    return Client(codex, owner, budget=max(.05, budget-(time.monotonic()-start)))
 
 
 def notify(client, thread, message):
