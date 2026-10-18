@@ -650,13 +650,15 @@ class CapacityBroker:
         return dict(state='queued', admission=False, no_go=True, reason=reason,
                     nonce=record['nonce'], epoch=state['epoch'], child=list(child))
 
-    def _selection(self, state, *, pressure=False):
+    def _selection(self, state, *, pressure=False, advisory=False):
         """@cc [owner:fontanierh,label:safety] pressure-aware-uncharged-offer
         Offers MUST stay uncharged and retain ready age, sequence and bypass protection while
         complete memory is unavailable. Pressure-aware ranking MUST use one fresh observation
-        and full validated remaining peer growth. After two bypasses or 300 seconds of original
+        and full validated remaining peer growth. After two bypasses or 900 seconds of original
         ready age, the oldest protected feasible request MUST drain before younger work,
         including performance-exclusive requests.
+        Missing advisory observations MUST keep offers queued without mutating holder health;
+        final start observations MUST still fail closed on unavailable enforcement.
         This eligibility observation MUST NOT replace the final guarded GO pressure proof.
         """
         if not self.compatible or any(r['state'] == 'uncertain' for r in state['records'].values()):
@@ -665,7 +667,7 @@ class CapacityBroker:
         queued = sorted((r for r in state['records'].values() if r['state'] == 'queued'), key=lambda r: r['sequence'])
         feasible = [r for r in queued if not conflicts(self._model(r), [], self.total, self.reserve)]
         protected = next((r for r in feasible if r.get('bypasses', 0) >= 2
-                          or time.time() - r['first_ready'] >= 300.), None)
+                          or time.time() - r['first_ready'] >= 900.), None)
         ranked = sorted(feasible, key=lambda r: (r is not protected if protected else False,
                                                 r['request']['seconds'] > 300, r['sequence']))
         if not ranked:
@@ -675,7 +677,9 @@ class CapacityBroker:
             if not conflicts(self._model(record), holders, self.total, self.reserve):
                 if pressure:
                     if budget is None:
-                        budget = self._pressure_budget(state)
+                        budget = self._pressure_budget(state, advisory=advisory)
+                        if budget is None:
+                            return None
                     memory, growth = budget
                     required = record['request']['resources']['memory_mib'] + self.reserve.memory_mib + growth
                     if memory < required:
@@ -687,12 +691,14 @@ class CapacityBroker:
                 break
         return None
 
-    def _pressure_budget(self, state, candidate=None):
+    def _pressure_budget(self, state, candidate=None, *, advisory=False):
         observation = self.observe()
         now = self._clock()
         if (type(observation) is not dict or type(observation.get('observed_monotonic')) not in (float, int)
                 or not math.isfinite(observation['observed_monotonic'])
                 or not 0 <= now - observation['observed_monotonic'] <= 2):
+            if advisory:
+                return None
             raise wire.CapacityError('Fresh capacity pressure observation unavailable')
         memory = wire.integer(observation.get('available_memory_mib'))
         growth_memory = 0
@@ -707,6 +713,8 @@ class CapacityBroker:
                                         record['limit_bytes'], vector.memory_mib)
                     measured = facts.footprint_bytes // 1024**2
                 except (OSError, ValueError, KeyError, wire.CapacityError):
+                    if advisory:
+                        return None
                     record['state'] = 'draining' if self._root_exited(record) else 'uncertain'
                     raise wire.CapacityError('Existing holder enforcement is unavailable; reservation retained') from None
             growth_memory += max(0, vector.memory_mib - measured)
@@ -956,7 +964,7 @@ class CapacityBroker:
                                       verified_roster=[], ancestry_unknown=False)
                         record.pop('process_history', None)
                     record.update(request=request, state='queued', epoch=state['epoch'], heartbeat=now)
-                    selected = self._selection(state, pressure=True) is record
+                    selected = self._selection(state, pressure=True, advisory=True) is record
                     result = {'selected': selected, 'state': 'offered' if selected else 'queued',
                               'nonce': record['nonce'], 'epoch': state['epoch'], 'first_ready': record['first_ready']}
                 else:

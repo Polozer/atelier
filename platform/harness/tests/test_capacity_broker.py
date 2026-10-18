@@ -1038,7 +1038,7 @@ def test_pressure_skips_compatible_small_work_until_old_head_is_protected(broker
     for protection in ('age','bypasses'):
         with broker._lock:
             state = broker._load();row=state['records']['old-large']
-            row['first_ready'] = time.time() - (301 if protection=='age' else 1)
+            row['first_ready'] = time.time() - (901 if protection=='age' else 1)
             row['bypasses'] = 0 if protection=='age' else 2
             broker._save(state)
         with pytest.raises(client.CapacityQueued):small.offer()
@@ -1059,11 +1059,22 @@ def test_pressure_budget_charges_full_unmeasured_or_remaining_peer_growth(broker
 
 
 @pytest.mark.parametrize('observation', [None,{'observed_monotonic':0,'available_memory_mib':0}])
-def test_unavailable_observation_is_not_an_ordinary_pressure_wait(broker,monkeypatch,observation):
-    monkeypatch.setattr(broker,'observe',lambda:observation)
-    admission=session(broker)
-    with pytest.raises(wire.CapacityError,match='observation unavailable') as error:admission.offer()
-    assert type(error.value) is wire.CapacityError
+def test_unavailable_advisory_observation_waits_but_final_start_fails_closed(broker,monkeypatch,observation):
+    admission = session(broker)
+    admission.offer()
+    child = gated_child(admission)
+    monkeypatch.setattr(broker, 'observe', lambda: observation)
+    try:
+        with pytest.raises(client.CapacityQueued):
+            admission.offer()
+        with pytest.raises(wire.CapacityError, match='observation unavailable') as error:
+            start(admission, child)
+        assert type(error.value) is wire.CapacityError
+        assert child.communicate(timeout=3)[0] == b''
+        admission.close(child=child, child_start=admission.child[1])
+    finally:
+        if child.poll() is None:child.kill()
+        child.wait()
 
 
 @pytest.mark.parametrize('cancel', [False, True])
@@ -1089,3 +1100,18 @@ def test_pressure_queue_deadline_and_cancellation_hold_no_child_or_charge(broker
     with pytest.raises(client.CapacityQueued):retry.offer()
     assert client.status(broker.socket_path)['records'][0]['first_ready'] == original_ready
     retry.close()
+
+
+def test_advisory_peer_guard_failure_does_not_change_holder_health(broker, monkeypatch):
+    peer = dict(state='running',request=dict(resources=asdict(Resources(memory_mib=128))),
+                guards={},child=[1,1],principal=[2,2],limit_bytes=128*1024**2)
+    state = {'records': {'peer': peer}}
+    def unavailable(*args):
+        raise wire.CapacityError('guard evidence missing')
+    monkeypatch.setattr(broker, 'guards', unavailable)
+    monkeypatch.setattr(broker, '_root_exited', lambda record: False)
+    assert broker._pressure_budget(state, advisory=True) is None
+    assert peer['state'] == 'running'
+    with pytest.raises(wire.CapacityError, match='enforcement is unavailable'):
+        broker._pressure_budget(state)
+    assert peer['state'] == 'uncertain'

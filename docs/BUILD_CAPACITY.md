@@ -50,8 +50,9 @@ It never replays a start or treats missing timing data as proof that a child did
 Offers test fresh available memory against the full candidate envelope, host reserve and
 validated charged peers' remaining growth before selecting work. A memory deficit keeps the
 request queued without a gate, child or resource charge. Smaller compatible work may proceed
-until the oldest statically feasible request has two bypasses or 300 seconds of original ready
+until the oldest statically feasible request has two bypasses or 900 seconds of original ready
 age; that protected request then drains before younger work, including for exclusive sessions.
+Unavailable advisory telemetry or peer evidence keeps the offer queued without changing holder health.
 The final guarded start repeats its fresh pressure and ownership checks.
 
 An automatic build whose pressure eligibility changes before GO returns to the same queue only
