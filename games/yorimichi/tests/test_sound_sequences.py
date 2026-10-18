@@ -58,6 +58,25 @@ def test_runtime_binding_and_speed_contact_profile():
     assert sequences.skate_gain_pitch(8, True) == (.9, 1.2)
 
 
+def test_footstep_bank_profile_revalidation_witness():
+    game = SOURCE.parents[1]
+    witness = json.loads((game / 'assets/audio/profile/footstep-bank-revalidation.json').read_text())
+    assert witness['version'] == 1
+    assert witness['before_sha256'] == '26e57e1a9589b2d73521ea3b7e3cdcf9fad3322aa0f4a753686f3f0f86e36e80'
+    assert witness['after_sha256'] == sequences.RUNTIME[witness['source']]
+    text = (sequences.REPO / witness['source']).read_text()
+    assert set(witness['unchanged_function_bodies']) == {'SurfaceAt', 'Plant', 'Land', 'TickComponent'}
+    for name, expected in witness['unchanged_function_bodies'].items():
+        start = text.index('{', text.index('UJapanFootstepComponent::' + name + '('))
+        depth = 0
+        for end in range(start, len(text)):
+            depth += (text[end] == '{') - (text[end] == '}')
+            if depth == 0:
+                break
+        assert depth == 0
+        assert sequences.hashlib.sha256(text[start:end + 1].encode()).hexdigest() == expected
+
+
 def test_missing_surface_or_modified_candidate_fails(prepared):
     pools, _, _ = sequences.prepared_sources(prepared)
     with pytest.raises(ValueError, match='Missing surface'):
