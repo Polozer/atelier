@@ -65,6 +65,31 @@ SURFACES = {
             'small salt-bleached patches and sparse moss in the cracks, painterly but readable rock '
             'structure, neutral mid-tone that can be tinted, flat straight-on view'),
         scale=9.0),
+    'cliff_strata': dict(
+        prompt=(
+            'a seamless tileable texture of a stratified sea cliff face, horizontal sedimentary bands of '
+            'ochre, warm grey and rust, deep vertical fissures, broken ledges and overhangs, salt bleaching, '
+            'sparse moss in the cracks, painterly but readable rock structure, neutral mid-tone that can be '
+            'tinted, flat straight-on view'),
+        scale=9.0),
+    'hull_planks': dict(
+        prompt=(
+            'a seamless tileable texture of dark tarred oak ship hull planks, long horizontal strakes, '
+            'caulked seams, iron nail heads, salt bleaching, weathered grain and a little rust bleed, '
+            'neutral dark brown that can be tinted, flat straight-on view'),
+        scale=2.0),
+    'thatch': dict(
+        prompt=(
+            'a seamless tileable texture of an old thatch roof, layered straw bundles running down the slope, '
+            'dark gaps and shadowed seams, weathered golden-brown and grey straw, a little moss, neutral warm '
+            'tone that can be tinted, flat straight-on view'),
+        scale=1.6),
+    'planks': dict(
+        prompt=(
+            'a seamless tileable texture of weathered vertical timber planks on an old shack wall, visible '
+            'board edges and gaps, iron nail heads, splits and silvered grain, patches of faded teal and '
+            'rust paint, neutral warm tan-grey that can be tinted, flat straight-on view'),
+        scale=1.5),
     'sand': dict(
         prompt=(
             'a seamless tileable texture seen straight down of a sunlit tropical beach, fine pale '
@@ -79,7 +104,7 @@ MATERIAL_SURFACE = {
     'coral': ('plaster', 2.8), 'sage_wall': ('plaster', 2.8), 'teal_wall': ('plaster', 2.8),
     'azure_wall': ('plaster', 2.8), 'lime_wall': ('plaster', 2.8),
     'roof_terra': ('roof', 1.9), 'roof_terra_light': ('roof', 1.9), 'roof_teal': ('roof', 1.9),
-    'roof_slate': ('roof', 1.9), 'roof_straw': ('roof', 1.4),
+    'roof_slate': ('roof', 1.9), 'roof_straw': ('thatch', 1.6),
     'stone': ('stone', 3.2), 'stone_light': ('stone', 3.2), 'stone_dark': ('stone', 3.2),
     'cobble': ('cobble', 2.0), 'cobble_dark': ('cobble', 2.0),
     'wood': ('wood', 1.5), 'wood_dark': ('wood', 1.5), 'wood_light': ('wood', 1.5),
@@ -88,7 +113,9 @@ MATERIAL_SURFACE = {
     'canvas_teal': ('canvas', 2.2),
     'metal': ('iron', 1.0), 'gold': ('iron', 1.0),
     'water': ('water', 26.0), 'water_shallow': ('water', 18.0), 'water_mid': ('water', 22.0),
-    'rock': ('cliff', 9.0), 'rock_light': ('cliff', 9.0), 'rock_dark': ('cliff', 9.0),
+    'rock': ('cliff_strata', 9.0), 'rock_light': ('cliff_strata', 9.0),
+    'rock_dark': ('cliff_strata', 9.0), 'planks': ('planks', 1.5),
+    'hull': ('hull_planks', 2.0), 'deck_planks': ('hull_planks', 1.8),
     'sand': ('sand', 4.5),
     'jungle': ('foliage', 3.0), 'jungle_light': ('foliage', 3.0), 'jungle_dark': ('foliage', 3.0),
     'palm': ('foliage', 3.0), 'palm_light': ('foliage', 3.0),

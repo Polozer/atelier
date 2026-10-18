@@ -16,9 +16,21 @@ HAS_FIGUREHEAD = (ASSETS / 'galleon-figurehead.glb').exists()
 HAS_WHEEL = (ASSETS / 'ships-wheel.glb').exists()
 
 
+def jag_point(p):
+    px, py, pz = p
+    amp = min(2.2, max(0.0, L.slope(px, py) - 0.42) * 2.4)
+    if amp <= 0.0:
+        return p
+    wave = (math.sin(px * 0.11 + py * 0.07) * math.cos(py * 0.13 - px * 0.05)
+            + 0.45 * math.sin(px * 0.27 + py * 0.19 + 1.3))
+    return (px + math.cos(py * 0.17) * amp * 0.38,
+            py + math.sin(px * 0.19) * amp * 0.38,
+            pz + wave * amp)
+
+
 def terrain():
     b = Builder('01_terrain')
-    nx, ny = 300, 240
+    nx, ny = 420, 340
     dx = (L.VIEW_X_MAX - L.VIEW_X_MIN) / nx
     dy = (L.VIEW_Y_MAX - L.VIEW_Y_MIN) / ny
     zs = [[L.ground(L.VIEW_X_MIN + i * dx, L.VIEW_Y_MIN + j * dy) for j in range(ny + 1)] for i in range(nx + 1)]
@@ -29,6 +41,8 @@ def terrain():
             a = (x0, y0, zs[i][j]); bb = (x1, y0, zs[i + 1][j])
             c = (x1, y1, zs[i + 1][j + 1]); d = (x0, y1, zs[i][j + 1])
             zavg = (a[2] + bb[2] + c[2] + d[2]) / 4
+            # Break the sampled heightfield on steep faces (see jag_point).
+            a, bb, c, d = (jag_point(a), jag_point(bb), jag_point(c), jag_point(d))
             gx = (x0 + x1) / 2; gy = (y0 + y1) / 2
             sl = L.slope(gx, gy)
             if zavg < 0.15:
@@ -36,13 +50,16 @@ def terrain():
             elif zavg < 2.2:
                 mat = 'sand'
             elif sl > 1.25:
-                # Near-vertical faces stay bare rock.
-                mat = 'rock_dark' if (i + j) % 3 == 0 else 'rock'
+                # Near-vertical faces read as layered strata, not one rock tone.
+                band = int((zavg + 2.0 * math.sin(gx * 0.05)) / 3.1) % 5
+                mat = ('rock', 'rock_light', 'rock_dark', 'rock_light', 'rock')[band]
             elif sl > 0.95:
                 # On the steep cliff bands, leave ledges of jungle between the
                 # exposed rock so the shoreline does not read as a grey wall.
                 ledge = (i * 3 + j * 7) % 9
-                mat = 'jungle_dark' if ledge == 0 else ('rock_dark' if ledge < 3 else 'rock')
+                band = int((zavg + 1.5 * math.cos(gy * 0.06)) / 2.7) % 4
+                strata = ('rock', 'rock_dark', 'rock_light', 'rock')[band]
+                mat = 'jungle_dark' if ledge == 0 else strata
             elif zavg > 42 and sl > 0.62:
                 # Broken outcrops on the upper slopes, mixed into the canopy.
                 mat = ('rock_light', 'rock', 'jungle_dark')[(i * 5 + j * 3) % 3]
@@ -81,7 +98,7 @@ def terrain():
     # Broken rock shelves on both headlands keep the cliff silhouette from
     # reading as one smooth sampled surface.
     for side in (-1, 1):
-        for _ in range(90):
+        for _ in range(120):
             x = side * RNG.uniform(420, 790)
             y = RNG.uniform(-220, 470)
             if L.is_water(x, y) or L.slope(x, y) < 0.45:
@@ -90,6 +107,36 @@ def terrain():
             if z < 4.0:
                 continue
             rock_cluster(b, x, y, z - 1.2, RNG.uniform(2.0, 6.0), RNG.randint(1, 3))
+        # Layered ledges and fissures across the whole cliff face.
+        for _ in range(2400):
+            x = side * RNG.uniform(420, 800)
+            y = RNG.uniform(-260, 520)
+            if L.is_water(x, y):
+                continue
+            sl = L.slope(x, y)
+            z = L.height(x, y)
+            if z < 5.0 or sl < 0.55:
+                continue
+            nx, ny = -side * 0.95, RNG.uniform(-0.28, 0.28)
+            tx, ty = -ny, nx
+            for k in range(RNG.randint(1, 3)):
+                half = RNG.uniform(1.0, 3.4)
+                out = RNG.uniform(0.2, 1.5)
+                zz = z + RNG.uniform(-3.2, 3.2)
+                p0 = (x - tx * half + nx * out, y - ty * half + ny * out, zz)
+                p1 = (x + tx * half + nx * out, y + ty * half + ny * out, zz + RNG.uniform(-0.4, 0.4))
+                mat = ('rock', 'rock_light', 'rock_dark')[k % 3]
+                b.beam(p0, p1, RNG.uniform(0.7, 1.2), mat, depth=RNG.uniform(1.0, 2.6))
+            if RNG.random() < 0.35:
+                b.box((x + nx * 0.9, y + ny * 0.9, z + RNG.uniform(0.5, 4.0)),
+                      (0.55, 0.55, RNG.uniform(3.0, 7.0)), 'rock_dark', RNG.uniform(0, 180))
+            # Moss, ferns and dry grass catch on the ledges.
+            if RNG.random() < 0.34:
+                lx, ly = x + nx * RNG.uniform(0.6, 1.4), y + ny * RNG.uniform(0.6, 1.4)
+                bush(b, lx, ly, z + RNG.uniform(-1.0, 1.0), 0.0, RNG.uniform(0.35, 0.75), RNG)
+            elif RNG.random() < 0.30:
+                grass_tuft(b, x + nx * 1.0, y + ny * 1.0, z + RNG.uniform(-0.8, 1.2),
+                           RNG.uniform(0, 360), RNG.uniform(0.6, 1.2), RNG)
     # The statue islet.
     rock_cluster(b, L.STATUE[0], L.STATUE[1], -2.5, 16.0, 10, tall=False)
     # A jagged spire lifts the statue clear of the water.
@@ -1010,8 +1057,8 @@ def ship(b, x, y, z, yaw, scale=1.0, sails=True, unfinished=False):
     ]
     # Hull shell in four horizontal bands.  The upper bands pull inward for
     # tumblehome; the wale is a darker band with a proud rubbing strake.
-    bands = ((0.24, 0.72, 0.0, 2.5, 'wood_dark'), (0.72, 1.0, 2.5, 4.7, 'wood'),
-             (1.0, 0.94, 4.7, 6.6, 'wood'), (0.94, 0.82, 6.6, 8.6, 'wood_light'))
+    bands = ((0.24, 0.72, 0.0, 2.5, 'wood_dark'), (0.72, 1.0, 2.5, 4.7, 'hull'),
+             (1.0, 0.94, 4.7, 6.6, 'hull'), (0.94, 0.82, 6.6, 8.6, 'wood_light'))
     for i in range(len(stations) - 1):
         y0, w0, k0, g0 = stations[i]
         y1, w1, k1, g1 = stations[i + 1]
@@ -1040,11 +1087,14 @@ def ship(b, x, y, z, yaw, scale=1.0, sails=True, unfinished=False):
         y0, w0, _, _ = stations[i]
         y1, w1, _, _ = stations[i + 1]
         b.quad(T(-w0 * 0.94, y0, 4.7), T(w0 * 0.94, y0, 4.7),
-               T(w1 * 0.94, y1, 4.7), T(-w1 * 0.94, y1, 4.7), 'wood_light')
+               T(w1 * 0.94, y1, 4.7), T(-w1 * 0.94, y1, 4.7), 'deck_planks')
         b.beam(T(-w0 * 0.92, y0, 4.55), T(w0 * 0.92, y0, 4.55), 0.16, 'wood_dark')
     b.beam(T(0, -32, 1.1), T(0, 30, 1.1), 0.7, 'wood_dark')
     # Transom, stern galleries and the raised cabin.
     b.quad(T(-2.3, -32.1, 4.4), T(2.3, -32.1, 4.4), T(2.7, -32.1, 8.7), T(-2.7, -32.1, 8.7), 'wood')
+    for side in (-1, 1):
+        b.box(T(side * 2.5, -32.4, 9.3), (0.32, 0.32, 0.52), 'lantern')
+        b.beam(T(side * 2.5, -32.4, 9.56), T(side * 2.5, -32.4, 9.9), 0.03, 'metal')
     box(0, -24.0, 7.0, 11.0, 12.0, 3.2, 'wood')
     box(0, -24.0, 9.0, 12.0, 13.0, 0.35, 'wood_dark')
     for side in (-1, 1):

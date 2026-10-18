@@ -16,7 +16,7 @@ the ships tied along the quay. The painting language, palette and low-poly const
   Sunburst concept. These keep the built camera and blocky kit while showing the achievable colour, awnings,
   shutters, laundry, bunting and street life; the viewer gallery shows them beside the concepts.
 - `references/` paints a consistent set of Sunburst concepts, stores every prompt and paid-call record, and writes a
-  contact sheet. It also paints the eleven-surface tileable set (43 palette-tinted maps) and six isolated hero-prop
+  contact sheet. It also paints the fifteen-surface tileable set (46 palette-tinted maps) and six isolated hero-prop
   references for the local TRELLIS
   workflow. The generated images live under `build/yorimichi/pirate-coast/references/` and `references/props/`.
 - `textures/` holds the seamless, palette-tinted Sunburst surface maps used by the Blender model and the viewer.
@@ -24,6 +24,11 @@ the ships tied along the quay. The painting language, palette and low-poly const
   rejected trials stay in the ignored build cache.
 - `src/` builds the region as separate Blender collections, exports each collection as its own GLB, then assembles
   the same collections into one review scene. It also normalizes, reduces, validates and places the TRELLIS assets.
+- Foliage uses alpha leaf cards sampled from four painted canopies: branch tubes carry 200-300 small cards per
+  tree, palms use long frond cards, and bushes are card clouds. This replaces the earlier faceted spheres.
+- Cliffs are a finer heightfield with world-space jitter on steep faces, five strata bands, layered ledge
+  beams, fissures and moss/grass on the ledges. Cliff shacks are full stilt cabins with planked walls, porches,
+  ladders, patched roofs, stove pipes, laundry and cargo.
 - `viewer/` is a three.js page that loads the modules separately, lets each be switched on and off, and offers a
   set of camera viewpoints and a concept gallery.
 

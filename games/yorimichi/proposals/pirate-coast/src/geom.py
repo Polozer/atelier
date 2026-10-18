@@ -41,11 +41,14 @@ class Builder:
         self.faces = []
         self.mats = []
 
-    def face(self, points, mat):
+    def face(self, points, mat, uvs=None):
         points = tuple(tuple(float(c) for c in p) for p in points)
         # Box-project each face in world metres.  Every face owns its vertices,
         # so a projected seam never drags a neighbouring wall's UVs with it.
-        if len(points) >= 3:
+        # Leaf cards pass an explicit atlas cell instead.
+        if uvs is not None:
+            uvs = [(float(u), float(v)) for u, v in uvs]
+        elif len(points) >= 3:
             ax = abs((points[1][1] - points[0][1]) * (points[2][2] - points[0][2])
                      - (points[1][2] - points[0][2]) * (points[2][1] - points[0][1]))
             ay = abs((points[1][2] - points[0][2]) * (points[2][0] - points[0][0])
@@ -70,8 +73,32 @@ class Builder:
     def tri(self, a, b, c, mat):
         self.face((a, b, c), mat)
 
-    def quad(self, a, b, c, d, mat):
-        self.face((a, b, c, d), mat)
+    def quad(self, a, b, c, d, mat, uvs=None):
+        self.face((a, b, c, d), mat, uvs)
+
+    def card(self, center, normal, width, height, mat, uvs, up_hint=(0.0, 0.0, 1.0)):
+        """A rectangular leaf card centred at center, facing normal."""
+        nx, ny, nz = _unit(normal)
+        ux, uy, uz = up_hint
+        rx = uy * nz - uz * ny
+        ry = uz * nx - ux * nz
+        rz = ux * ny - uy * nx
+        if abs(rx) + abs(ry) + abs(rz) < 1e-5:
+            ux, uy, uz = (0.0, 1.0, 0.0)
+            rx = uy * nz - uz * ny
+            ry = uz * nx - ux * nz
+            rz = ux * ny - uy * nx
+        rx, ry, rz = _unit((rx, ry, rz))
+        sx = ny * rz - nz * ry
+        sy = nz * rx - nx * rz
+        sz = nx * ry - ny * rx
+        sx, sy, sz = _unit((sx, sy, sz))
+        hw, hh = width * 0.5, height * 0.5
+        cx, cy, cz = center
+        corners = []
+        for du, dv in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)):
+            corners.append((cx + rx * du + sx * dv, cy + ry * du + sy * dv, cz + rz * du + sz * dv))
+        self.face(tuple(corners), mat, uvs)
 
     def box(self, center, size, mat, yaw=0.0, top=None):
         cx, cy, cz = center

@@ -52,7 +52,9 @@ def make_material(name, hex_color):
     bsdf = nodes.get('Principled BSDF')
     bsdf.inputs['Base Color'].default_value = (r, g, b, 1.0)
     bsdf.inputs['Roughness'].default_value = 0.88
-    texture = TEXTURE_DIR / f'{name}.jpg'
+    texture = TEXTURE_DIR / f'{name}.png'
+    if not texture.exists():
+        texture = TEXTURE_DIR / f'{name}.jpg'
     if texture.exists():
         image = bpy.data.images.load(str(texture), check_existing=True)
         image.colorspace_settings.name = 'sRGB'
@@ -66,6 +68,25 @@ def make_material(name, hex_color):
             bsdf.inputs['Roughness'].default_value = 0.94
         elif name.startswith(('wood', 'plaster', 'cream', 'ochre', 'coral', 'sage', 'teal')):
             bsdf.inputs['Roughness'].default_value = 0.9
+    if name.startswith(('leaf_', 'palm_')) and texture.exists():
+        # An explicit greater-than node makes the glTF exporter emit
+        # alphaMode MASK with a cutoff instead of blended transparency.
+        clip = nodes.new('ShaderNodeMath')
+        clip.operation = 'GREATER_THAN'
+        clip.inputs[1].default_value = 0.45
+        mat.node_tree.links.new(tex.outputs['Alpha'], clip.inputs[0])
+        mat.node_tree.links.new(clip.outputs['Value'], bsdf.inputs['Alpha'])
+        try:
+            mat.surface_render_method = 'DITHERED'
+        except (AttributeError, TypeError):
+            pass
+        try:
+            mat.blend_method = 'CLIP'
+            mat.alpha_threshold = 0.45
+        except (AttributeError, TypeError):
+            pass
+        mat.use_backface_culling = False
+        bsdf.inputs['Roughness'].default_value = 0.82
     if name in ('metal', 'gold'):
         bsdf.inputs['Metallic'].default_value = 0.65
         bsdf.inputs['Roughness'].default_value = 0.45

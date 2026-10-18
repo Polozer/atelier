@@ -12,6 +12,10 @@
     "foliage": "32c3b2a30109859d5d2e499cc61ead83552ee9df0bfb4b93a318eeb0366ec1c4",
     "water": "e0520b3b95b8573571116a08f346bffbb15ff865050faad45598b1064c7820f5",
     "cliff": "d086e612adc8f905af822553db8c694386cd5e58c680d6f9197667fd7f89a1cf",
+    "cliff_strata": "f1b41c495d439855ec442c89b248e700ccfe2586b0a27c1d22b1b91376fc965a",
+    "hull_planks": "be2b247db89963f2440f754988d0ae8b879a111902213945b6114fc04febc8e2",
+    "thatch": "6de563acfcbb4ab6f092602f1cfe45d562506dcc302fe17628de5d536323e27e",
+    "planks": "9d7e9d970a5f1c7d3c0f5cbb77fa4bdc77c227b266e728f71ef8b2821fa0dff8",
     "sand": "aa584f3e7c9d4b7ac0f25ba1a81888094b8faaf46e60b1a611780154e696d0a7"
   },
   "materials": {
@@ -89,9 +93,9 @@
     },
     "roof_straw": {
       "file": "roof_straw.jpg",
-      "surface": "roof",
-      "scale": 1.4,
-      "sha256": "3b5f6f2ec0ab6019e8dfa081f55fc784f8a47ff73b37ba3c480fbe84c187568f"
+      "surface": "thatch",
+      "scale": 1.6,
+      "sha256": "8c276240dd27d0ec1627f089eba792d807321e39391a758efd303e8f42d3eb1b"
     },
     "stone": {
       "file": "stone.jpg",
@@ -203,21 +207,39 @@
     },
     "rock": {
       "file": "rock.jpg",
-      "surface": "cliff",
+      "surface": "cliff_strata",
       "scale": 9.0,
-      "sha256": "595eeb88bbe669efd2fbaa4315549030b3d2787366c1f7d02d1d67b563654d8c"
+      "sha256": "81ed8d94b39d480f2a1bb5e39cd89a0b52dff397608b5297484237bbbb3269ba"
     },
     "rock_light": {
       "file": "rock_light.jpg",
-      "surface": "cliff",
+      "surface": "cliff_strata",
       "scale": 9.0,
-      "sha256": "15363ca57660826a399c16d92dd1d45d513ab5327a28558f08c400cf5aec4ecf"
+      "sha256": "b9eba7707f22df905bcc319f1e2852f5eeb87a5ff4321213bf99ef1589ebb729"
     },
     "rock_dark": {
       "file": "rock_dark.jpg",
-      "surface": "cliff",
+      "surface": "cliff_strata",
       "scale": 9.0,
-      "sha256": "abaa6b13ca3c6f349a908e061731c5e979c791baf93ae116d2ea11ca777babd5"
+      "sha256": "e0b2d8e3e797b0d8141e7d305ff8f13e0a66e5e684b33e23291342dddf4578d2"
+    },
+    "planks": {
+      "file": "planks.jpg",
+      "surface": "planks",
+      "scale": 1.5,
+      "sha256": "828271c8186b8e759ce66e8d058d3ed8dad2c0b1d2e35d2873ec5a8bc636d23b"
+    },
+    "hull": {
+      "file": "hull.jpg",
+      "surface": "hull_planks",
+      "scale": 2.0,
+      "sha256": "e8962726ecb637fdaf9c2b4cf84ad41e67552eabb51aa809598234a2836de2fc"
+    },
+    "deck_planks": {
+      "file": "deck_planks.jpg",
+      "surface": "hull_planks",
+      "scale": 1.8,
+      "sha256": "ea0ae64e9c48807e894ddbcd08cdc502c258252cabefdee28b3356033068c3ba"
     },
     "sand": {
       "file": "sand.jpg",

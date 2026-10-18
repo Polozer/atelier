@@ -62,6 +62,10 @@ Brinecove is built from a small kit, repeated with variation:
 - Buildings lean into the slope and step with the terraces. No two waterfront blocks share a roof height.
 - Striped canvas awnings, bunting, laundry, painted shutters, flower boxes, potted plants and street goods carry the
   colour at eye level; the same kit builds all of it from flat primitives.
+- Foliage is built from alpha leaf cards on branch tubes, not solid spheres: several hundred cards per tree in
+  overlapping lobes, long fronds for palms, and card clouds for bushes.
+- Cliff faces are displaced heightfield cells with layered rock ledges, fissures, boulder aprons and mossy
+  shelf vegetation; the cliff shacks are stilt cabins with planked walls, porches, ladders and stove pipes.
 - Big shapes first: a roofscape of overlapping planes, a forest of masts, a green canopy, and a cliff silhouette
   that stays readable from 500 m away.
 
