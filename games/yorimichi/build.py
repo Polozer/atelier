@@ -686,7 +686,10 @@ SWORDCAMP_MESHES = (
 
 
 def world_steps(ctx):
-    """World exports."""
+    """@cc [owner:fontanierh,label:safety] map-generation-admission
+    The world.map build command MUST use normal heavy-job admission and the
+    actual-child and aggregate memory guards, preserving their failure status.
+    """
     out = ctx.out
     crater_geometry = ['world.craterpark_layout'] if craterpark_v4.selected() else []
     return [*texture_steps(ctx),
@@ -951,7 +954,7 @@ def world_steps(ctx):
                        if entry['name'].startswith(('SM_BM_BT_blk_', 'SM_BM_BH_', 'SM_BM_BE_', 'SM_BM_BHip_',
                                                     'SM_BM_BVV_Farm_', 'SM_BM_BC_Water_', 'SM_BM_BC_Pave', 'SM_BM_BC_Ponte')))],
              needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', *crater_geometry],
-             outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png'], about='map zones and the painted sheet'),
+             outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png'], heavy=True, about='map zones and the painted sheet'),
         city_input_step(out, 'tiles'),
         Step('world.city_tiles', [Blender(WORLD / 'city_surface_tiles.py', ('--tag', 'v1_128m'), threads=3)],
              inputs=[WORLD / 'city_surface_tiles.py'], needs=['world.hidamari.tiles'],
