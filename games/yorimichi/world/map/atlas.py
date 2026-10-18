@@ -25,7 +25,7 @@ REGIONS = (
     dict(key='haras_valley', name='Haras Valley', bounds=[-950., 3600., 2500., 5900.],
          polygon=[[-950., 3600.], [3300., 3600.], [3300., 7100.], [-950., 7100.]], color='#83a080'),
     # The western reach west of Momiji Coast (world/regions/brinecove/region.py), stepping round the foothills' corner.
-    dict(key='brinecove', name='Brinecove Reach', bounds=[-2560., -1080., -640., 620.], label=[-1600., -1000.],
+    dict(key='brinecove', name='Brinecove Reach', bounds=[-2880., -1080., -360., 600.], label=[-1600., -1000.],
          polygon=[[-2560., -1080.], [-650., -1080.], [-650., 430.], [-850., 430.], [-850., 700.], [-2560., 700.]],
          color='#c99a5e'),
 )
