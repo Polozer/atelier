@@ -26,13 +26,13 @@ CHARACTER_ROOTS = ({folder(p) for c in MOVERS for p in (c.unreal_path, c.adventu
                    | {folder(c.unreal_path) + 'Bike' for c in MOVERS if c.playable}
                    | {folder(c.unreal_path) + 'Horse' for c in MOVERS if c.playable})
 ASSET_ROOTS = frozenset({
-    'Adventure', 'AtelierValidation', 'Audio', 'Belmonte', 'Collections', 'CraterPark', 'Data', 'Developers',
+    'Adventure', 'AtelierValidation', 'Audio', 'AudioBanks', 'Belmonte', 'Collections', 'CraterPark', 'Data', 'Developers',
     'Experiments', 'FX', 'FoxHunter', 'Hippodrome', 'Horses', 'Japan', 'MegaPark', 'SeeThrough', 'SkateMotion', 'SkatePark',
     'SkateRide', 'SkateRuntime', 'SwordCamp', 'Wanderer',
     'BelmonteTrack', 'BelmonteTrain',
 } | CHARACTER_ROOTS)
 DATA_ROOTS = frozenset({
-    'Network', 'SkateRide', 'adventure', 'belmonte', 'bike', 'city_surface_tiles', 'craterpark', 'heightmap.bin',
+    'Network', 'SkateRide', 'Soundbanks', 'adventure', 'belmonte', 'bike', 'city_surface_tiles', 'craterpark', 'heightmap.bin',
     'hidamari', 'hippodrome', 'horses', 'map', 'megapark', 'skatepark', 'treehouse', 'world.json',
     'belmonte_track', 'belmonte_train',
 } | {c.id for c in MOVERS})

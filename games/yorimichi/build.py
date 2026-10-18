@@ -40,6 +40,7 @@ IMPORT_CODE = ('YorimichiImport',)
 SAVED_TYPES = ('YorimichiAssets',)
 # Nox captures USkinMorphContactData on its mesh; its helper and saved type live in this plugin.
 CONTACT_TYPES = ('AtelierCore',)
+SOUNDBANK_TYPES = SAVED_TYPES + ('AtelierSkate',)
 NAMES = paths.STUDIO / 'atelier' / 'character'
 # The shared rig and body export every humanoid character's steps run (assets/characters/pipeline).
 PIPELINE = CHARS / 'pipeline'
@@ -147,6 +148,13 @@ class PackageArchive(Python):
     timeout: float = 3 * 3600
     watch: tuple = ('ditto', 'split')
     progress: float = 25.
+
+
+@dataclass
+class SoundbankEditor(UnrealScript):
+    """Each import/reload is a separately guarded, bounded editor invocation."""
+    timeout: float = 600.
+    progress: float = 15.
 
 
 def skate_data_present(out):
@@ -1097,7 +1105,20 @@ def unreal_steps(ctx):
              about="assemble the Skate plugin's simulation package and verify every payload"),
         Step('unreal.compile', [UnrealCompile('YorimichiEditor')], inputs=[SOURCE, ctx.uproject, GAME / 'unreal/Config', paths.ENGINE_PLUGINS], needs=['skate.runtime'], heavy=True,
              about='the Yorimichi C++ modules (editor target)'),
-        *unreal_modules.steps(ctx, IMPORT_CODE + SAVED_TYPES + CONTACT_TYPES),
+        *unreal_modules.steps(ctx, IMPORT_CODE + SAVED_TYPES + CONTACT_TYPES + ('AtelierSkate',)),
+        Step('unreal.soundbanks', [
+            SoundbankEditor(SCRIPTS / 'import_soundbanks.py', 'SOUNDBANK IMPORT COMPLETE',
+                            null_rhi=True, modules=SOUNDBANK_TYPES),
+            SoundbankEditor(SCRIPTS / 'verify_soundbanks.py', 'SOUNDBANK VERIFY COMPLETE',
+                            null_rhi=True, modules=SOUNDBANK_TYPES)],
+             inputs=[GAME / 'soundbank_import.py', AUDIO / 'soundbanks', YORI,
+                     *[SCRIPTS / n for n in ('import_soundbanks.py', 'verify_soundbanks.py',
+                                             'soundbank_assets.py', 'soundbank_package_data.py')]],
+             needs=unreal_modules.needs(SOUNDBANK_TYPES),
+             reads=['audio.soundbank_import_plan', 'audio.soundbanks', 'audio.soundbank_previews'],
+             outputs=[out / 'soundbank_import/registry.json'],
+             products=[Product('soundbanks.native', (GAME / 'unreal/Content/AudioBanks', out / 'soundbank_import'))],
+             heavy=True, about='owned soundbank assets, separately cold-reloaded before runtime registry publication'),
         *foliage_build.unreal_steps(ctx, IMPORT_CODE, engine_version(ctx)),
         Step('unreal.world', [UnrealScript(SCRIPTS / 'setup_project.py', 'level saved')],
              # The city's arcade and harbor materials read the region's committed paintings.
@@ -1268,6 +1289,7 @@ def staging_steps(ctx):
              needs=['world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.craterpark', 'world.crater_cloud', 'world.belmonte', 'world.bike',
                     *[f'characters.{key(c)}_{kind}' for c in definition.movers() for kind, wanted in
                       (('bike', c.playable), ('grips', (GRIPS / c.id).is_dir())) if wanted]],
+             reads=['soundbanks.native'],
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / rel for rel in staged(out)], about='runtime files into unreal/Content/Data'),
     ]
 
