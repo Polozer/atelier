@@ -5,7 +5,8 @@
 
 Input: the retained Tripo P2 FBX (build/yorimichi/pirate-coast/tripo/galleon/model-r2). Output:
 assets/models/galleon-hull.glb plus provenance. The frame matches modules.ship: +Y is the bow, the stern is at
-y = -32 and the stem at y = 29, x = 0 is the centreline and the keel sits at z = 0. The front reference view showed
+y = -32 and the stem at y = 29, x = 0 is the centreline and the keel sits at z = 0; the provenance records the waist
+deck height and mast stations that modules.ship rigs onto. The front reference view showed
 the stern castle's towers beside the bow, and Tripo reconstructed them as flat window wings outboard of the bow;
 every vertex in the forward half outside the midship beam is removed. Masts, yards, sails and rigging stay
 procedural.
@@ -28,6 +29,12 @@ JOB = REPO / 'build/yorimichi/pirate-coast/tripo/galleon/model-r2'
 SOURCE = JOB / 'raw/output_model_url.fbx'
 TARGET = PROPOSAL / 'assets/models/galleon-hull.glb'
 STERN, STEM = -32.0, 29.0
+# Tripo keeps the toy-like proportions of the reference views: scaled to length the hull is 34 m wide with its waist
+# deck 19 m above the keel. Narrow and lower it towards a galleon's 3:1 length to beam; side-on, where the gunports
+# and galleries are read, only the height factor applies.
+BEAM_K, HEIGHT_K = 0.55, 0.78
+# Mast stumps on the processed hull, measured along the centreline; the procedural masts stand on them.
+MASTS = (-14.5, -2.0, 11.5)
 
 
 def sha(path):
@@ -87,10 +94,23 @@ def main():
     mesh.transform(Matrix.Translation((-cx, -y0, -min(zs))))
     mesh.transform(Matrix.Scale(k, 4))
     mesh.transform(Matrix.Translation((0.0, STERN, 0.0)))
+    mesh.transform(Matrix.Diagonal((BEAM_K, 1.0, HEIGHT_K, 1.0)))
     mesh.update()
+    if mesh.has_custom_normals:
+        bpy.ops.mesh.customdata_custom_splitnormals_clear()  # stale after the non-uniform scale
     for poly in mesh.polygons:
         poly.use_smooth = True
-    dims = [round(d, 2) for d in obj.dimensions]
+    co = [v.co for v in mesh.vertices]
+    dims = [round(max(c[i] for c in co) - min(c[i] for c in co), 2) for i in range(3)]
+    top_z = max(c.z for c in co)
+    # Waist deck: the area-weighted median height of upward faces near the centreline amidships.
+    deck = sorted((p.center.z, p.area) for p in mesh.polygons
+                  if p.normal.z > 0.95 and abs(p.center.x) < 3.0 and abs(p.center.y + 1.5) < 10.0)
+    half, acc = sum(a for _, a in deck) / 2, 0.0
+    for deck_z, a in deck:
+        acc += a
+        if acc >= half:
+            break
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.export_scene.gltf(filepath=str(TARGET), export_format='GLB', use_selection=False, export_apply=True,
                               export_yup=True, export_animations=False, export_lights=False, export_cameras=False,
@@ -104,7 +124,9 @@ def main():
                         task_id=job.get('task_id'), credits_consumed=job.get('credits_consumed')),
         processing=dict(script='games/yorimichi/proposals/pirate-coast/src/galleon_hull.py',
                         removed_bow_wing_vertices=removed, midship_half_beam_source_units=round(beam, 4),
-                        scale=round(k, 6), frame='+Y bow, stern y=-32, stem y=29, keel z=0', dimensions_m=dims,
+                        scale=round(k, 6), beam_factor=BEAM_K, height_factor=HEIGHT_K,
+                        frame='+Y bow, stern y=-32, stem y=29, keel z=0', dimensions_m=dims,
+                        deck_z=round(deck_z, 2), top_z=round(top_z, 2), masts=list(MASTS),
                         vertices=len(mesh.vertices), triangles=sum(len(p.vertices) - 2 for p in mesh.polygons)),
         output_sha256=sha(TARGET))
     TARGET.with_suffix('.provenance.json').write_text(json.dumps(record, indent=2) + '\n')

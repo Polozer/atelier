@@ -1,4 +1,5 @@
 """Assemble Brinecove as nine separate collections, then hand them to the Blender exporter."""
+import json
 import math
 import random
 from pathlib import Path
@@ -18,6 +19,8 @@ HAS_FIGUREHEAD = (ASSETS / 'galleon-figurehead.glb').exists()
 HAS_WHEEL = (ASSETS / 'ships-wheel.glb').exists()
 # The Tripo hero hull (galleon_hull.py) replaces the lofted hull; the rig stays procedural.
 HAS_HULL = (ASSETS / 'galleon-hull.glb').exists()
+HULL = (json.loads((ASSETS / 'galleon-hull.provenance.json').read_text())['processing']
+        if HAS_HULL else None)
 
 
 def jag_point(p):
@@ -49,12 +52,16 @@ def terrain():
             a, bb, c, d = (jag_point(a), jag_point(bb), jag_point(c), jag_point(d))
             gx = (x0 + x1) / 2; gy = (y0 + y1) / 2
             sl = L.slope(gx, gy)
-            if zavg < 0.15:
+            # A cell that straddles the waterline at a cliff toe must not paint seabed above the sea.
+            dry = max(a[2], bb[2], c[2], d[2]) > 0.8
+            if zavg < 0.15 and not dry:
                 mat = 'seabed'
+            elif zavg < 0.15:
+                mat = 'rock_dark' if sl > 0.45 else 'sand'
             elif zavg < 2.2:
                 mat = 'sand'
             elif L.is_water(gx, gy):
-                mat = 'seabed'
+                mat = ('rock_dark' if sl > 0.45 else 'sand') if dry else 'seabed'
             elif L.in_gorge(gx, gy, 3.0):
                 mat = 'rock_dark' if sl > 0.45 else 'seabed'
             else:
@@ -1102,25 +1109,33 @@ def ship(b, x, y, z, yaw, scale=1.0, sails=True, unfinished=False, canvas='sail_
                 b.beam(T(side * 8.6, yy, 0), T(side * 8.6, yy, 9.6), 0.16, 'wood_light')
         b.beam(T(-10, 24, 8.6), T(10, 24, 8.6), 0.18, 'wood_dark')
         return
-    # Masts, tops, yards, layered sails and standing rigging.
-    masts = [(-15.0, 21.0, 0.62), (3.0, 30.0, 1.0), (18.0, 24.0, 0.74)]
+    # Masts, tops, yards, layered sails and standing rigging.  On the Tripo hull the rig stands on its waist deck
+    # (keel a draft below the sea, as hero_assets seats it) and on its mast stumps, a little taller for the bigger hull.
+    deck, masts = 4.7, [(-15.0, 21.0, 0.62), (3.0, 30.0, 1.0), (18.0, 24.0, 0.74)]
+    if HULL:
+        deck = HULL['deck_z'] - 0.24 * HULL['top_z'] - 0.3
+        masts = [(my, mh * 1.12, strength) for my, (_, mh, strength) in zip(HULL['masts'], masts)]
+    rise = deck - 4.7
+    if HULL:
+        # Bowsprit for the forestays.
+        b.cylinder(T(0, 26.0, deck + 1.5), T(0, 44.0, 12.4 + rise), 0.42, 'wood_dark', 8, radius_b=0.2)
     for my, mh, strength in masts:
-        b.cylinder(T(0, my, 4.7), T(0, my, 4.7 + mh), 0.50 * strength, 'wood_dark', 8,
+        b.cylinder(T(0, my, deck), T(0, my, deck + mh), 0.50 * strength, 'wood_dark', 8,
                    radius_b=0.24 * strength)
         # Mast top and crosstrees.
-        b.cylinder(T(0, my, 4.7 + mh * 0.58), T(0, my, 4.7 + mh * 0.61), 1.7 * strength,
+        b.cylinder(T(0, my, deck + mh * 0.58), T(0, my, deck + mh * 0.61), 1.7 * strength,
                    'wood', 10, radius_b=1.4 * strength)
-        b.beam(T(-2.4 * strength, my, 4.7 + mh * 0.605), T(2.4 * strength, my, 4.7 + mh * 0.605),
+        b.beam(T(-2.4 * strength, my, deck + mh * 0.605), T(2.4 * strength, my, deck + mh * 0.605),
                0.16, 'wood_dark')
-        if my == 3.0:
+        if my == masts[1][0]:
             # Crow's nest on the mainmast.
-            b.cylinder(T(0, my, 4.7 + mh * 0.86), T(0, my, 4.7 + mh * 0.89), 1.55, 'wood', 10)
+            b.cylinder(T(0, my, deck + mh * 0.86), T(0, my, deck + mh * 0.89), 1.55, 'wood', 10)
             for i in range(10):
                 a = i * TAU / 10
-                b.beam(T(math.cos(a) * 1.5, my + math.sin(a) * 1.5, 4.7 + mh * 0.89),
-                       T(math.cos(a) * 1.5, my + math.sin(a) * 1.5, 4.7 + mh * 0.89 + 0.8), 0.07, 'wood_dark')
+                b.beam(T(math.cos(a) * 1.5, my + math.sin(a) * 1.5, deck + mh * 0.89),
+                       T(math.cos(a) * 1.5, my + math.sin(a) * 1.5, deck + mh * 0.89 + 0.8), 0.07, 'wood_dark')
         for frac, width in ((0.34, 11.5), (0.55, 9.8), (0.76, 7.2)):
-            zz = 4.7 + mh * frac
+            zz = deck + mh * frac
             yard_w = width * strength
             b.beam(T(-yard_w, my, zz), T(yard_w, my, zz), 0.24, 'wood')
             b.beam(T(-yard_w * 0.96, my + 0.12, zz), T(-yard_w * 0.96, my + 0.12, zz - 0.4), 0.08, 'wood_dark')
@@ -1149,30 +1164,31 @@ def ship(b, x, y, z, yaw, scale=1.0, sails=True, unfinished=False, canvas='sail_
                     xx = -yard_w + 2 * yard_w * (j + 0.5) / 6
                     b.beam(T(xx, my + 1.0, zz - 3.4), T(xx, my + 1.25, zz - 4.5), 0.025, 'wood_dark')
         # Standing rigging to the bowsprit, stern and channels.
-        top = 4.7 + mh * 0.82
-        b.rope(T(0, my, top), T(0, 44, 12.4), 0.0, 0.035)
-        b.rope(T(0, my, top), T(0, -30, 8.5), 0.0, 0.035)
+        top = deck + mh * 0.82
+        b.rope(T(0, my, top), T(0, 44, 12.4 + rise), 0.0, 0.035)
+        b.rope(T(0, my, top), T(0, -30, 8.5 + rise), 0.0, 0.035)
         for side in (-1, 1):
-            b.rope(T(0, my, top), T(side * 8.6, my - 10.0, 7.0), 0.15, 0.03)
-            b.rope(T(0, my, top), T(side * 8.6, my + 8.0, 7.0), 0.15, 0.03)
+            b.rope(T(0, my, top), T(side * 8.6, my - 10.0, 7.0 + rise), 0.15, 0.03)
+            b.rope(T(0, my, top), T(side * 8.6, my + 8.0, 7.0 + rise), 0.15, 0.03)
             # Shrouds and ratlines.
             for k in range(5):
                 x0 = side * (3.0 + k * 1.25)
-                b.rope(T(x0, my - 2.0, top - 0.5), T(x0, my - 4.8, 8.6), 0.0, 0.025)
+                b.rope(T(x0, my - 2.0, top - 0.5), T(x0, my - 4.8, 8.6 + rise), 0.0, 0.025)
                 for r in range(6):
                     t = r / 6
-                    z0 = top - 0.5 + (8.6 - (top - 0.5)) * t
+                    z0 = top - 0.5 + (8.6 + rise - (top - 0.5)) * t
                     yy = my - 2.0 - 2.8 * t
                     b.beam(T(x0 - 0.6, yy, z0), T(x0 + 0.6, yy, z0), 0.018, 'rope')
-    # A long pennant and a black stern flag with a pale skull.
-    for my, mh in ((-15.0, 21.0), (3.0, 30.0), (18.0, 24.0)):
-        b.cylinder(T(0, my, 4.7 + mh), T(0, my, 4.7 + mh + 1.4), 0.07, 'metal', 5)
-        b.quad(T(0, my, 4.7 + mh + 1.3), T(4.6, my, 4.7 + mh + 0.7),
-               T(4.6, my, 4.7 + mh + 0.25), T(0, my, 4.7 + mh + 0.55),
-               'flag_black' if my == 3.0 else 'flag_red')
-    b.cylinder(T(0, -30, 9.4), T(0, -30, 20.5), 0.13, 'metal', 6)
-    b.quad(T(0, -30, 20.2), T(5.8, -30, 19.0), T(5.8, -30, 15.1), T(0, -30, 15.7), 'flag_black')
-    b.sphere(T(2.7, -30.06, 17.6), 0.72, 'cream', (1.0, 0.06, 1.1), subdiv=0)
+    # A long pennant and a black stern flag with a pale skull, its staff above the stern castle.
+    stern = HULL['top_z'] * 0.76 - 0.3 - 9.4 if HULL else 0.0
+    for my, mh, _ in masts:
+        b.cylinder(T(0, my, deck + mh), T(0, my, deck + mh + 1.4), 0.07, 'metal', 5)
+        b.quad(T(0, my, deck + mh + 1.3), T(4.6, my, deck + mh + 0.7),
+               T(4.6, my, deck + mh + 0.25), T(0, my, deck + mh + 0.55),
+               'flag_black' if my == masts[1][0] else 'flag_red')
+    b.cylinder(T(0, -30, 9.4 + stern), T(0, -30, 20.5 + stern), 0.13, 'metal', 6)
+    b.quad(T(0, -30, 20.2 + stern), T(5.8, -30, 19.0 + stern), T(5.8, -30, 15.1 + stern), T(0, -30, 15.7 + stern), 'flag_black')
+    b.sphere(T(2.7, -30.06, 17.6 + stern), 0.72, 'cream', (1.0, 0.06, 1.1), subdiv=0)
 
 
 def props():

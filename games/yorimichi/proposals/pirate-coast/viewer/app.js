@@ -30,7 +30,7 @@ const VIEWS = {
   market: { label: 'Market', pos: [0, 7.6, -118], target: [20, 9, -212], fov: 50 },
   upper: { label: 'Upper town', pos: [20, 54, -330], target: [-20, 2, -30], fov: 55 },
   rum: { label: 'Rum Row', pos: [-296, 7, -94], target: [-250, 10, -130], fov: 38 },
-  lighthouse: { label: 'Lighthouse', pos: [-500, 70, 280], target: [-650, 58, -60], fov: 50 },
+  lighthouse: { label: 'Lighthouse', pos: [-480, 108, 300], target: [-618, 70, 38], fov: 50 },
   shipyard: { label: 'Shipyard', pos: [290, 24, 200], target: [380, 14, -105], fov: 50 },
   waterfall: { label: 'Waterfall', pos: [360, 24, 70], target: [466, 26, -34], fov: 42 },
   cliff: { label: 'Cliff shacks', pos: [-430, 32, 170], target: [-512, 34, -10], fov: 48 },
