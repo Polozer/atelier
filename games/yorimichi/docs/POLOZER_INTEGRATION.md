@@ -32,7 +32,7 @@ does not certify C++ compilation, UHT, native behavior or multiplayer behavior.
 
 | Upstream PR | Fork scope | Remaining acceptance |
 | --- | --- | --- |
-| [#409](https://github.com/fontanierh/atelier/pull/409) | #2: Osteria map stop | Source geometry tests and exact-head hosted CI pass. Native host/guest landing, controller/phone selection and peer approval remain. |
+| [#409](https://github.com/fontanierh/atelier/pull/409) | #2: Osteria map stop | Eight source geometry/placement tests pass. Landing now follows the committed taproom transform. New-head hosted CI, native host/guest landing, controller/phone selection and peer approval remain. |
 | [#410](https://github.com/fontanierh/atelier/pull/410) | #4: tunnel timing | Focused timing tests pass. Regenerate genuine atlas references, validate the full route/profile and native timetable in both directions and multiplayer. |
 | [#411](https://github.com/fontanierh/atelier/pull/411) | #6: vehicle deployment gates | Exact-head hosted CI passes. Compile and run actual handler regressions, then verify boarding stairs, requests and stowing with host/guest. Admission/intruder recovery is separate. |
 | [#412](https://github.com/fontanierh/atelier/pull/412) | #6: passenger camera | Compile/run native camera regressions and verify all rigs, seats, transitions, pawn replacement, input focus, cinematic views and other players' visibility. |
@@ -45,6 +45,30 @@ does not certify C++ compilation, UHT, native behavior or multiplayer behavior.
 Every code PR still needs final exact-head hosted CI, paid contract review,
 independent peer approval and the relevant native acceptance before merging.
 Restack dependent PRs after their parent merges and repeat affected final-head checks.
+
+## Coordinate ownership audit
+
+The source audit of the nine drafts found one duplicated placement to repair:
+#409 originally followed the region origin but not the Osteria building. Head
+`82cd22bf` derives its position and facing from the committed taproom placement
+plus an authored local landing offset. Focused tests cover region movement,
+building translation/rotation/scale and missing/ambiguous placements, alongside
+the existing floor, roof and standing-volume geometry checks.
+
+#413 stores authored course points in the declared region-local frame, pinned to
+the venue-scene checksum. Its future runtime consumer must use the generated region
+origin; this consumer is not delivered or certified by the data-only PR. Imported
+collision and packaged consumption remain acceptance requirements.
+
+#412 derives its view from the rider transform and head bone. Eye offsets and
+smoothing values are camera authoring parameters, not world placements; all-rig,
+seat and cinematic validation still requires native execution. #410 uses line
+distance and classified tunnel intervals. #411 and #414–417 add no production world
+placements. Synthetic native-test locations are fixtures, not runtime destinations.
+
+This does not certify the still-unintegrated boarding recovery or racing service.
+Those changes must derive positions from shared authored data and prove terrain
+support and clearance before acceptance.
 
 ## Remaining integration units
 
