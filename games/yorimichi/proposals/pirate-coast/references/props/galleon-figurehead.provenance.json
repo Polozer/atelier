@@ -1,0 +1,30 @@
+{
+  "stage": "brinecove-trellis-reference",
+  "prop": "galleon-figurehead",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/generations",
+  "execution": "games/yorimichi/proposals/pirate-coast/references/props.py",
+  "prompt_file": "galleon-figurehead.prompt.txt",
+  "prompt_sha256": "353b5700292b584dfd092f551a5109df4785f531bd95e3cbe4120fd3716956c1",
+  "status": "done",
+  "started_at": "2026-10-18T01:48:28.117051+00:00",
+  "elapsed_seconds": 35.1,
+  "output": "galleon-figurehead.png",
+  "output_sha256": "1301bb5b17a4cda99e803b57e06ebecd1df7ced5949417765a67ac8139064340",
+  "usage": {
+    "input_tokens": 153,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 153
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 1909
+  },
+  "finished_at": "2026-10-18T01:49:03.212835+00:00"
+}

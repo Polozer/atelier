@@ -1,0 +1,93 @@
+{
+  "slug": "ship-anchor",
+  "stage": "brinecove-trellis-processed",
+  "generated": "2026-10-18T03:34:27.932744+00:00",
+  "source": "build/yorimichi/pirate-coast/trellis/out/anchor/head.glb",
+  "source_sha256": "f5ead703aa4d1b9545166f28bcf0f967f19ff44ee939b9d632beb9f8ec68f164",
+  "reference": "games/yorimichi/proposals/pirate-coast/references/props/ship-anchor.png",
+  "reference_sha256": "deb50c90a722a7a5aa47d3466291921561118330df3b2790fa1257ccaf8b748d",
+  "generation": {
+    "worker_sha256": "43c0e46379673a117041614388a3429aa6f75f3b448697a7c89373d719991dca",
+    "backend": "Microsoft TRELLIS.2 MLX",
+    "native_vertices": 769450,
+    "native_triangles": 1661234,
+    "output_sha256": "f5ead703aa4d1b9545166f28bcf0f967f19ff44ee939b9d632beb9f8ec68f164",
+    "native_checkpoint_sha256": "ecb6ceacd70c51725b6775c0ad1b4afaf56aa4b01f99f68f4caada641e2f4c69",
+    "mesh_sha256": "08549ec0fa7b1ffa64e283d52b8981f84ecbcba9352b95faba3c37bd59f9aae8",
+    "all_native_triangles_and_winding_preserved": true,
+    "transform": "Only fixed Z-up to Y-up axis rotation performed by the pinned export",
+    "seconds": 365.661,
+    "strict_model_key_checks": [
+      {
+        "file": "ss_flow_img_dit_1_3B_64_bf16.safetensors",
+        "keys": 640,
+        "strict_complete_state": true
+      },
+      {
+        "file": "ss_dec_conv3d_16l8_fp16.safetensors",
+        "keys": 74,
+        "strict_complete_state": true
+      },
+      {
+        "file": "slat_flow_img2shape_dit_1_3B_512_bf16.safetensors",
+        "keys": 640,
+        "strict_complete_state": true
+      },
+      {
+        "file": "shape_dec_next_dc_f16c32_fp16.safetensors",
+        "keys": 292,
+        "strict_complete_state": true
+      },
+      {
+        "file": "slat_flow_imgshape2tex_dit_1_3B_512_bf16.safetensors",
+        "keys": 640,
+        "strict_complete_state": true
+      },
+      {
+        "file": "tex_dec_next_dc_f16c32_fp16.safetensors",
+        "keys": 284,
+        "strict_complete_state": true
+      }
+    ],
+    "mlx_peak_bytes": 4661694234,
+    "quantize": 0,
+    "resolution_requested": 512,
+    "actual_mesh_grid_size": 512
+  },
+  "target_height_m": 4.8,
+  "notes": "quay anchor with rope",
+  "triangles_before": 1661234,
+  "triangles_after": 413731,
+  "bounds": {
+    "min": [
+      -2.2468,
+      -1.3948,
+      0.0
+    ],
+    "max": [
+      2.2468,
+      1.3948,
+      4.8
+    ]
+  },
+  "output": "games/yorimichi/proposals/pirate-coast/assets/models/ship-anchor.glb",
+  "output_sha256": "c202939fb369ecc4bbf6dffc837b724213abf81cbf44daf6736c698ad8aee8df",
+  "checks": {
+    "triangles": 413731,
+    "vertices": 135155,
+    "uv_layers": 1,
+    "materials": 1,
+    "textured_materials": 1,
+    "images": 3
+  },
+  "texture_dilation": "build/yorimichi/pirate-coast/texture-dilation/ship-anchor-Image_0.png",
+  "processing": [
+    "parent clear",
+    "transform apply",
+    "uniform scale to target height",
+    "centre XY and seat min Z at 0",
+    "collapse decimate with UV preservation",
+    "UV/texture/material and finite-vertex validation",
+    "three Blender review renders"
+  ]
+}

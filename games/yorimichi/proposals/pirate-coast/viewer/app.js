@@ -22,17 +22,19 @@ const MODULES = [
   { file: '07_ships.glb', label: 'Galleons & sloop', colour: '#4f7f79' },
   { file: '08_props.glb', label: 'Barrels, cranes & lanterns', colour: '#95704b' },
   { file: '09_vegetation.glb', label: 'Palms, jungle & vines', colour: '#4d6a36' },
+  { file: '10_hero_assets.glb', label: 'TRELLIS hero assets', colour: '#caa15b' },
 ];
 const VIEWS = {
-  harbor: { label: 'Harbor mouth', pos: [-90, 34, 420], target: [-45, 16, -60], fov: 42 },
-  aerial: { label: 'Aerial', pos: [-200, 380, 800], target: [0, 25, 0], fov: 35 },
-  market: { label: 'Market', pos: [0, 12, -95], target: [0, 10, -185], fov: 50 },
-  upper: { label: 'Upper town', pos: [0, 54, -380], target: [0, 6, -120], fov: 45 },
-  rum: { label: 'Rum Row', pos: [-320, 9, -65], target: [-300, 9, -150], fov: 40 },
-  lighthouse: { label: 'Lighthouse', pos: [-570, 100, 150], target: [-618, 78, 38], fov: 55 },
-  shipyard: { label: 'Shipyard', pos: [320, 26, 150], target: [380, 10, -95], fov: 50 },
-  waterfall: { label: 'Waterfall', pos: [330, 52, 80], target: [470, 35, -86], fov: 50 },
-  top: { label: 'Plan', pos: [0, 1580, 40], target: [0, 0, 20], fov: 52 },
+  harbor: { label: 'Harbor mouth', pos: [-140, 95, 700], target: [0, 22, -60], fov: 55 },
+  aerial: { label: 'Aerial', pos: [-300, 240, 560], target: [0, 18, 20], fov: 45 },
+  market: { label: 'Market', pos: [-55, 7.2, -118], target: [35, 9, -215], fov: 48 },
+  upper: { label: 'Upper town', pos: [-140, 68, -368], target: [0, 14, -190], fov: 50 },
+  rum: { label: 'Rum Row', pos: [-296, 7, -94], target: [-250, 10, -130], fov: 38 },
+  lighthouse: { label: 'Lighthouse', pos: [-500, 70, 280], target: [-650, 58, -60], fov: 50 },
+  shipyard: { label: 'Shipyard', pos: [290, 24, 200], target: [380, 14, -105], fov: 50 },
+  waterfall: { label: 'Waterfall', pos: [300, 38, 130], target: [448, 55, -30], fov: 42 },
+  cliff: { label: 'Cliff shacks', pos: [-430, 32, 170], target: [-512, 34, -10], fov: 48 },
+  top: { label: 'Plan', pos: [0, 1780, 30], target: [0, 0, 20], fov: 52 },
 };
 // Blender coordinates (x east, y north, z up); the scene is converted to
 // three.js x east, y up, z south when these are projected.
@@ -42,8 +44,8 @@ const LABELS = [
   ['Rum Row', [-120, 122, 14]],
   ['Upper terrace', [0, 340, 30]],
   ['Watchtower', [-120, 470, 66]],
-  ['Lighthouse', [-618, -38, 86]],
-  ['Waterfall', [474, 86, 34]],
+  ['Lighthouse', [-618, -38, 100]],
+  ['Waterfall', [448, 30, 34]],
   ['Shipyard', [355, 92, 24]],
 ];
 const REFS = [
@@ -61,6 +63,14 @@ const REFS = [
   ['12-prop-kit', 'Prop kit'],
   ['13-map', 'Painted plan'],
 ];
+const PROP_REFS = [
+  ['pirate-queen-statue', 'Pirate queen statue'],
+  ['galleon-figurehead', 'Galleon figurehead'],
+  ['harbor-cannon', 'Harbor cannon'],
+  ['ship-anchor', 'Ship anchor'],
+  ['harbor-capstan', 'Harbor capstan'],
+  ['ships-wheel', "Ship's wheel"],
+];
 
 const canvas = document.querySelector('#view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -74,10 +84,10 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0xa7c5cb, 0.00035);
-const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 1, 6000);
-camera.position.set(-40, 38, 430);
+const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 1, 6000);
+camera.position.set(-140, 95, 700);
 const controls = new OrbitControls(camera, canvas);
-controls.target.set(-20, 24, -70);
+controls.target.set(0, 22, -60);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.maxPolarAngle = Math.PI * 0.495;
@@ -99,11 +109,25 @@ const sky = new THREE.Mesh(
     side: THREE.BackSide, depthWrite: false, uniforms: skyUniforms,
     vertexShader: 'varying vec3 vDir; void main(){ vDir=normalize(position); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
     fragmentShader: `
+      float hash21(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
+      float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+        return mix(mix(hash21(i),hash21(i+vec2(1,0)),f.x),mix(hash21(i+vec2(0,1)),hash21(i+vec2(1,1)),f.x),f.y); }
+      float fbm(vec2 p){ float v=0.0, a=0.55; for(int i=0;i<4;i++){ v+=a*vnoise(p); p*=2.03; a*=0.48; } return v; }
       uniform vec3 top, horizon, bottom, sunColor, sunDir; varying vec3 vDir;
       void main(){
         float h = clamp(vDir.y*0.5+0.5,0.0,1.0);
         vec3 c = mix(bottom, horizon, smoothstep(0.28,0.46,h));
         c = mix(c, top, smoothstep(0.40,0.78,h));
+        vec3 d = normalize(vDir);
+        if (d.y > 0.01) {
+          vec2 cp = d.xz / (d.y + 0.16);
+          float cloud = smoothstep(0.44, 0.69, fbm(cp*1.28 + vec2(3.2,1.7)));
+          cloud = max(cloud, smoothstep(0.56, 0.80, fbm(cp*2.7 + vec2(9.1,4.3)))*0.72);
+          cloud *= smoothstep(0.02, 0.16, d.y);
+          c = mix(c, vec3(0.98,0.95,0.88), cloud*0.82);
+          float under = smoothstep(0.48, 0.72, fbm(cp*1.7 + vec2(8.0,2.0)));
+          c = mix(c, vec3(0.72,0.78,0.80), under*cloud*0.18);
+        }
         float s = max(dot(normalize(vDir), normalize(sunDir)), 0.0);
         c += sunColor * (pow(s, 900.0)*1.2 + pow(s, 12.0)*0.12);
         gl_FragColor = vec4(c,1.0);
@@ -115,12 +139,15 @@ scene.add(sky);
 // Water: a gentle vertex wave plus a warm specular glint. The shader uses no textures.
 const waterUniforms = {
   uTime: { value: 0 },
+  uMap: { value: new THREE.TextureLoader().load('textures/water.jpg') },
   uShallow: { value: new THREE.Color(0x3bb7c2) },
   uDeep: { value: new THREE.Color(0x248fa8) },
   uSunColor: { value: new THREE.Color(0xffd7a1) },
   uSunDir: { value: new THREE.Vector3(-0.45, 0.62, 0.35).normalize() },
   uNight: { value: 0 },
 };
+waterUniforms.uMap.value.colorSpace = THREE.SRGBColorSpace;
+waterUniforms.uMap.value.wrapS = waterUniforms.uMap.value.wrapT = THREE.RepeatWrapping;
 const water = new THREE.Mesh(
   new THREE.PlaneGeometry(5200, 5200, 180, 180),
   new THREE.ShaderMaterial({
@@ -136,11 +163,15 @@ const water = new THREE.Mesh(
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
     fragmentShader: `
-      uniform vec3 uShallow, uDeep, uSunColor, uSunDir; uniform float uTime, uNight;
+      uniform vec3 uShallow, uDeep, uSunColor, uSunDir; uniform float uTime, uNight; uniform sampler2D uMap;
       varying vec3 vWorld; varying float vWave;
       void main(){
         float depth = smoothstep(-100.0, 680.0, vWorld.z);
-        vec3 c = mix(uShallow, uDeep, depth*0.45 + 0.08);
+        vec2 uv1 = vWorld.xz * 0.018 + vec2(uTime*0.0009, uTime*0.0012);
+        vec2 uv2 = vWorld.xz * 0.008 - vec2(uTime*0.0005, -uTime*0.0007);
+        vec3 tex = texture2D(uMap, uv1).rgb*0.62 + texture2D(uMap, uv2).rgb*0.38;
+        vec3 c = mix(uShallow, uDeep, depth*0.5 + 0.06) * (0.55 + 0.8*tex);
+        c += vec3(0.07,0.13,0.11) * tex.g * 0.45;
         c += vec3(0.06,0.11,0.10) * sin(vWorld.x*0.014 + uTime*0.25 + vWorld.z*0.01);
         c *= 0.88 + vWave*0.035;
         vec3 n = normalize(vec3(sin(vWorld.x*0.07+uTime)*0.09, 1.0, cos(vWorld.z*0.06-uTime)*0.07));
@@ -157,6 +188,51 @@ water.rotation.x = -Math.PI / 2;
 water.position.y = 0.0;
 scene.add(water);
 
+// Animated fall surface over the modelled rock chute.  The exported geometry
+// supplies the cliff and the dark backing; this layer gives the fall moving
+// ribbons, spray and a bright lip so it reads as water rather than a dam.
+const fallUniforms = {
+  uTime: { value: 0 },
+  uMap: { value: new THREE.TextureLoader().load('textures/water.jpg') },
+};
+fallUniforms.uMap.value.colorSpace = THREE.SRGBColorSpace;
+fallUniforms.uMap.value.wrapS = fallUniforms.uMap.value.wrapT = THREE.RepeatWrapping;
+const fall = new THREE.Mesh(
+  new THREE.PlaneGeometry(33, 49, 1, 36),
+  new THREE.ShaderMaterial({
+    uniforms: fallUniforms, transparent: true, depthWrite: false,
+    side: THREE.DoubleSide, blending: THREE.NormalBlending,
+    vertexShader: `
+      uniform float uTime; varying vec2 vUv; varying vec3 vWorld;
+      void main(){
+        vUv = uv;
+        vec3 p = position;
+        p.x += sin(uv.y*22.0 + uTime*1.7) * 0.32 * smoothstep(0.0, 0.18, uv.y);
+        vec4 wp = modelMatrix * vec4(p,1.0); vWorld = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: `
+      uniform float uTime; uniform sampler2D uMap;
+      varying vec2 vUv; varying vec3 vWorld;
+      void main(){
+        vec2 uv = vec2(vUv.x*2.3, vUv.y*5.0 - uTime*0.52);
+        vec3 a = texture2D(uMap, uv).rgb;
+        vec3 b = texture2D(uMap, uv*1.7 + vec2(0.31, -uTime*0.31)).rgb;
+        float streak = smoothstep(0.42, 0.72, a.g*0.55 + b.b*0.45);
+        float edge = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
+        float lip = smoothstep(0.93, 1.0, vUv.y);
+        float plunge = smoothstep(0.16, 0.0, vUv.y);
+        vec3 c = mix(vec3(0.45,0.72,0.76), vec3(0.94,0.98,0.96), streak*0.82);
+        c = mix(c, vec3(0.99,0.99,0.96), lip*0.72);
+        c = mix(c, vec3(0.85,0.94,0.92), plunge*0.55);
+        float alpha = edge * (0.26 + 0.58*streak) * (1.0 - plunge*0.35);
+        gl_FragColor = vec4(c, alpha);
+      }`,
+  })
+);
+fall.position.set(448, 28.0, -27.0);
+scene.add(fall);
+
 // Soft foam lines along the two bay walls.
 function bayHalf(y) { return y >= 60 ? 2000 : Math.min(620, 430 + 0.28 * (60 - y)); }
 const foamPoints = [];
@@ -170,6 +246,19 @@ const foam = new THREE.Points(foamGeo, new THREE.PointsMaterial({
   blending: THREE.AdditiveBlending, sizeAttenuation: true,
 }));
 scene.add(foam);
+
+// Broken foam collars where the hulls and rocks meet the water.
+const collarMat = new THREE.MeshBasicMaterial({
+  color: 0xe8f0e7, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false,
+});
+for (const [x, z, sx, sz] of [[-34, 84, 18, 34], [34, 142, 16, 30], [252, 72, 8, 12],
+                               [-332, 322, 12, 12], [368, 300, 15, 15], [160, 412, 10, 10]]) {
+  const collar = new THREE.Mesh(new THREE.RingGeometry(0.72, 1.0, 28), collarMat);
+  collar.rotation.x = -Math.PI / 2;
+  collar.scale.set(sx, sz, 1);
+  collar.position.set(x, 0.07, z);
+  scene.add(collar);
+}
 
 const hemi = new THREE.HemisphereLight(0xd2e6ee, 0x344e38, 1.25);
 scene.add(hemi);
@@ -193,7 +282,7 @@ scene.add(ambient);
 const lanternPositions = [
   [-320, 8, -88], [-190, 8, -88], [-60, 8, -88], [70, 8, -88], [200, 8, -88], [330, 8, -88],
   [-200, 9, -155], [0, 10, -160], [200, 9, -155], [-120, 27, -338], [110, 27, -338],
-  [-618, 87, 38], [355, 16, -92],
+  [-618, 100, 38], [355, 16, -92],
 ];
 const lanternLights = lanternPositions.map(([x, y, z]) => {
   const light = new THREE.PointLight(0xffb45e, 0, 115, 2);
@@ -223,9 +312,9 @@ scene.add(glows);
 const mistCount = 180;
 const mistPos = new Float32Array(mistCount * 3);
 for (let i = 0; i < mistCount; i++) {
-  mistPos[i * 3] = 474 + (Math.random() - 0.5) * 26;
-  mistPos[i * 3 + 1] = 2 + Math.random() * 12;
-  mistPos[i * 3 + 2] = -72 + (Math.random() - 0.5) * 22;
+  mistPos[i * 3] = 448 + (Math.random() - 0.5) * 30;
+  mistPos[i * 3 + 1] = 5 + Math.random() * 12;
+  mistPos[i * 3 + 2] = -30 + (Math.random() - 0.5) * 18;
 }
 const mistGeo = new THREE.BufferGeometry();
 mistGeo.setAttribute('position', new THREE.BufferAttribute(mistPos, 3));
@@ -236,16 +325,29 @@ const mistMat = new THREE.PointsMaterial({
 const mist = new THREE.Points(mistGeo, mistMat);
 scene.add(mist);
 
+// A slow lighthouse beam gives the night view its landmark.
+const beamGroup = new THREE.Group();
+beamGroup.position.set(-618, 100, 38);
+const beamMat = new THREE.MeshBasicMaterial({
+  color: 0xffe6b0, transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending,
+  depthWrite: false, side: THREE.DoubleSide,
+});
+const beam = new THREE.Mesh(new THREE.ConeGeometry(16, 620, 20, 1, true), beamMat);
+beam.rotation.z = -Math.PI / 2;
+beam.position.x = 310;
+beamGroup.add(beam);
+scene.add(beamGroup);
+
 const groups = {};
 const emissive = [];
 const loader = new GLTFLoader();
 let totalTris = 0;
 
-function tuneMaterial(material) {
+function tuneMaterial(material, flat = true) {
   if (!material) return;
-  if (Array.isArray(material)) { material.forEach(tuneMaterial); return; }
+  if (Array.isArray(material)) { material.forEach((m) => tuneMaterial(m, flat)); return; }
   const name = (material.name || '').toLowerCase();
-  material.flatShading = true;
+  material.flatShading = flat;
   material.side = THREE.DoubleSide;
   material.needsUpdate = true;
   if (name.includes('water')) {
@@ -270,7 +372,13 @@ async function loadModules() {
   for (let i = 0; i < MODULES.length; i++) {
     const mod = MODULES[i];
     text.textContent = `Loading ${mod.label}…`;
-    const gltf = await loader.loadAsync(`models/${mod.file}`);
+    let gltf;
+    try {
+      gltf = await loader.loadAsync(`models/${mod.file}`);
+    } catch (error) {
+      console.warn(`Skipping unavailable module ${mod.file}`, error);
+      continue;
+    }
     const group = new THREE.Group();
     group.name = mod.file;
     group.userData.module = mod.file;
@@ -279,7 +387,7 @@ async function loadModules() {
       obj.castShadow = !mod.file.includes('vegetation') && !mod.file.includes('terrain');
       obj.receiveShadow = true;
       obj.frustumCulled = true;
-      tuneMaterial(obj.material);
+      tuneMaterial(obj.material, !mod.file.includes('10_hero_assets'));
       if (obj.geometry.index) totalTris += obj.geometry.index.count / 3;
       else if (obj.geometry.attributes.position) totalTris += obj.geometry.attributes.position.count / 3;
     });
@@ -307,7 +415,7 @@ function buildUI() {
     label.innerHTML = `<input type="checkbox" checked data-module="${mod.file}">
       <i class="swatch" style="background:${mod.colour}"></i><span>${mod.label}</span><span class="tris"></span>`;
     label.querySelector('input').addEventListener('change', (event) => {
-      groups[mod.file].visible = event.target.checked;
+      if (groups[mod.file]) groups[mod.file].visible = event.target.checked;
     });
     layers.appendChild(label);
   });
@@ -350,7 +458,7 @@ function buildUI() {
   modelGrid.className = 'gallery-grid';
   ['01-aerial-hero', '02-harbor-approach', '03-market-square', '04-upper-terrace',
    '05-lighthouse-headland', '06-shipyard', '07-waterfall-bridge', '08-night-harbor',
-   '09-rum-row', '10-topdown'].forEach((slug) => {
+   '09-rum-row', '10-topdown', '11-cliff-shacks'].forEach((slug) => {
     const figure = document.createElement('figure');
     const title = slug.replace(/^\d+-/, '').replaceAll('-', ' ');
     figure.innerHTML = `<img loading="lazy" src="${slug}.png" alt="Blender render: ${title}"><figcaption>Blender · ${title}</figcaption>`;
@@ -358,6 +466,28 @@ function buildUI() {
     modelGrid.appendChild(figure);
   });
   gallery.parentElement.insertBefore(modelGrid, renderTitle.nextSibling);
+  const propTitle = document.createElement('div');
+  propTitle.className = 'eyebrow';
+  propTitle.style.marginTop = '22px';
+  propTitle.textContent = 'TRELLIS hero asset references';
+  gallery.parentElement.insertBefore(propTitle, modelGrid.nextSibling);
+  const propGrid = document.createElement('div');
+  propGrid.className = 'gallery-grid';
+  PROP_REFS.forEach(([slug, title]) => {
+    const figure = document.createElement('figure');
+    figure.innerHTML = `<img loading="lazy" src="refs/props/${slug}.png" alt="${title}"><figcaption>${title}</figcaption>`;
+    figure.addEventListener('click', () => openLightbox(`refs/props/${slug}.png`, title));
+    propGrid.appendChild(figure);
+  });
+  const processed = document.createElement('figure');
+  processed.innerHTML = `<img loading="lazy" src="refs/trellis-processed.jpg" alt="Processed TRELLIS assets"><figcaption>Processed TRELLIS models · reference, front, three-quarter, side</figcaption>`;
+  processed.addEventListener('click', () => openLightbox('refs/trellis-processed.jpg', 'Processed TRELLIS models'));
+  propGrid.appendChild(processed);
+  const surface = document.createElement('figure');
+  surface.innerHTML = `<img loading="lazy" src="textures/contact-sheet.jpg" alt="Painted Brinecove surfaces"><figcaption>Sunburst surface set</figcaption>`;
+  surface.addEventListener('click', () => openLightbox('textures/contact-sheet.jpg', 'Sunburst surface set'));
+  propGrid.appendChild(surface);
+  gallery.parentElement.insertBefore(propGrid, propTitle.nextSibling);
 }
 
 let tween = null;
@@ -455,6 +585,10 @@ function animate() {
   const dt = clock.getDelta();
   const t = clock.elapsedTime;
   waterUniforms.uTime.value = t;
+  fallUniforms.uTime.value = t;
+  beamGroup.rotation.y = t * 0.22;
+  const moodValue = Number(document.querySelector('#mood').value);
+  beamMat.opacity = 0.12 * Math.max(0, (moodValue - 1.15) / 0.85);
   sun.target.position.set(0, 0, -20);
   if (tween) {
     const k = Math.min(1, (performance.now() - tween.start) / tween.duration);
@@ -469,9 +603,9 @@ function animate() {
   for (let i = 0; i < mistCount; i++) {
     pos.array[i * 3 + 1] -= dt * (2.0 + (i % 7) * 0.18);
     if (pos.array[i * 3 + 1] < 1.0) {
-      pos.array[i * 3 + 1] = 10 + Math.random() * 13;
-      pos.array[i * 3] = 474 + (Math.random() - 0.5) * 26;
-      pos.array[i * 3 + 2] = -72 + (Math.random() - 0.5) * 22;
+      pos.array[i * 3 + 1] = 13 + Math.random() * 12;
+      pos.array[i * 3] = 448 + (Math.random() - 0.5) * 30;
+      pos.array[i * 3 + 2] = -30 + (Math.random() - 0.5) * 18;
     }
   }
   pos.needsUpdate = true;

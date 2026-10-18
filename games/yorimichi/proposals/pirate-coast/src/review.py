@@ -19,6 +19,7 @@ PAIRS = [
     ('07-waterfall-bridge', '07-waterfall-bridge'),
     ('08-night-harbor', '08-night-harbor'),
     ('09-rum-row', '09-rum-row'),
+    ('10-cliff-shacks', '11-cliff-shacks'),
     ('13-map', '10-topdown'),
 ]
 
@@ -61,7 +62,7 @@ def main():
     for i in range(0, len(made), 3):
         sheet(f'compare-{i // 3 + 1}.jpg', made[i:i + 3])
     # A compact visual index of every render.
-    files = sorted(RENDERS.glob('*.png'))
+    files = sorted(p for p in RENDERS.glob('*.png') if p.name[:2].isdigit() and p.name[2] == '-')
     if files:
         thumbs = []
         for p in files:

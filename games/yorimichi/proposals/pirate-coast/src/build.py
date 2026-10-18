@@ -26,12 +26,15 @@ from mathutils import Vector  # noqa: E402
 
 import layout as L  # noqa: E402
 import modules  # noqa: E402
+import hero_assets  # noqa: E402
+import surfaces as S  # noqa: E402
 
 OUT = REPO / 'build/yorimichi/pirate-coast'
 SCENE_OUT = OUT / 'scene'
 MODEL_OUT = OUT / 'models'
 VIEWER_OUT = OUT / 'viewer'
 RENDER_OUT = OUT / 'renders'
+TEXTURE_DIR = PROPOSAL / 'textures'
 
 
 def srgb_to_linear(value):
@@ -49,6 +52,20 @@ def make_material(name, hex_color):
     bsdf = nodes.get('Principled BSDF')
     bsdf.inputs['Base Color'].default_value = (r, g, b, 1.0)
     bsdf.inputs['Roughness'].default_value = 0.88
+    texture = TEXTURE_DIR / f'{name}.jpg'
+    if texture.exists():
+        image = bpy.data.images.load(str(texture), check_existing=True)
+        image.colorspace_settings.name = 'sRGB'
+        tex = nodes.new('ShaderNodeTexImage')
+        tex.name = f'{name} painted surface'
+        tex.image = image
+        tex.interpolation = 'Linear'
+        mat.node_tree.links.new(tex.outputs['Color'], bsdf.inputs['Base Color'])
+        bsdf.inputs['Base Color'].default_value = (1.0, 1.0, 1.0, 1.0)
+        if name.startswith(('roof_', 'stone', 'cobble')):
+            bsdf.inputs['Roughness'].default_value = 0.94
+        elif name.startswith(('wood', 'plaster', 'cream', 'ochre', 'coral', 'sage', 'teal')):
+            bsdf.inputs['Roughness'].default_value = 0.9
     if name in ('metal', 'gold'):
         bsdf.inputs['Metallic'].default_value = 0.65
         bsdf.inputs['Roughness'].default_value = 0.45
@@ -58,12 +75,8 @@ def make_material(name, hex_color):
         bsdf.inputs['Emission Color'].default_value = (r, g, b, 1.0)
         bsdf.inputs['Emission Strength'].default_value = 2.5
     if name == 'water':
-        bsdf.inputs['Roughness'].default_value = 0.18
-        bsdf.inputs['Metallic'].default_value = 0.1
-    if name in ('water', 'sail') and name == 'water':
-        bsdf.inputs['Alpha'].default_value = 0.78
-        if hasattr(mat, 'blend_method'):
-            mat.blend_method = 'BLEND'
+        bsdf.inputs['Roughness'].default_value = 0.22
+        bsdf.inputs['Metallic'].default_value = 0.0
     return mat
 
 
@@ -84,6 +97,9 @@ def make_object(builder, collection, materials):
     index = {name: i for i, name in enumerate(used)}
     mesh = bpy.data.meshes.new(builder.name)
     mesh.from_pydata(builder.verts, [], builder.faces)
+    uv_layer = mesh.uv_layers.new(name='UVMap')
+    for loop in mesh.loops:
+        uv_layer.data[loop.index].uv = builder.uvs[loop.vertex_index]
     for name in used:
         mesh.materials.append(materials[name])
     for poly, mat in zip(mesh.polygons, builder.mats):
@@ -122,6 +138,15 @@ def build_modules():
         report[name] = dict(vertices=len(builder.verts), triangles=sum(len(f) - 2 for f in builder.faces),
                             materials=mat_count, seconds=round(time.time() - started, 2))
         print(f'built {name}: {report[name]}', flush=True)
+    hero_collection = bpy.data.collections.new('10_hero_assets')
+    scene.collection.children.link(hero_collection)
+    hero = hero_assets.add_hero_assets(hero_collection)
+    if hero is not None:
+        objects['10_hero_assets'] = hero
+        report['10_hero_assets'] = dict(vertices=len(hero.data.vertices),
+                                        triangles=sum(len(p.vertices) - 2 for p in hero.data.polygons),
+                                        materials=len(hero.data.materials), seconds=0.0)
+        print(f'built 10_hero_assets: {report["10_hero_assets"]}', flush=True)
     # Full scene and per-module GLBs.
     for obj in objects.values():
         obj.select_set(True)
@@ -130,7 +155,8 @@ def build_modules():
     bpy.ops.export_scene.gltf(filepath=str(SCENE_OUT / 'brinecove.glb'), export_format='GLB',
                               use_selection=True, export_apply=True, export_yup=True,
                               export_animations=False, export_skins=False, export_cameras=False,
-                              export_lights=False, export_extras=True)
+                              export_lights=False, export_extras=True,
+                              export_image_format='JPEG', export_image_quality=86, export_normals=False)
     for name, obj in objects.items():
         for other in objects.values():
             other.select_set(False)
@@ -139,7 +165,8 @@ def build_modules():
         bpy.ops.export_scene.gltf(filepath=str(MODEL_OUT / f'{name}.glb'), export_format='GLB',
                                   use_selection=True, export_apply=True, export_yup=True,
                                   export_animations=False, export_skins=False, export_cameras=False,
-                                  export_lights=False, export_extras=True)
+                                  export_lights=False, export_extras=True,
+                                  export_image_format='JPEG', export_image_quality=86, export_normals=False)
     for obj in objects.values():
         obj.select_set(False)
     report['_totals'] = dict(vertices=sum(v['vertices'] for k, v in report.items() if not k.startswith('_')),
@@ -154,10 +181,14 @@ def sea_plane():
     bpy.ops.mesh.primitive_plane_add(size=5000, location=(0, 0, -0.35))
     obj = bpy.context.object
     obj.name = 'REVIEW_Sea'
-    mat = bpy.data.materials.get('sea')
+    mat = bpy.data.materials.get('water')
     if mat is None:
-        mat = make_material('sea', L.COLORS['sea'])
+        mat = make_material('water', L.COLORS['water'])
     obj.data.materials.append(mat)
+    uv_layer = obj.data.uv_layers.active
+    if uv_layer:
+        for datum in uv_layer.data:
+            datum.uv = (datum.uv[0] * 190.0, datum.uv[1] * 190.0)
     return obj
 
 
@@ -167,18 +198,45 @@ def add_render_objects():
     world = bpy.data.worlds.new('Brinecove review sky')
     scene.world = world
     world.use_nodes = True
-    bg = world.node_tree.nodes['Background']
-    bg.inputs['Color'].default_value = (0.38, 0.58, 0.73, 1.0)
+    nodes = world.node_tree.nodes
+    links = world.node_tree.links
+    bg = nodes['Background']
     bg.inputs['Strength'].default_value = 1.0
+    coord = nodes.new('ShaderNodeTexCoord')
+    sep = nodes.new('ShaderNodeSeparateXYZ')
+    ramp = nodes.new('ShaderNodeValToRGB')
+    ramp.color_ramp.elements[0].position = 0.0
+    ramp.color_ramp.elements[0].color = (0.58, 0.78, 0.88, 1.0)
+    ramp.color_ramp.elements[1].position = 0.72
+    ramp.color_ramp.elements[1].color = (0.10, 0.30, 0.56, 1.0)
+    links.new(coord.outputs['Generated'], sep.inputs['Vector'])
+    links.new(sep.outputs['Z'], ramp.inputs['Fac'])
+    noise = nodes.new('ShaderNodeTexNoise')
+    noise.inputs['Scale'].default_value = 3.6
+    noise.inputs['Detail'].default_value = 7.0
+    noise.inputs['Roughness'].default_value = 0.62
+    links.new(coord.outputs['Generated'], noise.inputs['Vector'])
+    cloud_ramp = nodes.new('ShaderNodeValToRGB')
+    cloud_ramp.color_ramp.elements[0].position = 0.47
+    cloud_ramp.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 0.0)
+    cloud_ramp.color_ramp.elements[1].position = 0.60
+    cloud_ramp.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)
+    links.new(noise.outputs['Fac'], cloud_ramp.inputs['Fac'])
+    cloud = nodes.new('ShaderNodeMixRGB')
+    cloud.blend_type = 'MIX'
+    cloud.inputs['Color2'].default_value = (0.93, 0.91, 0.85, 1.0)
+    links.new(ramp.outputs['Color'], cloud.inputs['Color1'])
+    links.new(cloud_ramp.outputs['Alpha'], cloud.inputs['Fac'])
+    links.new(cloud.outputs['Color'], bg.inputs['Color'])
     sun_data = bpy.data.lights.new('Sun', 'SUN')
-    sun_data.energy = 3.2
-    sun_data.angle = math.radians(18)
-    sun_data.color = (1.0, 0.84, 0.62)
+    sun_data.energy = 4.4
+    sun_data.angle = math.radians(11)
+    sun_data.color = (1.0, 0.80, 0.57)
     sun = bpy.data.objects.new('Sun', sun_data)
     scene.collection.objects.link(sun)
     sun.rotation_euler = (math.radians(52), math.radians(8), math.radians(-38))
     fill_data = bpy.data.lights.new('Sky fill', 'AREA')
-    fill_data.energy = 900
+    fill_data.energy = 560
     fill_data.size = 700
     fill_data.color = (0.62, 0.78, 1.0)
     fill = bpy.data.objects.new('Sky fill', fill_data)
@@ -201,13 +259,21 @@ def add_render_objects():
     scene.render.image_settings.file_format = 'PNG'
     if hasattr(scene, 'eevee') and hasattr(scene.eevee, 'taa_render_samples'):
         scene.eevee.taa_render_samples = 32
+    if hasattr(scene, 'eevee'):
+        for attr, value in (('use_gtao', True), ('gtao_distance', 3.5), ('gtao_factor', 1.2),
+                            ('use_raytracing', True), ('use_shadows', True)):
+            if hasattr(scene.eevee, attr):
+                try:
+                    setattr(scene.eevee, attr, value)
+                except Exception:
+                    pass
     scene.view_settings.view_transform = 'AgX'
     try:
         scene.view_settings.look = 'AgX - Punchy'
     except Exception:
         pass
-    scene.view_settings.exposure = 0.25
-    return cam, sun, fill, bg
+    scene.view_settings.exposure = 0.38
+    return cam, sun, fill, bg, ramp, cloud
 
 
 def look_at(cam, location, target, lens=42):
@@ -218,44 +284,57 @@ def look_at(cam, location, target, lens=42):
 
 
 VIEWS = {
-    '01-aerial-hero': ((-200, -800, 380), (0, 25, 0), 35, 'day'),
-    '02-harbor-approach': ((-90, -420, 34), (-45, 60, 16), 42, 'day'),
-    '03-market-square': ((0, 95, 12), (0, 185, 10), 50, 'day'),
-    '04-upper-terrace': ((0, 380, 54), (0, 120, 6), 45, 'day'),
-    '05-lighthouse-headland': ((-570, -150, 100), (-618, -38, 78), 55, 'day'),
-    '06-shipyard': ((320, -150, 26), (380, 95, 10), 50, 'day'),
-    '07-waterfall-bridge': ((330, -80, 52), (470, 86, 35), 50, 'day'),
-    '08-night-harbor': ((-90, -420, 34), (-45, 60, 16), 42, 'night'),
-    '09-rum-row': ((-320, 65, 9), (-300, 150, 9), 40, 'day'),
+    '01-aerial-hero': ((-300, -380, 220), (0, 120, 30), 38, 'day'),
+    '02-harbor-approach': ((-90, -360, 32), (0, 80, 18), 48, 'day'),
+    '03-market-square': ((-58, 102, 6.8), (54, 210, 9.0), 35, 'day'),
+    '04-upper-terrace': ((46, 372, 33.4), (-18, 296, 26.0), 40, 'day'),
+    '05-lighthouse-headland': ((-470, -315, 48), (-618, -38, 74), 55, 'day'),
+    '06-shipyard': ((290, -200, 24), (380, 105, 14), 50, 'day'),
+    '07-waterfall-bridge': ((300, -130, 38), (448, 30, 55), 42, 'day'),
+    '08-night-harbor': ((-90, -360, 32), (0, 80, 18), 48, 'night'),
+    '09-rum-row': ((-296, 94, 7), (-250, 130, 10), 38, 'day'),
     '10-topdown': ((0, -40, 1580), (0, -20, 0), 52, 'day'),
+    '11-cliff-shacks': ((-430, -170, 32), (-512, 10, 34), 48, 'day'),
 }
 
 
-def render_views(only=()):
+def render_views(only=(), preview=False):
     RENDER_OUT.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.open_mainfile(filepath=str(SCENE_OUT / 'brinecove.blend'))
-    cam, sun, fill, bg = add_render_objects()
+    cam, sun, fill, bg, sky_ramp, cloud_mix = add_render_objects()
     scene = bpy.context.scene
+    if preview:
+        scene.render.resolution_x = 960
+        scene.render.resolution_y = 540
+        if hasattr(scene, 'eevee'):
+            if hasattr(scene.eevee, 'taa_render_samples'):
+                scene.eevee.taa_render_samples = 12
+            if hasattr(scene.eevee, 'use_raytracing'):
+                scene.eevee.use_raytracing = False
     files = []
     views = {k: v for k, v in VIEWS.items() if not only or k in only}
     for name, (loc, target, lens, mood) in views.items():
         if mood == 'night':
-            bg.inputs['Color'].default_value = (0.06, 0.11, 0.21, 1.0)
+            sky_ramp.color_ramp.elements[0].color = (0.08, 0.15, 0.23, 1.0)
+            sky_ramp.color_ramp.elements[1].color = (0.01, 0.04, 0.10, 1.0)
             bg.inputs['Strength'].default_value = 0.8
             sun.data.energy = 0.55
             sun.data.color = (0.45, 0.62, 1.0)
             fill.data.energy = 700
             fill.data.color = (0.22, 0.35, 0.65)
             scene.view_settings.exposure = 0.5
+            cloud_mix.inputs['Color2'].default_value = (0.10, 0.15, 0.24, 1.0)
             add_night_lights(scene)
         else:
-            bg.inputs['Color'].default_value = (0.38, 0.58, 0.73, 1.0)
+            sky_ramp.color_ramp.elements[0].color = (0.58, 0.78, 0.88, 1.0)
+            sky_ramp.color_ramp.elements[1].color = (0.10, 0.30, 0.56, 1.0)
             bg.inputs['Strength'].default_value = 1.0
-            sun.data.energy = 3.2
-            sun.data.color = (1.0, 0.84, 0.62)
-            fill.data.energy = 900
+            sun.data.energy = 4.4
+            sun.data.color = (1.0, 0.80, 0.57)
+            fill.data.energy = 560
             fill.data.color = (0.62, 0.78, 1.0)
-            scene.view_settings.exposure = 0.25
+            scene.view_settings.exposure = 0.38
+            cloud_mix.inputs['Color2'].default_value = (0.93, 0.91, 0.85, 1.0)
         look_at(cam, loc, target, lens)
         scene.render.filepath = str(RENDER_OUT / f'{name}.png')
         print('rendering', name, flush=True)
@@ -297,9 +376,26 @@ def sync_viewer():
     refs_dst.mkdir()
     for src in sorted(refs_src.glob('*.png')):
         shutil.copy2(src, refs_dst / src.name)
+    props_src = PROPOSAL / 'references' / 'props'
+    props_dst = VIEWER_OUT / 'refs' / 'props'
+    if props_dst.exists():
+        shutil.rmtree(props_dst)
+    if props_src.exists():
+        shutil.copytree(props_src, props_dst)
+    review_sheet = OUT / 'asset-reviews' / 'contact-sheet.jpg'
+    if review_sheet.exists():
+        shutil.copy2(review_sheet, VIEWER_OUT / 'refs' / 'trellis-processed.jpg')
     for pattern in ('*.png', '*.jpg'):
         for src in (OUT / 'renders').glob(pattern):
             shutil.copy2(src, VIEWER_OUT / src.name)
+    tex_src = PROPOSAL / 'textures'
+    tex_dst = VIEWER_OUT / 'textures'
+    if tex_dst.exists():
+        shutil.rmtree(tex_dst)
+    shutil.copytree(tex_src, tex_dst)
+    sheet = OUT / 'textures' / 'contact-sheet.jpg'
+    if sheet.exists():
+        shutil.copy2(sheet, VIEWER_OUT / 'textures' / 'contact-sheet.jpg')
     models_dst = VIEWER_OUT / 'models'
     if models_dst.exists():
         shutil.rmtree(models_dst)
@@ -323,12 +419,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--stage', choices=('all', 'build', 'render', 'sync'), default='all')
     ap.add_argument('--view', default='', help='comma-separated render view names')
+    ap.add_argument('--preview', action='store_true', help='low-resolution review render')
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     OUT.mkdir(parents=True, exist_ok=True)
     if args.stage in ('all', 'build'):
         build_modules()
     if args.stage in ('all', 'render'):
-        render_views(tuple(v for v in args.view.split(',') if v))
+        render_views(tuple(v for v in args.view.split(',') if v), args.preview)
     if args.stage in ('all', 'sync'):
         sync_viewer()
 

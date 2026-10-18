@@ -23,7 +23,7 @@ current island.
 | Watchtower crest | x -120, y 470, z 42 |
 | West headland | x -780..-430, y -180..250, z up to 70 |
 | Lighthouse | x -618, y -38, base z 63 |
-| East cliff and waterfall | x 430..720, y 20..330; fall at x 474, y 86, top z 58 |
+| East cliff and waterfall | x 430..720, y 20..330; fall at x 448, y 30, top z 55, facing the harbor |
 | Shipwreck rocks | x -540, y -290 |
 | Harbor statue | x -120, y -220, on a rock islet |
 
@@ -39,9 +39,11 @@ the tallest roofs and the watchtower stepping back from the water.
 2. **Rum Row.** The first street behind the quay. Three-storey taverns, balconies, awnings, hanging signs,
    lanterns and shopfronts facing the water.
 3. **Market Square.** A cobbled opening with canvas stalls, a well, a raised auction block and a big mast with
-   rigging and banners. This is the social heart and the clearest place to read the town's colour.
-4. **The Terraces.** Narrow lanes and stairs climb to a second row of houses. Retaining walls, cisterns, potted
-   palms and rope bridges make the vertical change feel inhabited.
+   rigging and banners. Permanent two-storey halls close the long sides so the square reads as a bazaar street,
+   not a parade ground. This is the social heart and the clearest place to read the town's colour.
+4. **The Terraces.** Narrow lanes and stairs climb to a second row of houses. A continuous narrow row sits on the
+   terrace lip, hiding the retaining-wall top behind inhabited facades. Retaining walls, planted string courses,
+   cisterns, potted palms and rope bridges make the vertical change feel inhabited.
 5. **The Crest.** The watchtower, a small signal station, a cannon platform and the best view over the cove.
 6. **Shipyard.** Slipway, half-built hull, timber stacks and a crane on the east shore.
 7. **The Headlands.** Lighthouse and keeper's cottage to the west; waterfall, rope bridge and jungle shrine to the
@@ -63,22 +65,26 @@ Brinecove is built from a small kit, repeated with variation:
 
 | Role | Colour |
 | --- | --- |
-| Limewash | warm cream `#d8c7a2` |
-| Ochre | `#c89a5b` |
-| Coral | `#b86a52` |
-| Faded teal | `#5f8f8a` |
+| Limewash | warm cream `#d8c19a` |
+| Ochre | `#c08a4d` |
+| Coral | `#b56248` |
+| Faded teal | `#4f7d77` |
 | Weathered timber | `#6b4d35` |
 | Dark timber | `#3f3128` |
+| Galleon sail canvas | `#5f6b66` |
 | Terracotta roof | `#a8563e` |
 | Oxidized copper | `#4f7f79` |
 | Slate roof | `#4a5158` |
-| Stone | `#8b8a7c` |
-| Jungle | `#4d6a36` / `#6f8245` |
-| Water | `#2d7e88` shallow, `#164c63` deep |
+| Stone | `#8a7d67` |
+| Jungle | `#3f5a2c` / `#58733a` |
+| Water | `#1f7f8c` shallow, `#0f4257` deep |
 | Lantern | `#f2c36b` |
 
-The style is painterly and flat-shaded, with broad facets and no photoreal surface noise. Lighting should be a
-warm late afternoon with a high sun, a pale blue sky and a soft haze on the far headlands.
+The style is painterly and flat-shaded, with broad facets over a seamless Sunburst surface set: lime plaster, clay
+roof tile, ashlar, cobbles, weathered planks, canvas, iron, foliage, natural sea-cliff rock, beach sand and
+turquoise water. The nine source paintings expand to 40 palette-tinted material maps. Every material is tinted to
+the palette above. Lighting should be a warm late afternoon with a high sun, a pale blue sky with painted clouds
+and a soft haze on the far headlands.
 
 ## Composition targets
 
@@ -88,4 +94,14 @@ warm late afternoon with a high sun, a pale blue sky and a soft haze on the far 
   composition at both sides.
 - From the market, the grand stair is visible as a diagonal, with the watchtower above it.
 - From the crest, the whole bay, three piers and both ships should be legible at once.
-- At night, lantern strings, tavern windows and the lighthouse beam carry the silhouette.
+- At night, lantern strings, tavern windows and the lighthouse beam carry the silhouette. The beam is a real swept
+  cone in the viewer, not a painted glow.
+
+## Locally generated assets
+
+The hero pieces that are hard to carve from primitives come from the documented local TRELLIS.2/MLX workflow:
+the pirate-queen statue, the galleon figurehead, a harbor cannon, a large anchor, a working capstan and a ship's
+wheel. Each starts from an isolated Sunburst reference on black, is matted by the pinned worker, generated on the
+verified shared 15 GiB weight cache, then reduced, UV-checked, textured, scaled, seated and rendered before it is
+committed. The procedural town remains the bulk of the district; the generated pieces are landmarks and props, not
+a replacement for the modular building kit.

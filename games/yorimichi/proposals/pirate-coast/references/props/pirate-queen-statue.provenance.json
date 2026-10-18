@@ -1,0 +1,30 @@
+{
+  "stage": "brinecove-trellis-reference",
+  "prop": "pirate-queen-statue",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/generations",
+  "execution": "games/yorimichi/proposals/pirate-coast/references/props.py",
+  "prompt_file": "pirate-queen-statue.prompt.txt",
+  "prompt_sha256": "92b631fcb5ac68208a2462d087bdee852f495024fdd9aa6a95f6d51de0ca2042",
+  "status": "done",
+  "started_at": "2026-10-18T01:48:28.116942+00:00",
+  "elapsed_seconds": 34.9,
+  "output": "pirate-queen-statue.png",
+  "output_sha256": "397bfa8a5bd6b2260fe8daceb34d9a7803c5e84cf8cad626b25114382b38e95d",
+  "usage": {
+    "input_tokens": 165,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 165
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 1921
+  },
+  "finished_at": "2026-10-18T01:49:03.097626+00:00"
+}

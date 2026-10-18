@@ -1,0 +1,30 @@
+{
+  "stage": "brinecove-trellis-reference",
+  "prop": "harbor-cannon",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/generations",
+  "execution": "games/yorimichi/proposals/pirate-coast/references/props.py",
+  "prompt_file": "harbor-cannon.prompt.txt",
+  "prompt_sha256": "caf131fa811f3b3e6d19cb3cd3987715128084c200ab4559c3547755686b8fd4",
+  "status": "done",
+  "started_at": "2026-10-18T01:48:28.116651+00:00",
+  "elapsed_seconds": 33.6,
+  "output": "harbor-cannon.png",
+  "output_sha256": "149e03b4b1cdf763d30a54c6b8435606ed29eb0fdfa7f7669906ab461990deed",
+  "usage": {
+    "input_tokens": 145,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 145
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 1901
+  },
+  "finished_at": "2026-10-18T01:49:01.723625+00:00"
+}

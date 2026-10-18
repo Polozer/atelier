@@ -1,0 +1,30 @@
+{
+  "stage": "brinecove-trellis-reference",
+  "prop": "ships-wheel",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/generations",
+  "execution": "games/yorimichi/proposals/pirate-coast/references/props.py",
+  "prompt_file": "ships-wheel.prompt.txt",
+  "prompt_sha256": "96ab1d2555d0eebedf25919b65513269426eb79b9bac810ca3cda8991d5b995b",
+  "status": "done",
+  "started_at": "2026-10-18T01:49:03.215544+00:00",
+  "elapsed_seconds": 31.0,
+  "output": "ships-wheel.png",
+  "output_sha256": "8a5ff3da7dbcd64bb667c1a27994a60f695b3364bc243291ed5246ad9731c981",
+  "usage": {
+    "input_tokens": 142,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 142
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 1898
+  },
+  "finished_at": "2026-10-18T01:49:34.267748+00:00"
+}

@@ -8,6 +8,14 @@ import math
 MATERIALS = tuple(sorted(__import__('layout').COLORS))
 
 
+def _surface_scale(mat):
+    try:
+        import surfaces
+        return surfaces.MATERIAL_SURFACE.get(mat, (None, 2.0))[1]
+    except Exception:
+        return 2.0
+
+
 def _rot(x, y, yaw):
     a = math.radians(yaw)
     c, s = math.cos(a), math.sin(a)
@@ -29,12 +37,33 @@ class Builder:
     def __init__(self, name):
         self.name = name
         self.verts = []
+        self.uvs = []
         self.faces = []
         self.mats = []
 
     def face(self, points, mat):
+        points = tuple(tuple(float(c) for c in p) for p in points)
+        # Box-project each face in world metres.  Every face owns its vertices,
+        # so a projected seam never drags a neighbouring wall's UVs with it.
+        if len(points) >= 3:
+            ax = abs((points[1][1] - points[0][1]) * (points[2][2] - points[0][2])
+                     - (points[1][2] - points[0][2]) * (points[2][1] - points[0][1]))
+            ay = abs((points[1][2] - points[0][2]) * (points[2][0] - points[0][0])
+                     - (points[1][0] - points[0][0]) * (points[2][2] - points[0][2]))
+            az = abs((points[1][0] - points[0][0]) * (points[2][1] - points[0][1])
+                     - (points[1][1] - points[0][1]) * (points[2][0] - points[0][0]))
+            scale = max(0.05, _surface_scale(mat))
+            if az >= ax and az >= ay:
+                uvs = [(p[0] / scale, p[1] / scale) for p in points]
+            elif ax >= ay:
+                uvs = [(p[1] / scale, p[2] / scale) for p in points]
+            else:
+                uvs = [(p[0] / scale, p[2] / scale) for p in points]
+        else:
+            uvs = [(0.0, 0.0) for _ in points]
         i = len(self.verts)
-        self.verts.extend(tuple(float(c) for c in p) for p in points)
+        self.verts.extend(points)
+        self.uvs.extend(uvs)
         self.faces.append(tuple(range(i, i + len(points))))
         self.mats.append(mat)
 

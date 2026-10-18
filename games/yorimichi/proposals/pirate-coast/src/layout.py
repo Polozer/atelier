@@ -17,21 +17,25 @@ UPPER_Z = 30.0
 WATCHTOWER = (-120.0, 470.0, 42.0)
 LIGHTHOUSE = (-618.0, -38.0, 63.0)
 STATUE = (-120.0, -220.0, 0.0)
-WATERFALL = (474.0, 86.0, 58.0)
+WATERFALL = (448.0, 30.0, 55.0)
 
 COLORS = {
-    'stone': '#77786c', 'stone_light': '#969486', 'stone_dark': '#565a52',
-    'plaster': '#d8c7a2', 'cream': '#e6d8b9', 'ochre': '#c89a5b', 'coral': '#b86a52',
-    'teal_wall': '#5f8f8a', 'sage_wall': '#97a07a',
+    'stone': '#8a7d67', 'stone_light': '#a89a80', 'stone_dark': '#63594a',
+    'plaster': '#d8c19a', 'cream': '#e9d6b1', 'ochre': '#c08a4d', 'coral': '#b56248',
+    'teal_wall': '#4f7d77', 'sage_wall': '#8d9670',
     'wood': '#6b4d35', 'wood_dark': '#3f3128', 'wood_light': '#95704b',
     'roof_terra': '#a8563e', 'roof_terra_light': '#bf7655', 'roof_teal': '#4f7f79',
     'roof_slate': '#4a5158', 'roof_straw': '#ad8b58',
-    'jungle_dark': '#465f32', 'jungle': '#58713f', 'jungle_light': '#6f874c',
-    'autumn_rust': '#a45a35', 'autumn_gold': '#b98542', 'autumn_olive': '#7a7b3d',
-    'palm': '#587a39', 'palm_light': '#78954a', 'sand': '#c7ad7d',
+    'cobble': '#9a8f7c', 'cobble_dark': '#756b5c',
+    'canvas': '#e3d5b4', 'canvas_red': '#a44d3d', 'canvas_teal': '#4f7f79', 'clay': '#a9684b',
+    'jungle_dark': '#2f4522', 'jungle': '#3f5a2c', 'jungle_light': '#58733a',
+    'autumn_rust': '#9c4f2c', 'autumn_gold': '#b07a34', 'autumn_olive': '#6d7034',
+    'palm': '#4a6a2e', 'palm_light': '#6c8a3f', 'sand': '#c7ad7d',
     'rock': '#6d6558', 'rock_light': '#8b8070', 'rock_dark': '#48443c',
-    'seabed': '#315f63', 'water': '#2d7e88', 'water_deep': '#164c63', 'sea': '#2f96a4',
-    'sail': '#e1d3b3', 'sail_stripe': '#a44d3d', 'metal': '#3b3a36', 'gold': '#d5a64a',
+    'seabed': '#315f63', 'water': '#1f7f8c', 'water_deep': '#0f4257', 'sea': '#1f8fa0',
+    'water_shallow': '#57c4c6', 'water_mid': '#1f9fae', 'foam': '#e8f0e7',
+    'sail': '#e1d3b3', 'sail_dark': '#5f6b66', 'sail_stripe': '#a44d3d',
+    'metal': '#3b3a36', 'gold': '#d5a64a',
     'lantern': '#f2c36b', 'glass': '#26424a', 'glass_warm': '#ffc46b', 'skin': '#b98a63',
     'flag_black': '#292424', 'flag_red': '#a23c32', 'rope': '#bda77c',
 }
@@ -138,6 +142,13 @@ def yaw_point(x, y, cx, cy, yaw):
     return cx + dx * math.cos(a) - dy * math.sin(a), cy + dx * math.sin(a) + dy * math.cos(a)
 
 
+def local_point(x, y, cx, cy, yaw):
+    """The point's offset in a lot's own rotated frame."""
+    a = math.radians(yaw)
+    dx, dy = x - cx, y - cy
+    return dx * math.cos(a) - dy * math.sin(a), dx * math.sin(a) + dy * math.cos(a)
+
+
 # Lots are (key, x, y, z, width, depth, height, floors, style, yaw, roof). Fronts face south (-Y) unless yaw says
 # otherwise. The market opening is x -90..90, so no lot sits inside it.
 BUILDINGS = [
@@ -194,6 +205,28 @@ BUILDINGS = [
     ('mid-e4', 272, 258, 5.0, 38, 25, 10.5, 2, 'shop', 0, 'roof_slate'),
 ]
 
+# A narrow row right on the terrace lip. From the harbor it hides the bare
+# retaining wall and gives the town the stacked, inhabited edge in the refs.
+_edge_x = (-310, -264, -218, -172, -126, -80, 80, 126, 172, 218, 264, 310)
+_edge_styles = ('house', 'shop', 'tavern', 'house', 'shop', 'house')
+_edge_roofs = ('roof_terra', 'roof_teal', 'roof_terra', 'roof_slate', 'roof_terra_light')
+BUILDINGS = BUILDINGS + [
+    (f'edge-{i}', x, 302.0, UPPER_Z, 26.0, 16.0, 8.4 + (i % 4) * 0.9, 2,
+     _edge_styles[i % len(_edge_styles)], 0.0, _edge_roofs[i % len(_edge_roofs)])
+    for i, x in enumerate(_edge_x)
+]
+
+# Permanent two-storey market halls close the long sides of the square. The
+# refs read as a dense bazaar street, not a paved parade ground.
+_hall_y = (132.0, 166.0, 200.0)
+_hall_h = (10.5, 12.0, 11.0)
+BUILDINGS = BUILDINGS + [
+    (f'hall-{side}-{i}', side * 78.0, y, QUAY_Z, 24.0, 18.0, _hall_h[i], 2,
+     ('shop', 'tavern', 'shop')[i], 90.0 if side < 0 else -90.0,
+     ('roof_terra', 'roof_teal', 'roof_terra_light')[i])
+    for side in (-1, 1) for i, y in enumerate(_hall_y)
+]
+
 # Slight, deterministic yaw variation keeps the waterfront from reading as a
 # spreadsheet without moving any lot outside its graded pad.
 _organic = []
@@ -247,6 +280,100 @@ HILLSIDE_BUILDINGS = [
     ('hill-e4', 300, 522, 0, 26, 17, 9.0, 2, 'shack', -3, 'roof_terra'),
 ]
 
+# The reference town does not stop at the central shelf: narrow houses climb
+# both headland slopes and a broken ridge of roofs closes the skyline.  These
+# lots are generated into the same table as the hand-placed rows so terrain
+# pads, planting masks and the upper/lower module split stay consistent.
+def _slope_lots():
+    rng = random.Random(6621)
+    out = []
+    hand_cliff = [b for b in BUILDINGS if b[0].startswith('cliff-')]
+    for side in (-1, 1):
+        for row in range(3):
+            base_x = side * (402.0 + row * 40.0)
+            for j in range(6):
+                y = 128.0 + j * 43.0 + row * 14.0 + rng.uniform(-5.0, 5.0)
+                if y > 398.0:
+                    continue
+                x = base_x + side * rng.uniform(-7.0, 7.0)
+                if side > 0 and abs(x - WATERFALL[0]) < 42.0 and 45.0 < y < 200.0:
+                    continue
+                if any(abs(x - c[1]) < 32.0 and abs(y - c[2]) < 32.0 for c in hand_cliff):
+                    continue
+                z = height(x, y) + 0.25
+                if z < 7.0:
+                    continue
+                w = rng.uniform(22.0, 29.0)
+                d = rng.uniform(17.0, 21.0)
+                h = rng.uniform(8.5, 15.5)
+                floors = max(1, min(3, round(h / 5.0)))
+                style = rng.choice(('house', 'house', 'shop', 'tavern', 'shack'))
+                roof = rng.choice(('roof_terra', 'roof_terra', 'roof_teal', 'roof_slate'))
+                yaw = 90.0 if side < 0 else -90.0
+                out.append((f'slope-{side}-{row}-{j}', x, y, z, w, d, h, floors, style,
+                            yaw + rng.uniform(-4.0, 4.0), roof))
+    return out
+
+
+def _ridge_lots():
+    rng = random.Random(3317)
+    out = []
+    for j in range(16):
+        x = -368.0 + j * 49.0 + rng.uniform(-8.0, 8.0)
+        y = 458.0 + rng.uniform(-8.0, 23.0)
+        if abs(x - WATCHTOWER[0]) < 37.0 and abs(y - WATCHTOWER[1]) < 37.0:
+            continue
+        if abs(x) < 25.0:
+            continue
+        z = height(x, y) + 0.3
+        w = rng.uniform(20.0, 27.0)
+        d = rng.uniform(16.0, 20.0)
+        h = rng.uniform(8.0, 14.0)
+        style = rng.choice(('house', 'shop', 'tavern', 'shack'))
+        out.append((f'ridge-{j}', x, y, z, w, d, h, max(1, min(3, round(h / 5.0))), style,
+                    rng.uniform(-6.0, 6.0), rng.choice(('roof_terra', 'roof_teal', 'roof_straw'))))
+    return out
+
+
+def dense_lots():
+    """Split every broad lot into narrow touching townhouses.
+
+    The Sunburst views show a continuous, irregular wall of narrow facades.  Two
+    to three houses per original lot keep the hand-placed street rhythm while
+    removing the repeated-wide-box read of the blockout.
+    """
+    out = []
+    for spec in BUILDINGS:
+        key, x, y, z, w, d, h, floors, style, yaw, roof = spec
+        n = 3 if w >= 38.0 else 2
+        if style in ('warehouse', 'shack'):
+            n = 2
+        gap = 1.2
+        nw = (w - gap * (n - 1)) / n
+        for i in range(n):
+            rng = random.Random(sum(map(ord, key)) * 97 + i * 41 + n * 13)
+            lx = -w / 2 + w * (i + 0.5) / n
+            nd = d * rng.uniform(0.86, 0.98)
+            ly = -d / 2 + nd / 2 + rng.uniform(-0.7, 0.7)
+            px, py = yaw_point(x + lx, y + ly, x, y, yaw)
+            hh = h * rng.uniform(0.82, 1.18)
+            if style == 'warehouse':
+                hh = h * rng.uniform(0.92, 1.1)
+                sub_style = 'warehouse'
+                sub_floors = floors
+            elif style == 'shack':
+                sub_style = 'shack'
+                sub_floors = max(1, min(2, floors))
+            else:
+                sub_style = rng.choices(('house', 'shop', 'tavern'), (5, 2, 2))[0]
+                sub_floors = max(1, min(4, round(hh / 4.7)))
+            sub_roof = roof if rng.random() < 0.58 else rng.choice(
+                ('roof_terra', 'roof_terra_light', 'roof_teal', 'roof_slate', 'roof_straw'))
+            out.append((f'{key}-{i}', px, py, z + rng.uniform(-0.08, 0.18),
+                        nw - rng.uniform(0.2, 1.4), nd, hh, sub_floors, sub_style,
+                        yaw + rng.uniform(-2.6, 2.6), sub_roof))
+    return out
+
 PIERS = [
     ('central', 0.0, 60.0, -184.0, 24.0),
     ('west', -238.0, 60.0, -112.0, 13.0),
@@ -254,38 +381,45 @@ PIERS = [
 ]
 
 SHIPS = [
-    ('galleon-adventure', -20.0, -76.0, 0.0, 0.94, True),
-    ('galleon-nightjar', 22.0, -126.0, 180.0, 0.90, False),
+    ('galleon-adventure', -44.0, -70.0, -16.0, 1.18, True),
+    ('galleon-nightjar', 40.0, -132.0, 10.0, 1.10, False),
     ('sloop-east', 252.0, -72.0, 180.0, 0.45, True),
 ]
 
 MARKET_STALLS = [
-    (-72, 112, 12, 7, 'roof_sail'), (-42, 116, 12, 7, 'roof_red'), (-12, 110, 12, 7, 'roof_sail'),
+    (-42, 116, 12, 7, 'roof_red'), (-12, 110, 12, 7, 'roof_sail'),
     (24, 116, 12, 7, 'roof_red'), (60, 112, 12, 7, 'roof_sail'),
-    (-74, 196, 11, 6, 'roof_red'), (70, 196, 11, 6, 'roof_sail'), (-68, 158, 10, 6, 'roof_sail'),
-    (64, 158, 10, 6, 'roof_red'), (-38, 146, 10, 6, 'roof_sail'), (40, 146, 10, 6, 'roof_red'),
+    (-38, 146, 10, 6, 'roof_sail'), (40, 146, 10, 6, 'roof_red'),
     (-16, 202, 10, 6, 'roof_sail'), (18, 202, 10, 6, 'roof_red'),
     (-55, 128, 10, 6, 'roof_sail'), (55, 128, 10, 6, 'roof_red'),
     (-22, 132, 10, 6, 'roof_red'), (22, 132, 10, 6, 'roof_sail'),
     (-24, 174, 10, 6, 'roof_sail'), (24, 174, 10, 6, 'roof_red'),
     (-60, 176, 10, 6, 'roof_red'), (60, 176, 10, 6, 'roof_sail'),
+    (-36, 220, 11, 6, 'roof_sail'), (36, 220, 11, 6, 'roof_red'),
+    (0, 222, 20, 7, 'roof_sail'),
 ]
 
 
 def building_pads():
-    return [(b[1], b[2], b[4] + 5.0, b[5] + 5.0, b[6], b[9]) for b in BUILDINGS]
+    global BUILDINGS, LOTS
+    BUILDINGS = BUILDINGS + _slope_lots() + _ridge_lots()
+    LOTS = {b[0]: b for b in BUILDINGS}
+    return [(b[1], b[2], b[4] + 5.0, b[5] + 5.0, b[3], b[9]) for b in BUILDINGS]
 
 
 PADS = building_pads() + [
-    (0.0, 160.0, 200.0, 140.0, 1600.0, 0.0),   # the market stays open and flat
-    (WATCHTOWER[0], WATCHTOWER[1], 46.0, 46.0, 4200.0, 0.0),
+    (0.0, 160.0, 200.0, 140.0, height(0.0, 160.0), 0.0),   # the market stays open and flat
+    (WATCHTOWER[0], WATCHTOWER[1], 46.0, 46.0, height(WATCHTOWER[0], WATCHTOWER[1]), 0.0),
 ]
+
+# Pre-split once: the lower and upper town modules both read this table.
+DENSE_LOTS = dense_lots()
 
 
 def pad_height(x, y):
     """The exact surface of a building or public pad at a point, or None outside every pad."""
     for cx, cy, w, d, z, yaw in PADS:
-        lx, ly = yaw_point(x, y, cx, cy, -yaw)
+        lx, ly = local_point(x, y, cx, cy, -yaw)
         if abs(lx) <= w / 2 and abs(ly) <= d / 2:
             return z
     return None
@@ -295,7 +429,7 @@ def ground(x, y):
     z = height(x, y)
     # Last few metres around a lot settle onto its pad so no wall floats over a noisy sample.
     for cx, cy, w, d, pz, yaw in PADS:
-        lx, ly = yaw_point(x, y, cx, cy, -yaw)
+        lx, ly = local_point(x, y, cx, cy, -yaw)
         edge = max(abs(lx) - w / 2, abs(ly) - d / 2)
         if edge <= 5.0:
             blend = smooth((5.0 - edge) / 3.0)
@@ -305,7 +439,7 @@ def ground(x, y):
 
 def in_lot(x, y, margin=2.0):
     for b in list(BUILDINGS) + list(SHORE_BUILDINGS) + list(HILLSIDE_BUILDINGS):
-        lx, ly = yaw_point(x, y, b[1], b[2], -b[9])
+        lx, ly = local_point(x, y, b[1], b[2], -b[9])
         if abs(lx) <= b[4] / 2 + margin and abs(ly) <= b[5] / 2 + margin:
             return True
     return False
