@@ -196,3 +196,24 @@ def test_export_adapter_edit_does_not_rebuild_geometry_products(tmp_path, monkey
     changed = changed_by(GAME/'world/build_terrain.py', tmp_path, monkeypatch)
     assert 'world.terrain' in changed
     assert 'world.farhills' not in changed
+
+
+@pytest.mark.parametrize('arguments', [(), ('--no-city',)])
+def test_blender_action_entrypoint_bootstraps_and_ignores_engine_arguments(tmp_path, arguments):
+    import os
+    import subprocess
+    from types import SimpleNamespace
+    from atelier.build_source import Blender
+    # Match the actual action argv, from an isolated process with no world path
+    # or preloaded modules. Stop at the missing required input before any heavy
+    # generation; import/argparse failures must not mask that input failure.
+    command = Blender(GAME/'world/farhills_surface.py', args=arguments, threads=3).argv(
+        SimpleNamespace(blender='Blender'))
+    driver = ("import json,runpy,sys; sys.argv=json.loads(sys.argv[1]); "
+              "runpy.run_path(sys.argv[sys.argv.index('--python')+1],run_name='__main__')")
+    result = subprocess.run([sys.executable, '-I', '-c', driver, json.dumps(command)],
+                            cwd=tmp_path, env=dict(os.environ, ATELIER_BUILD_ROOT=str(tmp_path)),
+                            text=True, capture_output=True, timeout=15)
+    assert result.returncode == 1
+    assert 'FileNotFoundError' in result.stderr and 'world.json' in result.stderr
+    assert 'ModuleNotFoundError' not in result.stderr and 'unrecognized arguments' not in result.stderr

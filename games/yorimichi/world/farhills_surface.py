@@ -1,6 +1,12 @@
 """The existing FarHills natural -> railway-final geometry, before appearance."""
 import json
 from pathlib import Path
+import sys
+
+# Blender's --python runner does not add the script folder to sys.path.
+if __name__ == '__main__':
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import yori  # noqa: E402,F401
 
 from terrain_product import Mesh, load, save
 
@@ -68,6 +74,8 @@ def main(argv=None):
     import yori
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--no-city', action='store_true', help='explicit isolated fallback geometry')
+    if argv is None:
+        argv = sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else []
     args = parser.parse_args(argv)
     count = json.loads((yori.OUT/'world.json').read_text())['n']
     started = time.monotonic()

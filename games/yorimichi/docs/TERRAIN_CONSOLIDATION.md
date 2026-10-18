@@ -58,7 +58,7 @@ change requires an explicit behavior review and a separately named baseline.
 | Owner/layer | Current authority and final geometry | Current queries/consumers |
 | --- | --- | --- |
 | Fine main ground | `gen_world.py` heightmap, then `build_terrain.py` grid | Spawn/road placement, world map, Terrain export/import |
-| FarHills | `forest_backdrop.source_grid/mesh_grid/rail_refinement`, `shorelines.grid_mesh`, then conforming `earthworks.polygons` | Export rebuilds the full surface; crown placement reconstructs selected cells separately |
+| FarHills | `farhills_grid`, `shorelines.grid_mesh`, then conforming `earthworks.polygons`; `world.farhills` publishes ordered natural/final products | Export reads the verified final product; crown placement still reconstructs selected cells separately |
 | Hidamari city | `hidamari/layout.py`, city terrain meshes | City grading, roads, forest placement, HD_Terrain export and desktop tiles |
 | Foothills and apron | `hidamari/mountains.py` sheets and earthworks | North height/approach sampling and independent mountain exports |
 | Belmonte authored ground | Committed source triangles in `belmonte/source.py` | Triangle-indexed map/placement queries, authored terrain exports |
