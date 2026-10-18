@@ -63,7 +63,7 @@
     "geography": {
       "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
       "world/build_terrain.py": "2a810d3a4698765c24044379e053f67e56817b90ab871b78814a2233d9515a09",
-      "world/farhills_surface.py": "3f1bcb705333efce9c3fce3349c16f88b3b8dbbf210f4794a695909cf9c7f2b3",
+      "world/farhills_surface.py": "b4877356e699fd42875aca79f19c6a6a47c9b05d3198e4475d17bf6539c2c5cd",
       "world/farhills_grid.py": "6451e5894c63e3eedcded121cef2f477a9615c36b1dd61715d16938ab53228c4",
       "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
       "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
@@ -78,6 +78,8 @@
       "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
       "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
       "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
+      "world/regions/brinecove/region.py": "9e007570e353c305964befbc9db53755c52d95c55069a6253058a39792e67408",
+      "world/regions/brinecove/layout.py": "c17638453c0609316cef6bd2db523f2590711a44f104625097e9c67c7cb549f5",
       "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
     },
     "painting_sha256": "e000fd6651c938576e0e6c3bcca1ae7746eb5d4c7c0972d99969418b3ba3d9fa",
