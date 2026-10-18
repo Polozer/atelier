@@ -1201,7 +1201,7 @@ def staging_steps(ctx):
     out = ctx.out
     return [
         Step('data.stage', [Call('stage_data', stage_data)],
-             inputs=[GAME / 'runtime_data.py', REGIONS / 'skatepark' / 'park.json', ASSETS / 'ui/fonts/atlas-serif.ttf',
+             inputs=[GAME / 'runtime_data.py', REGIONS / 'skatepark' / 'park.json', ASSETS / 'ui/fonts/atlas-serif.ttf', runtime_data.RACING_COURSES,
                      *(CHARS / 'portraits' / f'{c.id}.png' for c in definition.movers() if c.playable)],
              needs=['world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.craterpark', 'world.crater_cloud', 'world.belmonte', 'world.bike',
                     *[f'characters.{key(c)}_{kind}' for c in definition.movers() for kind, wanted in

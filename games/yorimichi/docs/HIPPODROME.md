@@ -10,6 +10,7 @@ Its perimeter is 554.2 m. Clearance polygons keep island vegetation outside the 
 `world/regions/hippodrome/layout.py` defines the plan; `build.py` writes the meshes, textures and venue data to
 `build/yorimichi/hippodrome/region/`. `unreal/Scripts/import_hippodrome.py` imports the static meshes with walkable
 collision and writes `Content/Data/hippodrome/hippodrome.json`. `AHippodrome` places the venue's meshes at runtime.
+Races run here on alternate ordinary race days ([RACING.md](RACING.md)).
 
 ```sh
 uv run atelier build yorimichi world.hippodrome unreal.hippodrome

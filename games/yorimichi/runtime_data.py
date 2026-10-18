@@ -8,6 +8,7 @@ from atelier import paths
 GAME = Path(__file__).resolve().parent
 REGIONS = GAME / 'world' / 'regions'
 ASSETS = GAME / 'assets'
+RACING_COURSES = GAME / 'world' / 'racing' / 'belmonte_courses.json'
 _spec = importlib.util.spec_from_file_location('character_definition', ASSETS / 'characters/pipeline/definition.py')
 definition = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(definition)
@@ -21,6 +22,8 @@ STAGED = ('world.json', 'heightmap.bin', 'hidamari/city.json', 'skatepark/park.j
                                              'northern_foothills', 'volcanic_highlands', 'haras_valley')),
           'city_surface_tiles/v1_128m/manifest.json',
           'treehouse/runtime.json', 'megapark/park.json', 'craterpark/park.json', 'craterpark/cloud.json', 'bike/manifest.json', 'belmonte/runtime.json',
+          # the Belmonte racecourse's centrelines (committed, tools/belmonte_courses.py; docs/RACING.md)
+          'racing/belmonte_courses.json',
           # every playable character's bike report: its clips' contact windows and channels (UBikeComponent). The horse
           # reads no rider report; its runtime data, Data/horses/roster.json, is written there by unreal.horses.
           *(f'{c.id}/bike/export.json' for c in definition.movers() if c.playable),
@@ -32,12 +35,13 @@ def staged(out):
 
 
 def staged_source(out, rel):
-    """Where a staged file comes from: build output, except the committed park and character portraits."""
+    """Where a staged file comes from: build output, except the committed park, racecourses and character portraits."""
     bikes = {f'{c.id}/bike/export.json': out / c.output / 'bike' / 'export.json' for c in definition.movers()}
     portraits = {f'{c.id}/portrait.png': ASSETS / 'characters' / 'portraits' / f'{c.id}.png'
                  for c in definition.movers() if c.playable}
     return {'skatepark/park.json': REGIONS / 'skatepark' / 'park.json',
-            'map/atlas-serif.ttf': ASSETS / 'ui/fonts/atlas-serif.ttf', **bikes, **portraits}.get(rel, out / rel)
+            'map/atlas-serif.ttf': ASSETS / 'ui/fonts/atlas-serif.ttf',
+            'racing/belmonte_courses.json': RACING_COURSES, **bikes, **portraits}.get(rel, out / rel)
 
 
 def stage_data(ctx, log):
