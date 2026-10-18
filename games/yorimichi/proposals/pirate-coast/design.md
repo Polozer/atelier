@@ -82,7 +82,7 @@ Brinecove is built from a small kit, repeated with variation:
 
 The style is painterly and flat-shaded, with broad facets over a seamless Sunburst surface set: lime plaster, clay
 roof tile, ashlar, cobbles, weathered planks, canvas, iron, foliage, natural sea-cliff rock, beach sand and
-turquoise water. The nine source paintings expand to 40 palette-tinted material maps. Every material is tinted to
+turquoise water. The eleven source surfaces expand to 41 palette-tinted material maps. Every material is tinted to
 the palette above. Lighting should be a warm late afternoon with a high sun, a pale blue sky with painted clouds
 and a soft haze on the far headlands.
 
