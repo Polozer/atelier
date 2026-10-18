@@ -152,6 +152,8 @@ public:
      * stop and resume through normal UpdateAudio; emitted one-shots finish normally.
      * The host owns async cancellation. Call on the game thread after initialization. */
     bool SetSoundSet(USkateSoundSet* Replacement, FString& Error);
+    /** Read-only preflight for hosts switching several emitters in one game-thread transaction. */
+    bool CanSetSoundSet(const USkateSoundSet* Replacement, FString& Error) const;
     const USkateSoundSet* GetSoundSet() const { return ActiveSoundSet.Get(); }
 
     // QA

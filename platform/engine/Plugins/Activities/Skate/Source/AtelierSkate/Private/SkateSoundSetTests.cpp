@@ -61,6 +61,9 @@ bool FSkateSoundSetTest::RunTest(const FString&)
     TestFalse(TEXT("Rejected set does not capture defaults"), Component->bOriginalSoundsCaptured);
 
     First->Loops[TEXT("skid")] = Wave(true);
+    TestTrue(TEXT("Ready set supports read-only world preflight"), Component->CanSetSoundSet(First, Error));
+    TestFalse(TEXT("Preflight does not capture or apply audio"), Component->bOriginalSoundsCaptured);
+    TestEqual(TEXT("Preflight preserves envelopes"), Component->LoopVolume[0], .6f);
     Component->bNetworkProxy = true;
     const auto ModeBefore = Component->Mode;
     TestTrue(TEXT("Local presentation of a remote proxy can select a set"), Component->SetSoundSet(First, Error));

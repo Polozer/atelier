@@ -4,7 +4,7 @@
 #include "Engine/World.h"
 #include "Sound/SoundWave.h"
 
-bool USkateComponent::SetSoundSet(USkateSoundSet* Replacement, FString& Error)
+bool USkateComponent::CanSetSoundSet(const USkateSoundSet* Replacement, FString& Error) const
 {
     Error.Reset();
     if (!IsInGameThread()) { Error = TEXT("Sound selection requires the game thread."); return false; }
@@ -41,6 +41,16 @@ bool USkateComponent::SetSoundSet(USkateSoundSet* Replacement, FString& Error)
                     || !FMath::IsFinite(Pair.Value->Duration) || Pair.Value->Duration <= 0.f)
             { Error = TEXT("Unknown loop or invalid looping wave."); return false; }
     }
+    return true;
+}
+
+bool USkateComponent::SetSoundSet(USkateSoundSet* Replacement, FString& Error)
+{
+    if (!CanSetSoundSet(Replacement, Error)) return false;
+    if (!Replacement && !bOriginalSoundsCaptured) return true;
+    TArray<FName> LoopKeys = {TEXT("roll"), TEXT("grind"), TEXT("slide"), TEXT("skid"), TEXT("scrape")};
+    for (const TCHAR* SurfaceName : SurfaceRolls)
+        LoopKeys.Add(FName(*FString::Printf(TEXT("roll_%s"), SurfaceName)));
     // Build a complete next state from Original, never from a partially overridden current set.
     TArray<TObjectPtr<USoundWave>> NextWaves = bOriginalSoundsCaptured ? OriginalWaves : Waves;
     TMap<FName, FIntPoint> NextRanges = bOriginalSoundsCaptured ? OriginalCueRange : CueRange;
