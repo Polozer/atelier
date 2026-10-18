@@ -54,3 +54,19 @@ the complete `audio.soundbanks`, `audio.footsteps` and `audio.skate` products an
 fails on missing media, stale indices or a changed runtime profile. The report
 records actual source hashes, renderer/producer identities and runtime pins.
 This does not select a bank or establish subjective listening acceptance.
+
+`audio.soundbank_import_plan` validates the current committed catalog, every
+prepared WAV (including surfaces omitted from the audition), the audition PCM,
+and the current profile/producer bindings. It emits a portable plan for a future
+native import under `/Game/AudioBanks`, with stable selections, exact source
+identities and explicit footstep/Skate slot mappings. Original has an audition
+entry only, and no replacement cue library. The existing generic Skate API has
+one continuous wave per loop slot, so this boundary rejects multiple loop
+variants instead of silently discarding one. The source catalog's broader loop
+range does not imply that every native consumer supports it.
+
+Signal validation runs in normal Python because Unreal's embedded Python has no
+NumPy. A native consumer must recheck the plan and actual media, require current
+build certification, import bounded inline PCM assets, and publish a verified
+runtime registry. The plan itself neither imports packages nor installs or
+selects a bank.
