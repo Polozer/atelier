@@ -1,5 +1,6 @@
 """Indoor map travel must hit clear floors beneath the committed building roofs."""
 import json
+import copy
 from pathlib import Path
 import sys
 
@@ -22,7 +23,35 @@ def test_indoor_stop_follows_the_region_origin(monkeypatch, key, yaw):
     monkeypatch.setattr(layout, 'ORIGIN', layout.ORIGIN + offset)
     after = indoor_zone(key)
     np.testing.assert_allclose([after[k] - before[k] for k in ('x', 'y', 'z')], offset)
-    assert after['yaw'] == before['yaw'] == yaw
+    assert after['yaw'] == pytest.approx(before['yaw'])
+    assert after['yaw'] == pytest.approx(yaw)
+
+
+def test_osteria_stop_follows_taproom_placement(monkeypatch):
+    data = copy.deepcopy(source.manifest())
+    model = next(m for m in data['meshes'] if m['name'] == 'SM_BM_BH_Osteria_Taproom')
+    placement = next(p for p in data['placements'] if p['asset'] == model['source_asset'])
+    # Rotate the building back to identity and move it to an unrelated region-local
+    # position. The authored safe point and facing must move with the building.
+    placement['transform'] = {'translation_cm': [1700., -2300., 800.],
+                              'rotation_xyzw': [0., 0., 0., 1.], 'scale': [2., 2., 2.]}
+    monkeypatch.setattr(source, 'manifest', lambda: data)
+    zone = indoor_zone('belmonte_osteria')
+    np.testing.assert_allclose([zone[k] for k in ('x', 'y', 'z')], layout.ORIGIN + [17.8, 27.2, 8.])
+    assert zone['yaw'] == pytest.approx(-86.)
+
+
+@pytest.mark.parametrize('duplicate', [False, True])
+def test_osteria_stop_rejects_missing_or_ambiguous_taproom(monkeypatch, duplicate):
+    data = copy.deepcopy(source.manifest())
+    model = next(m for m in data['meshes'] if m['name'] == 'SM_BM_BH_Osteria_Taproom')
+    placements = [p for p in data['placements'] if p['asset'] == model['source_asset']]
+    data['placements'] = [p for p in data['placements'] if p not in placements]
+    if duplicate:
+        data['placements'].extend(placements * 2)
+    monkeypatch.setattr(source, 'manifest', lambda: data)
+    with pytest.raises(ValueError, match='exactly one'):
+        indoor_zone('belmonte_osteria')
 
 
 def test_outdoor_stops_keep_their_positions_and_default_trace():
