@@ -94,3 +94,17 @@ FVector FRacingCourse::Centre() const
 {
     return bOval ? Oval.World(Oval.Origin.X, Oval.Origin.Y) : Line.Centre();
 }
+
+bool RacingGround::Pick(TConstArrayView<FHit> Hits, double AuthoredZ, double& OutZ)
+{
+    OutZ = AuthoredZ;
+    bool bFound = false;
+    for (const FHit& Hit : Hits)
+    {
+        if (!FMath::IsFinite(Hit.Z) || Hit.Normal.GetSafeNormal().Z < MinUp) continue;
+        if (Hit.Z > AuthoredZ + Above || Hit.Z < AuthoredZ - Below) continue;
+        if (!bFound || FMath::Abs(Hit.Z - AuthoredZ) < FMath::Abs(OutZ - AuthoredZ)) OutZ = Hit.Z;
+        bFound = true;
+    }
+    return bFound;
+}

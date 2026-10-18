@@ -29,6 +29,7 @@
 #include "GameFramework/PlayerState.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
+#include "HAL/PlatformFileManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
@@ -104,9 +105,11 @@ namespace RacingLooks
     FIntVector Look(const FHRHorse& H, int32 T)
     {
         const FHRPhenotype P = HRVisual::ResolvePhenotypeAt(H, T);
+        // One roster breed per rules breed, in allele order: no breed falls back to another.
+        static_assert(BreedCount == HRBreeds::AlleleCount, "every rules breed needs its roster breed");
         const FString Breed = HRBreeds::Express(H.Genome);
         int32 B = 0;
-        for (int32 I = 0; I < HRBreeds::AlleleCount; ++I) if (Breed == HRBreeds::AlleleName(I)) B = FMath::Min(I, BreedCount - 1);
+        for (int32 I = 0; I < HRBreeds::AlleleCount; ++I) if (Breed == HRBreeds::AlleleName(I)) B = I;
         const TCHAR* Coat = TEXT("kestrel-bay");
         const bool bRed = P.Foundation == TEXT("chestnut"), bBlack = P.Foundation == TEXT("black");
         if (P.bGray) Coat = TEXT("kestrel-dapple-grey");
@@ -268,12 +271,20 @@ void ARacingService::BuildSnapshot(const FHRWorldState& S, double Now, const FRa
         N.bRun = Focus->Status == TEXT("run");
         for (const FHRRunner& Entry : Focus->Entries)
         {
-            FRacingNetRunner& R = N.Runners.AddDefaulted_GetRef();
             const FHRHorse* H = S.Horses.Find(Entry.HorseId);
             const FHRStable* St = HRRules::FindStable(S, Entry.StableId);
-            R.Horse = H ? H->Name : Entry.HorseId;
-            R.Stable = St ? St->Name : Entry.StableId;
-            R.Silks = St ? FColor::FromHex(St->Color) : FColor::White;
+            if (!H || !St)
+            {
+                // An admitted world always has its entrants (HRSave): no field rather than a made-up runner.
+                UE_LOG(LogTemp, Error, TEXT("RACING %s enters %s of %s, which the world does not have: the race is not shown"),
+                    *Focus->Key, *Entry.HorseId, *Entry.StableId);
+                N.Runners.Reset();
+                break;
+            }
+            FRacingNetRunner& R = N.Runners.AddDefaulted_GetRef();
+            R.Horse = H->Name;
+            R.Stable = St->Name;
+            R.Silks = FColor::FromHex(St->Color);
             R.OddsTenths = FMath::Clamp(FMath::RoundToInt(HRRules::Rapport(S, *Focus, Entry.HorseId) * 10.), 0, 9999);
             if (!Entry.RiderPlayerId.IsEmpty())
             {
@@ -281,7 +292,6 @@ void ARacingService::BuildSnapshot(const FHRWorldState& S, double Now, const FRa
                 R.Jockey = P && !P->Name.IsEmpty() ? P->Name : Entry.RiderPlayerId;
             }
             else if (const FHRRider* Rider = HRRules::RiderOf(S, Entry.HorseId)) R.Jockey = Rider->FullName();
-            if (H)
             {
                 FIntVector Look;
                 if (const FIntVector* Cached = LookCache ? LookCache->Find(H->Id) : nullptr) Look = *Cached;
@@ -403,38 +413,104 @@ FString ARacingService::DefaultSavePath()
     return FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("racing") / TEXT("world.json"));
 }
 
-bool ARacingService::SaveWorldFile(const FHRWorldState& S, const FString& Path)
+bool ARacingService::SaveWorldFile(const FHRWorldState& S, const FString& Path, FString& Error)
 {
-    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    IPlatformFile& Files = FPlatformFileManager::Get().GetPlatformFile();
+    const FString Dir = FPaths::GetPath(Path);
+    if (!Files.CreateDirectoryTree(*Dir))
+    {
+        Error = FString::Printf(TEXT("cannot create %s"), *Dir);
+        return false;
+    }
+    // The whole world into a sibling temporary file, flushed to disk before it replaces the old one.
     const FString Temp = Path + TEXT(".tmp");
-    if (!FFileHelper::SaveStringToFile(HRSave::ToJson(S), *Temp, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)) return false;
-    return IFileManager::Get().Move(*Path, *Temp, true, true);
+    {
+        const FTCHARToUTF8 Utf8(*HRSave::ToJson(S));
+        TUniquePtr<IFileHandle> File(Files.OpenWrite(*Temp));
+        if (!File || !File->Write(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length()) || !File->Flush(true))
+        {
+            File.Reset();
+            Files.DeleteFile(*Temp);
+            Error = FString::Printf(TEXT("cannot write %s"), *Temp);
+            return false;
+        }
+    }
+    // rename() replaces the old file atomically (macOS, Linux). Where a rename cannot replace (Windows), the old file steps
+    // aside first and comes back if the new one cannot take its place; LoadWorldFile reads the aside copy after a crash.
+    if (Files.MoveFile(*Path, *Temp)) return true;
+    const FString Previous = Path + TEXT(".previous");
+    if (Files.FileExists(*Path))
+    {
+        Files.DeleteFile(*Previous);
+        if (Files.MoveFile(*Previous, *Path))
+        {
+            if (Files.MoveFile(*Path, *Temp))
+            {
+                Files.DeleteFile(*Previous);
+                return true;
+            }
+            Files.MoveFile(*Path, *Previous);
+        }
+    }
+    Files.DeleteFile(*Temp);
+    Error = FString::Printf(TEXT("cannot rename %s over %s"), *Temp, *Path);
+    return false;
 }
 
-bool ARacingService::LoadWorldFile(const FString& Path, FHRWorldState& Out)
+ARacingService::ELoad ARacingService::LoadWorldFile(const FString& Path, FHRWorldState& Out, FString& Error)
 {
+    IPlatformFile& Files = FPlatformFileManager::Get().GetPlatformFile();
+    FString File = Path;
+    if (!Files.FileExists(*File))
+    {
+        // A replacement interrupted after the old world stepped aside (SaveWorldFile on Windows).
+        File = Path + TEXT(".previous");
+        if (!Files.FileExists(*File)) return ELoad::Missing;
+    }
     FString Text;
-    if (!FFileHelper::LoadFileToString(Text, *Path)) return false;
-    return HRSave::FromJson(Text, Out);
+    if (!FFileHelper::LoadFileToString(Text, *File))
+    {
+        Error = FString::Printf(TEXT("cannot read %s"), *File);
+        return ELoad::Unreadable;
+    }
+    if (!HRSave::FromJson(Text, Out, Error)) return ELoad::Invalid;
+    return ELoad::Loaded;
 }
 
 bool ARacingService::OpenWorld(const FString& Path, const FString& Seed)
 {
     SavePath = Path;
+    bHasWorld = false;
+    PersistenceError.Reset();
     FHRWorldState Loaded;
-    if (LoadWorldFile(Path, Loaded))
+    FString Error;
+    const ELoad Load = LoadWorldFile(Path, Loaded, Error);
+    if (Load == ELoad::Loaded)
     {
         State = MoveTemp(Loaded);
         UE_LOG(LogTemp, Display, TEXT("RACING world loaded from %s: day %d, %d horses, %d players"), *Path, State.T, State.Horses.Num(), State.Players.Num());
     }
     else
     {
-        if (FPaths::FileExists(Path))
+        if (Load == ELoad::Unreadable)
         {
-            // Never lose a world that would not load (another rules version, a broken write): keep it aside.
+            // Perhaps only for now (permissions, a disk error): never replace a world that may be fine.
+            PersistenceError = Error;
+            UE_LOG(LogTemp, Error, TEXT("RACING %s: the save is left as it is and racing stays off"), *Error);
+            return false;
+        }
+        if (Load == ELoad::Invalid)
+        {
+            // Never lose a world that would not load (another rules version, a broken write): keep it aside, and if that
+            // fails keep it where it is and open nothing, so no new world is ever written over it.
             const FString Aside = Path + FString::Printf(TEXT(".unreadable-%lld"), int64(RacingLooks::UnixNow()));
-            IFileManager::Get().Move(*Aside, *Path, true, true);
-            UE_LOG(LogTemp, Warning, TEXT("RACING could not read %s; kept as %s and created a new world"), *Path, *Aside);
+            if (!FPlatformFileManager::Get().GetPlatformFile().MoveFile(*Aside, *Path))
+            {
+                PersistenceError = FString::Printf(TEXT("%s is not an admissible world (%s) and could not be kept aside as %s"), *Path, *Error, *Aside);
+                UE_LOG(LogTemp, Error, TEXT("RACING %s: the save is left as it is and racing stays off"), *PersistenceError);
+                return false;
+            }
+            UE_LOG(LogTemp, Error, TEXT("RACING %s is not an admissible world (%s); kept as %s and created a new world"), *Path, *Error, *Aside);
         }
         const double Started = FPlatformTime::Seconds();
         State = HRRules::CreateWorld(Seed);
@@ -444,9 +520,8 @@ bool ARacingService::OpenWorld(const FString& Path, const FString& Seed)
     bHasWorld = true;
     Registered.Reset();
     LookCache.Reset();
-    const bool bSaved = SaveWorldFile(State, SavePath);
-    LastSave = FPlatformTime::Seconds();
-    bDirty = !bSaved;
+    bDirty = true;
+    SaveNow();
     return true;
 }
 
@@ -457,10 +532,20 @@ bool ARacingService::SaveNow()
     const double Whole = FMath::FloorToDouble(DevSeconds);
     State.EpochUnix -= int64(Whole);
     DevSeconds -= Whole;
-    const bool bSaved = SaveWorldFile(State, SavePath);
+    FString Error;
+    const bool bSaved = SaveWorldFile(State, SavePath, Error);
     LastSave = FPlatformTime::Seconds();
-    if (bSaved) bDirty = false;
-    else UE_LOG(LogTemp, Warning, TEXT("RACING could not save %s"), *SavePath);
+    if (bSaved)
+    {
+        bDirty = false;
+        PersistenceError.Reset();
+    }
+    else
+    {
+        // The world stays in memory and dirty: the next save (every 15 s, and at the end) tries again.
+        PersistenceError = Error;
+        UE_LOG(LogTemp, Error, TEXT("RACING could not save the world: %s"), *Error);
+    }
     return bSaved;
 }
 
@@ -501,7 +586,14 @@ void ARacingService::TickHost(float DeltaSeconds)
 {
     const float Scale = FMath::Clamp(CVarRacingTimeScale.GetValueOnGameThread(), 0.f, 600.f);
     if (Scale != 1.f) DevSeconds += double(DeltaSeconds) * (Scale - 1.);
-    const double Now = HostWorldSeconds();
+    double Now = HostWorldSeconds();
+    // A host away for longer than the rules' catch-up (one real week) resumes as if the world had paused then: the clock
+    // anchor moves forward, so at most that many days are ever simulated.
+    if (const int32 Skipped = HRRules::LimitCatchUp(State, Now))
+    {
+        bDirty = true;
+        UE_LOG(LogTemp, Display, TEXT("RACING away for long: %d race days skipped, %d to catch up"), Skipped, HRRules::MaxCatchUpDays);
+    }
     const int32 DayBefore = State.T;
     int32 RunBefore = 0;
     for (const FHRRace& R : State.Meeting.Races) RunBefore += R.IsRun() ? 1 : 0;
@@ -526,17 +618,16 @@ void ARacingService::RegisterPlayers()
     {
         if (!PS) continue;
         const AController* Owner = Cast<AController>(PS->GetOwner());
-        const AJapanPlayerState* JPS = Cast<AJapanPlayerState>(PS);
-        FString Id;
-        // An opaque id stable across sessions where one exists: this machine's own player keeps a saved id; a remote
-        // player's online id when the subsystem gives one, else the session's id (a later PR brings a persistent one).
-        if (Owner && Owner->IsLocalController()) Id = RacingLooks::LocalPlayerId();
-        else if (PS->GetUniqueId().IsValid()) Id = TEXT("net:") + PS->GetUniqueId().ToString();
-        else if (JPS && !JPS->SessionPlayerId.IsEmpty()) Id = TEXT("session:") + JPS->SessionPlayerId;
+        // V1 registers the host's own player only (its id is saved beside the world). Remote guests have no persistent
+        // identity yet (an online id may be absent, a session id changes every session), so they get no player record,
+        // wallet or stable: they watch from the replicated snapshot, which carries none (docs/RACING.md, "Players").
+        if (!Owner || !Owner->IsLocalController()) continue;
+        const FString Id = RacingLooks::LocalPlayerId();
         if (Id.IsEmpty() || Registered.Contains(Id)) continue;
         Registered.Add(Id);
         if (HRRules::FindPlayer(State, Id)) continue;
         // Not the player name: offline it is the machine's network name.
+        const AJapanPlayerState* JPS = Cast<AJapanPlayerState>(PS);
         const FString Name = JPS ? JPS->RiderName : FString();
         HRRules::AddPlayer(State, Id, Name.IsEmpty() ? FString(TEXT("Player")) : Name);
         bDirty = true;
@@ -670,16 +761,20 @@ bool ARacingService::LoadLooks()
 {
     if (bLooksTried) return bLooksLoaded;
     bLooksTried = true;
+    // Every breed, gait, saddle, coat and jockey clip is required: a runner is never shown riderless, in another breed or
+    // coat, or with a missing gait. tools/racing_assets.py (data.racing_assets) checks the same list before the cook.
+    TArray<FString> Missing;
     const TSharedPtr<FJsonObject> Roster = AtelierReadJson(AtelierDataPath(TEXT("horses/roster.json")));
     const TSharedPtr<FJsonObject>* Breeds = nullptr;
     if (!Roster || !Roster->TryGetObjectField(TEXT("breeds"), Breeds))
     {
-        UE_LOG(LogTemp, Warning, TEXT("RACING no horse roster: runners are not shown"));
+        UE_LOG(LogTemp, Error, TEXT("RACING no horse roster (%s): runners are not shown"), *AtelierDataPath(TEXT("horses/roster.json")));
         return false;
     }
-    FString Tack(TEXT("00"));
+    FString Tack;
     const TArray<TSharedPtr<FJsonValue>>* TackSets = nullptr;
     if (Roster->TryGetArrayField(TEXT("tack_sets"), TackSets) && TackSets->Num()) Tack = (*TackSets)[0]->AsString();
+    else Missing.Add(TEXT("tack sets"));
     FString ReferenceSlug;
     Roster->TryGetStringField(TEXT("reference_breed"), ReferenceSlug);
     auto Contacts = [](const TSharedPtr<FJsonObject>& Breed, FVector& Saddle, double& SeatZ)
@@ -693,50 +788,55 @@ bool ARacingService::LoadLooks()
         return true;
     };
     FVector RefSaddle = FVector::ZeroVector;
-    double RefSeat = 160.;
+    double RefSeat = 0.;
     const TSharedPtr<FJsonObject>* RefBreed = nullptr;
-    if ((*Breeds)->TryGetObjectField(ReferenceSlug, RefBreed)) Contacts(*RefBreed, RefSaddle, RefSeat);
+    if (!(*Breeds)->TryGetObjectField(ReferenceSlug, RefBreed) || !Contacts(*RefBreed, RefSaddle, RefSeat))
+        Missing.Add(FString::Printf(TEXT("reference breed '%s' contacts"), *ReferenceSlug));
     for (int32 I = 0; I < RacingLooks::BreedCount; ++I)
     {
         FLookBreed Look;
         Look.Slug = RacingLooks::Breeds[I];
         const TSharedPtr<FJsonObject>* Breed = nullptr;
         FString MeshPath;
-        double Yaw = -90.;
-        if ((*Breeds)->TryGetObjectField(Look.Slug, Breed) && (*Breed)->TryGetStringField(TEXT("mesh"), MeshPath))
+        if (!(*Breeds)->TryGetObjectField(Look.Slug, Breed) || !(*Breed)->TryGetStringField(TEXT("mesh"), MeshPath) ||
+            !(Look.Mesh = LoadObject<USkeletalMesh>(nullptr, *MeshPath)))
         {
-            (*Breed)->TryGetNumberField(TEXT("mesh_yaw"), Yaw);
-            Look.Mesh = LoadObject<USkeletalMesh>(nullptr, *MeshPath);
-            Look.MeshYaw = float(Yaw);
-            const TSharedPtr<FJsonObject>* Clips = nullptr;
-            (*Breed)->TryGetObjectField(TEXT("clips"), Clips);
-            for (int32 G = 0; G < RacingLooks::GaitCount; ++G)
-            {
-                const TSharedPtr<FJsonObject>* Clip = nullptr;
-                FString ClipPath;
-                UAnimSequence* Sequence = nullptr;
-                if (Clips && (*Clips)->TryGetObjectField(RacingLooks::HorseClips[G], Clip) && (*Clip)->TryGetStringField(TEXT("path"), ClipPath))
-                    Sequence = LoadObject<UAnimSequence>(nullptr, *ClipPath);
-                Look.Clips.Add(Sequence);
-                Held.Add(Sequence);
-            }
-            const TSharedPtr<FJsonObject>* Saddles = nullptr;
-            FString SaddlePath;
-            if ((*Breed)->TryGetObjectField(TEXT("saddles"), Saddles) && (*Saddles)->TryGetStringField(Tack, SaddlePath))
-                Look.Saddle = LoadObject<USkeletalMesh>(nullptr, *SaddlePath);
-            FVector Saddle;
-            double Seat = 0.;
-            if (Contacts(*Breed, Saddle, Seat))
-            {
-                Look.SeatForward = float(Saddle.X - RefSaddle.X);
-                Look.SeatUp = float(Seat - RefSeat);
-                Look.SeatZ = float(Seat);
-            }
-            Held.Add(Look.Mesh);
-            Held.Add(Look.Saddle);
+            Missing.Add(FString::Printf(TEXT("breed %s mesh"), *Look.Slug));
+            LookBreeds.Add(MoveTemp(Look));
+            continue;
         }
-        if (!Look.Mesh || Look.Clips.IsEmpty() || !Look.Clips[1])
-            UE_LOG(LogTemp, Warning, TEXT("RACING breed %s has no mesh or walk clip in the roster"), *Look.Slug);
+        double Yaw = -90.;
+        (*Breed)->TryGetNumberField(TEXT("mesh_yaw"), Yaw);
+        Look.MeshYaw = float(Yaw);
+        const TSharedPtr<FJsonObject>* Clips = nullptr;
+        (*Breed)->TryGetObjectField(TEXT("clips"), Clips);
+        for (int32 G = 0; G < RacingLooks::GaitCount; ++G)
+        {
+            const TSharedPtr<FJsonObject>* Clip = nullptr;
+            FString ClipPath;
+            UAnimSequence* Sequence = nullptr;
+            if (Clips && (*Clips)->TryGetObjectField(RacingLooks::HorseClips[G], Clip) && (*Clip)->TryGetStringField(TEXT("path"), ClipPath))
+                Sequence = LoadObject<UAnimSequence>(nullptr, *ClipPath);
+            if (!Sequence) Missing.Add(FString::Printf(TEXT("breed %s clip %s"), *Look.Slug, RacingLooks::HorseClips[G]));
+            Look.Clips.Add(Sequence);
+            Held.Add(Sequence);
+        }
+        const TSharedPtr<FJsonObject>* Saddles = nullptr;
+        FString SaddlePath;
+        if ((*Breed)->TryGetObjectField(TEXT("saddles"), Saddles) && (*Saddles)->TryGetStringField(Tack, SaddlePath))
+            Look.Saddle = LoadObject<USkeletalMesh>(nullptr, *SaddlePath);
+        if (!Look.Saddle) Missing.Add(FString::Printf(TEXT("breed %s saddle %s"), *Look.Slug, *Tack));
+        FVector Saddle;
+        double Seat = 0.;
+        if (Contacts(*Breed, Saddle, Seat))
+        {
+            Look.SeatForward = float(Saddle.X - RefSaddle.X);
+            Look.SeatUp = float(Seat - RefSeat);
+            Look.SeatZ = float(Seat);
+        }
+        else Missing.Add(FString::Printf(TEXT("breed %s seat contacts"), *Look.Slug));
+        Held.Add(Look.Mesh);
+        Held.Add(Look.Saddle);
         LookBreeds.Add(MoveTemp(Look));
     }
     CoatTextures.Init(FString(), RacingLooks::CoatCount);
@@ -752,37 +852,42 @@ bool ARacingService::LoadLooks()
                 if (Index > 0) CoatTextures[Index] = Texture;
             }
         }
+    for (int32 C = 1; C < RacingLooks::CoatCount; ++C)
+        if (CoatTextures[C].IsEmpty()) Missing.Add(FString::Printf(TEXT("coat %s texture"), RacingLooks::Coats[C]));
     // The jockey: the default character on his horse clips (authored on the reference breed), seated by the breed's offset.
-    if (const UClass* Class = FPlayableCharacter::Default().Class())
-        if (const AWandererCharacter* CDO = Cast<AWandererCharacter>(Class->GetDefaultObject()))
+    FString Rig;
+    const UClass* Class = FPlayableCharacter::Default().Class();
+    const AWandererCharacter* CDO = Class ? Cast<AWandererCharacter>(Class->GetDefaultObject()) : nullptr;
+    if (CDO)
+    {
+        const USkeletalMeshComponent* Body = CDO->GetMesh();
+        Rig = CDO->GetBikeRig();
+        // A data-defined character gets its body from its definition when it starts playing (AWandererCharacter).
+        const AMoverCharacter* Mover = Cast<AMoverCharacter>(CDO);
+        const UWandererDefinition* Definition = Mover && !Mover->DefinitionPath.IsEmpty()
+            ? LoadObject<UWandererDefinition>(nullptr, *Mover->DefinitionPath) : nullptr;
+        JockeyMesh = Definition && Definition->Mesh ? Definition->Mesh.Get() : (Body ? Body->GetSkeletalMeshAsset() : nullptr);
+        if (JockeyMesh && Body && !Rig.IsEmpty())
         {
-            const USkeletalMeshComponent* Body = CDO->GetMesh();
-            const FString Rig = CDO->GetBikeRig();
-            // A data-defined character gets its body from its definition when it starts playing (AWandererCharacter).
-            const AMoverCharacter* Mover = Cast<AMoverCharacter>(CDO);
-            const UWandererDefinition* Definition = Mover && !Mover->DefinitionPath.IsEmpty()
-                ? LoadObject<UWandererDefinition>(nullptr, *Mover->DefinitionPath) : nullptr;
-            JockeyMesh = Definition && Definition->Mesh ? Definition->Mesh.Get() : (Body ? Body->GetSkeletalMeshAsset() : nullptr);
-            if (JockeyMesh && !Rig.IsEmpty())
+            JockeyYaw = float(Body->GetRelativeRotation().Yaw);
+            JockeyScale = Body->GetRelativeScale3D();
+            for (int32 G = 0; G < RacingLooks::GaitCount; ++G)
             {
-                JockeyYaw = float(Body->GetRelativeRotation().Yaw);
-                JockeyScale = Body->GetRelativeScale3D();
-                for (int32 G = 0; G < RacingLooks::GaitCount; ++G)
-                {
-                    UAnimSequence* Clip = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("/Game/%sHorse/A_%s.A_%s"), *Rig,
-                        RacingLooks::RiderClips[G], RacingLooks::RiderClips[G]), nullptr, LOAD_NoWarn | LOAD_Quiet);
-                    if (Clip && Clip->GetSkeleton() != JockeyMesh->GetSkeleton()) Clip = nullptr;
-                    JockeyClips.Add(Clip);
-                    Held.Add(Clip);
-                }
-            }
-            if (JockeyClips.IsEmpty() || !JockeyClips[0] || !JockeyClips[4])
-            {
-                UE_LOG(LogTemp, Warning, TEXT("RACING no jockey clips for the default character (rig %s): horses run riderless"), *Rig);
-                JockeyMesh = nullptr;
+                UAnimSequence* Clip = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("/Game/%sHorse/A_%s.A_%s"), *Rig,
+                    RacingLooks::RiderClips[G], RacingLooks::RiderClips[G]));
+                if (Clip && Clip->GetSkeleton() != JockeyMesh->GetSkeleton()) Clip = nullptr;
+                if (!Clip) Missing.Add(FString::Printf(TEXT("jockey clip /Game/%sHorse/A_%s"), *Rig, RacingLooks::RiderClips[G]));
+                JockeyClips.Add(Clip);
+                Held.Add(Clip);
             }
         }
-    bLooksLoaded = LookBreeds.ContainsByPredicate([](const FLookBreed& B) { return B.Mesh != nullptr; });
+    }
+    if (!JockeyMesh || JockeyClips.Num() != RacingLooks::GaitCount)
+        Missing.Add(FString::Printf(TEXT("the default character's jockey mesh and rig (rig '%s')"), *Rig));
+    bLooksLoaded = Missing.IsEmpty();
+    if (!bLooksLoaded)
+        UE_LOG(LogTemp, Error, TEXT("RACING runners are not shown: missing %s (run `atelier build yorimichi data.racing_assets`)"),
+            *FString::Join(Missing, TEXT(", ")));
     return bLooksLoaded;
 }
 
@@ -815,12 +920,25 @@ bool ARacingService::SpawnRunners(const FRacingNetRace& Race)
         C->SetUsingAbsoluteScale(true);
         return C;
     };
+    // Each runner's own breed and coat, or no field at all: never a stand-in (LoadLooks has checked the breeds).
+    TArray<UTexture2D*> Coats;
+    for (const FRacingNetRunner& R : Race.Runners)
+    {
+        UTexture2D* Coat = nullptr;
+        if (!LookBreeds.IsValidIndex(R.Breed) || !CoatTextures.IsValidIndex(R.Coat) ||
+            (R.Coat > 0 && !(Coat = LoadObject<UTexture2D>(nullptr, *CoatTextures[R.Coat]))))
+        {
+            UE_LOG(LogTemp, Error, TEXT("RACING %s: runner %s has breed %d and coat %d, which this game cannot show: the field is not shown"),
+                *Race.Key, *R.Horse, R.Breed, R.Coat);
+            return false;
+        }
+        Coats.Add(Coat);
+    }
     for (int32 I = 0; I < Race.Runners.Num(); ++I)
     {
         const FRacingNetRunner& R = Race.Runners[I];
         FShown S;
-        S.Breed = FMath::Clamp(int32(R.Breed), 0, LookBreeds.Num() - 1);
-        if (!LookBreeds[S.Breed].Mesh) S.Breed = LookBreeds.IndexOfByPredicate([](const FLookBreed& B) { return B.Mesh != nullptr; });
+        S.Breed = R.Breed;
         const FLookBreed& Look = LookBreeds[S.Breed];
         const float Scale = FMath::Clamp(R.Scale / 100.f, .8f, 1.2f);
         S.Horse = Part(TEXT("RaceHorse"), I);
@@ -828,51 +946,54 @@ bool ARacingService::SpawnRunners(const FRacingNetRace& Race)
         S.Horse->SetWorldScale3D(FVector(Scale));
         S.Horse->RegisterComponent();
         // The coat: a dynamic instance of each coat slot with the variant's texture (as UHorseComponent's look).
-        if (CoatTextures.IsValidIndex(R.Coat) && !CoatTextures[R.Coat].IsEmpty())
-            if (UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, *CoatTextures[R.Coat]))
-                for (int32 M = 0; M < S.Horse->GetNumMaterials(); ++M)
-                {
-                    UMaterialInterface* Imported = S.Horse->GetMaterial(M);
-                    const FString BaseName = Imported && Imported->GetBaseMaterial() ? Imported->GetBaseMaterial()->GetName() : FString();
-                    if (BaseName != TEXT("M_HorseCoat")) continue;
-                    UMaterialInstanceDynamic* Coat = UMaterialInstanceDynamic::Create(Imported, this);
-                    Coat->SetTextureParameterValue(TEXT("BaseColorTexture"), Texture);
-                    S.Horse->SetMaterial(M, Coat);
-                }
-        if (Look.Saddle)
+        if (UTexture2D* Texture = Coats[I])
         {
-            S.Saddle = Part(TEXT("RaceSaddle"), I);
-            // Attached to the horse: the leader pose moves its bones, the attachment its transform.
-            S.Saddle->SetUsingAbsoluteLocation(false);
-            S.Saddle->SetUsingAbsoluteRotation(false);
-            S.Saddle->SetUsingAbsoluteScale(false);
-            S.Saddle->SetupAttachment(S.Horse);
-            S.Saddle->SetSkeletalMesh(Look.Saddle);
-            S.Saddle->RegisterComponent();
-            S.Saddle->SetLeaderPoseComponent(S.Horse, true);
-            // The stable's colours on the saddle and its cloth.
-            if (SilksMaterial)
+            int32 Painted = 0;
+            for (int32 M = 0; M < S.Horse->GetNumMaterials(); ++M)
             {
-                UMaterialInstanceDynamic* Silks = UMaterialInstanceDynamic::Create(SilksMaterial, this);
-                Silks->SetVectorParameterValue(TEXT("Color"), FLinearColor(R.Silks));
-                for (int32 M = 0; M < S.Saddle->GetNumMaterials(); ++M) S.Saddle->SetMaterial(M, Silks);
+                UMaterialInterface* Imported = S.Horse->GetMaterial(M);
+                const FString BaseName = Imported && Imported->GetBaseMaterial() ? Imported->GetBaseMaterial()->GetName() : FString();
+                if (BaseName != TEXT("M_HorseCoat")) continue;
+                UMaterialInstanceDynamic* Coat = UMaterialInstanceDynamic::Create(Imported, this);
+                Coat->SetTextureParameterValue(TEXT("BaseColorTexture"), Texture);
+                S.Horse->SetMaterial(M, Coat);
+                ++Painted;
+            }
+            if (!Painted)
+            {
+                UE_LOG(LogTemp, Error, TEXT("RACING breed %s has no M_HorseCoat slot for %s's coat: the field is not shown"), *Look.Slug, *R.Horse);
+                S.Horse->DestroyComponent();
+                ClearRunners();
+                return false;
             }
         }
-        if (JockeyMesh)
+        S.Saddle = Part(TEXT("RaceSaddle"), I);
+        // Attached to the horse: the leader pose moves its bones, the attachment its transform.
+        S.Saddle->SetUsingAbsoluteLocation(false);
+        S.Saddle->SetUsingAbsoluteRotation(false);
+        S.Saddle->SetUsingAbsoluteScale(false);
+        S.Saddle->SetupAttachment(S.Horse);
+        S.Saddle->SetSkeletalMesh(Look.Saddle);
+        S.Saddle->RegisterComponent();
+        S.Saddle->SetLeaderPoseComponent(S.Horse, true);
+        // The stable's colours on the saddle and its cloth.
+        if (SilksMaterial)
         {
-            S.Jockey = Part(TEXT("RaceJockey"), I);
-            S.Jockey->SetSkeletalMesh(JockeyMesh);
-            S.Jockey->SetWorldScale3D(JockeyScale);
-            S.Jockey->RegisterComponent();
+            UMaterialInstanceDynamic* Silks = UMaterialInstanceDynamic::Create(SilksMaterial, this);
+            Silks->SetVectorParameterValue(TEXT("Color"), FLinearColor(R.Silks));
+            for (int32 M = 0; M < S.Saddle->GetNumMaterials(); ++M) S.Saddle->SetMaterial(M, Silks);
         }
+        S.Jockey = Part(TEXT("RaceJockey"), I);
+        S.Jockey->SetSkeletalMesh(JockeyMesh);
+        S.Jockey->SetWorldScale3D(JockeyScale);
+        S.Jockey->RegisterComponent();
         // Each horse starts its cycle at a different point, so the field does not step in unison.
         S.Phase = FMath::Frac(I * .37);
         Shown.Add(S);
     }
     ShownKey = Race.Key;
     ShownStart = Race.Start;
-    UE_LOG(LogTemp, Display, TEXT("RACING runners shown: %d for %s at %s (jockeys %s)"), Shown.Num(), *Race.Name,
-        RacingLooks::VenueName(ERacingVenue(Race.Venue)), JockeyMesh ? TEXT("yes") : TEXT("no"));
+    UE_LOG(LogTemp, Display, TEXT("RACING runners shown: %d for %s at %s"), Shown.Num(), *Race.Name, RacingLooks::VenueName(ERacingVenue(Race.Venue)));
     return true;
 }
 
@@ -911,7 +1032,9 @@ void ARacingService::TickPresentation(float DeltaSeconds)
     if (ShownKey != Race.Key || ShownStart != Race.Start || Shown.Num() != Race.Runners.Num())
     {
         ClearRunners();
-        if (!SpawnRunners(Race)) { SetActorTickInterval(1.f); return; }
+        // A field that cannot be shown has said why once (LoadLooks, SpawnRunners): no retry until the next race.
+        const FString Attempt = FString::Printf(TEXT("%s@%.0f"), *Race.Key, Race.Start);
+        if (FailedKey == Attempt || !SpawnRunners(Race)) { FailedKey = Attempt; SetActorTickInterval(1.f); return; }
     }
     SetActorTickInterval(0.f);
     const UWorld* World = GetWorld();
@@ -922,20 +1045,29 @@ void ARacingService::TickPresentation(float DeltaSeconds)
         float Yaw = 0.f;
         double Speed = 0.;
         if (!S.Horse || !RunnerAt(Race, I, Now, Where, Yaw, Speed)) continue;
-        // The course data is flat; a ground probe now and then follows the real surface under the hooves.
+        // The course data is coarse; a ground probe now and then follows the real surface under the hooves. Only walkable
+        // ground near the authored height counts (RacingGround::Pick); after a miss the runner is back on the authored
+        // height, never on a stale trace.
+        const double Authored = Where.Z;
         if ((S.NextTrace -= DeltaSeconds) <= 0.f)
         {
             S.NextTrace = .4f;
-            FHitResult Hit;
+            TArray<FHitResult> Hits;
             FCollisionObjectQueryParams Objects(ECC_WorldStatic);
             FCollisionQueryParams Query(SCENE_QUERY_STAT(RacingGround), false, this);
-            if (World->LineTraceSingleByObjectType(Hit, Where + FVector(0, 0, 250), Where - FVector(0, 0, 400), Objects, Query))
+            World->LineTraceMultiByObjectType(Hits, Where + FVector(0, 0, RacingGround::Above), Where - FVector(0, 0, RacingGround::Below), Objects, Query);
+            TArray<RacingGround::FHit, TInlineAllocator<8>> Candidates;
+            for (const FHitResult& Hit : Hits) Candidates.Add({Hit.ImpactPoint.Z, FVector(Hit.ImpactNormal)});
+            double Ground = Authored;
+            if (RacingGround::Pick(Candidates, Authored, Ground))
             {
-                S.GroundZ = S.bGround ? FMath::Lerp(S.GroundZ, float(Hit.ImpactPoint.Z), .5f) : float(Hit.ImpactPoint.Z);
+                const float Offset = float(Ground - Authored);
+                S.GroundOffset = S.bGround ? FMath::Lerp(S.GroundOffset, Offset, .5f) : Offset;
                 S.bGround = true;
             }
+            else S.bGround = false;
         }
-        if (S.bGround) Where.Z = S.GroundZ;
+        Where.Z = S.bGround ? Authored + S.GroundOffset : Authored;
         const FLookBreed& Look = LookBreeds[S.Breed];
         S.Horse->SetWorldLocationAndRotation(Where, FRotator(0.f, Yaw + Look.MeshYaw, 0.f));
         const float Scale = S.Horse->GetComponentScale().X;
@@ -947,13 +1079,11 @@ void ARacingService::TickPresentation(float DeltaSeconds)
         }
         // The gait follows the speed; horse and jockey share one phase through the clip, faster through the gait's band.
         const float SpeedCm = float(Speed * 100.);
-        int32 Gait = RacingLooks::GaitFor(SpeedCm);
-        while (Gait > 0 && !Look.Clips[Gait]) --Gait;
-        UAnimSequence* Clip = Look.Clips.IsValidIndex(Gait) ? Look.Clips[Gait].Get() : nullptr;
-        if (!Clip) continue;
+        const int32 Gait = RacingLooks::GaitFor(SpeedCm);
+        UAnimSequence* Clip = Look.Clips[Gait].Get();
         const float Length = FMath::Max(Clip->GetPlayLength(), .033f);
         S.Phase = FMath::Frac(S.Phase + DeltaSeconds * RacingLooks::RateFor(Gait, SpeedCm) / Length);
-        UAnimSequence* Ride = JockeyClips.IsValidIndex(Gait) && JockeyClips[Gait] ? JockeyClips[Gait].Get() : (JockeyClips.IsValidIndex(0) ? JockeyClips[0].Get() : nullptr);
+        UAnimSequence* Ride = JockeyClips[Gait].Get();
         if (Gait != S.Gait)
         {
             S.Horse->SetAnimation(Clip);

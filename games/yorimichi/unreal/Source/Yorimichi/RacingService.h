@@ -143,15 +143,28 @@ public:
     // ------------------------------------------------------------------ the rules' world (host)
     /** Saved/racing/world.json, or -racingsave=. */
     static FString DefaultSavePath();
-    /** The world as JSON into Path (a sibling temporary file renamed over it); false when it could not be written. */
-    static bool SaveWorldFile(const FHRWorldState& S, const FString& Path);
-    /** A world saved by SaveWorldFile; false (Out untouched) when the file is missing or not a world of these rules. */
-    static bool LoadWorldFile(const FString& Path, FHRWorldState& Out);
-    /** Loads the world at Path or creates one from Seed (saving it there), and anchors the clock if it never was. */
+    /** The world as JSON into Path, atomically: a flushed sibling temporary file renamed over it, so a crash leaves the old
+     *  world or the new one, never a partial file. False (Error the reason, Path untouched) when it could not be written. */
+    static bool SaveWorldFile(const FHRWorldState& S, const FString& Path, FString& Error);
+    static bool SaveWorldFile(const FHRWorldState& S, const FString& Path) { FString Error; return SaveWorldFile(S, Path, Error); }
+    enum class ELoad : uint8 { Loaded, Missing, Unreadable, Invalid };
+    /** A world saved by SaveWorldFile, admitted by HRSave (Out untouched unless Loaded): Missing (no file), Unreadable (the
+     *  file exists but could not be read: left alone) or Invalid (not an admissible world of these rules; Error says why). */
+    static ELoad LoadWorldFile(const FString& Path, FHRWorldState& Out, FString& Error);
+    static bool LoadWorldFile(const FString& Path, FHRWorldState& Out) { FString Error; return LoadWorldFile(Path, Out, Error) == ELoad::Loaded; }
+    /**
+     * Loads the world at Path or creates one from Seed (saving it there), and anchors the clock if it never was. An invalid
+     * file is first kept aside (Path.unreadable-<time>); when it cannot be moved, or cannot be read at all, it is left as
+     * it is, no world opens and this returns false (racing stays off, PersistenceError says why). A failed first save keeps
+     * the world open in memory, dirty, and is retried.
+     */
     bool OpenWorld(const FString& Path, const FString& Seed);
     bool HasWorld() const { return bHasWorld; }
     const FHRWorldState& GetWorldState() const { return State; }
+    /** Writes the world now; false (the world kept in memory, still dirty, PersistenceError set) when it could not. */
     bool SaveNow();
+    /** The last open or save failure, empty once a save succeeds. */
+    const FString& GetPersistenceError() const { return PersistenceError; }
 
     /** Ordinary race days alternate between the venues; Grand Prix days are at Belmonte (docs/RACING.md, "Venues"). */
     static ERacingVenue VenueForDay(int32 T);
@@ -207,7 +220,7 @@ private:
     // Host
     FHRWorldState State;
     bool bHasWorld = false, bDirty = false;
-    FString SavePath;
+    FString SavePath, PersistenceError;
     double DevSeconds = 0., LastSave = 0., NextRegister = 0., NextPublish = 0., NextReport = 0.;
     float AppliedScale = 1.f;
     TSet<FString> Registered;
@@ -234,7 +247,8 @@ private:
         TObjectPtr<USkeletalMeshComponent> Horse, Saddle, Jockey;
         int32 Breed = 0, Gait = -1;
         double Phase = 0.;
-        float GroundZ = 0.f, NextTrace = 0.f;
+        /** The traced ground's height above the course's authored height (cm), valid while bGround. */
+        float GroundOffset = 0.f, NextTrace = 0.f;
         bool bGround = false;
     };
     TArray<FLookBreed> LookBreeds;
@@ -248,7 +262,7 @@ private:
     UPROPERTY() TArray<TObjectPtr<UObject>> Held;
     UPROPERTY() TObjectPtr<UMaterialInterface> SilksMaterial;
     TArray<FShown> Shown;
-    FString ShownKey;
+    FString ShownKey, FailedKey;
     double ShownStart = 0.;
     bool bBroadcastAudience = false;
 };

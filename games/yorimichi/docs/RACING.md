@@ -15,12 +15,21 @@ and positions computed on every machine from the replicated clock, never replica
 - **The world.** The host owns the rules' `FHRWorldState`. It loads `Saved/racing/world.json` (or `-racingsave=PATH`)
   or creates a world from `-racingseed=` (default `yorimichi-racing-1`) and anchors its clock to Unix time, so the
   racing world keeps going between sessions and a host that was away catches up (at most one race day per frame, so
-  hours of catch-up never hitch). It saves after a race or a day changes the world (at most every 15 s) and when the game
-  ends, writing a temporary file renamed over the old one. A file it cannot read is kept aside
-  (`world.json.unreadable-<time>`), never overwritten.
-- **Players.** The host registers every player with `HRRules::AddPlayer`. Its own player keeps an id saved beside the
-  world (`Saved/racing/player-id.txt`); a remote player is registered by their online id when the subsystem has one,
-  else by the session's player id, which changes between sessions. A player's name is their character's. Stables (a later PR) need a persistent remote id.
+  hours of catch-up never hitch, and at most `HRRules::MaxCatchUpDays`, one real week: a host away longer resumes as if
+  the world had paused then). It saves after a race or a day changes the world (at most every 15 s) and when the game
+  ends, atomically: a flushed temporary file renamed over the old one, so a crash leaves the old world or the new one.
+- **Admission and failures.** A save is admitted by `HRSave::FromJson` before it replaces anything (schema and rules
+  versions, required fields, unique ids, references, ranges and collection sizes). A file that is not an admissible
+  world is kept aside (`world.json.unreadable-<time>`) and a new world is created; if it cannot be moved aside, or the
+  file cannot be read at all, it is left exactly as it is, no world opens and racing stays off (an error in the log,
+  `GetPersistenceError()`). A failed save keeps the accepted world in memory and dirty, logs the error, and the next save
+  tries again.
+- **Players.** V1 registers the host's own player only (`HRRules::AddPlayer`), with an id saved beside the world
+  (`Saved/racing/player-id.txt`); its name is their character's. **Remote guests get no player record, wallet or stable**:
+  there is no persistent guest identity yet (an online id may be missing and a session id changes every session), so
+  nothing persistent may be owned by one. Guests watch from the replicated snapshot, which carries no player, coins,
+  tickets or ownership; every rules call that changes the world (and `racing.Next`, `racing.TimeScale`, `racing.Save`)
+  runs on the host only. Betting, stables and wallets for guests wait for a persistent guest identity.
 - **The snapshot.** `FRacingNetState` carries the clock anchor (the rules' world second at a server time, and the dev
   time scale), the race day and its event, the race in focus, the last podium and the six best stables. The race in
   focus is the one running or just run (for the rules' 180 s after its start), else the next one today. Each runner
@@ -68,8 +77,20 @@ horse and jockey on one phase. The rules' breed gene picks the breed (Standard: 
 Andalusian, Spirit: Arabian), the visual genome's coat colour the closest coat variant, and the size its individual
 scale within 8 %.
 
+**No stand-ins.** Every racing breed's mesh, six gait clips, first saddle and seat contacts, every coat texture and the
+default character's six horseback clips are required. If one is missing the service logs an error and shows no field: a
+runner is never riderless, in another breed or coat, or missing from its race (an entrant the world lacks is an error
+too). The build checks the same list before the cook: `data.racing_assets` (`tools/racing_assets.py`) fails when an asset
+is missing from the staged roster or Content, or lies outside a folder `DefaultGame.ini` always cooks (`/Game/Horses`
+and the default rig's `/Game/<rig>Horse`, since the service loads them by path).
+
+**Ground.** A shown runner traces the ground every 0.4 s through its course point. Only walkable ground counts
+(`RacingGround::Pick`): a hit facing up (normal z at least 0.7), within 2.5 m above and 4 m below the point's authored
+height, the nearest to it, so walls, rails and roofs above the track are ignored. Without one the runner is back on the
+authored height, never on the last traced one; the traced offset follows the authored slope between traces.
+
 Performance: no runner exists away from the venue, out of the race window or on a dedicated server; the service then
-ticks four times a second. A shown runner traces the ground every 0.4 s and evaluates its pose only when rendered.
+ticks four times a second. A shown runner evaluates its pose only when rendered.
 
 ## TVs
 
@@ -137,7 +158,10 @@ whether the capture is live, the shot, the nearest screen, frame and GPU times) 
 `Yorimichi.Racing.*`: `BelmonteCourse` (lap lengths, continuity of every lane, the finish point and the post),
 `HippodromeCourse`, `Motion` (the same distances from the host's world and from a serialised snapshot, monotone, through
 each split on time, places in finishing order, lined up before the off), `Snapshot` (size, the venue rule, the last
-result after a race), `Save` (create, save and reload through the service on a temporary path), `TvPlacement` (the
+result after a race), `Save` (create, save and reload through the service on a temporary path), `SaveSafety` (an
+invalid save kept aside; one that cannot be moved left untouched with no world opened; a failed save keeping the world
+in memory, then succeeding), `Ground` (walls, rails, roofs and steep slopes ignored, the authored height after a miss), `TvPlacement` (the
 screens round the region origin, the osteria's watch point on its map stop, each watch point in front of its screen) and
 `TvDirector` (the shot list, the crowd camera, the same camera for the same clock, the leader in frame). `uv run pytest
-games/yorimichi/tests/test_racing_courses.py -q` checks the committed course data, the simplification and the staging.
+games/yorimichi/tests/test_racing_courses.py -q` checks the committed course data, the simplification and the staging;
+`test_racing_assets.py` the asset validation and its lists against the service's.

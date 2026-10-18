@@ -237,6 +237,112 @@ bool FRacingSaveTest::RunTest(const FString&)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRacingSaveSafetyTest, "Yorimichi.Racing.SaveSafety",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FRacingSaveSafetyTest::RunTest(const FString&)
+{
+    const FString Dir = FPaths::ConvertRelativePathToFull(FPaths::AutomationTransientDir() / FString::Printf(TEXT("racing-safety-%s"),
+        *FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+    // The service reports each failure as an error: expected here.
+    AddExpectedError(TEXT("is not an admissible world"), EAutomationExpectedErrorFlags::Contains, 2);
+    AddExpectedError(TEXT("could not save the world"), EAutomationExpectedErrorFlags::Contains, 1);
+    IFileManager& Files = IFileManager::Get();
+    const double Now = double((FDateTime::UtcNow() - FDateTime(1970, 1, 1)).GetTotalSeconds());
+
+    // A save that is not an admissible world is kept aside, then a new world is created.
+    {
+        const FString Path = Dir / TEXT("aside/world.json");
+        FFileHelper::SaveStringToFile(TEXT("{\"rulesVersion\":\"something else\"}"), *Path);
+        ARacingService* Service = NewObject<ARacingService>(GetTransientPackage());
+        TestTrue(TEXT("A new world opens"), Service->OpenWorld(Path, TEXT("safety")));
+        TArray<FString> Aside;
+        Files.FindFiles(Aside, *(FPaths::GetPath(Path) / TEXT("world.json.unreadable-*")), true, false);
+        TestEqual(TEXT("The unreadable save is kept aside"), Aside.Num(), 1);
+        FString Kept;
+        if (Aside.Num()) FFileHelper::LoadFileToString(Kept, *(FPaths::GetPath(Path) / Aside[0]));
+        TestTrue(TEXT("unchanged"), Kept.Contains(TEXT("something else")));
+        TestFalse(TEXT("No temporary file is left"), FPaths::FileExists(Path + TEXT(".tmp")));
+        FHRWorldState Reloaded;
+        TestTrue(TEXT("The new world is saved whole"), ARacingService::LoadWorldFile(Path, Reloaded));
+    }
+
+    // When it cannot be kept aside, it stays exactly where it is and no world opens.
+    {
+        const FString Path = Dir / TEXT("stuck/world.json");
+        const FString Original = TEXT("{\"not\":\"a world\"}");
+        FFileHelper::SaveStringToFile(Original, *Path);
+        // Every aside name of the next minute is taken by a directory that a rename cannot replace.
+        for (int32 S = -2; S < 60; ++S)
+            FFileHelper::SaveStringToFile(TEXT("x"), *(Path + FString::Printf(TEXT(".unreadable-%lld/keep"), int64(Now) + S)));
+        ARacingService* Service = NewObject<ARacingService>(GetTransientPackage());
+        TestFalse(TEXT("No world opens"), Service->OpenWorld(Path, TEXT("safety")));
+        TestFalse(TEXT("racing stays off"), Service->HasWorld());
+        TestFalse(TEXT("and says why"), Service->GetPersistenceError().IsEmpty());
+        FString Kept;
+        FFileHelper::LoadFileToString(Kept, *Path);
+        TestEqual(TEXT("The original save is untouched"), Kept, Original);
+        TestFalse(TEXT("nothing is saved"), Service->SaveNow());
+        FFileHelper::LoadFileToString(Kept, *Path);
+        TestEqual(TEXT("still untouched"), Kept, Original);
+    }
+
+    // A failed save keeps the accepted world in memory and dirty; the next one writes it.
+    {
+        const FString Path = Dir / TEXT("retry/world.json");
+        ARacingService* Service = NewObject<ARacingService>(GetTransientPackage());
+        TestTrue(TEXT("A world opens"), Service->OpenWorld(Path, TEXT("safety")));
+        const FString Accepted = HRSave::ToJson(Service->GetWorldState());
+        FString OnDisk;
+        FFileHelper::LoadFileToString(OnDisk, *Path);
+        // The temporary file's name is taken by a directory: the write fails.
+        FFileHelper::SaveStringToFile(TEXT("x"), *(Path + TEXT(".tmp/keep")));
+        TestFalse(TEXT("The save fails"), Service->SaveNow());
+        TestFalse(TEXT("and says why"), Service->GetPersistenceError().IsEmpty());
+        TestTrue(TEXT("The world is still open"), Service->HasWorld());
+        TestEqual(TEXT("unchanged in memory"), HRSave::ToJson(Service->GetWorldState()), Accepted);
+        FString After;
+        FFileHelper::LoadFileToString(After, *Path);
+        TestEqual(TEXT("The previous save is intact"), After, OnDisk);
+        Files.DeleteDirectory(*(Path + TEXT(".tmp")), false, true);
+        TestTrue(TEXT("The next save succeeds"), Service->SaveNow());
+        TestTrue(TEXT("and clears the error"), Service->GetPersistenceError().IsEmpty());
+        FHRWorldState Reloaded;
+        TestTrue(TEXT("The saved world loads"), ARacingService::LoadWorldFile(Path, Reloaded));
+        TestEqual(TEXT("as accepted"), HRSave::ToJson(Reloaded), HRSave::ToJson(Service->GetWorldState()));
+    }
+    Files.DeleteDirectory(*Dir, false, true);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRacingGroundTest, "Yorimichi.Racing.Ground",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FRacingGroundTest::RunTest(const FString&)
+{
+    using RacingGround::FHit;
+    double Z = 0.;
+    TestFalse(TEXT("No hit: the authored height"), RacingGround::Pick({}, 3000., Z));
+    TestEqual(TEXT("no hit z"), Z, 3000.);
+    const FHit Wall{3100., FVector(1., 0., 0.)};
+    const FHit Rail{3050., FVector(0., .8, .2)};
+    TestFalse(TEXT("A wall or a rail is not ground"), RacingGround::Pick({Wall, Rail}, 3000., Z));
+    TestEqual(TEXT("and leaves the authored height"), Z, 3000.);
+    const FHit Roof{3200., FVector::UpVector};
+    const FHit Turf{2970., FVector(.1, 0., .99)};
+    TestTrue(TEXT("The turf under a roof"), RacingGround::Pick({Roof, Wall, Turf}, 3000., Z));
+    TestEqual(TEXT("is the ground"), Z, 2970.);
+    TestTrue(TEXT("whatever the order"), RacingGround::Pick({Turf, Roof}, 3000., Z) && Z == 2970.);
+    const FHit Deep{3000. - RacingGround::Below - 1., FVector::UpVector};
+    const FHit High{3000. + RacingGround::Above + 1., FVector::UpVector};
+    TestFalse(TEXT("Outside the window is not ground"), RacingGround::Pick({Deep, High}, 3000., Z));
+    const FHit Steep{2990., FVector(.8, 0., .6)};
+    TestFalse(TEXT("A slope steeper than 45 degrees is not ground"), RacingGround::Pick({Steep}, 3000., Z));
+    const FHit Bank{2990., FVector(.6, 0., .8)};
+    TestTrue(TEXT("A banked turn is"), RacingGround::Pick({Bank}, 3000., Z) && Z == 2990.);
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRacingTvPlacementTest, "Yorimichi.Racing.TvPlacement",
     EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 

@@ -34,27 +34,28 @@ namespace HRRules
 
 	double Rapport(const FHRWorldState& S, const FHRRace& Race, const FString& HorseId, int32 ExtraStake)
 	{
-		const int32 Pool = CrowdPool(S);
-		int32 PlayerPool = ExtraStake;
-		int32 OnHorse = ExtraStake;
+		const int64 Pool = CrowdPool(S);
+		// Pools are summed in int64: any number of tickets keeps the odds finite and exact.
+		int64 PlayerPool = FMath::Max(ExtraStake, 0);
+		int64 OnHorse = PlayerPool;
 		for (const FHRTicket& T : S.Tickets)
 		{
 			if (T.T != S.T || T.RaceKey != Race.Key || T.Status == TEXT("refunded")) continue;
 			PlayerPool += T.Stake;
 			if (T.HorseId == HorseId) OnHorse += T.Stake;
 		}
-		const double OnOutcome = Pool * WinChance(Race, HorseId) + OnHorse;
+		const double OnOutcome = (double)Pool * WinChance(Race, HorseId) + (double)OnHorse;
 		if (OnOutcome <= 0) return MinRapport;
-		const double Value = ((Pool + PlayerPool) * (1 - Take)) / OnOutcome;
+		const double Value = ((double)(Pool + PlayerPool) * (1 - Take)) / OnOutcome;
 		return FMath::Max(MinRapport, FMath::FloorToDouble(Value * 100) / 100);
 	}
 
 	int32 DayStake(const FHRWorldState& S, const FString& PlayerId)
 	{
-		int32 Sum = 0;
+		int64 Sum = 0;
 		for (const FHRTicket& T : S.Tickets)
 			if (T.T == S.T && T.PlayerId == PlayerId) Sum += T.Stake;
-		return Sum;
+		return (int32)FMath::Min<int64>(Sum, MAX_int32);
 	}
 
 	FString BetRefusal(const FHRWorldState& S, const FString& PlayerId, const FHRRace& Race, const FString& HorseId, int32 Stake)
@@ -67,7 +68,7 @@ namespace HRRules
 			return TEXT("This horse is not declared to run.");
 		if (Stake < FBetLimits::MinStake || Stake > FBetLimits::MaxStake)
 			return FString::Printf(TEXT("Stake between %d and %d coins."), FBetLimits::MinStake, FBetLimits::MaxStake);
-		if (DayStake(S, PlayerId) + Stake > FBetLimits::PerDay)
+		if ((int64)DayStake(S, PlayerId) + Stake > FBetLimits::PerDay)
 			return FString::Printf(TEXT("No more than %d coins of bets a day."), FBetLimits::PerDay);
 		if (P->Coins < Stake) return FString::Printf(TEXT("It takes %d coins."), Stake);
 		int32 OnRace = 0;
@@ -94,27 +95,32 @@ namespace HRRules
 		T.Status = TEXT("open");
 		FHRPlayer& P = *FindPlayer(S, PlayerId);
 		P.Coins -= Stake;
-		P.TotalStaked += Stake;
+		P.TotalStaked = Tally(P.TotalStaked, Stake);
 		S.Tickets.Add(T);
 		return FString();
 	}
 
 	void SettleRace(FHRWorldState& S, const FHRRace& Race)
 	{
+		// Only open tickets are settled, and settling marks them: a second call (or the day's close) pays nothing again. A
+		// race still declared has no outcome yet: its tickets stay open.
+		if (!Race.IsRun()) return;
 		const FString Winner = Race.Finishes.Num() ? Race.Finishes[0].HorseId : FString();
+		auto Open = [&S, &Race](const FHRTicket& T) { return T.T == S.T && T.RaceKey == Race.Key && T.Status == TEXT("open"); };
+		// Refunds first (a race not run, or a declared horse that did not run), so every winner of the race is paid the
+		// same odds whatever the tickets' order.
 		for (FHRTicket& T : S.Tickets)
 		{
-			if (T.T != S.T || T.RaceKey != Race.Key || T.Status != TEXT("open")) continue;
-			FHRPlayer* P = FindPlayer(S, T.PlayerId);
+			if (!Open(T)) continue;
 			const bool bRan = Race.Finishes.ContainsByPredicate([&T](const FHRFinish& F) { return F.HorseId == T.HorseId; });
-			// A declared horse that does not run is a non-runner: the stake is refunded, as for a race not run.
-			if (Race.Status != TEXT("run") || !bRan || Race.Finishes.Num() < 2)
-			{
-				T.Status = TEXT("refunded");
-				T.Payout = T.Stake;
-				if (P) P->Coins += T.Stake;
-				continue;
-			}
+			if (Race.Status == TEXT("run") && bRan && Race.Finishes.Num() >= 2) continue;
+			T.Status = TEXT("refunded");
+			T.Payout = T.Stake;
+			if (FHRPlayer* P = FindPlayer(S, T.PlayerId)) P->Coins = Credit(P->Coins, T.Stake);
+		}
+		for (FHRTicket& T : S.Tickets)
+		{
+			if (!Open(T)) continue;
 			if (Winner != T.HorseId)
 			{
 				T.Status = TEXT("lost");
@@ -123,12 +129,12 @@ namespace HRRules
 			}
 			// The odds are fixed by the frozen field and every player ticket in this pool.
 			T.Rapport = Rapport(S, Race, T.HorseId);
-			T.Payout = FMath::FloorToInt(T.Stake * T.Rapport);
+			T.Payout = (int32)FMath::Clamp<double>(FMath::FloorToDouble(T.Stake * T.Rapport), 0., (double)MaxCoins);
 			T.Status = TEXT("won");
-			if (P)
+			if (FHRPlayer* P = FindPlayer(S, T.PlayerId))
 			{
-				P->Coins += T.Payout;
-				P->TotalWon += T.Payout;
+				P->Coins = Credit(P->Coins, T.Payout);
+				P->TotalWon = Tally(P->TotalWon, T.Payout);
 				P->TicketsWon++;
 			}
 		}

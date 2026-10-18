@@ -1,5 +1,7 @@
 #include "HRRules.h"
 
+#include "HRSave.h"
+
 #include "HRRandom.h"
 #include "Misc/ScopeExit.h"
 
@@ -541,7 +543,7 @@ namespace
 		St.Coins -= HRRules::BreedingServiceCost + Fee;
 		const FHRHorse* External = Mare.OwnerId != St.Id ? &Mare : Stallion.OwnerId != St.Id ? &Stallion : nullptr;
 		const FString ExternalOwner = External ? External->OwnerId : FString();
-		if (FHRStable* Owner = External ? HRRules::FindStable(S, ExternalOwner) : nullptr) Owner->Coins += Fee;
+		if (FHRStable* Owner = External ? HRRules::FindStable(S, ExternalOwner) : nullptr) Owner->Coins = HRRules::Credit(Owner->Coins, Fee);
 		FHRPregnancy P;
 		P.MareId = Mare.Id;
 		P.SireId = Stallion.Id;
@@ -717,7 +719,7 @@ namespace
 		FHRHorse& H = S.Horses.FindChecked(L.HorseId);
 		FHRStable* Seller = HRRules::FindStable(S, L.SellerId);
 		St.Coins -= L.Price;
-		if (Seller) { Seller->Coins += L.Price; Seller->Sales++; }
+		if (Seller) { Seller->Coins = HRRules::Credit(Seller->Coins, L.Price); Seller->Sales++; }
 		St.Purchases++;
 		Acquire(S, H, St);
 		HRRules::AddNews(S, TEXT("sale"),
@@ -852,7 +854,7 @@ namespace
 				}
 			}
 			const int32 Repayment = FMath::Min(St.Debt, Gross / 4);
-			St.Coins += Gross - Repayment;
+			St.Coins = HRRules::Credit(St.Coins, (int64)Gross - Repayment);
 			St.Debt -= Repayment;
 			// Running costs: what a computer stable cannot pay becomes debt, repaid from later winnings.
 			if (St.IsComputer())
@@ -860,11 +862,11 @@ namespace
 				const int32 Upkeep = HRRules::DailyUpkeep(S, St);
 				const int32 Paid = FMath::Min(FMath::Max(0, St.Coins), Upkeep);
 				St.Coins -= Paid;
-				St.UpkeepPaid += Paid;
+				St.UpkeepPaid = HRRules::Tally(St.UpkeepPaid, Paid);
 				if (Paid < Upkeep)
 				{
 					const bool bNewDebt = St.Debt == 0;
-					St.Debt += Upkeep - Paid;
+					St.Debt = HRRules::Credit(St.Debt, (int64)Upkeep - Paid);
 					if (bNewDebt)
 					{
 						HRRules::AddNews(S, TEXT("debt"),
@@ -873,7 +875,7 @@ namespace
 				}
 			}
 			if (St.IsPlayerOwned()) HRRules::CloseOwnerDay(S, St, Gross);
-			St.TotalEarnings += Gross;
+			St.TotalEarnings = HRRules::Tally(St.TotalEarnings, Gross);
 			St.Prestige += Prestige;
 			if (bRaced) St.Renown += bBigRound ? 3 : 2;
 			// A computer stable with no runner and no money does paid work elsewhere.
@@ -881,7 +883,7 @@ namespace
 			{
 				bool bAnySafe = false;
 				for (FHRHorse* H : Owned(S, St.Id)) bAnySafe |= !H->IsRetired() && IsSafe(S, *H);
-				if (!bAnySafe) St.Coins += 20;
+				if (!bAnySafe) St.Coins = HRRules::Credit(St.Coins, 20);
 			}
 		}
 		for (const FHRRace& R : S.Meeting.Races)
@@ -908,7 +910,7 @@ namespace
 			if (T.T != S.T || T.Status != TEXT("open")) continue;
 			T.Status = TEXT("refunded");
 			T.Payout = T.Stake;
-			if (FHRPlayer* P = HRRules::FindPlayer(S, T.PlayerId)) P->Coins += T.Stake;
+			if (FHRPlayer* P = HRRules::FindPlayer(S, T.PlayerId)) P->Coins = HRRules::Credit(P->Coins, T.Stake);
 		}
 		// Settled tickets are kept for one season, so the saved world does not grow without end.
 		S.Tickets.RemoveAll([&S](const FHRTicket& T) { return T.T <= S.T - HRClock::DaysPerSeason; });
@@ -916,8 +918,8 @@ namespace
 		HRRules::AdvanceRiders(S);
 		for (TPair<FString, FHRPlayer>& It : S.Players)
 		{
-			It.Value.Coins += HRRules::PlayerDailyIncome;
-			It.Value.TotalIncome += HRRules::PlayerDailyIncome;
+			It.Value.Coins = HRRules::Credit(It.Value.Coins, HRRules::PlayerDailyIncome);
+			It.Value.TotalIncome = HRRules::Tally(It.Value.TotalIncome, HRRules::PlayerDailyIncome);
 		}
 		S.T++;
 		for (TPair<FString, FHRHorse>& It : S.Horses)
@@ -1094,8 +1096,26 @@ namespace HRRules
 		return NowUnix - (double)S.EpochUnix;
 	}
 
-	void AdvanceTo(FHRWorldState& S, double Now)
+	int32 LimitCatchUp(FHRWorldState& S, double& Now, int32 MaxDays)
 	{
+		MaxDays = FMath::Clamp(MaxDays, 1, HRSave::MaxDay);
+		// More than HRSave::MaxDay race days ahead is not a clock reading: keep the world (and its admissible epoch) as it is.
+		if (!FMath::IsFinite(Now) || Now > HRClock::DayStart(S.T) + HRClock::DaySeconds * HRSave::MaxDay)
+		{
+			Now = HRClock::DayStart(S.T);
+			return 0;
+		}
+		const double Behind = Now - HRClock::DayStart(S.T + MaxDays);
+		if (Behind <= 0.) return 0;
+		const int64 Skipped = (int64)FMath::CeilToDouble(Behind / HRClock::DaySeconds);
+		S.EpochUnix += Skipped * (int64)HRClock::DaySeconds;
+		Now -= (double)Skipped * HRClock::DaySeconds;
+		return (int32)FMath::Min<int64>(Skipped, MAX_int32);
+	}
+
+	void AdvanceTo(FHRWorldState& S, double Now, int32 MaxDays)
+	{
+		LimitCatchUp(S, Now, MaxDays);
 		for (;;)
 		{
 			// Races in running order: a Grand Prix final appears once its heats are run, in the last slot.

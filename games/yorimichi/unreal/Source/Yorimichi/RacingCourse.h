@@ -56,3 +56,24 @@ struct YORIMICHI_API FRacingCourse
     double LaneOffset(int32 Index, int32 Count) const;
     FVector Centre() const;
 };
+
+/**
+ * The ground under a runner (docs/RACING.md, "Horses"). A trace through the course point keeps only walkable ground: a hit
+ * whose normal faces up (rails, walls and the sides of buildings do not), within the window round the point's authored
+ * height, the one nearest that height (a roof above the track loses to the turf below). Without one the runner keeps the
+ * authored height, never the last traced one.
+ */
+namespace RacingGround
+{
+    /** The trace window above and below the authored height (cm). */
+    inline constexpr double Above = 250., Below = 400.;
+    /** The least normal z of walkable ground (about 45 degrees). */
+    inline constexpr double MinUp = .7;
+    struct FHit
+    {
+        double Z = 0.;
+        FVector Normal = FVector::UpVector;
+    };
+    /** The ground height among a trace's hits; false (OutZ = AuthoredZ) when none is walkable ground in the window. */
+    YORIMICHI_API bool Pick(TConstArrayView<FHit> Hits, double AuthoredZ, double& OutZ);
+}

@@ -16,6 +16,21 @@ namespace HRRules
 {
 	inline constexpr const TCHAR* RulesVersion = TEXT("atelier-horse-racing-1");
 
+	// ---------------------------------------------------------------- money
+	/** Every balance (a player's or a stable's coins, a debt, a price) stays within 0..MaxCoins: credits saturate there and
+	 * sums are taken in int64, so no prize, payout, refund or sale can overflow. */
+	inline constexpr int32 MaxCoins = 1000000000;
+	/** A balance plus a credit (never negative), saturated at MaxCoins. */
+	inline int32 Credit(int32 Balance, int64 Amount)
+	{
+		return (int32)FMath::Clamp<int64>((int64)Balance + FMath::Max<int64>(Amount, 0), 0, MaxCoins);
+	}
+	/** A running total (earnings, winnings, upkeep paid) plus an amount, saturated within 0..MAX_int32. */
+	inline int32 Tally(int32 Total, int64 Amount)
+	{
+		return (int32)FMath::Clamp<int64>((int64)Total + Amount, 0, MAX_int32);
+	}
+
 	// ---------------------------------------------------------------- generation
 	struct FGenerationOptions
 	{
@@ -87,12 +102,21 @@ namespace HRRules
 	ATELIERHORSERACING_API void StartClock(FHRWorldState& S, int64 NowUnix);
 	/** World seconds at a Unix time, from the anchor StartClock set. */
 	ATELIERHORSERACING_API double WorldSeconds(const FHRWorldState& S, double NowUnix);
+	/** The most race days one catch-up simulates: one real week (84 days). A world left longer resumes as if paused. */
+	inline constexpr int32 MaxCatchUpDays = 7 * HRClock::DaysPerSeason;
+	/**
+	 * Bounds a catch-up: when WorldSeconds is more than MaxDays race days ahead of the world, the excess whole days are
+	 * skipped (the clock anchor moves forward by them and WorldSeconds back), so at most MaxDays days remain to simulate.
+	 * A non-finite or absurd time is refused (WorldSeconds becomes the world's present). Returns the days skipped.
+	 * Deterministic: the same world and time give the same result.
+	 */
+	ATELIERHORSERACING_API int32 LimitCatchUp(FHRWorldState& S, double& WorldSeconds, int32 MaxDays = MaxCatchUpDays);
 	/**
 	 * Brings the world to a world second: every race whose slot has started is run (its result is decided at its start),
 	 * every finished day is closed and the next one opened. Idempotent, and catching up hours at once gives the same
-	 * world as stepping through them.
+	 * world as stepping through them. At most MaxDays days are simulated (LimitCatchUp).
 	 */
-	ATELIERHORSERACING_API void AdvanceTo(FHRWorldState& S, double WorldSeconds);
+	ATELIERHORSERACING_API void AdvanceTo(FHRWorldState& S, double WorldSeconds, int32 MaxDays = MaxCatchUpDays);
 	/** Runs any race left, closes the day (payouts, ageing, stables' decisions) and opens the next. */
 	ATELIERHORSERACING_API void AdvanceDay(FHRWorldState& S);
 	/** Runs the next race of the day; returns its key (empty when none is left). */

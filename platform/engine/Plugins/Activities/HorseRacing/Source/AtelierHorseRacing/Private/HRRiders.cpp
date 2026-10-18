@@ -222,7 +222,7 @@ namespace
 		const FString From = R.OwnerId;
 		const int32 Price = R.ListedPrice;
 		Buyer.Coins -= Price;
-		if (FHRStable* Seller = HRRules::FindStable(S, From)) Seller->Coins += Price;
+		if (FHRStable* Seller = HRRules::FindStable(S, From)) Seller->Coins = HRRules::Credit(Seller->Coins, Price);
 		HRRules::AddNews(S, TEXT("transfer"),
 			FString::Printf(TEXT("Transfer: %s leaves %s for %s (%d coins)."), *R.FullName(), *StableName(S, From), *Buyer.Name, Price),
 			{}, {From, Buyer.Id});

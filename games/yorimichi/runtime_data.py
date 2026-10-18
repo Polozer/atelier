@@ -41,7 +41,8 @@ def staged_source(out, rel):
                  for c in definition.movers() if c.playable}
     return {'skatepark/park.json': REGIONS / 'skatepark' / 'park.json',
             'map/atlas-serif.ttf': ASSETS / 'ui/fonts/atlas-serif.ttf',
-            'racing/belmonte_courses.json': RACING_COURSES, **bikes, **portraits}.get(rel, out / rel)
+            # under REGIONS' world folder (RACING_COURSES), so a test that redirects REGIONS never writes the committed copy
+            'racing/belmonte_courses.json': REGIONS.parent / 'racing' / 'belmonte_courses.json', **bikes, **portraits}.get(rel, out / rel)
 
 
 def stage_data(ctx, log):

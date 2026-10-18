@@ -31,7 +31,17 @@ draws, replicates and presents the state; the rules decide everything else.
 Money is a generic in-game currency. Each stable keeps 3 jockeys on fixed salaries; between seasons computer stables list,
 buy and swap riders on the transfer market, which players use too.
 
+Balances (coins, debts, prices) stay within `0..HRRules::MaxCoins`: credits saturate and pools are summed in int64. A
+ticket is settled once (refunds first, so every winner of a race gets the same odds); a race not run refunds its stakes.
+`AdvanceTo` simulates at most `MaxCatchUpDays` (one real week) per call: a longer absence moves the clock anchor forward
+(`LimitCatchUp`), deterministically.
+
+`HRSave::FromJson` admits a save before replacing anything: schema and rules versions, required fields, no repeated JSON
+key, unique stables, races and tickets, valid owners, parents, riders, entrants and bets, numeric ranges (abilities,
+alleles, coins, stakes) and collection bounds (`HRSave::Max*`). A refused save gives its reason.
+
 ## Tests
 
 `Atelier.HorseRacing.*` automation tests cover the reference vectors in `Tests/`, the schedule mapping, ageing,
-archiving, betting, riders, owners, visual genetics, the JSON round trip and determinism.
+archiving, betting, riders, owners, visual genetics, the JSON round trip, save admission (malformed saves), the economy's
+invariants and determinism.
