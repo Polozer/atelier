@@ -34,6 +34,7 @@ TILE = 256.0
 IDENTITY = {'translation_cm': [0., 0., 0.], 'rotation_xyzw': [0., 0., 0., 1.], 'scale': [1., 1., 1.]}
 # Surfaces a player walks through: no collision, and the translucent ones cast no shadow.
 SOFT = ('leaf_', 'palm_', 'waterfall', 'mist', 'spray', 'foam', 'water', 'vine', 'flower', 'grass', 'fern')
+SEA_LEVEL = ('water', 'foam', 'spray', 'mist', 'waterfall', 'seabed')
 MASKED = ('leaf_', 'palm_', 'waterfall', 'spray')
 TRANSLUCENT = ('mist',)
 EMISSIVE = ('lantern', 'glass_warm')
@@ -82,9 +83,29 @@ def rim():
     return R.rim_from_mesh(vertices[used].tolist(), local)
 
 
-def split(builder, prefix):
-    """Tiles of TILE metres, and per tile a solid part and a soft part (foliage cards, water, spray)."""
-    parts, outside = {}, 0
+def settle(rim):
+    """(x, y) -> (ground change, game ground) across the collar, where ground.py eases the layout into the far-hills
+    rim; (0, None) inside INNER. Dressing placed on the layout moves with the ground under it."""
+    cache = {}
+
+    def at(x, y):
+        key = (round(x, 1), round(y, 1))
+        if key not in cache:
+            if R.collar_weight(x, y) <= 0.0:
+                cache[key] = (0.0, None)
+            else:
+                g = R.ground(L.ground, rim, x, y)
+                cache[key] = (g - L.ground(x, y), g)
+        return cache[key]
+    return at
+
+
+def split(builder, prefix, settle):
+    """Tiles of TILE metres, and per tile a solid part and a soft part (foliage cards, water, spray).
+
+    Faces in the collar follow the eased ground (settle); water, foam and spray stay at sea level, and plant cards
+    whose ground went under the sea are dropped. The ground itself is already eased: settle is None for it."""
+    parts, outside, drowned = {}, 0, 0
     ox0, oy0, ox1, oy1 = R.OUTER
     for f, mat in zip(builder.faces, builder.mats):
         pts = [builder.verts[i] for i in f]
@@ -92,13 +113,19 @@ def split(builder, prefix):
         if not (ox0 <= cx <= ox1 and oy0 <= cy <= oy1):
             outside += 1
             continue
+        if settle is not None and not mat.startswith(SEA_LEVEL):
+            moves = [settle(p[0], p[1]) for p in pts]
+            if soft(mat) and any(g is not None and g < 0.2 for _, g in moves):
+                drowned += 1
+                continue
+            pts = [(p[0], p[1], p[2] + d) for p, (d, _) in zip(pts, moves)]
         key = (int((cx - ox0) // TILE), int((cy - oy0) // TILE), soft(mat))
         part = parts.get(key)
         if part is None:
             part = parts[key] = Builder(f'SM_BC_{prefix}_{key[0]}_{key[1]}' + ('_Soft' if key[2] else ''))
         normals = [builder.normals[i] for i in f] if builder.normals is not None else None
         part.face(pts, mat, [builder.uvs[i] for i in f], normals)
-    return parts, outside
+    return parts, outside, drowned
 
 
 def blender_materials():
@@ -242,12 +269,14 @@ def main():
     meshes, groups, used = [], [], set()
     rim_shape, rim_world = rim()
     terrain, seam = ground.build(rim_shape, rim_world)
+    settled = settle(rim_shape)
     print(f'ground: {seam}; {time.time() - started:.0f}s', flush=True)
     sources = [('Ground', terrain)] + [(name, fn()) for name, fn in MODULES]
-    report_outside = {}
+    report_outside, report_drowned = {}, {}
     for prefix, builder in sources:
-        parts, outside = split(builder, prefix)
+        parts, outside, drowned = split(builder, prefix, None if prefix == 'Ground' else settled)
         report_outside[prefix] = outside
+        report_drowned[prefix] = drowned
         for (_, _, is_soft), part in sorted(parts.items()):
             obj = mesh_object(part, materials)
             path = OUT / 'glb' / f'{part.name}.glb'
@@ -271,7 +300,10 @@ def main():
     protos = flora.prototypes()
     placements = {}
     for proto, x, y, z, yaw, scale in flora.scatter() + flora.bloom_spots(random.Random(5)):
-        placements.setdefault(proto, []).append(transform(x, y, z, yaw, scale))
+        dz, g = settled(x, y)
+        if g is not None and g < 0.4:
+            continue  # the eased ground is under the sea here
+        placements.setdefault(proto, []).append(transform(x, y, z + dz, yaw, scale))
     for proto, builder in protos.items():
         if proto not in placements:
             continue
@@ -301,6 +333,7 @@ def main():
                           'hint': 'The pirate port in the western reach: market, galleons and the waterfall'}]}
     (OUT / 'runtime.json').write_text(json.dumps(runtime, separators=(',', ':')) + '\n')
     report = {'meshes': meshes, 'materials': material_entries, 'seam': seam, 'outside_faces': report_outside,
+              'drowned_faces': report_drowned,
               'triangles': sum(m['triangles'] for m in meshes),
               'instances': sum(len(g['transforms']) for g in groups)}
     (OUT / 'build-report.json').write_text(json.dumps(report, indent=1) + '\n')
