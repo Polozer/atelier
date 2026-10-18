@@ -20,7 +20,8 @@ def backdrop_owned(x, y, *, city):
     Omit ground only where an exported fine terrain owns its replacement.
     Without a city, FarHills MUST retain the former HD_Terrain footprint.
     """
-    return (-300.<x<300. and -300.<y<300.) or (city and 300.<x<1420. and -300.<y<500.)
+    from farhills_surface import owns_fine_ground
+    return owns_fine_ground(x, y, city=city)
 
 
 def ocean_mesh(*, city):
@@ -196,18 +197,11 @@ def main():
     # Include the exact fine-terrain boundaries, then omit their interiors.
     # Shaping both buried and visible ground onto one coast would recreate the
     # original coplanar flicker under the new beaches.
-    from hidamari.layout import coastal_backdrop_height
-    from hidamari.forest_backdrop import mesh_grid,source_grid,rail_refinement
+    from farhills_surface import generate, publish
     city=os.path.exists(os.path.join(OUT,"hidamari","city.json"))
-    xs,ys,z=mesh_grid(n,city=city)
-    def owned(x,y):
-        return backdrop_owned(x,y,city=city)
-    fverts,ffaces=shorelines.grid_mesh(xs,ys,z,hidden=owned,shape=coastal_backdrop_height,parents=source_grid(city=city),parent_refinement=rail_refinement(city=city))
-    print('coastal far hills: %d vertices, %d quads'%(len(fverts),len(ffaces)),flush=True)
-    from train import earthworks  # the Belmonte railway's cuttings through the far hills (RAILWAY_EARTHWORKS=0: none)
-    from hidamari.mountains import contains as under_foothills
-    fverts, ffaces, _ = earthworks.polygons(fverts, ffaces, 4., hidden=under_foothills, conform_neighbors=True)
-    hills = obj("FarHills", fverts, ffaces, far, uvs=lambda co: (co.x / 180.0, co.y / 180.0))
+    natural,final,report=generate(n,city=city)
+    publish(_Path(OUT)/'terrain/FarHills',natural,final,report,city=city)
+    hills = obj("FarHills", final.vertices.tolist(), final.polygons(), far, uvs=lambda co: (co.x / 180.0, co.y / 180.0))
     coastal_colours(hills)
     rock_surface(hills)
     # export terrain fbx

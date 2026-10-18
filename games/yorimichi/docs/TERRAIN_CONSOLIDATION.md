@@ -74,6 +74,16 @@ explicit.
 
 ## Following increments
 
+The first extraction publishes `terrain.FarHills.natural`,
+`terrain.FarHills.final` and `terrain.FarHills.provenance` from the existing
+`world.terrain` caller. Its Blender/NumPy context, source grid, one railway carve,
+appearance and exports retain their order. Natural polygons keep their original
+corner order; explicit fan triangles are stored alongside them, after the
+planner has consumed the original polygons. Product bytes contain explicit
+owner/stage/city mode and canonical arrays, with fixed archive timestamps.
+Missing, malformed or mismatched products fail when loaded. This initial
+extraction does not yet move crown placement or claim narrower invalidation.
+
 1. Extract FarHills natural/final NumPy products in the **current discrete order**,
    keeping original parents, rail lattice, selected/retained adjacency and every
    triangle/index order. Compare complete arrays and exported payloads against
