@@ -668,16 +668,21 @@ def backdrop_grid():
     return BACKDROP
 
 def coastal_backdrop_height(x,y,base):
-    """Shape the exposed coast, sharing the already-shaped southern fine-terrain rim.
+    """Shape the exposed coast, sharing the southern and complete western fine rim.
 
     Only the exterior of the combined main/city footprint is stitched. The
-    correction ends below the city streets and precedes railway earthworks.
+    Southern correction ends below city streets; the west rim follows the
+    fine terrain's edge. Both corrections precede railway earthworks.
     """
     x,y,base=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float),np.asarray(base,float))
-    out=shorelines.height(x,y,base)
+    out=shorelines.height(x,y,base,exposed_west=True)
     px=np.clip(x,-300.,1420.);py=np.clip(y,-300.,300.)
     distance=np.hypot(x-px,y-py)
     amount=(1-mountains.smooth(distance/80.))*mountains.smooth((-100.-y)/25.)
+    # The entire west rim is exposed, unlike the internal main/city border.
+    # Blend to its actual fine-edge profile even north of the southern coast;
+    # otherwise the old -30m backdrop remains open beside above-water ground.
+    amount=np.maximum(amount,(1-mountains.smooth(distance/80.))*(x<=-300.))
     mask=(distance>0.) | (x==-300.) | (x==1420.) | (y==-300.)
     mask &= amount>0.
     if not np.any(mask):return out

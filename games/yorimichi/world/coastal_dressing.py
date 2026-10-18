@@ -111,7 +111,9 @@ def placements(ground):
         if rng.random() < .45:
             put('Bush_Ochre_A', xx, yy, zz-.12, rng.uniform(1.2, 2.))
     shape_crowns(result)
-    return result
+    # Finish the established random stream before discarding these faulty
+    # mainland props, so removing them cannot reshuffle the coastal woodland.
+    return {name:rows for name,rows in result.items() if not name.startswith('SW_Boulder_')}
 
 
 def shape_crowns(objects):
@@ -129,51 +131,6 @@ def shape_crowns(objects):
         keep=~on | (gaps > .3)
         objects[name]=[[*row[:4],round(row[4]*.55,3)] if selected else row
                        for row,selected,k in zip(rows,on,keep) if k]
-
-
-def shoulder_sites():
-    """@cc [owner:fontanierh,label:correctness] connected-coastal-shoulders
-    Small interlocking source rocks may occupy these five existing shoulders
-    only after full-footprint clearance. Preserve pier, arrival, harbor, islet,
-    town and rail exclusions; do not consume the established dressing RNG.
-    """
-    centres=[]
-    for x in [-255.,245.]:
-        lo,hi=-300.,-100.
-        for _ in range(30):
-            mid=(lo+hi)/2.
-            if coast.field(x,mid)[0]>0.:hi=mid
-            else:lo=mid
-        centres.append((x,(lo+hi)/2.,1.,0.,0.,1.,0.))
-    for y in [4380.,5250.,6210.]:
-        lo,hi=2000.,3200.
-        for _ in range(30):
-            mid=(lo+hi)/2.
-            if coast.field(mid,y)[0]>0.:lo=mid
-            else:hi=mid
-        centres.append(((lo+hi)/2.,y,0.,1.,-1.,0.,90.))
-    result=[]
-    pattern=[(t,n) for n in [-1.,6.] for t in [-16.,-10.,-4.,3.,10.,16.]]+[(t,12.) for t in [-10.,0.,10.]]
-    for ci,(cx,cy,tx,ty,nx,ny,angle) in enumerate(centres):
-        for i,(t,n) in enumerate(pattern):
-            size=round(float(4.1+.9*np.sin(i*1.7+ci*.8)+.35*np.cos(i*2.1)),3)
-            x,y=round(cx+tx*t+nx*n,2),round(cy+ty*t+ny*n,2)
-            # This radius exceeds both source meshes and their collider bounds.
-            if not bool(clear_footprint(x,y,size*3.)):continue
-            asset='SW_Boulder_A' if i%3 else 'SW_Boulder_B'
-            yaw=round(float(angle+14.*np.sin(i*2.3+ci)),1)
-            result.append((asset,x,y,size,yaw))
-    return result
-
-
-def append_shoulders(objects, ground):
-    """Append small embedded groups after the original producer's random draws."""
-    sites=shoulder_sites()
-    x,y=np.asarray([(r[1],r[2]) for r in sites],float).T
-    z=ground(x,y)
-    assert np.isfinite(z).all(),'Missing triangle support for coastal shoulder'
-    for (name,x,y,size,yaw),height in zip(sites,z):
-        objects.setdefault(name,[]).append([x,y,round(float(height+size*.2),3),yaw,size])
 
 
 def integrate(world, heightmap):
@@ -208,27 +165,7 @@ def integrate(world, heightmap):
         out[city] = layout.height(x[city], y[city])
         return out
 
-    def shoulder_ground(x,y):
-        out=ground(x,y)
-        north=y>3200.
-        # The country exporter refines its source cells before carving. New
-        # shoulders use those triangles rather than the nonlinear query height.
-        def shape(qx,qy,base):
-            return earthworks.carve(qx,qy,coast.height(qx,qy,base))
-        if north.any():
-            out[north]=coast.sample_grid_mesh(*terrain.country_grid(),x[north],y[north],shape=shape)
-        fine=~north
-        # Fine beach quads are not planar. Embed new rocks below either
-        # possible export diagonal, without changing the ground or old dressing.
-        fx=np.clip((x[fine]+300.)/600.*(n-1),0.,n-1.000001)
-        fy=np.clip((y[fine]+300.)/600.*(n-1),0.,n-1.000001)
-        i,j=fx.astype(int),fy.astype(int);u,v=fx-i,fy-j
-        a,b,c,d=heightmap[j,i],heightmap[j,i+1],heightmap[j+1,i+1],heightmap[j+1,i]
-        out[fine]=shoulder_quad_floor(a,b,c,d,u,v)
-        return out
-
     objects = placements(ground)
-    append_shoulders(objects,shoulder_ground)
     clear_instances(objects)
     for name, rows in objects.items():
         world['instances'].setdefault(name, []).extend(rows)
@@ -237,8 +174,30 @@ def integrate(world, heightmap):
     print('COASTAL FEATURES', counts, flush=True)
 
 
-def shoulder_quad_floor(a,b,c,d,u,v):
-    """Conservative contact height beneath either triangulation of a beach quad."""
-    ac=np.where(u>=v,a+u*(b-a)+v*(c-b),a+u*(c-d)+v*(d-a))
-    bd=np.where(u+v<=1.,a+u*(b-a)+v*(d-a),c+(1.-u)*(d-c)+(1.-v)*(b-c))
-    return np.minimum(ac,bd)
+def repair_west_forest(world, heightmap, owned_rows):
+    """@cc [owner:fontanierh,label:correctness] repaired-west-rim-forest-support
+    Re-seat only surviving original far-forest rows in the repaired west rim.
+    Preserve their XY/yaw/scale, all outside rows and all RNG draws. Query the
+    exporter's parent-preserving mesh and exact fine-edge knots; this local
+    region MUST remain outside railway carving. Do not move another producer.
+    """
+    from hidamari import layout
+    from farhills_grid import mesh_grid, source_grid
+    from train import earthworks
+    owned={(name,*row[:2]) for name,rows in owned_rows.items() for row in rows}
+    selected=[row for name,rows in world['instances'].items() for row in rows
+              if (name,*row[:2]) in owned and -550.<row[0]<-300. and -380.<row[1]<380.]
+    if not selected:return
+    p=np.asarray(selected,float)
+    # Match the float32 heightmap consumed by the later geometry producer.
+    layout.H=np.asarray(heightmap,dtype=np.float32)
+    xs,ys,z=mesh_grid(len(heightmap))
+    def shape(x,y,base):
+        ground=layout.coastal_backdrop_height(x,y,base)
+        if not np.array_equal(ground,earthworks.carve(x,y,ground)):
+            raise ValueError('West-rim forest repair overlaps railway earthworks')
+        return ground
+    ground=coast.sample_grid_mesh(xs,ys,z,p[:,0],p[:,1],shape=shape,
+        parents=source_grid(),edge_knots={(0,-300.):np.linspace(-300.,300.,len(heightmap))})
+    for row,height in zip(selected,ground):row[2]=round(float(height-.3),2)
+    world['west_rim_forest_support']={'producer':'far_forest','count':len(selected),'embedding_m':.3}
