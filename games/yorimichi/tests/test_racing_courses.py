@@ -1,6 +1,6 @@
 """Committed racecourses must match both their schema and the actual venue surface."""
-import copy
 import io
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -37,9 +37,13 @@ def test_committed_lap_lengths_and_finish():
     lambda d: d['tracks']['turf'].update(length_m=1800.),
     lambda d: d['tracks']['turf'].update(lane_width_m=1.9),
     lambda d: d['tracks']['turf']['points'].reverse(),
+    lambda d: [p.__setitem__(2, p[2] + 100.) for p in d['tracks']['turf']['points']],
+    lambda d: [p.__setitem__(0, p[0] + 100.) for p in d['tracks']['turf']['points']],
+    lambda d: d['tracks']['turf'].update(lane_width_m=-100.),
+    lambda d: d['tracks']['turf']['points'][0].__setitem__(0, 10**1000),
 ])
 def test_invalid_course_data_is_rejected(tmp_path, change):
-    data = copy.deepcopy(courses.load())
+    data = json.loads(courses.DATA.read_text())
     change(data)
     path = tmp_path / 'courses.json'
     path.write_text(json.dumps(data))
@@ -96,4 +100,56 @@ def test_staging_tracks_all_course_inputs(tmp_path):
     assert courses.DATA in step.inputs
     assert runtime.RACING_VALIDATOR in step.inputs
     assert courses.SCENE in step.inputs
+    assert all(p in step.inputs for p in courses.surface_inputs())
+    from atelier import gltf
+    assert courses.SOURCE_READER in step.inputs
+    assert Path(gltf.__file__) in step.inputs
     assert recipe.GAME / 'unreal/Content/Data/racing/belmonte_courses.json' in step.outputs
+
+
+def test_off_venue_course_fails_before_staging_writes(tmp_path, monkeypatch):
+    runtime = recipes.load_recipe('yorimichi').runtime_data
+    data = json.loads(courses.DATA.read_text())
+    for point in data['tracks']['turf']['points']:
+        point[2] += 100.
+    bad = tmp_path / 'courses.json'
+    bad.write_text(json.dumps(data))
+    destination = tmp_path / 'Data'
+    monkeypatch.setattr(runtime, 'RACING_COURSES', bad)
+    monkeypatch.setattr(runtime.paths, 'content_data', lambda game: destination)
+    with pytest.raises(ValueError, match='venue surface'):
+        runtime.stage_data(SimpleNamespace(game='yorimichi', out=tmp_path), io.StringIO())
+    assert not destination.exists()
+
+
+def test_corrupt_venue_mesh_is_rejected_before_parsing(tmp_path):
+    scene = tmp_path / 'source.json'
+    scene.write_bytes(courses.SCENE.read_bytes())
+    model_path = courses.surface_inputs(scene)[0]
+    model_path.parent.mkdir(parents=True)
+    model_path.write_bytes(b'changed geometry')
+    with pytest.raises(ValueError, match='mesh differs'):
+        courses.load(scene=scene)
+
+
+def test_surface_validation_follows_the_authored_venue_placement(tmp_path):
+    scene = json.loads(courses.SCENE.read_text())
+    model, _, original_path = courses.venue(courses.SCENE)
+    placement = next(p for p in scene['placements'] if p['asset'] == model['source_asset'])
+    placement['transform']['translation_cm'][0] += 1000.
+    scene_path = tmp_path / 'source.json'
+    scene_path.write_text(json.dumps(scene))
+    model_path = tmp_path / model['path']
+    model_path.parent.mkdir(parents=True)
+    model_path.write_bytes(original_path.read_bytes())
+    data = json.loads(courses.DATA.read_text())
+    data['source']['venue_scene_sha256'] = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    data_path = tmp_path / 'courses.json'
+    data_path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match='venue'):
+        courses.load(data_path, scene_path)
+    for track in data['tracks'].values():
+        for point in track['points']:
+            point[0] += 10.
+    data_path.write_text(json.dumps(data))
+    assert courses.load(data_path, scene_path)['tracks'] == data['tracks']
