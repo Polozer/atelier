@@ -471,7 +471,7 @@ def sea_mesh(radius=24000.):
     return vertices,faces
 
 
-def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height):
+def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height, parents=None):
     """@cc [owner:fontanierh,label:correctness] coastal-planting-triangle-support
     Sample the same refined polygons and fan diagonals as grid_mesh and the
     terrain exporter. Do not evaluate the nonlinear shape at the query itself.
@@ -487,7 +487,7 @@ def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height):
     keys=iy*(len(xs)-1)+ix
     for key in np.unique(keys):
         mask=keys==key;j,i=divmod(int(key),len(xs)-1)
-        vertices,faces=grid_mesh(xs[i:i+2],ys[j:j+2],z[j:j+2,i:i+2],step=step,shape=shape)
+        vertices,faces=grid_mesh(xs[i:i+2],ys[j:j+2],z[j:j+2,i:i+2],step=step,shape=shape,parents=parents)
         triangles=np.asarray(vertices)[np.asarray([(p[0],p[k],p[k+1]) for p in faces for k in range(1,len(p)-1)])]
         a,b,c=np.moveaxis(triangles,1,0)
         den=(b[:,1]-c[:,1])*(a[:,0]-c[:,0])+(c[:,0]-b[:,0])*(a[:,1]-c[:,1])
@@ -500,16 +500,20 @@ def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height):
     return out.reshape(size)
 
 
-def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height):
+def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None):
     """@cc [owner:fontanierh,label:correctness] coastal-parent-triangle-topology
-    Refined faces MUST preserve the parent a-c breakline, including asymmetric
-    x/y subdivision counts. Unchanged source heights MUST remain the same
+    Refined faces MUST preserve the original parent a-c breakline, including
+    initial inserted knots and asymmetric x/y subdivision counts. With parents,
+    its axes MUST partition every input cell and its heights are authoritative.
+    Unchanged source heights MUST remain the same
     piecewise affine surface inside faces, not only at their vertices.
 
     Shared cell edges retain their original knots. Returns vertices and upward
     triangle/quad faces in world metres, without Blender.
     """
     xs, ys, z = np.asarray(xs), np.asarray(ys), np.asarray(z)
+    if parents is not None:
+        source_x,source_y,source_z=map(np.asarray,parents)
     vertices, faces = [], []
     for j, (ay, by) in enumerate(zip(ys[:-1], ys[1:])):
         for i, (ax, bx) in enumerate(zip(xs[:-1], xs[1:])):
@@ -522,30 +526,46 @@ def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height):
             ny = max(1, math.ceil((by-ay)/step)) if refine else 1
             u, v = np.meshgrid(np.linspace(0., 1., nx+1), np.linspace(0., 1., ny+1))
             x, y = ax+(bx-ax)*u, ay+(by-ay)*v
+            px0,px1,py0,py1=ax,bx,ay,by
             a,b,c,d = z[j,i],z[j,i+1],z[j+1,i+1],z[j+1,i]
-            base = np.where(u>=v,a+u*(b-a)+v*(c-b),a+u*(c-d)+v*(d-a))
+            if parents is not None:
+                pi=int(np.clip(np.searchsorted(source_x,(ax+bx)/2.)-1,0,len(source_x)-2))
+                pj=int(np.clip(np.searchsorted(source_y,(ay+by)/2.)-1,0,len(source_y)-2))
+                px0,px1=source_x[pi:pi+2];py0,py1=source_y[pj:pj+2]
+                if ax<px0-1e-9 or bx>px1+1e-9 or ay<py0-1e-9 or by>py1+1e-9:
+                    raise ValueError('Inserted grid cell crosses an original parent boundary')
+                a,b,c,d=source_z[pj,pi],source_z[pj,pi+1],source_z[pj+1,pi+1],source_z[pj+1,pi]
+            aligned=(ax==px0 and bx==px1 and ay==py0 and by==py1)
+            pu,pv=(u,v) if aligned else ((x-px0)/(px1-px0),(y-py0)/(py1-py0))
+            base = np.where(pu>=pv,a+pu*(b-a)+pv*(c-b),a+pu*(c-d)+pv*(d-a))
             h = shape(x, y, base)
             first = len(vertices)
             vertices.extend(np.stack((x, y, h), -1).reshape(-1, 3).tolist())
-            if nx == ny:
+            signs=pu-pv
+            if (nx == ny and aligned) or signs.min()>=-1e-12 or signs.max()<=1e-12:
                 # Every diagonal-crossing child already uses the parent a-c.
                 faces.extend((first+k*(nx+1)+l, first+k*(nx+1)+l+1,
                               first+(k+1)*(nx+1)+l+1, first+(k+1)*(nx+1)+l)
                              for k in range(ny) for l in range(nx))
                 continue
-            # A rectangular child can cross the parent's diagonal even though
-            # every sampled vertex is correct. Clip those children at u=v.
+            # Clip at ORIGINAL parent U=V, also when an inserted boundary
+            # cuts that diagonal before the local refinement begins.
             diagonal = {}
-            knots = np.unique(np.r_[np.linspace(0., 1., nx+1), np.linspace(0., 1., ny+1)])
-            dz = shape(ax+(bx-ax)*knots, ay+(by-ay)*knots, a+(c-a)*knots)
-            uv = {first+k*(nx+1)+l: (l/nx, k/ny) for k in range(ny+1) for l in range(nx+1)}
+            knots = np.unique(np.r_[pu[0,:],pv[:,0]])
+            lo=max((ax-px0)/(px1-px0),(ay-py0)/(py1-py0))
+            hi=min((bx-px0)/(px1-px0),(by-py0)/(py1-py0))
+            knots=knots[(knots>=lo-1e-12)&(knots<=hi+1e-12)]
+            dz = shape(px0+(px1-px0)*knots,py0+(py1-py0)*knots,a+(c-a)*knots)
+            uv = {first+k*(nx+1)+l: (float(pu[k,l]),float(pv[k,l])) for k in range(ny+1) for l in range(nx+1)}
             for t, zz in zip(knots, dz):
-                l, k = round(t*nx), round(t*ny)
-                if abs(l/nx-t) < 1e-12 and abs(k/ny-t) < 1e-12:
+                qx,qy=px0+(px1-px0)*t,py0+(py1-py0)*t
+                lu,lv=(qx-ax)/(bx-ax),(qy-ay)/(by-ay)
+                l,k=round(lu*nx),round(lv*ny)
+                if abs(l/nx-lu) < 1e-12 and abs(k/ny-lv) < 1e-12:
                     index = first+k*(nx+1)+l
                 else:
                     index = len(vertices)
-                    vertices.append((ax+(bx-ax)*t, ay+(by-ay)*t, float(zz)))
+                    vertices.append((qx,qy,float(zz)))
                     uv[index] = (t, t)
                 diagonal[round(float(t), 12)] = index
 

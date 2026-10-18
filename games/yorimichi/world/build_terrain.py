@@ -175,11 +175,12 @@ def main():
     # Shaping both buried and visible ground onto one coast would recreate the
     # original coplanar flicker under the new beaches.
     from hidamari.layout import coastal_backdrop_height
-    from hidamari.forest_backdrop import mesh_grid
-    xs,ys,z=mesh_grid(n,city=os.path.exists(os.path.join(OUT,"hidamari","city.json")))
+    from hidamari.forest_backdrop import mesh_grid,source_grid
+    city=os.path.exists(os.path.join(OUT,"hidamari","city.json"))
+    xs,ys,z=mesh_grid(n,city=city)
     def owned(x,y):
         return (-300.<x<300. and -300.<y<300.) or (300.<x<1420. and -300.<y<500.)
-    fverts,ffaces=shorelines.grid_mesh(xs,ys,z,hidden=owned,shape=coastal_backdrop_height)
+    fverts,ffaces=shorelines.grid_mesh(xs,ys,z,hidden=owned,shape=coastal_backdrop_height,parents=source_grid(city=city))
     print('coastal far hills: %d vertices, %d quads'%(len(fverts),len(ffaces)),flush=True)
     from train import earthworks  # the Belmonte railway's cuttings through the far hills (RAILWAY_EARTHWORKS=0: none)
     from hidamari.mountains import contains as under_foothills

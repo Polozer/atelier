@@ -17,12 +17,8 @@ def triangular(u,v,z00,z10,z01,z11):
     return np.where(u>=v,z00*(1-u)+z10*(u-v)+z11*v,z00*(1-v)+z11*u+z01*(v-u))
 
 
-def mesh_grid(fine_count, *, city=True):
-    """@cc [owner:fontanierh,label:correctness] shared-backdrop-source-grid
-    Preserve the exporter's source heights, lowered replacement footprints and
-    exact fine-boundary knots, including its no-city fallback. Export and crown
-    placement MUST share these same arrays without changing ground geometry.
-    """
+def source_grid(*, city=True):
+    """The original96-parent heights, including existing replacement lowering."""
     from hidamari import layout as H
     from belmonte import terrain as B
     import yori
@@ -32,6 +28,20 @@ def mesh_grid(fine_count, *, city=True):
         mask=mountains.contains(xx,yy)|park_trail.in_approach(xx,yy)
         grid[mask]=np.minimum(grid[mask],H.north_height(xx,yy,carved=False)[mask]-25)
         grid=B.old_backdrop(grid,xx,yy)
+    return axis,axis,grid
+
+
+def mesh_grid(fine_count, *, city=True):
+    """@cc [owner:fontanierh,label:correctness] shared-backdrop-source-grid
+    Preserve the original96-parent surface through inserted boundary knots,
+    including replacement lowering and the no-city fallback. Export and crown
+    placement MUST pass source_grid as the original parent topology, before
+    applying the separate intended coast/stitch/carve transformations.
+    """
+    from hidamari import layout as H
+    from belmonte import terrain as B
+    import yori
+    axis,_,grid=source_grid(city=city)
     fine_y=np.unique(np.r_[np.linspace(-300.,300.,fine_count),H.terrain_axes()[1]])
     fine_y=fine_y[(fine_y>=-300.)&(fine_y<=-100.)]
     xs=np.unique(np.r_[axis,-300.,300.,1420.]);ys=np.unique(np.r_[axis,fine_y,-300.,300.,500.])
@@ -132,7 +142,7 @@ def append(instances,buildings,height,backdrop_grid,terrain_axes,north_height,ro
         # earthworks'120m reach even at neighboring source-cell corners.
         grid=mesh_grid(len(np.load(yori.OUT/'heightmap.npy')))
         samples=shorelines.sample_grid_mesh(*grid,np.r_[px,px+2.,px-2.,px,px],
-            np.r_[py,py,py,py+2.,py-2.],shape=final_shape).reshape(5,-1)
+            np.r_[py,py,py,py+2.,py-2.],shape=final_shape,parents=source_grid()).reshape(5,-1)
         crown_ground=samples[0]
         slope[crown]=np.hypot((samples[1]-samples[2])/4.,(samples[3]-samples[4])/4.)
     keep,resize=coastal_surface.forest_crowns(x,y,z,slope)

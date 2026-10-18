@@ -401,6 +401,31 @@ def test_asymmetric_refinement_preserves_parent_saddle_inside_every_triangle():
     assert np.all(normals[:,2]>0.)
 
 
+def test_initial_inserted_knots_keep_original_parent_breaklines(monkeypatch):
+    from belmonte.terrain import grid_height
+    from belmonte.source import Surface
+    original_x=np.array([-1044.2105263158,-976.8421052632])
+    original_y=np.array([437.8947368421,505.2631578947])
+    original_z=np.array([[0.,0.],[0.,100.]])
+    xs=np.array([original_x[0],-1015.,original_x[1]])
+    ys=np.array([original_y[0],470.,500.,original_y[1]])
+    xx,yy=np.meshgrid(xs,ys)
+    z=grid_height(original_x,original_y,original_z,xx,yy)
+    parents=(original_x,original_y,original_z)
+    monkeypatch.setattr(S,'field',lambda x,y:(np.zeros_like(x),np.zeros_like(x)))
+    for step in [6.,1000.]:
+        vertices,faces=S.grid_mesh(xs,ys,z,step=step,shape=lambda x,y,base:base,parents=parents)
+        p=np.asarray(vertices);tri=np.array([(f[0],f[k],f[k+1]) for f in faces for k in range(1,len(f)-1)])
+        assert (np.cross(p[tri[:,1]]-p[tri[:,0]],p[tri[:,2]]-p[tri[:,0]])[:,2]>0.).all()
+        for weights in [[.21,.37,.42],[.61,.31,.08]]:
+            q=np.einsum('tvc,v->tc',p[tri],weights)
+            np.testing.assert_allclose(q[:,2],grid_height(*parents,q[:,0],q[:,1]),atol=2e-10)
+        qx,qy=np.array([-1003.7894736842,-982.1052631579]),np.array([501.3157894737,500.])
+        expected=grid_height(*parents,qx,qy)
+        np.testing.assert_allclose(Surface(p[tri]).height(qx,qy),expected,atol=2e-10)
+        np.testing.assert_allclose(S.sample_grid_mesh(xs,ys,z,qx,qy,step=step,shape=lambda x,y,base:base,parents=parents),expected,atol=2e-10)
+
+
 def test_country_landform_starts_after_the_existing_south_join():
     from belmonte import layout
     x=np.linspace(1575.,layout.BOUNDS[2]+layout.APRON,121);y=np.full_like(x,layout.SOUTH_JOIN)
