@@ -26,16 +26,18 @@ from atelier.harness.safety.process import spawn_game
 from network_review_common import current_native_build, require_clean_source, source_revision
 
 
+def finite(value):
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        return False
+
+
 def landing_checks(rows, zone, mode, expected):
     """Admit measured native landing, not just target presence or a successful exit."""
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         return {'one_destination': False}
     row = rows[0]
-    def finite(value):
-        try:
-            return type(value) in (int, float) and math.isfinite(value)
-        except OverflowError:
-            return False
     target, landed = row.get('target'), row.get('landed')
     vectors = all(isinstance(v, list) and len(v) == 3 and all(finite(n) for n in v) for v in [target, landed])
     angles = all(finite(row.get(k)) for k in ['yaw', 'target_yaw'])
@@ -50,18 +52,24 @@ def landing_checks(rows, zone, mode, expected):
                 trace_height=finite(row.get('above_cm')) and row['above_cm'] == expected['above_cm'])
 
 
+def host_vacated(end, zone, expected):
+    if not isinstance(end, dict) or end.get('zone') != zone or end.get('net_mode') != 2:
+        return False
+    feet = end.get('feet')
+    return (isinstance(feet, list) and len(feet) == 3 and all(finite(n) for n in feet)
+            and math.dist(feet[:2], expected['target'][:2]) > 500)
+
+
 def current_data(ctx, zone):
     """Require current producer/import/staging certificates, not a manually copied map."""
-    from atelier import build_snapshot
-    from atelier.build import load_recipe, order, fingerprint, outputs_present
+    from atelier import build_snapshot, build_plan
+    from atelier.build import load_recipe
     build_snapshot.require_complete(ctx.out, game=ctx.game, repo=paths.REPO)
-    done = {}
-    for step in order(load_recipe(ctx.game).steps(ctx), ['data.network']):
-        stamp = json.loads((ctx.stamps / (step.name + '.json')).read_text())
-        value = fingerprint(step, done)
-        if stamp.get('fingerprint') != value or not outputs_present(step):
-            raise RuntimeError('Native map acceptance requires a current build: '+step.name)
-        done[step.name] = value
+    plan = build_plan.inspect(ctx, load_recipe(ctx.game).steps(ctx), ['data.network'])
+    stale = [r['step'] for r in plan['steps'] if r['status'] != 'current']
+    if stale or not any(r['step'] == 'data.network' for r in plan['steps']):
+        raise RuntimeError('Native map acceptance requires a current build: '+', '.join(stale[:5]))
+    stage = json.loads((ctx.stamps / 'data.network.json').read_text())
     content = ctx.uproject.parent / 'Content/Data'
     raw = (content / 'map/map.json').read_bytes()
     if raw != (ctx.out / 'map/map.json').read_bytes():
@@ -70,14 +78,16 @@ def current_data(ctx, zone):
     if len(selected) != 1:
         raise ValueError('The staged map must contain exactly one chosen static zone')
     entry = selected[0]
+    if not all(finite(entry.get(k)) for k in ['x', 'y', 'z', 'yaw']):
+        raise ValueError('Selected zone has invalid authored coordinates')
     above = entry.get('above_m', 25.)
-    if type(above) not in (int, float) or not math.isfinite(above) or not 0 <= above <= 60:
+    if not finite(above) or not 0 <= above <= 60:
         raise ValueError('Selected zone has invalid authored landing height')
     expected = dict(target=[entry['x']*100, -entry['y']*100, entry['z']*100],
                     yaw=-entry['yaw'], above_cm=above*100)
     identity = json.loads((content / 'Network/session.json').read_text())
     return dict(map_sha256=hashlib.sha256(raw).hexdigest(), expected=expected,
-                identity=identity['signature'], stage_fingerprint=done['data.network'])
+                identity=identity['signature'], stage_fingerprint=stage['fingerprint'])
 
 
 def read(path):
@@ -149,6 +159,7 @@ def worker(out, zone, port):
         wait('host tour and vacated destination', lambda: read(out / 'host/map_qa.json') is not None and
              read(out / 'session/server-world.json') is not None, active)
         checks = {'host_'+k: v for k, v in landing_checks(read(out / 'host/map_qa.json'), zone, 2, expected).items()}
+        checks['host_vacated_destination'] = host_vacated(read(out / 'host/map_qa_end.json'), zone, expected)
         if not all(checks.values()):
             raise RuntimeError('Host landing rejected: '+str(checks))
         guest, guest_guard = launch('guest', f'127.0.0.1:{port}')

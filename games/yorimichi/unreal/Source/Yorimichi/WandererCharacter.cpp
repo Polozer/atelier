@@ -1699,7 +1699,18 @@ void AWandererCharacter::AdvanceMapReview(float Dt)
         {
             Map->Close();
             FString Json = TEXT("[\n")+MapTelemetry; Json.RemoveFromEnd(TEXT(",\n")); Json += TEXT("\n]\n");
-            if (!FFileHelper::SaveStringToFile(Json,*(ReviewDirectory/TEXT("map_qa.json")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+            const FVector EndFeet = GetActorLocation() - FVector(0,0,GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+            auto End = MakeShared<FJsonObject>(); End->SetStringField(TEXT("zone"), OnlyZone);
+            End->SetArrayField(TEXT("feet"), {MakeShared<FJsonValueNumber>(EndFeet.X), MakeShared<FJsonValueNumber>(EndFeet.Y), MakeShared<FJsonValueNumber>(EndFeet.Z)});
+            End->SetNumberField(TEXT("net_mode"), int32(GetNetMode()));
+            FString EndJson; FJsonSerializer::Serialize(End, TJsonWriterFactory<>::Create(&EndJson));
+            auto Publish = [&](const FString& Name, const FString& Text)
+            {
+                const FString Path = ReviewDirectory / Name, Temp = Path + TEXT(".tmp");
+                return FFileHelper::SaveStringToFile(Text, *Temp, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM) &&
+                    IFileManager::Get().Move(*Path, *Temp, true, true);
+            };
+            if (!Publish(TEXT("map_qa_end.json"), EndJson) || !Publish(TEXT("map_qa.json"), Json))
             { UE_LOG(LogTemp, Error, TEXT("MAP QA: telemetry publication failed")); AtelierRequestExit(1); return; }
             UE_LOG(LogTemp,Display,TEXT("MAP QA COMPLETE: %d zones -> %s"),Zones.Num(),*ReviewDirectory);
             bMapReview = false;

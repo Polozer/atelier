@@ -48,17 +48,17 @@ def test_equivalent_wrapped_runtime_yaw_is_valid():
     assert all(landing_checks(rows, 'indoor', 2, EXPECTED).values())
 
 
-def test_current_data_rejects_a_stale_producer_and_incomplete_install_before_reading_files(tmp_path, monkeypatch):
+@pytest.mark.parametrize('state', ['run', 'check-after-build'])
+def test_current_data_rejects_a_stale_producer_and_incomplete_install_before_reading_files(tmp_path, monkeypatch, state):
     from types import SimpleNamespace
-    from atelier import build, build_snapshot
+    from atelier import build, build_snapshot, build_plan
     import review_map_network as review
     context = SimpleNamespace(out=tmp_path, stamps=tmp_path, game='yorimichi')
     step = SimpleNamespace(name='data.network')
     (tmp_path / 'data.network.json').write_text('{"fingerprint":"old"}')
     monkeypatch.setattr(build_snapshot, 'require_complete', lambda *a, **k: None)
     monkeypatch.setattr(build, 'load_recipe', lambda game: SimpleNamespace(steps=lambda ctx: [step]))
-    monkeypatch.setattr(build, 'order', lambda steps, targets: steps)
-    monkeypatch.setattr(build, 'fingerprint', lambda step, done: 'current')
+    monkeypatch.setattr(build_plan, 'inspect', lambda *a, **k: {'steps': [{'step': 'data.network', 'status': state}]})
     with pytest.raises(RuntimeError, match='current build'):
         review.current_data(context, 'indoor')
     def incomplete(*args, **kwargs):
@@ -66,3 +66,18 @@ def test_current_data_rejects_a_stale_producer_and_incomplete_install_before_rea
     monkeypatch.setattr(build_snapshot, 'require_complete', incomplete)
     with pytest.raises(SystemExit, match='incomplete verified reuse'):
         review.current_data(context, 'indoor')
+
+
+@pytest.mark.parametrize('end,valid', [
+    ({'zone': 'indoor', 'net_mode': 2, 'feet': [1000., -200., 300.]}, True),
+    ({'zone': 'indoor', 'net_mode': 2, 'feet': [100., -200., 300.]}, False),
+    ({'zone': 'indoor', 'net_mode': 2, 'feet': [100., -200., 10000.]}, False),
+    ({'zone': 'other', 'net_mode': 2, 'feet': [1000., -200., 300.]}, False),
+    ({'zone': 'indoor', 'net_mode': 3, 'feet': [1000., -200., 300.]}, False),
+    ({'zone': 'indoor', 'net_mode': 2, 'feet': [float('nan'), -200., 300.]}, False),
+    ({'zone': 'indoor', 'net_mode': 2, 'feet': None}, False),
+    (None, False),
+])
+def test_host_must_have_measurably_vacated_before_guest_starts(end, valid):
+    from review_map_network import host_vacated
+    assert host_vacated(end, 'indoor', EXPECTED) is valid
