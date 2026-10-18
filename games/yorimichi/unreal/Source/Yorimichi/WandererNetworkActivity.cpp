@@ -348,9 +348,9 @@ void AWandererCharacter::ServerFinishSkate_Implementation(uint32 Epoch, FVector_
     BeginNetworkActivity(EJapanActivity::OnFoot, bFalling);
 }
 
-void AWandererCharacter::ServerTravelTo_Implementation(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch)
+void AWandererCharacter::ServerTravelTo_Implementation(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch, float Above)
 {
-    PerformNetworkTravel(Location, Yaw, Epoch, 2500.f);
+    PerformNetworkTravel(Location, Yaw, Epoch, Above);
 }
 
 bool AWandererCharacter::PerformNetworkTravel(FVector Location, float Yaw, uint32 Epoch, float Above)
@@ -362,7 +362,7 @@ bool AWandererCharacter::PerformNetworkTravel(FVector Location, float Yaw, uint3
     if (!Combat) { ClientActivityRejected(TEXT("Combat state is unavailable.")); return false; }
     if (Combat->HasPending(this))
     { ++Combat->PendingTravelRefusals; ClientActivityRejected(TEXT("Finish the incoming hit before travelling.")); return false; }
-    if (!FiniteInWorld(Location, 2000000.) || !FMath::IsFinite(Yaw) ||
+    if (!FiniteInWorld(Location, 2000000.) || !FMath::IsFinite(Yaw) || !FMath::IsFinite(Above) || Above < 0.f || Above > 6000.f ||
         GetWorld()->GetTimeSeconds() - LastNetworkTravel < 1.)
     { ClientActivityRejected(TEXT("Travel is unavailable just now.")); return false; }
     if (GetWorld()->GetSubsystem<UJapanEncounters>()->HoldsPlayer(this) ||

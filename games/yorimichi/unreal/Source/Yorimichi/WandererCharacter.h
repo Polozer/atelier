@@ -132,7 +132,7 @@ public:
     UFUNCTION(BlueprintPure, Category = "Map")
     UJapanMap* GetMap() const { return Map; }
     /** Travel to a world position (Unreal cm) facing Yaw: stows the board and sailboat, clears momentum, lands on the ground actually built there
-     *  (the highest surface from Above cm over the position down). */
+     *  (the highest surface from Above cm over the position down). Above is finite, 0–6000 cm, and preserved on host travel. */
     bool TravelTo(FVector Location, float Yaw, const TCHAR* Reason = TEXT("map"), float Above = 2500.f);
     uint32 GetActivityEpoch() const { return NetworkActivity.Epoch; }
     EJapanActivity GetNetworkActivity() const { return NetworkActivity.Kind; }
@@ -140,7 +140,7 @@ public:
         TFunction<void()> FootReaction = {});
     /** Host-only supported park/stow followed by one foot epoch; clock resets also discard vehicle momentum. */
     bool ExitNetworkVehicle(uint8 ClockCorrection = 0, TFunction<void()> FootReaction = {});
-    UFUNCTION(Server, Reliable) void ServerTravelTo(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch);
+    UFUNCTION(Server, Reliable) void ServerTravelTo(FVector_NetQuantize100 Location, float Yaw, uint32 Epoch, float Above);
     UFUNCTION(Client, Reliable) void ClientPlayerTravelled();
     UFUNCTION(Server, Reliable) void ServerTravelToPlayer(const FString& SessionPlayerId, uint32 Epoch);
     UFUNCTION(Server, Reliable) void ServerRequestSkate(uint32 Epoch);
