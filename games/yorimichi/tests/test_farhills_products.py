@@ -81,13 +81,14 @@ def test_loader_fails_on_missing_corrupt_or_mismatched_products(tmp_path):
 
 def test_extraction_passes_original_polygons_to_one_carve(monkeypatch):
     import shorelines
-    from hidamari import forest_backdrop, layout, mountains
+    import farhills_grid
+    from hidamari import layout, mountains
     from train import earthworks
     grid = np.array([2000., 2010.]), np.array([2000., 2014.]), np.array([[1., 2.], [3., 8.]])
     calls = []
-    monkeypatch.setattr(forest_backdrop, 'mesh_grid', lambda n, *, city: grid)
-    monkeypatch.setattr(forest_backdrop, 'source_grid', lambda *, city: grid)
-    monkeypatch.setattr(forest_backdrop, 'rail_refinement', lambda *, city: {})
+    monkeypatch.setattr(farhills_grid, 'mesh_grid', lambda n, *, city: grid)
+    monkeypatch.setattr(farhills_grid, 'source_grid', lambda *, city: grid)
+    monkeypatch.setattr(farhills_grid, 'rail_refinement', lambda *, city: {})
     monkeypatch.setattr(layout, 'coastal_backdrop_height', lambda x, y, z: z)
     monkeypatch.setattr(shorelines, 'field', lambda x, y: (np.zeros_like(x), np.zeros_like(x)))
     monkeypatch.setattr(shorelines, 'reach', lambda x, y: np.full_like(x, 1000.))
@@ -102,3 +103,96 @@ def test_extraction_passes_original_polygons_to_one_carve(monkeypatch):
     np.testing.assert_array_equal(natural.vertices, calls[0][0])
     assert natural.polygons() == calls[0][1] == final.polygons()
     np.testing.assert_array_equal(final.vertices, natural.vertices+[0., 0., 1.])
+
+
+def test_normal_export_requires_matching_product_and_never_regenerates(tmp_path, monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError('normal export must not regenerate geometry')
+    monkeypatch.setattr(farhills_surface, 'generate', forbidden)
+    with pytest.raises(FileNotFoundError):
+        farhills_surface.export_mesh(301, tmp_path, city=True)
+    mesh = Mesh.from_polygons([[0., 0., 0.], [1., 0., 2.], [0., 1., 3.]], [[0, 1, 2]])
+    save(tmp_path/'final.npz', mesh, owner='FarHills', stage='final', city=False)
+    with pytest.raises(ValueError, match='mode mismatch'):
+        farhills_surface.export_mesh(301, tmp_path, city=True)
+    save(tmp_path/'final.npz', mesh, owner='FarHills', stage='final', city=True)
+    result = farhills_surface.export_mesh(301, tmp_path, city=True)
+    np.testing.assert_array_equal(result.vertices, mesh.vertices)
+    np.testing.assert_array_equal(result.indices, mesh.indices)
+
+
+def test_explicit_no_city_export_preserves_its_own_construction(tmp_path, monkeypatch):
+    mesh = Mesh.from_polygons([[0., 0., 0.], [1., 0., 2.], [0., 1., 3.]], [[0, 1, 2]])
+    calls = []
+    def generate(count, *, city):
+        calls.append((count, city))
+        return mesh, mesh, {'refined': 0}
+    monkeypatch.setattr(farhills_surface, 'generate', generate)
+    assert farhills_surface.export_mesh(301, tmp_path, city=False) is mesh
+    assert calls == [(301, False)]
+    restored = load(tmp_path/'final.npz', owner='FarHills', stage='final', city=False)
+    np.testing.assert_array_equal(restored.vertices, mesh.vertices)
+
+
+def test_products_have_one_early_guarded_owner_and_export_reads_final(tmp_path):
+    from types import SimpleNamespace
+    from atelier import build, build_products
+    recipe = build.load_recipe('yorimichi')
+    graph = build_products.Graph(recipe.steps(SimpleNamespace(game='yorimichi', out=tmp_path, uproject=None)))
+    producer, export = graph.by_name['world.farhills'], graph.by_name['world.terrain']
+    assert producer.heavy and producer.commands[0].threads == 3
+    assert 'world.layout' in producer.needs and 'world.hidamari' not in producer.needs
+    assert not any(path.name == 'city.json' for path in producer.inputs)
+    assert {p.name for p in producer.products} == {f'terrain.FarHills.{stage}' for stage in ('natural', 'final', 'provenance')}
+    assert all(graph.owners[p.name] == producer.name for p in producer.products)
+    assert export.reads == ['terrain.FarHills.final'] and not export.products
+    names = [step.name for step in graph.select(['world.terrain'])]
+    assert names.index('world.farhills') < names.index('world.hidamari') < names.index('world.terrain')
+    assert recipe.WORLD/'build_terrain.py' not in producer.inputs
+    # The city layout's conservative import closure still includes appearance
+    # definitions. Narrow those modules separately; never hide reachable reads.
+
+
+@pytest.mark.parametrize('city', [True, False])
+def test_geometry_entrypoint_publishes_explicit_mode_without_city_scenery(tmp_path, monkeypatch, city):
+    import yori
+    monkeypatch.setattr(yori, 'OUT', tmp_path)
+    (tmp_path/'world.json').write_text(json.dumps({'n': 301}))
+    mesh = Mesh.from_polygons([[0., 0., 0.], [1., 0., 2.], [0., 1., 3.]], [[0, 1, 2]])
+    calls = []
+    def generate(count, *, city, progress):
+        calls.append((count, city))
+        progress('fixture complete')
+        return mesh, mesh, {'refined': 0}
+    monkeypatch.setattr(farhills_surface, 'generate', generate)
+    farhills_surface.main([] if city else ['--no-city'])
+    assert calls == [(301, city)]
+    assert not (tmp_path/'hidamari/city.json').exists()
+    result = load(tmp_path/'terrain/FarHills/final.npz', owner='FarHills', stage='final', city=city)
+    np.testing.assert_array_equal(result.vertices, mesh.vertices)
+
+
+def test_failed_geometry_entrypoint_does_not_publish_products(tmp_path, monkeypatch):
+    import yori
+    monkeypatch.setattr(yori, 'OUT', tmp_path)
+    (tmp_path/'world.json').write_text(json.dumps({'n': 301}))
+    def fail(*args, **kwargs):
+        raise RuntimeError('fixture generation failure')
+    monkeypatch.setattr(farhills_surface, 'generate', fail)
+    with pytest.raises(RuntimeError, match='generation failure'):
+        farhills_surface.main([])
+    assert not (tmp_path/'terrain/FarHills').exists()
+
+
+def test_forest_compatibility_names_use_the_authoritative_grid():
+    import farhills_grid
+    from hidamari import forest_backdrop
+    for name in ('source_grid', 'mesh_grid', 'rail_refinement'):
+        assert getattr(forest_backdrop, name) is getattr(farhills_grid, name)
+
+
+def test_export_adapter_edit_does_not_rebuild_geometry_products(tmp_path, monkeypatch):
+    from test_mega_ramp_layers import changed_by
+    changed = changed_by(GAME/'world/build_terrain.py', tmp_path, monkeypatch)
+    assert 'world.terrain' in changed
+    assert 'world.farhills' not in changed
