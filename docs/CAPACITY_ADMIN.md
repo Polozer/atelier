@@ -8,6 +8,17 @@ Use only the installed configuration and an explicitly authorized maintenance wi
 callers and retained reservations before service changes; never change a running job's source or guards.
 The broker and guards remain the authority in every mode. There is no automatic fallback after refusal.
 
+## Compatibility failures
+
+A failed compatibility proof stops admission and makes held grants uncertain. Preserve the failed
+job and broker logs; this does not establish an output failure or authorize a reset. The broker logs
+an allowlisted `reason`, wall and monotonic times, activation/boot/epoch, and up to 32 affected request
+IDs with their total count. `phase` distinguishes refresh from final admission. Unknown exception text
+and OS paths are redacted; OS errors retain their numeric errno. A recovered compatibility check does
+not certify the interrupted job. Use the normal exit-evidence recovery below before any retry.
+If the reason remains unclassified, inspect the verifier with reviewed diagnostics rather than retrying
+an expensive workload repeatedly. Installing new diagnostics requires the usual drained service window.
+
 ## Sealed exclusive maintenance
 
 This explicit interim mode permits ordinary guarded work without another reboot after a reviewed stable-volume
