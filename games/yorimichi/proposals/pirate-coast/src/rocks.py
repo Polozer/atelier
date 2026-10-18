@@ -101,8 +101,8 @@ def cliff_rocks(b, rng, spacing=6.0):
         ux, uy, grad = uphill(x, y)
         if grad < 0.85 or L.in_lot(x, y, 4.0) or L.on_shore_walkway(x, y, 5.0) or L.on_street(x, y, 4.0):
             continue
-        if abs(x - L.WATERFALL[0]) < 22 and -10 <= y <= 60:
-            continue
+        if L.in_gorge(x, y, 3.0):
+            continue  # falls.py dresses the canyon with its own wet rock
         if not free(x, y):
             continue
         placed.setdefault((int(x // cell), int(y // cell)), []).append((x, y))
@@ -115,10 +115,10 @@ def cliff_rocks(b, rng, spacing=6.0):
         base = L.height(cx, cy) - 2.5
         # The top stops a little above the ground uphill of the outcrop, so it reads as a ledge, not a tower.
         crest = L.height(x + ux * radius * 1.2, y + uy * radius * 1.2) + rng.uniform(-0.8, 1.6)
-        height = max(3.0, min(crest - base, rng.uniform(7.0, 17.0)))
+        height = max(3.0, min(crest - base, rng.uniform(9.0, 26.0)))
         light = fbm(x, y, 90.0, 3, 17)
         palette = ('rock_light', 'rock_light', 'rock') if light > 0.45 else ('rock', 'rock_light', 'rock_dark')
-        drums = 1 if height < 6 else rng.randint(2, 3)
+        drums = 1 if height < 6 else max(2, min(5, int(height / rng.uniform(4.5, 7.0))))
         z0 = base
         for k in range(drums):
             z1 = base + height * (k + 1) / drums + rng.uniform(-0.4, 0.4)

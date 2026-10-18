@@ -24,11 +24,14 @@ the ships tied along the quay. The painting language, palette and low-poly const
   rejected trials stay in the ignored build cache.
 - `src/` builds the region as separate Blender collections, exports each collection as its own GLB, then assembles
   the same collections into one review scene. It also normalizes, reduces, validates and places the TRELLIS assets.
-- Foliage uses alpha leaf cards sampled from four painted canopies: branch tubes carry 200-300 small cards per
-  tree, palms use long frond cards, and bushes are card clouds. This replaces the earlier faceted spheres.
-- Cliffs are a finer heightfield with world-space jitter on steep faces, five strata bands, layered ledge
-  beams, fissures and moss/grass on the ledges. Cliff shacks are full stilt cabins with planked walls, porches,
-  ladders, patched roofs, stove pipes, laundry and cargo.
+- Foliage is a species library (`src/flora.py`): broad hardwoods, tiered emergents, small yard trees, coconut palms
+  with bent, folded frond strips, shrubs and flowering mounds. Each is built once from alpha leaf cards whose normals
+  point away from the crown centre, so a crown shades as one rounded mass, and is placed thousands of times as a
+  linked instance (EXT_mesh_gpu_instancing in the GLB). Dart-throwing closes the canopy on the headlands and the
+  ridge. The viewer's Canopy slider thins the instances for phones.
+- Steep faces carry stepped prism outcrops that stand proud of the slope (`src/rocks.py`); terrain materials come
+  from smooth noise and project straight down, sea stacks and the statue islet are crags, and the far hills carry
+  crowns. Shack lots are clusters of small stilt cabins with their own paint and roofs, joined by plank walks.
 - `viewer/` is a three.js page that loads the modules separately, lets each be switched on and off, and offers a
   set of camera viewpoints and a concept gallery.
 

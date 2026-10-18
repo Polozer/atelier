@@ -32,7 +32,7 @@ const VIEWS = {
   rum: { label: 'Rum Row', pos: [-296, 7, -94], target: [-250, 10, -130], fov: 38 },
   lighthouse: { label: 'Lighthouse', pos: [-500, 70, 280], target: [-650, 58, -60], fov: 50 },
   shipyard: { label: 'Shipyard', pos: [290, 24, 200], target: [380, 14, -105], fov: 50 },
-  waterfall: { label: 'Waterfall', pos: [300, 38, 130], target: [448, 55, -30], fov: 42 },
+  waterfall: { label: 'Waterfall', pos: [360, 24, 70], target: [466, 26, -34], fov: 42 },
   cliff: { label: 'Cliff shacks', pos: [-430, 32, 170], target: [-512, 34, -10], fov: 48 },
   top: { label: 'Plan', pos: [0, 1780, 30], target: [0, 0, 20], fov: 52 },
   forest: { label: 'East canopy', pos: [470, 86, -140], target: [660, 52, -330], fov: 40 },
@@ -349,6 +349,7 @@ scene.add(beamGroup);
 const groups = {};
 // Instanced trees, palms and shrubs; the density slider draws a prefix of each (the scatter order is random).
 const foliage = [];
+const flowing = [];
 const emissive = [];
 const loader = new GLTFLoader();
 let totalTris = 0;
@@ -360,6 +361,12 @@ function tuneMaterial(material, flat = true) {
   material.flatShading = flat;
   material.side = THREE.DoubleSide;
   material.needsUpdate = true;
+  if (name.includes('waterfall') || name.includes('mist')) {
+    // Falling water scrolls down its streak texture; the alpha-clipped ribbons stay opaque where drawn.
+    if (name.includes('waterfall') && material.map) flowing.push(material.map);
+    material.depthWrite = true;
+    return;
+  }
   if (name.includes('water')) {
     material.transparent = true;
     material.opacity = 0.7;
@@ -615,6 +622,7 @@ const clock = new THREE.Clock();
 let fpsFrames = 0, fpsLast = performance.now();
 function animate() {
   const dt = clock.getDelta();
+  flowing.forEach((map) => { map.offset.y += dt * 0.55; });
   const t = clock.elapsedTime;
   waterUniforms.uTime.value = t;
   fallUniforms.uTime.value = t;

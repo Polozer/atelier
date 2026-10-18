@@ -38,6 +38,7 @@ COLORS = {
     'planks': '#8a6a48', 'hull': '#4f3a2a', 'deck_planks': '#a08055',
     'leaf_mid': '#4f6b33', 'leaf_light': '#6c8a3f', 'leaf_deep': '#33471f',
     'leaf_warm': '#96703a', 'palm_frond': '#5b7a36',
+    'waterfall': '#dff2ef', 'mist': '#eef6f3',
     'leaf_sun': '#8aa046', 'leaf_rust': '#b0622c', 'leaf_gold': '#ba923a', 'palm_trunk': '#7a6448',
     'rock': '#6d6558', 'rock_light': '#8b8070', 'rock_dark': '#48443c',
     'seabed': '#315f63', 'water': '#1f7f8c', 'water_deep': '#0f4257', 'sea': '#1f8fa0',
@@ -85,10 +86,86 @@ def town_height(x, y):
     return z
 
 
+# Sea-cliff profile, as distance inland from the waterline: a rocky toe, a lower cliff, a ledge wide enough for the
+# stilt cabins, an upper cliff and the plateau. The old single 74 m smoothstep was a 40-degree ramp; these steps
+# reach 65-70 degrees, and the prism outcrops (rocks.py) turn them into stone walls.
+TOE, LOW_TOP, LEDGE_IN, UP_TOP = 8.0, 22.0, 48.0, 64.0
+LEDGE_D = 35.0
+GORGE_Y = 30.0  # axis of the east river and its two-tier waterfall
+
+
+def cliff_wobble(y, side):
+    """How far the cliff line wanders in and out along the shore, in metres."""
+    return 5.0 * math.sin(y * 0.031 + side) + 3.0 * math.sin(y * 0.083 + 2.0 * side)
+
+
+def cliff_profile(d):
+    z = 3.0 * smooth(d / TOE)
+    z += 21.0 * smooth((d - TOE) / (LOW_TOP - TOE))
+    z += 4.0 * smooth((d - LOW_TOP) / (LEDGE_IN - LOW_TOP))
+    z += 28.0 * smooth((d - LEDGE_IN) / (UP_TOP - LEDGE_IN))
+    return z
+
+
+def fall_lips():
+    """x of the lower and upper waterfall lips on the gorge axis."""
+    wob = cliff_wobble(GORGE_Y, 1)
+    return bay_half(GORGE_Y) + LOW_TOP - wob, bay_half(GORGE_Y) + UP_TOP - wob
+
+
+def in_gorge(x, y, margin=0.0):
+    lower, _ = fall_lips()
+    return lower - 14.0 - margin <= x <= 700.0 + margin and abs(y - GORGE_Y) <= 13.0 + margin
+
+
+_LEVELS = {}
+
+
+def gorge_levels():
+    """Water levels: the river at the upper lip (rising 2 cm per metre upstream) and the ledge pool."""
+    if not _LEVELS:
+        lower, upper = fall_lips()
+        floor = min(raw_height(x, GORGE_Y) - 0.02 * (x - upper) for x in range(int(upper) + 2, 690, 4))
+        _LEVELS.update(river=floor - 1.6, pool=raw_height((lower + upper) / 2 - 6.0, GORGE_Y) - 1.0,
+                       lower=lower, upper=upper)
+    return _LEVELS
+
+
+def river_level(x):
+    g = gorge_levels()
+    return g['river'] + 0.02 * max(0.0, x - g['upper'])
+
+
+def gorge_depth(x, y, raw=None):
+    """How far the slot canyon, the ledge pool and the lower notch cut below the natural ground."""
+    if x < 430.0 or x > 720.0 or abs(y - GORGE_Y) > 40.0:
+        return 0.0
+    raw = raw_height(x, y) if raw is None else raw
+    g = gorge_levels()
+    dy = abs(y - GORGE_Y)
+    cut = 0.0
+    # Slot canyon: a flat 10 m river bed with walls rising 40 m over the next 10 m.
+    if g['upper'] - 14.0 <= x <= 700.0:
+        fade = 1.0 - smooth((x - 680.0) / 20.0)
+        bed = river_level(x) - 1.4 + 40.0 * smooth((dy - 5.0) / 10.0)
+        cut = max(cut, (raw - bed) * fade)
+    # Ledge pool between the two falls.
+    if g['lower'] + 1.0 <= x <= g['upper'] - 6.0:
+        edge = smooth((x - (g['lower'] + 1.0)) / 4.0)
+        bed = g['pool'] - 1.4 + 20.0 * smooth((dy - 7.0) / 8.0) + 6.0 * (1.0 - edge)
+        cut = max(cut, raw - bed)
+    # The lower lip notch the pool spills through.
+    if g['lower'] - 4.0 <= x <= g['lower'] + 3.0:
+        bed = g['pool'] - 0.4 + 14.0 * smooth((dy - 5.0) / 7.0)
+        cut = max(cut, raw - bed)
+    return max(0.0, cut)
+
+
 def headland_height(x, y):
     d = abs(x) - bay_half(y)
-    # A high cliff right at the water, then lower, broken country inland.
-    cliff = 58.0 * smooth(d / 74.0)
+    side = 1 if x > 0 else -1
+    # A high stepped cliff right at the water, then lower, broken country inland.
+    cliff = cliff_profile(d + cliff_wobble(y, side))
     back = 1.0 - 0.45 * smooth((d - 120.0) / 280.0)
     z = 2.0 + cliff * back
     z += 10.0 * smooth((y - 10.0) / 190.0)
@@ -127,7 +204,8 @@ def noise(x, y):
 
 
 def height(x, y):
-    z = raw_height(x, y)
+    raw = raw_height(x, y)
+    z = raw - gorge_depth(x, y, raw)
     if y >= QUAY_Y - 2.0:
         town = smooth((y - QUAY_Y) / 30.0) * (1.0 - smooth((abs(x) - 380.0) / 130.0))
         z += noise(x, y) * (1.0 - 0.75 * town)
@@ -262,19 +340,20 @@ LOTS = {b[0]: b for b in BUILDINGS}
 
 # A handful of stilt houses on the two headland shores make the town wrap
 # around the cove instead of stopping at the quay.
+_SHORE = [
+    # key, y, width along the shore, depth, height, floors, roof
+    ('shore-w1', -168, 24, 16, 8.5, 1, 'roof_straw'), ('shore-w2', -134, 22, 16, 9.5, 2, 'roof_terra'),
+    ('shore-w3', -100, 20, 15, 7.5, 1, 'roof_straw'), ('shore-w4', -66, 22, 16, 8.0, 1, 'roof_terra'),
+    ('shore-w5', -32, 20, 15, 9.0, 2, 'roof_straw'), ('shore-w6', 2, 18, 14, 7.0, 1, 'roof_terra'),
+    ('shore-e1', -178, 24, 16, 8.0, 1, 'roof_straw'), ('shore-e2', -144, 22, 16, 9.0, 2, 'roof_terra'),
+    ('shore-e3', -110, 20, 15, 7.5, 1, 'roof_straw'), ('shore-e4', -76, 22, 16, 8.0, 1, 'roof_terra'),
+    ('shore-e5', -42, 20, 15, 9.0, 2, 'roof_straw'), ('shore-e6', -8, 18, 14, 7.0, 1, 'roof_terra'),
+]
+# The cabins sit on the cliff ledge, following its wobble, so none straddles a face.
 SHORE_BUILDINGS = [
-    ('shore-w1', -478, -28, 0, 24, 17, 8.5, 1, 'shack', -90, 'roof_straw'),
-    ('shore-w2', -492, 8, 0, 22, 16, 9.5, 2, 'shack', -96, 'roof_terra'),
-    ('shore-w3', -508, 42, 0, 20, 15, 7.5, 1, 'shack', -88, 'roof_straw'),
-    ('shore-e1', 478, -34, 0, 24, 17, 8.0, 1, 'shack', 90, 'roof_straw'),
-    ('shore-e2', 494, 2, 0, 22, 16, 9.0, 2, 'shack', 96, 'roof_terra'),
-    ('shore-e3', 508, 38, 0, 20, 15, 7.5, 1, 'shack', 88, 'roof_straw'),
-    ('shore-w4', -524, -58, 0, 22, 16, 8.0, 1, 'shack', -90, 'roof_terra'),
-    ('shore-w5', -540, -12, 0, 20, 15, 9.0, 2, 'shack', -96, 'roof_straw'),
-    ('shore-w6', -556, 34, 0, 18, 14, 7.0, 1, 'shack', -88, 'roof_terra'),
-    ('shore-e4', 524, -62, 0, 22, 16, 8.0, 1, 'shack', 90, 'roof_terra'),
-    ('shore-e5', 540, -16, 0, 20, 15, 9.0, 2, 'shack', 96, 'roof_straw'),
-    ('shore-e6', 556, 30, 0, 18, 14, 7.0, 1, 'shack', 88, 'roof_terra'),
+    (key, (1 if key[6] == 'e' else -1) * (bay_half(y) + LEDGE_D - cliff_wobble(y, 1 if key[6] == 'e' else -1)),
+     y, 0, w, d, h, floors, 'shack', (90 if key[6] == 'e' else -90) + (k % 3 - 1) * 4, roof)
+    for k, (key, y, w, d, h, floors, roof) in enumerate(_SHORE)
 ]
 
 # A high, stilted hamlet above the upper terrace gives the town a skyline.
@@ -509,6 +588,8 @@ def plantable(x, y):
         return False
     if abs(x - WATERFALL[0]) < 30 and 0 <= y <= 180:
         return False
+    if in_gorge(x, y, 5.0):
+        return False
     if slope(x, y) > 1.8:
         return False
     return True
@@ -524,7 +605,9 @@ def headland_plantable(x, y):
         return False
     if math.hypot(x - LIGHTHOUSE[0], y - LIGHTHOUSE[1]) < 46.0:
         return False
-    if abs(x - WATERFALL[0]) < 36.0 and -25.0 <= y <= 205.0:
+    if abs(x - WATERFALL[0]) < 36.0 and 45.0 <= y <= 205.0:
+        return False
+    if in_gorge(x, y, 4.0):
         return False
     if abs(x - WATCHTOWER[0]) < 34.0 and abs(y - WATCHTOWER[1]) < 34.0:
         return False

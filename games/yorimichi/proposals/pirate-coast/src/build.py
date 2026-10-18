@@ -70,7 +70,7 @@ def make_material(name, hex_color):
             bsdf.inputs['Roughness'].default_value = 0.94
         elif name.startswith(('wood', 'plaster', 'cream', 'ochre', 'coral', 'sage', 'teal')):
             bsdf.inputs['Roughness'].default_value = 0.9
-    if name.startswith(('leaf_', 'palm_')) and texture.exists():
+    if name.startswith(('leaf_', 'palm_', 'waterfall', 'mist')) and texture.exists():
         # An explicit greater-than node makes the glTF exporter emit
         # alphaMode MASK with a cutoff instead of blended transparency.
         clip = nodes.new('ShaderNodeMath')
@@ -362,7 +362,7 @@ VIEWS = {
     '04-upper-terrace': ((20, 330, 54), (-20, 30, 2), 30, 'day'),
     '05-lighthouse-headland': ((-470, -315, 48), (-618, -38, 74), 55, 'day'),
     '06-shipyard': ((290, -200, 24), (380, 105, 14), 50, 'day'),
-    '07-waterfall-bridge': ((300, -130, 38), (448, 30, 55), 42, 'day'),
+    '07-waterfall-bridge': ((360, -70, 24), (466, 34, 26), 36, 'day'),
     '08-night-harbor': ((-90, -360, 32), (0, 80, 18), 48, 'night'),
     '09-rum-row': ((-296, 94, 7), (-250, 130, 10), 38, 'day'),
     '10-topdown': ((0, -40, 1580), (0, -20, 0), 52, 'day'),

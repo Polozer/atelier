@@ -2,6 +2,7 @@
 import math
 import random
 from pathlib import Path
+import falls
 import layout as L
 import rocks
 from geom import Builder, _surface_scale as surface_scale
@@ -31,7 +32,7 @@ def jag_point(p):
 
 def terrain():
     b = Builder('01_terrain')
-    nx, ny = 420, 340
+    nx, ny = 600, 480
     dx = (L.VIEW_X_MAX - L.VIEW_X_MIN) / nx
     dy = (L.VIEW_Y_MAX - L.VIEW_Y_MIN) / ny
     zs = [[L.ground(L.VIEW_X_MIN + i * dx, L.VIEW_Y_MIN + j * dy) for j in range(ny + 1)] for i in range(nx + 1)]
@@ -52,6 +53,8 @@ def terrain():
                 mat = 'sand'
             elif L.is_water(gx, gy):
                 mat = 'seabed'
+            elif L.in_gorge(gx, gy, 3.0):
+                mat = 'rock_dark' if sl > 0.45 else 'seabed'
             else:
                 mat = rocks.terrain_material(gx, gy, zavg, sl, i, j)
             # Project the ground straight down. Per-face box projection flips axis between neighbouring
@@ -127,21 +130,6 @@ def terrain():
                  (1.2, 1.0, 0.8), subdiv=0)
     foam_ring(b, L.STATUE[0], L.STATUE[1], 17.5, 20)
     shoreline_foam(b)
-    # A narrow, broken wet face behind the fall.  The old uniform slab read as
-    # a dam from the harbor; recessed columns and side outcrops keep the cliff
-    # silhouette irregular while still giving the water a dark backing.
-    for i in range(11):
-        t = i / 10
-        x = L.WATERFALL[0] - 20 + i * 4.0
-        depth = 5.0 + 2.4 * math.sin(t * math.pi)
-        b.box((x, L.WATERFALL[1] + 7.0 - t * 2.0, L.WATERFALL[2] * 0.5),
-              (4.2, depth, L.WATERFALL[2] * (0.86 + 0.10 * math.sin(i * 1.7))),
-              ('rock_dark', 'rock_dark', 'rock', 'rock_dark')[i % 4])
-    for side in (-1, 1):
-        for j in range(5):
-            rx = L.WATERFALL[0] + side * (24 + j * 5)
-            ry = L.WATERFALL[1] - 2 + j * 2.5
-            rock_cluster(b, rx, ry, L.height(rx, ry) - 1.0, RNG.uniform(3.0, 5.5), 2)
     # Distant forested hills, low and rounded so they frame rather than
     # dominate the cove. Several overlapping domes make each ridge.
     hill_rng = random.Random(7741)
@@ -783,9 +771,8 @@ def landmarks():
     if not HAS_STATUE:
         statue(b)
     watchtower(b)
-    waterfall(b)
-    rope_bridge(b)
-    shrine(b)
+    # The two-tier waterfall, its canyon river, rope bridge and ledge shrine (falls.py).
+    falls.waterfall(b)
     return b
 
 
@@ -988,76 +975,6 @@ def watchtower(b):
     for side in (-1, 1):
         b.box((x + side * 3.5, y - 5.0, z + 28.7), (2.4, 3.2, 0.9), 'wood_dark')
         b.cylinder((x + side * 3.5, y - 6.0, z + 29.4), (x + side * 3.5, y - 10.2, z + 30.3), 0.42, 'metal', 7)
-
-
-def waterfall(b):
-    x, y, z = L.WATERFALL
-    # A cluster of narrow ribbons rather than one wide sheet.  Varying widths,
-    # lengths and a few dry gaps read as falling water on rock from the harbor.
-    ribbons = ((-13.6, 2.0, 0.94), (-10.4, 2.8, 1.0), (-7.2, 1.7, 0.82),
-               (-3.8, 3.2, 0.90), (0.4, 2.4, 1.0), (3.8, 3.0, 0.86),
-               (7.4, 1.9, 0.96), (10.8, 2.7, 0.88), (13.8, 1.6, 0.78))
-    for i, (off, width, length) in enumerate(ribbons):
-        xx = x + off
-        top_z = z - 2.0 - abs(off) * 0.10
-        bottom_z = 4.2 + (1.0 - length) * 8.0
-        sway = math.sin(i * 1.9) * 1.4
-        b.quad((xx - width, y - 1.0 + sway, top_z), (xx + width, y - 1.0 + sway, top_z),
-               (xx + width * 1.16, y - 2.0, bottom_z), (xx - width * 1.16, y - 2.0, bottom_z),
-               'water' if i in (1, 4, 7) else 'sail')
-        b.quad((xx - width * 0.55, y - 1.25 + sway, top_z),
-               (xx + width * 0.55, y - 1.25 + sway, top_z),
-               (xx + width * 0.7, y - 2.25, bottom_z + 2.0),
-               (xx - width * 0.7, y - 2.25, bottom_z + 2.0), 'sail')
-    for i in range(22):
-        b.sphere((x + RNG.uniform(-15, 15), y - 7 + RNG.uniform(-3, 3),
-                  4.6 + RNG.uniform(0, 2.2)), RNG.uniform(1.2, 2.8), 'sail',
-                 (1.3, 0.8, 0.55), subdiv=0)
-    for i in range(10):
-        rx = x + RNG.uniform(-22, 22)
-        b.sphere((rx, y - RNG.uniform(5, 12), 3.6 + RNG.uniform(0, 1.4)),
-                 RNG.uniform(1.2, 2.4), 'rock_dark' if i % 2 else 'rock',
-                 (1.2, 0.9, 0.7), subdiv=0)
-    # A shallow turquoise pool and a dark wet lip under the fall.
-    b.quad((x - 30, y - 11, 4.25), (x + 30, y - 11, 4.25),
-           (x + 34, y + 2, 4.25), (x - 34, y + 2, 4.25), 'water_shallow')
-    b.quad((x - 26, y - 10, 4.30), (x + 26, y - 10, 4.30),
-           (x + 30, y - 2, 4.30), (x - 30, y - 2, 4.30), 'foam')
-    # A small jungle shrine on the east ledge.
-    sx, sy, sz = 540, 168, L.ground(540, 168) + 0.2
-    b.box((sx, sy, sz + 1.8), (6.0, 4.6, 3.6), 'wood')
-    b.gable_roof((sx, sy, sz + 3.6), 6.0, 4.6, sz + 3.6, 2.0, 'roof_terra', 0, ridge='x', overhang=0.8)
-    b.box((sx, sy - 2.4, sz + 1.3), (2.2, 0.2, 2.2), 'wood_dark')
-    lantern_post(b, sx - 4, sy - 3, sz, 2.6)
-    lantern_post(b, sx + 4, sy - 3, sz, 2.6)
-
-
-def rope_bridge(b):
-    y = 53.0
-    x0, x1 = 424.0, 512.0
-    z0, z1 = L.ground(x0, y) + 3.0, L.ground(x1, y) + 3.0
-    for x, z in ((x0, z0), (x1, z1)):
-        for side in (-1, 1):
-            b.beam((x, y + side * 2.0, z - 4), (x, y + side * 2.0, z + 4.0), 0.24, 'wood_dark')
-    for i in range(12):
-        t = i / 11
-        x = x0 + (x1 - x0) * t
-        z = z0 + (z1 - z0) * t - 2.0 * math.sin(math.pi * t)
-        b.box((x, y, z - 0.2), (7.2, 2.4, 0.18), 'wood_light', 0)
-        b.beam((x - 3.4, y, z - 0.25), (x + 3.4, y, z - 0.25), 0.10, 'wood_dark')
-    for side in (-1, 1):
-        b.rope((x0, y + side * 2.0, z0 + 4), (x1, y + side * 2.0, z1 + 4), 1.6, 0.10)
-        b.rope((x0, y + side * 2.0, z0), (x1, y + side * 2.0, z1), 1.3, 0.10)
-        for i in range(7):
-            t = i / 6
-            x = x0 + (x1 - x0) * t
-            z = z0 + (z1 - z0) * t - 1.4 * math.sin(math.pi * t)
-            b.beam((x, y + side * 2.0, z), (x, y + side * 2.0, z + 3.6), 0.07, 'rope')
-
-
-def shrine(b):
-    # This is the cliffside shrine; kept separate so the waterfall module can move it later.
-    return
 
 
 def ships():
@@ -1350,14 +1267,6 @@ def vegetation():
             z = L.height(x, y)
             if z > 8.0:
                 vine(b, x, y, z + RNG.uniform(0.5, 3.0), RNG.uniform(10, 24), RNG)
-    # Frame the waterfall with vines and a few crown trees; the water itself
-    # stays clear so the white ribbons remain the focal point.
-    for side in (-1, 1):
-        for y in range(40, 170, 12):
-            x = L.WATERFALL[0] + side * RNG.uniform(18.0, 32.0)
-            z = L.height(x, y)
-            if z > 6.0:
-                vine(b, x, y, z + RNG.uniform(1.0, 3.0), RNG.uniform(8, 19), RNG)
     # Ferns and banana plants give the understory a second layer.
     for i, (x, y, z, _, scale) in enumerate(sc['bushes']):
         if i % 5 == 0:
