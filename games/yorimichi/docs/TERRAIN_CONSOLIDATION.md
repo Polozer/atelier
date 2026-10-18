@@ -84,6 +84,13 @@ owner/stage/city mode and canonical arrays, with fixed archive timestamps.
 Missing, malformed or mismatched products fail when loaded. This initial
 extraction does not yet move crown placement or claim narrower invalidation.
 
+The atlas signature and map recipe include the extracted geometry helpers.
+`map/atlas/coasts/extraction-equivalence.json` records exact original/extracted
+array comparisons for city and fallback modes, with and without the railway.
+It revalidates unchanged paintings and masks while preserving their original
+generation records. It does not certify FBX export or native import; those
+remain separate refactor checks.
+
 1. Extract FarHills natural/final NumPy products in the **current discrete order**,
    keeping original parents, rail lattice, selected/retained adjacency and every
    triangle/index order. Compare complete arrays and exported payloads against
