@@ -161,6 +161,10 @@ function render() {
 function pauseAll() {
   document.querySelectorAll("audio").forEach((a) => a.pause());
 }
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) pauseAll();
+});
+window.addEventListener("pagehide", pauseAll);
 for (const id of ["search", "category", "favourites"])
   $(id).addEventListener("input", () => {
     pauseAll();

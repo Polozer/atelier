@@ -139,6 +139,18 @@ try {
   assert((await page.locator(".card audio").count()) <= 12);
   await page.locator("#next-page").tap();
   assert.match(await page.locator("#page-number").innerText(), /^2 \/ /);
+  const rawPlayer = page.locator(".card audio").first();
+  await rawPlayer.evaluate((a) => a.play());
+  await page.waitForFunction(() => !document.querySelector(".card audio").paused);
+  await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+  assert.equal(await rawPlayer.evaluate((a) => a.paused), true);
+  await rawPlayer.evaluate((a) => a.play());
+  await page.waitForFunction(() => !document.querySelector(".card audio").paused);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  assert.equal(await rawPlayer.evaluate((a) => a.paused), true);
   assert.deepEqual(errors, []);
   console.log(
     `PASS ${engine}: native phone media, no initial audio/AudioContext/WAV batch, all6 activities, buffered repeat, bounded payload and optional12clip pages`,
