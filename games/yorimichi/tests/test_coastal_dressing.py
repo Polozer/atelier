@@ -77,3 +77,12 @@ def test_compact_shoulders_preserve_existing_rows_and_clear_whole_footprints():
     assert sum(map(len,added.values()))==74
     for rows in added.values():
         for x,y,z,yaw,size in rows:assert abs(z-(.01*x+.02*y+.2*size))<=.00051
+
+
+def test_new_rock_anchors_are_beneath_both_nonplanar_quad_diagonals():
+    u,v=np.meshgrid(np.linspace(0.,1.,11),np.linspace(0.,1.,13))
+    ac=np.where(u>=v,2.+u*5.+v*4.,2.+u*13.-v*4.)
+    bd=np.where(u+v<=1.,2.+u*5.-v*4.,11.-(1.-u)*13.-(1.-v)*4.)
+    actual=D.shoulder_quad_floor(2.,7.,11.,-2.,u,v)
+    assert (actual<=ac).all() and (actual<=bd).all()
+    np.testing.assert_array_equal(actual,np.minimum(ac,bd))

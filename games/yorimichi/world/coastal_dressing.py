@@ -167,7 +167,7 @@ def shoulder_sites():
 
 
 def append_shoulders(objects, ground):
-    """Append only the small shoulder groups, seated on final exported triangles."""
+    """Append small embedded groups after the original producer's random draws."""
     sites=shoulder_sites()
     x,y=np.asarray([(r[1],r[2]) for r in sites],float).T
     z=ground(x,y)
@@ -214,6 +214,14 @@ def integrate(world, heightmap):
             return earthworks.carve(qx,qy,coast.height(qx,qy,base))
         if north.any():
             out[north]=coast.sample_grid_mesh(*terrain.country_grid(),x[north],y[north],shape=shape)
+        fine=~north
+        # Fine beach quads are not planar. Embed new rocks below either
+        # possible export diagonal, without changing the ground or old dressing.
+        fx=np.clip((x[fine]+300.)/600.*(n-1),0.,n-1.000001)
+        fy=np.clip((y[fine]+300.)/600.*(n-1),0.,n-1.000001)
+        i,j=fx.astype(int),fy.astype(int);u,v=fx-i,fy-j
+        a,b,c,d=heightmap[j,i],heightmap[j,i+1],heightmap[j+1,i+1],heightmap[j+1,i]
+        out[fine]=shoulder_quad_floor(a,b,c,d,u,v)
         return out
 
     objects = placements(ground)
@@ -224,3 +232,10 @@ def integrate(world, heightmap):
     counts = {name: len(rows) for name, rows in objects.items()}
     world['coastal_dressing'] = counts
     print('COASTAL FEATURES', counts, flush=True)
+
+
+def shoulder_quad_floor(a,b,c,d,u,v):
+    """Conservative contact height beneath either triangulation of a beach quad."""
+    ac=np.where(u>=v,a+u*(b-a)+v*(c-b),a+u*(c-d)+v*(d-a))
+    bd=np.where(u+v<=1.,a+u*(b-a)+v*(d-a),c+(1.-u)*(d-c)+(1.-v)*(b-c))
+    return np.minimum(ac,bd)

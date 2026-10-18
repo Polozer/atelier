@@ -408,7 +408,7 @@ def meadow_caps(x, y, z, normal_z):
     x,y,z,normal_z=np.broadcast_arrays(x,y,z,normal_z)
     _,headland=landform_regions(x,y)
     d,rock=field(x,y)
-    country=smooth((y-3500.)/400.)*smooth((6500.-y)/400.)*smooth((abs(x)-2200.)/250.)
+    country=smooth((y-3500.)/400.)*smooth((6500.-y)/400.)*smooth((x-2200.)/250.)
     region=np.maximum(headland,country)
     high=smooth((z-(20.-14.*country))/18.)
     return (region*protected_weight(x,y)*smooth((weight(x,y)-.1)/.2)

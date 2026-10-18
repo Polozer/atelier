@@ -38,6 +38,21 @@ def test_meadow_caps_keep_upper_shoulders_green_and_steep_faces_stone():
         assert S.meadow_caps(2900.,440.,45.,nz) < 1.e-8
 
 
+def test_meadow_caps_leave_the_entire_west_country_palette_unchanged():
+    import shorelines as S
+    x,y=np.meshgrid(np.linspace(-3190.,-2200.,100),np.linspace(3500.,6500.,100))
+    assert not S.meadow_caps(x,y,50.,.95).any()
+    # With no cap the complete paint path retains its former wet/stone/sand mix.
+    z=np.full_like(x,50.);nz=np.full_like(x,.95)
+    oldcap=S.meadow_caps
+    try:
+        original=S.paint(x,y,z,nz)
+        S.meadow_caps=lambda *args:np.zeros_like(x)
+        without=S.paint(x,y,z,nz)
+    finally:S.meadow_caps=oldcap
+    for a,b in zip(original,without):np.testing.assert_array_equal(a,b)
+
+
 def test_shared_backdrop_grid_keeps_the_original_export_construction(tmp_path,monkeypatch):
     from hidamari import forest_backdrop as F,layout as H
     from belmonte import terrain as B
