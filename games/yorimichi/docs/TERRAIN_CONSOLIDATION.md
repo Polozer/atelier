@@ -152,3 +152,12 @@ regressions before native import. Region looks and the existing FBX/GLB adapters
 remain in place during extraction. Geometry parity, export round trips and
 imported native support remain separate checks. No speedup has been measured by
 this first increment.
+
+The next regional extraction publishes `terrain.HD_NorthMountains.natural`,
+`.final` and `.provenance` from the existing `world.hidamari` invocation.
+`mountains.sheets` retains the current grid, gate exclusions, apron part order,
+authored colours/snow mask/normals and single railway carve. Publication copies
+only ordered geometry; export receives the original final attributed sheet.
+Gate, trail, approach and city surfaces remain separate owners. This increment
+does not move appearance evaluation after carving, add a second generation,
+declare shared borders seamless, or establish narrower invalidation cutoffs.
