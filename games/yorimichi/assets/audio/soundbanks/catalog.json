@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "default": "original",
+  "banks": [
+    {"id": "original", "name": "Original", "selection": 0, "legacy": true}
+  ]
+}
