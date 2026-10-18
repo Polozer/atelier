@@ -162,6 +162,31 @@ class AudioReviewTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'WAV changed during library validation'):
                 review.validate_ready(self.output)
 
+    def test_growing_wav_does_not_extend_hashing_past_captured_size(self):
+        target = self.make_wav()
+        captured = target.stat().st_size
+        original_open = Path.open
+        reads = []
+        class GrowingReader:
+            def __init__(self, handle):
+                self.handle = handle
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                self.handle.close()
+            def read(self, count):
+                with original_open(target, 'ab') as writer:
+                    writer.write(b'\0' * 1024)
+                reads.append(count)
+                return self.handle.read(count)
+        def opened(path, *args, **kwargs):
+            handle = original_open(path, *args, **kwargs)
+            return GrowingReader(handle) if path == target and args == ('rb',) else handle
+        with patch.object(Path, 'open', opened):
+            with self.assertRaisesRegex(ValueError, 'WAV changed during validation'):
+                review.wav_details(target, 1)
+        self.assertEqual(sum(reads), captured)
+
     def test_streamed_wav_validation_never_reads_a_complete_large_take(self):
         target = self.make_wav(frames=44100 * 3)
         original = wave.Wave_read.readframes

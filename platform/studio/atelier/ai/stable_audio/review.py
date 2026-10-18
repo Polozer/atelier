@@ -32,11 +32,19 @@ SETTINGS = {'source_revision': SOURCE_REVISION, 'weight_revision': WEIGHT_REVISI
             'cfg': 1.0, 'dit_dtype': 'fp16', 'decoder': 'same-s'}
 
 
-def digest(path):
+def digest(path, *, max_bytes=None):
     result = hashlib.sha256()
     with Path(path).open('rb') as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b''):
+        remaining = max_bytes
+        while remaining is None or remaining > 0:
+            block = handle.read(1024 * 1024 if remaining is None else min(remaining, 1024 * 1024))
+            if not block:
+                if remaining:
+                    raise ValueError('File truncated during bounded hashing')
+                break
             result.update(block)
+            if remaining is not None:
+                remaining -= len(block)
     return result.hexdigest()
 
 
@@ -122,7 +130,7 @@ def wav_details(path, seconds):
             remaining -= count
         if not audible:
             raise ValueError('Silent WAV')
-    sha256 = digest(path)
+    sha256 = digest(path, max_bytes=before.st_size)
     after = path.stat()
     if ((after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
             != (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)):
