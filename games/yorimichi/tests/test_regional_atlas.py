@@ -18,6 +18,29 @@ def source():
     return json.loads((GAME / 'assets/belmonte/source.json').read_text())
 
 
+def test_extracted_terrain_sources_are_signed_and_declared_inputs(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from atelier import build
+    sources = {'world/build_terrain.py', 'world/farhills_surface.py', 'world/farhills_grid.py', 'world/terrain_product.py'}
+    assert sources <= set(atlas.GEOGRAPHY_SOURCES)
+    recipe = build.load_recipe('yorimichi')
+    step = next(s for s in recipe.steps(SimpleNamespace(game='yorimichi', out=tmp_path, uproject=None))
+                if s.name == 'world.map')
+    assert {GAME / rel for rel in sources} <= set(step.inputs)
+    monkeypatch.setattr(atlas, 'GAME', tmp_path)
+    for rel in atlas.GEOGRAPHY_SOURCES:
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(rel)
+    before = atlas.geography_signature()
+    for rel in sorted(sources):
+        path = tmp_path / rel
+        path.write_text(rel + ' changed')
+        after = atlas.geography_signature()
+        assert {key for key in before if before[key] != after[key]} == {rel}
+        path.write_text(rel)
+
+
 def test_all_current_destination_families_keep_their_travel_identity():
     positions = {
         'spawn': (-255, -99), 'hamlet': (113, 91), 'mega': (60, 234),

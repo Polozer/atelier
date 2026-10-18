@@ -130,9 +130,12 @@ class Receiver:
         buffer = b''
         try:
             while True:
+                # Read the stop flag before polling: the host closes its writer before stopping,
+                # so only a poll that started after the stop can show a pipe another process holds.
+                stopping = self.stopped.is_set()
                 ready, _, _ = select.select([self.fd], [], [], .1)
                 if not ready:
-                    if self.stopped.is_set():
+                    if stopping:
                         break
                     continue
                 data = os.read(self.fd, 65536)

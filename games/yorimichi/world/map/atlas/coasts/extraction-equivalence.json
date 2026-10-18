@@ -1,0 +1,133 @@
+{
+  "schema": 1,
+  "kind": "unchanged-terrain-extraction-revalidation",
+  "baseline_source": "4ff62dabbc1a20350a3a849e58f00196db8a3dff",
+  "extraction_source": "63523685497967c292d822c76b4a70e1cd7db70d",
+  "previous_geography": {
+    "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
+    "world/build_terrain.py": "64c477db0cfdd91356171c8819fa0763900507255a8a524e86d8af97aa00ffe7",
+    "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
+    "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
+    "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
+    "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
+    "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
+    "world/regions/southwest/island.py": "977f38a49fb5eb699f8164544fee1cde5f804372ddaeb03826125242e9c7b96f",
+    "world/train/route.py": "88a742f1d19cddbb56cf610a7cf6c2ca0b7fe7ebfb1928ce25e2b708e741817e",
+    "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
+    "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
+    "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
+    "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
+    "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
+    "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
+  },
+  "current_geography": {
+    "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
+    "world/build_terrain.py": "474efc21bd9d9e98b46489b060ce82c790d0b195c1c025f53057cfe00274a533",
+    "world/farhills_surface.py": "1171f7b36f77020489cb44460b112d820aecbd049f86ecac9328951410b16580",
+    "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
+    "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
+    "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
+    "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
+    "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
+    "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
+    "world/regions/southwest/island.py": "977f38a49fb5eb699f8164544fee1cde5f804372ddaeb03826125242e9c7b96f",
+    "world/train/route.py": "88a742f1d19cddbb56cf610a7cf6c2ca0b7fe7ebfb1928ce25e2b708e741817e",
+    "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
+    "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
+    "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
+    "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
+    "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
+    "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
+  },
+  "unchanged_reference_renderers": {
+    "world/map/build_map.py": "0333a101c2b57caef4f1d515bc3ed82e81e14e08064408d848adcfe4e60ef98a",
+    "world/map/map_projection.py": "72ba80c9a59fd396203e2dd4fe00267c98496b2125fc445765bcbebe712a58dd"
+  },
+  "generated_inputs": {
+    "world.json": "bdf409ca410fd7989429a6056eeedc5f1b9761280145d22c76392e84d7b06342",
+    "heightmap.npy": "ef8b9726a3510bf101d841ece7df8887bf89dd25fcda10e3283e4515d619e35c",
+    "farhills.npy": "3fdd1e1f80973c785b02ec49bdb264b2667ea3519601c9062b75e6ffa6f81a42",
+    "hidamari/city.json": "2019031e96009ac73d1e9eab777c598eefc9039293e1b7fa571fe1a7c7071d96",
+    "megapark/trail.json": "82b355b770234fd4835d5841bf85b712b2ef1d875a8e86ca8b54bfaa9632ceb9",
+    "craterpark/v2/geometry.npz": "244a8556f48a21d224391d4dfdd4ae1cb2fa44bfff590c6450c7dd2aaac4ba04"
+  },
+  "variants": [
+    {
+      "railway_line": true,
+      "city": true,
+      "report_equal": true,
+      "natural_vertices": 711885,
+      "final_vertices": 869185,
+      "final_polygons": 1358937,
+      "natural_vertices_exact": true,
+      "natural_indices_exact": true,
+      "natural_offsets_exact": true,
+      "final_vertices_exact": true,
+      "final_indices_exact": true,
+      "final_offsets_exact": true,
+      "products_round_trip_exact": true,
+      "products_sha256": {
+        "natural": "4dcee4391ed783fdc204f4a42599730eebf598b1d8db445e53ed841892a884de",
+        "final": "dc95c9908a8f63816d7311b6cb376366b8dbcc103bd7d1f96f3741d19782209e"
+      }
+    },
+    {
+      "railway_line": true,
+      "city": false,
+      "report_equal": true,
+      "natural_vertices": 747692,
+      "final_vertices": 968644,
+      "final_polygons": 1511153,
+      "natural_vertices_exact": true,
+      "natural_indices_exact": true,
+      "natural_offsets_exact": true,
+      "final_vertices_exact": true,
+      "final_indices_exact": true,
+      "final_offsets_exact": true,
+      "products_round_trip_exact": true,
+      "products_sha256": {
+        "natural": "69781340232179d555ec103546a79295854255011be9245e9c711bfb13140a0e",
+        "final": "bf9394ace43e3e8d317f85be12a3efef5b895b8590b2bc5912e0fbc709d7a885"
+      }
+    },
+    {
+      "railway_line": false,
+      "city": true,
+      "report_equal": true,
+      "natural_vertices": 470314,
+      "final_vertices": 470314,
+      "final_polygons": 319670,
+      "natural_vertices_exact": true,
+      "natural_indices_exact": true,
+      "natural_offsets_exact": true,
+      "final_vertices_exact": true,
+      "final_indices_exact": true,
+      "final_offsets_exact": true,
+      "products_round_trip_exact": true,
+      "products_sha256": {
+        "natural": "3573294be6c1ff85586b5fce4515b1bd172423ed628648f890e726d48fed402b",
+        "final": "ab3d0bd842d8c08edc803f9895d97bd64db7169af0998c62765144550f2cd249"
+      }
+    },
+    {
+      "railway_line": false,
+      "city": false,
+      "report_equal": true,
+      "natural_vertices": 539328,
+      "final_vertices": 539328,
+      "final_polygons": 360930,
+      "natural_vertices_exact": true,
+      "natural_indices_exact": true,
+      "natural_offsets_exact": true,
+      "final_vertices_exact": true,
+      "final_indices_exact": true,
+      "final_offsets_exact": true,
+      "products_round_trip_exact": true,
+      "products_sha256": {
+        "natural": "af15bfaf560c6c34ccf90cda1a112aff4bd98100dc72747b93201288ed8496c4",
+        "final": "c4f09705556618455d4f89612d3cfd7d6ec950bfba371c2b06c89905f6ff6fec"
+      }
+    }
+  ],
+  "scope": "Actual original-versus-extracted ordered natural/final arrays and planner reports match in all four city/line modes. Reference renderer, generated inputs, images, masks and frames are unchanged. Original painting/reference generation provenance is retained. This does not claim serialized FBX or imported-native acceptance."
+}

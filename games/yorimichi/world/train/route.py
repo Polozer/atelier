@@ -451,10 +451,17 @@ class Raster:
 
     @staticmethod
     def _source_digest():
+        """@cc [owner:fontanierh,label:correctness] route-coast-cache
+        Cached ground MUST be invalidated when the shoreline profile, water bounds
+        or committed railway geometry used for coastal headlands changes.
+        """
         h = hashlib.sha256()
         regions = _Path(__file__).resolve().parents[1] / 'regions'
         files = [
             _Path(__file__).resolve(),
+            regions.parent / 'shorelines.py',
+            regions.parent / 'coast_water.py',
+            yori.ASSETS / 'vehicles' / 'belmonte-train' / 'line.json',
             regions / 'hidamari' / 'layout.py',
             regions / 'hidamari' / 'mountains.py',
             regions / 'belmonte' / 'layout.py',

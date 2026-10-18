@@ -113,7 +113,8 @@ def capture(tmp_path, monkeypatch):
     return module
 
 
-def test_capture_common_guard_keeps_progress_and_output_certification(capture, monkeypatch, capsys):
+@pytest.mark.parametrize('memory_gib', [None, 14.])
+def test_capture_common_guard_keeps_progress_and_output_certification(capture, monkeypatch, capsys, memory_gib):
     calls = []
     now = [0.]
     monkeypatch.setattr(capture.time, 'monotonic', lambda: now[0])
@@ -122,6 +123,7 @@ def test_capture_common_guard_keeps_progress_and_output_certification(capture, m
         calls.append((command, folder, options))
         assert '-noshaderworker' in command and '-UseFixedTimeStep' in command
         assert options['kind'] == 'game' and options['timeout'] == 1800
+        assert options['limit_gib'] == (10. if memory_gib is None else memory_gib)
         assert options['purpose'] == 'trailer test/shot'
         Image.new('RGB', (640, 360)).save(folder / 'frame_00000.png')
         (folder / 'game.log').write_text('TRAILER SHOT COMPLETE')
@@ -135,11 +137,22 @@ def test_capture_common_guard_keeps_progress_and_output_certification(capture, m
         return 0
 
     monkeypatch.setattr(capture.guarded, 'run', run)
-    capture.capture('test', 'shot', dict(seconds=1 / 60, width=640, height=360))
+    options = {} if memory_gib is None else dict(memory_gib=memory_gib)
+    capture.capture('test', 'shot', dict(seconds=1 / 60, width=640, height=360), **options)
     assert len(calls) == 1
     report = json.loads((calls[0][1] / 'checks.json').read_text())
     assert report['passed'] and report['settings_unchanged'] and report['frames'] == 1
+    manifest = json.loads((calls[0][1] / 'manifest.json').read_text())
+    assert manifest['memory_gib'] == calls[0][2]['limit_gib']
     assert 'CAPTURE PROGRESS shot: 31s elapsed, 1 frames saved' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('memory_gib', [9., 14.1, float('nan'), float('inf'), True])
+def test_capture_rejects_invalid_ceiling_before_artifacts_or_admission(capture, monkeypatch, memory_gib):
+    monkeypatch.setattr(capture.guarded, 'run', lambda *args, **options: pytest.fail('Unexpected admission'))
+    with pytest.raises(ValueError, match='between 10 and 14'):
+        capture.capture('invalid', 'shot', {}, memory_gib=memory_gib)
+    assert not (capture.yori.OUT / 'captures').exists()
 
 
 def test_capture_common_guard_failure_prevents_output_acceptance(capture, monkeypatch):

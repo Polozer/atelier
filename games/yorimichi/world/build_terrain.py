@@ -7,10 +7,35 @@ import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_
 import sys, os, json, math
 import bpy, bmesh
 import numpy as np
+import shorelines
+import coastal_surface
 from mathutils import Vector
 
 OUT = str(yori.OUT)
 TEX = str(yori.TEXTURES)
+
+
+def backdrop_owned(x, y, *, city):
+    """@cc [owner:fontanierh,label:correctness] backdrop-replacement-ownership
+    Omit ground only where an exported fine terrain owns its replacement.
+    Without a city, FarHills MUST retain the former HD_Terrain footprint.
+    """
+    from farhills_surface import owns_fine_ground
+    return owns_fine_ground(x, y, city=city)
+
+
+def ocean_mesh(*, city):
+    """@cc [owner:fontanierh,label:correctness] fallback-ocean-ownership
+    Preserve the open-ocean partition with a city; without HD_Sea, add its
+    missing harbor rectangle at the same datum, without overlaps.
+    """
+    vertices,faces=shorelines.sea_mesh()
+    if not city:
+        x0,y0,x1,y1=shorelines.HARBOR_RECT
+        i=len(vertices)
+        vertices.extend([(x0,y0,0.),(x1,y0,0.),(x1,y1,0.),(x0,y1,0.)])
+        faces.append((i,i+1,i+2,i+3))
+    return vertices,faces
 
 
 def mat(name, color=(0.5, 0.5, 0.5), texture=None):
@@ -32,6 +57,46 @@ def obj(name, verts, faces, m, uvs=None, smooth=True):
     ob = bpy.data.objects.new(name, me); bpy.context.scene.collection.objects.link(ob); return ob
 
 
+def coastal_colours(ob):
+    """Linear palette plus its coverage; the importer uses these on opaque ground."""
+    points=np.asarray([v.co[:] for v in ob.data.vertices])
+    normals=np.asarray([v.normal.z for v in ob.data.vertices])
+    colours,amount=shorelines.paint(points[:,0],points[:,1],points[:,2],normals)
+    attribute=ob.data.color_attributes.new(name='Color',type='FLOAT_COLOR',domain='POINT')
+    attribute.data.foreach_set('color',np.c_[colours,amount].astype('f4').ravel())
+    return amount
+
+
+def rock_surface(ob):
+    """Separate exposed FarHills faces without altering positions or normals."""
+    assert ob.name == 'FarHills'
+    me=ob.data
+    centres=np.asarray([p.center[:] for p in me.polygons])
+    nz=np.asarray([p.normal.z for p in me.polygons])
+    selected=coastal_surface.rock_faces(*centres.T,nz)
+    owned=[i for i,m in enumerate(me.materials) if m.name.split('.')[0]=='FarForest']
+    selected &= np.isin([p.material_index for p in me.polygons],owned)
+    if not selected.any():return
+    # Preserve every unselected corner's previous point color, including alpha.
+    original=me.color_attributes['Color']
+    assert original.domain in {'POINT','CORNER'}
+    rgba=np.empty((len(original.data),4),dtype='f4')
+    original.data.foreach_get('color',rgba.ravel())
+    vertices=np.asarray([loop.vertex_index for loop in me.loops])
+    colours=(rgba[vertices] if original.domain=='POINT' else rgba).copy()
+    me.color_attributes.remove(original)
+    attr=me.color_attributes.new(name='Color',type='FLOAT_COLOR',domain='CORNER')
+    me.materials.append(mat('CoastRock'))
+    slot=len(me.materials)-1
+    face_colours=coastal_surface.face_colour(*centres[selected].T,nz[selected])
+    for index,colour in zip(np.flatnonzero(selected),face_colours):
+        face=me.polygons[index]
+        face.material_index=slot
+        colours[face.loop_start:face.loop_start+face.loop_total]=[*colour,1.]
+    attr.data.foreach_set('color',colours.ravel())
+    print('coastal rock surface: %d faces, existing geometry/normals retained'%selected.sum(),flush=True)
+
+
 def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     W = json.load(open(os.path.join(OUT, "world.json"))); H = np.load(os.path.join(OUT, "heightmap.npy"))
@@ -45,6 +110,11 @@ def main():
         for i in range(n - 1):
             a = j * n + i; faces.append((a, a + 1, a + n + 1, a + n))
     terrain = obj("Terrain", verts, faces, ground, uvs=lambda co: (co.x / 6.0, co.y / 6.0))
+    coastal_colours(terrain)
+    terrain.data.materials.append(mat('Coast'))
+    for face in terrain.data.polygons:
+        if float(shorelines.weight(face.center.x,face.center.y)) > 0.:
+            face.material_index=1
     # road strip
     R = np.array(W["road"]); w = W["road_width"] / 2
     T = np.gradient(R[:, :2], axis=0); T /= np.linalg.norm(T, axis=1)[:, None]; Nn = np.stack([-T[:, 1], T[:, 0]], 1)
@@ -79,19 +149,9 @@ def main():
         for i in range(len(L) - 1):
             a = 2 * i; lf.append((a + 2, a + 3, a + 1, a))
         lane = obj("Lane", lv, lf, sand_m, uvs=lambda co: (co.x / 6.0, co.y / 6.0), smooth=True)
-        # cove sand pad: an irregular disc around the beach point, following the terrain
-        bx, by = SW["beach"]; rings = 3; segs = 22; sv, sf = [(bx, by, hsample(bx, by) + 0.05)], []
-        for r in range(1, rings + 1):
-            rad = 5.0 * r
-            for k in range(segs):
-                a = 2 * np.pi * k / segs; rr = rad * (1.0 + 0.18 * np.sin(3 * a + r) + 0.1 * np.cos(5 * a))
-                x = bx + rr * np.cos(a); y = by + rr * np.sin(a) * 0.8; sv.append((float(x), float(y), hsample(x, y) + 0.05))
-        for k in range(segs): sf.append((0, 1 + k, 1 + (k + 1) % segs))
-        for r in range(1, rings):
-            b0 = 1 + (r - 1) * segs; b1 = 1 + r * segs
-            for k in range(segs): sf.append((b0 + k, b1 + k, b1 + (k + 1) % segs, b0 + (k + 1) % segs))
-        sand = obj("Sand", sv, sf, sand_m, uvs=lambda co: (co.x / 6.0, co.y / 6.0), smooth=True)
-        print("southwest lane %d verts, sand pad %d verts" % (len(lv), len(sv)))
+        # Sand now belongs to the ground's Coast section. The former raised
+        # sand disc left a second surface only 5 cm above the beach.
+        print("southwest lane %d verts; beach painted on ground" % len(lv),flush=True)
     # guardrail: one continuous W-beam strip along the downhill edge (runs from world.json), posts every 2 m
     paint = mat("Paint", (0.86, 0.86, 0.84))
     gv, gf = [], []
@@ -134,32 +194,18 @@ def main():
     wires = obj("Wires", wv, wf, metal, smooth=True)
     # A rolling forest-floor backdrop under the detailed distant canopy.
     far = mat("FarForest", (.055, .11, .035))
-    fn = 96; fsz = 6400.0; fstep = fsz / (fn - 1)
-    FZ = np.load(os.path.join(OUT, "farhills.npy"))
-    fx_ = np.linspace(-fsz / 2, fsz / 2, fn); FX, FY = np.meshgrid(fx_, fx_)
-    if os.path.exists(os.path.join(OUT,"hidamari","city.json")):
-        from hidamari.layout import backdrop_grid,north_height
-        from hidamari.mountains import contains
-        from megapark.trail import in_approach
-        FZ=backdrop_grid().copy()
-        # The detailed northern surface replaces this coarse, textured backdrop.
-        # Cover the entire replacement footprint, including the final coarse row.
-        # The old inset rectangle exposed a tall pale wall at the northern edge.
-        # So does the Mega Park trail's approach ground north of the square (megapark/trail.py).
-        mask=contains(FX,FY)|in_approach(FX,FY)
-        FZ[mask]=np.minimum(FZ[mask],north_height(FX,FY,carved=False)[mask]-25)
-        from belmonte import terrain as belmonte_terrain
-        FZ=belmonte_terrain.old_backdrop(FZ,FX,FY)
-
-    fverts = [(float(FX[j, i]), float(FY[j, i]), float(FZ[j, i])) for j in range(fn) for i in range(fn)]
-    ffaces = [(j * fn + i, j * fn + i + 1, (j + 1) * fn + i + 1, (j + 1) * fn + i) for j in range(fn - 1) for i in range(fn - 1)]
-    from train import earthworks  # the Belmonte railway's cuttings through the far hills (RAILWAY_EARTHWORKS=0: none)
-    from hidamari.mountains import contains as under_foothills
-    fverts, ffaces, _ = earthworks.polygons(fverts, ffaces, 4., hidden=under_foothills)
-    hills = obj("FarHills", fverts, ffaces, far, uvs=lambda co: (co.x / 180.0, co.y / 180.0))
+    # Include the exact fine-terrain boundaries, then omit their interiors.
+    # Shaping both buried and visible ground onto one coast would recreate the
+    # original coplanar flicker under the new beaches.
+    from farhills_surface import export_mesh
+    city=os.path.exists(os.path.join(OUT,"hidamari","city.json"))
+    final=export_mesh(n,_Path(OUT)/'terrain/FarHills',city=city)
+    hills = obj("FarHills", final.vertices.tolist(), final.polygons(), far, uvs=lambda co: (co.x / 180.0, co.y / 180.0))
+    coastal_colours(hills)
+    rock_surface(hills)
     # export terrain fbx
     bpy.ops.object.select_all(action="DESELECT")
-    for o in [terrain, road, wires, hills] + ([rail] if rail else []) + ([lane, sand] if lane else []): o.select_set(True)
+    for o in [terrain, road, wires, hills] + ([rail] if rail else []) + ([lane] if lane else []): o.select_set(True)
     bpy.context.view_layer.objects.active = terrain
     path = os.path.join(OUT, "terrain.fbx")
     bpy.ops.export_scene.fbx(filepath=path, use_selection=True, apply_unit_scale=True, apply_scale_options="FBX_SCALE_ALL", axis_forward="-Y", axis_up="Z",
@@ -169,8 +215,8 @@ def main():
     # The sea reaches past the sky dome (a 20 km sphere, JapanWorld.cpp): every view ray that goes below the horizon meets
     # water, never the dome's lower half. At 3.4 km it stopped short, and a band of the dome's below-horizon colour showed
     # between the sea's far edge and the horizon.
-    s2 = 24000.0
-    sea = obj("Sea", [(-s2, -s2, 0), (s2, -s2, 0), (s2, s2, 0), (-s2, s2, 0)], [(0, 1, 2, 3)], water, uvs=lambda co: (co.x / 24.0, co.y / 24.0), smooth=False)
+    sea_vertices,sea_faces=ocean_mesh(city=city)
+    sea = obj("Sea", sea_vertices, sea_faces, water, uvs=lambda co: (co.x / 24.0, co.y / 24.0), smooth=False)
     bpy.ops.object.select_all(action="DESELECT"); sea.select_set(True); bpy.context.view_layer.objects.active = sea
     os.makedirs(os.path.join(OUT, "assets"), exist_ok=True)
     bpy.ops.export_scene.fbx(filepath=os.path.join(OUT, "assets", "Sea.fbx"), use_selection=True, apply_unit_scale=True, apply_scale_options="FBX_SCALE_ALL", axis_forward="-Y", axis_up="Z",

@@ -1,0 +1,299 @@
+{
+  "title": "Yorimichi \u00b7 Sound laboratory",
+  "seeds": [
+    18401,
+    37219,
+    60551,
+    91807
+  ],
+  "sounds": [
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 smooth concrete",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on smooth concrete. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 asphalt",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on asphalt. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 loose gravel",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on loose gravel. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 short grass",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on short grass. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 wet mud",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on wet mud. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 dry sand",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on dry sand. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 wooden floorboards",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on wooden floorboards. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 ceramic tiles",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on ceramic tiles. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 hollow metal grating",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on hollow metal grating. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 shallow water",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on shallow water. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 crunchy snow",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on crunchy snow. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Footsteps",
+      "label": "Walking \u00b7 soft carpet",
+      "prompt": "Close recording of one person walking in ordinary rubber-soled shoes on soft carpet. A short sequence of distinct steady footsteps, natural material texture, isolated sound effect, no voices or music.",
+      "seconds": 6
+    },
+    {
+      "category": "Skate rolling",
+      "label": "Rolling \u00b7 smooth skatepark concrete",
+      "prompt": "A skateboard rolling steadily on smooth skatepark concrete, detailed urethane wheel rumble and small surface rattles, close dry recording, constant motion, isolated sound effect without voices or music.",
+      "seconds": 7
+    },
+    {
+      "category": "Skate rolling",
+      "label": "Rolling \u00b7 coarse asphalt",
+      "prompt": "A skateboard rolling steadily on coarse asphalt, detailed urethane wheel rumble and small surface rattles, close dry recording, constant motion, isolated sound effect without voices or music.",
+      "seconds": 7
+    },
+    {
+      "category": "Skate rolling",
+      "label": "Rolling \u00b7 brick paving",
+      "prompt": "A skateboard rolling steadily on brick paving, detailed urethane wheel rumble and small surface rattles, close dry recording, constant motion, isolated sound effect without voices or music.",
+      "seconds": 7
+    },
+    {
+      "category": "Skate rolling",
+      "label": "Rolling \u00b7 stone pavers",
+      "prompt": "A skateboard rolling steadily on stone pavers, detailed urethane wheel rumble and small surface rattles, close dry recording, constant motion, isolated sound effect without voices or music.",
+      "seconds": 7
+    },
+    {
+      "category": "Skate rolling",
+      "label": "Rolling \u00b7 wooden boardwalk",
+      "prompt": "A skateboard rolling steadily on wooden boardwalk, detailed urethane wheel rumble and small surface rattles, close dry recording, constant motion, isolated sound effect without voices or music.",
+      "seconds": 7
+    },
+    {
+      "category": "Skate rolling",
+      "label": "Rolling \u00b7 metal ramp",
+      "prompt": "A skateboard rolling steadily on metal ramp, detailed urethane wheel rumble and small surface rattles, close dry recording, constant motion, isolated sound effect without voices or music.",
+      "seconds": 7
+    },
+    {
+      "category": "Skate rolling",
+      "label": "Rolling \u00b7 rough concrete",
+      "prompt": "A skateboard rolling steadily on rough concrete, detailed urethane wheel rumble and small surface rattles, close dry recording, constant motion, isolated sound effect without voices or music.",
+      "seconds": 7
+    },
+    {
+      "category": "Skate rolling",
+      "label": "Rolling \u00b7 hollow plywood ramp",
+      "prompt": "A skateboard rolling steadily on hollow plywood ramp, detailed urethane wheel rumble and small surface rattles, close dry recording, constant motion, isolated sound effect without voices or music.",
+      "seconds": 7
+    },
+    {
+      "category": "Skate powerslides",
+      "label": "Powerslide \u00b7 smooth concrete",
+      "prompt": "One skateboard powerslide on smooth concrete: rolling approach, wheels skid sideways with a brief gritty friction scrape and squeal, then regain grip. Close isolated sound effect, no voices or music.",
+      "seconds": 5
+    },
+    {
+      "category": "Skate powerslides",
+      "label": "Powerslide \u00b7 rough concrete",
+      "prompt": "One skateboard powerslide on rough concrete: rolling approach, wheels skid sideways with a brief gritty friction scrape and squeal, then regain grip. Close isolated sound effect, no voices or music.",
+      "seconds": 5
+    },
+    {
+      "category": "Skate powerslides",
+      "label": "Powerslide \u00b7 dry asphalt",
+      "prompt": "One skateboard powerslide on dry asphalt: rolling approach, wheels skid sideways with a brief gritty friction scrape and squeal, then regain grip. Close isolated sound effect, no voices or music.",
+      "seconds": 5
+    },
+    {
+      "category": "Skate powerslides",
+      "label": "Powerslide \u00b7 polished wood",
+      "prompt": "One skateboard powerslide on polished wood: rolling approach, wheels skid sideways with a brief gritty friction scrape and squeal, then regain grip. Close isolated sound effect, no voices or music.",
+      "seconds": 5
+    },
+    {
+      "category": "Skate powerslides",
+      "label": "Powerslide \u00b7 stone paving",
+      "prompt": "One skateboard powerslide on stone paving: rolling approach, wheels skid sideways with a brief gritty friction scrape and squeal, then regain grip. Close isolated sound effect, no voices or music.",
+      "seconds": 5
+    },
+    {
+      "category": "Skate powerslides",
+      "label": "Powerslide \u00b7 metal ramp",
+      "prompt": "One skateboard powerslide on metal ramp: rolling approach, wheels skid sideways with a brief gritty friction scrape and squeal, then regain grip. Close isolated sound effect, no voices or music.",
+      "seconds": 5
+    },
+    {
+      "category": "Skate landings",
+      "label": "Landing \u00b7 smooth concrete",
+      "prompt": "A single skateboard trick landing on smooth concrete, a sharp wooden deck clack, simultaneous wheel impact, short board rattle and rolling release. One clear event with a natural decay, close isolated sound effect without voices or music.",
+      "seconds": 4
+    },
+    {
+      "category": "Skate landings",
+      "label": "Landing \u00b7 rough concrete",
+      "prompt": "A single skateboard trick landing on rough concrete, a sharp wooden deck clack, simultaneous wheel impact, short board rattle and rolling release. One clear event with a natural decay, close isolated sound effect without voices or music.",
+      "seconds": 4
+    },
+    {
+      "category": "Skate landings",
+      "label": "Landing \u00b7 asphalt",
+      "prompt": "A single skateboard trick landing on asphalt, a sharp wooden deck clack, simultaneous wheel impact, short board rattle and rolling release. One clear event with a natural decay, close isolated sound effect without voices or music.",
+      "seconds": 4
+    },
+    {
+      "category": "Skate landings",
+      "label": "Landing \u00b7 hollow plywood ramp",
+      "prompt": "A single skateboard trick landing on hollow plywood ramp, a sharp wooden deck clack, simultaneous wheel impact, short board rattle and rolling release. One clear event with a natural decay, close isolated sound effect without voices or music.",
+      "seconds": 4
+    },
+    {
+      "category": "Skate landings",
+      "label": "Landing \u00b7 wooden deck",
+      "prompt": "A single skateboard trick landing on wooden deck, a sharp wooden deck clack, simultaneous wheel impact, short board rattle and rolling release. One clear event with a natural decay, close isolated sound effect without voices or music.",
+      "seconds": 4
+    },
+    {
+      "category": "Skate landings",
+      "label": "Landing \u00b7 metal ramp",
+      "prompt": "A single skateboard trick landing on metal ramp, a sharp wooden deck clack, simultaneous wheel impact, short board rattle and rolling release. One clear event with a natural decay, close isolated sound effect without voices or music.",
+      "seconds": 4
+    },
+    {
+      "category": "Skate landings",
+      "label": "Landing \u00b7 brick pavement",
+      "prompt": "A single skateboard trick landing on brick pavement, a sharp wooden deck clack, simultaneous wheel impact, short board rattle and rolling release. One clear event with a natural decay, close isolated sound effect without voices or music.",
+      "seconds": 4
+    },
+    {
+      "category": "Skate landings",
+      "label": "Landing \u00b7 stone slabs",
+      "prompt": "A single skateboard trick landing on stone slabs, a sharp wooden deck clack, simultaneous wheel impact, short board rattle and rolling release. One clear event with a natural decay, close isolated sound effect without voices or music.",
+      "seconds": 4
+    },
+    {
+      "category": "Birds",
+      "label": "Sparrow",
+      "prompt": "Natural wildlife recording of a few small bright chirps from a nearby sparrow. Clear isolated bird call with very quiet outdoor background, no human voices, music or other foreground animals.",
+      "seconds": 8
+    },
+    {
+      "category": "Birds",
+      "label": "Songbird",
+      "prompt": "Natural wildlife recording of a melodic small garden songbird singing a short phrase. Clear isolated bird call with very quiet outdoor background, no human voices, music or other foreground animals.",
+      "seconds": 8
+    },
+    {
+      "category": "Birds",
+      "label": "Crow",
+      "prompt": "Natural wildlife recording of a nearby crow giving two coarse caws. Clear isolated bird call with very quiet outdoor background, no human voices, music or other foreground animals.",
+      "seconds": 8
+    },
+    {
+      "category": "Birds",
+      "label": "Seagull",
+      "prompt": "Natural wildlife recording of a coastal seagull calling above a quiet harbor. Clear isolated bird call with very quiet outdoor background, no human voices, music or other foreground animals.",
+      "seconds": 8
+    },
+    {
+      "category": "Character grunts",
+      "label": "Low Adult Male",
+      "prompt": "A low adult male human voice making a short nonverbal physical effort grunt while lifting or jumping. One natural restrained exertion vocalization with breath, close dry recording, no spoken words, music or impacts.",
+      "seconds": 3
+    },
+    {
+      "category": "Character grunts",
+      "label": "Adult Female",
+      "prompt": "A adult female human voice making a short nonverbal physical effort grunt while lifting or jumping. One natural restrained exertion vocalization with breath, close dry recording, no spoken words, music or impacts.",
+      "seconds": 3
+    },
+    {
+      "category": "Character grunts",
+      "label": "Soft Mid-Range Adult",
+      "prompt": "A soft mid-range adult human voice making a short nonverbal physical effort grunt while lifting or jumping. One natural restrained exertion vocalization with breath, close dry recording, no spoken words, music or impacts.",
+      "seconds": 3
+    },
+    {
+      "category": "Character hurt",
+      "label": "Low Adult Male",
+      "prompt": "A low adult male human voice reacting to a sudden minor painful impact with one short startled gasp and pained grunt. Nonverbal game character reaction, close dry recording, no spoken words, music or impact sound.",
+      "seconds": 3
+    },
+    {
+      "category": "Character hurt",
+      "label": "Adult Female",
+      "prompt": "A adult female human voice reacting to a sudden minor painful impact with one short startled gasp and pained grunt. Nonverbal game character reaction, close dry recording, no spoken words, music or impact sound.",
+      "seconds": 3
+    },
+    {
+      "category": "Character hurt",
+      "label": "Mid-Range Adult",
+      "prompt": "A mid-range adult human voice reacting to a sudden minor painful impact with one short startled gasp and pained grunt. Nonverbal game character reaction, close dry recording, no spoken words, music or impact sound.",
+      "seconds": 3
+    },
+    {
+      "category": "Running and breath",
+      "label": "Adult Male \u00b7 jogging at a steady pace",
+      "prompt": "Close recording of an adult male character jogging at a steady pace. Rhythmic labored breathing and natural inhalations and exhalations, nonverbal exertion, no speech, footsteps, music or background noise.",
+      "seconds": 8
+    },
+    {
+      "category": "Running and breath",
+      "label": "Adult Female \u00b7 jogging at a steady pace",
+      "prompt": "Close recording of an adult female character jogging at a steady pace. Rhythmic labored breathing and natural inhalations and exhalations, nonverbal exertion, no speech, footsteps, music or background noise.",
+      "seconds": 8
+    },
+    {
+      "category": "Running and breath",
+      "label": "Adult Male \u00b7 recovering out of breath after a hard sprint",
+      "prompt": "Close recording of an adult male character recovering out of breath after a hard sprint. Rhythmic labored breathing and natural inhalations and exhalations, nonverbal exertion, no speech, footsteps, music or background noise.",
+      "seconds": 8
+    },
+    {
+      "category": "Running and breath",
+      "label": "Adult Female \u00b7 recovering out of breath after a hard sprint",
+      "prompt": "Close recording of an adult female character recovering out of breath after a hard sprint. Rhythmic labored breathing and natural inhalations and exhalations, nonverbal exertion, no speech, footsteps, music or background noise.",
+      "seconds": 8
+    }
+  ]
+}

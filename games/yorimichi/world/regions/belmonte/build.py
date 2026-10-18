@@ -91,6 +91,11 @@ def surroundings():
     entries = []
     (OUT / 'natural').mkdir(exist_ok=True)
     parts = [('SM_BM_NorthApron', collar, 2.5), ('SM_BM_NorthCountry', terrain.country(), 4.)]
+    joins = [(0, terrain.OUTER[0]), (0, terrain.OUTER[2]), (1, terrain.OUTER[3])]
+    # The coastal profile is nonlinear between the original coarse grid knots.
+    # Both natural and carved products must share every boundary knot, even
+    # where the railway does not reach.
+    earthworks.stitch([p[1] for p in parts], L.ORIGIN, joins, whole_seam=True)
     for name, mesh, step in parts:
         # The natural ground stays beside the built one: the route study samples it, never the railway's own cuttings.
         mesh.save(OUT / 'natural' / (name + '.glb'), 'BM_000_Ground')
@@ -99,7 +104,7 @@ def surroundings():
         earthworks.quads(mesh, L.ORIGIN, step, hidden=lambda x, y: (x > mountains.BOUNDS[0]) & (x < mountains.BOUNDS[2]) & (y > mountains.BOUNDS[1]) & (y < L.SOUTH_JOIN),
                          weight=lambda x, y: earthworks.seam_weight(x, y, L.BOUNDS))
     # Apron and country are refined at different steps: their outer seam shares every vertex where the line crosses.
-    earthworks.stitch([collar, parts[1][1]], L.ORIGIN, [(0, terrain.OUTER[0]), (0, terrain.OUTER[2]), (1, terrain.OUTER[3])])
+    earthworks.stitch([collar, parts[1][1]], L.ORIGIN, joins, whole_seam=True)
     for name, mesh, _ in parts:
         path = OUT / 'glb' / (name + '.glb')
         info = mesh.save(path, 'BM_000_Ground')

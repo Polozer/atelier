@@ -1,0 +1,46 @@
+{
+  "source_revision": "4ff62dabbc1a20350a3a849e58f00196db8a3dff",
+  "retained_artifact_revision": "2a718605179099206a7eadc0edd8cec29ef1792f",
+  "game_sources_equal": true,
+  "artifact_sha256": "500864aba125187331e2af41b1a21a7058c9e956ce27bdf69b93706648446d1b",
+  "fbx_version": 7400,
+  "model_rotation_degrees": [
+    0.0,
+    -0.0,
+    179.999991348578
+  ],
+  "coordinate_conversion": "Serialized FBX model rotation, then x/y negation into world metres; no native float32 rounding or welding. Local payload digests are retained separately.",
+  "local_positions_sha256": "f809d5f0179a0f096951ba5cb19a888aef265dd294e858abbe5ffde931744c30",
+  "inventory": {
+    "schema": 1,
+    "owner": "FarHills",
+    "stage": "final",
+    "units": "metres, x east, y north, z up",
+    "vertices": 869185,
+    "triangles": 1358937,
+    "bounds": [
+      [
+        -3200.000483186521,
+        -3200.0004831865203,
+        -32.0
+      ],
+      [
+        3200.000483186521,
+        3200.0004831865203,
+        261.5667724609375
+      ]
+    ],
+    "ordered_positions_sha256": "5046c06f6655b271c06cf9f0dc6e4d4cc39cc550d4f524fa43efe35ac7d2023c",
+    "ordered_indices_sha256": "e804895ad95838175d82b7b4161958413748ab6a0b1b28f1d052226ce0094928",
+    "zero_area_triangles": 0,
+    "upward_triangles": 1358937,
+    "downward_triangles": 0,
+    "vertical_triangles": 0,
+    "index_edges": {
+      "boundary": 348911,
+      "paired": 1863950,
+      "nonmanifold": 0
+    }
+  },
+  "scope": "Retained final serialized FarHills only; original/natural product, logical geometric seams, other owners and native serialization are separate witnesses."
+}

@@ -1,0 +1,6 @@
+@cc [owner:fontanierh,label:correctness] audition-session-ownership
+Browser auditions MUST use prepared contacts and loops, with no baked footstep rhythm.
+Stop, a superseding selection, individual-clip playback or leaving the visible page
+MUST end every scheduled source owned by that audition. A cancelled asynchronous
+load MUST NOT start playback later. The UI MUST distinguish the browser simulation
+from runtime game integration.
