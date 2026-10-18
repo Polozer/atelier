@@ -176,28 +176,37 @@ def integrate(world, heightmap):
 
 def repair_west_forest(world, heightmap, owned_rows):
     """@cc [owner:fontanierh,label:correctness] repaired-west-rim-forest-support
-    Re-seat only surviving original far-forest rows in the repaired west rim.
-    Preserve their XY/yaw/scale, all outside rows and all RNG draws. Query the
-    exporter's parent-preserving mesh and exact fine-edge knots; this local
-    region MUST remain outside railway carving. Do not move another producer.
+    Re-seat only surviving original far-forest rows whose triangle support
+    changes in the west repair, including adjacent parent-cell interiors.
+    Preserve XY/yaw/scale, unchanged-support rows and every RNG draw. Compare
+    the original coast/southern stitch without new knots to the repaired mesh;
+    no private baseline is a build dependency. Changed support MUST remain
+    outside railway carving. Do not move another producer.
     """
     from hidamari import layout
     from farhills_grid import mesh_grid, source_grid
     from train import earthworks
     owned={(name,*row[:2]) for name,rows in owned_rows.items() for row in rows}
     selected=[row for name,rows in world['instances'].items() for row in rows
-              if (name,*row[:2]) in owned and -550.<row[0]<-300. and -380.<row[1]<380.]
+              if (name,*row[:2]) in owned]
     if not selected:return
     p=np.asarray(selected,float)
     # Match the float32 heightmap consumed by the later geometry producer.
     layout.H=np.asarray(heightmap,dtype=np.float32)
     xs,ys,z=mesh_grid(len(heightmap))
+    parents=source_grid()
+    def previous(x,y,base):return layout.coastal_backdrop_height(x,y,base,repair_west=False)
     def shape(x,y,base):
         ground=layout.coastal_backdrop_height(x,y,base)
-        if not np.array_equal(ground,earthworks.carve(x,y,ground)):
+        changed=ground!=previous(x,y,base)
+        if np.any(changed) and not np.array_equal(ground[changed],earthworks.carve(x[changed],y[changed],ground[changed])):
             raise ValueError('West-rim forest repair overlaps railway earthworks')
         return ground
+    before=coast.sample_grid_mesh(xs,ys,z,p[:,0],p[:,1],shape=previous,parents=parents)
     ground=coast.sample_grid_mesh(xs,ys,z,p[:,0],p[:,1],shape=shape,
-        parents=source_grid(),edge_knots={(0,-300.):np.linspace(-300.,300.,len(heightmap))})
-    for row,height in zip(selected,ground):row[2]=round(float(height-.3),2)
-    world['west_rim_forest_support']={'producer':'far_forest','count':len(selected),'embedding_m':.3}
+        parents=parents,edge_knots={(0,-300.):np.linspace(-300.,300.,len(heightmap))})
+    changed=before!=ground
+    if np.any(changed) and not np.array_equal(ground[changed],earthworks.carve(p[changed,0],p[changed,1],ground[changed])):
+        raise ValueError('West-rim forest repair overlaps railway earthworks')
+    for i in np.flatnonzero(changed):selected[i][2]=round(float(ground[i]-.3),2)
+    world['west_rim_forest_support']={'producer':'far_forest','count':int(changed.sum()),'embedding_m':.3}

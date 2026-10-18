@@ -10,6 +10,8 @@ import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'world'))
 import yori  # noqa: E402,F401
 import shorelines as coast  # noqa: E402
+import coastal_dressing  # noqa: E402
+import farhills_grid  # noqa: E402
 from hidamari import layout  # noqa: E402
 from terrain_product import Mesh  # noqa: E402
 from terrain_query import Surface  # noqa: E402
@@ -63,3 +65,26 @@ def test_city_export_restores_air_apron_after_carving_but_not_the_rail_bed(monke
                          ([1239.,1240.],[328.,329.],33.7)]:
         mesh=scope['surface']('HD_Terrain',xs,ys,'park')
         np.testing.assert_allclose(np.asarray(mesh.vertices)[:,2],wanted,rtol=0,atol=1e-12)
+
+
+def test_forest_repair_follows_changed_parent_support_beyond_the_analytical_fade(monkeypatch):
+    # Actual failing row: the point is north of the 80m analytical fade, but
+    # its original parent triangle reaches down into the changed rim.
+    xs=np.array([-700.,-400.,-300.,-200.]);ys=np.array([300.,500.])
+    grid=(xs,ys,np.full((len(ys),len(xs)),40.))
+    monkeypatch.setattr(farhills_grid,'mesh_grid',lambda n:grid)
+    monkeypatch.setattr(farhills_grid,'source_grid',lambda:grid)
+    monkeypatch.setattr(earthworks,'carve',lambda x,y,z:z)
+    monkeypatch.setattr(layout,'H',None)
+    owned={'Tree_Maple_A':[[-300.77,436.59,103.97,307.,2.026],[-700.,500.,2.,20.,3.]]}
+    world={'instances':{'Tree_Maple_A':[r.copy() for r in owned['Tree_Maple_A']],
+                        'Tree_Cedar_B':[[-300.77,436.59,9.,30.,1.]]}}
+    before=[r.copy() for r in world['instances']['Tree_Maple_A']]
+    coastal_dressing.repair_west_forest(world,np.full((3,3),10.),owned)
+    p=np.array(before[0][:2]);h=coast.sample_grid_mesh(*grid,p[0],p[1],
+        shape=layout.coastal_backdrop_height,parents=grid,
+        edge_knots={(0,-300.):np.linspace(-300.,300.,3)})
+    assert world['instances']['Tree_Maple_A'][0]==[*before[0][:2],round(float(h-.3),2),*before[0][3:]]
+    assert world['instances']['Tree_Maple_A'][0][2]!=before[0][2]
+    assert world['instances']['Tree_Maple_A'][1]==before[1]
+    assert world['instances']['Tree_Cedar_B']==[[-300.77,436.59,9.,30.,1.]]

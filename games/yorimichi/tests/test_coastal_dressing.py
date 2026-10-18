@@ -56,12 +56,14 @@ def test_west_repair_moves_only_surviving_owned_roots_and_rejects_rail_overlap(m
     monkeypatch.setattr(farhills_grid,'mesh_grid',lambda n:grid)
     monkeypatch.setattr(farhills_grid,'source_grid',lambda:grid)
     monkeypatch.setattr(layout,'H',None)
-    monkeypatch.setattr(layout,'coastal_backdrop_height',lambda x,y,z:np.full_like(x,10.25))
+    monkeypatch.setattr(layout,'coastal_backdrop_height',lambda x,y,z,repair_west=True:
+        np.full_like(x,10.25)-((x>-550.) & (not repair_west)))
     monkeypatch.setattr(earthworks,'carve',lambda x,y,z:z)
     def query(xs,ys,z,x,y,**kwargs):
-        np.testing.assert_array_equal(x,[-350.])
-        np.testing.assert_array_equal(y,[-125.])
-        np.testing.assert_array_equal(kwargs['edge_knots'][0,-300.],[-300.,0.,300.])
+        np.testing.assert_array_equal(x,[-350.,-600.])
+        np.testing.assert_array_equal(y,[-125.,-125.])
+        if 'edge_knots' in kwargs:
+            np.testing.assert_array_equal(kwargs['edge_knots'][0,-300.],[-300.,0.,300.])
         return kwargs['shape'](x,y,np.zeros_like(x))
     monkeypatch.setattr(S,'sample_grid_mesh',query)
     D.repair_west_forest(world,np.zeros((3,3)),owned)
