@@ -214,6 +214,8 @@ def main():
         if terrain is None:
             raise RuntimeError("City import did not produce /Game/Japan/Terrain")
     else:
+        from forest_ground import coast_rock_instance
+        MI['CoastRock'] = coast_rock_instance()
         import_fbx(os.path.join(OUT, "terrain.fbx"), "/Game/Japan", "Terrain")
         assign("/Game/Japan/Terrain", MI)
         terrain = EAL.load_asset("/Game/Japan/Terrain")

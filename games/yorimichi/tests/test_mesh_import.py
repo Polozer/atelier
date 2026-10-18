@@ -132,7 +132,7 @@ def test_hidamari_terrain_reimport_replaces_seed_slots_and_keeps_terrain_materia
     p = importer
     scripts = Path(__file__).resolve().parents[1] / 'unreal/Scripts'
     terrain_package = '/Game/Japan/Terrain'
-    names = ('Ground', 'Road', 'Sand', 'Coast')
+    names = ('Ground', 'Road', 'Sand', 'Coast', 'CoastRock')
     materials = {name: object() for name in names}
 
     class Slot:
@@ -152,12 +152,28 @@ def test_hidamari_terrain_reimport_replaces_seed_slots_and_keeps_terrain_materia
         previous = p.assets[terrain_package] = Mesh(ImportData() if initial == 'legacy' else object())
         previous.static_materials = [Slot('VillagePalette')] if initial == 'legacy' else [Slot(name) for name in names]
     unrelated = p.assets['/Game/Other/Mesh'] = Mesh(object())
-    p.assets.update({'/Game/Japan/Materials/MI_' + name: material for name, material in materials.items()})
+    p.assets.update({'/Game/Japan/Materials/MI_' + name: material for name, material in materials.items()
+                     if name != 'CoastRock'})
     p.assets['/Game/Japan/Materials/M_Village'] = object()
-    saved, logs, sand_calls, coast_calls = [], [], [], []
+    saved, logs, sand_calls, coast_calls, rock_calls, events = [], [], [], [], [], []
     collision = {}
+    def coast_rock_instance():
+        events.append('create-rock')
+        rock_calls.append('rock')
+        p.assets['/Game/Japan/Materials/MI_CoastRock'] = materials['CoastRock']
+        return materials['CoastRock']
+    original_load = p.unreal.EditorAssetLibrary.load_asset
+    def load(path):
+        if path == '/Game/Japan/Materials/MI_CoastRock':
+            events.append('lookup-rock')
+            assert rock_calls, 'Rock material must exist before its slot is bound'
+        return original_load(path)
+    p.unreal.EditorAssetLibrary.load_asset = load
     original_execute = p.unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks
     def execute(tasks):
+        if any(Path(task.filename).name == 'terrain.fbx' for task in tasks):
+            events.append('import-terrain')
+            assert p.assets.get('/Game/Japan/Materials/MI_CoastRock') is materials['CoastRock']
         original_execute(tasks)
         p.assets[terrain_package].values['body_setup'] = SimpleNamespace(set_editor_property=collision.__setitem__)
     p.module.AT.import_asset_tasks = execute
@@ -176,7 +192,8 @@ def test_hidamari_terrain_reimport_replaces_seed_slots_and_keeps_terrain_materia
         'plaza_material': SimpleNamespace(water_material=lambda *args: object(), paving_material=lambda: object()),
         'city_material': SimpleNamespace(),
         'import_southwest': SimpleNamespace(sand_material=lambda: sand_calls.append('sand')),
-        'forest_ground': SimpleNamespace(coast_instance=lambda *args: coast_calls.append('coast')),
+        'forest_ground': SimpleNamespace(coast_instance=lambda *args: coast_calls.append('coast'),
+                                        coast_rock_instance=coast_rock_instance),
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
     for name in ('import_village', 'mesh_materials'):
@@ -214,12 +231,16 @@ def test_hidamari_terrain_reimport_replaces_seed_slots_and_keeps_terrain_materia
         monkeypatch.setattr(runpy, 'run_path', nested)
         run_city = owner['main']
     for _ in range(2):
+        events.clear()
         run_city()
         mesh = p.assets[terrain_package]
         assert mesh.centimetres == 1200
         assert isinstance(mesh.values['asset_import_data'], ImportData)
         assert [slot.values['imported_material_slot_name'] for slot in mesh.static_materials] == list(names)
         assert [slot.values['material_interface'] for slot in mesh.static_materials] == list(materials.values())
+        assert events.index('create-rock') < events.index('import-terrain') < events.index('lookup-rock')
+        assert events.count('create-rock') == 1 and events.count('lookup-rock') == 1
+        assert mesh.static_materials[-1].values['material_interface'] is materials['CoastRock']
         assert saved[-1] is mesh
     if previous is not None:
         assert mesh is previous
@@ -228,6 +249,7 @@ def test_hidamari_terrain_reimport_replaces_seed_slots_and_keeps_terrain_materia
     assert p.assets['/Game/Other/Mesh'] is unrelated and unrelated.centimetres is None
     assert json.loads((tmp_path / 'hidamari/import-report.json').read_text()) == {}
     assert sand_calls == ['sand', 'sand']
+    assert rock_calls == ['rock', 'rock']
     assert coast_calls == ['coast'] * (4 if entrypoint == 'world' else 2)
     assert logs == ['HIDAMARI IMPORT COMPLETE'] * 2
     if entrypoint == 'world':
@@ -370,7 +392,12 @@ def test_world_without_city_retains_terrain_import_binding_and_collision(tmp_pat
     library = SimpleNamespace(load_asset=lambda path: mesh if path == '/Game/Japan/Terrain' else None,
                               save_loaded_asset=lambda asset: calls.append(('save', asset)))
     monkeypatch.delenv('JAPAN_ONLY', raising=False)
-    monkeypatch.setitem(sys.modules, 'forest_ground', SimpleNamespace(coast_instance=lambda *args: object()))
+    rock = object()
+    def coast_rock_instance():
+        calls.append(('rock', rock))
+        return rock
+    monkeypatch.setitem(sys.modules, 'forest_ground', SimpleNamespace(coast_instance=lambda *args: object(),
+                                                                   coast_rock_instance=coast_rock_instance))
     monkeypatch.setattr(runpy, 'run_path', lambda *args, **kwargs: {})
     owner = dict(__file__=str(script), OUT=str(tmp_path), os=os,
                  glob=SimpleNamespace(glob=lambda pattern: []), EAL=library, unreal=unreal, FOLIAGE=set(),
@@ -381,8 +408,8 @@ def test_world_without_city_retains_terrain_import_binding_and_collision(tmp_pat
                  build_level=lambda terrain, *args: calls.append(('level', terrain)))
     exec(compile(ast.Module(body=body, type_ignores=[]), str(script), 'exec'), owner)
     owner['main']()
-    assert [c[0] for c in calls] == ['import', 'bind', 'save', 'level']
-    assert calls[0][1:] == (str(tmp_path / 'terrain.fbx'), '/Game/Japan', 'Terrain')
-    assert calls[1][1] == '/Game/Japan/Terrain'
+    assert [c[0] for c in calls] == ['rock', 'import', 'bind', 'save', 'level']
+    assert calls[1][1:] == (str(tmp_path / 'terrain.fbx'), '/Game/Japan', 'Terrain')
+    assert calls[2][1] == '/Game/Japan/Terrain' and calls[2][2]['CoastRock'] is rock
     assert calls[-1][1] is mesh and calls[-2][1] is mesh
     assert collision == {'collision_trace_flag': 'complex'}
