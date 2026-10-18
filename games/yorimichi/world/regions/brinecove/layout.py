@@ -216,11 +216,28 @@ def height(x, y):
     if y >= QUAY_Y - 2.0:
         town = smooth((y - QUAY_Y) / 30.0) * (1.0 - smooth((abs(x) - 380.0) / 130.0))
         z += noise(x, y) * (1.0 - 0.75 * town)
-    # Let the terrain run out into open water at the review edges.
-    edge = max(abs(x) - 840.0, -650.0 - y, y - 680.0)
+    # The headlands' outer shores: a wandering coast that tapers each headland to a rounded point, so neither the
+    # map nor the sea view shows the old straight-sided fingers ending on a rectangle.
+    edge = max(outer_shore(x, y), y - 680.0)
     if edge > 0.0:
-        z = lerp(z, -9.0, smooth(edge / 200.0))
+        z = lerp(z, -9.0, smooth(edge / 120.0))
     return z
+
+
+def outer_shore(x, y):
+    """Signed distance past the headlands' outer sea coast (positive offshore), in metres."""
+    side = 1.0 if x > 0 else -1.0
+    wander = (30.0 * math.sin(y * 0.0071 + 1.3 * side) + 17.0 * math.sin(y * 0.0193 + 0.4 * side)
+              + 8.0 * math.sin(y * 0.0467 + 2.1 * side) + 4.0 * math.sin(y * 0.103 + side))
+    # Narrowing south of the lighthouse to a blunt point just outside the cove's own cliff line.
+    taper = smooth((-120.0 - y) / 600.0)
+    limit = lerp(840.0, bay_half(y) + 60.0, taper) + wander * (1.0 - 0.55 * taper)
+    across = abs(x) - limit
+    tip = -660.0 + 22.0 * math.sin(abs(x) * 0.019 + side) + 9.0 * math.sin(abs(x) * 0.061) - y
+    # A soft maximum rounds the point instead of cutting a corner.
+    k = 60.0
+    top = max(across, tip)
+    return top + k * math.log(math.exp((across - top) / k) + math.exp((tip - top) / k))
 
 
 def slope(x, y, step=6.0):
