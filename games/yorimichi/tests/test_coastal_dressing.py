@@ -45,3 +45,13 @@ def test_country_groves_reach_into_backshore_and_leave_meadow_gaps():
     counts, _ = np.histogram(p[:,1], np.arange(4200.,6201.,100.))
     assert counts.max() > 15
     assert np.count_nonzero(counts < 4) >= 3
+
+
+def test_extended_groves_leave_the_region_join_and_complete_rail_clear():
+    import json
+    p=np.array([[r['x'],r['y']] for r in json.loads(S.RAIL_LINE.read_text())['samples']])
+    assert not D.clear_footprint(p[:,0],p[:,1],13.).any()
+    # The existing Belmonte producer seats its own woodland on collar triangles;
+    # the coastal country sampler must not place a second set across that join.
+    assert not D.clear_footprint(1750.,4800.,13.)
+    assert not D.clear_footprint(1760.,4800.,13.)

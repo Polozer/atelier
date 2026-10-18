@@ -99,7 +99,7 @@ def _rail_headlands():
     rows = json.loads(RAIL_LINE.read_text())['samples']
     p = np.array([[r['x'], r['y']] for r in rows])
     d, _ = _base_field(p[:, 0], p[:, 1])
-    near = d < reach(p[:, 0], p[:, 1])+60.
+    near = d < _profile_reach(p[:, 0], p[:, 1])+60.
     edges = np.flatnonzero(np.diff(np.r_[False, near, False]))
     return tuple((float(q[:, 0].min()-30.), float(q[:, 1].min()-30.),
                   float(q[:, 0].max()+30.), float(q[:, 1].max()+30.))
@@ -123,16 +123,16 @@ def field(x, y):
     return d, rock
 
 
-def reach(x, y):
+def _profile_reach(x, y):
     """Country-only rolling backshore; the arrival coast keeps its established band."""
     x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
     country = smooth((y-3500.)/700.)*(1.-smooth((y-6200.)/500.))
     return REACH+(COUNTRY_REACH-REACH)*country
 
 
-def perimeter_weight(x, y):
+def _profile_perimeter_weight(x, y):
     d, _ = field(x, y)
-    band = reach(x, y)
+    band = _profile_reach(x, y)
     inland = smooth((d-100.)/(band-100.))
     country = (band-REACH)/(COUNTRY_REACH-REACH)
     # Keep the foreground on the authored low shelf. The old 225 m plateau
@@ -140,9 +140,9 @@ def perimeter_weight(x, y):
     return 1.-inland*(1.-country+country*inland)
 
 
-def weight(x, y):
+def _profile_weight(x, y):
     x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
-    w = perimeter_weight(x, y)
+    w = _profile_perimeter_weight(x, y)
     # Preserve the occupied mainland above the coastal strip. The quay's drop
     # is hidden inside its existing retaining wall, not stretched under boats.
     south = smooth((-125.-y)/28.)
@@ -156,9 +156,148 @@ def weight(x, y):
     return w
 
 
+COUNTRY_RIDGES=[
+ {'y':3660.,'lean':-.18,'width':130.,'height':42.},
+ {'y':4310.,'lean':.28,'width':110.,'height':52.},
+ {'y':5080.,'lean':-.24,'width':145.,'height':64.},
+ {'y':5530.,'lean':.16,'width':125.,'height':38.},
+ {'y':6200.,'lean':-.15,'width':150.,'height':55.}]
+HEADLAND_MASSES=[
+ {'x':2900.,'y':220.,'rx':155.,'ry':95.,'angle':25.,'height':48.},
+ {'x':2950.,'y':410.,'rx':110.,'ry':105.,'angle':-30.,'height':62.},
+ {'x':2840.,'y':790.,'rx':175.,'ry':110.,'angle':35.,'height':42.},
+ {'x':2880.,'y':975.,'rx':145.,'ry':100.,'angle':-25.,'height':57.},
+ {'x':2980.,'y':310.,'rx':85.,'ry':70.,'angle':-15.,'height':28.},
+ {'x':2950.,'y':875.,'rx':90.,'ry':65.,'angle':20.,'height':31.}]
+# Each broad headland is a connected cluster with three different crowns, not one tabletop.
+HEADLAND_MASSES=[dict(x=c['x']+dx*c['rx'],y=c['y']+dy*c['ry'],rx=c['rx']*sx,ry=c['ry']*sy,angle=c['angle']+turn,height=c['height']*h)
+ for c in HEADLAND_MASSES for dx,dy,sx,sy,turn,h in [(-.32,.15,.66,.73,-18.,1.),(.34,-.18,.61,.62,22.,.78),(.05,.43,.48,.55,-32.,.58)]]
+
+def landform_regions(x, y):
+    """Localized editable scenery; occupied Belmonte ground ends west of x=1575."""
+    x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
+    country = smooth((x-1575.)/300.)*smooth((3250.-x)/100.)
+    country *= smooth((y-3150.)/300.)*smooth((6600.-y)/300.)
+    headland = smooth((x-2200.)/250.)*smooth((3350.-x)/100.)
+    headland *= smooth((y+20.)/120.)*smooth((1430.-y)/160.)
+    return country, headland
+
+
+def reach(x, y):
+    """Refine every affected local landform while retaining the original coast elsewhere."""
+    country, headland = landform_regions(x, y)
+    band = _profile_reach(x, y)
+    return np.maximum(band, np.maximum(np.where(country > 0., 1650., 0.),
+                                      np.where(headland > 0., 850., 0.)))
+
+
+@lru_cache(maxsize=1)
+def rail_cover_boxes():
+    """Overlapping groups cover every committed segment, including newly reached inland track."""
+    p = np.array([[r['x'], r['y']] for r in json.loads(RAIL_LINE.read_text())['samples']])
+    return tuple((float(q[:,0].min()-30.), float(q[:,1].min()-30.),
+                  float(q[:,0].max()+30.), float(q[:,1].max()+30.))
+                 for i in range(0, len(p)-1, 10) for q in [p[i:i+11]])
+
+
+def rail_cover_distance(x, y, *, maximum=np.inf):
+    x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
+    distance = np.full_like(x, maximum)
+    if not x.size:
+        return distance
+    bounds = (x.min()-maximum, y.min()-maximum, x.max()+maximum, y.max()+maximum)
+    for box in rail_cover_boxes():
+        if box[2] < bounds[0] or box[3] < bounds[1] or box[0] > bounds[2] or box[1] > bounds[3]:
+            continue
+        distance = np.minimum(distance, _headland_distance(x, y, box))
+    return distance
+
+
+def protected_weight(x, y):
+    return smooth(rail_cover_distance(x, y, maximum=350.)/350.)
+
+
+def landform_envelope(x, y):
+    country, headland = landform_regions(x, y)
+    d, rock = field(x, y)
+    country *= smooth((d-3.)/10.)*smooth((1650.-d)/100.)
+    headland *= smooth((d-(60.-50.*rock))/12.)*smooth((850.-d)/180.)
+    return np.maximum(country, headland)
+
+
+def perimeter_weight(x, y):
+    return np.maximum(_profile_perimeter_weight(x, y), landform_envelope(x, y))
+
+
+def weight(x, y):
+    return np.maximum(_profile_weight(x, y), landform_envelope(x, y)*protected_weight(x, y))
+
+
+def wedge(x,y,c):
+    a=np.deg2rad(c['angle']);dx=x-c['x'];dy=y-c['y']
+    u=(dx*np.cos(a)+dy*np.sin(a))/c['rx'];v=(-dx*np.sin(a)+dy*np.cos(a))/c['ry']
+    edge=np.minimum.reduce([1.-u,1.+u,1.-v,1.+v,1.-.8*u-.6*v,1.+.5*u-.9*v])
+    roof=np.clip(.70+.23*u-.16*v,.20,1.05)
+    return c['height']*roof*smooth(edge/.18)
+
+
+def _landform_height(x,y,z):
+    x,y,z=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float),np.asarray(z,float))
+    d,rock=field(x,y)
+    terrace=np.interp(d,[0.,60.,300.,600.,850.,1100.,1450.,1650.],[0.,3.6,10.,20.,36.,70.,190.,225.])
+    ridge=np.zeros_like(z)
+    for i,c in enumerate(COUNTRY_RIDGES):
+        axis=c['y']+c['lean']*(x-2400.)
+        along=np.exp(-((x-(2410.+100.*(i%2)))/420.)**4)
+        ridge=np.maximum(ridge,c['height']*np.exp(-((y-axis)/c['width'])**2)*along)
+    target=terrace+ridge*smooth((d-55.)/110.)
+    for cy,lean,width in [(4670.,.13,170.),(5800.,-.12,150.)]:
+        valley=np.exp(-((y-(cy+lean*(x-2400.)))/width)**4)*smooth((1350.-d)/300.)
+        floor=6.+.025*np.maximum(d-80.,0.)
+        target=target*(1.-.9*valley)+floor*.9*valley
+    country_region,headland_region=landform_regions(x,y)
+    w=country_region*smooth((d-60.)/60.)*smooth((1650.-d)/100.)
+    w*=protected_weight(x,y)
+    out=z*(1.-w)+target*w
+    country_rock=np.zeros_like(z)
+    for cy,cx,h,angle in [(4270.,2845.,36.,20.),(4390.,2900.,29.,-15.),(5180.,2920.,42.,-25.),(5340.,2910.,27.,25.),(6150.,2810.,38.,15.)]:
+        country_rock=np.maximum(country_rock,wedge(x,y,dict(x=cx,y=cy,rx=180.,ry=95.,angle=angle,height=h)))
+    cw=smooth((x-2400.)/180.)*smooth((3300.-x)/100.)*smooth((y-3500.)/200.)*smooth((6500.-y)/200.)
+    cw*=smooth((d-3.)/10.)*smooth((280.-d)/100.)*smooth((rock-.25)/.45)*protected_weight(x,y)
+    out=out*(1.-cw)+(5.+.035*np.maximum(d,0.)+country_rock)*cw
+    masses=np.zeros_like(z)
+    for c in HEADLAND_MASSES:
+        masses=np.maximum(masses,wedge(x,y,c))
+    # Two explicit recessed gullies divide crowns while leaving a connected rock base.
+    for cy,lean,depth in [(330.,.35,27.),(825.,-.45,25.)]:
+        cut=depth*np.exp(-((y-(cy+lean*(x-2900.)))/20.)**4)
+        masses=np.maximum(0.,masses-cut)
+    back=np.interp(d,[0.,60.,180.,400.,650.,850.],[0.,5.,9.,18.,48.,110.])
+    target=back+masses*smooth(d/12.)
+    w=headland_region*smooth((d-(60.-50.*rock))/12.)*smooth((850.-d)/180.)
+    w*=protected_weight(x,y)
+    return out*(1.-w)+target*w
+
+
+def landforms(x, y, z):
+    """Apply the named scenery only inside its two explicit regions."""
+    x, y, z = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float), np.asarray(z, float))
+    country, headland = landform_regions(x, y)
+    active = (country > 0.) | (headland > 0.)
+    if not np.any(active):
+        return z
+    out = z.copy()
+    out[active] = _landform_height(x[active], y[active], z[active])
+    return out
+
+
 def height(x, y, base):
     """@cc [owner:fontanierh,label:correctness] coast-ground-ownership
-    Ground beyond reach(x, y) inside the coast MUST remain unchanged.
+    Ground beyond reach(x, y) inside the coast MUST remain unchanged. The wider
+    Belmonte terrace/valley and eastern wedge landforms MUST remain inside their
+    explicit local regions; occupied town terrain and the complete railway
+    clearance envelope MUST retain their natural ground. The collar MUST join
+    the same shaped country height at its outer edge.
     Country bays MUST retain broad dry sand followed by a rolling backshore,
     without compressing the high country into the southern 260 metre band.
     Country foreground relief MUST vary in two dimensions and taper out before
@@ -204,17 +343,17 @@ def height(x, y, base):
     cliff += .05*np.maximum(inland-46., 0.)
     target = beach*(1.-rock)+cliff*rock
     target = np.where(d < 0., np.maximum(FLOOR, d*(.18+.42*rock)), target)
-    w = weight(x, y)
+    w = _profile_weight(x, y)
     ground = base*(1.-w)+target*w
-    perimeter = perimeter_weight(x, y)
+    perimeter = _profile_perimeter_weight(x, y)
     protection = np.divide(w, perimeter, out=np.zeros_like(w), where=perimeter > 1e-8)
-    band = reach(x, y)
+    band = _profile_reach(x, y)
     country_band = (band-REACH)/(COUNTRY_REACH-REACH)
     relief = (11.*np.sin(x/140.+y/93.)+7.*np.sin(y/71.-x/113.)
               +3.*np.sin(x/57.+y/149.))
     relief *= smooth((d-100.)/150.)*smooth((band-d)/180.)
     relief *= country_band*protection*np.minimum(1., np.maximum(ground-4., 0.)/28.)
-    return ground+relief
+    return landforms(x, y, ground+relief)
 
 
 def vegetation(x, y):

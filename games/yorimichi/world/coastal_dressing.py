@@ -3,6 +3,7 @@ import numpy as np
 
 import shorelines as coast
 from skatepark.pier_site import ORIGIN, HALF_X, HALF_Y
+from belmonte.terrain import OUTER as TOWN_JOIN_BOUNDS
 
 
 def clear_footprint(x, y, radius):
@@ -19,14 +20,33 @@ def clear_footprint(x, y, radius):
     safe &= (x+radius < -550.) | (x-radius > 1650.) | (y+radius < -125.) | (y-radius > 500.)
     for box in coast._rail_headlands():
         safe &= coast._headland_distance(x, y, box) > radius+80.
-    # A circumscribed square protects the whole footprint, including narrow
-    # curved corners of the occupied-ground and railway exclusion fields.
+    # The new local reach approaches the town collar and previously inland rail.
+    # The Belmonte producer already plants the actual collar triangles. Leave
+    # that region to its owner instead of sampling it as unconstrained country.
+    tx0, ty0, tx1, ty1 = TOWN_JOIN_BOUNDS
+    safe &= (x+radius < tx0) | (x-radius > tx1) | (y+radius < ty0) | (y-radius > ty1)
+    safe &= coast.rail_cover_distance(x, y, maximum=100.+float(np.max(radius, initial=0.))) > radius+80.
+    # A circumscribed square also keeps every edge inside an authored scenery region.
     for dx in [-1., 0., 1.]:
         for dy in [-1., 0., 1.]:
             px, py = x+dx*radius, y+dy*radius
-            perimeter = coast.perimeter_weight(px, py)
-            safe &= (perimeter > .02) & (coast.weight(px, py) >= perimeter*(1.-1e-6))
+            perimeter = coast._profile_perimeter_weight(px, py)
+            old = (perimeter > .02) & (coast._profile_weight(px, py) >= perimeter*(1.-1e-6))
+            safe &= old | (coast.landform_envelope(px, py) > .02)
     return safe
+
+
+def landform_groves(x, y):
+    """Groves follow the named ridges and rail foothill, leaving explicit valley mouths open."""
+    country, headland = coast.landform_regions(x, y)
+    clump = .5+.3*np.sin(x/71.+y/93.)+.2*np.sin(y/49.-x/63.)
+    ridge = np.zeros_like(x)
+    for c in coast.COUNTRY_RIDGES:
+        axis = c['y']+c['lean']*(x-2400.)
+        ridge = np.maximum(ridge, np.exp(-((y-axis)/210.)**4))
+    distance = coast.rail_cover_distance(x, y, maximum=460.)
+    rail_foot = coast.smooth((distance-80.)/80.)*(1.-coast.smooth((distance-260.)/200.))
+    return np.maximum(country*np.maximum(ridge, rail_foot), headland)*np.clip((clump-.25)/.65, 0., 1.)
 
 
 def placements(ground):
@@ -72,7 +92,10 @@ def placements(ground):
     front = 88.-18.*rock+24.*np.sin(y/103.+x/67.)
     back = np.minimum(coast.reach(x, y)-45., 160.+.62*coast.reach(x, y)+75.*grove)
     keep = (d > front) & (d < back) & (grove > .30)
-    keep &= rng.random(len(x)) < .35+.5*np.clip(grove, 0., 1.)
+    local_grove = landform_groves(x, y)
+    keep |= (d > front) & (d < coast.reach(x, y)-45.) & (local_grove > .25)
+    chance = np.maximum(.35+.5*np.clip(grove, 0., 1.), .35+.5*local_grove)
+    keep &= rng.random(len(x)) < chance
     keep &= clear_footprint(x, y, 13.)
     x, y = x[keep], y[keep]
     z = ground(x, y)

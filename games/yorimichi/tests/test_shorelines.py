@@ -261,13 +261,15 @@ def test_country_foreground_stays_low_and_breaks_into_knolls():
         z = S.height(x, y, base)
         assert np.max(z[d <= 300.]) < 38.
         assert z[-1] < 70.
-    # Sample a two-dimensional patch behind the first bay: useful relief
-    # must cross the shelf, rather than making another parallel berm.
-    y, d = np.meshgrid(np.arange(4600., 4761., 10.), [250., 350., 450.])
-    x = eastern_waterline(y)-d
+    # The named valley mouth is intentionally quiet ground. Its two wooded
+    # ridge shoulders must rise independently on either side, rather than
+    # relying on tiny ripples within the floor to imply an entire landscape.
+    y = np.array([4310., 4670., 5080.])
+    x = eastern_waterline(y)-350.
     z = S.height(x, y, 225.)
-    assert np.ptp(z[1]) > 15.
-    assert np.min(np.ptp(z, axis=0)) > 15.
+    assert z[1] < 25.
+    assert np.min(z[[0, 2]]) > 45.
+    assert np.min(z[[0, 2]])-z[1] > 30.
 
 
 def test_eastern_rock_wall_is_interrupted_by_physical_pocket_beaches():
@@ -284,3 +286,67 @@ def test_eastern_rock_wall_is_interrupted_by_physical_pocket_beaches():
     for y in [400., 720.]:
         _, rock = S.field(eastern_waterline(y), y)
         assert rock > .85
+
+
+def test_local_landforms_preserve_complete_interpolated_rail_clearance():
+    import json
+    p = np.array([[r['x'], r['y']] for r in json.loads(S.RAIL_LINE.read_text())['samples']])
+    q = np.concatenate([p[:-1]*(1.-t)+p[1:]*t for t in [0., .25, .5, .75, 1.]])
+    angle = np.arange(16)*np.pi/8.
+    x = (q[:,0,None]+20.*np.cos(angle)).ravel()
+    y = (q[:,1,None]+20.*np.sin(angle)).ravel()
+    base = 225.+.001*x+.002*y
+    np.testing.assert_array_equal(S.landforms(x,y,base),base)
+    np.testing.assert_array_equal(S.height(x,y,base),base)
+
+
+def test_local_landforms_keep_waterline_seabed_and_outside_region_unchanged():
+    x,y = np.meshgrid(np.arange(-3200.,3401.,40.),np.arange(-300.,7101.,40.))
+    d,_ = S.field(x,y)
+    before = .01*x+.02*y
+    after = S.landforms(x,y,before)
+    country,headland = S.landform_regions(x,y)
+    fixed = (d <= 0.) | ((country == 0.) & (headland == 0.)) | (d >= S.reach(x,y))
+    np.testing.assert_array_equal(after[fixed],before[fixed])
+    assert S.reach(-2600.,4700.) == S._profile_reach(-2600.,4700.)
+    assert S.reach(35.,-150.) == 260.
+
+
+def test_eastern_crags_have_sloping_crests_and_a_recessed_gully():
+    y = np.array([190.,220.,250.,330.,360.,390.,420.])
+    z = S.height(np.full_like(y,2910.),y,180.)
+    assert min(z[0],z[4]) > 45.
+    assert z[3] < 12.
+    assert z[0]-z[2] > 5. and z[4]-z[6] > 8.
+
+
+def test_expanded_country_grid_refines_the_new_inland_landform(monkeypatch):
+    from belmonte import terrain
+    xs=np.array([1600.,1750.,1900.]);ys=np.array([4500.,4550.])
+    base=np.array([[225.,210.,200.],[235.,220.,205.]])
+    monkeypatch.setattr(terrain,'country_grid',lambda:(xs,ys,base))
+    monkeypatch.setattr(terrain,'old_height',lambda x,y:np.zeros_like(x))
+    vertices,faces=S.grid_mesh(xs,ys,base)
+    p=np.asarray(vertices)
+    assert len(faces)>100
+    np.testing.assert_allclose(p[:,2],terrain.country_height(p[:,0],p[:,1]),atol=1e-10)
+
+
+def test_apron_outer_east_edge_uses_the_same_shaped_country_height(monkeypatch):
+    from belmonte import terrain,layout,source
+    x0,y0,x1,y1=layout.BOUNDS
+    vertices=np.array([[x0,y0,210.],[x1,y0,210.],[x1,y1,210.],[x0,y1,210.]])-layout.ORIGIN
+    class FixedTown:
+        faces=vertices[[[0,1,2],[0,2,3]]]
+        def height(self,x,y):
+            return np.full_like(x,210.-layout.ORIGIN[2])
+    monkeypatch.setattr(source,'terrain',lambda:FixedTown())
+    monkeypatch.setattr(terrain,'country_grid',lambda:(np.array([-3200.,3200.]),np.array([3200.,7000.]),np.full((2,2),225.)))
+    monkeypatch.setattr(terrain,'old_height',lambda x,y:np.full_like(x,225.))
+    monkeypatch.setattr(terrain.H,'north_height',lambda x,y,**kw:S.height(x,y,np.full_like(x,225.)))
+    mesh,_=terrain.collar();p=np.asarray(mesh.p)+layout.ORIGIN
+    outer=np.isclose(p[:,0],terrain.OUTER[2])
+    assert outer.any()
+    np.testing.assert_allclose(p[outer,2],terrain.country_height(p[outer,0],p[outer,1]),atol=1e-10)
+    inner=np.isclose(p[:,0],x1)&(p[:,1]>=y0)&(p[:,1]<=y1)
+    np.testing.assert_allclose(p[inner,2],210.,atol=1e-10)
