@@ -252,13 +252,20 @@ def main():
         slate('Gamepad_FaceButton_Bottom')
         time.sleep(.5)
         record('controller_face_button_travels', not value('m.is_map_open()') and math.dist(player_before,position()) > 1000., position())
-        # The top/left buttons preserve the existing save-and-return shortcuts.
+        # Test saved-place controls on the clear spawn road. The combat-camp
+        # arrival can be obstructed, which correctly refuses marker return.
+        record('controller_marker_clear_start', value('m.teleport_to_zone("spawn")'), position())
+        time.sleep(.5)
         controller_tap('Gamepad_Special_Left')
         marker_count = len(value('list(m.get_marker_keys())'))
         slate('Gamepad_FaceButton_Top')
         record('controller_saves_place', len(value('list(m.get_marker_keys())')) == marker_count+1, value('m.get_marker_name()'))
+        saved_position = position()
+        record('controller_marker_travel_away', value('m.teleport_to_zone("belmonte")'), position())
+        time.sleep(.25)
+        record('controller_marker_moved_away', math.dist(saved_position, position()) > 1000., position())
         slate('Gamepad_FaceButton_Left')
-        record('controller_returns_to_place', not value('m.is_map_open()'), position())
+        record('controller_returns_to_place', not value('m.is_map_open()') and math.dist(saved_position, position()) < 25., position())
         controller_tap('Gamepad_Special_Left')
         slate('Gamepad_FaceButton_Right')
         slate('Gamepad_FaceButton_Right')
