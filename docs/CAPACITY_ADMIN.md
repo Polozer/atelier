@@ -19,6 +19,20 @@ not certify the interrupted job. Use the normal exit-evidence recovery below bef
 If the reason remains unclassified, inspect the verifier with reviewed diagnostics rather than retrying
 an expensive workload repeatedly. Installing new diagnostics requires the usual drained service window.
 
+## Transport delays
+
+For transport incidents, broker logs separate `receive_seconds` (accept through a complete
+request), `handle_seconds` (serialized validation, accounting and storage), and `send_seconds`
+(reply preparation through delivery or failure). Receive time can include waiting for the actor;
+connections waiting to be accepted are outside these server timings. A final `phase=send` by
+itself does not show where the delay occurred. Slow background refreshes are logged separately.
+
+Replies use nonblocking writes with the original connection deadline, at most 32 clients and
+one bounded reply per client. A slow reader cannot hold the actor in a blocking send. Descriptor
+transfer remains single-use; disconnect, expiry and shutdown close unsent descriptors. A lost
+reply is not evidence of permission to continue or a capacity release. Client retry limits remain
+unchanged.
+
 ## Sealed exclusive maintenance
 
 This explicit interim mode permits ordinary guarded work without another reboot after a reviewed stable-volume

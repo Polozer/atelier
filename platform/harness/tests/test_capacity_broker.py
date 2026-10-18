@@ -4,6 +4,7 @@ import os
 import json
 from pathlib import Path
 import select
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -87,6 +88,8 @@ def test_slow_success_logs_elapsed_operation_without_changing_result(broker, mon
     report = json.loads(capsys.readouterr().err.split('capacity slow operation: ')[1].splitlines()[0])
     assert report['action'] == 'status' and report['phase'] == 'send'
     assert report['elapsed_seconds'] >= .25 and report['observed_at'] > 0
+    assert report['handle_seconds'] >= .25
+    assert report['receive_seconds'] >= 0 and report['send_seconds'] >= 0
 
 
 def session(broker, name='leaf', **changes):
@@ -842,3 +845,137 @@ def test_administrative_interruption_is_atomic_fenced_and_not_normal_reconcile(b
     assert saved['exited']==[[70,700]] and saved['ancestry_unknown']
     assert json.loads(Path(guards['process_guard']['report']).read_text())['state']=='running'
     assert json.loads(Path(guards['tree_guard']['report']).read_text())['state']==('child_exited' if completed else 'running')
+
+
+def test_slow_status_reader_cannot_block_a_running_jobs_check(broker, monkeypatch):
+    admission = session(broker, 'responsive-check')
+    admission.offer()
+    child = gated_child(admission, hold=True)
+    pin = start(admission, child)
+    entered = threading.Event()
+    original_handle, original_accept = broker.handle, socket.socket.accept
+    def accept(listener):
+        channel, address = original_accept(listener)
+        channel.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+        return channel, address
+    def handle(message, principal):
+        if message.get('test_slow_reader'):
+            entered.set()
+            return {'namespace': wire.NAMESPACE, 'padding': 'x' * 60000}, None
+        return original_handle(message, principal)
+    monkeypatch.setattr(socket.socket, 'accept', accept)
+    monkeypatch.setattr(broker, 'handle', handle)
+    slow = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    slow.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    try:
+        slow.connect(str(broker.socket_path))
+        wire.send(slow, {'namespace': wire.NAMESPACE, 'action': 'status', 'test_slow_reader': True})
+        assert entered.wait(1)
+        admission.timeout = .5
+        assert admission.check()['state'] == 'running'
+    finally:
+        slow.close()
+        admission.timeout = 2.
+        if child.poll() is None:
+            child.communicate(input=b'1', timeout=3)
+        admission.close(child=child, child_start=pin)
+
+
+def test_unchanged_owned_observation_does_not_commit_state(broker, monkeypatch):
+    epoch = client.status(broker.socket_path)['epoch']
+    with broker._lock:
+        broker.mode = 'capacity'
+        monkeypatch.setattr(broker, '_compatibility_proof', lambda: {'activation_id': broker.activation_id})
+    saved = []
+    original = broker._save
+    monkeypatch.setattr(broker, '_save', lambda state: (saved.append(True), original(state))[-1])
+    try:
+        result, fd = client._rpc(broker.socket_path, {'action': 'owned', 'epoch': epoch,
+            'boot_id': broker.boot, 'activation_id': broker.activation_id, 'candidates': []}, 2.)
+        assert result['owned'] == [] and fd is None and not saved
+    finally:
+        with broker._lock:
+            broker.mode = 'legacy-bridge'
+
+
+def test_handle_eagain_is_refused_not_replayed_as_socket_readiness(broker, monkeypatch):
+    monkeypatch.setattr(broker, 'handle', lambda *args: (_ for _ in ()).throw(BlockingIOError(35, 'private')))
+    with pytest.raises(wire.CapacityError, match='broker refused'):
+        client.status(broker.socket_path)
+
+
+def test_partial_reply_transfers_descriptor_only_once(broker, monkeypatch):
+    read_fd, write_fd = os.pipe()
+    original_handle, original_sendmsg = broker.handle, socket.socket.sendmsg
+    transfers = []
+    def handle(message, principal):
+        if message.get('test_fd'):
+            return {'namespace': wire.NAMESPACE, 'padding': 'x' * 60000}, read_fd
+        return original_handle(message, principal)
+    def sendmsg(channel, buffers, ancillary=(), *args):
+        if ancillary:
+            count = original_sendmsg(channel, [buffers[0][:17]], ancillary, *args)
+            if count:
+                transfers.append(count)
+            return count
+        return original_sendmsg(channel, buffers, ancillary, *args)
+    monkeypatch.setattr(broker, 'handle', handle)
+    monkeypatch.setattr(socket.socket, 'sendmsg', sendmsg)
+    received = None
+    try:
+        result, received = client._rpc(broker.socket_path, {'action': 'status', 'test_fd': True}, 2., descriptor=True)
+        assert len(result['padding']) == 60000 and transfers == [17]
+        os.write(write_fd, b'proof')
+        assert os.read(received, 5) == b'proof'
+    finally:
+        if received is not None:
+            os.close(received)
+        os.close(write_fd)
+
+
+@pytest.mark.parametrize('ending', ['expiry', 'disconnect', 'shutdown'])
+def test_unsent_descriptor_is_closed_on_every_connection_end(broker, monkeypatch, ending):
+    read_fd, write_fd = os.pipe()
+    waiting, closed = threading.Event(), threading.Event()
+    original_handle, original_sendmsg, original_close = broker.handle, socket.socket.sendmsg, os.close
+    def handle(message, principal):
+        if message.get('test_fd'):
+            return {'namespace': wire.NAMESPACE}, read_fd
+        return original_handle(message, principal)
+    def sendmsg(channel, buffers, ancillary=(), *args):
+        if ancillary:
+            waiting.set()
+            raise BlockingIOError()
+        return original_sendmsg(channel, buffers, ancillary, *args)
+    def close(fd):
+        result = original_close(fd)
+        if fd == read_fd:
+            closed.set()
+        return result
+    monkeypatch.setattr(broker, 'handle', handle)
+    monkeypatch.setattr(socket.socket, 'sendmsg', sendmsg)
+    monkeypatch.setattr(os, 'close', close)
+    broker.rpc_timeout = .2
+    caller = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        caller.connect(str(broker.socket_path))
+        wire.send(caller, {'namespace': wire.NAMESPACE, 'action': 'status', 'test_fd': True})
+        assert waiting.wait(1)
+        if ending == 'disconnect':
+            caller.close()
+        elif ending == 'shutdown':
+            stop(broker)
+        assert closed.wait(1)
+    finally:
+        caller.close()
+        os.close(write_fd)
+
+
+def test_diagnostic_type_error_cannot_change_operation_result(broker, monkeypatch):
+    original = broker.handle
+    def slow(message, principal):
+        time.sleep(.26)
+        return original(message, principal)
+    monkeypatch.setattr(broker, 'handle', slow)
+    monkeypatch.setattr(server, 'print', lambda *args, **kwargs: (_ for _ in ()).throw(TypeError()), raising=False)
+    assert client.status(broker.socket_path)['charged_count'] == 0
