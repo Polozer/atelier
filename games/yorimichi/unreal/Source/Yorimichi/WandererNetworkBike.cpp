@@ -51,6 +51,7 @@ void AWandererCharacter::ServerRequestBike_Implementation(uint32 Epoch)
         ClientActivityRejected(TEXT("Wait for the incoming strike before changing vehicles."));
         return;
     }
+    if(!Exiting&&RefuseVehicleOnTrain())return;
     const bool OnBike=NetworkActivity.Kind==EJapanActivity::Bike;
     if((!OnBike&&NetworkActivity.Kind!=EJapanActivity::OnFoot)||!bReady||bMenuOpen||MovementLocked()||
         IsZeppelinPassenger()||(!OnBike&&OnVehicle())||
