@@ -37,6 +37,26 @@ struct FJapanAtlasTarget
     FVector Link = FVector::ZeroVector;
 };
 
+struct FJapanAtlasAirStop
+{
+    FString Key, Name;
+    FVector Location = FVector::ZeroVector;
+};
+
+struct FJapanAtlasAirLeg
+{
+    FString From, To;
+    float Seconds = 0.f, Height = 0.f;
+};
+
+struct FJapanAtlasAirRoute
+{
+    TArray<FString> Line;
+    TArray<FJapanAtlasAirStop> Stops;
+    TArray<FJapanAtlasAirLeg> Legs;
+    FString Note;
+};
+
 /** A place the player can travel to from the map. Positions are Unreal centimetres, yaw is Unreal degrees. */
 struct FJapanMapZone
 {
@@ -115,6 +135,7 @@ public:
     const FSlateBrush* GetAtlasBrush() const;
     FVector2D ToAtlas(const FVector& Location, const FString& Region = FString()) const;
     TArray<FJapanAtlasTarget> GetAtlasTargets() const;
+    const FJapanAtlasAirRoute& GetAtlasAirRoute() const { return AirRoute; }
     FString RegionForLocation(const FVector& Location) const;
     FString RegionForZone(const FJapanMapZone& Zone) const;
     TSharedPtr<FJsonObject> GetAtlasJson() const;
@@ -127,6 +148,7 @@ public:
     UFUNCTION(BlueprintPure, Category="Map|Atlas") TArray<FString> GetAtlasZoneKeys(const FString& Region) const;
     UFUNCTION(BlueprintPure, Category="Map|Atlas") FString GetStableName(const FString& Key) const;
     UFUNCTION(BlueprintPure, Category="Map|Atlas") FString GetAtlasError() const;
+    UFUNCTION(BlueprintPure, Category="Map|Atlas") FString ReviewAtlasAirRoute() const;
     UFUNCTION(BlueprintCallable, Category="Map|Atlas") bool RenameStable(const FString& Key, const FString& Name);
     UFUNCTION(BlueprintCallable, Category="Map|Atlas") bool ResetStableName(const FString& Key);
     UFUNCTION(BlueprintCallable, Category="Map|Atlas") void SelectStable(const FString& Key);
@@ -145,6 +167,7 @@ private:
     TArray<FJapanAtlasFrame> AtlasRegions;
     FJapanAtlasFrame WorldFrame;
     TArray<FJapanAtlasLandmark> AtlasLandmarks;
+    FJapanAtlasAirRoute AirRoute;
     TSharedPtr<FJsonObject> AtlasData;
     FString ActiveRegion = TEXT("world"), SelectedStable;
     FSlateBrush Brush;

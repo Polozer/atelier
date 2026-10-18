@@ -38,6 +38,11 @@ avoids every other label, pin and the player marker, and draws a leader when a n
 lowest-priority names that cannot fit are hidden; the hovered or selected name is always shown on top. Region
 captions are placed first and keep a leader to their region centre. No two visible labels overlap.
 
+The World and regional views also draw the live zeppelin itinerary from the same layout data: Woodland ↔ Hidamari ↔
+Mega Park ↔ Belmonte, with the three sequential 1× leg times (28s, 36s, 61s) at the leg midpoints. The route is a
+live overlay, never painted into the artwork; the Air station pins remain the travel targets. Any docked stop can
+choose another destination, including the direct legs, and the phone shows the same line and legend.
+
 The native atlas supports controllers throughout. The left stick and d-pad choose places; triggers cycle
 every pin, including overlapping locations. The right stick pans, shoulders zoom, right-stick click fits
 the map, and left-stick click returns to the current region. The bottom face button selects, the right
