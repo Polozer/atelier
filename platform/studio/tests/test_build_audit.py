@@ -492,6 +492,59 @@ def test_bad_receipt_is_rejected_and_pipe_is_drained(problem):
         receiver.thread.join(timeout=2)
 
 
+def complete_receipt(write_fd):
+    for record in ({'kind': 'start', 'nonce': 'test-nonce'},
+                   {'kind': 'complete', 'nonce': 'test-nonce', 'success': True}):
+        os.write(write_fd, (json.dumps(record) + '\n').encode())
+
+
+def test_stop_after_a_poll_that_preceded_the_writer_close_still_reads_eof(monkeypatch):
+    read_fd, write_fd = os.pipe()
+    receiver = build_audit.Receiver(read_fd, 'test-nonce')
+    complete_receipt(write_fd)
+    polled, resume = threading.Event(), threading.Event()
+    real = build_audit.select.select
+
+    def select(readers, writers, errors, timeout):
+        ready = real(readers, writers, errors, 0)
+        if ready[0] or polled.is_set():
+            return ready
+        # This poll finds the pipe empty while the host's writer is still open, and its thread
+        # resumes only after the host has closed the writer and stopped, as on a loaded runner.
+        polled.set()
+        resume.wait(5)
+        return [], [], []
+    monkeypatch.setattr(build_audit.select, 'select', select)
+    stop = receiver.stopped.set
+    receiver.stopped.set = lambda: (stop(), resume.set())
+    receiver.thread.start()
+    try:
+        assert polled.wait(5)
+        os.close(write_fd)
+        report = receiver.finish(SimpleNamespace(name='fixture'))
+        assert report['error'] is None and report['complete'] and report['passed'], report
+    finally:
+        resume.set()
+        receiver.thread.join(timeout=2)
+        os.close(read_fd)
+
+
+def test_writer_held_by_another_process_is_reported_without_hanging():
+    read_fd, write_fd = os.pipe()
+    receiver = build_audit.Receiver(read_fd, 'test-nonce')
+    complete_receipt(write_fd)
+    held = os.dup(write_fd)  # A leaked descendant still owns the writer after the action.
+    receiver.thread.start()
+    try:
+        os.close(write_fd)
+        report = receiver.finish(SimpleNamespace(name='fixture'))
+        assert report['error'] == 'audit pipe did not close' and not report['passed']
+    finally:
+        os.close(held)
+        receiver.thread.join(timeout=2)
+        os.close(read_fd)
+
+
 def test_read_product_grants_optional_root_presence_and_bytes_but_not_siblings(action):
     a = action
     mode = a.root / 'mode.txt'
