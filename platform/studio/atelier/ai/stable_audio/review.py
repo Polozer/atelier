@@ -32,19 +32,11 @@ SETTINGS = {'source_revision': SOURCE_REVISION, 'weight_revision': WEIGHT_REVISI
             'cfg': 1.0, 'dit_dtype': 'fp16', 'decoder': 'same-s'}
 
 
-def digest(path, *, max_bytes=None):
+def digest(path):
     result = hashlib.sha256()
     with Path(path).open('rb') as handle:
-        remaining = max_bytes
-        while remaining is None or remaining > 0:
-            block = handle.read(1024 * 1024 if remaining is None else min(remaining, 1024 * 1024))
-            if not block:
-                if remaining:
-                    raise ValueError('File truncated during bounded hashing')
-                break
+        for block in iter(lambda: handle.read(1024 * 1024), b''):
             result.update(block)
-            if remaining is not None:
-                remaining -= len(block)
     return result.hexdigest()
 
 
@@ -107,35 +99,67 @@ MAX_VALIDATION_BYTES = 64 * 1024 * 1024
 MAX_WAV_BYTES = 120 * 44100 * 4 + 65536
 
 
-def wav_details(path, seconds):
-    """Validate bounded PCM in chunks, retaining the original take identity fields."""
+class _BoundedAudioReader:
+    """@cc [owner:fontanierh,label:correctness] captured-wav-extent
+    WAV parsing and hashing MUST share one nonblocking, no-follow regular-file descriptor.
+    Reads and seeks MUST remain within its captured size even if the file grows; pathname
+    replacement MUST NOT reopen a different file, and identity changes MUST fail validation.
+    """
+    def __init__(self, handle, size):
+        self.handle, self.size = handle, size
+
+    def tell(self):
+        return self.handle.tell()
+
+    def read(self, count=-1):
+        remaining = self.size - self.tell()
+        if remaining < 0:
+            raise ValueError('WAV read exceeds captured size')
+        return self.handle.read(remaining if count < 0 else min(count, remaining))
+
+    def seek(self, offset, whence=0):
+        bases = {0: 0, 1: self.tell(), 2: self.size}
+        if whence not in bases or not 0 <= bases[whence] + offset <= self.size:
+            raise ValueError('WAV chunk exceeds captured size')
+        return self.handle.seek(bases[whence] + offset)
+
+
+def wav_details(path, seconds, *, byte_limit=MAX_WAV_BYTES):
+    """Validate and hash one bounded regular-file descriptor, never reopening its path."""
     path = Path(path)
-    before = path.stat()
-    if (type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 < seconds <= 120
-            or not stat.S_ISREG(before.st_mode) or not 1 <= before.st_size <= MAX_WAV_BYTES):
-        raise ValueError('WAV exceeds duration/file budget')
-    with wave.open(str(path), 'rb') as handle:
-        if (handle.getnchannels(), handle.getsampwidth(), handle.getframerate()) != (2, 2, 44100):
-            raise ValueError('Expected stereo 16-bit PCM at 44.1 kHz')
-        frames = handle.getnframes()
-        if abs(frames - round(seconds * 44100)) > 1:
-            raise ValueError('Unexpected WAV duration')
-        remaining, audible = frames, False
-        while remaining:
-            count = min(remaining, 16384)
-            data = handle.readframes(count)
-            if len(data) != count * 4:
-                raise ValueError('Truncated WAV')
-            audible = audible or any(data)
-            remaining -= count
-        if not audible:
-            raise ValueError('Silent WAV')
-    sha256 = digest(path, max_bytes=before.st_size)
-    after = path.stat()
-    if ((after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
-            != (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)):
-        raise ValueError('WAV changed during validation')
-    return {'sha256': sha256, 'frames': frames, 'sample_rate': 44100,
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        if (type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 < seconds <= 120
+                or not stat.S_ISREG(before.st_mode) or not 1 <= before.st_size <= min(MAX_WAV_BYTES, byte_limit)):
+            raise ValueError('WAV exceeds duration/file budget')
+        bounded = _BoundedAudioReader(stream, before.st_size)
+        with wave.open(bounded, 'rb') as handle:
+            if (handle.getnchannels(), handle.getsampwidth(), handle.getframerate()) != (2, 2, 44100):
+                raise ValueError('Expected stereo 16-bit PCM at 44.1 kHz')
+            frames = handle.getnframes()
+            if abs(frames - round(seconds * 44100)) > 1:
+                raise ValueError('Unexpected WAV duration')
+            remaining, audible = frames, False
+            while remaining:
+                count = min(remaining, 16384)
+                data = handle.readframes(count)
+                if len(data) != count * 4:
+                    raise ValueError('Truncated WAV')
+                audible = audible or any(data)
+                remaining -= count
+            if not audible:
+                raise ValueError('Silent WAV')
+        bounded.seek(0)
+        hashed = hashlib.sha256()
+        for block in iter(lambda: bounded.read(1024 * 1024), b''):
+            hashed.update(block)
+        after = os.fstat(stream.fileno())
+        pin = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+        if ((after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) != pin
+                or _file_identity(path) != pin):
+            raise ValueError('WAV changed during validation')
+    return {'sha256': hashed.hexdigest(), 'frames': frames, 'sample_rate': 44100,
             'channels': 2, 'sample_width': 2, 'bytes': before.st_size}
 
 
@@ -181,7 +205,7 @@ def _verify_takes(output, manifest, *, byte_budget=None):
             total += pin[2]
             if byte_budget is not None and total > byte_budget:
                 raise ValueError('Ready validation exceeds total byte budget')
-            if wav_details(path, clip['seconds']) != clip['audio']:
+            if wav_details(path, clip['seconds'], byte_limit=pin[2]) != clip['audio']:
                 raise ValueError('Previously generated take changed')
             pins.append((path, pin))
             ready += 1

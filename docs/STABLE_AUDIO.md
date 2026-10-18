@@ -125,8 +125,9 @@ uv run python -m atelier.ai.stable_audio.review validate-ready \
 
 It requires every take to be ready and checks the recorded WAV hashes, format,
 duration and signal. It accepts at most 512 takes, 64 MiB of WAV files and a 4 MiB
-manifest; larger libraries must use the guarded workflow. A completed `generate`
-run also verifies existing audio and returns before accessing model weights.
+manifest. For more than 64 MiB of WAV data, use guarded `generate`; the take-count
+and manifest limits still apply. A completed `generate` run also verifies existing
+audio and returns before accessing model weights.
 These checks verify retained files, not sound quality or a new inference run.
 
 ## Tailnet review

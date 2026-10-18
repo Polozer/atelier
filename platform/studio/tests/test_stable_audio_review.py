@@ -140,8 +140,8 @@ class AudioReviewTests(unittest.TestCase):
         self.completed_library()
         path = self.output / 'manifest.json'
         original = review.wav_details
-        def changed(*args):
-            details = original(*args)
+        def changed(*args, **kwargs):
+            details = original(*args, **kwargs)
             path.write_bytes(path.read_bytes() + b' ')
             return details
         with patch.object(review, 'wav_details', changed):
@@ -153,8 +153,8 @@ class AudioReviewTests(unittest.TestCase):
         first = self.output / manifest['clips'][0]['file']
         last = self.output / manifest['clips'][-1]['file']
         original = review.wav_details
-        def changed(path, seconds):
-            details = original(path, seconds)
+        def changed(path, seconds, **kwargs):
+            details = original(path, seconds, **kwargs)
             if path.resolve() == last.resolve():
                 first.write_bytes(first.read_bytes()[:-2] + b'\x00\x00')
             return details
@@ -162,30 +162,53 @@ class AudioReviewTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'WAV changed during library validation'):
                 review.validate_ready(self.output)
 
-    def test_growing_wav_does_not_extend_hashing_past_captured_size(self):
+    def test_growing_wav_never_reads_past_captured_extent(self):
         target = self.make_wav()
         captured = target.stat().st_size
-        original_open = Path.open
-        reads = []
-        class GrowingReader:
-            def __init__(self, handle):
-                self.handle = handle
-            def __enter__(self):
-                return self
-            def __exit__(self, *args):
-                self.handle.close()
-            def read(self, count):
-                with original_open(target, 'ab') as writer:
-                    writer.write(b'\0' * 1024)
-                reads.append(count)
-                return self.handle.read(count)
-        def opened(path, *args, **kwargs):
-            handle = original_open(path, *args, **kwargs)
-            return GrowingReader(handle) if path == target and args == ('rb',) else handle
-        with patch.object(Path, 'open', opened):
+        original = review._BoundedAudioReader.read
+        positions = []
+        def growing(reader, count=-1):
+            with target.open('ab') as writer:
+                writer.write(b'\0' * 1024)
+            result = original(reader, count)
+            positions.append(reader.tell())
+            return result
+        with patch.object(review._BoundedAudioReader, 'read', growing):
             with self.assertRaisesRegex(ValueError, 'WAV changed during validation'):
                 review.wav_details(target, 1)
-        self.assertEqual(sum(reads), captured)
+        self.assertTrue(positions)
+        self.assertLessEqual(max(positions), captured)
+
+    def test_replaced_fifo_path_is_never_reopened(self):
+        target = self.make_wav()
+        original = wave.open
+        def swapped(reader, mode):
+            self.assertIsInstance(reader, review._BoundedAudioReader)
+            target.rename(self.root / 'original.wav')
+            review.os.mkfifo(target)
+            return original(reader, mode)
+        with patch.object(wave, 'open', swapped):
+            with self.assertRaisesRegex(ValueError, 'WAV changed during validation'):
+                review.wav_details(target, 1)
+
+    def test_wav_chunk_cannot_seek_beyond_captured_extent(self):
+        target = self.root / 'oversized-chunk.wav'
+        target.write_bytes(b'RIFF' + (2**30).to_bytes(4, 'little') + b'WAVEJUNK'
+                           + (2**29).to_bytes(4, 'little'))
+        with self.assertRaisesRegex(ValueError, 'chunk exceeds captured size'):
+            review.wav_details(target, 1)
+
+    def test_file_growth_between_bank_budget_and_fd_open_refuses_before_read(self):
+        self.completed_library()
+        original = review.wav_details
+        def grown(path, seconds, **kwargs):
+            with path.open('ab') as writer:
+                writer.write(b'growth')
+            return original(path, seconds, **kwargs)
+        with patch.object(review, 'wav_details', grown), \
+                patch.object(wave, 'open', side_effect=AssertionError('Read exceeded bank budget')):
+            with self.assertRaisesRegex(ValueError, 'file budget'):
+                review.validate_ready(self.output)
 
     def test_streamed_wav_validation_never_reads_a_complete_large_take(self):
         target = self.make_wav(frames=44100 * 3)
