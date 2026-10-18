@@ -86,7 +86,7 @@ def prepare(catalog, output, web):
             raise ValueError('Existing library has a different plan; use a fresh output root')
     else:
         write_json(manifest, {**identity, 'plan_hash': plan_hash, 'title': catalog['title']})
-    for name in ('index.html', 'review.js', 'preview.js', 'review.css'):
+    for name in ('index.html', 'clips.html', 'review.js', 'sequences.js', 'review.css'):
         shutil.copyfile(Path(web) / name, output / name)
     return json.loads(manifest.read_text())
 
