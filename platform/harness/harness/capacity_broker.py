@@ -32,6 +32,10 @@ MAX_DATABASE = 32 * 1024 * 1024
 HELD = {'running', 'draining', 'uncertain'}
 
 
+class PressureWait(wire.CapacityError):
+    """An ordinary complete-memory deficit; never a failed guard or stale observation."""
+
+
 class CapacityBroker:
     """@cc [owner:fontanierh,label:safety] production-serialized-capacity-gate
     Queued offers MUST charge no resources. Final complete-vector and lock accounting MUST commit
@@ -624,55 +628,81 @@ class CapacityBroker:
         print('capacity start refused: ' + json.dumps(dict(reason=reason, observed_at=time.time())),
               file=sys.stderr, flush=True)
 
-    def _lost_offer(self, state, record, principal, message):
+    def _lost_offer(self, state, record, principal, message, *, reason='selection-changed'):
         """@cc [owner:fontanierh,label:safety] unexecuted-selection-loss
-        A typed selection-change denial MUST require a queued, fenced session, a still-pending
+        A typed selection-change or pressure-wait denial MUST require a queued, fenced session, a still-pending
         broker-owned gate and a verified direct child. It MUST close that gate without writing GO,
         changing the request age or charging resources. Other refusal reasons MUST stay errors.
         """
-        reason = ('not-queued' if record['state'] != 'queued' else
+        invalid = ('not-queued' if record['state'] != 'queued' else
                   'gate-unavailable' if record['nonce'] not in self._gates else
                   'compatibility' if not self.compatible else
                   'recovery' if any(r['state'] == 'uncertain' for r in state['records'].values()) else None)
-        if reason is not None:
-            self._start_refusal(reason)
+        if invalid is not None:
+            self._start_refusal(invalid)
             raise wire.CapacityError('Capacity offer is no longer selected')
         child = wire.identity(message['child'])
         if not self.child_of(principal, child):
             self._start_refusal('child-identity')
             raise wire.CapacityError('Launcher is not the pinned direct child')
-        self._start_refusal('selection-changed')
+        self._start_refusal(reason)
         self._gate_close(record['nonce'])  # EOF may end this owned gate child; no GO was written.
-        return dict(state='queued', admission=False, no_go=True, reason='selection-changed',
+        return dict(state='queued', admission=False, no_go=True, reason=reason,
                     nonce=record['nonce'], epoch=state['epoch'], child=list(child))
 
-    def _selection(self, state):
+    def _selection(self, state, *, pressure=False, advisory=False):
+        """@cc [owner:fontanierh,label:safety] pressure-aware-uncharged-offer
+        Offers MUST stay uncharged and retain ready age, sequence and bypass protection while
+        complete memory is unavailable. Pressure-aware ranking MUST use one fresh observation
+        and full validated remaining peer growth. After two bypasses or 900 seconds of original
+        ready age, the oldest protected feasible request MUST drain before younger work,
+        including performance-exclusive requests. Named-lock-blocked requests MUST retain their
+        age/protection but MUST NOT impose an unrelated broker-wide drain.
+        Missing advisory observations MUST keep offers queued without mutating holder health;
+        final start observations MUST still fail closed on unavailable enforcement.
+        This eligibility observation MUST NOT replace the final guarded GO pressure proof.
+        """
         if not self.compatible or any(r['state'] == 'uncertain' for r in state['records'].values()):
             return None  # Accounting alone cannot replace a lost enforcement/ownership boundary.
         holders = [self._model(r) for r in state['records'].values() if r['state'] in HELD]
         queued = sorted((r for r in state['records'].values() if r['state'] == 'queued'), key=lambda r: r['sequence'])
         feasible = [r for r in queued if not conflicts(self._model(r), [], self.total, self.reserve)]
-        protected = next((r for r in feasible if r.get('bypasses', 0) >= 2), None)
+        held_locks = {lock for holder in holders for lock in holder.locks}
+        protected = next((r for r in feasible if not held_locks.intersection(r['request']['locks'])
+                          and (r.get('bypasses', 0) >= 2 or time.time() - r['first_ready'] >= 900.)), None)
         ranked = sorted(feasible, key=lambda r: (r is not protected if protected else False,
                                                 r['request']['seconds'] > 300, r['sequence']))
         if not ranked:
             return None
+        budget = None
         for record in ranked:
             if not conflicts(self._model(record), holders, self.total, self.reserve):
+                if pressure:
+                    if budget is None:
+                        budget = self._pressure_budget(state, advisory=advisory)
+                        if budget is None:
+                            return None
+                    memory, growth = budget
+                    required = record['request']['resources']['memory_mib'] + self.reserve.memory_mib + growth
+                    if memory < required:
+                        if record is protected:
+                            break
+                        continue
                 return record
             if record is protected:
                 break
         return None
 
-    def _pressure(self, state, candidate):
+    def _pressure_budget(self, state, candidate=None, *, advisory=False):
         observation = self.observe()
         now = self._clock()
         if (type(observation) is not dict or type(observation.get('observed_monotonic')) not in (float, int)
                 or not math.isfinite(observation['observed_monotonic'])
                 or not 0 <= now - observation['observed_monotonic'] <= 2):
+            if advisory:
+                return None
             raise wire.CapacityError('Fresh capacity pressure observation unavailable')
         memory = wire.integer(observation.get('available_memory_mib'))
-        required = wire.resources(candidate['request']['resources']) + self.reserve
         growth_memory = 0
         for record in state['records'].values():
             if record is candidate or record['state'] not in HELD:
@@ -685,11 +715,18 @@ class CapacityBroker:
                                         record['limit_bytes'], vector.memory_mib)
                     measured = facts.footprint_bytes // 1024**2
                 except (OSError, ValueError, KeyError, wire.CapacityError):
+                    if advisory:
+                        return None
                     record['state'] = 'draining' if self._root_exited(record) else 'uncertain'
                     raise wire.CapacityError('Existing holder enforcement is unavailable; reservation retained') from None
             growth_memory += max(0, vector.memory_mib - measured)
-        if memory < required.memory_mib + growth_memory:
-            raise wire.CapacityError('Capacity pressure refuses the complete reservation')
+        return memory, growth_memory
+
+    def _pressure(self, state, candidate):
+        memory, growth = self._pressure_budget(state, candidate)
+        required = candidate['request']['resources']['memory_mib'] + self.reserve.memory_mib + growth
+        if memory < required:
+            raise PressureWait('Capacity pressure refuses the complete reservation')
 
     def _validate_holders(self, state, candidate):
         """@cc [owner:fontanierh,label:safety] final-charged-peer-enforcement
@@ -929,7 +966,7 @@ class CapacityBroker:
                                       verified_roster=[], ancestry_unknown=False)
                         record.pop('process_history', None)
                     record.update(request=request, state='queued', epoch=state['epoch'], heartbeat=now)
-                    selected = self._selection(state) is record
+                    selected = self._selection(state, pressure=True, advisory=True) is record
                     result = {'selected': selected, 'state': 'offered' if selected else 'queued',
                               'nonce': record['nonce'], 'epoch': state['epoch'], 'first_ready': record['first_ready']}
                 else:
@@ -957,8 +994,9 @@ class CapacityBroker:
                         self._gates[record['nonce']] = writer
                         result = {'state': 'gated', 'epoch': state['epoch']}
                     elif action == 'start':
-                        if record['state'] != 'queued' or self._selection(state) is not record or record['nonce'] not in self._gates:
-                            result = self._lost_offer(state, record, principal, message)
+                        if record['state'] != 'queued' or self._selection(state, pressure=True) is not record or record['nonce'] not in self._gates:
+                            result = self._lost_offer(state, record, principal, message, reason=
+                                'pressure-wait' if self._selection(state) is record else 'selection-changed')
                         else:
                             child = wire.identity(message['child'])
                             if not self.child_of(principal, child):
@@ -970,27 +1008,30 @@ class CapacityBroker:
                                 if self.guards is wire.validate_guards:
                                     wire.require_independent_guards(guards, principal)
                                 self._foreign_check(state)
-                            self._pressure(state, record)
-                            self._validate_compatibility(state)
-                            self._validate_holders(state, record)
-                            # Revalidate after all compatibility, process-scan and pressure I/O.
-                            facts = self.guards(guards, child, principal, message['limit_bytes'],
-                                                record['request']['resources']['memory_mib'])
-                            if self.mode in ('capacity', 'sealed-maintenance') and self.guards is wire.validate_guards:
-                                wire.require_independent_guards(guards, principal)
-                            if self.started(child[0]) != child[1] or self.started(principal[0]) != principal[1]:
-                                raise wire.CapacityError('Launcher/controller changed before admission')
-                            record['child'] = list(child)
-                            self._watch(record, [child, *facts.roster])
-                            record.update(state='running', child=list(child), guards=guards,
-                                          limit_bytes=message['limit_bytes'], heartbeat=self._clock(),
-                                          measured_memory_mib=facts.footprint_bytes // 1024**2, measured_at=time.time())
-                            for earlier in state['records'].values():
-                                if (earlier['state'] == 'queued' and earlier['sequence'] < record['sequence']
-                                        and earlier['request']['seconds'] > 300 and request_seconds(record) <= 300):
-                                    earlier['bypasses'] += 1
-                            go = record['nonce']
-                            result = {'state': 'running', 'epoch': state['epoch'], 'admission': True}
+                            try:
+                                self._pressure(state, record)
+                            except PressureWait:
+                                result = self._lost_offer(state, record, principal, message, reason='pressure-wait')
+                            else:
+                                self._validate_compatibility(state)
+                                self._validate_holders(state, record)
+                                # Revalidate after all compatibility, process-scan and pressure I/O.
+                                facts = self.guards(guards, child, principal, message['limit_bytes'],
+                                                    record['request']['resources']['memory_mib'])
+                                if self.mode in ('capacity', 'sealed-maintenance') and self.guards is wire.validate_guards:
+                                    wire.require_independent_guards(guards, principal)
+                                if self.started(child[0]) != child[1] or self.started(principal[0]) != principal[1]:
+                                    raise wire.CapacityError('Launcher/controller changed before admission')
+                                record['child'] = list(child)
+                                self._watch(record, [child, *facts.roster])
+                                record.update(state='running', child=list(child), guards=guards,
+                                              limit_bytes=message['limit_bytes'], heartbeat=self._clock(),
+                                              measured_memory_mib=facts.footprint_bytes // 1024**2, measured_at=time.time())
+                                for earlier in state['records'].values():
+                                    if earlier['state'] == 'queued' and earlier['sequence'] < record['sequence']:
+                                        earlier['bypasses'] += 1
+                                go = record['nonce']
+                                result = {'state': 'running', 'epoch': state['epoch'], 'admission': True}
                     elif action == 'check':
                         result = self._heartbeat(state, record, batch, now)
                     elif action == 'close':
