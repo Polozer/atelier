@@ -273,3 +273,60 @@ footer {
     font-size: 58px;
   }
 }
+
+[hidden] {
+  display: none !important;
+}
+.audition {
+  padding: 0 0 28px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+}
+.audition h2 {
+  font:
+    34px Georgia,
+    serif;
+  margin: 12px 0;
+}
+.audition > p:not(.eyebrow) {
+  max-width: 780px;
+  color: var(--muted);
+  line-height: 1.6;
+  font-size: 13px;
+}
+.audition-controls,
+.audition-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: end;
+  margin: 20px 0;
+}
+.audition-controls label {
+  min-width: 130px;
+  max-width: 100%;
+}
+.audition-controls select {
+  max-width: min(320px, 80vw);
+}
+.audition input[type="range"] {
+  accent-color: var(--green);
+  width: 155px;
+}
+.audition-actions {
+  align-items: center;
+}
+#audition-pulse {
+  font:
+    13px ui-monospace,
+    monospace;
+  color: var(--green);
+  min-width: 100px;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.clip-loop {
+  margin: 4px 0 14px;
+}

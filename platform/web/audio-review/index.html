@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Sound laboratory</title>
     <link rel="stylesheet" href="review.css" />
+    <script src="preview.js" defer></script>
     <script src="review.js" defer></script>
   </head>
   <body>
@@ -21,6 +22,69 @@
       </div>
     </header>
     <main>
+      <section class="audition" aria-labelledby="audition-title">
+        <p class="eyebrow">PLAYBACK IN CONTEXT</p>
+        <h2 id="audition-title">Try it in motion</h2>
+        <p>
+          Browser simulation using the prepared game samples. Footfalls
+          alternate at your cadence; skating blends speed-driven rolling and
+          powerslides. This is an audition, not the running game.
+        </p>
+        <div class="audition-controls">
+          <label
+            >Activity<select id="audition-mode">
+              <option value="footstep">Walking / running</option>
+              <option value="skate">Skateboarding</option>
+            </select></label
+          >
+          <label>Surface<select id="audition-surface" disabled></select></label>
+          <label
+            >Variation<select id="audition-variant">
+              <option value="">Shuffle all takes</option>
+            </select></label
+          >
+          <label id="cadence-control"
+            >Steps / minute <output id="cadence-value">120</output
+            ><input
+              id="audition-cadence"
+              type="range"
+              min="60"
+              max="240"
+              value="120"
+              step="5"
+          /></label>
+          <label id="speed-control" hidden
+            >Speed · m/s <output id="speed-value">4.5</output
+            ><input
+              id="audition-speed"
+              type="range"
+              min="0"
+              max="12"
+              value="4.5"
+              step="0.1"
+          /></label>
+          <label
+            >Volume <output id="volume-value">50%</output
+            ><input
+              id="audition-volume"
+              type="range"
+              min="0"
+              max="100"
+              value="50"
+          /></label>
+        </div>
+        <div class="audition-actions">
+          <button id="audition-play" disabled>Start preview</button>
+          <button id="audition-stop" disabled>Stop</button>
+          <label class="check" id="slide-control" hidden
+            ><input id="audition-slide" type="checkbox" /> Powerslide</label
+          >
+          <button id="audition-land" hidden disabled>Landing hit</button>
+          <span id="audition-pulse" aria-hidden="true">L · R</span>
+        </div>
+        <p id="audition-now" aria-live="off"></p>
+        <p id="audition-status" role="status">Loading prepared samples…</p>
+      </section>
       <section class="toolbar" aria-label="Filter sounds">
         <label
           >Library<select id="bank">

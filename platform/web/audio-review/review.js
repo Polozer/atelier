@@ -10,6 +10,7 @@ try {
   /* Private browsing may disable storage. */
 }
 let manifest;
+const loopChoices = new Map();
 const el = (tag, text, cls) => {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -70,20 +71,32 @@ function render() {
       card.append(top);
       if (
         clip.status === "ready" &&
-        /^(audio\/clip|samples\/([0-9a-f]{64}\/)?sample)-\d+\.wav$/.test(clip.file)
+        /^(audio\/clip|samples\/([0-9a-f]{64}\/)?sample)-\d+\.wav$/.test(
+          clip.file,
+        )
       ) {
         const audio = el("audio");
+        const loopLabel = el("label", undefined, "check clip-loop");
+        const loop = el("input");
+        loop.type = "checkbox";
+        loop.checked = loopChoices.get(clip.file) ?? Boolean(clip.loop);
+        loop.onchange = () => {
+          audio.loop = loop.checked;
+          loopChoices.set(clip.file, loop.checked);
+        };
+        loopLabel.append(loop, document.createTextNode("Loop playback"));
         audio.controls = true;
         audio.preload = "none";
         audio.src = clip.file;
-        audio.loop = Boolean(clip.loop);
+        audio.loop = loop.checked;
         audio.setAttribute("aria-label", `${clip.label}, take ${clip.take}`);
         audio.onplay = () => {
+          document.dispatchEvent(new Event("audition-stop"));
           document.querySelectorAll("audio").forEach((other) => {
             if (other !== audio) other.pause();
           });
         };
-        card.append(audio);
+        card.append(audio, loopLabel);
         const bottom = el("div", undefined, "card-bottom");
         const download = el("a", "Download WAV ↓");
         download.href = clip.file;
@@ -96,6 +109,16 @@ function render() {
           download,
         );
         card.append(bottom);
+        if (clip.cue && /^(footstep|skate\.roll)\./.test(clip.cue)) {
+          const audition = el("button", "Preview in motion", "clip-audition");
+          audition.onclick = () =>
+            document.dispatchEvent(
+              new CustomEvent("audition-select", {
+                detail: { id: clip.id, file: clip.file },
+              }),
+            );
+          card.append(audition);
+        }
       } else
         card.append(
           el(
@@ -140,6 +163,7 @@ function render() {
 for (const id of ["search", "category", "favourites"])
   $(id).addEventListener("input", render);
 $("bank").onchange = () => {
+  document.dispatchEvent(new Event("audition-stop"));
   document.querySelectorAll("audio").forEach((a) => a.pause());
   manifest = undefined;
   $("library").replaceChildren();
@@ -178,8 +202,11 @@ async function refresh() {
     const nextKey = `atelier-sfx-shortlist-v1-${next.plan_hash}`;
     if (key !== nextKey) {
       key = nextKey;
-      try { saved = new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
-      catch { saved = new Set(); }
+      try {
+        saved = new Set(JSON.parse(localStorage.getItem(key) || "[]"));
+      } catch {
+        saved = new Set();
+      }
     }
     if (!manifest)
       for (const category of [...new Set(next.clips.map((c) => c.category))]) {
