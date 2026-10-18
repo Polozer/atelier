@@ -5,6 +5,7 @@ all old sessions and retains their allocations. Release uses exact retained exit
 exclusive monitored-tree cleanup policy; neither establishes universal process-tree discovery.
 """
 from dataclasses import asdict
+import array
 import fcntl
 import hashlib
 import hmac
@@ -1043,7 +1044,7 @@ class CapacityBroker:
                         result = {'state': 'running', 'admission': True}
                     else:
                         raise wire.CapacityError('Unknown capacity action')
-                if action in ('status', 'reconcile') and not refreshed:
+                if action in ('status', 'reconcile', 'owned') and not refreshed:
                     self.connection.rollback()
                 else:
                     self._save(state)
@@ -1081,16 +1082,67 @@ class CapacityBroker:
                 raise
 
     def serve_forever(self):
-        """Bounded concurrent partial frames; all requests execute on this one actor thread."""
+        """@cc [owner:fontanierh,label:safety] bounded-capacity-actor-io
+        Request mutations and gate writes MUST remain serialized on this actor. A slow reader
+        MUST NOT block other clients: replies MUST use nonblocking selector writes, with at most
+        MAX_FRAME reply bytes per client, at most 32 clients and the original accept-time RPC deadline.
+        A returned descriptor MUST be transferred at most once and closed locally on transfer,
+        disconnect, expiry or shutdown. Reply failure MUST NOT release a grant or authorize work.
+        Diagnostics MUST contain only operation, phase, duration, observation time, exception type and errno;
+        diagnostics failures MUST NOT change accounting or the operation result.
+        """
         selector = selectors.DefaultSelector()
         selector.register(self.listener, selectors.EVENT_READ)
         clients = {}
+
+        def report(peer, error=None):
+            try:
+                now = time.monotonic()
+                elapsed = now - peer['started']
+                if error is None and elapsed < .25:
+                    return
+                timings = {**peer['timings'], peer['phase'] + '_seconds': round(now - peer['phase_started'], 3)}
+                metadata = dict(action=peer['action'], phase=peer['phase'],
+                                elapsed_seconds=round(elapsed, 3), observed_at=time.time(), **timings)
+                if error is not None:
+                    metadata.update(error_type=type(error).__name__,
+                                    errno=error.errno if isinstance(error, OSError) else None)
+                label = 'capacity operation refused: ' if error is not None else 'capacity slow operation: '
+                print(label + json.dumps(metadata), file=sys.stderr, flush=True)
+            except Exception:
+                pass  # Diagnostic output cannot change grant accounting or operation results.
+
+        def advance(peer, phase):
+            now = time.monotonic()
+            peer['timings'][peer['phase'] + '_seconds'] = round(now - peer['phase_started'], 3)
+            peer.update(phase=phase, phase_started=now)
+
+        def close_peer(channel):
+            peer = clients.pop(channel)
+            if peer['fd'] is not None:
+                os.close(peer['fd'])
+                peer['fd'] = None
+            try:
+                selector.unregister(channel)
+            except (KeyError, ValueError, OSError):
+                pass
+            channel.close()
+
+        def queue_reply(channel, peer, result, fd=None):
+            peer['fd'] = fd
+            advance(peer, 'send')
+            peer['reply'] = wire.encode(result)
+            selector.modify(channel, selectors.EVENT_WRITE)
+
         try:
             while not self._stop.is_set():
                 for key, _ in selector.select(.1):
                     channel = key.fileobj
                     if channel is self.listener:
-                        channel, _ = self.listener.accept()
+                        try:
+                            channel, _ = self.listener.accept()
+                        except (BlockingIOError, InterruptedError):
+                            continue
                         channel.setblocking(False)
                         if len(clients) >= 32:
                             channel.close()
@@ -1100,14 +1152,47 @@ class CapacityBroker:
                         except (OSError, ValueError, wire.CapacityError):
                             channel.close()
                             continue
-                        clients[channel] = [bytearray(), time.monotonic() + self.rpc_timeout, principal]
+                        now = time.monotonic()
+                        clients[channel] = dict(buffer=bytearray(), deadline=now + self.rpc_timeout,
+                            principal=principal, started=now, phase_started=now, timings={},
+                            action='invalid', phase='receive', reply=None, sent=0, fd=None, refused=False)
                         selector.register(channel, selectors.EVENT_READ)
                         continue
-                    buffer, deadline, principal = clients[channel]
-                    operation_started = deadline - self.rpc_timeout
-                    action, phase = 'invalid', 'receive'
+                    peer = clients[channel]
+                    if time.monotonic() >= peer['deadline']:
+                        report(peer, TimeoutError())
+                        close_peer(channel)
+                        continue
                     try:
-                        data = channel.recv(wire.MAX_FRAME + 1 - len(buffer))
+                        if peer['reply'] is not None:
+                            remaining = memoryview(peer['reply'])[peer['sent']:]
+                            if peer['fd'] is not None:
+                                ancillary = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array('i', [peer['fd']]))]
+                                try:
+                                    sent = channel.sendmsg([remaining], ancillary)
+                                except (BlockingIOError, InterruptedError):
+                                    continue
+                            else:
+                                try:
+                                    sent = channel.send(remaining)
+                                except (BlockingIOError, InterruptedError):
+                                    continue
+                            if sent <= 0:
+                                raise ConnectionError('Capacity peer stopped receiving')
+                            if peer['fd'] is not None:
+                                descriptor, peer['fd'] = peer['fd'], None
+                                os.close(descriptor)
+                            peer['sent'] += sent
+                            if peer['sent'] == len(peer['reply']):
+                                if not peer['refused']:
+                                    report(peer)
+                                close_peer(channel)
+                            continue
+                        buffer = peer['buffer']
+                        try:
+                            data = channel.recv(wire.MAX_FRAME + 1 - len(buffer))
+                        except (BlockingIOError, InterruptedError):
+                            continue
                         if not data:
                             raise wire.CapacityError('Capacity peer closed its request')
                         buffer.extend(data)
@@ -1118,51 +1203,38 @@ class CapacityBroker:
                         if not buffer.endswith(b'\n') or buffer.count(b'\n') != 1:
                             raise wire.CapacityError('One capacity operation per connection is required')
                         message = wire.decode(bytes(buffer[:-1]))
-                        action = wire.action_name(message)
-                        phase = 'handle'
-                        result, fd = self.handle(message, principal)
-                        phase = 'send'
-                        try:
-                            channel.settimeout(self.rpc_timeout)
-                            wire.send(channel, {'ok': True, **result}, fd)
-                        finally:
-                            if fd is not None:
-                                os.close(fd)
-                        elapsed = time.monotonic() - operation_started
-                        if elapsed >= .25:
-                            print('capacity slow operation: ' + json.dumps(dict(
-                                action=action, phase=phase, elapsed_seconds=round(elapsed, 3),
-                                observed_at=time.time())), file=sys.stderr, flush=True)
+                        peer['action'] = wire.action_name(message)
+                        advance(peer, 'handle')
+                        result, fd = self.handle(message, peer['principal'])
+                        queue_reply(channel, peer, {'ok': True, **result}, fd)
                     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, wire.CapacityError) as error:
-                        print('capacity operation refused: ' + json.dumps(dict(
-                            action=action, phase=phase,
-                            elapsed_seconds=round(time.monotonic() - operation_started, 3), observed_at=time.time(),
-                            error_type=type(error).__name__,
-                            errno=error.errno if isinstance(error, OSError) else None)), file=sys.stderr, flush=True)
+                        report(peer, error)
+                        if peer['reply'] is not None or peer['phase'] == 'send':
+                            close_peer(channel)
+                            continue
+                        peer['refused'] = True
                         try:
-                            channel.settimeout(.1)
-                            wire.send(channel, {'ok': False, 'namespace': wire.NAMESPACE,
-                                                'error': str(error) if isinstance(error, wire.CapacityError)
-                                                else 'Capacity broker refused this operation'})
-                        except OSError:
-                            pass
-                    selector.unregister(channel)
-                    clients.pop(channel, None)
-                    channel.close()
-                for channel, (_, deadline, _) in list(clients.items()):
-                    if time.monotonic() >= deadline:
-                        selector.unregister(channel)
-                        clients.pop(channel)
-                        channel.close()
+                            queue_reply(channel, peer, {'ok': False, 'namespace': wire.NAMESPACE,
+                                'error': str(error) if isinstance(error, wire.CapacityError)
+                                else 'Capacity broker refused this operation'})
+                        except (OSError, ValueError, TypeError, wire.CapacityError):
+                            close_peer(channel)
+                for channel, peer in list(clients.items()):
+                    if time.monotonic() >= peer['deadline']:
+                        report(peer, TimeoutError())
+                        close_peer(channel)
+                began = time.monotonic()
                 with self._lock:
                     state = self._load()
                     if self._refresh(state, self._clock()):
                         self._save(state)
                     else:
                         self.connection.rollback()
+                report(dict(started=began, phase_started=began, phase='refresh',
+                            action='maintenance', timings={}))
         finally:
-            for channel in clients:
-                channel.close()
+            for channel in list(clients):
+                close_peer(channel)
             selector.close()
 
     def close(self):
