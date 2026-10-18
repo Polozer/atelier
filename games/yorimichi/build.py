@@ -615,6 +615,29 @@ def belmonte_train_corridor(out):
             ASSETS / 'vehicles' / 'belmonte-train' / 'line.json']
 
 
+def brinecove_steps(out):
+    """Brinecove (world/regions/brinecove): the export closes its ground onto the FarHills hole, so it reads the
+    final FarHills product; the import builds /Game/Brinecove, which ABelmonteRegion places from runtime.json."""
+    region = REGIONS / 'brinecove'
+    return [
+        Step('world.brinecove', [Blender(region / 'build.py', threads=3)],
+             inputs=[region, ASSETS / 'brinecove', WORLD / 'terrain_product.py', YORI],
+             reads=['terrain.FarHills.final'], heavy=True,
+             outputs=[out / 'brinecove' / 'runtime.json', out / 'brinecove' / 'build-report.json'],
+             about='Brinecove: pirate port ground joined to the far hills, town, waterfall, ships and flora'),
+        digest_step(out, 'world.brinecove', 'meshes', 'what unreal.brinecove reads of the export', out, ['brinecove']),
+        Step('unreal.brinecove', [UnrealScript(SCRIPTS / 'import_brinecove.py', 'BRINECOVE IMPORT COMPLETE',
+                                              null_rhi=True, modules=IMPORT_CODE,
+                                              args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
+             inputs=[SCRIPTS / 'import_brinecove.py', SCRIPTS / 'atmosphere.py', SCRIPTS / 'sea_look.py'],
+             needs=['world.brinecove.meshes', 'unreal.world', *unreal_modules.needs(IMPORT_CODE)],
+             after=['unreal.belmonte'], heavy=True,
+             outputs=[out / 'brinecove' / 'import-report.json',
+                      GAME / 'unreal' / 'Content' / 'Brinecove' / 'Meshes' / 'SM_BC_Ground_0_0.uasset'],
+             about='/Game/Brinecove: meshes, collision and painterly surfaces'),
+    ]
+
+
 def belmonte_steps(out):
     """@cc [owner:fontanierh,label:safety] country-generation-admission
     The world.belmonte terrain export MUST use normal heavy-job admission and
@@ -734,7 +757,7 @@ def world_steps(ctx):
         *foliage_build.world_steps(ctx),
         Step('world.farhills', [Blender(WORLD / 'farhills_surface.py', threads=3)],
              inputs=[WORLD / 'farhills_surface.py', WORLD / 'farhills_grid.py', WORLD / 'terrain_product.py',
-                     WORLD / 'shorelines.py', YORI, *belmonte_train_corridor(out),
+                     WORLD / 'shorelines.py', YORI, *belmonte_train_corridor(out), REGIONS / 'brinecove' / 'region.py',
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
                      *(REGIONS / 'belmonte' / name for name in ('terrain.py', 'source.py', 'layout.py')),
                      *(ASSETS / 'belmonte' / entry['path'] for entry in json.loads((ASSETS / 'belmonte/source.json').read_text())['meshes']
@@ -759,6 +782,7 @@ def world_steps(ctx):
         digest_step(out, 'world.hidamari', 'city', 'the Hidamari meshes unreal.world reads (all but the volcano)', north=False),
         digest_step(out, 'world.hidamari', 'north', "the volcano's meshes unreal.north reads (HD_North*)", north=True),
         *belmonte_steps(out)[:2],
+        *brinecove_steps(out)[:2],
         # Zeppelin samples layout products and shared terrain code, not Hidamari's exported city/assets.
         # Keep the old build order; track tree metadata read by the imported treehouse layout directly.
         Step('world.zeppelin', [Blender(REGIONS / 'zeppelin' / 'build.py', threads=2)],
@@ -796,7 +820,8 @@ def world_steps(ctx):
              about='the tree house: ten places, bridges, rooms and their dressing, lights, sunbeams', heavy=True),
         Step('world.terrain', [Blender(WORLD / 'build_terrain.py')],
              inputs=[WORLD / 'build_terrain.py', WORLD / 'farhills_surface.py', WORLD / 'terrain_product.py',
-                     WORLD / 'shorelines.py', WORLD / 'coastal_surface.py', YORI, *belmonte_train_corridor(out)],
+                     WORLD / 'shorelines.py', WORLD / 'coastal_surface.py', YORI, *belmonte_train_corridor(out),
+                     REGIONS / 'brinecove' / 'region.py'],
              needs=['world.layout', 'world.hidamari', 'world.textures'],
              outputs=[out / 'terrain.fbx', out / 'assets' / 'Sea.fbx'],
              reads=['terrain.FarHills.final'],
@@ -987,10 +1012,12 @@ def world_steps(ctx):
                        for entry in json.loads((ASSETS / 'belmonte' / 'source.json').read_text())['meshes']
                        if entry['name'].startswith(('SM_BM_BT_blk_', 'SM_BM_BH_', 'SM_BM_BE_', 'SM_BM_BHip_',
                                                     'SM_BM_BVV_Farm_', 'SM_BM_BC_Water_', 'SM_BM_BC_Pave', 'SM_BM_BC_Ponte')))],
-             needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', *crater_geometry],
+             needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', 'world.brinecove',
+                    *crater_geometry],
              outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png',
                       *(out / 'map' / 'atlas' / f'{key}.png' for key in ('world', 'momiji_coast', 'momiji_woods', 'hidamari', 'temple_island',
-                                                                     'northern_foothills', 'volcanic_highlands', 'haras_valley'))],
+                                                                     'northern_foothills', 'volcanic_highlands', 'haras_valley',
+                                                                     'brinecove'))],
              heavy=True, about='map zones and label-free regional atlas'),
         city_input_step(out, 'tiles'),
         Step('world.city_tiles', [Blender(WORLD / 'city_surface_tiles.py', ('--tag', 'v1_128m'), threads=3)],
@@ -1237,7 +1264,8 @@ def staging_steps(ctx):
 def steps(ctx):
     """Compose the recipe in its established order; packaging is explicit and optional sources remain optional."""
     result = (world_steps(ctx) + character_steps(ctx) + sound_effect_steps(ctx)
-              + unreal_steps(ctx) + staging_steps(ctx) + adventure_steps(ctx.out) + hippodrome_steps(ctx.out) + belmonte_steps(ctx.out)[2:])
+              + unreal_steps(ctx) + staging_steps(ctx) + adventure_steps(ctx.out) + hippodrome_steps(ctx.out) + belmonte_steps(ctx.out)[2:]
+              + brinecove_steps(ctx.out)[2:])
     result += fit_steps(ctx.out, result)
     result += pawn_steps(result)
     # A step layered on the world brings the volcano with it: a targeted build that reimports the world reimports it too.

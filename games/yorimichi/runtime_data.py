@@ -18,9 +18,10 @@ _spec.loader.exec_module(definition)
 STAGED = ('world.json', 'heightmap.bin', 'hidamari/city.json', 'skatepark/park.json', 'map/map.json', 'map/map_lines.json',
           'map/map.png', 'map/map.jpg', 'map/atlas-serif.ttf',
           *(f'map/atlas/{key}.png' for key in ('world', 'momiji_coast', 'momiji_woods', 'hidamari', 'temple_island',
-                                             'northern_foothills', 'volcanic_highlands', 'haras_valley')),
+                                             'northern_foothills', 'volcanic_highlands', 'haras_valley', 'brinecove')),
           'city_surface_tiles/v1_128m/manifest.json',
           'treehouse/runtime.json', 'megapark/park.json', 'craterpark/park.json', 'craterpark/cloud.json', 'bike/manifest.json', 'belmonte/runtime.json',
+          'brinecove/runtime.json',
           # every playable character's bike report: its clips' contact windows and channels (UBikeComponent). The horse
           # reads no rider report; its runtime data, Data/horses/roster.json, is written there by unreal.horses.
           *(f'{c.id}/bike/export.json' for c in definition.movers() if c.playable),

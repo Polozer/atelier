@@ -14,14 +14,15 @@ from atelier import live, paths
 
 
 REGIONS = {'momiji_coast', 'momiji_woods', 'hidamari', 'temple_island',
-           'northern_foothills', 'volcanic_highlands', 'haras_valley'}
+           'northern_foothills', 'volcanic_highlands', 'haras_valley', 'brinecove'}
 DESTINATIONS = {'spawn', 'hamlet', 'mega', 'fishing', 'cove', 'landing', 'temple', 'arrival', 'arcade',
                 'plaza', 'harbor', 'hillside', 'park', 'station', 'foothills', 'forest_lake', 'megapark',
                 'craterpark', 'skatepier', 'hippodrome', 'ronin_camp', 'zeppelin_forest', 'zeppelin_city',
                 'zeppelin_megapark', 'zeppelin_belmonte', 'belmonte', 'belmonte_course', 'belmonte_training',
-                'hidamari_station', 'belmonte_station', 'belmonte_salon'}
+                'hidamari_station', 'belmonte_station', 'belmonte_salon', 'brinecove_quay'}
 REGION_STOPS = dict(momiji_coast='spawn', momiji_woods='hamlet', hidamari='plaza', temple_island='temple',
-                    northern_foothills='megapark', volcanic_highlands='craterpark', haras_valley='belmonte')
+                    northern_foothills='megapark', volcanic_highlands='craterpark', haras_valley='belmonte',
+                    brinecove='brinecove_quay')
 
 
 def py(code):

@@ -52,14 +52,14 @@ def test_all_current_destination_families_keep_their_travel_identity():
         'zeppelin_forest': (-199, 221), 'zeppelin_city': (1279, 299), 'zeppelin_megapark': (-194, 1475),
         'zeppelin_belmonte': (416, 4651), 'belmonte': (550, 4482), 'belmonte_course': (385, 4855),
         'belmonte_training': (230, 5160), 'hidamari_station': (1184, 335), 'belmonte_station': (1375, 4375),
-        'belmonte_salon': (617.8, 4806.8),
+        'belmonte_salon': (617.8, 4806.8), 'brinecove_quay': (-1500, -45),
         'marker_custom': (5000, 8000),
     }
     zones = [dict(key=k, name=k, x=x, y=y, z=21.5, yaw=92., hint='same resolver') for k, (x, y) in positions.items()]
     before = copy.deepcopy(zones)
     result = atlas.metadata(zones, source())
     keys = {r['key'] for r in result['regions']}
-    assert len(keys) == 7
+    assert len(keys) == 8
     assert len(zones) == len(before)
     for old, new in zip(before, zones):
         assert old == {k: v for k, v in new.items() if k != 'region'}

@@ -12,7 +12,11 @@ from terrain_product import Mesh, load, save
 
 
 def owns_fine_ground(x, y, *, city):
-    return (-300. < x < 300. and -300. < y < 300.) or (city and 300. < x < 1420. and -300. < y < 500.)
+    """Where an exported fine terrain replaces the far hills: HD_Terrain, and with the city also Hidamari and
+    Brinecove (world/regions/brinecove/region.py, a rectangle on the 96-knot axis)."""
+    from brinecove import region as brinecove
+    return (-300. < x < 300. and -300. < y < 300.) or (city and 300. < x < 1420. and -300. < y < 500.) \
+        or (city and brinecove.owns(x, y))
 
 
 def generate(fine_count, *, city, progress=None):
