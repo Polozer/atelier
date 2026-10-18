@@ -4,7 +4,12 @@ Brinecove is still unwired. This note picks its site on the world map and lists 
 World coordinates are Blender metres (x east, y north, z up), the frame of `docs/WORLD_MAP.md`; Unreal is
 `(100x, -100y, 100z)` cm.
 
-## Recommended site: the Western Reach
+## Recommended site: the Western Reach, a brand-new zone
+
+Brinecove gets a zone of its own on land nothing uses yet: no region polygon, map stop, zeppelin station, island,
+park or other region layout lies west of x -650 along the south coast. It becomes the eighth region rather than an
+addition to an existing one. Jungle City, the other unplaced region proposal (about 650 x 520 m of inland jungle), does
+not need coast, so the two need not compete for this strip; agree its site before either is wired in.
 
 The south coast west of Momiji, x ≈ -2400..-650 along y ≈ -60, belongs to no region today (`world/map/atlas.py`
 `region_at()` returns `world` there). It is far-hill backdrop only, a 67 m grid ramping from the shore to 60-300 m
