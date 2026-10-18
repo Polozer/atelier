@@ -175,9 +175,14 @@ HEADLAND_MASSES=[dict(x=c['x']+dx*c['rx'],y=c['y']+dy*c['ry'],rx=c['rx']*sx,ry=c
 
 def landform_regions(x, y):
     """Localized editable scenery; occupied Belmonte ground ends west of x=1575."""
+    from belmonte import layout as town
     x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
     country = smooth((x-1575.)/300.)*smooth((3250.-x)/100.)
-    country *= smooth((y-3150.)/300.)*smooth((6600.-y)/300.)
+    # The south collar rim belongs to the existing northern surface. Keep
+    # local deformation zero there; the coast farther east keeps its reach.
+    east_join = town.BOUNDS[2]+town.APRON
+    south = 3150.+(town.SOUTH_JOIN-3150.)*(1.-smooth((x-east_join)/200.))
+    country *= smooth((y-south)/300.)*smooth((6600.-y)/300.)
     headland = smooth((x-2200.)/250.)*smooth((3350.-x)/100.)
     headland *= smooth((y+20.)/120.)*smooth((1430.-y)/160.)
     return country, headland
@@ -309,6 +314,15 @@ def height(x, y, base):
     above y=-125 MUST remain unchanged. The committed railway and its natural
     tunnel cover MUST remain unchanged within 20 metres of the centre line.
     """
+    return landforms(x, y, profile_height(x, y, base))
+
+
+def profile_height(x, y, base):
+    """Established beach/cliff profile before the localized country landforms.
+
+    The connecting collar interpolates this baseline first, then applies the
+    bounded deformation at its own vertices so rail protection holds there too.
+    """
     x, y, base = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float), np.asarray(base, float))
     d, rock = field(x, y)
     inland = np.maximum(d, 0.)
@@ -355,7 +369,7 @@ def height(x, y, base):
               +3.*np.sin(x/57.+y/149.))
     relief *= smooth((d-100.)/150.)*smooth((band-d)/180.)
     relief *= country_band*protection*np.minimum(1., np.maximum(ground-4., 0.)/28.)
-    return landforms(x, y, ground+relief)
+    return ground+relief
 
 
 def vegetation(x, y):
@@ -424,12 +438,13 @@ def sea_mesh(radius=24000.):
 
 
 def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height):
-    """Refine only coastal cells of an existing grid, retaining every original grid edge.
+    """@cc [owner:fontanierh,label:correctness] coastal-parent-triangle-topology
+    Refined faces MUST preserve the parent a-c breakline, including asymmetric
+    x/y subdivision counts. Unchanged source heights MUST remain the same
+    piecewise affine surface inside faces, not only at their vertices.
 
-    The source cell uses the exported a-c triangle diagonal for each refinement. Shared cell
-    edges use identical knots and heights; at the inland transition the shape
-    weight is zero, so hanging edge vertices remain on the coarse neighbour.
-    Returns vertices and upward quads in world metres, without Blender.
+    Shared cell edges retain their original knots. Returns vertices and upward
+    triangle/quad faces in world metres, without Blender.
     """
     xs, ys, z = np.asarray(xs), np.asarray(ys), np.asarray(z)
     vertices, faces = [], []
@@ -449,7 +464,52 @@ def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height):
             h = shape(x, y, base)
             first = len(vertices)
             vertices.extend(np.stack((x, y, h), -1).reshape(-1, 3).tolist())
-            faces.extend((first+k*(nx+1)+l, first+k*(nx+1)+l+1,
-                          first+(k+1)*(nx+1)+l+1, first+(k+1)*(nx+1)+l)
-                         for k in range(ny) for l in range(nx))
+            if nx == ny:
+                # Every diagonal-crossing child already uses the parent a-c.
+                faces.extend((first+k*(nx+1)+l, first+k*(nx+1)+l+1,
+                              first+(k+1)*(nx+1)+l+1, first+(k+1)*(nx+1)+l)
+                             for k in range(ny) for l in range(nx))
+                continue
+            # A rectangular child can cross the parent's diagonal even though
+            # every sampled vertex is correct. Clip those children at u=v.
+            diagonal = {}
+            knots = np.unique(np.r_[np.linspace(0., 1., nx+1), np.linspace(0., 1., ny+1)])
+            dz = shape(ax+(bx-ax)*knots, ay+(by-ay)*knots, a+(c-a)*knots)
+            uv = {first+k*(nx+1)+l: (l/nx, k/ny) for k in range(ny+1) for l in range(nx+1)}
+            for t, zz in zip(knots, dz):
+                l, k = round(t*nx), round(t*ny)
+                if abs(l/nx-t) < 1e-12 and abs(k/ny-t) < 1e-12:
+                    index = first+k*(nx+1)+l
+                else:
+                    index = len(vertices)
+                    vertices.append((ax+(bx-ax)*t, ay+(by-ay)*t, float(zz)))
+                    uv[index] = (t, t)
+                diagonal[round(float(t), 12)] = index
+
+            def clip(poly, sign):
+                result = []
+                for p, q in zip(poly[-1:]+poly[:-1], poly):
+                    pu, pv = uv[p]; qu, qv = uv[q]
+                    sp, sq = sign*(pu-pv), sign*(qu-qv)
+                    if (sp < -1e-12 and sq > 1e-12) or (sp > 1e-12 and sq < -1e-12):
+                        t = pu+(qu-pu)*sp/(sp-sq)
+                        result.append(diagonal[round(t, 12)])
+                    if sq >= -1e-12:
+                        result.append(q)
+                return result
+
+            for k in range(ny):
+                for l in range(nx):
+                    quad = [first+k*(nx+1)+l, first+k*(nx+1)+l+1,
+                            first+(k+1)*(nx+1)+l+1, first+(k+1)*(nx+1)+l]
+                    signs = [uv[p][0]-uv[p][1] for p in quad]
+                    if min(signs) >= -1e-12 or max(signs) <= 1e-12:
+                        faces.append(tuple(quad))
+                        continue
+                    for sign in [-1., 1.]:
+                        polygon = clip(quad, sign)
+                        if len(polygon) == 4:
+                            faces.append(tuple(polygon))
+                        else:
+                            faces.extend((polygon[0], polygon[q], polygon[q+1]) for q in range(1, len(polygon)-1))
     return vertices, faces

@@ -513,12 +513,12 @@ def quads(mesh, origin, step, ln=None, hidden=None, weight=None):
     return report
 
 
-def stitch(meshes, origin, lines, ln=None, tol=1e-4):
+def stitch(meshes, origin, lines, ln=None, tol=1e-4, *, whole_seam=False):
     """Close the seams between hippodrome.build.Mesh terrains refined at different steps: along each straight seam
     (axis 0: x = value, axis 1: y = value), every seam vertex of one mesh near the line becomes a vertex of the other
     (its seam triangles are fanned), at the exact height the first mesh gives it. Returns the vertices added."""
     ln = ln or line()
-    if ln is None:
+    if ln is None and not whole_seam:
         return 0
     origin = np.asarray(origin, float)
     added = 0
@@ -528,8 +528,10 @@ def stitch(meshes, origin, lines, ln=None, tol=1e-4):
         for mesh in meshes:
             p = np.asarray(mesh.p, float) + origin
             on = np.abs(p[:, axis] - value) < tol
-            s, _, _ = ln.project(p[on, 0], p[on, 1])
-            near = np.flatnonzero(on)[np.isfinite(s)]
+            near = np.flatnonzero(on)
+            if not whole_seam:
+                s, _, _ = ln.project(p[on, 0], p[on, 1])
+                near = near[np.isfinite(s)]
             seams.append({round(float(p[k, across]), 4): float(p[k, 2]) for k in near})
         for m, mesh in enumerate(meshes):
             others = {}

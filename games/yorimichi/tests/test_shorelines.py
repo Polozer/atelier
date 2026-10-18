@@ -88,10 +88,11 @@ def test_reference_bays_have_broad_walkable_sand_between_rocky_points():
 def test_country_export_has_no_sea_level_quads_and_faces_up():
     xs = np.array([2800., 3000., 3200.]); ys = np.array([4500., 4550.])
     vertices, faces = S.grid_mesh(xs, ys, np.zeros((2, 3)))
-    p = np.asarray(vertices); f = np.asarray(faces)
+    p = np.asarray(vertices)
+    f = np.array([(face[0],face[k],face[k+1]) for face in faces for k in range(1,len(face)-1)])
     assert len(f) > 100
     assert not np.any(np.all(np.abs(p[f, 2]) < .001, axis=1))
-    normals = np.cross(p[f[:, 1]]-p[f[:, 0]], p[f[:, 3]]-p[f[:, 0]])
+    normals = np.cross(p[f[:, 1]]-p[f[:, 0]], p[f[:, 2]]-p[f[:, 0]])
     assert np.all(normals[:, 2] > 0.)
     assert np.max(np.abs(p[:, 2])) > 1.
 
@@ -361,3 +362,67 @@ def test_new_rocky_toe_does_not_keep_an_old_front_ridge():
         z=S.height(x,y,180.)
         assert np.max(z)<4.1
         assert np.min(np.diff(z))>=-1e-7
+
+
+def test_asymmetric_refinement_preserves_parent_saddle_inside_every_triangle():
+    from belmonte.terrain import grid_height
+    xs=np.array([1850.,1917.]);ys=np.array([4100.,4150.])
+    z=np.array([[0.,16.],[7.,-9.]])
+    vertices,faces=S.grid_mesh(xs,ys,z,shape=lambda x,y,base:base)
+    p=np.asarray(vertices)
+    triangles=np.array([(face[0],face[k],face[k+1]) for face in faces for k in range(1,len(face)-1)])
+    assert len(triangles)>200  # 12x9 children, including diagonal intersections
+    for weights in [[.2,.3,.5],[.61,.31,.08]]:
+        q=np.einsum('tvc,v->tc',p[triangles],weights)
+        np.testing.assert_allclose(q[:,2],grid_height(xs,ys,z,q[:,0],q[:,1]),atol=2e-11)
+    normals=np.cross(p[triangles[:,1]]-p[triangles[:,0]],p[triangles[:,2]]-p[triangles[:,0]])
+    assert np.all(normals[:,2]>0.)
+
+
+def test_country_landform_starts_after_the_existing_south_join():
+    from belmonte import layout
+    x=np.linspace(1575.,layout.BOUNDS[2]+layout.APRON,121);y=np.full_like(x,layout.SOUTH_JOIN)
+    base=np.full_like(x,225.)
+    np.testing.assert_array_equal(S.landforms(x,y,base),base)
+
+
+def test_collar_deformation_keeps_actual_rail_support_triangles(monkeypatch):
+    from belmonte import terrain,layout,source
+    x0,y0,x1,y1=layout.BOUNDS
+    vertices=np.array([[x0,y0,210.],[x1,y0,210.],[x1,y1,210.],[x0,y1,210.]])-layout.ORIGIN
+    class Town:
+        faces=vertices[[[0,1,2],[0,2,3]]]
+        def height(self,x,y):return np.full_like(x,210.-layout.ORIGIN[2])
+    monkeypatch.setattr(source,'terrain',lambda:Town())
+    monkeypatch.setattr(terrain,'country_grid',lambda:(np.array([-3200.,3200.]),np.array([3200.,7000.]),np.full((2,2),225.)))
+    monkeypatch.setattr(terrain,'old_height',lambda x,y:np.full_like(x,225.))
+    monkeypatch.setattr(terrain.H,'north_height',lambda x,y,**kw:S.profile_height(x,y,np.full_like(x,225.)))
+    mesh,_=terrain.collar()
+    changed=source.Surface(np.array(mesh.p)[np.array(mesh.i).reshape(-1,3)])
+    monkeypatch.setattr(S,'landforms',lambda x,y,z:z)
+    baseline,_=terrain.collar()
+    original=source.Surface(np.array(baseline.p)[np.array(baseline.i).reshape(-1,3)])
+    # The actual town approach at s7090 lies just outside the occupied east rim.
+    centre=np.array([1576.5864282864918,4335.5548417948075])
+    angles=np.linspace(0.,2.*np.pi,32,endpoint=False)
+    q=np.vstack([centre+r*np.c_[np.cos(angles),np.sin(angles)] for r in [0.,10.,20.]])
+    q=q[q[:,0]>x1+.001]
+    x,y=q[:,0]-layout.ORIGIN[0],q[:,1]-layout.ORIGIN[1]
+    assert np.isfinite(changed.height(x,y)).all()
+    np.testing.assert_array_equal(changed.height(x,y),original.height(x,y))
+
+
+def test_complete_seam_stitches_coastal_knots_without_a_railway(monkeypatch):
+    from hippodrome.build import Mesh
+    from train import earthworks
+    from belmonte.source import Surface
+    monkeypatch.setattr(earthworks,'line',lambda:None)
+    left,right=Mesh(),Mesh()
+    left.quad([-10.,0.,0.],[0.,0.,0.],[0.,10.,0.],[-10.,10.,0.])
+    right.quad([0.,0.,0.],[10.,0.,0.],[10.,5.,1.],[0.,5.,1.])
+    right.quad([0.,5.,1.],[10.,5.,1.],[10.,10.,0.],[0.,10.,0.])
+    assert earthworks.stitch([left,right],[0.,0.,0.],[(0,0.)])==0
+    assert earthworks.stitch([left,right],[0.,0.,0.],[(0,0.)],whole_seam=True)>0
+    a,b=[Surface(np.array(m.p)[np.array(m.i).reshape(-1,3)]) for m in [left,right]]
+    y=np.linspace(0.,10.,101);x=np.zeros_like(y)
+    np.testing.assert_allclose(a.height(x,y),b.height(x,y),atol=1e-12)
