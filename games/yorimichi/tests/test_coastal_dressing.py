@@ -95,7 +95,10 @@ def test_city_street_starts_at_this_worlds_road_not_a_stale_or_missing_world_jso
     from hidamari import layout
     import train.corridor
     monkeypatch.setattr(yori, 'OUT', tmp_path)
-    monkeypatch.delattr(layout.street_height, 'start', raising=False)
+    # integrate() sets both module globals: register their restoration (or removal) before it runs.
+    monkeypatch.setattr(layout, 'H', getattr(layout, 'H', None), raising=False)
+    monkeypatch.setattr(layout.street_height, 'start', None, raising=False)
+    monkeypatch.delattr(layout.street_height, 'start')
     monkeypatch.setattr(D, 'placements', lambda ground: {})
     monkeypatch.setattr(D, 'append_shoulders', lambda objects, ground: None)
     monkeypatch.setattr(train.corridor, 'clear_instances', lambda objects: None)
