@@ -226,3 +226,30 @@ def test_kernel_pre_root_path_exemption_requires_stable_full_binding(monkeypatch
         assert rows[7]['executable_unavailable_before_root'] and rows[7]['uid']==501
     else:
         with pytest.raises(wire.CapacityError):abandon.census(before_root=100)
+
+
+@pytest.mark.parametrize('bad', [None,'parent','path','owner','writable','sip','signature','timeout'])
+def test_completed_xpc_exclusion_is_exact_and_verified(monkeypatch,bad):
+    from types import SimpleNamespace
+    row=dict(parent=1,executable=abandon.COMPLETED_XPC)
+    if bad=='parent':row['parent']=2
+    if bad=='path':row['executable']='/usr/bin/true'
+    info=SimpleNamespace(st_uid=501 if bad=='owner' else 0,
+                         st_mode=0o777 if bad=='writable' else 0o755,
+                         st_flags=0 if bad=='sip' else 0x80000)
+    monkeypatch.setattr(abandon,'Path',lambda path:SimpleNamespace(stat=lambda:info))
+    def verify(command,**kwargs):
+        assert command==['/usr/bin/codesign','--verify','-R=anchor apple',abandon.COMPLETED_XPC]
+        if bad=='timeout':raise abandon.subprocess.TimeoutExpired(command,.5)
+        return SimpleNamespace(returncode=1 if bad=='signature' else 0)
+    monkeypatch.setattr(abandon.subprocess,'run',verify)
+    assert abandon.completed_system_service(row) is (bad is None)
+
+
+def test_xpc_exclusion_does_not_change_interrupted_compile_policy(completed_case,monkeypatch):
+    record,evidence,rows=completed_case
+    rows[45]=dict(pid=45,started=120,parent=1,executable=abandon.COMPLETED_XPC)
+    monkeypatch.setattr(abandon,'completed_system_service',lambda row:row['pid']==45)
+    with pytest.raises(wire.CapacityError):abandon.validate_snapshot(rows,record,set())
+    witness=recover(completed_case,completed=True)
+    assert len(witness['system_service_exemptions'])==2

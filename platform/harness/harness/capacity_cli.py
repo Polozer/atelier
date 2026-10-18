@@ -20,7 +20,7 @@ def main(args):
     if args.action in ('abandon-interrupted', 'abandon-completed'):
         if not args.administrative_evidence or any(v is not None for v in
                 (args.state, args.request_id, args.preserved_terminal, args.output, args.seconds, args.interval)):
-            raise SystemExit('abandon-interrupted requires only --administrative-evidence and the installed socket')
+            raise SystemExit(f'{args.action} requires only --administrative-evidence and the installed socket')
         import json
         from atelier.harness import capacity_protocol as wire
         from atelier.harness.capacity_client import abandon_interrupted, abandon_completed

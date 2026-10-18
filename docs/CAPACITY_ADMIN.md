@@ -154,7 +154,11 @@ unchanged report hashes are required, as for interrupted-compile recovery.
 
 Only this completed-job action may retain a process whose executable path is unavailable when
 stable kernel birth/parent/user observations positively place it before the workload root.
-The witness lists these exclusions. Newer unknown processes and all identity/query errors still
+The witness lists these exclusions. The exact system `com.apple.iCloudHelper` XPC executable
+may also be excluded only with PPID 1, root ownership, no group/other write permission, the
+macOS SIP restricted flag and a successful Apple-anchor signature check. This exception is
+recorded and applies only to completed-job recovery; Apple command-line tools are not exempt.
+Newer unknown processes and all identity/query errors still
 refuse. Positive current ancestry can exclude independent work; a reparented unexplained process
 born after the root refuses. This is current quiescence evidence: lineage cannot detect work
 handed through IPC to an older daemon. It does not certify successful outputs or historical
