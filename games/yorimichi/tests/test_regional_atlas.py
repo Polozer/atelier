@@ -48,9 +48,10 @@ def test_all_current_destination_families_keep_their_travel_identity():
     assert zones[-1]['region'] == 'world'
 
 
-def test_indoor_salon_keeps_its_landing_trace_when_added_to_haras_valley():
-    import sys
-    sys.path.insert(0, str(GAME / 'world'))
+def test_indoor_salon_keeps_its_landing_trace_when_added_to_haras_valley(monkeypatch):
+    import importlib
+    monkeypatch.syspath_prepend(str(GAME / 'world'))
+    importlib.import_module('yori')
     from belmonte.build import map_zones
     zones = map_zones(241.)
     before = copy.deepcopy(zones)

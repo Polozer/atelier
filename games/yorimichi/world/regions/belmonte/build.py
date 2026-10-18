@@ -128,7 +128,7 @@ def map_zones(town_z):
         {'key': 'belmonte_salon', 'name': 'Belmonte · Salon des Paris',
          'x': L.ORIGIN[0] + 67.8, 'y': L.ORIGIN[1] + 306.8, 'z': float(L.ORIGIN[2] + 30.2),
          'yaw': 0., 'above_m': 1.5,
-         'hint': 'The betting hall by the racecourse: the guichets'},
+         'hint': 'The betting hall by the racecourse: betting counters'},
     ]
 
 
