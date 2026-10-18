@@ -128,13 +128,15 @@ def height(x, y, base):
     x, y, base = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float), np.asarray(base, float))
     d, rock = field(x, y)
     inland = np.maximum(d, 0.)
-    # Sixty metres of usable sand in the open bays, rather than a thin pale
-    # stripe below a smooth hillside. Dunes begin behind the dry walking strip.
-    beach = .025*inland+.0003*inland**2
-    dunes = (.65+.35*np.sin(x/23.+y/31.))*smooth((inland-55.)/30.)
+    country = smooth((y-3400.)/500.)
+    # Country bays have sixty metres of usable sand. The southern arrival
+    # coves keep their thirty-metre raised shore bench, which also supports
+    # Sunset Pier's existing grade-limited approach to its fixed deck.
+    beach = (.075*inland+.0005*inland**2)*(1.-country)
+    beach += (.025*inland+.0003*inland**2)*country
+    dunes = (.65+.35*np.sin(x/23.+y/31.))*smooth((inland-55.)/30.)*country
     beach += dunes
     crown = np.minimum(68.+12.*np.sin(y/320.+x/430.), np.maximum(8., base+10.))
-    country = smooth((y-3400.)/500.)
     crown = crown*(1.-country)+(22.+9.*np.sin(y/190.+x/300.))*country
     # Two risers separated by a physical rock shelf; their widths vary along
     # the coast so the face reads as joined rock masses from a distant lookout.
