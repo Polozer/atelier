@@ -187,7 +187,7 @@ def add_foliage(collection, materials):
     return root, stats
 
 
-def build_modules():
+def build_modules(only=()):
     SCENE_OUT.mkdir(parents=True, exist_ok=True)
     MODEL_OUT.mkdir(parents=True, exist_ok=True)
     clear_scene()
@@ -198,6 +198,8 @@ def build_modules():
     objects = {}
     report = {}
     for name, fn in modules.MODULES.items():
+        if only and not name.startswith(only):
+            continue
         started = time.time()
         builder = fn()
         collection = bpy.data.collections.new(name)
@@ -216,7 +218,7 @@ def build_modules():
         print(f'built {name}: {report[name]}', flush=True)
     hero_collection = bpy.data.collections.new('10_hero_assets')
     scene.collection.children.link(hero_collection)
-    hero = hero_assets.add_hero_assets(hero_collection)
+    hero = None if only else hero_assets.add_hero_assets(hero_collection)
     if hero is not None:
         objects['10_hero_assets'] = [hero]
         report['10_hero_assets'] = dict(vertices=len(hero.data.vertices),
@@ -242,6 +244,10 @@ def build_modules():
                                   export_image_format='JPEG', export_image_quality=86, export_normals=foliage)
 
     select(list(objects))
+    if only:
+        # A sketch: a partial scene for quick renders, never the published scene or models.
+        bpy.ops.wm.save_as_mainfile(filepath=str(SCENE_OUT / 'sketch.blend'))
+        return
     bpy.ops.wm.save_as_mainfile(filepath=str(SCENE_OUT / 'brinecove.blend'))
     export(SCENE_OUT / 'brinecove.glb', False)
     for name in objects:
@@ -408,9 +414,9 @@ VIEWS = {
 }
 
 
-def render_views(only=(), preview=False):
+def render_views(only=(), preview=False, sketch=False):
     RENDER_OUT.mkdir(parents=True, exist_ok=True)
-    bpy.ops.wm.open_mainfile(filepath=str(SCENE_OUT / 'brinecove.blend'))
+    bpy.ops.wm.open_mainfile(filepath=str(SCENE_OUT / ('sketch.blend' if sketch else 'brinecove.blend')))
     cam, sun, fill, bg, sky_ramp, cloud_mix = add_render_objects()
     scene = bpy.context.scene
     if preview:
@@ -446,11 +452,12 @@ def render_views(only=(), preview=False):
             scene.view_settings.exposure = 0.1
             cloud_mix.inputs['Color2'].default_value = (0.93, 0.91, 0.85, 1.0)
         look_at(cam, loc, target, lens)
-        scene.render.filepath = str(RENDER_OUT / f'{name}.png')
+        scene.render.filepath = str(RENDER_OUT / (f'sketch-{name}.png' if sketch else f'{name}.png'))
         print('rendering', name, flush=True)
         bpy.ops.render.render(write_still=True)
         files.append(name)
-    (OUT / 'renders.json').write_text(json.dumps(files, indent=2) + '\n')
+    if not sketch:
+        (OUT / 'renders.json').write_text(json.dumps(files, indent=2) + '\n')
     print('BRINECOVE RENDER COMPLETE', flush=True)
 
 
@@ -536,13 +543,16 @@ def main():
     ap.add_argument('--stage', choices=('all', 'build', 'render', 'sync'), default='all')
     ap.add_argument('--view', default='', help='comma-separated render view names')
     ap.add_argument('--preview', action='store_true', help='low-resolution review render')
+    ap.add_argument('--sketch', default='', help='comma-separated module prefixes (e.g. 01,09): a partial scene '
+                    'rendered to renders/sketch-*.png, leaving the published scene alone')
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     OUT.mkdir(parents=True, exist_ok=True)
+    sketch = tuple(m for m in args.sketch.split(',') if m)
     if args.stage in ('all', 'build'):
-        build_modules()
+        build_modules(sketch)
     if args.stage in ('all', 'render'):
-        render_views(tuple(v for v in args.view.split(',') if v), args.preview)
-    if args.stage in ('all', 'sync'):
+        render_views(tuple(v for v in args.view.split(',') if v), args.preview, bool(sketch))
+    if args.stage in ('all', 'sync') and not sketch:
         sync_viewer()
 
 

@@ -162,8 +162,17 @@ def waterfall(b):
     # A narrower second ribbon set beside it, as in the painting's paired falls.
     sheet(b, face_x(L.GORGE_Y + 10.5, pool - 2.5, lower + 2.0) + 0.3, L.GORGE_Y + 9.0, L.GORGE_Y + 12.0,
           pool - 2.0, 0.0, rng, throw=3.0, segments=12)
+    # Froth down the curtain and white water spilling over the lip: the painting's fall is a churning white
+    # column, not one smooth sheet.
+    for k in range(5):
+        z = pool * (0.85 - 0.17 * k)
+        mist(b, face_x(L.GORGE_Y, z, lower + 4.0) - 3.5, L.GORGE_Y + rng.uniform(-3.0, 3.0), z, 4.0 + k, 3, rng,
+             height=2.0)
+    for _ in range(10):
+        foam_patch(b, lower_lip + rng.uniform(0.5, 6.0), L.GORGE_Y + rng.uniform(-8.0, 8.0), pool + 0.05,
+                   rng.uniform(2.5, 5.0), rng)
     base_x = face_x(L.GORGE_Y, 0.5, lower) - 6.0
-    mist(b, base_x, L.GORGE_Y, 0.0, 16.0, 26, rng, height=12.0)
+    mist(b, base_x, L.GORGE_Y, 0.0, 18.0, 34, rng, height=14.0)
     # Foam streaks drift out to sea from the plunge, as in the bridge painting.
     for _ in range(46):
         d = rng.uniform(8.0, 60.0)
@@ -214,6 +223,20 @@ def waterfall(b):
             fern(b, px, py, pz, rng.uniform(0, 360), rng.uniform(0.9, 1.5), rng)
         else:
             bush(b, px, py, pz, 0.0, rng.uniform(0.6, 1.1), rng)
+    # Low jungle on the shelves either side of the falls: headland_plantable keeps trees out of the town's view of
+    # the falls, which left the shelves bare grass.
+    shelf = random.Random(5509)
+    for _ in range(2800):
+        px, py = shelf.uniform(lower - 40.0, 650.0), shelf.uniform(L.GORGE_Y - 80.0, L.GORGE_Y + 90.0)
+        if L.in_gorge(px, py, 1.5) or L.is_water(px, py) or L.in_lot(px, py, 4.0) or L.on_street(px, py, 3.0):
+            continue
+        pz = L.height(px, py)
+        if pz < 4.0 or L.slope(px, py) > 0.75:
+            continue
+        if shelf.random() < 0.65:
+            bush(b, px, py, pz - 0.1, 0.0, shelf.uniform(1.2, 2.4), shelf)
+        else:
+            fern(b, px, py, pz, shelf.uniform(0, 360), shelf.uniform(1.2, 2.0), shelf)
     # The painting's lantern bridge spans the slot at its mouth, where the sea and the harbor can see it.
     rope_bridge(b, upper + 3.5, lanterns=True)
     shrine(b, rng, lower, upper_lip)

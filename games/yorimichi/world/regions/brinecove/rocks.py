@@ -8,7 +8,7 @@ import math
 import random
 
 from brinecove import layout as L
-from brinecove.kit import bush, fern
+from brinecove.kit import bush, fern, leaf_canopy
 
 TAU = math.pi * 2
 
@@ -87,23 +87,24 @@ def prism(b, centre, z0, z1, radius, along, rng, mat, top_mat=None, squash=0.72,
 
 
 def vines(b, x, y, z_top, length, width, out, rng):
-    """A curtain of hanging leaf strips draped down a face; out is the unit downhill direction."""
+    """Foliage spilling over a crest and down the face; out is the unit downhill direction.
+
+    Lobes of leaf cards (kit.leaf_canopy, as the trees use) hang in chains that narrow and thin as they drop, held
+    a little proud of the rock below. Flat hanging strips tiled the leaf atlas into a dotted grid."""
     ox, oy = out
     tx, ty = -oy, ox
-    strips = max(2, int(width / 0.9))
-    for k in range(strips):
-        s = (k / (strips - 1) - 0.5) * width + rng.uniform(-0.2, 0.2)
-        ln = length * rng.uniform(0.45, 1.0)
-        w = rng.uniform(0.7, 1.2)
-        px, py = x + tx * s, y + ty * s
-        a = (px - tx * w / 2, py - ty * w / 2, z_top + 0.3)
-        bb = (px + tx * w / 2, py + ty * w / 2, z_top + 0.3)
-        sway = rng.uniform(0.2, 0.9)
-        c = (px + tx * w * 0.35 + ox * sway, py + ty * w * 0.35 + oy * sway, z_top - ln)
-        d = (px - tx * w * 0.35 + ox * sway, py - ty * w * 0.35 + oy * sway, z_top - ln)
-        u0 = rng.choice((0.0, 0.5))
-        b.face((a, bb, c, d), rng.choice(('leaf_deep', 'leaf_mid', 'leaf_mid', 'leaf_sun', 'leaf_rust')),
-               [(u0, 0.0), (u0 + 0.5, 0.0), (u0 + 0.5, ln / 3.0), (u0, ln / 3.0)])
+    lobes = max(1, int(width / 3.4))
+    for k in range(lobes):
+        s = ((k + 0.5) / lobes - 0.5) * width + rng.uniform(-0.6, 0.6)
+        drop = length * rng.uniform(0.35, 1.0)
+        z, r = z_top + 0.6, rng.uniform(2.2, 3.4)
+        while z > z_top - drop and r > 0.8:
+            off = r * 0.5 + (z_top - z) * 0.08
+            leaf_canopy(b, (x + tx * s + ox * off, y + ty * s + oy * off, z), (r, r * 0.8, r * 1.4),
+                        max(6, int(4.5 * r * r)), 0.85 + 0.25 * r, rng, warm=0.07)
+            z -= r * 1.4
+            r *= rng.uniform(0.78, 0.92)
+            s += rng.uniform(-0.4, 0.4)
 
 
 def cliff_rocks(b, rng, spacing=9.0):
@@ -152,7 +153,8 @@ def cliff_rocks(b, rng, spacing=9.0):
         crest = L.height(x + ux * radius * 1.2, y + uy * radius * 1.2) + rng.uniform(-0.8, 1.6)
         height = max(3.0, min(crest - base, rng.uniform(10.0, 28.0)))
         light = fbm(x, y, 90.0, 3, 17)
-        mat = 'rock_light' if light > 0.58 else ('rock_dark' if light < 0.30 else 'rock')
+        # Sunlit golden stone with only a few dark weathered masses (the bridge paintings' palette).
+        mat = 'rock_light' if light > 0.48 else ('rock_dark' if light < 0.2 else 'rock')
         blocks = 1 if height < 8 else max(2, min(3, int(height / rng.uniform(8.0, 12.0))))
         z0 = base
         sides = rng.randint(4, 6)
@@ -165,14 +167,15 @@ def cliff_rocks(b, rng, spacing=9.0):
             prism(b, (bx, by), z0, z1, r, along, rng, mat, top, squash=rng.uniform(0.55, 0.8), sides=sides,
                   tilt=rng.uniform(0.1, 0.7), bulge=False)
             # Every ledge carries a plant; the larger ones a fern or two as well.
-            if rng.random() < 0.7:
-                bush(b, bx + ux * r * 0.2, by + uy * r * 0.2, z1 - 0.2, 0.0, rng.uniform(0.7, 1.3) * r / 6.0, rng)
+            if rng.random() < 0.85:
+                bush(b, bx + ux * r * 0.2, by + uy * r * 0.2, z1 - 0.2, 0.0, rng.uniform(1.4, 2.4) * r / 6.0, rng)
             if rng.random() < 0.35:
                 fern(b, bx - ux * r * 0.3, by - uy * r * 0.3, z1 - 0.1, rng.uniform(0, 360), rng.uniform(0.9, 1.4), rng)
             z0 = z1 - 0.15
-        if height > 6 and rng.random() < 0.75:
+        # Green spills over nearly every crest and down most of the face.
+        if height > 4 and rng.random() < 0.92:
             vines(b, cx - ux * radius * 0.7, cy - uy * radius * 0.7, base + height,
-                  min(height * 0.9, rng.uniform(6.0, 18.0)), rng.uniform(radius * 0.6, radius * 1.4), (-ux, -uy), rng)
+                  min(height * 0.95, rng.uniform(8.0, 22.0)), rng.uniform(radius * 0.9, radius * 1.8), (-ux, -uy), rng)
         # A loose block or two at the foot.
         if rng.random() < 0.4:
             fx, fy = cx - ux * radius * 1.1, cy - uy * radius * 1.1
@@ -187,7 +190,7 @@ def terrain_material(gx, gy, zavg, sl, i, j):
     n = fbm(gx, gy, 70.0, 4, 3)
     m = fbm(gx, gy, 24.0, 3, 9)
     if sl > 0.85:
-        return 'rock_dark' if m > 0.42 else 'rock'
+        return 'rock_dark' if m > 0.72 else ('rock_light' if n > 0.55 else 'rock')
     if sl > 0.62:
         return ('rock', 'jungle_dark', 'rock_light')[int(m * 2.999)] if n > 0.5 else 'jungle_dark'
     if zavg > 46:
