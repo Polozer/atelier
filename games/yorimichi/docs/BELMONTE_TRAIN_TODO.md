@@ -59,8 +59,15 @@ Before riding, check the whole train against the playable characters, and make t
     a wall. Seats to sit on, coach to coach through the gangways, get off at stations.
   - On foot only (done): the boarding walk (Monter at a station door) is the one way aboard. Aboard, seated or on
     the steps, the skateboard, bike, horse and sailboat are refused ("Pas à bord du train"), locally and by the host.
-    Anyone found inside a coach without boarding (a vehicle through an open door, a jump, the paraglider, a dash) is
-    put back on the ground beside it, off any vehicle, by the host (`BelmonteTrainRules.h`, `ABelmonteTrainService::Eject`).
+    The ticket (`BelmonteTrainRules::FAdmission`) holds through the door walk, seats, gangways and vestibules
+    (1.5 s grace off the train) and the whole run; the walk down, a teleport, respawn or the map's travel ends it, a
+    pawn replacement carries it over and a disconnect drops it. Anyone riding inside a running or departing coach
+    without it (a vehicle through an open door, a jump, the paraglider, a dash) is put back on safe ground, off any
+    vehicle, by the host (`ABelmonteTrainService::Eject`); a bystander a passing coach merely sweeps through is left
+    alone. The destination is, in order, the platform beside the coach, a door-side point, the player's last safe
+    ground, a door-side point recorded while the train ran in the open, then the next station; in a tunnel or on a
+    viaduct never beside the coach. Each is accepted only on walkable ground that is not the train with room for the
+    standing capsule (`BelmonteTrainRecovery::SafeStand`); with none the player is not moved.
   - First-person view aboard (done): P or the left bumper switches between third and first person, standing or
     seated; the body is hidden from the player's own view only, and leaving the train restores third person. The
     last choice is kept for the session.

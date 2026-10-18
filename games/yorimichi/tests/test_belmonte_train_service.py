@@ -242,3 +242,23 @@ def test_assembly_requires_bake_before_publishing(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError):
         C.assembly()
     assert not (tmp_path / 'assembly').exists()
+
+
+def test_viewpoints_name_the_viaducts_for_train_recovery():
+    """ABelmonteTrainService reads class "viaduct" stretches (start/end chainage) as places where nobody is set down
+    beside a coach (BelmonteTrainRules::RecoveryOrder)."""
+    samples = [{'s': float(s), 'rail_z': 10., 'ground_z': 30. if s < 300 or s > 600 else -20.,
+                'class': 'cutting' if s < 300 else 'viaduct' if s <= 600 else 'tunnel'} for s in range(0, 1000, 10)]
+    stretches = S.viewpoints(samples)
+    viaducts = [v for v in stretches if v['class'] == 'viaduct']
+    assert len(viaducts) == 1 and viaducts[0]['start'] == 300. and viaducts[0]['end'] == 600.
+    assert all(v['class'] == 'viaduct' for v in stretches)     # cuttings and tunnels are not viewpoints
+
+
+def test_track_runtime_keeps_tunnel_chainages_for_train_recovery():
+    """The staged track data keeps each tunnel's chainage range (FBelmonteTrainLine::AddTunnels)."""
+    import belmonte_track_data as D
+    track = {'meshes': {}, 'chunks': [], 'viaducts': [], 'instances': {},
+             'tunnels': [{'name': 'T1', 'start': 635.0, 'end': 1005.0, 'lining': []}]}
+    tunnels = D.build(track)['tunnels']
+    assert [(t['name'], t['start'], t['end']) for t in tunnels] == [('T1', 635.0, 1005.0)]
