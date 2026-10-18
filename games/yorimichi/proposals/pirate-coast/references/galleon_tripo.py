@@ -3,9 +3,9 @@
 
     uv run python games/yorimichi/proposals/pirate-coast/references/galleon_tripo.py paint
     uv run python games/yorimichi/proposals/pirate-coast/references/galleon_tripo.py approve --note "..."
-    uv run python -m atelier.ai.tripo_asset generate --faces 40000 \\
+    uv run python -m atelier.ai.tripo_asset generate --faces 25000 \\
         --references build/yorimichi/pirate-coast/tripo/galleon/views-r1 \\
-        --output build/yorimichi/pirate-coast/tripo/galleon/model-r1
+        --output build/yorimichi/pirate-coast/tripo/galleon/model-r2
 
 The hull is the part of a galleon procedural lofting cannot carve: the stern castle, galleries, gunports, carved
 rails and gilding. Masts, yards, sails and rigging stay procedural (modules.ship), so the views show the hull with
