@@ -42,6 +42,10 @@ bool FHRRandomTest::RunTest(const FString&)
     const TArray<int32> Shuffled = HRRandom::Shuffled(Original, TEXT("seed"), TEXT("order"));
     TestTrue(TEXT("Shuffle retains the reference tag sequence"), Shuffled == TArray<int32>{0,4,2,1,3});
     TestTrue(TEXT("Shuffle does not mutate its input"), Original == TArray<int32>{0,1,2,3,4});
+    FString EmbeddedNullTag = TEXT("a");
+    EmbeddedNullTag.AppendChar(TCHAR(0)); EmbeddedNullTag += TEXT("b");
+    TestTrue(TEXT("Shuffle retains embedded NUL in semantic tags"),
+        HRRandom::Shuffled(Original, TEXT("seed"), EmbeddedNullTag) == TArray<int32>{1,4,0,2,3});
     HRRandom::Draw(TEXT("unrelated"), TEXT("operation"), 91);
     TestEqual(TEXT("Other draws cannot change a previous semantic draw"), HRRandom::Draw(TEXT("seed"), TEXT("tag"), 6), 4);
     return true;

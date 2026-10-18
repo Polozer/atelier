@@ -18,7 +18,7 @@ namespace HRRandom
     {
         TArray<T> Copy = Items;
         for (int32 I = Copy.Num() - 1; I > 0; --I)
-            Copy.Swap(I, Draw(Seed, FString::Printf(TEXT("%s:%d"), *Tag, I), int64(I) + 1));
+            Copy.Swap(I, Draw(Seed, Tag + FString::Printf(TEXT(":%d"), I), int64(I) + 1));
         return Copy;
     }
 }
