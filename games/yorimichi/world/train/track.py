@@ -61,18 +61,34 @@ MATERIALS = {               # Blender colour stand-ins; the names are the Unreal
     'MI_TK_TunnelLining': (.075, .07, .065, .95),   # soot-blackened stone: the tunnel stays dark between its lamps
     'MI_TK_LampGlow': (1., .72, .38, .3),            # emissive in Unreal (track_build.py lights it in Blender)
     'MI_TK_Bank': (.10, .14, .045, .95),             # the grass of a bank built over ground that is not carved
+    # the Belmonte station (station.py)
+    'MI_B_flag': (.55, .40, .25, .9),
+    'MI_B_cobble': (.55, .38, .22, .9),
+    'MI_B_plaster': (.72, .42, .17, .9),
+    'MI_B_roof': (.62, .25, .12, .85),
+    'MI_B_glass_dark': (.03, .03, .025, .3),
+    'MI_ST_Green': (.045, .11, .075, .5),            # painted ironwork
+    'MI_ST_Glass': (.20, .26, .30, .25),             # roof glazing, seen from outside and afar
+    'MI_ST_Clock': (.86, .81, .67, .6),              # clock dials and lamp globes
+    'MI_ST_Coach': (.28, .11, .055, .55),            # the old coaches' varnished teak
+    'MI_ST_CoachRoof': (.22, .22, .21, .8),
 }
 BUDGETS = {                 # triangles per LOD (BELMONTE_TRACK.md)
     'SM_TK_Chunk': (1200, 400, 120),
     'SM_TK_Loop': (2000, 400, 120),           # the loop's own rails, 260 m in one mesh
     'SM_TK_Tunnel': (600, 200),
     'SM_TK_Portal': (2000, 600),
-    'SM_TK_Viaduct': (25000, 6000, 1500),     # all pieces together
+    'SM_TK_Viaduct': (25000, 6000, 2500),     # all pieces together: 3 viaducts, 710 m (LOD2, the collision, ~2.5/m)
     'SM_TK_Turnout': (3000,),
     'SM_TK_BufferStop': (800,),
     'SM_TK_Sleeper': (12,),
     'SM_TK_TunnelLamp': (120,),
     'SM_TK_Bank': (6000, 1500),                # per 100 m piece
+    'SM_ST_Headhouse': (60000, 16000, 5000),   # the Belmonte station (station.py), one mesh each
+    'SM_ST_Sheds': (70000, 14000, 5000),
+    'SM_ST_Coaches': (9000, 2400, 400),
+    'SM_ST_Forecourt': (3000, 800, 400),
+    'SM_ST_Overbridge': (6000, 1500, 500),
 }
 
 
@@ -723,8 +739,11 @@ def layout(line=None):
         stations=dict(Hidamari=dict(buffer_stop=BUFFER_OFFSET, stopping_point=STOP_OFFSET),
                       Belmonte=dict(buffer_stop=round(line.length - BUFFER_OFFSET, 2),
                                     stopping_point=round(line.length - STOP_OFFSET, 2)),
-                      note='no station buildings; the 200 m reserves are kept in route.json for later'),
+                      note='Belmonte has its station (station.py, station below); Hidamari\'s yard is its own region\'s'),
         materials=list(MATERIALS))
+    from train import station          # the Belmonte terminus and the road's overbridge
+    station_meshes, doc['station'] = station.layout(line)
+    meshes.update(station_meshes)
     return meshes, doc
 
 

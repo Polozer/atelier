@@ -120,15 +120,15 @@
       "world/regions/belmonte/terrain.py": "b42cbfed11379386af9dc85df8397d4e2a55403669cd67f1c7ef60de5ca94797",
       "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
       "world/regions/southwest/island.py": "b280ec69ecdbafbfe5ac8f561d0158be6712622f5389cc7394ddf0df7dce945b",
-      "world/train/route.py": "5dfbb629b175a796e50048e25990f2c6146048bdd812d5f65a048b42b23ed5b6",
+      "world/train/route.py": "7914af5bf2b92ed84c711b3804576801fb8bcaf712df2a220407b7779d7f7f85",
       "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
       "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
       "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
-      "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
-      "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f"
+      "assets/belmonte/source.json": "eab270595cac4a0e568c9928fddc6dec8f454cc87c584afe16ba93dfe46810ca",
+      "assets/vehicles/belmonte-train/line.json": "f18df7576e2b0eb4f2f00103bb1a5225ef0ff0498f257d14848419e8c6356688"
     },
     "painting_sha256": "aa7eeb609acbb38cbf8315a4063e4da1543b616c499a66fa143ffe0e9b4d73f7",
     "coast_sha256": "d57b375096da956e132e36e76bba861ed42be6697c00fc7ca2c6dafc19232375",
-    "reference_sha256": "2d8330cb7985ad519b8ff25ae0ae45c9a7d2d6a1161917a086400c17eb31b130"
+    "reference_sha256": "0ebaddbfcbb30c40b392e5d02a959d6e5cca8003b11f5c2d78b0b11f314a8adb"
   }
 }

@@ -80,7 +80,7 @@ are for the worst view, either a player on the viaduct or at the loop looking do
 | Sleeper | 12 tris; ≤ 400 drawn instances in view (11.4k in total) |
 | Tunnel lining chunk, LOD0 / LOD1 | ≤ 600 / 200 tris; nothing drawn from outside a tunnel |
 | Portal | ≤ 2,000 / 600 tris |
-| Viaduct (290 m in total), LOD0 / LOD1 / LOD2 | ≤ 25k / 6k / 1.5k tris |
+| Viaducts (three, 710 m in total), LOD0 / LOD1 / LOD2 | ≤ 25k / 6k / 2.5k tris |
 | Turnout | ≤ 3,000 tris each |
 | Buffer stop | ≤ 800 tris |
 | Materials | reuse the Belmonte MIs (`MI_B_ashlar`, `MI_B_stone`, `MI_B_gravel`, `MI_B_iron`) plus one 1k ballast-and-sleeper texture set |
@@ -101,7 +101,7 @@ Steps: `atelier build yorimichi world.belmonte_track` (and `world.belmonte_track
 | Loop rails | 1 | 1,820 / 312 / 44 |
 | Tunnel linings | 28 | 520 / 120 |
 | Portal | 1 mesh, 4 instances | 236 / 124 |
-| Viaduct | 4 pieces | 1,560 in total at LOD0 |
+| Viaducts | 9 pieces | 3,910 in total at LOD0, 1,810 at LOD2 |
 | Sleepers | 11,725 instances | 10 each |
 
 The GLBs take 7.6 MB in total and `track.json` 1 MB.

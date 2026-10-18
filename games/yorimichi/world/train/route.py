@@ -62,12 +62,12 @@ class Station:
 # the x=1120 lane; the old engine shed gives way to the approach. Share the rail datum with the station builder.
 from hidamari import station_yard
 HIDAMARI = Station('Hidamari', station_yard.SERVICE_CENTRE, 0., 160., (160., 56.))
-# The old RAILWAY end (1350, 3780 + NORTH_SHIFT), moved 25 m east and north: inside Belmonte's eastern bounds on the
-# river's north bank, 650 m east of the town's south-east gate and 150 m south of the eastern estate, clear of every
-# building and of the water. Ground 181.6-184.9 m along the track (12 m across the whole 200 x 60 m reserve). A flatter
-# site 190 m from the gate (900, 4625, bearing 140, ground 211 m) needs 27 m more climb: 570 m more line, 7.0 instead
-# of 6.3 minutes, 2840 m of tunnel instead of 2720 and a 209 s timetable offset at the loop. Trains arrive running west.
-BELMONTE = Station('Belmonte', (1375., 4375.), 170., 160., (200., 60.))
+# Paul, 2026-10-17: the station moves next to the town, on the flat ground (206-214 m) north of the road from the
+# south-east gate to the Dunes Basses estate, its facade facing north-west towards the town. The line crosses the river
+# on a viaduct and passes under that road in a cutting 229 m before the buffer stop (rail 8.6 m below the road): the
+# road keeps its line and level on a stone overbridge (track.py OVERBRIDGES). 496 m more line than the riverside site
+# (1375, 4375, bearing 170), +17 s up, the loop and its crossing offset unchanged. Trains arrive running north-west.
+BELMONTE = Station('Belmonte', (900., 4625.), 140., 160., (200., 60.))
 
 STEP = 10.                  # sampling along the line
 MIN_RADIUS = 450.          # in the open; a spiral loop keeps its own radius
@@ -371,13 +371,14 @@ def volcano_distance(x, y):
 @lru_cache(maxsize=1)
 def _belmonte_surfaces():
     from belmonte import source
-    # The natural ground (belmonte/build.py writes it before the railway's earthworks carve the built meshes).
+    # The natural ground: belmonte/build.py writes the apron and country before the railway's earthworks carve the
+    # built meshes; the valley tiles the railway carved keep their natural copies (tools/belmonte_station_terrain.py).
     paths = [yori.OUT / f'belmonte/natural/{name}.glb' for name in ('SM_BM_NorthCountry', 'SM_BM_NorthApron')]
     for p in paths:
         if not p.is_file():
             raise FileNotFoundError(f'missing Belmonte natural ground {p}; run world.belmonte first')
     north = [source.Surface(source.triangles(p)) for p in paths]
-    return source.terrain(), north
+    return source.terrain(natural=True), north
 
 
 @lru_cache(maxsize=1)

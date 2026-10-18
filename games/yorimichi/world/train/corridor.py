@@ -54,6 +54,8 @@ class Corridor:
             near = by_s.get(int(round(p[0] / 10.) * 10))
             w = half_width(near) if near else HALF_WIDTH
             segs.append(((p[1], p[2]), (q[1], q[2]), w or HALF_WIDTH))
+        from train import station_site
+        self.site = station_site.for_line([(r['x'], r['y']) for r in rows[-2:]], [r['rail_z'] for r in rows[-2:]])
         self.a = np.array([s[0] for s in segs], float).reshape(-1, 2)
         self.b = np.array([s[1] for s in segs], float).reshape(-1, 2)
         self.w = np.array([s[2] for s in segs], float)
@@ -75,7 +77,20 @@ class Corridor:
             t = np.clip(((px - ax) * dx + (py - ay) * dy) / max(dx * dx + dy * dy, 1e-9), 0., 1.)
             d = np.hypot(px - ax - t * dx, py - ay - t * dy) - w
             out[near] = np.minimum(out[near], d)
+        # The Belmonte station's footprint, forecourt and access road keep ROAD_CLEAR of plants too.
+        out = np.minimum(out, self.station_margin(x, y))
         return out
+
+    def station_margin(self, x, y):
+        """Distance beyond the station's ground plus its clearance (negative on it)."""
+        from train import station_site as S
+        if self.site is None:
+            return np.full(np.shape(x), np.inf)
+        a, u = self.site.local(x, y)
+        e = np.min([S.rect_excess(a, u, rect) for rect, _ in self.site.zones()], axis=0)
+        pts, _ = self.site.access()
+        e = np.minimum(e, S.polyline_excess(x, y, pts, S.ACCESS_HALF)[0])
+        return e - S.ROAD_CLEAR
 
     def blocked(self, x, y, reach=0.):
         """True where a plant at x, y (whose own crown reaches `reach` metres beyond HALF_WIDTH's) stands in the
@@ -150,6 +165,7 @@ def settle(name, x, y, z, corridor=None):
     near = np.isfinite(s)
     if k == 'tree':
         keep = ~c.blocked(x, y)
+    keep &= c.station_margin(x, y) >= 0.                    # nothing grows on the station's ground
     if not near.any():
         return keep, out
     i = np.flatnonzero(near)
