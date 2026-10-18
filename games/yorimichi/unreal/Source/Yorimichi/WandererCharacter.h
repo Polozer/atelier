@@ -12,6 +12,7 @@
 #include "JapanSailPresentation.h"
 #include "JapanHorsePresentation.h"
 #include "JapanHorseAppearance.h"
+#include "BelmonteTrainRules.h"
 #include "WandererCharacter.generated.h"
 
 class UWandererDefinition;
@@ -325,8 +326,15 @@ public:
     bool IsCinematic() const { return bCinematic; }
     class AZeppelinService* GetZeppelin() const;
     bool IsZeppelinPassenger() const;
-    /** Inside a no-sprint volume (aboard the Belmonte train): sprint is unavailable. */
-    bool bNoSprint = false, bTrainAboard = false, bTrainDriving = false;
+    /** Inside a no-sprint volume (aboard the Belmonte train): sprint is unavailable. bTrainDriving: the train moves the
+     *  character (seated, or stepping through a door: bTrainStepping). */
+    bool bNoSprint = false, bTrainAboard = false, bTrainDriving = false, bTrainStepping = false;
+    /** Aboard the Belmonte train, standing or seated (not stepping through a door): the first-person view is available. */
+    bool IsTrainPassenger() const { return bTrainAboard && !bTrainStepping; }
+    /** The first-person view aboard the train is on (local player only). */
+    bool IsTrainFirstPerson() const { return TrainView.IsFirstPerson(); }
+    /** The train is on foot only: taking out a vehicle aboard is refused with a HUD line. True when refused. */
+    bool RefuseVehicleOnTrain();
     /** The flight buttons: aboard, ride speed; at the docked ship, its next stop. -1 or +1. */
     void ZeppelinStep(int32 Direction);
 private:
@@ -368,6 +376,15 @@ private:
     void Dash(const FInputActionValue& Value);
     void ReleaseJump(const FInputActionValue& Value);
     void ToggleSkateboard(const FInputActionValue& Value);
+    /** Aboard the train: third person or first person (P, the left bumper). */
+    void ToggleTrainView(const FInputActionValue& Value);
+    FBelmonteTrainView TrainView;
+    /** The first-person share of the view (eases in and out), the smoothed eye in the actor's frame, and whether the
+     *  body is hidden from this player's own view. */
+    float TrainViewBlend = 0.f;
+    FVector TrainEye = FVector::ZeroVector;
+    bool bTrainBodyHidden = false;
+    void UpdateTrainView(float DeltaTime, FMinimalViewInfo& View);
     void SkateboardHand(const FInputActionValue& Value);
     void ReturnToSpawn();
     void ToggleSailboat(const FInputActionValue& Value);

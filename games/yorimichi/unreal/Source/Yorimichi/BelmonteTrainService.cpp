@@ -1,4 +1,5 @@
 #include "BelmonteTrainService.h"
+#include "BelmonteTrainRules.h"
 #include "BelmonteTrack.h"
 #include "AtelierData.h"
 #include "JapanNetwork.h"
@@ -715,7 +716,7 @@ bool ABelmonteTrainService::StartBoarding(FRider& Rider, int32 VehicleIndex, int
     Rider.BoardLength = 0.f;
     for (int32 I = 1; I < Rider.BoardPath.Num(); ++I) Rider.BoardLength += float(FVector::Dist(Rider.BoardPath[I - 1], Rider.BoardPath[I]));
     Rider.BoardVehicle = VehicleIndex; Rider.BoardDoor = DoorIndex;
-    C->bTrainDriving = true;
+    C->bTrainDriving = C->bTrainStepping = true;
     Rider.BoardTime = -.55f;   // the door swings open first
     Rider.bBoardMoving = false;
     Door.bOpen = true; Door.bBusy = true;
@@ -775,6 +776,8 @@ void ABelmonteTrainService::FinishBoarding(FRider& Rider)
         double Ground = 0.;
         if (!Rider.bBoardUp && GroundNear(Foot, Foot.Z, 250., C, Ground)) Foot.Z = Ground;
         C->SetActorLocationAndRotation(Foot + FVector(0, 0, Half + 2.f), Heading.Rotation(), false, nullptr, ETeleportType::TeleportPhysics);
+        // The boarding walk is the one way aboard (BelmonteTrainRules): it admits the rider; stepping down ends that.
+        Rider.bAdmitted = Rider.bBoardUp; Rider.OutsideTime = 0.f;
         if (Rider.bBoardUp) { Rider.Vehicle = Rider.BoardVehicle; Board(Rider, true); }
         else Board(Rider, false);
         if (!Rider.bBoardUp)
@@ -804,6 +807,7 @@ void ABelmonteTrainService::FinishBoarding(FRider& Rider)
     if (C)
     {
         C->bTrainDriving = Rider.Seat != INDEX_NONE;
+        C->bTrainStepping = false;
         C->SetBase(Rider.bAboard && Vehicles.IsValidIndex(Rider.Vehicle) ? Vehicles[Rider.Vehicle].Body.Get() : nullptr);
         if (JapanNetwork::IsOnline(GetWorld()))
             if (auto* JM = Cast<UJapanCharacterMovement>(C->GetCharacterMovement())) JM->ResetActivityPrediction();
@@ -896,6 +900,7 @@ void ABelmonteTrainService::OnRep_NetworkState()
             R.bBoardUp = P.bBoardUp; R.BoardTime = P.BoardTime; R.BoardLength = P.BoardLength; R.BoardPath = P.BoardPath;
             FDoor& Door = Vehicles[R.BoardVehicle].Doors[R.BoardDoor];
             Door.bOpen = true; Door.bBusy = true;
+            C->bTrainStepping = true;
             auto* M = C->GetCharacterMovement();
             C->MoveIntent = FVector2D::ZeroVector; C->bJog = C->bWalk = C->bSprintHeld = false;
             M->StopMovementImmediately(); M->ClearAccumulatedForces(); M->SetMovementMode(MOVE_None);
@@ -913,6 +918,8 @@ void ABelmonteTrainService::OnRep_NetworkState()
             R.Vehicle = P.Vehicle;
             Board(R, P.bAboard);
         }
+        // The host decides who boarded through a door; stepping through one keeps the state it started with.
+        if (P.BoardDoor == INDEX_NONE) { R.bAdmitted = P.bAboard || P.Seat != INDEX_NONE; R.OutsideTime = 0.f; }
     }
     for (FRider& R : Riders)
         if (AWandererCharacter* C = R.Character.Get())
@@ -959,7 +966,8 @@ void ABelmonteTrainService::CancelLocal(FRider& Rider)
     }
     if (Rider.bAboard) Board(Rider, false);
     Rider.Vehicle = INDEX_NONE;
-    if (C) C->bTrainDriving = false;
+    Rider.bAdmitted = false; Rider.OutsideTime = 0.f;
+    if (C) C->bTrainDriving = C->bTrainStepping = false;
     UpdateCamera(Rider, false, 1.f);
 }
 
@@ -978,8 +986,9 @@ bool ABelmonteTrainService::ReplacePassenger(AWandererCharacter* From, AWanderer
     for (FRider& R : Riders)
         if (R.Character.Get() == From)
         {
-            From->bTrainAboard = From->bTrainDriving = false;
+            From->bTrainAboard = From->bTrainDriving = From->bTrainStepping = false;
             R.Character = To;
+            To->bTrainStepping = R.BoardDoor != INDEX_NONE;
             R.bTickOrdered = false;
             if (R.bAboard)
             {
@@ -1060,19 +1069,28 @@ void ABelmonteTrainService::UpdateRiders(float Dt)
         if (!C->IsPlayerControlled() || !(C->IsLocallyControlled() || C->HasAuthority())) continue;
         // The rider still stands where last frame left them, relative to where the vehicles stood last frame: find the
         // room in that frame. Hysteresis along the vehicle only (gangways); across it the platform is close outside.
-        // An unboarded bystander on a clipped hillside is never captured unless their movement base is this train.
-        const FVector Feet = C->GetActorLocation() - FVector(0, 0, Half - 5.f);
+        // Only a rider admitted by the boarding walk is captured (and kept a moment if they slip out of the rooms);
+        // anyone else inside a coach is put back outside by the host.
+        const FVector Feet = C->GetActorLocation() - FVector(0, 0, Half - 5.);
         int32 Inside = INDEX_NONE; bool bNoSprint = false, bCamera = false;
-        const UPrimitiveComponent* CurrentBase = C->GetMovementBase();
-        const bool bCanCapture = Rider.bAboard || (CurrentBase && CurrentBase->GetOwner() == this);
-        const FVector Margin(Rider.bAboard ? 40. : 5., 5., Rider.bAboard ? 30. : 5.);
-        for (int32 I = 0; bCanCapture && I < Vehicles.Num() && Inside == INDEX_NONE; ++I)
+        if (Rider.bAdmitted)
         {
-            const FVehicle& V = Vehicles[I];
-            if (FVector::DistSquared(V.Previous.GetLocation(), Feet) > FMath::Square(2500.)) continue;
-            const FVector Local = V.Previous.InverseTransformPosition(Feet);
-            for (const FInterior& Room : V.Interiors)
-                if (Room.Box.ExpandBy(Margin).IsInside(Local)) { Inside = I; bNoSprint = Room.bNoSprint; bCamera = Room.bCamera; break; }
+            Inside = InteriorAt(Feet, FVector(40., 5., 30.), bNoSprint, bCamera);
+            if (Inside != INDEX_NONE) Rider.OutsideTime = 0.f;
+            else if ((Rider.OutsideTime += Dt) < .75f && Vehicles.IsValidIndex(Rider.Vehicle)) { Inside = Rider.Vehicle; bNoSprint = C->bNoSprint; bCamera = Rider.Camera > 0.f; }
+            else Rider.bAdmitted = false;
+        }
+        else
+        {
+            Rider.EjectCooldown = FMath::Max(0.f, Rider.EjectCooldown - Dt);
+            bool bRoomSprint = false, bRoomCamera = false;
+            const int32 Intruded = InteriorAt(Feet, FVector(-5., -5., 0.), bRoomSprint, bRoomCamera);
+            if (GetNetMode() != NM_Client && C->HasAuthority() && Rider.EjectCooldown <= 0.f && !C->IsZeppelinPassenger() &&
+                BelmonteTrainRules::MustEject(Intruded != INDEX_NONE, Rider.bAdmitted, Rider.BoardDoor != INDEX_NONE, Rider.Seat != INDEX_NONE))
+            {
+                Rider.EjectCooldown = 1.f;
+                if (Eject(Rider, Intruded)) continue;
+            }
         }
         // Carried by the vehicle. Standing on its floor the character movement follows it as its base; when it does
         // not (online, a process-local train is never a network base; or a moment off the floor, jumping), the
@@ -1105,6 +1123,58 @@ void ABelmonteTrainService::UpdateRiders(float Dt)
             if (UAdventureMoveSet* Moves = C->GetMoves()) Moves->NoClimb = FMath::Max(Moves->NoClimb, .25f);
         UpdateCamera(Rider, Inside != INDEX_NONE && bCamera, Dt);
     }
+}
+
+int32 ABelmonteTrainService::InteriorAt(const FVector& Feet, const FVector& Margin, bool& bNoSprint, bool& bCamera) const
+{
+    for (int32 I = 0; I < Vehicles.Num(); ++I)
+    {
+        const FVehicle& V = Vehicles[I];
+        if (FVector::DistSquared(V.Previous.GetLocation(), Feet) > FMath::Square(2500.)) continue;
+        const FVector Local = V.Previous.InverseTransformPosition(Feet);
+        for (const FInterior& Room : V.Interiors)
+            if (Room.Box.ExpandBy(Margin).IsInside(Local)) { bNoSprint = Room.bNoSprint; bCamera = Room.bCamera; return I; }
+    }
+    return INDEX_NONE;
+}
+
+bool ABelmonteTrainService::Eject(FRider& Rider, int32 VehicleIndex)
+{
+    AWandererCharacter* C = Rider.Character.Get();
+    if (!C || !Vehicles.IsValidIndex(VehicleIndex)) return false;
+    const FVehicle& V = Vehicles[VehicleIndex];
+    const FTransform& T = V.Body->GetComponentTransform();
+    const FVector Local = T.InverseTransformPosition(C->GetActorLocation());
+    // Out on the platform side at a terminus, elsewhere on the side they are nearer; the other side when that one has
+    // no ground near the floor (a bank, a viaduct).
+    double Side = Local.Y >= 0. ? 1. : -1.;
+    if (TrainAtStation.IsValidIndex(V.Train) && TrainAtStation[V.Train])
+        for (const FDoor& Door : V.Doors)
+            if (Door.bStation && Door.bPlatformSide && Door.Handles.Num()) { Side = Door.Handles[0].Y >= 0. ? 1. : -1.; break; }
+    const double Floor = T.TransformPosition(FVector(Local.X, 0., 125.)).Z;
+    // Keep the camera's heading: the player is set down beside the coach, facing where they looked.
+    const float Yaw = C->Controller ? float(C->Controller->GetControlRotation().Yaw) : float(C->GetActorRotation().Yaw);
+    const bool bVehicle = C->OnVehicle() || (C->GetSkate() && C->GetSkate()->IsRiding());
+    for (int32 Try = 0; Try < 3; ++Try)
+    {
+        // 2.8 m from the centreline: clear of the 3.6 m body and its steps.
+        const double S = Try == 1 ? -Side : Side;
+        const FVector Out = T.TransformPosition(FVector(Local.X, S * 280., 125.));
+        double Z = Out.Z;
+        // Last resort, no ground near the floor on either side: TravelTo lands on whatever is below there.
+        const bool bGround = GroundNear(Out, Floor, 400., C, Z);
+        if (!bGround && Try < 2) continue;
+        // TravelTo puts away the skateboard, bike, horse or sailboat first, and online hands the owner a new foot
+        // activity (the same path as the map's travel).
+        if (!C->TravelTo(FVector(Out.X, Out.Y, Z), Yaw, TEXT("train: not boarded"), bGround ? 60.f : 300.f)) return false;
+        Rider.bAdmitted = false; Rider.OutsideTime = 0.f;
+        UE_LOG(LogTemp, Display, TEXT("TRAIN EJECT %s vehicle=%s side=%s on_vehicle=%d at=(%.0f,%.0f,%.0f)"), *C->GetName(), *V.Id,
+            S > 0. ? TEXT("left") : TEXT("right"), bVehicle, Out.X, Out.Y, Z);
+        const TCHAR* Msg = TEXT("On monte à pied, par une porte");
+        if (C->IsLocallyControlled()) ULiveLibrary::Say(Msg, 2.f); else C->ClientActivityRejected(Msg);
+        return true;
+    }
+    return false;
 }
 
 bool ABelmonteTrainService::Nearest(const AWandererCharacter* C, int32& VehicleIndex, int32& Index, bool& bSeat) const
@@ -1348,7 +1418,7 @@ FString ABelmonteTrainService::StateJson() const
     FString Base = Player && Player->GetMovementBase() ? Player->GetMovementBase()->GetName() : FString();
     // The player in their vehicle's frame (cm, same frame as the rest of this state): drift checks need both at once.
     const FVector Local = Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Body->GetComponentTransform().InverseTransformPosition(At) : FVector::ZeroVector;
-    return FString::Printf(TEXT("{\"time\":%.2f,\"trains\":[%s],\"player\":[%.1f,%.1f,%.1f],\"aboard\":%s,\"vehicle\":\"%s\",\"train\":%d,\"seat\":\"%s\",\"nosprint\":%s,\"base\":\"%s\",\"mode\":%d,\"action\":\"%s\",\"boarding\":%s,\"camera\":%.2f,\"arm\":%.0f,\"yaw\":%.1f,\"local\":[%.1f,%.1f,%.1f]}"),
+    return FString::Printf(TEXT("{\"time\":%.2f,\"trains\":[%s],\"player\":[%.1f,%.1f,%.1f],\"aboard\":%s,\"vehicle\":\"%s\",\"train\":%d,\"seat\":\"%s\",\"nosprint\":%s,\"base\":\"%s\",\"mode\":%d,\"action\":\"%s\",\"boarding\":%s,\"camera\":%.2f,\"arm\":%.0f,\"yaw\":%.1f,\"local\":[%.1f,%.1f,%.1f],\"admitted\":%s,\"first_person\":%s,\"on_vehicle\":%s}"),
         Time, *Trains, At.X, At.Y, At.Z, Rider && Rider->bAboard ? TEXT("true") : TEXT("false"),
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? *Vehicles[Rider->Vehicle].Id : TEXT(""),
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Train : -1,
@@ -1357,7 +1427,9 @@ FString ABelmonteTrainService::StateJson() const
         Player ? int32(Player->GetCharacterMovement()->MovementMode.GetValue()) : -1, Player ? *Player->GetAnimationAction().ToString() : TEXT(""),
         Rider && Rider->BoardDoor != INDEX_NONE ? TEXT("true") : TEXT("false"), Rider ? Rider->Camera : 0.f,
         Player && Player->CameraArm ? Player->CameraArm->TargetArmLength : 0.f, Player ? Player->GetActorRotation().Yaw : 0.f,
-        Local.X, Local.Y, Local.Z);
+        Local.X, Local.Y, Local.Z, Rider && Rider->bAdmitted ? TEXT("true") : TEXT("false"),
+        Player && Player->IsTrainFirstPerson() ? TEXT("true") : TEXT("false"),
+        Player && (Player->OnVehicle() || (Player->GetSkate() && Player->GetSkate()->IsRiding())) ? TEXT("true") : TEXT("false"));
 }
 
 FVector ABelmonteTrainService::PointOn(int32 Train, const FString& Vehicle, const FString& What) const

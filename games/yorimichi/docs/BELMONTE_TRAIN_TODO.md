@@ -57,6 +57,13 @@ Before riding, check the whole train against the playable characters, and make t
   - Riding: board at the doors in stations. Aboard, players walk in the train's own frame on each coach's floor plan
     (rooms, walls, doors and furniture from `layout.py`), with no physics at speed, so nobody can fall out or through
     a wall. Seats to sit on, coach to coach through the gangways, get off at stations.
+  - On foot only (done): the boarding walk (Monter at a station door) is the one way aboard. Aboard, seated or on
+    the steps, the skateboard, bike, horse and sailboat are refused ("Pas à bord du train"), locally and by the host.
+    Anyone found inside a coach without boarding (a vehicle through an open door, a jump, the paraglider, a dash) is
+    put back on the ground beside it, off any vehicle, by the host (`BelmonteTrainRules.h`, `ABelmonteTrainService::Eject`).
+  - First-person view aboard (done): P or the left bumper switches between third and first person, standing or
+    seated; the body is hidden from the player's own view only, and leaving the train restores third person. The
+    last choice is kept for the session.
   - No sprinting aboard: each coach exports its interior (rooms and gangways) as a no-sprint zone, and the
     game drops players to walking speed inside it.
   - Gangways are closed: invisible walls on both sides (and above) every coach-to-coach crossing, so nobody
