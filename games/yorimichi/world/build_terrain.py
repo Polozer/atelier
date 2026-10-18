@@ -184,7 +184,7 @@ def main():
     print('coastal far hills: %d vertices, %d quads'%(len(fverts),len(ffaces)),flush=True)
     from train import earthworks  # the Belmonte railway's cuttings through the far hills (RAILWAY_EARTHWORKS=0: none)
     from hidamari.mountains import contains as under_foothills
-    fverts, ffaces, _ = earthworks.polygons(fverts, ffaces, 4., hidden=under_foothills)
+    fverts, ffaces, _ = earthworks.polygons(fverts, ffaces, 4., hidden=under_foothills, conform_neighbors=True)
     hills = obj("FarHills", fverts, ffaces, far, uvs=lambda co: (co.x / 180.0, co.y / 180.0))
     coastal_colours(hills)
     rock_surface(hills)

@@ -172,3 +172,52 @@ class Built(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_conforming_neighbors_closes_large_and_small_carved_edge_gaps(monkeypatch):
+    from belmonte.source import Surface
+    class LowerTriangle:
+        def project(self,x,y):
+            y=np.asarray(y);return np.where(y<0.,0.,np.nan),np.zeros_like(y),np.zeros_like(y)
+    monkeypatch.setattr(E,'touched',lambda p,ln:np.ones(len(p),bool))
+    # Serialized failing edge dimensions/heights. Only the lower triangle is
+    # selected; the other retains its coarse edge in the historical path.
+    span=2.694580078125;end=10.822347640991211;node=10.97188949584961
+    vertices=np.array([[0.,0.,0.],[span,0.,0.],[0.,span,0.],[0.,-span,0.]])
+    faces=np.array([[0,1,2],[1,0,3]])
+    for gap in [47.12689971923828,.010911836812482534,.007896164476129286]:
+        high=3.*gap+3.*node-2.*end
+        def carve(x,y,z,ln=None):
+            return np.where(np.asarray(x)<1.e-10,high,end+(span-np.asarray(x))*(node-end)/(span/3.))
+        monkeypatch.setattr(E,'carve',carve)
+        old,of,oa,report=E.refine(vertices,faces,span/2.,{'colour':vertices[:,:1]+1.},LowerTriangle(),holes=False)
+        new,nf,na,joined=E.refine(vertices,faces,span/2.,{'colour':vertices[:,:1]+1.},LowerTriangle(),holes=False,conform_neighbors=True)
+        assert report['subdivision']==3 and report['refined']==1
+        assert 'conforming_neighbors' not in report and joined['conforming_neighbors']==1
+        # Existing vertices and every selected triangle stay exactly unchanged.
+        np.testing.assert_array_equal(new[:len(old)],old)
+        np.testing.assert_array_equal(nf[-9:],of[-9:])
+        np.testing.assert_array_equal(na['colour'][:len(oa['colour'])],oa['colour'])
+        selected=Surface(old[of[-9:]])
+        x=np.linspace(.01,span-.01,61);y=np.zeros_like(x)
+        old_coarse=Surface(old[of[:1]])
+        assert abs(float(old_coarse.height(2.*span/3.,0.))-float(selected.height(2.*span/3.,0.))-gap)<1.e-9
+        repaired=Surface(new[nf[:-9]])
+        np.testing.assert_allclose(repaired.height(x,y),selected.height(x,y),atol=1.e-9)
+        triangles=new[nf];area=np.cross(triangles[:,1]-triangles[:,0],triangles[:,2]-triangles[:,0])[:,2]
+        assert (area>1.e-10).all()
+
+
+def test_conforming_neighbor_ownership_rejects_nearby_distinct_endpoints():
+    # Candidate coordinate bins never authorize joining two different surfaces.
+    v=np.array([[0.,0.,0.],[3.,0.,0.],[0.,3.,0.],[0.,-3.,0.],[4.e-8,0.,0.]])
+    index={(i,j):k for k,(i,j) in enumerate(( (i,j) for i in range(4) for j in range(4-i) ))}
+    # An explicit selected chain with an endpoint from a distinct height layer.
+    allv=np.r_[v,[[2.,0.,0.],[1.,0.,0.],[0.,-1.,0.],[0.,-2.,0.]]]
+    ids=np.zeros((1,10),int);ids[0,index[0,0]]=0;ids[0,index[3,0]]=1;ids[0,index[0,3]]=3
+    ids[0,index[1,0]]=6;ids[0,index[2,0]]=5
+    # Direct ownership disagreement must fail rather than silently choose a side.
+    shifted=allv.copy();shifted[0,2]=.01
+    import pytest
+    with pytest.raises(ValueError,match='endpoints'):
+        E._conform_neighbors(v,np.array([[4,1,2]]),np.array([[0,1,3]]),ids,index,3,shifted)
