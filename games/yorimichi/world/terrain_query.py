@@ -94,15 +94,26 @@ class Surface:
             lo, hi = self.bounds
             rows = np.flatnonzero(np.all((points >= lo) & (points <= hi), axis=1))
             if len(rows):
-                cells = np.floor(points[rows]/self.cell).astype(np.int64)
-                keys, inverse, counts = np.unique(cells, axis=0, return_inverse=True, return_counts=True)
-                order = np.argsort(inverse, kind='stable')
-                offsets = np.r_[0, np.cumsum(counts)]
-                for group, key in enumerate(keys):
-                    faces = self.bins.get(tuple(key))
+                cells = np.floor(points[rows]/self.cell)
+                if np.all((cells >= -(1 << 63)) & (cells < (1 << 63))):
+                    keys, inverse, counts = np.unique(cells.astype(np.int64), axis=0,
+                                                     return_inverse=True, return_counts=True)
+                    order = np.argsort(inverse, kind='stable')
+                    offsets = np.r_[0, np.cumsum(counts)]
+                    cell_groups = ((tuple(key), rows[order[offsets[g]:offsets[g+1]]])
+                                   for g, key in enumerate(keys))
+                else:
+                    # Construction uses Python integer keys. Keep those exact
+                    # keys for distant finite coordinates rather than wrapping
+                    # their cell IDs through a narrower NumPy integer type.
+                    distant = {}
+                    for row, cell in zip(rows, cells):
+                        distant.setdefault(tuple(int(value) for value in cell), []).append(row)
+                    cell_groups = ((key, np.asarray(ids, dtype=np.int64)) for key, ids in distant.items())
+                for key, selected in cell_groups:
+                    faces = self.bins.get(key)
                     if faces is None:
                         continue
-                    selected = rows[order[offsets[group]:offsets[group+1]]]
                     a, b, c = np.moveaxis(self.triangles[faces], 1, 0)
                     den = (b[:, 1]-c[:, 1])*(a[:, 0]-c[:, 0]) + (c[:, 0]-b[:, 0])*(a[:, 1]-c[:, 1])
                     chunk = max(1, self.MAX_PAIRS//len(faces))

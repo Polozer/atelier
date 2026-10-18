@@ -105,3 +105,12 @@ def test_finite_large_triangle_still_has_a_unit_normal():
     index = surface([[0, 0, 0], [1e150, 0, 0], [0, 1e150, 0]], [[0, 1, 2]], cell=1e151)
     result = index.upper(1e149, 1e149)
     np.testing.assert_array_equal(result.normal, [0, 0, 1])
+
+
+@pytest.mark.parametrize('origin', [1e20, -1e20])
+def test_covered_queries_with_cell_ids_beyond_int64(origin):
+    index = surface([[origin, 0, 0], [origin+32768, 0, 0], [origin, 1, 0]], [[0, 1, 2]], cell=8.)
+    result = index.upper([origin, origin+16384], [.25, .25])
+    np.testing.assert_array_equal(result.covered, [True, True])
+    np.testing.assert_array_equal(result.face_ids, [0, 0])
+    np.testing.assert_array_equal(result.height, [0, 0])
