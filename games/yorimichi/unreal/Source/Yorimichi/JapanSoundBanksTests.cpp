@@ -21,8 +21,19 @@ bool FJapanSoundBankSelectionTest::RunTest(const FString&)
     TestFalse(TEXT("Fresh Original starts no asynchronous load"),Banks->Loading.IsValid());
     TestNull(TEXT("Fresh Original retains delegation"),Banks->Active.Get());
     TestNull(TEXT("Fresh Original does not load its audition"),Banks->PreviewWave.Get());
-    FJapanSoundChoice Original;
-    Original.Id=TEXT("original"); Original.Label=TEXT("Original");
+    if(!Banks->ReadRegistry())
+    { AddError(TEXT("Selection acceptance requires the normal staged native registry.")); World->DestroyWorld(false); return false; }
+    const FJapanSoundChoice Original=Banks->Choices[0];
+    TestTrue(TEXT("Unchanged current staged identity matches"),Banks->MatchesRegistry(Banks->RegistrySnapshot));
+    TestFalse(TEXT("Missing registry cannot match cached identity"),Banks->MatchesRegistry(FString()));
+    TestFalse(TEXT("Changed or removed bank entry cannot match cached identity"),Banks->MatchesRegistry(TEXT("{\"banks\":[]}")));
+    const FString Snapshot=Banks->RegistrySnapshot;
+    Banks->RegistrySnapshot=TEXT("obsolete registry captured before load");
+    bool StaleSave=false;
+    TestFalse(TEXT("Actual commit re-reads staged identity before mutation"),Banks->Commit(Original,nullptr,[&](int32){StaleSave=true;return true;}));
+    TestFalse(TEXT("Stale captured registry cannot reach persistence"),StaleSave);
+    TestNull(TEXT("Stale identity leaves Original active"),Banks->Active.Get());
+    Banks->RegistrySnapshot=Snapshot;
     Banks->Audition=NewObject<UAudioComponent>(Banks);
     const uint64 FailedPreviewToken=Banks->PreviewGeneration;
     bool Saved=false;
@@ -101,6 +112,13 @@ bool FJapanSoundBankCompletionTest::RunTest(const FString&)
         if(FPlatformTime::Seconds()>Deadline)
         { AddError(TEXT("Actual async bank completion exceeded15s.")); Clean(); return true; }
         if(Banks->Loading) return false;
+        if(*Stage==2)
+        {
+            TestEqual(TEXT("Changed staged identity refuses actual async activation"),Banks->Selection(),0);
+            TestNull(TEXT("Changed staged identity preserves Original references"),Banks->Active.Get());
+            TestTrue(TEXT("Changed identity reports a restart requirement"),Banks->LastError.Contains(TEXT("registry changed")));
+            Clean(); return true;
+        }
         TestEqual(TEXT("Actual async selection installed Dry Street"),Banks->Active.Get(),KeepBank->Get());
         TestNotNull(TEXT("Fixture retains Original preview across deferred collection"),KeepPreview->Get());
         TestFalse(TEXT("Old pending/player preview cannot survive completion"),Banks->IsPreviewing());
@@ -118,7 +136,10 @@ bool FJapanSoundBankCompletionTest::RunTest(const FString&)
             return false;
         }
         TestNull(TEXT("Successful async commit releases the old player's wave"),Banks->PreviewWave.Get());
-        Clean(); return true;
+        *Stage=2;
+        Banks->Select(0); Banks->Select(2);
+        Banks->RegistrySnapshot=TEXT("captured registry superseded during async load");
+        return false;
     }));
     return true;
 }

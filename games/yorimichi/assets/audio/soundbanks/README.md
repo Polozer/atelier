@@ -97,5 +97,8 @@ The explicit 16-second menu preview uses one owned nonspatial player. Changing t
 selection, closing or changing menu pages, backgrounding and world teardown stop
 both the player and any pending preview load. Selection and preview each have a
 generation token so an obsolete completion cannot take over the current session.
+Selection commits, preview completions and late emitters re-read the bounded staged
+registry and require its exact admitted snapshot; a change or removal refuses the
+new activation and asks for a restart. Cached entries are not activation authority.
 These are source guarantees pending native/menu/host-guest/package acceptance;
 the selector must not be advertised as delivered before that evidence exists.

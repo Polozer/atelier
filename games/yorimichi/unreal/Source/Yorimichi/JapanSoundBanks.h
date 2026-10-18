@@ -42,6 +42,8 @@ private:
     friend class FJapanSoundBankSelectionTest;
     friend class FJapanSoundBankCompletionTest;
     bool ReadRegistry();
+    bool RegistryCurrent(FString& Error) const;
+    bool MatchesRegistry(const FString& Current) const;
     bool Validate(const FJapanSoundChoice& Choice, UJapanSoundBank* Bank, FString& Error) const;
     bool Commit(const FJapanSoundChoice& Choice, UJapanSoundBank* Bank, const TFunction<bool(int32)>& Persist);
     void FootReady(UJapanFootstepComponent* Component);
@@ -54,6 +56,7 @@ private:
     uint64 Generation = 0, PreviewGeneration = 0;
     int32 ActiveSelection = 0, RequestedSelection = 0;
     FString LastError;
+    FString RegistrySnapshot;
     TSharedPtr<FStreamableHandle> Loading, PreviewLoading;
     FDelegateHandle FootHandle, SkateHandle, BackgroundHandle, DeactivateHandle;
     FTSTicker::FDelegateHandle SelectionTimeout, PreviewTimeout;

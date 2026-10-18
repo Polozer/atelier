@@ -110,7 +110,23 @@ bool UJapanSoundBanks::ReadRegistry()
         Used.Add(Choice.Selection); Next.Add(MoveTemp(Choice));
     }
     if(!Used.Contains(0)) { LastError=TEXT("Original is required in the soundbank registry."); return false; }
-    Choices=MoveTemp(Next); bRegistryLoaded=true;
+    Choices=MoveTemp(Next); RegistrySnapshot=MoveTemp(Text); bRegistryLoaded=true;
+    return true;
+}
+bool UJapanSoundBanks::MatchesRegistry(const FString& Current) const
+{
+    return bRegistryLoaded && !RegistrySnapshot.IsEmpty() && Current==RegistrySnapshot;
+}
+bool UJapanSoundBanks::RegistryCurrent(FString& Error) const
+{
+    const FString File=AtelierDataPath(TEXT("Soundbanks/registry.json"));
+    const int64 Size=IFileManager::Get().FileSize(*File);
+    FString Current;
+    if(Size<=0 || Size>1024*1024 || !FFileHelper::LoadFileToString(Current,*File) || !MatchesRegistry(Current))
+    {
+        Error=TEXT("The installed soundbank registry changed or is unavailable. Restart before selecting another bank.");
+        return false;
+    }
     return true;
 }
 FString UJapanSoundBanks::Label()
@@ -216,6 +232,10 @@ bool UJapanSoundBanks::Validate(const FJapanSoundChoice& Choice,UJapanSoundBank*
 bool UJapanSoundBanks::Commit(const FJapanSoundChoice& Choice,UJapanSoundBank* Bank,const TFunction<bool(int32)>& Persist)
 {
     if(!IsInGameThread() || bShuttingDown || !GetWorld() || GetWorld()->GetNetMode()==NM_DedicatedServer) return false;
+    // The captured choice was admitted against this exact snapshot. A restage,
+    // removal or failed read during async loading must refuse before saving or
+    // touching emitters; stale cached metadata is never activation authority.
+    if(!RegistryCurrent(LastError)) return false;
     if(!Validate(Choice,Bank,LastError)) return false;
     auto Feet=Ready<UJapanFootstepComponent>(GetWorld());
     auto Skates=Ready<USkateComponent>(GetWorld());
@@ -243,12 +263,12 @@ bool UJapanSoundBanks::Commit(const FJapanSoundChoice& Choice,UJapanSoundBank* B
 void UJapanSoundBanks::FootReady(UJapanFootstepComponent* Component)
 {
     if(!bShuttingDown && Active && IsValid(Component) && Component->GetWorld()==GetWorld())
-        if(!Component->SetSoundBank(Active,LastError)) UE_LOG(LogTemp,Error,TEXT("Soundbank new foot emitter: %s"),*LastError);
+        if(!RegistryCurrent(LastError) || !Component->SetSoundBank(Active,LastError)) UE_LOG(LogTemp,Error,TEXT("Soundbank new foot emitter: %s"),*LastError);
 }
 void UJapanSoundBanks::SkateReady(USkateComponent* Component)
 {
     if(!bShuttingDown && Active && IsValid(Component) && Component->GetWorld()==GetWorld())
-        if(!Component->SetSoundSet(Cast<USkateSoundSet>(Active->Skate),LastError)) UE_LOG(LogTemp,Error,TEXT("Soundbank new skate emitter: %s"),*LastError);
+        if(!RegistryCurrent(LastError) || !Component->SetSoundSet(Cast<USkateSoundSet>(Active->Skate),LastError)) UE_LOG(LogTemp,Error,TEXT("Soundbank new skate emitter: %s"),*LastError);
 }
 void UJapanSoundBanks::StopPreview()
 {
@@ -283,6 +303,7 @@ void UJapanSoundBanks::PreviewLoaded(uint64 Token,const FJapanSoundChoice& Choic
 {
     if(bShuttingDown || PreviewGeneration!=Token) return;
     FTSTicker::RemoveTicker(PreviewTimeout); PreviewTimeout.Reset();
+    if(!RegistryCurrent(LastError)) { PreviewLoading.Reset(); return; }
     auto* Sound=Cast<USoundWave>(FSoftObjectPath(Choice.Audition).ResolveObject());
     if(!Wave(Sound,false,15.999f,16.001f) || Sound->GetPathName()!=Choice.Audition)
     { LastError=TEXT("The soundbank preview is unavailable."); PreviewLoading.Reset(); return; }
