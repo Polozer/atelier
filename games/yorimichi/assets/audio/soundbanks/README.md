@@ -14,7 +14,7 @@ Unreal consumers must declare the `audio.soundbanks` product as an actual read.
 Each generated entry names `<bank-id>/bank.json` with its SHA-256. That manifest
 must provide all seven existing footstep pools, all eight skate surface rolls and
 landings, and powerslide friction. Other families explicitly inherit Original,
-including horse hoof stand-ins, bikes, combat, ambience/voices and other skate
+including horse hoof stand-ins, bikes, combat, ambience/voices, UI and other skate
 cues. A source cannot be silently reused for another material or cue.
 
 Each source is `samples/<source-id>.wav`, canonical mono 48 kHz PCM16, with its

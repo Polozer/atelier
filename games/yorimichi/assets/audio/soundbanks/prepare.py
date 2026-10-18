@@ -28,9 +28,9 @@ CUES = {**{f'footstep.{s}': (False, 4, 12) for s in FOOT_SURFACES},
         **{f'skate.roll.{s}': (True, 1, 2) for s in SKATE_SURFACES},
         **{f'skate.land.{s}': (False, 2, 4) for s in SKATE_SURFACES},
         'skate.skid': (True, 1, 2)}
-INHERITED = ('horse.hoof', 'bike.*', 'combat.*', 'ambience.*', 'voice.*',
+INHERITED = ('horse.hoof', 'bike.*', 'combat.*', 'ambience.*', 'voice.*', 'ui.*',
              'skate.pop', 'skate.pop.*', 'skate.catch', 'skate.push', 'skate.flick',
-             'skate.clatter', 'skate.fall', 'skate.grind', 'skate.slide', 'skate.scrape')
+             'skate.clatter', 'skate.fall', 'skate.grind', 'skate.grind.*', 'skate.slide', 'skate.scrape')
 
 
 def digest(path):

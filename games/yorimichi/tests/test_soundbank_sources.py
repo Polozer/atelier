@@ -1,10 +1,12 @@
 """Soundbank coverage, committed source admission and failed-publication safety."""
 import ast
+import fnmatch
 import importlib.util
 import io
 import json
 from pathlib import Path
 import re
+import tomllib
 import wave
 
 import numpy as np
@@ -88,6 +90,14 @@ def test_coverage_tracks_actual_legacy_materials_and_skate_surface_slots():
     source = root / 'platform/engine/Plugins/Activities/Skate/Source/AtelierSkate/Private/SkateComponent.cpp'
     slots = re.search(r'USkateComponent::SurfaceRolls = \{([^}]+)\}', source.read_text()).group(1)
     assert banks.SKATE_SURFACES == ('concrete', *re.findall(r'TEXT\("([a-z]+)"\)', slots))
+
+
+def test_all_other_platform_cue_families_explicitly_inherit_original():
+    declared = tomllib.loads((GAME.parents[1] / 'platform/conventions/sound-cues.toml').read_text())
+    replaced = {'footstep.<surface>', 'skate.roll.<surface>', 'skate.land'}
+    for cue in declared.keys() - replaced:
+        example = re.sub(r'<[^>]+>', 'reference', cue)
+        assert any(fnmatch.fnmatchcase(example, pattern) for pattern in banks.INHERITED), cue
 
 
 @pytest.mark.parametrize('damage', ['default', 'selection', 'inherit', 'coverage', 'alias', 'byte_alias', 'interval', 'checksum'])
