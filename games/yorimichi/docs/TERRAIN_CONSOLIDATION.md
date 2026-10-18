@@ -187,3 +187,22 @@ All eight existing paintings, coast masks and original generation records are
 preserved; the new helper is included in map inputs and geography signatures.
 This attestation covers source and array equivalence. Export and imported
 native parity remain separate validation steps.
+
+The city-ground publication increment adds `terrain.HD_Terrain.natural`, `.final`
+and `.provenance` to the same normal city build. Its existing emitter keeps one
+coarse-grid railway carve. A paired Mesh records the original coarse heights in
+the same cell traversal; final emission, palette/colour updates and export keep
+their order. Existing fine terrace patches and inset paving still evaluate their
+independent heights, with paving's existing lift, in both stages. Natural here
+means before this local coarse-grid carve, not before all upstream world shaping.
+Both geometry products retain duplicated corners and explicit polygon order;
+appearance attributes continue through the original final Mesh, not the products.
+
+This owner includes the ground and paving already in `HD_Terrain`. Streets,
+squares, arrival ribbons, park grounds, mountain sheets and water are separate
+owners. No placement/query consumer is migrated yet, and shared borders are not
+inferred. Existing Blender packing and export/import triangulation must be
+compared against the ordered product before it becomes a query authority. Full
+production arrays/attributes, exported payloads, atlas source equivalence and
+imported support remain required proofs; bounded callback fixtures alone do not
+establish them. No new performance or invalidation benefit is claimed here.

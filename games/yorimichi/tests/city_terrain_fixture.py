@@ -49,7 +49,7 @@ class RecordingMesh:
         self.keys.append(key)
 
 
-def evaluate(case, *, source=None):
+def evaluate(case, *, source=None, capture_natural=False):
     """Run the current emitter with explicit nonlinear height and carved grid."""
     path = SOURCE if source is None else Path(source)
     tree = ast.parse(path.read_text(), filename=str(path))
@@ -93,7 +93,12 @@ def evaluate(case, *, source=None):
                  layout=SimpleNamespace(ISLAND_FADE=24., ISLAND_LAWN=(.19, .23, .08), island_fade=fade),
                  shorelines=SimpleNamespace(colours=colours), v=SimpleNamespace(PALETTE=PALETTE))
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(path), 'exec'), scope)
+    natural = RecordingMesh('HD_Terrain') if capture_natural else None
     with patch.object(earthworks, 'carve', carve):
-        mesh = scope['surface']('Other' if case == 'other_surface' else 'HD_Terrain', xs, ys, 'paving')
-    return dict(vertices=mesh.vertices, faces=mesh.faces, colours=mesh.colors, keys=mesh.keys,
-                calls=calls, axes_unchanged=np.array_equal(xs, before[0]) and np.array_equal(ys, before[1]))
+        mesh = scope['surface']('Other' if case == 'other_surface' else 'HD_Terrain', xs, ys, 'paving',
+                                **({'_natural': natural} if capture_natural else {}))
+    result = dict(vertices=mesh.vertices, faces=mesh.faces, colours=mesh.colors, keys=mesh.keys,
+                  calls=calls, axes_unchanged=np.array_equal(xs, before[0]) and np.array_equal(ys, before[1]))
+    if capture_natural:
+        result['natural'] = dict(vertices=natural.vertices, faces=natural.faces)
+    return result

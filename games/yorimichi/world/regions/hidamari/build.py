@@ -223,9 +223,10 @@ def land_use(x,y):
     if min(abs(y-c) for c in ROAD_Y)<10 or min(abs(x-c)-layout.road_width(x=c)[0] for c in ROAD_X)<2:return 'hd_walk'
     return 'hd_yard'
 
-def surface(name,xs,ys,color):
+def surface(name,xs,ys,color,*,_natural=None):
     m=M(name)
     gx,gy=np.meshgrid(xs,ys);gz=height(gx,gy)
+    natural_z=gz.copy() if _natural is not None else None
     if name=='HD_Terrain':
         from train import earthworks
         from zeppelin.layout import city_pad
@@ -233,6 +234,9 @@ def surface(name,xs,ys,color):
         # Keep the bounded air-station apron at its authored level after the
         # railway's broader bank blend. city_pad excludes the track and roads.
         gz=city_pad(gx,gy,gz)
+    def emit(points,key,original=None):
+        m.poly(points,key)
+        if _natural is not None:_natural.poly(points if original is None else original,key)
     for j,y in enumerate(ys[:-1]):
         for i,x in enumerate(xs[:-1]):
             dx=xs[i+1]-x;dy=ys[j+1]-y
@@ -245,9 +249,10 @@ def surface(name,xs,ys,color):
                 sx=np.linspace(x,x+dx,max(2,math.ceil(dx/.5)+1));sy=np.linspace(y,y+dy,max(2,math.ceil(dy/.5)+1))
                 xx,yy=np.meshgrid(sx,sy);zz=height(xx,yy)
                 for jj in range(len(sy)-1):
-                    for ii in range(len(sx)-1):m.poly([(float(xx[b,a]),float(yy[b,a]),float(zz[b,a])) for a,b in [(ii,jj),(ii+1,jj),(ii+1,jj+1),(ii,jj+1)]],key)
+                    for ii in range(len(sx)-1):emit([(float(xx[b,a]),float(yy[b,a]),float(zz[b,a])) for a,b in [(ii,jj),(ii+1,jj),(ii+1,jj+1),(ii,jj+1)]],key)
             else:
-                faces=len(m.faces);m.poly(pts,key)
+                original=None if natural_z is None else [(float(gx[jj,ii]),float(gy[jj,ii]),float(natural_z[jj,ii])) for ii,jj in [(i,j),(i+1,j),(i+1,j+1),(i,j+1)]]
+                faces=len(m.faces);emit(pts,key,original)
                 if name=='HD_Terrain' and y < -125 and len(m.faces)>faces:
                     n=len(m.faces[-1]);p=np.asarray(m.vertices[-n:]);normal=np.cross(p[1]-p[0],p[-1]-p[0])
                     nz=normal[2]/max(np.linalg.norm(normal),1e-9)
@@ -273,8 +278,20 @@ def surface(name,xs,ys,color):
                 gx,gy=np.meshgrid(px,py)
                 if np.max(abs(height(gx,gy)-street_height(gx,gy)))>.01:continue
                 points=[(xx,yy,float(height(xx,yy))+.013) for xx,yy in [(x,y),(x+5.92,y),(x+5.92,y+5.92),(x,y+5.92)]]
-                m.poly(points,'hd_flag' if int(x+y)%3 else 'hd_flag2')
+                emit(points,'hd_flag' if int(x+y)%3 else 'hd_flag2')
     return m
+
+def city_terrain_surfaces():
+    """@cc [owner:fontanierh,label:correctness] city-terrain-stage-order
+    Capture natural geometry immediately before this owner's local coarse-grid
+    railway carve, alongside the unchanged final emitter. Existing fine patches
+    and paving MUST keep their independent uncarved height evaluations in both
+    stages. Do not regenerate the final surface, change callbacks/face order,
+    infer pristine global ground, or change final colours/palette ownership.
+    """
+    natural=M('HD_Terrain')
+    final=surface('HD_Terrain',*terrain_axes(),'paving',_natural=natural)
+    return natural,final
 
 def streets(city):
     m=M('HD_Streets')
@@ -410,6 +427,7 @@ def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     mat=bpy.data.materials.new('HidamariPalette');mat.use_nodes=True
     vc=mat.node_tree.nodes.new('ShaderNodeVertexColor');vc.layer_name='Color';mat.node_tree.links.new(vc.outputs['Color'],mat.node_tree.nodes['Principled BSDF'].inputs['Base Color'])
+    from city_terrain_surface import generate as city_ground
     builders={f'HD_Shop_{i:02d}':(lambda i=i:shop(i)) for i in range(16)}
     builders.update({
         'HD_ClockHall':lambda:plaza_kit.clock_hall(lettering,height),
@@ -417,7 +435,7 @@ def main():
         'HD_Temple':temple,'HD_Shrine':shrine,'HD_Arcade':arcade,'HD_Playground':playground,
         'HD_Pavilion':pavilion,'HD_Market':lambda:pavilion('HD_Market',38,7),
         'HD_Boat':boat,'HD_Lighthouse':lighthouse,
-        'HD_Terrain':lambda:surface('HD_Terrain',*terrain_axes(),'paving'),
+        'HD_Terrain':lambda:city_ground(city_terrain_surfaces,yori.OUT/'terrain/HD_Terrain'),
         'HD_CivicGardens':lambda:civic_gardens.build(height,city,lettering),
         'HD_Streets':lambda:streets(city),'HD_Harbor':harbor,'HD_Park':park,'HD_Square':square,'HD_InlandWater':inland_water,
     })

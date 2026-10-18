@@ -90,6 +90,8 @@ def test_world_selector_includes_native_references_without_reading_their_bytes(t
     expected['audio.soundbank_import_plan'] = 'audio.soundbank_import_plan'
     expected['soundbanks.native'] = 'unreal.soundbanks'
     expected['soundbanks.staged'] = 'data.soundbanks'
+    expected.update({f'terrain.HD_Terrain.{stage}': 'world.hidamari'
+                     for stage in ('natural', 'final', 'provenance')})
     assert graph.owners == expected
     assert all(not graph.by_name[owner].cache for product, owner in expected.items()
                if not product.startswith('texture.'))
