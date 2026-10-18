@@ -95,6 +95,9 @@ public:
     virtual void BeginPlay() override;
     virtual void Tick(float Dt) override;
     virtual void SetupInputComponent() override;
+    virtual void UpdateHiddenComponents(const FVector& ViewLocation, TSet<FPrimitiveComponentId>& Hidden) override;
+    /** Local session preference, retained across pawn switches and never replicated. */
+    bool bPreferTrainFirstPerson = false;
     UFUNCTION(Server, Reliable) void ServerWorldReady(const FString& Identity, const FString& RiderName, bool bShield);
     UFUNCTION(Client, Reliable) void ClientAdmissionFailure(const FString& Reason);
     UFUNCTION(Client, Reliable) void ClientSessionReady();

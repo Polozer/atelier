@@ -235,6 +235,11 @@ void AJapanHUD::DrawHUD()
     }
     const USkateComponent* Ride=Pawn->GetSkate();
     const bool bRide=Ride && Ride->IsRiding();
+    if (Pawn->IsTrainPassenger())
+    {
+        const TCHAR* View=Pawn->IsTrainFirstPerson()?TEXT("vue à la troisième personne"):TEXT("vue à la première personne");
+        Secondary += bController ? FString::Printf(TEXT("   %s %s"),Pad.LeftBumper,View) : FString::Printf(TEXT("   P %s"),View);
+    }
     if (!bRide && !bSailboat && !Pawn->IsZeppelinPassenger() && Ride && Ride->IsAvailable())
         Secondary += bController ? FString::Printf(TEXT("   %s skateboard"),Pad.Skate) : TEXT("   B skateboard");
     if(bRide)

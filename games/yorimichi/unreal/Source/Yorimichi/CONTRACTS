@@ -50,3 +50,12 @@ Online player map targets MUST use session player identity, follow the current p
 when that player leaves. Travel MUST resolve the identity on the host at request time and retain epoch,
 encounter, pending-contact and rate admission. A destination MUST have walkable ground and standing
 capsule clearance; the chosen floor MUST NOT be replaced by an overhead bridge or roof.
+
+@cc [owner:fontanierh,label:correctness] train-passenger-camera
+The train first-person view MUST be local to the viewing player and available only to
+standing or seated passengers, never during the boarding walk. Its preference MUST belong
+to the local controller and survive pawn replacement without affecting another player.
+Body and attached equipment hiding MUST affect only that player's current view, preserve
+existing component visibility/ownership, and include attachments added while viewing.
+Leaving or losing possession MUST release the train camera; map/menu input MUST NOT toggle
+it, and its controller bumper MUST NOT also operate a nearby zeppelin.

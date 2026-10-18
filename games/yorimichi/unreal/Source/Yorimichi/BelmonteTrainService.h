@@ -118,6 +118,7 @@ public:
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     static bool CanInteract(const AWandererCharacter* Character);
     static bool IsDrivingRider(const AWandererCharacter* Character);
+    static bool IsBoardingRider(const AWandererCharacter* Character);
     void Cancel(AWandererCharacter* Character);
     bool ReplacePassenger(AWandererCharacter* From, AWandererCharacter* To);
     double ServiceTime() const;

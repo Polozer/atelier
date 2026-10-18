@@ -216,6 +216,7 @@ void AWandererCharacter::OnRep_NetworkLoadout()
 void AWandererCharacter::PawnClientRestart()
 {
     Super::PawnClientRestart();
+    TrainView = FTrainPassengerView();
     InitializeLocalPlayer();
     if (NetworkActivity.bCharacterReplacement)
     {
@@ -224,6 +225,11 @@ void AWandererCharacter::PawnClientRestart()
         AppliedActivityEpoch = 0;
         ReadyTime = 2.f;
     }
+}
+void AWandererCharacter::UnPossessed()
+{
+    TrainView = FTrainPassengerView();
+    Super::UnPossessed();
 }
 void AWandererCharacter::InitializeLocalPlayer()
 {
@@ -484,6 +490,8 @@ void AWandererCharacter::BuildInput()
     Key(Axis(TEXT("SkateboardHand"),EInputActionValueType::Boolean),EKeys::G);
     Key(Inputs[TEXT("SkateboardHand")],EKeys::Gamepad_DPad_Right);
     Key(Inputs[TEXT("FlightSlower")],EKeys::Gamepad_LeftShoulder);
+    Key(Axis(TEXT("TrainView"),EInputActionValueType::Boolean),EKeys::P);
+    Key(Inputs[TEXT("TrainView")],EKeys::Gamepad_LeftShoulder);
     Key(Inputs[TEXT("FlightFaster")],EKeys::Gamepad_RightShoulder);
     if (APlayerController* PC = Cast<APlayerController>(Controller))
         if (ULocalPlayer* LP = PC->GetLocalPlayer())
@@ -536,6 +544,7 @@ void AWandererCharacter::SetupPlayerInputComponent(UInputComponent* Input)
             { if (bReady && !bMenuOpen && !bCinematic && Map) Map->OpenMarkerBar(); }));
         });
         E->BindAction(Inputs[TEXT("SkateboardHand")],ETriggerEvent::Started,this,&AWandererCharacter::SkateboardHand);
+        E->BindAction(Inputs[TEXT("TrainView")],ETriggerEvent::Started,this,&AWandererCharacter::ToggleTrainView);
         E->BindAction(Inputs[TEXT("SkateboardPad")],ETriggerEvent::Triggered,this,&AWandererCharacter::ToggleSkateboard);
         E->BindAction(Inputs[TEXT("BikePad")],ETriggerEvent::Triggered,this,&AWandererCharacter::ToggleBike);
         E->BindAction(Inputs[TEXT("HorsePad")],ETriggerEvent::Triggered,this,&AWandererCharacter::HorsePad);
@@ -992,6 +1001,7 @@ void AWandererCharacter::FlightFaster(const FInputActionValue&) { ZeppelinStep(1
 // Aboard, the two flight buttons change the ride's speed; at a docked ship they choose its next stop.
 void AWandererCharacter::ZeppelinStep(int32 Direction)
 {
+    if (bTrainAboard || bTrainDriving) return;
     if (JapanNetwork::IsOnline(GetWorld()))
     {
         auto* Ship = GetZeppelin();
@@ -1638,6 +1648,22 @@ void AWandererCharacter::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
         OutResult.Rotation=FQuat::Slerp(OutResult.Rotation.Quaternion(),BoardCamera.Rotation.Quaternion(),A).Rotator();
         OutResult.FOV=FMath::Lerp(OutResult.FOV,BoardCamera.FOV,A);
     }
+    if (auto* PC = Cast<AJapanPlayerController>(Controller); PC && IsLocallyControlled())
+    {
+        TrainView.Update(IsTrainPassenger() && !bFixedView, PC->bPreferTrainFirstPerson, DeltaTime);
+        TrainView.Apply(*this, DeltaTime, OutResult);
+    }
+}
+
+bool AWandererCharacter::IsTrainPassenger() const
+{
+    return bTrainAboard && !ABelmonteTrainService::IsBoardingRider(this);
+}
+
+void AWandererCharacter::ToggleTrainView(const FInputActionValue&)
+{
+    if (!bReady || IsSkateInputBlocked() || !IsLocallyControlled() || bFixedView) return;
+    if (auto* PC = Cast<AJapanPlayerController>(Controller)) TrainView.Toggle(IsTrainPassenger(), PC->bPreferTrainFirstPerson);
 }
 
 void AWandererCharacter::SampleShake(FVector& Offset,FRotator& Rotation) const
