@@ -10,6 +10,8 @@ try {
   /* Private browsing may disable storage. */
 }
 let manifest;
+let page = 0;
+const pageSize = 12;
 const loopChoices = new Map();
 const el = (tag, text, cls) => {
   const node = document.createElement(tag);
@@ -21,12 +23,18 @@ function render() {
   if (!manifest) return;
   const query = $("search").value.toLowerCase();
   const category = $("category").value;
-  const clips = manifest.clips.filter(
+  const matching = manifest.clips.filter(
     (c) =>
       (!category || c.category === category) &&
       (!$("favourites").checked || saved.has(c.id)) &&
       `${c.label} ${c.category} ${c.prompt}`.toLowerCase().includes(query),
   );
+  const pages = Math.max(1, Math.ceil(matching.length / pageSize));
+  page = Math.min(page, pages - 1);
+  const clips = matching.slice(page * pageSize, (page + 1) * pageSize);
+  $("previous-page").disabled = page === 0;
+  $("next-page").disabled = page + 1 >= pages;
+  $("page-number").textContent = `${page + 1} / ${pages}`;
   const root = $("library");
   root.replaceChildren();
   for (const name of [...new Set(clips.map((c) => c.category))]) {
@@ -91,7 +99,6 @@ function render() {
         audio.loop = loop.checked;
         audio.setAttribute("aria-label", `${clip.label}, take ${clip.take}`);
         audio.onplay = () => {
-          document.dispatchEvent(new Event("audition-stop"));
           document.querySelectorAll("audio").forEach((other) => {
             if (other !== audio) other.pause();
           });
@@ -109,16 +116,6 @@ function render() {
           download,
         );
         card.append(bottom);
-        if (clip.cue && /^(footstep|skate\.roll)\./.test(clip.cue)) {
-          const audition = el("button", "Preview in motion", "clip-audition");
-          audition.onclick = () =>
-            document.dispatchEvent(
-              new CustomEvent("audition-select", {
-                detail: { id: clip.id, file: clip.file },
-              }),
-            );
-          card.append(audition);
-        }
       } else
         card.append(
           el(
@@ -154,17 +151,35 @@ function render() {
     group.append(grid);
     root.append(group);
   }
-  $("count").textContent = `${clips.length} shown · ${saved.size} favourites`;
-  $("empty").hidden = clips.length !== 0;
+  $("count").textContent =
+    `${matching.length} matching · ${saved.size} favourites`;
+  $("empty").hidden = matching.length !== 0;
   const ready = manifest.clips.filter((c) => c.status === "ready").length;
   $("progress").textContent =
     `${ready} / ${manifest.clips.length} takes ready${ready === manifest.clips.length ? " · Library complete" : " · Updates automatically"}`;
 }
-for (const id of ["search", "category", "favourites"])
-  $(id).addEventListener("input", render);
-$("bank").onchange = () => {
-  document.dispatchEvent(new Event("audition-stop"));
+function pauseAll() {
   document.querySelectorAll("audio").forEach((a) => a.pause());
+}
+for (const id of ["search", "category", "favourites"])
+  $(id).addEventListener("input", () => {
+    pauseAll();
+    page = 0;
+    render();
+  });
+$("previous-page").onclick = () => {
+  pauseAll();
+  page--;
+  render();
+};
+$("next-page").onclick = () => {
+  pauseAll();
+  page++;
+  render();
+};
+$("bank").onchange = () => {
+  pauseAll();
+  page = 0;
   manifest = undefined;
   $("library").replaceChildren();
   $("category").replaceChildren(new Option("All categories", ""));
@@ -198,6 +213,7 @@ async function refresh() {
     if (!response.ok) throw new Error("Manifest unavailable");
     const next = await response.json();
     if (selected !== $("bank").value) return;
+    if (manifest && JSON.stringify(next) === JSON.stringify(manifest)) return;
     document.title = next.title;
     const nextKey = `atelier-sfx-shortlist-v1-${next.plan_hash}`;
     if (key !== nextKey) {
