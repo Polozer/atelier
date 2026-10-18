@@ -656,7 +656,8 @@ class CapacityBroker:
         complete memory is unavailable. Pressure-aware ranking MUST use one fresh observation
         and full validated remaining peer growth. After two bypasses or 900 seconds of original
         ready age, the oldest protected feasible request MUST drain before younger work,
-        including performance-exclusive requests.
+        including performance-exclusive requests. Named-lock-blocked requests MUST retain their
+        age/protection but MUST NOT impose an unrelated broker-wide drain.
         Missing advisory observations MUST keep offers queued without mutating holder health;
         final start observations MUST still fail closed on unavailable enforcement.
         This eligibility observation MUST NOT replace the final guarded GO pressure proof.
@@ -666,8 +667,9 @@ class CapacityBroker:
         holders = [self._model(r) for r in state['records'].values() if r['state'] in HELD]
         queued = sorted((r for r in state['records'].values() if r['state'] == 'queued'), key=lambda r: r['sequence'])
         feasible = [r for r in queued if not conflicts(self._model(r), [], self.total, self.reserve)]
-        protected = next((r for r in feasible if r.get('bypasses', 0) >= 2
-                          or time.time() - r['first_ready'] >= 900.), None)
+        held_locks = {lock for holder in holders for lock in holder.locks}
+        protected = next((r for r in feasible if not held_locks.intersection(r['request']['locks'])
+                          and (r.get('bypasses', 0) >= 2 or time.time() - r['first_ready'] >= 900.)), None)
         ranked = sorted(feasible, key=lambda r: (r is not protected if protected else False,
                                                 r['request']['seconds'] > 300, r['sequence']))
         if not ranked:
@@ -1026,8 +1028,7 @@ class CapacityBroker:
                                               limit_bytes=message['limit_bytes'], heartbeat=self._clock(),
                                               measured_memory_mib=facts.footprint_bytes // 1024**2, measured_at=time.time())
                                 for earlier in state['records'].values():
-                                    if (earlier['state'] == 'queued' and earlier['sequence'] < record['sequence']
-                                            and earlier['request']['seconds'] > 300 and request_seconds(record) <= 300):
+                                    if earlier['state'] == 'queued' and earlier['sequence'] < record['sequence']:
                                         earlier['bypasses'] += 1
                                 go = record['nonce']
                                 result = {'state': 'running', 'epoch': state['epoch'], 'admission': True}

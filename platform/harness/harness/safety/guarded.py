@@ -371,13 +371,14 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
     Capacity-managed work MUST hold either the exclusive migration bridge or all three sealed
     shared compatibility mutexes and await the broker's own exec gate after both guards are ready.
     Shared admission MUST verify the durable boot-bound compatibility barrier. Broker failures MUST fail
-    without falling back to slots. Only an automatic full session's typed, fenced selection-change
+    without falling back to slots. Only an automatic full session's typed, fenced selection-change or pressure-wait
     no-GO denial MAY requeue after its exact child is positively reaped, its aggregate tree is
     affirmatively empty and its close confirms an uncharged waiting state. All process guards MUST
     settle naturally and their final bound receipts MUST exclude memory/duration stops before retry.
     Requeues MUST retain
-    request/configuration and broker epoch/boot, use at most two retries within the original
-    1800-second admission deadline, and MUST NOT repeat useful execution or certify success.
+    request/configuration and broker epoch/boot within the original 1800-second admission
+    deadline. Selection changes MUST use at most two retries; pressure waits MAY retry only
+    until that same original deadline, and MUST NOT repeat useful execution or certify success.
     Capacity cleanup MUST follow owned-child cleanup/reap and precede guard detachment.
     Requested performance exclusion MUST reach the configured broker or already belong to an explicit session.
     Optional completion evidence MUST contain the positively waited launcher and matching terminal

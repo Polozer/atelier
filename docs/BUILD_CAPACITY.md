@@ -52,6 +52,8 @@ validated charged peers' remaining growth before selecting work. A memory defici
 request queued without a gate, child or resource charge. Smaller compatible work may proceed
 until the oldest statically feasible request has two bypasses or 900 seconds of original ready
 age; that protected request then drains before younger work, including for exclusive sessions.
+A request blocked by an existing named lock keeps its age and bypass count but cannot impose
+a broker-wide drain while that lock remains held.
 Unavailable advisory telemetry or peer evidence keeps the offer queued without changing holder health.
 The final guarded start repeats its fresh pressure and ownership checks.
 

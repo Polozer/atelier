@@ -1115,3 +1115,44 @@ def test_advisory_peer_guard_failure_does_not_change_holder_health(broker, monke
     with pytest.raises(wire.CapacityError, match='enforcement is unavailable'):
         broker._pressure_budget(state)
     assert peer['state'] == 'uncertain'
+
+
+def test_two_actual_pressure_bypasses_protect_even_an_older_short_job(broker, monkeypatch):
+    monkeypatch.setattr(broker, 'observe', lambda: dict(observed_monotonic=time.monotonic(), available_memory_mib=128))
+    large = session(broker, 'old-short', resources=asdict(Resources(memory_mib=256, cpu_millis=1000)))
+    with pytest.raises(client.CapacityQueued):large.offer()
+    for number in range(2):
+        small = session(broker, 'small-' + str(number))
+        assert small.offer()['selected']
+        child = gated_child(small)
+        pin = start(small, child)
+        assert child.communicate(timeout=3)[0] == b'useful'
+        assert small.close(child=child, child_start=pin)['released']
+        row = next(r for r in client.status(broker.socket_path)['records'] if r['id']=='old-short')
+        assert row['bypasses'] == number + 1
+    third = session(broker, 'small-third')
+    with pytest.raises(client.CapacityQueued):third.offer()
+    assert not broker._gates and client.status(broker.socket_path)['charged_count']==0
+    large.close()
+    assert third.offer()['selected']
+    third.close()
+
+
+@pytest.mark.parametrize('protection', ['age', 'bypasses'])
+def test_protected_checkout_sibling_does_not_block_unrelated_compatible_work(broker, protection):
+    def row(name, sequence, state, locks):
+        return dict(request=dict(id=name, resources=asdict(Resources(memory_mib=128,cpu_millis=1000)),
+                                 locks=locks, seconds=1, performance=False),
+                    state=state,sequence=sequence,first_ready=time.time(),bypasses=0,
+                    guards={},child=[1,1],principal=[2,2],limit_bytes=128*1024**2)
+    holder = row('holder',1,'running',['checkout:shared'])
+    sibling = row('sibling',2,'queued',['checkout:shared'])
+    other = row('unrelated',3,'queued',['checkout:other'])
+    sibling['bypasses'] = 2 if protection=='bypasses' else 0
+    sibling['first_ready'] -= 901 if protection=='age' else 0
+    original = (sibling['first_ready'],sibling['bypasses'])
+    state = {'records': {r['request']['id']:r for r in (holder,sibling,other)}}
+    assert broker._selection(state,pressure=True) is other
+    assert (sibling['first_ready'],sibling['bypasses']) == original
+    holder['state'] = 'released'
+    assert broker._selection(state,pressure=True) is sibling
