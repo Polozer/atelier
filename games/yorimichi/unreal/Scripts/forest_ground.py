@@ -14,8 +14,9 @@ import yori  # noqa: E402
 
 
 def material(*, rock=False):
+    if rock:return rock_material()
     E=U.EditorAssetLibrary;M=U.MaterialEditingLibrary;AT=U.AssetToolsHelpers.get_asset_tools()
-    name='M_CoastRock' if rock else 'M_ForestGround'
+    name='M_ForestGround'
     path='/Game/Japan/Materials/'+name
     m=E.load_asset(path) if E.does_asset_exist(path) else AT.create_asset(name,'/Game/Japan/Materials',U.Material,U.MaterialFactoryNew())
     M.delete_all_material_expressions(m)
@@ -53,24 +54,61 @@ colour=lerp(colour,coast,Alpha);
     M.connect_material_property(emission,'',U.MaterialProperty.MP_EMISSIVE_COLOR)
     M.connect_material_property(node(U.MaterialExpressionConstant,r=1.),'',U.MaterialProperty.MP_ROUGHNESS)
     M.connect_material_property(node(U.MaterialExpressionConstant,r=0.),'',U.MaterialProperty.MP_SPECULAR)
-    if rock:
-        # This slot alone uses its geometric face normal. Other terrain slots
-        # retain their existing normals and the asset's normal-build settings.
-        vertex_normal=node(U.MaterialExpressionVertexNormalWS)
-        normal=node(U.MaterialExpressionCustom,output_type=U.CustomMaterialOutputType.CMOT_FLOAT3,
-                    code='float3 n=cross(ddx(P),ddy(P)); float l2=dot(n,n); '
-                         'n=l2>1.e-16?n*rsqrt(max(l2,1.e-16)):N; '
-                         'return dot(n,N)<0.?-n:n;')
-        inputs=[]
-        for key in ['P','N']:
-            a=U.CustomInput();a.set_editor_property('input_name',key);inputs.append(a)
-        normal.set_editor_property('inputs',inputs)
-        assert M.connect_material_expressions(p,'',normal,'P')
-        assert M.connect_material_expressions(vertex_normal,'',normal,'N')
-        assert M.connect_material_property(normal,'',U.MaterialProperty.MP_NORMAL)
-        m.set_editor_property('tangent_space_normal',False)
     m.set_editor_property('used_with_instanced_static_meshes',True)
     M.recompile_material(m);E.save_loaded_asset(m)
+    return m
+
+
+def rock_material():
+    """Colour fractures on the rock slot; shared meadow materials stay separate."""
+    import hashlib
+    import coast_rock_look as look
+    from material_assets import create,save_material
+    E=U.EditorAssetLibrary;M=U.MaterialEditingLibrary
+    source=yori.ASSETS/look.TEXTURE
+    assert hashlib.sha256(source.read_bytes()).hexdigest()==look.TEXTURE_SHA256
+    task=U.AssetImportTask();task.filename=str(source)
+    task.destination_path='/Game/Japan/Textures';task.destination_name='T_CoastRock'
+    task.automated=True;task.replace_existing=True;task.save=True
+    U.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+    texture=E.load_asset('/Game/Japan/Textures/T_CoastRock');assert texture
+    texture.set_editor_property('srgb',True)
+    texture.set_editor_property('max_texture_size',1024)
+    texture.set_editor_property('mip_gen_settings',U.TextureMipGenSettings.TMGS_SIMPLE_AVERAGE)
+    E.save_loaded_asset(texture)
+    m=create('M_CoastRock',U.Material,U.MaterialFactoryNew())
+
+    def node(cls,**props):
+        n=M.create_material_expression(m,cls)
+        for key,value in props.items():n.set_editor_property(key,value)
+        return n
+
+    def custom(code,connections):
+        n=node(U.MaterialExpressionCustom,output_type=U.CustomMaterialOutputType.CMOT_FLOAT3,code=code)
+        inputs=[]
+        for key,_,_ in connections:
+            arg=U.CustomInput();arg.set_editor_property('input_name',key);inputs.append(arg)
+        n.set_editor_property('inputs',inputs)
+        for key,source,output in connections:assert M.connect_material_expressions(source,output,n,key)
+        return n
+
+    p=node(U.MaterialExpressionWorldPosition)
+    vc=node(U.MaterialExpressionVertexColor)
+    vertex_normal=node(U.MaterialExpressionVertexNormalWS)
+    normal=custom('float3 n=cross(ddx(P),ddy(P)); float l2=dot(n,n); '
+                  'n=l2>1.e-16?n*rsqrt(max(l2,1.e-16)):N; '
+                  'return dot(n,N)<0.?-n:n;',[('P',p,''),('N',vertex_normal,'')])
+    base=custom(look.code(),[('P',p,''),('N',normal,''),('C',vc,''),
+                            ('Rock',node(U.MaterialExpressionTextureObject,texture=texture),'')])
+    shaded,emission=atmosphere.apply(m,base,node(U.MaterialExpressionConstant,r=0.))
+    for prop,n in [(U.MaterialProperty.MP_BASE_COLOR,shaded),(U.MaterialProperty.MP_EMISSIVE_COLOR,emission),
+                   (U.MaterialProperty.MP_NORMAL,normal),
+                   (U.MaterialProperty.MP_ROUGHNESS,node(U.MaterialExpressionConstant,r=1.)),
+                   (U.MaterialProperty.MP_SPECULAR,node(U.MaterialExpressionConstant,r=0.))]:
+        assert M.connect_material_property(n,'',prop)
+    m.set_editor_property('tangent_space_normal',False)
+    m.set_editor_property('used_with_instanced_static_meshes',True)
+    save_material(m)
     return m
 
 

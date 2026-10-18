@@ -1,5 +1,7 @@
 """Rock shading and crown edits stay on the owned exposed headland faces."""
 import copy
+import hashlib
+import importlib.util
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -54,13 +56,39 @@ def test_coastal_crown_postfilter_preserves_all_outside_transforms_and_other_obj
         assert row[:4]==original['Tree_Maple_A'][0][:4] and row[4]<1.3
 
 
+def test_city_forest_leaves_steep_observed_rock_clear_and_protected_ground_unchanged():
+    # Native06 ray850/500: actual exposed face normal.z=.675. The same
+    # decision must not affect occupied rail ground, another coast, or dry sand.
+    x=np.array([2952.841,1231.,2900.,2952.841])
+    y=np.array([467.498,301.8,5000.,467.498])
+    z=np.array([20.51,32.,40.,1.5])
+    keep,resize=C.forest_crowns(x,y,z,np.array([1.09,1.09,1.09,1.09]))
+    np.testing.assert_array_equal(keep,[False,True,True,True])
+    np.testing.assert_array_equal(resize[1:],[1.,1.,1.])
+
+
+def test_rock_texture_identity_and_linear_normalization_match_committed_source():
+    from PIL import Image
+    path=Path(__file__).resolve().parents[1]
+    spec=importlib.util.spec_from_file_location('shoreline_rock_look',path/'unreal/Scripts/coast_rock_look.py')
+    look=importlib.util.module_from_spec(spec);spec.loader.exec_module(look)
+    texture=path/'assets'/look.TEXTURE
+    assert hashlib.sha256(texture.read_bytes()).hexdigest()==look.TEXTURE_SHA256
+    with Image.open(texture) as image:srgb=np.asarray(image.convert('RGB'),float)/255.
+    linear=np.where(srgb<=.04045,srgb/12.92,((srgb+.055)/1.055)**2.4)
+    measured=float(linear.mean(axis=(0,1))@np.array([.2126,.7152,.0722]))
+    assert abs(measured-look.LINEAR_LUMINANCE)<1e-10
+
+
 def test_real_recipe_tracks_surface_selection_for_export_and_owned_planting(tmp_path):
     from atelier import build
     recipe=build.load_recipe('yorimichi')
     ctx=SimpleNamespace(game='yorimichi',out=tmp_path,uproject=tmp_path/'Yorimichi.uproject')
     steps={s.name:s for s in recipe.steps(ctx)}
     helper=recipe.WORLD/'coastal_surface.py'
-    for name in ['world.layout','world.terrain']:
+    for name in ['world.layout','world.terrain','world.hidamari']:
         assert helper in steps[name].inputs,name
     assert recipe.SCRIPTS/'forest_ground.py' in steps['unreal.world'].inputs
     assert recipe.SCRIPTS/'import_hidamari.py' in steps['unreal.world'].inputs
+    assert recipe.SCRIPTS/'coast_rock_look.py' in steps['unreal.world'].inputs
+    assert recipe.ASSETS/'environment/textures/volcanic-rock.jpg' in steps['unreal.world'].inputs

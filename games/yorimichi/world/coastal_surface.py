@@ -32,3 +32,16 @@ def crown_zone(x, y, z):
     d, rock = coast.field(x, y)
     return ((headland > .25) & (coast.protected_weight(x, y) > .99)
             & (rock > .3) & (d > 35.) & (d < 260.) & (z > 12.))
+
+
+def forest_crowns(x, y, z, slope):
+    """@cc [owner:fontanierh,label:correctness] city-cliff-forest-ownership
+    Only forest_backdrop's own rows on editable headland crowns may change.
+    Use its final ground slope; all outside/protected transforms and its original
+    random stream MUST remain unchanged. No terrain or other producer is edited.
+    """
+    on = crown_zone(x, y, z)
+    # Trees stand in small meadow groves above the rock, not on its steep face.
+    grove = .5+.5*np.sin(np.asarray(x)/46.+np.asarray(y)/63.)
+    keep = ~on | ((np.asarray(slope) < .65) & (grove > .45))
+    return keep, np.where(on, .65, 1.)

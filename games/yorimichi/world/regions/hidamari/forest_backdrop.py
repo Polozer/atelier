@@ -10,6 +10,7 @@ import numpy as np
 from hidamari import mountains
 from megapark import trail as park_trail
 import shorelines
+import coastal_surface
 
 
 def triangular(u,v,z00,z10,z01,z11):
@@ -93,6 +94,21 @@ def append(instances,buildings,height,backdrop_grid,terrain_axes,north_height,ro
                           for dx in (-1,0,1) for dy in (-1,0,1)
                           for ox,oy,os in bins.get((bx+dx,by+dy),()))
     x,y,z,yaw,scale,names=(a[unique] for a in (x,y,z,yaw,scale,names))
+    # Finish the existing random stream and old overlap decisions first. This
+    # producer alone opens the rocky crowns; unrelated forest rows stay exact.
+    crown=coastal_surface.crown_zone(x,y,z)
+    slope=np.zeros_like(z)
+    if crown.any():
+        from train import earthworks
+        px,py=x[crown],y[crown]
+        def final_ground(qx,qy):
+            return earthworks.carve(qx,qy,ground(qx,qy,height,backdrop_grid,terrain_axes,north_height))
+        gx=(final_ground(px+2.,py)-final_ground(px-2.,py))/4.
+        gy=(final_ground(px,py+2.)-final_ground(px,py-2.))/4.
+        slope[crown]=np.hypot(gx,gy)
+    keep,resize=coastal_surface.forest_crowns(x,y,z,slope)
+    scale=scale*resize
+    x,y,z,yaw,scale,names=(a[keep] for a in (x,y,z,yaw,scale,names))
     ranges={}
     for name in sorted(set(names)):
         mask=names==name

@@ -1048,6 +1048,7 @@ def unreal_steps(ctx):
         Step('unreal.world', [UnrealScript(SCRIPTS / 'setup_project.py', 'level saved')],
              # The city's arcade and harbor materials read the region's committed paintings.
              inputs=[WORLD / 'asset_catalog.py', WORLD / 'coast_water.py', REGIONS / 'hidamari' / 'textures',
+                     ASSETS / 'environment/textures/volcanic-rock.jpg', SCRIPTS / 'coast_rock_look.py',
                      *[SCRIPTS / n for n in ('setup_project.py', 'material_assets.py', 'mesh_import.py',
                                           'import_wanderer.py', 'cape_boy_material.py', 'animation_compression.py', 'import_village.py',
                                           'import_hidamari.py', 'import_southwest.py', 'arcade_material.py', 'plaza_material.py',
