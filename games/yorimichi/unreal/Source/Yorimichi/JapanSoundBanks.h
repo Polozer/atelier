@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "Containers/Ticker.h"
 #include "JapanSoundBanks.generated.h"
 
 class UJapanSoundBank;
@@ -39,12 +40,15 @@ protected:
     { return Type == EWorldType::Game || Type == EWorldType::PIE; }
 private:
     friend class FJapanSoundBankSelectionTest;
+    friend class FJapanSoundBankCompletionTest;
     bool ReadRegistry();
     bool Validate(const FJapanSoundChoice& Choice, UJapanSoundBank* Bank, FString& Error) const;
     bool Commit(const FJapanSoundChoice& Choice, UJapanSoundBank* Bank, const TFunction<bool(int32)>& Persist);
     void FootReady(UJapanFootstepComponent* Component);
     void SkateReady(USkateComponent* Component);
     void CancelSelection();
+    void ArmTimeout(bool Preview,uint64 Token);
+    void PreviewLoaded(uint64 Token,const FJapanSoundChoice& Choice);
     TArray<FJapanSoundChoice> Choices;
     bool bRegistryLoaded = false, bRegistryAttempted = false, bRestored = false, bShuttingDown = false;
     uint64 Generation = 0, PreviewGeneration = 0;
@@ -52,6 +56,7 @@ private:
     FString LastError;
     TSharedPtr<FStreamableHandle> Loading, PreviewLoading;
     FDelegateHandle FootHandle, SkateHandle, BackgroundHandle, DeactivateHandle;
+    FTSTicker::FDelegateHandle SelectionTimeout, PreviewTimeout;
     UPROPERTY() TObjectPtr<UJapanSoundBank> Active;
     UPROPERTY() TObjectPtr<UAudioComponent> Audition;
     UPROPERTY() TObjectPtr<USoundWave> PreviewWave;

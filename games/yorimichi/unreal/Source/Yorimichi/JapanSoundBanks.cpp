@@ -130,8 +130,22 @@ void UJapanSoundBanks::Restore(int32 Saved)
 void UJapanSoundBanks::CancelSelection()
 {
     ++Generation;
+    FTSTicker::RemoveTicker(SelectionTimeout); SelectionTimeout.Reset();
     if(Loading) Loading->CancelHandle();
     Loading.Reset();
+}
+void UJapanSoundBanks::ArmTimeout(bool Preview,uint64 Token)
+{
+    const double Deadline=FPlatformTime::Seconds()+30.;
+    auto& Handle=Preview?PreviewTimeout:SelectionTimeout;
+    Handle=FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[this,Preview,Token,Deadline](float)
+    {
+        if(bShuttingDown || Token!=(Preview?PreviewGeneration:Generation)) return false;
+        if(FPlatformTime::Seconds()<Deadline) return true;
+        if(Preview) StopPreview(); else { CancelSelection(); RequestedSelection=ActiveSelection; }
+        LastError=Preview?TEXT("The soundbank preview load timed out."):TEXT("The soundbank load timed out; the previous bank is still active.");
+        return false;
+    }),.25f);
 }
 void UJapanSoundBanks::Cycle(int32 Direction,TFunction<bool(int32)> Persist)
 {
@@ -157,11 +171,13 @@ void UJapanSoundBanks::Select(int32 Selection,TFunction<bool(int32)> Persist)
         FStreamableDelegate::CreateWeakLambda(this,[this,Token,Choice,Persist=MoveTemp(Persist)]
         {
             if(bShuttingDown || Generation!=Token) return;
+            FTSTicker::RemoveTicker(SelectionTimeout); SelectionTimeout.Reset();
             auto* Bank=Cast<UJapanSoundBank>(FSoftObjectPath(Choice.Asset).ResolveObject());
             Commit(Choice,Bank,Persist);
             Loading.Reset();
         }));
     if(!Loading) LastError=TEXT("Could not start loading the soundbank.");
+    else ArmTimeout(false,Token);
 }
 bool UJapanSoundBanks::Validate(const FJapanSoundChoice& Choice,UJapanSoundBank* Bank,FString& Error) const
 {
@@ -215,6 +231,9 @@ bool UJapanSoundBanks::Commit(const FJapanSoundChoice& Choice,UJapanSoundBank* B
     {
         for(auto* Component:Feet) { const bool Ok=Component->SetSoundBank(Bank,LastError); check(Ok); }
         for(auto* Component:Skates) { const bool Ok=Component->SetSoundSet(Skate,LastError); check(Ok); }
+        // Preview can be started after Select began. Invalidate that old-bank
+        // completion/player at the successful commit, before publishing its label.
+        StopPreview();
     }
     Active=Bank; ActiveSelection=RequestedSelection=Choice.Selection;
     LastError.Reset();
@@ -234,6 +253,7 @@ void UJapanSoundBanks::SkateReady(USkateComponent* Component)
 void UJapanSoundBanks::StopPreview()
 {
     ++PreviewGeneration;
+    FTSTicker::RemoveTicker(PreviewTimeout); PreviewTimeout.Reset();
     if(PreviewLoading) PreviewLoading->CancelHandle();
     PreviewLoading.Reset();
     if(UAudioComponent* Previous=Audition)
@@ -255,18 +275,23 @@ void UJapanSoundBanks::Preview()
     const uint64 Token=PreviewGeneration;
     PreviewLoading=UAssetManager::GetStreamableManager().RequestAsyncLoad(FSoftObjectPath(Choice.Audition),
         FStreamableDelegate::CreateWeakLambda(this,[this,Token,Choice]
-        {
-            if(bShuttingDown || PreviewGeneration!=Token) return;
-            auto* Sound=Cast<USoundWave>(FSoftObjectPath(Choice.Audition).ResolveObject());
-            if(!Wave(Sound,false,15.999f,16.001f) || Sound->GetPathName()!=Choice.Audition)
-            { LastError=TEXT("The soundbank preview is unavailable."); PreviewLoading.Reset(); return; }
-            PreviewWave=Sound;
-            Audition=NewObject<UAudioComponent>(this);
-            Audition->bAutoActivate=false; Audition->bAutoDestroy=false;
-            Audition->bAllowSpatialization=false; Audition->bIsUISound=true;
-            Audition->RegisterComponentWithWorld(GetWorld()); Audition->SetSound(Sound);
-            Audition->OnAudioFinishedNative.AddWeakLambda(this,[this,Token](UAudioComponent* Finished)
-            { if(PreviewGeneration==Token && Audition==Finished) StopPreview(); });
-            Audition->Play(); PreviewLoading.Reset();
-        }));
+        { PreviewLoaded(Token,Choice); }));
+    if(PreviewLoading) ArmTimeout(true,Token);
+    else LastError=TEXT("Could not start loading the soundbank preview.");
+}
+void UJapanSoundBanks::PreviewLoaded(uint64 Token,const FJapanSoundChoice& Choice)
+{
+    if(bShuttingDown || PreviewGeneration!=Token) return;
+    FTSTicker::RemoveTicker(PreviewTimeout); PreviewTimeout.Reset();
+    auto* Sound=Cast<USoundWave>(FSoftObjectPath(Choice.Audition).ResolveObject());
+    if(!Wave(Sound,false,15.999f,16.001f) || Sound->GetPathName()!=Choice.Audition)
+    { LastError=TEXT("The soundbank preview is unavailable."); PreviewLoading.Reset(); return; }
+    PreviewWave=Sound;
+    Audition=NewObject<UAudioComponent>(this);
+    Audition->bAutoActivate=false; Audition->bAutoDestroy=false;
+    Audition->bAllowSpatialization=false; Audition->bIsUISound=true;
+    Audition->RegisterComponentWithWorld(GetWorld()); Audition->SetSound(Sound);
+    Audition->OnAudioFinishedNative.AddWeakLambda(this,[this,Token](UAudioComponent* Finished)
+    { if(PreviewGeneration==Token && Audition==Finished) StopPreview(); });
+    Audition->Play(); PreviewLoading.Reset();
 }
