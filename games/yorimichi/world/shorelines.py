@@ -240,11 +240,18 @@ def weight(x, y):
 
 
 def wedge(x,y,c):
+    """Joined rock shoulder with unequal peaks, a recessed face and a broad toe."""
     a=np.deg2rad(c['angle']);dx=x-c['x'];dy=y-c['y']
     u=(dx*np.cos(a)+dy*np.sin(a))/c['rx'];v=(-dx*np.sin(a)+dy*np.cos(a))/c['ry']
     edge=np.minimum.reduce([1.-u,1.+u,1.-v,1.+v,1.-.8*u-.6*v,1.+.5*u-.9*v])
-    roof=np.clip(.70+.23*u-.16*v,.20,1.05)
-    return c['height']*roof*smooth(edge/.18)
+    peak=np.maximum(0.,1.-np.abs(u-.12)/.85-np.abs(v+.18)/.90)
+    secondary=.62*np.maximum(0.,1.-np.abs(u+.44)/.62-np.abs(v-.34)/.70)
+    roof=.25+.82*np.maximum(peak,secondary)
+    body=roof*smooth(edge/.32)
+    gully=np.exp(-((u+.32*v+.07)/.13)**4)*smooth((v+.65)/.4)
+    body*=1.-.50*gully
+    toe=.22*smooth((edge+.12)/.48)
+    return c['height']*np.maximum(body,toe)
 
 
 def _landform_height(x,y,z):
@@ -279,7 +286,8 @@ def _landform_height(x,y,z):
         cut=depth*np.exp(-((y-(cy+lean*(x-2900.)))/20.)**4)
         masses=np.maximum(0.,masses-cut)
     back=np.interp(d,[0.,60.,180.,400.,650.,850.],[0.,5.,9.,18.,48.,110.])
-    target=back+masses*smooth(d/12.)
+    # Keep the established low toe before the joined mass rises inland.
+    target=back+masses*smooth(d/12.)*smooth((d-20.)/40.)
     front=np.maximum(smooth(d/4.)*smooth((rock-.02)/.20),smooth((d-60.)/12.))
     w=headland_region*front*smooth((850.-d)/180.)
     w*=protected_weight(x,y)

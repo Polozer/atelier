@@ -314,11 +314,12 @@ def test_local_landforms_keep_waterline_seabed_and_outside_region_unchanged():
 
 
 def test_eastern_crags_have_sloping_crests_and_a_recessed_gully():
-    y = np.array([190.,220.,250.,330.,360.,390.,420.])
-    z = S.height(np.full_like(y,2910.),y,180.)
-    assert min(z[0],z[4]) > 45.
-    assert z[3] < 12.
-    assert z[0]-z[2] > 5. and z[4]-z[6] > 8.
+    # The formerly broad roofs now peak at different x/y positions.
+    x=np.array([2870.,2870.,2912.,2912.]);y=np.array([224.,280.,408.,470.])
+    z=S.height(x,y,180.)
+    assert min(z[0],z[2])>45.
+    assert S.height(2910.,330.,180.)<12.
+    assert z[0]-z[1]>15. and z[2]-z[3]>15.
 
 
 def test_expanded_country_grid_refines_the_new_inland_landform(monkeypatch):
@@ -426,3 +427,18 @@ def test_complete_seam_stitches_coastal_knots_without_a_railway(monkeypatch):
     a,b=[Surface(np.array(m.p)[np.array(m.i).reshape(-1,3)]) for m in [left,right]]
     y=np.linspace(0.,10.,101);x=np.zeros_like(y)
     np.testing.assert_allclose(a.height(x,y),b.height(x,y),atol=1e-12)
+
+
+def test_rock_shoulder_has_unequal_crests_recessed_face_and_connected_toe():
+    c=dict(x=0.,y=0.,rx=100.,ry=70.,angle=0.,height=50.)
+    # The old affine roof rose monotonically into another broad flat slab.
+    u=np.array([-.8,-.2,0.,.25,.8])
+    z=S.wedge(u*100.,np.full_like(u,-.18*70.),c)
+    assert z[3]>max(z[0],z[-1])+25.
+    assert z[1]>z[2]+10.  # a distinct saddle between unequal crests
+    x=np.linspace(-105.,105.,141);y=np.full_like(x,.30*70.)
+    face=S.wedge(x,y,c)
+    assert np.min(face)>0.  # the recessed face retains connected lower support
+    recess=float(S.wedge(-.166*100.,.30*70.,c))
+    assert recess<min(float(S.wedge(-.4*100.,.30*70.,c)),float(S.wedge(.12*100.,.30*70.,c)))-15.
+    assert S.wedge(130.,0.,c)==0.  # bounded footprint
