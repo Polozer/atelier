@@ -26,7 +26,7 @@ class AudioReviewTests(unittest.TestCase):
             {'label': 'Wood', 'category': 'Footsteps', 'prompt': 'Walking on wood', 'seconds': 1}]}))
         self.web = self.root / 'web'
         self.web.mkdir()
-        for name in ('index.html', 'review.js', 'review.css'):
+        for name in ('index.html', 'review.js', 'preview.js', 'review.css'):
             (self.web / name).write_text('test')
         self.output = self.root / 'library'
 
@@ -95,8 +95,9 @@ class AudioReviewTests(unittest.TestCase):
         self.addCleanup(thread.join)
         self.addCleanup(server.shutdown)
         base = f'http://127.0.0.1:{server.server_port}'
-        with urlopen(base + '/', timeout=2) as response:
-            self.assertEqual(response.status, 200)
+        for asset in ['/', '/preview.js']:
+            with urlopen(base + asset, timeout=2) as response:
+                self.assertEqual(response.status, 200)
         for path in ['/private.log', '/audio/', '/../catalog.json', '/%2e%2e/catalog.json', '/audio/clip-9999.wav', '/.writer.lock']:
             with self.subTest(path=path), self.assertRaises(HTTPError) as error:
                 urlopen(base + path, timeout=2)

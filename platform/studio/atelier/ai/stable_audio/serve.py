@@ -17,7 +17,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def send_head(self):
         requested = unquote(urlsplit(self.path).path).removeprefix('/') or 'index.html'
-        allowed = requested in {'index.html', 'review.js', 'review.css', 'manifest.json', 'prepared.json'}
+        allowed = requested in {'index.html', 'review.js', 'preview.js', 'review.css', 'manifest.json', 'prepared.json'}
         allowed = allowed or re.fullmatch(
             r'(audio/clip|samples/([0-9a-f]{64}/)?sample)-\d+\.wav', requested) is not None
         root = Path(self.directory).resolve()

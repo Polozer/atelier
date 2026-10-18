@@ -200,3 +200,20 @@ failure replay refusal and the served-file boundary. Browser checks cover
 material/category filters, shortlist export, favourites, native WAV metadata
 decoding, mobile overflow and JavaScript errors. Human sound selection remains
 the purpose of the review page.
+
+## Browser gameplay audition
+
+The review page has a loop checkbox on every raw take and prepared sample. The
+**Try it in motion** panel independently loads the prepared bank: choose a surface
+and either shuffle its takes without replacement or repeat one variation. Walking
+and running schedule individual contacts at 60–240 steps per minute. Skating uses
+speed-driven loop volume/pitch, a powerslide toggle where a slide sample exists,
+and a landing-hit button where a contact sample exists. Master volume is adjustable.
+Surface/activity/variation changes, Stop, individual clip playback, library changes
+and hiding the page stop the audition, including a session still loading its WAVs.
+
+This is a browser simulation for listening decisions, not animation, physics,
+spatialisation or multiplayer validation in the game. Footstep cadence is a stand-in
+for animation foot-plant events; skate speed follows the existing response ranges
+and slide playback represents the full slide angle. None of these candidates are
+installed into runtime sound pools by this page.
