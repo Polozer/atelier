@@ -332,3 +332,61 @@ def steps(ctx):
     # Missing generated inputs change full identities, but must not change source-only identities.
     assert source_consumer['fingerprint'] != target_consumer['fingerprint']
     assert source_consumer['source'] == target_consumer['source']
+
+
+@pytest.mark.parametrize('change', ['receiver', 'donor', 'missing', 'extra', 'new_root'])
+def test_undeclared_plugin_binary_corruption_cannot_publish_stamps(snapshot, monkeypatch, change):
+    source, target = snapshot
+    declared, = source.rglob('library.dylib')
+    root = declared.parents[2].with_name('Undeclared')
+    binary = root / 'Binaries/Mac/unclaimed.dylib'
+    write(binary, 'unclaimed native bytes')
+    original = reuse.copy_tree
+    def copy(src, dst, *args):
+        original(src, dst, *args)
+        if src == binary:
+            if change == 'receiver': dst.write_text('corrupt receiver')
+            elif change == 'donor': src.write_text('changed donor')
+            elif change == 'missing': dst.unlink()
+            elif change == 'extra': write(dst.with_name('unexpected.dylib'), 'extra')
+            else: write(root.with_name('Added') / 'Binaries/Mac/new.dylib', 'new root')
+    monkeypatch.setattr(reuse, 'copy_tree', copy)
+    with pytest.raises(ValueError, match='Plugin binaries changed'):
+        reuse._copy('standin', source, target, operation_id='0' * 32)
+    out = target / 'build/standin'
+    assert (out / build_snapshot.JOURNAL).exists()
+    assert not (out / 'stamps').exists()
+    assert not (out / build_snapshot.COMPLETE).exists()
+
+
+def test_undeclared_binary_inventory_preserves_owned_absolute_link_relocation(snapshot):
+    source, target = snapshot
+    declared, = source.rglob('library.dylib')
+    binary = declared.parents[2].with_name('Undeclared') / 'Binaries/Mac/unclaimed.dylib'
+    write(binary, 'unclaimed native bytes')
+    binary.with_name('alias.dylib').symlink_to(binary)
+    assert reuse._copy('standin', source, target, operation_id='0' * 32) == 0
+    copied = target / binary.relative_to(source)
+    assert copied.with_name('alias.dylib').readlink() == copied
+    assert copied.read_bytes() == binary.read_bytes()
+
+
+def test_plugin_binary_inventory_refuses_special_and_changing_files(tmp_path, monkeypatch):
+    import os
+    root = tmp_path / 'Binaries'
+    root.mkdir()
+    pipe = root / 'pipe'
+    os.mkfifo(pipe)
+    with pytest.raises(ValueError, match='Non-regular plugin binary'):
+        reuse.binary_inventory(tmp_path, [root])
+    pipe.unlink()
+    binary = root / 'library.dylib'
+    binary.write_text('native')
+    digest = reuse.hashlib.file_digest
+    def changing(stream, algorithm):
+        result = digest(stream, algorithm)
+        binary.write_text('changed')
+        return result
+    monkeypatch.setattr(reuse.hashlib, 'file_digest', changing)
+    with pytest.raises(ValueError, match='changed during inventory'):
+        reuse.binary_inventory(tmp_path, [root])
