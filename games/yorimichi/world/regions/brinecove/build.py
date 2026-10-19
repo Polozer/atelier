@@ -412,7 +412,11 @@ def main():
     terrain, seam = ground.build(rim_shape, rim_world)
     settled = settle(rim_shape)
     # Dressing that must meet the real ground (shore foam) samples the eased collar, not the layout under it.
-    rocks.FINAL = lambda x, y: settled(x, y)[1] if settled(x, y)[1] is not None else L.ground(x, y)
+    def final_ground(x, y):
+        eased = settled(x, y)[1]
+        return eased if eased is not None else L.ground(x, y)
+
+    rocks.FINAL = final_ground
     if terrain.normals is None:
         terrain.normals = collar_normals(terrain, rim_shape, smooth_normals(terrain))
     print(f'ground: {seam}; {time.time() - started:.0f}s', flush=True)
