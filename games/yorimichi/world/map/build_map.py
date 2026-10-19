@@ -19,7 +19,7 @@ ap.add_argument('--data', default=str(yori.OUT))
 ap.add_argument('--out', default=str(yori.OUT / 'map'))
 ap.add_argument('--px', type=float, default=2.0, help='pixels per metre')
 ap.add_argument('--atlas-reference', choices=['world', 'momiji_coast', 'momiji_woods', 'hidamari', 'temple_island',
-                                             'northern_foothills', 'volcanic_highlands', 'haras_valley'],
+                                             'northern_foothills', 'volcanic_highlands', 'haras_valley', 'brinecove'],
                 help='prepare a precise linear, label-free painting reference instead of staging production artwork')
 A = ap.parse_args()
 S = A.data
@@ -32,6 +32,8 @@ CITY_PATH = f'{S}/hidamari/city.json'
 C = json.load(open(CITY_PATH)) if os.path.exists(CITY_PATH) else None
 BELMONTE_PATH = f'{S}/belmonte/runtime.json'
 BELMONTE = json.load(open(BELMONTE_PATH)) if os.path.exists(BELMONTE_PATH) else None
+BRINECOVE_PATH = f'{S}/brinecove/runtime.json'
+BRINECOVE = json.load(open(BRINECOVE_PATH)) if os.path.exists(BRINECOVE_PATH) else None
 H = np.load(f'{S}/heightmap.npy').astype(np.float32)
 SIZE = W['size']
 NORTH = C.get('north_bounds') if C else None
@@ -109,6 +111,13 @@ if BELMONTE:
         Z[covered] = np.where(GY[covered] > BM.SOUTH_JOIN, height[covered], np.maximum(Z[covered], height[covered]))
         north_extension |= covered
 
+if BRINECOVE:
+    # The western reach replaces the far hills inside its rectangle (world/regions/brinecove/region.py).
+    from brinecove import plan as BC
+    bc_mask = BC.contains(GX, GY)
+    progress(f'sampling Brinecove ground at {int(bc_mask.sum())} pixels')
+    Z[bc_mask] = BC.heights(GX[bc_mask], GY[bc_mask], BC.ground_surface(_Path(S)))
+
 # the island lives outside the heightmap: sample its own height function in island-local coordinates
 SW = W.get('southwest')
 if SW:
@@ -133,6 +142,7 @@ playable = square | (Z < 0)
 if C: playable |= city_ground
 if NORTH: playable |= (GX>=NORTH[0])&(GX<=NORTH[2])&(GY>=NORTH[1])&(GY<=NORTH[3])
 if BELMONTE: playable |= BM.contains(GX, GY) | north_extension
+if BRINECOVE: playable |= bc_mask
 if SW: playable |= isl
 fade = np.array(Image.fromarray((playable * 255).astype(np.uint8), 'L').filter(ImageFilter.GaussianBlur(6 * PX))).astype(np.float32) / 255
 
@@ -172,9 +182,10 @@ def tree_points(prefixes):
                 excluded=(a[:,0]>300)&(a[:,0]<2200)&(a[:,1]>-450)&(a[:,1]<1600)
                 if NORTH:excluded|=(a[:,0]>NORTH[0])&(a[:,0]<NORTH[2])&(a[:,1]>NORTH[1])&(a[:,1]<NORTH[3])
                 a=a[~excluded]
-            if BELMONTE:
-                b = BELMONTE['clearance_m']
-                a = a[~((a[:, 0] >= b[0]) & (a[:, 0] <= b[2]) & (a[:, 1] > b[1]) & (a[:, 1] <= b[3]))]
+            for region in (BELMONTE, BRINECOVE):
+                if region:
+                    b = region['clearance_m']
+                    a = a[~((a[:, 0] >= b[0]) & (a[:, 0] <= b[2]) & (a[:, 1] > b[1]) & (a[:, 1] <= b[3]))]
             pts.append(a)
     if C:
         for k, v in C['instances'].items():
@@ -182,6 +193,8 @@ def tree_points(prefixes):
     if BELMONTE:
         from belmonte.plan import trees
         pts.append(trees(BELMONTE, prefixes))
+    if BRINECOVE:
+        pts.append(BC.trees(BRINECOVE, prefixes))
     return np.concatenate(pts) if pts else np.zeros((0, 2))
 def density(prefixes):
     cell = 4.0
@@ -315,6 +328,9 @@ if BELMONTE:
     from belmonte.plan import draw as draw_belmonte
     progress('drawing exact Belmonte buildings, water and racecourse')
     draw_belmonte(d, wp, PX)
+if BRINECOVE:
+    progress('drawing Brinecove streets, piers and roofs')
+    BC.draw(d, wp, PX)
 NAVY, NAVY_OUT = (52, 58, 92), (20, 22, 36)
 for b in V['buildings']: rect(b['position'][0], b['position'][1], b['width'], b['depth'], b['yaw'], NAVY, NAVY_OUT)
 for lot in W.get('houses', {}).get('lots', []):   # the houses on the main road: the lot (hedge outline), then the roof
@@ -355,6 +371,7 @@ def zone(key, name, polyline, near, face=None, hint=''):
     return dict(key=key, name=name, x=round(float(x), 2), y=round(float(y), 2), z=round(float(z), 2), yaw=round(yaw, 1), hint=hint)
 zones = []
 if BELMONTE: zones.extend(BELMONTE['zones'])
+if BRINECOVE: zones.extend(BRINECOVE['zones'])
 ps = W['player_start']
 zones.append(dict(key='spawn', name='Coastal road (spawn)', x=ps[0], y=ps[1], z=ps[2], yaw=ps[3], hint='Where the walk begins'))
 centre = np.mean([b['position'][:2] for b in V['buildings']], axis=0)

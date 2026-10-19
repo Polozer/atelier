@@ -24,6 +24,10 @@ REGIONS = (
          polygon=[[100., 1600.], [3300., 1600.], [3300., 3600.], [-850., 3600.], [-850., 1800.], [100., 1800.]], color='#9baab2'),
     dict(key='haras_valley', name='Haras Valley', bounds=[-950., 3600., 2500., 5900.],
          polygon=[[-950., 3600.], [3300., 3600.], [3300., 7100.], [-950., 7100.]], color='#83a080'),
+    # The western reach west of Momiji Coast (world/regions/brinecove/region.py), stepping round the foothills' corner.
+    dict(key='brinecove', name='Brinecove Reach', bounds=[-2880., -1080., -360., 600.], label=[-1600., -1000.],
+         polygon=[[-2560., -1080.], [-650., -1080.], [-650., 430.], [-850., 430.], [-850., 700.], [-2560., 700.]],
+         color='#c99a5e'),
 )
 WORLD_BOUNDS = [-4200., -1200., 4200., 7200.]
 ASSETS = Path(__file__).resolve().parent / 'atlas'
@@ -36,6 +40,8 @@ GEOGRAPHY_SOURCES = (
     'world/regions/southwest/island.py', 'world/train/route.py',
     'world/regions/skatepark/park.json', 'world/regions/craterpark/placement.py', 'world/regions/megapark/placement.py',
     'assets/belmonte/source.json', 'assets/vehicles/belmonte-train/line.json',
+    'world/regions/brinecove/region.py', 'world/regions/brinecove/layout.py', 'world/regions/brinecove/ground.py',
+    'world/regions/brinecove/plan.py',
 )
 STABLE_NAMES = (
     ('home_stables', 'Home Stables'), ('alder_stables', 'Alder Stables'),

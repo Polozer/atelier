@@ -1,0 +1,30 @@
+{
+  "stage": "brinecove-trellis-reference",
+  "prop": "ship-anchor",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/generations",
+  "execution": "games/yorimichi/proposals/pirate-coast/references/props.py",
+  "prompt_file": "ship-anchor.prompt.txt",
+  "prompt_sha256": "665766b3f28b4c79a0b98739c381f1a88689eb250f4a22da46686f896f5c4eae",
+  "status": "done",
+  "started_at": "2026-10-18T01:49:01.724245+00:00",
+  "elapsed_seconds": 31.9,
+  "output": "ship-anchor.png",
+  "output_sha256": "deb50c90a722a7a5aa47d3466291921561118330df3b2790fa1257ccaf8b748d",
+  "usage": {
+    "input_tokens": 144,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 144
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 1900
+  },
+  "finished_at": "2026-10-18T01:49:33.622952+00:00"
+}

@@ -13,7 +13,8 @@ def test_archive_moves_old_imports_and_preserves_current_data(tmp_path):
     ctx = SimpleNamespace(game_dir=tmp_path / 'game', out=tmp_path / 'build')
     content = ctx.game_dir / 'unreal/Content'
     active = ['Adventure/Reference/A_Idle.uasset', 'Belmonte/Meshes/SM_BM_NorthApron.uasset',
-              'Data/belmonte/runtime.json', 'CairoAdventure/DA_CairoAdventure.uasset',
+              'Data/belmonte/runtime.json', 'Brinecove/Harbor/SM_BC_Harbor_2_3.uasset',
+              'Data/brinecove/runtime.json', 'CairoAdventure/DA_CairoAdventure.uasset',
               'Cairo/SK_Cairo.uasset', 'Cairo/DA_CairoBase.uasset', 'Cairo/A_DoubleJump.uasset', 'Cairo/A_Wave.uasset',
               'Cairo/A_SwordParry.uasset', 'Cairo/M_CairoOutfit.uasset', 'Cairo/Textures/T_M_Cairo.uasset',
               'Modori/Adventure/A_Run.uasset', 'Modori/Textures/coat.uasset', 'Modori/PA_Modori_Cloth.uasset',
@@ -55,6 +56,16 @@ def test_archive_moves_old_imports_and_preserves_current_data(tmp_path):
         assert not (content / relative).exists()
         copies = list((ctx.out / 'retired-content').glob('*/' + relative))
         assert len(copies) == 1 and copies[0].read_bytes() == relative.encode()
+
+
+def test_every_staged_data_root_and_region_import_is_current():
+    """A staged file or region import outside the policy would be archived by every build, so the game never sees it."""
+    game = Path(__file__).resolve().parents[1]
+    runtime_spec = importlib.util.spec_from_file_location('yorimichi_runtime_data', game / 'runtime_data.py')
+    runtime_data = importlib.util.module_from_spec(runtime_spec)
+    runtime_spec.loader.exec_module(runtime_data)
+    assert {rel.split('/')[0] for rel in runtime_data.STAGED} <= policy.DATA_ROOTS
+    assert {'Belmonte', 'Brinecove'} <= policy.ASSET_ROOTS
 
 
 def test_optional_music_survives_only_when_a_selector_enables_it(tmp_path, monkeypatch):

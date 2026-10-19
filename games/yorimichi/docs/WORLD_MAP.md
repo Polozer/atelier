@@ -7,7 +7,8 @@ heightmaps, `hidamari/city.json`, the island and city height functions), never f
 only the artwork is painted. The tools live in [`games/yorimichi/world/map/`](../world/map/).
 
 The regions are **Momiji Coast**, **Momiji Woods**, **Hidamari**, **Temple Island**, **Northern Foothills**,
-**Volcanic Highlands**, and **Haras Valley** (the countryside around Belmonte). Search works across every region.
+**Volcanic Highlands**, **Haras Valley** (the countryside around Belmonte), and **Brinecove Reach** (the pirate port
+on the western coast, [`world/regions/brinecove`](../world/regions/brinecove/README.md)). Search works across every region.
 The world destination list always contains the complete current registry, including saved places, Ronin camp,
 air stations, both railway stations, the racecourses and skate parks. Travel still uses the original resolver,
 including safe marker returns, the active Crater Park drop-in and the train platform service.
@@ -126,6 +127,7 @@ and host-handler landings, standing capsule clearance, heading and health agains
 | Elsewhere | `forest_lake`, `megapark`, `skatepier`, `hippodrome`, `zeppelin_forest`, `zeppelin_city`, `zeppelin_megapark`, `zeppelin_belmonte` |
 | Volcano | `craterpark` (Crater Park: its marked ramp drop-in, looking across the park; [CRATERPARK.md](CRATERPARK.md)) |
 | Belmonte | `belmonte`, `belmonte_course`, `belmonte_training`, `belmonte_salon` (Salon des Paris, from `belmonte/runtime.json`) |
+| Brinecove | `brinecove_quay` (the quay at the market, from `brinecove/runtime.json`) |
 
 `UJapanMap` adds a `skatepier` stop from `skatepark/park.json`, and a `hippodrome` stop (by the grandstand, at the
 grandstand) from `hippodrome/hippodrome.json`, when `map.json` has none ([HIPPODROME.md](HIPPODROME.md)).

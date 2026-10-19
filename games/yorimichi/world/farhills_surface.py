@@ -13,13 +13,20 @@ from terrain_product import Mesh, load, save
 
 
 def owns_fine_ground(x, y, *, city):
-    return (-300. < x < 300. and -300. < y < 300.) or (city and 300. < x < 1420. and -300. < y < 500.)
+    """Where an exported fine terrain replaces the far hills: HD_Terrain, and with the city also Hidamari and
+    Brinecove (world/regions/brinecove/region.py, a rectangle on the 96-knot axis)."""
+    from brinecove import region as brinecove
+    return (-300. < x < 300. and -300. < y < 300.) or (city and 300. < x < 1420. and -300. < y < 500.) \
+        or (city and brinecove.owns(x, y))
 
 
 def generate(fine_count, *, city, progress=None):
     """@cc [owner:fontanierh,label:correctness] farhills-discrete-extraction
     Preserve the r8 grid/parent/rail lattice, hidden footprints and nonlinear
-    shape evaluation order. The existing original polygons MUST reach the one
+    shape evaluation order. The hidden footprints are exactly owns_fine_ground:
+    HD_Terrain, with the city also Hidamari and the Brinecove rectangle
+    (brinecove.region.owns, on the 96-knot axis), whose ground closes onto the
+    final product's hole rim. The existing original polygons MUST reach the one
     conforming earthworks call before any product triangulation. Appearance,
     scenery and Blender object creation do not own or change these arrays.
     """
