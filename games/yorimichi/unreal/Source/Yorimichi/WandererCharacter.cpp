@@ -1,4 +1,5 @@
 #include "WandererCharacter.h"
+#include "RacingBetting.h"
 #include "BelmonteTrainService.h"
 #include "CraterParkTower.h"
 #include "AtelierExit.h"
@@ -1149,6 +1150,8 @@ void AWandererCharacter::ZeppelinStep(int32 Direction)
     else if(bReady&&!bMenuOpen)GetZeppelin()->ChooseDestination(this,Direction);
 }
 void AWandererCharacter::Interact(const FInputActionValue&) {
+ // The Salon des Paris's betting windows (docs/RACING.md, "Betting"): the same on a host, a guest or offline.
+ if (RacingCounter::TryOpen(this)) return;
  if (JapanNetwork::IsOnline(GetWorld()))
  {
   if (IsLocallyControlled() && bReady && !bMenuOpen && !SkateRide->IsRiding() && !OnVehicle() && !IsZeppelinPassenger() && ABelmonteTrainService::CanInteract(this))

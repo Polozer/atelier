@@ -16,6 +16,7 @@
 #include "SwordTrainer.h"
 #include "LiveLibrary.h"
 #include "BelmonteTrainService.h"
+#include "RacingBetting.h"
 #include "RacingService.h"
 #include "YorimichiLive.h"
 #include "EngineUtils.h"
@@ -403,6 +404,41 @@ void AJapanHUD::DrawHUD()
             const float X = Canvas->SizeX * .5f - W * S * .5f, Y = Canvas->SizeY * .065f;
             DrawRect(FLinearColor(0, 0, 0, .42f), X - 12, Y - 6, W * S + 24, H * S + 12);
             DrawText(Line, FLinearColor(1.f, .93f, .78f), X, Y, Font, S);
+        }
+    }
+    // The racing wallet (docs/RACING.md, "Betting"): the purse under the health bar, a settled ticket's line, and the
+    // prompt at the Salon des Paris's windows.
+    if (const URacingWallet* Wallet = URacingWallet::Local(GetWorld()))
+    {
+        const FRacingWalletView& Purse = Wallet->GetView();
+        if (Purse.bActive && !bSailboat && !Pawn->IsZeppelinPassenger())
+        {
+            FString Line = FString::Printf(TEXT("%d pièces"), Purse.Coins);
+            if (const int32 Open = Purse.OpenCount()) Line += FString::Printf(TEXT("   ·   %d pari%s en cours"), Open, Open > 1 ? TEXT("s") : TEXT(""));
+            const float X = 112.f, Y = Canvas->SizeY - 111.f;
+            DrawRect(FLinearColor(0, 0, 0, .45f), X - 1, Y + 3, 9, 9);
+            DrawRect(FLinearColor(.88f, .7f, .36f), X, Y + 4, 7, 7);
+            DrawText(Line, FLinearColor(.96f, .88f, .66f), X + 14, Y, Font, 1.f);
+        }
+        float Alpha = 0.f;
+        const FString Result = Wallet->GetToast(Alpha);
+        if (!Result.IsEmpty())
+        {
+            float W = 0.f, H = 0.f; Canvas->StrLen(Font, Result, W, H);
+            const float S = FMath::Min(1.25f, (Canvas->SizeX - 60.f) / FMath::Max(1.f, W));
+            const float X = Canvas->SizeX * .5f - W * S * .5f, Y = Canvas->SizeY * .115f;
+            DrawRect(FLinearColor(.04f, .09f, .07f, .72f * Alpha), X - 16, Y - 7, W * S + 32, H * S + 14);
+            DrawRect(FLinearColor(.79f, .63f, .35f, .9f * Alpha), X - 16, Y + H * S + 7, W * S + 32, 2);
+            DrawText(Result, FLinearColor(1.f, .9f, .66f, Alpha), X, Y, Font, S);
+        }
+        if (RacingCounter::CanUse(Pawn))
+        {
+            const float Scale = Canvas->SizeY / 1080.f;
+            const FString Ask = FString::Printf(TEXT("%s   Parier au guichet (Salon des Paris)"), bController ? TEXT("D-pad Down") : TEXT("E"));
+            float W = 0.f, H = 0.f; Canvas->StrLen(Font, Ask, W, H); const float S = 1.3f * FMath::Max(Scale, .75f);
+            const float X = Canvas->SizeX * .5f - W * S * .5f, Y = Canvas->SizeY * .7f;
+            DrawRect(FLinearColor(0, 0, 0, .45f), X - 14, Y - 8, W * S + 28, H * S + 16);
+            DrawText(Ask, FLinearColor(1.f, .9f, .74f), X, Y, Font, S);
         }
     }
 

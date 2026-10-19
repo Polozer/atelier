@@ -64,7 +64,7 @@ def test_normal_belmonte_producer_retires_superseded_glbs_without_touching_sourc
         finish_surfaces=lambda _: {'paint': {'name': 'Paint', 'texture': None}}, glb_parts=glb_parts,
         surroundings=surroundings, np=np, planting=SimpleNamespace(replacements=lambda *a: ({}, {}), woodland=lambda _: {}),
         clear_railway=lambda _: {}, L=SimpleNamespace(ORIGIN=[0, 0, 0], native_origin=lambda: [0, 0, 0],
-            BOUNDS=[0, 0, 10, 10], RAILWAY={}), map_zones=lambda _: [], tv_spots=lambda _: [],
+            BOUNDS=[0, 0, 10, 10], RAILWAY={}), map_zones=lambda _: [], tv_spots=lambda _: [], racing_places=lambda _: {},
         source_records=model_files.source_records, retain_files=model_files.retain_files, model_pieces=pieces, Path=Path)
     exec(compile(ast.Module(body=[main], type_ignores=[]), str(script), 'exec'), scope)
     producer = replace(RECIPE.belmonte_steps(out)[0], commands=[build.Call('real producer', lambda ctx, log: scope['main']())],
