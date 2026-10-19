@@ -19,6 +19,7 @@ def broker_record(*, roster=None, exited=None, ancestry_unknown=False, state='un
                   exited=[] if exited is None else exited, ancestry_unknown=ancestry_unknown,
                   nonce='fixture', principal=[100, 1000], child=root, heartbeat=0)
     broker = object.__new__(CapacityBroker)
+    broker._queue_status = broker._advisory_budget = None
     broker.mode = 'legacy-bridge'
     broker.compatible = True
     broker.lease_seconds = 10
