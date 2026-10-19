@@ -121,13 +121,13 @@ def test_guest_clean_exit_can_precede_host_disconnect_receipt(monkeypatch, failu
         assert host_receipt[0]
 
 
-@pytest.mark.parametrize('value, limit', [('10', 10.), ('12.5', 12.5), ('14', 14.)])
+@pytest.mark.parametrize('value, limit', [('10', 10.), ('12.5', 12.5), ('14', 14.), ('18', 18.), ('24', 24.)])
 def test_memory_ceiling_accepts_the_documented_game_range(value, limit):
     from review_map_network import memory_limit
     assert memory_limit(value) == limit
 
 
-@pytest.mark.parametrize('value', ['9.9', '14.1', '0', '-12', 'nan', 'inf', '1e400', 'twelve', ''])
+@pytest.mark.parametrize('value', ['9.9', '24.1', '0', '-12', 'nan', 'inf', '1e400', 'twelve', ''])
 def test_memory_ceiling_rejects_values_outside_the_game_range(value):
     import argparse
     from review_map_network import memory_limit
@@ -135,7 +135,7 @@ def test_memory_ceiling_rejects_values_outside_the_game_range(value):
         memory_limit(value)
 
 
-@pytest.mark.parametrize('argv, limit', [([], 10.), (['--memory-gib', '14'], 14.), (['--memory-gib', '12.5'], 12.5)])
+@pytest.mark.parametrize('argv, limit', [([], 10.), (['--memory-gib', '14'], 14.), (['--memory-gib', '18'], 18.)])
 def test_selected_ceiling_reaches_the_aggregate_guard_and_the_worker(tmp_path, monkeypatch, argv, limit):
     import review_map_network as review
     calls = []
@@ -154,13 +154,13 @@ def test_selected_ceiling_reaches_the_aggregate_guard_and_the_worker(tmp_path, m
 def test_main_refuses_an_out_of_range_ceiling_before_any_launch(tmp_path, monkeypatch):
     import review_map_network as review
     monkeypatch.setattr(review.guarded, 'run', lambda *a, **k: pytest.fail('launched'))
-    monkeypatch.setattr(sys, 'argv', ['review', '--zone', 'indoor', '--out', str(tmp_path / 'run'), '--memory-gib', '18'])
+    monkeypatch.setattr(sys, 'argv', ['review', '--zone', 'indoor', '--out', str(tmp_path / 'run'), '--memory-gib', '25'])
     with pytest.raises(SystemExit) as stop:
         review.main()
     assert stop.value.code == 2
 
 
-@pytest.mark.parametrize('limit', [10., 14.])
+@pytest.mark.parametrize('limit', [10., 18.])
 def test_worker_gives_each_actual_game_guard_the_selected_ceiling(tmp_path, monkeypatch, limit):
     from contextlib import contextmanager
     from types import SimpleNamespace
