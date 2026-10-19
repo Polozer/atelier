@@ -1,4 +1,5 @@
 #include "JapanAtlasWidget.h"
+#include "JapanAtlasLabels.h"
 #include "JapanMap.h"
 #include "JapanMarkers.h"
 #include "JapanHUD.h"
@@ -156,52 +157,107 @@ public:
         TArray<TSharedPtr<FJsonValue>> Keys;for(const auto& T:Targets())Keys.Add(MakeShared<FJsonValueString>(T.Key));O->SetArrayField(TEXT("targets"),Keys);
         FString Result;FJsonSerializer::Serialize(O,TJsonWriterFactory<>::Create(&Result));return Result;
     }
-    virtual int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle&,bool) const override
+    virtual int32 OnPaint(const FPaintArgs&, const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle&,bool) const override
     {
         const auto* M=Map.Get(); if (!M) return Layer; Fit(G);
-        FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(),White(),ESlateDrawEffect::None,C(TEXT("B9A379")));
+        const auto& Air=M->GetAtlasAirRoute();
+        auto AirStop=[&Air](const FString& Key)->const FJapanAtlasAirStop*
+        { return Air.Stops.FindByPredicate([&Key](const FJapanAtlasAirStop& S){return S.Key==Key;}); };
+        const FVector2D Area=G.GetLocalSize();
+        const FLinearColor Background=View==TEXT("world")?C(TEXT("0E1B18")):C(TEXT("B9A379"));
+        FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(),White(),ESlateDrawEffect::None,Background);
         FSlateDrawElement::MakeBox(Out,Layer+1,G.ToPaintGeometry(FVector2f(Size),FSlateLayoutTransform(FVector2f(Offset))),M->GetAtlasBrush(),ESlateDrawEffect::None,FLinearColor::White);
+        if (Air.Stops.Num() && Air.Legs.Num())
+        {
+            for (const auto& Leg : Air.Legs)
+            {
+                const auto* A=AirStop(Leg.From); const auto* B=AirStop(Leg.To); if (!A || !B) continue;
+                const FVector2D PA=Offset+M->ToAtlas(A->Location)*Size, PB=Offset+M->ToAtlas(B->Location)*Size;
+                FSlateDrawElement::MakeLines(Out,Layer+2,G.ToPaintGeometry(),{FVector2f(PA),FVector2f(PB)},ESlateDrawEffect::None,FLinearColor(.02f,.05f,.06f,.35f),true,3.5f);
+                DashedLine(Out,Layer+2,G,PA,PB,Gold,1.5f,10.f,7.f);
+                AirChevron(Out,Layer+2,G,PA,PB,Gold);
+            }
+            for (const auto& Stop : Air.Stops)
+            {
+                const FVector2D P=Offset+M->ToAtlas(Stop.Location)*Size;
+                AirDiamond(Out,Layer+2,G,P,7.f,Gold);
+            }
+        }
         if (View==TEXT("world")) for (const auto& R:M->GetAtlasRegions()) if (R.Key==Hot)
         {
             TArray<FVector2f> P;
             for (const auto& V:R.Polygon) P.Add(FVector2f(Offset+M->ToAtlas(FVector(V.X*100.,-V.Y*100.,0))*Size));
             if (!P.IsEmpty()) { const FVector2f First=P[0]; P.Add(First); FSlateDrawElement::MakeLines(Out,Layer+2,G.ToPaintGeometry(),P,ESlateDrawEffect::None,Gold,true,2.f); }
         }
-        TArray<FSlateRect> Labels;
+
         const auto TargetsNow=Targets();
-        for (int32 Pass=0;Pass<2;++Pass) for (const auto& T:TargetsNow)
+        TArray<FAtlasLabelRequest> Requests;
+        TArray<FAtlasLabelBox> Obstacles;
+        TArray<FVector2D> Anchors;
+        Requests.Reserve(TargetsNow.Num()); Anchors.Reserve(TargetsNow.Num());
+        for (const auto& T:TargetsNow)
         {
-            const bool Hover=T.Key==Hot; if (Hover!=(Pass==1)) continue;
-            const FVector2D UV=M->ToAtlas(T.Location),P=Offset+UV*Size;
-            if (UV.X<0 || UV.X>1 || UV.Y<0 || UV.Y>1) continue;
-            const bool Region=T.Category==TEXT("region"),Stable=T.bEditable,Marker=T.Category==TEXT("marker");
-            if(Region && !T.Link.Equals(T.Location,1.))
-            {
-                const FVector2D Link=Offset+M->ToAtlas(T.Link)*Size;
-                FSlateDrawElement::MakeLines(Out,Layer+2,G.ToPaintGeometry(),{FVector2f(Link),FVector2f(P)},ESlateDrawEffect::None,Gold.CopyWithNewOpacity(.8f),true,1.2f);
-                Disc(Out,Layer+3,G,Link,3.f,Gold);
-            }
+            const bool Region=T.Category==TEXT("region"),Stable=T.bEditable,Marker=T.Category==TEXT("marker"),Hover=T.Key==Hot;
+            const int32 PointSize=Region?17:Hover?15:12;
+            const FVector2D P=Offset+M->ToAtlas(T.Location)*Size;
+            Anchors.Add(P);
+            FAtlasLabelRequest Request;
+            Request.Anchor=P; Request.Size=Measure(T.Name,PointSize,true)+FVector2D(10,4);
+            Request.Priority=Region?100:Hover?1000:Marker?70:Stable?60:T.Category==TEXT("player")?90:T.Category==TEXT("station")?55:50;
+            Request.bForce=Hover; Request.bCentered=Region;
+            Requests.Add(Request);
             if (!Region)
             {
-                Disc(Out,Layer+3,G,P,Hover?11.f:8.f,C(TEXT("21382D")));
-                Ring(Out,Layer+4,G,P,Hover?12.f:9.f,1.4f,Gold);
-                DrawText(Out,Layer+5,G,T.Category==TEXT("player")?TEXT("P"):Marker?TEXT("M"):Stable?TEXT("◇"):T.Category==TEXT("station")?TEXT("T"):TEXT("•"),P,11,Gold,false,true);
+                const float Radius=Hover?14.f:11.f;
+                Obstacles.Add(AtlasLabelLayout::BoxAt(P-FVector2D(Radius,Radius),FVector2D(Radius*2,Radius*2)));
             }
-            const int32 PointSize=Region?17:Hover?15:12;
-            const auto TextSize=Measure(T.Name,PointSize,true);
-            FVector2D Label=P+FVector2D(0,Region?0:-TextSize.Y-13);
-            if (Region) Label=P-TextSize*.5;
-            else Label.X-=TextSize.X*.5;
-            Label.X=FMath::Clamp(Label.X,4.,FMath::Max(4.,G.GetLocalSize().X-TextSize.X-8.));
-            Label.Y=FMath::Clamp(Label.Y,4.,FMath::Max(4.,G.GetLocalSize().Y-TextSize.Y-8.));
-            FSlateRect Rect(Label.X-4,Label.Y-2,Label.X+TextSize.X+4,Label.Y+TextSize.Y+2);
-            bool Collision=false;
-            for (const auto& Existing:Labels) if (FSlateRect::DoRectanglesIntersect(Rect,Existing)) { Collision=true;break; }
-            if (Collision && !Hover && !Region) continue;
-            Labels.Add(Rect);
-            FSlateDrawElement::MakeBox(Out,Layer+6,G.ToPaintGeometry(FVector2f(TextSize+FVector2D(10,4)),FSlateLayoutTransform(FVector2f(Label-FVector2D(5,2)))),White(),ESlateDrawEffect::None,C(TEXT("EBD7AC")).CopyWithNewOpacity(Hover?.98f:.82f));
-            DrawText(Out,Layer+7,G,T.Name,Label,PointSize,Ink,true,false);
         }
+        if (const auto* Pawn=M->GetOwnerPawn())
+        {
+            const auto UV=M->ToAtlas(Pawn->GetActorLocation());
+            if (UV.X>=0 && UV.X<=1 && UV.Y>=0 && UV.Y<=1)
+            {
+                const FVector2D P=Offset+UV*Size;
+                Obstacles.Add(AtlasLabelLayout::BoxAt(P-FVector2D(26,26),FVector2D(52,52)));
+            }
+        }
+        const int32 AirLabelStart=Requests.Num();
+        TArray<FString> AirLabelText;
+        for (const auto& Leg : Air.Legs)
+        {
+            const auto* A=AirStop(Leg.From); const auto* B=AirStop(Leg.To); if (!A || !B) continue;
+            const FVector2D Mid=M->ToAtlas((A->Location+B->Location)*.5f);
+            if (Mid.X<0.f || Mid.X>1.f || Mid.Y<0.f || Mid.Y>1.f) continue;
+            const FString Time=FString::Printf(TEXT("%.0fs"),Leg.Seconds);
+            FAtlasLabelRequest R; R.Anchor=Offset+Mid*Size; R.Size=Measure(Time,10,false)+FVector2D(8,2);
+            R.Priority=30; R.bCentered=true;
+            Requests.Add(R); AirLabelText.Add(Time);
+        }
+        const auto Placements=AtlasLabelLayout::LayOut(Requests,Obstacles,Area,16.f,8.f);
+
+        // Region captions are placed first and keep a leader back to their true centre.
+        for (int32 I=0;I<TargetsNow.Num();++I)
+        {
+            const auto& T=TargetsNow[I];
+            if (T.Category!=TEXT("region") || !Placements[I].bVisible || T.Link.Equals(T.Location,1.)) continue;
+            const FVector2D Link=Offset+M->ToAtlas(T.Link)*Size;
+            const FVector2D Centre=Placements[I].Position+Requests[I].Size*.5f;
+            FSlateDrawElement::MakeLines(Out,Layer+2,G.ToPaintGeometry(),{FVector2f(Link),FVector2f(Centre)},ESlateDrawEffect::None,Gold.CopyWithNewOpacity(.8f),true,1.2f);
+            Disc(Out,Layer+3,G,Link,3.f,Gold);
+        }
+
+        // Pins stay put; only their labels move.
+        for (int32 I=0;I<TargetsNow.Num();++I)
+        {
+            const auto& T=TargetsNow[I];
+            if (T.Category==TEXT("region")) continue;
+            const bool Hover=T.Key==Hot,Marker=T.Category==TEXT("marker"),Stable=T.bEditable;
+            const FVector2D P=Anchors[I];
+            Disc(Out,Layer+3,G,P,Hover?11.f:8.f,C(TEXT("21382D")));
+            Ring(Out,Layer+4,G,P,Hover?12.f:9.f,1.4f,Gold);
+            DrawText(Out,Layer+5,G,T.Category==TEXT("player")?TEXT("P"):Marker?TEXT("M"):Stable?TEXT("◇"):T.Category==TEXT("station")?TEXT("T"):TEXT("•"),P,11,Gold,false,true);
+        }
+
         if (const auto* Pawn=M->GetOwnerPawn())
         {
             const auto UV=M->ToAtlas(Pawn->GetActorLocation());
@@ -214,8 +270,33 @@ public:
                 FSlateDrawElement::MakeLines(Out,Layer+9,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Cream,true,3.f);
             }
         }
-        if (bPad) {const auto P=Offset+Cursor*Size;Ring(Out,Layer+10,G,P,Hot.IsEmpty()?13:18,4,C(TEXT("182C23")));Ring(Out,Layer+11,G,P,Hot.IsEmpty()?13:18,1.5f,Cream);}
-        return Layer+12;
+        for (int32 I=AirLabelStart;I<Requests.Num();++I)
+        {
+            if (!Placements[I].bVisible) continue;
+            const FVector2D Pos=Placements[I].Position, Extent=Requests[I].Size;
+            FSlateDrawElement::MakeBox(Out,Layer+10,G.ToPaintGeometry(FVector2f(Extent),FSlateLayoutTransform(FVector2f(Pos))),White(),ESlateDrawEffect::None,C(TEXT("132D41")).CopyWithNewOpacity(.88f));
+            DrawText(Out,Layer+11,G,AirLabelText[I-AirLabelStart],Pos+FVector2D(4,1),10,Gold,false,false);
+        }
+
+        // Labels are drawn after the pins, with the hovered label last and on top.
+        for (int32 Pass=0;Pass<2;++Pass) for (int32 I=0;I<TargetsNow.Num();++I)
+        {
+            const auto& T=TargetsNow[I]; const bool Hover=T.Key==Hot;
+            if (Hover!=(Pass==1) || !Placements[I].bVisible) continue;
+            const FVector2D Pos=Placements[I].Position, Extent=Requests[I].Size;
+            if (Placements[I].bLeader)
+            {
+                const FVector2D P=Anchors[I];
+                const FVector2D Edge(FMath::Clamp(P.X,Pos.X,Pos.X+Extent.X),FMath::Clamp(P.Y,Pos.Y,Pos.Y+Extent.Y));
+                FSlateDrawElement::MakeLines(Out,Layer+10,G.ToPaintGeometry(),{FVector2f(P),FVector2f(Edge)},ESlateDrawEffect::None,Ink.CopyWithNewOpacity(.55f),true,1.f);
+            }
+            const int32 PointSize=T.Category==TEXT("region")?17:Hover?15:12;
+            FSlateDrawElement::MakeBox(Out,Layer+11,G.ToPaintGeometry(FVector2f(Extent),FSlateLayoutTransform(FVector2f(Pos))),White(),ESlateDrawEffect::None,C(TEXT("EBD7AC")).CopyWithNewOpacity(Hover?.98f:.88f));
+            DrawText(Out,Layer+12,G,T.Name,Pos+FVector2D(5,2),PointSize,Ink,true,false);
+        }
+
+        if (bPad) {const auto P=Offset+Cursor*Size;Ring(Out,Layer+13,G,P,Hot.IsEmpty()?13:18,4,C(TEXT("182C23")));Ring(Out,Layer+14,G,P,Hot.IsEmpty()?13:18,1.5f,Cream);}
+        return Layer+15;
     }
     virtual void Tick(const FGeometry& G,double Now,float Dt) override
     {
@@ -337,6 +418,28 @@ private:
     static FVector2D Measure(const FString& S,int32 Size,bool Serif){return FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->Measure(S,Font(Size,Serif));}
     void DrawText(FSlateWindowElementList& Out,int32 L,const FGeometry& G,const FString& S,FVector2D P,int32 PointSize,const FLinearColor& Colour,bool Serif,bool Center) const
     {const auto Extent=Measure(S,PointSize,Serif);if(Center)P-=Extent*.5;FSlateDrawElement::MakeText(Out,L,G.ToPaintGeometry(FVector2f(Extent),FSlateLayoutTransform(FVector2f(P))),S,Font(PointSize,Serif),ESlateDrawEffect::None,Colour);}
+    void DashedLine(FSlateWindowElementList& Out,int32 L,const FGeometry& G,const FVector2D& A,const FVector2D& B,const FLinearColor& Colour,float Thickness,float Dash,float Gap) const
+    {
+        const FVector2D D=B-A; const float Length=D.Size(); if (Length<1.f) return;
+        const FVector2D U=D/Length;
+        for (float T=0.f;T<Length;T+=Dash+Gap)
+        {
+            const float E=FMath::Min(T+Dash,Length);
+            FSlateDrawElement::MakeLines(Out,L,G.ToPaintGeometry(),{FVector2f(A+U*T),FVector2f(A+U*E)},ESlateDrawEffect::None,Colour,true,Thickness);
+        }
+    }
+    void AirDiamond(FSlateWindowElementList& Out,int32 L,const FGeometry& G,const FVector2D& P,float R,const FLinearColor& Colour) const
+    {
+        TArray<FVector2f> Points={FVector2f(P+FVector2D(0,-R)),FVector2f(P+FVector2D(R,0)),FVector2f(P+FVector2D(0,R)),FVector2f(P+FVector2D(-R,0)),FVector2f(P+FVector2D(0,-R))};
+        FSlateDrawElement::MakeLines(Out,L,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Colour,true,1.5f);
+    }
+    void AirChevron(FSlateWindowElementList& Out,int32 L,const FGeometry& G,const FVector2D& A,const FVector2D& B,const FLinearColor& Colour) const
+    {
+        const FVector2D D=B-A; if (D.Size()<1.f) return;
+        const FVector2D U=D/D.Size(), N(-U.Y,U.X), M=(A+B)*.5f;
+        TArray<FVector2f> Points={FVector2f(M+U*6.f),FVector2f(M-U*4.f+N*5.f),FVector2f(M-U*4.f-N*5.f),FVector2f(M+U*6.f)};
+        FSlateDrawElement::MakeLines(Out,L,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Colour,true,1.5f);
+    }
     void Disc(FSlateWindowElementList& Out,int32 L,const FGeometry& G,const FVector2D& P,float R,const FLinearColor& Colour) const
     {FSlateDrawElement::MakeBox(Out,L,G.ToPaintGeometry(FVector2f(R*2,R*2),FSlateLayoutTransform(FVector2f(P-FVector2D(R,R)))),&DiscBrush,ESlateDrawEffect::None,Colour);}
     static void Ring(FSlateWindowElementList& Out,int32 L,const FGeometry& G,const FVector2D& P,float R,float Width,const FLinearColor& Colour)
@@ -381,6 +484,7 @@ public:
                +SVerticalBox::Slot().AutoHeight()[Text(TEXT("REGION ATLAS"),10,Gold)]
                +SVerticalBox::Slot().AutoHeight().Padding(0,10,0,5)[SNew(STextBlock).Font(Font(26,true)).ColorAndOpacity(Cream).AutoWrapText(true).Text_Lambda([this]{return FText::FromString(Map.IsValid()?Map->GetAtlasTitle():FString());})]
                +SVerticalBox::Slot().AutoHeight().Padding(0,3,0,15)[Button(TEXT("←  World overview"),[this]{if(auto* P=Map.Get())P->SelectAtlasRegion(TEXT("world"));})]
+               +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Gold).AutoWrapText(true).Text_Lambda([this]{return FText::FromString(AirLegend());})]
                +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[SNew(SAtlasOverview).Map(M).Visibility_Lambda([this]{return Map.IsValid()&&Map->GetAtlasRegion()!=TEXT("world")?EVisibility::Visible:EVisibility::Collapsed;})]
                +SVerticalBox::Slot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[SAssignNew(Rows,SVerticalBox)]]
                +SVerticalBox::Slot().AutoHeight().Padding(0,8,0,0)[SAssignNew(StableEditor,SVerticalBox)]
@@ -422,6 +526,19 @@ public:
     FString ControllerSnapshot() const { return Sheet->Snapshot(); }
 private:
     TWeakObjectPtr<UJapanMap> Map;TSharedPtr<SAtlasSheet> Sheet;TSharedPtr<SVerticalBox> Rows,StableEditor;uint32 LastSignature=0;
+    FString AirLegend() const
+    {
+        const auto* M=Map.Get(); if (!M) return FString();
+        const auto& Air=M->GetAtlasAirRoute(); if (Air.Stops.Num()<2 || Air.Legs.IsEmpty()) return FString();
+        FString Names, Times;
+        for (int32 I=0;I<Air.Stops.Num();++I)
+        {
+            FString Name=Air.Stops[I].Name; Name.ReplaceInline(TEXT(" air station"),TEXT(""));
+            if (I) Names+=TEXT("  ↔  "); Names+=Name;
+        }
+        for (int32 I=0;I<Air.Legs.Num();++I) { if (I) Times+=TEXT(" · "); Times+=FString::Printf(TEXT("%.0fs"),Air.Legs[I].Seconds); }
+        return TEXT("ZEPPELIN · ")+Names+TEXT("  ·  ")+Times;
+    }
     void Refresh()
     {
         auto* M=Map.Get();if(!M)return;Rows->ClearChildren();StableEditor->ClearChildren();M->StableName.Reset();

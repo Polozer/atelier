@@ -5,6 +5,7 @@ all old sessions and retains their allocations. Release uses exact retained exit
 exclusive monitored-tree cleanup policy; neither establishes universal process-tree discovery.
 """
 from dataclasses import asdict
+import array
 import fcntl
 import hashlib
 import hmac
@@ -31,14 +32,21 @@ MAX_DATABASE = 32 * 1024 * 1024
 HELD = {'running', 'draining', 'uncertain'}
 
 
+class PressureWait(wire.CapacityError):
+    """An ordinary complete-memory deficit; never a failed guard or stale observation."""
+
+
 class CapacityBroker:
     """@cc [owner:fontanierh,label:safety] production-serialized-capacity-gate
     Queued offers MUST charge no resources. Final complete-vector and lock accounting MUST commit
     before this broker's sole gate writer releases a child, in one serialized actor turn. Restart,
     lost health and missing exit evidence MUST retain grants. No process MAY be signalled here.
-    Explicit operator-directed administrative abandonment of an interrupted exclusive compile MAY
-    separately use current kernel quiescence under the administrative policy; it MUST NOT certify
-    outputs or run through ordinary close/reconcile. Exact exit evidence covers the retained roster only. Bridge and performance-exclusive grants
+    Explicit operator-directed administrative abandonment MAY separately use current kernel
+    quiescence for an interrupted exclusive compile, or a completed nonexclusive job with its
+    original bound normal empty terminal, exact monitor/report fences and strictly absent
+    controller/guards/retained identities. Both MUST require no other charge and two complete
+    same-user censuses under the administrative policy. Neither MAY certify outputs or run
+    through ordinary close/reconcile. Exact exit evidence covers the retained roster only. Bridge and performance-exclusive grants
     MAY instead use a positively exited root plus its bound aggregate guard's terminal empty-tree
     cleanup receipt; that witnesses the monitored owned tree, not every descendant's kernel exit.
     The adapter MUST retain exclusive legacy exclusion in bridge
@@ -313,11 +321,12 @@ class CapacityBroker:
             try:
                 proof = self._compatibility_proof()
                 self.compatible = proof['activation_id'] == self.activation_id
+                if not self.compatible:
+                    self._report_compatibility_failure(
+                        state, wire.CapacityError('Capacity activation changed'), phase='refresh')
             except (OSError, ValueError, wire.CapacityError) as error:
                 self.compatible = False
-                print('capacity compatibility failure: ' + json.dumps(dict(
-                    phase='compatibility', error_type=type(error).__name__,
-                    errno=error.errno if isinstance(error, OSError) else None)), file=sys.stderr, flush=True)
+                self._report_compatibility_failure(state, error, phase='refresh')
         for record in state['records'].values():
             if record['state'] == 'released':
                 continue  # Historical proof is immutable, not a live polling roster.
@@ -619,55 +628,81 @@ class CapacityBroker:
         print('capacity start refused: ' + json.dumps(dict(reason=reason, observed_at=time.time())),
               file=sys.stderr, flush=True)
 
-    def _lost_offer(self, state, record, principal, message):
+    def _lost_offer(self, state, record, principal, message, *, reason='selection-changed'):
         """@cc [owner:fontanierh,label:safety] unexecuted-selection-loss
-        A typed selection-change denial MUST require a queued, fenced session, a still-pending
+        A typed selection-change or pressure-wait denial MUST require a queued, fenced session, a still-pending
         broker-owned gate and a verified direct child. It MUST close that gate without writing GO,
         changing the request age or charging resources. Other refusal reasons MUST stay errors.
         """
-        reason = ('not-queued' if record['state'] != 'queued' else
+        invalid = ('not-queued' if record['state'] != 'queued' else
                   'gate-unavailable' if record['nonce'] not in self._gates else
                   'compatibility' if not self.compatible else
                   'recovery' if any(r['state'] == 'uncertain' for r in state['records'].values()) else None)
-        if reason is not None:
-            self._start_refusal(reason)
+        if invalid is not None:
+            self._start_refusal(invalid)
             raise wire.CapacityError('Capacity offer is no longer selected')
         child = wire.identity(message['child'])
         if not self.child_of(principal, child):
             self._start_refusal('child-identity')
             raise wire.CapacityError('Launcher is not the pinned direct child')
-        self._start_refusal('selection-changed')
+        self._start_refusal(reason)
         self._gate_close(record['nonce'])  # EOF may end this owned gate child; no GO was written.
-        return dict(state='queued', admission=False, no_go=True, reason='selection-changed',
+        return dict(state='queued', admission=False, no_go=True, reason=reason,
                     nonce=record['nonce'], epoch=state['epoch'], child=list(child))
 
-    def _selection(self, state):
+    def _selection(self, state, *, pressure=False, advisory=False):
+        """@cc [owner:fontanierh,label:safety] pressure-aware-uncharged-offer
+        Offers MUST stay uncharged and retain ready age, sequence and bypass protection while
+        complete memory is unavailable. Pressure-aware ranking MUST use one fresh observation
+        and full validated remaining peer growth. After two bypasses or 900 seconds of original
+        ready age, the oldest protected feasible request MUST drain before younger work,
+        including performance-exclusive requests. Named-lock-blocked requests MUST retain their
+        age/protection but MUST NOT impose an unrelated broker-wide drain.
+        Missing advisory observations MUST keep offers queued without mutating holder health;
+        final start observations MUST still fail closed on unavailable enforcement.
+        This eligibility observation MUST NOT replace the final guarded GO pressure proof.
+        """
         if not self.compatible or any(r['state'] == 'uncertain' for r in state['records'].values()):
             return None  # Accounting alone cannot replace a lost enforcement/ownership boundary.
         holders = [self._model(r) for r in state['records'].values() if r['state'] in HELD]
         queued = sorted((r for r in state['records'].values() if r['state'] == 'queued'), key=lambda r: r['sequence'])
         feasible = [r for r in queued if not conflicts(self._model(r), [], self.total, self.reserve)]
-        protected = next((r for r in feasible if r.get('bypasses', 0) >= 2), None)
+        held_locks = {lock for holder in holders for lock in holder.locks}
+        protected = next((r for r in feasible if not held_locks.intersection(r['request']['locks'])
+                          and (r.get('bypasses', 0) >= 2 or time.time() - r['first_ready'] >= 900.)), None)
         ranked = sorted(feasible, key=lambda r: (r is not protected if protected else False,
                                                 r['request']['seconds'] > 300, r['sequence']))
         if not ranked:
             return None
+        budget = None
         for record in ranked:
             if not conflicts(self._model(record), holders, self.total, self.reserve):
+                if pressure:
+                    if budget is None:
+                        budget = self._pressure_budget(state, advisory=advisory)
+                        if budget is None:
+                            return None
+                    memory, growth = budget
+                    required = record['request']['resources']['memory_mib'] + self.reserve.memory_mib + growth
+                    if memory < required:
+                        if record is protected:
+                            break
+                        continue
                 return record
             if record is protected:
                 break
         return None
 
-    def _pressure(self, state, candidate):
+    def _pressure_budget(self, state, candidate=None, *, advisory=False):
         observation = self.observe()
         now = self._clock()
         if (type(observation) is not dict or type(observation.get('observed_monotonic')) not in (float, int)
                 or not math.isfinite(observation['observed_monotonic'])
                 or not 0 <= now - observation['observed_monotonic'] <= 2):
+            if advisory:
+                return None
             raise wire.CapacityError('Fresh capacity pressure observation unavailable')
         memory = wire.integer(observation.get('available_memory_mib'))
-        required = wire.resources(candidate['request']['resources']) + self.reserve
         growth_memory = 0
         for record in state['records'].values():
             if record is candidate or record['state'] not in HELD:
@@ -680,11 +715,18 @@ class CapacityBroker:
                                         record['limit_bytes'], vector.memory_mib)
                     measured = facts.footprint_bytes // 1024**2
                 except (OSError, ValueError, KeyError, wire.CapacityError):
+                    if advisory:
+                        return None
                     record['state'] = 'draining' if self._root_exited(record) else 'uncertain'
                     raise wire.CapacityError('Existing holder enforcement is unavailable; reservation retained') from None
             growth_memory += max(0, vector.memory_mib - measured)
-        if memory < required.memory_mib + growth_memory:
-            raise wire.CapacityError('Capacity pressure refuses the complete reservation')
+        return memory, growth_memory
+
+    def _pressure(self, state, candidate):
+        memory, growth = self._pressure_budget(state, candidate)
+        required = candidate['request']['resources']['memory_mib'] + self.reserve.memory_mib + growth
+        if memory < required:
+            raise PressureWait('Capacity pressure refuses the complete reservation')
 
     def _validate_holders(self, state, candidate):
         """@cc [owner:fontanierh,label:safety] final-charged-peer-enforcement
@@ -717,6 +759,25 @@ class CapacityBroker:
         if failed:
             raise wire.CapacityError('Existing holder lost ownership or enforcement; reservation retained')
 
+    def _report_compatibility_failure(self, state, error, *, phase):
+        """@cc [owner:fontanierh,label:safety] compatibility-failure-evidence
+        Compatibility failures MUST attempt to record a redacted reason, wall/monotonic time and activation,
+        epoch and affected request identities without changing refusal, charges or recovery rules.
+        Request identity lists MUST be bounded, with the total affected count retained.
+        """
+        try:
+            from atelier.harness.capacity_compat_diagnostics import failure_reason
+            affected = sorted(key for key, record in state['records'].items() if record['state'] in HELD)
+            print('capacity compatibility failure: ' + json.dumps(dict(
+                phase=phase, reason=failure_reason(error), error_type=type(error).__name__,
+                errno=error.errno if isinstance(error, OSError) else None,
+                observed_at=time.time(), observed_monotonic=self._clock(), epoch=state.get('epoch'),
+                activation_id=self.activation_id, boot_id=self.boot,
+                affected_request_ids=affected[:32], affected_request_count=len(affected))),
+                file=sys.stderr, flush=True)
+        except Exception:
+            pass  # Diagnostic/import/serialization failures cannot affect enforcement.
+
     def _compatibility_proof(self):
         from atelier.harness import capacity_compat
         verifier = capacity_compat.verify_maintenance if self.mode == 'sealed-maintenance' else capacity_compat.verify
@@ -729,11 +790,12 @@ class CapacityBroker:
             proof = self._compatibility_proof()
             if proof['activation_id'] != self.activation_id:
                 raise wire.CapacityError('Capacity activation changed')
-        except (OSError, ValueError, wire.CapacityError):
+        except (OSError, ValueError, wire.CapacityError) as error:
             self.compatible = False
             retained = [record for record in state['records'].values() if record['state'] in HELD]
             for record in retained:
                 record['state'] = 'uncertain'
+            self._report_compatibility_failure(state, error, phase='admission')
             raise wire.CapacityError('Full-capacity compatibility changed before admission; charges retained') from None
 
     def _gate_close(self, nonce):
@@ -822,23 +884,27 @@ class CapacityBroker:
                 refreshed = self._refresh(state, now)
                 wire.fields(message, ('namespace', 'action'), ('request', 'id', 'nonce', 'epoch', 'boot_id', 'child',
                             'process_guard', 'tree_guard', 'limit_bytes', 'descendants', 'witness', 'resources', 'locks',
-                            'activation_id', 'candidates', 'preserved_terminal', 'interrupted_compile'))
+                            'activation_id', 'candidates', 'preserved_terminal', 'interrupted_compile', 'completed_job'))
                 if message['namespace'] != wire.NAMESPACE:
                     raise wire.CapacityError('Production broker namespace required')
                 action = message['action']
                 if 'interrupted_compile' in message and action != 'abandon-interrupted':
                     raise wire.CapacityError('Interrupted compile evidence requires explicit administrative action')
+                if 'completed_job' in message and action != 'abandon-completed':
+                    raise wire.CapacityError('Completed job evidence requires explicit administrative action')
                 if 'preserved_terminal' in message and action != 'reconcile':
                     raise wire.CapacityError('Preserved terminal evidence is allowed only for reconciliation')
-                if self.mode in ('capacity', 'sealed-maintenance') and action not in ('status', 'reconcile', 'close', 'abandon-interrupted'):
+                if self.mode in ('capacity', 'sealed-maintenance') and action not in ('status', 'reconcile', 'close', 'abandon-interrupted', 'abandon-completed'):
                     if not self.compatible or message.get('activation_id') != self.activation_id:
                         if action == 'start':
                             self._start_refusal('compatibility-fence')
                         raise wire.CapacityError('Full-capacity compatibility proof is unavailable or mismatched')
-                if action == 'abandon-interrupted':
+                if action in ('abandon-interrupted', 'abandon-completed'):
+                    completed = action == 'abandon-completed'
                     from atelier.harness import capacity_abandon
-                    evidence = wire.fields(message.get('interrupted_compile', {}),
-                        ('id', 'nonce', 'epoch', 'boot_id', 'operator_reference', 'administrator', 'services'))
+                    evidence = wire.fields(message.get('completed_job' if completed else 'interrupted_compile', {}),
+                        ('id', 'nonce', 'epoch', 'boot_id', 'operator_reference', 'administrator', 'services')
+                        + (('guards', 'report_sha256') if completed else ()))
                     print(json.dumps({'event': 'capacity administrative abandon attempt',
                                       'epoch': state['epoch'], 'peer_pid': principal[0]}), file=sys.stderr, flush=True)
                     if self.mode != 'capacity' or not self.compatible:
@@ -849,7 +915,7 @@ class CapacityBroker:
                     if any(other is not record and other['state'] in HELD for other in state['records'].values()):
                         raise wire.CapacityError('Another charged job prevents interrupted compile recovery')
                     witness = capacity_abandon.recover(record, evidence, principal=principal, boot=self.boot,
-                                                       epoch=state['epoch'])
+                                                       epoch=state['epoch'], completed=completed)
                     record.update(state='released', release_witness=witness)
                     result = {'released': True, 'state': 'released', 'witness': witness}
                 elif action in ('status', 'reconcile'):
@@ -900,7 +966,7 @@ class CapacityBroker:
                                       verified_roster=[], ancestry_unknown=False)
                         record.pop('process_history', None)
                     record.update(request=request, state='queued', epoch=state['epoch'], heartbeat=now)
-                    selected = self._selection(state) is record
+                    selected = self._selection(state, pressure=True, advisory=True) is record
                     result = {'selected': selected, 'state': 'offered' if selected else 'queued',
                               'nonce': record['nonce'], 'epoch': state['epoch'], 'first_ready': record['first_ready']}
                 else:
@@ -928,8 +994,9 @@ class CapacityBroker:
                         self._gates[record['nonce']] = writer
                         result = {'state': 'gated', 'epoch': state['epoch']}
                     elif action == 'start':
-                        if record['state'] != 'queued' or self._selection(state) is not record or record['nonce'] not in self._gates:
-                            result = self._lost_offer(state, record, principal, message)
+                        if record['state'] != 'queued' or self._selection(state, pressure=True) is not record or record['nonce'] not in self._gates:
+                            result = self._lost_offer(state, record, principal, message, reason=
+                                'pressure-wait' if self._selection(state) is record else 'selection-changed')
                         else:
                             child = wire.identity(message['child'])
                             if not self.child_of(principal, child):
@@ -941,27 +1008,30 @@ class CapacityBroker:
                                 if self.guards is wire.validate_guards:
                                     wire.require_independent_guards(guards, principal)
                                 self._foreign_check(state)
-                            self._pressure(state, record)
-                            self._validate_compatibility(state)
-                            self._validate_holders(state, record)
-                            # Revalidate after all compatibility, process-scan and pressure I/O.
-                            facts = self.guards(guards, child, principal, message['limit_bytes'],
-                                                record['request']['resources']['memory_mib'])
-                            if self.mode in ('capacity', 'sealed-maintenance') and self.guards is wire.validate_guards:
-                                wire.require_independent_guards(guards, principal)
-                            if self.started(child[0]) != child[1] or self.started(principal[0]) != principal[1]:
-                                raise wire.CapacityError('Launcher/controller changed before admission')
-                            record['child'] = list(child)
-                            self._watch(record, [child, *facts.roster])
-                            record.update(state='running', child=list(child), guards=guards,
-                                          limit_bytes=message['limit_bytes'], heartbeat=self._clock(),
-                                          measured_memory_mib=facts.footprint_bytes // 1024**2, measured_at=time.time())
-                            for earlier in state['records'].values():
-                                if (earlier['state'] == 'queued' and earlier['sequence'] < record['sequence']
-                                        and earlier['request']['seconds'] > 300 and request_seconds(record) <= 300):
-                                    earlier['bypasses'] += 1
-                            go = record['nonce']
-                            result = {'state': 'running', 'epoch': state['epoch'], 'admission': True}
+                            try:
+                                self._pressure(state, record)
+                            except PressureWait:
+                                result = self._lost_offer(state, record, principal, message, reason='pressure-wait')
+                            else:
+                                self._validate_compatibility(state)
+                                self._validate_holders(state, record)
+                                # Revalidate after all compatibility, process-scan and pressure I/O.
+                                facts = self.guards(guards, child, principal, message['limit_bytes'],
+                                                    record['request']['resources']['memory_mib'])
+                                if self.mode in ('capacity', 'sealed-maintenance') and self.guards is wire.validate_guards:
+                                    wire.require_independent_guards(guards, principal)
+                                if self.started(child[0]) != child[1] or self.started(principal[0]) != principal[1]:
+                                    raise wire.CapacityError('Launcher/controller changed before admission')
+                                record['child'] = list(child)
+                                self._watch(record, [child, *facts.roster])
+                                record.update(state='running', child=list(child), guards=guards,
+                                              limit_bytes=message['limit_bytes'], heartbeat=self._clock(),
+                                              measured_memory_mib=facts.footprint_bytes // 1024**2, measured_at=time.time())
+                                for earlier in state['records'].values():
+                                    if earlier['state'] == 'queued' and earlier['sequence'] < record['sequence']:
+                                        earlier['bypasses'] += 1
+                                go = record['nonce']
+                                result = {'state': 'running', 'epoch': state['epoch'], 'admission': True}
                     elif action == 'check':
                         result = self._heartbeat(state, record, batch, now)
                     elif action == 'close':
@@ -1015,7 +1085,7 @@ class CapacityBroker:
                         result = {'state': 'running', 'admission': True}
                     else:
                         raise wire.CapacityError('Unknown capacity action')
-                if action in ('status', 'reconcile') and not refreshed:
+                if action in ('status', 'reconcile', 'owned') and not refreshed:
                     self.connection.rollback()
                 else:
                     self._save(state)
@@ -1053,16 +1123,67 @@ class CapacityBroker:
                 raise
 
     def serve_forever(self):
-        """Bounded concurrent partial frames; all requests execute on this one actor thread."""
+        """@cc [owner:fontanierh,label:safety] bounded-capacity-actor-io
+        Request mutations and gate writes MUST remain serialized on this actor. A slow reader
+        MUST NOT block other clients: replies MUST use nonblocking selector writes, with at most
+        MAX_FRAME reply bytes per client, at most 32 clients and the original accept-time RPC deadline.
+        A returned descriptor MUST be transferred at most once and closed locally on transfer,
+        disconnect, expiry or shutdown. Reply failure MUST NOT release a grant or authorize work.
+        Diagnostics MUST contain only operation, phase, duration, observation time, exception type and errno;
+        diagnostics failures MUST NOT change accounting or the operation result.
+        """
         selector = selectors.DefaultSelector()
         selector.register(self.listener, selectors.EVENT_READ)
         clients = {}
+
+        def report(peer, error=None):
+            try:
+                now = time.monotonic()
+                elapsed = now - peer['started']
+                if error is None and elapsed < .25:
+                    return
+                timings = {**peer['timings'], peer['phase'] + '_seconds': round(now - peer['phase_started'], 3)}
+                metadata = dict(action=peer['action'], phase=peer['phase'],
+                                elapsed_seconds=round(elapsed, 3), observed_at=time.time(), **timings)
+                if error is not None:
+                    metadata.update(error_type=type(error).__name__,
+                                    errno=error.errno if isinstance(error, OSError) else None)
+                label = 'capacity operation refused: ' if error is not None else 'capacity slow operation: '
+                print(label + json.dumps(metadata), file=sys.stderr, flush=True)
+            except Exception:
+                pass  # Diagnostic output cannot change grant accounting or operation results.
+
+        def advance(peer, phase):
+            now = time.monotonic()
+            peer['timings'][peer['phase'] + '_seconds'] = round(now - peer['phase_started'], 3)
+            peer.update(phase=phase, phase_started=now)
+
+        def close_peer(channel):
+            peer = clients.pop(channel)
+            if peer['fd'] is not None:
+                os.close(peer['fd'])
+                peer['fd'] = None
+            try:
+                selector.unregister(channel)
+            except (KeyError, ValueError, OSError):
+                pass
+            channel.close()
+
+        def queue_reply(channel, peer, result, fd=None):
+            peer['fd'] = fd
+            advance(peer, 'send')
+            peer['reply'] = wire.encode(result)
+            selector.modify(channel, selectors.EVENT_WRITE)
+
         try:
             while not self._stop.is_set():
                 for key, _ in selector.select(.1):
                     channel = key.fileobj
                     if channel is self.listener:
-                        channel, _ = self.listener.accept()
+                        try:
+                            channel, _ = self.listener.accept()
+                        except (BlockingIOError, InterruptedError):
+                            continue
                         channel.setblocking(False)
                         if len(clients) >= 32:
                             channel.close()
@@ -1072,14 +1193,47 @@ class CapacityBroker:
                         except (OSError, ValueError, wire.CapacityError):
                             channel.close()
                             continue
-                        clients[channel] = [bytearray(), time.monotonic() + self.rpc_timeout, principal]
+                        now = time.monotonic()
+                        clients[channel] = dict(buffer=bytearray(), deadline=now + self.rpc_timeout,
+                            principal=principal, started=now, phase_started=now, timings={},
+                            action='invalid', phase='receive', reply=None, sent=0, fd=None, refused=False)
                         selector.register(channel, selectors.EVENT_READ)
                         continue
-                    buffer, deadline, principal = clients[channel]
-                    operation_started = deadline - self.rpc_timeout
-                    action, phase = 'invalid', 'receive'
+                    peer = clients[channel]
+                    if time.monotonic() >= peer['deadline']:
+                        report(peer, TimeoutError())
+                        close_peer(channel)
+                        continue
                     try:
-                        data = channel.recv(wire.MAX_FRAME + 1 - len(buffer))
+                        if peer['reply'] is not None:
+                            remaining = memoryview(peer['reply'])[peer['sent']:]
+                            if peer['fd'] is not None:
+                                ancillary = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array('i', [peer['fd']]))]
+                                try:
+                                    sent = channel.sendmsg([remaining], ancillary)
+                                except (BlockingIOError, InterruptedError):
+                                    continue
+                            else:
+                                try:
+                                    sent = channel.send(remaining)
+                                except (BlockingIOError, InterruptedError):
+                                    continue
+                            if sent <= 0:
+                                raise ConnectionError('Capacity peer stopped receiving')
+                            if peer['fd'] is not None:
+                                descriptor, peer['fd'] = peer['fd'], None
+                                os.close(descriptor)
+                            peer['sent'] += sent
+                            if peer['sent'] == len(peer['reply']):
+                                if not peer['refused']:
+                                    report(peer)
+                                close_peer(channel)
+                            continue
+                        buffer = peer['buffer']
+                        try:
+                            data = channel.recv(wire.MAX_FRAME + 1 - len(buffer))
+                        except (BlockingIOError, InterruptedError):
+                            continue
                         if not data:
                             raise wire.CapacityError('Capacity peer closed its request')
                         buffer.extend(data)
@@ -1090,51 +1244,38 @@ class CapacityBroker:
                         if not buffer.endswith(b'\n') or buffer.count(b'\n') != 1:
                             raise wire.CapacityError('One capacity operation per connection is required')
                         message = wire.decode(bytes(buffer[:-1]))
-                        action = wire.action_name(message)
-                        phase = 'handle'
-                        result, fd = self.handle(message, principal)
-                        phase = 'send'
-                        try:
-                            channel.settimeout(self.rpc_timeout)
-                            wire.send(channel, {'ok': True, **result}, fd)
-                        finally:
-                            if fd is not None:
-                                os.close(fd)
-                        elapsed = time.monotonic() - operation_started
-                        if elapsed >= .25:
-                            print('capacity slow operation: ' + json.dumps(dict(
-                                action=action, phase=phase, elapsed_seconds=round(elapsed, 3),
-                                observed_at=time.time())), file=sys.stderr, flush=True)
+                        peer['action'] = wire.action_name(message)
+                        advance(peer, 'handle')
+                        result, fd = self.handle(message, peer['principal'])
+                        queue_reply(channel, peer, {'ok': True, **result}, fd)
                     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, wire.CapacityError) as error:
-                        print('capacity operation refused: ' + json.dumps(dict(
-                            action=action, phase=phase,
-                            elapsed_seconds=round(time.monotonic() - operation_started, 3), observed_at=time.time(),
-                            error_type=type(error).__name__,
-                            errno=error.errno if isinstance(error, OSError) else None)), file=sys.stderr, flush=True)
+                        report(peer, error)
+                        if peer['reply'] is not None or peer['phase'] == 'send':
+                            close_peer(channel)
+                            continue
+                        peer['refused'] = True
                         try:
-                            channel.settimeout(.1)
-                            wire.send(channel, {'ok': False, 'namespace': wire.NAMESPACE,
-                                                'error': str(error) if isinstance(error, wire.CapacityError)
-                                                else 'Capacity broker refused this operation'})
-                        except OSError:
-                            pass
-                    selector.unregister(channel)
-                    clients.pop(channel, None)
-                    channel.close()
-                for channel, (_, deadline, _) in list(clients.items()):
-                    if time.monotonic() >= deadline:
-                        selector.unregister(channel)
-                        clients.pop(channel)
-                        channel.close()
+                            queue_reply(channel, peer, {'ok': False, 'namespace': wire.NAMESPACE,
+                                'error': str(error) if isinstance(error, wire.CapacityError)
+                                else 'Capacity broker refused this operation'})
+                        except (OSError, ValueError, TypeError, wire.CapacityError):
+                            close_peer(channel)
+                for channel, peer in list(clients.items()):
+                    if time.monotonic() >= peer['deadline']:
+                        report(peer, TimeoutError())
+                        close_peer(channel)
+                began = time.monotonic()
                 with self._lock:
                     state = self._load()
                     if self._refresh(state, self._clock()):
                         self._save(state)
                     else:
                         self.connection.rollback()
+                report(dict(started=began, phase_started=began, phase='refresh',
+                            action='maintenance', timings={}))
         finally:
-            for channel in clients:
-                channel.close()
+            for channel in list(clients):
+                close_peer(channel)
             selector.close()
 
     def close(self):

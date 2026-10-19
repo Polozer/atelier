@@ -8,6 +8,9 @@
 class AJapanWorld;
 class USoundAttenuation;
 class USoundWave;
+class UJapanSoundBank;
+class UJapanFootstepComponent;
+DECLARE_MULTICAST_DELEGATE_OneParam(FJapanFootstepAudioReady, UJapanFootstepComponent*);
 
 /** One surface's pool of sliced one-shots. */
 USTRUCT(BlueprintType)
@@ -56,8 +59,16 @@ public:
     void Hoof(const FHitResult& Hit,float Weight);
     FName SurfaceAt(const FHitResult& Hit) const;
     bool IsReady() const { return Set != nullptr; }
+    bool IsAudioReady() const { return IsReady(); }
+    static FJapanFootstepAudioReady AudioReady;
+    /** Loaded local presentation only; nullptr selects exact Original. No plant-state reset. */
+    bool CanSetSoundBank(const UJapanSoundBank* Replacement, FString& Error) const;
+    bool SetSoundBank(UJapanSoundBank* Replacement, FString& Error);
+    const UJapanSoundBank* GetSoundBank() const { return SoundBank.Get(); }
 private:
+    friend class FJapanFootstepSoundBankTest;
     UPROPERTY() TObjectPtr<UJapanFootstepSet> Set;
+    UPROPERTY() TObjectPtr<UJapanSoundBank> SoundBank;
     UPROPERTY() TObjectPtr<AJapanWorld> Landscape;
     // Per foot: planted means the sound has already fired and the foot must swing clear again.
     bool bPlanted[2] = {true,true};
@@ -65,6 +76,8 @@ private:
     float SincePlant[2] = {0.f,0.f};
     // Per surface shuffled queue, so the same one-shot never comes round twice in a row.
     TMap<FName,FAtelierShuffleBag> Bags;
+    TMap<FName,FAtelierShuffleBag> AlternativeBags;
     void Plant(int32 Side,const FVector& Foot,float Speed);
-    void Play(FName Surface,const FVector& At,float Volume,float Pitch);
+    USoundWave* DrawStep(FName Surface,bool bOriginalOnly);
+    void Play(FName Surface,const FVector& At,float Volume,float Pitch,bool bOriginalOnly=false);
 };

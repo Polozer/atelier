@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "source": "games/yorimichi/unreal/Source/Yorimichi/JapanFootsteps.cpp",
+  "before_sha256": "26e57e1a9589b2d73521ea3b7e3cdcf9fad3322aa0f4a753686f3f0f86e36e80",
+  "after_sha256": "988d41ef2b77b7f0f41513b8ae7cf38c48d64d2b04646563db750074f0ee6de6",
+  "unchanged_function_bodies": {
+    "SurfaceAt": "4dc1f264811acbb0e3a5205bafb343e443f1b90f87459bd6747528f2eda2f4ad",
+    "Plant": "6454c3a4ce0c815241f3d512621b3fdec8a1eb1514fe2d1f22eed8179d1e81ef",
+    "Land": "7c205ea6ecf3a016614739aadaf3997b5046b4b5fb1a710b3257b17e6fcab3b7",
+    "TickComponent": "e139bd083254dbf7442fbfc257972cc7eef309f5e3ecc36231215aa757582542"
+  },
+  "review_scope": "Selection was extracted into DrawStep. Original keeps its existing pool/shuffle; alternatives use separate queues. Play preserves replay suppression, volume CVar, gain, pitch and attenuation; Hoof explicitly draws Original. No cadence/gain/pitch/envelope profile change."
+}

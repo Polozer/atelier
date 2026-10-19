@@ -1,4 +1,5 @@
 #include "JapanFootsteps.h"
+#include "JapanSoundBank.h"
 #include "JapanCharacterMovement.h"
 #include "YorimichiCombatFX.h"
 #include "JapanWorld.h"
@@ -50,6 +51,7 @@ void UJapanFootstepComponent::BeginPlay()
     int32 Total=0; for(const auto& Pair:Set->Surfaces) Total+=Pair.Value.Steps.Num();
     UE_LOG(LogTemp,Display,TEXT("Footsteps ready: %d surfaces, %d one-shots"),Set->Surfaces.Num(),Total);
     TActorIterator<AJapanWorld> It(GetWorld()); if(It) Landscape=*It;
+    AudioReady.Broadcast(this);
 }
 
 FName UJapanFootstepComponent::SurfaceAt(const FHitResult& Hit) const
@@ -89,20 +91,37 @@ FName UJapanFootstepComponent::SurfaceAt(const FHitResult& Hit) const
     return Surface;
 }
 
-void UJapanFootstepComponent::Play(FName Surface,const FVector& At,float Volume,float Pitch)
+USoundWave* UJapanFootstepComponent::DrawStep(FName Surface,bool bOriginalOnly)
+{
+    if(!Set) return nullptr;
+    const FJapanFootstepBank* Bank=Set->Find(Surface);
+    if(!Bank) return nullptr;
+    const auto* Steps=&Bank->Steps;
+    auto* Queues=&Bags;
+    if(SoundBank && !bOriginalOnly)
+    {
+        const FJapanSoundPool* Alternative=SoundBank->Footsteps.Find(Surface);
+        if(!Alternative) Alternative=SoundBank->Footsteps.Find(Set->DefaultSurface);
+        if(!Alternative) return nullptr;
+        Steps=&Alternative->Variants;
+        Queues=&AlternativeBags;
+    }
+    const int32 Index=Queues->FindOrAdd(Surface).Draw(Steps->Num());
+    return Steps->IsValidIndex(Index)?(*Steps)[Index].Get():nullptr;
+}
+
+void UJapanFootstepComponent::Play(FName Surface,const FVector& At,float Volume,float Pitch,bool bOriginalOnly)
 {
     if (const auto* Rider = Cast<ACharacter>(GetOwner()))
         if (const auto* Movement = Cast<UJapanCharacterMovement>(Rider->GetCharacterMovement()); Movement && Movement->IsReplaying()) return;
     const float Scale=CVarFootstepVolume.GetValueOnGameThread();
     if(!Set || Scale<=0.f) return;
-    const FJapanFootstepBank* Bank=Set->Find(Surface);
-    if(!Bank) return;
-    const int32 Index=Bags.FindOrAdd(Surface).Draw(Bank->Steps.Num());
-    if(!Bank->Steps.IsValidIndex(Index) || !Bank->Steps[Index]) return;
-    AtelierPlaySound(this,Bank->Steps[Index],At,Volume*Scale,Pitch,Set->Attenuation);
+    USoundWave* Wave=DrawStep(Surface,bOriginalOnly);
+    if(!Wave) return;
+    AtelierPlaySound(this,Wave,At,Volume*Scale,Pitch,Set->Attenuation);
     if(CVarFootstepDebug.GetValueOnGameThread())
         UE_LOG(LogTemp,Display,TEXT("footstep %s %s vol %.2f pitch %.2f"),*Surface.ToString(),
-            *Bank->Steps[Index]->GetName(),Volume*Scale,Pitch);
+            *Wave->GetName(),Volume*Scale,Pitch);
 }
 
 void UJapanFootstepComponent::Plant(int32 Side,const FVector& Foot,float Speed)
@@ -136,7 +155,7 @@ void UJapanFootstepComponent::Hoof(const FHitResult& Hit,float Weight)
     if(!Set) return;
     // A stand-in: the surface's footstep, heavier and lower, until the footstep library has hooves.
     const FName Surface=Hit.Component.IsValid()?SurfaceAt(Hit):Set->DefaultSurface;
-    Play(Surface,Hit.ImpactPoint,FMath::Clamp(Weight,.4f,1.4f),FMath::FRandRange(.72f,.8f));
+    Play(Surface,Hit.ImpactPoint,FMath::Clamp(Weight,.4f,1.4f),FMath::FRandRange(.72f,.8f),true);
 }
 
 void UJapanFootstepComponent::TickComponent(float Dt,ELevelTick TickType,FActorComponentTickFunction* Function)

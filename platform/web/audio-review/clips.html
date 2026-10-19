@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Raw and single clips</title>
+    <link rel="stylesheet" href="review.css" />
+    <script src="review.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <p class="eyebrow">SOUND DESIGN / AUDIO EXPERIMENTS / 01</p>
+      <h1>Raw & single clips<span>.</span></h1>
+      <p class="intro">
+        Optional individual candidates.
+        <a href="index.html">Back to sequence previews</a>.
+      </p>
+      <div class="meta">
+        <span>STABLE AUDIO 3 · SMALL-SFX</span><span>APPLE SILICON / MLX</span
+        ><span>RAW & PREPARED</span>
+      </div>
+    </header>
+    <main>
+      <section class="toolbar" aria-label="Filter sounds">
+        <label
+          >Library<select id="bank">
+            <option value="manifest.json">Raw generated takes</option>
+            <option value="prepared.json">
+              Game samples · contacts & loops
+            </option>
+          </select></label
+        >
+        <label
+          >Search<input
+            id="search"
+            type="search"
+            placeholder="Concrete, breathing, birds…"
+        /></label>
+        <label
+          >Category<select id="category">
+            <option value="">All categories</option>
+          </select></label
+        >
+        <label class="check"
+          ><input id="favourites" type="checkbox" /> Favourites only</label
+        >
+        <button id="export">Export shortlist ↓</button>
+      </section>
+      <div class="status">
+        <p id="progress" role="status">Loading library…</p>
+        <p id="count"></p>
+      </div>
+      <nav class="pages" aria-label="Library pages">
+        <button id="previous-page">Previous</button
+        ><span id="page-number"></span><button id="next-page">Next</button>
+      </nav>
+      <div id="library"></div>
+      <p id="empty" hidden>No matching sounds.</p>
+    </main>
+    <footer>
+      Experimental takes for listening review. Favourites stay in this browser;
+      export your shortlist to share it. These sounds have not been added to the
+      game.
+    </footer>
+  </body>
+</html>

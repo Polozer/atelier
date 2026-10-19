@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "default": "original",
+  "banks": [
+    {
+      "id": "original",
+      "name": "Original",
+      "selection": 0,
+      "legacy": true
+    },
+    {
+      "id": "dry_street",
+      "name": "Dry Street",
+      "selection": 2,
+      "manifest": "dry_street/bank.json",
+      "sha256": "b39738644b0a912f481becbd198c7b3e00a3086002a0692ec1e54b0d82c98eb0"
+    }
+  ]
+}

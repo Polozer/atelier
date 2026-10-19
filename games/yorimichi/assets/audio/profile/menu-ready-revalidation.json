@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "parent": "60e953aa664867713d23009e4a2a8e2af2d78f2d",
+  "sources": [
+    {
+      "source": "games/yorimichi/unreal/Source/Yorimichi/JapanFootsteps.cpp",
+      "before_sha256": "988d41ef2b77b7f0f41513b8ae7cf38c48d64d2b04646563db750074f0ee6de6",
+      "after_sha256": "e95e72f320e13c8fcf972377168d4171b3edc412b57a1afe08ac51616d4777b5",
+      "owner": "UJapanFootstepComponent",
+      "unchanged_function_bodies": {
+        "SurfaceAt": "4dc1f264811acbb0e3a5205bafb343e443f1b90f87459bd6747528f2eda2f4ad",
+        "Plant": "6454c3a4ce0c815241f3d512621b3fdec8a1eb1514fe2d1f22eed8179d1e81ef",
+        "Land": "7c205ea6ecf3a016614739aadaf3997b5046b4b5fb1a710b3257b17e6fcab3b7",
+        "TickComponent": "e139bd083254dbf7442fbfc257972cc7eef309f5e3ecc36231215aa757582542",
+        "Play": "0844a4a2d52bae6ee688c8632307627c37b95fbd8d900a45d9643fbebba9a3b4",
+        "Hoof": "caa3f0112c08f70d0980c8a38cb21f5c309bdac5eb9b0d93bc14de8ca8a29e54",
+        "DrawStep": "e1e8dd68895a3373df7283859c2a98497023cb874f20758075b5b97f326f6bc8"
+      }
+    },
+    {
+      "source": "platform/engine/Plugins/Activities/Skate/Source/AtelierSkate/Private/SkateComponent.cpp",
+      "before_sha256": "91e946de35afa0a89c44145753587fd7cf2201d90e17c97bb7059608795fd175",
+      "after_sha256": "1c24553dea8618122603766cfb620ec669a72c87bd99bd0ce9f792013b167fc5",
+      "owner": "USkateComponent",
+      "unchanged_function_bodies": {
+        "PlaySurfaceCue": "8204aa13ab0cba211a07759f9b8e18bbadf5f5f9af1a3399f006b9f4fa31a6be",
+        "PlayCue": "ad52636f5cd104c3053815313307ab033b118e94dd8a0ecdd28b7e397d8f4b4c",
+        "UpdateAudio": "9f94d1ff0b39db710337feda55cb114ff72d3729614efcb7a9b6a0e7c7baf710"
+      }
+    }
+  ],
+  "review_scope": "Only end-of-initialization AudioReady broadcasts were added to the two pinned sources. Plant/contact/replay/gain/pitch/envelope function bodies remain byte-identical. Host bank selection is separately validated."
+}

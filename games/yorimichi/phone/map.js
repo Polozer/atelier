@@ -9,7 +9,7 @@ function project(v,knots){
 export function createMap({send,onTravel}){
  let data=null,state=null,imageSource='',scale=1,offset={x:0,y:0},base={w:1,h:1},initialized=false,gesture=null,suppressClick=false,region=null,stable=null;
  const touches=new Map();let lastMapRefresh=0;
- const dialog=$('map-dialog'),layout=$('map-layout'),frame=$('map-frame'),canvas=$('map-canvas'),img=$('map-image'),pins=$('map-pins'),list=$('map-zones'),player=$('map-player'),status=$('map-status');
+ const dialog=$('map-dialog'),layout=$('map-layout'),frame=$('map-frame'),canvas=$('map-canvas'),img=$('map-image'),pins=$('map-pins'),list=$('map-zones'),player=$('map-player'),status=$('map-status'),airLegend=$('map-air-legend');
  const frames=()=>data?.atlas?[data.atlas.world,...data.atlas.regions]:[];
  function frameData(){return frames().find(f=>f.key===region)||data;}
  function pct(x,y){const f=frameData(),[x0,y0,x1,y1]=f.bounds;return [((data.atlas?x:project(x,data.projection_x))-x0)/(x1-x0)*100,(y1-(data.atlas?y:project(y,data.projection_y)))/(y1-y0)*100];}
@@ -80,6 +80,11 @@ export function createMap({send,onTravel}){
   $('map-title').textContent=data.atlas?f.name:'The World';
   $('map-back').hidden=!data.atlas||region==='world';
   pins.replaceChildren();list.replaceChildren();
+  if(data.atlas?.air?.legs?.length){
+   const names=data.atlas.air.stops.map(s=>s.name.replace(' air station','')).join(' ↔ ');
+   const times=data.atlas.air.legs.map(l=>Math.round(l.seconds)+'s').join(' · ');
+   airLegend.hidden=false;airLegend.textContent='ZEPPELIN · '+names+' · '+times;
+  }else airLegend.hidden=true;
   const query=$('map-search').value.trim().toLowerCase();
   function row(z,index,type='zone'){
    const match=!query||z.name.toLowerCase().includes(query);if(!match)return;
@@ -101,6 +106,20 @@ export function createMap({send,onTravel}){
    row({...r,x:p[0],y:p[1]},i,'region');
   });
   data.zones.forEach((z,i)=>{if(!data.atlas||region==='world'||query||z.region===region)row(z,i);});
+  if(data.atlas?.air?.legs?.length){
+   const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');
+   svg.classList.add('map-air-route');svg.setAttribute('viewBox','0 0 100 100');svg.setAttribute('preserveAspectRatio','none');
+   const stops=Object.fromEntries(data.atlas.air.stops.map(s=>[s.key,pct(s.x,s.y)]));
+   for(const leg of data.atlas.air.legs){
+    const a=stops[leg.from],b=stops[leg.to];if(!a||!b)continue;
+    const under=document.createElementNS(ns,'line'),line=document.createElementNS(ns,'line');
+    under.classList.add('air-underlay');line.classList.add('air-leg');
+    for(const [key,value] of Object.entries({x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#0b1714','stroke-width':.55,opacity:.55}))under.setAttribute(key,value);
+    for(const [key,value] of Object.entries({x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#f0c96a','stroke-width':.32,'stroke-dasharray':'.9 .7',opacity:.95}))line.setAttribute(key,value);
+    svg.append(under,line);
+   }
+   pins.prepend(svg);
+  }
   if(data.atlas&&(region!=='world'||query))(data.atlas.landmarks||[]).forEach((z,i)=>{if(z.region===region||query)row(z,i,'stable');});
   status.textContent=data.atlas?.error||(data.atlas?'Select a destination to travel. Drag or pinch to explore.':'Drag or pinch to explore. Tap a place to travel.');fit();
   if(!initialized){if(data.atlas)whole();else focus();initialized=true;}update(state);
