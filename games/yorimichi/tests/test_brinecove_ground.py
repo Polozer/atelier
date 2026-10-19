@@ -170,3 +170,13 @@ def test_atlas_ground_refuses_tiles_that_differ_from_the_export_report(tmp_path)
     tile.unlink()
     with pytest.raises(ValueError, match='missing or differs'):
         plan.ground_surface(tmp_path)
+
+
+def test_quay_face_decoration_stays_below_the_wall_top():
+    """The seaward face's courses and door arches belong on the wall, not floating over the quay."""
+    from brinecove import layout as L, modules
+    b = modules.harbor()
+    v = np.asarray(b.verts, dtype=float)
+    face = (v[:, 1] > L.QUAY_Y - 2.75) & (v[:, 1] < L.QUAY_Y - 2.0) & (np.abs(v[:, 0]) < 330)  # east of 330 the slipway's staging stands in front of the face
+    assert face.sum() > 1000
+    assert v[face, 2].max() <= 0.35 + 9.4 / 2 + 1e-6

@@ -265,23 +265,25 @@ def harbor():
     b.box((0, L.QUAY_Y + 1.9, 4.65), (784, 1.6, 0.45), 'stone_light')
     # The seaward face needs a scale and rhythm of its own: a wet base,
     # horizontal courses and recessed arch-headed doors between the buttresses.
+    # Everything on the face stays below the wall's top (0.35 + 9.4 / 2 = 5.05 m).
     b.box((0, L.QUAY_Y - 2.18, 0.75), (780, 0.35, 1.5), 'stone_dark')
-    for zz, mat in ((2.7, 'stone_light'), (5.25, 'stone'), (7.55, 'stone_light')):
+    for zz, mat in ((2.7, 'stone_light'), (3.95, 'stone')):
         b.box((0, L.QUAY_Y - 2.18, zz), (780, 0.35, 0.28), mat)
     for x in range(-342, 343, 76):
         if abs(x) < 22:
             continue
         b.box((x, L.QUAY_Y - 2.28, 2.55), (8.2, 0.35, 4.5), 'stone_dark')
-        b.box((x, L.QUAY_Y - 2.38, 4.7), (9.4, 0.45, 0.75), 'stone_light')
+        b.box((x, L.QUAY_Y - 2.38, 4.6), (9.4, 0.45, 0.75), 'stone_light')
         b.box((x, L.QUAY_Y - 2.38, 2.25), (9.8, 0.45, 0.45), 'stone_light')
         b.box((x, L.QUAY_Y - 2.46, 2.25), (6.0, 0.28, 3.35), 'wood_dark')
         for dx in (-2.0, 0.0, 2.0):
             b.box((x + dx, L.QUAY_Y - 2.62, 2.25), (0.16, 0.12, 3.3), 'metal')
-        b.cylinder((x - 6.4, L.QUAY_Y - 2.42, 5.4), (x - 6.4, L.QUAY_Y - 2.42, 5.4), 0.18, 'metal', 8)
+        # An iron mooring peg out of the face (its axis must have length).
+        b.cylinder((x - 6.4, L.QUAY_Y - 2.2, 3.9), (x - 6.4, L.QUAY_Y - 2.75, 3.9), 0.18, 'metal', 8)
         # A stone arch header over the door instead of a square lintel.
         for k in range(7):
             a = math.pi * (k + 0.5) / 7
-            b.box((x + math.cos(a) * 3.0, L.QUAY_Y - 2.58, 4.6 + math.sin(a) * 2.4),
+            b.box((x + math.cos(a) * 3.0, L.QUAY_Y - 2.58, 3.4 + math.sin(a) * 0.9),
                   (0.95, 0.36, 1.15), 'stone_light' if k % 2 else 'stone')
     for x in range(-390, 391, 38):
         b.box((x, L.QUAY_Y - 2.5, 0.4), (5.2, 2.4, 9.0), 'stone_light')
