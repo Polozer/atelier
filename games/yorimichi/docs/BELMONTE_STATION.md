@@ -91,6 +91,28 @@ lattice is LOD0 only; beyond the first LOD switch the whole station draws under 
 
 The train service no longer adds its makeshift platform at Belmonte (`tools/belmonte_train_service.py` `BUILT`).
 
+## Arrival boards
+
+Paul (2026-10-19): in both termini, boards show when the next train arrives and the one after, counted down in real
+minutes, in French like the rest of the line ("Prochain train · dans 5 min", "Train suivant · dans 31 min"; "arrive"
+under a minute, "à quai" while a train stands there).
+
+- **Belmonte**: one over the concourse on the landing block between the flights (a 7, u -14.5, 3.4 m over the
+  platforms), facing the platforms; one on posts on P1 and one on the island, 5 m short of the buffer stop, beyond the
+  head of a standing train, both faces lettered.
+- **Hidamari**: two under the town station's platform canopy, hung from its tie beam between the posts, one near the
+  arrival point and one mid-canopy; both faces lettered.
+
+Each board is a dark face in a wood frame with warm amber lettering (TextRender with `M_BT_BoardText`, unlit and
+glowing, so it reads at night). Placement is data: `tools/belmonte_train_service.py` `boards()` writes each station's
+`boards` into service.json; `ABelmonteTrainService` builds them (`BelmonteTrainBoards.cpp`).
+
+The countdown is a pure function of the service clock (the host's replicated world time plus the replicated dev
+offset) and of the timetable's samples, so every player reads the same board. The stands at each terminus come from
+the samples (`FBelmonteTrainLine::Stops`); service seconds become real ones through `train.TimeScale`, the host's on a
+client. Text is checked once a second and changes about once a minute. Live state: `atelier live py` with
+`UBelmonteTrainLive.train_state()` lists each board's lines.
+
 ## Ground
 
 - `train/earthworks.py` designs the station's ground together with the line's:

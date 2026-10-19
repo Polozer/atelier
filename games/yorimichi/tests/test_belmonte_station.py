@@ -137,6 +137,45 @@ class TrainService(unittest.TestCase):
         self.assertTrue(S.EDGE < float(u[0]) < 10.5)                       # on platform 1, beside the line's track
         self.assertAlmostEqual(z, RAIL + S.PLATFORM, places=2)
 
+    def test_arrival_boards_in_the_concourse_and_by_the_buffer_stop(self):
+        """Three boards: one over the concourse facing the platforms, one on posts on P1 and on the island near the
+        buffer stop, clear of the scaled train standing at its stop, readable heights, at the platform level."""
+        import belmonte_train_service as service
+        line = Straight()
+        s = np.arange(line.length - 1000., line.length + 1e-6, 10.)
+        p, _, _ = line.frame(s)
+        samples = [dict(s=float(c - s[0]), x=float(x), y=float(y), rail_z=RAIL, ground_z=RAIL + 4.)
+                   for c, (x, y, _) in zip(s, p)]
+        route = dict(samples=samples, stations={'Hidamari': {'centre': [0., 0.]}, 'Belmonte': {'centre': [0., 1.]}})
+        train = dict(length=150.7, vehicles=[dict(id='first-class', offset=0., doors=[])])
+        out = service.stations(route, train, [0., samples[-1]['s'] - 85.])
+        boards = {b['id']: b for b in next(r for r in out if r['key'] == 'belmonte_station')['boards']}
+        self.assertEqual(set(boards), {'belmonte_concourse', 'belmonte_p1', 'belmonte_island'})
+        site = S.for_line([p[-2][:2], p[-1][:2]], [RAIL, RAIL])
+        heading = math.degrees(math.atan2(site.t[1], site.t[0]))
+        floor = RAIL + S.PLATFORM
+        for key, b in boards.items():
+            x, y, z = (c / 100. for c in b['location'])
+            a, u = (float(v[0]) for v in site.local(np.array([x]), np.array([-y])))
+            w, h, d = (c / 100. for c in b['size'])
+            self.assertGreater(z - h / 2 - floor, 2.1, key)            # headroom under the board
+            self.assertLess(z - floor, 4.5, key)                        # and low enough to read from the platform
+            self.assertEqual(b['mount_z'], round(floor * 100, 2), key)
+            if key == 'belmonte_concourse':
+                self.assertAlmostEqual(a + d / 2, ST.STAIR_FOOT, places=3)    # back on the landing block's face
+                self.assertTrue(-21. < u - w / 2 and u + w / 2 < -8., u)
+                self.assertFalse(b['double_sided'])
+                # facing the platforms: the front points away from the buffer stop (-a), Unreal yaw is -heading
+                self.assertAlmostEqual((b['yaw'] + heading + 360.) % 360. - 180., 0., places=2)
+                self.assertTrue(z + h / 2 < RAIL + S.STREET)            # under the landing's balustrade
+            else:
+                self.assertEqual(b['mount'], 'posts')
+                self.assertTrue(b['double_sided'])
+                self.assertTrue(-S.TRAIN_LENGTH - 10. - 1. < -11. < a < -1. - .5, a)   # between the head and the buffer
+                platform = (S.EDGE, 10.5) if key == 'belmonte_p1' else (S.SIDING + S.EDGE, -S.EDGE)
+                self.assertTrue(platform[0] + .5 < u < platform[1] - .5, u)
+                self.assertGreater(abs(u), S.EDGE + 1.5)
+
 
 if __name__ == '__main__':
     unittest.main()
