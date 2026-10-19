@@ -82,6 +82,21 @@ class Ground(unittest.TestCase):
                 for z in (RAIL + 4., RAIL + 11.):
                     self.assertAlmostEqual(self.carve(a, u, z), street, delta=.02 + 1e-9, msg=f'a={a} u={u:.1f}')
 
+    def test_access_road_climbs_to_its_junction(self):
+        site = self.ln.station()
+        pts, (z0, z1) = site.access()
+        self.assertAlmostEqual(z0, RAIL + S.STREET)
+        self.assertAlmostEqual(z1, S.ACCESS_END_Z)
+        length = float(np.hypot(*(pts[-1] - pts[0])))
+        self.assertAlmostEqual(float(site.access_z(S.ACCESS_FLAT / length)), z0)    # level off the forecourt first
+        for t in (.25, .5, .9):
+            x, y = pts[0] + t * (pts[-1] - pts[0])
+            for z in (z0 - 3., z1 + 3.):        # fill and cut
+                carved = float(E.carve(np.array([x]), np.array([y]), np.array([z]), self.ln)[0])
+                self.assertAlmostEqual(carved, z0 + (t * length - S.ACCESS_FLAT) / (length - S.ACCESS_FLAT) *
+                                       (z1 - z0), delta=.05)
+        self.assertLess((z1 - z0) / (length - S.ACCESS_FLAT), .03)      # about 2 %
+
     def test_ground_stands_against_the_walls(self):
         # two metres and a half outside the sheds' wall the ground keeps its natural height
         self.assertAlmostEqual(self.carve(-80., S.SHEDS[3] + 2.5, RAIL + 4.), RAIL + 4., delta=.05)
@@ -111,6 +126,9 @@ class Planting(unittest.TestCase):
         self.assertLess(margin[0], 0.)
         self.assertLess(margin[1], 0.)
         self.assertGreater(margin[2], 0.)
+        pts, _ = site.access()
+        mid = (pts[0] + pts[-1]) / 2
+        self.assertLess(float(c.station_margin(mid[:1], mid[1:])[0]), 0.)                 # the access road too
         for name in ('Tree_Tuscan_Test', C.SHRUBS[0] if isinstance(C.SHRUBS, tuple) else C.SHRUBS):
             with patch.object(E, 'line', return_value=E.Line(self.route)):
                 keep, _ = C.settle(name, on[:, 0], on[:, 1], np.full(3, RAIL + 4.), c)
@@ -128,7 +146,10 @@ class RouteGround(unittest.TestCase):
         from belmonte import source
         carved = [e for e in source.manifest()['meshes'] if e.get('railway_carved')]
         self.assertTrue(carved)
-        digest = hashlib.sha256(C.LINE.read_bytes() + Path(S.__file__).read_bytes()).hexdigest()[:16]
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+        import belmonte_station_terrain as tool
+        digest = hashlib.sha256(C.LINE.read_bytes() + Path(S.__file__).read_bytes() +
+                                json.dumps(tool.SALON_PATH).encode()).hexdigest()[:16]
         for entry in carved:
             self.assertEqual(entry['railway_carved'], digest, f"{entry['name']}: run tools/belmonte_station_terrain.py")
             self.assertTrue((yori.ASSETS / 'belmonte' / 'natural' / f"{entry['name']}.glb").is_file(), entry['name'])
@@ -155,6 +176,47 @@ class RouteGround(unittest.TestCase):
         off = np.abs(z - (site.rail + S.STREET))
         worst = int(np.argmax(off))
         self.assertLess(float(off[worst]), .02, f'a={a.ravel()[worst]:.1f} u={u.ravel()[worst]:.1f}')
+
+    def test_committed_access_road_and_salon_path(self):
+        """The carved tiles carry the access road at its grade, and the Salon's path on its own ground."""
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+        import belmonte_station_terrain as tool
+        from belmonte import source, layout as BM
+        natural, carved = source.terrain(natural=True), source.terrain()
+        site = E.line().station()
+        pts, _ = site.access()
+        t = np.linspace(.1, .95, 9)
+        q = pts[0] + t[:, None] * (pts[-1] - pts[0]) - BM.ORIGIN[:2]
+        z = carved.height(q[:, 0], q[:, 1]) + BM.ORIGIN[2]
+        self.assertLess(float(np.abs(z - site.access_z(t)).max()), .15)
+        a, b = (np.asarray(p, float) for p in tool.SALON_PATH['points'])
+        q = a + np.linspace(0., 1., 9)[:, None] * (b - a) - BM.ORIGIN[:2]
+        self.assertLess(float(np.abs(carved.height(q[:, 0], q[:, 1]) - natural.height(q[:, 0], q[:, 1])).max()), .05)
+
+
+    def test_committed_ground_stays_under_the_paving(self):
+        """The carved tiles never rise through the forecourt's cobbles (its side kerbs included) or the access road's:
+        at least a centimetre under their top on a 0.25 m grid (the in-game probe's defect, 2026-10-19)."""
+        from belmonte import source, layout as BM
+        from train import station as ST
+        carved, site = source.terrain(), E.line().station()
+
+        def ground(x, y):
+            return carved.height(np.ravel(x) - BM.ORIGIN[0], np.ravel(y) - BM.ORIGIN[1]) + BM.ORIGIN[2]
+        a0, a1, u0, u1 = S.FORECOURT
+        a, u = np.meshgrid(np.arange(a0, a1 + 1e-6, .25), np.arange(u0 - .3, u1 + .3 + 1e-6, .25), indexing='ij')
+        xy = site.world(a, u)
+        over = ground(xy[..., 0], xy[..., 1]) - (site.rail + S.STREET + ST.PAVING)
+        worst = int(np.argmax(over))
+        self.assertLess(float(over[worst]), -.01, f'forecourt a={a.ravel()[worst]:.2f} u={u.ravel()[worst]:.2f}')
+        pts, _ = site.access()
+        length = float(np.hypot(*(pts[-1] - pts[0])))
+        d = (pts[-1] - pts[0]) / length
+        s, w = np.meshgrid(np.arange(0., length + 1e-6, .25), np.arange(-3.5, 3.5 + 1e-6, .25), indexing='ij')
+        xy = pts[0] + s[..., None] * d + w[..., None] * np.array([-d[1], d[0]])
+        over = ground(xy[..., 0], xy[..., 1]) - (site.access_z(s.ravel() / length) + ST.PAVING)
+        worst = int(np.argmax(over))
+        self.assertLess(float(over[worst]), -.01, f'access road s={s.ravel()[worst]:.2f} w={w.ravel()[worst]:.2f}')
 
 
 class Bank(unittest.TestCase):

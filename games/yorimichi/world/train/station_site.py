@@ -1,5 +1,5 @@
-"""The Belmonte station's site (plain Python, numpy only): its footprint, levels and forecourt, in the
-frame of the line's Belmonte end. Read by the earthworks (the ground the station stands on) and the corridor (no plants
+"""The Belmonte station's site (plain Python, numpy only): its footprint, levels, forecourt and access road, in
+the frame of the line's Belmonte end. Read by the earthworks (the ground the station stands on) and the corridor (no plants
 on it). Nothing here applies to a line that does not end at the site (for_line): the committed riverside terminus keeps
 its ground and planting unchanged.
 
@@ -8,8 +8,8 @@ the buffer stop and beyond (the facade side), `u` metres to the left of a train 
 The buffer stop stands at a = -track.BUFFER_OFFSET.
 
 The rail reaches Belmonte 8.6 m under the road from the south-east gate (route v4, Paul 2026-10-17), so the station
-stands in a shallow cutting: platforms and the concourse at platform level, the headhouse's vestibule and the forecourt
-at street level (STREET over the rail), with a grand staircase between them inside the headhouse.
+stands in a shallow cutting: platforms and the concourse at platform level, the headhouse's vestibule, the forecourt and
+the access road at street level (STREET over the rail), with a grand staircase between them inside the headhouse.
 """
 import math
 
@@ -21,13 +21,16 @@ TRAIN_LENGTH = 131. * TRAIN_SCALE           # 150.7 m; the head stops 10 m short
 SHED_LENGTH = 175.          # the sheds cover the whole train with 14 m to spare
 PLATFORM = 1.0              # platform top over the rail (the train service's arrival spot and boarding steps)
 EDGE = round(1.80 * TRAIN_SCALE + .05, 2)   # 2.12: platform edges from a track's centre, clear of the scaled body
-STREET = 7.2                # the vestibule and the forecourt over the rail (214.8 m)
+STREET = 7.2                # the vestibule, the forecourt and the access road's start over the rail (214.97 m)
 FORMATION = -.85            # the ground under the track and the buildings (earthworks.FORMATION_DROP)
 SIDING = -29.               # the decorative siding's centre (second shed)
 # Rectangles (a0, a1, u0, u1) in the station frame.
 SHEDS = (-SHED_LENGTH - 3., 0., -45., 15.5)             # the two train sheds, their outer walls and rear pavilions
 HEADHOUSE = (0., 26., -55., 26.)            # the street building: wings, vestibule, gallery and stairs
 FORECOURT = (26., 46., -57., 28.)           # the square in front of the facade, at street level
+# The ground stays at street level this far beyond the forecourt's edges before its slopes start, so the carved terrain
+# (refined along those edges, tools/belmonte_station_terrain.py) steps outside the paving and never rises through it.
+FORECOURT_HOLD = 1.5
 # The vestibule and the wings' street end: solid to street level in station.py, so the ground under them stands at
 # street level (UNDERFLOOR under their floor) and meets the street flush along the whole facade; the stair hall behind
 # them (a < VESTIBULE[0]) goes down to the formation.
@@ -35,7 +38,15 @@ VESTIBULE = (18., HEADHOUSE[1], HEADHOUSE[2], HEADHOUSE[3])
 UNDERFLOOR = .02
 AXIS_U = -14.5                              # the building's axis of symmetry (the clock tower)
 WALL_SLOPE = .05            # horizontal per vertical: the ground stands against the station's walls
-ROAD_CLEAR = 3.             # plants keep this far off the footprint
+# The access road: from the forecourt's front edge on the axis north to the road from the north gate to the Trois Pres
+# estate (its low point), world metres (x, y) after the first point. It leaves the front edge at a slant, so it stays
+# at street level for its first ACCESS_FLAT metres (clear of the forecourt and its level ground), then rises evenly to
+# ACCESS_END_Z, the road's ground there. 86 m, then about 2.3 %, 7 m wide.
+ACCESS = [(797., 4816.)]
+ACCESS_END_Z = 216.8
+ACCESS_FLAT = 8.
+ACCESS_HALF = 4.5           # the 7 m road and its shoulders
+ROAD_CLEAR = 3.             # plants keep this far off the footprint and the access road
 # The road from the south-east gate to the Dunes Basses estate crosses the cutting 229 m before the buffer stop on a
 # straight stone deck (overbridge.py). The structure is regular and the ground is made to fit it (earthworks.carve):
 # - the deck's road surface is one plane, level across and climbing `grade` along the road (deck_z at xy), and the road
@@ -82,6 +93,19 @@ class Site:
         d = np.stack([np.asarray(x, float) - self.origin[0], np.asarray(y, float) - self.origin[1]], -1)
         return d @ self.t, d @ self.n
 
+    def access(self):
+        """The access road's centre line (world x, y) and its heights at its ends."""
+        start = self.world(FORECOURT[1], AXIS_U)
+        pts = np.array([start, *ACCESS], float)
+        return pts, (self.rail + STREET, ACCESS_END_Z)
+
+    def access_z(self, t):
+        """The access road's height at t (0..1 along it): level for ACCESS_FLAT metres, then rising evenly."""
+        pts, (z0, z1) = self.access()
+        total = float(np.hypot(*np.diff(pts, axis=0).T).sum())
+        s = np.asarray(t, float) * total
+        return z0 + (z1 - z0) * np.clip((s - ACCESS_FLAT) / (total - ACCESS_FLAT), 0., 1.)
+
     def zones(self):
         """(rectangle, floor height) of the ground the station stands on: the sheds and the stair hall at the
         formation (their walls retain the street), the vestibule and the forecourt at street level."""
@@ -110,15 +134,34 @@ def rect_excess(a, u, rect):
     return np.hypot(da, du)
 
 
+def polyline_excess(x, y, pts, half):
+    """(metres beyond `half` of the polyline's centre, position along it 0..1) for points x, y."""
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    best, along = np.full(x.shape, np.inf), np.zeros(x.shape)
+    lengths = np.hypot(*np.diff(pts, axis=0).T)
+    total, start = lengths.sum(), 0.
+    for (ax, ay), (bx, by), length in zip(pts[:-1], pts[1:], lengths):
+        dx, dy = bx - ax, by - ay
+        t = np.clip(((x - ax) * dx + (y - ay) * dy) / max(length * length, 1e-9), 0., 1.)
+        d = np.hypot(x - ax - t * dx, y - ay - t * dy)
+        better = d < best
+        best = np.where(better, d, best)
+        along = np.where(better, (start + t * length) / total, along)
+        start += length
+    return np.maximum(best - half, 0.), along
+
+
 def inside(site, x, y, margin=0.):
-    """True on the footprint and forecourt (plus `margin`)."""
+    """True on the footprint, forecourt and access road (plus `margin`)."""
     return excess(site, x, y) <= margin
 
 
 def excess(site, x, y):
-    """Metres beyond the station's ground (0 on it): the sheds, the headhouse and the forecourt."""
+    """Metres beyond the station's ground (0 on it): the sheds, the headhouse, the forecourt and the access road."""
     a, u = site.local(x, y)
-    return np.min([rect_excess(a, u, rect) for rect, _ in site.zones()], axis=0)
+    pts, _ = site.access()
+    return np.minimum(np.min([rect_excess(a, u, rect) for rect, _ in site.zones()], axis=0),
+                      polyline_excess(x, y, pts, ACCESS_HALF)[0])
 
 
 class Bridge:

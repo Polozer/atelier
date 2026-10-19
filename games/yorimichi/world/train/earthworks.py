@@ -15,8 +15,8 @@ builder, so the Hidamari foothills, the far hills, Belmonte's apron and country 
   terrain across the mouth (HOLE): the portal mesh (track.py) closes it;
 - viaducts and the line's ends: untouched under the deck; the fill or cut ends in a cone (END_RATIO);
 - the Belmonte station (station_site.py): the ground under its sheds and stair hall at the formation, standing
-  straight against their walls; under the vestibule just under street level, flush with the forecourt at street level
-  along the facade, with ordinary soil slopes beyond; under the road's overbridge the cutting
+  straight against their walls; under the vestibule just under street level, flush with the forecourt and the access
+  road at street level along the facade, with ordinary soil slopes beyond; under the road's overbridge the cutting
   stands between retaining walls, so the road keeps its ground either side. Only for a line ending at the site.
 
 Terrains are carved by `refine` (triangle soups: subdivides the triangles that the earthworks touch to `step` metres,
@@ -303,7 +303,8 @@ def valley_carve_start(ln, rows):
 def station(x, y, ln):
     """(upper, lower, floor) the Belmonte station asks of the ground at points x, y (flat arrays): +inf/-inf/NaN where
     it asks nothing. Sheds and stair hall: the formation, straight walls at their edges; the vestibule: just under
-    street level, also with straight walls; the forecourt: street level, soil slopes beyond."""
+    street level, also with straight walls; forecourt and access road: street level (FORECOURT_HOLD beyond the
+    forecourt's edges too) and the access road's run up to its junction, soil slopes beyond."""
     up, lo, floor = np.full(len(x), np.inf), np.full(len(x), -np.inf), np.full(len(x), np.nan)
     site = ln.station()
     if site is None or not len(x):
@@ -315,10 +316,23 @@ def station(x, y, ln):
         if not near.any():
             continue
         steep = rect is not SS.FORECOURT
+        if not steep:           # level ground around the paving before the slopes
+            e = np.maximum(e - SS.FORECOURT_HOLD, 0.)
         ratio = SS.WALL_SLOPE if steep else RATIO[0]
         up = np.where(near, np.minimum(up, z + (e / ratio if steep else _rise(e, ratio, ROCK_RATIO[1]))), up)
         lo = np.where(near, np.maximum(lo, z - e / ratio), lo)
         floor = np.where(e <= 0., z, floor)
+    pts, _ = site.access()
+    e, t = SS.polyline_excess(x, y, pts, SS.ACCESS_HALF)
+    near = e < STATION_REACH
+    z = site.access_z(t)
+    road_lo = z - e / RATIO[0]
+    up = np.where(near, np.minimum(up, z + _rise(e, RATIO[0], ROCK_RATIO[1])), up)
+    # beyond the level ground around the forecourt (FORECOURT_HOLD) the road's rising floor and its fill slopes win
+    beyond = _smooth(SS.rect_excess(a, u, SS.FORECOURT) - SS.FORECOURT_HOLD)
+    up = np.where(near, up + beyond * np.maximum(road_lo - up, 0.), up)
+    lo = np.where(near, np.maximum(lo, road_lo), lo)
+    floor = np.where(e <= 0., z, floor)
     return up, lo, floor
 
 

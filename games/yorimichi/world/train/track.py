@@ -63,6 +63,7 @@ MATERIALS = {               # Blender colour stand-ins; the names are the Unreal
     'MI_TK_Bank': (.10, .14, .045, .95),             # the grass of a bank built over ground that is not carved
     # the Belmonte station (station.py)
     'MI_B_flag': (.55, .40, .25, .9),
+    'MI_B_cobble': (.55, .38, .22, .9),
     'MI_B_plaster': (.72, .42, .17, .9),
     'MI_B_roof': (.62, .25, .12, .85),
     'MI_B_glass_dark': (.03, .03, .025, .3),
@@ -87,6 +88,7 @@ BUDGETS = {                 # triangles per LOD (BELMONTE_TRACK.md)
     'SM_ST_Headhouse': (14500, 4200, 1200),    # the Belmonte station (station.py), one mesh each; LOD2 the collision
     'SM_ST_Sheds': (34000, 6000, 2400),
     'SM_ST_Coaches': (2000, 300, 60),
+    'SM_ST_Forecourt': (220, 80, 40),
 }
 
 
