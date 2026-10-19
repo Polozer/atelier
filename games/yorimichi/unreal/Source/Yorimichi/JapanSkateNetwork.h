@@ -39,6 +39,7 @@ public:
     void ReceiveBodies(const FJapanSkateBodies& State);
     UFUNCTION(Server, Unreliable) void ServerBoard(const FJapanBoardState& State);
 private:
+    friend class FTrainVehicleAdmissionTest;
     UPROPERTY() TObjectPtr<AWandererCharacter> Rider;
     void ConfigureTickOrder();
     void ObserveDisplayedPose();

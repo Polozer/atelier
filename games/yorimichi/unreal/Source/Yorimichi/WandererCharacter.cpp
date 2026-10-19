@@ -692,6 +692,7 @@ bool AWandererCharacter::PressMove(FName Button)
 }
 void AWandererCharacter::ToggleSailboat(const FInputActionValue&)
 {
+    if (!Sailboat->IsEquipped() && RefuseVehicleOnTrain()) return;
     if (JapanNetwork::IsOnline(GetWorld())) { RequestNetworkSail(); return; } // Enabled by the vehicle prediction layer.
     if (!bReady || bMenuOpen || IsZeppelinPassenger() || SkateRide->IsRiding() || Horse->IsEquipped()) return;
     if (Sailboat->IsEquipped()) { Sailboat->Toggle(); return; }
@@ -701,6 +702,7 @@ void AWandererCharacter::ToggleSailboat(const FInputActionValue&)
 bool AWandererCharacter::OnVehicle() const { return Sailboat->IsEquipped() || Bike->IsEquipped() || Horse->IsEquipped(); }
 void AWandererCharacter::ToggleBike(const FInputActionValue&)
 {
+    if (!Bike->IsEquipped() && RefuseVehicleOnTrain()) return;
     if (JapanNetwork::IsOnline(GetWorld())) { RequestNetworkBike(); return; } // Enabled by the vehicle prediction layer.
     if (!bReady || bMenuOpen || IsZeppelinPassenger() || SkateRide->IsRiding() || Sailboat->IsEquipped() || Horse->IsEquipped()) return;
     if (Bike->IsEquipped()) { Bike->Toggle(); return; }
@@ -709,6 +711,7 @@ void AWandererCharacter::ToggleBike(const FInputActionValue&)
 }
 void AWandererCharacter::ToggleHorse(const FInputActionValue&)
 {
+    if (!Horse->IsEquipped() && RefuseVehicleOnTrain()) return;
     if (JapanNetwork::IsOnline(GetWorld())) { RequestNetworkHorse(); return; } // Enabled by the vehicle prediction layer.
     if (!bReady || bMenuOpen || IsZeppelinPassenger() || SkateRide->IsRiding() || Sailboat->IsEquipped() || Bike->IsEquipped()) return;
     if (Horse->IsEquipped()) { Horse->Toggle(); return; }
@@ -741,6 +744,7 @@ void AWandererCharacter::CycleHorseCoat(const FInputActionValue&)
 }
 void AWandererCharacter::ToggleSkateboard(const FInputActionValue&)
 {
+    if (!SkateRide->IsRiding() && !bApplyingNetworkActivity && RefuseVehicleOnTrain()) return;
     if (JapanNetwork::IsOnline(GetWorld()) && !bApplyingNetworkActivity && RequestNetworkSkate()) return;
     if (SkateRide->IsAvailable())
     {
@@ -754,13 +758,22 @@ void AWandererCharacter::ToggleSkateboard(const FInputActionValue&)
 }
 void AWandererCharacter::SkateboardHand(const FInputActionValue&)
 {
+    if (RefuseVehicleOnTrain()) return;
     if (bReady && !bMenuOpen && SkateRide->IsAvailable() && !SkateRide->IsRiding()) SkateRide->RecallBoard();
 }
 bool AWandererCharacter::CanCarrySkateBoard() const
 {
     // The hands are needed: the sword out, the sail, the zeppelin's rail, swimming, an interaction or a wave.
-    return !(Sword && Sword->IsArmed()) && !OnVehicle() && !IsZeppelinPassenger() && !GetCharacterMovement()->IsSwimming() &&
+    return !IsOnTrain() && !(Sword && Sword->IsArmed()) && !OnVehicle() && !IsZeppelinPassenger() && !GetCharacterMovement()->IsSwimming() &&
         AnimationAction != TEXT("Interact") && AnimationAction != TEXT("Wave");
+}
+bool AWandererCharacter::RefuseVehicleOnTrain()
+{
+    if (!IsOnTrain()) return false;
+    const TCHAR* Message = TEXT("Pas à bord du train");
+    if (IsLocallyControlled()) ULiveLibrary::Say(Message, 2.f);
+    else if (HasAuthority()) ClientActivityRejected(Message);
+    return true;
 }
 void AWandererCharacter::ToggleCrouch(const FInputActionValue&)
 {

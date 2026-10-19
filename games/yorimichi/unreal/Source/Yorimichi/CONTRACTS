@@ -74,3 +74,13 @@ and record settled runtime facing, walkable floor and standing capsule clearance
 forcing the accepted position. A requested single zone MUST fail if absent or ambiguous.
 Keeping a diagnostic listen-host alive after its tour MUST be explicitly bounded to at most
 120 seconds and MUST NOT change normal gameplay or normal tour completion.
+
+@cc [owner:fontanierh,label:correctness] train-vehicle-admission
+Deploying a skateboard, carried board, bike, horse or sailboat MUST be refused while
+standing or seated aboard a train or during its boarding walk, locally and on the host.
+The train gate MUST NOT block stowing an existing vehicle or bypass activity epochs,
+pending-contact checks, encounter admission or movement replay protections. Merely
+holding a board MUST NOT be advertised or presented as available while on the train.
+Owner board, pose and bail-body transport MUST NOT introduce visible boards aboard;
+valid hide/stow packets MUST retain existing sequence and rate admission. Retained
+board/pose/bail presentation MUST be masked while aboard even without an owner hide packet.
