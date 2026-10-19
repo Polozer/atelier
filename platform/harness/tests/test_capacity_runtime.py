@@ -273,8 +273,7 @@ def test_cook_compile_opt_in_cannot_fall_back_when_configuration_is_absent(clien
     assert client[3] == []
 
 
-def test_guarded_public_cook_ceiling_reaches_automatic_session_without_native_work(client, monkeypatch, tmp_path):
-    monkeypatch.delitem(sys.modules, 'atelier.harness.capacity_client')
+def test_guarded_public_cook_ceiling_reaches_automatic_session_without_native_work(monkeypatch, tmp_path):
     from atelier.harness.safety import guarded
     calls = []
     class AtConfiguration(Exception):
