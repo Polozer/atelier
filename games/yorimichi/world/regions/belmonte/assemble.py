@@ -146,7 +146,8 @@ def assemble(*,out,scene,materials,planting,models,ground,north,sources,natural,
     town_z=float(Surface(query['faces']).height(0.,-18.))+L.ORIGIN[2]+1.
     runtime=dict(version=1,origin_cm=L.native_origin(),bounds_m=L.BOUNDS,clearance_m=list(OUTER),groups=groups,
         signs=[dict(row,text=runtime_layout.SIGN_TRANSLATIONS.get(row['text'],row['text'])) for row in data['signs']],
-        railway_corridor=L.RAILWAY,zones=runtime_layout.map_zones(town_z,data),tv_spots=runtime_layout.tv_spots(data))
+        railway_corridor=L.RAILWAY,zones=runtime_layout.map_zones(town_z,data),tv_spots=runtime_layout.tv_spots(data),
+        racing_places=runtime_layout.racing_places(data))
     report=dict(meshes=meshes,materials=prepared,planting=plants['report'],seam=document(seam))
     json.dumps([runtime,report],allow_nan=False)
     files={key:{} for key in FOLDERS}
