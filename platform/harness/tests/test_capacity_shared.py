@@ -1141,7 +1141,8 @@ def calibrated_full_settings(barrier, memory=4096):
     return path, proof
 
 
-@pytest.mark.parametrize('memory,accepted', [(4095, False), (4096, True), (6144, True), (8192, True), (8193, False)])
+@pytest.mark.parametrize('memory,accepted', [(0, False), (475, False), (476, True), (500, True),
+                                           (4095, True), (4096, True), (6144, True), (8192, True), (8193, False)])
 def test_explicit_full_calibration_preserves_seal_and_memory_bounds(barrier, memory, accepted):
     path, proof = calibrated_full_settings(barrier, memory)
     before = compat.DEFAULT_RECORD.read_bytes()
@@ -1240,13 +1241,13 @@ def test_reserve_calibration_flag_is_typed_and_full_mode_only(barrier, value, mo
 
 
 def test_calibrated_full_cannot_select_a_subfloor_unchanged_seal(barrier):
-    barrier.value['reserve']['memory_mib'] = 2048
+    barrier.value['reserve']['memory_mib'] = 475
     barrier.config.write_text(json.dumps(barrier.value))
     activated(barrier)
     settings = broker.load_config(barrier.config)
     # The normal unchanged policy is valid, but it must not enter the explicit calibrated schema.
     with closing(broker.CapacityBroker(**settings)) as instance:
-        assert instance.reserve.memory_mib == 2048
+        assert instance.reserve.memory_mib == 475
     settings['calibrated_memory_reserve'] = True
     with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
         broker.CapacityBroker(**settings)
@@ -1427,3 +1428,77 @@ def test_automatic_full_launch_requeues_only_after_real_no_go_cleanup(barrier, m
         thread.join(timeout=3)
         instance.close()
         assert not thread.is_alive() and not errors, errors
+
+
+@pytest.mark.parametrize('available,accepted', [(10715, False), (10716, True), (10717, True)])
+def test_operator_small_reserve_keeps_full_guard_and_fresh_pressure(barrier, available, accepted):
+    path, proof = calibrated_full_settings(barrier, 476)
+    before = compat.DEFAULT_RECORD.read_bytes()
+    with closing(broker.CapacityBroker(**broker.load_config(path), observe=lambda: dict(
+            observed_monotonic=time.monotonic(), available_memory_mib=available))) as instance:
+        candidate = dict(state='queued', request=dict(resources=asdict(Resources(memory_mib=10240))))
+        if accepted:
+            instance._pressure({'records': {'normal': candidate}}, candidate)
+        else:
+            with pytest.raises(broker.PressureWait):
+                instance._pressure({'records': {'normal': candidate}}, candidate)
+        instance.observe = lambda: dict(observed_monotonic=0, available_memory_mib=999999)
+        with pytest.raises(wire.CapacityError, match='Fresh capacity pressure'):
+            instance._pressure({'records': {'normal': candidate}}, candidate)
+        assert candidate['request']['resources']['memory_mib'] == 10240
+    assert compat.DEFAULT_RECORD.read_bytes() == before and proof['reserve']['memory_mib'] == 8192
+
+
+@pytest.mark.parametrize('available,accepted', [(11739, False), (11740, True)])
+def test_operator_small_reserve_still_counts_entire_remaining_peer_growth(barrier, available, accepted):
+    path, _ = calibrated_full_settings(barrier, 476)
+    with closing(broker.CapacityBroker(**broker.load_config(path),
+            guards=lambda *args: wire.GuardFacts((), 1024**3), observe=lambda: dict(
+                observed_monotonic=time.monotonic(), available_memory_mib=available))) as instance:
+        candidate = dict(state='queued', request=dict(resources=asdict(Resources(memory_mib=4096))))
+        peer = dict(state='running', request=dict(resources=asdict(Resources(memory_mib=8192))),
+                    child=[99, 999], principal=[88, 888], guards={}, limit_bytes=8 * 1024**3)
+        if accepted:
+            instance._pressure({'records': {'new': candidate, 'peer': peer}}, candidate)
+        else:
+            with pytest.raises(broker.PressureWait):
+                instance._pressure({'records': {'new': candidate, 'peer': peer}}, candidate)
+
+
+@pytest.mark.parametrize('count,cpu_reserve,accepted', [(12, 0, True), (11, 0, False), (None, 0, False),
+    (10, 1000, True), (10, 0, False), (20, 1001, False)])
+def test_explicit_cpu_reserve_is_bounded_by_seal_and_actual_host(barrier, monkeypatch, count, cpu_reserve, accepted):
+    path, proof = calibrated_full_settings(barrier, 476)
+    settings = broker.load_config(path)
+    settings['reserve'] = Resources(**(asdict(settings['reserve']) | {'cpu_millis': cpu_reserve}))
+    monkeypatch.setattr(broker.os, 'cpu_count', lambda: count)
+    before = compat.DEFAULT_RECORD.read_bytes()
+    if accepted:
+        with closing(broker.CapacityBroker(**settings)) as instance:
+            assert instance.total.cpu_millis == 12000 and instance.reserve.cpu_millis == cpu_reserve
+    else:
+        with pytest.raises(wire.CapacityError, match='differ from the sealed policy'):
+            broker.CapacityBroker(**settings)
+    assert compat.DEFAULT_RECORD.read_bytes() == before and proof['reserve']['cpu_millis'] == 1000
+
+
+def test_ten_cpu_host_calibration_requires_whole_pool_profiles_without_changing_workers(barrier, monkeypatch):
+    barrier.value['total']['cpu_millis'] = 10000
+    barrier.value['reserve']['cpu_millis'] = 2000
+    path, proof = calibrated_full_settings(barrier, 476)
+    settings = broker.load_config(path)
+    settings['reserve'] = Resources(**(asdict(settings['reserve']) | {'cpu_millis': 0}))
+    monkeypatch.setattr(broker.os, 'cpu_count', lambda: 10)
+    with closing(broker.CapacityBroker(**settings)) as instance:
+        assert instance.total.cpu_millis == 10000 and instance.reserve.cpu_millis == 0
+        request = dict(id='whole', resources=asdict(Resources(memory_mib=10240, cpu_millis=10000)),
+                       checkout=str(barrier.root), locks=['checkout:' + str(barrier.root)],
+                       phase='game', performance=True)
+        assert instance._request(request)['resources']['cpu_millis'] == 10000
+        request['resources']['cpu_millis'] = 8000
+        with pytest.raises(wire.CapacityError, match='complete managed CPU'):
+            instance._request(request)
+        request.update(phase='job', workers=3, performance=False)
+        request['resources']['cpu_millis'] = 3000
+        assert instance._request(request)['workers'] == 3
+        assert proof['reserve']['cpu_millis'] == 2000

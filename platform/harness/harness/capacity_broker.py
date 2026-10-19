@@ -30,6 +30,7 @@ APPLICATION_ID = 0x41434231
 SCHEMA = 'CREATE TABLE state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL)'
 MAX_DATABASE = 32 * 1024 * 1024
 HELD = {'running', 'draining', 'uncertain'}
+MIN_CALIBRATED_MEMORY_MIB = 476  # 499,122,176 bytes, below the operator's decimal 500 MB maximum.
 
 
 class PressureWait(wire.CapacityError):
@@ -52,8 +53,11 @@ class CapacityBroker:
     The adapter MUST retain exclusive legacy exclusion in bridge
     mode, verified sealed shared compatibility mutexes in full mode, or read-only exclusive
     ownership of every sealed legacy lane in explicit maintenance mode. Maintenance or an explicit
-    calibrated full configuration MAY reduce only the host memory reserve, with a 4096 MiB floor
-    and the sealed reserve as its ceiling. Ordinary full configuration MUST keep the exact sealed
+    calibrated full configuration MAY reduce the host memory reserve, with a 4096 MiB floor
+    for maintenance or 476 MiB for explicitly calibrated full mode, and the sealed reserve as
+    its ceiling. Explicit calibrated full mode MAY also reduce CPU reserve down to zero, but a
+    changed CPU reserve MUST NOT expose more managed CPU than the actual logical host count.
+    Ordinary full configuration MUST keep the exact sealed
     reserve; every other sealed configuration value MUST remain exact. Legacy temp_mib fields
     remain readable but MUST NOT constrain admission. Actual memory reservations, guard ceilings
     and complete remaining-memory-growth pressure checks MUST NOT shrink.
@@ -100,8 +104,16 @@ class CapacityBroker:
             selected_reserve = asdict(self.reserve)
             reserve_matches = selected_reserve == proof['reserve']
             if calibrated_memory_reserve or (mode == 'sealed-maintenance' and not reserve_matches):
-                reserve_matches = (4096 <= self.reserve.memory_mib <= proof['reserve']['memory_mib']
-                    and {**selected_reserve, 'memory_mib': proof['reserve']['memory_mib']} == proof['reserve'])
+                floor = MIN_CALIBRATED_MEMORY_MIB if calibrated_memory_reserve else 4096
+                expected = {**selected_reserve, 'memory_mib': proof['reserve']['memory_mib']}
+                cpu_matches = True
+                if calibrated_memory_reserve:
+                    expected['cpu_millis'] = proof['reserve']['cpu_millis']
+                    cpu_matches = (0 <= self.reserve.cpu_millis <= proof['reserve']['cpu_millis'] and
+                        (self.reserve.cpu_millis == proof['reserve']['cpu_millis'] or
+                         self.total.cpu_millis - self.reserve.cpu_millis <= (os.cpu_count() or 0) * 1000))
+                reserve_matches = (floor <= self.reserve.memory_mib <= proof['reserve']['memory_mib']
+                    and cpu_matches and expected == proof['reserve'])
         if mode in ('capacity', 'sealed-maintenance') and (proof['socket'] != str(self.socket_path)
                 or proof['disk_pool'] != str(self.disk_pool)
                 or proof['total'] != asdict(self.total) or not reserve_matches):

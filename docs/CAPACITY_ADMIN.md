@@ -272,21 +272,37 @@ This does not resize job/compile profiles, explicit admission sessions, bridge o
 Budgets, disk pool, endpoint and the exact broker configuration hash are bound into the cutover record.
 Changing them requires a separately reviewed transition; neither service recovery nor clients rewrite that proof.
 
-### Explicit full-mode memory calibration
+### Explicit full-mode host calibration
 
 The ordinary schema2 full configuration remains exact. A separately installed **schema4** broker configuration
-can select only a calibrated host memory reserve between 4096 MiB and the original sealed reserve. It uses
+can select a calibrated host memory reserve between 476 MiB and the original sealed reserve. It uses
 `mode: "capacity"`, the same schema2 keys and `seal_policy_sha256` naming the unchanged original full policy.
 Its own complete configuration digest is pinned independently by service supervision. The original sealed
-policy, boot proof, lane identities, totals, endpoint, disk pool and every other reserve dimension remain exact.
+policy, boot proof, lane identities, totals, endpoint and disk pool remain exact. The CPU reserve may also
+be explicitly reduced between zero and its original sealed value. When it changes, the resulting managed
+budget (sealed total minus selected reserve) must not exceed the actual logical CPU count. All other
+reserve dimensions remain exact; no total or worker count is raised.
 No agent environment flag enables calibration, and adopting maintenance never carries its buffer into full mode.
 Both calibrated full and maintenance service startup refuse a missing own-configuration digest; prepare and
 install supervision rather than starting either with an unpinned manual `capacity serve` command.
 
+The explicitly selected full-mode floor is 476 MiB (499,122,176 bytes), respecting the operator's
+decimal 500 MB maximum. A 500 MiB setting is 524,288,000 bytes and exceeds that maximum.
+This source capability does not automatically change any installed reserve. Maintenance retains its
+4096 MiB reduction floor; the unchanged original sealed policy remains intact in both modes.
+
+For a sealed 10,000 millicore total and 2,000 reserve on a ten-CPU host, selecting zero CPU reserve
+exposes 10,000 managed millicores. The separately reviewed default client profiles must cover that
+budget for games, compiles and unknown commands (10,000 in this example). Older full clients can use
+those profiles without rewriting the sealed proof; bounded Blender requests still charge the explicit
+unchanged worker count. These reservations are scheduling accounting, not kernel CPU quotas. An
+exclusive 8,000-millicore request was not an eight-core execution throttle. Performance exclusion and
+the three-worker compiler/Blender settings do not change with host calibration.
+
 This controls host headroom, not job limits: a 10 GiB job still reserves and enforces 10 GiB. With a 4 GiB host
 reserve it requires at least 14 GiB of fresh available memory, plus the full remaining memory growth of every
 charged peer. Unknown or failed observations still refuse. Worker counts, exclusive jobs, foreign-process checks,
-CPU/GPU accounting and both memory guards are unchanged. The full default client remains schema2.
+GPU accounting and both memory guards are unchanged. The full default client remains schema2.
 
 Install a reviewed calibration only at a coordinated child-free, uncharged boundary. Keep the original full
 policy and seal bytes; never edit or re-seal them to fit a memory snapshot. Require measured host-pressure and
