@@ -551,7 +551,7 @@ def _forecourt(b, x0, y0):
         _slab(b, x0 + side * 7.3, x0 + side * 8.7, edge - 0.8, edge, plo - 1.0, court + 0.35, court + 0.35, 'stone')
         cx = x0 + side * 13.0 - side * 0.4
         _slab(b, cx - 0.4, cx + 0.4, edge, front, plo - 1.0, court + 0.9, court + 0.9, 'stone')
-        cannon(b, x0 + side * 8.0, edge + 2.0, court, 0.0)
+        cannon(b, x0 + side * 8.0, edge + 2.0, court, 0.0, 1.8)
     # Stepped ramp: a landing off the terrace, then each step a solid block down into the ground, between low
     # side walls.
     if start < edge:
@@ -893,9 +893,21 @@ def _yard(b, x):
             b.box((tx - 1.0 + k * 1.0 + (layer % 2) * 0.5, ty, z + 0.22), (0.46, 9.0 - layer * 0.8, 0.46), 'wood')
         b.box((tx, ty - 3.4, z + 0.47), (3.2, 0.2, 0.05), 'wood_dark')
         b.box((tx, ty + 3.4, z + 0.47), (3.2, 0.2, 0.05), 'wood_dark')
-    # The old long plank stacks north of the shed.
-    for i in range(5):
-        b.box((398, 72 + i * 2.2, 5.0 + i * 0.35), (28, 1.6, 0.32), 'wood_light', 8)
+    # Seasoning plank stacks north of the shed: boards in layers on spacer battens over ground bearers, so they read
+    # as stored timber. Five long boards stepped up and back read as a stair to nowhere (playtest note 10).
+    for sx, sy, layers in ((392.0, 76.0, 6), (404.0, 77.5, 4), (397.0, 87.0, 5)):
+        z = L.ground(sx, sy) + 0.02
+        for dx in (-3.6, 0.0, 3.6):
+            b.box((sx + dx, sy, z + 0.11), (0.3, 2.4, 0.22), 'wood_dark')
+        z += 0.22
+        for layer in range(layers):
+            for k in range(4):
+                b.box((sx, sy - 0.84 + k * 0.56, z + 0.06), (9.0 - (layer % 2) * 0.4, 0.5, 0.12), 'wood_light')
+            z += 0.12
+            if layer < layers - 1:
+                for dx in (-3.6, 0.0, 3.6):
+                    b.box((sx + dx, sy, z + 0.03), (0.08, 2.3, 0.06), 'wood')
+                z += 0.06
     # Workbench, vice and sawhorse with a log.
     bx, by = x + 15.0, 99.5
     b.box((bx, by, QUAY_TOP + 0.92), (3.2, 1.0, 0.14), 'wood_light')

@@ -284,8 +284,10 @@ def cliff_rocks(b, rng, spacing=12.0):
         # The collar's eased ramps are gentler than the layout's cliffs but are the cliffs players see there.
         if grad < (0.6 if R.collar_weight(x, y) > 0.0 else 0.85) or L.in_lot(x, y, 4.0) or L.on_shore_walkway(x, y, 5.0) or L.on_street(x, y, 4.0):
             continue
-        if L.in_gorge(x, y, 3.0):
-            continue  # falls.py dresses the canyon with its own wet rock
+        # falls.py dresses the canyon with its own wet rock; an outcrop spans up to ~2.6 radii along the contour, so
+        # the mask grows by the widest outcrop or a buttress hides the lower fall behind a slanted face.
+        if L.in_gorge(x, y, 3.0 + 2.6 * 11.6 / 2):
+            continue
         if footprint(x, y, 10.0):
             continue  # keep the fort, its ramp, the shipyard and the hill stair clear
         if not free(x, y):

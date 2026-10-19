@@ -194,7 +194,9 @@ def waterfall(b):
         rocks.boulder(b, px, py, -0.6, (r * 2.0, r * 1.7, rng.uniform(2.4, 5.0)), rng, 'rock_dark', bury=0.4)
     for side in (-1, 1):
         for k in range(7):
-            yy = L.GORGE_Y + side * rng.uniform(9.5, 15.0)
+            # Clear of the curtain, which flares to about 11 m off the axis at its foot (and the paired ribbon at
+            # +9..+12): framing stone inside that hid the lower fall behind slanted faces, a cut-off triangle.
+            yy = L.GORGE_Y + side * rng.uniform(14.0, 19.0)
             xx = lower - rng.uniform(1.0, 9.0)
             top = L.height(xx + 3.0, yy) + rng.uniform(-1.0, 1.5)
             r = rng.uniform(2.2, 3.6)

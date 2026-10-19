@@ -373,8 +373,15 @@ def paving_material(x, y, seed=0):
     return 'cobble'
 
 
+# Flat paved rectangles (x0, x1, y0, y1, underside): build.split keeps the ground below them, or the layout ground
+# where it rises above a level quay pokes through the slabs as square sand patches (playtest notes 5 and 8).
+FLAT_PAVING = []
+
+
 def paving(b, x0, x1, y0, y1, z=None, tile=6.5, thick=0.22, kerbs=(True, True), seed=0, skip=None):
     """Tile a street rectangle in abutting slabs; z=None follows the ground per slab. Kerbs line the y edges."""
+    if z is not None and skip is None:
+        FLAT_PAVING.append((min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1), z - thick))
     nx, ny = max(1, round((x1 - x0) / tile)), max(1, round((y1 - y0) / tile))
     sx, sy = (x1 - x0) / nx, (y1 - y0) / ny
     for i in range(nx):
@@ -866,7 +873,7 @@ def lighthouse(b):
         px = x - 18 + i * 4.2
         if i in (3, 6):
             b.box((px, y - 15.0, z + 0.3), (4.2, 1.2, 0.6), 'stone')
-            LM.cannon(b, px, y - 12.6, L.ground(px, y - 12.6), 0.0)
+            LM.cannon(b, px, y - 12.6, L.ground(px, y - 12.6), 0.0, 1.8)
             continue
         b.box((px, y - 15.0, z + 1.0), (4.2, 1.2, 2.0), 'stone')
     # A lived-in headland: a stone path links cottage and tower, a rope fence
@@ -1201,9 +1208,10 @@ def props():
             b.rope((x - 0.2, yy, 8.8), (x + 0.2, yy, 5.4), 0.35, 0.035)
             b.quad((x - 1.4, yy - 0.5, 8.7), (x + 1.4, yy - 0.5, 8.7),
                    (x + 1.6, yy + 0.5, 5.6), (x - 1.6, yy + 0.5, 5.6), 'rope')
-    # Two cannon on the quay aimed at the harbor mouth (the TRELLIS hero cannon imported as broken triangles).
+    # Two big cannon on the quay aimed at the harbor mouth, at the old hero model's landmark size (the TRELLIS hero
+    # cannon imported as broken triangles).
     for x, y, yaw in ((-206, 88.0, 18), (210, 88.0, -14)):
-        LM.cannon(b, x, y, max(L.ground(x, y), LM.QUAY_TOP), yaw)
+        LM.cannon(b, x, y, max(L.ground(x, y), LM.QUAY_TOP), yaw, 2.5)
     # Gulls over the harbor mouth.
     for i in range(18):
         gx = RNG.uniform(-320, 320)

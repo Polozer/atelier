@@ -101,6 +101,12 @@ JOBS = {
     'tex_rock': (None, '1024x1024', (
         'weathered honey-coloured limestone rock surface with fractures, shallow bedding lines, pitting and small '
         'lichen spots, pale warm cream and ochre with grey-blue shadowed cracks')),
+    # The first rock tile came out as coursed masonry: boulders and cliffs read as painted walls in game.
+    'tex_rock_natural': (None, '1024x1024', (
+        'natural weathered coastal limestone cliff rock seen straight on: irregular fractured planes, deep dark '
+        'crevices and chipped edges, no masonry, no bricks, no regular courses or rectangular blocks; warm ochre and '
+        'cream lit planes with cool grey weathering, dark water streaks, small moss and lichen patches, strong value '
+        'contrast between lit faces and shadowed cracks')),
     'tex_waterfall': (None, '1024x1024', (
         'falling water streaks for a waterfall: many long vertical white and pale teal streaks of varied width on a '
         'deep teal background, broken into separate ribbons with darker gaps between them, tileable top to bottom '
@@ -189,7 +195,7 @@ def keyed(image, floor, ceil):
 
 # Committed material inputs: (source slug or existing texture, output stem, size, normal strength or key range).
 FINISH = [('tex_meadow', 'terrain_meadow', 1024, 3.0), ('tex_forest_floor', 'terrain_forest', 1024, 4.0),
-          ('tex_rock', 'terrain_rock', 1024, 6.0), ('sand', 'terrain_sand', 1024, 2.5),
+          ('tex_rock_natural', 'terrain_rock', 1024, 6.0), ('sand', 'terrain_sand', 1024, 2.5),
           ('tex_foam', 'foam_lace', 512, (0.28, 0.62)), ('tex_waterfall', 'waterfall_streaks', 512, (0.30, 0.70))]
 
 

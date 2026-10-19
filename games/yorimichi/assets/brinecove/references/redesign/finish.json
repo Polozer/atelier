@@ -10,7 +10,7 @@
   "normal_strength": 4.0
  },
  "terrain_rock": {
-  "source": "tex_rock.png",
+  "source": "tex_rock_natural.png",
   "size": 1024,
   "normal_strength": 6.0
  },

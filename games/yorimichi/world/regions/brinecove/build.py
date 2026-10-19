@@ -146,6 +146,11 @@ def split(builder, prefix, settle, remap=None):
             pts = [(p[0], p[1], p[2] + d) for p, (d, _) in zip(pts, moves)]
         if remap:
             mat = remap.get(mat, mat)
+            pts = [(p[0], p[1], min(p[2], under_paving(p[0], p[1]))) for p in pts]
+            # A seabed face is chosen by its average height, so on a steep shore one corner can stand above the sea:
+            # a flat untextured teal wedge on the beach. The blended terrain layer turns to sand at the waterline.
+            if mat == 'seabed' and max(p[2] for p in pts) > -0.05:
+                mat = 'terrain'
         corners = distinct_corners(pts)
         if corners is None:
             degenerate += 1
@@ -159,6 +164,50 @@ def split(builder, prefix, settle, remap=None):
     return parts, outside, drowned, degenerate
 
 
+
+
+def under_paving(x, y):
+    """The highest the ground may stand at (x, y): just below any flat paving over it, else unbounded."""
+    z = math.inf
+    for x0, x1, y0, y1, bottom in modules.FLAT_PAVING:
+        if x0 <= x <= x1 and y0 <= y <= y1:
+            z = min(z, bottom - 0.05)
+    return z
+
+
+def smooth_normals(builder, crease=0.5):
+    """Per-vertex normals for a builder whose faces own their vertices: each corner averages the area-weighted
+    normals of the faces meeting at its position that bend less than ~60 degrees from its own face.
+
+    Without them the ground shades flat per triangle: the meadow slopes read as lit facets (playtest note 5)."""
+    faces = []
+    meet = {}
+    for f in builder.faces:
+        pts = [builder.verts[i] for i in f]
+        nx = ny = nz = 0.0
+        for (x0, y0, z0), (x1, y1, z1) in zip(pts, pts[1:] + pts[:1]):
+            nx += (y0 - y1) * (z0 + z1)
+            ny += (z0 - z1) * (x0 + x1)
+            nz += (x0 - x1) * (y0 + y1)
+        if nz < 0:  # a heightfield: every normal points up, whatever a face's winding
+            nx, ny, nz = -nx, -ny, -nz
+        faces.append((nx, ny, nz))
+        for p in pts:
+            meet.setdefault((round(p[0], 3), round(p[1], 3), round(p[2], 3)), []).append((nx, ny, nz))
+    normals = [None] * len(builder.verts)
+    for f, (nx, ny, nz) in zip(builder.faces, faces):
+        length = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+        own = (nx / length, ny / length, nz / length)
+        for i in f:
+            p = builder.verts[i]
+            sx = sy = sz = 0.0
+            for mx, my, mz in meet[(round(p[0], 3), round(p[1], 3), round(p[2], 3))]:
+                m = math.sqrt(mx * mx + my * my + mz * mz) or 1.0
+                if (mx * own[0] + my * own[1] + mz * own[2]) / m >= crease:
+                    sx, sy, sz = sx + mx, sy + my, sz + mz
+            s = math.sqrt(sx * sx + sy * sy + sz * sz)
+            normals[i] = (sx / s, sy / s, sz / s) if s > 0 else own
+    return normals
 
 
 def area(points):
@@ -341,6 +390,8 @@ def main():
     settled = settle(rim_shape)
     # Dressing that must meet the real ground (shore foam) samples the eased collar, not the layout under it.
     rocks.FINAL = lambda x, y: settled(x, y)[1] if settled(x, y)[1] is not None else L.ground(x, y)
+    if terrain.normals is None:
+        terrain.normals = smooth_normals(terrain)
     print(f'ground: {seam}; {time.time() - started:.0f}s', flush=True)
     sources = [('Ground', terrain)] + [(name, fn()) for name, fn in MODULES]
     report_outside, report_drowned, report_degenerate = {}, {}, {}
