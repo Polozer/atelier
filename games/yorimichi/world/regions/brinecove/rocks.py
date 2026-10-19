@@ -158,19 +158,25 @@ def boulder(b, x, y, base, size, rng, mat='rock', yaw=None, bury=0.35, strata=0.
     for _ in range(rng.randint(2, 4)):
         a, e = rng.uniform(0, TAU), rng.uniform(-0.35, 0.5)
         cuts.append(((math.cos(a) * math.cos(e), math.sin(a) * math.cos(e), math.sin(e)), rng.uniform(0.55, 0.8)))
+    # The crown tilts and breaks unevenly: a level clamp left small rocks with a flat tabletop (note 3 review).
+    ta = rng.uniform(0, TAU)
+    tilt = rng.uniform(0.06, 0.2)
+    tx, ty = math.cos(ta) * tilt, math.sin(ta) * tilt
     pts = []
     for vx, vy, vz in verts:
         r = 1.0 + 0.22 * (value_noise(vx * 1.6 + vz, vy * 1.6 - vz, seed) - 0.5) \
             + 0.10 * (value_noise(vx * 4.1 + vz * 2, vy * 4.1, seed + 7) - 0.5)
         px, py, pz = vx * r, vy * r, vz * r
-        # Bedding: pull heights toward terraces, then flatten the crown into a weathered table.
+        # Bedding: pull heights toward terraces, then cap the crown in a tilted, broken weathered top.
         for (nx, ny, nz), d in cuts:
             over = px * nx + py * ny + pz * nz - d
             if over > 0:
                 px, py, pz = px - nx * over, py - ny * over, pz - nz * over
         q = round(pz / step) * step
         pz = pz + (q - pz) * strata
-        pz = min(pz, 0.78 + 0.08 * value_noise(vx * 3, vy * 3, seed + 3))
+        cap = 0.74 + 0.16 * value_noise(vx * 2.2, vy * 2.2, seed + 3) + tx * px + ty * py
+        if pz > cap:
+            pz = cap + (pz - cap) * 0.3
         lx, ly, lz = px * sx * 0.5, py * sy * 0.5, pz * sz * 0.5
         lx, ly = lx + lean[0] * lz, ly + lean[1] * lz
         pts.append((x + lx * ca - ly * sa, y + lx * sa + ly * ca, cz + lz))
@@ -209,7 +215,7 @@ def boulder(b, x, y, base, size, rng, mat='rock', yaw=None, bury=0.35, strata=0.
     return cz + sz * 0.5 * 0.78
 
 
-def outcrop(b, x, y, base, radius, height, rng, along, mat='rock', fixed=False):
+def outcrop(b, x, y, base, radius, height, rng, along, mat='rock', fixed=False, level=None):
     """A cliff outcrop: two or three broad bedded masses stepped back up the slope, never a stack of drums.
 
     Each tier is wider than tall and set back uphill from the one below, so the face reads as ledges and
@@ -226,7 +232,7 @@ def outcrop(b, x, y, base, radius, height, rng, along, mat='rock', fixed=False):
         cx = x + ux * radius * 0.35 * k + rng.uniform(-1.0, 1.0)
         cy = y + uy * radius * 0.35 * k + rng.uniform(-1.0, 1.0)
         top = boulder(b, cx, cy, z, (w, d, h), rng, mat, yaw=math.atan2(ay, ax) + rng.uniform(-0.25, 0.25),
-                      bury=0.18 if k else 0.3, strata=0.8, fixed=fixed)
+                      bury=0.18 if k else 0.3, strata=0.8, fixed=fixed, level=level)
         z = z + h * 0.5
     return top
 
@@ -263,12 +269,13 @@ def cliff_rocks(b, rng, spacing=12.0):
     cell = spacing
     count = 0
 
-    def free(x, y):
+    def free(x, y, gap):
         gx, gy = int(x // cell), int(y // cell)
-        for i in range(gx - 1, gx + 2):
-            for j in range(gy - 1, gy + 2):
+        span = int(math.ceil(gap / cell))
+        for i in range(gx - span, gx + span + 1):
+            for j in range(gy - span, gy + span + 1):
                 for ox, oy in placed.get((i, j), ()):
-                    if (ox - x) ** 2 + (oy - y) ** 2 < spacing * spacing:
+                    if (ox - x) ** 2 + (oy - y) ** 2 < gap * gap:
                         return False
         return True
 
@@ -290,21 +297,24 @@ def cliff_rocks(b, rng, spacing=12.0):
             continue
         if footprint(x, y, 10.0):
             continue  # keep the fort, its ramp, the shipyard and the hill stair clear
-        if not free(x, y):
+        # The collar's long ramps are the backdrop cliffs seen from the harbor: fewer, far larger masses that overlap
+        # into continuous stepped strata. Many small bosses there read as boulders peppered over a green band (note 7).
+        collar = R.collar_weight(x, y) > 0.0
+        if not free(x, y, spacing * 1.6 if collar else spacing):
             continue
         placed.setdefault((int(x // cell), int(y // cell)), []).append((x, y))
         count += 1
         along = (-uy, ux)
         # Broad buttresses where the noise is high, small ledges in the gullies between them.
         buttress = fbm(x, y, 140.0, 2, 23)
-        radius = rng.uniform(4.5, 8.0) * (0.75 + 0.7 * buttress)
+        radius = rng.uniform(4.5, 8.0) * (0.75 + 0.7 * buttress) * (1.7 if collar else 1.0)
         # Push the outcrop out of the slope so its downhill faces stand proud of the heightfield.
         out = radius * rng.uniform(0.25, 0.5)
         cx, cy = x - ux * out, y - uy * out
         base = ground(cx, cy) - 2.5
         # The top stops a little above the ground uphill of the outcrop, so it reads as a ledge, not a tower.
         crest = ground(x + ux * radius * 1.2, y + uy * radius * 1.2) + rng.uniform(-0.8, 1.6)
-        height = max(3.0, min(crest - base, rng.uniform(10.0, 28.0)))
+        height = max(3.0, min(crest - base, rng.uniform(16.0, 40.0) if collar else rng.uniform(10.0, 28.0)))
         # The strongest buttresses stand proud of the crest, so the skyline breaks instead of running dead level.
         if buttress > 0.6:
             height += rng.uniform(3.0, 9.0) * (buttress - 0.6) / 0.4
@@ -316,7 +326,9 @@ def cliff_rocks(b, rng, spacing=12.0):
         previous = b.anchor
         if FINAL is not None:
             b.anchor = FIXED
-        top = outcrop(b, cx, cy, base, radius, height, rng, along, mat, fixed=FINAL is not None)
+        # Backdrop masses keep the coarse sphere: their fracture planes carry the shape at harbor distance.
+        top = outcrop(b, cx, cy, base, radius, height, rng, along, mat, fixed=FINAL is not None,
+                      level=1 if collar else None)
         if rng.random() < 0.85:
             bush(b, cx + ux * radius * 0.6, cy + uy * radius * 0.6, top - 0.3, 0.0,
                  rng.uniform(1.4, 2.4) * radius / 6.0, rng)

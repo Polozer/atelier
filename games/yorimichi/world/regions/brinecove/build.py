@@ -44,7 +44,8 @@ EMISSIVE = ('lantern', 'glass_warm')
 PAN_CM_S = {'waterfall': -0.9, 'foam': 0.05}  # UV v per second: the curtain's streaks run down, foam spreads out
 # Water motion (import_brinecove.parent): a second, faster streak layer on the curtain; foam lace drifting along the
 # shore while its outer edge washes in and out.
-MOTION = {'waterfall': {'Layer': 1.0}, 'foam': {'Drift': 0.03, 'Wash': 0.22}}
+MOTION = {'waterfall': {'Layer': 1.0}, 'foam': {'Drift': 0.03, 'Wash': 0.22},
+          'mist': {'Opacity': 0.42}}  # spray, not an opaque white cloud at the plunge (note 9 review)
 # Materials whose texture has another name: the keyed streak and lace atlases (references/redesign.py --finish).
 TEXTURE = {'waterfall': 'waterfall_streaks', 'foam': 'foam_lace'}
 # The blended terrain material's layers (albedo and normal-plus-cavity), and the rock tints of its rock-only use.
@@ -362,7 +363,7 @@ def transform(x, y, z, yaw=0.0, scale=1.0, pitch=0.0):
     q = (w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2, w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
          w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2, w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2)
     return {'translation_cm': [round(x * 100, 1), round(-y * 100, 1), round(z * 100, 1)],
-            'rotation_xyzw': [round(c, 6) for c in q], 'scale': [scale, scale, scale]}
+            'rotation_xyzw': [round(c, 5) for c in q], 'scale': [round(scale, 3)] * 3}  # runtime.json carries ~10^5 of these
 
 
 def group(name, slots, transforms, *, collision, shadow, cull_cm):

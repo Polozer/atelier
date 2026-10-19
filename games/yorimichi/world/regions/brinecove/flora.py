@@ -386,13 +386,16 @@ def scatter(seed=8807):
     return out
 
 
-COVER_LIMIT = 140000
+COVER_LIMIT = 300000  # bounded instance memory and runtime.json; the 50 m cull keeps the drawn count low
 
 
 def groundcover(ground=None, seed=8811):
-    """Groundcover placements (prototype, x, y, z, yaw, scale): clumps of fern, broadleaf and grass on every planted
-    slope, gathered by noise into drifts with bare soil between them, never on sand, cliffs, streets or water.
+    """Groundcover placements (prototype, x, y, z, yaw, scale): natural clumps of fern, broadleaf and grass on the
+    planted slopes, never on sand, cliffs, streets or water.
 
+    Each clump is one family, packed and largest at its heart and thinning to its rim, from a palm-sized tuft to a
+    bed several metres across; clumps gather in noise drifts and crowd the feet of rock faces, with bare soil between.
+    Single plants on an even disc spacing read as a grid of tufts on brown soil (2026-10-19 capture review).
     ground is the game's final ground (build.py passes the collar-eased one). The count is capped at COVER_LIMIT;
     build.py culls the instances at 50 m and the prototypes carry generated LODs."""
     from brinecove.rocks import fbm, uphill
@@ -402,28 +405,52 @@ def groundcover(ground=None, seed=8811):
     rng = random.Random(seed)
     out, discs = [], Poisson(cell=4.0)
     x0, y0, x1, y1 = R.OUTER
-    for _ in range(700000):
-        if len(out) >= COVER_LIMIT:
-            break
-        x, y = rng.uniform(x0 + 2, x1 - 2), rng.uniform(y0 + 2, y1 - 2)
-        drift = fbm(x, y, 22.0, 3, 61)
-        if drift < 0.36:
-            continue  # soil gaps between drifts
+
+    def spot(x, y):
+        """The ground height if a plant may grow at (x, y), else None."""
+        if not (x0 + 2 <= x <= x1 - 2 and y0 + 2 <= y <= y1 - 2):
+            return None
         inside = abs(x) <= 880 and L.Y_MIN - 30 <= y <= L.Y_MAX + 250
         if inside and not L.plantable(x, y):
-            continue
+            return None
         z = ground(x, y)
         if z < 2.6 or L.in_gorge(x, y, 5.0) or footprint(x, y, 0.5) or uphill(x, y, 3.0)[2] > 0.95:
+            return None
+        return z
+
+    for _ in range(400000):
+        if len(out) >= COVER_LIMIT:
+            break
+        cx, cy = rng.uniform(x0 + 2, x1 - 2), rng.uniform(y0 + 2, y1 - 2)
+        drift = fbm(cx, cy, 22.0, 3, 61)
+        if drift < 0.3 or spot(cx, cy) is None:
             continue
-        if not discs.fits(x, y, 1.15):
+        # The foot of a rock face (steep ground just uphill) gathers the biggest, densest beds.
+        # Walkable flats (where players stand and look down) keep most clumps; steep slopes seen from afar, where
+        # the 50 m cull hides cover anyway, keep few.
+        ux, uy, grad = uphill(cx, cy, 3.0)
+        foot = uphill(cx + ux * 5.0, cy + uy * 5.0, 3.0)[2] > 0.95
+        if not foot and rng.random() > (1.0 if grad < 0.4 else 0.15):
             continue
-        discs.add(x, y, 1.15)
-        wet = fbm(x, y, 60.0, 2, 67)
-        kind = 'cover_fern' if wet > 0.55 else ('cover_leaf' if wet > 0.42 else 'cover_grass')
-        if rng.random() < 0.25:
-            kind = rng.choice(('cover_fern', 'cover_leaf', 'cover_grass'))
-        out.append((f'{kind}_{rng.randrange(3)}', x, y, z - 0.05, rng.uniform(0, 360),
-                    rng.uniform(1.0, 1.4) * (0.9 + 0.6 * drift)))
+        size = rng.uniform(1.2, 4.2) * (1.3 if foot else 1.0) * (0.8 + 0.5 * drift)
+        wet = fbm(cx, cy, 60.0, 2, 67)
+        family = 'cover_fern' if wet > 0.55 else ('cover_leaf' if wet > 0.42 else 'cover_grass')
+        if foot and rng.random() < 0.5:
+            family = 'cover_fern'
+        for _ in range(int(rng.uniform(6, 22) * (1.4 if foot else 1.0))):
+            r = size * math.sqrt(rng.random())
+            a = rng.uniform(0, math.tau)
+            x, y = cx + r * math.cos(a), cy + r * math.sin(a)
+            spacing = 0.45 + 0.35 * r / size
+            if not discs.fits(x, y, spacing):
+                continue
+            z = spot(x, y)
+            if z is None:
+                continue
+            discs.add(x, y, spacing)
+            kind = family if rng.random() < 0.85 else rng.choice(('cover_fern', 'cover_leaf', 'cover_grass'))
+            out.append((f'{kind}_{rng.randrange(3)}', x, y, z - 0.05, rng.uniform(0, 360),
+                        rng.uniform(0.75, 1.1) * (1.35 - 0.55 * r / size)))
     return out
 
 

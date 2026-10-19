@@ -745,6 +745,20 @@ def upper_town():
         b.box((0, y + 0.9, z - 0.05), (22, 0.25, 0.16), 'stone')
         for side in (-1, 1):
             b.beam((side * 11.2, y, z - 2.0), (side * 11.2, y, z + 1.1), 0.45, 'stone')
+            # Solid stepped side walls carry the flights down to the quay.
+            b.box((side * 11.9, y, (L.QUAY_Z + z) / 2 - 0.2), (1.4, 2.1, z - L.QUAY_Z + 0.4), 'stone')
+    # The retaining wall closes on the stair's cheeks: the gap beside the flights showed the raw cliff as flat beige
+    # planes, a box trench in the note 7 view. Ashlar cheeks with courses, a coping and greenery match the wall.
+    for side in (-1, 1):
+        x0, x1 = sorted((side * 12.6, side * 26.0))
+        b.box(((x0 + x1) / 2, 281, wall_mid), (x1 - x0, 3.0, wall_h), 'stone')
+        b.box(((x0 + x1) / 2, 279.7, L.UPPER_Z + 0.15), (x1 - x0 + 1.0, 4.6, 0.5), 'stone_light')
+        for zz in range(7, 29, 4):
+            b.box(((x0 + x1) / 2, 279.42, zz), (x1 - x0, 0.36, 0.20), 'stone_light')
+        b.box((side * 13.4, 279.2, wall_mid - 0.5), (1.6, 1.6, wall_h - 1.0), 'stone_light')
+        for k in range(3):
+            vine(b, side * (16.0 + k * 3.6), 279.0, L.UPPER_Z - 0.2, RNG.uniform(5.0, 12.0), RNG)
+        bush(b, side * 19.0, 278.4, L.QUAY_Z, 0.0, 1.1, RNG)
     for i, (x, width) in enumerate(((-238, 8), (252, 8))):
         for j in range(20):
             y = 242 + j * 2.2

@@ -182,7 +182,7 @@ def waterfall(b):
              height=2.0)
     foam_ring(b, upper_lip - 4.0, L.GORGE_Y, pool + 0.05, 2.0, 9.0, rng, 20, squash=0.8)
     base_x = face_x(L.GORGE_Y, 0.5, lower) - 6.0
-    mist(b, base_x, L.GORGE_Y, 0.0, 18.0, 34, rng, height=14.0)
+    mist(b, base_x, L.GORGE_Y, 0.0, 16.0, 22, rng, height=10.0)
     # Plunge foam spreading from the curtain's foot and fading out over the sea; nothing static on open water.
     foam_ring(b, base_x, L.GORGE_Y, 0.07, 4.0, 22.0, rng, 32, squash=0.75)
     # Wet boulders in the plunge and on the pool lip, and dark stone framing the falls.
@@ -202,6 +202,20 @@ def waterfall(b):
             r = rng.uniform(2.2, 3.6)
             rocks.boulder(b, xx, yy, L.height(xx, yy) - 1.5, (r * 1.8, r * 2.0, top - L.height(xx, yy) + 3.0), rng,
                           'rock_dark', bury=0.2, strata=0.75)
+    # Ledged outcrops step up both walls of the slot canyon past the rope bridge, clear of the river: the carved walls
+    # alone read as two flat planes in a V (note 9 review).
+    for side in (-1, 1):
+        x = upper + 12.0  # an outcrop spans ~2.6 radii along the wall: clear of the rope bridge at upper + 3.5
+        while x < upper + 64.0:
+            yy = L.GORGE_Y + side * rng.uniform(9.0, 10.5)
+            r = rng.uniform(3.2, 4.6)
+            base = L.height(x, yy) - 2.0
+            crest = L.height(x, L.GORGE_Y + side * 14.0) + rng.uniform(-1.0, 1.5)
+            top = rocks.outcrop(b, x, yy, base, r, max(6.0, crest - base), rng, (-side, 0.0),
+                                rng.choice(('rock', 'rock_dark', 'rock_light')))
+            if rng.random() < 0.7:
+                vine(b, x + rng.uniform(-2.0, 2.0), yy - side * 1.5, top, rng.uniform(4.0, 9.0), rng)
+            x += rng.uniform(7.5, 10.5)
     for _ in range(10):
         px = rng.uniform(lower + 2.0, upper_lip - 3.0)
         py = L.GORGE_Y + rng.choice((-1, 1)) * rng.uniform(4.0, 11.0)

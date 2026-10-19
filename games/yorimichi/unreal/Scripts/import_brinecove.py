@@ -120,7 +120,7 @@ float n2 = lerp(lerp(h00, h10, f.x), lerp(h01, h11, f.x), f.y);
 float rock = max(smoothstep(0.36, 0.52, slope + (n2 - 0.5) * 0.14), RockOnly);
 float sand = (1.0 - smoothstep(1.1, 2.7, h + (n2 - 0.5) * 1.8)) * (1.0 - smoothstep(0.3, 0.55, slope)) * (1.0 - rock);
 float green = (1.0 - rock) * (1.0 - sand);
-float forest = smoothstep(0.4, 0.62, n1 + (n2 - 0.5) * 0.25);
+float forest = smoothstep(0.3, 0.74, n1 + (n2 - 0.5) * 0.45) * 0.85;
 float wF = green * forest, wM = green * (1.0 - forest), wS = sand, wR = rock;
 float3 bw = pow(abs(n), 4.0); bw /= (bw.x + bw.y + bw.z);
 float2 uS = p.xy / 4.0, uM = p.xy / 3.5, uF = p.xy / 4.5;

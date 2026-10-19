@@ -199,6 +199,20 @@ FINISH = [('tex_meadow', 'terrain_meadow', 1024, 3.0), ('tex_forest_floor', 'ter
           ('tex_foam', 'foam_lace', 512, (0.28, 0.62)), ('tex_waterfall', 'waterfall_streaks', 512, (0.30, 0.70))]
 
 
+# The old beach tile's dark pebble pits repeat densely across the beach and read as perforations (front-man review
+# of the 2026-10-19 capture): lift dark spots most of the way to the local mean, keeping the ripples.
+SOFTEN = {'terrain_sand': 0.85}
+
+
+def soften_pits(a, amount, radius=32):
+    import numpy as np
+    from PIL import Image, ImageFilter
+    blur = np.asarray(Image.fromarray((a * 255 + .5).astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius)))
+    blur = blur.astype(np.float32) / 255.0
+    dark = np.clip(blur.mean(-1) - a.mean(-1), 0, None)[..., None]
+    return np.clip(a + (blur - a) * np.clip(dark * 12.0, 0, 1) * amount, 0, 1)
+
+
 def finish():
     import numpy as np
     from PIL import Image
@@ -208,6 +222,8 @@ def finish():
         source = RAW / f'{slug}.png' if slug.startswith('tex_') else TEXTURES / f'{slug}.jpg'
         image = Image.open(source).convert('RGB').resize((size, size), Image.LANCZOS)
         a = seamless(np.asarray(image).astype(np.float32) / 255.0)
+        if stem in SOFTEN:
+            a = soften_pits(a, SOFTEN[stem])
         if isinstance(option, tuple):
             out = keyed(a, *option)
             Image.fromarray((out * 255 + .5).astype(np.uint8), 'RGBA').save(TEXTURES / f'{stem}.png')

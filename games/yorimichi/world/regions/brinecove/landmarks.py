@@ -1122,12 +1122,12 @@ def hill_stair(b):
         # The wall below this row: the lower row's (or the hillside's) retaining wall and this row's parapet,
         # with a planted terrace between when the rows stand apart.
         prev_top = flights[k - 1]['y'] + w / 2 if k > 0 else y0 - wall
-        _row_wall(b, f, prev_top, y0, wall)
+        _row_wall(b, f, prev_top, y0, wall, first=k == 0)
     # The plaza and its arch.
     _plaza(b, p, flights[-1])
 
 
-def _row_wall(b, f, y_lo, y_hi, wall):
+def _row_wall(b, f, y_lo, y_hi, wall, first=False):
     """Masonry between y_lo (the lower row's uphill edge) and y_hi (this row's downhill edge): a capped parapet
     0.95 m over this row's treads and landing, and a planted terrace behind it."""
     d, run, lnd = f['dir'], STAIR_RUN, STAIR_LANDING
@@ -1152,6 +1152,44 @@ def _row_wall(b, f, y_lo, y_hi, wall):
                 for t in (0.25, 0.75):
                     bx = xs + (xe - xs) * t
                     bush(b, bx, (ya + yb) / 2, f['z'] + (top - f['z']) * t + add + 0.1, 0.0, 0.9)
+    _wall_dressing(b, f, y_lo, base, outer, ground_face=first)
+
+
+def _wall_dressing(b, f, y_lo, base, outer, ground_face):
+    """Ashlar pilasters and a string course on a row's downhill face, and, where that face or the landing's end
+    stands on the hillside, boulders and shrubs tucked along its foot: plain wall planes read as a smooth concrete
+    box against the hill from the town (note 11 review)."""
+    import random
+    from brinecove import rocks
+    rng = random.Random(int(f['y'] * 7 + f['z'] * 13))
+    d, xs, xe = f['dir'], f['x_start'], f['x_end']
+    top = f['z'] + f['rise']
+    lo_x, hi_x = min(xs, outer), max(xs, outer)
+    x = lo_x + 1.2
+    while x < hi_x - 0.6:
+        t = min(1.0, max(0.0, (x - xs) / (xe - xs))) if xe != xs else 1.0
+        crown = f['z'] + (top - f['z']) * t + (0.95 if ground_face else 0.4) - 0.25
+        if crown - base > 1.2:
+            _slab(b, x - 0.4, x + 0.4, y_lo - 0.22, y_lo + 0.02, base, crown, crown, 'stone_light')
+        x += 4.2
+    mid = base + 0.55 * (f['z'] - base)
+    if f['z'] - base > 2.0:
+        _slab(b, lo_x, hi_x, y_lo - 0.12, y_lo + 0.02, mid, mid + 0.22, mid + 0.22, 'stone_light')
+    feet = []
+    if ground_face:
+        x = lo_x + rng.uniform(0.5, 2.5)
+        while x < hi_x:
+            feet.append((x, y_lo - rng.uniform(0.9, 1.6)))
+            x += rng.uniform(3.0, 5.5)
+    ex = outer + d * rng.uniform(1.0, 1.6)
+    feet += [(ex, f['y'] + rng.uniform(-1.5, 1.5)) for _ in range(2)]
+    for fx, fy in feet:
+        gz = L.ground(fx, fy)
+        if rng.random() < 0.55:
+            r = rng.uniform(0.7, 1.4)
+            rocks.boulder(b, fx, fy, gz, (r * 2.0, r * 1.6, r * 1.3), rng, rng.choice(('rock', 'rock_dark')), bury=0.35)
+        else:
+            bush(b, fx, fy, gz, 0.0, rng.uniform(0.8, 1.3), rng)
 
 
 def _plaza(b, p, last):
