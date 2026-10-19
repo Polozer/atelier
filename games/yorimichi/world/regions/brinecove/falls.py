@@ -14,14 +14,38 @@ from brinecove.kit import bush, cell_uvs, fern, lantern_post, vine
 TAU = math.pi * 2
 
 
+_CORNERS = {}
+
+
+def mesh_height(x, y):
+    """The highest the built ground mesh can stand at (x, y): ground.py samples the layout on a 4 m grid and jitters
+    steep corners by up to 0.84 m sideways and 2.2 m up, so across the fall's narrow notch its triangles bridge in
+    front of the analytic cliff and cut the curtain off on a diagonal. Every triangle lies under its cell's corners."""
+    from brinecove import ground as G
+    import brinecove.region as R
+    ox0, oy0, ox1, oy1 = R.OUTER
+    if 'axes' not in _CORNERS:
+        _CORNERS['axes'] = (G._axis(ox0, ox1, G.STEP), G._axis(oy0, oy1, G.STEP))
+    xs, ys = _CORNERS['axes']
+    sx, sy = xs[1] - xs[0], ys[1] - ys[0]
+    top = L.height(x, y)
+    for i in range(int((x - 0.9 - ox0) // sx), int((x + 0.9 - ox0) // sx) + 2):
+        for j in range(int((y - 0.9 - oy0) // sy), int((y + 0.9 - oy0) // sy) + 2):
+            if 0 <= i < len(xs) and 0 <= j < len(ys):
+                if (i, j) not in _CORNERS:
+                    _CORNERS[i, j] = G.jag_point((xs[i], ys[j], L.ground(xs[i], ys[j])))[2]
+                top = max(top, _CORNERS[i, j])
+    return top
+
+
 def face_x(y, z, x_hi, x_lo=425.0):
-    """The cliff face's x at height z on row y, searching seaward from x_hi."""
-    if L.height(x_hi, y) <= z:
+    """The ground mesh's face x at height z on row y, searching seaward from x_hi."""
+    if mesh_height(x_hi, y) <= z:
         return x_hi
     lo, hi = x_lo, x_hi
     for _ in range(24):
         mid = (lo + hi) / 2
-        if L.height(mid, y) > z:
+        if mesh_height(mid, y) > z:
             hi = mid
         else:
             lo = mid
@@ -216,6 +240,19 @@ def waterfall(b):
             if rng.random() < 0.7:
                 vine(b, x + rng.uniform(-2.0, 2.0), yy - side * 1.5, top, rng.uniform(4.0, 9.0), rng)
             x += rng.uniform(7.5, 10.5)
+    # And on the open V below the bridge, between the two lips: stepped ledges up both flanks, below the deck.
+    for side in (-1, 1):
+        x = lower + 8.0
+        while x < upper - 2.0:
+            yy = L.GORGE_Y + side * rng.uniform(13.0, 16.0)
+            r = rng.uniform(3.0, 4.2)
+            base = L.height(x, yy) - 2.0
+            crest = min(L.height(x, L.GORGE_Y + side * 20.0), L.gorge_levels()['river'] + 12.0)
+            top = rocks.outcrop(b, x, yy, base, r, max(5.0, crest - base), rng, (-side, 0.0),
+                                rng.choice(('rock', 'rock_light')))
+            if rng.random() < 0.6:
+                bush(b, x, yy + side * 1.5, top - 0.3, 0.0, rng.uniform(0.9, 1.5), rng)
+            x += rng.uniform(8.0, 11.0)
     for _ in range(10):
         px = rng.uniform(lower + 2.0, upper_lip - 3.0)
         py = L.GORGE_Y + rng.choice((-1, 1)) * rng.uniform(4.0, 11.0)

@@ -418,26 +418,37 @@ def groundcover(ground=None, seed=8811):
             return None
         return z
 
-    for _ in range(400000):
+    # Clump centres on a jittered grid, so no walkable spot is left bare by the luck of the draw; whole clumps are
+    # thinned evenly if the total would pass the cap (random draws until the cap left the note 1 meadow empty).
+    clumps = []
+    cell = 6.0
+    gx = x0 + 2
+    while gx < x1 - 2:
+        gy = y0 + 2
+        while gy < y1 - 2:
+            cx, cy = gx + rng.uniform(0, cell), gy + rng.uniform(0, cell)
+            gy += cell
+            drift = fbm(cx, cy, 22.0, 3, 61)
+            if drift < 0.3 or spot(cx, cy) is None:
+                continue
+            # The foot of a rock face (steep ground just uphill) gathers the biggest, densest beds; walkable flats
+            # keep every clump, steep slopes seen from afar (where the 50 m cull hides cover anyway) keep few.
+            ux, uy, grad = uphill(cx, cy, 3.0)
+            foot = uphill(cx + ux * 5.0, cy + uy * 5.0, 3.0)[2] > 0.95
+            if not foot and rng.random() > (1.0 if grad < 0.4 else 0.25):
+                continue
+            clumps.append((cx, cy, drift, foot, rng.random()))
+        gx += cell
+    clumps.sort(key=lambda c: c[4])
+    for cx, cy, drift, foot, _ in clumps:
         if len(out) >= COVER_LIMIT:
             break
-        cx, cy = rng.uniform(x0 + 2, x1 - 2), rng.uniform(y0 + 2, y1 - 2)
-        drift = fbm(cx, cy, 22.0, 3, 61)
-        if drift < 0.3 or spot(cx, cy) is None:
-            continue
-        # The foot of a rock face (steep ground just uphill) gathers the biggest, densest beds.
-        # Walkable flats (where players stand and look down) keep most clumps; steep slopes seen from afar, where
-        # the 50 m cull hides cover anyway, keep few.
-        ux, uy, grad = uphill(cx, cy, 3.0)
-        foot = uphill(cx + ux * 5.0, cy + uy * 5.0, 3.0)[2] > 0.95
-        if not foot and rng.random() > (1.0 if grad < 0.4 else 0.15):
-            continue
-        size = rng.uniform(1.2, 4.2) * (1.3 if foot else 1.0) * (0.8 + 0.5 * drift)
+        size = rng.uniform(1.4, 4.2) * (1.3 if foot else 1.0) * (0.8 + 0.5 * drift)
         wet = fbm(cx, cy, 60.0, 2, 67)
         family = 'cover_fern' if wet > 0.55 else ('cover_leaf' if wet > 0.42 else 'cover_grass')
         if foot and rng.random() < 0.5:
             family = 'cover_fern'
-        for _ in range(int(rng.uniform(6, 22) * (1.4 if foot else 1.0))):
+        for _ in range(int(rng.uniform(8, 24) * (1.4 if foot else 1.0))):
             r = size * math.sqrt(rng.random())
             a = rng.uniform(0, math.tau)
             x, y = cx + r * math.cos(a), cy + r * math.sin(a)

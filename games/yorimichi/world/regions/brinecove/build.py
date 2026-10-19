@@ -176,6 +176,28 @@ def under_paving(x, y):
     return z
 
 
+def collar_normals(builder, rim, normals, h=1.0):
+    """Collar vertices take the eased ground's own gradient: the zipper's long fan triangles to the far-hills rim
+    averaged only among themselves and shaded as bands (2026-10-19 capture, note 5)."""
+    ox0, oy0, ox1, oy1 = R.OUTER
+    memo = {}
+    out = list(normals)
+    for i, p in enumerate(builder.verts):
+        x, y = p[0], p[1]
+        if R.collar_weight(x, y) <= 0.0:
+            continue
+        key = (round(x, 2), round(y, 2))
+        if key not in memo:
+            xa, xb = max(ox0, x - h), min(ox1, x + h)
+            ya, yb = max(oy0, y - h), min(oy1, y + h)
+            gx = (R.ground(L.ground, rim, xb, y) - R.ground(L.ground, rim, xa, y)) / max(1e-3, xb - xa)
+            gy = (R.ground(L.ground, rim, x, yb) - R.ground(L.ground, rim, x, ya)) / max(1e-3, yb - ya)
+            m = math.sqrt(gx * gx + gy * gy + 1.0)
+            memo[key] = (-gx / m, -gy / m, 1.0 / m)
+        out[i] = memo[key]
+    return out
+
+
 def smooth_normals(builder, crease=0.5):
     """Per-vertex normals for a builder whose faces own their vertices: each corner averages the area-weighted
     normals of the faces meeting at its position that bend less than ~60 degrees from its own face.
@@ -392,7 +414,7 @@ def main():
     # Dressing that must meet the real ground (shore foam) samples the eased collar, not the layout under it.
     rocks.FINAL = lambda x, y: settled(x, y)[1] if settled(x, y)[1] is not None else L.ground(x, y)
     if terrain.normals is None:
-        terrain.normals = smooth_normals(terrain)
+        terrain.normals = collar_normals(terrain, rim_shape, smooth_normals(terrain))
     print(f'ground: {seam}; {time.time() - started:.0f}s', flush=True)
     sources = [('Ground', terrain)] + [(name, fn()) for name, fn in MODULES]
     report_outside, report_drowned, report_degenerate = {}, {}, {}

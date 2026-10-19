@@ -291,15 +291,14 @@ def cliff_rocks(b, rng, spacing=12.0):
         # The collar's eased ramps are gentler than the layout's cliffs but are the cliffs players see there.
         if grad < (0.6 if R.collar_weight(x, y) > 0.0 else 0.85) or L.in_lot(x, y, 4.0) or L.on_shore_walkway(x, y, 5.0) or L.on_street(x, y, 4.0):
             continue
-        # falls.py dresses the canyon with its own wet rock; an outcrop spans up to ~2.6 radii along the contour, so
-        # the mask grows by the widest outcrop or a buttress hides the lower fall behind a slanted face.
-        if L.in_gorge(x, y, 3.0 + 2.6 * 11.6 / 2):
+        # falls.py dresses the canyon with its own wet rock; the margin keeps outcrop flanks off the curtain.
+        if L.in_gorge(x, y, 9.0):
             continue
         if footprint(x, y, 10.0):
             continue  # keep the fort, its ramp, the shipyard and the hill stair clear
         # The collar's long ramps are the backdrop cliffs seen from the harbor: fewer, far larger masses that overlap
         # into continuous stepped strata. Many small bosses there read as boulders peppered over a green band (note 7).
-        collar = R.collar_weight(x, y) > 0.0
+        collar = R.collar_weight(x, y) > 0.0 and z > 20.0  # high backdrop only: beach slopes stay human-scale
         if not free(x, y, spacing * 1.6 if collar else spacing):
             continue
         placed.setdefault((int(x // cell), int(y // cell)), []).append((x, y))

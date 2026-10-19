@@ -117,7 +117,9 @@ h10 = frac(sin(dot(i0 + float2(1, 0), float2(269.5, 183.3))) * 43758.5453);
 h01 = frac(sin(dot(i0 + float2(0, 1), float2(269.5, 183.3))) * 43758.5453);
 h11 = frac(sin(dot(i0 + float2(1, 1), float2(269.5, 183.3))) * 43758.5453);
 float n2 = lerp(lerp(h00, h10, f.x), lerp(h01, h11, f.x), f.y);
-float rock = max(smoothstep(0.36, 0.52, slope + (n2 - 0.5) * 0.14), RockOnly);
+// High ground turns to rock on gentler slopes, so the backdrop ridge reads as one cliff face behind its outcrops.
+float rockAt = lerp(0.36, 0.1, smoothstep(28.0, 45.0, h));  // ~40 degree ridge faces turn rock, 20 degree meadows stay
+float rock = max(smoothstep(rockAt, rockAt + 0.16, slope + (n2 - 0.5) * 0.14), RockOnly);
 float sand = (1.0 - smoothstep(1.1, 2.7, h + (n2 - 0.5) * 1.8)) * (1.0 - smoothstep(0.3, 0.55, slope)) * (1.0 - rock);
 float green = (1.0 - rock) * (1.0 - sand);
 float forest = smoothstep(0.3, 0.74, n1 + (n2 - 0.5) * 0.45) * 0.85;
