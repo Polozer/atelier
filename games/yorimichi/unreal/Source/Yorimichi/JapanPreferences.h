@@ -72,6 +72,7 @@ private:
     bool Save();
     bool SaveSoundBank(int32 Selection);
     static bool IsToggle(const FString& Key);
+    bool MusicReady() const;
     static FString FilePath();
     static TMap<FString,FString> ReadSaved();
 };

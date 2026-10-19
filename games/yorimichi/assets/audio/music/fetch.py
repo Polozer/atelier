@@ -42,14 +42,31 @@ def verified(target):
     )
 
 
+def current(target):
+    """--quick: the cache's manifest names this lock's bundle and every file has its locked size (no hashing)."""
+    lock = json.loads(LOCK.read_text())
+    try:
+        stamp = json.loads((target / "manifest.json").read_text())
+    except (OSError, ValueError):
+        return False
+    return stamp.get("sha256") == lock["sha256"] and all(
+        (target / entry["path"]).is_file() and (target / entry["path"]).stat().st_size == entry["bytes"]
+        for entry in lock["files"]
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bundle", type=Path, help="local zip instead of the published URL")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--quick", action="store_true",
+                        help="trust a cache this lock verified before when every size matches (atelier playtest)")
     args = parser.parse_args()
 
     lock = json.loads(LOCK.read_text())
     dest = Path(cache_dir("yorimichi", "music"))
+    if not args.force and args.quick and current(dest):
+        return
     if not args.force and verified(dest):
         print(f"music cache is complete: {dest}")
         return
