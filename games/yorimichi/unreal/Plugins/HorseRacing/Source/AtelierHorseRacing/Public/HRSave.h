@@ -16,7 +16,7 @@ namespace HRSave
 	inline constexpr int32 SchemaVersion = 1;
 
 	/** Admission bounds: far above any world the rules make, low enough that indexing and arithmetic stay safe. */
-	inline constexpr int32 MaxJsonChars = 256 * 1024 * 1024;
+	inline constexpr int32 MaxJsonChars = 16 * 1024 * 1024;
 	inline constexpr int32 MaxDay = 1000000;
 	inline constexpr int32 MaxStables = 256;
 	inline constexpr int32 MaxHorses = 200000;

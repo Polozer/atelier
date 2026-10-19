@@ -170,6 +170,16 @@ bool FHRRiderLegendTest::RunTest(const FString&)
 	S.LegendCooldownUntil.Add(TEXT("flyer"), S.T + HRRules::LegendCooldownDays);
 	for (TPair<FString, FHRRider>& It : S.Riders)
 		if (It.Value.Legend == TEXT("flyer")) It.Value.RetiredT = S.T;
+	// Force 100 % legend academy draws across multiple seeds while flyer is on cooldown.
+	for (int32 K = 0; K < 12; ++K)
+	{
+		FHRWorldState Probe = S;
+		Probe.Seed = FString::Printf(TEXT("legend-cooldown-probe-%d"), K);
+		for (TPair<FString, FHRRider>& It : Probe.Riders)
+			if (It.Value.OwnerId == Probe.Stables[0].Id) It.Value.RetiredT = Probe.T;
+		TestEqual(TEXT("forced academy signings"), HRRules::SignAcademyRiders(Probe, Probe.Stables[0].Id, 1000), HRRules::RidersPerStable);
+		TestEqual(TEXT("forced legend draw never picks flyer during cooldown"), ActiveLegends(Probe, TEXT("flyer")), 0);
+	}
 	for (int32 Day = 0; Day < HRRules::LegendCooldownDays - 1; ++Day)
 	{
 		HRRules::AdvanceDay(S);

@@ -19,15 +19,15 @@ namespace HRRules
 	{
 		const int32 N = Race.Entries.Num();
 		const int32 Picked = Race.Entries.IndexOfByPredicate([&HorseId](const FHRRunner& R) { return R.HorseId == HorseId; });
-		int32 Runs = 0;
-		for (const FHROrderCount& O : Race.PublicOrders) Runs += O.Count;
-		Runs = FMath::Max(1, Runs);
+		int64 Runs = 0;
+		for (const FHROrderCount& O : Race.PublicOrders) Runs += FMath::Max(0, O.Count);
+		Runs = FMath::Max<int64>(1, Runs);
 		double Chance = 0;
 		for (const FHROrderCount& O : Race.PublicOrders)
 		{
 			TArray<FString> Parts;
 			O.Key.ParseIntoArray(Parts, TEXT(">"));
-			if (Parts.Num() > 0 && FCString::Atoi(*Parts[0]) == Picked) Chance += (double)O.Count / Runs;
+			if (Parts.Num() > 0 && FCString::Atoi(*Parts[0]) == Picked) Chance += (double)FMath::Max(0, O.Count) / (double)Runs;
 		}
 		return (1 - Longshot) * Chance + Longshot / FMath::Max(1, N);
 	}
@@ -127,8 +127,8 @@ namespace HRRules
 				T.Payout = 0;
 				continue;
 			}
-			// The odds are fixed by the frozen field and every player ticket in this pool.
-			T.Rapport = Rapport(S, Race, T.HorseId);
+			// The odds are fixed by the frozen field and every non-refunded player ticket in this pool.
+			T.Rapport = Rapport(S, Race, Winner);
 			T.Payout = (int32)FMath::Clamp<double>(FMath::FloorToDouble(T.Stake * T.Rapport), 0., (double)MaxCoins);
 			T.Status = TEXT("won");
 			if (FHRPlayer* P = FindPlayer(S, T.PlayerId))

@@ -186,7 +186,7 @@ namespace HRRules
 	/** The riders of a new world: three per stable. */
 	ATELIERHORSERACING_API void CreateRiders(FHRWorldState& S);
 	/** Signs academy riders (17 to 19 years old) until the stable has RidersPerStable; returns how many. */
-	ATELIERHORSERACING_API int32 SignAcademyRiders(FHRWorldState& S, const FString& StableId);
+	ATELIERHORSERACING_API int32 SignAcademyRiders(FHRWorldState& S, const FString& StableId, int32 LegendPerMille = RiderLegendPerMille);
 	/** Race day: each stable puts its best riders on its best entries (an owner who rides takes none). */
 	ATELIERHORSERACING_API void AssignRiders(FHRWorldState& S, const TArray<FHRRunner>& Entries);
 	/** Day close: rides and wins, career curves (once per rider month), retirements, legend cooldowns. */

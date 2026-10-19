@@ -123,6 +123,44 @@ bool FHRSaveAdmissionTest::RunTest(const FString&)
 	Refused(TEXT("an unknown race day rider"), Mutated([&HorseId](FHRWorldState& W) { W.Meeting.Riders.Add(HorseId, TEXT("ghost-rider")); }), TEXT("unknown horse or rider"));
 	Refused(TEXT("a ticket of an unknown player"), Mutated([](FHRWorldState& W) { W.Tickets[0].PlayerId = TEXT("ghost"); }), TEXT("unknown player"));
 	Refused(TEXT("a stable of an unknown player"), Mutated([](FHRWorldState& W) { W.Stables[0].OwnerPlayerId = TEXT("ghost"); }), TEXT("unknown player"));
+	Refused(TEXT("two stables owned by one player"), Mutated([](FHRWorldState& W) { W.Stables[0].OwnerPlayerId = W.Stables[1].OwnerPlayerId = TEXT("p1"); }), TEXT("shares its owner"));
+	Refused(TEXT("a listing whose seller does not own the horse"), Mutated([&HorseId](FHRWorldState& W)
+	{
+		FHRSaleListing L;
+		L.HorseId = HorseId;
+		L.SellerId = W.Stables[0].Id == W.Horses[HorseId].OwnerId ? W.Stables[1].Id : W.Stables[0].Id;
+		L.Price = 50;
+		W.Listings.Add(L);
+	}), TEXT("seller does not own"));
+	Refused(TEXT("a pregnancy with the same horse as mare and sire"), Mutated([&HorseId](FHRWorldState& W)
+	{
+		FHRPregnancy P;
+		P.MareId = P.SireId = HorseId;
+		P.BreederId = W.Stables[0].Id;
+		P.DueT = W.T + 10;
+		W.Pregnancies.Add(P);
+	}), TEXT("mare and a sire"));
+	Refused(TEXT("a rider with empty potential"), Mutated([&RiderId](FHRWorldState& W) { W.Riders[RiderId].Potential.Reset(); }), TEXT("potential"));
+	Refused(TEXT("a rider serial behind an existing rider id"), Mutated([](FHRWorldState& W) { W.RiderSerial = 0; }), TEXT("rider serial"));
+	Refused(TEXT("a bet serial behind today's ticket"), Mutated([](FHRWorldState& W) { W.Serial = 0; }), TEXT("serial"));
+	{
+		FString OverflowCoins = Good;
+		OverflowCoins.ReplaceInline(TEXT("\"coins\":155"), TEXT("\"coins\":4294967396"), ESearchCase::CaseSensitive);
+		Refused(TEXT("int32 overflow in JSON"), OverflowCoins, TEXT("int32"));
+		FString FloatCoins = Good;
+		FloatCoins.ReplaceInline(TEXT("\"coins\":155"), TEXT("\"coins\":155.5"), ESearchCase::CaseSensitive);
+		Refused(TEXT("fractional integer in JSON"), FloatCoins, TEXT("integer"));
+		FString StringCoins = Good;
+		StringCoins.ReplaceInline(TEXT("\"coins\":155"), TEXT("\"coins\":\"155abc\""), ESearchCase::CaseSensitive);
+		Refused(TEXT("string number in JSON"), StringCoins, TEXT("number"));
+		FString NullHorses = Good;
+		const int32 HAt = NullHorses.Find(TEXT("\"horses\":{"), ESearchCase::CaseSensitive);
+		if (HAt != INDEX_NONE)
+		{
+			FString Prefix = NullHorses.Left(HAt) + TEXT("\"horses\":null}");
+			Refused(TEXT("null object in JSON"), Prefix, TEXT("null"));
+		}
+	}
 
 	// Ranges.
 	Refused(TEXT("a negative ability"), Mutated([&HorseId](FHRWorldState& W) { W.Horses[HorseId].Abilities[1] = -5; }), TEXT("abilities[1]"));
@@ -203,6 +241,43 @@ bool FHREconomyTest::RunTest(const FString&)
 		TestEqual(TEXT("refunded once"), S.Players[TEXT("p1")].Coins, Before);
 	}
 
+	// Non-runner tickets placed before a winning ticket are refunded before winner odds are calculated, and
+	// rider transfer listing/hiring refuses prices above MaxCoins without int32 overflow.
+	{
+		FHRWorldState S = Base;
+		HRRules::AddPlayer(S, TEXT("p1"), TEXT("Ada")).Coins = 500;
+		HRRules::AddPlayer(S, TEXT("p2"), TEXT("Bo")).Coins = 500;
+		TestTrue(TEXT("p1 buys stable"), HRRules::BuyStable(S, TEXT("p1"), S.Stables[0].Id, true).IsEmpty());
+		const TArray<const FHRRider*> Staff = HRRules::StableRiders(S, S.Stables[0].Id);
+		if (TestTrue(TEXT("stable has riders"), Staff.Num() > 0))
+		{
+			TestFalse(TEXT("ListRider refuses price > MaxCoins"), HRRules::ListRider(S, TEXT("p1"), Staff[0]->Id, true, MAX_int32).IsEmpty());
+			TestTrue(TEXT("ListRider accepts MaxCoins"), HRRules::ListRider(S, TEXT("p1"), Staff[0]->Id, true, HRRules::MaxCoins).IsEmpty());
+			TestTrue(TEXT("p2 founds stable"), HRRules::FoundStable(S, TEXT("p2"), TEXT("Beta"), TEXT("224466")).IsEmpty());
+			const TArray<const FHRRider*> BetaStaff = HRRules::StableRiders(S, TEXT("player:p2"));
+			if (BetaStaff.Num() > 0) HRRules::ReleaseRider(S, TEXT("p2"), BetaStaff[0]->Id);
+			TestFalse(TEXT("HireRider does not overflow Fee + Wage"), HRRules::HireRider(S, TEXT("p2"), Staff[0]->Id).IsEmpty());
+		}
+		while (!HRAdmissionTest::FieldRace(S, true) && !HRRules::RunNextRace(S).IsEmpty()) {}
+		const FHRRace* Run = HRAdmissionTest::FieldRace(S, true);
+		if (TestNotNull(TEXT("a race was run"), Run))
+		{
+			FHRWorldState WithScratched = S, WithoutScratched = S;
+			FHRTicket Scratched;
+			Scratched.Id = TEXT("bet:scratched"); Scratched.PlayerId = TEXT("p1"); Scratched.T = S.T;
+			Scratched.RaceKey = Run->Key; Scratched.HorseId = TEXT("scratched:horse"); Scratched.Stake = 20; Scratched.Status = TEXT("open");
+			FHRTicket Win;
+			Win.Id = TEXT("bet:win"); Win.PlayerId = TEXT("p2"); Win.T = S.T;
+			Win.RaceKey = Run->Key; Win.HorseId = Run->Finishes[0].HorseId; Win.Stake = 10; Win.Status = TEXT("open");
+			WithScratched.Tickets.Add(Scratched); WithScratched.Tickets.Add(Win);
+			WithoutScratched.Tickets.Add(Win);
+			HRRules::SettleRace(WithScratched, *Run);
+			HRRules::SettleRace(WithoutScratched, *Run);
+			TestEqual(TEXT("scratched ticket refunded first"), WithScratched.Tickets[WithScratched.Tickets.Num() - 2].Status, FString(TEXT("refunded")));
+			TestEqual(TEXT("winner odds exclude the scratched ticket"), WithScratched.Tickets.Last().Rapport, WithoutScratched.Tickets.Last().Rapport);
+		}
+	}
+
 	// A winning ticket on a balance at the cap saturates; the daily income too.
 	{
 		FHRWorldState S = Base;
@@ -277,6 +352,36 @@ bool FHREconomyTest::RunTest(const FString&)
 		HRRules::AdvanceTo(A, 1e300);
 		TestTrue(TEXT("a non-finite or absurd time changes nothing"), HRSave::ToJson(A) == Once);
 		TestEqual(TEXT("the default cap is one real week"), HRRules::MaxCatchUpDays, 84);
+	}
+
+	// Refunds happen before winner payouts so a non-runner ticket placed before a winning ticket does not change the winner's odds.
+	{
+		FHRWorldState S = HRRules::CreateWorld(TEXT("refund-order"));
+		HRRules::AddPlayer(S, TEXT("winner"), TEXT("Ada")).Coins = 100;
+		HRRules::AddPlayer(S, TEXT("scratched"), TEXT("Bo")).Coins = 100;
+		const FString RaceKey = S.Meeting.Races[0].Key;
+		const FString Runner0 = S.Meeting.Races[0].Entries[0].HorseId;
+		const FString Runner1 = S.Meeting.Races[0].Entries[1].HorseId;
+
+		FHRWorldState Probe = S;
+		Probe.Meeting.Races[0].Entries.RemoveAll([&Runner1](const FHRRunner& E) { return E.HorseId == Runner1; });
+		TestTrue(TEXT("winner bet placed cleanly"), HRRules::PlaceBet(Probe, TEXT("winner"), RaceKey, Runner0, 10).IsEmpty());
+		HRRules::RunNextRace(Probe);
+		const FString ActualWinner = Probe.Meeting.Races[0].Finishes[0].HorseId;
+
+		FHRWorldState Clean = S;
+		Clean.Meeting.Races[0].Entries.RemoveAll([&Runner1](const FHRRunner& E) { return E.HorseId == Runner1; });
+		TestTrue(TEXT("bet on actual winner (clean)"), HRRules::PlaceBet(Clean, TEXT("winner"), RaceKey, ActualWinner, 10).IsEmpty());
+		HRRules::RunNextRace(Clean);
+
+		FHRWorldState WithScratch = S;
+		TestTrue(TEXT("bet on scratched runner first"), HRRules::PlaceBet(WithScratch, TEXT("scratched"), RaceKey, Runner1, 20).IsEmpty());
+		TestTrue(TEXT("bet on actual winner second"), HRRules::PlaceBet(WithScratch, TEXT("winner"), RaceKey, ActualWinner, 10).IsEmpty());
+		WithScratch.Meeting.Races[0].Entries.RemoveAll([&Runner1](const FHRRunner& E) { return E.HorseId == Runner1; });
+		HRRules::RunNextRace(WithScratch);
+		TestEqual(TEXT("scratched ticket refunded"), WithScratch.Tickets[0].Status, FString(TEXT("refunded")));
+		TestEqual(TEXT("winner rapport matches clean run"), WithScratch.Tickets[1].Rapport, Clean.Tickets[0].Rapport);
+		TestEqual(TEXT("winner payout matches clean run"), WithScratch.Tickets[1].Payout, Clean.Tickets[0].Payout);
 	}
 	return true;
 }
