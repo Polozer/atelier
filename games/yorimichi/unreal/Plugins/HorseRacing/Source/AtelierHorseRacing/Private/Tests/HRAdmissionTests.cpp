@@ -175,6 +175,11 @@ bool FHRSaveAdmissionTest::RunTest(const FString&)
 	// Collection sizes.
 	Refused(TEXT("a huge ability list"), Mutated([&HorseId](FHRWorldState& W) { W.Horses[HorseId].Abilities.Init(1, 5000); }), TEXT("abilities"));
 	Refused(TEXT("three parents"), Mutated([&ParentlessId, &HorseId](FHRWorldState& W) { W.Horses[ParentlessId].Parents = {HorseId, HorseId, HorseId}; }), TEXT("two"));
+	Refused(TEXT("a parent born no earlier than its foal"), Mutated([&ParentlessId, &HorseId](FHRWorldState& W)
+	{
+		W.Horses[HorseId].BirthT = W.Horses[ParentlessId].BirthT;
+		W.Horses[ParentlessId].Parents = {HorseId, HorseId};
+	}), TEXT("parent born no earlier"));
 	Refused(TEXT("too much news"), Mutated([](FHRWorldState& W)
 	{
 		FHRNews N;

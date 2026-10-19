@@ -4,7 +4,7 @@
 #include "HRTypes.h"
 
 /**
- * The whole racing world as JSON: what a host saves to disk and what it sends as a snapshot to clients. The round trip
+ * The whole racing world as JSON: what a host saves to disk (clients receive FRacingNetState without the world seed). The round trip
  * is lossless, so a reloaded world plays on exactly as the original would.
  *
  * Loading admits a world before it replaces anything: the schema and rules versions, the required fields, unique ids
@@ -16,7 +16,7 @@ namespace HRSave
 	inline constexpr int32 SchemaVersion = 1;
 
 	/** Admission bounds: far above any world the rules make, low enough that indexing and arithmetic stay safe. */
-	inline constexpr int32 MaxJsonChars = 16 * 1024 * 1024;
+	inline constexpr int32 MaxJsonChars = 64 * 1024 * 1024;
 	inline constexpr int32 MaxDay = 1000000;
 	inline constexpr int32 MaxStables = 256;
 	inline constexpr int32 MaxHorses = 200000;

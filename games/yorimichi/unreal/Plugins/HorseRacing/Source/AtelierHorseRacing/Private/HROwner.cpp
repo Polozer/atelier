@@ -295,7 +295,7 @@ namespace HRRules
 			R->ListedPrice = 0;
 			return FString();
 		}
-		if (Price < 0 || Price > MaxCoins) return FString::Printf(TEXT("List price between 1 and %d coins."), MaxCoins);
+		if (Price < 0 || Price > MaxCoins) return FString::Printf(TEXT("List price between 0 and %d coins."), MaxCoins);
 		R->ListedPrice = Price > 0 ? Price : FMath::Clamp(RiderValue(*R, S.T), 1, MaxCoins);
 		AddNews(S, TEXT("listing"), FString::Printf(TEXT("%s puts %s on the transfer list for %d coins."), *St->Name, *R->FullName(), R->ListedPrice), {}, {St->Id});
 		return FString();

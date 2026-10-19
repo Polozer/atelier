@@ -13,35 +13,46 @@
 
 namespace
 {
-	/** The first repeated key of any JSON object ("" when none): a parser would silently keep only the last one. Keys
-	 * compare as the world's maps do (case-insensitively), so two ids differing only in case are refused too. */
-	FString DuplicateKey(const FString& Json)
+	/** Token-stream pre-pass before building a DOM: rejects repeated object keys (case-insensitively, as TMap<FString,...>
+	 * compares) and any single array or object exceeding MaxTickets entries so a huge array cannot allocate a multi-GB DOM. */
+	bool ScanJsonTokens(const FString& Json, FString& Error)
 	{
 		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Json);
 		TArray<TSet<FString>> Keys;
 		TArray<bool> IsObject;
+		TArray<int32> Counts;
 		EJsonNotation Notation;
 		while (Reader->ReadNext(Notation))
 		{
 			if (Notation == EJsonNotation::ObjectEnd || Notation == EJsonNotation::ArrayEnd)
 			{
-				if (Keys.Num()) { Keys.Pop(EAllowShrinking::No); IsObject.Pop(EAllowShrinking::No); }
+				if (Keys.Num()) { Keys.Pop(EAllowShrinking::No); IsObject.Pop(EAllowShrinking::No); Counts.Pop(EAllowShrinking::No); }
 				continue;
 			}
-			if (Notation == EJsonNotation::Error) return FString();  // the parser reports it
+			if (Notation == EJsonNotation::Error) return true;  // the parser reports it
+			if (Counts.Num() && ++Counts.Last() > HRSave::MaxTickets)
+			{
+				Error = FString::Printf(TEXT("an array or object has more than %d entries"), HRSave::MaxTickets);
+				return false;
+			}
 			if (IsObject.Num() && IsObject.Last())
 			{
 				bool bSeen = false;
 				Keys.Last().Add(Reader->GetIdentifier(), &bSeen);
-				if (bSeen) return Reader->GetIdentifier();
+				if (bSeen)
+				{
+					Error = FString::Printf(TEXT("the key \"%s\" appears twice in one object"), *Reader->GetIdentifier().Left(64));
+					return false;
+				}
 			}
 			if (Notation == EJsonNotation::ObjectStart || Notation == EJsonNotation::ArrayStart)
 			{
 				Keys.AddDefaulted();
 				IsObject.Add(Notation == EJsonNotation::ObjectStart);
+				Counts.Add(0);
 			}
 		}
-		return FString();
+		return true;
 	}
 
 	/** Collects the first failure; every check is a no-op once one has failed. */
@@ -101,6 +112,7 @@ namespace
 	}
 
 	bool StrictJsonValue(const FProperty* Prop, const TSharedPtr<FJsonValue>& Val, const FString& Path, FString& Error);
+	/** Validates known UStruct properties before JsonObjectToUStruct coerces them; unknown JSON keys are ignored for forward compatibility. */
 	bool StrictJsonStruct(const UStruct* Struct, const TSharedPtr<FJsonObject>& Obj, const FString& Path, FString& Error)
 	{
 		if (!Struct || !Obj.IsValid()) { Error = Path + TEXT(" is not a JSON object"); return false; }
@@ -259,7 +271,12 @@ namespace HRSave
 			A.Text(H.Name, W + TEXT(" name"));
 			A.Check(H.OwnerId == TEXT("market") || IsStable(H.OwnerId), W + TEXT(" has an unknown owner"));
 			A.Check(H.Parents.Num() == 0 || H.Parents.Num() == 2, W + TEXT(" must have no parents or two"));
-			for (const FString& P : H.Parents) A.Check(P != H.Id && IsHorse(P), W + TEXT(" has an unknown parent"));
+			for (const FString& P : H.Parents)
+			{
+				A.Check(P != H.Id && IsHorse(P), W + TEXT(" has an unknown parent"));
+				if (const FHRHorse* Parent = S.Horses.Find(P))
+					A.Check(Parent->BirthT < H.BirthT, W + TEXT(" has a parent born no earlier than itself"));
+			}
 			A.Size(H.Owners.Num(), MaxList, W + TEXT(" owners"));
 			for (const FString& O : H.Owners) A.Check(O == TEXT("market") || IsStable(O), W + TEXT(" lists an unknown former owner"));
 			A.Size(H.Career.Num(), MaxCareer, W + TEXT(" career"));
@@ -466,16 +483,11 @@ namespace HRSave
 			Error = FString::Printf(TEXT("the save is %d characters, more than %d"), Json.Len(), MaxJsonChars);
 			return false;
 		}
+		if (!ScanJsonTokens(Json, Error)) return false;
 		TSharedPtr<FJsonObject> Root;
 		if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid())
 		{
 			Error = TEXT("not a JSON object");
-			return false;
-		}
-		const FString Repeated = DuplicateKey(Json);
-		if (!Repeated.IsEmpty())
-		{
-			Error = FString::Printf(TEXT("the key \"%s\" appears twice in one object"), *Repeated.Left(64));
 			return false;
 		}
 		// Fields a world of these rules always has (JSON keys compare case-insensitively).
@@ -497,11 +509,8 @@ namespace HRSave
 		}
 		Error = Validate(Parsed);
 		if (!Error.IsEmpty()) return false;
-		for (TPair<FString, FHRHorse>& It : Parsed.Horses)
-		{
-			HRBreeds::FillMissing(It.Value.Genome, It.Value.Breed, It.Value.Seed);
-			HRVisual::FillMissingLoci(It.Value.Genome, It.Value.Seed);
-		}
+		HRVisual::FillMissingLoci(Parsed);
+		HRBreeds::FillMissing(Parsed);
 		Out = MoveTemp(Parsed);
 		return true;
 	}
