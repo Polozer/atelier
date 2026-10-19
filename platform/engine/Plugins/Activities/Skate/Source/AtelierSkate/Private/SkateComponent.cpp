@@ -126,6 +126,7 @@ void USkateComponent::LoadSounds()
         auto* C = NewObject<UAudioComponent>(Rider, *FString::Printf(TEXT("SkateLoop%d"), Index++));
         C->SetupAttachment(BoardRoot); C->bAutoActivate = false; C->bAllowSpatialization = true;
         C->AttenuationSettings = Attenuation; C->SetSound(Load(Name)); C->RegisterComponent();
+        if (bSoftenSounds) { C->LowPassFilterFrequency = 3000.f; C->bEnableLowPassFilter = true; }
         Loops.Add(C);
     }
     LoopVolume.Init(0.f, Loops.Num());
@@ -153,8 +154,8 @@ void USkateComponent::PlayCue(FName Cue, float Volume, float Pitch)
     if (Range->Y > 1 && Pick == LastVariant) Pick = Range->X + (Pick - Range->X + 1) % Range->Y;   // no back-to-back repeat
     LastVariant = Pick;
     const FVector At = GetDeckWorld().GetLocation();
-    UGameplayStatics::PlaySoundAtLocation(this, Waves[Pick], At, FRotator::ZeroRotator, Volume, Pitch, 0.f, Attenuation);
-    FAtelierAudioLog::Record(Waves[Pick], At, Volume, Pitch, false);
+    PlayShotVoice(Waves[Pick], At, Volume, Pitch);
+    FAtelierAudioLog::Record(Waves[Pick], At, Volume * SoundVolume, Pitch, false);
 }
 
 void USkateComponent::UpdateAudio(float Dt)
@@ -184,7 +185,7 @@ void USkateComponent::UpdateAudio(float Dt)
         if (LoopVolume[I] > .01f)
         {
             if (!C->IsPlaying()) C->Play(FMath::FRand() * 1.5f);
-            C->SetVolumeMultiplier(LoopVolume[I]); C->SetPitchMultiplier(I < 5 ? Pitch[I] : Pitch[0]);
+            C->SetVolumeMultiplier(LoopVolume[I] * SoundVolume); C->SetPitchMultiplier(I < 5 ? Pitch[I] : Pitch[0]);
         }
         else if (C->IsPlaying()) C->Stop();
     }

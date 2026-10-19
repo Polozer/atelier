@@ -1,10 +1,25 @@
 #include "SkateSoundSet.h"
 #include "SkateComponent.h"
 #include "Components/AudioComponent.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "AudioDevice.h"
+#include "GameFramework/Actor.h"
 #include "Sound/SoundWave.h"
 
 FSkateAudioReady USkateComponent::AudioReady;
+
+namespace
+{
+void SkateApplyLowPass(UAudioComponent* Voice, bool bSoften)
+{
+    // Play copies these properties; the setters reach only an already-active sound.
+    Voice->LowPassFilterFrequency = 3000.f;
+    Voice->bEnableLowPassFilter = bSoften;
+    Voice->SetLowPassFilterFrequency(3000.f);
+    Voice->SetLowPassFilterEnabled(bSoften);
+}
+}
 
 bool USkateComponent::CanSetSoundSet(const USkateSoundSet* Replacement, FString& Error) const
 {
@@ -96,4 +111,70 @@ bool USkateComponent::SetSoundSet(USkateSoundSet* Replacement, FString& Error)
     LastVariant = -1;
     ActiveSoundSet = Replacement;
     return true;
+}
+
+void USkateComponent::ApplyVoicePreferences(UAudioComponent* Voice, float BaseVolume) const
+{
+    Voice->SetVolumeMultiplier(BaseVolume * SoundVolume);
+    SkateApplyLowPass(Voice, bSoftenSounds);
+}
+
+void USkateComponent::SetAudioPreferences(bool bSoften, float Volume)
+{
+    if (!IsInGameThread() || !FMath::IsFinite(Volume)) return;
+    const float Clamped = FMath::Clamp(Volume, 0.f, 1.f);
+    // Default and repeated requests leave legacy loop components and envelopes untouched.
+    if (bSoften == bSoftenSounds && Clamped == SoundVolume) return;
+    bSoftenSounds = bSoften;
+    SoundVolume = Clamped;
+    for (int32 I = 0; I < Loops.Num(); ++I)
+        if (UAudioComponent* Loop = Loops[I])
+        {
+            SkateApplyLowPass(Loop, bSoftenSounds);
+            // The same audible threshold as UpdateAudio; silent loops receive the gain when they next sound.
+            if (LoopVolume.IsValidIndex(I) && LoopVolume[I] > .01f) Loop->SetVolumeMultiplier(LoopVolume[I] * SoundVolume);
+        }
+    for (auto It = ShotVoices.CreateIterator(); It; ++It)
+        if (UAudioComponent* Voice = It.Key().Get()) ApplyVoicePreferences(Voice, It.Value());
+        else It.RemoveCurrent();
+}
+
+void USkateComponent::PlayShotVoice(USoundWave* Wave, const FVector& At, float Volume, float Pitch)
+{
+    UWorld* World = GetWorld();
+    if (!Wave || !World || !World->bAllowAudioPlayback || World->IsNetMode(NM_DedicatedServer)
+        || !GEngine || !GEngine->UseSound()) return;
+    for (auto It = ShotVoices.CreateIterator(); It; ++It)
+        if (!It.Key().IsValid()) It.RemoveCurrent();
+    // The same spatial component factory as SpawnSoundAtLocation, configured
+    // before Play so even the first attack receives the requested filter.
+    FAudioDevice::FCreateComponentParams Params(World, GetOwner());
+    Params.SetLocation(At);
+    Params.AttenuationSettings = Attenuation;
+    Params.bPlay = false;
+    if (UAudioComponent* Voice = FAudioDevice::CreateComponent(Wave, Params))
+    {
+        Voice->SetWorldLocationAndRotation(At, FRotator::ZeroRotator);
+        Voice->SetPitchMultiplier(Pitch);
+        Voice->bAllowSpatialization = Params.ShouldUseAttenuation();
+        Voice->bIsUISound = !World->IsGameWorld();
+        Voice->bAutoDestroy = true;
+        Voice->bStopWhenOwnerDestroyed = true;
+        Voice->SubtitlePriority = Wave->GetSubtitlePriority();
+        ApplyVoicePreferences(Voice, Volume);
+        ShotVoices.Add(Voice, Volume);
+        Voice->Play(0.f);
+    }
+}
+
+void USkateComponent::StopShotVoices()
+{
+    const auto Voices = MoveTemp(ShotVoices);
+    ShotVoices.Reset();
+    for (const auto& Pair : Voices)
+        if (UAudioComponent* Voice = Pair.Key.Get())
+        {
+            Voice->Stop();
+            if (IsValid(Voice)) Voice->DestroyComponent();
+        }
 }
