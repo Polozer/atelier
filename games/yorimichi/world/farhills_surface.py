@@ -22,7 +22,10 @@ def owns_fine_ground(x, y, *, city):
 def generate(fine_count, *, city, progress=None):
     """@cc [owner:fontanierh,label:correctness] farhills-discrete-extraction
     Preserve the r8 grid/parent/rail lattice, hidden footprints and nonlinear
-    shape evaluation order. The existing original polygons MUST reach the one
+    shape evaluation order. The hidden footprints are exactly owns_fine_ground:
+    HD_Terrain, with the city also Hidamari and the Brinecove rectangle
+    (brinecove.region.owns, on the 96-knot axis), whose ground closes onto the
+    final product's hole rim. The existing original polygons MUST reach the one
     conforming earthworks call before any product triangulation. Appearance,
     scenery and Blender object creation do not own or change these arrays.
     """
