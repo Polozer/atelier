@@ -374,7 +374,7 @@ namespace HRRules
 		}
 	}
 
-	int32 SignAcademyRiders(FHRWorldState& S, const FString& StableId)
+	int32 SignAcademyRiders(FHRWorldState& S, const FString& StableId, int32 LegendPerMille)
 	{
 		int32 Signed = 0;
 		while (StableRiders(S, StableId).Num() < RidersPerStable)
@@ -382,6 +382,7 @@ namespace HRRules
 			FRiderOptions O;
 			O.OwnerId = StableId;
 			O.Age = (17 + HRRandom::Draw(S.Seed, FString::Printf(TEXT("academy:%s:%d:%d"), *StableId, S.T, Signed), 3)) * 12;
+			O.LegendPerMille = LegendPerMille;
 			LegendNews(S, NewRider(S, O));
 			Signed++;
 		}
@@ -491,7 +492,7 @@ namespace HRRules
 				for (TPair<FString, FHRRider>& It : S.Riders)
 				{
 					FHRRider& R = It.Value;
-					if (R.IsRetired() || R.ListedPrice <= 0 || R.OwnerId == St.Id || R.ListedPrice + 90 > St.Coins) continue;
+					if (R.IsRetired() || R.ListedPrice <= 0 || R.OwnerId == St.Id || (int64)R.ListedPrice + 90 > St.Coins) continue;
 					if (RiderOverall(R) >= RiderOverall(*Weakest) + 4 && (!Best || RiderOverall(R) > RiderOverall(*Best) || (RiderOverall(R) == RiderOverall(*Best) && R.Id < Best->Id))) Best = &R;
 				}
 				if (Best)
@@ -522,7 +523,7 @@ namespace HRRules
 					for (TPair<FString, FHRRider>& It : S.Riders)
 					{
 						FHRRider& R = It.Value;
-						if (!bMarket || R.IsRetired() || R.ListedPrice <= 0 || R.OwnerId == St.Id || St.Coins < R.ListedPrice + 60) continue;
+						if (!bMarket || R.IsRetired() || R.ListedPrice <= 0 || R.OwnerId == St.Id || St.Coins < (int64)R.ListedPrice + 60) continue;
 						if ((!Pick || RiderOverall(R) > RiderOverall(*Pick) + 3) && (!Bought || RiderOverall(R) > RiderOverall(*Bought) || (RiderOverall(R) == RiderOverall(*Bought) && R.Id < Bought->Id))) Bought = &R;
 					}
 					if (Bought) Transfer(S, *Bought, St);
@@ -548,9 +549,9 @@ namespace HRRules
 
 	int32 RiderWages(const FHRWorldState& S, const FString& StableId)
 	{
-		int32 Sum = 0;
+		int64 Sum = 0;
 		for (const TPair<FString, FHRRider>& It : S.Riders)
-			if (It.Value.OwnerId == StableId && !It.Value.IsRetired()) Sum += It.Value.Wage;
-		return Sum;
+			if (It.Value.OwnerId == StableId && !It.Value.IsRetired()) Sum += FMath::Max(0, It.Value.Wage);
+		return (int32)FMath::Clamp<int64>(Sum, 0, MaxCoins);
 	}
 }

@@ -257,7 +257,8 @@ namespace HRRules
 		if (StableRiders(S, St->Id).Num() >= RidersPerStable) return FString::Printf(TEXT("A stable keeps %d riders: release one first."), RidersPerStable);
 		const int32 Fee = R->OwnerId.IsEmpty() ? 0 : R->ListedPrice;
 		if (!R->OwnerId.IsEmpty() && R->ListedPrice <= 0) return TEXT("This rider is not on the transfer list.");
-		if (P->Coins < Fee + R->Wage) return FString::Printf(TEXT("It costs %d coins (transfer and first wage)."), Fee + R->Wage);
+		const int64 TotalCost = (int64)Fee + (int64)R->Wage;
+		if (P->Coins < TotalCost) return FString::Printf(TEXT("It costs %lld coins (transfer and first wage)."), TotalCost);
 		P->Coins -= Fee;
 		const FString From = R->OwnerId;
 		if (FHRStable* Seller = From.IsEmpty() ? nullptr : FindStable(S, From)) Seller->Coins = Credit(Seller->Coins, Fee);
@@ -294,7 +295,8 @@ namespace HRRules
 			R->ListedPrice = 0;
 			return FString();
 		}
-		R->ListedPrice = Price > 0 ? Price : RiderValue(*R, S.T);
+		if (Price < 0 || Price > MaxCoins) return FString::Printf(TEXT("List price between 0 and %d coins."), MaxCoins);
+		R->ListedPrice = Price > 0 ? Price : FMath::Clamp(RiderValue(*R, S.T), 1, MaxCoins);
 		AddNews(S, TEXT("listing"), FString::Printf(TEXT("%s puts %s on the transfer list for %d coins."), *St->Name, *R->FullName(), R->ListedPrice), {}, {St->Id});
 		return FString();
 	}
@@ -329,7 +331,7 @@ namespace HRRules
 		if (Gross > 0)
 			AddNews(S, TEXT("result"), FString::Printf(TEXT("%s earns %d coins in prize money today."), *St.Name, Gross), {}, {St.Id});
 		// Running costs first (the horses), then the wages: a rider who cannot be paid leaves, the costliest first.
-		const int32 Upkeep = DailyUpkeep(S, St) - RiderWages(S, St.Id);
+		const int32 Upkeep = FMath::Max(0, DailyUpkeep(S, St) - RiderWages(S, St.Id));
 		const int32 Paid = FMath::Min(P->Coins, Upkeep);
 		P->Coins -= Paid;
 		St.UpkeepPaid = Tally(St.UpkeepPaid, Paid);

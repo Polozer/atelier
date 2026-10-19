@@ -7,40 +7,60 @@
 #include "HRVisualGenome.h"
 #include "JsonObjectConverter.h"
 #include "Dom/JsonObject.h"
+#include "UObject/UnrealType.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
 namespace
 {
-	/** The first repeated key of any JSON object ("" when none): a parser would silently keep only the last one. Keys
-	 * compare as the world's maps do (case-insensitively), so two ids differing only in case are refused too. */
-	FString DuplicateKey(const FString& Json)
+	/** Token-stream pre-pass before building a DOM: rejects repeated object keys (case-insensitively, as TMap<FString,...>
+	 * compares), any single array or object exceeding MaxTickets entries, and any document exceeding MaxTotalNodes total tokens
+	 * so a crafted input cannot allocate an unbounded DOM. */
+	bool ScanJsonTokens(const FString& Json, FString& Error)
 	{
+		constexpr int32 MaxTotalNodes = 20000000;
 		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Json);
 		TArray<TSet<FString>> Keys;
 		TArray<bool> IsObject;
+		TArray<int32> Counts;
+		int32 TotalNodes = 0;
 		EJsonNotation Notation;
 		while (Reader->ReadNext(Notation))
 		{
 			if (Notation == EJsonNotation::ObjectEnd || Notation == EJsonNotation::ArrayEnd)
 			{
-				if (Keys.Num()) { Keys.Pop(EAllowShrinking::No); IsObject.Pop(EAllowShrinking::No); }
+				if (Keys.Num()) { Keys.Pop(EAllowShrinking::No); IsObject.Pop(EAllowShrinking::No); Counts.Pop(EAllowShrinking::No); }
 				continue;
 			}
-			if (Notation == EJsonNotation::Error) return FString();  // the parser reports it
+			if (Notation == EJsonNotation::Error) return true;  // the parser reports it
+			if (++TotalNodes > MaxTotalNodes)
+			{
+				Error = FString::Printf(TEXT("the save has more than %d JSON values"), MaxTotalNodes);
+				return false;
+			}
+			if (Counts.Num() && ++Counts.Last() > HRSave::MaxTickets)
+			{
+				Error = FString::Printf(TEXT("an array or object has more than %d entries"), HRSave::MaxTickets);
+				return false;
+			}
 			if (IsObject.Num() && IsObject.Last())
 			{
 				bool bSeen = false;
 				Keys.Last().Add(Reader->GetIdentifier(), &bSeen);
-				if (bSeen) return Reader->GetIdentifier();
+				if (bSeen)
+				{
+					Error = FString::Printf(TEXT("the key \"%s\" appears twice in one object"), *Reader->GetIdentifier().Left(64));
+					return false;
+				}
 			}
 			if (Notation == EJsonNotation::ObjectStart || Notation == EJsonNotation::ArrayStart)
 			{
 				Keys.AddDefaulted();
 				IsObject.Add(Notation == EJsonNotation::ObjectStart);
+				Counts.Add(0);
 			}
 		}
-		return FString();
+		return true;
 	}
 
 	/** Collects the first failure; every check is a no-op once one has failed. */
@@ -97,6 +117,76 @@ namespace
 	{
 		for (const TCHAR* A : Allowed) if (Value == A) return true;
 		return false;
+	}
+
+	bool StrictJsonValue(const FProperty* Prop, const TSharedPtr<FJsonValue>& Val, const FString& Path, FString& Error);
+	/** Validates known UStruct properties before JsonObjectToUStruct coerces them; unknown JSON keys are ignored for forward compatibility. */
+	bool StrictJsonStruct(const UStruct* Struct, const TSharedPtr<FJsonObject>& Obj, const FString& Path, FString& Error)
+	{
+		if (!Struct || !Obj.IsValid()) { Error = Path + TEXT(" is not a JSON object"); return false; }
+		for (TFieldIterator<FProperty> It(Struct); It; ++It)
+		{
+			const FProperty* Prop = *It;
+			for (const TPair<FString, TSharedPtr<FJsonValue>>& Entry : Obj->Values)
+			{
+				if (!Entry.Key.Equals(Prop->GetName(), ESearchCase::IgnoreCase)) continue;
+				if (!StrictJsonValue(Prop, Entry.Value, Path.IsEmpty() ? Entry.Key : Path + TEXT(".") + Entry.Key, Error)) return false;
+			}
+		}
+		return true;
+	}
+
+	bool StrictJsonValue(const FProperty* Prop, const TSharedPtr<FJsonValue>& Val, const FString& Path, FString& Error)
+	{
+		if (!Prop || !Val.IsValid() || Val->Type == EJson::Null) { Error = Path + TEXT(" is null or missing"); return false; }
+		if (CastField<FBoolProperty>(Prop))
+		{
+			if (Val->Type != EJson::Boolean) { Error = Path + TEXT(" must be a boolean"); return false; }
+			return true;
+		}
+		if (CastField<FStrProperty>(Prop) || CastField<FNameProperty>(Prop))
+		{
+			if (Val->Type != EJson::String) { Error = Path + TEXT(" must be a string"); return false; }
+			return true;
+		}
+		if (const FNumericProperty* Num = CastField<FNumericProperty>(Prop))
+		{
+			if (Val->Type != EJson::Number) { Error = Path + TEXT(" must be a number"); return false; }
+			const double D = Val->AsNumber();
+			if (!FMath::IsFinite(D)) { Error = Path + TEXT(" is not finite"); return false; }
+			if (Num->IsInteger())
+			{
+				if (FMath::FloorToDouble(D) != D) { Error = Path + TEXT(" must be an integer"); return false; }
+				if (CastField<FIntProperty>(Prop) && (D < double(MIN_int32) || D > double(MAX_int32)))
+				{ Error = Path + TEXT(" is outside int32"); return false; }
+				if (CastField<FInt64Property>(Prop) && (D < -9007199254740992.0 || D > 9007199254740992.0))
+				{ Error = Path + TEXT(" is outside safe int64"); return false; }
+			}
+			return true;
+		}
+		if (const FStructProperty* St = CastField<FStructProperty>(Prop))
+		{
+			const TSharedPtr<FJsonObject>* Child = nullptr;
+			if (!Val->TryGetObject(Child) || !Child) { Error = Path + TEXT(" must be an object"); return false; }
+			return StrictJsonStruct(St->Struct, *Child, Path, Error);
+		}
+		if (const FArrayProperty* Arr = CastField<FArrayProperty>(Prop))
+		{
+			const TArray<TSharedPtr<FJsonValue>>* List = nullptr;
+			if (!Val->TryGetArray(List) || !List) { Error = Path + TEXT(" must be an array"); return false; }
+			for (int32 I = 0; I < List->Num(); ++I)
+				if (!StrictJsonValue(Arr->Inner, (*List)[I], FString::Printf(TEXT("%s[%d]"), *Path, I), Error)) return false;
+			return true;
+		}
+		if (const FMapProperty* Map = CastField<FMapProperty>(Prop))
+		{
+			const TSharedPtr<FJsonObject>* Child = nullptr;
+			if (!Val->TryGetObject(Child) || !Child) { Error = Path + TEXT(" must be an object"); return false; }
+			for (const TPair<FString, TSharedPtr<FJsonValue>>& Entry : (*Child)->Values)
+				if (!StrictJsonValue(Map->ValueProp, Entry.Value, Path + TEXT(".") + Entry.Key, Error)) return false;
+			return true;
+		}
+		return true;
 	}
 }
 
@@ -157,12 +247,19 @@ namespace HRSave
 			A.Check(It.Key == It.Value.Id && !It.Key.IsEmpty(), FString::Printf(TEXT("player key %s does not match its id"), *It.Key.Left(64)));
 		if (!A.Ok()) return A.Error;
 
+		TSet<FString> OwnerPlayers;
 		for (const FHRStable& St : S.Stables)
 		{
 			const FString W = TEXT("stable ") + St.Id.Left(64);
 			A.Text(St.Name, W + TEXT(" name"));
 			A.Text(St.Motto, W + TEXT(" motto"));
 			A.Check(St.OwnerPlayerId.IsEmpty() || IsPlayer(St.OwnerPlayerId), W + TEXT(" is owned by an unknown player"));
+			if (!St.OwnerPlayerId.IsEmpty())
+			{
+				bool bOwned = false;
+				OwnerPlayers.Add(St.OwnerPlayerId, &bOwned);
+				A.Check(!bOwned, W + TEXT(" shares its owner player with another stable"));
+			}
 			A.Range(St.Coins, 0, MaxCoins, W + TEXT(" coins"));
 			A.Range(St.Debt, 0, MaxCoins, W + TEXT(" debt"));
 			A.Range(St.Emblem, 0, MaxInt, W + TEXT(" emblem"));
@@ -182,7 +279,12 @@ namespace HRSave
 			A.Text(H.Name, W + TEXT(" name"));
 			A.Check(H.OwnerId == TEXT("market") || IsStable(H.OwnerId), W + TEXT(" has an unknown owner"));
 			A.Check(H.Parents.Num() == 0 || H.Parents.Num() == 2, W + TEXT(" must have no parents or two"));
-			for (const FString& P : H.Parents) A.Check(P != H.Id && IsHorse(P), W + TEXT(" has an unknown parent"));
+			for (const FString& P : H.Parents)
+			{
+				A.Check(P != H.Id && IsHorse(P), W + TEXT(" has an unknown parent"));
+				if (const FHRHorse* Parent = S.Horses.Find(P))
+					A.Check(Parent->BirthT < H.BirthT, W + TEXT(" has a parent born no earlier than itself"));
+			}
 			A.Size(H.Owners.Num(), MaxList, W + TEXT(" owners"));
 			for (const FString& O : H.Owners) A.Check(O == TEXT("market") || IsStable(O), W + TEXT(" lists an unknown former owner"));
 			A.Size(H.Career.Num(), MaxCareer, W + TEXT(" career"));
@@ -217,6 +319,12 @@ namespace HRSave
 			A.Range(H.Difficult, 0, 2, W + TEXT(" difficult surface"));
 			A.Range(H.ReadyT, -MaxDay, MaxDay * 2, W + TEXT(" ready day"));
 			A.Range(H.ScheduledRetirementT, -MaxDay, MaxDay * 2, W + TEXT(" retirement day"));
+			A.Range(H.RetiredT, -1, S.T + 1, W + TEXT(" retired day"));
+			A.Range(H.BreedingUntilT, -1, MaxDay * 2, W + TEXT(" breeding until day"));
+			A.Range(H.NextBreedingT, -MaxDay, MaxDay * 2, W + TEXT(" next breeding day"));
+			A.Range(H.Injury.Benches, 0, MaxDay, W + TEXT(" injury benches"));
+			A.Range(H.Injury.Minimum, 0, MaxDay, W + TEXT(" injury minimum"));
+			A.Range(H.Injury.SinceT, -1, S.T + 1, W + TEXT(" injury day"));
 			A.Range(H.Stress, 0, MaxInt, W + TEXT(" stress"));
 			A.Range(H.Xp, 0, MaxInt, W + TEXT(" experience"));
 			A.Range(H.BirthT, -MaxDay, S.T + 1, W + TEXT(" birth day"));
@@ -230,13 +338,24 @@ namespace HRSave
 			if (!A.Ok()) break;
 			const FHRRider& R = It.Value;
 			const FString W = TEXT("rider ") + R.Id.Left(64);
+			FString Suffix;
+			if (R.Id.Split(TEXT("rider:"), nullptr, &Suffix) && Suffix.IsNumeric())
+				A.Check(FCString::Atoi64(*Suffix) <= S.RiderSerial, W + TEXT(" exceeds rider serial"));
 			A.Text(R.FirstName + R.LastName, W + TEXT(" name"));
 			A.Check(R.OwnerId.IsEmpty() || IsStable(R.OwnerId), W + TEXT(" rides for an unknown stable"));
 			A.Size(R.Stables.Num(), MaxList, W + TEXT(" stables"));
 			for (const FString& St : R.Stables) A.Check(IsStable(St), W + TEXT(" lists an unknown stable"));
 			A.Stats(R.Skill, 4, 0, MaxSkill, W + TEXT(" skills"));
-			A.Stats(R.SeasonSkill, -4, 0, MaxSkill, W + TEXT(" season skills"));
-			A.Stats(R.Potential, -4, 0, MaxSkill, W + TEXT(" potential"));
+			A.Stats(R.SeasonSkill, 4, 0, MaxSkill, W + TEXT(" season skills"));
+			A.Stats(R.Potential, 4, 0, MaxSkill, W + TEXT(" potential"));
+			A.Range(R.Growth, 0, 1000, W + TEXT(" growth"));
+			A.Range(R.Decline, 0, 1000, W + TEXT(" decline"));
+			A.Range(R.PeakAge, 0, 12000, W + TEXT(" peak age"));
+			A.Range(R.PeakMonths, 0, 12000, W + TEXT(" peak months"));
+			A.Range(R.RetireAge, 0, 12000, W + TEXT(" retire age"));
+			A.Range(R.BirthT, -MaxDay, S.T + 1, W + TEXT(" birth day"));
+			A.Range(R.DebutT, -MaxDay, S.T + 1, W + TEXT(" debut day"));
+			A.Range(R.CurveRides, 0, MaxInt, W + TEXT(" curve rides"));
 			A.Range(R.Wage, 0, MaxCoins, W + TEXT(" wage"));
 			A.Range(R.ListedPrice, 0, MaxCoins, W + TEXT(" transfer price"));
 			A.Range(R.Rides, 0, MaxInt, W + TEXT(" rides"));
@@ -316,6 +435,8 @@ namespace HRSave
 		{
 			A.Check(IsHorse(L.HorseId), TEXT("a listing offers an unknown horse"));
 			A.Check(IsStable(L.SellerId), TEXT("a listing has an unknown seller"));
+			if (const FHRHorse* H = S.Horses.Find(L.HorseId))
+				A.Check(H->OwnerId == L.SellerId, TEXT("a listing's seller does not own the horse"));
 			A.Range(L.Price, 0, MaxCoins, TEXT("a listing's price"));
 			bool bSeen = false;
 			Listed.Add(L.HorseId, &bSeen);
@@ -324,6 +445,9 @@ namespace HRSave
 		for (const FHRPregnancy& P : S.Pregnancies)
 		{
 			A.Check(IsHorse(P.MareId) && IsHorse(P.SireId), TEXT("a pregnancy refers to an unknown horse"));
+			if (const FHRHorse* Mare = S.Horses.Find(P.MareId))
+				if (const FHRHorse* Sire = S.Horses.Find(P.SireId))
+					A.Check(P.MareId != P.SireId && Mare->bMare && !Sire->bMare, TEXT("a pregnancy requires a mare and a sire"));
 			A.Check(IsStable(P.BreederId), TEXT("a pregnancy has an unknown breeder"));
 			A.Range(P.DueT, 0, MaxDay, TEXT("a pregnancy's due day"));
 			bool bSeen = false;
@@ -337,6 +461,12 @@ namespace HRSave
 			bool bSeen = false;
 			Tickets.Add(T.Id, &bSeen);
 			A.Check(!bSeen, W + TEXT(" appears twice"));
+			const FString Prefix = FString::Printf(TEXT("bet:%d:"), S.T);
+			if (T.Id.StartsWith(Prefix, ESearchCase::CaseSensitive))
+			{
+				const FString Rest = T.Id.Mid(Prefix.Len());
+				if (Rest.IsNumeric()) A.Check(FCString::Atoi64(*Rest) < S.Serial, W + TEXT(" reaches or exceeds serial"));
+			}
 			A.Check(IsPlayer(T.PlayerId), W + TEXT(" belongs to an unknown player"));
 			A.Check(IsHorse(T.HorseId), W + TEXT(" backs an unknown horse"));
 			A.Check(OneOf(T.Status, {TEXT("open"), TEXT("won"), TEXT("lost"), TEXT("refunded")}), W + TEXT(" has an unknown status"));
@@ -361,16 +491,11 @@ namespace HRSave
 			Error = FString::Printf(TEXT("the save is %d characters, more than %d"), Json.Len(), MaxJsonChars);
 			return false;
 		}
+		if (!ScanJsonTokens(Json, Error)) return false;
 		TSharedPtr<FJsonObject> Root;
 		if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid())
 		{
 			Error = TEXT("not a JSON object");
-			return false;
-		}
-		const FString Repeated = DuplicateKey(Json);
-		if (!Repeated.IsEmpty())
-		{
-			Error = FString::Printf(TEXT("the key \"%s\" appears twice in one object"), *Repeated.Left(64));
 			return false;
 		}
 		// Fields a world of these rules always has (JSON keys compare case-insensitively).
@@ -383,6 +508,7 @@ namespace HRSave
 				return false;
 			}
 		}
+		if (!StrictJsonStruct(FHRWorldState::StaticStruct(), Root, FString(), Error)) return false;
 		FHRWorldState Parsed;
 		if (!FJsonObjectConverter::JsonObjectToUStruct(Root.ToSharedRef(), &Parsed, 0, 0))
 		{
@@ -391,6 +517,8 @@ namespace HRSave
 		}
 		Error = Validate(Parsed);
 		if (!Error.IsEmpty()) return false;
+		HRVisual::FillMissingLoci(Parsed);
+		HRBreeds::FillMissing(Parsed);
 		Out = MoveTemp(Parsed);
 		return true;
 	}

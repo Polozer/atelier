@@ -1225,13 +1225,13 @@ namespace HRRules
 	int32 DailyUpkeep(const FHRWorldState& S, const FHRStable& St)
 	{
 		if (St.bForSale) return 0;
-		int32 Cost = UpkeepBase;
+		int64 Cost = UpkeepBase;
 		for (const FHRHorse* H : StableHorses(S, St.Id))
 		{
 			if (H->Placement == TEXT("archive")) continue;
 			Cost += H->IsRetired() ? UpkeepRetired : H->ReadyT > S.T ? UpkeepFoal : UpkeepRacing;
 		}
-		return Cost + RiderWages(S, St.Id);
+		return (int32)FMath::Clamp<int64>(Cost + RiderWages(S, St.Id), 0, MaxCoins);
 	}
 
 	int32 BreedingFee(const FHRHorse& H)

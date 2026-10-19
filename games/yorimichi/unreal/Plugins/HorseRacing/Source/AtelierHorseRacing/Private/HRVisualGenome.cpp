@@ -167,7 +167,8 @@ namespace HRVisual
 
 	uint32 Draw(const FString& Seed, const FString& Tag, uint32 Max)
 	{
-		check(Max >= 1);
+		if (Max < 1)
+			UE_LOG(LogTemp, Fatal, TEXT("HorseRacing visual draw requires Max >= 1"));
 		uint32 H = Fnv(Seed + TEXT(":visual-v1:") + Tag, true);
 		// Avalanche before reducing short strings to prevent neighbouring founder correlations.
 		H ^= H >> 16;
