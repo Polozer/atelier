@@ -26,6 +26,8 @@ selected no job. It reports available and required MiB, request ceiling, host re
 growth, deficit and sample age. After two seconds, or a change to active queue/holder context or policy,
 the display becomes unknown until another offer refreshes it. Dormant retry history is not an active
 queue member. Status reads do not take new VM samples or validate holder guards for this display.
+An optional absolute pressure expiry reaches the board, which schedules local invalidation between polls;
+expired or unbound pressure text becomes unknown, and rendered sample age advances with the board clock.
 The waiting client's normal 25-second progress line carries the same reason when supported; older
 brokers retain generic queue text. A queued job stays labelled queued. Advisory eligibility never
 replaces the independently fresh guarded-start proof or changes fairness, resources or deadlines.

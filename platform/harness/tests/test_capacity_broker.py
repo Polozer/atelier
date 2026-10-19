@@ -1172,6 +1172,7 @@ def test_queue_status_explains_a_sole_pressure_deficit_without_resampling(broker
     assert '17510 MiB available, 18432 MiB required' in row['wait_reason']
     assert '14336 request + 4096 host reserve + 0 remaining peer growth' in row['wait_reason']
     assert 'sample age' in row['wait_reason'] and 'selected' not in row['wait_reason']
+    assert report['observed_at'] <= row['pressure_expires_at'] <= report['observed_at'] + 2
     assert row['wait_reason'].split('; sample age')[0] in str(caught.value)
     assert row['state'] == 'queued' and report['charged_count'] == 0 and not broker._gates
     admission.close()
@@ -1201,6 +1202,7 @@ def test_queue_status_never_reuses_stale_or_changed_context(broker, monkeypatch,
         report = broker._status(state)
         row = next(row for row in report['records'] if row['id'] == 'leaf')
         assert 'required' not in row['wait_reason'] and 'eligible' not in row['wait_reason']
+        assert row['pressure_expires_at'] is None
         assert 'fresh pressure' in row['wait_reason'] or change == 'holder'
     admission.close()
 

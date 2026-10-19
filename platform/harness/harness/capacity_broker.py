@@ -859,6 +859,8 @@ class CapacityBroker:
         pressure observation, including evaluations with no selected offer, no older than two seconds,
         with unchanged queued/held context and epoch.
         Stale or changed context MUST be reported as unknown, never selected or available.
+        Pressure claims MUST carry an expiry bounded by that observation; display consumers MUST
+        invalidate expired claims locally without waiting for their next broker poll.
         Status MUST NOT sample memory, validate guards or mutate holder health for this display.
         Displayed eligibility MUST NOT certify a guarded start or change admission/fairness.
         """
@@ -893,6 +895,9 @@ class CapacityBroker:
                         locks=request['locks'], first_ready=record['first_ready'], sequence=record['sequence'],
                         bypasses=record['bypasses'], retained=history.count(record, 'roster'),
                         witnessed=history.count(record, 'exited'), wait_reason=reason,
+                        pressure_expires_at=(result['observed_at'] + 2 - age
+                                             if record['state'] == 'queued' and snapshot and not blockers
+                                             and not result['recovering'] else None),
                         measured_memory_mib=record.get('measured_memory_mib'),
                         measured_at=record.get('measured_at'), ancestry_unknown=record.get('ancestry_unknown', False))
             result['records'].append(item)

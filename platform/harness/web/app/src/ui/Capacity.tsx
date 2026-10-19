@@ -21,6 +21,13 @@ const dimensions: {key: keyof Vector; label: string; format: (n: number) => stri
 function Reservation({job, now, fresh}: {job: Job; now: number; fresh: boolean}) {
   const measured = fresh && job.measured_at != null && now - job.measured_at >= 0 && now - job.measured_at < 10;
   const uncertain = job.state === 'uncertain';
+  const pressureClaim = job.pressure_expires_at != null || /MiB available|advisory offer/.test(job.wait_reason);
+  const pressureFresh = fresh && job.pressure_expires_at != null
+    && now >= job.pressure_expires_at - 2 && now < job.pressure_expires_at;
+  const reason = job.state === 'queued' && pressureClaim
+    ? pressureFresh ? job.wait_reason.replace(/sample age [\d.]+s$/, `sample age ${(now - (job.pressure_expires_at! - 2)).toFixed(1)}s`)
+      : 'Waiting for a fresh pressure eligibility observation; memory availability is unknown.'
+    : job.wait_reason;
   return (
     <article className={`capacity-job${uncertain ? ' uncertain' : ''}`}>
       <div className="capacity-job-head"><strong>{job.purpose || job.id}</strong>
@@ -35,7 +42,7 @@ function Reservation({job, now, fresh}: {job: Job; now: number; fresh: boolean})
         {gib(job.resources.gpu_mib)} GPU {job.charged ? 'reserved' : 'requested'}</p>
       {job.locks.length > 0 && <p className="capacity-locks">Locks {job.charged ? 'held' : 'required'}: {job.locks.map((lock, i) => <code key={i}>{lock}</code>)}</p>}
       {uncertain ? <p className="capacity-reason">Exit verification is incomplete. Resources and locks are still held.</p>
-        : job.wait_reason && <p className="capacity-reason">{job.wait_reason}</p>}
+        : reason && <p className="capacity-reason">{reason}</p>}
       {job.ancestry_unknown && <p className="capacity-reason">Some helper exits still need verification.</p>}
     </article>
   );
@@ -57,6 +64,13 @@ export function Capacity({status, connected, bridge, serverTime}: {status?: Stat
   const now = (anchor.current.sampledAt ?? Date.now() / 1000) + (performance.now() - anchor.current.received) / 1000;
   useEffect(() => { const timer = setInterval(() => tick((n) => n + 1), 3000); return () => clearInterval(timer); }, []);
   const snapshot = status?.snapshot;
+  useEffect(() => {
+    const expiries = snapshot?.records.map((job) => job.pressure_expires_at)
+      .filter((expiry): expiry is number => expiry != null && expiry > now) ?? [];
+    if (!expiries.length) return;
+    const timer = setTimeout(() => tick((n) => n + 1), Math.ceil((Math.min(...expiries) - now) * 1000));
+    return () => clearTimeout(timer);
+  }, [snapshot, now]);
   const fresh = Boolean(connected && status?.fresh && snapshot && now - snapshot.observed_at >= 0 && now - snapshot.observed_at < 10);
   const legacy = status?.configuration === 'legacy';
   const full = snapshot?.mode === 'capacity' && snapshot.cutover;

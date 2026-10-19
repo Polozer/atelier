@@ -908,6 +908,13 @@
         "wait_reason": {
           "type": "string"
         },
+        "pressure_expires_at": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
         "measured_memory_mib": {
           "type": [
             "integer",

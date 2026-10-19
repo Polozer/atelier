@@ -362,6 +362,7 @@ bypasses: number
 retained: number
 witnessed: number
 wait_reason: string
+pressure_expires_at?: (number | null)
 measured_memory_mib?: (number | null)
 measured_at?: (number | null)
 ancestry_unknown: boolean

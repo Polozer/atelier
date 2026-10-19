@@ -207,6 +207,8 @@ fn decode(data: &[u8], now: f64) -> Result<CapacitySnapshot, ()> {
             || job.first_ready < 0.0
             || job.locks.len() > 32
             || job.measured_at.is_some_and(|time| !time.is_finite() || time < 0.0)
+            || job.pressure_expires_at.is_some_and(|time| !time.is_finite()
+                || time < snapshot.observed_at || time > snapshot.observed_at + 2.0)
         {
             return Err(());
         }
@@ -379,6 +381,18 @@ mod tests {
         assert_eq!(snapshot.records[0].checkout.as_deref(), Some("tree"));
         assert_eq!(snapshot.records[0].locks, ["checkout:tree", "gpu"]);
         assert_eq!(snapshot.records[0].measured_memory_mib, None);
+    }
+
+    #[test]
+    fn pressure_expiry_is_optional_and_bounded_by_the_broker_snapshot() {
+        let mut value = sample(1000.);
+        assert!(decode(&frame(&value), 1001.).unwrap().records[0].pressure_expires_at.is_none());
+        value["records"][0]["pressure_expires_at"] = json!(1001.9);
+        assert_eq!(decode(&frame(&value), 1001.).unwrap().records[0].pressure_expires_at, Some(1001.9));
+        for expiry in [999.9, 1002.1] {
+            value["records"][0]["pressure_expires_at"] = json!(expiry);
+            assert!(decode(&frame(&value), 1001.).is_err());
+        }
     }
 
     #[test]

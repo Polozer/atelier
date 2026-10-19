@@ -122,8 +122,41 @@ test('stale, disconnected and missing observations never claim current admission
 
 test('a pressure-refused job stays queued and displays its arithmetic', () => {
   const reason = 'waiting for memory: 17510 MiB available, 18432 MiB required; deficit 922 MiB; sample age 0.1s';
-  const html = render(snapshot({waiting_count: 1, records: [job({state: 'queued', charged: false, wait_reason: reason})]}));
+  const html = render(snapshot({waiting_count: 1, records: [job({state: 'queued', charged: false, wait_reason: reason, pressure_expires_at: 101.9})]}));
   assert.match(html, /capacity-tag">queued</);
   assert.doesNotMatch(html, /capacity-tag">ready</);
   assert.match(html, /17510 MiB available, 18432 MiB required; deficit 922 MiB; sample age 0.1s/);
+});
+
+test('pressure text expires locally before the next board poll', () => {
+  const value = snapshot({waiting_count: 1, records: [job({state: 'queued', charged: false,
+    wait_reason: 'advisory offer eligible; 17510 MiB available; sample age 1.9s', pressure_expires_at: 100.1})]});
+  assert.match(render(value), /17510 MiB available; sample age 1.9s/);
+  const expired = render(value, {serverTime: 100.2});
+  assert.match(expired, /memory availability is unknown/);
+  assert.doesNotMatch(expired, /17510 MiB available|advisory offer eligible/);
+  const missing = render(snapshot({records: [job({state: 'queued', charged: false,
+    wait_reason: 'selected advisory offer; 17510 MiB available'})]}));
+  assert.match(missing, /memory availability is unknown/);
+  assert.doesNotMatch(missing, /17510 MiB available|selected advisory offer/);
+});
+
+test('the real component schedules expiry within the remaining tenth of a second', () => {
+  const effects = []; let ticks = 0;
+  const require = createRequire(import.meta.url);
+  const react = require('react');
+  const local = {exports: {}};
+  new Function('require', 'module', 'exports', outputFiles[0].text)((name) => name === 'react'
+    ? {...react, useEffect: (effect) => effects.push(effect), useRef: (value) => ({current: value}),
+      useState: () => [0, () => ticks++]} : require(name), local, local.exports);
+  local.exports.Capacity({connected: true, bridge: false, serverTime: 100,
+    status: {fresh: true, snapshot: snapshot({records: [job({state: 'queued', pressure_expires_at: 100.1})]})}});
+  const previous = globalThis.setTimeout; let callback, delay;
+  try {
+    globalThis.setTimeout = (fn, millis) => { callback = fn; delay = millis; return 1; };
+    effects.at(-1)();
+  } finally { globalThis.setTimeout = previous; }
+  assert.ok(delay > 0 && delay <= 101);
+  callback();
+  assert.equal(ticks, 1);
 });
