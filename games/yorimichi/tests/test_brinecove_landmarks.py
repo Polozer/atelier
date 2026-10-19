@@ -20,14 +20,23 @@ def test_stair_never_dips_below_the_ground():
         assert z >= L.ground(x, y) - 0.05, (x, y, z)
 
 
-def test_stair_joins_the_terrace_and_the_hamlet_shelf():
+def test_stair_runs_from_the_terrace_street_to_a_hamlet_hut():
     route = LM.stair_route()
     x, y, z = route[0]
+    assert L.on_street(x, y, 0.0)
     assert abs(z - L.UPPER_Z) <= 0.5
+    # The last step lands on the hut's stone foundation (modules.upper_town: lot ground + 0.4), beside the hut.
+    key, hx, hy, _, w, d, h, floors, style, yaw, roof = next(
+        s for s in L.HILLSIDE_BUILDINGS if s[0] == LM.HAMLET_HUT)
     x, y, z = route[-1]
-    assert abs(z - L.ground(x, y)) <= 0.6
-    # The plaza is on the shelf the hamlet stands on.
-    assert y > max(h[2] for h in L.HILLSIDE_BUILDINGS) - 20.0
+    lx, ly = L.local_point(x, y, hx, hy, -yaw)
+    assert abs(lx) <= w / 2 + 2.0 and abs(ly) <= d / 2 + 2.0
+    assert abs(z - (L.ground(hx, hy) + 0.4)) <= 0.3
+
+
+def test_the_hamlet_path_and_walk_are_kept_clear_of_planting():
+    for x, y, _ in LM.stair_route():
+        assert LM.footprint(x, y, 0.0), (x, y)
 
 
 def test_stair_treads_are_deep_enough_and_landings_flat():
@@ -63,3 +72,22 @@ def test_cannon_is_about_three_metres_long_and_stands_on_its_trucks():
     xs, ys, zs = zip(*b.verts)
     assert 2.9 <= max(xs) - min(xs) <= 3.5   # yaw 90 turns the barrel onto x
     assert min(zs) >= 5.0 - 0.05
+
+
+def test_cannon_barrel_shades_round_with_outward_unit_normals():
+    b = Builder('c')
+    LM.cannon(b, 3.0, -2.0, 4.0, 37.0)
+    smooth = 0
+    for f in b.faces:
+        normals = [b.normals[i] for i in f] if b.normals else [None]
+        if normals[0] is None:
+            continue
+        smooth += 1
+        p = [b.verts[i] for i in f]
+        e1 = [p[1][k] - p[0][k] for k in range(3)]
+        e2 = [p[2][k] - p[0][k] for k in range(3)]
+        face = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+        for n in normals:
+            assert abs(sum(c * c for c in n) - 1.0) < 1e-6
+            assert sum(face[k] * n[k] for k in range(3)) > 0.0
+    assert smooth >= 20 * 30  # the barrel is a 20-sided lathe of about thirty bands

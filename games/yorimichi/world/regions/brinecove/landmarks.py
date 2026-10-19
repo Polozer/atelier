@@ -44,32 +44,59 @@ def _ground_range(x0, x1, y0, y1, step=1.5):
     return min(zs), max(zs)
 
 
-def _lathe(b, origin, d, profile, sides=12):
+def _lathe(b, origin, d, profile, sides=16, crease=35.0):
     """A surface of revolution about origin + s*d. profile is [(s, r, mat)]; each mat colours the band from the
-    previous point. Cylindrical UVs in metres keep the iron texture continuous round the barrel."""
+    previous point. Cylindrical UVs in metres keep the iron texture continuous round the barrel. Normals are smooth
+    round the axis, and smooth along it too where neighbouring bands meet at less than crease degrees, so the
+    barrel shades round while ring edges and the muzzle face stay crisp."""
     up = (0.0, 0.0, 1.0) if abs(d[2]) < 0.94 else (0.0, 1.0, 0.0)
     u = _unit(_cross(d, up))
     v = _unit(_cross(d, u))
+    radial = [tuple(u[k] * math.cos(TAU * i / sides) + v[k] * math.sin(TAU * i / sides) for k in range(3))
+              for i in range(sides + 1)]
 
     def ring(s, r):
         c = [origin[k] + d[k] * s for k in range(3)]
-        return [tuple(c[k] + (u[k] * math.cos(TAU * i / sides) + v[k] * math.sin(TAU * i / sides)) * r
-                      for k in range(3)) for i in range(sides + 1)]
+        return [tuple(c[k] + rad[k] * r for k in range(3)) for rad in radial]
+
+    # Each band's profile normal as (along the axis, outward), and the shared normal at each joint.
+    bands = [None]
+    for i in range(1, len(profile)):
+        ds, dr = profile[i][0] - profile[i - 1][0], profile[i][1] - profile[i - 1][1]
+        n = math.hypot(ds, dr) or 1.0
+        bands.append((-dr / n, ds / n))
+    cos_crease = math.cos(math.radians(crease))
+
+    def joint(i, own):
+        """The profile normal at point i for the band own, blended with the other band there unless creased."""
+        other = i + 1 if own == i else i
+        if other < 1 or other >= len(profile):
+            return bands[own]
+        a, c = bands[own], bands[other]
+        if a[0] * c[0] + a[1] * c[1] < cos_crease:
+            return a
+        n = math.hypot(a[0] + c[0], a[1] + c[1]) or 1.0
+        return ((a[0] + c[0]) / n, (a[1] + c[1]) / n)
+
+    def normal(pn, k):
+        return tuple(d[j] * pn[0] + radial[k][j] * pn[1] for j in range(3))
 
     rings = [ring(s, r) for s, r, _ in profile]
     for i in range(1, len(profile)):
         (s0, r0, _), (s1, r1, mat) = profile[i - 1], profile[i]
         circ = TAU * max(0.05, (r0 + r1) / 2)
+        n0, n1 = joint(i - 1, i), joint(i, i)
         for k in range(sides):
             a, bb, c, dd = rings[i - 1][k], rings[i - 1][k + 1], rings[i][k + 1], rings[i][k]
             u0, u1 = circ * k / sides, circ * (k + 1) / sides
             va, vb = s0 + r0 * 0.3, s1 + r1 * 0.3
+            na, nb, nc, nd = normal(n0, k), normal(n0, k + 1), normal(n1, k + 1), normal(n1, k)
             if r0 < 1e-6:
-                b.face((a, c, dd), mat, [(u0, va), (u1, vb), (u0, vb)])
+                b.face((a, c, dd), mat, [(u0, va), (u1, vb), (u0, vb)], [na, nc, nd])
             elif r1 < 1e-6:
-                b.face((a, bb, c), mat, [(u0, va), (u1, va), (u1, vb)])
+                b.face((a, bb, c), mat, [(u0, va), (u1, va), (u1, vb)], [na, nb, nc])
             else:
-                b.face((a, bb, c, dd), mat, [(u0, va), (u1, va), (u1, vb), (u0, vb)])
+                b.face((a, bb, c, dd), mat, [(u0, va), (u1, va), (u1, vb), (u0, vb)], [na, nb, nc, nd])
 
 
 def _unit(v):
@@ -82,12 +109,15 @@ def _cross(a, c):
 
 
 def _place(b, start, x, y, z, yaw, scale):
-    """Turn, scale and move every vertex added since start (built about the origin)."""
+    """Turn, scale and move every vertex (and custom normal) added since start (built about the origin)."""
     a = math.radians(yaw)
     c, s = math.cos(a), math.sin(a)
     for i in range(start, len(b.verts)):
         vx, vy, vz = b.verts[i]
         b.verts[i] = (x + (vx * c - vy * s) * scale, y + (vx * s + vy * c) * scale, z + vz * scale)
+        if b.normals is not None and b.normals[i] is not None:
+            nx, ny, nz = b.normals[i]
+            b.normals[i] = (nx * c - ny * s, nx * s + ny * c, nz)
 
 
 def _pennant(b, top, length, height, mat, waves=3):
@@ -129,7 +159,7 @@ def cannon(b, x, y, z, yaw=0.0, scale=1.0):
             (1.52, 0.255, iron), (1.52, 0.28, iron), (1.58, 0.28, iron), (1.58, 0.225, iron), (2.30, 0.20, iron),
             (2.36, 0.185, iron), (2.40, 0.205, iron), (2.46, 0.205, iron), (2.52, 0.24, iron), (2.62, 0.265, iron),
             (2.68, 0.265, iron), (2.68, 0.14, iron), (2.40, 0.14, bore), (2.40, 0.0, bore)]
-    _lathe(b, origin, d, [(s * k, r * k, m) for s, r, m in prof], sides=14)
+    _lathe(b, origin, d, [(s * k, r * k, m) for s, r, m in prof], sides=20)
     # Trunnions, cap squares and their bolts.
     for side in (-1, 1):
         b.cylinder((side * 0.25, ty, tz), (side * 0.58, ty, tz), 0.10, iron, 10)
@@ -543,13 +573,10 @@ def fort_triangles():
 # --- the shipyard ----------------------------------------------------------------------------------------------
 
 SLIP_X = 352.0
+SLIP_NOTCH = (SLIP_X - 5.2, SLIP_X + 5.2)   # the opening the slip cuts through the quay wall (modules.harbor)
 KEEL_Y0, KEEL_Y1 = 66.0, 100.0   # sternpost and stem foot; the stern faces the water
 QUAY_TOP = 4.745                 # the harbour promenade paving's top (modules.harbor)
-WATER_FACE = L.QUAY_Y - 2.1      # the quay wall's seaward face
-
-
-def _floor(x, y):
-    return QUAY_TOP if 62.5 <= y <= 107.0 else L.ground(x, y) + 0.16
+SLIP_HEAD, SLIP_FOOT = (65.0, QUAY_TOP), (22.0, -2.9)   # the stone slip's (y, top z) at the quay and in the sea
 
 
 def _keel_z(y):
@@ -557,36 +584,64 @@ def _keel_z(y):
     return QUAY_TOP + 1.3 + 0.6 * (y - KEEL_Y0) / (KEEL_Y1 - KEEL_Y0)
 
 
-HULL_B, HULL_D = 4.9, 7.2
-SECTION = ((0.10, 0.0), (0.45, 0.06), (0.78, 0.18), (0.95, 0.34), (1.0, 0.52), (0.98, 0.70), (0.93, 0.86),
-           (0.88, 1.0))
+def _slip_z(y):
+    (y0, z0), (y1, z1) = SLIP_HEAD, SLIP_FOOT
+    return z0 + (z1 - z0) * (y0 - y) / (y0 - y1)
+
+
+HULL_B, HULL_D = 4.9, 6.8
+HULL_MID, HULL_HALF = 83.0, 17.0
+SECTION_N = 8
+
+
+def _breadth(y):
+    """Half-breadth at the turn of the bilge: full amidships, fining to the stem and to a narrow transom."""
+    t = (y - HULL_MID) / HULL_HALF
+    if t >= 0:
+        return HULL_B * max(0.0, 1.0 - min(1.0, t) ** 2.2) ** 0.65
+    return HULL_B * max(0.0, 1.0 - 0.82 * min(1.0, -t) ** 2.6) ** 0.7
+
+
+def _sheer(y):
+    """Height of the sheer above the keel, rising toward both ends."""
+    t = (y - HULL_MID) / HULL_HALF
+    return HULL_D + (2.4 if t > 0 else 3.0) * t * t
 
 
 def _station(y):
-    """Section points (x offset, z) of the hull at y, fining toward the stem and less so toward the transom."""
-    t = (y - 84.0) / 18.0
-    breadth = HULL_B * math.sqrt(max(0.0, 1.0 - t * t)) if t > 0 else HULL_B * math.sqrt(max(0.0, 1.0 - 0.75 * t * t))
-    sheer = HULL_D + 1.1 * t * t
-    fine = abs(t) ** 2
+    """Section points (half-breadth, z) from the keel up to the sheer: a round bilge with tumblehome amidships,
+    turning into a V toward the ends."""
+    t = (y - HULL_MID) / HULL_HALF
+    fine = min(1.0, abs(t)) ** 1.6
+    top = math.pi / 2 + 0.32
     pts = []
-    for fx, fz in SECTION:
-        fz = fz + (1.0 - fz) * 0.3 * fine * (1.0 - fz)
-        pts.append((fx * breadth, _keel_z(y) + fz * sheer))
+    for i in range(SECTION_N):
+        u = i / (SECTION_N - 1)
+        a = 0.08 + (top - 0.08) * u
+        rx, rz = math.sin(a), (1.0 - math.cos(a)) / (1.0 - math.cos(top))
+        vx, vz = 0.12 + 0.86 * u ** 0.8, u
+        fx, fz = rx + (vx - rx) * fine, rz + (vz - rz) * fine
+        pts.append((fx * _breadth(y), _keel_z(y) + fz * _sheer(y)))
     return pts
 
 
 def _stem(u):
-    """The stem curve, u from the keel (0) to the head (1)."""
-    return KEEL_Y1 + 4.4 * u * u, _keel_z(KEEL_Y1) + 0.2 + (HULL_D + 2.4) * u
+    """The stem curve, u from the keel (0) to the head (1): up and raking forward."""
+    return KEEL_Y1 + 5.2 * u ** 1.8, _keel_z(KEEL_Y1) + 0.2 + (_sheer(KEEL_Y1) + 1.8) * u
+
+
+def _sternpost(u):
+    return KEEL_Y0 - 2.4 * u, _keel_z(KEEL_Y0) + 0.3 + (_sheer(KEEL_Y0) + 0.9) * u
 
 
 def shipyard(b):
-    """The slip after shipyard.jpg: a half-built hull (keel, stem, sternpost, bent ribs, ribbands, lower strakes)
-    on keel blocks and a launching cradle, two ground ways running off the quay and down a piled ramp into the sea,
-    scaffold decks with rails and ladders on both sides, a shear-leg crane with its tackle and a slung timber, and
+    """The slip after shipyard.jpg: a half-built hull (keel, a stem curving up and forward, a raked sternpost, arched
+    ribs that narrow toward both ends under a rising sheer, ribbands and lower strakes) on keel blocks and a
+    launching cradle; ground ways running off the quay down a stone slip through a notch in the quay wall and into
+    the sea; light scaffold decks with rails and ladders; a shear-leg crane with its tackle and a slung timber; and
     the yard's stacks, bench, barrels and shed."""
     x = SLIP_X
-    frames = [67.2 + k * 2.6 for k in range(13)]
+    frames = [67.0 + k * 2.26 for k in range(15)]
     _slipway(b, x)
     _hull(b, x, frames)
     _cradle(b, x, frames)
@@ -597,93 +652,97 @@ def shipyard(b):
 
 
 def _slipway(b, x):
-    # Sleepers and the two ground ways along the quay.
-    for k in range(15):
+    """Sleepers and two ground ways on the quay, then a stone slip filling the quay wall's notch and running down
+    below the waterline with the ways and their sleepers on it."""
+    for k in range(14):
         yy = 105.0 - k * 3.0
         b.box((x, yy, QUAY_TOP + 0.12), (7.6, 0.5, 0.26), 'wood_dark')
+    (yh, zh), (yf, zf) = SLIP_HEAD, SLIP_FOOT
+    n0, n1 = SLIP_NOTCH
+    _block(b, [(n0, yf, -5.5), (n1, yf, -5.5), (n1, yh, -5.5), (n0, yh, -5.5)],
+           [(n0, yf, zf), (n1, yf, zf), (n1, yh, zh), (n0, yh, zh)], 'stone')
+    # Dressed kerbs along the slip's edges and a worn centre strip of wet stone.
+    for side in (-1, 1):
+        ex = x + side * 4.9
+        b.beam((ex, yh, zh + 0.05), (ex, yf, zf + 0.05), 0.6, 'stone_light', depth=0.3)
+    b.beam((x, yh - 0.5, zh - 0.02), (x, yf, zf - 0.02), 3.4, 'stone_dark', depth=0.1)
     for side in (-1, 1):
         rx = x + side * 2.6
-        b.box((rx, (106.5 + WATER_FACE) / 2, QUAY_TOP + 0.42), (0.55, 106.5 - WATER_FACE, 0.36), 'wood')
-    # The ramp: a plank deck on pile bents from the quay face down past the waterline.
-    y1, z1 = WATER_FACE, QUAY_TOP + 0.24
-    y2, z2 = 24.0, -2.0
-    _block(b, [(x - 4.5, y2, z2 - 0.35), (x + 4.5, y2, z2 - 0.35), (x + 4.5, y1, z1 - 0.35), (x - 4.5, y1, z1 - 0.35)],
-           [(x - 4.5, y2, z2), (x + 4.5, y2, z2), (x + 4.5, y1, z1), (x - 4.5, y1, z1)], 'wood_light')
-    for side in (-1, 1):
-        rx = x + side * 2.6
-        b.beam((rx, y1 + 0.3, z1 + 0.17), (rx, y2, z2 + 0.17), 0.55, 'wood', depth=0.36)
-        b.beam((x + side * 4.6, y1, z1 + 0.15), (x + side * 4.6, y2, z2 + 0.15), 0.3, 'wood_dark')
-    for k in range(6):
-        t = (k + 0.5) / 6
-        yy, zz = y1 + (y2 - y1) * t, z1 + (z2 - z1) * t
-        bed = L.ground(x, yy) - 1.0
-        b.beam((x - 4.4, yy, zz - 0.45), (x + 4.4, yy, zz - 0.45), 0.4, 'wood_dark')
-        for side in (-1, 0, 1):
-            b.cylinder((x + side * 4.0, yy, bed), (x + side * 4.0, yy, zz - 0.3), 0.3, 'wood_dark', 7)
-        b.beam((x - 4.0, yy, bed + 1.0), (x + 4.0, yy, zz - 0.7), 0.18, 'wood')
-    # A launching stop and two bollards at the quay edge.
-    b.box((x, y1 + 0.6, QUAY_TOP + 0.9), (6.4, 0.5, 0.5), 'wood_dark')
-    for side in (-1, 1):
-        b.cylinder((x + side * 6.2, y1 + 1.4, QUAY_TOP), (x + side * 6.2, y1 + 1.4, QUAY_TOP + 0.9), 0.35, 'metal', 8)
+        b.box((rx, (106.5 + yh) / 2, QUAY_TOP + 0.42), (0.55, 106.5 - yh, 0.36), 'wood')
+        b.beam((rx, yh, QUAY_TOP + 0.42), (rx, yf + 1.0, _slip_z(yf + 1.0) + 0.42), 0.55, 'wood', depth=0.36)
+    for k in range(12):
+        yy = yh - 1.5 - k * 3.4
+        b.box((x, yy, _slip_z(yy) + 0.1), (7.4, 0.5, 0.26), 'wood_dark')
 
 
 def _hull(b, x, frames):
     zk = _keel_z
-    # Keel, keelson, stem and raked sternpost.
-    b.beam((x, KEEL_Y0 - 0.6, zk(KEEL_Y0) + 0.38), (x, KEEL_Y1 + 0.3, zk(KEEL_Y1) + 0.38), 0.55, 'wood_dark',
+    # Keel, keelson, the curved stem and the raked sternpost.
+    b.beam((x, KEEL_Y0 - 0.4, zk(KEEL_Y0) + 0.38), (x, KEEL_Y1 + 0.3, zk(KEEL_Y1) + 0.38), 0.55, 'wood_dark',
            depth=0.76)
-    b.beam((x, KEEL_Y0 + 0.5, zk(KEEL_Y0) + 0.95), (x, KEEL_Y1 - 1.0, zk(KEEL_Y1) + 0.95), 0.4, 'wood', depth=0.36)
-    prev = _stem(0.0)
-    for k in range(1, 9):
-        cur = _stem(k / 8)
-        b.beam((x, prev[0], prev[1]), (x, cur[0], cur[1]), 0.5, 'wood_dark', depth=0.6)
-        prev = cur
-    b.beam((x, KEEL_Y0, zk(KEEL_Y0) + 0.4), (x, KEEL_Y0 - 1.8, zk(KEEL_Y0) + HULL_D + 2.0), 0.55, 'wood_dark')
-    # Transom framing across the stern.
-    st = _station(KEEL_Y0 + 0.4)
-    for i in (2, 4, 6, 7):
-        sx, sz = st[i]
-        yy = KEEL_Y0 + 0.4 - 1.8 * (sz - zk(KEEL_Y0)) / (HULL_D + 2.0)
-        b.beam((x - sx, yy, sz), (x + sx, yy, sz), 0.3, 'wood_dark')
-    # Ribs: each frame a bent chain of timbers up both sides, a floor across the keel and heads above the sheer.
+    b.beam((x, KEEL_Y0 + 0.8, zk(KEEL_Y0) + 0.95), (x, KEEL_Y1 - 1.0, zk(KEEL_Y1) + 0.95), 0.4, 'wood', depth=0.36)
+    for curve in (_stem, _sternpost):
+        prev = curve(0.0)
+        for k in range(1, 10):
+            cur = curve(k / 9)
+            b.beam((x, prev[0], prev[1]), (x, cur[0], cur[1]), 0.5, 'wood_dark', depth=0.6)
+            prev = cur
+    # Transom beams across the sternpost.
+    for f in (0.35, 0.6, 0.85, 1.0):
+        sy, sz = _sternpost(f)
+        half = _breadth(KEEL_Y0) * (0.6 + 0.5 * f)
+        b.beam((x - half, sy + 0.2, sz), (x + half, sy + 0.2, sz), 0.3, 'wood_dark')
+    # Ribs: each frame a U or V of bent timbers up both sides from a floor across the keel, its head above the sheer.
     sections = [_station(y) for y in frames]
-    for y, pts in zip(frames, sections):
+    for k, (y, pts) in enumerate(zip(frames, sections)):
         for side in (-1, 1):
             chain = [(x + side * px, y, pz) for px, pz in pts]
-            head = (x + side * pts[-1][0] * 0.98, y, pts[-1][1] + 0.6)
+            head = (x + side * pts[-1][0] * 0.96, y, pts[-1][1] + (0.9 if k % 2 else 0.5))
             for a, c in zip(chain, chain[1:] + [head]):
-                b.beam(a, c, 0.3, 'wood', depth=0.34)
-        b.beam((x - pts[1][0], y, pts[1][1] + 0.1), (x + pts[1][0], y, pts[1][1] + 0.1), 0.3, 'wood_dark')
-    # Deck beams on every other frame, the ribbands tying the frames and a sheer clamp along the heads.
-    for y, pts in list(zip(frames, sections))[1:-1:2]:
-        b.beam((x - pts[5][0], y, pts[5][1]), (x + pts[5][0], y, pts[5][1]), 0.28, 'wood_dark')
+                b.beam(a, c, 0.28, 'wood', depth=0.32)
+        b.beam((x - pts[1][0], y, pts[1][1] + 0.12), (x + pts[1][0], y, pts[1][1] + 0.12), 0.3, 'wood_dark')
+    for y, pts in list(zip(frames, sections))[2:-2:2]:
+        b.beam((x - pts[5][0], y, pts[5][1]), (x + pts[5][0], y, pts[5][1]), 0.26, 'wood_dark')
+    # The sheer clamp runs from the sternpost head along the frame heads to the stem, so the hull's profile reads;
+    # one ribband ties the midship frames lower down.
+    stem_top, post_top = _stem(0.82), _sternpost(0.9)
     for side in (-1, 1):
-        for i, mat in ((5, 'wood_light'), (7, 'wood_light')):
-            chain = [(x + side * (pts[i][0] + 0.2), y, pts[i][1]) for y, pts in zip(frames, sections)]
-            for a, c in zip(chain, chain[1:]):
-                b.beam(a, c, 0.18, mat, depth=0.24)
-    # Strakes: the lower third planked full length into the stem, one more strake amidships, each two-sided.
-    stem_pts = []
-    for px, pz in sections[-1]:
-        u = max(0.0, min(1.0, (pz - zk(KEEL_Y1) - 0.2) / (HULL_D + 2.4)))
-        stem_pts.append((0.26, _stem(u)[0], pz))
-    rows = [(i, 0, len(frames)) for i in range(4)] + [(4, 3, 10)]
+        clamp = ([(x + side * 0.3, post_top[0], post_top[1])]
+                 + [(x + side * (pts[-1][0] + 0.18), y, pts[-1][1]) for y, pts in zip(frames, sections)]
+                 + [(x + side * 0.3, stem_top[0], stem_top[1])])
+        for a, c in zip(clamp, clamp[1:]):
+            b.beam(a, c, 0.2, 'wood_light', depth=0.26)
+        band = [(x + side * (pts[5][0] + 0.18), y, pts[5][1]) for y, pts in list(zip(frames, sections))[3:12]]
+        for a, c in zip(band, band[1:]):
+            b.beam(a, c, 0.16, 'wood_light', depth=0.2)
+    # Strakes on the lower hull only, following the frames into the stem and the sternpost; each two-sided.
+    def post_points(pts, curve, base, span):
+        out = []
+        for _, pz in pts:
+            u = max(0.0, min(1.0, (pz - base) / span))
+            out.append((0.26, curve(u)[0], pz))
+        return out
+
+    bow = post_points(sections[-1], _stem, zk(KEEL_Y1) + 0.2, _sheer(KEEL_Y1) + 1.8)
+    stern = post_points(sections[0], _sternpost, zk(KEEL_Y0) + 0.3, _sheer(KEEL_Y0) + 0.9)
+    rows = [(i, 0, len(frames), True) for i in range(3)] + [(3, 3, 12, False)]
     for side in (-1, 1):
-        for i, f0, f1 in rows:
+        for i, f0, f1, ends in rows:
             stations = [(frames[f], sections[f]) for f in range(f0, f1)]
             for (ya, pa), (yb, pb) in zip(stations, stations[1:]):
                 _strake(b, x, side, (pa[i][0], ya, pa[i][1]), (pa[i + 1][0], ya, pa[i + 1][1]),
                         (pb[i][0], yb, pb[i][1]), (pb[i + 1][0], yb, pb[i + 1][1]))
-            if f1 == len(frames):
+            if ends:
                 pa, ya = sections[-1], frames[-1]
-                _strake(b, x, side, (pa[i][0], ya, pa[i][1]), (pa[i + 1][0], ya, pa[i + 1][1]),
-                        (stem_pts[i][0], stem_pts[i][1], stem_pts[i][2]),
-                        (stem_pts[i + 1][0], stem_pts[i + 1][1], stem_pts[i + 1][2]))
+                _strake(b, x, side, (pa[i][0], ya, pa[i][1]), (pa[i + 1][0], ya, pa[i + 1][1]), bow[i], bow[i + 1])
+                pb, yb = sections[0], frames[0]
+                _strake(b, x, side, stern[i], stern[i + 1], (pb[i][0], yb, pb[i][1]),
+                        (pb[i + 1][0], yb, pb[i + 1][1]))
 
 
-def _strake(b, x, side, a0, a1, b0, b1, out=0.18, thick=0.09):
-    """One plank band on the outside of the frames between two stations: outer face hull planking, inner face
-    plain timber so the hull reads from the scaffold too."""
+def _strake(b, x, side, a0, a1, b0, b1, out=0.17, thick=0.09):
+    """One plank band on the outside of the frames between two stations (a then b along +y): outer face hull
+    planking, inner face plain timber so the hull reads from the scaffold too."""
     def p(pt, off):
         px, py, pz = pt
         return (x + side * (px + off), py, pz - off * 0.5 * (1.0 - min(1.0, px / HULL_B)))
@@ -717,16 +776,15 @@ def _cradle(b, x, frames):
     for side in (-1, 1):
         rx = x + side * 2.6
         b.box((rx, (KEEL_Y0 + KEEL_Y1) / 2, QUAY_TOP + 0.75), (0.5, KEEL_Y1 - KEEL_Y0 + 1.0, 0.3), 'wood_dark')
-        for y in frames[::2]:
+        for y in frames[1::2]:
             hz = _hull_z_at(_station(y), 2.6 + 0.25)
             if hz is None:
                 continue
             b.box((rx, y, (QUAY_TOP + 0.9 + hz) / 2), (0.42, 0.42, hz - QUAY_TOP - 0.9), 'wood')
             b.box((rx, y + 0.45, QUAY_TOP + 1.05), (0.46, 0.5, 0.3), 'wood_light', top=0.7)
         # Bilge shores from the quay to the turn of the bilge.
-        for y in frames[1::3]:
-            pts = _station(y)
-            hx, hz = pts[3]
+        for y in frames[2::3]:
+            hx, hz = _station(y)[3]
             b.beam((x + side * (hx + 1.6), y, QUAY_TOP), (x + side * (hx + 0.2), y, hz), 0.24, 'wood_dark')
 
 
@@ -734,35 +792,26 @@ SCAFFOLD_YS = [66.0 + k * 4.25 for k in range(9)]
 
 
 def _scaffold(b, x, side):
-    """A trestle deck along one side of the hull: posts to the quay, ledgers, X-bracing, rails and a ladder. The
-    west deck covers only the bow half so the hull reads from the quay; the east side carries a second, shorter
-    deck by the crane."""
-    xi, xo = x + side * 5.6, x + side * 8.2
-    levels = [(QUAY_TOP + 4.6, SCAFFOLD_YS if side > 0 else SCAFFOLD_YS[4:])]
-    if side > 0:
-        levels.append((QUAY_TOP + 7.8, SCAFFOLD_YS[3:]))
-    for zd, ys in levels:
-        for y in ys:
-            for px in (xi, xo):
-                top = zd + (1.15 if px == xo else 0.0)
-                b.box((px, y, (QUAY_TOP - 0.3 + top) / 2), (0.28, 0.28, top - QUAY_TOP + 0.3), 'wood_dark')
-            b.beam((xi - side * 0.2, y, zd - 0.22), (xo + side * 0.2, y, zd - 0.22), 0.2, 'wood')
+    """A light trestle deck beside the midship frames: posts to the quay, ledgers, a little X-bracing, rails and a
+    ladder. The west deck is shorter so the hull's profile reads from the quay."""
+    xi, xo = x + side * 5.6, x + side * 8.0
+    ys = SCAFFOLD_YS[1:8] if side > 0 else SCAFFOLD_YS[3:7]
+    zd = QUAY_TOP + 4.4
+    for y in ys:
         for px in (xi, xo):
-            b.beam((px, ys[0], zd - 0.4), (px, ys[-1], zd - 0.4), 0.22, 'wood')
-        for j, (ya, yb) in enumerate(zip(ys, ys[1:])):
-            b.box(((xi + xo) / 2, (ya + yb) / 2, zd - 0.06), (abs(xo - xi) + 0.4, yb - ya, 0.13), 'wood_light')
-            if j % 2:
-                continue
-            zb = zd - 4.4 if zd - 4.4 > QUAY_TOP else QUAY_TOP + 0.2
-            b.beam((xo + side * 0.18, ya, zb), (xo + side * 0.18, yb, zd - 0.5), 0.12, 'wood')
-            b.beam((xo + side * 0.18, yb, zb), (xo + side * 0.18, ya, zd - 0.5), 0.12, 'wood')
-        for dz in (0.55, 1.05):
-            b.beam((xo, ys[0], zd + dz), (xo, ys[-1], zd + dz), 0.11, 'wood')
-    # A ladder from the quay to the lower deck at the landward end, and one up to the top deck.
-    _ladder(b, (xo + xi) / 2 + side * 0.4, SCAFFOLD_YS[-1] + 2.0, QUAY_TOP, SCAFFOLD_YS[-1] + 0.2,
-            QUAY_TOP + 4.6 + 1.0)
-    if side > 0:
-        _ladder(b, (xo + xi) / 2, SCAFFOLD_YS[3] + 1.6, QUAY_TOP + 4.6, SCAFFOLD_YS[3] + 0.1, QUAY_TOP + 7.8 + 1.0)
+            top = zd + (1.1 if px == xo else 0.0)
+            b.box((px, y, (QUAY_TOP - 0.3 + top) / 2), (0.24, 0.24, top - QUAY_TOP + 0.3), 'wood_dark')
+        b.beam((xi - side * 0.2, y, zd - 0.22), (xo + side * 0.2, y, zd - 0.22), 0.18, 'wood')
+    for px in (xi, xo):
+        b.beam((px, ys[0], zd - 0.4), (px, ys[-1], zd - 0.4), 0.2, 'wood')
+    for j, (ya, yb) in enumerate(zip(ys, ys[1:])):
+        b.box(((xi + xo) / 2, (ya + yb) / 2, zd - 0.06), (abs(xo - xi) + 0.4, yb - ya, 0.12), 'wood_light')
+        if j % 3 == 0:
+            b.beam((xo + side * 0.16, ya, QUAY_TOP + 0.2), (xo + side * 0.16, yb, zd - 0.5), 0.1, 'wood')
+            b.beam((xo + side * 0.16, yb, QUAY_TOP + 0.2), (xo + side * 0.16, ya, zd - 0.5), 0.1, 'wood')
+    for dz in (0.55, 1.05):
+        b.beam((xo, ys[0], zd + dz), (xo, ys[-1], zd + dz), 0.1, 'wood')
+    _ladder(b, (xo + xi) / 2 + side * 0.4, ys[-1] + 1.8, QUAY_TOP, ys[-1] + 0.2, zd + 1.0)
 
 
 def _ladder(b, x, y0, z0, y1, z1, width=0.6):
@@ -879,6 +928,39 @@ STAIR_W, STAIR_WALL, STAIR_LANDING, STAIR_RUN = 3.4, 0.7, 3.6, 7.0
 STAIR_PITCH = 6.5              # row spacing up the slope
 RISE_MAX, TREAD_MIN = 0.28, 0.45
 PLAZA_Y, PLAZA_D = 524.0, 7.0  # the plaza's north edge, on the hamlet shelf, and its depth
+STREET_Y = 372.0               # the walk starts on the upper terrace street (layout.on_street)
+HAMLET_HUT = 'hill-e1'         # the stilted hut the path from the arch leads to
+HAMLET_WAY = ((16.0, 526.5), (40.0, 519.0), (64.0, 513.0), (80.0, 509.5))  # the path's bends along the shelf
+
+
+def _hut_landing():
+    """(x, y, z) on the hut's stone foundation (modules.upper_town: lot ground + 0.4), beside its first cabin."""
+    key, hx, hy, _, w, d, h, floors, style, yaw, roof = next(s for s in L.HILLSIDE_BUILDINGS if s[0] == HAMLET_HUT)
+    a = math.radians(yaw)
+    lx, ly = -w / 2 - 1.2, -1.0
+    return (hx + lx * math.cos(a) - ly * math.sin(a), hy + lx * math.sin(a) + ly * math.cos(a),
+            L.ground(hx, hy) + 0.4)
+
+
+def _hamlet_path(start, z_start):
+    """Paved slabs every ~1.6 m from the arch along the shelf to the hut: each on the ground under it, no step
+    over a riser, ending on the hut's foundation."""
+    end = _hut_landing()
+    way = [start] + list(HAMLET_WAY) + [end[:2]]
+    pts = []
+    for (ax, ay), (cx, cy) in zip(way, way[1:]):
+        n = max(1, round(math.hypot(cx - ax, cy - ay) / 1.6))
+        pts += [(ax + (cx - ax) * k / n, ay + (cy - ay) * k / n) for k in range(1 if pts else 0, n + 1)]
+    levels = [z_start]
+    for px, py in pts[:-1]:
+        levels.append(max(L.ground(px + dx, py + dy) for dx in (-1.3, 0.0, 1.3) for dy in (-0.8, 0.0, 0.8)) + 0.15)
+    levels.append(end[2])
+    step = RISE_MAX - 0.02
+    for i in range(len(levels) - 2, -1, -1):
+        levels[i] = max(levels[i], levels[i + 1] - step)
+    for i in range(1, len(levels)):
+        levels[i] = max(levels[i], levels[i - 1] - step)
+    return [(px, py, z) for (px, py), z in zip(pts, levels[1:])]
 
 
 @functools.lru_cache(maxsize=None)
@@ -909,7 +991,7 @@ def _stair_plan():
         ys.pop(0)
         need.pop(0)
     walk = []
-    y = 386.0
+    y = STREET_Y
     while y < ys[0] - w / 2 - 1.0:
         walk.append((y, walk_z(y)))
         y += 2.0
@@ -941,11 +1023,12 @@ def _stair_plan():
         flights.append(dict(y=ys[k], z=zs[k], rise=rise, risers=risers, dir=d, x_start=x_start,
                             x_end=xc + d * run / 2))
     return dict(xc=xc, xa=xa + wall, xb=xb - wall, walk=walk, flights=flights, plaza_z=plaza_z,
-                plaza_y0=ys[-1] + w / 2 + wall, plaza_y1=PLAZA_Y)
+                plaza_y0=ys[-1] + w / 2 + wall, plaza_y1=PLAZA_Y, hamlet=_hamlet_path((xc, PLAZA_Y), plaza_z))
 
 
 def stair_route():
-    """The walking line of the hill stair, bottom to top: (x, y, z) on every walk slab, landing and tread."""
+    """The walking line from the terrace street to the hamlet hut, bottom to top: (x, y, z) on every walk slab,
+    landing, tread and path slab."""
     p = _stair_plan()
     pts = [(STAIR_PATH_X, y, z) for y, z in p['walk']]
     f0 = p['flights'][0]
@@ -960,7 +1043,7 @@ def stair_route():
         pts.append((f['x_end'] + f['dir'] * STAIR_LANDING / 2, (f['y'] + nxt) / 2, top))
     pts.append((p['xc'], (p['plaza_y0'] + p['plaza_y1']) / 2, p['plaza_z']))
     pts.append((p['xc'], p['plaza_y1'] - 0.3, p['plaza_z']))
-    return pts
+    return pts + p['hamlet']
 
 
 def hill_stair(b):
@@ -1084,11 +1167,21 @@ def _plaza(b, p, last):
               'stone_light' if k % 2 else 'stone')
     b.box((xc, yy, z + 4.2 + span + 1.1), (2 * (span + pier) + 0.6, 1.4, 0.8), 'stone_light')
     b.box((xc, yy, z + 4.2 + span + 1.6), (2 * (span + pier) + 1.0, 1.6, 0.25), 'stone')
-    # Flagstones carry on through the arch onto the shelf.
-    for k in range(6):
-        fy = y1 + 0.8 + k * 2.2
-        fz = L.ground(xc, fy)
-        b.box((xc + (0.5 if k % 2 else -0.4), fy, fz + 0.05), (2.6, 1.7, 0.3), 'stone')
+    # The paved path through the arch along the shelf to the hut, each slab solid down into the ground.
+    prev = (xc, y1 - 0.2, z)
+    for k, (px, py, pz) in enumerate(p['hamlet']):
+        mx, my = (prev[0] + px) / 2, (prev[1] + py) / 2
+        length = math.hypot(px - prev[0], py - prev[1]) + 0.1
+        yaw = math.degrees(math.atan2(py - prev[1], px - prev[0]))
+        lo = min(L.ground(mx + dx, my + dy) for dx in (-1.4, 0.0, 1.4) for dy in (-1.4, 0.0, 1.4)) - 0.4
+        b.box((mx, my, (pz + lo) / 2), (length, 2.6, pz - lo), 'stone_light' if k % 3 else 'stone', yaw)
+        if k % 6 == 3:
+            for side in (-1, 1):
+                ex = mx - math.sin(math.radians(yaw)) * side * 1.6
+                ey = my + math.cos(math.radians(yaw)) * side * 1.6
+                b.box((ex, ey, (pz + lo) / 2 + 0.1), (0.5, 0.5, pz - lo + 0.2), 'stone', yaw)
+        prev = (px, py, pz)
+    lantern_post(b, prev[0] - 1.6, prev[1] + 1.4, prev[2], 2.8)
 
 
 def stair_triangles():
@@ -1099,11 +1192,18 @@ def stair_triangles():
 
 
 def footprint(x, y, margin=2.0):
-    """True on the hill stair or the fort's forecourt and ramp, for planting masks (trees must not grow through)."""
+    """True on the hill stair, its walk and hamlet path, or the fort's forecourt and ramp, for planting masks
+    (trees must not grow through)."""
     p = _stair_plan()
     f0 = p['flights'][0]
-    if abs(x - STAIR_PATH_X) <= 2.0 + margin and 380.0 <= y <= f0['y'] + STAIR_W / 2:
+    if abs(x - STAIR_PATH_X) <= 2.0 + margin and STREET_Y - 2.0 <= y <= f0['y'] + STAIR_W / 2:
         return True
+    path = [(p['xc'], p['plaza_y1'])] + [q[:2] for q in p['hamlet']]
+    for (ax, ay), (cx, cy) in zip(path, path[1:]):
+        vx, vy = cx - ax, cy - ay
+        t = max(0.0, min(1.0, ((x - ax) * vx + (y - ay) * vy) / (vx * vx + vy * vy or 1.0)))
+        if math.hypot(x - ax - vx * t, y - ay - vy * t) <= 1.6 + margin:
+            return True
     if (p['xa'] - STAIR_WALL - margin <= x <= p['xb'] + STAIR_WALL + margin
             and f0['y'] - STAIR_W / 2 - STAIR_WALL - margin <= y <= p['plaza_y1'] + margin):
         return True

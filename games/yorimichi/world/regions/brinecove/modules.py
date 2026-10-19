@@ -248,15 +248,22 @@ def rock_cluster(b, x, y, z, radius, count, tall=False):
 
 def harbor():
     b = Builder('02_harbor')
+
+    def run(half, y, z, sy, sz, mat):
+        """A quay-long course from -half to half, broken where the shipyard slip cuts through the wall."""
+        n0, n1 = LM.SLIP_NOTCH
+        for x0, x1 in ((-half, n0), (n1, half)):
+            b.box(((x0 + x1) / 2, y, z), (x1 - x0, sy, sz), mat)
+
     # Quay wall and its cap.
-    b.box((0, L.QUAY_Y, 0.35), (780, 4.2, 9.4), 'stone')
-    b.box((0, L.QUAY_Y + 1.9, 4.65), (784, 1.6, 0.45), 'stone_light')
+    run(390, L.QUAY_Y, 0.35, 4.2, 9.4, 'stone')
+    run(392, L.QUAY_Y + 1.9, 4.65, 1.6, 0.45, 'stone_light')
     # The seaward face needs a scale and rhythm of its own: a wet base,
     # horizontal courses and recessed arch-headed doors between the buttresses.
     # Everything on the face stays below the wall's top (0.35 + 9.4 / 2 = 5.05 m).
-    b.box((0, L.QUAY_Y - 2.18, 0.75), (780, 0.35, 1.5), 'stone_dark')
+    run(390, L.QUAY_Y - 2.18, 0.75, 0.35, 1.5, 'stone_dark')
     for zz, mat in ((2.7, 'stone_light'), (3.95, 'stone')):
-        b.box((0, L.QUAY_Y - 2.18, zz), (780, 0.35, 0.28), mat)
+        run(390, L.QUAY_Y - 2.18, zz, 0.35, 0.28, mat)
     for x in range(-342, 343, 76):
         if abs(x) < 22:
             continue
@@ -277,6 +284,8 @@ def harbor():
         b.box((x, L.QUAY_Y - 2.5, 0.4), (5.2, 2.4, 9.0), 'stone_light')
         b.cylinder((x, L.QUAY_Y - 3.9, 1.0), (x, L.QUAY_Y - 3.9, 1.0), 0.65, 'metal', 10)
     for x in range(-360, 361, 90):
+        if x + 6 > LM.SLIP_NOTCH[0] and x - 6 < LM.SLIP_NOTCH[1]:
+            continue
         b.box((x, L.QUAY_Y - 0.2, 5.2), (12, 1.2, 0.6), 'stone_dark')
     # The three piers, with piles down into the water.
     for name, px, y0, y1, width in L.PIERS:
