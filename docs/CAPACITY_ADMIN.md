@@ -201,7 +201,7 @@ Upgraded `guarded.run` clients read the private `~/.cache/atelier/capacity/clien
 `ATELIER_CAPACITY_CLIENT` selects another absolute file. The client file contains `schema: 1`, an absolute `socket`,
 and `profiles` for `job`, `game` and `compile`. Each profile contains a complete `resources` vector and a `locks`
 list. The common launcher always adds its checkout lock. A reservation smaller than the actual guard ceiling
-is refused. In full mode, a game profile covering 10 GiB grows its reservation for a supported 10–14 GiB
+is refused. In full mode, a game profile covering 10 GiB grows its reservation for a supported 10–24 GiB
 per-session ceiling before this check. Other profiles do not grow automatically. CPU reservations must be nonzero. I/O slots are
 optional calibrated scheduling tokens, defaulting to zero: there is no automatic universal I/O charge per job.
 Use a nonzero I/O reservation only for an identified workload whose measured contention warrants a limit.
@@ -264,7 +264,7 @@ Schema 1 bridge configuration remains usable without a reboot and retains exclus
 uses broker configuration `schema: 2`, `mode: "capacity"`, and one additional `cutover` field pointing to the
 machine's default `~/.cache/atelier/capacity/cutover.json`. Its remaining fields match the bridge configuration.
 The client uses `schema: 2` and the same additional `cutover` field alongside `socket` and `profiles`.
-For `atelier play` and `atelier playtest`, an explicit `--memory-gib N` within the documented 10–14 GiB
+For `atelier play` and `atelier playtest`, an explicit `--memory-gib N` within the documented 10–24 GiB
 range raises only that session's memory reservation to at least the selected guard ceiling. The game
 profile must already cover the default 10 GiB ceiling. The default guard and profile, other resources,
 exclusion, named locks and host reserve remain unchanged; the broker still checks whether the request fits.

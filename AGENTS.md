@@ -214,7 +214,7 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   guards unless the user explicitly authorizes an exception for that session. See
   [desktop performance](games/yorimichi/docs/DESKTOP_PERFORMANCE.md) for the launch and readiness contract.
 - Heavy jobs (Unreal, Blender renders) run under the render lock and memory guard (`atelier.harness.safety`). `atelier play`
-  and `atelier build` do this for you. A game's guard stops it above 10 GiB; `atelier play --memory-gib N` (10 to 14)
+  and `atelier build` do this for you. A game's guard stops it above 10 GiB; `atelier play --memory-gib N` (10 to 24)
   raises that for one session that needs it (Quality graphics at 1080p, for example). In full capacity mode,
   admission automatically reserves at least that selected ceiling for this session; the default stays 10 GiB.
   Do not edit machine profiles to use this flag. Retain the command and reason in its evidence.
