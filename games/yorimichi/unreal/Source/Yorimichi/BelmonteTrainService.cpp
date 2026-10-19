@@ -291,10 +291,12 @@ void ABelmonteTrainService::BuildStations(const TSharedPtr<FJsonObject>& Root)
         if (S->TryGetStringField(TEXT("side"), Side)) Station.bLeft = Side != TEXT("r");
         const auto Arrival = S->GetObjectField(TEXT("arrival"));
         Station.Arrival = JsonVector(Arrival->GetArrayField(TEXT("location"))); Station.Yaw = float(Arrival->GetNumberField(TEXT("yaw")));
-        // Extend Hidamari's authored platform; Belmonte has a freestanding platform. Both use their station's side.
+        // Extend Hidamari's authored platform. A freestanding platform only where the terminus has no station of its own
+        // (Belmonte's station brings its platforms: no `platform` record).
         if (Cube)
         {
-            Parts.Add(Block(this, RootComponent, Station.Key + TEXT("_Platform"), Cube, S->GetObjectField(TEXT("platform")), FLinearColor(.42f, .40f, .36f)));
+            if (S->HasTypedField<EJson::Object>(TEXT("platform")))
+                Parts.Add(Block(this, RootComponent, Station.Key + TEXT("_Platform"), Cube, S->GetObjectField(TEXT("platform")), FLinearColor(.42f, .40f, .36f)));
             // The track (ABelmonteTrack, spawned first) brings its own buffer stops; the red block stands in without it.
             if (!FPaths::FileExists(AtelierDataPath(TEXT("belmonte_track/track.json"))))
                 Parts.Add(Block(this, RootComponent, Station.Key + TEXT("_Buffer"), Cube, S->GetObjectField(TEXT("buffer")), FLinearColor(.55f, .08f, .05f)));

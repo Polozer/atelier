@@ -72,6 +72,16 @@ class Ground(unittest.TestCase):
         self.assertAlmostEqual(self.carve(36., S.AXIS_U, RAIL + 9.), RAIL + S.STREET, delta=.05)    # cut
         self.assertAlmostEqual(self.carve(36., S.AXIS_U, RAIL + 5.), RAIL + S.STREET, delta=.05)    # fill
 
+    def test_street_front_flush(self):
+        """Along the whole facade the ground meets the street: under the vestibule just under the floor, outside at
+        street level, whatever the ground was (no trench where the stair hall's formation meets the street)."""
+        street = RAIL + S.STREET
+        for u in np.linspace(S.HEADHOUSE[2], S.HEADHOUSE[3], 25):
+            for a in (S.VESTIBULE[0] + 1., S.HEADHOUSE[1] - .5, S.HEADHOUSE[1], S.HEADHOUSE[1] + .1, S.HEADHOUSE[1] + 1.,
+                      S.HEADHOUSE[1] + 3.):
+                for z in (RAIL + 4., RAIL + 11.):
+                    self.assertAlmostEqual(self.carve(a, u, z), street, delta=.02 + 1e-9, msg=f'a={a} u={u:.1f}')
+
     def test_ground_stands_against_the_walls(self):
         # two metres and a half outside the sheds' wall the ground keeps its natural height
         self.assertAlmostEqual(self.carve(-80., S.SHEDS[3] + 2.5, RAIL + 4.), RAIL + 4., delta=.05)
@@ -131,6 +141,20 @@ class RouteGround(unittest.TestCase):
         town = np.array([550., 4482.]) - BM.ORIGIN[:2]
         self.assertGreater(abs(float(natural.height(*site[:, None])[0] - carved.height(*site[:, None])[0])), .5)
         self.assertEqual(float(natural.height(*town[:, None])[0]), float(carved.height(*town[:, None])[0]))
+
+    def test_committed_street_front_flush(self):
+        """The carved tiles along the facade: the ground from the front face to 3 m out stays within 2 cm of the
+        street, sampled every 0.1 m (no slot wider than that between the building and the ground)."""
+        from belmonte import source, layout as BM
+        carved = source.terrain()
+        site = E.line().station()
+        a, u = np.meshgrid(np.arange(S.HEADHOUSE[1], S.HEADHOUSE[1] + 3. + 1e-9, .1),
+                           np.linspace(S.HEADHOUSE[2], S.HEADHOUSE[3], 160))
+        xy = site.world(a.ravel(), u.ravel())
+        z = carved.height(xy[:, 0] - BM.ORIGIN[0], xy[:, 1] - BM.ORIGIN[1]) + BM.ORIGIN[2]
+        off = np.abs(z - (site.rail + S.STREET))
+        worst = int(np.argmax(off))
+        self.assertLess(float(off[worst]), .02, f'a={a.ravel()[worst]:.1f} u={u.ravel()[worst]:.1f}')
 
 
 class Bank(unittest.TestCase):

@@ -84,13 +84,13 @@
       "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
       "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
       "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
-      "assets/belmonte/source.json": "05517e5de56834a1dca8280b7014b53493626bb49b886440a6a4e13abebeb284",
+      "assets/belmonte/source.json": "f784dfd054494fe50bc09fdc948595d2dc903724f47e05592056d3c0bc099d31",
       "assets/vehicles/belmonte-train/line.json": "fd64b115e1596efb3102be2129cfbf8c095fd05dd4d6e457e27d03a8bfc2f180",
       "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
     },
     "painting_sha256": "e7ec9ecc384cc74df073ede48c0c18798f0d1a224265ebd0add70b6e2bab2c8c",
     "coast_sha256": "d15fde5a57d8935f7ca4d32b651d33301691d2ebc3d34edc641b0fb07110ca78",
-    "reference_sha256": "357ace9611617f28b5101cabc5509e9530c84afac08bf9e3de2c1c7707c1229c"
+    "reference_sha256": "12f66ab581cb806d448598e8ec664064c546dd11f110768857924d013b2b46a6"
   },
   "refactor_revalidation": {
     "witness": "coasts/producer-equivalence.json",
