@@ -925,6 +925,13 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
                         launch = launch_receipt(launch_folder)
                         if launch is not None:
                             timing['launcher'] = launch
+                            try:
+                                from . import build_tree_observations
+                                observation = build_tree_observations.read(launch_folder, launch['invocation_id'], current)
+                            except Exception:
+                                observation = None  # Optional history cannot fail a build.
+                            if observation is not None:
+                                timing['whole_tree'] = observation
                     command_times.append(timing)
                     if step.heavy and not isinstance(command, Call):
                         peaks.append(report_peak(ctx.logs / f'{step.name}.guard' / 'memory-health.json'))

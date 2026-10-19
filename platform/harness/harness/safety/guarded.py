@@ -275,6 +275,11 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
     except OSError:
         publish_timings = False  # A diagnostic path must not block an otherwise valid launch.
     events = {}
+    try:
+        from atelier.harness.safety import tree_observation
+        observe_tree = tree_observation.clear(folder)
+    except Exception:
+        observe_tree = False
     completion = {} if completion_path is not None else None
     try:
         from atelier.harness.capacity_client import CapacityOfferLost, CapacityError
@@ -331,6 +336,12 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
                 os.fsync(directory)
             finally:
                 os.close(directory)
+        if code == 0 and observe_tree:
+            try:
+                tree_observation.publish(folder, identifier, events.get('tree_observation'),
+                                         events.get('command_sha256'), events.get('environment_sha256'))
+            except Exception:
+                pass  # Optional publication cannot turn a completed job into a failure.
         return code
     finally:
         if publish_timings and events.get('ready'):
@@ -549,6 +560,12 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
             stack.callback(close_capacity)
         descriptors = tuple(pass_fds)
         gate = None
+        try:
+            from atelier.harness.safety import tree_observation
+            _timings['command_sha256'] = tree_observation.identity(command)
+            _timings['environment_sha256'] = tree_observation.identity(dict(os.environ) if env is None else env)
+        except Exception:
+            pass
         if aggregate_tree:
             if admission is not None:
                 read_fd = admission.gate()
@@ -702,6 +719,13 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                 raise RuntimeError('Completion process guard stopped the child; no completion proof')
             _completion.update(root=[child.pid, root_start], monitors=monitor_pins, terminal=terminal,
                                process_guard=process_receipt, watched=completion_watches(tree))
+        if child.returncode == 0:
+            try:
+                from atelier.harness.safety import tree_observation
+                _timings['tree_observation'] = tree_observation.capture(
+                    aggregate, child, root_start, int(limit_gib * 1024**3), admission)
+            except Exception:
+                pass  # Optional history cannot affect the guarded result or cleanup.
         return child.returncode or 0
 
 
