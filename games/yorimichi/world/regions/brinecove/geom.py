@@ -62,6 +62,9 @@ class Builder:
         # Optional per-vertex normals: foliage cards point away from their crown so a canopy shades as one mass.
         # None for a vertex means the flat face normal.
         self.normals = None
+        # Optional per-face anchors (x, y): a rigid object's faces share one, so the collar moves it as one piece.
+        self.anchor = None
+        self.anchors = None
 
     def face(self, points, mat, uvs=None, normals=None):
         points = tuple(tuple(float(c) for c in p) for p in points)
@@ -95,6 +98,10 @@ class Builder:
         self.uvs.extend(uvs)
         self.faces.append(tuple(range(i, i + len(points))))
         self.mats.append(mat)
+        if self.anchor is not None and self.anchors is None:
+            self.anchors = [None] * (len(self.faces) - 1)
+        if self.anchors is not None:
+            self.anchors.append(self.anchor)
 
     def tri(self, a, b, c, mat):
         self.face((a, b, c), mat)

@@ -45,6 +45,15 @@ each with their instances. `runtime.json` uses the Belmonte runtime schema, so `
 three parents sharing the island haze: opaque, two-sided masked (leaves, fronds, foam lace and the scrolling
 waterfall curtain) and translucent spray. Foliage prototypes get generated LODs.
 
+The ground is one blended `terrain` material: the shader picks sand, meadow, forest floor and rock per pixel from
+height, slope and noise, on smoothed vertex normals (the collar's zipper fans take the eased ground's analytic
+normal, so they do not band). Cells under paving are clamped below it, seabed never paints above the sea, and the
+sea cliff and notch flanks around the falls are rock only, so no meadow facet shows through the cliff rock. The
+waterfall curtain is placed against the built ground (`falls.mesh_height`: the 4 m grid with its jittered cliff
+corners), not the analytic cliff, which it would otherwise cut through. Groundcover grows in single-family clumps on
+a jittered grid; open slopes seen from the beach get clumps of larger ferns and broadleaf around low shrubs, culled
+at 90 m instead of 50 m. Retaining walls that stand proud of the hillside get boulders and shrubs along their feet.
+
 The sources are committed under `assets/brinecove`: palette-tinted Sunburst surface maps (`textures/`), the
 procedural water atlas, the processed TRELLIS and Tripo hero models with provenance (`models/`), and the hero prop
 reference paintings (`references/props/`).
@@ -63,7 +72,8 @@ uv run python -m atelier.safety.guarded --report build/yorimichi/brinecove-revie
 `review_sheets.py` pairs each render with its Sunburst concept. `references/` holds the paid-call scripts, each
 recording through `atelier.ai.ledger`. `generate.py` paints the concepts. `bridge.py` edits a render toward its
 concept as a middle-ground target. Both the waterfall and cliff rework follow the `07-waterfall-bridge` and
-`13-cliff-face` targets. `textures.py` paints and tints the surface set. `props.py` paints hero prop references,
+`13-cliff-face` targets. `textures.py` paints and tints the surface set; `redesign.py` paints the 2026-10-19 playtest-note concepts and the
+surfaces that replaced their defects (the natural weathered rock, the softened sand). `props.py` paints hero prop references,
 and `galleon_tripo.py` paints the galleon reference views. `water_atlas.py` and `leaf_atlas.py` draw the water and
 leaf atlases procedurally. `process_assets.py` and `galleon_hull.py` reduce the neural models into
 `assets/brinecove/models`.

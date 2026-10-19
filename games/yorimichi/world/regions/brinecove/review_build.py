@@ -142,7 +142,12 @@ def make_object(builder, collection, materials):
     mesh.update()
     bm = bmesh.new()
     bm.from_mesh(mesh)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    # Faces with authored custom normals (leaf cards, the smooth cannon barrel) keep their winding: recalculating a
+    # lone face can flip it, and Blender then shades its back with the custom normal reversed, as dark bands.
+    authored = builder.normals
+    bm.verts.ensure_lookup_table()
+    bmesh.ops.recalc_face_normals(bm, faces=[f for f in bm.faces
+                                             if authored is None or authored[f.verts[0].index] is None])
     bm.to_mesh(mesh)
     bm.free()
     if custom:

@@ -205,6 +205,65 @@ def flowering(seed, radius):
     return b
 
 
+def _blade(b, base, ang, length, width, rise, bend, mat, segments=4, up=0.75):
+    """One tapered, bending strip (a fern frond or a grass blade), both sides, normals leaning up so the clump
+    shades as one soft mass instead of dark undersides."""
+    ca, sa = math.cos(ang), math.sin(ang)
+    px, py = -sa, ca
+    rows = []
+    for k in range(segments + 1):
+        t = k / segments
+        d = length * t
+        z = base[2] + rise * t - bend * t * t
+        # The tip keeps a sliver of width: a zero-width tip makes degenerate triangles that Unreal drops on import.
+        w = width * max(0.08, (1.0 - t) ** 0.7) * (0.6 + 0.4 * math.sin(math.pi * min(1.0, t * 1.4)))
+        cx, cy = base[0] + ca * d, base[1] + sa * d
+        rows.append(((cx - px * w, cy - py * w, z), (cx + px * w, cy + py * w, z)))
+    n = (ca * (1 - up), sa * (1 - up), up)
+    m = math.sqrt(sum(c * c for c in n))
+    n = tuple(c / m for c in n)
+    for (a0, a1), (b0, b1) in zip(rows, rows[1:]):
+        b.face((a0, a1, b1, b0), mat, ((0, 0), (1, 0), (1, 1), (0, 1)), (n,) * 4)
+        b.face((a1, a0, b0, b1), mat, ((0, 0), (1, 0), (1, 1), (0, 1)), (n,) * 4)
+
+
+def cover_fern(seed):
+    """A fern clump: arching fronds from one crown, about knee high."""
+    rng = random.Random(seed)
+    b = Builder(f'cover_fern_{seed}')
+    for i in range(rng.randint(7, 10)):
+        ang = TAU * i / 8 + rng.uniform(-0.3, 0.3)
+        mat = 'cover_fern_light' if rng.random() < 0.35 else 'cover_fern'
+        _blade(b, (0.0, 0.0, 0.0), ang, rng.uniform(0.8, 1.3), rng.uniform(0.16, 0.24), rng.uniform(0.7, 1.0),
+               rng.uniform(0.45, 0.75), mat, segments=5, up=0.7)
+    return b
+
+
+def cover_grass(seed):
+    """A tuft of grass blades, some dry tips among the green."""
+    rng = random.Random(seed)
+    b = Builder(f'cover_grass_{seed}')
+    for _ in range(rng.randint(12, 16)):
+        ang = rng.uniform(0, TAU)
+        r = rng.uniform(0.0, 0.18)
+        mat = 'cover_grass_dry' if rng.random() < 0.25 else 'cover_grass'
+        _blade(b, (math.cos(ang) * r, math.sin(ang) * r, 0.0), ang, rng.uniform(0.15, 0.35),
+               rng.uniform(0.035, 0.05), rng.uniform(0.35, 0.6), rng.uniform(0.0, 0.15), mat, segments=3, up=0.6)
+    return b
+
+
+def cover_broadleaf(seed):
+    """Low broad-leaf ground plants: a rosette of pointed leaves on short stalks."""
+    rng = random.Random(seed)
+    b = Builder(f'cover_leaf_{seed}')
+    for i in range(rng.randint(5, 7)):
+        ang = TAU * i / 6 + rng.uniform(-0.3, 0.3)
+        mat = 'cover_leaf_light' if i % 3 == 0 else 'cover_leaf'
+        _blade(b, (0.0, 0.0, 0.05), ang, rng.uniform(0.45, 0.65), rng.uniform(0.16, 0.22), rng.uniform(0.25, 0.4),
+               rng.uniform(0.15, 0.3), mat, segments=3, up=0.8)
+    return b
+
+
 def prototypes():
     """Species library. Keys name each prototype; values are geometry builders."""
     protos = {}
@@ -222,6 +281,11 @@ def prototypes():
         protos[f'shrub_{i}'] = shrub(4500 + i, r, pal, cards=int(60 + r * 55))
     for i, r in enumerate((1.2, 1.7)):
         protos[f'bloom_{i}'] = flowering(4600 + i, r)
+    # Groundcover: real standing plants instead of a printed leaf carpet (playtest note 1).
+    for i in range(3):
+        protos[f'cover_fern_{i}'] = cover_fern(4700 + i)
+        protos[f'cover_grass_{i}'] = cover_grass(4710 + i)
+        protos[f'cover_leaf_{i}'] = cover_broadleaf(4720 + i)
     return protos
 
 
@@ -256,6 +320,7 @@ def _ridge(x, y):
 
 def scatter(seed=8807):
     """Placements as (prototype, x, y, z, yaw degrees, scale)."""
+    from brinecove.landmarks import footprint
     rng = random.Random(seed)
     out = []
     discs = Poisson()
@@ -266,6 +331,8 @@ def scatter(seed=8807):
     shrubs = [f'shrub_{i}' for i in range(5)]
 
     def place(proto, x, y, scale, spacing, sink=0.0):
+        if footprint(x, y, spacing * 0.5 + 1.0):
+            return False  # the fort, its ramp, the shipyard and the hill stair stay clear
         if not discs.fits(x, y, spacing):
             return False
         discs.add(x, y, spacing)
@@ -316,6 +383,100 @@ def scatter(seed=8807):
         y = rng.uniform(-250, 520)
         if L.headland_plantable(x, y):
             place(rng.choice(shrubs), x, y, rng.uniform(0.9, 1.5), 2.6)
+    return out
+
+
+COVER_LIMIT = 300000  # bounded instance memory and runtime.json; the 50 m cull keeps the drawn count low
+
+
+def groundcover(ground=None, seed=8811):
+    """Groundcover placements (prototype, x, y, z, yaw, scale): natural clumps of fern, broadleaf and grass on the
+    planted slopes, never on sand, cliffs, streets or water.
+
+    Each clump is one family, packed and largest at its heart and thinning to its rim, from a palm-sized tuft to a
+    bed several metres across; clumps gather in noise drifts and crowd the feet of rock faces, with bare soil between.
+    Single plants on an even disc spacing read as a grid of tufts on brown soil (2026-10-19 capture review).
+    ground is the game's final ground (build.py passes the collar-eased one). The count is capped at COVER_LIMIT;
+    build.py culls the instances at 50 m and the prototypes carry generated LODs."""
+    from brinecove.rocks import fbm, uphill
+    from brinecove.landmarks import footprint
+    import brinecove.region as R
+    ground = ground or L.ground
+    rng = random.Random(seed)
+    out, discs = [], Poisson(cell=4.0)
+    x0, y0, x1, y1 = R.OUTER
+
+    def spot(x, y):
+        """The ground height if a plant may grow at (x, y), else None."""
+        if not (x0 + 2 <= x <= x1 - 2 and y0 + 2 <= y <= y1 - 2):
+            return None
+        inside = abs(x) <= 880 and L.Y_MIN - 30 <= y <= L.Y_MAX + 250
+        if inside and not L.plantable(x, y):
+            return None
+        z = ground(x, y)
+        if z < 2.6 or L.in_gorge(x, y, 5.0) or footprint(x, y, 0.5) or uphill(x, y, 3.0)[2] > 0.95:
+            return None
+        return z
+
+    # Clump centres on a jittered grid, so no walkable spot is left bare by the luck of the draw; whole clumps are
+    # thinned evenly if the total would pass the cap (random draws until the cap left the note 1 meadow empty).
+    clumps = []
+    cell = 6.0
+    gx = x0 + 2
+    while gx < x1 - 2:
+        gy = y0 + 2
+        while gy < y1 - 2:
+            cx, cy = gx + rng.uniform(0, cell), gy + rng.uniform(0, cell)
+            gy += cell
+            drift = fbm(cx, cy, 22.0, 3, 61)
+            if drift < 0.3 or spot(cx, cy) is None:
+                continue
+            # The foot of a rock face (steep ground just uphill) gathers the biggest, densest beds; walkable flats
+            # and open slopes keep nearly every clump (the slopes' scrub is culled further out, build.py).
+            ux, uy, grad = uphill(cx, cy, 3.0)
+            foot = uphill(cx + ux * 5.0, cy + uy * 5.0, 3.0)[2] > 0.95
+            if not foot and rng.random() > (1.0 if grad < 0.4 else 0.9):
+                continue
+            clumps.append((cx, cy, drift, foot, rng.random(), grad >= 0.4 and not foot))
+        gx += cell
+    clumps.sort(key=lambda c: c[4])
+    for cx, cy, drift, foot, _, slope in clumps:
+        if len(out) >= COVER_LIMIT:
+            break
+        # Open slopes are seen from the beach and the paths below at 20-40 m, where palm-sized tufts read as specks
+        # (notes 5 and 6, second review): their clumps are low coastal scrub, ferns and broadleaf about twice the
+        # size, spaced to match.
+        big = 1.9 if slope else 1.0
+        size = rng.uniform(1.4, 4.2) * (1.3 if foot or slope else 1.0) * (0.8 + 0.5 * drift)
+        wet = fbm(cx, cy, 60.0, 2, 67)
+        family = 'cover_fern' if wet > 0.55 else ('cover_leaf' if wet > 0.42 else 'cover_grass')
+        if foot and rng.random() < 0.5 or slope and family == 'cover_grass' and rng.random() < 0.7:
+            family = 'cover_fern' if wet > 0.48 else 'cover_leaf'
+        # Their hearts are low shrubs, knee to waist high, so the slope reads as coastal scrub, not a leaf print.
+        if slope and len(out) < COVER_LIMIT:
+            for _ in range(rng.choice((1, 1, 2, 3))):
+                a, r = rng.uniform(0, math.tau), rng.uniform(0.0, size * 0.45)
+                x, y = cx + r * math.cos(a), cy + r * math.sin(a)
+                z = spot(x, y)
+                if z is None or not discs.fits(x, y, 1.4):
+                    continue
+                discs.add(x, y, 1.4)
+                out.append((f'shrub_{rng.choice((0, 1, 2, 4))}', x, y, z - 0.25, rng.uniform(0, 360),
+                            rng.uniform(0.38, 0.6)))
+        for _ in range(int(rng.uniform(8, 24) * (1.4 if foot else 1.6 if slope else 1.0))):
+            r = size * math.sqrt(rng.random())
+            a = rng.uniform(0, math.tau)
+            x, y = cx + r * math.cos(a), cy + r * math.sin(a)
+            spacing = (0.45 + 0.35 * r / size) * big
+            if not discs.fits(x, y, spacing):
+                continue
+            z = spot(x, y)
+            if z is None:
+                continue
+            discs.add(x, y, spacing)
+            kind = family if rng.random() < 0.85 else rng.choice(('cover_fern', 'cover_leaf', 'cover_grass'))
+            out.append((f'{kind}_{rng.randrange(3)}', x, y, z - 0.05, rng.uniform(0, 360),
+                        rng.uniform(0.75, 1.1) * (1.35 - 0.55 * r / size) * big))
     return out
 
 

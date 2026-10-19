@@ -1,0 +1,36 @@
+{
+  "stage": "brinecove-redesign",
+  "slug": "stairs",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "endpoint": "/v1/images/edits",
+  "execution": "games/yorimichi/world/regions/brinecove/references/redesign.py",
+  "context": [
+    {
+      "file": "context/note-011.jpg",
+      "sha256": "ac04a560b95fb6ef5488d66b926aa2ced54119210b24312ea97fb7f73f897c8c"
+    }
+  ],
+  "prompt_file": "stairs.prompt.txt",
+  "prompt_sha256": "af4fa76e09c84d2da688e0973b8d8245d4ce0d2aceaaf1e7354f1c0055fce8f1",
+  "status": "done",
+  "started_at": "2026-10-19T15:27:21.197337+00:00",
+  "elapsed_seconds": 33.5,
+  "output": "stairs.png",
+  "output_sha256": "9f3e3f149d54d9d7942e3cd8c02cf2854406d77b1cf360537df5565244b7880c",
+  "usage": {
+    "input_tokens": 1253,
+    "input_tokens_details": {
+      "image_tokens": 1040,
+      "text_tokens": 213
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 2625
+  },
+  "finished_at": "2026-10-19T15:27:54.813628+00:00"
+}

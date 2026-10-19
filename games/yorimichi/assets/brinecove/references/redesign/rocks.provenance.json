@@ -1,0 +1,36 @@
+{
+  "stage": "brinecove-redesign",
+  "slug": "rocks",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "endpoint": "/v1/images/edits",
+  "execution": "games/yorimichi/world/regions/brinecove/references/redesign.py",
+  "context": [
+    {
+      "file": "context/note-006.jpg",
+      "sha256": "a89e22dc6536fb9a0783be8d61bb2ef0a6fac44275fd5b784cda3fee90755336"
+    }
+  ],
+  "prompt_file": "rocks.prompt.txt",
+  "prompt_sha256": "a4536193cfe891aaa390e2d9f0a15123703340ba82158d1054c695da68b21523",
+  "status": "done",
+  "started_at": "2026-10-19T15:27:21.197445+00:00",
+  "elapsed_seconds": 36.5,
+  "output": "rocks.png",
+  "output_sha256": "2422dc0c99a2778ddd8424da769519af8dad38b6ba9b49269cb109b91026661a",
+  "usage": {
+    "input_tokens": 1250,
+    "input_tokens_details": {
+      "image_tokens": 1040,
+      "text_tokens": 210
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 2622
+  },
+  "finished_at": "2026-10-19T15:27:57.801065+00:00"
+}

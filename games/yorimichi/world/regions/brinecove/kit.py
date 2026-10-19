@@ -1007,7 +1007,7 @@ def fern(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
                 math.sin(ang + math.pi / 2) * 0.22 * scale, 0)
         b.quad((x, y, z + 0.05), (tip[0] + side[0], tip[1] + side[1], tip[2]),
                tip, (tip[0] - side[0], tip[1] - side[1], tip[2]),
-               'jungle_light' if i % 2 else 'jungle')
+               'cover_fern_light' if i % 2 else 'cover_fern')
 
 
 def banana(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
@@ -1039,7 +1039,7 @@ def grass_tuft(b, x, y, z, yaw=0.0, scale=1.0, rng=None):
         dx, dy = math.cos(ang) * w, math.sin(ang) * w
         b.quad((x - dx, y - dy, z), (x + dx, y + dy, z),
                (x + dx * 0.3, y + dy * 0.3, z + h), (x - dx * 0.3, y - dy * 0.3, z + h),
-               'autumn_olive' if i % 2 else 'jungle_light')
+               'cover_grass_dry' if i % 2 else 'cover_grass')
 
 
 def person(b, x, y, z, yaw=0.0, scale=1.0, rng=None):

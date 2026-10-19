@@ -7376,6 +7376,142 @@
     "brinecove/textures/yellow_wall.jpg": {
       "bytes": 116750,
       "sha256": "e6897e10d754ffe0dd8acbe33ac10421e27fbe6c1dd59b4203f6738c48d42e65"
+    },
+    "brinecove/references/redesign/cannon.jpg": {
+      "bytes": 274242,
+      "sha256": "d956f60c69c8715033caacdefb2a1f6aaddb1cd8da63b04c7aac60a1f3da7d64"
+    },
+    "brinecove/references/redesign/cliffs.jpg": {
+      "bytes": 279706,
+      "sha256": "bb56941bda6b2b68ecc8c6204a3b663597a4ae5ae89c81a27cef763236b89301"
+    },
+    "brinecove/references/redesign/context/note-001.jpg": {
+      "bytes": 207676,
+      "sha256": "a89653faadb8e8df087794bef45e0e515d52a126b5e2c1f732e8003a805b9eaf"
+    },
+    "brinecove/references/redesign/context/note-005.jpg": {
+      "bytes": 287389,
+      "sha256": "ec962da7953bbcc0ceb14d1e5b0d8dc31dc881f0df4a329ff1364745f94f877e"
+    },
+    "brinecove/references/redesign/context/note-006.jpg": {
+      "bytes": 283912,
+      "sha256": "a89e22dc6536fb9a0783be8d61bb2ef0a6fac44275fd5b784cda3fee90755336"
+    },
+    "brinecove/references/redesign/context/note-007.jpg": {
+      "bytes": 188461,
+      "sha256": "a630f4841b692248df63a4a62afca0a90b5255828ec869d147998689d31796da"
+    },
+    "brinecove/references/redesign/context/note-008.jpg": {
+      "bytes": 210860,
+      "sha256": "8018d98c207162b646454412237dfd2ae226b344aa7df4ba7aeed571b432ee57"
+    },
+    "brinecove/references/redesign/context/note-009.jpg": {
+      "bytes": 258850,
+      "sha256": "26a45587a75020890e99444d223e410f6ff2a8847cff03ff5b7a8d98fed26ef0"
+    },
+    "brinecove/references/redesign/context/note-010.jpg": {
+      "bytes": 233901,
+      "sha256": "76039fe2cf8f8c25a9e89e49d54abb46a66c121f7b4fb0e601b881687b1f17b7"
+    },
+    "brinecove/references/redesign/context/note-011.jpg": {
+      "bytes": 256882,
+      "sha256": "ac04a560b95fb6ef5488d66b926aa2ced54119210b24312ea97fb7f73f897c8c"
+    },
+    "brinecove/references/redesign/context/note-012.jpg": {
+      "bytes": 252400,
+      "sha256": "6f5d3814e1f801cbec8659d2515c06d9b7e0470851ad0da6c2463ce43dea7a77"
+    },
+    "brinecove/references/redesign/fort.jpg": {
+      "bytes": 345853,
+      "sha256": "6e0f3fa893e632a241cfa720a140542a269917a7bf65003141944ae57342a6b5"
+    },
+    "brinecove/references/redesign/groundcover.jpg": {
+      "bytes": 296100,
+      "sha256": "c1ef92bc0f475086d1497ab6b0aca3cff7230dd1302b512e7230b514e331ce0e"
+    },
+    "brinecove/references/redesign/rocks.jpg": {
+      "bytes": 366012,
+      "sha256": "5a6faf5b26ee45260b1e7cc0c47269ec0cbb8160e0de15d2caa059b03cfa3e8d"
+    },
+    "brinecove/references/redesign/shipyard.jpg": {
+      "bytes": 320850,
+      "sha256": "28d7f30571a9fffcbd54aacee916a8e98c775474f422e0f1ec6d28ea4c57934e"
+    },
+    "brinecove/references/redesign/shore.jpg": {
+      "bytes": 362963,
+      "sha256": "e85117633880f3f6018c57682ff29a5a78368b943dd0caebd74707a06e1cedbb"
+    },
+    "brinecove/references/redesign/stairs.jpg": {
+      "bytes": 377637,
+      "sha256": "96907490fe38a1ba25f1fa5dec1662fe08a641a2c74400ec64d1c0fc486926a9"
+    },
+    "brinecove/references/redesign/tex_foam.jpg": {
+      "bytes": 286560,
+      "sha256": "62295d90db3749c2397d088ccb8a03dfa7828295ba026f6cf2d095458a4a3fee"
+    },
+    "brinecove/references/redesign/tex_forest_floor.jpg": {
+      "bytes": 296912,
+      "sha256": "6a8d63778212d4da01d9aca2f5582f730c48c431880e89d0d8d84541e8e8b491"
+    },
+    "brinecove/references/redesign/tex_meadow.jpg": {
+      "bytes": 408876,
+      "sha256": "db05c4fb5584bfb83549717a2f491921604c794234422cc892ab1c4db1de6b99"
+    },
+    "brinecove/references/redesign/tex_rock.jpg": {
+      "bytes": 378562,
+      "sha256": "3c18c47b39b191f0defc02d16574b3c906f8556f903421ebb29fcf6223cc2dce"
+    },
+    "brinecove/references/redesign/tex_rock_natural.jpg": {
+      "bytes": 390436,
+      "sha256": "f396afcfc86929b7bcd1d7177704aec5125c93af9260b832ad019e456257acd0"
+    },
+    "brinecove/references/redesign/tex_waterfall.jpg": {
+      "bytes": 257052,
+      "sha256": "cd2b77e1bb294b1b01124543ae83f432501f1652bac261f97323d2937a6ff4fd"
+    },
+    "brinecove/references/redesign/water.jpg": {
+      "bytes": 374251,
+      "sha256": "6ca060ba9360336e9ee381b84966db00c469d549f2d34a9b182b8e887f7a840a"
+    },
+    "brinecove/textures/foam_lace.png": {
+      "bytes": 614381,
+      "sha256": "90c5aaceafb803c4170cd2ed74f141e127017facdd256249aa9625b45b677881"
+    },
+    "brinecove/textures/terrain_forest.jpg": {
+      "bytes": 338256,
+      "sha256": "3a42178dfaa675213f98866008530d5a5f2ec18a823052fb4cdc024c296e0528"
+    },
+    "brinecove/textures/terrain_forest_n.png": {
+      "bytes": 684149,
+      "sha256": "ad2de9c485a5f2a7eff33c3a1b178e8e918e947f34486b78d2b5462bb7a93dc1"
+    },
+    "brinecove/textures/terrain_meadow.jpg": {
+      "bytes": 458353,
+      "sha256": "ea7cd083a40acd45d6cb15ae6e65222fd60abf1f31536a50683d96314e3d86f0"
+    },
+    "brinecove/textures/terrain_meadow_n.png": {
+      "bytes": 749878,
+      "sha256": "61356da0e90244efa9d47c46e27bdeedd32c6effdc534f7f05b7765ce4be5afe"
+    },
+    "brinecove/textures/terrain_rock.jpg": {
+      "bytes": 433979,
+      "sha256": "85dc4788e23de4dc6223b2bcffe734d0295a30079e3709803bb2e814ced2b79d"
+    },
+    "brinecove/textures/terrain_rock_n.png": {
+      "bytes": 790483,
+      "sha256": "fa9a74079ebb579e0132b27f8b481d47662b82c2e602061a8b30f1b1828a323e"
+    },
+    "brinecove/textures/terrain_sand.jpg": {
+      "bytes": 223695,
+      "sha256": "0b5d9ec97c1eadddb75d0ac6ddddaa497808ad6b970830e4a6937d26fce0ebf8"
+    },
+    "brinecove/textures/terrain_sand_n.png": {
+      "bytes": 578464,
+      "sha256": "5d278383e4d84cc86cd6e00137873ecc47cc2e1d7563214410f33ad2b28c4469"
+    },
+    "brinecove/textures/waterfall_streaks.png": {
+      "bytes": 522955,
+      "sha256": "10dcff8531ea9a042a609ecd207d977fe457dd74247657f4393f70b800bcdc19"
     }
   }
 }

@@ -8,9 +8,14 @@ import math
 import random
 
 from brinecove import layout as L
+from brinecove import region as R
 from brinecove.kit import bush, fern, leaf_canopy
 
 TAU = math.pi * 2
+# Palette entries for the redesign's materials. They live here, not in layout.py: the atlas geography signature hashes
+# layout.py and ground.py, and these are material colours, not terrain.
+L.COLORS.update({'terrain': '#8a8f58', 'cover_fern': '#4f7a34', 'cover_fern_light': '#6f9a3e', 'cover_grass': '#6d8f3c',
+                 'cover_grass_dry': '#a99a58', 'cover_leaf': '#3f6c35', 'cover_leaf_light': '#5d8a3f'})
 
 
 def _hash(ix, iy, seed):
@@ -42,9 +47,21 @@ def fbm(x, y, scale=60.0, octaves=4, seed=0):
     return total / norm
 
 
+# The ground the game actually builds. build.py sets FINAL to the collar-eased ground, where the region is joined to
+# the far hills: there the layout's heights are tens of metres off (the north collar climbs 60 m in 70 m, the
+# backdrop cliff of playtest note 7; the east collar drops 40 m to the sea under notes 1-4). Dressing placed on the
+# layout there floated, sank or missed the real cliffs. The review scene leaves it unset and keeps the layout.
+FINAL = None
+FIXED = ('final',)  # anchor for faces already placed on the final ground: the collar must not move them again
+
+
+def ground(x, y):
+    return FINAL(x, y) if FINAL is not None else L.height(x, y)
+
+
 def uphill(x, y, step=4.0):
-    gx = (L.height(x + step, y) - L.height(x - step, y)) / (2 * step)
-    gy = (L.height(x, y + step) - L.height(x, y - step)) / (2 * step)
+    gx = (ground(x + step, y) - ground(x - step, y)) / (2 * step)
+    gy = (ground(x, y + step) - ground(x, y - step)) / (2 * step)
     n = math.hypot(gx, gy)
     return (gx / n, gy / n, n) if n > 1e-6 else (0.0, 1.0, 0.0)
 
@@ -86,6 +103,140 @@ def prism(b, centre, z0, z1, radius, along, rng, mat, top_mat=None, squash=0.72,
         b.tri(top[i], top[(i + 1) % sides], c, top_mat or mat)
 
 
+_ICO = {}
+
+
+def _icosphere(level):
+    """Unit icosphere (vertices, triangles), cached per subdivision level."""
+    if level in _ICO:
+        return _ICO[level]
+    t = (1 + 5 ** 0.5) / 2
+    verts = [(-1, t, 0), (1, t, 0), (-1, -t, 0), (1, -t, 0), (0, -1, t), (0, 1, t), (0, -1, -t), (0, 1, -t),
+             (t, 0, -1), (t, 0, 1), (-t, 0, -1), (-t, 0, 1)]
+    verts = [tuple(c / math.sqrt(sum(k * k for k in v)) for c in v) for v in verts]
+    tris = [(0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11), (1, 5, 9), (5, 11, 4), (11, 10, 2),
+            (10, 7, 6), (7, 1, 8), (3, 9, 4), (3, 4, 2), (3, 2, 6), (3, 6, 8), (3, 8, 9), (4, 9, 5), (2, 4, 11),
+            (6, 2, 10), (8, 6, 7), (9, 8, 1)]
+    for _ in range(level):
+        mids, out = {}, []
+
+        def mid(i, j):
+            key = (min(i, j), max(i, j))
+            if key not in mids:
+                m = [(a + b) / 2 for a, b in zip(verts[i], verts[j])]
+                n = math.sqrt(sum(c * c for c in m))
+                verts.append(tuple(c / n for c in m))
+                mids[key] = len(verts) - 1
+            return mids[key]
+        for a, b_, c in tris:
+            ab, bc, ca = mid(a, b_), mid(b_, c), mid(c, a)
+            out += [(a, ab, ca), (b_, bc, ab), (c, ca, bc), (ab, bc, ca)]
+        tris = out
+    _ICO[level] = (verts, tris)
+    return _ICO[level]
+
+
+def boulder(b, x, y, base, size, rng, mat='rock', yaw=None, bury=0.35, strata=0.55, level=None, lean=(0.0, 0.0),
+            fixed=False):
+    """One natural rock: a noise-displaced icosphere with soft horizontal bedding, its foot buried in the ground.
+
+    size is (length, width, height) in metres; base is the ground height under it. Smooth vertex normals round the
+    shoulders and the terrace steps of the bedding catch the light as fractured ledges, as in the approved rock
+    concept; the material projects its texture in world space, so the mesh needs no UVs. The faces share one anchor,
+    so the collar moves the rock whole (build.split)."""
+    sx, sy, sz = size
+    # Only the largest masses need the finer sphere; the fracture planes carry the shape of the rest.
+    level = level if level is not None else (2 if max(sx, sy, sz) > 22.0 else 1)
+    verts, tris = _icosphere(level)
+    yaw = rng.uniform(0, TAU) if yaw is None else yaw
+    ca, sa = math.cos(yaw), math.sin(yaw)
+    seed = rng.randrange(1 << 20)
+    step = rng.uniform(0.22, 0.34)
+    cz = base - sz * bury + sz * 0.5
+    # Two to four fracture planes cut flat faces into the sides, so the rock reads as split stone, not a pebble.
+    cuts = []
+    for _ in range(rng.randint(2, 4)):
+        a, e = rng.uniform(0, TAU), rng.uniform(-0.35, 0.5)
+        cuts.append(((math.cos(a) * math.cos(e), math.sin(a) * math.cos(e), math.sin(e)), rng.uniform(0.55, 0.8)))
+    # The crown tilts and breaks unevenly: a level clamp left small rocks with a flat tabletop (note 3 review).
+    ta = rng.uniform(0, TAU)
+    tilt = rng.uniform(0.06, 0.2)
+    tx, ty = math.cos(ta) * tilt, math.sin(ta) * tilt
+    pts = []
+    for vx, vy, vz in verts:
+        r = 1.0 + 0.22 * (value_noise(vx * 1.6 + vz, vy * 1.6 - vz, seed) - 0.5) \
+            + 0.10 * (value_noise(vx * 4.1 + vz * 2, vy * 4.1, seed + 7) - 0.5)
+        px, py, pz = vx * r, vy * r, vz * r
+        # Bedding: pull heights toward terraces, then cap the crown in a tilted, broken weathered top.
+        for (nx, ny, nz), d in cuts:
+            over = px * nx + py * ny + pz * nz - d
+            if over > 0:
+                px, py, pz = px - nx * over, py - ny * over, pz - nz * over
+        q = round(pz / step) * step
+        pz = pz + (q - pz) * strata
+        cap = 0.74 + 0.16 * value_noise(vx * 2.2, vy * 2.2, seed + 3) + tx * px + ty * py
+        if pz > cap:
+            pz = cap + (pz - cap) * 0.3
+        lx, ly, lz = px * sx * 0.5, py * sy * 0.5, pz * sz * 0.5
+        lx, ly = lx + lean[0] * lz, ly + lean[1] * lz
+        pts.append((x + lx * ca - ly * sa, y + lx * sa + ly * ca, cz + lz))
+    normals = [[0.0, 0.0, 0.0] for _ in pts]
+    for i, j, k in tris:
+        (ax, ay, az), (bx, by, bz), (qx, qy, qz) = pts[i], pts[j], pts[k]
+        ux, uy, uz, wx, wy, wz = bx - ax, by - ay, bz - az, qx - ax, qy - ay, qz - az
+        n = (uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx)
+        for v in (i, j, k):
+            normals[v][0] += n[0]
+            normals[v][1] += n[1]
+            normals[v][2] += n[2]
+    unit = []
+    for n in normals:
+        m = math.sqrt(n[0] ** 2 + n[1] ** 2 + n[2] ** 2) or 1.0
+        unit.append((n[0] / m, n[1] / m, n[2] / m))
+    previous = b.anchor
+    b.anchor = FIXED if fixed else (x, y)
+    floor = base - sz * bury - 0.05
+    for i, j, k in tris:
+        if max(pts[i][2], pts[j][2], pts[k][2]) < floor + 0.2:
+            continue  # wholly underground
+        # Half the face normal into each corner: shoulders stay rounded, fracture faces and edges stay crisp.
+        (ax, ay, az), (bx, by, bz), (qx, qy, qz) = pts[i], pts[j], pts[k]
+        ux, uy, uz, wx, wy, wz = bx - ax, by - ay, bz - az, qx - ax, qy - ay, qz - az
+        fn = (uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx)
+        fm = math.sqrt(sum(c * c for c in fn)) or 1.0
+        fn = tuple(c / fm for c in fn)
+        corner = []
+        for v in (i, j, k):
+            c = [unit[v][a] * 0.5 + fn[a] * 0.5 for a in range(3)]
+            cm = math.sqrt(sum(e * e for e in c)) or 1.0
+            corner.append(tuple(e / cm for e in c))
+        b.face((pts[i], pts[j], pts[k]), mat, None, corner)
+    b.anchor = previous
+    return cz + sz * 0.5 * 0.78
+
+
+def outcrop(b, x, y, base, radius, height, rng, along, mat='rock', fixed=False, level=None):
+    """A cliff outcrop: two or three broad bedded masses stepped back up the slope, never a stack of drums.
+
+    Each tier is wider than tall and set back uphill from the one below, so the face reads as ledges and
+    buttresses in relief; the tiers overlap inside, never at a visible seam. Returns the top height."""
+    ax, ay = along
+    ux, uy = ay, -ax  # uphill is to the left of the contour direction (callers pass along = (-uy, ux))
+    tiers = 1 if height < 7 else (2 if height < 16 else 3)
+    z = base
+    top = base
+    for k in range(tiers):
+        h = height / tiers * rng.uniform(1.25, 1.5)
+        w = radius * 2.6 * (1.0 - 0.1 * k) * rng.uniform(0.9, 1.15)
+        d = radius * rng.uniform(1.3, 1.7)
+        cx = x + ux * radius * 0.35 * k + rng.uniform(-1.0, 1.0)
+        cy = y + uy * radius * 0.35 * k + rng.uniform(-1.0, 1.0)
+        top = boulder(b, cx, cy, z, (w, d, h), rng, mat, yaw=math.atan2(ay, ax) + rng.uniform(-0.25, 0.25),
+                      bury=0.18 if k else 0.3, strata=0.8, fixed=fixed, level=level)
+        z = z + h * 0.5
+    return top
+
+
 def vines(b, x, y, z_top, length, width, out, rng):
     """Foliage spilling over a crest and down the face; out is the unit downhill direction.
 
@@ -107,22 +258,24 @@ def vines(b, x, y, z_top, length, width, out, rng):
             s += rng.uniform(-0.4, 0.4)
 
 
-def cliff_rocks(b, rng, spacing=9.0):
+def cliff_rocks(b, rng, spacing=12.0):
     """Dress every steep, dry face with big stepped blocks under hanging green. Returns the number of outcrops.
 
     The bridge paintings (references/bridge.py) read the cliffs as a few large angular masses with flat fractured
     faces and plants on every ledge; many small rounded bosses read as one boulder stamped over a wall.
     """
+    from brinecove.landmarks import footprint
     placed = {}
     cell = spacing
     count = 0
 
-    def free(x, y):
+    def free(x, y, gap):
         gx, gy = int(x // cell), int(y // cell)
-        for i in range(gx - 1, gx + 2):
-            for j in range(gy - 1, gy + 2):
+        span = int(math.ceil(gap / cell))
+        for i in range(gx - span, gx + span + 1):
+            for j in range(gy - span, gy + span + 1):
                 for ox, oy in placed.get((i, j), ()):
-                    if (ox - x) ** 2 + (oy - y) ** 2 < spacing * spacing:
+                    if (ox - x) ** 2 + (oy - y) ** 2 < gap * gap:
                         return False
         return True
 
@@ -131,101 +284,88 @@ def cliff_rocks(b, rng, spacing=9.0):
         y = rng.uniform(-700, 760)
         if L.is_water(x, y):
             continue
-        z = L.height(x, y)
+        z = ground(x, y)
         if z < 2.5:
             continue
         ux, uy, grad = uphill(x, y)
-        if grad < 0.85 or L.in_lot(x, y, 4.0) or L.on_shore_walkway(x, y, 5.0) or L.on_street(x, y, 4.0):
+        # The collar's eased ramps are gentler than the layout's cliffs but are the cliffs players see there.
+        if grad < (0.6 if R.collar_weight(x, y) > 0.0 else 0.85) or L.in_lot(x, y, 4.0) or L.on_shore_walkway(x, y, 5.0) or L.on_street(x, y, 4.0):
             continue
-        if L.in_gorge(x, y, 3.0):
-            continue  # falls.py dresses the canyon with its own wet rock
-        if not free(x, y):
+        # falls.py dresses the canyon with its own wet rock; the margin keeps outcrop flanks off the curtain.
+        if L.in_gorge(x, y, 9.0):
+            continue
+        if footprint(x, y, 10.0):
+            continue  # keep the fort, its ramp, the shipyard and the hill stair clear
+        # The collar's long ramps are the backdrop cliffs seen from the harbor: fewer, far larger masses that overlap
+        # into continuous stepped strata. Many small bosses there read as boulders peppered over a green band (note 7).
+        collar = R.collar_weight(x, y) > 0.0 and z > 20.0  # high backdrop only: beach slopes stay human-scale
+        if not free(x, y, spacing * 1.6 if collar else spacing):
             continue
         placed.setdefault((int(x // cell), int(y // cell)), []).append((x, y))
         count += 1
         along = (-uy, ux)
-        radius = rng.uniform(5.0, 9.5)
+        # Broad buttresses where the noise is high, small ledges in the gullies between them.
+        buttress = fbm(x, y, 140.0, 2, 23)
+        radius = rng.uniform(4.5, 8.0) * (0.75 + 0.7 * buttress) * (1.7 if collar else 1.0)
         # Push the outcrop out of the slope so its downhill faces stand proud of the heightfield.
         out = radius * rng.uniform(0.25, 0.5)
         cx, cy = x - ux * out, y - uy * out
-        base = L.height(cx, cy) - 2.5
+        base = ground(cx, cy) - 2.5
         # The top stops a little above the ground uphill of the outcrop, so it reads as a ledge, not a tower.
-        crest = L.height(x + ux * radius * 1.2, y + uy * radius * 1.2) + rng.uniform(-0.8, 1.6)
-        height = max(3.0, min(crest - base, rng.uniform(10.0, 28.0)))
+        crest = ground(x + ux * radius * 1.2, y + uy * radius * 1.2) + rng.uniform(-0.8, 1.6)
+        height = max(3.0, min(crest - base, rng.uniform(16.0, 40.0) if collar else rng.uniform(10.0, 28.0)))
+        # The strongest buttresses stand proud of the crest, so the skyline breaks instead of running dead level.
+        if buttress > 0.6:
+            height += rng.uniform(3.0, 9.0) * (buttress - 0.6) / 0.4
         light = fbm(x, y, 90.0, 3, 17)
         # Sunlit golden stone with only a few dark weathered masses (the bridge paintings' palette).
         mat = 'rock_light' if light > 0.48 else ('rock_dark' if light < 0.2 else 'rock')
-        blocks = 1 if height < 8 else max(2, min(3, int(height / rng.uniform(8.0, 12.0))))
-        z0 = base
-        sides = rng.randint(4, 6)
-        for k in range(blocks):
-            z1 = base + height * (k + 1) / blocks + rng.uniform(-1.0, 1.0)
-            r = radius * (1.0 - 0.14 * k) * rng.uniform(0.85, 1.05)
-            jitter = (rng.uniform(-1.5, 1.5), rng.uniform(-1.5, 1.5))
-            bx, by = cx + jitter[0] - ux * 0.8 * k, cy + jitter[1] - uy * 0.8 * k
-            top = 'moss' if rng.random() < 0.75 else 'jungle_dark'
-            prism(b, (bx, by), z0, z1, r, along, rng, mat, top, squash=rng.uniform(0.55, 0.8), sides=sides,
-                  tilt=rng.uniform(0.1, 0.7), bulge=False)
-            # Every ledge carries a plant; the larger ones a fern or two as well.
-            if rng.random() < 0.85:
-                bush(b, bx + ux * r * 0.2, by + uy * r * 0.2, z1 - 0.2, 0.0, rng.uniform(1.4, 2.4) * r / 6.0, rng)
-            if rng.random() < 0.35:
-                fern(b, bx - ux * r * 0.3, by - uy * r * 0.3, z1 - 0.1, rng.uniform(0, 360), rng.uniform(0.9, 1.4), rng)
-            z0 = z1 - 0.15
+        # Tiered bedded masses stepped back up the slope (outcrop); plants catch on the ledge tops.
+        # The outcrop and its plants are placed on the final ground: the collar must not move them again.
+        previous = b.anchor
+        if FINAL is not None:
+            b.anchor = FIXED
+        # Backdrop masses keep the coarse sphere: their fracture planes carry the shape at harbor distance.
+        top = outcrop(b, cx, cy, base, radius, height, rng, along, mat, fixed=FINAL is not None,
+                      level=1 if collar else None)
+        if rng.random() < 0.85:
+            bush(b, cx + ux * radius * 0.6, cy + uy * radius * 0.6, top - 0.3, 0.0,
+                 rng.uniform(1.4, 2.4) * radius / 6.0, rng)
+        if rng.random() < 0.35:
+            fern(b, cx - ux * radius * 0.2, cy - uy * radius * 0.2, top - 0.2, rng.uniform(0, 360),
+                 rng.uniform(0.9, 1.4), rng)
         # Green spills over nearly every crest and down most of the face.
         if height > 4 and rng.random() < 0.92:
-            vines(b, cx - ux * radius * 0.7, cy - uy * radius * 0.7, base + height,
+            vines(b, cx - ux * radius * 0.7, cy - uy * radius * 0.7, top,
                   min(height * 0.95, rng.uniform(8.0, 22.0)), rng.uniform(radius * 0.9, radius * 1.8), (-ux, -uy), rng)
-        # A loose block or two at the foot.
+        # A fallen block or two bedded into the ground at the foot.
         if rng.random() < 0.4:
-            fx, fy = cx - ux * radius * 1.1, cy - uy * radius * 1.1
-            fz = L.height(fx, fy)
-            prism(b, (fx, fy), fz - 0.8, fz + rng.uniform(1.0, 2.6), radius * rng.uniform(0.3, 0.5),
-                  along, rng, 'rock', squash=0.9, sides=rng.randint(4, 5), bulge=False)
+            fx, fy = cx - ux * radius * 1.3, cy - uy * radius * 1.3
+            r = radius * rng.uniform(0.3, 0.5)
+            boulder(b, fx, fy, ground(fx, fy), (r * 2.0, r * 1.6, r * 1.3), rng, 'rock', fixed=FINAL is not None)
+        b.anchor = previous
     return count
 
 
 def terrain_material(gx, gy, zavg, sl, i, j):
-    """Material for one terrain cell from height, slope and smooth noise, never a per-cell dither pattern."""
-    n = fbm(gx, gy, 70.0, 4, 3)
-    m = fbm(gx, gy, 24.0, 3, 9)
-    if sl > 0.85:
-        return 'rock_dark' if m > 0.72 else ('rock_light' if n > 0.55 else 'rock')
-    if sl > 0.62:
-        return ('rock', 'jungle_dark', 'rock_light')[int(m * 2.999)] if n > 0.5 else 'jungle_dark'
-    if zavg > 46:
-        if n > 0.62:
-            return 'autumn_olive'
-        return 'jungle_light' if m > 0.55 else 'jungle'
-    if n < 0.32:
-        return 'jungle_dark'
-    if n > 0.68 and m > 0.6:
-        return 'autumn_olive'
-    return 'jungle' if m < 0.55 else 'jungle_light'
+    """Natural ground is one blended material: the terrain shader picks sand, meadow, forest floor and rock per
+    pixel from height, slope and noise (import_brinecove.terrain_parent). One material per 4 m cell painted the
+    shore as square sand patches and the slopes as a repeated leaf print (playtest notes 1, 3 and 5)."""
+    return 'terrain'
 
 
 def crag(b, x, y, base, top, radius, rng, count=9):
-    """A craggy sea rock: a tall core prism ringed by shorter, leaning ones, pale on top and dark at the water."""
-    for k in range(count):
-        if k == 0:
-            cx, cy, r, h = x, y, radius * 0.55, top
-        else:
-            a = TAU * k / (count - 1) + rng.uniform(-0.3, 0.3)
-            d = radius * rng.uniform(0.35, 0.8)
-            cx, cy = x + math.cos(a) * d, y + math.sin(a) * d
-            r = radius * rng.uniform(0.25, 0.45)
-            h = base + (top - base) * rng.uniform(0.25, 0.75) * (1.0 - d / radius * 0.6)
-        along = (math.cos(rng.uniform(0, TAU)), 0.0)
-        along = (along[0], math.sqrt(max(0.0, 1 - along[0] ** 2)))
-        drums = max(1, int((h - base) / 5.0))
-        z0 = base
-        for j in range(drums):
-            z1 = base + (h - base) * (j + 1) / drums
-            mat = 'rock_dark' if z0 < 1.5 else 'rock'
-            prism(b, (cx + rng.uniform(-0.4, 0.4), cy + rng.uniform(-0.4, 0.4)), z0, z1, r * (1 - 0.12 * j),
-                  along, rng, mat, 'moss' if j == drums - 1 else 'rock_light', squash=rng.uniform(0.7, 1.0),
-                  tilt=rng.uniform(0.3, 1.5))
-            z0 = z1 - 0.2
+    """A craggy sea rock: a tall bedded core ringed by lower leaning boulders, all rising from below the sea."""
+    core = (top - base)
+    boulder(b, x, y, base, (radius * 1.3, radius * 1.0, core * 1.25), rng, 'rock', bury=0.1, strata=0.6,
+            lean=(rng.uniform(-0.15, 0.15), rng.uniform(-0.15, 0.15)))
+    for k in range(1, count):
+        a = TAU * k / (count - 1) + rng.uniform(-0.3, 0.3)
+        d = radius * rng.uniform(0.45, 0.85)
+        h = core * rng.uniform(0.25, 0.7) * (1.0 - d / radius * 0.5)
+        r = radius * rng.uniform(0.35, 0.6)
+        boulder(b, x + math.cos(a) * d, y + math.sin(a) * d, base, (r * 2.0, r * 1.6, h * 1.3), rng,
+                'rock_dark' if h < 4 else 'rock', bury=0.15, lean=(math.cos(a) * 0.2, math.sin(a) * 0.2))
 
 
 def canopy_hill(b, x, y, r, sx, sz, rng, spacing=16.0):
