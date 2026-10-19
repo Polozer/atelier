@@ -3,6 +3,7 @@
 build_map.py samples heights() from the exported ground (ground_surface) into its raster and calls draw() with its world-to-pixel mapping. World metres.
 Plain Python.
 """
+import hashlib
 import json
 import math
 
@@ -45,10 +46,17 @@ def ground_surface(out):
     so the painted coast is the coast the game ships rather than an approximation of it."""
     from belmonte import source
     report = json.loads((out / 'brinecove' / 'build-report.json').read_text())
-    tiles = [out / 'brinecove' / mesh['path'] for mesh in report['meshes'] if mesh['name'].startswith('SM_BC_Ground_')]
+    tiles = [mesh for mesh in report['meshes'] if mesh['name'].startswith('SM_BC_Ground_')]
     if not tiles:
         raise ValueError('Brinecove export has no ground tiles')
-    faces = np.concatenate([source.triangles(path) for path in tiles]) + np.asarray(R.ORIGIN, float)
+    faces = []
+    for mesh in tiles:
+        path = out / 'brinecove' / mesh['path']
+        # Only bytes the export declared: a missing or altered tile must fail, not draw a different coast.
+        if not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != mesh['sha256']:
+            raise ValueError(f'Brinecove ground tile {mesh["name"]} is missing or differs from build-report.json')
+        faces.append(source.triangles(path))
+    faces = np.concatenate(faces) + np.asarray(R.ORIGIN, float)
     return source.Surface(faces)
 
 

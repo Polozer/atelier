@@ -629,7 +629,8 @@ def brinecove_steps(out):
     region = REGIONS / 'brinecove'
     return [
         Step('world.brinecove', [Blender(region / 'build.py', threads=3)],
-             inputs=[region, ASSETS / 'brinecove', WORLD / 'terrain_product.py', YORI],
+             # The source library is outside assets/brinecove; hero_sources.verify checks the models against it.
+             inputs=[region, ASSETS / 'brinecove', ASSETS / 'source-library.json', WORLD / 'terrain_product.py', YORI],
              reads=['terrain.FarHills.final'], heavy=True,
              outputs=[out / 'brinecove' / 'runtime.json', out / 'brinecove' / 'build-report.json'],
              about='Brinecove: pirate port ground joined to the far hills, town, waterfall, ships and flora'),

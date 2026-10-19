@@ -143,3 +143,30 @@ def test_atlas_heights_come_from_the_exported_ground_and_refuse_gaps():
     assert np.allclose(plan.heights(np.array([1.]), np.array([1.]), surface), 5.)
     with pytest.raises(ValueError, match='uncovered'):
         plan.heights(np.array([1., 20.]), np.array([1., 20.]), surface)
+
+
+def test_export_declares_the_source_library_its_hero_check_reads():
+    """The library is outside assets/brinecove and the import scanner only follows Python: without the declaration
+    a manifest-only change would leave a cached export current and skip hero_sources.verify."""
+    from atelier import build
+    from brinecove import hero_sources
+    recipe = build.load_recipe('yorimichi')
+    export = next(s for s in recipe.brinecove_steps(Path('/tmp/out')) if s.name == 'world.brinecove')
+    assert hero_sources.LIBRARY.resolve() in {Path(p).resolve() for p in export.inputs}
+
+
+def test_atlas_ground_refuses_tiles_that_differ_from_the_export_report(tmp_path):
+    import hashlib
+    import json
+    from brinecove import plan
+    tile = tmp_path / 'brinecove' / 'glb' / 'SM_BC_Ground_0_0.glb'
+    tile.parent.mkdir(parents=True)
+    tile.write_bytes(b'not the declared bytes')
+    report = {'meshes': [{'name': 'SM_BC_Ground_0_0', 'path': 'glb/SM_BC_Ground_0_0.glb',
+                          'sha256': hashlib.sha256(b'declared').hexdigest()}]}
+    (tmp_path / 'brinecove' / 'build-report.json').write_text(json.dumps(report))
+    with pytest.raises(ValueError, match='differs from build-report.json'):
+        plan.ground_surface(tmp_path)
+    tile.unlink()
+    with pytest.raises(ValueError, match='missing or differs'):
+        plan.ground_surface(tmp_path)
