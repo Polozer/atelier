@@ -66,3 +66,18 @@ def test_every_staged_data_root_and_region_import_is_current():
     runtime_spec.loader.exec_module(runtime_data)
     assert {rel.split('/')[0] for rel in runtime_data.STAGED} <= policy.DATA_ROOTS
     assert {'Belmonte', 'Brinecove'} <= policy.ASSET_ROOTS
+
+
+def test_optional_music_survives_only_when_a_selector_enables_it(tmp_path, monkeypatch):
+    content = tmp_path / 'game' / 'unreal/Content'
+    track = content / 'Audio/Music/lofi_rain/Rainy Window.uasset'
+    metadata = content / 'Data/Music/library.json'
+    for path in (track, metadata):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'music')
+    for name in ('YORIMICHI_MUSIC', 'YORIMICHI_MUSIC_CATEGORIES', 'YORIMICHI_MUSIC_STYLES',
+                 'YORIMICHI_MUSIC_GROUPS', 'YORIMICHI_MUSIC_LIMIT'):
+        monkeypatch.delenv(name, raising=False)
+    assert set(policy.retired(content)) == {content / 'Audio/Music', content / 'Data/Music'}
+    monkeypatch.setenv('YORIMICHI_MUSIC_CATEGORIES', 'calm')
+    assert not list(policy.retired(content))

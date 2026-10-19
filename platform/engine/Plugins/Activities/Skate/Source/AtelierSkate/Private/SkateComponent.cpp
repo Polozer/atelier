@@ -130,6 +130,7 @@ void USkateComponent::LoadSounds()
     }
     LoopVolume.Init(0.f, Loops.Num());
     UE_LOG(LogTemp, Display, TEXT("SKATE sounds: %d one-shots, loops %d"), Waves.Num(), Loops.Num());
+    AudioReady.Broadcast(this);
 }
 
 void USkateComponent::PlaySurfaceCue(FName Cue, float Volume, float Pitch)

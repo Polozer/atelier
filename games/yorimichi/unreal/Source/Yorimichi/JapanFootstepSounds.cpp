@@ -3,6 +3,8 @@
 #include "Engine/World.h"
 #include "Sound/SoundWave.h"
 
+FJapanFootstepAudioReady UJapanFootstepComponent::AudioReady;
+
 bool UJapanFootstepComponent::CanSetSoundBank(const UJapanSoundBank* Replacement, FString& Error) const
 {
     Error.Reset();

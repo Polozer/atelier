@@ -76,10 +76,31 @@ editor invocations. The first preflights all media before rebuilding only
 `/Game/AudioBanks`, saves mono 48 kHz PCM/ForceInline waves and hard-reference data
 assets, and records a candidate with actual saved-package checksums. The second
 starts a fresh editor, repeats admission, verifies those unchanged packages and
-all loaded references, then publishes the registry. `data.stage` carries that
-registry into `Data/Soundbanks`; the owned packages are included in cooking and
+all loaded references, then publishes the registry. `data.soundbanks` carries that
+registry into `Data/Soundbanks`; general `data.stage` reads the staged product so
+packaging retains the complete dependency. Audio-only fixture staging therefore
+does not depend on world generation. The owned packages are included in cooking and
 preserved by content cleanup. A candidate receipt is never runtime metadata.
 
 This import increment does not install a menu selector or activate an alternative.
 Native execution, audible playback, client ownership, saved preferences and cooked
 package acceptance remain required for the first Original/Dry Street menu slice.
+
+The menu selector uses only entries in the installed registry, so stable selection
+numbers need not be contiguous. A local-world subsystem loads an alternative,
+checks the saved identity and all wave/pool/loop coverage, preflights every ready
+foot/skate emitter, saves the preference and commits on the game thread. Failed
+loads or saves keep the prior bank. New emitters subscribe at audio readiness;
+remote emitters use this client's choice. Nothing about that choice is replicated.
+Fresh Original performs no replacement or audition load. Its existing references,
+shuffle state, timing and mix remain the default.
+
+The explicit 16-second menu preview uses one owned nonspatial player. Changing the
+selection, closing or changing menu pages, backgrounding and world teardown stop
+both the player and any pending preview load. Selection and preview each have a
+generation token so an obsolete completion cannot take over the current session.
+Selection commits, preview completions and late emitters re-read the bounded staged
+registry and require its exact admitted snapshot; a change or removal refuses the
+new activation and asks for a restart. Cached entries are not activation authority.
+These are source guarantees pending native/menu/host-guest/package acceptance;
+the selector must not be advertised as delivered before that evidence exists.

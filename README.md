@@ -26,6 +26,8 @@ including the game itself while it plays.
 - **[Put a prop in the running game from a sentence](#a-prop-from-a-sentence)**, with no editor and no rebuild.
 - **[Get motion from text, video or motion capture](#motion-from-text-video-or-capture)**: local text-to-motion
   models, AI video references, body capture from footage, retargeted mocap.
+- **[Create sound effects locally](#sound-effects-from-a-prompt)**: Stable Audio on Apple silicon, listening review,
+  contact samples and loop preparation for your game.
 - **[Switch on ready-made mechanics](#building-blocks)**: skateboarding, effects and streaming, as Unreal
   plugins any game can enable.
 - **[Let agents drive the game](#agents-in-the-loop)**: run Python inside it, script QA checks, take screenshots and
@@ -103,9 +105,11 @@ Where to go next, in the order most games grow:
 3. **Your character.** Follow the [character pipeline](#a-character-from-a-prompt). The character goes in
    `assets/characters/<name>/` with a `character.toml` and follows the humanoid bone contract, so the platform's
    animation and gameplay code fits it.
-4. **Mechanics.** Switch on platform plugins in your `.uproject`: effects (`AtelierFX`), skateboarding (`Skate`; give
+4. **Your sounds.** Generate and review effects, then prepare one-shots and loops
+   ([sound effects from a prompt](#sound-effects-from-a-prompt)).
+5. **Mechanics.** Switch on platform plugins in your `.uproject`: effects (`AtelierFX`), skateboarding (`Skate`; give
    your character `ISkateRider`), streaming (`AtelierStream`). Each plugin's README says what your game provides.
-5. **Play anywhere.** Stream it to a browser or a phone ([play anywhere](#play-anywhere)).
+6. **Play anywhere.** Stream it to a browser or a phone ([play anywhere](#play-anywhere)).
 
 ## Workflows
 
@@ -190,35 +194,30 @@ def steps(ctx):
     ]
 ```
 
-An import that calls the game's C++, or saves its classes in assets, declares those modules:
-`UnrealScript(importer, 'GARDEN IMPORTED', modules=('GardenTools', 'GardenAssets'))`, needing their steps from
-[atelier.unreal_modules](platform/studio/atelier/unreal_modules.py). Its editor loads only those modules and what they
-need, so the import reruns when their compiled code or the project's config changes, not on every compile, and it stops
-if the script loads any other game module. A game keeps the types its imports save in small modules apart from its
-gameplay, so gameplay edits rebuild only the code.
+#### Build and iterate
 
-`atelier build <game> --list` shows every step; name one to run just it and what it needs. Yorimichi's
-[build.py](games/yorimichi/build.py) has examples from textures to a whole city, a harbour and three skate parks.
-For small rebuilds, name independently consumed products and declare which ones each step reads or merely
-references. Opted-in portable products are restored automatically from the local cache across worktrees; the
-[sandbox](games/sandbox/README.md) demonstrates independent geometry and placements without Unreal.
-Its explicit `spatial.demo` example also tracks nearby products: additions, removals and moves update the
-affected tiles, while distant edits and unread preview outputs leave them current.
-Python generators can opt into an input audit that catches undeclared reads and writes outside their products.
-`atelier build <game> --timings` shows historical execution, restore and instrumented phase durations;
-`--changes` lists differences between certified output inventories. Both inspect receipts without running a build.
-`--ddc` reads retained Unreal logs for cache configuration and recorded hit/miss counts, preserving unknowns.
-Named actions can declare exact optional source files, tracking their appearance and removal without depending on a whole directory.
-Signed source-product bundles can be verified and imported with an explicit publisher allowlist.
-[Optional HTTPS lookup](docs/ARTIFACT_POOL.md#fetch-signed-products-over-https) fills local cache misses and falls
-back to generation when the remote store is unavailable; the guide describes configuration and trust limits.
-An operator-controlled [Python producer](docs/ARTIFACT_POOL.md#export-from-a-trusted-python-producer) can build
-one approved audited action and export its signed bundle; this does not upload it.
-An explicit [upload command](docs/ARTIFACT_POOL.md#upload-an-approved-public-bundle) can publish a verified public
-V2 export to a compatible HTTPS object store, using a separate protected operator credential profile.
-[Build recipes](docs/BUILD_RECIPES.md) cover the API, audit limits, input checks and read-only reports.
-Opt-in compatible misses can share a guarded process while retaining individual results. If a batch exits 75
-(`BATCH YIELDED`), coordinate the next render turn and resume the printed command; completed actions stay current.
+Name a step to build it and its prerequisites, or inspect the plan before running anything:
+
+```sh
+uv run atelier build moon_garden --list                 # available steps
+uv run atelier build moon_garden world.garden          # one step and its prerequisites
+uv run atelier build moon_garden --plan --explain      # what would rebuild, and why
+```
+
+- **Rebuild what changed.** Declare each step's inputs and outputs. For larger worlds, split independently used
+  products so a change to one area does not regenerate the whole island.
+- **Keep completed work.** Leave generated outputs in place between builds. Opted-in portable products can also
+  be restored from the local cache across worktrees.
+- **Keep imports small.** If an import uses game C++ classes, declare its modules with
+  `UnrealScript(..., modules=('GardenTools', 'GardenAssets'))`. Small asset modules let gameplay code change
+  without repeating unrelated imports.
+- **Inspect slow builds.** `--timings` reports recorded durations, `--changes` compares certified output
+  inventories, and `--ddc` reads Unreal cache observations. These reports do not run a build.
+
+Start with [incremental builds](docs/INCREMENTAL_BUILDS.md). The [build recipe guide](docs/BUILD_RECIPES.md)
+covers products, module dependencies and input audits; [verified reuse and signed product sharing](docs/ARTIFACT_POOL.md)
+cover moving completed work between checkouts and machines. The [sandbox](games/sandbox/README.md) demonstrates
+small independent products, and Yorimichi's [build.py](games/yorimichi/build.py) has examples from textures to cities.
 
 ### A prop from a sentence
 
@@ -264,6 +263,31 @@ paying for a model.
 UniMate, Kimodo and GVHMR write one motion representation, so the
 [retargeting helpers](platform/web/motion/README.md) work on any of them.
 
+### Sound effects from a prompt
+
+Use the reusable [Stable Audio tools](platform/studio/atelier/ai/stable_audio) to make short sound effects locally
+on Apple silicon. Stable Audio 3 **Small-SFX** runs through the official MLX runtime: no paid inference API or
+model running inside the game. You install the model separately; the [setup guide](docs/STABLE_AUDIO.md#isolated-setup)
+records the tested runtime and weights.
+
+The workflow takes you from a description to samples you can choose for your game:
+
+1. **Describe the sounds.** Supply a catalog of prompts and seeds for footsteps, impacts, rolling, bird calls
+   or other effects. The runner records the model, settings and WAV checksums and resumes verified completed takes.
+2. **Listen and compare.** The [audio review page](platform/web/audio-review) lets you filter clips, repeat loops,
+   mark favourites and export a shortlist. Its motion audition simulates footstep cadence and skating speed for
+   listening; it is separate from in-game QA.
+3. **Prepare game samples.** Extract individual contacts and landing impacts, or sustained rolling and slide
+   loops with crossfades. The processor writes mono 48 kHz / 16-bit WAV candidates with source intervals and
+   processing provenance, keeping the original takes.
+4. **Choose and integrate.** Listen for the right material, timing and artifacts, then add the accepted sources
+   to your game's normal audio build and import steps. Sample preparation does not automatically replace game sounds.
+
+The tools live in the platform; each game supplies its catalog and sound mappings. Yorimichi's
+[example catalog](games/yorimichi/assets/audio/stable_audio_review.json) covers footsteps, skating, birds and voices.
+The [sound-effects guide](docs/STABLE_AUDIO.md) has the setup and guarded generation commands, sample preparation
+and browser review workflow.
+
 ### Agents in the loop
 
 The **live bridge** is how agents work on a running game. `atelier live py` runs Python inside it: spawn and move
@@ -295,11 +319,13 @@ Tailscale. `/play/` is the plain player, and `/` serves the game's own touch pag
 |---|---|---|
 | Studio | [platform/studio](platform/studio/atelier) | The `atelier` command, incremental builds, verified reuse, asset tools, live QA and releases |
 | Harness | [platform/harness](platform/harness) | Agent messaging and session delivery, the operator board, resource admission and process guards |
-| AI runners | [platform/studio/atelier/ai](platform/studio/atelier/ai) | Tripo and image generation, UniMate, Kimodo and GVHMR, and the ledger every paid call goes through |
+| AI runners | [platform/studio/atelier/ai](platform/studio/atelier/ai) | Tripo and image generation, local motion and sound generation, and the ledger every paid call goes through |
+| Sound effects | [Stable Audio tools](platform/studio/atelier/ai/stable_audio), [audio review](platform/web/audio-review) | local Small-SFX generation, listening comparisons, contact extraction and loop preparation; each game owns its accepted sounds |
 | Engine plugins | [platform/engine/Plugins](platform/engine/Plugins) | core runtime data, animation nodes (foot planting, sailboat stance, bike grip), effects, skateboarding, streaming, the live bridge |
 | Skating | [Skate](platform/engine/Plugins/Activities/Skate/README.md) | C++ board and rider physics, Flick-It, animation, tricks, camera |
 | Stream pages | [platform/web/stream](platform/web/stream/README.md) | the stream server, the plain player, touch controls for game pages |
 | Motion helpers | [platform/web/motion](platform/web/motion/README.md) | retargeting generated motion onto a game's rig |
+| Music | [docs/SUNO_API.md](docs/SUNO_API.md) | the internal Suno flow used to generate and decrypt instrumental game tracks |
 | Conventions | [platform/conventions](platform/conventions) | units and axes, the humanoid bone contract, clip roles, sound cues, naming |
 | Games | [games/sandbox](games/sandbox/README.md), [games/yorimichi](games/yorimichi/README.md) | the smallest game (the template for `atelier new`), and a full one |
 

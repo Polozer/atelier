@@ -63,7 +63,8 @@ def test_footstep_bank_profile_revalidation_witness():
     witness = json.loads((game / 'assets/audio/profile/footstep-bank-revalidation.json').read_text())
     assert witness['version'] == 1
     assert witness['before_sha256'] == '26e57e1a9589b2d73521ea3b7e3cdcf9fad3322aa0f4a753686f3f0f86e36e80'
-    assert witness['after_sha256'] == sequences.RUNTIME[witness['source']]
+    follow = json.loads((game / 'assets/audio/profile/menu-ready-revalidation.json').read_text())
+    assert witness['after_sha256'] == next(row['before_sha256'] for row in follow['sources'] if row['source'] == witness['source'])
     text = (sequences.REPO / witness['source']).read_text()
     assert set(witness['unchanged_function_bodies']) == {'SurfaceAt', 'Plant', 'Land', 'TickComponent'}
     for name, expected in witness['unchanged_function_bodies'].items():
@@ -75,6 +76,26 @@ def test_footstep_bank_profile_revalidation_witness():
                 break
         assert depth == 0
         assert sequences.hashlib.sha256(text[start:end + 1].encode()).hexdigest() == expected
+
+
+def test_ready_notifications_preserve_exact_contact_and_skate_profile_bodies():
+    game = SOURCE.parents[1]
+    witness = json.loads((game / 'assets/audio/profile/menu-ready-revalidation.json').read_text())
+    assert witness['version'] == 1 and witness['parent'] == '60e953aa664867713d23009e4a2a8e2af2d78f2d'
+    assert len(witness['sources']) == 2
+    for row in witness['sources']:
+        path = sequences.REPO / row['source']
+        assert row['after_sha256'] == sequences.RUNTIME[row['source']] == sequences.digest(path)
+        text = path.read_text()
+        for name, expected in row['unchanged_function_bodies'].items():
+            start = text.index('{', text.index(row['owner'] + '::' + name + '('))
+            depth = 0
+            for end in range(start, len(text)):
+                depth += (text[end] == '{') - (text[end] == '}')
+                if depth == 0:
+                    break
+            assert depth == 0
+            assert sequences.hashlib.sha256(text[start:end + 1].encode()).hexdigest() == expected
 
 
 def test_missing_surface_or_modified_candidate_fails(prepared):

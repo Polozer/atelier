@@ -74,11 +74,29 @@ def update(root, catalog, manifest):
 def test_original_delegates_without_rewriting_legacy_sources(tmp_path):
     path = GAME / 'assets/audio/soundbanks/catalog.json'
     before = path.read_bytes()
-    result = banks.prepare(path, tmp_path / 'products')
+    # Preserve the Original-only producer control as the real catalog gains alternatives.
+    isolated = tmp_path / 'original-source/catalog.json'
+    isolated.parent.mkdir()
+    original = json.loads(before)['banks'][0]
+    write(isolated, {'version': 1, 'default': 'original', 'banks': [original]})
+    result = banks.prepare(isolated, tmp_path / 'products')
     assert result['default'] == 'original'
     assert result['banks'] == [{'id': 'original', 'name': 'Original', 'selection': 0, 'legacy': True}]
     assert not (tmp_path / 'products/media').exists()
     assert path.read_bytes() == before
+
+
+def test_dry_street_committed_contacts_have_distinct_take_provenance():
+    root = GAME / 'assets/audio/soundbanks'
+    admitted = banks.catalog(root / 'catalog.json')
+    assert admitted['default'] == 'original' and admitted['banks'][0]['legacy'] is True
+    entry = next(b for b in admitted['banks'] if b['id'] == 'dry_street')
+    assert entry['selection'] == 2
+    source = json.loads((root / 'dry_street/bank.json').read_text())
+    for surface in banks.FOOT_SURFACES:
+        names = source['cues']['footstep.' + surface]
+        assert len({source['sources'][n]['provenance']['raw_sha256'] for n in names}) >= 2
+    assert sum(s['bytes'] for s in entry['sources'].values()) <= 4 * 1024 * 1024
 
 
 def test_coverage_tracks_actual_legacy_materials_and_skate_surface_slots():
