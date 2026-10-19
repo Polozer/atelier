@@ -65,7 +65,8 @@ def test_ignored_or_unmeasured_launch_cannot_pass(capture, speed, state, message
 
 
 @pytest.mark.parametrize('external_build', [False, True])
-def test_capture_hashes_generated_and_game_inputs_before_render_admission(capture, tmp_path, monkeypatch, external_build):
+@pytest.mark.parametrize('memory_gib', [10., 18., 24.])
+def test_capture_hashes_generated_and_game_inputs_before_render_admission(capture, tmp_path, monkeypatch, external_build, memory_gib):
     game = tmp_path / 'checkout/games/yorimichi'
     project = game / 'unreal'
     output = tmp_path / ('cache/yorimichi' if external_build else 'checkout/build/yorimichi')
@@ -87,14 +88,22 @@ def test_capture_hashes_generated_and_game_inputs_before_render_admission(captur
         pass
 
     def stop_at_admission(command, folder, **options):
+        assert options['kind'] == 'game' and options['limit_gib'] == memory_gib
         raise AtAdmission(options['purpose'])
 
     monkeypatch.setattr(capture.guarded, 'run', stop_at_admission)
     with pytest.raises(AtAdmission):
-        capture.capture('manifest-test', 'pier', {'seconds': 1})
+        capture.capture('manifest-test', 'pier', {'seconds': 1}, memory_gib=memory_gib)
     manifest = json.loads((output / 'captures/manifest-test/pier/manifest.json').read_text())
     world_key = '../../../cache/yorimichi/world.json' if external_build else '../../build/yorimichi/world.json'
     assert manifest['scene_sha256'] == {
         world_key: hashlib.sha256(b'world').hexdigest(),
         'unreal/Content/Japan/Terrain.uasset': hashlib.sha256(b'terrain').hexdigest(),
     }
+
+
+@pytest.mark.parametrize('memory_gib', [9.999, 24.001, float('nan'), float('inf')])
+def test_capture_refuses_invalid_memory_before_inspection(capture, monkeypatch, memory_gib):
+    monkeypatch.setattr(capture, 'other_render_processes', lambda: pytest.fail('invalid ceiling inspected processes'))
+    with pytest.raises(ValueError, match='10 and 24 GiB'):
+        capture.capture('invalid', 'shot', {}, memory_gib=memory_gib)

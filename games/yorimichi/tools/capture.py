@@ -22,6 +22,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 from benchmark import other_render_processes
 from desktop_preview import renderer_arguments
 from atelier.engine import unreal_root
+from atelier.play_limits import GAME_GIB, GAME_MAX_GIB
 from atelier.provenance import head
 from atelier.harness.safety import guarded
 
@@ -70,14 +71,14 @@ def verify_launches(spec, rows, fps):
     return launches
 
 
-def capture(session, name, spec, scout=False, *, allow_visual_overlap=False, memory_gib=10.):
+def capture(session, name, spec, scout=False, *, allow_visual_overlap=False, memory_gib=GAME_GIB):
     """@cc [owner:fontanierh,label:safety] capture-session-memory
-    The selected 10–14 GiB ceiling MUST be recorded and passed to the common
+    The selected 10–24 GiB ceiling MUST be recorded and passed to the common
     guarded lifecycle. The default MUST remain 10 GiB; invalid ceilings MUST
     fail before creating a capture or requesting admission.
     """
-    if type(memory_gib) not in (int, float) or not math.isfinite(memory_gib) or not 10. <= memory_gib <= 14.:
-        raise ValueError('Capture memory ceiling must be between 10 and 14 GiB')
+    if type(memory_gib) not in (int, float) or not math.isfinite(memory_gib) or not GAME_GIB <= memory_gib <= GAME_MAX_GIB:
+        raise ValueError(f'Capture memory ceiling must be between {GAME_GIB:g} and {GAME_MAX_GIB:g} GiB')
     busy=other_render_processes()
     if busy and not allow_visual_overlap: raise RuntimeError(f'Other render jobs active: {busy}')
     folder=yori.OUT/'captures'/session/name
@@ -164,7 +165,7 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('session');p.add_argument('--shots',default='');p.add_argument('--scout',action='store_true')
     p.add_argument('--file',default=str(Path(__file__).with_name('shots.json')),help='shot list (the September trailer\'s by default)')
-    p.add_argument('--memory-gib',type=float,default=10.,help='guarded game memory ceiling, 10 to 14 GiB')
+    p.add_argument('--memory-gib',type=float,default=GAME_GIB,help=f'guarded game memory ceiling, {GAME_GIB:g} to {GAME_MAX_GIB:g} GiB')
     a=p.parse_args()
     shots=json.loads(Path(a.file).read_text())
     for name in a.shots.split(',') if a.shots else shots:
