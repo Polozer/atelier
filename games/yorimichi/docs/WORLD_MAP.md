@@ -268,6 +268,11 @@ the real guest. The guest uses the ordinary map resolver and authoritative trave
 RPC. The host must observe admission and clean disconnect; both games must exit.
 No live bridge, forced placement, authority bypass or personal saves are used.
 
+Two warm editors can exceed the default 10 GiB aggregate. `--memory-gib N` (10 to 14,
+the `atelier play` range) raises one session's ceiling for the aggregate guard, its
+admission reservation and each game's guard alike; the default stays 10 GiB and the
+chosen value is recorded in `checks.json`.
+
 Each native tour records the settled feet, actual runtime yaw, walkable supporting
 floor and standing capsule clearance. The checker compares both roles with the
 staged destination, not just self-reported target coordinates. Source, compiled

@@ -119,3 +119,67 @@ def test_guest_clean_exit_can_precede_host_disconnect_receipt(monkeypatch, failu
         run()
         assert polls[0] == 2  # Guest was already exited during both pre-receipt polls.
         assert host_receipt[0]
+
+
+@pytest.mark.parametrize('value, limit', [('10', 10.), ('12.5', 12.5), ('14', 14.)])
+def test_memory_ceiling_accepts_the_documented_game_range(value, limit):
+    from review_map_network import memory_limit
+    assert memory_limit(value) == limit
+
+
+@pytest.mark.parametrize('value', ['9.9', '14.1', '0', '-12', 'nan', 'inf', '1e400', 'twelve', ''])
+def test_memory_ceiling_rejects_values_outside_the_game_range(value):
+    import argparse
+    from review_map_network import memory_limit
+    with pytest.raises(argparse.ArgumentTypeError):
+        memory_limit(value)
+
+
+@pytest.mark.parametrize('argv, limit', [([], 10.), (['--memory-gib', '14'], 14.), (['--memory-gib', '12.5'], 12.5)])
+def test_selected_ceiling_reaches_the_aggregate_guard_and_the_worker(tmp_path, monkeypatch, argv, limit):
+    import review_map_network as review
+    calls = []
+    monkeypatch.setattr(review, 'require_clean_source', lambda: 'rev')
+    monkeypatch.setattr(review, 'Context', lambda game: None)
+    monkeypatch.setattr(review, 'current_native_build', lambda ctx: 'binary')
+    monkeypatch.setattr(review, 'current_data', lambda ctx, zone: {})
+    monkeypatch.setattr(review.guarded, 'run', lambda command, folder, **options: calls.append((command, options)) or 0)
+    monkeypatch.setattr(sys, 'argv', ['review', '--zone', 'indoor', '--out', str(tmp_path / 'run'), *argv])
+    assert review.main() == 0
+    (command, options), = calls
+    assert options['limit_gib'] == limit and options['aggregate_tree'] is True and options['timeout'] == 260
+    assert command[command.index('--memory-gib')+1] == f'{limit:g}' and '--worker' in command
+
+
+def test_main_refuses_an_out_of_range_ceiling_before_any_launch(tmp_path, monkeypatch):
+    import review_map_network as review
+    monkeypatch.setattr(review.guarded, 'run', lambda *a, **k: pytest.fail('launched'))
+    monkeypatch.setattr(sys, 'argv', ['review', '--zone', 'indoor', '--out', str(tmp_path / 'run'), '--memory-gib', '18'])
+    with pytest.raises(SystemExit) as stop:
+        review.main()
+    assert stop.value.code == 2
+
+
+@pytest.mark.parametrize('limit', [10., 14.])
+def test_worker_gives_each_actual_game_guard_the_selected_ceiling(tmp_path, monkeypatch, limit):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    import review_map_network as review
+    seen = []
+
+    @contextmanager
+    def attach(pid, report, duration, limit_gib=None):
+        seen.append((pid, duration, limit_gib))
+        yield None
+
+    ctx = SimpleNamespace(unreal_app='editor', uproject='game.uproject')
+    monkeypatch.setattr(review, 'require_clean_source', lambda: 'rev')
+    monkeypatch.setattr(review, 'Context', lambda game: ctx)
+    monkeypatch.setattr(review, 'current_native_build', lambda ctx: 'binary')
+    monkeypatch.setattr(review, 'current_data', lambda ctx, zone: {'expected': {}})
+    monkeypatch.setattr(review, 'spawn_game', lambda cmd, **k: SimpleNamespace(pid=4242))
+    monkeypatch.setattr(review, 'reap', lambda game: None)
+    monkeypatch.setattr(review, 'attach', attach)
+    with pytest.raises(RuntimeError, match='Actual-child guard unavailable: host'):
+        review.worker(tmp_path, 'indoor', 7777, limit)
+    assert seen == [(4242, 240, limit)]

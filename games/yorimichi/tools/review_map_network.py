@@ -20,6 +20,7 @@ import time
 
 from atelier import paths
 from atelier.build import Context
+from atelier.play_limits import GAME_GIB, GAME_MAX_GIB
 from atelier.harness.safety import guarded
 from atelier.harness.safety.guard import attach, reap
 from atelier.harness.safety.process import spawn_game
@@ -90,6 +91,17 @@ def current_data(ctx, zone):
                 identity=identity['signature'], stage_fingerprint=stage['fingerprint'])
 
 
+def memory_limit(value):
+    """One session ceiling, inside the documented game range, for both the aggregate and each editor."""
+    try:
+        limit = float(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(f'must be {GAME_GIB:g} to {GAME_MAX_GIB:g} GiB') from None
+    if not (math.isfinite(limit) and GAME_GIB <= limit <= GAME_MAX_GIB):
+        raise argparse.ArgumentTypeError(f'must be {GAME_GIB:g} to {GAME_MAX_GIB:g} GiB')
+    return limit
+
+
 def read(path):
     try:
         return json.loads(path.read_text())
@@ -120,7 +132,7 @@ def wait_for_native(label, condition, active, started, expected_exit=None):
     raise RuntimeError('Native map travel deadline expired')
 
 
-def worker(out, zone, port):
+def worker(out, zone, port, limit_gib=GAME_GIB):
     """@cc [owner:fontanierh,label:correctness] native-map-travel-acceptance
     Both native local players MUST use the ordinary map resolver and guest RPC.
     Evidence MUST bind current clean source, compiled modules and staged destination;
@@ -153,7 +165,7 @@ def worker(out, zone, port):
             game = spawn_game(cmd, stdout=log, stderr=subprocess.STDOUT)
             games.append((role, game))
             stack.callback(reap, game)
-            monitor = stack.enter_context(attach(game.pid, root / 'memory.json', duration=240, limit_gib=10))
+            monitor = stack.enter_context(attach(game.pid, root / 'memory.json', duration=240, limit_gib=limit_gib))
             if monitor is None:
                 raise RuntimeError('Actual-child guard unavailable: '+role)
             return game, monitor
@@ -184,7 +196,7 @@ def worker(out, zone, port):
     checks['source_unchanged'] = source_revision() == revision
     checks['native_binary_unchanged'] = current_native_build(ctx) == binary
     checks['staged_data_unchanged'] = current_data(ctx, zone) == data
-    report = dict(source=revision, native_build=binary, staged=data, zone=zone, passed=all(checks.values()), checks=checks,
+    report = dict(source=revision, native_build=binary, staged=data, zone=zone, memory_gib=limit_gib, passed=all(checks.values()), checks=checks,
                   scope=__doc__.strip())
     (out / 'checks.json').write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps(checks), flush=True)
@@ -197,6 +209,8 @@ def main():
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--port', type=int, help=argparse.SUPPRESS)
+    parser.add_argument('--memory-gib', type=memory_limit, default=GAME_GIB,
+                        help=f'session memory ceiling for the aggregate and each game, {GAME_GIB:g} (the default) to {GAME_MAX_GIB:g} GiB')
     args = parser.parse_args()
     if not re.fullmatch(r'[a-z][a-z0-9_]{0,63}', args.zone):
         parser.error('Choose an authored static zone key')
@@ -204,7 +218,7 @@ def main():
     if args.worker:
         if args.port is None or not 1 <= args.port <= 65535:
             parser.error('Private worker requires its reserved native port')
-        return worker(root, args.zone, args.port)
+        return worker(root, args.zone, args.port, args.memory_gib)
     require_clean_source()
     ctx = Context('yorimichi')
     current_native_build(ctx)
@@ -216,8 +230,9 @@ def main():
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
     return guarded.run([sys.executable, str(Path(__file__).resolve()), '--worker', '--zone', args.zone,
-                        '--out', str(root), '--port', str(port)], root / 'guard', kind='game',
-                       timeout=260, progress=15, aggregate_tree=True)
+                        '--out', str(root), '--port', str(port), '--memory-gib', f'{args.memory_gib:g}'],
+                       root / 'guard', kind='game', timeout=260, progress=15, aggregate_tree=True,
+                       limit_gib=args.memory_gib)
 
 
 if __name__ == '__main__':
