@@ -4,7 +4,8 @@ Races run in the world on the rules of the `HorseRacing` game plugin
 (`games/yorimichi/unreal/Plugins/HorseRacing`, module `AtelierHorseRacing`): a continuous clock with one race day
 every two real hours and up to six races a day, computer stables, jockeys and Grand Prix days. Yorimichi shows the
 races at two racecourses, the same for every player. Four TVs in Belmonte show the races live, and the Salon des Paris
-takes win bets ("gagnant") from every player's wallet. Player stables come later.
+takes win bets ("gagnant") from every player's wallet. Each player has a stable of their own: Belmonte's "Votre écurie"
+estate for the host's player, the Hidamari stable for the next one.
 
 ## The service
 
@@ -175,6 +176,63 @@ a day and three tickets a race (`FBetLimits`).
 - **Persistence.** The host's player's coins and tickets are part of the racing world and saved with it (`HRSave`
   admission); a session player's are not.
 
+## Stables
+
+Racing V1 gives each player a stable at once, free, with no quest; racing stays optional and the world lives on its own
+(the computer stables race whatever the players do). Management is light, "stats without menus": what a player needs to
+know hangs on the stable itself, read close up, and a small overlay only chooses, sorts and confirms. The rules decide
+everything (`HRRules`: `BuyStable`, `FoundStable`, `SetResting`, `BuyHorse`, `ListHorse`, `BreedPlayer`, `HireRider`,
+`ListRider`, `ReleaseRider`, the day's close for upkeep and salaries); `RacingStables` (`RacingStables.h/.cpp`) only asks
+them and says their answers in French. Money is the wallet's pièces; Henry's economy is unchanged.
+
+- **The sites** (`RacingStables::Sites()`, in the order they are given): `belmonte`, Haras Valley's estate 0 (Val d'Oro,
+  the existing building signed "Votre écurie"), which is the rules' stable for sale `old_mill`, renamed "Écurie de la
+  Vallée"; then `hidamari`, the new Hidamari stable (陽だまり厩舎, `world/regions/hidamari_stable`), stable id `hidamari`,
+  "Écurie Hidamari". **Assignment:** when a player registers, the host gives them the first site no player owns that they
+  may claim: Belmonte is for the host's own (persistent) player only, Hidamari for any player, so the host's player gets
+  Belmonte and the next player Hidamari, whoever connects first. The stable for sale is bought for them with its three
+  riders, a missing one founded (under the stand-in player `site:<id>`, then given to them), an unowned one taken over;
+  the rules' price is lent and the balance restored, so it is free. Its jockeys ride (`bRides` off). A third player gets
+  none in V1. Changing who gets what is changing the table.
+- **Guests** have no persistent identity yet: a guest's stable is theirs for the session. When they leave (or in what
+  is saved, `PersistentWorld`), it goes back to the world as a computer stable that keeps its horses and jockeys and
+  races on; the next guest takes it over. The host's player's stable, horses, jockeys and coins are saved with the world
+  (`HRSave` admission).
+- **In the world** (`ARacingStableBoards`, drawn on every machine for its own player, never on a dedicated server, and
+  only within 45 m of their stable): a name plate on every stall door (the horse's name, sex, age, card score, the four
+  abilities, form, record, status and today's race), the jockeys' board (the three jockeys: country, age, the four stats
+  and their overall, salary, record, the day's salaries and costs) and the transfer board (the listed and free jockeys,
+  horses for sale). At Belmonte the plates hang on the eleven stall doors of the stable range's yard front and the boards
+  either side of its main door (Haras Valley's `estates.json`, estate 0), derived from the estate's committed placement
+  (`SM_BM_BE_0_Stables`) by `world/regions/belmonte/build.py` (`BELMONTE_STABLE`) into `runtime.json`'s
+  `racing_places.belmonte_stable`, with no hardcoded fallback; at Hidamari on its stall plates and its office's
+  cork board, halved (its `stable.json`, only while `AHidamariStable` stands in the world: its committed
+  `bEnabled` switch on and its import run). World text is Latin-1.
+- **The Hidamari stable is disabled for now.** Its geometry and runtime (#475) are behind committed switches
+  (`hidamari_stable/layout.py` `ENABLED = False`, `AHidamariStable::bEnabled`), and its three build steps are explicit.
+  The second player is still assigned the `hidamari` stable in the rules (its horses and jockeys race, and its
+  host-validated requests work through the live `racing_stable_act` call), but it has no plates, boards, prompts or
+  overlay in the world until the stable is enabled: `RacingStables::SiteAnchors` returns none while no
+  `AHidamariStable` stands in the world. Enabling it is a separate change: flip both switches, put `world.hidamari_stable` and `unreal.hidamari_stable`
+  into the default chain (not explicit) and their outputs into staging/cook, and rebuild the terrain chain that reads
+  `hidamari_stable/layout.py` (`world.layout`, `world.hippodrome`, `world.belmonte`, `world.terrain` and the Unreal
+  imports after them): a full world rebuild. The content policy already keeps `HidamariStable`/`hidamari_stable` (#482).
+- **Actions.** Within reach of a plate or board the HUD offers it and Interact (D-pad Down, E) opens the overlay, a
+  narrow panel in the betting window's forest and brass: at a plate, enter the horse for the coming race days or rest it
+  (the rules enter a stable's best three non-resting horses each day), put it up for sale at its value or withdraw it
+  (another stable buys it at a day's close), or cover it (a partner of the other sex from the stable or another stable,
+  the service plus the fee; the foal is born in the stable after the rules' gestation); at the jockeys' board, list a
+  jockey for transfer at its value, take it off, or release it; at the transfer board, sign a listed jockey (its price
+  to its stable, the offer the rules accept at once) or a free agent, or buy a market recruit or a listed horse. Up and
+  down choose, the bottom button acts (twice when it costs or commits), the right button goes back, the bumpers switch
+  the transfer board between jockeys and horses, the left button sorts by price or rating. Salaries and upkeep are paid
+  from the wallet at each day's close; a jockey who cannot be paid leaves.
+- **Authority.** `URacingStableDesk`, on every player controller, carries the stable's view (`FRacingStableView`) and,
+  while its owner is at their stable or has the overlay open, the market (`FRacingStableMarket`), both replicated to the
+  owner only. A request (`FRacingStableRequest`: the action, a target, another) goes to the host (`ServerRequest`), which
+  checks its sizes and action, at most five a second, then `ARacingService::ApplyStableRequest` asks the rules and
+  answers (`ClientReply`, the refusal in French). The host rebuilds the views twice a second and when the world changes.
+
 ## HUD
 
 Inside a racecourse's grounds the HUD shows one English line at the top: the next race and its countdown, "Race in
@@ -192,6 +250,7 @@ racing.Go hidamari|belmonte # stand by the post of a racecourse
 racing.Save                 # write the world now
 racing.Tv osteria_front     # stand at a TV's watch point (osteria_front, osteria_back, salon_paris, salon_bar)
 racing.TvCapture 0          # keep the TVs' capture off (the idle card only), to measure it
+racing.Stable plate 0       # stand before a plate (plate <n>), the jockeys' board (jockeys) or the transfer board (transfers)
 ```
 
 Launch flags: `-racingnext`, `-racingseed=`, `-racingsave=`. The live bridge has `unreal.RacingLive.racing_state()`
@@ -199,7 +258,9 @@ Launch flags: `-racingnext`, `-racingseed=`, `-racingsave=`. The live bridge has
 `racing_view_point(along, outwards)` (a point by the course and the yaw facing it), `racing_tv_state()` (JSON: the screens,
 whether the capture is live, the shot, the nearest screen, frame and GPU times), `racing_tv_go(spot)`, `racing_wallet()`
 (JSON: the local wallet, the race card, the last answer, whether the player is at the counter and the window's
-selection), `racing_counter_go()` and `racing_bet(race, horse, stake)` (a request as the window sends it).
+selection), `racing_counter_go()` and `racing_bet(race, horse, stake)` (a request as the window sends it). `unreal.RacingStableLive`:
+`racing_stable()` (JSON: the stable, its horses and jockeys, the market, the boards shown, the prompt and the overlay),
+`racing_stable_go(spot)`, `racing_stable_open()` and `racing_stable_act(action, target, other)`.
 `unreal.YorimichiLive.pad_input('Gamepad_DPad_Down', 1)` then `0` presses Interact through the gamepad mapping; the
 window takes the same pad keys.
 
@@ -217,6 +278,13 @@ screens round the region origin, the osteria's watch point on its map stop, each
 the reveal after the post, settled once), `BetRefund` (a race not run, a non-runner), `BetPreview` (the next day from a copy, the world untouched, the same races and first start as the day the rules
 open), `BetPersistence` (the host's
 wallet and ticket saved and reloaded, a guest's never written) and `BetRequest` (owner-only replication, a guest's
-request and answer over the wire, refusals, the closed race, the result line). `uv run pytest
+request and answer over the wire, refusals, the closed race, the result line); `StableAssign` (the host's player Belmonte, a guest Hidamari whoever comes first, free, three
+jockeys, none for a third, a guest's stable back to the world and taken over), `StableEntry` (rest and enter through the
+next race day, refusals, the plate's text), `StableTrade` (market and listed horses bought and paid, sale and withdrawal),
+`StableBreed` (partners, cost, refusals, the foal born in the stable), `StableJockeys` (the board, listing, release,
+a transfer paid to the seller, the refusals, salaries at the day's close and an unpaid jockey leaving), `StableRequest`
+(owner-only replication, a guest's request and answer over the wire, refusals), `StablePersistence` (the host's stable
+saved and reloaded, a guest's left to the world and taken back), `StablePlaces` (the Belmonte plates and boards on the
+estate's front, reach, Hidamari's from its file) and `StableFrench`. `uv run pytest
 games/yorimichi/tests/test_racing_courses.py -q` checks the committed course data, the simplification and the staging;
 `test_racing_assets.py` the asset validation and its lists against the service's.

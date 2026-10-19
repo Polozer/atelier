@@ -16,6 +16,7 @@
 #include "PlayableCharacter.h"
 #include "RacingBetting.h"
 #include "RacingBroadcast.h"
+#include "RacingStables.h"
 #include "WandererDefinition.h"
 #include "WandererCharacter.h"
 #include "Animation/AnimSequence.h"
@@ -629,6 +630,7 @@ void ARacingService::RegisterPlayers()
 {
     const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState() : nullptr;
     if (!GS) return;
+    TSet<FString> Present;
     for (APlayerState* PS : GS->PlayerArray)
     {
         if (!PS) continue;
@@ -637,12 +639,24 @@ void ARacingService::RegisterPlayers()
         // wallet for this session that is never saved (PersistentWorld), and nothing it could own for longer
         // (docs/RACING.md, "Players").
         const FString Id = PlayerIdOf(Cast<AController>(PS->GetOwner()));
+        Present.Add(Id);
         if (Id.IsEmpty() || Registered.Contains(Id)) continue;
         Registered.Add(Id);
         // Not the player name: offline it is the machine's network name.
         const AJapanPlayerState* JPS = Cast<AJapanPlayerState>(PS);
         const FString Name = JPS ? JPS->RiderName : FString();
         RegisterPlayer(Id, Name.IsEmpty() ? FString(TEXT("Player")) : Name);
+    }
+    // A guest who left gives their stable back to the world, which runs it until a player takes it again.
+    TArray<FString> Gone;
+    for (const FHRStable& St : State.Stables)
+        if (IsSessionPlayer(St.OwnerPlayerId) && !Present.Contains(St.OwnerPlayerId)) Gone.Add(St.OwnerPlayerId);
+    for (const FString& Id : Gone)
+    {
+        RacingStables::Release(State, Id);
+        Registered.Remove(Id);
+        bDirty = true;
+        UE_LOG(LogTemp, Display, TEXT("RACING STABLE %s left: its stable goes back to the world"), *Id);
     }
 }
 
@@ -1160,11 +1174,22 @@ FString ARacingService::PlayerIdOf(const AController* Controller)
 bool ARacingService::RegisterPlayer(const FString& PlayerId, const FString& Name)
 {
     if (!bHasWorld || PlayerId.IsEmpty() || PlayerId.Len() > HRSave::MaxIdChars) return false;
-    if (HRRules::FindPlayer(State, PlayerId)) return true;
-    HRRules::AddPlayer(State, PlayerId, Name.Left(64));
-    // A session player is never saved: it does not make the world dirty.
-    if (!IsSessionPlayer(PlayerId)) bDirty = true;
-    UE_LOG(LogTemp, Display, TEXT("RACING player registered: %s (%s)%s"), *PlayerId, *Name, IsSessionPlayer(PlayerId) ? TEXT(", this session only") : TEXT(""));
+    if (!HRRules::FindPlayer(State, PlayerId))
+    {
+        HRRules::AddPlayer(State, PlayerId, Name.Left(64));
+        // A session player is never saved: it does not make the world dirty.
+        if (!IsSessionPlayer(PlayerId)) bDirty = true;
+        UE_LOG(LogTemp, Display, TEXT("RACING player registered: %s (%s)%s"), *PlayerId, *Name, IsSessionPlayer(PlayerId) ? TEXT(", this session only") : TEXT(""));
+    }
+    // Every player gets a stable at once (docs/RACING.md, "Stables"): the host's player Belmonte's, the next one Hidamari's.
+    if (!HRRules::PlayerStable(State, PlayerId))
+    {
+        const FString Refusal = RacingStables::Assign(State, PlayerId);
+        const FHRStable* Stable = HRRules::PlayerStable(State, PlayerId);
+        UE_LOG(LogTemp, Display, TEXT("RACING STABLE %s: %s"), *PlayerId, Stable ? *FString::Printf(TEXT("%s (%s)"), *Stable->Name, *Stable->Id) : *Refusal);
+        // The stable itself is part of the world (a guest's stays when they leave, run by the world): always saved.
+        if (Stable) bDirty = true;
+    }
     return true;
 }
 
@@ -1331,6 +1356,8 @@ void ARacingService::BuildPreview(const FHRWorldState& S, FRacingCardPreview& Ou
 FHRWorldState ARacingService::PersistentWorld(const FHRWorldState& S)
 {
     FHRWorldState Out = S;
+    // A guest's stable stays in the world as a computer stable (they have no identity to come back with yet).
+    RacingStables::ReleaseSessionStables(Out);
     for (auto It = Out.Players.CreateIterator(); It; ++It)
         if (IsSessionPlayer(It.Key())) It.RemoveCurrent();
     Out.Tickets.RemoveAll([](const FHRTicket& T) { return IsSessionPlayer(T.PlayerId); });
@@ -1384,6 +1411,37 @@ void ARacingService::RefreshWallets()
             Wallet->HostSetCard(Card);
         }
     }
+    // The stables (docs/RACING.md, "Stables"): each owner's view, and the market while they are at their stable.
+    for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+    {
+        URacingStableDesk* Desk = URacingStableDesk::Of(It->Get());
+        if (!Desk) continue;
+        Desk->HostPlayerId = PlayerIdOf(It->Get());
+        FRacingStableView View;
+        RacingStables::BuildView(State, Desk->HostPlayerId, View);
+        Desk->HostSetView(View);
+        if (Desk->WantsMarket())
+        {
+            FRacingStableMarket Market;
+            RacingStables::BuildMarket(State, Desk->HostPlayerId, Market);
+            Desk->HostSetMarket(Market);
+        }
+    }
+}
+
+FString ARacingService::ApplyStableRequest(const FString& PlayerId, const FRacingStableRequest& Request)
+{
+    if (!HasAuthority() || !bHasWorld) return TEXT("L'écurie est fermée pour le moment.");
+    const FString Refusal = RacingStables::Apply(State, PlayerId, Request);
+    const FHRPlayer* Player = HRRules::FindPlayer(State, PlayerId);
+    UE_LOG(LogTemp, Display, TEXT("RACING STABLE %s action=%d target=%s other=%s coins=%d%s%s"), *PlayerId, Request.Action, *Request.Target, *Request.Other,
+        Player ? Player->Coins : -1, Refusal.IsEmpty() ? TEXT(" done") : TEXT(" refused: "), *Refusal);
+    if (!Refusal.IsEmpty()) return Refusal;
+    // The stable is the world's (a guest's too): saved.
+    bDirty = true;
+    RefreshWallets();
+    if (GetWorld()) Publish(false);
+    return FString();
 }
 
 void ARacingService::AdvanceClock(double Seconds)

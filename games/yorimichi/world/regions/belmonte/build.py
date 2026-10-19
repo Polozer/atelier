@@ -185,6 +185,29 @@ SALON_COUNTER = {'spot_cm': [-1760., 300., 15.], 'yaw': 180., 'half_length_cm': 
                  'below_cm': 80., 'above_cm': 260.}
 
 
+# The player's racing stable in Belmonte (docs/RACING.md, "Stables"): estate 0's stable range (SM_BM_BE_0_Stables, Haras
+# Valley's estates.json "Val d'Oro", "Votre écurie"), in its local space. A name plate (92 x 56 cm) at each of its eleven
+# stall doors on the yard front, 1.52 m over the yard, and the two boards (150 x 112 cm) either side of the main double
+# door under its windows: the jockeys' board west, the transfer board east. All face the yard (local yaw 90).
+BELMONTE_STABLE = {'mesh': 'SM_BM_BE_0_Stables', 'front_y_cm': -1647., 'yaw': 90.,
+                   'stall_x_cm': [-3090.625, -2731.875, -2373.125, -2014.375, -1655.625, -1296.875, -938.125,
+                                  138.125, 496.875, 855.625, 1214.375],
+                   'plate_z_cm': 152., 'plate_size_cm': [92., 56.],
+                   'boards': (('jockeys', -698.), ('transfers', -102.)), 'board_z_cm': 108., 'board_size_cm': [150., 112.]}
+
+
+def belmonte_stable_places(data):
+    """The stall plates and boards of the player's Belmonte stable, from the estate's committed placement."""
+    st = BELMONTE_STABLE
+    tr = building_transform(data, st['mesh'])
+    yaw = building_yaw(tr, st['yaw'])
+    out = [{'kind': 'plate', 'stall': i, 'at_cm': building_point(tr, [x, st['front_y_cm'], st['plate_z_cm']]), 'yaw': yaw,
+            'size_cm': list(st['plate_size_cm'])} for i, x in enumerate(st['stall_x_cm'])]
+    out += [{'kind': kind, 'stall': 0, 'at_cm': building_point(tr, [x, st['front_y_cm'], st['board_z_cm']]), 'yaw': yaw,
+             'size_cm': list(st['board_size_cm'])} for kind, x in st['boards']]
+    return out
+
+
 def racing_places(data=None):
     """Belmonte's racing places (docs/RACING.md), derived from the committed building placements, for runtime.json."""
     data = data or source.manifest()
@@ -192,7 +215,7 @@ def racing_places(data=None):
     c = SALON_COUNTER
     counter = {'at_cm': building_point(salon, c['spot_cm']), 'yaw': building_yaw(salon, c['yaw']),
                **{k: c[k] for k in ('half_length_cm', 'reach_cm', 'behind_cm', 'below_cm', 'above_cm')}}
-    return {'counter': counter}
+    return {'counter': counter, 'belmonte_stable': belmonte_stable_places(data)}
 
 
 def map_zones(town_z):
