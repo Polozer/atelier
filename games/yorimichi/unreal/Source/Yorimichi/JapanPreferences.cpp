@@ -128,15 +128,6 @@ const TArray<FSkateGroup>& SkateGroups()
             {TEXT("skate_cam_pullback"), TEXT("Camera pull-back at speed"), TEXT("How much farther the camera drifts back when you go fast. 0 keeps it at the same distance."), 0, 1.5f, .05f, &FSkateFeel::CameraPullback, true}}}};
     return Groups;
 }
-// Whether Key is a Skate feel page value. Membership, not the skate_ prefix: skate_volume is an audio setting on the
-// main page (JapanSkatePreferencesTests.cpp).
-bool IsSkateFeelKey(const FString& Key)
-{
-    for (const FSkateGroup& Group : SkateGroups())
-        for (const FSkateKnob& Knob : Group.Knobs)
-            if (Key == Knob.Key) return true;
-    return false;
-}
 const TCHAR* const SkateDifficulties[] = {TEXT("easy"), TEXT("normal"), TEXT("hardcore")};
 const TCHAR* const SkateModes[] = {TEXT("Easy"), TEXT("Normal"), TEXT("Hardcore"), TEXT("Custom")};
 constexpr int32 SkateCustom = 3;
@@ -162,6 +153,15 @@ float SkateDefault(const FSkateKnob& Knob, const FSkateFeel& Defaults)
     if (FCString::Strcmp(Knob.Key, TEXT("skate_drift_powerslide")) == 0) return float(Defaults.DriftPowerslide);
     return float((FCString::Strcmp(Knob.Key, TEXT("skate_auto_push")) == 0 ? Defaults.AutoPush : Defaults.AssistedAir) + 1);
 }
+}
+// Whether Key is a Skate feel page value. Membership, not the skate_ prefix: skate_volume is an audio setting on the
+// main page. External linkage for JapanSkatePreferencesTests.cpp.
+bool IsSkateFeelKey(const FString& Key)
+{
+    for (const FSkateGroup& Group : SkateGroups())
+        for (const FSkateKnob& Knob : Group.Knobs)
+            if (Key == Knob.Key) return true;
+    return false;
 }
 
 void UJapanPreferences::Initialize(AWandererCharacter* Pawn)
