@@ -240,7 +240,7 @@ void AJapanHUD::DrawHUD()
         const TCHAR* View=Pawn->IsTrainFirstPerson()?TEXT("vue à la troisième personne"):TEXT("vue à la première personne");
         Secondary += bController ? FString::Printf(TEXT("   %s %s"),Pad.LeftBumper,View) : FString::Printf(TEXT("   P %s"),View);
     }
-    if (!bRide && !bSailboat && !Pawn->IsZeppelinPassenger() && Ride && Ride->IsAvailable())
+    if (!Pawn->IsOnTrain() && !bRide && !bSailboat && !Pawn->IsZeppelinPassenger() && Ride && Ride->IsAvailable())
         Secondary += bController ? FString::Printf(TEXT("   %s skateboard"),Pad.Skate) : TEXT("   B skateboard");
     if(bRide)
     {
@@ -275,7 +275,7 @@ void AJapanHUD::DrawHUD()
             : FString::Printf(TEXT("W ride   S rein in   A / D steer   Alt walk   J trot   Shift sprint (on / off)   Space jump   N random horse   U breed   I tack   O coat   H get off (when stopped)      %s   %.0f km/h"),*Horse->GetStatus(),Kmh);
         Secondary=bController?FString::Printf(TEXT("Right stick look   %s map (hold: places)   %s settings"),Pad.Map,Pad.Menu):TEXT("Mouse look   M map & travel   Esc settings");
     }
-    else if (!bRide && !bSailboat && !Pawn->IsZeppelinPassenger())
+    else if (!Pawn->IsOnTrain() && !bRide && !bSailboat && !Pawn->IsZeppelinPassenger())
     {
         if (Bike && Bike->IsAvailable())
             Secondary += bController ? FString::Printf(TEXT("   Hold %s bike"),Pad.Skate) : TEXT("   V bike");

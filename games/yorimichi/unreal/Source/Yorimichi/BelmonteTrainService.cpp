@@ -896,6 +896,7 @@ void ABelmonteTrainService::OnRep_NetworkState()
             R.bBoardUp = P.bBoardUp; R.BoardTime = P.BoardTime; R.BoardLength = P.BoardLength; R.BoardPath = P.BoardPath;
             FDoor& Door = Vehicles[R.BoardVehicle].Doors[R.BoardDoor];
             Door.bOpen = true; Door.bBusy = true;
+            C->bTrainDriving = true;
             auto* M = C->GetCharacterMovement();
             C->MoveIntent = FVector2D::ZeroVector; C->bJog = C->bWalk = C->bSprintHeld = false;
             M->StopMovementImmediately(); M->ClearAccumulatedForces(); M->SetMovementMode(MOVE_None);

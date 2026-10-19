@@ -226,7 +226,13 @@ def land_use(x,y):
 def surface(name,xs,ys,color):
     m=M(name)
     gx,gy=np.meshgrid(xs,ys);gz=height(gx,gy)
-    if name=='HD_Terrain':from train import earthworks;gz=earthworks.carve(gx,gy,gz)  # the Belmonte railway's bank and cutting by the city
+    if name=='HD_Terrain':
+        from train import earthworks
+        from zeppelin.layout import city_pad
+        gz=earthworks.carve(gx,gy,gz)
+        # Keep the bounded air-station apron at its authored level after the
+        # railway's broader bank blend. city_pad excludes the track and roads.
+        gz=city_pad(gx,gy,gz)
     for j,y in enumerate(ys[:-1]):
         for i,x in enumerate(xs[:-1]):
             dx=xs[i+1]-x;dy=ys[j+1]-y
@@ -454,7 +460,8 @@ def main():
     builders['HD_Arrival']=lambda:arrival.arrival(M('HD_Arrival'),height)
     # Reference-led kit modules replace legacy shop variants by mesh name.
     builders.update(kit.builders(lettering))
-    builders['HD_NorthMountains']=lambda:SheetMesh('HD_NorthMountains',mountains.mesh(north_base_height))
+    from north_mountain_surface import generate as mountain_surface
+    builders['HD_NorthMountains']=lambda:SheetMesh('HD_NorthMountains',mountain_surface(north_base_height,yori.OUT/'terrain/HD_NorthMountains'))
     from megapark import gate
     builders['HD_NorthGate']=lambda:SheetMesh('HD_NorthGate',gate.mesh(north_base_height))
     for name in gate.ROCKS:builders[name]=lambda name=name:gate_rock(name)

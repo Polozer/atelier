@@ -44,6 +44,22 @@ def ground(x,y,height,backdrop_grid,terrain_axes,north_height):
     return z
 
 
+def crown_support(mesh,x,y):
+    """@cc [owner:fontanierh,label:correctness] crown-final-product-stencil
+    Use the explicitly owned final FarHills triangles and the existing centred
+    two-metre finite-difference stencil. Missing support MUST fail. Geometric
+    face normals MUST NOT replace this placement slope. The caller's verified
+    recipe read, not this array query, establishes product freshness.
+    """
+    from terrain_query import Surface
+    x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
+    px,py=x.ravel(),y.ravel()
+    surface=Surface(mesh,owner='FarHills',stage='final')
+    samples=surface.upper(np.r_[px,px+2.,px-2.,px,px],
+                          np.r_[py,py,py,py+2.,py-2.]).height.reshape((5,)+x.shape)
+    return samples[0],np.hypot((samples[1]-samples[2])/4.,(samples[3]-samples[4])/4.)
+
+
 def append(instances,buildings,height,backdrop_grid,terrain_axes,north_height,road_x,road_y):
     rng=np.random.default_rng(9147)
     # A jittered canopy lattice avoids random bare holes and obvious planting rows.
@@ -103,19 +119,11 @@ def append(instances,buildings,height,backdrop_grid,terrain_axes,north_height,ro
     slope=np.zeros_like(z)
     crown_ground=None
     if crown.any():
-        from hidamari import layout as H
-        from train import earthworks
         import yori
-        px,py=x[crown],y[crown]
-        def final_shape(qx,qy,base):
-            return earthworks.carve(qx,qy,H.coastal_backdrop_height(qx,qy,base))
-        # Crown ownership excludes the rail cover by >300m, beyond the
-        # earthworks'120m reach even at neighboring source-cell corners.
-        grid=mesh_grid(len(np.load(yori.OUT/'heightmap.npy')))
-        samples=shorelines.sample_grid_mesh(*grid,np.r_[px,px+2.,px-2.,px,px],
-            np.r_[py,py,py,py+2.,py-2.],shape=final_shape,parents=source_grid(),parent_refinement=rail_refinement()).reshape(5,-1)
-        crown_ground=samples[0]
-        slope[crown]=np.hypot((samples[1]-samples[2])/4.,(samples[3]-samples[4])/4.)
+        from terrain_product import load
+        final=load(yori.OUT/'terrain/FarHills/final.npz',owner='FarHills',stage='final',city=True)
+        crown_ground,crown_slope=crown_support(final,x[crown],y[crown])
+        slope[crown]=crown_slope
     keep,resize=coastal_surface.forest_crowns(x,y,z,slope)
     if crown_ground is not None:z[crown]=crown_ground
     scale=scale*resize

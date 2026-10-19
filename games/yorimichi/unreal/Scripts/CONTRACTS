@@ -1,0 +1,7 @@
+@cc [owner:fontanierh,label:correctness] soundbank-native-publication
+The owned soundbank import MUST validate all source bindings, complete slot maps and
+actual PCM before mutating /Game/AudioBanks. Original cue packages MUST remain untouched.
+Saved waves MUST use the declared mono 48 kHz PCM/ForceInline/loop policy. A separate
+cold editor MUST verify the exact package and hard-reference closure before publishing
+the staged registry. Candidate receipts MUST NOT be accepted as runtime registries.
+The normal build and cook MUST include every consumed package and runtime registry.

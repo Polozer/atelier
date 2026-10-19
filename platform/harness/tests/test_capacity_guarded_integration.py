@@ -118,7 +118,11 @@ def test_machine_profile_selects_real_broker_automatically(tmp_path, broker, mon
 
 
 @pytest.mark.parametrize('pressure', ['missing', 'stale', 'memory'])
-def test_pressure_refusal_never_releases_useful_work(tmp_path, broker, pressure):
+def test_pressure_wait_never_spawns_or_releases_useful_work(tmp_path, broker, pressure, monkeypatch):
+    from atelier.harness import capacity_client
+    wait = capacity_client.wait_for_offer
+    monkeypatch.setattr(capacity_client, 'wait_for_offer',
+                        lambda admission, **kwargs: wait(admission, seconds=.05))
     observation = dict(observed_monotonic=time.monotonic(), available_memory_mib=4096, available_temp_mib=8192)
     if pressure == 'stale':
         observation['observed_monotonic'] -= 10
@@ -127,10 +131,12 @@ def test_pressure_refusal_never_releases_useful_work(tmp_path, broker, pressure)
     broker.observe = lambda: None if pressure == 'missing' else observation
     request = dict(id='pressure', resources=asdict(Resources(256, 1000, 16, 1)), locks=[], seconds=10)
     marker = tmp_path / 'executed'
-    with pytest.raises(CapacityError):
+    with pytest.raises(CapacityError, match='queue wait deadline reached'):
         guarded.run([sys.executable, '-c', f'open({str(marker)!r},"w").write("ran")'], tmp_path / 'guard',
                     admission=AdmissionSession(broker.socket_path, request), limit_gib=.25, timeout=10)
     assert not marker.exists()
+    assert not (tmp_path / 'guard' / 'memory-health-tree.json').exists()
+    assert not broker._gates
     assert status(broker.socket_path)['charged_count'] == 0
 
 
@@ -170,7 +176,7 @@ def test_invalid_guard_binding_cannot_release_exec_gate(tmp_path, broker, invali
             return super().start(**binding)
     request = dict(id='bad-binding', resources=asdict(Resources(256, 1000, 16, 1)), locks=[], seconds=10)
     marker = tmp_path / 'executed'
-    with pytest.raises(CapacityError):
+    with pytest.raises(CapacityError, match='guard identity|Guard ceiling|guard receipt|Invalid capacity message'):
         guarded.run([sys.executable, '-c', f'open({str(marker)!r},"w").write("ran")'], tmp_path / 'guard',
                     admission=InvalidBinding(broker.socket_path, request), limit_gib=.25, timeout=10)
     assert not marker.exists()

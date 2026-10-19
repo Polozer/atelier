@@ -52,6 +52,7 @@ void AWandererCharacter::ServerRequestHorse_Implementation(uint32 Epoch)
         ClientActivityRejected(TEXT("Wait for the incoming strike before changing vehicles."));
         return;
     }
+    if (!Exiting && RefuseVehicleOnTrain()) return;
     const bool Riding = NetworkActivity.Kind == EJapanActivity::Horse;
     if ((!Riding && NetworkActivity.Kind != EJapanActivity::OnFoot) || !bReady || bMenuOpen || MovementLocked() ||
         IsZeppelinPassenger() || (!Riding && OnVehicle()) ||

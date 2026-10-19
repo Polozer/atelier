@@ -29,6 +29,10 @@
   ],
   "Plugins": [
     {
+      "Name": "HorseRacing",
+      "Enabled": true
+    },
+    {
       "Name": "EnhancedInput",
       "Enabled": true
     },

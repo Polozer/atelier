@@ -202,6 +202,7 @@ protected:
 
 private:
     friend class FRemoteVehiclePresentationTest;
+    friend class FTrainVehicleAdmissionTest;
     void InitializeLocalPlayer();
     TWeakObjectPtr<ULocalPlayer> InputOwner;
     bool RequestNetworkBike();
@@ -332,6 +333,10 @@ public:
     bool IsTrainPassenger() const;
     bool IsTrainFirstPerson() const { return TrainView.IsFirstPerson(); }
     bool HidesTrainBody() const { return !bFixedView && !bCinematic && TrainView.HidesBody(); }
+    /** Standing, seated or stepping through a train door. */
+    bool IsOnTrain() const { return bTrainAboard || bTrainDriving; }
+    /** Refuse deploying a vehicle on the train through the same local/owner message. Stowing bypasses this gate. */
+    bool RefuseVehicleOnTrain();
     /** The flight buttons: aboard, ride speed; at the docked ship, its next stop. -1 or +1. */
     void ZeppelinStep(int32 Direction);
 private:

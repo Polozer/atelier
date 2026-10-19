@@ -140,7 +140,7 @@ def _profile_perimeter_weight(x, y):
     return 1.-inland*(1.-country+country*inland)
 
 
-def _profile_weight(x, y):
+def _profile_weight(x, y, *, exposed_west=False):
     x, y = np.broadcast_arrays(np.asarray(x, float), np.asarray(y, float))
     w = _profile_perimeter_weight(x, y)
     # Preserve the occupied mainland above the coastal strip. The quay's drop
@@ -150,6 +150,9 @@ def _profile_weight(x, y):
     south = np.where(quay & (y <= -125.), 1., south)
     occupied = smooth((x+550.)/150.)*smooth((1650.-x)/230.)
     occupied *= 1.-smooth((y-400.)/100.)
+    # Exported backdrop west of the actual fine footprint is not occupied
+    # ground. Keep the default scenery mask/RNG eligibility unchanged.
+    if exposed_west:occupied=np.where(x < -300.,0.,occupied)
     w *= 1.-occupied*(1.-south)
     for box in _rail_headlands():
         w *= smooth(_headland_distance(x, y, box)/80.)
@@ -306,7 +309,7 @@ def landforms(x, y, z):
     return out
 
 
-def height(x, y, base):
+def height(x, y, base, *, exposed_west=False):
     """@cc [owner:fontanierh,label:correctness] coast-ground-ownership
     Ground beyond reach(x, y) inside the coast MUST remain unchanged. The wider
     Belmonte terrace/valley and eastern wedge landforms MUST remain inside their
@@ -321,11 +324,14 @@ def height(x, y, base):
     NOT retain broad zero-height quads. The occupied southern road/quay ground
     above y=-125 MUST remain unchanged. The committed railway and its natural
     tunnel cover MUST remain unchanged within 20 metres of the centre line.
+    exposed_west MAY restore the coastal profile over the unoccupied legacy
+    backdrop west of x=-300; it MUST NOT change the fine terrain or the default
+    vegetation eligibility mask.
     """
-    return landforms(x, y, profile_height(x, y, base))
+    return landforms(x, y, profile_height(x, y, base,exposed_west=exposed_west))
 
 
-def profile_height(x, y, base):
+def profile_height(x, y, base, *, exposed_west=False):
     """Established beach/cliff profile before the localized country landforms.
 
     The connecting collar interpolates this baseline first, then applies the
@@ -367,7 +373,7 @@ def profile_height(x, y, base):
     cliff += .05*np.maximum(inland-46., 0.)
     target = beach*(1.-rock)+cliff*rock
     target = np.where(d < 0., np.maximum(FLOOR, d*(.18+.42*rock)), target)
-    w = _profile_weight(x, y)
+    w = _profile_weight(x, y,exposed_west=exposed_west)
     ground = base*(1.-w)+target*w
     perimeter = _profile_perimeter_weight(x, y)
     protection = np.divide(w, perimeter, out=np.zeros_like(w), where=perimeter > 1e-8)
@@ -471,7 +477,7 @@ def sea_mesh(radius=24000.):
     return vertices,faces
 
 
-def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height, parents=None, parent_refinement=None):
+def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height, parents=None, parent_refinement=None, edge_knots=None):
     """@cc [owner:fontanierh,label:correctness] coastal-planting-triangle-support
     Sample the same refined polygons and fan diagonals as grid_mesh and the
     terrain exporter. Do not evaluate the nonlinear shape at the query itself.
@@ -487,7 +493,7 @@ def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height, parents=None, 
     keys=iy*(len(xs)-1)+ix
     for key in np.unique(keys):
         mask=keys==key;j,i=divmod(int(key),len(xs)-1)
-        vertices,faces=grid_mesh(xs[i:i+2],ys[j:j+2],z[j:j+2,i:i+2],step=step,shape=shape,parents=parents,parent_refinement=parent_refinement)
+        vertices,faces=grid_mesh(xs[i:i+2],ys[j:j+2],z[j:j+2,i:i+2],step=step,shape=shape,parents=parents,parent_refinement=parent_refinement,edge_knots=edge_knots)
         triangles=np.asarray(vertices)[np.asarray([(p[0],p[k],p[k+1]) for p in faces for k in range(1,len(p)-1)])]
         a,b,c=np.moveaxis(triangles,1,0)
         den=(b[:,1]-c[:,1])*(a[:,0]-c[:,0])+(c[:,0]-b[:,0])*(a[:,1]-c[:,1])
@@ -500,13 +506,15 @@ def sample_grid_mesh(xs, ys, z, x, y, *, step=STEP, shape=height, parents=None, 
     return out.reshape(size)
 
 
-def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None, parent_refinement=None):
+def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None, parent_refinement=None, edge_knots=None):
     """@cc [owner:fontanierh,label:correctness] coastal-parent-triangle-topology
     Refined faces MUST preserve the original parent a-c breakline, including
     initial inserted knots and asymmetric x/y subdivision counts. With parents,
     its axes MUST partition every input cell and its heights are authoritative.
     Unchanged source heights MUST remain the same
     piecewise affine surface inside faces, not only at their vertices.
+    Explicit edge_knots MUST be inserted into adjacent retained faces at the
+    same shaped heights, without changing other edges or parent breaklines.
 
     Shared cell edges retain their original knots. Returns vertices and upward
     triangle/quad faces in world metres, without Blender.
@@ -514,8 +522,12 @@ def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None, 
     xs, ys, z = np.asarray(xs), np.asarray(ys), np.asarray(z)
     if parents is not None:
         source_x,source_y,source_z=map(np.asarray,parents)
-    if parent_refinement and parents is None:
-        raise ValueError('Railway parent refinement requires original parents')
+    if (parent_refinement or edge_knots) and parents is None:
+        raise ValueError('Shared-edge refinement requires original parents')
+    for (axis,value),knots in (edge_knots or {}).items():
+        knots=np.asarray(knots)
+        if axis not in (0,1) or not np.isfinite(value) or knots.ndim!=1 or not np.isfinite(knots).all():
+            raise ValueError('Shared-edge knots require a finite axis and one-dimensional coordinates')
     vertices, faces = [], []
     for j, (ay, by) in enumerate(zip(ys[:-1], ys[1:])):
         for i, (ax, bx) in enumerate(zip(xs[:-1], xs[1:])):
@@ -555,9 +567,9 @@ def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None, 
             vertices.extend(np.stack((x, y, h), -1).reshape(-1, 3).tolist())
             face_start=len(faces)
             def finish_edges():
-                if not parent_refinement:return
+                if not parent_refinement and not edge_knots:return
                 _join_parent_lattice_edges(vertices,faces,face_start,(ax,bx,ay,by),
-                    (px0,px1,py0,py1,a,b,c,d),parents,parent_refinement,step,shape)
+                    (px0,px1,py0,py1,a,b,c,d),parents,parent_refinement or {},step,shape,edge_knots=edge_knots)
             signs=pu-pv
             if (nx == ny and aligned) or signs.min()>=-1e-12 or signs.max()<=1e-12:
                 # Every diagonal-crossing child already uses the parent a-c.
@@ -618,7 +630,7 @@ def grid_mesh(xs, ys, z, *, hidden=None, step=STEP, shape=height, parents=None, 
     return vertices, faces
 
 
-def _join_parent_lattice_edges(vertices,faces,start,bounds,parent,parents,refinement,step,shape):
+def _join_parent_lattice_edges(vertices,faces,start,bounds,parent,parents,refinement,step,shape,*,edge_knots=None):
     """Conform shared cell edges without propagating a rail grid across the island."""
     ax,bx,ay,by=bounds;px0,px1,py0,py1,a,b,c,d=parent
     sx,sy,_=parents
@@ -633,10 +645,13 @@ def _join_parent_lattice_edges(vertices,faces,start,bounds,parent,parents,refine
         (1,ay,ax,bx,((ax+bx)/2.,ay-1e-6),px0,px1),
         (1,by,ax,bx,((ax+bx)/2.,by+1e-6),px0,px1)]:
         n=max(own,density(*outer))
-        if not n:continue
-        knots=pa+(pb-pa)*np.linspace(0.,1.,n+1)
-        knots=np.unique(np.r_[knots,np.linspace(lo,hi,math.ceil((hi-lo)/step)+1)])
-        edges[axis,value]=knots[(knots>lo+1e-9)&(knots<hi-1e-9)]
+        knots=np.empty(0)
+        if n:
+            knots=pa+(pb-pa)*np.linspace(0.,1.,n+1)
+            knots=np.r_[knots,np.linspace(lo,hi,math.ceil((hi-lo)/step)+1)]
+        knots=np.unique(np.r_[knots,(edge_knots or {}).get((axis,value),[])])
+        selected=knots[(knots>lo+1e-9)&(knots<hi-1e-9)]
+        if len(selected):edges[axis,value]=selected
     if not edges:return
     lookup={tuple(np.round(vertices[i][:2],10)):i for f in faces[start:] for i in f}
     def point(x,y):

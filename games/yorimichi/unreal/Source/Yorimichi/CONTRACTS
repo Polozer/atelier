@@ -4,6 +4,23 @@ values MUST retain the 25 m outdoor default. Accepted heights MUST be finite and
 Travel MUST preserve the chosen height through the client request and authoritative landing,
 with the existing epoch, encounter, pending-hit and rate-limit checks intact.
 
+@cc [owner:fontanierh,label:correctness] local-footstep-sound-selection
+Footstep bank selection MUST alter only emitted sample pools. It MUST preserve bone-plant timing,
+replay suppression, material/canopy detection, speed/landing gain and pitch, and Original attenuation.
+Fresh Original MUST retain the existing sample and shuffle paths. Horse hoof stand-ins MUST always
+use Original pools and their Original shuffle state. Alternatives MUST retain independent shuffle
+state, and invalid or not-ready requests MUST leave the active bank and plant state unchanged.
+
+@cc [owner:fontanierh,label:correctness] local-world-soundbank-menu
+Fresh Original MUST retain existing cue, shuffle, attenuation and mix behavior without loading
+alternative banks or an audition. A bank selection MUST validate its current staged identity,
+complete loaded foot/skate coverage and every ready emitter before saving or changing any emitter.
+Failed saves, invalid assets and obsolete async completions MUST preserve the active bank.
+The local world's choice MUST apply to new local and remote emitters without replicating that
+choice or changing simulation, plant timing, replay or network authority. Old active loops MUST
+stop before a changed wave is installed; Original references MUST remain available for restoration.
+One owned menu preview MUST stop/cancel on selection, menu close, backgrounding and world teardown.
+
 @cc [owner:fontanierh,label:performance] horse-appearance-residency
 An accepted appearance change on a locally controlled horse that replaces breed, tack, coat or mask
 assets MUST release the old component references and request deferred engine collection with incremental
@@ -50,6 +67,23 @@ Online player map targets MUST use session player identity, follow the current p
 when that player leaves. Travel MUST resolve the identity on the host at request time and retain epoch,
 encounter, pending-contact and rate admission. A destination MUST have walkable ground and standing
 capsule clearance; the chosen floor MUST NOT be replaced by an overhead bridge or roof.
+
+@cc [owner:fontanierh,label:correctness] native-map-tour-diagnostics
+Map-tour diagnostics MUST act only on the locally controlled pawn, use ordinary map travel,
+and record settled runtime facing, walkable floor and standing capsule clearance without
+forcing the accepted position. A requested single zone MUST fail if absent or ambiguous.
+Keeping a diagnostic listen-host alive after its tour MUST be explicitly bounded to at most
+120 seconds and MUST NOT change normal gameplay or normal tour completion.
+
+@cc [owner:fontanierh,label:correctness] train-vehicle-admission
+Deploying a skateboard, carried board, bike, horse or sailboat MUST be refused while
+standing or seated aboard a train or during its boarding walk, locally and on the host.
+The train gate MUST NOT block stowing an existing vehicle or bypass activity epochs,
+pending-contact checks, encounter admission or movement replay protections. Merely
+holding a board MUST NOT be advertised or presented as available while on the train.
+Owner board, pose and bail-body transport MUST NOT introduce visible boards aboard;
+valid hide/stow packets MUST retain existing sequence and rate admission. Retained
+board/pose/bail presentation MUST be masked while aboard even without an owner hide packet.
 
 @cc [owner:fontanierh,label:correctness] train-passenger-camera
 The train first-person view MUST be local to the viewing player and available only to

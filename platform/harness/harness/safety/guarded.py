@@ -10,7 +10,7 @@ Two protections, because they do different jobs:
   The big slot is the machine's only one unless two are switched on (see `render_lock`); `small_gib` (`--small`), the
   job's expected peak, lets a small job use the second, small slot beside a big one.
 * `memory_guard` runs as a sibling watching this exact child, pinned to its pid and start time, at `limit_gib`
-  (10 GiB by default, up to 14 for `atelier play --memory-gib`), or 4 GiB in the small slot.
+  (10 GiB by default, up to 24 for `atelier play --memory-gib`), or 4 GiB in the small slot.
 
 Ownership is registered the instant the child exists, so every later failure still reaps it: the monitor failing to
 start, an exception, Ctrl-C, or the deadline. `timeout=0` means no deadline (interactive play); the ceiling is never
@@ -247,12 +247,15 @@ def completion_watches(tree):
 def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gib=10., small_gib=None, kind='job',
         on_slot=None, watch=(), progress=0., track_tree=False, fitting_gib=None, pass_fds=(), aggregate_tree=False,
         on_poll=None, admission=None, performance=False, invocation_id=None, worker_binding=None,
-        completion_path=None):
+        completion_path=None, compile_memory_gib=None):
     """@cc [owner:fontanierh,label:correctness] diagnostic-execution-timings
     Timing diagnostics MUST NOT certify outputs or guess command execution duration. Publication
     MUST require clearing the prior report; failure to clear MUST suppress publication without
     changing the guarded result. Reports MUST carry their invocation identity.
 
+    Automatic full-capacity pressure no-GO responses MAY return to the same queue only after
+    positive owned cleanup and uncharged close, under the original 1800-second queue deadline.
+    Selection-loss retries remain separately bounded; generic admission errors MUST NOT retry.
     Run one guarded child. The optional invocation_id is a UUID hex string. Admission time ends at GO acknowledgement
     (or spawn for an ungated child). Child lifetime includes gated startup. Execution duration
     stays unknown without an independently pinned gate-consumption event.
@@ -276,7 +279,8 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
     try:
         from atelier.harness.capacity_client import CapacityOfferLost, CapacityError
         previous = None
-        for attempt in range(3):
+        attempt, selection_losses = 0, 0
+        while True:
             try:
                 from atelier.harness.safety.cancellation import termination_cleanup
                 with termination_cleanup():
@@ -284,6 +288,7 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
                                 on_slot, watch, progress, track_tree, fitting_gib, pass_fds, aggregate_tree,
                                 on_poll, admission, performance, worker_binding=worker_binding, _timings=events,
                                 _requeue=previous, _queue_deadline=entered + 1800.,
+                                **({'compile_memory_gib': compile_memory_gib} if compile_memory_gib is not None else {}),
                                 **({'_completion': completion} if completion is not None else {}))
                 break
             except CapacityOfferLost as error:
@@ -291,17 +296,19 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
                 # have completed its actual child/tree cleanup and affirmative uncharged close.
                 if admission is not None or error.cleanup is None:
                     raise
-                archive = Path(folder) / ('lost-offer-' + identifier + '-' + str(attempt + 1))
+                attempt += 1
+                selection_losses += error.reason != 'pressure-wait'
+                archive = Path(folder) / ('lost-offer-' + identifier + '-' + str(attempt))
                 archive.mkdir()
                 for name in ('memory-health.json', 'memory-health-tree.json', 'stdout.log'):
                     shutil.copy2(Path(folder) / name, archive / name)
                 (archive / 'no-go.json').write_text(json.dumps(error.cleanup, indent=2) + '\n')
-                if attempt == 2 or time.monotonic() >= entered + 1800.:
+                if selection_losses >= 3 or time.monotonic() >= entered + 1800.:
                     raise CapacityError('Capacity pre-GO requeue bound reached; no resources held') from error
                 previous = error.session
                 for name in ('spawned', 'exited', 'go'):
                     events.pop(name, None)
-                print('Capacity selection changed before GO: owned gate child reaped, tree empty, '
+                print('Capacity ' + error.reason + ' before GO: owned gate child reaped, tree empty, '
                       'uncharged close confirmed; returning to the same queue', flush=True)
         # _run's ExitStack has now completed child cleanup, capacity close and monitor detach.
         # This affirmative receipt is deliberately independent from diagnostic timings.
@@ -352,7 +359,7 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
 def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gib=10., small_gib=None, kind='job',
         on_slot=None, watch=(), progress=0., track_tree=False, fitting_gib=None, pass_fds=(), aggregate_tree=False,
         on_poll=None, admission=None, performance=False, *, worker_binding=None, _timings, _completion=None,
-        _requeue=None, _queue_deadline=None):
+        _requeue=None, _queue_deadline=None, compile_memory_gib=None):
     """@cc [owner:fontanierh,label:safety] compile-tree-monitor-lifecycle
     Aggregate mode MUST release the command only after a matching monitor readiness receipt, and MUST
     require a successful matching terminal receipt proving observed tree exit before returning success.
@@ -365,15 +372,18 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
     Capacity-managed work MUST hold either the exclusive migration bridge or all three sealed
     shared compatibility mutexes and await the broker's own exec gate after both guards are ready.
     Shared admission MUST verify the durable boot-bound compatibility barrier. Broker failures MUST fail
-    without falling back to slots. Only an automatic full session's typed, fenced selection-change
+    without falling back to slots. Only an automatic full session's typed, fenced selection-change or pressure-wait
     no-GO denial MAY requeue after its exact child is positively reaped, its aggregate tree is
     affirmatively empty and its close confirms an uncharged waiting state. All process guards MUST
     settle naturally and their final bound receipts MUST exclude memory/duration stops before retry.
     Requeues MUST retain
-    request/configuration and broker epoch/boot, use at most two retries within the original
-    1800-second admission deadline, and MUST NOT repeat useful execution or certify success.
+    request/configuration and broker epoch/boot within the original 1800-second admission
+    deadline. Selection changes MUST use at most two retries; pressure waits MAY retry only
+    until that same original deadline, and MUST NOT repeat useful execution or certify success.
     Capacity cleanup MUST follow owned-child cleanup/reap and precede guard detachment.
     Requested performance exclusion MUST reach the configured broker or already belong to an explicit session.
+    Explicit cook ceilings MUST retain automatic full compile admission and forward the same selected
+    ceiling to its reservation, child guards and aggregate guard; other compile requests MUST not resize.
     Optional completion evidence MUST contain the positively waited launcher and matching terminal
     aggregate receipt. Its caller MUST publish it only after successful cleanup and capacity close.
     A typed broker completion observation MUST NOT grant continued execution. The actual bound
@@ -408,17 +418,22 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
     if performance and admission is not None and getattr(admission, 'request', {}).get('performance') is not True:
         raise ValueError('explicit capacity admission must request performance exclusion')
     automatic = admission is None
+    if compile_memory_gib is not None and admission is not None:
+        raise ValueError('Cook ceiling selection requires an automatic full compile session')
     if admission is None:
         from atelier.harness.capacity_runtime import configured_session
         admission = configured_session(kind=kind, limit_gib=limit_gib, timeout=timeout, folder=folder,
                                        purpose=purpose or (Path(command[0]).name if command else kind),
-                                       performance=performance, command=command, small_gib=small_gib)
+                                       performance=performance, command=command, small_gib=small_gib,
+                                       **({'compile_memory_gib': compile_memory_gib} if compile_memory_gib is not None else {}))
         if admission is not None and getattr(admission, 'mode', None) == 'capacity':
             selected = getattr(admission, 'guard_limit_gib', None)
             if selected is not None:
                 if type(selected) not in (int, float) or selected not in (limit_gib, min(limit_gib, SMALL_LIMIT_GIB)):
                     raise ValueError('Configured guard ceiling must retain the nominal or established SMALL envelope')
                 limit_gib = selected
+    if compile_memory_gib is not None and getattr(admission, 'mode', None) != 'capacity':
+        raise ValueError('Cook ceiling selection requires full-capacity admission')
     if _requeue is not None:
         if not automatic or admission is None or admission.mode != 'capacity':
             raise ValueError('Capacity requeue requires an automatic full session')
@@ -492,7 +507,7 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
                     if (terminal.get('owner'), terminal.get('owner_started'), terminal.get('state'),
                             terminal.get('cleanup_complete'), terminal.get('processes'), terminal.get('footprint_bytes')) == (
                             child.pid, root_start, 'child_exited', True, [], 0):
-                        lost_offer.cleanup = dict(schema=1, reason='selection-changed', no_go=True,
+                        lost_offer.cleanup = dict(schema=1, reason=lost_offer.reason, no_go=True,
                             child=[child.pid, root_start], returncode=child.returncode,
                             epoch=admission.epoch, boot_id=admission.boot, uncharged_close=True,
                             terminal=terminal)
