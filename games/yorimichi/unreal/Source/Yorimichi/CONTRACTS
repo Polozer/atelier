@@ -67,3 +67,10 @@ Online player map targets MUST use session player identity, follow the current p
 when that player leaves. Travel MUST resolve the identity on the host at request time and retain epoch,
 encounter, pending-contact and rate admission. A destination MUST have walkable ground and standing
 capsule clearance; the chosen floor MUST NOT be replaced by an overhead bridge or roof.
+
+@cc [owner:fontanierh,label:correctness] native-map-tour-diagnostics
+Map-tour diagnostics MUST act only on the locally controlled pawn, use ordinary map travel,
+and record settled runtime facing, walkable floor and standing capsule clearance without
+forcing the accepted position. A requested single zone MUST fail if absent or ambiguous.
+Keeping a diagnostic listen-host alive after its tour MUST be explicitly bounded to at most
+120 seconds and MUST NOT change normal gameplay or normal tour completion.

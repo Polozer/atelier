@@ -260,3 +260,40 @@ yaw. The phone's "back to spawn" button uses the same path.
 `uv run atelier play yorimichi -- -mapqa -reviewdir=DIR` travels to every zone in turn, screenshots each
 (`map_NN_key.png`) and the open map (`map_overlay.png`), and writes `map_qa.json` (target, landed position, drift,
 on-ground).
+
+## Native indoor landing acceptance
+
+After a current normal build including `data.network`, run the explicit diagnostic:
+
+```sh
+ATELIER_AGENT=OWNER nice -n 10 uv run python games/yorimichi/tools/review_map_network.py \
+  --zone belmonte_salon --out build/yorimichi/map-network-review/unique-run
+```
+
+Use a fresh output directory. The runner requires current source/compile/import/
+staging certificates and exact generated-versus-staged map bytes. It launches a
+NullRHI listen-host under normal aggregate and individual guards, tours only that
+host's locally controlled pawn, then waits for the host to vacate before starting
+the real guest. The guest uses the ordinary map resolver and authoritative travel
+RPC. The host must observe admission and clean disconnect; both games must exit.
+No live bridge, forced placement, authority bypass or personal saves are used.
+
+Two warm editors can exceed the default 10 GiB aggregate. `--memory-gib N` (10 to 24,
+the `atelier play` range) raises one session's ceiling for the aggregate guard, its
+admission reservation and each game's guard alike; the default stays 10 GiB and the
+chosen value is recorded in `checks.json`.
+
+Each native tour records the settled feet, actual runtime yaw, walkable supporting
+floor and standing capsule clearance. The checker compares both roles with the
+staged destination, not just self-reported target coordinates. Source, compiled
+modules and staged data must remain unchanged throughout the run. A successful
+worker report is acceptance only after the enclosing guard's terminal cleanup and
+capacity close succeed. Inspect `guard/memory-health-tree.json` as well as
+`checks.json`; a later guard failure leaves the invocation failed.
+
+The opt-in `-mapqazone=KEY` limits the existing tour. For this diagnostic's host,
+`-mapqakeepalive=120` keeps the host alive after its tour, with an engine timer of at
+most 120 seconds; the enclosing worker and native child deadlines remain enforced.
+Normal map-tour runs still exit when complete. This is same-machine scripted
+travel/collision evidence. Rendered controller selection, phone data-channel
+selection, packaging and adverse-network/two-machine tests remain separate checks.
