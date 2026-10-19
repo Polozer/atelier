@@ -66,6 +66,5 @@ public class Yorimichi : ModuleRules
         PrivateDependencyModuleNames.Add("ImageCore");
         PrivateDependencyModuleNames.Add("ApplicationCore");
         PrivateDependencyModuleNames.Add("AtelierHorseRacing");
-        PrivateDependencyModuleNames.Add("CoreOnline");
     }
 }

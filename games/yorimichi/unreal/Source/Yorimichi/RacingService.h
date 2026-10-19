@@ -229,7 +229,7 @@ private:
 
     // Courses
     FRacingCourse Hidamari, BelmonteTurf, BelmonteSand;
-    bool bCoursesLoaded = false;
+    bool bCoursesLoaded = false, bCoursesFileFailed = false;
 
     // Runners on this machine
     struct FLookBreed

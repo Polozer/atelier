@@ -582,8 +582,9 @@ void ARacingBroadcast::Tick(float DeltaSeconds)
     const double T = Now - Net.Race.Start;
     const bool bWindow = Net.Serial && !Net.Race.Key.IsEmpty() && !Net.Race.Runners.IsEmpty() &&
         T >= -RacingTv::WindowSeconds && T <= HRClock::RaceSeconds;
-    // Filmed only while someone here watches: within 25 m of a screen, in front of it, during a race's window.
-    const bool bWant = bWindow && NearestM <= 25.f && bInFront && CVarRacingTvCapture.GetValueOnGameThread() != 0;
+    // Filmed only while someone here watches: turns on within 25 m in front of a screen and stays on up to 30 m.
+    const float MaxDist = bLive ? 30.f : 25.f;
+    const bool bWant = bWindow && NearestM <= MaxDist && bInFront && CVarRacingTvCapture.GetValueOnGameThread() != 0;
     SetLive(bWant);
     Service->SetBroadcastAudience(bWant);
     // Far from every screen nothing needs a frame-accurate tick.

@@ -391,7 +391,7 @@ void ARacingService::BeginPlay()
     LoadCourses();
     if (HasAuthority())
     {
-        FString Seed(TEXT("yorimichi-racing-1"));
+        FString Seed = TEXT("yorimichi-") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
         FParse::Value(FCommandLine::Get(), TEXT("racingseed="), Seed);
         OpenWorld(DefaultSavePath(), Seed);
         if (FParse::Param(FCommandLine::Get(), TEXT("racingnext"))) JumpToNextRace(100.);
@@ -503,14 +503,16 @@ bool ARacingService::OpenWorld(const FString& Path, const FString& Seed)
         {
             // Never lose a world that would not load (another rules version, a broken write): keep it aside, and if that
             // fails keep it where it is and open nothing, so no new world is ever written over it.
+            IPlatformFile& Files = FPlatformFileManager::Get().GetPlatformFile();
+            const FString SourceFile = Files.FileExists(*Path) ? Path : Path + TEXT(".previous");
             const FString Aside = Path + FString::Printf(TEXT(".unreadable-%lld"), int64(RacingLooks::UnixNow()));
-            if (!FPlatformFileManager::Get().GetPlatformFile().MoveFile(*Aside, *Path))
+            if (!Files.MoveFile(*Aside, *SourceFile))
             {
-                PersistenceError = FString::Printf(TEXT("%s is not an admissible world (%s) and could not be kept aside as %s"), *Path, *Error, *Aside);
+                PersistenceError = FString::Printf(TEXT("%s is not an admissible world (%s) and could not be kept aside as %s"), *SourceFile, *Error, *Aside);
                 UE_LOG(LogTemp, Error, TEXT("RACING %s: the save is left as it is and racing stays off"), *PersistenceError);
                 return false;
             }
-            UE_LOG(LogTemp, Error, TEXT("RACING %s is not an admissible world (%s); kept as %s and created a new world"), *Path, *Error, *Aside);
+            UE_LOG(LogTemp, Error, TEXT("RACING %s is not an admissible world (%s); kept as %s and created a new world"), *SourceFile, *Error, *Aside);
         }
         const double Started = FPlatformTime::Seconds();
         State = HRRules::CreateWorld(Seed);
@@ -716,6 +718,7 @@ bool ARacingService::LoadBelmonteCourses(const FString& Json, const FVector& Ori
 bool ARacingService::LoadCourses()
 {
     if (bCoursesLoaded) return true;
+    if (bCoursesFileFailed) return false;
     const AHippodrome* Hippodrome = AHippodrome::Find(this);
     TActorIterator<ABelmonteRegion> It(GetWorld());
     const ABelmonteRegion* Region = It ? *It : nullptr;
@@ -730,6 +733,7 @@ bool ARacingService::LoadCourses()
     const FString Path = AtelierDataPath(TEXT("racing/belmonte_courses.json"));
     if (!FFileHelper::LoadFileToString(Text, *Path) || !LoadBelmonteCourses(Text, Region->GetActorLocation(), Error))
     {
+        bCoursesFileFailed = true;
         UE_LOG(LogTemp, Warning, TEXT("RACING Belmonte courses unavailable (%s): %s"), *Path, *Error);
         return false;
     }
@@ -740,9 +744,8 @@ bool ARacingService::LoadCourses()
 
 const FRacingCourse* ARacingService::GetCourse(ERacingVenue Venue, uint8 Track) const
 {
-    if (!bCoursesLoaded && !BelmonteTurf.IsValid()) return nullptr;
-    if (Venue == ERacingVenue::Belmonte) return Track == 1 ? &BelmonteSand : &BelmonteTurf;
-    return Hidamari.IsValid() ? &Hidamari : nullptr;
+    const FRacingCourse* Course = (Venue == ERacingVenue::Belmonte) ? (Track == 1 ? &BelmonteSand : &BelmonteTurf) : &Hidamari;
+    return Course->IsValid() ? Course : nullptr;
 }
 
 bool ARacingService::RunnerAt(const FRacingNetRace& Race, int32 Index, double Time, FVector& Where, float& Yaw, double& Speed) const

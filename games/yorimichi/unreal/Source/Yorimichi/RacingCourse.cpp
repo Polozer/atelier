@@ -64,7 +64,7 @@ FVector FRacingPolylineCourse::At(double S, double Offset, float* Yaw) const
     FVector2D Dir(1., 0.);
     FVector P = PlanAt(FinishS + S, &Dir);
     // Smooth the heading over a few metres either side, so a runner turns gradually round a sampled bend.
-    FVector2D Behind, Ahead;
+    FVector2D Behind = Dir, Ahead = Dir;
     PlanAt(FinishS + S - 2., &Behind);
     PlanAt(FinishS + S + 2., &Ahead);
     const FVector2D Smooth = (Behind + Dir * 2. + Ahead).GetSafeNormal();

@@ -58,7 +58,8 @@ bool FRacingBelmonteCourseTest::RunTest(const FString&)
     if (!TestFalse(TEXT("belmonte_courses.json is readable"), Json.IsEmpty())) return false;
     ARacingService* Service = NewObject<ARacingService>(GetTransientPackage());
     FString Error;
-    if (!TestTrue(TEXT("The courses parse: ") + Error, Service->LoadBelmonteCourses(Json, RacingTest::BelmonteOrigin, Error))) return false;
+    const bool bLoaded = Service->LoadBelmonteCourses(Json, RacingTest::BelmonteOrigin, Error);
+    if (!TestTrue(TEXT("The courses parse: ") + Error, bLoaded)) return false;
     const FRacingCourse* Turf = Service->GetCourse(ERacingVenue::Belmonte, 0);
     const FRacingCourse* Sand = Service->GetCourse(ERacingVenue::Belmonte, 1);
     if (!TestNotNull(TEXT("Turf"), Turf) || !TestNotNull(TEXT("Sand"), Sand)) return false;
@@ -408,7 +409,8 @@ bool FRacingTvDirectorTest::RunTest(const FString&)
     if (!Fixture.Make(*this)) return false;
     ARacingService* Service = NewObject<ARacingService>(GetTransientPackage());
     FString Error;
-    if (!TestTrue(TEXT("The courses parse: ") + Error, Service->LoadBelmonteCourses(RacingTest::CoursesJson(), RacingTest::BelmonteOrigin, Error))) return false;
+    const bool bLoaded = Service->LoadBelmonteCourses(RacingTest::CoursesJson(), RacingTest::BelmonteOrigin, Error);
+    if (!TestTrue(TEXT("The courses parse: ") + Error, bLoaded)) return false;
     FRacingNetRace Race = Fixture.Snapshot.Race;
     Race.Venue = uint8(ERacingVenue::Belmonte);
     Race.Track = 0;

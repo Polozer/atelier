@@ -122,7 +122,7 @@ unverified fallback teleport. Platform bystanders intersected by a passing coach
 ARacingService MUST own FHRWorldState only on authority, persist world saves atomically
 with unreadable/invalid save quarantine rather than silent overwrite, register only the
 local host player until guest identity persistence exists, and replicate only the compact
-FRacingNetState snapshot (never FHRWorldState::Seed). Runner motion, ground traces and
-Belmonte TV broadcast camera cuts MUST be deterministic functions of the replicated
-snapshot and shared clock, with zero per-frame network traffic and no silent breed/coat/clip
+FRacingNetState snapshot (never FHRWorldState::Seed). RacingMotion::Distance, RacingGround::Pick
+hit selection and RacingTv::Direct camera selection from the snapshot, shared clock and
+spectator positions MUST be deterministic, with zero per-frame network traffic and no silent breed/coat/clip
 stand-ins when required assets are missing.
