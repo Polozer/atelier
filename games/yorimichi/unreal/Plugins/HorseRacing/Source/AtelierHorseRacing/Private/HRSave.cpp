@@ -519,6 +519,8 @@ namespace HRSave
 		if (!Error.IsEmpty()) return false;
 		HRVisual::FillMissingLoci(Parsed);
 		HRBreeds::FillMissing(Parsed);
+		Error = Validate(Parsed);
+		if (!Error.IsEmpty()) return false;
 		Out = MoveTemp(Parsed);
 		return true;
 	}

@@ -15,6 +15,7 @@
 #include "SwordTrainer.h"
 #include "LiveLibrary.h"
 #include "BelmonteTrainService.h"
+#include "RacingService.h"
 #include "YorimichiLive.h"
 #include "EngineUtils.h"
 #include "Engine/Canvas.h"
@@ -327,6 +328,19 @@ void AJapanHUD::DrawHUD()
         }
     }
     DrawTrainer(bController, bSailboat);
+    // Near a racecourse: the next race, the race running or the last podium (docs/RACING.md).
+    if (const ARacingService* Racing = ARacingService::Find(GetWorld()))
+    {
+        const FString Line = Racing->HudLine(Pawn);
+        if (!Line.IsEmpty())
+        {
+            float W = 0.f, H = 0.f; Canvas->StrLen(Font, Line, W, H);
+            const float S = FMath::Min(1.15f, (Canvas->SizeX - 60.f) / FMath::Max(1.f, W));
+            const float X = Canvas->SizeX * .5f - W * S * .5f, Y = Canvas->SizeY * .065f;
+            DrawRect(FLinearColor(0, 0, 0, .42f), X - 12, Y - 6, W * S + 24, H * S + 12);
+            DrawText(Line, FLinearColor(1.f, .93f, .78f), X, Y, Font, S);
+        }
+    }
 
     if (bSwordSet)
     {

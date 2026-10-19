@@ -380,6 +380,9 @@ def belmonte_train_service_present(out):
 
 
 # The cook and download have independent implementation inputs and success stamps.
+_racing_assets_spec = importlib.util.spec_from_file_location('yorimichi_racing_assets', TOOLS / 'racing_assets.py')
+racing_assets = importlib.util.module_from_spec(_racing_assets_spec)
+_racing_assets_spec.loader.exec_module(racing_assets)
 _cook_spec = importlib.util.spec_from_file_location('yorimichi_package_cook', TOOLS / 'package_cook.py')
 package_cook = importlib.util.module_from_spec(_cook_spec)
 _cook_spec.loader.exec_module(package_cook)
@@ -400,7 +403,7 @@ def cook_step(ctx, steps):
                 [Call('prepare_cook', package_cook.prepare), UnrealPackage('Yorimichi', out / 'package' / 'archive'),
                  Call('certify_cook', package_cook.finish)],
                 inputs=[SOURCE, ctx.uproject, GAME / 'unreal/Plugins', paths.ENGINE_PLUGINS, GAME / 'unreal' / 'Config', TOOLS / 'package_cook.py', *engine_inputs],
-                needs=[s.name for s in steps if s.name.startswith('unreal.') and not s.explicit] + ['data.stage', 'data.network'], heavy=True, explicit=True,
+                needs=[s.name for s in steps if s.name.startswith('unreal.') and not s.explicit] + ['data.stage', 'data.racing_assets', 'data.network'], heavy=True, explicit=True,
                 outputs=[out / 'package' / 'cook.json'], verify=lambda: package_cook.cook_present(out / 'package'),
                 cook_recovery=CookRecovery(package_cook.source_snapshot, package_cook.finish, package_cook.recovery_inputs),
                 about='cook the macOS app once and certify its source and immutable archived files')
@@ -1322,6 +1325,10 @@ def unreal_steps(ctx):
              inputs=[SCRIPTS / 'crater_cloud_material.py', SCRIPTS / 'atmosphere.py', SCRIPTS / 'sea_look.py'], after=['unreal.compile'],
              outputs=[GAME / 'unreal' / 'Content' / 'CraterPark' / 'Cloud' / f'{name}.uasset' for name in ('M_CraterCloud', 'M_CraterCloudVeil')],
              heavy=True, about="the cap cloud's translucent materials, plain and blurring veil (/Game/CraterPark/Cloud)"),
+        Step('unreal.racing_tv', [UnrealScript(SCRIPTS / 'racing_tv_material.py', 'RACING TV MATERIAL COMPLETE')],
+             inputs=[SCRIPTS / 'racing_tv_material.py'], after=['unreal.compile'],
+             outputs=[GAME / 'unreal' / 'Content' / 'Racing' / 'M_RacingTv.uasset'],
+             heavy=True, about="the racing TVs' picture material (/Game/Racing)"),
         Step('unreal.sounds', [
                 UnrealScript(SCRIPTS / 'import_footsteps.py', 'FOOTSTEP IMPORT COMPLETE'),
                 UnrealScript(SCRIPTS / 'import_combat_audio.py', 'COMBAT AUDIO IMPORT COMPLETE'),
@@ -1413,7 +1420,19 @@ def staging_steps(ctx):
                       (('bike', c.playable), ('grips', (GRIPS / c.id).is_dir())) if wanted]],
              reads=['soundbanks.staged'],
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / rel for rel in staged(out)], about='runtime files into unreal/Content/Data'),
+        racing_assets_step(out),
     ]
+
+
+def racing_assets_step(out):
+    """The racing service loads its runners by path (docs/RACING.md, "Horses"): fail before cooking when one is missing."""
+    jockey = next(c for c in definition.movers() if c.game.get('default'))
+    rig = racing_assets.default_rig(definition)
+    return Step('data.racing_assets', [Call('racing_assets', lambda ctx, log: racing_assets.check(ctx.out, rig, log))],
+                inputs=[TOOLS / 'racing_assets.py', GAME / 'unreal' / 'Config' / 'DefaultGame.ini', jockey.folder / 'character.toml'],
+                needs=['unreal.horses', f'unreal.{key(jockey)}_horse'],
+                outputs=[out / 'racing' / 'assets.json'],
+                about='the racing breeds, coats, saddles and jockey clips: present and always cooked')
 
 
 def steps(ctx):
