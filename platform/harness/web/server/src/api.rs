@@ -170,6 +170,7 @@ pub struct CapacityJob {
     pub retained: u64,
     pub witnessed: u64,
     pub wait_reason: String,
+    pub pressure_expires_at: Option<f64>,
     pub measured_memory_mib: Option<u64>,
     pub measured_at: Option<f64>,
     pub ancestry_unknown: bool,

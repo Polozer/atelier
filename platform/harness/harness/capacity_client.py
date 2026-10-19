@@ -48,14 +48,14 @@ def wait_for_offer(admission, *, seconds=1800.):
     while True:
         try:
             return admission.offer()
-        except CapacityQueued:
+        except CapacityQueued as queued:
             now = time.monotonic()
             if now - started >= seconds:
                 raise CapacityError('Capacity queue wait deadline reached; no resources held. '
                                     'Rerunning the same job retains its ready age.') from None
             if spoken is None or now - spoken >= 25:
                 print(f'Waiting for capacity: {now-started:.0f}/{seconds:.0f}s; '
-                      'broker queue active, no resources or child held', flush=True)
+                      f'broker queue active, no resources or child held; {queued}', flush=True)
                 spoken = now
             time.sleep(min(1., seconds - (now - started)))
 
@@ -259,7 +259,13 @@ class AdmissionSession:
         self.boot = response['boot_id']
         if response.get('selected') is not True:
             if response.get('selected') is False and response.get('state') == 'queued':
-                raise CapacityQueued('Capacity request remains queued without holding resources')
+                reason = 'Capacity request remains queued without holding resources'
+                if 'wait_reason' in response:
+                    try:
+                        reason += '; ' + wire.text(response['wait_reason'], maximum=1024)
+                    except CapacityError:
+                        pass  # Optional display text cannot invalidate a positively fenced queued response.
+                raise CapacityQueued(reason)
             raise CapacityError('Capacity offer response is not a selected or queued request')
         return response
 

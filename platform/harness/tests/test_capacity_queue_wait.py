@@ -112,3 +112,33 @@ def test_guard_cancellation_closes_queued_session_before_any_child_or_lock(monke
     with pytest.raises(KeyboardInterrupt):
         guarded.run(['python', '-c', 'pass'], tmp_path/'guard', kind='job', admission=Admission())
     assert events == ['offer', 'sleep', 'close']
+
+
+def test_queue_progress_includes_the_brokers_latest_pressure_arithmetic(monkeypatch, capsys):
+    now = clock(monkeypatch)
+    reason = 'waiting for memory: 17510 MiB available, 18432 MiB required; deficit 922 MiB; sample age 0.0s'
+    def offer():
+        raise client.CapacityQueued(reason)
+    with pytest.raises(client.CapacityError, match='deadline reached'):
+        client.wait_for_offer(SimpleNamespace(offer=offer), seconds=.1)
+    assert reason in capsys.readouterr().out and now[0] == .1
+
+
+@pytest.mark.parametrize('reason', [None, 'waiting for memory; deficit 922 MiB'])
+def test_positive_queue_reason_supports_old_and_new_brokers(monkeypatch, tmp_path, reason):
+    response = dict(selected=False, state='queued', nonce='nonce', epoch=2, boot_id='boot')
+    if reason is not None:response['wait_reason'] = reason
+    monkeypatch.setattr(client, '_rpc', lambda *args, **kwargs: (response, None))
+    admission = client.AdmissionSession(tmp_path/'socket', {'id': 'job'})
+    with pytest.raises(client.CapacityQueued) as caught:admission.offer()
+    assert str(caught.value) == ('Capacity request remains queued without holding resources' +
+                                ('; ' + reason if reason else ''))
+
+
+@pytest.mark.parametrize('reason', [None, {}, '', 'x' * 1025])
+def test_malformed_optional_queue_diagnostic_keeps_positive_wait(monkeypatch, tmp_path, reason):
+    response = dict(selected=False, state='queued', nonce='nonce', epoch=2, boot_id='boot', wait_reason=reason)
+    monkeypatch.setattr(client, '_rpc', lambda *args, **kwargs: (response, None))
+    admission = client.AdmissionSession(tmp_path/'socket', {'id': 'job'})
+    with pytest.raises(client.CapacityQueued) as caught:admission.offer()
+    assert str(caught.value) == 'Capacity request remains queued without holding resources'

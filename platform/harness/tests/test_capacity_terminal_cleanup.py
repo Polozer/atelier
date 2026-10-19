@@ -28,6 +28,7 @@ def terminal(tmp_path):
                   request=dict(id='job', owner='builder', purpose='Compile', resources=asdict(Resources(memory_mib=1)),
                                locks=[], performance=False, seconds=60))
     broker = object.__new__(CapacityBroker)
+    broker._queue_status = broker._advisory_budget = None
     broker.mode = 'legacy-bridge'
     broker.alive = lambda pin: False
     return broker, record, path, receipt

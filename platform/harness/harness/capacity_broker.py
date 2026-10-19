@@ -124,6 +124,7 @@ class CapacityBroker:
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._gates, self._watches = {}, {}
+        self._queue_status = self._advisory_budget = None
         self._last_clock = time.monotonic()
         self.listener = self.connection = self.lock_fd = None
         try:
@@ -732,6 +733,9 @@ class CapacityBroker:
                     record['state'] = 'draining' if self._root_exited(record) else 'uncertain'
                     raise wire.CapacityError('Existing holder enforcement is unavailable; reservation retained') from None
             growth_memory += max(0, vector.memory_mib - measured)
+        if advisory:
+            self._advisory_budget = dict(memory=memory, growth=growth_memory,
+                                         observed=observation['observed_monotonic'])
         return memory, growth_memory
 
     def _pressure(self, state, candidate):
@@ -820,7 +824,46 @@ class CapacityBroker:
         for key in [key for key in self._watches if key[0] == nonce]:
             self._watches.pop(key).close()
 
+    def _queue_context(self, state):
+        return json.dumps(dict(mode=self.mode, boot=self.boot, total=asdict(self.total), reserve=asdict(self.reserve),
+                               records=[dict(id=key, state=r['state'], request=r['request'],
+                                nonce=r.get('nonce'), child=r.get('child'), principal=r.get('principal'),
+                                limit=r.get('limit_bytes'), sequence=r['sequence'],
+                                first_ready=r['first_ready'], bypasses=r['bypasses'])
+                           for key, r in sorted(state['records'].items())
+                           if r['state'] in HELD or r['state'] == 'queued']), sort_keys=True)
+
+    def _fresh_queue_status(self, state):
+        snapshot = self._queue_status
+        age = self._clock() - snapshot['budget']['observed'] if snapshot and snapshot['budget'] else -1
+        if (snapshot is not None and snapshot['epoch'] == state['epoch'] and 0 <= age <= 2
+                and snapshot['context'] == self._queue_context(state)):
+            return snapshot, age
+        return None, None
+
+    def _queue_pressure_reason(self, record, snapshot, age):
+        request = record['request']['resources']['memory_mib']
+        required = request + self.reserve.memory_mib + snapshot['budget']['growth']
+        available = snapshot['budget']['memory']
+        prefix = ('waiting for memory' if available < required else
+                  'advisory offer eligible; guarded start still required' if snapshot['selected'] == record['request']['id'] else
+                  'waiting behind queue priority')
+        return (f'{prefix}: {available} MiB available, {required} MiB required '
+                f'({request} request + {self.reserve.memory_mib} host reserve + '
+                f'{snapshot["budget"]["growth"]} remaining peer growth); '
+                f'deficit {max(0, required - available)} MiB; sample age {age:.1f}s')
+
     def _status(self, state):
+        """@cc [owner:fontanierh,label:correctness] cached-pressure-status-is-advisory
+        Queue pressure arithmetic and selected identity MUST come only from a successful advisory
+        pressure observation, including evaluations with no selected offer, no older than two seconds,
+        with unchanged queued/held context and epoch.
+        Stale or changed context MUST be reported as unknown, never selected or available.
+        Pressure claims MUST carry an expiry bounded by that observation; display consumers MUST
+        invalidate expired claims locally without waiting for their next broker poll.
+        Status MUST NOT sample memory, validate guards or mutate holder health for this display.
+        Displayed eligibility MUST NOT certify a guarded start or change admission/fairness.
+        """
         records = list(state['records'].values())
         charged = [r for r in records if r['state'] in HELD]
         used = Resources()
@@ -835,16 +878,16 @@ class CapacityBroker:
                       total_records=len(records), records=[], truncated=False)
         if self.mode in ('capacity', 'sealed-maintenance'):
             result['compatibility_healthy'] = self.compatible
-        selected = self._selection(state)
+        snapshot, age = self._fresh_queue_status(state)
         for record in sorted(records, key=lambda r: (r['state'] not in HELD, r['state'] != 'queued',
                                                      -r['sequence'] if r['state'] == 'released' else r['sequence'])):
             request = record['request']
             blockers = conflicts(self._model(record), [self._model(r) for r in charged], self.total, self.reserve)
             reason = ('uncertain ownership or enforcement; reservation retained' if record['state'] == 'uncertain' else
                       'capacity recovery blocks new grants' if result['recovering'] and record['state'] == 'queued' else
-                      ('selected advisory offer; sealed compatibility locks and guarded commit still required'
-                       if self.mode in ('capacity', 'sealed-maintenance') else 'selected advisory offer; legacy exclusion and guarded commit still required') if record is selected else
-                      ('; '.join(blockers) or 'older ready request selected') if record['state'] == 'queued' else
+                      ('; '.join(blockers) if blockers else
+                       self._queue_pressure_reason(record, snapshot, age) if snapshot else
+                       'waiting for a fresh pressure eligibility observation; no resources held') if record['state'] == 'queued' else
                       'not currently ready; retry required' if record['state'] == 'waiting' else '')
             item = dict(id=request['id'], owner=request.get('owner'), checkout=request.get('checkout'),
                         purpose=request.get('purpose'), phase=request.get('phase'),
@@ -852,6 +895,9 @@ class CapacityBroker:
                         locks=request['locks'], first_ready=record['first_ready'], sequence=record['sequence'],
                         bypasses=record['bypasses'], retained=history.count(record, 'roster'),
                         witnessed=history.count(record, 'exited'), wait_reason=reason,
+                        pressure_expires_at=(result['observed_at'] + 2 - age
+                                             if record['state'] == 'queued' and snapshot and not blockers
+                                             and not result['recovering'] else None),
                         measured_memory_mib=record.get('measured_memory_mib'),
                         measured_at=record.get('measured_at'), ancestry_unknown=record.get('ancestry_unknown', False))
             result['records'].append(item)
@@ -978,9 +1024,24 @@ class CapacityBroker:
                                       verified_roster=[], ancestry_unknown=False)
                         record.pop('process_history', None)
                     record.update(request=request, state='queued', epoch=state['epoch'], heartbeat=now)
-                    selected = self._selection(state, pressure=True, advisory=True) is record
+                    self._advisory_budget = None
+                    selected_record = self._selection(state, pressure=True, advisory=True)
+                    selected = selected_record is record
+                    self._queue_status = dict(epoch=state['epoch'], context=self._queue_context(state),
+                                              budget=self._advisory_budget,
+                                              selected=selected_record['request']['id'] if selected_record else None)
+                    snapshot, age = self._fresh_queue_status(state)
+                    blockers = conflicts(self._model(record),
+                                         [self._model(r) for r in state['records'].values() if r['state'] in HELD],
+                                         self.total, self.reserve)
+                    reason = ('capacity recovery blocks new grants' if not self.compatible or
+                              any(r['state'] == 'uncertain' for r in state['records'].values()) else
+                              '; '.join(blockers) if blockers else
+                              self._queue_pressure_reason(record, snapshot, age) if snapshot else
+                              'waiting for a fresh pressure eligibility observation; no resources held')
                     result = {'selected': selected, 'state': 'offered' if selected else 'queued',
-                              'nonce': record['nonce'], 'epoch': state['epoch'], 'first_ready': record['first_ready']}
+                              'nonce': record['nonce'], 'epoch': state['epoch'], 'first_ready': record['first_ready'],
+                              'wait_reason': reason}
                 else:
                     record = state['records'].get(message.get('id'))
                     if (record is None or tuple(record['principal']) != principal or message.get('nonce') != record['nonce']):

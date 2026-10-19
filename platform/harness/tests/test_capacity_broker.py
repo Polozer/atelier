@@ -1156,3 +1156,84 @@ def test_protected_checkout_sibling_does_not_block_unrelated_compatible_work(bro
     assert (sibling['first_ready'],sibling['bypasses']) == original
     holder['state'] = 'released'
     assert broker._selection(state,pressure=True) is sibling
+
+
+def test_queue_status_explains_a_sole_pressure_deficit_without_resampling(broker_factory, monkeypatch):
+    broker = broker_factory(total=Resources(memory_mib=32768, cpu_millis=4000),
+                            reserve=Resources(memory_mib=4096),
+                            observe=lambda: dict(observed_monotonic=time.monotonic(), available_memory_mib=17510))
+    admission = session(broker, resources=asdict(Resources(memory_mib=14336, cpu_millis=1000)))
+    with pytest.raises(client.CapacityQueued, match='deficit 922 MiB') as caught:
+        admission.offer()
+    monkeypatch.setattr(broker, 'observe', lambda: pytest.fail('status must not sample memory'))
+    monkeypatch.setattr(broker, 'guards', lambda *args: pytest.fail('status display must not validate guards'))
+    report = client.status(broker.socket_path)
+    row = report['records'][0]
+    assert '17510 MiB available, 18432 MiB required' in row['wait_reason']
+    assert '14336 request + 4096 host reserve + 0 remaining peer growth' in row['wait_reason']
+    assert 'sample age' in row['wait_reason'] and 'selected' not in row['wait_reason']
+    assert report['observed_at'] <= row['pressure_expires_at'] <= report['observed_at'] + 2
+    assert row['wait_reason'].split('; sample age')[0] in str(caught.value)
+    assert row['state'] == 'queued' and report['charged_count'] == 0 and not broker._gates
+    admission.close()
+
+
+@pytest.mark.parametrize('change', ['stale', 'epoch', 'request', 'nonce', 'sequence', 'bypasses',
+                                   'reserve', 'total', 'holder'])
+def test_queue_status_never_reuses_stale_or_changed_context(broker, monkeypatch, change):
+    admission = session(broker)
+    admission.offer()
+    with broker._lock:
+        state = broker._load()
+        broker.connection.rollback()
+        if change == 'stale':broker._queue_status['budget']['observed'] -= 3
+        elif change == 'epoch':state['epoch'] += 1
+        elif change == 'request':state['records']['leaf']['request']['resources']['memory_mib'] += 1
+        elif change in ('nonce', 'sequence', 'bypasses'):
+            row = state['records']['leaf']
+            row[change] = 'new nonce' if change == 'nonce' else row[change] + 1
+        elif change == 'reserve':monkeypatch.setattr(broker, 'reserve', Resources(memory_mib=1))
+        elif change == 'total':monkeypatch.setattr(broker, 'total', Resources(memory_mib=4095, cpu_millis=4000))
+        elif change == 'holder':
+            import copy
+            peer = copy.deepcopy(state['records']['leaf'])
+            peer['request']['id'] = 'peer';peer['state'] = 'draining';peer['request']['locks'] = []
+            state['records']['peer'] = peer
+        report = broker._status(state)
+        row = next(row for row in report['records'] if row['id'] == 'leaf')
+        assert 'required' not in row['wait_reason'] and 'eligible' not in row['wait_reason']
+        assert row['pressure_expires_at'] is None
+        assert 'fresh pressure' in row['wait_reason'] or change == 'holder'
+    admission.close()
+
+
+def test_queue_status_dormant_history_does_not_invalidate_fresh_budget(broker):
+    admission = session(broker)
+    admission.offer()
+    with broker._lock:
+        import copy
+        state = broker._load()
+        broker.connection.rollback()
+        old = copy.deepcopy(state['records']['leaf']);old['state'] = 'waiting';old['request']['id'] = 'old'
+        state['records']['old'] = old
+        row = next(row for row in broker._status(state)['records'] if row['id'] == 'leaf')
+        assert 'advisory offer eligible' in row['wait_reason'] and 'guarded start still required' in row['wait_reason']
+    admission.close()
+
+
+def test_queue_status_reports_actual_pressure_backfill_and_protected_priority(broker, monkeypatch):
+    monkeypatch.setattr(broker, 'observe', lambda: dict(observed_monotonic=time.monotonic(), available_memory_mib=128))
+    large = session(broker, 'large', resources=asdict(Resources(memory_mib=256, cpu_millis=1000)))
+    with pytest.raises(client.CapacityQueued):large.offer()
+    small = session(broker, 'small')
+    small.offer()
+    rows = {r['id']: r for r in client.status(broker.socket_path)['records']}
+    assert 'waiting for memory' in rows['large']['wait_reason']
+    assert 'advisory offer eligible' in rows['small']['wait_reason']
+    with broker._lock:
+        state = broker._load();state['records']['large']['bypasses'] = 2;broker._save(state)
+    with pytest.raises(client.CapacityQueued, match='waiting behind queue priority'):small.offer()
+    rows = {r['id']: r for r in client.status(broker.socket_path)['records']}
+    assert 'waiting for memory' in rows['large']['wait_reason']
+    assert 'waiting behind queue priority' in rows['small']['wait_reason']
+    large.close();small.close()
