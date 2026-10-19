@@ -7,10 +7,14 @@
   ],
   "labels_baked": false,
   "geography": {
-    "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
-    "world/build_terrain.py": "46bd9b5e15bd0d059a4419848dccc5ad4e814bf6e8e27126a9b87b70934b3624",
-    "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
-    "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
+    "world/gen_world.py": "9763dfffa7b4c2e9c186d469124289fad26510254a7c16e15d6a1604ed26c4ef",
+    "world/build_terrain.py": "2a810d3a4698765c24044379e053f67e56817b90ab871b78814a2233d9515a09",
+    "world/farhills_surface.py": "497530bb634a84f69dae54c5abcec20088ed4dff1359a11bde8423e0601ae182",
+    "world/farhills_grid.py": "6451e5894c63e3eedcded121cef2f477a9615c36b1dd61715d16938ab53228c4",
+    "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
+    "world/north_mountain_surface.py": "380fac8eece8794a9d8737444af73b3e3979227470aba3de49d415df42477816",
+    "world/regions/hidamari/layout.py": "e75a568aa7ed08af5ceb386078922ed41daea8455afc241d1d41987940b2bbbf",
+    "world/regions/hidamari/mountains.py": "f2a09621e6e6d61b070b284e79333b5312bcc118f681d8cedac53eb82a13aae6",
     "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
     "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
     "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
@@ -21,53 +25,24 @@
     "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
     "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
     "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
-    "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
+    "world/shorelines.py": "087b0fe32ea76a8082e1aed80581b24261bead89ee2db165a3ee053f5f5d1006"
   },
-  "prompt": "Use case: stylized-concept. Asset: production fantasy RPG atlas texture.\nImage 1 is the authoritative exact top-down geographical plan. Image 2 is the authoritative coast mask. Image 3, if present, is ONLY a painterly style reference; ignore all its text, layout, symbols and geography.\nPaint this plan as a beautiful, richly detailed hand-painted adventure atlas, with the clarity and craft of a classic World of Warcraft regional map. Warm parchment undertones, fine ink contours, softly shaded olive forests, earth and ochre paths, delicate roof plans, turquoise water with subtle coastal depth. An elegant, cohesive painted world, not a satellite photograph.\nScene: An autumn coastal countryside: a winding road, small fishing cove, timber docks, shoreline houses and the precisely shaped concrete skate pier. Maple groves meet a turquoise sea.\nSTRICT CAMERA: orthographic TOP VIEW, north up, looking vertically down. No oblique view, no perspective, no horizon, no isometric buildings or mountain silhouettes. Mountain relief is shaded contour/rock texture seen directly from overhead. Circles remain circles. No camera rotation, recentering, zoom, crop or changed scale.\nGEOMETRY: preserve the first image's exact frame, coastline, land/water mask, river courses, road and rail alignments, islands, building positions and landmark footprints. Keep the empty sea where shown. Paint detail within those shapes; do not invent towns, bridges, rivers, islands, roads or mountains. Rectangular tint boundaries in the plan are rendering-layer seams: blend their colours naturally while preserving contours and physical geography. The first image always overrides the style reference.\nWATER SEMANTICS: only clearly saturated blue/cyan shapes in the plan are water. Muted grey/green/brown closed contour rings are DRY HILLTOPS, never lakes. White is snow or concrete, never water. Do not turn any northern contour depression or the volcanic caldera into a blue lake. Do not extend the river beyond its precise drawn course. Preserve exact roof/park geometry rather than inventing rock towers.\nNO TEXT OF ANY KIND: no letters, numbers, place names, stable names, title, legend, compass rose, banners, scrolls, map pins, icons, badges, borders or UI. All names and destinations will be rendered by the game as editable live overlays. Fill the entire image with the map terrain; no decorative margins. High finish, subtle fine paper grain, crisp paths, restrained contrast, clear terrain at game UI scale.\nRequired geometry correction: do not shrink the land to an aesthetic thin beach. Every white mask pixel on the coast is actual solid ground, including the entire broad pale-sand apron below the coastal road. Extend dry sand right up to the exact white/black mask boundary, with blue ocean only on the black side. White surf must sit in the ocean, never replace real sand. Keep the large skate pier and its approach intact. No prior painted coast is authoritative.\n\nSHORELINE CORRECTION: Image 2 is an authoritative binary terrain mask: WHITE is solid ground, BLACK is water. Match its silhouette at the exact same pixel positions; do not enlarge, shrink, recenter or rotate the island. Paint terrain only inside the white footprint. Surf is water, not extra dry ground. Every bay, headland and small rock must retain the mask outline. Keep the shore within one source pixel. If image 3 is present, it is STYLE ONLY: its enlarged shoreline is wrong and must not be copied. Preserve the path and temple positions of image 1. The binary mask overrides all artistic interpretation of the coast.\n",
-  "inputs": [
-    {
-      "role": "exact geography",
-      "sha256": "b04f45d028487ccaf977ade69c4504a8d0c5abbb7b762eb046dc6942ef056e76"
-    },
-    {
-      "role": "exact coast mask",
-      "sha256": "9a58a333615d8260620b3f13bbc3385a40ada35367cef2fa60ccef7d264602f9"
-    }
-  ],
-  "requested_model": "gpt-image-2.5-sunburst",
-  "quality": "high",
-  "size": "1536x1024",
-  "endpoint": "/v1/images/edits",
-  "prompt_sha256": "5e1d1ba7d868e07591daa46aa3b28cb39b63ff31c75f4e3172dba5f5bfc496ba",
-  "status": "done",
-  "started_at": "2026-10-18T11:40:50.605741+00:00",
-  "output": "momiji_coast.png",
-  "output_sha256": "e000fd6651c938576e0e6c3bcca1ae7746eb5d4c7c0972d99969418b3ba3d9fa",
-  "usage": {
-    "input_tokens": 2925,
-    "input_tokens_details": {
-      "image_tokens": 2160,
-      "text_tokens": 765
-    },
-    "output_tokens": 1372,
-    "output_tokens_details": {
-      "image_tokens": 1372,
-      "text_tokens": 0
-    },
-    "total_tokens": 4297
-  },
-  "elapsed_seconds": 38.4,
-  "finished_at": "2026-10-18T11:41:29.019105+00:00",
-  "verified_geography": {
-    "kind": "terrain-reference-revalidation",
+  "generation": {
+    "bounds": [
+      -650.0,
+      -350.0,
+      400.0,
+      350.0
+    ],
+    "labels_baked": false,
     "geography": {
-      "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
+      "world/gen_world.py": "9763dfffa7b4c2e9c186d469124289fad26510254a7c16e15d6a1604ed26c4ef",
       "world/build_terrain.py": "2a810d3a4698765c24044379e053f67e56817b90ab871b78814a2233d9515a09",
-      "world/farhills_surface.py": "3f1bcb705333efce9c3fce3349c16f88b3b8dbbf210f4794a695909cf9c7f2b3",
+      "world/farhills_surface.py": "497530bb634a84f69dae54c5abcec20088ed4dff1359a11bde8423e0601ae182",
       "world/farhills_grid.py": "6451e5894c63e3eedcded121cef2f477a9615c36b1dd61715d16938ab53228c4",
       "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
       "world/north_mountain_surface.py": "380fac8eece8794a9d8737444af73b3e3979227470aba3de49d415df42477816",
-      "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
+      "world/regions/hidamari/layout.py": "e75a568aa7ed08af5ceb386078922ed41daea8455afc241d1d41987940b2bbbf",
       "world/regions/hidamari/mountains.py": "f2a09621e6e6d61b070b284e79333b5312bcc118f681d8cedac53eb82a13aae6",
       "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
       "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
@@ -79,14 +54,150 @@
       "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
       "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
       "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
-      "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
+      "world/shorelines.py": "087b0fe32ea76a8082e1aed80581b24261bead89ee2db165a3ee053f5f5d1006"
     },
-    "painting_sha256": "e000fd6651c938576e0e6c3bcca1ae7746eb5d4c7c0972d99969418b3ba3d9fa",
-    "coast_sha256": "fe097804f3b52374305283ef2e1fbf1f1ca8d432230f73200a3b971328ad6638",
-    "reference_sha256": "b04f45d028487ccaf977ade69c4504a8d0c5abbb7b762eb046dc6942ef056e76"
+    "prompt": "Use case: precise-object-edit. Production label-free RPG atlas texture,1536x1024. Image1 is the existing painting to correct. Image2 is the exact north-up geography plan. Image3 is the exact binary geography mask: WHITE=DRY LAND, BLACK=WATER. Keep the original full1536x1024 frame and exact positions of every lake, road, railway, building, dock, ramp and path. Orthographic vertically overhead, no camera change, no text or UI.\nCorrect only these concrete defects. The dark straight rectangular product boundaries in image2 are computer rendering artifacts, NEVER terrain edges, walls, paths or features. Image1 accidentally copied them. Remove those thin straight lines completely and blend the forest/ground texture continuously across them. Preserve real contours and actual curved paths. Do not create new paths, walls, rivers or structures. Preserve all art outside the corrected seam bands and required coastline patch.\nCOAST REQUIRED FIX: Image1 still paints OCEAN over real restored western ground. Follow image3 literally: white pixels must be forest/beach/earth, black pixels water. In the LEFTmost column, shoreline is y600 of1024, then diagonally down/right to aboutx520/y765, then almost flat alongy780 to the right. Match the exact mask instead of these approximate descriptions. The current painted coastline is too high (too much water) on the west. Restore ALL white-mask ground to the exact coast line. Surf belongs on the water side only. Preserve the skate pier exact rectangular footprintx665..915,y758..951 and road/lake/hamlet positions. Remove the straight horizontal boundary at y70 fromx520..1390 and the vertical product edge atx520; blend forest densities naturally, without changing true slope or road geometry.\n",
+    "inputs": [
+      {
+        "role": "edit target",
+        "sha256": "da7dd24644e6459db680c95a8af788e9bb68f0caeb2a79f6ed8523d5c09805bd"
+      },
+      {
+        "role": "exact geography",
+        "sha256": "6858a1c2a8986ba57bb1554e0e923600e598df84c0236e6214c80c62a86dd8cd"
+      },
+      {
+        "role": "exact coast mask",
+        "sha256": "cf290e00757116d5b54530187380776e60d21708211c85ff752db1f0f1504313"
+      }
+    ],
+    "prior_generation": {
+      "bounds": [
+        -650.0,
+        -350.0,
+        400.0,
+        350.0
+      ],
+      "labels_baked": false,
+      "geography": {
+        "world/gen_world.py": "9763dfffa7b4c2e9c186d469124289fad26510254a7c16e15d6a1604ed26c4ef",
+        "world/build_terrain.py": "2a810d3a4698765c24044379e053f67e56817b90ab871b78814a2233d9515a09",
+        "world/farhills_surface.py": "497530bb634a84f69dae54c5abcec20088ed4dff1359a11bde8423e0601ae182",
+        "world/farhills_grid.py": "6451e5894c63e3eedcded121cef2f477a9615c36b1dd61715d16938ab53228c4",
+        "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
+        "world/north_mountain_surface.py": "380fac8eece8794a9d8737444af73b3e3979227470aba3de49d415df42477816",
+        "world/regions/hidamari/layout.py": "e75a568aa7ed08af5ceb386078922ed41daea8455afc241d1d41987940b2bbbf",
+        "world/regions/hidamari/mountains.py": "f2a09621e6e6d61b070b284e79333b5312bcc118f681d8cedac53eb82a13aae6",
+        "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
+        "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
+        "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
+        "world/regions/southwest/island.py": "977f38a49fb5eb699f8164544fee1cde5f804372ddaeb03826125242e9c7b96f",
+        "world/train/route.py": "88a742f1d19cddbb56cf610a7cf6c2ca0b7fe7ebfb1928ce25e2b708e741817e",
+        "world/regions/skatepark/park.json": "a0fe294c872e312cbb07f57895782d914f62a8758cba5d681e4506b32688d637",
+        "world/regions/craterpark/placement.py": "f8ab80eb99b84d3dc9bb8ba6219b30f9fac2b2d20d4c2b199d3a6eb717444d42",
+        "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
+        "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
+        "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
+        "world/shorelines.py": "087b0fe32ea76a8082e1aed80581b24261bead89ee2db165a3ee053f5f5d1006"
+      },
+      "prompt": "Use case: stylized-concept. Asset: production fantasy RPG atlas texture.\nImage 1 is the authoritative exact top-down geographical plan. Image 2 is the authoritative coast mask. Image 3, if present, is ONLY a painterly style reference; ignore all its text, layout, symbols and geography.\nPaint this plan as a beautiful, richly detailed hand-painted adventure atlas, with the clarity and craft of a classic World of Warcraft regional map. Warm parchment undertones, fine ink contours, softly shaded olive forests, earth and ochre paths, delicate roof plans, turquoise water with subtle coastal depth. An elegant, cohesive painted world, not a satellite photograph.\nScene: An autumn coastal countryside: a winding road, small fishing cove, timber docks, shoreline houses and the precisely shaped concrete skate pier. Maple groves meet a turquoise sea.\nSTRICT CAMERA: orthographic TOP VIEW, north up, looking vertically down. No oblique view, no perspective, no horizon, no isometric buildings or mountain silhouettes. Mountain relief is shaded contour/rock texture seen directly from overhead. Circles remain circles. No camera rotation, recentering, zoom, crop or changed scale.\nGEOMETRY: preserve the first image's exact frame, coastline, land/water mask, river courses, road and rail alignments, islands, building positions and landmark footprints. Keep the empty sea where shown. Paint detail within those shapes; do not invent towns, bridges, rivers, islands, roads or mountains. Rectangular tint boundaries in the plan are rendering-layer seams: blend their colours naturally while preserving contours and physical geography. The first image always overrides the style reference.\nWATER SEMANTICS: only clearly saturated blue/cyan shapes in the plan are water. Muted grey/green/brown closed contour rings are DRY HILLTOPS, never lakes. White is snow or concrete, never water. Do not turn any northern contour depression or the volcanic caldera into a blue lake. Do not extend the river beyond its precise drawn course. Preserve exact roof/park geometry rather than inventing rock towers.\nNO TEXT OF ANY KIND: no letters, numbers, place names, stable names, title, legend, compass rose, banners, scrolls, map pins, icons, badges, borders or UI. All names and destinations will be rendered by the game as editable live overlays. Fill the entire image with the map terrain; no decorative margins. High finish, subtle fine paper grain, crisp paths, restrained contrast, clear terrain at game UI scale.\nREQUIRED GEOGRAPHY UPDATE: The previous style image contains obsolete OCEAN in the lower-left/western ground. That coast is WRONG. The new exact plan and binary mask override it completely. Restore the continuous dry western ground exactly where the mask is white; keep only the actual black-mask water. Do not copy any old rectangular water gap or cliff from the style image. Preserve every existing landmark and path footprint from the exact plan.\n\nSHORELINE CORRECTION: Image 2 is an authoritative binary terrain mask: WHITE is solid ground, BLACK is water. Match its silhouette at the exact same pixel positions; do not enlarge, shrink, recenter or rotate the island. Paint terrain only inside the white footprint. Surf is water, not extra dry ground. Every bay, headland and small rock must retain the mask outline. Keep the shore within one source pixel. If image 3 is present, it is STYLE ONLY: its enlarged shoreline is wrong and must not be copied. Preserve the path and temple positions of image 1. The binary mask overrides all artistic interpretation of the coast.\n",
+      "inputs": [
+        {
+          "role": "exact geography",
+          "sha256": "6858a1c2a8986ba57bb1554e0e923600e598df84c0236e6214c80c62a86dd8cd"
+        },
+        {
+          "role": "exact coast mask",
+          "sha256": "cf290e00757116d5b54530187380776e60d21708211c85ff752db1f0f1504313"
+        },
+        {
+          "role": "style only",
+          "sha256": "e000fd6651c938576e0e6c3bcca1ae7746eb5d4c7c0972d99969418b3ba3d9fa"
+        }
+      ],
+      "requested_model": "gpt-image-2.5-sunburst",
+      "quality": "high",
+      "size": "1536x1024",
+      "endpoint": "/v1/images/edits",
+      "prompt_sha256": "7a5f473d754be900e4eb95641f78b897923ab04f0c08024257a03e9ebf4cd5c5",
+      "status": "done",
+      "started_at": "2026-10-19T00:14:48.675254+00:00",
+      "output": "momiji_coast.png",
+      "output_sha256": "da7dd24644e6459db680c95a8af788e9bb68f0caeb2a79f6ed8523d5c09805bd",
+      "usage": {
+        "input_tokens": 4011,
+        "input_tokens_details": {
+          "image_tokens": 3240,
+          "text_tokens": 771
+        },
+        "output_tokens": 1372,
+        "output_tokens_details": {
+          "image_tokens": 1372,
+          "text_tokens": 0
+        },
+        "total_tokens": 5383
+      },
+      "elapsed_seconds": 38.6,
+      "finished_at": "2026-10-19T00:15:27.288960+00:00"
+    },
+    "requested_model": "gpt-image-2.5-sunburst",
+    "quality": "high",
+    "size": "1536x1024",
+    "endpoint": "/v1/images/edits",
+    "prompt_sha256": "a673e89d9fa6f21d9e8417355e83d9f82ecb98c2d5e89925202843500e7c0491",
+    "status": "done",
+    "started_at": "2026-10-19T00:18:54.277868+00:00",
+    "output": "momiji_coast.png",
+    "output_sha256": "d0a4d828e9569b176abd2df5cd9763757996f2320e703b70ab5c6d4fd28e8f8a",
+    "usage": {
+      "input_tokens": 3641,
+      "input_tokens_details": {
+        "image_tokens": 3240,
+        "text_tokens": 401
+      },
+      "output_tokens": 1372,
+      "output_tokens_details": {
+        "image_tokens": 1372,
+        "text_tokens": 0
+      },
+      "total_tokens": 5013
+    },
+    "elapsed_seconds": 33.8,
+    "finished_at": "2026-10-19T00:19:28.107834+00:00"
   },
-  "refactor_revalidation": {
-    "witness": "coasts/mountain-equivalence.json",
-    "sha256": "9d973eed0d51cbba66088af58e304dac73d26e9249ac2dc29d0fe659a9c3a149"
+  "output_sha256": "45d27bb9984ffb43f11e50563575c987e381e41dc252c6caded33f9b1cd0d16d",
+  "correction": {
+    "kind": "bounded-coast-strip-registration",
+    "changed_pixels": 83154,
+    "changed_fraction": 0.052867889404296875,
+    "protected_pier": [
+      645,
+      735,
+      935,
+      980
+    ],
+    "input_size": [
+      1536,
+      1024
+    ],
+    "output_size": [
+      1536,
+      1024
+    ],
+    "source_rgb_sha256": "265942acf14f12af3b399e6ccb5cdf444f055bc5e97f075c1df8073b0e2e775b",
+    "output_rgb_sha256": "e375b3aaeddf515eb66eca1e354cdb6283b220cd67aee8b879136b9cb2487ac0",
+    "allowed_mask_shape": [
+      1024,
+      1536
+    ],
+    "allowed_mask_sha256": "b3d145084c2fe0adca005d15458ede24ee094cac185ba26d20155b44ea02a1ea",
+    "all_outside_strip_unchanged": true,
+    "all_pier_pixels_unchanged": true,
+    "all_road_hamlet_pixels_unchanged": true,
+    "coast_error": 0.0004590352376302083,
+    "source_sha256": "d0a4d828e9569b176abd2df5cd9763757996f2320e703b70ab5c6d4fd28e8f8a",
+    "mask_sha256": "cf290e00757116d5b54530187380776e60d21708211c85ff752db1f0f1504313",
+    "reference_sha256": "6858a1c2a8986ba57bb1554e0e923600e598df84c0236e6214c80c62a86dd8cd",
+    "helper_sha256": "96a1759ffef99030f122683561738f1ad25ff8a04e6c1f098e5e44cf15f2bcf1"
   }
 }

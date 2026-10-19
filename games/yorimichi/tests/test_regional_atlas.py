@@ -170,17 +170,35 @@ def test_committed_paintings_cover_all_regions_with_current_geometry_and_provena
     assert {p.stem for p in (tmp_path / 'atlas').glob('*.png')} == {'world', *(r['key'] for r in atlas.REGIONS)}
 
 
-def test_world_coast_preserves_spawn_water_finite_mesh_edges_and_country_join():
-    # Actual terrain ownership regressions: the spawn road ends at the western
-    # fine-grid edge, FarHills ends at +/-3200, and the country GLB starts at3200.
-    # Its lower strip must not turn into a fictitious channel at SOUTH_JOIN.
+def test_world_coast_preserves_restored_spawn_ground_finite_edges_and_country_join():
+    # The repaired fine/backdrop join restores dry ground west of the spawn road.
+    # FarHills still ends at +/-3200 and the country GLB starts at3200; its lower
+    # strip must not turn into a fictitious channel at SOUTH_JOIN.
     b = atlas.WORLD_BOUNDS
     with Image.open(atlas.ASSETS / 'coasts/world.png') as mask, Image.open(atlas.ASSETS / 'world.png') as painting:
-        for x, y, water in [(-350., -99.51, True), (4000., 2500., True), (-2000., 3400., False), (0., 7190., True)]:
+        for x, y, water in [(-350., -99.51, False), (4000., 2500., True), (-2000., 3400., False), (0., 7190., True)]:
             ix = int((x-b[0])/(b[2]-b[0])*mask.width)
             iy = int((b[3]-y)/(b[3]-b[1])*mask.height)
             assert (mask.getpixel((ix, iy)) < 128) == water, (x, y)
             assert bool(atlas.water_pixels(painting.crop((ix, iy, ix+1, iy+1)))[0, 0]) == water, (x, y)
+
+
+@pytest.mark.parametrize('key,x,y,water', [
+    ('momiji_coast', -400., -75., False),
+    ('momiji_coast', -400., -300., True),
+    ('momiji_woods', -410., -25., False),
+    ('momiji_woods', -350., 0., False),
+])
+def test_western_regional_paintings_preserve_restored_ground(key, x, y, water):
+    # The Woods frame no longer has ocean on its lower-left edge, so an ocean
+    # flood seeded only from known reference-water edges cannot find that old
+    # painted corner. Check the actual restored terrain coordinates directly.
+    bounds = next(r['bounds'] for r in atlas.REGIONS if r['key'] == key)
+    with Image.open(atlas.ASSETS / 'coasts' / f'{key}.png') as mask, Image.open(atlas.ASSETS / f'{key}.png') as painting:
+        ix = int((x-bounds[0])/(bounds[2]-bounds[0])*mask.width)
+        iy = int((bounds[3]-y)/(bounds[3]-bounds[1])*mask.height)
+        assert (mask.getpixel((ix, iy)) < 128) == water, (key, x, y)
+        assert bool(atlas.water_pixels(painting.crop((ix, iy, ix+1, iy+1)))[0, 0]) == water, (key, x, y)
 
 
 def test_coast_check_rejects_an_enlarged_island_or_filled_bay():
