@@ -210,8 +210,9 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   for the native 1440 window, or `--profile fullscreen` / `--profile desktop-1440` for fullscreen. Honor saved
   `renderer` and `tree_optimization` preferences; do not silently force Lumen or disable tree optimization for
   routine development. The menu warns before enabling Lumen (higher GPU and memory use, restart required), and
-  before disabling tree optimization. The launcher handles the confirmed renderer restart. Keep normal memory
-  guards unless the user explicitly authorizes an exception for that session. See
+  before disabling tree optimization. The launcher handles the confirmed renderer restart. Larger guarded sessions
+  are standing-authorized: choose a supported needed ceiling with its full broker reservation, normal admission,
+  memory guards and deadlines. Do not ask for another per-session memory grant. See
   [desktop performance](games/yorimichi/docs/DESKTOP_PERFORMANCE.md) for the launch and readiness contract.
 - Heavy jobs (Unreal, Blender renders) run under the render lock and memory guard (`atelier.harness.safety`). `atelier play`
   and `atelier build` do this for you. A game's guard stops it above 10 GiB; `atelier play --memory-gib N` (10 to 24)
