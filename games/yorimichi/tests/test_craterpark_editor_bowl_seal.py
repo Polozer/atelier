@@ -7,6 +7,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world' / 'regions'))
 from craterpark.v2 import editor_generate as eg  # noqa: E402
 
+GAME = Path(__file__).resolve().parents[1]
+
 
 def grid(n=100, cell=1.):
     return {'x0': 0., 'z0': 0., 'G': cell, 'nx': n, 'nz': n}
@@ -64,3 +66,19 @@ def test_the_rim_height_is_interpolated_along_a_sloped_deck_edge():
     out = eg.clear_bowls(H, g, [(rim, rides, True, 0.)], np.zeros((100, 100), bool))
     # a cell beside the middle of the sloped edge sits at the edge's interpolated height (about 6.45 m there)
     assert 6.0 < out[41, 25] < 6.9
+
+
+def test_the_volcano_and_island_consumers_follow_the_editor_ground_grid(tmp_path, monkeypatch):
+    """A bowl seal changes the cut grid; the volcano must rebuild with it, not stay at the old floor."""
+    import importlib.util
+    from types import SimpleNamespace
+
+    monkeypatch.delenv('ATELIER_CRATERPARK_V4_DESIGN', raising=False)
+    monkeypatch.delenv('ATELIER_CRATERPARK_EDITOR_PARK', raising=False)
+    spec = importlib.util.spec_from_file_location('yorimichi_editor_recipe_test', GAME / 'build.py')
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    steps = {step.name: step for step in module.world_steps(SimpleNamespace(out=tmp_path))}
+    for name in ('world.hidamari', 'world.layout', 'world.map'):
+        assert 'world.craterpark_geometry' in steps[name].needs, name
