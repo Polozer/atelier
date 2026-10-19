@@ -114,11 +114,34 @@ def surroundings():
     return entries, seam
 
 
+def osteria_landing():
+    """Place the authored local landing inside the committed taproom's actual transform."""
+    data = source.manifest()
+    assets = {m['source_asset'] for m in data['meshes'] if m['name'] == 'SM_BM_BH_Osteria_Taproom'}
+    placements = [p['transform'] for p in data['placements'] if p['asset'] in assets]
+    if len(assets) != 1 or len(placements) != 1:
+        raise ValueError('Osteria map landing requires exactly one committed taproom placement')
+    transform = placements[0]
+    # Local plan metres: clear the stool by one metre, at floor level. Placement
+    # translation/rotation/scale belong to the source scene, never to this map stop.
+    local = np.array([.4, 2.1, 0.]) * [100., -100., 100.] * transform['scale']
+    native = planting.rotate(transform['rotation_xyzw'], local) + transform['translation_cm']
+    position = native / [100., -100., 100.] + L.ORIGIN
+    # Face the front wall relative to the taproom. The map uses plan-space yaw;
+    # JapanMap converts its Y axis and negates yaw when loading native runtime data.
+    angle = np.radians(-86.)
+    forward = planting.rotate(transform['rotation_xyzw'], np.array([np.cos(angle), np.sin(angle), 0.]))
+    return position, float(np.degrees(np.arctan2(-forward[1], forward[0])))
+
+
 def map_zones(town_z):
     """@cc [owner:fontanierh,label:correctness] belmonte-indoor-map-stop
-    The salon stop MUST follow Belmonte's origin and land on its committed hall floor,
-    below the roof, facing the counters. Outdoor stops MUST retain their default landing trace.
+    Indoor stops MUST follow Belmonte's origin and land on their committed floors below
+    the roofs, with a clear standing footprint. The salon faces the counters and the
+    osteria follows its taproom transform and faces the front wall. Outdoor stops MUST
+    retain their default landing trace.
     """
+    osteria, osteria_yaw = osteria_landing()
     return [
         {'key': 'belmonte', 'name': 'Belmonte · town square', 'x': L.ORIGIN[0],
          'y': L.ORIGIN[1] - 18., 'z': town_z, 'yaw': 90.,
@@ -134,6 +157,10 @@ def map_zones(town_z):
          'x': L.ORIGIN[0] + 67.8, 'y': L.ORIGIN[1] + 306.8, 'z': float(L.ORIGIN[2] + 30.2),
          'yaw': 0., 'above_m': 1.5,
          'hint': 'The betting hall by the racecourse: betting counters'},
+        {'key': 'belmonte_osteria', 'name': 'Belmonte · Osteria',
+         'x': float(osteria[0]), 'y': float(osteria[1]), 'z': float(osteria[2]),
+         'yaw': osteria_yaw, 'above_m': 1.5,
+         'hint': 'The tavern on the piazza'},
     ]
 
 
