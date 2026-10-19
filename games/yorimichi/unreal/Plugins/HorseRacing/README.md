@@ -1,8 +1,10 @@
-# Horse Racing rules
+# Yorimichi horse racing rules
 
-`AtelierHorseRacing` contains stateless seeded random draws and a continuous racing calendar.
-It has no actors, game names, UI or assets. Genetics, race outcomes and ownership rules
-will be integrated separately.
+`AtelierHorseRacing` is a game-owned plugin in `games/yorimichi/unreal/Plugins/HorseRacing`.
+It contains Yorimichi's stateless seeded draws, continuous racing calendar, horse values and
+breed inheritance. Rules stay separate from actors, UI and rendering assets. Race outcomes
+and ownership services are separate integrations. The plugin/module names, exported APIs,
+reflected type paths and automation test names remain unchanged by the ownership move.
 
 `HRRandom` preserves the reference UTF-16 hash and JSON-string seed/tag keys. Use
 `TryDraw` and `TryPickWeighted` when admitting external values: they reject invalid
@@ -10,7 +12,9 @@ bounds/weights without changing the output. Supported ranges and total weights a
 1–`MAX_int32`, matching the returned integer type. The internal `Draw`/`PickWeighted`
 convenience functions require validated arguments and fail explicitly on violation.
 
-The enabled plugin is part of the normal game compile. Native regression
+Unreal discovers the enabled plugin in the project's standard `Plugins` directory. The normal
+game compile, cook and network identity cover its source and descriptor; verified reuse carries
+its generated binaries as independent copies. Native regression
 `Atelier.HorseRacing.Random` covers reference parity, string escaping, non-BMP text,
 range/weight rejection and call-order independence. Native acceptance is required on
 the integration head; enabling the module does not enable a racing service.

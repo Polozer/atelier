@@ -13,13 +13,14 @@ def write(path, text):
     path.write_text(text)
 
 
-@pytest.fixture
-def snapshot(tmp_path, monkeypatch):
+@pytest.fixture(params=['platform/engine/Plugins/Fixture', 'games/standin/unreal/Plugins/Fixture'])
+def snapshot(tmp_path, monkeypatch, request):
     source, target, engine = (tmp_path / name for name in ('source', 'target', 'engine'))
     shutil.copytree(paths.STUDIO / 'atelier', source / 'platform/studio/atelier',
                     ignore=shutil.ignore_patterns('__pycache__'))
     shutil.copytree(paths.HARNESS / 'harness', source / 'platform/harness/harness',
                     ignore=shutil.ignore_patterns('__pycache__'))
+    plugin = request.param
     game = source / 'games/standin'
     write(game / 'game.toml', 'editor_target = "StandinEditor"\n')
     write(game / 'source.txt', 'source')
@@ -37,8 +38,8 @@ def steps(ctx):
                  optional_inputs=[ctx.out / 'optional.json', Path(__file__).with_name('optional-source.json')]),
             Step('plugin', [], inputs=[paths.REPO / 'platform/engine/Plugins/Fixture/Source'],
                  products=[Product('plugin', (paths.REPO / 'platform/engine/Plugins/Fixture/Binaries',))])]
-''')
-    write(source / 'platform/engine/Plugins/Fixture/Source/Type.h', 'declared source')
+'''.replace('platform/engine/Plugins/Fixture', plugin))
+    write(source / plugin / 'Source/Type.h', 'declared source')
     shutil.copytree(source, target)
     write(engine / 'Engine/Build/Build.version', '{}')
     write(engine / 'Engine/Binaries/Mac/UnrealEditor.modules', '{"BuildId":"same"}')
@@ -53,7 +54,7 @@ def steps(ctx):
     write(source / 'build/standin/mesh.json', 'exported geometry')
     write(source / 'build/standin/map.json', 'path-only reference')
     write(source / 'build/standin/optional.json', 'copied optional input')
-    write(source / 'platform/engine/Plugins/Fixture/Binaries/Mac/library.dylib', 'compiled plugin')
+    write(source / plugin / 'Binaries/Mac/library.dylib', 'compiled plugin')
     for step in reuse.inspect(source, 'standin')['steps']:
         write(source / 'build/standin/stamps' / (step['name'] + '.json'),
               json.dumps({'fingerprint': step['fingerprint'], 'products': step['products']}))
@@ -73,7 +74,11 @@ def test_named_snapshot_clones_reads_references_and_optional_sidecars(snapshot):
     out = target / 'build/standin'
     assert (out / build_snapshot.COMPLETE).is_file()
     assert not (out / build_snapshot.JOURNAL).exists()
-    assert (target / 'platform/engine/Plugins/Fixture/Binaries/Mac/library.dylib').read_text() == 'compiled plugin'
+    plugin, = target.rglob('library.dylib')
+    assert plugin.read_text() == 'compiled plugin'
+    plugin.write_text('independent receiver bytes')
+    donor, = source.rglob('library.dylib')
+    assert donor.read_text() == 'compiled plugin'
     leaf = Path('games/standin/unreal/Content/Leaf.uasset')
     (target / leaf).write_text('changed copy')
     assert (source / leaf).read_text() == 'native leaf'
@@ -273,7 +278,9 @@ def test_supported_abandon_keeps_tracked_assets_logs_and_unrelated_files(snapsho
 
 
 @pytest.mark.parametrize('relative', ['../outside', 'build/standin/../../outside', 'games/standin/source.txt',
-                                    'build/standin/.reuse-in-progress.json', 'build/standin/logs'])
+                                    'build/standin/.reuse-in-progress.json', 'build/standin/logs',
+                                    'games/other/unreal/Plugins/Fixture/Binaries',
+                                    'games/standin/unreal/Plugins/Fixture/Source'])
 def test_abandon_refuses_unsafe_scope_before_removing_anything(tmp_path, monkeypatch, relative):
     journal = tmp_path / 'build/standin' / build_snapshot.JOURNAL
     write(journal, json.dumps({'schema': 1, 'copies': ['build/standin/mesh.json', relative]}))

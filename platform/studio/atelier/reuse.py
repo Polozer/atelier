@@ -210,6 +210,8 @@ def _copy(game, source, target=None, *, operation_id):
     Named products MUST match the donor stamps and the independently copied target byte for byte.
     A journal MUST block build/play/package until all checks and stamp installation complete.
     Registry caches MUST NOT be carried over or left stale in the receiving checkout.
+    Platform and selected-game project plugin Binaries MUST be independently copied and
+    verified; their source and Intermediate directories MUST NOT be treated as copied products.
     A guarded worker MUST keep the receiving journal until its parent observes successful guard
     cleanup and capacity close, bound to the same operation identity.
     """
@@ -248,7 +250,9 @@ def _copy(game, source, target=None, *, operation_id):
     from .reuse_inspect import excluded
     copies = [item for item in (source / 'build' / game).iterdir() if not excluded(item.name)]
     copies += [game_root / 'Content', game_root / 'Binaries']
-    copies += [b for b in (source / 'platform/engine/Plugins').rglob('Binaries') if b.is_dir() and 'Intermediate' not in b.parts]
+    plugin_roots = [source / 'platform/engine/Plugins', game_root / 'Plugins']
+    copies += [b for root in plugin_roots for b in root.rglob('Binaries')
+               if b.is_dir() and 'Intermediate' not in b.relative_to(root).parts]
     if found := occupied(target, [item.relative_to(source) for item in copies]):
         raise ValueError('Target already has its own files where artifacts would be copied; use a fresh worktree: '
                          + ', '.join(found[:5]) + (f' and {len(found) - 5} more' if len(found) > 5 else ''))
@@ -333,7 +337,8 @@ def _remove_partial(game, target):
         parts = path.parts
         in_build = parts[:2] == ('build', game) and len(parts) >= 3 and not excluded(parts[2])
         in_game = parts in (('games', game, 'unreal', 'Content'), ('games', game, 'unreal', 'Binaries'))
-        in_plugin = parts[:3] == ('platform', 'engine', 'Plugins') and len(parts) >= 5 and parts[-1] == 'Binaries'
+        in_plugin = ((parts[:3] == ('platform', 'engine', 'Plugins') and len(parts) >= 5)
+                     or (parts[:4] == ('games', game, 'unreal', 'Plugins') and len(parts) >= 6)) and parts[-1] == 'Binaries'
         if path.is_absolute() or '..' in parts or not (in_build or in_game or in_plugin):
             raise SystemExit('Unsafe path in reuse journal; no files removed')
         absolute = target / path

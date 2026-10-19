@@ -89,10 +89,13 @@ def inspect_game(game, donor=None):
             return bool(relative.parts) and not excluded(relative.parts[0])
         if any(path.is_relative_to(root) for root in artifacts[1:]):
             return True
-        plugins = (build.paths.REPO / 'platform/engine/Plugins').resolve()
-        if path.is_relative_to(plugins):
-            parts = path.relative_to(plugins).parts
-            return 'Binaries' in parts and 'Intermediate' not in parts
+        plugin_roots = [build.paths.REPO / 'platform/engine/Plugins']
+        if ctx.uproject:
+            plugin_roots.append(ctx.uproject.parent / 'Plugins')
+        for plugins in map(Path.resolve, plugin_roots):
+            if path.is_relative_to(plugins):
+                parts = path.relative_to(plugins).parts
+                return 'Binaries' in parts and 'Intermediate' not in parts
         return False
 
     done, compared, sources, result = {}, {}, {}, []
