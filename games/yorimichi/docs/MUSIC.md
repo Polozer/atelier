@@ -2,9 +2,9 @@
 
 Yorimichi's music is generated with Suno v6 (`chirp-hawk`) and kept outside the
 repository as a tagged library release. The game can use a small selection, all
-of it, or none of it. The runtime director is a separate step; the first job of
-this library is to provide enough distinct, correctly tagged material to choose
-from.
+of it, or none of it. The game's soundtrack director (`UJapanMusic`, see
+[Runtime](#runtime)) plays it from outside the package; the library's job is to
+provide enough distinct, correctly tagged material to choose from.
 
 The library has three parts:
 
@@ -150,3 +150,68 @@ exploration, interiors, menus and safe travel; energy 4-5 and `action` cues fit
 fights, chases and set pieces. Avoid changing tracks during dialogue, a cutscene
 or an interaction prompt, and fade out before a hard scene transition. The long
 takes exist to make those choices possible, not to loop as short stingers.
+
+## Runtime
+
+Playtest releases do not contain the music. `atelier playtest yorimichi` runs
+`fetch.py --quick` before launch: a cache this lock already verified is trusted
+when every file has its locked size, otherwise the bundle is downloaded and
+verified once. The cache is then cloned (APFS copy-on-write, no extra disk) into
+the app's sandbox container at
+`Library/Application Support/Yorimichi/Music`, because the sandboxed app cannot
+read `~/.cache`. A clone whose `manifest.json` matches the cache is reused. The
+launcher passes `-music=<that folder>`. Development play reads
+`~/.cache/atelier/yorimichi/music` directly. With no library, a failed fetch or
+`-nomusic`, the game runs exactly as before, silently.
+
+`UJapanMusic` (`Source/Yorimichi/JapanMusic.cpp`) is a client-only world
+subsystem. It reads `catalog.json` and plays MP3s through two media players. It
+replicates nothing and nothing waits on it.
+
+**Which music.** Twice a second it reads the local player's scene, then picks a
+pool for that scene and area:
+
+| Scene | Pool |
+| --- | --- |
+| An engaged Ronin within 30 m | `combat`: skirmish, ambush, duel, taiko (no boss or siege cues) |
+| Skating in Crater Park | `skate_crater`: breakbeat, drum and bass, festival, race, Crater Park's own takes |
+| Skating on Sunset Pier | `skate_pier`: harbour and salon jazz, seaside, coffee and rooftop lofi |
+| Skating elsewhere | `skate`: rooftop, market, train and dojo lofi, festival |
+| Hidamari town | `town`: market, coffee, study and rooftop lofi, plus the zone's takes |
+| Coast, harbour, cove, fishing village | `coast`: seaside and lighthouse lofi, harbour jazz |
+| Belmonte, the Salon | `belmonte` and `salon`: salon and harbour jazz |
+| Forest, temple, foothills, open country | `nature` and `wild`: dawn and high ambient, study and dojo lofi |
+| Sailing, zeppelin, bike or horse | `sail`, `air` and `ride` |
+
+The area comes from the nearest map zone within its radius. Calm exploring pools
+also take that zone's own day and quiet takes, so a place keeps its theme among
+the style cues. Only Crater Park skating uses the loud contrast takes.
+
+**Variety with coherence.** The last ten tracks are never picked again. A track
+in the style family already playing is twice as likely, and the zone's own score
+1.5 times. When the scene changes, a track that also belongs to the new pool keeps
+playing.
+
+**When.** Music is not continuous:
+- The first cue comes about 8 s after arrival.
+- An exploring cue plays 2.5–4 minutes, or the whole track if it is shorter. It
+  then fades out over 10 s and leaves 70–160 s of silence. Skating rests 30–60 s.
+- Arriving somewhere new after at least 25 s of silence brings the next cue in
+  after 6 s.
+- A new scene must hold for 4 s first (1 s for a fight), so the music doesn't
+  flap at a zone's edge.
+- Nothing changes during a cinematic.
+
+**Mixing.** Every start and stop is an equal-power fade:
+- A change of scene crossfades over 8 s.
+- A fight crossfades in over 2–2.5 s. It holds 6 s after the last enemy lets go,
+  then fades out over 5 s and leaves 15–30 s of silence before calm music returns.
+- The music sits under the sound effects: a base level of 0.42, times the pool's
+  level (0.9 calm, 1.0 skating, 1.1 combat and Crater Park), times the player's
+  **Music volume** (default 0.6).
+
+**Options.** The menu has **Music** (on/off; off fades out within 2.5 s) and
+**Music volume**, both saved with the other settings. The console command
+`japan.MusicStatus` logs the pool, zone, track and remaining rest. Every start
+logs a `MUSIC play` line.
+

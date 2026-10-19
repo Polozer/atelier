@@ -1,5 +1,6 @@
 #include "JapanPreferences.h"
 #include "JapanSoundBanks.h"
+#include "JapanMusic.h"
 #include "JapanCharacterSelect.h"
 #include "DevNotes.h"
 #include "AtelierSettings.h"
@@ -177,6 +178,8 @@ void UJapanPreferences::Initialize(AWandererCharacter* Pawn)
         {TEXT("fog_shafts"),TEXT("Light shafts"),1.f,0.f,4.f,.1f},
         {TEXT("fog_town"),TEXT("Fog in Hidamari"),0.f,0.f,1.f,.05f},
         {TEXT("volume"),TEXT("Volume"),1.f,0.f,1.f},
+        {TEXT("music"),TEXT("Music"),1.f,0.f,1.f},
+        {TEXT("music_volume"),TEXT("Music volume"),.6f,0.f,1.f,.05f},
         {TEXT("goofy"),TEXT("Skate stance"),0.f,0.f,1.f},
         {TEXT("stamina_rings"),TEXT("Stamina rings"),2.f,1.f,5.f},
         {TEXT("mouse"),TEXT("Look sensitivity"),.4f,.04f,.8f},
@@ -273,10 +276,16 @@ float UJapanPreferences::Saved(const FString& Key, float Default)
     if (const FString* Text = Read.Find(Key); Text && LexTryParseString(Number,**Text) && FMath::IsFinite(Number)) return Number;
     return Default;
 }
+bool UJapanPreferences::MusicReady() const
+{
+    const auto* Music = Owner ? Owner->GetWorld()->GetSubsystem<UJapanMusic>() : nullptr;
+    return Music && Music->HasLibrary();
+}
 bool UJapanPreferences::IsToggle(const FString& Key)
 {
     return Key == TEXT("performance") || Key == TEXT("renderer") || Key == TEXT("tree_optimization") ||
-        Key == TEXT("show_fps") || Key == TEXT("fog") || Key == TEXT("leaf_motion") || Key == TEXT("laptop") || Key == TEXT("goofy");
+        Key == TEXT("show_fps") || Key == TEXT("fog") || Key == TEXT("leaf_motion") || Key == TEXT("laptop") || Key == TEXT("goofy") ||
+        Key == TEXT("music");
 }
 float UJapanPreferences::Get(const TCHAR* Key) const
 {
@@ -452,6 +461,8 @@ void UJapanPreferences::Apply()
     Owner->ApplyCameraPreferences(Get(TEXT("mouse")),Get(TEXT("cam_dist")),Get(TEXT("fov")));
     // Every sound in the game (the audio device's primary volume).
     if (FAudioDeviceHandle Audio = Owner->GetWorld()->GetAudioDevice(); Audio.IsValid()) Audio->SetTransientPrimaryVolume(Get(TEXT("volume")));
+    // The soundtrack (this client only), under the overall volume.
+    if (Owner->IsLocallyControlled()) if (auto* Music = Owner->GetWorld()->GetSubsystem<UJapanMusic>()) Music->SetPreferences(Get(TEXT("music")) > .5f, Get(TEXT("music_volume")));
     for (const auto& Material : Materials)
         for (const auto& Pair : TArray<TPair<FName,const TCHAR*>>{
             {TEXT("Strength"),TEXT("painterly")},{TEXT("Radius"),TEXT("paint_radius")},{TEXT("Toon"),TEXT("toon")},
@@ -703,6 +714,8 @@ FString MainHint(const FString& Key)
         {TEXT("fog_shafts"),TEXT("How strong the shafts of light through the fog are.")},
         {TEXT("fog_town"),TEXT("How much fog stays in the streets of Hidamari.")},
         {TEXT("volume"),TEXT("The game's overall sound volume.")},
+        {TEXT("music"),TEXT("The soundtrack: calm cues while exploring, livelier ones skating, fight music in a fight, with silence between. Off fades it out.")},
+        {TEXT("music_volume"),TEXT("How loud the soundtrack plays. It always sits under the sound effects.")},
         {TEXT("stamina_rings"),TEXT("How many stamina rings you have.")},
         {TEXT("mouse"),TEXT("How fast the mouse turns the camera.")},
         {TEXT("cam_dist"),TEXT("How far the camera follows behind you.")},
@@ -1148,7 +1161,7 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
     if (JapanNetwork::IsOnline(Owner->GetWorld()))
         Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(STextBlock).AutoWrapText(true).ColorAndOpacity(FLinearColor::White)
             .Text(FText::FromString(TEXT("You can change characters during the session. Shared games use two stamina rings and default skate physics.")))];
-    TArray<FString> Toggles = {TEXT("performance"),TEXT("laptop"),TEXT("fog"),TEXT("leaf_motion"),TEXT("show_fps"),TEXT("goofy")};
+    TArray<FString> Toggles = {TEXT("performance"),TEXT("laptop"),TEXT("fog"),TEXT("leaf_motion"),TEXT("show_fps"),TEXT("goofy"),TEXT("music")};
     Page->Section();
     for (const FString& Key : Toggles)
     {
@@ -1156,6 +1169,8 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
         Rows->AddSlot().AutoHeight().Padding(0,0,0,4)[Page->Add(Setting([this,Key]
             {
                 const bool Enabled = Get(*Key) > .5f;
+                if (Key == TEXT("music")) return FText::FromString(!Enabled ? TEXT("Music: off")
+                    : (MusicReady() ? TEXT("Music: on · fades in and out with what you're doing") : TEXT("Music: on · no music library on this machine")));
                 if (Key == TEXT("goofy")) return FText::FromString(Enabled
                     ? TEXT("Skate stance: Goofy · right foot forward")
                     : TEXT("Skate stance: Regular · left foot forward"));
@@ -1215,6 +1230,8 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
         const bool bFogDetail = Values[I].Key.StartsWith(TEXT("fog_"));
         if (Values[I].Key==TEXT("tree_lod_distance"))
         { AddSlider(I,[this] { return Get(TEXT("tree_optimization"))>.5f && Get(TEXT("tree_lod_mode"))<.5f; },MainHint(Values[I].Key));continue; }
+        if (Values[I].Key == TEXT("music_volume"))
+        { AddSlider(I,[this] { return Get(TEXT("music")) > .5f && MusicReady(); },MainHint(Values[I].Key)); continue; }
         AddSlider(I, bFogDetail ? TFunction<bool()>([this] { return Get(TEXT("fog")) > .5f; }) : TFunction<bool()>(), MainHint(Values[I].Key));
     }
     Rows->AddSlot().AutoHeight().Padding(0,8,0,0)[Page->Add(SNew(SButton).Text(FText::FromString(TEXT("Reset the light")))

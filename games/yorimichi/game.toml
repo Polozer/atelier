@@ -45,6 +45,14 @@ launcher = "Yorimichi/Play Yorimichi.command"
 watch = ["Yorimichi"]
 log = "Library/Logs/Yorimichi/game.log"
 
+[release.music]
+# The soundtrack stays out of the release: `atelier playtest` verifies the music cache (downloading it once) and clones it
+# into the app's container for the game's -music= folder (docs/MUSIC.md, "Runtime"). Without it the game is silent.
+fetch = "assets/audio/music/fetch.py"
+cache = "music"
+into = "Library/Application Support/Yorimichi/Music"
+arg = "-music="
+
 [stream]
 # `atelier stream yorimichi start`: the phone page (touch controls, map, settings) at /, the platform's plain player
 # (keyboard, mouse or controller on the far device) at /play/. Messages use the "yorimichi" protocol key.

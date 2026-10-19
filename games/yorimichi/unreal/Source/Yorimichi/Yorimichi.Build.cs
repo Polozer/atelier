@@ -59,6 +59,7 @@ public class Yorimichi : ModuleRules
         PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "YorimichiAssets", "AtelierCore", "AtelierAnimation", "AtelierLive", "AtelierFX", "AtelierSkate", "AtelierStream", "EnhancedInput", "AnimGraphRuntime", "Json", "AssetRegistry", "RenderCore", "Slate", "SlateCore", "ProceduralMeshComponent", "Sockets" });
         PublicDependencyModuleNames.Add("OnlineSubsystemUtils");
         PrivateDependencyModuleNames.Add("AnimationCore");
+        PrivateDependencyModuleNames.AddRange(new string[] { "MediaAssets", "AudioMixer" });   // the soundtrack (JapanMusic)
         PrivateDependencyModuleNames.Add("RHI");
         PrivateDependencyModuleNames.Add("GeometryCore");
         PrivateDependencyModuleNames.Add("AIModule");

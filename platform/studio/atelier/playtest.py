@@ -8,6 +8,12 @@ The game's `game.toml` names its releases:
     watch = ["<Title>"]                         # executables the memory guard follows
     log = "Library/Logs/<Title>/game.log"       # the game's log, inside its app's sandbox container
 
+    [release.music]                             # optional media kept out of the release archive
+    fetch = "<script>"                          # verifies (downloading once) the library into ~/.cache/atelier/<game>/<cache>
+    cache = "music"
+    into = "Library/Application Support/<Title>/Music"   # where the sandboxed app reads it, inside its container
+    arg = "-music="                             # passed to the launcher with that folder
+
 Releases come from the repository's GitHub `origin`, read without credentials. Every file listed in the release's
 SHA256SUMS is downloaded and checked against it and against GitHub's own digest; a split archive's parts are joined.
 Each transfer gets at most three attempts. Interrupted transfers and verified completed assets can resume
@@ -18,6 +24,12 @@ The archive is unpacked with `ditto` under the render lock (as the release check
 latest release removes those published before it; `--tag` keeps every other release. One run at a time fetches into the
 cache (a file lock); the lock does not cover play, so a game still running from an older `--tag` release can lose its
 files when another run installs the latest. The launcher runs under the render lock and memory guard as a game.
+
+A `[release.music]` library is not in the release. Before launch its fetch script verifies the Atelier cache,
+downloading it only when it is missing or stale, and the cache is cloned (APFS copy-on-write, no extra disk) into the
+app's container, since the sandbox cannot read the cache itself. A clone that already matches the cache's manifest is
+reused. Any failure only skips the music: the game plays without it. `-nomusic` among the launcher arguments skips it
+too.
 """
 import datetime, fcntl, hashlib, http.client, json, plistlib, re, shutil, ssl, subprocess, sys, time, urllib.error, urllib.parse, urllib.request, uuid
 from pathlib import Path
@@ -315,16 +327,54 @@ def _ensure(root, game, release, launcher, say):
     return folder
 
 
-def container_log(launcher, log):
-    """The game's log in its app's sandbox container (the app sits next to the launcher)."""
+def container(launcher):
+    """The data folder of the app's sandbox container (the app sits next to the launcher)."""
     for app in sorted(launcher.parent.glob('*.app')):
         try:
             with open(app / 'Contents' / 'Info.plist', 'rb') as plist:
                 bundle = plistlib.load(plist)['CFBundleIdentifier']
         except (OSError, KeyError, plistlib.InvalidFileException):
             return None
-        return Path.home() / 'Library' / 'Containers' / bundle / 'Data' / log
+        if not re.fullmatch(r'[A-Za-z0-9.-]+', str(bundle)):
+            return None
+        return Path.home() / 'Library' / 'Containers' / bundle / 'Data'
     return None
+
+
+def container_log(launcher, log):
+    """The game's log in its app's sandbox container."""
+    data = container(launcher)
+    return data / log if data else None
+
+
+def music(game, spec, launcher, say=say):
+    """The launcher argument naming the game's music inside its container, or None to play without music."""
+    try:
+        script = manifest.game(game)['dir'] / spec['fetch']
+        fetched = subprocess.run([sys.executable, str(script), '--quick'], cwd=paths.REPO)
+        if fetched.returncode:
+            say(f'music unavailable (fetch exit {fetched.returncode}); playing without it')
+            return None
+        source = paths.cache_dir(game, spec['cache'], create=False)
+        data = container(launcher)
+        if data is None or not (source / 'manifest.json').is_file():
+            say('music unavailable; playing without it')
+            return None
+        target = data / spec['into']
+        stamp = (source / 'manifest.json').read_bytes()
+        if not ((target / 'manifest.json').is_file() and (target / 'manifest.json').read_bytes() == stamp):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            staging = target.with_name(target.name + '.partial')
+            shutil.rmtree(staging, ignore_errors=True)
+            # -c clones on APFS: the container's copy shares the cache's blocks.
+            subprocess.run(['cp', '-cR', str(source), str(staging)], check=True)
+            shutil.rmtree(target, ignore_errors=True)
+            staging.rename(target)
+            say(f'music linked into {target}')
+        return f'{spec["arg"]}{target}'
+    except (OSError, KeyError, subprocess.CalledProcessError) as error:
+        say(f'music unavailable ({error}); playing without it')
+        return None
 
 
 def main(game, tag=None, download_only=False, extra=(), limit_gib=10.):
@@ -343,6 +393,10 @@ def main(game, tag=None, download_only=False, extra=(), limit_gib=10.):
         print(f'{release["tag_name"]}: {folder}')
         return 0
     launcher = folder / spec['launcher']
+    if spec.get('music') and '-nomusic' not in extra:
+        argument = music(game, spec['music'], launcher)
+        if argument:
+            extra = (*extra, argument)
     stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     logs = paths.build_dir(game) / 'logs' / f'playtest-{release["tag_name"]}-{stamp}'
     logs.mkdir(parents=True, exist_ok=True)
