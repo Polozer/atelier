@@ -8,6 +8,31 @@ Use only the installed configuration and an explicitly authorized maintenance wi
 callers and retained reservations before service changes; never change a running job's source or guards.
 The broker and guards remain the authority in every mode. There is no automatic fallback after refusal.
 
+## Compatibility failures
+
+A failed compatibility proof stops admission and makes held grants uncertain. Preserve the failed
+job and broker logs; this does not establish an output failure or authorize a reset. The broker logs
+an allowlisted `reason`, wall and monotonic times, activation/boot/epoch, and up to 32 affected request
+IDs with their total count. `phase` distinguishes refresh from final admission. Unknown exception text
+and OS paths are redacted; OS errors retain their numeric errno. A recovered compatibility check does
+not certify the interrupted job. Use the normal exit-evidence recovery below before any retry.
+If the reason remains unclassified, inspect the verifier with reviewed diagnostics rather than retrying
+an expensive workload repeatedly. Installing new diagnostics requires the usual drained service window.
+
+## Transport delays
+
+For transport incidents, broker logs separate `receive_seconds` (accept through a complete
+request), `handle_seconds` (serialized validation, accounting and storage), and `send_seconds`
+(reply preparation through delivery or failure). Receive time can include waiting for the actor;
+connections waiting to be accepted are outside these server timings. A final `phase=send` by
+itself does not show where the delay occurred. Slow background refreshes are logged separately.
+
+Replies use nonblocking writes with the original connection deadline, at most 32 clients and
+one bounded reply per client. A slow reader cannot hold the actor in a blocking send. Descriptor
+transfer remains single-use; disconnect, expiry and shutdown close unsent descriptors. A lost
+reply is not evidence of permission to continue or a capacity release. Client retry limits remain
+unchanged.
+
 ## Sealed exclusive maintenance
 
 This explicit interim mode permits ordinary guarded work without another reboot after a reviewed stable-volume
@@ -123,6 +148,36 @@ events or claim complete descendant discovery. Original reports and failure rema
 is one-use; a repeated action or stale binding refuses. No outputs, stamps or build completion are
 certified. Rerun the interrupted step normally after release. Games, imports and nonexclusive jobs are
 not eligible. Do not edit SQLite, compatibility files or profiles to recover a reservation.
+
+### Completed nonexclusive job with a missed helper exit
+
+A short-lived helper can exit before the broker binds its kernel watch. A completed normal
+three-worker job may then retain an uncertain charge even when the aggregate monitor reports
+empty cleanup. Its ordinary `close` and `reconcile` still refuse; do not change the request or
+manufacture an exit event.
+
+After independent review, an operator may direct
+`atelier capacity abandon-completed SOCKET --administrative-evidence ABSOLUTE_JSON`.
+This separate action accepts only uncertain nonexclusive `job` requests with a recorded positive
+root exit and the original bound `child_exited` receipt: matching root, controller, ceiling,
+invocation time, completed cleanup and empty/zero terminal sample. Supply the same administrative
+fields above plus exact `guards` bindings and `report_sha256` for both original reports.
+The administrator must differ from the owner. Healthy compatibility, no other charged work,
+strictly absent controller/monitors/retained identities, two complete same-user censuses and
+unchanged report hashes are required, as for interrupted-compile recovery.
+
+Only this completed-job action may retain a process whose executable path is unavailable when
+stable kernel birth/parent/user observations positively place it before the workload root.
+The witness lists these exclusions. The exact system `com.apple.iCloudHelper` XPC executable
+may also be excluded only with PPID 1, root ownership, no group/other write permission, the
+macOS SIP restricted flag and a successful Apple-anchor signature check. This exception is
+recorded and applies only to completed-job recovery; Apple command-line tools are not exempt.
+Newer unknown processes and all identity/query errors still
+refuse. Positive current ancestry can exclude independent work; a reparented unexplained process
+born after the root refuses. This is current quiescence evidence: lineage cannot detect work
+handed through IPC to an older daemon. It does not certify successful outputs or historical
+helper exits. The one-use `administrative-completed-job` witness preserves the original failure,
+report hashes and census digest. Games, stopped guards and interrupted nonexclusive jobs refuse.
 
 The broker configuration is an owner-only JSON file in an owner-only directory, with exactly these fields:
 

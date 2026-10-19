@@ -32,6 +32,7 @@ SURFACES = {
     'brick pavement': 'stone', 'stone pavers': 'stone', 'stone paving': 'stone',
     'stone slabs': 'stone', 'wooden boardwalk': 'wood', 'wooden deck': 'wood',
     'hollow plywood ramp': 'wood', 'polished wood': 'wood', 'metal ramp': 'metal',
+    'packed dirt': 'dirt', 'fallen leaves': 'leaves', 'tatami mat': 'tatami',
 }
 
 

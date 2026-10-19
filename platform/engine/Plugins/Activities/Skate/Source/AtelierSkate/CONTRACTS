@@ -1,3 +1,12 @@
 @cc [owner:fontanierh,label:correctness] streamed-pose-release
 A network proxy stow MUST restore capsule-relative mesh placement even if its bone pose has already
 been discarded. Stowing a visual proxy MUST NOT restore local simulation capsule dimensions or position.
+
+@cc [owner:fontanierh,label:correctness] client-skate-sound-selection
+Sound-set changes MUST affect only local audio presentation, including remote proxy presentation.
+They MUST NOT change simulation, activity/network state, ownership or replicated settings. A fresh
+Original selection MUST preserve the legacy load path, references, random state and envelopes.
+Invalid or not-ready requests MUST leave current audio unchanged. All replacements MUST be
+validated before activation; Original references MUST stay retained for restoration. Changed loops
+MUST stop before receiving replacement waves and resume through existing speed, pitch and envelope
+logic. Absent override keys MUST inherit Original, never a previous alternative.
