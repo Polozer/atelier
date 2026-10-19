@@ -268,7 +268,7 @@ UniMate, Kimodo and GVHMR write one motion representation, so the
 Use the reusable [Stable Audio tools](platform/studio/atelier/ai/stable_audio) to make short sound effects locally
 on Apple silicon. Stable Audio 3 **Small-SFX** runs through the official MLX runtime: no paid inference API or
 model running inside the game. You install the model separately; the [setup guide](docs/STABLE_AUDIO.md#isolated-setup)
-records the tested runtime, weights and model terms.
+records the tested runtime and weights.
 
 The workflow takes you from a description to samples you can choose for your game:
 
