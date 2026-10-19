@@ -452,6 +452,17 @@ def groundcover(ground=None, seed=8811):
         family = 'cover_fern' if wet > 0.55 else ('cover_leaf' if wet > 0.42 else 'cover_grass')
         if foot and rng.random() < 0.5 or slope and family == 'cover_grass' and rng.random() < 0.7:
             family = 'cover_fern' if wet > 0.48 else 'cover_leaf'
+        # Their hearts are low shrubs, knee to waist high, so the slope reads as coastal scrub, not a leaf print.
+        if slope and len(out) < COVER_LIMIT:
+            for _ in range(rng.choice((1, 1, 2, 3))):
+                a, r = rng.uniform(0, math.tau), rng.uniform(0.0, size * 0.45)
+                x, y = cx + r * math.cos(a), cy + r * math.sin(a)
+                z = spot(x, y)
+                if z is None or not discs.fits(x, y, 1.4):
+                    continue
+                discs.add(x, y, 1.4)
+                out.append((f'shrub_{rng.choice((0, 1, 2, 4))}', x, y, z - 0.25, rng.uniform(0, 360),
+                            rng.uniform(0.38, 0.6)))
         for _ in range(int(rng.uniform(8, 24) * (1.4 if foot else 1.6 if slope else 1.0))):
             r = size * math.sqrt(rng.random())
             a = rng.uniform(0, math.tau)

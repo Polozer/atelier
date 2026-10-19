@@ -38,7 +38,9 @@ def cell_material(a, bb, c, d, gx, gy, sl, i, j):
     if L.is_water(gx, gy):
         return 'terrain' if dry else 'seabed'
     if L.in_gorge(gx, gy, 3.0):
-        return 'terrain' if sl > 0.45 else 'seabed'
+        if sl > 0.45:
+            return 'rock' if falls_cliff(gx, gy, zavg) else 'terrain'
+        return 'seabed'
     if sl < 0.4 and L.town_floor(gx, gy):
         return yard_material(gx, gy)
     if falls_cliff(gx, gy, zavg) and (sl > 0.3 or max(a[2], bb[2], c[2], d[2]) - min(a[2], bb[2], c[2], d[2]) > 1.6):

@@ -1160,7 +1160,6 @@ def _wall_dressing(b, f, y_lo, base, outer, ground_face):
     stands on the hillside, boulders and shrubs tucked along its foot: plain wall planes read as a smooth concrete
     box against the hill from the town (note 11 review)."""
     import random
-    from brinecove import rocks
     rng = random.Random(int(f['y'] * 7 + f['z'] * 13))
     d, xs, xe = f['dir'], f['x_start'], f['x_end']
     top = f['z'] + f['rise']
@@ -1188,17 +1187,24 @@ def _wall_dressing(b, f, y_lo, base, outer, ground_face):
     while y < f['y'] + STAIR_W / 2 + STAIR_PITCH - STAIR_W:
         feet.append((ex + d * rng.uniform(0.0, 0.5), y, top))
         y += rng.uniform(2.0, 3.0)
+    _foot_planting(b, feet, rng)
+
+
+def _foot_planting(b, feet, rng):
+    """A boulder with a shrub tucked against it, or a lone big shrub, at each (x, y, crown) along a wall's foot,
+    wherever the wall stands proud of the ground there."""
+    from brinecove import rocks
     for fx, fy, crown in feet:
         gz = L.ground(fx, fy)
         if crown - gz < 0.8:
             continue
         if rng.random() < 0.6:
-            r = rng.uniform(0.6, 1.2)
+            r = rng.uniform(0.7, 1.4)
             rocks.boulder(b, fx, fy, gz, (r * 2.0, r * 1.6, r * 1.3), rng, rng.choice(('rock', 'rock_dark')), bury=0.35)
-            bush(b, fx + rng.uniform(-1.4, 1.4), fy - rng.uniform(0.4, 1.0), gz, rng.uniform(0, 360),
-                 rng.uniform(0.9, 1.4), rng)
+            bush(b, fx + rng.uniform(-1.4, 1.4), fy + rng.uniform(-1.0, 1.0), gz, rng.uniform(0, 360),
+                 rng.uniform(1.1, 1.6), rng)
         else:
-            bush(b, fx, fy, gz, rng.uniform(0, 360), rng.uniform(1.1, 1.7), rng)
+            bush(b, fx, fy, gz, rng.uniform(0, 360), rng.uniform(1.3, 2.0), rng)
 
 
 def _plaza(b, p, last):
@@ -1218,9 +1224,19 @@ def _plaza(b, p, last):
     wlo, _ = _ground_range(min(wa, wb), max(wa, wb), wy0, wy1)
     _slab(b, wa, wb, wy0, wy1, wlo - 1.0, z + 0.95, z + 0.95, 'stone')
     _slab(b, wa, wb, wy0 - 0.05, wy1 + 0.05, z + 0.95, z + 1.1, z + 1.1, 'stone_light')
+    import random
+    rng = random.Random(int(y0 * 11))
+    feet = []
     for x0, x1 in ((xa - STAIR_WALL, xa), (xb, xb + STAIR_WALL)):
         _slab(b, x0, x1, y0 - STAIR_WALL, y1, lo - 1.0, z + 0.95, z + 0.95, 'stone')
         _slab(b, x0 - 0.05, x1 + 0.05, y0 - STAIR_WALL, y1, z + 0.95, z + 1.1, z + 1.1, 'stone_light')
+        # The terrace's side faces stand tall over the hillside (note 11): plant their feet like the stair rows'.
+        out = x0 - 1.1 if x0 < xa else x1 + 1.1
+        fy = y0 - STAIR_WALL + rng.uniform(0.2, 1.0)
+        while fy < y1 + 0.5:
+            feet.append((out + (-1 if x0 < xa else 1) * rng.uniform(0.0, 0.5), fy, z))
+            fy += rng.uniform(2.0, 3.0)
+    _foot_planting(b, feet, rng)
     # The arch: piers, voussoirs, a cornice and lanterns, with low walls either side along the north edge.
     xc = p['xc']
     span, pier, yy = 2.6, 1.3, y1 - 0.6
@@ -1235,12 +1251,18 @@ def _plaza(b, p, last):
         _slab(b, wx0 - 0.05, wx1 + 0.05, yy - 0.42, yy + 0.42, z + 0.95, z + 1.1, z + 1.1, 'stone_light')
         potted_plant(b, px + side * 2.2, yy - 1.6, z, 1.1)
         lantern_post(b, (xa + 0.6) if side < 0 else (xb - 0.6), y0 + 0.6, z, 3.0)
-    # Overlapping voussoirs make one unbroken ring; the spandrel infill closes everything between the ring, the
-    # piers and the lintel, so no sky shows through the masonry.
-    for k in range(25):
-        a = math.pi * k / 24
-        b.box((xc + math.cos(a) * (span + 0.4), yy, z + 4.2 + math.sin(a) * (span + 0.4)), (0.8, 1.2, 0.8),
-              'stone_light' if k % 2 else 'stone')
+    # Wedge voussoirs cut to the curve make one unbroken ring (axis-aligned blocks stepped and slit its soffit);
+    # the spandrel infill closes everything between the ring, the piers and the lintel, so no sky shows through.
+    ri, ro, n = span, span + 0.8, 15
+    for k in range(n):
+        a0, a1 = math.pi * k / n, math.pi * (k + 1) / n
+        c = [[(xc + r * math.cos(a), y, z + 4.2 + r * math.sin(a)) for y in (yy - 0.6, yy + 0.6)]
+             for r, a in ((ri, a0), (ro, a0), (ro, a1), (ri, a1))]
+        (i0f, i0b), (o0f, o0b), (o1f, o1b), (i1f, i1b) = c
+        mat = 'stone_light' if k % 2 else 'stone'
+        for quad in ((i0f, o0f, o1f, i1f), (i1b, o1b, o0b, i0b), (o0f, o0b, o1b, o1f), (i0f, i1f, i1b, i0b),
+                     (i0f, i0b, o0b, o0f), (i1f, o1f, o1b, i1b)):
+            b.quad(*quad, mat)
     lintel = z + 4.2 + span + 0.7
     edge, step = span + pier, 0.25
     for i in range(int(round(2 * edge / step))):
