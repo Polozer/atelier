@@ -143,3 +143,33 @@ def test_package_cannot_use_an_unrelated_cook_receipt(mutation):
     elif mutation=='source': source['code_digest']='e'*40
     else: binary['identity']='1:'+'f'*40+':'+'c'*40
     assert not all(target.cook_binding_checks(cook,binary,source,identity).values())
+
+
+def test_cook_source_inventory_includes_committed_game_plugins_and_refuses_ignored_code(tmp_path):
+    import shutil
+    game = tmp_path / 'games/yorimichi'
+    game.mkdir(parents=True)
+    shutil.copyfile(Path(__file__).resolve().parents[1] / 'network_identity.py', game / 'network_identity.py')
+    plugin = game / 'unreal/Plugins/Fixture'
+    (plugin / 'Source').mkdir(parents=True)
+    (plugin / 'Source/Rules.cpp').write_text('rules')
+    (plugin / 'Fixture.uplugin').write_text('{}')
+    (game / 'unreal/Yorimichi.uproject').write_text('{}')
+    (tmp_path / '.gitignore').write_text('**/Ignored.cpp\n**/Binaries/\n**/Intermediate/\n__pycache__/\n')
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(tmp_path), *args], text=True).strip()
+    git('init', '-q')
+    git('add', '.')
+    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+        '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture')
+    receipt = dict(source_dirty=False, revision=git('rev-parse', 'HEAD'))
+    result = target.verify_cook_source(tmp_path, receipt)
+    assert result['source_files'] == 3
+    for folder in ('Binaries', 'Intermediate'):
+        (plugin / folder).mkdir()
+        (plugin / folder / 'Generated.cpp').write_text('generated')
+    assert target.verify_cook_source(tmp_path, receipt) == result
+    (plugin / 'Source/Ignored.cpp').write_text('untracked consumed source')
+    assert git('status', '--porcelain') == ''
+    with pytest.raises(RuntimeError, match='Compiled source inventory differs'):
+        target.verify_cook_source(tmp_path, receipt)
