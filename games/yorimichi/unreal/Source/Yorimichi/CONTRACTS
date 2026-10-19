@@ -117,8 +117,9 @@ unverified fallback teleport. Platform bystanders intersected by a passing coach
 
 @cc [owner:fontanierh,label:correctness] racing-service-and-broadcasts
 ARacingService MUST own FHRWorldState only on authority, persist world saves atomically
-with unreadable/invalid save quarantine rather than silent overwrite, register only the
-local host player until guest identity persistence exists, and replicate only the compact
+with unreadable/invalid save quarantine rather than silent overwrite, register the local
+host player persistently and a remote guest only as a session player ("session:" id) whose
+player record and tickets saves exclude (PersistentWorld), and replicate only the compact
 FRacingNetState snapshot (never FHRWorldState::Seed). RacingMotion::Distance, RacingGround::Pick
 hit selection and RacingTv::Direct camera selection from the snapshot, shared clock and
 spectator positions MUST be deterministic, with zero per-frame network traffic and no silent breed/coat/clip
@@ -134,8 +135,8 @@ preference or leaves its range MUST be refused and reported, never clamped or ro
 keep their built-in defaults.
 
 @cc [owner:fontanierh,label:correctness] offline-interact-reachability
-AWandererCharacter::Interact MUST be a no-op, offline as online, unless a train, zeppelin or sword trainer is in
-reach: it MUST NOT set an Interact action or animation state, and it MUST check zeppelin (IsPassenger/CanReach)
+AWandererCharacter::Interact MUST be a no-op, offline as online, unless a train, zeppelin, sword trainer or racing
+place (RacingCounter::CanUse) is in reach: it MUST NOT set an Interact action or animation state, and it MUST check zeppelin (IsPassenger/CanReach)
 and trainer (CanTalk) reachability before Sword->CancelForInterrupt, so a press with nothing in reach never stows
 an armed blade or leaves the walker pose stuck.
 
@@ -146,3 +147,12 @@ gate and landing it already derives from FZeppelinNetworkState or the offline ri
 simulation, timing or authority, and it MUST stay silent without the imported bank or on a dedicated server. Loops
 MUST fade towards state-set targets and stop only once inaudible; one-shots MUST fire once per state transition and
 never for the state first observed (a late joiner). There is one transport bank, with no alternate soundbanks.
+
+@cc [owner:fontanierh,label:correctness] racing-betting-requests
+Win bets MUST be placed only on authority: a client's ServerPlaceBet is admitted at most five times a second,
+bounded in its ids, and decided by ARacingService::BetRefusal (betting closes at the race's start) and the rules
+(HRRules::BetRefusal/PlaceBet); clients MUST NOT change coins or tickets locally. Wallet views and race cards MUST
+replicate to their owner only and MUST NOT expose another player's tickets or the world seed. A decided ticket MUST
+show its outcome and payout only once its race is seen won (RevealSeconds after the winner is home). The Salon
+counter MUST come from runtime.json's racing_places.counter, derived by world/regions/belmonte/build.py from
+SM_BM_BHip_SalonHall's committed placement, with no hardcoded fallback: without it there is no counter.
