@@ -1088,7 +1088,7 @@ def test_pressure_queue_deadline_and_cancellation_hold_no_child_or_charge(broker
         monkeypatch.setattr(client.time, 'sleep', interrupt)
     try:
         with pytest.raises(KeyboardInterrupt if cancel else client.CapacityError, match=None if cancel else 'deadline reached'):
-            client.wait_for_offer(admission, seconds=.02)
+            client.wait_for_offer(admission, seconds=5 if cancel else .02)
         row = client.status(broker.socket_path)['records'][0]
         assert row['state'] == 'queued' and client.status(broker.socket_path)['charged_count'] == 0
         assert not broker._gates
