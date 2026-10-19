@@ -86,7 +86,45 @@ def region_for_zone(zone):
     return region_at(zone['x'], zone['y'])
 
 
-def metadata(zones, source_manifest):
+def air_metadata(zones, zeppelin):
+    """Ordered shuttle stops and legs from the zeppelin layout, never from painted text."""
+    if not zeppelin:
+        return None
+    stations = zeppelin.get('stations') or []
+    legs = zeppelin.get('legs') or []
+    if len(stations) < 2:
+        return None
+    by_key = {z['key']: z for z in zones}
+    stops = []
+    for station in stations:
+        zone = by_key.get(station.get('key'))
+        if zone is None:
+            raise ValueError('Atlas zeppelin station is not in the travel registry: ' + str(station.get('key')))
+        stops.append(dict(key=zone['key'], name=station.get('name', zone.get('name', zone['key'])),
+                          x=zone['x'], y=zone['y'], z=zone.get('z', 0.)))
+    line = [stop['key'] for stop in stops]
+    def find_leg(a, b):
+        for leg in legs:
+            if sorted(leg.get('stops', [])) == [a, b]:
+                return leg
+        raise ValueError('Atlas zeppelin line has no leg between stops ' + str(a) + ' and ' + str(b))
+    sequential = []
+    for index in range(len(line) - 1):
+        leg = find_leg(index, index + 1)
+        sequential.append(dict(**{key: value for key, value in leg.items() if key != 'stops'},
+                               **{'from': line[index], 'to': line[index + 1]}))
+    connections = []
+    for leg in legs:
+        indices = leg.get('stops', [])
+        if len(indices) != 2 or not all(0 <= i < len(line) for i in indices):
+            continue
+        connections.append(dict(**{key: value for key, value in leg.items() if key != 'stops'},
+                                **{'from': line[indices[0]], 'to': line[indices[1]]}))
+    return dict(line=line, stops=stops, legs=sequential, connections=connections,
+                note='Airship shuttle; any docked stop can choose another destination.')
+
+
+def metadata(zones, source_manifest, zeppelin=None):
     """Build label-free image frames plus semantic, editable landmark identities."""
     regions = [dict(r, image=f"atlas/{r['key']}.png") for r in REGIONS]
     landmarks = []
@@ -105,8 +143,12 @@ def metadata(zones, source_manifest):
             b = [min(b[0], p['x']-35), min(b[1], p['y']-35), max(b[2], p['x']+35), max(b[3], p['y']+35)]
         region['bounds'] = b
         assert all(math.isfinite(v) for v in b) and b[0] < b[2] and b[1] < b[3]
-    return dict(version=1, world=dict(key='world', name='The World', bounds=WORLD_BOUNDS, image='atlas/world.png'),
-                regions=regions, landmarks=landmarks)
+    result = dict(version=1, world=dict(key='world', name='The World', bounds=WORLD_BOUNDS, image='atlas/world.png'),
+                  regions=regions, landmarks=landmarks)
+    air = air_metadata(zones, zeppelin)
+    if air:
+        result['air'] = air
+    return result
 
 
 def water_pixels(image):

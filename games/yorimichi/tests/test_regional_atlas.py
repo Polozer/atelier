@@ -197,3 +197,56 @@ def test_coast_check_rejects_an_enlarged_island_or_filled_bay():
     ImageDraw.Draw(painting).ellipse((430, 430, 570, 570), fill=(120, 150, 65))
     with pytest.raises(ValueError, match='flooded by painted ocean'):
         atlas.verify_coast(painting, mask, 'island')
+
+
+def zeppelin_layout():
+    stations = [
+        dict(key='zeppelin_forest', name='Woodland air station'),
+        dict(key='zeppelin_city', name='Hidamari air station'),
+        dict(key='zeppelin_megapark', name='Mega Park air station'),
+        dict(key='zeppelin_belmonte', name='Belmonte air station'),
+    ]
+    legs = [
+        dict(stops=[0, 1], height=155., seconds=28.),
+        dict(stops=[0, 2], height=185., seconds=23.7),
+        dict(stops=[0, 3], height=600., seconds=84.6),
+        dict(stops=[1, 2], height=240., seconds=35.5),
+        dict(stops=[1, 3], height=910., seconds=83.7),
+        dict(stops=[2, 3], height=520., seconds=61.2),
+    ]
+    return dict(stations=stations, legs=legs)
+
+
+def test_zeppelin_itinerary_uses_the_line_order_and_real_leg_times():
+    positions = {
+        'zeppelin_forest': (-199., 221.3), 'zeppelin_city': (1279., 312.3),
+        'zeppelin_megapark': (-194., 1475.3), 'zeppelin_belmonte': (416., 4651.3),
+    }
+    zones = [dict(key=key, name=key, x=x, y=y, z=70., yaw=90., hint='') for key, (x, y) in positions.items()]
+    air = atlas.metadata(zones, source(), zeppelin_layout())['air']
+    assert air['line'] == ['zeppelin_forest', 'zeppelin_city', 'zeppelin_megapark', 'zeppelin_belmonte']
+    assert [(leg['from'], leg['to'], leg['seconds']) for leg in air['legs']] == [
+        ('zeppelin_forest', 'zeppelin_city', 28.),
+        ('zeppelin_city', 'zeppelin_megapark', 35.5),
+        ('zeppelin_megapark', 'zeppelin_belmonte', 61.2),
+    ]
+    assert [stop['x'] for stop in air['stops']] == [-199., 1279., -194., 416.]
+    assert len(air['connections']) == 6
+    bad = zeppelin_layout()
+    bad['stations'][0]['key'] = 'missing_air_station'
+    with pytest.raises(ValueError, match='travel registry'):
+        atlas.metadata(zones, source(), bad)
+
+
+def test_native_float32_route_time_is_compared_with_tolerance():
+    spec = importlib.util.spec_from_file_location('regional_atlas_scenario', GAME / 'scenarios/regional_atlas.py')
+    scenario = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scenario)
+    actual = [('zeppelin_forest', 'zeppelin_city', 28.),
+              ('zeppelin_city', 'zeppelin_megapark', 35.5),
+              ('zeppelin_megapark', 'zeppelin_belmonte', 61.20000076293945)]
+    expected = [('zeppelin_forest', 'zeppelin_city', 28.),
+                ('zeppelin_city', 'zeppelin_megapark', 35.5),
+                ('zeppelin_megapark', 'zeppelin_belmonte', 61.2)]
+    assert scenario.same_leg_times(actual, expected)
+    assert not scenario.same_leg_times([actual[0], actual[1], ('zeppelin_megapark', 'wrong', 61.2)], expected)
