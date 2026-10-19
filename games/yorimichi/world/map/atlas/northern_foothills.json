@@ -81,11 +81,13 @@
       "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
       "world/regions/brinecove/region.py": "9e007570e353c305964befbc9db53755c52d95c55069a6253058a39792e67408",
       "world/regions/brinecove/layout.py": "c17638453c0609316cef6bd2db523f2590711a44f104625097e9c67c7cb549f5",
+      "world/regions/brinecove/ground.py": "d0cb5decc01c21b55c8e658ce1c29aa3f1e8e7c9da3002688cb1b60278d5f062",
+      "world/regions/brinecove/plan.py": "ee166c5bcd608096f4a00124de2f8b44df750baf323a52164432059aac6e359b",
       "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
     },
     "painting_sha256": "9e03e5a3d90ee0835a0f294da8e5db7459cab6a9bad61c269b2cacda44dea3c0",
     "coast_sha256": "dc43d462e41f266e17598b61ba8c5dc9ce63516e3b0b6870a7d936c6961c76b0",
-    "reference_sha256": "1b7fea41d39f3bf1d0e81268ec158866ecbd1e1341f0e9b7c6af0ad40ab1fa12"
+    "reference_sha256": "14ddc3b7e24e8a082939eb510e8752d0c4167d6e26fe775110052ca63b6df552"
   },
   "refactor_revalidation": {
     "witness": "coasts/mountain-equivalence.json",

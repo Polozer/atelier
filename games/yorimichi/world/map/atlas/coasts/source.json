@@ -21,6 +21,8 @@
     "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
     "world/regions/brinecove/region.py": "9e007570e353c305964befbc9db53755c52d95c55069a6253058a39792e67408",
     "world/regions/brinecove/layout.py": "c17638453c0609316cef6bd2db523f2590711a44f104625097e9c67c7cb549f5",
+    "world/regions/brinecove/ground.py": "d0cb5decc01c21b55c8e658ce1c29aa3f1e8e7c9da3002688cb1b60278d5f062",
+    "world/regions/brinecove/plan.py": "ee166c5bcd608096f4a00124de2f8b44df750baf323a52164432059aac6e359b",
     "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
   },
   "frames": {
@@ -31,8 +33,8 @@
         4200.0,
         7200.0
       ],
-      "sha256": "a3c592d653baa269540ffe693a514166d7e8b59a1586ef32f39b6ca6da664e3b",
-      "reference_sha256": "9ff869a902a6f1f9f42214eb700b86bfdea14b4efece7c3c9057d7ebea1cacfb"
+      "sha256": "fee7ea36c167bcf756582a89a0b8f9c95012ee16548c6d91f39825f4350fd2ee",
+      "reference_sha256": "dc20bb50d92541eb46c5fa838b785883bc9307ace644ffb5f84f90ac88b8fdff"
     },
     "momiji_coast": {
       "bounds": [
@@ -82,7 +84,7 @@
         2200.0
       ],
       "sha256": "dc43d462e41f266e17598b61ba8c5dc9ce63516e3b0b6870a7d936c6961c76b0",
-      "reference_sha256": "1b7fea41d39f3bf1d0e81268ec158866ecbd1e1341f0e9b7c6af0ad40ab1fa12"
+      "reference_sha256": "14ddc3b7e24e8a082939eb510e8752d0c4167d6e26fe775110052ca63b6df552"
     },
     "volcanic_highlands": {
       "bounds": [
@@ -111,8 +113,8 @@
         -360.0,
         600.0
       ],
-      "sha256": "34db086e13e1c0b6f5bbec73dc0e201c0a602e8380f522e42fb8eb567f0d105e",
-      "reference_sha256": "d91d8e5e645d2dbd9cd02b45a5905b75c1132ec85f74e476e584935f916628e0"
+      "sha256": "66ebfb579e2b421a0408015b568aa4999f3f6e6325c85ad7b1365c985de59363",
+      "reference_sha256": "ff1c461b121be46e5df6bb799551ff78067c2d74e06fef0e3eb1a9be3a135f05"
     }
   },
   "accepted_export": {

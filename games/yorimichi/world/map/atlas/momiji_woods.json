@@ -81,6 +81,8 @@
       "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
       "world/regions/brinecove/region.py": "9e007570e353c305964befbc9db53755c52d95c55069a6253058a39792e67408",
       "world/regions/brinecove/layout.py": "c17638453c0609316cef6bd2db523f2590711a44f104625097e9c67c7cb549f5",
+      "world/regions/brinecove/ground.py": "d0cb5decc01c21b55c8e658ce1c29aa3f1e8e7c9da3002688cb1b60278d5f062",
+      "world/regions/brinecove/plan.py": "ee166c5bcd608096f4a00124de2f8b44df750baf323a52164432059aac6e359b",
       "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
     },
     "painting_sha256": "bd2f62f93974466d9b980805104206806235d057efbfc5d7cb22567d4bc99264",
