@@ -4,6 +4,13 @@ values MUST retain the 25 m outdoor default. Accepted heights MUST be finite and
 Travel MUST preserve the chosen height through the client request and authoritative landing,
 with the existing epoch, encounter, pending-hit and rate-limit checks intact.
 
+@cc [owner:fontanierh,label:correctness] local-footstep-sound-selection
+Footstep bank selection MUST alter only emitted sample pools. It MUST preserve bone-plant timing,
+replay suppression, material/canopy detection, speed/landing gain and pitch, and Original attenuation.
+Fresh Original MUST retain the existing sample and shuffle paths. Horse hoof stand-ins MUST always
+use Original pools and their Original shuffle state. Alternatives MUST retain independent shuffle
+state, and invalid or not-ready requests MUST leave the active bank and plant state unchanged.
+
 @cc [owner:fontanierh,label:performance] horse-appearance-residency
 An accepted appearance change on a locally controlled horse that replaces breed, tack, coat or mask
 assets MUST release the old component references and request deferred engine collection with incremental

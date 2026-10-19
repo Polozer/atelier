@@ -36,6 +36,32 @@ prove geometric continuity between duplicated vertices or separate owners.
 Degenerate, downward and vertical faces are reported separately. No automatic
 welding, triangulation, ownership selection or tolerance repair happens here.
 
+The next regional fixture, `tests/fixtures/terrain-sheet-r8.json`, captures a
+bounded call through the shipped `earthworks.sheet` path. It freezes ordered
+triangles and vertices together with RGBA (including the cleared snow mask),
+interpolated authored normals and an unrelated named field. It also records
+unchanged input arrays and the original-object no-line fallback. The generating
+earthworks source was checked byte-for-byte against r8; the fixture is not a
+production sheet or a proof of regional border continuity. This protects the
+attribute evaluation order before extracting the foothills/apron owner.
+
+`tests/fixtures/terrain-city-r8.json` freezes the existing `HD_Terrain` emitter
+before extracting the city owner. Its function AST was checked against published
+r8. Ordinary Python tests compile just that production function, supply explicit
+bounded height/land-use/water/colour callbacks, and record emitted quads, corner
+colours, palette keys and callback order. The cases retain the coarse-grid carve,
+both existing fine terrace regions (which resample uncarved height), separate
+pond/canal omissions, coastal colouring, the island lawn fade, inset paving and
+the non-city path. They preserve this order rather than endorsing a future
+change to it. Numerical comparisons allow `1e-12`; polygon/key order is exact.
+
+The recording adapter does not reproduce Blender's vertex packing, duplicate
+cleanup, normals or export/import triangulation. These small callback fixtures
+are neither actual city geometry nor a production railway, support or shared-edge
+proof. Full original/extracted production arrays and native adapter parity remain
+separate gates for the subsequent city-product extraction. No production source
+or generated build dependency is introduced by this fixture.
+
 The retained final FarHills export is recorded in
 `tests/fixtures/terrain-r8-production.json`. It is an observational witness with
 source/artifact provenance, explicit coordinate conversion and ordered hashes.
@@ -143,3 +169,21 @@ regressions before native import. Region looks and the existing FBX/GLB adapters
 remain in place during extraction. Geometry parity, export round trips and
 imported native support remain separate checks. No speedup has been measured by
 this first increment.
+
+The next regional extraction publishes `terrain.HD_NorthMountains.natural`,
+`.final` and `.provenance` from the existing `world.hidamari` invocation.
+`mountains.sheets` retains the current grid, gate exclusions, apron part order,
+authored colours/snow mask/normals and single railway carve. Publication copies
+only ordered geometry; export receives the original final attributed sheet.
+Gate, trail, approach and city surfaces remain separate owners. This increment
+does not move appearance evaluation after carving, add a second generation,
+declare shared borders seamless, or establish narrower invalidation cutoffs.
+
+The full original and extracted producers match bit-for-bit in railway and
+no-railway modes, including ordered positions, faces, colours/snow masks and
+authored normals. `map/atlas/coasts/mountain-equivalence.json` records the
+source/input hashes, independent proof hashes and geometry product hashes.
+All eight existing paintings, coast masks and original generation records are
+preserved; the new helper is included in map inputs and geography signatures.
+This attestation covers source and array equivalence. Export and imported
+native parity remain separate validation steps.

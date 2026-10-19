@@ -136,3 +136,120 @@ def test_kernel_errors_never_become_silent_absence(monkeypatch,number,expected):
 def test_pid_reuse_is_not_the_old_identity(monkeypatch):
     monkeypatch.setattr(wire,'process_start',lambda pid:101)
     assert abandon.absent((10,100))
+
+
+@pytest.fixture
+def completed_case(case):
+    record, evidence, rows = case
+    record['request'].update(phase='job', performance=False)
+    record.update(first_ready=1., limit_bytes=1024)
+    terminal = dict(owner=10, owner_started=100, controller=[11,90], state='child_exited',
+                    cleanup_complete=True, processes=[], footprint_bytes=0, peak_bytes=512,
+                    limit_bytes=1024, time=2.)
+    Path(record['guards']['tree_guard']['report']).write_text(json.dumps(terminal))
+    evidence['guards'] = copy.deepcopy(record['guards'])
+    evidence['report_sha256'] = {k:hashlib.sha256(Path(g['report']).read_bytes()).hexdigest()
+                               for k,g in record['guards'].items()}
+    return case
+
+
+def test_completed_job_is_explicit_and_keeps_missing_history(completed_case):
+    with pytest.raises(wire.CapacityError):recover(completed_case)
+    witness = recover(completed_case, completed=True)
+    assert witness['kind'] == 'administrative-completed-job'
+    assert witness['output_certified'] is False and witness['missing_historical_exits'] == 1
+    assert completed_case[0]['exited'] == [[10,100]] and completed_case[0]['ancestry_unknown']
+
+
+@pytest.mark.parametrize('key,value', [('owner',11),('owner_started',101),('controller',[11,91]),
+    ('state','memory_limit'),('cleanup_complete',False),('processes',[{}]),('footprint_bytes',1),
+    ('limit_bytes',2048),('peak_bytes',1025),('time',float('nan')),('time',0),('termination_reason','stop')])
+def test_completed_job_rejects_invalid_terminal(completed_case,key,value):
+    record,evidence,_ = completed_case
+    p=Path(record['guards']['tree_guard']['report']);receipt=json.loads(p.read_text());receipt[key]=value
+    p.write_text(json.dumps(receipt));evidence['report_sha256']['tree_guard']=hashlib.sha256(p.read_bytes()).hexdigest()
+    with pytest.raises(wire.CapacityError):recover(completed_case,completed=True)
+
+
+@pytest.mark.parametrize('change', ['monitor','hash','root-exit','exclusive','game','owner'])
+def test_completed_job_fences_and_scope(completed_case,change):
+    record,evidence,_=completed_case
+    if change=='monitor':evidence['guards']['tree_guard']['start']+=1
+    if change=='hash':evidence['report_sha256']['tree_guard']='0'*64
+    if change=='root-exit':record['exited']=[]
+    if change=='exclusive':record['request']['performance']=True
+    if change=='game':record['request']['phase']='game'
+    if change=='owner':evidence['administrator']='worker'
+    with pytest.raises(wire.CapacityError):recover(completed_case,completed=True)
+
+
+def test_completed_job_retains_pre_root_exclusions(completed_case):
+    completed_case[2][45]=dict(pid=45,started=20,parent=1,executable='',uid=501,
+                              executable_unavailable_before_root=True)
+    witness=recover(completed_case,completed=True)
+    assert len(witness['pre_root_path_exemptions'])==2
+    completed_case[2][45]['started']=120
+    with pytest.raises(wire.CapacityError):recover(completed_case,completed=True)
+
+
+@pytest.mark.parametrize('change', [None, 'parent', 'uid', 'birth', 'not-older'])
+def test_kernel_pre_root_path_exemption_requires_stable_full_binding(monkeypatch,change):
+    import ctypes
+    import struct
+    from types import SimpleNamespace
+    from atelier.harness.safety import memory_guard
+    calls={'info':0,'usage':0}
+    class Call:
+        def __init__(self,fn):self.fn=fn
+        def __call__(self,*args):return self.fn(*args)
+    def listing(kind,uid,buffer,size):buffer[0]=7;return ctypes.sizeof(ctypes.c_int)
+    def info(pid,kind,arg,buffer,size):
+        calls['info']+=1
+        parent=2 if change=='parent' and calls['info']>1 else 1
+        uid=502 if change=='uid' and calls['info']>1 else 501
+        raw=struct.pack('6I',0,0,0,7,parent,uid)
+        ctypes.memmove(buffer,raw,len(raw));return 136
+    def sample(pid):
+        calls['usage']+=1
+        started=100 if change=='not-older' else 51 if change=='birth' and calls['usage']>2 else 50
+        return SimpleNamespace(started=started,exited=False)
+    lib=SimpleNamespace(proc_listpids=Call(listing),proc_pidinfo=Call(info),proc_pidpath=Call(lambda *args:0))
+    monkeypatch.setattr(abandon.sys,'platform','darwin')
+    monkeypatch.setattr(abandon.ctypes,'CDLL',lambda *args,**kwargs:lib)
+    monkeypatch.setattr(abandon.os,'getuid',lambda:501)
+    monkeypatch.setattr(abandon.os,'getpid',lambda:7)
+    monkeypatch.setattr(memory_guard,'usage',sample)
+    with pytest.raises(wire.CapacityError):abandon.census()  # old policy stays strict
+    calls.update(info=0,usage=0)
+    if change is None:
+        rows=abandon.census(before_root=100)
+        assert rows[7]['executable_unavailable_before_root'] and rows[7]['uid']==501
+    else:
+        with pytest.raises(wire.CapacityError):abandon.census(before_root=100)
+
+
+@pytest.mark.parametrize('bad', [None,'parent','path','owner','writable','sip','signature','timeout'])
+def test_completed_xpc_exclusion_is_exact_and_verified(monkeypatch,bad):
+    from types import SimpleNamespace
+    row=dict(parent=1,executable=abandon.COMPLETED_XPC)
+    if bad=='parent':row['parent']=2
+    if bad=='path':row['executable']='/usr/bin/true'
+    info=SimpleNamespace(st_uid=501 if bad=='owner' else 0,
+                         st_mode=0o777 if bad=='writable' else 0o755,
+                         st_flags=0 if bad=='sip' else 0x80000)
+    monkeypatch.setattr(abandon,'Path',lambda path:SimpleNamespace(stat=lambda:info))
+    def verify(command,**kwargs):
+        assert command==['/usr/bin/codesign','--verify','-R=anchor apple',abandon.COMPLETED_XPC]
+        if bad=='timeout':raise abandon.subprocess.TimeoutExpired(command,.5)
+        return SimpleNamespace(returncode=1 if bad=='signature' else 0)
+    monkeypatch.setattr(abandon.subprocess,'run',verify)
+    assert abandon.completed_system_service(row) is (bad is None)
+
+
+def test_xpc_exclusion_does_not_change_interrupted_compile_policy(completed_case,monkeypatch):
+    record,evidence,rows=completed_case
+    rows[45]=dict(pid=45,started=120,parent=1,executable=abandon.COMPLETED_XPC)
+    monkeypatch.setattr(abandon,'completed_system_service',lambda row:row['pid']==45)
+    with pytest.raises(wire.CapacityError):abandon.validate_snapshot(rows,record,set())
+    witness=recover(completed_case,completed=True)
+    assert len(witness['system_service_exemptions'])==2

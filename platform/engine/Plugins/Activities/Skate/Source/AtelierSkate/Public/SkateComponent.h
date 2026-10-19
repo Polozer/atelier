@@ -14,6 +14,7 @@ class USkateRailSubsystem;
 class UCharacterMovementComponent;
 class UAudioComponent;
 class USoundWave;
+class USkateSoundSet;
 class USoundAttenuation;
 class FSkateRuntime;
 struct FSkateContinuation;
@@ -146,6 +147,14 @@ public:
     /** "volume pitch" pairs for the roll, grind, slide, skid and scrape loops, then the surfaces' own rolls (wood, metal,
      *  asphalt, stone, dirt, grass, sand; see ESkateSurface) (films mix them offline). */
     FString GetLoopState() const;
+    /** Client presentation only. Validate loaded overrides before changing any sound.
+     * nullptr restores Original; invalid requests leave current audio alone. Changed loops
+     * stop and resume through normal UpdateAudio; emitted one-shots finish normally.
+     * The host owns async cancellation. Call on the game thread after initialization. */
+    bool SetSoundSet(USkateSoundSet* Replacement, FString& Error);
+    /** Read-only preflight for hosts switching several emitters in one game-thread transaction. */
+    bool CanSetSoundSet(const USkateSoundSet* Replacement, FString& Error) const;
+    const USkateSoundSet* GetSoundSet() const { return ActiveSoundSet.Get(); }
 
     // QA
     FName GetLastTrick() const { return LastTrickName; }
@@ -156,6 +165,7 @@ public:
 
 private:
     friend class FRemoteVehiclePresentationTest;
+    friend class FSkateSoundSetTest;
     UPROPERTY() TObjectPtr<ACharacter> Rider;
     ISkateRider* RiderApi = nullptr;
     UPROPERTY() TObjectPtr<USceneComponent> BoardRoot;
@@ -169,6 +179,11 @@ private:
     UPROPERTY() TObjectPtr<USoundAttenuation> Attenuation;
     TMap<FName, FIntPoint> CueRange;                              // first wave index, count
     TArray<float> LoopVolume;
+    UPROPERTY() TObjectPtr<USkateSoundSet> ActiveSoundSet;
+    UPROPERTY() TArray<TObjectPtr<USoundWave>> OriginalWaves;
+    UPROPERTY() TArray<TObjectPtr<USoundWave>> OriginalLoops;
+    TMap<FName, FIntPoint> OriginalCueRange;
+    bool bOriginalSoundsCaptured = false;
     ESkateSurface Surface = ESkateSurface::None;
     int32 LastVariant = -1;
     void LoadSounds();

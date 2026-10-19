@@ -47,6 +47,24 @@ A selected request that loses its turn before execution may requeue at most twic
 The launcher first proves its gate child exited, the guarded tree is empty and the request is uncharged.
 It never replays a start or treats missing timing data as proof that a child did not execute.
 
+Offers test fresh available memory against the full candidate envelope, host reserve and
+validated charged peers' remaining growth before selecting work. A memory deficit keeps the
+request queued without a gate, child or resource charge. Smaller compatible work may proceed
+until the oldest statically feasible request has two bypasses or 900 seconds of original ready
+age; that protected request then drains before younger work, including for exclusive sessions.
+A request blocked by an existing named lock keeps its age and bypass count but cannot impose
+a broker-wide drain while that lock remains held.
+Unavailable advisory telemetry or peer evidence keeps the offer queued without changing holder health.
+The final guarded start repeats its fresh pressure and ownership checks.
+
+An automatic build whose pressure eligibility changes before GO returns to the same queue only
+after a fenced no-GO response, verified empty owned cleanup and affirmative uncharged close.
+It retains the exact request, first-ready age, sequence and original admission deadline. Invalid
+guards, stale observations, transport failures and session fences are not ordinary resource waits.
+Explicit injected sessions still report a typed no-GO to their owning caller; they are not silently
+recreated. Older callers without this response support fail closed on a final pressure race;
+adopt the updated launcher only at a whole-caller child-free source boundary.
+
 `offer`, `owned`, `check` and `close` may replay one identical request after a transient transport failure.
 Their per-call deadlines stay unchanged. Start, gate and replacement operations never replay. A second
 transport failure or incomplete cleanup fails the command rather than starting work through another path.
@@ -124,6 +142,15 @@ Keep memory ceilings above measured peaks with room for growth. Reservations cov
 guards; do not add the machine's host reserve again. A game normally uses 10 GiB.
 `atelier play GAME --memory-gib 12` requests and reserves a larger ceiling for that session; the supported range is 10–24 GiB.
 Do not edit machine profiles to use it. Quit test games promptly.
+
+An explicit package cook can select its own invocation ceiling without changing source or compiled outputs:
+`atelier build GAME unreal.package --cook-memory-gib 12` (also `unreal.cook`), within 10–24 GiB.
+Only the UAT package command receives that ceiling; prerequisite compiles/imports retain their normal limits.
+The selected cook uses full-capacity compile admission and reserves at least its entire child/tree ceiling,
+with the existing CPU exclusion and fresh host-headroom check. Other compile requests do not resize.
+The default stays 10 GiB. This execution policy does not change UAT argv, command identity or build keys,
+and does not force an already-current cook. It cannot combine with `--touch` or certification-only recovery.
+A read-only plan accepts the option and records the selected ceiling without acquiring capacity.
 
 Disk is telemetry only. Jobs can still fail when disk fills; admission does not protect against that.
 The Content installer checks staging space before installation, but ordinary package/cook jobs have no

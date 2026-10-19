@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import sys
+import numpy as np
 
 # Blender's --python runner does not add the script folder to sys.path.
 if __name__ == '__main__':
@@ -33,7 +34,8 @@ def generate(fine_count, *, city, progress=None):
     xs, ys, z = mesh_grid(fine_count, city=city)
     vertices, faces = shorelines.grid_mesh(xs, ys, z,
         hidden=lambda x, y: owns_fine_ground(x, y, city=city), shape=coastal_backdrop_height,
-        parents=source_grid(city=city), parent_refinement=rail_refinement(city=city))
+        parents=source_grid(city=city), parent_refinement=rail_refinement(city=city),
+        edge_knots={(0,-300.): np.linspace(-300.,300.,fine_count)})
     print('coastal far hills: %d vertices, %d quads' % (len(vertices), len(faces)), flush=True)
     natural = Mesh.from_polygons(vertices, faces)
     phase('FarHills: single railway carve over %d natural vertices' % len(vertices))

@@ -4,6 +4,7 @@ import os
 import json
 from pathlib import Path
 import select
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -87,6 +88,8 @@ def test_slow_success_logs_elapsed_operation_without_changing_result(broker, mon
     report = json.loads(capsys.readouterr().err.split('capacity slow operation: ')[1].splitlines()[0])
     assert report['action'] == 'status' and report['phase'] == 'send'
     assert report['elapsed_seconds'] >= .25 and report['observed_at'] > 0
+    assert report['handle_seconds'] >= .25
+    assert report['receive_seconds'] >= 0 and report['send_seconds'] >= 0
 
 
 def session(broker, name='leaf', **changes):
@@ -791,7 +794,8 @@ def test_missing_gate_is_a_plain_refusal_with_its_own_reason(broker, capsys):
         admission.close(child=child, child_start=admission.child[1])
 
 
-def test_administrative_interruption_is_atomic_fenced_and_not_normal_reconcile(broker, monkeypatch, tmp_path):
+@pytest.mark.parametrize('completed', [False, True])
+def test_administrative_interruption_is_atomic_fenced_and_not_normal_reconcile(broker, monkeypatch, tmp_path, completed):
     from atelier.harness import capacity_abandon as abandon
     guards = {}
     for kind in ('process_guard', 'tree_guard'):
@@ -803,27 +807,352 @@ def test_administrative_interruption_is_atomic_fenced_and_not_normal_reconcile(b
                   sequence=1, first_ready=time.time()-10, bypasses=0, nonce='one-use', state='uncertain',
                   child=[70,700], principal=[71,710], guards=guards, roster=[[70,700],[72,720]],
                   exited=[[70,700]], ancestry_unknown=True, epoch=1, limit_bytes=128*1024**2, heartbeat=time.monotonic()-60)
+    if completed:
+        broker.mode='capacity'
+        monkeypatch.setattr(broker,'_compatibility_proof',lambda:{'activation_id':broker.activation_id})
+        record['request'].update(phase='job',performance=False)
+        Path(guards['tree_guard']['report']).write_text(json.dumps(dict(owner=70,owner_started=700,
+            controller=[71,710],state='child_exited',cleanup_complete=True,processes=[],footprint_bytes=0,
+            peak_bytes=100,limit_bytes=record['limit_bytes'],time=time.time())))
     with broker._lock:
         state=broker._load();state['records']['stopped-compile']=record;broker._save(state)
     assert client.reconcile(broker.socket_path)['charged_count']==1
     evidence=dict(id='stopped-compile',nonce='one-use',epoch=1,boot_id=broker.boot,
                   administrator='maintenance',operator_reference='operator instruction 123',services=[])
+    action=client.abandon_completed if completed else client.abandon_interrupted
+    if completed:
+        import hashlib
+        evidence.update(guards=guards,report_sha256={k:hashlib.sha256(Path(g['report']).read_bytes()).hexdigest()
+                                                   for k,g in guards.items()})
     # Legacy mode is never eligible; then emulate healthy verified full mode for this private broker.
-    with pytest.raises(wire.CapacityError):client.abandon_interrupted(broker.socket_path,evidence)
+    if not completed:
+        with pytest.raises(wire.CapacityError):action(broker.socket_path,evidence)
     broker.mode='capacity'
     monkeypatch.setattr(broker,'_compatibility_proof',lambda:{'activation_id':broker.activation_id})
     monkeypatch.setattr(abandon,'absent',lambda pin:True)
     rows={90:dict(pid=90,started=10,parent=1,executable='/apps/agent')}
-    monkeypatch.setattr(abandon,'census',lambda:rows)
+    monkeypatch.setattr(abandon,'census',lambda **kwargs:rows)
     wrong={**evidence,'epoch':2}
-    with pytest.raises(wire.CapacityError):client.abandon_interrupted(broker.socket_path,wrong)
+    with pytest.raises(wire.CapacityError):action(broker.socket_path,wrong)
     assert client.status(broker.socket_path)['charged_count']==1
-    result=client.abandon_interrupted(broker.socket_path,evidence)
+    result=action(broker.socket_path,evidence)
     assert result['released'] is True and result['witness']['output_certified'] is False
     assert client.status(broker.socket_path)['charged_count']==0
-    with pytest.raises(wire.CapacityError):client.abandon_interrupted(broker.socket_path,evidence)
+    with pytest.raises(wire.CapacityError):action(broker.socket_path,evidence)
     with broker._lock:
         state=broker._load();saved=state['records']['stopped-compile'];broker.connection.rollback()
-    assert saved['release_witness']['kind']=='administrative-interruption'
+    assert saved['release_witness']['kind']==('administrative-completed-job' if completed else 'administrative-interruption')
     assert saved['exited']==[[70,700]] and saved['ancestry_unknown']
-    assert all(json.loads(Path(g['report']).read_text())['state']=='running' for g in guards.values())
+    assert json.loads(Path(guards['process_guard']['report']).read_text())['state']=='running'
+    assert json.loads(Path(guards['tree_guard']['report']).read_text())['state']==('child_exited' if completed else 'running')
+
+
+def test_slow_status_reader_cannot_block_a_running_jobs_check(broker, monkeypatch):
+    admission = session(broker, 'responsive-check')
+    admission.offer()
+    child = gated_child(admission, hold=True)
+    pin = start(admission, child)
+    entered = threading.Event()
+    original_handle, original_accept = broker.handle, socket.socket.accept
+    def accept(listener):
+        channel, address = original_accept(listener)
+        channel.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+        return channel, address
+    def handle(message, principal):
+        if message.get('test_slow_reader'):
+            entered.set()
+            return {'namespace': wire.NAMESPACE, 'padding': 'x' * 60000}, None
+        return original_handle(message, principal)
+    monkeypatch.setattr(socket.socket, 'accept', accept)
+    monkeypatch.setattr(broker, 'handle', handle)
+    slow = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    slow.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    try:
+        slow.connect(str(broker.socket_path))
+        wire.send(slow, {'namespace': wire.NAMESPACE, 'action': 'status', 'test_slow_reader': True})
+        assert entered.wait(1)
+        admission.timeout = .5
+        assert admission.check()['state'] == 'running'
+    finally:
+        slow.close()
+        admission.timeout = 2.
+        if child.poll() is None:
+            child.communicate(input=b'1', timeout=3)
+        admission.close(child=child, child_start=pin)
+
+
+def test_unchanged_owned_observation_does_not_commit_state(broker, monkeypatch):
+    epoch = client.status(broker.socket_path)['epoch']
+    with broker._lock:
+        broker.mode = 'capacity'
+        monkeypatch.setattr(broker, '_compatibility_proof', lambda: {'activation_id': broker.activation_id})
+    saved = []
+    original = broker._save
+    monkeypatch.setattr(broker, '_save', lambda state: (saved.append(True), original(state))[-1])
+    try:
+        result, fd = client._rpc(broker.socket_path, {'action': 'owned', 'epoch': epoch,
+            'boot_id': broker.boot, 'activation_id': broker.activation_id, 'candidates': []}, 2.)
+        assert result['owned'] == [] and fd is None and not saved
+    finally:
+        with broker._lock:
+            broker.mode = 'legacy-bridge'
+
+
+def test_handle_eagain_is_refused_not_replayed_as_socket_readiness(broker, monkeypatch):
+    monkeypatch.setattr(broker, 'handle', lambda *args: (_ for _ in ()).throw(BlockingIOError(35, 'private')))
+    with pytest.raises(wire.CapacityError, match='broker refused'):
+        client.status(broker.socket_path)
+
+
+def test_partial_reply_transfers_descriptor_only_once(broker, monkeypatch):
+    read_fd, write_fd = os.pipe()
+    original_handle, original_sendmsg = broker.handle, socket.socket.sendmsg
+    transfers = []
+    def handle(message, principal):
+        if message.get('test_fd'):
+            return {'namespace': wire.NAMESPACE, 'padding': 'x' * 60000}, read_fd
+        return original_handle(message, principal)
+    def sendmsg(channel, buffers, ancillary=(), *args):
+        if ancillary:
+            count = original_sendmsg(channel, [buffers[0][:17]], ancillary, *args)
+            if count:
+                transfers.append(count)
+            return count
+        return original_sendmsg(channel, buffers, ancillary, *args)
+    monkeypatch.setattr(broker, 'handle', handle)
+    monkeypatch.setattr(socket.socket, 'sendmsg', sendmsg)
+    received = None
+    try:
+        result, received = client._rpc(broker.socket_path, {'action': 'status', 'test_fd': True}, 2., descriptor=True)
+        assert len(result['padding']) == 60000 and transfers == [17]
+        os.write(write_fd, b'proof')
+        assert os.read(received, 5) == b'proof'
+    finally:
+        if received is not None:
+            os.close(received)
+        os.close(write_fd)
+
+
+@pytest.mark.parametrize('ending', ['expiry', 'disconnect', 'shutdown'])
+def test_unsent_descriptor_is_closed_on_every_connection_end(broker, monkeypatch, ending):
+    read_fd, write_fd = os.pipe()
+    waiting, closed = threading.Event(), threading.Event()
+    original_handle, original_sendmsg, original_close = broker.handle, socket.socket.sendmsg, os.close
+    def handle(message, principal):
+        if message.get('test_fd'):
+            return {'namespace': wire.NAMESPACE}, read_fd
+        return original_handle(message, principal)
+    def sendmsg(channel, buffers, ancillary=(), *args):
+        if ancillary:
+            waiting.set()
+            raise BlockingIOError()
+        return original_sendmsg(channel, buffers, ancillary, *args)
+    def close(fd):
+        result = original_close(fd)
+        if fd == read_fd:
+            closed.set()
+        return result
+    monkeypatch.setattr(broker, 'handle', handle)
+    monkeypatch.setattr(socket.socket, 'sendmsg', sendmsg)
+    monkeypatch.setattr(os, 'close', close)
+    broker.rpc_timeout = .2
+    caller = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        caller.connect(str(broker.socket_path))
+        wire.send(caller, {'namespace': wire.NAMESPACE, 'action': 'status', 'test_fd': True})
+        assert waiting.wait(1)
+        if ending == 'disconnect':
+            caller.close()
+        elif ending == 'shutdown':
+            stop(broker)
+        assert closed.wait(1)
+    finally:
+        caller.close()
+        os.close(write_fd)
+
+
+def test_diagnostic_type_error_cannot_change_operation_result(broker, monkeypatch):
+    original = broker.handle
+    def slow(message, principal):
+        time.sleep(.26)
+        return original(message, principal)
+    monkeypatch.setattr(broker, 'handle', slow)
+    monkeypatch.setattr(server, 'print', lambda *args, **kwargs: (_ for _ in ()).throw(TypeError()), raising=False)
+    assert client.status(broker.socket_path)['charged_count'] == 0
+
+
+def test_stable_pressure_waits_before_gate_and_preserves_identity(broker, monkeypatch):
+    available = [127]
+    monkeypatch.setattr(broker, 'observe', lambda: dict(observed_monotonic=time.monotonic(),
+                                                     available_memory_mib=available[0]))
+    admission = session(broker)
+    for _ in range(4):
+        with pytest.raises(client.CapacityQueued):
+            admission.offer()
+        row = client.status(broker.socket_path)['records'][0]
+        identity = (row['first_ready'], row['sequence'], admission.nonce)
+        if _ == 0:
+            original = identity
+        assert identity == original and row['state'] == 'queued'
+        assert client.status(broker.socket_path)['charged_count'] == 0 and not broker._gates
+    available[0] = 128
+    assert admission.offer()['selected']
+    child = gated_child(admission)
+    pin = start(admission, child)
+    assert child.communicate(timeout=3)[0] == b'useful'
+    assert admission.close(child=child, child_start=pin)['released']
+
+
+def test_final_pressure_drop_closes_gate_without_execution_and_requeues(broker, monkeypatch):
+    admission = session(broker)
+    before = admission.offer()['first_ready']
+    child = gated_child(admission)
+    original = broker._pressure
+    def deficit(state, record):
+        raise server.PressureWait('complete reservation unavailable')
+    monkeypatch.setattr(broker, '_pressure', deficit)
+    try:
+        with pytest.raises(client.CapacityOfferLost) as error:
+            start(admission, child)
+        assert error.value.reason == 'pressure-wait'
+        assert child.communicate(timeout=3)[0] == b''
+        assert not broker._gates and client.status(broker.socket_path)['charged_count'] == 0
+        assert admission.close(child=child, child_start=admission.child[1])['released']
+        retry = session(broker)
+        retry.requeue_after(admission)
+        monkeypatch.setattr(broker, '_pressure', original)
+        assert retry.offer()['first_ready'] == before
+        retry.close()
+    finally:
+        if child.poll() is None:child.kill()
+        child.wait()
+
+
+@pytest.mark.parametrize('performance', [False, True])
+def test_pressure_skips_compatible_small_work_until_old_head_is_protected(broker, monkeypatch, performance):
+    monkeypatch.setattr(broker, 'observe', lambda: dict(observed_monotonic=time.monotonic(),available_memory_mib=128))
+    large = session(broker, 'old-large', resources=asdict(Resources(memory_mib=256,cpu_millis=1000)),performance=performance)
+    with pytest.raises(client.CapacityQueued):large.offer()
+    small = session(broker, 'small')
+    assert small.offer()['selected']
+    for protection in ('age','bypasses'):
+        with broker._lock:
+            state = broker._load();row=state['records']['old-large']
+            row['first_ready'] = time.time() - (901 if protection=='age' else 1)
+            row['bypasses'] = 0 if protection=='age' else 2
+            broker._save(state)
+        with pytest.raises(client.CapacityQueued):small.offer()
+        assert client.status(broker.socket_path)['charged_count']==0 and not broker._gates
+    large.close();small.close()
+
+
+@pytest.mark.parametrize('state,measured,expected', [('running',32,96),('running',128,0),('draining',32,128)])
+def test_pressure_budget_charges_full_unmeasured_or_remaining_peer_growth(broker,monkeypatch,state,measured,expected):
+    monkeypatch.setattr(broker,'guards',lambda *args:wire.GuardFacts((),measured*1024**2))
+    peer=dict(state=state,request=dict(resources=asdict(Resources(memory_mib=128))),
+              guards={},child=[1,1],principal=[2,2],limit_bytes=128*1024**2)
+    candidate=dict(state='queued',request=dict(resources=asdict(Resources(memory_mib=128))))
+    monkeypatch.setattr(broker,'observe',lambda:dict(observed_monotonic=time.monotonic(),available_memory_mib=128+expected-1))
+    with pytest.raises(server.PressureWait):broker._pressure({'records':{'peer':peer}},candidate)
+    memory,growth=broker._pressure_budget({'records':{'peer':peer}})
+    assert growth==expected and memory==128+expected-1
+
+
+@pytest.mark.parametrize('observation', [None,{'observed_monotonic':0,'available_memory_mib':0}])
+def test_unavailable_advisory_observation_waits_but_final_start_fails_closed(broker,monkeypatch,observation):
+    admission = session(broker)
+    admission.offer()
+    child = gated_child(admission)
+    monkeypatch.setattr(broker, 'observe', lambda: observation)
+    try:
+        with pytest.raises(client.CapacityQueued):
+            admission.offer()
+        with pytest.raises(wire.CapacityError, match='observation unavailable') as error:
+            start(admission, child)
+        assert type(error.value) is wire.CapacityError
+        assert child.communicate(timeout=3)[0] == b''
+        admission.close(child=child, child_start=admission.child[1])
+    finally:
+        if child.poll() is None:child.kill()
+        child.wait()
+
+
+@pytest.mark.parametrize('cancel', [False, True])
+def test_pressure_queue_deadline_and_cancellation_hold_no_child_or_charge(broker, monkeypatch, cancel):
+    monkeypatch.setattr(broker, 'observe', lambda: dict(observed_monotonic=time.monotonic(), available_memory_mib=0))
+    admission = session(broker)
+    original_sleep = client.time.sleep
+    def interrupt(seconds):
+        raise KeyboardInterrupt
+    if cancel:
+        monkeypatch.setattr(client.time, 'sleep', interrupt)
+    try:
+        with pytest.raises(KeyboardInterrupt if cancel else client.CapacityError, match=None if cancel else 'deadline reached'):
+            client.wait_for_offer(admission, seconds=.02)
+        row = client.status(broker.socket_path)['records'][0]
+        assert row['state'] == 'queued' and client.status(broker.socket_path)['charged_count'] == 0
+        assert not broker._gates
+        original_ready = row['first_ready']
+    finally:
+        monkeypatch.setattr(client.time, 'sleep', original_sleep)
+        assert admission.close()['released']
+    retry = session(broker)
+    with pytest.raises(client.CapacityQueued):retry.offer()
+    assert client.status(broker.socket_path)['records'][0]['first_ready'] == original_ready
+    retry.close()
+
+
+def test_advisory_peer_guard_failure_does_not_change_holder_health(broker, monkeypatch):
+    peer = dict(state='running',request=dict(resources=asdict(Resources(memory_mib=128))),
+                guards={},child=[1,1],principal=[2,2],limit_bytes=128*1024**2)
+    state = {'records': {'peer': peer}}
+    def unavailable(*args):
+        raise wire.CapacityError('guard evidence missing')
+    monkeypatch.setattr(broker, 'guards', unavailable)
+    monkeypatch.setattr(broker, '_root_exited', lambda record: False)
+    assert broker._pressure_budget(state, advisory=True) is None
+    assert peer['state'] == 'running'
+    with pytest.raises(wire.CapacityError, match='enforcement is unavailable'):
+        broker._pressure_budget(state)
+    assert peer['state'] == 'uncertain'
+
+
+def test_two_actual_pressure_bypasses_protect_even_an_older_short_job(broker, monkeypatch):
+    monkeypatch.setattr(broker, 'observe', lambda: dict(observed_monotonic=time.monotonic(), available_memory_mib=128))
+    large = session(broker, 'old-short', resources=asdict(Resources(memory_mib=256, cpu_millis=1000)))
+    with pytest.raises(client.CapacityQueued):large.offer()
+    for number in range(2):
+        small = session(broker, 'small-' + str(number))
+        assert small.offer()['selected']
+        child = gated_child(small)
+        pin = start(small, child)
+        assert child.communicate(timeout=3)[0] == b'useful'
+        assert small.close(child=child, child_start=pin)['released']
+        row = next(r for r in client.status(broker.socket_path)['records'] if r['id']=='old-short')
+        assert row['bypasses'] == number + 1
+    third = session(broker, 'small-third')
+    with pytest.raises(client.CapacityQueued):third.offer()
+    assert not broker._gates and client.status(broker.socket_path)['charged_count']==0
+    large.close()
+    assert third.offer()['selected']
+    third.close()
+
+
+@pytest.mark.parametrize('protection', ['age', 'bypasses'])
+def test_protected_checkout_sibling_does_not_block_unrelated_compatible_work(broker, protection):
+    def row(name, sequence, state, locks):
+        return dict(request=dict(id=name, resources=asdict(Resources(memory_mib=128,cpu_millis=1000)),
+                                 locks=locks, seconds=1, performance=False),
+                    state=state,sequence=sequence,first_ready=time.time(),bypasses=0,
+                    guards={},child=[1,1],principal=[2,2],limit_bytes=128*1024**2)
+    holder = row('holder',1,'running',['checkout:shared'])
+    sibling = row('sibling',2,'queued',['checkout:shared'])
+    other = row('unrelated',3,'queued',['checkout:other'])
+    sibling['bypasses'] = 2 if protection=='bypasses' else 0
+    sibling['first_ready'] -= 901 if protection=='age' else 0
+    original = (sibling['first_ready'],sibling['bypasses'])
+    state = {'records': {r['request']['id']:r for r in (holder,sibling,other)}}
+    assert broker._selection(state,pressure=True) is other
+    assert (sibling['first_ready'],sibling['bypasses']) == original
+    holder['state'] = 'released'
+    assert broker._selection(state,pressure=True) is sibling

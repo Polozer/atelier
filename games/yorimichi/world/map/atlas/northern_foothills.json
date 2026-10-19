@@ -61,13 +61,14 @@
   "verified_geography": {
     "kind": "terrain-reference-revalidation",
     "geography": {
-      "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
+      "world/gen_world.py": "9763dfffa7b4c2e9c186d469124289fad26510254a7c16e15d6a1604ed26c4ef",
       "world/build_terrain.py": "2a810d3a4698765c24044379e053f67e56817b90ab871b78814a2233d9515a09",
-      "world/farhills_surface.py": "3f1bcb705333efce9c3fce3349c16f88b3b8dbbf210f4794a695909cf9c7f2b3",
+      "world/farhills_surface.py": "497530bb634a84f69dae54c5abcec20088ed4dff1359a11bde8423e0601ae182",
       "world/farhills_grid.py": "6451e5894c63e3eedcded121cef2f477a9615c36b1dd61715d16938ab53228c4",
       "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
-      "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
-      "world/regions/hidamari/mountains.py": "6affe36cd3a866e0ae3907995c46707383ea2784b4c4c19ddfaa9c2a6e6e3334",
+      "world/north_mountain_surface.py": "380fac8eece8794a9d8737444af73b3e3979227470aba3de49d415df42477816",
+      "world/regions/hidamari/layout.py": "e75a568aa7ed08af5ceb386078922ed41daea8455afc241d1d41987940b2bbbf",
+      "world/regions/hidamari/mountains.py": "f2a09621e6e6d61b070b284e79333b5312bcc118f681d8cedac53eb82a13aae6",
       "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
       "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
       "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
@@ -78,14 +79,14 @@
       "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
       "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
       "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
-      "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
+      "world/shorelines.py": "087b0fe32ea76a8082e1aed80581b24261bead89ee2db165a3ee053f5f5d1006"
     },
     "painting_sha256": "9e03e5a3d90ee0835a0f294da8e5db7459cab6a9bad61c269b2cacda44dea3c0",
     "coast_sha256": "dc43d462e41f266e17598b61ba8c5dc9ce63516e3b0b6870a7d936c6961c76b0",
     "reference_sha256": "d9a438b7ae82a825ed118ac5a876428487d7a01a1410b9e88e0d7524a9ffe4bc"
   },
   "refactor_revalidation": {
-    "witness": "coasts/producer-equivalence.json",
-    "sha256": "76ae8b4b3dfda89b56a8305ccfde49c28088876752d5df472270f7391783c6e1"
+    "witness": "coasts/mountain-equivalence.json",
+    "sha256": "9d973eed0d51cbba66088af58e304dac73d26e9249ac2dc29d0fe659a9c3a149"
   }
 }

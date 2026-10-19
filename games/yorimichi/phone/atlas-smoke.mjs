@@ -37,6 +37,9 @@ document.getElementById('close-map').onclick=()=>document.getElementById('map-di
   const back=()=>page.locator('#map-back').click();
   const row=key=>page.locator(`#map-zones button[data-key="${key}"]`);
   await page.waitForFunction(()=>document.getElementById('map-title').textContent==='Haras Valley');
+  if(await page.locator('.map-air-route line.air-leg').count()!==3)throw Error('Zeppelin itinerary is missing from the atlas');
+  const airLegend=await page.locator('#map-air-legend').textContent();
+  for(const name of ['Woodland','Hidamari','Mega Park','Belmonte'])if(!airLegend.includes(name))throw Error('Zeppelin legend misses '+name);
   if(await page.locator('#map-player').evaluate(p=>p.hidden))throw Error('Current regional player marker missing');
   for(const p of data.atlas.landmarks)if(!await row(p.key).count())throw Error('Stable missing: '+p.key);
   await row('alder_stables').click();
