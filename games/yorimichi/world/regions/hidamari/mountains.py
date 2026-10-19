@@ -561,7 +561,13 @@ def export_crater_mask(output):
     (output/'north_crater.json').write_text(json.dumps(meta,indent=2)+'\n')
     print('NORTH CRATER MASK',field.shape,len(png),'bytes',flush=True)
 
-def mesh(base_sampler):
+def sheets(base_sampler):
+    """@cc [owner:fontanierh,label:correctness] north-mountain-sheet-order
+    Preserve the existing grid, gate holes, apron part order and authored
+    colours/mask/normals before the single earthworks.sheet call. Return that
+    natural sheet and the final sheet without resampling attributes after carve.
+    No-line identity and earthworks interpolation remain unchanged.
+    """
     xs=np.arange(BOUNDS[0],BOUNDS[2]+1,STEP);ys=np.arange(BOUNDS[1],BOUNDS[3]+1,STEP)
     x,y,z=surface_grid(base_sampler)
     colors=colours(x,y,z)
@@ -603,7 +609,12 @@ def mesh(base_sampler):
     sheet=dict(vertices=np.concatenate([p[0] for p in parts]),faces=np.concatenate([p[1]+o for p,o in zip(parts,offsets)]),
                colours=np.concatenate([p[2] for p in parts]),normals=np.concatenate([p[3] for p in parts]))
     from train import earthworks  # the Belmonte railway's cuttings, banks and portal holes (RAILWAY_EARTHWORKS=0: none)
-    return earthworks.sheet(sheet)
+    return sheet,earthworks.sheet(sheet)
+
+
+def mesh(base_sampler):
+    """Existing direct callers receive the same final attributed sheet."""
+    return sheets(base_sampler)[1]
 
 
 def apron_grids(xs,ys):

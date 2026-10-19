@@ -1,0 +1,6 @@
+@cc [owner:fontanierh,label:architecture] soundbank-saved-type-boundary
+Soundbank saved definitions MUST remain data-only and MUST NOT link this module to Skate gameplay
+or its simulation closure. Their generic Skate asset reference MUST be cast and validated by the
+game's runtime selector before activation; an editor class filter MUST NOT be treated as validation.
+The source manifest identity MUST be checked against the current staged registry before a world bank
+is selected. A data asset or footstep-only preflight alone MUST NOT certify the entire bank.

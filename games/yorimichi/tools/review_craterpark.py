@@ -27,6 +27,7 @@ GAME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GAME / 'world'))
 sys.path.insert(0, str(GAME / 'world' / 'regions'))
 import numpy as np  # noqa: E402
+from atelier.play_limits import GAME_GIB, GAME_MAX_GIB  # noqa: E402
 import yori  # noqa: E402
 from craterpark import placement  # noqa: E402
 
@@ -284,17 +285,17 @@ def main():
     parser.add_argument('--no-rider', action='store_true', help='gap shots without launching the rider')
     parser.add_argument('--out', default='', help='folder for the shots (default: build output craterpark/review)')
     parser.add_argument('--settle', type=float, default=6., help='seconds to wait at each camera before the shot')
-    parser.add_argument('--memory-gib', type=float, default=10., help='memory guard limit, 10 (the default) to 14 GiB, as atelier play')
+    parser.add_argument('--memory-gib', type=float, default=GAME_GIB, help=f'memory guard limit, {GAME_GIB:g} (the default) to {GAME_MAX_GIB:g} GiB, as atelier play')
     parser.add_argument('--startup', type=float, default=780., help='seconds to wait for the game (a first run builds shaders)')
     args = parser.parse_args()
+    if not math.isfinite(args.memory_gib) or not GAME_GIB <= args.memory_gib <= GAME_MAX_GIB:
+        sys.exit(f'--memory-gib must be {GAME_GIB:g} to {GAME_MAX_GIB:g}')
     wanted = args.shots.split(',') if args.shots else SHOT_TYPES
     shots = [s for s in plan() if s['name'] in wanted or s['kind'] in wanted]
     frames = {k: chase(p) for k, p in line_paths().items()} if args.video else {}
     if args.plan:
         print(json.dumps({'shots': shots, 'video_frames': {k: len(v) for k, v in frames.items()}}, indent=1))
         return 0
-    if not 10. <= args.memory_gib <= 14.:
-        sys.exit('--memory-gib must be 10 to 14')
     from atelier import live
     from atelier.build import Context
     from atelier.harness.safety import guarded

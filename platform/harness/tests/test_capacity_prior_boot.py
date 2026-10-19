@@ -235,7 +235,8 @@ def test_real_maintenance_to_full_broker_keeps_database_and_fences_old_gate(barr
     settings, proof = maintenance_settings(barrier)
     errors = []
     def start(config):
-        instance = server.CapacityBroker(**config, boot=lambda: barrier.boot[0])
+        instance = server.CapacityBroker(**config, boot=lambda: barrier.boot[0],
+            observe=lambda: dict(observed_monotonic=time.monotonic(), available_memory_mib=99999))
         def serve():
             try:
                 instance.serve_forever()

@@ -71,6 +71,33 @@ void UJapanMap::InitializeAtlas(const TSharedPtr<FJsonObject>& Root, const FStri
         L.Location=AJapanWorld::ToUE(O->GetNumberField(TEXT("x")),O->GetNumberField(TEXT("y")),O->GetNumberField(TEXT("z")));
         AtlasLandmarks.Add(MoveTemp(L));
     }
+    const TSharedPtr<FJsonObject>* Air=nullptr;
+    if (AtlasData->TryGetObjectField(TEXT("air"),Air) && Air && Air->IsValid())
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Line=nullptr;
+        if ((*Air)->TryGetArrayField(TEXT("line"),Line)) for (const auto& V:*Line)
+            if (V.IsValid() && V->Type==EJson::String) AirRoute.Line.Add(V->AsString());
+        const TArray<TSharedPtr<FJsonValue>>* Stops=nullptr;
+        if ((*Air)->TryGetArrayField(TEXT("stops"),Stops)) for (const auto& V:*Stops)
+        {
+            const TSharedPtr<FJsonObject>* O=nullptr; if (!V->TryGetObject(O)) continue;
+            FJapanAtlasAirStop Stop;
+            Stop.Key=(*O)->GetStringField(TEXT("key")); (*O)->TryGetStringField(TEXT("name"),Stop.Name);
+            Stop.Location=AJapanWorld::ToUE((*O)->GetNumberField(TEXT("x")),(*O)->GetNumberField(TEXT("y")),(*O)->GetNumberField(TEXT("z")));
+            AirRoute.Stops.Add(MoveTemp(Stop));
+        }
+        const TArray<TSharedPtr<FJsonValue>>* Legs=nullptr;
+        if ((*Air)->TryGetArrayField(TEXT("legs"),Legs)) for (const auto& V:*Legs)
+        {
+            const TSharedPtr<FJsonObject>* O=nullptr; if (!V->TryGetObject(O)) continue;
+            FJapanAtlasAirLeg Leg;
+            Leg.From=(*O)->GetStringField(TEXT("from")); Leg.To=(*O)->GetStringField(TEXT("to"));
+            Leg.Seconds=(*O)->GetNumberField(TEXT("seconds"));
+            Leg.Height=(*O)->GetNumberField(TEXT("height"));
+            AirRoute.Legs.Add(MoveTemp(Leg));
+        }
+        (*Air)->TryGetStringField(TEXT("note"),AirRoute.Note);
+    }
     if (auto* Store=AtlasNameStore()) Store->Load();
 }
 
@@ -186,6 +213,32 @@ bool UJapanMap::IsEditingMapText() const
 {
     for (const auto& Input:{MarkerName,AtlasSearch,StableName}) if (Input.IsValid() && (Input->HasKeyboardFocus() || Input->HasFocusedDescendants())) return true;
     return false;
+}
+
+FString UJapanMap::ReviewAtlasAirRoute() const
+{
+    auto Out=MakeShared<FJsonObject>();
+    TArray<TSharedPtr<FJsonValue>> Line;
+    for (const auto& Key : AirRoute.Line) Line.Add(MakeShared<FJsonValueString>(Key));
+    TArray<TSharedPtr<FJsonValue>> Stops;
+    for (const auto& Stop : AirRoute.Stops)
+    {
+        auto Row=MakeShared<FJsonObject>();
+        Row->SetStringField(TEXT("key"),Stop.Key); Row->SetStringField(TEXT("name"),Stop.Name);
+        Row->SetNumberField(TEXT("x"),Stop.Location.X/100.); Row->SetNumberField(TEXT("y"),-Stop.Location.Y/100.);
+        Stops.Add(MakeShared<FJsonValueObject>(Row));
+    }
+    TArray<TSharedPtr<FJsonValue>> Legs;
+    for (const auto& Leg : AirRoute.Legs)
+    {
+        auto Row=MakeShared<FJsonObject>();
+        Row->SetStringField(TEXT("from"),Leg.From); Row->SetStringField(TEXT("to"),Leg.To);
+        Row->SetNumberField(TEXT("seconds"),Leg.Seconds); Row->SetNumberField(TEXT("height"),Leg.Height);
+        Legs.Add(MakeShared<FJsonValueObject>(Row));
+    }
+    Out->SetArrayField(TEXT("line"),Line); Out->SetArrayField(TEXT("stops"),Stops);
+    Out->SetArrayField(TEXT("legs"),Legs); Out->SetStringField(TEXT("note"),AirRoute.Note);
+    FString Result; FJsonSerializer::Serialize(Out,TJsonWriterFactory<>::Create(&Result)); return Result;
 }
 
 TArray<FJapanAtlasTarget> UJapanMap::GetAtlasTargets() const

@@ -277,51 +277,12 @@ footer {
 [hidden] {
   display: none !important;
 }
-.audition {
-  padding: 0 0 28px;
-  margin-bottom: 28px;
-  border-bottom: 1px solid var(--line);
-}
-.audition h2 {
-  font:
-    34px Georgia,
-    serif;
-  margin: 12px 0;
-}
-.audition > p:not(.eyebrow) {
-  max-width: 780px;
-  color: var(--muted);
-  line-height: 1.6;
-  font-size: 13px;
-}
-.audition-controls,
-.audition-actions {
+.player-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 18px;
-  align-items: end;
-  margin: 20px 0;
-}
-.audition-controls label {
-  min-width: 130px;
-  max-width: 100%;
-}
-.audition-controls select {
-  max-width: min(320px, 80vw);
-}
-.audition input[type="range"] {
-  accent-color: var(--green);
-  width: 155px;
-}
-.audition-actions {
   align-items: center;
-}
-#audition-pulse {
-  font:
-    13px ui-monospace,
-    monospace;
-  color: var(--green);
-  min-width: 100px;
+  margin: 20px 0;
 }
 button:disabled {
   opacity: 0.5;
@@ -329,4 +290,24 @@ button:disabled {
 }
 .clip-loop {
   margin: 4px 0 14px;
+}
+.sequence-player {
+  padding: 0 0 24px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+}
+.sequence-player audio {
+  max-width: 650px;
+  height: 48px;
+}
+#examples .card p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.pages {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 24px;
 }

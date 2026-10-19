@@ -3,124 +3,57 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sound laboratory</title>
+    <title>Sound previews</title>
     <link rel="stylesheet" href="review.css" />
-    <script src="preview.js" defer></script>
-    <script src="review.js" defer></script>
+    <script src="sequences.js" defer></script>
   </head>
   <body>
     <header>
-      <p class="eyebrow">SOUND DESIGN / AUDIO EXPERIMENTS / 01</p>
-      <h1>Sound laboratory<span>.</span></h1>
+      <p class="eyebrow">GAME SOUND / LISTENING ROOM</p>
+      <h1>Sound previews<span>.</span></h1>
       <p class="intro">
-        Materials, motion & a little life. Listen to the variations and keep the
-        ones that feel right.
+        Choose a surface and hear it in motion. Each short example is already
+        recorded. Tap to play; repeat without rebuilding anything.
       </p>
-      <div class="meta">
-        <span>STABLE AUDIO 3 · SMALL-SFX</span><span>APPLE SILICON / MLX</span
-        ><span>44.1 kHz · STEREO</span>
-      </div>
+      <a href="clips.html">Raw takes & individual contacts →</a>
     </header>
     <main>
-      <section class="audition" aria-labelledby="audition-title">
-        <p class="eyebrow">PLAYBACK IN CONTEXT</p>
-        <h2 id="audition-title">Try it in motion</h2>
-        <p>
-          Browser simulation using the prepared game samples. Footfalls
-          alternate at your cadence; skating blends speed-driven rolling and
-          powerslides. This is an audition, not the running game.
+      <section class="sequence-player" aria-label="Selected example">
+        <h2 id="playing-title">Choose an example below</h2>
+        <p id="playing-description">
+          Walk, run, roll, slide and land on different materials.
         </p>
-        <div class="audition-controls">
-          <label
-            >Activity<select id="audition-mode">
-              <option value="footstep">Walking / running</option>
-              <option value="skate">Skateboarding</option>
-            </select></label
+        <audio id="sequence-audio" controls preload="none"></audio>
+        <div class="player-actions">
+          <button id="repeat" disabled>Play again</button>
+          <button id="stop" disabled>Stop</button>
+          <label class="check"
+            ><input id="loop" type="checkbox" /> Loop this example</label
           >
-          <label>Surface<select id="audition-surface" disabled></select></label>
-          <label
-            >Variation<select id="audition-variant">
-              <option value="">Shuffle all takes</option>
-            </select></label
-          >
-          <label id="cadence-control"
-            >Steps / minute <output id="cadence-value">120</output
-            ><input
-              id="audition-cadence"
-              type="range"
-              min="60"
-              max="240"
-              value="120"
-              step="5"
-          /></label>
-          <label id="speed-control" hidden
-            >Speed · m/s <output id="speed-value">4.5</output
-            ><input
-              id="audition-speed"
-              type="range"
-              min="0"
-              max="12"
-              value="4.5"
-              step="0.1"
-          /></label>
-          <label
-            >Volume <output id="volume-value">50%</output
-            ><input
-              id="audition-volume"
-              type="range"
-              min="0"
-              max="100"
-              value="50"
-          /></label>
         </div>
-        <div class="audition-actions">
-          <button id="audition-play" disabled>Start preview</button>
-          <button id="audition-stop" disabled>Stop</button>
-          <label class="check" id="slide-control" hidden
-            ><input id="audition-slide" type="checkbox" /> Powerslide</label
-          >
-          <button id="audition-land" hidden disabled>Landing hit</button>
-          <span id="audition-pulse" aria-hidden="true">L · R</span>
-        </div>
-        <p id="audition-now" aria-live="off"></p>
-        <p id="audition-status" role="status">Loading prepared samples…</p>
+        <p id="playback-status" role="status">Loading the example list…</p>
       </section>
-      <section class="toolbar" aria-label="Filter sounds">
+      <section class="toolbar" aria-label="Filter examples">
         <label
-          >Library<select id="bank">
-            <option value="manifest.json">Raw generated takes</option>
-            <option value="prepared.json">
-              Game samples · contacts & loops
-            </option>
+          >Activity<select id="activity">
+            <option value="">All activities</option>
           </select></label
         >
         <label
-          >Search<input
-            id="search"
-            type="search"
-            placeholder="Concrete, breathing, birds…"
-        /></label>
-        <label
-          >Category<select id="category">
-            <option value="">All categories</option>
+          >Surface<select id="surface">
+            <option value="">All surfaces</option>
           </select></label
         >
-        <label class="check"
-          ><input id="favourites" type="checkbox" /> Favourites only</label
-        >
-        <button id="export">Export shortlist ↓</button>
       </section>
-      <div class="status">
-        <p id="progress" role="status">Loading library…</p>
-        <p id="count"></p>
-      </div>
-      <div id="library"></div>
-      <p id="empty" hidden>No matching sounds.</p>
+      <p id="sequence-count" class="take"></p>
+      <div id="examples" class="grid"></div>
     </main>
     <footer>
-      Experimental takes for listening review. Favourites stay in this browser;
-      export your shortlist to share it. These sounds have not been added to the
-      game.
+      Recorded previews made from the prepared candidate contacts and loops.
+      Walk/run timing approximates alternating animation foot plants; skating
+      uses the game’s speed, pitch and transition envelopes. These candidates
+      have not been installed in the game. Individual source clips remain in the
+      optional library.
     </footer>
   </body>
 </html>

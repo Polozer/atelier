@@ -12,14 +12,24 @@ def test_staging_copies_required_sources_and_preserves_unrelated_data(tmp_path, 
     data = recipe.runtime_data
     ctx = SimpleNamespace(game='yorimichi', out=tmp_path / 'build')
     destination = tmp_path / 'Content' / 'Data'
+    course_bytes = data.RACING_COURSES.read_bytes()
+    scene_bytes = (data.ASSETS / 'belmonte/source.json').read_bytes()
     monkeypatch.setattr(data, 'REGIONS', tmp_path / 'regions')
     monkeypatch.setattr(data, 'ASSETS', tmp_path / 'assets')
+    monkeypatch.setattr(data, 'RACING_COURSES', tmp_path / 'courses.json')
+    scene = data.ASSETS / 'belmonte/source.json'
+    scene.parent.mkdir(parents=True)
+    scene.write_bytes(scene_bytes)
+    model_path = data.courses.surface_inputs()[0]
+    model_copy = scene.parent / model_path.relative_to(data.courses.SCENE.parent)
+    model_copy.parent.mkdir(parents=True, exist_ok=True)
+    model_copy.write_bytes(model_path.read_bytes())
     monkeypatch.setattr(data.paths, 'content_data', lambda game: destination)
     expected = {}
     for rel in data.staged(ctx.out):
         source = data.staged_source(ctx.out, rel)
         source.parent.mkdir(parents=True, exist_ok=True)
-        expected[rel] = rel.encode()
+        expected[rel] = course_bytes if rel == 'racing/belmonte_courses.json' else rel.encode()
         source.write_bytes(expected[rel])
         os.utime(source, ns=(1_000_000_000, 2_000_000_000))
     # The committed skatepark source wins over any similarly named generated file.

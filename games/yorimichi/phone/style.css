@@ -69,3 +69,5 @@ button,#stick,#look{-webkit-tap-highlight-color:transparent}
 .map-estate{background:#6d7043}.map-estate .map-pin-label{font-size:12px}#map-controls button{width:auto;border-radius:3px;border-color:#786b48;background:#24382a;color:#e4d2a4}
 #map-stable-editor{border-top:1px solid #766d4a;padding-top:10px;font-size:11px;color:#d5bd88}#map-stable-editor[hidden]{display:none}#map-stable-editor input{margin-top:6px}#map-stable-editor button{margin-top:7px;border-radius:3px;padding:8px;font-size:12px}
 @media(orientation:portrait){#map-sidebar{width:100%;min-height:130px;flex:1}#map-zones{max-height:none}.map-heading h2{font-size:21px}.map-pin-label{display:none}.map-region{font-size:12px}}
+.map-air-route{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:.9}
+.map-air-legend{margin:6px 0 8px;color:#e1c07a;font-size:10px;line-height:1.35;letter-spacing:.02em}
