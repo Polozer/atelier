@@ -265,7 +265,7 @@ bool FHREconomyTest::RunTest(const FString&)
 		}
 		while (!HRAdmissionTest::FieldRace(S, true) && !HRRules::RunNextRace(S).IsEmpty()) {}
 		const FHRRace* Run = HRAdmissionTest::FieldRace(S, true);
-		if (TestNotNull(TEXT("a race was run"), Run))
+		if (TestTrue(TEXT("a race was run with finishes"), Run && Run->Finishes.Num() > 0))
 		{
 			FHRWorldState WithScratched = S, WithoutScratched = S;
 			FHRTicket Scratched;
@@ -278,8 +278,12 @@ bool FHREconomyTest::RunTest(const FString&)
 			WithoutScratched.Tickets.Add(Win);
 			HRRules::SettleRace(WithScratched, *Run);
 			HRRules::SettleRace(WithoutScratched, *Run);
-			TestEqual(TEXT("scratched ticket refunded first"), WithScratched.Tickets[WithScratched.Tickets.Num() - 2].Status, FString(TEXT("refunded")));
-			TestEqual(TEXT("winner odds exclude the scratched ticket"), WithScratched.Tickets.Last().Rapport, WithoutScratched.Tickets.Last().Rapport);
+			if (TestTrue(TEXT("two tickets settled"), WithScratched.Tickets.Num() >= 2 && WithoutScratched.Tickets.Num() >= 1))
+			{
+				TestEqual(TEXT("scratched ticket refunded first"), WithScratched.Tickets[WithScratched.Tickets.Num() - 2].Status, FString(TEXT("refunded")));
+				TestEqual(TEXT("winner odds exclude the scratched ticket"), WithScratched.Tickets.Last().Rapport, WithoutScratched.Tickets.Last().Rapport);
+				TestEqual(TEXT("winner payout excludes the scratched ticket"), WithScratched.Tickets.Last().Payout, WithoutScratched.Tickets.Last().Payout);
+			}
 		}
 	}
 
@@ -364,29 +368,38 @@ bool FHREconomyTest::RunTest(const FString&)
 		FHRWorldState S = HRRules::CreateWorld(TEXT("refund-order"));
 		HRRules::AddPlayer(S, TEXT("winner"), TEXT("Ada")).Coins = 100;
 		HRRules::AddPlayer(S, TEXT("scratched"), TEXT("Bo")).Coins = 100;
-		const FString RaceKey = S.Meeting.Races[0].Key;
-		const FString Runner0 = S.Meeting.Races[0].Entries[0].HorseId;
-		const FString Runner1 = S.Meeting.Races[0].Entries[1].HorseId;
+		if (TestTrue(TEXT("first race has at least 3 runners"), S.Meeting.Races.Num() > 0 && S.Meeting.Races[0].Entries.Num() >= 3))
+		{
+			const FString RaceKey = S.Meeting.Races[0].Key;
+			const FString Runner0 = S.Meeting.Races[0].Entries[0].HorseId;
+			const FString Runner1 = S.Meeting.Races[0].Entries[1].HorseId;
 
-		FHRWorldState Probe = S;
-		Probe.Meeting.Races[0].Entries.RemoveAll([&Runner1](const FHRRunner& E) { return E.HorseId == Runner1; });
-		TestTrue(TEXT("winner bet placed cleanly"), HRRules::PlaceBet(Probe, TEXT("winner"), RaceKey, Runner0, 10).IsEmpty());
-		HRRules::RunNextRace(Probe);
-		const FString ActualWinner = Probe.Meeting.Races[0].Finishes[0].HorseId;
+			FHRWorldState Probe = S;
+			Probe.Meeting.Races[0].Entries.RemoveAll([&Runner1](const FHRRunner& E) { return E.HorseId == Runner1; });
+			TestTrue(TEXT("winner bet placed cleanly"), HRRules::PlaceBet(Probe, TEXT("winner"), RaceKey, Runner0, 10).IsEmpty());
+			HRRules::RunNextRace(Probe);
+			if (TestTrue(TEXT("probe race finished"), Probe.Meeting.Races[0].Finishes.Num() > 0))
+			{
+				const FString ActualWinner = Probe.Meeting.Races[0].Finishes[0].HorseId;
 
-		FHRWorldState Clean = S;
-		Clean.Meeting.Races[0].Entries.RemoveAll([&Runner1](const FHRRunner& E) { return E.HorseId == Runner1; });
-		TestTrue(TEXT("bet on actual winner (clean)"), HRRules::PlaceBet(Clean, TEXT("winner"), RaceKey, ActualWinner, 10).IsEmpty());
-		HRRules::RunNextRace(Clean);
+				FHRWorldState Clean = S;
+				Clean.Meeting.Races[0].Entries.RemoveAll([&Runner1](const FHRRunner& E) { return E.HorseId == Runner1; });
+				TestTrue(TEXT("bet on actual winner (clean)"), HRRules::PlaceBet(Clean, TEXT("winner"), RaceKey, ActualWinner, 10).IsEmpty());
+				HRRules::RunNextRace(Clean);
 
-		FHRWorldState WithScratch = S;
-		TestTrue(TEXT("bet on scratched runner first"), HRRules::PlaceBet(WithScratch, TEXT("scratched"), RaceKey, Runner1, 20).IsEmpty());
-		TestTrue(TEXT("bet on actual winner second"), HRRules::PlaceBet(WithScratch, TEXT("winner"), RaceKey, ActualWinner, 10).IsEmpty());
-		WithScratch.Meeting.Races[0].Entries.RemoveAll([&Runner1](const FHRRunner& E) { return E.HorseId == Runner1; });
-		HRRules::RunNextRace(WithScratch);
-		TestEqual(TEXT("scratched ticket refunded"), WithScratch.Tickets[0].Status, FString(TEXT("refunded")));
-		TestEqual(TEXT("winner rapport matches clean run"), WithScratch.Tickets[1].Rapport, Clean.Tickets[0].Rapport);
-		TestEqual(TEXT("winner payout matches clean run"), WithScratch.Tickets[1].Payout, Clean.Tickets[0].Payout);
+				FHRWorldState WithScratch = S;
+				TestTrue(TEXT("bet on scratched runner first"), HRRules::PlaceBet(WithScratch, TEXT("scratched"), RaceKey, Runner1, 10).IsEmpty());
+				TestTrue(TEXT("bet on actual winner second"), HRRules::PlaceBet(WithScratch, TEXT("winner"), RaceKey, ActualWinner, 10).IsEmpty());
+				WithScratch.Meeting.Races[0].Entries.RemoveAll([&Runner1](const FHRRunner& E) { return E.HorseId == Runner1; });
+				HRRules::RunNextRace(WithScratch);
+				if (TestTrue(TEXT("both tickets exist"), WithScratch.Tickets.Num() == 2 && Clean.Tickets.Num() == 1))
+				{
+					TestEqual(TEXT("scratched ticket refunded"), WithScratch.Tickets[0].Status, FString(TEXT("refunded")));
+					TestEqual(TEXT("winner rapport matches clean run"), WithScratch.Tickets[1].Rapport, Clean.Tickets[0].Rapport);
+					TestEqual(TEXT("winner payout matches clean run"), WithScratch.Tickets[1].Payout, Clean.Tickets[0].Payout);
+				}
+			}
+		}
 	}
 	return true;
 }

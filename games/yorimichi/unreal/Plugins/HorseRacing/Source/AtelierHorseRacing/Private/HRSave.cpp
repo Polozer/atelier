@@ -14,13 +14,16 @@
 namespace
 {
 	/** Token-stream pre-pass before building a DOM: rejects repeated object keys (case-insensitively, as TMap<FString,...>
-	 * compares) and any single array or object exceeding MaxTickets entries so a huge array cannot allocate a multi-GB DOM. */
+	 * compares), any single array or object exceeding MaxTickets entries, and any document exceeding MaxTotalNodes total tokens
+	 * so a crafted input cannot allocate an unbounded DOM. */
 	bool ScanJsonTokens(const FString& Json, FString& Error)
 	{
+		constexpr int32 MaxTotalNodes = 20000000;
 		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Json);
 		TArray<TSet<FString>> Keys;
 		TArray<bool> IsObject;
 		TArray<int32> Counts;
+		int32 TotalNodes = 0;
 		EJsonNotation Notation;
 		while (Reader->ReadNext(Notation))
 		{
@@ -30,6 +33,11 @@ namespace
 				continue;
 			}
 			if (Notation == EJsonNotation::Error) return true;  // the parser reports it
+			if (++TotalNodes > MaxTotalNodes)
+			{
+				Error = FString::Printf(TEXT("the save has more than %d JSON values"), MaxTotalNodes);
+				return false;
+			}
 			if (Counts.Num() && ++Counts.Last() > HRSave::MaxTickets)
 			{
 				Error = FString::Printf(TEXT("an array or object has more than %d entries"), HRSave::MaxTickets);

@@ -4,7 +4,7 @@
 #include "HRTypes.h"
 
 /**
- * The whole racing world as JSON: what a host saves to disk (clients receive FRacingNetState without the world seed). The round trip
+ * The whole racing world as JSON: what a host saves to disk. The round trip
  * is lossless, so a reloaded world plays on exactly as the original would.
  *
  * Loading admits a world before it replaces anything: the schema and rules versions, the required fields, unique ids
