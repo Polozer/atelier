@@ -5,12 +5,22 @@ Local metres throughout (region.py); plain Python, the Blender export only turns
 """
 import math
 
+import numpy as np
+
 from brinecove import layout as L
 from brinecove import modules
 from brinecove import region as R
 from brinecove.geom import Builder
 
 STEP = 4.0
+
+
+def weld(vertices, triangles, decimals=4):
+    """One vertex per position. The FarHills final product keeps each tile's corners separate, so its hole rim
+    would list coincident points and the zipper below would emit zero-length triangles."""
+    vertices, triangles = np.asarray(vertices), np.asarray(triangles)
+    _, first, inverse = np.unique(vertices.round(decimals), axis=0, return_index=True, return_inverse=True)
+    return vertices[first], inverse.reshape(-1)[triangles]
 
 
 def _axis(lo, hi, step):

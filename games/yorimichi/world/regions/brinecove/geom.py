@@ -35,6 +35,23 @@ def _cross(a, b):
     return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
 
 
+def distinct_corners(points, area=1e-6):
+    """Indices of a face's corners without repeats (a cone's apex quad), or None when the face has no area.
+
+    Unreal drops such triangles on import, and the import checks every tile's triangle count against the export."""
+    snap = [tuple(round(c, 5) for c in p) for p in points]
+    corners = [k for k in range(len(points)) if snap[k] != snap[k - 1]]
+    if len(corners) < 3:
+        return None
+    ring = [points[k] for k in corners]
+    n = [0.0, 0.0, 0.0]
+    for (x0, y0, z0), (x1, y1, z1) in zip(ring, ring[1:] + ring[:1]):
+        n[0] += (y0 - y1) * (z0 + z1)
+        n[1] += (z0 - z1) * (x0 + x1)
+        n[2] += (x0 - x1) * (y0 + y1)
+    return corners if math.sqrt(sum(c * c for c in n)) / 2 >= area else None
+
+
 class Builder:
     def __init__(self, name):
         self.name = name

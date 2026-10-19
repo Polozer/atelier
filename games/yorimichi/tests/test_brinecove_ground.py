@@ -1,4 +1,5 @@
 """Brinecove's ground closes exactly onto the far hills' hole, and the far hills hide exactly that hole."""
+import math
 import sys
 from pathlib import Path
 
@@ -10,6 +11,7 @@ sys.path.insert(0, str(GAME / 'world'))
 import yori  # noqa: E402,F401
 import farhills_surface  # noqa: E402
 from brinecove import ground, region as R  # noqa: E402
+from brinecove.geom import distinct_corners  # noqa: E402
 
 
 def far_hills(extra_y=(300., 500.)):
@@ -69,3 +71,32 @@ def test_ground_shares_every_rim_vertex_and_fills_the_hole_without_overlap(monke
                 for side in rim_world.values() for x, y, z in side}
     assert edge == expected
     assert info['rim_vertices'] == len(expected)
+
+
+def test_welding_unshared_far_hills_corners_keeps_one_rim_vertex_per_position(monkeypatch):
+    """The FarHills final product keeps each tile's corners separate. Unwelded, the rim repeats every shared corner
+    and the zipper emits zero-length triangles (Unreal dropped 102 of 1050 on one seabed tile)."""
+    monkeypatch.setattr(ground, 'STEP', 24.)
+    vertices, triangles = far_hills()
+    vertices = np.asarray(vertices)
+    split = np.asarray([vertices[i] for t in triangles for i in t])  # every triangle owns its corners
+    loose = np.arange(len(split)).reshape(-1, 3)
+    raw = R.rim_from_mesh(split.tolist(), loose.tolist())[1]
+    assert sum(len(side) for side in raw.values()) > sum(len(side) for side in R.rim_from_mesh(vertices, triangles)[1].values())
+    welded, welded_triangles = ground.weld(split, loose)
+    rim, rim_world = R.rim_from_mesh(welded.tolist(), welded_triangles.tolist())
+    expected = R.rim_from_mesh(vertices, triangles)[1]
+    assert {k: sorted(v) for k, v in rim_world.items()} == {k: sorted(v) for k, v in expected.items()}
+    builder, _ = ground.build(rim, rim_world)
+    for face in builder.faces:
+        pts = [builder.verts[i] for i in face]
+        assert min(math.dist(pts[k], pts[k - 1]) for k in range(len(pts))) > 1e-6, 'zero-length ground edge'
+
+
+def test_distinct_corners_drops_repeats_and_faces_without_area():
+    quad = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+    assert distinct_corners(quad) == [0, 1, 2, 3]
+    assert distinct_corners([(0, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 0)]) == [0, 1, 2]  # a cone's apex quad
+    assert distinct_corners([(0, 0, 0), (1, 0, 0), (2, 0, 0)]) is None  # collinear
+    assert distinct_corners([(0, 0, 0), (0, 0, 0), (1, 0, 0), (1, 0, 0)]) is None
+    assert distinct_corners([(0, 0, 0), (0.01, 0, 0), (0, 0.01, 0)]) == [0, 1, 2]  # small trim stays

@@ -26,7 +26,7 @@ from atelier.gltf import glb_parts  # noqa: E402
 from terrain_product import load  # noqa: E402
 from brinecove import flora, ground, hero_assets, modules, region as R  # noqa: E402
 from brinecove import layout as L  # noqa: E402
-from brinecove.geom import Builder  # noqa: E402
+from brinecove.geom import Builder, distinct_corners  # noqa: E402
 from brinecove.paths import BUILD as OUT, TEXTURES  # noqa: E402
 
 ROOT = '/Game/Brinecove'
@@ -72,10 +72,7 @@ def rim():
     """FarHills' hole boundary from its final product (world.farhills)."""
     mesh = load(yori.OUT / 'terrain/FarHills/final.npz', owner='FarHills', stage='final', city=True)
     vertices, triangles = np.asarray(mesh.vertices), np.asarray(mesh.triangles())
-    # FarHills tiles do not weld their shared corners. Merge coincident vertices, or the rim repeats them and the
-    # ground's zipper emits zero-length triangles that Unreal drops on import.
-    _, first, inverse = np.unique(vertices.round(4), axis=0, return_index=True, return_inverse=True)
-    vertices, triangles = vertices[first], inverse.reshape(-1)[triangles]
+    vertices, triangles = ground.weld(vertices, triangles)
     x0, y0, x1, y1 = R.OUTER_WORLD
     near = ((np.abs(vertices[:, 0] - x0) < .05) | (np.abs(vertices[:, 0] - x1) < .05)
             | (np.abs(vertices[:, 1] - y0) < .05) | (np.abs(vertices[:, 1] - y1) < .05))
@@ -125,8 +122,8 @@ def split(builder, prefix, settle):
                 drowned += 1
                 continue
             pts = [(p[0], p[1], p[2] + d) for p, (d, _) in zip(pts, moves)]
-        corners = [k for k in range(len(pts)) if snap(pts[k]) != snap(pts[k - 1])]
-        if len(corners) < 3 or area(pts[k] for k in corners) < 1e-6:
+        corners = distinct_corners(pts)
+        if corners is None:
             degenerate += 1
             continue
         key = (int((cx - ox0) // TILE), int((cy - oy0) // TILE), soft(mat))
@@ -138,8 +135,6 @@ def split(builder, prefix, settle):
     return parts, outside, drowned, degenerate
 
 
-def snap(p):
-    return tuple(round(c, 5) for c in p)
 
 
 def area(points):
