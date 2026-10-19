@@ -969,6 +969,7 @@ def world_steps(ctx):
         Step('world.belmonte_train_service', [Python(TOOLS / 'belmonte_train_service.py')],
              inputs=[TOOLS / 'belmonte_train_service.py', TOOLS / 'gltf_subset.py',
                      WORLD / 'train' / 'bake_manifest.py', WORLD / 'train' / 'budgets.py',
+                     WORLD / 'train' / 'station_site.py', WORLD / 'regions' / 'hidamari' / 'station_yard.py',
                      out / 'belmonte-train' / 'route' / 'route.json', out / 'belmonte-train' / 'assembly' / 'consist.json',
                      out / 'belmonte-train' / 'furniture', *(out / 'belmonte-train' / v for v in TRAIN_VEHICLES)],
              needs=['world.belmonte_train_route', 'world.belmonte_train', 'world.belmonte_train_assembly'],

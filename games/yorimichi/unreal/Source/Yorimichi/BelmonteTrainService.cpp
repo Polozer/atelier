@@ -474,6 +474,8 @@ bool ABelmonteTrainService::Initialize(const FString& Path)
                 }
         }
     BuildStations(Root);
+    for (FStation& Station : Stations) Station.Stops = Line.Stops(Station.Chainage);
+    BuildBoards(Root);
     TrainAtStation.Init(false, Line.Trains.Num());
     float Scale = 1.f;
     if (FParse::Value(FCommandLine::Get(), TEXT("traintimescale="), Scale)) CVarTrainTimeScale->Set(Scale);
@@ -485,6 +487,7 @@ bool ABelmonteTrainService::Initialize(const FString& Path)
     { PendingView = TEXT("go:") + (Where.IsEmpty() ? FString(TEXT("belmonte")) : Where); PendingViewDelay = 4.f; }
     PlaceVehicles(ServiceTime(), true);
     UpdateDoors(ServiceTime(), 1.f);
+    UpdateBoards(ServiceTime());
     if (GetNetMode() == NM_Client) OnRep_NetworkState();
     else if (JapanNetwork::IsOnline(GetWorld())) PublishNetworkState();
     int32 Ways = 0;
@@ -852,6 +855,7 @@ void ABelmonteTrainService::PublishNetworkState()
     if (!HasAuthority() || !JapanNetwork::IsOnline(GetWorld())) return;
     ++NetworkState.Serial;
     NetworkState.DevOffset = DevOffset;
+    NetworkState.TimeScale = FMath::Clamp(CVarTrainTimeScale.GetValueOnGameThread(), 0.f, 100.f);
     NetworkState.OpenDoors.Reset();
     for (const FVehicle& V : Vehicles)
         for (const FDoor& D : V.Doors)
@@ -1266,10 +1270,19 @@ void ABelmonteTrainService::Tick(float DeltaSeconds)
     PlaceVehicles(Time, false);
     UpdateDoors(Time, DeltaSeconds);
     UpdateRiders(DeltaSeconds);
-    if (HasAuthority() && JapanNetwork::IsOnline(GetWorld()) && Scale != 1.f && GetWorld()->GetTimeSeconds() - LastNetworkPublication >= .2)
+    // A dev clock speed keeps the clients' offset in step; its change back to 1 is published too (the boards use it).
+    if (HasAuthority() && JapanNetwork::IsOnline(GetWorld()) && (Scale != 1.f || NetworkState.TimeScale != Scale) &&
+        GetWorld()->GetTimeSeconds() - LastNetworkPublication >= .2)
         PublishNetworkState();
     const double Now = GetWorld()->GetRealTimeSeconds();
+    if (Now >= NextBoardUpdate) { NextBoardUpdate = Now + 1.; UpdateBoards(Time); }
     if (Now >= NextReport) { NextReport = Now + 5.; Report(Time); }
+}
+
+double ABelmonteTrainService::ClockScale() const
+{
+    if (GetNetMode() == NM_Client) return NetworkState.Serial ? NetworkState.TimeScale : 1.;
+    return FMath::Clamp(CVarTrainTimeScale.GetValueOnGameThread(), 0.f, 100.f);
 }
 
 bool ABelmonteTrainService::GoToStation(const FString& Where, bool bWaitForTrain)
@@ -1343,6 +1356,10 @@ FString ABelmonteTrainService::StateJson() const
         Trains += FString::Printf(TEXT("%s{\"name\":\"%s\",\"s\":%.2f,\"kmh\":%.2f,\"station\":%s,\"loop\":%s}"), Train ? TEXT(",") : TEXT(""),
             *Line.Trains[Train].Name, Line.Chainage(Train, Time), Line.Speed(Train, Time) * 3.6,
             AtStation(Train, Time) ? TEXT("true") : TEXT("false"), Line.OnLoopTrack(Train, Time) && Line.Loop.Covers(Line.Chainage(Train, Time)) ? TEXT("true") : TEXT("false"));
+    FString BoardText;
+    for (const FBoard& Board : Boards)
+        BoardText += FString::Printf(TEXT("%s{\"id\":\"%s\",\"station\":\"%s\",\"next\":\"%s\",\"after\":\"%s\"}"), BoardText.IsEmpty() ? TEXT("") : TEXT(","),
+            *Board.Id, Stations.IsValidIndex(Board.Station) ? *Stations[Board.Station].Key : TEXT(""), *Board.Shown[0], *Board.Shown[1]);
     const APlayerController* PC = GetWorld()->GetFirstPlayerController();
     const auto* Player = PC ? Cast<AWandererCharacter>(PC->GetPawn()) : nullptr;
     const FRider* Rider = FindRider(Player);
@@ -1350,8 +1367,8 @@ FString ABelmonteTrainService::StateJson() const
     FString Base = Player && Player->GetMovementBase() ? Player->GetMovementBase()->GetName() : FString();
     // The player in their vehicle's frame (cm, same frame as the rest of this state): drift checks need both at once.
     const FVector Local = Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Body->GetComponentTransform().InverseTransformPosition(At) : FVector::ZeroVector;
-    return FString::Printf(TEXT("{\"time\":%.2f,\"trains\":[%s],\"player\":[%.1f,%.1f,%.1f],\"aboard\":%s,\"vehicle\":\"%s\",\"train\":%d,\"seat\":\"%s\",\"nosprint\":%s,\"base\":\"%s\",\"mode\":%d,\"action\":\"%s\",\"boarding\":%s,\"camera\":%.2f,\"arm\":%.0f,\"yaw\":%.1f,\"local\":[%.1f,%.1f,%.1f]}"),
-        Time, *Trains, At.X, At.Y, At.Z, Rider && Rider->bAboard ? TEXT("true") : TEXT("false"),
+    return FString::Printf(TEXT("{\"time\":%.2f,\"scale\":%.2f,\"trains\":[%s],\"boards\":[%s],\"player\":[%.1f,%.1f,%.1f],\"aboard\":%s,\"vehicle\":\"%s\",\"train\":%d,\"seat\":\"%s\",\"nosprint\":%s,\"base\":\"%s\",\"mode\":%d,\"action\":\"%s\",\"boarding\":%s,\"camera\":%.2f,\"arm\":%.0f,\"yaw\":%.1f,\"local\":[%.1f,%.1f,%.1f]}"),
+        Time, ClockScale(), *Trains, *BoardText, At.X, At.Y, At.Z, Rider && Rider->bAboard ? TEXT("true") : TEXT("false"),
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? *Vehicles[Rider->Vehicle].Id : TEXT(""),
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Train : -1,
         Rider && Rider->Seat != INDEX_NONE ? *Vehicles[Rider->Vehicle].Seats[Rider->Seat].Id : TEXT(""),
