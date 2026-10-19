@@ -21,18 +21,6 @@ across character switches. A future multiplayer naming policy can change ownersh
 An unreadable save is preserved; a failed write publishes neither a partial file nor a changed in-memory name.
 The phone uses the same frames, labels and travel registry as the native atlas.
 
-The World overview is a single island plate rather than a rectangular ocean tile. Its painted RGB sheet is still
-checked against the signed coast mask; a deterministic feathered alpha edge derived from that mask fades the outer
-sea into the atlas background and makes the coastline the visible boundary. The alpha never clears real land. The
-alpha and its source receipt are recorded together. The alpha tool rejects a source receipt with no current
-geography unless an explicit terrain-reference-revalidation witness binds the painting, signed mask and reference
-hashes; it never mints a new geography claim for an unverified painting.
-
-~~~sh
-uv run python games/yorimichi/world/map/paint_atlas.py world --references PLAN_ROOT --style STYLE_IMAGE --coast-mask games/yorimichi/world/map/atlas/coasts/world.png
-uv run python games/yorimichi/world/map/mask_atlas_island.py --source BUILD/world.png --record BUILD/world.json --mask games/yorimichi/world/map/atlas/coasts/world.png --out games/yorimichi/world/map/atlas/world.png --out-record games/yorimichi/world/map/atlas/world.json
-~~~
-
 Names are laid out in screen space around their pins. The layout prefers above, then below, sides and diagonals,
 avoids every other label, pin and the player marker, and draws a leader when a name moves to a side. Only the
 lowest-priority names that cannot fit are hidden; the hovered or selected name is always shown on top. Region
