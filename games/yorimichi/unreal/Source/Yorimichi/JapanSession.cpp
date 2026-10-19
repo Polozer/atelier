@@ -249,6 +249,13 @@ void AJapanPlayerController::SetupInputComponent()
     if (InputComponent)
         InputComponent->BindKey(EKeys::F10, IE_Pressed, this, &AJapanPlayerController::OpenFriends);
 }
+void AJapanPlayerController::UpdateHiddenComponents(const FVector& ViewLocation, TSet<FPrimitiveComponentId>& Hidden)
+{
+    Super::UpdateHiddenComponents(ViewLocation, Hidden);
+    const auto* Rider = Cast<AWandererCharacter>(GetPawn());
+    if (IsLocalController() && Rider && GetViewTarget() == Rider && Rider->HidesTrainBody())
+        FTrainPassengerView::AddHiddenBodyComponents(*Rider, Hidden);
+}
 void AJapanPlayerController::OpenFriends()
 {
     if (IsLocalController()) if (auto* Session = GetGameInstance<UJapanGameInstance>()) Session->Friends();

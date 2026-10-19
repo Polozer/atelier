@@ -937,6 +937,13 @@ bool ABelmonteTrainService::IsDrivingRider(const AWandererCharacter* C)
     return C && C->bTrainDriving;
 }
 
+bool ABelmonteTrainService::IsBoardingRider(const AWandererCharacter* C)
+{
+    const auto* Service = C ? Find(C) : nullptr;
+    const FRider* Rider = Service ? Service->FindRider(C) : nullptr;
+    return Rider && Rider->BoardDoor != INDEX_NONE;
+}
+
 void ABelmonteTrainService::CancelLocal(FRider& Rider)
 {
     AWandererCharacter* C = Rider.Character.Get();

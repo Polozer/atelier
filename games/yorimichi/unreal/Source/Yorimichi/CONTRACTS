@@ -84,3 +84,14 @@ holding a board MUST NOT be advertised or presented as available while on the tr
 Owner board, pose and bail-body transport MUST NOT introduce visible boards aboard;
 valid hide/stow packets MUST retain existing sequence and rate admission. Retained
 board/pose/bail presentation MUST be masked while aboard even without an owner hide packet.
+
+@cc [owner:fontanierh,label:correctness] train-passenger-camera
+The train first-person view MUST be local to the viewing player and available only to
+standing or seated passengers, never during the boarding walk. Its preference MUST belong
+to the local controller and survive pawn replacement without affecting another player.
+Body and attached equipment hiding MUST affect only that player's current view, preserve
+existing component visibility/ownership, and include attachments added while viewing.
+Leaving or losing possession MUST release the train camera; map/menu input MUST NOT toggle
+it, and its controller bumper MUST NOT also operate a nearby zeppelin.
+Fixed and cinematic views MUST take over immediately without a residual train-camera blend
+or hidden passenger body. Suspended controls MUST NOT change the camera preference.

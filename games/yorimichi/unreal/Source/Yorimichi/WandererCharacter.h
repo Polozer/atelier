@@ -12,6 +12,7 @@
 #include "JapanSailPresentation.h"
 #include "JapanHorsePresentation.h"
 #include "JapanHorseAppearance.h"
+#include "TrainPassengerView.h"
 #include "WandererCharacter.generated.h"
 
 class UWandererDefinition;
@@ -44,6 +45,7 @@ public:
     virtual void BeginPlay() override;
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     virtual void PawnClientRestart() override;
+    virtual void UnPossessed() override;
     virtual void ConfigureNetworkRider(const FString& Name, bool bShield);
     const FString& GetNetworkRiderName() const { return NetworkRiderName; }
     bool GetNetworkShield() const { return bNetworkShield; }
@@ -328,6 +330,9 @@ public:
     bool IsZeppelinPassenger() const;
     /** Inside a no-sprint volume (aboard the Belmonte train): sprint is unavailable. */
     bool bNoSprint = false, bTrainAboard = false, bTrainDriving = false;
+    bool IsTrainPassenger() const;
+    bool IsTrainFirstPerson() const { return TrainView.IsFirstPerson(); }
+    bool HidesTrainBody() const { return !bFixedView && !bCinematic && TrainView.HidesBody(); }
     /** Standing, seated or stepping through a train door. */
     bool IsOnTrain() const { return bTrainAboard || bTrainDriving; }
     /** Refuse deploying a vehicle on the train through the same local/owner message. Stowing bypasses this gate. */
@@ -373,6 +378,8 @@ private:
     void Dash(const FInputActionValue& Value);
     void ReleaseJump(const FInputActionValue& Value);
     void ToggleSkateboard(const FInputActionValue& Value);
+    void ToggleTrainView(const FInputActionValue& Value);
+    FTrainPassengerView TrainView;
     void SkateboardHand(const FInputActionValue& Value);
     void ReturnToSpawn();
     void ToggleSailboat(const FInputActionValue& Value);
