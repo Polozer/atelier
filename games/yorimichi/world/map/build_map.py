@@ -477,7 +477,7 @@ if NORTH:meta.update(projection_x=X_KNOTS,projection_y=Y_KNOTS,
                      world_bounds=[X_KNOTS[0][0],Y_KNOTS[0][0],X_KNOTS[-1][0],Y_KNOTS[-1][0]])
 if BELMONTE: meta['sources'].append('belmonte/runtime.json')
 from atlas import metadata as atlas_metadata, stage as stage_atlas
-meta['atlas'] = atlas_metadata(zones, json.load(open(yori.ASSETS / 'belmonte' / 'source.json')))
+meta['atlas'] = atlas_metadata(zones, json.load(open(yori.ASSETS / 'belmonte' / 'source.json')), W.get('zeppelin'))
 if not A.atlas_reference:
     stage_atlas(A.out, meta['atlas'])
 json.dump(meta, open(os.path.join(A.out, 'map.json'), 'w'), indent=1)

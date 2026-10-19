@@ -20,17 +20,59 @@ def test_coastal_features_leave_harbor_pier_town_and_rail_cover_clear():
     assert not D.clear_footprint(35., -140., 20.)
 
 
-def test_new_coastal_rocks_and_trees_use_existing_assets_and_safe_footprints():
+def test_coastal_trees_use_existing_assets_and_safe_footprints_without_the_removed_rocks():
     objects = D.placements(lambda x, y: S.height(x, y, np.full_like(x, 60.)))
-    assert sum(len(rows) for name, rows in objects.items() if name.startswith('SW_Boulder')) > 100
+    assert not any(name.startswith('SW_Boulder') for name in objects)
     assert sum(len(rows) for name, rows in objects.items() if name.startswith('Tree_')) > 1000
-    assert set(objects) <= {'SW_Boulder_A', 'SW_Boulder_B', 'SW_Boulder_C',
-                            'Tree_Pine_B', 'Tree_Maple_A', 'Tree_Ginkgo', 'Tree_Cedar_B', 'Bush_Ochre_A'}
+    assert set(objects) <= {'Tree_Pine_B', 'Tree_Maple_A', 'Tree_Ginkgo', 'Tree_Cedar_B', 'Bush_Ochre_A'}
     for name, rows in objects.items():
         p = np.asarray(rows)
         assert np.isfinite(p).all()
         radius = p[:, 4]*1.8 if name.startswith('SW_Boulder') else np.full(len(p), 13.)
         assert D.clear_footprint(p[:, 0], p[:, 1], radius).all()
+
+
+def test_removing_mainland_boulders_preserves_the_original_vegetation_stream():
+    import hashlib
+    import json
+    objects=D.placements(lambda x,y:np.full_like(x,10.))
+    # Recorded from original a357552d coastal_dressing.py SHA256
+    # 08f5081d28bf9362d5dbe534dfe31495ee9fdfc298fdf4d01057d24419989fe1.
+    assert hashlib.sha256(json.dumps(objects,separators=(',',':')).encode()).hexdigest()==\
+        'fce58794bc6b89c1154a804a91250fe238f831f14c02403554c6b36a5a7bae7d'
+
+
+def test_west_repair_moves_only_surviving_owned_roots_and_rejects_rail_overlap(monkeypatch):
+    import copy
+    import pytest
+    from hidamari import layout
+    import farhills_grid
+    from train import earthworks
+    owned={'Tree_Maple_A':[[-350.,-125.,1.,10.,2.],[-600.,-125.,2.,20.,3.]]}
+    world={'instances':{'Tree_Maple_A':copy.deepcopy(owned['Tree_Maple_A'])+
+                       [[-350.,-130.,3.,30.,4.]],'SW_Boulder_A':[[-350.,-530.,0.,0.,2.]]}}
+    before=copy.deepcopy(world)
+    axis=np.array([-400.,-300.]);grid=(axis,axis,np.zeros((2,2)))
+    monkeypatch.setattr(farhills_grid,'mesh_grid',lambda n:grid)
+    monkeypatch.setattr(farhills_grid,'source_grid',lambda:grid)
+    monkeypatch.setattr(layout,'H',None)
+    monkeypatch.setattr(layout,'coastal_backdrop_height',lambda x,y,z,repair_west=True:
+        np.full_like(x,10.25)-((x>-550.) & (not repair_west)))
+    monkeypatch.setattr(earthworks,'carve',lambda x,y,z:z)
+    def query(xs,ys,z,x,y,**kwargs):
+        np.testing.assert_array_equal(x,[-350.,-600.])
+        np.testing.assert_array_equal(y,[-125.,-125.])
+        if 'edge_knots' in kwargs:
+            np.testing.assert_array_equal(kwargs['edge_knots'][0,-300.],[-300.,0.,300.])
+        return kwargs['shape'](x,y,np.zeros_like(x))
+    monkeypatch.setattr(S,'sample_grid_mesh',query)
+    D.repair_west_forest(world,np.zeros((3,3)),owned)
+    assert world['instances']['Tree_Maple_A'][0]==[-350.,-125.,9.95,10.,2.]
+    assert world['instances']['Tree_Maple_A'][1:]==before['instances']['Tree_Maple_A'][1:]
+    assert world['instances']['SW_Boulder_A']==before['instances']['SW_Boulder_A']
+    monkeypatch.setattr(earthworks,'carve',lambda x,y,z:z-1.)
+    with pytest.raises(ValueError,match='overlaps railway'):
+        D.repair_west_forest(world,np.zeros((3,3)),owned)
 
 
 def test_country_groves_reach_into_backshore_and_leave_meadow_gaps():
@@ -57,37 +99,6 @@ def test_extended_groves_leave_the_region_join_and_complete_rail_clear():
     assert not D.clear_footprint(1760.,4800.,13.)
 
 
-def test_compact_shoulders_preserve_existing_rows_and_clear_whole_footprints():
-    import copy
-    sites=D.shoulder_sites()
-    assert len(sites)==74
-    x,y,size=np.asarray([(r[1],r[2],r[3]) for r in sites]).T
-    assert D.clear_footprint(x,y,3.*size).all()
-    assert size.min()>3. and size.max()<5.36
-    # Both transformed source assets and their colliders fit inside this radius.
-    for asset in ['SW_Boulder_A','SW_Boulder_B']:
-        hx,hy=(1.6,1.36) if asset.endswith('_A') else (2.24,1.12)
-        assert np.hypot(hx,hy)<3.
-    old={'SW_Boulder_A':[[500.,500.,20.,0.,5.]],'Tree_Pine_B':[[10.,20.,30.,40.,2.]]}
-    before=copy.deepcopy(old)
-    D.append_shoulders(old,lambda x,y: .01*x+.02*y)
-    assert old['Tree_Pine_B']==before['Tree_Pine_B']
-    assert old['SW_Boulder_A'][0]==before['SW_Boulder_A'][0]
-    added={n:rows[len(before.get(n,[])):] for n,rows in old.items()}
-    assert sum(map(len,added.values()))==74
-    for rows in added.values():
-        for x,y,z,yaw,size in rows:assert abs(z-(.01*x+.02*y+.2*size))<=.00051
-
-
-def test_new_rock_anchors_are_beneath_both_nonplanar_quad_diagonals():
-    u,v=np.meshgrid(np.linspace(0.,1.,11),np.linspace(0.,1.,13))
-    ac=np.where(u>=v,2.+u*5.+v*4.,2.+u*13.-v*4.)
-    bd=np.where(u+v<=1.,2.+u*5.-v*4.,11.-(1.-u)*13.-(1.-v)*4.)
-    actual=D.shoulder_quad_floor(2.,7.,11.,-2.,u,v)
-    assert (actual<=ac).all() and (actual<=bd).all()
-    np.testing.assert_array_equal(actual,np.minimum(ac,bd))
-
-
 def test_city_street_starts_at_this_worlds_road_not_a_stale_or_missing_world_json(tmp_path, monkeypatch):
     # gen_world dresses the coast before it writes world.json: a clean build directory has none, and an incremental
     # one holds the previous world's road. The city street profile must start at the road being generated.
@@ -100,7 +111,6 @@ def test_city_street_starts_at_this_worlds_road_not_a_stale_or_missing_world_jso
     monkeypatch.setattr(layout.street_height, 'start', None, raising=False)
     monkeypatch.delattr(layout.street_height, 'start')
     monkeypatch.setattr(D, 'placements', lambda ground: {})
-    monkeypatch.setattr(D, 'append_shoulders', lambda objects, ground: None)
     monkeypatch.setattr(train.corridor, 'clear_instances', lambda objects: None)
     world = {'road': [[-300., -99., 8.], [295., 82., 21.], [120., 40., 15.]], 'instances': {}}
     D.integrate(world, np.zeros((64, 64), np.float32))

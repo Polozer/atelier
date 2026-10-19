@@ -104,7 +104,7 @@ def configure_schema(client, monkeypatch, schema):
             total=dict(cpu_millis=10000), reserve=dict(cpu_millis=2000)))
 
 
-@pytest.mark.parametrize('limit_gib', [10, 10.0001, 10.5, 12, 14])
+@pytest.mark.parametrize('limit_gib', [10, 10.0001, 10.5, 12, 14, 18, 23.9999, 24])
 @pytest.mark.parametrize('profile_mib', [10240, 13312])
 def test_full_game_reserves_selected_session_ceiling_without_changing_guard_or_config(
         client, monkeypatch, limit_gib, profile_mib):
@@ -140,9 +140,11 @@ def test_session_game_resizing_does_not_apply_to_other_profiles_or_modes(client,
     assert client[3] == []
 
 
-@pytest.mark.parametrize('limit_gib', [14.001, 15, float('inf'), float('nan'), -1])
-def test_full_game_cannot_resize_outside_the_documented_session_range(client, monkeypatch, limit_gib):
+@pytest.mark.parametrize('limit_gib', [24.001, 25, float('inf'), float('-inf'), float('nan'), 9.999, -1])
+@pytest.mark.parametrize('profile_mib', [10240, 32768])
+def test_full_game_cannot_resize_outside_the_documented_session_range(client, monkeypatch, limit_gib, profile_mib):
     configure_schema(client, monkeypatch, 2)
+    client[1]['profiles']['game']['resources']['memory_mib'] = profile_mib
     client[2]()
     with pytest.raises(ValueError, match='guard ceiling'):
         runtime.configured_session(kind='game', limit_gib=limit_gib, timeout=0)

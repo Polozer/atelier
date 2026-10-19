@@ -125,12 +125,14 @@ def test_fractional_graphics_choices_match_the_native_threshold(desktop, tmp_pat
     assert desktop.parse_ready(ready_log(trees=False), tree_optimization=trees)
 
 
-def test_menu_renderer_restart_reads_saved_choice_and_releases_each_guard(desktop, monkeypatch, tmp_path):
+@pytest.mark.parametrize('memory_gib', [10., 18., 24.])
+def test_menu_renderer_restart_reads_saved_choice_and_releases_each_guard(desktop, monkeypatch, tmp_path, memory_gib):
     manifest(desktop)
     preferences = desktop.PROJECT / 'Saved' / 'settings.txt'
     preferences.write_text('renderer=0\ntree_optimization=0\n')
     ctx = SimpleNamespace(unreal_app=Path('Editor'), uproject=Path('Game.uproject'), out=tmp_path / 'build', env=lambda: {})
     monkeypatch.setattr(desktop, 'Context', lambda game: ctx)
+    monkeypatch.setattr(desktop, 'wait_for_bridge_port', lambda command: None)
     runs = []
 
     def run(command, folder, **kwargs):
@@ -144,12 +146,12 @@ def test_menu_renderer_restart_reads_saved_choice_and_releases_each_guard(deskto
         return 0
 
     monkeypatch.setattr(desktop.guarded, 'run', run)
-    assert desktop.launch(shared_settings=True, settings='renderer=0;show_fps=1', memory_gib=12.) == 0
+    assert desktop.launch(shared_settings=True, settings='renderer=0;show_fps=1', memory_gib=memory_gib) == 0
     assert len(runs) == 2
     assert any('r.ForwardShading=True' in arg for arg in runs[0][0])
     assert any('r.ForwardShading=False' in arg for arg in runs[1][0])
     assert runs[0][1] != runs[1][1]
-    assert all(run[2]['kind'] == 'game' and run[2]['limit_gib'] == 12. for run in runs)
+    assert all(run[2]['kind'] == 'game' and run[2]['limit_gib'] == memory_gib for run in runs)
     assert 'show_fps=1' in next(arg for arg in runs[1][0] if arg.startswith('-set='))
 
 
@@ -193,3 +195,10 @@ def test_renderer_restart_rejects_an_invalid_port(desktop):
     import pytest
     with pytest.raises(ValueError, match='live bridge port'):
         desktop.wait_for_bridge_port(['-liveport=65536'], timeout=.03)
+
+
+@pytest.mark.parametrize('memory_gib', [9.999, 24.001, float('nan'), float('inf'), float('-inf')])
+def test_desktop_refuses_invalid_memory_before_context_or_launch(desktop, monkeypatch, memory_gib):
+    monkeypatch.setattr(desktop, 'Context', lambda *a: pytest.fail('invalid ceiling reached context'))
+    with pytest.raises(ValueError, match='10 to 24 GiB'):
+        desktop.launch(memory_gib=memory_gib)

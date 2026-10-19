@@ -372,6 +372,8 @@ np.save(os.path.join(OUT, "heightmap.npy"), H.astype(np.float32))
 H.astype("<f4").tofile(os.path.join(OUT, "heightmap.bin"))  # runtime cosmetic-particle ground sampling
 from coastal_dressing import integrate as integrate_coastal_features
 integrate_coastal_features(world, H)
+from coastal_dressing import repair_west_forest
+repair_west_forest(world,H,far_trees)
 with open(os.path.join(OUT, "world.json"), "w") as fh:
     json.dump(world, fh)
 counts = {k: len(v) for k, v in inst.items()}
