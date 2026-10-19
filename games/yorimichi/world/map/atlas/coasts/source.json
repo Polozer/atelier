@@ -3,7 +3,7 @@
   "geography": {
     "world/gen_world.py": "9763dfffa7b4c2e9c186d469124289fad26510254a7c16e15d6a1604ed26c4ef",
     "world/build_terrain.py": "2a810d3a4698765c24044379e053f67e56817b90ab871b78814a2233d9515a09",
-    "world/farhills_surface.py": "497530bb634a84f69dae54c5abcec20088ed4dff1359a11bde8423e0601ae182",
+    "world/farhills_surface.py": "4b2e2ab9cb3f8410a6725554de2c40a926da3091f89671af422de0884c69b3dc",
     "world/farhills_grid.py": "6451e5894c63e3eedcded121cef2f477a9615c36b1dd61715d16938ab53228c4",
     "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
     "world/north_mountain_surface.py": "380fac8eece8794a9d8737444af73b3e3979227470aba3de49d415df42477816",
@@ -19,6 +19,10 @@
     "world/regions/megapark/placement.py": "b3cf874a6d444b61e0504374ea691330fb7c9326dbbcbfda64ddd6ebed05fbdf",
     "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
     "assets/vehicles/belmonte-train/line.json": "00a94a56e5c6d74d398d5bca73a65d70392595c155c0c1df1408a6910b21915f",
+    "world/regions/brinecove/region.py": "9e007570e353c305964befbc9db53755c52d95c55069a6253058a39792e67408",
+    "world/regions/brinecove/layout.py": "c17638453c0609316cef6bd2db523f2590711a44f104625097e9c67c7cb549f5",
+    "world/regions/brinecove/ground.py": "d0cb5decc01c21b55c8e658ce1c29aa3f1e8e7c9da3002688cb1b60278d5f062",
+    "world/regions/brinecove/plan.py": "ee166c5bcd608096f4a00124de2f8b44df750baf323a52164432059aac6e359b",
     "world/shorelines.py": "087b0fe32ea76a8082e1aed80581b24261bead89ee2db165a3ee053f5f5d1006"
   },
   "frames": {
@@ -29,8 +33,8 @@
         4200.0,
         7200.0
       ],
-      "sha256": "6540b9efbda5f3fdb4394cad2b95148cf8a7c877cec4f849d168df80907a2ff8",
-      "reference_sha256": "d8dd3fbc039e0b601031dfc08c9304b094f6367c3c8a14a4edf005b544444757"
+      "sha256": "64d77c3608cdc9e2753e36744c2e259cac39547c2b1a0bc758e1cddbf99cdac4",
+      "reference_sha256": "ac79c6e7b0d5a89c5b109b006d42eee235e2c64720773282c071f3ef6c035e76"
     },
     "momiji_coast": {
       "bounds": [
@@ -80,7 +84,7 @@
         2200.0
       ],
       "sha256": "dc43d462e41f266e17598b61ba8c5dc9ce63516e3b0b6870a7d936c6961c76b0",
-      "reference_sha256": "d9a438b7ae82a825ed118ac5a876428487d7a01a1410b9e88e0d7524a9ffe4bc"
+      "reference_sha256": "14ddc3b7e24e8a082939eb510e8752d0c4167d6e26fe775110052ca63b6df552"
     },
     "volcanic_highlands": {
       "bounds": [
@@ -101,6 +105,16 @@
       ],
       "sha256": "a4e6632e31d2aacbf778e02c1914a70eddbaaf742810a611495877c4c7adb9ee",
       "reference_sha256": "55197030c0956f087168ff77ee1d2f8804bd445687979c91736bf7e325601df1"
+    },
+    "brinecove": {
+      "bounds": [
+        -2880.0,
+        -1080.0,
+        -360.0,
+        600.0
+      ],
+      "sha256": "ca433cee6311b0efbe9326a806c29e9ac0e9a6720adec2194b1e01665b06e18c",
+      "reference_sha256": "f50268081b9e0a21fdd02b5a2cc2d94f89e38ccf8abd970e8244943f28f605fb"
     }
   }
 }
