@@ -733,7 +733,11 @@ def world_steps(ctx):
     actual-child and aggregate memory guards, preserving their failure status.
     """
     out = ctx.out
-    crater_geometry = ['world.craterpark_layout'] if craterpark_v4.selected() else []
+    # The volcano terrain, the world layout and the map all sample the editor park's cut ground grid. A bowl seal
+    # changes that grid, so they must wait for (and be invalidated by) the geometry step in editor mode. The v4
+    # design path keeps its cutoff layout dependency instead.
+    crater_geometry = (['world.craterpark_layout', 'world.craterpark_geometry'] if craterpark_v4.editor()
+                       else ['world.craterpark_layout'] if craterpark_v4.selected() else [])
     return [*texture_steps(ctx),
         # ------------------------------------------------------------ world
         # The tree house's tall canopy trees come first: its layout sizes them from trees.json.

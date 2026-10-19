@@ -435,6 +435,7 @@ bool USkateComponent::ContinueRide(TSharedPtr<FSkateContinuation> State)
 void USkateComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
     if (PhysicalRider) PhysicalRider->End();
+    StopShotVoices();
     ReleaseRootMotion();
     ShownRuntime.Reset(); RideSimulation.Reset(); PadReader.Reset(); Super::EndPlay(Reason);
 }

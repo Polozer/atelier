@@ -48,10 +48,13 @@ PIT_REACH = 7.5
 PIT_CLEAR = .5
 # Round a bowl the ground never rises through it: within BOWL_REACH of its rim and deck the ground stays BOWL_CLEAR
 # under them, then may climb back BOWL_SLOPE per metre (so a bowl on a slope sits in a gentle cut, not a wall of earth)
-BOWL_REACH = 3.
+BOWL_REACH = 8.     # metres of flat collar outside a deck: wider than the volcano's STEP, so no terrain triangle
+                    # spans from the bowl's pit to the collar and leaves a trench or a poke-through at the rim
 BOWL_CLEAR = .05
 BOWL_SLOPE = .6
-BOWL_EASE = 12.
+BOWL_EASE = 24.
+BOWL_SEAL = 1.    # metres the volcano's sampled surface may sit below a deck edge: a deeper trench is a leak
+BOWL_POKE = .3     # metres it may sit above the deck
 SIDE_COLOURS = ([0.6, 0.58, 0.54], [0.45, 0.43, 0.4])   # pieces.js COL.side, COL.bottom
 
 
@@ -289,40 +292,171 @@ def ground_grid(scene, points, base):
     pit = H < base - PIT_CLEAR
     H = np.where(pit, np.minimum(H, low - PIT_CLEAR), H)
     from craterpark.v2 import editor_coping
-    decks, rides = [], []
+    bowls = []
     for p in getattr(scene, 'pieces', ()):  # the bowls' riding faces and decks: the ground stays under those
         if p.metadata['type'] == 'bowl':
             ride, deck = editor_coping._classes(p)
             V, F = np.asarray(p.mesh.V), np.asarray(p.mesh.F)
-            decks.append(V[np.unique(F[deck])])
-            rides.append(V[np.unique(F[ride])])
-    if decks:
-        H = clear_bowls(H, g, np.concatenate(decks), np.concatenate(rides))
+            deck_width = float((p.metadata.get('params') or {}).get('deck', 2.))
+            rims = []
+            for pts, into, _, closed in editor_coping._join(editor_coping.lip_frames(p)):
+                # the deck's outer edge: the coping line moved `deck` metres away from the riding side
+                outer = np.asarray(pts, 'f8').copy()
+                outer[:, 0] -= into[:, 0] * deck_width
+                outer[:, 2] -= into[:, 2] * deck_width
+                rims.append((outer, closed))
+            bowls.append((rims, V[np.unique(F[ride])],
+                          not (p.metadata.get('info') or {}).get('through'), deck_width))
+    if bowls:
+        H = clear_bowls(H, g, bowls, pit)
     return H.astype('f4'), weight.astype('f4')
 
 
-def clear_bowls(H, g, decks, rides):
-    """The heights H (nz, nx) on grid g kept under the bowls: BOWL_CLEAR under their riding faces' and decks' vertices
-    within BOWL_REACH, and beyond the decks free to climb BOWL_SLOPE per metre, up to BOWL_EASE away."""
+def _nearest_edge(rims, g, shape, cells):
+    """(distance in metres, rim height) of the nearest point on the closed rim polylines, on the cell-centred grid."""
+    dist = np.full(shape, np.inf)
+    y = np.full(shape, np.nan)
+    X = g['x0'] + (np.arange(shape[1]) + .5) * g['G']
+    Z = g['z0'] + (np.arange(shape[0]) + .5) * g['G']
+    r = (cells + 1) * g['G']
+    for points, closed in rims:
+        pts = np.asarray(points, 'f8')
+        segs = np.stack([pts, np.roll(pts, -1, 0)], 1) if closed else np.stack([pts[:-1], pts[1:]], 1)
+        for a, b in segs:
+            i0 = max(0, int(np.floor((min(a[0], b[0]) - r - g['x0']) / g['G'])))
+            i1 = min(shape[1], int(np.ceil((max(a[0], b[0]) + r - g['x0']) / g['G'])) + 1)
+            j0 = max(0, int(np.floor((min(a[2], b[2]) - r - g['z0']) / g['G'])))
+            j1 = min(shape[0], int(np.ceil((max(a[2], b[2]) + r - g['z0']) / g['G'])) + 1)
+            if i1 <= i0 or j1 <= j0:
+                continue
+            xx, zz = np.meshgrid(X[i0:i1], Z[j0:j1])
+            dx, dz = b[0] - a[0], b[2] - a[2]
+            t = np.clip(((xx - a[0]) * dx + (zz - a[2]) * dz) / max(dx * dx + dz * dz, 1e-12), 0, 1)
+            d = np.hypot(xx - a[0] - t * dx, zz - a[2] - t * dz)
+            h = a[1] + t * (b[1] - a[1])
+            sub = dist[j0:j1, i0:i1]
+            better = d < sub
+            sub[better] = d[better]
+            y[j0:j1, i0:i1][better] = h[better]
+    return dist, y
+
+
+def _lowest(points, g, shape, reach):
+    """The lowest height among `points` within `reach` cells of each cell."""
+    j = np.round((points[:, 2] - g['z0']) / g['G'] - .5).astype(int)
+    i = np.round((points[:, 0] - g['x0']) / g['G'] - .5).astype(int)
+    on = (j >= 0) & (j < shape[0]) & (i >= 0) & (i < shape[1])
+    low = np.full(shape, np.inf)
+    np.minimum.at(low, (j[on], i[on]), points[on, 1])
+    return np.minimum.reduce([_shifted(low, dy, dx, np.inf) for dy, dx in _shifts(reach)])
+
+
+def clear_bowls(H, g, bowls, pit):
+    """The ground round the bowls, sealed to their decks.
+
+    Inside the carved pit the ground stays BOWL_CLEAR below the bowl's riding surface. Outside it, the ground
+    meets the coping line's height at the nearest point (the deck edge) and may climb BOWL_SLOPE per metre away
+    from the deck, up to BOWL_EASE. An in-ground bowl also lifts the ground to its rim where the surrounding
+    terrain is lower, so no trench is left under the deck and the outer skirt meets the ground all round. `pit`
+    marks the cells the bowl's carve lowered, and is None when the park's bowls cut nothing. `bowls` is
+    [(rim polylines, riding points, in_ground, deck width)].
+    """
     H = np.asarray(H, 'f8')
     shape = H.shape
-    reach = int(np.ceil(BOWL_REACH / g['G']))
+    reach = max(1, int(np.ceil(BOWL_REACH / g['G'])))
+    ease = max(1, int(np.ceil(BOWL_EASE / g['G'])))
+    for rims, rides, in_ground, _deck in bowls:
+        dist, rim = _nearest_edge(rims, g, shape, ease)
+        near = np.isfinite(rim) & (dist < BOWL_EASE)
+        step = np.maximum(dist - BOWL_REACH, 0.)
+        cap = rim + BOWL_SLOPE * step - BOWL_CLEAR
+        if pit is not None:
+            H = np.where(pit, np.minimum(H, _lowest(rides, g, shape, reach) - BOWL_CLEAR), H)
+        # the deck edge: never above it, and (for an in-ground bowl) never a trench below it either
+        H = np.where(near, np.minimum(H, cap), H)
+        if in_ground and pit is not None:
+            lift = np.minimum(np.maximum(H, rim - BOWL_SLOPE * step - BOWL_CLEAR), cap)
+            H = np.where(near & ~pit, lift, H)
+    return H
 
-    def lowest(points):
-        j = np.round((points[:, 2] - g['z0']) / g['G'] - .5).astype(int)
-        i = np.round((points[:, 0] - g['x0']) / g['G'] - .5).astype(int)
-        on = (j >= 0) & (j < shape[0]) & (i >= 0) & (i < shape[1])
-        low = np.full(shape, np.inf)
-        np.minimum.at(low, (j[on], i[on]), points[on, 1])
-        return np.minimum.reduce([_shifted(low, dy, dx, np.inf) for dy, dx in _shifts(reach)])
-    H = np.minimum(H, lowest(rides) - BOWL_CLEAR)
-    low = lowest(decks)
-    cap = low.copy()
-    r = int(np.ceil(BOWL_EASE / g['G']))
-    for dy, dx in _shifts(r):
-        if dy or dx:
-            cap = np.minimum(cap, _shifted(low, dy, dx, np.inf) + BOWL_SLOPE * np.hypot(dy, dx) * g['G'])
-    return np.minimum(H, cap - BOWL_CLEAR)
+
+def check_bowl_seal(scene, heights, g, weight):
+    """Fail when a bowl rim does not meet the volcano surface it stands in.
+
+    The volcano's terrain samples the cut grid on its own nodes every hidamari.mountains.STEP metres, so the ground a
+    player rides is that sampled surface, not the finer cut grid. At every in-ground bowl's deck edge the ground must
+    meet the deck within BOWL_SEAL (no trench under the rim) and must not rise through it. The cut grid is
+    authoritative there: weight is 1 round the pieces, and the trail and pad carves are hundreds of metres away.
+    """
+    from hidamari import mountains
+    from craterpark import placement
+
+    bowls = []
+    for piece in getattr(scene, 'pieces', ()):
+        if piece.metadata['type'] != 'bowl' or (piece.metadata.get('info') or {}).get('through'):
+            continue
+        V, F = np.asarray(piece.mesh.V, 'f8'), np.asarray(piece.mesh.F)
+        col = np.asarray(piece.colors, 'f8')
+        side = np.zeros(len(F), bool)
+        for c in SIDE_COLOURS:
+            side |= (np.abs(col[F] - c).max(2) < .02).all(1)
+        sv = V[np.unique(F[side])]
+        bottom = float(sv[:, 1].min()) if len(sv) else 0.
+        edge = sv[sv[:, 1] > bottom + 1e-3]          # the outer skirt's top: the deck's outer edge
+        if len(edge):
+            bowls.append((piece.metadata['id'], edge))
+    if not bowls:
+        return {'bowls': [], 'samples': 0}
+
+    step = float(mountains.STEP)
+    isl = placement.native_to_island(np.concatenate([e for _, e in bowls]))
+    pad = 3 * step
+    x0 = mountains.BOUNDS[0] + np.ceil((isl[:, 0].min() - pad - mountains.BOUNDS[0]) / step) * step
+    x1 = mountains.BOUNDS[0] + np.floor((isl[:, 0].max() + pad - mountains.BOUNDS[0]) / step) * step
+    z0 = mountains.BOUNDS[1] + np.ceil((isl[:, 1].min() - pad - mountains.BOUNDS[1]) / step) * step
+    z1 = mountains.BOUNDS[1] + np.floor((isl[:, 1].max() + pad - mountains.BOUNDS[1]) / step) * step
+    xs, zs = np.arange(x0, x1 + step, step), np.arange(z0, z1 + step, step)
+    IX, IZ = np.meshgrid(np.arange(len(xs)), np.arange(len(zs)))
+    nx, nz = placement.island_to_native_xz(xs[IX], zs[IZ])
+
+    def sample(f, x, z):
+        fi = (np.asarray(x) - g['x0']) / g['G'] - .5
+        fj = (np.asarray(z) - g['z0']) / g['G'] - .5
+        i = np.clip(fi.astype(int), 0, g['nx'] - 2)
+        j = np.clip(fj.astype(int), 0, g['nz'] - 2)
+        u = np.clip(fi - i, 0, 1); v = np.clip(fj - j, 0, 1)
+        return (f[j, i] * (1 - u) * (1 - v) + f[j, i + 1] * u * (1 - v)
+                + f[j + 1, i] * (1 - u) * v + f[j + 1, i + 1] * u * v)
+
+    Z, W = sample(heights, nx, nz), sample(weight, nx, nz)
+    if W.min() < .999:
+        raise ValueError('bowl seal: the volcano does not take the cut ground in full round the bowls')
+
+    def surface(x, z):
+        """The terrain's surface, sampled as hidamari.mountains._barycentric samples its grid."""
+        isl = placement.native_to_island(np.c_[x, np.zeros_like(x), z])
+        u = (isl[:, 0] - x0) / step; v = (isl[:, 1] - z0) / step
+        i = np.clip(np.floor(u).astype(int), 0, len(xs) - 2)
+        j = np.clip(np.floor(v).astype(int), 0, len(zs) - 2)
+        a = np.clip(u - i, 0, 1); b = np.clip(v - j, 0, 1)
+        z00, z10, z01, z11 = Z[j, i], Z[j, i + 1], Z[j + 1, i], Z[j + 1, i + 1]
+        return np.where(a >= b, z00 * (1 - a) + z10 * (a - b) + z11 * b,
+                        z00 * (1 - b) + z11 * a + z01 * (b - a))
+
+    out = {'bowls': [name for name, _ in bowls], 'samples': 0, 'worst_gap_m': 0.}
+    for name, edge in bowls:
+        gap = edge[:, 1] - surface(edge[:, 0], edge[:, 2])
+        out['samples'] += len(gap)
+        out['worst_gap_m'] = max(out['worst_gap_m'], round(float(gap.max()), 3))
+        k = int(np.argmax(gap))
+        if gap[k] > BOWL_SEAL:
+            raise ValueError(f'{name}: the ground is {gap[k]:.2f} m below the deck edge at native '
+                             f'({edge[k, 0]:.1f}, {edge[k, 2]:.1f}); the bowl rim is not sealed')
+        k = int(np.argmin(gap))
+        if gap[k] < -BOWL_POKE:
+            raise ValueError(f'{name}: the ground is {-gap[k]:.2f} m above the deck edge at native '
+                             f'({edge[k, 0]:.1f}, {edge[k, 2]:.1f}); terrain rises through the deck')
+    return out
 
 
 def assist_zones(pieces, doc):
@@ -413,6 +547,9 @@ def main(argv=None):
         base = np.fromfile(park_path.parent / 'data' / terrain['layers'][doc['terrain']], '<f4')
         heights, weight = ground_grid(scene, keep, base.reshape(terrain['nz'], terrain['nx']).astype('f8'))
         grid = {k: scene.metadata['ground_grid'][k] for k in ('x0', 'z0', 'G', 'nx', 'nz')}
+        bowl_seal = check_bowl_seal(scene, heights, grid, weight)
+        print(f"CRATERPARK EDITOR bowl seal: {bowl_seal['bowls']}, {bowl_seal['samples']} rim samples, "
+              f"worst gap {bowl_seal['worst_gap_m']:.2f} m", flush=True)
         supports, support_summary = editor_supports.build(scene.pieces, heights, grid)
         print(f"CRATERPARK EDITOR supports: stone viaducts, {support_summary['piers']} piers, "
               f"{support_summary['arches']} arches; timber stages, {support_summary['posts']} posts, "
@@ -483,6 +620,7 @@ def main(argv=None):
     index.update(v4=provenance, editor_playtest={'rev': doc.get('rev'), 'lines': lines, 'pieces': len(chosen['pieces']),
                                                  'pieces_sha256': scene.metadata['pieces_sha256']},
                  ground_grid=dict(grid, reach=GROUND_REACH, fade=GROUND_FADE),
+                 bowl_seal=bowl_seal,
                  accepted=False, validation={'ran': False, 'reason': 'editor playtest: generated supports, not v4-validated'},
                  supports={k: v for k, v in support_summary.items() if k != 'pieces'}, coping=coping_summary,
                  bounds_native=[park.mesh.V.min(0).tolist(), park.mesh.V.max(0).tolist()])
@@ -496,7 +634,7 @@ def main(argv=None):
         export.line_npz(park.mesh, line, out / 'lines' / f'{line.name}.npz')
     rep = generate.report(park, index, time.monotonic() - start)
     rep.update(layout='editor', v4=provenance, editor_playtest=index['editor_playtest'],
-               bounds_native=index['bounds_native'])
+               bounds_native=index['bounds_native'], bowl_seal=bowl_seal)
     temporary = out / 'geometry.tmp.npz'
     np.savez(temporary, **arrays)
     rep['geometry_sha256'] = hashlib.sha256(temporary.read_bytes()).hexdigest()

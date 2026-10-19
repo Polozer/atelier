@@ -78,6 +78,17 @@ def test_footstep_bank_profile_revalidation_witness():
         assert sequences.hashlib.sha256(text[start:end + 1].encode()).hexdigest() == expected
 
 
+def _body_digest(text, owner, name):
+    start = text.index('{', text.index(owner + '::' + name + '('))
+    depth = 0
+    for end in range(start, len(text)):
+        depth += (text[end] == '{') - (text[end] == '}')
+        if depth == 0:
+            break
+    assert depth == 0
+    return sequences.hashlib.sha256(text[start:end + 1].encode()).hexdigest()
+
+
 def test_ready_notifications_preserve_exact_contact_and_skate_profile_bodies():
     game = SOURCE.parents[1]
     witness = json.loads((game / 'assets/audio/profile/menu-ready-revalidation.json').read_text())
@@ -87,31 +98,41 @@ def test_ready_notifications_preserve_exact_contact_and_skate_profile_bodies():
     assert follow['version'] == 1
     assert follow['defaults'] == {'soften_footsteps': False, 'footstep_volume': 1.0}
     assert set(follow['changed_function_bodies']) == {'Play'}
+    later = {row['source']: row for row in json.loads(
+        (game / 'assets/audio/profile/skate-preferences-revalidation.json').read_text())['sources']}
+    for row in witness['sources']:
+        # Each later witness starts exactly where the previous one ended.
+        chain = [row] + ([follow] if row['source'] == follow['source'] else []) + [later[row['source']]]
+        bodies = dict(row['unchanged_function_bodies'])
+        for previous, record in zip(chain, chain[1:]):
+            assert previous['after_sha256'] == record['before_sha256'] and previous['owner'] == record['owner']
+            for name, change in record['changed_function_bodies'].items():
+                if name in bodies:
+                    assert bodies[name] == change['before_sha256']
+                bodies[name] = change['after_sha256']
+            for name, value in record['unchanged_function_bodies'].items():
+                assert bodies.setdefault(name, value) == value
+        path = sequences.REPO / row['source']
+        assert chain[-1]['after_sha256'] == sequences.RUNTIME[row['source']] == sequences.digest(path)
+        text = path.read_text()
+        for name, expected in bodies.items():
+            assert _body_digest(text, row['owner'], name) == expected
+
+
+def test_skate_preferences_revalidation_witness():
+    game = SOURCE.parents[1]
+    witness = json.loads((game / 'assets/audio/profile/skate-preferences-revalidation.json').read_text())
+    assert witness['version'] == 1
+    assert witness['defaults'] == {'soften_skate': False, 'skate_volume': 1.0}
+    assert {Path(row['source']).name for row in witness['sources']} == {'SkateComponent.cpp', 'SkateRuntime.cpp', 'JapanFootsteps.cpp'}
     for row in witness['sources']:
         path = sequences.REPO / row['source']
-        changed = row['source'] == follow['source']
-        if changed:
-            assert row['after_sha256'] == follow['before_sha256']
-            assert follow['after_sha256'] == sequences.RUNTIME[row['source']] == sequences.digest(path)
-            assert follow['owner'] == row['owner']
-            assert follow['unchanged_function_bodies'] == {
-                name: value for name, value in row['unchanged_function_bodies'].items() if name != 'Play'
-            }
-        else:
-            assert row['after_sha256'] == sequences.RUNTIME[row['source']] == sequences.digest(path)
+        assert row['after_sha256'] == sequences.RUNTIME[row['source']] == sequences.digest(path)
         text = path.read_text()
-        for name, expected in row['unchanged_function_bodies'].items():
-            if changed and name == 'Play':
-                assert expected == follow['changed_function_bodies']['Play']['before_sha256']
-                expected = follow['changed_function_bodies']['Play']['after_sha256']
-            start = text.index('{', text.index(row['owner'] + '::' + name + '('))
-            depth = 0
-            for end in range(start, len(text)):
-                depth += (text[end] == '{') - (text[end] == '}')
-                if depth == 0:
-                    break
-            assert depth == 0
-            assert sequences.hashlib.sha256(text[start:end + 1].encode()).hexdigest() == expected
+        bodies = {name: value for name, value in row['unchanged_function_bodies'].items()}
+        bodies.update({name: value['after_sha256'] for name, value in row['changed_function_bodies'].items()})
+        for name, expected in bodies.items():
+            assert _body_digest(text, row['owner'], name) == expected
 
 
 def test_missing_surface_or_modified_candidate_fails(prepared):

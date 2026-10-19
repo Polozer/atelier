@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "parent": "5a94dd61c2729f5aff9429c4d4813a3611b0c689",
+  "defaults": {
+    "soften_skate": false,
+    "skate_volume": 1.0
+  },
+  "sources": [
+    {
+      "source": "platform/engine/Plugins/Activities/Skate/Source/AtelierSkate/Private/SkateComponent.cpp",
+      "owner": "USkateComponent",
+      "before_sha256": "1c24553dea8618122603766cfb620ec669a72c87bd99bd0ce9f792013b167fc5",
+      "after_sha256": "8a95e84663f16ae2df3ae2e1d57519a143c2603b7e095223d01562e89cc6ee45",
+      "unchanged_function_bodies": {
+        "PlaySurfaceCue": "8204aa13ab0cba211a07759f9b8e18bbadf5f5f9af1a3399f006b9f4fa31a6be"
+      },
+      "changed_function_bodies": {
+        "PlayCue": {
+          "before_sha256": "ad52636f5cd104c3053815313307ab033b118e94dd8a0ecdd28b7e397d8f4b4c",
+          "after_sha256": "9346a33299d214bbb27c26723914989fbefa20bb0179ab0f7e4085ea75d7dc26"
+        },
+        "UpdateAudio": {
+          "before_sha256": "9f94d1ff0b39db710337feda55cb114ff72d3729614efcb7a9b6a0e7c7baf710",
+          "after_sha256": "779c7a4ea9343b5a45b992d9c742fe654d4e158c3584eda640a30b0923379ad7"
+        },
+        "LoadSounds": {
+          "before_sha256": "edef73d47e6c570c3d3051545d557d69f72e28d4e51781d8eac92f16ad8868b5",
+          "after_sha256": "605709666ae3d7a6187341e2580a7a5af1634d18d26e0a8a58da4bb6ba62169b"
+        }
+      }
+    },
+    {
+      "source": "platform/engine/Plugins/Activities/Skate/Source/AtelierSkate/Private/SkateRuntime.cpp",
+      "owner": "USkateComponent",
+      "before_sha256": "3adf462719fd823b5c54563e1b63df64a01ce292a9e5c5cb9b592bb8ecc9d5da",
+      "after_sha256": "0121b2efb79092e036ef1455721cae7ebfe599dc86f8c699ff653a5735eba46c",
+      "unchanged_function_bodies": {},
+      "changed_function_bodies": {
+        "EndPlay": {
+          "before_sha256": "fcca87b2899f543432d667df898ec7e791aee8501fa057d862dee2543f9b6c08",
+          "after_sha256": "920340d00e7720b4a1c0998eaa631de92b3bf835338b463c03a870cdb57a6cb4"
+        }
+      }
+    },
+    {
+      "source": "games/yorimichi/unreal/Source/Yorimichi/JapanFootsteps.cpp",
+      "owner": "UJapanFootstepComponent",
+      "before_sha256": "b0e79dd465820690511a86f010d657a65cd70912e77df49bf6db5b3beb267729",
+      "after_sha256": "53e85ae9990853b51cc56b3ff60abbb0d7c44348a20431b66649c2c957190660",
+      "unchanged_function_bodies": {
+        "Play": "fcd18d8b80804e758025dbe9b69bb25b98d507e2391727cee17571731b592143",
+        "SurfaceAt": "4dc1f264811acbb0e3a5205bafb343e443f1b90f87459bd6747528f2eda2f4ad",
+        "Plant": "6454c3a4ce0c815241f3d512621b3fdec8a1eb1514fe2d1f22eed8179d1e81ef",
+        "Land": "7c205ea6ecf3a016614739aadaf3997b5046b4b5fb1a710b3257b17e6fcab3b7",
+        "TickComponent": "e139bd083254dbf7442fbfc257972cc7eef309f5e3ecc36231215aa757582542",
+        "Hoof": "caa3f0112c08f70d0980c8a38cb21f5c309bdac5eb9b0d93bc14de8ca8a29e54",
+        "DrawStep": "e1e8dd68895a3373df7283859c2a98497023cb874f20758075b5b97f326f6bc8"
+      },
+      "changed_function_bodies": {
+        "ApplyVoicePreferences": {
+          "before_sha256": "7d101a8b66d71179507b4778809b85cf1eb17ef6d6fde78f3af62490f36346cf",
+          "after_sha256": "08a4e5e222998f2334fce99577929dd2c182012c147fc89de3db7f7be48bc29c"
+        }
+      }
+    }
+  ],
+  "review_scope": "Skate one-shots now play through owned spatial audio components, created by the same factory as SpawnSoundAtLocation, so per-voice gain and a 3000 Hz low-pass reach voices already playing. Loops multiply their unchanged envelope by the skate gain; at the default gain of one the product equals the previous envelope, and LoadSounds enables the filter only when softening is already on. EndPlay additionally stops owned one-shots. Cue choice, variant bookkeeping, speed/pitch curves, attenuation and timing are unchanged, so the offline skate profile still represents the default unfiltered mix. Footstep ApplyVoicePreferences now also sets the component's low-pass properties, which Play copies; the engine setters alone reach only an already-active sound, so new footsteps were never filtered. Footstep emission bodies are unchanged. No new hardware listening or bit-identical output is claimed."
+}

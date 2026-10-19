@@ -30,3 +30,11 @@ semantic founder/inheritance draw tags. Checked APIs MUST reject either malforme
 parent allele or output alias to any parent gene before changing their output.
 Missing genes MUST retain the reference Standard phenotype or per-side founder draw,
 and parents MUST remain unchanged.
+
+@cc [owner:fontanierh,label:correctness] racing-save-and-economy-invariants
+HRSave::FromJson and HRSave::Validate MUST verify schema/rules versions, required fields,
+duplicate JSON keys, collection bounds, unique IDs, cross-references and numeric/allele
+ranges before mutating the output world state. Coin balances MUST saturate in 0..MaxCoins
+with int64 pool sums, SettleRace MUST skip declared races and settle refunds before
+winner payouts so odds are order-independent, and AdvanceTo catch-up MUST ignore nonfinite
+times and bound catch-up to at most MaxCatchUpDays per call.

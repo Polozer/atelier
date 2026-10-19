@@ -66,6 +66,11 @@ bool FJapanFootstepPreferencesTest::RunTest(const FString&)
         TestEqual(TEXT("Each bank can restore unmodified live gain"),Voice->VolumeMultiplier,.8f);
         Foot->SetAudioPreferences(true,.5f);
     }
+    auto* AfterBank=NewObject<UAudioComponent>();
+    Foot->ApplyVoicePreferences(AfterBank,.5f);
+    TestEqual(TEXT("Voice created after bank changes inherits gain"),AfterBank->VolumeMultiplier,.25f);
+    TestTrue(TEXT("Voice created after bank changes is filtered on Play"),bool(AfterBank->bEnableLowPassFilter));
+    TestEqual(TEXT("Voice created after bank changes uses the soft cutoff"),AfterBank->LowPassFilterFrequency,3000.f);
     Foot->StopFootstepVoices();
     TestTrue(TEXT("Cleanup releases owned handles"),Foot->FootstepVoices.IsEmpty());
     TestFalse(TEXT("Cleanup destroys the owned voice"),IsValid(Voice));
