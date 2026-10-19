@@ -69,6 +69,7 @@ bool FTrainPassengerViewBodyTest::RunTest(const FString&)
     // New equipment after first-person entry, with no ownership chain to the pawn.
     auto* Equipment = NewObject<UBoxComponent>(Held);
     Equipment->SetMobility(EComponentMobility::Movable);
+    Equipment->SetHiddenInGame(false); // Shape components default to hidden in game; this fixture is visible equipment.
     Held->SetRootComponent(Equipment); Held->AddInstanceComponent(Equipment); Equipment->RegisterComponent();
     Held->AttachToComponent(Rider->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
     TestNull(TEXT("Attachment does not need a gameplay owner"), Held->GetOwner());
