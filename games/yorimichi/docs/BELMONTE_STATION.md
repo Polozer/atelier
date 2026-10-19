@@ -8,7 +8,8 @@ building but are not traced.
 
 - The station stands on the flat ground north of the road that runs from Belmonte's south-east gate to the Dunes Basses
   estate (`route.py` `BELMONTE`: platform centre (900, 4625), trains arrive running north-west, bearing 140°).
-- Its facade faces the town.
+- Its facade faces the town. The forecourt is about 230 m from the north gate, and the Salon des paris is
+  200 m from the access road's junction.
 - The line now ends in Belmonte's valley:
   - a viaduct over the river;
   - a cutting under the road from the south-east gate, 229 m before the buffer stop. The rail there is 8.6 m below
@@ -17,7 +18,10 @@ building but are not traced.
     unchanged.
 - The road keeps its line. A stone overbridge (`SM_ST_Overbridge`, `overbridge.py`) carries it over the cutting; see
   `BELMONTE_TRACK.md`.
-- The forecourt, the access road to the town and the path to the Salon des paris come later, in their own change.
+- An access road (7 m of cobbles, 86 m, `station_site.ACCESS`) runs from the forecourt north to the road between the
+  north gate and the Trois Prés estate. That road also leads to the Salon and the town. It leaves the forecourt's front
+  edge at a slant, stays level for its first 8 m (`ACCESS_FLAT`), then climbs at about 2.3 %. Its end dips under the
+  junction's ground, so no paving edge shows there.
 
 ## Train size
 
@@ -35,7 +39,7 @@ The rail is at 207.6 m. The ground around the station is at 210 to 215 m, so the
 | --- | --- | --- |
 | Formation | -0.85 m | Ground under the sheds and the headhouse |
 | Platforms and concourse | +1.0 m | The train service's boarding height |
-| Street | +7.2 m (214.8 m) | Vestibule and the street front |
+| Street | +7.2 m (214.97 m) | Vestibule, forecourt and the access road's start |
 
 A double staircase in the headhouse joins the street to the concourse: one flight per shed, 37 steps. The landing
 between the flights overlooks the concourse.
@@ -57,9 +61,10 @@ All dimensions are in the station frame of `station_site.py`:
 | Headhouse | a 0..26 | Concourse (a 0.5..7), stair hall (7..18) and vestibule (18..26). The street front has nine open arches under three iron and glass canopies, arched first-floor windows, a cornice and a balustrade with urns. A pediment stands under the clock tower. |
 | Clock tower | over the spine | Brick shaft with stone quoins, four 2.3 m dials, a belfry cornice and a tiled spire. Its top is 38 m over the street, plus the spire. |
 | Wings | u 12..26 and -55..-41 | Two storeys of terracotta brick panels between stone pilasters, closed arched doors, pedimented windows and a hipped terracotta roof. The wings cannot be entered. |
+| Forecourt | a 26..46 | Cobbles with stone kerbs and four lamp posts; the access road leaves its front edge on the axis. |
 
 Materials reuse Belmonte's instances: `MI_B_ashlar`, `MI_B_stone`, `MI_B_plaster` (brick), `MI_B_roof`,
-`MI_B_glass_dark`, `MI_B_flag`, `MI_B_gravel`, `MI_B_iron` and `MI_B_wood`. Five flat colours are added
+`MI_B_glass_dark`, `MI_B_flag`, `MI_B_cobble`, `MI_B_gravel`, `MI_B_iron` and `MI_B_wood`. Five flat colours are added
 as `MI_ST_*` instances of `M_Belmonte`: green ironwork, roof glass, clock dials, coach teak and coach roofs. All shaders
 are opaque.
 
@@ -79,6 +84,7 @@ The station is built with the track. Its pieces sit in `track.json`'s `station` 
 | `SM_ST_Headhouse` | 14,500 / 4,200 / 1,200 | 13,032 / 3,756 / 1,036 | LOD2: open arches, floors, stairs as ramps |
 | `SM_ST_Sheds` | 34,000 / 6,000 / 2,400 | 31,272 / 5,492 / 2,160 | LOD2: platforms, walls, columns |
 | `SM_ST_Coaches` | 2,000 / 300 / 60 | 1,848 / 264 / 36 | LOD2 boxes |
+| `SM_ST_Forecourt` | 220 / 80 / 40 | 200 / 72 / 36 | LOD2: the square and the access road |
 
 Belmonte runs near 30 fps on the target Mac, so the budgets keep about 10 % over what is built. The sheds' open
 lattice is LOD0 only; beyond the first LOD switch the whole station draws under 10k triangles.
@@ -91,13 +97,19 @@ The train service no longer adds its makeshift platform at Belmonte (`tools/belm
   - under the sheds and the stair hall, the formation, standing straight against their walls;
   - under the vestibule and the wings' street end (`station_site.VESTIBULE`, solid to street level), 2 cm under the
     street, so the ground meets the street flush along the whole facade;
-  - the street level in front of the headhouse, with soil slopes beyond;
+  - the forecourt and the access road at street level, the road rising evenly to its junction, with soil slopes
+    beyond. The ground stays level for 1.5 m around the forecourt (`station_site.FORECOURT_HOLD`) before its slopes
+    start, so it never rises through the cobbles;
   - under the overbridge, the cutting between its walls.
 - `train/corridor.py` keeps plants off all of it, beyond the line's ends too (`settle`).
 - The valley's committed terrain tiles are edited once by `tools/belmonte_station_terrain.py`. It refines and carves
-  the touched triangles and repaints their layers: Rock on cut faces, Dirt on the formation and the street level,
-  Green on new slopes. It records the line's and the site's digest in `source.json`, so the tool does not carve the
-  same tile twice.
+  the touched triangles and repaints their layers: Rock on cut faces, Dirt on the formation, the forecourt and the
+  access road, Green on new slopes. Along the overbridge's walls and the forecourt's edges the triangles are refined
+  again to 0.75 m, so the ground steps outside the paving and within the walls. It records the line's, the site's and the Salon path's digest in `source.json`,
+  so the tool does not carve the same tile twice.
+- The same tool paints a 4 m dirt path (`SALON_PATH`) from the road up to the Salon des paris' terrace, down the
+  middle of its cypress avenue, following the ground (Paul, 2026-10-18). Only the path's triangles are subdivided
+  (1.5 m).
 - Each carved tile's natural version stays in `assets/belmonte/natural/`. The route study plans on that natural
   ground, so it still yields the committed line. A later line is carved again from these copies.
 

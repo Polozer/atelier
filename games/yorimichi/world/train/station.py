@@ -6,9 +6,8 @@ assets/belmonte/concepts/station/ (Paul's elevations, 2026-10-17).
 A Tuscan terminus after King's Cross and Saint-Lazare: two glazed train sheds side by side (the line's track in the
 south-west one, a decorative siding with three old coaches in the other), a clock tower between their great arches,
 a Beaux-Arts headhouse in honey stone with an arcaded street front, iron canopies and lower terracotta-roofed wings.
-The track arrives in a shallow cutting: platforms and concourse at platform level, the vestibule at street level, a
-double staircase between them. The forecourt and the access road (street level) come with the station's access paths;
-the road's overbridge is overbridge.py's.
+The track arrives in a shallow cutting: platforms and concourse at platform level, the vestibule, forecourt and access
+road at street level, a double staircase between them. The road's overbridge is overbridge.py's.
 
 Meshes are built in the station frame (a along the track to the facade, u left, z up from the rail top) and turned
 into the world frame relative to their piece origin (no rotation in Unreal, like every track piece). LOD2 is also
@@ -634,9 +633,61 @@ def to_world(mesh, site):
     return out
 
 
+# --- forecourt and access road --------------------------------------------------------------------------------------
+
+
+PAVING = .02                # the forecourt's and the access road's paving over their ground (street level)
+
+
+def forecourt(site, lod):
+    """The paved square at street level and the access road (cobbles, a kerb along the square's edges), relative to
+    the station origin; the road starts on the square's front edge and follows its carved floor (site.access_z), its
+    end dipping under the junction's ground. The paving stands PAVING over the ground, flush with the vestibule's
+    floor at the facade."""
+    m = T.Mesh()
+    a0, a1, u0, u1 = S.FORECOURT
+    st = S.STREET
+    box(m, a0 - .5, a1, u0, u1, st - .6, st + PAVING, 'MI_B_cobble')
+    if lod < 2:
+        box(m, a0, a1, u0 - .3, u0, st, st + .18, 'MI_B_stone')
+        box(m, a0, a1, u1, u1 + .3, st, st + .18, 'MI_B_stone')
+    pts, _ = site.access()
+    rel = np.array([site.local(x, y) for x, y in pts])
+    lengths = np.hypot(*np.diff(rel, axis=0).T)
+    cum = np.concatenate([[0.], np.cumsum(lengths)])
+    total = float(cum[-1])
+    stops = np.unique(np.concatenate([cum, [S.ACCESS_FLAT]] if S.ACCESS_FLAT < total else [cum]))
+
+    def at(s_):
+        k = min(int(np.searchsorted(cum, s_, side='right')) - 1, len(lengths) - 1)
+        d = (rel[k + 1] - rel[k]) / lengths[k]
+        return rel[k] + d * (s_ - cum[k]), d, float(site.access_z(s_ / total)) - site.rail
+
+    def slab(top):
+        v = top + [(a, u, z - .6) for a, u, z in top]
+        m.add(v, [(0, 1, 2, 3), (7, 6, 5, 4), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)], 'MI_B_cobble')
+    for sa, sb in zip(stops[:-1], stops[1:]):
+        (p, d, za), (q, _, zb) = at(sa), at(sb)
+        n = np.array([-d[1], d[0]]) * 3.5
+        left, right = p - n, p + n
+        if sa == 0.:            # the road leaves the square's front edge at a slant: start it on that edge
+            left, right = (c + d * (a1 - c[0]) / d[0] for c in (left, right))
+        slab([(*left, za + PAVING), (*(q - n), zb + PAVING), (*(q + n), zb + PAVING), (*right, za + PAVING)])
+    if lod < 2:                 # the road's end dips under the junction's ground: no paving edge shows there
+        q, d, zb = at(total)
+        n, r = np.array([-d[1], d[0]]) * 3.5, q + d * 1.5
+        slab([(*(q - n), zb + PAVING), (*(r - n), zb - .04), (*(r + n), zb - .04), (*(q + n), zb + PAVING)])
+    if lod == 0:        # lamp posts along the square
+        for u in (u0 + 2., u1 - 2.):
+            for a in (a0 + 4., a1 - 3.):
+                T.cylinder(m, (a, u, st), (a, u, st + 4.2), .09, 'MI_ST_Green', sides=6)
+                box(m, a - .25, a + .25, u - .25, u + .25, st + 4.2, st + 4.8, 'MI_ST_Clock')
+    return m
+
+
 def layout(line):
     """(meshes {name: [LODs]}, the station's record for track.json) at the end of a line ending at the station's site,
-    else ({}, None). The road's overbridge is overbridge.py's; the forecourt and the access road come later."""
+    else ({}, None). The road's overbridge is overbridge.py's."""
     end, before = line.frame(line.length)[0], line.frame(line.length - 10.)[0]
     site = S.for_line([before[:2], end[:2]], [before[2], end[2]])
     if site is None:
@@ -646,11 +697,13 @@ def layout(line):
         'SM_ST_Headhouse': [to_world(headhouse(k), site) for k in range(3)],
         'SM_ST_Sheds': [to_world(sheds(k), site) for k in range(3)],
         'SM_ST_Coaches': [to_world(coaches(k), site) for k in range(3)],
+        'SM_ST_Forecourt': [to_world(forecourt(site, k), site) for k in range(3)],
     }
     rows = [dict(name=name, origin=[round(float(c), 3) for c in origin], collision=f'LOD{len(meshes[name]) - 1}')
             for name in meshes]
     doc = dict(pieces=rows, frame=dict(origin=list(origin), along=[round(float(c), 6) for c in site.t],
                                        left=[round(float(c), 6) for c in site.n]),
                levels=dict(rail=round(site.rail, 3), platform=round(site.rail + S.PLATFORM, 3),
-                           street=round(site.rail + S.STREET, 3)))
+                           street=round(site.rail + S.STREET, 3)),
+               access=[[round(float(x), 2), round(float(y), 2)] for x, y in site.access()[0]])
     return meshes, doc

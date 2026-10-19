@@ -44,7 +44,7 @@ class Meshes(unittest.TestCase):
     meshes, doc = ST.layout(Straight())
 
     def test_budgets(self):
-        self.assertEqual(set(self.meshes), {'SM_ST_Headhouse', 'SM_ST_Sheds', 'SM_ST_Coaches'})
+        self.assertEqual(set(self.meshes), {'SM_ST_Headhouse', 'SM_ST_Sheds', 'SM_ST_Coaches', 'SM_ST_Forecourt'})
         for name, lods in self.meshes.items():
             budget = T.BUDGETS[name]
             self.assertEqual(len(lods), len(budget), name)
@@ -88,6 +88,15 @@ class Meshes(unittest.TestCase):
             return bool(((d[0] >= -1e-9) & (d[1] >= -1e-9) & (d[2] >= -1e-9)).any())
         for u in np.linspace(-40.5, 11.5, 30):
             self.assertTrue(covered(S.HEADHOUSE[1] - 1.5, u), u)
+
+    def test_forecourt_and_access_at_street_level(self):
+        p = Straight().frame(np.array([Straight.length - 10., Straight.length]))[0]
+        site = S.for_line(p[:, :2], p[:, 2])
+        v = np.asarray(ST.forecourt(site, 2).verts)
+        square = v[v[:, 0] <= S.FORECOURT[1]]
+        self.assertAlmostEqual(float(square[:, 2].max()), S.STREET + ST.PAVING, places=3)   # flush with the vestibule
+        self.assertAlmostEqual(float(v[:, 2].max()), S.ACCESS_END_Z - RAIL + ST.PAVING, places=3)     # the road's far end
+        self.assertEqual(self.doc['access'][-1], [797., 4816.])
 
     def test_platforms_clear_the_scaled_train(self):
         for lod in range(3):
