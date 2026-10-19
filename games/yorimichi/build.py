@@ -619,7 +619,7 @@ TRAIN_FURNITURE = tuple(a['id'] for a in json.loads((ASSETS / 'vehicles/belmonte
 def belmonte_train_corridor(out):
     """The railway corridor and earthworks (world/train/corridor.py and earthworks.py read the committed line.json):
     unconditional inputs of the terrain and planting steps."""
-    return [WORLD / 'train' / 'corridor.py', WORLD / 'train' / 'earthworks.py',
+    return [WORLD / 'train' / 'corridor.py', WORLD / 'train' / 'earthworks.py', WORLD / 'train' / 'station_site.py',
             ASSETS / 'vehicles' / 'belmonte-train' / 'line.json']
 
 
@@ -965,7 +965,7 @@ def world_steps(ctx):
              outputs=[out / 'belmonte-train' / 'review' / 'consist-profile.png'],
              about='Belmonte train control renders (white background)'),
         Step('world.belmonte_train_route', [Python(WORLD / 'train' / 'route.py')],
-             inputs=[WORLD / 'train' / 'route.py', WORLD / 'train' / 'corridor.py',
+             inputs=[WORLD / 'train' / 'route.py', WORLD / 'train' / 'corridor.py', WORLD / 'train' / 'station_site.py',
                      ASSETS / 'vehicles' / 'belmonte-train' / 'line.json', *CRATERPARK, *NORTH_LAYOUT,
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py',
                      REGIONS / 'belmonte' / 'layout.py', REGIONS / 'belmonte' / 'source.py', REGIONS / 'belmonte' / 'terrain.py',
@@ -978,7 +978,7 @@ def world_steps(ctx):
              about='Belmonte railway route study: alignment, profile, structures, timetable (route.json, plan and profile)'),
         Step('world.belmonte_track', [Blender(WORLD / 'train' / 'track_build.py', threads=3)],
              inputs=[WORLD / 'train' / 'track.py', WORLD / 'train' / 'track_build.py', WORLD / 'train' / 'earthworks.py',
-                     WORLD / 'train' / 'corridor.py', *CRATERPARK, *NORTH_LAYOUT,
+                     WORLD / 'train' / 'corridor.py', WORLD / 'train' / 'station_site.py', *CRATERPARK, *NORTH_LAYOUT,
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py',
                      REGIONS / 'belmonte' / 'layout.py', REGIONS / 'belmonte' / 'source.py', REGIONS / 'belmonte' / 'terrain.py',
                      ASSETS / 'belmonte' / 'source.json',

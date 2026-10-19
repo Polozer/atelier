@@ -2,7 +2,8 @@
 
 From the route study's route.json (route v3), whose samples every 10 m carry the rail and ground heights and the
 class of each stretch, plus the passing loop's second track. The corridor runs along the line outside the tunnels
-(the forest over a tunnel stays). Its half width is the train's clearance with a tree's crown (HALF_WIDTH), widened
+(the forest over a tunnel stays), and over the Belmonte station's ground when the line ends there (station_site.py).
+Its half width is the train's clearance with a tree's crown (HALF_WIDTH), widened
 where the line runs in a cutting or on an embankment to the earthworks' footprint (route.FORMATION and route.SLOPE),
 capped at MAX_HALF_WIDTH.
 
@@ -18,6 +19,7 @@ import json
 import numpy as np
 
 import yori
+from train import station_site as SS
 
 ROUTE = yori.OUT / 'belmonte-train' / 'route' / 'route.json'
 LINE = yori.ASSETS / 'vehicles' / 'belmonte-train' / 'line.json'
@@ -54,6 +56,7 @@ class Corridor:
             near = by_s.get(int(round(p[0] / 10.) * 10))
             w = half_width(near) if near else HALF_WIDTH
             segs.append(((p[1], p[2]), (q[1], q[2]), w or HALF_WIDTH))
+        self.site = SS.for_line([(r['x'], r['y']) for r in rows[-2:]], [r.get('rail_z', np.nan) for r in rows[-2:]])
         self.a = np.array([s[0] for s in segs], float).reshape(-1, 2)
         self.b = np.array([s[1] for s in segs], float).reshape(-1, 2)
         self.w = np.array([s[2] for s in segs], float)
@@ -75,7 +78,15 @@ class Corridor:
             t = np.clip(((px - ax) * dx + (py - ay) * dy) / max(dx * dx + dy * dy, 1e-9), 0., 1.)
             d = np.hypot(px - ax - t * dx, py - ay - t * dy) - w
             out[near] = np.minimum(out[near], d)
+        # The Belmonte station's footprint and forecourt keep ROAD_CLEAR of plants too.
+        out = np.minimum(out, self.station_margin(x, y))
         return out
+
+    def station_margin(self, x, y):
+        """Distance beyond the station's ground plus its clearance (negative on it)."""
+        if self.site is None:
+            return np.full(np.shape(x), np.inf)
+        return SS.excess(self.site, x, y) - SS.ROAD_CLEAR
 
     def blocked(self, x, y, reach=0.):
         """True where a plant at x, y (whose own crown reaches `reach` metres beyond HALF_WIDTH's) stands in the
@@ -150,6 +161,7 @@ def settle(name, x, y, z, corridor=None):
     near = np.isfinite(s)
     if k == 'tree':
         keep = ~c.blocked(x, y)
+    keep &= c.station_margin(x, y) >= 0.                    # nothing grows on the station's ground
     if not near.any():
         return keep, out
     i = np.flatnonzero(near)
