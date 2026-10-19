@@ -3,7 +3,7 @@
   "Version": 1,
   "VersionName": "1.0",
   "FriendlyName": "Atelier Horse Racing",
-  "Description": "Deterministic horse-racing rules. The initial module supplies stateless seeded draws.",
+  "Description": "Deterministic horse-racing rules. Stateless seeded draws and continuous racing calendar primitives.",
   "Category": "Atelier",
   "CreatedBy": "Atelier",
   "CanContainContent": false,
