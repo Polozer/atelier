@@ -179,6 +179,7 @@ pool for that scene and area:
 | Skating elsewhere | `skate`: rooftop, market, train and dojo lofi, festival |
 | Hidamari town | `town`: market, coffee, study and rooftop lofi, plus the zone's takes |
 | Coast, harbour, cove, fishing village | `coast`: seaside and lighthouse lofi, harbour jazz |
+| Brinecove's quay | `brinecove`: harbour jazz, lighthouse and seaside lofi |
 | Belmonte, the Salon | `belmonte` and `salon`: salon and harbour jazz |
 | Forest, temple, foothills, open country | `nature` and `wild`: dawn and high ambient, study and dojo lofi |
 | Sailing, zeppelin, bike or horse | `sail`, `air` and `ride` |
@@ -200,7 +201,9 @@ playing.
   after 6 s.
 - A new scene must hold for 4 s first (1 s for a fight), so the music doesn't
   flap at a zone's edge.
-- Nothing changes during a cinematic.
+- Nothing changes during a cinematic. Fades keep running under the pause menu.
+- A pool with no tracks in the installed library (a partial library without fight cues) is never entered: the
+  music keeps following the calm scene.
 
 **Mixing.** Every start and stop is an equal-power fade:
 - A change of scene crossfades over 8 s.

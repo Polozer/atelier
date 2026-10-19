@@ -38,7 +38,7 @@ namespace
         {TEXT("zeppelin_city"), TEXT("town"), 120}, {TEXT("communitypark"), TEXT("park"), 120},
         {TEXT("harbor"), TEXT("coast"), 160}, {TEXT("fishing"), TEXT("coast"), 120}, {TEXT("cove"), TEXT("coast"), 120},
         {TEXT("spawn"), TEXT("coast"), 140}, {TEXT("landing"), TEXT("coast"), 160},
-        {TEXT("skatepier"), TEXT("pier"), 90},
+        {TEXT("skatepier"), TEXT("pier"), 90}, {TEXT("brinecove_quay"), TEXT("brinecove"), 450},
         {TEXT("craterpark"), TEXT("crater"), 420},
         {TEXT("mega"), TEXT("park"), 110}, {TEXT("megapark"), TEXT("park"), 220}, {TEXT("zeppelin_megapark"), TEXT("park"), 120},
         {TEXT("belmonte"), TEXT("belmonte"), 260}, {TEXT("belmonte_training"), TEXT("belmonte"), 160},
@@ -94,6 +94,7 @@ TArray<FString> FJapanMusicRules::PoolGroups(const FString& Pool, const FString&
     else if (Pool == TEXT("skate")) Add({TEXT("lofi_rooftop"), TEXT("lofi_market"), TEXT("lofi_train"), TEXT("lofi_dojo"), TEXT("energy_festival")});
     else if (Pool == TEXT("town")) Add({TEXT("lofi_market"), TEXT("lofi_coffee"), TEXT("lofi_study"), TEXT("lofi_rooftop")});
     else if (Pool == TEXT("coast")) Add({TEXT("lofi_seaside"), TEXT("lofi_lighthouse"), TEXT("jazz_harbor")});
+    else if (Pool == TEXT("brinecove")) Add({TEXT("jazz_harbor"), TEXT("lofi_lighthouse"), TEXT("lofi_seaside")});
     else if (Pool == TEXT("pier")) Add({TEXT("jazz_harbor"), TEXT("lofi_seaside"), TEXT("lofi_coffee")});
     else if (Pool == TEXT("park")) Add({TEXT("lofi_rooftop"), TEXT("lofi_study"), TEXT("calm_dawn")});
     else if (Pool == TEXT("crater")) Add({TEXT("calm_high"), TEXT("craterpark")});
@@ -289,6 +290,13 @@ int32 UJapanMusic::Choose(const FString& InPool, const FString& InZone)
     return Candidates.Last();
 }
 
+bool UJapanMusic::HasTracks(const FString& InPool, const FString& InZone) const
+{
+    const TArray<FString> Groups = FJapanMusicRules::PoolGroups(InPool, InZone);
+    return Tracks.ContainsByPredicate([&](const FJapanMusicTrack& T)
+        { return Groups.Contains(T.Group) && FJapanMusicRules::TakesRole(InPool, T.Group, T.Role); });
+}
+
 int32 UJapanMusic::Active() const
 {
     for (int32 C = 0; C < 2; ++C) if (Channels[C].Track != INDEX_NONE && Channels[C].FadeRate >= 0.f) return C;
@@ -298,7 +306,7 @@ int32 UJapanMusic::Active() const
 void UJapanMusic::ApplyGain(int32 C)
 {
     if (!Sounds.IsValidIndex(C) || !Sounds[C]) return;
-    const float Gain = bEnabled ? BaseLevel * Volume * Channels[C].Level * EqualPower(Channels[C].Fade) : 0.f;
+    const float Gain = BaseLevel * Volume * Channels[C].Level * EqualPower(Channels[C].Fade);
     Sounds[C]->SetVolumeMultiplier(Gain);
 }
 
@@ -384,8 +392,8 @@ void UJapanMusic::Tick(float DeltaTime)
     const bool bCombat = Clock - LastCombat < CombatHold;
     // A fight's scene beneath it decides where the music goes when it ends.
     const FString Area = FJapanMusicRules::AreaForZone(NewZone);
-    const FString Wanted = bCombat ? FString(TEXT("combat"))
-        : FJapanMusicRules::PoolName(Scene == EJapanMusicScene::Combat ? EJapanMusicScene::Explore : Scene, Area);
+    const FString Calm = FJapanMusicRules::PoolName(Scene == EJapanMusicScene::Combat ? EJapanMusicScene::Explore : Scene, Area);
+    const FString Wanted = bCombat && HasTracks(TEXT("combat"), NewZone) ? FString(TEXT("combat")) : Calm;
     if (Wanted != PendingPool) { PendingPool = Wanted; SceneSince = Clock; }
     // A new scene must hold a moment before the music follows it: no flapping at a zone's edge or between pushes.
     if (Clock - SceneSince < (Wanted == TEXT("combat") ? 1. : 4.)) return;
@@ -413,7 +421,8 @@ void UJapanMusic::Tick(float DeltaTime)
         {
             // Coherence: a track that suits the new scene keeps playing.
             const FJapanMusicTrack& T = Tracks[Channels[A].Track];
-            if (!FJapanMusicRules::PoolGroups(Pool, Zone).Contains(T.Group) || !FJapanMusicRules::TakesRole(Pool, T.Group, T.Role))
+            if ((!FJapanMusicRules::PoolGroups(Pool, Zone).Contains(T.Group) || !FJapanMusicRules::TakesRole(Pool, T.Group, T.Role))
+                && HasTracks(Pool, Zone))
                 Start(Choose(Pool, Zone), Pool, 8.f);
             return;
         }
@@ -445,7 +454,8 @@ FString UJapanMusic::Describe() const
 {
     if (!bStarted) return TEXT("music: no library");
     const int32 A = Active();
-    const FString Playing = A != INDEX_NONE ? Tracks[Channels[A].Track].Title : FString(TEXT("(resting)"));
+    const FString Playing = A != INDEX_NONE ? FString::Printf(TEXT("\"%s\" at %.1fs/%.0fs fade=%.2f"), *Tracks[Channels[A].Track].Title,
+        Players[A]->GetTime().GetTotalSeconds(), Players[A]->GetDuration().GetTotalSeconds(), Channels[A].Fade) : FString(TEXT("(resting)"));
     return FString::Printf(TEXT("music: %s pool=%s zone=%s playing=%s rest=%.0fs volume=%.2f"), bEnabled ? TEXT("on") : TEXT("off"),
         *Pool, Zone.IsEmpty() ? TEXT("-") : *Zone, *Playing, FMath::Max(0., RestUntil - Clock), Volume);
 }

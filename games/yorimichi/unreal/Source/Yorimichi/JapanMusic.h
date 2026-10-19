@@ -50,6 +50,8 @@ public:
     virtual void Tick(float DeltaTime) override;
     virtual TStatId GetStatId() const override;
     virtual bool IsTickable() const override { return bStarted; }
+    // Fades finish under the pause menu (the media sound is a UI sound and keeps playing).
+    virtual bool IsTickableWhenPaused() const override { return true; }
     /** The menu's Music toggle and volume (0..1). Turning music off fades it out; on again starts after a short rest. */
     void SetPreferences(bool bEnabled, float Volume);
     bool HasLibrary() const { return Tracks.Num() > 0; }
@@ -75,6 +77,7 @@ private:
     AWandererCharacter* LocalPawn() const;
     EJapanMusicScene ReadScene(AWandererCharacter* Pawn, FString& Zone) const;
     int32 Choose(const FString& Pool, const FString& Zone);
+    bool HasTracks(const FString& Pool, const FString& Zone) const;
     void Start(int32 Track, const FString& Pool, float FadeSeconds);
     void FadeOut(int32 Channel, float Seconds);
     void ApplyGain(int32 Channel);
