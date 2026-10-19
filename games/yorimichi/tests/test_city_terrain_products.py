@@ -16,7 +16,7 @@ from terrain_product import load  # noqa: E402
 from test_city_terrain_fixture import same_calls  # noqa: E402
 
 
-@pytest.mark.parametrize('case', [case for case in CASES if case != 'other_surface'])
+@pytest.mark.parametrize('case', [case for case in CASES if case not in ('other_surface', 'city_pad')])
 def test_paired_capture_preserves_final_and_only_reverts_coarse_carve(case):
     baseline = json.loads((GAME/'tests/fixtures/terrain-city-r8.json').read_text())['cases'][case]
     paired = evaluate(case, capture_natural=True)
@@ -37,6 +37,28 @@ def test_paired_capture_preserves_final_and_only_reverts_coarse_carve(case):
             ids = np.asarray(face)
             expected = 0. if key.startswith('hd_flag') else -1.25+.0003*natural[ids, 0]
             np.testing.assert_allclose(final[ids, 2]-natural[ids, 2], expected, rtol=0., atol=1.e-12)
+
+
+def test_air_station_pad_is_captured_before_both_local_operations():
+    """Natural is pre-carve and pre-pad; final keeps main's carve-then-pad emission."""
+    from zeppelin.layout import city_pad
+    paired = evaluate('city_pad', capture_natural=True)
+    plain = evaluate('city_pad')
+    np.testing.assert_array_equal(np.asarray(paired['vertices']), np.asarray(plain['vertices']))
+    np.testing.assert_array_equal(np.asarray(paired['colours']), np.asarray(plain['colours']))
+    assert paired['keys'] == plain['keys']
+    assert paired['faces'] == plain['faces']
+    natural, final = np.asarray(paired['natural']['vertices']), np.asarray(paired['vertices'])
+    assert paired['natural']['faces'] == paired['faces']
+    np.testing.assert_array_equal(natural[:, :2], final[:, :2])
+    origin_z = 35.5
+    weight = np.asarray(city_pad(natural[:, 0], natural[:, 1], 0.)) / origin_z
+    carve_only = -1.25 + .0003 * natural[:, 0]
+    delta = final[:, 2] - natural[:, 2]
+    assert weight.max() > .9 and weight.min() == 0.  # The case crosses the pad and its control area.
+    flat = weight == 0.
+    np.testing.assert_allclose(delta[flat], carve_only[flat], rtol=0., atol=1.e-12)
+    assert np.any(np.abs(delta[~flat] - carve_only[~flat]) > 1.e-6)
 
 
 def test_city_publication_copies_geometry_and_returns_original_attributed_mesh(tmp_path):
@@ -62,7 +84,8 @@ def test_city_publication_copies_geometry_and_returns_original_attributed_mesh(t
     first = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
     city_terrain_surface.generate(producer, tmp_path)
     assert first == {p.name: p.read_bytes() for p in tmp_path.iterdir()}
-    assert 'coarse-grid carve' in json.loads((tmp_path/'manifest.json').read_text())['natural_scope']
+    scope = json.loads((tmp_path/'manifest.json').read_text())['natural_scope']
+    assert 'coarse-grid railway carve' in scope and 'air-station apron' in scope
 
 
 def test_publication_rejects_another_surface_owner(tmp_path):

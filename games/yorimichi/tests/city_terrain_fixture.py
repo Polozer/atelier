@@ -23,6 +23,10 @@ CASES = {
     'island_fade': ([300., 312., 324., 330.], [0., 4.]),
     'park_refinement': ([981., 982.2], [225., 226.1]),
     'terrace_refinement': ([651., 652.2], [256., 257.1]),
+    # Crosses the air-station apron: x > 1253 and y < 327 inside the station's
+    # 14x10 m pad, with coarse cells outside its ramps as the control.
+    'city_pad': ([1246., 1252., 1260., 1270., 1280., 1290.],
+                 [302., 310., 318., 326., 334.]),
     'paving': ([380., 386.], [-119., -113.]),
     'other_surface': ([400., 404.], [0., 4.]),
 }

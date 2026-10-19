@@ -12,8 +12,9 @@ def generate(producer, directory):
     """@cc [owner:fontanierh,label:correctness] city-terrain-product-publication
     Call the paired city producer once and publish independent ordered geometry
     copies, then return its original final Mesh to the existing export adapter.
-    Natural means before the local coarse-grid carve only: upstream shaping,
-    existing uncarved fine patches and paving remain. Preserve final attributes
+    Natural means before the local coarse-grid railway carve and the air-station
+    apron levelling: upstream shaping, existing uncarved fine patches and paving
+    remain. Preserve final attributes
     and duplicate corners; do not weld, select new diagonals or combine owners.
     Recipe verification owns freshness. No shared-border guarantee is inferred.
     """
@@ -27,7 +28,7 @@ def generate(producer, directory):
     manifest = {'schema': 1, 'owner': OWNER, 'city': True,
                 'units': 'metres, x east, y north, z up',
                 'includes': 'existing city ground cells, fine terrace patches and inset paving in emission order',
-                'natural_scope': 'before the local city coarse-grid carve; upstream shaping and uncarved fine patches/paving retained',
+                'natural_scope': 'before the local coarse-grid railway carve and air-station apron levelling; upstream shaping and uncarved fine patches/paving retained',
                 'excludes': ['HD_Streets', 'HD_Square', 'HD_Arrival', 'HD_ParkGrounds', 'HD_NorthMountains', 'water'],
                 'stages': ['natural', 'final']}
     (directory/'manifest.json').write_text(json.dumps(manifest, sort_keys=True, indent=2)+'\n')

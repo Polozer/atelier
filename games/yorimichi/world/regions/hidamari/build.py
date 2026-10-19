@@ -284,7 +284,8 @@ def surface(name,xs,ys,color,*,_natural=None):
 def city_terrain_surfaces():
     """@cc [owner:fontanierh,label:correctness] city-terrain-stage-order
     Capture natural geometry immediately before this owner's local coarse-grid
-    railway carve, alongside the unchanged final emitter. Existing fine patches
+    railway carve and the air-station apron levelling that follows it, alongside
+    the unchanged final emitter. Existing fine patches
     and paving MUST keep their independent uncarved height evaluations in both
     stages. Do not regenerate the final surface, change callbacks/face order,
     infer pristine global ground, or change final colours/palette ownership.
