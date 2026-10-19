@@ -102,6 +102,29 @@ def tv_spots(data):
 
 
 
+# The Salon des Paris's betting windows (docs/RACING.md, "Betting"), in the Salon hall's local space: the player's spot
+# at the central window (GUICHET 2), facing the counter, and the counter's reach round it (cm).
+SALON_COUNTER = {'spot_cm': [-1760., 300., 15.], 'yaw': 180., 'half_length_cm': 380., 'reach_cm': 260., 'behind_cm': 150.,
+                 'below_cm': 80., 'above_cm': 260.}
+
+
+def racing_places(data):
+    """Belmonte's racing places (docs/RACING.md), derived from the committed Salon hall placement, for runtime.json."""
+    assets = {m['source_asset'] for m in data['meshes'] if m['name'] == 'SM_BM_BHip_SalonHall'}
+    placements = [p['transform'] for p in data['placements'] if p['asset'] in assets]
+    if len(assets) != 1 or len(placements) != 1:
+        raise ValueError('Racing placement requires exactly one committed SM_BM_BHip_SalonHall placement')
+    tr = placements[0]
+    q = tr['rotation_xyzw']
+    fwd = planting.rotate(q, np.array([1., 0., 0.]))
+    yaw = round(((float(np.degrees(np.arctan2(fwd[1], fwd[0]))) + SALON_COUNTER['yaw'] + 180.) % 360.) - 180., 2)
+    at = (planting.rotate(q, np.asarray(SALON_COUNTER['spot_cm'], float) * np.asarray(tr['scale'], float))
+          + np.asarray(tr['translation_cm'], float)).round(2).tolist()
+    counter = {'at_cm': at, 'yaw': 180. if abs(yaw + 180.) < 1e-6 else yaw,
+               **{k: SALON_COUNTER[k] for k in ('half_length_cm', 'reach_cm', 'behind_cm', 'below_cm', 'above_cm')}}
+    return {'counter': counter}
+
+
 def map_zones(town_z,data):
     """@cc [owner:fontanierh,label:correctness] belmonte-indoor-map-stop
     Indoor stops MUST follow Belmonte's origin and land on their committed floors below

@@ -7,8 +7,15 @@
 #include "RacingMotion.h"
 #include "RacingService.generated.h"
 
+/** A string as JSON string content: quotes, backslashes and control characters escaped; an apostrophe stays as is. */
+YORIMICHI_API FString RacingJsonEscape(const FString& In);
+
+class AController;
 class AWandererCharacter;
 class UAnimSequence;
+struct FRacingCard;
+struct FRacingCardPreview;
+struct FRacingWalletView;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class USkeletalMesh;
@@ -185,6 +192,38 @@ public:
     /** Travels the local player to a venue's stand; false without a player or the venue. */
     bool GoToVenue(const FString& Venue);
 
+    // ------------------------------------------------------------------ betting (docs/RACING.md, "Betting")
+    /** The rules' player id of a controller: the host's own (Saved/racing/player-id.txt), a guest's for this session only
+     *  ("session:<session player id>": guests have no persistent identity yet), empty when it has none. */
+    static FString PlayerIdOf(const AController* Controller);
+    static bool IsSessionPlayer(const FString& PlayerId) { return PlayerId.StartsWith(TEXT("session:")); }
+    /** Host: adds a player to the world (the rules' starting coins), once; false without a world or an id. */
+    bool RegisterPlayer(const FString& PlayerId, const FString& Name);
+    /** Why a win bet is refused at world second Now, in French, empty when it is allowed: betting on a race closes at its
+     *  start, then the rules decide (HRRules::BetRefusal: the runner, the stake, the day's limit, the balance, the tickets
+     *  per race). */
+    static FString BetRefusal(const FHRWorldState& S, const FString& PlayerId, const FString& RaceKey, const FString& HorseId, int32 Stake,
+        double Now);
+    /** Places a win bet with the rules (HRRules::PlaceBet) once BetRefusal allows it; the refusal otherwise. */
+    static FString PlaceBetIn(FHRWorldState& S, const FString& PlayerId, const FString& RaceKey, const FString& HorseId, int32 Stake, double Now);
+    /** Host: places a bet now for a player, marks the world for saving, refreshes the wallets and the snapshot's odds. */
+    FString PlaceBet(const FString& PlayerId, const FString& RaceKey, const FString& HorseId, int32 Stake);
+    /** What a player's wallet shows at world second Now. The rules settle a race when it starts; its tickets show their
+     *  outcome (and the coins their payout) only RevealSeconds after the winner is home, as the race is seen. */
+    static void BuildWallet(const FHRWorldState& S, const FString& PlayerId, double Now, FRacingWalletView& Out);
+    static constexpr double RevealSeconds = 1.5;
+    /** Today's races still open to bets at Now, with each runner's current odds and the player's tickets. */
+    static void BuildCard(const FHRWorldState& S, const FString& PlayerId, double Now, FRacingCard& Out);
+    /** The next race day as the rules will open it: a copy of the world advanced one day (today's races left run in the
+     *  copy only, never shown). Costly (a day's close), so the host computes it once a day (RefreshWallets). */
+    static void BuildPreview(const FHRWorldState& S, FRacingCardPreview& Out);
+    /** The world as it is saved: without session players and their tickets. */
+    static FHRWorldState PersistentWorld(const FHRWorldState& S);
+    /** Host: every player controller's wallet view, and the race card of an open betting window. */
+    void RefreshWallets();
+    /** Host (tests): moves the clock Seconds on and advances the world to it, as the host's tick does. */
+    void AdvanceClock(double Seconds);
+
     // ------------------------------------------------------------------ presentation
     const FRacingNetState& GetNetState() const { return Net; }
     /** The venue's course (Track 1: Belmonte's sand), or nullptr when it is not loaded. */
@@ -221,11 +260,14 @@ private:
     FHRWorldState State;
     bool bHasWorld = false, bDirty = false;
     FString SavePath, PersistenceError;
-    double DevSeconds = 0., LastSave = 0., NextRegister = 0., NextPublish = 0., NextReport = 0.;
+    double DevSeconds = 0., LastSave = 0., NextRegister = 0., NextPublish = 0., NextReport = 0., NextWallets = 0.;
     float AppliedScale = 1.f;
     TSet<FString> Registered;
     FRacingNetResult LastResult;
     TMap<FString, FIntVector> LookCache;
+    /** The next day's preview, computed for day PreviewFor (-1: none yet). */
+    TSharedPtr<FRacingCardPreview> Preview;
+    int32 PreviewFor = -1;
 
     // Courses
     FRacingCourse Hidamari, BelmonteTurf, BelmonteSand;
@@ -285,4 +327,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Live") static FString RacingTvState();
     /** racing.Tv: travels to a TV's watch point ("osteria_front", "osteria_back", "salon_paris", "salon_bar"). */
     UFUNCTION(BlueprintCallable, Category = "Live") static bool RacingTvGo(const FString& Spot);
+    /** The local player's wallet, the race card and the betting window (its selection, step and last message), as JSON. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static FString RacingWallet();
+    /** Travels to the Salon des Paris's betting windows. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static bool RacingCounterGo();
+    /** Asks for a win bet through the local player's wallet, as the window does (host or client). */
+    UFUNCTION(BlueprintCallable, Category = "Live") static int32 RacingBet(const FString& RaceKey, const FString& HorseId, int32 Stake);
 };

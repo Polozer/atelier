@@ -1,4 +1,5 @@
 #include "JapanSession.h"
+#include "RacingBetting.h"
 #include "LiveLibrary.h"
 #include "JapanNetwork.h"
 #include "JapanWorld.h"
@@ -236,6 +237,8 @@ void AJapanGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 AJapanPlayerController::AJapanPlayerController()
 {
     PrimaryActorTick.bCanEverTick = true;
+    // The racing wallet and win bets (docs/RACING.md, "Betting"): replicated to this player only.
+    CreateDefaultSubobject<URacingWallet>(TEXT("RacingWallet"));
 }
 void AJapanPlayerController::BeginPlay()
 {
