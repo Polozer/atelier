@@ -1,8 +1,9 @@
 """Brinecove on the world map and its atlas reference: ground heights, roofs, piers, streets and landmarks.
 
-build_map.py samples heights() into its raster and calls draw() with its world-to-pixel mapping. World metres.
+build_map.py samples heights() from the exported ground (ground_surface) into its raster and calls draw() with its world-to-pixel mapping. World metres.
 Plain Python.
 """
+import json
 import math
 
 import numpy as np
@@ -38,16 +39,25 @@ def trees(runtime, prefixes):
     return np.asarray(rows, float).reshape(-1, 2)
 
 
-def heights(gx, gy, backdrop):
-    """The game ground at world points inside the region: the layout, eased into the backdrop across the collar
-    as ground.py eases it into the FarHills rim."""
-    out = np.array(backdrop, dtype=np.float32)
-    for k, (x, y) in enumerate(zip(gx, gy)):
-        lx, ly = x - R.ORIGIN[0], y - R.ORIGIN[1]
-        w = R.collar_weight(lx, ly)
-        if w < 1.0:
-            out[k] = L.ground(lx, ly) * (1.0 - w) + out[k] * w + R.ORIGIN[2] * (1.0 - w)
-    return out
+def ground_surface(out):
+    """The game ground world.brinecove exported (its SM_BC_Ground tiles: the layout, the jagged cliffs and the collar
+    zipped onto FarHills' own rim), as a height sampler in world metres. The atlas reference samples these triangles,
+    so the painted coast is the coast the game ships rather than an approximation of it."""
+    from belmonte import source
+    report = json.loads((out / 'brinecove' / 'build-report.json').read_text())
+    tiles = [out / 'brinecove' / mesh['path'] for mesh in report['meshes'] if mesh['name'].startswith('SM_BC_Ground_')]
+    if not tiles:
+        raise ValueError('Brinecove export has no ground tiles')
+    faces = np.concatenate([source.triangles(path) for path in tiles]) + np.asarray(R.ORIGIN, float)
+    return source.Surface(faces)
+
+
+def heights(gx, gy, surface):
+    """The game ground at world points inside the region, from ground_surface()."""
+    z = surface.height(gx, gy)
+    if not np.isfinite(z).all():
+        raise ValueError(f'Brinecove ground leaves {int((~np.isfinite(z)).sum())} map samples uncovered')
+    return z.astype(np.float32)
 
 
 def _rect(d, wp, x, y, w, h, yaw, fill, outline):

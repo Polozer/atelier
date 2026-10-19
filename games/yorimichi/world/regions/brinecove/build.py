@@ -24,7 +24,7 @@ import numpy as np  # noqa: E402
 
 from atelier.gltf import glb_parts  # noqa: E402
 from terrain_product import load  # noqa: E402
-from brinecove import flora, ground, hero_assets, modules, region as R  # noqa: E402
+from brinecove import flora, ground, hero_assets, hero_sources, modules, region as R  # noqa: E402
 from brinecove import layout as L  # noqa: E402
 from brinecove.geom import Builder, distinct_corners  # noqa: E402
 from brinecove.paths import BUILD as OUT, TEXTURES  # noqa: E402
@@ -233,7 +233,7 @@ def hero_models(materials_out):
     for slug, placements in hero_assets.placements(modules.HULL).items():
         obj = hero_assets.import_model(slug)
         if obj is None:
-            continue
+            raise SystemExit(f'Brinecove: hero model {slug} has no mesh')
         name = 'SM_BC_Hero_' + ''.join(part.title() for part in slug.split('-'))
         obj.name = name
         slots = []
@@ -281,6 +281,13 @@ def group(name, slots, transforms, *, collision, shadow, cull_cm):
 
 def main():
     started = time.time()
+    try:
+        heroes = hero_sources.verify()
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
+    missing = set(hero_assets.placements(modules.HULL)) - set(heroes)
+    if not modules.HAS_HULL or missing:
+        raise SystemExit(f'Brinecove: the hero hull or selected models are not committed: {sorted(missing)}')
     (OUT / 'glb').mkdir(parents=True, exist_ok=True)
     for stale in (OUT / 'glb').glob('*.glb'):
         stale.unlink()

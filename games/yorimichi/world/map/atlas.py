@@ -40,7 +40,8 @@ GEOGRAPHY_SOURCES = (
     'world/regions/southwest/island.py', 'world/train/route.py',
     'world/regions/skatepark/park.json', 'world/regions/craterpark/placement.py', 'world/regions/megapark/placement.py',
     'assets/belmonte/source.json', 'assets/vehicles/belmonte-train/line.json',
-    'world/regions/brinecove/region.py', 'world/regions/brinecove/layout.py',
+    'world/regions/brinecove/region.py', 'world/regions/brinecove/layout.py', 'world/regions/brinecove/ground.py',
+    'world/regions/brinecove/plan.py',
 )
 STABLE_NAMES = (
     ('home_stables', 'Home Stables'), ('alder_stables', 'Alder Stables'),

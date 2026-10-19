@@ -24,18 +24,6 @@ HULL = (json.loads((ASSETS / 'galleon-hull.provenance.json').read_text())['proce
         if HAS_HULL else None)
 
 
-def jag_point(p):
-    px, py, pz = p
-    amp = min(2.2, max(0.0, L.slope(px, py) - 0.42) * 2.4)
-    if amp <= 0.0:
-        return p
-    wave = (math.sin(px * 0.11 + py * 0.07) * math.cos(py * 0.13 - px * 0.05)
-            + 0.45 * math.sin(px * 0.27 + py * 0.19 + 1.3))
-    return (px + math.cos(py * 0.17) * amp * 0.38,
-            py + math.sin(px * 0.19) * amp * 0.38,
-            pz + wave * amp)
-
-
 def cell_material(a, bb, c, d, gx, gy, sl, i, j):
     """Material for one ground cell from its corners, centre (local metres) and slope."""
     zavg = (a[2] + bb[2] + c[2] + d[2]) / 4
@@ -78,6 +66,7 @@ def ground_face(b, a, bb, c, d, mat, gx, gy, sl):
 
 
 def terrain(hills=True):
+    from brinecove.ground import jag_point
     b = Builder('01_terrain')
     nx, ny = 600, 480
     dx = (L.VIEW_X_MAX - L.VIEW_X_MIN) / nx
@@ -89,7 +78,7 @@ def terrain(hills=True):
             y0 = L.VIEW_Y_MIN + j * dy; y1 = y0 + dy
             a = (x0, y0, zs[i][j]); bb = (x1, y0, zs[i + 1][j])
             c = (x1, y1, zs[i + 1][j + 1]); d = (x0, y1, zs[i][j + 1])
-            # Break the sampled heightfield on steep faces (see jag_point).
+            # Break the sampled heightfield on steep faces (see ground.jag_point).
             a, bb, c, d = (jag_point(a), jag_point(bb), jag_point(c), jag_point(d))
             gx = (x0 + x1) / 2; gy = (y0 + y1) / 2
             sl = L.slope(gx, gy)

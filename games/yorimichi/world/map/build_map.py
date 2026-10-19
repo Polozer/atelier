@@ -116,7 +116,7 @@ if BRINECOVE:
     from brinecove import plan as BC
     bc_mask = BC.contains(GX, GY)
     progress(f'sampling Brinecove ground at {int(bc_mask.sum())} pixels')
-    Z[bc_mask] = BC.heights(GX[bc_mask], GY[bc_mask], Z[bc_mask])
+    Z[bc_mask] = BC.heights(GX[bc_mask], GY[bc_mask], BC.ground_surface(_Path(S)))
 
 # the island lives outside the heightmap: sample its own height function in island-local coordinates
 SW = W.get('southwest')

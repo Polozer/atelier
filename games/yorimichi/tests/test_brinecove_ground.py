@@ -100,3 +100,46 @@ def test_distinct_corners_drops_repeats_and_faces_without_area():
     assert distinct_corners([(0, 0, 0), (1, 0, 0), (2, 0, 0)]) is None  # collinear
     assert distinct_corners([(0, 0, 0), (0, 0, 0), (1, 0, 0), (1, 0, 0)]) is None
     assert distinct_corners([(0, 0, 0), (0.01, 0, 0), (0, 0.01, 0)]) == [0, 1, 2]  # small trim stays
+
+
+def test_hero_sources_fail_on_missing_or_altered_models(tmp_path):
+    import hashlib
+    import json
+    from brinecove import hero_sources
+    models = tmp_path / 'models'
+    models.mkdir()
+    files = {}
+    for slug in ('galleon-hull', 'harbor-cannon'):
+        data = slug.encode() * 10
+        (models / f'{slug}.glb').write_bytes(data)
+        digest = hashlib.sha256(data).hexdigest()
+        (models / f'{slug}.provenance.json').write_text(json.dumps({'output_sha256': digest}))
+        files[f'brinecove/models/{slug}.glb'] = {'bytes': len(data), 'sha256': digest}
+    library = tmp_path / 'source-library.json'
+    library.write_text(json.dumps({'files': files}))
+    assert set(hero_sources.verify(library, models)) == {'galleon-hull', 'harbor-cannon'}
+    (models / 'harbor-cannon.glb').write_bytes(b'changed')
+    with pytest.raises(ValueError, match='harbor-cannon.glb differs from source-library.json'):
+        hero_sources.verify(library, models)
+    (models / 'harbor-cannon.glb').unlink()
+    with pytest.raises(ValueError, match='harbor-cannon.glb is missing'):
+        hero_sources.verify(library, models)
+    (models / 'harbor-cannon.glb').write_bytes(b'harbor-cannon' * 10)
+    (models / 'galleon-hull.provenance.json').write_text(json.dumps({'output_sha256': '0' * 64}))
+    with pytest.raises(ValueError, match='galleon-hull.glb differs from its provenance record'):
+        hero_sources.verify(library, models)
+
+
+def test_committed_hero_models_match_the_source_library():
+    from brinecove import hero_sources
+    assert {'galleon-hull', 'pirate-queen-statue'} <= set(hero_sources.verify())
+
+
+def test_atlas_heights_come_from_the_exported_ground_and_refuse_gaps():
+    from brinecove import plan
+    from belmonte import source
+    faces = np.array([[[0., 0., 5.], [10., 0., 5.], [0., 10., 5.]]])
+    surface = source.Surface(faces)
+    assert np.allclose(plan.heights(np.array([1.]), np.array([1.]), surface), 5.)
+    with pytest.raises(ValueError, match='uncovered'):
+        plan.heights(np.array([1., 20.]), np.array([1., 20.]), surface)
