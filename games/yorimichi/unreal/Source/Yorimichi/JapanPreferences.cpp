@@ -154,6 +154,15 @@ float SkateDefault(const FSkateKnob& Knob, const FSkateFeel& Defaults)
     return float((FCString::Strcmp(Knob.Key, TEXT("skate_auto_push")) == 0 ? Defaults.AutoPush : Defaults.AssistedAir) + 1);
 }
 }
+// Whether Key is a Skate feel page value. Membership, not the skate_ prefix: skate_volume is an audio setting on the
+// main page. External linkage for JapanSkatePreferencesTests.cpp.
+bool IsSkateFeelKey(const FString& Key)
+{
+    for (const FSkateGroup& Group : SkateGroups())
+        for (const FSkateKnob& Knob : Group.Knobs)
+            if (Key == Knob.Key) return true;
+    return false;
+}
 
 void UJapanPreferences::Initialize(AWandererCharacter* Pawn)
 {
@@ -1237,7 +1246,7 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
         // stay out of a menu that the phone shows too.
         if (IsSessionOnly(Values[I].Key)) continue;
         if (IsToggle(Values[I].Key) || Values[I].Key == TEXT("tree_lod_mode")) continue;   // a button above
-        if (Values[I].Key.StartsWith(TEXT("skate_"))) continue;                       // the Skate feel page
+        if (IsSkateFeelKey(Values[I].Key)) continue;                                  // the Skate feel page
         if (Values[I].Key == LightKeys[0])
         {
             Page->Section();

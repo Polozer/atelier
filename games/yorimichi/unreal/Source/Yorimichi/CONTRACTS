@@ -33,6 +33,7 @@ world/component teardown MUST stop and release only the owned human footstep voi
 Saved skate softening MUST default off and skate volume MUST default to one. These client-local
 controls MUST reach current and late audio-ready skate emitters in this world for every selected
 bank without loading a bank, and MUST leave footsteps, hoof stand-ins, music and master volume unaffected.
+Both controls MUST be reachable from the Esc menu's main page; the Skate feel page owns only its own knobs.
 
 @cc [owner:fontanierh,label:performance] horse-appearance-residency
 An accepted appearance change on a locally controlled horse that replaces breed, tack, coat or mask
