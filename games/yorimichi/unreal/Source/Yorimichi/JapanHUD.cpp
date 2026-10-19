@@ -16,6 +16,7 @@
 #include "LiveLibrary.h"
 #include "BelmonteTrainService.h"
 #include "RacingBetting.h"
+#include "RacingStables.h"
 #include "RacingService.h"
 #include "YorimichiLive.h"
 #include "EngineUtils.h"
@@ -371,6 +372,17 @@ void AJapanHUD::DrawHUD()
         {
             const float Scale = Canvas->SizeY / 1080.f;
             const FString Ask = FString::Printf(TEXT("%s   Parier au guichet (Salon des Paris)"), bController ? TEXT("D-pad Down") : TEXT("E"));
+            float W = 0.f, H = 0.f; Canvas->StrLen(Font, Ask, W, H); const float S = 1.3f * FMath::Max(Scale, .75f);
+            const float X = Canvas->SizeX * .5f - W * S * .5f, Y = Canvas->SizeY * .7f;
+            DrawRect(FLinearColor(0, 0, 0, .45f), X - 14, Y - 8, W * S + 28, H * S + 16);
+            DrawText(Ask, FLinearColor(1.f, .9f, .74f), X, Y, Font, S);
+        }
+        // At a stall plate or a board of the player's stable (docs/RACING.md, "Stables").
+        const FString Stable = RacingStables::Prompt(Pawn);
+        if (!Stable.IsEmpty())
+        {
+            const float Scale = Canvas->SizeY / 1080.f;
+            const FString Ask = FString::Printf(TEXT("%s   %s"), bController ? TEXT("D-pad Down") : TEXT("E"), *Stable);
             float W = 0.f, H = 0.f; Canvas->StrLen(Font, Ask, W, H); const float S = 1.3f * FMath::Max(Scale, .75f);
             const float X = Canvas->SizeX * .5f - W * S * .5f, Y = Canvas->SizeY * .7f;
             DrawRect(FLinearColor(0, 0, 0, .45f), X - 14, Y - 8, W * S + 28, H * S + 16);
