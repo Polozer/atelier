@@ -8,11 +8,12 @@ carves (regions/belmonte/build.py carves only the apron and the country around t
 stands in it. This tool edits those tiles once, in place, to the earthworks' design (train/earthworks.py, including
 the station's ground from train/station_site.py): every touched triangle is subdivided to STEP metres and carved,
 normals recomputed, and the four terrain layers repainted where the ground moved (Rock on cut faces, Dirt on the
-formation and the forecourt, Green on new slopes). The road over the overbridge keeps its ground. Retained triangles
+formation and the forecourt, Green on new slopes). Along the overbridge's walls the triangles are refined again to
+FINE, so the ground steps within the walls' thickness (earthworks.bridge_ground). Retained triangles
 next to carved ones share their new edge nodes (earthworks.refine's conform_neighbors), so the carving leaves no
 cracks.
-Only the line's final cutting (from LEAD before it) and the station's ground are carved: the embankments further down
-the valley stay on their bank meshes (track.py bank_ranges), over the uncarved ground.
+Only the line's final cutting (from earthworks.VALLEY_LEAD before it) and the station's ground are carved: the
+embankments further down the valley stay on their bank meshes (track.py bank_ranges), over the uncarved ground.
 
 It reads the committed line (assets/vehicles/belmonte-train/line.json) and the station's site (train/station_site.py)
 and records their digest in each carved tile's source.json entry (`railway_carved`): a tile already carved for that
@@ -41,7 +42,7 @@ from train import earthworks as E
 from train import station_site as SS
 
 STEP = 2.0                  # metres: the carved triangles' size (the tiles are about 5 m)
-LEAD = 15.                  # metres of the line carved before its final cutting starts
+FINE = .75                  # ... and along the overbridge's walls, where the ground steps within their thickness
 LAYERS = ('Dry', 'Green', 'Dirt', 'Rock')     # COLOR_0's channels (MI_B_terrain_town's layers)
 NATURAL = yori.ASSETS / 'belmonte' / 'natural'
 LIBRARY = yori.ASSETS / 'source-library.json'
@@ -131,14 +132,77 @@ def repaint(colour, x, y, z, z0, ln):
     return out / np.maximum(out.sum(1, keepdims=True), 1e-6)
 
 
+def along_walls(v, f, attrs, ln, bridge, hidden):
+    """Bisect the carved triangles near the overbridge's walls (earthworks.bridge_walls) until their edges are at most
+    FINE, each at its longest edge with its neighbour across it (conforming: no crack), then carve the vertices there
+    again (the ground near the walls does not depend on the height it is carved from) and recompute their normals."""
+    v = np.asarray(v, float)
+    f = np.asarray(f, np.int64)
+    attrs = {k: np.asarray(x, float) for k, x in attrs.items()}
+    near = lambda p: E.bridge_walls(p[:, 0], p[:, 1], bridge) & ~np.asarray(hidden(p[:, 0], p[:, 1]), bool)  # noqa
+    first = len(v)
+    for _ in range(40):
+        tri = v[f]
+        length = np.linalg.norm(tri - np.roll(tri, -1, 1), axis=2)          # edge j: corner j to j + 1
+        longest = length.argmax(1)
+        want = (length.max(1) > FINE) & near(tri.mean(1))
+        if not want.any():
+            break
+        # every edge to split: the longest of each wanted triangle, closed over neighbours (each triangle with a
+        # split edge also splits its longest)
+        key = lambda i, j: (min(f[i, j], f[i, (j + 1) % 3]), max(f[i, j], f[i, (j + 1) % 3]))  # noqa: E731
+        split = {key(i, longest[i]) for i in np.flatnonzero(want)}
+        edges = {}
+        for i in range(len(f)):
+            for j in range(3):
+                edges.setdefault(key(i, j), []).append(i)
+        todo = [t for e in split for t in edges[e]]
+        while todo:
+            i = todo.pop()
+            e = key(i, longest[i])
+            if e not in split:
+                split.add(e)
+                todo.extend(edges[e])
+        mid = {}
+        new_v, new_attr = [], {k: [] for k in attrs}
+        for e in split:
+            mid[e] = first_free = len(v) + len(new_v)
+            new_v.append((v[e[0]] + v[e[1]]) / 2)
+            for k in attrs:
+                new_attr[k].append((attrs[k][e[0]] + attrs[k][e[1]]) / 2)
+        faces = []
+        for i in range(len(f)):
+            j = longest[i]
+            c = [f[i, (j + q) % 3] for q in range(3)]         # c0-c1 the longest edge, c2 opposite
+            e = [key(i, (j + q) % 3) for q in range(3)]
+            if e[0] not in split:
+                faces.append(c)
+                continue
+            m = mid[e[0]]
+            for half, side in (((c[0], m, c[2]), e[2]), ((m, c[1], c[2]), e[1])):
+                if side in split:               # bisect this half again at its other split edge
+                    s2 = mid[side]
+                    if side == e[2]:
+                        faces += [(c[0], m, s2), (m, c[2], s2)]
+                    else:
+                        faces += [(m, c[1], s2), (m, s2, c[2])]
+                else:
+                    faces.append(half)
+        v = np.concatenate([v, np.array(new_v)])
+        attrs = {k: np.concatenate([attrs[k], np.array(new_attr[k])]) for k in attrs}
+        f = np.array(faces, np.int64)
+    redo = near(v)
+    z0 = v[:, 2].copy()
+    v[redo, 2] = E.carve(v[redo, 0], v[redo, 1], v[redo, 2], ln)
+    moved = redo | (np.arange(len(v)) >= first)
+    if 'normals' in attrs:
+        attrs['normals'] = E._normals(v, f, attrs['normals'], moved | (np.abs(v[:, 2] - z0) > 1e-3))
+    return v, f, attrs
+
+
 def carved_zone(ln, rows):
     """hidden(x, y) for earthworks.refine: everything but the final cutting and the station's ground."""
-    start = ln.length
-    for r in reversed(rows):
-        if r['class'] == 'embankment':
-            break
-        start = r['s']
-    start -= LEAD
+    start = E.valley_carve_start(ln, rows)
     site = ln.station()
 
     def hidden(x, y):
@@ -192,6 +256,10 @@ def main(argv=None):
         normals = t['normal'] @ source.FRAME.T
         attrs = dict(normals=normals, uv=t['uv'], colour=t['colour'], natural=world[:, 2:3])
         v, f, a, report = E.refine(world, t['faces'], STEP, attrs, ln, hidden=hidden, conform_neighbors=True)
+        bridge = ln.bridge()
+        if bridge is not None and report.get('refined'):    # finer along the overbridge's walls, where the ground steps
+            v, f, a = along_walls(v, f, a, ln, bridge, hidden)
+            report.update(triangles_out=int(len(f)))
         moved = report.get('moved', 0)
         if report.get('refined') and moved:
             a['colour'] = repaint(a['colour'], v[:, 0], v[:, 1], v[:, 2], a['natural'][:, 0], ln)
