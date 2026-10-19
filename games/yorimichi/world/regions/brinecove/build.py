@@ -72,6 +72,10 @@ def rim():
     """FarHills' hole boundary from its final product (world.farhills)."""
     mesh = load(yori.OUT / 'terrain/FarHills/final.npz', owner='FarHills', stage='final', city=True)
     vertices, triangles = np.asarray(mesh.vertices), np.asarray(mesh.triangles())
+    # FarHills tiles do not weld their shared corners. Merge coincident vertices, or the rim repeats them and the
+    # ground's zipper emits zero-length triangles that Unreal drops on import.
+    _, first, inverse = np.unique(vertices.round(4), axis=0, return_index=True, return_inverse=True)
+    vertices, triangles = vertices[first], inverse.reshape(-1)[triangles]
     x0, y0, x1, y1 = R.OUTER_WORLD
     near = ((np.abs(vertices[:, 0] - x0) < .05) | (np.abs(vertices[:, 0] - x1) < .05)
             | (np.abs(vertices[:, 1] - y0) < .05) | (np.abs(vertices[:, 1] - y1) < .05))
