@@ -164,6 +164,8 @@ public:
     /** Client presentation only: gain and an optional 3 kHz low-pass for this board's loops and one-shots,
      *  including voices already playing. Shared waves, pitch, attenuation and timing are unchanged. */
     void SetAudioPreferences(bool bSoften, float Volume);
+    bool GetSoftenSounds() const { return bSoftenSounds; }
+    float GetSoundVolume() const { return SoundVolume; }
 
     // QA
     FName GetLastTrick() const { return LastTrickName; }
@@ -176,7 +178,6 @@ private:
     friend class FRemoteVehiclePresentationTest;
     friend class FSkateSoundSetTest;
     friend class FSkateAudioPreferencesTest;
-    friend class FJapanSkatePreferencesTest;
     UPROPERTY() TObjectPtr<ACharacter> Rider;
     ISkateRider* RiderApi = nullptr;
     UPROPERTY() TObjectPtr<USceneComponent> BoardRoot;
