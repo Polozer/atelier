@@ -3,8 +3,8 @@
 Races run in the world on the rules of the `HorseRacing` game plugin
 (`games/yorimichi/unreal/Plugins/HorseRacing`, module `AtelierHorseRacing`): a continuous clock with one race day
 every two real hours and up to six races a day, computer stables, jockeys and Grand Prix days. Yorimichi shows the
-races at two racecourses, the same for every player. Four TVs in Belmonte show the races live. There are no bets, stables or menus yet: later work adds betting and player
-stables.
+races at two racecourses, the same for every player. Four TVs in Belmonte show the races live, and the Salon des Paris
+takes win bets ("gagnant") from every player's wallet. Player stables come later.
 
 ## The service
 
@@ -24,12 +24,14 @@ and positions computed on every machine from the replicated clock, never replica
   file cannot be read at all, it is left exactly as it is, no world opens and racing stays off (an error in the log,
   `GetPersistenceError()`). A failed save keeps the accepted world in memory and dirty, logs the error, and the next save
   tries again.
-- **Players.** V1 registers the host's own player only (`HRRules::AddPlayer`), with an id saved beside the world
-  (`Saved/racing/player-id.txt`); its name is their character's. **Remote guests get no player record, wallet or stable**:
-  there is no persistent guest identity yet (an online id may be missing and a session id changes every session), so
-  nothing persistent may be owned by one. Guests watch from the replicated snapshot, which carries no player, coins,
-  tickets or ownership; every rules call that changes the world (and `racing.Next`, `racing.TimeScale`, `racing.Save`)
-  runs on the host only. Betting, stables and wallets for guests wait for a persistent guest identity.
+- **Players.** The host's own player keeps one id across sessions, saved beside the world
+  (`Saved/racing/player-id.txt`), and its record (`HRRules::AddPlayer`: wallet, tickets) is saved with the world; its
+  name is their character's. **A remote guest has no persistent identity yet** (an online id may be missing and a
+  session id changes every session), so it gets a session player, `session:<session player id>`: a wallet and bets
+  for this session only. `PersistentWorld` leaves session players and their tickets out of the save, so nothing
+  persistent is ever owned by one; a guest who comes back starts a new wallet. Persistent guest identity is a later
+  task. Every rules call that changes the world (and `racing.Next`, `racing.TimeScale`, `racing.Save`) runs on the
+  host only.
 - **The snapshot.** `FRacingNetState` carries the clock anchor (the rules' world second at a server time, and the dev
   time scale), the race day and its event, the race in focus, the last podium and the six best stables. The race in
   focus is the one running or just run (for the rules' 180 s after its start), else the next one today. Each runner
@@ -132,6 +134,47 @@ though the main view does not draw them. The field is the same six runners the s
 to keep in step. Each camera's sightline is checked with a trace from its subject against the static world; a blocked
 camera moves in front of the obstacle.
 
+## Betting
+
+Win bets only, on the rules' pari-mutuel pool (`HRRules` betting: `BetRefusal`, `PlaceBet`, `SettleRace`). One currency,
+the rules' coins ("pièces"): a new player starts with the rules' `FHRPlayer` coins (160) and earns their daily income;
+later horses and salaries use the same wallet. Balances saturate within 0..`MaxCoins`; stakes are 1 to 10, at most 30
+a day and three tickets a race (`FBetLimits`).
+
+- **The Salon des Paris.** Its three betting windows (Haras Valley's `gameplay.salon`: the central window's betting
+  point and the windows 2.5 m apart along the counter) are derived from the Salon hall's committed placement
+  (`SM_BM_BHip_SalonHall` in `assets/belmonte/source.json`) by `world/regions/belmonte/build.py` (`SALON_COUNTER`,
+  `racing_places`), written into Belmonte's `runtime.json` as `racing_places.counter` and read by `RacingCounter`
+  (`RacingBetting.h`, through `RacingPlaces`) round the region's origin, as the TVs. There is no hardcoded fallback:
+  without that entry (an old `runtime.json`: run `world.belmonte` and `data.stage`) there is no counter. Within 2.6 m of the counter, on foot, the HUD offers "Parier au guichet" and Interact
+  (D-pad Down, E) opens the betting window.
+- **The window** (`SRacingBetWindow`, the game's forest-and-brass menu style): today's races still open to bets on the
+  left (the venue, distance and countdown), the selected race's runners with their silks, jockey, stable and current
+  odds on the right, the stake under them with the estimated return, then the player's open tickets and latest results.
+  Gamepad first: LB / RB change the race, up / down the horse, left / right the stake, the bottom button bets (once to
+  choose, again to confirm), the right button cancels or closes. The keyboard (Tab, arrows, Enter, Esc) and the mouse
+  work the same rows. It exists only while open and redraws when its data changes, never every frame. Under the open
+  races, "Demain · programme" previews the next race day, read-only (bets open on the day itself): its venue, event,
+  number of races, first distance and the countdown to its first race. The host builds it once a day, when a window
+  first opens, by running the day's close on a copy of the world (`ARacingService::BuildPreview`): the copy is taken on
+  the game thread (about 2 ms), the close runs on a worker (about 0.3 s), and the card gets it when it is done.
+- **Authority.** `URacingWallet`, a component on every player controller, carries the player's wallet view
+  (`FRacingWalletView`: coins, the day's stakes, open tickets and the last eight results) and, while their window is
+  open, the race card (`FRacingCard`), both replicated to their owner only. A guest's window sends `ServerPlaceBet`; the
+  host checks the request (sizes), then `ARacingService::PlaceBet`: betting on a race closes at its start, then the
+  rules' refusal decides (the runner, the stake, the day's limit, the balance, the tickets per race), and answers with
+  `ClientBetReply` (the refusal in French, empty when taken). At most five requests a second are looked at. Offline and
+  on the host the same calls run directly.
+- **Settlement.** The rules decide and settle a race at its start (`RunNextRace` pays the winners at the pool's odds,
+  refunds a race not run or a non-runner first, and the day's close refunds what is left). The wallet shows a decided
+  ticket as running, and its payout not yet in the coins, until 1.5 s after the winner is home
+  (`ARacingService::RevealSeconds`), so the result is never known before it is seen. Then the HUD shows one line
+  ("Pari gagnant : … +N pièces", "Pari perdu", "Pari remboursé") for seven seconds; no voice.
+- **HUD.** The purse sits under the health bar ("160 pièces · 1 pari en cours"). The host refreshes every wallet twice
+  a second and when the world changes; a bet republishes the snapshot so the TVs show the moved odds.
+- **Persistence.** The host's player's coins and tickets are part of the racing world and saved with it (`HRSave`
+  admission); a session player's are not.
+
 ## HUD
 
 Inside a racecourse's grounds the HUD shows one English line at the top: the next race and its countdown, "Race in
@@ -154,7 +197,11 @@ racing.TvCapture 0          # keep the TVs' capture off (the idle card only), to
 Launch flags: `-racingnext`, `-racingseed=`, `-racingsave=`. The live bridge has `unreal.RacingLive.racing_state()`
 (JSON: clock, race, each runner's distance, speed and position), `racing_next(lead)`, `racing_go(venue)` and
 `racing_view_point(along, outwards)` (a point by the course and the yaw facing it), `racing_tv_state()` (JSON: the screens,
-whether the capture is live, the shot, the nearest screen, frame and GPU times) and `racing_tv_go(spot)`.
+whether the capture is live, the shot, the nearest screen, frame and GPU times), `racing_tv_go(spot)`, `racing_wallet()`
+(JSON: the local wallet, the race card, the last answer, whether the player is at the counter and the window's
+selection), `racing_counter_go()` and `racing_bet(race, horse, stake)` (a request as the window sends it).
+`unreal.YorimichiLive.pad_input('Gamepad_DPad_Down', 1)` then `0` presses Interact through the gamepad mapping; the
+window takes the same pad keys.
 
 ## Tests
 
@@ -165,6 +212,11 @@ result after a race), `Save` (create, save and reload through the service on a t
 invalid save kept aside; one that cannot be moved left untouched with no world opened; a failed save keeping the world
 in memory, then succeeding), `Ground` (walls, rails, roofs and steep slopes ignored, the authored height after a miss), `TvPlacement` (the
 screens round the region origin, the osteria's watch point on its map stop, each watch point in front of its screen) and
-`TvDirector` (the shot list, the crowd camera, the same camera for the same clock, the leader in frame). `uv run pytest
+`TvDirector` (the shot list, the crowd camera, the same camera for the same clock, the leader in frame), `BetValidation`
+(every refusal, closing at the start, the limits, the card), `BetSettlement` (one winner at the rules' odds, saturation,
+the reveal after the post, settled once), `BetRefund` (a race not run, a non-runner), `BetPreview` (the next day from a copy, the world untouched, the same races and first start as the day the rules
+open), `BetPersistence` (the host's
+wallet and ticket saved and reloaded, a guest's never written) and `BetRequest` (owner-only replication, a guest's
+request and answer over the wire, refusals, the closed race, the result line). `uv run pytest
 games/yorimichi/tests/test_racing_courses.py -q` checks the committed course data, the simplification and the staging;
 `test_racing_assets.py` the asset validation and its lists against the service's.

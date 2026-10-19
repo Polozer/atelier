@@ -143,33 +143,56 @@ TV_BUILDING_SPOTS = (
 )
 
 
+def building_transform(data, mesh_name, what='Racing placement'):
+    """The one committed placement of an authored Belmonte building (its source.json transform)."""
+    assets = {m['source_asset'] for m in data['meshes'] if m['name'] == mesh_name}
+    placements = [p['transform'] for p in data['placements'] if p['asset'] in assets]
+    if len(assets) != 1 or len(placements) != 1:
+        raise ValueError(f'{what} requires exactly one committed {mesh_name} placement')
+    return placements[0]
+
+
+def building_point(tr, local_cm):
+    """A point of a building's local space (cm) in Belmonte-local cm, through its committed transform."""
+    return (planting.rotate(tr['rotation_xyzw'], np.asarray(local_cm, float) * np.asarray(tr['scale'], float))
+            + np.asarray(tr['translation_cm'], float)).round(2).tolist()
+
+
+def building_yaw(tr, local_yaw):
+    """A building-local yaw (degrees) in Belmonte-local degrees, in (-180, 180]."""
+    fwd = planting.rotate(tr['rotation_xyzw'], np.array([1., 0., 0.]))
+    yaw = round(((float(np.degrees(np.arctan2(fwd[1], fwd[0]))) + local_yaw + 180.) % 360.) - 180., 2)
+    return 180. if abs(yaw + 180.) < 1e-6 else yaw
+
+
 def tv_spots(data=None):
     """Derive the four Belmonte racing TV spots from the committed Osteria and Salon placements."""
     data = data or source.manifest()
-    by_name = {}
-    for mesh_name in {'SM_BM_BH_Osteria_Taproom', 'SM_BM_BHip_SalonHall'}:
-        assets = {m['source_asset'] for m in data['meshes'] if m['name'] == mesh_name}
-        placements = [p['transform'] for p in data['placements'] if p['asset'] in assets]
-        if len(assets) != 1 or len(placements) != 1:
-            raise ValueError(f'TV placement requires exactly one committed {mesh_name} placement')
-        by_name[mesh_name] = placements[0]
+    by_name = {name: building_transform(data, name, 'TV placement') for name in {'SM_BM_BH_Osteria_Taproom', 'SM_BM_BHip_SalonHall'}}
     out = []
     for spot_id, mesh_name, local_pivot, dyaw, local_watch, dwyaw, scale in TV_BUILDING_SPOTS:
         tr = by_name[mesh_name]
-        q = tr['rotation_xyzw']
-        t = np.asarray(tr['translation_cm'], float)
         s = np.asarray(tr['scale'], float)
-        fwd = planting.rotate(q, np.array([1., 0., 0.]))
-        base_yaw = float(np.degrees(np.arctan2(fwd[1], fwd[0])))
-        pivot = (planting.rotate(q, np.asarray(local_pivot, float) * s) + t).round(2).tolist()
-        watch = (planting.rotate(q, np.asarray(local_watch, float) * s) + t).round(2).tolist()
-        yaw = round(((base_yaw + dyaw + 180.) % 360.) - 180., 2)
-        if abs(yaw + 180.) < 1e-6:
-            yaw = 180.
-        watch_yaw = round(((base_yaw + dwyaw + 180.) % 360.) - 180., 2)
-        out.append({'id': spot_id, 'pivot_cm': pivot, 'yaw': yaw, 'watch_cm': watch, 'watch_yaw': watch_yaw,
+        out.append({'id': spot_id, 'pivot_cm': building_point(tr, local_pivot), 'yaw': building_yaw(tr, dyaw),
+                    'watch_cm': building_point(tr, local_watch), 'watch_yaw': building_yaw(tr, dwyaw),
                     'scale': float(scale * max(abs(v) for v in s[:2]))})
     return out
+
+
+# The Salon des Paris's betting windows (docs/RACING.md, "Betting"), in the Salon hall's local space: the player's spot
+# at the central window (GUICHET 2), facing the counter, and the counter's reach round it (cm).
+SALON_COUNTER = {'spot_cm': [-1760., 300., 15.], 'yaw': 180., 'half_length_cm': 380., 'reach_cm': 260., 'behind_cm': 150.,
+                 'below_cm': 80., 'above_cm': 260.}
+
+
+def racing_places(data=None):
+    """Belmonte's racing places (docs/RACING.md), derived from the committed building placements, for runtime.json."""
+    data = data or source.manifest()
+    salon = building_transform(data, 'SM_BM_BHip_SalonHall')
+    c = SALON_COUNTER
+    counter = {'at_cm': building_point(salon, c['spot_cm']), 'yaw': building_yaw(salon, c['yaw']),
+               **{k: c[k] for k in ('half_length_cm', 'reach_cm', 'behind_cm', 'below_cm', 'above_cm')}}
+    return {'counter': counter}
 
 
 def map_zones(town_z):
@@ -278,7 +301,8 @@ def main():
     town_z = float(source.terrain().height(0., -18.)) + L.ORIGIN[2] + 1.
     runtime = {'version': 1, 'origin_cm': L.native_origin(), 'bounds_m': L.BOUNDS,
                'clearance_m': list(terrain.OUTER), 'groups': groups, 'signs': signs, 'railway_corridor': L.RAILWAY,
-               'zones': map_zones(town_z), 'tv_spots': tv_spots(data)}
+               'zones': map_zones(town_z), 'tv_spots': tv_spots(data),
+               'racing_places': racing_places(data)}
     (OUT / 'runtime.json').write_text(json.dumps(runtime, separators=(',', ':')) + '\n')
     (OUT / 'build-report.json').write_text(json.dumps({'meshes': meshes, 'materials': materials,
                                                      'planting': plant_report, 'seam': seam}, indent=1) + '\n')
