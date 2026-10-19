@@ -29,6 +29,11 @@ shared waves, plant timing, replay, attenuation or pitch. Hoof stand-ins, skate,
 music and master volume MUST remain unaffected. Finished voices MUST auto-destroy;
 world/component teardown MUST stop and release only the owned human footstep voices.
 
+@cc [owner:fontanierh,label:correctness] local-skate-preferences
+Saved skate softening MUST default off and skate volume MUST default to one. These client-local
+controls MUST reach current and late audio-ready skate emitters in this world for every selected
+bank without loading a bank, and MUST leave footsteps, hoof stand-ins, music and master volume unaffected.
+
 @cc [owner:fontanierh,label:performance] horse-appearance-residency
 An accepted appearance change on a locally controlled horse that replaces breed, tack, coat or mask
 assets MUST release the old component references and request deferred engine collection with incremental

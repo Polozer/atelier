@@ -66,6 +66,9 @@ void UJapanFootstepComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void UJapanFootstepComponent::ApplyVoicePreferences(UAudioComponent* Voice,float BaseVolume) const
 {
     Voice->SetVolumeMultiplier(BaseVolume*FootstepVolume);
+    // Play copies these properties; the setters below reach only an already-active sound.
+    Voice->LowPassFilterFrequency=3000.f;
+    Voice->bEnableLowPassFilter=bSoftenFootsteps;
     Voice->SetLowPassFilterFrequency(3000.f);
     Voice->SetLowPassFilterEnabled(bSoftenFootsteps);
 }

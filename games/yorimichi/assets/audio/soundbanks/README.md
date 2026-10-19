@@ -80,6 +80,15 @@ The default audition profile's source lineage is recorded in
 contact timing and the reviewed playback change, without claiming a new native
 listening or compilation check.
 
+**Soften skate sounds** works the same way for the skateboard and also defaults
+off. It applies a 3 kHz low-pass to board rolls, grinds, slides, skids, foot
+brakes, pops and landings. **Skate volume** defaults to 1 and ranges from 0 to 1.
+Both save locally. They update loops and one-shots that are already playing as
+well as future ones, for every bank and for other riders heard on this device.
+Footsteps, hooves, music and overall volume are unaffected. Envelopes, pitch,
+attenuation and timing are unchanged; see
+`../profile/skate-preferences-revalidation.json`.
+
 `audio.soundbank_import_plan` validates the current committed catalog, every
 prepared WAV (including surfaces omitted from the audition), the audition PCM,
 and the current profile/producer bindings. It emits a portable plan for the normal

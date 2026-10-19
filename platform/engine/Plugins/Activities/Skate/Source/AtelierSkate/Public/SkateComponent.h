@@ -161,6 +161,9 @@ public:
      * Subscribers must filter their world and remove their binding on teardown. */
     static FSkateAudioReady AudioReady;
     bool IsAudioReady() const { return Loops.Num() == 5 + SurfaceRolls.Num(); }
+    /** Client presentation only: gain and an optional 3 kHz low-pass for this board's loops and one-shots,
+     *  including voices already playing. Shared waves, pitch, attenuation and timing are unchanged. */
+    void SetAudioPreferences(bool bSoften, float Volume);
 
     // QA
     FName GetLastTrick() const { return LastTrickName; }
@@ -172,6 +175,8 @@ public:
 private:
     friend class FRemoteVehiclePresentationTest;
     friend class FSkateSoundSetTest;
+    friend class FSkateAudioPreferencesTest;
+    friend class FJapanSkatePreferencesTest;
     UPROPERTY() TObjectPtr<ACharacter> Rider;
     ISkateRider* RiderApi = nullptr;
     UPROPERTY() TObjectPtr<USceneComponent> BoardRoot;
@@ -190,6 +195,13 @@ private:
     UPROPERTY() TArray<TObjectPtr<USoundWave>> OriginalLoops;
     TMap<FName, FIntPoint> OriginalCueRange;
     bool bOriginalSoundsCaptured = false;
+    bool bSoftenSounds = false;
+    float SoundVolume = 1.f;
+    // Weak handles cannot retain finished auto-destroy one-shots or a replaced sound set.
+    TMap<TWeakObjectPtr<UAudioComponent>, float> ShotVoices;
+    void ApplyVoicePreferences(UAudioComponent* Voice, float BaseVolume) const;
+    void PlayShotVoice(USoundWave* Wave, const FVector& At, float Volume, float Pitch);
+    void StopShotVoices();
     ESkateSurface Surface = ESkateSurface::None;
     int32 LastVariant = -1;
     void LoadSounds();

@@ -275,9 +275,19 @@ void UJapanSoundBanks::FootReady(UJapanFootstepComponent* Component)
     if(Active)
         if(!RegistryCurrent(LastError) || !Component->SetSoundBank(Active,LastError)) UE_LOG(LogTemp,Error,TEXT("Soundbank new foot emitter: %s"),*LastError);
 }
+void UJapanSoundBanks::SetSkatePreferences(bool bSoften,float Volume)
+{
+    if(!IsInGameThread() || bShuttingDown || !FMath::IsFinite(Volume)) return;
+    bSoftenSkate=bSoften;
+    SkateVolume=FMath::Clamp(Volume,0.f,1.f);
+    for(auto* Component:Ready<USkateComponent>(GetWorld()))
+        Component->SetAudioPreferences(bSoftenSkate,SkateVolume);
+}
 void UJapanSoundBanks::SkateReady(USkateComponent* Component)
 {
-    if(!bShuttingDown && Active && IsValid(Component) && Component->GetWorld()==GetWorld())
+    if(bShuttingDown || !IsValid(Component) || Component->GetWorld()!=GetWorld()) return;
+    Component->SetAudioPreferences(bSoftenSkate,SkateVolume);
+    if(Active)
         if(!RegistryCurrent(LastError) || !Component->SetSoundSet(Cast<USkateSoundSet>(Active->Skate),LastError)) UE_LOG(LogTemp,Error,TEXT("Soundbank new skate emitter: %s"),*LastError);
 }
 void UJapanSoundBanks::StopPreview()

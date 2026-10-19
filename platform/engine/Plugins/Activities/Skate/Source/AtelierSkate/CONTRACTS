@@ -10,3 +10,11 @@ Invalid or not-ready requests MUST leave current audio unchanged. All replacemen
 validated before activation; Original references MUST stay retained for restoration. Changed loops
 MUST stop before receiving replacement waves and resume through existing speed, pitch and envelope
 logic. Absent override keys MUST inherit Original, never a previous alternative.
+
+@cc [owner:fontanierh,label:correctness] client-skate-audio-preferences
+Skate audio preferences MUST affect only local audio presentation, including remote proxy
+presentation. At default (no softening, gain one) a request MUST leave loop components, envelopes
+and filters untouched. Softening and gain MUST update current and future loops and one-shots for
+every sound set, using per-voice filtering and gain, without changing shared waves, envelopes,
+pitch, attenuation, timing, simulation or network state. One-shot voices MUST auto-destroy;
+EndPlay MUST stop and release only the owned one-shot voices.

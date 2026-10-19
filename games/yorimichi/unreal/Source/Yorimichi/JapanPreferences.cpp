@@ -182,6 +182,8 @@ void UJapanPreferences::Initialize(AWandererCharacter* Pawn)
         {TEXT("music_volume"),TEXT("Music volume"),.6f,0.f,1.f,.05f},
         {TEXT("soften_footsteps"),TEXT("Soften footsteps"),0.f,0.f,1.f},
         {TEXT("footstep_volume"),TEXT("Footstep volume"),1.f,0.f,1.f,.05f},
+        {TEXT("soften_skate"),TEXT("Soften skate sounds"),0.f,0.f,1.f},
+        {TEXT("skate_volume"),TEXT("Skate volume"),1.f,0.f,1.f,.05f},
         {TEXT("goofy"),TEXT("Skate stance"),0.f,0.f,1.f},
         {TEXT("stamina_rings"),TEXT("Stamina rings"),2.f,1.f,5.f},
         {TEXT("mouse"),TEXT("Look sensitivity"),.4f,.04f,.8f},
@@ -287,7 +289,7 @@ bool UJapanPreferences::IsToggle(const FString& Key)
 {
     return Key == TEXT("performance") || Key == TEXT("renderer") || Key == TEXT("tree_optimization") ||
         Key == TEXT("show_fps") || Key == TEXT("fog") || Key == TEXT("leaf_motion") || Key == TEXT("laptop") || Key == TEXT("goofy") ||
-        Key == TEXT("music") || Key == TEXT("soften_footsteps");
+        Key == TEXT("music") || Key == TEXT("soften_footsteps") || Key == TEXT("soften_skate");
 }
 float UJapanPreferences::Get(const TCHAR* Key) const
 {
@@ -466,7 +468,10 @@ void UJapanPreferences::Apply()
     // The soundtrack (this client only), under the overall volume.
     if (Owner->IsLocallyControlled()) if (auto* Music = Owner->GetWorld()->GetSubsystem<UJapanMusic>()) Music->SetPreferences(Get(TEXT("music")) > .5f, Get(TEXT("music_volume")));
     if(auto* Banks=Owner->GetWorld()->GetSubsystem<UJapanSoundBanks>())
+    {
         Banks->SetFootstepPreferences(Get(TEXT("soften_footsteps"))>.5f,Get(TEXT("footstep_volume")));
+        Banks->SetSkatePreferences(Get(TEXT("soften_skate"))>.5f,Get(TEXT("skate_volume")));
+    }
     for (const auto& Material : Materials)
         for (const auto& Pair : TArray<TPair<FName,const TCHAR*>>{
             {TEXT("Strength"),TEXT("painterly")},{TEXT("Radius"),TEXT("paint_radius")},{TEXT("Toon"),TEXT("toon")},
@@ -722,6 +727,8 @@ FString MainHint(const FString& Key)
         {TEXT("music_volume"),TEXT("How loud the soundtrack plays. It always sits under the sound effects.")},
         {TEXT("soften_footsteps"),TEXT("Round off sharp higher frequencies in footsteps and foot landings on this device.")},
         {TEXT("footstep_volume"),TEXT("Footsteps and foot landings only. Horse hooves, skateboard sounds and music keep their own volume.")},
+        {TEXT("soften_skate"),TEXT("Round off sharp higher frequencies in skateboard rolls, grinds, slides, pops and landings on this device.")},
+        {TEXT("skate_volume"),TEXT("Skateboard sounds only. Footsteps, horse hooves and music keep their own volume.")},
         {TEXT("stamina_rings"),TEXT("How many stamina rings you have.")},
         {TEXT("mouse"),TEXT("How fast the mouse turns the camera.")},
         {TEXT("cam_dist"),TEXT("How far the camera follows behind you.")},
@@ -1167,7 +1174,7 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
     if (JapanNetwork::IsOnline(Owner->GetWorld()))
         Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(STextBlock).AutoWrapText(true).ColorAndOpacity(FLinearColor::White)
             .Text(FText::FromString(TEXT("You can change characters during the session. Shared games use two stamina rings and default skate physics.")))];
-    TArray<FString> Toggles = {TEXT("performance"),TEXT("laptop"),TEXT("fog"),TEXT("leaf_motion"),TEXT("show_fps"),TEXT("goofy"),TEXT("music"),TEXT("soften_footsteps")};
+    TArray<FString> Toggles = {TEXT("performance"),TEXT("laptop"),TEXT("fog"),TEXT("leaf_motion"),TEXT("show_fps"),TEXT("goofy"),TEXT("music"),TEXT("soften_footsteps"),TEXT("soften_skate")};
     Page->Section();
     for (const FString& Key : Toggles)
     {
@@ -1179,6 +1186,8 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
                     : (MusicReady() ? TEXT("Music: on · fades in and out with what you're doing") : TEXT("Music: on · no music library on this machine")));
                 if(Key==TEXT("soften_footsteps")) return FText::FromString(Enabled
                     ? TEXT("Soften footsteps: on") : TEXT("Soften footsteps: off"));
+                if(Key==TEXT("soften_skate")) return FText::FromString(Enabled
+                    ? TEXT("Soften skate sounds: on") : TEXT("Soften skate sounds: off"));
                 if (Key == TEXT("goofy")) return FText::FromString(Enabled
                     ? TEXT("Skate stance: Goofy · right foot forward")
                     : TEXT("Skate stance: Regular · left foot forward"));
