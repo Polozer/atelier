@@ -76,8 +76,10 @@ editor invocations. The first preflights all media before rebuilding only
 `/Game/AudioBanks`, saves mono 48 kHz PCM/ForceInline waves and hard-reference data
 assets, and records a candidate with actual saved-package checksums. The second
 starts a fresh editor, repeats admission, verifies those unchanged packages and
-all loaded references, then publishes the registry. `data.stage` carries that
-registry into `Data/Soundbanks`; the owned packages are included in cooking and
+all loaded references, then publishes the registry. `data.soundbanks` carries that
+registry into `Data/Soundbanks`; general `data.stage` reads the staged product so
+packaging retains the complete dependency. Audio-only fixture staging therefore
+does not depend on world generation. The owned packages are included in cooking and
 preserved by content cleanup. A candidate receipt is never runtime metadata.
 
 This import increment does not install a menu selector or activate an alternative.

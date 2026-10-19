@@ -1283,13 +1283,19 @@ def staging_steps(ctx):
     """Runtime data copied into Content/Data after its producers complete."""
     out = ctx.out
     return [
+        Step('data.soundbanks', [Python(GAME / 'soundbank_stage.py',
+                                       ('--out', out, '--destination', GAME / 'unreal/Content/Data/Soundbanks'))],
+             inputs=[GAME / 'soundbank_stage.py'], reads=['soundbanks.native'],
+             outputs=[GAME / 'unreal/Content/Data/Soundbanks/registry.json'],
+             products=[Product('soundbanks.staged', (GAME / 'unreal/Content/Data/Soundbanks',))],
+             about='verified native soundbank registry, independently of world generation'),
         Step('data.stage', [Call('stage_data', stage_data)],
              inputs=[GAME / 'runtime_data.py', REGIONS / 'skatepark' / 'park.json', ASSETS / 'ui/fonts/atlas-serif.ttf',
                      *(CHARS / 'portraits' / f'{c.id}.png' for c in definition.movers() if c.playable)],
              needs=['world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.craterpark', 'world.crater_cloud', 'world.belmonte', 'world.bike',
                     *[f'characters.{key(c)}_{kind}' for c in definition.movers() for kind, wanted in
                       (('bike', c.playable), ('grips', (GRIPS / c.id).is_dir())) if wanted]],
-             reads=['soundbanks.native'],
+             reads=['soundbanks.staged'],
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / rel for rel in staged(out)], about='runtime files into unreal/Content/Data'),
     ]
 
