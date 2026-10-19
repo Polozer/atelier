@@ -108,8 +108,10 @@ def split(builder, prefix, settle):
     """Tiles of TILE metres, and per tile a solid part and a soft part (foliage cards, water, spray).
 
     Faces in the collar follow the eased ground (settle); water, foam and spray stay at sea level, and plant cards
-    whose ground went under the sea are dropped. The ground itself is already eased: settle is None for it."""
-    parts, outside, drowned = {}, 0, 0
+    whose ground went under the sea are dropped. The ground itself is already eased: settle is None for it.
+    Faces with a collapsed corner (a cone's apex quad) lose the repeat, and faces with no area are dropped:
+    Unreal drops them on import, and the import checks every tile's triangle count against this report."""
+    parts, outside, drowned, degenerate = {}, 0, 0, 0
     ox0, oy0, ox1, oy1 = R.OUTER
     for f, mat in zip(builder.faces, builder.mats):
         pts = [builder.verts[i] for i in f]
@@ -123,13 +125,32 @@ def split(builder, prefix, settle):
                 drowned += 1
                 continue
             pts = [(p[0], p[1], p[2] + d) for p, (d, _) in zip(pts, moves)]
+        corners = [k for k in range(len(pts)) if snap(pts[k]) != snap(pts[k - 1])]
+        if len(corners) < 3 or area(pts[k] for k in corners) < 1e-6:
+            degenerate += 1
+            continue
         key = (int((cx - ox0) // TILE), int((cy - oy0) // TILE), soft(mat))
         part = parts.get(key)
         if part is None:
             part = parts[key] = Builder(f'SM_BC_{prefix}_{key[0]}_{key[1]}' + ('_Soft' if key[2] else ''))
-        normals = [builder.normals[i] for i in f] if builder.normals is not None else None
-        part.face(pts, mat, [builder.uvs[i] for i in f], normals)
-    return parts, outside, drowned
+        normals = [builder.normals[f[k]] for k in corners] if builder.normals is not None else None
+        part.face([pts[k] for k in corners], mat, [builder.uvs[f[k]] for k in corners], normals)
+    return parts, outside, drowned, degenerate
+
+
+def snap(p):
+    return tuple(round(c, 5) for c in p)
+
+
+def area(points):
+    """A planar polygon's area from its Newell normal."""
+    points = list(points)
+    nx = ny = nz = 0.0
+    for (x0, y0, z0), (x1, y1, z1) in zip(points, points[1:] + points[:1]):
+        nx += (y0 - y1) * (z0 + z1)
+        ny += (z0 - z1) * (x0 + x1)
+        nz += (x0 - x1) * (y0 + y1)
+    return math.sqrt(nx * nx + ny * ny + nz * nz) / 2
 
 
 def blender_materials():
@@ -276,11 +297,12 @@ def main():
     settled = settle(rim_shape)
     print(f'ground: {seam}; {time.time() - started:.0f}s', flush=True)
     sources = [('Ground', terrain)] + [(name, fn()) for name, fn in MODULES]
-    report_outside, report_drowned = {}, {}
+    report_outside, report_drowned, report_degenerate = {}, {}, {}
     for prefix, builder in sources:
-        parts, outside, drowned = split(builder, prefix, None if prefix == 'Ground' else settled)
+        parts, outside, drowned, degenerate = split(builder, prefix, None if prefix == 'Ground' else settled)
         report_outside[prefix] = outside
         report_drowned[prefix] = drowned
+        report_degenerate[prefix] = degenerate
         for (_, _, is_soft), part in sorted(parts.items()):
             obj = mesh_object(part, materials)
             path = OUT / 'glb' / f'{part.name}.glb'
@@ -337,7 +359,7 @@ def main():
                           'hint': 'The pirate port in the western reach: market, galleons and the waterfall'}]}
     (OUT / 'runtime.json').write_text(json.dumps(runtime, separators=(',', ':')) + '\n')
     report = {'meshes': meshes, 'materials': material_entries, 'seam': seam, 'outside_faces': report_outside,
-              'drowned_faces': report_drowned,
+              'drowned_faces': report_drowned, 'degenerate_faces': report_degenerate,
               'triangles': sum(m['triangles'] for m in meshes),
               'instances': sum(len(g['transforms']) for g in groups)}
     (OUT / 'build-report.json').write_text(json.dumps(report, indent=1) + '\n')
