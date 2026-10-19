@@ -15,6 +15,8 @@ class UCharacterMovementComponent;
 class UAudioComponent;
 class USoundWave;
 class USkateSoundSet;
+class USkateComponent;
+DECLARE_MULTICAST_DELEGATE_OneParam(FSkateAudioReady, USkateComponent*);
 class USoundAttenuation;
 class FSkateRuntime;
 struct FSkateContinuation;
@@ -155,6 +157,10 @@ public:
     /** Read-only preflight for hosts switching several emitters in one game-thread transaction. */
     bool CanSetSoundSet(const USkateSoundSet* Replacement, FString& Error) const;
     const USkateSoundSet* GetSoundSet() const { return ActiveSoundSet.Get(); }
+    /** Host presentation hooks run after legacy audio is ready, including late visual proxies.
+     * Subscribers must filter their world and remove their binding on teardown. */
+    static FSkateAudioReady AudioReady;
+    bool IsAudioReady() const { return Loops.Num() == 5 + SurfaceRolls.Num(); }
 
     // QA
     FName GetLastTrick() const { return LastTrickName; }

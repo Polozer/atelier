@@ -1,4 +1,5 @@
 #include "JapanPreferences.h"
+#include "JapanSoundBanks.h"
 #include "JapanCharacterSelect.h"
 #include "DevNotes.h"
 #include "AtelierSettings.h"
@@ -237,6 +238,12 @@ void UJapanPreferences::Initialize(AWandererCharacter* Pawn)
                 Blend.Object = Material; Materials.Add(Material);
             }
     Apply();
+    if(Owner->IsLocallyControlled())
+        if(auto* Banks=Owner->GetWorld()->GetSubsystem<UJapanSoundBanks>())
+        {
+            const float Choice=Saved(TEXT("soundbank"),0.f);
+            Banks->Restore(Choice>=0.f && Choice<=3.f && Choice==FMath::FloorToFloat(Choice)?int32(Choice):0);
+        }
 }
 FString UJapanPreferences::FilePath()
 {
@@ -638,6 +645,15 @@ bool UJapanPreferences::Save()
     }
     return Saved;
 }
+bool UJapanPreferences::SaveSoundBank(int32 Selection)
+{
+    if(!IsValid(Owner) || !Owner->IsLocallyControlled()) return false;
+    const auto Before=SavedValues;
+    SavedValues.Add(TEXT("soundbank"),FString::FromInt(Selection));
+    if(Save()) return true;
+    SavedValues=Before;
+    return false;
+}
 void UJapanPreferences::ResetLight()
 {
     for (auto& V : Values)
@@ -896,6 +912,7 @@ void UJapanPreferences::ToggleMenu()
 void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
 {
     if (!GEngine || !GEngine->GameViewport) return;
+    if(Owner) if(auto* Banks=Owner->GetWorld()->GetSubsystem<UJapanSoundBanks>()) Banks->StopPreview();
     const TSharedPtr<SWidget> Before = Menu;
     if (Menu) { GEngine->GameViewport->RemoveViewportWidgetContent(Menu.ToSharedRef()); Menu.Reset(); }
     TSharedRef<SVerticalBox> Rows = SNew(SVerticalBox);
@@ -1159,6 +1176,28 @@ void UJapanPreferences::OpenMenu(bool bSkate, const FString& FocusKey)
     // Every way the board rides, on a page of its own.
     Rows->AddSlot().AutoHeight().Padding(0,0,0,10)[Page->Add(SNew(SButton).IsEnabled(!JapanNetwork::IsOnline(Owner->GetWorld())).Text(FText::FromString(TEXT("Skate feel · pop, flicks, rails, speed, bails...")))
         .OnClicked_Lambda([ShowPage] { ShowPage(true,FString()); return FReply::Handled(); }),TEXT("skate_feel"),TEXT("Difficulty presets, or every value of the board's feel."))];
+    if(Owner && Owner->IsLocallyControlled())
+        if(auto* Banks=Owner->GetWorld()->GetSubsystem<UJapanSoundBanks>())
+        {
+            const TWeakObjectPtr<UJapanSoundBanks> WeakBanks=Banks;
+            const TWeakObjectPtr<UJapanPreferences> WeakPreferences=this;
+            const auto Cycle=[WeakBanks,WeakPreferences](int32 Direction)
+            {
+                if(auto* Choice=WeakBanks.Get()) Choice->Cycle(Direction,[WeakPreferences](int32 Selection)
+                { auto* Preferences=WeakPreferences.Get(); return Preferences && Preferences->SaveSoundBank(Selection); });
+            };
+            Page->Section();
+            Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[Page->Add(Setting(
+                [WeakBanks] { auto* Choice=WeakBanks.Get(); return FText::FromString(TEXT("Soundbank: ")+(Choice?Choice->Label():TEXT("Original"))); },
+                [Cycle] { Cycle(1); },[Cycle](int32 Direction) { Cycle(Direction); }),TEXT("soundbank"),
+                TEXT("Choose this device's footsteps and skateboard sounds. Original keeps the existing mix. The choice is saved locally."))];
+            Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[Page->Add(SNew(SButton)
+                .Text_Lambda([WeakBanks] { auto* Choice=WeakBanks.Get(); return FText::FromString(Choice && Choice->IsPreviewing()?TEXT("Stop soundbank preview"):TEXT("Preview soundbank (16 seconds)")); })
+                .OnClicked_Lambda([WeakBanks] { if(auto* Choice=WeakBanks.Get()) { if(Choice->IsPreviewing()) Choice->StopPreview(); else Choice->Preview(); } return FReply::Handled(); }),
+                TEXT("soundbank_preview"),TEXT("Walking, running and a roll/slide/landing sequence, at the same preview level for every bank."))];
+            Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(STextBlock).AutoWrapText(true)
+                .Text_Lambda([WeakBanks] { auto* Choice=WeakBanks.Get(); return FText::FromString(Choice?Choice->Error():FString()); })];
+        }
     Page->Section();
     for (int32 I = 0; I < Values.Num(); ++I)
     {
@@ -1234,6 +1273,7 @@ void UJapanPreferences::OpenGraphicsWarning(const FString& Key)
 }
 void UJapanPreferences::CloseMenu()
 {
+    if(Owner) if(auto* Banks=Owner->GetWorld()->GetSubsystem<UJapanSoundBanks>()) Banks->StopPreview();
     if (Menu && GEngine && GEngine->GameViewport) GEngine->GameViewport->RemoveViewportWidgetContent(Menu.ToSharedRef());
     Menu.Reset();
     if (Owner) Owner->SetMenuOpen(false);

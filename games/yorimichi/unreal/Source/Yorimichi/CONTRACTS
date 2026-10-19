@@ -11,6 +11,16 @@ Fresh Original MUST retain the existing sample and shuffle paths. Horse hoof sta
 use Original pools and their Original shuffle state. Alternatives MUST retain independent shuffle
 state, and invalid or not-ready requests MUST leave the active bank and plant state unchanged.
 
+@cc [owner:fontanierh,label:correctness] local-world-soundbank-menu
+Fresh Original MUST retain existing cue, shuffle, attenuation and mix behavior without loading
+alternative banks or an audition. A bank selection MUST validate its current staged identity,
+complete loaded foot/skate coverage and every ready emitter before saving or changing any emitter.
+Failed saves, invalid assets and obsolete async completions MUST preserve the active bank.
+The local world's choice MUST apply to new local and remote emitters without replicating that
+choice or changing simulation, plant timing, replay or network authority. Old active loops MUST
+stop before a changed wave is installed; Original references MUST remain available for restoration.
+One owned menu preview MUST stop/cancel on selection, menu close, backgrounding and world teardown.
+
 @cc [owner:fontanierh,label:performance] horse-appearance-residency
 An accepted appearance change on a locally controlled horse that replaces breed, tack, coat or mask
 assets MUST release the old component references and request deferred engine collection with incremental
