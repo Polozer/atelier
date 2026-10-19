@@ -117,3 +117,12 @@ Clients MUST NOT grant or revoke admission locally. Unadmitted players carried b
 departing coach MUST be recovered only to verified walkable non-train ground with standing capsule
 clearance and a swept floor, never beside a coach in a tunnel or on a viaduct and never via an
 unverified fallback teleport. Platform bystanders intersected by a passing coach MUST NOT be relocated.
+
+@cc [owner:fontanierh,label:correctness] racing-service-and-broadcasts
+ARacingService MUST own FHRWorldState only on authority, persist world saves atomically
+with unreadable/invalid save quarantine rather than silent overwrite, register only the
+local host player until guest identity persistence exists, and replicate only the compact
+FRacingNetState snapshot (never FHRWorldState::Seed). RacingMotion::Distance, RacingGround::Pick
+hit selection and RacingTv::Direct camera selection from the snapshot, shared clock and
+spectator positions MUST be deterministic, with zero per-frame network traffic and no silent breed/coat/clip
+stand-ins when required assets are missing.

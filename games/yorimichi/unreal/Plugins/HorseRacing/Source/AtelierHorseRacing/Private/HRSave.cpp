@@ -418,8 +418,15 @@ namespace HRSave
 					A.Check(Entrants.Contains(F.HorseId), W + TEXT(" has a finisher that was not entered"));
 					A.Range(F.Place, 0, MaxEntries, W + TEXT(" place"));
 					A.Range(F.Gross, 0, MaxCoins, W + TEXT(" prize"));
+					A.Range(F.TimeUs, 0, 3600000000LL, W + TEXT(" finish time"));
 					A.Size(F.Segments.Num(), 16, W + TEXT(" segments"));
+					for (const FHRSegment& Seg : F.Segments)
+					{
+						A.Range(Seg.TimeUs, 0, 3600000000LL, W + TEXT(" segment time"));
+						A.Range(Seg.CumulativeUs, 0, 3600000000LL, W + TEXT(" cumulative time"));
+					}
 					A.Size(F.RunTimesUs.Num(), 2, W + TEXT(" run times"));
+					for (int64 RunUs : F.RunTimesUs) A.Range(RunUs, 0, 3600000000LL, W + TEXT(" run time"));
 				}
 			};
 			Finishes(R.Finishes);
@@ -519,6 +526,8 @@ namespace HRSave
 		if (!Error.IsEmpty()) return false;
 		HRVisual::FillMissingLoci(Parsed);
 		HRBreeds::FillMissing(Parsed);
+		Error = Validate(Parsed);
+		if (!Error.IsEmpty()) return false;
 		Out = MoveTemp(Parsed);
 		return true;
 	}
