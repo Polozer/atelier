@@ -12,7 +12,7 @@ import atlas
 
 
 SCENES = {
-    'world': 'The complete known world as one continuous island continent: the autumn southern coast and temple islet, the blue-roofed coastal city of Hidamari, the maple woods and hamlet, the wooded northern foothills, the great snowy volcanic caldera and the northern pastoral country with its racecourse and railway. Keep their very different true scales and their exact outer edges.',
+    'world': 'The complete existing landmasses and water gaps, small southern autumn settlements and temple islet, the eastern city, wooded foothills, broad snowy volcanic caldera and northern pastoral country. Keep their very different true scales and their exact outer edges.',
     'momiji_coast': 'An autumn coastal countryside: a winding road, small fishing cove, timber docks, shoreline houses and the precisely shaped concrete skate pier. Maple groves meet a turquoise sea.',
     'momiji_woods': 'Deep autumn woodland, winding footpaths, a hidden irregular lake with a cabin and jetty, a small traditional hamlet, and the two separated timber ramp sections. Dense rounded tree crowns, warm gold and moss green.',
     'hidamari': 'A compact Japanese coastal town: preserve the entire street grid, blue-grey roofs, market arcade, clock square, harbor quays, canal, temple hillside, green park and railway station. Fine, readable roof-plan detail.',
@@ -51,10 +51,6 @@ def main():
         raise ValueError('Prepare a reference with exactly the production frame before painting')
     inputs = [plan, *([args.coast_mask] if args.coast_mask else []), *([args.style] if args.style else [])]
     request = prompt(args.key)
-    if args.key == 'world':
-        request += '''
-TOP-LEVEL WORLD OVERVIEW: Image 1 contains large straight-edged rectangular tint boundaries from terrain data products, especially a square around Haras Valley, a rectangle around the volcanic highlands, and a translucent rectangle over the western hills. These are rendering artifacts, NOT real borders. Blend them away completely into continuous terrain. There must be no straight-edged rectangular colour changes, no hard tile boundaries and no visible product seams anywhere. Keep the real contours and terrain inside those areas. The World view is a single island plate: keep the sea around the coast, and do not add a decorative rectangular margin, title block or frame.
-'''
     if args.coast_mask:
         request = request.replace('Image 2, if present, is ONLY a painterly style reference; ignore all its text, layout, symbols and geography.',
                                   'Image 2 is the authoritative coast mask. Image 3, if present, is ONLY a painterly style reference; ignore all its text, layout, symbols and geography.')
