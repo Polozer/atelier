@@ -88,7 +88,7 @@ def register(args):
         crop_rgb = parent_rgb[y0:y1, x0:x1].astype(np.float32)
         painted_rgb = np.asarray(painted.convert('RGB').resize((width, height), Image.LANCZOS)).astype(np.float32)
         # Match the region sea to the plate sea in the margin ring outside the rectangle.
-        pad = 20
+        pad = args.tone_ring
         ring = np.zeros(parent_rgb.shape[:2], dtype=bool)
         ring[max(0, y0 - pad):y1 + pad, max(0, x0 - pad):x1 + pad] = True
         ring[y0:y1, x0:x1] = False
@@ -100,10 +100,10 @@ def register(args):
         offset = parent_rgb[outside_sea].mean(axis=0) - painted_rgb[region_sea].mean(axis=0)
         painted_rgb[region_sea] += offset
         feather = max(1, args.edge)
-        alpha = np.ones((height, width), dtype=np.float32)
         ramp = np.minimum(np.arange(width) + .5, np.arange(width)[::-1] + .5)[None, :]
         ramp_y = np.minimum(np.arange(height) + .5, np.arange(height)[::-1] + .5)[:, None]
-        alpha = np.minimum(np.minimum(ramp, ramp_y) / feather, 1.)
+        alpha = np.clip(np.minimum(ramp, ramp_y) / feather, 0, 1)
+        alpha = alpha * alpha * (3 - 2 * alpha)
         blended = crop_rgb * (1 - alpha[..., None]) + np.clip(painted_rgb, 0, 255) * alpha[..., None]
         output = parent_rgb.copy()
         output[y0:y1, x0:x1] = np.clip(blended, 0, 255).astype(np.uint8)
@@ -143,6 +143,7 @@ def main():
     parser.add_argument('--mask', type=Path)
     parser.add_argument('--work', type=Path, required=True)
     parser.add_argument('--edge', type=int, default=6)
+    parser.add_argument('--tone-ring', type=int, default=20, dest='tone_ring')
     parser.add_argument('--out', type=Path)
     parser.add_argument('--out-record', type=Path)
     args = parser.parse_args()

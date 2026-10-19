@@ -51,7 +51,7 @@
   "status": "done",
   "started_at": "2026-10-18T21:56:41.788099+00:00",
   "output": "brinecove.png",
-  "output_sha256": "b6eb955f3db41f43101a4144192fd8142b17adabfbd98a1b18a335389b472670",
+  "output_sha256": "742470bd5ddb449204807b99e77f03c17b5ca3d21e361d2de13d53c17c84878a",
   "usage": {
     "input_tokens": 4027,
     "input_tokens_details": {
@@ -67,16 +67,47 @@
   },
   "elapsed_seconds": 38.5,
   "finished_at": "2026-10-18T21:57:20.364056+00:00",
+  "refactor_revalidation": {
+    "witness": "coasts/mountain-equivalence.json",
+    "sha256": "9d973eed0d51cbba66088af58e304dac73d26e9249ac2dc29d0fe659a9c3a149"
+  },
+  "correction": {
+    "kind": "signed-donor-land-registration",
+    "donor": "momiji_coast",
+    "donor_sha256": "45d27bb9984ffb43f11e50563575c987e381e41dc252c6caded33f9b1cd0d16d",
+    "donor_record_sha256": "ea7b16abf7ddcfc7a1c9cb00aa126cdff722c3b7850b98d6b702e3aa0aa9d6a2",
+    "donor_mask_sha256": "cf290e00757116d5b54530187380776e60d21708211c85ff752db1f0f1504313",
+    "target_mask_sha256": "ca433cee6311b0efbe9326a806c29e9ac0e9a6720adec2194b1e01665b06e18c",
+    "rect": [
+      -600.0,
+      -200.0,
+      -360.0,
+      20.0
+    ],
+    "feather": 6,
+    "box": [
+      1389,
+      353,
+      1536,
+      488
+    ],
+    "changed_pixels": 8197,
+    "alpha_pixels": 8199,
+    "fill_missing": true,
+    "fill_grow": 8,
+    "coast_error": 0.0032335917154947915,
+    "helper_sha256": "1cefc745ff89022e6ec8ba2267293e0a45f4c8e1ad9cdbff8619192dee5cb720"
+  },
   "verified_geography": {
     "kind": "terrain-reference-revalidation",
     "geography": {
-      "world/gen_world.py": "8de171737b8153806269cbce9f59ec1c488255849ad106b10e0a15e7602e6fd4",
+      "world/gen_world.py": "9763dfffa7b4c2e9c186d469124289fad26510254a7c16e15d6a1604ed26c4ef",
       "world/build_terrain.py": "2a810d3a4698765c24044379e053f67e56817b90ab871b78814a2233d9515a09",
-      "world/farhills_surface.py": "933584fbdd019282261b66cb8efa8a20734c7c1a4f566705b5ca3d09dce308b8",
+      "world/farhills_surface.py": "4b2e2ab9cb3f8410a6725554de2c40a926da3091f89671af422de0884c69b3dc",
       "world/farhills_grid.py": "6451e5894c63e3eedcded121cef2f477a9615c36b1dd61715d16938ab53228c4",
       "world/terrain_product.py": "6d9dc77173d8edb5a5486154e0cc1004d7b649f9ed87b1f7e3aa4c5655ed84bd",
       "world/north_mountain_surface.py": "380fac8eece8794a9d8737444af73b3e3979227470aba3de49d415df42477816",
-      "world/regions/hidamari/layout.py": "77a123cab1392733328d2d1601adb2598312648a9080c7926898269d13955487",
+      "world/regions/hidamari/layout.py": "e75a568aa7ed08af5ceb386078922ed41daea8455afc241d1d41987940b2bbbf",
       "world/regions/hidamari/mountains.py": "f2a09621e6e6d61b070b284e79333b5312bcc118f681d8cedac53eb82a13aae6",
       "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
       "world/regions/belmonte/terrain.py": "8e832f29acab661fd7fceadda4e816d52bdb8ae0453d8ce35033b1831c1df2b5",
@@ -92,14 +123,10 @@
       "world/regions/brinecove/layout.py": "c17638453c0609316cef6bd2db523f2590711a44f104625097e9c67c7cb549f5",
       "world/regions/brinecove/ground.py": "d0cb5decc01c21b55c8e658ce1c29aa3f1e8e7c9da3002688cb1b60278d5f062",
       "world/regions/brinecove/plan.py": "ee166c5bcd608096f4a00124de2f8b44df750baf323a52164432059aac6e359b",
-      "world/shorelines.py": "2577aa192cdf093e208ccbebe7f46cd075ab731c3e29bacfef7b259499a51eb9"
+      "world/shorelines.py": "087b0fe32ea76a8082e1aed80581b24261bead89ee2db165a3ee053f5f5d1006"
     },
-    "painting_sha256": "b6eb955f3db41f43101a4144192fd8142b17adabfbd98a1b18a335389b472670",
-    "coast_sha256": "66ebfb579e2b421a0408015b568aa4999f3f6e6325c85ad7b1365c985de59363",
-    "reference_sha256": "ff1c461b121be46e5df6bb799551ff78067c2d74e06fef0e3eb1a9be3a135f05"
-  },
-  "refactor_revalidation": {
-    "witness": "coasts/mountain-equivalence.json",
-    "sha256": "9d973eed0d51cbba66088af58e304dac73d26e9249ac2dc29d0fe659a9c3a149"
+    "painting_sha256": "742470bd5ddb449204807b99e77f03c17b5ca3d21e361d2de13d53c17c84878a",
+    "coast_sha256": "ca433cee6311b0efbe9326a806c29e9ac0e9a6720adec2194b1e01665b06e18c",
+    "reference_sha256": "f50268081b9e0a21fdd02b5a2cc2d94f89e38ccf8abd970e8244943f28f605fb"
   }
 }
