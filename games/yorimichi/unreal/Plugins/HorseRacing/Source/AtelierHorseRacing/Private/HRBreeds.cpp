@@ -1,5 +1,6 @@
 #include "HRBreeds.h"
 #include "HRRandom.h"
+#include "HRVisualGenome.h"
 
 namespace HRBreedsPrivate
 {
@@ -48,4 +49,67 @@ bool HRBreeds::TryGenerate(const FString& Seed, const TMap<FString, FHRGenePair>
     }
     Out = FHRGenePair(Alleles[0], Alleles[1]);
     return true;
+}
+
+FString HRBreeds::Express(const FHRGenePair* Pair)
+{
+    FString Out;
+    if (!TryExpress(Pair, Out))
+        UE_LOG(LogTemp, Fatal, TEXT("HorseRacing Express requires valid breed alleles; validate with TryExpress"));
+    return Out;
+}
+
+FString HRBreeds::Express(const TMap<FString, FHRGenePair>& Genome)
+{
+    return Express(Genome.Find(Gene));
+}
+
+FHRGenePair HRBreeds::Generate(const FString& Seed, const TMap<FString, FHRGenePair>* Mother,
+    const TMap<FString, FHRGenePair>* Father)
+{
+    FHRGenePair Out;
+    if (!TryGenerate(Seed, Mother, Father, Out))
+        UE_LOG(LogTemp, Fatal, TEXT("HorseRacing Generate requires valid parent breed alleles; validate with TryGenerate"));
+    return Out;
+}
+
+int32 HRBreeds::FillMissing(FHRWorldState& S)
+{
+    TArray<FString> Ids;
+    S.Horses.GetKeys(Ids);
+    Ids.Sort([&S](const FString& A, const FString& B)
+    {
+        const int32 BA = S.Horses[A].BirthT, BB = S.Horses[B].BirthT;
+        return BA != BB ? BA < BB : A.Compare(B, ESearchCase::CaseSensitive) < 0;
+    });
+    TSet<FString> Done;
+    int32 Filled = 0;
+    TFunction<void(const FString&)> Complete = [&](const FString& Id)
+    {
+        bool bSeen = false;
+        Done.Add(Id, &bSeen);
+        if (bSeen || !S.Horses.Contains(Id) || S.Horses[Id].Genome.Contains(Gene)) return;
+        const TArray<FString> ParentIds = S.Horses[Id].Parents;
+        const FHRHorse* M = nullptr;
+        const FHRHorse* F = nullptr;
+        if (ParentIds.Num() == 2)
+        {
+            Complete(ParentIds[0]);
+            Complete(ParentIds[1]);
+            M = S.Horses.Find(ParentIds[0]);
+            F = S.Horses.Find(ParentIds[1]);
+        }
+        FHRHorse& H = S.Horses[Id];
+        H.Genome.Add(Gene, Generate(H.Seed, M ? &M->Genome : nullptr, F ? &F->Genome : nullptr));
+        Filled++;
+    };
+    for (const FString& Id : Ids) Complete(Id);
+    return Filled;
+}
+
+float HRBreeds::IndividualScale(const FHRPhenotype& P)
+{
+    const double* W = P.MorphWeights.Find(TEXT("body.height"));
+    const float Height = W ? FMath::Clamp((float)*W, -1.f, 1.f) : 0.f;
+    return (1.f + 0.2f * Height) * (1.f - 0.4f * (float)P.Juvenile);
 }
