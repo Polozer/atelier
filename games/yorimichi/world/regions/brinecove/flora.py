@@ -215,7 +215,8 @@ def _blade(b, base, ang, length, width, rise, bend, mat, segments=4, up=0.75):
         t = k / segments
         d = length * t
         z = base[2] + rise * t - bend * t * t
-        w = width * (1.0 - t) ** 0.7 * (0.6 + 0.4 * math.sin(math.pi * min(1.0, t * 1.4)))
+        # The tip keeps a sliver of width: a zero-width tip makes degenerate triangles that Unreal drops on import.
+        w = width * max(0.08, (1.0 - t) ** 0.7) * (0.6 + 0.4 * math.sin(math.pi * min(1.0, t * 1.4)))
         cx, cy = base[0] + ca * d, base[1] + sa * d
         rows.append(((cx - px * w, cy - py * w, z), (cx + px * w, cy + py * w, z)))
     n = (ca * (1 - up), sa * (1 - up), up)

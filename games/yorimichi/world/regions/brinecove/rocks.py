@@ -145,7 +145,8 @@ def boulder(b, x, y, base, size, rng, mat='rock', yaw=None, bury=0.35, strata=0.
     concept; the material projects its texture in world space, so the mesh needs no UVs. The faces share one anchor,
     so the collar moves the rock whole (build.split)."""
     sx, sy, sz = size
-    level = level if level is not None else (2 if max(sx, sy, sz) > 12.0 else 1)
+    # Only the largest masses need the finer sphere; the fracture planes carry the shape of the rest.
+    level = level if level is not None else (2 if max(sx, sy, sz) > 22.0 else 1)
     verts, tris = _icosphere(level)
     yaw = rng.uniform(0, TAU) if yaw is None else yaw
     ca, sa = math.cos(yaw), math.sin(yaw)
@@ -251,7 +252,7 @@ def vines(b, x, y, z_top, length, width, out, rng):
             s += rng.uniform(-0.4, 0.4)
 
 
-def cliff_rocks(b, rng, spacing=9.0):
+def cliff_rocks(b, rng, spacing=12.0):
     """Dress every steep, dry face with big stepped blocks under hanging green. Returns the number of outcrops.
 
     The bridge paintings (references/bridge.py) read the cliffs as a few large angular masses with flat fractured
