@@ -32,14 +32,15 @@ def test_play_memory_limit_is_opt_in():
     assert parse_args(['play', 'sandbox', '--memory-gib', '12', *UNREAL]).memory_gib == 12.
 
 
-@pytest.mark.parametrize('gib', [8., 16.])
+@pytest.mark.parametrize('gib', [8., 9.999, 24.001, 25., float('inf'), float('-inf'), float('nan')])
 def test_play_refuses_a_memory_limit_out_of_range(gib):
     from atelier.cli import play
     with pytest.raises(SystemExit, match='--memory-gib'):
         play('sandbox', 'play', '', [], gib)
 
 
-def test_script_play_forwards_the_selected_memory_limit(monkeypatch, tmp_path):
+@pytest.mark.parametrize('gib', [10., 18., 23.5, 24.])
+def test_script_play_forwards_the_selected_memory_limit(monkeypatch, tmp_path, gib):
     from types import SimpleNamespace
     from atelier import cli
     ctx = SimpleNamespace(out=tmp_path, game_dir=tmp_path, env=lambda: {})
@@ -48,5 +49,20 @@ def test_script_play_forwards_the_selected_memory_limit(monkeypatch, tmp_path):
         'script': 'launcher.py', 'args': ['--memory-gib={memory_gib}']}}})
     commands = []
     monkeypatch.setattr(cli.subprocess, 'call', lambda command, **kwargs: commands.append(command) or 0)
-    assert cli.play('sandbox', 'play', 'show_fps=1', [], 12.) == 0
-    assert commands[0][2:] == ['--memory-gib=12', '--settings', 'show_fps=1']
+    assert cli.play('sandbox', 'play', 'show_fps=1', [], gib) == 0
+    assert commands[0][2:] == [f'--memory-gib={gib:g}', '--settings', 'show_fps=1']
+
+
+@pytest.mark.parametrize('gib', [None, 18., 24.])
+def test_direct_play_passes_selected_or_default_ceiling_to_guard(monkeypatch, tmp_path, gib):
+    from types import SimpleNamespace
+    from atelier import cli
+    from atelier.harness.safety import guarded
+    ctx = SimpleNamespace(out=tmp_path, unreal_app=tmp_path / 'Editor', uproject=tmp_path / 'Game.uproject', env=lambda: {})
+    monkeypatch.setattr(cli, 'Context', lambda game: ctx)
+    monkeypatch.setattr(cli.manifest, 'game', lambda game: {'play': {'play': {'args': ['-game']}}})
+    calls = []
+    monkeypatch.setattr(guarded, 'run', lambda command, folder, **kwargs: calls.append(kwargs) or 0)
+    assert cli.play('sandbox', 'play', '', [], gib) == 0
+    assert calls[0]['limit_gib'] == (10. if gib is None else gib)
+    assert calls[0]['kind'] == 'game'

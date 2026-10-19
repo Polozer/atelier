@@ -122,7 +122,7 @@ The measured city tile/tree generators use three workers. This result does not c
 
 Keep memory ceilings above measured peaks with room for growth. Reservations cover both process and tree
 guards; do not add the machine's host reserve again. A game normally uses 10 GiB.
-`atelier play GAME --memory-gib 12` requests and reserves a larger ceiling for that session; the supported range is 10–14 GiB.
+`atelier play GAME --memory-gib 12` requests and reserves a larger ceiling for that session; the supported range is 10–24 GiB.
 Do not edit machine profiles to use it. Quit test games promptly.
 
 Disk is telemetry only. Jobs can still fail when disk fills; admission does not protect against that.
