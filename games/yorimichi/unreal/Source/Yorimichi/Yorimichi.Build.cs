@@ -13,7 +13,7 @@ public class Yorimichi : ModuleRules
         // Normalize CRLF to LF only for source; content identity remains byte-exact.
         // Track every enumerated source so UBT cannot reuse an old compatibility definition.
         string Root = Path.GetFullPath(Path.Combine(ModuleDirectory, "../../../../.."));
-        string[] Roots = { Path.Combine(Root, "games/yorimichi/unreal/Source"), Path.Combine(Root, "games/yorimichi/unreal/Config"), Path.Combine(Root, "platform/engine/Plugins") };
+        string[] Roots = { Path.Combine(Root, "games/yorimichi/unreal/Source"), Path.Combine(Root, "games/yorimichi/unreal/Config"), Path.Combine(Root, "games/yorimichi/unreal/Plugins"), Path.Combine(Root, "platform/engine/Plugins") };
         string[] Extensions = { ".h", ".hpp", ".cpp", ".c", ".cs", ".uplugin", ".inl", ".inc", ".mm", ".m", ".ush", ".usf", ".ini", ".uproject" };
         string[] Ignored = { "Binaries", "Intermediate", "Saved", "DerivedDataCache", "__pycache__" };
         var Files = Roots.SelectMany(Dir => Directory.EnumerateFiles(Dir, "*", SearchOption.AllDirectories))

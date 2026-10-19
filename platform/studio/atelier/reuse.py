@@ -66,6 +66,45 @@ def copy_tree(source, target, source_repo, target_repo, clone):
         shutil.copy2(source, target)
 
 
+
+def plugin_binaries(repo, game_root):
+    roots = [repo / 'platform/engine/Plugins', game_root / 'Plugins']
+    return sorted(b for root in roots for b in root.rglob('Binaries')
+                  if b.is_dir() and 'Intermediate' not in b.relative_to(root).parts)
+
+
+def binary_inventory(repo, roots):
+    """Inventory copied native trees, retaining the link rewrite performed by copy_tree."""
+    entries, observed = {}, []
+    def visit(path):
+        before = path.lstat()
+        observed.append((path, before))
+        name = path.relative_to(repo).as_posix()
+        if stat.S_ISLNK(before.st_mode):
+            link = os.readlink(path)
+            if link.startswith(str(repo) + '/'):
+                link = '<repo>' + link[len(str(repo)):]
+            entries[name] = ('link', link)
+        elif stat.S_ISDIR(before.st_mode):
+            entries[name] = ('directory',)
+            for child in sorted(path.iterdir()):
+                visit(child)
+        elif stat.S_ISREG(before.st_mode):
+            with path.open('rb') as stream:
+                digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+            entries[name] = ('file', before.st_mode & 0o777, before.st_size, digest)
+        else:
+            raise ValueError('Non-regular plugin binary: ' + name)
+    for root in roots:
+        visit(root)
+    for path, before in observed:
+        after = path.lstat()
+        pin = lambda st: (st.st_dev, st.st_ino, st.st_mode, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+        if pin(before) != pin(after):
+            raise ValueError('Plugin binaries changed during inventory')
+    return entries
+
+
 def _inputs(snapshot):
     return [(s['name'], s.get('verified_fingerprint', s['fingerprint'])) for s in snapshot['steps']]
 
@@ -210,6 +249,8 @@ def _copy(game, source, target=None, *, operation_id):
     Named products MUST match the donor stamps and the independently copied target byte for byte.
     A journal MUST block build/play/package until all checks and stamp installation complete.
     Registry caches MUST NOT be carried over or left stale in the receiving checkout.
+    Platform and selected-game project plugin Binaries MUST be independently copied and
+    verified; their source and Intermediate directories MUST NOT be treated as copied products.
     A guarded worker MUST keep the receiving journal until its parent observes successful guard
     cleanup and capacity close, bound to the same operation identity.
     """
@@ -248,7 +289,9 @@ def _copy(game, source, target=None, *, operation_id):
     from .reuse_inspect import excluded
     copies = [item for item in (source / 'build' / game).iterdir() if not excluded(item.name)]
     copies += [game_root / 'Content', game_root / 'Binaries']
-    copies += [b for b in (source / 'platform/engine/Plugins').rglob('Binaries') if b.is_dir() and 'Intermediate' not in b.parts]
+    binaries = plugin_binaries(source, game_root)
+    binary_before = binary_inventory(source, binaries)
+    copies += binaries
     if found := occupied(target, [item.relative_to(source) for item in copies]):
         raise ValueError('Target already has its own files where artifacts would be copied; use a fresh worktree: '
                          + ', '.join(found[:5]) + (f' and {len(found) - 5} more' if len(found) > 5 else ''))
@@ -284,6 +327,9 @@ def _copy(game, source, target=None, *, operation_id):
             raise ValueError('Source revision changed during copying; target stamps have not been created')
     if not all(s['outputs_ok'] for s in after['steps']):
         raise ValueError('Required outputs are missing; target stamps have not been created')
+    if (binary_before != binary_inventory(source, plugin_binaries(source, game_root))
+            or binary_before != binary_inventory(target, plugin_binaries(target, target_project))):
+        raise ValueError('Plugin binaries changed during copying; target stamps have not been created')
     stamps = _staging(game, target, operation_id)
     stamps.mkdir(parents=True, exist_ok=True)
     stamp_sha256 = {}
@@ -333,7 +379,8 @@ def _remove_partial(game, target):
         parts = path.parts
         in_build = parts[:2] == ('build', game) and len(parts) >= 3 and not excluded(parts[2])
         in_game = parts in (('games', game, 'unreal', 'Content'), ('games', game, 'unreal', 'Binaries'))
-        in_plugin = parts[:3] == ('platform', 'engine', 'Plugins') and len(parts) >= 5 and parts[-1] == 'Binaries'
+        in_plugin = ((parts[:3] == ('platform', 'engine', 'Plugins') and len(parts) >= 5)
+                     or (parts[:4] == ('games', game, 'unreal', 'Plugins') and len(parts) >= 6)) and parts[-1] == 'Binaries'
         if path.is_absolute() or '..' in parts or not (in_build or in_game or in_plugin):
             raise SystemExit('Unsafe path in reuse journal; no files removed')
         absolute = target / path

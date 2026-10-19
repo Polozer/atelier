@@ -63,6 +63,9 @@ Scenarios run against the game from another terminal: `uv run atelier qa yorimic
 | `treehouse`, `treehouse_walk`, `treehouse_tour` | the tree house's reference views, a filmed walk through it and a camera tour |
 | `skate_showreel`, `megapark_tour`, `megapark_access_film`, `megapark_ride_film` | filmed takes, with `*_mix.py` scripts to cut them |
 
+Horse racing rules belong to the game-local [HorseRacing plugin](unreal/Plugins/HorseRacing/README.md).
+The normal editor compile, standalone cook and multiplayer identity include its source.
+
 ## What is in the game
 
 **World.** A painted world map with travel points ([docs/WORLD_MAP.md](docs/WORLD_MAP.md)) covers:

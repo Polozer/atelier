@@ -7,8 +7,9 @@ convenience calls MUST fail explicitly on invalid arguments in every build, neve
 or produce a fallback draw. Untrusted values MUST use the nonfatal checked APIs.
 
 @cc [owner:fontanierh,label:architecture] racing-rules-boundary
-Rules MUST remain independent of game names, actors, UI and rendering assets. A game owns
-its presentation, authored venue data, runtime authority and persistence admission.
+Yorimichi MUST own the racing plugin, its rules and build inputs under its game directory.
+Rules MUST remain independent of actors, UI and rendering assets; presentation, authored venue
+data, runtime authority and persistence admission remain separate game-owned concerns.
 
 @cc [owner:fontanierh,label:correctness] racing-clock-boundaries
 The calendar MUST retain the reference two-hour days, twelve-day seasons, horse-age
