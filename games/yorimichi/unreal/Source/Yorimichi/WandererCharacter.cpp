@@ -1037,7 +1037,16 @@ void AWandererCharacter::Interact(const FInputActionValue&) {
  }
  if(bReady&&!bMenuOpen&&IsLocallyControlled()&&!SkateRide->IsRiding()&&!OnVehicle()&&!IsZeppelinPassenger()&&ABelmonteTrainService::TryInteract(this))return;
  // In the saddle nothing is used (online the host refuses boarding off foot, ServerZeppelinInput).
- if(SkateRide->IsRiding()||Horse->IsEquipped())return; if(bReady&&!bMenuOpen&&Sword&&!Sword->CancelForInterrupt(true))return; if(bReady&&!bMenuOpen&&GetZeppelin()&&GetZeppelin()->TryInteract(this))return; if(bReady&&!bMenuOpen&&ASwordTrainer::TryInteract(this))return; if (CanAct() && StandForAction()) SetAction(TEXT("Interact")); }
+ if(SkateRide->IsRiding()||Horse->IsEquipped()||!bReady||bMenuOpen)return;
+ auto* Ship=GetZeppelin();
+ const bool bZeppelinReach=Ship&&(Ship->IsPassenger(this)||Ship->CanReach(this));
+ const ASwordTrainer* Trainer=ASwordTrainer::Find(this);
+ const bool bTrainerReach=Trainer&&Trainer->CanTalk(this);
+ if(!bZeppelinReach&&!bTrainerReach)return;
+ if(Sword&&!Sword->CancelForInterrupt(true))return;
+ if(bZeppelinReach&&Ship->TryInteract(this))return;
+ ASwordTrainer::TryInteract(this);
+}
 void AWandererCharacter::ToggleMenu(const FInputActionValue&)
 {
     if (!bReady) return;
