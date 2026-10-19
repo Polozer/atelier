@@ -91,3 +91,32 @@ def test_cannon_barrel_shades_round_with_outward_unit_normals():
             assert abs(sum(c * c for c in n) - 1.0) < 1e-6
             assert sum(face[k] * n[k] for k in range(3)) > 0.0
     assert smooth >= 20 * 30  # the barrel is a 20-sided lathe of about thirty bands
+
+
+def test_cannon_barrel_normals_are_radial_on_the_barrel_and_flat_on_ring_steps():
+    """Smoothing stays on the continuous barrel: cylinder and chase bands within one facet step plus a shallow
+    profile kink of the radial, ring steps and the muzzle annulus exactly flat, so no band or seam shows."""
+    import math
+    origin, d, profile = LM.cannon_barrel()
+    b = Builder('barrel')
+    LM._lathe(b, origin, d, profile, sides=LM.CANNON_SIDES)
+
+    def unit(v):
+        n = math.sqrt(sum(c * c for c in v))
+        return [c / n for c in v]
+
+    for f_index, f in enumerate(b.faces):
+        (s0, r0, _), (s1, r1, mat) = profile[f_index // LM.CANNON_SIDES], profile[f_index // LM.CANNON_SIDES + 1]
+        p = [b.verts[i] for i in f]
+        e1 = [p[1][k] - p[0][k] for k in range(3)]
+        e2 = [p[2][k] - p[0][k] for k in range(3)]
+        face = unit((e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]))
+        for i in f:
+            n = b.normals[i]
+            if abs(s1 - s0) < 1e-9:
+                assert sum(n[k] * face[k] for k in range(3)) > math.cos(math.radians(0.5))
+            elif r0 > 0 and r1 > 0 and mat == 'metal' and abs(r1 - r0) / abs(s1 - s0) < 0.1:
+                rel = [b.verts[i][k] - origin[k] for k in range(3)]
+                along = sum(rel[k] * d[k] for k in range(3))
+                radial = unit([rel[k] - along * d[k] for k in range(3)])
+                assert sum(n[k] * radial[k] for k in range(3)) > math.cos(math.radians(16.0))

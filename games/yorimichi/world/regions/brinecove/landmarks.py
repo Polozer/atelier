@@ -142,24 +142,39 @@ def _wall_lantern(b, x, y, z, ny):
 
 # --- the cannon ------------------------------------------------------------------------------------------------
 
+# The barrel's profile as (s along the bore from the breech face, radius), in metres before CANNON_K: cascabel
+# knob, breech, base ring, reinforces and their rings, chase, muzzle swell and the bore.
+CANNON_PROFILE = (
+    (-0.36, 0.0), (-0.345, 0.06), (-0.31, 0.095), (-0.27, 0.105), (-0.23, 0.09), (-0.20, 0.055), (-0.13, 0.06),
+    (-0.08, 0.17), (-0.035, 0.27), (0.0, 0.31), (0.0, 0.335), (0.07, 0.335), (0.07, 0.31), (0.10, 0.305),
+    (0.88, 0.29), (0.88, 0.315), (0.95, 0.315), (0.95, 0.27), (1.52, 0.255), (1.52, 0.28), (1.58, 0.28),
+    (1.58, 0.225), (2.30, 0.20), (2.36, 0.185), (2.40, 0.205), (2.46, 0.205), (2.52, 0.24), (2.62, 0.265),
+    (2.68, 0.265), (2.68, 0.14), (2.40, 0.14), (2.40, 0.0))
+CANNON_K, CANNON_SIDES = 1.06, 20          # barrel scale (3.2 m from muzzle to cascabel) and lathe sides
+CANNON_BORE = 2                            # the last two bands are the dark bore
+
+
+def cannon_barrel():
+    """(origin, axis, profile) of the barrel lathe in the cannon's own frame (muzzle toward -y)."""
+    tz, ty = 1.0, -0.30                    # trunnion axis height and position
+    lift = math.radians(3.0)
+    d = (0.0, -math.cos(lift), math.sin(lift))
+    s_t = 1.12 * CANNON_K                  # trunnions sit 3/7 of the way along
+    origin = (0.0, ty - d[1] * s_t, tz - d[2] * s_t)
+    n = len(CANNON_PROFILE)
+    profile = [(s * CANNON_K, r * CANNON_K, 'flag_black' if i >= n - CANNON_BORE else 'metal')
+               for i, (s, r) in enumerate(CANNON_PROFILE)]
+    return origin, d, profile
+
+
 def cannon(b, x, y, z, yaw=0.0, scale=1.0):
     """An iron gun on a stepped oak sea carriage, about 3.2 m overall. yaw 0 aims the muzzle seaward (-y)."""
     start = len(b.verts)
-    k = 1.06                       # barrel scale: 3.2 m from muzzle to cascabel
-    tz, ty = 1.0, -0.30            # trunnion axis height and position
-    lift = math.radians(3.0)
-    d = (0.0, -math.cos(lift), math.sin(lift))
-    s_t = 1.12 * k                 # trunnions sit 3/7 of the way along
-    origin = (0.0, ty - d[1] * s_t, tz - d[2] * s_t)
-    iron, bore = 'metal', 'flag_black'
-    prof = [(-0.36, 0.0, iron), (-0.345, 0.06, iron), (-0.31, 0.095, iron), (-0.27, 0.105, iron),
-            (-0.23, 0.09, iron), (-0.20, 0.055, iron), (-0.13, 0.06, iron), (-0.08, 0.17, iron),
-            (-0.035, 0.27, iron), (0.0, 0.31, iron), (0.0, 0.335, iron), (0.07, 0.335, iron), (0.07, 0.31, iron),
-            (0.10, 0.305, iron), (0.88, 0.29, iron), (0.88, 0.315, iron), (0.95, 0.315, iron), (0.95, 0.27, iron),
-            (1.52, 0.255, iron), (1.52, 0.28, iron), (1.58, 0.28, iron), (1.58, 0.225, iron), (2.30, 0.20, iron),
-            (2.36, 0.185, iron), (2.40, 0.205, iron), (2.46, 0.205, iron), (2.52, 0.24, iron), (2.62, 0.265, iron),
-            (2.68, 0.265, iron), (2.68, 0.14, iron), (2.40, 0.14, bore), (2.40, 0.0, bore)]
-    _lathe(b, origin, d, [(s * k, r * k, m) for s, r, m in prof], sides=20)
+    k = CANNON_K
+    tz, ty = 1.0, -0.30
+    origin, d, profile = cannon_barrel()
+    iron = 'metal'
+    _lathe(b, origin, d, profile, sides=CANNON_SIDES)
     # Trunnions, cap squares and their bolts.
     for side in (-1, 1):
         b.cylinder((side * 0.25, ty, tz), (side * 0.58, ty, tz), 0.10, iron, 10)
