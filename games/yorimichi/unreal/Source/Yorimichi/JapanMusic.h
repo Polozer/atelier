@@ -93,6 +93,7 @@ private:
     FChannel Channels[2];
     bool bStarted = false, bEnabled = true;
     float Volume = .6f;
+    int32 Failures = 0;
     double Clock = 0., NextDecision = 0., RestUntil = 0., SceneSince = 0., LastCombat = -1000., SilentSince = 0.;
     FString Pool, PendingPool, LastStyle, Zone;
     TArray<int32> Recent;

@@ -1,5 +1,6 @@
 #include "JapanMusic.h"
 #include "EngineUtils.h"
+#include "Engine/Engine.h"
 #include "FoxHunter.h"
 #include "HorseComponent.h"
 #include "BikeComponent.h"
@@ -54,8 +55,12 @@ namespace
     FAutoConsoleCommandWithWorld MusicStatus(TEXT("japan.MusicStatus"), TEXT("Log the soundtrack's pool, track and rest."),
         FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
         {
-            if (const UJapanMusic* Music = World ? World->GetSubsystem<UJapanMusic>() : nullptr)
-                UE_LOG(LogTemp, Display, TEXT("MUSIC %s"), *Music->Describe());
+            // The game's world, whichever world the command arrived with.
+            if (GEngine && (!World || !World->IsGameWorld()))
+                for (const FWorldContext& Context : GEngine->GetWorldContexts())
+                    if (Context.World() && Context.World()->IsGameWorld()) { World = Context.World(); break; }
+            const UJapanMusic* Music = World ? World->GetSubsystem<UJapanMusic>() : nullptr;
+            UE_LOG(LogTemp, Display, TEXT("MUSIC %s"), Music ? *Music->Describe() : TEXT("music: no game world"));
         }));
     float EqualPower(float X) { return FMath::Sin(FMath::Clamp(X, 0.f, 1.f) * HALF_PI); }
 }
@@ -186,6 +191,8 @@ void UJapanMusic::OnWorldBeginPlay(UWorld& InWorld)
     {
         UMediaPlayer* Player = NewObject<UMediaPlayer>(this);
         Player->PlayOnOpen = true;
+        // Electra plays the library's MP3s; AvfMedia lists no mp3 extension.
+        Player->SetDesiredPlayerName(FName(TEXT("ElectraPlayer")));
         Player->SetLooping(false);
         UMediaSoundComponent* Sound = NewObject<UMediaSoundComponent>(Holder);
         Sound->Channels = EMediaSoundChannels::Stereo;
@@ -358,6 +365,7 @@ void UJapanMusic::Tick(float DeltaTime)
         FChannel& Ch = Channels[C];
         if (Ch.Track == INDEX_NONE) continue;
         Ch.Fade = FMath::Clamp(Ch.Fade + Ch.FadeRate * DeltaTime, 0.f, 1.f);
+        if (Failures && Players[C]->GetTime().GetTotalSeconds() > 2.) Failures = 0;
         ApplyGain(C);
         if (Ch.FadeRate < 0.f && Ch.Fade <= 0.f)
         {
@@ -378,9 +386,18 @@ void UJapanMusic::Tick(float DeltaTime)
         UMediaPlayer* Player = Players[C];
         if (!Player->IsPlaying() && !Player->IsPreparing() && !Player->IsBuffering())
         {
-            UE_LOG(LogTemp, Display, TEXT("MUSIC stopped track=\"%s\""), *Tracks[Ch.Track].Title);
+            const bool bFailed = Player->GetTime().GetTotalSeconds() < 1.;
+            UE_LOG(LogTemp, Display, TEXT("MUSIC %s track=\"%s\""), bFailed ? TEXT("failed") : TEXT("stopped"), *Tracks[Ch.Track].Title);
             Player->Close();
             Ch = FChannel();
+            // A track that never played is not retried at once: rest, and after a few failures give up quietly.
+            if (bFailed && ++Failures >= 4)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("MUSIC off: the media player cannot play this library"));
+                bStarted = false;
+                return;
+            }
+            if (bFailed) Rest(20.f, 40.f);
         }
     }
 

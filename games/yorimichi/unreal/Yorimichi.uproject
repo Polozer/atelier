@@ -79,6 +79,10 @@
     {
       "Name": "AtelierStream",
       "Enabled": true
+    },
+    {
+      "Name": "ElectraPlayer",
+      "Enabled": true
     }
   ]
 }
