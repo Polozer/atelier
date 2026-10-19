@@ -52,7 +52,7 @@ def face_x(y, z, x_hi, x_lo=425.0):
     return lo
 
 
-def sheet(b, lip_x, y0, y1, top, bottom, rng, throw=4.0, segments=12):
+def sheet(b, lip_x, y0, y1, top, bottom, rng, throw=4.0, segments=12, widen=0.18):
     """One continuous curtain of falling water from a lip at lip_x toward -x, widening as it falls.
 
     The streak texture's alpha breaks the curtain up; a darker water body sits just behind it. Strips of separate
@@ -66,7 +66,7 @@ def sheet(b, lip_x, y0, y1, top, bottom, rng, throw=4.0, segments=12):
     for k in range(rows + 1):
         s = k / rows
         z = top - (top - bottom) * s
-        spread = 0.18 * (y1 - y0) * s * s
+        spread = widen * (y1 - y0) * s * s
         row = []
         for c in range(cols + 1):
             t = c / cols
@@ -192,12 +192,13 @@ def waterfall(b):
     lower_lip = face_x(L.GORGE_Y, pool - 0.6, lower + 4.0) + 0.4
     pool_surface(b, lower_lip, upper_lip, 14.0, pool, 'water_shallow')
     # Lower fall: the pool spills through the notch in a wide, 30 m sheet into the sea.
-    sheet(b, lower_lip, L.GORGE_Y - 8.0, L.GORGE_Y + 8.0, pool, -0.4, rng, throw=4.5, segments=24)
+    # It widens only a little: where its edges spread over the notch's flanks, the cliff toe stands proud of the lip
+    # and the clamp to the face dragged the curtain's corner out along the slope (note 9 third capture). The paired
+    # ribbon beside it hugged the same toe as a white smear with rock showing through, so it is gone.
+    sheet(b, lower_lip, L.GORGE_Y - 8.0, L.GORGE_Y + 8.0, pool, -0.4, rng, throw=4.5, segments=24, widen=0.05)
     # A second, slightly proud layer fills the gaps, so the curtain reads white and continuous.
-    sheet(b, lower_lip - 0.5, L.GORGE_Y - 6.5, L.GORGE_Y + 6.5, pool - 0.3, -0.4, rng, throw=5.2, segments=24)
-    # A narrower second ribbon set beside it, as in the painting's paired falls.
-    sheet(b, face_x(L.GORGE_Y + 10.5, pool - 2.5, lower + 2.0) + 0.3, L.GORGE_Y + 9.0, L.GORGE_Y + 12.0,
-          pool - 2.0, 0.0, rng, throw=3.0, segments=12)
+    sheet(b, lower_lip - 0.5, L.GORGE_Y - 6.5, L.GORGE_Y + 6.5, pool - 0.3, -0.4, rng, throw=5.2, segments=24,
+          widen=0.05)
     # Froth down the curtain and white water spilling over the lip: the painting's fall is a churning white
     # column, not one smooth sheet.
     for k in range(5):
@@ -316,17 +317,27 @@ def rope_bridge(b, x, lanterns=False, half=17.0):
 
 
 def shrine(b, rng, lower, upper_lip):
-    """A small stone shrine with lanterns on the ledge beside the pool, facing the harbor."""
-    sx, sy = (lower + upper_lip) / 2 + 2.0, L.GORGE_Y + 21.0
-    sz = L.height(sx, sy)
+    """A small stone shrine with lanterns on the flat ledge above the pool, its back tucked against the cliff
+    riser, facing the harbor. Its podium reaches down into the rock wherever the ground drops away (note 9 second
+    review: the old site straddled the ledge's lip and its base hung in the air over the cliff slope)."""
+    sx, sy = (lower + upper_lip) / 2 + 8.0, L.GORGE_Y + 21.0
+    foot = [L.height(sx + dx, sy + dy) for dx in (-3.7, -1.8, 0.0, 1.8, 3.7) for dy in (-3.1, 0.0, 3.1)]
+    sz = max(foot) + 0.4
+    low = min(foot) - 1.5
+    b.box((sx, sy, (low + sz - 0.1) / 2), (7.0, 5.8, sz - 0.1 - low), 'stone')
     b.box((sx, sy, sz + 0.3), (7.4, 6.2, 0.8), 'stone')
     b.box((sx, sy, sz + 2.1), (4.4, 3.6, 3.0), 'stone_light')
     b.box((sx - 2.25, sy, sz + 1.6), (0.3, 1.6, 2.2), 'wood_dark')
     b.hip_roof((sx, sy, sz + 3.6), 4.4, 3.6, sz + 3.6, 1.8, 'roof_teal', 0, overhang=0.7)
     for dy in (-2.4, 2.4):
         lantern_post(b, sx - 3.4, sy + dy, sz + 0.6, 2.2)
+    # Steps down off the podium's front, each a solid block to the ground, stopping where they meet it.
     for k in range(4):
-        b.box((sx - 4.2 - k * 0.8, sy, sz + 0.5 - k * 0.35), (0.8, 2.4, 0.3), 'stone')
+        x, tread = sx - 4.1 - k * 0.8, sz + 0.35 - k * 0.35
+        g = max(L.height(x + dx, sy + dy) for dx in (-0.4, 0.4) for dy in (-1.2, 1.2))
+        if tread < g + 0.1:
+            break
+        b.box((x, sy, (tread + g - 0.6) / 2), (0.8, 2.4, tread - g + 0.6), 'stone')
     for _ in range(5):
         b.card((sx + rng.uniform(-3, 3), sy + 3.2, sz + rng.uniform(1.5, 3.5)), (0, -1, 0.2), 1.4, 1.4,
                'leaf_mid', cell_uvs(rng.randrange(4)))

@@ -1,4 +1,5 @@
 """Assemble Brinecove as nine separate collections, then hand them to the Blender exporter."""
+import functools
 import json
 import math
 import random
@@ -40,7 +41,22 @@ def cell_material(a, bb, c, d, gx, gy, sl, i, j):
         return 'terrain' if sl > 0.45 else 'seabed'
     if sl < 0.4 and L.town_floor(gx, gy):
         return yard_material(gx, gy)
+    if falls_cliff(gx, gy, zavg) and (sl > 0.3 or max(a[2], bb[2], c[2], d[2]) - min(a[2], bb[2], c[2], d[2]) > 1.6):
+        return 'rock'
     return rocks.terrain_material(gx, gy, zavg, sl, i, j)
+
+
+@functools.lru_cache(maxsize=1)
+def _falls_zone():
+    g = L.gorge_levels()
+    return g['lower'] - 45.0, g['upper'] + 8.0, g['pool'] + 14.0
+
+
+def falls_cliff(x, y, z):
+    """The sea cliff that frames the waterfall, below the ledge shelf: its jagged 4 m ground cells stood out of the
+    rock outcrops as flat meadow-green triangles (note 9 second review), so they take the rock layer alone."""
+    x0, x1, top = _falls_zone()
+    return x0 <= x <= x1 and abs(y - L.GORGE_Y) < 75.0 and z < top
 
 
 def yard_material(x, y):

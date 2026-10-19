@@ -1175,21 +1175,30 @@ def _wall_dressing(b, f, y_lo, base, outer, ground_face):
     mid = base + 0.55 * (f['z'] - base)
     if f['z'] - base > 2.0:
         _slab(b, lo_x, hi_x, y_lo - 0.12, y_lo + 0.02, mid, mid + 0.22, mid + 0.22, 'stone_light')
+    # Planting hugs every face that stands proud of the hillside (note 11 second review): a boulder or two with a
+    # shrub tucked against it every ~2.5 m along the downhill face, and along the landing's end wall.
     feet = []
     if ground_face:
-        x = lo_x + rng.uniform(0.5, 2.5)
-        while x < hi_x:
-            feet.append((x, y_lo - rng.uniform(0.9, 1.6)))
-            x += rng.uniform(3.0, 5.5)
-    ex = outer + d * rng.uniform(1.0, 1.6)
-    feet += [(ex, f['y'] + rng.uniform(-1.5, 1.5)) for _ in range(2)]
-    for fx, fy in feet:
+        x = lo_x + rng.uniform(0.3, 1.2)
+        while x < hi_x + 0.5:
+            feet.append((x, y_lo - rng.uniform(0.7, 1.3), top))
+            x += rng.uniform(2.0, 3.2)
+    ex = outer + d * rng.uniform(1.0, 1.4)
+    y = f['y'] - STAIR_W / 2 - STAIR_WALL + rng.uniform(0.0, 1.0)
+    while y < f['y'] + STAIR_W / 2 + STAIR_PITCH - STAIR_W:
+        feet.append((ex + d * rng.uniform(0.0, 0.5), y, top))
+        y += rng.uniform(2.0, 3.0)
+    for fx, fy, crown in feet:
         gz = L.ground(fx, fy)
-        if rng.random() < 0.55:
-            r = rng.uniform(0.7, 1.4)
+        if crown - gz < 0.8:
+            continue
+        if rng.random() < 0.6:
+            r = rng.uniform(0.6, 1.2)
             rocks.boulder(b, fx, fy, gz, (r * 2.0, r * 1.6, r * 1.3), rng, rng.choice(('rock', 'rock_dark')), bury=0.35)
+            bush(b, fx + rng.uniform(-1.4, 1.4), fy - rng.uniform(0.4, 1.0), gz, rng.uniform(0, 360),
+                 rng.uniform(0.9, 1.4), rng)
         else:
-            bush(b, fx, fy, gz, 0.0, rng.uniform(0.8, 1.3), rng)
+            bush(b, fx, fy, gz, rng.uniform(0, 360), rng.uniform(1.1, 1.7), rng)
 
 
 def _plaza(b, p, last):
@@ -1226,10 +1235,21 @@ def _plaza(b, p, last):
         _slab(b, wx0 - 0.05, wx1 + 0.05, yy - 0.42, yy + 0.42, z + 0.95, z + 1.1, z + 1.1, 'stone_light')
         potted_plant(b, px + side * 2.2, yy - 1.6, z, 1.1)
         lantern_post(b, (xa + 0.6) if side < 0 else (xb - 0.6), y0 + 0.6, z, 3.0)
-    for k in range(11):
-        a = math.pi * k / 10
+    # Overlapping voussoirs make one unbroken ring; the spandrel infill closes everything between the ring, the
+    # piers and the lintel, so no sky shows through the masonry.
+    for k in range(25):
+        a = math.pi * k / 24
         b.box((xc + math.cos(a) * (span + 0.4), yy, z + 4.2 + math.sin(a) * (span + 0.4)), (0.8, 1.2, 0.8),
               'stone_light' if k % 2 else 'stone')
+    lintel = z + 4.2 + span + 0.7
+    edge, step = span + pier, 0.25
+    for i in range(int(round(2 * edge / step))):
+        sx0 = -edge + i * step
+        inner = min(abs(sx0), abs(sx0 + step)) if sx0 * (sx0 + step) > 0 else 0.0
+        floor = z + 4.2 + (math.sqrt(span * span - inner * inner) + 0.15 if inner < span else 0.0)
+        if lintel - floor > 0.02:
+            b.box((xc + sx0 + step / 2, yy, (floor + lintel) / 2 + 0.02), (step + 0.02, 1.05, lintel - floor + 0.04),
+                  'stone_light')
     b.box((xc, yy, z + 4.2 + span + 1.1), (2 * (span + pier) + 0.6, 1.4, 0.8), 'stone_light')
     b.box((xc, yy, z + 4.2 + span + 1.6), (2 * (span + pier) + 1.0, 1.6, 0.25), 'stone')
     # The paved path through the arch along the shelf to the hut, each slab solid down into the ground.

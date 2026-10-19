@@ -445,18 +445,19 @@ def main():
     groups += hero_groups
     # Foliage: each species prototype once, its placements as instances.
     protos = flora.prototypes()
-    placements = {}
+    placements, scrub = {}, {}
     cover = flora.groundcover(rocks.ground)
     print(f'groundcover: {len(cover)} instances', flush=True)
     for proto, x, y, z, yaw, scale in cover:
-        placements.setdefault(proto, []).append(transform(x, y, z, yaw, scale))
+        # The slope scrub (flora.groundcover's doubled clumps) is seen from the beach below: it keeps a longer cull.
+        (scrub if scale > 1.5 else placements).setdefault(proto, []).append(transform(x, y, z, yaw, scale))
     for proto, x, y, z, yaw, scale in flora.scatter() + flora.bloom_spots(random.Random(5)):
         dz, g = settled(x, y)
         if g is not None and g < 0.4:
             continue  # the eased ground is under the sea here
         placements.setdefault(proto, []).append(transform(x, y, z + dz, yaw, scale))
     for proto, builder in protos.items():
-        if proto not in placements:
+        if proto not in placements and proto not in scrub:
             continue
         builder.name = 'SM_BC_Plant_' + ''.join(part.title() for part in proto.split('_'))
         obj = mesh_object(builder, materials)
@@ -472,8 +473,11 @@ def main():
         meshes.append({'name': builder.name, 'path': path.relative_to(OUT).as_posix(), 'sha256': sha(path),
                        'triangles': triangles, 'bounds_m': bounds, 'slots': slots, 'collision': False, 'lods': True})
         low = proto.startswith('cover_')
-        groups.append(group(builder.name, slots, placements[proto], collision=False, shadow=not low,
-                            cull_cm=5000 if low else 24000 if height < 4 else 60000))
+        if proto in placements:
+            groups.append(group(builder.name, slots, placements[proto], collision=False, shadow=not low,
+                                cull_cm=5000 if low else 24000 if height < 4 else 60000))
+        if proto in scrub:
+            groups.append(group(builder.name, slots, scrub[proto], collision=False, shadow=False, cull_cm=9000))
     quay_z = float(L.ground(R.QUAY_STOP[0] - R.ORIGIN[0], R.QUAY_STOP[1] - R.ORIGIN[1])) + 1.0
     runtime = {'version': 1,
                'origin_cm': [R.ORIGIN[0] * 100., -R.ORIGIN[1] * 100., R.ORIGIN[2] * 100.],

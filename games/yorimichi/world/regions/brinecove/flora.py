@@ -432,27 +432,31 @@ def groundcover(ground=None, seed=8811):
             if drift < 0.3 or spot(cx, cy) is None:
                 continue
             # The foot of a rock face (steep ground just uphill) gathers the biggest, densest beds; walkable flats
-            # keep every clump, steep slopes seen from afar (where the 50 m cull hides cover anyway) keep few.
+            # and open slopes keep nearly every clump (the slopes' scrub is culled further out, build.py).
             ux, uy, grad = uphill(cx, cy, 3.0)
             foot = uphill(cx + ux * 5.0, cy + uy * 5.0, 3.0)[2] > 0.95
-            if not foot and rng.random() > (1.0 if grad < 0.4 else 0.25):
+            if not foot and rng.random() > (1.0 if grad < 0.4 else 0.9):
                 continue
-            clumps.append((cx, cy, drift, foot, rng.random()))
+            clumps.append((cx, cy, drift, foot, rng.random(), grad >= 0.4 and not foot))
         gx += cell
     clumps.sort(key=lambda c: c[4])
-    for cx, cy, drift, foot, _ in clumps:
+    for cx, cy, drift, foot, _, slope in clumps:
         if len(out) >= COVER_LIMIT:
             break
-        size = rng.uniform(1.4, 4.2) * (1.3 if foot else 1.0) * (0.8 + 0.5 * drift)
+        # Open slopes are seen from the beach and the paths below at 20-40 m, where palm-sized tufts read as specks
+        # (notes 5 and 6, second review): their clumps are low coastal scrub, ferns and broadleaf about twice the
+        # size, spaced to match.
+        big = 1.9 if slope else 1.0
+        size = rng.uniform(1.4, 4.2) * (1.3 if foot or slope else 1.0) * (0.8 + 0.5 * drift)
         wet = fbm(cx, cy, 60.0, 2, 67)
         family = 'cover_fern' if wet > 0.55 else ('cover_leaf' if wet > 0.42 else 'cover_grass')
-        if foot and rng.random() < 0.5:
-            family = 'cover_fern'
-        for _ in range(int(rng.uniform(8, 24) * (1.4 if foot else 1.0))):
+        if foot and rng.random() < 0.5 or slope and family == 'cover_grass' and rng.random() < 0.7:
+            family = 'cover_fern' if wet > 0.48 else 'cover_leaf'
+        for _ in range(int(rng.uniform(8, 24) * (1.4 if foot else 1.6 if slope else 1.0))):
             r = size * math.sqrt(rng.random())
             a = rng.uniform(0, math.tau)
             x, y = cx + r * math.cos(a), cy + r * math.sin(a)
-            spacing = 0.45 + 0.35 * r / size
+            spacing = (0.45 + 0.35 * r / size) * big
             if not discs.fits(x, y, spacing):
                 continue
             z = spot(x, y)
@@ -461,7 +465,7 @@ def groundcover(ground=None, seed=8811):
             discs.add(x, y, spacing)
             kind = family if rng.random() < 0.85 else rng.choice(('cover_fern', 'cover_leaf', 'cover_grass'))
             out.append((f'{kind}_{rng.randrange(3)}', x, y, z - 0.05, rng.uniform(0, 360),
-                        rng.uniform(0.75, 1.1) * (1.35 - 0.55 * r / size)))
+                        rng.uniform(0.75, 1.1) * (1.35 - 0.55 * r / size) * big))
     return out
 
 
