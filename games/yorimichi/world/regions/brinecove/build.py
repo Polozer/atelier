@@ -24,7 +24,7 @@ import numpy as np  # noqa: E402
 
 from atelier.gltf import glb_parts  # noqa: E402
 from terrain_product import load  # noqa: E402
-from brinecove import flora, ground, hero_assets, hero_sources, modules, region as R  # noqa: E402
+from brinecove import flora, ground, hero_assets, hero_sources, modules, region as R, rocks  # noqa: E402
 from brinecove import layout as L  # noqa: E402
 from brinecove.geom import Builder, distinct_corners  # noqa: E402
 from brinecove.paths import BUILD as OUT, TEXTURES  # noqa: E402
@@ -33,12 +33,23 @@ ROOT = '/Game/Brinecove'
 TILE = 256.0
 IDENTITY = {'translation_cm': [0., 0., 0.], 'rotation_xyzw': [0., 0., 0., 1.], 'scale': [1., 1., 1.]}
 # Surfaces a player walks through: no collision, and the translucent ones cast no shadow.
-SOFT = ('leaf_', 'palm_', 'waterfall', 'mist', 'spray', 'foam', 'water', 'vine', 'flower', 'grass', 'fern')
+SOFT = ('leaf_', 'palm_', 'waterfall', 'mist', 'spray', 'foam', 'water', 'vine', 'flower', 'grass', 'fern', 'cover_')
 SEA_LEVEL = ('water', 'foam', 'spray', 'mist', 'waterfall', 'seabed')
-MASKED = ('leaf_', 'palm_', 'waterfall', 'spray')
+MASKED = ('leaf_', 'palm_', 'waterfall', 'spray', 'foam')
+TERRAIN = ('terrain', 'rock')
+# ground.py's collar seam strip still names the old per-cell beach and jungle materials: they join the blended terrain.
+GROUND_REMAP = {'sand': 'terrain', 'jungle_dark': 'terrain'}
 TRANSLUCENT = ('mist',)
 EMISSIVE = ('lantern', 'glass_warm')
-PAN_CM_S = {'waterfall': -0.9}  # UV v per second: the curtain's streaks run down
+PAN_CM_S = {'waterfall': -0.9, 'foam': 0.05}  # UV v per second: the curtain's streaks run down, foam spreads out
+# Water motion (import_brinecove.parent): a second, faster streak layer on the curtain; foam lace drifting along the
+# shore while its outer edge washes in and out.
+MOTION = {'waterfall': {'Layer': 1.0}, 'foam': {'Drift': 0.03, 'Wash': 0.22}}
+# Materials whose texture has another name: the keyed streak and lace atlases (references/redesign.py --finish).
+TEXTURE = {'waterfall': 'waterfall_streaks', 'foam': 'foam_lace'}
+# The blended terrain material's layers (albedo and normal-plus-cavity), and the rock tints of its rock-only use.
+TERRAIN_LAYERS = {'Sand': 'terrain_sand', 'Meadow': 'terrain_meadow', 'Forest': 'terrain_forest', 'Rock': 'terrain_rock'}
+ROCK_TINT = {'rock': 1.0, 'rock_light': 1.12, 'rock_dark': 0.72, 'rock_strata': 0.95}
 MODULES = [('Rocks', lambda: modules.terrain_dressing(Builder('rocks'), hills=False)),
            ('Harbor', modules.harbor), ('TownLower', modules.lower_town), ('Market', modules.market),
            ('TownUpper', modules.upper_town), ('Landmarks', modules.landmarks), ('Ships', modules.ships),
@@ -63,6 +74,8 @@ def kind(mat):
         return 'translucent'
     if mat.startswith(MASKED):
         return 'masked'
+    if mat.startswith(TERRAIN):
+        return 'terrain'
     if mat.startswith(EMISSIVE):
         return 'emissive'
     return 'opaque'
@@ -101,7 +114,7 @@ def settle(rim):
     return at
 
 
-def split(builder, prefix, settle):
+def split(builder, prefix, settle, remap=None):
     """Tiles of TILE metres, and per tile a solid part and a soft part (foliage cards, water, spray).
 
     Faces in the collar follow the eased ground (settle); water, foam and spray stay at sea level, and plant cards
@@ -110,18 +123,29 @@ def split(builder, prefix, settle):
     Unreal drops them on import, and the import checks every tile's triangle count against this report."""
     parts, outside, drowned, degenerate = {}, 0, 0, 0
     ox0, oy0, ox1, oy1 = R.OUTER
-    for f, mat in zip(builder.faces, builder.mats):
+    anchors = builder.anchors or ()
+    for n, (f, mat) in enumerate(zip(builder.faces, builder.mats)):
         pts = [builder.verts[i] for i in f]
         cx, cy = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
         if not (ox0 <= cx <= ox1 and oy0 <= cy <= oy1):
             outside += 1
             continue
+        anchor = anchors[n] if n < len(anchors) else None
         if settle is not None and not mat.startswith(SEA_LEVEL):
-            moves = [settle(p[0], p[1]) for p in pts]
+            # A rigid object (a rock, a prop) moves by its anchor's change as one piece; loose faces follow the
+            # ground under each vertex. Moving a rock's vertices apart sheared it into overlapping slabs.
+            if anchor == rocks.FIXED:
+                moves = [(0.0, None)] * len(pts)  # placed on the final ground already
+            elif anchor is not None:
+                moves = [settle(*anchor)] * len(pts)
+            else:
+                moves = [settle(p[0], p[1]) for p in pts]
             if soft(mat) and any(g is not None and g < 0.2 for _, g in moves):
                 drowned += 1
                 continue
             pts = [(p[0], p[1], p[2] + d) for p, (d, _) in zip(pts, moves)]
+        if remap:
+            mat = remap.get(mat, mat)
         corners = distinct_corners(pts)
         if corners is None:
             degenerate += 1
@@ -212,20 +236,30 @@ def glb_info(path):
 
 def material_report(names):
     (OUT / 'textures').mkdir(parents=True, exist_ok=True)
+
+    def texture_file(stem):
+        texture = next((TEXTURES / f'{stem}{ext}' for ext in ('.png', '.jpg') if (TEXTURES / f'{stem}{ext}').exists()), None)
+        if texture is None:
+            return None
+        file = f'T_BC_{stem}{texture.suffix}'
+        shutil.copy2(texture, OUT / 'textures' / file)
+        return file
     report = {}
     for name in sorted(names):
         hex_colour = L.COLORS.get(name, '#808080')
         colour = [srgb_to_linear(int(hex_colour[i:i + 2], 16)) for i in (1, 3, 5)]
-        texture = next((TEXTURES / f'{name}{ext}' for ext in ('.png', '.jpg') if (TEXTURES / f'{name}{ext}').exists()), None)
-        file = None
-        if texture:
-            file = f'T_BC_{name}{texture.suffix}'
-            shutil.copy2(texture, OUT / 'textures' / file)
-        report[name] = {'name': 'MI_BC_' + name, 'colour': colour, 'texture': file, 'kind': kind(name),
-                        'pan': PAN_CM_S.get(name, 0.), 'roughness': .3 if name.startswith('water') else .88,
-                        'metal': name in ('metal', 'gold')}
+        entry = {'name': 'MI_BC_' + name, 'colour': colour, 'texture': texture_file(TEXTURE.get(name, name)),
+                 'kind': kind(name), 'pan': PAN_CM_S.get(name, 0.), 'motion': MOTION.get(name, {}),
+                 'roughness': .3 if name.startswith('water') else .88, 'metal': name in ('metal', 'gold')}
+        if entry['kind'] == 'terrain':
+            # Layers in world space: no texture of its own; rock meshes use the rock layer alone, tinted.
+            entry['texture'] = None
+            entry['layers'] = {key: texture_file(stem) for key, stem in TERRAIN_LAYERS.items()}
+            entry['normals'] = {key + 'N': texture_file(stem + '_n') for key, stem in TERRAIN_LAYERS.items()}
+            entry['rock_only'] = name != 'terrain'
+            entry['colour'] = [ROCK_TINT.get(name, 1.0)] * 3
+        report[name] = entry
     return report
-
 
 def hero_models(materials_out):
     """Each processed TRELLIS/Tripo model once, with its placements; its own textures become region textures."""
@@ -241,11 +275,19 @@ def hero_models(materials_out):
             key = f'hero_{slug}_{k}'
             image = next((node.image for node in material.node_tree.nodes if node.type == 'TEX_IMAGE' and node.image), None)
             file = None
+            colour = [1., 1., 1.]
             if image is not None:
                 file = f'T_BC_{key}.png'
                 image.file_format = 'PNG'
                 image.save(filepath=str(OUT / 'textures' / file))  # the glTF importer packs its images
-            materials_out[key] = {'name': 'MI_BC_' + key, 'colour': [1., 1., 1.], 'texture': file, 'kind': 'opaque',
+            else:
+                # A palette slot without a texture (rope, flag red) carries its colour as the base colour factor.
+                # Writing white here rendered those slots pure white: on the cannon a third of its triangles,
+                # scattered through the iron and oak as white confetti (playtest note 8).
+                bsdf = next((n for n in material.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+                if bsdf is not None:
+                    colour = [float(c) for c in bsdf.inputs['Base Color'].default_value[:3]]
+            materials_out[key] = {'name': 'MI_BC_' + key, 'colour': colour, 'texture': file, 'kind': 'opaque',
                                   'pan': 0., 'roughness': .8, 'metal': False}
             material.name = 'BC_' + key
             slots.append(key)
@@ -297,11 +339,14 @@ def main():
     rim_shape, rim_world = rim()
     terrain, seam = ground.build(rim_shape, rim_world)
     settled = settle(rim_shape)
+    # Dressing that must meet the real ground (shore foam) samples the eased collar, not the layout under it.
+    rocks.FINAL = lambda x, y: settled(x, y)[1] if settled(x, y)[1] is not None else L.ground(x, y)
     print(f'ground: {seam}; {time.time() - started:.0f}s', flush=True)
     sources = [('Ground', terrain)] + [(name, fn()) for name, fn in MODULES]
     report_outside, report_drowned, report_degenerate = {}, {}, {}
     for prefix, builder in sources:
-        parts, outside, drowned, degenerate = split(builder, prefix, None if prefix == 'Ground' else settled)
+        parts, outside, drowned, degenerate = split(builder, prefix, None if prefix == 'Ground' else settled,
+                                                    GROUND_REMAP if prefix == 'Ground' else None)
         report_outside[prefix] = outside
         report_drowned[prefix] = drowned
         report_degenerate[prefix] = degenerate
@@ -327,6 +372,10 @@ def main():
     # Foliage: each species prototype once, its placements as instances.
     protos = flora.prototypes()
     placements = {}
+    cover = flora.groundcover(rocks.ground)
+    print(f'groundcover: {len(cover)} instances', flush=True)
+    for proto, x, y, z, yaw, scale in cover:
+        placements.setdefault(proto, []).append(transform(x, y, z, yaw, scale))
     for proto, x, y, z, yaw, scale in flora.scatter() + flora.bloom_spots(random.Random(5)):
         dz, g = settled(x, y)
         if g is not None and g < 0.4:
@@ -348,8 +397,9 @@ def main():
         height = bounds[1][2] - bounds[0][2]
         meshes.append({'name': builder.name, 'path': path.relative_to(OUT).as_posix(), 'sha256': sha(path),
                        'triangles': triangles, 'bounds_m': bounds, 'slots': slots, 'collision': False, 'lods': True})
-        groups.append(group(builder.name, slots, placements[proto], collision=False, shadow=True,
-                            cull_cm=24000 if height < 4 else 60000))
+        low = proto.startswith('cover_')
+        groups.append(group(builder.name, slots, placements[proto], collision=False, shadow=not low,
+                            cull_cm=5000 if low else 24000 if height < 4 else 60000))
     quay_z = float(L.ground(R.QUAY_STOP[0] - R.ORIGIN[0], R.QUAY_STOP[1] - R.ORIGIN[1])) + 1.0
     runtime = {'version': 1,
                'origin_cm': [R.ORIGIN[0] * 100., -R.ORIGIN[1] * 100., R.ORIGIN[2] * 100.],

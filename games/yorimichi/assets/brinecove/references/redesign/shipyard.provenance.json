@@ -1,0 +1,36 @@
+{
+  "stage": "brinecove-redesign",
+  "slug": "shipyard",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "endpoint": "/v1/images/edits",
+  "execution": "games/yorimichi/world/regions/brinecove/references/redesign.py",
+  "context": [
+    {
+      "file": "context/note-010.jpg",
+      "sha256": "76039fe2cf8f8c25a9e89e49d54abb46a66c121f7b4fb0e601b881687b1f17b7"
+    }
+  ],
+  "prompt_file": "shipyard.prompt.txt",
+  "prompt_sha256": "ef57f448d24fe143e003b741514bd48eaf78c860188ba1f6ad94c0131837fea5",
+  "status": "done",
+  "started_at": "2026-10-19T15:27:21.197377+00:00",
+  "elapsed_seconds": 37.5,
+  "output": "shipyard.png",
+  "output_sha256": "d4451a41f91fbd9b607c749e47e7e2957320fd39a7fb7ab5adbedb63bc35606f",
+  "usage": {
+    "input_tokens": 1264,
+    "input_tokens_details": {
+      "image_tokens": 1040,
+      "text_tokens": 224
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 2636
+  },
+  "finished_at": "2026-10-19T15:27:58.776843+00:00"
+}

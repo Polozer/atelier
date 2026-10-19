@@ -1,0 +1,36 @@
+{
+  "stage": "brinecove-redesign",
+  "slug": "cliffs",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "endpoint": "/v1/images/edits",
+  "execution": "games/yorimichi/world/regions/brinecove/references/redesign.py",
+  "context": [
+    {
+      "file": "context/note-007.jpg",
+      "sha256": "a630f4841b692248df63a4a62afca0a90b5255828ec869d147998689d31796da"
+    }
+  ],
+  "prompt_file": "cliffs.prompt.txt",
+  "prompt_sha256": "7cc9e4e47537bc9c82647834edfab4ca3eb133c81bc7c735be47fd9e5b09eab9",
+  "status": "done",
+  "started_at": "2026-10-19T15:27:54.909076+00:00",
+  "elapsed_seconds": 35.6,
+  "output": "cliffs.png",
+  "output_sha256": "26cd809ef85a758bac29e11cfec9977b8c119310e8fbb6542f6db5ccee37b4cc",
+  "usage": {
+    "input_tokens": 1248,
+    "input_tokens_details": {
+      "image_tokens": 1040,
+      "text_tokens": 208
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 2620
+  },
+  "finished_at": "2026-10-19T15:28:30.584598+00:00"
+}

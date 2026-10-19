@@ -4,6 +4,7 @@ import math
 import random
 from pathlib import Path
 from brinecove import falls
+from brinecove import landmarks as LM
 from brinecove import layout as L
 from brinecove import rocks
 from brinecove.geom import Builder, _surface_scale as surface_scale
@@ -31,14 +32,12 @@ def cell_material(a, bb, c, d, gx, gy, sl, i, j):
     dry = max(a[2], bb[2], c[2], d[2]) > 0.8
     if zavg < 0.15 and not dry:
         return 'seabed'
-    if zavg < 0.15:
-        return 'rock_dark' if sl > 0.45 else 'sand'
     if zavg < 2.2:
-        return 'rock_dark' if sl > 0.6 else 'sand'
+        return 'terrain'
     if L.is_water(gx, gy):
-        return ('rock_dark' if sl > 0.45 else 'sand') if dry else 'seabed'
+        return 'terrain' if dry else 'seabed'
     if L.in_gorge(gx, gy, 3.0):
-        return 'rock_dark' if sl > 0.45 else 'seabed'
+        return 'terrain' if sl > 0.45 else 'seabed'
     if sl < 0.4 and L.town_floor(gx, gy):
         return yard_material(gx, gy)
     return rocks.terrain_material(gx, gy, zavg, sl, i, j)
@@ -47,7 +46,7 @@ def cell_material(a, bb, c, d, gx, gy, sl, i, j):
 def yard_material(x, y):
     """Beaten earth and old setts between the houses and the paved streets, never a lawn."""
     n = rocks.fbm(x, y, 18.0, 3, 41)
-    return 'cobble_dark' if n > 0.58 else ('earth' if n > 0.3 else 'sand')
+    return 'cobble_dark' if n > 0.58 else 'earth'
 
 
 def ground_face(b, a, bb, c, d, mat, gx, gy, sl):
@@ -114,37 +113,18 @@ def terrain_dressing(b, hills=True):
             if z < 4.0:
                 continue
             rock_cluster(b, x, y, z - 1.2, RNG.uniform(2.0, 6.0), RNG.randint(1, 3))
-        # Thin ledges and fissures between the outcrops.
-        for _ in range(900):
+        # Ferns and dry grass on the steep ground between the outcrops. Thin ledge beams and spikes used to stand
+        # here; drawn across uneven slopes they floated and crossed each other (playtest note 2).
+        for _ in range(500):
             x = side * RNG.uniform(420, 800)
             y = RNG.uniform(-260, 520)
-            if L.is_water(x, y):
+            if L.is_water(x, y) or L.slope(x, y) < 0.55 or L.height(x, y) < 5.0:
                 continue
-            sl = L.slope(x, y)
-            z = L.height(x, y)
-            if z < 5.0 or sl < 0.55:
-                continue
-            nx, ny = -side * 0.95, RNG.uniform(-0.28, 0.28)
-            tx, ty = -ny, nx
-            for k in range(RNG.randint(1, 3)):
-                half = RNG.uniform(1.0, 3.4)
-                out = RNG.uniform(0.2, 1.5)
-                zz = z + RNG.uniform(-3.2, 3.2)
-                p0 = (x - tx * half + nx * out, y - ty * half + ny * out, zz)
-                p1 = (x + tx * half + nx * out, y + ty * half + ny * out, zz + RNG.uniform(-0.4, 0.4))
-                mat = ('rock', 'rock_light', 'rock_dark')[k % 3]
-                b.beam(p0, p1, RNG.uniform(0.7, 1.2), mat, depth=RNG.uniform(1.0, 2.6))
-            if RNG.random() < 0.35:
-                b.box((x + nx * 0.9, y + ny * 0.9, z + RNG.uniform(0.5, 4.0)),
-                      (0.55, 0.55, RNG.uniform(3.0, 7.0)), 'rock_dark', RNG.uniform(0, 180))
-            # Moss, ferns and dry grass catch on the ledges.
-            if RNG.random() < 0.34:
-                lx, ly = x + nx * RNG.uniform(0.6, 1.4), y + ny * RNG.uniform(0.6, 1.4)
-                bush(b, lx, ly, z + RNG.uniform(-1.0, 1.0), 0.0, RNG.uniform(0.35, 0.75), RNG)
-            elif RNG.random() < 0.30:
-                grass_tuft(b, x + nx * 1.0, y + ny * 1.0, z + RNG.uniform(-0.8, 1.2),
-                           RNG.uniform(0, 360), RNG.uniform(0.6, 1.2), RNG)
-    # Stepped prism outcrops dress every steep face (rocks.py).
+            if RNG.random() < 0.5:
+                bush(b, x, y, L.height(x, y) - 0.2, 0.0, RNG.uniform(0.35, 0.75), RNG)
+            else:
+                grass_tuft(b, x, y, L.height(x, y) - 0.05, RNG.uniform(0, 360), RNG.uniform(0.6, 1.2), RNG)
+    # Tiered bedded outcrops dress every steep face (rocks.py).
     rocks.cliff_rocks(b, random.Random(6113))
     # The statue islet: a craggy spire whose core top is the statue's plinth.
     rock_cluster(b, L.STATUE[0], L.STATUE[1], -2.5, 16.0, 6, tall=False)
@@ -157,7 +137,7 @@ def terrain_dressing(b, hills=True):
                  (1.2, 1.0, 0.8), subdiv=0)
     foam_ring(b, L.STATUE[0], L.STATUE[1], 17.5, 20)
     shoreline_foam(b)
-    cliff_surf(b)
+    shore_foam(b)
     if not hills:
         return b
     # Distant forested hills, low and rounded so they frame rather than
@@ -179,19 +159,8 @@ def terrain_dressing(b, hills=True):
 
 
 def foam_ring(b, x, y, radius, segments=14):
-    """A broken white collar of foam around a rock or islet."""
-    for i in range(segments):
-        a0 = TAU * i / segments
-        a1 = TAU * (i + 1) / segments
-        inner = radius * (0.70 + 0.05 * math.sin(i * 2.7))
-        outer = radius * (1.06 + 0.12 * math.sin(i * 1.9 + 0.7))
-        z0 = 0.08 + 0.05 * math.sin(i * 3.1)
-        z1 = 0.06 + 0.05 * math.cos(i * 2.3)
-        p0 = (x + math.cos(a0) * inner, y + math.sin(a0) * inner, z0)
-        p1 = (x + math.cos(a1) * inner, y + math.sin(a1) * inner, z1)
-        p2 = (x + math.cos(a1) * outer, y + math.sin(a1) * outer, z1)
-        p3 = (x + math.cos(a0) * outer, y + math.sin(a0) * outer, z0)
-        b.quad(p0, p1, p2, p3, 'foam')
+    """A broken collar of animated foam around a rock or islet: v runs 0 at the rock to 1 offshore."""
+    falls.foam_ring(b, x, y, 0.07, radius * 0.72, radius * 1.18, random.Random(int(x * 7 + y * 13)), segments)
 
 
 def shoreline_foam(b):
@@ -200,8 +169,6 @@ def shoreline_foam(b):
         for side in (-1, 1):
             x = side * (hw + 1.5)
             wobble = 2.2 * math.sin(y * 0.18 + side)
-            b.quad((x, y - 5.5, 0.09), (x + side * (3.6 + wobble), y - 4.8, 0.06),
-                   (x + side * (3.2 + wobble), y + 4.8, 0.07), (x, y + 5.5, 0.10), 'foam')
             b.quad((x + side * 3.0, y - 4.2, 0.04),
                    (x + side * (11.0 + wobble), y - 3.4, 0.03),
                    (x + side * (10.0 + wobble), y + 3.4, 0.03),
@@ -217,30 +184,54 @@ def shoreline_foam(b):
                    (x + side * 38.0, y + 6.0, 0.005), 'water_mid')
 
 
-def cliff_surf(b, step=5.0):
-    """White surf lace wherever steep ground meets the sea, as at every cliff foot in the bridge paintings."""
-    rng = random.Random(7307)
-    y = L.VIEW_Y_MIN + 40
-    while y < 200:
-        x = L.VIEW_X_MIN + 40
-        while x < L.VIEW_X_MAX - 40:
-            jx, jy = x + rng.uniform(-2, 2), y + rng.uniform(-2, 2)
-            h = L.height(jx, jy)
-            if h < 0.2 and not L.in_gorge(jx, jy, 2.0):
-                ux, uy, grad = rocks.uphill(jx, jy, 3.0)
-                # A sheer face jumps past a narrow waterline band between samples: test for dry rock just uphill.
-                if grad > 0.25 and L.height(jx + ux * 5.0, jy + uy * 5.0) > 0.8:
-                    for k in range(2):
-                        d = 1.0 + k * rng.uniform(2.0, 4.0)
-                        length, width = rng.uniform(8.0, 14.0), rng.uniform(3.0, 6.0) * (1.0 - 0.3 * k)
-                        cx, cy = jx - ux * (d - 1.0), jy - uy * (d - 1.0)
-                        tx, ty = -uy, ux
-                        pts = [(cx + tx * u - ux * v, cy + ty * u - uy * v, 0.07 + 0.01 * k) for u, v in
-                               ((-length / 2, -width / 2), (length / 2, -width / 2), (length / 2, width / 2),
-                                (-length / 2, width / 2))]
-                        b.face(pts, 'spray', ((0, 0.2), (1, 0.2), (1, 0.8), (0, 0.8)))
-            x += step
-        y += step
+def final_ground(x, y):
+    """The ground the game builds (rocks.ground): foam must meet the real shoreline, which the collar moves."""
+    return rocks.ground(x, y)
+
+
+def shore_foam(b, step=3.0, width=3.4, level=0.05):
+    """Animated foam hugging the real waterline: marching squares on the final ground at sea level, each crossing
+    becoming a thin strip laid seaward (v 0 at the shore, 1 offshore), so foam only touches actual shore."""
+    import brinecove.region as R
+    x0, y0, x1, y1 = R.OUTER
+    nx, ny = int((x1 - x0) / step), int((y1 - y0) / step)
+    z = [[final_ground(x0 + i * step, y0 + j * step) - level for j in range(ny + 1)] for i in range(nx + 1)]
+    count = 0
+    for i in range(nx):
+        for j in range(ny):
+            c = ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1))
+            v = [z[a][bb] for a, bb in c]
+            if min(v) > 0 or max(v) < 0 or max(v) - min(v) > 18.0:
+                continue
+            cx, cy = x0 + (i + 0.5) * step, y0 + (j + 0.5) * step
+            if L.in_gorge(cx, cy, 4.0) or L.on_pier(cx, cy, 4.0) or L.town_floor(cx, cy, 2.0):
+                continue
+            cross = []
+            for k in range(4):
+                (ia, ja), (ib, jb) = c[k], c[(k + 1) % 4]
+                za, zb = z[ia][ja], z[ib][jb]
+                if (za > 0) != (zb > 0):
+                    t = za / (za - zb)
+                    cross.append((x0 + (ia + (ib - ia) * t) * step, y0 + (ja + (jb - ja) * t) * step))
+            if len(cross) != 2:
+                continue
+            (ax, ay), (bx, by) = cross
+            # Seaward is down the ground's gradient; steep cliff feet get a thinner collar.
+            gx = (v[1] + v[2] - v[0] - v[3]) / (2 * step)
+            gy = (v[2] + v[3] - v[0] - v[1]) / (2 * step)
+            g = math.hypot(gx, gy)
+            if g < 1e-4:
+                continue
+            sx, sy = -gx / g, -gy / g
+            w = width / (1.0 + 0.6 * min(g, 3.0))
+            pts = [(ax, ay, 0.07), (bx, by, 0.07), (bx + sx * w, by + sy * w, 0.06), (ax + sx * w, ay + sy * w, 0.06)]
+            # Keep the strip's winding facing up.
+            if (bx - ax) * (sy * w) - (by - ay) * (sx * w) < 0:
+                pts = [pts[1], pts[0], pts[3], pts[2]]
+            uv = [((p[0] + p[1]) / 4.0, 0.0 if k < 2 else 1.0) for k, p in enumerate(pts)]
+            b.face(pts, 'foam', uv)
+            count += 1
+    return count
 
 
 def rock_cluster(b, x, y, z, radius, count, tall=False):
@@ -251,11 +242,8 @@ def rock_cluster(b, x, y, z, radius, count, tall=False):
         sx = RNG.uniform(0.55, 1.15) * radius
         sy = RNG.uniform(0.55, 1.15) * radius
         sz = RNG.uniform(0.55, 1.3) * radius * (1.8 if tall else 1.0)
-        # Eroded prisms, like the cliffs; icosphere boulders read as stone balls.
-        a = RNG.uniform(0, TAU)
-        rocks.prism(b, (px, py), z - 1.2, z + sz * 0.75, max(1.0, (sx + sy) * 0.3), (math.cos(a), math.sin(a)), RNG,
-                    ('rock', 'rock_dark', 'rock')[i % 3], 'moss' if RNG.random() < 0.4 else None,
-                    squash=RNG.uniform(0.6, 0.95), tilt=RNG.uniform(0.2, 0.9))
+        # Bedded, noise-eroded boulders half buried in the ground (rocks.boulder), never cut prisms.
+        rocks.boulder(b, px, py, z + 1.0, (sx * 1.2, sy, sz), RNG, ('rock', 'rock_dark', 'rock_light')[i % 3])
 
 
 def harbor():
@@ -343,29 +331,12 @@ def harbor():
         b.beam((cx, cy, 15.0), (cx + math.cos(math.radians(ang)) * 16, cy + math.sin(math.radians(ang)) * 16, 17.5), 0.35, 'wood')
         b.rope((cx, cy, 17.0), (cx + math.cos(math.radians(ang)) * 14, cy + math.sin(math.radians(ang)) * 14, 9.5), 0.0, 0.06)
         crate(b, cx + math.cos(math.radians(ang)) * 14, cy + math.sin(math.radians(ang)) * 14, 7.8, 1.4)
-    # Shipyard slipway and the half-built hull on it.
-    slip_x, slip_y = 352, 118
-    for i in range(7):
-        b.box((slip_x - 12 + i * 5.2, slip_y, 7.2 + i * 0.25), (54, 1.0, 0.35), 'wood_light', 6)
-    for i in range(5):
-        b.beam((slip_x - 24 + i * 12, 26, 4.6), (slip_x - 24 + i * 12, 158, 8.0), 0.55, 'wood_dark')
-    ship(b, slip_x, 96, 6.2, 90, 1.02, sails=False, unfinished=True)
-    # Cradle blocks and staging around the half-built hull.
-    for yy in (58, 78, 98, 118, 138):
-        for side in (-1, 1):
-            b.box((slip_x + side * 6.5, yy, 7.3), (2.2, 3.4, 2.6), 'wood_dark', 0)
-            b.beam((slip_x + side * 9.5, yy, 6.0), (slip_x + side * 7.0, yy, 12.0), 0.22, 'wood')
-    for yy in (52, 68, 84, 100, 116, 132, 148):
-        b.beam((slip_x - 14, yy, 8.2), (slip_x + 14, yy, 8.2), 0.14, 'wood_dark')
+    # Shipyard: the half-built hull on its cradle, the slip running into the sea, scaffold, crane and shed.
+    LM.shipyard(b)
     for i in range(8):
         crate(b, 400 + RNG.uniform(-3, 3), 112 + i * 4.8, 4.7, RNG.uniform(0.8, 1.4), RNG.uniform(0, 90))
     for i in range(2):
         b.cylinder((408, 95 + i * 5, 4.7), (408, 95 + i * 5, 4.9), 2.4, 'wood_light', 10)
-    # Stacks of long planks and a shipwright's shed.
-    for i in range(5):
-        b.box((398, 72 + i * 2.2, 5.0 + i * 0.35), (28, 1.6, 0.32), 'wood_light', 8)
-    b.box((326, 140, 8.0), (22, 14, 6.0), 'wood', 0)
-    b.gable_roof((326, 140, 11.0), 23, 15, 11.0, 3.0, 'roof_terra', 0, ridge='x', overhang=0.8)
     # Cargo clusters along the working piers.
     for name, px, y0, y1, width in L.PIERS:
         for t, off in ((0.22, -4.2), (0.52, 3.4), (0.78, -2.6)):
@@ -812,13 +783,8 @@ def upper_town():
         b.quad((x, 314, L.UPPER_Z + 4.7), (x + 6, 314, L.UPPER_Z + 4.7),
                (x + 6, 314, L.UPPER_Z + 2.7), (x, 314, L.UPPER_Z + 2.7),
                ('canvas', 'canvas_red', 'canvas_teal', 'canvas')[i])
-    # A secondary stair climbs from the terrace to the ridge hamlet.
-    for i in range(15):
-        y = 388 + i * 2.2
-        z = L.UPPER_Z + 0.4 + i * 1.9
-        b.box((0, y, z), (10, 2.3, 0.8), 'stone_light')
-        for side in (-1, 1):
-            b.beam((side * 5.2, y, z - 1.8), (side * 5.2, y, z + 0.7), 0.30, 'stone')
+    # A switchback stair climbs from the terrace to the ridge hamlet's shelf.
+    LM.hill_stair(b)
     # Bunting, pots and seating make the upper lane read as a street.
     for y in (306, 342, 378):
         pennants(b, (-240, y, L.UPPER_Z + 5.2), (240, y, L.UPPER_Z + 5.2), 1.2, 21)
@@ -834,7 +800,7 @@ def landmarks():
     lighthouse(b)
     if not HAS_STATUE:
         statue(b)
-    watchtower(b)
+    LM.fort(b)
     # The two-tier waterfall, its canyon river, rope bridge and ledge shrine (falls.py).
     falls.waterfall(b)
     return b
@@ -886,9 +852,13 @@ def lighthouse(b):
     b.box((kx + 5.5, ky + 2.5, kz + 6.4), (1.1, 1.1, 3.4), 'stone')
     b.box((kx + 5.5, ky + 2.5, kz + 8.2), (1.4, 1.4, 0.3), 'stone_dark')
     lantern_post(b, kx - 10, ky - 8, kz, 3.2)
-    # A low signal wall and a pair of cannon on the seaward edge.
+    # A low signal wall and a pair of cannon on the seaward edge, run out through gaps in it.
     for i in range(10):
         px = x - 18 + i * 4.2
+        if i in (3, 6):
+            b.box((px, y - 15.0, z + 0.3), (4.2, 1.2, 0.6), 'stone')
+            LM.cannon(b, px, y - 12.6, L.ground(px, y - 12.6), 0.0)
+            continue
         b.box((px, y - 15.0, z + 1.0), (4.2, 1.2, 2.0), 'stone')
     # A lived-in headland: a stone path links cottage and tower, a rope fence
     # follows the cliff edge, and garden beds and palms break up the lawn.
@@ -966,79 +936,6 @@ def statue(b):
     for i in range(start, len(b.verts)):
         vx, vy, vz = b.verts[i]
         b.verts[i] = (x + (vx - x) * scale, y + (vy - y) * scale, z + (vz - z) * scale)
-
-
-def watchtower(b):
-    x, y, _ = L.WATCHTOWER
-    z = L.ground(x, y)
-    # Rock platform and low defensive wall.
-    b.box((x, y, z + 0.4), (38, 34, 1.0), 'stone_dark')
-    for i in range(22):
-        a = i * TAU / 22
-        px, py = x + math.cos(a) * 20, y + math.sin(a) * 17
-        b.box((px, py, z + 1.9), (4.4, 1.5, 2.4), 'stone')
-    # A crenellated lower bastion with round corner turrets, so the crest reads as a fort in the paintings'
-    # silhouette rather than a lone tower.
-    hw, hd, wall = 17.0, 14.0, 7.0
-    for (ax, ay), (bx, by) in (((-hw, -hd), (hw, -hd)), ((hw, -hd), (hw, hd)), ((hw, hd), (-hw, hd)),
-                               ((-hw, hd), (-hw, -hd))):
-        length = math.hypot(bx - ax, by - ay)
-        ux, uy = (bx - ax) / length, (by - ay) / length
-        b.beam((x + ax, y + ay, z + 0.5), (x + bx, y + by, z + 0.5), 1.6, 'stone', depth=1.0)
-        b.box((x + (ax + bx) / 2, y + (ay + by) / 2, z + wall / 2), (abs(bx - ax) + 1.6, abs(by - ay) + 1.6, wall),
-              'stone_light' if ax == bx else 'stone')
-        for k in range(int(length / 2.2)):
-            t = (k + 0.5) * 2.2
-            if k % 2 == 0:
-                b.box((x + ax + ux * t, y + ay + uy * t, z + wall + 0.55), (1.3, 1.3, 1.1), 'stone_light')
-        for k in range(1, int(length / 6)):
-            t = k * 6.0
-            b.box((x + ax + ux * t - uy * 0.85, y + ay + uy * t + ux * 0.85, z + wall * 0.62), (0.5, 0.5, 1.4),
-                  'wood_dark')
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            tx, ty = x + sx * hw, y + sy * hd
-            b.cylinder((tx, ty, z - 0.5), (tx, ty, z + wall + 2.5), 3.4, 'stone', 12, radius_b=3.0)
-            b.cylinder((tx, ty, z + wall + 2.5), (tx, ty, z + wall + 3.1), 3.5, 'stone_light', 12)
-            for k in range(6):
-                a = k * TAU / 6
-                b.box((tx + math.cos(a) * 3.1, ty + math.sin(a) * 3.1, z + wall + 3.7), (1.1, 1.1, 1.2),
-                      'stone_light', math.degrees(a))
-    b.box((x, y - hd - 0.2, z + 2.0), (5.2, 1.0, 4.0), 'wood_dark')
-    for k in range(5):
-        a = math.pi * (k + 0.5) / 5
-        b.box((x + math.cos(a) * 3.1, y - hd - 0.9, z + 4.2 + math.sin(a) * 1.6), (1.0, 0.8, 1.0), 'stone_light')
-    # A taller, battered square tower with corner buttresses.
-    b.box((x, y, z + 14.0), (12.0, 12.0, 26.0), 'stone')
-    for side in (-1, 1):
-        for sy in (-1, 1):
-            b.box((x + side * 5.6, y + sy * 5.6, z + 8.0), (2.0, 2.0, 15.0), 'stone_light')
-    b.box((x, y, z + 27.3), (14.6, 14.6, 0.8), 'stone_light')
-    for i in range(7):
-        for side in (-1, 1):
-            b.box((x + side * 6.7, y - 6.3 + i * 2.1, z + 28.4), (1.7, 1.4, 1.8), 'stone_light')
-            b.box((x - 6.3 + i * 2.1, y + side * 6.7, z + 28.4), (1.4, 1.7, 1.8), 'stone_light')
-    for i in range(5):
-        b.box((x, y, z + 3.8 + i * 4.2), (12.2, 12.2, 0.35), 'wood_dark')
-    door(b, x, y, 0, 0, -6.1, z + 0.7, 2.4, 3.6)
-    for f in (1, 2, 3):
-        window(b, x, y, 0, -2.6, -6.1, z + 5.0 + f * 4.4, 1.0, 1.6, False, True)
-        window(b, x, y, 0, 2.6, -6.1, z + 5.0 + f * 4.4, 1.0, 1.6, False, True)
-    # Black banner and signal pole.
-    b.cylinder((x, y, z + 28.7), (x, y, z + 44.0), 0.18, 'metal', 6)
-    b.quad((x, y, z + 43.0), (x + 7.2, y, z + 41.4), (x + 7.2, y, z + 35.4), (x, y, z + 36.2), 'flag_black')
-    b.sphere((x + 2.9, y - 0.05, z + 39.3), 0.65, 'cream', (1.0, 0.05, 1.2), subdiv=0)
-    # Cannon platform on the seaward side and a second pair at the tower top.
-    for cx in (-10, 0, 10):
-        px = x + cx
-        b.box((px, y - 18.0, z + 1.2), (3.8, 5.2, 1.1), 'wood_dark')
-        b.cylinder((px, y - 17.0, z + 2.2), (px, y - 23.0, z + 3.8), 0.55, 'metal', 8)
-        for side in (-1, 1):
-            b.cylinder((px + side * 0.95, y - 17.8, z + 1.5), (px + side * 0.95, y - 17.8, z + 1.5),
-                       0.65, 'wood', 10)
-    for side in (-1, 1):
-        b.box((x + side * 3.5, y - 5.0, z + 28.7), (2.4, 3.2, 0.9), 'wood_dark')
-        b.cylinder((x + side * 3.5, y - 6.0, z + 29.4), (x + side * 3.5, y - 10.2, z + 30.3), 0.42, 'metal', 7)
 
 
 def ships():
@@ -1295,6 +1192,9 @@ def props():
             b.rope((x - 0.2, yy, 8.8), (x + 0.2, yy, 5.4), 0.35, 0.035)
             b.quad((x - 1.4, yy - 0.5, 8.7), (x + 1.4, yy - 0.5, 8.7),
                    (x + 1.6, yy + 0.5, 5.6), (x - 1.6, yy + 0.5, 5.6), 'rope')
+    # Two cannon on the quay aimed at the harbor mouth (the TRELLIS hero cannon imported as broken triangles).
+    for x, y, yaw in ((-206, 88.0, 18), (210, 88.0, -14)):
+        LM.cannon(b, x, y, max(L.ground(x, y), LM.QUAY_TOP), yaw)
     # Gulls over the harbor mouth.
     for i in range(18):
         gx = RNG.uniform(-320, 320)

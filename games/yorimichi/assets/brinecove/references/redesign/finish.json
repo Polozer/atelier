@@ -1,0 +1,38 @@
+{
+ "terrain_meadow": {
+  "source": "tex_meadow.png",
+  "size": 1024,
+  "normal_strength": 3.0
+ },
+ "terrain_forest": {
+  "source": "tex_forest_floor.png",
+  "size": 1024,
+  "normal_strength": 4.0
+ },
+ "terrain_rock": {
+  "source": "tex_rock.png",
+  "size": 1024,
+  "normal_strength": 6.0
+ },
+ "terrain_sand": {
+  "source": "sand.jpg",
+  "size": 1024,
+  "normal_strength": 2.5
+ },
+ "foam_lace": {
+  "source": "tex_foam.png",
+  "size": 512,
+  "alpha_key": [
+   0.28,
+   0.62
+  ]
+ },
+ "waterfall_streaks": {
+  "source": "tex_waterfall.png",
+  "size": 512,
+  "alpha_key": [
+   0.3,
+   0.7
+  ]
+ }
+}

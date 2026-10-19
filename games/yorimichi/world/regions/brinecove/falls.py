@@ -90,17 +90,25 @@ def mist(b, x, y, z, radius, count, rng, height=10.0):
         yaw = rng.uniform(0, math.pi)
         b.card((px, py, pz), (math.cos(yaw), math.sin(yaw), 0.0), size, size * 0.75, 'mist',
                ((0, 0), (1, 0), (1, 1), (0, 1)))
-        if rng.random() < 0.6:
-            foam_patch(b, px, py, z + 0.06, rng.uniform(4.0, 9.0), rng)
 
 
-def foam_patch(b, x, y, z, size, rng):
-    """A soft, ragged foam patch lying on the water: a flat alpha card at a random angle, never a white tile."""
-    a = rng.uniform(0, TAU)
-    ca, sa = math.cos(a), math.sin(a)
-    hx, hy = size / 2, size * rng.uniform(0.3, 0.5)
-    pts = [(x + ca * u - sa * v, y + sa * u + ca * v, z) for u, v in ((-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy))]
-    b.face(pts, 'spray', ((0, 0), (1, 0), (1, 1), (0, 1)))
+def foam_ring(b, x, y, z, r0, r1, rng, segments=28, squash=1.0):
+    """Plunge foam: an annulus in the animated foam material, v running 0 at the inner edge to 1 at the outer.
+
+    The material drifts the lace outward and breathes the outer edge with time, so the foam spreads and fades
+    instead of lying on the water as static white cards (playtest notes 4 and 9)."""
+    wobble = [rng.uniform(0.85, 1.15) for _ in range(segments)]
+    span = TAU * (r0 + r1) / 2 / 4.0
+    for i in range(segments):
+        j = (i + 1) % segments
+        a0, a1 = TAU * i / segments, TAU * (i + 1) / segments
+        w0, w1 = wobble[i], wobble[j]
+        pts = [(x + math.cos(a0) * r0 * squash, y + math.sin(a0) * r0, z),
+               (x + math.cos(a1) * r0 * squash, y + math.sin(a1) * r0, z),
+               (x + math.cos(a1) * r1 * w1 * squash, y + math.sin(a1) * r1 * w1, z),
+               (x + math.cos(a0) * r1 * w0 * squash, y + math.sin(a0) * r1 * w0, z)]
+        u0, u1 = span * i / segments, span * (i + 1) / segments
+        b.face(pts, 'foam', ((u0, 0.0), (u1, 0.0), (u1, 1.0), (u0, 1.0)))
 
 
 def pool_surface(b, x0, x1, y_half, level, mat, step=3.0):
@@ -141,14 +149,18 @@ def waterfall(b):
     for _ in range(11):
         px, py = rng.uniform(682.0, 699.0), L.GORGE_Y + rng.uniform(-8.0, 8.0)
         top = max(L.river_level(px) + rng.uniform(4.0, 11.0), L.height(px, py) + rng.uniform(-2.0, 1.0))
-        rocks.prism(b, (px, py), L.river_level(px) - 3.0, top, rng.uniform(3.0, 6.0), (0.0, 1.0), rng, 'rock_dark',
-                    'moss', squash=0.85, sides=rng.randint(4, 6), tilt=rng.uniform(0.3, 1.2), bulge=False)
-    for _ in range(26):
-        x = rng.uniform(upper - 2.0, upper + 40.0)
-        y = L.GORGE_Y + rng.uniform(-4.0, 4.0)
-        zz = L.river_level(x) + 0.05
-        s = rng.uniform(0.8, 2.2)
-        foam_patch(b, x, y, zz, s * 1.4, rng)
+        r = rng.uniform(3.0, 6.0)
+        rocks.boulder(b, px, py, L.river_level(px) - 1.0, (r * 2.0, r * 1.7, top - L.river_level(px) + 2.0), rng,
+                      'rock_dark', bury=0.25)
+    # White water down the steepening run: a strip of animated foam along the river, its lace flowing downstream.
+    x = upper - 2.0
+    while x < upper + 40.0:
+        za, zb = L.river_level(x) + 0.05, L.river_level(x + 4.0) + 0.05
+        b.face(((x, L.GORGE_Y - 3.6, za), (x + 4.0, L.GORGE_Y - 3.6, zb), (x + 4.0, L.GORGE_Y + 3.6, zb),
+                (x, L.GORGE_Y + 3.6, za)), 'foam',
+               (((x - upper) / 4.0, 0.0), ((x - upper) / 4.0 + 1.0, 0.0), ((x - upper) / 4.0 + 1.0, 1.0),
+                ((x - upper) / 4.0, 1.0)))
+        x += 4.0
     # Upper cascade: out of the slot onto the ledge pool.
     upper_lip = face_x(L.GORGE_Y, river - 0.5, upper + 4.0) + 0.6
     sheet(b, upper_lip, L.GORGE_Y - 4.8, L.GORGE_Y + 4.8, river + 0.2, pool - 0.3, rng, throw=2.5, segments=8)
@@ -168,50 +180,31 @@ def waterfall(b):
         z = pool * (0.85 - 0.17 * k)
         mist(b, face_x(L.GORGE_Y, z, lower + 4.0) - 3.5, L.GORGE_Y + rng.uniform(-3.0, 3.0), z, 4.0 + k, 3, rng,
              height=2.0)
-    for _ in range(10):
-        foam_patch(b, lower_lip + rng.uniform(0.5, 6.0), L.GORGE_Y + rng.uniform(-8.0, 8.0), pool + 0.05,
-                   rng.uniform(2.5, 5.0), rng)
+    foam_ring(b, upper_lip - 4.0, L.GORGE_Y, pool + 0.05, 2.0, 9.0, rng, 20, squash=0.8)
     base_x = face_x(L.GORGE_Y, 0.5, lower) - 6.0
     mist(b, base_x, L.GORGE_Y, 0.0, 18.0, 34, rng, height=14.0)
-    # Foam streaks drift out to sea from the plunge, as in the bridge painting.
-    for _ in range(46):
-        d = rng.uniform(8.0, 60.0)
-        px, py = base_x - d, L.GORGE_Y + rng.uniform(-1, 1) * (8.0 + d * 0.45)
-        if L.height(px, py) > -0.3:
-            continue
-        a = math.pi + rng.uniform(-0.5, 0.5)
-        length, width = rng.uniform(5.0, 12.0), rng.uniform(0.8, 2.2)
-        ca, sa = math.cos(a), math.sin(a)
-        pts = [(px + ca * u - sa * v, py + sa * u + ca * v, 0.07) for u, v in
-               ((-length / 2, -width / 2), (length / 2, -width / 2), (length / 2, width / 2), (-length / 2, width / 2))]
-        b.face(pts, 'spray', ((0, 0.3), (1, 0.3), (1, 0.7), (0, 0.7)))
-    for k in range(3):
-        rocks_ring = 10.0 + k * 5.0
-        for j in range(16):
-            a = TAU * j / 16 + k * 0.3
-            px, py = base_x + math.cos(a) * rocks_ring * 0.8, L.GORGE_Y + math.sin(a) * rocks_ring
-            if L.height(px, py) > 1.0:
-                continue
-            foam_patch(b, px, py, 0.08, rng.uniform(2.5, 5.5), rng)
+    # Plunge foam spreading from the curtain's foot and fading out over the sea; nothing static on open water.
+    foam_ring(b, base_x, L.GORGE_Y, 0.07, 4.0, 22.0, rng, 32, squash=0.75)
     # Wet boulders in the plunge and on the pool lip, and dark stone framing the falls.
     for _ in range(14):
         a = rng.uniform(0, TAU)
         d = rng.uniform(7.0, 16.0)
         px, py = base_x + math.cos(a) * d * 0.7, L.GORGE_Y + math.sin(a) * d
-        rocks.prism(b, (px, py), -2.0, rng.uniform(0.8, 3.2), rng.uniform(1.2, 2.8), (0.0, 1.0), rng, 'rock_dark',
-                    'rock', squash=0.9, tilt=0.5)
+        r = rng.uniform(1.2, 2.8)
+        rocks.boulder(b, px, py, -0.6, (r * 2.0, r * 1.7, rng.uniform(2.4, 5.0)), rng, 'rock_dark', bury=0.4)
     for side in (-1, 1):
         for k in range(7):
             yy = L.GORGE_Y + side * rng.uniform(9.5, 15.0)
             xx = lower - rng.uniform(1.0, 9.0)
             top = L.height(xx + 3.0, yy) + rng.uniform(-1.0, 1.5)
-            rocks.prism(b, (xx, yy), L.height(xx, yy) - 3.0, top, rng.uniform(2.2, 3.6), (0.0, 1.0), rng,
-                        'rock_dark', 'jungle_dark', squash=0.8, tilt=0.8)
+            r = rng.uniform(2.2, 3.6)
+            rocks.boulder(b, xx, yy, L.height(xx, yy) - 1.5, (r * 1.8, r * 2.0, top - L.height(xx, yy) + 3.0), rng,
+                          'rock_dark', bury=0.2, strata=0.75)
     for _ in range(10):
         px = rng.uniform(lower + 2.0, upper_lip - 3.0)
         py = L.GORGE_Y + rng.choice((-1, 1)) * rng.uniform(4.0, 11.0)
-        rocks.prism(b, (px, py), pool - 1.6, pool + rng.uniform(0.3, 1.4), rng.uniform(0.8, 1.8), (1.0, 0.0), rng,
-                    'rock_dark', 'rock', squash=0.9, tilt=0.3)
+        r = rng.uniform(0.8, 1.8)
+        rocks.boulder(b, px, py, pool - 0.4, (r * 2.0, r * 1.6, rng.uniform(1.6, 3.0)), rng, 'rock_dark', bury=0.4)
     # Ferns, moss mounds and hanging vines on the wet canyon walls.
     for _ in range(60):
         px = rng.uniform(lower - 6.0, upper + 60.0)

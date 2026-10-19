@@ -1,0 +1,31 @@
+{
+  "stage": "brinecove-redesign",
+  "slug": "tex_rock",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/generations",
+  "execution": "games/yorimichi/world/regions/brinecove/references/redesign.py",
+  "context": [],
+  "prompt_file": "tex_rock.prompt.txt",
+  "prompt_sha256": "1587d3d59565b2479a6aeff0510a7654d425c16728ff1f4f5f94a5556419096a",
+  "status": "done",
+  "started_at": "2026-10-19T15:28:35.459653+00:00",
+  "elapsed_seconds": 60.6,
+  "output": "tex_rock.png",
+  "output_sha256": "a175b2b951667f58844b30d7402fd487f9f69ac907dd63b72b2c26e1fb264e40",
+  "usage": {
+    "input_tokens": 123,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 123
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 1879
+  },
+  "finished_at": "2026-10-19T15:29:36.092118+00:00"
+}

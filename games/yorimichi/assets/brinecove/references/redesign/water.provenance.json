@@ -1,0 +1,36 @@
+{
+  "stage": "brinecove-redesign",
+  "slug": "water",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "endpoint": "/v1/images/edits",
+  "execution": "games/yorimichi/world/regions/brinecove/references/redesign.py",
+  "context": [
+    {
+      "file": "context/note-009.jpg",
+      "sha256": "26a45587a75020890e99444d223e410f6ff2a8847cff03ff5b7a8d98fed26ef0"
+    }
+  ],
+  "prompt_file": "water.prompt.txt",
+  "prompt_sha256": "079c6f57af5d956374a00dbde57ff4e1c432591bc564c17578baae961a5bec39",
+  "status": "done",
+  "started_at": "2026-10-19T15:27:58.877744+00:00",
+  "elapsed_seconds": 36.5,
+  "output": "water.png",
+  "output_sha256": "21ace5f31467ff1c968d74ec80ef0496209da2b688dd8bf505f1b3627161288e",
+  "usage": {
+    "input_tokens": 1249,
+    "input_tokens_details": {
+      "image_tokens": 1040,
+      "text_tokens": 209
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 2621
+  },
+  "finished_at": "2026-10-19T15:28:35.458876+00:00"
+}

@@ -1,0 +1,36 @@
+{
+  "stage": "brinecove-redesign",
+  "slug": "groundcover",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1536x1024",
+  "endpoint": "/v1/images/edits",
+  "execution": "games/yorimichi/world/regions/brinecove/references/redesign.py",
+  "context": [
+    {
+      "file": "context/note-001.jpg",
+      "sha256": "a89653faadb8e8df087794bef45e0e515d52a126b5e2c1f732e8003a805b9eaf"
+    }
+  ],
+  "prompt_file": "groundcover.prompt.txt",
+  "prompt_sha256": "3e47cfba841ca9b1fe9008284915f97e490d4e7b65ecdbf6ccf9f329829d1e11",
+  "status": "done",
+  "started_at": "2026-10-19T15:27:57.899521+00:00",
+  "elapsed_seconds": 41.0,
+  "output": "groundcover.png",
+  "output_sha256": "d2c89ac4c40824d506c022db3fc123a313681b59d12a20a1a70367076242c8ef",
+  "usage": {
+    "input_tokens": 1247,
+    "input_tokens_details": {
+      "image_tokens": 1040,
+      "text_tokens": 207
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 2619
+  },
+  "finished_at": "2026-10-19T15:28:38.965942+00:00"
+}

@@ -205,6 +205,64 @@ def flowering(seed, radius):
     return b
 
 
+def _blade(b, base, ang, length, width, rise, bend, mat, segments=4, up=0.75):
+    """One tapered, bending strip (a fern frond or a grass blade), both sides, normals leaning up so the clump
+    shades as one soft mass instead of dark undersides."""
+    ca, sa = math.cos(ang), math.sin(ang)
+    px, py = -sa, ca
+    rows = []
+    for k in range(segments + 1):
+        t = k / segments
+        d = length * t
+        z = base[2] + rise * t - bend * t * t
+        w = width * (1.0 - t) ** 0.7 * (0.6 + 0.4 * math.sin(math.pi * min(1.0, t * 1.4)))
+        cx, cy = base[0] + ca * d, base[1] + sa * d
+        rows.append(((cx - px * w, cy - py * w, z), (cx + px * w, cy + py * w, z)))
+    n = (ca * (1 - up), sa * (1 - up), up)
+    m = math.sqrt(sum(c * c for c in n))
+    n = tuple(c / m for c in n)
+    for (a0, a1), (b0, b1) in zip(rows, rows[1:]):
+        b.face((a0, a1, b1, b0), mat, ((0, 0), (1, 0), (1, 1), (0, 1)), (n,) * 4)
+        b.face((a1, a0, b0, b1), mat, ((0, 0), (1, 0), (1, 1), (0, 1)), (n,) * 4)
+
+
+def cover_fern(seed):
+    """A fern clump: arching fronds from one crown, about knee high."""
+    rng = random.Random(seed)
+    b = Builder(f'cover_fern_{seed}')
+    for i in range(rng.randint(7, 10)):
+        ang = TAU * i / 8 + rng.uniform(-0.3, 0.3)
+        mat = 'cover_fern_light' if rng.random() < 0.35 else 'cover_fern'
+        _blade(b, (0.0, 0.0, 0.0), ang, rng.uniform(0.8, 1.3), rng.uniform(0.16, 0.24), rng.uniform(0.7, 1.0),
+               rng.uniform(0.45, 0.75), mat, segments=5, up=0.7)
+    return b
+
+
+def cover_grass(seed):
+    """A tuft of grass blades, some dry tips among the green."""
+    rng = random.Random(seed)
+    b = Builder(f'cover_grass_{seed}')
+    for _ in range(rng.randint(12, 16)):
+        ang = rng.uniform(0, TAU)
+        r = rng.uniform(0.0, 0.18)
+        mat = 'cover_grass_dry' if rng.random() < 0.25 else 'cover_grass'
+        _blade(b, (math.cos(ang) * r, math.sin(ang) * r, 0.0), ang, rng.uniform(0.15, 0.35),
+               rng.uniform(0.035, 0.05), rng.uniform(0.35, 0.6), rng.uniform(0.0, 0.15), mat, segments=3, up=0.6)
+    return b
+
+
+def cover_broadleaf(seed):
+    """Low broad-leaf ground plants: a rosette of pointed leaves on short stalks."""
+    rng = random.Random(seed)
+    b = Builder(f'cover_leaf_{seed}')
+    for i in range(rng.randint(5, 7)):
+        ang = TAU * i / 6 + rng.uniform(-0.3, 0.3)
+        mat = 'cover_leaf_light' if i % 3 == 0 else 'cover_leaf'
+        _blade(b, (0.0, 0.0, 0.05), ang, rng.uniform(0.45, 0.65), rng.uniform(0.16, 0.22), rng.uniform(0.25, 0.4),
+               rng.uniform(0.15, 0.3), mat, segments=3, up=0.8)
+    return b
+
+
 def prototypes():
     """Species library. Keys name each prototype; values are geometry builders."""
     protos = {}
@@ -222,6 +280,11 @@ def prototypes():
         protos[f'shrub_{i}'] = shrub(4500 + i, r, pal, cards=int(60 + r * 55))
     for i, r in enumerate((1.2, 1.7)):
         protos[f'bloom_{i}'] = flowering(4600 + i, r)
+    # Groundcover: real standing plants instead of a printed leaf carpet (playtest note 1).
+    for i in range(3):
+        protos[f'cover_fern_{i}'] = cover_fern(4700 + i)
+        protos[f'cover_grass_{i}'] = cover_grass(4710 + i)
+        protos[f'cover_leaf_{i}'] = cover_broadleaf(4720 + i)
     return protos
 
 
@@ -256,6 +319,7 @@ def _ridge(x, y):
 
 def scatter(seed=8807):
     """Placements as (prototype, x, y, z, yaw degrees, scale)."""
+    from brinecove.landmarks import footprint
     rng = random.Random(seed)
     out = []
     discs = Poisson()
@@ -266,6 +330,8 @@ def scatter(seed=8807):
     shrubs = [f'shrub_{i}' for i in range(5)]
 
     def place(proto, x, y, scale, spacing, sink=0.0):
+        if footprint(x, y, spacing * 0.5 + 1.0):
+            return False  # the fort, its ramp, the shipyard and the hill stair stay clear
         if not discs.fits(x, y, spacing):
             return False
         discs.add(x, y, spacing)
@@ -316,6 +382,47 @@ def scatter(seed=8807):
         y = rng.uniform(-250, 520)
         if L.headland_plantable(x, y):
             place(rng.choice(shrubs), x, y, rng.uniform(0.9, 1.5), 2.6)
+    return out
+
+
+COVER_LIMIT = 140000
+
+
+def groundcover(ground=None, seed=8811):
+    """Groundcover placements (prototype, x, y, z, yaw, scale): clumps of fern, broadleaf and grass on every planted
+    slope, gathered by noise into drifts with bare soil between them, never on sand, cliffs, streets or water.
+
+    ground is the game's final ground (build.py passes the collar-eased one). The count is capped at COVER_LIMIT;
+    build.py culls the instances at 50 m and the prototypes carry generated LODs."""
+    from brinecove.rocks import fbm, uphill
+    from brinecove.landmarks import footprint
+    import brinecove.region as R
+    ground = ground or L.ground
+    rng = random.Random(seed)
+    out, discs = [], Poisson(cell=4.0)
+    x0, y0, x1, y1 = R.OUTER
+    for _ in range(700000):
+        if len(out) >= COVER_LIMIT:
+            break
+        x, y = rng.uniform(x0 + 2, x1 - 2), rng.uniform(y0 + 2, y1 - 2)
+        drift = fbm(x, y, 22.0, 3, 61)
+        if drift < 0.36:
+            continue  # soil gaps between drifts
+        inside = abs(x) <= 880 and L.Y_MIN - 30 <= y <= L.Y_MAX + 250
+        if inside and not L.plantable(x, y):
+            continue
+        z = ground(x, y)
+        if z < 2.6 or L.in_gorge(x, y, 5.0) or footprint(x, y, 0.5) or uphill(x, y, 3.0)[2] > 0.95:
+            continue
+        if not discs.fits(x, y, 1.15):
+            continue
+        discs.add(x, y, 1.15)
+        wet = fbm(x, y, 60.0, 2, 67)
+        kind = 'cover_fern' if wet > 0.55 else ('cover_leaf' if wet > 0.42 else 'cover_grass')
+        if rng.random() < 0.25:
+            kind = rng.choice(('cover_fern', 'cover_leaf', 'cover_grass'))
+        out.append((f'{kind}_{rng.randrange(3)}', x, y, z - 0.05, rng.uniform(0, 360),
+                    rng.uniform(1.0, 1.4) * (0.9 + 0.6 * drift)))
     return out
 
 

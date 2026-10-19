@@ -1,0 +1,31 @@
+{
+  "stage": "brinecove-redesign",
+  "slug": "tex_forest_floor",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "quality": "high",
+  "size": "1024x1024",
+  "endpoint": "/v1/images/generations",
+  "execution": "games/yorimichi/world/regions/brinecove/references/redesign.py",
+  "context": [],
+  "prompt_file": "tex_forest_floor.prompt.txt",
+  "prompt_sha256": "ad3db544b1151efa74b82bab300b10e16b31ab4aabe1a20d04f1405b6cfc989b",
+  "status": "done",
+  "started_at": "2026-10-19T15:27:59.885907+00:00",
+  "elapsed_seconds": 55.3,
+  "output": "tex_forest_floor.png",
+  "output_sha256": "e0828d5e9e5c32f79d46a7534241c49e940bbfb682471511cf969d4b89e62af5",
+  "usage": {
+    "input_tokens": 129,
+    "input_tokens_details": {
+      "image_tokens": 0,
+      "text_tokens": 129
+    },
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "image_tokens": 1756,
+      "text_tokens": 0
+    },
+    "total_tokens": 1885
+  },
+  "finished_at": "2026-10-19T15:28:55.188540+00:00"
+}
