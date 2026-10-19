@@ -108,21 +108,58 @@ SALON_COUNTER = {'spot_cm': [-1760., 300., 15.], 'yaw': 180., 'half_length_cm': 
                  'below_cm': 80., 'above_cm': 260.}
 
 
-def racing_places(data):
-    """Belmonte's racing places (docs/RACING.md), derived from the committed Salon hall placement, for runtime.json."""
-    assets = {m['source_asset'] for m in data['meshes'] if m['name'] == 'SM_BM_BHip_SalonHall'}
+def _building(data, mesh_name):
+    """The one committed placement of an authored Belmonte building (its source.json transform)."""
+    assets = {m['source_asset'] for m in data['meshes'] if m['name'] == mesh_name}
     placements = [p['transform'] for p in data['placements'] if p['asset'] in assets]
     if len(assets) != 1 or len(placements) != 1:
-        raise ValueError('Racing placement requires exactly one committed SM_BM_BHip_SalonHall placement')
-    tr = placements[0]
-    q = tr['rotation_xyzw']
-    fwd = planting.rotate(q, np.array([1., 0., 0.]))
-    yaw = round(((float(np.degrees(np.arctan2(fwd[1], fwd[0]))) + SALON_COUNTER['yaw'] + 180.) % 360.) - 180., 2)
-    at = (planting.rotate(q, np.asarray(SALON_COUNTER['spot_cm'], float) * np.asarray(tr['scale'], float))
-          + np.asarray(tr['translation_cm'], float)).round(2).tolist()
-    counter = {'at_cm': at, 'yaw': 180. if abs(yaw + 180.) < 1e-6 else yaw,
-               **{k: SALON_COUNTER[k] for k in ('half_length_cm', 'reach_cm', 'behind_cm', 'below_cm', 'above_cm')}}
-    return {'counter': counter}
+        raise ValueError(f'Racing placement requires exactly one committed {mesh_name} placement')
+    return placements[0]
+
+
+def _building_point(tr, local_cm):
+    """A point of a building's local space (cm) in Belmonte-local cm, through its committed transform."""
+    return (planting.rotate(tr['rotation_xyzw'], np.asarray(local_cm, float) * np.asarray(tr['scale'], float))
+            + np.asarray(tr['translation_cm'], float)).round(2).tolist()
+
+
+def _building_yaw(tr, local_yaw):
+    """A building-local yaw (degrees) in Belmonte-local degrees, in (-180, 180]."""
+    fwd = planting.rotate(tr['rotation_xyzw'], np.array([1., 0., 0.]))
+    yaw = round(((float(np.degrees(np.arctan2(fwd[1], fwd[0]))) + local_yaw + 180.) % 360.) - 180., 2)
+    return 180. if abs(yaw + 180.) < 1e-6 else yaw
+
+
+# The player's racing stable in Belmonte (docs/RACING.md, "Stables"): estate 0's stable range (SM_BM_BE_0_Stables), in
+# its local space. A name plate (92 x 56 cm) at each of its eleven stall doors on the yard front, 1.52 m over the yard,
+# and the two boards (150 x 112 cm) either side of the main double door under its windows: the jockeys' board west, the
+# transfer board east. All face the yard (local yaw 90).
+BELMONTE_STABLE = {'mesh': 'SM_BM_BE_0_Stables', 'front_y_cm': -1647., 'yaw': 90.,
+                   'stall_x_cm': [-3090.625, -2731.875, -2373.125, -2014.375, -1655.625, -1296.875, -938.125,
+                                  138.125, 496.875, 855.625, 1214.375],
+                   'plate_z_cm': 152., 'plate_size_cm': [92., 56.],
+                   'boards': (('jockeys', -698.), ('transfers', -102.)), 'board_z_cm': 108., 'board_size_cm': [150., 112.]}
+
+
+def belmonte_stable_places(data):
+    """The stall plates and boards of the player's Belmonte stable, from the estate's committed placement."""
+    st = BELMONTE_STABLE
+    tr = _building(data, st['mesh'])
+    yaw = _building_yaw(tr, st['yaw'])
+    out = [{'kind': 'plate', 'stall': i, 'at_cm': _building_point(tr, [x, st['front_y_cm'], st['plate_z_cm']]), 'yaw': yaw,
+            'size_cm': list(st['plate_size_cm'])} for i, x in enumerate(st['stall_x_cm'])]
+    out += [{'kind': kind, 'stall': 0, 'at_cm': _building_point(tr, [x, st['front_y_cm'], st['board_z_cm']]), 'yaw': yaw,
+             'size_cm': list(st['board_size_cm'])} for kind, x in st['boards']]
+    return out
+
+
+def racing_places(data):
+    """Belmonte's racing places (docs/RACING.md), derived from the committed building placements, for runtime.json."""
+    salon = _building(data, 'SM_BM_BHip_SalonHall')
+    c = SALON_COUNTER
+    counter = {'at_cm': _building_point(salon, c['spot_cm']), 'yaw': _building_yaw(salon, c['yaw']),
+               **{k: c[k] for k in ('half_length_cm', 'reach_cm', 'behind_cm', 'below_cm', 'above_cm')}}
+    return {'counter': counter, 'belmonte_stable': belmonte_stable_places(data)}
 
 
 def map_zones(town_z,data):
