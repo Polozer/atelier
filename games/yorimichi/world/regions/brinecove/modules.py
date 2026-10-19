@@ -338,6 +338,9 @@ def harbor():
     n0, n1 = LM.SLIP_NOTCH
     for x0, x1 in ((-390.0, n0), (n1, 390.0)):
         paving(b, x0, x1, L.QUAY_Y + 2.1, 65.0, z=4.745, tile=7.0, thick=0.25, kerbs=(False, False), seed=8)
+        # Ground under the quay wall itself stays below the paving too: build.split clamps vertex by vertex, so a
+        # ground triangle with one corner under the wall stood up past the paving edge as a grass wedge (note 3).
+        FLAT_PAVING.append((x0, x1, L.QUAY_Y - 2.1, L.QUAY_Y + 2.1, 4.745 - 0.25))
     for x in (-130, 135):
         for i in range(6):
             b.box((x, L.QUAY_Y - 1.0 - i * 0.8, 4.3 - i * 0.7), (9.0, 0.9, 0.3), 'stone')
