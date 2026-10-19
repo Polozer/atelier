@@ -1,15 +1,26 @@
 # Selectable soundbank sources
 
-`catalog.json` reserves stable choices for Original, Soft Contact, Dry Street and
-Warm Motion. Only complete banks belong in the catalog. The initial catalog
-contains Original alone; it delegates to the existing footstep and skate assets
-without copying, regenerating or replacing them. The in-game selector is not
-implemented by this preparation layer.
+`catalog.json` contains four complete, stable choices. Original remains the default
+and delegates to the existing footstep and skate assets without copying,
+regenerating or replacing them. The existing in-game selector consumes the native
+registry produced from this catalog; preparation alone does not select a bank.
+
+| Selection | Bank | Committed replacement samples | Source WAV bytes |
+| --- | --- | ---: | ---: |
+| 0 (default) | Original | Existing assets | Unchanged |
+| 1 | Soft Contact | 53 | 2,924,572 |
+| 2 | Dry Street | 53 | 2,985,244 |
+| 3 | Warm Motion | 53 | 3,328,636 |
+
+Soft Contact's prompt brief emphasizes muted rounded contacts and fine surface
+texture. Warm Motion asks for warmer body and wooden resonance. Each retains the
+actual material and recognizable skateboard wheels/deck. Every consumed WAV is
+distinct across all three generated banks; none is an inherited duplicate choice.
 
 `atelier build yorimichi audio.soundbanks` validates committed definitions and
 prepares an independently inventoried product under `build/yorimichi/audio/soundbanks`.
-It performs no inference and requires no model weights or private cache. Future
-Unreal consumers must declare the `audio.soundbanks` product as an actual read.
+It performs no inference and requires no model weights or private cache. Normal
+Unreal consumers declare the `audio.soundbanks` product as an actual read.
 
 Each generated entry names `<bank-id>/bank.json` with its SHA-256. That manifest
 must provide all seven existing footstep pools, all eight skate surface rolls and
@@ -35,10 +46,12 @@ inventories, but deliberately does not opt into portable caching or action input
 auditing: those mechanisms clear or replace product roots, conflicting with
 preserving a published bank on failure. The source checks remain mandatory.
 
-The first usable runtime slice must include Original plus one alternative, menu
-selection and persistence, and verified active-loop switching. Dry Street and
-Warm Motion follow that native proof as separate asset changes. Original remains
-the fresh/default choice throughout.
+The three alternatives each supply four contacts per footstep pool, one roll per
+skate surface, two landings per surface and one powerslide loop. Every footstep
+and landing pool spans at least two actual raw takes. Sources use the unchanged
+production extractor and preserve its PCM, normalization, gates and crossfades.
+Rejected takes remain rejected; complete source coverage does not imply listening
+acceptance. Original remains the fresh/default choice throughout.
 
 `audio.soundbank_previews` builds one 16-second mono 48 kHz PCM16 audition per
 catalog entry (about 1.5 MiB each). Every example uses the same seeds and timeline:
@@ -57,7 +70,7 @@ This does not select a bank or establish subjective listening acceptance.
 
 `audio.soundbank_import_plan` validates the current committed catalog, every
 prepared WAV (including surfaces omitted from the audition), the audition PCM,
-and the current profile/producer bindings. It emits a portable plan for a future
+and the current profile/producer bindings. It emits a portable plan for the normal
 native import under `/Game/AudioBanks`, with stable selections, exact source
 identities and explicit footstep/Skate slot mappings. Original has an audition
 entry only, and no replacement cue library. The existing generic Skate API has
@@ -82,9 +95,11 @@ packaging retains the complete dependency. Audio-only fixture staging therefore
 does not depend on world generation. The owned packages are included in cooking and
 preserved by content cleanup. A candidate receipt is never runtime metadata.
 
-This import increment does not install a menu selector or activate an alternative.
-Native execution, audible playback, client ownership, saved preferences and cooked
-package acceptance remain required for the first Original/Dry Street menu slice.
+The Soft Contact/Warm Motion source completion uses this existing import,
+registry, staging and menu mechanism without runtime changes. Its focused source,
+PCM, fingerprint and portable preflight checks do not claim a new Unreal import,
+gameplay session or cooked-package acceptance. Subjective listening remains a
+separate acceptance decision.
 
 The menu selector uses only entries in the installed registry, so stable selection
 numbers need not be contiguous. A local-world subsystem loads an alternative,
@@ -102,5 +117,5 @@ generation token so an obsolete completion cannot take over the current session.
 Selection commits, preview completions and late emitters re-read the bounded staged
 registry and require its exact admitted snapshot; a change or removal refuses the
 new activation and asks for a restart. Cached entries are not activation authority.
-These are source guarantees pending native/menu/host-guest/package acceptance;
-the selector must not be advertised as delivered before that evidence exists.
+These source guarantees alone do not establish subjective listening,
+host/guest presentation or cooked-package acceptance for a newly added bank.
