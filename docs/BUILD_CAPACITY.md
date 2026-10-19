@@ -174,3 +174,18 @@ Whole-machine percentages and a shell wrapper's CPU counter cannot establish a j
 
 The board's active waiting count includes current queued requests only. Historical retry-required records
 hold no capacity. GPU memory is part of unified memory; its separate budget is not extra physical RAM.
+
+### Successful whole-tree observation history
+
+Normal guarded full-capacity successes may write `successful-tree-observation.json` after cleanup and
+capacity close return successfully. The record carries the exact launcher invocation, observed tree peak,
+selected ceiling, declared resources and profile identity. Commands and environments are retained only as
+SHA256 identities, never raw values. Missing, malformed or failed observations remain unknown.
+The full environment digest includes invocation-specific state; it records that invocation's provenance
+and is not a reusable environment/profile key for future sizing.
+
+A successful build action can retain this observation in its command history with the existing action
+fingerprint. Failed output checks do not publish a successful action stamp. Cache keys and cached products
+are unchanged. The existing fingerprint retains its existing tool/input scope: this diagnostic does not
+prove complete transitive tool or environment calibration, nor does one observation establish a smaller
+safe envelope. No admission, profile, ceiling, worker count or sizing formula consumes this new history.
