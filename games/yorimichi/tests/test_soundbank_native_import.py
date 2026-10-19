@@ -78,3 +78,38 @@ def test_registry_stage_path_and_cook_ownership(tmp_path):
     spec.loader.exec_module(stage)
     assert 'Soundbanks/registry.json' not in stage.staged(tmp_path)
     assert '+DirectoriesToAlwaysCook=(Path="/Game/AudioBanks")' in (GAME / 'unreal/Config/DefaultGame.ini').read_text()
+
+
+def test_cleanup_handles_unreal_false_after_registry_deletion(tmp_path):
+    content = tmp_path / 'Content'
+    wave = content / 'AudioBanks/original/Audition.uasset'
+    wave.parent.mkdir(parents=True)
+    wave.write_bytes(b'old owned package')
+    untouched = content / 'Audio/Original.uasset'
+    untouched.parent.mkdir()
+    untouched.write_bytes(b'legacy cue')
+    editor = SimpleNamespace(does_directory_exist=lambda _: True, delete_directory=lambda _: False,
+                             list_assets=lambda *a, **k: [])
+    consumer.clear_packages(content, editor)
+    assert not (content / 'AudioBanks').exists()
+    assert untouched.read_bytes() == b'legacy cue'
+
+
+@pytest.mark.parametrize('failure', ['registered', 'unknown_file', 'symlink'])
+def test_cleanup_refuses_uncleared_or_unowned_files(tmp_path, failure):
+    content = tmp_path / 'Content'
+    wave = content / 'AudioBanks/original/Audition.uasset'
+    wave.parent.mkdir(parents=True)
+    wave.write_bytes(b'old owned package')
+    calls = []
+    editor = SimpleNamespace(does_directory_exist=lambda _: True,
+                             delete_directory=lambda _: calls.append('delete') or False,
+                             list_assets=lambda *a, **k: ['/Game/AudioBanks/original/Audition'])
+    if failure == 'unknown_file':
+        (wave.parent / 'keep.txt').write_text('unexpected')
+    elif failure == 'symlink':
+        (wave.parent / 'linked.uasset').symlink_to(wave)
+    with pytest.raises(ValueError):
+        consumer.clear_packages(content, editor)
+    assert wave.read_bytes() == b'old owned package'
+    assert calls == (['delete'] if failure == 'registered' else [])
