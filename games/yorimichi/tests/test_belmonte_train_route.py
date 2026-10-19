@@ -182,13 +182,21 @@ class Profile(unittest.TestCase):
             self.assertGreaterEqual(R.volcano_distance(track[:, 1], track[:, 2]).min(), R.VOLCANO_CLEARANCE)
 
     def test_timetable(self):
-        for name in ('run', 'run_down'):
+        line, tunnel = self.r['line'], self.r['kind'] == 'tunnel'
+        for name, direction in (('run', 1), ('run_down', -1)):
             c, t, v = self.r[name]
-            self.assertLessEqual(v.max(), R.MAX_SPEED + 1e-6)
+            self.assertLessEqual(v.max(), R.TUNNEL_SPEED + 1e-6)
+            self.assertTrue((v > R.MAX_SPEED).any())
+            for head in c[v > R.MAX_SPEED + 1e-6]:
+                rear = head - direction * R.TRAIN_LENGTH
+                low, high = sorted((head, rear))
+                self.assertEqual(np.interp(low, line.s, tunnel), 1.)
+                self.assertEqual(np.interp(high, line.s, tunnel), 1.)
+                self.assertTrue(tunnel[(line.s >= low) & (line.s <= high)].all())
             self.assertEqual(v[0], 0.)
             self.assertEqual(v[-1], 0.)
             self.assertLess(t[-1], 600.)
-        self.assertGreater(self.r['one_way'], self.r['one_way_down'])       # uphill to Belmonte is the slow way
+        self.assertAlmostEqual(self.r['one_way'], self.r['one_way_down'], delta=30.)
         self.assertFalse(math.isnan(self.r['loop_time']))
         service = self.r['service']
         self.assertEqual(service['dwell_s'], R.DWELL)

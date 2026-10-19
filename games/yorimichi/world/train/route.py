@@ -108,6 +108,8 @@ LATERAL_ACCELERATION = .85  # with cant (was .65 without): v = sqrt(a R), posted
 POSTED_STEP = 10 / 3.6
 ACCELERATION = .4           # at most; less when the engine's power runs out
 BRAKING = 1.2               # Paul: still stopped far too slowly at .8 (was .5); a firm stop for a game
+TUNNEL_SPEED = 160 / 3.6    # game pacing: only while the complete consist is under one continuous tunnel
+TUNNEL_ACCELERATION = 1.2
 # A steam train for a game: locomotive 70 t, tender 40 t and five vehicles of about 36 t (consist.py has no masses).
 MASS = (70. + 40. + 5 * 36.) * 1e3
 POWER = 1.5e6               # watts at the rail
@@ -709,14 +711,37 @@ def balancing_speed(grade):
     return v
 
 
-def run(line, rail=None, direction=1, step=1., stop=None):
+def tunnel_covered(line, tunnel, head, direction):
+    """@cc [owner:fontanierh,label:correctness] train-hidden-speed-containment
+    A boosted head position MUST put the complete consist inside one continuous tunnel.
+    Separate tunnels MUST NOT bridge an exposed gap. Coverage is conservative at sampled
+    portal boundaries; a half-cell beyond the first/last tunnel sample is never boosted.
+    """
+    head = np.asarray(head, float)
+    covered = np.zeros(head.shape, bool)
+    if tunnel is None:
+        return covered
+    tunnel = np.asarray(tunnel, bool)
+    if tunnel.shape != line.s.shape:
+        raise ValueError('Tunnel mask must have one value per line sample')
+    rear = head - direction * TRAIN_LENGTH
+    low, high = np.minimum(head, rear), np.maximum(head, rear)
+    for inside, start, end in _runs(tunnel):
+        if inside:
+            covered |= (low >= line.s[start]) & (high <= line.s[end - 1])
+    return covered
+
+
+def run(line, rail=None, direction=1, step=1., stop=None, tunnel=None):
     """Run between the platform centres, H2 to Belmonte (direction 1) or back (-1): head chainage, time and speed
     arrays. The train brakes at BRAKING to reach a posted limit where the curve starts and keeps it until its rear
     has left the curve; it accelerates at most at ACCELERATION and as the engine's POWER allows against the grade
     and DAVIS resistance; descents are limited only by the posted limits and MAX_SPEED. It starts with its head
     TRAIN_LENGTH + STOP_CLEARANCE from the end it leaves (the train reversed there) and stops with its head
     STOP_CLEARANCE from the far end, so the whole train stands on the station reserve.
-    With `stop` (a chainage) it also comes to a stand there."""
+    With `stop` (a chainage) it also comes to a stand there. With a tunnel mask on line.s,
+    a fully covered consist may use TUNNEL_SPEED and TUNNEL_ACCELERATION; braking still
+    restores the posted limit before any part leaves the tunnel."""
     first, last = STOP_CLEARANCE + TRAIN_LENGTH, line.length - STOP_CLEARANCE
     if direction < 0:
         first, last = line.length - first, STOP_CLEARANCE
@@ -726,6 +751,8 @@ def run(line, rail=None, direction=1, step=1., stop=None):
     for a, b, v, _ in posted_limits(line):
         lo, hi = (a, b + TRAIN_LENGTH) if direction > 0 else (a - TRAIN_LENGTH, b)
         limit[(c >= lo) & (c <= hi)] = np.minimum(limit[(c >= lo) & (c <= hi)], v)
+    hidden = tunnel_covered(line, tunnel, c, direction)
+    limit[hidden] = TUNNEL_SPEED
     if rail is None:
         grade = np.zeros(len(d))
     else:
@@ -741,7 +768,7 @@ def run(line, rail=None, direction=1, step=1., stop=None):
     for i in range(len(d) - 1):
         u = v[i]
         force = POWER / max(u, 1.) - resistance(u) - MASS * GRAVITY * grade[i]
-        acc = min(ACCELERATION, force / MASS)
+        acc = TUNNEL_ACCELERATION if hidden[i] else min(ACCELERATION, force / MASS)
         v[i + 1] = min(vb[i + 1], math.sqrt(max(u * u + 2 * acc * step, 1.)))
     if halt is not None:
         v[halt] = 0.
@@ -764,21 +791,21 @@ def _at(r, chainage):
     return float(np.interp(chainage, c, t) if c[-1] > c[0] else np.interp(chainage, c[::-1], t[::-1]))
 
 
-def service(line, rail, loop, up=None, down=None):
+def service(line, rail, loop, up=None, down=None, tunnel=None):
     """The two-train timetable with DWELL at both ends and the crossing at `loop`. Both trains run one schedule half
     a cycle apart. At each crossing the train of one direction (the same every time) arrives first, stops with its
     head TURNOUT + 10 m short of the far turnout and stands until the other's rear has cleared that turnout plus
     CROSSING_MARGIN; the other runs through, entering the loop only once the first has stopped. Both choices of who
     waits are solved in closed form and the shorter cycle wins; each station sees a departure every half cycle."""
-    up = up or run(line, rail, 1)
-    down = down or run(line, rail, -1)
+    up = up or run(line, rail, 1, tunnel=tunnel)
+    down = down or run(line, rail, -1, tunnel=tunnel)
     a, b = loop
     U, D = float(up[1][-1]), float(down[1][-1])
     best = None
     for waiting in (1, -1):
         if waiting > 0:         # the up train waits near the Belmonte-side turnout
             halt = b - TURNOUT - 10.
-            stopping = run(line, rail, 1, stop=halt)
+            stopping = run(line, rail, 1, stop=halt, tunnel=tunnel)
             arrive, U0 = _at(stopping, halt), float(stopping[1][-1])
             enter, clear = _at(down, b), _at(down, b - TRAIN_LENGTH)
             # the down train leaves Belmonte (U0 + wait - D) / 2 after the up one leaves H2: it reaches the loop
@@ -787,7 +814,7 @@ def service(line, rail, loop, up=None, down=None):
             up_time, down_time = U0 + wait, D
         else:                   # the down train waits near the Hidamari-side turnout
             halt = a + TURNOUT + 10.
-            stopping = run(line, rail, -1, stop=halt)
+            stopping = run(line, rail, -1, stop=halt, tunnel=tunnel)
             arrive, D0 = _at(stopping, halt), float(stopping[1][-1])
             enter, clear = _at(up, a), _at(up, a + TRAIN_LENGTH)
             wait = max(0., U - D0 + 2 * (arrive - enter), 2 * (clear + CROSSING_MARGIN - arrive) - U + D0)
@@ -1181,13 +1208,14 @@ def study(points=None, sampler=ground, grade=None):
     if rail is None:
         raise InfeasibleRoute(f'no profile meets the fixed station height and {grade * 100:g}% grade limit')
     kind = classify(rail - zg, line.spiral_mask())
-    up, down = run(line, rail, 1), run(line, rail, -1)
+    tunnel = kind == 'tunnel'
+    up, down = run(line, rail, 1, tunnel=tunnel), run(line, rail, -1, tunnel=tunnel)
     centre = (loop[0] + loop[1]) / 2 if loop else math.nan
     loop_time = float(np.interp(centre, up[0], up[1])) if loop else math.nan
     return dict(line=line, zg=zg, rail=rail, cost=total, grade_limit=grade, plain_costs=plain, loop=loop, meet=meet,
                 kind=kind, run=up, run_down=down, one_way=float(up[1][-1]), one_way_down=float(down[1][-1]),
                 loop_time=loop_time, loop_offset=crossing(up, down, centre) if loop else math.nan,
-                service=service(line, rail, loop, up, down) if loop else None)
+                service=service(line, rail, loop, up, down, tunnel=tunnel) if loop else None)
 
 
 def summary(r):
