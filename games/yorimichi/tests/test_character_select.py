@@ -79,3 +79,9 @@ def test_character_select_cpp_and_release_launcher_wired():
     assert 'if (FJapanCharacterSelect::IsOpen()) return;' in hud
     assert 'UYorimichiLive::CharacterSelectState()' in live
 
+
+def test_offline_interact_is_noop_when_nothing_is_in_reach():
+    wanderer = (SOURCE / 'WandererCharacter.cpp').read_text()
+    assert 'SetAction(TEXT("Interact"))' not in wanderer
+    assert 'if(!bZeppelinReach&&!bTrainerReach)return;' in wanderer
+
