@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "BelmonteTrainRules.h"
 #include "BelmonteTrainService.generated.h"
 
 class FJsonObject;
@@ -43,8 +44,16 @@ struct YORIMICHI_API FBelmonteTrainLine
     TArray<FBelmonteTrainRun> Trains;
     /** Chainages (m) where the rails stand at or above today's ground, longest stretch first. */
     TArray<double> Viewpoints;
+    /** Chainage ranges (m, start..end) where nobody can be set down beside a coach: the viaducts (from the viewpoints'
+     *  class) and the tunnels (AddTunnels, from the track's runtime data). */
+    TArray<FVector2D> Enclosed;
 
     bool Parse(const TSharedPtr<FJsonObject>& Root, FString& Error);
+    /** Adds the tunnels (`tunnels[].start/end`, chainage m) of the track's runtime data (belmonte_track/track.json);
+     *  returns how many. */
+    int32 AddTunnels(const TSharedPtr<FJsonObject>& Track);
+    /** True when any part of From..To (chainage m) is in a tunnel or on a viaduct. */
+    bool IsEnclosed(double From, double To) const;
     /** The train's reference (consist centre) chainage at a service time. */
     double Chainage(int32 Train, double Time) const;
     /** Metres per second along the line, signed (+ toward Belmonte). */
@@ -68,7 +77,9 @@ struct YORIMICHI_API FBelmonteTrainLine
  *
  * Riding (offline and on the host): the vehicles are the riders' movement base, moved before the characters each
  * frame; aboard (inside an interior volume) the rider ignores world-static collision so terrain the line still clips
- * cannot push them out, and cannot sprint. Interact opens doors (exterior ones only at a terminus, on the platform
+ * cannot push them out, and cannot sprint. On foot only: the one way aboard is the boarding walk at a station door;
+ * aboard no vehicle comes out, and anyone else found inside a coach (on a bike or horse through an open door, a jump,
+ * the paraglider) is put back on the ground beside it by the host (BelmonteTrainRules.h). Interact opens doors (exterior ones only at a terminus, on the platform
  * side), sits on the nearest free seat and stands up.
  *
  * Dev: `train.View [view|loop|a|b|<chainage>]` jumps the service clock and puts the player beside the line where a
@@ -87,6 +98,8 @@ struct FBelmonteTrainPassenger
     UPROPERTY() int16 BoardDoor = INDEX_NONE;
     UPROPERTY() bool bBoardUp = true;
     UPROPERTY() bool bAboard = false;
+    /** The host's admission (BelmonteTrainRules::FAdmission): clients carry only admitted riders. */
+    UPROPERTY() bool bAdmitted = false;
     UPROPERTY() float BoardTime = 0.f;
     UPROPERTY() float BoardLength = 0.f;
     UPROPERTY() TArray<FVector> BoardPath;
@@ -185,6 +198,20 @@ private:
         TWeakObjectPtr<AWandererCharacter> Character;
         int32 Vehicle = INDEX_NONE, Seat = INDEX_NONE;
         bool bAboard = false, bCameraLag = true, bTickOrdered = false;
+        /** Boarded through a door (the boarding walk): only an admitted rider is carried as a passenger. Anyone else
+         *  riding inside a coach is put back outside (Eject). The host owns it; clients follow the passenger list. */
+        BelmonteTrainRules::FAdmission Admission;
+        float EjectCooldown = 0.f;
+        /** Host or offline: where the rider last stood on foot on walkable ground off the train (feet, world cm), a
+         *  recovery candidate (BelmonteTrainRules::ERecovery::LastSafe). */
+        FVector LastSafe = FVector::ZeroVector;
+        bool bHasLastSafe = false;
+        /** The rider's feet in the frame of the coach whose room held them last frame (unadmitted riders only): their
+         *  speed in that frame tells a rider from a bystander the coach sweeps through. */
+        int32 TrackedVehicle = INDEX_NONE;
+        FVector TrackedLocal = FVector::ZeroVector;
+        /** That speed (cm/s), smoothed; negative until measured. */
+        double TrackedSpeed = -1.;
         float Seated = 0.f;
         /** Where the service last put the seated rider: moved elsewhere (a teleport, a respawn), they are let go. */
         FVector SeatedAt = FVector::ZeroVector;
@@ -217,6 +244,27 @@ private:
     /** Inside a coach, the short train camera; it blends back to the rider's own outside. */
     void UpdateCamera(FRider& Rider, bool bInside, float Dt);
     void StandUp(FRider& Rider);
+    /** The vehicle whose interior room (in last frame's vehicle frame, grown by Margin cm) holds Feet, or INDEX_NONE. */
+    int32 InteriorAt(const FVector& Feet, const FVector& Margin, bool& bNoSprint, bool& bCamera) const;
+    /** Host or offline: puts a player riding inside a coach without the ticket back on safe ground, off any vehicle
+     *  (AWandererCharacter::TravelTo stows it and, online, hands the new foot activity to the owner). The destination
+     *  follows BelmonteTrainRules::RecoveryOrder and is accepted only by BelmonteTrainRecovery::SafeStand; with none,
+     *  the player is not moved (retried a second later). */
+    bool Eject(FRider& Rider, int32 Vehicle);
+    /** The vehicle a component belongs to (its body, a door box or a leaf), or INDEX_NONE. */
+    int32 VehicleOf(const UPrimitiveComponent* Component) const;
+    /** One of the train's own parts (never ground to set anyone down on); the station platforms are not. */
+    bool IsTrainPart(const UPrimitiveComponent* Component) const;
+    /** A vehicle's chainage (m) now and its half length (m). */
+    double VehicleChainage(int32 Vehicle) const;
+    double VehicleHalfLength(int32 Vehicle) const;
+    /** The player is on any vehicle: online the authoritative activity (a remote skater's host capsule follows the
+     *  trusted root, not the rendered skater), offline the local components. */
+    static bool OnAnyVehicle(const AWandererCharacter* Character, bool bOnline);
+    /** Host or offline, about once a second: a verified door-side point beside each train running in the open. */
+    void RecordTrainSafe(double Time);
+    /** Releases what a rider holds (the seat, the door they walk through) before their entry is dropped. */
+    void ReleaseRider(FRider& Rider);
     FRider& RiderFor(AWandererCharacter* Character);
     const FRider* FindRider(const AWandererCharacter* Character) const;
     /** The nearest door handle or free seat within reach: (vehicle, door or seat, true for a seat), or INDEX_NONE. */
@@ -227,6 +275,10 @@ private:
     TArray<FRider> Riders;
     TArray<FStation> Stations;
     TArray<bool> TrainAtStation;
+    /** Per train: the last door-side point verified while it ran in the open (ERecovery::TrainLastSafe). */
+    TArray<FVector> TrainSafe;
+    TArray<bool> bTrainSafe;
+    double NextSafeRecord = 0.;
     UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> Bodies;
     UPROPERTY() TArray<TObjectPtr<UInstancedStaticMeshComponent>> Furniture;
     UPROPERTY() TArray<TObjectPtr<UPrimitiveComponent>> Parts;
