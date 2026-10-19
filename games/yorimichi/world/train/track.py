@@ -61,6 +61,16 @@ MATERIALS = {               # Blender colour stand-ins; the names are the Unreal
     'MI_TK_TunnelLining': (.075, .07, .065, .95),   # soot-blackened stone: the tunnel stays dark between its lamps
     'MI_TK_LampGlow': (1., .72, .38, .3),            # emissive in Unreal (track_build.py lights it in Blender)
     'MI_TK_Bank': (.10, .14, .045, .95),             # the grass of a bank built over ground that is not carved
+    # the Belmonte station (station.py)
+    'MI_B_flag': (.55, .40, .25, .9),
+    'MI_B_plaster': (.72, .42, .17, .9),
+    'MI_B_roof': (.62, .25, .12, .85),
+    'MI_B_glass_dark': (.03, .03, .025, .3),
+    'MI_ST_Green': (.045, .11, .075, .5),            # painted ironwork
+    'MI_ST_Glass': (.20, .26, .30, .25),             # roof glazing, seen from outside and afar
+    'MI_ST_Clock': (.86, .81, .67, .6),              # clock dials and lamp globes
+    'MI_ST_Coach': (.28, .11, .055, .55),            # the old coaches' varnished teak
+    'MI_ST_CoachRoof': (.22, .22, .21, .8),
 }
 BUDGETS = {                 # triangles per LOD (BELMONTE_TRACK.md)
     'SM_TK_Chunk': (1200, 400, 120),
@@ -74,6 +84,9 @@ BUDGETS = {                 # triangles per LOD (BELMONTE_TRACK.md)
     'SM_TK_TunnelLamp': (120,),
     'SM_TK_Bank': (6000, 1500),                # per 100 m piece
     'SM_ST_Overbridge': (6000, 1500, 800),     # the road over the Belmonte cutting (overbridge.py; LOD2 its collision)
+    'SM_ST_Headhouse': (14500, 4200, 1200),    # the Belmonte station (station.py), one mesh each; LOD2 the collision
+    'SM_ST_Sheds': (34000, 6000, 2400),
+    'SM_ST_Coaches': (2000, 300, 60),
 }
 
 
@@ -728,10 +741,13 @@ def layout(line=None):
         stations=dict(Hidamari=dict(buffer_stop=BUFFER_OFFSET, stopping_point=STOP_OFFSET),
                       Belmonte=dict(buffer_stop=round(line.length - BUFFER_OFFSET, 2),
                                     stopping_point=round(line.length - STOP_OFFSET, 2)),
-                      note='no station buildings; the 200 m reserves are kept in route.json for later'),
+                      note='Belmonte has its station (station.py, station below); Hidamari\'s yard is its own region\'s'),
         materials=list(MATERIALS))
     from train import overbridge        # the road over the final cutting, on a line ending at the station's site
     bridge_meshes, doc['overbridge'] = overbridge.layout(line)
+    from train import station           # the Belmonte terminus's buildings, on a line ending at the station's site
+    station_meshes, doc['station'] = station.layout(line)
+    meshes.update(station_meshes)
     meshes.update(bridge_meshes)
     return meshes, doc
 

@@ -14,8 +14,9 @@ builder, so the Hidamari foothills, the far hills, Belmonte's apron and country 
   ground keeps at least HOOD over the rail within HOOD_HALF, so no thin hill shows the lining. A hole is left in the
   terrain across the mouth (HOLE): the portal mesh (track.py) closes it;
 - viaducts and the line's ends: untouched under the deck; the fill or cut ends in a cone (END_RATIO);
-- the Belmonte station (station_site.py): the ground under its sheds and headhouse at the formation, standing straight
-  against their walls; the forecourt at street level with ordinary soil slopes; under the road's overbridge the cutting
+- the Belmonte station (station_site.py): the ground under its sheds and stair hall at the formation, standing
+  straight against their walls; under the vestibule just under street level, flush with the forecourt at street level
+  along the facade, with ordinary soil slopes beyond; under the road's overbridge the cutting
   stands between retaining walls, so the road keeps its ground either side. Only for a line ending at the site.
 
 Terrains are carved by `refine` (triangle soups: subdivides the triangles that the earthworks touch to `step` metres,
@@ -301,8 +302,8 @@ def valley_carve_start(ln, rows):
 
 def station(x, y, ln):
     """(upper, lower, floor) the Belmonte station asks of the ground at points x, y (flat arrays): +inf/-inf/NaN where
-    it asks nothing. Sheds and headhouse: the formation, straight walls at their edges; the forecourt: street level,
-    soil slopes beyond."""
+    it asks nothing. Sheds and stair hall: the formation, straight walls at their edges; the vestibule: just under
+    street level, also with straight walls; the forecourt: street level, soil slopes beyond."""
     up, lo, floor = np.full(len(x), np.inf), np.full(len(x), -np.inf), np.full(len(x), np.nan)
     site = ln.station()
     if site is None or not len(x):

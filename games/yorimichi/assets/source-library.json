@@ -1142,8 +1142,8 @@
       "sha256": "12db7450045226c80f8957cb8d47faa845d72d6a1ca990b9be0eb97c878bf6d6"
     },
     "belmonte/meshes/SM_BM_BT_Terrain_4_3.glb": {
-      "bytes": 637512,
-      "sha256": "52c92726c06fabe9086efb535bd2ec9d1a174c6207c0bea0a265e3b24eeb5983"
+      "bytes": 635692,
+      "sha256": "ad1cb2cd14a7eaa7fa261577ede5900c09b50cc5e1047c1772155a2d96fc2d0b"
     },
     "belmonte/meshes/SM_BM_BT_Terrain_4_4.glb": {
       "bytes": 241888,
@@ -1171,7 +1171,7 @@
     },
     "belmonte/meshes/SM_BM_BT_Terrain_5_3.glb": {
       "bytes": 311576,
-      "sha256": "00b106c43732a9e14ae7b0a4c868653ed831b4555d13743b2d0d700d80543583"
+      "sha256": "3da8df4d9d7734e83d2f545d789b55c8b09bf9e3689f05b6e1c295b26aa13793"
     },
     "belmonte/meshes/SM_BM_BT_Terrain_5_4.glb": {
       "bytes": 115628,

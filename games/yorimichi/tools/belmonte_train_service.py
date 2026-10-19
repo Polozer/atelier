@@ -471,11 +471,12 @@ def split_meshes(root, train, folder):
 # ---------------------------------------------------------------- the termini
 
 PLATFORM = {'edge_m': 1.85, 'width_m': 4.0, 'top_above_rail_m': 1.0, 'extra_length_m': 12.0}
+BUILT = {'Belmonte'}        # termini whose station brings its own platforms (train/station.py): no makeshift block
 
 
 def stations(route, train, terminals):
     """The platform on the station's authored side (left by default), its buffer stop and map arrival near a door.
-    Hidamari's platform extends the town station at its existing floor height; Belmonte keeps the raised platform.
+    Hidamari's platform extends the town station at its existing floor height; Belmonte's station (BUILT) brings its own.
     """
     samples = route['samples']
     chain = [s['s'] for s in samples]
@@ -518,6 +519,8 @@ def stations(route, train, terminals):
             # Facing the train: the yaw toward the line, a few degrees along it toward the door.
             'arrival': {'location': to_ue(*arrival), 'yaw': round(-math.degrees(math.atan2(-ly, -lx)), 3)},
         })
+        if name in BUILT:
+            del out[-1]['platform']
     return out
 
 

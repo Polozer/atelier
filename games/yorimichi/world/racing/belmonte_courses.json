@@ -5,7 +5,7 @@
     "repository": "Polozer/atelier",
     "revision": "614a437d35796b585efd33d6e847ad7ba7c97c59",
     "path": "games/yorimichi/world/racing/belmonte_courses.json",
-    "venue_scene_sha256": "c7a469fab9d7e57207eb7ed46fca6502f9f06d7ed6eb84776ec319a34f812445"
+    "venue_scene_sha256": "321d25d9507fa1140d6021512606f0983c608d8c7e37f1f03ad11a26baa4b3a5"
   },
   "tracks": {
     "turf": {

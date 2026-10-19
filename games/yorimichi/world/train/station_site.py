@@ -28,6 +28,11 @@ SIDING = -29.               # the decorative siding's centre (second shed)
 SHEDS = (-SHED_LENGTH - 3., 0., -45., 15.5)             # the two train sheds, their outer walls and rear pavilions
 HEADHOUSE = (0., 26., -55., 26.)            # the street building: wings, vestibule, gallery and stairs
 FORECOURT = (26., 46., -57., 28.)           # the square in front of the facade, at street level
+# The vestibule and the wings' street end: solid to street level in station.py, so the ground under them stands at
+# street level (UNDERFLOOR under their floor) and meets the street flush along the whole facade; the stair hall behind
+# them (a < VESTIBULE[0]) goes down to the formation.
+VESTIBULE = (18., HEADHOUSE[1], HEADHOUSE[2], HEADHOUSE[3])
+UNDERFLOOR = .02
 AXIS_U = -14.5                              # the building's axis of symmetry (the clock tower)
 WALL_SLOPE = .05            # horizontal per vertical: the ground stands against the station's walls
 ROAD_CLEAR = 3.             # plants keep this far off the footprint
@@ -78,9 +83,11 @@ class Site:
         return d @ self.t, d @ self.n
 
     def zones(self):
-        """(rectangle, floor height) of the ground the station stands on: the sheds at the formation, the headhouse
-        at the formation (its walls retain the street), the forecourt at street level."""
-        return [(SHEDS, self.rail + FORMATION), (HEADHOUSE, self.rail + FORMATION), (FORECOURT, self.rail + STREET)]
+        """(rectangle, floor height) of the ground the station stands on: the sheds and the stair hall at the
+        formation (their walls retain the street), the vestibule and the forecourt at street level."""
+        hall = (HEADHOUSE[0], VESTIBULE[0], HEADHOUSE[2], HEADHOUSE[3])
+        return [(SHEDS, self.rail + FORMATION), (hall, self.rail + FORMATION),
+                (VESTIBULE, self.rail + STREET - UNDERFLOOR), (FORECOURT, self.rail + STREET)]
 
 
 def for_line(xy, rail):
