@@ -180,6 +180,36 @@ def receipt(plan):
                         ('soundbank_package_data.py', 'soundbank_assets.py', 'import_soundbanks.py', 'verify_soundbanks.py')}}
 
 
+def clear_packages(content, editor):
+    """@cc [owner:fontanierh,label:correctness] soundbank-owned-package-cleanup
+    Only the fixed AudioBanks child of Content may be cleared. Symlinks and
+    unrecognized files MUST fail before editor mutation. Residual package bytes
+    may be removed only after Unreal reports no registered assets in that root.
+    Failure MUST prevent candidate/registry publication.
+    """
+    content = Path(content)
+    root = content / 'AudioBanks'
+    require(not root.is_symlink() and root.resolve().parent == content.resolve(), 'Invalid owned soundbank root')
+    require(not root.exists() or root.is_dir(), 'Owned soundbank root is not a directory')
+    paths = list(root.rglob('*')) if root.exists() else []
+    require(all(not p.is_symlink() and (p.is_dir() or p.is_file() and p.suffix in ('.uasset', '.uexp', '.ubulk'))
+                for p in paths), 'Unexpected file in owned soundbank root')
+    if editor.does_directory_exist(ROOT):
+        # UE may remove registry objects yet retain physical package files and
+        # return false when its final empty-directory removal fails.
+        editor.delete_directory(ROOT)
+    require(not editor.list_assets(ROOT, recursive=True, include_folder=False),
+            'Cannot clear registered soundbank assets')
+    for path in sorted(paths, key=lambda p: len(p.parts), reverse=True):
+        require(not path.is_symlink(), 'Soundbank path changed during cleanup')
+        if path.is_dir():
+            path.rmdir()
+        else:
+            path.unlink(missing_ok=True)
+    if root.exists():
+        root.rmdir()
+
+
 def packages(content):
     """Actual saved package bytes must survive unchanged into the cold editor."""
     root = Path(content) / 'AudioBanks'

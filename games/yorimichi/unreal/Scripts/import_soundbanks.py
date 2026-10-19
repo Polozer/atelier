@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'world'))
 import yori
 import unreal as U
 
-from soundbank_package_data import ROOT, asset, media, packages, preflight, publish, receipt, require
+from soundbank_package_data import ROOT, asset, clear_packages, media, packages, preflight, publish, receipt, require
 from soundbank_assets import E, TOOLS, data_asset, save, verify, wave_check
 
 
@@ -24,8 +24,7 @@ def main():
     folder = yori.OUT / 'soundbank_import'
     (folder / 'registry.json').unlink(missing_ok=True)
     (folder / 'candidate.json').unlink(missing_ok=True)
-    if E.does_directory_exist(ROOT):
-        require(E.delete_directory(ROOT), 'Cannot clear owned soundbank packages')
+    clear_packages(yori.GAME / 'unreal/Content', E)
     require(E.make_directory(ROOT), 'Cannot create soundbank package root')
     for row in plan['banks']:
         runtime = row['runtime']
