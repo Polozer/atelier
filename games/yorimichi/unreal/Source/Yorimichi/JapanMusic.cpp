@@ -394,6 +394,13 @@ void UJapanMusic::Tick(float DeltaTime)
             if (bFailed && ++Failures >= 4)
             {
                 UE_LOG(LogTemp, Warning, TEXT("MUSIC off: the media player cannot play this library"));
+                // Nothing ticks after this: silence and close both channels now.
+                for (int32 Other = 0; Other < 2; ++Other)
+                {
+                    Players[Other]->Close();
+                    Channels[Other] = FChannel();
+                    ApplyGain(Other);
+                }
                 bStarted = false;
                 return;
             }
