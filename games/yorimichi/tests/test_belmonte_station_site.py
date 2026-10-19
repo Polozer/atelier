@@ -1,6 +1,7 @@
 """The Belmonte station's site (world/train/station_site.py) and what it asks of the ground and the planting, on a
-straight stand-in for the line's last kilometre ending at the site. A line that ends elsewhere (the committed riverside
-terminus, made-up lines) gets nothing: its earthworks, corridor and route ground stay as they were."""
+straight stand-in for the line's last kilometre ending at the site, and on the committed line, which ends there with
+Belmonte's valley tiles carved for it. A line that ends elsewhere (made-up lines, the former riverside terminus) gets
+nothing: its earthworks, corridor and route ground stay as they were."""
 import json
 import math
 import sys
@@ -36,11 +37,11 @@ class Site(unittest.TestCase):
         self.assertIsNotNone(E.Line({'samples': rows()}).station())
         self.assertIsNone(E.Line({'samples': rows(END + [2000., 0.])}).station())
 
-    def test_the_committed_line_is_untouched(self):
+    def test_the_committed_line_ends_at_the_station(self):
         ln = E.Line(committed_route())
-        self.assertIsNone(ln.station())
-        self.assertIsNone(ln.overbridge())
-        self.assertIsNone(C.Corridor(committed_route()).site)
+        self.assertIsNotNone(ln.station())
+        self.assertAlmostEqual(ln.overbridge(), ln.length - 229., delta=10.)
+        self.assertIsNotNone(C.Corridor(committed_route()).site)
 
     def test_frame(self):
         site = E.Line({'samples': rows()}).station()
@@ -75,12 +76,15 @@ class Ground(unittest.TestCase):
         # two metres and a half outside the sheds' wall the ground keeps its natural height
         self.assertAlmostEqual(self.carve(-80., S.SHEDS[3] + 2.5, RAIL + 4.), RAIL + 4., delta=.05)
 
-    def test_the_road_keeps_its_ground_at_the_overbridge(self):
-        s = self.ln.overbridge()
-        self.assertIsNotNone(s)
-        for u in (-9., 9.):     # behind the retaining walls, on the road's line
-            a = s - self.ln.length + u / math.tan(math.radians(140. - 17.5))
-            self.assertAlmostEqual(self.carve(a, u, RAIL + 8.6), RAIL + 8.6, delta=.1)
+    def test_the_road_runs_on_the_deck_plane_beyond_the_walls(self):
+        k = self.ln.bridge()
+        self.assertIsNotNone(k)
+        for u in (-13., 13.):   # past the deck's ends, on the road's line: whatever the ground, the deck's plane
+            d = float((u - (k.road_xy(0., 0.) - k.origin) @ k.n) / k.rn)
+            x, y = k.road_xy(d, 0.)
+            for z in (RAIL + 6., RAIL + 12.):
+                carved = float(E.carve(np.array([x]), np.array([y]), np.array([z]), self.ln)[0])
+                self.assertAlmostEqual(carved, float(k.plane(d)), delta=.01)
 
     def test_far_ground_untouched(self):
         self.assertEqual(self.carve(-100., 120., RAIL + 4.), RAIL + 4.)
@@ -102,29 +106,66 @@ class Planting(unittest.TestCase):
                 keep, _ = C.settle(name, on[:, 0], on[:, 1], np.full(3, RAIL + 4.), c)
             self.assertEqual(keep.tolist(), [False, False, True], name)
 
-    def test_committed_corridor_has_no_station_margin(self):
+    def test_committed_corridor_keeps_plants_off_the_station(self):
         c = C.Corridor(committed_route())
-        self.assertTrue(np.isinf(c.station_margin(np.array([900.]), np.array([4625.]))).all())
+        self.assertLess(float(c.station_margin(np.array([900.]), np.array([4625.]))[0]), 0.)
+        self.assertGreater(float(c.station_margin(np.array([900.]), np.array([4900.]))[0]), 0.)
 
 
 class RouteGround(unittest.TestCase):
-    def test_natural_terrain_is_the_committed_one_until_carved(self):
+    def test_carved_tiles_match_the_committed_line_and_site(self):
+        import hashlib
         from belmonte import source
         carved = [e for e in source.manifest()['meshes'] if e.get('railway_carved')]
-        if carved:
-            self.skipTest('valley tiles already carved')
-        x, y = np.array([0., 300., -400.]), np.array([0., 200., 500.])
-        self.assertTrue(np.array_equal(source.terrain(natural=True).height(x, y), source.terrain().height(x, y)))
+        self.assertTrue(carved)
+        digest = hashlib.sha256(C.LINE.read_bytes() + Path(S.__file__).read_bytes()).hexdigest()[:16]
+        for entry in carved:
+            self.assertEqual(entry['railway_carved'], digest, f"{entry['name']}: run tools/belmonte_station_terrain.py")
+            self.assertTrue((yori.ASSETS / 'belmonte' / 'natural' / f"{entry['name']}.glb").is_file(), entry['name'])
+
+    def test_natural_terrain_differs_only_where_carved(self):
+        from belmonte import source, layout as BM
+        natural, carved = source.terrain(natural=True), source.terrain()
+        # local frame: the station's ground (carved) and the town's centre (not)
+        site = np.array([900., 4625.]) - BM.ORIGIN[:2]
+        town = np.array([550., 4482.]) - BM.ORIGIN[:2]
+        self.assertGreater(abs(float(natural.height(*site[:, None])[0] - carved.height(*site[:, None])[0])), .5)
+        self.assertEqual(float(natural.height(*town[:, None])[0]), float(carved.height(*town[:, None])[0]))
+
+
+class Bank(unittest.TestCase):
+    def test_last_bank_meets_the_carved_cutting(self):
+        """The valley's last embankment runs into the final cutting, whose tiles are carved (valley_carve_start): its
+        bank mesh follows the carved ground there, not the natural one (no step at the formation)."""
+        from belmonte import layout as BM, source
+        from belmonte.source import Surface
+        from train import route as R, track as T
+        valley = source.terrain(natural=True)
+
+        def ground(x, y):       # the valley's natural ground (the route study's, without the built far hills)
+            return valley.height(np.asarray(x) - BM.ORIGIN[0], np.asarray(y) - BM.ORIGIN[1]) + BM.ORIGIN[2]
+        route = dict(committed_route(), summary={'structures': []})
+        line = T.Line(route)
+        a, b = T.bank_ranges(line)[-1]
+        self.assertLess(E.valley_carve_start(E.line(), route['samples']), b)
+        with patch.object(R, 'ground', ground):
+            mesh = T.bank_mesh(line, a, b, 0, (0., 0., 0.))
+        v = np.asarray(mesh.verts)
+        bank = Surface(np.asarray([(v[f[0]], v[f[k]], v[f[k + 1]]) for f in mesh.faces for k in range(1, len(f) - 1)]))
+        rows_ = [r for r in route['samples'] if a <= r['s'] <= b]
+        z = bank.height(np.array([r['x'] for r in rows_]), np.array([r['y'] for r in rows_]))
+        rail = np.array([r['rail_z'] for r in rows_])
+        on = np.isfinite(z)
+        self.assertLess(float(np.abs(z[on] - (rail[on] - E.FORMATION_DROP)).max()), .12)
 
 
 class Tool(unittest.TestCase):
     def test_refuses_a_line_without_station(self):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
         import belmonte_station_terrain as tool
-        if E.line() is None or E.line().station() is not None:
-            self.skipTest('the committed line ends at the station')
-        with self.assertRaises(SystemExit):
-            tool.main(['--dry-run'])
+        with patch.object(E, 'line', return_value=E.Line({'samples': rows(END + [2000., 0.])})):
+            with self.assertRaises(SystemExit):
+                tool.main(['--dry-run'])
 
 
 if __name__ == '__main__':

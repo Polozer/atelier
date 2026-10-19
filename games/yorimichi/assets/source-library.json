@@ -1142,8 +1142,8 @@
       "sha256": "12db7450045226c80f8957cb8d47faa845d72d6a1ca990b9be0eb97c878bf6d6"
     },
     "belmonte/meshes/SM_BM_BT_Terrain_4_3.glb": {
-      "bytes": 193984,
-      "sha256": "b1aba9a70688449d779988520d0f635b56f76bacfba8a5faea4a50149c4e3366"
+      "bytes": 637512,
+      "sha256": "52c92726c06fabe9086efb535bd2ec9d1a174c6207c0bea0a265e3b24eeb5983"
     },
     "belmonte/meshes/SM_BM_BT_Terrain_4_4.glb": {
       "bytes": 241888,
@@ -1166,12 +1166,12 @@
       "sha256": "eedb636a4a93f42255834ca46cf94970400670653097c7254467f297568cd9c5"
     },
     "belmonte/meshes/SM_BM_BT_Terrain_5_2.glb": {
-      "bytes": 119228,
-      "sha256": "ca4820d65fb08441ecbb8e477205d30bc71014c96233d11bf99a32368d51fbeb"
+      "bytes": 2196408,
+      "sha256": "e1fe37e947fbc869a3b52a6349b00502463bcc45bb8bfe056b44076ef349fd7c"
     },
     "belmonte/meshes/SM_BM_BT_Terrain_5_3.glb": {
-      "bytes": 117520,
-      "sha256": "065c2a737ee8eaebbedef934b261d1dafa5412302fc78150bae9486ebd478c9a"
+      "bytes": 311576,
+      "sha256": "00b106c43732a9e14ae7b0a4c868653ed831b4555d13743b2d0d700d80543583"
     },
     "belmonte/meshes/SM_BM_BT_Terrain_5_4.glb": {
       "bytes": 115628,
@@ -1194,8 +1194,8 @@
       "sha256": "a3958c48d3feba4807d4d0abc316c2c1e2e96906d60f0ce27657bc23c229c414"
     },
     "belmonte/meshes/SM_BM_BT_Terrain_6_2.glb": {
-      "bytes": 162640,
-      "sha256": "d40549ef0ba63133a1374885fcbb7f398346f593ede1f24344f8bc3e8c9c25bb"
+      "bytes": 277592,
+      "sha256": "5f0e9eccbc53bb20da67825d624c2144e76ff3b4ee8cb9dab5690ef823a12b0a"
     },
     "belmonte/meshes/SM_BM_BT_Terrain_6_3.glb": {
       "bytes": 59704,
@@ -7060,6 +7060,22 @@
     "characters/tide-reader/trellis/references/body.png": {
       "bytes": 610786,
       "sha256": "584c374d7ed31ab247ef6bc60595bc99a6960cb9afca9a34cbf726ec7b5b2143"
+    },
+    "belmonte/natural/SM_BM_BT_Terrain_4_3.glb": {
+      "bytes": 193984,
+      "sha256": "b1aba9a70688449d779988520d0f635b56f76bacfba8a5faea4a50149c4e3366"
+    },
+    "belmonte/natural/SM_BM_BT_Terrain_5_2.glb": {
+      "bytes": 119228,
+      "sha256": "ca4820d65fb08441ecbb8e477205d30bc71014c96233d11bf99a32368d51fbeb"
+    },
+    "belmonte/natural/SM_BM_BT_Terrain_5_3.glb": {
+      "bytes": 117520,
+      "sha256": "065c2a737ee8eaebbedef934b261d1dafa5412302fc78150bae9486ebd478c9a"
+    },
+    "belmonte/natural/SM_BM_BT_Terrain_6_2.glb": {
+      "bytes": 162640,
+      "sha256": "d40549ef0ba63133a1374885fcbb7f398346f593ede1f24344f8bc3e8c9c25bb"
     }
   }
 }

@@ -70,6 +70,8 @@ def build(track):
             piece(p, 'viaduct')
     for b in track.get('banks', []):
         piece(b, 'bank')
+    if track.get('overbridge'):
+        piece(track['overbridge'], 'overbridge')
     groups = []
     for name, rows in track['instances'].items():
         if name not in meshes:
