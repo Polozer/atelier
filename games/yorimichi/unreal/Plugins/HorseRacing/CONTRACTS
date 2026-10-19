@@ -39,4 +39,4 @@ ranges before mutating the output world state. Coin balances MUST saturate in 0.
 with int64 pool sums, SettleRace MUST skip declared races and settle refunds before
 winner payouts so odds are order-independent, and AdvanceTo catch-up MUST ignore nonfinite
 times and bound catch-up to at most MaxCatchUpDays per call.
-Replicated client snapshots MUST NOT expose FHRWorldState::Seed before a race is run.
+Replicated client snapshots MUST NOT expose FHRWorldState::Seed or a derivation of it.

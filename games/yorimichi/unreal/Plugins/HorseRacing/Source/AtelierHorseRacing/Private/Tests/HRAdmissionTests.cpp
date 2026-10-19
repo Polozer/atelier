@@ -78,11 +78,12 @@ bool FHRSaveAdmissionTest::RunTest(const FString&)
 		Change(Copy);
 		return HRSave::ToJson(Copy);
 	};
-	FString HorseId, ParentlessId;
+	FString HorseId, ParentlessId, OtherHorseId;
 	for (const TPair<FString, FHRHorse>& It : S.Horses)
 	{
 		if (HorseId.IsEmpty()) HorseId = It.Key;
 		if (ParentlessId.IsEmpty() && It.Value.Parents.IsEmpty()) ParentlessId = It.Key;
+		else if (OtherHorseId.IsEmpty() && It.Key != ParentlessId) OtherHorseId = It.Key;
 	}
 	const FString RiderId = S.Riders.CreateConstIterator()->Key;
 
@@ -153,13 +154,9 @@ bool FHRSaveAdmissionTest::RunTest(const FString&)
 		FString StringCoins = Good;
 		StringCoins.ReplaceInline(TEXT("\"coins\":155"), TEXT("\"coins\":\"155abc\""), ESearchCase::CaseSensitive);
 		Refused(TEXT("string number in JSON"), StringCoins, TEXT("number"));
-		FString NullHorses = Good;
-		const int32 HAt = NullHorses.Find(TEXT("\"horses\":{"), ESearchCase::CaseSensitive);
-		if (HAt != INDEX_NONE)
-		{
-			FString Prefix = NullHorses.Left(HAt) + TEXT("\"horses\":null}");
-			Refused(TEXT("null object in JSON"), Prefix, TEXT("null"));
-		}
+		FString NullField = Good;
+		NullField.ReplaceInline(TEXT("\"seed\":\"admission-1\""), TEXT("\"seed\":null"), ESearchCase::CaseSensitive);
+		Refused(TEXT("null field in JSON"), NullField, TEXT("null"));
 	}
 
 	// Ranges.
@@ -175,10 +172,10 @@ bool FHRSaveAdmissionTest::RunTest(const FString&)
 	// Collection sizes.
 	Refused(TEXT("a huge ability list"), Mutated([&HorseId](FHRWorldState& W) { W.Horses[HorseId].Abilities.Init(1, 5000); }), TEXT("abilities"));
 	Refused(TEXT("three parents"), Mutated([&ParentlessId, &HorseId](FHRWorldState& W) { W.Horses[ParentlessId].Parents = {HorseId, HorseId, HorseId}; }), TEXT("two"));
-	Refused(TEXT("a parent born no earlier than its foal"), Mutated([&ParentlessId, &HorseId](FHRWorldState& W)
+	Refused(TEXT("a parent born no earlier than its foal"), Mutated([&ParentlessId, &OtherHorseId](FHRWorldState& W)
 	{
-		W.Horses[HorseId].BirthT = W.Horses[ParentlessId].BirthT;
-		W.Horses[ParentlessId].Parents = {HorseId, HorseId};
+		W.Horses[OtherHorseId].BirthT = W.Horses[ParentlessId].BirthT;
+		W.Horses[ParentlessId].Parents = {OtherHorseId, OtherHorseId};
 	}), TEXT("parent born no earlier"));
 	Refused(TEXT("too much news"), Mutated([](FHRWorldState& W)
 	{
