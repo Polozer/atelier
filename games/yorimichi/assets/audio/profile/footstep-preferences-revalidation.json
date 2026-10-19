@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "source": "games/yorimichi/unreal/Source/Yorimichi/JapanFootsteps.cpp",
+  "owner": "UJapanFootstepComponent",
+  "before_sha256": "e95e72f320e13c8fcf972377168d4171b3edc412b57a1afe08ac51616d4777b5",
+  "after_sha256": "b0e79dd465820690511a86f010d657a65cd70912e77df49bf6db5b3beb267729",
+  "defaults": {
+    "soften_footsteps": false,
+    "footstep_volume": 1.0
+  },
+  "unchanged_function_bodies": {
+    "SurfaceAt": "4dc1f264811acbb0e3a5205bafb343e443f1b90f87459bd6747528f2eda2f4ad",
+    "Plant": "6454c3a4ce0c815241f3d512621b3fdec8a1eb1514fe2d1f22eed8179d1e81ef",
+    "Land": "7c205ea6ecf3a016614739aadaf3997b5046b4b5fb1a710b3257b17e6fcab3b7",
+    "TickComponent": "e139bd083254dbf7442fbfc257972cc7eef309f5e3ecc36231215aa757582542",
+    "Hoof": "caa3f0112c08f70d0980c8a38cb21f5c309bdac5eb9b0d93bc14de8ca8a29e54",
+    "DrawStep": "e1e8dd68895a3373df7283859c2a98497023cb874f20758075b5b97f326f6bc8"
+  },
+  "changed_function_bodies": {
+    "Play": {
+      "before_sha256": "0844a4a2d52bae6ee688c8632307627c37b95fbd8d900a45d9643fbebba9a3b4",
+      "after_sha256": "fcd18d8b80804e758025dbe9b69bb25b98d507e2391727cee17571731b592143"
+    }
+  },
+  "review_scope": "Human foot emission now owns spatial audio components so per-voice gain and a 3000 Hz low-pass can update current and future voices. Default gain remains one and the filter is bypassed. Play retains replay suppression, console scale, bank draw, attenuation and pitch; hoof emissions retain the original helper. Contact, landing, material and shuffle bodies below remain byte-identical. Offline auditions represent the default unfiltered profile only; no new hardware listening, native compilation or bit-identical hardware output is claimed."
+}

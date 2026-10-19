@@ -68,6 +68,18 @@ fails on missing media, stale indices or a changed runtime profile. The report
 records actual source hashes, renderer/producer identities and runtime pins.
 This does not select a bank or establish subjective listening acceptance.
 
+The menu's **Soften footsteps** switch defaults off. It applies a 3 kHz low-pass
+to human footsteps and foot landings. **Footstep volume** defaults to 1 and ranges
+from 0 to 1. Both save locally and update existing and future footstep voices
+across all four banks, including other players heard on this device. Horse
+hooves, skateboard audio, music and overall volume keep their own controls.
+The menu auditions retain their default, unfiltered comparison mix; these
+controls tune actual in-game footsteps rather than the mixed audition files.
+The default audition profile's source lineage is recorded in
+`../profile/footstep-preferences-revalidation.json`; this records unchanged
+contact timing and the reviewed playback change, without claiming a new native
+listening or compilation check.
+
 `audio.soundbank_import_plan` validates the current committed catalog, every
 prepared WAV (including surfaces omitted from the audition), the audition PCM,
 and the current profile/producer bindings. It emits a portable plan for the normal
