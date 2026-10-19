@@ -40,6 +40,7 @@ IMPORT_CODE = ('YorimichiImport',)
 SAVED_TYPES = ('YorimichiAssets',)
 # Nox captures USkinMorphContactData on its mesh; its helper and saved type live in this plugin.
 CONTACT_TYPES = ('AtelierCore',)
+SOUNDBANK_TYPES = SAVED_TYPES + ('AtelierSkate',)
 NAMES = paths.STUDIO / 'atelier' / 'character'
 # The shared rig and body export every humanoid character's steps run (assets/characters/pipeline).
 PIPELINE = CHARS / 'pipeline'
@@ -147,6 +148,13 @@ class PackageArchive(Python):
     timeout: float = 3 * 3600
     watch: tuple = ('ditto', 'split')
     progress: float = 25.
+
+
+@dataclass
+class SoundbankEditor(UnrealScript):
+    """Each import/reload is a separately guarded, bounded editor invocation."""
+    timeout: float = 600.
+    progress: float = 15.
 
 
 def skate_data_present(out):
@@ -391,8 +399,8 @@ def cook_step(ctx, steps):
     return Step('unreal.cook',
                 [Call('prepare_cook', package_cook.prepare), UnrealPackage('Yorimichi', out / 'package' / 'archive'),
                  Call('certify_cook', package_cook.finish)],
-                inputs=[SOURCE, ctx.uproject, paths.ENGINE_PLUGINS, GAME / 'unreal' / 'Config', TOOLS / 'package_cook.py', *engine_inputs],
-                needs=[s.name for s in steps if s.name.startswith('unreal.')] + ['data.stage', 'data.network'], heavy=True, explicit=True,
+                inputs=[SOURCE, ctx.uproject, GAME / 'unreal/Plugins', paths.ENGINE_PLUGINS, GAME / 'unreal' / 'Config', TOOLS / 'package_cook.py', *engine_inputs],
+                needs=[s.name for s in steps if s.name.startswith('unreal.') and not s.explicit] + ['data.stage', 'data.network'], heavy=True, explicit=True,
                 outputs=[out / 'package' / 'cook.json'], verify=lambda: package_cook.cook_present(out / 'package'),
                 cook_recovery=CookRecovery(package_cook.source_snapshot, package_cook.finish, package_cook.recovery_inputs),
                 about='cook the macOS app once and certify its source and immutable archived files')
@@ -615,8 +623,35 @@ def belmonte_train_corridor(out):
             ASSETS / 'vehicles' / 'belmonte-train' / 'line.json']
 
 
+def brinecove_steps(out):
+    """Brinecove (world/regions/brinecove): the export closes its ground onto the FarHills hole, so it reads the
+    final FarHills product; the import builds /Game/Brinecove, which ABelmonteRegion places from runtime.json."""
+    region = REGIONS / 'brinecove'
+    return [
+        Step('world.brinecove', [Blender(region / 'build.py', threads=3)],
+             # The source library is outside assets/brinecove; hero_sources.verify checks the models against it.
+             inputs=[region, ASSETS / 'brinecove', ASSETS / 'source-library.json', WORLD / 'terrain_product.py', YORI],
+             reads=['terrain.FarHills.final'], heavy=True,
+             outputs=[out / 'brinecove' / 'runtime.json', out / 'brinecove' / 'build-report.json'],
+             about='Brinecove: pirate port ground joined to the far hills, town, waterfall, ships and flora'),
+        digest_step(out, 'world.brinecove', 'meshes', 'what unreal.brinecove reads of the export', out, ['brinecove']),
+        Step('unreal.brinecove', [UnrealScript(SCRIPTS / 'import_brinecove.py', 'BRINECOVE IMPORT COMPLETE',
+                                              null_rhi=True, modules=IMPORT_CODE,
+                                              args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
+             inputs=[SCRIPTS / 'import_brinecove.py', SCRIPTS / 'atmosphere.py', SCRIPTS / 'sea_look.py'],
+             needs=['world.brinecove.meshes', 'unreal.world', *unreal_modules.needs(IMPORT_CODE)],
+             after=['unreal.belmonte'], heavy=True,
+             outputs=[out / 'brinecove' / 'import-report.json',
+                      GAME / 'unreal' / 'Content' / 'Brinecove' / 'Meshes' / 'SM_BC_Ground_0_0.uasset'],
+             about='/Game/Brinecove: meshes, collision and painterly surfaces'),
+    ]
+
+
 def belmonte_steps(out):
-    """The current town and countryside library, with island planting and a northern apron."""
+    """@cc [owner:fontanierh,label:safety] country-generation-admission
+    The world.belmonte terrain export MUST use normal heavy-job admission and
+    actual-child and aggregate memory guards, preserving their failure status.
+    """
     region = REGIONS / 'belmonte'
     return [
         Step('world.belmonte', [Python(region / 'build.py')],
@@ -624,7 +659,7 @@ def belmonte_steps(out):
                      ASSETS / 'environment/textures/tuscan-ground.provenance.json', REGIONS / 'megapark/forest.py', REGIONS / 'hippodrome' / 'build.py',
                      REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py',
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK, YORI, *NORTH_LAYOUT, *belmonte_train_corridor(out)],
-             needs=['world.layout', 'world.treehouse_trees'],
+             needs=['world.layout', 'world.treehouse_trees'], heavy=True,
              outputs=[out / 'belmonte' / 'runtime.json', out / 'belmonte' / 'build-report.json',
                       out / 'belmonte' / 'natural' / 'SM_BM_NorthApron.glb', out / 'belmonte' / 'natural' / 'SM_BM_NorthCountry.glb'],
              about='Belmonte environment: committed models, northern terrain join and island flora'),
@@ -693,7 +728,10 @@ SWORDCAMP_MESHES = (
 
 
 def world_steps(ctx):
-    """World exports."""
+    """@cc [owner:fontanierh,label:safety] map-generation-admission
+    The world.map build command MUST use normal heavy-job admission and the
+    actual-child and aggregate memory guards, preserving their failure status.
+    """
     out = ctx.out
     crater_geometry = ['world.craterpark_layout'] if craterpark_v4.selected() else []
     return [*texture_steps(ctx),
@@ -709,7 +747,8 @@ def world_steps(ctx):
                      REGIONS / 'forest_lake' / 'layout.py', REGIONS / 'zeppelin' / 'layout.py', TREEHOUSE / 'layout.py',
                      TREEHOUSE / 'screen.py', REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'forest.py',
                      REGIONS / 'megapark' / 'trail.py', REGIONS / 'megapark' / 'gate.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
-                     REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'forest_backdrop.py', *belmonte_train_corridor(out)],
+                     REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'forest_backdrop.py', WORLD / 'farhills_grid.py',
+                     *belmonte_train_corridor(out)],
              needs=['world.treehouse_trees', *crater_geometry], cutoff=True,
              outputs=[out / 'world.json', out / 'heightmap.npy', out / 'heightmap.bin', out / 'farhills.npy', out / 'treehouse' / 'layout.json',
                       out / 'megapark' / 'trail.json'],
@@ -725,18 +764,39 @@ def world_steps(ctx):
         Step('world.props', [Blender(WORLD / 'build_assets.py')], inputs=local_imports(WORLD / 'build_assets.py'), needs=['world.textures'],
              outputs=[out / 'assets' / 'Torii.fbx'], about='rocks, torii, lanterns, poles, birds and sky dome', heavy=True),
         *foliage_build.world_steps(ctx),
+        Step('world.farhills', [Blender(WORLD / 'farhills_surface.py', threads=3)],
+             inputs=[WORLD / 'farhills_surface.py', WORLD / 'farhills_grid.py', WORLD / 'terrain_product.py',
+                     WORLD / 'shorelines.py', YORI, *belmonte_train_corridor(out), REGIONS / 'brinecove' / 'region.py',
+                     REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
+                     *(REGIONS / 'belmonte' / name for name in ('terrain.py', 'source.py', 'layout.py')),
+                     *(ASSETS / 'belmonte' / entry['path'] for entry in json.loads((ASSETS / 'belmonte/source.json').read_text())['meshes']
+                       if entry['name'].startswith('SM_BM_BT_Terrain_')),
+                     REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'trail.py', REGIONS / 'megapark' / 'gate.py',
+                     out / 'world.json', out / 'heightmap.npy', out / 'farhills.npy', out / 'megapark' / 'trail.json',
+                     *([out / 'craterpark/v2/geometry.npz'] if craterpark_v4.selected() else [])],
+             needs=['world.layout', *crater_geometry],
+             products=[Product('terrain.FarHills.natural', (out / 'terrain/FarHills/natural.npz',)),
+                       Product('terrain.FarHills.final', (out / 'terrain/FarHills/final.npz',)),
+                       Product('terrain.FarHills.provenance', (out / 'terrain/FarHills/manifest.json',))],
+             heavy=True, about='authoritative FarHills natural and final ordered geometry before city scenery'),
         Step('world.hidamari', [Blender(REGIONS / 'hidamari' / 'build.py')],
              inputs=[REGIONS / 'hidamari', *CRATERPARK, REGIONS / 'village' / 'build.py', REGIONS / 'zeppelin' / 'layout.py',
                      REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'forest.py', REGIONS / 'megapark' / 'trail.py',
                      REGIONS / 'megapark' / 'gate.py', REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py', ASSETS / 'hidamari' / 'props',
-                     *TREEHOUSE_LAYOUT, *VILLAGE_LAYOUT, *belmonte_train_corridor(out)],
-             needs=['world.layout', 'world.treehouse_trees', *crater_geometry], outputs=[out / 'hidamari' / 'city.json', out / 'hidamari' / 'manifest.json',
+                     *TREEHOUSE_LAYOUT, *VILLAGE_LAYOUT, WORLD / 'farhills_grid.py', WORLD / 'north_mountain_surface.py',
+                     WORLD / 'terrain_product.py', *belmonte_train_corridor(out)],
+             needs=['world.layout', 'world.treehouse_trees', *crater_geometry], reads=['terrain.FarHills.final'],
+             outputs=[out / 'hidamari' / 'city.json', out / 'hidamari' / 'manifest.json',
                                              out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
                                              out / 'hidamari' / 'north_crater.png', out / 'hidamari' / 'north_crater.json'],
+             products=[Product('terrain.HD_NorthMountains.natural', (out / 'terrain/HD_NorthMountains/natural.npz',)),
+                       Product('terrain.HD_NorthMountains.final', (out / 'terrain/HD_NorthMountains/final.npz',)),
+                       Product('terrain.HD_NorthMountains.provenance', (out / 'terrain/HD_NorthMountains/manifest.json',))],
              about='the city: layout (city.json), building kit, harbor, plaza, arcade, mountains', heavy=True),
         digest_step(out, 'world.hidamari', 'city', 'the Hidamari meshes unreal.world reads (all but the volcano)', north=False),
         digest_step(out, 'world.hidamari', 'north', "the volcano's meshes unreal.north reads (HD_North*)", north=True),
         *belmonte_steps(out)[:2],
+        *brinecove_steps(out)[:2],
         # Zeppelin samples layout products and shared terrain code, not Hidamari's exported city/assets.
         # Keep the old build order; track tree metadata read by the imported treehouse layout directly.
         Step('world.zeppelin', [Blender(REGIONS / 'zeppelin' / 'build.py', threads=2)],
@@ -773,13 +833,13 @@ def world_steps(ctx):
              needs=['world.layout', 'world.treehouse_trees'], outputs=[out / 'treehouse' / 'manifest.json', out / 'treehouse' / 'runtime.json'],
              about='the tree house: ten places, bridges, rooms and their dressing, lights, sunbeams', heavy=True),
         Step('world.terrain', [Blender(WORLD / 'build_terrain.py')],
-             inputs=[WORLD / 'build_terrain.py', *belmonte_train_corridor(out), REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
-                     *(REGIONS / 'belmonte' / name for name in ('terrain.py', 'source.py', 'layout.py')),
-                     *(ASSETS / 'belmonte' / entry['path'] for entry in json.loads((ASSETS / 'belmonte/source.json').read_text())['meshes']
-                       if entry['name'].startswith('SM_BM_BT_Terrain_')),
-                     REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'trail.py', REGIONS / 'megapark' / 'gate.py'],
+             inputs=[WORLD / 'build_terrain.py', WORLD / 'farhills_surface.py', WORLD / 'terrain_product.py',
+                     WORLD / 'shorelines.py', WORLD / 'coastal_surface.py', YORI, *belmonte_train_corridor(out),
+                     REGIONS / 'brinecove' / 'region.py'],
              needs=['world.layout', 'world.hidamari', 'world.textures'],
-             outputs=[out / 'terrain.fbx', out / 'assets' / 'Sea.fbx'], about='terrain, road, wires, far hills, sea', heavy=True),
+             outputs=[out / 'terrain.fbx', out / 'assets' / 'Sea.fbx'],
+             reads=['terrain.FarHills.final'],
+             about='terrain, road, wires, far hills, sea', heavy=True),
         digest_step(out, 'world.terrain', 'meshes', 'the terrain and sea meshes the imports read', out, ['terrain.fbx', 'assets/Sea.fbx']),
         Step('world.village', [Blender(REGIONS / 'village' / 'build.py')], inputs=[REGIONS / 'village', YORI], needs=['world.layout'],
              outputs=[out / 'village' / 'manifest.json'], about='Momiji Hamlet', heavy=True),
@@ -958,18 +1018,21 @@ def world_steps(ctx):
              outputs=[out / 'digests' / 'world.belmonte_track.meshes.json'], cutoff=True,
              about='the track meshes and runtime data unreal.belmonte_track reads'),
         Step('world.map', [Python(WORLD / 'map' / 'build_map.py')],
-             inputs=[WORLD / 'map', *CRATERPARK, REGIONS / 'southwest', REGIONS / 'mega' / 'ramp.py', REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'gate.py',
+             inputs=[WORLD / 'map', WORLD / 'north_mountain_surface.py', WORLD / 'build_terrain.py', WORLD / 'farhills_surface.py', WORLD / 'farhills_grid.py', WORLD / 'terrain_product.py',
+                     *CRATERPARK, REGIONS / 'southwest', REGIONS / 'mega' / 'ramp.py', REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'gate.py',
                      *[REGIONS / 'belmonte' / (name + '.py') for name in ('plan', 'planting', 'source', 'layout')],
                      ASSETS / 'belmonte' / 'source.json',
                      *(ASSETS / 'belmonte' / entry['path']
                        for entry in json.loads((ASSETS / 'belmonte' / 'source.json').read_text())['meshes']
                        if entry['name'].startswith(('SM_BM_BT_blk_', 'SM_BM_BH_', 'SM_BM_BE_', 'SM_BM_BHip_',
                                                     'SM_BM_BVV_Farm_', 'SM_BM_BC_Water_', 'SM_BM_BC_Pave', 'SM_BM_BC_Ponte')))],
-             needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', *crater_geometry],
+             needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', 'world.brinecove',
+                    *crater_geometry],
              outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png',
                       *(out / 'map' / 'atlas' / f'{key}.png' for key in ('world', 'momiji_coast', 'momiji_woods', 'hidamari', 'temple_island',
-                                                                     'northern_foothills', 'volcanic_highlands', 'haras_valley'))],
-             about='map zones and label-free regional atlas'),
+                                                                     'northern_foothills', 'volcanic_highlands', 'haras_valley',
+                                                                     'brinecove'))],
+             heavy=True, about='map zones and label-free regional atlas'),
         city_input_step(out, 'tiles'),
         Step('world.city_tiles', [Blender(WORLD / 'city_surface_tiles.py', ('--tag', 'v1_128m'), threads=3)],
              inputs=[WORLD / 'city_surface_tiles.py'], needs=['world.hidamari.tiles'],
@@ -999,19 +1062,123 @@ def character_steps(ctx):
     ]
 
 
+def music_files(cache, categories, styles, groups, limit):
+    """Selected cached tracks; their bytes and declared selectors enter the audio step key."""
+    catalog_path = Path(cache) / 'catalog.json'
+    if not catalog_path.is_file():
+        return ()
+    catalog = json.loads(catalog_path.read_text())
+    categories = {part.strip() for part in categories.split(',') if part.strip()}
+    styles = {part.strip() for part in styles.split(',') if part.strip()}
+    groups = {part.strip() for part in groups.split(',') if part.strip()}
+    chosen = []
+    for track in catalog.get('tracks', []):
+        if categories and track.get('category') not in categories:
+            continue
+        if styles and track.get('style_family') not in styles:
+            continue
+        if groups and track.get('group') not in groups and track.get('zone') not in groups:
+            continue
+        chosen.append(Path(cache) / track['path'])
+        if limit and len(chosen) >= limit:
+            break
+    return tuple(chosen)
+
+
+def music_selector_members(categories, styles, groups, limit, enabled):
+    """Retain the optional-music settings in data.content's build key."""
+    return ()
+
+
+def music_import_present(out):
+    """Every selected SoundWave package exists and no stale owned package remains."""
+    try:
+        data = json.loads((out / 'music_import.json').read_text())
+        imported = data['imported']
+        expected = set()
+        for item in imported.values():
+            path = item.get('path')
+            if not path or not path.startswith('/Game/'):
+                return False
+            package = path.rsplit('.', 1)[0] if '.' in path.rsplit('/', 1)[-1] else path
+            asset = GAME / 'unreal/Content' / (package.removeprefix('/Game/') + '.uasset')
+            if not asset.is_file() or asset.stat().st_size == 0:
+                return False
+            expected.add(asset.resolve())
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
+    root = GAME / 'unreal/Content/Audio/Music'
+    actual = {path.resolve() for path in root.rglob('*.uasset')} if root.is_dir() else set()
+    return bool(expected) and actual == expected
+
+
 def sound_effect_steps(ctx):
     """Offline sound slices and procedural effect textures."""
     out = ctx.out
+    music_cache = paths.cache_dir('yorimichi', 'music', create=False)
+    music_categories = os.environ.get('YORIMICHI_MUSIC_CATEGORIES', '')
+    music_styles = os.environ.get('YORIMICHI_MUSIC_STYLES', '')
+    music_groups = os.environ.get('YORIMICHI_MUSIC_GROUPS', '')
+    music_limit = os.environ.get('YORIMICHI_MUSIC_LIMIT', '0')
+    music_args = (
+        '--categories', music_categories, '--styles', music_styles,
+        '--groups', music_groups, '--limit', music_limit,
+    )
     return [
         # ------------------------------------------------------------ sounds and effects
+        Step('audio.soundbanks', [Python(AUDIO / 'soundbanks' / 'prepare.py',
+                                       ('--output', str(out / 'audio' / 'soundbanks')))],
+             inputs=[AUDIO / 'soundbanks'], outputs=[out / 'audio' / 'soundbanks' / 'manifest.json'],
+             # Transactional publication retains prior indexed media on failure. Audited/cacheable
+             # actions deliberately clear/replace products, so this owner uses neither mechanism.
+             products=[Product('audio.soundbanks', (out / 'audio' / 'soundbanks',))],
+             about='validate committed selectable soundbanks; Original delegates to existing audio'),
         Step('audio.footsteps', [Python(AUDIO / 'footsteps' / 'slice.py')], inputs=[AUDIO / 'footsteps', paths.cache_dir('sonniss', 'footsteps', create=False)],
-             outputs=[out / 'audio' / 'footsteps' / 'manifest.json'], about='531 footstep one-shots (needs `atelier fetch`)'),
+             outputs=[out / 'audio' / 'footsteps' / 'manifest.json'],
+             products=[Product('audio.footsteps', (out / 'audio' / 'footsteps',))],
+             about='531 footstep one-shots (needs `atelier fetch`)'),
         Step('audio.combat', [Python(AUDIO / 'combat' / 'slice.py')], inputs=[AUDIO / 'combat', paths.cache_dir('sonniss', 'combat', create=False)],
              outputs=[out / 'audio' / 'combat' / 'manifest.json'], about='combat cues and the countryside ambience'),
         Step('audio.skate', [Python(AUDIO / 'skate' / 'make.py')], inputs=[AUDIO / 'skate', paths.cache_dir('sonniss', 'combat', create=False)],
-             outputs=[out / 'audio' / 'skate' / 'manifest.json'], about='board loops and cues'),
+             outputs=[out / 'audio' / 'skate' / 'manifest.json'],
+             products=[Product('audio.skate', (out / 'audio' / 'skate',))], about='board loops and cues'),
+        Step('audio.soundbank_previews', [Python(AUDIO / 'soundbank_previews' / 'build.py',
+             ('--catalog', AUDIO / 'soundbanks' / 'catalog.json', '--prepared', out / 'audio' / 'soundbanks',
+              '--footsteps', out / 'audio' / 'footsteps', '--skate', out / 'audio' / 'skate',
+              '--output', out / 'audio' / 'soundbank_previews'))],
+             inputs=[AUDIO / 'soundbank_previews', AUDIO / 'soundbanks', TOOLS / 'render_sound_sequences.py',
+                     paths.STUDIO / 'atelier' / 'ai' / 'stable_audio',
+                     SOURCE / 'Yorimichi' / 'JapanFootsteps.cpp',
+                     paths.ENGINE_PLUGINS / 'Activities/Skate/Source/AtelierSkate/Private/SkateComponent.cpp',
+                     paths.ENGINE_PLUGINS / 'Activities/Skate/Source/AtelierSkate/Private/SkateRuntime.cpp'],
+             reads=['audio.soundbanks', 'audio.footsteps', 'audio.skate'],
+             outputs=[out / 'audio' / 'soundbank_previews' / 'manifest.json'],
+             products=[Product('audio.soundbank_previews', (out / 'audio' / 'soundbank_previews',))],
+             about='bounded PCM menu auditions from actual bank audio; plant cadence is approximate'),
+        Step('audio.soundbank_import_plan', [Python(GAME / 'soundbank_import.py', ('--out', out))],
+             inputs=[GAME / 'soundbank_import.py', AUDIO / 'soundbanks', AUDIO / 'soundbank_previews',
+                     TOOLS / 'render_sound_sequences.py', paths.STUDIO / 'atelier/ai/stable_audio',
+                     SOURCE / 'Yorimichi/JapanFootsteps.cpp',
+                     paths.ENGINE_PLUGINS / 'Activities/Skate/Source/AtelierSkate/Private/SkateComponent.cpp',
+                     paths.ENGINE_PLUGINS / 'Activities/Skate/Source/AtelierSkate/Private/SkateRuntime.cpp'],
+             reads=['audio.soundbanks', 'audio.soundbank_previews'],
+             outputs=[out / 'audio/soundbank_import_plan/manifest.json'],
+             products=[Product('audio.soundbank_import_plan', (out / 'audio/soundbank_import_plan',))],
+             about='portable checked audio plan for native import; no runtime selection'),
         Step('audio.bike', [Python(AUDIO / 'bike' / 'make.py')], inputs=[AUDIO / 'bike', AUDIO / 'skate' / 'make.py', paths.cache_dir('sonniss', 'combat', create=False)],
              outputs=[out / 'audio' / 'bike' / 'manifest.json'], about="the bike's tyres, freewheel, chain, wind, bell and knocks"),
+        # The Suno library is optional: naming `audio.music` or `unreal.music` selects
+        # only the tracks requested by YORIMICHI_MUSIC_* selectors. A plain build
+        # never downloads or imports the large release.
+        Step('audio.music', [Python(AUDIO / 'music' / 'prepare.py', music_args)],
+             inputs=[AUDIO / 'music' / 'prepare.py', music_cache / 'catalog.json',
+                     AUDIO / 'music' / 'music.lock.json'],
+             deferred_inputs=[DeferredInputs(
+                 'music', music_files,
+                 (music_cache, music_categories, music_styles, music_groups,
+                  int(music_limit or 0)), support=(GAME / 'build.py',))],
+             outputs=[out / 'audio' / 'music' / 'manifest.json'], explicit=True,
+             about='select fetched Suno tracks for the optional music import'),
         Step('fx.textures', [Python(ASSETS / 'fx' / 'gen_textures.py')], inputs=[ASSETS / 'fx'],
              outputs=[out / 'combat_fx' / 'T_FX_Glow.png'], about='glow, spark, ring, dust and trail sprites'),
     ]
@@ -1035,13 +1202,27 @@ def unreal_steps(ctx):
                      SKATE_DATA],
              outputs=[out / 'skate-simulation/verification.json', out / 'skate-simulation/package' / 'package-manifest.json'],
              about="assemble the Skate plugin's simulation package and verify every payload"),
-        Step('unreal.compile', [UnrealCompile('YorimichiEditor')], inputs=[SOURCE, ctx.uproject, GAME / 'unreal/Config', paths.ENGINE_PLUGINS], needs=['skate.runtime'], heavy=True,
+        Step('unreal.compile', [UnrealCompile('YorimichiEditor')], inputs=[SOURCE, ctx.uproject, GAME / 'unreal/Config', GAME / 'unreal/Plugins', paths.ENGINE_PLUGINS], needs=['skate.runtime'], heavy=True,
              about='the Yorimichi C++ modules (editor target)'),
-        *unreal_modules.steps(ctx, IMPORT_CODE + SAVED_TYPES + CONTACT_TYPES),
+        *unreal_modules.steps(ctx, IMPORT_CODE + SAVED_TYPES + CONTACT_TYPES + ('AtelierSkate',)),
+        Step('unreal.soundbanks', [
+            SoundbankEditor(SCRIPTS / 'import_soundbanks.py', 'SOUNDBANK IMPORT COMPLETE',
+                            null_rhi=True, modules=SOUNDBANK_TYPES),
+            SoundbankEditor(SCRIPTS / 'verify_soundbanks.py', 'SOUNDBANK VERIFY COMPLETE',
+                            null_rhi=True, modules=SOUNDBANK_TYPES)],
+             inputs=[GAME / 'soundbank_import.py', AUDIO / 'soundbanks', YORI,
+                     *[SCRIPTS / n for n in ('import_soundbanks.py', 'verify_soundbanks.py',
+                                             'soundbank_assets.py', 'soundbank_package_data.py')]],
+             needs=unreal_modules.needs(SOUNDBANK_TYPES),
+             reads=['audio.soundbank_import_plan', 'audio.soundbanks', 'audio.soundbank_previews'],
+             outputs=[out / 'soundbank_import/registry.json'],
+             products=[Product('soundbanks.native', (GAME / 'unreal/Content/AudioBanks', out / 'soundbank_import'))],
+             heavy=True, about='owned soundbank assets, separately cold-reloaded before runtime registry publication'),
         *foliage_build.unreal_steps(ctx, IMPORT_CODE, engine_version(ctx)),
         Step('unreal.world', [UnrealScript(SCRIPTS / 'setup_project.py', 'level saved')],
              # The city's arcade and harbor materials read the region's committed paintings.
-             inputs=[WORLD / 'asset_catalog.py', REGIONS / 'hidamari' / 'textures',
+             inputs=[WORLD / 'asset_catalog.py', WORLD / 'coast_water.py', REGIONS / 'hidamari' / 'textures',
+                     ASSETS / 'environment/textures/volcanic-rock.jpg', SCRIPTS / 'coast_rock_look.py',
                      *[SCRIPTS / n for n in ('setup_project.py', 'material_assets.py', 'mesh_import.py',
                                           'import_wanderer.py', 'cape_boy_material.py', 'animation_compression.py', 'import_village.py',
                                           'import_hidamari.py', 'import_southwest.py', 'arcade_material.py', 'plaza_material.py',
@@ -1055,7 +1236,7 @@ def unreal_steps(ctx):
         # The volcano: its meshes, M_NorthMountains with the rock and snow mask textures, M_NorthGate. The world import
         # purges /Game/Japan and makes the textures and MPC these materials use, so this reruns after it.
         Step('unreal.north', [UnrealScript(SCRIPTS / 'import_hidamari.py', 'HIDAMARI IMPORT COMPLETE', env=(('HIDAMARI_ASSETS', 'HD_North*'),))],
-             inputs=[ASSETS / 'environment/textures/volcanic-rock.jpg', out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
+             inputs=[WORLD / 'coast_water.py', SCRIPTS / 'forest_ground.py', ASSETS / 'environment/textures/volcanic-rock.jpg', out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
                      out / 'hidamari' / 'north_crater.png', out / 'hidamari' / 'north_crater.json',
                      out / 'craterpark' / 'textures' / 'crater_floor.png', TOOLS / 'craterpark_textures.py',
                      *[SCRIPTS / n for n in ('import_hidamari.py', 'mountain_material.py', 'import_village.py', 'atmosphere.py', 'ground_grain.py', 'sea_look.py')]],
@@ -1064,7 +1245,8 @@ def unreal_steps(ctx):
         # The regions below layer onto the world (the south-west import replaces the terrain's and the sea's materials),
         # so they rerun when it is reimported.
         Step('unreal.southwest', [UnrealScript(SCRIPTS / 'import_southwest.py', 'SOUTHWEST IMPORT COMPLETE')],
-             inputs=[SCRIPTS / 'import_southwest.py', SCRIPTS / 'sea_look.py'], needs=['unreal.world', 'world.southwest', 'world.terrain.meshes'], heavy=True,
+             inputs=[SCRIPTS / 'import_southwest.py', SCRIPTS / 'sea_look.py', SCRIPTS / 'forest_ground.py',
+                     SCRIPTS / 'ground_grain.py', SCRIPTS / 'material_assets.py'], needs=['unreal.world', 'world.southwest', 'world.terrain.meshes'], heavy=True,
              about='south-west props, the terrain and the sea'),
         Step('unreal.mega', [UnrealScript(SCRIPTS / 'import_mega.py', 'MEGA IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_mega.py'], needs=['unreal.world', 'world.mega'], heavy=True, about='the mini-mega ramp'),
@@ -1140,6 +1322,12 @@ def unreal_steps(ctx):
              inputs=[SCRIPTS / 'import_footsteps.py', SCRIPTS / 'import_combat_audio.py', SCRIPTS / 'import_skate_audio.py', SCRIPTS / 'import_bike_audio.py'],
              # The footstep library lives in /Game/Japan, which the world import clears, so a world import reruns this.
              needs=['unreal.world', 'audio.footsteps', 'audio.combat', 'audio.skate', 'audio.bike'], heavy=True, about='footstep library, combat, skate and bike sounds'),
+        Step('unreal.music', [UnrealScript(SCRIPTS / 'import_music.py', 'MUSIC IMPORT COMPLETE', null_rhi=True)],
+             inputs=[SCRIPTS / 'import_music.py', SCRIPTS / 'music_inventory.py', AUDIO / 'music' / 'prepare.py'],
+             needs=['audio.music'], after=['unreal.compile'], explicit=True, heavy=True,
+             outputs=[out / 'music_import.json', GAME / 'unreal/Content/Data/Music/library.json'],
+             verify=lambda: music_import_present(out),
+             about='/Game/Audio/Music from the optional fetched Suno library'),
         Step('unreal.fx', [UnrealScript(SCRIPTS / 'import_combat_fx.py', 'COMBAT FX IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_combat_fx.py'], after=['unreal.compile'], needs=['fx.textures'], heavy=True, about='/Game/FX materials'),
         Step('unreal.fox_hunter', [UnrealScript(SCRIPTS / 'import_fox_hunter.py', 'FOX HUNTER IMPORT COMPLETE')],
@@ -1200,12 +1388,22 @@ def staging_steps(ctx):
     """Runtime data copied into Content/Data after its producers complete."""
     out = ctx.out
     return [
+        Step('data.soundbanks', [Python(GAME / 'soundbank_stage.py',
+                                       ('--out', out, '--destination', GAME / 'unreal/Content/Data/Soundbanks'))],
+             inputs=[GAME / 'soundbank_stage.py'], reads=['soundbanks.native'],
+             outputs=[GAME / 'unreal/Content/Data/Soundbanks/registry.json'],
+             products=[Product('soundbanks.staged', (GAME / 'unreal/Content/Data/Soundbanks',))],
+             about='verified native soundbank registry, independently of world generation'),
         Step('data.stage', [Call('stage_data', stage_data)],
              inputs=[GAME / 'runtime_data.py', REGIONS / 'skatepark' / 'park.json', ASSETS / 'ui/fonts/atlas-serif.ttf',
+                     runtime_data.RACING_COURSES, runtime_data.RACING_VALIDATOR, ASSETS / 'belmonte/source.json',
+                     *runtime_data.courses.surface_inputs(),
+                     *build_inputs.local_imports(runtime_data.courses.SOURCE_READER),
                      *(CHARS / 'portraits' / f'{c.id}.png' for c in definition.movers() if c.playable)],
              needs=['world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.craterpark', 'world.crater_cloud', 'world.belmonte', 'world.bike',
                     *[f'characters.{key(c)}_{kind}' for c in definition.movers() for kind, wanted in
                       (('bike', c.playable), ('grips', (GRIPS / c.id).is_dir())) if wanted]],
+             reads=['soundbanks.staged'],
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / rel for rel in staged(out)], about='runtime files into unreal/Content/Data'),
     ]
 
@@ -1213,7 +1411,8 @@ def staging_steps(ctx):
 def steps(ctx):
     """Compose the recipe in its established order; packaging is explicit and optional sources remain optional."""
     result = (world_steps(ctx) + character_steps(ctx) + sound_effect_steps(ctx)
-              + unreal_steps(ctx) + staging_steps(ctx) + adventure_steps(ctx.out) + hippodrome_steps(ctx.out) + belmonte_steps(ctx.out)[2:])
+              + unreal_steps(ctx) + staging_steps(ctx) + adventure_steps(ctx.out) + hippodrome_steps(ctx.out) + belmonte_steps(ctx.out)[2:]
+              + brinecove_steps(ctx.out)[2:])
     result += fit_steps(ctx.out, result)
     result += pawn_steps(result)
     # A step layered on the world brings the volcano with it: a targeted build that reimports the world reimports it too.
@@ -1227,6 +1426,10 @@ def steps(ctx):
         for command in step.commands:
             if isinstance(command, (Python, Blender)) and WORLD in Path(command.script).parents:
                 step.inputs += [f for f in scanner.local_imports(command.script, (WORLD, REGIONS)) if f not in step.inputs]
+        # Shorelines preserve natural cover from the committed railway geometry.
+        rail_line = ASSETS / 'vehicles' / 'belmonte-train' / 'line.json'
+        if WORLD / 'shorelines.py' in step.inputs and rail_line not in step.inputs:
+            step.inputs.append(rail_line)
         # Scripts that import placement validate the raw geometry themselves. Its cutoff
         # covers their complete consumed landform, site and spawn values, after validating
         # current source provenance; render-only changes can therefore leave them current.
@@ -1247,16 +1450,24 @@ def steps(ctx):
     policy_spec.loader.exec_module(policy)
     result.append(Step('data.content', [Call('archive_retired_content', policy.archive)],
                        inputs=[GAME / 'content_policy.py'],
-                       needs=[s.name for s in result if s.name.startswith('unreal.')] + ['data.stage'],
+                       deferred_inputs=[DeferredInputs(
+                           'music-selectors', music_selector_members,
+                           (os.environ.get('YORIMICHI_MUSIC_CATEGORIES', ''),
+                            os.environ.get('YORIMICHI_MUSIC_STYLES', ''),
+                            os.environ.get('YORIMICHI_MUSIC_GROUPS', ''),
+                            os.environ.get('YORIMICHI_MUSIC_LIMIT', '0'),
+                            policy.music_enabled()),
+                           support=(GAME / 'build.py',))],
+                       needs=[s.name for s in result if s.name.startswith('unreal.') and not s.explicit] + ['data.stage'],
                        outputs=[ctx.out / 'runtime-content.json'],
                        verify=lambda: not any(policy.retired(content)),
                        about='archive retired generated imports before multiplayer identity and cooking'))
     result.append(Step('data.network', [Call('network_identity', identity.stage)],
-                       inputs=[GAME / 'network_identity.py', SOURCE, ctx.uproject, GAME / 'unreal/Config',
+                       inputs=[GAME / 'network_identity.py', SOURCE, ctx.uproject, GAME / 'unreal/Config', GAME / 'unreal/Plugins',
                                paths.ENGINE_PLUGINS],
                        deferred_inputs=[DeferredInputs('content', identity.content_files, (content,),
                                                        support=(GAME / 'network_identity.py',))],
-                       needs=[s.name for s in result if s.name.startswith('unreal.')] + ['data.stage', 'data.content'],
+                       needs=[s.name for s in result if s.name.startswith('unreal.') and not s.explicit] + ['data.stage', 'data.content'],
                        outputs=[content / 'Data/Network/session.json'],
                        about='matching multiplayer code, imported assets and staged gameplay data'))
     return result + [cook_step(ctx, result), package_step(ctx, result)]

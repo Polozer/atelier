@@ -7,12 +7,13 @@ import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_
 from pathlib import Path
 import unreal
 import sea_look
+import coast_water
 
 EAL=unreal.EditorAssetLibrary
 MEL=unreal.MaterialEditingLibrary
 
 # HD_Sea's rectangle in Blender metres (x0, y0, x1, y1: hidamari/build.py sea_mesh) and the width of its calm border (m)
-SEA_RECT=(300,-1600,1800,600)
+SEA_RECT=coast_water.HARBOR_RECT
 EDGE=200
 FAR_FADE=(300,900)   # metres: the lit harbour water gives way to the open sea look with distance
 
@@ -61,6 +62,13 @@ def material(water=False):
     if water:
         FLOAT1=unreal.CustomMaterialOutputType.CMOT_FLOAT1
         S=sea_look
+        # Read the same underlying depth as the open sea. A constant "deep"
+        # depth here would leave a rectangular blue seam across turquoise bays.
+        m.set_editor_property('blend_mode',unreal.BlendMode.BLEND_TRANSLUCENT)
+        # Low-tessellation sea planes must evaluate the same fog at every pixel.
+        m.set_editor_property('compute_fog_per_pixel',True)
+        m.set_editor_property('translucency_lighting_mode',unreal.TranslucencyLightingMode.TLM_SURFACE_PER_PIXEL_LIGHTING)
+        prop(node(unreal.MaterialExpressionConstant,r=1.),unreal.MaterialProperty.MP_OPACITY)
         # E: 0 on the rectangle's outline .. 1 once EDGE m inside. On the outline this is the open sea (M_Sea, sea_look.py):
         # its waves, its authored emissive colour, black base colour and its roughness and specular. Inward the
         # harbour's own lit water takes over, so the rectangle does not show on the sea around it.
@@ -70,7 +78,7 @@ def material(water=False):
         depth=node(unreal.MaterialExpressionPixelDepth)
         edge=custom(f'''
 float x=P.x*.01, y=-P.y*.01;     // Blender metres: Unreal's y is negated
-return smoothstep(0,1,saturate(min(min(x-{x0}.,{x1}.-x),min(y-({y0}.),{y1}.-y))/{EDGE}.))*(1-smoothstep({FAR_FADE[0]*100}.,{FAR_FADE[1]*100}.,D));
+return smoothstep(0,1,saturate(min(min(x-{S.num(x0)},{S.num(x1)}-x),min(y-({S.num(y0)}),{S.num(y1)}-y))/{S.num(EDGE)}))*(1-smoothstep({FAR_FADE[0]*100}.,{FAR_FADE[1]*100}.,D));
 ''',[('P',pos,''),('D',depth,'')],FLOAT1)
         # H: with distance the lit water gives way to the same haze as the open sea's.
         haze=custom(S.HAZE,[('D',depth,'')],FLOAT1)
@@ -107,10 +115,13 @@ return lerp(%s,water*lerp(.90,1.10,tide),E)*(1-H);
         prop(custom(f'return lerp({S.num(S.ROUGHNESS)},.20,E);',[('E',edge,'')],FLOAT1),unreal.MaterialProperty.MP_ROUGHNESS)
         prop(custom(f'return lerp({S.num(S.SPECULAR)},.5,E)*(1-H);',[('E',edge,''),('H',haze,'')],FLOAT1),unreal.MaterialProperty.MP_SPECULAR)
         prop(node(unreal.MaterialExpressionConstant,r=0.0),unreal.MaterialProperty.MP_METALLIC)
-        # the open sea's colour on the outline (opaque here, so no scene depth: no surf, no shallows), and inward only
-        # the haze over the lit water
+        # Identical depth, surf and shallows on the shared open-water boundary;
+        # inward the harbor's calm lit surface takes over.
+        behind=node(unreal.MaterialExpressionSubtract)
+        link(node(unreal.MaterialExpressionSceneDepth),'',behind,'A')
+        link(depth,'',behind,'B')
         look=custom(S.LOOK,[('W',sea,''),('V',node(unreal.MaterialExpressionCameraVectorWS),''),('D',depth,''),
-                            ('L',node(unreal.MaterialExpressionConstant,r=1e7),''),('P',pos,''),('T',time,'')])
+                            ('L',behind,''),('P',pos,''),('T',time,'')])
         prop(custom('return lerp(C,%s*H,E);' % S.f3(S.FAR_COLOUR),[('C',look,''),('E',edge,''),('H',haze,'')]),
              unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     else:

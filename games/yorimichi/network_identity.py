@@ -20,7 +20,7 @@ def sha1_file(path):
 
 
 def code_files(repo):
-    roots = [repo / 'games/yorimichi/unreal/Source', repo / 'games/yorimichi/unreal/Config',
+    roots = [repo / 'games/yorimichi/unreal/Source', repo / 'games/yorimichi/unreal/Config', repo / 'games/yorimichi/unreal/Plugins',
              repo / 'platform/engine/Plugins']
     files = [p for root in roots for p in root.rglob('*')
                    if p.is_file() and p.suffix in CODE_SUFFIXES

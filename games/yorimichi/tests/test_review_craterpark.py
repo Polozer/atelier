@@ -85,3 +85,24 @@ def test_the_contact_sheet_lists_only_taken_shots(tmp_path):
     tour.contact_sheet(tmp_path, shots, ['flythrough_L1.mp4'])
     text = (tmp_path / 'index.html').read_text()
     assert 'a.png' in text and 'b.png' not in text and 'flythrough_L1.mp4' in text
+
+
+@pytest.mark.parametrize('memory_gib', [18., 24.])
+def test_tour_forwards_selected_memory_to_worker_and_guard(monkeypatch, tmp_path, memory_gib):
+    from atelier.harness.safety import guarded
+    monkeypatch.setattr(sys, 'argv', ['review_craterpark.py', '--memory-gib', str(memory_gib), '--out', str(tmp_path)])
+    monkeypatch.setattr(tour, 'plan', lambda: [])
+    calls = []
+    monkeypatch.setattr(guarded, 'run', lambda command, folder, **kwargs: calls.append((command, kwargs)) or 0)
+    assert tour.main() == 0
+    command, options = calls[0]
+    assert command[command.index('--memory-gib') + 1] == str(memory_gib)
+    assert options['kind'] == 'game' and options['limit_gib'] == memory_gib
+
+
+@pytest.mark.parametrize('memory_gib', ['9.999', '24.001', 'nan', 'inf'])
+def test_tour_refuses_invalid_memory_before_planning(monkeypatch, memory_gib):
+    monkeypatch.setattr(sys, 'argv', ['review_craterpark.py', '--memory-gib', memory_gib])
+    monkeypatch.setattr(tour, 'plan', lambda: pytest.fail('invalid ceiling reached planning'))
+    with pytest.raises(SystemExit, match='10 to 24'):
+        tour.main()

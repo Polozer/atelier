@@ -22,6 +22,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 from benchmark import other_render_processes
 from desktop_preview import renderer_arguments
 from atelier.engine import unreal_root
+from atelier.play_limits import GAME_GIB, GAME_MAX_GIB
 from atelier.provenance import head
 from atelier.harness.safety import guarded
 
@@ -70,7 +71,14 @@ def verify_launches(spec, rows, fps):
     return launches
 
 
-def capture(session, name, spec, scout=False, *, allow_visual_overlap=False):
+def capture(session, name, spec, scout=False, *, allow_visual_overlap=False, memory_gib=GAME_GIB):
+    """@cc [owner:fontanierh,label:safety] capture-session-memory
+    The selected 10–24 GiB ceiling MUST be recorded and passed to the common
+    guarded lifecycle. The default MUST remain 10 GiB; invalid ceilings MUST
+    fail before creating a capture or requesting admission.
+    """
+    if type(memory_gib) not in (int, float) or not math.isfinite(memory_gib) or not GAME_GIB <= memory_gib <= GAME_MAX_GIB:
+        raise ValueError(f'Capture memory ceiling must be between {GAME_GIB:g} and {GAME_MAX_GIB:g} GiB')
     busy=other_render_processes()
     if busy and not allow_visual_overlap: raise RuntimeError(f'Other render jobs active: {busy}')
     folder=yori.OUT/'captures'/session/name
@@ -106,7 +114,7 @@ def capture(session, name, spec, scout=False, *, allow_visual_overlap=False):
     if spec.get('route'): cmd += ['-reviewroute='+spec['route']]
     if spec.get('rider'): cmd += ['-rider='+spec['rider']]
     saved=(PROJECT/'Saved/settings.txt').read_bytes()
-    manifest={'command':cmd,'spec':spec,'git_head':head(),
+    manifest={'command':cmd,'spec':spec,'git_head':head(),'memory_gib':memory_gib,
         'native_binary_sha256':hashlib.sha256((PROJECT/'Binaries/Mac/libUnrealEditor-Yorimichi.dylib').read_bytes()).hexdigest(),
         'settings':saved.decode(),'fixed_step_video':True,'performance_evidence':False,'concurrent_render_processes':busy}
     inputs=[yori.OUT/'world.json',yori.OUT/'hidamari/city.json',PROJECT/'Content/Japan/Terrain.uasset',PROJECT/'Config/DefaultEngine.ini']
@@ -125,7 +133,8 @@ def capture(session, name, spec, scout=False, *, allow_visual_overlap=False):
             print(f'CAPTURE PROGRESS {name}: {now-started:.0f}s elapsed, {saved_frames} frames saved',flush=True)
             next_progress=now+30
 
-    code=guarded.run(cmd,folder,purpose=f'trailer {session}/{name}',timeout=1800,kind='game',on_poll=progress)
+    code=guarded.run(cmd,folder,purpose=f'trailer {session}/{name}',timeout=1800,kind='game',
+                     limit_gib=memory_gib,on_poll=progress)
     if code: raise subprocess.CalledProcessError(code,cmd)
     assert (PROJECT/'Saved/settings.txt').read_bytes()==saved,'Saved settings changed'
     assert 'TRAILER SHOT COMPLETE' in (folder/'game.log').read_text()
@@ -156,7 +165,8 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('session');p.add_argument('--shots',default='');p.add_argument('--scout',action='store_true')
     p.add_argument('--file',default=str(Path(__file__).with_name('shots.json')),help='shot list (the September trailer\'s by default)')
+    p.add_argument('--memory-gib',type=float,default=GAME_GIB,help=f'guarded game memory ceiling, {GAME_GIB:g} to {GAME_MAX_GIB:g} GiB')
     a=p.parse_args()
     shots=json.loads(Path(a.file).read_text())
     for name in a.shots.split(',') if a.shots else shots:
-        capture(a.session,name,shots[name],a.scout)
+        capture(a.session,name,shots[name],a.scout,memory_gib=a.memory_gib)

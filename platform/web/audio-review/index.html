@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sound previews</title>
+    <link rel="stylesheet" href="review.css" />
+    <script src="sequences.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <p class="eyebrow">GAME SOUND / LISTENING ROOM</p>
+      <h1>Sound previews<span>.</span></h1>
+      <p class="intro">
+        Choose a surface and hear it in motion. Each short example is already
+        recorded. Tap to play; repeat without rebuilding anything.
+      </p>
+      <a href="clips.html">Raw takes & individual contacts →</a>
+    </header>
+    <main>
+      <section class="sequence-player" aria-label="Selected example">
+        <h2 id="playing-title">Choose an example below</h2>
+        <p id="playing-description">
+          Walk, run, roll, slide and land on different materials.
+        </p>
+        <audio id="sequence-audio" controls preload="none"></audio>
+        <div class="player-actions">
+          <button id="repeat" disabled>Play again</button>
+          <button id="stop" disabled>Stop</button>
+          <label class="check"
+            ><input id="loop" type="checkbox" /> Loop this example</label
+          >
+        </div>
+        <p id="playback-status" role="status">Loading the example list…</p>
+      </section>
+      <section class="toolbar" aria-label="Filter examples">
+        <label
+          >Activity<select id="activity">
+            <option value="">All activities</option>
+          </select></label
+        >
+        <label
+          >Surface<select id="surface">
+            <option value="">All surfaces</option>
+          </select></label
+        >
+      </section>
+      <p id="sequence-count" class="take"></p>
+      <div id="examples" class="grid"></div>
+    </main>
+    <footer>
+      Recorded previews made from the prepared candidate contacts and loops.
+      Walk/run timing approximates alternating animation foot plants; skating
+      uses the game’s speed, pitch and transition envelopes. These candidates
+      have not been installed in the game. Individual source clips remain in the
+      optional library.
+    </footer>
+  </body>
+</html>

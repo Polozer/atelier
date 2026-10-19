@@ -363,6 +363,7 @@ void AJapanWorld::Load()
             NearTrees.Add(FBox2D(FVector2D(FMath::Min(A.X, C.X), FMath::Min(A.Y, C.Y)), FVector2D(FMath::Max(A.X, C.X), FMath::Max(A.Y, C.Y))));
         }
     ABelmonteRegion::Clear(Root, AtelierDataPath(TEXT("belmonte/runtime.json")));
+    ABelmonteRegion::Clear(Root, AtelierDataPath(TEXT("brinecove/runtime.json")));
     const TSharedPtr<FJsonObject>* Inst = nullptr;
     if (Root->TryGetObjectField(TEXT("instances"), Inst))
     {
@@ -664,6 +665,9 @@ void AJapanWorld::Load()
     if (!Hippodrome || !Hippodrome->bGameplayReady) Incomplete.Add(TEXT("hippodrome"));
     const auto* Belmonte = ABelmonteRegion::Spawn(this, AtelierDataPath(TEXT("belmonte/runtime.json")));
     if (!Belmonte || !Belmonte->bGameplayReady) Incomplete.Add(TEXT("belmonte"));
+    // The pirate port in the western reach (docs/WORLD_MAP.md), placed from the same runtime schema.
+    const auto* Brinecove = ABelmonteRegion::Spawn(this, AtelierDataPath(TEXT("brinecove/runtime.json")), TEXT("brinecove"));
+    if (!Brinecove || !Brinecove->bGameplayReady) Incomplete.Add(TEXT("brinecove"));
     if (ABelmonteTrainService::IsEnabled())
     {
         ABelmonteTrack::Spawn(GetWorld(), AtelierDataPath(TEXT("belmonte_track/track.json")));

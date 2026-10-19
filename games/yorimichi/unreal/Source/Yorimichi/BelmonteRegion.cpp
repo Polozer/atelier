@@ -40,11 +40,15 @@ void ABelmonteRegion::Clear(const TSharedPtr<FJsonObject>& WorldData, const FStr
     const auto& B = Data->GetArrayField(TEXT("clearance_m"));
     const TSharedPtr<FJsonObject>* Instances = nullptr;
     if (!WorldData->TryGetObjectField(TEXT("instances"), Instances)) return;
+    // Island vegetation by default; a region may name more instance prefixes (Brinecove: coastal boulders).
+    TArray<FString> Prefixes = {TEXT("Tree"), TEXT("Bush"), TEXT("Grass")};
+    const TArray<TSharedPtr<FJsonValue>>* Extra = nullptr;
+    if (Data->TryGetArrayField(TEXT("clear_prefixes"), Extra))
+        for (const auto& Prefix : *Extra) Prefixes.AddUnique(Prefix->AsString());
     for (auto& Pair : (*Instances)->Values)
     {
         const FString Key(Pair.Key);
-        if (!Key.StartsWith(TEXT("Tree"))
-            && !Key.StartsWith(TEXT("Bush")) && !Key.StartsWith(TEXT("Grass"))) continue;
+        if (!Prefixes.ContainsByPredicate([&Key](const FString& Prefix) { return Key.StartsWith(Prefix); })) continue;
         TArray<TSharedPtr<FJsonValue>> Kept;
         for (const auto& Item : Pair.Value->AsArray())
         {
@@ -56,7 +60,7 @@ void ABelmonteRegion::Clear(const TSharedPtr<FJsonObject>& WorldData, const FStr
     }
 }
 
-ABelmonteRegion* ABelmonteRegion::Spawn(AJapanWorld* Landscape, const FString& Path)
+ABelmonteRegion* ABelmonteRegion::Spawn(AJapanWorld* Landscape, const FString& Path, FName Tag)
 {
     const auto Data = AtelierReadJson(Path);
     if (!Landscape || !Data) return nullptr;
@@ -64,7 +68,7 @@ ABelmonteRegion* ABelmonteRegion::Spawn(AJapanWorld* Landscape, const FString& P
     if (!Region) return nullptr;
     Region->SetActorLocation(Vector(Data->GetArrayField(TEXT("origin_cm"))));
     Region->GetRootComponent()->SetMobility(EComponentMobility::Static);
-    Region->Tags.Add(TEXT("belmonte"));
+    Region->Tags.Add(Tag);
     int32 Missing = 0, Outside = 0;
     // The district's extent in metres (world X, north Y), with a 100 m margin.
     const auto& B = Data->GetArrayField(TEXT("bounds_m"));
@@ -78,7 +82,7 @@ ABelmonteRegion* ABelmonteRegion::Spawn(AJapanWorld* Landscape, const FString& P
         if (!Mesh)
         {
             ++Missing;
-            UE_LOG(LogTemp, Error, TEXT("BELMONTE missing mesh %s"), *Asset);
+            UE_LOG(LogTemp, Error, TEXT("%s missing mesh %s"), *Tag.ToString().ToUpper(), *Asset);
             continue;
         }
         const bool Plant = Entry->GetBoolField(TEXT("plant"));
@@ -98,7 +102,7 @@ ABelmonteRegion* ABelmonteRegion::Spawn(AJapanWorld* Landscape, const FString& P
             const FString MaterialPath = Entry->GetArrayField(TEXT("materials"))[Index]->AsString();
             auto* Material = LoadObject<UMaterialInterface>(nullptr, *MaterialPath);
             if (Material) Group->SetMaterial(Index, Material);
-            else { ++Missing; UE_LOG(LogTemp, Error, TEXT("BELMONTE missing material %s"), *MaterialPath); }
+            else { ++Missing; UE_LOG(LogTemp, Error, TEXT("%s missing material %s"), *Tag.ToString().ToUpper(), *MaterialPath); }
         }
         if (Plant)
         {
@@ -149,8 +153,8 @@ ABelmonteRegion* ABelmonteRegion::Spawn(AJapanWorld* Landscape, const FString& P
         Sign->RegisterComponent();
     }
     Region->bGameplayReady = Missing == 0 && Region->SceneryInstances > 0;
-    UE_LOG(LogTemp, Display, TEXT("BELMONTE ready=%d scenery=%d plants=%d missing=%d outside=%d at %s"),
-           Region->bGameplayReady, Region->SceneryInstances, Region->PlantInstances, Missing, Outside, *Region->GetActorLocation().ToString());
+    UE_LOG(LogTemp, Display, TEXT("%s ready=%d scenery=%d plants=%d missing=%d outside=%d at %s"),
+           *Tag.ToString().ToUpper(), Region->bGameplayReady, Region->SceneryInstances, Region->PlantInstances, Missing, Outside, *Region->GetActorLocation().ToString());
     return Region;
 }
 

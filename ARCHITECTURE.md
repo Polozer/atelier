@@ -35,7 +35,9 @@ build/            ignored: everything a build generates, per game
 
 Systems that only one game uses stay in that game. In Yorimichi these are the player character (on-foot movement,
 actions, camera), sword combat and the fox hunter, the sailboat, the bike, the horse, the zeppelin, the mini-mega
-ramp, footsteps, the world map, preferences and the HUD.
+ramp, footsteps, the world map, preferences and the HUD. Horse racing rules are owned by
+`games/yorimichi/unreal/Plugins/HorseRacing`; the plugin and module names stay stable for
+Unreal discovery and reflected type compatibility.
 
 ## Rules
 

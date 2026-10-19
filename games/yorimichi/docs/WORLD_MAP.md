@@ -7,7 +7,8 @@ heightmaps, `hidamari/city.json`, the island and city height functions), never f
 only the artwork is painted. The tools live in [`games/yorimichi/world/map/`](../world/map/).
 
 The regions are **Momiji Coast**, **Momiji Woods**, **Hidamari**, **Temple Island**, **Northern Foothills**,
-**Volcanic Highlands**, and **Haras Valley** (the countryside around Belmonte). Search works across every region.
+**Volcanic Highlands**, **Haras Valley** (the countryside around Belmonte), and **Brinecove Reach** (the pirate port
+on the western coast, [`world/regions/brinecove`](../world/regions/brinecove/README.md)). Search works across every region.
 The world destination list always contains the complete current registry, including saved places, Ronin camp,
 air stations, both railway stations, the racecourses and skate parks. Travel still uses the original resolver,
 including safe marker returns, the active Crater Park drop-in and the train platform service.
@@ -20,6 +21,16 @@ The current implementation saves overrides locally in `stable-names.json` beside
 across character switches. A future multiplayer naming policy can change ownership without repainting any map.
 An unreadable save is preserved; a failed write publishes neither a partial file nor a changed in-memory name.
 The phone uses the same frames, labels and travel registry as the native atlas.
+
+Names are laid out in screen space around their pins. The layout prefers above, then below, sides and diagonals,
+avoids every other label, pin and the player marker, and draws a leader when a name moves to a side. Only the
+lowest-priority names that cannot fit are hidden; the hovered or selected name is always shown on top. Region
+captions are placed first and keep a leader to their region centre. No two visible labels overlap.
+
+The World and regional views also draw the live zeppelin itinerary from the same layout data: Woodland ↔ Hidamari ↔
+Mega Park ↔ Belmonte, with the three sequential 1× leg times (28s, 36s, 61s) at the leg midpoints. The route is a
+live overlay, never painted into the artwork; the Air station pins remain the travel targets. Any docked stop can
+choose another destination, including the direct legs, and the phone shows the same line and legend.
 
 The native atlas supports controllers throughout. The left stick and d-pad choose places; triggers cycle
 every pin, including overlapping locations. The right stick pans, shoulders zoom, right-stick click fits
@@ -116,6 +127,7 @@ and host-handler landings, standing capsule clearance, heading and health agains
 | Elsewhere | `forest_lake`, `megapark`, `skatepier`, `hippodrome`, `zeppelin_forest`, `zeppelin_city`, `zeppelin_megapark`, `zeppelin_belmonte` |
 | Volcano | `craterpark` (Crater Park: its marked ramp drop-in, looking across the park; [CRATERPARK.md](CRATERPARK.md)) |
 | Belmonte | `belmonte`, `belmonte_course`, `belmonte_training`, `belmonte_salon` (Salon des Paris, from `belmonte/runtime.json`) |
+| Brinecove | `brinecove_quay` (the quay at the market, from `brinecove/runtime.json`) |
 
 `UJapanMap` adds a `skatepier` stop from `skatepark/park.json`, and a `hippodrome` stop (by the grandstand, at the
 grandstand) from `hippodrome/hippodrome.json`, when `map.json` has none ([HIPPODROME.md](HIPPODROME.md)).
@@ -250,3 +262,40 @@ yaw. The phone's "back to spawn" button uses the same path.
 `uv run atelier play yorimichi -- -mapqa -reviewdir=DIR` travels to every zone in turn, screenshots each
 (`map_NN_key.png`) and the open map (`map_overlay.png`), and writes `map_qa.json` (target, landed position, drift,
 on-ground).
+
+## Native indoor landing acceptance
+
+After a current normal build including `data.network`, run the explicit diagnostic:
+
+```sh
+ATELIER_AGENT=OWNER nice -n 10 uv run python games/yorimichi/tools/review_map_network.py \
+  --zone belmonte_salon --out build/yorimichi/map-network-review/unique-run
+```
+
+Use a fresh output directory. The runner requires current source/compile/import/
+staging certificates and exact generated-versus-staged map bytes. It launches a
+NullRHI listen-host under normal aggregate and individual guards, tours only that
+host's locally controlled pawn, then waits for the host to vacate before starting
+the real guest. The guest uses the ordinary map resolver and authoritative travel
+RPC. The host must observe admission and clean disconnect; both games must exit.
+No live bridge, forced placement, authority bypass or personal saves are used.
+
+Two warm editors can exceed the default 10 GiB aggregate. `--memory-gib N` (10 to 24,
+the `atelier play` range) raises one session's ceiling for the aggregate guard, its
+admission reservation and each game's guard alike; the default stays 10 GiB and the
+chosen value is recorded in `checks.json`.
+
+Each native tour records the settled feet, actual runtime yaw, walkable supporting
+floor and standing capsule clearance. The checker compares both roles with the
+staged destination, not just self-reported target coordinates. Source, compiled
+modules and staged data must remain unchanged throughout the run. A successful
+worker report is acceptance only after the enclosing guard's terminal cleanup and
+capacity close succeed. Inspect `guard/memory-health-tree.json` as well as
+`checks.json`; a later guard failure leaves the invocation failed.
+
+The opt-in `-mapqazone=KEY` limits the existing tour. For this diagnostic's host,
+`-mapqakeepalive=120` keeps the host alive after its tour, with an engine timer of at
+most 120 seconds; the enclosing worker and native child deadlines remain enforced.
+Normal map-tour runs still exit when complete. This is same-machine scripted
+travel/collision evidence. Rendered controller selection, phone data-channel
+selection, packaging and adverse-network/two-machine tests remain separate checks.

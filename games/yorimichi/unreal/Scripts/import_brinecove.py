@@ -1,0 +1,220 @@
+"""Import Brinecove (world/regions/brinecove/build.py) into its own /Game/Brinecove library.
+
+Geometry keeps its local metre frame and material slots; each slot gets a region material instance. Three parents
+share the island's haze (atmosphere.py): opaque painted surfaces, two-sided masked cards (leaves, palm fronds, the
+scrolling waterfall curtain, foam lace) and soft translucent spray. Solid meshes collide with their own triangles;
+foliage prototypes get generated LODs.
+"""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'world'))
+import yori  # noqa: E402
+import json
+import unreal
+import atmosphere
+
+OUT = yori.OUT / 'brinecove'
+ROOT = '/Game/Brinecove'
+E = unreal.EditorAssetLibrary
+AT = unreal.AssetToolsHelpers.get_asset_tools()
+MEL = unreal.MaterialEditingLibrary
+REGISTRY = unreal.AssetRegistryHelpers.get_asset_registry()
+PARENTS = {'opaque': 'M_Brinecove', 'emissive': 'M_Brinecove', 'masked': 'M_BrinecoveMasked',
+           'translucent': 'M_BrinecoveSpray'}
+
+
+def parent(name, blend):
+    asset = ROOT + '/Materials/' + name
+    material = E.load_asset(asset) if E.does_asset_exist(asset) else AT.create_asset(name, ROOT + '/Materials', unreal.Material, unreal.MaterialFactoryNew())
+    MEL.delete_all_material_expressions(material)
+
+    def node(cls, **properties):
+        result = MEL.create_material_expression(material, cls)
+        for key, value in properties.items():
+            result.set_editor_property(key, value)
+        return result
+
+    def scalar(key, value):
+        return node(unreal.MaterialExpressionScalarParameter, parameter_name=key, default_value=value)
+
+    uv = node(unreal.MaterialExpressionTextureCoordinate)
+    time = node(unreal.MaterialExpressionTime)
+    tex = node(unreal.MaterialExpressionTextureObjectParameter, parameter_name='Tex',
+               texture=E.load_asset('/Engine/EngineResources/WhiteSquareTexture'))
+    colour = node(unreal.MaterialExpressionVectorParameter, parameter_name='Colour', default_value=unreal.LinearColor(.7, .6, .4, 1.))
+    inputs = [('UV', uv, ''), ('T', time, ''), ('Tex', tex, ''), ('Colour', colour, ''), ('UseTex', scalar('UseTex', 0.), ''),
+              ('Pan', scalar('Pan', 0.), '')]
+
+    def custom(code, kind):
+        result = node(unreal.MaterialExpressionCustom, output_type=kind, code=code)
+        args = []
+        for key, _, _ in inputs:
+            value = unreal.CustomInput()
+            value.set_editor_property('input_name', key)
+            args.append(value)
+        result.set_editor_property('inputs', args)
+        for key, expression, output in inputs:
+            assert MEL.connect_material_expressions(expression, output, result, key), key
+        return result
+
+    sample = 'float4 s = Texture2DSample(Tex, TexSampler, UV + float2(0, frac(T * Pan)));\n'
+    base = custom(sample + 'return lerp(Colour.rgb, s.rgb, UseTex);', unreal.CustomMaterialOutputType.CMOT_FLOAT3)
+    glow = node(unreal.MaterialExpressionMultiply)
+    assert MEL.connect_material_expressions(base, '', glow, 'A')
+    assert MEL.connect_material_expressions(scalar('Glow', .045), '', glow, 'B')
+    shaded, emission = atmosphere.apply(material, base, glow)
+    assert MEL.connect_material_property(shaded, '', unreal.MaterialProperty.MP_BASE_COLOR)
+    assert MEL.connect_material_property(emission, '', unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    assert MEL.connect_material_property(scalar('Roughness', .88), '', unreal.MaterialProperty.MP_ROUGHNESS)
+    assert MEL.connect_material_property(scalar('Metallic', 0.), '', unreal.MaterialProperty.MP_METALLIC)
+    assert MEL.connect_material_property(scalar('Specular', .12), '', unreal.MaterialProperty.MP_SPECULAR)
+    if blend != 'opaque':
+        alpha = custom(sample + 'return lerp(1, s.a, UseTex);', unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+        material.set_editor_property('two_sided', True)
+        if blend == 'masked':
+            material.set_editor_property('blend_mode', unreal.BlendMode.BLEND_MASKED)
+            material.set_editor_property('opacity_mask_clip_value', .45)
+            assert MEL.connect_material_property(alpha, '', unreal.MaterialProperty.MP_OPACITY_MASK)
+        else:
+            material.set_editor_property('blend_mode', unreal.BlendMode.BLEND_TRANSLUCENT)
+            fade = node(unreal.MaterialExpressionMultiply)
+            assert MEL.connect_material_expressions(alpha, '', fade, 'A')
+            assert MEL.connect_material_expressions(scalar('Opacity', .8), '', fade, 'B')
+            assert MEL.connect_material_property(fade, '', unreal.MaterialProperty.MP_OPACITY)
+    material.set_editor_property('used_with_instanced_static_meshes', True)
+    MEL.recompile_material(material)
+    E.save_loaded_asset(material)
+    return material
+
+
+def textures(report):
+    result = {}
+    for file in sorted({entry['texture'] for entry in report['materials'].values() if entry['texture']}):
+        name = Path(file).stem
+        task = unreal.AssetImportTask()
+        task.filename = str(OUT / 'textures' / file)
+        task.destination_path = ROOT + '/Textures'
+        task.destination_name = name
+        task.automated = True
+        task.replace_existing = True
+        task.save = True
+        AT.import_asset_tasks([task])
+        asset = E.load_asset(ROOT + '/Textures/' + name)
+        assert asset, file
+        asset.set_editor_property('srgb', True)
+        asset.set_editor_property('max_texture_size', 1024)
+        asset.set_editor_property('lod_group', unreal.TextureGroup.TEXTUREGROUP_WORLD)
+        E.save_loaded_asset(asset)
+        result[file] = asset
+    return result
+
+
+def surfaces(report, images):
+    parents = {kind: parent(name, 'opaque' if kind == 'emissive' else kind) for kind, name in PARENTS.items()
+               if kind != 'emissive'}
+    parents['emissive'] = parents['opaque']
+    for key, entry in report['materials'].items():
+        name = entry['name']
+        path = ROOT + '/Materials/' + name
+        material = E.load_asset(path) if E.does_asset_exist(path) else AT.create_asset(name, ROOT + '/Materials', unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+        MEL.clear_all_material_instance_parameters(material)
+        MEL.set_material_instance_parent(material, parents[entry['kind']])
+        MEL.set_material_instance_vector_parameter_value(material, 'Colour', unreal.LinearColor(*entry['colour'][:3], 1.))
+        scalars = {'UseTex': float(bool(entry['texture'])), 'Pan': float(entry['pan']), 'Roughness': float(entry['roughness']),
+                   'Metallic': .6 if entry['metal'] else 0., 'Glow': 1.6 if entry['kind'] == 'emissive' else .045}
+        for parameter, value in scalars.items():
+            MEL.set_material_instance_scalar_parameter_value(material, parameter, value)
+        if entry['texture']:
+            MEL.set_material_instance_texture_parameter_value(material, 'Tex', images[entry['texture']])
+        MEL.update_material_instance(material)
+        E.save_loaded_asset(material)
+
+
+def import_mesh(path, name):
+    generic = unreal.InterchangeGenericAssetsPipeline()
+    pipeline = generic.get_editor_property('mesh_pipeline')
+    pipeline.set_editor_property('import_static_meshes', True)
+    pipeline.set_editor_property('import_skeletal_meshes', False)
+    pipeline.set_editor_property('combine_static_meshes_behavior', unreal.InterchangeCombineStaticMeshesBehavior.ALL)
+    pipeline.set_editor_property('build_nanite', False)
+    generic.get_editor_property('animation_pipeline').set_editor_property('import_animations', False)
+    stack = unreal.InterchangePipelineStackOverride()
+    stack.add_pipeline(generic)
+    stack.add_pipeline(unreal.InterchangeGLTFPipeline())
+    folder = ROOT + '/Import/' + name
+    task = unreal.AssetImportTask()
+    task.filename = str(path)
+    task.destination_path = folder
+    task.options = stack
+    task.automated = True
+    task.replace_existing = True
+    task.save = True
+    AT.import_asset_tasks([task])
+    found = [str(asset.package_name) for asset in REGISTRY.get_assets_by_path(folder, recursive=True)
+             if str(asset.asset_class_path.asset_name) == 'StaticMesh']
+    assert len(found) == 1, (name, found)
+    target = ROOT + '/Meshes/' + name
+    assert E.rename_asset(found[0], target), target
+    return E.load_asset(target)
+
+
+def generate_lods(mesh):
+    """Three reduced levels for a foliage prototype; cards keep their silhouettes at a distance."""
+    unreal.load_module('StaticMeshEditor')
+    editor = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+    assert editor is not None, 'StaticMeshEditor subsystem is unavailable'
+    options = unreal.StaticMeshReductionOptions()
+    options.set_editor_property('auto_compute_lod_screen_size', False)
+    plan = ((1., 1.), (.45, .3), (.2, .12), (.08, .04))
+    levels = []
+    for percent, screen in plan:
+        level = unreal.StaticMeshReductionSettings()
+        level.set_editor_property('percent_triangles', percent)
+        level.set_editor_property('screen_size', screen)
+        levels.append(level)
+    options.set_editor_property('reduction_settings', levels)
+    assert editor.set_lods(mesh, options) == len(plan), (mesh.get_name(), 'LOD generation')
+    assert editor.set_lod_screen_sizes(mesh, [screen for _, screen in plan]), (mesh.get_name(), 'LOD screen sizes')
+
+
+def main():
+    report = json.loads((OUT / 'build-report.json').read_text())
+    E.make_directory(ROOT)
+    surfaces(report, textures(report))
+    imported = {}
+    for index, entry in enumerate(report['meshes']):
+        name = entry['name']
+        target = ROOT + '/Meshes/' + name
+        if E.does_asset_exist(target):
+            E.delete_asset(target)
+        mesh = import_mesh(OUT / entry['path'], name)
+        slots = mesh.get_editor_property('static_materials')
+        assert len(slots) == len(entry['slots']), (name, 'material slots', len(slots), entry['slots'])
+        for slot, key in enumerate(entry['slots']):
+            material = E.load_asset(f"{ROOT}/Materials/{report['materials'][key]['name']}")
+            assert material, key
+            mesh.set_material(slot, material)
+        # Unreal drops a few degenerate slivers from the procedural kit.
+        triangles = mesh.get_num_triangles(0)
+        assert entry['triangles'] * .98 <= triangles <= entry['triangles'], (name, 'triangle count', triangles, entry['triangles'])
+        body = mesh.get_editor_property('body_setup')
+        assert body, name
+        if entry['collision']:
+            body.set_editor_property('collision_trace_flag', unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
+            body.set_editor_property('double_sided_geometry', True)
+        if entry.get('lods'):
+            generate_lods(mesh)
+        E.save_loaded_asset(mesh)
+        box = mesh.get_bounding_box()
+        low, high = entry['bounds_m']
+        expected = [low[0] * 100, -high[1] * 100, low[2] * 100, high[0] * 100, -low[1] * 100, high[2] * 100]
+        actual = [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z]
+        assert max(abs(a - b) for a, b in zip(actual, expected)) < 2., (name, 'bounds', actual, expected)
+        imported[name] = {'triangles': triangles, 'bounds_cm': actual, 'collision': entry['collision']}
+        unreal.log(f'BRINECOVE IMPORT {index + 1}/{len(report["meshes"])} {name}')
+    (OUT / 'import-report.json').write_text(json.dumps(imported, indent=1) + '\n')
+    E.delete_directory(ROOT + '/Import')
+    unreal.log(f'BRINECOVE IMPORT COMPLETE: {len(imported)} meshes')
+
+
+main()

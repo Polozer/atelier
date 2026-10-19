@@ -3,6 +3,7 @@ import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_
 import itertools,json,math,sys,hashlib,os
 from pathlib import Path
 import bpy,numpy as np
+import shorelines
 from mathutils import Matrix
 ROOT=yori.REGIONS
 from hidamari.layout import OUT,height,street_height,terrain_axes,pond,canal,generate,ROAD_X,ROAD_Y
@@ -225,11 +226,17 @@ def land_use(x,y):
 def surface(name,xs,ys,color):
     m=M(name)
     gx,gy=np.meshgrid(xs,ys);gz=height(gx,gy)
-    if name=='HD_Terrain':from train import earthworks;gz=earthworks.carve(gx,gy,gz)  # the Belmonte railway's bank and cutting by the city
+    if name=='HD_Terrain':
+        from train import earthworks
+        from zeppelin.layout import city_pad
+        gz=earthworks.carve(gx,gy,gz)
+        # Keep the bounded air-station apron at its authored level after the
+        # railway's broader bank blend. city_pad excludes the track and roads.
+        gz=city_pad(gx,gy,gz)
     for j,y in enumerate(ys[:-1]):
         for i,x in enumerate(xs[:-1]):
             dx=xs[i+1]-x;dy=ys[j+1]-y
-            if (y<-125 and x>380) or pond(x+dx/2,y+dy/2) or canal(x+dx/2,y+dy/2):continue
+            if pond(x+dx/2,y+dy/2) or canal(x+dx/2,y+dy/2):continue
             pts=[(float(gx[jj,ii]),float(gy[jj,ii]),float(gz[jj,ii])) for ii,jj in [(i,j),(i+1,j),(i+1,j+1),(i,j+1)]]
             key='park' if grass_patch(x+dx/2,y+dy/2) else color
             if name=='HD_Terrain':key=land_use(x+dx/2,y+dy/2)
@@ -241,7 +248,13 @@ def surface(name,xs,ys,color):
                     for ii in range(len(sx)-1):m.poly([(float(xx[b,a]),float(yy[b,a]),float(zz[b,a])) for a,b in [(ii,jj),(ii+1,jj),(ii+1,jj+1),(ii,jj+1)]],key)
             else:
                 faces=len(m.faces);m.poly(pts,key)
-                if key=='hd_grass' and x<300+layout.ISLAND_FADE and len(m.faces)>faces:
+                if name=='HD_Terrain' and y < -125 and len(m.faces)>faces:
+                    n=len(m.faces[-1]);p=np.asarray(m.vertices[-n:]);normal=np.cross(p[1]-p[0],p[-1]-p[0])
+                    nz=normal[2]/max(np.linalg.norm(normal),1e-9)
+                    colours=shorelines.colours(p[:,0],p[:,1],p[:,2],np.full(n,nz),v.PALETTE[key])
+                    m.colors[-n:]=[(*c,0.) for c in colours]
+                    m.keys[-1]='coast_sand'
+                if key=='hd_grass' and y>=-125 and x<300+layout.ISLAND_FADE and len(m.faces)>faces:
                     # the lawn takes the island ground's colour at its edge (x 300), so the two grasses meet without a line
                     lawn=v.PALETTE['hd_grass'];n=len(m.faces[-1])
                     for k,(px,_,_) in enumerate(m.vertices[-n:]):
@@ -425,7 +438,8 @@ def main():
     for name in ['HD_Bench','HD_Planter','HD_Lamp','HD_Bollard','HD_Crate']:
         builders[name]=lambda name=name:prop(name)
     def sea_mesh():
-        sea=M('HD_Sea');sea.poly([(300,-1600,.025),(1800,-1600,.025),(1800,600,.025),(300,600,.025)],'water_city');return sea
+        x0,y0,x1,y1=shorelines.HARBOR_RECT
+        sea=M('HD_Sea');sea.poly([(x0,y0,0.),(x1,y0,0.),(x1,y1,0.),(x0,y1,0.)],'water_city');return sea
     builders['HD_Sea']=sea_mesh
     def wire_mesh():
         m=M('HD_Wires');v.PALETTE['hd_wire']=(.018,.018,.02)
@@ -446,7 +460,8 @@ def main():
     builders['HD_Arrival']=lambda:arrival.arrival(M('HD_Arrival'),height)
     # Reference-led kit modules replace legacy shop variants by mesh name.
     builders.update(kit.builders(lettering))
-    builders['HD_NorthMountains']=lambda:SheetMesh('HD_NorthMountains',mountains.mesh(north_base_height))
+    from north_mountain_surface import generate as mountain_surface
+    builders['HD_NorthMountains']=lambda:SheetMesh('HD_NorthMountains',mountain_surface(north_base_height,yori.OUT/'terrain/HD_NorthMountains'))
     from megapark import gate
     builders['HD_NorthGate']=lambda:SheetMesh('HD_NorthGate',gate.mesh(north_base_height))
     for name in gate.ROCKS:builders[name]=lambda name=name:gate_rock(name)

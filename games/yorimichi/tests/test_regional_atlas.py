@@ -18,6 +18,30 @@ def source():
     return json.loads((GAME / 'assets/belmonte/source.json').read_text())
 
 
+def test_extracted_terrain_sources_are_signed_and_declared_inputs(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from atelier import build
+    sources = {'world/build_terrain.py', 'world/farhills_surface.py', 'world/farhills_grid.py', 'world/terrain_product.py',
+               'world/north_mountain_surface.py'}
+    assert sources <= set(atlas.GEOGRAPHY_SOURCES)
+    recipe = build.load_recipe('yorimichi')
+    step = next(s for s in recipe.steps(SimpleNamespace(game='yorimichi', out=tmp_path, uproject=None))
+                if s.name == 'world.map')
+    assert {GAME / rel for rel in sources} <= set(step.inputs)
+    monkeypatch.setattr(atlas, 'GAME', tmp_path)
+    for rel in atlas.GEOGRAPHY_SOURCES:
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(rel)
+    before = atlas.geography_signature()
+    for rel in sorted(sources):
+        path = tmp_path / rel
+        path.write_text(rel + ' changed')
+        after = atlas.geography_signature()
+        assert {key for key in before if before[key] != after[key]} == {rel}
+        path.write_text(rel)
+
+
 def test_all_current_destination_families_keep_their_travel_identity():
     positions = {
         'spawn': (-255, -99), 'hamlet': (113, 91), 'mega': (60, 234),
@@ -29,14 +53,14 @@ def test_all_current_destination_families_keep_their_travel_identity():
         'zeppelin_forest': (-199, 221), 'zeppelin_city': (1279, 299), 'zeppelin_megapark': (-194, 1475),
         'zeppelin_belmonte': (416, 4651), 'belmonte': (550, 4482), 'belmonte_course': (385, 4855),
         'belmonte_training': (230, 5160), 'hidamari_station': (1184, 335), 'belmonte_station': (1375, 4375),
-        'belmonte_salon': (617.8, 4806.8),
+        'belmonte_salon': (617.8, 4806.8), 'brinecove_quay': (-1500, -45),
         'marker_custom': (5000, 8000),
     }
     zones = [dict(key=k, name=k, x=x, y=y, z=21.5, yaw=92., hint='same resolver') for k, (x, y) in positions.items()]
     before = copy.deepcopy(zones)
     result = atlas.metadata(zones, source())
     keys = {r['key'] for r in result['regions']}
-    assert len(keys) == 7
+    assert len(keys) == 8
     assert len(zones) == len(before)
     for old, new in zip(before, zones):
         assert old == {k: v for k, v in new.items() if k != 'region'}
@@ -146,17 +170,35 @@ def test_committed_paintings_cover_all_regions_with_current_geometry_and_provena
     assert {p.stem for p in (tmp_path / 'atlas').glob('*.png')} == {'world', *(r['key'] for r in atlas.REGIONS)}
 
 
-def test_world_coast_preserves_spawn_water_finite_mesh_edges_and_country_join():
-    # Actual terrain ownership regressions: the spawn road ends at the western
-    # fine-grid edge, FarHills ends at +/-3200, and the country GLB starts at3200.
-    # Its lower strip must not turn into a fictitious channel at SOUTH_JOIN.
+def test_world_coast_preserves_restored_spawn_ground_finite_edges_and_country_join():
+    # The repaired fine/backdrop join restores dry ground west of the spawn road.
+    # FarHills still ends at +/-3200 and the country GLB starts at3200; its lower
+    # strip must not turn into a fictitious channel at SOUTH_JOIN.
     b = atlas.WORLD_BOUNDS
     with Image.open(atlas.ASSETS / 'coasts/world.png') as mask, Image.open(atlas.ASSETS / 'world.png') as painting:
-        for x, y, water in [(-350., -99.51, True), (4000., 2500., True), (-2000., 3400., False), (0., 7190., True)]:
+        for x, y, water in [(-350., -99.51, False), (4000., 2500., True), (-2000., 3400., False), (0., 7190., True)]:
             ix = int((x-b[0])/(b[2]-b[0])*mask.width)
             iy = int((b[3]-y)/(b[3]-b[1])*mask.height)
             assert (mask.getpixel((ix, iy)) < 128) == water, (x, y)
             assert bool(atlas.water_pixels(painting.crop((ix, iy, ix+1, iy+1)))[0, 0]) == water, (x, y)
+
+
+@pytest.mark.parametrize('key,x,y,water', [
+    ('momiji_coast', -400., -75., False),
+    ('momiji_coast', -400., -300., True),
+    ('momiji_woods', -410., -25., False),
+    ('momiji_woods', -350., 0., False),
+])
+def test_western_regional_paintings_preserve_restored_ground(key, x, y, water):
+    # The Woods frame no longer has ocean on its lower-left edge, so an ocean
+    # flood seeded only from known reference-water edges cannot find that old
+    # painted corner. Check the actual restored terrain coordinates directly.
+    bounds = next(r['bounds'] for r in atlas.REGIONS if r['key'] == key)
+    with Image.open(atlas.ASSETS / 'coasts' / f'{key}.png') as mask, Image.open(atlas.ASSETS / f'{key}.png') as painting:
+        ix = int((x-bounds[0])/(bounds[2]-bounds[0])*mask.width)
+        iy = int((bounds[3]-y)/(bounds[3]-bounds[1])*mask.height)
+        assert (mask.getpixel((ix, iy)) < 128) == water, (key, x, y)
+        assert bool(atlas.water_pixels(painting.crop((ix, iy, ix+1, iy+1)))[0, 0]) == water, (key, x, y)
 
 
 def test_coast_check_rejects_an_enlarged_island_or_filled_bay():
@@ -173,3 +215,56 @@ def test_coast_check_rejects_an_enlarged_island_or_filled_bay():
     ImageDraw.Draw(painting).ellipse((430, 430, 570, 570), fill=(120, 150, 65))
     with pytest.raises(ValueError, match='flooded by painted ocean'):
         atlas.verify_coast(painting, mask, 'island')
+
+
+def zeppelin_layout():
+    stations = [
+        dict(key='zeppelin_forest', name='Woodland air station'),
+        dict(key='zeppelin_city', name='Hidamari air station'),
+        dict(key='zeppelin_megapark', name='Mega Park air station'),
+        dict(key='zeppelin_belmonte', name='Belmonte air station'),
+    ]
+    legs = [
+        dict(stops=[0, 1], height=155., seconds=28.),
+        dict(stops=[0, 2], height=185., seconds=23.7),
+        dict(stops=[0, 3], height=600., seconds=84.6),
+        dict(stops=[1, 2], height=240., seconds=35.5),
+        dict(stops=[1, 3], height=910., seconds=83.7),
+        dict(stops=[2, 3], height=520., seconds=61.2),
+    ]
+    return dict(stations=stations, legs=legs)
+
+
+def test_zeppelin_itinerary_uses_the_line_order_and_real_leg_times():
+    positions = {
+        'zeppelin_forest': (-199., 221.3), 'zeppelin_city': (1279., 312.3),
+        'zeppelin_megapark': (-194., 1475.3), 'zeppelin_belmonte': (416., 4651.3),
+    }
+    zones = [dict(key=key, name=key, x=x, y=y, z=70., yaw=90., hint='') for key, (x, y) in positions.items()]
+    air = atlas.metadata(zones, source(), zeppelin_layout())['air']
+    assert air['line'] == ['zeppelin_forest', 'zeppelin_city', 'zeppelin_megapark', 'zeppelin_belmonte']
+    assert [(leg['from'], leg['to'], leg['seconds']) for leg in air['legs']] == [
+        ('zeppelin_forest', 'zeppelin_city', 28.),
+        ('zeppelin_city', 'zeppelin_megapark', 35.5),
+        ('zeppelin_megapark', 'zeppelin_belmonte', 61.2),
+    ]
+    assert [stop['x'] for stop in air['stops']] == [-199., 1279., -194., 416.]
+    assert len(air['connections']) == 6
+    bad = zeppelin_layout()
+    bad['stations'][0]['key'] = 'missing_air_station'
+    with pytest.raises(ValueError, match='travel registry'):
+        atlas.metadata(zones, source(), bad)
+
+
+def test_native_float32_route_time_is_compared_with_tolerance():
+    spec = importlib.util.spec_from_file_location('regional_atlas_scenario', GAME / 'scenarios/regional_atlas.py')
+    scenario = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scenario)
+    actual = [('zeppelin_forest', 'zeppelin_city', 28.),
+              ('zeppelin_city', 'zeppelin_megapark', 35.5),
+              ('zeppelin_megapark', 'zeppelin_belmonte', 61.20000076293945)]
+    expected = [('zeppelin_forest', 'zeppelin_city', 28.),
+                ('zeppelin_city', 'zeppelin_megapark', 35.5),
+                ('zeppelin_megapark', 'zeppelin_belmonte', 61.2)]
+    assert scenario.same_leg_times(actual, expected)
+    assert not scenario.same_leg_times([actual[0], actual[1], ('zeppelin_megapark', 'wrong', 61.2)], expected)

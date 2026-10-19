@@ -5,6 +5,7 @@ roll through a coastal countryside, a forest hamlet, the city of Hidamari, a fis
 a dinghy, ride a horse, the bike and the zeppelin, skate the pier, Mega Park and Crater Park with skate.-style Flick-It controls, and fight the fox
 hunter with a wooden sword. Blender and Python generate the world, characters and animation; Unreal runs the game.
 The story and setting are drafted in [docs/LORE.md](docs/LORE.md).
+The generated zone score, its prompts and the tailnet review page are described in [docs/MUSIC.md](docs/MUSIC.md).
 
 ## Build and play
 
@@ -61,6 +62,9 @@ Scenarios run against the game from another terminal: `uv run atelier qa yorimic
 | `sailboat`, `zeppelin`, `lake` | regression checks and captures for the dinghy, the zeppelin stations and the woodland lake |
 | `treehouse`, `treehouse_walk`, `treehouse_tour` | the tree house's reference views, a filmed walk through it and a camera tour |
 | `skate_showreel`, `megapark_tour`, `megapark_access_film`, `megapark_ride_film` | filmed takes, with `*_mix.py` scripts to cut them |
+
+Horse racing rules belong to the game-local [HorseRacing plugin](unreal/Plugins/HorseRacing/README.md).
+The normal editor compile, standalone cook and multiplayer identity include its source.
 
 ## What is in the game
 

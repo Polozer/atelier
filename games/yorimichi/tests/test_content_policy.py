@@ -13,14 +13,16 @@ def test_archive_moves_old_imports_and_preserves_current_data(tmp_path):
     ctx = SimpleNamespace(game_dir=tmp_path / 'game', out=tmp_path / 'build')
     content = ctx.game_dir / 'unreal/Content'
     active = ['Adventure/Reference/A_Idle.uasset', 'Belmonte/Meshes/SM_BM_NorthApron.uasset',
-              'Data/belmonte/runtime.json', 'CairoAdventure/DA_CairoAdventure.uasset',
+              'Data/belmonte/runtime.json', 'Brinecove/Harbor/SM_BC_Harbor_2_3.uasset',
+              'Data/brinecove/runtime.json', 'CairoAdventure/DA_CairoAdventure.uasset',
               'Cairo/SK_Cairo.uasset', 'Cairo/DA_CairoBase.uasset', 'Cairo/A_DoubleJump.uasset', 'Cairo/A_Wave.uasset',
               'Cairo/A_SwordParry.uasset', 'Cairo/M_CairoOutfit.uasset', 'Cairo/Textures/T_M_Cairo.uasset',
               'Modori/Adventure/A_Run.uasset', 'Modori/Textures/coat.uasset', 'Modori/PA_Modori_Cloth.uasset',
               'SwordTrainer/Adventure/A_Run.uasset', 'SwordTrainer/A_Bow.uasset', 'SwordTrainer/Textures/body.uasset',
               'Data/SkateRide/clips.json', 'Data/cairo/adventure.json', 'Data/cairo/portrait.png',
               'Data/hippodrome/hippodrome.json',
-              'Audio/Skate/roll.uasset', 'SkateMotion/MotionData.uasset', 'SkateMotion/Banks/Bank_000.uasset',
+              'Audio/Skate/roll.uasset', 'AudioBanks/original/Audition.uasset', 'Data/Soundbanks/registry.json',
+              'SkateMotion/MotionData.uasset', 'SkateMotion/Banks/Bank_000.uasset',
               'SkateRuntime/RuntimeData.uasset', 'Nox/SK_Nox.uasset', 'Nox/Adventure/A_Run.uasset',
               'Nox/Textures/T_Nox_Head.uasset', 'NoxBike/A_Ride.uasset',
               'Data/nox/adventure.json', 'Data/nox/bike/export.json',
@@ -54,3 +56,28 @@ def test_archive_moves_old_imports_and_preserves_current_data(tmp_path):
         assert not (content / relative).exists()
         copies = list((ctx.out / 'retired-content').glob('*/' + relative))
         assert len(copies) == 1 and copies[0].read_bytes() == relative.encode()
+
+
+def test_every_staged_data_root_and_region_import_is_current():
+    """A staged file or region import outside the policy would be archived by every build, so the game never sees it."""
+    game = Path(__file__).resolve().parents[1]
+    runtime_spec = importlib.util.spec_from_file_location('yorimichi_runtime_data', game / 'runtime_data.py')
+    runtime_data = importlib.util.module_from_spec(runtime_spec)
+    runtime_spec.loader.exec_module(runtime_data)
+    assert {rel.split('/')[0] for rel in runtime_data.STAGED} <= policy.DATA_ROOTS
+    assert {'Belmonte', 'Brinecove'} <= policy.ASSET_ROOTS
+
+
+def test_optional_music_survives_only_when_a_selector_enables_it(tmp_path, monkeypatch):
+    content = tmp_path / 'game' / 'unreal/Content'
+    track = content / 'Audio/Music/lofi_rain/Rainy Window.uasset'
+    metadata = content / 'Data/Music/library.json'
+    for path in (track, metadata):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'music')
+    for name in ('YORIMICHI_MUSIC', 'YORIMICHI_MUSIC_CATEGORIES', 'YORIMICHI_MUSIC_STYLES',
+                 'YORIMICHI_MUSIC_GROUPS', 'YORIMICHI_MUSIC_LIMIT'):
+        monkeypatch.delenv(name, raising=False)
+    assert set(policy.retired(content)) == {content / 'Audio/Music', content / 'Data/Music'}
+    monkeypatch.setenv('YORIMICHI_MUSIC_CATEGORIES', 'calm')
+    assert not list(policy.retired(content))

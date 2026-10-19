@@ -1,0 +1,1400 @@
+{
+  "version": 1,
+  "id": "dry_street",
+  "cues": {
+    "footstep.barefoot": [
+      "footstep_barefoot_01",
+      "footstep_barefoot_02",
+      "footstep_barefoot_03",
+      "footstep_barefoot_04"
+    ],
+    "footstep.dirt_gravel": [
+      "footstep_dirt_gravel_01",
+      "footstep_dirt_gravel_02",
+      "footstep_dirt_gravel_03",
+      "footstep_dirt_gravel_04"
+    ],
+    "footstep.grass": [
+      "footstep_grass_01",
+      "footstep_grass_02",
+      "footstep_grass_03",
+      "footstep_grass_04"
+    ],
+    "footstep.leaves": [
+      "footstep_leaves_01",
+      "footstep_leaves_02",
+      "footstep_leaves_03",
+      "footstep_leaves_04"
+    ],
+    "footstep.mud_water": [
+      "footstep_mud_water_01",
+      "footstep_mud_water_02",
+      "footstep_mud_water_03",
+      "footstep_mud_water_04"
+    ],
+    "footstep.stone": [
+      "footstep_stone_01",
+      "footstep_stone_02",
+      "footstep_stone_03",
+      "footstep_stone_04"
+    ],
+    "footstep.wood": [
+      "footstep_wood_01",
+      "footstep_wood_02",
+      "footstep_wood_03",
+      "footstep_wood_04"
+    ],
+    "skate.roll.concrete": [
+      "skate_roll_concrete_01"
+    ],
+    "skate.roll.wood": [
+      "skate_roll_wood_01"
+    ],
+    "skate.roll.metal": [
+      "skate_roll_metal_01"
+    ],
+    "skate.roll.asphalt": [
+      "skate_roll_asphalt_01"
+    ],
+    "skate.roll.stone": [
+      "skate_roll_stone_01"
+    ],
+    "skate.roll.dirt": [
+      "skate_roll_dirt_01"
+    ],
+    "skate.roll.grass": [
+      "skate_roll_grass_01"
+    ],
+    "skate.roll.sand": [
+      "skate_roll_sand_01"
+    ],
+    "skate.land.concrete": [
+      "skate_land_concrete_01",
+      "skate_land_concrete_02"
+    ],
+    "skate.land.wood": [
+      "skate_land_wood_01",
+      "skate_land_wood_02"
+    ],
+    "skate.land.metal": [
+      "skate_land_metal_01",
+      "skate_land_metal_02"
+    ],
+    "skate.land.asphalt": [
+      "skate_land_asphalt_01",
+      "skate_land_asphalt_02"
+    ],
+    "skate.land.stone": [
+      "skate_land_stone_01",
+      "skate_land_stone_02"
+    ],
+    "skate.land.dirt": [
+      "skate_land_dirt_01",
+      "skate_land_dirt_02"
+    ],
+    "skate.land.grass": [
+      "skate_land_grass_01",
+      "skate_land_grass_02"
+    ],
+    "skate.land.sand": [
+      "skate_land_sand_01",
+      "skate_land_sand_02"
+    ],
+    "skate.skid": [
+      "skate_skid_01"
+    ]
+  },
+  "sources": {
+    "footstep_barefoot_01": {
+      "file": "samples/footstep_barefoot_01.wav",
+      "sha256": "a7364ff5cebcf3c0134a673d72957b8319f1485cc1e30e3d4cf08f42cdce1c9e",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: bare feet on a dry woven tatami mat, soft skin contact and a short dry straw-fiber brush. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "c809423e6b68a55c9e14d7fbc9a0c828e3db31fe419d2bddf0d34802fde4e73b",
+        "interval_frames_48k": [
+          110832,
+          122304
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_barefoot_02": {
+      "file": "samples/footstep_barefoot_02.wav",
+      "sha256": "d7730911fe8281b5d702bc1f1c2b23154c8ba1c12ef90170b0dc4bdf8380837e",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: bare feet on a dry woven tatami mat, soft skin contact and a short dry straw-fiber brush. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "9df604cdf7bcd8ef9c59f467efaa28de74b2d0372fabea9528d66e96eef35736",
+        "interval_frames_48k": [
+          14640,
+          25728
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_barefoot_03": {
+      "file": "samples/footstep_barefoot_03.wav",
+      "sha256": "97f5827c352e09c5f432739d1658544f86282d86ac55fee0aa805288a018b5c5",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: bare feet on a dry woven tatami mat, soft skin contact and a short dry straw-fiber brush. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "c809423e6b68a55c9e14d7fbc9a0c828e3db31fe419d2bddf0d34802fde4e73b",
+        "interval_frames_48k": [
+          141456,
+          150624
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_barefoot_04": {
+      "file": "samples/footstep_barefoot_04.wav",
+      "sha256": "fc57b64eebe82634dcc9e6c762fcebedf005cda6f1df5404b8725bf864629a7f",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: bare feet on a dry woven tatami mat, soft skin contact and a short dry straw-fiber brush. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "9df604cdf7bcd8ef9c59f467efaa28de74b2d0372fabea9528d66e96eef35736",
+        "interval_frames_48k": [
+          128112,
+          137088
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_dirt_gravel_01": {
+      "file": "samples/footstep_dirt_gravel_01.wav",
+      "sha256": "dbedd4204e8c47646f5a465a7974dee5a8ecd508e1c3789312640db842de4d5e",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on firm dirt with a few tiny loose gravel grains. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "444b8fcd346b95e370aecec49f826a0d1b7cbf90633007a1db921d7a490cfd4e",
+        "interval_frames_48k": [
+          65616,
+          71904
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_dirt_gravel_02": {
+      "file": "samples/footstep_dirt_gravel_02.wav",
+      "sha256": "9083f87a7329795ade182aeb779cecc85c85b8f1ce4aa19dd419806a1e911b33",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on firm dirt with a few tiny loose gravel grains. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "981deeb18332942f7bea2f76651a040067d97231af4f9cd0ecf61552dc46ea4c",
+        "interval_frames_48k": [
+          65712,
+          71712
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_dirt_gravel_03": {
+      "file": "samples/footstep_dirt_gravel_03.wav",
+      "sha256": "289ead2c8b436bc87d0f2948d4817c813ec82a56a60039d6f8def312f0b659df",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on firm dirt with a few tiny loose gravel grains. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "444b8fcd346b95e370aecec49f826a0d1b7cbf90633007a1db921d7a490cfd4e",
+        "interval_frames_48k": [
+          233712,
+          239712
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_dirt_gravel_04": {
+      "file": "samples/footstep_dirt_gravel_04.wav",
+      "sha256": "c789f67a07a0935043a0533133b3296aab2e4841b571731e4d16d14f50476f8a",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on firm dirt with a few tiny loose gravel grains. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "981deeb18332942f7bea2f76651a040067d97231af4f9cd0ecf61552dc46ea4c",
+        "interval_frames_48k": [
+          233712,
+          239712
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_grass_01": {
+      "file": "samples/footstep_grass_01.wav",
+      "sha256": "ea632d69e788cc067821f93a27610f77405e3278cbb956af9ec156031c5a4fcf",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on short grass over firm earth, a soft leafy brush and rounded earth contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "3724f98609f4a9b420191505e066d09ed1854d52dcd1a43571b7772fea2212a7",
+        "interval_frames_48k": [
+          224496,
+          239136
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_grass_02": {
+      "file": "samples/footstep_grass_02.wav",
+      "sha256": "4fd925a4f06c54689f54a56cd680fce2ba48ea1834be36cc2a70523b3b61247f",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on short grass over firm earth, a soft leafy brush and rounded earth contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "7d95b3a34391184218b03dde27201178254640d8cc1229f5f25c5ff06e045788",
+        "interval_frames_48k": [
+          228048,
+          239136
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_grass_03": {
+      "file": "samples/footstep_grass_03.wav",
+      "sha256": "ac7086bb11b4492916993a78e178ee1f7ab32a03cb35e321c65f1ceafdbe9ae5",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on short grass over firm earth, a soft leafy brush and rounded earth contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "3724f98609f4a9b420191505e066d09ed1854d52dcd1a43571b7772fea2212a7",
+        "interval_frames_48k": [
+          190512,
+          204672
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_grass_04": {
+      "file": "samples/footstep_grass_04.wav",
+      "sha256": "629aca39dbcc3dfad3470b7c560ab5c37baee01dbc9b27f4dfa69f20939874e5",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on short grass over firm earth, a soft leafy brush and rounded earth contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "7d95b3a34391184218b03dde27201178254640d8cc1229f5f25c5ff06e045788",
+        "interval_frames_48k": [
+          263088,
+          273792
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_leaves_01": {
+      "file": "samples/footstep_leaves_01.wav",
+      "sha256": "62cf0314f924af65752bff7b1b031d5c799c1c746d971f732c45a39241e0d0b7",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles compressing scattered dry fallen leaves on firm earth, a small close leaf crunch. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "8f151a9bb4ebc2c251212ad224203b604d5ec0f8a648baeebe87f3099828709c",
+        "interval_frames_48k": [
+          190032,
+          204672
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_leaves_02": {
+      "file": "samples/footstep_leaves_02.wav",
+      "sha256": "c0c2c9a8e85dcc5b30d8d53809b52906f0ee6417a6366cabe6fcdc0a3873173a",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles compressing scattered dry fallen leaves on firm earth, a small close leaf crunch. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "242c16e8f3b33e906364957758a390e4d7a582b7fad4cb7b16b329aebf052419",
+        "interval_frames_48k": [
+          190896,
+          203232
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_leaves_03": {
+      "file": "samples/footstep_leaves_03.wav",
+      "sha256": "b314ee092f405d8930095f7f04676687a69ef1fd16adab8f8bf6e525103892e4",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles compressing scattered dry fallen leaves on firm earth, a small close leaf crunch. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "8f151a9bb4ebc2c251212ad224203b604d5ec0f8a648baeebe87f3099828709c",
+        "interval_frames_48k": [
+          223440,
+          236352
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_leaves_04": {
+      "file": "samples/footstep_leaves_04.wav",
+      "sha256": "d756ab21414f254823caa873ca7fe183ee535e5cc801b9c250ed10cd811b7c04",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles compressing scattered dry fallen leaves on firm earth, a small close leaf crunch. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "242c16e8f3b33e906364957758a390e4d7a582b7fad4cb7b16b329aebf052419",
+        "interval_frames_48k": [
+          129360,
+          138336
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_mud_water_01": {
+      "file": "samples/footstep_mud_water_01.wav",
+      "sha256": "75db706c377a19871ff4f52e1022472e59ee773d167d21b4c6998da20b18566f",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on damp mud with very shallow water, a compact gentle squelch and quiet damp contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "b54c2d656cc466b4cd2c37371d808974966a9dd87b0cba2b964d1740c30bf237",
+        "interval_frames_48k": [
+          233808,
+          239712
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_mud_water_02": {
+      "file": "samples/footstep_mud_water_02.wav",
+      "sha256": "f67cc9e045a7ca1711016672d2ee852590588010eb9258e73a485c1fbe88757b",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on damp mud with very shallow water, a compact gentle squelch and quiet damp contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "6f45eb3c7fb99a98088e875eb3b2d7fb5fac50b122ca172afc8620ac5cd43451",
+        "interval_frames_48k": [
+          34800,
+          39936
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_mud_water_03": {
+      "file": "samples/footstep_mud_water_03.wav",
+      "sha256": "9ce95f3e7e4ce3f34955fbfda2eea2ab4573b9806d29c6bf662923e6f140688b",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on damp mud with very shallow water, a compact gentle squelch and quiet damp contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "b54c2d656cc466b4cd2c37371d808974966a9dd87b0cba2b964d1740c30bf237",
+        "interval_frames_48k": [
+          34800,
+          39936
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_mud_water_04": {
+      "file": "samples/footstep_mud_water_04.wav",
+      "sha256": "fb3368648edbc5215614394e1b5866b6829826e382b6d26a00ec81d94e1ccb41",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct human footsteps: rubber sneaker soles on damp mud with very shallow water, a compact gentle squelch and quiet damp contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "6f45eb3c7fb99a98088e875eb3b2d7fb5fac50b122ca172afc8620ac5cd43451",
+        "interval_frames_48k": [
+          133584,
+          137664
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_stone_01": {
+      "file": "samples/footstep_stone_01.wav",
+      "sha256": "db287354060d6e1ba044151bf6af45a4009168f9fb1ebfedba99292143522b6b",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct sneaker footsteps on a real stone-paved walkway, separated by clear quiet gaps. A rubber sole heel thump settles into a short fine gritty sole brush. Human walking pace, clean individual attacks and natural short decay, no overlapping footsteps or continuous background bed. Dry Street style: intimate dry outdoor street Foley with a fine sandy granular texture, crisp but rounded contacts and short damped decays. Believable everyday skateboard and shoe sounds, no sharp ringing, machinery, glassy squeals or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "5163cd61f913a9fa3e61c026226617d0720ee055abc4c113e5f277604230154a",
+        "interval_frames_48k": [
+          195120,
+          204864
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_stone_02": {
+      "file": "samples/footstep_stone_02.wav",
+      "sha256": "081f8625a661e1d293d16170fe3f22dc1af638a3c9e3760fb1f98e77e8dd63c5",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct sneaker footsteps on a real stone-paved walkway, separated by clear quiet gaps. A rubber sole heel thump settles into a short fine gritty sole brush. Human walking pace, clean individual attacks and natural short decay, no overlapping footsteps or continuous background bed. Dry Street style: intimate dry outdoor street Foley with a fine sandy granular texture, crisp but rounded contacts and short damped decays. Believable everyday skateboard and shoe sounds, no sharp ringing, machinery, glassy squeals or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382741,
+        "raw_sha256": "d5faff958f7c4af8cb73e79537cf19a2097334bb1087f1e05f391a0230bc6cdc",
+        "interval_frames_48k": [
+          226992,
+          235776
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "e50b2253f95f36611b1944a146c4e23fa8e1328e8b9f0a3f822d2c3a4179607f"
+      }
+    },
+    "footstep_stone_03": {
+      "file": "samples/footstep_stone_03.wav",
+      "sha256": "0bd4b0f32f6a43dee1a3fdeea1fb3e5109b6e7e1d01c0a18a6bdabf451f26adf",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct sneaker footsteps on a real stone-paved walkway, separated by clear quiet gaps. A rubber sole heel thump settles into a short fine gritty sole brush. Human walking pace, clean individual attacks and natural short decay, no overlapping footsteps or continuous background bed. Dry Street style: intimate dry outdoor street Foley with a fine sandy granular texture, crisp but rounded contacts and short damped decays. Believable everyday skateboard and shoe sounds, no sharp ringing, machinery, glassy squeals or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "5163cd61f913a9fa3e61c026226617d0720ee055abc4c113e5f277604230154a",
+        "interval_frames_48k": [
+          130128,
+          138912
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_stone_04": {
+      "file": "samples/footstep_stone_04.wav",
+      "sha256": "a1e50baa3185f93f1c6b41f2bc37bc8cc78b7e74cb2e4f73d6bc93114dddd3db",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct sneaker footsteps on a real stone-paved walkway, separated by clear quiet gaps. A rubber sole heel thump settles into a short fine gritty sole brush. Human walking pace, clean individual attacks and natural short decay, no overlapping footsteps or continuous background bed. Dry Street style: intimate dry outdoor street Foley with a fine sandy granular texture, crisp but rounded contacts and short damped decays. Believable everyday skateboard and shoe sounds, no sharp ringing, machinery, glassy squeals or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382741,
+        "raw_sha256": "d5faff958f7c4af8cb73e79537cf19a2097334bb1087f1e05f391a0230bc6cdc",
+        "interval_frames_48k": [
+          194256,
+          200448
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "e50b2253f95f36611b1944a146c4e23fa8e1328e8b9f0a3f822d2c3a4179607f"
+      }
+    },
+    "footstep_wood_01": {
+      "file": "samples/footstep_wood_01.wav",
+      "sha256": "591ff65ad98fe221a5bfeb018133be5e6e882aa03910afce45420578b48d917e",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated ordinary walking sneaker footstep on dry wooden floorboards. The rubber sole makes a compact rounded thump and a very short soft heel-to-toe brush; the wooden floor has a small damped hollow resonance. Exactly one footfall near the middle, with quiet before and after and no continuing rhythm. A flat rubber sole plants at relaxed walking speed. Dry Street style: intimate dry natural Foley, rounded and soft rather than brittle or metallic, short damped decay. A recognizable shoe against wood, not a wood block being struck, hammer, door knock, drum, skateboard, squeak or metallic clang. No voices, music, wind, traffic or room reverb.",
+        "seed": 382743,
+        "raw_sha256": "c4d05423c7055bc0ef2164806f635cf9a3413a7bdbe94b3c023c886a8f277842",
+        "interval_frames_48k": [
+          32400,
+          36960
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_wood_02": {
+      "file": "samples/footstep_wood_02.wav",
+      "sha256": "42508ab74d984cb181fb701797604bf791cb0ff4099a37bf786b13f4fa1ae517",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated ordinary walking sneaker footstep on dry wooden floorboards. The rubber sole makes a compact rounded thump and a very short soft heel-to-toe brush; the wooden floor has a small damped hollow resonance. Exactly one footfall near the middle, with quiet before and after and no continuing rhythm. Close side microphone captures one lightly weighted walking contact. Dry Street style: intimate dry natural Foley, rounded and soft rather than brittle or metallic, short damped decay. A recognizable shoe against wood, not a wood block being struck, hammer, door knock, drum, skateboard, squeak or metallic clang. No voices, music, wind, traffic or room reverb.",
+        "seed": 382743,
+        "raw_sha256": "e2fcc2ec5d0261fd61630d79a4574475084ba6b705f7b589b7791123672c3115",
+        "interval_frames_48k": [
+          47952,
+          52416
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_wood_03": {
+      "file": "samples/footstep_wood_03.wav",
+      "sha256": "517c321a03bc2aa541d81d92cd460530d50b2f6055f1d646d1f758d4d5e7b877",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated ordinary walking sneaker footstep on dry wooden floorboards. The rubber sole makes a compact rounded thump and a very short soft heel-to-toe brush; the wooden floor has a small damped hollow resonance. Exactly one footfall near the middle, with quiet before and after and no continuing rhythm. A gently placed heel settles onto the sole. Dry Street style: intimate dry natural Foley, rounded and soft rather than brittle or metallic, short damped decay. A recognizable shoe against wood, not a wood block being struck, hammer, door knock, drum, skateboard, squeak or metallic clang. No voices, music, wind, traffic or room reverb.",
+        "seed": 382743,
+        "raw_sha256": "01ba7c854e931ff27cfb1dd1c960209656f3d43a08f7ee2e8d0a51c4641dba01",
+        "interval_frames_48k": [
+          68304,
+          72288
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_wood_04": {
+      "file": "samples/footstep_wood_04.wav",
+      "sha256": "a90a74bed0a212503eb696d67f2fe459b9d587641e66eb491079728873e43678",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated ordinary walking sneaker footstep on dry wooden floorboards. The rubber sole makes a compact rounded thump and a very short soft heel-to-toe brush; the wooden floor has a small damped hollow resonance. Exactly one footfall near the middle, with quiet before and after and no continuing rhythm. A normal quiet heel-to-toe walking contact. Dry Street style: intimate dry natural Foley, rounded and soft rather than brittle or metallic, short damped decay. A recognizable shoe against wood, not a wood block being struck, hammer, door knock, drum, skateboard, squeak or metallic clang. No voices, music, wind, traffic or room reverb.",
+        "seed": 382743,
+        "raw_sha256": "0820a77b93611d87f58e207f5475e112afb49ef13c70dfd8be1b5d6650d6d9e2",
+        "interval_frames_48k": [
+          47952,
+          51744
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_concrete_01": {
+      "file": "samples/skate_roll_concrete_01.wav",
+      "sha256": "9e137182d54b256e709c20610f8a32c3b338c2215fac763d8afecfcbf7ec6d21",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on smooth concrete at jogging speed. Four small hard urethane wheels produce a steady granular wheel rumble, a subtle deck vibration and occasional tiny pavement joint ticks. Grounded sustained wheel contact, even speed suitable for a seamless loop. Unmistakably a skateboard, not an engine, shoe rub or whoosh. Dry Street style: intimate dry outdoor street Foley with a fine sandy granular texture, crisp but rounded contacts and short damped decays. Believable everyday skateboard and shoe sounds, no sharp ringing, machinery, glassy squeals or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382741,
+        "raw_sha256": "4fa41f46dd3cca5dc3acb9414573533977565a92dfce04536baf5a2171410cbb",
+        "interval_frames_48k": [
+          96000,
+          240000
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "e50b2253f95f36611b1944a146c4e23fa8e1328e8b9f0a3f822d2c3a4179607f"
+      }
+    },
+    "skate_roll_wood_01": {
+      "file": "samples/skate_roll_wood_01.wav",
+      "sha256": "4f8fee37457e4e41e66b152bf29a0b6447b6c75bb321e6187ea8b081c742182a",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on a smooth wooden boardwalk, subtle short board-joint ticks and muted hollow wood resonance. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "7c41e04da30f6e1642ddde4472fdddc6a7a678a0844e28d86500009229fb3dcc",
+        "interval_frames_48k": [
+          67200,
+          211200
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_metal_01": {
+      "file": "samples/skate_roll_metal_01.wav",
+      "sha256": "9031cc9b515f7a6c1b5285e1986745bb8c6230619612e57a808a5c33732adcef",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on a smooth rideable metal ramp with fine grating, tiny damped panel vibrations without sustained ringing. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "ce9f1b72ee085a754eb784e4fe88d50c090c3de068963e84274ace4ec8c44d42",
+        "interval_frames_48k": [
+          120000,
+          264000
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_asphalt_01": {
+      "file": "samples/skate_roll_asphalt_01.wav",
+      "sha256": "8d5e90f81b844795d765599aa1016b1630800a92e13ebbb47a1047b87873d43e",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on dry fine-grained asphalt with granular wheel rumble. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "b83b1593771d9945116b10dbb7b29b493d303a64b4a52d030d955e162c1a7124",
+        "interval_frames_48k": [
+          62400,
+          206400
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_stone_01": {
+      "file": "samples/skate_roll_stone_01.wav",
+      "sha256": "ab3aab6357c1ec961303d4f39839a3d3148da4638e0561742aaa9a0d0659073e",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on stone paving with small regular joints, subtle tiny wheel ticks over the seams. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "24a13332660340925689f53244219b39f6cedc84a032d5c3ff4a2c2078aff741",
+        "interval_frames_48k": [
+          72000,
+          216000
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_dirt_01": {
+      "file": "samples/skate_roll_dirt_01.wav",
+      "sha256": "b7f1fc5d838a3db86134cd223ea82240a728a5ec034c25e8d9730c2608d00990",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on firm compacted smooth dirt, fine dry dusty wheel friction over a hard support. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "f9a7b10ce23b8a5ab28b18ab01ba631dc5f124d27821cf2c818f6ad92a34892b",
+        "interval_frames_48k": [
+          48000,
+          192000
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_grass_01": {
+      "file": "samples/skate_roll_grass_01.wav",
+      "sha256": "559666806dceab13798cf4a0bd69d2ccd7467ba03c049e8ec9875661b0a4bd23",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on very short sparse grass over firm ground at slow rolling speed, small wheels brushing grass and lightly bumping the ground. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "01b05e441cb1dbd3500d3bf0021466d73a8ef4eac83287ea4321e44756f17f6d",
+        "interval_frames_48k": [
+          62400,
+          206400
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_sand_01": {
+      "file": "samples/skate_roll_sand_01.wav",
+      "sha256": "e6f0ce64901b910e4968c60956a19c157057026e259f2ae2562523231c52d42a",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on a thin scattered layer of dry sand over hard pavement, fine sandy wheel friction over the firm support. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "6330469558a10498f5b8a077c89669aa94b7a1b44426e752e23b390a7cdda0f6",
+        "interval_frames_48k": [
+          52800,
+          196800
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_concrete_01": {
+      "file": "samples/skate_land_concrete_01.wav",
+      "sha256": "c92efebdce13934b59e155e23a1d1c0c5e0a79509f4147be81c0bd65fd5fb9f0",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low skateboard ollie landing on concrete, with silence before and after. A compact wooden deck pop-clack and rounded wheel thud as small hard urethane wheels and trucks meet the ground; tiny deck and wheel rattle settles immediately. Clearly a wooden skateboard, not a footstep, drum, metallic clang or explosive slam. Dry Street style: intimate dry outdoor street Foley with a fine sandy granular texture, crisp but rounded contacts and short damped decays. Believable everyday skateboard and shoe sounds, no sharp ringing, machinery, glassy squeals or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382741,
+        "raw_sha256": "dc3e19b7d2c7f50c886476b31d133cd41a7e8978da008daba379a80526d3a1f1",
+        "interval_frames_48k": [
+          69744,
+          77280
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "e50b2253f95f36611b1944a146c4e23fa8e1328e8b9f0a3f822d2c3a4179607f"
+      }
+    },
+    "skate_land_concrete_02": {
+      "file": "samples/skate_land_concrete_02.wav",
+      "sha256": "e7aec71c16ed97d7df8d938676c4f8f38c67b24f61484cdfc984b7c6a5f4ccee",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on smooth skatepark concrete, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "61ef9426873809c344f416fea07c5e5127285bded161ffcc64d6441d8afa2ad5",
+        "interval_frames_48k": [
+          70128,
+          76416
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_wood_01": {
+      "file": "samples/skate_land_wood_01.wav",
+      "sha256": "23950d936efcd125904a4b1fcecad0382584dd8f79edae5e7614849474753409",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on a smooth wooden boardwalk, subtle short board-joint ticks and muted hollow wood resonance, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "b072b53dd23d5cb6ce9243baedc890cea35b80a68b0d13b5089c4e81d7e37ca4",
+        "interval_frames_48k": [
+          69552,
+          74400
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_wood_02": {
+      "file": "samples/skate_land_wood_02.wav",
+      "sha256": "64a8bc9838fe3e7c3493a08429d5560f08eb830037f5e5dbaff30e47af03b908",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on a smooth wooden boardwalk, subtle short board-joint ticks and muted hollow wood resonance, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "ff322b5a1bf223763fcd1c6d1b95ee2a2b2e2dacdb889e077b8a5398f19252a6",
+        "interval_frames_48k": [
+          69552,
+          74400
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_metal_01": {
+      "file": "samples/skate_land_metal_01.wav",
+      "sha256": "101c1530836ada0b6145ea9734711b6b820585192fcd3832180faf3fb2bf0b04",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on a smooth rideable metal ramp with fine grating, tiny damped panel vibrations without sustained ringing, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "ad95d794c128a7dfbf74ca12e86bc87182fc394196813f6fff2a433267942ab6",
+        "interval_frames_48k": [
+          69840,
+          77184
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_metal_02": {
+      "file": "samples/skate_land_metal_02.wav",
+      "sha256": "881ef60070085f068d5fda2244cf4d9c9a832d734e52312c3bbc8058e4875a67",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on a smooth rideable metal ramp with fine grating, tiny damped panel vibrations without sustained ringing, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "93450367494265b67f5561a7d4d24b01186208ac60fc47a3526dfeaa4bdbad6c",
+        "interval_frames_48k": [
+          69744,
+          76992
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_asphalt_01": {
+      "file": "samples/skate_land_asphalt_01.wav",
+      "sha256": "be47ca6fdcac460f1549b8033668d3e17ee1a8a02a697548031a96967bff958a",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic gentle low drop skateboard landing on dry fine-grained asphalt with granular wheel rumble, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "2f04e56ffc1521e9d19bcb9915bcd555d92db80844e8ed32a425752b50e05107",
+        "interval_frames_48k": [
+          69648,
+          77472
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_asphalt_02": {
+      "file": "samples/skate_land_asphalt_02.wav",
+      "sha256": "23d6609823da7989b4243f7c88bb4c90cf1bf257c9f3093d6c9808eaf92e7a11",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on dry fine-grained asphalt with granular wheel rumble, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "d8146f0abe253e76bbd3e78e615e9bdf2f77b74e392587c809f0bb966c92e8db",
+        "interval_frames_48k": [
+          69648,
+          77184
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_stone_01": {
+      "file": "samples/skate_land_stone_01.wav",
+      "sha256": "3221709da4e4267ed4e79025d31cd2c77536f93c6fcfaa75edd0ad0d39ba9d6a",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on stone paving with small regular joints, subtle tiny wheel ticks over the seams, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "839f9ab0d72a44553d38d6960f6f69cf8fa8e08263a403e12b82cb06dadc4d95",
+        "interval_frames_48k": [
+          912,
+          6816
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_stone_02": {
+      "file": "samples/skate_land_stone_02.wav",
+      "sha256": "2e763e6d42863b689297cd2df798da8b14c09f0e6f4426d9885f86b863bb1646",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic gentle low drop skateboard landing on stone paving with small regular joints, subtle tiny wheel ticks over the seams, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "33b6c7651bc50bdac0248379eee7fa11e030087b86cf667be861950402e4c1ca",
+        "interval_frames_48k": [
+          3216,
+          6720
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_dirt_01": {
+      "file": "samples/skate_land_dirt_01.wav",
+      "sha256": "8a529ad00ffe06bf809a1abac01c586d9e099c7b7dccbe07f05f9a626ae7e317",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on firm compacted smooth dirt, fine dry dusty wheel friction over a hard support, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "04a14d49a49d2a9456dbf1bb542c3e3d5c0b51ad942317c8a9bb5980ece5eede",
+        "interval_frames_48k": [
+          69552,
+          77184
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_dirt_02": {
+      "file": "samples/skate_land_dirt_02.wav",
+      "sha256": "fcf40f55b7257650098a76b6c49074a708e08a16c038ecfb9d2fdcdebbc94c1e",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on firm compacted smooth dirt, fine dry dusty wheel friction over a hard support, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "b797b8ec4571799ca71d5ca1b170252535384d6659d96adec664962b49440ecb",
+        "interval_frames_48k": [
+          69552,
+          76704
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_grass_01": {
+      "file": "samples/skate_land_grass_01.wav",
+      "sha256": "adc88a39fb3bf51e393ccce0f6db320a0d64eaf412c64a9f488705cf7e1fb7bb",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on very short sparse grass over firm ground at slow rolling speed, small wheels brushing grass and lightly bumping the ground, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "41729e1149dd2e950e16819bef9f843dfa6c2f0cc4f61abc4fd28762df577e9e",
+        "interval_frames_48k": [
+          11472,
+          16608
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_grass_02": {
+      "file": "samples/skate_land_grass_02.wav",
+      "sha256": "c2767f2bc2f99ac9faa9f7bd70d78daf83bcafac7dc41a4f2064e244c63aef17",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic gentle low drop skateboard landing on very short sparse grass over firm ground at slow rolling speed, small wheels brushing grass and lightly bumping the ground, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "45adb1a90cb6327f6af446c1eafdabe8d2d26c1eb2dccfa91354720cadbcc003",
+        "interval_frames_48k": [
+          7440,
+          11808
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_sand_01": {
+      "file": "samples/skate_land_sand_01.wav",
+      "sha256": "01b6e883470f02c68f9c4beadecc207c20cb172a8da44076ced5474633acd074",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on a thin scattered layer of dry sand over hard pavement, fine sandy wheel friction over the firm support, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "388811095b9ebdb2f7f63b7525d4ff6b2950d290b933b8fe166738cefd997c41",
+        "interval_frames_48k": [
+          69648,
+          76416
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_sand_02": {
+      "file": "samples/skate_land_sand_02.wav",
+      "sha256": "ef64521084ae26d0182e70cfb458e1b5b8b5d25ddee7924ae7bd1498f1a9a2e9",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on a thin scattered layer of dry sand over hard pavement, fine sandy wheel friction over the firm support, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Dry Street style: intimate dry outdoor street Foley with fine natural granular texture, rounded contacts and short damped decays. Less harsh and less metallic, without losing the real physical material identity. No sharp ringing, machinery, glassy squeals, synthetic whooshes or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382742,
+        "raw_sha256": "5caa61409514fbe4a1e4cc48d9457c5af08df055f3e87780931b8898516fa678",
+        "interval_frames_48k": [
+          65040,
+          69792
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_skid_01": {
+      "file": "samples/skate_skid_01.wav",
+      "sha256": "05345a239becf60e6b1dbb2e8fd0aa1fdf00cf59fa51fe5c0b9a60d37939e5ed",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real skateboard makes a controlled sustained sideways powerslide on smooth concrete. Small hard urethane wheels drag across pavement with dry rubbery shrrr friction and a fine gritty rasp. Real skateboard wheel friction, not ice skates, metal scraping or soft shoe scuffs. Sustained even scrape suitable for a loop with a short natural release. Dry Street style: intimate dry outdoor street Foley with a fine sandy granular texture, crisp but rounded contacts and short damped decays. Believable everyday skateboard and shoe sounds, no sharp ringing, machinery, glassy squeals or exaggerated impacts. Close microphone, no voices, music, wind or traffic.",
+        "seed": 382741,
+        "raw_sha256": "738ad28b17576ce93752ebcd19860cb594872b73e575306731a94b3c89aaa892",
+        "interval_frames_48k": [
+          124800,
+          182400
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "e50b2253f95f36611b1944a146c4e23fa8e1328e8b9f0a3f822d2c3a4179607f"
+      }
+    }
+  },
+  "inherit_original": [
+    "horse.hoof",
+    "bike.*",
+    "combat.*",
+    "ambience.*",
+    "voice.*",
+    "ui.*",
+    "skate.pop",
+    "skate.pop.*",
+    "skate.catch",
+    "skate.push",
+    "skate.flick",
+    "skate.clatter",
+    "skate.fall",
+    "skate.grind",
+    "skate.grind.*",
+    "skate.slide",
+    "skate.scrape"
+  ]
+}

@@ -24,17 +24,24 @@ REGIONS = (
          polygon=[[100., 1600.], [3300., 1600.], [3300., 3600.], [-850., 3600.], [-850., 1800.], [100., 1800.]], color='#9baab2'),
     dict(key='haras_valley', name='Haras Valley', bounds=[-950., 3600., 2500., 5900.],
          polygon=[[-950., 3600.], [3300., 3600.], [3300., 7100.], [-950., 7100.]], color='#83a080'),
+    # The western reach west of Momiji Coast (world/regions/brinecove/region.py), stepping round the foothills' corner.
+    dict(key='brinecove', name='Brinecove Reach', bounds=[-2880., -1080., -360., 600.], label=[-1600., -1000.],
+         polygon=[[-2560., -1080.], [-650., -1080.], [-650., 430.], [-850., 430.], [-850., 700.], [-2560., 700.]],
+         color='#c99a5e'),
 )
 WORLD_BOUNDS = [-4200., -1200., 4200., 7200.]
 ASSETS = Path(__file__).resolve().parent / 'atlas'
 GAME = Path(__file__).resolve().parents[2]
 GEOGRAPHY_SOURCES = (
     'world/gen_world.py', 'world/build_terrain.py',
+    'world/farhills_surface.py', 'world/farhills_grid.py', 'world/terrain_product.py', 'world/north_mountain_surface.py',
     'world/regions/hidamari/layout.py', 'world/regions/hidamari/mountains.py',
     'world/regions/belmonte/layout.py', 'world/regions/belmonte/terrain.py', 'world/regions/belmonte/plan.py',
     'world/regions/southwest/island.py', 'world/train/route.py',
     'world/regions/skatepark/park.json', 'world/regions/craterpark/placement.py', 'world/regions/megapark/placement.py',
     'assets/belmonte/source.json', 'assets/vehicles/belmonte-train/line.json',
+    'world/regions/brinecove/region.py', 'world/regions/brinecove/layout.py', 'world/regions/brinecove/ground.py',
+    'world/regions/brinecove/plan.py',
 )
 STABLE_NAMES = (
     ('home_stables', 'Home Stables'), ('alder_stables', 'Alder Stables'),
@@ -85,7 +92,45 @@ def region_for_zone(zone):
     return region_at(zone['x'], zone['y'])
 
 
-def metadata(zones, source_manifest):
+def air_metadata(zones, zeppelin):
+    """Ordered shuttle stops and legs from the zeppelin layout, never from painted text."""
+    if not zeppelin:
+        return None
+    stations = zeppelin.get('stations') or []
+    legs = zeppelin.get('legs') or []
+    if len(stations) < 2:
+        return None
+    by_key = {z['key']: z for z in zones}
+    stops = []
+    for station in stations:
+        zone = by_key.get(station.get('key'))
+        if zone is None:
+            raise ValueError('Atlas zeppelin station is not in the travel registry: ' + str(station.get('key')))
+        stops.append(dict(key=zone['key'], name=station.get('name', zone.get('name', zone['key'])),
+                          x=zone['x'], y=zone['y'], z=zone.get('z', 0.)))
+    line = [stop['key'] for stop in stops]
+    def find_leg(a, b):
+        for leg in legs:
+            if sorted(leg.get('stops', [])) == [a, b]:
+                return leg
+        raise ValueError('Atlas zeppelin line has no leg between stops ' + str(a) + ' and ' + str(b))
+    sequential = []
+    for index in range(len(line) - 1):
+        leg = find_leg(index, index + 1)
+        sequential.append(dict(**{key: value for key, value in leg.items() if key != 'stops'},
+                               **{'from': line[index], 'to': line[index + 1]}))
+    connections = []
+    for leg in legs:
+        indices = leg.get('stops', [])
+        if len(indices) != 2 or not all(0 <= i < len(line) for i in indices):
+            continue
+        connections.append(dict(**{key: value for key, value in leg.items() if key != 'stops'},
+                                **{'from': line[indices[0]], 'to': line[indices[1]]}))
+    return dict(line=line, stops=stops, legs=sequential, connections=connections,
+                note='Airship shuttle; any docked stop can choose another destination.')
+
+
+def metadata(zones, source_manifest, zeppelin=None):
     """Build label-free image frames plus semantic, editable landmark identities."""
     regions = [dict(r, image=f"atlas/{r['key']}.png") for r in REGIONS]
     landmarks = []
@@ -104,8 +149,12 @@ def metadata(zones, source_manifest):
             b = [min(b[0], p['x']-35), min(b[1], p['y']-35), max(b[2], p['x']+35), max(b[3], p['y']+35)]
         region['bounds'] = b
         assert all(math.isfinite(v) for v in b) and b[0] < b[2] and b[1] < b[3]
-    return dict(version=1, world=dict(key='world', name='The World', bounds=WORLD_BOUNDS, image='atlas/world.png'),
-                regions=regions, landmarks=landmarks)
+    result = dict(version=1, world=dict(key='world', name='The World', bounds=WORLD_BOUNDS, image='atlas/world.png'),
+                  regions=regions, landmarks=landmarks)
+    air = air_metadata(zones, zeppelin)
+    if air:
+        result['air'] = air
+    return result
 
 
 def water_pixels(image):

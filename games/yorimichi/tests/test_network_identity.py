@@ -247,7 +247,7 @@ def test_shipped_network_declaration_does_not_scan_content(monkeypatch):
     recipe = build.load_recipe('yorimichi')
     # Isolate only composition, without assembling unrelated world/character declarations.
     for name in ('world_steps', 'character_steps', 'sound_effect_steps', 'unreal_steps', 'staging_steps',
-                 'adventure_steps', 'hippodrome_steps', 'belmonte_steps', 'fit_steps', 'pawn_steps'):
+                 'adventure_steps', 'hippodrome_steps', 'belmonte_steps', 'brinecove_steps', 'fit_steps', 'pawn_steps'):
         monkeypatch.setattr(recipe, name, lambda *args: [])
     monkeypatch.setattr(recipe, 'staging_steps', lambda *args: [Step('data.stage', [])])
     monkeypatch.setattr(recipe, 'cook_step', lambda *args: Step('cook', []))
@@ -262,3 +262,35 @@ def test_shipped_network_declaration_does_not_scan_content(monkeypatch):
     assert network.deferred_inputs[0].collect.__name__ == 'content_files'
     assert network.inputs[-1] == paths.ENGINE_PLUGINS
     Graph(declarations)
+
+
+def test_game_plugin_code_and_configuration_participate_in_network_identity(tmp_path):
+    plugin = 'games/yorimichi/unreal/Plugins/Fixture/'
+    source = write(tmp_path, plugin + 'Source/Rule.cpp', b'initial')
+    descriptor = write(tmp_path, plugin + 'Fixture.uplugin', b'{}')
+    config = write(tmp_path, plugin + 'Config/DefaultRules.ini', b'rules')
+    write(tmp_path, plugin + 'Binaries/Mac/generated.cpp', b'ignored')
+    write(tmp_path, plugin + 'Intermediate/generated.h', b'ignored')
+    assert identity.code_files(tmp_path) == sorted([source, descriptor, config])
+    before = identity.code_identity(tmp_path)
+    source.write_bytes(b'changed')
+    assert identity.code_identity(tmp_path) != before
+
+
+def test_native_build_steps_track_game_owned_plugins(tmp_path):
+    ctx = SimpleNamespace(game='yorimichi', out=tmp_path, uproject=paths.game_dir('yorimichi') / 'unreal/Yorimichi.uproject')
+    recipe = build.load_recipe('yorimichi')
+    steps = {step.name: step for step in recipe.steps(ctx)}
+    plugin = paths.game_dir('yorimichi') / 'unreal/Plugins'
+    for name in ('unreal.compile', 'unreal.cook', 'data.network'):
+        assert plugin in steps[name].inputs
+
+
+def test_racing_plugin_is_discovered_only_from_the_game_project():
+    from atelier import unreal_modules
+    project = paths.game_dir('yorimichi') / 'unreal/Yorimichi.uproject'
+    descriptor, modules, dependencies = unreal_modules.plugins(project)['HorseRacing']
+    assert descriptor == project.parent / 'Plugins/HorseRacing/HorseRacing.uplugin'
+    assert modules == ['AtelierHorseRacing']
+    assert dependencies == []
+    assert not (paths.ENGINE_PLUGINS / 'Activities/HorseRacing').exists()

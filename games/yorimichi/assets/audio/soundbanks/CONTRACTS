@@ -1,0 +1,17 @@
+@cc [owner:fontanierh,label:correctness] soundbank-default-and-coverage
+Original MUST remain selection zero and delegate to the existing audio assets,
+mix and playback behavior. Generated banks MUST explicitly cover every footstep,
+surface roll, surface landing and powerslide cue. Every other declared cue family
+MUST explicitly inherit Original; missing data MUST NOT silently empty a cue.
+
+@cc [owner:fontanierh,label:correctness] committed-soundbank-admission
+Generated bank manifests and consumed WAVs MUST be committed game assets with
+verified checksums and generation/processing provenance. Source WAVs MUST be
+bounded canonical mono 48 kHz PCM16, non-silent and unclipped. Invalid coverage,
+paths, event/loop timing or budgets MUST fail before output publication.
+
+@cc [owner:fontanierh,label:correctness] soundbank-product-publication
+Preparation MUST publish complete immutable media before its index, recheck
+source identities before publication, and preserve the previously published index
+and referenced bytes on failure. The normal build MUST inventory all products
+and declare every consumed source. Validation MUST NOT imply listening acceptance.

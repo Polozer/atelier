@@ -148,7 +148,8 @@ def verify_cook_source(repo, receipt):
     if receipt.get('source_dirty') is not False or receipt.get('revision') != head or status.strip():
         raise RuntimeError('Package proof requires the clean exact cook revision')
     actual = {p.relative_to(repo).as_posix() for p in code_files(repo)}
-    roots = ['games/yorimichi/unreal/Source', 'games/yorimichi/unreal/Config', 'platform/engine/Plugins']
+    roots = ['games/yorimichi/unreal/Source', 'games/yorimichi/unreal/Config',
+             'games/yorimichi/unreal/Plugins', 'platform/engine/Plugins']
     tracked = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', '-z', 'HEAD', '--',
         *roots, 'games/yorimichi/unreal'], cwd=repo, timeout=5).decode().split('\0')
     expected = {name for name in tracked if name and Path(name).suffix in CODE_SUFFIXES and

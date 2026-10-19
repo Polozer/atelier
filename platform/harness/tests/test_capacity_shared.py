@@ -1326,7 +1326,8 @@ def test_bounded_public_status_keeps_active_and_queue_order_then_newest_released
 
 
 @pytest.mark.parametrize('blocked_cleanup', [None, 'aggregate', 'close', 'memory_limit', 'test_duration'])
-def test_automatic_full_launch_requeues_only_after_real_no_go_cleanup(barrier, monkeypatch, blocked_cleanup):
+@pytest.mark.parametrize('denial_reason', ['selection-changed', 'pressure-wait'])
+def test_automatic_full_launch_requeues_only_after_real_no_go_cleanup(barrier, monkeypatch, blocked_cleanup, denial_reason):
     """Real socket, gate children, sealed flocks and both monitors; payload executes once."""
     from atelier.harness import capacity_client
     activated(barrier)
@@ -1360,9 +1361,16 @@ def test_automatic_full_launch_requeues_only_after_real_no_go_cleanup(barrier, m
             archive, = folder.glob('lost-offer-*/no-go.json')
             proof = json.loads(archive.read_text())
             assert tuple(proof['child']) == starts[0]
-            assert proof['no_go'] and proof['uncharged_close']
+            assert proof['no_go'] and proof['uncharged_close'] and proof['reason'] == denial_reason
             assert proof['terminal']['processes'] == [] and proof['terminal']['footprint_bytes'] == 0
             return original(admission, **kwargs)
+        if denial_reason == 'pressure-wait':
+            observe = instance.observe
+            instance.observe = lambda: dict(observed_monotonic=time.monotonic(), available_memory_mib=0)
+            try:
+                return original(admission, **kwargs)
+            finally:
+                instance.observe = observe
         short = capacity_client.AdmissionSession(instance.socket_path,
             {**admission.request, 'id': 'intervening-short', 'seconds': 1}, cutover=compat.DEFAULT_RECORD)
         assert short.offer()['selected']

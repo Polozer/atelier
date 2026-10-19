@@ -2,12 +2,12 @@
 import hashlib
 import json
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
-import yori
 from atelier.gltf import glb_pack, glb_parts
 
-LIBRARY = yori.ASSETS / 'belmonte'
+LIBRARY = Path(__file__).resolve().parents[3] / 'assets/belmonte'
 MANIFEST = LIBRARY / 'source.json'
 FRAME = np.array([[1., 0., 0.], [0., 0., -1.], [0., 1., 0.]])
 TERRAIN_LAYERS = {'Dry': (.24,.265,.095), 'Green': (.105,.205,.055),

@@ -11,10 +11,11 @@ from atelier.harness.safety import guarded
 
 @pytest.mark.parametrize('field,value', [('nonce', 'other'), ('epoch', 3), ('boot_id', 'other'),
     ('child', [99, 99]), ('admission', True), ('state', 'uncertain'), ('reason', 'expired')])
-def test_no_go_response_must_match_the_exact_session_child(monkeypatch, tmp_path, field, value):
+@pytest.mark.parametrize('reason', ['selection-changed', 'pressure-wait'])
+def test_no_go_response_must_match_the_exact_session_child(monkeypatch, tmp_path, field, value, reason):
     admission = client.AdmissionSession(tmp_path / 'socket', {'id': 'job'})
     admission.nonce, admission.epoch, admission.boot = 'nonce', 2, 'boot'
-    response = dict(state='queued', admission=False, no_go=True, reason='selection-changed',
+    response = dict(state='queued', admission=False, no_go=True, reason=reason,
                     nonce='nonce', epoch=2, boot_id='boot', child=[10, 20])
     response[field] = value
     monkeypatch.setattr(client, '_rpc', lambda *a, **k: (response, None))
@@ -78,3 +79,18 @@ def test_requeue_configuration_cannot_change(tmp_path, field, value):
     setattr(retry, field, value)
     with pytest.raises(client.CapacityError, match='configuration changed'):
         retry.requeue_after(previous)
+
+
+def test_pressure_requeues_more_than_three_times_under_the_original_deadline(monkeypatch,tmp_path):
+    calls=[]
+    admission=SimpleNamespace(child=(10,20))
+    def run(*a,**k):
+        calls.append(k)
+        if len(calls)==5:return 0
+        for name in ('memory-health.json','memory-health-tree.json','stdout.log'):(tmp_path/name).write_text('{}')
+        error=client.CapacityOfferLost(admission,'pressure-wait')
+        error.cleanup={'no_go':True,'uncharged_close':True}
+        raise error
+    monkeypatch.setattr(guarded,'_run',run)
+    assert guarded.run(['ordinary-python'],tmp_path)==0
+    assert len(calls)==5 and len({c['_queue_deadline'] for c in calls})==1

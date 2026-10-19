@@ -1,0 +1,9 @@
+@cc [owner:fontanierh,label:correctness] streamed-review-ownership
+The primary listening page MUST use one ordinary HTML audio player and bounded
+pre-rendered encoded examples. It MUST NOT construct an AudioContext, batch-fetch
+WAVs or decode/synthesize audio on selection. No media MUST load before a user
+chooses an example. Repeat MUST reuse the same media URL and cacheable bytes.
+Stop, superseding selection and leaving the visible page MUST pause owned media;
+a stale playback rejection MUST NOT change a newer selection's status. Raw and
+individual clips MUST remain optional and paginated. Browser previews MUST NOT
+claim that candidate sounds are installed or accepted in the game.
