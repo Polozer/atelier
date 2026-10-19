@@ -216,7 +216,7 @@ def cannon(b, x, y, z, yaw=0.0, scale=1.0):
     _place(b, start, x, y, z, yaw, scale)
 
 
-def _slab(b, pts, y0, y1, mat):
+def _plate(b, pts, y0, y1, mat):
     """A flat plate: a polygon in the x-z plane (counter-clockwise seen from -y), extruded from y0 to y1."""
     front = [(px, y0, pz) for px, pz in pts]
     back = [(px, y1, pz) for px, pz in pts]
@@ -263,7 +263,7 @@ def anchor(b, x, y, z, yaw=0.0, scale=1.0):
                (ex - nx * 0.5 - tx * 0.15, ez - nz * 0.5 - tz * 0.15)]
         if side > 0:
             pts.reverse()
-        _slab(b, pts, -0.09, 0.09, iron)
+        _plate(b, pts, -0.09, 0.09, iron)
     b.sphere((0, 0, crown - 0.02), 0.2, iron, (1.2, 1.0, 0.8), subdiv=1)
     # Oak stock with iron bands, and the ring through the shank's eye.
     stock = top + 3.85
