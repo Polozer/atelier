@@ -15,6 +15,7 @@ class AWandererCharacter;
 class UAnimSequence;
 struct FRacingCard;
 struct FRacingCardPreview;
+struct FRacingStableRequest;
 struct FRacingWalletView;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
@@ -221,6 +222,9 @@ public:
     static FHRWorldState PersistentWorld(const FHRWorldState& S);
     /** Host: every player controller's wallet view, and the race card of an open betting window. */
     void RefreshWallets();
+    /** Host: a stable request of a player (docs/RACING.md, "Stables"), decided by the rules (RacingStables::Apply); marks the
+     *  world for saving and refreshes the desks. Empty when done, else the refusal in French. */
+    FString ApplyStableRequest(const FString& PlayerId, const FRacingStableRequest& Request);
     /** Host (tests): moves the clock Seconds on and advances the world to it, as the host's tick does. */
     void AdvanceClock(double Seconds);
 

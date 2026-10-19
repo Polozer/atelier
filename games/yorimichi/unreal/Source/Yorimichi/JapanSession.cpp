@@ -1,5 +1,6 @@
 #include "JapanSession.h"
 #include "RacingBetting.h"
+#include "RacingStables.h"
 #include "LiveLibrary.h"
 #include "JapanNetwork.h"
 #include "JapanWorld.h"
@@ -239,6 +240,8 @@ AJapanPlayerController::AJapanPlayerController()
     PrimaryActorTick.bCanEverTick = true;
     // The racing wallet and win bets (docs/RACING.md, "Betting"): replicated to this player only.
     CreateDefaultSubobject<URacingWallet>(TEXT("RacingWallet"));
+    // The player's racing stable (docs/RACING.md, "Stables"): replicated to this player only.
+    CreateDefaultSubobject<URacingStableDesk>(TEXT("RacingStableDesk"));
 }
 void AJapanPlayerController::BeginPlay()
 {
