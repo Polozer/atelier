@@ -129,6 +129,8 @@ def configured_session(*, kind, limit_gib, timeout, folder=None, purpose=None, c
     Full automatic games MAY increase only their session memory reservation to cover a caller's
     explicitly selected guard ceiling within the documented game range. The configured profile
     MUST already cover the default game ceiling; neither the configuration nor the guard changes.
+    Full automatic game ceilings MUST be finite and within the documented game range, even
+    when an oversized configured profile could cover a ceiling outside that range.
     """
     if type(performance) is not bool:
         raise ValueError('capacity performance request must be a boolean')
@@ -173,6 +175,8 @@ def configured_session(*, kind, limit_gib, timeout, folder=None, purpose=None, c
     if (not math.isfinite(limit_gib) or limit_gib <= 0
             or not math.isfinite(timeout) or timeout < 0):
         raise ValueError('capacity launch needs a positive finite guard ceiling and nonnegative finite timeout')
+    if full and kind == 'game' and not GAME_GIB <= limit_gib <= GAME_MAX_GIB:
+        raise ValueError(f'game guard ceiling must be {GAME_GIB:g} to {GAME_MAX_GIB:g} GiB')
     if (full and kind == 'game' and GAME_GIB <= limit_gib <= GAME_MAX_GIB
             and resources.memory_mib >= math.ceil(GAME_GIB * 1024)):
         resources = replace(resources, memory_mib=max(resources.memory_mib, math.ceil(limit_gib * 1024)))

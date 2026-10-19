@@ -19,6 +19,7 @@ GAME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GAME / 'world')); import yori  # noqa: E402
 from atelier.harness.safety import guarded  # noqa: E402
 from atelier.build import Context  # noqa: E402
+from atelier.play_limits import GAME_GIB, GAME_MAX_GIB  # noqa: E402
 
 PROJECT = GAME / 'unreal'
 SETTINGS = ('desktop=1;performance=1;render_scale=100;painterly=0.35;paint_radius=2;'
@@ -223,9 +224,9 @@ def wait_for_bridge_port(command, timeout=90.):
         time.sleep(min(1., deadline-now))
 
 
-def launch(baseline=False, windowed=False, dry_run=False, shared_settings=False, settings='', memory_gib=10., extra=()):
-    if not math.isfinite(memory_gib) or not 10 <= memory_gib <= 14:
-        raise ValueError('--memory-gib must be 10 to 14 GiB')
+def launch(baseline=False, windowed=False, dry_run=False, shared_settings=False, settings='', memory_gib=GAME_GIB, extra=()):
+    if not math.isfinite(memory_gib) or not GAME_GIB <= memory_gib <= GAME_MAX_GIB:
+        raise ValueError(f'--memory-gib must be {GAME_GIB:g} to {GAME_MAX_GIB:g} GiB')
     ctx = Context('yorimichi')
     folder = ctx.out / 'logs' / ('desktop-' + time.strftime('%Y%m%d-%H%M%S'))
     preferences = preference_path(folder, shared_settings)
@@ -294,7 +295,7 @@ if __name__ == '__main__':
     parser.add_argument('--dry-run', action='store_true', help='print the launch command')
     parser.add_argument('--shared-settings', action='store_true', help='use and save the game\'s own settings')
     parser.add_argument('--settings', default='', help='extra key=value;key=value overrides for this session')
-    parser.add_argument('--memory-gib', type=float, default=10., help='memory guard limit, 10 to 14 GiB')
+    parser.add_argument('--memory-gib', type=float, default=GAME_GIB, help=f'memory guard limit, {GAME_GIB:g} to {GAME_MAX_GIB:g} GiB')
     args, extra = parser.parse_known_args()
     if extra[:1] == ['--']:
         extra = extra[1:]
