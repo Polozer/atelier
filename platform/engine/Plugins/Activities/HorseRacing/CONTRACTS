@@ -9,3 +9,9 @@ or produce a fallback draw. Untrusted values MUST use the nonfatal checked APIs.
 @cc [owner:fontanierh,label:architecture] racing-rules-boundary
 Rules MUST remain independent of game names, actors, UI and rendering assets. A game owns
 its presentation, authored venue data, runtime authority and persistence admission.
+
+@cc [owner:fontanierh,label:correctness] racing-value-arithmetic
+Horse value structures MUST NOT be treated as admitted external state. Their arithmetic
+helpers MUST widen before addition so malformed int32 values cannot cause signed overflow.
+Gene-pair indexing MUST reject indices outside 0/1 rather than silently choosing an allele.
+Public reflected data structures MUST be exported for consumers in other modules.
