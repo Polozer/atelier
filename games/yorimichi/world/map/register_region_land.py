@@ -89,7 +89,8 @@ def near_land(array, xs, ys):
     return array[np.clip(np.rint(ys).astype(int), 0, h - 1), np.clip(np.rint(xs).astype(int), 0, w - 1)] > 127
 
 
-def register(target, target_mask, donor, donor_mask, target_bounds, donor_bounds, rect, feather, fill_missing=False):
+def register(target, target_mask, donor, donor_mask, target_bounds, donor_bounds, rect, feather,
+             fill_missing=False, fill_grow=0):
     target_rgb = np.asarray(target.convert('RGB'))
     donor_rgb = np.asarray(donor.convert('RGB'))
     target_land_all = np.asarray(target_mask.convert('L'))
@@ -102,7 +103,12 @@ def register(target, target_mask, donor, donor_mask, target_bounds, donor_bounds
     land = (target_land_all[py0:py1, px0:px1] > 127) & near_land(donor_land_all, dx, dy)
     if fill_missing:
         target_water = atlas.water_pixels(target)[py0:py1, px0:px1]
-        land &= target_water
+        missing = target_water
+        if fill_grow:
+            grown = Image.fromarray((missing * 255).astype('uint8')).filter(
+                ImageFilter.MaxFilter(2 * fill_grow + 1))
+            missing = np.asarray(grown) > 127
+        land &= missing
     if not land.any():
         raise ValueError('The rectangle contains no land shared by both signed masks')
     seed = Image.fromarray((land * 255).astype('uint8'))
@@ -132,6 +138,8 @@ def main():
     parser.add_argument('--feather', type=int, default=2, help='coast seam feather in pixels')
     parser.add_argument('--fill-missing', action='store_true',
                         help='composite only where the target mask is land but its painting is water')
+    parser.add_argument('--fill-grow', type=int, default=0,
+                        help='also replace this many pixels of the target coast band around missing land')
     args = parser.parse_args()
     if args.out.exists() or args.out_record.exists():
         raise FileExistsError('Preserve existing paintings and receipts before a new revision')
@@ -164,7 +172,7 @@ def main():
         atlas.verify_coast(donor, donor_mask, args.donor_key)
         result, box, changed, alpha_pixels = register(
             target, target_mask, donor, donor_mask, target_frame['bounds'], donor_frame['bounds'],
-            args.rect, args.feather, args.fill_missing)
+            args.rect, args.feather, args.fill_missing, args.fill_grow)
     with Image.open(args.target_mask) as target_mask:
         after = atlas.verify_coast(result, target_mask, args.key)
     buffer = io.BytesIO()
@@ -178,7 +186,8 @@ def main():
         donor_record_sha256=sha(snapshots[args.donor_record]), donor_mask_sha256=sha(snapshots[args.donor_mask]),
         target_mask_sha256=sha(snapshots[args.target_mask]), rect=[float(v) for v in args.rect],
         feather=args.feather, box=list(box), changed_pixels=changed, alpha_pixels=alpha_pixels,
-        fill_missing=bool(args.fill_missing), coast_error=after, helper_sha256=sha(snapshots[Path(__file__)]))
+        fill_missing=bool(args.fill_missing), fill_grow=args.fill_grow,
+        coast_error=after, helper_sha256=sha(snapshots[Path(__file__)]))
     if atlas.geography_signature() != geography or any(path.read_bytes() != data for path, data in snapshots.items()):
         raise ValueError('Input/source/geography drifted during registration; nothing published')
     publish(args.out, blob)
