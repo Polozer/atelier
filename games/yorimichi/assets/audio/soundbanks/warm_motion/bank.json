@@ -1,0 +1,1400 @@
+{
+  "version": 1,
+  "id": "warm_motion",
+  "cues": {
+    "footstep.barefoot": [
+      "footstep_barefoot_01",
+      "footstep_barefoot_02",
+      "footstep_barefoot_03",
+      "footstep_barefoot_04"
+    ],
+    "footstep.dirt_gravel": [
+      "footstep_dirt_gravel_01",
+      "footstep_dirt_gravel_02",
+      "footstep_dirt_gravel_03",
+      "footstep_dirt_gravel_04"
+    ],
+    "footstep.grass": [
+      "footstep_grass_01",
+      "footstep_grass_02",
+      "footstep_grass_03",
+      "footstep_grass_04"
+    ],
+    "footstep.leaves": [
+      "footstep_leaves_01",
+      "footstep_leaves_02",
+      "footstep_leaves_03",
+      "footstep_leaves_04"
+    ],
+    "footstep.mud_water": [
+      "footstep_mud_water_01",
+      "footstep_mud_water_02",
+      "footstep_mud_water_03",
+      "footstep_mud_water_04"
+    ],
+    "footstep.stone": [
+      "footstep_stone_01",
+      "footstep_stone_02",
+      "footstep_stone_03",
+      "footstep_stone_04"
+    ],
+    "footstep.wood": [
+      "footstep_wood_01",
+      "footstep_wood_02",
+      "footstep_wood_03",
+      "footstep_wood_04"
+    ],
+    "skate.roll.concrete": [
+      "skate_roll_concrete_01"
+    ],
+    "skate.roll.wood": [
+      "skate_roll_wood_01"
+    ],
+    "skate.roll.metal": [
+      "skate_roll_metal_01"
+    ],
+    "skate.roll.asphalt": [
+      "skate_roll_asphalt_01"
+    ],
+    "skate.roll.stone": [
+      "skate_roll_stone_01"
+    ],
+    "skate.roll.dirt": [
+      "skate_roll_dirt_01"
+    ],
+    "skate.roll.grass": [
+      "skate_roll_grass_01"
+    ],
+    "skate.roll.sand": [
+      "skate_roll_sand_01"
+    ],
+    "skate.land.concrete": [
+      "skate_land_concrete_01",
+      "skate_land_concrete_02"
+    ],
+    "skate.land.wood": [
+      "skate_land_wood_01",
+      "skate_land_wood_02"
+    ],
+    "skate.land.metal": [
+      "skate_land_metal_01",
+      "skate_land_metal_02"
+    ],
+    "skate.land.asphalt": [
+      "skate_land_asphalt_01",
+      "skate_land_asphalt_02"
+    ],
+    "skate.land.stone": [
+      "skate_land_stone_01",
+      "skate_land_stone_02"
+    ],
+    "skate.land.dirt": [
+      "skate_land_dirt_01",
+      "skate_land_dirt_02"
+    ],
+    "skate.land.grass": [
+      "skate_land_grass_01",
+      "skate_land_grass_02"
+    ],
+    "skate.land.sand": [
+      "skate_land_sand_01",
+      "skate_land_sand_02"
+    ],
+    "skate.skid": [
+      "skate_skid_01"
+    ]
+  },
+  "sources": {
+    "footstep_barefoot_01": {
+      "file": "samples/footstep_barefoot_01.wav",
+      "sha256": "12953f05dd0c5c12eac13f07b4faa4b1351af58965136a24269315f624ac3977",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: bare feet on a dry woven tatami mat, soft skin contact and a short dry straw-fiber brush. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "61b758489ed04adbb63394183303fdb0a35dd78414677c0cc315dd7d60df42f2",
+        "interval_frames_48k": [
+          246000,
+          263712
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_barefoot_02": {
+      "file": "samples/footstep_barefoot_02.wav",
+      "sha256": "9c4916a436085b23b46d5277e54f59ab1a0e2ce3e5e7097108f37f92ac0e0a80",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: bare feet on a dry woven tatami mat, soft skin contact and a short dry straw-fiber brush. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "f2067e132e955cdf745fd01c96d7008f395d07e22173bae49d69b5e01b7335bc",
+        "interval_frames_48k": [
+          246960,
+          263904
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_barefoot_03": {
+      "file": "samples/footstep_barefoot_03.wav",
+      "sha256": "0eb5fd39dfc30c1d64dfffacf30a3054a41d70c5bb7454d4ed4ca9ff38c7d21d",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: bare feet on a dry woven tatami mat, soft skin contact and a short dry straw-fiber brush. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "f2067e132e955cdf745fd01c96d7008f395d07e22173bae49d69b5e01b7335bc",
+        "interval_frames_48k": [
+          201072,
+          215328
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_barefoot_04": {
+      "file": "samples/footstep_barefoot_04.wav",
+      "sha256": "4e095b29ec3b295590c30fe0ac2d133aeb7fb46d18c265783046a8c109c4dd77",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: bare feet on a dry woven tatami mat, soft skin contact and a short dry straw-fiber brush. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "f2067e132e955cdf745fd01c96d7008f395d07e22173bae49d69b5e01b7335bc",
+        "interval_frames_48k": [
+          28944,
+          42912
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_dirt_gravel_01": {
+      "file": "samples/footstep_dirt_gravel_01.wav",
+      "sha256": "b57be721a808c864762de2bf11c19ebc66452e63f5191af62137adf056a0ef48",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on firm dirt with a few tiny loose gravel grains. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "a346fbd276ee4ff5b755d7891a31f336e2501ab80d6a14ebb568e65e42313062",
+        "interval_frames_48k": [
+          246960,
+          263136
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_dirt_gravel_02": {
+      "file": "samples/footstep_dirt_gravel_02.wav",
+      "sha256": "2fa69c9a943e6a94b7c91500b222796d323f30e9d825f14463370f3fa74c74a1",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on firm dirt with a few tiny loose gravel grains. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "cc45af8c0642ccce2d9ce37eeb96c51c5b64f63269b0cedc8150854a8345ced2",
+        "interval_frames_48k": [
+          13200,
+          26208
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_dirt_gravel_03": {
+      "file": "samples/footstep_dirt_gravel_03.wav",
+      "sha256": "0a217b39886dd338dbd47190ef48479114303a21ab9124143822e5e36c80562b",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on firm dirt with a few tiny loose gravel grains. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "cc45af8c0642ccce2d9ce37eeb96c51c5b64f63269b0cedc8150854a8345ced2",
+        "interval_frames_48k": [
+          95184,
+          107328
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_dirt_gravel_04": {
+      "file": "samples/footstep_dirt_gravel_04.wav",
+      "sha256": "584fb8226780ffe58053bcd4ea9d942b61cc66a6c03b67a51363e34178c9254e",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on firm dirt with a few tiny loose gravel grains. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "cc45af8c0642ccce2d9ce37eeb96c51c5b64f63269b0cedc8150854a8345ced2",
+        "interval_frames_48k": [
+          224304,
+          236064
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_grass_01": {
+      "file": "samples/footstep_grass_01.wav",
+      "sha256": "1b1aba9514299b01778c211e8afde6fe6812d4640a16eb2a1e445689d7e33ab0",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on short grass over firm earth, a soft leafy brush and rounded earth contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "4f6d83b0a2506f0843ff96d03c0af5711be2452475c7d0bea810edc88f1afbe3",
+        "interval_frames_48k": [
+          188016,
+          208416
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_grass_02": {
+      "file": "samples/footstep_grass_02.wav",
+      "sha256": "09eeeea8937aaa5377b7341f8fc8a249fe65a9de490b2d262ca825c772086616",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on short grass over firm earth, a soft leafy brush and rounded earth contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "b5ee469ebec639fc9502c8bcc9ce5759a3080700ac2f4f0aadf044d50a2efbe3",
+        "interval_frames_48k": [
+          313008,
+          333024
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_grass_03": {
+      "file": "samples/footstep_grass_03.wav",
+      "sha256": "3d3977fb1f2e39bbe1e1aec933f2d501f555df5040bfebc6334221178cdabf19",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on short grass over firm earth, a soft leafy brush and rounded earth contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "4f6d83b0a2506f0843ff96d03c0af5711be2452475c7d0bea810edc88f1afbe3",
+        "interval_frames_48k": [
+          313968,
+          332736
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_grass_04": {
+      "file": "samples/footstep_grass_04.wav",
+      "sha256": "260886168c5cad12dde33176a71188c2fd6f76e66a57f2c3f062df51eab75003",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on short grass over firm earth, a soft leafy brush and rounded earth contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "4f6d83b0a2506f0843ff96d03c0af5711be2452475c7d0bea810edc88f1afbe3",
+        "interval_frames_48k": [
+          97392,
+          115776
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_leaves_01": {
+      "file": "samples/footstep_leaves_01.wav",
+      "sha256": "a283bf210123539ec924005ad501cf7fe6be45f3425adeeb67bd14835b953dbf",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles compressing scattered dry fallen leaves on firm earth, a small close leaf crunch. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "9d2eb24e43e04351ab060267c08151cef3d8368602caaa5b0d598285f4d5be52",
+        "interval_frames_48k": [
+          178416,
+          195648
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_leaves_02": {
+      "file": "samples/footstep_leaves_02.wav",
+      "sha256": "4e95f8dad35a894fc62aa0bf5d06e806016498a646dbe7f2dd96b511802f41ff",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles compressing scattered dry fallen leaves on firm earth, a small close leaf crunch. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "f789e7ce0fdac04fdffc3a110e10df9a65558596bd8d767d9ce4de0e7357348e",
+        "interval_frames_48k": [
+          56976,
+          67392
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_leaves_03": {
+      "file": "samples/footstep_leaves_03.wav",
+      "sha256": "42f135e0fdf7cda8f11a18b924ba4c7ef9430e19c5446d865efc52b3df1e903d",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles compressing scattered dry fallen leaves on firm earth, a small close leaf crunch. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "9d2eb24e43e04351ab060267c08151cef3d8368602caaa5b0d598285f4d5be52",
+        "interval_frames_48k": [
+          248304,
+          264864
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_leaves_04": {
+      "file": "samples/footstep_leaves_04.wav",
+      "sha256": "f51d485101672ffd4bbff9f48ca580c136d8803bbe45872ba53859b30f9a37fc",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles compressing scattered dry fallen leaves on firm earth, a small close leaf crunch. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "9d2eb24e43e04351ab060267c08151cef3d8368602caaa5b0d598285f4d5be52",
+        "interval_frames_48k": [
+          142416,
+          158880
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_mud_water_01": {
+      "file": "samples/footstep_mud_water_01.wav",
+      "sha256": "882c4b1be7722b59814bfde80c5fa71fd52fe7781d913095d366f430ff918d43",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on damp mud with very shallow water, a compact gentle squelch and quiet damp contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "a26868bb3d94e438c1ec42d7c5df86936a1ad7d336c100a07a7634a64ed63b71",
+        "interval_frames_48k": [
+          138576,
+          157536
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_mud_water_02": {
+      "file": "samples/footstep_mud_water_02.wav",
+      "sha256": "722e9e934d54b95e5a67ae09a749f1bd510812e5311b01cc2128a74f87b02417",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on damp mud with very shallow water, a compact gentle squelch and quiet damp contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "97dfd414d5a07c658c4238384e6d2ae812014bb8c254ca5f9b02ce4a55d352b7",
+        "interval_frames_48k": [
+          174384,
+          192384
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_mud_water_03": {
+      "file": "samples/footstep_mud_water_03.wav",
+      "sha256": "c910d48aa7594c4acd71560e3a5b2134613fd761cb5fae62e02a44e6da899acc",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on damp mud with very shallow water, a compact gentle squelch and quiet damp contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Relaxed heel-first walking. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "a26868bb3d94e438c1ec42d7c5df86936a1ad7d336c100a07a7634a64ed63b71",
+        "interval_frames_48k": [
+          253584,
+          263136
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_mud_water_04": {
+      "file": "samples/footstep_mud_water_04.wav",
+      "sha256": "692d1a0c4560849018927bfd22fc7cad3278a666abd95bb225585da7ab3dcf45",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Six separate human foot contacts: rubber sneaker soles on damp mud with very shallow water, a compact gentle squelch and quiet damp contact. Clear individual attacks followed by natural short decay, separated by quiet gaps. No continuous background bed or overlapping steps. Slightly brisk walking with a short toe-off. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "97dfd414d5a07c658c4238384e6d2ae812014bb8c254ca5f9b02ce4a55d352b7",
+        "interval_frames_48k": [
+          56784,
+          66144
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_stone_01": {
+      "file": "samples/footstep_stone_01.wav",
+      "sha256": "e8161a2c46e13ca8bd452e054a0912d3c455144bf84502b685b0834737cd8c84",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct sneaker footsteps on a real stone-paved walkway, separated by clear quiet gaps. A rubber sole heel thump settles into a short fine gritty sole brush. Human walking pace, clean individual attacks and natural short decay, no overlapping footsteps or continuous background bed. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "501cddc1c9007a843304b7ebffbd63ed4557e3a4f195ea7fc042b38a4d0ea94b",
+        "interval_frames_48k": [
+          176112,
+          194016
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_stone_02": {
+      "file": "samples/footstep_stone_02.wav",
+      "sha256": "12f5a64c3f26ac01cee5f87986f8dfffd51826d9837ed6378bb463da04e6704b",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct sneaker footsteps on a real stone-paved walkway, separated by clear quiet gaps. A rubber sole heel thump settles into a short fine gritty sole brush. Human walking pace, clean individual attacks and natural short decay, no overlapping footsteps or continuous background bed. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "f6e151608f220ddff4404a48e67983a62e94ed2cd5f3f16b78531c5aacf31cdd",
+        "interval_frames_48k": [
+          252432,
+          264384
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_stone_03": {
+      "file": "samples/footstep_stone_03.wav",
+      "sha256": "2e1795d5f45526c8ba4e728ea56491d4e5cbf5086b425906bead0c46f213efdb",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct sneaker footsteps on a real stone-paved walkway, separated by clear quiet gaps. A rubber sole heel thump settles into a short fine gritty sole brush. Human walking pace, clean individual attacks and natural short decay, no overlapping footsteps or continuous background bed. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "501cddc1c9007a843304b7ebffbd63ed4557e3a4f195ea7fc042b38a4d0ea94b",
+        "interval_frames_48k": [
+          248304,
+          263616
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_stone_04": {
+      "file": "samples/footstep_stone_04.wav",
+      "sha256": "f3215f3bd36c3a3a97d08db9f7262bccdbe916307085a937ceb3a0afd71259fd",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "Four distinct sneaker footsteps on a real stone-paved walkway, separated by clear quiet gaps. A rubber sole heel thump settles into a short fine gritty sole brush. Human walking pace, clean individual attacks and natural short decay, no overlapping footsteps or continuous background bed. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "501cddc1c9007a843304b7ebffbd63ed4557e3a4f195ea7fc042b38a4d0ea94b",
+        "interval_frames_48k": [
+          313968,
+          326976
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_wood_01": {
+      "file": "samples/footstep_wood_01.wav",
+      "sha256": "7421c2e7ac0b958d287b6559c8115f692076ffd63b80ea13ebae6f2d0bfab730",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated ordinary walking sneaker footstep on dry wooden floorboards. The rubber sole makes a compact rounded thump and a very short soft heel-to-toe brush; the wooden floor has a small damped hollow resonance. Exactly one footfall near the middle, with quiet before and after and no continuing rhythm. Close side microphone captures one lightly weighted walking contact. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "d8e75f59eb6ece04cd942b1c233bb13d1dd332266d2c6720336653e5eec3a818",
+        "interval_frames_48k": [
+          13008,
+          26880
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_wood_02": {
+      "file": "samples/footstep_wood_02.wav",
+      "sha256": "6b2865d1d36bae9a1ca855380f65cf22c3ec74c42a0e468a5ec12dc8f84721f2",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated ordinary walking sneaker footstep on dry wooden floorboards. The rubber sole makes a compact rounded thump and a very short soft heel-to-toe brush; the wooden floor has a small damped hollow resonance. Exactly one footfall near the middle, with quiet before and after and no continuing rhythm. A flat rubber sole plants at relaxed walking speed. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Relaxed heel-first foot plant, then a short toe-off. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "8d97aeecb0ebb4dc751138e9c1485a0063aab084a2f6f593900aef1849f45dde",
+        "interval_frames_48k": [
+          44880,
+          51840
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_wood_03": {
+      "file": "samples/footstep_wood_03.wav",
+      "sha256": "822bec4ce859a032269c8ffe68d1b4e9640bf1ae87bba73f54cfebdc20978aea",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated ordinary walking sneaker footstep on dry wooden floorboards. The rubber sole makes a compact rounded thump and a very short soft heel-to-toe brush; the wooden floor has a small damped hollow resonance. Exactly one footfall near the middle, with quiet before and after and no continuing rhythm. Close side microphone captures one lightly weighted walking contact. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "d8e75f59eb6ece04cd942b1c233bb13d1dd332266d2c6720336653e5eec3a818",
+        "interval_frames_48k": [
+          28752,
+          36576
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "footstep_wood_04": {
+      "file": "samples/footstep_wood_04.wav",
+      "sha256": "759167a65311b3195cb73d18174cda5bdc913b956bd2738cbbbdede292edbed2",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated ordinary walking sneaker footstep on dry wooden floorboards. The rubber sole makes a compact rounded thump and a very short soft heel-to-toe brush; the wooden floor has a small damped hollow resonance. Exactly one footfall near the middle, with quiet before and after and no continuing rhythm. Close side microphone captures one lightly weighted walking contact. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. Slightly brisk forefoot release after a balanced heel contact. Six discrete attacks at 1, 2.2, 3.4, 4.6, 5.8 and 7 seconds, with quiet gaps after each short decay. No sustained shuffle or continuous brushing.",
+        "seed": 698341,
+        "raw_sha256": "d8e75f59eb6ece04cd942b1c233bb13d1dd332266d2c6720336653e5eec3a818",
+        "interval_frames_48k": [
+          68304,
+          74304
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_concrete_01": {
+      "file": "samples/skate_roll_concrete_01.wav",
+      "sha256": "9150f1f1c0dc448f96d77768e13c48ac93f99bd7b3e119c9b8c211370124c42a",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on smooth concrete at jogging speed. Four small hard urethane wheels produce a steady granular wheel rumble, a subtle deck vibration and occasional tiny pavement joint ticks. Grounded sustained wheel contact, even speed suitable for a seamless loop. Unmistakably a skateboard, not an engine, shoe rub or whoosh. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic.",
+        "seed": 698341,
+        "raw_sha256": "243641976d4df7cb3f3f52ce99bfee4067f8e0b05fb5f2852ae32950ab76dd66",
+        "interval_frames_48k": [
+          52800,
+          196800
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_wood_01": {
+      "file": "samples/skate_roll_wood_01.wav",
+      "sha256": "a261abf98ba3a43727ed43776a2d4b17ed26323715a0c7c40f9aa469bd0cc3ae",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on a smooth wooden boardwalk, subtle short board-joint ticks and muted hollow wood resonance. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic.",
+        "seed": 698341,
+        "raw_sha256": "7d604ca3482493ef44ebb5824c4d6f65babf18a3ec0956084dd1cd6ed84a6e80",
+        "interval_frames_48k": [
+          110400,
+          254400
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_metal_01": {
+      "file": "samples/skate_roll_metal_01.wav",
+      "sha256": "d6daec6b5af50dc42adb15d5d108b682021ca065f475ea72856627d6376d0bf0",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on a smooth rideable metal ramp with fine grating, tiny damped panel vibrations without sustained ringing. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic.",
+        "seed": 698341,
+        "raw_sha256": "888d195c4c61634b8379f28a06494949ab924de24e65cf9f6113b240ed46f097",
+        "interval_frames_48k": [
+          115200,
+          259200
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_asphalt_01": {
+      "file": "samples/skate_roll_asphalt_01.wav",
+      "sha256": "a1bbadf7ba0f3044bc3380acb643b22ffdfec66ee6034687aed360383f6c7c12",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on dry fine-grained asphalt with granular wheel rumble. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic.",
+        "seed": 698341,
+        "raw_sha256": "f712be4cc9871e19fa5d378d182d015de5b41aed270dd927d8830a73a1312b73",
+        "interval_frames_48k": [
+          110400,
+          254400
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_stone_01": {
+      "file": "samples/skate_roll_stone_01.wav",
+      "sha256": "6c1c79ca3a6c5b02701c3dffc73ad384e36484e6f4dce02f8b9645d9c003f799",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on stone paving with small regular joints, subtle tiny wheel ticks over the seams. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic.",
+        "seed": 698341,
+        "raw_sha256": "53aa6855bd545f4c1f05baea61948246326a353849c4931aff42c8f2fbc7c506",
+        "interval_frames_48k": [
+          52800,
+          196800
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_dirt_01": {
+      "file": "samples/skate_roll_dirt_01.wav",
+      "sha256": "a04f1e63ef885b0e9f208910bd326e78ace32f88a413f76b0922e5df22c6d1dd",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on firm compacted smooth dirt, fine dry dusty wheel friction over a hard support. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic.",
+        "seed": 698341,
+        "raw_sha256": "ba206ff6561aeae4c70f48cd5f8b02199bfde2190ea20bf0d0ccb165dd3e7fa5",
+        "interval_frames_48k": [
+          38400,
+          182400
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_grass_01": {
+      "file": "samples/skate_roll_grass_01.wav",
+      "sha256": "af0af8d13be24ff68a86cc50920d146fd81e6294eb6d6b1eb8824f96d4e099be",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on very short sparse grass over firm ground at slow rolling speed, small wheels brushing grass and lightly bumping the ground. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic.",
+        "seed": 698341,
+        "raw_sha256": "542f24180d22ad2e3e979e157aecff11c2ded670cc84e5d846eee6ae8aa8b3bb",
+        "interval_frames_48k": [
+          38400,
+          182400
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_roll_sand_01": {
+      "file": "samples/skate_roll_sand_01.wav",
+      "sha256": "aee75484aa95d36eaa0337db3691eaf9c4593185b103a272c425025f15007f83",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real wooden skateboard rolls continuously on a thin scattered layer of dry sand over hard pavement, fine sandy wheel friction over the firm support. Four small hard urethane wheels make grounded granular rumble, subtle deck vibration and small wheel-contact detail at an even speed. Suitable for a seamless sustained wheel-contact loop. Clearly a skateboard, not an engine, shoe, ice skate or airy whoosh. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic.",
+        "seed": 698341,
+        "raw_sha256": "e03f564860260a95a586f47aa5c831b7207def7dba34f4e8e8a59a7ba1847f83",
+        "interval_frames_48k": [
+          38400,
+          182400
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_concrete_01": {
+      "file": "samples/skate_land_concrete_01.wav",
+      "sha256": "9135de9440c19641e630ef477528843cc901e0ce5964415c88e8867ae618d4ae",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low skateboard ollie landing on concrete, with silence before and after. A compact wooden deck pop-clack and rounded wheel thud as small hard urethane wheels and trucks meet the ground; tiny deck and wheel rattle settles immediately. Clearly a wooden skateboard, not a footstep, drum, metallic clang or explosive slam. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A centered stable landing with a short deck and wheel release.",
+        "seed": 698341,
+        "raw_sha256": "c291eb449d1c6f5751669b15c775808da0522ab303e6c61a591144f1df2aa7df",
+        "interval_frames_48k": [
+          105264,
+          113952
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_concrete_02": {
+      "file": "samples/skate_land_concrete_02.wav",
+      "sha256": "50b45864403b01cfafa1f7227d5170de29e5f6f601dcda2e2f4171ebe0426453",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on smooth skatepark concrete, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A slightly angled landing with natural wheel compression and a short wooden deck rattle.",
+        "seed": 698341,
+        "raw_sha256": "c431baff22bafa2cb66c5da85b4d8cee7dfd8f4b97fa70e5e6aea13294de1263",
+        "interval_frames_48k": [
+          105168,
+          111072
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_wood_01": {
+      "file": "samples/skate_land_wood_01.wav",
+      "sha256": "8dcdf1cb8985bf72f1380c2c80e4944b0439799179898cfe59d418295ba144fc",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on a smooth wooden boardwalk, subtle short board-joint ticks and muted hollow wood resonance, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A slightly angled landing with natural wheel compression and a short wooden deck rattle.",
+        "seed": 698341,
+        "raw_sha256": "27ea9a0f3dc75d7ca90bbaf3e0b83578f2e25838d5a1ca44f7031b8c5689843d",
+        "interval_frames_48k": [
+          0,
+          8064
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_wood_02": {
+      "file": "samples/skate_land_wood_02.wav",
+      "sha256": "aea056978e824c1d2c33d66c64bce0f906fe61314a3526550a46bdf4644e8723",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on a smooth wooden boardwalk, subtle short board-joint ticks and muted hollow wood resonance, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A centered stable landing with a short deck and wheel release.",
+        "seed": 698341,
+        "raw_sha256": "68232cf1fa45c32f01b06a9897ba3b92c9f6aa5a11f34d63be915c60177b7681",
+        "interval_frames_48k": [
+          105744,
+          111648
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_metal_01": {
+      "file": "samples/skate_land_metal_01.wav",
+      "sha256": "0db21a7c0eb39cc0795bb946c374d1b08dc33b2cf3c3a9d6807e6a1fa65c6631",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on a smooth rideable metal ramp with fine grating, tiny damped panel vibrations without sustained ringing, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A centered stable landing with a short deck and wheel release.",
+        "seed": 698341,
+        "raw_sha256": "c2071060e8cc8ac00c41d546edd0eb573bdd7463d83442d4204e11f6b1e9854f",
+        "interval_frames_48k": [
+          97776,
+          107424
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_metal_02": {
+      "file": "samples/skate_land_metal_02.wav",
+      "sha256": "7e311b8591615b777da05c2b97e37c18a5923d7f270e864158df06f47430e22e",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on a smooth rideable metal ramp with fine grating, tiny damped panel vibrations without sustained ringing, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A slightly angled landing with natural wheel compression and a short wooden deck rattle.",
+        "seed": 698341,
+        "raw_sha256": "542aaf24766ae7d3662740cfa84c1d30b71a8558f1da87949b64e24d481ab98b",
+        "interval_frames_48k": [
+          106416,
+          113664
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_asphalt_01": {
+      "file": "samples/skate_land_asphalt_01.wav",
+      "sha256": "45c27a512cd36acb97942eaf1b65a1b20be475e2cd893ce04aa1542b341ae94a",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic gentle low drop skateboard landing on dry fine-grained asphalt with granular wheel rumble, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A centered stable landing with a short deck and wheel release.",
+        "seed": 698341,
+        "raw_sha256": "19e9e6ed658e89e80dfae318340247cd71d281716d912b5edabdfd2fc78a6525",
+        "interval_frames_48k": [
+          109296,
+          116160
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_asphalt_02": {
+      "file": "samples/skate_land_asphalt_02.wav",
+      "sha256": "dff4a552bc7467bda8dbdd50157b6665191493cd197fd301a5ce1bcc7ee7d811",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on dry fine-grained asphalt with granular wheel rumble, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A slightly angled landing with natural wheel compression and a short wooden deck rattle.",
+        "seed": 698341,
+        "raw_sha256": "f44ccd1c65b79170330e9c46d71cffa3dee1b9855a7706950a12457ceee78d22",
+        "interval_frames_48k": [
+          70320,
+          74976
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_stone_01": {
+      "file": "samples/skate_land_stone_01.wav",
+      "sha256": "a6abf603bd179ccb0b8635c9ab7763efb1700a8a7d41fa21baca113a05319695",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on stone paving with small regular joints, subtle tiny wheel ticks over the seams, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A centered stable landing with a short deck and wheel release.",
+        "seed": 698341,
+        "raw_sha256": "5c400478ee080f46cd986f80bbc7e9a504385e9282586c4ff87d34ace11c8d69",
+        "interval_frames_48k": [
+          11472,
+          18336
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_stone_02": {
+      "file": "samples/skate_land_stone_02.wav",
+      "sha256": "2bc01b18753b60986f5630769953f686ec126d8107610a284877130e47531044",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic gentle low drop skateboard landing on stone paving with small regular joints, subtle tiny wheel ticks over the seams, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A slightly angled landing with natural wheel compression and a short wooden deck rattle.",
+        "seed": 698341,
+        "raw_sha256": "35ed0576e37c2230cc364ca1183b4e0fb7e29cdd91b7a528f4dec51e1027a6cd",
+        "interval_frames_48k": [
+          105456,
+          109440
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_dirt_01": {
+      "file": "samples/skate_land_dirt_01.wav",
+      "sha256": "c9f4a0de80df763def41d875dd08c1abc0f6773acb7f5f52c3fc42f3632bf2d5",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on firm compacted smooth dirt, fine dry dusty wheel friction over a hard support, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A slightly angled landing with natural wheel compression and a short wooden deck rattle.",
+        "seed": 698341,
+        "raw_sha256": "d3650c92de3fef26ad40e4dcda39b943fa00583e236e8a1da4f7d9adbded46b1",
+        "interval_frames_48k": [
+          20208,
+          25248
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_dirt_02": {
+      "file": "samples/skate_land_dirt_02.wav",
+      "sha256": "06160fc930d4050a319e8629709177d6cd3eca337738717c59591a4f616ab3ce",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on firm compacted smooth dirt, fine dry dusty wheel friction over a hard support, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A centered stable landing with a short deck and wheel release.",
+        "seed": 698341,
+        "raw_sha256": "d5cef4fd760908ff218777046b4e9e104e7a86acc2c545b0fe66edd973c6ac9f",
+        "interval_frames_48k": [
+          20400,
+          25248
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_grass_01": {
+      "file": "samples/skate_land_grass_01.wav",
+      "sha256": "27fe6c55e452c48ae06ea7c59f71b40cb8ca8d86b03a917c1ace95c9e51bbc64",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic gentle low drop skateboard landing on very short sparse grass over firm ground at slow rolling speed, small wheels brushing grass and lightly bumping the ground, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A slightly angled landing with natural wheel compression and a short wooden deck rattle.",
+        "seed": 698341,
+        "raw_sha256": "aa4abb6d5043112bf75f87ad34ec29ae9c78f20e03500570867305247ae61b9a",
+        "interval_frames_48k": [
+          11472,
+          19200
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_grass_02": {
+      "file": "samples/skate_land_grass_02.wav",
+      "sha256": "62acd28f8cdbd29dadd6ce35197979c7f223a068d35d48afbe5c30062c38d88e",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on very short sparse grass over firm ground at slow rolling speed, small wheels brushing grass and lightly bumping the ground, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A centered stable landing with a short deck and wheel release.",
+        "seed": 698341,
+        "raw_sha256": "cd59bc4ba33e6f551b3f93ad085171caca06bed958a1a5f80b9e75aa32e88cd7",
+        "interval_frames_48k": [
+          106704,
+          110112
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_sand_01": {
+      "file": "samples/skate_land_sand_01.wav",
+      "sha256": "b0aac46808c057f67c3fa26ea36be04844ddebd44727d99facf8ba0fe652cfb0",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low ollie skateboard landing on a thin scattered layer of dry sand over hard pavement, fine sandy wheel friction over the firm support, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A slightly angled landing with natural wheel compression and a short wooden deck rattle.",
+        "seed": 698341,
+        "raw_sha256": "512734ff03d548ade01e18ef07e9b9ad8701562e86ff612dd59d37b544f49084",
+        "interval_frames_48k": [
+          11376,
+          19104
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_land_sand_02": {
+      "file": "samples/skate_land_sand_02.wav",
+      "sha256": "f6ff4cb3a93ada9e394e58ac95d4db1a96c9f48203d15f52adf6c34fdda2adcd",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "One isolated realistic low straight hop skateboard landing on a thin scattered layer of dry sand over hard pavement, fine sandy wheel friction over the firm support, with quiet before and after. A short wooden deck pop-clack plus small hard urethane wheels and trucks contacting the ground, rounded support thud and a tiny deck rattle settling immediately. Clearly a wooden skateboard, not shoes, a drum, metallic machinery or a heavy crash. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic. A centered stable landing with a short deck and wheel release.",
+        "seed": 698341,
+        "raw_sha256": "632fa54ee8a97492fbcd46440d066bbeba17141427bfff3d32e8c8a65fcb7dd6",
+        "interval_frames_48k": [
+          96144,
+          102048
+        ],
+        "crossfade_frames": 0,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    },
+    "skate_skid_01": {
+      "file": "samples/skate_skid_01.wav",
+      "sha256": "374e9bf8d88eced3730a7ca5a7a5c884edd3ad7960aa9e12b3f11c33fe8aa658",
+      "provenance": {
+        "model": "stable-audio-3-small-sfx",
+        "source_revision": "77e0398c26f7d22d801ec1bb036307e8b231f741",
+        "weight_revision": "08b17423649b5714b22eab20f96bf00751f2358a",
+        "prompt": "A real skateboard makes a controlled sustained sideways powerslide on smooth concrete. Small hard urethane wheels drag across pavement with dry rubbery shrrr friction and a fine gritty rasp. Real skateboard wheel friction, not ice skates, metal scraping or soft shoe scuffs. Sustained even scrape suitable for a loop with a short natural release. Warm Motion style: warm full-bodied natural Foley, rounded low-mid wooden body and gently resonant organic texture, smooth lively motion with a little more body and air than muted contact. Retain clear physical attacks and natural short decay. Preserve each real material, small urethane skateboard wheels and wooden deck; no bright ringing or metallic harshness. Close microphone, no voices, music, wind or traffic.",
+        "seed": 698341,
+        "raw_sha256": "e4efbd13dd1f2f35c8564f3f0df90c89c55d9b507219311efb90a97a21d28805",
+        "interval_frames_48k": [
+          24000,
+          81600
+        ],
+        "crossfade_frames": 5760,
+        "sampler": {
+          "steps": 8,
+          "cfg": 1.0,
+          "dit_dtype": "fp16",
+          "decoder": "same-s"
+        },
+        "processor_sha256": "1a69c5c1557524ab7e3a84e90bb34d191a76ac5a0978521d68e157e0bee09fc7"
+      }
+    }
+  },
+  "inherit_original": [
+    "horse.hoof",
+    "bike.*",
+    "combat.*",
+    "ambience.*",
+    "voice.*",
+    "ui.*",
+    "skate.pop",
+    "skate.pop.*",
+    "skate.catch",
+    "skate.push",
+    "skate.flick",
+    "skate.clatter",
+    "skate.fall",
+    "skate.grind",
+    "skate.grind.*",
+    "skate.slide",
+    "skate.scrape"
+  ]
+}

@@ -9,11 +9,25 @@
       "legacy": true
     },
     {
+      "id": "soft_contact",
+      "name": "Soft Contact",
+      "selection": 1,
+      "manifest": "soft_contact/bank.json",
+      "sha256": "80523c76a405e41939b9336037e6198b56120c666ee7e5d58dfe51e17e3cc080"
+    },
+    {
       "id": "dry_street",
       "name": "Dry Street",
       "selection": 2,
       "manifest": "dry_street/bank.json",
       "sha256": "b39738644b0a912f481becbd198c7b3e00a3086002a0692ec1e54b0d82c98eb0"
+    },
+    {
+      "id": "warm_motion",
+      "name": "Warm Motion",
+      "selection": 3,
+      "manifest": "warm_motion/bank.json",
+      "sha256": "a8a763c6f8e061003c0cb6672787e1585dfa8b224313e85a12f3d3aa425db477"
     }
   ]
 }

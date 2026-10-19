@@ -15,3 +15,9 @@ Preparation MUST publish complete immutable media before its index, recheck
 source identities before publication, and preserve the previously published index
 and referenced bytes on failure. The normal build MUST inventory all products
 and declare every consumed source. Validation MUST NOT imply listening acceptance.
+
+@cc [owner:fontanierh,label:correctness] shipping-four-soundbanks
+The committed shipping catalog MUST contain Original (0), Soft Contact (1), Dry
+Street (2) and Warm Motion (3), with Original as the default. Every generated bank
+MUST provide its own complete replacement cue coverage; consumed WAV bytes MUST
+NOT be duplicated across generated banks to stand in for different choices.
