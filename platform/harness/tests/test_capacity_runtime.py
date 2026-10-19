@@ -289,3 +289,20 @@ def test_guarded_public_cook_ceiling_reaches_automatic_session_without_native_wo
     assert calls[0]['limit_gib'] == calls[0]['compile_memory_gib'] == 18.
     assert calls[0]['timeout'] == 14400
     assert not (tmp_path / 'guard').exists()
+
+
+@pytest.mark.parametrize('kind,command,expected,exclusive', [
+    ('game', ['UnrealEditor'], 10000, True), ('compile', ['RunUAT.sh'], 10000, True),
+    ('job', ['python', 'unknown.py'], 10000, True),
+    ('job', ['/opt/Blender', '--background', '--threads', '3'], 3000, False)])
+def test_reviewed_host_pool_profiles_preserve_actual_worker_accounting(client, monkeypatch, kind, command, expected, exclusive):
+    configure_schema(client, monkeypatch, 2)
+    for profile in client[1]['profiles'].values():
+        profile['resources']['cpu_millis'] = 10000
+    client[2]()
+    before = client[0].read_bytes()
+    request = runtime.configured_session(kind=kind, limit_gib=10, timeout=60, command=command)
+    assert request['resources']['cpu_millis'] == expected
+    assert request['resources']['memory_mib'] == 10240
+    assert request['performance'] is exclusive
+    assert client[0].read_bytes() == before
