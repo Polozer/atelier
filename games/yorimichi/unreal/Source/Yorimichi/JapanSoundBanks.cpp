@@ -260,9 +260,19 @@ bool UJapanSoundBanks::Commit(const FJapanSoundChoice& Choice,UJapanSoundBank* B
     if(Changed && GEngine) GEngine->ForceGarbageCollection(false);
     return true;
 }
+void UJapanSoundBanks::SetFootstepPreferences(bool bSoften,float Volume)
+{
+    if(!IsInGameThread() || bShuttingDown || !FMath::IsFinite(Volume)) return;
+    bSoftenFootsteps=bSoften;
+    FootstepVolume=FMath::Clamp(Volume,0.f,1.f);
+    for(auto* Component:Ready<UJapanFootstepComponent>(GetWorld()))
+        Component->SetAudioPreferences(bSoftenFootsteps,FootstepVolume);
+}
 void UJapanSoundBanks::FootReady(UJapanFootstepComponent* Component)
 {
-    if(!bShuttingDown && Active && IsValid(Component) && Component->GetWorld()==GetWorld())
+    if(bShuttingDown || !IsValid(Component) || Component->GetWorld()!=GetWorld()) return;
+    Component->SetAudioPreferences(bSoftenFootsteps,FootstepVolume);
+    if(Active)
         if(!RegistryCurrent(LastError) || !Component->SetSoundBank(Active,LastError)) UE_LOG(LogTemp,Error,TEXT("Soundbank new foot emitter: %s"),*LastError);
 }
 void UJapanSoundBanks::SkateReady(USkateComponent* Component)

@@ -8,9 +8,12 @@
 #include "WandererCharacter.h"
 #include "WandererDefinition.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/AudioComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
+#include "Engine/Engine.h"
+#include "AudioDevice.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
@@ -52,6 +55,69 @@ void UJapanFootstepComponent::BeginPlay()
     UE_LOG(LogTemp,Display,TEXT("Footsteps ready: %d surfaces, %d one-shots"),Set->Surfaces.Num(),Total);
     TActorIterator<AJapanWorld> It(GetWorld()); if(It) Landscape=*It;
     AudioReady.Broadcast(this);
+}
+
+void UJapanFootstepComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    StopFootstepVoices();
+    Super::EndPlay(EndPlayReason);
+}
+
+void UJapanFootstepComponent::ApplyVoicePreferences(UAudioComponent* Voice,float BaseVolume) const
+{
+    Voice->SetVolumeMultiplier(BaseVolume*FootstepVolume);
+    Voice->SetLowPassFilterFrequency(3000.f);
+    Voice->SetLowPassFilterEnabled(bSoftenFootsteps);
+}
+
+void UJapanFootstepComponent::SetAudioPreferences(bool bSoften,float Volume)
+{
+    if(!FMath::IsFinite(Volume)) return;
+    bSoftenFootsteps=bSoften;
+    FootstepVolume=FMath::Clamp(Volume,0.f,1.f);
+    for(auto It=FootstepVoices.CreateIterator();It;++It)
+        if(auto* Voice=It.Key().Get()) ApplyVoicePreferences(Voice,It.Value());
+        else It.RemoveCurrent();
+}
+
+void UJapanFootstepComponent::PlayFootstepVoice(USoundWave* Wave,const FVector& At,float Volume,float Pitch)
+{
+    UWorld* World=GetWorld();
+    if(!World || !World->bAllowAudioPlayback || World->IsNetMode(NM_DedicatedServer)
+        || !GEngine || !GEngine->UseSound()) return;
+    for(auto It=FootstepVoices.CreateIterator();It;++It)
+        if(!It.Key().IsValid()) It.RemoveCurrent();
+    // The same spatial component factory as SpawnSoundAtLocation, configured
+    // before Play so even the first attack receives the requested filter.
+    FAudioDevice::FCreateComponentParams Params(World,GetOwner());
+    Params.SetLocation(At);
+    Params.AttenuationSettings=Set->Attenuation;
+    Params.bPlay=false;
+    if(auto* Voice=FAudioDevice::CreateComponent(Wave,Params))
+    {
+        Voice->SetWorldLocationAndRotation(At,FRotator::ZeroRotator);
+        Voice->SetPitchMultiplier(Pitch);
+        Voice->bAllowSpatialization=Params.ShouldUseAttenuation();
+        Voice->bIsUISound=!World->IsGameWorld();
+        Voice->bAutoDestroy=true;
+        Voice->bStopWhenOwnerDestroyed=true;
+        Voice->SubtitlePriority=Wave->GetSubtitlePriority();
+        ApplyVoicePreferences(Voice,Volume);
+        FootstepVoices.Add(Voice,Volume);
+        Voice->Play(0.f);
+    }
+}
+
+void UJapanFootstepComponent::StopFootstepVoices()
+{
+    const auto Voices=MoveTemp(FootstepVoices);
+    FootstepVoices.Reset();
+    for(const auto& Pair:Voices)
+        if(auto* Voice=Pair.Key.Get())
+        {
+            Voice->Stop();
+            if(IsValid(Voice)) Voice->DestroyComponent();
+        }
 }
 
 FName UJapanFootstepComponent::SurfaceAt(const FHitResult& Hit) const
@@ -118,10 +184,15 @@ void UJapanFootstepComponent::Play(FName Surface,const FVector& At,float Volume,
     if(!Set || Scale<=0.f) return;
     USoundWave* Wave=DrawStep(Surface,bOriginalOnly);
     if(!Wave) return;
-    AtelierPlaySound(this,Wave,At,Volume*Scale,Pitch,Set->Attenuation);
+    if(bOriginalOnly) AtelierPlaySound(this,Wave,At,Volume*Scale,Pitch,Set->Attenuation);
+    else
+    {
+        PlayFootstepVoice(Wave,At,Volume*Scale,Pitch);
+        FAtelierAudioLog::Record(Wave,At,Volume*Scale*FootstepVolume,Pitch,false);
+    }
     if(CVarFootstepDebug.GetValueOnGameThread())
         UE_LOG(LogTemp,Display,TEXT("footstep %s %s vol %.2f pitch %.2f"),*Surface.ToString(),
-            *Wave->GetName(),Volume*Scale,Pitch);
+            *Wave->GetName(),Volume*Scale*(bOriginalOnly?1.f:FootstepVolume),Pitch);
 }
 
 void UJapanFootstepComponent::Plant(int32 Side,const FVector& Foot,float Speed)

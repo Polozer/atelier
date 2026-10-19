@@ -8,6 +8,7 @@
 class AJapanWorld;
 class USoundAttenuation;
 class USoundWave;
+class UAudioComponent;
 class UJapanSoundBank;
 class UJapanFootstepComponent;
 DECLARE_MULTICAST_DELEGATE_OneParam(FJapanFootstepAudioReady, UJapanFootstepComponent*);
@@ -51,6 +52,7 @@ class YORIMICHI_API UJapanFootstepComponent : public UActorComponent
 public:
     UJapanFootstepComponent();
     virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void TickComponent(float Dt,ELevelTick TickType,FActorComponentTickFunction* Function) override;
     /** A landing plants both feet at once; Weight scales with the drop. */
     void Land(const FHitResult& Hit,float Weight);
@@ -65,8 +67,11 @@ public:
     bool CanSetSoundBank(const UJapanSoundBank* Replacement, FString& Error) const;
     bool SetSoundBank(UJapanSoundBank* Replacement, FString& Error);
     const UJapanSoundBank* GetSoundBank() const { return SoundBank.Get(); }
+    /** Local human-footstep presentation only, independent of the selected bank. */
+    void SetAudioPreferences(bool bSoften, float Volume);
 private:
     friend class FJapanFootstepSoundBankTest;
+    friend class FJapanFootstepPreferencesTest;
     UPROPERTY() TObjectPtr<UJapanFootstepSet> Set;
     UPROPERTY() TObjectPtr<UJapanSoundBank> SoundBank;
     UPROPERTY() TObjectPtr<AJapanWorld> Landscape;
@@ -77,6 +82,13 @@ private:
     // Per surface shuffled queue, so the same one-shot never comes round twice in a row.
     TMap<FName,FAtelierShuffleBag> Bags;
     TMap<FName,FAtelierShuffleBag> AlternativeBags;
+    bool bSoftenFootsteps = false;
+    float FootstepVolume = 1.f;
+    // Weak handles cannot retain finished auto-destroy voices or their old bank.
+    TMap<TWeakObjectPtr<UAudioComponent>,float> FootstepVoices;
+    void ApplyVoicePreferences(UAudioComponent* Voice, float BaseVolume) const;
+    void PlayFootstepVoice(USoundWave* Wave, const FVector& At, float Volume, float Pitch);
+    void StopFootstepVoices();
     void Plant(int32 Side,const FVector& Foot,float Speed);
     USoundWave* DrawStep(FName Surface,bool bOriginalOnly);
     void Play(FName Surface,const FVector& At,float Volume,float Pitch,bool bOriginalOnly=false);

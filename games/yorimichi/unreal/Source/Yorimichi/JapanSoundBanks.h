@@ -31,6 +31,7 @@ public:
     void Select(int32 Selection, TFunction<bool(int32)> Persist = {});
     void Preview();
     void StopPreview();
+    void SetFootstepPreferences(bool bSoften, float Volume);
     bool IsPreviewing() const { return Audition != nullptr || PreviewLoading.IsValid(); }
     FString Label();
     const FString& Error() const { return LastError; }
@@ -41,6 +42,7 @@ protected:
 private:
     friend class FJapanSoundBankSelectionTest;
     friend class FJapanSoundBankCompletionTest;
+    friend class FJapanFootstepPreferencesTest;
     bool ReadRegistry();
     bool RegistryCurrent(FString& Error) const;
     bool MatchesRegistry(const FString& Current) const;
@@ -53,6 +55,8 @@ private:
     void PreviewLoaded(uint64 Token,const FJapanSoundChoice& Choice);
     TArray<FJapanSoundChoice> Choices;
     bool bRegistryLoaded = false, bRegistryAttempted = false, bRestored = false, bShuttingDown = false;
+    bool bSoftenFootsteps = false;
+    float FootstepVolume = 1.f;
     uint64 Generation = 0, PreviewGeneration = 0;
     int32 ActiveSelection = 0, RequestedSelection = 0;
     FString LastError;

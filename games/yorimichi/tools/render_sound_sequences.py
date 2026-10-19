@@ -30,7 +30,7 @@ MAX_FILE = 160 * 1024
 MAX_BANK = 10 * 1024 * 1024
 RUNTIME = {
     'games/yorimichi/unreal/Source/Yorimichi/JapanFootsteps.cpp':
-        'e95e72f320e13c8fcf972377168d4171b3edc412b57a1afe08ac51616d4777b5',
+        'b0e79dd465820690511a86f010d657a65cd70912e77df49bf6db5b3beb267729',
     'platform/engine/Plugins/Activities/Skate/Source/AtelierSkate/Private/SkateComponent.cpp':
         '1c24553dea8618122603766cfb620ec669a72c87bd99bd0ce9f792013b167fc5',
     'platform/engine/Plugins/Activities/Skate/Source/AtelierSkate/Private/SkateRuntime.cpp':

@@ -83,11 +83,27 @@ def test_ready_notifications_preserve_exact_contact_and_skate_profile_bodies():
     witness = json.loads((game / 'assets/audio/profile/menu-ready-revalidation.json').read_text())
     assert witness['version'] == 1 and witness['parent'] == '60e953aa664867713d23009e4a2a8e2af2d78f2d'
     assert len(witness['sources']) == 2
+    follow = json.loads((game / 'assets/audio/profile/footstep-preferences-revalidation.json').read_text())
+    assert follow['version'] == 1
+    assert follow['defaults'] == {'soften_footsteps': False, 'footstep_volume': 1.0}
+    assert set(follow['changed_function_bodies']) == {'Play'}
     for row in witness['sources']:
         path = sequences.REPO / row['source']
-        assert row['after_sha256'] == sequences.RUNTIME[row['source']] == sequences.digest(path)
+        changed = row['source'] == follow['source']
+        if changed:
+            assert row['after_sha256'] == follow['before_sha256']
+            assert follow['after_sha256'] == sequences.RUNTIME[row['source']] == sequences.digest(path)
+            assert follow['owner'] == row['owner']
+            assert follow['unchanged_function_bodies'] == {
+                name: value for name, value in row['unchanged_function_bodies'].items() if name != 'Play'
+            }
+        else:
+            assert row['after_sha256'] == sequences.RUNTIME[row['source']] == sequences.digest(path)
         text = path.read_text()
         for name, expected in row['unchanged_function_bodies'].items():
+            if changed and name == 'Play':
+                assert expected == follow['changed_function_bodies']['Play']['before_sha256']
+                expected = follow['changed_function_bodies']['Play']['after_sha256']
             start = text.index('{', text.index(row['owner'] + '::' + name + '('))
             depth = 0
             for end in range(start, len(text)):
