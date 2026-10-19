@@ -21,7 +21,7 @@ atelier play yorimichi --profile desktop --set 'show_fps=0'
 All four profiles run `tools/desktop_preview.py --shared-settings` (`play` and `desktop` add `--windowed`); `--set` is passed on as
 `--settings`. The launcher starts the editor binary with `-game` at `-resx=2560 -resy=1440`, under the render lock and
 the 10 GiB memory guard, and chooses the renderer per process with Unreal's `-ini:` override, so `DefaultEngine.ini` is
-never rewritten. `--memory-gib N` reaches the launcher too; the normal 10 to 14 GiB range remains enforced.
+never rewritten. `--memory-gib N` reaches the launcher too; the normal 10 to 24 GiB range remains enforced.
 
 Forward lighting and tree optimization are the defaults, including when `Saved/settings.txt` has no corresponding
 keys. The graphics menu saves `renderer=0` (forward) or `renderer=1` (Lumen), and `tree_optimization=1` or `0`.
@@ -40,7 +40,7 @@ Tree changes apply in the current game; subsequent launches honor the saved choi
 | `--shared-settings` | use and save the game's own `unreal/Saved/settings.txt` (camera, controls, quality, art, renderer and trees); `desktop=1` is session-only. Performance mode and 100% render scale are defaults when absent, rather than overwriting saved choices. Without it, the session gets a copy of that file and a fixed look (painterly 0.35, exposure 0.9, sun 48°/15°, FPS shown) |
 | `--settings 'key=value;...'` | extra preference overrides for this session |
 | `--baseline` | explicitly use deferred Lumen and the full sky light for comparison; the launcher prints its resource warning |
-| `--memory-gib N` | guard ceiling for this run, 10 to 14 GiB |
+| `--memory-gib N` | guard ceiling for this run, 10 to 24 GiB |
 | `--dry-run` | print the launch command |
 
 `YORIMICHI_EXTRA_ARGS` and CLI arguments after `--` append Unreal arguments. Each run writes `build/yorimichi/logs/desktop-<YYYYmmdd-HHMMSS>/`:

@@ -10,7 +10,7 @@ Two protections, because they do different jobs:
   The big slot is the machine's only one unless two are switched on (see `render_lock`); `small_gib` (`--small`), the
   job's expected peak, lets a small job use the second, small slot beside a big one.
 * `memory_guard` runs as a sibling watching this exact child, pinned to its pid and start time, at `limit_gib`
-  (10 GiB by default, up to 14 for `atelier play --memory-gib`), or 4 GiB in the small slot.
+  (10 GiB by default, up to 24 for `atelier play --memory-gib`), or 4 GiB in the small slot.
 
 Ownership is registered the instant the child exists, so every later failure still reaps it: the monitor failing to
 start, an exception, Ctrl-C, or the deadline. `timeout=0` means no deadline (interactive play); the ceiling is never

@@ -196,7 +196,7 @@ def make_parser():
     p = sub.add_parser('play'); p.add_argument('game'); p.add_argument('--profile', default='play')
     p.add_argument('--set', default='', help='settings overrides, key=value;key=value')
     p.add_argument('--memory-gib', type=float, default=None,
-                   help='memory guard limit for this session, 10 (the default) to 14 GiB: say so on the render board')
+                   help='memory guard limit for this session, 10 (the default) to 24 GiB; full broker admission still required')
     p.add_argument('extra', nargs='*', help='Unreal arguments, after --')
     p = sub.add_parser('playtest'); p.add_argument('game')
     p.add_argument('--tag', help='this release instead of the latest')

@@ -113,7 +113,7 @@ def capture(tmp_path, monkeypatch):
     return module
 
 
-@pytest.mark.parametrize('memory_gib', [None, 14.])
+@pytest.mark.parametrize('memory_gib', [None, 14., 18., 24.])
 def test_capture_common_guard_keeps_progress_and_output_certification(capture, monkeypatch, capsys, memory_gib):
     calls = []
     now = [0.]
@@ -147,10 +147,10 @@ def test_capture_common_guard_keeps_progress_and_output_certification(capture, m
     assert 'CAPTURE PROGRESS shot: 31s elapsed, 1 frames saved' in capsys.readouterr().out
 
 
-@pytest.mark.parametrize('memory_gib', [9., 14.1, float('nan'), float('inf'), True])
+@pytest.mark.parametrize('memory_gib', [9., 24.1, float('nan'), float('inf'), True])
 def test_capture_rejects_invalid_ceiling_before_artifacts_or_admission(capture, monkeypatch, memory_gib):
     monkeypatch.setattr(capture.guarded, 'run', lambda *args, **options: pytest.fail('Unexpected admission'))
-    with pytest.raises(ValueError, match='between 10 and 14'):
+    with pytest.raises(ValueError, match='between 10 and 24'):
         capture.capture('invalid', 'shot', {}, memory_gib=memory_gib)
     assert not (capture.yori.OUT / 'captures').exists()
 
