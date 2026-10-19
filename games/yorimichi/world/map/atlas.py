@@ -35,6 +35,7 @@ GAME = Path(__file__).resolve().parents[2]
 GEOGRAPHY_SOURCES = (
     'world/gen_world.py', 'world/build_terrain.py',
     'world/farhills_surface.py', 'world/farhills_grid.py', 'world/terrain_product.py', 'world/north_mountain_surface.py',
+    'world/city_terrain_surface.py', 'world/regions/hidamari/build.py',
     'world/regions/hidamari/layout.py', 'world/regions/hidamari/mountains.py',
     'world/regions/belmonte/layout.py', 'world/regions/belmonte/terrain.py', 'world/regions/belmonte/plan.py',
     'world/regions/southwest/island.py', 'world/train/route.py',

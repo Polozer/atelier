@@ -23,6 +23,10 @@ CASES = {
     'island_fade': ([300., 312., 324., 330.], [0., 4.]),
     'park_refinement': ([981., 982.2], [225., 226.1]),
     'terrace_refinement': ([651., 652.2], [256., 257.1]),
+    # Crosses the air-station apron: x > 1253 and y < 327 inside the station's
+    # 14x10 m pad, with coarse cells outside its ramps as the control.
+    'city_pad': ([1246., 1252., 1260., 1270., 1280., 1290.],
+                 [302., 310., 318., 326., 334.]),
     'paving': ([380., 386.], [-119., -113.]),
     'other_surface': ([400., 404.], [0., 4.]),
 }
@@ -49,7 +53,7 @@ class RecordingMesh:
         self.keys.append(key)
 
 
-def evaluate(case, *, source=None):
+def evaluate(case, *, source=None, capture_natural=False):
     """Run the current emitter with explicit nonlinear height and carved grid."""
     path = SOURCE if source is None else Path(source)
     tree = ast.parse(path.read_text(), filename=str(path))
@@ -93,7 +97,12 @@ def evaluate(case, *, source=None):
                  layout=SimpleNamespace(ISLAND_FADE=24., ISLAND_LAWN=(.19, .23, .08), island_fade=fade),
                  shorelines=SimpleNamespace(colours=colours), v=SimpleNamespace(PALETTE=PALETTE))
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(path), 'exec'), scope)
+    natural = RecordingMesh('HD_Terrain') if capture_natural else None
     with patch.object(earthworks, 'carve', carve):
-        mesh = scope['surface']('Other' if case == 'other_surface' else 'HD_Terrain', xs, ys, 'paving')
-    return dict(vertices=mesh.vertices, faces=mesh.faces, colours=mesh.colors, keys=mesh.keys,
-                calls=calls, axes_unchanged=np.array_equal(xs, before[0]) and np.array_equal(ys, before[1]))
+        mesh = scope['surface']('Other' if case == 'other_surface' else 'HD_Terrain', xs, ys, 'paving',
+                                **({'_natural': natural} if capture_natural else {}))
+    result = dict(vertices=mesh.vertices, faces=mesh.faces, colours=mesh.colors, keys=mesh.keys,
+                  calls=calls, axes_unchanged=np.array_equal(xs, before[0]) and np.array_equal(ys, before[1]))
+    if capture_natural:
+        result['natural'] = dict(vertices=natural.vertices, faces=natural.faces)
+    return result

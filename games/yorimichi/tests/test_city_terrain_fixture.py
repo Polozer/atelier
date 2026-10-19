@@ -26,8 +26,10 @@ def same_calls(current, expected):
         assert current == pytest.approx(expected, rel=0., abs=1.e-12)
 
 
-@pytest.mark.parametrize('case', CASES)
+@pytest.mark.parametrize('case', [case for case in CASES if case != 'city_pad'])
 def test_city_emission_order_heights_and_colours(case):
+    # city_pad exercises main's post-r8 air-station apron and is covered by the
+    # paired/unpaired regression; the frozen baseline is the published r8 source.
     baseline = json.loads(BASELINE.read_text())
     assert baseline['source_revision'] == '4ff62dabbc1a20350a3a849e58f00196db8a3dff'
     assert baseline['source_sha256'] == '93702c4d2efb5496bc3bf665aee68b136ec12fb74e4110f2877504a952e8c1eb'

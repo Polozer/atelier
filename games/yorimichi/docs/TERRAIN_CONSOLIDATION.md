@@ -49,8 +49,9 @@ attribute evaluation order before extracting the foothills/apron owner.
 before extracting the city owner. Its function AST was checked against published
 r8. Ordinary Python tests compile just that production function, supply explicit
 bounded height/land-use/water/colour callbacks, and record emitted quads, corner
-colours, palette keys and callback order. The cases retain the coarse-grid carve,
-both existing fine terrace regions (which resample uncarved height), separate
+colours, palette keys and callback order. The cases retain the coarse-grid
+railway carve and the air-station apron levelling, both existing fine terrace
+regions (which resample uncarved height), separate
 pond/canal omissions, coastal colouring, the island lawn fade, inset paving and
 the non-city path. They preserve this order rather than endorsing a future
 change to it. Numerical comparisons allow `1e-12`; polygon/key order is exact.
@@ -187,3 +188,24 @@ All eight existing paintings, coast masks and original generation records are
 preserved; the new helper is included in map inputs and geography signatures.
 This attestation covers source and array equivalence. Export and imported
 native parity remain separate validation steps.
+
+The city-ground publication increment adds `terrain.HD_Terrain.natural`, `.final`
+and `.provenance` to the same normal city build. Its existing emitter applies the
+local coarse-grid railway carve and, since main, the air-station apron levelling.
+A paired Mesh records the original coarse heights in the same cell traversal,
+before both local operations; final emission, palette/colour updates and export
+keep their order. Existing fine terrace patches and inset paving still evaluate
+their independent heights, with paving's existing lift, in both stages. Natural
+here means before both local coarse-grid operations (railway carve and
+air-station apron), not before all upstream world shaping.
+Both geometry products retain duplicated corners and explicit polygon order;
+appearance attributes continue through the original final Mesh, not the products.
+
+This owner includes the ground and paving already in `HD_Terrain`. Streets,
+squares, arrival ribbons, park grounds, mountain sheets and water are separate
+owners. No placement/query consumer is migrated yet, and shared borders are not
+inferred. Existing Blender packing and export/import triangulation must be
+compared against the ordered product before it becomes a query authority. Full
+production arrays/attributes, exported payloads, atlas source equivalence and
+imported support remain required proofs; bounded callback fixtures alone do not
+establish them. No new performance or invalidation benefit is claimed here.
