@@ -108,3 +108,12 @@ Leaving or losing possession MUST release the train camera; map/menu input MUST 
 it, and its controller bumper MUST NOT also operate a nearby zeppelin.
 Fixed and cinematic views MUST take over immediately without a residual train-camera blend
 or hidden passenger body. Suspended controls MUST NOT change the camera preference.
+
+@cc [owner:fontanierh,label:correctness] train-boarding-admission-recovery
+Train passenger admission MUST be granted only by completing a station boarding walk on authority,
+replicated in the passenger snapshot, preserved across seats, gangway grace and pawn replacement,
+and revoked on alighting, cancellation, respawn, map travel, disconnect or expiry outside the train.
+Clients MUST NOT grant or revoke admission locally. Unadmitted players carried by a moving or
+departing coach MUST be recovered only to verified walkable non-train ground with standing capsule
+clearance and a swept floor, never beside a coach in a tunnel or on a viaduct and never via an
+unverified fallback teleport. Platform bystanders intersected by a passing coach MUST NOT be relocated.
