@@ -24,7 +24,7 @@ function Reservation({job, now, fresh}: {job: Job; now: number; fresh: boolean})
   return (
     <article className={`capacity-job${uncertain ? ' uncertain' : ''}`}>
       <div className="capacity-job-head"><strong>{job.purpose || job.id}</strong>
-        <span className={`capacity-tag${uncertain ? ' warning' : ''}`}>{uncertain ? 'locked' : job.state === 'waiting' ? 'awaiting retry' : job.state === 'queued' ? 'ready' : job.state}</span></div>
+        <span className={`capacity-tag${uncertain ? ' warning' : ''}`}>{uncertain ? 'locked' : job.state === 'waiting' ? 'awaiting retry' : job.state}</span></div>
       <p className="capacity-meta">{[job.owner, job.checkout, job.phase].filter(Boolean).join(' · ') || 'Owner not reported'}
         {' · '}first ready {since(job.first_ready, now)}</p>
       <p>{gib(job.resources.memory_mib)} {job.charged ? 'reserved' : 'requested'} · {cpu(job.resources.cpu_millis)}

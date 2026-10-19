@@ -119,3 +119,11 @@ test('stale, disconnected and missing observations never claim current admission
   assert.match(render(snapshot({observed_at: 80})), /These figures are stale/);
   assert.match(render(null), /Capacity availability is unknown/);
 });
+
+test('a pressure-refused job stays queued and displays its arithmetic', () => {
+  const reason = 'waiting for memory: 17510 MiB available, 18432 MiB required; deficit 922 MiB; sample age 0.1s';
+  const html = render(snapshot({waiting_count: 1, records: [job({state: 'queued', charged: false, wait_reason: reason})]}));
+  assert.match(html, /capacity-tag">queued</);
+  assert.doesNotMatch(html, /capacity-tag">ready</);
+  assert.match(html, /17510 MiB available, 18432 MiB required; deficit 922 MiB; sample age 0.1s/);
+});

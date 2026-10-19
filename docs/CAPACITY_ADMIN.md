@@ -21,6 +21,15 @@ an expensive workload repeatedly. Installing new diagnostics requires the usual 
 
 ## Transport delays
 
+Queue status uses the last advisory offer's fresh pressure evaluation, including an evaluation that
+selected no job. It reports available and required MiB, request ceiling, host reserve, remaining peer
+growth, deficit and sample age. After two seconds, or a change to active queue/holder context or policy,
+the display becomes unknown until another offer refreshes it. Dormant retry history is not an active
+queue member. Status reads do not take new VM samples or validate holder guards for this display.
+The waiting client's normal 25-second progress line carries the same reason when supported; older
+brokers retain generic queue text. A queued job stays labelled queued. Advisory eligibility never
+replaces the independently fresh guarded-start proof or changes fairness, resources or deadlines.
+
 For transport incidents, broker logs separate `receive_seconds` (accept through a complete
 request), `handle_seconds` (serialized validation, accounting and storage), and `send_seconds`
 (reply preparation through delivery or failure). Receive time can include waiting for the actor;
