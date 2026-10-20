@@ -49,6 +49,16 @@ def bike_state():
     return L.bike_state()
 
 
+def car():
+    """Get the car out, or (stopped) step off and park it. Drive it with drive() (forward accelerates, back brakes
+    and reverses); press('jump') is its handbrake."""
+    return L.press('car')
+
+
+def car_state():
+    return L.car_state()
+
+
 def skate():
     """Get on or off the board (skate. controls, docs/SKATE.md)."""
     return L.skate_toggle()

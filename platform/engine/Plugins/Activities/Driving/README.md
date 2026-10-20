@@ -1,7 +1,9 @@
-# Atelier driving simulation
+# Atelier driving
 
-A self-contained C++17 driving simulation for a four-wheel car. It is engine-free: it has no
-engine, renderer, asset or platform dependency. How a host exposes it is outside this module.
+A self-contained C++17 driving simulation for a four-wheel car, and the Unreal component that
+drives one from a character. The simulation is engine-free: it has no engine, renderer, asset or
+platform dependency. `UDrivingComponent` is the Unreal host: it reads the world with a ray per
+wheel, steps the simulation, and moves the character it is attached to.
 
 ## What it does
 
@@ -35,6 +37,20 @@ receives position(), orientation() and wheel(i) and can drive its own presentati
 | SimulationVehicle.* | the car step, wheel loop, aero, wall response and hardware replacement |
 | SimulationPerformance.* | measured top speed and acceleration table |
 | Tests/Simulation/self_test.cpp | standalone C++ checks for driving, shifting, contacts and performance |
+| Private/DrivingComponent.cpp | the Unreal host: summon, mount, ground traces, fixed-step tick, dismount |
+
+## Unreal host
+
+`UDrivingComponent` is a component on the playable character. `Initialize` creates its scene root
+and body mesh on that character; `SetBodyMesh` takes the car body (its origin on the ground under
+the middle, +X the nose) and falls back to a box when the content is missing.
+
+`Toggle` finds ground beside the rider, places the chassis with `Vehicle::place_on_ground`, hides
+the character's mesh, stops CharacterMovement and takes the actor transform each tick. The step is
+the simulation's fixed 1/60 s, fed the character's stick intent: `Move.Y` accelerates or brakes,
+`Move.X` steers right. Each wheel's world contact comes from one downward line trace through
+`Ground::hit`; a box sweep of the chassis stops it at walls. `Toggle` again (stopped) puts the
+rider on the ground beside the car.
 
 ## Units and conventions
 
