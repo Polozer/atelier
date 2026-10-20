@@ -40,6 +40,11 @@ def registry_build(tmp_path, monkeypatch):
     library = assets / 'source-library.json'
     files = {'brinecove/models/ship.glb': {'sha256': 'a' * 64}, 'other/model.glb': {'sha256': 'b' * 64}}
     monkeypatch.setattr(RECIPE, 'ASSETS', assets)
+    world = tmp_path / 'world'
+    world.mkdir()
+    helper = world / 'source_registry.py'
+    helper.write_bytes((RECIPE.WORLD / helper.name).read_bytes())
+    monkeypatch.setattr(RECIPE, 'WORLD', world)
     out = tmp_path / 'build'
     selector = RECIPE.brinecove_source_step(out)
     real = RECIPE.brinecove_steps(out)[0]
@@ -65,7 +70,7 @@ def registry_build(tmp_path, monkeypatch):
     assert run() == 0 and len(executed) == 1
     executed.clear()
     return SimpleNamespace(run=run, files=files, executed=executed, model=model, provenance=provenance,
-                           snapshot=selector.outputs[0])
+                           snapshot=selector.outputs[0], helper=helper)
 
 
 def test_unrelated_registry_edits_stop_before_the_region_export(registry_build):
@@ -75,6 +80,17 @@ def test_unrelated_registry_edits_stop_before_the_region_export(registry_build):
     p.files['another/model.glb'] = {'sha256': 'd' * 64}
     p.files['brinecove/models/ship.glb']['unused_metadata'] = 'not consumed'
     assert p.run() == 0 and p.executed == [] and p.snapshot.read_bytes() == before
+
+
+def test_verification_code_change_reaches_export_even_with_identical_snapshot(registry_build):
+    p = registry_build
+    before = p.snapshot.read_bytes()
+    p.helper.write_text(p.helper.read_text() + '\n# changed runtime verification implementation\n')
+    assert p.run() == 0 and len(p.executed) == 1 and p.snapshot.read_bytes() == before
+
+
+def test_assembled_export_tracks_its_runtime_registry_helper(tmp_path, monkeypatch):
+    assert 'world.brinecove' in changed_by(RECIPE.WORLD / 'source_registry.py', tmp_path, monkeypatch)
 
 
 @pytest.mark.parametrize('change', ['checksum', 'addition', 'removal'])

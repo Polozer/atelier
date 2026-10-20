@@ -677,7 +677,7 @@ def brinecove_steps(out):
     library = out / 'digests' / 'brinecove-source-library.json'
     return [
         Step('world.brinecove', [Blender(region / 'build.py', ('--source-library', str(library)), threads=3)],
-             inputs=[region, ASSETS / 'brinecove', library, WORLD / 'terrain_product.py', YORI],
+             inputs=[region, ASSETS / 'brinecove', library, WORLD / 'source_registry.py', WORLD / 'terrain_product.py', YORI],
              needs=['world.brinecove.sources'],
              reads=['terrain.FarHills.final'], heavy=True,
              outputs=[out / 'brinecove' / 'runtime.json', out / 'brinecove' / 'build-report.json'],
