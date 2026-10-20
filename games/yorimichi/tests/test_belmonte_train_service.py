@@ -35,7 +35,15 @@ def route(schedule=True):
             {'direction': 'Hidamari -> Belmonte', 'depart_s': 300.0, 'loop_arrive_s': 400.0, 'loop_leave_s': 410.0, 'arrive_s': 500.0}]}]}
     return {'samples': samples, 'passing_loop': loop,
             'speed_profile': profile(100., 1100., 180.), 'speed_profile_down': profile(1100., 100., 180.),
+            'speed_profile_stopping': {'direction': 'down', 'halt': 600., 'rows': stopping(1100., 600., 100., 180.)},
             'summary': {'service': service if schedule else {'dwell_s': 60.0}}}
+
+
+def stopping(start, halt, stop, seconds):
+    """route.py's waiting run: to a stand at `halt`, then on from it to `stop` (one row at the stand)."""
+    first = profile(start, halt, seconds / 2)
+    second = profile(halt, stop, seconds / 2)
+    return first + [[s, t + first[-1][1], v] for s, t, v in second[1:]]
 
 
 def write_fixture(root, schedule=True):

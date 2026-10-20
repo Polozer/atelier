@@ -180,6 +180,10 @@ def settle(name, x, y, z, corridor=None):
         if k == 'shrub':
             rock, _, _ = E.weights(x[i], y[i], carved, z[i], ln)
             bad |= rock > .5
+    # Nothing grows inside a tunnel: a plant over one whose foot is under the lining's crown (on ground under the
+    # foothills, or below the hood) would stand in the bore, in the passengers' way.
+    rail = np.interp(s[i], ln.s, ln.rail)
+    bad |= (tunnel > 0) & (np.abs(u[i]) < E.HOOD_HALF) & (z[i] < rail + PORTAL_HEIGHT[1])
     keep[i] &= ~bad
     out[i] = carved
     return keep, out

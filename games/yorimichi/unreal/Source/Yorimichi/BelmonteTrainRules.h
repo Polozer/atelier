@@ -153,4 +153,147 @@ int32 DropVanished(TArray<TRider>& Riders, FRelease&& Release)
         if (!Riders[I].Character.Get()) { Release(Riders[I]); Riders.RemoveAt(I); ++Dropped; }
     return Dropped;
 }
+
+/** A seated passenger's view follows the coach: the yaw the coach turned since last frame (degrees, -180..180), added
+ *  to the passenger's control rotation, so the view they chose stays fixed in the coach (looking out of a window keeps
+ *  looking out of that window) instead of swinging across it as the line curves. */
+inline double CarriageTurn(double PreviousYaw, double Yaw)
+{
+    return FRotator::NormalizeAxis(Yaw - PreviousYaw);
+}
+
+/**
+ * The aisle beside a seat, in the vehicle's frame (cm), from the seats of the seat's room alone: along each axis the
+ * distinct seat coordinates leave gaps; the widest gap is the free floor between the seat rows (a saloon's central
+ * aisle between the benches, a restaurant's between the tables, a compartment's floor between its facing sofas). The
+ * seat is moved across onto that gap's middle (of equal gaps, the nearest). bFound is false when the room's seats
+ * leave no gap (a single seat): the caller then steps off the seat's front.
+ */
+inline FVector2D AislePoint(const FVector2D& Seat, const TArray<FVector2D>& RoomSeats, bool& bFound)
+{
+    bFound = false;
+    FVector2D Best = Seat;
+    double BestGap = 0.;
+    for (int32 Axis = 0; Axis < 2; ++Axis)
+    {
+        TArray<double> Values;
+        for (const FVector2D& P : RoomSeats) Values.Add(Axis ? P.Y : P.X);
+        Values.Sort();
+        const double Here = Axis ? Seat.Y : Seat.X;
+        double AxisGap = 0., AxisMid = Here;
+        for (int32 I = 1; I < Values.Num(); ++I)
+        {
+            const double Gap = Values[I] - Values[I - 1], Mid = .5 * (Values[I] + Values[I - 1]);
+            const bool bWider = Gap > AxisGap + 1.;
+            const bool bTieNearer = FMath::Abs(Gap - AxisGap) <= 1. && FMath::Abs(Mid - Here) < FMath::Abs(AxisMid - Here);
+            if (bWider || bTieNearer) { AxisGap = FMath::Max(AxisGap, Gap); AxisMid = Mid; }
+        }
+        if (AxisGap > BestGap + 1.)
+        {
+            BestGap = AxisGap; bFound = true;
+            Best = Axis ? FVector2D(Seat.X, AxisMid) : FVector2D(AxisMid, Seat.Y);
+        }
+    }
+    return Best;
+}
+
+/** The seats (x/y) of the room holding seat Index: the smallest of Rooms (a saloon, a compartment; not the whole body)
+ *  whose plan holds it; all of them when no room does. */
+inline TArray<FVector2D> RoomSeats(const TArray<FBox>& Rooms, const TArray<FVector2D>& Seats, int32 Index)
+{
+    TArray<FVector2D> Out;
+    if (!Seats.IsValidIndex(Index)) return Out;
+    auto Plan = [](const FBox& B) { return FBox2D(FVector2D(B.Min), FVector2D(B.Max)); };
+    const FBox* Room = nullptr;
+    for (const FBox& B : Rooms)
+        if (Plan(B).IsInside(Seats[Index]) && (!Room || Plan(B).GetArea() < Plan(*Room).GetArea())) Room = &B;
+    for (const FVector2D& S : Seats) if (!Room || Plan(*Room).IsInside(S)) Out.Add(S);
+    return Out;
+}
+
+/**
+ * Where a passenger stands up from a seat, in the vehicle's frame (cm, X/Y; the caller sets the floor height): the aisle
+ * beside the seat (AislePoint) when its standing capsule is clear (Blocked: true where it overlaps the coach or
+ * someone), else further along that aisle (up to MaxSlide cm either way, nearest first), else a step off the seat's
+ * front (Forward: the seat's facing, Step cm), else the aisle point anyway. One rule for every seat: benches facing
+ * across a table, banquettes, armchairs and compartment sofas.
+ */
+template<typename FBlocked>
+FVector2D StandUpPoint(const FVector2D& Seat, const FVector2D& Forward, const TArray<FVector2D>& RoomSeats, FBlocked&& Blocked,
+    double Step = 55., double SlideStep = 20., double MaxSlide = 120.)
+{
+    bool bAisle = false;
+    const FVector2D Aisle = AislePoint(Seat, RoomSeats, bAisle);
+    const FVector2D Front = Seat + Forward.GetSafeNormal() * Step;
+    if (!bAisle) return Front;
+    if (!Blocked(Aisle)) return Aisle;
+    // Along the aisle: the axis the seat was not moved across.
+    const FVector2D Along = FMath::Abs(Aisle.X - Seat.X) > FMath::Abs(Aisle.Y - Seat.Y) ? FVector2D(0., 1.) : FVector2D(1., 0.);
+    for (double D = SlideStep; D <= MaxSlide + .5; D += SlideStep)
+        for (const double Sign : {1., -1.})
+            if (!Blocked(Aisle + Along * D * Sign)) return Aisle + Along * D * Sign;
+    if (!Blocked(Front)) return Front;
+    return Aisle;
+}
+
+/** One of a train's sound events (an arrival's brakes, a departure signal) at service time Event (repeating every Cycle
+ *  seconds) falls in (Previous, Now]: the shared clock moved forward by less than MaxStep this frame (a dev jump or a
+ *  join never replays the events it skipped). */
+inline bool EventDue(double Event, double Previous, double Now, double Cycle, double MaxStep = 2.)
+{
+    if (Cycle <= 0. || Now <= Previous || Now - Previous > MaxStep) return false;
+    const double Since = FMath::Fmod(FMath::Fmod(Now - Event, Cycle) + Cycle, Cycle);
+    return Since < Now - Previous;
+}
+
+/** The train's continuous sound layers (BelmonteTrainSound.cpp), from its motion alone: Speed (m/s, unsigned) and Accel
+ *  (m/s^2 along the motion, + speeding up), as the listener hears them (service speeds times the clock's scale).
+ *  RollSpeed: the speed the roll master was recorded at (pitch 1 there). Every machine computes the same mix from the
+ *  shared clock. */
+struct FTrainSoundMix
+{
+    /** The locomotive standing (loop), working while it accelerates (loop), every vehicle rolling (loop), and each
+     *  rail-joint clack's volume. */
+    float Idle = 0.f, Effort = 0.f, Roll = 0.f, Clack = 0.f;
+    float RollPitch = 1.f, EffortPitch = 1.f, ClackPitch = 1.f;
+};
+
+inline FTrainSoundMix SoundMix(double Speed, double Accel, double RollSpeed)
+{
+    auto Step = [](double A, double B, double X) { return float(FMath::SmoothStep(A, B, X)); };
+    const double Fast = FMath::Clamp(Speed / FMath::Max(RollSpeed, 1.), 0., 1.6);
+    FTrainSoundMix M;
+    // Idle at a standstill, fading as the train moves off; the effort while the speed rises (none standing or braking).
+    M.Idle = 1.f - Step(0., 1.5, Speed);
+    M.Effort = Step(.04, .3, Accel) * Step(0., .4, Speed) * (1.f - .4f * Step(.8, 1.2, Fast));
+    // The roll grows with the speed and its pitch rises with it, strictly, over the whole range.
+    M.Roll = Step(.2, 4., Speed) * float(.35 + .65 * FMath::Min(Fast, 1.)) * (1.f - .35f * M.Effort);
+    M.RollPitch = float(.5 + .5 * Fast);
+    M.EffortPitch = float(.85 + .3 * FMath::Min(Fast, 1.));
+    M.Clack = Step(.8, 5., Speed) * float(.5 + .5 * FMath::Min(Fast, 1.));
+    M.ClackPitch = float(.92 + .16 * FMath::Min(Fast, 1.));
+    return M;
+}
+
+/** Rail joints (every RailLength m) a bogie passed going from chainage Previous to Now (m), either way: one clack each.
+ *  At most 4 a frame (a clock jump replays nothing more). */
+inline int32 JointsCrossed(double Previous, double Now, double RailLength)
+{
+    if (RailLength <= 0.) return 0;
+    const int64 A = int64(FMath::FloorToDouble(Previous / RailLength)), B = int64(FMath::FloorToDouble(Now / RailLength));
+    return int32(FMath::Min<int64>(FMath::Abs(B - A), 4));
+}
+
+/** The brake cue into a stand: it ends at the stop (Arrive, service s) and starts with the timetable's deceleration
+ *  (BrakeStart) when its length fits that phase at a pitch within MinPitch..MaxPitch; otherwise it keeps that pitch
+ *  limit and only its end stays on the stop. CueSeconds: the cue's real length; Scale: service s per real s. Returns
+ *  the service time it starts; Pitch is what it plays at. */
+inline double BrakeCue(double BrakeStart, double Arrive, double CueSeconds, double Scale, float& Pitch,
+    double MinPitch = .75, double MaxPitch = 1.33)
+{
+    const double S = FMath::Max(Scale, 1e-3);
+    const double Phase = FMath::Max(Arrive - BrakeStart, 1e-3) / S;      // real seconds
+    Pitch = float(FMath::Clamp(CueSeconds / Phase, MinPitch, MaxPitch));
+    return Arrive - CueSeconds / Pitch * S;
+}
 }

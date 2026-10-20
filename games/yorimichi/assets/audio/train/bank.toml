@@ -1,0 +1,4 @@
+id = "train"
+fetch = "fetch.py"                    # Sonniss masters (md5-checked) -> ~/.cache/atelier/sonniss/train
+build = "make.py"                     # -> build/yorimichi/audio/train (idle, effort, roll loops; clack, brake, depart)
+licence = "Sonniss GDC bundles: may ship inside the game; the files are not redistributed here; no AI use"
