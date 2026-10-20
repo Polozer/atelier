@@ -29,11 +29,11 @@ def manifest(desktop, count=83):
     return path
 
 
-def ready_log(lumen=False, trees=True, tiles=83):
+def ready_log(lumen=False, trees=True, tiles=83, forced=2, groups=3):
     return (f'DESKTOP PREVIEW viewport=2228x1440 fullscreen=1 window_aspect=1.547\n'
             f'r.ForwardShading = "{int(not lumen)}"\n'
             f'CITY TILES tag=v1_128m enabled=1 originals=3 tiles={tiles}\n'
-            f'CITY TREE LODS tag=v4 enabled={int(trees)} forced=0 groups=3\n'
+            f'CITY TREE LODS tag=v4 enabled={int(trees)} forced={forced} groups={groups} instances=900 distance_scale=1.50\n'
             'FORWARD FILL nominal_lux=3.000 lights=1\n')
 
 
@@ -167,13 +167,62 @@ def test_restart_requires_a_changed_saved_choice(desktop, monkeypatch, tmp_path)
 
 def test_forced_tree_comparison_readiness_and_invalid_saved_modes(desktop):
     manifest(desktop)
-    forced=ready_log().replace('forced=0','forced=2')
-    assert desktop.parse_ready(forced,tree_lod_mode=2)['height']==1440
+    forced=ready_log(forced=3)
+    assert desktop.parse_ready(forced,tree_lod_mode=3)['height']==1440
     with pytest.raises(ValueError,match='CITY TREE LODS'):
         desktop.parse_ready(forced,tree_lod_mode=0)
     assert desktop.tree_lod_choice({'tree_lod_mode':'1.5'})==2
-    assert desktop.tree_lod_choice({'tree_lod_mode':'nan'})==0
-    assert desktop.tree_lod_choice({'tree_lod_mode':'bad'})==0
+    assert desktop.tree_lod_choice({'tree_lod_mode':'0.4'})==0
+    # Like the game, an unreadable or missing saved mode starts at the release default.
+    assert desktop.tree_lod_choice({'tree_lod_mode':'nan'})==2
+    assert desktop.tree_lod_choice({'tree_lod_mode':'bad'})==2
+    assert desktop.tree_lod_choice({})==2
+
+
+def test_launcher_defaults_are_the_game_release_defaults(desktop):
+    from test_release_defaults import release_defaults
+    game = release_defaults()
+    assert desktop.RELEASE_DEFAULTS == {key: int(game[key]) for key in desktop.RELEASE_DEFAULTS}
+
+
+@pytest.mark.parametrize('saved, settings, forced', [
+    ('', '', 2),                                   # a fresh install: the release preset's forced tree detail
+    ('exposure=1.2\n', '', 2),                     # saved choices that leave the tree mode at its default
+    ('tree_lod_mode=0\n', '', 0),                  # a saved automatic mode
+    ('tree_lod_mode=1\n', '', 1),
+    ('tree_lod_mode=2\n', 'tree_lod_mode=3', 3),    # an explicitly requested mode wins over the saved one
+    ('tree_lod_mode=3\n', 'tree_lod_mode=0', 0),
+])
+def test_play_verifies_the_tree_mode_the_game_starts_in(desktop, monkeypatch, tmp_path, saved, settings, forced):
+    manifest(desktop)
+    (desktop.PROJECT / 'Saved' / 'settings.txt').write_text(saved)
+    ctx = SimpleNamespace(unreal_app=Path('Editor'), uproject=Path('Game.uproject'), out=tmp_path / 'build', env=lambda: {})
+    monkeypatch.setattr(desktop, 'Context', lambda game: ctx)
+    logs = []
+
+    def run(command, folder, **kwargs):
+        (folder / 'game.log').write_text(logs[-1])
+        return 0
+
+    monkeypatch.setattr(desktop.guarded, 'run', run)
+    for shared in (True, False):
+        logs.append(ready_log(forced=forced))
+        assert desktop.launch(shared_settings=shared, settings=settings) == 0
+        # The tree detail the game did not start in is not verified.
+        logs.append(ready_log(forced=(forced + 1) % 4))
+        assert desktop.launch(shared_settings=shared, settings=settings) == 1
+
+
+@pytest.mark.parametrize('log', [
+    ready_log().replace('CITY TREE LODS', 'missing trees'),   # never reported
+    ready_log(trees=False),                                   # optimization expected on but disabled
+    ready_log(groups=2),                                      # fewer than the three city tree groups
+    ready_log(groups=0),
+])
+def test_preset_readiness_still_rejects_missing_disabled_or_partial_trees(desktop, log):
+    manifest(desktop)
+    with pytest.raises(ValueError, match='CITY TREE LODS'):
+        desktop.parse_ready(log)
 
 
 def test_renderer_restart_waits_for_an_occupied_loopback_port(desktop):
