@@ -96,3 +96,38 @@ uv run python games/yorimichi/assets/vehicles/ferry/compare.py
 - Boarding: there is a 2.2 m opening in the main-deck rail amidships on both sides, centred at x = 15.2, in front of
   the deckhouse's white-framed side door. It has brass gate posts and a landing plate. The gangway lands on the deck
   edge there. `manifest.json` records its centre, width and outward direction.
+
+## Terminals
+
+[`terminals/`](terminals/) holds the berths and the terminal kits for Hidamari and Brinecove. Like the ship, they are
+Blender-only: nothing is placed in the world or imported yet.
+
+- [`site.py`](terminals/site.py) runs without Blender. It checks each berth by swept path: the ship's full outline
+  (half-width plus 0.4 m) and its underwater footprint are swept along the authored arrival and departure manoeuvres
+  (ahead, crab, pivot, arc), and it reports the clearance to quays, piers, breakwaters and moored boats (4 m minimum)
+  and the keel limit (−3.3 m: 0.5 m keel clearance plus 0.2 m margin). It writes
+  `build/yorimichi/ferry/terminals/site.json` (berth pose, gate, fender face, terminal deck, walk level and the
+  manoeuvre results) with plan images. The manoeuvres stay authored data here; the ferry's runtime will follow them.
+  - Hidamari: the berth is centred at (855, −145), bow west, on a jetty off the quay (x 831.8–847.8, fender face
+    y −138.8). The ship arrives north along x 872, pivots at (872, −190) and crabs onto the fenders; it leaves in
+    reverse. Nearest moored workboat: 4.14 m.
+  - Brinecove: the berth lies along the pier's west face (local (−251.2, 10), bow north). The ship stands off 4 m
+    and crabs on; it leaves by crabbing 40 m west, pivoting 180° and running 260 m ahead.
+- [`seabed_probe.py`](terminals/seabed_probe.py) (Blender) ray-casts every wet cell of both swept paths onto the
+  exported harbour meshes (HD_Terrain plus the far hills, and the Brinecove ground). It fails on any miss or on a
+  seabed above the keel limit. The highest seabed is −3.318 m at Hidamari (0.718 m keel clearance) and −3.916 m at
+  Brinecove.
+- [`build.py`](terminals/build.py) (Blender) builds the kits from site.json and writes `terminals.blend` and FBX files:
+  - Hidamari: `FT_HD_Jetty` (piles, deck, black fenders), `FT_HD_Stage` (a two-level timber boarding stage: the
+    ship's gate is at 6.94 m, 4.5 m above the quay coping, so a stair of 19 equal risers climbs to a gallery at
+    sill height under a kawara roof), `FT_HD_Brow`, `FT_HD_WaitingHouse` and `FT_HD_Timetable`.
+  - Brinecove: `FT_BC_Landing` (a framed timber stage at sill height, closed underneath, with a 7-riser stair down
+    to the pier deck), `FT_BC_Brow`, `FT_BC_Pavilion`, `FT_BC_TicketHut`, `FT_BC_Fenders` and `FT_BC_Props`.
+  - A walk audit ray-casts each route (quay to gate) for step height, headroom and width, against plain stand-ins
+    for the existing quay, promenade and pier. It fails above a 0.25 m step, under 2.1 m headroom, under 0.9 m width or where a route has no floor.
+    Hidamari: step 0.235 m, headroom 2.24 m, width 2.05 m. Brinecove: step 0.241 m, headroom 4.0 m, width 2.05 m.
+- [`render.py`](terminals/render.py) renders the kits with ship C at each berth (`TERMINAL_VIEWS=a,b` renders a
+  subset), and [`compare.py`](terminals/compare.py) puts them beside the v2 concepts.
+
+Still to do when the ferry goes into the world: import and placement, the cut in Hidamari's quay timber rail at the
+jetty root, and a game walk of both boarding routes.
