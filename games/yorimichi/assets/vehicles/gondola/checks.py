@@ -21,7 +21,7 @@ ROPE_CLEARANCE = 0.05          # m: unrelated hardware keeps this gap to the rop
 CONTACT_TOL = 0.002            # m: an intentional contact (jaw, sheave, bullwheel groove) sits on the rope radius within this
 FLOOR_TILT_TOL_DEG = 0.01      # the cabin floor stays level (it hangs plumb): largest tilt from level allowed
 BUDGET = {'cabin': 15000, 'tower': 8000, 'station': 60000}   # triangles per piece (a tower: per height)
-STATION_LOOP_MARGIN = 0.10     # m: the cabin (body, hanger, grip) to station structure, at every loop position
+STATION_LOOP_MARGIN = 0.10     # m: the cabin body (bounding prism) to station structure, at every loop position
 SEATED_TAGS = ('jaw', 'sheave', 'bullwheel groove')        # each such part carries the rope: gated per part
 NO_INTRUSION_TAGS = ('clamp',)                             # beside the rope by design: may not cut into it
 EXPECTED_PARTS = {'jaw': 2, 'sheave': 4, 'bullwheel groove': 1}   # parts on one rope: jaw halves, sheaves per train
@@ -231,6 +231,45 @@ def part_verdicts(rows, rope_radius, expected=None, seated=True):
 def loop_margin_ok(distance):
     """The cabin to the station structure at a loop position: at least STATION_LOOP_MARGIN."""
     return distance is not None and distance >= STATION_LOOP_MARGIN - 1e-9
+
+
+FLOOR_SAMPLE = 0.25            # m: grid step for the floor-support check
+FLOOR_TOL = 0.05               # m: a sample this near a hull's plan edge counts as supported
+
+
+def _inside_convex(pt, poly, tol):
+    """pt within tol of the convex plan polygon poly (either winding)."""
+    x, y = pt; sides = []
+    for (ax, ay), (bx, by) in zip(poly, poly[1:] + poly[:1]):
+        L = math.hypot(bx - ax, by - ay) or 1.0
+        sides.append(((bx - ax) * (y - ay) - (by - ay) * (x - ax)) / L)
+    return all(d >= -tol for d in sides) or all(d <= tol for d in sides)
+
+
+def _inside(pt, poly):
+    x, y = pt; c = False
+    for (ax, ay), (bx, by) in zip(poly, poly[1:] + poly[:1]):
+        if (ay > y) != (by > y) and x < ax + (y - ay) * (bx - ax) / (by - ay):
+            c = not c
+    return c
+
+
+def floor_support_failures(slabs, proxies, step=FLOOR_SAMPLE, tol=FLOOR_TOL):
+    """Every walkable slab must stand on collision: each grid sample inside a slab's plan lies within tol of some
+    collision hull's plan. slabs: [(name, polygon)]; proxies: [{'poly': ...}]. Returns the failures, one per slab."""
+    hulls = [[tuple(p) for p in pr['poly']] for pr in proxies]
+    bad = []
+    for name, poly in slabs:
+        poly = [tuple(p) for p in poly]
+        xs, ys = [p[0] for p in poly], [p[1] for p in poly]
+        miss = []
+        for x in np.arange(min(xs) + step / 2, max(xs), step):
+            for y in np.arange(min(ys) + step / 2, max(ys), step):
+                if _inside((x, y), poly) and not any(_inside_convex((x, y), h, tol) for h in hulls):
+                    miss.append((round(float(x), 2), round(float(y), 2)))
+        if miss:
+            bad.append(f'{name}: {len(miss)} walkable samples with no collision floor, e.g. {miss[:3]}')
+    return bad
 
 
 def budget_failures(piece, count):

@@ -176,7 +176,7 @@ the manifest then records `soft_fail: true`. `walk.py` run on its own exits 1 wh
 
 The gates: closed meshes (open, misoriented or degenerate), coplanar overlaps, seats, cabin contacts with towers and
 stations, the jaw groove, both rope contact categories, the cabin hanging level, the grip's wheels and pivot clear of
-the rope, convex collision proxies, triangle budgets, and on a full run the walk audit.
+the rope, convex collision proxies, collision under every walkable slab, triangle budgets, and on a full run the walk audit.
 
 Every threshold is a named constant. [`checks.py`](checks.py) holds the decisions as plain Python, so the build and
 the fast tests run the same rules. `games/yorimichi/tests/test_gondola_docs.py` asserts that this table matches the
@@ -197,6 +197,8 @@ code:
 | `walk.RISER_MAX` | 0.3 m | stair riser |
 | `walk.TREAD_MIN` | 0.25 m | stair tread |
 | `checks.STATION_LOOP_MARGIN` | 0.1 m | cabin body to station structure round the loop |
+| `checks.FLOOR_SAMPLE` | 0.25 m | grid step of the floor-support check: every walkable slab sample stands on a collision hull |
+| `checks.FLOOR_TOL` | 0.05 m | a floor-support sample this near a hull's plan edge counts as supported |
 | `walk.BOARDING_GAP_MIN` | 0.05 m | berth: door sill to platform edge, least |
 | `walk.BOARDING_GAP_MAX` | 0.12 m | berth: door sill to platform edge, most |
 | `walk.SILL_MIN` | 0.0 m | berth: sill above the platform, least |
@@ -278,7 +280,8 @@ These belong to placement, the next batch (B4), and are not in this kit:
 - **A game drive of the walk routes** in Unreal (walkable-routes-traversable), once the pieces are imported.
 
 The collision is in this kit: every piece (the cabin, each tower, each station's walkable parts) exports its UCX
-convex hulls, and the build fails on a proxy that is not convex.
+convex hulls, and the build fails on a proxy that is not convex, or on a walkable slab (platform, plaza, boardwalk,
+viewing bulge, stair landing) with any part not standing on a collision hull (`checks.floor_support_failures`).
 
 ## Asset library
 

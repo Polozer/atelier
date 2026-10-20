@@ -770,6 +770,7 @@ class Valley(Station):
         plaza = rect(-20.4, -20.0, 9.6, -YO)
         with plat.tagged('platform'):
             plat.prism(plaza, self.base, 0.0, PAVING)
+        self.proxies.append(proxy('plaza', plaza, self.base, 0.0))      # the plaza floor (the road-side access)
         self.slabs.append(('plaza', plaza))
         self.levels.append({'name': 'platform and plaza', 'z': 0.0})
         self.access.append({'name': 'plaza front (road side)', 'edge': [[-11.7, -20.0], [-7.5, -20.0]], 'z': 0.0, 'point': [-9.6, -19.4]})
@@ -978,6 +979,7 @@ class Rim(Station):
             for i in range(len(line) - 1):
                 quad = [right[i], right[i + 1], left[i + 1], left[i]]
                 plat.prism(quad, lambda x, y: top(x, y) - 0.25, top, TIMBER_DARK, top=DECK)
+                self.proxies.append(proxy('boardwalk', quad, lambda x, y: top(x, y) - 0.25, top))   # sloped floor hull
         outline = right + left[::-1]
         self.slabs.append(('boardwalk', outline))
         end = line[-1]; d = Vector(line[-1]) - Vector(line[-2]); d.normalize()
@@ -1230,6 +1232,7 @@ def build(key, p, d, cab, ctx):
     extra += checks.budget_failures('station', tris)
     proxies = st.proxies + st.platform_proxies()
     extra += checks.proxy_failures(proxies)
+    extra += checks.floor_support_failures(st.slabs, proxies)
     hulls = ctx['export'](name, meshes, proxies)
     region, walk_proxies = st.walk_layout(cab['cabin'])
     layout = {'station': key, 'levels': st.levels, 'regions': region, 'stairs': st.stairs, 'access': st.access,

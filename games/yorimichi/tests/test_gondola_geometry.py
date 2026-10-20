@@ -339,3 +339,33 @@ def test_boarding_gap_and_sill_in_range_pass():
 def test_boarding_gap_sill_or_door_out_of_range_fails(kw):
     """MUST FAIL: a boarding gap or sill outside its range, or a door wider than the gate opening."""
     assert W.verdict(piece(boarding=[berth(**kw)]))
+
+
+# ------------------------------------------------------------------ walkable slabs stand on collision
+PLAZA = [(-20.4, -20.0), (9.6, -20.0), (9.6, -5.0), (-20.4, -5.0)]
+
+
+def floor_hull(poly):
+    return {'name': 'floor', 'poly': [list(p) for p in poly], 'z0': [-0.3] * len(poly), 'z1': [0.0] * len(poly)}
+
+
+def test_slab_on_its_own_floor_hull_passes():
+    assert C.floor_support_failures([('plaza', PLAZA)], [floor_hull(PLAZA)]) == []
+
+
+def test_slab_split_across_abutting_hulls_passes():
+    west = [(-20.4, -20.0), (-5.0, -20.0), (-5.0, -5.0), (-20.4, -5.0)]
+    east = [(-5.0, -20.0), (9.6, -20.0), (9.6, -5.0), (-5.0, -5.0)]
+    assert C.floor_support_failures([('plaza', PLAZA)], [floor_hull(west), floor_hull(east)]) == []
+
+
+def test_slab_without_collision_fails():
+    """MUST FAIL: a walkable plaza drawn in the render mesh with no floor hull under it."""
+    bad = C.floor_support_failures([('plaza', PLAZA)], [])
+    assert len(bad) == 1 and bad[0].startswith('plaza:')
+
+
+def test_slab_half_on_collision_fails():
+    """MUST FAIL: a ramp whose hulls stop part way along it."""
+    half = [(-20.4, -20.0), (-5.0, -20.0), (-5.0, -5.0), (-20.4, -5.0)]
+    assert C.floor_support_failures([('plaza', PLAZA)], [floor_hull(half)])
