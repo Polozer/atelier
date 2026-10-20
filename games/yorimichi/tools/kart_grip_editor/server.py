@@ -10,7 +10,8 @@ import secrets
 import threading
 import time
 from urllib.parse import unquote, urlsplit
-from grip_data import bone_names as bones, mirror_left
+from grip_data import bone_names as bones, mirror_left, neutral_reach
+from source_identity import playable_ids
 
 WEB = Path(__file__).resolve().parent
 GAME = WEB.parents[1]
@@ -18,7 +19,7 @@ ROOT = GAME.parents[1]
 MODELS = ROOT / 'build/yorimichi/kart-grip-editor'
 SAVES = GAME / 'assets/vehicles/kart/grips'
 VENDOR = GAME / 'tools/character_review_web/vendor'
-CHARACTERS = ('cairo', 'modori', 'nox', 'paul')
+CHARACTERS = playable_ids()
 WRITE_LOCK = threading.Lock()
 
 
@@ -33,6 +34,8 @@ def validate(data, meta):
         raise ValueError('Wrong character or grip format')
     if data.get('model_sha256') != meta['model_sha256'] or data.get('authored_side') != 'L' or data.get('mirror') != 'anatomical-bind':
         raise ValueError('The model changed or the pose is not mirrored')
+    if set(data.get('hands', {})) != {'L', 'R'}:
+        raise ValueError('Only the authored left hand and mirrored right hand are allowed')
     for side in 'LR':
         frames = data.get('hands', {}).get(side, {})
         if set(frames) != set(bones(side)):
@@ -150,6 +153,9 @@ def handler(models=MODELS, saves=SAVES):
                     raise ValueError('Unknown character')
                 meta = json.loads((models / f'{name}.json').read_text())
                 pose = validate(incoming, meta)
+                misses = neutral_reach(pose, meta)
+                if max(misses.values(), default=0) > .01:
+                    raise ValueError(f'Arm reach exceeded by {max(misses.values())*1000:.0f} mm; bring the wheel closer before saving')
                 pose.update(frame='Blender metres; wheel-local, unsteered; +X shaft, +Y left',
                             scale=meta['scale'], layout=meta['layout'], bind_world=meta['bind_world'],
                             saved_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))

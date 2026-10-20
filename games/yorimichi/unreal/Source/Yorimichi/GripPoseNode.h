@@ -78,7 +78,9 @@ struct FGripPoseNode final : public FAnimNode_SkeletalControlBase
                     const FCompactPoseBoneIndex Bone = H.Bones[F][K].GetCompactPoseIndex(C);
                     if (H.bWheelLocked)
                     {
-                        FTransform Target; Target.Blend(At(Output, Posed, Bone), H.Locked[F][K], Weight);
+                        const FTransform Current = At(Output, Posed, Bone);
+                        FTransform Locked = H.Locked[F][K]; Locked.SetScale3D(Current.GetScale3D());
+                        FTransform Target; Target.Blend(Current, Locked, Weight);
                         Posed.Add(Bone.GetInt(), Target); continue;
                     }
                     FTransform Local = Output.Pose.GetLocalSpaceTransform(Bone);

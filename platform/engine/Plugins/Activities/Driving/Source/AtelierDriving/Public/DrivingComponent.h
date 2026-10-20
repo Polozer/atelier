@@ -75,7 +75,8 @@ public:
     /** All authored bone frames are wheel-local; the current animated wheel carries them. */
     void SetAuthoredGrips(TMap<FName, FTransform> Frames) { AuthoredGrips = MoveTemp(Frames); }
     void SetAuthoredElbow(FVector Point) { AuthoredElbow = Point; }
-    void SetAuthoredFit(float Lean, float Height, float Tilt);
+    bool SetAuthoredFit(float Lean, float Height, float Tilt);
+    float GetSteeringTilt() const { return Cockpit.SteeringTilt; }
     void RequireAuthoredGrips(bool Required) { bRequireAuthoredGrips = Required; }
     bool HasAuthoredGrips() const { return AuthoredGrips.Num() == 32; }
     bool AuthoredGripWorld(FName Bone, FTransform& Out) const;

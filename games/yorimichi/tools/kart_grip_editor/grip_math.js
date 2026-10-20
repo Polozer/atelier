@@ -41,3 +41,15 @@ export function twoBone(hip, elbow, wrist, target, pole) {
   return {elbow:hip.clone().addScaledVector(direction,along).addScaledVector(side,height),
     wrist:hip.clone().addScaledVector(direction,d),miss:Math.max(0,distance-a-b)};
 }
+
+
+// The native simulation exposes the left front angle; its steering wheel turns 2.5 times as far.
+// Blender's +Y is left, so positive steering-wheel roll means a negative road-wheel yaw.
+export function frontSteering(layout, wheelAngle){
+  const left=-wheelAngle/2.5;
+  const length=Math.abs(layout.wheel_positions[0][0]-layout.wheel_positions[2][0]);
+  const track=Math.abs(layout.wheel_positions[0][1]-layout.wheel_positions[1][1]);
+  // Match SimulationSteering.h's existing Ackermann approximation exactly.
+  const right=length*left/(length+track*left);
+  return [left,right];
+}

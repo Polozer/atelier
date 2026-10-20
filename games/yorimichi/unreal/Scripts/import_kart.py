@@ -15,6 +15,9 @@ HERE = Path(__file__).resolve().parent; sys.path.insert(0, str(HERE))
 from mesh_import import import_mesh
 from kart_material import material as kart_material
 
+sys.path.insert(0, str(HERE.parents[1] / 'tools/kart_grip_editor'))
+from source_identity import playable_ids
+
 OUT = yori.OUT / 'kart'
 unreal.SystemLibrary.execute_console_command(None, 'Interchange.FeatureFlags.Import.FBX 0')
 material = kart_material()
@@ -38,7 +41,7 @@ data.parent.mkdir(parents=True, exist_ok=True)
 shutil.copy2(OUT / 'cockpit.json', data)
 # Authoring is explicit: shipping never substitutes guessed curls for an unsaved character.
 grips = Path(__file__).resolve().parents[2] / 'assets/vehicles/kart/grips'
-for character in ('cairo', 'modori', 'nox', 'paul'):
+for character in playable_ids():
     source = grips / f'{character}.json'
     if not source.is_file():
         raise RuntimeError(f'Save the {character} grip in the kart grip editor before importing the kart')

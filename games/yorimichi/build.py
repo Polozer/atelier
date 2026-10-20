@@ -48,6 +48,9 @@ _definition = importlib.util.spec_from_file_location('character_definition', PIP
 definition = importlib.util.module_from_spec(_definition)
 _definition.loader.exec_module(definition)
 YORI = WORLD / 'yori.py'
+_kart_identity_spec = importlib.util.spec_from_file_location('kart_source_identity', TOOLS / 'kart_grip_editor/source_identity.py')
+kart_source_identity = importlib.util.module_from_spec(_kart_identity_spec)
+_kart_identity_spec.loader.exec_module(kart_source_identity)
 _foliage_spec = importlib.util.spec_from_file_location('yorimichi_foliage_build', GAME / 'foliage_build.py')
 foliage_build = importlib.util.module_from_spec(_foliage_spec)
 _foliage_spec.loader.exec_module(foliage_build)
@@ -1326,12 +1329,14 @@ def unreal_steps(ctx):
                              UnrealScript(SCRIPTS / 'import_kart.py', 'KART IMPORT COMPLETE', modules=IMPORT_CODE)],
              inputs=[SCRIPTS / 'import_kart.py', SCRIPTS / 'kart_material.py', SCRIPTS / 'mesh_import.py', YORI,
                      ASSETS / 'vehicles/kart/grips', TOOLS / 'kart_grip_editor/validate_profiles.py',
-                     TOOLS / 'kart_grip_editor/server.py', TOOLS / 'kart_grip_editor/grip_data.py'],
+                     TOOLS / 'kart_grip_editor/server.py', TOOLS / 'kart_grip_editor/grip_data.py',
+                     TOOLS / 'kart_grip_editor/source_identity.py',
+                     *(p for name in kart_source_identity.playable_ids() for p in kart_source_identity.source_paths(name))],
              needs=['world.kart', *unreal_modules.needs(IMPORT_CODE)], heavy=True,
              outputs=[GAME / 'unreal' / 'Content' / 'Japan' / 'Kart' / f'{name}.uasset' for name in
                       ('M_Kart', 'SM_Kart_Body', 'SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel')]
                      + [GAME / 'unreal/Content/Data/kart/cockpit.json',
-                        *(GAME / f'unreal/Content/Data/kart/grips/{name}.json' for name in ('cairo', 'modori', 'nox', 'paul'))],
+                        *(GAME / f'unreal/Content/Data/kart/grips/{name}.json' for name in kart_source_identity.playable_ids())],
              about='the go-kart body, wheels and steering wheel (/Game/Japan/Kart)'),
         Step('unreal.bike', [UnrealScript(SCRIPTS / 'import_bike.py', 'BIKE IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_bike.py', SCRIPTS / 'bike_material.py'], needs=['unreal.world', 'world.bike'], heavy=True,

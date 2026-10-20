@@ -1,9 +1,10 @@
 import * as T from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { matrix, frame, position, rotation, sideNames, wheelFrame, wheelHub, wheelTilt, mirrorLeft, twoBone } from './grip_math.js';
+import { matrix, frame, position, rotation, sideNames, wheelFrame, wheelHub, wheelTilt, mirrorLeft, twoBone, frontSteering } from './grip_math.js';
 
 const $=s=>document.querySelector(s), config=await fetch('config.json').then(r=>r.json());
+const chooser=$('#character');chooser.replaceChildren(...config.characters.map(id=>{const option=document.createElement('option');option.value=id;option.textContent=id[0].toUpperCase()+id.slice(1);return option;}));
 const renderer=new T.WebGLRenderer({canvas:$('#view'),antialias:true,powerPreference:'low-power'});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=T.SRGBColorSpace;
 renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.2;
@@ -16,6 +17,7 @@ const grid=new T.GridHelper(8,40,0xc1c9ba,0xcbd2c4);grid.rotation.x=Math.PI/2;gr
 const loader=new GLTFLoader(), handles=new T.Group(), wheel=new T.Group(), kart=new T.Group();scene.add(handles,wheel,kart);
 const column=new T.Mesh(new T.CylinderGeometry(.019,.019,1,20),new T.MeshStandardMaterial({color:0x97978b,roughness:.65}));scene.add(column);
 const wheelMaterial=new T.MeshStandardMaterial({color:0x252b2b,roughness:.82});
+const roadWheels=[];
 let shoulderLean=0,shoulderDown=0,elbowBend=0;
 let armPole=null,wristUpAxis=new T.Vector3(0,1,0);
 let model=null,meta=null,bones={},correction={},left=null,right=null,savedRevision='',dirty=false;
@@ -78,7 +80,12 @@ function applyGrip(){if(!ready)return;applyBody();const w=wheelFrame(meta,angle)
     const target=w.clone().multiply(matrix(poses[`hand_${side}`]));solveArm(side,position(target));
     for(const name of sideNames(side))setCanonical(name,w.clone().multiply(matrix(poses[name])));
   }
-  updateHandles();$('#reach').textContent=reach>.002?`Arm reach exceeded by ${(reach*1000).toFixed(0)} mm`:'Hands locked to the wheel';$('#reach').classList.toggle('warning',reach>.002);requestDraw();
+  steerRoadWheels();updateHandles();$('#reach').textContent=reach>.002?`Arm reach exceeded by ${(reach*1000).toFixed(0)} mm`:'Hands locked to the wheel';$('#reach').classList.toggle('warning',reach>.002);requestDraw();
+}
+function steerRoadWheels(){
+  if(!meta)return;
+  const turns=frontSteering(meta.layout,angle);
+  for(const item of roadWheels)item.pivot.rotation.z=item.front?turns[item.left?0:1]:0;
 }
 function updateSteering(){if(!ready)return;$('#steer-value').textContent=`${T.MathUtils.radToDeg(angle).toFixed(1)}°`;const locked=Math.abs(angle)>.0001||playing;
   $('#edit-controls').disabled=locked;$('#edit-lock').hidden=!locked;applyGrip();}
@@ -201,13 +208,15 @@ $('#view').addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);
 $('#view').addEventListener('pointerup',e=>{if(!ready||!handles.visible||!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>5)return;
   const r=$('#view').getBoundingClientRect();ray.setFromCamera(new T.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),camera);const hit=ray.intersectObject(handles,true)[0];if(hit)selectJoint(hit.object.userData.bone);});
 function setView(name){if(!ready)return;activeView=name;const side=name.startsWith('right')?'R':'L',sign=side==='L'?1:-1;
-  const target=name==='full'?new T.Vector3(-.05,0,.55).multiplyScalar(meta.scale):position(canonical(`hand_${side}`)).lerp(position(wheelFrame(meta)),.12);
-  const offset=name==='full'?new T.Vector3(2.1,-2.3,1.5):name.endsWith('palm')?new T.Vector3(.04,-sign*.28,.10):new T.Vector3(.28,sign*.27,.17);
-  orbit.target.copy(target);camera.position.copy(target).add(offset.multiplyScalar(meta.scale));orbit.update();document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===name));requestDraw(4);}
+  const overviews={full:[2.1,-2.3,1.5],front:[2.65,-1.9,1.3],rear:[-2.4,1.9,1.4],side:[.1,3.3,1.0],elevated:[1.9,2.4,2.8]};
+  const target=overviews[name]?new T.Vector3(-.05,0,.55).multiplyScalar(meta.scale):position(canonical(`hand_${side}`)).lerp(position(wheelFrame(meta)),.12);
+  const offset=overviews[name]?new T.Vector3(...overviews[name]):name.endsWith('palm')?new T.Vector3(.04,-sign*.28,.10):new T.Vector3(.28,sign*.27,.17);
+  orbit.target.copy(target);camera.position.copy(target).add(offset.multiplyScalar(meta.scale*(overviews[name]&&name!=='full'?1.3:1)));orbit.update();document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===name));requestDraw(4);}
 document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>setView(button.dataset.view));
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='s'){e.preventDefault();$('#save').click();}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){e.preventDefault();$(e.shiftKey?'#redo':'#undo').click();}});
-window.gripEditor={loaded:false,state:()=>({character:meta?.id,left:structuredClone(left),right:structuredClone(right),angle,reach,selected,dirty,armPole:[...armPole],shoulderLean,wheelHeight:meta.wheel_height_offset??0,elbow:position(canonical('forearm_L')).toArray(),shoulder:position(canonical('upperarm_L')).toArray()}),setAngle:degrees=>{angle=T.MathUtils.degToRad(degrees);updateSteering();},selectJoint,setView,
+window.gripEditor={loaded:false,
+  wheelReport:()=>roadWheels.map(w=>({front:w.front,left:w.left,yaw:w.pivot.rotation.z,position:w.pivot.position.toArray(),scale:w.pivot.scale.toArray()})),state:()=>({character:meta?.id,left:structuredClone(left),right:structuredClone(right),angle,reach,selected,dirty,armPole:[...armPole],shoulderLean,wheelHeight:meta.wheel_height_offset??0,elbow:position(canonical('forearm_L')).toArray(),shoulder:position(canonical('upperarm_L')).toArray()}),setAngle:degrees=>{angle=T.MathUtils.degToRad(degrees);updateSteering();},selectJoint,setView,
   lockError:()=>{const inverse=wheelFrame(meta,angle).invert();let error=0;for(const [side,poses] of [['L',left],['R',right]])for(const name of sideNames(side)){const local=inverse.clone().multiply(canonical(name));error=Math.max(error,...local.elements.map((v,i)=>Math.abs(v-poses[name][i])));}return error;}};
 resize();await loadCharacter($('#character').value);
 loader.load('models/kart.glb',gltf=>{
@@ -218,4 +227,11 @@ loader.load('models/kart.glb',gltf=>{
   gltf.scene.traverse(ob=>{if(!ob.isMesh||!ob.name.includes('SM_Kart_Body'))return;const g=ob.geometry,p=g.attributes.position,index=g.index?.array??Array.from({length:p.count},(_,i)=>i),keep=[];
     const onTube=i=>{const v=new T.Vector3().fromBufferAttribute(p,i).applyMatrix4(ob.matrixWorld).divideScalar(meta.scale).sub(base),along=v.dot(axis);return along>=-.002&&along<=length+.002&&v.addScaledVector(axis,-along).length()<.0205;};
     for(let i=0;i<index.length;i+=3){if([index[i],index[i+1],index[i+2]].every(onTube))removed++;else keep.push(index[i],index[i+1],index[i+2]);}g.setIndex(keep);
-  });window.gripEditor.columnTrianglesRemoved=removed;requestDraw();},undefined,error=>console.warn('Kart context not loaded',error));
+  });window.gripEditor.columnTrianglesRemoved=removed;
+  const meshes=[];gltf.scene.traverse(ob=>{if(ob.isMesh&&ob.name.includes('SM_Kart_Wheel'))meshes.push(ob);});
+  for(const mesh of meshes){
+    const centre=kart.worldToLocal(mesh.getWorldPosition(new T.Vector3()));
+    const pivot=new T.Group();pivot.position.copy(centre);kart.add(pivot);pivot.updateMatrixWorld(true);pivot.attach(mesh);
+    roadWheels.push({pivot,front:centre.x>0,left:centre.y>0});
+  }
+  steerRoadWheels();requestDraw();},undefined,error=>console.warn('Kart context not loaded',error));

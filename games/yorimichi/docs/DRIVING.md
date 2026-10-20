@@ -15,9 +15,9 @@ the host moves the character actor with it and reads the world with one ray per 
 ## The driver
 
 The character stays visible, seated on the kart's pan by the sailing stance node's pelvis target, with both
-feet on the pedals and both hands wrapped around the wheel's rim. Hand targets follow the rim's steer angle, so
-the grip stays on the wheel while it turns. This is the same two-bone leg and arm IK the sailboat seat uses,
-with the right hand's articulated tiller grip extended to the left hand.
+feet on the pedals. The final GripPoseNode reads the authored hand and finger frames relative to the live
+steering wheel; the seated stance leaves those hands to that node. Arm IK follows the pinned wrists, and
+source clips cannot move the saved finger contacts.
 
 ## Scale and placement
 
@@ -80,3 +80,33 @@ silently moving the grip. Sailing retains its original stance and finger require
 The wider visual wheel track and body bounds also change the simulation's track,
 yaw inertia and collision envelope. This is an intentional match to the new geometry;
 stationary fit alone does not validate its driving feel.
+
+
+## Exterior finish and steering preview
+
+The current four-view Sunburst reference is `assets/vehicles/kart/reference.png`; its
+provenance records GPT Image 2.5 Sunburst at high quality and the prompt. The finish
+uses ivory bands, warm terracotta variation and split normals. It changes no render
+surface or collision vertex. The cockpit and four approved grip JSONs remain fixed.
+
+The studio's steering slider and Play also yaw the front tyres at their own hubs.
+The inside tyre turns further, using the native simulation's existing Ackermann
+approximation and its 2.5 steering-wheel/left-front ratio. Rear tyres stay straight.
+The game already displays each WheelState's steer angle and spin; integration still
+needs a native driving check at the accepted revision.
+
+After changing only the kart, run `export_context.py` through the normal Blender guard
+to refresh `build/yorimichi/kart-grip-editor/kart.glb`. This preserves character GLBs,
+metadata and authored poses. Its optional `--baseline-build` compares all generated
+surface/collider coordinates and face topology against an earlier generator.
+
+`grips/prepared-models.json` is the registered identity of each inspected prepared
+skin: model SHA, bind SHA, source/preparation SHA and replay shoulder frame. Production
+preflight checks that independent receipt and the current character inputs before
+accepting a pose; it does not trust the pose's own checksum as its expected value.
+After changing a character source, re-export the inspected models, review/save its
+poses, then run `tools/kart_grip_editor/source_identity.py` to register the new receipt.
+Normal imports fingerprint all those source inputs. Runtime separately compares the
+prepared and imported hand-relative bind positions within 3 mm and logs a rejection
+if they differ. Saves and preflight refuse neutral wrist reach misses above 1 cm;
+runtime logs larger animated misses and preserves incoming bone scales.

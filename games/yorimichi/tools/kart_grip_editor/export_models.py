@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 
 import bpy
+from source_identity import source_identity, playable_ids
 
 GAME = Path(__file__).resolve().parents[2]
 ROOT = GAME.parents[1]
@@ -30,7 +31,7 @@ def rigid(m):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     entries = {}
-    for name in ('cairo', 'modori', 'nox', 'paul'):
+    for name in playable_ids():
         print('GRIP EDITOR prepare', name, flush=True)
         p.CHARACTER = name
         character = p.rig.load(name)
@@ -79,6 +80,7 @@ def main():
                                       export_yup=False, export_animations=False)
         entries[name] = {'id': name, 'label': name.title(), 'model': f'models/{name}.glb',
                          'model_sha256': hashlib.sha256(target.read_bytes()).hexdigest(),
+                         'source_sha256': source_identity(name),
                          'scale': p.SCALE, 'bind_world': bind, 'seated_world': posed,
                          'parents': {b.name: b.parent.name if b.parent else None for b in arm.data.bones},
                          'initial_hands': initial, 'layout': p.LAYOUT}

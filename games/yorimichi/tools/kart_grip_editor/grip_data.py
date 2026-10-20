@@ -59,3 +59,24 @@ def mirror_left(left, meta):
         world[target] = result
         right[target] = pack(inverse_wheel @ result)
     return right
+
+
+def neutral_reach(pose, meta):
+    """Replay the unsteered shoulder/wrist geometry, reporting actual arm-length misses in metres."""
+    fit = {key: pose.get(key, 0) for key in
+           ('shoulder_lean_degrees', 'wheel_height_offset', 'wheel_tilt_offset_degrees')}
+    wheel = wheel_frame(dict(meta, **fit))
+    seated, bind = meta['seated_world'], meta['bind_world']
+    pivot = unpack(seated['pelvis'])[:3, 3]
+    angle = math.radians(fit['shoulder_lean_degrees'])
+    c, s = math.cos(angle), math.sin(angle)
+    turn = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+    misses = {}
+    for side in 'LR':
+        upper, fore, hand = (f'{part}_{side}' for part in ('upperarm', 'forearm', 'hand'))
+        points = [unpack(bind[n])[:3, 3] for n in (upper, fore, hand)]
+        length = np.linalg.norm(points[1]-points[0])+np.linalg.norm(points[2]-points[1])
+        shoulder = pivot+turn @ (unpack(seated[upper])[:3, 3]-pivot)
+        wrist = (wheel @ unpack(pose['hands'][side][hand]))[:3, 3]
+        misses[side] = max(0., float(np.linalg.norm(wrist-shoulder)-length))
+    return misses

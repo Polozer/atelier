@@ -154,6 +154,7 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
     FHorseRiderNode HorseRider;
     // Last, the grips posed in the grip poser (UAdventureMoveSet::GripPose): each hand exactly where it was posed on its prop.
     FGripPoseNode Pose;
+    uint64 LastGripReachWarning = 0;
     FAnimNode_ConvertComponentToLocalSpace ToLocal;
     float Speed = 0.f, CrouchTarget = 0.f, CrouchWeight = 0.f, StanceWeight = 0.f, ArmedTarget = 0.f, ArmedWeight = 0.f;
     float AuthoredTopSpeed = 300.f, AuthoredCrouchSpeed = 50.f;
@@ -526,6 +527,12 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
                             P.Locked[F][K] = World.GetRelativeTransform(MeshWorld);
                 }
             }
+        }
+        if (bDriving && CarC->HasAuthoredGrips() && GFrameCounter > LastGripReachWarning + 120 &&
+            (Pose.Hands[0].Miss > 1.f || Pose.Hands[1].Miss > 1.f))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Kart wrist reach gap: right %.2f cm, left %.2f cm"), Pose.Hands[0].Miss, Pose.Hands[1].Miss);
+            LastGripReachWarning = GFrameCounter;
         }
         const bool bFlinch = Moves && Moves->IsFlinching() && !bRiding && !bSailing && !bBiking;
         for (int32 I = 0; I < 4; ++I)

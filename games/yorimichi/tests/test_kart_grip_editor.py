@@ -31,7 +31,13 @@ def meta():
             value[:3, 3] = [.03 * ((i-1) % 3+1) if i else 0, sign*.2, .6 + (.015*((i-1)//3) if i else 0)]
             bind[name] = pack(value)
             parents[name] = None if i == 0 else (f'hand_{side}' if (i-1) % 3 == 0 else bone_names(side)[i-1])
-    return {'id': 'cairo', 'model_sha256': 'fixture', 'scale': .85, 'bind_world': bind, 'parents': parents,
+    seated = copy.deepcopy(bind)
+    pelvis = np.eye(4); pelvis[:3, 3] = [-.3, 0, .3]; seated['pelvis'] = pack(pelvis)
+    for side, sign in (('L', 1), ('R', -1)):
+        for name, x in ((f'upperarm_{side}', -.8), (f'forearm_{side}', -.4)):
+            value = np.eye(4); value[:3, 3] = [x, sign*.2, .6]
+            bind[name] = pack(value); seated[name] = pack(value)
+    return {'seated_world': seated, 'id': 'cairo', 'model_sha256': 'fixture', 'scale': .85, 'bind_world': bind, 'parents': parents,
             'layout': {'steering': [.12, 0, .58], 'steering_tilt_degrees': 50}}
 
 
@@ -152,6 +158,8 @@ def test_cairo_transfer_preserves_target_lengths_and_normalized_knuckle_contact(
     source.update(arm_poles={'L': [-.1, .33, .4]}, shoulder_lean_degrees=2,
                   wheel_height_offset=.027, wheel_tilt_offset_degrees=-3)
     original = copy.deepcopy(source)
+    for side in 'LR':
+        for part in ('upperarm', 'forearm'): meta['bind_world'].pop(f'{part}_{side}')
     target = copy.deepcopy(meta); target.update(id='nox', scale=1.1)
     # Different hand size and imported bone rolls must not copy Cairo's bone lengths/axes.
     roll = np.array([[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]])
@@ -172,3 +180,38 @@ def test_cairo_transfer_preserves_target_lengths_and_normalized_knuckle_contact(
     assert anchor(result['hands']['L']) == pytest.approx(anchor(source['hands']['L']))
     assert source == original
     server.validate(result, target)
+
+
+def test_extra_hand_sides_are_rejected(meta):
+    pose = payload(meta); pose['hands']['extra'] = pose['hands']['L']
+    with pytest.raises(ValueError, match='Only'):
+        server.validate(pose, meta)
+
+
+@pytest.mark.parametrize('base', [45, 50, 60])
+@pytest.mark.parametrize('angle', [15, 75])
+def test_wheel_range_is_total_angle_not_a_fixed_offset(meta, base, angle):
+    meta['layout']['steering_tilt_degrees'] = base
+    pose = payload(meta); pose['wheel_tilt_offset_degrees'] = angle-base
+    assert server.validate(pose, meta)['wheel_tilt_offset_degrees'] == angle-base
+
+
+def test_registered_model_receipt_is_independent_of_save_claims(meta):
+    from source_identity import digest
+    from validate_profiles import validate_profile
+    meta['layout']['scale_range'] = [.82, 1.16]; meta['model_sha256'] = 'a'*64
+    pose = payload(meta); pose.update(scale=meta['scale'], layout=meta['layout'], bind_world=meta['bind_world'], model_sha256=meta['model_sha256'])
+    receipt = {'model_sha256': 'a'*64, 'bind_sha256': digest(meta['bind_world']),
+               'scale': meta['scale'], 'seated_world': meta['seated_world']}
+    validate_profile(pose, meta['layout'], receipt)
+    pose['model_sha256'] = 'b'*64
+    with pytest.raises(ValueError, match='registered'):
+        validate_profile(pose, meta['layout'], receipt)
+
+
+def test_neutral_replay_detects_a_detached_wrist(meta):
+    from grip_data import neutral_reach
+    pose = payload(meta)
+    assert max(neutral_reach(pose, meta).values()) < .001
+    pose['hands']['L']['hand_L'][12] += 2
+    assert neutral_reach(pose, meta)['L'] > .01

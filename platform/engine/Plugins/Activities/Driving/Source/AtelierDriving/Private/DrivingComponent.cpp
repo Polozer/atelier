@@ -626,13 +626,14 @@ FVector UDrivingComponent::HandPoint(int32 Side) const
     const float Sign = AtelierDrivingSide::Sign(Side);   // 9:15 (left) and 2:45 (right), just above horizontal
     const float Elev = FMath::DegreesToRadians(Cockpit.GripElevation);
     const FVector Rim(0, Sign * Cockpit.SteeringRadius * FMath::Cos(Elev), Cockpit.SteeringRadius * FMath::Sin(Elev));
-    return Cockpit.Steering + SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(Rim));
+    return Steering ? Steering->GetRelativeTransform().TransformPosition(Rim) :
+        Cockpit.Steering + SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(Rim));
 }
 
 FVector UDrivingComponent::GripForward(int32 Side) const
 {
     (void)Side;
-    return SteeringBase.RotateVector(FVector(1, 0, 0));
+    return (Steering ? Steering->GetRelativeRotation().Quaternion() : SteeringBase).RotateVector(FVector(1, 0, 0));
 }
 
 FVector UDrivingComponent::GripUp(int32 Side) const
@@ -641,7 +642,8 @@ FVector UDrivingComponent::GripUp(int32 Side) const
     const float Sign = AtelierDrivingSide::Sign(Side);
     const float Elev = FMath::DegreesToRadians(Cockpit.GripElevation);
     const FVector Radial(0, Sign * FMath::Cos(Elev), FMath::Sin(Elev));
-    return SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(Radial));
+    return Steering ? Steering->GetRelativeRotation().Quaternion().RotateVector(Radial) :
+        SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(Radial));
 }
 
 FVector UDrivingComponent::GripAxis(int32 Side) const
@@ -650,7 +652,8 @@ FVector UDrivingComponent::GripAxis(int32 Side) const
     const float Sign = AtelierDrivingSide::Sign(Side);
     const float Elev = FMath::DegreesToRadians(Cockpit.GripElevation);
     const FVector Tangent(0, -Sign * FMath::Sin(Elev), FMath::Cos(Elev));
-    return SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(Tangent));
+    return Steering ? Steering->GetRelativeRotation().Quaternion().RotateVector(Tangent) :
+        SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(Tangent));
 }
 
 
@@ -663,12 +666,12 @@ bool UDrivingComponent::AuthoredGripWorld(FName Bone, FTransform& Out) const
 }
 
 
-void UDrivingComponent::SetAuthoredFit(float Lean, float Height, float Tilt)
+bool UDrivingComponent::SetAuthoredFit(float Lean, float Height, float Tilt)
 {
-    if (bEquipped || !Steering) return;
-    AuthoredLean = Lean;
+    if (bEquipped || !Steering || !FMath::IsFinite(Lean) || !FMath::IsFinite(Height) || Lean < -15.f || Lean > 45.f) return false;
     const float Angle = Cockpit.SteeringTilt + Tilt;
-    if (!FMath::IsFinite(Angle) || Angle < 15.f || Angle > 75.f || !ColumnMesh || !SteeringColumn) return;
+    if (!FMath::IsFinite(Angle) || Angle < 15.f || Angle > 75.f || !ColumnMesh || !SteeringColumn) return false;
+    AuthoredLean = Lean;
     FVector Hub = Cockpit.Steering + FVector(0., 0., Height);
     Hub.X = Cockpit.SteeringColumnBase.X - (Hub.Z - Cockpit.SteeringColumnBase.Z) / FMath::Tan(FMath::DegreesToRadians(Angle));
     SteeringBase = FQuat(FVector::RightVector, FMath::DegreesToRadians(Angle));
@@ -679,4 +682,5 @@ void UDrivingComponent::SetAuthoredFit(float Lean, float Height, float Tilt)
     SteeringColumn->SetRelativeLocation((Hub + Cockpit.SteeringColumnBase) * .5f);
     SteeringColumn->SetRelativeRotation(FQuat::FindBetweenNormals(FVector::UpVector, Shaft.GetSafeNormal()));
     SteeringColumn->SetRelativeScale3D(FVector(1.9f / Extent.X, 1.9f / Extent.Y, Shaft.Size() / (Extent.Z * 2.f)));
+    return true;
 }

@@ -6,6 +6,7 @@ its axle, axis +Y) and SM_Kart_SteeringWheel (origin at the hub, axis +X, the pl
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / 'world')); import yori  # noqa: E402,F401
 import json
+import hashlib
 import math
 
 import bpy
@@ -26,6 +27,45 @@ WHEELBASE, FRONT_AXLE = 1.50, .75
 STEER_RADIUS, STEER_AT = LAYOUT['steering_radius'], tuple(LAYOUT['steering'])
 
 
+
+class KartBody(v.Mesh):
+    """Paint and split normals may improve the shell; its actual surfaces stay fixed."""
+    def object(self, material):
+        ob = super().object(material)
+        mesh = ob.data
+        at = {}
+        for face in mesh.polygons:
+            for index in face.vertices:
+                key = tuple(round(float(v), 7) for v in mesh.vertices[index].co)
+                at.setdefault(key, []).append(face.normal.copy())
+        normals = [None] * len(mesh.vertices)
+        for face in mesh.polygons:
+            for index in face.vertices:
+                key = tuple(round(float(v), 7) for v in mesh.vertices[index].co)
+                normal = sum((n for n in at[key] if n.dot(face.normal) > .65), Vector()).normalized()
+                normals[index] = tuple(normal)
+            face.use_smooth = True
+        mesh.normals_split_custom_set_from_vertices(normals)
+        return ob
+
+
+def finish_paint(m):
+    """Broad warm paint variation, without moving or adding a vertex near the approved rider."""
+    for face in m.faces:
+        a, b, c = (Vector(m.vertices[i]) for i in face[:3])
+        normal = (b-a).cross(c-a).normalized()
+        for index in face:
+            color = m.colors[index]
+            if tuple(color[:3]) == RED:
+                factor = .97 + .055 * max(-.5, normal.z)
+                m.colors[index] = (*[v*factor for v in (.64, .285, .205)], color[3])
+
+
+def geometry_hash(m):
+    return hashlib.sha256(json.dumps({'vertices': m.vertices, 'faces': m.faces, 'colliders':
+        [(p, size, tuple(rotation)) for p, size, rotation in m.colliders]}, separators=(',', ':')).encode()).hexdigest()
+
+
 def bar(m, a, b, radius, color, n=12):
     """Closed round chassis/axle member in the kart's authored frame."""
     a, b = Vector(a), Vector(b)
@@ -42,11 +82,14 @@ def coachwork(m, sections, color):
     """The rounded pod/nose cross-sections, closed at both ends; sections are x,y,z,width,height."""
     rings = [[(x, y + width * math.cos(i * math.tau / 16), z + height * math.sin(i * math.tau / 16))
               for i in range(16)] for x, y, z, width, height in sections]
-    m.poly(rings[0][::-1], color)
+    m.poly(rings[0][::-1], DARK)
     for a, b in zip(rings, rings[1:]):
         for i in range(16):
-            m.poly([a[i], a[(i + 1) % 16], b[(i + 1) % 16], b[i]], color)
-    m.poly(rings[-1], color)
+            # One existing facet becomes an ivory longitudinal band; geometry is untouched.
+            exterior = sections[0][1] > 0
+            paint = HUB if i == (1 if exterior else 6) else color
+            m.poly([a[i], a[(i + 1) % 16], b[(i + 1) % 16], b[i]], paint)
+    m.poly(rings[-1], DARK)
 
 
 def check_end_face(face, axial_offset):
@@ -183,7 +226,9 @@ def nose(m):
     for a, b in zip(sections, sections[1:]):
         for i in range(len(a)):
             j = (i + 1) % len(a)
-            m.poly([a[j], a[i], b[i], b[j]], RED)
+            band = .32 <= abs((a[0][1]+b[0][1])*.5) <= .48
+            paint = DARK if i in (0, 5) else HUB if band and i in (1, 2, 3) else RED
+            m.poly([a[j], a[i], b[i], b[j]], paint)
     m.poly(sections[-1][::-1], RED)
 
 
@@ -208,7 +253,7 @@ def steering_wheel():
 
 
 def kart():
-    m = v.Mesh('SM_Kart_Body')
+    m = KartBody('SM_Kart_Body')
     # Swept tubular rails and a graphite tray; the cockpit has no knee-height dashboard.
     for sign in (-1, 1):
         points = [(-.92, sign * .40, .19), (-.65, sign * .43, .17), (-.25, sign * .42, .15),
@@ -270,7 +315,13 @@ def main():
     mat.node_tree.links.new(vc.outputs['Color'], mat.node_tree.nodes['Principled BSDF'].inputs['Base Color'])
     manifest = {}
     for make in (kart, seat, wheel, steering_wheel):
-        m = make(); ob, report = v.export(m, mat); manifest[m.name] = report
+        m = make()
+        shape = geometry_hash(m)
+        if m.name == 'SM_Kart_Body': finish_paint(m)
+        assert geometry_hash(m) == shape, 'finish pass moved collision or render geometry'
+        ob, report = v.export(m, mat)
+        report['geometry_sha256'] = shape
+        manifest[m.name] = report
         if m.name in ('SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel'):
             volume = signed_volume(m)
             assert volume > 0.0, (m.name, 'faces wind inward', volume)
