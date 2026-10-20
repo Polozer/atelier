@@ -18,14 +18,30 @@ bool FJapanFootstepShuffleTest::RunTest(const FString&)
     Foot->Set=Original;
     TestNotNull(TEXT("Original draws a real sample"),Foot->DrawStep(TEXT("grass")));
     // Feet and hoof stand-ins share one shuffled queue per surface: the rest of this round is the bag's own order,
-    // and every round plays each sample once. (A new round reshuffles at random, so it is checked as a set.)
+    // every round plays each sample once, and no sample repeats back to back, across round boundaries too. (A new round
+    // reshuffles at random, so it is checked as a set.)
     auto Expected=Foot->Bags[TEXT("grass")];
+    USoundWave* Previous=nullptr;
     for(int32 I=0;I<3;++I)
-        TestTrue(TEXT("Each draw continues the surface's single shuffle"),
-            Foot->DrawStep(TEXT("grass"))==Pool.Steps[Expected.Draw(4)].Get());
-    TSet<USoundWave*> Round;
-    for(int32 I=0;I<4;++I) Round.Add(Foot->DrawStep(TEXT("grass")));
-    TestEqual(TEXT("The next round plays every sample once"),Round.Num(),4);
+    {
+        Previous=Foot->DrawStep(TEXT("grass"));
+        TestTrue(TEXT("Each draw continues the surface's single shuffle"),Previous==Pool.Steps[Expected.Draw(4)].Get());
+    }
+    for(int32 R=0;R<50;++R)
+    {
+        TSet<USoundWave*> Round;
+        for(int32 I=0;I<4;++I)
+        {
+            USoundWave* Step=Foot->DrawStep(TEXT("grass"));
+            if(Step==Previous)
+            {
+                AddError(FString::Printf(TEXT("Round %d draw %d repeats the previous sample"),R,I));
+                return false;
+            }
+            Round.Add(Previous=Step);
+        }
+        TestEqual(TEXT("Each new round plays every sample once"),Round.Num(),4);
+    }
     TestTrue(TEXT("An unknown surface falls back to the default surface's samples"),
         Pool.Steps.Contains(Foot->DrawStep(TEXT("unmapped"))));
     return true;

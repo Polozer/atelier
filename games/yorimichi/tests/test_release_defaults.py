@@ -59,7 +59,7 @@ def test_retired_and_separately_kept_keys_are_not_preferences():
     text = source()
     assert 'static constexpr int32 LightVersion = 3;' in text
     assert 'Saved(TEXT("soundbank")' not in text
-    assert 'NextValues.Remove(TEXT("soundbank"));' in text
+    assert 'Next.Remove(TEXT("soundbank"));' in text      # JapanValuesToSave drops it on save
 
 
 def test_saved_values_win_and_resets_return_to_the_release_defaults():

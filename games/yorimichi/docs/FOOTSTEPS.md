@@ -87,9 +87,10 @@ surface as above (with no component hit, the footstep set's default surface). Th
 
 ## Variation
 
-Each surface draws from a shuffled bag without replacement, so the whole pool plays before any one-shot repeats. Volume
-and pitch rise with speed between 60 and 320 cm/s (volume 0.32 to 1, pitch 0.96 to 1.06), then get a small random
-spread (volume × 0.88–1, pitch × 0.94–1.06): a walk is quiet and slightly flat, a sprint full and bright.
+Each surface draws from a shuffled bag without replacement, so the whole pool plays before any one-shot repeats, and a
+new round never opens on the sample the last one ended with. Volume and pitch rise with speed between 60 and 320 cm/s
+(volume 0.32 to 1, pitch 0.96 to 1.06), then get a small random spread (volume × 0.88–1, pitch × 0.94–1.06): a walk is
+quiet and slightly flat, a sprint full and bright.
 
 ## Console
 

@@ -37,7 +37,7 @@ The player pawn implements `IAtelierFXTarget::AddCameraShake(float Trauma)`; `Sh
 | `UAtelierTrail` | a procedural ribbon between two moving points |
 | `FAtelierAudioLog` | records every sound with its frame index while `bRecording` is set, for mixing a filmed take offline |
 | `AtelierPlaySound(WorldContext, Sound, At, Volume, Pitch, Attenuation, b2D)` | plays one sound (2D or at a point) and passes it to `FAtelierAudioLog`; a game's own sounds go through it so films hear them too |
-| `FAtelierShuffleBag` | `Draw(Count)` returns each index below `Count` once per round, in random order (the cue bags; also usable for a game's own banks) |
+| `FAtelierShuffleBag` | `Draw(Count)` returns each index below `Count` once per round, in random order, never the same index twice in a row (the cue bags; also usable for a game's own banks) |
 | `UAtelierFXLibrary` | `AudioLog("start" / "stop", Path)` and `AudioFrame(N)` for scripts and the live bridge (Python: `unreal.AtelierFXLibrary`) |
 
 ## Behaviour
