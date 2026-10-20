@@ -19,12 +19,14 @@ WHITE, BLUE, GOLD, TIMBER, DECK = 'FY_WhitePaint', 'FY_BootTopBlue', 'FY_GoldMou
 CREAM, BLACK, BRASS, CANVAS, GLASS = 'FY_CreamFunnel', 'FY_Black', 'FY_Brass', 'FY_Canvas', 'FY_Glass'
 IRON, BUOY, BOAT, ROPE = 'FY_DarkIron', 'FY_Lifebuoy', 'FY_BoatTimber', 'FY_TarredRope'
 THROAT, ANCHOR, POCKET = 'FY_CowlThroat', 'FY_AnchorBronze', 'FY_HawseRecess'
+BOAT2, GUNWALE, COVER = 'FY_BoatTimberDark', 'FY_BoatGunwale', 'FY_BoatCover'
 MATERIALS = {
     WHITE: ((238, 232, 229), .55, 0.), BLUE: ((46, 84, 158), .5, 0.), GOLD: ((214, 168, 82), .4, .3),
     TIMBER: ((172, 112, 58), .45, 0.), DECK: ((196, 152, 104), .7, 0.), CREAM: ((240, 230, 208), .55, 0.),
     BLACK: ((40, 38, 42), .6, 0.), BRASS: ((206, 164, 78), .35, .55), CANVAS: ((228, 210, 176), .85, 0.),
     GLASS: ((66, 84, 112), .15, 0.), IRON: ((60, 60, 64), .5, .3), BUOY: ((232, 112, 50), .6, 0.),
-    BOAT: ((180, 108, 54), .4, 0.), ROPE: ((66, 50, 38), .8, 0.),
+    BOAT: ((170, 113, 66), .4, 0.), ROPE: ((66, 50, 38), .8, 0.), BOAT2: ((148, 97, 57), .4, 0.),
+    GUNWALE: ((70, 44, 30), .4, 0.), COVER: ((236, 220, 196), .85, 0.),
     THROAT: ((118, 70, 36), .5, .35), ANCHOR: ((128, 98, 68), .45, .45), POCKET: ((46, 52, 70), .7, 0.),
 }
 
@@ -114,9 +116,10 @@ WH_AFT, WH_FWD, WH_HW, WH_H, WH_FRONT = 14.2, 21.4, 2.7, 3.0, 2.2
 FUNNEL_X = 2.0
 CASING = (-1.6, 5.8, 2.25, 2.0)           # x0, x1, half-width, height
 AFT_HOUSE = (-12.6, -9.8, 2.25, 2.45)
-BOATS = [-12.0, 8.5]                      # lifeboat centres, both sides
-BOAT_Y = 4.86
-BOAT_L, BOAT_HB = 9.0, 1.05
+BOATS = [-12.35, 8.9]                     # lifeboat centres, both sides (fitted to the concept camera)
+BOAT_Y = 4.62                                # just clear of the boat-deck edge; the boats stay inside the hull's beam
+BOAT_L, BOAT_HB = 8.6, 0.84
+BAY_PILLARS = [-17.0, -7.75, 4.4, 13.0]       # white pillars framing the lifeboat bays (clear of the bay windows)
 FWD_HOUSE_X = 16.6                        # the varnished forward house starts here
 MID_BAYS = [-19.4 + 3.4 * k for k in range(10)]
 GATES = [(15.2, 2.2)]                     # boarding openings (centre x, width), both sides
@@ -710,6 +713,13 @@ def superstructure(m):
                 m.box((0, 1.5, 0.12), (2.2, 3.0, 0.26), WHITE, bevel=0.04)
                 with m.at((0, 0.02, 0.24)):
                     door(m, 1.05, 2.2, TIMBER, WHITE)
+            # White pillars framing each lifeboat bay: from the main deck up under the boat deck's edge.
+            for x in BAY_PILLARS:   # top fills the slab's chamfered lower edge; outer face flush with its fascia
+                yo = t1_half(x) + OVERHANG
+                m.prism(rect(x - 0.18, -yo, x + 0.18, -(HW_MID - 0.04)), lambda x_, y_: deck_z(x_) - 0.05,
+                        lambda x_, y_: boat_z(x_) - SLAB + 0.1, WHITE)
+                seat('bay pillar', x, side * (yo - 0.05), deck_z(x) - 0.05)   # outboard of the bay portals' frames
+                block('bay pillar', x, side * (HW_MID - 0.04 + yo) / 2, 0.36, yo - HW_MID + 0.04, deck_z(x), boat_z(x) - SLAB)
             # White pilaster where the forward timber house begins.
             x = FWD_HOUSE_X
             m.box((x, -HW1 - 0.06, deck_z(x) - 0.3 + wall_h / 2), (0.5, 0.2, wall_h), WHITE, bevel=0.04)
@@ -835,62 +845,78 @@ def funnel(m):
 
 
 # ------------------------------------------------------------------ lifeboats and davits
-BOAT_D, BOAT_SHEER = 1.55, 0.26
-BOAT_RAISE = 0.0                         # gunwale below the boat deck; keeps >= 2.0 m headroom under the keel          # lifeboat depth amidships and rise of the gunwale at the ends
+BOAT_D, BOAT_SHEER = 1.35, 0.4           # depth amidships; rise of the gunwale at the ends
+BOAT_RAISE = 0.2                         # keel 1.55 m below the boat deck: >= 2.05 m headroom over the main-deck walk
 
 
 def boat_half(t):
-    return max(0.05, BOAT_HB * (1 - abs(t) ** 2.2) ** 0.62)
+    return max(0.04, BOAT_HB * (1 - abs(t) ** 1.9) ** 0.8)       # fine, pointed double-ended plan
 
 
 def boat_gunwale(t):
-    return BOAT_D + BOAT_SHEER * t * t
+    return BOAT_D + BOAT_SHEER * abs(t) ** 2.4                  # flat amidships, rising to both ends
+
+
+def boat_keel(t):
+    """Keel line: flat amidships, sweeping up in a round forefoot to high stems (a canoe profile, no plumb ends)."""
+    return 1.2 * (1 - math.sqrt(max(0.0, 1 - abs(t) ** 4)))
+
+
+def cover_half(t):
+    return boat_half(t) + 0.12                                  # skirt clears the gunwale's rubbing strake
+
+
+def skirt_z(x, g):
+    s = x / 0.85 - round(x / 0.85)                              # lashings every 0.85 m pull the skirt down
+    return g - 0.19 + 0.06 * math.sin(math.pi * s) ** 2
 
 
 def lifeboat(m, L=BOAT_L):
-    """Clinker-built double-ended boat, keel at z=0: varnished strakes, a dark varnished gunwale, a beige cover."""
-    stations = 21; NS = 5
+    """Clinker-built double-ended boat, keel at z=0: seven varnished strakes in two tones so the laps read, a dark
+    gunwale cap, and a cream canvas cover tented over a ridge line with its skirt draped below the gunwale."""
+    stations = 25; NS = 7
     rings = []
     for i in range(stations):
-        t = -1 + 2 * i / (stations - 1); x = t * L / 2; w = boat_half(t); g = boat_gunwale(t); k = 0.16 * t ** 4 * BOAT_D
-        lap = 0.045 * min(1.0, w / 0.35)
+        t = -1 + 2 * i / (stations - 1); x = t * L / 2; w = boat_half(t); g = boat_gunwale(t); k = boat_keel(t)
+        lap = 0.03 * min(1.0, w / 0.3)
         def p(u):
             return (w * math.sin(u * math.pi / 2) ** 0.6, k + (g - k) * (1 - math.cos(u * math.pi / 2)) ** 1.25)
-        side = []
+        side = []; rseg = []
         for j in range(NS):
             u0, u1 = j / NS, (j + 1) / NS
-            y0, z0 = p(u0); y1, z1 = p(u1)
+            y0, z0 = p(u0); y1, z1 = p(u1); mat = BOAT if j % 2 == 0 else BOAT2
             if j:   # proud lower edge of the strake: the clinker lap
                 ty, tz = y1 - y0, z1 - z0; L2 = math.hypot(ty, tz) or 1.0
-                side.append((y0 + lap * tz / L2, z0 - lap * ty / L2))
-            side.append((y1, z1))
-        rub = [(w + 0.06, g - 0.2), (w + 0.09, g - 0.17), (w + 0.09, g + 0.04), (max(0.02, w - 0.07), g + 0.07)]
-        right = side + rub; rseg = [BOAT] * len(side) + [TIMBER] * len(rub); N = len(right)
+                side.append((y0 + lap * tz / L2, z0 - lap * ty / L2)); rseg.append(mat)
+            side.append((y1, z1)); rseg.append(mat)
+        rub = [(w + 0.05, g - 0.12), (w + 0.08, g - 0.1), (w + 0.08, g + 0.04), (max(0.02, w - 0.06), g + 0.06)]
+        right = side + rub; rseg += [GUNWALE] * len(rub); N = len(right)
         ring = [(-y, z) for y, z in reversed(right)] + [(0.0, k - 0.14)] + right
         rings.append([(x, y, z) for y, z in ring])
         seg_mat = [rseg[N - 1 - q] for q in range(N)] + rseg + [TIMBER]
     loft(m, rings, lambda q: seg_mat[q])
     # Keel: a varnished bar along the bottom, rising into stem and sternpost.
-    keel = [(t * L / 2 * 0.98, 0.0, 0.16 * t ** 4 * BOAT_D - 0.1 + (0.5 * BOAT_D * max(0.0, abs(t) - 0.85) / 0.15)) for t in [-1 + k / 10 for k in range(21)]]
-    m.tube(keel, 0.07, TIMBER, n=6)
-    # Cover: beige canvas over a ridge pole and hoops, sagging a little between the hoops, laced at the skirt.
-    cov = []; n = 31
+    keel = [(t * L / 2 * 0.995, 0.0, boat_keel(t) - 0.1 + 0.25 * max(0.0, abs(t) - 0.9) / 0.1) for t in [-1 + k / 15 for k in range(31)]]
+    m.tube(keel, 0.06, GUNWALE, n=6)
+    # Cover: tented over a ridge line (a rope ridge on top), full shoulders over the gunwale, the slopes sagging a
+    # little between the hoops, and the skirt hanging below the gunwale, scalloped between the lashings.
+    cov = []; n = 49
     for i in range(n):
-        t = -0.94 + 1.88 * i / (n - 1); x = t * L / 2; w = boat_half(t) + 0.07; g = boat_gunwale(t)
-        sag = 0.05 * math.sin(math.pi * (x / 1.5 + 0.5)) ** 2
-        H = 0.6 * (1 - 0.55 * t ** 6) + 0.04 - sag
-        arch = [(w, g - 0.2), (w + 0.02, g + 0.06)]
-        for a in [math.pi * q / 14 for q in range(1, 14)]:
-            c, s_ = math.cos(a), math.sin(a)
-            ridge = 0.07 * max(0.0, 1 - abs(c) / 0.3)
-            arch.append((w * math.copysign(abs(c) ** (2 / 3.0), c), g + 0.06 + H * abs(s_) ** (2 / 3.0) + ridge))
-        arch += [(-w - 0.02, g + 0.06), (-w, g - 0.2)]
+        t = -0.955 + 1.91 * i / (n - 1); x = t * L / 2; wc = cover_half(t); g = boat_gunwale(t)
+        H = 0.7 * (1 - 0.8 * abs(t) ** 7); zs = skirt_z(x, g)          # the cover closes down towards the stems
+        sag = 0.035 * math.sin(math.pi * (x / 1.4 - round(x / 1.4))) ** 2
+        right = [(wc, zs), (wc + 0.015, g + 0.0), (wc - 0.01, g + 0.11), (0.86 * wc, g + 0.21)]
+        for f in (0.62, 0.36, 0.12):
+            right.append((f * wc, g + 0.21 + (H - 0.21) * (1 - f / 0.86) - sag * math.sin(math.pi * f / 0.86)))
+        right.append((0.0, g + H + 0.035))                         # ridge rope
+        arch = right[:-1] + [right[-1]] + [(-y, z) for y, z in reversed(right[:-1])]
         cov.append([(x, y, z) for y, z in arch])
-    loft(m, cov, CANVAS)
-    for i in range(-5, 6):
-        t = i / 6.2; x = t * L / 2; w = boat_half(t) + 0.1; g = boat_gunwale(t)
-        for sd in (-1, 1):
-            m.tube([(x, sd * w, g + 0.02), (x + 0.12, sd * (w - 0.02), g - 0.24)], 0.016, ROPE, n=4)
+    loft(m, cov, COVER)
+    lx = [0.85 * k for k in range(-4, 5)]
+    for x in lx:
+        t = x / (L / 2); w = boat_half(t); g = boat_gunwale(t); wc = cover_half(t)
+        for sd in (-1, 1):   # lashing from the skirt's edge down under the rubbing strake to a hook on the planking
+            m.tube([(x, sd * (wc - 0.005), skirt_z(x, g) + 0.03), (x, sd * 0.95 * w, g - 0.42)], 0.014, ROPE, n=4)
 
 
 def loft(m, rings, mat):
@@ -906,7 +932,7 @@ def loft(m, rings, mat):
 
 def davit_path(x, yb, zb, side=-1):
     """Curved (crook) davit arm from the boat-deck edge, over the top and out above the boat's centreline."""
-    R = (BOAT_Y - yb) / (1 - math.cos(math.radians(150))); cz = zb + 1.45; oc = yb + R
+    R = (BOAT_Y - yb) / (1 - math.cos(math.radians(150))); cz = zb + 1.65; oc = yb + R
     pts = [(x, side * yb, zb - 0.05), (x, side * yb, zb + 0.7), (x, side * yb, cz)]
     for k in range(1, 11):
         f = math.radians(150 * k / 10)
@@ -1480,7 +1506,7 @@ def collision_proxies():
     for xc_ in BOATS:
         for sd in (-1, 1):
             keel = boat_z(xc_) - BOAT_RAISE - BOAT_D
-            P.append(_box('lifeboat', xc_, sd * BOAT_Y, BOAT_L, 2 * BOAT_HB + 0.2, keel - 0.18, keel + BOAT_D + 0.95))
+            P.append(_box('lifeboat', xc_, sd * BOAT_Y, BOAT_L, 2 * (BOAT_HB + 0.14) + 0.1, keel - 0.18, keel + BOAT_D + BOAT_SHEER + 0.7))
     for label, cx, cy, sx, sy, z0, z1, yaw in BLOCKS:
         P.append(_box(label, cx, cy, sx, sy, z0, z1, yaw))
     return P

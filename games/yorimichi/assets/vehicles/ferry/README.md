@@ -8,8 +8,11 @@ rounded front sits well back, with a narrow white deck walk and rail round it. I
 searchlight and bell. The midship house is white, with varnished, white-framed window bays set in raised white portals
 between white pilasters. One fat, faceted cream funnel tapers to a black top band and a smaller black inner stack.
 Short, fat brass bell-mouth cowl ventilators stand round it on white drums; their mouths are dark warm brass inside.
-Full clinker-built varnished lifeboats, with keels and beige ridged covers lashed down, hang outboard in gold crook
-davits from blocks and falls, with daylight under them and clear of the house wall. There is a foremast with a
+Slim, pointed clinker-built lifeboats in golden-brown varnish hang in bays framed by white pillars. Each has a
+pronounced sheer, a dark gunwale cap and a cream canvas cover tented over a ridge line, with its skirt draped below
+the gunwale and lashed down. Each boat hangs from blocks and falls in tall gold radial davits that stand on the boat
+deck at its ends. The boats stay inside the hull's beam, clear of the house and with headroom over the main-deck
+walk below them. There is a foremast with a
 crosstree and a brass lantern on a forward platform, and an aft mast, both with a few fine tarred stays. A canvas
 canopy covers the stern deck. A stockless anchor sits in a recessed, white-lipped hawse pocket on each bow.
 
@@ -45,11 +48,12 @@ uv run python games/yorimichi/assets/vehicles/ferry/compare.py
 
 - Units are metres. +X is the bow, z is up and the waterline is at z = 0.
 - The ship is 80.1 m long, 12.0 m across the swung-out lifeboats and has a 2.6 m draft; the masthead is 24 m above
-  the water. There are about 84k triangles in all: the hull 22.9k, superstructure 19.0k, rails 16.2k, lifeboats 15.2k, fittings
-  8.5k, masts and rigging 2.1k and funnel 0.3k. The collision file holds 914 convex hulls.
+  the water. There are about 89k triangles in all: the hull 22.9k, superstructure 19.1k, rails 16.3k, lifeboats
+  19.6k, fittings 8.5k, masts and rigging 2.1k and funnel 0.3k. The collision file holds 920 convex hulls.
 - Materials: `FY_WhitePaint`, `FY_BootTopBlue`, `FY_GoldMoulding`, `FY_VarnishedTimber`, `FY_DeckTimber`,
   `FY_CreamFunnel`, `FY_Black`, `FY_Brass`, `FY_Canvas`, `FY_Glass`, `FY_DarkIron`, `FY_Lifebuoy`, `FY_BoatTimber` and
-  `FY_TarredRope`, `FY_CowlThroat`, `FY_AnchorBronze` and `FY_HawseRecess`.
+  `FY_TarredRope`, `FY_CowlThroat`, `FY_AnchorBronze`, `FY_HawseRecess`, `FY_BoatTimberDark`, `FY_BoatGunwale` and
+  `FY_BoatCover`.
 - Every part is a closed solid. Roofs, decks, canopies and covers have thickness. The build fails on any open edge
   and flips any part whose normals face inward. The hawse pockets are cut into the closed hull with an exact
   boolean, so the shell stays closed.
