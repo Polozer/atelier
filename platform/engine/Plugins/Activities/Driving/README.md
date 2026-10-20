@@ -41,16 +41,18 @@ receives position(), orientation() and wheel(i) and can drive its own presentati
 
 ## Unreal host
 
-`UDrivingComponent` is a component on the playable character. `Initialize` creates its scene root
-and body mesh on that character; `SetBodyMesh` takes the car body (its origin on the ground under
-the middle, +X the nose) and falls back to a box when the content is missing.
+`UDrivingComponent` is a component on the playable character. `Initialize` creates its scene root,
+body mesh, four wheel meshes and steering wheel on that character; `SetMeshes` takes the body (its
+origin on the ground under the middle, +X the nose), one wheel (axle +Y, origin at the axle) and the
+steering wheel (plane faces +X, origin at the hub), and falls back to a box when the body is missing.
 
-`Toggle` finds ground beside the rider, places the chassis with `Vehicle::place_on_ground`, hides
-the character's mesh, stops CharacterMovement and takes the actor transform each tick. The step is
+`Toggle` finds ground beside the rider, places the chassis with `Vehicle::place_on_ground`, keeps the
+character visible for the seated stance, stops CharacterMovement and takes the actor transform each tick. The step is
 the simulation's fixed 1/60 s, fed the character's stick intent: `Move.Y` accelerates or brakes,
 `Move.X` steers right. Each wheel's world contact comes from one downward line trace through
-`Ground::hit`; a box sweep of the chassis stops it at walls. `Toggle` again (stopped) puts the
-rider on the ground beside the car.
+`Ground::hit`; a box sweep of the chassis stops it at walls. Wheels spin and steer and the steering
+wheel turns from the simulation's own angles. `Toggle` again (stopped) puts the rider on the ground
+beside the car.
 
 ## Units and conventions
 

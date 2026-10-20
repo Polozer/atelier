@@ -328,7 +328,9 @@ void AWandererCharacter::EnterWorld(AJapanWorld* World)
     if (!World || !World->bLoaded || IsNpc()) return;
     Bike->Initialize(this);
     Car->Initialize(this);
-    Car->SetBodyMesh(FSoftObjectPath(TEXT("/Game/Japan/Assets/SM_Kei_Retro.SM_Kei_Retro")));
+    Car->SetMeshes(FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Body.SM_Kart_Body")),
+                   FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Wheel.SM_Kart_Wheel")),
+                   FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_SteeringWheel.SM_Kart_SteeringWheel")));
     Horse->Initialize(this);
     Sailboat->Initialize(this,World);
     if (!bSwitchedIn && !JapanNetwork::IsOnline(GetWorld()))

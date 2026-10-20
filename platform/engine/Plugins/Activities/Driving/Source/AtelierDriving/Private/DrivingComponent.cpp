@@ -7,7 +7,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Simulation/SimulationKei.h"
+#include "Simulation/SimulationKart.h"
 #include "Simulation/SimulationVehicle.h"
 
 using namespace atelier::driving;
@@ -114,12 +114,35 @@ void UDrivingComponent::Initialize(ACharacter* InRider)
     Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Body->SetVisibility(false, true);
     Body->SetCastShadow(true);
+    SteeringBase = FQuat(FVector::RightVector, FMath::DegreesToRadians(-18.f));
+    for (int i = 0; i < 4; ++i)
+    {
+        Wheel[i] = NewObject<UStaticMeshComponent>(this, *FString::Printf(TEXT("CarWheel%d"), i));
+        Rider->AddInstanceComponent(Wheel[i]);
+        Wheel[i]->SetupAttachment(Body);
+        Wheel[i]->RegisterComponent();
+        Wheel[i]->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Wheel[i]->SetVisibility(false, true);
+    }
+    Steering = NewObject<UStaticMeshComponent>(this, TEXT("CarSteeringWheel"));
+    Rider->AddInstanceComponent(Steering);
+    Steering->SetupAttachment(Body);
+    Steering->RegisterComponent();
+    Steering->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Steering->SetVisibility(false, true);
+    Steering->SetRelativeLocation(FVector(2, 0, 60));
+    Steering->SetRelativeRotation(SteeringBase);
 }
 
-void UDrivingComponent::SetBodyMesh(const FSoftObjectPath& Mesh)
+void UDrivingComponent::SetMeshes(const FSoftObjectPath& BodyPath, const FSoftObjectPath& WheelPath,
+                                  const FSoftObjectPath& SteeringPath)
 {
-    BodyMeshPath = Mesh;
-    BodyMesh = Cast<UStaticMesh>(Mesh.TryLoad());
+    BodyMeshPath = BodyPath;
+    WheelMeshPath = WheelPath;
+    SteeringMeshPath = SteeringPath;
+    BodyMesh = Cast<UStaticMesh>(BodyPath.TryLoad());
+    WheelMesh = Cast<UStaticMesh>(WheelPath.TryLoad());
+    SteeringMesh = Cast<UStaticMesh>(SteeringPath.TryLoad());
 }
 
 bool UDrivingComponent::Toggle()
@@ -169,7 +192,7 @@ bool UDrivingComponent::FreeAt(const FVector& At, const FQuat& Rotation) const
         return false;
     }
     FCollisionQueryParams Params(SCENE_QUERY_STAT(DrivingPlace), false, Rider);
-    const FCollisionShape Shape = FCollisionShape::MakeBox(FVector(169.f, 73.f, 70.f) * .88f);
+    const FCollisionShape Shape = FCollisionShape::MakeBox(FVector(108.f, 62.f, 25.f) * .88f);
     return !Rider->GetWorld()->OverlapBlockingTestByChannel(At, Rotation, TraceChannel, Shape, Params);
 }
 
@@ -207,7 +230,7 @@ bool UDrivingComponent::Summon()
     for (const FVector& Candidate : Candidates)
     {
         const FVector Ground = GroundBelow(Candidate, 320.f);
-        if (FreeAt(Ground + FVector(0, 0, 75.f), Yaw.Quaternion()))
+        if (FreeAt(Ground + FVector(0, 0, 30.f), Yaw.Quaternion()))
         {
             Spot = Ground;
             bFound = true;
@@ -220,7 +243,7 @@ bool UDrivingComponent::Summon()
         return false;
     }
 
-    Car = MakeShared<FDrivingCar>(kei_spec());
+    Car = MakeShared<FDrivingCar>(kart_spec());
     FindGroundOffset();
     FCarGround Ground{Rider->GetWorld(), Rider, TraceChannel};
     if (!Car->Chassis.place_on_ground(Ground, float(Spot.Y) * .01f, float(Spot.X) * .01f, float(Spot.Z) * .01f + 1.f,
@@ -235,6 +258,14 @@ bool UDrivingComponent::Summon()
     {
         BodyMesh = Cast<UStaticMesh>(BodyMeshPath.TryLoad());
     }
+    if (!WheelMesh && !WheelMeshPath.IsNull())
+    {
+        WheelMesh = Cast<UStaticMesh>(WheelMeshPath.TryLoad());
+    }
+    if (!SteeringMesh && !SteeringMeshPath.IsNull())
+    {
+        SteeringMesh = Cast<UStaticMesh>(SteeringMeshPath.TryLoad());
+    }
     if (BodyMesh)
     {
         Body->SetStaticMesh(BodyMesh);
@@ -247,14 +278,33 @@ bool UDrivingComponent::Summon()
         if (UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
         {
             Body->SetStaticMesh(Cube);
-            Body->SetRelativeScale3D(FVector(3.39f, 1.47f, 1.44f));
-            BodyLift = 72.f;
-            Body->SetRelativeLocation(FVector(0, 0, -GroundOffset + 72.f));
+            Body->SetRelativeScale3D(FVector(2.16f, 1.24f, .50f));
+            BodyLift = 25.f;
+            Body->SetRelativeLocation(FVector(0, 0, -GroundOffset + 25.f));
         }
     }
     Body->SetVisibility(true, true);
+    const FVector WheelAt[4] = {FVector(75, -56, 14), FVector(75, 56, 14), FVector(-75, -59, 14), FVector(-75, 59, 14)};
+    for (int i = 0; i < 4; ++i)
+    {
+        if (WheelMesh) Wheel[i]->SetStaticMesh(WheelMesh);
+        Wheel[i]->SetRelativeLocation(WheelAt[i]);
+        Wheel[i]->SetRelativeRotation(FQuat::Identity);
+        Wheel[i]->SetVisibility(WheelMesh != nullptr, true);
+        Spin[i] = 0.f;
+    }
+    if (SteeringMesh)
+    {
+        Steering->SetStaticMesh(SteeringMesh);
+        Steering->SetRelativeRotation(SteeringBase);
+        Steering->SetVisibility(true, true);
+    }
+    else
+    {
+        Steering->SetVisibility(false, true);
+    }
 
-    Rider->GetMesh()->SetVisibility(false, true);
+    Rider->GetMesh()->SetVisibility(true, true);
     Rider->GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     bSavedUseControllerYaw = Rider->bUseControllerRotationYaw;
     Rider->bUseControllerRotationYaw = false;
@@ -267,7 +317,7 @@ bool UDrivingComponent::Summon()
     MoveInput = FVector2D::ZeroVector;
     bHandbrake = false;
     Hint = TEXT("Driving");
-    UpdatePose();
+    UpdatePose(0.f);
     return true;
 }
 
@@ -310,6 +360,8 @@ void UDrivingComponent::EndDrive(const FVector& GroundSpot)
     Rider->bUseControllerRotationYaw = bSavedUseControllerYaw;
     Rider->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
     Body->SetVisibility(false, true);
+    for (int i = 0; i < 4; ++i) Wheel[i]->SetVisibility(false, true);
+    if (Steering) Steering->SetVisibility(false, true);
     Car.Reset();
     bEquipped = false;
     Hint = TEXT("Parked");
@@ -322,7 +374,7 @@ void UDrivingComponent::Recover()
     Hint = TEXT("Recovered");
 }
 
-void UDrivingComponent::UpdatePose()
+void UDrivingComponent::UpdatePose(float DeltaSeconds)
 {
     if (!Rider || !Car)
     {
@@ -333,7 +385,7 @@ void UDrivingComponent::UpdatePose()
     const FVector OldLocation = Rider->GetActorLocation();
 
     FCollisionQueryParams Params(SCENE_QUERY_STAT(DrivingBody), false, Rider);
-    const FCollisionShape Shape = FCollisionShape::MakeBox(FVector(169.f, 73.f, 70.f) * .9f);
+    const FCollisionShape Shape = FCollisionShape::MakeBox(FVector(108.f, 62.f, 25.f) * .9f);
     FHitResult Hit;
     if (Rider->GetWorld()->SweepSingleByChannel(Hit, OldLocation, NewLocation, NewRotation, TraceChannel, Shape, Params))
     {
@@ -372,6 +424,18 @@ void UDrivingComponent::UpdatePose()
         LastGround = ToUE(Car->Chassis.position()) - FVector(0, 0, Drop);
         bHasGround = true;
     }
+    const float Steer = float(Car->Chassis.wheel(0).steer_angle);
+    for (int i = 0; i < 4; ++i)
+    {
+        const WheelState State = Car->Chassis.wheel(i);
+        Spin[i] += float(State.angular_velocity) * DeltaSeconds;
+        Wheel[i]->SetRelativeRotation(FQuat(FVector::UpVector, i < 2 ? Steer : 0.f) *
+                                      FQuat(FVector::RightVector, Spin[i]));
+    }
+    if (SteeringMesh)
+    {
+        Steering->SetRelativeRotation(SteeringBase * FQuat(FVector::ForwardVector, -Steer * 2.5f));
+    }
 }
 
 void UDrivingComponent::SetInput(FVector2D Move)
@@ -402,7 +466,7 @@ void UDrivingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
     }
     if (Steps > 0)
     {
-        UpdatePose();
+        UpdatePose(DeltaTime);
     }
     if (Car->Chassis.position().y < -20.0f)
     {
@@ -427,4 +491,40 @@ FTransform UDrivingComponent::GetCarTransform() const
         return FTransform::Identity;
     }
     return FTransform(ToUE(Car->Chassis.orientation()), ToUE(Car->Chassis.position()));
+}
+
+FVector UDrivingComponent::PosePoint(const FVector& Local) const
+{
+    return Body ? Body->GetComponentTransform().TransformPosition(Local) : Local;
+}
+
+FVector UDrivingComponent::PoseDirection(const FVector& Local) const
+{
+    return Body ? Body->GetComponentTransform().TransformVectorNoScale(Local) : Local;
+}
+
+FVector UDrivingComponent::HandPoint(int32 Side) const
+{
+    const float Bar = Car ? -float(Car->Chassis.wheel(0).steer_angle) * 2.5f : 0.f;
+    const FVector Rim(0, Side ? 12.0f : -12.0f, 0);
+    return FVector(2, 0, 60) + SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(Rim));
+}
+
+FVector UDrivingComponent::GripForward(int32 Side) const
+{
+    (void)Side;
+    return SteeringBase.RotateVector(FVector(1, 0, 0));
+}
+
+FVector UDrivingComponent::GripUp(int32 Side) const
+{
+    const float Bar = Car ? -float(Car->Chassis.wheel(0).steer_angle) * 2.5f : 0.f;
+    return SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(FVector(0, Side ? 1.f : -1.f, 0)));
+}
+
+FVector UDrivingComponent::GripAxis(int32 Side) const
+{
+    (void)Side;
+    const float Bar = Car ? -float(Car->Chassis.wheel(0).steer_angle) * 2.5f : 0.f;
+    return SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(FVector(0, 0, 1)));
 }

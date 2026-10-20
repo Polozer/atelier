@@ -43,8 +43,22 @@ public:
     void SetInput(FVector2D Move);
     void SetHandbrake(bool bOn) { bHandbrake = bOn; }
 
-    /** The car body mesh: its origin on the ground under its middle, +X the nose. Missing content falls back to a box. */
-    void SetBodyMesh(const FSoftObjectPath& Mesh);
+    /** The three meshes: body (origin on the ground under its middle, +X the nose), one wheel (axle +Y, origin at
+     *  the axle) and the steering wheel (plane faces +X, origin at the hub). Missing content falls back to a box. */
+    void SetMeshes(const FSoftObjectPath& Body, const FSoftObjectPath& Wheel, const FSoftObjectPath& Steering);
+
+    /** The kart's own frame (centimetres, origin on the ground under its middle, +X the nose): where the driver sits
+     *  and grips, for the animation stance. */
+    FVector PosePoint(const FVector& Local) const;
+    FVector PoseDirection(const FVector& Local) const;
+    FVector SeatPoint() const { return FVector(-30, 0, 33); }
+    FVector HandPoint(int32 Side) const;
+    FVector ElbowPoint(int32 Side) const { return FVector(-5, Side ? 32.f : -32.f, 50); }
+    FVector FootPoint(int32 Side) const { return FVector(32, Side ? 14.f : -14.f, 13); }
+    FVector KneePoint(int32 Side) const { return FVector(16, Side ? 18.f : -18.f, 34); }
+    FVector GripForward(int32 Side) const;
+    FVector GripUp(int32 Side) const;
+    FVector GripAxis(int32 Side) const;
     /** The channel the car reads the world on (default ECC_Visibility). */
     void SetTraceChannel(ECollisionChannel InChannel) { TraceChannel = InChannel; }
 
@@ -53,7 +67,7 @@ private:
     void Dismount();
     void EndDrive(const FVector& GroundSpot);
     void Recover();
-    void UpdatePose();
+    void UpdatePose(float DeltaSeconds);
     FVector GroundBelow(const FVector& At, float Reach) const;
     bool FreeAt(const FVector& At, const FQuat& Rotation) const;
     void FindGroundOffset();
@@ -61,14 +75,22 @@ private:
     UPROPERTY() TObjectPtr<ACharacter> Rider;
     UPROPERTY() TObjectPtr<USceneComponent> CarRoot;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> Body;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> Wheel[4];
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> Steering;
     UPROPERTY() TObjectPtr<UStaticMesh> BodyMesh;
+    UPROPERTY() TObjectPtr<UStaticMesh> WheelMesh;
+    UPROPERTY() TObjectPtr<UStaticMesh> SteeringMesh;
     TSharedPtr<FDrivingCar> Car;
     ECollisionChannel TraceChannel = ECC_Visibility;
     FSoftObjectPath BodyMeshPath;
+    FSoftObjectPath WheelMeshPath;
+    FSoftObjectPath SteeringMeshPath;
     FVector2D MoveInput = FVector2D::ZeroVector;
     FString Hint;
     float GroundOffset = 0.f;
     float BodyLift = 0.f;
+    float Spin[4] = {0.f, 0.f, 0.f, 0.f};
+    FQuat SteeringBase = FQuat::Identity;
     FVector LastGround = FVector::ZeroVector;
     bool bHandbrake = false;
     bool bEquipped = false;
