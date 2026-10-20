@@ -157,6 +157,31 @@ struct FBelmonteTrainNetworkState
     UPROPERTY() TArray<FBelmonteTrainPassenger> Passengers;
 };
 
+/** Where a vehicle's sounds come from (service.json "sound", from the train's authored geometry): its wheels (the roll
+ *  and the rail-joint clacks), the locomotive's chimney (idle, departure, beats, whistle) and cylinders (steam blasts),
+ *  and each exterior door (closing). Local: vehicle frame, cm. */
+enum class ETrainEmitter : uint8 { Wheel, Chimney, Cylinder, Door };
+struct YORIMICHI_API FTrainEmitter
+{
+    ETrainEmitter Kind = ETrainEmitter::Wheel;
+    FVector Local = FVector::ZeroVector;
+    FString Id;
+};
+
+/** A sound voice placed on the train, for checks and the live state: the component, the vehicle it hangs on and where. */
+struct YORIMICHI_API FTrainSoundVoice
+{
+    FString Name, Vehicle;
+    int32 Train = 0;
+    ETrainEmitter Kind = ETrainEmitter::Wheel;
+    const USceneComponent* Parent = nullptr;
+    const USceneComponent* Body = nullptr;
+    FVector Local = FVector::ZeroVector;
+    bool bPlaying = false;
+    float Volume = 0.f, Attenuated = 0.f, LowPass = 0.f;
+    double Distance = 0.;
+};
+
 UCLASS()
 class YORIMICHI_API ABelmonteTrainService : public AActor
 {
@@ -167,6 +192,13 @@ public:
     static bool IsEnabled();
     static ABelmonteTrainService* Spawn(UWorld* World, const FString& Path);
     static ABelmonteTrainService* Find(const UObject* WorldContext);
+    /** A service.json vehicle's sound emitters: its "sound" record's wheels, chimney and cylinders, and the centre of
+     *  each exterior door's collision box. Without a "sound" record (older data), its two bogies on the rail. */
+    static TArray<FTrainEmitter> SoundEmitters(const TSharedPtr<FJsonObject>& Vehicle);
+    /** Every sound voice on the trains, with its distance and attenuated volume at the listener (Ear, world cm). */
+    TArray<FTrainSoundVoice> SoundVoices(const FVector& Ear) const;
+    /** The same as JSON (the playing wheels and the engine's voices, nearest first), for the live state. */
+    FString SoundVoicesJson(const FVector& Ear) const;
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
@@ -234,6 +266,7 @@ private:
         TArray<FSeat> Seats;
         TArray<FInterior> Interiors;
         TArray<int32> SeatTaken;
+        TArray<FTrainEmitter> Emitters;
     };
     struct FRider
     {
@@ -360,26 +393,42 @@ private:
     bool AnyRiderAboard() const;
     /** The train's sounds (BelmonteTrainSound.cpp, assets/audio/train/make.py): every machine plays them from the shared
      *  service clock, as it places the vehicles, so a host and its guests hear the same train without replicating
-     *  anything. A roll loop on each vehicle follows its train's speed; each arrival's brakes and each departure
-     *  signal play once, from the timetable's stops (FStation::Stops), on the locomotive. */
+     *  anything. A roll loop on each vehicle follows its train's speed; the locomotive's idle (standing), its start (the
+     *  departure's build-up, played from the departure) and effort (exhaust beats at the driving wheels' rate) follow it
+     *  too; from the timetable's stands, each arrival's brakes and blow-off, the doors closing before each departure and
+     *  the whistle at it play once; clacks at each wheel crossing a joint, a pass-by for a listener by the line. */
     void LoadSounds();
     void UpdateSounds(double Time, float Dt);
-    /** Per vehicle: the roll loop; per train: the locomotive's idle and effort loops. */
+    /** Per wheel emitter (RollWheels: its vehicle and emitter): the roll loop; per train: the locomotive's idle loop,
+     *  start one-shot and effort loop at its chimney. */
     UPROPERTY() TArray<TObjectPtr<UAudioComponent>> RollLoops;
+    TArray<FIntPoint> RollWheels;
+    /** Per train: the vehicle of its locomotive (its first vehicle without one). */
+    TArray<int32> EngineVehicles;
+    /** The vehicle whose interior holds the listener (INDEX_NONE outside): sounds from elsewhere are muffled. */
+    int32 ListenerVehicle = INDEX_NONE;
     UPROPERTY() TArray<TObjectPtr<UAudioComponent>> IdleLoops;
+    UPROPERTY() TArray<TObjectPtr<UAudioComponent>> StartSounds;
     UPROPERTY() TArray<TObjectPtr<UAudioComponent>> EffortLoops;
-    UPROPERTY() TObjectPtr<USoundWave> ClackSound;
+    /** The joint clacks (clack_01, _02...), one picked at random per crossing. */
+    UPROPERTY() TArray<TObjectPtr<USoundWave>> ClackSounds;
+    UPROPERTY() TObjectPtr<USoundWave> PassSound;
     UPROPERTY() TObjectPtr<USoundWave> BrakeSound;
     UPROPERTY() TObjectPtr<USoundWave> DepartSound;
+    UPROPERTY() TObjectPtr<USoundWave> DoorsSound;
+    /** The blow-off at each stop. */
+    UPROPERTY() TObjectPtr<USoundWave> HissSound;
     UPROPERTY() TObjectPtr<USoundAttenuation> RollAttenuation;
     UPROPERTY() TObjectPtr<USoundAttenuation> SignalAttenuation;
     /** Per train: its stands, where the brake and departure cues play. */
     TArray<TArray<FBelmonteTrainStand>> TrainStands;
-    /** Per vehicle: its two bogies' chainages last frame (a clack at each rail joint they pass). */
-    TArray<FVector2D> LastBogies;
+    /** Per train: when this listener last heard it pass (world s): one pass-by a passage. */
+    TArray<double> LastPass;
+    /** Per wheel emitter: its chainage last frame (a clack at each rail joint it passes). */
+    TArray<double> LastWheels;
     double LastSoundTime = -1.;
-    /** Brake cues, departure signals and clacks due on this machine, and train 0's last mix (TrainState). */
-    int32 SoundEvents[3] = {0, 0, 0};
+    /** Brake cues, departure whistles, clacks, door closings, blow-offs and pass-bys due on this machine (TrainState). */
+    int32 SoundEvents[6] = {0, 0, 0, 0, 0, 0};
     TArray<BelmonteTrainRules::FTrainSoundMix> LastMixes;    // per train, for the live state
     bool bInitialized = false, bInitFailed = false;
     double LastNetworkPublication = -1.;

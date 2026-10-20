@@ -278,6 +278,39 @@ ABelmonteTrainService* ABelmonteTrainService::Spawn(UWorld* World, const FString
     return Service;
 }
 
+TArray<FTrainEmitter> ABelmonteTrainService::SoundEmitters(const TSharedPtr<FJsonObject>& V)
+{
+    TArray<FTrainEmitter> Out;
+    if (!V.IsValid()) return Out;
+    auto Add = [&Out](ETrainEmitter Kind, const FVector& Local, const FString& Id) { Out.Add({Kind, Local, Id}); };
+    const TSharedPtr<FJsonObject>* Sound = nullptr;
+    if (V->TryGetObjectField(TEXT("sound"), Sound))
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+        if ((*Sound)->TryGetArrayField(TEXT("wheels"), Rows))
+            for (int32 I = 0; I < Rows->Num(); ++I) Add(ETrainEmitter::Wheel, JsonVector((*Rows)[I]->AsArray()), FString::Printf(TEXT("wheel%d"), I));
+        if ((*Sound)->TryGetArrayField(TEXT("chimney"), Rows)) Add(ETrainEmitter::Chimney, JsonVector(*Rows), TEXT("chimney"));
+        if ((*Sound)->TryGetArrayField(TEXT("cylinders"), Rows))
+            for (int32 I = 0; I < Rows->Num(); ++I) Add(ETrainEmitter::Cylinder, JsonVector((*Rows)[I]->AsArray()), FString::Printf(TEXT("cylinder%d"), I));
+    }
+    else
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Bogies = nullptr;
+        if (V->TryGetArrayField(TEXT("bogies"), Bogies))
+            for (int32 I = 0; I < Bogies->Num(); ++I) Add(ETrainEmitter::Wheel, FVector((*Bogies)[I]->AsNumber() * 100., 0., 0.), FString::Printf(TEXT("wheel%d"), I));
+    }
+    const TArray<TSharedPtr<FJsonValue>>* DoorRows = nullptr;
+    if (V->TryGetArrayField(TEXT("doors"), DoorRows))
+        for (const auto& DoorValue : *DoorRows)
+        {
+            const auto D = DoorValue->AsObject();
+            if (D->GetStringField(TEXT("kind")) != TEXT("exterior")) continue;
+            const TArray<TSharedPtr<FJsonValue>>* Box = nullptr;
+            if (D->TryGetArrayField(TEXT("collision"), Box) && Box->Num() >= 6) Add(ETrainEmitter::Door, JsonBox(*Box).GetCenter(), D->GetStringField(TEXT("id")));
+        }
+    return Out;
+}
+
 ABelmonteTrainService* ABelmonteTrainService::Find(const UObject* WorldContext)
 {
     UWorld* World = WorldContext ? WorldContext->GetWorld() : nullptr;
@@ -501,6 +534,7 @@ bool ABelmonteTrainService::Initialize(const FString& Path)
                 }
             const TArray<TSharedPtr<FJsonValue>>* ExteriorRows = nullptr;
             if (V->TryGetArrayField(TEXT("exteriors"), ExteriorRows)) Exteriors += ExteriorRows->Num();
+            Vehicle.Emitters = SoundEmitters(V);
             const TArray<TSharedPtr<FJsonValue>>* BoardingRows = nullptr;
             if (V->TryGetArrayField(TEXT("boarding"), BoardingRows))
                 for (const auto& BoardingValue : *BoardingRows)
@@ -1690,7 +1724,9 @@ FString ABelmonteTrainService::StateJson() const
     // The sound mix of the rider's train (else the first): what this player hears.
     const int32 MixTrain = Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Train : 0;
     const BelmonteTrainRules::FTrainSoundMix Mix = LastMixes.IsValidIndex(MixTrain) ? LastMixes[MixTrain] : BelmonteTrainRules::FTrainSoundMix();
-    return FString::Printf(TEXT("{\"time\":%.2f,\"scale\":%.2f,\"trains\":[%s],\"boards\":[%s],\"player\":[%.1f,%.1f,%.1f],\"aboard\":%s,\"vehicle\":\"%s\",\"train\":%d,\"seat\":\"%s\",\"nosprint\":%s,\"base\":\"%s\",\"mode\":%d,\"action\":\"%s\",\"boarding\":%s,\"camera\":%.2f,\"arm\":%.0f,\"yaw\":%.1f,\"local\":[%.1f,%.1f,%.1f],\"admitted\":%s,\"first_person\":%s,\"on_vehicle\":%s,\"view_yaw\":%.2f,\"coach_yaw\":%.2f,\"sounds\":{\"loops\":%d,\"idle\":%.2f,\"effort\":%.2f,\"roll\":%.2f,\"roll_pitch\":%.2f,\"brakes\":%d,\"departs\":%d,\"clacks\":%d}}"),
+    FVector Ear = FVector::ZeroVector, EarFront, EarRight;
+    if (PC) PC->GetAudioListenerPosition(Ear, EarFront, EarRight);
+    return FString::Printf(TEXT("{\"time\":%.2f,\"scale\":%.2f,\"trains\":[%s],\"boards\":[%s],\"player\":[%.1f,%.1f,%.1f],\"aboard\":%s,\"vehicle\":\"%s\",\"train\":%d,\"seat\":\"%s\",\"nosprint\":%s,\"base\":\"%s\",\"mode\":%d,\"action\":\"%s\",\"boarding\":%s,\"camera\":%.2f,\"arm\":%.0f,\"yaw\":%.1f,\"local\":[%.1f,%.1f,%.1f],\"admitted\":%s,\"first_person\":%s,\"on_vehicle\":%s,\"view_yaw\":%.2f,\"coach_yaw\":%.2f,\"sounds\":{\"loops\":%d,\"idle\":%.2f,\"start\":%.2f,\"effort\":%.2f,\"roll\":%.2f,\"roll_pitch\":%.2f,\"chuff_rate\":%.2f,\"brakes\":%d,\"departs\":%d,\"clacks\":%d,\"doors\":%d,\"blowoffs\":%d,\"passes\":%d,\"listener_vehicle\":\"%s\",\"voices\":[%s]}}"),
         Time, ClockScale(), *Trains, *BoardText, At.X, At.Y, At.Z, Rider && Rider->bAboard ? TEXT("true") : TEXT("false"),
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? *Vehicles[Rider->Vehicle].Id : TEXT(""),
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Train : -1,
@@ -1704,8 +1740,9 @@ FString ABelmonteTrainService::StateJson() const
         OnAnyVehicle(Player, JapanNetwork::IsOnline(GetWorld())) ? TEXT("true") : TEXT("false"),
         PC ? PC->GetControlRotation().Yaw : 0.f,
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Body->GetComponentRotation().Yaw : 0.,
-        RollLoops.Num() + IdleLoops.Num() + EffortLoops.Num(), Mix.Idle, Mix.Effort, Mix.Roll, Mix.RollPitch,
-        SoundEvents[0], SoundEvents[1], SoundEvents[2]);
+        RollLoops.Num() + IdleLoops.Num() + StartSounds.Num() + EffortLoops.Num(), Mix.Idle, Mix.Start, Mix.Effort, Mix.Roll, Mix.RollPitch,
+        Mix.ChuffRate, SoundEvents[0], SoundEvents[1], SoundEvents[2], SoundEvents[3], SoundEvents[4], SoundEvents[5],
+        Vehicles.IsValidIndex(ListenerVehicle) ? *Vehicles[ListenerVehicle].Id : TEXT(""), *SoundVoicesJson(Ear));
 }
 
 FVector ABelmonteTrainService::PointOn(int32 Train, const FString& Vehicle, const FString& What) const

@@ -427,22 +427,81 @@ bool FBelmonteTrainSoundProfileTest::RunTest(const FString&)
     const double Long = BrakeCue(9., 12., 8., 1., Pitch);
     TestTrue(TEXT("A long cue ends at the stop at its pitch limit"), FMath::IsNearlyEqual(Long + 8. / Pitch, 12., 1e-4) && FMath::IsNearlyEqual(Pitch, 1.33f, 1e-4f));
     TestTrue(TEXT("At twice the clock the phase is half as long in real seconds"), FMath::IsNearlyEqual(BrakeCue(9., 12., 1.5, 2., Pitch), 9., 1e-6));
-    // The layers follow the motion through the cycle: idle standing, effort while accelerating, never while braking.
-    auto At = [&](double T) { return SoundMix(FMath::Abs(Line.Speed(0, T)), FMath::Abs(Line.Speed(0, T + .5)) - FMath::Abs(Line.Speed(0, T - .5)), 4.); };
-    TestTrue(TEXT("Standing: idle only"), At(13.5).Idle > .99f && At(13.5).Roll < .01f && At(13.5).Effort < .01f);
-    TestTrue(TEXT("Accelerating: the effort"), At(4.).Effort > .5f && At(4.).Idle < .5f);
-    TestTrue(TEXT("Braking: no effort"), At(10.).Effort < .01f && At(11.).Effort < .01f);
+    // The stand clock: standing 12-15 s and 25-2 s, departed at 15 s and 2 s (in real s: half at twice the clock).
+    TestTrue(TEXT("Standing 1.5 s into the far stand"), FMath::IsNearlyEqual(StandClock(Stands, 13.5, 26., 1.).SinceStop, 1.5));
+    TestTrue(TEXT("Moving 2 s after leaving it"), StandClock(Stands, 17., 26., 1.).SinceStop < 0. && FMath::IsNearlyEqual(StandClock(Stands, 17., 26., 1.).SinceDepart, 2.));
+    TestTrue(TEXT("and 8 s before the next stop"), FMath::IsNearlyEqual(StandClock(Stands, 17., 26., 1.).UntilStop, 8.));
+    TestTrue(TEXT("Across the cycle"), FMath::IsNearlyEqual(StandClock(Stands, 1., 26., 1.).SinceStop, 2.) && FMath::IsNearlyEqual(StandClock(Stands, 4., 26., 1.).SinceDepart, 2.));
+    TestTrue(TEXT("At twice the clock, real seconds"), FMath::IsNearlyEqual(StandClock(Stands, 17., 26., 2.).SinceDepart, 1.));
+    // The stop's cues: the brake cue ends at the stop and the blow-off is right at it.
+    const FTrainStopCues Cues = StopCues(Far->BrakeStart, Far->Arrive, 3., 1.);
+    TestTrue(TEXT("The blow-off at the stop"), Cues.Blast == Far->Arrive && FMath::IsNearlyEqual(Cues.Brake + 3. / Cues.Pitch, Far->Arrive, 1e-6));
+    TestTrue(TEXT("It falls due in the frame the train stops"), EventDue(Cues.Blast, 11.99, 12.01, 26.) && !EventDue(Cues.Blast, 11.9, 11.98, 26.));
+    // The layers follow the motion through the cycle: the steam swelling while braking, all but quiet standing, the
+    // start then the effort while accelerating, never while braking (a 4 s start in this short fixture).
+    auto At = [&](double T)
+    {
+        return SoundMix(FMath::Abs(Line.Speed(0, T)), FMath::Abs(Line.Speed(0, T + .5)) - FMath::Abs(Line.Speed(0, T - .5)), 4.,
+            StandClock(Stands, T, 26., 1.), 4., 9.449);
+    };
+    TestTrue(TEXT("Braking: the steam swells to the stop"), At(10.).Idle > .3f && At(11.5).Idle > At(10.).Idle && At(10.).Effort < .01f && At(10.).Start < .01f);
+    TestTrue(TEXT("Stopped: full at the stop"), At(12.).Idle > .99f);
+    TestTrue(TEXT("then a faint simmer"), At(14.5).Idle < .2f && At(14.5).Idle > .1f && At(14.5).Roll < .01f && At(14.5).Effort < .01f && At(14.5).Start < .01f);
+    TestTrue(TEXT("Departing: the start"), At(4.5).Start > .99f && At(4.5).Idle < .01f && At(4.5).Effort < .01f);
+    TestTrue(TEXT("then the effort loop"), At(7.5).Effort > .99f && At(7.5).Start < .01f);
     TestTrue(TEXT("Cruising: rolling at full voice"), At(7.).Roll > At(10.).Roll && At(10.).Roll > At(11.5).Roll);
-    // Pitch and volume rise with the speed, never fall; the effort only with a rising speed.
+    // Pitch and volume rise with the speed, never fall.
     float LastPitch = 0.f, LastRoll = -1.f;
+    const FTrainStandClock Away; // long after a departure
     for (double V = 0.; V <= 45.; V += .25)
     {
-        const FTrainSoundMix M = SoundMix(V, 0., 22.);
-        TestTrue(FString::Printf(TEXT("Roll pitch rises with speed at %.2f m/s"), V), M.RollPitch >= LastPitch && (V > 35.2 || V == 0. || M.RollPitch > LastPitch));
+        const FTrainSoundMix M = SoundMix(V, 0., 22., Away, 29.61, 9.449);
+        TestTrue(FString::Printf(TEXT("Roll pitch rises with speed at %.2f m/s"), V), M.RollPitch >= LastPitch && (V > 38.5 || V == 0. || M.RollPitch > LastPitch) && M.RollPitch >= .8f && M.RollPitch <= 1.15f);
         TestTrue(FString::Printf(TEXT("Roll volume never falls with speed at %.2f m/s"), V), M.Roll >= LastRoll);
         LastPitch = M.RollPitch; LastRoll = M.Roll;
     }
-    TestTrue(TEXT("No effort braking or cruising"), SoundMix(10., -.5, 22.).Effort == 0.f && SoundMix(10., 0., 22.).Effort == 0.f);
+    // Standing: loud at the stop, quiet after the fade (gone 10 s on), never the beats.
+    FTrainStandClock Stopped;
+    for (double T = 0.; T <= 90.; T += .5)
+    {
+        Stopped.SinceStop = T;
+        const FTrainSoundMix M = SoundMix(0., 0., 22., Stopped, 29.61, 9.449);
+        TestTrue(FString::Printf(TEXT("No beats standing at %.1f s"), T), M.Effort == 0.f && M.Start == 0.f);
+        if (T >= 1.5) TestTrue(FString::Printf(TEXT("Only a simmer at %.1f s"), T), M.Idle <= .181f);
+        if (T >= 10.) TestTrue(FString::Printf(TEXT("Quiet at %.1f s"), T), M.Idle == 0.f);
+    }
+    // The departure: the start fades in over half a second; the effort loop takes over in its last second; the steam
+    // and the loop are never heard together; nothing braking; the beats follow the acceleration and fade at the cruise.
+    FTrainStandClock Clock;
+    for (double T = 0.; T <= 40.; T += .25)
+        for (const double A : {-.5, 0., .1, .28})
+        {
+            Clock.SinceDepart = T; Clock.UntilStop = 100.;
+            const FTrainSoundMix M = SoundMix(FMath::Min(T * .25, 12.), A, 22., Clock, 29.61, 9.449);
+            TestTrue(FString::Printf(TEXT("Steam and effort exclusive %.2f s after departure"), T), M.Idle == 0.f || M.Effort == 0.f);
+            if (A < -.04) TestTrue(TEXT("Nothing braking"), M.Start == 0.f && M.Effort == 0.f);
+        }
+    Clock.SinceDepart = 1.;
+    TestTrue(TEXT("The soft start is heard before the acceleration builds"), SoundMix(.05, .01, 22., Clock, 29.61, 9.449).Start > .99f);
+    Clock.SinceDepart = 60.;
+    TestTrue(TEXT("Accelerating: the effort loop"), SoundMix(10., .3, 22., Clock, 29.61, 9.449).Effort > .99f);
+    TestTrue(TEXT("At the cruise: handed to the roll"), SoundMix(10., 0., 22., Clock, 29.61, 9.449).Effort == 0.f);
+    TestTrue(TEXT("Beats merge into the roll near the rate's top"), SoundMix(20., .28, 22., Clock, 29.61, 9.449).Effort > SoundMix(26., .28, 22., Clock, 29.61, 9.449).Effort &&
+        SoundMix(29., .28, 22., Clock, 29.61, 9.449).Effort == 0.f);
+    Clock.UntilStop = 20.;
+    TestTrue(TEXT("No steam braking far from the stop"), SoundMix(10., -.8, 22., Clock, 29.61, 9.449).Idle == 0.f);
+    Clock.UntilStop = 4.5;
+    TestTrue(TEXT("Swelling over the last 9 s"), FMath::IsNearlyEqual(SoundMix(3., -.8, 22., Clock, 29.61, 9.449).Idle, .5f, 1e-3f));
+    // The beats land on the driving wheels: 4 a revolution of 1.9 m wheels, the 9.449-beats-a-second loop's rate clamped
+    // to 0.5..2.
+    for (double V = 0.; V <= 35.; V += .5)
+    {
+        const double Beats = 4. * V / (UE_DOUBLE_PI * 1.9);
+        const FTrainSoundMix M = SoundMix(V, .28, 22., Clock, 29.61, 9.449);
+        TestTrue(FString::Printf(TEXT("Chuff rate at %.1f m/s"), V), FMath::IsNearlyEqual(M.ChuffRate, float(FMath::Clamp(Beats / 9.449, .5, 2.)), 1e-4f));
+        if (Beats / 9.449 > .5 && Beats / 9.449 < 2.)
+            TestTrue(FString::Printf(TEXT("Chuffs on the wheel beats at %.1f m/s"), V), FMath::IsNearlyEqual(double(M.ChuffRate) * 9.449, Beats, 1e-3));
+    }
     // Rail joints: one clack per joint passed, either way; a clock jump replays at most four.
     TestEqual(TEXT("A joint passed"), JointsCrossed(24.9, 25.1, 25.), 1);
     TestEqual(TEXT("Backwards too"), JointsCrossed(50.2, 49.8, 25.), 1);
@@ -518,6 +577,73 @@ bool FBelmonteTrainStandUpTest::RunTest(const FString&)
     }
     TestTrue(TEXT("The staged coaches have seats"), Checked > 0);
     TestEqual(TEXT("No seat stands its passenger up inside the furniture"), Wedged, 0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBelmonteTrainSoundEmittersTest, "Yorimichi.Belmonte.TrainSoundEmitters",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+// Every sound comes from where it is made, on the real service (the staged data): the engine's idle, start and beats
+// hang on the locomotive at its chimney, each vehicle's roll at each of its wheels, as the consist data puts them; the
+// engine has its two cylinders (the blow-off) and every exterior door its closing.
+bool FBelmonteTrainSoundEmittersTest::RunTest(const FString&)
+{
+    // The emitters of a vehicle record: the sound record's points, and each exterior door's collision centre.
+    const TCHAR* Record = TEXT(R"({"id": "locomotive", "bogies": [-4.2, 4.2],
+        "sound": {"wheels": [[530,0,45],[45,0,95],[-385,0,50]], "chimney": [440,0,412], "cylinders": [[475,-120,105],[475,120,105]]},
+        "doors": [{"id": "a", "kind": "exterior", "collision": [-1160,-40,125,-1150,40,325]}, {"id": "b", "kind": "gangway", "collision": [0,0,0,1,1,1]}]})");
+    TSharedPtr<FJsonObject> One;
+    TestTrue(TEXT("Record parses"), FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Record), One));
+    const TArray<FTrainEmitter> Points = ABelmonteTrainService::SoundEmitters(One);
+    auto Count = [](const TArray<FTrainEmitter>& E, ETrainEmitter Kind) { return E.FilterByPredicate([Kind](const FTrainEmitter& X) { return X.Kind == Kind; }).Num(); };
+    TestEqual(TEXT("Three wheel sets, not the default bogies"), Count(Points, ETrainEmitter::Wheel), 3);
+    TestTrue(TEXT("The coupled wheels where the record puts them"), Points[1].Local.Equals(FVector(45., 0., 95.)));
+    TestTrue(TEXT("The chimney"), Points.ContainsByPredicate([](const FTrainEmitter& E) { return E.Kind == ETrainEmitter::Chimney && E.Local.Equals(FVector(440., 0., 412.)); }));
+    TestEqual(TEXT("Two cylinders"), Count(Points, ETrainEmitter::Cylinder), 2);
+    TestTrue(TEXT("One exterior door, at its box's centre"), Count(Points, ETrainEmitter::Door) == 1 &&
+        Points.ContainsByPredicate([](const FTrainEmitter& E) { return E.Kind == ETrainEmitter::Door && E.Local.Equals(FVector(-1155., 0., 225.)) && E.Id == TEXT("a"); }));
+
+    const FString Path = AtelierDataPath(TEXT("belmonte_train/service.json"));
+    const TSharedPtr<FJsonObject> Root = AtelierReadJson(Path);
+    if (!Root.IsValid()) { AddWarning(TEXT("No staged belmonte_train/service.json: the placed-voice check is skipped")); return true; }
+    UWorld* World = nullptr;
+    for (const FWorldContext& Context : GEngine->GetWorldContexts())
+        if (Context.World() && Context.World()->IsGameWorld()) { World = Context.World(); break; }
+    if (!TestNotNull(TEXT("A game world"), World)) return false;
+    const bool bExisting = ABelmonteTrainService::Find(World) != nullptr;
+    ABelmonteTrainService* Service = ABelmonteTrainService::Spawn(World, Path);
+    if (!TestNotNull(TEXT("The service spawns from the staged data"), Service)) return false;
+    ON_SCOPE_EXIT { if (!bExisting) Service->Destroy(); };
+    const TArray<FTrainSoundVoice> Voices = Service->SoundVoices(FVector::ZeroVector);
+    if (Voices.IsEmpty()) { AddWarning(TEXT("No train sounds imported (unreal.sounds): the placed-voice check is skipped")); return true; }
+    int32 Wheels = 0, Checked = 0;
+    for (const TSharedPtr<FJsonValue>& Value : Root->GetObjectField(TEXT("consist"))->GetArrayField(TEXT("vehicles")))
+    {
+        const TSharedPtr<FJsonObject> V = Value->AsObject();
+        const FString Id = V->GetStringField(TEXT("id"));
+        TestTrue(Id + TEXT(" has its sound points in the data"), V->HasField(TEXT("sound")));
+        for (const FTrainEmitter& E : ABelmonteTrainService::SoundEmitters(V))
+        {
+            if (E.Kind == ETrainEmitter::Wheel)
+            {
+                ++Wheels;
+                const FTrainSoundVoice* Voice = Voices.FindByPredicate([&](const FTrainSoundVoice& X)
+                    { return X.Train == 0 && X.Kind == ETrainEmitter::Wheel && X.Vehicle == Id && X.Local.Equals(E.Local, .01); });
+                TestTrue(FString::Printf(TEXT("%s %s: a roll voice on the vehicle at the wheels"), *Id, *E.Id), Voice && Voice->Parent && Voice->Parent == Voice->Body);
+                ++Checked;
+            }
+            if (E.Kind == ETrainEmitter::Chimney)
+            {
+                const int32 Engine = Voices.FilterByPredicate([&](const FTrainSoundVoice& X)
+                    { return X.Train == 0 && X.Kind == ETrainEmitter::Chimney && X.Vehicle == Id && X.Parent == X.Body && X.Local.Equals(E.Local, .01); }).Num();
+                TestEqual(Id + TEXT(": idle, start and beats at the chimney"), Engine, 3);
+                ++Checked;
+            }
+        }
+        if (Id == TEXT("locomotive")) TestEqual(TEXT("The engine's two cylinders"), Count(ABelmonteTrainService::SoundEmitters(V), ETrainEmitter::Cylinder), 2);
+    }
+    TestTrue(TEXT("Every vehicle has wheels heard"), Wheels >= 14);
+    TestTrue(TEXT("Checked the voices"), Checked > 0);
     return true;
 }
 #endif
