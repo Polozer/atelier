@@ -137,7 +137,8 @@ def flood(free, seed):
 
 
 def mirror(faces):
-    """Reverse each triangle's winding: plan-frame outward solids become outward in Unreal, like the source."""
+    """Reverse each triangle's winding. The committed hulls are wound into their solids (all of the library's, unlike
+    the drawn meshes): readers that keep a face's side, such as the skate surface, need them turned outward."""
     return np.asarray(faces)[:, [0, 2, 1]]
 
 
@@ -158,15 +159,14 @@ def cluster(faces, cell):
     _, first = np.unique(np.sort(tri, 1), axis=0, return_index=True)
     tri = tri[np.sort(first)]
     # Clustering can pull a surface in by up to half a cell: push every vertex out along its area-weighted normal
-    # by that much, so the collision never sinks into what is drawn. (The plan frame mirrors Unreal's, so the drawn
-    # faces, wound outward in Unreal, wind inward here: their outward normal is -(b - a) x (c - a).)
+    # (the drawn faces wind outward) by that much, so the collision never sinks into what is drawn.
     a, b, c = mean[tri[:, 0]], mean[tri[:, 1]], mean[tri[:, 2]]
     n = np.cross(b - a, c - a)
     normal = np.zeros_like(mean)
     for k in range(3):
         np.add.at(normal, tri[:, k], n)
     normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
-    return (mean - normal * cell / 2)[tri]
+    return (mean + normal * cell / 2)[tri]
 
 
 def components(cells):
@@ -212,7 +212,7 @@ def boxes2d(sheet):
     return out
 
 
-# Twelve triangles of a box, wound outward in the plan frame (mirror() turns them for Unreal), corners numbered by their (x, y, z) bits.
+# Twelve outward-wound triangles of a box, corners numbered by their (x, y, z) bits.
 _BOX = np.array([[0, 2, 3], [0, 3, 1], [4, 5, 7], [4, 7, 6], [0, 1, 5], [0, 5, 4],
                  [2, 6, 7], [2, 7, 3], [0, 4, 6], [0, 6, 2], [1, 3, 7], [1, 7, 5]])
 _CORNERS = np.array([[i & 1, i >> 1 & 1, i >> 2 & 1] for i in range(8)], float)
@@ -302,8 +302,7 @@ class Building:
                 self._slab(part, clear, out)
         if not out:
             return np.zeros((0, 3, 3))
-        # Built outward-wound in the plan frame; Unreal's mirrored frame wants the source's winding (see cluster).
-        return mirror(np.concatenate(out))
+        return np.concatenate(out)
 
     def _slab(self, part, clear, out):
         centres = self.lo + (part + .5) * self.h
@@ -430,7 +429,7 @@ def _shell(b, cell):
             kept = f[b.touching(f, bare)]
             kept = cluster(kept, cell) if cell else kept
             skin += len(kept)
-            f = np.concatenate([hulls[e['name']], kept])
+            f = np.concatenate([mirror(hulls[e['name']]), kept])     # every face outward, as drawn
         faces[e['name']] = f
     # Close only interiors a walker fits in, as this collision bounds them; cavities inside walls stay as they are.
     blocked = b.rasterise(np.concatenate(list(faces.values()))) | b.below

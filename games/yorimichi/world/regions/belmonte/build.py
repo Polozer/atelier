@@ -202,6 +202,15 @@ def map_zones(town_z):
     ]
 
 
+def outward_hulls(hulls):
+    """A committed hull file written to glb/ with its faces turned out of their solids (the library's wind inward), as
+    the drawn meshes and the generated shells face: the skate surface keeps a face's side."""
+    path = OUT / 'glb' / hulls.name
+    collision.write_glb(path, collision.mirror(source.triangles(hulls)))
+    return {'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
+            'source': hulls.relative_to(source.LIBRARY).as_posix()}
+
+
 def building_collision(data, meshes):
     """Buildings collide with shells generated from what is drawn (belmonte/collision.py): the committed hulls plus
     the drawn storeys, roofs and stand tiers they miss, and plugs in the openings to unfurnished interiors. Writes each
@@ -257,8 +266,8 @@ def main():
         if 'collision' in entry:
             hulls = source.LIBRARY / entry['collision']['path']
             assert source.sha(hulls) == entry['collision']['sha256'], hulls
-            if not collision.is_building(entry['name']):
-                shutil.copy2(hulls, OUT / 'glb' / hulls.name)
+            if not collision.is_building(entry['name']):     # buildings get generated shells below
+                entry['collision'] = outward_hulls(hulls)
     shells = building_collision(data, meshes)
     extra, seam = surroundings()
     meshes.extend(extra)

@@ -90,16 +90,37 @@ def test_collision_glb_round_trips(tmp_path):
     path = tmp_path / 'SM_BM_BH_Porta_SE_Collision.glb'
     collision.write_glb(path, faces)
     np.testing.assert_allclose(source.triangles(path), faces, atol=1e-4)
-    # Unreal-outward winding, the convention of the committed hulls: closed solids have a negative signed volume
-    # in the mirrored plan frame. The one-sided skate sim rides straight through anything wound the other way.
-    def volume(t):
-        return np.einsum('ij,ij->i', t[:, 0], np.cross(t[:, 1], t[:, 2])).sum() / 6
+    # Every face outward, as the drawn meshes are: the committed hulls are wound into their solids and are turned, and
+    # each closed plug is built outward. The skate surface keeps a face's side and rides through one taken from behind.
     name = 'SM_BM_BE_4_Stables'
     b, stables = generated(name)
-    hulls = collision.committed(b.entries)
     owner = next(e['name'] for e in b.entries if 'collision' in e)
-    assert stables.plug_triangles and all(volume(f) < 0 for f in hulls.values() if len(f))
-    assert volume(stables.faces[owner][-stables.plug_triangles:]) < 0
+    hulls = collision.committed(b.entries)[owner]
+    assert volume(hulls) < 0 < volume(stables.faces[owner][:len(hulls)])
+    plugs = stables.faces[owner][-stables.plug_triangles:]
+    assert stables.plug_triangles and all(volume(piece) > 0 for piece in pieces(plugs))
+
+
+def volume(faces):
+    return np.einsum('ij,ij->i', faces[:, 0], np.cross(faces[:, 1], faces[:, 2])).sum() / 6
+
+
+def pieces(faces):
+    """The edge-connected pieces of a triangle soup."""
+    _, vertex = np.unique(faces.reshape(-1, 3).round(4), axis=0, return_inverse=True)
+    vertex = vertex.reshape(-1, 3)
+    label = np.arange(vertex.max() + 1)
+    while True:
+        low = label[vertex].min(1)
+        merged = label.copy()
+        for k in range(3):
+            np.minimum.at(merged, vertex[:, k], low)
+        merged = merged[merged]
+        if (merged == label).all():
+            break
+        label = merged
+    piece = label[vertex[:, 0]]
+    return [faces[piece == p] for p in np.unique(piece)]
 
 
 def test_build_writes_generated_shells_for_buildings_only(tmp_path, monkeypatch):
@@ -116,4 +137,9 @@ def test_build_writes_generated_shells_for_buildings_only(tmp_path, monkeypatch)
     assert source.sha(tmp_path / entry['collision']['path']) == entry['collision']['sha256']
     assert report[keep]['plugs'] >= 0 and report[keep]['reachable_m3'] == 0 and report[keep]['triangles'][keep] > 0
     bench = next(m for m in meshes if m['name'] == 'SM_BM_BP_Bench')
-    assert bench['collision']['path'].startswith('meshes/')
+    assert bench['collision']['path'].startswith('meshes/')     # untouched here; main() turns it outward
+    hulls = source.LIBRARY / bench['collision']['path']
+    turned = build.outward_hulls(hulls)
+    assert turned['path'] == f'glb/{hulls.name}' and turned['source'] == bench['collision']['path']
+    faces = source.triangles(tmp_path / turned['path'])
+    assert volume(source.triangles(hulls)) < 0 < volume(faces) and len(faces) == len(source.triangles(hulls))
