@@ -10,6 +10,7 @@
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "AtelierData.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBelmonteTrainLineTest, "Yorimichi.Belmonte.TrainLine",
     EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
@@ -363,6 +364,160 @@ bool FBelmonteTrainBoardsTest::RunTest(const FString&)
     TestEqual(TEXT("Board at 140 s"), FBelmonteTrainLine::Countdown(Next(Far, 140.)[0], 1.), FString(TEXT("arrive")));
     TestEqual(TEXT("Board at 200 s"), FBelmonteTrainLine::Countdown(Next(Far, 200.)[0], 1.), FString(TEXT("à quai")));
     TestEqual(TEXT("Board at 200 s, the train after"), FBelmonteTrainLine::Countdown(Next(Far, 200.)[1], 1.), FString(TEXT("dans 3 min")));
+    return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBelmonteTrainSeatViewAndSoundTest, "Yorimichi.Belmonte.TrainSeatViewAndSound",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FBelmonteTrainSeatViewAndSoundTest::RunTest(const FString&)
+{
+    using namespace BelmonteTrainRules;
+    // A seated passenger's view turns by the coach's own turn, across the +-180 seam too.
+    TestTrue(TEXT("A left curve turns the view left"), FMath::IsNearlyEqual(CarriageTurn(10., 12.5), 2.5, 1e-9));
+    TestTrue(TEXT("Across the seam, the short way"), FMath::IsNearlyEqual(CarriageTurn(179., -179.), 2., 1e-9));
+    TestTrue(TEXT("Across the seam the other way"), FMath::IsNearlyEqual(CarriageTurn(-179., 179.), -2., 1e-9));
+    TestTrue(TEXT("A straight run does not turn it"), FMath::IsNearlyZero(CarriageTurn(42., 42.)));
+    // Sound events from the shared clock (cycle 100 s, event at 30 s): once as the clock passes it, every cycle.
+    TestTrue(TEXT("Due as the clock passes it"), EventDue(30., 29.9, 30.05, 100.));
+    TestTrue(TEXT("Due again a cycle later"), EventDue(30., 129.99, 130.01, 100.));
+    TestTrue(TEXT("Due for an event wrapping before zero"), EventDue(-5., 94.9, 95.1, 100.));
+    TestFalse(TEXT("Not before"), EventDue(30., 29.5, 29.9, 100.));
+    TestFalse(TEXT("Not again on the next frame"), EventDue(30., 30.05, 30.1, 100.));
+    TestFalse(TEXT("A clock jump replays nothing"), EventDue(30., 10., 40., 100.));
+    TestFalse(TEXT("A clock going back replays nothing"), EventDue(30., 31., 29.5, 100.));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBelmonteTrainSoundProfileTest, "Yorimichi.Belmonte.TrainSoundProfile",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+// One train over a 26 s cycle sampled every second: it stands, accelerates (1, 2, 3, 4 m/s), cruises at 4 m/s, brakes
+// (3, 2, 1 m/s) into a stand at 28 m from 12 s to 15 s, then runs back the same way.
+static const TCHAR* SoundLineJson = TEXT(R"({
+ "line": {"main": [[0,0,0,0],[500,50000,0,0],[1000,100000,0,0]],
+          "loop": {"start": 400, "end": 600, "points": [[400,40000,0,0],[410,41000,-400,0],[590,59000,-400,0],[600,60000,0,0]]},
+          "viewpoints": [{"s": 250}]},
+ "service": {"cycle_s": 26, "clock_start_s": 0, "trains": [
+   {"name": "A", "t0": 0, "dt": 1, "s": [0,0,0,1,3,6,10,14,18,22,25,27,28,28,28,28,27,25,22,18,14,10,6,3,1,0], "loop_track": []}]}
+})");
+
+bool FBelmonteTrainSoundProfileTest::RunTest(const FString&)
+{
+    using namespace BelmonteTrainRules;
+    TSharedPtr<FJsonObject> Root;
+    TestTrue(TEXT("Fixture parses"), FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(SoundLineJson), Root));
+    FBelmonteTrainLine Line; FString Error;
+    TestTrue(TEXT("Line parses: ") + Error, Line.Parse(Root, Error));
+    // The stands, from the samples: the one at 28 m (12-15 s) whose braking starts as the speed first drops (9 s), and the
+    // one at the origin (25 s to 3 s next cycle) braking from 16 s... into it.
+    const TArray<FBelmonteTrainStand> Stands = Line.Stands(0);
+    TestEqual(TEXT("Two stands a cycle"), Stands.Num(), 2);
+    const FBelmonteTrainStand* Far = Stands.FindByPredicate([](const FBelmonteTrainStand& S) { return FMath::IsNearlyEqual(S.Arrive, 12.); });
+    TestTrue(TEXT("The stand at 28 m arrives at 12 s"), Far != nullptr);
+    if (!Far) return false;
+    TestTrue(TEXT("It leaves at 15 s"), FMath::IsNearlyEqual(Far->Depart, 15.));
+    TestTrue(TEXT("Its braking starts at 9 s"), FMath::IsNearlyEqual(Far->BrakeStart, 9.));
+    TestTrue(TEXT("The line slows over the braking window"), Line.Speed(0, 9.5) > Line.Speed(0, 10.5) && Line.Speed(0, 10.5) > Line.Speed(0, 11.5));
+    TestTrue(TEXT("and cruised before it"), FMath::IsNearlyEqual(Line.Speed(0, 7.5), Line.Speed(0, 8.5), 1e-6));
+    // The brake cue: a cue as long as the braking starts with it and ends at the stop; a longer one keeps its pitch
+    // limit and ends at the stop; at a faster clock it is fitted in real seconds.
+    float Pitch = 0.f;
+    TestTrue(TEXT("A fitting cue starts with the braking"), FMath::IsNearlyEqual(BrakeCue(Far->BrakeStart, Far->Arrive, 3., 1., Pitch), 9., 1e-6) && FMath::IsNearlyEqual(Pitch, 1.f));
+    TestTrue(TEXT("A 3.6 s cue is sped up to fit"), FMath::IsNearlyEqual(BrakeCue(9., 12., 3.6, 1., Pitch), 9., 1e-6) && FMath::IsNearlyEqual(Pitch, 1.2f, 1e-4f));
+    const double Long = BrakeCue(9., 12., 8., 1., Pitch);
+    TestTrue(TEXT("A long cue ends at the stop at its pitch limit"), FMath::IsNearlyEqual(Long + 8. / Pitch, 12., 1e-4) && FMath::IsNearlyEqual(Pitch, 1.33f, 1e-4f));
+    TestTrue(TEXT("At twice the clock the phase is half as long in real seconds"), FMath::IsNearlyEqual(BrakeCue(9., 12., 1.5, 2., Pitch), 9., 1e-6));
+    // The layers follow the motion through the cycle: idle standing, effort while accelerating, never while braking.
+    auto At = [&](double T) { return SoundMix(FMath::Abs(Line.Speed(0, T)), FMath::Abs(Line.Speed(0, T + .5)) - FMath::Abs(Line.Speed(0, T - .5)), 4.); };
+    TestTrue(TEXT("Standing: idle only"), At(13.5).Idle > .99f && At(13.5).Roll < .01f && At(13.5).Effort < .01f);
+    TestTrue(TEXT("Accelerating: the effort"), At(4.).Effort > .5f && At(4.).Idle < .5f);
+    TestTrue(TEXT("Braking: no effort"), At(10.).Effort < .01f && At(11.).Effort < .01f);
+    TestTrue(TEXT("Cruising: rolling at full voice"), At(7.).Roll > At(10.).Roll && At(10.).Roll > At(11.5).Roll);
+    // Pitch and volume rise with the speed, never fall; the effort only with a rising speed.
+    float LastPitch = 0.f, LastRoll = -1.f;
+    for (double V = 0.; V <= 45.; V += .25)
+    {
+        const FTrainSoundMix M = SoundMix(V, 0., 22.);
+        TestTrue(FString::Printf(TEXT("Roll pitch rises with speed at %.2f m/s"), V), M.RollPitch >= LastPitch && (V > 35.2 || V == 0. || M.RollPitch > LastPitch));
+        TestTrue(FString::Printf(TEXT("Roll volume never falls with speed at %.2f m/s"), V), M.Roll >= LastRoll);
+        LastPitch = M.RollPitch; LastRoll = M.Roll;
+    }
+    TestTrue(TEXT("No effort braking or cruising"), SoundMix(10., -.5, 22.).Effort == 0.f && SoundMix(10., 0., 22.).Effort == 0.f);
+    // Rail joints: one clack per joint passed, either way; a clock jump replays at most four.
+    TestEqual(TEXT("A joint passed"), JointsCrossed(24.9, 25.1, 25.), 1);
+    TestEqual(TEXT("Backwards too"), JointsCrossed(50.2, 49.8, 25.), 1);
+    TestEqual(TEXT("Between joints"), JointsCrossed(26., 49., 25.), 0);
+    TestEqual(TEXT("A jump replays at most four"), JointsCrossed(0., 1000., 25.), 4);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBelmonteTrainStandUpTest, "Yorimichi.Belmonte.TrainStandUp",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FBelmonteTrainStandUpTest::RunTest(const FString&)
+{
+    using namespace BelmonteTrainRules;
+    bool bFound = false;
+    // A saloon: benches at y +-80 and +-140 facing each other along x; the aisle is the centreline.
+    const TArray<FVector2D> Saloon = {FVector2D(-450., -80.), FVector2D(-450., -140.), FVector2D(-340., -80.), FVector2D(-340., -140.),
+        FVector2D(-450., 80.), FVector2D(-450., 140.), FVector2D(-340., 80.), FVector2D(-340., 140.)};
+    TestTrue(TEXT("Saloon: onto the central aisle"), AislePoint(FVector2D(-450., -140.), Saloon, bFound).Equals(FVector2D(-450., 0.)) && bFound);
+    // Restaurant: banquettes at y +-114 across tables 170 cm long.
+    const TArray<FVector2D> Salon = {FVector2D(-793., -114.), FVector2D(-625., -114.), FVector2D(-793., 114.), FVector2D(-625., 114.),
+        FVector2D(-540., -114.), FVector2D(-372., -114.)};
+    TestTrue(TEXT("Restaurant: onto the central aisle, not the table"), AislePoint(FVector2D(-625., 114.), Salon, bFound).Equals(FVector2D(-625., 0.)));
+    // A first-class compartment: two sofas facing each other; the free floor is between them.
+    const TArray<FVector2D> Cabin = {FVector2D(-554.35, -16.5), FVector2D(-566.35, -108.5), FVector2D(-348.65, -16.5), FVector2D(-360.65, -108.5)};
+    TestTrue(TEXT("Compartment: between the facing sofas"), AislePoint(FVector2D(-554.35, -16.5), Cabin, bFound).Equals(FVector2D(-457.5, -16.5)));
+    const TArray<FVector2D> Lone = {FVector2D(0., 0.)};
+    AislePoint(FVector2D(0., 0.), Lone, bFound);
+    TestFalse(TEXT("A lone seat has no aisle"), bFound);
+    // Blocked aisle point: slide along the aisle; nothing free: the front step, then the aisle anyway.
+    auto Wall = [](const FVector2D& P) { return FMath::Abs(P.X + 450.) < 30.; };
+    TestTrue(TEXT("Slides along the aisle past an obstacle"), FMath::Abs(StandUpPoint(FVector2D(-450., -140.), FVector2D(1., 0.), Saloon, Wall).X + 450.) >= 30.);
+    TestTrue(TEXT("A lone seat steps off its front"), StandUpPoint(FVector2D(0., 0.), FVector2D(1., 0.), Lone, [](const FVector2D&) { return false; }).Equals(FVector2D(55., 0.)));
+
+    // The rule on the real coaches (the staged service data): every seat stands its passenger up with a standing capsule
+    // (the Wanderer's, 22 x 75.5 cm, on the 1.25 m floor) clear of the coach's collision boxes: never wedged between a
+    // seat and a table again, in any coach the train gains.
+    const TSharedPtr<FJsonObject> Root = AtelierReadJson(AtelierDataPath(TEXT("belmonte_train/service.json")));
+    if (!Root.IsValid()) { AddWarning(TEXT("No staged belmonte_train/service.json: the coach check is skipped (run data.stage)")); return true; }
+    auto Box = [](const TArray<TSharedPtr<FJsonValue>>& A) { return FBox(FVector(A[0]->AsNumber(), A[1]->AsNumber(), A[2]->AsNumber()), FVector(A[3]->AsNumber(), A[4]->AsNumber(), A[5]->AsNumber())); };
+    constexpr double Radius = 22., Half = 75.5, Floor = 125.;
+    int32 Checked = 0, Wedged = 0;
+    for (const TSharedPtr<FJsonValue>& Value : Root->GetObjectField(TEXT("consist"))->GetArrayField(TEXT("vehicles")))
+    {
+        const TSharedPtr<FJsonObject> V = Value->AsObject();
+        const TArray<TSharedPtr<FJsonValue>>* SeatRows = nullptr;
+        if (!V->TryGetArrayField(TEXT("seats"), SeatRows) || SeatRows->IsEmpty()) continue;
+        TArray<FBox> Rooms, Solid; TArray<FVector2D> Seats; TArray<double> Yaws;
+        for (const auto& R : V->GetArrayField(TEXT("interiors"))) Rooms.Add(Box(R->AsObject()->GetArrayField(TEXT("box"))));
+        for (const auto& C : V->GetArrayField(TEXT("collision")))
+            Solid.Add(Box(C->Type == EJson::Array ? C->AsArray() : C->AsObject()->GetArrayField(TEXT("box"))));
+        for (const auto& S : *SeatRows)
+        {
+            const auto& A = S->AsObject()->GetArrayField(TEXT("at"));
+            Seats.Add(FVector2D(A[0]->AsNumber(), A[1]->AsNumber())); Yaws.Add(A[3]->AsNumber());
+        }
+        auto Blocked = [&](const FVector2D& P)
+        {
+            for (const FBox& B : Solid)
+            {
+                if (B.Max.Z <= Floor + 3. || B.Min.Z >= Floor + 1. + 2. * Half) continue;
+                const double DX = FMath::Max3(B.Min.X - P.X, 0., P.X - B.Max.X), DY = FMath::Max3(B.Min.Y - P.Y, 0., P.Y - B.Max.Y);
+                if (DX * DX + DY * DY < FMath::Square(Radius - 1.)) return true;
+            }
+            return false;
+        };
+        for (int32 I = 0; I < Seats.Num(); ++I)
+        {
+            const FVector2D At = StandUpPoint(Seats[I], FVector2D(FRotator(0., Yaws[I], 0.).Vector()), RoomSeats(Rooms, Seats, I), Blocked);
+            ++Checked;
+            if (Blocked(At)) { ++Wedged; AddError(FString::Printf(TEXT("%s seat %d stands up wedged at %.0f, %.0f"), *V->GetStringField(TEXT("id")), I, At.X, At.Y)); }
+        }
+    }
+    TestTrue(TEXT("The staged coaches have seats"), Checked > 0);
+    TestEqual(TEXT("No seat stands its passenger up inside the furniture"), Wedged, 0);
     return true;
 }
 #endif

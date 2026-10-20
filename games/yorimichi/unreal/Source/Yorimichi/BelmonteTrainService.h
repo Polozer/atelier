@@ -11,6 +11,9 @@ class UStaticMeshComponent;
 class UInstancedStaticMeshComponent;
 class UBoxComponent;
 class UTextRenderComponent;
+class UAudioComponent;
+class USoundWave;
+class USoundAttenuation;
 class AWandererCharacter;
 
 /** A track's centreline: chainage (metres) and rail-top points (Unreal cm), in chainage order. */
@@ -38,6 +41,14 @@ struct YORIMICHI_API FBelmonteTrainStop
 {
     int32 Train = 0;
     double Arrive = 0., Depart = 0.;
+};
+
+/** A train's stand anywhere on the line (a terminus, the passing loop), from its samples: the service times (0 .. Cycle)
+ *  its deceleration into the stand begins, it stops and it moves off again. */
+struct YORIMICHI_API FBelmonteTrainStand
+{
+    int32 Train = 0;
+    double BrakeStart = 0., Arrive = 0., Depart = 0.;
 };
 
 /** An arrival on a station board: the train and the service seconds until it arrives (0 while it stands there). */
@@ -84,6 +95,8 @@ struct YORIMICHI_API FBelmonteTrainLine
     double NextCrossing(double From, double* Where = nullptr) const;
     /** The first service time after From when any train's centre passes Chainage, or -1. */
     double NextPassing(double From, double Chainage, int32* Which = nullptr) const;
+    /** Every stand of a train over one cycle lasting at least MinStand s (FBelmonteTrainStand), by arrival time. */
+    TArray<FBelmonteTrainStand> Stands(int32 Train, double MinStand = 2.) const;
     /** Every train's stands at the terminus at Chainage over one cycle (from the samples), by arrival time. */
     TArray<FBelmonteTrainStop> Stops(double Chainage) const;
     /** The next Count arrivals at a terminus with these stops at a service time: trains standing there first, then the
@@ -294,6 +307,10 @@ private:
     /** Inside a coach, the short train camera; it blends back to the rider's own outside. */
     void UpdateCamera(FRider& Rider, bool bInside, float Dt);
     void StandUp(FRider& Rider);
+    /** The locally controlled rider's view turns with the coach by Turn degrees of yaw (seated, or carried off its floor). */
+    static void FollowTurn(AWandererCharacter* C, double Turn);
+    /** The seats (vehicle cm, x/y) of the room holding a vehicle's seat: where its aisle is found (StandUp). */
+    static TArray<FVector2D> RoomSeats(const FVehicle& V, int32 SeatIndex);
     /** The vehicle whose interior room (in last frame's vehicle frame, grown by Margin cm) holds Feet, or INDEX_NONE. */
     int32 InteriorAt(const FVector& Feet, const FVector& Margin, bool& bNoSprint, bool& bCamera) const;
     /** Host or offline: puts a player riding inside a coach without the ticket back on safe ground, off any vehicle
@@ -341,6 +358,29 @@ private:
     void PublishNetworkState();
     void CancelLocal(FRider& Rider);
     bool AnyRiderAboard() const;
+    /** The train's sounds (BelmonteTrainSound.cpp, assets/audio/train/make.py): every machine plays them from the shared
+     *  service clock, as it places the vehicles, so a host and its guests hear the same train without replicating
+     *  anything. A roll loop on each vehicle follows its train's speed; each arrival's brakes and each departure
+     *  signal play once, from the timetable's stops (FStation::Stops), on the locomotive. */
+    void LoadSounds();
+    void UpdateSounds(double Time, float Dt);
+    /** Per vehicle: the roll loop; per train: the locomotive's idle and effort loops. */
+    UPROPERTY() TArray<TObjectPtr<UAudioComponent>> RollLoops;
+    UPROPERTY() TArray<TObjectPtr<UAudioComponent>> IdleLoops;
+    UPROPERTY() TArray<TObjectPtr<UAudioComponent>> EffortLoops;
+    UPROPERTY() TObjectPtr<USoundWave> ClackSound;
+    UPROPERTY() TObjectPtr<USoundWave> BrakeSound;
+    UPROPERTY() TObjectPtr<USoundWave> DepartSound;
+    UPROPERTY() TObjectPtr<USoundAttenuation> RollAttenuation;
+    UPROPERTY() TObjectPtr<USoundAttenuation> SignalAttenuation;
+    /** Per train: its stands, where the brake and departure cues play. */
+    TArray<TArray<FBelmonteTrainStand>> TrainStands;
+    /** Per vehicle: its two bogies' chainages last frame (a clack at each rail joint they pass). */
+    TArray<FVector2D> LastBogies;
+    double LastSoundTime = -1.;
+    /** Brake cues, departure signals and clacks due on this machine, and train 0's last mix (TrainState). */
+    int32 SoundEvents[3] = {0, 0, 0};
+    TArray<BelmonteTrainRules::FTrainSoundMix> LastMixes;    // per train, for the live state
     bool bInitialized = false, bInitFailed = false;
     double LastNetworkPublication = -1.;
     double DevOffset = 0.;
