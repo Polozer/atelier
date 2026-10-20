@@ -145,14 +145,22 @@ def test_atlas_heights_come_from_the_exported_ground_and_refuse_gaps():
         plan.heights(np.array([1., 20.]), np.array([1., 20.]), surface)
 
 
-def test_export_declares_the_source_library_its_hero_check_reads():
-    """The library is outside assets/brinecove and the import scanner only follows Python: without the declaration
-    a manifest-only change would leave a cached export current and skip hero_sources.verify."""
+def test_export_declares_the_selected_source_library_its_hero_check_reads():
+    """The cheap selector owns the whole registry; the export consumes its exact selected snapshot."""
     from atelier import build
     from brinecove import hero_sources
     recipe = build.load_recipe('yorimichi')
-    export = next(s for s in recipe.brinecove_steps(Path('/tmp/out')) if s.name == 'world.brinecove')
-    assert hero_sources.LIBRARY.resolve() in {Path(p).resolve() for p in export.inputs}
+    out = Path('/tmp/out')
+    selection = recipe.brinecove_source_step(out)
+    export = next(s for s in recipe.brinecove_steps(out) if s.name == 'world.brinecove')
+    library = out / 'digests/brinecove-source-library.json'
+    assert selection.cutoff and not selection.heavy
+    assert hero_sources.LIBRARY in selection.inputs
+    assert selection.outputs == [library]
+    assert selection.name in export.needs
+    assert library in export.inputs and hero_sources.LIBRARY not in export.inputs
+    assert export.commands[0].args == ('--source-library', str(library))
+    assert recipe.ASSETS / 'brinecove' in export.inputs  # GLB and provenance bytes still invalidate the export
 
 
 def test_atlas_ground_refuses_tiles_that_differ_from_the_export_report(tmp_path):

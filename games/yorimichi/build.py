@@ -78,9 +78,8 @@ def craterpark_v2_steps(out):
     volcano = []
     if craterpark_v4.editor():      # the owner's editor park.json (ATELIER_CRATERPARK_EDITOR_PARK)
         runner, arguments = 'editor_generate.py', ('--park', str(craterpark_v4.editor_path()))
-        # its crater floor (editor_floor) stands on the volcano's ground: mountains.py and what it imports
-        volcano = [REGIONS / 'hidamari' / '__init__.py', REGIONS / 'hidamari' / 'mountains.py',
-                   REGIONS / 'belmonte' / '__init__.py', REGIONS / 'belmonte' / 'layout.py']
+        # The floor samples natural terrain, not the railway-deformed/exported mountain surface.
+        volcano = [REGIONS / 'hidamari' / '__init__.py', REGIONS / 'hidamari' / 'natural_terrain.py']
     else:
         runner = 'v4_generate.py' if craterpark_v4.selected() else 'generate.py'
         arguments = ('--design', str(craterpark_v4.design_path())) if craterpark_v4.selected() else ()
@@ -229,6 +228,9 @@ _digest_spec.loader.exec_module(export_digest)
 _city_spec = importlib.util.spec_from_file_location('yorimichi_city_inputs', GAME / 'city_inputs.py')
 city_inputs = importlib.util.module_from_spec(_city_spec)
 _city_spec.loader.exec_module(city_inputs)
+_registry_spec = importlib.util.spec_from_file_location('yorimichi_source_registry', WORLD / 'source_registry.py')
+source_registry = importlib.util.module_from_spec(_registry_spec)
+_registry_spec.loader.exec_module(source_registry)
 
 
 def city_input_step(out, part):
@@ -657,14 +659,26 @@ def belmonte_train_corridor(out):
             ASSETS / 'vehicles' / 'belmonte-train' / 'line.json']
 
 
+def brinecove_source_step(out):
+    """A small cutoff owns the exact library entries the region verifier consumes."""
+    output = out / 'digests' / 'brinecove-source-library.json'
+    return Step('world.brinecove.sources',
+                [Call('Brinecove source-library selection', lambda ctx, log:
+                      source_registry.publish(ASSETS / 'source-library.json', output, 'brinecove/models/'))],
+                inputs=[WORLD / 'source_registry.py', ASSETS / 'source-library.json'],
+                outputs=[output], cutoff=True,
+                about='Brinecove model membership/checksums, independent of unrelated source-library entries')
+
+
 def brinecove_steps(out):
     """Brinecove (world/regions/brinecove): the export closes its ground onto the FarHills hole, so it reads the
     final FarHills product; the import builds /Game/Brinecove, which ABelmonteRegion places from runtime.json."""
     region = REGIONS / 'brinecove'
+    library = out / 'digests' / 'brinecove-source-library.json'
     return [
-        Step('world.brinecove', [Blender(region / 'build.py', threads=3)],
-             # The source library is outside assets/brinecove; hero_sources.verify checks the models against it.
-             inputs=[region, ASSETS / 'brinecove', ASSETS / 'source-library.json', WORLD / 'terrain_product.py', YORI],
+        Step('world.brinecove', [Blender(region / 'build.py', ('--source-library', str(library)), threads=3)],
+             inputs=[region, ASSETS / 'brinecove', library, WORLD / 'terrain_product.py', YORI],
+             needs=['world.brinecove.sources'],
              reads=['terrain.FarHills.final'], heavy=True,
              outputs=[out / 'brinecove' / 'runtime.json', out / 'brinecove' / 'build-report.json'],
              about='Brinecove: pirate port ground joined to the far hills, town, waterfall, ships and flora'),
@@ -838,6 +852,7 @@ def world_steps(ctx):
         digest_step(out, 'world.hidamari', 'city', 'the Hidamari meshes unreal.world reads (all but the volcano)', north=False),
         digest_step(out, 'world.hidamari', 'north', "the volcano's meshes unreal.north reads (HD_North*)", north=True),
         *belmonte_steps(out)[:2],
+        brinecove_source_step(out),
         *brinecove_steps(out)[:2],
         # Zeppelin samples layout products and shared terrain code, not Hidamari's exported city/assets.
         # Keep the old build order; track tree metadata read by the imported treehouse layout directly.

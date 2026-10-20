@@ -118,7 +118,7 @@ class Site:
         the editor's cut ground by its weight (placement._follow), and between them it is sampled as the volcano's mesh
         (two triangles a cell, mountains._barycentric). `inside` is metres inside the crest (mountains.rim_radius)."""
         from craterpark import placement
-        from hidamari import mountains
+        from hidamari import natural_terrain as mountains
         g = grid
         corners = np.array([[x, 0., z] for x in (g['x0'], g['x0'] + g['nx'] * g['G'])
                             for z in (g['z0'], g['z0'] + g['nz'] * g['G'])])
@@ -127,7 +127,7 @@ class Site:
         reach = mountains.RIM_RADIUS + 60.
         lo = np.maximum(isl[:, :2].min(0), (cx - reach, cy - reach))
         hi = np.minimum(isl[:, :2].max(0), (cx + reach, cy + reach))
-        b0, b1 = mountains.BOUNDS[0], mountains.BOUNDS[1]
+        b0, b1 = mountains.GRID_ORIGIN[0], mountains.GRID_ORIGIN[1]
         i0, j0 = int((lo[0] - b0) // SITE_STEP) - 1, int((lo[1] - b1) // SITE_STEP) - 1
         i1, j1 = int((hi[0] - b0) // SITE_STEP) + 2, int((hi[1] - b1) // SITE_STEP) + 2
         X, Y = np.meshgrid(b0 + np.arange(i0, i1 + 1) * SITE_STEP, b1 + np.arange(j0, j1 + 1) * SITE_STEP)

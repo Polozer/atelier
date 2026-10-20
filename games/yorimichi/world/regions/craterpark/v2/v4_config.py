@@ -2,6 +2,7 @@
 import hashlib
 from functools import lru_cache
 import json
+import math
 import os
 from pathlib import Path
 
@@ -62,6 +63,28 @@ def load_document(path=None):
     if document.get('schema') == EDITOR_SCHEMA:
         return editor_document(document)
     return document
+
+
+def placement_document():
+    """The selected document in the established placement frame, without geometry imports."""
+    doc = load_document()
+    if float(doc.get('frame', {}).get('lift', 680.)) != 680.:
+        raise ValueError('v4 frame.lift must match the established 680 m coordinate frame')
+    return doc
+
+
+def caldera_depth(default=45., *, document=None):
+    """The natural ground's selected depth, independent of placement mesh loading."""
+    doc = placement_document() if document is None else document
+    dig = doc.get('ground', {}).get('dig')
+    if not dig:
+        return default
+    if dig.get('kind') != 'depth':
+        raise ValueError('v4 world terrain currently requires ground.dig.kind=depth')
+    value = float(dig['DEPTH'])
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError('v4 caldera DEPTH must be finite and positive')
+    return value
 
 
 def input_paths(path=None):
