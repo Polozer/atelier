@@ -51,7 +51,8 @@ def test_no_house_stands_in_a_terrace_stair():
     import math
     clear = 1.5
     for x0, width in M.TERRACE_STAIRS:
-        xa, xb = x0 - width / 2 - 0.7 - clear, x0 + width / 2 + 0.7 + clear
+        cheek = M.TERRACE_CHEEKS[x0]
+        xa, xb = x0 - width / 2 - cheek - clear, x0 + width / 2 + cheek + clear
         for key, x, y, _, w, d, _, _, _, yaw, _ in L.DENSE_LOTS:
             c, s = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
             pts = [(x + c * dx - s * dy, y + s * dx + c * dy) for dx in (-w / 2, w / 2) for dy in (-d / 2, d / 2)]

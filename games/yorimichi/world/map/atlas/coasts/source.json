@@ -28,7 +28,7 @@
     "assets/belmonte/source.json": "a83ec8c74dd8d031c7d44d722e9358a8240556af649298f37743e5088fcdd1b9",
     "assets/vehicles/belmonte-train/line.json": "fd64b115e1596efb3102be2129cfbf8c095fd05dd4d6e457e27d03a8bfc2f180",
     "world/regions/brinecove/region.py": "9e007570e353c305964befbc9db53755c52d95c55069a6253058a39792e67408",
-    "world/regions/brinecove/layout.py": "c17638453c0609316cef6bd2db523f2590711a44f104625097e9c67c7cb549f5",
+    "world/regions/brinecove/layout.py": "ffac69eb203391165e2b84c306d4eb0c02865fa3ca83a6181e16b18203dd6655",
     "world/regions/brinecove/ground.py": "d0cb5decc01c21b55c8e658ce1c29aa3f1e8e7c9da3002688cb1b60278d5f062",
     "world/regions/brinecove/plan.py": "ee166c5bcd608096f4a00124de2f8b44df750baf323a52164432059aac6e359b",
     "world/shorelines.py": "087b0fe32ea76a8082e1aed80581b24261bead89ee2db165a3ee053f5f5d1006"
@@ -41,8 +41,8 @@
         4200.0,
         7200.0
       ],
-      "sha256": "6b58c0ddf9ee3a8cd9a73f07dfb09fed8fef91a10d802027c5453ea9bcbcfbcf",
-      "reference_sha256": "140b57297d097c418ed00ba93363d79d2b4cf4527b50e3b5ea9169ed45887be2"
+      "sha256": "05045b82112f57e459a7970850f9cef0cffe13c54f85cc796e04cdef13966feb",
+      "reference_sha256": "7359d7139e5810b6cbbf7a410b7393f14e8b3a4de715cb7795e762c2c8ce4e2e"
     },
     "momiji_coast": {
       "bounds": [
@@ -92,7 +92,7 @@
         2200.0
       ],
       "sha256": "dc43d462e41f266e17598b61ba8c5dc9ce63516e3b0b6870a7d936c6961c76b0",
-      "reference_sha256": "f792717c5eab2f9beff94a87432a1407295c6f7b181ec680557a2835017a6d8d"
+      "reference_sha256": "193a4f31e5adf80cb89a82c9e7164877ca1d5d5b9e92f6976f6ce7936393fead"
     },
     "volcanic_highlands": {
       "bounds": [
@@ -121,8 +121,8 @@
         -360.0,
         600.0
       ],
-      "sha256": "ce294efb0dc66cea9f1ecd64d970c0efdc5b401d4ec2de9c35d5cff3b7059f16",
-      "reference_sha256": "a35851cd0f3a1cbd5f6eb6fb66cedcfce0281444aeafe58bb9216284f474a1d4"
+      "sha256": "90677bf0db07cb30c7a95f18b7812aad97fb25619242f36c630a34c64d21bdeb",
+      "reference_sha256": "716781feba8601ee44a9919d784c30404c0e2993fffbad6d1483830a5d8ec62e"
     }
   }
 }

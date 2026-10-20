@@ -754,6 +754,7 @@ def market():
 
 
 TERRACE_STAIRS = ((0.0, 22.0), (-238.0, 8.0), (252.0, 8.0))  # quay-to-terrace stairs: centre x, tread width
+TERRACE_CHEEKS = {0.0: 1.6, -238.0: 0.7, 252.0: 0.7}  # each stair's parapet width beyond its treads
 STAIR_FOOT_Y, STAIR_TOP_Y = 230.0, 279.0    # foot on the quay street north of the market; top at the terrace edge
 STAIR_RISE_MAX, STAIR_LANDING, STAIR_FLIGHT = 0.24, 2.2, 22   # riser cap (m), landing depth (m), risers per flight
 
@@ -878,7 +879,7 @@ def upper_town():
             b.box((x, 278.70, 18.2), (2.8, 1.1, 0.85), 'stone')
             bush(b, x, 278.70, 18.55, 0.0, 0.62, RNG)
     # Grand stair from the quay to the terrace, its cheeks closing on the retaining wall's (12.6 m).
-    terrace_stair(b, *TERRACE_STAIRS[0], cheek=1.6)
+    terrace_stair(b, *TERRACE_STAIRS[0], cheek=TERRACE_CHEEKS[TERRACE_STAIRS[0][0]])
     # The retaining wall closes on the stair's cheeks: the gap beside the flights showed the raw cliff as flat beige
     # planes, a box trench in the note 7 view. Ashlar cheeks with courses, a coping and greenery match the wall.
     for side in (-1, 1):
@@ -892,7 +893,7 @@ def upper_town():
             vine(b, side * (16.0 + k * 3.6), 279.0, L.UPPER_Z - 0.2, RNG.uniform(5.0, 12.0), RNG)
         bush(b, side * 19.0, 278.4, L.QUAY_Z, 0.0, 1.1, RNG)
     for x, width in TERRACE_STAIRS[1:]:
-        terrace_stair(b, x, width, cheek=0.7)
+        terrace_stair(b, x, width, cheek=TERRACE_CHEEKS[x])
     # Upper buildings.
     for spec in L.DENSE_LOTS:
         if spec[2] >= 280:
