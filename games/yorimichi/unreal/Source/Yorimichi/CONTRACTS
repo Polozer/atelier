@@ -127,7 +127,9 @@ local host player until guest identity persistence exists, and replicate only th
 FRacingNetState snapshot (never FHRWorldState::Seed). RacingMotion::Distance, RacingGround::Pick
 hit selection and RacingTv::Direct camera selection from the snapshot, shared clock and
 spectator positions MUST be deterministic, with zero per-frame network traffic and no silent breed/coat/clip
-stand-ins when required assets are missing.
+stand-ins when required assets are missing. Runner gait thresholds, play rates and seat contacts
+MUST share UHorseComponent's definitions, and Belmonte TV placements MUST follow the region's
+authored building transforms from runtime.json without falling back to hardcoded coordinates.
 
 @cc [owner:fontanierh,label:correctness] release-default-preferences
 A fresh install's preferences, a missing saved key and the menus' resets MUST all take the release defaults

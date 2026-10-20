@@ -124,16 +124,11 @@ client. Text is checked once a second and changes about once a minute. Live stat
     start, so it never rises through the cobbles;
   - under the overbridge, the cutting between its walls.
 - `train/corridor.py` keeps plants off all of it, beyond the line's ends too (`settle`).
-- The valley's committed terrain tiles are edited once by `tools/belmonte_station_terrain.py`. It refines and carves
-  the touched triangles and repaints their layers: Rock on cut faces, Dirt on the formation, the forecourt and the
-  access road, Green on new slopes. Along the overbridge's walls and the forecourt's edges the triangles are refined
-  again to 0.75 m, so the ground steps outside the paving and within the walls. It records the line's, the site's and the Salon path's digest in `source.json`,
-  so the tool does not carve the same tile twice.
-- The same tool paints a 4 m dirt path (`SALON_PATH`) from the road up to the Salon des paris' terrace, down the
-  middle of its cypress avenue, following the ground (Paul, 2026-10-18). Only the path's triangles are subdivided
-  (1.5 m).
-- Each carved tile's natural version stays in `assets/belmonte/natural/`. The route study plans on that natural
-  ground, so it still yields the committed line. A later line is carved again from these copies.
+- The four touched valley terrain tiles (`SM_BM_BT_Terrain_4_3`, `5_2`, `5_3`, `6_2`) remain untouched in
+  `assets/belmonte/meshes/`. During `world.belmonte`, `regions/belmonte/terrain.py` (`write_carved_valley_tile`)
+  carves them into `build/yorimichi/belmonte/glb/`, subdividing only non-planar triangles and refining along the
+  overbridge walls, forecourt edges, access road and Salon path (`SALON_PATH`). `import_belmonte.py` generates
+  reduced LODs for the refined tiles.
 
 ## Builds
 
@@ -148,6 +143,4 @@ uv run atelier build yorimichi world.belmonte_station_review     # control rende
 After a change to the line or the site:
 
 1. Run `world.belmonte_train_route` and copy its `line.json` to `assets/vehicles/belmonte-train/line.json`.
-2. Run `tools/belmonte_station_terrain.py`. It carves from the natural copies and updates `source.json` and
-   `assets/source-library.json`.
-3. Rebuild `world.belmonte` and the steps after it.
+2. Rebuild `world.belmonte` and the steps after it.

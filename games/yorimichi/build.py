@@ -702,11 +702,12 @@ def belmonte_steps(out):
         Step('unreal.belmonte', [UnrealScript(SCRIPTS / 'import_belmonte.py', 'BELMONTE IMPORT COMPLETE',
                                              null_rhi=True, modules=IMPORT_CODE,
                                              args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
-             inputs=[SCRIPTS / 'import_belmonte.py', SCRIPTS / 'atmosphere.py', SCRIPTS / 'ground_grain.py', ASSETS / 'environment/textures/tuscan-ground.jpg'],
+             inputs=[SCRIPTS / 'import_belmonte.py', SCRIPTS / 'racing_tv_material.py', SCRIPTS / 'atmosphere.py', SCRIPTS / 'ground_grain.py', ASSETS / 'environment/textures/tuscan-ground.jpg'],
              # Reused plants are runtime references, not reads by this library importer.
              needs=['world.belmonte.meshes', 'unreal.world', *unreal_modules.needs(IMPORT_CODE)],
              after=['unreal.forest'], heavy=True,
-             outputs=[out / 'belmonte' / 'import-report.json', GAME / 'unreal' / 'Content' / 'Belmonte' / 'Meshes' / 'SM_BM_NorthApron.uasset'],
+             outputs=[out / 'belmonte' / 'import-report.json', GAME / 'unreal' / 'Content' / 'Belmonte' / 'Meshes' / 'SM_BM_NorthApron.uasset',
+                      GAME / 'unreal' / 'Content' / 'Racing' / 'M_RacingTv.uasset'],
              about='/Game/Belmonte: environment meshes, collision and painterly surfaces'),
         Step('unreal.belmonte_train', [UnrealScript(SCRIPTS / 'import_belmonte_train.py', 'BELMONTE TRAIN IMPORT COMPLETE', null_rhi=True,
                                                        args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',))],
@@ -844,6 +845,7 @@ def world_steps(ctx):
              # The Hidamari path follows HD_Terrain as built (layout height, railway earthworks, apron pad).
             inputs=[REGIONS / 'zeppelin', REGIONS / 'village' / 'build.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
                      REGIONS / 'hidamari' / 'layout.py', *belmonte_train_corridor(out),
+                     REGIONS / 'belmonte' / 'layout.py', REGIONS / 'belmonte' / 'source.py', REGIONS / 'belmonte' / 'terrain.py',
                      ASSETS / 'belmonte' / 'source.json',
                      *(ASSETS / 'belmonte' / entry['path'] for entry in json.loads((ASSETS / 'belmonte/source.json').read_text())['meshes']
                        if entry['name'].startswith('SM_BM_BT_Terrain_')),
@@ -1073,11 +1075,12 @@ def world_steps(ctx):
              inputs=[WORLD / 'map', WORLD / 'north_mountain_surface.py', WORLD / 'city_terrain_surface.py',
                      REGIONS / 'hidamari' / 'build.py', REGIONS / 'hidamari_stable' / 'layout.py', WORLD / 'build_terrain.py', WORLD / 'farhills_surface.py', WORLD / 'farhills_grid.py', WORLD / 'terrain_product.py',
                      *CRATERPARK, REGIONS / 'southwest', REGIONS / 'mega' / 'ramp.py', REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'gate.py',
-                     *[REGIONS / 'belmonte' / (name + '.py') for name in ('plan', 'planting', 'source', 'layout')],
+                     *[REGIONS / 'belmonte' / (name + '.py') for name in ('plan', 'planting', 'source', 'layout', 'terrain')],
+                     *belmonte_train_corridor(out),
                      ASSETS / 'belmonte' / 'source.json',
                      *(ASSETS / 'belmonte' / entry['path']
                        for entry in json.loads((ASSETS / 'belmonte' / 'source.json').read_text())['meshes']
-                       if entry['name'].startswith(('SM_BM_BT_blk_', 'SM_BM_BH_', 'SM_BM_BE_', 'SM_BM_BHip_',
+                       if entry['name'].startswith(('SM_BM_BT_Terrain_', 'SM_BM_BT_blk_', 'SM_BM_BH_', 'SM_BM_BE_', 'SM_BM_BHip_',
                                                     'SM_BM_BVV_Farm_', 'SM_BM_BC_Water_', 'SM_BM_BC_Pave', 'SM_BM_BC_Ponte')))],
              needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', 'world.brinecove',
                     *crater_geometry],
@@ -1367,10 +1370,6 @@ def unreal_steps(ctx):
              inputs=[SCRIPTS / 'crater_cloud_material.py', SCRIPTS / 'atmosphere.py', SCRIPTS / 'sea_look.py'], after=['unreal.compile'],
              outputs=[GAME / 'unreal' / 'Content' / 'CraterPark' / 'Cloud' / f'{name}.uasset' for name in ('M_CraterCloud', 'M_CraterCloudVeil')],
              heavy=True, about="the cap cloud's translucent materials, plain and blurring veil (/Game/CraterPark/Cloud)"),
-        Step('unreal.racing_tv', [UnrealScript(SCRIPTS / 'racing_tv_material.py', 'RACING TV MATERIAL COMPLETE')],
-             inputs=[SCRIPTS / 'racing_tv_material.py'], after=['unreal.compile'],
-             outputs=[GAME / 'unreal' / 'Content' / 'Racing' / 'M_RacingTv.uasset'],
-             heavy=True, about="the racing TVs' picture material (/Game/Racing)"),
         Step('unreal.sounds', [
                 UnrealScript(SCRIPTS / 'import_footsteps.py', 'FOOTSTEP IMPORT COMPLETE'),
                 UnrealScript(SCRIPTS / 'import_combat_audio.py', 'COMBAT AUDIO IMPORT COMPLETE'),
