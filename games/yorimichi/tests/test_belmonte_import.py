@@ -7,6 +7,31 @@ from types import SimpleNamespace
 import pytest
 
 
+SCRIPT = Path(__file__).parents[1] / 'unreal/Scripts/import_belmonte.py'
+LOD_NAMES = {'TERRAIN_LODS', 'BUILDING_LODS', 'LOD_MIN_TRIANGLES', 'GROUND_PREFIXES', 'lod_plan'}
+
+
+def lod_rule(script=SCRIPT):
+    """The import script's LOD constants and lod_plan, without its Unreal-only module initialisation."""
+    return [node for node in ast.parse(script.read_text()).body
+            if (isinstance(node, ast.FunctionDef) and node.name in LOD_NAMES)
+            or (isinstance(node, ast.Assign) and {t.id for t in node.targets if isinstance(t, ast.Name)} & LOD_NAMES)]
+
+
+def test_lod_rule_covers_ground_tiles_and_large_buildings_only():
+    namespace = {}
+    exec(compile(ast.Module(body=lod_rule(), type_ignores=[]), str(SCRIPT), 'exec'), namespace)
+    plan, terrain, building = namespace['lod_plan'], namespace['TERRAIN_LODS'], namespace['BUILDING_LODS']
+    for name in ('SM_BM_BT_Terrain_5_2', 'SM_BM_NorthCountry_07', 'SM_BM_NorthApron_00'):
+        assert plan(name, 12001) == terrain and plan(name, 12000) is None
+    for name in ('SM_BM_BT_blk_11', 'SM_BM_BHip_Stand', 'SM_BM_BH_PalazzoComunale'):
+        assert plan(name, 47297) == building
+    assert plan('SM_BM_BC_Water', 50000) is None and plan('SM_BM_BP_Saucer', 70) is None
+    for rule in (terrain, building):                     # LOD0 is the source; each level is lighter and smaller
+        assert rule[0] == (1., 1.)
+        assert all(a[0] > b[0] and a[1] > b[1] for a, b in zip(rule, rule[1:]))
+
+
 @pytest.mark.parametrize('with_hull', [False, True])
 def test_import_disables_distance_fields_only_on_separate_physics_hull(tmp_path, with_hull):
     class Properties:
@@ -55,12 +80,15 @@ def test_import_disables_distance_fields_only_on_separate_physics_hull(tmp_path,
     # Execute the actual import loop without Unreal-only module initialization/material compilation.
     function = next(node for node in ast.parse(script.read_text()).body
                     if isinstance(node, ast.FunctionDef) and node.name == 'main')
+    lods = []
     namespace = dict(OUT=tmp_path, ROOT='/Game/Belmonte', E=assets, unreal=unreal, Path=Path, json=json,
         __file__=str(script), runpy=SimpleNamespace(run_path=lambda path: tv_imports.append(Path(path))),
-        parent=lambda: None, textures=lambda _: None, surfaces=lambda *_: None, import_mesh=imported)
-    exec(compile(ast.Module(body=[function], type_ignores=[]), str(script), 'exec'), namespace)
+        parent=lambda: None, textures=lambda _: None, surfaces=lambda *_: None, import_mesh=imported,
+        generate_lods=lambda mesh, plan: lods.append((mesh.name, plan)))
+    exec(compile(ast.Module(body=lod_rule(script) + [function], type_ignores=[]), str(script), 'exec'), namespace)
     namespace['main']()
     assert tv_imports == [script.with_name('racing_tv_material.py')]
+    assert lods == []                                  # one triangle: no reduced LODs
     render = meshes['SM_BM_House']
     assert render.build == dict(distance_field_resolution_scale=1., use_full_precision_u_vs=True,
                                 remove_degenerates=False)
