@@ -355,8 +355,9 @@ def clear_bowls(H, g, bowls, pit):
     """@cc [owner:fontanierh,label:correctness] editor-bowl-rim-seal
     The ground round the bowls, sealed to their decks. Inside the carved pit the ground MUST stay at least BOWL_CLEAR
     below the bowl's riding surface; within BOWL_EASE of a deck edge it MUST stay BOWL_CLEAR below the coping line
-    (allowed to climb BOWL_SLOPE per metre beyond BOWL_REACH), and round an in-ground bowl it MUST be lifted to the rim where lower, so
-    no trench opens under the deck. Ground away from every bowl MUST be left unchanged.
+    (allowed to climb BOWL_SLOPE per metre beyond BOWL_REACH). Round an in-ground bowl whose carve cut ground (pit
+    not None), lower ground outside the pit MUST be lifted to BOWL_CLEAR below the rim, falling BOWL_SLOPE per metre
+    beyond BOWL_REACH, so no trench opens under the deck. Ground away from every bowl MUST be left unchanged.
 
     Inside the carved pit the ground stays BOWL_CLEAR below the bowl's riding surface. Outside it, the ground
     meets the coping line's height at the nearest point (the deck edge) and may climb BOWL_SLOPE per metre away
@@ -387,8 +388,9 @@ def clear_bowls(H, g, bowls, pit):
 def check_bowl_seal(scene, heights, g, weight):
     """@cc [owner:fontanierh,label:correctness] editor-bowl-seal-check
     Fail when a bowl rim does not meet the volcano surface it stands in. The check MUST sample the ground the player
-    rides (the volcano terrain's own STEP-metre nodes, not the finer cut grid), and MUST fail the build when any
-    in-ground bowl's deck edge is more than BOWL_SEAL off that ground or the ground rises through the deck.
+    rides (the volcano terrain's own STEP-metre nodes, not the finer cut grid), and MUST fail the build when the
+    volcano does not take the cut ground in full round the bowls (blend weight below .999), or when at any in-ground
+    bowl's deck edge that ground sits more than BOWL_SEAL below the deck or more than BOWL_POKE above it.
 
     The volcano's terrain samples the cut grid on its own nodes every hidamari.mountains.STEP metres, so the ground a
     player rides is that sampled surface, not the finer cut grid. At every in-ground bowl's deck edge the ground must

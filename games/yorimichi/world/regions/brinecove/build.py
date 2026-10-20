@@ -173,7 +173,8 @@ def under_paving(x, y):
     """@cc [owner:fontanierh,label:correctness] brinecove-ground-under-flat-paving
     The highest the ground may stand at (x, y): just below any flat paving over it, else unbounded. Each fixed-z
     paving rectangle laid whole (modules.paving without skip, and the quay apron) MUST be registered in
-    modules.FLAT_PAVING with its slab bottom, and the exported ground MUST stay at least 5 cm below it there, so terrain never pokes through or flickers on paving.
+    modules.FLAT_PAVING with its slab bottom, and every exported ground vertex inside a registered rectangle MUST
+    stay at least 5 cm below its bottom, so terrain never pokes through or flickers on paving.
     """
     z = math.inf
     for x0, x1, y0, y1, bottom in modules.FLAT_PAVING:
