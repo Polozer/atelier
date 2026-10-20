@@ -18,6 +18,7 @@
 #include "BelmonteTrainService.h"
 #include "CraterParkTower.h"
 #include "RacingBetting.h"
+#include "RacingRecords.h"
 #include "RacingStables.h"
 #include "RacingService.h"
 #include "YorimichiLive.h"
@@ -459,7 +460,9 @@ void AJapanHUD::DrawHUD()
             DrawText(Ask, FLinearColor(1.f, .9f, .74f), X, Y, Font, S);
         }
         // At a stall plate or a board of the player's stable (docs/RACING.md, "Stables").
-        const FString Stable = RacingStables::Prompt(Pawn);
+        FString Stable = RacingStables::Prompt(Pawn);
+        // Or at an object of the records hall (docs/RACING.md, "Records hall").
+        if (Stable.IsEmpty()) Stable = RacingRecords::Prompt(Pawn);
         if (!Stable.IsEmpty())
         {
             const float Scale = Canvas->SizeY / 1080.f;
