@@ -113,7 +113,11 @@ def main():
         # From the walkway between landing and pavilion, south of both, looking north along the berth.
         'brinecove_concept_pier': ((PW + 4.5, by - 18.0, 7.2), (PW - 2.0, by + 4.0, 6.5), 24.0),
         'brinecove_landing': ((PW + 4.6, by - 7.0, 6.9), (PW + 0.5, by + 1.0, 6.4), 22.0),
+        # Close-up of what carries the pavilion roof (its eave beams and king posts), seen from under it.
+        'brinecove_pavilion': ((PW + 7.0, by - 8.0, 6.6), (PW + 10.5, by + 1.0, 8.6), 18.0),
     })
+    # The stage lanterns on their iron arms from the middle truss's tie beam.
+    views['hidamari_lanterns'] = ((gx - 4.0, gy + 8.0, sill + 1.5), (gx + 0.5, gy + 5.0, sill + 2.3), 20.0)
     only = set(filter(None, os.environ.get('TERMINAL_VIEWS', '').split(',')))  # optional subset of views
     for name, (pos, tgt, lens) in views.items():
         if only and name not in only:

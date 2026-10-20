@@ -4,6 +4,7 @@ closed solid with outward normals, built in nested local frames and turned into 
 Vehicle and building kits build on this one implementation (the ferry and its terminals today). A kit keeps its own
 materials and passes them in; it does not copy these primitives.
 """
+import bisect
 import math
 import sys
 from contextlib import contextmanager
@@ -299,6 +300,7 @@ def to_object(m, mats, order, sharp_degrees=38.0):
 # ------------------------------------------------------------------ audits shared by every kit on this builder
 SEAT_GAP = 0.01        # m: a fitting base may stand at most this far above what carries it
 SEAT_SLACK = 0.005     # m: beyond its declared embedding, how much deeper a base may sit
+CARRY_TOUCH = 0.01     # m: two loose parts touch when a vertex of one lies this close to the other's faces
 
 
 def _triangles(meshes):
@@ -433,11 +435,118 @@ def seat_failures(meshes, extra_tris=(), probe=0.3, reach=3.0, spread=0.06):
     return rows, bad
 
 
+
+def _islands(m):
+    """The loose islands of a Mesh (faces connected through shared vertices), as lists of face indices."""
+    parent = list(range(len(m.verts)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]; i = parent[i]
+        return i
+    for f in m.faces:
+        r = find(f[0])
+        for v in f[1:]:
+            q = find(v)
+            if q != r:
+                parent[q] = r
+    out = {}
+    for fi, f in enumerate(m.faces):
+        out.setdefault(find(f[0]), []).append(fi)
+    return list(out.values())
+
+
+def mesh_triangles(meshes):
+    """Every triangle of the given meshes as three points (to pass a mesh as world, e.g. in fixtures)."""
+    return [(m.verts[f[0]], m.verts[f[i]], m.verts[f[i + 1]]) for m in meshes for f in m.faces for i in range(1, len(f) - 1)]
+
+
+def carried_failures(meshes, world_tris, touch=CARRY_TOUCH, reach=0.5):
+    """Every loose part must be carried, through a chain of parts that touch, by the exported world. Each mesh is split
+    into loose islands; two islands touch when a vertex of one lies within touch of the other's faces or their
+    triangles intersect; touching islands are joined into contact groups (union-find), and a group is carried when one
+    of its islands touches world_tris the same way. Only world_tris count: pass the exported ground and solids, never
+    the ship. Returns (summary, failures): each failure is an uncarried group with its size, meshes, kit source lines
+    and the nearest thing to it (gap, what, where) within reach."""
+    from mathutils.bvhtree import BVHTree
+    isl = []                                     # (mesh, [face indices], [vertex indices])
+    verts, polys, owner = [], [], []
+    for m in meshes:
+        base = len(verts); verts += [tuple(v) for v in m.verts]
+        starts = [p[0] for p in m.parts]
+        for faces in _islands(m):
+            k = len(isl); vs = sorted({v for fi in faces for v in m.faces[fi]})
+            parts = sorted({bisect.bisect_right(starts, fi) - 1 for fi in faces})
+            isl.append((m, parts, [base + v for v in vs]))
+            for fi in faces:
+                polys.append([base + v for v in m.faces[fi]]); owner.append(k)
+    n = len(isl)
+    if not n:
+        return {'islands': 0, 'groups': 0}, []
+    kit = BVHTree.FromPolygons(verts, polys, epsilon=0.0)
+    world = BVHTree.FromPolygons([v for t in world_tris for v in t], [[3 * i, 3 * i + 1, 3 * i + 2] for i in range(len(world_tris))],
+                                 epsilon=0.0) if len(world_tris) else None
+    parent = list(range(n)); grounded = [False] * n
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]; i = parent[i]
+        return i
+
+    def join(i, j):
+        a, b = find(i), find(j)
+        if a != b:
+            parent[b] = a
+    for k, (_m, _p, vs) in enumerate(isl):
+        for vi in vs:
+            v = Vector(verts[vi])
+            for _loc, _nrm, idx, _d in kit.find_nearest_range(v, touch):
+                if owner[idx] != k:
+                    join(k, owner[idx])
+            if world is not None and not grounded[k] and world.find_nearest(v, touch)[0] is not None:
+                grounded[k] = True
+    for a, b in kit.overlap(kit):
+        if owner[a] != owner[b]:
+            join(owner[a], owner[b])
+    if world is not None:
+        for a, _b in kit.overlap(world):
+            grounded[owner[a]] = True
+    groups = {}
+    for k in range(n):
+        groups.setdefault(find(k), []).append(k)
+    failures = []
+    for members in groups.values():
+        if any(grounded[k] for k in members):
+            continue
+        mine = set(members); best = (float('inf'), None, None)
+        for k in members:
+            for vi in isl[k][2]:
+                v = Vector(verts[vi])
+                if world is not None:
+                    loc, _nrm, _i, d = world.find_nearest(v, reach)
+                    if loc is not None and d < best[0]:
+                        best = (d, 'world', loc)
+                for loc, _nrm, idx, d in kit.find_nearest_range(v, min(reach, best[0])):
+                    if owner[idx] not in mine and d < best[0]:
+                        o = isl[owner[idx]]
+                        best = (d, f'{o[0].name} {o[0].origins[o[1][0]] if o[0].origins else "?"}', loc)
+        lines = sorted({m.origins[p] for k in members for m, ps, _ in [isl[k]] for p in ps if p < len(m.origins)})
+        lo = [min(verts[vi][c] for k in members for vi in isl[k][2]) for c in range(3)]
+        hi = [max(verts[vi][c] for k in members for vi in isl[k][2]) for c in range(3)]
+        failures.append({'islands': len(members), 'meshes': sorted({isl[k][0].name for k in members}), 'lines': lines[:16],
+                         'bbox': [[round(c, 3) for c in lo], [round(c, 3) for c in hi]],
+                         'nearest_gap_m': round(best[0], 4) if best[1] else None, 'nearest': best[1],
+                         'nearest_at': [round(c, 3) for c in best[2]] if best[2] is not None else None})
+    failures.sort(key=lambda f: -f['islands'])
+    return {'islands': n, 'groups': len(groups), 'uncarried_groups': len(failures),
+            'uncarried_islands': sum(f['islands'] for f in failures)}, failures
+
 def audit_fixtures():
-    """Known cases the two audits must classify right, run by every kit build before its own audit: the defects the
-    audits exist for (a fitting standing off its support, one sunk or over nothing, a gable infill short of a sloped
-    roof, two coplanar overlapping tops) must fail, and their fixed forms must pass. Returns one row per case; a row
-    with ok False means an audit no longer catches (or wrongly flags) what it is there for."""
+    """Known cases the three audits must classify right, run by every kit build before its own audit: the defects
+    the audits exist for (a fitting standing off its support, one sunk or over nothing, a gable infill short of a
+    sloped roof, two coplanar overlapping tops, a part in the air, a group of parts 2 cm short of the ground, a part
+    carried only by the ship) must fail, and their fixed forms must pass. Returns one row per case; a row with ok False
+    means an audit no longer catches (or wrongly flags) what it is there for."""
     def seat_case(name, expect, base, embed=0.06, direction=(0, 0, -1), gap=None, spread=None, sloped=False):
         m = Mesh(name, 0)
         if sloped:      # a roof slab rising 0.5 m per m in y, underside z = 1 + 0.5 y
@@ -457,7 +566,33 @@ def audit_fixtures():
         n, _ = coplanar_overlaps([m])
         return {'case': name, 'expect': expect, 'got': 'fail' if n else 'pass', 'ok': bool(n) == (expect == 'fail')}
 
+    ground = Mesh('ground', 0); ground.box((0, 0, -0.5), (10, 10, 1), 0)     # the world: its top is z = 0
+    world = mesh_triangles([ground])
+
+    def carried_case(name, expect, boxes, block=None):
+        """Boxes (centre, size) as one kit mesh over the ground. block: a 1 m block at x 3, z 1..2 that the boxes may
+        rest on, passed as 'world' (a pier) or 'ship' (built but, like the moored ship, never passed to the audit)."""
+        m = Mesh(name, 0)
+        for c, sz in boxes:
+            m.box(c, sz, 0)
+        tris = world
+        if block:
+            b = Mesh(block, 0); b.box((3, 0, 1.5), (1, 1, 1), 0)
+            if block == 'world':
+                tris = world + mesh_triangles([b])
+        _s, bad = carried_failures([m], tris)
+        return {'case': name, 'expect': expect, 'got': 'fail' if bad else 'pass', 'ok': bool(bad) == (expect == 'fail')}
+
+    on_block = [((3, 0, 2.1), (0.4, 0.4, 0.22))]   # its foot 1 cm into the block's top (z 2)
     return [
+        carried_case('a part in the air', 'fail', [((0, 0, 1.1), (0.4, 0.4, 0.2))]),
+        carried_case('a part 1 cm into the ground', 'pass', [((0, 0, 0.09), (0.4, 0.4, 0.2))]),
+        carried_case('two parts, the lower 2 cm short of the ground', 'fail',
+                     [((0, 0, 0.12), (0.4, 0.4, 0.2)), ((0, 0, 0.31), (0.2, 0.2, 0.2))]),
+        carried_case('two parts, the lower 1 cm into the ground', 'pass',
+                     [((0, 0, 0.09), (0.4, 0.4, 0.2)), ((0, 0, 0.28), (0.2, 0.2, 0.2))]),
+        carried_case('a part resting only on the ship', 'fail', on_block, block='ship'),
+        carried_case('the same part resting on a pier (world)', 'pass', on_block, block='world'),
         seat_case('foot 1 cm into its slab', 'pass', (0, 0, -0.01)),
         seat_case('foot 3 cm above its slab (a floating bench)', 'fail', (0, 0, 0.03)),
         seat_case('foot 20 cm into its slab (sunk)', 'fail', (0, 0, -0.2)),

@@ -200,10 +200,11 @@ def gable_roof(m, x0, y0, x1, y1, ze, pitch, axis='x', over=(0.9, 0.9, 0.9, 0.9)
             # Round eave tiles and a fascia board under the eave edge.
             e = Vector((0, yc, zr + 0.02)) + V * L
             m.beam((x0 - ow, e.y, e.z - 0.12), (x1 + oe, e.y, e.z - 0.12), 0.12, 0.22, TIMBER_DARK)
-        # Rafter ends under the overhang.
+        # Rafter ends under the overhang, their tops 3 mm into the roof slab (they carry it).
+        zt = ze + 0.02 - 0.047 * math.hypot(1.0, pitch)      # the axis, 0.047 m under the slab across the pitch
         for k in range(int((x1 - x0) / 0.6) + 1):
             x = x0 + k * (x1 - x0) / int((x1 - x0) / 0.6)
-            a = Vector((x, y0 if s < 0 else y1, ze - 0.12)); b = Vector((x, yc + s * (D + o - 0.1), ze - 0.12 - (o - 0.1) * pitch))
+            a = Vector((x, y0 if s < 0 else y1, zt)); b = Vector((x, yc + s * (D + o - 0.1), zt - (o - 0.1) * pitch))
             m.beam(tuple(a), tuple(b), 0.08, 0.1, TIMBER_DARK)
     # Ridge: a capped tile ridge with onigawara end blocks. The beam and the tube end at different depths inside the
     # end blocks, clear of the bargeboards' faces.
@@ -231,10 +232,11 @@ def gable_roof(m, x0, y0, x1, y1, ze, pitch, axis='x', over=(0.9, 0.9, 0.9, 0.9)
 
 
 def tie_truss(m, x, y0, y1, ze, zr, mat=TIMBER):
-    """Exposed king-post truss across the building at x."""
-    yc = (y0 + y1) / 2
+    """Exposed king-post truss across the building at x (under a gable_roof over y0..y1 from ze to zr): the king post
+    runs up into the roof slabs (5 mm, at its faces) and carries them."""
+    yc = (y0 + y1) / 2; pitch = (zr - ze) / ((y1 - y0) / 2)
     m.beam((x, y0, ze - 0.2), (x, y1, ze - 0.2), 0.22, 0.3, mat)
-    m.beam((x, yc, ze - 0.05), (x, yc, zr - 0.15), 0.2, 0.2, mat)
+    m.beam((x, yc, ze - 0.05), (x, yc, zr + 0.02 - 0.1 * pitch + 0.005), 0.2, 0.2, mat)
     for s, w in ((y0, 0.16), (y1, 0.15)):       # struts 1 cm apart in width: their faces meet at the king post apart
         m.beam((x, s + (yc - s) * 0.12, ze - 0.05), (x, yc, zr - 0.25), w, 0.18, mat)
 
@@ -520,6 +522,8 @@ def hidamari():
     for x in (gx - 1.0, gx + 1.0):
         lantern(S, x, gal1 - 0.3, ze - 0.55, h=0.3)
         S.beam((x, gal1 - 0.3, ze - 0.245), (x, gal1 - 0.3, ze - 0.2), 0.03, 0.03, IRON)
+        # An iron arm from the middle truss's tie beam carries the hanger.
+        S.beam((gx, gal1 - 0.3, ze - 0.2), (x + math.copysign(0.02, x - gx), gal1 - 0.3, ze - 0.2), 0.04, 0.04, IRON)
     # Brow: hinged on the gallery's south edge, over the fender gap to the hull, its lip on the ship's landing plate.
     br = brow(B, (gx, face), (gx, gy), (0.0, -1.0), SILL)
     # Waiting house on the promenade west of the jetty root: white plaster between dark timber, sliding windows,
@@ -640,7 +644,7 @@ def brinecove():
         Lm.box((xx, foot_y + 0.1, deck + 0.5), (0.12, 0.12, 1.0), TIMBER)
     br = brow(B, (lx0, gy), (gx, gy), (-1.0, 0.0), SILL)
     # Fenders along the pier's west face where the hull lies (y -30..50): black piles standing off the pier edge on
-    # timber chocks, and tyres hung on their outer faces, FENDER_GAP off the hull.
+    # timber chocks, and tyres between them hung on ropes made fast to the pier's deck edge, FENDER_GAP off the hull.
     px_ = face - 0.07                                 # pile centre: outer face 0.25 m inside the fender line
     tx_ = face - (FS.FENDER - FENDER_GAP) + 0.13       # tyre centre: its outer face FENDER_GAP off the hull
     for k in range(11):
@@ -651,7 +655,7 @@ def brinecove():
         for j in (0, 1):
             ty = yy + 2.7 + j * 2.6
             tyre(Fd, (tx_, ty, 1.9), (-1, 0, 0))
-            Fd.beam((tx_ + 0.05, ty, 2.3), (px_ - 0.18, ty, deck - 0.3), 0.04, 0.04, ROPE)
+            Fd.beam((tx_ + 0.05, ty, 2.3), (PW + 0.03, ty, deck - 0.3), 0.04, 0.04, ROPE)   # tied into the pier's face
     for yy in (-22.0, 45.0):
         bollard(Fd, PW + 0.6, yy, deck)
         rope_coil(Fd, PW + 1.4, yy + 0.9, deck)
@@ -662,7 +666,8 @@ def brinecove():
         for y in (py0 + 0.2, (py0 + py1) / 2, py1 - 0.2):
             post(P, x, y, deck, deck + 3.1, s=0.28, footing=True)
     for x in (px0 + 0.2, px1 - 0.2):
-        P.beam((x, py0, deck + 2.95), (x, py1, deck + 2.95), 0.2, 0.28, TIMBER)
+        # Eave beams on the post heads, their outer top edge 5 mm into the roof slab (which they carry).
+        P.beam((x, py0, deck + 3.1 - 0.055), (x, py1, deck + 3.1 - 0.055), 0.2, 0.28, TIMBER)
     for y in (py0 + 0.2, (py0 + py1) / 2, py1 - 0.2):
         for x, dx in ((px0 + 0.2, 1), (px1 - 0.2, -1)):
             knee(P, (x, y, deck + 2.3), (x + dx * 0.7, y, deck + 2.9))
@@ -911,7 +916,7 @@ def main():
                                                           'width_min': WC.WIDTH_MIN, 'capsule_radius': WC.RADIUS},
                 'terminals': {}}
     walks = {}
-    # The seat and coplanar audits first prove on known cases that they still catch what they are for.
+    # The seat, coplanar and carried-by audits first prove on known cases that they still catch what they are for.
     fixtures = F.SM.audit_fixtures(); manifest['audit_fixtures'] = fixtures
     failures = [f'audit fixture misjudged: {r["case"]} expected {r["expect"]}, got {r["got"]}' for r in fixtures if not r['ok']]
     print('audit fixtures', sum(r['ok'] for r in fixtures), 'of', len(fixtures), 'judged right')
@@ -926,6 +931,10 @@ def main():
         n_cop, cop = F.SM.coplanar_overlaps(kit, limit=400)
         seats = {'count': len(seat_rows), 'failures': seat_bad, 'rule': {'gap_max_m': F.SM.SEAT_GAP, 'slack_m': F.SM.SEAT_SLACK}}
         coplanar = {'count': n_cop, 'samples': cop}
+        # Every loose part is carried, through parts it touches, by the exported world (never by the ship).
+        xs = [v[0] for m in kit for v in m.verts]; ys = [v[1] for m in kit for v in m.verts]
+        c_sum, c_bad = F.SM.carried_failures(kit, world_near(name, [(min(xs), min(ys)), (max(xs), max(ys))]))
+        carried = {**c_sum, 'failures': c_bad, 'rule': {'touch_m': F.SM.CARRY_TOUCH, 'carrier': 'exported world, less world cuts'}}
         coll = bpy.data.collections.new(name); bpy.context.scene.collection.children.link(coll)
         rep = export(meshes, walk['anchor'], mats, objs)
         hulls = export_collision(prefix, walk['anchor'])
@@ -938,10 +947,11 @@ def main():
         moored = ship_at(ship, SITE[name]['berth'], coll)
         clash = ship_clash(objs, moored)
         audit = walk_audit(objs + [cobj] + moored, walk)
-        walks[name] = {**walk, 'audit': audit, 'ship_clash': clash, 'world_cuts_pending': cuts, 'seats': seats, 'coplanar': coplanar}
+        walks[name] = {**walk, 'audit': audit, 'ship_clash': clash, 'world_cuts_pending': cuts, 'seats': seats, 'coplanar': coplanar,
+                       'carried': carried}
         manifest['terminals'][name] = {'anchor': walk['anchor'], 'frame': walk['frame'], 'meshes': rep, 'stair': walk['stair'],
                                        'brow': walk['brow'], 'gate': walk['gate'], 'walk': audit, 'ship_clash': clash,
-                                       'world_cuts_pending': cuts, 'seats': seats, 'coplanar': coplanar,
+                                       'world_cuts_pending': cuts, 'seats': seats, 'coplanar': coplanar, 'carried': carried,
                                        'collision': {'file': f'assets/{prefix}_Collision.fbx', 'convex_hulls': hulls},
                                        'triangles': sum(v['triangles'] for v in rep.values())}
         print(name, 'walk audit', audit)
@@ -951,7 +961,9 @@ def main():
         failures += [f'{name}: {c["terminal"]} meets {c["ship"]} ({c})' for c in clash['clashes']]
         failures += [f'{name}: {r["label"]} in {r["mesh"]} {r["status"]} at {r["at"]} (gap {r.get("gap_m")})' for r in seat_bad]
         failures += [f'{name}: {n_cop} coplanar overlapping faces, e.g. {c["parts"]} at {c["at"]}' for c in cop[:8]] if n_cop else []
-        print(name, 'seats', len(seat_rows), 'failures', len(seat_bad), 'coplanar', n_cop)
+        failures += [f'{name}: {g["islands"]} uncarried parts ({", ".join(g["lines"][:6])}), nearest {g["nearest"]} '
+                     f'{g["nearest_gap_m"]} m at {g["nearest_at"]}' for g in c_bad]
+        print(name, 'seats', len(seat_rows), 'failures', len(seat_bad), 'coplanar', n_cop, 'carried', c_sum)
     manifest['failures'] = failures
     (OUT / 'walk.json').write_text(json.dumps(walks, indent=1) + '\n')
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n')
