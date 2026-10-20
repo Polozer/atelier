@@ -412,22 +412,29 @@ def paving_material(x, y, seed=0):
 FLAT_PAVING = []
 
 
+def covered(rect, xa, xb, ya, yb):
+    """Whether the rectangle [xa, xb] x [ya, yb] lies wholly inside rect (x0, x1, y0, y1)."""
+    return rect is not None and rect[0] <= xa and xb <= rect[1] and rect[2] <= ya and yb <= rect[3]
+
+
 def paving(b, x0, x1, y0, y1, z=None, tile=6.5, thick=0.22, kerbs=(True, True), seed=0, skip=None):
-    """Tile a street rectangle in abutting slabs; z=None follows the ground per slab. Kerbs line the y edges."""
+    """Tile a street rectangle in abutting slabs; z=None follows the ground per slab. Kerbs line the y edges.
+    skip is a floor (x0, x1, y0, y1) laid by another module: only slabs and kerbs wholly under it are left out, so
+    the street still meets that floor's edge instead of leaving bare ground beside it."""
     if z is not None and skip is None:
         FLAT_PAVING.append((min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1), z - thick))
     nx, ny = max(1, round((x1 - x0) / tile)), max(1, round((y1 - y0) / tile))
     sx, sy = (x1 - x0) / nx, (y1 - y0) / ny
     for i in range(nx):
         cx = x0 + (i + 0.5) * sx
-        if skip and skip(cx):
-            continue
         for j in range(ny):
             cy = y0 + (j + 0.5) * sy
+            if covered(skip, cx - sx / 2, cx + sx / 2, cy - sy / 2, cy + sy / 2):
+                continue
             top = L.ground(cx, cy) + 0.16 if z is None else z
             b.box((cx, cy, top - thick / 2), (sx, sy, thick), paving_material(cx, cy, seed))
         for edge, on in zip((y0 + 0.25, y1 - 0.25), kerbs):
-            if on:
+            if on and not covered(skip, cx - sx / 2, cx + sx / 2, edge - 0.85, edge + 0.85):
                 top = L.ground(cx, edge) + 0.16 if z is None else z
                 b.box((cx, edge, top + 0.06), (sx, 0.5, 0.36), 'stone_light')
                 # A dark gutter of upright setts just inside the kerb.
@@ -435,10 +442,14 @@ def paving(b, x0, x1, y0, y1, z=None, tile=6.5, thick=0.22, kerbs=(True, True), 
                 b.box((cx, gy, top), (sx, 0.7, 0.06), 'cobble_dark')
 
 
+# The market square's own cobble floor (market()); street bands leave out only what it covers.
+MARKET_FLOOR = (-98.0, 98.0, 94.0, 226.0)
+
+
 def pave_band(b, y0, y1, skip_market=True):
     """Pave a street band in terrain-following slabs with kerbs, leaving the market open."""
     paving(b, -372.0, 372.0, y0, y1, seed=int(y0),
-           skip=(lambda cx: -108.0 < cx < 108.0 and y0 < 228.0) if skip_market else None)
+           skip=MARKET_FLOOR if skip_market else None)
     # Planters and laundry break up the paved bands and tie them to the walls.
     for px in range(-350, 351, 44):
         if skip_market and -112 < px < 112 and y0 < 228.0:
@@ -530,7 +541,8 @@ def lower_town():
 
 def market():
     b = Builder('04_market')
-    b.box((0, 160, 4.68), (196, 132, 0.28), 'cobble')
+    x0, x1, y0, y1 = MARKET_FLOOR
+    b.box(((x0 + x1) / 2, (y0 + y1) / 2, 4.68), (x1 - x0, y1 - y0, 0.28), 'cobble')
     # A flagstone border and a grid of stone ribs divide the square into the paved bays of a piazza;
     # darker setts fill a few bays so the field never reads as one flat sheet.
     for cx, cy, sx, sy in ((0, 96.5, 196, 5), (0, 223.5, 196, 5), (-95.5, 160, 5, 132), (95.5, 160, 5, 132)):
@@ -784,7 +796,9 @@ def terrace_stair(b, x, width, cheek):
     hw = width / 2
     for y0, y1, top in steps:
         b.box((x, (y0 + y1) / 2, (top + base) / 2), (width, y1 - y0, top - base), 'stone_light')
-        b.box((x, y0 + 0.07, top - 0.03), (width, 0.14, 0.08), 'stone')
+        # The nosing stands 2 cm proud of the riser and 1 cm in from each side, so none of its faces is coplanar
+        # with the tread's (coplanar faces z-fought into streaks along every step edge).
+        b.box((x, y0 + 0.05, top - 0.03), (width - 0.02, 0.14, 0.08), 'stone')
     # Parapets: one sloped block per flight over its nosing line, a flat one per landing, each coped.
     runs, cur = [], []
     for y0, y1, top in steps:
