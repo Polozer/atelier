@@ -14,7 +14,12 @@ REPO = Path(__file__).resolve().parents[5]
 REVIEW = REPO / 'build' / 'yorimichi' / 'ferry' / 'review'
 BACKGROUND = (238, 238, 233)
 # Close-up framings (left, top, right, bottom) in the concept's 1536 x 1024 pixels.
-CLOSEUPS = {'rigging_foremast_bow': (840, 30, 1500, 560), 'rigging_aftmast_funnel': (150, 110, 760, 430)}
+CLOSEUPS = {'rigging_foremast_bow': (840, 30, 1500, 560), 'rigging_aftmast_funnel': (150, 110, 760, 430),
+            'lifeboats': (220, 290, 800, 470), 'bow_anchor': (1180, 520, 1500, 760), 'funnel_ventilators': (420, 120, 800, 380)}
+# Side-view close-up of the companionway at the canopy end / aft deckhouse (side render pixels), shown against the
+# iteration 9 side render for before/after.
+STAIR_SIDE = (250, 190, 660, 460)
+BEFORE = REPO / 'build' / 'yorimichi' / 'ferry' / 'iterations' / 'iter9' / 'ferry_side.png'
 
 
 def flatten(path):
@@ -46,6 +51,9 @@ def main():
             for name, box in CLOSEUPS.items():
                 pair(concept.crop(box), matched.crop(box), 'concept C', 'Blender model').resize(
                     (2 * (box[2] - box[0]) * 2 + 24, (box[3] - box[1]) * 2 + 56), Image.LANCZOS).save(REVIEW / f'closeup_{name}.png')
+    if BEFORE.exists():
+        after = flatten(REVIEW / 'ferry_side.png').crop(STAIR_SIDE); before = flatten(BEFORE).crop(STAIR_SIDE)
+        pair(before, after, 'iteration 9 (side)', 'now (side)').resize((before.width * 4 + 24, before.height * 2 + 56), Image.LANCZOS).save(REVIEW / 'closeup_stair_side.png')
     print('wrote', *sorted(p.name for p in REVIEW.glob('compare_*.png')), *sorted(p.name for p in REVIEW.glob('closeup_*.png')))
 
 
