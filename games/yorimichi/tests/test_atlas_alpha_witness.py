@@ -125,6 +125,10 @@ def test_committed_world_alpha_binds_the_paid_generation_and_signed_mask():
         assert original_mask_sha == mask_sha
     assert any(item.get('role') == 'exact coast mask' and item.get('sha256') == original_mask_sha
                for item in record['generation']['inputs'])
+    if 'recut' in record:  # an RGB-preserving alpha recut: the consumed painting's RGB is carried bit-identical
+        with Image.open(atlas.ASSETS / 'world.png') as image:
+            assert hashlib.sha256(image.convert('RGB').tobytes()).hexdigest() == record['recut']['decoded_rgb_sha256']
+        assert record['recut']['from_generation_witness']['painting_sha256'] == record['generation']['output_sha256']
 
 
 def test_alpha_input_drift_fails_before_publishing(tmp_path, monkeypatch):
@@ -219,3 +223,104 @@ def test_alpha_input_drift_fails_before_publishing(tmp_path, monkeypatch):
         alpha.main()
     assert out3.read_bytes() == b'existing'
     assert not out_record3.exists()
+
+
+def _alpha_tool(monkeypatch, tag):
+    monkeypatch.setitem(sys.modules, 'atlas', atlas)
+    spec = importlib.util.spec_from_file_location(f'yorimichi_alpha_{tag}', GAME / 'world/map/mask_atlas_island.py')
+    alpha = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(alpha)
+    return alpha
+
+
+def test_recut_keeps_rgb_and_binds_the_consumed_alpha(tmp_path, monkeypatch):
+    """A geography change that moves the signed mask recuts only the alpha of the committed painting: the RGB stays
+    bit-identical, the paid receipt and its pre-alpha hash are unchanged, and the consumed PNG/record are bound."""
+    from PIL import ImageDraw
+    alpha = _alpha_tool(monkeypatch, 'recut')
+    assets = tmp_path / 'assets'
+    (assets / 'coasts').mkdir(parents=True)
+    source, mask = tmp_path / 'source.png', assets / 'coasts' / 'world.png'
+    painting = Image.new('RGB', (256, 256), (30, 100, 160))
+    ImageDraw.Draw(painting).ellipse((60, 60, 196, 196), fill=(120, 150, 65))
+    painting.putpixel((10, 10), (1, 2, 3))           # far-sea detail the alpha hides but the RGB must keep
+    painting.save(source)
+    coast = Image.new('L', (256, 256), 0)
+    ImageDraw.Draw(coast).ellipse((60, 60, 196, 196), fill=255)
+    coast.save(mask)
+    sha = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    old_geography, new_geography = {'test': 'before'}, {'test': 'after'}
+    geography = dict(value=old_geography)
+    monkeypatch.setattr(atlas, 'ASSETS', assets)
+    monkeypatch.setattr(atlas, 'geography_signature', lambda: geography['value'])
+
+    def sign(reference):
+        (assets / 'coasts/source.json').write_text(json.dumps(dict(geography=geography['value'], frames=dict(
+            world=dict(bounds=atlas.WORLD_BOUNDS, sha256=sha(mask), reference_sha256=reference)))))
+
+    sign('a' * 64)
+    receipt = dict(output_sha256=sha(source), labels_baked=False, bounds=atlas.WORLD_BOUNDS, geography=old_geography,
+                   inputs=[dict(role='exact geography', sha256='a' * 64), dict(role='exact coast mask', sha256=sha(mask))],
+                   prompt='test')
+    (tmp_path / 'receipt.json').write_text(json.dumps(receipt))
+    first, first_record = assets / 'world.png', assets / 'world.json'
+    monkeypatch.setattr(sys, 'argv', ['mask_atlas_island.py', '--source', str(source), '--record', str(tmp_path / 'receipt.json'),
+                                      '--mask', str(mask), '--out', str(first), '--out-record', str(first_record)])
+    alpha.main()
+    # The terrain changes: two coast pixels become land, and the signed mask, reference and geography move with it.
+    first_json = json.loads(first_record.read_text())
+    first_json['generation_witness'] = dict(kind='terrain-reference-revalidation', geography=old_geography,
+                                            painting_sha256=receipt['output_sha256'], coast_sha256=sha(mask),
+                                            reference_sha256='a' * 64)
+    first_record.write_text(json.dumps(first_json))
+    coast.putpixel((128, 58), 255); coast.putpixel((129, 58), 255); coast.save(mask)
+    geography['value'] = new_geography
+    sign('b' * 64)
+
+    def recut(out, record=first_record, painting=first, **extra):
+        argv = ['mask_atlas_island.py', '--recut', '--source', str(painting), '--record', str(record), '--mask', str(mask),
+                '--out', str(out), '--out-record', str(out.with_suffix('.json'))]
+        for key, value in extra.items():
+            argv += [f'--{key}', str(value)]
+        monkeypatch.setattr(sys, 'argv', argv)
+        alpha.main()
+        return json.loads(out.with_suffix('.json').read_text())
+
+    record = recut(tmp_path / 'recut.png')
+    with Image.open(first) as before, Image.open(tmp_path / 'recut.png') as after:
+        assert np.array_equal(np.asarray(before.convert('RGB')), np.asarray(after.convert('RGB')))
+        assert np.asarray(after.getchannel('A'))[58, 128] == 255
+    assert record['generation'] == receipt and record['geography'] == new_geography
+    assert record['generation_witness'] == dict(
+        kind='terrain-reference-revalidation', geography=new_geography, painting_sha256=receipt['output_sha256'],
+        original_coast_sha256=receipt['inputs'][1]['sha256'], current_coast_sha256=sha(mask),
+        original_reference_sha256='a' * 64, reference_sha256='b' * 64)
+    lineage = record['recut']
+    assert lineage['from_painting_sha256'] == lineage['from_output_sha256'] == sha(first)
+    assert lineage['from_record_sha256'] == sha(first_record)
+    assert lineage['from_generation_witness'] == first_json['generation_witness']
+    assert lineage['from_display'] == first_json['display'] and lineage['from_geography'] == old_geography
+
+    def refused(match, record=first_record, painting=first, **extra):
+        with pytest.raises(ValueError, match=match):
+            recut(tmp_path / f'refused{len(list(tmp_path.glob("refused*")))}.png', record, painting, **extra)
+
+    def edited(change):
+        data = json.loads(first_record.read_text()); change(data)
+        path = tmp_path / f'edited{len(list(tmp_path.glob("edited*")))}.json'
+        path.write_text(json.dumps(data))
+        return path
+
+    refused('Recut parameters differ', dilation=5)
+    refused('unchanged RGB painting', edited(lambda d: d['display'].update(changed_rgb=True)))
+    refused('unchanged RGB painting', edited(lambda d: d['display'].pop('changed_rgb')))
+    refused('differ from their record', edited(lambda d: d.update(output_sha256='0' * 64)))
+    refused('witness binding its paid painting', edited(lambda d: d['generation_witness'].update(painting_sha256='0' * 64)))
+    refused('trace back', edited(lambda d: d['generation_witness'].update(coast_sha256='0' * 64)))
+    refused('trace back', edited(lambda d: d['generation_witness'].update(reference_sha256='0' * 64)))
+    refused('trace back', edited(lambda d: d['display'].update(mask_sha256='0' * 64)))
+    rgb_only = tmp_path / 'rgb.png'
+    Image.open(first).convert('RGB').save(rgb_only)
+    refused('straight RGBA', edited(lambda d: d.update(output_sha256=sha(rgb_only))), rgb_only)
+    with pytest.raises(ValueError, match='records its own witness'):
+        recut(tmp_path / 'witnessed.png', witness=tmp_path / 'receipt.json')

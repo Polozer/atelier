@@ -9,6 +9,12 @@ The source receipt must already bind its painting to the authoritative signed
 World mask, or carry an explicit terrain-reference-revalidation witness. The
 original paid-call receipt is nested unchanged; this tool never mints a new
 geography claim for an unverified painting.
+
+When a geography change moves the signed mask after the pre-alpha painting is
+gone, --recut takes the committed alpha painting and its record instead: the
+record must certify unchanged RGB and trace its witness back to the paid
+generation inputs. Only the alpha is recut; the RGB is proven bit-identical
+after saving, and the record keeps every replaced field under `recut`.
 """
 import argparse
 import hashlib
@@ -80,7 +86,7 @@ def validate_source(original, source_sha, mask_path, witness_path=None, assets=N
     witness = None
     if (original.get('geography') != current or original_mask_sha != mask_sha
             or original_reference_sha != reference_sha):
-        if witness_path is None:
+        if witness_path is None and witness_bytes is None:
             if original_mask_sha != mask_sha:
                 raise ValueError('Generation receipt did not use this signed World coast mask; supply a revalidation witness')
             if original_reference_sha != reference_sha:
@@ -103,6 +109,41 @@ def validate_source(original, source_sha, mask_path, witness_path=None, assets=N
     return witness
 
 
+def validate_recut(record, painting_sha, parameters):
+    """Return (paid receipt, previous witness) for an RGB-preserving alpha recut of a committed island-alpha painting.
+
+    The pre-alpha painting is not needed: a record with display.changed_rgb False certifies that the committed
+    straight-RGBA PNG carries the receipt's RGB unchanged, so only the alpha is recut from today's signed mask."""
+    if record.get('kind') != 'island-alpha-atlas-painting':
+        raise ValueError('Recut needs a committed island-alpha painting record')
+    if record.get('output_sha256') != painting_sha:
+        raise ValueError('Alpha painting bytes differ from their record')
+    display = record.get('display') or {}
+    if display.get('kind') != 'island-alpha-from-signed-coast' or display.get('changed_rgb') is not False:
+        raise ValueError('Record does not certify an unchanged RGB painting')
+    if [display.get(k) for k in ('dilation_pixels', 'feather_pixels', 'alpha_threshold')] != list(parameters):
+        raise ValueError('Recut parameters differ from the committed alpha')
+    generation = record.get('generation') or {}
+    if record.get('labels_baked', True) or record.get('bounds') != atlas.WORLD_BOUNDS or generation.get('bounds') != atlas.WORLD_BOUNDS:
+        raise ValueError('Recut painting is not the production World frame')
+    roles = {item.get('role'): item.get('sha256') for item in generation.get('inputs') or [] if isinstance(item, dict)}
+    previous = record.get('generation_witness')
+    if not isinstance(previous, dict) or previous.get('kind') != 'terrain-reference-revalidation' \
+            or previous.get('painting_sha256') != generation.get('output_sha256'):
+        raise ValueError('Committed alpha has no witness binding its paid painting')
+    if 'current_coast_sha256' in previous:
+        lineage = (previous.get('original_coast_sha256') == roles.get('exact coast mask')
+                   and previous.get('original_reference_sha256') == roles.get('exact geography'))
+        cut_from = previous['current_coast_sha256']
+    else:
+        lineage = (previous.get('coast_sha256') == roles.get('exact coast mask')
+                   and previous.get('reference_sha256') == roles.get('exact geography'))
+        cut_from = previous.get('coast_sha256')
+    if not lineage or display.get('mask_sha256') != cut_from:
+        raise ValueError('Committed alpha witness does not trace back to its paid generation inputs')
+    return generation, previous
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, required=True)
@@ -114,6 +155,9 @@ def main():
     parser.add_argument('--dilation', type=int, default=9)
     parser.add_argument('--feather', type=int, default=24)
     parser.add_argument('--threshold', type=int, default=6)
+    parser.add_argument('--recut', action='store_true',
+                        help='--source/--record are the committed alpha painting and its record: keep its RGB, recut the '
+                             'alpha from the current signed mask (the pre-alpha painting is not needed)')
     args = parser.parse_args()
 
     source_bytes = args.source.read_bytes()
@@ -125,9 +169,27 @@ def main():
     current = atlas.geography_signature()
     original = json.loads(record_bytes)
     source_sha = hashlib.sha256(source_bytes).hexdigest()
-    witness = validate_source(original, source_sha, args.mask, args.witness,
-                              mask_bytes=mask_bytes, manifest_bytes=manifest_bytes, current=current,
-                              witness_bytes=witness_bytes)
+    previous = None
+    if args.recut:
+        if args.witness is not None:
+            raise ValueError('A recut records its own witness from the current signed mask')
+        with Image.open(BytesIO(source_bytes)) as raw, Image.open(BytesIO(mask_bytes)) as mask:
+            if raw.mode != 'RGBA' or raw.size != mask.size:
+                raise ValueError('Recut painting must be straight RGBA at the coast mask size')
+        previous_record = original
+        original, previous = validate_recut(previous_record, source_sha, (args.dilation, args.feather, args.threshold))
+        frame = json.loads(manifest_bytes)['frames']['world']
+        roles = {item['role']: item['sha256'] for item in original['inputs'] if isinstance(item, dict) and 'role' in item}
+        witness_bytes = json.dumps(dict(
+            kind='terrain-reference-revalidation', geography=current, painting_sha256=original['output_sha256'],
+            original_coast_sha256=roles['exact coast mask'], current_coast_sha256=hashlib.sha256(mask_bytes).hexdigest(),
+            original_reference_sha256=roles['exact geography'], reference_sha256=frame['reference_sha256'])).encode()
+        witness = validate_source(original, original['output_sha256'], args.mask, None, mask_bytes=mask_bytes,
+                                  manifest_bytes=manifest_bytes, current=current, witness_bytes=witness_bytes)
+    else:
+        witness = validate_source(original, source_sha, args.mask, args.witness,
+                                  mask_bytes=mask_bytes, manifest_bytes=manifest_bytes, current=current,
+                                  witness_bytes=witness_bytes)
     if args.out.exists() or args.out_record.exists():
         raise FileExistsError('Preserve the existing World alpha and receipt')
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -141,6 +203,7 @@ def main():
     try:
         with Image.open(BytesIO(source_bytes)) as raw, Image.open(BytesIO(mask_bytes)) as mask:
             image = raw.convert('RGBA')
+            rgb = np.asarray(raw.convert('RGB')).copy()
             mask = mask.convert('L')
             if image.size != mask.size:
                 raise ValueError('Source painting and coast mask dimensions differ')
@@ -156,6 +219,9 @@ def main():
             if error > .0035:
                 raise ValueError(f'World painting no longer matches its coast mask: {error:.2%}')
             image.save(tmp_out, format='PNG', optimize=True)
+            with Image.open(tmp_out) as saved:
+                if not np.array_equal(np.asarray(saved.convert('RGB')), rgb):
+                    raise ValueError('Saved World alpha changed the painting RGB')
             record = dict(kind='island-alpha-atlas-painting', bounds=original['bounds'], labels_baked=False,
                           geography=current, prompt=original['prompt'],
                           requested_model=original.get('requested_model'), quality=original.get('quality'),
@@ -169,6 +235,20 @@ def main():
                                        land_alpha_min=int(alpha[land].min()),
                                        far_sea_sample_alpha_max=int(max(alpha[y, x] for x, y in far)),
                                        changed_rgb=False))
+            if previous is not None:
+                # The replaced fields stay in the record, so the committed alpha it consumed (and any historical pin of
+                # it) can be rebuilt exactly; the paid receipt and its pre-alpha painting hash are unchanged.
+                record['recut'] = dict(kind='rgb-preserving-alpha-recut',
+                                       from_painting_sha256=source_sha,
+                                       from_record_sha256=hashlib.sha256(record_bytes).hexdigest(),
+                                       from_output_sha256=previous_record['output_sha256'],
+                                       from_geography=previous_record['geography'],
+                                       from_generation_witness=previous, from_display=previous_record['display'],
+                                       decoded_rgb_sha256=hashlib.sha256(rgb.tobytes()).hexdigest(),
+                                       pre_alpha_painting='not recovered: RGB carried bit-identical from from_painting')
+                for key in ('natural_kernel_revalidation',):
+                    if key in previous_record:
+                        record[key] = previous_record[key]
             tmp_record.write_text(json.dumps(record, indent=2) + '\n')
         if args.source.read_bytes() != source_bytes:
             raise ValueError('Source painting changed during alpha generation')

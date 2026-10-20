@@ -198,6 +198,23 @@ def test_superseding_revalidation_rejects_stale_bindings():
                              shas.get) == ['world']
 
 
+def before_recut(record):
+    """The record as it stood before an RGB-preserving alpha recut (mask_atlas_island --recut), which keeps every
+    replaced field: the paid generation payload it carries is checked against historical pins unchanged."""
+    recut = record.get('recut')
+    if recut is None:
+        return record
+    old = {k: v for k, v in record.items() if k != 'recut'}
+    old.update(output_sha256=recut['from_output_sha256'], geography=recut['from_geography'],
+               generation_witness=recut['from_generation_witness'], display=recut['from_display'])
+    return old
+
+
+def decoded_rgb_sha256(path):
+    with Image.open(path) as image:
+        return hashlib.sha256(image.convert('RGB').tobytes()).hexdigest()
+
+
 def test_natural_kernel_revalidation_preserves_art_and_generation_provenance():
     """@cc [owner:fontanierh,label:correctness] atlas-carry-scope
     A source-only carry witness (an unchanged extraction carried into current attestations) is valid only
@@ -228,9 +245,18 @@ def test_natural_kernel_revalidation_preserves_art_and_generation_provenance():
     for rel, expected in witness['unchanged_art_sha256'].items():
         if superseded and rel.startswith('coasts/'):
             continue  # regenerated masks are bound to the paintings above; the paintings stay pinned
+        record = json.loads((atlas.ASSETS / rel).with_suffix('.json').read_text()) if rel.endswith('.png') else {}
+        if superseded and 'recut' in record:
+            # An alpha recut for the new mask consumed exactly the pinned painting and kept its RGB bit-identical.
+            recut = record['recut']
+            assert recut['from_painting_sha256'] == recut['from_output_sha256'] == expected
+            assert hashlib.sha256((atlas.ASSETS / rel).read_bytes()).hexdigest() == record['output_sha256']
+            assert decoded_rgb_sha256(atlas.ASSETS / rel) == recut['decoded_rgb_sha256']
+            assert recut['from_display']['changed_rgb'] is False and record['display']['changed_rgb'] is False
+            continue
         assert hashlib.sha256((atlas.ASSETS / rel).read_bytes()).hexdigest() == expected
     for key, expected in witness['unchanged_generation_payload_sha256'].items():
-        record = json.loads((atlas.ASSETS / f'{key}.json').read_text())
+        record = before_recut(json.loads((atlas.ASSETS / f'{key}.json').read_text()))
         assert record.pop('natural_kernel_revalidation') == pin
         record.pop('verified_geography', None)
         if key == 'world':
