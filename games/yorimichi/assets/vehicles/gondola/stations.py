@@ -16,6 +16,7 @@ from contextlib import ExitStack, contextmanager
 
 from mathutils import Matrix, Vector
 
+import checks
 import rope as RP
 import solid
 from cabin import GRIP, pose as cabin_pose
@@ -1186,12 +1187,14 @@ def build(key, p, d, cab, ctx):
         extra.append(f'jaw groove off the rope at the mouth: {groove["failures"]}')
     if not rope_clear['ok']:
         extra.append(f'rope within {rope_clear["required_m"]} m of the cabin on the loop: {rope_clear["where"]}')
+    if not rope_jaws['ok']:
+        extra.append(f'rope not seated in the jaws in the attach zone: {rope_jaws["min_distance_from_rope_axis_m"]} at {rope_jaws["where"]}')
     for part in ('intentional', 'clearance'):
         if not rope_station[part]['ok']:
             extra.append(f'rope {part} in the station: {rope_station[part]["min_distance_from_rope_axis_m"]} at {rope_station[part]["where"]}')
-    if tris > ctx['budget']['station']:
-        extra.append(f'{tris} triangles over budget {ctx["budget"]["station"]}')
+    extra += checks.budget_failures('station', tris)
     proxies = st.proxies + st.platform_proxies()
+    extra += checks.proxy_failures(proxies)
     hulls = ctx['export'](name, meshes, proxies)
     region, walk_proxies = st.walk_layout(cab['cabin'])
     layout = {'station': key, 'levels': st.levels, 'regions': region, 'stairs': st.stairs, 'access': st.access,

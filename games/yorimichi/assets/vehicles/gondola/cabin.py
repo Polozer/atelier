@@ -10,6 +10,7 @@ import math
 
 from mathutils import Matrix, Vector
 
+from checks import ROPE_CLEARANCE  # noqa: F401  (re-exported: rope surface to any cabin part outside the jaw zone)
 from solid import (BOLT, GASKET, GLASS, IRON, LAMP, PANEL, PLANK, RUBBER, STEEL, TIMBER, TIMBER_DARK, Mesh, rect,
                    rounded_rect, signed_area)
 
@@ -30,7 +31,6 @@ GRIP = {'housing_length': 0.45, 'jaw_cover': 0.035, 'plate_y': (0.10, 0.13), 'pl
         'pivot': (0.0, -0.185, -0.13)}
 # The grip follows the rope's tangent; everything below the pivot pin (hanger and cabin) hangs plumb from it.
 GRIP_MESHES = ('GD_CabinGrip',)
-ROPE_CLEARANCE = 0.05             # rope surface to any cabin, hanger or grip part outside the jaw zone (m)
 
 
 def pose(grip_rows):

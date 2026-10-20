@@ -146,12 +146,48 @@ The manifest records the minimum distance and where it occurs (`rope_clearance`)
 
 | Category | Parts | Rule |
 | --- | --- | --- |
-| intentional contact | grip jaws and clamp body (tag `jaw`, `clamp`) | seated: distance at least the rope radius less 2 mm |
+| intentional contact | grip jaws and clamp body (tag `jaw`, `clamp`) | seated: the rope radius from the rope axis, within 2 mm either way |
 | intentional contact | tower sheave grooves (tag `sheave`) | seated, as above |
 | intentional contact | bullwheel rim and liner (tag `bullwheel groove`) | seated, as above |
-| clearance to unrelated hardware | everything else on the cabin, towers and stations | at least the rope radius plus 0.05 m |
+| clearance to unrelated hardware | everything else on the cabin, towers and stations | at least the rope radius plus 0.05 m (0.095 m for the 90 mm rope) |
 
 Each row in the manifest names its category, the minimum and where it occurs.
+
+## Gates and thresholds
+
+`build.py` exits non-zero when any gate fails, and lists every failure (`FAIL ...`) and records them in
+`manifest.json`. `$GONDOLA_SOFT_FAIL=1` keeps the exit code at 0 so that a review render can run on a failing build;
+the manifest then records `soft_fail: true`. `walk.py` run on its own exits 1 when the walk audit fails.
+
+The gates: closed meshes (open, misoriented or degenerate), coplanar overlaps, seats, cabin contacts with towers and
+stations, the jaw groove, both rope contact categories, the cabin hanging level, the grip's wheels and pivot clear of
+the rope, convex collision proxies, triangle budgets, and on a full run the walk audit.
+
+Every threshold is a named constant. [`checks.py`](checks.py) holds the decisions as plain Python, so the build and
+the fast tests run the same rules. `games/yorimichi/tests/test_gondola_docs.py` asserts that this table matches the
+code:
+
+| Constant | Value | Gate |
+| --- | --- | --- |
+| `checks.ROPE_CLEARANCE` | 0.05 m | unrelated hardware to the rope surface |
+| `checks.CONTACT_TOL` | 0.002 m | intentional contact and jaw groove, either side of the rope radius |
+| `checks.FLOOR_TILT_TOL_DEG` | 0.01 deg | cabin floor from level |
+| `checks.BUDGET['cabin']` | 15000 triangles | cabin |
+| `checks.BUDGET['tower']` | 8000 triangles | each tower height |
+| `checks.BUDGET['station']` | 60000 triangles | each station |
+| `walk.RADIUS` | 0.22 m | player capsule radius |
+| `walk.STEP` | 0.3 m | step limit |
+| `walk.HEAD` | 2.0 m | headroom |
+| `walk.MIN_WIDTH` | 0.9 m | route clear width and stair width |
+| `walk.RISER_MAX` | 0.3 m | stair riser |
+| `walk.TREAD_MIN` | 0.25 m | stair tread |
+| `stations.ROPE_DROP` | 0.15 m | station rope below the grip line (jaws open) |
+| `stations.ATTACH_ZONE` | 1.8 m | attach zone inside the mouth |
+
+The fast tests (`games/yorimichi/tests/test_gondola_*.py`) need no Blender. They exercise the rope path and the
+sagging span, the tower pass, the station loop, the plumb hang, the grip clearances and the contact classification,
+and include fixtures that must fail: a hanger 0.05 m from the rope, a jaw contact 3 mm off the rope radius, and a
+tilted cabin floor.
 
 ## Mesh rules
 
@@ -177,9 +213,13 @@ Timber surfaces carry procedural textures, `textures.py`:
 - a 0.22 m capsule;
 - 0.30 m step limit;
 - 2.0 m headroom;
-- 0.9 m minimum clear width.
+- 0.9 m minimum clear width;
+- stairs: risers at most 0.30 m, treads at least 0.25 m, at least 0.9 m wide;
+- the cabin door at least 0.9 m wide and 2.0 m high.
 
-It reports route bottlenecks, pinch points, trapping pockets and slivers, and the stair riser and tread checks. Each
+It reports route bottlenecks, pinch points, trapping pockets and slivers, and the stair riser and tread checks. A
+disconnected or narrow route, a pinch on a route, a trapping pocket, a stair or door under the rules, or a berth door
+outside its gate fails the audit. Slivers and off-route notches are listed but do not fail it. Each
 station is checked with a cabin in each berth with its doors open, so the boarding routes run from the access through
 the gate into the cabin.
 
@@ -196,6 +236,22 @@ the gate into the cabin.
   - `solid.py` and the raster core of `walk.py` are carried over from the ferry's build. The ferry is not on `main`
     yet; the two should share one module once it lands.
   - The rope path, the grip frame and the groove check have one implementation, `rope.py`.
+
+## Still to do (B4)
+
+These belong to placement, the next batch (B4), and are not in this kit:
+
+- **The route against the real terrain.** Nothing here reads terrain, heightmaps or region sources: the towers record
+  a foundation datum and an allowed ground relief, and the stations a platform datum and access edges. Placement must
+  measure the route (span lengths, sag, tower feet, station ground and the ground beyond each mouth) against the real
+  terrain, and its build must record the sha256 of every terrain and region source it reads and refuse a mismatch on
+  rebuild.
+- **Ramps and jumps.** The rider clearance under the floor-to-rim line over Crater Park's ramps and jumps is measured
+  only once the route is placed.
+- **A game drive of the walk routes** in Unreal (walkable-routes-traversable), once the pieces are imported.
+
+The collision is in this kit: every piece (the cabin, each tower, each station's walkable parts) exports its UCX
+convex hulls, and the build fails on a proxy that is not convex.
 
 ## Asset library
 

@@ -6,14 +6,18 @@ assets/, a .blend per piece, layout_<piece>.json (walk layouts for walk.py) and 
 counts, attachment points and audit results). $GONDOLA_PIECES limits a run to some pieces (comma separated: cabin,
 towers, valley, rim, crater); only a full run writes manifest.json.
 
-Every mesh is checked before export and the build fails on: an open or misoriented edge, coplanar overlapping faces
-of different parts (z-fighting), an unseated fitting, a cabin touching a tower as it passes over the sheaves or a
-station as it runs round the loop, or a triangle budget overrun.
+Every mesh is checked before export, and the build exits non-zero on any failed gate (thresholds and decisions in
+checks.py): an open or misoriented edge or a degenerate face, coplanar overlapping faces of different parts
+(z-fighting), an unseated fitting, a cabin touching a tower as it passes over the sheaves or a station as it runs
+round the loop, a jaw groove off the rope, an intentional rope contact (jaws, sheaves, bullwheel groove) off the rope
+radius, unrelated hardware within the rope clearance, a cabin floor off level, a grip wheel or pivot near the rope, a
+collision proxy that is not a convex hull, a triangle-budget overrun, or (on a full run) a failed walk audit.
+$GONDOLA_SOFT_FAIL=1 lets a review render run on a failing build: the failures are still listed and recorded in the
+manifest (soft_fail: true), but the exit code is 0.
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / 'world')); import yori  # noqa: E402,F401
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 import hashlib  # noqa: E402
-import math  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
 import time  # noqa: E402
@@ -21,19 +25,20 @@ import time  # noqa: E402
 import bpy  # noqa: E402
 from mathutils import Matrix, Vector  # noqa: E402
 
+import checks  # noqa: E402
 import params as P  # noqa: E402
 import rope as R  # noqa: E402
 import solid  # noqa: E402
 import textures  # noqa: E402
-from cabin import ROPE_CLEARANCE, Cabin, pose as cabin_pose  # noqa: E402
+from cabin import GRIP, Cabin, pose as cabin_pose  # noqa: E402
 from tower import Tower  # noqa: E402
 
 OUT = yori.OUT / 'gondola'
 ASSETS = OUT / 'assets'
 HERE = _Path(__file__).resolve().parent
-BUDGET = {'cabin': 15000, 'tower': 8000, 'station': 60000}
+BUDGET = checks.BUDGET
 TEXTURES = {}
-GROOVE_TOL = 0.002
+GROOVE_TOL = checks.CONTACT_TOL
 
 
 def log(*a):
@@ -117,11 +122,14 @@ def build_cabin(p, d):
     seats = solid.seats(list(meshes.values()), c.seats)
     proxies = c.proxies()
     tris = sum(m.tris() for m in meshes.values())
-    extra = [f'cabin {tris} triangles over budget {BUDGET["cabin"]}'] if tris > BUDGET['cabin'] else []
+    extra = [f'cabin {b}' for b in checks.budget_failures('cabin', tris)] + checks.proxy_failures(proxies)
+    grip_clear = checks.grip_clearances(GRIP, p['rope_radius'])
+    if not grip_clear['ok']:
+        extra.append(f'grip wheel or pivot within {grip_clear["required_m"]} m of the rope axis: {grip_clear}')
     hulls = export_piece('Cabin', meshes, mats, proxies)
     G = d['grip_to_floor']; W = p['cabin_width']
     # Jaw groove on the rope on a level rope, a 40 % grade and a sagging span (rope.py frames, as in the stations).
-    span = R.RopePath([(x * 0.5, 0.0, 0.0025 * (x * 0.5) ** 2) for x in range(-80, 81)], p['rope_radius'])
+    span = R.sagging_span(40.0, 4.0, p['rope_radius'])
     tests = {'level': R.straight((-5, 0, 0), (5, 0, 0), p['rope_radius']), 'grade 40%': R.straight((-5, 0, -2), (5, 0, 2), p['rope_radius']),
              'grade 75% (steepest: the crater-floor line in the reviews)': R.straight((-5, 0, -3.75), (5, 0, 3.75), p['rope_radius']),
              'sagging span': span}
@@ -142,9 +150,14 @@ def build_cabin(p, d):
         jaw[name] = jaw_contact(cab, path, poses)
         if not rope_clear[name]['ok']:
             extra.append(f'rope within {rope_clear[name]["required_m"]} m of the cabin ({name}): {rope_clear[name]["where"]}')
-        Pz = poses[len(poses) // 2][1]
-        hang[name] = {'grip_pitch_deg': round(math.degrees(math.asin(max(-1.0, min(1.0, Pz.G[2][0])))), 2),
-                      'cabin_floor_tilt_deg': round(math.degrees(math.acos(max(-1.0, min(1.0, Pz.C[2][2])))), 4)}
+        if not jaw[name]['ok']:
+            extra.append(f'rope not seated in the jaws ({name}): {jaw[name]["min_distance_from_rope_axis_m"]} m at {jaw[name]["where"]}')
+        tilt = max(checks.floor_tilt_deg(Q.C) for _, Q, _ in poses)
+        hang[name] = {'grip_pitch_deg': round(max(abs(checks.grip_pitch_deg(Q.G)) for _, Q, _ in poses), 2),
+                      'cabin_floor_tilt_deg': round(tilt, 4), 'tolerance_deg': checks.FLOOR_TILT_TOL_DEG,
+                      'ok': all(checks.hanging_ok(Q.C) for _, Q, _ in poses)}
+        if not hang[name]['ok']:
+            extra.append(f'cabin floor tilted {tilt:.3f} deg from level ({name}); it must hang plumb')
     layout = c.layout() | {'proxies': proxies}
     (OUT / 'layout_cabin.json').write_text(json.dumps(layout) + '\n')
     entry = {
@@ -159,7 +172,7 @@ def build_cabin(p, d):
                        'sill_z': round(-G, 3), 'outward': [0, -1, 0], 'leaves': door_info},
         'interior': {'floor_size': [round(p['cabin_length'] - 2 * 0.075, 3), round(W - 2 * 0.075, 3)], 'headroom': 2.08, 'benches': 3, 'seat_height': 0.46},
         'exterior_size': [p['cabin_length'], W, round(p['cabin_floor_to_roof'] + p['cabin_floor_depth'], 3)],
-        'grip': c.grip_info | {'jaw_groove_on_rope': groove},
+        'grip': c.grip_info | {'jaw_groove_on_rope': groove, 'clear_of_the_rope': grip_clear},
         'rope_clearance': rope_clear, 'rope_in_jaws': jaw, 'hanging': hang,
         'coplanar_overlaps': cop, 'seating': {'checked': len(seats), 'failures': [s for s in seats if s['status'] != 'ok']},
     }
@@ -176,23 +189,23 @@ def jaw_contact(cab, path, poses):
     d = best['distance_m']
     return {'category': 'intentional contact', 'contact': 'rope seated in the jaw groove', 'min_distance_from_rope_axis_m': d,
             'rope_radius_m': path.r, 'gap_m': None if d is None else round(d - path.r, 4), 'where': best, 'poses': len(poses),
-            'ok': d is not None and d >= path.r - 0.002}
+            'tolerance_m': checks.CONTACT_TOL, 'ok': checks.contact_ok(d, path.r)}
 
 
 def static_rope_check(meshes, path, contact_tags, contact_name, label):
     """The rope against a static piece (tower or station), whole path: the parts tagged contact_tags are the rope's
     intentional contact (sheave or bullwheel groove: the rope rests on them), reported on their own; every other part
-    (the piece's own rope mesh aside) must stay rope radius + ROPE_CLEARANCE from the rope axis."""
+    (the piece's own rope mesh aside) must stay rope radius + checks.ROPE_CLEARANCE from the rope axis."""
     I = Matrix.Identity(4); pose = [(label, I, path.length / 2)]; reach = path.length / 2 + 0.05
     c, _ = solid.rope_clearance(meshes, path, pose, exclude_tags=(), only_tags=contact_tags, reach=reach)
     k, _ = solid.rope_clearance(meshes, path, pose, exclude_tags=tuple(contact_tags) + ('rope',), reach=reach)
-    need = path.r + ROPE_CLEARANCE; dc, dk = c['distance_m'], k['distance_m']
-    return {'intentional': {'category': 'intentional contact', 'contact': contact_name, 'min_distance_from_rope_axis_m': dc,
+    need = checks.required_clearance(path.r); dc, dk = c['distance_m'], k['distance_m']
+    return {'intentional': {'category': checks.INTENTIONAL, 'contact': contact_name, 'min_distance_from_rope_axis_m': dc,
                             'rope_radius_m': path.r, 'gap_m': None if dc is None else round(dc - path.r, 4), 'where': c,
-                            'ok': dc is not None and path.r - 0.002 <= dc <= path.r + 0.01},
-            'clearance': {'category': 'clearance to unrelated hardware', 'min_distance_from_rope_axis_m': dk, 'required_m': round(need, 3),
+                            'tolerance_m': checks.CONTACT_TOL, 'ok': checks.contact_ok(dc, path.r)},
+            'clearance': {'category': checks.UNRELATED, 'min_distance_from_rope_axis_m': dk, 'required_m': round(need, 3),
                           'gap_to_rope_surface_m': None if dk is None else round(dk - path.r, 4), 'where': k, 'poses': 1,
-                          'ok': dk is None or dk >= need}}
+                          'ok': checks.clearance_ok(dk, path.r)}}
 
 
 def rope_summary(pieces):
@@ -213,14 +226,14 @@ def rope_summary(pieces):
 
 def rope_check(cab, path, poses):
     """Rope centreline to the cabin, hanger and grip (jaw zone excluded) over the poses: must be at least the rope
-    radius plus ROPE_CLEARANCE everywhere."""
+    radius plus checks.ROPE_CLEARANCE everywhere."""
     t0 = time.time()
     best, per_pose = solid.rope_clearance(cabin_movers(cab), path, poses)
-    need = path.r + ROPE_CLEARANCE
-    return {'min_distance_from_rope_axis_m': best['distance_m'], 'required_m': round(need, 3),
-            'gap_to_rope_surface_m': round(best['distance_m'] - path.r, 4), 'where': best, 'poses': len(poses),
+    need = checks.required_clearance(path.r); d = best['distance_m']
+    return {'min_distance_from_rope_axis_m': d, 'required_m': round(need, 3),
+            'gap_to_rope_surface_m': None if d is None else round(d - path.r, 4), 'where': best, 'poses': len(poses),
             'tightest_poses': sorted(per_pose, key=lambda t: t[1])[:3], 'seconds': round(time.time() - t0, 1),
-            'excluded': 'grip parts tagged jaw and clamp (where the jaws close on the rope)', 'ok': best['distance_m'] >= need}
+            'excluded': 'grip parts tagged jaw and clamp (where the jaws close on the rope)', 'ok': checks.clearance_ok(d, path.r)}
 
 
 def build_towers(p, d, cab):
@@ -244,7 +257,9 @@ def build_towers(p, d, cab):
             if not gc['ok']:
                 bad.append(f'{m.name}: jaw groove off the rope on {side}: {gc["failures"]}')
             rc = rcs[side] = rope_check(cab, path, frames[::2])
-            rcs[side + ' rope in the jaws'] = jaw_contact(cab, path, frames[::2])
+            jc = rcs[side + ' rope in the jaws'] = jaw_contact(cab, path, frames[::2])
+            if not jc['ok']:
+                bad.append(f'{m.name}: rope not seated in the jaws on {side}: {jc["min_distance_from_rope_axis_m"]} at {jc["where"]}')
             st_ = rcs[side + ' rope and tower'] = static_rope_check([m], path, ('sheave',), 'rope on the sheave grooves', f'tower {side}')
             for part in ('intentional', 'clearance'):
                 if not st_[part]['ok']:
@@ -260,9 +275,9 @@ def build_towers(p, d, cab):
             extra.append(f'{m.name}: cabin touches the tower at {hits[:4]}')
         if env_hits:
             extra.append(f'{m.name}: cabin body within 0.3 m of the tower at {env_hits[:4]}')
-        if tris > BUDGET['tower']:
-            extra.append(f'{m.name}: {tris} triangles over budget {BUDGET["tower"]}')
+        extra += [f'{m.name}: {b}' for b in checks.budget_failures('tower', tris)]
         proxies = t.proxies()
+        extra += [f'{m.name}: {b}' for b in checks.proxy_failures(proxies)]
         obj, _ = solid.to_object(m, mats); solid.export_fbx([obj], ASSETS / f'{m.name}.fbx')
         hulls = solid.export_collision(proxies, ASSETS / f'{m.name}_Collision.fbx', f'{m.name}_Collision')
         if H != p['review_tower_height']:          # towers.blend keeps the review height only
@@ -326,9 +341,16 @@ def main():
                  if not any(r['check'] in f for f in failures)]
     for key, entry in manifest['pieces'].items():
         (OUT / f'piece_{key}.json').write_text(json.dumps(entry, indent=1) + '\n')
-    manifest['failures'] = failures
-    manifest['build_seconds'] = round(time.time() - t0, 1)
     full = set(wanted) >= {'cabin', 'towers', 'valley', 'rim', 'crater'}
+    if full:                                   # the walk audit reads the layouts this run has just written
+        import walk
+        rep, walk_bad = walk.audit(quiet=True)
+        manifest['walk'] = {'all_pass': rep['all_pass'], 'report': 'review/walk_report.json', 'rules': rep['rules']}
+        log(f'walk audit: {"PASS" if not walk_bad else "FAIL"} ({len(walk_bad)} failures)')
+        failures += [f'walk: {w}' for w in walk_bad]
+    manifest['failures'] = failures
+    manifest['soft_fail'] = bool(os.environ.get('GONDOLA_SOFT_FAIL'))
+    manifest['build_seconds'] = round(time.time() - t0, 1)
     if full:
         (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     log('GONDOLA BUILD', 'FAILED' if failures else 'COMPLETE', f'{time.time() - t0:.0f} s', 'manifest written' if full else 'partial run, manifest not written')

@@ -23,15 +23,17 @@ from collections import deque
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
 
 REPO = Path(__file__).resolve().parents[5]
 OUT = REPO / 'build' / 'yorimichi' / 'gondola'
 REVIEW = OUT / 'review'
 CELL = 0.05
 RADIUS = 0.22
-STEP, HEAD = 0.30, 2.0
+STEP, HEAD = 0.30, 2.0       # step limit and required headroom (m)
 MIN_WIDTH, HARD_MIN = 0.9, 0.6
+RISER_MAX, TREAD_MIN = 0.30, 0.25
+DOOR_MIN = (0.9, 2.0)        # cabin door clear width and height (m)
+CAPSULE_HALF_HEIGHT = 0.755
 SLIVER = 2 * RADIUS          # an unswept slot narrower than the capsule cannot be entered, so it cannot trap
 INF = 1e20
 
@@ -245,6 +247,10 @@ def draw(deck, pinches, routes, marks, path, pockets_=(), scale=40):
     img[deck.region & deck.blocked] = (110, 112, 118)
     img[deck.free & ~deck.walk] = (238, 170, 160)
     img[deck.walk] = (150, 205, 140)
+    try:
+        from PIL import Image, ImageDraw            # only for the review image; the audit itself needs numpy alone
+    except ImportError:
+        return
     im = Image.fromarray(img[::-1]).resize((int(w * CELL * scale), int(h * CELL * scale)), Image.NEAREST)
     d = ImageDraw.Draw(im)
     to = lambda x, y: ((x - deck.x0) * scale, im.height - (y - deck.y0) * scale)
@@ -348,7 +354,8 @@ def cabin_report():
     routes = [(f'platform apron -> {k}', pts['platform apron'], v) for k, v in pts.items() if k != 'platform apron']
     rep = analyse(deck, pts, routes, 'walk_cabin.png')
     xi = max(xs)
-    rep['door'] = {'clear_width_m': round(x1 - x0, 3), 'clear_height_m': d['clear_height'], 'meets_0.9x2.0': (x1 - x0) >= 0.9 and d['clear_height'] >= 2.0}
+    rep['door'] = {'clear_width_m': round(x1 - x0, 3), 'clear_height_m': d['clear_height'], 'required_m': list(DOOR_MIN),
+                   'ok': (x1 - x0) >= DOOR_MIN[0] and d['clear_height'] >= DOOR_MIN[1]}
     rep['headroom_m'] = L['headroom']; rep['aisle_between_side_benches_m'] = round(b['east'][0] - b['west'][1], 3)
     rep['bench_seat_height_m'] = b['seat_height']; rep['interior_floor_m'] = [round(2 * xi, 3), round(max(ys) - min(ys), 3)]
     return rep
@@ -377,37 +384,63 @@ def station_report(key):
     rep['boarding'] = [{'side': b['side'], 'door_centre': b['door_centre'], 'gate_x': b['platform_edge']['x'],
                         'door_within_gate': b['platform_edge']['x'][0] <= b['door_centre'][0] - 0.5 and b['door_centre'][0] + 0.5 <= b['platform_edge']['x'][1],
                         'gap_door_to_edge_m': b['gap_door_to_edge_m'], 'sill_above_platform_m': b['door_centre'][2]} for b in L['berths']]
-    rep['stairs'] = [dict(s, meets_riser_le_0_30=s['riser_m'] <= 0.30 + 1e-9, meets_tread_ge_0_25=s['tread_m'] >= 0.25 - 1e-9,
-                          meets_width_ge_0_9=s['width_m'] >= 0.9) for s in L['stairs']]
+    rep['stairs'] = [dict(s, riser_ok=s['riser_m'] <= RISER_MAX + 1e-9, tread_ok=s['tread_m'] >= TREAD_MIN - 1e-9,
+                          width_ok=s['width_m'] >= MIN_WIDTH) for s in L['stairs']]
     return rep
 
 
-def main():
+def verdict(r):
+    """The reasons one piece fails the walk audit (empty when it passes)."""
+    why = [f'route {x["route"]}: ' + ('not connected' if not x.get('connected') else f'bottleneck {x.get("bottleneck_width_m")} m < {MIN_WIDTH} m')
+           for x in r['routes'] if not x.get('connected') or not x.get('meets_0.9')]
+    why += [f'pinch {p["clear_width_m"]} m at {p["at"]}' for p in r['pinch_points'] if p['status'] == 'too narrow']
+    why += [f'trapping pocket at {p.get("at")}' for p in r['trapping_pockets']]
+    why += [f'stair at {s["x"]}, {s["y"]}: riser {s["riser_m"]} / tread {s["tread_m"]} / width {s["width_m"]}'
+            for s in r.get('stairs', []) if not (s['riser_ok'] and s['tread_ok'] and s['width_ok'])]
+    if 'door' in r and not r['door']['ok']:
+        why.append(f'cabin door {r["door"]["clear_width_m"]} x {r["door"]["clear_height_m"]} m under {DOOR_MIN}')
+    why += [f'berth {b["side"]:+d}: door outside the gate' for b in r.get('boarding', []) if not b['door_within_gate']]
+    return why
+
+
+def audit(quiet=False):
+    """Run the walk audit on the layouts build.py wrote; returns (report, list of failures). Writes walk_report.json
+    and (when PIL is available) the review images."""
     REVIEW.mkdir(parents=True, exist_ok=True)
-    report = {'capsule': {'radius_m': RADIUS, 'half_height_m': 0.755},
-              'rules': {'min_clear_width_m': MIN_WIDTH, 'headroom_m': HEAD, 'step_m': STEP, 'riser_max_m': 0.30, 'tread_min_m': 0.25},
+    report = {'capsule': {'radius_m': RADIUS, 'half_height_m': CAPSULE_HALF_HEIGHT},
+              'rules': {'min_clear_width_m': MIN_WIDTH, 'headroom_m': HEAD, 'step_m': STEP, 'riser_max_m': RISER_MAX, 'tread_min_m': TREAD_MIN,
+                        'door_min_m': list(DOOR_MIN)},
               'source': 'collision proxies = the UCX hulls in assets/GD_*_Collision.fbx', 'pieces': {}}
     report['pieces']['cabin'] = cabin_report()
     for key in ('valley', 'rim', 'crater'):
         if (OUT / f'layout_{key}.json').exists():
             report['pieces'][key] = station_report(key)
-    ok = True
+    failures = []
     for name, r in report['pieces'].items():
-        bad_routes = [x for x in r['routes'] if not x.get('connected') or not x.get('meets_0.9')]
-        bad_routes += [p for p in r['pinch_points'] if p['status'] == 'too narrow']
-        r['verdict'] = 'pass' if not bad_routes and not r['trapping_pockets'] and all(
-            s['meets_riser_le_0_30'] and s['meets_tread_ge_0_25'] for s in r.get('stairs', [])) else 'check'
-        ok &= r['verdict'] == 'pass'
+        why = verdict(r)
+        r['verdict'] = 'pass' if not why else 'fail'; r['failures'] = why
+        failures += [f'{name}: {w}' for w in why]
+        if quiet:
+            continue
         print(name, r['verdict'], 'area', r['walkable_area_m2'], 'components', r['components'])
         for x in r['routes']:
-            print('  ', x['route'], x.get('bottleneck_width_m'), x.get('bottleneck_at'), 'OK' if x.get('meets_0.9') else 'CHECK')
+            print('  ', x['route'], x.get('bottleneck_width_m'), x.get('bottleneck_at'), 'OK' if x.get('meets_0.9') else 'FAIL')
         for p in r['pinch_points']:
             print('   pinch', p)
         for p in r['trapping_pockets']:
             print('   pocket', p)
-    report['all_pass'] = ok
+    report['all_pass'] = not failures; report['failures'] = failures
     (REVIEW / 'walk_report.json').write_text(json.dumps(report, indent=2) + '\n')
-    print('walk report:', 'PASS' if ok else 'CHECK')
+    return report, failures
+
+
+def main():
+    _, failures = audit()
+    for f in failures:
+        print('FAIL', f)
+    print('walk report:', 'PASS' if not failures else 'FAIL')
+    if failures:
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':

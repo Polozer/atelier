@@ -144,6 +144,13 @@ def straight(a, b, radius, step=0.05):
     return RopePath([_add(a, _mul(_sub(b, a), k / n)) for k in range(n + 1)], radius)
 
 
+def sagging_span(half, sag, radius, step=0.5):
+    """A sagging span between two supports at x = +-half: a parabola (the catenary's small-sag form) whose lowest point,
+    at mid-span, lies `sag` below the supports."""
+    n = max(2, int(round(2 * half / step)))
+    return RopePath([(-half + 2 * half * k / n, 0.0, sag * ((-half + 2 * half * k / n) / half) ** 2) for k in range(n + 1)], radius)
+
+
 def over_tower(H, y, radius, half_train=1.6, deflection_deg=3.0, span=30.0, step=0.05):
     """A rope crossing a tower: level over the sheave train, falling away at the deflection angle on both sides,
     with a fillet over the end sheaves (radius 60 m)."""
