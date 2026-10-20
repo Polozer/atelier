@@ -417,14 +417,19 @@ def covered(rect, xa, xb, ya, yb):
     return rect is not None and rect[0] <= xa and xb <= rect[1] and rect[2] <= ya and yb <= rect[3]
 
 
+def paving_grid(x0, x1, y0, y1, tile=6.5):
+    """The slab grid paving() lays over a rectangle: (nx, ny, slab width, slab depth)."""
+    nx, ny = max(1, round((x1 - x0) / tile)), max(1, round((y1 - y0) / tile))
+    return nx, ny, (x1 - x0) / nx, (y1 - y0) / ny
+
+
 def paving(b, x0, x1, y0, y1, z=None, tile=6.5, thick=0.22, kerbs=(True, True), seed=0, skip=None):
     """Tile a street rectangle in abutting slabs; z=None follows the ground per slab. Kerbs line the y edges.
     skip is a floor (x0, x1, y0, y1) laid by another module: only slabs and kerbs wholly under it are left out, so
     the street still meets that floor's edge instead of leaving bare ground beside it."""
     if z is not None and skip is None:
         FLAT_PAVING.append((min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1), z - thick))
-    nx, ny = max(1, round((x1 - x0) / tile)), max(1, round((y1 - y0) / tile))
-    sx, sy = (x1 - x0) / nx, (y1 - y0) / ny
+    nx, ny, sx, sy = paving_grid(x0, x1, y0, y1, tile)
     for i in range(nx):
         cx = x0 + (i + 0.5) * sx
         for j in range(ny):
@@ -472,13 +477,36 @@ def pave_band(b, y0, y1, skip_market=True):
                     ('canvas', 'canvas_red', 'canvas_teal')[k], thick=0.04)
 
 
+# The lower town's terrain-following streets: side roads (centre x, centre y, width, depth) and full-width bands.
+LOWER_ROADS = ((-260, 230, 34, 10), (240, 230, 34, 10), (-390, 120, 12, 58), (390, 120, 12, 58))
+LOWER_BANDS = ((137, 179), (210, 242), (266, 282))
+
+
+def lower_street_slabs():
+    """Every terrain-following slab lower_town() lays, as (x0, x1, y0, y1, top): the same grid and skip as paving()."""
+    if not _STREET_SLABS:
+        rects = [(x - w / 2, x + w / 2, y - d / 2, y + d / 2, None) for x, y, w, d in LOWER_ROADS]
+        rects += [(-372.0, 372.0, y0, y1, MARKET_FLOOR) for y0, y1 in LOWER_BANDS]
+        for x0, x1, y0, y1, skip in rects:
+            nx, ny, sx, sy = paving_grid(x0, x1, y0, y1)
+            for i in range(nx):
+                cx = x0 + (i + 0.5) * sx
+                for j in range(ny):
+                    cy = y0 + (j + 0.5) * sy
+                    if not covered(skip, cx - sx / 2, cx + sx / 2, cy - sy / 2, cy + sy / 2):
+                        _STREET_SLABS.append((cx - sx / 2, cx + sx / 2, cy - sy / 2, cy + sy / 2, L.ground(cx, cy) + 0.16))
+    return _STREET_SLABS
+
+
+_STREET_SLABS = []
+
+
 def lower_town():
     b = Builder('03_town_lower')
     # Street surfaces, edges and lanes.
-    roads = [(-260, 230, 34, 10), (240, 230, 34, 10), (-390, 120, 12, 58), (390, 120, 12, 58)]
-    for x, y, w, d in roads:
+    for x, y, w, d in LOWER_ROADS:
         paving(b, x - w / 2, x + w / 2, y - d / 2, y + d / 2, kerbs=(False, False), seed=int(x))
-    for y0, y1 in ((137, 179), (210, 242), (266, 282)):
+    for y0, y1 in LOWER_BANDS:
         pave_band(b, y0, y1)
     # Lower quay houses and the two lanes behind them.
     for spec in L.DENSE_LOTS:
@@ -757,21 +785,36 @@ TERRACE_STAIRS = ((0.0, 22.0), (-238.0, 8.0), (252.0, 8.0))  # quay-to-terrace s
 TERRACE_CHEEKS = {0.0: 1.6, -238.0: 0.7, 252.0: 0.7}  # each stair's parapet width beyond its treads
 STAIR_FOOT_Y, STAIR_TOP_Y = 230.0, 279.0    # foot on the quay street north of the market; top at the terrace edge
 STAIR_RISE_MAX, STAIR_LANDING, STAIR_FLIGHT = 0.24, 2.2, 22   # riser cap (m), landing depth (m), risers per flight
+NOSING_LIFT = 0.01          # each tread's nosing stands this far above the tread (terrace_stair)
+STAIR_APRON = 2.4           # depth of the level foot apron in front of each stair (m)
+APRON_LIFT = 0.03           # the apron's top clears the highest street slab it covers by this much
+
+
+def stair_apron(x):
+    """The level foot apron in front of the stair at x: (x0, x1, y0, y1, top). Its top clears every street slab
+    under it, so the street's slab-by-slab heights never reach the first riser."""
+    width = dict(TERRACE_STAIRS)[x]; cheek = TERRACE_CHEEKS[x]
+    x0, x1, y0, y1 = x - width / 2 - cheek, x + width / 2 + cheek, STAIR_FOOT_Y - STAIR_APRON, STAIR_FOOT_Y
+    under = [top for a, b, c, d, top in lower_street_slabs() if a < x1 and b > x0 and c < y1 and d > y0]
+    return x0, x1, y0, y1, max(under + [L.ground(x, STAIR_FOOT_Y) + 0.16]) + APRON_LIFT
 
 
 @functools.lru_cache(maxsize=None)
 def terrace_stair_plan(x):
     """@cc [owner:fontanierh,label:correctness] terrace-stair-climbable
     The quay-to-terrace stair at x, bottom to top: (foot z, [(y0, y1, top z)]) of abutting treads and landings.
-    Every riser, including the first off the quay paving and the last onto the terrace paving, MUST be at most
-    STAIR_RISE_MAX, well under the pawn's 0.45 m step. Treads and landings MUST abut in y with no gap, and the last
-    riser MUST land flush on the terrace paving at STAIR_TOP_Y.
+    The foot z is the top of the stair's level apron (stair_apron), which clears every emitted street slab under it.
+    Every riser as built, nosing included, MUST be at most STAIR_RISE_MAX, well under the pawn's 0.45 m step: the
+    first from the apron, every one between treads and the last onto the terrace paving. Treads and landings MUST
+    abut in y with no gap, and the last riser MUST land flush on the terrace paving at STAIR_TOP_Y.
     """
     # Playtest note 410-1/2: the r10 stair climbed 25.5 m in 24 one-metre risers on floating 0.8 m slabs, so the pawn
     # could not climb it, daylight showed under every nosing and the terrace paving walled off its top four treads.
-    z0 = L.ground(x, STAIR_FOOT_Y) + 0.16           # the quay street's paving top (paving() follows ground + 0.16)
+    # The street slabs at the foot follow the ground slab by slab (up to 6 cm apart), so the stair starts from an
+    # apron above them rather than from the ground under its first riser.
+    z0 = stair_apron(x)[4]
     z1 = L.UPPER_Z + 0.22                           # the terrace paving top
-    n = math.ceil((z1 - z0) / STAIR_RISE_MAX)
+    n = math.ceil((z1 - z0) / (STAIR_RISE_MAX - NOSING_LIFT))
     flights = math.ceil(n / STAIR_FLIGHT)
     rise = (z1 - z0) / n
     tread = (STAIR_TOP_Y - STAIR_FOOT_Y - (flights - 1) * STAIR_LANDING) / (n - flights)
@@ -795,11 +838,14 @@ def terrace_stair(b, x, width, cheek):
     z0, steps = terrace_stair_plan(x)
     base = z0 - 0.6
     hw = width / 2
+    # The foot apron: one level slab over the street's slabs, its top the stair's foot.
+    ax0, ax1, ay0, ay1, _ = stair_apron(x)
+    b.box(((ax0 + ax1) / 2, (ay0 + ay1) / 2, z0 - 0.15), (ax1 - ax0, ay1 - ay0, 0.3), 'stone_light')
     for y0, y1, top in steps:
         b.box((x, (y0 + y1) / 2, (top + base) / 2), (width, y1 - y0, top - base), 'stone_light')
         # The nosing stands 2 cm proud of the riser and 1 cm in from each side, so none of its faces is coplanar
         # with the tread's (coplanar faces z-fought into streaks along every step edge).
-        b.box((x, y0 + 0.05, top - 0.03), (width - 0.02, 0.14, 0.08), 'stone')
+        b.box((x, y0 + 0.05, top + NOSING_LIFT - 0.04), (width - 0.02, 0.14, 0.08), 'stone')
     # Parapets: one sloped block per flight over its nosing line, a flat one per landing, each coped.
     runs, cur = [], []
     for y0, y1, top in steps:
