@@ -79,6 +79,28 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   than duplicating tables; and fold small materials into the owning region's import step instead of adding standalone
   Unreal Editor steps.
 
+## World, region and terrain work
+
+Before writing or reviewing any world geometry, terrain, region, placement, asset-builder or build-recipe code,
+read [`games/CONTRACTS`](games/CONTRACTS) and [world build practices](docs/WORLD_BUILD_PRACTICES.md). The paid
+review checks every PR against them. Playtests keep finding the same defects, so design them out from the start:
+
+- **Ground on what is drawn.** Seat every tree, prop and building on the final surface that owns its footprint,
+  never on a natural, hidden or neighbouring surface, nor on the higher of two.
+- **One owner per seam.** Where two surfaces meet, the other side follows the owner's exact edge profile.
+  Test both sides along the whole edge for zero mismatch. Never hide a step with a skirt.
+- **No one-sided sheets.** Roofs, awnings, decks, stairs and canopies are closed or two-sided with thickness.
+  Roofs sit on their walls, with soffits closing them from below.
+- **Pieces meet by construction.** Derive adjoining edges from one plan, with no tuned offsets, gaps, floating
+  slabs or coplanar overlaps. Anything standing on the ground reaches below it.
+- **Walkable means walked.** Stairs, ramps and joins must be climbable both ways without jumping. Prove a new
+  route by driving the character over it in game, not by ray traces alone.
+- **Fix the class, not the instance.** A visual or traversal fix adds an automated check of the general rule,
+  so it also covers the next region.
+- **Reuse, don't copy.** Shared mechanisms have one implementation. Regions change each other only through
+  published products. An edit rebuilds only what reads it: report `atelier build --changes/--timings` when a
+  recipe change widens the rebuild scope.
+
 ## Credentials and paid calls
 
 - API keys live in the ignored repository-root `.env` (`OPENAI_API_KEY`, `AI_GATEWAY_API_KEY`, `TRIPO_API_KEY`;
