@@ -9,6 +9,9 @@ only; nothing here is part of the game's build graph.
 """
 import sys as _sys; from pathlib import Path as _Path; _ASSET = _Path(__file__).resolve().parents[2]; _sys.path.insert(0, str(_ASSET.parent / 'world')); _sys.path.insert(0, str(_ASSET / 'characters' / 'pipeline')); import yori  # noqa: E402
 import rig  # noqa: E402
+import export as character_export
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+import cockpit
 import math
 import sys
 from pathlib import Path
@@ -49,13 +52,15 @@ def leg_length(arm, root):
     thigh = arm.data.bones.get('thigh_L') or arm.data.bones.get(BONES['thigh_L'])
     shin = arm.data.bones.get('shin_L') or arm.data.bones.get(BONES['shin_L'])
     if not (thigh and shin):
-        return 0.70
+        raise ValueError("Kart fitting requires both thigh_L and shin_L bones")
     return ((thigh.tail_local - thigh.head_local).length + (shin.tail_local - shin.head_local).length) * root.scale.x
 
-WHEEL_HUB = Vector((0.06, 0.0, 0.55))
-RIM = 0.15
-KNEE = [Vector((0.20, 0.18, 0.40)), Vector((0.20, -0.18, 0.40))]
-ELBOW = [Vector((0.02, 0.32, 0.38)), Vector((0.02, -0.32, 0.38))]
+LAYOUT = cockpit.load()
+SCALE = 1.0
+WHEEL_HUB = Vector(LAYOUT['steering'])
+RIM = LAYOUT['steering_radius']
+KNEE = [Vector(LAYOUT['knee']), Vector((LAYOUT['knee'][0], -LAYOUT['knee'][1], LAYOUT['knee'][2]))]
+ELBOW = [Vector(LAYOUT['elbow']), Vector((LAYOUT['elbow'][0], -LAYOUT['elbow'][1], LAYOUT['elbow'][2]))]
 
 
 def fresh(scene):
@@ -80,6 +85,7 @@ def kart_material():
     colour = nodes.new('ShaderNodeVertexColor')
     colour.layer_name = 'Color'
     mat.node_tree.links.new(colour.outputs['Color'], nodes['Principled BSDF'].inputs['Base Color'])
+    nodes['Principled BSDF'].inputs['Roughness'].default_value = .82
     return mat
 
 
@@ -99,23 +105,40 @@ def import_kart():
                 keep.append(ob)
         imported = [o for o in keep if o.type == 'MESH']
         for ob in imported:
+            # Match M_Kart's explicit sRGB-to-linear decode instead of previewing a brighter linear palette.
+            for layer in ob.data.color_attributes:
+                for color in layer.data:
+                    color.color_srgb = color.color[:]
             ob.data.materials.clear(); ob.data.materials.append(mat)
         pieces[name] = imported
-    placed = []
+    # Runtime builds the telescopic column separately so each saved fit can change height/tilt.
+    base, hub = Vector(LAYOUT['steering_column_base']), Vector(LAYOUT['steering'])
+    bpy.ops.mesh.primitive_cylinder_add(vertices=20, radius=.019, depth=(hub-base).length, location=(base+hub)*.5)
+    column = bpy.context.object; column.name = 'PreviewColumn'
+    column.rotation_euler = (hub-base).to_track_quat('Z', 'Y').to_euler()
+    color = column.data.color_attributes.new(name='Color', type='FLOAT_COLOR', domain='CORNER')
+    for item in color.data: item.color_srgb = (.57, .55, .48, 1)
+    column.data.materials.append(mat)
+    placed = [column]
     for ob in pieces['SM_Kart_Body'] + pieces['SM_Kart_Seat']:
         placed.append(ob)
     wheels = pieces['SM_Kart_Wheel']
-    for source, at, size in ((0, Vector((0.75, 0.55, 0.14)), 1.0), (0, Vector((0.75, -0.55, 0.14)), 1.0),
-                             (0, Vector((-0.75, 0.62, 0.1512)), 1.08), (0, Vector((-0.75, -0.62, 0.1512)), 1.08)):
-        ob = wheels[source].copy(); ob.data = wheels[source].data.copy()
+    for index, at in enumerate(LAYOUT['wheel_positions']):
+        size = 1.0 if index < 2 else 1.08
+        ob = wheels[0].copy(); ob.data = wheels[0].data.copy()
         bpy.context.scene.collection.objects.link(ob)
         ob.location = at
         ob.scale = (size, size, size)
         placed.append(ob)
+    for source in pieces['SM_Kart_Seat']:
+        source.location = LAYOUT['seat']
     for source in pieces['SM_Kart_SteeringWheel']:
         source.location = WHEEL_HUB
-        source.rotation_euler = (0, math.radians(-22), 0)
+        source.rotation_euler = (0, math.radians(LAYOUT['steering_tilt_degrees']), 0)
         placed.append(source)
+    for ob in placed:
+        ob.location *= SCALE
+        ob.scale *= SCALE
     for ob in wheels:
         ob.hide_render = True
     return placed
@@ -135,7 +158,7 @@ def character_objects(arm):
     return [o for o in family if o.type in ('MESH', 'ARMATURE')]
 
 
-def evaluated_tree(objects):
+def evaluated_tree(objects, exclude_arms=False):
     depsgraph = bpy.context.evaluated_depsgraph_get()
     verts, faces = [], []
     for obj in objects:
@@ -143,7 +166,13 @@ def evaluated_tree(objects):
         mesh = ev.to_mesh()
         offset = len(verts)
         verts.extend(ev.matrix_world @ v.co for v in mesh.vertices)
-        faces.extend(tuple(offset + i for i in p.vertices) for p in mesh.polygons)
+        allowed = set(range(len(mesh.vertices)))
+        if exclude_arms:
+            # Hands intentionally touch the rim. Torso, hips and clothed legs must clear it.
+            arms = {g.index for g in obj.vertex_groups if any(n in g.name.lower() for n in
+                    ('hand', 'finger', 'thumb', 'forearm', 'upperarm', 'leftarm', 'rightarm'))}
+            allowed = {v.index for v in mesh.vertices if sum(g.weight for g in v.groups if g.group in arms) < .2}
+        faces.extend(tuple(offset + i for i in p.vertices) for p in mesh.polygons if all(i in allowed for i in p.vertices))
         ev.to_mesh_clear()
     return (BVHTree.FromPolygons(verts, faces), verts) if faces else (None, verts)
 
@@ -152,8 +181,8 @@ def clearance_report(arm):
     body = [o for o in character_objects(arm) if o.type == 'MESH' and not o.hide_render]
     kart = [o for o in bpy.context.scene.objects if o.type == 'MESH' and o.name.startswith('SM_Kart_')]
     wheel = [o for o in kart if o.name.startswith('SM_Kart_SteeringWheel')]
-    shell = [o for o in kart if o.name.startswith('SM_Kart_Body')]
-    bt, bverts = evaluated_tree(body)
+    shell = [o for o in kart if o.name.startswith(('SM_Kart_Body', 'PreviewColumn'))]
+    bt, bverts = evaluated_tree(body, exclude_arms=True)
     wt, _ = evaluated_tree(wheel)
     st, _ = evaluated_tree(shell)
     if bt is None or wt is None:
@@ -161,8 +190,56 @@ def clearance_report(arm):
     wheel_hits = bt.overlap(wt)
     shell_hits = bt.overlap(st) if st else []
     nearest = min((wt.find_nearest(v)[3] for v in bverts if v.length > 0), default=0.0)
-    print('CLEARANCE wheel_overlap', len(wheel_hits), 'shell_overlap', len(shell_hits),
-          'nearest_wheel', round(nearest, 3))
+    for ob in body:
+        part, _ = evaluated_tree([ob], exclude_arms=True)
+        if part and st:
+            print('SHELL PART', ob.name, len(part.overlap(st)), flush=True)
+    print('CLEARANCE torso_legs_wheel_overlap' , len(wheel_hits), 'shell_overlap', len(shell_hits),
+          'nearest_wheel', round(nearest, 3), flush=True)
+    import json
+    report = {'character': CHARACTER, 'kart_scale': SCALE, 'torso_legs_wheel_overlap': len(wheel_hits),
+              'shell_overlap': len(shell_hits), 'nearest_wheel_vertex_m': nearest}
+    (OUT / f'{CHARACTER}-fit.json').write_text(json.dumps(report, indent=2) + '\n')
+
+
+def grip_report(arm):
+    """Measure evaluated skin against the same torus the generated steering rim uses."""
+    import json
+    hub = Vector(LAYOUT['steering']) * SCALE
+    forward = Vector(cockpit.grip(0)[1])
+    radius, tube = LAYOUT['steering_radius'] * SCALE, LAYOUT['steering_tube_radius'] * SCALE
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    hands = {}
+    for suffix in ('L', 'R'):
+        distances = {name: [] for chain in finger_chains(arm, suffix) for name in chain}
+        distances[f'hand_{suffix}'] = []
+        for ob in character_objects(arm):
+            if ob.type != 'MESH' or ob.hide_render:
+                continue
+            groups = {g.index: g.name for g in ob.vertex_groups if g.name in distances}
+            if not groups:
+                continue
+            evaluated = ob.evaluated_get(depsgraph)
+            mesh = evaluated.to_mesh()
+            for v in mesh.vertices:
+                offset = evaluated.matrix_world @ v.co - hub
+                axial = offset.dot(forward)
+                radial = (offset - forward * axial).length
+                sdf = math.hypot(radial - radius, axial) - tube
+                for weight in v.groups:
+                    if weight.group in groups and weight.weight > .25:
+                        distances[groups[weight.group]].append(sdf)
+            evaluated.to_mesh_clear()
+        measurements = {name: {'vertices': len(ds), 'penetration_mm': round(max(0, -min(ds)) * 1000, 2),
+                               'nearest_mm': round(min(abs(d) for d in ds) * 1000, 2)}
+                        for name, ds in distances.items() if ds}
+        firsts = [arm.pose.bones[c[0]] for c in finger_chains(arm, suffix)[:4]]
+        hand, fore = bone(arm, f'hand_{suffix}'), bone(arm, f'forearm_{suffix}')
+        knuckles = sum((pb.head for pb in firsts), Vector()) / 4
+        bend = math.degrees((knuckles - hand.head).angle(hand.head - fore.head))
+        hands[suffix] = {'wrist_bend_degrees': round(bend, 2), 'skin': measurements}
+        print('GRIP SKIN', CHARACTER, suffix, json.dumps(hands[suffix]), flush=True)
+    (OUT / f'{CHARACTER}-hands.json').write_text(json.dumps(hands, indent=2) + '\n')
 
 
 def finger_chains(arm, side):
@@ -185,14 +262,10 @@ def pose(arm):
     root = arm
     while root.parent:
         root = root.parent
-    slide = min(0.04, max(0.0, 0.35 * leg_length(arm, root) - 0.245))
-    pedal = [Vector((0.32 + slide * 2.0, 0.14, 0.17)), Vector((0.32 + slide * 2.0, -0.14, 0.17))]
+    pedal = [Vector(LAYOUT['foot']) * SCALE, Vector((LAYOUT['foot'][0], -LAYOUT['foot'][1], LAYOUT['foot'][2])) * SCALE]
     if 'diag' in ARGS:
-        print('SEAT slide', round(slide, 3), 'leg', round(leg_length(arm, root), 3))
-    for ob in bpy.context.scene.objects:
-        if ob.name.startswith('SM_Kart_Seat'):
-            ob.location = (-0.26 - slide, 0.0, 0.205)
-    seat = Vector((-0.24 - slide, 0.0, 0.26))
+        print('FIT scale', round(SCALE, 3), 'leg', round(leg_length(arm, root), 3), flush=True)
+    seat = Vector(LAYOUT['pelvis']) * SCALE
     pelvis = bone(arm, 'pelvis')
     if pelvis:
         root.location += seat - (arm.matrix_world @ pelvis.head)
@@ -216,13 +289,13 @@ def pose(arm):
         pb.matrix = placed
         bpy.context.view_layer.update()
 
-    def solve_two_bone(upper, lower, target, pole):
+    def solve_two_bone(upper, lower, target, pole, extension=0.0):
         """The runtime's non-stretch two-bone solve: bend toward the pole, keep both lengths."""
         hip = upper.head.copy()
         knee = lower.head.copy()
         ankle = lower.tail.copy()
         l1 = (knee - hip).length
-        l2 = (ankle - knee).length
+        l2 = (ankle - knee).length + extension
         delta = target - hip
         distance = delta.length
         if distance < 1e-5:
@@ -279,13 +352,13 @@ def pose(arm):
     if pelvis and spine:
         bpy.context.view_layer.update()
         pivot = pelvis.head.copy()
-        R = Matrix.Rotation(math.radians(-18), 4, 'Y')
+        R = Matrix.Rotation(math.radians(-LAYOUT['recline_degrees']), 4, 'Y')
         spine.matrix = (Matrix.Translation(pivot) @ R @ Matrix.Translation(-pivot)) @ spine.matrix
         bpy.context.view_layer.update()
     neck = bone(arm, 'neck') or arm.pose.bones.get('mixamorig:Neck')
     if neck:
         pivot = neck.head.copy()
-        R = Matrix.Rotation(math.radians(11), 4, 'Y')   # 60% counter-rotation over the 18 degree seat
+        R = Matrix.Rotation(math.radians(LAYOUT['recline_degrees'] * .6), 4, 'Y')   # 60% counter-rotation over the 18 degree seat
         neck.matrix = (Matrix.Translation(pivot) @ R @ Matrix.Translation(-pivot)) @ neck.matrix
         bpy.context.view_layer.update()
 
@@ -293,32 +366,33 @@ def pose(arm):
     mw_inv = mw.inverted()
     # Feet: solve the hips/knee/ankle chain toward the pedal, then plant the toe down the pedal
     # instead of inheriting each source rig's resting ankle roll.
-    plant = (mw.to_3x3().inverted() @ Vector((1, 0, -.15))).normalized()
+    plant = (mw.to_3x3().inverted() @ Vector(LAYOUT['foot_forward'])).normalized()
     for side, suffix in ((0, 'L'), (1, 'R')):
         thigh = bone(arm, f'thigh_{suffix}')
         shin = bone(arm, f'shin_{suffix}')
         foot = bone(arm, f'foot_{suffix}')
         if thigh and shin:
-            solve_two_bone(thigh, shin, mw_inv @ pedal[side], mw_inv @ KNEE[side])
+            solve_two_bone(thigh, shin, mw_inv @ pedal[side], mw_inv @ (KNEE[side] * SCALE))
         if foot:
-            aim_bone(foot, foot.head.copy(), plant)
+            toe = bone(arm, f'toe_{suffix}')
+            if toe:
+                old = (toe.head - foot.head).normalized()
+                rotation = old.rotation_difference(plant)
+                matrix = rotation.to_matrix().to_4x4() @ foot.matrix
+                matrix.translation = foot.head.copy()
+                foot.matrix = matrix
+                bpy.context.view_layer.update()
 
-    # Hands: the same frame the stance grip uses, in Blender's +Y-left mesh frame. Unreal's rider
-    # mesh is +Y-right, so the runtime signs are mirrored; the rendered left/right pose is the same.
+    # Seed pose for the manual grip editor, in Blender's +Y-left mesh frame. This is
+    # provisional: the authored wheel-local profiles, not these guessed curls, drive the final runtime hands.
     # The knuckles, not the hand bone's imported axis, define forward and span; the wrist follows
     # from the rotated knuckle offset.
     inverse = mw.to_3x3().inverted()
-    tilt = Matrix.Rotation(math.radians(-22), 4, 'Y').to_3x3()
-    forward = tilt @ Vector((1, 0, 0))
     grips = {}
     for side, suffix in ((0, 'L'), (1, 'R')):
-        sign = 1 if side == 0 else -1
-        elev = math.radians(7.5)
-        radial_local = Vector((0, sign * math.cos(elev), math.sin(elev)))
-        tangent_local = Vector((0, -sign * math.sin(elev), math.cos(elev)))
-        radial = tilt @ radial_local
-        tangent = tilt @ tangent_local
-        rim = WHEEL_HUB + tilt @ (radial_local * RIM)
+        steering = next((float(a.split('=', 1)[1]) for a in ARGS if a.startswith('steer=')), 0.0)
+        contact, fwd, up, axis = cockpit.grip(side, steering)
+        rim, forward, radial, tangent = Vector(contact) * SCALE, Vector(fwd), Vector(up), Vector(axis)
         hand = bone(arm, f'hand_{suffix}')
         chains = finger_chains(arm, suffix)
         firsts = [arm.pose.bones.get(chain[0]) for chain in chains[:4]]
@@ -329,23 +403,23 @@ def pose(arm):
         knuckles = sum((mw @ pb.head for pb in firsts), Vector()) / 4.0
         old_fwd = (knuckles - old.translation).normalized()
         old_span = ((mw @ firsts[3].head) - (mw @ firsts[0].head)).normalized()   # pinky toward index
-        thumb = arm.pose.bones.get(chains[-1][0])
-        old_palm = old_span.cross(old_fwd).normalized()
-        palm_sign = 1.0
-        if thumb:
-            palm_sign = 1.0 if ((mw @ thumb.head) - (mw @ hand.matrix.translation)).dot(old_palm) > 0 else -1.0
-        palm = old_palm * palm_sign
-        first = old_fwd.rotation_difference(forward)
-        span = first @ old_span
-        span = (span - forward * span.dot(forward)).normalized()
-        want = (tangent - forward * tangent.dot(forward)).normalized()
-        align = span.rotation_difference(want) @ first
-        if (align @ palm).dot(-radial) < 0:
-            want = -want
-            align = span.rotation_difference(want) @ first
-        hand_rot = align @ old.to_quaternion()
         desired = rim + forward * .012 + radial * .028
+        upper, fore = bone(arm, f'upperarm_{suffix}'), bone(arm, f'forearm_{suffix}')
+        hand_length = (knuckles - old.translation).length
+        end = solve_two_bone(upper, fore, mw_inv @ desired, mw_inv @ (ELBOW[side] * SCALE),
+                             extension=hand_length / mw.to_scale().x)
+        desired = mw @ end
+        hand_forward = (mw.to_3x3() @ (end - fore.head)).normalized()
+        hand_forward = (hand_forward - tangent * hand_forward.dot(tangent)).normalized()
+        first = old_fwd.rotation_difference(hand_forward)
+        span = first @ old_span
+        span = (span - hand_forward * span.dot(hand_forward)).normalized()
+        # Index is above pinky on either grip; thumb stays above the rim.
+        want = (-tangent + hand_forward * tangent.dot(hand_forward)).normalized()
+        align = span.rotation_difference(want) @ first
+        hand_rot = align @ old.to_quaternion()
         wrist = desired - align @ (knuckles - old.translation)
+        solve_two_bone(upper, fore, mw_inv @ wrist, mw_inv @ (ELBOW[side] * SCALE))
         if 'diag' in ARGS:
             print('GRIP', suffix, 'hand', tuple(round(v, 3) for v in old.translation),
                   'knuckles', tuple(round(v, 3) for v in knuckles),
@@ -356,18 +430,12 @@ def pose(arm):
                   'want', tuple(round(v, 2) for v in want))
         grips[side] = (suffix, hand, hand_rot, wrist, rim, forward, radial)
 
-    for side, (suffix, hand, hand_rot, wrist, rim, forward_w, radial_w) in grips.items():
-        upper = bone(arm, f'upperarm_{suffix}')
-        fore = bone(arm, f'forearm_{suffix}')
-        if upper and fore:
-            solve_two_bone(upper, fore, mw_inv @ wrist, mw_inv @ ELBOW[side])
-
     bpy.context.view_layer.update()
     # Curl around the rim like the grip node: each phalanx's own bone axis is aimed at the wrap
     # directions, so rigs with mirrored hands curl the same way.
     def aim(pb, want):
         head = pb.matrix.translation.copy()
-        current = (pb.matrix.to_3x3() @ Vector((0, 1, 0))).normalized()
+        current = ((pb.children[0].head - pb.head) if pb.children else (pb.tail - pb.head)).normalized()
         turn = current.rotation_difference(want.normalized())
         placed = turn.to_matrix().to_4x4() @ pb.matrix
         placed.translation = head
@@ -376,7 +444,7 @@ def pose(arm):
 
     for side, (suffix, hand, hand_rot, wrist, rim, forward_w, radial_w) in grips.items():
         local_rot = mw.to_quaternion().inverted() @ hand_rot
-        hand.matrix = Matrix.Translation(hand.head) @ local_rot.to_matrix().to_4x4()
+        hand.matrix = Matrix.Translation(mw_inv @ wrist) @ local_rot.to_matrix().to_4x4()
         bpy.context.view_layer.update()
         fore = bone(arm, f'forearm_{suffix}')
         if fore:
@@ -384,22 +452,29 @@ def pose(arm):
             if abs(twist) > 5.0:
                 axis = (fore.matrix.to_3x3() @ Vector((0, 1, 0))).normalized()
                 pivot = fore.head.copy()
-                M = Matrix.Translation(pivot) @ Matrix.Rotation(math.radians(-twist * .6), 4, axis) @ Matrix.Translation(-pivot)
+                M = Matrix.Translation(pivot) @ Matrix.Rotation(math.radians(twist * .6), 4, axis) @ Matrix.Translation(-pivot)
                 fore.matrix = M @ fore.matrix
                 bpy.context.view_layer.update()
-                hand.matrix = Matrix.Translation(hand.head) @ local_rot.to_matrix().to_4x4()
+                hand.matrix = Matrix.Translation(mw_inv @ wrist) @ local_rot.to_matrix().to_4x4()
                 bpy.context.view_layer.update()
-        across = inverse @ (forward_w * .43 - radial_w * .90).normalized()
-        under = inverse @ (-forward_w * .70 - radial_w * .71).normalized()
-        for chain in finger_chains(arm, suffix):
-            for part, name in enumerate(chain, 1):
+        hub = Vector(LAYOUT['steering']) * SCALE
+        for digit, chain in enumerate(finger_chains(arm, suffix)):
+            base = mw @ arm.pose.bones[chain[0]].head
+            flat = base - hub - forward_w * (base - hub).dot(forward_w)
+            radial = flat.normalized()
+            center = hub + radial * LAYOUT['steering_radius'] * SCALE
+            # Skeleton segments are tangent to an inflated rim; their skin closes onto the rubber.
+            pad = .0055 * SCALE
+            radius = LAYOUT['steering_tube_radius'] * SCALE + pad * (1.3 if digit == 4 else 1.0)
+            for name in chain:
                 pb = arm.pose.bones.get(name)
-                if pb:
-                    if 'thumb' in name.lower():
-                        toward = rim - forward_w * .018 - radial_w * .008 - (mw @ pb.head)
-                        aim(pb, inverse @ toward.normalized())
-                    else:
-                        aim(pb, across if part == 1 else under)
+                if not pb:
+                    continue
+                head = mw @ pb.head
+                offset = head - center
+                x, y = offset.dot(radial), offset.dot(forward_w)
+                dx, dy = cockpit.wrap_direction((x, y), radius, opposed=digit == 4)
+                aim(pb, inverse @ (radial * dx + forward_w * dy).normalized())
 
     # Nox's sparse seat targets are driven by hip flexion. The game uses bilinear interpolation
     # between the -25/0/35/70/105 degree targets; apply the same weights for this diagnostic body.
@@ -510,6 +585,7 @@ def pose(arm):
                   'rim', tuple(round(v, 3) for v in rim),
                   'knuckle_rim', round((knuckles - rim).length, 3))
         clearance_report(arm)
+        grip_report(arm)
 
 
 def light(scene):
@@ -540,17 +616,29 @@ def render(scene, path, at, look):
     remove = [o for o in scene.objects if o.type == 'CAMERA']
     for o in remove:
         bpy.data.objects.remove(o, do_unlink=True)
-    camera(scene, Vector(at), Vector(look))
+    cam = camera(scene, Vector(at), Vector(look))
+    if 'grip-' in str(path):
+        cam.data.lens = 85
     scene.render.filepath = str(path)
     bpy.ops.render.render(write_still=True)
     print('RENDERED', path)
 
 
 def main():
-    prepared = rig.load(CHARACTER).prepare()
+    character = rig.load(CHARACTER)
+    prepared = character.prepare()
+    character_export.rest(prepared)
+    hooks = character_export.hooks(character)
+    if hooks:
+        hooks.body(prepared, {})
     scene = fresh(prepared.scene)
-    import_kart()
     arm = prepared.arm
+    root = arm
+    while root.parent:
+        root = root.parent
+    global SCALE
+    SCALE = cockpit.fit(leg_length(arm, root))
+    import_kart()
     # prepare() keeps glTF meshes unparented so their world transforms survive the import; re-parent them
     # without moving them, so seating the armature carries the whole body.
     for ob in prepared.meshes:
@@ -571,7 +659,7 @@ def main():
                   'groups', len(ob.vertex_groups), 'render', [(m.show_render, m.show_viewport) for m in ob.modifiers],
                   'parent', ob.parent.name if ob.parent else None, ob.parent_type)
     pose(arm)
-    if 'diag' in ARGS:
+    if 'diag' in ARGS and 'render' not in ARGS:
         print('DIAGNOSTIC ONLY')
         return
     light(scene)
@@ -585,9 +673,27 @@ def main():
         ('grip-R', (0.95, -0.82, 1.02), (0.06, -0.15, 0.54)),
     )
     for label, at, look in views:
+        if 'grips' in ARGS and not label.startswith('grip-'):
+            continue
+        if 'quick' in ARGS and label not in ('front', 'right', 'seat', 'grip-L', 'grip-R'):
+            continue
+        if label.startswith('grip-'):
+            side = 0 if label.endswith('L') else 1
+            contact = Vector(cockpit.grip(side)[0]) * SCALE
+            sign = 1 if side == 0 else -1
+            look = contact
+            at = contact + Vector((.34, sign * .30, .22)) * SCALE
         render(scene, OUT / f'{CHARACTER}-kart-{label}.png', at, look)
     print('KART PREVIEW COMPLETE', CHARACTER)
 
 
 if __name__ == '__main__':
-    main()
+    if CHARACTER == 'all':
+        directory = OUT
+        for CHARACTER in ('cairo', 'modori', 'nox', 'paul'):
+            OUT = directory / CHARACTER
+            OUT.mkdir(parents=True, exist_ok=True)
+            print('BEGIN CHARACTER', CHARACTER, flush=True)
+            main()
+    else:
+        main()

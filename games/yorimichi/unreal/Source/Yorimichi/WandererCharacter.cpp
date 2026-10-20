@@ -26,6 +26,7 @@
 #include "SailboatComponent.h"
 #include "BikeComponent.h"
 #include "DrivingComponent.h"
+#include "JapanKartGrip.h"
 #include "HorseComponent.h"
 #include "JapanCharacterMovement.h"
 #include "JapanWorld.h"
@@ -332,6 +333,69 @@ void AWandererCharacter::EnterWorld(AJapanWorld* World)
                    FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Seat.SM_Kart_Seat")),
                    FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Wheel.SM_Kart_Wheel")),
                    FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_SteeringWheel.SM_Kart_SteeringWheel")));
+    if (const TSharedPtr<FJsonObject> Data = AtelierReadJson(AtelierDataPath(TEXT("kart/cockpit.json"))))
+    {
+        FDrivingCockpit Fit;
+        bool Valid = true;
+        auto Number = [&](const TCHAR* Key)
+        {
+            double Value = 0;
+            if (!Data->TryGetNumberField(Key, Value) || !FMath::IsFinite(Value)) Valid = false;
+            return float(Value);
+        };
+        Valid = Number(TEXT("schema")) == 1.f && Valid;
+        auto VectorValue = [&](const TArray<TSharedPtr<FJsonValue>>& Values, FVector& Out)
+        {
+            double V[3] = {};
+            if (Values.Num() != 3) { Valid = false; return; }
+            for (int I = 0; I < 3; ++I)
+                if (!Values[I].IsValid() || !Values[I]->TryGetNumber(V[I]) || !FMath::IsFinite(V[I])) Valid = false;
+            Out = FVector(V[0], -V[1], V[2]) * 100.f;
+        };
+        auto Point = [&](const TCHAR* Key, FVector& Out)
+        {
+            const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+            if (!Data->TryGetArrayField(Key, Values)) { Valid = false; return; }
+            VectorValue(*Values, Out);
+        };
+        Point(TEXT("seat"), Fit.Seat); Point(TEXT("pelvis"), Fit.Pelvis); Point(TEXT("steering"), Fit.Steering);
+        Point(TEXT("steering_column_base"), Fit.SteeringColumnBase);
+        Point(TEXT("foot"), Fit.Foot); Point(TEXT("knee"), Fit.Knee); Point(TEXT("elbow"), Fit.Elbow);
+        Point(TEXT("body_half_extents"), Fit.BodyHalfExtents); Fit.BodyHalfExtents = Fit.BodyHalfExtents.GetAbs();
+        Point(TEXT("foot_forward"), Fit.FootForward);
+        if (!Fit.FootForward.Normalize()) Valid = false;
+        Fit.SteeringRadius = Number(TEXT("steering_radius")) * 100.f;
+        Fit.SteeringTubeRadius = Number(TEXT("steering_tube_radius")) * 100.f;
+        Fit.SteeringTilt = Number(TEXT("steering_tilt_degrees"));
+        Fit.GripElevation = Number(TEXT("grip_elevation_degrees"));
+        Fit.Recline = Number(TEXT("recline_degrees"));
+        Fit.ReferenceLegLength = Number(TEXT("reference_leg_length")) * 100.f;
+        Fit.WheelRadius = Number(TEXT("wheel_radius")) * 100.f;
+        Fit.WheelWidth = Number(TEXT("wheel_width")) * 100.f;
+        const TArray<TSharedPtr<FJsonValue>>* Scale = nullptr;
+        if (Data->TryGetArrayField(TEXT("scale_range"), Scale) && Scale->Num() == 2)
+        {
+            double Low = 0, High = 0;
+            Valid &= (*Scale)[0]->TryGetNumber(Low) && (*Scale)[1]->TryGetNumber(High) && FMath::IsFinite(Low) && FMath::IsFinite(High);
+            Fit.MinScale = Low; Fit.MaxScale = High;
+        }
+        else Valid = false;
+        const TArray<TSharedPtr<FJsonValue>>* Wheels = nullptr;
+        if (Data->TryGetArrayField(TEXT("wheel_positions"), Wheels) && Wheels->Num() == 4)
+        {
+            for (int I = 0; I < 4; ++I)
+            {
+                const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+                if ((*Wheels)[I]->TryGetArray(Values)) VectorValue(*Values, Fit.WheelPositions[I]);
+                else Valid = false;
+            }
+        }
+        else Valid = false;
+        if (!Valid || !Car->Configure(Fit)) UE_LOG(LogTemp, Error, TEXT("Kart cockpit data or rider dimensions are invalid"));
+    }
+    else UE_LOG(LogTemp, Error, TEXT("Kart cockpit data missing: build the kart and stage runtime data"));
+    Car->RequireAuthoredGrips(true);
+    ReadKartGrip(this, Car);
     Horse->Initialize(this);
     Sailboat->Initialize(this,World);
     if (!bSwitchedIn && !JapanNetwork::IsOnline(GetWorld()))

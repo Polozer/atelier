@@ -42,9 +42,11 @@ receives position(), orientation() and wheel(i) and can drive its own presentati
 ## Unreal host
 
 `UDrivingComponent` is a component on the playable character. `Initialize` creates its scene root,
-body mesh, four wheel meshes and steering wheel on that character; `SetMeshes` takes the body (its
-origin on the ground under the middle, +X the nose), one wheel (axle +Y, origin at the axle) and the
-steering wheel (plane faces +X, origin at the hub), and falls back to a box when the body is missing.
+body mesh, seat, four wheel meshes and steering wheel on that character. `SetMeshes` supplies the four
+required assets, and `Configure` takes the host's cockpit frame in centimetres (+X nose, +Y right).
+The body origin is the ground under its middle, the wheel origin is its axle (+Y), and the steering
+wheel origin is its hub (axis +X). Missing assets or an unsupported rider fit prevent mounting.
+The component fits the entire cockpit and simulation to the rider's reference leg length before mounting.
 
 `Toggle` finds ground beside the rider, places the chassis with `Vehicle::place_on_ground`, keeps the
 character visible for the seated stance, stops CharacterMovement and takes the actor transform each tick. The step is

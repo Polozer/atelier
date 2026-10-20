@@ -13,6 +13,19 @@ class UStaticMesh;
 class UStaticMeshComponent;
 struct FDrivingCar;
 
+/** Host-authored cockpit in centimetres, +X forward and +Y right. Length data is unscaled. */
+struct FDrivingCockpit
+{
+    FVector Seat = FVector::ZeroVector, Pelvis = FVector::ZeroVector, Steering = FVector::ZeroVector;
+    FVector SteeringColumnBase = FVector::ZeroVector;
+    FVector Foot = FVector::ZeroVector, Knee = FVector::ZeroVector, Elbow = FVector::ZeroVector;
+    FVector FootForward = FVector::ForwardVector, BodyHalfExtents = FVector::ZeroVector;
+    FVector WheelPositions[4] = {};
+    float SteeringRadius = 0.f, SteeringTubeRadius = 0.f, SteeringTilt = 0.f, GripElevation = 0.f, Recline = 0.f;
+    float ReferenceLegLength = 0.f, MinScale = 0.f, MaxScale = 0.f;
+    float WheelRadius = 0.f, WheelWidth = 0.f;
+};
+
 namespace AtelierDrivingSide
 {
 /** The rider's left hand/foot is side 0; Unreal component space puts it at -Y. */
@@ -34,6 +47,8 @@ public:
     virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
     void Initialize(ACharacter* InRider);
+    /** Configure before mounting; an unconfigured or incomplete cockpit cannot be summoned. */
+    bool Configure(const FDrivingCockpit& InCockpit);
     /** Summon and mount, or (stopped) step off and park. False with the reason in GetStatus(). */
     bool Toggle();
     void StowImmediately();
@@ -51,26 +66,33 @@ public:
     void SetInput(FVector2D Move);
     void SetHandbrake(bool bOn) { bHandbrake = bOn; }
 
-    /** The three meshes: body (origin on the ground under its middle, +X the nose), one wheel (axle +Y, origin at
-     *  the axle) and the steering wheel (plane faces +X, origin at the hub). Missing content falls back to a box. */
+    /** Four required meshes: body (ground origin, +X nose), seat, wheel (axle +Y), steering wheel (hub origin, axis +X). */
     void SetMeshes(const FSoftObjectPath& Body, const FSoftObjectPath& Seat, const FSoftObjectPath& Wheel,
                    const FSoftObjectPath& Steering);
-    /** Whole-kart scale around the driver; the anim instance fits it to the rider's leg length. */
+    /** Whole-kart scale, fitted before mounting to the rider's reference leg length. */
     void SetKartScale(float Scale);
     float GetKartScale() const { return KartScale; }
-    /** Slides the seat back along the frame for a taller driver (cm, 0..4), as a kart's seat does. */
-    void SetSeatSlide(float Cm);
-    float GetSeatSlide() const { return SeatSlide; }
+    /** All authored bone frames are wheel-local; the current animated wheel carries them. */
+    void SetAuthoredGrips(TMap<FName, FTransform> Frames) { AuthoredGrips = MoveTemp(Frames); }
+    void SetAuthoredElbow(FVector Point) { AuthoredElbow = Point; }
+    void SetAuthoredFit(float Lean, float Height, float Tilt);
+    void RequireAuthoredGrips(bool Required) { bRequireAuthoredGrips = Required; }
+    bool HasAuthoredGrips() const { return AuthoredGrips.Num() == 32; }
+    bool AuthoredGripWorld(FName Bone, FTransform& Out) const;
+    float GetRecline() const { return Cockpit.Recline - AuthoredLean; }
+    FVector GetFootForward() const { return Cockpit.FootForward; }
+    float GetGripRadius() const { return Cockpit.SteeringRadius * KartScale; }
+    float GetGripTubeRadius() const { return Cockpit.SteeringTubeRadius * KartScale; }
 
     /** The kart's own frame (centimetres, origin on the ground under its middle, +X the nose): where the driver sits
      *  and grips, for the animation stance. */
     FVector PosePoint(const FVector& Local) const;
     FVector PoseDirection(const FVector& Local) const;
-    FVector SeatPoint() const { return FVector(-24.f - SeatSlide, 0, 26); }
+    FVector SeatPoint() const { return Cockpit.Pelvis; }
     FVector HandPoint(int32 Side) const;
-    FVector ElbowPoint(int32 Side) const { return FVector(2, Side ? 32.f : -32.f, 38); }
-    FVector FootPoint(int32 Side) const { return FVector(32.f + SeatSlide * 2.f, Side ? 14.f : -14.f, 17); }
-    FVector KneePoint(int32 Side) const { return FVector(20, Side ? 18.f : -18.f, 40); }
+    FVector ElbowPoint(int32 Side) const { return SidePoint(HasAuthoredGrips() ? AuthoredElbow : Cockpit.Elbow, Side); }
+    FVector FootPoint(int32 Side) const { return SidePoint(Cockpit.Foot, Side); }
+    FVector KneePoint(int32 Side) const { return SidePoint(Cockpit.Knee, Side); }
     FVector GripForward(int32 Side) const;
     FVector GripUp(int32 Side) const;
     FVector GripAxis(int32 Side) const;
@@ -78,6 +100,7 @@ public:
     void SetTraceChannel(ECollisionChannel InChannel) { TraceChannel = InChannel; }
 
 private:
+    static FVector SidePoint(FVector Point, int32 Side) { Point.Y = FMath::Abs(Point.Y) * AtelierDrivingSide::Sign(Side); return Point; }
     bool Summon();
     bool Dismount();
     void EndDrive(const FVector& GroundSpot);
@@ -96,6 +119,8 @@ private:
     UPROPERTY() TObjectPtr<UStaticMeshComponent> Seat;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> Wheel[4];
     UPROPERTY() TObjectPtr<UStaticMeshComponent> Steering;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> SteeringColumn;
+    UPROPERTY() TObjectPtr<UStaticMesh> ColumnMesh;
     UPROPERTY() TObjectPtr<UStaticMesh> BodyMesh;
     UPROPERTY() TObjectPtr<UStaticMesh> SeatMesh;
     UPROPERTY() TObjectPtr<UStaticMesh> WheelMesh;
@@ -109,9 +134,12 @@ private:
     FVector2D MoveInput = FVector2D::ZeroVector;
     FString Hint;
     float GroundOffset = 0.f;
-    float BodyLift = 0.f;
     float KartScale = 1.f;
-    float SeatSlide = 0.f;
+    FDrivingCockpit Cockpit;
+    TMap<FName, FTransform> AuthoredGrips;
+    FVector AuthoredElbow = FVector::ZeroVector;
+    float AuthoredLean = 0.f;
+    bool bConfigured = false, bRequireAuthoredGrips = false;
     float Spin[4] = {0.f, 0.f, 0.f, 0.f};
     FQuat SteeringBase = FQuat::Identity;
     FVector LastGround = FVector::ZeroVector;

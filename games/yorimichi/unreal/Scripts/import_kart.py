@@ -1,30 +1,51 @@
-"""Import the go-kart (assets/vehicles/kart) into /Game/Japan/Kart on M_Village.
+"""Import the go-kart (assets/vehicles/kart) into /Game/Japan/Kart with its matte painted material.
 
-UDrivingComponent loads the three meshes: the body with its origin on the ground, one wheel whose axle is +Y, and
+UDrivingComponent loads four meshes: the body with its origin on the ground, a separate seat, one wheel whose axle is +Y, and
 the steering wheel whose hub is the origin and whose plane faces +X.
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / 'world')); import yori  # noqa: E402  (build/yorimichi = yori.OUT)
 import json
+import shutil
 import sys
 from pathlib import Path
 
 import unreal
 
 HERE = Path(__file__).resolve().parent; sys.path.insert(0, str(HERE))
-from import_village import import_mesh
+from mesh_import import import_mesh
+from kart_material import material as kart_material
 
 OUT = yori.OUT / 'kart'
 unreal.SystemLibrary.execute_console_command(None, 'Interchange.FeatureFlags.Import.FBX 0')
-material = unreal.EditorAssetLibrary.load_asset('/Game/Japan/Materials/M_Village'); assert material
+material = kart_material()
 manifest = json.loads((OUT / 'manifest.json').read_text())
 report = {}
 for name in ('SM_Kart_Body', 'SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel'):
     entry = manifest[name]
-    mesh = import_mesh(OUT / 'assets' / (name + '.fbx'), '/Game/Japan/Kart', name); mesh.set_material(0, material)
+    source = OUT / 'assets' / (name + '.fbx')
+    mesh = import_mesh(source, '/Game/Japan/Kart', name, seed=source, fresh_slots=True); mesh.set_material(0, material)
     b = mesh.get_bounding_box()
-    assert abs(b.max.x - entry['max'][0] * 100) < .3, (name, 'axis/scale', b.max)
+    expected_min = (entry['min'][0], -entry['max'][1], entry['min'][2])
+    expected_max = (entry['max'][0], -entry['min'][1], entry['max'][2])
+    for actual, expected in ((b.min, expected_min), (b.max, expected_max)):
+        assert all(abs(a - e * 100) < .3 for a, e in zip((actual.x, actual.y, actual.z), expected)), (name, 'axis/scale', actual, expected)
     unreal.EditorAssetLibrary.save_loaded_asset(mesh)
     report[name] = {'min': [b.min.x, b.min.y, b.min.z], 'max': [b.max.x, b.max.y, b.max.z],
                     'triangles': entry['triangles']}
 (OUT / 'import-report.json').write_text(json.dumps(report, indent=2) + '\n')
+data = Path(__file__).resolve().parents[1] / 'Content/Data/kart/cockpit.json'
+data.parent.mkdir(parents=True, exist_ok=True)
+shutil.copy2(OUT / 'cockpit.json', data)
+# Authoring is explicit: shipping never substitutes guessed curls for an unsaved character.
+grips = Path(__file__).resolve().parents[2] / 'assets/vehicles/kart/grips'
+for character in ('cairo', 'modori', 'nox', 'paul'):
+    source = grips / f'{character}.json'
+    if not source.is_file():
+        raise RuntimeError(f'Save the {character} grip in the kart grip editor before importing the kart')
+    pose = json.loads(source.read_text())
+    if pose.get('schema') != 1 or pose.get('character') != character or pose.get('layout') != manifest['layout']:
+        raise RuntimeError(f'Stale or invalid kart grip: {character}; reopen and save in the current editor')
+    target = data.parent / 'grips' / source.name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
 unreal.log('KART IMPORT COMPLETE')

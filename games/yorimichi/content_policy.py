@@ -33,8 +33,8 @@ ASSET_ROOTS = frozenset({
     'BelmonteTrack', 'BelmonteTrain', 'Brinecove', 'HidamariStable', 'Racing',
 } | CHARACTER_ROOTS)
 DATA_ROOTS = frozenset({
-    'Network', 'SkateRide', 'adventure', 'belmonte', 'bike', 'city_surface_tiles', 'craterpark', 'heightmap.bin',
-    'hidamari', 'hippodrome', 'horses', 'map', 'megapark', 'skatepark', 'treehouse', 'world.json',
+    'Network', 'SkateRide', 'Soundbanks', 'adventure', 'belmonte', 'bike', 'city_surface_tiles', 'craterpark', 'heightmap.bin',
+    'hidamari', 'hippodrome', 'horses', 'kart', 'map', 'megapark', 'skatepark', 'treehouse', 'world.json',
     'belmonte_track', 'belmonte_train', 'brinecove', 'hidamari_stable', 'racing',
 } | {c.id for c in MOVERS})
 # Each mover's runtime data: its move record, its readiness record, bike report if playable, and its posed grips if

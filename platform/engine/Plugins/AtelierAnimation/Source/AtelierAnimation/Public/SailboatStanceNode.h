@@ -12,6 +12,8 @@ struct FSailboatStanceNode final : public FAnimNode_SkeletalControlBase
  FVector GripAxis=FVector::UpVector,GripUp=FVector::UpVector,GripForward=FVector::ForwardVector;
  /** The left hand grips too, with these axes (a wheel's rim rather than the tiller). */
  bool bGripLeft=false;
+ /** Authored prop grips run later; keep this node responsible only for the seated body. */
+ bool bPoseHands=true;
  FVector GripAxisL=FVector::UpVector,GripUpL=FVector::LeftVector,GripForwardL=FVector::ForwardVector;
  /** Degrees the upper body leans back from the pelvis, over a reclined seat (0 keeps the source pose). */
  float TorsoRecline=0.f;
@@ -111,8 +113,8 @@ struct FSailboatStanceNode final : public FAnimNode_SkeletalControlBase
    const FVector ThumbToward=(Target-Forward*1.8f-Up*.8f-P[ThumbBone].GetLocation()).GetSafeNormal();
    P[ThumbBone].SetRotation(FQuat::FindBetweenNormals(P[ThumbBone].GetRotation().RotateVector(ThumbAxis),ThumbToward)*P[ThumbBone].GetRotation());
   };
-  grip(HandR,Finger0,UpperR,ForeR,1,HandTarget[1],GripForward,GripUp,GripAxis);
-  if(bGripLeft)grip(HandL,FingerL0,UpperL,ForeL,0,HandTarget[0],GripForwardL,GripUpL,GripAxisL);
+  if(bPoseHands)grip(HandR,Finger0,UpperR,ForeR,1,HandTarget[1],GripForward,GripUp,GripAxis);
+  if(bPoseHands&&bGripLeft)grip(HandL,FingerL0,UpperL,ForeL,0,HandTarget[0],GripForwardL,GripUpL,GripAxisL);
   for(int Side=0;Side<2;++Side)
   {
    const int U=Side?ThighR:ThighL;const FQuat FootRotation=P[U+2].GetRotation();
@@ -131,10 +133,10 @@ struct FSailboatStanceNode final : public FAnimNode_SkeletalControlBase
     P[U+3].SetLocation(P[U+2].GetLocation()+ToeOffset);
    }
   }
-  if(!bGripLeft)AnimationCore::SolveTwoBoneIK(P[UpperL],P[ForeL],P[HandL],ElbowPole[0],HandTarget[0],false,1.,1.);
+  if(bPoseHands&&!bGripLeft)AnimationCore::SolveTwoBoneIK(P[UpperL],P[ForeL],P[HandL],ElbowPole[0],HandTarget[0],false,1.,1.);
   // The left fingers only move when the left hand grips its own target. Otherwise leave them out, so the
   // pose keeps the free wrist's own child propagation (the sailing tiller hand).
-  for(int I=0;I<Count;++I){if(!bGripLeft&&I>=FingerL0)continue;Result.Emplace(Indices[I],P[I]);}
+  for(int I=0;I<Count;++I){if((!bPoseHands&&I>=Finger0)||(!bGripLeft&&I>=FingerL0))continue;Result.Emplace(Indices[I],P[I]);}
   Result.Sort(FCompareBoneTransformIndex());
  }
 };

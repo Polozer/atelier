@@ -390,28 +390,15 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
         // The bike's clips play on the bike's clock, which also poses the bike from the same frame of the clip.
         // The kart seats the driver on its pan, feet on the pedals, both hands wrapped round the wheel's rim.
         Stance.bGripLeft = bDriving;
-        Stance.TorsoRecline = bDriving ? 18.f : 0.f;
+        Stance.bPoseHands = !(bDriving && CarC->HasAuthoredGrips());
+        Stance.TorsoRecline = bDriving ? CarC->GetRecline() : 0.f;
         Stance.bPlantFeet = bDriving;
         if (bDriving)
         {
-            if (LegLength <= 0.f)
-                if (const USkeletalMesh* Body = Pawn->GetMesh()->GetSkeletalMeshAsset())
-                {
-                    const FReferenceSkeleton& Ref = Body->GetRefSkeleton();
-                    auto Where = [&Ref](const TCHAR* Name)
-                    {
-                        FTransform T = FTransform::Identity;
-                        for (int32 I = Ref.FindBoneIndex(Name); I != INDEX_NONE; I = Ref.GetParentIndex(I)) T = T * Ref.GetRefBonePose()[I];
-                        return T.GetLocation();
-                    };
-                    LegLength = FVector::Dist(Where(TEXT("thigh_L")), Where(TEXT("shin_L"))) + FVector::Dist(Where(TEXT("shin_L")), Where(TEXT("foot_L")));
-                }
-            CarC->SetKartScale(FMath::Clamp(LegLength / 72.f, .9f, 1.08f));
-            CarC->SetSeatSlide(FMath::Clamp(0.35f * LegLength - 24.5f, 0.f, 4.f));
             const FTransform& MeshTransform = Pawn->GetMesh()->GetComponentTransform();
             auto Point=[&](const FVector& Local){return MeshTransform.InverseTransformPosition(CarC->PosePoint(Local));};
             auto Dir=[&](const FVector& Local){return MeshTransform.InverseTransformVectorNoScale(CarC->PoseDirection(Local)).GetSafeNormal();};
-            Stance.FootForward=Dir(FVector(1,0,-.15));
+            Stance.FootForward=Dir(CarC->GetFootForward());
             Stance.PelvisTarget=Point(CarC->SeatPoint());
             Stance.GripForward=Dir(CarC->GripForward(1)); Stance.GripUp=Dir(CarC->GripUp(1)); Stance.GripAxis=Dir(CarC->GripAxis(1));
             Stance.GripForwardL=Dir(CarC->GripForward(0)); Stance.GripUpL=Dir(CarC->GripUp(0)); Stance.GripAxisL=Dir(CarC->GripAxis(0));
@@ -494,7 +481,7 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
         FistLayer.BlendWeights[1] = FMath::Max(GlideFist, GripFist);   // the off hand closes round the sword's handle too
         // Each hand's fingers round the handle it holds; a sword's grip goes with the sword hand (it is the hand's child).
         const USkeletalMeshComponent* Body = Instance->GetSkelMeshComponent();
-        const bool bHands = Moves && Body && !bRiding && !bSailing && !bBiking && !bHorsing && !Pawn->IsZeppelinPassenger();
+        const bool bHands = Moves && Body && !bDriving && !bRiding && !bSailing && !bBiking && !bHorsing && !Pawn->IsZeppelinPassenger();
         Wrap.Units = Body ? 1.f / FMath::Max(float(Body->GetComponentTransform().GetScale3D().GetAbsMax()), KINDA_SMALL_NUMBER) : 1.f;
         // The last evaluation's grip, for the probe, before this update's inputs replace it.
         if (UWandererAnimInstance* Owner = Cast<UWandererAnimInstance>(Instance))
@@ -522,8 +509,23 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
         {
             const UAdventureMoveSet::FGripPose G = bHands ? Moves->GripPose(I) : UAdventureMoveSet::FGripPose();
             FGripPoseNode::FHand& P = Pose.Hands[I];
+            P.bWheelLocked = false;
             P.Weight = G.Local ? G.Weight : 0.f; P.bPin = G.bPin; P.bInFrame = G.bInFrame; P.Target = G.Target;
             if (G.Local) for (int32 F = 0; F < 5; ++F) for (int32 K = 0; K < 3; ++K) P.Local[F][K] = G.Local[F][K];
+            if (bDriving && Body && CarC->HasAuthoredGrips())
+            {
+                FTransform World;
+                const FTransform MeshWorld = Body->GetComponentTransform();
+                if (CarC->AuthoredGripWorld(P.Hand.BoneName, World))
+                {
+                    P.Weight = 1.f; P.bPin = true; P.bInFrame = false; P.bWheelLocked = true;
+                    P.Target = World.GetRelativeTransform(MeshWorld);
+                    P.Pole = MeshWorld.InverseTransformPosition(CarC->PosePoint(CarC->ElbowPoint(I ? 0 : 1)));
+                    for (int32 F = 0; F < 5; ++F) for (int32 K = 0; K < 3; ++K)
+                        if (CarC->AuthoredGripWorld(P.Bones[F][K].BoneName, World))
+                            P.Locked[F][K] = World.GetRelativeTransform(MeshWorld);
+                }
+            }
         }
         const bool bFlinch = Moves && Moves->IsFlinching() && !bRiding && !bSailing && !bBiking;
         for (int32 I = 0; I < 4; ++I)
