@@ -40,6 +40,8 @@ public:
     void CloseMenu();
     /** The key of the menu control with focus (a value's key, or the button's name such as resume), for the live bridge. */
     FString FocusedControl() const;
+    /** The keys of the controls on the open menu page (empty when closed). */
+    TArray<FString> MenuControlKeys() const;
     bool ShowFrameRate() const { return Get(TEXT("show_fps")) > .5f; }
     // Keys chosen per launch and never written to the shared settings file.
     static bool IsSessionOnly(const FString& Key);

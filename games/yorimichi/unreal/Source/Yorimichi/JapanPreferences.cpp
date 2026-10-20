@@ -289,6 +289,34 @@ TArray<FJapanPreference> JapanDefaultPreferences(TArray<FString>* Errors)
     return Values;
 }
 
+// A saved file's values over the defaults (in range; tree detail on its steps). Keys that are not preferences, such as
+// the retired soundbank, change nothing: Original is the only soundbank (operator 494).
+void JapanApplySaved(TArray<FJapanPreference>& Values, const TMap<FString,FString>& Saved)
+{
+    for (FJapanPreference& V : Values)
+        if (const FString* Text = Saved.Find(V.Key))
+        {
+            float Number = 0;
+            if (LexTryParseString(Number,**Text) && FMath::IsFinite(Number)) V.Value = FMath::Clamp(Number,V.Minimum,V.Maximum);
+        }
+    for (FJapanPreference& V : Values)
+        if (V.Key==TEXT("tree_lod_mode") || V.Key==TEXT("tree_lod_distance"))
+            V.Value=FMath::Clamp(V.Minimum+FMath::RoundToFloat((V.Value-V.Minimum)/V.Step)*V.Step,V.Minimum,V.Maximum);
+}
+// What Save writes: the file's other keys kept, every preference's value, session-only keys left out, and the retired
+// soundbank choice dropped.
+TMap<FString,FString> JapanValuesToSave(const TMap<FString,FString>& Saved, const TArray<FJapanPreference>& Values)
+{
+    TMap<FString,FString> Next = Saved;
+    for (const FJapanPreference& V : Values)
+    {
+        if (UJapanPreferences::IsSessionOnly(V.Key)) { Next.Remove(V.Key); continue; }
+        Next.Add(V.Key,FString::SanitizeFloat(V.Value));
+    }
+    Next.Remove(TEXT("soundbank"));
+    return Next;
+}
+
 void UJapanPreferences::Initialize(AWandererCharacter* Pawn)
 {
     Owner = Pawn;
@@ -298,15 +326,7 @@ void UJapanPreferences::Initialize(AWandererCharacter* Pawn)
     SettingsFile=FilePath();
     UE_LOG(LogTemp,Display,TEXT("PREFERENCES file=%s"),*SettingsFile);
     SavedValues=ReadSaved();
-    for (FJapanPreference& V : Values)
-        if (const FString* Text = SavedValues.Find(V.Key))
-        {
-            float Number = 0;
-            if (LexTryParseString(Number,**Text) && FMath::IsFinite(Number)) V.Value = FMath::Clamp(Number,V.Minimum,V.Maximum);
-        }
-    for (FJapanPreference& V : Values)
-        if (V.Key==TEXT("tree_lod_mode") || V.Key==TEXT("tree_lod_distance"))
-            V.Value=FMath::Clamp(V.Minimum+FMath::RoundToFloat((V.Value-V.Minimum)/V.Step)*V.Step,V.Minimum,V.Maximum);
+    JapanApplySaved(Values,SavedValues);
     // A skating engine saved by an older menu no longer applies.
     SavedValues.Remove(TEXT("skate_engine"));
     for (TActorIterator<APostProcessVolume> It(Owner->GetWorld()); It; ++It)
@@ -718,14 +738,7 @@ bool UJapanPreferences::IsSessionOnly(const FString& Key)
 
 bool UJapanPreferences::Save()
 {
-    TMap<FString,FString> NextValues = SavedValues;
-    for (const auto& V : Values)
-    {
-        if (IsSessionOnly(V.Key)) { NextValues.Remove(V.Key); continue; }
-        NextValues.Add(V.Key,FString::SanitizeFloat(V.Value));
-    }
-    // Retired: Original is the only soundbank (operator 494), so an old file's choice is dropped on its next save.
-    NextValues.Remove(TEXT("soundbank"));
+    TMap<FString,FString> NextValues = JapanValuesToSave(SavedValues,Values);
     const bool Saved = AtelierSettings::WriteFile(SettingsFile,NextValues);
     if (Saved) SavedValues = MoveTemp(NextValues);
     else
@@ -873,6 +886,8 @@ public:
                     .BorderBackgroundColor_Lambda([this,Weak] { return FSlateColor(Lit(Weak) ? FLinearColor(1,.78f,.35f,1) : FLinearColor::Transparent); })]]
                 + SHorizontalBox::Slot().FillWidth(1.f).Padding(8,0,0,0)[Row ? Row.ToSharedRef() : Control]];
     }
+    /** The keys of the controls on this page, in order. */
+    TArray<FString> Keys() const { TArray<FString> Out; for (const FEntry& E : Entries) Out.Add(E.Key); return Out; }
     /** The next control added starts a section (the shoulders jump between them). */
     void Section() { bNextSection = true; }
     /** Focus the control added under Key, or the first one. */
@@ -1347,6 +1362,10 @@ void UJapanPreferences::CloseMenu()
     if (Menu && GEngine && GEngine->GameViewport) GEngine->GameViewport->RemoveViewportWidgetContent(Menu.ToSharedRef());
     Menu.Reset();
     if (Owner) Owner->SetMenuOpen(false);
+}
+TArray<FString> UJapanPreferences::MenuControlKeys() const
+{
+    return Menu ? StaticCastSharedPtr<SPreferencesPanel>(Menu)->Keys() : TArray<FString>();   // every page is a panel
 }
 FString UJapanPreferences::FocusedControl() const
 {
