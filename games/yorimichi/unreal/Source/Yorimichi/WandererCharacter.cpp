@@ -329,6 +329,7 @@ void AWandererCharacter::EnterWorld(AJapanWorld* World)
     Bike->Initialize(this);
     Car->Initialize(this);
     Car->SetMeshes(FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Body.SM_Kart_Body")),
+                   FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Seat.SM_Kart_Seat")),
                    FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Wheel.SM_Kart_Wheel")),
                    FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_SteeringWheel.SM_Kart_SteeringWheel")));
     Horse->Initialize(this);

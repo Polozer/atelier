@@ -11,8 +11,8 @@ inline VehicleSpec kart_spec()
     VehicleSpec s;
     s.mass = 240.0f;
     s.dimension = {0.62f, 0.25f, 1.08f};
-    s.chassis.track_width[0] = 1.12f;
-    s.chassis.track_width[1] = 1.18f;
+    s.chassis.track_width[0] = 1.10f;
+    s.chassis.track_width[1] = 1.24f;
     s.chassis.wheel_base = 1.50f;
     s.chassis.front_axle = 0.75f;
     s.chassis.front_weight_bias = 42.0f;

@@ -18,7 +18,7 @@ unreal.SystemLibrary.execute_console_command(None, 'Interchange.FeatureFlags.Imp
 material = unreal.EditorAssetLibrary.load_asset('/Game/Japan/Materials/M_Village'); assert material
 manifest = json.loads((OUT / 'manifest.json').read_text())
 report = {}
-for name in ('SM_Kart_Body', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel'):
+for name in ('SM_Kart_Body', 'SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel'):
     entry = manifest[name]
     mesh = import_mesh(OUT / 'assets' / (name + '.fbx'), '/Game/Japan/Kart', name); mesh.set_material(0, material)
     b = mesh.get_bounding_box()

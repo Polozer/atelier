@@ -300,7 +300,7 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
         CrouchTarget = Pawn->bIsCrouched ? 1.f : 0.f;
         const USailboatComponent* SailboatC = Pawn->GetSailboat();
         const bool bSailing = SailboatC && SailboatC->IsEquipped();
-        const UDrivingComponent* CarC = Pawn->GetCar();
+        UDrivingComponent* CarC = Pawn->GetCar();
         const bool bDriving = CarC && CarC->IsEquipped();
         const USkateComponent* Ride = Pawn->GetSkate();
         const bool bRiding = Ride && Ride->IsRiding();
@@ -390,8 +390,22 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
         // The bike's clips play on the bike's clock, which also poses the bike from the same frame of the clip.
         // The kart seats the driver on its pan, feet on the pedals, both hands wrapped round the wheel's rim.
         Stance.bGripLeft = bDriving;
+        Stance.TorsoRecline = bDriving ? 18.f : 0.f;
         if (bDriving)
         {
+            if (LegLength <= 0.f)
+                if (const USkeletalMesh* Body = Pawn->GetMesh()->GetSkeletalMeshAsset())
+                {
+                    const FReferenceSkeleton& Ref = Body->GetRefSkeleton();
+                    auto Where = [&Ref](const TCHAR* Name)
+                    {
+                        FTransform T = FTransform::Identity;
+                        for (int32 I = Ref.FindBoneIndex(Name); I != INDEX_NONE; I = Ref.GetParentIndex(I)) T = T * Ref.GetRefBonePose()[I];
+                        return T.GetLocation();
+                    };
+                    LegLength = FVector::Dist(Where(TEXT("thigh_L")), Where(TEXT("shin_L"))) + FVector::Dist(Where(TEXT("shin_L")), Where(TEXT("foot_L")));
+                }
+            CarC->SetSeatSlide(FMath::Clamp(0.85f * LegLength - 60.f, 0.f, 28.f));
             const FTransform& MeshTransform = Pawn->GetMesh()->GetComponentTransform();
             auto Point=[&](const FVector& Local){return MeshTransform.InverseTransformPosition(CarC->PosePoint(Local));};
             auto Dir=[&](const FVector& Local){return MeshTransform.InverseTransformVectorNoScale(CarC->PoseDirection(Local)).GetSafeNormal();};

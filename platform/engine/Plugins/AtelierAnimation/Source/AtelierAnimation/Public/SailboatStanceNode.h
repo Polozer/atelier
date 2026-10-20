@@ -13,6 +13,8 @@ struct FSailboatStanceNode final : public FAnimNode_SkeletalControlBase
  /** The left hand grips too, with these axes (a wheel's rim rather than the tiller). */
  bool bGripLeft=false;
  FVector GripAxisL=FVector::UpVector,GripUpL=FVector::LeftVector,GripForwardL=FVector::ForwardVector;
+ /** Degrees the upper body leans back from the pelvis, over a reclined seat (0 keeps the source pose). */
+ float TorsoRecline=0.f;
  FSailboatStanceNode()
  {
   const TCHAR* Names[]={TEXT("pelvis"),TEXT("spine"),TEXT("chest"),TEXT("neck"),TEXT("head"),TEXT("upperarm_L"),TEXT("forearm_L"),TEXT("hand_L"),TEXT("upperarm_R"),TEXT("forearm_R"),TEXT("hand_R"),TEXT("thigh_L"),TEXT("shin_L"),TEXT("foot_L"),TEXT("thigh_R"),TEXT("shin_R"),TEXT("foot_R"),TEXT("finger_0_R"),TEXT("finger_tip_0_R"),TEXT("finger_1_R"),TEXT("finger_tip_1_R"),TEXT("finger_2_R"),TEXT("finger_tip_2_R"),TEXT("finger_3_R"),TEXT("finger_tip_3_R"),TEXT("thumb_R"),
@@ -26,6 +28,24 @@ struct FSailboatStanceNode final : public FAnimNode_SkeletalControlBase
   const auto& C=Output.Pose.GetPose().GetBoneContainer();FCompactPoseBoneIndex Indices[Count];FTransform P[Count];
   for(int I=0;I<Count;++I){Indices[I]=Bones[I].GetCompactPoseIndex(C);P[I]=Output.Pose.GetComponentSpaceTransform(Indices[I]);}
   const FVector Shift=PelvisTarget-P[Pelvis].GetLocation();for(auto& T:P)T.AddToTranslation(Shift);
+  if(TorsoRecline!=0.f)
+  {
+   const FQuat Recline(FVector::RightVector,FMath::DegreesToRadians(-TorsoRecline));
+   const FVector Pivot=P[Pelvis].GetLocation();
+   for(int I=0;I<Count;++I)
+   {
+    if(I==Pelvis||(I>=ThighL&&I<=FootR))continue;
+    P[I].SetLocation(Pivot+Recline.RotateVector(P[I].GetLocation()-Pivot));
+    P[I].SetRotation(Recline*P[I].GetRotation());
+   }
+   const FQuat Look(FVector::RightVector,FMath::DegreesToRadians(TorsoRecline*.6f));
+   const FVector HeadPivot=P[Neck].GetLocation();
+   for(int I: {Neck,Head})
+   {
+    P[I].SetLocation(HeadPivot+Look.RotateVector(P[I].GetLocation()-HeadPivot));
+    P[I].SetRotation(Look*P[I].GetRotation());
+   }
+  }
   // The rim is about 3.2cm thick: the knuckles sit above its top and the fingertips wrap around its outer face.
   auto grip=[&](int Hand,int Finger,int Upper,int Fore,int Side,const FVector& Target,const FVector& Forward,const FVector& Up,const FVector& Axis)
   {

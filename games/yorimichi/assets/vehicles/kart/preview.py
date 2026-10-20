@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 from atelier.blender import renderdev
 
@@ -49,13 +49,33 @@ def bone(arm, name):
             return arm.pose.bones[candidate]
     return None
 
-SEAT = Vector((-0.30, 0.0, 0.33))
-WHEEL_HUB = Vector((0.02, 0.0, 0.60))
-RIM = 0.12
+
+def facing(arm, root):
+    """The world forward of the rest pose, from a foot bone's heel-to-toe axis (degrees about Z)."""
+    for name in ('foot_L', 'foot_R'):
+        data = arm.data.bones.get(BONES.get(name, name))
+        if data is None:
+            data = arm.data.bones.get(f'mixamorig:{name}')
+        if data is not None:
+            v = root.matrix_world.to_3x3() @ (data.tail_local - data.head_local)
+            if math.hypot(v.x, v.y) > 1e-4:
+                return math.degrees(math.atan2(v.y, v.x))
+    return 0.0
+
+
+def leg_length(arm, root):
+    thigh = arm.data.bones.get(BONES['thigh_L']); shin = arm.data.bones.get(BONES['shin_L'])
+    if not (thigh and shin):
+        return 0.70
+    return ((thigh.tail_local - thigh.head_local).length + (shin.tail_local - shin.head_local).length) * root.scale.x
+
+SEAT = Vector((-0.28, 0.0, 0.26))
+WHEEL_HUB = Vector((0.10, 0.0, 0.52))
+RIM = 0.15
 PEDAL = [Vector((0.32, 0.14, 0.13)), Vector((0.32, -0.14, 0.13))]
-KNEE = [Vector((0.16, 0.18, 0.34)), Vector((0.16, -0.18, 0.34))]
-HAND = [Vector((0.02, 0.12, 0.60)), Vector((0.02, -0.12, 0.60))]
-ELBOW = [Vector((-0.05, 0.32, 0.50)), Vector((-0.05, -0.32, 0.50))]
+KNEE = [Vector((0.14, 0.18, 0.26)), Vector((0.14, -0.18, 0.26))]
+HAND = [Vector((0.02, 0.0849, 0.6849)), Vector((0.02, -0.0849, 0.6849))]
+ELBOW = [Vector((-0.05, 0.32, 0.45)), Vector((-0.05, -0.32, 0.45))]
 
 
 def fresh():
@@ -86,8 +106,8 @@ def kart_material():
 def import_kart():
     mat = kart_material()
     pieces = {}
-    for name, at, spin_y in (('SM_Kart_Body', (0, 0, 0), 0.0), ('SM_Kart_Wheel', None, 0.0),
-                             ('SM_Kart_SteeringWheel', WHEEL_HUB, -18.0)):
+    for name, at, spin_y in (('SM_Kart_Body', (0, 0, 0), 0.0), ('SM_Kart_Seat', (0, 0, 0), 0.0), ('SM_Kart_Wheel', None, 0.0),
+                             ('SM_Kart_SteeringWheel', WHEEL_HUB, -22.0)):
         before = set(bpy.data.objects)
         bpy.ops.import_scene.fbx(filepath=str(KART / f'{name}.fbx'))
         added = [o for o in bpy.data.objects if o not in before]
@@ -102,18 +122,19 @@ def import_kart():
             ob.data.materials.clear(); ob.data.materials.append(mat)
         pieces[name] = imported
     placed = []
-    for ob in pieces['SM_Kart_Body']:
+    for ob in pieces['SM_Kart_Body'] + pieces['SM_Kart_Seat']:
         placed.append(ob)
     wheels = pieces['SM_Kart_Wheel']
-    for source, at in ((0, Vector((0.75, 0.56, 0.14))), (0, Vector((0.75, -0.56, 0.14))),
-                       (0, Vector((-0.75, 0.59, 0.14))), (0, Vector((-0.75, -0.59, 0.14)))):
+    for source, at, size in ((0, Vector((0.75, 0.55, 0.14)), 1.0), (0, Vector((0.75, -0.55, 0.14)), 1.0),
+                             (0, Vector((-0.75, 0.62, 0.1512)), 1.08), (0, Vector((-0.75, -0.62, 0.1512)), 1.08)):
         ob = wheels[source].copy(); ob.data = wheels[source].data.copy()
         bpy.context.scene.collection.objects.link(ob)
         ob.location = at
+        ob.scale = (size, size, size)
         placed.append(ob)
     for source in pieces['SM_Kart_SteeringWheel']:
         source.location = WHEEL_HUB
-        source.rotation_euler = (0, math.radians(-18), 0)
+        source.rotation_euler = (0, math.radians(-22), 0)
         placed.append(source)
     for ob in wheels:
         ob.hide_render = True
@@ -158,6 +179,18 @@ def goal(name, at):
     return empty
 
 
+def grip_goal(name, at, radial, tangent):
+    """An empty whose +Y lies along the rim (the fingers) and +Z along the palm's outward normal."""
+    empty = goal(name, at)
+    y = tangent.normalized()
+    z = radial.normalized()
+    x = y.cross(z).normalized()
+    z = x.cross(y).normalized()
+    empty.rotation_mode = 'QUATERNION'
+    empty.rotation_quaternion = Matrix((x, y, z)).transposed().to_quaternion()
+    return empty
+
+
 def pose(arm):
     arm.data.pose_position = 'POSE'
     for ob in character_objects(arm):
@@ -174,16 +207,28 @@ def pose(arm):
         if current > .01:
             root.scale = [s * HEIGHT[CHARACTER] / current for s in root.scale]
             bpy.context.view_layer.update()
-    # Face the kart's nose (+X) from Blender's usual -Y facing, then put the pelvis on the seat.
+    slide = max(0.0, 0.85 * leg_length(arm, root) - 0.60)
+    if 'diag' in ARGS:
+        print('SEAT slide', round(slide, 3), 'leg', round(leg_length(arm, root), 3))
+    for ob in bpy.context.scene.objects:
+        if ob.name.startswith('SM_Kart_Seat'):
+            ob.location = (-0.34 - slide, 0.0, 0.205)
+    seat = Vector((-0.28 - slide, 0.0, 0.26))
+    # Face the kart's nose (+X) from the rig's own foot axis, then put the pelvis on the seat.
     root.rotation_mode = 'XYZ'
-    root.rotation_euler.z -= math.radians(90)   # the sources face +Y; the kart's nose is +X
+    current = facing(arm, root)
+    root.rotation_euler.z -= math.radians(current)
+    bpy.context.view_layer.update()
+    if 'diag' in ARGS:
+        print('FACING', round(current, 1), 'degrees; object z', round(math.degrees(root.rotation_euler.z), 1),
+              'world after', round(facing(arm, root), 1))
     bpy.context.view_layer.update()
     pelvis = bone(arm, 'pelvis')
     if pelvis:
-        root.location += SEAT - (arm.matrix_world @ pelvis.head)
+        root.location += seat - (arm.matrix_world @ pelvis.head)
         bpy.context.view_layer.update()
         if 'diag' in ARGS:
-            print('PELVIS after', tuple(round(v, 3) for v in (arm.matrix_world @ pelvis.head)), 'seat', tuple(SEAT),
+            print('PELVIS after', tuple(round(v, 3) for v in (arm.matrix_world @ pelvis.head)), 'seat', tuple(seat),
                   'root', root.name, 'parent', root.parent.name if root.parent else None,
                   'loc', tuple(round(v, 3) for v in root.location), 'scale', tuple(round(v, 4) for v in root.scale))
     arm.select_set(True)
@@ -197,10 +242,24 @@ def pose(arm):
         if shin:
             c = shin.constraints.new('IK'); c.target = goal(f'foot_{suffix}', PEDAL[side]); c.chain_count = 2
         if fore:
-            c = fore.constraints.new('IK'); c.target = goal(f'hand_{suffix}', HAND[side]); c.chain_count = 2
+            phi = math.radians(45 if side == 0 else 135)
+            tilt = Matrix.Rotation(math.radians(-22), 4, 'Y').to_3x3()
+            radial = tilt @ Vector((0, math.cos(phi), math.sin(phi)))
+            tangent = tilt @ Vector((0, -math.sin(phi), math.cos(phi)))
+            rim = WHEEL_HUB + tilt @ Vector((0, RIM * math.cos(phi), RIM * math.sin(phi)))
+            target = grip_goal(f'hand_{suffix}', rim - tangent * .06, radial, tangent)
+            c = fore.constraints.new('IK'); c.target = target; c.chain_count = 2
+            c.pole_target = goal(f'elbow_{suffix}', ELBOW[side]); c.pole_angle = math.radians(-90)
+            hand = bone(arm, f'hand_{suffix}')
+            if hand:
+                turn = hand.constraints.new('COPY_ROTATION')
+                turn.target = target; turn.target_space = 'WORLD'; turn.owner_space = 'WORLD'
     spine = bone(arm, 'spine')
     if spine:
-        spine.rotation_euler.x = math.radians(-12)
+        spine.rotation_euler.x = math.radians(18)   # lean back into the 30 degree seat
+    neck = bone(arm, 'neck') or arm.pose.bones.get('mixamorig:Neck')
+    if neck:
+        neck.rotation_euler.x = math.radians(-10)
     # Curl the fingers around the rim, whichever names the source rig uses.
     for side in ('L', 'R'):
         for prefix in BONES[f'fingers_{side}']:

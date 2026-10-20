@@ -19,10 +19,10 @@ METAL = (.34, .34, .32); CHROME = (.58, .58, .55); TYRE = (.015, .015, .018)
 HUB = (.62, .50, .30); AMBER = (.72, .26, .02); LAMP = (.82, .78, .66)
 
 WHEEL_RADIUS, WHEEL_WIDTH = .14, .11
-TRACK_FRONT, TRACK_REAR = 1.12, 1.18
+TRACK_FRONT, TRACK_REAR = 1.10, 1.24
 WHEELBASE, FRONT_AXLE = 1.50, .75
-STEER_RADIUS = .12
-STEER_AT = (0.02, 0.0, .60)
+STEER_RADIUS = .15
+STEER_AT = (0.10, 0.0, .52)
 
 
 def disc(m, z, r, color, n=20):
@@ -74,18 +74,12 @@ def kart():
         m.beam((x, -.42, .15), (x, .42, .15), .04, .04, DARK)
     m.box((-.04, 0, .125), (1.38, .76, .035), (.10, .10, .105), bevel=.01)          # floor pan
     # Nose fairing, bumper and the front hubs' uprights.
-    m.box((.83, 0, .205), (.30, .62, .13), RED, bevel=.03)
-    m.box((.95, 0, .16), (.09, 1.02, .07), RED, bevel=.02)
+    m.box((.83, 0, .17), (.30, .62, .10), RED, bevel=.03)
+    m.box((.95, 0, .14), (.09, 1.02, .06), RED, bevel=.02)
     for s in (1, -1):
         m.beam((.62, s * .30, .19), (.72, s * (TRACK_FRONT / 2), .20), .04, .04, METAL)
-        m.box((.10, s * .52, .22), (.52, .16, .14), RED, bevel=.03)                 # side pod
+        m.box((.10, s * .51, .19), (.46, .12, .10), RED, bevel=.02)                 # side pod
     m.box((-.90, 0, .21), (.10, 1.14, .10), RED, bevel=.02)                        # rear bumper
-    # Seat: a pan and a backrest that leans back.
-    m.box((-.34, 0, .265), (.44, .44, .05), CREAM, bevel=.02)
-    back = Matrix.Translation(Vector((-.56, 0, .43))) @ Matrix.Rotation(math.radians(-18), 4, 'Y')
-    m.transform = back
-    m.box((0, 0, 0), (.06, .44, .42), CREAM, bevel=.02)
-    m.transform = Matrix.Identity(4)
     # The engine behind the seat, and the exhaust.
     m.box((-.70, .24, .30), (.30, .26, .20), METAL, bevel=.02)
     for dy in (-.06, 0, .06):
@@ -93,19 +87,29 @@ def kart():
     m.lathe((-.84, .24, .29), [(0, .055), (.05, .05)], CHROME, n=10)
     # Steering column and dashboard.
     m.beam((-.02, 0, .40), STEER_AT, .035, .035, CHROME)
-    m.box((.20, 0, .46), (.05, .34, .16), RED, bevel=.02)
-    m.box((.10, 0, .30), (.16, .34, .12), (.10, .10, .105), bevel=.01)              # the driver's footwell
+    m.box((.16, 0, .40), (.05, .34, .14), RED, bevel=.02)
     m.box((.32, 0, .115), (.10, .70, .03), METAL)                                    # pedal plate
     for s in (1, -1):
         m.box((.32, s * .15, .15), (.05, .10, .07), CHROME)                          # pedal
     # A low hoop behind the seat and the number plate on the nose.
     for s in (1, -1):
-        m.beam((-.66, s * .38, .20), (-.78, s * .30, .52), .035, .035, DARK)
-    m.beam((-.78, -.30, .52), (-.78, .30, .52), .035, .035, DARK)
+        m.beam((-.66, s * .38, .20), (-.78, s * .30, .42), .03, .03, DARK)
+    m.beam((-.78, -.30, .42), (-.78, .30, .42), .03, .03, DARK)
     m.box((.86, 0, .27), (.06, .22, .10), LAMP, bevel=.01)
     for s in (1, -1):
         m.box((.96, s * .20, .20), (.05, .07, .05), AMBER)
     m.collider((0, 0, .28), (2.0, 1.25, .56))
+    return m
+
+
+def seat():
+    """The pan and its reclined backrest, on their own pivot so the seat can slide along the frame."""
+    m = v.Mesh('SM_Kart_Seat')
+    m.box((0, 0, 0), (.44, .44, .05), CREAM, bevel=.02)
+    back = Matrix.Translation(Vector((-.20, 0, .155))) @ Matrix.Rotation(math.radians(-30), 4, 'Y')
+    m.transform = back
+    m.box((0, 0, 0), (.06, .44, .42), CREAM, bevel=.02)
+    m.transform = Matrix.Identity(4)
     return m
 
 
@@ -116,7 +120,7 @@ def main():
     vc = mat.node_tree.nodes.new('ShaderNodeVertexColor'); vc.layer_name = 'Color'
     mat.node_tree.links.new(vc.outputs['Color'], mat.node_tree.nodes['Principled BSDF'].inputs['Base Color'])
     manifest = {}
-    for make in (kart, wheel, steering_wheel):
+    for make in (kart, seat, wheel, steering_wheel):
         m = make(); ob, report = v.export(m, mat); manifest[m.name] = report
         bpy.data.objects.remove(ob, do_unlink=True)
     layout = {'wheel_radius': WHEEL_RADIUS, 'wheel_width': WHEEL_WIDTH, 'track_front': TRACK_FRONT,
