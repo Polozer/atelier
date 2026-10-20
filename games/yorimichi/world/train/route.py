@@ -389,7 +389,7 @@ def volcano_distance(x, y):
 def _belmonte_surfaces():
     from belmonte import source
     # The natural ground: belmonte/build.py writes the apron and country before the railway's earthworks carve the
-    # built meshes; the valley tiles the railway carved keep their natural copies (tools/belmonte_station_terrain.py).
+    # built meshes; the committed valley tiles in assets/belmonte/meshes/ remain natural.
     paths = [yori.OUT / f'belmonte/natural/{name}.glb' for name in ('SM_BM_NorthCountry', 'SM_BM_NorthApron')]
     for p in paths:
         if not p.is_file():
@@ -472,8 +472,7 @@ class Raster:
         """@cc [owner:fontanierh,label:correctness] route-coast-cache
         Cached ground MUST be invalidated when the shoreline profile, water bounds
         or committed railway geometry used for coastal headlands changes, and
-        when the committed Belmonte valley tiles the study samples change,
-        including the natural copies of the tiles the railway carved.
+        when the committed Belmonte valley tiles the study samples change.
         """
         h = hashlib.sha256()
         regions = _Path(__file__).resolve().parents[1] / 'regions'
@@ -488,7 +487,6 @@ class Raster:
             regions / 'belmonte' / 'source.py',
             regions / 'belmonte' / 'terrain.py',
             yori.ASSETS / 'belmonte' / 'source.json',
-            *sorted((yori.ASSETS / 'belmonte' / 'natural').glob('*.glb')),
             yori.OUT / 'world.json',
             yori.OUT / 'heightmap.npy',
             yori.OUT / 'farhills.npy',

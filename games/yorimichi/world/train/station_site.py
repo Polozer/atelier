@@ -71,6 +71,23 @@ BRIDGE_FLAT = 1.5           # the ground behind a wall stays flush with its copi
 BRIDGE_TRANS = 8.           # ... then eases back to the earthworks' own over this many metres across the line
 BRIDGE_HOLD = 2.5           # beyond a wall's end the cutting keeps the faces opening from the wall's line this far ...
 BRIDGE_FADE = 8.            # ... then eases into its ordinary slopes over this many metres
+STATION_REACH = 40.         # the station's slopes reach no further than this beyond its zones
+VALLEY_LEAD = 15.           # metres of the line carved in Belmonte's valley tiles before its final cutting starts
+SOIL_DEPTH = 4.0            # a cutting's face turns to rock above this height over the formation
+SOIL_RATIO = 1.2            # soil slope horizontal per vertical around the station and overbridge
+ROCK_ROOF_RATIO = .8        # rock slope horizontal per vertical around the station
+BRIDGE_SLOPES = (1.2, .45)  # the cutting's faces beyond the return walls: soil, then rock
+
+
+def _smooth(t):
+    t = np.clip(t, 0., 1.)
+    return t * t * (3. - 2. * t)
+
+
+def _rise(e, ratio, rock_ratio):
+    soil = e / ratio
+    rock = SOIL_DEPTH + (e - SOIL_DEPTH * ratio) / rock_ratio
+    return np.where(soil < SOIL_DEPTH, soil, rock)
 
 
 class Site:
@@ -230,3 +247,109 @@ class Bridge:
         d, _ = self.road_dw(*np.moveaxis(self.world(a, np.full(np.shape(a), sign * (self.wall_half + self.outer) / 2)),
                                          -1, 0))
         return self.plane(d) - COPING_DROP
+
+
+def valley_carve_start(ln, rows):
+    """The chainage from which Belmonte's valley tiles are carved (world/regions/belmonte/terrain.py) on a
+    line ending at the station's site: its final cutting, from VALLEY_LEAD before it. None for any other line."""
+    if ln is None or ln.station() is None:
+        return None
+    start = ln.length
+    for r in reversed(rows):
+        if r['class'] == 'embankment':
+            break
+        start = r['s']
+    return start - VALLEY_LEAD
+
+
+def station(x, y, ln):
+    """(upper, lower, floor) the Belmonte station asks of the ground at points x, y (flat arrays): +inf/-inf/NaN where
+    it asks nothing. Sheds and stair hall: the formation, straight walls at their edges; the vestibule: just under
+    street level, also with straight walls; forecourt and access road: street level (FORECOURT_HOLD beyond the
+    forecourt's edges too) and the access road's run up to its junction, soil slopes beyond."""
+    up, lo, floor = np.full(len(x), np.inf), np.full(len(x), -np.inf), np.full(len(x), np.nan)
+    site = ln.station()
+    if site is None or not len(x):
+        return up, lo, floor
+    a, u = site.local(x, y)
+    for rect, z in site.zones():
+        e = rect_excess(a, u, rect)
+        near = e < STATION_REACH
+        if not near.any():
+            continue
+        steep = rect is not FORECOURT
+        if not steep:           # level ground around the paving before the slopes
+            e = np.maximum(e - FORECOURT_HOLD, 0.)
+        ratio = WALL_SLOPE if steep else SOIL_RATIO
+        up = np.where(near, np.minimum(up, z + (e / ratio if steep else _rise(e, ratio, ROCK_ROOF_RATIO))), up)
+        lo = np.where(near, np.maximum(lo, z - e / ratio), lo)
+        floor = np.where(e <= 0., z, floor)
+    pts, _ = site.access()
+    e, t = polyline_excess(x, y, pts, ACCESS_HALF)
+    near = e < STATION_REACH
+    z = site.access_z(t)
+    road_lo = z - e / SOIL_RATIO
+    up = np.where(near, np.minimum(up, z + _rise(e, SOIL_RATIO, ROCK_ROOF_RATIO)), up)
+    # beyond the level ground around the forecourt (FORECOURT_HOLD) the road's rising floor and its fill slopes win
+    beyond = _smooth(rect_excess(a, u, FORECOURT) - FORECOURT_HOLD)
+    up = np.where(near, up + beyond * np.maximum(road_lo - up, 0.), up)
+    lo = np.where(near, np.maximum(lo, road_lo), lo)
+    floor = np.where(e <= 0., z, floor)
+    return up, lo, floor
+
+
+def return_reach(k, sign, a):
+    """|u| where the cutting's face beyond the wall's end at a (a0 or a1) reaches the coping: the return wall's
+    length out from the line."""
+    h = float(k.coping(sign, a) - (k.rail(a) + FORMATION))
+    ratio, rock = BRIDGE_SLOPES
+    e = h * ratio if h < SOIL_DEPTH else SOIL_DEPTH * ratio + (h - SOIL_DEPTH) * rock
+    return k.wall_half + max(e, 0.)
+
+
+def bridge_ground(x, y, z, floor, k):
+    """The ground z (flat arrays) at the overbridge (k: Bridge): between the retaining walls the
+    formation; behind them flush with their copings; beyond their ends the cutting's faces opening from the walls'
+    line, up to the copings; the road on the deck's plane. Each eases back to z beyond. Where the ground steps at a
+    wall it does so within the wall's thickness. Near the walls the result does not depend on z."""
+    z = np.asarray(z, float).copy()
+    a, u = k.local(x, y)
+    au = np.abs(u)
+    floor = np.where(np.isfinite(floor), floor, k.rail(a) + FORMATION)
+    mid = WALL_THICK / 2
+    for sign in (-1., 1.):
+        a0, a1 = k.wall(sign)
+        top = k.coping(sign, a)
+        along = (a >= a0 + mid) & (a <= a1 - mid)
+        between = floor + np.maximum(au - k.wall_half - .4, 0.) / WALL_SLOPE
+        face = floor + _rise(np.maximum(au - k.wall_half, 0.), *BRIDGE_SLOPES)
+        target = np.minimum(top, np.where(along, between, face))
+        reach = max(return_reach(k, sign, a0), return_reach(k, sign, a1)) + BRIDGE_FLAT
+        out = np.maximum(np.maximum(a0 - a, a - a1) - BRIDGE_HOLD, 0.)
+        w = _smooth((BRIDGE_FADE - out) / BRIDGE_FADE)
+        w = w * _smooth((reach + BRIDGE_TRANS - au) / BRIDGE_TRANS) * (u * sign >= 0)
+        z = w * target + (1 - w) * z
+    d, wr = k.road_dw(x, y)
+    lo, hi = k.ends()
+    beyond = np.maximum(np.maximum(lo - d, d - hi) - ROAD_FLAT, 0.)
+    # the road on the plane; its shoulders ease to the ground beside it, and off the walls' copings beside the deck
+    shoulder = _smooth((ROAD_HALF + ROAD_SHOULDER - np.abs(wr)) / ROAD_SHOULDER) * \
+        _smooth((au - k.outer - .1) / 2.2)
+    w = _smooth((ROAD_RAMP - beyond) / ROAD_RAMP) * np.where(np.abs(wr) <= ROAD_HALF, 1., shoulder)
+    w = w * _smooth((au - k.wall_half - .4) / .4)     # never into the cutting: it steps within the walls
+    tuck = ROAD_TUCK * _smooth(np.minimum(d - lo, hi - d) / 2.)    # under the deck, inside its stone
+    return w * (k.plane(d) - tuck) + (1 - w) * z
+
+
+def bridge_walls(x, y, k, margin=1.):
+    """True near the overbridge's walls (within `margin` of their footprints): where the ground steps."""
+    a, u = k.local(x, y)
+    near = np.zeros(np.shape(a), bool)
+    for sign in (-1., 1.):
+        a0, a1 = k.wall(sign)
+        su = sign * u
+        near |= (a >= a0 - margin) & (a <= a1 + margin) & (su >= k.wall_half - margin) & (su <= k.outer + margin)
+        for end, inward in ((a0, 1.), (a1, -1.)):
+            lo, hi = sorted((end - inward * margin, end + inward * (WALL_THICK + margin)))
+            near |= (a >= lo) & (a <= hi) & (su >= k.wall_half - margin) & (su <= return_reach(k, sign, end) + margin)
+    return near

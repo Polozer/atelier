@@ -125,7 +125,7 @@ The GLBs take 7.6 MB in total and `track.json` 1 MB.
   ground fits it (`station_site.OVERBRIDGE` and `Bridge`, `earthworks.bridge_ground`): the road is graded onto the
   deck's plane and eased back to its own ground (at most 12.5 %), the ground behind the walls is flush with their
   copings, and the cutting opens into its ordinary slopes beyond the return walls. The valley tiles are carved to it
-  by `tools/belmonte_station_terrain.py`, finer along the walls so the ground steps within their thickness.
+  during `world.belmonte` (`regions/belmonte/terrain.py`), finer along the walls so the ground steps within their thickness.
 
 ## Outputs (`build/yorimichi/belmonte-track/`)
 

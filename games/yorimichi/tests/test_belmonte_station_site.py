@@ -144,17 +144,15 @@ class Planting(unittest.TestCase):
 
 
 class RouteGround(unittest.TestCase):
-    def test_carved_tiles_match_the_committed_line_and_site(self):
-        import hashlib
-        from belmonte import source
-        carved = [e for e in source.manifest()['meshes'] if e.get('railway_carved')]
-        self.assertTrue(carved)
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-        import belmonte_station_terrain as tool
-        digest = tool.carve_digest()
-        for entry in carved:
-            self.assertEqual(entry['railway_carved'], digest, f"{entry['name']}: run tools/belmonte_station_terrain.py")
-            self.assertTrue((yori.ASSETS / 'belmonte' / 'natural' / f"{entry['name']}.glb").is_file(), entry['name'])
+    def test_committed_tiles_are_untouched_and_carved_tiles_stay_within_budget(self):
+        from belmonte import source, terrain as T
+        self.assertFalse((yori.ASSETS / 'belmonte' / 'natural').exists())
+        for entry in source.manifest()['meshes']:
+            self.assertNotIn('railway_carved', entry)
+            if entry['name'] in T.VALLEY_CARVED_TILES:
+                _, _, _, _, _, faces, report = T.carve_valley_tile(source.LIBRARY / entry['path'])
+                self.assertGreater(report['moved'], 0, entry['name'])
+                self.assertLessEqual(len(faces), 32000, f"{entry['name']} has {len(faces)} triangles")
 
     def test_natural_terrain_differs_only_where_carved(self):
         from belmonte import source, layout as BM
@@ -181,9 +179,7 @@ class RouteGround(unittest.TestCase):
 
     def test_committed_access_road_and_salon_path(self):
         """The carved tiles carry the access road at its grade, and the Salon's path on its own ground."""
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-        import belmonte_station_terrain as tool
-        from belmonte import source, layout as BM
+        from belmonte import source, layout as BM, terrain as T
         natural, carved = source.terrain(natural=True), source.terrain()
         site = E.line().station()
         pts, _ = site.access()
@@ -191,7 +187,7 @@ class RouteGround(unittest.TestCase):
         q = pts[0] + t[:, None] * (pts[-1] - pts[0]) - BM.ORIGIN[:2]
         z = carved.height(q[:, 0], q[:, 1]) + BM.ORIGIN[2]
         self.assertLess(float(np.abs(z - site.access_z(t)).max()), .15)
-        a, b = (np.asarray(p, float) for p in tool.SALON_PATH['points'])
+        a, b = (np.asarray(p, float) for p in T.SALON_PATH['points'])
         q = a + np.linspace(0., 1., 9)[:, None] * (b - a) - BM.ORIGIN[:2]
         self.assertLess(float(np.abs(carved.height(q[:, 0], q[:, 1]) - natural.height(q[:, 0], q[:, 1])).max()), .05)
 
@@ -248,12 +244,13 @@ class Bank(unittest.TestCase):
 
 
 class Tool(unittest.TestCase):
-    def test_refuses_a_line_without_station(self):
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-        import belmonte_station_terrain as tool
-        with patch.object(E, 'line', return_value=E.Line({'samples': rows(END + [2000., 0.])})):
-            with self.assertRaises(SystemExit):
-                tool.main(['--dry-run'])
+    def test_leaves_tile_unchanged_for_a_line_without_station(self):
+        from belmonte import source, terrain as T
+        other = E.Line({'samples': rows(END + [2000., 0.])})
+        path = source.LIBRARY / 'meshes/SM_BM_BT_Terrain_5_2.glb'
+        _, _, _, _, _, faces, report = T.carve_valley_tile(path, ln=other)
+        self.assertEqual(report['moved'], 0)
+        self.assertEqual(len(faces), report['triangles_in'])
 
 
 if __name__ == '__main__':

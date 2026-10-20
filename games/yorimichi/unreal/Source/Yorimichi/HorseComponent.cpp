@@ -807,6 +807,47 @@ float UHorseComponent::ClipLength(EHorseRole Of) const
     return Clip ? FMath::Max(Clip->GetPlayLength(), .033f) : 1.f;
 }
 
+int32 UHorseComponent::GaitForSpeed(float SpeedCm)
+{
+    if (SpeedCm < HorseRide::IdleSpeed) return 0;
+    if (SpeedCm < HorseRide::WalkMaxSpeed) return 1;
+    if (SpeedCm < HorseRide::TrotMaxSpeed) return 2;
+    if (SpeedCm < HorseRide::CanterMaxSpeed) return 3;
+    if (SpeedCm < HorseRide::GallopMaxSpeed) return 4;
+    return 5;
+}
+
+float UHorseComponent::PlayRateForGait(int32 Gait, float SpeedCm, bool bClampSprint)
+{
+    struct FBand { float Low, High, RateLow, RateHigh; };
+    static const FBand Bands[GaitCount] = {
+        {0.f, HorseRide::IdleSpeed, 1.f, 1.f},
+        {HorseRide::IdleSpeed, HorseRide::WalkMaxSpeed, .82f, 1.22f},
+        {HorseRide::WalkMaxSpeed, HorseRide::TrotMaxSpeed, .88f, 1.20f},
+        {HorseRide::TrotMaxSpeed, HorseRide::CanterMaxSpeed, .90f, 1.18f},
+        {HorseRide::CanterMaxSpeed, HorseRide::GallopMaxSpeed, .92f, 1.16f},
+        {HorseRide::GallopMaxSpeed, HorseRide::SprintMaxSpeed, .95f, 1.22f},
+    };
+    const int32 Index = FMath::Clamp(Gait, 0, GaitCount - 1);
+    const FBand& B = Bands[Index];
+    const float Alpha = (SpeedCm - B.Low) / FMath::Max(B.High - B.Low, 1.f);
+    const float MaxRate = (bClampSprint && Index == GaitCount - 1) ? 1.45f : B.RateHigh;
+    return FMath::Clamp(FMath::Lerp(B.RateLow, B.RateHigh, Alpha), B.RateLow, MaxRate);
+}
+
+bool UHorseComponent::ReadSeatContacts(const TSharedPtr<FJsonObject>& Breed, FVector& OutSaddleCm, double& OutSeatZCm)
+{
+    const TSharedPtr<FJsonObject>* C = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* P = nullptr;
+    if (!Breed || !Breed->TryGetObjectField(TEXT("contacts"), C) || !C || !(*C)->IsValid() ||
+        !(*C)->TryGetArrayField(TEXT("saddle_root"), P) || !P || P->Num() != 3 ||
+        !(*C)->TryGetNumberField(TEXT("seat_z"), OutSeatZCm))
+        return false;
+    OutSaddleCm = FVector((*P)[0]->AsNumber(), (*P)[1]->AsNumber(), (*P)[2]->AsNumber()) * 100.;
+    OutSeatZCm *= 100.;
+    return true;
+}
+
 float UHorseComponent::TransitionLength(EHorseRole Of) const
 {
     // Getting on or off lasts the rider's clip (HorseMount 1.60 s, HorseDismount 1.40 s as authored): the same asset on

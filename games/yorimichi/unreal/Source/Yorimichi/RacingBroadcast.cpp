@@ -1,4 +1,5 @@
 #include "RacingBroadcast.h"
+#include "AtelierData.h"
 #include "BelmonteRegion.h"
 #include "HRClock.h"
 #include "LiveLibrary.h"
@@ -19,9 +20,12 @@
 #include "HAL/IConsoleManager.h"
 #include "Kismet/KismetRenderingLibrary.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Misc/FileHelper.h"
 #include "ProceduralMeshComponent.h"
 #include "RenderUtils.h"
 #include "RHI.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "UObject/ConstructorHelpers.h"
 
 static TAutoConsoleVariable<int32> CVarRacingTvCapture(TEXT("racing.TvCapture"), 1,
@@ -53,11 +57,59 @@ namespace RacingTv
         {TEXT("salon_bar"), FVector(5750., -31637.6, 3305.), 90.f, FVector(5750., -31160., 3015.), -90.f, 1.3f},
     };
 
-    TConstArrayView<FSpot> Spots() { return SpotTable; }
+    bool ParseSpots(const FString& RuntimeJson, TArray<FSpot>& Out)
+    {
+        TSharedPtr<FJsonObject> Root;
+        const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+        if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(RuntimeJson), Root) || !Root ||
+            !Root->TryGetArrayField(TEXT("tv_spots"), Rows) || Rows->Num() != UE_ARRAY_COUNT(SpotTable))
+            return false;
+        auto Vec3 = [](const TSharedPtr<FJsonObject>& Obj, const TCHAR* Key, FVector& V)
+        {
+            const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
+            if (!Obj->TryGetArrayField(Key, Arr) || Arr->Num() != 3) return false;
+            V = FVector((*Arr)[0]->AsNumber(), (*Arr)[1]->AsNumber(), (*Arr)[2]->AsNumber());
+            return V.ContainsNaN() == false;
+        };
+        TArray<FSpot> Parsed;
+        for (int32 I = 0; I < UE_ARRAY_COUNT(SpotTable); ++I)
+        {
+            const TSharedPtr<FJsonObject>* Item = nullptr;
+            FString Id;
+            double Yaw = 0., WatchYaw = 0., Scale = 0.;
+            FSpot S = SpotTable[I];
+            if (!(*Rows)[I]->TryGetObject(Item) || !(*Item)->TryGetStringField(TEXT("id"), Id) || Id != S.Id ||
+                !Vec3(*Item, TEXT("pivot_cm"), S.Pivot) || !Vec3(*Item, TEXT("watch_cm"), S.Watch) ||
+                !(*Item)->TryGetNumberField(TEXT("yaw"), Yaw) || !(*Item)->TryGetNumberField(TEXT("watch_yaw"), WatchYaw) ||
+                !(*Item)->TryGetNumberField(TEXT("scale"), Scale) || Scale <= 0.)
+                return false;
+            S.Yaw = float(Yaw);
+            S.WatchYaw = float(WatchYaw);
+            S.Scale = float(Scale);
+            Parsed.Add(S);
+        }
+        Out = MoveTemp(Parsed);
+        return true;
+    }
+
+    TConstArrayView<FSpot> Spots()
+    {
+        static TArray<FSpot> Loaded;
+        static bool bTried = false;
+        if (!bTried)
+        {
+            bTried = true;
+            FString Json;
+            if (FFileHelper::LoadFileToString(Json, *AtelierDataPath(TEXT("belmonte/runtime.json"))))
+                ParseSpots(Json, Loaded);
+        }
+        return Loaded.Num() == UE_ARRAY_COUNT(SpotTable) ? TConstArrayView<FSpot>(Loaded) : TConstArrayView<FSpot>(SpotTable);
+    }
 
     int32 FindSpot(const FString& Id)
     {
-        for (int32 I = 0; I < UE_ARRAY_COUNT(SpotTable); ++I) if (Id == SpotTable[I].Id) return I;
+        const TConstArrayView<FSpot> All = Spots();
+        for (int32 I = 0; I < All.Num(); ++I) if (Id == All[I].Id) return I;
         return INDEX_NONE;
     }
 
@@ -416,7 +468,7 @@ bool ARacingBroadcast::Build()
     if (!PictureBase) PictureBase = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Racing/M_RacingTv.M_RacingTv"));
     if (!PictureBase)
     {
-        UE_LOG(LogTemp, Warning, TEXT("RACING TV no picture material /Game/Racing/M_RacingTv (build unreal.racing_tv): no screens"));
+        UE_LOG(LogTemp, Warning, TEXT("RACING TV no picture material /Game/Racing/M_RacingTv (build unreal.belmonte): no screens"));
         bBuilt = true;
         return true;
     }

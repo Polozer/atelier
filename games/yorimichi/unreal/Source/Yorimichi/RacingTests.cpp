@@ -374,6 +374,15 @@ bool FRacingTvPlacementTest::RunTest(const FString&)
         const float ToScreen = float(FMath::RadiansToDegrees(FMath::Atan2(Centre.Y - At.Y, Centre.X - At.X)));
         TestTrue(FString::Printf(TEXT("%s: the viewer faces it"), S.Id), FMath::Abs(FMath::FindDeltaAngleDegrees(S.WatchYaw, ToScreen)) < 50.f);
     }
+    TArray<RacingTv::FSpot> Parsed;
+    const FString CustomJson = TEXT("{\"tv_spots\":[")
+        TEXT("{\"id\":\"osteria_front\",\"pivot_cm\":[-2500,-100,248],\"yaw\":175,\"watch_cm\":[-2940,-70,18],\"watch_yaw\":-9,\"scale\":1.4},")
+        TEXT("{\"id\":\"osteria_back\",\"pivot_cm\":[-4050,485,248],\"yaw\":0,\"watch_cm\":[-3700,160,18],\"watch_yaw\":136.2,\"scale\":1.4},")
+        TEXT("{\"id\":\"salon_paris\",\"pivot_cm\":[7500,-29720,3255],\"yaw\":-90,\"watch_cm\":[7500,-30150,3015],\"watch_yaw\":90,\"scale\":1.4},")
+        TEXT("{\"id\":\"salon_bar\",\"pivot_cm\":[5750,-31637.6,3305],\"yaw\":90,\"watch_cm\":[5750,-31160,3015],\"watch_yaw\":-90,\"scale\":1.3}]}");
+    TestTrue(TEXT("ParseSpots accepts building-derived runtime JSON"), RacingTv::ParseSpots(CustomJson, Parsed) && Parsed.Num() == 4);
+    TestTrue(TEXT("ParseSpots updates pivot and yaw"), Parsed[0].Pivot.Equals(FVector(-2500., -100., 248.), .01) && FMath::IsNearlyEqual(Parsed[0].Yaw, 175.f));
+    TestFalse(TEXT("ParseSpots rejects incomplete spots"), RacingTv::ParseSpots(TEXT("{\"tv_spots\":[]}"), Parsed));
     return true;
 }
 
