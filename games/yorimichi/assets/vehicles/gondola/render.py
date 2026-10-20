@@ -205,7 +205,12 @@ def ortho(name, loc, rot, scale, size):
     return ob
 
 
+SHOTS = {w.strip() for w in os.environ.get('GONDOLA_SHOTS', '').split(',') if w.strip()}   # empty: every shot
+
+
 def shoot(scene, cam, name):
+    if SHOTS and name not in SHOTS:
+        return
     scene.camera = cam; scene.render.filepath = str(REVIEW / f'{name}.png')
     bpy.ops.render.render(write_still=True); print('rendered', name, flush=True)
 
@@ -421,15 +426,35 @@ def view_station(key):
     span = {'valley': 46, 'rim': 52, 'crater': 40}[key]
     shoot(scene, ortho(f'{key}Top', (-2, -4, 60), (0, 0, 0), span, (1100, 1100)), f'{key}_top')
     shoot(scene, look(f'{key}Over', (30, -34, 26), (-2, -2, 1.5), 28, (1400, 900)), f'{key}_overview')
-    shoot(scene, look(f'{key}Berth', (xm - 3.0, -7.4, 1.7), (3.4, -3.0, 1.4), 24, (1200, 850)), f'{key}_berth')
+    pos, tgt = BERTH_CAM.get(key, ((xm - 3.0, -7.4, 1.7), (3.4, -3.0, 1.4)))
+    sight_clear(key, pos, tgt)
+    shoot(scene, look(f'{key}Berth', pos, tgt, 24, (1200, 850)), f'{key}_berth')
     # Close-ups: the bullwheel bay from the deck at eye height, and a roof eave with its post, brackets and tails.
     for tag, (pos, tgt, lens) in CLOSE[key].items():
         shoot(scene, look(f'{key}_{tag}', pos, tgt, lens, (1400, 1000)), f'{key}_{tag}')
     if key == 'valley':
-        mouth_views(scene, cab, Zr, rr, xm)
+        mouth_views(scene, cab, Zr, info['rope_height_in_station'], rr, xm)
 
 
-def mouth_views(scene, cab, Zr, rr, xm):
+# Berth views: from the plaza or deck, outside every post, at eye height. sight_clear() refuses a camera that stands
+# in or within 0.3 m of a collision proxy, or whose first 3 m of sight line passes through one (valley: the cross-gable
+# post at x 4.4 stood in front of the default camera).
+BERTH_CAM = {'valley': ((2.0, -8.6, 1.7), (3.4, -3.0, 1.4))}
+
+
+def sight_clear(key, pos, tgt, margin=0.3, reach=3.0):
+    L = json.loads((OUT / f'layout_{key}.json').read_text())
+    d = [t - p for p, t in zip(pos, tgt)]; n = math.sqrt(sum(c * c for c in d)); d = [c / n for c in d]
+    for k in range(int(reach / 0.1) + 1):
+        q = [p + c * 0.1 * k for p, c in zip(pos, d)]
+        for pr in L['obstacles']:
+            xs = [v[0] for v in pr['poly']]; ys = [v[1] for v in pr['poly']]
+            if (min(xs) - margin <= q[0] <= max(xs) + margin and min(ys) - margin <= q[1] <= max(ys) + margin
+                    and min(pr['z0']) - margin <= q[2] <= max(pr['z1']) + margin):
+                raise SystemExit(f'{key} berth camera: sight line {0.1 * k:.1f} m out is in or near proxy {pr["name"]}')
+
+
+def mouth_views(scene, cab, Zr, Zs, rr, xm):
     """At the station mouth: a cabin just inside (grip on the running rail, rope dropped below the jaws) and one
     just outside (wheels off the rail, jaws on the rope); a 3/4 side view and a section along the rope's plane."""
     Rb = PRM['gauge'] / 2; g = GRIP; x0 = xm + 0.6
@@ -443,7 +468,7 @@ def mouth_views(scene, cab, Zr, rr, xm):
     Y = -Rb - 0.9; T = 0.06
     items = [('running wheels on the station rail', (xin - 0.36, yw, zr + 0.02), (xin - 1.9, Y, Zr + 0.75)),
              ('station rail ends at the mouth', (xm + 0.28, yw, zr - 0.05), (xm - 0.2, Y, Zr - 0.75)),
-             ('haul rope dropped 0.15 m: grip detached', (xin + 0.6, -Rb, Zr - 0.14), (xin - 1.9, Y, Zr - 0.55)),
+             (f'haul rope drops {Zr - Zs:.2f} m inside the mouth: grip detached', (xin + 0.6, -Rb, Zr - 0.14), (xin - 1.9, Y, Zr - 0.55)),
              ('outside: jaws on the rope, wheels free', (xout + 0.1, -Rb - 0.1, Zr + 0.12), (xout - 0.6, Y, Zr + 0.95))]
     made = []
     for k, (text, anc, at) in enumerate(items):
@@ -451,11 +476,13 @@ def mouth_views(scene, cab, Zr, rr, xm):
     shoot(scene, cam, 'station_mouth_side')
     for o in made:
         bpy.data.objects.remove(o)
+    loop = R.station_loop(Rb, Zr, Zs, xm, rr); z_in = loop.rope_point(loop.nearest((xin, -Rb, Zs))[1])[2]
     cam = ortho('MouthSection', (xm - 0.5, -Rb - 6.0, Zr - 0.15), (90, 0, 0), 3.4, (1400, 900))
     cam.data.clip_start = 6.0 - 0.006                                        # cut along the rope's vertical plane
     Y = -Rb - 0.005; T = 0.055
     items = [('rope seated in the jaw groove: attached', (xout, Y, Zr + 0.03), (xout - 1.2, Y, Zr + 0.75)),
-             ('rope 0.14 m below the jaws: detached\n(the jaws open here; modelled closed)', (xin, Y, Zr - 0.12), (xin - 0.9, Y, Zr - 0.75)),
+             (f'rope {Zr - z_in:.2f} m below the jaws here, {Zr - Zs:.2f} m from 1.6 m in: detached\n(the jaws open here; modelled closed)',
+              (xin, Y, Zr - 0.12), (xin - 0.9, Y, Zr - 0.75)),
              ('rope ramps up to the grip line at the mouth', (xm - 0.4, Y, Zr - 0.05), (xm - 0.6, Y, Zr - 1.05))]
     made = []
     for k, (text, anc, at) in enumerate(items):

@@ -489,13 +489,16 @@ def coplanar_overlaps(meshes, d_tol=0.0015, min_area=2e-4, limit=60):
     return count, samples
 
 
-def bvh_of(meshes, tags=None, exclude_tags=()):
+def bvh_of(meshes, tags=None, exclude_tags=(), origins=None):
+    """A BVH of the meshes' parts (filtered by tag); `origins`, a list, receives each face's part origin and tag."""
     from mathutils.bvhtree import BVHTree
     verts, faces = [], []
     for m in meshes:
-        for start, end, tag in m.parts:
+        for pi, (start, end, tag) in enumerate(m.parts):
             if (tags is not None and tag not in tags) or tag in exclude_tags:
                 continue
+            if origins is not None:
+                origins += [f'{m.origins[pi] if pi < len(m.origins) else "?"} ({tag})'] * (end - start)
             vmap = {}
             for f in m.faces[start:end]:
                 nf = []
@@ -612,15 +615,45 @@ def rope_clearance(meshes, path, poses, exclude_tags=('jaw', 'clamp'), reach=3.0
     return best, per_pose
 
 
+def rope_contact_parts(meshes, path, poses, tags, reach=0.4, step=0.01):
+    """Per part, the signed minimum distance from the rope axis (checks.part_minimum: negative inside the part) at
+    each pose [(label, pose, s)]: one row per part tagged `tags`, so each jaw half, each sheave and the bullwheel
+    groove is gated on its own (checks.part_verdicts). The rope is sampled every `step` within +-reach of s (the whole
+    path when reach is None) and taken into each mesh's own frame."""
+    import checks
+    parts = []; count = {}
+    for m in meshes:
+        for pi, (start, end, tag) in enumerate(m.parts):
+            if tag in tags:
+                k = count[tag] = count.get(tag, 0) + 1
+                parts.append((m.name, tag, f'{tag} {k} ({m.origins[pi] if pi < len(m.origins) else "?"})',
+                              checks.triangles(m.verts, m.faces[start:end])))
+    rows = [{'mesh': n, 'tag': t, 'part': o, 'per_pose': []} for n, t, o, _ in parts]
+    for label, pose, s0 in poses:
+        if reach is None:
+            ss = [path.length * k / max(1, int(path.length / step)) for k in range(int(path.length / step) + 1)]
+        else:
+            if s0 is None:
+                G = pose.G if isinstance(pose, Pose) else pose
+                s0 = path.nearest(tuple(G.translation))[1]
+            n = max(2, int(2 * reach / step)); ss = [min(path.length, max(0.0, s0 - reach + 2 * reach * k / n)) for k in range(n + 1)]
+        world = [Vector(path.rope_point(s_)) for s_ in ss]
+        for row, (name, tag, origin, tris) in zip(rows, parts):
+            Minv = matrix_for(pose, name).inverted()
+            d = checks.part_minimum(tris, [tuple(Minv @ w) for w in world], path.r)
+            row['per_pose'].append(None if d is None else round(d, 5))
+    return rows
+
+
 def clearance(static, movers, placements, exclude_tags=(), mover_exclude=()):
     """Place the mover meshes at each placement (a matrix or a Pose); count triangle contacts with the static meshes
     (static parts tagged exclude_tags and mover parts tagged mover_exclude are left out)."""
-    sb = bvh_of(static, exclude_tags=exclude_tags); hits = []
+    so = []; sb = bvh_of(static, exclude_tags=exclude_tags, origins=so); hits = []
     for label, M in placements:
         mb = bvh_of([transformed(m, matrix_for(M, m.name)) for m in movers], exclude_tags=mover_exclude)
         pairs = sb.overlap(mb) if (sb and mb) else []
         if pairs:
-            hits.append({'at': label, 'contacts': len(pairs)})
+            hits.append({'at': label, 'contacts': len(pairs), 'station_parts': sorted({so[i] for i, _ in pairs})[:4]})
     return hits
 
 

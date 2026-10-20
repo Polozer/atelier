@@ -33,6 +33,8 @@ STEP, HEAD = 0.30, 2.0       # step limit and required headroom (m)
 MIN_WIDTH, HARD_MIN = 0.9, 0.6
 RISER_MAX, TREAD_MIN = 0.30, 0.25
 DOOR_MIN = (0.9, 2.0)        # cabin door clear width and height (m)
+BOARDING_GAP_MIN, BOARDING_GAP_MAX = 0.05, 0.12   # berth: cabin door sill to the platform edge, across (m)
+SILL_MIN, SILL_MAX = 0.0, 0.03                    # berth: the cabin sill above the platform (m)
 CAPSULE_HALF_HEIGHT = 0.755
 SLIVER = 2 * RADIUS          # an unswept slot narrower than the capsule cannot be entered, so it cannot trap
 INF = 1e20
@@ -382,8 +384,11 @@ def station_report(key):
     routes = [(f'{first} -> {k}', pts[first], v) for k, v in pts.items() if k != first]
     rep = analyse(deck, pts, routes, f'walk_{key}.png')
     rep['boarding'] = [{'side': b['side'], 'door_centre': b['door_centre'], 'gate_x': b['platform_edge']['x'],
-                        'door_within_gate': b['platform_edge']['x'][0] <= b['door_centre'][0] - 0.5 and b['door_centre'][0] + 0.5 <= b['platform_edge']['x'][1],
-                        'gap_door_to_edge_m': b['gap_door_to_edge_m'], 'sill_above_platform_m': b['door_centre'][2]} for b in L['berths']]
+                        'door_within_gate': (b['platform_edge']['x'][0] <= b['door_centre'][0] - b['door_clear_width'] / 2
+                                             and b['door_centre'][0] + b['door_clear_width'] / 2 <= b['platform_edge']['x'][1]),
+                        'gap_door_to_edge_m': b['gap_door_to_edge_m'], 'sill_above_platform_m': b['door_centre'][2],
+                        'gap_ok': BOARDING_GAP_MIN - 1e-9 <= b['gap_door_to_edge_m'] <= BOARDING_GAP_MAX + 1e-9,
+                        'sill_ok': SILL_MIN - 1e-9 <= b['door_centre'][2] <= SILL_MAX + 1e-9} for b in L['berths']]
     rep['stairs'] = [dict(s, riser_ok=s['riser_m'] <= RISER_MAX + 1e-9, tread_ok=s['tread_m'] >= TREAD_MIN - 1e-9,
                           width_ok=s['width_m'] >= MIN_WIDTH) for s in L['stairs']]
     return rep
@@ -399,7 +404,13 @@ def verdict(r):
             for s in r.get('stairs', []) if not (s['riser_ok'] and s['tread_ok'] and s['width_ok'])]
     if 'door' in r and not r['door']['ok']:
         why.append(f'cabin door {r["door"]["clear_width_m"]} x {r["door"]["clear_height_m"]} m under {DOOR_MIN}')
-    why += [f'berth {b["side"]:+d}: door outside the gate' for b in r.get('boarding', []) if not b['door_within_gate']]
+    for b in r.get('boarding', []):
+        if not b['door_within_gate']:
+            why.append(f'berth {b["side"]:+d}: door outside the gate')
+        if not b.get('gap_ok', True):
+            why.append(f'berth {b["side"]:+d}: boarding gap {b["gap_door_to_edge_m"]} m outside {BOARDING_GAP_MIN}..{BOARDING_GAP_MAX} m')
+        if not b.get('sill_ok', True):
+            why.append(f'berth {b["side"]:+d}: sill {b["sill_above_platform_m"]} m above the platform, outside {SILL_MIN}..{SILL_MAX} m')
     return why
 
 
@@ -409,7 +420,7 @@ def audit(quiet=False):
     REVIEW.mkdir(parents=True, exist_ok=True)
     report = {'capsule': {'radius_m': RADIUS, 'half_height_m': CAPSULE_HALF_HEIGHT},
               'rules': {'min_clear_width_m': MIN_WIDTH, 'headroom_m': HEAD, 'step_m': STEP, 'riser_max_m': RISER_MAX, 'tread_min_m': TREAD_MIN,
-                        'door_min_m': list(DOOR_MIN)},
+                        'door_min_m': list(DOOR_MIN), 'boarding_gap_m': [BOARDING_GAP_MIN, BOARDING_GAP_MAX], 'sill_m': [SILL_MIN, SILL_MAX]},
               'source': 'collision proxies = the UCX hulls in assets/GD_*_Collision.fbx', 'pieces': {}}
     report['pieces']['cabin'] = cabin_report()
     for key in ('valley', 'rim', 'crater'):

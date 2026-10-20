@@ -5,18 +5,26 @@ tests/test_gondola_geometry.py asserts the documented numbers equal them. build.
 the decisions below say whether a measurement passes, so the same rule runs in the build and in the fast tests.
 
 Rope contacts fall in two categories:
-- intentional contact: the parts that carry the rope (grip jaws and the clamp body over them, tower sheave grooves,
-  the bullwheel groove). They pass when the rope axis is the rope radius from them, within CONTACT_TOL: seated, neither
-  pressed into the part nor lifted off it.
+- intentional contact: the parts that carry the rope (each grip jaw half, each tower sheave, the bullwheel groove).
+  Each part on its own passes when the rope axis is the rope radius from it, within CONTACT_TOL, at every pose: seated,
+  neither pressed into the part nor lifted off it. The distance is signed (a ray-parity test says whether the rope
+  axis is inside the part), so an axis buried a radius deep inside a part reads -radius and fails. The clamp body over
+  the jaws sits beside the rope by design: it is exempt from the clearance rule but must not cut into the rope.
 - clearance to unrelated hardware: everything else (the cabin, the hanger, the grip outside the jaws, the towers'
   and stations' structure). It passes when nothing comes nearer the rope axis than the rope radius + ROPE_CLEARANCE.
 """
 import math
 
+import numpy as np
+
 ROPE_CLEARANCE = 0.05          # m: unrelated hardware keeps this gap to the rope surface
 CONTACT_TOL = 0.002            # m: an intentional contact (jaw, sheave, bullwheel groove) sits on the rope radius within this
 FLOOR_TILT_TOL_DEG = 0.01      # the cabin floor stays level (it hangs plumb): largest tilt from level allowed
 BUDGET = {'cabin': 15000, 'tower': 8000, 'station': 60000}   # triangles per piece (a tower: per height)
+STATION_LOOP_MARGIN = 0.10     # m: the cabin (body, hanger, grip) to station structure, at every loop position
+SEATED_TAGS = ('jaw', 'sheave', 'bullwheel groove')        # each such part carries the rope: gated per part
+NO_INTRUSION_TAGS = ('clamp',)                             # beside the rope by design: may not cut into it
+EXPECTED_PARTS = {'jaw': 2, 'sheave': 4, 'bullwheel groove': 1}   # parts on one rope: jaw halves, sheaves per train
 
 CONTACT_TAGS = {'jaw': 'rope seated in the jaw groove', 'clamp': 'rope seated in the jaw groove',
                 'sheave': 'rope on the sheave grooves', 'bullwheel groove': 'rope in the bullwheel groove'}
@@ -45,10 +53,20 @@ def contact_ok(distance, rope_radius):
     return distance is not None and abs(distance - rope_radius) <= CONTACT_TOL + 1e-9
 
 
+def no_intrusion_ok(distance, rope_radius):
+    """The clamp body beside the jaws: it may touch the rope surface but not cut into it."""
+    return distance is None or distance >= rope_radius - CONTACT_TOL - 1e-9
+
+
 def classify(tag, distance, rope_radius):
-    """One measurement (part tag, distance from the rope axis) as a report row with its category and verdict."""
+    """One measurement (part tag, signed distance from the rope axis) as a report row with its category and verdict."""
     cat = category(tag)
-    ok = contact_ok(distance, rope_radius) if cat == INTENTIONAL else clearance_ok(distance, rope_radius)
+    if cat == UNRELATED:
+        ok = clearance_ok(distance, rope_radius)
+    elif tag in NO_INTRUSION_TAGS:
+        ok = no_intrusion_ok(distance, rope_radius)
+    else:
+        ok = contact_ok(distance, rope_radius)
     row = {'tag': tag, 'category': cat, 'min_distance_from_rope_axis_m': distance, 'rope_radius_m': rope_radius, 'ok': ok}
     if cat == INTENTIONAL:
         row['contact'] = CONTACT_TAGS[tag]
@@ -119,6 +137,102 @@ def proxy_failures(proxies):
     return bad
 
 
-def budget_failures(piece, triangles):
+# ------------------------------------------------------------------ signed distance to a closed part (numpy only)
+RAYS = np.array([[0.5257311, 0.3090170, 0.7926544], [-0.6123724, 0.7071068, -0.3535534], [0.2672612, -0.8017837, -0.5345225]])
+
+
+def triangles(verts, faces):
+    """A closed part's faces as an (n, 3, 3) array of triangles (polygons fanned)."""
+    tris = [(verts[f[0]], verts[f[k]], verts[f[k + 1]]) for f in faces for k in range(1, len(f) - 1)]
+    return np.asarray(tris, dtype=float).reshape(-1, 3, 3)
+
+
+def _seg_dist(p, a, b):
+    ab = b - a; t = np.clip(np.einsum('ij,ij->i', p - a, ab) / np.maximum(np.einsum('ij,ij->i', ab, ab), 1e-30), 0.0, 1.0)
+    return np.linalg.norm(p - (a + ab * t[:, None]), axis=1)
+
+
+def point_distance(p, tris):
+    """Unsigned distance from point p to the nearest of the triangles."""
+    p = np.asarray(p, dtype=float); a, b, c = tris[:, 0], tris[:, 1], tris[:, 2]
+    n = np.cross(b - a, c - a); nn = np.linalg.norm(n, axis=1); ok = nn > 1e-15
+    nh = n / np.where(ok, nn, 1.0)[:, None]
+    h = np.einsum('ij,ij->i', p - a, nh); q = p - h[:, None] * nh
+    inside = ok.copy()
+    for u, v in ((a, b), (b, c), (c, a)):
+        inside &= np.einsum('ij,ij->i', np.cross(v - u, q - u), nh) >= -1e-12
+    P = np.broadcast_to(p, a.shape)
+    edge = np.minimum(np.minimum(_seg_dist(P, a, b), _seg_dist(P, b, c)), _seg_dist(P, c, a))
+    return float(np.min(np.where(inside, np.abs(h), edge)))
+
+
+def _crossings(p, tris, d):
+    a, b, c = tris[:, 0], tris[:, 1], tris[:, 2]
+    e1, e2 = b - a, c - a; h = np.cross(d, e2); det = np.einsum('ij,ij->i', e1, h)
+    good = np.abs(det) > 1e-14; inv = 1.0 / np.where(good, det, 1.0)
+    s = p - a; u = np.einsum('ij,ij->i', s, h) * inv; q = np.cross(s, e1)
+    v = np.einsum('j,ij->i', d, q) * inv; t = np.einsum('ij,ij->i', e2, q) * inv
+    return int(np.count_nonzero(good & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1e-12)))
+
+
+def inside(p, tris):
+    """Ray parity against a closed part: odd crossings mean inside; three skew rays vote, so a ray grazing an edge
+    cannot flip the answer."""
+    p = np.asarray(p, dtype=float)
+    return sum(_crossings(p, tris, d) % 2 for d in RAYS) >= 2
+
+
+def signed_distance(p, tris):
+    """Distance from p to the part's surface, negative when p is inside the part."""
+    d = point_distance(p, tris)
+    return -d if inside(p, tris) else d
+
+
+def part_minimum(tris, points, rope_radius, near=0.3):
+    """The least signed distance from the rope axis samples to one part, or None when no sample comes within
+    `near` of the part's box (the part is not on this rope). Parity runs only where the sign can change a verdict
+    (unsigned distance below the rope radius plus 10 mm): elsewhere the unsigned distance already decides."""
+    lo, hi = tris.reshape(-1, 3).min(axis=0) - near, tris.reshape(-1, 3).max(axis=0) + near
+    best = None
+    for p in points:
+        if np.any(np.asarray(p) < lo) or np.any(np.asarray(p) > hi):
+            continue
+        d = point_distance(p, tris)
+        if d < rope_radius + 0.01 and inside(p, tris):
+            d = -d
+        best = d if best is None else min(best, d)
+    return best
+
+
+def part_verdicts(rows, rope_radius, expected=None, seated=True):
+    """Per-part rope contact gate. rows: [{'tag', 'part', 'per_pose': [signed minimum or None per pose]}]. Each seated
+    part must be seated at every pose; the clamp must not intrude; and a rope must meet exactly the expected number
+    of each seated part (a sheave lifted clear of the rope reads as missing, not as passing). seated=False (the
+    station's attach zone, where the rope ramps down away from the opening jaws) asks only that no part cuts into the
+    rope. Returns the failures."""
+    bad = []; met = {}
+    for r in rows:
+        vals = [v for v in r['per_pose'] if v is not None]
+        if not vals:
+            continue
+        met[r['tag']] = met.get(r['tag'], 0) + 1
+        rule = no_intrusion_ok if (r['tag'] in NO_INTRUSION_TAGS or not seated) else contact_ok
+        off = [v for v in vals if not rule(v, rope_radius)]
+        if off:
+            worst = max(off, key=lambda v: abs(v - rope_radius))
+            bad.append(f'{r["tag"]} {r["part"]}: rope axis {worst:+.4f} m from it (radius {rope_radius}, '
+                       f'{"inside the part" if worst < 0 else "off the seat"}) at {len(off)} of {len(vals)} poses')
+    for tag, n in (expected or {}).items():
+        if met.get(tag, 0) != n:
+            bad.append(f'{met.get(tag, 0)} {tag} parts meet the rope, expected {n}')
+    return bad
+
+
+def loop_margin_ok(distance):
+    """The cabin to the station structure at a loop position: at least STATION_LOOP_MARGIN."""
+    return distance is not None and distance >= STATION_LOOP_MARGIN - 1e-9
+
+
+def budget_failures(piece, count):
     limit = BUDGET[piece]
-    return [f'{triangles} triangles over budget {limit}'] if triangles > limit else []
+    return [f'{count} triangles over budget {limit}'] if count > limit else []

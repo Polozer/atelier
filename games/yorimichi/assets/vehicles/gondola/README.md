@@ -146,12 +146,27 @@ The manifest records the minimum distance and where it occurs (`rope_clearance`)
 
 | Category | Parts | Rule |
 | --- | --- | --- |
-| intentional contact | grip jaws and clamp body (tag `jaw`, `clamp`) | seated: the rope radius from the rope axis, within 2 mm either way |
-| intentional contact | tower sheave grooves (tag `sheave`) | seated, as above |
-| intentional contact | bullwheel rim and liner (tag `bullwheel groove`) | seated, as above |
-| clearance to unrelated hardware | everything else on the cabin, towers and stations | at least the rope radius plus 0.05 m (0.095 m for the 90 mm rope) |
+| intentional contact | each grip jaw half (tag `jaw`; 2 per grip) | seated: the rope radius from the rope axis, within 2 mm either way, at every pose; in a station's attach zone, where the rope ramps down off the opening jaws, no jaw may cut into the rope |
+| intentional contact | the clamp body over the jaws (tag `clamp`) | beside the rope by design: must not cut into it |
+| intentional contact | each tower sheave (tag `sheave`; 4 per rope) | seated, as for the jaws |
+| intentional contact | the bullwheel rim (tag `bullwheel groove`; 1 per rope) | seated, as for the jaws |
+| clearance to unrelated hardware | everything else on the cabin, towers and stations (the bullwheel's lower flange included) | at least the rope radius plus 0.05 m (0.095 m for the 90 mm rope) |
 
-Each row in the manifest names its category, the minimum and where it occurs.
+The intentional contacts are gated part by part (`checks.part_verdicts`), so one seated sheave cannot carry a train
+whose other sheaves are off the rope, and each rope must meet the expected number of each part. The distance is
+signed: a ray-parity test (three skew rays vote) marks a rope axis inside a part, so an axis buried one radius deep
+reads minus the radius and fails. Each row in the manifest names its category, the minimum and where it occurs, with
+each part's least and greatest signed distance over the poses.
+
+**Station loop margin.** At every loop position (every 0.2 m), the cabin body keeps at least
+`checks.STATION_LOOP_MARGIN` (0.10 m) from the station structure: posts, headers, walls, railings, the rail frame and
+the bullwheel's machinery. As on the towers, the check places the cabin body's bounding prism grown by the margin on
+every side (the top too, for the headers) and fails on any station triangle inside it. The manifest reports the
+minimum, bracketed to 5 mm by bisection on the margin (`cabin_loop/body_margin`). The platform, its painted steel
+edge strip and the pit are the boarding interface: the door-to-edge gap (0.05 to 0.12 m, now 0.10 m) and the sill are
+gated in the walk audit. The stone walls that carry the pit channel through the rim and crater mouths are structure,
+inside the margin: the channel there is `Station.MOUTH_WIDEN` (0.05 m) wider each side than the pit. The running gear (hanger and grip)
+works against the rail, the rope and the bullwheel by design, and fails on any other contact.
 
 ## Gates and thresholds
 
@@ -181,13 +196,19 @@ code:
 | `walk.MIN_WIDTH` | 0.9 m | route clear width and stair width |
 | `walk.RISER_MAX` | 0.3 m | stair riser |
 | `walk.TREAD_MIN` | 0.25 m | stair tread |
+| `checks.STATION_LOOP_MARGIN` | 0.1 m | cabin body to station structure round the loop |
+| `walk.BOARDING_GAP_MIN` | 0.05 m | berth: door sill to platform edge, least |
+| `walk.BOARDING_GAP_MAX` | 0.12 m | berth: door sill to platform edge, most |
+| `walk.SILL_MIN` | 0.0 m | berth: sill above the platform, least |
+| `walk.SILL_MAX` | 0.03 m | berth: sill above the platform, most |
 | `stations.ROPE_DROP` | 0.15 m | station rope below the grip line (jaws open) |
 | `stations.ATTACH_ZONE` | 1.8 m | attach zone inside the mouth |
 
 The fast tests (`games/yorimichi/tests/test_gondola_*.py`) need no Blender. They exercise the rope path and the
 sagging span, the tower pass, the station loop, the plumb hang, the grip clearances and the contact classification,
-and include fixtures that must fail: a hanger 0.05 m from the rope, a jaw contact 3 mm off the rope radius, and a
-tilted cabin floor.
+and include fixtures that must fail: a hanger 0.05 m from the rope, a jaw contact 3 mm off the rope radius, a tilted
+cabin floor, one sheave of a train dropped off the rope, one jaw half lifted off it, a rope axis buried a radius deep
+in a part, a sheave missing from the train, a cabin body 0.05 m from a post, and a boarding gap or sill out of range.
 
 ## Mesh rules
 
@@ -219,7 +240,8 @@ Timber surfaces carry procedural textures, `textures.py`:
 
 It reports route bottlenecks, pinch points, trapping pockets and slivers, and the stair riser and tread checks. A
 disconnected or narrow route, a pinch on a route, a trapping pocket, a stair or door under the rules, or a berth door
-outside its gate fails the audit. Slivers and off-route notches are listed but do not fail it. Each
+outside its gate (the door's clear width centred on the door), a boarding gap outside 0.05 to 0.12 m or a sill
+outside 0 to 0.03 m above the platform fails the audit. Slivers and off-route notches are listed but do not fail it. Each
 station is checked with a cabin in each berth with its doors open, so the boarding routes run from the access through
 the gate into the cabin.
 
@@ -248,6 +270,11 @@ These belong to placement, the next batch (B4), and are not in this kit:
   rebuild.
 - **Ramps and jumps.** The rider clearance under the floor-to-rim line over Crater Park's ramps and jumps is measured
   only once the route is placed.
+- **Tower passes on the real routes.** The kit checks each tower with the default 3 degree deflection, 4 m spans
+  and grip positions within 2.4 m of the tower centre. Placement must rerun the passes (groove, rope clearance, the
+  sheaves per part, the cabin envelope) with each route's actual deflection at each tower.
+- **The importer refuses a bad manifest.** The Unreal import must refuse a manifest whose `failures` is not empty,
+  whose `soft_fail` is true, or whose `source_hash` does not match the kit's sources it was built from.
 - **A game drive of the walk routes** in Unreal (walkable-routes-traversable), once the pieces are imported.
 
 The collision is in this kit: every piece (the cabin, each tower, each station's walkable parts) exports its UCX

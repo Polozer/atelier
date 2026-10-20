@@ -232,3 +232,110 @@ def test_walk_exits_nonzero_on_failure(monkeypatch):
     assert e.value.code == 1
     monkeypatch.setattr(W, 'audit', lambda quiet=False: ({}, []))
     W.main()
+
+
+# ------------------------------------------------------------------ per-part, signed contact gates
+def box(x0, x1, y0, y1, z0, z1):
+    V = [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)]
+    F = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
+    return C.triangles(V, F)
+
+
+ROPE = [(x * 0.01, 0.0, 0.0) for x in range(-200, 201)]           # a level rope axis along x, sampled every 10 mm
+
+
+def rows_for(parts, tag):
+    return [{'tag': tag, 'part': f'{tag} {k}', 'per_pose': [C.part_minimum(t, ROPE, RR)]} for k, t in enumerate(parts)]
+
+
+def sheave(x, drop=0.0):
+    """A sheave block under the rope: its top face RR below the rope axis (seated), lowered by `drop`."""
+    return box(x - 0.1, x + 0.1, -0.06, 0.06, -0.3 - drop, -RR - drop)
+
+
+def test_seated_sheave_train_passes():
+    rows = rows_for([sheave(x) for x in (-1.35, -0.6, 0.6, 1.35)], 'sheave')
+    assert C.part_verdicts(rows, RR, {'sheave': 4}) == []
+
+
+def test_one_sheave_off_the_rope_fails_although_the_train_minimum_is_seated():
+    """MUST FAIL: one sheave of four dropped 5 mm; the minimum over the train would still read seated."""
+    rows = rows_for([sheave(-1.35), sheave(-0.6, drop=0.005), sheave(0.6), sheave(1.35)], 'sheave')
+    assert C.contact_ok(min(r['per_pose'][0] for r in rows), RR)          # the old, train-wide minimum passes
+    bad = C.part_verdicts(rows, RR, {'sheave': 4})
+    assert len(bad) == 1 and 'sheave 1' in bad[0]
+
+
+def test_sheave_missing_from_the_train_fails():
+    """MUST FAIL: a sheave lifted clear of the rope (beyond the search) is missing, not passing."""
+    rows = rows_for([sheave(-1.35), sheave(-0.6, drop=0.5), sheave(0.6), sheave(1.35)], 'sheave')
+    assert any('expected 4' in b for b in C.part_verdicts(rows, RR, {'sheave': 4}))
+
+
+def jaw(side, lift=0.0):
+    """A jaw block beside the rope: its inner face RR from the axis (seated), moved off by `lift`."""
+    y0 = side * (RR + lift)
+    return box(-0.2, 0.2, min(y0, y0 + side * 0.05), max(y0, y0 + side * 0.05), -0.03, 0.03)
+
+
+def test_seated_jaw_pair_passes():
+    assert C.part_verdicts(rows_for([jaw(1), jaw(-1)], 'jaw'), RR, {'jaw': 2}) == []
+
+
+def test_one_jaw_half_lifted_three_mm_fails():
+    """MUST FAIL: the movable jaw 3 mm off the rope while the fixed jaw is seated."""
+    rows = rows_for([jaw(1), jaw(-1, lift=0.003)], 'jaw')
+    bad = C.part_verdicts(rows, RR, {'jaw': 2})
+    assert len(bad) == 1 and 'jaw 1' in bad[0] and 'off the seat' in bad[0]
+
+
+def test_attach_zone_allows_the_rope_off_the_jaws_but_not_into_them():
+    lifted = rows_for([jaw(1), jaw(-1, lift=0.1)], 'jaw')
+    assert C.part_verdicts(lifted, RR, {'jaw': 2}, seated=False) == []
+    pressed = rows_for([jaw(1), jaw(-1, lift=-0.01)], 'jaw')
+    assert C.part_verdicts(pressed, RR, {'jaw': 2}, seated=False)
+
+
+def test_rope_axis_buried_a_radius_deep_fails():
+    """MUST FAIL: the rope axis inside a part, one radius from its nearest face. Unsigned, it would read seated."""
+    block = box(-0.3, 0.3, -RR, 0.5, -0.5, 0.5)
+    assert C.point_distance((0, 0, 0), block) == pytest.approx(RR)
+    assert C.signed_distance((0, 0, 0), block) == pytest.approx(-RR)
+    for tag in ('jaw', 'sheave', 'bullwheel groove'):
+        bad = C.part_verdicts(rows_for([block], tag), RR, {tag: 1})
+        assert bad and 'inside the part' in bad[0], tag
+
+
+def test_clamp_may_sit_beside_the_rope_but_not_cut_into_it():
+    beside = box(-0.2, 0.2, -0.05, 0.05, RR + 0.03, 0.2)
+    assert C.part_verdicts(rows_for([beside], 'clamp'), RR) == []
+    cutting = box(-0.2, 0.2, -0.05, 0.05, RR - 0.01, 0.2)
+    assert C.part_verdicts(rows_for([cutting], 'clamp'), RR)
+
+
+# ------------------------------------------------------------------ station loop margin and boarding
+def test_cabin_body_near_a_post_fails_the_loop_margin():
+    """MUST FAIL: a cabin body passing 0.05 m from a canopy post."""
+    body = box(-1.1, 0.95, -0.8, 0.8, 0.3, 2.4)
+    post = [(x, y, z) for x in (1.0, 1.3) for y in (-0.15, 0.15) for z in (0.5, 2.0)]   # a post's corners beside the wall
+    d = min(C.point_distance(q, body) for q in post)
+    assert d == pytest.approx(0.05)
+    assert not C.loop_margin_ok(d)
+    assert C.loop_margin_ok(C.STATION_LOOP_MARGIN) and not C.loop_margin_ok(None)
+
+
+def berth(gap=0.1, sill=0.02, centre=3.4, width=1.0, gate=(2.6, 4.2)):
+    lo, hi = gate
+    return {'side': -1, 'door_within_gate': lo <= centre - width / 2 and centre + width / 2 <= hi,
+            'gap_door_to_edge_m': gap, 'sill_above_platform_m': sill,
+            'gap_ok': W.BOARDING_GAP_MIN <= gap <= W.BOARDING_GAP_MAX, 'sill_ok': W.SILL_MIN <= sill <= W.SILL_MAX}
+
+
+def test_boarding_gap_and_sill_in_range_pass():
+    assert W.verdict(piece(boarding=[berth()])) == []
+
+
+@pytest.mark.parametrize('kw', [{'gap': 0.2}, {'gap': 0.0}, {'sill': 0.06}, {'sill': -0.02}, {'width': 1.8}])
+def test_boarding_gap_sill_or_door_out_of_range_fails(kw):
+    """MUST FAIL: a boarding gap or sill outside its range, or a door wider than the gate opening."""
+    assert W.verdict(piece(boarding=[berth(**kw)]))

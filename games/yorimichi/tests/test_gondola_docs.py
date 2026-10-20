@@ -29,7 +29,9 @@ def test_threshold_table_lists_every_gate_constant():
     for want in [('checks', 'ROPE_CLEARANCE', None), ('checks', 'CONTACT_TOL', None), ('checks', 'FLOOR_TILT_TOL_DEG', None),
                  ('checks', 'BUDGET', 'cabin'), ('checks', 'BUDGET', 'tower'), ('checks', 'BUDGET', 'station'),
                  ('walk', 'RADIUS', None), ('walk', 'STEP', None), ('walk', 'HEAD', None), ('walk', 'MIN_WIDTH', None),
-                 ('walk', 'RISER_MAX', None), ('walk', 'TREAD_MIN', None)]:
+                 ('walk', 'RISER_MAX', None), ('walk', 'TREAD_MIN', None), ('checks', 'STATION_LOOP_MARGIN', None),
+                 ('walk', 'BOARDING_GAP_MIN', None), ('walk', 'BOARDING_GAP_MAX', None), ('walk', 'SILL_MIN', None),
+                 ('walk', 'SILL_MAX', None)]:
         assert want in named, want
 
 
@@ -65,6 +67,11 @@ def test_prose_quotes_the_same_numbers(kit):
         f'drops {kit.stations.ROPE_DROP:.2f} m inside the mouth': README,
         f'rope radius within {c.CONTACT_TOL * 1000:g} mm': NOTES,
         f'except the {kit.stations.ATTACH_ZONE:g} m attach zone': NOTES,
+        f'`checks.STATION_LOOP_MARGIN` ({c.STATION_LOOP_MARGIN:.2f} m)': README,
+        f'a boarding gap outside {w.BOARDING_GAP_MIN:.2f} to {w.BOARDING_GAP_MAX:.2f} m or a sill\noutside {w.SILL_MIN:g} to {w.SILL_MAX:.2f} m': README,
+        f'each grip jaw half (tag `jaw`; {c.EXPECTED_PARTS["jaw"]} per grip)': README,
+        f'each tower sheave (tag `sheave`; {c.EXPECTED_PARTS["sheave"]} per rope)': README,
+        f'(tag `bullwheel groove`; {c.EXPECTED_PARTS["bullwheel groove"]} per rope)': README,
     }
     for text, doc in quotes.items():
         assert text in doc, text

@@ -321,6 +321,8 @@ def stone_pier(m, x, y, w=0.9, top=1.20, z0=-0.04, courses=4, seed=0):
 
 # ------------------------------------------------------------------ station
 class Station:
+    MOUTH_WIDEN = 0.05      # the channel through a mouth wall: this much wider each side than the pit (m)
+
     def __init__(self, key, p, d):
         self.key = key; self.p = p; self.d = d
         self.R = p['gauge'] / 2; self.HL, self.HW = p['cabin_length'] / 2, p['cabin_width'] / 2
@@ -397,7 +399,8 @@ class Station:
         self.slabs.append(('platform', poly))
         # Steel edge along the pit, proud of the platform by 6 mm.
         edge = self.pit_edge(); inner = offset_path(edge, 0.1)
-        fit.band(edge, inner, ptop, 0.006, PAINT)
+        with fit.tagged('platform edge'):           # part of the boarding interface (gap gated in walk.py)
+            fit.band(edge, inner, ptop, 0.006, PAINT)
         # Railing along the pit, open at both berths.
         rail_line = offset_path(edge, 0.26); total = path_len(rail_line)
         g = []
@@ -432,8 +435,9 @@ class Station:
             m.box((0.8 * math.cos(a), 0.8 * math.sin(a), -pit + 0.17), (0.07, 0.07, 0.02), BOLT)
         m.lathe((0, 0, Zs - 0.45), [(0, 0.5), (0.7, 0.5)], IRON, n=16)
         rim_o, rim_i = R - rr, R - 0.2
-        with m.tagged('bullwheel groove'):     # the rope's intentional contact (rope clearance report)
+        with m.tagged('bullwheel groove'):     # the rope's intentional contact (gated as one seated part)
             m.ring_prism(circle(rim_o, 48), circle(rim_i, 48), Zs - 0.30, Zs, IRON)
+        with m.tagged('bullwheel flange'):     # the lower flange: unrelated hardware (rope clearance)
             m.ring_prism(circle(R + 0.03, 48), circle(R - 0.15, 48), Zs - 0.32, Zs - 0.26, STEEL)
         m.ring_prism(circle(1.75, 32), circle(1.6, 32), Zs - 0.22, Zs - 0.08, IRON)
         for k in range(8):
@@ -555,7 +559,7 @@ class Station:
                 'berths': [{'side': s, 'cabin_grip': [self.xb, s * R, round(self.Zr, 3)], 'cabin_yaw_deg': 0 if s < 0 else 180,
                             'door_outward': [0, s, 0], 'door_centre': [self.xb, round(s * (R + self.HW), 3), round(self.p['berth_floor_step'], 3)],
                             'platform_edge': {'y': round(s * self.YP, 3), 'x': [round(self.xb - 0.8, 3), round(self.xb + 0.8, 3)], 'z': 0.0},
-                            'gap_door_to_edge_m': round(self.YP - R - self.HW, 3)} for s in (-1, 1)],
+                            'gap_door_to_edge_m': round(self.YP - R - self.HW, 3), 'door_clear_width': self.p['door_clear_width']} for s in (-1, 1)],
                 'pit': {'depth': self.pit, 'straight_half_width': round(self.YP, 3), 'turn_radius': round(self.RP, 3)},
                 'platform_extent': {'x': [self.XB, self.XM], 'y': [-self.YO, self.YO]}, 'access': self.access}
 
@@ -921,9 +925,12 @@ class Rim(Station):
         # mouth: low wall beside the pit, sunk under the pit channel so the cabins pass over it.
         path = [(XM + 0.2, YO), (XB, YO), (XB, -YO)] + self.BULGE + [(XM + 0.2, -YO)]
         retaining_wall(plat, self, path, -3.6, -0.04, 0.45, 7, rock_z=(-2.2, -0.15))
+        # The channel through the mouth wall is MOUTH_WIDEN wider each side than the pit, so the cabin body keeps
+        # checks.STATION_LOOP_MARGIN from its stone faces (the pit's own edge is the boarding gap).
+        w = self.MOUTH_WIDEN
         for s in (-1, 1):
-            plat.box((XM + 0.225, s * (YO + YP + 0.47) / 2, -1.84), (0.45, YO - YP + 0.47, 3.62), STONE)
-        plat.box((XM + 0.225, 0.0, -1.925), (0.43, 2 * YP + 0.02, 3.25), STONE)
+            plat.box((XM + 0.225, s * (YO + YP + w + 0.47) / 2, -1.84), (0.45, YO - YP - w + 0.47, 3.62), STONE)
+        plat.box((XM + 0.225, 0.0, -1.925), (0.43, 2 * (YP + w) + 0.02, 3.25), STONE)
         # Railings: deck edge (gap for the boardwalk), viewing bulge.
         inner = offset_path(path, 0.15)
         a = [(XM - 0.15, YP + 0.5), (XM - 0.15, YO - 0.15)] + inner[1:3]
@@ -1080,9 +1087,12 @@ class Crater(Station):
         # Stone base: the +y wall is split by the stair.
         retaining_wall(plat, self, [(XM + 0.2, YO), (sx1 + 0.2, YO)], -1.9, -0.04, 0.45, 11, rock_z=(-1.86, -0.1), rock_size=0.6, dressed=True)
         retaining_wall(plat, self, [(sx0 - 0.2, YO), (XB, YO), (XB, -YO), (XM + 0.2, -YO)], -1.9, -0.04, 0.45, 13, rock_z=(-1.86, -0.1), rock_size=0.6, dressed=True)
+        # The channel through the mouth wall is MOUTH_WIDEN wider each side than the pit, so the cabin body keeps
+        # checks.STATION_LOOP_MARGIN from its stone faces (the pit's own edge is the boarding gap).
+        w = self.MOUTH_WIDEN
         for s in (-1, 1):
-            plat.box((XM + 0.225, s * (YO + YP + 0.47) / 2, -0.99), (0.45, YO - YP + 0.47, 1.92), STONE)
-        plat.box((XM + 0.225, 0.0, -1.075), (0.43, 2 * YP + 0.02, 1.55), STONE)
+            plat.box((XM + 0.225, s * (YO + YP + w + 0.47) / 2, -0.99), (0.45, YO - YP - w + 0.47, 1.92), STONE)
+        plat.box((XM + 0.225, 0.0, -1.075), (0.43, 2 * (YP + w) + 0.02, 1.55), STONE)
         # Stair: one solid stone flight with cheek walls, landing at the crater floor.
         prof = stair_profile(YO, 0.0, self.RISERS, self.RISE, self.TREAD, self.LANDING, -1.9)
         with plat.frame((sx0, 0, 0), (0, 1, 0), (0, 0, 1), (1, 0, 0)), plat.tagged('stair'):
@@ -1175,8 +1185,29 @@ def build(key, p, d, cab, ctx):
     groove = ctx['groove'](cab, st.rope, st.line_frames())
     # The haul rope (dropped 0.15 m in the station, round the bullwheel) to the cabin at every loop position.
     rope_clear = ctx['rope_check'](cab, st.rope, [(lbl, M, None) for lbl, M, _ in places])
-    rope_jaws = ctx['jaw_contact'](cab, st.rope, [(lbl, M, None) for lbl, M, attach in places if attach])
+    rope_jaws = ctx['jaw_contact'](cab, st.rope, [(lbl, M, None) for lbl, M, attach in places if attach], seated=False)
+    mouth_jaws = ctx['jaw_contact'](cab, st.rope, st.line_frames())         # outside the mouth: each jaw half seated
     rope_station = ctx['static_rope'](static, st.rope, ('bullwheel groove',), 'rope in the bullwheel groove', key)
+    # Margin round the loop: the cabin body grown by a margin on every side (ctx['envelope'], the prism the towers
+    # gate with) must touch no station structure at any loop position. The platform edge and the pit are the boarding
+    # interface (gap and sill gated in walk.py); the running gear works against the rope, the rail and the bullwheel
+    # groove, and touches nothing else (the contact check above). The minimum is bracketed to 5 mm by bisection.
+    loop = [(lbl, M) for lbl, M, _ in places]; skip = ('platform', 'platform edge', 'pit', 'rope', 'rail', 'bullwheel groove')
+    def hits_at(mg):
+        return solid.clearance(static, [ctx['envelope'](mg)], loop, exclude_tags=skip)
+    gate_hits = hits_at(checks.STATION_LOOP_MARGIN)
+    lo, hi = 0.0, 0.6
+    if hits_at(0.0):
+        hi = 0.0
+    elif not hits_at(hi):
+        lo = hi
+    while hi - lo > 0.005:
+        mid = (lo + hi) / 2
+        lo, hi = (lo, mid) if hits_at(mid) else (mid, hi)
+    margin = {'min_distance_m': round(lo, 3), 'bracket_m': [round(lo, 3), round(hi, 3)], 'required_m': checks.STATION_LOOP_MARGIN,
+              'measured_as': 'the cabin body bounding prism grown by the margin on every side, against the station triangles',
+              'excluded': 'platform, its steel edge and the pit (the boarding interface), rope, rail, bullwheel groove',
+              'hits_at_required': gate_hits[:6], 'ok': not gate_hits}
     tris = sum(m.tris() for m in meshes.values())
     extra = []
     if hits:
@@ -1187,6 +1218,10 @@ def build(key, p, d, cab, ctx):
         extra.append(f'jaw groove off the rope at the mouth: {groove["failures"]}')
     if not rope_clear['ok']:
         extra.append(f'rope within {rope_clear["required_m"]} m of the cabin on the loop: {rope_clear["where"]}')
+    if not margin['ok']:
+        extra.append(f'cabin body within {checks.STATION_LOOP_MARGIN} m of the station on the loop: {margin}')
+    if not mouth_jaws['ok']:
+        extra.append(f'rope not seated in the jaws outside the mouth: {mouth_jaws["failures"]}')
     if not rope_jaws['ok']:
         extra.append(f'rope not seated in the jaws in the attach zone: {rope_jaws["min_distance_from_rope_axis_m"]} at {rope_jaws["where"]}')
     for part in ('intentional', 'clearance'):
@@ -1206,7 +1241,8 @@ def build(key, p, d, cab, ctx):
              'collision': {'file': f'assets/GD_{name}_Collision.fbx', 'convex_hulls': hulls},
              'cabin_loop': {'positions': len(places), 'contacts': hits, 'attach_zone_from_mouth_m': ATTACH_ZONE,
                             'doors_open_at_berths_contacts': door_hits, 'jaw_groove_on_rope_at_mouth': groove,
-                            'rope_clearance': rope_clear, 'rope_in_jaws_attach_zone': rope_jaws},
+                            'rope_clearance': rope_clear, 'rope_in_jaws_attach_zone': rope_jaws, 'rope_in_jaws_at_mouth': mouth_jaws,
+                            'body_margin': margin},
              'rope_and_station': rope_station,
              'stairs': st.stairs, 'coplanar_overlaps': cop,
              'seating': {'checked': len(seats), 'failures': [r for r in seats if r['status'] != 'ok']}}
