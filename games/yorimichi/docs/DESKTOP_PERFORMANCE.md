@@ -53,8 +53,9 @@ prints `verified: {...}` or `not verified: ...` (exit code 1):
 - the log reports the selected renderer (`r.ForwardShading = "1"` for forward, `"0"` for Lumen);
 - `CITY TILES` reports exactly the source and tile counts in the completed staged
   `Content/Data/city_surface_tiles/v1_128m/manifest.json`, rather than a historical fixed count;
-- `CITY TREE LODS tag=v4 enabled=0|1 forced=0 groups=3` matches the selected tree preference, and forward launches
-  report `FORWARD FILL nominal_lux=3.000 lights=1`. A missing marker
+- `CITY TREE LODS tag=v4 enabled=0|1 forced=0..3 groups=3` (or more groups) matches the tree optimization and tree
+  detail the game starts in: the `--set` value, else the saved one, else the release default (optimization on,
+  forced detail 2). Forward launches report `FORWARD FILL nominal_lux=3.000 lights=1`. A missing marker
   means the imports are missing: `atelier build yorimichi unreal.desktop`.
 
 This is a local build run from the editor binary, not a cooked package.
