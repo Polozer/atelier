@@ -18,7 +18,9 @@ up to 8 m in the air because placement took the higher of the city ground and th
 
 **Give every seam one owner.** Where two surfaces meet, one side owns the edge: usually the finer one, or the
 region the player stands in. The other side follows the owner's exact edge profile, from the same function and
-samples, and fades back to its own shape over a declared margin. A coarse mesh needs vertices where the fine edge
+samples, and fades back to its own shape over a declared margin. That applies to surfaces that abut edge to edge.
+Where one surface lies over another (paving, a deck or a slab over ground), the upper one owns the footprint, and
+the lower one stays below it by a declared clearance instead. A coarse mesh needs vertices where the fine edge
 bends; a straight coarse edge across a curved fine one leaves slivers. Clamped lookups past a grid's range
 (`np.interp` holds its last value) are a common cause of a flat edge beside a sloping neighbour. A skirt or wall
 may close an intended height change, but must never hide a mismatch you cannot explain. For every new or moved
@@ -26,25 +28,29 @@ boundary, add a test that samples both sides along the whole edge and asserts ze
 the hippodrome came from two such edges, 18 m apart, with no test.
 
 **No one-sided sheets.** A quad renders from one side only. Anything the camera can see from below or behind
-must be a closed solid or a thin two-sided slab with edge faces: roofs, eaves, awnings, canopies, decks, bridges,
-stairs, balconies and signs. Roofs sit on their wall plates, and soffits and gable infill close them from below.
-Use the shared closed primitives (for example a `panel` slab or `gable_roof`) rather than emitting bare faces, and
-keep winding consistent.
+must be a closed solid, a slab with thickness, or (for intended thin surfaces such as cloth, foliage cards, flags
+and decals) a two-sided material. That includes roofs, eaves, awnings, canopies, decks, bridges, stairs, balconies
+and signs. Roofs sit on their wall plates, and soffits and gable infill close them from below. Openings such as
+windows, doorways and open pavilions are fine when their edges are finished with a reveal, frame or thickness.
+Build with closed primitives rather than bare faces, and keep winding consistent. Brinecove's `geom.py` has a
+`panel` slab and a seated `gable_roof`. Similar copies live in several regions; consolidate them into a shared
+module when you next change one.
 
 **Make pieces meet by construction.** Compute adjoining edges from one plan: treads and risers, landings,
 walls and roofs, paving and kerbs, platforms and skirts. Do not tune separate offsets until they look close
 enough. A slab floating above the ground leaves daylight under it, so anything standing on the ground extends
 below its lowest point. Coplanar faces flicker, so overlap them by depth or by material, or remove one.
 
-**Walkable means walked.** The character steps up about 0.45 m. Design risers well under that (around 0.25 m),
-with treads deep enough to land on, landings between long flights, and flush joins at both ends. A stair once
-rose 25 m in 24 one-metre risers on floating slabs, and the terrace paving walled off its top. Plan checks and ray
-traces do not prove a route: drive the character up and down it in game (the live bridge's `Drive` verb) and
-record its position and movement mode.
+**Walkable means walked.** The character steps up 0.45 m (UE MaxStepHeight). Keep risers at most 0.3 m (about 0.25 m
+reads best), with treads deep enough to land on, landings between long flights, and flush joins at both ends. A stair
+once rose 25 m in 24 one-metre risers on floating slabs, and the terrace paving walled off its top. Plan checks and
+ray traces do not prove a route: drive the character up and down it in a guarded game (a committed scenario, or
+`live.drive` / `UYorimichiLive::Drive` over the live bridge) and record its position and movement mode.
 
 **Fix the class, not the instance.** When a playtest finds one of these defects, fix the general mechanism and
 add an automated check of the rule (a seam sampler, a grounding check, a closure check), so the next region of
-the same kind is covered without anyone remembering. Bind captures and traversal evidence to the source revision
+the same kind is covered without anyone remembering. When a fix cannot be checked automatically (a pure material
+or art change), say why in the PR and attach captures. Bind captures and traversal evidence to the source revision
 they ran on.
 
 ## Structure the world for small rebuilds

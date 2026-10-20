@@ -6,20 +6,24 @@ several. Where products overlap, the footprint's owner is the ground. An instanc
 declared embedding of that surface: never floating above it and never buried beyond the embedding.
 
 @cc [owner:fontanierh,label:correctness] seamless-surface-boundaries
-Wherever two ground or walkable surfaces meet (region and region, fine terrain and backdrop, city and
-mountains, terrain and paving, terrain and a shore or water edge), the boundary MUST have one owner. The
-other side MUST meet the owner's exact edge profile at that edge, fading over a declared margin, from the
-same function and samples on both sides: no vertical step, slit, sliver or overlap along the seam. A
-coarse surface MUST carry vertices or knots where the fine edge bends. A skirt, apron or wall MAY close an
-intended height change, but MUST NOT hide an unexplained mismatch. Adding or moving a boundary MUST add a
-test that samples both sides along the whole edge and asserts the mismatch is zero within float tolerance.
+Where two ground or walkable surfaces abut edge to edge (region and region, fine terrain and backdrop, city
+and mountains), the edge MUST have one owner. The other side MUST meet the owner's exact edge profile there,
+fading over a declared margin, from the same function and samples, with no vertical step, slit or sliver.
+The mismatch MUST be zero within float tolerance, or within a tolerance named by that seam's own contract.
+A coarse surface MUST carry vertices or knots where the fine edge bends. Where one surface lies over
+another (paving, a deck or a slab over ground), the upper one owns the footprint, and the lower one MUST
+stay below it by a declared clearance, never poking through. A skirt, apron or wall MAY close an intended
+height change but MUST NOT hide an unexplained mismatch. A new or moved abutting boundary MUST add a test
+that samples both sides along the whole edge against that tolerance.
 
 @cc [owner:fontanierh,label:correctness] closed-visible-geometry
-Geometry that any reachable camera can see from more than one side MUST be closed or explicitly two-sided
-with thickness. That covers roofs, eaves, awnings, canopies, decks, bridges, stairs, balconies, signs and
-walls seen from below or behind. A one-sided sheet MUST face away from every viewpoint that can see its back.
-Roofs MUST seat on their walls with no gap, with soffits and gable infill closing them from below. Faces
-MUST wind outward consistently, so that back-face culling never removes a visible side.
+Geometry that a reachable camera can see from more than one side MUST be a closed solid, a slab with
+thickness, or (where a thin surface is intended, as with cloth, foliage cards, flags or decals) a
+two-sided material. That covers roofs, eaves, awnings, canopies, decks, bridges, stairs, balconies, signs
+and walls seen from below or behind. A one-sided sheet is allowed only where no reachable viewpoint sees
+its back. Roofs MUST seat on their walls with no gap, with soffits and gable infill closing them from below.
+Intended openings (windows, doorways, open pavilions, bowls) are fine. Their edges MUST be finished with a
+reveal, frame or thickness, so that no back face shows. Faces MUST wind outward consistently.
 
 @cc [owner:fontanierh,label:correctness] pieces-meet-by-construction
 Adjoining built pieces MUST meet by construction. That covers treads and risers, landings, walls and roofs,
@@ -29,33 +33,42 @@ open gap, floating slab, daylight under a step or nosing, or coplanar overlap th
 stands on the ground MUST reach below the ground it stands on, wherever that ground is lower.
 
 @cc [owner:fontanierh,label:correctness] walkable-routes-traversable
-Every route the player is meant to walk (stairs, ramps, paths, landings and their joins to streets,
-terraces and doors) MUST be traversable by the character in both directions without jumping. Each rise
-MUST be well under the character's step height, with treads at least a footstep deep. Slopes MUST stay
-under the walkable floor angle. There MUST be no gap or lip at either end. A new or rebuilt route MUST be
-validated by driving the character over it in game both ways; ray traces or plan checks alone are not enough.
+Every route the player is meant to walk (stairs, ramps, paths, landings and their joins to streets, terraces
+and doors) MUST be traversable by the character on foot, in both directions, without jumping. Skate-only
+features such as bowls and ramps are not walking routes. Risers MUST be at most 0.3 m, against the
+character's 0.45 m step (UE MaxStepHeight, train/collision.py STEP_UP). Treads MUST be at least a footstep
+deep. Slopes MUST stay under the walkable floor angle. There MUST be no gap or lip at either end. A new or
+geometrically changed route MUST be validated by driving the character over it both ways in a guarded game:
+a committed scenario or a recorded drive through the live bridge (live.drive, UYorimichiLive::Drive), bound
+to its source revision. Ray traces or plan checks alone are not enough.
 
 @cc [owner:fontanierh,label:correctness] visual-defects-get-regression-checks
 A fix for a reported visual or traversal defect (hole, slit, gap, floating or buried object, invisible
-face, impassable step) MUST add an automated check that fails on the original defect. The check MUST be
-written against the general rule above it (a seam sampler, a grounding check, a closure check), so it
-also covers the next region or feature of the same kind. Evidence MUST name the source revision it ran on.
+face, impassable step) MUST add an automated check that fails on the original defect. Where possible the
+check is written against the general rule above it (a seam sampler, a grounding check, a closure check),
+so that it also covers the next region or feature of the same kind. Where no automated check is feasible
+(a pure material or art change), the PR MUST say why and attach revision-bound captures. Evidence MUST name
+the source revision it ran on.
 
 @cc [owner:fontanierh,label:architecture] one-implementation-per-mechanism
 A shared world mechanism MUST have one implementation that every region reuses rather than copies. That
 covers terrain products and queries, seam stitching, grounding, mesh builders and their closed primitives,
-stairs and paving, foliage placement and LOD export. A region MUST keep its own data, layout and
-generators in its own region directory (Yorimichi: games/yorimichi/world/regions/<region>/). It MUST change another region's output only through that
-region's published products or declared boundary APIs, never by patching its code paths, meshes,
-materials or placements from outside. A height or ground function MUST serve every consumer of that ground
-(mesh, collision, placement and checks) rather than being re-derived per consumer.
+stairs and paving, foliage placement and LOD export. Existing region-local copies MUST be consolidated when
+they are next changed. A region MUST keep its own data, layout and generators in its own region directory
+(Yorimichi: games/yorimichi/world/regions/<region>/). It MUST change another region's output only through
+that region's published products or declared boundary APIs, never by patching its code paths, meshes,
+materials or placements from outside. A ground function MUST serve every consumer of that ground (mesh,
+collision and placement). A check MAY recompute independently as an oracle, but MUST NOT replace the
+shared function.
 
 @cc [owner:fontanierh,label:performance] edits-rebuild-locally
 An edit to one region, asset or feature MUST rebuild only the products that actually read it. Steps MUST
 declare their own code, the shared modules and products they read, and spatial queries for neighbour reads,
 following docs/WORLD_BUILD_PRACTICES.md. They MUST NOT declare whole directories, other regions' code or
 global catalogues they do not consume. Terrain consumers MUST read published terrain products or narrow
-kernels rather than importing a whole generator, so that unrelated work does not change their keys. Generation
-MUST be deterministic, with stable IDs and randomness seeded per region, asset and purpose, so that unchanged
-inputs reproduce identical outputs. A recipe change that widens the rebuild scope MUST report its measured
-effect (atelier build --changes and --timings) in its PR.
+kernels rather than importing a whole generator, so that unrelated work does not change their keys.
+Procedural generation MUST be deterministic, with stable IDs and randomness seeded per region, asset and
+purpose, so that unchanged inputs reproduce identical outputs. External and AI-generated outputs are not
+regenerated: they are pinned, committed or cached inputs, recorded through atelier.ai.ledger. A recipe
+change that widens the rebuild scope MUST report its measured effect (atelier build --changes and
+--timings) in its PR.
