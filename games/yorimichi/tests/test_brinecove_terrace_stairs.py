@@ -44,3 +44,17 @@ def test_treads_are_solid_down_past_the_quay_so_no_daylight_shows_under_a_nosing
     assert len(b.verts) > 0
     lowest = min(v[2] for v in b.verts)
     assert lowest <= z0 - 0.5
+
+
+def test_no_house_stands_in_a_terrace_stair():
+    """Every house footprint (with room for its eaves and doorstep props) stays out of each stair and its parapets."""
+    import math
+    clear = 1.5
+    for x0, width in M.TERRACE_STAIRS:
+        xa, xb = x0 - width / 2 - 0.7 - clear, x0 + width / 2 + 0.7 + clear
+        for key, x, y, _, w, d, _, _, _, yaw, _ in L.DENSE_LOTS:
+            c, s = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+            pts = [(x + c * dx - s * dy, y + s * dx + c * dy) for dx in (-w / 2, w / 2) for dy in (-d / 2, d / 2)]
+            if max(py for _, py in pts) < M.STAIR_FOOT_Y - clear or min(py for _, py in pts) > M.STAIR_TOP_Y + clear:
+                continue
+            assert max(px for px, _ in pts) < xa or min(px for px, _ in pts) > xb, (x0, key)

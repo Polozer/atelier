@@ -172,6 +172,32 @@ def test_committed_paintings_cover_all_regions_with_current_geometry_and_provena
     assert {p.stem for p in (tmp_path / 'atlas').glob('*.png')} == {'world', *(r['key'] for r in atlas.REGIONS)}
 
 
+def revalidation_gaps(current, coast, records, sha):
+    """Frames whose painting is not bound to today's geography, painting, coast mask and reference."""
+    gaps = [] if coast.get('geography') == current else ['coasts/source.json']
+    for key, record in records.items():
+        frame = coast['frames'].get(key, {})
+        expected = dict(kind='terrain-reference-revalidation', geography=current, painting_sha256=sha(f'{key}.png'),
+                        coast_sha256=frame.get('sha256'), reference_sha256=frame.get('reference_sha256'))
+        if frame.get('sha256') != sha(f'coasts/{key}.png') or record.get('verified_geography') != expected:
+            gaps.append(key)
+    return gaps
+
+
+def test_superseding_revalidation_rejects_stale_bindings():
+    shas = {'world.png': 'painting', 'coasts/world.png': 'mask'}
+    coast = dict(geography={'a': '2'}, frames=dict(world=dict(sha256='mask', reference_sha256='ref')))
+    bound = dict(kind='terrain-reference-revalidation', geography={'a': '2'}, painting_sha256='painting',
+                 coast_sha256='mask', reference_sha256='ref')
+    assert not revalidation_gaps({'a': '2'}, coast, {'world': dict(verified_geography=bound)}, shas.get)
+    # A kernel or other geography change after that revalidation leaves it stale.
+    assert revalidation_gaps({'a': '3'}, coast, {'world': dict(verified_geography=bound)}, shas.get)
+    assert revalidation_gaps({'a': '2'}, coast, {'world': dict(verified_geography={**bound, 'geography': {'a': '1'}})},
+                             shas.get) == ['world']
+    assert revalidation_gaps({'a': '2'}, coast, {'world': dict(verified_geography={**bound, 'painting_sha256': 'x'})},
+                             shas.get) == ['world']
+
+
 def test_natural_kernel_revalidation_preserves_art_and_generation_provenance():
     """@cc [owner:fontanierh,label:correctness] atlas-carry-scope
     A source-only carry witness (an unchanged extraction carried into current attestations) is valid only
@@ -196,13 +222,9 @@ def test_natural_kernel_revalidation_preserves_art_and_generation_provenance():
     coast = json.loads((atlas.ASSETS / 'coasts/source.json').read_text())
     superseded = witness['current_geography'] != current
     if superseded:  # a later measured revalidation must cover every painting against today's terrain
-        assert coast['geography'] == current
-        for key in witness['unchanged_generation_payload_sha256']:
-            frame = coast['frames'][key]
-            assert frame['sha256'] == sha(f'coasts/{key}.png')
-            assert json.loads((atlas.ASSETS / f'{key}.json').read_text())['verified_geography'] == dict(
-                kind='terrain-reference-revalidation', geography=current, painting_sha256=sha(f'{key}.png'),
-                coast_sha256=frame['sha256'], reference_sha256=frame['reference_sha256'])
+        records = {key: json.loads((atlas.ASSETS / f'{key}.json').read_text())
+                   for key in witness['unchanged_generation_payload_sha256']}
+        assert not revalidation_gaps(current, coast, records, sha)
     for rel, expected in witness['unchanged_art_sha256'].items():
         if superseded and rel.startswith('coasts/'):
             continue  # regenerated masks are bound to the paintings above; the paintings stay pinned
@@ -223,6 +245,8 @@ def test_natural_kernel_revalidation_preserves_art_and_generation_provenance():
         assert coast['natural_kernel_revalidation'] == pin
         assert identity(coast['frames']) == witness['unchanged_coast_frames_sha256']
 
+    if superseded:
+        return  # the live kernel may change after a measured revalidation; the witness binds only its own change
     # Bind the source-only proof to the unchanged function bodies, independently of file splitting/docstrings.
     functions, constants = {}, {}
     for name in ('mountains.py', 'natural_terrain.py'):
