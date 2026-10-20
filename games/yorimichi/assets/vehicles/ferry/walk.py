@@ -3,7 +3,9 @@
 uv run python games/yorimichi/assets/vehicles/ferry/walk.py
 Reads build/yorimichi/ferry/deck_layout.json (written by build.py) and writes, under build/yorimichi/ferry/review/:
 walk_report.json and one top-down layout image per deck (walk_main_deck.png, walk_boat_deck.png,
-walk_monkey_island.png).
+walk_monkey_island.png). It exits 1 when verdict() finds a failure: a route that does not connect or narrows below
+HARD_MIN, a pinch under MIN_WIDTH that is not isolated, a trapping pocket, stair headroom under HEAD, an unseated
+fitting or a lifeboat overlap.
 
 For each deck, a cell is blocked when any proxy covers it in plan, with any part of its height between 0.30 m (the
 step limit) and 2.0 m (required headroom) above the deck. The player capsule's centre (radius 0.22 m) may stand where
@@ -257,6 +259,25 @@ def draw(deck, pinches, routes, marks, path, pockets_=(), scale=40):
     im.save(path)
 
 
+def verdict(report):
+    """Every failure in a walk report, as readable lines (empty when the decks pass)."""
+    out = []
+    for name, dk in report['decks'].items():
+        for r in dk['routes']:
+            if not r.get('connected'):
+                out.append(f"{name}: route {r['route']} does not connect")
+            elif r['bottleneck_width_m'] < HARD_MIN:
+                out.append(f"{name}: route {r['route']} narrows to {r['bottleneck_width_m']} m at {r.get('bottleneck_at')}")
+        out += [f"{name}: pinch {p['clear_width_m']} m at {p['at']} is too narrow" for p in dk['pinch_points'] if p['status'] == 'too narrow']
+        out += [f"{name}: trapping pocket at {p['at']}" for p in dk['trapping_pockets']]
+    head = report['stair']['min_headroom_m']
+    if head != 'open sky' and head < HEAD:
+        out.append(f'stair headroom {head} m is under {HEAD} m')
+    out += [f"unseated fitting {s['label']} at {s.get('at', '')}" for s in report['fitting_seating']['failures']]
+    out += [f'lifeboat overlap {k}: {v}' for k, v in report['lifeboat_overlaps'].items() if v]
+    return out
+
+
 def main():
     L = json.loads((OUT / 'deck_layout.json').read_text())
     proxies = L['proxies']; md = L['main_deck']; mx, mw, mz = (np.array(md[k]) for k in ('x', 'half_width', 'z'))
@@ -334,6 +355,7 @@ def main():
         if 'gap_m' in s:
             b['max_gap_m'] = max(b['max_gap_m'], s['gap_m']); b['min_gap_m'] = min(b['min_gap_m'], s['gap_m'])
     report['lifeboat_overlaps'] = L['lifeboat_overlaps']
+    report['failures'] = verdict(report)
     (REVIEW / 'walk_report.json').write_text(json.dumps(report, indent=2) + '\n')
     for name, dk in report['decks'].items():
         print(name, 'area', dk['walkable_area_m2'], 'components', dk['components'])
@@ -346,7 +368,11 @@ def main():
         print('   slivers', dk['slivers']['count'], 'max width', dk['slivers']['max_width_m'])
     print('stair', {k: v for k, v in report['stair'].items() if k != 'headroom_above_treads_m'})
     print('seating failures', len(bad), 'lifeboat overlaps', L['lifeboat_overlaps'])
+    for f in report['failures']:
+        print('FAIL', f)
+    print('WALK', 'FAIL' if report['failures'] else 'PASS')
+    return 1 if report['failures'] else 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

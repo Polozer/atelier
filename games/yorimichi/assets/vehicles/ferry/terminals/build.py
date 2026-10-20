@@ -1,11 +1,19 @@
 """Ferry terminals at Hidamari and Brinecove, matched to the v2 concepts. Procedural Blender build.
 
 blender --background --factory-startup --threads 3 --python-exit-code 1 -P games/yorimichi/assets/vehicles/ferry/terminals/build.py
-Reads build/yorimichi/ferry/terminals/site.json (site.py: the berths, boarding gates and fender faces). Each terminal is
-modelled in its region's frame (Hidamari: world metres; Brinecove: region-local) and exported with its origin at the
-anchor recorded in the manifest, on the fender face opposite the boarding gate at sea level. Writes FT_*.fbx,
-terminals.blend, manifest.json and walk.json (a ray-cast walk audit from the promenade to the boarding gate).
+Reads build/yorimichi/ferry/terminals/site.json (site.py: the berths, boarding gates, fender faces and the exported
+walk levels), and refuses it when its recorded inputs (world probes, site.py, the ship's build.py) changed or its
+sweep failed. Each terminal is modelled in its region's frame (Hidamari: world metres; Brinecove: region-local) and
+exported with its origin at the anchor recorded in the manifest, on the fender face opposite the boarding gate at sea
+level. Writes FT_*.fbx (render meshes), FT_*_Collision.fbx (UCX_ convex hulls), terminals.blend, manifest.json and
+walk.json.
+
+Audits (any failure exits 1): closed meshes; a ray-cast walk from the promenade over the brow onto the ship's deck
+(step, headroom, width, floor) with ship C at its berth; and ship against terminal in 3D: no triangle of a terminal
+mesh may meet a triangle of the ship at its berth pose, and the gaps of the parts meant to come close (fenders, brow
+body, brow lip on the landing plate) are reported.
 """
+import importlib.util
 import json
 import math
 import sys
@@ -15,12 +23,38 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 import build as F  # noqa: E402  (the ferry's mesh builder; importing it does not build the ship)
 import bpy  # noqa: E402
-from mathutils import Vector  # noqa: E402
+from mathutils import Matrix, Vector  # noqa: E402
 
+sys.modules['ferry_build'] = F               # site.py reads the hull lines from this same module
+_spec = importlib.util.spec_from_file_location('ferry_site', HERE / 'site.py')   # not the stdlib site module
+FS = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(FS)
 OUT = F.OUT / 'terminals'
 SITE = json.loads((OUT / 'site.json').read_text())
+if FS.stale_inputs(SITE) or not SITE.get('pass'):
+    raise SystemExit(f'site.json is stale or failed ({FS.stale_inputs(SITE) or "sweep FAIL"}): rerun world_probe.py and site.py')
 SILL = SITE['ship']['sill_z']
 GATE_W = SITE['ship']['gate_width']
+BROW_W = 1.9            # brow width: clear of the ship's brass gate posts (inner faces 1.04 m off the gate centre)
+LIP = 0.55              # the brow's steel lip runs this far inboard of the hull side, onto the landing plate
+LIP_T, LIP_GAP = 0.02, 0.003    # lip thickness; it rests 3 mm above the plate (resting, never through it)
+HULL_GAP = 0.03         # the brow body stops this far outside the hull side
+FENDER_GAP = 0.05       # hung fenders stop this far off the hull
+PLATE_TOP = F.landing_plate(*F.GATES[0])[1]
+COL = []                # convex collision hulls of the terminal being built (point lists)
+
+
+def col(points):
+    COL.append([tuple(p) for p in points])
+
+
+def col_box(x0, y0, x1, y1, z0, z1):
+    col([(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)])
+
+
+def col_seg(a, b, t, z0, z1):
+    """A thin upright slab along a plan segment (rails, walls)."""
+    d = Vector((b[0] - a[0], b[1] - a[1], 0)); n = Vector((-d.y, d.x, 0)).normalized() * (t / 2)
+    col([(p[0] + s * n.x, p[1] + s * n.y, z) for p in (a, b) for s in (-1, 1) for z in (z0, z1)])
 
 # ------------------------------------------------------------------ materials (sRGB, roughness, metallic)
 TIMBER, TIMBER_DARK, PLANK, PLASTER, KAWARA, RIDGE = 'FT_Timber', 'FT_TimberDark', 'FT_Plank', 'FT_Plaster', 'FT_Kawara', 'FT_KawaraRidge'
@@ -68,6 +102,7 @@ def rail_line(m, pts, z, h=RAIL_H, spacing=1.6, mat=TIMBER):
             m.box((x, y, z + h + 0.03), (0.17, 0.17, 0.06), mat)
         m.beam((a[0], a[1], z + h - 0.05), (b[0], b[1], z + h - 0.05), 0.11, 0.14, mat)
         m.beam((a[0], a[1], z + h * 0.5), (b[0], b[1], z + h * 0.5), 0.07, 0.1, mat)
+        col_seg(a, b, 0.17, z, z + h + 0.06)
 
 
 def solid_stair(m, foot, direction, width, z0, flights, r, tread=TREAD, landing=1.2, top_mat=PLANK, side_mat=TIMBER_DARK,
@@ -96,7 +131,11 @@ def solid_stair(m, foot, direction, width, z0, flights, r, tread=TREAD, landing=
             for sd in (-1, 1):            # stringers on both sides, 0.25 m proud of the pitch line
                 sl = [(us, zs - 0.05), (us, zs + r + 0.25), (u, z + 0.25), (u, z - r - T - 0.05)]
                 m.prism(sl, sd * width / 2 - 0.04 * (1 - sd) - 0.0, sd * width / 2 + 0.04 * (1 + sd), TIMBER)
+            # Collision: a ramp over the nosings of the flight (players walk the stair as a slope), down to the soffit.
+            Wd = lambda uu, zz, vv: tuple(Vector((foot[0], foot[1], z0)) + U * uu + V * zz + A * vv)
+            col([Wd(uu, zz, vv) for uu, zz in ((us, zs), (u, z), (u, z - r - T), (us, zs - T)) for vv in (-width / 2, width / 2)])
             if fi < len(flights) - 1:
+                col([Wd(uu, zz, vv) for uu in (u, u + landing) for zz in (z - T, z) for vv in (-width / 2, width / 2)])
                 m.prism(F.rect(u, z - T, u + landing, z), -width / 2, width / 2, side_mat, top=side_mat, bottom=side_mat)
                 m.prism(F.rect(u, z - 0.02, u + landing, z), -width / 2, width / 2, top_mat)
                 treads.append((u, u + landing, z)); u += landing
@@ -277,29 +316,39 @@ def piles_under(m, xs, ys, z_top, z_bot=-4.0, s=0.34, braces=True, mat=TIMBER_DA
                 m.beam((xa, y, 0.7), (xb, y, z_top - 0.55), 0.1, 0.14, mat)
 
 
-def brow(m, x0, y0, x1, y1, z, width=2.2):
-    """White truss gangway between two points at deck height z (level); handrails 1.0 m."""
-    d = Vector((x1 - x0, y1 - y0, 0)); L = d.length; d.normalize(); nrm = Vector((-d.y, d.x, 0))
-    c = Vector(((x0 + x1) / 2, (y0 + y1) / 2, z))
+def brow(m, shore, hull, inboard, z_shore, width=BROW_W):
+    """White truss gangway from the terminal edge (shore, walking level z_shore) to HULL_GAP outside the hull side
+    (hull); its deck rises to the lip, a steel plate that runs LIP on inboard (unit vector) and rests LIP_GAP above the
+    ship's level landing plate. Handrails 1.0 m; it fits between the ship's gate posts."""
+    z_end = PLATE_TOP + LIP_GAP + LIP_T                  # walking level at the ship end
+    d = Vector((hull[0] - shore[0], hull[1] - shore[1], 0)); L = d.length - HULL_GAP; d.normalize()
+    nrm = Vector((-d.y, d.x, 0)); rise = z_end - z_shore
     U, V, A = frame_axes(d, (0, 0, 1))
-    with m.frame((x0, y0, z), d, nrm, Vector((0, 0, 1))):
-        m.prism(F.rect(0.0, -width / 2, L, width / 2), -0.12, 0.0, WHITE, top=PLANK)
+    with m.frame((shore[0], shore[1], z_shore), U, V, A):     # deck: a profile in (along, up), across the width
+        walk_face = lambda x, y: PLANK if abs(y - x * rise / L) < 1e-4 else WHITE
+        m.prism([(0.0, -0.12), (L, rise - 0.12), (L, rise), (0.0, 0.0)], -width / 2, width / 2, walk_face, top=WHITE, bottom=WHITE)
+    with m.frame((shore[0], shore[1], z_shore), d, nrm, Vector((0, 0, 1))):
+        zz = lambda u: rise * u / L
         for s in (-1, 1):
             yy = s * (width / 2 - 0.05)
-            m.prism(F.rect(0.0, yy - 0.05, L, yy + 0.05), 0.0, 0.12, WHITE)            # kick plate
-            m.beam((0.0, yy, 1.0), (L, yy, 1.0), 0.06, 0.06, WHITE)
-            m.beam((0.0, yy, 0.5), (L, yy, 0.5), 0.04, 0.04, WHITE)
+            m.beam((0.0, yy - 0.0, 0.06), (L, yy, rise + 0.06), 0.1, 0.12, WHITE)                  # kick plate
+            m.beam((0.0, yy, 1.0), (L, yy, rise + 1.0), 0.06, 0.06, WHITE)
+            m.beam((0.0, yy, 0.5), (L, yy, rise + 0.5), 0.04, 0.04, WHITE)
             n = max(2, round(L / 0.55))
             for k in range(n + 1):
-                m.beam((L * k / n, yy, 0.0), (L * k / n, yy, 1.0), 0.05, 0.05, WHITE)
-            for k in range(n):
-                a, b = (L * k / n, 0.12), (L * (k + 1) / n, 0.95)
-                if k % 2:
-                    a, b = (a[0], b[1]), (b[0], a[1])
-                m.beam((a[0], yy, a[1]), (b[0], yy, b[1]), 0.035, 0.035, WHITE)
-        # The hinge barrel on the shore end.
+                u = L * k / n
+                m.beam((u, yy, zz(u)), (u, yy, zz(u) + 1.0), 0.05, 0.05, WHITE)
+        # The hinge barrel on the shore end, and the lip resting on the ship's landing plate.
         m.tube([(0.0, -width / 2, -0.06), (0.0, width / 2, -0.06)], 0.07, IRON, n=8)
-    return {'from': [x0, y0, z], 'to': [x1, y1, z], 'clear_width': round(width - 0.2, 3)}
+        m.prism(F.rect(L - 0.05, -width / 2 + 0.1, L + HULL_GAP + LIP, width / 2 - 0.1), rise - LIP_T, rise, IRON)
+    end = Vector((shore[0], shore[1], 0)) + d * (L + HULL_GAP + LIP)
+    W = lambda u, v, z: (shore[0] + d.x * u + nrm.x * v, shore[1] + d.y * u + nrm.y * v, z)
+    col([W(u, v, z_shore + rise * u / L + dz) for u in (0.0, L) for v in (-width / 2, width / 2) for dz in (-0.12, 0.0)])
+    col([W(u, v, z_end + dz) for u in (L, L + HULL_GAP + LIP) for v in (-width / 2 + 0.1, width / 2 - 0.1) for dz in (-LIP_T, 0.0)])
+    for s in (-1, 1):
+        col_seg(W(0.0, s * (width / 2 - 0.05), 0)[:2], W(L, s * (width / 2 - 0.05), 0)[:2], 0.1, z_shore, z_end + 1.0)
+    return {'from': [round(shore[0], 3), round(shore[1], 3), round(z_shore, 3)], 'to': [round(end.x, 3), round(end.y, 3), round(z_end, 3)],
+            'width': width, 'clear_width': round(width - 0.2, 3), 'rise': round(rise, 3), 'lip_on_plate_z': round(PLATE_TOP + LIP_GAP, 4)}
 
 
 def timetable(m, x, y, z, yaw, w=2.4, h=1.7):
@@ -324,7 +373,7 @@ def timetable(m, x, y, z, yaw, w=2.4, h=1.7):
 
 # ------------------------------------------------------------------ Hidamari (world metres)
 def hidamari():
-    b = SITE['hidamari']['berth']; gx, gy, _ = b['gate']; face = b['face']; quay = b['walk_level_z']
+    b = SITE['hidamari']['berth']; gx, gy, _ = b['gate']; face = b['face']; quay = b['quay_top_z']
     QF = -127.7                       # quay coping outer face
     meshes = {k: F.Mesh(k) for k in ('FT_HD_Jetty', 'FT_HD_Stage', 'FT_HD_Brow', 'FT_HD_WaitingHouse', 'FT_HD_Timetable')}
     J, S, B, W, T = meshes.values()
@@ -341,8 +390,11 @@ def hidamari():
         xx = x0 + 0.5 + k * (x1 - x0 - 1.0) / 8
         J.box((xx, face - 0.25, (quay + 0.35 - 3.5) / 2), (0.36, 0.36, quay + 0.35 + 3.5), BLACK, bevel=0.03)
         J.box((xx, face - 0.27, quay + 0.4), (0.42, 0.42, 0.1), TIMBER_DARK)
-    for xx in (gx - 5.6, gx + 5.6):  # cylindrical fenders hung on chains between the piles
-        J.tube([(xx - 1.1, face - 0.42, 0.9), (xx + 1.1, face - 0.42, 0.9)], 0.38, BLACK, n=10)
+    for xx in (gx - 5.6, gx + 5.6):  # cylindrical fenders hung on chains between the piles, FENDER_GAP off the hull
+        fy = face - (FS.FENDER - FENDER_GAP) + 0.38
+        J.tube([(xx - 1.1, fy, 0.9), (xx + 1.1, fy, 0.9)], 0.38, BLACK, n=10)
+        for x_ in (xx - 0.9, xx + 0.9):
+            J.beam((x_, fy, 1.25), (x_, face - 0.25, quay - 0.4), 0.03, 0.03, IRON)
     rail_line(J, [(x0 + 0.15, QF - 0.3), (x0 + 0.15, face + 0.12), (x1 - 0.15, face + 0.12), (x1 - 0.15, QF - 0.3)], quay)
     for xx in (x0 + 0.7, x1 - 0.7):
         bollard(J, xx, face + 0.7, quay)
@@ -370,8 +422,8 @@ def hidamari():
         post(S, x, gal1 + 9 * TREAD + 0.6, quay, quay + (SILL - quay) * 10 / 19 - 0.05, s=0.22)
     land_y0 = gal1 + 8 * TREAD; land_y1 = land_y0 + 1.2
     # Gallery and stair railings, open at the brow and the stair head.
-    rail_line(S, [(sx0 + 0.1, gal1 - 0.05), (sx0 + 0.1, gal0 + 0.1), (gx - GATE_W / 2 - 0.1, gal0 + 0.1)], SILL)
-    rail_line(S, [(gx + GATE_W / 2 + 0.1, gal0 + 0.1), (sx1 - 0.1, gal0 + 0.1), (sx1 - 0.1, gal1 - 0.05)], SILL)
+    rail_line(S, [(sx0 + 0.1, gal1 - 0.05), (sx0 + 0.1, gal0 + 0.1), (gx - BROW_W / 2 - 0.1, gal0 + 0.1)], SILL)
+    rail_line(S, [(gx + BROW_W / 2 + 0.1, gal0 + 0.1), (sx1 - 0.1, gal0 + 0.1), (sx1 - 0.1, gal1 - 0.05)], SILL)
     rail_line(S, [(sx0 + 0.1, gal1 - 0.05), (gx - 1.2, gal1 - 0.05)], SILL)
     rail_line(S, [(gx + 1.2, gal1 - 0.05), (sx1 - 0.1, gal1 - 0.05)], SILL)
     for s in (-1, 1):                            # stair handrails following the pitch
@@ -391,12 +443,12 @@ def hidamari():
     for x in (gx - 1.0, gx + 1.0):
         lantern(S, x, gal1 - 0.3, ze - 0.55, h=0.3)
         S.beam((x, gal1 - 0.3, ze - 0.25), (x, gal1 - 0.3, ze - 0.2), 0.03, 0.03, IRON)
-    # Brow: level, hinged on the gallery's south edge, over the fender gap and 0.9 m onto the ship's deck.
-    br = brow(B, gx, face, gx, gy - 0.9, SILL, width=GATE_W)
+    # Brow: hinged on the gallery's south edge, over the fender gap to the hull, its lip on the ship's landing plate.
+    br = brow(B, (gx, face), (gx, gy), (0.0, -1.0), SILL)
     # Waiting house on the promenade west of the jetty root: white plaster between dark timber, sliding windows,
     # a door to the jetty side, a bench and lamp in front, kawara roof.
     hx0, hx1, hy0, hy1 = gx - 21.0, gx - 9.0, -122.0, -114.5
-    hz = 2.6                                   # promenade level there (H.height ~2.6 at y -122..-115)
+    hz = b['promenade_z']                      # the highest exported promenade under the house (site.py)
     W.prism(F.rect(hx0 - 0.3, hy0 - 0.3, hx1 + 0.3, hy1 + 0.3), hz - 0.3, hz + 0.18, STONE)
     wh = 2.9
     wall(W, (hx0, hy0), (hx1, hy0), hz + 0.18, wh, 0.18, PLASTER, [(1.2, 2.2, 0.0, 2.15, 'door'), (3.0, 6.0, 0.85, 2.2), (7.0, 10.6, 0.85, 2.2)])
@@ -412,10 +464,26 @@ def hidamari():
         W.lathe((xx, hy0 - 0.8, hz), [(0, 0.22), (0.45, 0.3), (0.5, 0.0)], TERRACOTTA, n=10)
         W.lathe((xx, hy0 - 0.8, hz + 0.45), [(0, 0.3), (0.3, 0.36), (0.6, 0.0)], MOSS, n=10)
     # Timetable board on the promenade at the jetty root, facing the city.
-    timetable(T, gx + 6.5, -122.5, 2.58, 0.0)
-    walk = {'name': 'hidamari', 'route': [(gx, -121.0, 2.6), (gx, QF + 0.2, quay), (gx, foot_y + 1.0, quay),
+    timetable(T, gx + 6.5, -122.5, hz - 0.02, 0.0)
+    col_box(gx + 6.5 - 1.6, -122.8, gx + 6.5 + 1.6, -122.2, hz, hz + 3.2)
+    # Collision for the decks, posts, benches and the waiting house (rails, stairs and brow add their own).
+    col_box(x0, QF, x1, face, quay - deck_t, quay)
+    col_box(sx0, gal0, sx1, gal1, SILL - 0.3, SILL)
+    for x, y in posts:
+        col_box(x - 0.15, y - 0.15, x + 0.15, y + 0.15, quay, ze)
+    for x in (sx0 + 0.6, sx1 - 0.6):
+        col_box(x - 0.25, gal1 + 0.6, x + 0.25, foot_y - 0.6, quay, quay + 0.48)
+    col_box(hx0 - 0.3, hy0 - 0.3, hx1 + 0.3, hy1 + 0.3, hz - 0.3, hz + 0.18)
+    for a_, b_, cuts in (((hx0, hy0), (hx1, hy0), [(1.2, 2.2)]), ((hx1, hy0), (hx1, hy1), []), ((hx1, hy1), (hx0, hy1), []),
+                         ((hx0, hy1), (hx0, hy0), [])):
+        L_ = math.dist(a_, b_); t_ = [(b_[0] - a_[0]) / L_, (b_[1] - a_[1]) / L_]; u_ = 0.0
+        for c0, c1 in cuts + [(L_, L_)]:
+            col_seg((a_[0] + t_[0] * u_, a_[1] + t_[1] * u_), (a_[0] + t_[0] * c0, a_[1] + t_[1] * c0), 0.2, hz + 0.18, hz + 0.18 + wh)
+            u_ = c1
+    walk = {'name': 'hidamari', 'route': [(gx, -121.0, hz), (gx, QF + 0.2, quay), (gx, foot_y + 1.0, quay),
                                          (gx, foot_y - 0.05, quay)] +
-            [(gx, y, None) for y in (land_y1, land_y0)] + [(gx, gal1, SILL), (gx, gal0 + 0.5, SILL), (gx, face, SILL), (gx, gy - 0.8, SILL)],
+            [(gx, y, None) for y in (land_y1, land_y0)] + [(gx, gal1, SILL), (gx, gal0 + 0.5, SILL), (gx, face, SILL),
+                                                          (gx, gy, None), (gx, gy - 1.5, None)],
             'gate': [gx, gy, SILL], 'stair': {k: v for k, v in st.items() if k != 'treads'}, 'brow': br,
             'anchor': [gx, face, 0.0], 'frame': 'world'}
     return meshes, walk
@@ -423,7 +491,7 @@ def hidamari():
 
 # ------------------------------------------------------------------ Brinecove (region-local metres)
 def brinecove():
-    b = SITE['brinecove']['berth']; gx, gy, _ = b['gate']; face = b['face']; deck = b['walk_level_z']
+    b = SITE['brinecove']['berth']; gx, gy, _ = b['gate']; face = b['face']; deck = b['pier_deck_z']
     PW = face + 0.5                   # the pier's west edge (x -244.5); the pier runs x -244.5..-231.5
     meshes = {k: F.Mesh(k) for k in ('FT_BC_Landing', 'FT_BC_Brow', 'FT_BC_Pavilion', 'FT_BC_TicketHut', 'FT_BC_Fenders', 'FT_BC_Props')}
     Lm, B, P, H, Fd, Pr = meshes.values()
@@ -456,22 +524,27 @@ def brinecove():
     r = (SILL - deck) / 7
     sx_ = (lx0 + lx1) / 2; foot_y = ly1 + 6 * 0.30
     st = solid_stair(Lm, (sx_, foot_y), (0, -1), 2.4, deck, [7], r, tread=0.30)
-    rail_line(Lm, [(sx_ - 1.25, ly1 - 0.1), (lx0 + 0.1, ly1 - 0.1), (lx0 + 0.1, gy + GATE_W / 2 + 0.1)], SILL)
-    rail_line(Lm, [(lx0 + 0.1, gy - GATE_W / 2 - 0.1), (lx0 + 0.1, ly0 + 0.1), (lx1 - 0.1, ly0 + 0.1), (lx1 - 0.1, ly1 - 0.1),
+    rail_line(Lm, [(sx_ - 1.25, ly1 - 0.1), (lx0 + 0.1, ly1 - 0.1), (lx0 + 0.1, gy + BROW_W / 2 + 0.1)], SILL)
+    rail_line(Lm, [(lx0 + 0.1, gy - BROW_W / 2 - 0.1), (lx0 + 0.1, ly0 + 0.1), (lx1 - 0.1, ly0 + 0.1), (lx1 - 0.1, ly1 - 0.1),
                    (sx_ + 1.25, ly1 - 0.1)], SILL)
     for s in (-1, 1):
         xx = sx_ + s * 1.27
         Lm.beam((xx, foot_y + 0.1, deck + 0.95), (xx, ly1, SILL + 0.95), 0.08, 0.1, TIMBER)
         Lm.box((xx, foot_y + 0.1, deck + 0.5), (0.12, 0.12, 1.0), TIMBER)
-    br = brow(B, lx0, gy, gx - 0.9, gy, SILL, width=GATE_W)
-    # Fenders along the pier's west face where the hull lies (y -30..50): black piles and hung tyres.
+    br = brow(B, (lx0, gy), (gx, gy), (-1.0, 0.0), SILL)
+    # Fenders along the pier's west face where the hull lies (y -30..50): black piles standing off the pier edge on
+    # timber chocks, and tyres hung on their outer faces, FENDER_GAP off the hull.
+    px_ = face - 0.07                                 # pile centre: outer face 0.25 m inside the fender line
+    tx_ = face - (FS.FENDER - FENDER_GAP) + 0.13       # tyre centre: its outer face FENDER_GAP off the hull
     for k in range(11):
         yy = -30 + k * 8.0
-        Fd.box((PW - 0.25, yy, (deck + 0.3 - 3.0) / 2), (0.36, 0.36, deck + 0.3 + 3.0), BLACK, bevel=0.03)
+        Fd.box((px_, yy, (deck + 0.3 - 3.0) / 2), (0.36, 0.36, deck + 0.3 + 3.0), BLACK, bevel=0.03)
+        for zc in (1.6, deck - 0.6):
+            Fd.box(((px_ + 0.18 + PW + 0.05) / 2, yy, zc), (PW + 0.05 - px_ - 0.18 + 0.02, 0.3, 0.25), TIMBER_DARK)
         for j in (0, 1):
             ty = yy + 2.7 + j * 2.6
-            tyre(Fd, (PW - 0.2, ty, 1.9), (-1, 0, 0))
-            Fd.beam((PW - 0.15, ty, 2.3), (PW - 0.05, ty, deck - 0.05), 0.04, 0.04, ROPE)
+            tyre(Fd, (tx_, ty, 1.9), (-1, 0, 0))
+            Fd.beam((tx_ + 0.05, ty, 2.3), (px_ - 0.18, ty, deck - 0.3), 0.04, 0.04, ROPE)
     for yy in (-22.0, 45.0):
         bollard(Fd, PW + 0.6, yy, deck)
         rope_coil(Fd, PW + 1.4, yy + 0.9, deck)
@@ -522,27 +595,109 @@ def brinecove():
     net_pile(Pr, PW + 11.6, gy + 14.6, deck, r=0.6)
     rope_coil(Pr, PW + 0.9, gy - 6.0, deck)
     rope_coil(Pr, PW + 12.0, gy - 10.6, deck, R=0.5)
+    col_box(lx0, ly0, lx1, ly1, deck, SILL)
+    for x in (px0 + 0.2, px1 - 0.2):
+        for y in (py0 + 0.2, (py0 + py1) / 2, py1 - 0.2):
+            col_box(x - 0.14, y - 0.14, x + 0.14, y + 0.14, deck, deck + 3.1)
+    for x in (px0 + 0.6, px1 - 0.6):
+        col_box(x - 0.25, py0 + 1.0, x + 0.25, py1 - 1.0, deck, deck + 0.48)
+    col_box(hx0, hy0, hx1, hy1, deck, z1 + wh)
+    col_box((hx0 + hx1) / 2 - 0.9, hy1 + 1.15, (hx0 + hx1) / 2 + 0.9, hy1 + 1.65, deck, deck + 3.2)
+    for k in range(11):
+        yy = -30 + k * 8.0
+        col_box(px_ - 0.18, yy - 0.18, PW, yy + 0.18, -3.0, deck + 0.3)
     walk = {'name': 'brinecove', 'route': [(PW + 4.7, gy + 18.0, deck), (PW + 4.7, foot_y + 1.6, deck), (sx_, foot_y + 0.7, deck),
                                           (sx_, foot_y - 0.05, deck), (sx_, ly1 - 0.3, SILL), (sx_, gy + 0.6, SILL),
-                                          (lx0 + 0.5, gy, SILL), (lx0, gy, SILL), (gx - 0.8, gy, SILL)],
+                                          (lx0 + 0.5, gy, SILL), (lx0, gy, SILL), (gx, gy, None), (gx - 1.5, gy, None)],
             'gate': [gx, gy, SILL], 'stair': {k: v for k, v in st.items() if k != 'treads'}, 'brow': br,
             'anchor': [face, gy, 0.0], 'frame': 'brinecove-local (world = local + (-1500, -120))'}
     return meshes, walk
 
 
 # ------------------------------------------------------------------ audit, export
-def context_ground(name):
-    """Audit-only stand-ins for the ground the kit stands on (not exported): Hidamari's quay coping and promenade,
-    Brinecove's west pier deck."""
-    m = F.Mesh('ctx_' + name)
-    if name == 'hidamari':
-        gx = SITE['hidamari']['berth']['gate'][0]
-        m.box((gx, -126.0, 2.475 - 0.5), (60.0, 3.4, 1.0), STONE)          # coping y -127.7..-124.3, top 2.475
-        m.box((gx, -117.2, 2.6 - 0.5), (60.0, 14.2, 1.0), STONE)           # promenade (H.height 2.6-2.8 there)
-    else:
-        PW = SITE['brinecove']['berth']['face'] + 0.5
-        m.box((PW + 6.5, -26.0, 5.25 - 0.5), (13.0, 172.0, 1.0), STONE)    # west pier x -244.5..-231.5, y -112..60
-    return m
+STEP_MAX, HEADROOM_MIN, WIDTH_MIN = 0.25, 2.1, 0.9     # walk audit limits (metres)
+SHIP_PARTS = ('hull', 'superstructure', 'funnel', 'lifeboats', 'rails', 'masts', 'fittings')
+CLOSE_PARTS = {'FT_HD_Jetty': 'fenders', 'FT_HD_Brow': 'brow', 'FT_BC_Fenders': 'fenders', 'FT_BC_Brow': 'brow'}
+
+
+# Exported world geometry the ferry's B3 world change removes; the walk audit leaves it out and reports it.
+WORLD_CUTS = {'hidamari': [{'what': "the quay's timber rail across the jetty root", 'x': 'jetty', 'y': (-126.3, -125.7),
+                            'above': 'quay'}]}
+
+
+def context_ground(name, route):
+    """Audit-only ground (not exported): the exported world's own triangles (world_probe.py: ground and solids) within
+    3 m of the route, less the declared WORLD_CUTS. Returns the mesh and the cuts with the triangles they removed."""
+    w = FS.load_world(name)
+    tris = __import__('numpy').concatenate([w['ground'], w['solid']])
+    xs = [p[0] for p in route]; ys = [p[1] for p in route]
+    lo, hi = tris.min(1), tris.max(1)
+    keep = (hi[:, 0] >= min(xs) - 3) & (lo[:, 0] <= max(xs) + 3) & (hi[:, 1] >= min(ys) - 3) & (lo[:, 1] <= max(ys) + 3)
+    b = SITE[name]['berth']; cuts = []
+    for c in WORLD_CUTS.get(name, []):
+        gx = b['gate'][0]
+        x0, x1 = (gx - 8.0, gx + 8.0) if c['x'] == 'jetty' else c['x']
+        zmin = b['quay_top_z'] + 0.05 if c['above'] == 'quay' else c['above']
+        cut = keep & (hi[:, 0] >= x0) & (lo[:, 0] <= x1) & (lo[:, 1] >= c['y'][0]) & (hi[:, 1] <= c['y'][1]) & (lo[:, 2] >= zmin)
+        span = [round(float(lo[cut, 0].min()), 2), round(float(hi[cut, 0].max()), 2)] if cut.any() else None
+        cuts.append({**{k: v for k, v in c.items() if k != 'x'}, 'x': [round(x0, 2), round(x1, 2)], 'triangles_removed': int(cut.sum()),
+                     'removed_x_span': span})
+        keep &= ~cut
+    m = bpy.data.meshes.new('ctx_' + name); t = tris[keep]
+    m.from_pydata(t.reshape(-1, 3).tolist(), [], [[3 * k, 3 * k + 1, 3 * k + 2] for k in range(len(t))])
+    return m, cuts
+
+
+def ship_meshes(mats):
+    """Ship C's render meshes in its own frame (audit only, never exported here)."""
+    out = []
+    for part in SHIP_PARTS:
+        m = F.Mesh('FY_' + part.title()); getattr(F, part)(m); F.check(m)
+        obj, _ = F.to_object(m, mats); obj.hide_render = True
+        for c in list(obj.users_collection):
+            c.objects.unlink(obj)
+        out.append(obj)
+    return out
+
+
+def ship_at(ship, berth, coll):
+    """Linked copies of the ship's meshes at a berth pose (waterline at z 0 in both frames)."""
+    M = Matrix.Translation((berth['centre'][0], berth['centre'][1], 0.0)) @ Matrix.Rotation(math.radians(berth['heading_deg']), 4, 'Z')
+    objs = []
+    for o in ship:
+        c = o.copy(); c.matrix_world = M; coll.objects.link(c); objs.append(c)
+    return objs
+
+
+def _bvh(o):
+    from mathutils.bvhtree import BVHTree
+    deps = bpy.context.evaluated_depsgraph_get(); me = o.evaluated_get(deps).to_mesh()
+    verts = [o.matrix_world @ v.co for v in me.vertices]; polys = [list(p.vertices) for p in me.polygons]
+    return BVHTree.FromPolygons(verts, polys), verts
+
+
+def ship_clash(terminal, ship):
+    """Ship against terminal in 3D: every terminal mesh's triangles against every ship mesh's (BVH overlap), and the
+    least vertex-to-surface gap of the parts meant to come close (fenders, brow)."""
+    bpy.context.view_layer.update()
+    ships = [(o.name.split('.')[0], _bvh(o)[0]) for o in ship]
+    clashes, gaps = [], {}
+    for t in terminal:
+        bt, verts = _bvh(t)
+        name = t.name.split('.')[0]
+        for sname, bs in ships:
+            pairs = bt.overlap(bs)
+            if pairs:
+                clashes.append({'terminal': name, 'ship': sname, 'triangle_pairs': len(pairs)})
+        if name in CLOSE_PARTS:
+            best = (99.0, None, None)
+            for sname, bs in ships:
+                for v in verts:
+                    hit = bs.find_nearest(v, 2.0)
+                    if hit[0] is not None and hit[3] < best[0]:
+                        best = (hit[3], sname, [round(c, 3) for c in v])
+            gaps[name] = {'part': CLOSE_PARTS[name], 'min_gap_m': round(best[0], 4), 'to': best[1], 'at': best[2]}
+    return {'clashes': clashes, 'close_gaps': gaps, 'pass': not clashes}
 
 
 def walk_audit(objs, walk):
@@ -557,7 +712,7 @@ def walk_audit(objs, walk):
         verts += [o.matrix_world @ v.co for v in me.vertices]; polys += [[base + i for i in p.vertices] for p in me.polygons]
     bvh = BVHTree.FromPolygons(verts, polys)
     pts = walk['route']; z = pts[0][2]; rows = []
-    worst = {'max_step': 0.0, 'min_headroom': 99.0, 'min_width': 99.0, 'no_floor': 0}
+    worst = {'max_step': 0.0, 'min_headroom': 99.0, 'min_width': 99.0, 'no_floor': 0, 'blocked': 0}
     for (ax, ay, _), (bx, by, _) in zip(pts, pts[1:]):
         L = math.hypot(bx - ax, by - ay); n = max(1, int(L / 0.1)); d = Vector(((bx - ax) / L, (by - ay) / L, 0))
         side = Vector((-d.y, d.x, 0))
@@ -568,6 +723,12 @@ def walk_audit(objs, walk):
                 worst['no_floor'] += 1; rows.append({'at': [round(p.x, 2), round(p.y, 2)], 'issue': 'no floor'}); continue
             nz = hit[0].z
             at = [round(p.x, 2), round(p.y, 2), round(nz, 3)]
+            if k:                                     # nothing across the way at knee, waist or head height
+                back = p - d * (L / n)
+                for hgt in (0.35, 0.95, 1.6):
+                    o = Vector((back.x, back.y, z + hgt))
+                    if bvh.ray_cast(o, d, L / n)[0] is not None:
+                        worst['blocked'] += 1; rows.append({'at': at, 'issue': f'blocked at {hgt} m'}); break
             step = nz - z; z = nz
             if abs(step) > worst['max_step']:
                 worst['max_step'] = abs(step); worst['max_step_at'] = at
@@ -584,10 +745,21 @@ def walk_audit(objs, walk):
                     worst['min_width'] = w; worst['min_width_at'] = at + [hgt]
     worst = {k: round(v, 3) if isinstance(v, float) else v for k, v in worst.items()}
     worst['route'] = [[round(c, 3) if c is not None else None for c in p] for p in pts]
-    worst['pass'] = worst['max_step'] <= 0.25 and worst['min_headroom'] >= 2.1 and worst['min_width'] >= 0.9 and not worst['no_floor']
+    worst['pass'] = (worst['max_step'] <= STEP_MAX and worst['min_headroom'] >= HEADROOM_MIN and worst['min_width'] >= WIDTH_MIN
+                     and not worst['no_floor'] and not worst['blocked'])
     worst['end_z'] = round(z, 3); worst['gate_sill'] = round(SILL, 3)
     worst['issues'] = rows[:20]
     return worst
+
+
+def fbx(path, objs, smooth='EDGE'):
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in objs:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objs[0]
+    bpy.ops.export_scene.fbx(filepath=str(path), use_selection=True, apply_unit_scale=True, apply_scale_options='FBX_SCALE_ALL',
+                             axis_forward='-Y', axis_up='Z', object_types={'MESH'}, mesh_smooth_type=smooth, bake_anim=False,
+                             use_custom_props=False)
 
 
 def export(meshes, anchor, mats, objs_out):
@@ -596,56 +768,88 @@ def export(meshes, anchor, mats, objs_out):
         m.verts[:] = [(x - anchor[0], y - anchor[1], z - anchor[2]) for x, y, z in m.verts]
         rep = F.check(m)
         obj, names = F.to_object(m, mats)
-        obj.location = anchor
         tris = sum(len(f) - 2 for f in m.faces)
         report[name] = {'triangles': tris, 'materials': names, **rep}
         print(f'{name}: {tris} triangles, {rep}')
-        bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True); bpy.context.view_layer.objects.active = obj
-        loc = tuple(obj.location); obj.location = (0, 0, 0)
-        bpy.ops.export_scene.fbx(filepath=str(OUT / 'assets' / f'{name}.fbx'), use_selection=True, apply_unit_scale=True,
-                                 apply_scale_options='FBX_SCALE_ALL', axis_forward='-Y', axis_up='Z', object_types={'MESH'},
-                                 mesh_smooth_type='EDGE', bake_anim=False, use_custom_props=False)
-        obj.location = loc
+        fbx(OUT / 'assets' / f'{name}.fbx', [obj])
+        obj.location = anchor
         objs_out.append(obj)
     return report
+
+
+def export_collision(prefix, anchor):
+    """FT_<prefix>_Collision.fbx: a tiny placeholder render mesh plus one UCX_ convex hull per COL entry, relative to
+    the terminal's anchor. Returns the hull count; fails on a hull with no volume."""
+    import bmesh
+    objs = []
+    me = bpy.data.meshes.new(prefix + '_Collision'); s_ = 0.05
+    me.from_pydata([(x * s_, y * s_, z * s_ - 2.0) for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)], [],
+                   [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]])
+    objs.append(bpy.data.objects.new(me.name, me))
+    for i, pts in enumerate(COL):
+        bm = bmesh.new()
+        for p in pts:
+            bm.verts.new((p[0] - anchor[0], p[1] - anchor[1], p[2] - anchor[2]))
+        bmesh.ops.convex_hull(bm, input=bm.verts)
+        for v in [v for v in bm.verts if not v.link_faces]:
+            bm.verts.remove(v)
+        cm = bpy.data.meshes.new(f'UCX_{prefix}_Collision_{i:03d}'); bm.to_mesh(cm); bm.free()
+        if len(cm.polygons) < 4:
+            raise SystemExit(f'{cm.name}: degenerate collision hull')
+        objs.append(bpy.data.objects.new(cm.name, cm))
+    for o in objs:
+        bpy.context.scene.collection.objects.link(o)
+    fbx(OUT / 'assets' / f'{prefix}_Collision.fbx', objs, smooth='FACE')
+    for o in objs:
+        data = o.data; bpy.data.objects.remove(o); bpy.data.meshes.remove(data)
+    return len(COL)
 
 
 def main():
     (OUT / 'assets').mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     mats = F.make_materials()
-    manifest = {'units': 'metres, z up; Hidamari in world metres, Brinecove region-local', 'sill_z': SILL, 'terminals': {}}
+    ship = ship_meshes(mats)
+    manifest = {'units': 'metres, z up; Hidamari in world metres, Brinecove region-local', 'sill_z': SILL,
+                'site_inputs': SITE['inputs'], 'limits': {'step_max': STEP_MAX, 'headroom_min': HEADROOM_MIN, 'width_min': WIDTH_MIN},
+                'terminals': {}}
     walks = {}
-    ok = True
-    for name, fn in (('hidamari', hidamari), ('brinecove', brinecove)):
+    failures = []
+    for name, fn, prefix in (('hidamari', hidamari, 'FT_HD'), ('brinecove', brinecove, 'FT_BC')):
+        COL.clear()
         meshes, walk = fn()
         objs = []
         coll = bpy.data.collections.new(name); bpy.context.scene.collection.children.link(coll)
         rep = export(meshes, walk['anchor'], mats, objs)
+        hulls = export_collision(prefix, walk['anchor'])
         for o in objs:
             for c in o.users_collection:
                 c.objects.unlink(o)
             coll.objects.link(o)
-        ctx = context_ground(name); F.check(ctx); cobj, _ = F.to_object(ctx, mats); coll.objects.link(cobj)
-        for c in list(cobj.users_collection):
-            if c is not coll:
-                c.objects.unlink(cobj)
+        cme, cuts = context_ground(name, walk['route']); cobj = bpy.data.objects.new(cme.name, cme); coll.objects.link(cobj)
         cobj.hide_render = True
-        audit = walk_audit(objs + [cobj], walk)
-        walks[name] = {**walk, 'audit': audit}
+        moored = ship_at(ship, SITE[name]['berth'], coll)
+        clash = ship_clash(objs, moored)
+        audit = walk_audit(objs + [cobj] + moored, walk)
+        walks[name] = {**walk, 'audit': audit, 'ship_clash': clash, 'world_cuts_pending': cuts}
         manifest['terminals'][name] = {'anchor': walk['anchor'], 'frame': walk['frame'], 'meshes': rep, 'stair': walk['stair'],
-                                       'brow': walk['brow'], 'gate': walk['gate'], 'walk': audit,
+                                       'brow': walk['brow'], 'gate': walk['gate'], 'walk': audit, 'ship_clash': clash,
+                                       'world_cuts_pending': cuts,
+                                       'collision': {'file': f'assets/{prefix}_Collision.fbx', 'convex_hulls': hulls},
                                        'triangles': sum(v['triangles'] for v in rep.values())}
         print(name, 'walk audit', audit)
-        bad = [n for n, v in rep.items() if v['open_edges']]
-        ok &= not bad and audit['pass']
-        if bad:
-            print('OPEN EDGES', bad)
+        print(name, 'ship clash', clash)
+        failures += [f'{name}: open edges in {n}' for n, v in rep.items() if v['open_edges']]
+        failures += [f'{name}: walk audit failed'] * (not audit['pass'])
+        failures += [f'{name}: {c["terminal"]} meets {c["ship"]} ({c["triangle_pairs"]} triangle pairs)' for c in clash['clashes']]
+    manifest['failures'] = failures
     (OUT / 'walk.json').write_text(json.dumps(walks, indent=1) + '\n')
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n')
     bpy.ops.wm.save_as_mainfile(filepath=str(OUT / 'terminals.blend'))
-    print('TERMINALS BUILD', 'PASS' if ok else 'FAIL')
-    if not ok:
+    for f in failures:
+        print('FAIL', f)
+    print('TERMINALS BUILD', 'FAIL' if failures else 'PASS')
+    if failures:
         raise SystemExit(1)
 
 

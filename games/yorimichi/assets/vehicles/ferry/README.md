@@ -100,34 +100,60 @@ uv run python games/yorimichi/assets/vehicles/ferry/compare.py
 ## Terminals
 
 [`terminals/`](terminals/) holds the berths and the terminal kits for Hidamari and Brinecove. Like the ship, they are
-Blender-only: nothing is placed in the world or imported yet.
+Blender-only: nothing is placed in the world or imported yet. Run them in this order; each step fails on its gate.
 
-- [`site.py`](terminals/site.py) runs without Blender. It checks each berth by swept path: the ship's full outline
-  (half-width plus 0.4 m) and its underwater footprint are swept along the authored arrival and departure manoeuvres
-  (ahead, crab, pivot, arc), and it reports the clearance to quays, piers, breakwaters and moored boats (4 m minimum)
-  and the keel limit (−3.3 m: 0.5 m keel clearance plus 0.2 m margin). It writes
-  `build/yorimichi/ferry/terminals/site.json` (berth pose, gate, fender face, terminal deck, walk level and the
-  manoeuvre results) with plan images. The manoeuvres stay authored data here; the ferry's runtime will follow them.
-  - Hidamari: the berth is centred at (855, −145), bow west, on a jetty off the quay (x 831.8–847.8, fender face
-    y −138.8). The ship arrives north along x 872, pivots at (872, −190) and crabs onto the fenders; it leaves in
-    reverse. Nearest moored workboat: 4.14 m.
-  - Brinecove: the berth lies along the pier's west face (local (−251.2, 10), bow north). The ship stands off 4 m
-    and crabs on; it leaves by crabbing 40 m west, pivoting 180° and running 260 m ahead.
-- [`seabed_probe.py`](terminals/seabed_probe.py) (Blender) ray-casts every wet cell of both swept paths onto the
-  exported harbour meshes (HD_Terrain plus the far hills, and the Brinecove ground). It fails on any miss or on a
-  seabed above the keel limit. The highest seabed is −3.318 m at Hidamari (0.718 m keel clearance) and −3.916 m at
-  Brinecove.
-- [`build.py`](terminals/build.py) (Blender) builds the kits from site.json and writes `terminals.blend` and FBX files:
-  - Hidamari: `FT_HD_Jetty` (piles, deck, black fenders), `FT_HD_Stage` (a two-level timber boarding stage: the
-    ship's gate is at 6.94 m, 4.5 m above the quay coping, so a stair of 19 equal risers climbs to a gallery at
-    sill height under a kawara roof), `FT_HD_Brow`, `FT_HD_WaitingHouse` and `FT_HD_Timetable`.
-  - Brinecove: `FT_BC_Landing` (a framed timber stage at sill height, closed underneath, with a 7-riser stair down
-    to the pier deck), `FT_BC_Brow`, `FT_BC_Pavilion`, `FT_BC_TicketHut`, `FT_BC_Fenders` and `FT_BC_Props`.
-  - A walk audit ray-casts each route (quay to gate) for step height, headroom and width, against plain stand-ins
-    for the existing quay, promenade and pier. It fails above a 0.25 m step, under 2.1 m headroom, under 0.9 m width or where a route has no floor.
-    Hidamari: step 0.235 m, headroom 2.24 m, width 2.05 m. Brinecove: step 0.241 m, headroom 4.0 m, width 2.05 m.
-- [`render.py`](terminals/render.py) renders the kits with ship C at each berth (`TERMINAL_VIEWS=a,b` renders a
-  subset), and [`compare.py`](terminals/compare.py) puts them beside the v2 concepts.
+1. [`world_probe.py`](terminals/world_probe.py) (Blender, `-- WORLD_BUILD`) exports the real geometry around both
+   berths from a built world: the ground (HD_Terrain and the far hills; the Brinecove ground tiles) and every solid the
+   game places there (Hidamari's harbour mesh and every `city.json` instance at its position, yaw and scale, including
+   the moored HD_Boat workboats; every Brinecove `runtime.json` group at each transform, read back from Unreal's frame).
+   It writes `world_<harbour>.npz` with the sha256 of every file it read.
+2. [`site.py`](terminals/site.py) runs without Blender. It sweeps the ship's full outline (half-width plus 0.4 m) and
+   its underwater footprint along the authored arrival and departure manoeuvres (ahead, crab, berth, pivot, glide)
+   against those exported triangles:
+   - Structure rule: the outline keeps 4 m from every exported solid and from land while manoeuvring
+     (`STRUCTURE_CLEARANCE`). Only on the berthing crab, onto or off the fenders, may the berth's own structure (the
+     terminal deck and the exported solids inside the berth zone) come closer, and the outline must never touch it.
+     Everything outside the berth zone keeps 4 m, alongside too.
+   - Keel rule: the exported seabed under the underwater footprint stays at or below −3.3 m (0.5 m keel clearance plus
+     0.2 m margin). A swept cell with no exported ground counts as grounding.
+   - It also measures the walk levels the kits stand on from the exported surfaces (Hidamari quay coping and
+     promenade, Brinecove pier deck) and records the probes' and its own code's sha256 in `site.json`.
+   - Hidamari: berth at (855, −145), bow west, on a jetty off the quay. The ship arrives north along x 872, pivots at
+     (872, −190), glides to the stand-off line and crabs onto the fenders; it leaves in reverse. Nearest exported solid
+     while moving: an HD_Boat workboat at 4.49 m. Seabed under the keel: −3.32 m at worst.
+   - Brinecove: berth along the west pier's west face (local (−251.2, 10), bow north). The ship runs north 4 m west of
+     the berth line, east of the rowboat moored at (−270, −145), glides 9 m west at y −95 to pass west of the rowboat
+     moored at (−250, −40), and crabs 13 m east onto the fenders. It leaves by crabbing 40 m west, pivoting 180° and
+     running 260 m south. Nearest exported solid while moving: 5.0 m. Seabed under the keel: −3.92 m at worst.
+3. [`build.py`](terminals/build.py) (Blender) refuses a `site.json` whose recorded inputs changed or whose sweep
+   failed, builds the kits and writes `terminals.blend`, FBX render meshes and `FT_HD_Collision.fbx` /
+   `FT_BC_Collision.fbx` (one `UCX_` convex hull per deck, stair flight (as a ramp), landing, brow, rail run, post,
+   bench and wall; a tiny placeholder render mesh to hide or delete after import):
+   - Hidamari: `FT_HD_Jetty` (piles, deck, black fenders hung 5 cm off the hull), `FT_HD_Stage` (a two-level timber
+     boarding stage: the ship's gate is at 6.94 m, 4.5 m above the quay coping, so a stair of 19 equal risers climbs to
+     a gallery at sill height under a kawara roof), `FT_HD_Brow`, `FT_HD_WaitingHouse` and `FT_HD_Timetable`.
+   - Brinecove: `FT_BC_Landing` (a framed timber stage at sill height, closed underneath, with a 7-riser stair down to
+     the pier deck), `FT_BC_Brow`, `FT_BC_Pavilion`, `FT_BC_TicketHut`, `FT_BC_Fenders` (piles standing off the pier
+     edge on chocks, tyres 5 cm off the hull) and `FT_BC_Props`.
+   - Brow: 1.9 m wide, so it passes between the ship's brass gate posts (inner faces 1.04 m off the gate centre). Its
+     body stops 3 cm outside the hull side and rises to a steel lip that rests 3 mm above the ship's level landing
+     plate, 0.55 m inboard. At the gates the ship's covering board stops and the landing plate runs out to the hull
+     edge.
+   - Audits, each failing the build: closed meshes; ship against terminal in 3D, with ship C's meshes at the berth
+     pose (no terminal triangle may meet a ship triangle; the fender and brow gaps are reported); and a ray-cast walk
+     from the promenade over the brow onto the ship's deck, on the exported world's own surfaces near the route and
+     the ship itself (step at most 0.25 m, headroom at least 2.1 m, width at least 0.9 m, a floor everywhere, nothing
+     across the way at knee, waist or head height). World geometry that B3 must remove is declared in `WORLD_CUTS`
+     and left out of the walk; `manifest.json` reports it under `world_cuts_pending` (today: Hidamari's quay timber
+     rail across the jetty root).
+4. [`render.py`](terminals/render.py) renders the kits with ship C at each berth (`TERMINAL_VIEWS=a,b` renders a
+   subset), and [`compare.py`](terminals/compare.py) puts them beside the v2 concepts.
 
-Still to do when the ferry goes into the world: import and placement, the cut in Hidamari's quay timber rail at the
-jetty root, and a game walk of both boarding routes.
+`walk.py` (the ship's decks) also gates: it exits 1 on a route that does not connect or narrows below 0.6 m, a pinch
+under 0.9 m that is not isolated, a trapping pocket, stair headroom under 2.0 m, an unseated fitting or a lifeboat
+overlap. `tests/test_ferry_site.py` covers the sweep, the rasterising, the berth-zone rule, input binding, the brow
+fit and the walk verdicts on small fixtures, without Blender or a world build.
+
+Still to do when the ferry goes into the world (B3): import and placement of the kits and their collision, the cut in
+Hidamari's quay timber rail at the jetty root (the `world_cuts_pending` entry), the ferry runtime following these manoeuvres, rerunning `world_probe.py`
+and `site.py` on the build that ships, and a game walk of both boarding routes.

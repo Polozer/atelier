@@ -97,6 +97,39 @@ def deck_half(x):
     return half_width(x, deck_z(x))
 
 
+PLATE_DEPTH = 0.65                        # landing plate, inboard from the hull edge at a gate
+
+
+def landing_plate(x, width):
+    """(underside z, top z) of the brass landing plate at a gate: level on top, 3 cm above the highest deck under it,
+    and 2 cm into the deck at its lowest point."""
+    lo, hi = min(deck_z(x - width / 2), deck_z(x + width / 2)), max(deck_z(x - width / 2), deck_z(x + width / 2))
+    return lo - 0.02, hi + 0.03
+
+
+def gate_runs(edge):
+    """Split a deck-edge polyline (sorted by x) where it crosses a boarding gate, ending exactly at the gate edges."""
+    runs, run = [], []
+    cuts = [(x - w / 2, x + w / 2) for x, w in GATES]
+    inside = lambda x: any(a < x < b for a, b in cuts)
+    for p, q in zip(edge, edge[1:] + [None]):
+        if not inside(p[0]):
+            run.append(p)
+        if q is None:
+            break
+        for a, b in cuts:
+            for c, entering in ((a, True), (b, False)):
+                if min(p[0], q[0]) < c < max(p[0], q[0]):
+                    t = (c - p[0]) / (q[0] - p[0]); cp = tuple(u + (v - u) * t for u, v in zip(p, q))
+                    if entering == (q[0] > p[0]):
+                        run.append(cp); runs.append(run); run = []
+                    else:
+                        run = [cp]
+    if len(run) > 1:
+        runs.append(run)
+    return [r for r in runs if len(r) > 1]
+
+
 def hull_normal(x, z, side=-1):
     """Outward plan normal of the hull side at (x, z); side -1 is starboard."""
     h = 0.05
@@ -568,10 +601,12 @@ def hull(m):
     verts, faces, mats = cut_solid(verts, faces, mats, [pocket_cutter(s) for s in (-1, 1)], POCKET)
     m.part(verts, faces, mats)
 
-    # Rounded covering board along the deck edge, both sides.
+    # Rounded covering board along the deck edge, both sides. It stops at the boarding gates, where the landing plate
+    # runs out to the hull edge, so a brow's lip lies flat on the plate.
     for side in (-1, 1):
         edge = [(x, side * max(0.0, w - 0.05), z + 0.03) for x, w, z in (g[R - 1] for g in grid)]
-        m.tube(edge, 0.1, WHITE, n=6)
+        for run in gate_runs(edge):
+            m.tube(run, 0.1, WHITE, n=6)
 
     # Gold rope moulding: one twisted rope from bow to bow around the stern.
     rope = [g[6] for g in grid]
@@ -609,12 +644,14 @@ def hull(m):
                     m.ring_prism(circle(0.42, 12), circle(0.29, 12), -0.06, 0.08, WHITE)
         anchor_pocket(m, side)
 
-    # Boarding openings: brass landing plates at the gates in the main-deck rail.
+    # Boarding openings: brass landing plates at the gates in the main-deck rail, out to the hull edge. The top is level
+    # (a brow lip rests on it) and the underside follows the sheer down, so no edge floats.
     for x, width in GATES:
         for side in (-1, 1):
-            w = deck_half(x)
-            m.box((x, side * (w - 0.35), deck_z(x) + 0.02), (width, 0.6, 0.06), BRASS)
-            seat('landing plate', x, side * (w - 0.35), deck_z(x) - 0.01)
+            w = deck_half(x); z0, z1 = landing_plate(x, width)
+            m.box((x, side * (w - PLATE_DEPTH / 2), (z0 + z1) / 2), (width, PLATE_DEPTH, z1 - z0), BRASS)
+            for xx in (x - width / 2, x, x + width / 2):          # the underside is buried deepest at the high end
+                seat('landing plate', xx, side * (w - PLATE_DEPTH / 2), z0, embed=z1 - z0)
 
 
 # ------------------------------------------------------------------ superstructure
