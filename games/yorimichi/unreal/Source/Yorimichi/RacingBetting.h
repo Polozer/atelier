@@ -47,7 +47,7 @@ struct FRacingWalletView
     GENERATED_BODY()
     /** The player has a record in the racing world (a wallet). */
     UPROPERTY() bool bActive = false;
-    /** A guest without a persistent identity: the wallet lasts this session only (docs/RACING.md, "Players"). */
+    /** A session player (a guest without a usable install id): the wallet lasts this session only (docs/RACING.md, "Players"). */
     UPROPERTY() bool bSession = false;
     UPROPERTY() int32 Coins = 0;
     /** Coins staked today (the rules allow HRRules::FBetLimits::PerDay). */
@@ -230,6 +230,15 @@ public:
     /** The last settled ticket's line for the HUD ("Pari gagnant · …"), with its opacity; empty when none is showing. */
     FString GetToast(float& Alpha) const;
 
+    // ------------------------------------------------------------------ identity (RacingIdentity, docs/RACING.md, "Players")
+    /** A guest's wallet presents its install's id to the host once, as soon as it is the guest's own (it ticks until). */
+    virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+    UFUNCTION(Server, Reliable) void ServerIdentify(const FString& InstallId);
+    /** Host: the racing key a guest got for the id it presented (RacingIdentity::ResolveGuest), set once; empty before. */
+    const FString& GetGuestKey() const { return GuestKey; }
+    /** Host: decides a guest's key as ServerIdentify does, against the other players connected now. */
+    void HostIdentify(const FString& InstallId);
+
     // ------------------------------------------------------------------ host
     /** The rules' player id this wallet belongs to (set by the service). */
     FString HostPlayerId;
@@ -256,7 +265,8 @@ private:
     /** A ticket that was open and is now settled: the HUD's result line. */
     void Announce(const FRacingWalletView& Before, const FRacingWalletView& After);
 
-    bool bCounterOpen = false;
+    bool bCounterOpen = false, bIdentitySent = false;
+    FString GuestKey;
     uint32 Revision = 0, NextSeq = 1, PendingSeq = 0, ReplySeq = 0;
     double PendingSince = 0., LastRequest = -1.;
     FString ReplyError, Toast;

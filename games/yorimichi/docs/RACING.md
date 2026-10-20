@@ -25,13 +25,21 @@ and positions computed on every machine from the replicated clock, never replica
   file cannot be read at all, it is left exactly as it is, no world opens and racing stays off (an error in the log,
   `GetPersistenceError()`). A failed save keeps the accepted world in memory and dirty, logs the error, and the next save
   tries again.
-- **Players.** The host's own player keeps one id across sessions, saved beside the world
-  (`Saved/racing/player-id.txt`), and its record (`HRRules::AddPlayer`: wallet, tickets) is saved with the world; its
-  name is their character's. **A remote guest has no persistent identity yet** (an online id may be missing and a
-  session id changes every session), so it gets a session player, `session:<session player id>`: a wallet and bets
-  for this session only. `PersistentWorld` leaves session players and their tickets out of the save, so nothing
-  persistent is ever owned by one; a guest who comes back starts a new wallet. Persistent guest identity is a later
-  task. Every rules call that changes the world (and `racing.Next`, `racing.TimeScale`, `racing.Save`) runs on the
+- **Players** (`RacingIdentity.h/.cpp`). Every install keeps one random id, 32 hexadecimal digits generated once and
+  saved beside its racing world (`Saved/racing/player-id.txt`, or beside `-racingsave=PATH`): no personal data, no
+  secret. The host's own player is `local:<id>` (the file's text, unchanged from before guests had an identity). A guest
+  presents its install's id to the host when it joins (`URacingWallet::ServerIdentify`, sent once by the guest's wallet
+  as soon as it is its own) and the host keys its racing player `guest:<id>`: its record (`HRRules::AddPlayer`: wallet,
+  tickets) and its stable are saved with the world like the host's, so a returning guest finds its coins, open bets and
+  stable again, whatever session or host restart came in between. Until its id arrives a guest is not registered (no
+  wallet yet). A guest key never equals the host's (`guest:` against `local:`): a guest cannot become the host's player,
+  even from the same install. **Collisions:** a second connection presenting an id another connected player already
+  holds, or an id that is not 32 hexadecimal digits, gets a session player, `session:<session player id>`: a wallet for
+  this session only, never saved (`PersistentWorld` leaves session players and their tickets out), and no stable; the
+  first holder keeps its wallet and stable. A guest that crashes and rejoins before the host has dropped its old
+  connection is such a second connection until then. **Spoofing:** the id is not authentication. A friend who copies
+  another's `player-id.txt` is that player on this host; acceptable for V1's LAN and friends' sessions, where the host
+  chooses whom to let in. Its name is their character's. Every rules call that changes the world (and `racing.Next`, `racing.TimeScale`, `racing.Save`) runs on the
   host only.
 - **The snapshot.** `FRacingNetState` carries the clock anchor (the rules' world second at a server time, and the dev
   time scale), the race day and its event, the race in focus, the last podium and the six best stables. The race in
@@ -173,8 +181,8 @@ a day and three tickets a race (`FBetLimits`).
   ("Pari gagnant : … +N pièces", "Pari perdu", "Pari remboursé") for seven seconds; no voice.
 - **HUD.** The purse sits under the health bar ("160 pièces · 1 pari en cours"). The host refreshes every wallet twice
   a second and when the world changes; a bet republishes the snapshot so the TVs show the moved odds.
-- **Persistence.** The host's player's coins and tickets are part of the racing world and saved with it (`HRSave`
-  admission); a session player's are not.
+- **Persistence.** The host's player's and every guest's coins and tickets are part of the racing world and saved with it
+  (`HRSave` admission); a session player's are not.
 
 ## Stables
 
@@ -189,15 +197,19 @@ them and says their answers in French. Money is the wallet's pièces; Henry's ec
   the existing building signed "Votre écurie"), which is the rules' stable for sale `old_mill`, renamed "Écurie de la
   Vallée"; then `hidamari`, the new Hidamari stable (陽だまり厩舎, `world/regions/hidamari_stable`), stable id `hidamari`,
   "Écurie Hidamari". **Assignment:** when a player registers, the host gives them the first site no player owns that they
-  may claim: Belmonte is for the host's own (persistent) player only, Hidamari for any player, so the host's player gets
-  Belmonte and the next player Hidamari, whoever connects first. The stable for sale is bought for them with its three
+  may claim: Belmonte is for the host's own player only (`local:`), Hidamari for a guest with an install id, so the host's player
+  gets Belmonte and the first distinct guest Hidamari, whoever connects first, for good (the mapping is the stable's
+  owner, saved with the world). A session player gets none. The stable for sale is bought for them with its three
   riders, a missing one founded (under the stand-in player `site:<id>`, then given to them), an unowned one taken over;
   the rules' price is lent and the balance restored, so it is free. Its jockeys ride (`bRides` off). A third player gets
   none in V1. Changing who gets what is changing the table.
-- **Guests** have no persistent identity yet: a guest's stable is theirs for the session. When they leave (or in what
-  is saved, `PersistentWorld`), it goes back to the world as a computer stable that keeps its horses and jockeys and
-  races on; the next guest takes it over. The host's player's stable, horses, jockeys and coins are saved with the world
-  (`HRSave` admission).
+- **Away** (`RacingIdentity`): a guest's stable stays theirs while they are away, saved with the world; no computer
+  stable or other guest takes it over, and the rules run it as any player's (its horses race as entered, salaries and
+  upkeep come from its owner's wallet at each day's close, a jockey who cannot be paid leaves). Only a stable a session
+  player owns goes back to the world when they leave (`RacingStables::Release`: a computer stable that keeps its horses
+  and jockeys; the next guest takes an unowned site over), which only a world saved before guests had an identity can
+  hold. The host's player's stable, horses, jockeys and coins, and every guest's, are saved with the world (`HRSave`
+  admission).
 - **In the world** (`ARacingStableBoards`, drawn on every machine for its own player, never on a dedicated server, and
   only within 45 m of their stable): a name plate on every stall door (the horse's name, sex, age, card score, the four
   abilities, form, record, status and today's race), the jockeys' board (the three jockeys: country, age, the four stats
@@ -318,6 +330,22 @@ selection), `racing_counter_go()` and `racing_bet(race, horse, stake)` (a reques
 `unreal.YorimichiLive.pad_input('Gamepad_DPad_Down', 1)` then `0` presses Interact through the gamepad mapping; the
 window takes the same pad keys.
 
+## Two players
+
+`review_network_session.py --racing` (docs/MULTIPLAYER.md) runs a listen host and a guest on one machine, each with its
+own racing world and install id. `RacingNetworkQA` drives them natively (the live bridge is standalone-only): the host
+checks the guest's key (`guest:<id>`) and the stables (Belmonte the host's, Hidamari the guest's) and jumps the clock to
+50 s before the next race; the guest checks its kept wallet and Hidamari, rests a horse and enters it again, reads the
+records cabinet and its stable's card, bets 3 pièces on the three favourites, waits for the settlement, leaves for Solo
+and joins again, then compares its wallet, tickets and stable with those before it left; the host checks the stable
+stayed the guest's while away and the same key and coins on return. Both sample the race twice a second (runner
+positions at their world now and at whole world seconds), the train line (service clock, the next crossing and the
+next train through the line's origin, what a station board counts down) and their frame rate into `racing-server.json`
+and `racing-client.json`; `tools/network_racing_review.py` compares them into `racing-review.json` (the clocks within
+0.25 s, the same runner data, live positions within 5 m, countdowns within 1 s). With `--render-view host|guest` the
+rendered side saves captures (`racing-host-*.png`: the Salon's TV during the race and its result; `racing-guest-*.png`:
+joined, bets, settled, rejoined).
+
 ## Tests
 
 `Yorimichi.Racing.*`: `BelmonteCourse` (lap lengths, continuity of every lane, the finish point and the post),
@@ -333,12 +361,17 @@ the reveal after the post, settled once), `BetRefund` (a race not run, a non-run
 open), `BetPersistence` (the host's
 wallet and ticket saved and reloaded, a guest's never written) and `BetRequest` (owner-only replication, a guest's
 request and answer over the wire, refusals, the closed race, the result line); `StableAssign` (the host's player Belmonte, a guest Hidamari whoever comes first, free, three
-jockeys, none for a third, a guest's stable back to the world and taken over), `StableEntry` (rest and enter through the
+jockeys, none for a third nor a session player, a released stable back to the world and taken over), `StableEntry` (rest and enter through the
 next race day, refusals, the plate's text), `StableTrade` (market and listed horses bought and paid, sale and withdrawal),
 `StableBreed` (partners, cost, refusals, the foal born in the stable), `StableJockeys` (the board, listing, release,
 a transfer paid to the seller, the refusals, salaries at the day's close and an unpaid jockey leaving), `StableRequest`
 (owner-only replication, a guest's request and answer over the wire, refusals), `StablePersistence` (the host's stable
-saved and reloaded, a guest's left to the world and taken back), `StablePlaces` (the Belmonte plates and boards on the
+and the guest's saved and reloaded, Hidamari still the away guest's after a race day and refused to another guest, the
+guest back with it); `IdentityIds` (generation, validity, the host, guest and session keys apart, the file's text),
+`IdentityFile` (created once and read back, a legacy host file kept, a damaged one replaced), `IdentityCollision` (a
+second connection with an id in use or an invalid id a session player, the wallet's key set once) and `IdentityReturn`
+(a guest's wallet, open bet and Hidamari saved and back in the next session, a session player's not, another guest first
+tonight without the away guest's stable), `StablePlaces` (the Belmonte plates and boards on the
 estate's front, reach, Hidamari's from its file) and `StableFrench`; `RecordsLedger` (noted once the winner is home,
 once only; records only fall; heats never wins; the ledger's JSON), `RecordsHonours` (streaks, rankings best first, the
 rules' numbers, a stable's race counted once, the riders' archive rule), `RecordsPages` (every object, paging, search,

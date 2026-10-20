@@ -2,6 +2,7 @@
 #include "HidamariStable.h"
 #include "RacingPlaces.h"
 #include "Dom/JsonObject.h"
+#include "RacingIdentity.h"
 #include "AtelierData.h"
 #include "HRClock.h"
 #include "HRContent.h"
@@ -95,7 +96,10 @@ FString RacingStables::Assign(FHRWorldState& S, const FString& PlayerId)
 {
     if (!HRRules::FindPlayer(S, PlayerId)) return TEXT("Pas de portefeuille pour ce joueur.");
     if (HRRules::PlayerStable(S, PlayerId)) return FString();
-    const bool bHost = !ARacingService::IsSessionPlayer(PlayerId);
+    // A session player (a guest without a usable install id, RacingIdentity) is not kept beyond the session: no stable,
+    // so Hidamari waits for the first guest who will come back.
+    if (!RacingIdentity::IsPersistent(PlayerId)) return TEXT("Une écurie est réservée aux joueurs reconnus d'une session à l'autre.");
+    const bool bHost = RacingIdentity::IsHost(PlayerId);
     for (const FSiteDef& Site : Sites())
     {
         if (Site.Claim == EClaim::HostPlayer && !bHost) continue;

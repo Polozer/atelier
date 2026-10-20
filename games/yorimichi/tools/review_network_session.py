@@ -35,6 +35,9 @@ import statistics
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'assets' / 'characters' / 'pipeline'))
 import definition as character_definition  # noqa: E402
 
+# The racing route waits for a whole race and the guest's return to Solo and back (RacingNetworkQA's 900 s deadline).
+RACING_SECONDS = 930
+
 
 def load(path):
     try:
@@ -313,7 +316,7 @@ def mixed_character_checks(folder):
     return checks
 
 
-def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, loss_percent=0, tailnet=False, combat=False, combat_host_fps=20, enemy=False, app=None, cook_receipt=None, expected_identity=None, plain_package=False, movement_hitch_ms=0, skate_hitch_ms=0, modori_shield=None, vehicle_case=None, jump_replay=None, reaction_delivery_case=None, reaction_delivery_moving=False, feature_case=None, render_view=None, aggregate_memory_gib=10, rendered_memory_gib=10, mixed_characters=False):
+def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, loss_percent=0, tailnet=False, combat=False, combat_host_fps=20, enemy=False, app=None, cook_receipt=None, expected_identity=None, plain_package=False, movement_hitch_ms=0, skate_hitch_ms=0, modori_shield=None, vehicle_case=None, jump_replay=None, reaction_delivery_case=None, reaction_delivery_moving=False, feature_case=None, render_view=None, aggregate_memory_gib=10, rendered_memory_gib=10, mixed_characters=False, racing=False):
     from atelier.build import Context
     from atelier.harness.safety import process_tree
     from atelier.harness.safety.guard import attach, reap
@@ -349,7 +352,7 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
     aggregate_report, stop = folder / 'aggregate-memory.json', folder / 'aggregate-stop'
     monitor = subprocess.Popen([sys.executable, str(Path(__file__).with_name('network_aggregate_guard.py')), '--pid', str(pid),
                                 '--expected-start', str(started), '--report', str(aggregate_report),
-                                '--stop-file', str(stop), '--duration', '315', '--limit-gib', str(aggregate_memory_gib)])
+                                '--stop-file', str(stop), '--duration', str(RACING_SECONDS + 25 if racing else 315), '--limit-gib', str(aggregate_memory_gib)])
     games = []
     began, spoken = time.monotonic(), 0.
     try:
@@ -371,7 +374,7 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
                            '-unattended', '-stdout', '-FullStdOutLogOutput',
                            f'-port={port}', '-networkqa=' + role, '-networkqadir=' + str(folder),
                            '-preferencesfile=' + str(folder / (role + '-preferences.txt')),
-                           '-ExecCmds=t.MaxFPS ' + ('60' if vehicle_case and role == 'server' else str(combat_host_fps) if combat and role == 'server' else '30')]
+                           '-ExecCmds=t.MaxFPS ' + ('60' if (vehicle_case and role == 'server') or racing else str(combat_host_fps) if combat and role == 'server' else '30')]
                 if render_view == ('host' if role == 'server' else 'guest'):
                     command.remove('-nullrhi')
                     command += ['-windowed', '-ResX=960', '-ResY=540', '-ForceRes', '-networkrender']
@@ -384,6 +387,9 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
                     command += ['-rider=Modori', '-set=shield=' + str(modori_shield if role == 'server' else 1-modori_shield)]
                 if mixed_characters:
                     command.append('-rider=' + ('Cairo' if role == 'server' else 'Modori'))
+                if racing:
+                    # Each process keeps its own racing world and install id, as two machines would.
+                    command += ['-networkracing', '-racingsave=' + str(folder / ('racing-' + role) / 'world.json')]
                 if not tailnet:
                     command.append('-MULTIHOME=127.0.0.1')
                 if combat:
@@ -414,7 +420,7 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
                 games.append((role, game))
                 guards.callback(reap, game)
                 game_ceiling = rendered_memory_gib if render_view == ('host' if role == 'server' else 'guest') else 10
-                guard = guards.enter_context(attach(game.pid, folder / (role + '-memory.json'), duration=300, limit_gib=game_ceiling))
+                guard = guards.enter_context(attach(game.pid, folder / (role + '-memory.json'), duration=RACING_SECONDS + 10 if racing else 300, limit_gib=game_ceiling))
                 if guard is None:
                     raise RuntimeError(f'Could not attach the {role} actual-child guard')
                 print(f'{role} started as owned pid {game.pid}; aggregate plus individual guards active', flush=True)
@@ -459,7 +465,7 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
                 running = [('server', server, server_guard), ('client', client, client_guard)]
                 wait_for('admission and clean disconnect',
                          lambda: all(load(folder / (role + '-complete.json')) for role in ('server', 'client')),
-                         began + 290, running)
+                         began + (RACING_SECONDS if racing else 290), running)
             for role, game in games:
                 try:
                     code = game.wait(timeout=10)
@@ -495,6 +501,11 @@ def worker(folder, port, gameplay=False, listen=False, lag_ms=0, variance_ms=0, 
             reaction_checks, reaction_delivery = scheduled_reaction_checks(load(folder / 'reaction-server.json') or {},
                 load(folder / 'reaction-client.json') or {}, reaction_delivery_case, reaction_delivery_moving)
             checks.update(reaction_checks)
+        if racing:
+            from network_racing_review import racing_checks
+            racing_report = racing_checks(load(folder / 'racing-server.json') or {}, load(folder / 'racing-client.json') or {})
+            checks.update(racing_report['checks'])
+            (folder / 'racing-review.json').write_text(json.dumps(racing_report, indent=2) + '\n')
         if feature_case:
             from network_feature_review import feature_checks, feature_render_checks
             checks.update(feature_checks(folder, feature_case))
@@ -586,6 +597,7 @@ def main():
     parser.add_argument('--combat', action='store_true', help='Native listen-host 20fps and remote combat probes; same-machine stimulus files, real network inputs')
     parser.add_argument('--gameplay', action='store_true', help='Also exercise predicted walking/jump, five seconds of skating and dismount')
     parser.add_argument('--listen', action='store_true', help='Two local players across listen-host/client processes; validates the observer relay within the same aggregate guard')
+    parser.add_argument('--racing', action='store_true', help='Racing stack: a guest identity, stable, records, bets on a race, the train line, leave and rejoin (docs/RACING.md)')
     parser.add_argument('--mixed-characters', action='store_true', help='Host chooses Cairo and guest chooses Modori through ordinary per-player startup selection')
     parser.add_argument('--lag-ms', type=int, default=0, help='Emulated one-way packet delay on both processes (0..200 ms)')
     parser.add_argument('--variance-ms', type=int, default=0, help='Packet delay variance (0..50 ms)')
@@ -612,6 +624,11 @@ def main():
     if args.modori_shield is not None:
         if args.app or args.combat or args.enemy or args.vehicle_case:
             parser.error('Modori loadout proof uses an editor listen/gameplay pair')
+        args.listen = True
+    if args.racing:
+        if (args.app or args.vehicle_case or args.enemy or args.combat or args.feature_case or args.reaction_delivery_case is not None
+                or args.modori_shield is not None or args.jump_replay is not None):
+            parser.error('The racing check uses its own editor listen route')
         args.listen = True
     if args.feature_case:
         if args.app or args.vehicle_case or args.enemy or args.combat or args.reaction_delivery_case is not None:
@@ -645,7 +662,7 @@ def main():
             parser.error('Combat acceptance requires --lag-ms 60 --variance-ms 15 --loss-percent 2')
         args.listen = True
         args.gameplay = False
-    elif args.feature_case:
+    elif args.feature_case or args.racing:
         args.gameplay = False
     elif args.listen:
         args.gameplay = True
@@ -681,7 +698,7 @@ def main():
                       *([args.feature_case, args.render_view, args.aggregate_memory_gib, args.rendered_memory_gib]
                         if args.rendered_memory_gib != 10 else [args.feature_case, args.render_view, args.aggregate_memory_gib]
                         if args.aggregate_memory_gib != 10 else [args.feature_case, args.render_view] if args.feature_case or args.render_view else []),
-                      **({'mixed_characters': True} if args.mixed_characters else {}))
+                      **({'mixed_characters': True} if args.mixed_characters else {}), **({'racing': True} if args.racing else {}))
     if any(folder.iterdir()):
         raise RuntimeError('Use a fresh evidence directory; old receipts cannot establish a new run')
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -693,7 +710,7 @@ def main():
                        (['--render-view', args.render_view] if args.render_view else []) +
                        (['--aggregate-memory-gib', str(args.aggregate_memory_gib)] if args.aggregate_memory_gib != 10 else []) +
                        (['--rendered-memory-gib', str(args.rendered_memory_gib)] if args.rendered_memory_gib != 10 else []) +
-                       (['--mixed-characters'] if args.mixed_characters else []) +
+                       (['--mixed-characters'] if args.mixed_characters else []) + (['--racing'] if args.racing else []) +
                        (['--reaction-delivery-moving'] if args.reaction_delivery_moving else []) +
                        (['--reaction-delivery-case', str(args.reaction_delivery_case)] if args.reaction_delivery_case is not None else []) +
                        (['--jump-replay', str(args.jump_replay)] if args.jump_replay is not None else []) +
@@ -701,7 +718,7 @@ def main():
                        (['--gameplay'] if args.gameplay else []) + (['--listen'] if args.listen else []) + (['--tailnet'] if args.tailnet else []) + (['--combat'] if args.combat else []) + (['--enemy'] if args.enemy else []) +
                        (['--app', str(args.app.resolve()), '--cook-receipt', str(args.cook_receipt.resolve()), '--expected-identity', args.expected_identity] if args.app else []) +
                        (['--plain-package'] if args.plain_package else []) + (['--vehicle-case', args.vehicle_case] if args.vehicle_case else []),
-                       folder / 'guard', timeout=750 if args.app else 330, purpose='native local network session smoke', kind='game',
+                       folder / 'guard', timeout=750 if args.app else RACING_SECONDS + 60 if args.racing else 330, purpose='native local network session smoke', kind='game',
                        progress=15, track_tree=True)
 
 
