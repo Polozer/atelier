@@ -132,13 +132,14 @@ def build_cabin(p, d):
         if not groove[name]['ok']:
             extra.append(f'jaw groove off the rope ({name}): {groove[name]["failures"]}')
     # Rope clearance on the spans, both directions of travel (the cabin hangs plumb; only the grip pitches).
-    cab = {'cabin': c, 'meshes': meshes}; rope_clear = {}; hang = {}
+    cab = {'cabin': c, 'meshes': meshes}; rope_clear = {}; hang = {}; jaw = {}
     for name, path in tests.items():
         poses = []
         for way, out in (('down', (0, -1, 0)), ('up', (0, 1, 0))):
             ks = range(2, 7) if path.length < 20 else range(1, 8)
             poses += [(f'{name}, {way}, s {s_:.1f}', cabin_pose(path.grip_frame(s_, out)), s_) for s_ in (path.length * k / 8 for k in ks)]
         rope_clear[name] = rope_check(cab, path, poses)
+        jaw[name] = jaw_contact(cab, path, poses)
         if not rope_clear[name]['ok']:
             extra.append(f'rope within {rope_clear[name]["required_m"]} m of the cabin ({name}): {rope_clear[name]["where"]}')
         Pz = poses[len(poses) // 2][1]
@@ -159,7 +160,7 @@ def build_cabin(p, d):
         'interior': {'floor_size': [round(p['cabin_length'] - 2 * 0.075, 3), round(W - 2 * 0.075, 3)], 'headroom': 2.08, 'benches': 3, 'seat_height': 0.46},
         'exterior_size': [p['cabin_length'], W, round(p['cabin_floor_to_roof'] + p['cabin_floor_depth'], 3)],
         'grip': c.grip_info | {'jaw_groove_on_rope': groove},
-        'rope_clearance': rope_clear, 'hanging': hang,
+        'rope_clearance': rope_clear, 'rope_in_jaws': jaw, 'hanging': hang,
         'coplanar_overlaps': cop, 'seating': {'checked': len(seats), 'failures': [s for s in seats if s['status'] != 'ok']},
     }
     return entry, failures_of(rows, cop, seats, extra), cab
@@ -169,13 +170,40 @@ def cabin_movers(cab):
     return [cab['meshes'][k] for k in ('GD_Cabin', 'GD_CabinHanger', 'GD_CabinGrip', 'GD_CabinDoorLeft', 'GD_CabinDoorRight')]
 
 
+def jaw_contact(cab, path, poses):
+    """Intentional contact: the rope axis to the jaws and the clamp body over them (the groove is the rope radius)."""
+    best, _ = solid.rope_clearance([cab['meshes']['GD_CabinGrip']], path, poses, exclude_tags=(), only_tags=('jaw', 'clamp'))
+    d = best['distance_m']
+    return {'category': 'intentional contact', 'contact': 'rope seated in the jaw groove', 'min_distance_from_rope_axis_m': d,
+            'rope_radius_m': path.r, 'gap_m': None if d is None else round(d - path.r, 4), 'where': best, 'poses': len(poses),
+            'ok': d is not None and d >= path.r - 0.002}
+
+
+def static_rope_check(meshes, path, contact_tags, contact_name, label):
+    """The rope against a static piece (tower or station), whole path: the parts tagged contact_tags are the rope's
+    intentional contact (sheave or bullwheel groove: the rope rests on them), reported on their own; every other part
+    (the piece's own rope mesh aside) must stay rope radius + ROPE_CLEARANCE from the rope axis."""
+    I = Matrix.Identity(4); pose = [(label, I, path.length / 2)]; reach = path.length / 2 + 0.05
+    c, _ = solid.rope_clearance(meshes, path, pose, exclude_tags=(), only_tags=contact_tags, reach=reach)
+    k, _ = solid.rope_clearance(meshes, path, pose, exclude_tags=tuple(contact_tags) + ('rope',), reach=reach)
+    need = path.r + ROPE_CLEARANCE; dc, dk = c['distance_m'], k['distance_m']
+    return {'intentional': {'category': 'intentional contact', 'contact': contact_name, 'min_distance_from_rope_axis_m': dc,
+                            'rope_radius_m': path.r, 'gap_m': None if dc is None else round(dc - path.r, 4), 'where': c,
+                            'ok': dc is not None and path.r - 0.002 <= dc <= path.r + 0.01},
+            'clearance': {'category': 'clearance to unrelated hardware', 'min_distance_from_rope_axis_m': dk, 'required_m': round(need, 3),
+                          'gap_to_rope_surface_m': None if dk is None else round(dk - path.r, 4), 'where': k, 'poses': 1,
+                          'ok': dk is None or dk >= need}}
+
+
 def rope_summary(pieces):
     """Every rope-clearance result in the manifest, flattened (check name, minimum, where)."""
     rows = []
     def walk(node, name):
         if isinstance(node, dict):
             if 'min_distance_from_rope_axis_m' in node:
-                rows.append({'check': name, **{k: node[k] for k in ('min_distance_from_rope_axis_m', 'required_m', 'gap_to_rope_surface_m', 'where', 'poses', 'ok')}})
+                cat = node.get('category', 'clearance to unrelated hardware (cabin, hanger, grip outside the jaws)')
+                rows.append({'check': name, 'category': cat, **{k: node.get(k) for k in ('contact', 'min_distance_from_rope_axis_m', 'required_m',
+                             'gap_to_rope_surface_m', 'gap_m', 'where', 'poses', 'ok')}})
                 return
             for k, v in node.items():
                 walk(v, f'{name}/{k}' if name else k)
@@ -216,6 +244,11 @@ def build_towers(p, d, cab):
             if not gc['ok']:
                 bad.append(f'{m.name}: jaw groove off the rope on {side}: {gc["failures"]}')
             rc = rcs[side] = rope_check(cab, path, frames[::2])
+            rcs[side + ' rope in the jaws'] = jaw_contact(cab, path, frames[::2])
+            st_ = rcs[side + ' rope and tower'] = static_rope_check([m], path, ('sheave',), 'rope on the sheave grooves', f'tower {side}')
+            for part in ('intentional', 'clearance'):
+                if not st_[part]['ok']:
+                    bad.append(f'{m.name}: rope {part} on {side}: {st_[part]["min_distance_from_rope_axis_m"]} at {st_[part]["where"]}')
             if not rc['ok']:
                 bad.append(f'{m.name}: rope within {rc["required_m"]} m of the cabin on {side}: {rc["where"]}')
         hits = solid.clearance([m], movers, places)
@@ -274,7 +307,8 @@ def main():
         if key in wanted:
             import stations
             mats = fresh_scene()
-            ctx = {'audit': audit_meshes, 'movers': cabin_movers, 'groove': groove_check, 'rope_check': rope_check, 'budget': BUDGET, 'bounds': bounds,
+            ctx = {'audit': audit_meshes, 'movers': cabin_movers, 'groove': groove_check, 'rope_check': rope_check, 'jaw_contact': jaw_contact,
+                   'static_rope': static_rope_check, 'budget': BUDGET, 'bounds': bounds,
                    'failures': failures_of, 'out': OUT, 'export': lambda piece, meshes, proxies, mats=mats: export_piece(piece, meshes, mats, proxies)}
             t1 = time.time()
             entry, bad = stations.build(key, p, d, cab, ctx)
@@ -284,8 +318,12 @@ def main():
     summary = rope_summary(manifest['pieces'])
     manifest['rope_clearance'] = summary
     for row in summary:
-        log(f'  rope clearance {row["check"]}: {row["min_distance_from_rope_axis_m"]} m from the rope axis '
-            f'(needs {row["required_m"]}) at {row["where"].get("at")} [{row["where"].get("mesh")} {row["where"].get("part")}]')
+        log(f'  rope {row["category"]}: {row["check"]}: {row["min_distance_from_rope_axis_m"]} m from the rope axis '
+            f'(needs {row["required_m"]}, gap {row["gap_m"]}) at {row["where"].get("at")} [{row["where"].get("mesh")} {row["where"].get("part")}] '
+            f'{"ok" if row["ok"] else "FAIL"}')
+    bad_rows = [r for r in summary if not r['ok']]
+    failures += [f'rope check {r["check"]} ({r["category"]}): {r["min_distance_from_rope_axis_m"]} m at {r["where"]}' for r in bad_rows
+                 if not any(r['check'] in f for f in failures)]
     for key, entry in manifest['pieces'].items():
         (OUT / f'piece_{key}.json').write_text(json.dumps(entry, indent=1) + '\n')
     manifest['failures'] = failures

@@ -550,7 +550,7 @@ def matrix_for(M, name):
     return M.of(name) if isinstance(M, Pose) else M
 
 
-def rope_clearance(meshes, path, poses, exclude_tags=('jaw', 'clamp'), reach=3.0, step=0.02, near=0.6):
+def rope_clearance(meshes, path, poses, exclude_tags=('jaw', 'clamp'), reach=3.0, step=0.02, near=0.6, only_tags=None):
     """Minimum distance from the rope centreline (a rope.RopePath) to the placed meshes, over poses [(label, pose, s)]
     (s = the grip's arc length on the path, or None to take the nearest). For each pose the rope is sampled every `step` within +-reach of the grip
     and the samples are taken into each mesh's own frame (rigid, so distances hold): nearest-surface distance per
@@ -562,7 +562,7 @@ def rope_clearance(meshes, path, poses, exclude_tags=('jaw', 'clamp'), reach=3.0
     for m in meshes:
         verts, faces, origin = [], [], []
         for pi, (start, end, tag) in enumerate(m.parts):
-            if tag in exclude_tags:
+            if tag in exclude_tags or (only_tags is not None and tag not in only_tags):
                 continue
             vmap = {}
             for f in m.faces[start:end]:
@@ -604,6 +604,9 @@ def rope_clearance(meshes, path, poses, exclude_tags=('jaw', 'clamp'), reach=3.0
                                 best = {'distance_m': 0.0, 'at': label, 'mesh': name, 'part': origin[hit[2]], 'rope_point': [round(c, 3) for c in world[k]],
                                         'crossing': True}
         per_pose.append((label, round(pose_min, 4)))
+    if best['distance_m'] >= 1e9:
+        best['distance_m'] = None
+        return best, per_pose
     best['distance_m'] = round(best['distance_m'], 4)
     best['per_mesh'] = {k: {'distance_m': round(v[0], 4), 'at': v[1], 'part': v[2]} for k, v in sorted(per_mesh.items())}
     return best, per_pose

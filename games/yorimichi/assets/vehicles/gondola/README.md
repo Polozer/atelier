@@ -33,7 +33,12 @@ uv run python games/yorimichi/assets/vehicles/gondola/walk.py
   failure exit into a report, for review renders.
 - [`render.py`](render.py) renders the matched views and close-ups into `review/`, including
   `<station>_bullwheel.png` (the bullwheel bay from the deck) and `<station>_eave.png` (a roof eave with its post and
-  brackets) for each station. `$GONDOLA_VIEWS` limits a run to some of `cabin,towers,valley,rim,crater`.
+  brackets) for each station. `$GONDOLA_VIEWS` limits a run to some of `cabin,towers,valley,rim,crater`. The grip
+  diagrams are labelled orthographic views with thin leader lines:
+  - `cabin_grip_end_view.png`, looking along the rope, with a reference length of the station rail under the wheels;
+  - `cabin_grip_section_view.png`, a cut across the rope through the housing: rope, jaws, pivot pin, wheel axes;
+  - `station_mouth_side.png` and `station_mouth_section.png`, at the valley mouth: one grip still on the line (jaws
+    closed on the rope) and one inside on the rail (rope dropped 0.15 m clear of the jaws).
 - [`compare.py`](compare.py) writes:
   - `compare_<concept>.png`, with the concept on the left and the model on the right in matched framing;
   - `overlay_<concept>.png`, a 50% blend;
@@ -41,9 +46,11 @@ uv run python games/yorimichi/assets/vehicles/gondola/walk.py
   - `closeup_*.png`.
 - [`walk.py`](walk.py) runs without Blender. It writes `review/walk_report.json` and the top-down layouts
   `review/walk_{cabin,valley,rim,crater}.png`.
-- [`fitcam.py`](fitcam.py) fits the cabin cameras to picked correspondences in the cabin concept (Levenberg-Marquardt)
-  and writes [`cameras.json`](cameras.json). The tower and station cameras are framed by eye: their structure does
-  not trace the paintings.
+- [`fitcam.py`](fitcam.py) fits cameras to picked correspondences (Levenberg-Marquardt) and writes
+  [`cameras.json`](cameras.json): the cabin views, and the valley and crater-floor station views (structural anchors:
+  roof apexes and eave corners, post feet, the bullwheel centre; fixed 30 mm lens, zero roll), so that the overlays
+  compare structure and the fit residual measures the remaining difference. The tower and rim views are framed by
+  eye: their layout does not trace the paintings.
 - [`params.py`](params.py) holds the parameters. [`rope.py`](rope.py) is the rope path. [`textures.py`](textures.py)
   makes the timber textures. [`solid.py`](solid.py) is the closed-mesh core and holds the audits.
 
@@ -55,7 +62,7 @@ Overrides come from a JSON file named by `$GONDOLA_PARAMS`, and the build record
 | Parameter | Default | What it moves |
 | --- | --- | --- |
 | `gauge` | 6.0 m | distance between the two rope tracks; bullwheel rope diameter; tower crossarm |
-| `rope_radius` | 0.025 m | 50 mm haul rope; jaw groove radius |
+| `rope_radius` | 0.045 m | 90 mm haul rope (six strands); jaw, sheave and bullwheel groove radii; clearances |
 | `hanger_length` | 1.45 m | rope axis to the cabin roof deck; grip-to-floor 3.75 m; rope height at the platforms 3.77 m |
 | `tower_heights` | 10, 13, 16, 20, 24 m | one tower model per height (saddle height above the foundation datum) |
 | `berth_x`, `pit_depth`, `berth_floor_step` | 3.4 m, 0.28 m, 0.02 m | berth position, cabin channel depth, sill step |
@@ -88,9 +95,10 @@ door side) close on the rope from above. Their grooves are arcs of the rope radi
 axis height. Below the rope the housing is open, so the tower sheaves and the bullwheel run under the rope. Also on
 the grip:
 
-- two running wheels (0.32 m, grooved tyres), one at each end of the housing on the outer side at rope height, with
-  planes parallel to the rope and axles across it. They roll on the station rail once the jaws open, and touch
-  nothing on the line;
+- two running wheels (0.32 m, grooved tyres), one at each end of the housing on the outer side, 0.30 m outboard of
+  the rope axis, each on its own stub axle carried by a bolted arm from the side plate. Their centres are 0.16 m above
+  the rope axis, so their treads come down to rope-axis height and the station rail runs under them, beside the rope
+  and clear of it. They roll on that rail once the jaws open, and touch nothing on the line;
 - a pivot: a lug under the outer side plate and a pin across the rope (along y), 0.13 m below the rope axis and
   0.185 m outboard of it;
 - the hanger, a chamfered rectangular post from a bolted base plate on the roof. It rises nearly vertically, has one
@@ -133,6 +141,17 @@ close on the rope. The build fails below the rope radius plus 0.05 m. The poses 
 - every station loop position, including the dropped rope round the bullwheel.
 
 The manifest records the minimum distance and where it occurs (`rope_clearance`).
+
+**Contact categories.** The report keeps the rope's intentional contacts apart from clearance to unrelated hardware:
+
+| Category | Parts | Rule |
+| --- | --- | --- |
+| intentional contact | grip jaws and clamp body (tag `jaw`, `clamp`) | seated: distance at least the rope radius less 2 mm |
+| intentional contact | tower sheave grooves (tag `sheave`) | seated, as above |
+| intentional contact | bullwheel rim and liner (tag `bullwheel groove`) | seated, as above |
+| clearance to unrelated hardware | everything else on the cabin, towers and stations | at least the rope radius plus 0.05 m |
+
+Each row in the manifest names its category, the minimum and where it occurs.
 
 ## Mesh rules
 

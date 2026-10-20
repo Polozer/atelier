@@ -192,7 +192,8 @@ class Tower:
                 rr = self.rr; hw = rr + 0.035; rf = SHEAVE_R + 0.6 * rr; rg = rr + 0.002
                 groove = [(f * rr, SHEAVE_R + rr - math.sqrt(rg * rg - (f * rr) ** 2)) for f in (-0.9, -0.45, 0.0, 0.45, 0.9)]
                 prof = [(-hw, rf)] + groove + [(hw, rf)]
-                m.lathe(tuple(c + Vector((0, -hw, 0))), [(a + hw, r) for a, r in prof], STEEL, n=12, axis=(0, 1, 0))
+                with m.tagged('sheave'):            # the rope's intentional contact (rope clearance report)
+                    m.lathe(tuple(c + Vector((0, -hw, 0))), [(a + hw, r) for a, r in prof], STEEL, n=12, axis=(0, 1, 0))
                 m.lathe(tuple(c + Vector((0, -0.07, 0))), [(0, 0.07), (0.14, 0.07)], IRON, n=8, axis=(0, 1, 0))
                 m.lathe(tuple(c), [(0, 0.035), (0.1, 0.035)], IRON, n=6, axis=(0, -s, 0))
             # Head posts above the crossarm, inside the rope line, tied by a head beam along the line.

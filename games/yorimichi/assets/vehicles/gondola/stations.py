@@ -12,6 +12,7 @@ Each station dresses the core with its own buildings, roof, materials and access
 round the whole loop against every station.
 """
 import math
+from contextlib import ExitStack, contextmanager
 
 from mathutils import Matrix, Vector
 
@@ -189,6 +190,66 @@ def slab_roof(m, x0, x1, half, z_eave, z_ridge, t, mat, rolls=None, ridge_mat=No
     return top
 
 
+def irimoya_roof(m, X0, X1, yc, half, ze, zr, t, g, mat, rm, gable_mat, fascia=TIMBER_DARK, tails=0.6, no_tails=()):
+    """Hip-and-gable (irimoya) tiled roof, one closed solid: front and back slopes from the eaves (X0..X1, yc +- half)
+    to a ridge g shorter at each end, hipped end slopes rising g inward from the end eaves, and a small vertical gable
+    (in gable_mat) above each hip under the ridge end. Dressing: kawara courses on all slopes and rolls on the long
+    slopes, a ridge cap with onigawara over the gables, barge boards on the gables and rafter tails under the long
+    eaves' flat soffit, except on the front (-y) eave over the x ranges in no_tails, where a porch roof meets it."""
+    Y0, Y1 = yc - half, yc + half; rise = zr - ze
+    zg = ze + rise * g / half                       # the gables' base: where the hips meet them
+    w = half * (zr - zg) / rise                      # the gables' half width
+    V = [(X0, Y0, ze), (X1, Y0, ze), (X1, Y1, ze), (X0, Y1, ze),
+         (X1 - g, yc - w, zg), (X1 - g, yc + w, zg), (X0 + g, yc - w, zg), (X0 + g, yc + w, zg),
+         (X1 - g, yc, zr), (X0 + g, yc, zr),
+         (X0, Y0, ze - t), (X1, Y0, ze - t), (X1, Y1, ze - t), (X0, Y1, ze - t)]
+    F = [(0, 1, 4, 8, 9, 6), (2, 3, 7, 9, 8, 5), (1, 2, 5, 4), (3, 0, 6, 7), (4, 5, 8), (7, 6, 9),
+         (10, 11, 1, 0), (11, 12, 2, 1), (12, 13, 3, 2), (13, 10, 0, 3), (10, 13, 12, 11)]
+    m.part(V, F, [mat, mat, mat, mat, gable_mat, gable_mat, fascia, fascia, fascia, fascia, fascia])
+    L = math.hypot(half, rise); ny, nz = rise / L, half / L
+    m.box(((X0 + X1) / 2, yc, zr + 0.05), (X1 - X0 - 2 * g + 0.1, 0.36, 0.22), rm, bevel=0.04)
+    m.lathe((X0 + g - 0.02, yc, zr + 0.2), [(0, 0.1), (X1 - X0 - 2 * g + 0.04, 0.1)], rm, n=8, axis=(1, 0, 0))
+    for x, d in ((X0 + g - 0.1, -1), (X1 - g + 0.1, 1)):
+        m.box((x, yc, zr + 0.2), (0.14, 0.46, 0.5), rm, bevel=0.05)
+        m.box((x + d * 0.02, yc, zr + 0.5), (0.12, 0.3, 0.14), rm, bevel=0.04)
+        for s in (-1, 1):                            # barge boards on the small gable
+            a = Vector((x - d * 0.04, yc, zr + 0.02)); b = Vector((x - d * 0.04, yc + s * (w + 0.06), zg - 0.03))
+            m.beam(a, b, 0.08 if s > 0 else 0.09, 0.22, fascia, up=(0, -s * rise, half))
+    # Courses on the long slopes and the hips, rolls down the long slopes inside the hip lines.
+    n = int(L / 0.3)
+    for k in range(1, n):
+        f = k / n; z = ze + rise * f
+        xi = g * min(1.0, (z - ze) / max(1e-6, zg - ze))          # the hip line's inset at this height
+        for s in (-1, 1):
+            y = yc + s * half * (1 - f); nn = Vector((0, s * ny, nz)); c = Vector(((X0 + X1) / 2, y, z)) + nn * 0.012
+            with m.frame(c, Vector((1, 0, 0)), Vector((0, s * nz, -ny)) * -1, nn):
+                m.box((0, 0, 0), (X1 - X0 - 2 * xi - 0.06, 0.05, 0.03), mat)
+        if z < zg - 0.05:
+            yw = half - (half - w) * (z - ze) / (zg - ze)          # the end slope's width at this height
+            for X, s in ((X0, -1), (X1, 1)):
+                hn = Vector((s * (zg - ze), 0, g)).normalized(); x = X - s * g * (z - ze) / (zg - ze)
+                c = Vector((x, yc, z)) + hn * 0.012
+                with m.frame(c, Vector((0, 1, 0)), hn.cross(Vector((0, 1, 0))), hn):
+                    m.box((0, 0, 0), (2 * yw - 0.1, 0.05, 0.03), mat)
+    nr = int((X1 - X0 - 2 * g) / 0.3)
+    for k in range(nr):
+        x = X0 + g + (k + 0.5) * (X1 - X0 - 2 * g) / nr
+        for s in (-1, 1):
+            a = Vector((x, yc + s * 0.18, zr - rise * 0.18 / half)); b = Vector((x, yc + s * (half - 0.02), ze + rise * 0.02 / half))
+            nn = Vector((0, s * ny, nz)); a += nn * 0.04; b += nn * 0.04
+            m.tube([a, b], 0.07, mat, n=6, phase=0.3)
+            dd = (b - a).normalized()
+            m.lathe(tuple(b - dd * 0.01), [(0, 0.085), (0.035, 0.085)], rm, n=8, axis=tuple(dd))
+    if tails:
+        nt = max(2, int((X1 - X0 - 0.5) / tails))
+        for k in range(nt + 1):
+            x = X0 + 0.25 + (X1 - X0 - 0.5) * k / nt
+            porch = any(a - 0.06 <= x <= b + 0.06 for a, b in no_tails)
+            for s in ((1,) if porch else (-1, 1)):
+                ya, yb = half - 1.0, half - 0.05          # level under the flat soffit, tops let 10 mm into it
+                m.beam((x, yc + s * ya, ze - t - 0.06), (x, yc + s * yb, ze - t - 0.06), 0.1, 0.14, fascia, up=(0, 0, 1))
+
+
 def bench(m, st, x, y, yaw, length=1.8, on=('platform',), z0=0.0):
     with m.at((x, y, z0), yaw):
         for k in range(3):
@@ -275,6 +336,18 @@ class Station:
     def seat(self, label, x, y, z, embed=0.0, probe=0.15, on=('platform',)):
         self.seats.append((label, round(x, 4), round(y, 4), round(z, 4), embed, probe, tuple(on)))
 
+    @contextmanager
+    def shifted(self, dx, *meshes):
+        """Build inside a frame moved dx along x: the meshes, and the seats and proxies recorded meanwhile."""
+        n_s, n_p = len(self.seats), len(self.proxies)
+        with ExitStack() as es:
+            for m in meshes:
+                es.enter_context(m.at((dx, 0, 0)))
+            yield
+        self.seats[n_s:] = [(lb, round(x + dx, 4), *rest) for lb, x, *rest in self.seats[n_s:]]
+        for pr in self.proxies[n_p:]:
+            pr['poly'] = [[round(x + dx, 4), y] for x, y in pr['poly']]
+
     # ---------------------------------------------------------------- core plan
     def arc(self, a0, a1, n=28):
         return [(self.RP * math.cos(a0 + (a1 - a0) * k / n), self.RP * math.sin(a0 + (a1 - a0) * k / n)) for k in range(n + 1)]
@@ -358,8 +431,9 @@ class Station:
             m.box((0.8 * math.cos(a), 0.8 * math.sin(a), -pit + 0.17), (0.07, 0.07, 0.02), BOLT)
         m.lathe((0, 0, Zs - 0.45), [(0, 0.5), (0.7, 0.5)], IRON, n=16)
         rim_o, rim_i = R - rr, R - 0.2
-        m.ring_prism(circle(rim_o, 48), circle(rim_i, 48), Zs - 0.30, Zs, IRON)
-        m.ring_prism(circle(R + 0.03, 48), circle(R - 0.15, 48), Zs - 0.32, Zs - 0.26, STEEL)
+        with m.tagged('bullwheel groove'):     # the rope's intentional contact (rope clearance report)
+            m.ring_prism(circle(rim_o, 48), circle(rim_i, 48), Zs - 0.30, Zs, IRON)
+            m.ring_prism(circle(R + 0.03, 48), circle(R - 0.15, 48), Zs - 0.32, Zs - 0.26, STEEL)
         m.ring_prism(circle(1.75, 32), circle(1.6, 32), Zs - 0.22, Zs - 0.08, IRON)
         for k in range(8):
             a = 2 * math.pi * (k + 0.5) / 8
@@ -551,7 +625,7 @@ def canopy(m, st, xs, yp, post, z_foot, z_tie, x_ext, roof, label, on=('platform
             nrm = Vector((0, s * ny, nz)); d = 0.22
             a = Vector((x, yc + s * (yp + 0.1), under(yp + 0.1))) - nrm * (d / 2 - 0.02)
             b = Vector((x, yc + s * 0.08, under(0.08))) - nrm * (d / 2 - 0.02)
-            m.beam(a, b, 0.16, d, TIMBER, up=tuple(nrm))
+            m.beam(a, b, 0.16 if s < 0 else 0.17, d, TIMBER, up=tuple(nrm))     # unequal: no shared faces at the apex
             ys = half * 0.42
             m.beam((x, yc + s * 0.06, z_tie + 0.25), (x, yc + s * ys, under(ys) - 0.1), 0.12, 0.12, TIMBER)
     for s in (-1, 1):
@@ -561,7 +635,7 @@ def canopy(m, st, xs, yp, post, z_foot, z_tie, x_ext, roof, label, on=('platform
     # Plaster infill in the gable of the trusses named in infill (the members stay proud of it).
     for x in infill:
         z_b = under(yp) - 0.02
-        m.box((x, yc, (z_tie - 0.01 + z_b + 0.01) / 2), (0.1, 2 * yp, z_b + 0.02 - z_tie), PLASTER)
+        m.box((x, yc, (z_tie - 0.02 + z_b + 0.01) / 2), (0.1, 2 * yp, z_b + 0.03 - z_tie), PLASTER)
         gable(m, x - 0.045, x + 0.045, yc, yp, z_b, (z_ridge, z_eave, half, t), PLASTER)
     return z_eave
 
@@ -609,11 +683,16 @@ def cross_gable(m, st, xs, yp, post, z_foot, z_tie, xc, half, y_ext, z_ridge, t,
             m.beam(c + Vector((0, -(y_ext - 0.25), 0)), c + Vector((0, y_ext - 0.25, 0)), 0.17 if f else 0.24, 0.2, mat, up=tuple(nrm))
     with m.frame((xc, 0, 0), (0, 1, 0), (-1, 0, 0), (0, 0, 1)), m.grained((0, 1, 0)):
         slab_roof(m, -y_ext, y_ext, half, z_eave, z_ridge, t, rmat, rolls=rolls, **({'fascia': mat} | (roof_kw or {})))
+    # Gable trusses named in infill (-1, +1): a collar beam a little over half way up with queen posts under it,
+    # plaster only in the triangle above the collar; below it the truss stays open (the bullwheel shows through).
     for s in infill:
-        y = s * yp; z_b = under(xc + x_eave) - 0.02
-        m.box((xc, y, (z_tie - 0.02 + z_b + 0.01) / 2), (2 * x_eave, 0.1, z_b + 0.03 - z_tie), PLASTER)
+        y = s * yp; z_c = z_tie + 0.55 * (under(xc) - z_tie)
+        hw_c = (z_ridge - t / nz - z_c) * half / rise
+        m.beam((xc - hw_c, y, z_c), (xc + hw_c, y, z_c), 0.14, 0.2, mat, up=(0, 0, 1))
+        for sq in (-1, 1):
+            m.box((xc + sq * hw_c * 0.55, y, (z_tie + z_c) / 2), (0.14, 0.13, z_c - z_tie), mat)
         with m.frame((xc, 0, 0), (0, 1, 0), (-1, 0, 0), (0, 0, 1)):
-            gable(m, y - 0.045, y + 0.045, 0.0, x_eave, z_b, (z_ridge, z_eave, half, t), PLASTER)
+            gable(m, y - 0.045, y + 0.045, 0.0, hw_c, z_c, (z_ridge, z_eave, half, t), PLASTER)
     return z_eave
 
 
@@ -671,47 +750,56 @@ class Valley(Station):
     """Hidamari valley station: a plastered, timber-framed station house with a tiled roof and an entry porch on
     the plaza, and a tall tiled canopy on timber trusses over the bullwheel and the platform."""
     NAME = 'Valley'
+    HOUSE_DX = -4.0                 # the house plan below is drawn at x -14.6..-2.6 and moved by this
+    DOOR_X = -5.6                   # the entrance and its porch, towards the house's east end (house plan x)
+    GABLE_XS = (-10.8, -5.8, -0.7, 4.4)  # cross-gable post lines: over the bullwheel end, the line leaving from under it
+
+    def __init__(self, key, p, d):
+        super().__init__(key, p, d)
+        self.XB = -11.4             # deck behind the bullwheel, under the cross-gable
 
     def make(self):
         plat, mach, fit, bldg = (Mesh(f'GD_StationValley_{k}') for k in ('Platform', 'Machinery', 'Fittings', 'Building'))
         XB, XM, YO = self.XB, self.XM, self.YO
         self.core(plat, mach, fit, PAVING, 'metal')
-        plaza = rect(-16.4, -20.0, 9.6, -YO)
+        plaza = rect(-20.4, -20.0, 9.6, -YO)
         with plat.tagged('platform'):
             plat.prism(plaza, self.base, 0.0, PAVING)
         self.slabs.append(('plaza', plaza))
         self.levels.append({'name': 'platform and plaza', 'z': 0.0})
-        self.access.append({'name': 'plaza front (road side)', 'edge': [[-10.0, -20.0], [-5.8, -20.0]], 'z': 0.0, 'point': [-7.9, -19.4]})
+        self.access.append({'name': 'plaza front (road side)', 'edge': [[-11.7, -20.0], [-7.5, -20.0]], 'z': 0.0, 'point': [-9.6, -19.4]})
         self.points['platform back'] = [-6.0, 0.0]
         # Outer railings: the +y side, the back and the mouth corners (the -y side opens onto the plaza).
         railing(fit, self, [(XB + 0.15, -YO + 0.3), (XB + 0.15, YO - 0.15), (XM - 0.15, YO - 0.15), (XM - 0.15, self.YP + 0.5)], 'metal')
         railing(fit, self, [(XM - 0.15, -YO + 0.3), (XM - 0.15, -self.YP - 0.5)], 'metal')
         # Canopy over the loop.
-        for x in (-6.6, -2.0, 2.6, 7.2):
+        for x in self.GABLE_XS:
             for s in (-1, 1):
                 with fit.tagged('post base'):
                     fit.box((x, s * 6.9, 0.12), (0.5, 0.5, 0.24), STONE, bevel=0.03)
                 self.seat('canopy post base', x, s * 6.9, 0.0)
         # The tall cross-gable over the ropeway end: ridge across the rope, gable facing the plaza, open trusses.
-        cross_gable(bldg, self, (-6.6, -2.0, 2.6, 7.2), 6.9, 0.3, 0.23, 5.45, 0.3, 8.0, 8.2, 10.4, 0.14, TILE, 'tile',
+        cross_gable(bldg, self, self.GABLE_XS, 6.9, 0.3, 0.23, 4.95, -3.2, 8.3, 8.2, 10.0, 0.14, TILE, 'tile',
                     'canopy post', on=('post base',), foot_embed=0.012, roof_kw={'oni': True, 'tails': 0.6}, infill=(-1,),
                     mat=TIMBER_DARK)
-        self.house(bldg, fit)
+        # The station house stands beside the cross-gable, as painted: its east end meets the gable's west posts.
+        with self.shifted(self.HOUSE_DX, bldg, fit):
+            self.house(bldg, fit)
         # Plaza furniture.
-        bench(fit, self, -12.4, -17.2, 0)
-        bench(fit, self, -4.4, -17.2, 0)
-        self.notice_board(fit, -15.2, -17.6)
-        for x0, x1 in ((-15.8, -10.2), (-5.6, -0.4)):
+        bench(fit, self, -17.0, -17.2, 0)
+        bench(fit, self, -14.0, -17.2, 0)
+        self.notice_board(fit, -19.2, -17.6)
+        for x0, x1 in ((-19.8, -11.9), (-7.3, -2.4)):
             self.planter(fit, x0, -19.4, x1, -18.4)
         # Stone kerbs along the road edge and the west side of the forecourt (gap at the entrance).
-        for a, b in (((-16.4, -20.0), (-10.0, -20.0)), ((-5.8, -20.0), (9.6, -20.0)), ((-16.4, -19.75), (-16.4, -8.0))):
+        for a, b in (((-20.4, -20.0), (-11.7, -20.0)), ((-7.5, -20.0), (9.6, -20.0)), ((-20.4, -19.75), (-20.4, -8.0))):
             if a[1] == b[1]:
                 fit.box(((a[0] + b[0]) / 2, a[1] + 0.125, 0.07), (b[0] - a[0], 0.25, 0.14), STONE, bevel=0.02)
                 self.seat('kerb', (a[0] + b[0]) / 2, a[1] + 0.125, 0.0)
             else:
                 fit.box((a[0] + 0.125, (a[1] + b[1]) / 2, 0.07), (0.25, b[1] - a[1], 0.14), STONE, bevel=0.02)
                 self.seat('kerb', a[0] + 0.125, (a[1] + b[1]) / 2, 0.0)
-        for x in (-10.3, -6.6):
+        for x in (self.DOOR_X - 1.9 + self.HOUSE_DX, self.DOOR_X + 1.95 + self.HOUSE_DX):
             fit.lathe((x, -16.15, 0.0), [(0, 0.2), (0.08, 0.27), (0.5, 0.3), (0.55, 0.32)], POT, n=10)
             fit.lathe((x, -16.15, 0.5), [(0, 0.27), (0.03, 0.27)], SOIL, n=10)
             self.seat('flower pot', x, -16.15, 0.0)
@@ -736,55 +824,53 @@ class Valley(Station):
             for k in range(1, n):
                 u = a + (b - a) * k / n
                 c = (u, fixed, 0) if face in ('front', 'back') else (fixed, u, 0)
-                if face == 'front' and -10.4 < u < -6.3:
+                if face == 'front' and -7.0 < u < -4.2:
                     continue
                 with m.wall(c, nrm), m.grained((0, 1, 0)):
                     m.box((0, 1.845, 0.0), (0.16, 3.07, 0.08), TIMBER_DARK)
             for z, h in ((1.0, 0.12), (2.55, 0.14), (3.2, 0.16)):
                 runs = [(a + 0.12, b - 0.12)]
                 if face == 'front' and z < 2.0:
-                    runs = [(a + 0.12, -9.8), (-7.0, b - 0.12)]
+                    runs = [(a + 0.12, -7.0), (-4.2, b - 0.12)]
                 for ra, rb in runs:
                     mid = (ra + rb) / 2
                     c = (mid, fixed, 0) if face in ('front', 'back') else (fixed, mid, 0)
                     with m.wall(c, nrm):
                         m.box((0, z, 0.0), (rb - ra, h, 0.1), TIMBER_DARK)
         # Front: a long window band, the lattice doors under the porch, a smaller window to the right.
-        for wa, wb in ((-14.2, -10.1), (-6.6, -3.0)):
+        for wa, wb in ((-14.2, -7.3), (-3.9, -3.0)):
             with m.wall(((wa + wb) / 2, y0 + 0.1, 0), (0, -1)):
                 m.box((0, 1.78, 0.0), (wb - wa, 1.4, 0.03), WINDOW)
                 n = max(2, round((wb - wa) / 0.9))
                 for k in range(1, n):
                     m.box((-(wb - wa) / 2 + (wb - wa) * k / n, 1.78, 0.0), (0.07, 1.44, 0.07), TIMBER_DARK)
-        with m.wall((-8.4, y0 + 0.1, 0), (0, -1)):
+        with m.wall((self.DOOR_X, y0 + 0.1, 0), (0, -1)):
             for s in (-1, 1):
                 m.box((s * 0.4, 1.365, 0.0), (0.78, 2.11, 0.06), TIMBER)
                 for k in range(6):
                     m.box((s * 0.4 - 0.3 + 0.12 * k, 1.5, 0.0), (0.03, 1.6, 0.09), TIMBER_DARK)
             m.box((0, 2.47, 0.0), (1.8, 0.1, 0.09), TIMBER_DARK)
-        m.box((-8.4, y0 - 0.3, 0.075), (2.4, 0.4, 0.15), STONE)
-        self.seat('door step', -8.4, y0 - 0.3, 0.0)
+        m.box((self.DOOR_X, y0 - 0.3, 0.075), (2.4, 0.4, 0.15), STONE)
+        self.seat('door step', self.DOOR_X, y0 - 0.3, 0.0)
         # Wall lantern beside the door.
-        m.box((-6.95, y0 + 0.04, 2.0), (0.08, 0.16, 0.08), IRON)
-        m.box((-6.95, y0 - 0.12, 2.0), (0.18, 0.18, 0.26), LAMP)
-        m.box((-6.95, y0 - 0.12, 2.16), (0.24, 0.24, 0.06), IRON)
+        m.box((self.DOOR_X + 1.45, y0 + 0.04, 2.0), (0.08, 0.16, 0.08), IRON)
+        m.box((self.DOOR_X + 1.45, y0 - 0.12, 2.0), (0.18, 0.18, 0.26), LAMP)
+        m.box((self.DOOR_X + 1.45, y0 - 0.12, 2.16), (0.24, 0.24, 0.06), IRON)
         # Main roof: tiles over the whole house, gables in plaster.
-        z_ridge, half, t = 5.0, 3.6, 0.14
-        z_eave = eave_for(z_ridge, half, t, (y1 - y0) / 2 - 0.1, 3.36)
-        with m.grained((0, 1, 0)):
-            slab_roof(m, x0 - 0.5, x1 + 0.5, half, z_eave, z_ridge, t, TILE, rolls='tile', yc=yc, oni=True, tails=0.6, fascia=TIMBER_DARK)
-        for gx in (x0 + 0.11, x1 - 0.31):
-            gable(m, gx, gx + 0.2, yc, (y1 - y0) / 2 - 0.1, 3.40, (z_ridge, z_eave, half, t), PLASTER)
+        # Main roof: irimoya (hip-and-gable) in kawara, as painted: the ridge stops short of the ends, hips run down
+        # to the end eaves and a small plaster gable with onigawara sits under each ridge end.
+        irimoya_roof(m, x0 - 0.5, x1 + 0.5, yc, 3.6, 3.50, 5.6, 0.14, 2.2, TILE, TILE, PLASTER, fascia=TIMBER_DARK,
+                     no_tails=((self.DOOR_X - 2.1, self.DOOR_X + 2.1),))
         # Porch: two posts, a beam and a small gable roof turned across the main one.
-        for x in (-9.7, -7.1):
+        for x in (self.DOOR_X - 1.3, self.DOOR_X + 1.3):
             with m.grained((0, 0, 1)):
                 m.box((x, y0 - 1.0, 1.35), (0.2, 0.2, 2.7), TIMBER_DARK)
             self.seat('porch post', x, y0 - 1.0, 0.0)
             self.proxies.append(proxy_box('porch post', x, y0 - 1.0, 0.24, 0.24, 0.0, 2.8))
-        m.beam((-10.0, y0 - 1.0, 2.68), (-6.8, y0 - 1.0, 2.68), 0.22, 0.24, TIMBER_DARK, up=(0, 0, 1))
-        m.beam((-9.7, y0 - 1.0, 2.68), (-9.7, y0 + 0.12, 2.68), 0.16, 0.2, TIMBER_DARK, up=(0, 0, 1))
-        m.beam((-7.1, y0 - 1.0, 2.68), (-7.1, y0 + 0.12, 2.68), 0.16, 0.2, TIMBER_DARK, up=(0, 0, 1))
-        with m.at((-8.4, 0, 0), 90), m.grained((0, 1, 0)):
+        m.beam((self.DOOR_X - 1.6, y0 - 1.0, 2.68), (self.DOOR_X + 1.6, y0 - 1.0, 2.68), 0.22, 0.24, TIMBER_DARK, up=(0, 0, 1))
+        m.beam((self.DOOR_X - 1.3, y0 - 1.0, 2.68), (self.DOOR_X - 1.3, y0 + 0.12, 2.68), 0.16, 0.2, TIMBER_DARK, up=(0, 0, 1))
+        m.beam((self.DOOR_X + 1.3, y0 - 1.0, 2.68), (self.DOOR_X + 1.3, y0 + 0.12, 2.68), 0.16, 0.2, TIMBER_DARK, up=(0, 0, 1))
+        with m.at((self.DOOR_X, 0, 0), 90), m.grained((0, 1, 0)):
             ze = eave_for(3.75, 1.9, 0.1, 1.3, 2.78)
             slab_roof(m, y0 - 1.5, y0 + 0.4, 1.9, ze, 3.75, 0.1, TILE, rolls='tile', oni=True, fascia=TIMBER_DARK)
         self.proxies.append(proxy('station house', rect(x0, y0, x1, y1), 0.0, 5.0))
@@ -915,8 +1001,9 @@ class Rim(Station):
                     stone_pier(m, x, s * yp, seed=11 + 2 * i + (s > 0))
                 self.seat('pavilion pier', x, s * yp, -0.04, embed=0.04)
                 self.proxies.append(proxy_box('pavilion pier', x, s * yp, 0.95, 0.95, 0.0, 1.2))
-        canopy(m, self, xs, yp, 0.42, 1.18, 4.42, (-17.5, -8.1), (-18.2, -7.4, 6.4, 7.0, 0.16, SHINGLE, 'courses'),
-               'pavilion post', on=('pier',), foot_embed=0.025, roof_kw={'tails': 0.55}, knee_sect=0.19, knee_len=1.15)
+        canopy(m, self, xs, yp, 0.42, 1.18, 4.42, (-17.5, -8.1), (-18.6, -7.4, 7.6, 8.5, 0.16, SHINGLE, 'courses'),
+               'pavilion post', on=('pier',), foot_embed=0.025, roof_kw={'tails': 0.55}, knee_sect=0.19, knee_len=1.15,
+               infill=(-17.0,))
         # Plaster back wall and part of the +y side, timber-framed.
         for (a, b, c, axis) in ((-4.2, 4.2, -17.0, 'x'), (-16.6, -13.2, yp, 'y')):
             if axis == 'x':
@@ -931,21 +1018,40 @@ class Rim(Station):
                 self.proxies.append(proxy_box('pavilion wall', (a + b) / 2, c, b - a, 0.24, 0.0, 4.1))
                 for z in (0.45, 2.3):
                     m.box(((a + b) / 2, c - 0.11, z), (b - a - 0.02, 0.06, 0.14), TIMBER)
-        self.proxies.append(proxy('pavilion roof', rect(-18.2, -6.4, -7.4, 6.4), 4.1, 7.0))
+        self.proxies.append(proxy('pavilion roof', rect(-18.6, -7.6, -7.4, 7.6), 4.1, 8.5))
 
     def shelter(self, m, fit):
-        """The bullwheel's own raised roof: heavy posts with curved knee braces on stone piers, trusses high over the
-        wheel and the rail frame, a shallow shingle gable with deep eaves and exposed rafter tails."""
-        xs = (-5.6, 1.8); yp = 6.4; zt = 5.1
+        """The bullwheel's own raised roof, as painted: a low, flat roof with a deep layered fascia on heavy posts
+        that flare into Y brackets, standing on stone piers. The roof beams sit just above the rail frame, so the
+        wheel shows directly under the roof from the deck."""
+        xs = (-5.6, 1.8); yp = 6.4; z_b = 4.68; post = 0.44
         for i, x in enumerate(xs):
             for s in (-1, 1):
                 with m.tagged('pier'):
                     stone_pier(m, x, s * yp, seed=31 + 2 * i + (s > 0))
                 self.seat('shelter pier', x, s * yp, -0.04, embed=0.04)
                 self.proxies.append(proxy_box('shelter pier', x, s * yp, 0.95, 0.95, 0.0, 1.2))
-        canopy(m, self, xs, yp, 0.42, 1.18, zt, (-6.4, 2.6), (-7.0, 3.2, 7.6, 7.4, 0.16, SHINGLE, 'courses'),
-               'shelter post', on=('pier',), foot_embed=0.025, roof_kw={'tails': 0.55}, knee_sect=0.2, knee_len=1.15)
-        self.proxies.append(proxy('shelter roof', rect(-7.0, -7.6, 3.2, 7.6), zt - 0.3, 7.6))
+                with m.grained((0, 0, 1)):
+                    m.box((x, s * yp, (1.18 + z_b + 0.02) / 2), (post, post, z_b + 0.02 - 1.18), TIMBER, bevel=0.02)
+                self.seat('shelter post', x, s * yp, 1.18, embed=0.025, on=('pier',))
+                self.proxies.append(proxy_box('shelter post', x, s * yp, post + 0.04, post + 0.04, 1.18, z_b))
+                # Y brackets: big curved braces both ways along the line and both ways across it.
+                for d in (-1, 1):
+                    knee(m, (x + d * post / 2, s * yp, z_b + 0.02 - 1.35), (d, 0, 0), (0, 0, 1), 1.35, (0.23, 0.23))
+                    knee(m, (x, s * yp + d * post / 2, z_b + 0.32 - 1.35), (0, d, 0), (0, 0, 1), 1.35, (0.22, 0.22))
+        # Beams: along the line on the post tops, across it at each post line and between.
+        for s in (-1, 1):
+            m.beam((xs[0] - 1.7, s * yp, z_b + 0.2), (xs[1] + 1.7, s * yp, z_b + 0.2), 0.32, 0.4, TIMBER, up=(0, 0, 1))
+        for x in (xs[0], (xs[0] + xs[1]) / 2, xs[1]):
+            m.beam((x, -yp - 1.6, z_b + 0.43), (x, yp + 1.6, z_b + 0.43), 0.28, 0.26, TIMBER, up=(0, 0, 1))
+        # Roof: a deep fascia slab and a thinner inset cap with a very low hip, bevelled edges.
+        x0, x1, y0, y1 = xs[0] - 2.4, xs[1] + 2.4, -yp - 2.1, yp + 2.1
+        with m.grained((1, 0, 0)):
+            m.box(((x0 + x1) / 2, 0.0, z_b + 0.72), (x1 - x0, y1 - y0, 0.34), PLANK, bevel=0.05)
+            m.box(((x0 + x1) / 2, 0.0, z_b + 0.98), (x1 - x0 - 0.6, y1 - y0 - 0.6, 0.2), SHINGLE, bevel=0.06)
+        m.ring_prism(rect(x0 - 0.05, y0 - 0.05, x1 + 0.05, y1 + 0.05), rect(x0 + 0.08, y0 + 0.08, x1 - 0.08, y1 - 0.08),
+                     z_b + 0.58, z_b + 0.84, TIMBER_DARK)
+        self.proxies.append(proxy('shelter roof', rect(x0, y0, x1, y1), z_b - 0.05, z_b + 1.1))
 
 
 class Crater(Station):
@@ -957,7 +1063,7 @@ class Crater(Station):
 
     def __init__(self, key, p, d):
         super().__init__(key, p, d)
-        self.XB, self.YO = -8.0, 8.0; self.base = -1.6
+        self.XB, self.YO = -9.6, 8.0; self.base = -1.6
         self.grade = -self.RISERS * self.RISE
 
     def stair_z(self, x, y):
@@ -1012,16 +1118,16 @@ class Crater(Station):
 
     def canopy_and_house(self, m):
         YO = self.YO
-        canopy(m, self, (-1.2, 3.0, 7.2), 6.9, 0.40, 0.0, 5.3, (-1.75, 7.7), (-1.7, 8.0, 7.8, 8.1, 0.16, SHINGLE, 'courses'), 'canopy post',
+        canopy(m, self, (-1.2, 3.0, 7.2), 6.9, 0.40, 0.0, 4.95, (-1.75, 7.7), (-1.7, 8.2, 8.8, 7.4, 0.16, SHINGLE, 'courses'), 'canopy post',
                roof_kw={'tails': 0.55}, knee_sect=0.2, knee_len=1.1)
         # Mechanism house: board walls on three sides, a header and gable over the open +x side.
-        xh0, xh1 = self.XB, -1.6; zt = 6.2
+        xh0, xh1 = self.XB, -1.6; zt = 5.2; z_hd = 4.75       # wall top; header bottom over the open +x end (clears the rail frame)
         with m.grained((0, 0, 1)):
             m.box((xh0 + 0.1, 0.0, zt / 2), (0.2, 2 * YO, zt), PANEL)
             for s in (-1, 1):
                 m.box(((xh0 + 0.2 + xh1) / 2, s * (YO - 0.1), zt / 2), (xh1 - xh0 - 0.2, 0.2, zt), PANEL)
                 self.seat('house side wall', (xh0 + xh1) / 2, s * (YO - 0.1), 0.0)
-            m.box((xh1 - 0.1, 0.0, (5.0 + zt) / 2), (0.2, 2 * YO - 0.4, zt - 5.0), PANEL)
+            m.box((xh1 - 0.1, 0.0, (z_hd + zt) / 2), (0.2, 2 * YO - 0.4, zt - z_hd), PANEL)
         self.seat('house back wall', xh0 + 0.1, 0.0, 0.0)
         # Timber girts and sill across the board walls, proud of them (the concept's horizontal framing).
         for z in (0.10, 2.4, 4.6):
@@ -1033,7 +1139,7 @@ class Crater(Station):
             for s in (-1, 1):
                 m.box((x, s * (YO - 0.1), (zt - 0.02 - 0.03) / 2), (0.3, 0.3, zt - 0.02 + 0.03), TIMBER)
                 self.seat('house corner post', x, s * (YO - 0.1), -0.03, embed=0.03)
-        z_ridge, half, t = 9.0, 8.6, 0.16
+        z_ridge, half, t = 6.9, 8.6, 0.16
         z_eave = eave_for(z_ridge, half, t, YO - 0.2, zt - 0.04)
         with m.grained((0, 1, 0)):
             slab_roof(m, xh0 - 0.4, xh1 + 0.22, half, z_eave, z_ridge, t, SHINGLE, rolls='courses', tails=0.6)
@@ -1042,7 +1148,7 @@ class Crater(Station):
         self.proxies.append(proxy_box('house wall', xh0 + 0.1, 0.0, 0.24, 2 * YO, 0.0, zt))
         for s in (-1, 1):
             self.proxies.append(proxy_box('house wall', (xh0 + xh1) / 2, s * (YO - 0.1), xh1 - xh0, 0.24, 0.0, zt))
-        self.proxies.append(proxy('house roof', rect(xh0 - 0.4, -YO - 0.6, xh1 + 0.2, YO + 0.6), 5.0, z_ridge))
+        self.proxies.append(proxy('house roof', rect(xh0 - 0.4, -YO - 0.6, xh1 + 0.2, YO + 0.6), z_hd, z_ridge))
 
 
 STATIONS = {'valley': Valley, 'rim': Rim, 'crater': Crater}
@@ -1068,6 +1174,8 @@ def build(key, p, d, cab, ctx):
     groove = ctx['groove'](cab, st.rope, st.line_frames())
     # The haul rope (dropped 0.15 m in the station, round the bullwheel) to the cabin at every loop position.
     rope_clear = ctx['rope_check'](cab, st.rope, [(lbl, M, None) for lbl, M, _ in places])
+    rope_jaws = ctx['jaw_contact'](cab, st.rope, [(lbl, M, None) for lbl, M, attach in places if attach])
+    rope_station = ctx['static_rope'](static, st.rope, ('bullwheel groove',), 'rope in the bullwheel groove', key)
     tris = sum(m.tris() for m in meshes.values())
     extra = []
     if hits:
@@ -1078,6 +1186,9 @@ def build(key, p, d, cab, ctx):
         extra.append(f'jaw groove off the rope at the mouth: {groove["failures"]}')
     if not rope_clear['ok']:
         extra.append(f'rope within {rope_clear["required_m"]} m of the cabin on the loop: {rope_clear["where"]}')
+    for part in ('intentional', 'clearance'):
+        if not rope_station[part]['ok']:
+            extra.append(f'rope {part} in the station: {rope_station[part]["min_distance_from_rope_axis_m"]} at {rope_station[part]["where"]}')
     if tris > ctx['budget']['station']:
         extra.append(f'{tris} triangles over budget {ctx["budget"]["station"]}')
     proxies = st.proxies + st.platform_proxies()
@@ -1092,7 +1203,8 @@ def build(key, p, d, cab, ctx):
              'collision': {'file': f'assets/GD_{name}_Collision.fbx', 'convex_hulls': hulls},
              'cabin_loop': {'positions': len(places), 'contacts': hits, 'attach_zone_from_mouth_m': ATTACH_ZONE,
                             'doors_open_at_berths_contacts': door_hits, 'jaw_groove_on_rope_at_mouth': groove,
-                            'rope_clearance': rope_clear},
+                            'rope_clearance': rope_clear, 'rope_in_jaws_attach_zone': rope_jaws},
+             'rope_and_station': rope_station,
              'stairs': st.stairs, 'coplanar_overlaps': cop,
              'seating': {'checked': len(seats), 'failures': [r for r in seats if r['status'] != 'ok']}}
     return entry, ctx['failures'](rows, cop, seats, extra)

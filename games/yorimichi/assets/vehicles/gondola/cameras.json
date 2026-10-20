@@ -55,6 +55,62 @@
   "rms_px": 23.2,
   "max_px": 40.5
  },
+ "valley_view": {
+  "concept": "gondola_valley_station.jpg",
+  "box": [
+   0,
+   0,
+   1536,
+   1024
+  ],
+  "size": [
+   1536,
+   1024
+  ],
+  "pos": [
+   -9.2651,
+   -36.8588,
+   2.8701
+  ],
+  "yaw": 1.56089,
+  "pitch": 0.06831,
+  "roll": 0.0,
+  "focal_px": 1280.0,
+  "principal_offset_px": [
+   0.0,
+   0.0
+  ],
+  "rms_px": 65.7,
+  "max_px": 145.9
+ },
+ "crater_view": {
+  "concept": "gondola_crater_floor_station.jpg",
+  "box": [
+   0,
+   0,
+   1536,
+   1024
+  ],
+  "size": [
+   1536,
+   1024
+  ],
+  "pos": [
+   -0.5431,
+   36.3211,
+   5.5725
+  ],
+  "yaw": -1.50505,
+  "pitch": 0.06167,
+  "roll": 0.0,
+  "focal_px": 1280.0,
+  "principal_offset_px": [
+   0.0,
+   0.0
+  ],
+  "rms_px": 49.5,
+  "max_px": 65.5
+ },
  "tower_front": {
   "concept": "gondola_tower_pylon.jpg",
   "box": [
@@ -223,62 +279,6 @@
   "fit": "framed by eye",
   "lens_mm": 32
  },
- "tower_vista": {
-  "concept": "gondola_tower_pylon.jpg",
-  "box": [
-   1180,
-   585,
-   1536,
-   995
-  ],
-  "size": [
-   356,
-   410
-  ],
-  "pos": [
-   -22.0,
-   -27.0,
-   13.0
-  ],
-  "yaw": 0.82384,
-  "pitch": 0.10828,
-  "roll": 0.0,
-  "focal_px": 296.67,
-  "principal_offset_px": [
-   0.0,
-   0.0
-  ],
-  "fit": "framed by eye",
-  "lens_mm": 30
- },
- "valley_view": {
-  "concept": "gondola_valley_station.jpg",
-  "box": [
-   0,
-   0,
-   1536,
-   1024
-  ],
-  "size": [
-   1536,
-   1024
-  ],
-  "pos": [
-   -8.0,
-   -29.0,
-   1.6
-  ],
-  "yaw": 1.33705,
-  "pitch": -0.11987,
-  "roll": 0.0,
-  "focal_px": 853.33,
-  "principal_offset_px": [
-   0.0,
-   0.0
-  ],
-  "fit": "framed by eye",
-  "lens_mm": 20
- },
  "rim_view": {
   "concept": "gondola_rim_station.jpg",
   "box": [
@@ -307,32 +307,32 @@
   "fit": "framed by eye",
   "lens_mm": 24
  },
- "crater_view": {
-  "concept": "gondola_crater_floor_station.jpg",
+ "tower_vista": {
+  "concept": "gondola_tower_pylon.jpg",
   "box": [
-   0,
-   0,
+   1180,
+   585,
    1536,
-   1024
+   995
   ],
   "size": [
-   1536,
-   1024
+   356,
+   410
   ],
   "pos": [
-   22.0,
-   27.0,
-   4.0
+   -22.0,
+   -27.0,
+   13.0
   ],
-  "yaw": -2.27636,
-  "pitch": 0.05071,
+  "yaw": 0.82384,
+  "pitch": 0.10828,
   "roll": 0.0,
-  "focal_px": 1024.0,
+  "focal_px": 296.67,
   "principal_offset_px": [
    0.0,
    0.0
   ],
   "fit": "framed by eye",
-  "lens_mm": 24
+  "lens_mm": 30
  }
 }

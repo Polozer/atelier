@@ -57,6 +57,49 @@ VIEWS = {
 }
 
 
+def eave(z_ridge, half, t, y, z_bottom):
+    """stations.eave_for: the eave height that puts a slab roof's underside at z_bottom, y from the ridge."""
+    def under(z_eave):
+        rise = z_ridge - z_eave; nz = half / math.hypot(half, rise)
+        return z_ridge - rise * y / half - t / nz
+    lo, hi = 0.01, 30.0
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if under(z_ridge - mid) > z_bottom else (lo, mid)
+    return z_ridge - (lo + hi) / 2
+
+
+def guess(pos, target, lens, w=1536):
+    d = np.array(target, float) - np.array(pos, float); d /= np.linalg.norm(d)
+    return dict(pos=pos, yaw=math.atan2(d[1], d[0]), pitch=-math.asin(d[2]), roll=0.0, focal=lens / 36.0 * w)
+
+
+# Stations: the valley and crater-floor cameras are fitted to structural anchors (roof apexes and eave corners, post
+# feet, the bullwheel centre) with a fixed 30 mm lens and zero roll, so the overlays compare structure; the residuals
+# measure what still differs. The rim painting's layout does not trace (its wheel overhangs the deck edge, with no
+# room for the loop and pit), so its camera stays framed by eye (FRAMED). Station frame: platform top z = 0, the
+# bullwheel centre at the origin, the line leaving along +x (stations.py).
+ZS = p['berth_floor_step'] + p['cabin_floor_to_roof'] + p['hanger_length'] - 0.15     # bullwheel rope height
+VH_E = 3.50                                             # valley house roof eave (irimoya)
+VG_E = eave(10.0, 8.3, 0.14, 7.6, 4.95 + 0.32)          # valley cross-gable eave
+CC_E = eave(7.4, 8.8, 0.16, 6.9, 4.95 + 0.32)           # crater canopy eave
+VIEWS.update({
+    'valley_view': {
+        'concept': 'gondola_valley_station.jpg', 'box': (0, 0, 1536, 1024), 'free': [0, 1, 2, 3, 4],
+        'guess': guess((-8.0, -29.0, 1.6), (-3.0, -8.0, 4.2), 30),
+        'points': [((-19.1, -16.2, VH_E), (140, 385)), ((-16.9, -12.6, 5.7), (370, 262)), ((-8.3, -12.6, 5.7), (800, 228)),
+                   ((-9.6, -17.1, 3.75), (762, 378)), ((-18.6, -15.6, 0.3), (210, 585)), ((-3.2, -8.2, 10.05), (885, 90)),
+                   ((5.1, -8.2, VG_E), (1440, 325)), ((4.4, -6.9, 0.0), (1345, 655)), ((4.4, -6.9, 4.95), (1345, 335)),
+                   ((0.0, 0.0, ZS), (1090, 335))]},
+    'crater_view': {
+        'concept': 'gondola_crater_floor_station.jpg', 'box': (0, 0, 1536, 1024), 'free': [0, 1, 2, 3, 4],
+        'guess': guess((22.0, 27.0, 4.0), (-1.0, 0.0, 2.2), 30),
+        'points': [((8.2, 0.0, 7.4), (545, 405)), ((8.2, 8.8, CC_E), (450, 515)), ((-1.7, 8.8, CC_E), (930, 500)),
+                   ((7.2, 6.9, 0.0), (522, 640)), ((3.0, 6.9, 0.0), (660, 640)), ((-1.2, 6.9, 0.0), (825, 645)),
+                   ((-9.6, 8.0, 0.0), (1300, 632)), ((-9.6, 8.0, 5.2), (1303, 505)), ((-1.6, 8.0, 5.2), (905, 422))]},
+})
+
+
 def basis(yaw, pitch, roll):
     dv = np.array([math.cos(pitch) * math.cos(yaw), math.cos(pitch) * math.sin(yaw), -math.sin(pitch)])
     right = np.cross(dv, [0, 0, 1.0]); right /= np.linalg.norm(right); up = np.cross(right, dv)
@@ -97,8 +140,8 @@ def fit(view):
     return x, errs
 
 
-# Framed views: the tower and the stations are designed for riding and walking, so their structure does not trace
-# the paintings; these cameras are placed by eye to match each panel's viewpoint and framing (no residual).
+# Framed views: the tower is designed for riding, so its structure does not trace the painting; these cameras are
+# placed by eye to match each panel's viewpoint and framing (no residual).
 H16 = 16.0
 FRAMED = {
     'tower_front': ('gondola_tower_pylon.jpg', (0, 40, 500, 1000), (9.0, -66.0, 5.0), (0.0, 0.0, 7.8), 240),
@@ -107,10 +150,8 @@ FRAMED = {
     'tower_base': ('gondola_tower_pylon.jpg', (720, 530, 940, 945), (4.4, -3.1, 1.2), (1.93, -1.49, 0.75), 40),
     'tower_anchor': ('gondola_tower_pylon.jpg', (955, 570, 1170, 945), (6.0, -4.6, 1.6), (4.05, -1.49, 1.0), 40),
     'tower_scene': ('gondola_tower_pylon.jpg', (1080, 30, 1536, 540), (17.0, -19.0, 7.0), (2.5, 0.0, 10.2), 32),
-    'tower_vista': ('gondola_tower_pylon.jpg', (1180, 585, 1536, 995), (-22.0, -27.0, 13.0), (3.0, 0.0, 9.0), 30),
-    'valley_view': ('gondola_valley_station.jpg', (0, 0, 1536, 1024), (-8.0, -29.0, 1.6), (-3.0, -8.0, 4.2), 20),
     'rim_view': ('gondola_rim_station.jpg', (0, 0, 1536, 1024), (-21.0, -25.0, 9.5), (-5.0, -2.0, 1.6), 24),
-    'crater_view': ('gondola_crater_floor_station.jpg', (0, 0, 1536, 1024), (22.0, 27.0, 4.0), (-1.0, 0.0, 2.2), 24),
+    'tower_vista': ('gondola_tower_pylon.jpg', (1180, 585, 1536, 995), (-22.0, -27.0, 13.0), (3.0, 0.0, 9.0), 30),
 }
 
 

@@ -263,12 +263,49 @@ def view_cabin():
         bpy.data.objects.remove(o)
     for o in cab:
         o.hide_render = False
+    grip_diagrams(scene, rr)
     # Doors open: the boarding aisle from the platform, at eye height.
     door_open(scene.objects)
     a = bpy.data.lights.new('Fill2', 'AREA'); a.energy = 14; a.size = 1.6
     ob = bpy.data.objects.new('Fill2', a); scene.collection.objects.link(ob); ob.location = (0.3, 0, -G + 2.0)
     shoot(scene, look('DoorOpen', (0.0, -3.4, -G + 1.6), (0.0, 0.2, -G + 0.75), 28, (1000, 900)), 'cabin_door_open')
     shoot(scene, ortho('DoorOpenTop', (0, 0, -G + 1.9), (0, 0, 0), 3.6, (800, 800)), 'cabin_door_open_plan')
+
+
+def grip_diagrams(scene, rr):
+    """End view and section through the grip on a level rope, labelled: rope, jaws, clamp, pivot pin, hanger, the
+    running wheels' axles and, for reference, a piece of station rail under the wheels (stations only)."""
+    g = GRIP; wy, wz, wr, ww = g['wheel_y'], g['wheel_z'], g['wheel_radius'], g['wheel_width']
+    line = R.straight((-30, 0, 0), (30, 0, 0), rr, step=0.5)
+    rope = strand_rope('EndRope', line, 10.0, 30.32)                      # cut just past the near wheel
+    rail = block('RefRail', (-0.7, 0.7, wy - ww / 2 - 0.01, wy + ww / 2 + 0.01, wz - wr - 0.115, wz - wr), (226, 140, 40))
+    px, py, pz = g['pivot']
+    for tag, clip in (('end', None), ('section', 3.0)):
+        cam = ortho(f'Grip_{tag}', (3.0, -0.08, -0.1), (90, 0, 90), 1.3, (1100, 1100))
+        if clip:
+            cam.data.clip_start = clip                                     # cut at x = 0, through the jaws
+        X = 0.6 if not clip else -0.01
+        T = 0.026; L = -0.71; Rt = 0.17
+        right = [('haul rope, 90 mm', (X, 0.03, 0.03), (X, Rt, 0.33)),
+                 ('jaws closed on the rope', (X, 0.06, 0.07), (X, Rt, 0.25)),
+                 ('clamp body', (X, 0.03, 0.16), (X, Rt, 0.42)),
+                 ('side plate', (X, 0.115, -0.05), (X, Rt, -0.12))]
+        left = [('pivot pin\n(cabin hangs plumb)', (X, py - 0.06, pz), (X, L, -0.27)),
+                ('hanger post', (X, py, -0.45), (X, L, -0.5)),
+                ('wheel axle', (X, -0.2, wz), (X, L, 0.1)),
+                ('running wheel\n(station rail only)', (X, wy, wz + wr - 0.03), (X, L, 0.4)),
+                ('station rail\n(stations only)', (X, wy - 0.02, wz - wr - 0.06), (X, L, -0.08))]
+        made = []
+        for k, (text, anc, at) in enumerate(right):
+            made += label(f'R{tag}{k}', text, anc, at, T, cam, align='LEFT')
+        for k, (text, anc, at) in enumerate(left):
+            w = max(len(t) for t in text.split('\n')) * T * 0.52
+            made += label(f'Lf{tag}{k}', text, anc, at, T, cam, align='LEFT', leader_end=(at[0], at[1] + w + 0.01, at[2]))
+        shoot(scene, cam, f'cabin_grip_{tag}_view')
+        for o in made:
+            bpy.data.objects.remove(o)
+    for o in rope + [rail]:
+        bpy.data.objects.remove(o)
 
 
 def disc(name, c, r, z0, z1, rgb, n=40):
@@ -299,6 +336,28 @@ def rod(name, a, b, w, rgb):
     vs = [tuple(P + su * u + sv * v) for P in (A, B) for su, sv in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
     fs = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
     me.from_pydata(vs, [], fs); me.materials.append(material(name + 'Mat', rgb, 0.6))
+    ob = bpy.data.objects.new(name, me); bpy.context.scene.collection.objects.link(ob)
+    return ob
+
+
+GUIDE = (205, 30, 30)
+
+
+def label(name, text, anchor, at, size, cam, align='LEFT', rgb=GUIDE, leader_end=None):
+    """A review label facing the camera, with a thin leader line from the anchor point to the text (or leader_end)."""
+    cu = bpy.data.curves.new(name, 'FONT'); cu.body = text; cu.size = size; cu.align_x = align; cu.align_y = 'CENTER'
+    ob = bpy.data.objects.new(name, cu); bpy.context.scene.collection.objects.link(ob)
+    ob.location = at; ob.rotation_euler = cam.rotation_euler
+    cu.materials.append(material(name + 'Mat', rgb, 0.6))
+    return [ob, rod(name + 'Leader', anchor, leader_end or at, size * 0.09, rgb)]
+
+
+def block(name, box, rgb):
+    """An axis-aligned review block (x0, x1, y0, y1, z0, z1)."""
+    x0, x1, y0, y1, z0, z1 = box; me = bpy.data.meshes.new(name)
+    me.from_pydata([(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0), (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)], [],
+                   [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)])
+    me.materials.append(material(name + 'Mat', rgb, 0.6))
     ob = bpy.data.objects.new(name, me); bpy.context.scene.collection.objects.link(ob)
     return ob
 
@@ -366,6 +425,44 @@ def view_station(key):
     # Close-ups: the bullwheel bay from the deck at eye height, and a roof eave with its post, brackets and tails.
     for tag, (pos, tgt, lens) in CLOSE[key].items():
         shoot(scene, look(f'{key}_{tag}', pos, tgt, lens, (1400, 1000)), f'{key}_{tag}')
+    if key == 'valley':
+        mouth_views(scene, cab, Zr, rr, xm)
+
+
+def mouth_views(scene, cab, Zr, rr, xm):
+    """At the station mouth: a cabin just inside (grip on the running rail, rope dropped below the jaws) and one
+    just outside (wheels off the rail, jaws on the rope); a 3/4 side view and a section along the rope's plane."""
+    Rb = PRM['gauge'] / 2; g = GRIP; x0 = xm + 0.6
+    gl = R.station_loop(Rb, Zr, Zr, xm, rr)                                 # the grips' line (rail), as stations.py
+    xin, xout = xm - 1.3, xm + 0.3
+    placed = []
+    for x, tag in ((xin, 'in'), (xout, 'out')):
+        placed += place_cabin(cab, gl.grip_frame(x0 - x, (0, -1, 0)), f'mouth_{tag}')
+    yw = -Rb + g['wheel_y']; zw = Zr + g['wheel_z']; zr = Zr + g['wheel_z'] - g['wheel_radius']
+    cam = look('MouthSide', (xm - 0.5, -Rb - 3.6, Zr + 1.1), (xm - 0.5, -Rb, Zr - 0.05), 30, (1400, 900))
+    Y = -Rb - 0.9; T = 0.06
+    items = [('running wheels on the station rail', (xin - 0.36, yw, zr + 0.02), (xin - 1.9, Y, Zr + 0.75)),
+             ('station rail ends at the mouth', (xm + 0.28, yw, zr - 0.05), (xm - 0.2, Y, Zr - 0.75)),
+             ('haul rope dropped 0.15 m: grip detached', (xin + 0.6, -Rb, Zr - 0.14), (xin - 1.9, Y, Zr - 0.55)),
+             ('outside: jaws on the rope, wheels free', (xout + 0.1, -Rb - 0.1, Zr + 0.12), (xout - 0.6, Y, Zr + 0.95))]
+    made = []
+    for k, (text, anc, at) in enumerate(items):
+        made += label(f'M{k}', text, anc, at, T, cam)
+    shoot(scene, cam, 'station_mouth_side')
+    for o in made:
+        bpy.data.objects.remove(o)
+    cam = ortho('MouthSection', (xm - 0.5, -Rb - 6.0, Zr - 0.15), (90, 0, 0), 3.4, (1400, 900))
+    cam.data.clip_start = 6.0 - 0.006                                        # cut along the rope's vertical plane
+    Y = -Rb - 0.005; T = 0.055
+    items = [('rope seated in the jaw groove: attached', (xout, Y, Zr + 0.03), (xout - 1.2, Y, Zr + 0.75)),
+             ('rope 0.14 m below the jaws: detached\n(the jaws open here; modelled closed)', (xin, Y, Zr - 0.12), (xin - 0.9, Y, Zr - 0.75)),
+             ('rope ramps up to the grip line at the mouth', (xm - 0.4, Y, Zr - 0.05), (xm - 0.6, Y, Zr - 1.05))]
+    made = []
+    for k, (text, anc, at) in enumerate(items):
+        made += label(f'S{k}', text, anc, at, T, cam)
+    shoot(scene, cam, 'station_mouth_section')
+    for o in made + placed:
+        bpy.data.objects.remove(o)
 
 
 CLOSE = {

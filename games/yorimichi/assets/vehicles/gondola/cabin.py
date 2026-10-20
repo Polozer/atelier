@@ -25,8 +25,8 @@ DOOR_FRAME = 0.04  # gasket width inside the structural opening
 # Detachable grip (export coordinates, rope axis = x axis). The station rail (stations.py) is built from the wheel
 # values: its running surface is at wheel_z - wheel_radius, centred on wheel_y, and its underside at rail_bottom_z.
 GRIP = {'housing_length': 0.45, 'jaw_cover': 0.035, 'plate_y': (0.10, 0.13), 'plate_z': (-0.10, 0.20),
-        'wheel_x': (-0.36, 0.36), 'wheel_y': -0.30, 'wheel_z': 0.0, 'wheel_radius': 0.16, 'wheel_width': 0.07,
-        'rail_bottom_z': -0.275, 'post_section': (0.18, 0.10), 'post_y': (-0.03, -0.185),
+        'wheel_x': (-0.36, 0.36), 'wheel_y': -0.30, 'wheel_z': 0.16, 'wheel_radius': 0.16, 'wheel_width': 0.07,
+        'rail_bottom_z': -0.115, 'post_section': (0.18, 0.10), 'post_y': (-0.03, -0.185),
         'pivot': (0.0, -0.185, -0.13)}
 # The grip follows the rope's tangent; everything below the pivot pin (hanger and cabin) hangs plumb from it.
 GRIP_MESHES = ('GD_CabinGrip',)
@@ -295,8 +295,9 @@ class Cabin:
         jaw (inner side, +y) and a movable jaw (outer, door side, -y) close on the rope from above: their grooves are
         arcs of the rope radius about the rope axis, so the rope sits fully seated and coaxial. Below the rope the
         housing is open, so the tower sheaves and the bullwheel liner run under the rope between the side plates.
-        Two large running wheels, one at each end of the housing, on axles across the rope on the outer side, at rope
-        height: they roll on the station rail (stations.py) after the jaws open; on the line they touch nothing.
+        Two large running wheels, one at each end of the housing, on axles across the rope, 0.30 m outboard and with
+        their centres 0.16 m above the rope axis (their treads come down to the rope axis height, never to the rope):
+        they roll on the station rail (stations.py) after the jaws open; on the line they touch nothing.
         Pivot: a lug under the outer side plate carries a pin across the rope (along y). The grip (mesh gm) follows the
         rope's tangent; the hanger and the cabin (mesh m and the body) hang plumb from the pin, so the floor stays level
         on every grade (cabin.pose, rope.hang_frame).
@@ -341,7 +342,10 @@ class Cabin:
         wy, wr, ww, wz = g['wheel_y'], g['wheel_radius'], g['wheel_width'], g['wheel_z']
         for x in g['wheel_x']:
             with gm.tagged('wheel'):
-                gm.lathe((x, -py1 + 0.004, wz), [(0, 0.032), (-wy + ww / 2 + 0.02 - py1 + 0.004, 0.032)], STEEL, n=10, axis=(0, -1, 0))
+                # Wheel arm: a bolted bar from the outer side plate out to the axle, which stands on it.
+                sg = 1 if x > 0 else -1; xa, xb = hx - 0.03, abs(x) + 0.06
+                gm.box((sg * (xa + xb) / 2, -(py1 + 0.015), wz), (xb - xa, 0.03, 0.09), STEEL, bevel=0.008)
+                gm.lathe((x, -(py1 + 0.02), wz), [(0, 0.032), (-wy + ww / 2 + 0.02 - py1 - 0.02, 0.032)], STEEL, n=10, axis=(0, -1, 0))
                 tyre = [(0, wr - 0.03), (0.01, wr), (0.024, wr), (0.031, wr - 0.014), (0.039, wr - 0.014), (0.046, wr), (0.06, wr), (ww, wr - 0.03)]
                 gm.lathe((x, wy + ww / 2, wz), tyre, RUBBER, n=24, axis=(0, -1, 0))
                 gm.lathe((x, wy + ww / 2 + 0.006, wz), [(0, wr - 0.045), (ww + 0.012, wr - 0.045)], STEEL, n=16, axis=(0, -1, 0))
