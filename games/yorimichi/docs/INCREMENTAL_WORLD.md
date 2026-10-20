@@ -31,3 +31,9 @@ Focused tests exercise ordinary build/stamp execution across these boundaries an
 removed incidental dependencies and the retained terrain dependencies. Numerical reference points and
 the existing caldera/placement tests protect geometry behavior. These source checks do not establish a
 native build-time improvement; measure that at the next owner's normal build boundary.
+
+The atlas signs the extracted kernel and depth configuration as geography inputs too. Its
+`coasts/natural-kernel-equivalence.json` witness carries this source relocation into current
+attestations using unchanged function/constant ASTs and independently captured height arrays.
+Original generation records, paintings, masks and accepted exports remain unchanged; this carry
+does not claim a new native export or acceptance run.

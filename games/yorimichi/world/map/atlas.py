@@ -37,6 +37,7 @@ GEOGRAPHY_SOURCES = (
     'world/farhills_surface.py', 'world/farhills_grid.py', 'world/terrain_product.py', 'world/north_mountain_surface.py',
     'world/city_terrain_surface.py', 'world/regions/hidamari/build.py',
     'world/regions/hidamari/layout.py', 'world/regions/hidamari_stable/layout.py', 'world/regions/hidamari/mountains.py',
+    'world/regions/hidamari/natural_terrain.py', 'world/regions/craterpark/v2/v4_config.py',
     'world/regions/belmonte/layout.py', 'world/regions/belmonte/terrain.py', 'world/regions/belmonte/plan.py',
     'world/regions/southwest/island.py', 'world/train/route.py', 'world/train/corridor.py',
     'world/train/earthworks.py', 'world/train/station_site.py',

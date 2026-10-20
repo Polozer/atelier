@@ -122,7 +122,9 @@ def test_empty_selection_fails_without_reusing_a_prior_success(registry_build):
     assert p.run() != 0 and p.executed == []
 
 
-def test_explicit_snapshot_is_verified_without_global_library_fallback(tmp_path):
+def test_explicit_snapshot_is_verified_without_global_library_fallback(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(RECIPE.WORLD))
+    monkeypatch.syspath_prepend(str(RECIPE.REGIONS))
     from brinecove import hero_sources
     missing = tmp_path / 'selection.json'
     with pytest.raises(FileNotFoundError):

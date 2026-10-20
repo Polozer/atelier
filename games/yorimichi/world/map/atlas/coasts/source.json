@@ -11,7 +11,9 @@
     "world/regions/hidamari/build.py": "eb57e173bdc65e4c4b9b11dc9481fe71309ab691b00968f322faac09b63830a6",
     "world/regions/hidamari/layout.py": "828e63d7375897019191194f311db38a2ef78baef3a5400642f6ba62b505521a",
     "world/regions/hidamari_stable/layout.py": "d30b9b12b09c2e3cad3ab2d21db8d5ca8e83c7fe6daad0bf309bc50180cea97c",
-    "world/regions/hidamari/mountains.py": "f2a09621e6e6d61b070b284e79333b5312bcc118f681d8cedac53eb82a13aae6",
+    "world/regions/hidamari/mountains.py": "20f14b419183be3dea6d31e4a29af2d20aae860f2cbb7d7df49c9f1423c1fab7",
+    "world/regions/hidamari/natural_terrain.py": "bca99462123604c90670b2082872f921aed96eb750df1f25ebd03a48d0ce29e0",
+    "world/regions/craterpark/v2/v4_config.py": "ee6e94c6212e02aa2c92bf27a555d73f5be5efa8c84160ef6c37ca617316fdbd",
     "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
     "world/regions/belmonte/terrain.py": "5ac9877948237befe95bb034786f54f69681aac33d3d28eb16fa51b5715416ee",
     "world/regions/belmonte/plan.py": "b2b10ac599577713c36ca27b28343ec2cff244b0272640da45e4bc671821612c",
@@ -122,5 +124,9 @@
       "sha256": "ca433cee6311b0efbe9326a806c29e9ac0e9a6720adec2194b1e01665b06e18c",
       "reference_sha256": "f50268081b9e0a21fdd02b5a2cc2d94f89e38ccf8abd970e8244943f28f605fb"
     }
+  },
+  "natural_kernel_revalidation": {
+    "witness": "coasts/natural-kernel-equivalence.json",
+    "sha256": "8b28429cdda351987bd77bf0a37bb95b8dfa54497d1eccae5de43c08370bfb8c"
   }
 }
