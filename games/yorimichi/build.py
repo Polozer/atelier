@@ -845,6 +845,7 @@ def world_steps(ctx):
              # The Hidamari path follows HD_Terrain as built (layout height, railway earthworks, apron pad).
             inputs=[REGIONS / 'zeppelin', REGIONS / 'village' / 'build.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
                      REGIONS / 'hidamari' / 'layout.py', *belmonte_train_corridor(out),
+                     REGIONS / 'belmonte' / 'layout.py', REGIONS / 'belmonte' / 'source.py', REGIONS / 'belmonte' / 'terrain.py',
                      ASSETS / 'belmonte' / 'source.json',
                      *(ASSETS / 'belmonte' / entry['path'] for entry in json.loads((ASSETS / 'belmonte/source.json').read_text())['meshes']
                        if entry['name'].startswith('SM_BM_BT_Terrain_')),
@@ -1074,11 +1075,12 @@ def world_steps(ctx):
              inputs=[WORLD / 'map', WORLD / 'north_mountain_surface.py', WORLD / 'city_terrain_surface.py',
                      REGIONS / 'hidamari' / 'build.py', REGIONS / 'hidamari_stable' / 'layout.py', WORLD / 'build_terrain.py', WORLD / 'farhills_surface.py', WORLD / 'farhills_grid.py', WORLD / 'terrain_product.py',
                      *CRATERPARK, REGIONS / 'southwest', REGIONS / 'mega' / 'ramp.py', REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'gate.py',
-                     *[REGIONS / 'belmonte' / (name + '.py') for name in ('plan', 'planting', 'source', 'layout')],
+                     *[REGIONS / 'belmonte' / (name + '.py') for name in ('plan', 'planting', 'source', 'layout', 'terrain')],
+                     *belmonte_train_corridor(out),
                      ASSETS / 'belmonte' / 'source.json',
                      *(ASSETS / 'belmonte' / entry['path']
                        for entry in json.loads((ASSETS / 'belmonte' / 'source.json').read_text())['meshes']
-                       if entry['name'].startswith(('SM_BM_BT_blk_', 'SM_BM_BH_', 'SM_BM_BE_', 'SM_BM_BHip_',
+                       if entry['name'].startswith(('SM_BM_BT_Terrain_', 'SM_BM_BT_blk_', 'SM_BM_BH_', 'SM_BM_BE_', 'SM_BM_BHip_',
                                                     'SM_BM_BVV_Farm_', 'SM_BM_BC_Water_', 'SM_BM_BC_Pave', 'SM_BM_BC_Ponte')))],
              needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte', 'world.brinecove',
                     *crater_geometry],

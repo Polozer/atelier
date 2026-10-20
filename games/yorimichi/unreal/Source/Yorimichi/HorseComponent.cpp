@@ -93,6 +93,7 @@ namespace HorseRide
     struct FContacts { FVector SaddleRoot, StirrupL, StirrupR, GripL, GripR; double SeatZ = 0., ScaleRatio = 1.; };
     bool ReadContacts(const TSharedPtr<FJsonObject>& Breed, FContacts& Out)
     {
+        if (!UHorseComponent::ReadSeatContacts(Breed, Out.SaddleRoot, Out.SeatZ)) return false;
         const TSharedPtr<FJsonObject>* Contacts = nullptr;
         if (!Breed->TryGetObjectField(TEXT("contacts"), Contacts) || !Contacts->IsValid()) return false;
         auto Point = [&](const TCHAR* Key, FVector& At)
@@ -102,8 +103,8 @@ namespace HorseRide
             At = FromRiderSpace(*V);
             return true;
         };
-        if (!Point(TEXT("saddle_root"), Out.SaddleRoot) || !Point(TEXT("stirrup_L"), Out.StirrupL) || !Point(TEXT("stirrup_R"), Out.StirrupR) ||
-            !Point(TEXT("grip_L"), Out.GripL) || !Point(TEXT("grip_R"), Out.GripR) || !(*Contacts)->TryGetNumberField(TEXT("seat_z"), Out.SeatZ))
+        if (!Point(TEXT("stirrup_L"), Out.StirrupL) || !Point(TEXT("stirrup_R"), Out.StirrupR) ||
+            !Point(TEXT("grip_L"), Out.GripL) || !Point(TEXT("grip_R"), Out.GripR))
             return false;
         if (!(*Contacts)->TryGetNumberField(TEXT("scale_ratio"), Out.ScaleRatio) || Out.ScaleRatio <= 0.) Out.ScaleRatio = 1.;
         return true;
@@ -248,7 +249,7 @@ bool UHorseComponent::LoadRoster()
         if (bReference && HorseRide::ReadContacts(*Object, Contacts))
         {
             Breed.ScaleRatio = float(Contacts.ScaleRatio);
-            Breed.Seat = FVector(Contacts.SaddleRoot.X - ReferenceContacts.SaddleRoot.X, 0., (Contacts.SeatZ - ReferenceContacts.SeatZ) * 100.);
+            Breed.Seat = FVector(Contacts.SaddleRoot.X - ReferenceContacts.SaddleRoot.X, 0., Contacts.SeatZ - ReferenceContacts.SeatZ);
             Breed.StirrupL = Contacts.StirrupL - ReferenceContacts.StirrupL;
             Breed.StirrupR = Contacts.StirrupR - ReferenceContacts.StirrupR;
             Breed.GripL = Contacts.GripL - ReferenceContacts.GripL;
@@ -817,7 +818,7 @@ int32 UHorseComponent::GaitForSpeed(float SpeedCm)
     return 5;
 }
 
-float UHorseComponent::PlayRateForGait(int32 Gait, float SpeedCm, bool bClampSprint)
+float UHorseComponent::PlayRateForGait(int32 Gait, float SpeedCm, bool bRacing)
 {
     struct FBand { float Low, High, RateLow, RateHigh; };
     static const FBand Bands[GaitCount] = {
@@ -830,8 +831,10 @@ float UHorseComponent::PlayRateForGait(int32 Gait, float SpeedCm, bool bClampSpr
     };
     const int32 Index = FMath::Clamp(Gait, 0, GaitCount - 1);
     const FBand& B = Bands[Index];
-    const float Alpha = (SpeedCm - B.Low) / FMath::Max(B.High - B.Low, 1.f);
-    const float MaxRate = (bClampSprint && Index == GaitCount - 1) ? 1.45f : B.RateHigh;
+    // Mounted walk starts mapping at 10 cm/s; racing uses IdleSpeed (12 cm/s) and allows sprint legs up to 1.45x.
+    const float Low = (!bRacing && Index == 1) ? 10.f : B.Low;
+    const float Alpha = (SpeedCm - Low) / FMath::Max(B.High - Low, 1.f);
+    const float MaxRate = (bRacing && Index == GaitCount - 1) ? 1.45f : B.RateHigh;
     return FMath::Clamp(FMath::Lerp(B.RateLow, B.RateHigh, Alpha), B.RateLow, MaxRate);
 }
 
@@ -839,11 +842,11 @@ bool UHorseComponent::ReadSeatContacts(const TSharedPtr<FJsonObject>& Breed, FVe
 {
     const TSharedPtr<FJsonObject>* C = nullptr;
     const TArray<TSharedPtr<FJsonValue>>* P = nullptr;
-    if (!Breed || !Breed->TryGetObjectField(TEXT("contacts"), C) || !C || !(*C)->IsValid() ||
+    if (!Breed || !Breed->TryGetObjectField(TEXT("contacts"), C) || !C || !C->IsValid() ||
         !(*C)->TryGetArrayField(TEXT("saddle_root"), P) || !P || P->Num() != 3 ||
         !(*C)->TryGetNumberField(TEXT("seat_z"), OutSeatZCm))
         return false;
-    OutSaddleCm = FVector((*P)[0]->AsNumber(), (*P)[1]->AsNumber(), (*P)[2]->AsNumber()) * 100.;
+    OutSaddleCm = HorseRide::FromRiderSpace(*P);
     OutSeatZCm *= 100.;
     return true;
 }
@@ -861,17 +864,16 @@ void UHorseComponent::AdvanceGait(float Dt)
     if (Phase != EPhase::Riding) { GaitPhase = FMath::Clamp(PhaseTime / Length, 0.f, 1.f); return; }
     if (IsJumping()) { GaitPhase = FMath::Min(GaitPhase + Dt / HorseRide::JumpDuration, 1.f); return; }
     // Each gait's clip plays faster as the horse runs up through its range.
-    auto Rate = [this](float Low, float High, float Slow, float Fast) { return FMath::GetMappedRangeValueClamped(FVector2f(Low, High), FVector2f(Slow, Fast), Speed); };
     float PlayRate = 1.f;
     switch (Role)
     {
         // Angular travel drives a pivot's normalized phase, independent of imported rider clip trimming.
         case EHorseRole::Walk: PlayRate = IsTurningInPlace() ? Length * HorseRide::PivotYawRate / HorseRide::PivotDegreesPerCycle * FMath::Abs(Steering)
-            : Rate(10.f, HorseRide::WalkMaxSpeed, .82f, 1.22f); break;
-        case EHorseRole::Trot: PlayRate = Rate(HorseRide::WalkMaxSpeed, HorseRide::TrotMaxSpeed, .88f, 1.20f); break;
-        case EHorseRole::Canter: PlayRate = Rate(HorseRide::TrotMaxSpeed, HorseRide::CanterMaxSpeed, .90f, 1.18f); break;
-        case EHorseRole::Gallop: PlayRate = Rate(HorseRide::CanterMaxSpeed, HorseRide::GallopMaxSpeed, .92f, 1.16f); break;
-        case EHorseRole::Sprint: PlayRate = Rate(HorseRide::GallopMaxSpeed, HorseRide::SprintMaxSpeed, .95f, 1.22f); break;
+            : PlayRateForGait(1, Speed, false); break;
+        case EHorseRole::Trot: PlayRate = PlayRateForGait(2, Speed, false); break;
+        case EHorseRole::Canter: PlayRate = PlayRateForGait(3, Speed, false); break;
+        case EHorseRole::Gallop: PlayRate = PlayRateForGait(4, Speed, false); break;
+        case EHorseRole::Sprint: PlayRate = PlayRateForGait(5, Speed, false); break;
         default: break;
     }
     const float Next = GaitPhase + Dt * PlayRate / Length;

@@ -144,7 +144,7 @@ public:
     /** Shared locomotion gait table (Idle, Walk, Trot, Canter, Gallop, Sprint) and seat contacts used by riding and racing. */
     static constexpr int32 GaitCount = 6;
     static int32 GaitForSpeed(float SpeedCm);
-    static float PlayRateForGait(int32 Gait, float SpeedCm, bool bClampSprint = false);
+    static float PlayRateForGait(int32 Gait, float SpeedCm, bool bRacing = false);
     static bool ReadSeatContacts(const TSharedPtr<class FJsonObject>& Breed, FVector& OutSaddleCm, double& OutSeatZCm);
 
 private:

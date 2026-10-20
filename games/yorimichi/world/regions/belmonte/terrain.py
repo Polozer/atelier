@@ -446,7 +446,12 @@ def carve_valley_tile(path, ln=None):
             a['colour'] = _repaint(a['colour'], v[:, 0], v[:, 1], v[:, 2], a['natural'][:, 0], ln)
             a['normals'] = E._normals(v, f, a['normals'], moved_mask)
     else:
-        f, a, moved = f0, attrs, 0
+        v, f, a = v_carved, f0, dict(attrs)
+        moved_mask = np.abs(v[:, 2] - a['natural'][:, 0]) > 1e-3
+        moved = int((np.abs(v[:, 2] - a['natural'][:, 0]) > .01).sum())
+        if moved:
+            a['colour'] = _repaint(a['colour'], v[:, 0], v[:, 1], v[:, 2], a['natural'][:, 0], ln)
+            a['normals'] = E._normals(v, f, a['normals'], moved_mask)
     v, f, a, paved = _salon_path(v, f, a)
     local_pos = (v - origin) @ source.FRAME
     local_norm = a['normals'] @ source.FRAME
