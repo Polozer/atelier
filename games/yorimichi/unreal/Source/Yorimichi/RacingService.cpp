@@ -16,6 +16,7 @@
 #include "PlayableCharacter.h"
 #include "RacingBetting.h"
 #include "RacingBroadcast.h"
+#include "RacingRecords.h"
 #include "RacingStables.h"
 #include "WandererDefinition.h"
 #include "WandererCharacter.h"
@@ -371,6 +372,8 @@ ARacingService::ARacingService()
     // The saddles take the stable's colour (a cooked engine material, as the sword's).
     static ConstructorHelpers::FObjectFinder<UMaterialInterface> Basic(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
     SilksMaterial = Basic.Object;
+    Ledger = MakeShared<FRacingLedger>();
+    HallBoards = MakeShared<FRacingHallBoards>();
 }
 
 void ARacingService::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -531,9 +534,92 @@ bool ARacingService::OpenWorld(const FString& Path, const FString& Seed)
     bHasWorld = true;
     Registered.Reset();
     LookCache.Reset();
+    LoadLedger();
     bDirty = true;
     SaveNow();
     return true;
+}
+
+FString ARacingService::LedgerPath(const FString& WorldPath)
+{
+    return FPaths::GetPath(WorldPath) / TEXT("records.json");
+}
+
+void ARacingService::LoadLedger()
+{
+    // The records hall's ledger lives beside the world (Saved/racing/records.json). One that is not admissible or belongs
+    // to another world (another seed) is kept aside, never mixed in nor written over; one that cannot be read now (or
+    // kept aside) is left as it is and this session does not save the ledger.
+    *Ledger = FRacingLedger();
+    bLedgerWritable = true;
+    const FString Path = LedgerPath(SavePath);
+    IPlatformFile& Files = FPlatformFileManager::Get().GetPlatformFile();
+    if (Files.FileExists(*Path))
+    {
+        FString Text;
+        FRacingLedger Loaded;
+        if (!FFileHelper::LoadFileToString(Text, *Path))
+        {
+            bLedgerWritable = false;
+            UE_LOG(LogTemp, Error, TEXT("RACING RECORDS cannot read %s: left as it is, this session's ledger is not saved"), *Path);
+        }
+        else if (FRacingLedger::FromJson(Text, Loaded) && Loaded.Seed == State.Seed) *Ledger = MoveTemp(Loaded);
+        else
+        {
+            const FString Aside = Path + FString::Printf(TEXT(".unreadable-%lld"), int64(RacingLooks::UnixNow()));
+            if (Files.MoveFile(*Aside, *Path))
+            {
+                UE_LOG(LogTemp, Warning, TEXT("RACING RECORDS %s is not this world's admissible ledger: kept as %s, the hall starts a new one"), *Path, *Aside);
+            }
+            else
+            {
+                bLedgerWritable = false;
+                UE_LOG(LogTemp, Error, TEXT("RACING RECORDS %s is not this world's admissible ledger and could not be kept aside: left as it is, this session's ledger is not saved"), *Path);
+            }
+        }
+    }
+    Ledger->Seed = State.Seed;
+    RacingRecords::Note(*Ledger, State, HostWorldSeconds(), false);
+    LedgerSaved = 0;
+    HallStamp = MAX_uint32;
+    UE_LOG(LogTemp, Display, TEXT("RACING RECORDS ledger: %d records, %d riders, since day %d"), Ledger->Records.Num(), Ledger->Riders.Num(), Ledger->SinceT);
+}
+
+void ARacingService::SaveLedger()
+{
+    if (SavePath.IsEmpty() || !bLedgerWritable || LedgerSaved == Ledger->Revision + 1) return;
+    // Written beside the world, through a temporary file (a crash leaves the old ledger or the new one).
+    const FString Path = LedgerPath(SavePath), Temp = Path + TEXT(".tmp");
+    if (FFileHelper::SaveStringToFile(Ledger->ToJson(), *Temp, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM) &&
+        IFileManager::Get().Move(*Path, *Temp, true, true))
+        LedgerSaved = Ledger->Revision + 1;
+    else UE_LOG(LogTemp, Error, TEXT("RACING RECORDS could not write %s"), *Path);
+}
+
+bool ARacingService::AdvanceNoting(double Target)
+{
+    const int32 DayBefore = State.T;
+    int32 RunBefore = 0;
+    for (const FHRRace& R : State.Meeting.Races) RunBefore += R.IsRun() ? 1 : 0;
+    const double DayEnd = HRClock::DayStart(State.T + 1);
+    Target = FMath::Min(Target, DayEnd);
+    if (Target >= DayEnd)
+    {
+        // Every race of the day starts well before its end: run them, note them all, then let the rules close the day
+        // (stepping through a day gives the same world as one call, HRRules::AdvanceTo).
+        HRRules::AdvanceTo(State, DayEnd - 1e-3);
+        RacingRecords::Note(*Ledger, State, DayEnd, true);
+    }
+    HRRules::AdvanceTo(State, Target);
+    RacingRecords::Note(*Ledger, State, Target, false);
+    int32 RunAfter = 0;
+    for (const FHRRace& R : State.Meeting.Races) RunAfter += R.IsRun() ? 1 : 0;
+    return State.T != DayBefore || RunAfter != RunBefore;
+}
+
+void ARacingService::BuildRecordsPage(const FRacingRecordsQuery& Query, FRacingRecordsPage& Out) const
+{
+    RacingRecords::BuildPage(State, *Ledger, HostWorldSeconds(), Query, Out);
 }
 
 bool ARacingService::SaveNow()
@@ -549,6 +635,7 @@ bool ARacingService::SaveNow()
     for (const TPair<FString, FHRPlayer>& Player : State.Players) bSessionPlayers |= IsSessionPlayer(Player.Key);
     const bool bSaved = SaveWorldFile(bSessionPlayers ? PersistentWorld(State) : State, SavePath, Error);
     LastSave = FPlatformTime::Seconds();
+    SaveLedger();
     if (bSaved)
     {
         bDirty = false;
@@ -609,13 +696,11 @@ void ARacingService::TickHost(float DeltaSeconds)
         UE_LOG(LogTemp, Display, TEXT("RACING away for long: %d race days skipped, %d to catch up"), Skipped, HRRules::MaxCatchUpDays);
     }
     const int32 DayBefore = State.T;
-    int32 RunBefore = 0;
-    for (const FHRRace& R : State.Meeting.Races) RunBefore += R.IsRun() ? 1 : 0;
     // At most one race day per frame: a host back after hours catches up over a few frames, never in one long hitch.
-    HRRules::AdvanceTo(State, FMath::Min(Now, HRClock::DayStart(State.T + 1)));
-    int32 RunAfter = 0;
-    for (const FHRRace& R : State.Meeting.Races) RunAfter += R.IsRun() ? 1 : 0;
-    const bool bChanged = State.T != DayBefore || RunAfter != RunBefore;
+    // The records hall notes each race as its winner is home, and every race of a day before it closes.
+    const uint32 LedgerBefore = Ledger->Revision;
+    const bool bChanged = AdvanceNoting(Now);
+    if (Ledger->Revision != LedgerBefore) bDirty = true;
     if (State.T != DayBefore) LookCache.Reset();
     bDirty |= bChanged;
     const double Real = FPlatformTime::Seconds();
@@ -1411,6 +1496,29 @@ void ARacingService::RefreshWallets()
             Wallet->HostSetCard(Card);
         }
     }
+    // The records hall (docs/RACING.md, "Records hall"): its objects' texts, only to readers in the hall, rebuilt when a
+    // race is noted or the day changes, and every five seconds for the next races' countdowns.
+    bool bHallBuilt = false;
+    for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+    {
+        URacingRecordsDesk* Desk = URacingRecordsDesk::Of(It->Get());
+        if (!Desk || !Desk->WantsBoards()) continue;
+        if (!bHallBuilt)
+        {
+            bHallBuilt = true;
+            const uint32 Stamp = HashCombine(GetTypeHash(State.T), HashCombine(GetTypeHash(Ledger->Revision), GetTypeHash(State.Meeting.Races.Num())));
+            const double Real = FPlatformTime::Seconds();
+            if (Stamp != HallStamp || Real - HallBuilt >= 5.)
+            {
+                const double Started = Real;
+                RacingRecords::BuildBoards(State, *Ledger, Now, *HallBoards);
+                HallStamp = Stamp;
+                HallBuilt = FPlatformTime::Seconds();
+                UE_LOG(LogTemp, Verbose, TEXT("RACING RECORDS boards built in %.2f ms"), (HallBuilt - Started) * 1000.);
+            }
+        }
+        Desk->HostSetBoards(*HallBoards);
+    }
     // The stables (docs/RACING.md, "Stables"): each owner's view, and the market while they are at their stable.
     for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
     {
@@ -1450,7 +1558,13 @@ void ARacingService::AdvanceClock(double Seconds)
     DevSeconds += FMath::Max(Seconds, 0.);
     double Now = HostWorldSeconds();
     HRRules::LimitCatchUp(State, Now);
-    HRRules::AdvanceTo(State, Now);
+    // Day by day, as the host's tick, so the records hall notes every race.
+    for (int32 Guard = 0; Guard <= HRRules::MaxCatchUpDays + 1; ++Guard)
+    {
+        const int32 Day = State.T;
+        AdvanceNoting(Now);
+        if (State.T == Day) break;
+    }
     bDirty = true;
 }
 

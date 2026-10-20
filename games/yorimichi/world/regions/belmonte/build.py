@@ -208,6 +208,38 @@ def belmonte_stable_places(data):
     return out
 
 
+# The records hall (docs/RACING.md, "Records hall") in the loggia of the Palazzo Comunale (SM_BM_BH_PalazzoComunale), in
+# its local space (cm, its floor at z 0; Haras Valley heroes.py palazzo_v3: the loggia between the arcade and the back
+# wall at local y -250, from x -1240 to 1240, 6 m high, doors at x 0 and +-940, windows at +-470). Each object:
+# (object, index, local position, local yaw facing the reader, width x height cm).
+RECORDS_HALL = {
+    'mesh': 'SM_BM_BH_PalazzoComunale', 'centre_cm': [0., -460., 0.],
+    'objects': (
+        # The split-flap board over the middle door (its arch and keystone end under 3.9 m, the beams at 5.8 m).
+        ('board', 0, [0., -254., 480.], -90., [600., 165.]),
+        # Between the doors and the windows, at eye height: the three circuits, the four Grands Prix, the hall's plaque
+        # (clear of the windows' open shutters).
+        *(('record', i, [-x, -254., 165.], -90., [124., 100.]) for i, x in enumerate((-785., -650., -290., -155., 155., 290., 650.))),
+        ('plaque', 0, [-785., -254., 165.], -90., [124., 100.]),
+        # The honour boards on the end walls, clear of the archive table and the card cabinet in the corners.
+        *(('honour', i, [1236., -613.5 + 123.5 * i, 190.], 180., [113., 210.]) for i in range(3)),
+        *(('honour', 3 + i, [-1236., -395. - 180. * i, 190.], 0., [170., 210.]) for i in range(2)),
+        # The card cabinet and the archive table with its ledgers, their fronts facing the piazza.
+        ('cabinet', 0, [-1132., -302., 65.], -90., [110., 130.]),
+        ('archive', 0, [1132., -312., 70.], -90., [120., 85.]),
+    ),
+}
+
+
+def records_hall_places(data):
+    """The records hall's boards and furniture, from the Palazzo Comunale's committed placement."""
+    hall = RECORDS_HALL
+    tr = building_transform(data, hall['mesh'])
+    return {'centre_cm': building_point(tr, hall['centre_cm']), 'floor_cm': building_point(tr, [0., 0., 0.])[2],
+            'objects': [{'object': obj, 'index': i, 'at_cm': building_point(tr, local), 'yaw': building_yaw(tr, yaw),
+                         'size_cm': list(size)} for obj, i, local, yaw, size in hall['objects']]}
+
+
 def racing_places(data=None):
     """Belmonte's racing places (docs/RACING.md), derived from the committed building placements, for runtime.json."""
     data = data or source.manifest()
@@ -215,7 +247,7 @@ def racing_places(data=None):
     c = SALON_COUNTER
     counter = {'at_cm': building_point(salon, c['spot_cm']), 'yaw': building_yaw(salon, c['yaw']),
                **{k: c[k] for k in ('half_length_cm', 'reach_cm', 'behind_cm', 'below_cm', 'above_cm')}}
-    return {'counter': counter, 'belmonte_stable': belmonte_stable_places(data)}
+    return {'counter': counter, 'belmonte_stable': belmonte_stable_places(data), 'records_hall': records_hall_places(data)}
 
 
 def map_zones(town_z):

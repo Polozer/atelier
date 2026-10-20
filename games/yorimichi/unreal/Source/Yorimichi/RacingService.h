@@ -15,6 +15,10 @@ class AWandererCharacter;
 class UAnimSequence;
 struct FRacingCard;
 struct FRacingCardPreview;
+struct FRacingHallBoards;
+struct FRacingLedger;
+struct FRacingRecordsPage;
+struct FRacingRecordsQuery;
 struct FRacingStableRequest;
 struct FRacingWalletView;
 class UMaterialInterface;
@@ -228,6 +232,14 @@ public:
     /** Host (tests): moves the clock Seconds on and advances the world to it, as the host's tick does. */
     void AdvanceClock(double Seconds);
 
+    // ------------------------------------------------------------------ records hall (docs/RACING.md, "Records hall")
+    /** The host's ledger: record times and riders' tallies noted as races are seen run (RacingRecords::Note). */
+    const FRacingLedger& GetLedger() const { return *Ledger; }
+    /** Saved/racing/records.json beside the world file at Path. */
+    static FString LedgerPath(const FString& WorldPath);
+    /** Host: one page of the records hall for a reader, from the world and the ledger now. */
+    void BuildRecordsPage(const FRacingRecordsQuery& Query, FRacingRecordsPage& Out) const;
+
     // ------------------------------------------------------------------ presentation
     const FRacingNetState& GetNetState() const { return Net; }
     /** The venue's course (Track 1: Belmonte's sand), or nullptr when it is not loaded. */
@@ -252,6 +264,11 @@ private:
     UFUNCTION() void OnRep_Net();
 
     void TickHost(float DeltaSeconds);
+    /** Advances the world to world second Target, at most to the end of today: the day's races are noted in the ledger
+     *  before the rules close it. True when a race was run or the day changed. */
+    bool AdvanceNoting(double Target);
+    void LoadLedger();
+    void SaveLedger();
     void RegisterPlayers();
     void Publish(bool bForce);
     void TickPresentation(float DeltaSeconds);
@@ -272,6 +289,13 @@ private:
     /** The next day's preview, computed for day PreviewFor (-1: none yet). */
     TSharedPtr<FRacingCardPreview> Preview;
     int32 PreviewFor = -1;
+    /** The records hall's ledger (made by the constructor) and its texts for readers in the hall. */
+    TSharedPtr<FRacingLedger> Ledger;
+    TSharedPtr<FRacingHallBoards> HallBoards;
+    uint32 LedgerSaved = 0, HallStamp = MAX_uint32;
+    /** False when the ledger file could not be read or kept aside: it is left as it is and never written over. */
+    bool bLedgerWritable = true;
+    double HallBuilt = -100.;
 
     // Courses
     FRacingCourse Hidamari, BelmonteTurf, BelmonteSand;
