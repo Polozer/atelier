@@ -33,7 +33,7 @@ DECK_Z = (5.2, 17.0)                      # metres above the waterline that coun
 GATE_HEIGHT = 1.2                         # the closed boarding gate's stop, above the sill
 SHIP_ROOT = '/Game/Ferry/Ship'
 TERMINAL_ROOT = '/Game/Ferry/Terminals'
-CODE = (HERE / 'service.py', HERE / 'timetable.py')
+CODE = (HERE / 'service.py', HERE / 'timetable.py', HERE.parent / 'hidamari/ferry_source.py')
 
 
 def ue(x, y, z=0.0):
@@ -203,15 +203,8 @@ def preflight(root=FERRY):
         raise ValueError('ferry terminals were built against a different world/site')
     validate_manifest(terminals, root / 'terminals')
     validate_manifest(ferry, root)
-    cut = json.loads((yori.OUT / 'hidamari/ferry/cut.json').read_text())
-    if cut['failures'] or sha(yori.OUT / 'hidamari/ferry/HD_Harbor.fbx') != cut['output_sha256']:
-        raise ValueError('Hidamari ferry access cut failed or is stale')
-    cut_inputs = (yori.WORLD / 'regions/hidamari/ferry_cut.py', yori.OUT / cut['source'],
-                  yori.OUT / cut['site'])
-    expected_cut_inputs = {str(p.relative_to(REPO)) if p.is_relative_to(REPO) else p.name: sha(p)
-                           for p in cut_inputs}
-    if cut.get('inputs') != expected_cut_inputs:
-        raise ValueError('Hidamari ferry access cut inputs changed; rebuild it')
+    from regions.hidamari.ferry_source import validated_harbor
+    validated_harbor(yori.OUT, REPO)
     audit = ferry['deck_audit']
     if any(m['open_edges'] for m in ferry['meshes'].values()) or audit['failures'] or any(audit['lifeboat_overlaps'].values()) or audit['fitting_rail_contacts']:
         raise ValueError('ferry mesh/deck audits failed')

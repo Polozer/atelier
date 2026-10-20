@@ -24,6 +24,7 @@ import json
 import math
 import sys
 import types
+import time
 from pathlib import Path
 
 import numpy as np
@@ -290,7 +291,8 @@ class Harbour:
         worst, worst_alongside, berth_gap, grounded, hits = 99.0, 99.0, 99.0, [], []
         berthing = [k == 'berth' or (k == 'start' and i + 1 < len(ps) and ps[i + 1][3] == 'berth') or
                     (i > 0 and ps[i - 1][3] == 'berth' and k == 'berth') for i, (_, _, _, k) in enumerate(ps)]
-        for (x, y, h, kind), alongside in zip(ps, berthing):
+        started = spoken = time.monotonic()
+        for index, ((x, y, h, kind), alongside) in enumerate(zip(ps, berthing)):
             m = self.g.mask(); self.g.ship(m, FULL, x, y, h)
             w = self.g.mask(); self.g.ship(w, WET, x, y, h)
             swept |= m; wet |= w
@@ -307,6 +309,10 @@ class Harbour:
                     hits.append(pose + (round(other, 2), round(berth, 2)))
             if (w & self.shallow).any():
                 grounded.append(pose + (round(float(self.z[w].max()), 2),))
+            now = time.monotonic()
+            if now - spoken >= 10:
+                print(f'FERRY SWEEP {label}: {index + 1}/{len(ps)} poses checked, {now - started:.0f}s', flush=True)
+                spoken = now
         ds = distance(swept, 30.0)
         near = {}
         for lab, m in self.labels:

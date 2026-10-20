@@ -114,6 +114,10 @@ def test_normal_build_includes_the_whole_ferry_pipeline():
     assert {'world.ferry_terminals', 'world.hidamari_ferry_cut'} <= set(rows['world.ferry_service'].needs)
     assert 'world.ferry_service' in rows['data.stage'].needs
     assert 'world.ferry_service' in rows['unreal.ferry'].needs
+    assert 'world.hidamari_ferry_cut' in rows['unreal.world'].needs
+    world_order = {s.name for s in build.order(list(rows.values()), ['unreal.world'])}
+    assert {'world.ferry_probes', 'world.ferry_site', 'world.hidamari_ferry_cut'} <= world_order
+    assert 'unreal.ferry' not in world_order
     assert Path('/build/ferry/terminals/assets/FT_HD_Brow.fbx') in rows['world.ferry_terminals'].outputs
     assert all(c.threads == 3 for key, step in rows.items() if 'ferry' in key
                for c in step.commands if isinstance(c, build.Blender))

@@ -188,8 +188,9 @@ overlapping tiles; missing seabed fails rather than being treated as deep water.
 
 Each harbour owns its berth, manoeuvres and terminal assembly in `world/regions/<region>/ferry_terminal.py`.
 The terminal kit supplies the shared building pieces. Hidamari's own `ferry_cut.py` opens the recorded
-rail/post span while preserving the remainder of its harbour. The import invokes Hidamari's explicit
-source-override API, preserving that region's materials and collision policy.
+rail/post span while preserving the remainder of its harbour. Hidamari's normal importer owns the final
+harbour package and always selects the validated cut mesh, preserving its materials and collision policy.
+A targeted world reimport therefore retains the terminal opening.
 
 `world/regions/ferry/service.py` writes one shuttle's timetable, with stationary boarding windows.
 The runtime follows those samples from the shared server clock. Brass boarding gates close away from

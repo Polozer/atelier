@@ -2,7 +2,6 @@
 import sys
 from pathlib import Path
 import json
-import runpy
 
 WORLD = Path(__file__).resolve().parents[2] / 'world'
 sys.path.insert(0, str(WORLD))
@@ -98,17 +97,5 @@ for folder, dest, entries, palette in (
         report[name] = {'triangles': mesh.get_num_triangles(0), 'convex_hulls': count}
         unreal.log(f'FERRY IMPORT {name}: {report[name]}')
 
-# Hidamari owns the harbour import and its material/LOD decisions; this is its explicit source override API.
-import os
-previous = os.environ.get('HIDAMARI_ASSETS')
-try:
-    os.environ['HIDAMARI_ASSETS'] = 'HD_Harbor'
-    runpy.run_path(str(Path(__file__).with_name('import_hidamari.py')), init_globals={
-        'NORTH': False, 'SOURCE_OVERRIDES': {'HD_Harbor': yori.OUT / 'hidamari/ferry/HD_Harbor.fbx'}})
-finally:
-    if previous is None:
-        os.environ.pop('HIDAMARI_ASSETS', None)
-    else:
-        os.environ['HIDAMARI_ASSETS'] = previous
 (ROOT / 'import-report.json').write_text(json.dumps(report, indent=2) + '\n')
 unreal.log('FERRY IMPORT COMPLETE')

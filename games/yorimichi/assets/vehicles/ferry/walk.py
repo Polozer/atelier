@@ -280,6 +280,7 @@ def verdict(report):
 
 
 def main():
+    REVIEW.mkdir(parents=True, exist_ok=True)
     L = json.loads((OUT / 'deck_layout.json').read_text())
     proxies = L['proxies']; md = L['main_deck']; mx, mw, mz = (np.array(md[k]) for k in ('x', 'half_width', 'z'))
     bz = L['boat_deck']['z']; bx_, bz_ = np.array(bz['x']), np.array(bz['z'])

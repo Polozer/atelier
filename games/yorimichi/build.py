@@ -825,7 +825,7 @@ def world_steps(ctx):
                        Product('terrain.FarHills.provenance', (out / 'terrain/FarHills/manifest.json',))],
              heavy=True, about='authoritative FarHills natural and final ordered geometry before city scenery'),
         Step('world.hidamari', [Blender(REGIONS / 'hidamari' / 'build.py')],
-             inputs=[*(p for p in (REGIONS / 'hidamari').iterdir() if p.name not in ('ferry_terminal.py', 'ferry_cut.py', '__pycache__')), *CRATERPARK, REGIONS / 'village' / 'build.py', REGIONS / 'zeppelin' / 'layout.py',
+             inputs=[*(p for p in (REGIONS / 'hidamari').iterdir() if p.name not in ('ferry_terminal.py', 'ferry_cut.py', 'ferry_source.py', '__pycache__')), *CRATERPARK, REGIONS / 'village' / 'build.py', REGIONS / 'zeppelin' / 'layout.py',
                      REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'forest.py', REGIONS / 'megapark' / 'trail.py',
                      REGIONS / 'megapark' / 'gate.py', REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py', ASSETS / 'hidamari' / 'props',
                      *TREEHOUSE_LAYOUT, *VILLAGE_LAYOUT, WORLD / 'farhills_grid.py', WORLD / 'north_mountain_surface.py',
@@ -1254,6 +1254,7 @@ def unreal_steps(ctx):
         Step('unreal.world', [UnrealScript(SCRIPTS / 'setup_project.py', 'level saved')],
              # The city's arcade and harbor materials read the region's committed paintings.
              inputs=[WORLD / 'asset_catalog.py', WORLD / 'coast_water.py', REGIONS / 'hidamari' / 'textures',
+                     REGIONS / 'hidamari/ferry_source.py',
                      ASSETS / 'environment/textures/volcanic-rock.jpg', SCRIPTS / 'coast_rock_look.py',
                      *[SCRIPTS / n for n in ('setup_project.py', 'material_assets.py', 'mesh_import.py',
                                           'import_wanderer.py', 'cape_boy_material.py', 'animation_compression.py', 'import_village.py',
@@ -1262,7 +1263,7 @@ def unreal_steps(ctx):
                                           'import_zeppelin.py', 'forest_ground.py', 'ground_grain.py', 'atmosphere.py', 'city_material.py', 'mesh_materials.py')]],
              after=['unreal.compile', 'unreal.materials'],
              references=['materials.shared', *['foliage.' + name + '.native' for name in foliage_build.catalog.FOLIAGE]],
-             needs=['world.textures', 'world.layout', 'world.props', 'world.hidamari.city', 'world.hidamari_textures', 'world.hidamari_props.import',
+             needs=['world.hidamari_ferry_cut', 'world.textures', 'world.layout', 'world.props', 'world.hidamari.city', 'world.hidamari_textures', 'world.hidamari_props.import',
                     'world.zeppelin.meshes', 'world.terrain.meshes', 'world.village.import', 'world.sailboat', 'characters.wanderer'],
              heavy=True, about='legacy world assets and level; preserves independent materials and foliage'),
         # The volcano: its meshes, M_NorthMountains with the rock and snow mask textures, M_NorthGate. The world import
@@ -1455,6 +1456,7 @@ def ferry_steps(ctx):
     terminal = kit / 'terminals'
     region = REGIONS / 'ferry'
     shared = [WORLD / 'solid_mesh.py', YORI]
+    harbor_source = REGIONS / 'hidamari/ferry_source.py'
     layouts = [REGIONS / name / 'ferry_terminal.py' for name in ('hidamari', 'brinecove')]
     site_code = [terminal / 'site.py', terminal / 'world_probe.py', kit / 'build.py', region / 'route.py', *layouts, *shared]
     ship_names = ['FY_' + name for name in ('Hull', 'Superstructure', 'Funnel', 'Lifeboats', 'Rails', 'Masts', 'Fittings', 'BoardingGate', 'Collision')]
@@ -1487,14 +1489,13 @@ def ferry_steps(ctx):
              outputs=[out / 'hidamari/ferry/HD_Harbor.fbx', out / 'hidamari/ferry/cut.json'],
              heavy=True, about='Hidamari opens its quay rail and posts at the audited jetty root'),
         Step('world.ferry_service', [Python(region / 'service.py')],
-             inputs=[region / 'service.py', region / 'timetable.py', terminal / 'walkcheck.py', *site_code],
+             inputs=[region / 'service.py', region / 'timetable.py', harbor_source, terminal / 'walkcheck.py', *site_code],
              needs=['world.ferry_terminals', 'world.hidamari_ferry_cut'],
              outputs=[out / 'ferry/service/service.json'],
              about='one passenger ferry, a shared-clock two-way timetable, audited boarding walks and sounds'),
         Step('unreal.ferry', [UnrealScript(SCRIPTS / 'import_ferry.py', 'FERRY IMPORT COMPLETE', null_rhi=True)],
              inputs=[SCRIPTS / 'import_ferry.py', SCRIPTS / 'mesh_import.py',
-                     *build_inputs.local_imports(SCRIPTS / 'import_hidamari.py'), SCRIPTS / 'import_hidamari.py',
-                     region / 'service.py', region / 'timetable.py', terminal / 'walkcheck.py', *site_code],
+                     region / 'service.py', region / 'timetable.py', harbor_source, terminal / 'walkcheck.py', *site_code],
              needs=['world.ferry_service', 'unreal.world'], after=['unreal.compile'],
              outputs=[out / 'ferry/import-report.json',
                       *(GAME / 'unreal/Content/Ferry/Ship' / f'{name}.uasset' for name in ship_names),

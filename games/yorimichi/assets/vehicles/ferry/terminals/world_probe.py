@@ -48,12 +48,15 @@ def clear_scene():
 
 
 def import_file(path):
+    print(f'FERRY PROBE importing {path.name}', flush=True)
     before = set(bpy.data.objects)
     if path.suffix == '.fbx':
         bpy.ops.import_scene.fbx(filepath=str(path))
     else:
         bpy.ops.import_scene.gltf(filepath=str(path))
-    return [o for o in bpy.data.objects if o not in before and o.type == 'MESH']
+    objects = [o for o in bpy.data.objects if o not in before and o.type == 'MESH']
+    print(f'FERRY PROBE imported {path.name}: {len(objects)} meshes', flush=True)
+    return objects
 
 
 def triangles(objs, matrix=Matrix.Identity(4)):
