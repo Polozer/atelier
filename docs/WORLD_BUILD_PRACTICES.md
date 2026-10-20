@@ -16,16 +16,16 @@ footprint's owner. Seat trees, props and buildings with that owner's final produ
 Never seat them on a hidden or superseded surface, and never on `max()` or `min()` of two. Hidamari's forest stood
 up to 8 m in the air because placement took the higher of the city ground and the far hills hidden beneath it.
 
-**Give every seam one owner.** Where two surfaces meet, one side owns the edge: usually the finer one, or the
-region the player stands in. The other side follows the owner's exact edge profile, from the same function and
-samples, and fades back to its own shape over a declared margin. That applies to surfaces that abut edge to edge.
-Where one surface lies over another (paving, a deck or a slab over ground), the upper one owns the footprint, and
-the lower one stays below it by a declared clearance instead. A coarse mesh needs vertices where the fine edge
-bends; a straight coarse edge across a curved fine one leaves slivers. Clamped lookups past a grid's range
-(`np.interp` holds its last value) are a common cause of a flat edge beside a sloping neighbour. A skirt or wall
-may close an intended height change, but must never hide a mismatch you cannot explain. For every new or moved
-boundary, add a test that samples both sides along the whole edge and asserts zero difference. The slit west of
-the hippodrome came from two such edges, 18 m apart, with no test.
+**Give every seam one owner.** Where two surfaces meet, one side owns the edge: usually the finer one, or the region
+the player stands in. The other side follows the owner's exact edge profile, from the same function and samples, and
+fades back to its own shape over a declared margin. That applies to surfaces that abut edge to edge. Where one surface
+lies over another (paving, a deck or a slab over ground), the upper one owns the footprint, and the lower one stays
+below it by a declared clearance instead. A coarse mesh needs vertices where the fine edge bends; a straight coarse
+edge across a curved fine one leaves slivers. Clamped lookups past a grid's range (`np.interp` holds its last value)
+are a common cause of a flat edge beside a sloping neighbour. A skirt or wall may close an intended height change, but
+must never hide a mismatch you cannot explain. For every new or moved boundary, add a test that samples both sides
+along the whole edge and asserts zero difference (or the seam's named tolerance). The slit west of the hippodrome came
+from two such edges, 18 m apart, with no test.
 
 **No one-sided sheets.** A quad renders from one side only. Anything the camera can see from below or behind
 must be a closed solid, a slab with thickness, or (for intended thin surfaces such as cloth, foliage cards, flags
