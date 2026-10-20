@@ -12,8 +12,9 @@ use Original pools and their Original shuffle state. Alternatives MUST retain in
 state, and invalid or not-ready requests MUST leave the active bank and plant state unchanged.
 
 @cc [owner:fontanierh,label:correctness] local-world-soundbank-menu
-At default local audio preferences, fresh Original MUST retain existing cue, shuffle, attenuation and mix behavior without loading
-alternative banks or an audition. A bank selection MUST validate its current staged identity,
+With softening off and full footstep and skate volume, fresh Original MUST retain existing cue, shuffle, attenuation and mix
+behavior without loading alternative banks or an audition; the softening and volume preferences, release defaults included,
+adjust only per-voice filter and gain on top of it. A bank selection MUST validate its current staged identity,
 complete loaded foot/skate coverage and every ready emitter before saving or changing any emitter.
 Failed saves, invalid assets and obsolete async completions MUST preserve the active bank.
 The local world's choice MUST apply to new local and remote emitters without replicating that
@@ -130,6 +131,7 @@ stand-ins when required assets are missing.
 
 @cc [owner:fontanierh,label:correctness] release-default-preferences
 A fresh install's preferences, a missing saved key and the menus' resets MUST all take the release defaults
-(JapanReleaseDefaults, the operator's preset exactly). A saved value MUST still win. A release default that names no
+(JapanReleaseDefaults, the operator's preset exactly). A saved value MUST still win, except light values that the existing
+light_version migration retires from a file saved before the current light. A release default that names no
 preference or leaves its range MUST be refused and reported, never clamped or rounded; preferences it does not list
 keep their built-in defaults.
