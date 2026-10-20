@@ -30,7 +30,7 @@ from pathlib import Path
 GAME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GAME / 'world'))
 import yori  # noqa: E402
-from train import bake_manifest as BM, station_site  # noqa: E402
+from train import bake_manifest as BM, layout as L, station_site  # noqa: E402
 sys.path.insert(0, str(GAME / 'world' / 'regions'))
 from hidamari import station_yard  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -364,6 +364,29 @@ def boarding(v, p):
     return out
 
 
+def sound(v, p):
+    """Where a vehicle's sounds come from (ABelmonteTrainService::LoadSounds), from its authored geometry, Unreal cm in the
+    vehicle's frame: its wheels (a coach's two bogies; the engine's leading bogie, coupled wheels and trailing axle; the
+    tender's axles) on the rail at their axle height, and on the locomotive its chimney (the smoke emitter mount: idle,
+    departure, beats, whistle) and its two cylinders (the steam blasts)."""
+    body = p.get('body') or {}
+    kind = body.get('kind') or v['id']
+    if kind == 'locomotive':
+        wheels = [(sum(L.LEADING) / len(L.LEADING), L.LEADING_R), (sum(L.DRIVERS) / len(L.DRIVERS), L.DRIVER_R),
+                  *((x, L.TRAILING_R) for x in L.TRAILING)]
+    elif kind == 'tender':
+        wheels = [(x, L.TENDER_WHEEL_R) for x in L.TENDER_AXLES]
+    else:
+        wheels = [(x, L.WHEEL_R) for x in (body.get('bogies') or ())]
+    out = {'wheels': [to_ue(x, 0., r) for x, r in wheels]}
+    if kind == 'locomotive':
+        chimney = next(m for m in vehicle_field(v, p, 'mounts') if m['id'] == 'chimney-smoke')
+        x0, x1, _, z, y = L.CYLINDER
+        out['chimney'] = to_ue(chimney['x'], chimney['y'], chimney['z'])
+        out['cylinders'] = [to_ue((x0 + x1) / 2, side * y, z) for side in (1, -1)]
+    return out
+
+
 def consist(assembly, placements, records=None):
     records = records or {}
     vehicles = assembly['vehicles']
@@ -404,6 +427,7 @@ def consist(assembly, placements, records=None):
             'exteriors': [{'name': i['name'], 'box': box_ue(i['box']), 'no_climb': 'no_climb' in i.get('tags', [])}
                           for i in vehicle_field(v, p, 'exterior_volumes')],
             'boarding': boarding(v, p),
+            'sound': sound(v, p),
         })
     return {'length': round(front - back, 3), 'head': 'up', 'vehicles': out}, dict(sorted(assets.items()))
 

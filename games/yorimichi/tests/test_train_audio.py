@@ -70,3 +70,54 @@ def test_the_game_mirrors_the_recipe(make):
     assert f'RollSpeed = {make.ROLL_SPEED_MS:g}.' in source and f'RailLength = {make.RAIL_LENGTH_M:g}.' in source
     for cue in make.CUES:
         assert f'TEXT("{cue}")' in source
+    assert f'ChuffLoopBeats = {make.CHUFF_BEATS_PER_S:g}, PassPeak = {make.PASS_PEAK_S:g}.;' in source
+    rules = (MAKE.parents[3] / 'unreal/Source/Yorimichi/BelmonteTrainRules.h').read_text()
+    assert f'WheelM = {make.CHUFF_WHEEL_M:g}, double BeatsPerRev = {make.CHUFF_BEATS_PER_REV:g}.' in rules
+
+
+def test_levels_vendor_loops_and_cuts_to_the_end(make, tmp_path):
+    masters, out = tmp_path / 'masters', tmp_path / 'out'
+    masters.mkdir()
+    master(masters / 'loop.wav', seconds=4.)
+    master(masters / 'shot.wav', seconds=3.)
+    spec = {cue: None for cue in make.CUES}
+    spec['roll'] = {'master': 'loop.wav', 'start': 0., 'seconds': None, 'channel': 'mix', 'rms_db': -20., 'vendor_loop': True}
+    spec['hiss'] = {'master': 'shot.wav', 'start': 1., 'seconds': None, 'channel': 0, 'rms_db': -24., 'fade': .1}
+    report = make.build(spec, out, masters)
+    assert report['roll'][0]['seconds'] == 4. and report['hiss'][0]['seconds'] == 2.      # a vendor loop whole; None: to the end
+    for cue, db in (('roll', -20.), ('hiss', -24.)):
+        with wave.open(str(out / f'{cue}/{cue}_01.wav')) as w:
+            x = np.frombuffer(w.readframes(w.getnframes()), '<i2') / 32768.
+        if cue == 'roll':
+            assert abs(20 * np.log10(np.sqrt((x ** 2).mean())) - db) < .1           # set loudness, untouched otherwise
+        else:
+            assert 20 * np.log10(np.sqrt((x ** 2).mean())) < db                    # faded ends only lower it
+    assert json.loads((out / 'manifest.json').read_text())['chuff_beats_per_s'] == make.CHUFF_BEATS_PER_S
+
+
+def test_several_cuts_a_rate_and_a_level_window(make, tmp_path):
+    masters, out = tmp_path / 'masters', tmp_path / 'out'
+    masters.mkdir()
+    master(masters / 'shot.wav', seconds=6.)
+    spec = {cue: None for cue in make.CUES}
+    spec['hiss'] = {'master': 'shot.wav', 'cuts': [(0., 1.), (2., 1.5), (4., 1.)], 'channel': 'mix', 'rms_db': -24., 'fade': .1}
+    spec['start'] = {'master': 'shot.wav', 'start': 0., 'seconds': 2., 'channel': 'mix', 'rate': .5, 'rms_db': -18.,
+                     'rms_at': (3., 4.), 'fade': .1}
+    report = make.build(spec, out, masters)
+    assert [w['seconds'] for w in report['hiss']] == [1., 1.5, 1.]                   # one wave a cut
+    assert sorted(p.name for p in (out / 'hiss').glob('*.wav')) == ['hiss_01.wav', 'hiss_02.wav', 'hiss_03.wav']
+    assert report['start'][0]['seconds'] == 4.                                      # half speed: twice as long
+    with wave.open(str(out / 'start/start_01.wav')) as w:
+        x = np.frombuffer(w.readframes(w.getnframes()), '<i2') / 32768.
+    assert abs(20 * np.log10(np.sqrt((x[3 * make.SR:int(3.9 * make.SR)] ** 2).mean())) + 18.) < .5    # the window's level
+    # Fewer cuts later: the extra wave goes.
+    spec['hiss']['cuts'] = [(0., 1.)]
+    make.build(spec, out, masters)
+    assert [p.name for p in (out / 'hiss').glob('*.wav')] == ['hiss_01.wav']
+
+
+def test_the_start_hands_over_to_the_loop(make):
+    # The start ends where the effort loop's first beat is, and the loop is a whole number of beat cycles.
+    assert make.SPEC['start']['start'] + make.SPEC['start']['seconds'] == make.SPEC['effort']['start']
+    assert make.SPEC['start']['rate'] == make.START_RATE
+    assert abs(12. / (make.SPEC['effort']['seconds'] - make.SPEC['effort']['fade']) - make.CHUFF_BEATS_PER_S) < 1e-3
