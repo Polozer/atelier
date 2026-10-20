@@ -11,7 +11,7 @@
     "world/regions/hidamari/build.py": "eb57e173bdc65e4c4b9b11dc9481fe71309ab691b00968f322faac09b63830a6",
     "world/regions/hidamari/layout.py": "9c05919534010689ef77cfc0ceb2a9c3af5aca611519a7d463bb513e359dca5f",
     "world/regions/hidamari_stable/layout.py": "d30b9b12b09c2e3cad3ab2d21db8d5ca8e83c7fe6daad0bf309bc50180cea97c",
-    "world/regions/hidamari/mountains.py": "8ded87a85960486618794b55c645600fd09004d29a1874d054cda3c21c0a7fa4",
+    "world/regions/hidamari/mountains.py": "df3f445eaf2bfe98909d9fc0ca2859096d1cd089fc16c8d09ed42160896cc155",
     "world/regions/hidamari/natural_terrain.py": "bca99462123604c90670b2082872f921aed96eb750df1f25ebd03a48d0ce29e0",
     "world/regions/craterpark/v2/v4_config.py": "ee6e94c6212e02aa2c92bf27a555d73f5be5efa8c84160ef6c37ca617316fdbd",
     "world/regions/belmonte/layout.py": "2ecad733eda23105dad686e57efe82182a2eca5762a507fe070bfd0807836890",
@@ -42,7 +42,7 @@
         7200.0
       ],
       "sha256": "05045b82112f57e459a7970850f9cef0cffe13c54f85cc796e04cdef13966feb",
-      "reference_sha256": "7359d7139e5810b6cbbf7a410b7393f14e8b3a4de715cb7795e762c2c8ce4e2e"
+      "reference_sha256": "e6bfff116cbc2d6383b84559c8b3ef023e2ec9e7e94bbb757798e64b771734fc"
     },
     "momiji_coast": {
       "bounds": [
@@ -62,7 +62,7 @@
         530.0
       ],
       "sha256": "7aa0aba45ee9c8bb015ccfffa2453ee512e404c299add4477c32aa18ab61063c",
-      "reference_sha256": "4c0aebcfe5b4ef4be10326c0b9afc8951fc6674e031db0acffe6c80880df2fbb"
+      "reference_sha256": "517f36fd302230d4e2458d67403509f1a705b1da609dad82c039c737a30ce04c"
     },
     "hidamari": {
       "bounds": [
@@ -92,7 +92,7 @@
         2200.0
       ],
       "sha256": "dc43d462e41f266e17598b61ba8c5dc9ce63516e3b0b6870a7d936c6961c76b0",
-      "reference_sha256": "193a4f31e5adf80cb89a82c9e7164877ca1d5d5b9e92f6976f6ce7936393fead"
+      "reference_sha256": "cf40e88d8eedd9644940b4a8a44cbda976953b1ad60bf6d512589c025382e34f"
     },
     "volcanic_highlands": {
       "bounds": [

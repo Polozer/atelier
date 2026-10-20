@@ -85,13 +85,37 @@ def _cell(x,y):
 
 
 def height(x,y,base_sampler,*,carved=True):
-    """Barycentric sampling of the single cached grid exported as actual collision."""
+    """Barycentric sampling of the single cached grid exported as actual collision, with the first row next to the
+    city as sheets() emits it (_city_edge_row), so placement stands on the rendered surface."""
     ix,iy,u,v=_cell(x,y)
     z=surface_grid(base_sampler)[2]
     out=_barycentric(z[iy,ix],z[iy,ix+1],z[iy+1,ix],z[iy+1,ix+1],u,v)
+    out=_city_edge_row(ix,iy,u,v,z,out)
     if carved:
         from train import earthworks
         out=earthworks.carve(x,y,out)
+    return out
+
+def _city_edge_row(ix,iy,u,v,z,out):
+    """The first row's cells along the city's north edge exactly as sheets() triangulates them: the bottom edge is the
+    city's polyline (layout.city_north_edge, the 5 m vertices snapped onto it); a cell with city knots inside fans
+    them to its top-left corner, plus the (b, c, d) triangle; any other cell keeps the a-c split."""
+    row=(iy==0)
+    if not np.any(row):return out
+    from hidamari.layout import city_north_edge
+    kx,kz=city_north_edge()
+    x0=BOUNDS[0]+ix*STEP;x1=x0+STEP
+    row&=(x0>=kx[0])&(x1<=kx[-1])
+    if not np.any(row):return out
+    i,uu,vv,a,b=ix[row],u[row],v[row],x0[row],x1[row]
+    za,zb,zc,zd=np.interp(a,kx,kz),np.interp(b,kx,kz),z[1,i+1],z[1,i]
+    inner=np.searchsorted(kx,b,side='left')>np.searchsorted(kx,a,side='right')
+    plain=_barycentric(za,zb,zd,zc,uu,vv)
+    # Fan: the ray from the top-left corner d through the point meets the bottom polyline at xb.
+    xb=a+uu*STEP/np.maximum(1-vv,1e-12)
+    fan=np.where(xb<=b,(1-vv)*np.interp(np.minimum(xb,b),kx,kz)+vv*zd,zd+(zc-zd)*uu-(zc-zb)*(1-vv))
+    out=np.array(out,float,copy=True)
+    out[row]=np.where(inner,fan,plain)
     return out
 
 def on_grid(x,y,field):

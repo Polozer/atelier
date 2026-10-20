@@ -129,6 +129,11 @@ def test_sheet_first_row_takes_the_city_north_edge_polyline(monkeypatch):
     assert np.isclose(area.sum(), 100.)           # the four 5 m cells, each covered exactly once
     assert natural['colours'].shape == (len(V), 4) and natural['normals'].shape == (len(V), 3)
     np.testing.assert_allclose(np.linalg.norm(natural['normals'], axis=1), 1.)
+    # Placement (height()) stands on exactly these triangles, inside every face of every row.
+    w = np.random.default_rng(3).dirichlet((1., 1., 1.), 25)
+    points = np.einsum('kj,fjd->fkd', w, tri).reshape(-1, 3)
+    np.testing.assert_allclose(mountains.height(points[:, 0], points[:, 1], object(), carved=False), points[:, 2],
+                               atol=1e-9)
 
 
 def test_normal_city_recipe_owns_all_mountain_products(tmp_path):
