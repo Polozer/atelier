@@ -58,6 +58,52 @@ def signed_volume(m):
     return total
 
 
+def check_normals(m, axis, inner_radius=None, outer_radii=()):
+    """Per-face winding check: end faces face out of the part, walls face their own side.
+
+    Fails the reversed end faces 16b11f12 shipped (their flat normals pointed through the part) and the
+    outward-wound inner rim wall.
+    """
+    unit = {'X': Vector((1, 0, 0)), 'Y': Vector((0, 1, 0)), 'Z': Vector((0, 0, 1))}[axis]
+    for face in m.faces:
+        pts = [Vector(m.vertices[i]) for i in face]
+        normal = Vector((0, 0, 0))
+        for k in range(1, len(pts) - 1):
+            normal += (pts[k] - pts[0]).cross(pts[k + 1] - pts[0])
+        if normal.length < 1e-12:
+            continue
+        centre = sum(pts, Vector((0, 0, 0))) / len(pts)
+        axial = normal.dot(unit)
+        offset = centre.dot(unit)
+        flat = abs(axial) > .7 * normal.length
+        if flat and abs(offset) > 1e-4:
+            assert (axial > 0) == (offset > 0), (m.name, 'end face winds through the part', centre, normal)
+        elif not flat:
+            radial = centre - unit * offset
+            if radial.length < 1e-6:
+                continue
+            alignment = normal.dot(radial) / (normal.length * radial.length)
+            if abs(alignment) < .5:
+                continue   # a sliver or a face that is not radial; the end-face rule covers its plane
+            if inner_radius is not None and abs(radial.length - inner_radius) < .004:
+                assert alignment < 0, (m.name, 'inner wall winds outward', centre, normal)
+            elif any(abs(radial.length - r) < .004 for r in outer_radii):
+                assert alignment > 0, (m.name, 'outer wall winds inward', centre, normal)
+
+
+def winding_selftest():
+    """A negative end face wound toward +Z, as 16b11f12 shipped, must fail check_normals."""
+    m = v.Mesh('selftest')
+    pts = [(math.cos(i * 2 * math.pi / 8), math.sin(i * 2 * math.pi / 8), -1.0) for i in range(8)]
+    for k in range(8):
+        m.poly([(0, 0, -1.0), pts[k], pts[(k + 1) % 8]], (.5, .5, .5))
+    try:
+        check_normals(m, 'Z')
+    except AssertionError:
+        return
+    raise AssertionError('winding check missed a reversed negative end face')
+
+
 def wheel():
     m = v.Mesh('SM_Kart_Wheel')
     m.transform = Matrix.Rotation(math.radians(-90), 4, 'X')   # the axle becomes +Y
@@ -134,6 +180,7 @@ def seat():
 
 
 def main():
+    winding_selftest()
     OUT.mkdir(parents=True, exist_ok=True); (OUT / 'assets').mkdir(exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     mat = bpy.data.materials.new('KartPalette'); mat.use_nodes = True
@@ -145,6 +192,12 @@ def main():
         if m.name in ('SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel'):
             volume = signed_volume(m)
             assert volume > 0.0, (m.name, 'faces wind inward', volume)
+            if m.name == 'SM_Kart_SteeringWheel':
+                check_normals(m, 'X', STEER_RADIUS - .026, (STEER_RADIUS, .028))
+            elif m.name == 'SM_Kart_Wheel':
+                check_normals(m, 'Y', None, (.028, .062, .108, WHEEL_RADIUS, WHEEL_RADIUS + .006))
+            else:
+                check_normals(m, 'Z')   # flat end faces only
             print('WINDING', m.name, round(volume, 6))
         bpy.data.objects.remove(ob, do_unlink=True)
     layout = {'wheel_radius': WHEEL_RADIUS, 'wheel_width': WHEEL_WIDTH, 'track_front': TRACK_FRONT,

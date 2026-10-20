@@ -179,12 +179,12 @@ def goal(name, at):
     return empty
 
 
-def grip_goal(name, at, radial, tangent):
-    """An empty whose +Y lies along the rim (the fingers) and +Z along the palm's outward normal."""
+def grip_goal(name, at, span, forward):
+    """An empty whose +Y points wrist to knuckles and +X spans little finger to index."""
     empty = goal(name, at)
-    y = tangent.normalized()
-    z = radial.normalized()
-    x = y.cross(z).normalized()
+    y = forward.normalized()
+    x = span.normalized()
+    x = (x - y * x.dot(y)).normalized()
     z = x.cross(y).normalized()
     empty.rotation_mode = 'QUATERNION'
     empty.rotation_quaternion = Matrix((x, y, z)).transposed().to_quaternion()
@@ -253,9 +253,14 @@ def pose(arm):
             radial = tilt @ Vector((0, math.cos(phi), math.sin(phi)))
             tangent = tilt @ Vector((0, -math.sin(phi), math.cos(phi)))
             rim = WHEEL_HUB + tilt @ Vector((0, RIM * math.cos(phi), RIM * math.sin(phi)))
-            target = goal(f'hand_{suffix}', rim + radial * .04)
+            forward = tilt @ Vector((1, 0, 0))
+            target = grip_goal(f'hand_{suffix}', rim - forward * .04, tangent, forward)
             c = fore.constraints.new('IK'); c.target = target; c.chain_count = 2
             c.pole_target = goal(f'elbow_{suffix}', ELBOW[side]); c.pole_angle = math.radians(-90)
+            hand = bone(arm, f'hand_{suffix}')
+            if hand:
+                turn = hand.constraints.new('COPY_ROTATION')
+                turn.target = target; turn.target_space = 'WORLD'; turn.owner_space = 'WORLD'
     spine = bone(arm, 'spine')
     if spine:
         spine.rotation_euler.x = math.radians(18)   # lean back into the 30 degree seat

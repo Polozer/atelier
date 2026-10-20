@@ -184,9 +184,8 @@ void UDrivingComponent::StowImmediately()
     }
     if (!Dismount())
     {
-        // Forced cleanup (world change, character switch): no invented floor. Keep the rider where the car
-        // left them and let the game's fall/respawn handle an unsafe spot.
-        EndDrive(Rider ? Rider->GetActorLocation() : FVector::ZeroVector);
+        // Forced cleanup (world change, character switch): keep the capsule centre as it is; no floor shift.
+        FinishDrive();
     }
 }
 
@@ -401,6 +400,15 @@ void UDrivingComponent::EndDrive(const FVector& GroundSpot)
     }
     const float Half = Rider->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
     Rider->SetActorLocation(GroundSpot + FVector(0, 0, Half + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+    FinishDrive();
+}
+
+void UDrivingComponent::FinishDrive()
+{
+    if (!Rider || !Car)
+    {
+        return;
+    }
     Rider->SetActorRotation(FRotator(0, Rider->GetActorRotation().Yaw, 0));
     Rider->GetMesh()->SetVisibility(true, true);
     Rider->GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -415,17 +423,29 @@ void UDrivingComponent::EndDrive(const FVector& GroundSpot)
     Hint = TEXT("Parked");
 }
 
+bool UDrivingComponent::StandingRoom(const FVector& Ground) const
+{
+    if (!Rider || !Rider->GetWorld())
+    {
+        return false;
+    }
+    const float Half = Rider->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(DrivingDismount), false, Rider);
+    return !Rider->GetWorld()->OverlapBlockingTestByChannel(Ground + FVector(0, 0, Half + 2.f), FQuat::Identity,
+                                                           TraceChannel, FCollisionShape::MakeCapsule(34.f, Half), Params);
+}
+
 void UDrivingComponent::Recover()
 {
     FVector Spot;
-    if (bHasGround && GroundBelow(LastGround, 200.f, Spot))
+    if (bHasGround && GroundBelow(LastGround, 200.f, Spot) && StandingRoom(Spot))
     {
         EndDrive(Spot);
         Hint = TEXT("Recovered");
         return;
     }
-    // No verified floor: a forced cleanup where the rider is, letting the game's fall/respawn handle it.
-    EndDrive(Rider ? Rider->GetActorLocation() : FVector::ZeroVector);
+    // No verified floor plus standing room: keep the capsule centre and let the game's fall/respawn handle it.
+    FinishDrive();
     Hint = TEXT("Recovered without ground");
 }
 

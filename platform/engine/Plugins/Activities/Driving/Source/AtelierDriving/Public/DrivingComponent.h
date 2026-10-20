@@ -70,6 +70,9 @@ private:
     bool Summon();
     bool Dismount();
     void EndDrive(const FVector& GroundSpot);
+    /** Restore the rider and hide the kart without moving the actor (forced cleanup keeps the capsule centre). */
+    void FinishDrive();
+    bool StandingRoom(const FVector& Ground) const;
     void Recover();
     void UpdatePose(float DeltaSeconds);
     bool GroundBelow(const FVector& At, float Reach, FVector& Out) const;
