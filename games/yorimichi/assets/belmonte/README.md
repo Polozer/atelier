@@ -20,3 +20,22 @@ The same tool paints a dirt path up the Salon des paris' cypress avenue, from th
 The acquisition tools are `tools/belmonte_extract.py` (read-only isolated reference editor) and
 `tools/belmonte_convert.py` (guarded Blender). Normal builds never use the reference project:
 `world.belmonte` reads this library and `unreal.belmonte` imports it into `/Game/Belmonte`.
+
+## Building collision
+
+The committed hulls miss upper storeys, roofs, chimneys and the grandstand tiers, so a walker or a board could end
+up inside a drawn building. `world.belmonte` generates each building's collision under `build/` instead
+(`world/regions/belmonte/collision.py`): the committed hulls, the drawn surface they miss (simplified to 0.25 m
+where that is lighter), and closed plugs in the doors and windows of unfurnished interiors. The osteria's taproom and
+the salon's hall are furnished: they collide as drawn and stay open. The step audits every building on a 0.2 m grid
+and fails if a walker could reach inside a wall or an interior, or if more than 0.2% of a drawn outer wall or roof
+lacks collision; `build-report.json` records each building's triangles, plugs and measures under
+`building_collision`. The board rides the same collision: the Skate plugin reads a mesh's separate complex collision
+mesh, and keeps each face's side, so every collision file the step writes faces outward like the drawn meshes. The
+library's hulls wind into their solids; the step turns them (`glb/<mesh>_Collision.glb` for the other meshes too).
+
+To compare every building with the committed hulls (about ten minutes, no Unreal):
+
+```sh
+uv run python games/yorimichi/tools/belmonte_collision_audit.py [--json OUT] [NAME ...]
+```
