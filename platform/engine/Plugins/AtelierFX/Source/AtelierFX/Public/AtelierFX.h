@@ -69,8 +69,8 @@ struct ATELIERFX_API FAtelierAudioLog
 ATELIERFX_API void AtelierPlaySound(const UObject* WorldContext, USoundBase* Sound, const FVector& At, float Volume = 1.f,
     float Pitch = 1.f, USoundAttenuation* Attenuation = nullptr, bool b2D = false);
 
-/** Indices of a pool of variants drawn without replacement, so a small pool still never repeats back to back until it
- *  is used up. */
+/** Indices of a pool of variants drawn without replacement, so a small pool never repeats back to back: each round
+ *  plays every index once, and a new round never opens on the index the last one ended with. */
 struct FAtelierShuffleBag
 {
     /** INDEX_NONE for an empty pool. */
@@ -78,6 +78,7 @@ struct FAtelierShuffleBag
     int32 Draw(int32 Count, FRandomStream& Rand) { return Draw(Count, [&Rand](int32 N) { return Rand.RandHelper(N); }); }
 private:
     TArray<int32> Left;
+    int32 Last = INDEX_NONE;
     template <typename FRandom> int32 Draw(int32 Count, FRandom&& Random)
     {
         if (Count <= 0) return INDEX_NONE;
@@ -86,8 +87,10 @@ private:
             Left.Reserve(Count);
             for (int32 I = 0; I < Count; ++I) Left.Add(I);
             for (int32 I = Left.Num() - 1; I > 0; --I) Left.Swap(I, Random(I + 1));
+            // The next draw is the last element; keep it off the previous round's final index.
+            if (Count > 1 && Left.Last() == Last) Left.Swap(Left.Num() - 1, Random(Left.Num() - 1));
         }
-        return Left.Pop(EAllowShrinking::No);
+        return Last = Left.Pop(EAllowShrinking::No);
     }
 };
 

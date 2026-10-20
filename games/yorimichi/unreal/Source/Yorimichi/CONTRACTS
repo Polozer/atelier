@@ -4,36 +4,31 @@ values MUST retain the 25 m outdoor default. Accepted heights MUST be finite and
 Travel MUST preserve the chosen height through the client request and authoritative landing,
 with the existing epoch, encounter, pending-hit and rate-limit checks intact.
 
-@cc [owner:fontanierh,label:correctness] local-footstep-sound-selection
-Footstep bank selection MUST alter only emitted sample pools. It MUST preserve bone-plant timing,
-replay suppression, material/canopy detection, speed/landing gain and pitch, and Original attenuation.
-Fresh Original MUST retain the existing sample and shuffle paths. Horse hoof stand-ins MUST always
-use Original pools and their Original shuffle state. Alternatives MUST retain independent shuffle
-state, and invalid or not-ready requests MUST leave the active bank and plant state unchanged.
+@cc [owner:fontanierh,label:correctness] local-footstep-original-pools
+Original is the only footstep sound set (operator 494): footsteps MUST draw from its pools only, with one
+shuffle state per surface shared by feet and horse hoof stand-ins, so no sample repeats back to back.
+Bone-plant timing, replay suppression, material/canopy detection, speed/landing gain and pitch, and
+Original attenuation MUST be preserved. Hoof stand-ins MUST keep their plain playback, untouched by the
+human footstep preferences.
 
-@cc [owner:fontanierh,label:correctness] local-world-soundbank-menu
-With softening off and full footstep and skate volume, fresh Original MUST retain existing cue, shuffle, attenuation and mix
-behavior without loading alternative banks or an audition; the softening and volume preferences, release defaults included,
-adjust only per-voice filter and gain on top of it. A bank selection MUST validate its current staged identity,
-complete loaded foot/skate coverage and every ready emitter before saving or changing any emitter.
-Failed saves, invalid assets and obsolete async completions MUST preserve the active bank.
-The local world's choice MUST apply to new local and remote emitters without replicating that
-choice or changing simulation, plant timing, replay or network authority. Old active loops MUST
-stop before a changed wave is installed; Original references MUST remain available for restoration.
-One owned menu preview MUST stop/cancel on selection, menu close, backgrounding and world teardown.
+@cc [owner:fontanierh,label:correctness] local-audio-preferences-routing
+With softening off and full footstep and skate volume, Original MUST keep its existing cue, shuffle, attenuation
+and mix; the softening and volume preferences, release defaults included, adjust only per-voice filter and gain on
+top of it. The local world's preferences MUST reach its current and late audio-ready local and remote emitters
+without replicating them or changing simulation, plant timing, replay or network authority. A retired saved
+soundbank choice MUST be ignored and dropped on the next save.
 
 @cc [owner:fontanierh,label:correctness] local-footstep-preferences
 Footstep softening and footstep volume MUST default to their release defaults (JapanReleaseDefaults: on, one).
 These client-local controls MUST update current and future human footstep/landing
-voices for every selected bank, using per-voice filtering and gain without changing
+voices, using per-voice filtering and gain without changing
 shared waves, plant timing, replay, attenuation or pitch. Hoof stand-ins, skate,
 music and master volume MUST remain unaffected. Finished voices MUST auto-destroy;
 world/component teardown MUST stop and release only the owned human footstep voices.
 
 @cc [owner:fontanierh,label:correctness] local-skate-preferences
 Skate softening and skate volume MUST default to their release defaults (JapanReleaseDefaults: on, one half). These client-local
-controls MUST reach current and late audio-ready skate emitters in this world for every selected
-bank without loading a bank, and MUST leave footsteps, hoof stand-ins, music and master volume unaffected.
+controls MUST reach current and late audio-ready skate emitters in this world, and MUST leave footsteps, hoof stand-ins, music and master volume unaffected.
 Both controls MUST be reachable from the Esc menu's main page; the Skate feel page owns only its own knobs.
 
 @cc [owner:fontanierh,label:performance] horse-appearance-residency

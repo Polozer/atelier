@@ -1,8 +1,0 @@
-@cc [owner:fontanierh,label:correctness] derived-menu-auditions
-Menu auditions MUST be separate replaceable derived products, never runtime cue
-replacements. Their producer MUST read actual verified bank/legacy media, pin the
-runtime gain/pitch/envelope profile, use the same timeline across banks and record
-source hashes. Cadence MUST explicitly remain an animation-plant approximation.
-All inputs MUST validate before output writes and be rechecked before publishing
-the derived index. Missing or stale products MUST fail the normal build; runtime
-consumers MUST require its successful current certification.

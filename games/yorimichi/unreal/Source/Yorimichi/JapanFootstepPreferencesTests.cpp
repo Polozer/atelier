@@ -1,6 +1,5 @@
 #include "JapanFootsteps.h"
-#include "JapanSoundBank.h"
-#include "JapanSoundBanks.h"
+#include "JapanAudioPreferences.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Components/AudioComponent.h"
 #include "Engine/World.h"
@@ -42,35 +41,13 @@ bool FJapanFootstepPreferencesTest::RunTest(const FString&)
     TestEqual(TEXT("Nonfinite request preserves gain"),Voice->VolumeMultiplier,.8f);
     TestEqual(TEXT("Unowned hoof/skate/music voice remains untouched"),Other->VolumeMultiplier,.7f);
     Foot->Set=NewObject<UJapanFootstepSet>();
-    FString Error;
     Foot->SetAudioPreferences(true,.5f);
-    for(int32 Selection=0;Selection<4;++Selection)
-    {
-        UJapanSoundBank* Bank=nullptr;
-        if(Selection)
-        {
-            Bank=NewObject<UJapanSoundBank>();
-            const FName Surfaces[]={TEXT("barefoot"),TEXT("dirt_gravel"),TEXT("grass"),TEXT("leaves"),TEXT("mud_water"),TEXT("stone"),TEXT("wood")};
-            for(FName Surface:Surfaces)
-            {
-                FJapanSoundPool Pool;
-                for(int32 I=0;I<4;++I) { auto* Wave=NewObject<USoundWave>(); Wave->Duration=.2f; Pool.Variants.Add(Wave); }
-                Bank->Footsteps.Add(Surface,Pool);
-            }
-        }
-        TestTrue(TEXT("Each bank can select with local controls"),Foot->SetSoundBank(Bank,Error));
-        TestEqual(TEXT("Bank change cannot reset existing voice gain"),Voice->VolumeMultiplier,.4f);
-        TestEqual(TEXT("Bank change cannot reset future voice gain"),Foot->FootstepVolume,.5f);
-        TestTrue(TEXT("Every bank supports live softening"),bool(Voice->bEnableLowPassFilter));
-        Foot->SetAudioPreferences(false,1.f);
-        TestEqual(TEXT("Each bank can restore unmodified live gain"),Voice->VolumeMultiplier,.8f);
-        Foot->SetAudioPreferences(true,.5f);
-    }
-    auto* AfterBank=NewObject<UAudioComponent>();
-    Foot->ApplyVoicePreferences(AfterBank,.5f);
-    TestEqual(TEXT("Voice created after bank changes inherits gain"),AfterBank->VolumeMultiplier,.25f);
-    TestTrue(TEXT("Voice created after bank changes is filtered on Play"),bool(AfterBank->bEnableLowPassFilter));
-    TestEqual(TEXT("Voice created after bank changes uses the soft cutoff"),AfterBank->LowPassFilterFrequency,3000.f);
+    TestEqual(TEXT("Repeated softening keeps the existing voice's base gain"),Voice->VolumeMultiplier,.4f);
+    auto* Later=NewObject<UAudioComponent>();
+    Foot->ApplyVoicePreferences(Later,.5f);
+    TestEqual(TEXT("Later voice inherits gain"),Later->VolumeMultiplier,.25f);
+    TestTrue(TEXT("Later voice is filtered on Play"),bool(Later->bEnableLowPassFilter));
+    TestEqual(TEXT("Later voice uses the soft cutoff"),Later->LowPassFilterFrequency,3000.f);
     Foot->StopFootstepVoices();
     TestTrue(TEXT("Cleanup releases owned handles"),Foot->FootstepVoices.IsEmpty());
     TestFalse(TEXT("Cleanup destroys the owned voice"),IsValid(Voice));
@@ -83,22 +60,20 @@ bool FJapanFootstepPreferencesTest::RunTest(const FString&)
     if(!TestNotNull(TEXT("Local emitter owner"),Actor)) { World->DestroyWorld(false); return false; }
     auto* Ready=NewObject<UJapanFootstepComponent>(Actor);
     Ready->Set=NewObject<UJapanFootstepSet>();
-    auto* Banks=NewObject<UJapanSoundBanks>(World);
-    Banks->SetFootstepPreferences(true,.25f);
+    auto* Prefs=NewObject<UJapanAudioPreferences>(World);
+    Prefs->SetFootstepPreferences(true,.25f);
     TestEqual(TEXT("Already-ready world emitter receives local gain"),Ready->FootstepVolume,.25f);
     TestTrue(TEXT("Already-ready world emitter receives softening"),Ready->bSoftenFootsteps);
     auto* Late=NewObject<UJapanFootstepComponent>(Actor);
     Late->Set=Ready->Set;
-    Banks->FootReady(Late);
-    TestEqual(TEXT("Late Original emitter receives saved gain without loading a bank"),Late->FootstepVolume,.25f);
-    TestTrue(TEXT("Late Original emitter receives softening"),Late->bSoftenFootsteps);
-    TestFalse(TEXT("Preferences do not load registry or bank"),Banks->bRegistryAttempted);
-    TestNull(TEXT("Original remains delegated"),Banks->Active.Get());
+    Prefs->FootReady(Late);
+    TestEqual(TEXT("Late emitter receives saved gain"),Late->FootstepVolume,.25f);
+    TestTrue(TEXT("Late emitter receives softening"),Late->bSoftenFootsteps);
     auto* Unrelated=NewObject<UJapanFootstepComponent>();
-    Banks->FootReady(Unrelated);
+    Prefs->FootReady(Unrelated);
     TestEqual(TEXT("Readiness from another world cannot inherit settings"),Unrelated->FootstepVolume,1.f);
-    Banks->bShuttingDown=true;
-    Banks->SetFootstepPreferences(false,1.f);
+    Prefs->bShuttingDown=true;
+    Prefs->SetFootstepPreferences(false,1.f);
     TestEqual(TEXT("Teardown refuses preference mutation"),Ready->FootstepVolume,.25f);
     World->DestroyWorld(false);
     return true;

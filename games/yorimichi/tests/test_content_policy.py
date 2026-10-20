@@ -22,7 +22,7 @@ def test_archive_moves_old_imports_and_preserves_current_data(tmp_path):
               'SwordTrainer/Adventure/A_Run.uasset', 'SwordTrainer/A_Bow.uasset', 'SwordTrainer/Textures/body.uasset',
               'Data/SkateRide/clips.json', 'Data/cairo/adventure.json', 'Data/cairo/portrait.png',
               'Data/hippodrome/hippodrome.json',
-              'Audio/Skate/roll.uasset', 'AudioBanks/original/Audition.uasset', 'Data/Soundbanks/registry.json',
+              'Audio/Skate/roll.uasset',
               'SkateMotion/MotionData.uasset', 'SkateMotion/Banks/Bank_000.uasset',
               'SkateRuntime/RuntimeData.uasset', 'Nox/SK_Nox.uasset', 'Nox/Adventure/A_Run.uasset',
               'Nox/Textures/T_Nox_Head.uasset', 'NoxBike/A_Ride.uasset',
@@ -43,7 +43,9 @@ def test_archive_moves_old_imports_and_preserves_current_data(tmp_path):
            # world.horses' build manifest is no longer staged: the roster carries the contacts.
            'Data/horses/manifest.json', 'Data/horses/old-roster.json',
            # nor are the riders' horse reports: the game reads none of them.
-           'Data/cairo/horse/export.json', 'Data/nox/horse/export.json']
+           'Data/cairo/horse/export.json', 'Data/nox/horse/export.json',
+           # nor the retired selectable soundbanks: Original is the only one (operator 494).
+           'AudioBanks/original/Audition.uasset', 'Data/Soundbanks/registry.json']
     for relative in active + old:
         path = content / relative
         path.parent.mkdir(parents=True, exist_ok=True)
