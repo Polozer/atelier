@@ -285,4 +285,5 @@ void AZeppelinService::TickNetwork(float Dt)
   if(GetWorld()->GetTimeSeconds()-LastNetworkPublication>=.05)PublishNetworkState();
  }
  AdvanceParts(Dt);
+ UpdateAudio();
 }

@@ -8,6 +8,7 @@ class USceneComponent;
 class FJsonObject;
 class ADirectionalLight;
 class UMaterialInstanceDynamic;
+class UZeppelinAudioComponent;
 
 USTRUCT()
 struct FZeppelinStation
@@ -110,12 +111,16 @@ private:
  UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> DockGates;
  UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> Gangways;
  UPROPERTY() TObjectPtr<AWandererCharacter> Passenger;
+ /** The ship's sounds (TransportAudio.h), on the ship; fed this machine's phase, RPM and gate every tick. */
+ UPROPERTY() TObjectPtr<UZeppelinAudioComponent> Audio;
+ void UpdateAudio();
  TArray<FZeppelinStation> Stations;
  TArray<FVector> WalkPoints;
  /** Cruise height (cm) and seconds of the leg between stops A and B, at A*Stations.Num()+B. */
  TArray<FVector2f> Legs;
  int32 Phase=0,Dock=0,Destination=1,Came=INDEX_NONE,WalkIndex=0;
  float PhaseTime=0,PropAngle=0,RPM=55,WalkSpeed=0,GateOpen=1;
+ bool bPartsSettled=false;
  float FlightSpeed=1.f;
  float StoredArm=420;FVector StoredOffset=FVector::ZeroVector;bool StoredCameraCollision=true;
  bool Ready=false;

@@ -5,6 +5,7 @@
 #include "WandererCharacter.h"
 #include "SkateComponent.h"
 #include "SailboatComponent.h"
+#include "TransportAudio.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -80,6 +81,12 @@ void AZeppelinService::Initialize(const TSharedPtr<FJsonObject>& Data)
   auto* W=Mesh(*FString::Printf(TEXT("Gangway%d"),I),TEXT("ZP_Gangway"),RootComponent);W->SetRelativeLocation(Stations[I].Origin+Local(6,1.04,1.65));Gangways.Add(W);
  }
  Ready=Hull->GetStaticMesh()&&Motors->GetStaticMesh()&&Gate->GetStaticMesh()&&Gangways[0]->GetStaticMesh()&&Propellers[0]->GetStaticMesh();
+ // Presentation only: every machine hears the state it already derives (replicated phase, local RPM and gate).
+ if(Ready&&!Audio&&GetNetMode()!=NM_DedicatedServer)
+ {
+  Audio=NewObject<UZeppelinAudioComponent>(this,TEXT("ZeppelinAudio"));Audio->SetupAttachment(ShipRoot);Audio->RegisterComponent();
+  Audio->SetGateOffset(Gate->GetRelativeLocation());
+ }
  int32 InitialDock=0;FParse::Value(FCommandLine::Get(),TEXT("zeppelindock="),InitialDock);
  if (GetNetMode() == NM_Client) OnRep_NetworkState();
  else { DockAt(FMath::Clamp(InitialDock,0,N-1)); if (JapanNetwork::IsOnline(GetWorld())) PublishNetworkState(); }
@@ -288,10 +295,19 @@ void AZeppelinService::Tick(float Dt)
   PlacePassenger(true,Dt);if(WalkIndex>=WalkPoints.Num()){RestorePassenger();DockAt(Dock);}
  }
  AdvanceParts(Dt);
+ UpdateAudio();
+}
+
+void AZeppelinService::UpdateAudio()
+{
+ if(Audio)Audio->SetState(Phase,RPM,GateOpen,Phase==5&&PhaseTime>=LandSeconds());
 }
 
 void AZeppelinService::AdvanceParts(float Dt)
 {
+ // The first update (a late joiner's first received state included) shows the gates and gangways as the state has
+ // them, so nothing swings into place and no gate cue sounds for a state that did not change.
+ if(!bPartsSettled){Dt=1e6f;bPartsSettled=true;}
  Hull->SetCollisionEnabled(Phase==0?ECollisionEnabled::QueryAndPhysics:ECollisionEnabled::NoCollision);
  const bool Landed=Phase==5&&PhaseTime>=LandSeconds();
  const bool Open=Phase==2||Phase==6||Landed;
