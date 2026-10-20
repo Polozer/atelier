@@ -1,7 +1,7 @@
 # Atelier driving simulation
 
-A self-contained C++17 driving simulation for a four-wheel car. It is simulation only: it is not
-wired into Unreal yet, and no project or plugin descriptor is changed here.
+A self-contained C++17 driving simulation for a four-wheel car. It is engine-free: it has no
+engine, renderer, asset or platform dependency. How a host exposes it is outside this module.
 
 ## What it does
 
@@ -18,8 +18,8 @@ One fixed 60 Hz step drives a four-wheel car:
 - rigid-body pair contacts, ball joints, angular limits, OBB and sphere contacts for props and trailers.
 
 The entry point is atelier::driving::Vehicle. A ground is the only world interface the car needs: a
-ray hit per wheel plus optional prepared planes and surface grip. Vehicle keeps its own body, so the
-game actor should be moved kinematically from position(), orientation() and wheel(i).
+ray hit per wheel plus optional prepared planes and surface grip. Vehicle keeps its own body; a host
+receives position(), orientation() and wheel(i) and can drive its own presentation from them.
 
 ## Layout
 
@@ -54,12 +54,10 @@ game actor should be moved kinematically from position(), orientation() and whee
     /tmp/driving-self-test
 
 Keep the floating-point flags. The simulation relies on precise IEEE arithmetic and avoids FMA
-contraction; do not add -ffast-math or architecture-specific reassociation. When this becomes an
-Unreal module, keep these translation units out of unity builds and use precise floating point, as
-the Skate module does.
+contraction; do not add -ffast-math or architecture-specific reassociation. A host that compiles
+these translation units should also keep them out of unity builds and use precise floating point.
 
-## Not in this change
+## Out of scope
 
-Car data import, car meshes, materials, animations, audio, streaming, traffic, pursuit, networking,
-the Unreal actor/component and the plugin descriptor. The next step is a thin Unreal module that
-owns a Vehicle, implements a ground with wheel traces and exposes a car component.
+Car data import, car meshes, materials, animations, audio, streaming, traffic, pursuit, networking
+and host integration are separate concerns. This module provides the simulation state and step only.
