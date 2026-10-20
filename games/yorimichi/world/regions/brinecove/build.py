@@ -170,7 +170,12 @@ def split(builder, prefix, settle, remap=None):
 
 
 def under_paving(x, y):
-    """The highest the ground may stand at (x, y): just below any flat paving over it, else unbounded."""
+    """@cc [owner:fontanierh,label:correctness] brinecove-ground-under-flat-paving
+    The highest the ground may stand at (x, y): just below any flat paving over it, else unbounded. Each fixed-z
+    paving rectangle laid whole (modules.paving without skip, and the quay apron) MUST be registered in
+    modules.FLAT_PAVING with its slab bottom, and every exported ground vertex inside a registered rectangle MUST
+    stay at least 5 cm below its bottom, so terrain never pokes through or flickers on paving.
+    """
     z = math.inf
     for x0, x1, y0, y1, bottom in modules.FLAT_PAVING:
         if x0 <= x <= x1 and y0 <= y <= y1:
