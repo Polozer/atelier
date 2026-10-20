@@ -273,7 +273,7 @@ def pose(arm):
             for part in (1, 2, 3):
                 pb = arm.pose.bones.get(f'{prefix}{part}')
                 if pb:
-                    pb.rotation_euler.x = math.radians(25 if 'Thumb' in prefix else -45)
+                    pb.rotation_euler.z = math.radians(-25 if 'Thumb' in prefix else 45)
     bpy.ops.object.mode_set(mode='OBJECT')
     bpy.context.view_layer.update()
     for label, bone_name, goal_obj in (('footL', 'foot_L', 'foot_L'), ('footR', 'foot_R', 'foot_R'),
@@ -285,6 +285,13 @@ def pose(arm):
             print('POSE', label, 'bone', tuple(round(v, 3) for v in at),
                   'target', tuple(round(v, 3) for v in target.location),
                   'miss', round((at - target.location).length, 3))
+    for suffix in ('L', 'R'):
+        fore = bone(arm, f'forearm_{suffix}')
+        target = bpy.data.objects.get(f'hand_{suffix}')
+        if fore and target:
+            at = arm.matrix_world @ fore.tail
+            print('WRIST', suffix, tuple(round(v, 3) for v in at), 'target',
+                  tuple(round(v, 3) for v in target.location), 'miss', round((at - target.location).length, 3))
 
 
 def light(scene):

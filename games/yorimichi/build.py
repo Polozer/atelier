@@ -967,7 +967,7 @@ def world_steps(ctx):
              inputs=[ASSETS / 'vehicles' / 'kei', REGIONS / 'village' / 'build.py'],
              outputs=[out / 'kei' / 'manifest.json'], about='the four kei cars in the Mega Park car park', heavy=True),
         Step('world.kart', [Blender(ASSETS / 'vehicles' / 'kart' / 'build.py', threads=3)],
-             inputs=[ASSETS / 'vehicles' / 'kart' / 'build.py', REGIONS / 'village' / 'build.py', REGIONS / 'village' / 'layout.py'],
+             inputs=[ASSETS / 'vehicles' / 'kart' / 'build.py', REGIONS / 'village' / 'build.py', REGIONS / 'village' / 'layout.py', YORI],
              outputs=[out / 'kart' / 'manifest.json',
                       *(out / 'kart' / 'assets' / f'{name}.fbx' for name in
                         ('SM_Kart_Body', 'SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel'))],
