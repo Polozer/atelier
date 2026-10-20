@@ -120,6 +120,7 @@ private:
  TArray<FVector2f> Legs;
  int32 Phase=0,Dock=0,Destination=1,Came=INDEX_NONE,WalkIndex=0;
  float PhaseTime=0,PropAngle=0,RPM=55,WalkSpeed=0,GateOpen=1;
+ bool bPartsSettled=false;
  float FlightSpeed=1.f;
  float StoredArm=420;FVector StoredOffset=FVector::ZeroVector;bool StoredCameraCollision=true;
  bool Ready=false;

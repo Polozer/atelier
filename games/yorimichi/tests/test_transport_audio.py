@@ -147,3 +147,10 @@ def test_every_source_is_sonniss_or_synthesis(built):
     assert MASTERS <= set(picks)
     forbidden = re.compile(r'music|suno|stable_audio|ledger|openai|elevenlabs|urlopen|requests|cache_dir', re.I)
     assert not [value for value in [*literals, *names] if forbidden.search(value)]
+
+
+def test_build_declares_exactly_the_masters_make_reads():
+    """audio.transport depends on the combat masters the cues layer, named one by one, not the whole cache."""
+    build = ast.parse((GAME / 'build.py').read_text())
+    declared = next(n.value for n in build.body if isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == 'TRANSPORT_MASTERS')
+    assert set(ast.literal_eval(declared)) == MASTERS

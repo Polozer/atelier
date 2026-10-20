@@ -305,6 +305,9 @@ void AZeppelinService::UpdateAudio()
 
 void AZeppelinService::AdvanceParts(float Dt)
 {
+ // The first update (a late joiner's first received state included) shows the gates and gangways as the state has
+ // them, so nothing swings into place and no gate cue sounds for a state that did not change.
+ if(!bPartsSettled){Dt=1e6f;bPartsSettled=true;}
  Hull->SetCollisionEnabled(Phase==0?ECollisionEnabled::QueryAndPhysics:ECollisionEnabled::NoCollision);
  const bool Landed=Phase==5&&PhaseTime>=LandSeconds();
  const bool Open=Phase==2||Phase==6||Landed;

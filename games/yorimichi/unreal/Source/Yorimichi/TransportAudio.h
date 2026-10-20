@@ -50,7 +50,6 @@ private:
  UPROPERTY() TObjectPtr<USoundAttenuation> Far;
  TMap<FName,FIntPoint> CueRange;
  TMap<FName,FAtelierShuffleBag> Bags;
- TMap<FName,int32> LastVariant;
  TArray<FLoopState> LoopStates;
  TArray<FName> LoopNames;
  TArray<FPending> Pending;

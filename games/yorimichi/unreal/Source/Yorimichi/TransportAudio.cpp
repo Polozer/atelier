@@ -81,11 +81,7 @@ void UTransportAudioComponent::PlayCue(FName Cue,float Volume,bool bFar,float De
 void UTransportAudioComponent::Fire(const FPending& P)
 {
  const FIntPoint* Range=CueRange.Find(P.Cue);if(!Range||Range->Y<=0)return;
- FAtelierShuffleBag& Bag=Bags.FindOrAdd(P.Cue);
- int32 Pick=Bag.Draw(Range->Y);
- const int32* Last=LastVariant.Find(P.Cue);
- if(Range->Y>1&&Last&&Pick==*Last)Pick=Bag.Draw(Range->Y);   // no back-to-back repeat across the bag's rounds
- LastVariant.Add(P.Cue,Pick);
+ const int32 Pick=Bags.FindOrAdd(P.Cue).Draw(Range->Y);   // the bag never repeats a variant back to back
  AtelierPlaySound(this,Waves[Range->X+Pick],GetComponentTransform().TransformPosition(P.Offset),P.Volume,FMath::FRandRange(.97f,1.03f),P.bFar?Far:Near);
 }
 
