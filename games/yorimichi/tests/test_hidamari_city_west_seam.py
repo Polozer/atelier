@@ -47,6 +47,24 @@ class CityWestSeam(unittest.TestCase):
         # The placement surface is HD_Terrain's triangles; height() is the smooth surface they sample.
         self.assertLess(float(np.abs(z - L.height(x, y)).max()), .25)
 
+    def test_foothills_mesh_shares_the_city_north_edge_vertices(self):
+        """Built mesh, whole edge: the foothills' emitted south edge carries HD_Terrain's own edge vertices
+        (city_north_edge), so the two edge polylines are one. With 5 m knots alone it sagged up to 0.11 m between
+        them where the city's profile bends (x 300-370)."""
+        sheet = M.sheets(L.north_base_height)[0]
+        v = np.asarray(sheet['vertices'], float)
+        edge = v[(np.abs(v[:, 1] - M.BOUNDS[1]) < 1e-6) & (v[:, 0] >= 300.) & (v[:, 0] <= 1420.)]
+        edge = edge[np.argsort(edge[:, 0])]
+        kx, kz = L.city_north_edge()
+        self.assertTrue(set(np.round(kx, 6)) <= set(np.round(edge[:, 0], 6)))
+        x = np.linspace(300., 1420., 22401)
+        self.assertLess(float(np.abs(np.interp(x, edge[:, 0], edge[:, 2]) - np.interp(x, kx, kz)).max()), 1e-6)
+        # Every edge vertex belongs to a face (no dangling knots) and the faces stay counter-clockwise from above.
+        f = np.asarray(sheet['faces'])
+        p = v[f]
+        area = (p[:, 1, 0] - p[:, 0, 0]) * (p[:, 2, 1] - p[:, 0, 1]) - (p[:, 2, 0] - p[:, 0, 0]) * (p[:, 1, 1] - p[:, 0, 1])
+        self.assertGreater(float(area.min()), 0.)
+
 
 if __name__ == '__main__':
     unittest.main()

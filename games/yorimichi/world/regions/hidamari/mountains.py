@@ -326,7 +326,10 @@ def export_crater_mask(output):
 def sheets(base_sampler):
     """@cc [owner:fontanierh,label:correctness] north-mountain-sheet-order
     Preserve the existing grid, gate holes, apron part order and authored
-    colours/mask/normals before the single earthworks.sheet call. Return that
+    colours/mask/normals before the single earthworks.sheet call. The only
+    vertices added to the grid are HD_Terrain's own edge vertices along the
+    city's north edge (layout.city_north_edge), inserted into the first row's
+    cells with interpolated attributes so the two meshes share that edge. Return that
     natural sheet and the final sheet without resampling attributes after carve.
     No-line identity and earthworks interpolation remain unchanged.
     """
@@ -357,15 +360,33 @@ def sheets(base_sampler):
     from megapark import gate
     faces=[]
     width=len(xs)
+    P=np.stack([x,y,z],-1).reshape(-1,3);A=np.dstack([colors,mask]).reshape(-1,4);N=normals.reshape(-1,3)
+    # Along the city's north edge (y=BOUNDS[1]) the edge belongs to HD_Terrain, whose 4 m knots fall between these 5 m
+    # ones where its profile bends (x 300-370 by up to 0.11 m, Op410 review): its own edge vertices are inserted into the
+    # first row's cells, fanned to their top corners, so both meshes share one edge polyline.
+    from hidamari.layout import city_north_edge
+    knots=city_north_edge();extra=[]
+    # The foothills' own edge vertices there move onto that polyline (by up to 0.06 m), so the edge is the city's.
+    on=(xs>=knots[0][0])&(xs<=knots[0][-1])
+    P[np.flatnonzero(on),2]=np.interp(xs[on],*knots)
     for j in range(len(ys)-1):
         for i in range(len(xs)-1):
             if gate.cell_inside(x[j,i],y[j,i],STEP):continue
             a=j*width+i;b=a+1;c=a+width+1;d=a+width
-            faces.extend([(a,b,c),(a,c,d)])
+            inner=[] if j else [(kx,kz) for kx,kz in zip(*knots) if xs[i]<kx<xs[i+1]]
+            if not inner:
+                faces.extend([(a,b,c),(a,c,d)]);continue
+            chain=[a]
+            for kx,kz in inner:
+                t=(kx-xs[i])/(xs[i+1]-xs[i]);n=N[a]*(1-t)+N[b]*t
+                chain.append(len(P)+len(extra));extra.append(((kx,ys[0],kz),A[a]*(1-t)+A[b]*t,n/np.linalg.norm(n)))
+            chain.append(b)
+            faces.extend([(p,q,d) for p,q in zip(chain,chain[1:])]+[(b,c,d)])
+    if extra:
+        P=np.concatenate([P,[e[0] for e in extra]]);A=np.concatenate([A,[e[1] for e in extra]]);N=np.concatenate([N,[e[2] for e in extra]])
     faces=np.asarray(faces,dtype=np.int32)
-    used=np.unique(faces);remap=np.full(x.size,-1,dtype=np.int32);remap[used]=np.arange(len(used))
-    parts=[(np.stack([x,y,z],-1).reshape(-1,3)[used],remap[faces],np.dstack([colors,mask]).reshape(-1,4)[used],
-            normals.reshape(-1,3)[used])]
+    used=np.unique(faces);remap=np.full(len(P),-1,dtype=np.int32);remap[used]=np.arange(len(used))
+    parts=[(P[used],remap[faces],A[used],N[used])]
     parts+=[_apron_part(*grid,base_sampler) for grid in apron_grids(xs,ys)]
     offsets=np.cumsum([0]+[len(p[0]) for p in parts])
     sheet=dict(vertices=np.concatenate([p[0] for p in parts]),faces=np.concatenate([p[1]+o for p,o in zip(parts,offsets)]),

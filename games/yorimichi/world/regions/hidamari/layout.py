@@ -732,6 +732,18 @@ def city_west_edge():
         CITY_WEST=(H,ys,np.asarray(height(300.,ys),float))
     return CITY_WEST[1:]
 
+CITY_NORTH=None
+
+def city_north_edge():
+    """The city ground's north edge (y 500, x 300-1420) as (xs, heights) at HD_Terrain's own vertices along it
+    (terrain_axes), which the foothills' south edge shares (mountains.sheets)."""
+    global CITY_NORTH,H
+    if H is None:H=np.load(yori.OUT/'heightmap.npy')
+    if CITY_NORTH is None or CITY_NORTH[0] is not H:
+        xs=np.asarray(sorted(terrain_axes()[0]),float);xs=xs[(xs>=300.)&(xs<=1420.)]
+        CITY_NORTH=(H,xs,np.asarray(height(xs,np.full_like(xs,500.)),float))
+    return CITY_NORTH[1:]
+
 def _city_west_stitch(x,y,out):
     """@cc [owner:fontanierh,label:correctness] city-west-edge-stitch
     North of the main terrain the city's west edge (x 300, y 300-500) borders the far hills and the foothills' apron
