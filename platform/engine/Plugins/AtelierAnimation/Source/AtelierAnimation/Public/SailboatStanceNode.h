@@ -5,7 +5,7 @@
  *  wraps its own target too (a steering wheel held at both sides); otherwise it rests as a plain wrist target. */
 struct FSailboatStanceNode final : public FAnimNode_SkeletalControlBase
 {
- enum{Pelvis,Spine,Chest,Neck,Head,UpperL,ForeL,HandL,UpperR,ForeR,HandR,ThighL,ShinL,FootL,ThighR,ShinR,FootR,Finger0,Tip0,Finger1,Tip1,Finger2,Tip2,Finger3,Tip3,Thumb,
+ enum{Pelvis,Spine,Chest,Neck,Head,UpperL,ForeL,HandL,UpperR,ForeR,HandR,ThighL,ShinL,FootL,ToeL,ThighR,ShinR,FootR,ToeR,Finger0,Tip0,Finger1,Tip1,Finger2,Tip2,Finger3,Tip3,Thumb,
       FingerL0,TipL0,FingerL1,TipL1,FingerL2,TipL2,FingerL3,TipL3,ThumbL,Count};
  FBoneReference Bones[Count];
  FVector PelvisTarget,HandTarget[2],ElbowPole[2],FootTarget[2],KneePole[2];
@@ -15,9 +15,12 @@ struct FSailboatStanceNode final : public FAnimNode_SkeletalControlBase
  FVector GripAxisL=FVector::UpVector,GripUpL=FVector::LeftVector,GripForwardL=FVector::ForwardVector;
  /** Degrees the upper body leans back from the pelvis, over a reclined seat (0 keeps the source pose). */
  float TorsoRecline=0.f;
+ /** Plant the toes down the pedals instead of keeping each source rig's resting ankle roll. */
+ bool bPlantFeet=false;
+ FVector FootForward=FVector::ForwardVector;
  FSailboatStanceNode()
  {
-  const TCHAR* Names[]={TEXT("pelvis"),TEXT("spine"),TEXT("chest"),TEXT("neck"),TEXT("head"),TEXT("upperarm_L"),TEXT("forearm_L"),TEXT("hand_L"),TEXT("upperarm_R"),TEXT("forearm_R"),TEXT("hand_R"),TEXT("thigh_L"),TEXT("shin_L"),TEXT("foot_L"),TEXT("thigh_R"),TEXT("shin_R"),TEXT("foot_R"),TEXT("finger_0_R"),TEXT("finger_tip_0_R"),TEXT("finger_1_R"),TEXT("finger_tip_1_R"),TEXT("finger_2_R"),TEXT("finger_tip_2_R"),TEXT("finger_3_R"),TEXT("finger_tip_3_R"),TEXT("thumb_R"),
+  const TCHAR* Names[]={TEXT("pelvis"),TEXT("spine"),TEXT("chest"),TEXT("neck"),TEXT("head"),TEXT("upperarm_L"),TEXT("forearm_L"),TEXT("hand_L"),TEXT("upperarm_R"),TEXT("forearm_R"),TEXT("hand_R"),TEXT("thigh_L"),TEXT("shin_L"),TEXT("foot_L"),TEXT("toe_L"),TEXT("thigh_R"),TEXT("shin_R"),TEXT("foot_R"),TEXT("toe_R"),TEXT("finger_0_R"),TEXT("finger_tip_0_R"),TEXT("finger_1_R"),TEXT("finger_tip_1_R"),TEXT("finger_2_R"),TEXT("finger_tip_2_R"),TEXT("finger_3_R"),TEXT("finger_tip_3_R"),TEXT("thumb_R"),
                         TEXT("finger_0_L"),TEXT("finger_tip_0_L"),TEXT("finger_1_L"),TEXT("finger_tip_1_L"),TEXT("finger_2_L"),TEXT("finger_tip_2_L"),TEXT("finger_3_L"),TEXT("finger_tip_3_L"),TEXT("thumb_L")};
   for(int I=0;I<Count;++I)Bones[I].BoneName=Names[I];
  }
@@ -34,7 +37,7 @@ struct FSailboatStanceNode final : public FAnimNode_SkeletalControlBase
    const FVector Pivot=P[Pelvis].GetLocation();
    for(int I=0;I<Count;++I)
    {
-    if(I==Pelvis||(I>=ThighL&&I<=FootR))continue;
+    if(I==Pelvis||(I>=ThighL&&I<=ToeR))continue;
     P[I].SetLocation(Pivot+Recline.RotateVector(P[I].GetLocation()-Pivot));
     P[I].SetRotation(Recline*P[I].GetRotation());
    }
@@ -50,19 +53,40 @@ struct FSailboatStanceNode final : public FAnimNode_SkeletalControlBase
   auto grip=[&](int Hand,int Finger,int Upper,int Fore,int Side,const FVector& Target,const FVector& Forward,const FVector& Up,const FVector& Axis)
   {
    const FTransform OldHand=P[Hand];
+   const FTransform OldFore=P[Fore];
    // Derive the imported hand's anatomical axes from its knuckles, not assumed FBX bone axes.
    FVector Knuckles=FVector::ZeroVector;for(int I=0;I<4;++I)Knuckles+=P[Finger+2*I].GetLocation();Knuckles*=.25;
    const FVector OldForward=(Knuckles-OldHand.GetLocation()).GetSafeNormal();
    const FVector OldSpan=(P[Finger+6].GetLocation()-P[Finger].GetLocation()).GetSafeNormal();
+   const FVector OldPalm=OldSpan.Cross(OldForward).GetSafeNormal();
+   const float PalmSign=FVector::DotProduct(P[Finger+8].GetLocation()-OldHand.GetLocation(),OldPalm)>0.f?1.f:-1.f;
+   const FVector Palm=OldPalm*PalmSign;
    const FQuat First=FQuat::FindBetweenNormals(OldForward,Forward);
    const FVector Span=FVector::VectorPlaneProject(First.RotateVector(OldSpan),Forward).GetSafeNormal();
-   const FVector WantSpan=FVector::VectorPlaneProject(Axis,Forward).GetSafeNormal();
-   const FQuat Align=FQuat::FindBetweenNormals(Span,WantSpan)*First;
+   FVector WantSpan=FVector::VectorPlaneProject(Axis,Forward).GetSafeNormal();
+   FQuat Align=FQuat::FindBetweenNormals(Span,WantSpan)*First;
+   // Keep the palm toward the wheel centre. Rig hand rolls differ; aligning only the knuckle
+   // span can leave a mirrored hand showing its back instead of closing round the rim.
+   if(bGripLeft && FVector::DotProduct(Align.RotateVector(Palm),-Up)<0.f)
+   {
+    WantSpan=-WantSpan;
+    Align=FQuat::FindBetweenNormals(Span,WantSpan)*First;
+   }
    const FQuat HandRotation=Align*OldHand.GetRotation();
    const FVector DesiredKnuckles=Target+Forward*1.2f+Up*2.8f;
    const FVector Wrist=DesiredKnuckles-Align.RotateVector(Knuckles-OldHand.GetLocation());
    AnimationCore::SolveTwoBoneIK(P[Upper],P[Fore],P[Hand],ElbowPole[Side],Wrist,false,1.,1.);
    P[Hand].SetRotation(HandRotation);
+   const FQuat RestLocal=OldFore.GetRotation().Inverse()*OldHand.GetRotation();
+   const FQuat PoseLocal=P[Fore].GetRotation().Inverse()*P[Hand].GetRotation();
+   const FQuat Delta=PoseLocal*RestLocal.Inverse();
+   const float Twist=2.f*FMath::Atan2(Delta.X,Delta.W);
+   if(bGripLeft && FMath::Abs(Twist)>FMath::DegreesToRadians(5.f))
+   {
+    const FVector ForeAxis=(P[Hand].GetLocation()-P[Fore].GetLocation()).GetSafeNormal();
+    P[Fore].SetRotation(FQuat(ForeAxis,-Twist*.6f)*P[Fore].GetRotation());
+    P[Hand].SetRotation(HandRotation);
+   }
    const FTransform NewHand=P[Hand];
    for(int I=0;I<4;++I)
    {
@@ -92,7 +116,20 @@ struct FSailboatStanceNode final : public FAnimNode_SkeletalControlBase
   for(int Side=0;Side<2;++Side)
   {
    const int U=Side?ThighR:ThighL;const FQuat FootRotation=P[U+2].GetRotation();
+   const FVector ToeOffset=P[U+3].GetLocation()-P[U+2].GetLocation();
    AnimationCore::SolveTwoBoneIK(P[U],P[U+1],P[U+2],KneePole[Side],FootTarget[Side],false,1.,1.);P[U+2].SetRotation(FootRotation);
+   if(bPlantFeet)
+   {
+    const FVector ToeDir=ToeOffset.GetSafeNormal();
+    const FQuat Plant=FQuat::FindBetweenNormals(ToeDir,FootForward.GetSafeNormal());
+    P[U+2].SetRotation(Plant*FootRotation);
+    P[U+3].SetLocation(P[U+2].GetLocation()+Plant.RotateVector(ToeOffset));
+    P[U+3].SetRotation(Plant*P[U+3].GetRotation());
+   }
+   else
+   {
+    P[U+3].SetLocation(P[U+2].GetLocation()+ToeOffset);
+   }
   }
   if(!bGripLeft)AnimationCore::SolveTwoBoneIK(P[UpperL],P[ForeL],P[HandL],ElbowPole[0],HandTarget[0],false,1.,1.);
   // The left fingers only move when the left hand grips its own target. Otherwise leave them out, so the

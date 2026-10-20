@@ -22,7 +22,7 @@ WHEEL_RADIUS, WHEEL_WIDTH = .14, .11
 TRACK_FRONT, TRACK_REAR = 1.10, 1.24
 WHEELBASE, FRONT_AXLE = 1.50, .75
 STEER_RADIUS = .15
-STEER_AT = (0.10, 0.0, .52)
+STEER_AT = (0.06, 0.0, .55)
 
 
 def disc(m, z, r, color, n=20):
@@ -153,8 +153,7 @@ def kart():
     m.lathe((-.84, .24, .29), [(0, .055), (.05, .05)], CHROME, n=10)
     # Steering column and dashboard.
     m.beam((-.02, 0, .40), STEER_AT, .035, .035, CHROME)
-    m.box((.16, 0, .40), (.05, .34, .14), RED, bevel=.02)
-    m.box((.32, 0, .115), (.10, .70, .03), METAL)                                    # pedal plate
+    m.box((.36, 0, .115), (.16, .70, .03), METAL)                                    # pedal plate
     for s in (1, -1):
         m.box((.32, s * .15, .15), (.05, .10, .07), CHROME)                          # pedal
     # A low hoop behind the seat and the number plate on the nose.
@@ -172,7 +171,7 @@ def seat():
     """The pan and its reclined backrest, on their own pivot so the seat can slide along the frame."""
     m = v.Mesh('SM_Kart_Seat')
     m.box((0, 0, 0), (.44, .44, .05), CREAM, bevel=.02)
-    back = Matrix.Translation(Vector((-.20, 0, .155))) @ Matrix.Rotation(math.radians(-30), 4, 'Y')
+    back = Matrix.Translation(Vector((-.14, 0, .155))) @ Matrix.Rotation(math.radians(-20), 4, 'Y')
     m.transform = back
     m.box((0, 0, 0), (.06, .44, .42), CREAM, bevel=.02)
     m.transform = Matrix.Identity(4)

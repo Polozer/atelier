@@ -13,6 +13,14 @@ class UStaticMesh;
 class UStaticMeshComponent;
 struct FDrivingCar;
 
+namespace AtelierDrivingSide
+{
+/** The rider's left hand/foot is side 0; Unreal component space puts it at -Y. */
+constexpr float Sign(int Side) { return Side ? 1.f : -1.f; }
+static_assert(Sign(0) == -1.f, "side 0 is the rider's left, at component -Y");
+static_assert(Sign(1) == 1.f, "side 1 is the rider's right, at component +Y");
+}
+
 /** Drives a four-wheel car from a character: summons it onto the ground beside the rider, mounts, steps the simulation
  *  at its fixed 60 Hz, and puts the rider back on their feet beside it. The simulation owns the chassis; this component
  *  only reads the world (a ray per wheel) and moves the actor it is attached to. */
@@ -47,7 +55,10 @@ public:
      *  the axle) and the steering wheel (plane faces +X, origin at the hub). Missing content falls back to a box. */
     void SetMeshes(const FSoftObjectPath& Body, const FSoftObjectPath& Seat, const FSoftObjectPath& Wheel,
                    const FSoftObjectPath& Steering);
-    /** Slides the seat back along the frame for a taller driver (cm, 0..28), as a kart's seat does. */
+    /** Whole-kart scale around the driver; the anim instance fits it to the rider's leg length. */
+    void SetKartScale(float Scale);
+    float GetKartScale() const { return KartScale; }
+    /** Slides the seat back along the frame for a taller driver (cm, 0..4), as a kart's seat does. */
     void SetSeatSlide(float Cm);
     float GetSeatSlide() const { return SeatSlide; }
 
@@ -55,11 +66,11 @@ public:
      *  and grips, for the animation stance. */
     FVector PosePoint(const FVector& Local) const;
     FVector PoseDirection(const FVector& Local) const;
-    FVector SeatPoint() const { return FVector(-28.f - SeatSlide, 0, 26); }
+    FVector SeatPoint() const { return FVector(-24.f - SeatSlide, 0, 26); }
     FVector HandPoint(int32 Side) const;
-    FVector ElbowPoint(int32 Side) const { return FVector(-5, Side ? 32.f : -32.f, 50); }
-    FVector FootPoint(int32 Side) const { return FVector(32, Side ? 14.f : -14.f, 13); }
-    FVector KneePoint(int32 Side) const { return FVector(14, Side ? 18.f : -18.f, 26); }
+    FVector ElbowPoint(int32 Side) const { return FVector(2, Side ? 32.f : -32.f, 38); }
+    FVector FootPoint(int32 Side) const { return FVector(32.f + SeatSlide * 2.f, Side ? 14.f : -14.f, 17); }
+    FVector KneePoint(int32 Side) const { return FVector(20, Side ? 18.f : -18.f, 40); }
     FVector GripForward(int32 Side) const;
     FVector GripUp(int32 Side) const;
     FVector GripAxis(int32 Side) const;
@@ -99,6 +110,7 @@ private:
     FString Hint;
     float GroundOffset = 0.f;
     float BodyLift = 0.f;
+    float KartScale = 1.f;
     float SeatSlide = 0.f;
     float Spin[4] = {0.f, 0.f, 0.f, 0.f};
     FQuat SteeringBase = FQuat::Identity;

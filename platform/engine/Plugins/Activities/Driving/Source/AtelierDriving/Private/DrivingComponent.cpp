@@ -136,7 +136,7 @@ void UDrivingComponent::Initialize(ACharacter* InRider)
     Steering->RegisterComponent();
     Steering->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Steering->SetVisibility(false, true);
-    Steering->SetRelativeLocation(FVector(10, 0, 52));
+    Steering->SetRelativeLocation(FVector(6, 0, 55));
     Steering->SetRelativeRotation(SteeringBase);
 }
 
@@ -155,10 +155,19 @@ void UDrivingComponent::SetMeshes(const FSoftObjectPath& BodyPath, const FSoftOb
 
 void UDrivingComponent::SetSeatSlide(float Cm)
 {
-    SeatSlide = FMath::Clamp(Cm, 0.f, 28.f);
+    SeatSlide = FMath::Clamp(Cm, 0.f, 4.f);
     if (Seat)
     {
-        Seat->SetRelativeLocation(FVector(-34.f - SeatSlide, 0, 20.5f));
+        Seat->SetRelativeLocation(FVector(-26.f - SeatSlide, 0, 20.5f));
+    }
+}
+
+void UDrivingComponent::SetKartScale(float Scale)
+{
+    KartScale = FMath::Clamp(Scale, .5f, 2.f);
+    if (Body)
+    {
+        Body->SetRelativeScale3D(FVector(KartScale));
     }
 }
 
@@ -299,7 +308,7 @@ bool UDrivingComponent::Summon()
     if (BodyMesh)
     {
         Body->SetStaticMesh(BodyMesh);
-        Body->SetRelativeScale3D(FVector::OneVector);
+        Body->SetRelativeScale3D(FVector(KartScale));
         BodyLift = 0.f;
         Body->SetRelativeLocation(FVector(0, 0, -GroundOffset));
     }
@@ -308,7 +317,7 @@ bool UDrivingComponent::Summon()
         if (UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
         {
             Body->SetStaticMesh(Cube);
-            Body->SetRelativeScale3D(FVector(2.16f, 1.24f, .50f));
+            Body->SetRelativeScale3D(FVector(2.16f, 1.24f, .50f) * KartScale);
             BodyLift = 25.f;
             Body->SetRelativeLocation(FVector(0, 0, -GroundOffset + 25.f));
         }
@@ -317,7 +326,7 @@ bool UDrivingComponent::Summon()
     if (SeatMesh)
     {
         Seat->SetStaticMesh(SeatMesh);
-        Seat->SetRelativeLocation(FVector(-34.f - SeatSlide, 0, 20.5f));
+        Seat->SetRelativeLocation(FVector(-26.f - SeatSlide, 0, 20.5f));
         Seat->SetVisibility(true, true);
     }
     else
@@ -581,9 +590,10 @@ FVector UDrivingComponent::PoseDirection(const FVector& Local) const
 FVector UDrivingComponent::HandPoint(int32 Side) const
 {
     const float Bar = Car ? -float(Car->Chassis.wheel(0).steer_angle) * 2.5f : 0.f;
-    const float Phi = FMath::DegreesToRadians(Side ? 135.f : 45.f);
-    const FVector Rim(0, 15.f * FMath::Cos(Phi), 15.f * FMath::Sin(Phi));
-    return FVector(10, 0, 52) + SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(Rim));
+    const float Sign = AtelierDrivingSide::Sign(Side);   // 9:15 (left) and 2:45 (right), just above horizontal
+    const float Elev = FMath::DegreesToRadians(7.5f);
+    const FVector Rim(0, Sign * 15.f * FMath::Cos(Elev), 15.f * FMath::Sin(Elev));
+    return FVector(6, 0, 55) + SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(Rim));
 }
 
 FVector UDrivingComponent::GripForward(int32 Side) const
@@ -595,15 +605,17 @@ FVector UDrivingComponent::GripForward(int32 Side) const
 FVector UDrivingComponent::GripUp(int32 Side) const
 {
     const float Bar = Car ? -float(Car->Chassis.wheel(0).steer_angle) * 2.5f : 0.f;
-    const float Phi = FMath::DegreesToRadians(Side ? 135.f : 45.f);
-    const FVector Radial(0, FMath::Cos(Phi), FMath::Sin(Phi));
+    const float Sign = AtelierDrivingSide::Sign(Side);
+    const float Elev = FMath::DegreesToRadians(7.5f);
+    const FVector Radial(0, Sign * FMath::Cos(Elev), FMath::Sin(Elev));
     return SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(Radial));
 }
 
 FVector UDrivingComponent::GripAxis(int32 Side) const
 {
     const float Bar = Car ? -float(Car->Chassis.wheel(0).steer_angle) * 2.5f : 0.f;
-    const float Phi = FMath::DegreesToRadians(Side ? 135.f : 45.f);
-    const FVector Tangent(0, -FMath::Sin(Phi), FMath::Cos(Phi));
+    const float Sign = AtelierDrivingSide::Sign(Side);
+    const float Elev = FMath::DegreesToRadians(7.5f);
+    const FVector Tangent(0, -Sign * FMath::Sin(Elev), FMath::Cos(Elev));
     return SteeringBase.RotateVector(FQuat(FVector::ForwardVector, Bar).RotateVector(Tangent));
 }

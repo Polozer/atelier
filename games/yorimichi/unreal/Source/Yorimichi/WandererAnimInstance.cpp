@@ -391,6 +391,7 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
         // The kart seats the driver on its pan, feet on the pedals, both hands wrapped round the wheel's rim.
         Stance.bGripLeft = bDriving;
         Stance.TorsoRecline = bDriving ? 18.f : 0.f;
+        Stance.bPlantFeet = bDriving;
         if (bDriving)
         {
             if (LegLength <= 0.f)
@@ -405,10 +406,12 @@ struct FWandererAnimProxy final : public FAnimInstanceProxy
                     };
                     LegLength = FVector::Dist(Where(TEXT("thigh_L")), Where(TEXT("shin_L"))) + FVector::Dist(Where(TEXT("shin_L")), Where(TEXT("foot_L")));
                 }
-            CarC->SetSeatSlide(FMath::Clamp(0.85f * LegLength - 60.f, 0.f, 28.f));
+            CarC->SetKartScale(FMath::Clamp(LegLength / 72.f, .9f, 1.08f));
+            CarC->SetSeatSlide(FMath::Clamp(0.35f * LegLength - 24.5f, 0.f, 4.f));
             const FTransform& MeshTransform = Pawn->GetMesh()->GetComponentTransform();
             auto Point=[&](const FVector& Local){return MeshTransform.InverseTransformPosition(CarC->PosePoint(Local));};
             auto Dir=[&](const FVector& Local){return MeshTransform.InverseTransformVectorNoScale(CarC->PoseDirection(Local)).GetSafeNormal();};
+            Stance.FootForward=Dir(FVector(1,0,-.15));
             Stance.PelvisTarget=Point(CarC->SeatPoint());
             Stance.GripForward=Dir(CarC->GripForward(1)); Stance.GripUp=Dir(CarC->GripUp(1)); Stance.GripAxis=Dir(CarC->GripAxis(1));
             Stance.GripForwardL=Dir(CarC->GripForward(0)); Stance.GripUpL=Dir(CarC->GripUp(0)); Stance.GripAxisL=Dir(CarC->GripAxis(0));
