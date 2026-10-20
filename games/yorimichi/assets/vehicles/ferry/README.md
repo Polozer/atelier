@@ -54,6 +54,8 @@ uv run python games/yorimichi/assets/vehicles/ferry/compare.py
   `FY_CreamFunnel`, `FY_Black`, `FY_Brass`, `FY_Canvas`, `FY_Glass`, `FY_DarkIron`, `FY_Lifebuoy`, `FY_BoatTimber` and
   `FY_TarredRope`, `FY_CowlThroat`, `FY_AnchorBronze`, `FY_HawseRecess`, `FY_BoatTimberDark`, `FY_BoatGunwale` and
   `FY_BoatCover`.
+- Ship and terminals build on the shared closed-solid builder, [`world/solid_mesh.py`](../../../world/solid_mesh.py)
+  (prisms, lofts, boxes, beams, tubes, lathes, tori and `to_object`); the kit keeps only its materials.
 - Every part is a closed solid. Roofs, decks, canopies and covers have thickness. The build fails on any open edge
   and flips any part whose normals face inward. The hawse pockets are cut into the closed hull with an exact
   boolean, so the shell stays closed.
@@ -161,6 +163,13 @@ under 0.9 m that is not isolated, a trapping pocket, stair headroom under 2.0 m,
 overlap. `tests/test_ferry_site.py` covers the sweep, the rasterising, the berth-zone rule, input binding, the brow
 fit and the walk verdicts on small fixtures, without Blender or a world build.
 
-Still to do when the ferry goes into the world (B3): import and placement of the kits and their collision, the cut in
-Hidamari's quay timber rail and posts at the jetty root (read from `site.json` `world_cuts`, not re-derived), the ferry runtime following these manoeuvres, rerunning `world_probe.py`
-and `site.py` on the build that ships, and a game walk of both boarding routes.
+Still to do when the ferry goes into the world (B3):
+- import and placement of the kits and their collision;
+- the cut in Hidamari's quay timber rail and posts at the jetty root, read from `site.json` `world_cuts`, not
+  re-derived;
+- moving each harbour's terminal layout and assembly (`site.py` `*_layout`/`*_moves`, `terminals/build.py`
+  `hidamari()`/`brinecove()`) into `world/regions/<region>/`, leaving the reusable terminal pieces here;
+- the ferry runtime following these manoeuvres;
+- rerunning `world_probe.py` and `site.py` on the build that ships, with `manifest.json` also hashing the terminal
+  build and `walkcheck.py`;
+- a guarded game walk of both boarding routes, both ways (walkable-routes-traversable).

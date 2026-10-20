@@ -19,6 +19,8 @@ import math
 import sys
 from pathlib import Path
 
+import numpy as np
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 import build as F  # noqa: E402  (the ferry's mesh builder; importing it does not build the ship)
@@ -139,8 +141,10 @@ def solid_stair(m, foot, direction, width, z0, flights, r, tread=TREAD, landing=
             col([Wd(uu, zz, vv) for uu, zz in ((us, zs), (u, z), (u, z - r - T), (us, zs - T)) for vv in (-width / 2, width / 2)])
             if fi < len(flights) - 1:
                 col([Wd(uu, zz, vv) for uu in (u, u + landing) for zz in (z - T, z) for vv in (-width / 2, width / 2)])
-                m.prism(F.rect(u, z - T, u + landing, z), -width / 2, width / 2, side_mat, top=side_mat, bottom=side_mat)
-                m.prism(F.rect(u, z - 0.02, u + landing, z), -width / 2, width / 2, top_mat)
+                # One landing slab: its walking face (the profile edge at z) takes the tread finish, so no second
+                # slab shares that face.
+                m.prism(F.rect(u, z - T, u + landing, z), -width / 2, width / 2,
+                        lambda x, y, z=z: top_mat if abs(y - z) < 1e-6 else side_mat, top=side_mat, bottom=side_mat)
                 treads.append((u, u + landing, z)); u += landing
     top = (foot[0] + d.x * u, foot[1] + d.y * u, z0 + z)
     return {'run': round(u, 4), 'rise': round(z, 4), 'top': [round(v, 4) for v in top], 'risers': sum(flights), 'riser': round(r, 5),
@@ -190,7 +194,7 @@ def gable_roof(m, x0, y0, x1, y1, ze, pitch, axis='x', over=(0.9, 0.9, 0.9, 0.9)
         m.box((x, yc, zr + 0.42), (0.22, 0.56, 0.62), RIDGE, bevel=0.04)
     # Gable triangles and bargeboards at both ends.
     for x, o in ((x0, -ow), (x1, oe)):
-        tri = [(y0, ze), (y1, ze), (yc, zr)]
+        tri = [(y0, ze), (y1, ze), (y1, ze + 0.02), (yc, zr + 0.02), (y0, ze + 0.02)]   # up to the roof underside
         with m.frame((x - 0.06, 0, 0), Vector((0, 1, 0)), Vector((0, 0, 1)), Vector((1, 0, 0))):
             m.prism(tri, 0.0, 0.12, gable_mat)
         for s in (-1, 1):
@@ -254,6 +258,15 @@ def lantern(m, x, y, z, h=0.42):
     m.box((x, y, z + h / 2), (0.26, 0.26, h), GLOW)
     m.box((x, y, z + 0.02), (0.32, 0.32, 0.05), TIMBER_DARK)
     m.lathe((x, y, z + h), [(0, 0.24), (0.05, 0.24), (0.14, 0.05), (0.18, 0)], TIMBER_DARK, n=4, phase=math.pi / 4)
+
+
+def ground_under(world, x0, y0, x1, y1):
+    """The lowest exported walking surface under a footprint, so feet and bases meet the ground (sinking a little
+    where it is higher, never floating where it is lower). Fails if any of the footprint has no surface."""
+    z = FS.levels(world, FS.rect_points(x0, y0, x1, y1, 0.1), FS.QUAY_RAIL + 0.5)
+    if np.isnan(z).any():
+        raise SystemExit(f'no exported ground under ({x0:.2f}, {y0:.2f})-({x1:.2f}, {y1:.2f})')
+    return float(np.min(z))
 
 
 def bench(m, a, b, z, depth=0.42, h=0.44):
@@ -388,6 +401,7 @@ def timetable(m, x, y, z, yaw, w=2.4, h=1.7):
 def hidamari():
     b = SITE['hidamari']['berth']; gx, gy, _ = b['gate']; face = b['face']; quay = b['quay_top_z']
     QF = -127.7                       # quay coping outer face
+    world = FS.load_world('hidamari')  # the exported quay, for feet and bases set on it
     meshes = {k: F.Mesh(k) for k in ('FT_HD_Jetty', 'FT_HD_Stage', 'FT_HD_Brow', 'FT_HD_WaitingHouse', 'FT_HD_Timetable')}
     J, S, B, W, T = meshes.values()
     deck_t = 0.3
@@ -461,8 +475,9 @@ def hidamari():
     # Waiting house on the promenade west of the jetty root: white plaster between dark timber, sliding windows,
     # a door to the jetty side, a bench and lamp in front, kawara roof.
     hx0, hx1, hy0, hy1 = gx - 21.0, gx - 9.0, -122.0, -114.5
-    hz = b['promenade_z']                      # the highest exported promenade under the house (site.py)
-    W.prism(F.rect(hx0 - 0.3, hy0 - 0.3, hx1 + 0.3, hy1 + 0.3), hz - 0.3, hz + 0.18, STONE)
+    hz = b['promenade_z']                      # the highest exported promenade under the plinth (site.py)
+    hb = b['promenade_range'][0] - 0.15        # the plinth reaches below the lowest ground under it
+    W.prism(F.rect(hx0 - 0.3, hy0 - 0.3, hx1 + 0.3, hy1 + 0.3), hb, hz + 0.18, STONE)
     wh = 2.9
     wall(W, (hx0, hy0), (hx1, hy0), hz + 0.18, wh, 0.18, PLASTER, [(1.2, 2.2, 0.0, 2.15, 'open door'), (3.0, 6.0, 0.85, 2.2), (7.0, 10.6, 0.85, 2.2)])
     wall(W, (hx1, hy0), (hx1, hy1), hz + 0.18, wh, 0.18, PLASTER, [(1.4, 6.1, 0.85, 2.2)])
@@ -470,8 +485,8 @@ def hidamari():
     wall(W, (hx0, hy1), (hx0, hy0), hz + 0.18, wh, 0.18, PLASTER, [(2.2, 5.3, 0.85, 2.2)])
     W.prism(F.rect(hx0 + 0.1, hy0 + 0.1, hx1 - 0.1, hy1 - 0.1), hz + 0.18, hz + 0.2, PLANK)
     gable_roof(W, hx0, hy0, hx1, hy1, hz + 0.18 + wh, 0.6, over=(0.7, 0.7, 1.1, 0.8))
-    bench(W, (hx0 + 3.2, hy0 - 0.7), (hx0 + 5.8, hy0 - 0.7), hz)
-    bench(W, (hx0 + 7.4, hy0 - 0.7), (hx0 + 10.0, hy0 - 0.7), hz)
+    for u0, u1 in ((3.2, 5.8), (7.4, 10.0)):   # feet on the exported quay under each bench
+        bench(W, (hx0 + u0, hy0 - 0.7), (hx0 + u1, hy0 - 0.7), ground_under(world, hx0 + u0, hy0 - 0.91, hx0 + u1, hy0 - 0.49))
     lantern(W, hx0 + 2.5, hy0 - 0.18, hz + 2.3, h=0.36)
     # The door steps down from the plinth (hz + 0.18) to the quay at the door (site.py door_ground_z): equal risers
     # no taller than DOOR_RISER, 0.35 m treads, 1.2 m wide.
@@ -482,8 +497,9 @@ def hidamari():
         W.prism(F.rect(dx - 0.6, y0, dx + 0.6, y1), gd - 0.1, top - k * r, STONE)
         col_box(dx - 0.6, y0, dx + 0.6, y1, gd - 0.1, top - k * r)
     for xx in (hx0 + 0.6, hx1 - 0.9):         # potted plants either side, as in the concept (west one clear of the step)
-        W.lathe((xx, hy0 - 0.8, hz), [(0, 0.22), (0.45, 0.3), (0.5, 0.0)], TERRACOTTA, n=10)
-        W.lathe((xx, hy0 - 0.8, hz + 0.45), [(0, 0.3), (0.3, 0.36), (0.6, 0.0)], MOSS, n=10)
+        pz = ground_under(world, xx - 0.3, hy0 - 1.1, xx + 0.3, hy0 - 0.5)
+        W.lathe((xx, hy0 - 0.8, pz), [(0, 0.22), (0.45, 0.3), (0.5, 0.0)], TERRACOTTA, n=10)
+        W.lathe((xx, hy0 - 0.8, pz + 0.45), [(0, 0.3), (0.3, 0.36), (0.6, 0.0)], MOSS, n=10)
     # Timetable board on the promenade at the jetty root, facing the city.
     tx, ty, tz = b['timetable']
     timetable(T, tx, ty, tz - 0.02, 0.0)
@@ -495,7 +511,7 @@ def hidamari():
         col_box(x - 0.15, y - 0.15, x + 0.15, y + 0.15, quay, ze)
     for x in (sx0 + 0.6, sx1 - 0.6):
         col_box(x - 0.25, gal1 + 0.6, x + 0.25, foot_y - 0.6, quay, quay + 0.48)
-    col_box(hx0 - 0.3, hy0 - 0.3, hx1 + 0.3, hy1 + 0.3, hz - 0.3, hz + 0.18)
+    col_box(hx0 - 0.3, hy0 - 0.3, hx1 + 0.3, hy1 + 0.3, hb, hz + 0.18)
     for a_, b_, cuts in (((hx0, hy0), (hx1, hy0), [(1.2, 2.2)]), ((hx1, hy0), (hx1, hy1), []), ((hx1, hy1), (hx0, hy1), []),
                          ((hx0, hy1), (hx0, hy0), [])):
         L_ = math.dist(a_, b_); t_ = [(b_[0] - a_[0]) / L_, (b_[1] - a_[1]) / L_]; u_ = 0.0
@@ -650,7 +666,6 @@ def context_ground(name, route):
     """Audit-only ground (not exported): the exported world's own triangles (world_probe.py: ground and solids) within
     3 m of the route, less the world cuts site.json records for B3. Returns the mesh and each cut with what it removed
     in this audit (whole triangles; the world change splits them at the cut's x span)."""
-    np = __import__('numpy')
     w = FS.load_world(name)
     tris = np.concatenate([w['ground'], w['solid']])
     xs = [p[0] for p in route]; ys = [p[1] for p in route]

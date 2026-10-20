@@ -426,7 +426,7 @@ def hidamari_layout(world):
     gx, gy = gate_point(berth, -1)
     jetty = [(gx - 8.0, HIDAMARI_QUAY_FACE), (gx + 8.0, HIDAMARI_QUAY_FACE), (gx + 8.0, face_y), (gx - 8.0, face_y)]
     quay = levels(world, rect_points(gx - 8, HIDAMARI_QUAY_FACE + 0.1, gx + 8, HIDAMARI_QUAY_FACE + 3.3), QUAY_RAIL)
-    house = levels(world, rect_points(gx - 21.0, -122.0, gx - 9.0, -114.5), QUAY_RAIL + 0.5)
+    house = levels(world, rect_points(gx - 21.3, -122.3, gx - 8.7, -114.2, 0.25), QUAY_RAIL + 0.5)   # the plinth
     q = float(np.nanmedian(quay))
     # The waiting house's door (south wall, 1.2-2.2 m from its west end) steps down to the quay; the timetable board
     # stands on the quay west of the jetty root (x 840-856 east of it is the canal mouth, water at the quay).
