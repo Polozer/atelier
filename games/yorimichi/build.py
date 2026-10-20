@@ -841,7 +841,9 @@ def world_steps(ctx):
         # Zeppelin samples layout products and shared terrain code, not Hidamari's exported city/assets.
         # Keep the old build order; track tree metadata read by the imported treehouse layout directly.
         Step('world.zeppelin', [Blender(REGIONS / 'zeppelin' / 'build.py', threads=2)],
-             inputs=[REGIONS / 'zeppelin', REGIONS / 'village' / 'build.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
+             # The Hidamari path follows HD_Terrain as built (layout height, railway earthworks, apron pad).
+            inputs=[REGIONS / 'zeppelin', REGIONS / 'village' / 'build.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
+                     REGIONS / 'hidamari' / 'layout.py', *belmonte_train_corridor(out),
                      ASSETS / 'belmonte' / 'source.json',
                      *(ASSETS / 'belmonte' / entry['path'] for entry in json.loads((ASSETS / 'belmonte/source.json').read_text())['meshes']
                        if entry['name'].startswith('SM_BM_BT_Terrain_')),
