@@ -300,6 +300,18 @@ def test_recut_keeps_rgb_and_binds_the_consumed_alpha(tmp_path, monkeypatch):
     assert lineage['from_record_sha256'] == sha(first_record)
     assert lineage['from_generation_witness'] == first_json['generation_witness']
     assert lineage['from_display'] == first_json['display'] and lineage['from_geography'] == old_geography
+    assert 'from_recut' not in lineage
+
+    # A later geography change that leaves the mask alone recuts the recut: same bytes, the lineage nests.
+    geography['value'] = later_geography = {'test': 'later'}
+    sign('b' * 64)
+    again = recut(tmp_path / 'again.png', tmp_path / 'recut.json', tmp_path / 'recut.png')
+    assert sha(tmp_path / 'again.png') == sha(tmp_path / 'recut.png') == again['recut']['from_painting_sha256']
+    assert again['geography'] == again['generation_witness']['geography'] == later_geography
+    assert again['generation'] == receipt and again['recut']['from_geography'] == new_geography
+    assert again['recut']['from_recut'] == lineage and again['recut']['from_record_sha256'] == sha(tmp_path / 'recut.json')
+    geography['value'] = new_geography
+    sign('b' * 64)
 
     def refused(match, record=first_record, painting=first, **extra):
         with pytest.raises(ValueError, match=match):

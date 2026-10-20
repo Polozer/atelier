@@ -14,7 +14,9 @@ When a geography change moves the signed mask after the pre-alpha painting is
 gone, --recut takes the committed alpha painting and its record instead: the
 record must certify unchanged RGB and trace its witness back to the paid
 generation inputs. Only the alpha is recut; the RGB is proven bit-identical
-after saving, and the record keeps every replaced field under `recut`.
+after saving, and the record keeps every replaced field under `recut`. A later
+recut (a geography change after a recut) nests the earlier block as
+`recut.from_recut`, so every consumed alpha stays rebuildable.
 """
 import argparse
 import hashlib
@@ -246,6 +248,8 @@ def main():
                                        from_generation_witness=previous, from_display=previous_record['display'],
                                        decoded_rgb_sha256=hashlib.sha256(rgb.tobytes()).hexdigest(),
                                        pre_alpha_painting='not recovered: RGB carried bit-identical from from_painting')
+                if 'recut' in previous_record:  # a recut of a recut keeps the whole lineage back to the first consumed alpha
+                    record['recut']['from_recut'] = previous_record['recut']
                 for key in ('natural_kernel_revalidation',):
                     if key in previous_record:
                         record[key] = previous_record[key]

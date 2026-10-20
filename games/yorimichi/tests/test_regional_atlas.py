@@ -201,13 +201,13 @@ def test_superseding_revalidation_rejects_stale_bindings():
 def before_recut(record):
     """The record as it stood before an RGB-preserving alpha recut (mask_atlas_island --recut), which keeps every
     replaced field: the paid generation payload it carries is checked against historical pins unchanged."""
-    recut = record.get('recut')
-    if recut is None:
-        return record
-    old = {k: v for k, v in record.items() if k != 'recut'}
-    old.update(output_sha256=recut['from_output_sha256'], geography=recut['from_geography'],
-               generation_witness=recut['from_generation_witness'], display=recut['from_display'])
-    return old
+    while (recut := record.get('recut')) is not None:  # a later recut nests the earlier one as from_recut
+        record = {k: v for k, v in record.items() if k != 'recut'}
+        record.update(output_sha256=recut['from_output_sha256'], geography=recut['from_geography'],
+                      generation_witness=recut['from_generation_witness'], display=recut['from_display'])
+        if 'from_recut' in recut:
+            record['recut'] = recut['from_recut']
+    return record
 
 
 def decoded_rgb_sha256(path):
@@ -249,6 +249,11 @@ def test_natural_kernel_revalidation_preserves_art_and_generation_provenance():
         if superseded and 'recut' in record:
             # An alpha recut for the new mask consumed exactly the pinned painting and kept its RGB bit-identical.
             recut = record['recut']
+            while 'from_recut' in recut:  # every later recut consumed the previous one's output, RGB unchanged
+                assert recut['from_display']['changed_rgb'] is False
+                assert recut['from_painting_sha256'] == recut['from_output_sha256']
+                assert recut['decoded_rgb_sha256'] == recut['from_recut']['decoded_rgb_sha256']
+                recut = recut['from_recut']
             assert recut['from_painting_sha256'] == recut['from_output_sha256'] == expected
             assert hashlib.sha256((atlas.ASSETS / rel).read_bytes()).hexdigest() == record['output_sha256']
             assert decoded_rgb_sha256(atlas.ASSETS / rel) == recut['decoded_rgb_sha256']
