@@ -138,3 +138,11 @@ AWandererCharacter::Interact MUST be a no-op, offline as online, unless a train,
 reach: it MUST NOT set an Interact action or animation state, and it MUST check zeppelin (IsPassenger/CanReach)
 and trainer (CanTalk) reachability before Sword->CancelForInterrupt, so a press with nothing in reach never stows
 an armed blade or leaves the walker pose stuck.
+
+@cc [owner:fontanierh,label:correctness] transport-audio-from-state
+Transport sound (UTransportAudioComponent and its zeppelin, ferry and gondola components) MUST be presentation that
+each machine derives from the vehicle's replicated or deterministic state; the zeppelin's comes from the phase, RPM,
+gate and landing it already derives from FZeppelinNetworkState or the offline ride. It MUST NOT replicate or change
+simulation, timing or authority, and it MUST stay silent without the imported bank or on a dedicated server. Loops
+MUST fade towards state-set targets and stop only once inaudible; one-shots MUST fire once per state transition and
+never for the state first observed (a late joiner). There is one transport bank, with no alternate soundbanks.
