@@ -40,8 +40,16 @@ def test_benchmark_uses_one_performance_admission_and_observes_actual_child(benc
     benchmark.run_benchmark(command, tmp_path, purpose='benchmark route', timeout=360, slot_deadline=0)
     assert len(calls) == 1 and calls[0][:2] == (command, tmp_path)
     assert calls[0][2] | {'on_poll': None} == dict(purpose='benchmark route', timeout=360, kind='game',
-                                                 performance=True, on_poll=None)
+                                                 performance=True, on_poll=None, limit_gib=benchmark.GAME_GIB)
     assert observed == [123]
+
+
+def test_benchmark_passes_its_memory_ceiling_to_the_same_admission(benchmark, tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(benchmark.guarded, 'run', lambda argv, folder, **options: calls.append(options) or 0)
+    monkeypatch.setattr(benchmark, 'other_render_processes', lambda pid: [])
+    benchmark.run_benchmark(['native-game'], tmp_path, purpose='p', timeout=1, slot_deadline=0, limit_gib=12.)
+    assert len(calls) == 1 and calls[0]['limit_gib'] == 12. and calls[0]['kind'] == 'game' and calls[0]['performance']
 
 
 def test_benchmark_overlap_cannot_publish_valid_performance(benchmark, tmp_path, monkeypatch):

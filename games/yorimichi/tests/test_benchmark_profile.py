@@ -41,3 +41,13 @@ def test_logged_effective_desktop_profile_passes(benchmark):
 def test_invalid_override_fails_before_capture(benchmark, value):
     with pytest.raises(ValueError, match='desktop must be a finite number'):
         benchmark.desktop_settings('desktop=' + value)
+
+
+def test_summary_skips_the_trailing_metadata_row(benchmark, tmp_path):
+    """Unreal appends a [HasHeaderRowAtEnd] metadata row whose cells can land a number under FrameTime."""
+    header = 'FrameTime,JapanBenchmark/Measured,GPU/Basepass'
+    rows = [f'{10 + i % 3},1,2' for i in range(120)]
+    csv = tmp_path / 'frames.csv'
+    csv.write_text('\n'.join([header, *rows, '12,[platform],Mac', header]) + '\n')
+    result = benchmark.summarize(csv, warmup=3)
+    assert result['frames'] == 117 and result['medians']['GPU/Basepass'] == 2.

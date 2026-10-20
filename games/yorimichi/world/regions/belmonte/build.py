@@ -9,7 +9,7 @@ import shutil
 
 import numpy as np
 from PIL import Image
-from atelier.gltf import glb_parts
+from atelier.gltf import glb_pack, glb_parts
 from belmonte import layout as L, source, planting, terrain, appearance
 
 OUT = yori.OUT / 'belmonte'
@@ -109,9 +109,77 @@ def surroundings():
         path = OUT / 'glb' / (name + '.glb')
         info = mesh.save(path, 'BM_000_Ground')
         appearance.paint_join(path, mesh)
-        entries.append({'name': name, 'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
-                        'bounds_m': [info['min'], info['max']], 'triangles': info['triangles'], 'slots': ['Ground']})
+        # The whole painted surface stays the product the map, route and tests read; the game draws its tiles.
+        cut = split_tiles(path, SURROUNDING_TILE_M)
+        assert info['triangles'] == sum(tile['triangles'] for tile in cut), name
+        entries.extend(cut)
     return entries, seam
+
+
+# A single mesh kilometres wide is never frustum- or cascade-culled and has one LOD for all of it. Tiles of this size
+# (plan metres, aligned to the region origin) are culled and take their LODs one by one (import_belmonte.py).
+SURROUNDING_TILE_M = 500.
+
+
+def split_tiles(path, size):
+    """@cc [owner:fontanierh,label:correctness] belmonte-surrounding-tiles
+    The painted surroundings MUST be cut along whole triangles only, each triangle in exactly one tile (by its
+    plan centroid), every tile keeping its vertices' positions, normals, UVs and colours bit for bit, so tile edges
+    meet exactly as the whole surface did. Tiles are named <whole>_NN in row-major order of the non-empty cells.
+    """
+    doc, binary = glb_parts(path.read_bytes())
+    primitive = doc['meshes'][0]['primitives'][0]
+    assert len(doc['meshes']) == 1 and len(doc['meshes'][0]['primitives']) == 1, path
+
+    def read(index):
+        accessor = doc['accessors'][index]
+        view = doc['bufferViews'][accessor['bufferView']]
+        dtype = {5126: '<f4', 5125: '<u4'}[accessor['componentType']]
+        width = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4}[accessor['type']]
+        start = view['byteOffset'] + accessor.get('byteOffset', 0)
+        return np.frombuffer(binary, dtype, accessor['count'] * width, start).reshape(-1, width)
+
+    for stale in path.parent.glob(path.stem + '_[0-9][0-9].glb'):
+        stale.unlink()
+    attributes = {key: read(index) for key, index in primitive['attributes'].items()}
+    faces = read(primitive['indices']).reshape(-1, 3)
+    position = attributes['POSITION']                    # glTF frame: x east, y up, z south
+    centre = position[faces].mean(axis=1)
+    cell = np.floor(np.c_[centre[:, 0], -centre[:, 2]] / size).astype(np.int64)
+    keys, which = np.unique(cell[:, ::-1], axis=0, return_inverse=True)
+    which = which.reshape(-1)
+    entries = []
+    for number in range(len(keys)):
+        tri = faces[which == number]
+        used, local = np.unique(tri, return_inverse=True)
+        tile_doc = {key: doc[key] for key in ('asset', 'scene', 'materials')}
+        name = f'{path.stem}_{number:02d}'
+        tile_doc.update(scenes=[{'nodes': [0]}], nodes=[{'name': name, 'mesh': 0}], accessors=[], bufferViews=[])
+        blob = b''
+        layout = {}
+        for key, values in [*((k, attributes[k][used]) for k in attributes), ('indices', local.astype('<u4').reshape(-1, 1))]:
+            data = np.ascontiguousarray(values).tobytes()
+            tile_doc['bufferViews'].append({'buffer': 0, 'byteOffset': len(blob), 'byteLength': len(data),
+                                            'target': 34963 if key == 'indices' else 34962})
+            accessor = {'bufferView': len(tile_doc['bufferViews']) - 1, 'componentType': 5125 if key == 'indices' else 5126,
+                        'count': int(values.size if key == 'indices' else len(values)),
+                        'type': 'SCALAR' if key == 'indices' else ['', 'SCALAR', 'VEC2', 'VEC3', 'VEC4'][values.shape[1]]}
+            if key == 'POSITION':
+                accessor.update(min=values.min(axis=0).tolist(), max=values.max(axis=0).tolist())
+            tile_doc['accessors'].append(accessor)
+            layout[key] = len(tile_doc['accessors']) - 1
+            blob += data + b'\0' * (-len(data) % 4)
+        tile_doc['meshes'] = [{'name': name, 'primitives': [{'attributes': {k: layout[k] for k in attributes},
+                                                             'indices': layout['indices'], 'material': primitive.get('material', 0)}]}]
+        tile_doc['buffers'] = [{'byteLength': len(blob)}]
+        out = path.with_name(name + '.glb')
+        out.write_bytes(glb_pack(tile_doc, blob))
+        points = position[used].astype(np.float64)
+        low = [float(points[:, 0].min()), float(-points[:, 2].max()), float(points[:, 1].min())]
+        high = [float(points[:, 0].max()), float(-points[:, 2].min()), float(points[:, 1].max())]
+        entries.append({'name': name, 'path': out.relative_to(OUT).as_posix(), 'sha256': source.sha(out),
+                        'bounds_m': [low, high], 'triangles': int(len(tri)), 'slots': ['Ground']})
+    return entries
 
 
 def osteria_landing():
@@ -202,6 +270,13 @@ def map_zones(town_z):
     ]
 
 
+# Small props (under 8 m across) end at a distance that grows with their size: 100 m per metre, 80 to 500 m. A pot or
+# a saucer stays drawn to 80 to 105 m, a chair to 86 m, a lantern post to 360 m and the course rail to 400 m; past
+# that each is a few pixels at 1080p. Larger pieces are never culled.
+def prop_cull_cm(span):
+    return int(round(min(500., max(80., 100. * span)) * 100.)) if span < 8. else 0
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / 'glb').mkdir(exist_ok=True)
@@ -247,7 +322,7 @@ def main():
         span *= max(max(abs(value) for value in transform['scale']) for transform in transforms)
         groups.append({'asset': f'/Game/Belmonte/Meshes/{name}.{name}', 'materials': list(bindings),
                        'plant': False, 'collision': not water, 'shadow': not water,
-                       'cull_cm': 50000 if span < 8. else 0, 'transforms': transforms})
+                       'cull_cm': prop_cull_cm(span), 'transforms': transforms})
     material_name = 'MI_BM_Ground'
     materials['Ground'] = {'name': material_name, 'colour': [.24, .30, .12, 1.], 'tint': [1., 1., 1., 1.],
                            'terrain': False, 'layers': {}, 'tile_m': 4., 'white_vertex': True,
