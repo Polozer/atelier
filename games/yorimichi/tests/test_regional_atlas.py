@@ -173,6 +173,14 @@ def test_committed_paintings_cover_all_regions_with_current_geometry_and_provena
 
 
 def test_natural_kernel_revalidation_preserves_art_and_generation_provenance():
+    """@cc [owner:fontanierh,label:correctness] atlas-carry-scope
+    A source-only carry witness (an unchanged extraction carried into current attestations) is valid only
+    while geography_signature() equals its current_geography exactly, and may cover only relocations whose
+    sampled heights are bit-identical. A geography edit that changes heights MUST be accepted by a measured
+    coast_masks --verify-paintings run, never by extending or reusing a carry. Once every painting's
+    verified_geography binds the current signature, painting, coast mask and reference, the carry is
+    historical: its witness and the original art and generation values stay unchanged.
+    """
     witness_path = atlas.ASSETS / 'coasts/natural-kernel-equivalence.json'
     witness = json.loads(witness_path.read_text())
     pin = dict(witness='coasts/natural-kernel-equivalence.json',
@@ -181,8 +189,23 @@ def test_natural_kernel_revalidation_preserves_art_and_generation_provenance():
     def identity(value):
         return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
-    assert witness['current_geography'] == atlas.geography_signature()
+    def sha(rel):
+        return hashlib.sha256((atlas.ASSETS / rel).read_bytes()).hexdigest()
+
+    current = atlas.geography_signature()
+    coast = json.loads((atlas.ASSETS / 'coasts/source.json').read_text())
+    superseded = witness['current_geography'] != current
+    if superseded:  # a later measured revalidation must cover every painting against today's terrain
+        assert coast['geography'] == current
+        for key in witness['unchanged_generation_payload_sha256']:
+            frame = coast['frames'][key]
+            assert frame['sha256'] == sha(f'coasts/{key}.png')
+            assert json.loads((atlas.ASSETS / f'{key}.json').read_text())['verified_geography'] == dict(
+                kind='terrain-reference-revalidation', geography=current, painting_sha256=sha(f'{key}.png'),
+                coast_sha256=frame['sha256'], reference_sha256=frame['reference_sha256'])
     for rel, expected in witness['unchanged_art_sha256'].items():
+        if superseded and rel.startswith('coasts/'):
+            continue  # regenerated masks are bound to the paintings above; the paintings stay pinned
         assert hashlib.sha256((atlas.ASSETS / rel).read_bytes()).hexdigest() == expected
     for key, expected in witness['unchanged_generation_payload_sha256'].items():
         record = json.loads((atlas.ASSETS / f'{key}.json').read_text())
@@ -196,9 +219,9 @@ def test_natural_kernel_revalidation_preserves_art_and_generation_provenance():
                 k: v for k, v in previous.items() if k != 'geography'}
             assert witness['previous_world_attestation']['geography'] == witness['previous_geography']
         assert identity(record) == expected  # Includes original paid generation/registration/export values.
-    coast = json.loads((atlas.ASSETS / 'coasts/source.json').read_text())
-    assert coast['natural_kernel_revalidation'] == pin
-    assert identity(coast['frames']) == witness['unchanged_coast_frames_sha256']
+    if not superseded:  # the masks were regenerated, and are bound above, once a newer revalidation exists
+        assert coast['natural_kernel_revalidation'] == pin
+        assert identity(coast['frames']) == witness['unchanged_coast_frames_sha256']
 
     # Bind the source-only proof to the unchanged function bodies, independently of file splitting/docstrings.
     functions, constants = {}, {}

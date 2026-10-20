@@ -9,7 +9,7 @@
     "world/north_mountain_surface.py": "380fac8eece8794a9d8737444af73b3e3979227470aba3de49d415df42477816",
     "world/city_terrain_surface.py": "0da9fe701db9f11a7eefc02f199bd2fe05789d5c936c04f835f195944bae6656",
     "world/regions/hidamari/build.py": "eb57e173bdc65e4c4b9b11dc9481fe71309ab691b00968f322faac09b63830a6",
-    "world/regions/hidamari/layout.py": "828e63d7375897019191194f311db38a2ef78baef3a5400642f6ba62b505521a",
+    "world/regions/hidamari/layout.py": "9d927644b029b7001c05adbabb57e0202ba56b9246132a49269ce43f9760824b",
     "world/regions/hidamari_stable/layout.py": "d30b9b12b09c2e3cad3ab2d21db8d5ca8e83c7fe6daad0bf309bc50180cea97c",
     "world/regions/hidamari/mountains.py": "20f14b419183be3dea6d31e4a29af2d20aae860f2cbb7d7df49c9f1423c1fab7",
     "world/regions/hidamari/natural_terrain.py": "bca99462123604c90670b2082872f921aed96eb750df1f25ebd03a48d0ce29e0",
@@ -41,8 +41,8 @@
         4200.0,
         7200.0
       ],
-      "sha256": "64d77c3608cdc9e2753e36744c2e259cac39547c2b1a0bc758e1cddbf99cdac4",
-      "reference_sha256": "062f0c0fe0cb738d24a920849aceabf1e3884fb39a5fe0d9d9dd633c41089d40"
+      "sha256": "6b58c0ddf9ee3a8cd9a73f07dfb09fed8fef91a10d802027c5453ea9bcbcfbcf",
+      "reference_sha256": "140b57297d097c418ed00ba93363d79d2b4cf4527b50e3b5ea9169ed45887be2"
     },
     "momiji_coast": {
       "bounds": [
@@ -52,7 +52,7 @@
         350.0
       ],
       "sha256": "cf290e00757116d5b54530187380776e60d21708211c85ff752db1f0f1504313",
-      "reference_sha256": "6858a1c2a8986ba57bb1554e0e923600e598df84c0236e6214c80c62a86dd8cd"
+      "reference_sha256": "39d2a1dc20072963bb1826251a58dfe5ad75acb5f31e69caa7beabf15da7d0ef"
     },
     "momiji_woods": {
       "bounds": [
@@ -62,7 +62,7 @@
         530.0
       ],
       "sha256": "7aa0aba45ee9c8bb015ccfffa2453ee512e404c299add4477c32aa18ab61063c",
-      "reference_sha256": "4a3f170fd2127026a7537ae2911f1a22c8c982b752fc84e0b0e0a0ab1e67d3d1"
+      "reference_sha256": "4c0aebcfe5b4ef4be10326c0b9afc8951fc6674e031db0acffe6c80880df2fbb"
     },
     "hidamari": {
       "bounds": [
@@ -72,7 +72,7 @@
         460.0
       ],
       "sha256": "d9a96627e03cb89fb12f3d3dd16ba73b512756fc8845a158a3b5edb6fe948c9e",
-      "reference_sha256": "bb2fca7e09fc61072b6e21edfbb8b286bb64a36430848d81e0bdcbb98ca56edc"
+      "reference_sha256": "36cb22060ac68f6ce14f19aa98523fb0fb0eb09ba863ef1960f58e8ed774f6b4"
     },
     "temple_island": {
       "bounds": [
@@ -92,7 +92,7 @@
         2200.0
       ],
       "sha256": "dc43d462e41f266e17598b61ba8c5dc9ce63516e3b0b6870a7d936c6961c76b0",
-      "reference_sha256": "14ddc3b7e24e8a082939eb510e8752d0c4167d6e26fe775110052ca63b6df552"
+      "reference_sha256": "f792717c5eab2f9beff94a87432a1407295c6f7b181ec680557a2835017a6d8d"
     },
     "volcanic_highlands": {
       "bounds": [
@@ -102,7 +102,7 @@
         3650.0
       ],
       "sha256": "782b2b2f1197346db8f4946ecfab2bd120a7e4dd909cf27e35c84c70c71e4584",
-      "reference_sha256": "c1a13507882dc270901ff86a3ba5fe775f1972e5ecd93034acc787b791126616"
+      "reference_sha256": "611cda0ca990b03f253928c41e4b8fa06dd0eb67b215975ddda77aa634923ab0"
     },
     "haras_valley": {
       "bounds": [
@@ -112,7 +112,7 @@
         5900.0
       ],
       "sha256": "a4e6632e31d2aacbf778e02c1914a70eddbaaf742810a611495877c4c7adb9ee",
-      "reference_sha256": "90ec8b1162783fd557e00a111b92a3fe8502c1616930fd0ad415d517b80c8d63"
+      "reference_sha256": "f5cc33838f39c979a7a573a2a964d5d80931ecceb1bb9a2bdea7c6bdad971a47"
     },
     "brinecove": {
       "bounds": [
@@ -121,12 +121,8 @@
         -360.0,
         600.0
       ],
-      "sha256": "ca433cee6311b0efbe9326a806c29e9ac0e9a6720adec2194b1e01665b06e18c",
-      "reference_sha256": "f50268081b9e0a21fdd02b5a2cc2d94f89e38ccf8abd970e8244943f28f605fb"
+      "sha256": "ce294efb0dc66cea9f1ecd64d970c0efdc5b401d4ec2de9c35d5cff3b7059f16",
+      "reference_sha256": "a35851cd0f3a1cbd5f6eb6fb66cedcfce0281444aeafe58bb9216284f474a1d4"
     }
-  },
-  "natural_kernel_revalidation": {
-    "witness": "coasts/natural-kernel-equivalence.json",
-    "sha256": "8b28429cdda351987bd77bf0a37bb95b8dfa54497d1eccae5de43c08370bfb8c"
   }
 }

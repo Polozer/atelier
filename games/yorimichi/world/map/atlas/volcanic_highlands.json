@@ -215,7 +215,7 @@
       "world/north_mountain_surface.py": "380fac8eece8794a9d8737444af73b3e3979227470aba3de49d415df42477816",
       "world/city_terrain_surface.py": "0da9fe701db9f11a7eefc02f199bd2fe05789d5c936c04f835f195944bae6656",
       "world/regions/hidamari/build.py": "eb57e173bdc65e4c4b9b11dc9481fe71309ab691b00968f322faac09b63830a6",
-      "world/regions/hidamari/layout.py": "828e63d7375897019191194f311db38a2ef78baef3a5400642f6ba62b505521a",
+      "world/regions/hidamari/layout.py": "9d927644b029b7001c05adbabb57e0202ba56b9246132a49269ce43f9760824b",
       "world/regions/hidamari_stable/layout.py": "d30b9b12b09c2e3cad3ab2d21db8d5ca8e83c7fe6daad0bf309bc50180cea97c",
       "world/regions/hidamari/mountains.py": "20f14b419183be3dea6d31e4a29af2d20aae860f2cbb7d7df49c9f1423c1fab7",
       "world/regions/hidamari/natural_terrain.py": "bca99462123604c90670b2082872f921aed96eb750df1f25ebd03a48d0ce29e0",
@@ -241,7 +241,7 @@
     },
     "painting_sha256": "1a79458d501f48624f6e16404f7f9766110c9c108589efef9fd0bc59a3c8d096",
     "coast_sha256": "782b2b2f1197346db8f4946ecfab2bd120a7e4dd909cf27e35c84c70c71e4584",
-    "reference_sha256": "c1a13507882dc270901ff86a3ba5fe775f1972e5ecd93034acc787b791126616"
+    "reference_sha256": "611cda0ca990b03f253928c41e4b8fa06dd0eb67b215975ddda77aa634923ab0"
   },
   "refactor_revalidation": {
     "witness": "coasts/mountain-equivalence.json",
