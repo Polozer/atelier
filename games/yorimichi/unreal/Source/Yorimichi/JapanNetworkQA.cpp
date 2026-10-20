@@ -8,6 +8,7 @@
 #include "JapanVehicleQA.h"
 #include "JapanMultiplayerQA.h"
 #include "JapanReactionDeliveryProbe.h"
+#include "RacingNetworkQA.h"
 #include "JapanGameplayCollisionQA.h"
 #include "JapanWorld.h"
 #include "WandererCharacter.h"
@@ -202,7 +203,9 @@ bool UJapanGameInstance::TickNetworkQA(float)
     const double Now = FPlatformTime::Seconds();
     auto Fail = [this](const FString& Error)
     { WriteNetworkQA(TEXT("failed"), Error); AtelierRequestExit(1); return false; };
-    if (Now - NetworkQAStarted > 240.) return Fail(TEXT("Native session lifecycle deadline expired"));
+    // The racing case waits for a whole race and a guest's return (RacingNetworkQA).
+    const bool bRacingQA = FParse::Param(FCommandLine::Get(), TEXT("networkracing"));
+    if (Now - NetworkQAStarted > (bRacingQA ? 900. : 240.)) return Fail(TEXT("Native session lifecycle deadline expired"));
     UWorld* World = GetWorld();
     if (!World || !World->HasBegunPlay()) return true;
     if (NetworkQARole == TEXT("bind-failure"))
@@ -242,7 +245,14 @@ bool UJapanGameInstance::TickNetworkQA(float)
     const auto* State = World->GetGameState<AJapanGameState>();
     const bool Listen = FParse::Param(FCommandLine::Get(), TEXT("networklisten"));
     bool GameplayDone = true;
-    if (FParse::Param(FCommandLine::Get(), TEXT("networkfeatures")) && World->GetNetMode() != NM_Standalone)
+    if (bRacingQA)
+    {
+        // Also in Solo: the guest leaves and joins again itself.
+        FString Error;
+        GameplayDone = RacingNetworkQA::Tick(this, World, NetworkQARole == TEXT("server"), NetworkQADirectory, Error);
+        if (!Error.IsEmpty()) return Fail(Error);
+    }
+    else if (FParse::Param(FCommandLine::Get(), TEXT("networkfeatures")) && World->GetNetMode() != NM_Standalone)
     {
         FString Error;
         GameplayDone = JapanMultiplayerQA::Tick(World, NetworkQARole == TEXT("server"), NetworkQADirectory, Error);
@@ -291,6 +301,7 @@ bool UJapanGameInstance::TickNetworkQA(float)
             if (const auto* Person = Cast<AJapanPlayerState>(P); Person && Person->bWorldReady && !bNetworkQASawPeer &&
                 (!Listen || (State->PlayerArray.Num() == 2 && Person->GetOwningController() && !Person->GetOwningController()->IsLocalController())))
             { bNetworkQASawPeer = true; if (!WriteNetworkQA(TEXT("connected"))) return Fail(TEXT("Could not save admission receipt")); }
+        if (bRacingQA && !GameplayDone) return true;
         if (bNetworkQASawPeer && State->PlayerArray.Num() == (Listen ? 1 : 0))
         {
             for (TActorIterator<AWandererCharacter> It(World); It; ++It)
@@ -316,6 +327,7 @@ bool UJapanGameInstance::TickNetworkQA(float)
     }
     else
     {
+        if (bRacingQA && RacingNetworkQA::IsRejoining()) return true;
         if (NetworkQALeaving > 0)
         {
             if (World->GetNetMode() == NM_Standalone && GetFirstLocalPlayerController() && GetFirstLocalPlayerController()->GetPawn())
