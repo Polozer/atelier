@@ -198,9 +198,13 @@ public:
     bool GoToVenue(const FString& Venue);
 
     // ------------------------------------------------------------------ betting (docs/RACING.md, "Betting")
-    /** The rules' player id of a controller: the host's own (Saved/racing/player-id.txt), a guest's for this session only
-     *  ("session:<session player id>": guests have no persistent identity yet), empty when it has none. */
+    /** The rules' player id of a controller (RacingIdentity): the host's own ("local:<install id>"), a guest's from the
+     *  install id it presented ("guest:<id>", or a session player when that id is not valid or in use), empty for a guest
+     *  that has not presented one yet. */
     static FString PlayerIdOf(const AController* Controller);
+    /** This install's id (Saved/racing/player-id.txt beside the world file, created once; RacingIdentity). */
+    static FString LocalInstallId();
+    /** A player kept for this session only (never saved, no stable): a guest without a usable install id. */
     static bool IsSessionPlayer(const FString& PlayerId) { return PlayerId.StartsWith(TEXT("session:")); }
     /** Host: adds a player to the world (the rules' starting coins), once; false without a world or an id. */
     bool RegisterPlayer(const FString& PlayerId, const FString& Name);
@@ -361,4 +365,7 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Live") static bool RacingCounterGo();
     /** Asks for a win bet through the local player's wallet, as the window does (host or client). */
     UFUNCTION(BlueprintCallable, Category = "Live") static int32 RacingBet(const FString& RaceKey, const FString& HorseId, int32 Stake);
+    /** Who is who (RacingIdentity): this install's id, the local player's key and, on the host, every connected player's
+     *  key and every player the world keeps (coins, open tickets, stable), as JSON. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static FString RacingPlayers();
 };
