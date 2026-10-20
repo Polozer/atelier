@@ -741,6 +741,77 @@ def market():
     return b
 
 
+TERRACE_STAIRS = ((0.0, 22.0), (-238.0, 8.0), (252.0, 8.0))  # quay-to-terrace stairs: centre x, tread width
+STAIR_FOOT_Y, STAIR_TOP_Y = 230.0, 279.0    # foot on the quay street north of the market; top at the terrace edge
+STAIR_RISE_MAX, STAIR_LANDING, STAIR_FLIGHT = 0.24, 2.2, 22   # riser cap (m), landing depth (m), risers per flight
+
+
+@functools.lru_cache(maxsize=None)
+def terrace_stair_plan(x):
+    """@cc [owner:fontanierh,label:correctness] terrace-stair-climbable
+    The quay-to-terrace stair at x, bottom to top: (foot z, [(y0, y1, top z)]) of abutting treads and landings.
+    Every riser, including the first off the quay paving and the last onto the terrace paving, MUST be at most
+    STAIR_RISE_MAX, well under the pawn's 0.45 m step. Treads and landings MUST abut in y with no gap, and the last
+    riser MUST land flush on the terrace paving at STAIR_TOP_Y.
+    """
+    # Playtest note 410-1/2: the r10 stair climbed 25.5 m in 24 one-metre risers on floating 0.8 m slabs, so the pawn
+    # could not climb it, daylight showed under every nosing and the terrace paving walled off its top four treads.
+    z0 = L.ground(x, STAIR_FOOT_Y) + 0.16           # the quay street's paving top (paving() follows ground + 0.16)
+    z1 = L.UPPER_Z + 0.22                           # the terrace paving top
+    n = math.ceil((z1 - z0) / STAIR_RISE_MAX)
+    flights = math.ceil(n / STAIR_FLIGHT)
+    rise = (z1 - z0) / n
+    tread = (STAIR_TOP_Y - STAIR_FOOT_Y - (flights - 1) * STAIR_LANDING) / (n - flights)
+    sizes = [n // flights + (1 if i < n % flights else 0) for i in range(flights)]
+    steps, y, k = [], STAIR_FOOT_Y, 0
+    for f, m in enumerate(sizes):
+        for _ in range(m - 1):
+            k += 1
+            steps.append((y, y + tread, z0 + rise * k))
+            y += tread
+        k += 1
+        if f < flights - 1:
+            steps.append((y, y + STAIR_LANDING, z0 + rise * k))
+            y += STAIR_LANDING
+    return z0, steps
+
+
+def terrace_stair(b, x, width, cheek):
+    """Solid masonry treads from the quay up to the terrace with landings between flights, a pale nosing on each
+    tread, and a coped parapet on each side that climbs with the flights."""
+    z0, steps = terrace_stair_plan(x)
+    base = z0 - 0.6
+    hw = width / 2
+    for y0, y1, top in steps:
+        b.box((x, (y0 + y1) / 2, (top + base) / 2), (width, y1 - y0, top - base), 'stone_light')
+        b.box((x, y0 + 0.07, top - 0.03), (width, 0.14, 0.08), 'stone')
+    # Parapets: one sloped block per flight over its nosing line, a flat one per landing, each coped.
+    runs, cur = [], []
+    for y0, y1, top in steps:
+        if y1 - y0 > STAIR_LANDING - 1e-6:
+            if cur:
+                runs.append(('flight', cur))
+            runs.append(('landing', [(y0, y1, top)]))
+            cur = []
+        else:
+            cur.append((y0, y1, top))
+    if cur:
+        runs.append(('flight', cur))
+    for side in (-1, 1):
+        xa, xb = sorted((x + side * hw, x + side * (hw + cheek)))
+        for _, run in runs:
+            ya, yb = run[0][0], run[-1][1]
+            ta, tb = run[0][2] + 0.95, run[-1][2] + 0.95
+            LM._block(b, [(xa, ya, base), (xb, ya, base), (xb, yb, base), (xa, yb, base)],
+                      [(xa, ya, ta), (xb, ya, ta), (xb, yb, tb), (xa, yb, tb)], 'stone')
+            LM._block(b, [(xa - 0.05, ya, ta), (xb + 0.05, ya, ta), (xb + 0.05, yb, tb), (xa - 0.05, yb, tb)],
+                      [(xa - 0.05, ya, ta + 0.15), (xb + 0.05, ya, ta + 0.15), (xb + 0.05, yb, tb + 0.15),
+                       (xa - 0.05, yb, tb + 0.15)], 'stone_light')
+        # A newel at the foot.
+        b.box(((xa + xb) / 2, STAIR_FOOT_Y + 0.4, (base + steps[0][2] + 1.3) / 2), (xb - xa + 0.2, 0.8,
+              steps[0][2] + 1.3 - base), 'stone_light')
+
+
 def upper_town():
     b = Builder('05_town_upper')
     # Terrace surface and street.
@@ -792,16 +863,8 @@ def upper_town():
         for x in range(int(x0) + 12, int(x1), 24):
             b.box((x, 278.70, 18.2), (2.8, 1.1, 0.85), 'stone')
             bush(b, x, 278.70, 18.55, 0.0, 0.62, RNG)
-    # Grand stair, 24 steps and two landings.
-    for i in range(24):
-        y = 240 + i * 2.0
-        z = L.QUAY_Z + (L.UPPER_Z - L.QUAY_Z) * (i + 1) / 24
-        b.box((0, y, z - 0.4), (22, 2.1, 0.8), 'stone_light')
-        b.box((0, y + 0.9, z - 0.05), (22, 0.25, 0.16), 'stone')
-        for side in (-1, 1):
-            b.beam((side * 11.2, y, z - 2.0), (side * 11.2, y, z + 1.1), 0.45, 'stone')
-            # Solid stepped side walls carry the flights down to the quay.
-            b.box((side * 11.9, y, (L.QUAY_Z + z) / 2 - 0.2), (1.4, 2.1, z - L.QUAY_Z + 0.4), 'stone')
+    # Grand stair from the quay to the terrace, its cheeks closing on the retaining wall's (12.6 m).
+    terrace_stair(b, *TERRACE_STAIRS[0], cheek=1.6)
     # The retaining wall closes on the stair's cheeks: the gap beside the flights showed the raw cliff as flat beige
     # planes, a box trench in the note 7 view. Ashlar cheeks with courses, a coping and greenery match the wall.
     for side in (-1, 1):
@@ -814,14 +877,8 @@ def upper_town():
         for k in range(3):
             vine(b, side * (16.0 + k * 3.6), 279.0, L.UPPER_Z - 0.2, RNG.uniform(5.0, 12.0), RNG)
         bush(b, side * 19.0, 278.4, L.QUAY_Z, 0.0, 1.1, RNG)
-    for i, (x, width) in enumerate(((-238, 8), (252, 8))):
-        for j in range(20):
-            y = 242 + j * 2.2
-            z = L.QUAY_Z + (L.UPPER_Z - L.QUAY_Z) * (j + 1) / 20
-            b.box((x, y, z - 0.4), (width, 2.3, 0.8), 'stone')
-            for side in (-1, 1):
-                b.beam((x + side * (width / 2 + 0.2), y, z - 2.0),
-                       (x + side * (width / 2 + 0.2), y, z + 0.8), 0.32, 'stone')
+    for x, width in TERRACE_STAIRS[1:]:
+        terrace_stair(b, x, width, cheek=0.7)
     # Upper buildings.
     for spec in L.DENSE_LOTS:
         if spec[2] >= 280:

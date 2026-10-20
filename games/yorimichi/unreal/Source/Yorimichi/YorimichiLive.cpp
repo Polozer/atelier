@@ -23,6 +23,10 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Input/Events.h"
 #include "InputCoreTypes.h"
+#include "DevNotes.h"
+#include "Engine/GameViewportClient.h"
+#include "UnrealClient.h"
+#include "GameFramework/PlayerController.h"
 
 // Yorimichi's verbs for the live bridge (the platform's are in ULiveLibrary).
 
@@ -244,4 +248,37 @@ FString UYorimichiLive::HorseConfigure(const FString& Breed, const FString& Tack
 {
     AWandererCharacter* P = Cast<AWandererCharacter>(ULiveLibrary::Player()); UHorseComponent* H = P ? P->GetHorse() : nullptr;
     return H && H->ConfigureHorse(Breed, Tack, Coat, Mask, HairColor, HairPattern, Tint) ? HorseState() : FString();
+}
+
+bool UYorimichiLive::TypeKey(const FString& Key, const FString& Characters)
+{
+    const FKey Input(*Key);
+    if (!Input.IsValid() || !FSlateApplication::IsInitialized()) return false;
+    auto& Slate = FSlateApplication::Get();
+    const FKeyEvent Event(Input,Slate.GetModifierKeys(),uint32(0),false,0,0);
+    bool bHandled = Slate.ProcessKeyDownEvent(Event);
+    for (const TCHAR Character : Characters) bHandled |= Slate.ProcessKeyCharEvent(FCharacterEvent(Character,Slate.GetModifierKeys(),uint32(0),false));
+    return Slate.ProcessKeyUpEvent(Event) || bHandled;
+}
+
+bool UYorimichiLive::DevMode(bool bOn)
+{
+    AWandererCharacter* P = Cast<AWandererCharacter>(ULiveLibrary::Player());
+    if (P && DevNotes::IsOn() != bOn) DevNotes::Toggle(P->GetWorld(), P->GetPreferences());
+    return DevNotes::IsOn();
+}
+
+FString UYorimichiLive::DevModeState()
+{
+    TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();
+    O->SetBoolField(TEXT("on"), DevNotes::IsOn());
+    O->SetNumberField(TEXT("notes"), DevNotes::Count());
+    const TSharedPtr<SWidget> Focus = FSlateApplication::IsInitialized() ? FSlateApplication::Get().GetKeyboardFocusedWidget() : nullptr;
+    O->SetStringField(TEXT("focus"), Focus.IsValid() ? Focus->GetTypeAsString() : FString());
+    FViewport* Viewport = GEngine && GEngine->GameViewport ? GEngine->GameViewport->Viewport : nullptr;
+    O->SetBoolField(TEXT("mouse_capture"), Viewport && Viewport->HasMouseCapture());
+    APlayerController* PC = ULiveLibrary::Player() ? Cast<APlayerController>(ULiveLibrary::Player()->GetController()) : nullptr;
+    O->SetBoolField(TEXT("cursor"), PC && PC->bShowMouseCursor);
+    FString Out; const TSharedRef<TJsonWriter<>> W = TJsonWriterFactory<>::Create(&Out); FJsonSerializer::Serialize(O, W);
+    return Out;
 }

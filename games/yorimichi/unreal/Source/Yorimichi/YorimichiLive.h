@@ -82,4 +82,11 @@ public:
      *  tint; empty keeps that part) and returns the state, or empty for an unknown id. */
     UFUNCTION(BlueprintCallable, Category = "Live") static FString HorseState();
     UFUNCTION(BlueprintCallable, Category = "Live") static FString HorseConfigure(const FString& Breed, const FString& Tack = TEXT(""), const FString& Coat = TEXT(""), const FString& Mask = TEXT(""), const FString& HairColor = TEXT(""), const FString& HairPattern = TEXT(""), const FString& Tint = TEXT(""));
+    /** Type a key through Slate as the keyboard does, any key by name (Apostrophe, N, Escape, Enter): key down, then each
+     *  of Characters as typed text, then key up. Focused widgets, input preprocessors and the game viewport all see it. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static bool TypeKey(const FString& Key, const FString& Characters = TEXT(""));
+    /** Dev mode (DevNotes) on or off as its settings-menu button does; returns whether it is on. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static bool DevMode(bool bOn);
+    /** Dev mode and input state as JSON: on, notes, keyboard focus widget, mouse capture and cursor. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static FString DevModeState();
 };

@@ -34,13 +34,16 @@ def ground(x,y,height,backdrop_grid,terrain_axes,north_height):
     # The foothills' apron covers the far hills' sagging last cells (mountains.apron_grids): it is the ground there.
     mask=mountains.contains(x,y)|park_trail.in_approach(x,y)|mountains.in_apron(x,y)
     z[mask]=north_height(x[mask],y[mask],carved=False)
+    # The city's ground replaces the far hills over its whole footprint (farhills_surface.owns_fine_ground hides them
+    # there), so it is the ground even where the hidden far hills stand higher: the higher of the two left trees up to
+    # 8 m over the city's western hillside (Op410).
     mask=(x>=300)&(x<=1420)&(y>=-300)&(y<=500)
     if np.any(mask):
         xs,ys=map(np.asarray,terrain_axes());px=x[mask];py=y[mask]
         i=np.clip(np.searchsorted(xs,px)-1,0,len(xs)-2);j=np.clip(np.searchsorted(ys,py)-1,0,len(ys)-2)
         x0,x1=xs[i],xs[i+1];y0,y1=ys[j],ys[j+1]
         city=triangular((px-x0)/(x1-x0),(py-y0)/(y1-y0),height(x0,y0),height(x1,y0),height(x0,y1),height(x1,y1))
-        z[mask]=np.maximum(z[mask],city)
+        z[mask]=city
     return z
 
 
