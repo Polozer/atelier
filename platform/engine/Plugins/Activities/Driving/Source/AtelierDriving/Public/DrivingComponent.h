@@ -68,11 +68,11 @@ public:
 
 private:
     bool Summon();
-    void Dismount();
+    bool Dismount();
     void EndDrive(const FVector& GroundSpot);
     void Recover();
     void UpdatePose(float DeltaSeconds);
-    FVector GroundBelow(const FVector& At, float Reach) const;
+    bool GroundBelow(const FVector& At, float Reach, FVector& Out) const;
     bool FreeAt(const FVector& At, const FQuat& Rotation) const;
     void FindGroundOffset();
 

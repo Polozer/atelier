@@ -28,14 +28,34 @@ STEER_AT = (0.10, 0.0, .52)
 def disc(m, z, r, color, n=20):
     pts = [(r * math.cos(i * 2 * math.pi / n), r * math.sin(i * 2 * math.pi / n), z) for i in range(n)]
     for k in range(n):
-        m.poly([(0, 0, z), pts[k], pts[(k + 1) % n]], color)
+        tri = [(0, 0, z), pts[k], pts[(k + 1) % n]]
+        m.poly(tri if z >= 0 else tri[::-1], color)
 
 
 def ring(m, z, outer, inner, color, n=20):
     a = [(outer * math.cos(i * 2 * math.pi / n), outer * math.sin(i * 2 * math.pi / n), z) for i in range(n)]
     b = [(inner * math.cos(i * 2 * math.pi / n), inner * math.sin(i * 2 * math.pi / n), z) for i in range(n)]
     for k in range(n):
-        m.poly([a[k], a[(k + 1) % n], b[(k + 1) % n], b[k]], color)
+        quad = [a[k], a[(k + 1) % n], b[(k + 1) % n], b[k]]
+        m.poly(quad if z >= 0 else quad[::-1], color)
+
+
+def tube(m, z0, z1, r, color, n=20, inward=False):
+    a = [(r * math.cos(i * 2 * math.pi / n), r * math.sin(i * 2 * math.pi / n), z0) for i in range(n)]
+    b = [(r * math.cos(i * 2 * math.pi / n), r * math.sin(i * 2 * math.pi / n), z1) for i in range(n)]
+    for k in range(n):
+        quad = [a[k], a[(k + 1) % n], b[(k + 1) % n], b[k]]
+        m.poly(quad[::-1] if inward else quad, color)
+
+
+def signed_volume(m):
+    """Positive when a closed part's faces wind outward (the one-sided material culls the rest)."""
+    total = 0.0
+    for face in m.faces:
+        p0 = Vector(m.vertices[face[0]])
+        for k in range(1, len(face) - 1):
+            total += p0.dot(Vector(m.vertices[face[k]]).cross(Vector(m.vertices[face[k + 1]]))) / 6.0
+    return total
 
 
 def wheel():
@@ -57,7 +77,7 @@ def steering_wheel():
     for z in (-.011, .011):
         ring(m, z, STEER_RADIUS, STEER_RADIUS - .026, DARK, n=20)
     m.lathe((0, 0, 0), [(-.011, STEER_RADIUS), (.011, STEER_RADIUS)], DARK, n=20)
-    m.lathe((0, 0, 0), [(-.011, STEER_RADIUS - .026), (.011, STEER_RADIUS - .026)], DARK, n=20)
+    tube(m, -.011, .011, STEER_RADIUS - .026, DARK, n=20, inward=True)
     for angle in (90, 210, 330):
         a = math.radians(angle)
         m.beam((0, 0, 0), ((STEER_RADIUS - .02) * math.cos(a), (STEER_RADIUS - .02) * math.sin(a), 0), .018, .012, CHROME)
@@ -122,6 +142,10 @@ def main():
     manifest = {}
     for make in (kart, seat, wheel, steering_wheel):
         m = make(); ob, report = v.export(m, mat); manifest[m.name] = report
+        if m.name in ('SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel'):
+            volume = signed_volume(m)
+            assert volume > 0.0, (m.name, 'faces wind inward', volume)
+            print('WINDING', m.name, round(volume, 6))
         bpy.data.objects.remove(ob, do_unlink=True)
     layout = {'wheel_radius': WHEEL_RADIUS, 'wheel_width': WHEEL_WIDTH, 'track_front': TRACK_FRONT,
               'track_rear': TRACK_REAR, 'wheelbase': WHEELBASE, 'front_axle': FRONT_AXLE,

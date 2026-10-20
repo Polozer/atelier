@@ -95,6 +95,9 @@ struct FSailboatStanceNode final : public FAnimNode_SkeletalControlBase
    AnimationCore::SolveTwoBoneIK(P[U],P[U+1],P[U+2],KneePole[Side],FootTarget[Side],false,1.,1.);P[U+2].SetRotation(FootRotation);
   }
   if(!bGripLeft)AnimationCore::SolveTwoBoneIK(P[UpperL],P[ForeL],P[HandL],ElbowPole[0],HandTarget[0],false,1.,1.);
-  for(int I=0;I<Count;++I)Result.Emplace(Indices[I],P[I]);Result.Sort(FCompareBoneTransformIndex());
+  // The left fingers only move when the left hand grips its own target. Otherwise leave them out, so the
+  // pose keeps the free wrist's own child propagation (the sailing tiller hand).
+  for(int I=0;I<Count;++I){if(!bGripLeft&&I>=FingerL0)continue;Result.Emplace(Indices[I],P[I]);}
+  Result.Sort(FCompareBoneTransformIndex());
  }
 };

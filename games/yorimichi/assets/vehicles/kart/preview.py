@@ -233,6 +233,12 @@ def pose(arm):
                   'loc', tuple(round(v, 3) for v in root.location), 'scale', tuple(round(v, 4) for v in root.scale))
     arm.select_set(True)
     bpy.context.view_layer.objects.active = arm
+    if 'diag' in ARGS:
+        for name in ('hand_L', 'hand_R'):
+            pb = bone(arm, name)
+            if pb:
+                at = arm.matrix_world @ pb.head
+                print('REST', name, tuple(round(v, 3) for v in at))
     bpy.ops.object.mode_set(mode='POSE')
     for posed in arm.pose.bones:
         posed.rotation_mode = 'XYZ'
@@ -247,13 +253,9 @@ def pose(arm):
             radial = tilt @ Vector((0, math.cos(phi), math.sin(phi)))
             tangent = tilt @ Vector((0, -math.sin(phi), math.cos(phi)))
             rim = WHEEL_HUB + tilt @ Vector((0, RIM * math.cos(phi), RIM * math.sin(phi)))
-            target = grip_goal(f'hand_{suffix}', rim - tangent * .06, radial, tangent)
+            target = goal(f'hand_{suffix}', rim + radial * .04)
             c = fore.constraints.new('IK'); c.target = target; c.chain_count = 2
             c.pole_target = goal(f'elbow_{suffix}', ELBOW[side]); c.pole_angle = math.radians(-90)
-            hand = bone(arm, f'hand_{suffix}')
-            if hand:
-                turn = hand.constraints.new('COPY_ROTATION')
-                turn.target = target; turn.target_space = 'WORLD'; turn.owner_space = 'WORLD'
     spine = bone(arm, 'spine')
     if spine:
         spine.rotation_euler.x = math.radians(18)   # lean back into the 30 degree seat

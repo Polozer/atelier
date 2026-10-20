@@ -171,8 +171,7 @@ bool UDrivingComponent::Toggle()
             Hint = TEXT("Stop first");
             return false;
         }
-        Dismount();
-        return true;
+        return Dismount();
     }
     return Summon();
 }
@@ -183,23 +182,30 @@ void UDrivingComponent::StowImmediately()
     {
         return;
     }
-    Dismount();
+    if (!Dismount())
+    {
+        // Forced cleanup (world change, character switch): no invented floor. Keep the rider where the car
+        // left them and let the game's fall/respawn handle an unsafe spot.
+        EndDrive(Rider ? Rider->GetActorLocation() : FVector::ZeroVector);
+    }
 }
 
-FVector UDrivingComponent::GroundBelow(const FVector& At, float Reach) const
+bool UDrivingComponent::GroundBelow(const FVector& At, float Reach, FVector& Out) const
 {
     if (!Rider || !Rider->GetWorld())
     {
-        return At;
+        return false;
     }
     FHitResult Hit;
     FCollisionQueryParams Params(SCENE_QUERY_STAT(DrivingPlace), false, Rider);
     const FVector From = At + FVector(0, 0, Reach * .5f);
-    if (Rider->GetWorld()->LineTraceSingleByChannel(Hit, From, From - FVector(0, 0, Reach * 1.5f), TraceChannel, Params))
+    if (Rider->GetWorld()->LineTraceSingleByChannel(Hit, From, From - FVector(0, 0, Reach * 1.5f), TraceChannel, Params) &&
+        Hit.ImpactNormal.Z > .55f)
     {
-        return Hit.ImpactPoint;
+        Out = Hit.ImpactPoint;
+        return true;
     }
-    return At - FVector(0, 0, Reach);
+    return false;
 }
 
 bool UDrivingComponent::FreeAt(const FVector& At, const FQuat& Rotation) const
@@ -246,7 +252,11 @@ bool UDrivingComponent::Summon()
     bool bFound = false;
     for (const FVector& Candidate : Candidates)
     {
-        const FVector Ground = GroundBelow(Candidate, 320.f);
+        FVector Ground;
+        if (!GroundBelow(Candidate, 320.f, Ground))
+        {
+            continue;
+        }
         if (FreeAt(Ground + FVector(0, 0, 30.f), Yaw.Quaternion()))
         {
             Spot = Ground;
@@ -353,29 +363,34 @@ bool UDrivingComponent::Summon()
     return true;
 }
 
-void UDrivingComponent::Dismount()
+bool UDrivingComponent::Dismount()
 {
     if (!Rider || !Car)
     {
-        return;
+        return false;
     }
     const FVector Forward = Rider->GetActorForwardVector();
     const FVector Right = Rider->GetActorRightVector();
     const FVector Base = Rider->GetActorLocation();
     const float Half = Rider->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-    FVector Exit = Base - Right * 150.f;
     for (const FVector& Candidate : {Base - Right * 150.f, Base + Right * 150.f, Base - Forward * 420.f})
     {
-        const FVector Ground = GroundBelow(Candidate, 300.f);
-        FCollisionQueryParams Params(SCENE_QUERY_STAT(DrivingDismount), false, Rider);
-        if (!Rider->GetWorld()->OverlapBlockingTestByChannel(Ground + FVector(0, 0, Half + 2.f), FQuat::Identity,
-                                                            TraceChannel, FCollisionShape::MakeCapsule(34.f, Half), Params))
+        FVector Ground;
+        if (!GroundBelow(Candidate, 300.f, Ground))
         {
-            Exit = Ground;
-            break;
+            continue;
         }
+        FCollisionQueryParams Params(SCENE_QUERY_STAT(DrivingDismount), false, Rider);
+        if (Rider->GetWorld()->OverlapBlockingTestByChannel(Ground + FVector(0, 0, Half + 2.f), FQuat::Identity,
+                                                           TraceChannel, FCollisionShape::MakeCapsule(34.f, Half), Params))
+        {
+            continue;
+        }
+        EndDrive(Ground);
+        return true;
     }
-    EndDrive(Exit);
+    Hint = TEXT("No room to step out");
+    return false;
 }
 
 void UDrivingComponent::EndDrive(const FVector& GroundSpot)
@@ -402,9 +417,16 @@ void UDrivingComponent::EndDrive(const FVector& GroundSpot)
 
 void UDrivingComponent::Recover()
 {
-    const FVector Spot = bHasGround ? LastGround : Rider->GetActorLocation() - FVector(0, 0, 200.f);
-    EndDrive(Spot);
-    Hint = TEXT("Recovered");
+    FVector Spot;
+    if (bHasGround && GroundBelow(LastGround, 200.f, Spot))
+    {
+        EndDrive(Spot);
+        Hint = TEXT("Recovered");
+        return;
+    }
+    // No verified floor: a forced cleanup where the rider is, letting the game's fall/respawn handle it.
+    EndDrive(Rider ? Rider->GetActorLocation() : FVector::ZeroVector);
+    Hint = TEXT("Recovered without ground");
 }
 
 void UDrivingComponent::UpdatePose(float DeltaSeconds)
