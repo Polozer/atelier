@@ -312,7 +312,8 @@ BUILDINGS = [
     ('mid-e1', 70, 258, 5.0, 34, 24, 11.0, 2, 'shop', 0, 'roof_slate'),
     ('mid-e2', 150, 258, 5.0, 38, 25, 11.5, 2, 'house', 0, 'roof_terra'),
     ('mid-e3', 212, 258, 5.0, 36, 24, 12.5, 2, 'tavern', 0, 'roof_teal'),
-    ('mid-e4', 272, 258, 5.0, 38, 25, 10.5, 2, 'shop', 0, 'roof_slate'),
+    # Its west house stood 0.8-3.3 m into the east terrace stair (x 248-256.7); it now starts 2.4 m clear of it.
+    ('mid-e4', 276, 258, 5.0, 34, 25, 10.5, 2, 'shop', 0, 'roof_slate'),
 ]
 
 # A narrow row right on the terrace lip. From the harbor it hides the bare

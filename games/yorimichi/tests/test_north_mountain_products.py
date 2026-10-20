@@ -74,6 +74,9 @@ def test_sheet_boundary_preserves_authored_inputs_to_one_carve(monkeypatch):
     monkeypatch.setattr(mountains, 'surface_grid', lambda sampler: (x, y, z))
     monkeypatch.setattr(mountains, 'snow', lambda x, y, sampler: np.full_like(x, .75))
     monkeypatch.setattr(mountains, 'apron_grids', lambda xs, ys: [])
+    # The city's north edge (built HD_Terrain knots) lies outside this grid, so no vertex is inserted or snapped.
+    from hidamari import layout
+    monkeypatch.setattr(layout, 'city_north_edge', lambda: (np.array([300., 1420.]), np.array([0., 0.])))
     from megapark import gate
     monkeypatch.setattr(gate, 'cell_inside', lambda x, y, step: x == 45. and y == 0.)
     calls = []
@@ -93,6 +96,44 @@ def test_sheet_boundary_preserves_authored_inputs_to_one_carve(monkeypatch):
     expected_normals = np.stack([-dx, -dy, np.ones_like(z)], -1)
     expected_normals /= np.linalg.norm(expected_normals, axis=-1, keepdims=True)
     np.testing.assert_array_equal(natural['normals'], expected_normals.reshape(-1, 3)[:8])
+
+
+def test_sheet_first_row_takes_the_city_north_edge_polyline(monkeypatch):
+    """The foothills' first row carries the city's edge knots and its own edge vertices sit on that polyline, so
+    both meshes share one edge; each first-row cell is still covered exactly once."""
+    axes = np.array([40., 45., 50.]), np.array([-5., 0., 5.])
+    x, y = np.meshgrid(*axes)
+    z = 106.+.03*x+.02*y+.01*x*y
+    monkeypatch.setattr(mountains, 'BOUNDS', (40., -5., 50., 5.))
+    monkeypatch.setattr(mountains, 'STEP', 5.)
+    monkeypatch.setattr(mountains, 'surface_grid', lambda sampler: (x, y, z))
+    monkeypatch.setattr(mountains, 'snow', lambda x, y, sampler: np.full_like(x, .75))
+    monkeypatch.setattr(mountains, 'apron_grids', lambda xs, ys: [])
+    knots = np.array([40., 42., 45., 47.5, 50.]), np.array([100., 101., 102., 101.5, 103.])
+    from hidamari import layout
+    monkeypatch.setattr(layout, 'city_north_edge', lambda: knots)
+    from megapark import gate
+    monkeypatch.setattr(gate, 'cell_inside', lambda x, y, step: False)
+    monkeypatch.setattr(earthworks, 'sheet', lambda sheet: sheet)
+    natural, _ = mountains.sheets(object())
+    V, F = natural['vertices'], natural['faces']
+    edge = V[np.isclose(V[:, 1], -5.)]
+    edge = edge[np.argsort(edge[:, 0])]
+    np.testing.assert_array_equal(edge[:, 0], knots[0])
+    np.testing.assert_allclose(edge[:, 2], knots[1])
+    # Interior rows are untouched.
+    np.testing.assert_array_equal(V[np.isclose(V[:, 1], 0.)][:, 2], z[1])
+    tri = V[F]
+    area = .5*((tri[:, 1, 0]-tri[:, 0, 0])*(tri[:, 2, 1]-tri[:, 0, 1])-(tri[:, 2, 0]-tri[:, 0, 0])*(tri[:, 1, 1]-tri[:, 0, 1]))
+    assert (area > 0).all()                       # counter-clockwise, none degenerate
+    assert np.isclose(area.sum(), 100.)           # the four 5 m cells, each covered exactly once
+    assert natural['colours'].shape == (len(V), 4) and natural['normals'].shape == (len(V), 3)
+    np.testing.assert_allclose(np.linalg.norm(natural['normals'], axis=1), 1.)
+    # Placement (height()) stands on exactly these triangles, inside every face of every row.
+    w = np.random.default_rng(3).dirichlet((1., 1., 1.), 25)
+    points = np.einsum('kj,fjd->fkd', w, tri).reshape(-1, 3)
+    np.testing.assert_allclose(mountains.height(points[:, 0], points[:, 1], object(), carved=False), points[:, 2],
+                               atol=1e-9)
 
 
 def test_normal_city_recipe_owns_all_mountain_products(tmp_path):

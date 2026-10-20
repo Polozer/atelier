@@ -21,6 +21,7 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/SCompoundWidget.h"
 #include "Widgets/Text/STextBlock.h"
 
 namespace
@@ -147,6 +148,19 @@ void Save(const FText& Text, ETextCommit::Type How)
     }
 }
 
+// The note box's keys stop here. A key the text box leaves unhandled otherwise bubbles to the game viewport, so
+// typing "there's" toggled Unreal's Gameplay Debugger on Apostrophe and other letters fired game bindings (Op412).
+class SNoteKeyTrap : public SCompoundWidget
+{
+public:
+    SLATE_BEGIN_ARGS(SNoteKeyTrap) {}
+        SLATE_DEFAULT_SLOT(FArguments, Content)
+    SLATE_END_ARGS()
+    void Construct(const FArguments& Args) { ChildSlot[Args._Content.Widget]; }
+    virtual FReply OnKeyDown(const FGeometry&, const FKeyEvent&) override { return FReply::Handled(); }
+    virtual FReply OnKeyUp(const FGeometry&, const FKeyEvent&) override { return FReply::Handled(); }
+};
+
 void BeginNote()
 {
     FState& St = S();
@@ -184,17 +198,20 @@ void BeginNote()
     St.Box = Box;
     St.Editor = SNew(SBox).HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(FMargin(0, 0, 0, 120))
     [
-        SNew(SBox).WidthOverride(900.f)
+        SNew(SNoteKeyTrap)
         [
-            SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(0.f, 0.f, 0.f, .78f)).Padding(16)
+            SNew(SBox).WidthOverride(900.f)
             [
-                SNew(SVerticalBox)
-                + SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
+                SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(FLinearColor(0.f, 0.f, 0.f, .78f)).Padding(16)
                 [
-                    SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold", 16)).ColorAndOpacity(FLinearColor::White)
-                        .Text(FText::FromString(FString::Printf(TEXT("Note %d · type with the keyboard · Enter saves · Escape cancels"), N.Index)))
+                    SNew(SVerticalBox)
+                    + SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
+                    [
+                        SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold", 16)).ColorAndOpacity(FLinearColor::White)
+                            .Text(FText::FromString(FString::Printf(TEXT("Note %d · type with the keyboard · Enter saves · Escape cancels"), N.Index)))
+                    ]
+                    + SVerticalBox::Slot().AutoHeight()[Box]
                 ]
-                + SVerticalBox::Slot().AutoHeight()[Box]
             ]
         ]
     ];
@@ -300,6 +317,9 @@ int32 DevNotes::Count() { return S().Notes.Num(); }
 void DevNotes::Toggle(UWorld* World, UJapanPreferences* Menu)
 {
     FState& St = S();
+    // Entering or leaving dev mode always closes Unreal's Gameplay Debugger: its overlay took over the view when a
+    // note's apostrophe reached it (Op412), and leaving dev mode must hand back the plain game view.
+    if (GEngine) GEngine->Exec(World ? World : St.World.Get(), TEXT("gdt.Enable 0"));
     if (St.bOn)
     {
         CloseEditor();

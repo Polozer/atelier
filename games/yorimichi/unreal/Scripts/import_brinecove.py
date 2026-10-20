@@ -323,6 +323,19 @@ def import_mesh(path, name):
     return E.load_asset(target)
 
 
+def keep_full_precision_uvs(mesh):
+    """Brinecove's faces are box-projected in world metres, so its UVs reach ~650 tiles from the origin. Half-precision
+    UVs step by 1/16 to 1/2 of a tile out there: narrow faces such as the terrace stair nosings collapsed to a single
+    texel row and showed as streaks (Op410 review). Hidamari and Belmonte import their metre UVs the same way."""
+    unreal.load_module('StaticMeshEditor')
+    editor = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+    assert editor is not None, 'StaticMeshEditor subsystem is unavailable'
+    build = editor.get_lod_build_settings(mesh, 0)
+    if not build.get_editor_property('use_full_precision_u_vs'):
+        build.set_editor_property('use_full_precision_u_vs', True)
+        editor.set_lod_build_settings(mesh, 0, build)
+
+
 def generate_lods(mesh):
     """Three reduced levels for a foliage prototype; cards keep their silhouettes at a distance."""
     unreal.load_module('StaticMeshEditor')
@@ -353,6 +366,10 @@ def main():
         if E.does_asset_exist(target):
             E.delete_asset(target)
         mesh = import_mesh(OUT / entry['path'], name)
+        # Foliage prototypes sample an atlas cell (UVs within 0-1) and the terrain material projects by world position;
+        # every other surface samples its world-metre UVs.
+        if not entry.get('lods') and any(report['materials'][key]['kind'] != 'terrain' for key in entry['slots']):
+            keep_full_precision_uvs(mesh)
         slots = mesh.get_editor_property('static_materials')
         assert len(slots) == len(entry['slots']), (name, 'material slots', len(slots), entry['slots'])
         for slot, key in enumerate(entry['slots']):

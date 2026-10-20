@@ -695,7 +695,7 @@ def coastal_backdrop_height(x,y,base,*,repair_west=True):
     if repair_west:amount=np.maximum(amount,(1-mountains.smooth(distance/80.))*(x<=-300.))
     mask=(distance>0.) | (x==-300.) | (x==1420.) | (y==-300.)
     mask &= amount>0.
-    if not np.any(mask):return out
+    if not np.any(mask):return _city_west_stitch(x,y,out) if repair_west else out
     # Projection onto this southern part of the union's exposed perimeter.
     # Edge interpolation is exactly the fine mesh's straight edge segments.
     qx,qy=px[mask],py[mask]
@@ -714,6 +714,51 @@ def coastal_backdrop_height(x,y,base,*,repair_west=True):
             xs=np.asarray(terrain_axes()[0]);bz[city]=np.interp(bx[city],xs,height(xs,-300.))
         target[bottom]=bz
     out=np.array(out,copy=True);out[mask]+=(target-out[mask])*amount[mask]
+    return _city_west_stitch(x,y,out) if repair_west else out
+
+
+CITY_WEST_STITCH=80.   # metres over which the far hills west of the city's exposed edge fade to its profile
+
+CITY_WEST=None
+
+def city_west_edge():
+    """The city ground's exposed west edge north of the main terrain (x 300, y 300-500), as (ys, heights) at
+    HD_Terrain's own vertices along it: the edge between them is straight, so interpolating these is that edge."""
+    global CITY_WEST,H
+    if H is None:H=np.load(yori.OUT/'heightmap.npy')
+    # Kept per heightmap: the west-rim repair (coastal_dressing.py) swaps in the float32 one.
+    if CITY_WEST is None or CITY_WEST[0] is not H:
+        ys=np.asarray(terrain_axes()[1],float);ys=ys[ys>=300.]
+        CITY_WEST=(H,ys,np.asarray(height(300.,ys),float))
+    return CITY_WEST[1:]
+
+CITY_NORTH=None
+
+def city_north_edge():
+    """The city ground's north edge (y 500, x 300-1420) as (xs, heights) at HD_Terrain's own vertices along it
+    (terrain_axes), which the foothills' south edge shares (mountains.sheets)."""
+    global CITY_NORTH,H
+    if H is None:H=np.load(yori.OUT/'heightmap.npy')
+    if CITY_NORTH is None or CITY_NORTH[0] is not H:
+        xs=np.asarray(sorted(terrain_axes()[0]),float);xs=xs[(xs>=300.)&(xs<=1420.)]
+        CITY_NORTH=(H,xs,np.asarray(height(xs,np.full_like(xs,500.)),float))
+    return CITY_NORTH[1:]
+
+def _city_west_stitch(x,y,out):
+    """@cc [owner:fontanierh,label:correctness] city-west-edge-stitch
+    North of the main terrain the city's west edge (x 300, y 300-500) borders the far hills and the foothills' apron
+    (mountains.apron_grids), not fine ground. The backdrop west of it (and north of its corner) MUST meet that edge's
+    exact profile there, fading out over CITY_WEST_STITCH, so FarHills and the apron share HD_Terrain's edge. Without
+    it they stood up to 18 m over the city and a sky-coloured slit opened west of the hippodrome (Op410). It belongs to
+    the repaired surface only (repair_west), so coastal_dressing.repair_west_forest re-seats the far forest it moves.
+    """
+    reach=np.hypot(x-300.,y-np.clip(y,300.,500.))
+    amount=(1-mountains.smooth(reach/CITY_WEST_STITCH))*(x<=300.)*(y>=300.)
+    on=amount>0.
+    if not np.any(on):return out
+    ys,edge=city_west_edge()
+    out=np.array(out,copy=True)
+    out[on]+=(np.interp(np.clip(y[on],300.,500.),ys,edge)-out[on])*amount[on]
     return out
 
 
@@ -741,7 +786,9 @@ def far_height(x,y,*,carved=False):
 def north_base_height(x,y):
     x,y=np.broadcast_arrays(np.asarray(x,float),np.asarray(y,float))
     base=far_height(x,y,carved=False)
-    city_edge=mountains.smooth((x-280)/60)*mountains.smooth((1440-x)/60)
+    # The foothills' south edge is the city's own along its whole north edge (x 300-1420), easing out beyond it; the
+    # blend once reached 1 only east of x 340, and the edge stood up to 18 m over the city's corner (Op410).
+    city_edge=mountains.smooth((x-240)/60)*mountains.smooth((1480-x)/60)
     return base+(height(x,500)-backdrop_height(x,500,carved=False))*city_edge*mountains.smooth((800-y)/300)
 
 def north_surface(x,y,*,carved=True):
