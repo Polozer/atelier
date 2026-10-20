@@ -271,7 +271,8 @@ namespace SkateRuntimeDetail
     }
 
     /** The mesh's surface, copied once per mesh and kept (game thread): its collision LOD's render triangles, or in a
-     *  cooked build without CPU copies of them its cooked collision triangles. Null when it has neither. */
+     *  cooked build without CPU copies of them, its cooked collision triangles; a mesh whose complex collision is a
+     *  separate mesh takes that mesh's surface. Null when it has neither. */
     inline FMeshSurfaceRef MeshSurface(UStaticMesh* Mesh)
     {
         check(IsInGameThread());
@@ -286,6 +287,18 @@ namespace SkateRuntimeDetail
             return Cache.Add(Key,Surface);
         };
         if (CVarSkateCookedSurface.GetValueOnGameThread()>0) return Collision();
+#if WITH_EDITORONLY_DATA
+        // A mesh whose complex collision is another mesh collides as that mesh, as walkers do: never as its own render
+        // triangles, whose doorways and gaps that collision closes would stay open to the board. Read from the collision
+        // mesh's render triangles and authored normals, as every other mesh is, so its faces keep their outward side.
+        // (A cooked build reads the cooked collision below, as these meshes keep no CPU render copies.)
+        if (UStaticMesh* Complex=Mesh->ComplexCollisionMesh; Complex && Complex!=Mesh && !Complex->ComplexCollisionMesh)
+        {
+            const FMeshSurfaceRef Surface=MeshSurface(Complex);
+            if (Surface) { UE_LOG(LogTemp,Log,TEXT("SKATE surface %s: %d triangles of its complex collision %s"),*Mesh->GetName(),Surface->Slots.Num(),*Complex->GetName()); }
+            return Cache.Add(Key,Surface ? Surface : Collision());
+        }
+#endif
         // A cooked build keeps the CPU copy of a mesh's render buffers only when the mesh allows CPU access (the engine's
         // own rule, FStaticMeshLODResources::SerializeBuffers). Without it the buffers still report their counts, but the
         // index view is empty and the vertex pointer is not to be read.
