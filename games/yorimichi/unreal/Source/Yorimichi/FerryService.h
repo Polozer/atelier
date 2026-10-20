@@ -71,6 +71,14 @@ struct YORIMICHI_API FFerryLine
 };
 
 USTRUCT()
+struct FFerryPassenger
+{
+    GENERATED_BODY()
+    UPROPERTY() TObjectPtr<AWandererCharacter> Rider;
+    UPROPERTY() int16 Ship = INDEX_NONE;
+};
+
+USTRUCT()
 struct FFerryNetworkState
 {
     GENERATED_BODY()
@@ -78,6 +86,7 @@ struct FFerryNetworkState
     /** The host's dev clock offset (ferry.Go, ferry.TimeScale): clients place the ships from the same time. */
     UPROPERTY() double DevOffset = 0.;
     UPROPERTY() float TimeScale = 1.f;
+    UPROPERTY() TArray<FFerryPassenger> Passengers;
 };
 
 /**
@@ -166,6 +175,8 @@ private:
     int32 DeckAt(const FVector& Feet) const;
     int32 ShipOfComponent(const UPrimitiveComponent* Component) const;
     bool AnyRiderAboard() const;
+    friend class FFerryRemotePassengerTest;
+    void ApplyRemotePassengers();
     void PublishNetworkState();
     UFUNCTION() void OnRep_NetworkState();
 

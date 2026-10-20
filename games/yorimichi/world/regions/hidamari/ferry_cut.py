@@ -115,12 +115,17 @@ def apply_cut(bm, cut):
     open_edges = [e for e in bm.edges if e.is_boundary and all(abs(v.co.x - c0) < EPS or abs(v.co.x - c1) < EPS for v in e.verts)]
     filled = bmesh.ops.holes_fill(bm, edges=open_edges, sides=0)['faces'] if open_edges else []
     bmesh.ops.recalc_face_normals(bm, faces=filled)
-    for f in filled:      # outward: away from the opening
-        if (f.normal.x > 0) != (f.calc_center_median().x > (c0 + c1) / 2):
+    for f in filled:      # surviving left/right beams face +X/-X into the opening
+        if (f.normal.x > 0) != (f.calc_center_median().x < (c0 + c1) / 2):
             f.normal_flip()
+    cap_normals = [{'x': round(f.calc_center_median().x, 4), 'normal_x': round(f.normal.x, 6),
+                    'expected_x': 1 if abs(f.calc_center_median().x-c0) < abs(f.calc_center_median().x-c1) else -1}
+                   for f in filled]
+    caps_pass = bool(cap_normals) and all(c['normal_x'] * c['expected_x'] > .99 for c in cap_normals)
     project_uv(bm, filled + [f for c in copies for f in c])
     return {'what': cut['what'], 'x': cut['x'], 'rail_ends_x': [round(c0, 4), round(c1, 4)], 'posts_removed': len(posts),
-            'beam_faces_removed': removed_beam, 'ends_closed': len(filled), 'posts_added': len(copies)}
+            'beam_faces_removed': removed_beam, 'ends_closed': len(filled), 'posts_added': len(copies),
+            'cap_normals': cap_normals, 'cap_normals_pass': caps_pass}
 
 
 def triangles(obj):
@@ -148,6 +153,8 @@ def main():
     after = triangles(obj)
     failures = []
     for c, d in zip(cuts, done):
+        if not d['cap_normals_pass']:
+            failures.append(f'{c["what"]}: inward or missing new rail caps')
         left = int(S.cut_mask(after, c).sum())
         d['triangles_cut_left'] = left
         d['triangles_cut_before'] = int(S.cut_mask(before, c).sum())

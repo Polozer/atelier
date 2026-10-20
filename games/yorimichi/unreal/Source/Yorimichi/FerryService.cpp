@@ -403,6 +403,7 @@ bool AFerryService::Initialize(const FString& Path)
     UpdateGates();
     bInitialized = Missing == 0 && Ships.Num() == 1 && Terminals.Num() == 2;
     bInitFailed = !bInitialized;
+    if (bInitialized && HasAuthority()) PublishNetworkState();
     UE_LOG(LogTemp, Display, TEXT("FERRY SERVICE ready ships=%d terminals=%d cycle=%.1f samples=%d phases=%d missing=%d"),
         Ships.Num(), Terminals.Num(), Line.Cycle, Line.Samples.Num(), Line.Phases.Num(), Missing);
     return bInitialized;
@@ -545,7 +546,7 @@ int32 AFerryService::ShipOf(const AWandererCharacter* Character) const
 
 void AFerryService::UpdateRiders(float Dt)
 {
-    Riders.RemoveAll([](const FRider& R) { return !R.Character.IsValid(); });
+    bool bChanged = Riders.RemoveAll([](const FRider& R) { return !R.Character.IsValid(); }) > 0;
     for (TActorIterator<AWandererCharacter> It(GetWorld()); It; ++It)
     {
         AWandererCharacter* C = *It;
@@ -561,11 +562,13 @@ void AFerryService::UpdateRiders(float Dt)
         if (Ship == INDEX_NONE) Ship = DeckAt(Feet);
         if (Ship != INDEX_NONE) FTransportRiders::Carry(Rider, *this, Ships[Ship].Body, Ships[Ship].Previous, Ships[Ship].bMoved);
         const bool bWas = Rider.bAboard;
+        bChanged |= bWas != (Ship != INDEX_NONE) || (bWas && Rider.Vehicle != Ship);
         Rider.Vehicle = Ship;
         if (FTransportRiders::SetAboard(Rider, Ship != INDEX_NONE, false, ETransportVehicle::Ferry))
             UE_LOG(LogTemp, Display, TEXT("FERRY RIDER %s %s ship=%s"), *C->GetName(), bWas ? TEXT("left") : TEXT("boarded"),
                 Line.ShipNames.IsValidIndex(Ship) ? *Line.ShipNames[Ship] : TEXT("-"));
     }
+    if (bChanged && HasAuthority()) PublishNetworkState();
 }
 
 void AFerryService::UpdateAudio()
@@ -592,12 +595,40 @@ void AFerryService::PublishNetworkState()
     ++NetworkState.Serial;
     NetworkState.DevOffset = DevOffset;
     NetworkState.TimeScale = FMath::Clamp(CVarFerryTimeScale.GetValueOnGameThread(), 0.f, 100.f);
+    NetworkState.Passengers.Reset();
+    for (const FRider& R : Riders)
+        if (AWandererCharacter* C = R.Character.Get(); C && R.bAboard && Ships.IsValidIndex(R.Vehicle))
+        {
+            FFerryPassenger& P = NetworkState.Passengers.AddDefaulted_GetRef();
+            P.Rider = C; P.Ship = int16(R.Vehicle);
+        }
     ForceNetUpdate();
 }
 
 void AFerryService::OnRep_NetworkState()
 {
-    if (NetworkState.Serial) DevOffset = NetworkState.DevOffset;
+    if (!NetworkState.Serial) return;
+    DevOffset = NetworkState.DevOffset;
+    ApplyRemotePassengers();
+}
+
+void AFerryService::ApplyRemotePassengers()
+{
+    if (!NetworkState.Serial || Ships.IsEmpty()) return;
+    // References may resolve after the snapshot itself, so clients retry this in Tick. Simulated proxies
+    // have no local controller: their presentation must use the host's membership, including alighting.
+    for (const FFerryPassenger& P : NetworkState.Passengers)
+        if (AWandererCharacter* C = P.Rider.Get(); C && !C->IsLocallyControlled()) RiderFor(C);
+    for (FRider& R : Riders)
+        if (AWandererCharacter* C = R.Character.Get(); C && !C->IsLocallyControlled())
+        {
+            const FFerryPassenger* P = NetworkState.Passengers.FindByPredicate(
+                [C](const FFerryPassenger& Item) { return Item.Rider == C; });
+            const int32 Ship = P && Ships.IsValidIndex(P->Ship) ? P->Ship : INDEX_NONE;
+            R.Vehicle = Ship;
+            FTransportRiders::OrderTick(*this, R);
+            FTransportRiders::SetAboard(R, Ship != INDEX_NONE, false, ETransportVehicle::Ferry);
+        }
 }
 
 static const TCHAR* PhaseName(EFerryAudioPhase Phase)
@@ -635,8 +666,13 @@ void AFerryService::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     if (!bInitialized) return;
+    if (GetNetMode() == NM_Client) ApplyRemotePassengers();
     const float Scale = FMath::Clamp(CVarFerryTimeScale.GetValueOnGameThread(), 0.f, 100.f);
-    if (Scale != 1.f && HasAuthority()) { DevOffset += double(DeltaSeconds) * (Scale - 1.); PublishNetworkState(); }
+    if (HasAuthority())
+    {
+        if (Scale != 1.f) DevOffset += double(DeltaSeconds) * (Scale - 1.);
+        if (Scale != 1.f || NetworkState.TimeScale != Scale) PublishNetworkState();
+    }
     if (PendingGoDelay >= 0.f && (PendingGoDelay -= DeltaSeconds) < 0.f && !GoTo(PendingGo)) PendingGoDelay = 1.f;
     const double Time = ServiceTime();
     PlaceShips(Time, false);

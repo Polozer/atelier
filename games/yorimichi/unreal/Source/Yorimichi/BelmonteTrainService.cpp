@@ -1021,6 +1021,7 @@ bool ABelmonteTrainService::ReplacePassenger(AWandererCharacter* From, AWanderer
     if (Index == INDEX_NONE) return false;
     FRider& R = Riders[Index];
     From->bTrainAboard = From->bTrainDriving = From->bNoSprint = false;
+    From->AboardVehicle = ETransportVehicle::None;
     R.bTickOrdered = false;
     R.TrackedVehicle = INDEX_NONE;
     if (R.bAboard)

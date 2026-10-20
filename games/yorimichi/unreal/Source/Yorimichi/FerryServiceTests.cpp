@@ -10,6 +10,8 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Misc/ScopeExit.h"
+#include "JapanSkateNetwork.h"
+#include "SkateComponent.h"
 
 namespace
 {
@@ -115,6 +117,57 @@ bool FTransportRiderTransitionTest::RunTest(const FString&)
     TestFalse(TEXT("No stale aboard flag"), Character->bTrainAboard);
     TestTrue(TEXT("Train can board after ferry"), FTransportRiders::SetAboard(Rider, true, true, ETransportVehicle::Train));
     TestTrue(TEXT("Train passenger view remains available"), Character->IsTrainPassenger());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFerryRemotePassengerTest, "Yorimichi.Ferry.RemotePassengerPresentation",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FFerryRemotePassengerTest::RunTest(const FString&)
+{
+    UWorld* World = nullptr;
+    for (const FWorldContext& Context : GEngine->GetWorldContexts())
+        if (Context.World() && Context.World()->IsGameWorld()) { World = Context.World(); break; }
+    if (!TestNotNull(TEXT("Native game world"), World)) return false;
+    FActorSpawnParameters Spawn;
+    Spawn.ObjectFlags |= RF_Transient; Spawn.bDeferConstruction = true;
+    Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    auto* Rider = World->SpawnActor<AWandererCharacter>(FVector(20000, 30000, 10000), FRotator::ZeroRotator, Spawn);
+    auto* Service = World->SpawnActor<AFerryService>(Spawn);
+    ON_SCOPE_EXIT { if (Service) Service->Destroy(); if (Rider) Rider->Destroy(); };
+    if (!TestNotNull(TEXT("Deferred remote rider"), Rider) || !TestNotNull(TEXT("Deferred ferry"), Service)) return false;
+    auto* Skate = Rider->GetSkate();
+    auto* Stream = Rider->FindComponentByClass<UJapanSkateNetwork>();
+    if (!TestNotNull(TEXT("Remote board stream"), Stream)) return false;
+    Stream->Rider = Rider;
+    Skate->InitializeNetworkProxy(Rider);
+    if (!TestTrue(TEXT("Imported board ready"), Skate->IsAvailable())) return false;
+    FJapanBoardState Board;
+    Board.Time = World->GetRealTimeSeconds(); Board.Sequence = 1;
+    Board.Deck = FTransform(FRotator::ZeroRotator, Rider->GetActorLocation()); Board.Shown = 1.f;
+    Stream->Boards = {Board};
+    Stream->ShowBoard(World->GetRealTimeSeconds());
+    TestEqual(TEXT("Retained frame initially shows board"), Skate->GetBoardShown(), 1.f);
+    Service->Ships.AddDefaulted();
+    Service->NetworkState.Serial = 1;
+    FFerryPassenger& Passenger = Service->NetworkState.Passengers.AddDefaulted_GetRef();
+    Passenger.Ship = 0;
+    Service->OnRep_NetworkState();
+    TestFalse(TEXT("Unresolved late-join reference waits"), Rider->IsOnTrain());
+    Passenger.Rider = Rider;
+    // No second OnRep and no owner hide packet: the regular resolution retry applies the original snapshot.
+    Service->ApplyRemotePassengers();
+    TestTrue(TEXT("Resolved peer membership marks ferry rider"), Rider->AboardVehicle == ETransportVehicle::Ferry);
+    TestEqual(TEXT("Peer ship membership"), Service->ShipOf(Rider), 0);
+    Stream->ShowBoard(World->GetRealTimeSeconds());
+    TestEqual(TEXT("Snapshot masks the retained shown board"), Skate->GetBoardShown(), 0.f);
+    TestFalse(TEXT("Ferry peer has no train passenger camera"), Rider->IsTrainPassenger());
+    Service->NetworkState.Passengers.Reset(); ++Service->NetworkState.Serial;
+    Service->OnRep_NetworkState();
+    TestTrue(TEXT("Alighting clears peer identity"), Rider->AboardVehicle == ETransportVehicle::None);
+    TestEqual(TEXT("No peer ship after alighting"), Service->ShipOf(Rider), INDEX_NONE);
+    Stream->ShowBoard(World->GetRealTimeSeconds());
+    TestEqual(TEXT("Ordinary retained presentation returns on shore"), Skate->GetBoardShown(), 1.f);
     return true;
 }
 #endif
