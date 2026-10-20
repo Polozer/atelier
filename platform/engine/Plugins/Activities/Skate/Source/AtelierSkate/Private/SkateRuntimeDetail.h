@@ -271,7 +271,8 @@ namespace SkateRuntimeDetail
     }
 
     /** The mesh's surface, copied once per mesh and kept (game thread): its collision LOD's render triangles, or in a
-     *  cooked build without CPU copies of them its cooked collision triangles. Null when it has neither. */
+     *  cooked build without CPU copies of them, or when a separate mesh is its complex collision, its cooked collision
+     *  triangles. Null when it has neither. */
     inline FMeshSurfaceRef MeshSurface(UStaticMesh* Mesh)
     {
         check(IsInGameThread());
@@ -286,6 +287,12 @@ namespace SkateRuntimeDetail
             return Cache.Add(Key,Surface);
         };
         if (CVarSkateCookedSurface.GetValueOnGameThread()>0) return Collision();
+#if WITH_EDITORONLY_DATA
+        // A mesh whose complex collision is another mesh collides as that mesh, as walkers do: never as its render
+        // triangles, whose doorways and gaps that collision closes would stay open to the board. (A cooked build reads
+        // the cooked collision below, as these meshes keep no CPU render copies.)
+        if (Mesh->ComplexCollisionMesh && Mesh->ComplexCollisionMesh!=Mesh) return Collision();
+#endif
         // A cooked build keeps the CPU copy of a mesh's render buffers only when the mesh allows CPU access (the engine's
         // own rule, FStaticMeshLODResources::SerializeBuffers). Without it the buffers still report their counts, but the
         // index view is empty and the vertex pointer is not to be read.
