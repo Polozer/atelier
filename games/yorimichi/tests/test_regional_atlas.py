@@ -1,4 +1,5 @@
 """A region is a view of the destination registry, never a replacement for it."""
+import ast
 import copy
 import importlib.util
 import hashlib
@@ -22,7 +23,8 @@ def test_extracted_terrain_sources_are_signed_and_declared_inputs(tmp_path, monk
     from types import SimpleNamespace
     from atelier import build
     sources = {'world/build_terrain.py', 'world/farhills_surface.py', 'world/farhills_grid.py', 'world/terrain_product.py',
-               'world/north_mountain_surface.py', 'world/city_terrain_surface.py', 'world/regions/hidamari/build.py'}
+               'world/north_mountain_surface.py', 'world/city_terrain_surface.py', 'world/regions/hidamari/build.py',
+               'world/regions/hidamari/natural_terrain.py', 'world/regions/craterpark/v2/v4_config.py'}
     assert sources <= set(atlas.GEOGRAPHY_SOURCES)
     recipe = build.load_recipe('yorimichi')
     step = next(s for s in recipe.steps(SimpleNamespace(game='yorimichi', out=tmp_path, uproject=None))
@@ -168,6 +170,55 @@ def test_committed_paintings_cover_all_regions_with_current_geometry_and_provena
     data = atlas.metadata([], source())
     atlas.stage(tmp_path, data)
     assert {p.stem for p in (tmp_path / 'atlas').glob('*.png')} == {'world', *(r['key'] for r in atlas.REGIONS)}
+
+
+def test_natural_kernel_revalidation_preserves_art_and_generation_provenance():
+    witness_path = atlas.ASSETS / 'coasts/natural-kernel-equivalence.json'
+    witness = json.loads(witness_path.read_text())
+    pin = dict(witness='coasts/natural-kernel-equivalence.json',
+               sha256=hashlib.sha256(witness_path.read_bytes()).hexdigest())
+
+    def identity(value):
+        return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+    assert witness['current_geography'] == atlas.geography_signature()
+    for rel, expected in witness['unchanged_art_sha256'].items():
+        assert hashlib.sha256((atlas.ASSETS / rel).read_bytes()).hexdigest() == expected
+    for key, expected in witness['unchanged_generation_payload_sha256'].items():
+        record = json.loads((atlas.ASSETS / f'{key}.json').read_text())
+        assert record.pop('natural_kernel_revalidation') == pin
+        record.pop('verified_geography', None)
+        if key == 'world':
+            assert record.pop('geography') == witness['current_geography']
+            current = record.pop('generation_witness')
+            previous = witness['previous_world_attestation']['generation_witness']
+            assert {k: v for k, v in current.items() if k != 'geography'} == {
+                k: v for k, v in previous.items() if k != 'geography'}
+            assert witness['previous_world_attestation']['geography'] == witness['previous_geography']
+        assert identity(record) == expected  # Includes original paid generation/registration/export values.
+    coast = json.loads((atlas.ASSETS / 'coasts/source.json').read_text())
+    assert coast['natural_kernel_revalidation'] == pin
+    assert identity(coast['frames']) == witness['unchanged_coast_frames_sha256']
+
+    # Bind the source-only proof to the unchanged function bodies, independently of file splitting/docstrings.
+    functions, constants = {}, {}
+    for name in ('mountains.py', 'natural_terrain.py'):
+        tree = ast.parse((GAME / 'world/regions/hidamari' / name).read_text())
+        functions.update({n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)})
+        constants.update({n.targets[0].id: n.value for n in tree.body if isinstance(n, ast.Assign)
+                          and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)})
+    for name, expected in witness['unchanged_function_asts'].items():
+        node = functions[name]
+        if isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant):
+            node.body.pop(0)
+        assert hashlib.sha256(ast.dump(node, include_attributes=False).encode()).hexdigest() == expected
+    node = functions['caldera_floor']
+    node.body.pop(0)  # docstring
+    assert hashlib.sha256(ast.dump(node, include_attributes=False).encode()).hexdigest() == witness[
+        'caldera_callee_relocation']['normalized_ast_sha256']
+    for name, expected in witness['unchanged_constant_asts'].items():
+        assert hashlib.sha256(ast.dump(constants[name], include_attributes=False).encode()).hexdigest() == expected
+    assert list(ast.literal_eval(constants['GRID_ORIGIN'])) == witness['grid_origin']
 
 
 def test_world_coast_preserves_restored_spawn_ground_finite_edges_and_country_join():

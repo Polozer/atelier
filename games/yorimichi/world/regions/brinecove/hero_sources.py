@@ -8,6 +8,7 @@ import hashlib
 import json
 
 from brinecove.paths import ASSETS, MODELS
+from source_registry import models as selected_models
 
 LIBRARY = ASSETS.parent / 'source-library.json'
 PREFIX = 'brinecove/models/'
@@ -15,7 +16,7 @@ PREFIX = 'brinecove/models/'
 
 def verify(library=LIBRARY, models=MODELS):
     """{slug: path} of every listed model, or ValueError naming each missing or altered one."""
-    files = json.loads(library.read_text())['files']
+    files = selected_models(library, PREFIX)
     listed = {key[len(PREFIX):-len('.glb')]: entry for key, entry in files.items()
               if key.startswith(PREFIX) and key.endswith('.glb')}
     if not listed:

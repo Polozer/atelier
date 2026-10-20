@@ -10,23 +10,12 @@ from . import dsl, v4_config
 
 
 def document():
-    doc = v4_config.load_document()
-    if float(doc.get('frame', {}).get('lift', 680.)) != 680.:
-        raise ValueError('v4 frame.lift must match the established 680 m coordinate frame')
-    return doc
+    return v4_config.placement_document()
 
 
 def depth(default=45.):
     """Read an explicit natural-caldera depth; other excavation kinds need an implementation."""
-    dig = document().get('ground', {}).get('dig')
-    if not dig:
-        return default
-    if dig.get('kind') != 'depth':
-        raise ValueError('v4 world terrain currently requires ground.dig.kind=depth')
-    value = float(dig['DEPTH'])
-    if not math.isfinite(value) or value <= 0:
-        raise ValueError('v4 caldera DEPTH must be finite and positive')
-    return value
+    return v4_config.caldera_depth(default, document=document())
 
 
 def site_polygon():

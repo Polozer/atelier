@@ -395,10 +395,16 @@ def group(name, slots, transforms, *, collision, shadow, cull_cm):
             'plant': False, 'collision': collision, 'shadow': shadow, 'cull_cm': cull_cm, 'transforms': transforms}
 
 
-def main():
+def main(argv=None):
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source-library', type=Path, default=hero_sources.LIBRARY)
+    if argv is None:
+        argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
+    args = parser.parse_args(argv)
     started = time.time()
     try:
-        heroes = hero_sources.verify()
+        heroes = hero_sources.verify(args.source_library)
     except ValueError as error:
         raise SystemExit(str(error)) from None
     missing = set(hero_assets.placements(modules.HULL)) - set(heroes)

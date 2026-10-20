@@ -388,7 +388,7 @@ def check_bowl_seal(scene, heights, g, weight):
     meet the deck within BOWL_SEAL (no trench under the rim) and must not rise through it. The cut grid is
     authoritative there: weight is 1 round the pieces, and the trail and pad carves are hundreds of metres away.
     """
-    from hidamari import mountains
+    from hidamari import natural_terrain as mountains
     from craterpark import placement
 
     bowls = []
@@ -411,10 +411,10 @@ def check_bowl_seal(scene, heights, g, weight):
     step = float(mountains.STEP)
     isl = placement.native_to_island(np.concatenate([e for _, e in bowls]))
     pad = 3 * step
-    x0 = mountains.BOUNDS[0] + np.ceil((isl[:, 0].min() - pad - mountains.BOUNDS[0]) / step) * step
-    x1 = mountains.BOUNDS[0] + np.floor((isl[:, 0].max() + pad - mountains.BOUNDS[0]) / step) * step
-    z0 = mountains.BOUNDS[1] + np.ceil((isl[:, 1].min() - pad - mountains.BOUNDS[1]) / step) * step
-    z1 = mountains.BOUNDS[1] + np.floor((isl[:, 1].max() + pad - mountains.BOUNDS[1]) / step) * step
+    x0 = mountains.GRID_ORIGIN[0] + np.ceil((isl[:, 0].min() - pad - mountains.GRID_ORIGIN[0]) / step) * step
+    x1 = mountains.GRID_ORIGIN[0] + np.floor((isl[:, 0].max() + pad - mountains.GRID_ORIGIN[0]) / step) * step
+    z0 = mountains.GRID_ORIGIN[1] + np.ceil((isl[:, 1].min() - pad - mountains.GRID_ORIGIN[1]) / step) * step
+    z1 = mountains.GRID_ORIGIN[1] + np.floor((isl[:, 1].max() + pad - mountains.GRID_ORIGIN[1]) / step) * step
     xs, zs = np.arange(x0, x1 + step, step), np.arange(z0, z1 + step, step)
     IX, IZ = np.meshgrid(np.arange(len(xs)), np.arange(len(zs)))
     nx, nz = placement.island_to_native_xz(xs[IX], zs[IZ])
