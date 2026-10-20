@@ -137,3 +137,9 @@ A fresh install's preferences, a missing saved key and the menus' resets MUST al
 light_version migration retires from a file saved before the current light. A release default that names no
 preference or leaves its range MUST be refused and reported, never clamped or rounded; preferences it does not list
 keep their built-in defaults.
+
+@cc [owner:fontanierh,label:correctness] offline-interact-reachability
+AWandererCharacter::Interact MUST be a no-op, offline as online, unless a train, zeppelin or sword trainer is in
+reach: it MUST NOT set an Interact action or animation state, and it MUST check zeppelin (IsPassenger/CanReach)
+and trainer (CanTalk) reachability before Sword->CancelForInterrupt, so a press with nothing in reach never stows
+an armed blade or leaves the walker pose stuck.

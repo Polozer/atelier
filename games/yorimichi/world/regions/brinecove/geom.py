@@ -245,7 +245,10 @@ class Builder:
                 self.verts[i] = (cx + dx * c - dy * s, cy + dx * s + dy * c, zz)
 
     def panel(self, a, b, c, d, mat, under=None, thick=0.06):
-        """A thin two-sided sheet (awning, lean-to, canopy, hanging cloth): both faces and its edges.
+        """@cc [owner:fontanierh,label:correctness] brinecove-two-sided-sheet
+        A thin two-sided sheet (awning, lean-to, canopy, hanging cloth): both faces and its edges. A sheet MUST be
+        emitted as a closed slab (top, back and four edge faces), so it never vanishes when seen from beneath, and a
+        sloped sheet's top MUST face up.
 
         A bare quad is one-sided, so seen from beneath an awning vanished (playtest note 10). A sloped sheet always
         faces up; the back face sits thick behind it along the normal.
@@ -270,7 +273,10 @@ class Builder:
 
     def gable_roof(self, center, width, depth, z, rise, mat, yaw=0.0, ridge='x', overhang=0.8, gable='planks',
                    soffit='wood', thick=0.14):
-        """Gable roof seated on a wall plate at z: deep eaves, a planked soffit, closed gables, ridge along x or y.
+        """@cc [owner:fontanierh,label:correctness] brinecove-roof-seated-solid
+        Gable roof seated on a wall plate at z: deep eaves, a planked soffit, closed gables, ridge along x or y.
+        The slopes' underside MUST meet the wall top at the wall line (no gap above the walls), and the soffit and
+        gable infill MUST close the roof from below, so no sky shows through it from the street.
 
         The roof is a slab: the slopes' underside passes through the wall top at the wall line, so no roof floats
         above its walls, and the soffit and gable infill keep it solid from below (playtest notes 6-8 and 12).
