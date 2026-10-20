@@ -2,7 +2,8 @@
 
 blender --background --factory-startup --threads 3 -P games/yorimichi/assets/vehicles/ferry/render.py
 Opens build/yorimichi/ferry/ferry.blend (from build.py) and writes RGBA PNGs to build/yorimichi/ferry/review/.
-compare.py then puts each next to the concept. Flat warm daylight over a still water plane at the waterline.
+compare.py then puts each next to the concept. Flat warm sun and sky-blue fill over still water at the waterline,
+against a sky gradient backdrop.
 """
 import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / 'world')); import yori  # noqa: E402,F401
 import math
@@ -29,7 +30,7 @@ def setup(scene):
             break
         except TypeError:
             continue
-    scene.render.film_transparent = True
+    scene.render.film_transparent = False
     scene.render.image_settings.file_format = 'PNG'
     scene.render.image_settings.color_mode = 'RGBA'
     scene.view_settings.view_transform = 'Standard'
@@ -42,9 +43,22 @@ def setup(scene):
         world.use_nodes = True
     except Exception:
         pass
-    bg = world.node_tree.nodes.get('Background')
-    bg.inputs['Color'].default_value = (*srgb((200, 214, 232)), 1); bg.inputs['Strength'].default_value = 0.6
-    sun = bpy.data.lights.new('Sun', 'SUN'); sun.energy = 4.2; sun.color = srgb((255, 236, 205)); sun.angle = math.radians(6)
+    # Flat sky-blue fill light; camera rays see a painted-sky gradient (deep blue overhead, pale at the horizon).
+    nodes, links = world.node_tree.nodes, world.node_tree.links
+    bg = nodes.get('Background')
+    bg.inputs['Color'].default_value = (*srgb((178, 204, 236)), 1); bg.inputs['Strength'].default_value = 0.62
+    sky = nodes.new('ShaderNodeBackground'); sky.inputs['Strength'].default_value = 1.0
+    coord = nodes.new('ShaderNodeTexCoord'); sep = nodes.new('ShaderNodeSeparateXYZ'); ramp = nodes.new('ShaderNodeValToRGB')
+    ramp.color_ramp.elements[0].position = 0.45; ramp.color_ramp.elements[0].color = (*srgb((176, 206, 238)), 1)
+    ramp.color_ramp.elements[1].position = 1.0; ramp.color_ramp.elements[1].color = (*srgb((62, 128, 226)), 1)
+    links.new(coord.outputs['Window'], sep.inputs[0]); links.new(sep.outputs['Y'], ramp.inputs['Fac'])
+    links.new(ramp.outputs['Color'], sky.inputs['Color'])
+    path = nodes.new('ShaderNodeLightPath'); mix = nodes.new('ShaderNodeMixShader')
+    links.new(path.outputs['Is Camera Ray'], mix.inputs['Fac'])
+    links.new(bg.outputs['Background'], mix.inputs[1]); links.new(sky.outputs['Background'], mix.inputs[2])
+    out = nodes.get('World Output'); links.new(mix.outputs['Shader'], out.inputs['Surface'])
+    # Warm late-morning sun, as painted.
+    sun = bpy.data.lights.new('Sun', 'SUN'); sun.energy = 4.4; sun.color = srgb((255, 226, 186)); sun.angle = math.radians(6)
     ob = bpy.data.objects.new('Sun', sun); scene.collection.objects.link(ob)
     # Warm sun from high over the starboard quarter, behind the funnel, as in the concept.
     ob.rotation_euler = (math.radians(44), 0, math.radians(-66))
@@ -54,7 +68,7 @@ def setup(scene):
     except Exception:
         pass
     bsdf = water.node_tree.nodes.get('Principled BSDF')
-    bsdf.inputs['Base Color'].default_value = (*srgb((92, 142, 190)), 1); bsdf.inputs['Roughness'].default_value = 0.9
+    bsdf.inputs['Base Color'].default_value = (*srgb((44, 110, 164)), 1); bsdf.inputs['Roughness'].default_value = 0.9
     # A water block, not a sheet, so the side elevation also cuts the hull at the waterline.
     mesh = bpy.data.meshes.new('Water'); s = 3000; d = 30
     v = [(-s, -s, -d), (s, -s, -d), (s, s, -d), (-s, s, -d), (-s, -s, 0), (s, -s, 0), (s, s, 0), (-s, s, 0)]

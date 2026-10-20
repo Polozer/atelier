@@ -1,8 +1,9 @@
 """Put the ferry review renders next to concept C (concept left, render right).
 
 uv run python games/yorimichi/assets/vehicles/ferry/compare.py [CONCEPT.jpg]
-Reads build/yorimichi/ferry/review/ferry_{three_quarter,side,top}.png and writes compare_*.png beside them, plus a
-50% overlay of the matched three-quarter view.
+Reads build/yorimichi/ferry/review/ferry_{three_quarter,side,top}.png and writes compare_*.png beside them, a
+50% overlay of the matched three-quarter view and rigging close-ups (closeup_*.png, concept crop vs render crop at
+the same framing of the matched camera).
 """
 import sys
 from pathlib import Path
@@ -12,6 +13,8 @@ from PIL import Image, ImageDraw
 REPO = Path(__file__).resolve().parents[5]
 REVIEW = REPO / 'build' / 'yorimichi' / 'ferry' / 'review'
 BACKGROUND = (238, 238, 233)
+# Close-up framings (left, top, right, bottom) in the concept's 1536 x 1024 pixels.
+CLOSEUPS = {'rigging_foremast_bow': (840, 30, 1500, 560), 'rigging_aftmast_funnel': (150, 110, 760, 430)}
 
 
 def flatten(path):
@@ -39,7 +42,11 @@ def main():
         pair(concept, render, 'concept C', f'Blender model: {view.replace("_", " ")}').save(REVIEW / f'compare_{view}.png')
         if view == 'three_quarter':
             Image.blend(concept, render.resize(concept.size), 0.5).save(REVIEW / 'overlay_three_quarter.png')
-    print('wrote', *sorted(p.name for p in REVIEW.glob('compare_*.png')))
+            matched = render.resize(concept.size)
+            for name, box in CLOSEUPS.items():
+                pair(concept.crop(box), matched.crop(box), 'concept C', 'Blender model').resize(
+                    (2 * (box[2] - box[0]) * 2 + 24, (box[3] - box[1]) * 2 + 56), Image.LANCZOS).save(REVIEW / f'closeup_{name}.png')
+    print('wrote', *sorted(p.name for p in REVIEW.glob('compare_*.png')), *sorted(p.name for p in REVIEW.glob('closeup_*.png')))
 
 
 if __name__ == '__main__':
