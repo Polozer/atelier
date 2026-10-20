@@ -199,6 +199,7 @@ code:
 | `checks.STATION_LOOP_MARGIN` | 0.1 m | cabin body to station structure round the loop |
 | `checks.FLOOR_SAMPLE` | 0.25 m | grid step of the floor-support check: every walkable slab sample stands on a collision hull |
 | `checks.FLOOR_TOL` | 0.05 m | a floor-support sample this near a hull's plan edge counts as supported |
+| `checks.FLOOR_Z_TOL` | 0.01 m | a hull supports a slab only where its top is this near the slab's walking height |
 | `walk.BOARDING_GAP_MIN` | 0.05 m | berth: door sill to platform edge, least |
 | `walk.BOARDING_GAP_MAX` | 0.12 m | berth: door sill to platform edge, most |
 | `walk.SILL_MIN` | 0.0 m | berth: sill above the platform, least |
@@ -281,7 +282,8 @@ These belong to placement, the next batch (B4), and are not in this kit:
 
 The collision is in this kit: every piece (the cabin, each tower, each station's walkable parts) exports its UCX
 convex hulls, and the build fails on a proxy that is not convex, or on a walkable slab (platform, plaza, boardwalk,
-viewing bulge, stair landing) with any part not standing on a collision hull (`checks.floor_support_failures`).
+viewing bulge, stair landing) with any part not standing on a collision hull at its own walking height, within 1 cm
+(`checks.floor_support_failures`).
 
 ## Asset library
 

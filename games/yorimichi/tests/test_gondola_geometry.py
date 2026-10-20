@@ -345,8 +345,9 @@ def test_boarding_gap_sill_or_door_out_of_range_fails(kw):
 PLAZA = [(-20.4, -20.0), (9.6, -20.0), (9.6, -5.0), (-20.4, -5.0)]
 
 
-def floor_hull(poly):
-    return {'name': 'floor', 'poly': [list(p) for p in poly], 'z0': [-0.3] * len(poly), 'z1': [0.0] * len(poly)}
+def floor_hull(poly, top=0.0):
+    tops = [top(x, y) if callable(top) else top for x, y in poly]
+    return {'name': 'floor', 'poly': [list(p) for p in poly], 'z0': [t - 0.3 for t in tops], 'z1': tops}
 
 
 def test_slab_on_its_own_floor_hull_passes():
@@ -369,3 +370,30 @@ def test_slab_half_on_collision_fails():
     """MUST FAIL: a ramp whose hulls stop part way along it."""
     half = [(-20.4, -20.0), (-5.0, -20.0), (-5.0, -5.0), (-20.4, -5.0)]
     assert C.floor_support_failures([('plaza', PLAZA)], [floor_hull(half)])
+
+
+def test_hull_displaced_below_the_slab_fails():
+    """MUST FAIL: the plaza's hull exported a metre below the paving: in plan it covers the slab, but nothing holds a
+    player at the slab's height."""
+    assert C.floor_support_failures([('plaza', PLAZA)], [floor_hull(PLAZA, top=-1.0)])
+
+
+def test_roof_hull_over_the_slab_fails():
+    """MUST FAIL: a canopy hull 3 m up covers the slab in plan but is not its floor."""
+    assert C.floor_support_failures([('plaza', PLAZA)], [floor_hull(PLAZA, top=3.0)])
+
+
+def test_hull_a_little_off_the_slab_height_fails():
+    """MUST FAIL: a floor hull 3 cm under the paving (over the 1 cm seat rule): the player would sink."""
+    assert C.floor_support_failures([('plaza', PLAZA)], [floor_hull(PLAZA, top=-0.03)])
+
+
+def test_sloped_slab_on_its_sloped_hull_passes():
+    ramp = lambda x, y: -0.08 * (y + 20.0)
+    assert C.floor_support_failures([('ramp', PLAZA, ramp)], [floor_hull(PLAZA, top=ramp)]) == []
+
+
+def test_sloped_slab_on_a_flat_hull_fails():
+    """MUST FAIL: a ramp whose hull is flat at the ramp's top: most of the ramp has no floor at its height."""
+    ramp = lambda x, y: -0.08 * (y + 20.0)
+    assert C.floor_support_failures([('ramp', PLAZA, ramp)], [floor_hull(PLAZA, top=0.0)])

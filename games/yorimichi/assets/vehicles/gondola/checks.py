@@ -235,6 +235,7 @@ def loop_margin_ok(distance):
 
 FLOOR_SAMPLE = 0.25            # m: grid step for the floor-support check
 FLOOR_TOL = 0.05               # m: a sample this near a hull's plan edge counts as supported
+FLOOR_Z_TOL = 0.01             # m: a hull supports a slab only where its top is this near the slab's height (the seat rule)
 
 
 def _inside_convex(pt, poly, tol):
@@ -254,21 +255,33 @@ def _inside(pt, poly):
     return c
 
 
-def floor_support_failures(slabs, proxies, step=FLOOR_SAMPLE, tol=FLOOR_TOL):
+def _top_plane(pr):
+    """The plane through a hull's top corners (z1), as (a, b, c) with z = a x + b y + c."""
+    A = np.array([[x, y, 1.0] for x, y in pr['poly']]); return np.linalg.lstsq(A, np.array(pr['z1'], float), rcond=None)[0]
+
+
+def floor_support_failures(slabs, proxies, step=FLOOR_SAMPLE, tol=FLOOR_TOL, z_tol=FLOOR_Z_TOL):
     """Every walkable slab must stand on collision: each grid sample inside a slab's plan lies within tol of some
-    collision hull's plan. slabs: [(name, polygon)]; proxies: [{'poly': ...}]. Returns the failures, one per slab."""
-    hulls = [[tuple(p) for p in pr['poly']] for pr in proxies]
+    collision hull's plan whose top there is within z_tol of the slab's walking height (a roof over the slab or a hull
+    elsewhere below it is not its floor). slabs: [(name, polygon[, z])], z a height or z(x, y), default 0;
+    proxies: [{'poly', 'z1'}]. Returns the failures, one per slab."""
+    hulls = [([tuple(p) for p in pr['poly']], _top_plane(pr)) for pr in proxies]
     bad = []
-    for name, poly in slabs:
-        poly = [tuple(p) for p in poly]
+    for slab in slabs:
+        name, poly = slab[0], [tuple(p) for p in slab[1]]
+        z = slab[2] if len(slab) > 2 else 0.0
+        zf = z if callable(z) else (lambda x, y, c=z: c)
         xs, ys = [p[0] for p in poly], [p[1] for p in poly]
         miss = []
         for x in np.arange(min(xs) + step / 2, max(xs), step):
             for y in np.arange(min(ys) + step / 2, max(ys), step):
-                if _inside((x, y), poly) and not any(_inside_convex((x, y), h, tol) for h in hulls):
+                if not _inside((x, y), poly):
+                    continue
+                want = zf(x, y)
+                if not any(_inside_convex((x, y), h, tol) and abs(a * x + b * y + c - want) <= z_tol + 1e-9 for h, (a, b, c) in hulls):
                     miss.append((round(float(x), 2), round(float(y), 2)))
         if miss:
-            bad.append(f'{name}: {len(miss)} walkable samples with no collision floor, e.g. {miss[:3]}')
+            bad.append(f'{name}: {len(miss)} walkable samples with no collision floor at the slab height, e.g. {miss[:3]}')
     return bad
 
 

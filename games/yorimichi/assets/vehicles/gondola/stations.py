@@ -334,7 +334,8 @@ class Station:
         self.seats = []; self.proxies = []; self.levels = []; self.stairs = []; self.access = []; self.surfaces = []; self.points = {}
         self.base = -0.6                  # platform slab bottom
         self.deck = False                 # timber decking boards over the slab
-        self.slabs = []                   # (name, polygon) walkable at z = 0, for the walk layout
+        self.slabs = []                   # (name, polygon) walkable, for the walk layout
+        self.slab_z = {}                  # slab name -> its walking height, a value or z(x, y) (absent: z = 0)
 
     def seat(self, label, x, y, z, embed=0.0, probe=0.15, on=('platform',)):
         self.seats.append((label, round(x, 4), round(y, 4), round(z, 4), embed, probe, tuple(on)))
@@ -981,7 +982,7 @@ class Rim(Station):
                 plat.prism(quad, lambda x, y: top(x, y) - 0.25, top, TIMBER_DARK, top=DECK)
                 self.proxies.append(proxy('boardwalk', quad, lambda x, y: top(x, y) - 0.25, top))   # sloped floor hull
         outline = right + left[::-1]
-        self.slabs.append(('boardwalk', outline))
+        self.slabs.append(('boardwalk', outline)); self.slab_z['boardwalk'] = top
         end = line[-1]; d = Vector(line[-1]) - Vector(line[-2]); d.normalize()
         self.levels.append({'name': 'boardwalk', 'z': 'ramp', 'grade': round(1 / grade, 4), 'length_m': round(S[-1], 2),
                             'from': [line[0][0], line[0][1], 0.0], 'to': [round(end[0], 3), round(end[1], 3), round(-S[-1] / grade, 3)]})
@@ -1112,7 +1113,7 @@ class Crater(Station):
             railing(fit, self, [(xm, YO + 0.1), (xm, y_end - 0.15)], 'timber', on=('cheek',), z0=cheek, spacing=1.6, embed=0.01)
         self.stairs.append({'x': [sx0, sx1], 'y': [YO, YO + (self.RISERS - 1) * self.TREAD], 'direction': '+y', 'risers': self.RISERS,
                             'riser_m': self.RISE, 'tread_m': self.TREAD, 'top_z': 0.0, 'bottom_z': self.grade, 'width_m': sx1 - sx0})
-        self.slabs.append(('landing', rect(sx0, YO + (self.RISERS - 1) * self.TREAD, sx1, y_end)))
+        self.slabs.append(('landing', rect(sx0, YO + (self.RISERS - 1) * self.TREAD, sx1, y_end))); self.slab_z['landing'] = self.grade
         self.access.append({'name': 'crater floor (stair landing)', 'edge': [[sx0, y_end], [sx1, y_end]], 'z': self.grade, 'point': [(sx0 + sx1) / 2, y_end - 0.5]})
         ys = YO + (self.RISERS - 1) * self.TREAD
         self.surfaces.append({'name': 'stair', 'poly': rect(sx0, YO, sx1, ys), 'stair': {'y0': YO, 'tread': self.TREAD, 'rise': self.RISE, 'top_z': 0.0, 'bottom_z': self.grade}})
@@ -1232,7 +1233,7 @@ def build(key, p, d, cab, ctx):
     extra += checks.budget_failures('station', tris)
     proxies = st.proxies + st.platform_proxies()
     extra += checks.proxy_failures(proxies)
-    extra += checks.floor_support_failures(st.slabs, proxies)
+    extra += checks.floor_support_failures([(n, p, st.slab_z.get(n, 0.0)) for n, p in st.slabs], proxies)
     hulls = ctx['export'](name, meshes, proxies)
     region, walk_proxies = st.walk_layout(cab['cabin'])
     layout = {'station': key, 'levels': st.levels, 'regions': region, 'stairs': st.stairs, 'access': st.access,
