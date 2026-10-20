@@ -1,0 +1,119 @@
+"""The single ferry's swept route, clock, boarding windows and stale-product refusal."""
+import importlib.util
+import json
+import math
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from test_ferry_site import site, world  # noqa: F401 (shared hull fixture)
+
+WORLD = Path(__file__).resolve().parents[1] / 'world'
+sys.path.insert(0, str(WORLD))
+from regions.ferry import route, service, timetable as TT  # noqa: E402
+
+
+def closed_cycle():
+    outbound, end = TT.voyage((0., 0., 0.), [('departing', [('ahead', 50.)]),
+                                           ('cruise', [('ahead', 200.)]), ('approach', [('ahead', 50.)])])
+    returning, finish = TT.voyage(end, [('departing', [('pivot', 180.)]),
+                                      ('cruise', [('ahead', 300.)]), ('approach', [('pivot', 180.)])])
+    assert math.dist(finish[:2], (0., 0.)) < 1e-8
+    return TT.Cycle([TT.Dwell((0., 0., 0.), TT.DWELL, 0), *outbound,
+                     TT.Dwell(end, TT.DWELL, 1), *returning])
+
+
+def test_filleted_crossings_join_the_audited_manoeuvre_poses(site):
+    berths = {'hidamari': (855., -145., 180.), 'brinecove': (-251.2, 10., 90.)}
+    origins = {'hidamari': (0., 0.), 'brinecove': (-1500., -120.)}
+    moves = {'hidamari': site.hidamari_moves, 'brinecove': site.brinecove_moves}
+    for spec in route.CROSSINGS.values():
+        frm, to = spec['from'], spec['to']
+        (_, _), (departure, leaving) = moves[frm](berths[frm])
+        arrival, _ = moves[to](berths[to])[0]
+        end = site.poses(departure, leaving)[-1]
+        start = (end[0] + origins[frm][0], end[1] + origins[frm][1], math.degrees(end[2]))
+        target = (arrival[0] + origins[to][0], arrival[1] + origins[to][1], arrival[2])
+        pose, legs = route.crossing(start, target, spec)
+        got = site.poses(pose, legs)[-1]
+        assert math.dist(got[:2], target[:2]) < 1e-7
+        assert abs((math.degrees(got[2]) - target[2] + 180) % 360 - 180) < 1e-7
+        assert 3000 < route.length(legs) < 4000
+
+
+def test_overlapping_turn_arcs_are_refused():
+    with pytest.raises(ValueError, match='overlap'):
+        route.fillet([(0, 0), (1, 0), (1, 1), (2, 1)], [5, 5])
+
+
+def test_one_ship_cycle_has_contiguous_phases_and_stationary_boarding():
+    cycle = closed_cycle()
+    phases = cycle.phases()
+    assert phases[0][0] == 0 and phases[-1][1] == cycle.duration
+    assert all(a[1] == b[0] for a, b in zip(phases, phases[1:]))
+    for berth, windows in TT.brows(cycle, 2).items():
+        for lower, down, raise_, up in windows:
+            assert lower < down < raise_ < up
+            for time in np.linspace(lower, up, 25):
+                state = cycle.state(time)
+                assert state['berth'] == berth
+                assert state['speed'] == state['vx'] == state['vy'] == 0
+    data = service.line(cycle)
+    assert len(data['ships']) == 1
+    assert abs(data['step_s'] * len(data['samples']) - data['cycle_s']) < 1e-5
+
+
+def test_runtime_interpolation_wraps_and_tracks_the_sailed_path():
+    cycle = closed_cycle()
+    step, states = TT.sample(cycle, .2)
+    for time in np.linspace(-cycle.duration, cycle.duration * 2, 250):
+        expected = cycle.state(time)
+        x, y, heading = TT.hermite(states, step, time)
+        assert math.dist((x, y), (expected['x'], expected['y'])) < .003
+        assert abs((heading - expected['h'] + 180) % 360 - 180) < .01
+
+
+@pytest.mark.parametrize('fault', ['none', 'solid', 'missing-seabed'])
+def test_open_water_sweep_keeps_the_hull_rules_at_batch_boundaries(site, fault):
+    solids = [(25., -8., 28., 8., 0)] if fault == 'solid' else ()
+    probe = world((-100., -100., 100., 100.), solids=solids)
+    if fault == 'missing-seabed':
+        probe['ground'] = np.zeros((0, 3, 3))
+    result = site.crossing_sweep(probe, (0., 0., 0.), [('ahead', 2.)], batch=3)
+    assert result['poses'] == 5
+    assert result['pass'] == (fault == 'none')
+    if fault == 'solid':
+        assert result['conflict_count'] > 0
+    elif fault == 'missing-seabed':
+        assert result['grounding_count'] > 0
+
+
+def test_manifest_refuses_changed_code_exports_and_failed_audits(tmp_path):
+    code, asset = tmp_path / 'code.py', tmp_path / 'ship.fbx'
+    code.write_text('source'); asset.write_bytes(b'mesh')
+    data = {'sources': {'code.py': service.sha(code)}, 'files': {'ship.fbx': service.sha(asset)}, 'failures': []}
+    service.validate_manifest(data, tmp_path, tmp_path)
+    asset.write_bytes(b'stale')
+    with pytest.raises(ValueError, match='stale'):
+        service.validate_manifest(data, tmp_path, tmp_path)
+    asset.write_bytes(b'mesh'); code.write_text('changed')
+    with pytest.raises(ValueError, match='stale'):
+        service.validate_manifest(data, tmp_path, tmp_path)
+    code.write_text('source'); data['failures'] = ['unsupported roof']
+    with pytest.raises(ValueError, match='failed'):
+        service.validate_manifest(data, tmp_path, tmp_path)
+
+
+def test_normal_build_includes_the_whole_ferry_pipeline():
+    from atelier import build
+    from types import SimpleNamespace
+    recipe = build.load_recipe('yorimichi')
+    rows = {s.name: s for s in recipe.steps(SimpleNamespace(out=Path('/build'), uproject=None))}
+    assert {'world.ferry_terminals', 'world.hidamari_ferry_cut'} <= set(rows['world.ferry_service'].needs)
+    assert 'world.ferry_service' in rows['data.stage'].needs
+    assert 'world.ferry_service' in rows['unreal.ferry'].needs
+    assert Path('/build/ferry/terminals/assets/FT_HD_Brow.fbx') in rows['world.ferry_terminals'].outputs
+    assert all(c.threads == 3 for key, step in rows.items() if 'ferry' in key
+               for c in step.commands if isinstance(c, build.Blender))

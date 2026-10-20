@@ -112,7 +112,8 @@ def prop_lods(mesh,name,mi,levels):
 
 for name,entry in manifest.items():
     if (only and name not in only) or (not north and name.startswith('HD_North')):continue
-    mesh=import_mesh(OUT/'assets'/f'{name}.fbx','/Game/Japan/Assets',name,fresh_slots='slots' in entry)
+    source=globals().get('SOURCE_OVERRIDES',{}).get(name,OUT/'assets'/f'{name}.fbx')
+    mesh=import_mesh(source,'/Game/Japan/Assets',name,fresh_slots='slots' in entry)
     if name=='HD_NorthGate': selected=gate_mat
     elif name.startswith('HD_NorthRock'): selected=rock_mat
     elif name.startswith('HD_North'): selected=mountain_mat

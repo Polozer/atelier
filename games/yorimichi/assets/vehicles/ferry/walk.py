@@ -14,6 +14,7 @@ the routes report their bottleneck (max-min) width. Trapping pockets are free ce
 that the capsule cannot sweep. Unswept slots no wider than 0.3 m are listed separately as slivers: the 0.44 m capsule
 cannot enter them.
 """
+import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_Path(__file__).resolve().parents[3] / 'world')); import yori  # noqa: E402
 import json
 import math
 from collections import deque
@@ -23,7 +24,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 REPO = Path(__file__).resolve().parents[5]
-OUT = REPO / 'build' / 'yorimichi' / 'ferry'
+OUT = yori.OUT / 'ferry'
 REVIEW = OUT / 'review'
 CELL = 0.05
 RADIUS = 0.22
