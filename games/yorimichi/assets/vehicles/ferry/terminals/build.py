@@ -28,12 +28,15 @@ from mathutils import Matrix, Vector  # noqa: E402
 sys.modules['ferry_build'] = F               # site.py reads the hull lines from this same module
 _spec = importlib.util.spec_from_file_location('ferry_site', HERE / 'site.py')   # not the stdlib site module
 FS = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(FS)
+_spec = importlib.util.spec_from_file_location('ferry_walkcheck', HERE / 'walkcheck.py')
+WC = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(WC)
 OUT = F.OUT / 'terminals'
 SITE = json.loads((OUT / 'site.json').read_text())
 if FS.stale_inputs(SITE) or not SITE.get('pass'):
     raise SystemExit(f'site.json is stale or failed ({FS.stale_inputs(SITE) or "sweep FAIL"}): rerun world_probe.py and site.py')
 SILL = SITE['ship']['sill_z']
 GATE_W = SITE['ship']['gate_width']
+DOOR_RISER = 0.2                           # waiting-house door steps: riser limit (under walkcheck.STEP_MAX)
 BROW_W = 1.9            # brow width: clear of the ship's brass gate posts (inner faces 1.04 m off the gate centre)
 LIP = 0.55              # the brow's steel lip runs this far inboard of the hull side, onto the landing plate
 LIP_T, LIP_GAP = 0.02, 0.003    # lip thickness; it rests 3 mm above the plate (resting, never through it)
@@ -280,7 +283,13 @@ def wall(m, a, b, z0, h, t, mat, openings=(), frame_mat=TIMBER):
         for u in (0.0, L):
             m.prism(F.rect(u - 0.12, 0.0, u + 0.12, h), -t / 2 - 0.03, t / 2 + 0.03, frame_mat)
         m.prism(F.rect(0.0, h - 0.18, L, h), -t / 2 - 0.03, t / 2 + 0.03, frame_mat)
-        m.prism(F.rect(0.0, 0.0, L, 0.2), -t / 2 - 0.03, t / 2 + 0.03, frame_mat)
+        base = [0.0]                  # the base board stops at a door
+        for o in sorted(o for o in openings if o[2] <= 0.05):
+            base += [o[0], o[1]]
+        base.append(L)
+        for u0, u1 in zip(base[::2], base[1::2]):
+            if u1 - u0 > 1e-3:
+                m.prism(F.rect(u0, 0.0, u1, 0.2), -t / 2 - 0.03, t / 2 + 0.03, frame_mat)
         for o in openings:
             u0, u1, v0, v1 = o[:4]
             for u in (u0 - 0.06, u1 + 0.06):
@@ -298,9 +307,13 @@ def wall(m, a, b, z0, h, t, mat, openings=(), frame_mat=TIMBER):
                 for j in range(1, ny):
                     vv = v0 + (v1 - v0) * j / ny
                     m.prism(F.rect(u0, vv - 0.025, u1, vv + 0.025), -0.05, 0.05, frame_mat)
-            elif kind == 'door':
+            elif kind == 'door':      # closed
                 m.prism(F.rect(u0, 0.0, u1, v1), -0.04, 0.04, TIMBER_DARK)
                 m.prism(F.rect(u0 + 0.12, v1 * 0.55, u1 - 0.12, v1 - 0.12), -0.06, 0.06, GLASS)
+            elif kind == 'open door':  # a sliding door slid open: the leaf stands on the outer face beside the opening
+                w = u1 - u0
+                m.prism(F.rect(u0 - w, 0.0, u0, v1), t / 2 + 0.05, t / 2 + 0.09, TIMBER_DARK)
+                m.prism(F.rect(u0 - w + 0.12, v1 * 0.55, u0 - 0.12, v1 - 0.12), t / 2 + 0.04, t / 2 + 0.10, GLASS)
             elif kind == 'counter':   # ticket window: an open hatch with a shelf
                 m.prism(F.rect(u0, v0 - 0.08, u1, v0), 0.0, 0.42, PLANK)
 
@@ -451,7 +464,7 @@ def hidamari():
     hz = b['promenade_z']                      # the highest exported promenade under the house (site.py)
     W.prism(F.rect(hx0 - 0.3, hy0 - 0.3, hx1 + 0.3, hy1 + 0.3), hz - 0.3, hz + 0.18, STONE)
     wh = 2.9
-    wall(W, (hx0, hy0), (hx1, hy0), hz + 0.18, wh, 0.18, PLASTER, [(1.2, 2.2, 0.0, 2.15, 'door'), (3.0, 6.0, 0.85, 2.2), (7.0, 10.6, 0.85, 2.2)])
+    wall(W, (hx0, hy0), (hx1, hy0), hz + 0.18, wh, 0.18, PLASTER, [(1.2, 2.2, 0.0, 2.15, 'open door'), (3.0, 6.0, 0.85, 2.2), (7.0, 10.6, 0.85, 2.2)])
     wall(W, (hx1, hy0), (hx1, hy1), hz + 0.18, wh, 0.18, PLASTER, [(1.4, 6.1, 0.85, 2.2)])
     wall(W, (hx1, hy1), (hx0, hy1), hz + 0.18, wh, 0.18, PLASTER, [(1.0, 4.0, 0.85, 2.2), (8.0, 11.0, 0.85, 2.2)])
     wall(W, (hx0, hy1), (hx0, hy0), hz + 0.18, wh, 0.18, PLASTER, [(2.2, 5.3, 0.85, 2.2)])
@@ -460,12 +473,21 @@ def hidamari():
     bench(W, (hx0 + 3.2, hy0 - 0.7), (hx0 + 5.8, hy0 - 0.7), hz)
     bench(W, (hx0 + 7.4, hy0 - 0.7), (hx0 + 10.0, hy0 - 0.7), hz)
     lantern(W, hx0 + 2.5, hy0 - 0.18, hz + 2.3, h=0.36)
-    for xx in (hx0 + 0.9, hx1 - 0.9):         # potted plants either side, as in the concept
+    # The door steps down from the plinth (hz + 0.18) to the quay at the door (site.py door_ground_z): equal risers
+    # no taller than DOOR_RISER, 0.35 m treads, 1.2 m wide.
+    gd = b['door_ground_z']; dx = hx0 + 1.7; top = hz + 0.18
+    n = max(1, math.ceil((top - gd) / DOOR_RISER - 1e-9)); r = (top - gd) / n
+    for k in range(1, n):
+        y1, y0 = hy0 - 0.3 - (k - 1) * 0.35, hy0 - 0.3 - k * 0.35
+        W.prism(F.rect(dx - 0.6, y0, dx + 0.6, y1), gd - 0.1, top - k * r, STONE)
+        col_box(dx - 0.6, y0, dx + 0.6, y1, gd - 0.1, top - k * r)
+    for xx in (hx0 + 0.6, hx1 - 0.9):         # potted plants either side, as in the concept (west one clear of the step)
         W.lathe((xx, hy0 - 0.8, hz), [(0, 0.22), (0.45, 0.3), (0.5, 0.0)], TERRACOTTA, n=10)
         W.lathe((xx, hy0 - 0.8, hz + 0.45), [(0, 0.3), (0.3, 0.36), (0.6, 0.0)], MOSS, n=10)
     # Timetable board on the promenade at the jetty root, facing the city.
-    timetable(T, gx + 6.5, -122.5, hz - 0.02, 0.0)
-    col_box(gx + 6.5 - 1.6, -122.8, gx + 6.5 + 1.6, -122.2, hz, hz + 3.2)
+    tx, ty, tz = b['timetable']
+    timetable(T, tx, ty, tz - 0.02, 0.0)
+    col_box(tx - 1.6, ty - 0.3, tx + 1.6, ty + 0.3, tz, tz + 3.2)
     # Collision for the decks, posts, benches and the waiting house (rails, stairs and brow add their own).
     col_box(x0, QF, x1, face, quay - deck_t, quay)
     col_box(sx0, gal0, sx1, gal1, SILL - 0.3, SILL)
@@ -480,7 +502,12 @@ def hidamari():
         for c0, c1 in cuts + [(L_, L_)]:
             col_seg((a_[0] + t_[0] * u_, a_[1] + t_[1] * u_), (a_[0] + t_[0] * c0, a_[1] + t_[1] * c0), 0.2, hz + 0.18, hz + 0.18 + wh)
             u_ = c1
-    walk = {'name': 'hidamari', 'route': [(gx, -121.0, hz), (gx, QF + 0.2, quay), (gx, foot_y + 1.0, quay),
+    col_box(hx0 + 0.2, hy0 - 0.19, hx0 + 1.2, hy0 - 0.13, hz + 0.18, hz + 0.18 + 2.15)   # the open door leaf
+    # From the waiting house out of its door, along the quay clear of the benches, then onto the jetty axis. The jetty
+    # root is beside the canal's west wall (x 840, railing posts every 2 m north of y -122), so the walk does not
+    # start on that line.
+    walk = {'name': 'hidamari', 'route': [(dx, hy0 + 1.5, hz + 0.2), (dx, -123.6, None), (gx - 1.0, -123.6, None),
+                                         (gx, QF + 0.2, quay), (gx, foot_y + 1.0, quay),
                                          (gx, foot_y - 0.05, quay)] +
             [(gx, y, None) for y in (land_y1, land_y0)] + [(gx, gal1, SILL), (gx, gal0 + 0.5, SILL), (gx, face, SILL),
                                                           (gx, gy, None), (gx, gy - 1.5, None)],
@@ -615,33 +642,25 @@ def brinecove():
 
 
 # ------------------------------------------------------------------ audit, export
-STEP_MAX, HEADROOM_MIN, WIDTH_MIN = 0.25, 2.1, 0.9     # walk audit limits (metres)
 SHIP_PARTS = ('hull', 'superstructure', 'funnel', 'lifeboats', 'rails', 'masts', 'fittings')
 CLOSE_PARTS = {'FT_HD_Jetty': 'fenders', 'FT_HD_Brow': 'brow', 'FT_BC_Fenders': 'fenders', 'FT_BC_Brow': 'brow'}
 
 
-# Exported world geometry the ferry's B3 world change removes; the walk audit leaves it out and reports it.
-WORLD_CUTS = {'hidamari': [{'what': "the quay's timber rail across the jetty root", 'x': 'jetty', 'y': (-126.3, -125.7),
-                            'above': 'quay'}]}
-
-
 def context_ground(name, route):
     """Audit-only ground (not exported): the exported world's own triangles (world_probe.py: ground and solids) within
-    3 m of the route, less the declared WORLD_CUTS. Returns the mesh and the cuts with the triangles they removed."""
+    3 m of the route, less the world cuts site.json records for B3. Returns the mesh and each cut with what it removed
+    in this audit (whole triangles; the world change splits them at the cut's x span)."""
+    np = __import__('numpy')
     w = FS.load_world(name)
-    tris = __import__('numpy').concatenate([w['ground'], w['solid']])
+    tris = np.concatenate([w['ground'], w['solid']])
     xs = [p[0] for p in route]; ys = [p[1] for p in route]
     lo, hi = tris.min(1), tris.max(1)
     keep = (hi[:, 0] >= min(xs) - 3) & (lo[:, 0] <= max(xs) + 3) & (hi[:, 1] >= min(ys) - 3) & (lo[:, 1] <= max(ys) + 3)
-    b = SITE[name]['berth']; cuts = []
-    for c in WORLD_CUTS.get(name, []):
-        gx = b['gate'][0]
-        x0, x1 = (gx - 8.0, gx + 8.0) if c['x'] == 'jetty' else c['x']
-        zmin = b['quay_top_z'] + 0.05 if c['above'] == 'quay' else c['above']
-        cut = keep & (hi[:, 0] >= x0) & (lo[:, 0] <= x1) & (lo[:, 1] >= c['y'][0]) & (hi[:, 1] <= c['y'][1]) & (lo[:, 2] >= zmin)
+    cuts = []
+    for c in SITE[name]['berth']['world_cuts']:
+        cut = keep & FS.cut_mask(tris, c)
         span = [round(float(lo[cut, 0].min()), 2), round(float(hi[cut, 0].max()), 2)] if cut.any() else None
-        cuts.append({**{k: v for k, v in c.items() if k != 'x'}, 'x': [round(x0, 2), round(x1, 2)], 'triangles_removed': int(cut.sum()),
-                     'removed_x_span': span})
+        cuts.append({**c, 'audit_triangles_removed': int(cut.sum()), 'audit_removed_x_span': span})
         keep &= ~cut
     m = bpy.data.meshes.new('ctx_' + name); t = tris[keep]
     m.from_pydata(t.reshape(-1, 3).tolist(), [], [[3 * k, 3 * k + 1, 3 * k + 2] for k in range(len(t))])
@@ -676,22 +695,39 @@ def _bvh(o):
     return BVHTree.FromPolygons(verts, polys), verts
 
 
+def _inside(bvh, v):
+    for d in (Vector((0, 0, 1)), Vector((0, 0, -1))):
+        h = bvh.ray_cast(v + d * 1e-4, d, 50.0)
+        if h[0] is None or h[1].dot(d) <= 0.0:
+            return False
+    return True
+
+
 def ship_clash(terminal, ship):
     """Ship against terminal in 3D: every terminal mesh's triangles against every ship mesh's (BVH overlap), and the
     least vertex-to-surface gap of the parts meant to come close (fenders, brow)."""
     bpy.context.view_layer.update()
-    ships = [(o.name.split('.')[0], _bvh(o)[0]) for o in ship]
+    ships = []
+    for o in ship:
+        bs, sv = _bvh(o)
+        lo = Vector([min(v[i] for v in sv) for i in range(3)]); hi = Vector([max(v[i] for v in sv) for i in range(3)])
+        ships.append((o.name.split('.')[0], bs, lo, hi))
     clashes, gaps = [], {}
     for t in terminal:
         bt, verts = _bvh(t)
         name = t.name.split('.')[0]
-        for sname, bs in ships:
+        for sname, bs, lo, hi in ships:
             pairs = bt.overlap(bs)
             if pairs:
                 clashes.append({'terminal': name, 'ship': sname, 'triangle_pairs': len(pairs)})
+            # A part wholly inside the ship meets no triangle: a vertex that sees the inside of the ship's closed solids
+            # both up and down is inside.
+            buried = sum(1 for v in verts if all(lo[i] <= v[i] <= hi[i] for i in range(3)) and _inside(bs, v))
+            if buried:
+                clashes.append({'terminal': name, 'ship': sname, 'vertices_inside': buried})
         if name in CLOSE_PARTS:
             best = (99.0, None, None)
-            for sname, bs in ships:
+            for sname, bs, _, _ in ships:
                 for v in verts:
                     hit = bs.find_nearest(v, 2.0)
                     if hit[0] is not None and hit[3] < best[0]:
@@ -701,8 +737,7 @@ def ship_clash(terminal, ship):
 
 
 def walk_audit(objs, walk):
-    """March the route every 0.1 m, dropping a ray for the floor: report the largest step, the least headroom
-    and the least clear width (at knee and chest height), and any point with no floor."""
+    """walkcheck.audit over a BVH of the given objects (kit, exported world around the route, ship at its berth)."""
     from mathutils.bvhtree import BVHTree
     bpy.context.view_layer.update()
     deps = bpy.context.evaluated_depsgraph_get()
@@ -711,45 +746,13 @@ def walk_audit(objs, walk):
         me = o.evaluated_get(deps).to_mesh(); base = len(verts)
         verts += [o.matrix_world @ v.co for v in me.vertices]; polys += [[base + i for i in p.vertices] for p in me.polygons]
     bvh = BVHTree.FromPolygons(verts, polys)
-    pts = walk['route']; z = pts[0][2]; rows = []
-    worst = {'max_step': 0.0, 'min_headroom': 99.0, 'min_width': 99.0, 'no_floor': 0, 'blocked': 0}
-    for (ax, ay, _), (bx, by, _) in zip(pts, pts[1:]):
-        L = math.hypot(bx - ax, by - ay); n = max(1, int(L / 0.1)); d = Vector(((bx - ax) / L, (by - ay) / L, 0))
-        side = Vector((-d.y, d.x, 0))
-        for k in range(n + 1):
-            p = Vector((ax + (bx - ax) * k / n, ay + (by - ay) * k / n, z + 0.5))
-            hit = bvh.ray_cast(p, Vector((0, 0, -1)), 1.2)
-            if hit[0] is None:
-                worst['no_floor'] += 1; rows.append({'at': [round(p.x, 2), round(p.y, 2)], 'issue': 'no floor'}); continue
-            nz = hit[0].z
-            at = [round(p.x, 2), round(p.y, 2), round(nz, 3)]
-            if k:                                     # nothing across the way at knee, waist or head height
-                back = p - d * (L / n)
-                for hgt in (0.35, 0.95, 1.6):
-                    o = Vector((back.x, back.y, z + hgt))
-                    if bvh.ray_cast(o, d, L / n)[0] is not None:
-                        worst['blocked'] += 1; rows.append({'at': at, 'issue': f'blocked at {hgt} m'}); break
-            step = nz - z; z = nz
-            if abs(step) > worst['max_step']:
-                worst['max_step'] = abs(step); worst['max_step_at'] = at
-            up = bvh.ray_cast(Vector((p.x, p.y, z + 0.05)), Vector((0, 0, 1)), 4.0)
-            head = (up[0].z - z) if up[0] is not None else 4.0
-            if head < worst['min_headroom']:
-                worst['min_headroom'] = head; worst['min_headroom_at'] = at
-            for hgt in (0.35, 1.2):
-                o = Vector((p.x, p.y, z + hgt)); w = 0.0
-                for s in (1, -1):
-                    h = bvh.ray_cast(o, side * s, 3.0)
-                    w += (h[0] - o).length if h[0] is not None else 3.0
-                if w < worst['min_width']:
-                    worst['min_width'] = w; worst['min_width_at'] = at + [hgt]
-    worst = {k: round(v, 3) if isinstance(v, float) else v for k, v in worst.items()}
-    worst['route'] = [[round(c, 3) if c is not None else None for c in p] for p in pts]
-    worst['pass'] = (worst['max_step'] <= STEP_MAX and worst['min_headroom'] >= HEADROOM_MIN and worst['min_width'] >= WIDTH_MIN
-                     and not worst['no_floor'] and not worst['blocked'])
-    worst['end_z'] = round(z, 3); worst['gate_sill'] = round(SILL, 3)
-    worst['issues'] = rows[:20]
-    return worst
+
+    def cast(o, d, dist):
+        h = bvh.ray_cast(Vector(o), Vector(d), dist)
+        return tuple(h[0]) if h[0] is not None else None
+    audit = WC.audit(walk['route'], cast)
+    audit['gate_sill'] = round(SILL, 3)
+    return audit
 
 
 def fbx(path, objs, smooth='EDGE'):
@@ -811,7 +814,8 @@ def main():
     mats = F.make_materials()
     ship = ship_meshes(mats)
     manifest = {'units': 'metres, z up; Hidamari in world metres, Brinecove region-local', 'sill_z': SILL,
-                'site_inputs': SITE['inputs'], 'limits': {'step_max': STEP_MAX, 'headroom_min': HEADROOM_MIN, 'width_min': WIDTH_MIN},
+                'site_inputs': SITE['inputs'], 'limits': {'step_max': WC.STEP_MAX, 'headroom_min': WC.HEADROOM_MIN,
+                                                          'width_min': WC.WIDTH_MIN, 'capsule_radius': WC.RADIUS},
                 'terminals': {}}
     walks = {}
     failures = []
@@ -841,7 +845,7 @@ def main():
         print(name, 'ship clash', clash)
         failures += [f'{name}: open edges in {n}' for n, v in rep.items() if v['open_edges']]
         failures += [f'{name}: walk audit failed'] * (not audit['pass'])
-        failures += [f'{name}: {c["terminal"]} meets {c["ship"]} ({c["triangle_pairs"]} triangle pairs)' for c in clash['clashes']]
+        failures += [f'{name}: {c["terminal"]} meets {c["ship"]} ({c})' for c in clash['clashes']]
     manifest['failures'] = failures
     (OUT / 'walk.json').write_text(json.dumps(walks, indent=1) + '\n')
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n')

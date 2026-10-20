@@ -131,7 +131,10 @@ Blender-only: nothing is placed in the world or imported yet. Run them in this o
    bench and wall; a tiny placeholder render mesh to hide or delete after import):
    - Hidamari: `FT_HD_Jetty` (piles, deck, black fenders hung 5 cm off the hull), `FT_HD_Stage` (a two-level timber
      boarding stage: the ship's gate is at 6.94 m, 4.5 m above the quay coping, so a stair of 19 equal risers climbs to
-     a gallery at sill height under a kawara roof), `FT_HD_Brow`, `FT_HD_WaitingHouse` and `FT_HD_Timetable`.
+     a gallery at sill height under a kawara roof), `FT_HD_Brow`, `FT_HD_WaitingHouse` (its door
+     steps down to the quay in equal risers of at most 0.2 m, from the quay level `site.py` measures at the door) and
+     `FT_HD_Timetable` (on the quay west of the jetty root, at its measured level; east of the root is the canal
+     mouth).
    - Brinecove: `FT_BC_Landing` (a framed timber stage at sill height, closed underneath, with a 7-riser stair down to
      the pier deck), `FT_BC_Brow`, `FT_BC_Pavilion`, `FT_BC_TicketHut`, `FT_BC_Fenders` (piles standing off the pier
      edge on chocks, tyres 5 cm off the hull) and `FT_BC_Props`.
@@ -141,11 +144,15 @@ Blender-only: nothing is placed in the world or imported yet. Run them in this o
      edge.
    - Audits, each failing the build: closed meshes; ship against terminal in 3D, with ship C's meshes at the berth
      pose (no terminal triangle may meet a ship triangle; the fender and brow gaps are reported); and a ray-cast walk
-     from the promenade over the brow onto the ship's deck, on the exported world's own surfaces near the route and
-     the ship itself (step at most 0.25 m, headroom at least 2.1 m, width at least 0.9 m, a floor everywhere, nothing
-     across the way at knee, waist or head height). World geometry that B3 must remove is declared in `WORLD_CUTS`
-     and left out of the walk; `manifest.json` reports it under `world_cuts_pending` (today: Hidamari's quay timber
-     rail across the jetty root).
+     from inside the waiting house (Hidamari: out of its door, along the quay clear of the canal wall's railing at x 840)
+     or from the pier (Brinecove), over the brow onto the ship's deck ([`walkcheck.py`](terminals/walkcheck.py), plain Python),
+     on the exported world's own surfaces near the route and the ship itself. For a 0.22 m player capsule: step at
+     most 0.25 m, headroom at least 2.1 m, width at least 0.9 m, at least 0.22 m clear on each side of the route
+     line, a floor everywhere, and nothing across the way at knee, waist or head height on the line or 0.22 m to
+     either side. World geometry that B3 must remove is recorded by `site.py` in `site.json` (`world_cuts`: a plan
+     band, an x span and a base height, so posts go with their rail); the walk leaves it out, and `manifest.json`
+     reports what it removed under `world_cuts_pending`. Today that is Hidamari's quay timber rail and its posts
+     across the jetty root (x 831.8–847.8).
 4. [`render.py`](terminals/render.py) renders the kits with ship C at each berth (`TERMINAL_VIEWS=a,b` renders a
    subset), and [`compare.py`](terminals/compare.py) puts them beside the v2 concepts.
 
@@ -155,5 +162,5 @@ overlap. `tests/test_ferry_site.py` covers the sweep, the rasterising, the berth
 fit and the walk verdicts on small fixtures, without Blender or a world build.
 
 Still to do when the ferry goes into the world (B3): import and placement of the kits and their collision, the cut in
-Hidamari's quay timber rail at the jetty root (the `world_cuts_pending` entry), the ferry runtime following these manoeuvres, rerunning `world_probe.py`
+Hidamari's quay timber rail and posts at the jetty root (read from `site.json` `world_cuts`, not re-derived), the ferry runtime following these manoeuvres, rerunning `world_probe.py`
 and `site.py` on the build that ships, and a game walk of both boarding routes.

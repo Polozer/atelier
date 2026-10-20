@@ -9,6 +9,8 @@ with the sha256 of every file read, so site.json binds the exact export it was c
 - Hidamari (world metres): ground is hidamari/assets/HD_Terrain.fbx and, south of the city, the far hills' product
   terrain/FarHills/final.npz. Solid is HD_Harbor.fbx plus every hidamari/city.json instance whose position lies inside
   the bounds, each asset's exported FBX at the instance's position, yaw (Blender degrees; Unreal applies -yaw) and scale.
+  Placements of meshes exported elsewhere (trees, poles, street props) are listed in the probe's meta, and the probe
+  fails if one stands at water level.
 - Brinecove (region-local metres, the export frame; runtime.json records origin_cm): every brinecove/runtime.json group
   at each of its transforms, read back from Unreal (cm, y flipped, left-handed quaternion) into Blender's frame.
   SM_BC_Ground_* groups are ground; plant groups are left out (they stand on land); every other group is solid.
@@ -31,6 +33,7 @@ S = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(S)
 
 OUT = S.OUT
 Z_BAND = (-(S.DRAFT + S.KEEL_CLEARANCE), S.SHIP_TOP)      # solids that can meet the hull, anywhere along its height
+WATER_Z = 0.5                 # a placement this low stands in the water: its mesh must be in the probe
 
 
 def sha(path):
@@ -81,7 +84,7 @@ def clip(tris, bounds, band=None):
 
 
 def hidamari(build):
-    bounds = S.BOUNDS['hidamari']; sources = {}; names = []
+    bounds = S.BOUNDS['hidamari']; sources = {}; names = []; skipped = []
     clear_scene()
     path = build / 'hidamari/assets/HD_Terrain.fbx'; sources[str(path.relative_to(build))] = sha(path)
     ground = [clip(triangles(import_file(path)), bounds)]
@@ -97,6 +100,8 @@ def hidamari(build):
     for asset, rows in sorted(json.loads(city.read_text())['instances'].items()):
         rows = [r for r in rows if x0 - 30 <= r[0] <= x1 + 30 and y0 - 30 <= r[1] <= y1 + 30]
         path = build / 'hidamari/assets' / f'{asset}.fbx'
+        if rows and not path.exists():          # instanced from another product (trees, poles, props): recorded, and
+            skipped += [[asset] + [round(v, 2) for v in r] for r in rows]   # refused below if it stands in the water
         if not rows or not path.exists():
             continue
         sources[str(path.relative_to(build))] = sha(path)
@@ -105,7 +110,10 @@ def hidamari(build):
             M = Matrix.Translation((x, y, z)) @ Matrix.Rotation(math.radians(yaw), 4, 'Z') @ Matrix.Scale(scale, 4)
             solid.append(clip(triangles(objs, M), bounds, Z_BAND)); names.append(asset)
         clear_scene()
-    return np.concatenate(ground), solid, names, sources, {'frame': 'world metres'}
+    wet = [r for r in skipped if r[3] <= WATER_Z]
+    if wet:
+        raise SystemExit(f'hidamari: placements whose mesh is not in hidamari/assets stand in the water: {wet}')
+    return np.concatenate(ground), solid, names, sources, {'frame': 'world metres', 'skipped_placements': skipped}
 
 
 def unreal_to_blender(t):

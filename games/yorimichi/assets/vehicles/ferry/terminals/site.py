@@ -387,6 +387,21 @@ def levels(world, pts, zmax):
     return z[j, i]
 
 
+def world_cut(what, x, y, z_from):
+    """A piece of the exported world that the ferry's world change (B3) removes, as data both the terminal walk audit
+    and the world change read from site.json: every triangle whose plan lies within the band y, meets the span x and
+    starts no lower than z_from. Whole posts standing in the coping go with the rail; the coping and the wall, wider
+    than the band or reaching lower, stay."""
+    return {'what': what, 'x': [round(x[0], 3), round(x[1], 3)], 'y': [round(y[0], 3), round(y[1], 3)], 'z_from': round(z_from, 3)}
+
+
+def cut_mask(tris, cut):
+    """Triangles (n, 3, 3) that a world_cut removes."""
+    lo, hi = tris.min(1), tris.max(1)
+    return ((hi[:, 0] >= cut['x'][0]) & (lo[:, 0] <= cut['x'][1]) & (lo[:, 1] >= cut['y'][0]) & (hi[:, 1] <= cut['y'][1])
+            & (lo[:, 2] >= cut['z_from']))
+
+
 def rect_points(x0, y0, x1, y1, step=0.5):
     X, Y = np.meshgrid(np.arange(x0 + step / 2, x1, step), np.arange(y0 + step / 2, y1, step))
     return np.c_[X.ravel(), Y.ravel()]
@@ -397,6 +412,7 @@ HIDAMARI_X = 855.0                    # berth centre x: the jetty clears the can
 HIDAMARI_QUAY_FACE = -127.7           # quay coping outer face (hidamari/build.py harbor(): 3.4 m coping on y -126)
 HIDAMARI_PIVOT = (872.0, -190.0)      # deep water inside the mouth, clear of the workboats and the headland shelf
 HIDAMARI_STANDOFF = -156.0            # the glide line off the berth
+HIDAMARI_TIMETABLE_DX = -6.5         # the timetable board, west of the jetty axis on the quay
 QUAY_RAIL = 2.9                       # quay surfaces sit below the timber rail (posts 2.45-3.55)
 
 
@@ -411,9 +427,23 @@ def hidamari_layout(world):
     jetty = [(gx - 8.0, HIDAMARI_QUAY_FACE), (gx + 8.0, HIDAMARI_QUAY_FACE), (gx + 8.0, face_y), (gx - 8.0, face_y)]
     quay = levels(world, rect_points(gx - 8, HIDAMARI_QUAY_FACE + 0.1, gx + 8, HIDAMARI_QUAY_FACE + 3.3), QUAY_RAIL)
     house = levels(world, rect_points(gx - 21.0, -122.0, gx - 9.0, -114.5), QUAY_RAIL + 0.5)
-    walk = {'quay_top_z': round(float(np.nanmedian(quay)), 3), 'quay_top_range': [round(float(np.nanmin(quay)), 3), round(float(np.nanmax(quay)), 3)],
+    q = float(np.nanmedian(quay))
+    # The waiting house's door (south wall, 1.2-2.2 m from its west end) steps down to the quay; the timetable board
+    # stands on the quay west of the jetty root (x 840-856 east of it is the canal mouth, water at the quay).
+    door = levels(world, rect_points(gx - 21.0 + 1.0, -123.0, gx - 21.0 + 2.4, -122.3, 0.2), QUAY_RAIL + 0.5)
+    tx, ty = gx + HIDAMARI_TIMETABLE_DX, -122.5
+    board = levels(world, rect_points(tx - 1.5, ty - 0.3, tx + 1.5, ty + 0.3, 0.2), QUAY_RAIL + 0.5)
+    for what, zs in (('waiting house door step', door), ('timetable board', board)):
+        if np.isnan(zs).any():
+            raise ValueError(f'Hidamari {what}: no exported surface under part of its footprint')
+    # The jetty root crosses the quay's timber rail (posts 2.45-3.55, top beam 3.5): B3 cuts it over the jetty's width.
+    cuts = [world_cut("the quay's timber rail and posts across the jetty root", (gx - 8.0, gx + 8.0), (-126.3, -125.7),
+                      q - 0.1)]
+    walk = {'world_cuts': cuts, 'quay_top_z': round(q, 3), 'quay_top_range': [round(float(np.nanmin(quay)), 3), round(float(np.nanmax(quay)), 3)],
             'promenade_z': round(float(np.nanmax(house)), 3), 'promenade_range': [round(float(np.nanmin(house)), 3), round(float(np.nanmax(house)), 3)],
-            'waiting_house': [gx - 21.0, -122.0, gx - 9.0, -114.5]}
+            'waiting_house': [gx - 21.0, -122.0, gx - 9.0, -114.5], 'door_ground_z': round(float(np.nanmin(door)), 3),
+            'timetable': [round(tx, 3), ty, round(float(np.nanmax(board)), 3)],
+            'timetable_ground_range': [round(float(np.nanmin(board)), 3), round(float(np.nanmax(board)), 3)]}
     zone = jetty
     return berth, (gx, gy), jetty, face_y, zone, walk
 
@@ -451,7 +481,7 @@ def brinecove_layout(world):
     zone = [(face_x - 0.05, BRINECOVE_BERTH_Y - half), (px + pw / 2, BRINECOVE_BERTH_Y - half),
             (px + pw / 2, BRINECOVE_BERTH_Y + half), (face_x - 0.05, BRINECOVE_BERTH_Y + half)]
     deck = levels(world, rect_points(face_x + 0.6, gy - 12.0, face_x + 12.5, gy + 18.0), 5.6)
-    walk = {'pier_deck_z': round(float(np.nanmedian(deck)), 3), 'pier_deck_range': [round(float(np.nanmin(deck)), 3), round(float(np.nanmax(deck)), 3)]}
+    walk = {'world_cuts': [], 'pier_deck_z': round(float(np.nanmedian(deck)), 3), 'pier_deck_range': [round(float(np.nanmin(deck)), 3), round(float(np.nanmax(deck)), 3)]}
     return berth, (gx, gy), landing, face_x, zone, walk
 
 

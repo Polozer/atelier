@@ -103,6 +103,8 @@ def main():
         'hidamari_water': ((gx - 30.0, -150.0, 17.0), (gx + 6.0, -132.0, 5.0), 22.0),
         'hidamari_stage': ((gx - 14.0, -126.0, 4.2), (gx, -136.0, 6.0), 24.0),
         'hidamari_promenade': ((gx - 4.0, -108.0, 4.3), (gx + 1.0, -130.0, 5.0), 22.0),
+        # The waiting house door (open sliding door, steps down to the quay), where the terminal walk starts.
+        'hidamari_door': ((gx - 16.5, -126.0, h['promenade_z'] + 1.6), (gx - 19.3, -122.0, h['promenade_z'] + 1.0), 24.0),
     }
     bx, by, _ = b['gate']; PW = b['face'] + 0.5
     views.update({

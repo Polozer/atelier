@@ -233,3 +233,54 @@ def test_walk_verdict_passes_a_clean_report(walk):
 ])
 def test_walk_verdict_fails_each_fault(walk, fault):
     assert walk.verdict(walk_report(**fault))
+
+
+@pytest.fixture(scope='module')
+def walkcheck():
+    with mock.patch.dict(sys.modules):
+        yield _load('ferry_walkcheck', FERRY / 'terminals/walkcheck.py')
+
+
+def box(x0, y0, z0, x1, y1, z1):
+    """The 12 triangles of an axis-aligned box."""
+    v = [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)]
+    quads = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
+    return np.array([[v[a], v[b], v[c]] for q in quads for a, b, c in ((q[0], q[1], q[2]), (q[0], q[2], q[3]))], float)
+
+
+# The Hidamari jetty root: quay coping (top 2.475) on its wall, the timber rail's posts standing in it (2.45-3.55) and
+# its top beam (3.455-3.545) running far past the jetty, all on y -126.
+QUAY = 2.475
+COPING, WALL = box(820, -127.7, 2.225, 860, -124.3, QUAY), box(820, -127.5, -1.0, 860, -124.5, 2.3)
+POST = box(839.56, -126.065, 2.45, 839.69, -125.935, 3.55)
+BEAM = box(781.65, -126.045, 3.455, 900.0, -125.955, 3.545)
+
+
+def test_world_cut_takes_the_posts_with_the_rail_and_keeps_the_quay(site):
+    cut = site.world_cut('rail', (831.8, 847.8), (-126.3, -125.7), QUAY - 0.1)
+    for part, removed in ((POST, True), (BEAM, True), (COPING, False), (WALL, False),
+                          (box(829.0, -126.065, 2.45, 829.13, -125.935, 3.55), False)):        # a post beside the jetty
+        meets = (part[:, :, 0].max(1) >= cut['x'][0]) & (part[:, :, 0].min(1) <= cut['x'][1])      # crosses the jetty span
+        assert (site.cut_mask(part, cut)[meets].all() if removed else not site.cut_mask(part, cut).any())
+
+
+def walk_over_quay(walkcheck, site, extra):
+    """The route at x 839.8 from the promenade over the coping onto the jetty, 0.11 m from the post."""
+    floor = box(820, -140, 2.2, 860, -110, QUAY)
+    tris = np.concatenate([floor] + extra)
+    return walkcheck.audit([(839.8, -121.0, QUAY), (839.8, -131.0, QUAY)], walkcheck.TriangleCaster(tris))
+
+
+def test_the_capsule_meets_a_post_beside_the_route_line(walkcheck, site):
+    clear = walk_over_quay(walkcheck, site, [])
+    assert clear['pass'], clear
+    hit = walk_over_quay(walkcheck, site, [POST])
+    assert not hit['pass'] and (hit['blocked'] or hit['min_side_clearance'] < walkcheck.RADIUS)
+
+
+def test_cutting_the_rail_clears_the_route(walkcheck, site):
+    cut = site.world_cut('rail', (831.8, 847.8), (-126.3, -125.7), QUAY - 0.1)
+    parts = np.concatenate([POST, BEAM])
+    kept = parts[~site.cut_mask(parts, cut)]
+    assert walk_over_quay(walkcheck, site, [kept])['pass']
+    assert not walk_over_quay(walkcheck, site, [BEAM])['pass']           # the beam alone blocks at waist height
