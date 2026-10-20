@@ -1,5 +1,6 @@
 #include "JapanSession.h"
 #include "RacingBetting.h"
+#include "RacingRecords.h"
 #include "RacingStables.h"
 #include "LiveLibrary.h"
 #include "JapanNetwork.h"
@@ -242,6 +243,8 @@ AJapanPlayerController::AJapanPlayerController()
     CreateDefaultSubobject<URacingWallet>(TEXT("RacingWallet"));
     // The player's racing stable (docs/RACING.md, "Stables"): replicated to this player only.
     CreateDefaultSubobject<URacingStableDesk>(TEXT("RacingStableDesk"));
+    // The records hall's reading desk (docs/RACING.md, "Records hall"): replicated to this player only, on demand.
+    CreateDefaultSubobject<URacingRecordsDesk>(TEXT("RacingRecordsDesk"));
 }
 void AJapanPlayerController::BeginPlay()
 {

@@ -1,5 +1,6 @@
 #include "WandererCharacter.h"
 #include "RacingBetting.h"
+#include "RacingRecords.h"
 #include "RacingStables.h"
 #include "BelmonteTrainService.h"
 #include "CraterParkTower.h"
@@ -1033,6 +1034,8 @@ void AWandererCharacter::Interact(const FInputActionValue&) {
  if (RacingCounter::TryOpen(this)) return;
  // A plate or a board of the player's racing stable (docs/RACING.md, "Stables").
  if (RacingStables::TryOpen(this)) return;
+ // An object of the records hall in Belmonte's town hall (docs/RACING.md, "Records hall").
+ if (RacingRecords::TryOpen(this)) return;
  if (JapanNetwork::IsOnline(GetWorld()))
  {
   if (IsLocallyControlled() && bReady && !bMenuOpen && !SkateRide->IsRiding() && !OnVehicle() && !IsZeppelinPassenger() && ABelmonteTrainService::CanInteract(this))
