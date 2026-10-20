@@ -30,6 +30,9 @@ COMMON = ('r.DynamicRes.OperationMode 0,r.ScreenPercentage 100,r.RHISetGPUCaptur
 CANDIDATE = 'r.SkylightIntensityMultiplier .33,japan.ForwardHarborFill 3'
 TILE_TAG = 'v1_128m'
 TREE_TAG = 'v4'
+# The game's release defaults (JapanPreferences.cpp JapanReleaseDefaults) for the choices verified here: a choice
+# missing from settings.txt, or unreadable there, starts at these values in game.
+RELEASE_DEFAULTS = {'renderer': 0, 'tree_optimization': 1, 'tree_lod_mode': 2}
 
 
 def read_preferences(path, overrides=''):
@@ -77,7 +80,7 @@ def bridge_bind_error(text, port):
 def command(ctx, folder, baseline=False, windowed=False, shared_settings=False, settings='', extra=(), preferences=None):
     preferences = Path(preferences) if preferences is not None else preference_path(folder, shared_settings)
     saved = read_preferences(preferences, settings)
-    lumen = baseline or toggle(saved, 'renderer', 0)
+    lumen = baseline or toggle(saved, 'renderer', RELEASE_DEFAULTS['renderer'])
     # Shared play keeps the user's quality, light and art choices. Performance
     # and native render scale are defaults only when no saved choice exists.
     profile = 'desktop=1' if shared_settings else SETTINGS
@@ -170,14 +173,16 @@ def tile_counts(path):
 
 
 def tree_lod_choice(values):
+    default = RELEASE_DEFAULTS['tree_lod_mode']
     try:
-        value = float(values.get('tree_lod_mode', 0))
-        return int(math.floor(max(0, min(3, value)) + .5)) if math.isfinite(value) else 0
+        value = float(values.get('tree_lod_mode', default))
+        return int(math.floor(max(0, min(3, value)) + .5)) if math.isfinite(value) else default
     except (ValueError, TypeError):
-        return 0
+        return default
 
 
-def parse_ready(log, baseline=False, windowed=False, tile_manifest=None, tree_optimization=True, tree_lod_mode=0):
+def parse_ready(log, baseline=False, windowed=False, tile_manifest=None, tree_optimization=True,
+                tree_lod_mode=RELEASE_DEFAULTS['tree_lod_mode']):
     sizes = re.findall(r'DESKTOP PREVIEW viewport=(\d+)x(\d+) fullscreen=(\d) window_aspect=([0-9.]+)', log)
     if not sizes:
         return None
@@ -251,8 +256,8 @@ def launch(baseline=False, windowed=False, dry_run=False, shared_settings=False,
                ('-previewcapture=' + str(run / 'ready.png')) if arg.startswith('-previewcapture=') else
                ('-renderrestartrequest=' + str(restart_request)) if arg.startswith('-renderrestartrequest=') else arg for arg in cmd]
         values = read_preferences(preferences, settings)
-        lumen = baseline or toggle(values, 'renderer', 0)
-        trees = toggle(values, 'tree_optimization', 1)
+        lumen = baseline or toggle(values, 'renderer', RELEASE_DEFAULTS['renderer'])
+        trees = toggle(values, 'tree_optimization', RELEASE_DEFAULTS['tree_optimization'])
         if lumen:
             print('Lumen uses more GPU resources and memory; its first launch may compile additional mesh/shader data.', flush=True)
         print(f'Loading Yorimichi ({"Lumen" if lumen else "forward"}, tree optimization={int(trees)}). Log: {run / "game.log"}', flush=True)
@@ -262,7 +267,7 @@ def launch(baseline=False, windowed=False, dry_run=False, shared_settings=False,
             request = restart_request.read_text()
             restart_request.unlink()
             saved = read_preferences(preferences)
-            saved_renderer = toggle(saved, 'renderer', 0)
+            saved_renderer = toggle(saved, 'renderer', RELEASE_DEFAULTS['renderer'])
             if 'renderer' not in saved or request not in ('renderer=0\n', 'renderer=1\n') or request != f'renderer={int(saved_renderer)}\n' or saved_renderer == lumen:
                 print('renderer restart request does not match a changed saved choice; stopping', flush=True)
                 return 1
