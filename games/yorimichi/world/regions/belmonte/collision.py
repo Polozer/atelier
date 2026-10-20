@@ -136,6 +136,11 @@ def flood(free, seed):
             return reach
 
 
+def mirror(faces):
+    """Reverse each triangle's winding: plan-frame outward solids become outward in Unreal, like the source."""
+    return np.asarray(faces)[:, [0, 2, 1]]
+
+
 def cluster(faces, cell):
     """Vertex-clustering simplification: every vertex moves to the mean of its cell's vertices (at most a cell's
     diagonal), and triangles that collapse or repeat go. Surfaces keep their shape to within a cell."""
@@ -153,14 +158,15 @@ def cluster(faces, cell):
     _, first = np.unique(np.sort(tri, 1), axis=0, return_index=True)
     tri = tri[np.sort(first)]
     # Clustering can pull a surface in by up to half a cell: push every vertex out along its area-weighted normal
-    # (the drawn faces wind outward) by that much, so the collision never sinks into what is drawn.
+    # by that much, so the collision never sinks into what is drawn. (The plan frame mirrors Unreal's, so the drawn
+    # faces, wound outward in Unreal, wind inward here: their outward normal is -(b - a) x (c - a).)
     a, b, c = mean[tri[:, 0]], mean[tri[:, 1]], mean[tri[:, 2]]
     n = np.cross(b - a, c - a)
     normal = np.zeros_like(mean)
     for k in range(3):
         np.add.at(normal, tri[:, k], n)
     normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
-    return (mean + normal * cell / 2)[tri]
+    return (mean - normal * cell / 2)[tri]
 
 
 def components(cells):
@@ -206,28 +212,7 @@ def boxes2d(sheet):
     return out
 
 
-def boxes(mask):
-    """Greedy axis-aligned boxes covering `mask` exactly: [(lo index, hi index exclusive)]."""
-    todo = mask.copy()
-    out = []
-    for x, y, z in np.argwhere(mask):
-        if not todo[x, y, z]:
-            continue
-        z1 = z + 1
-        while z1 < mask.shape[2] and todo[x, y, z1]:
-            z1 += 1
-        y1 = y + 1
-        while y1 < mask.shape[1] and todo[x, y1, z:z1].all():
-            y1 += 1
-        x1 = x + 1
-        while x1 < mask.shape[0] and todo[x1, y:y1, z:z1].all():
-            x1 += 1
-        todo[x:x1, y:y1, z:z1] = False
-        out.append(((x, y, z), (x1, y1, z1)))
-    return out
-
-
-# Twelve outward-wound triangles of a box, corners numbered by their (x, y, z) bits.
+# Twelve triangles of a box, wound outward in the plan frame (mirror() turns them for Unreal), corners numbered by their (x, y, z) bits.
 _BOX = np.array([[0, 2, 3], [0, 3, 1], [4, 5, 7], [4, 7, 6], [0, 1, 5], [0, 5, 4],
                  [2, 6, 7], [2, 7, 3], [0, 4, 6], [0, 6, 2], [1, 3, 7], [1, 7, 5]])
 _CORNERS = np.array([[i & 1, i >> 1 & 1, i >> 2 & 1] for i in range(8)], float)
@@ -317,7 +302,8 @@ class Building:
                 self._slab(part, clear, out)
         if not out:
             return np.zeros((0, 3, 3))
-        return np.concatenate(out)
+        # Built outward-wound in the plan frame; Unreal's mirrored frame wants the source's winding (see cluster).
+        return mirror(np.concatenate(out))
 
     def _slab(self, part, clear, out):
         centres = self.lo + (part + .5) * self.h
@@ -370,14 +356,6 @@ class Building:
         points = keys - normal * 5e-3
         return points[index.reshape(-1, 3)] * self.h + self.lo
 
-    def box_faces(self, spans):
-        if not spans:
-            return np.zeros((0, 3, 3))
-        lo = np.array([s[0] for s in spans], float) * self.h + self.lo + 1e-3   # inside their own voxels
-        hi = np.array([s[1] for s in spans], float) * self.h + self.lo - 1e-3
-        corners = lo[:, None] + (hi - lo)[:, None] * _CORNERS[None]
-        return corners[:, _BOX].reshape(-1, 3, 3)
-
 
 def furnished(entries):
     """Meshes without hulls are furnished interiors the player enters: they collide as drawn."""
@@ -424,6 +402,7 @@ class Shell:
     faces: dict
     skin_triangles: int
     plugs: int
+    plug_triangles: int = 0
 
 
 def generate(b):
@@ -475,7 +454,7 @@ def _shell(b, cell):
     plugs = np.concatenate(plugs)
     owner = next(e['name'] for e in b.entries if 'collision' in e)
     faces[owner] = np.concatenate([faces[owner], plugs])
-    return Shell(b.name, faces, skin, len(plugs) // 12)
+    return Shell(b.name, faces, skin, len(plugs) // 12, len(plugs))
 
 
 def write_glb(path, faces):

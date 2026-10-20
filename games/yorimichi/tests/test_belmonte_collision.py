@@ -90,12 +90,16 @@ def test_collision_glb_round_trips(tmp_path):
     path = tmp_path / 'SM_BM_BH_Porta_SE_Collision.glb'
     collision.write_glb(path, faces)
     np.testing.assert_allclose(source.triangles(path), faces, atol=1e-4)
-    # Outward winding: the plug boxes' faces point away from their centres.
-    boxes = faces[-12 * shell.plugs:] if shell.plugs else faces[:0]
-    for box in boxes.reshape(-1, 12, 3, 3)[:20]:
-        centre = box.reshape(-1, 3).mean(0)
-        n = np.cross(box[:, 1] - box[:, 0], box[:, 2] - box[:, 0])
-        assert (np.einsum('ij,ij->i', n, box.mean(1) - centre) > 0).all()
+    # Unreal-outward winding, the convention of the committed hulls: closed solids have a negative signed volume
+    # in the mirrored plan frame. The one-sided skate sim rides straight through anything wound the other way.
+    def volume(t):
+        return np.einsum('ij,ij->i', t[:, 0], np.cross(t[:, 1], t[:, 2])).sum() / 6
+    name = 'SM_BM_BE_4_Stables'
+    b, stables = generated(name)
+    hulls = collision.committed(b.entries)
+    owner = next(e['name'] for e in b.entries if 'collision' in e)
+    assert stables.plug_triangles and all(volume(f) < 0 for f in hulls.values() if len(f))
+    assert volume(stables.faces[owner][-stables.plug_triangles:]) < 0
 
 
 def test_build_writes_generated_shells_for_buildings_only(tmp_path, monkeypatch):
