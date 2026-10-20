@@ -62,6 +62,11 @@ observers must receive sustained skate poses and evaluate the expected skeleton.
 Skate replacement receipts also require the finalized mesh world frame to match
 the applied stream frame. Matching local bones alone can miss a misplaced body.
 
+`review_network_session.py --racing` runs the racing stack on a listen pair (`-networkracing`, `RacingNetworkQA`;
+docs/RACING.md, "Two players"): the guest's persistent racing identity, a stable request, records pages, win bets on
+a race both processes sample, the train line's clock and countdowns, and the guest leaving for Solo and joining again.
+Each process keeps its own racing world and install id (`-racingsave`). It lasts up to about 15 minutes.
+
 The session runner supports `--feature-case equipment|switch-foot|switch-bike|
 switch-sail|switch-horse|switch-skate|switch-skate-air|switch-skate-bail|zeppelin` and
 `--render-view host|guest`. Run both observer

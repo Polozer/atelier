@@ -4,7 +4,9 @@
 #include "HRSave.h"
 #include "JapanHUD.h"
 #include "RacingPlaces.h"
+#include "RacingIdentity.h"
 #include "RacingService.h"
+#include "JapanSession.h"
 #include "SkateComponent.h"
 #include "WandererCharacter.h"
 #include "Dom/JsonObject.h"
@@ -35,8 +37,47 @@
 
 URacingWallet::URacingWallet()
 {
-    PrimaryComponentTick.bCanEverTick = false;
+    // It ticks only on a guest, until it has presented its install id (TickComponent).
+    PrimaryComponentTick.bCanEverTick = true;
+    PrimaryComponentTick.bStartWithTickEnabled = true;
+    PrimaryComponentTick.TickInterval = .25f;
     SetIsReplicatedByDefault(true);
+}
+
+void URacingWallet::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+    Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+    const AController* Owner = Cast<AController>(GetOwner());
+    // The host and offline games know their own player (RacingIdentity::HostKey): nothing to present.
+    if (bIdentitySent || GetNetMode() != NM_Client) { SetComponentTickEnabled(false); return; }
+    if (!Owner || !Owner->IsLocalController()) return;
+    bIdentitySent = true;
+    SetComponentTickEnabled(false);
+    const FString Id = ARacingService::LocalInstallId();
+    UE_LOG(LogTemp, Display, TEXT("RACING identity presented to the host: %s"), *Id);
+    ServerIdentify(Id);
+}
+
+void URacingWallet::ServerIdentify_Implementation(const FString& InstallId)
+{
+    HostIdentify(InstallId);
+}
+
+void URacingWallet::HostIdentify(const FString& InstallId)
+{
+    // Once per connection: a key never changes under a player in a session.
+    if (!GuestKey.IsEmpty()) return;
+    const AController* Owner = Cast<AController>(GetOwner());
+    TSet<FString> Held;
+    if (const UWorld* World = GetWorld())
+        for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+            if (It->Get() != Owner)
+                if (const URacingWallet* Other = Of(It->Get()); Other && !Other->GuestKey.IsEmpty()) Held.Add(Other->GuestKey);
+    const AJapanPlayerState* PS = Owner ? Owner->GetPlayerState<AJapanPlayerState>() : nullptr;
+    FString Why;
+    GuestKey = RacingIdentity::ResolveGuest(InstallId.Left(64), PS ? PS->SessionPlayerId : FString(), Held, &Why);
+    UE_LOG(LogTemp, Display, TEXT("RACING identity: a guest is %s%s%s"), *GuestKey, Why.IsEmpty() ? TEXT("") : TEXT(", this session only: "), *Why);
+    // Registered on the service's next pass (at most a second), its wallet and stable views then.
 }
 
 void URacingWallet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
