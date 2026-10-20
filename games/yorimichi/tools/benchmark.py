@@ -20,6 +20,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'world')); import yori  # noqa: E402
 from atelier.engine import unreal_root
 from atelier.provenance import head, status
+from atelier.play_limits import GAME_GIB, GAME_MAX_GIB
 from atelier.harness.safety import guarded
 from atelier.harness.safety.render_lock import RenderBusy, render_processes
 from atelier.harness.safety.provenance import profile_from_log
@@ -58,7 +59,7 @@ def other_render_processes(ignore_pid=None):
     return render_processes(() if ignore_pid is None else (ignore_pid,))
 
 
-def run_benchmark(command, folder, *, purpose, timeout, slot_deadline):
+def run_benchmark(command, folder, *, purpose, timeout, slot_deadline, limit_gib=GAME_GIB):
     """@cc [owner:fontanierh,label:safety] benchmark-common-admission
     The actual game MUST run through one common guarded admission with performance exclusion requested.
     Only pre-spawn legacy lock refusals MAY be retried, without holding capacity between attempts.
@@ -73,7 +74,7 @@ def run_benchmark(command, folder, *, purpose, timeout, slot_deadline):
 
     while True:
         try:
-            code = guarded.run(command, folder, purpose=purpose, timeout=timeout, kind='game',
+            code = guarded.run(command, folder, purpose=purpose, timeout=timeout, kind='game', limit_gib=limit_gib,
                                performance=True, on_poll=observe)
             break
         except RenderBusy:
@@ -96,8 +97,10 @@ def run_benchmark(command, folder, *, purpose, timeout, slot_deadline):
 def summarize(path, warmup=300, phase=None):
     csv.field_size_limit(16_000_000)
     with path.open() as handle:
+        # The trailing metadata row ([HasHeaderRowAtEnd],...) can land a number under FrameTime: skip it.
         rows = [r for r in csv.DictReader(handle)
-                if (r.get('FrameTime') or '').replace('.', '', 1).isdigit()]
+                if (r.get('FrameTime') or '').replace('.', '', 1).isdigit()
+                and not any(isinstance(v, str) and v.startswith('[') for v in r.values())]
     rows = rows[warmup:]
     rows = [r for r in rows if float(r.get('JapanBenchmark/Measured') or 1) > .5
             and (phase is None or int(float(r.get('JapanBenchmark/Phase') or -1)) == phase)]
@@ -143,8 +146,10 @@ def route_report(path, view, warmup=300, threshold=MOVING_SPEED_CM_S):
     """
     csv.field_size_limit(16_000_000)
     with Path(path).open() as handle:
+        # The trailing metadata row ([HasHeaderRowAtEnd],...) can land a number under FrameTime: skip it.
         rows = [r for r in csv.DictReader(handle)
-                if (r.get('FrameTime') or '').replace('.', '', 1).isdigit()][warmup:]
+                if (r.get('FrameTime') or '').replace('.', '', 1).isdigit()
+                and not any(isinstance(v, str) and v.startswith('[') for v in r.values())][warmup:]
     def series(key):
         out = []
         for row in rows:
@@ -244,6 +249,7 @@ def main():
     p.add_argument('--width', type=int, default=1920)
     p.add_argument('--height', type=int, default=1080)
     p.add_argument('--capped', action='store_true')
+    p.add_argument('--memory-gib', type=float, default=GAME_GIB, help=f'memory guard ceiling, {GAME_GIB:g} to {GAME_MAX_GIB:g} GiB')
     p.add_argument('--desktop-fullscreen', action='store_true',
                    help='Measure the visible native 1440-high desktop viewport; width must match display aspect')
     args = p.parse_args()
@@ -264,6 +270,8 @@ def main():
         p.error('--camera values must be finite and FOV must be between 5 and 170 degrees')
     if not math.isfinite(args.wait_renderer) or not 0 <= args.wait_renderer <= 1800:
         p.error('--wait-renderer must be between 0 and 1800 seconds')
+    if not GAME_GIB <= args.memory_gib <= GAME_MAX_GIB:
+        p.error(f'--memory-gib must be between {GAME_GIB:g} and {GAME_MAX_GIB:g}')
     if not 10 <= args.seconds <= 1800:
         p.error('--seconds must be between 10 and 1800, matching the native capture limits')
     if args.compare_after and args.view not in STATIC_VIEWS:
@@ -349,11 +357,13 @@ def main():
     inputs.extend(sorted((PROJECT/'Content/Experiments').rglob('*.uasset')))
     inputs.extend(sorted((PROJECT/'Content/Japan/FoliageCoverage').rglob('*.uasset')))
     inputs.extend(sorted((yori.OUT/'foliage_coverage').glob('*/manifest.json')))
-    manifest['asset_sha256']={os.path.relpath(path, ROOT):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
+    # Some recorded inputs belong to optional or retired content; record which are absent instead of refusing to measure.
+    manifest['asset_sha256']={os.path.relpath(path, ROOT):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs if path.exists()}
+    manifest['missing_inputs']=[os.path.relpath(path, ROOT) for path in inputs if not path.exists()]
     (folder/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
     duration=args.seconds*6+40 if args.compare_after else args.seconds
     run_benchmark(cmd, folder, purpose=f'benchmark {args.name} {args.view}', timeout=duration+300,
-                  slot_deadline=slot_deadline)
+                  slot_deadline=slot_deadline, limit_gib=args.memory_gib)
     text = (folder/'game.log').read_text()
     if not args.boot:
         if 'BENCHMARK COMPLETE' not in text: raise RuntimeError('Benchmark did not complete')

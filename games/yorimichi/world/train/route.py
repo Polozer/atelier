@@ -492,8 +492,8 @@ class Raster:
             yori.OUT / 'farhills.npy',
             yori.OUT / 'belmonte' / 'natural' / 'SM_BM_NorthApron.glb',
             yori.OUT / 'belmonte' / 'natural' / 'SM_BM_NorthCountry.glb',
-            yori.OUT / 'belmonte' / 'glb' / 'SM_BM_NorthApron.glb',
-            yori.OUT / 'belmonte' / 'glb' / 'SM_BM_NorthCountry.glb',
+            yori.OUT / 'belmonte' / 'surroundings' / 'SM_BM_NorthApron.glb',
+            yori.OUT / 'belmonte' / 'surroundings' / 'SM_BM_NorthCountry.glb',
         ]
         for p in files:
             h.update(str(p.name).encode() + (p.read_bytes() if p.is_file() else b'missing'))

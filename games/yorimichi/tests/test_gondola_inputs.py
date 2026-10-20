@@ -16,7 +16,7 @@ def exports(tmp_path,monkeypatch):
         {'name':'SM_BM_BT_Terrain_far','bounds_m':[[1000,4000,0],[1100,4650,1]]}]}))
     monkeypatch.setattr(inputs,'MANIFEST',manifest)
     transform={'translation_cm':[0.,0.,0.],'rotation_xyzw':[0.,0.,0.,1.],'scale':[1.,1.,1.]}
-    names=['SM_BM_BT_Terrain_near','SM_BM_BT_Terrain_far','SM_BM_NorthApron','SM_BM_House']
+    names=['SM_BM_BT_Terrain_near','SM_BM_BT_Terrain_far','SM_BM_NorthApron_00','SM_BM_House']
     groups=[{'asset':f'/Game/{n}.{n}','transforms':[transform], 'materials':['material']} for n in names]
     runtime={'origin_cm':[0,0,0],'groups':groups}
     path=tmp_path/'belmonte/runtime.json';path.parent.mkdir();path.write_text(json.dumps(runtime))

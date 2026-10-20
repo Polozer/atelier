@@ -48,7 +48,7 @@ def test_normal_belmonte_producer_retires_superseded_glbs_without_touching_sourc
     def surroundings():
         extra = []
         for name in ('SM_BM_NorthApron', 'SM_BM_NorthCountry'):
-            for folder in ('glb', 'natural'):
+            for folder in ('glb', 'natural', 'surroundings'):
                 path = out / 'belmonte' / folder / (name + '.glb')
                 path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(raw)
             extra.append(dict(name=name, path='glb/' + name + '.glb', sha256=hashlib.sha256(raw).hexdigest(),
@@ -57,7 +57,8 @@ def test_normal_belmonte_producer_retires_superseded_glbs_without_touching_sourc
     script = RECIPE.REGIONS / 'belmonte/build.py'
     spec = importlib.util.spec_from_file_location('retired_model_pieces', script.with_name('model_pieces.py'))
     pieces = importlib.util.module_from_spec(spec); spec.loader.exec_module(pieces)
-    main = next(node for node in ast.parse(script.read_text()).body if isinstance(node, ast.FunctionDef) and node.name == 'main')
+    main, cull = (next(node for node in ast.parse(script.read_text()).body if isinstance(node, ast.FunctionDef) and node.name == name)
+                  for name in ('main', 'prop_cull_cm'))
     scope = dict(OUT=out / 'belmonte', json=json, shutil=shutil, source=SimpleNamespace(
         LIBRARY=library, manifest=manifest, sha=sha, triangles=lambda _: [], Surface=lambda _: None,
         terrain=lambda: SimpleNamespace(height=lambda *a: 0)), terrain=SimpleNamespace(VALLEY_CARVED_TILES=set(), OUTER=[0, 0, 10, 10]),
@@ -66,7 +67,7 @@ def test_normal_belmonte_producer_retires_superseded_glbs_without_touching_sourc
         clear_railway=lambda _: {}, L=SimpleNamespace(ORIGIN=[0, 0, 0], native_origin=lambda: [0, 0, 0],
             BOUNDS=[0, 0, 10, 10], RAILWAY={}), map_zones=lambda _: [], tv_spots=lambda _: [],
         source_records=model_files.source_records, retain_files=model_files.retain_files, model_pieces=pieces, Path=Path)
-    exec(compile(ast.Module(body=[main], type_ignores=[]), str(script), 'exec'), scope)
+    exec(compile(ast.Module(body=[cull, main], type_ignores=[]), str(script), 'exec'), scope)
     producer = replace(RECIPE.belmonte_steps(out)[0], commands=[build.Call('real producer', lambda ctx, log: scope['main']())],
                        inputs=[settings, library, script], needs=[], heavy=False)
     projection = RECIPE.belmonte_steps(out)[1]

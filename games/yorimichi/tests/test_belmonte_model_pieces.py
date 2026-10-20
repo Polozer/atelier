@@ -89,17 +89,17 @@ def test_omitted_child_slots_do_not_merge_distinct_parent_cull_groups():
         materials={key: {'name': 'MI_'+key} for key in ('a', 'b', 'changed')},
         meshes=[first, second], np=np)
     script = REGION / 'build.py'
-    main = next(node for node in ast.parse(script.read_text()).body
-                if isinstance(node, ast.FunctionDef) and node.name == 'main')
+    main, cull = (next(node for node in ast.parse(script.read_text()).body
+                       if isinstance(node, ast.FunctionDef) and node.name == name) for name in ('main', 'prop_cull_cm'))
     def assignment(node, name):
         return isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets)
     start = next(i for i, node in enumerate(main.body) if assignment(node, 'grouped'))
     end = next(i for i, node in enumerate(main.body) if assignment(node, 'material_name'))
-    exec(compile(ast.Module(body=main.body[start:end], type_ignores=[]), str(script), 'exec'), namespace)
+    exec(compile(ast.Module(body=[cull] + main.body[start:end], type_ignores=[]), str(script), 'exec'), namespace)
     children = [group for group in namespace['groups'] if group['asset'].endswith('SM_BM_Test_Piece3.SM_BM_Test_Piece3')]
     assert len(children) == 2
     assert [group['transforms'] for group in children] == [[transforms[0]], [transforms[1]]]
-    assert [group['cull_cm'] for group in children] == [50000, 0]
+    assert [group['cull_cm'] for group in children] == [40000, 0]   # a 4 m piece ends at 400 m; at scale 3, 12 m: never
     assert all(group['parent_collision'] and not group['collision'] for group in children)
 
 
@@ -135,7 +135,7 @@ def test_actual_region_main_preserves_shared_instances_materials_parent_cull_and
                      shutil=shutil, json=json, np=np, Path=Path, source_records=source_records, retain_files=retain_files)
     script = REGION / 'build.py'
     body = [node for node in ast.parse(script.read_text()).body
-            if isinstance(node, ast.FunctionDef) and node.name == 'main']
+            if isinstance(node, ast.FunctionDef) and node.name in ('main', 'prop_cull_cm')]
     exec(compile(ast.Module(body=body, type_ignores=[]), str(script), 'exec'), namespace)
     namespace['main']()
     runtime = json.loads((out / 'runtime.json').read_text())
@@ -152,7 +152,7 @@ def test_actual_region_main_preserves_shared_instances_materials_parent_cull_and
         assert group['materials'] == expected
         # The original parent span determines culling, irrespective of smaller child bounds.
         span = max(np.subtract(entry['bounds_m'][1], entry['bounds_m'][0]))
-        assert group['cull_cm'] == (50000 if span < 8 else 0)
+        assert group['cull_cm'] == namespace['prop_cull_cm'](span)
     assert not (out / 'glb' / Path(entry['path']).name).exists()
     if hull:
         assert (out / 'glb' / Path(entry['collision']['path']).name).read_bytes() == (assets / entry['collision']['path']).read_bytes()

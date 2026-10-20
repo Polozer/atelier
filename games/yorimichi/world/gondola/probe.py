@@ -11,7 +11,7 @@ import json
 import bpy
 import numpy as np
 import yori  # Bootstrap shared studio and region imports inside Blender.
-from gondola.inputs import GROUND_BOUNDS, snapshot
+from gondola.inputs import GROUND_BOUNDS, is_apron, snapshot
 from regions.belmonte import source
 
 
@@ -41,16 +41,17 @@ def main():
         raise ValueError('Exported North Trail does not cover the valley station')
     surfaces={'trail':np.concatenate(trail)}
     origin=np.asarray(before['belmonte_ground']['origin_cm'])/np.array([100.,-100.,100.])
-    valley=[]
+    valley,apron=[],[]
     for group in before['belmonte_ground']['groups']:
         name=group['asset'].rsplit('/',1)[-1].split('.')[0]
         print('GONDOLA GROUND:',name,flush=True)
         triangles=clipped(source.triangles(build/'belmonte/glb'/f'{name}.glb')+origin,GROUND_BOUNDS)
-        if name=='SM_BM_NorthApron':
-            surfaces['apron']=triangles
+        if is_apron(name):
+            apron.append(triangles)
         else:
             valley.append(triangles)
     surfaces['valley']=np.concatenate(valley)
+    surfaces['apron']=np.concatenate(apron)
     if snapshot(build)!=before:
         raise ValueError('Gondola ground inputs changed during extraction')
     folder=build/'gondola/world';folder.mkdir(parents=True,exist_ok=True)

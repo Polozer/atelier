@@ -20,6 +20,11 @@ CODE = {name: REPO / name for name in (
 )}
 
 
+def is_apron(name):
+    """Belmonte's apron, drawn as 500 m tiles SM_BM_NorthApron_NN (world/regions/belmonte/build.py split_tiles)."""
+    return name.startswith('SM_BM_NorthApron_') and name[len('SM_BM_NorthApron_'):].isdigit()
+
+
 def selected_ground(build):
     runtime=json.loads((build/'belmonte/runtime.json').read_text())
     manifest={row['name']:row for row in json.loads(MANIFEST.read_text())['meshes']}
@@ -27,11 +32,11 @@ def selected_ground(build):
     groups=[]
     for group in runtime['groups']:
         name=group['asset'].rsplit('/',1)[-1].split('.')[0]
-        if name.startswith('SM_BM_BT_Terrain_') or name=='SM_BM_NorthApron':
+        if name.startswith('SM_BM_BT_Terrain_') or is_apron(name):
             identity={'translation_cm':[0.,0.,0.], 'rotation_xyzw':[0.,0.,0.,1.], 'scale':[1.,1.,1.]}
             if group['transforms'] != [identity]:
                 raise ValueError('Gondola terrain read requires the declared identity Belmonte placement')
-            if name != 'SM_BM_NorthApron':
+            if not is_apron(name):
                 bounds=manifest[name]['bounds_m']
                 low=[bounds[0][i]+origin[i] for i in (0,1)]
                 high=[bounds[1][i]+origin[i] for i in (0,1)]
@@ -39,7 +44,7 @@ def selected_ground(build):
                 if high[0]<x0 or low[0]>x1 or high[1]<y0 or low[1]>y1:
                     continue
             groups.append({key:group[key] for key in ('asset','transforms')})
-    if not groups or not any(g['asset'].rsplit('/',1)[-1].split('.')[0]=='SM_BM_NorthApron' for g in groups):
+    if not groups or not any(is_apron(g['asset'].rsplit('/',1)[-1].split('.')[0]) for g in groups):
         raise ValueError('Belmonte final terrain or apron is missing')
     return {'origin_cm':runtime['origin_cm'],'groups':groups}
 

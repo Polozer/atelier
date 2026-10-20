@@ -109,7 +109,8 @@ def selected(build):
         if group['plant'] or not parent_collision:
             continue
         name = group['asset'].rsplit('/',1)[-1].split('.')[0]
-        if name.startswith('SM_BM_BT_Terrain_') or name == 'SM_BM_NorthApron':
+        # The apron is ground, drawn as tiles SM_BM_NorthApron_NN (world/regions/belmonte/build.py split_tiles).
+        if name.startswith(('SM_BM_BT_Terrain_', 'SM_BM_NorthApron_')):
             continue
         if name not in entries:
             raise ValueError('Missing final Belmonte structure metadata: '+name)

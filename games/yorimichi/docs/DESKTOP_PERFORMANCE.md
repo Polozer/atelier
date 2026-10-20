@@ -151,6 +151,7 @@ uv run python games/yorimichi/tools/benchmark.py village-walk-01 --view road_wal
 | `--compare-before`, `--compare-after` | a paired ABABAB test on a static view: six phases of `--seconds`, each after 8 s of settling; settling and screenshots are excluded from timing; `results.json` gets the three paired savings |
 | `--hide-hud` | a clean `view.png`; timings are unchanged |
 | `--boot` | the 900-frame boot capture instead of a scene view |
+| `--memory-gib` | the game's memory guard ceiling, 10 (default) to 24 GiB; a 16 GB Mac needs 12 to 14 for Belmonte |
 
 Rules for numbers:
 
@@ -215,6 +216,43 @@ timestep. Moving runs cover 182.7 m in 45 s with no stalls or recoveries.
 
 Capped (`--capped`, `r.VSync 1`) on the wide city approach: 59.995 fps average, 16.667 ms median, 16.681 ms p95,
 16.698 ms p99, slowest frame 16.72 ms.
+
+## Belmonte
+
+Belmonte (the Tuscan town, station, hippodrome and Salon) was the heaviest region to look at, and GPU-bound: in
+Unreal Insights the render thread mostly waits on occlusion-query readback (`OcclusionSubmittedFence Wait`), and
+buffering those queries one more frame shortens the render thread without shortening the frame. On this tile-based
+GPU the per-pass stats under-report the geometry work. Paired comparisons with scenery hidden showed where it went:
+the surroundings (`SM_BM_NorthCountry`, 1.1M triangles over 6.4 km, and `SM_BM_NorthApron`, 163k) were single meshes
+that were never frustum- or cascade-culled and had one LOD, drawn in the depth, base and both shadow passes from
+everywhere: hiding them saved 2 to 7 ms. Full-detail town blocks cost 1 to 2 ms in wide views.
+
+The Belmonte build therefore:
+
+- draws the surroundings as 500 m plan tiles (`world/regions/belmonte/build.py`, `split_tiles`): whole triangles,
+  every vertex attribute kept bit for bit, so tile edges meet exactly as the whole surface did. The whole painted
+  surface is still written for the map, the railway route and the tests;
+- gives every mesh over 12,000 triangles reduced LODs at import (`import_belmonte.py`, `lod_plan`): ground tiles
+  (valley terrain and surroundings) at 50 % from a screen size of 0.35 and 25 % from 0.15, buildings (town blocks,
+  grandstand, Salon, stables, town hall) at 50 % from 0.25 and 25 % from 0.1. Collision stays on LOD0;
+- ends small props (under 8 m across) at 100 m per metre of size, 80 to 500 m (`prop_cull_cm`), instead of 500 m.
+
+Medians of three interleaved runs per view, offscreen 1920×1080, forward desktop profile, uncapped, on a MacBook Air
+M5 (16 GB), the same build before and after:
+
+| View | Before | After |
+|---|---:|---:|
+| Piazza (osteria) | 13.7 ms (73 fps) | 10.8 ms (93 fps) |
+| Town hall loggia | 12.2 ms (82 fps) | 9.4 ms (107 fps) |
+| Station forecourt | 14.9 ms (67 fps) | 10.2 ms (98 fps) |
+| Station concourse | 14.8 ms (67 fps) | 10.5 ms (95 fps) |
+| Hippodrome grandstand | 16.6 ms (60 fps) | 13.0 ms (77 fps) |
+| Salon | 11.1 ms (90 fps) | 8.5 ms (118 fps) |
+| Over the town from the hills | 19.0 ms (53 fps) | 14.3 ms (70 fps) |
+
+The player's ground height at every view, and at a four-tile corner and a tile edge, is unchanged to the centimetre.
+Background load on this Mac changes absolute numbers by up to a third (hung `CrashReportClient` processes once took
+four cores): compare runs of the same session only.
 
 ## Limits
 

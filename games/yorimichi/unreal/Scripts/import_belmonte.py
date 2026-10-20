@@ -193,14 +193,28 @@ def import_mesh(path, name):
     return import_static_mesh(path, ROOT + '/Meshes', name)
 
 
-def generate_terrain_lods(mesh):
-    """Two reduced LODs for refined valley terrain tiles over 12,000 triangles; collision stays on LOD0."""
+# (fraction of triangles, screen size) per LOD. Ground: the refined valley tiles and the surroundings' tiles. Buildings
+# keep full detail until they are smaller on screen, since their silhouettes and windows read from further away.
+TERRAIN_LODS = ((1., 1.), (.5, .35), (.25, .15))
+BUILDING_LODS = ((1., 1.), (.5, .25), (.25, .1))
+LOD_MIN_TRIANGLES = 12000
+GROUND_PREFIXES = ('SM_BM_BT_Terrain_', 'SM_BM_NorthApron_', 'SM_BM_NorthCountry_')
+
+
+def lod_plan(name, triangles):
+    """The LOD plan for an imported mesh: terrain or building rule over LOD_MIN_TRIANGLES, else none (one LOD)."""
+    if triangles <= LOD_MIN_TRIANGLES or 'Water' in name or 'Foam' in name:
+        return None
+    return TERRAIN_LODS if name.startswith(GROUND_PREFIXES) else BUILDING_LODS
+
+
+def generate_lods(mesh, plan):
+    """Reduced LODs by the plan; collision stays on LOD0."""
     unreal.load_module('StaticMeshEditor')
     editor = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
     assert editor is not None, 'StaticMeshEditor subsystem is unavailable'
     options = unreal.StaticMeshReductionOptions()
     options.set_editor_property('auto_compute_lod_screen_size', False)
-    plan = ((1., 1.), (.5, .35), (.25, .15))
     levels = []
     for percent, screen in plan:
         level = unreal.StaticMeshReductionSettings()
@@ -252,7 +266,7 @@ def main():
         surfaces(report, parent(), textures(report))
         materials.validated(material_packages)
     reuse = MeshReuse(native_context(yori.GAME.name), 'unreal.belmonte', __file__,
-                      ('import_mesh', 'generate_terrain_lods'),
+                      ('import_mesh', 'generate_lods', 'lod_plan'),
                       report_member='generated/belmonte/build-report.json',
                       validation_functions=('validate_reused_mesh',))
     imported = {}
@@ -314,11 +328,11 @@ def main():
         body = mesh.get_editor_property('body_setup')
         if name.startswith('SM_BM_BT_Terrain_'):
             set_if_changed(mesh, 'allow_cpu_access', name in {'SM_BM_BT_Terrain_0_0', 'SM_BM_BT_Terrain_4_4'})
-            if entry['triangles'] > 12000:
-                plan = ((1., 1.), (.5, .35), (.25, .15))
-                if not reused or not lods_match(mesh, plan):
-                    generate_terrain_lods(mesh)
-                assert lods_match(mesh, plan), name
+        plan = lod_plan(name, entry['triangles'])
+        if plan:
+            if not reused or not lods_match(mesh, plan):
+                generate_lods(mesh, plan)
+            assert lods_match(mesh, plan), name
         assert body, name
         set_if_changed(body, 'collision_trace_flag', unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
         set_if_changed(body, 'double_sided_geometry', True)

@@ -26,7 +26,7 @@ def changed_by(edited, tmp_path, monkeypatch, *, stable_products=()):
     # geometry bytes still use the name-only fingerprint stand-in below.
     library=json.loads((build.paths.game_dir('yorimichi')/'assets/belmonte/source.json').read_text())
     names=[row['name'] for row in library['meshes'] if row['name'].startswith('SM_BM_BT_Terrain_')]
-    names.append('SM_BM_NorthApron')
+    names.append('SM_BM_NorthApron_00')
     transform={'translation_cm':[0.,0.,0.],'rotation_xyzw':[0.,0.,0.,1.],'scale':[1.,1.,1.]}
     registry=tmp_path/'belmonte/runtime.json'
     registry.parent.mkdir(parents=True,exist_ok=True)
