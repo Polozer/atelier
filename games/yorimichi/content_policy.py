@@ -63,7 +63,16 @@ def music_enabled():
 
 
 def retired(content):
-    """Unknown generated imports at owned recipe boundaries; no traversal inside committed source data."""
+    """@cc [owner:fontanierh,label:correctness] declared-content-roots-kept
+    Every production Content/<folder> and Content/Data/<folder>, whether a games/yorimichi/build.py
+    step declares it as an output or an import script writes it, MUST be in ASSET_ROOTS or
+    DATA_ROOTS, so data.content never archives a production import as retired. A change adding
+    such a root MUST add it here in the same change. Retirement MUST preserve declared production
+    outputs and runtime/staged content; obsolete outputs MUST be moved into the build's
+    retired-content archive, never deleted. Build output declarations, this policy and cook/staging
+    ownership MUST remain consistent when a root is added or moved.
+    """
+    # Unknown generated imports at owned recipe boundaries; no traversal inside committed source data.
     data_roots = set(DATA_ROOTS)
     audio_roots = {'Bike', 'Combat', 'Skate'}
     if music_enabled():
