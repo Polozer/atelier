@@ -155,6 +155,15 @@ Blender-only: nothing is placed in the world or imported yet. Run them in this o
      band, an x span and a base height, so posts go with their rail); the walk leaves it out, and `manifest.json`
      reports what it removed under `world_cuts_pending`. Today that is Hidamari's quay timber rail and its posts
      across the jetty root (x 831.8–847.8).
+   - Seat and coplanar audits ([`world/solid_mesh.py`](../../../world/solid_mesh.py)), also failing the build. Every
+     fitting (posts, footings, props, bench legs, plant pots) registers its base points, and every gable infill
+     registers points along its sloped edges. Each base is ray-cast onto the kit and the exported ground near it: down
+     for feet, which must stand at most 1 cm off what carries them and no deeper than their declared embedding, and up
+     for gable infills, which must reach the roof underside within 2 mm, one ray per point so the slope cannot hide a
+     gap. No two parts may have same-facing coplanar faces that overlap (they z-fight). Before its own audit, the build
+     runs `audit_fixtures()`, eight known cases: a floating, sunk and unsupported foot, a short gable infill under a
+     sloped roof and two slabs sharing a top face must fail, and their fixed forms must pass. The results are in
+     `manifest.json` (`seats`, `coplanar`, `audit_fixtures`).
 4. [`render.py`](terminals/render.py) renders the kits with ship C at each berth (`TERMINAL_VIEWS=a,b` renders a
    subset), and [`compare.py`](terminals/compare.py) puts them beside the v2 concepts.
 

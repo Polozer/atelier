@@ -5,6 +5,7 @@ Vehicle and building kits build on this one implementation (the ferry and its te
 materials and passes them in; it does not copy these primitives.
 """
 import math
+import sys
 from contextlib import contextmanager
 
 import bpy
@@ -56,9 +57,19 @@ def rect(x0, y0, x1, y1):
     return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
 
 
+def _caller():
+    """'file.py:line' of the first frame outside this module (the kit line that asked for a part)."""
+    f = sys._getframe(2)
+    while f and f.f_code.co_filename == __file__:
+        f = f.f_back
+    return f'{f.f_code.co_filename.rsplit("/", 1)[-1]}:{f.f_lineno}' if f else '?'
+
+
 class Mesh:
     def __init__(self, name, default_mat=None):
         self.name = name; self.verts = []; self.faces = []; self.mats = []; self.parts = []
+        self.origins = []                  # the kit source line that built each part (for audit reports)
+        self.seats = []                    # fitting bases registered with fitting(): see seat_failures
         self.xf = Matrix.Identity(4)
         self.default_mat = default_mat     # the cap material of a prism whose side material is per-edge
 
@@ -95,6 +106,21 @@ class Mesh:
             self.faces.append(tuple(reversed(f)) if flip else tuple(f))
             self.mats.append(mats[k] if isinstance(mats, list) else mats)
         self.parts.append((start, len(self.faces)))
+        self.origins.append(_caller())
+
+    @contextmanager
+    def fitting(self, label, embed=0.06, direction=(0, 0, -1), gap=None, spread=None):
+        """Register what is built inside the block as one fitting seated on something: append its base points
+        (local coordinates) to the yielded list. seat_failures ray-casts each base along direction (local; down by
+        default, onto what carries it) onto everything else. gap is the most open the seat may be (None: SEAT_GAP);
+        spread is how far round each base the side rays go (None: seat_failures' default; 0: the base point only, for
+        a seat under a slope, where side rays would land at other heights)."""
+        start = len(self.parts); bases = []
+        yield bases
+        d = tuple((self.xf.to_3x3() @ Vector(direction)).normalized())
+        for p in bases:
+            self.seats.append({'label': label, 'at': tuple(self.xf @ Vector(p)), 'embed': embed, 'dir': d, 'gap': gap,
+                               'spread': spread, 'own': (self.name, start, len(self.parts))})
 
     # ---- primitives (all closed)
     def prism(self, outline, z0, z1, side, top=None, bottom=None, bevel=0.0, step=None):
@@ -268,3 +294,178 @@ def to_object(m, mats, order, sharp_degrees=38.0):
     data.update()
     obj = bpy.data.objects.new(m.name, data); bpy.context.collection.objects.link(obj)
     return obj, names
+
+
+# ------------------------------------------------------------------ audits shared by every kit on this builder
+SEAT_GAP = 0.01        # m: a fitting base may stand at most this far above what carries it
+SEAT_SLACK = 0.005     # m: beyond its declared embedding, how much deeper a base may sit
+
+
+def _triangles(meshes):
+    """((a, b, c), (mesh name, part index, origin)) for every triangle of the given meshes."""
+    out = []
+    for m in meshes:
+        for pi, (start, end) in enumerate(m.parts):
+            org = m.origins[pi] if pi < len(m.origins) else '?'
+            for f in m.faces[start:end]:
+                for i in range(1, len(f) - 1):
+                    out.append(((m.verts[f[0]], m.verts[f[i]], m.verts[f[i + 1]]), (m.name, pi, org)))
+    return out
+
+
+def _clip(poly, a, b):
+    """Keep the part of a 2D polygon left of the directed line a->b."""
+    out = []
+
+    def side(p):
+        return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+    for i in range(len(poly)):
+        p, q = poly[i], poly[(i + 1) % len(poly)]
+        sp, sq = side(p), side(q)
+        if sp >= 0:
+            out.append(p)
+        if (sp >= 0) != (sq >= 0):
+            t = sp / (sp - sq); out.append((p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])))
+    return out
+
+
+def coplanar_overlaps(meshes, d_tol=0.0015, min_area=2e-4, limit=60):
+    """Same-facing coplanar faces of different parts that overlap: they z-fight. Returns (count, samples), one sample
+    per pair of kit source lines."""
+    tris = _triangles(meshes); buckets = {}
+    for idx, ((a, b, c), key) in enumerate(tris):
+        A, B, C = Vector(a), Vector(b), Vector(c); n = (B - A).cross(C - A)
+        if n.length < 1e-10:
+            continue
+        n.normalize(); d = n.dot(A)
+        k = (round(n.x * 300), round(n.y * 300), round(n.z * 300), math.floor(d / d_tol))
+        buckets.setdefault(k, []).append((idx, n, d))
+    count = 0; samples = []; seen = set()
+    for k, items in buckets.items():
+        pool = items + buckets.get((k[0], k[1], k[2], k[3] + 1), [])
+        if len(pool) < 2:
+            continue
+        for ii, (i, n, d) in enumerate(items):
+            for (j, n2, d2) in pool[ii + 1:]:
+                ki, kj = tris[i][1], tris[j][1]
+                if ki == kj or abs(d - d2) > d_tol or n.dot(n2) < 0.9995:
+                    continue
+                U = n.orthogonal().normalized(); W = n.cross(U)
+                P = [(Vector(v).dot(U), Vector(v).dot(W)) for v in tris[i][0]]
+                Q = [(Vector(v).dot(U), Vector(v).dot(W)) for v in tris[j][0]]
+                if (max(p[0] for p in P) <= min(q[0] for q in Q) or max(q[0] for q in Q) <= min(p[0] for p in P) or
+                        max(p[1] for p in P) <= min(q[1] for q in Q) or max(q[1] for q in Q) <= min(p[1] for p in P)):
+                    continue
+                P = P if signed_area(P) >= 0 else P[::-1]
+                Q = Q if signed_area(Q) >= 0 else Q[::-1]
+                poly = P
+                for e in range(3):
+                    poly = _clip(poly, Q[e], Q[(e + 1) % 3])
+                    if not poly:
+                        break
+                ar = abs(signed_area(poly)) if len(poly) >= 3 else 0.0
+                if ar > min_area:
+                    count += 1
+                    pair = tuple(sorted((ki[2], kj[2])))
+                    if len(samples) < limit and pair not in seen:
+                        seen.add(pair)
+                        cen = [round(sum(v[t] for v in tris[i][0]) / 3, 3) for t in range(3)]
+                        samples.append({'at': cen, 'area_m2': round(ar, 5), 'parts': [list(ki), list(kj)]})
+    return count, samples
+
+
+def seat_failures(meshes, extra_tris=(), probe=0.3, reach=3.0, spread=0.06):
+    """Every fitting registered with Mesh.fitting: rays cast along its direction (down unless it says otherwise)
+    through each base (its centre and four points spread round it, so a base over a plank gap still finds the planks)
+    onto everything else: the given meshes less the fitting's own parts, plus extra_tris (e.g. the exported ground).
+    Each ray starts probe before the base; a hit's gap is its distance past the base along the direction (positive
+    open, negative overlapping). Every surface a ray passes counts, so a post run through a deck to the pier below is
+    carried by the pier. A base is ok when some hit's gap lies between minus its declared embedding (+ SEAT_SLACK) and
+    its allowed gap (SEAT_GAP unless it declares one); otherwise it is floating (nearest hit beyond the gap), sunk
+    (nearest overlapping) or carried by nothing. Returns (rows, failures)."""
+    from mathutils.bvhtree import BVHTree
+    verts, faces, owner = [], [], []
+    for m in meshes:
+        for pi, (start, end) in enumerate(m.parts):
+            for f in m.faces[start:end]:
+                base = len(verts); verts += [m.verts[i] for i in f]; faces.append(list(range(base, base + len(f))))
+                owner.append((m.name, pi))
+    for t in extra_tris:
+        base = len(verts); verts += [tuple(v) for v in t]; faces.append([base, base + 1, base + 2]); owner.append(('world', -1))
+    bvh = BVHTree.FromPolygons(verts, faces)
+    rows, bad = [], []
+    for m in meshes:
+        for s in m.seats:
+            name, p0, p1 = s['own']; x, y, z = s['at']
+            d = Vector(s.get('dir', (0, 0, -1)))
+            gap_max = SEAT_GAP if s.get('gap') is None else s['gap']
+            if abs(d.z) > 0.9:          # vertical: spread in plan
+                U, W = Vector((1, 0, 0)), Vector((0, 1, 0))
+            else:
+                U = d.orthogonal().normalized(); W = d.cross(U)
+            hits = []; sp = spread if s.get('spread') is None else s['spread']
+            for dx, dy in ((0, 0), (sp, 0), (-sp, 0), (0, sp), (0, -sp))[:5 if sp > 0 else 1]:
+                P = Vector((x, y, z)) + U * dx + W * dy
+                o = P - d * probe; left = reach
+                for _ in range(64):
+                    loc, _n, idx, dist = bvh.ray_cast(o, d, left)
+                    if loc is None:
+                        break
+                    who = owner[idx]
+                    if not (who[0] == name and p0 <= who[1] < p1):
+                        hits.append(((loc - P).dot(d), who[0]))
+                    left -= dist + 1e-4; o = loc + d * 1e-4
+            row = {'label': s['label'], 'mesh': name, 'at': [round(x, 3), round(y, 3), round(z, 4)], 'embed_allowed_m': s['embed']}
+            if s.get('gap') is not None or d.z > -0.9999:
+                row.update(direction=[round(c, 3) for c in d], gap_allowed_m=gap_max)
+            seated = [h for h in hits if -(s['embed'] + SEAT_SLACK) <= h[0] <= gap_max]
+            if seated:
+                g, on = min(seated, key=lambda h: abs(h[0])); row.update(gap_m=round(g, 4), on=on, status='ok')
+            elif not hits:
+                row['status'] = 'nothing under the base'
+            else:
+                beyond = [h for h in hits if h[0] > gap_max]
+                g, on = min(beyond) if beyond else max(hits)
+                row.update(gap_m=round(g, 4), on=on, status='floating' if beyond else 'sunk')
+            rows.append(row)
+            if row['status'] != 'ok':
+                bad.append(row)
+    return rows, bad
+
+
+def audit_fixtures():
+    """Known cases the two audits must classify right, run by every kit build before its own audit: the defects the
+    audits exist for (a fitting standing off its support, one sunk or over nothing, a gable infill short of a sloped
+    roof, two coplanar overlapping tops) must fail, and their fixed forms must pass. Returns one row per case; a row
+    with ok False means an audit no longer catches (or wrongly flags) what it is there for."""
+    def seat_case(name, expect, base, embed=0.06, direction=(0, 0, -1), gap=None, spread=None, sloped=False):
+        m = Mesh(name, 0)
+        if sloped:      # a roof slab rising 0.5 m per m in y, underside z = 1 + 0.5 y
+            m.prism(rect(-1, -1, 1, 1), lambda x, y: 1 + 0.5 * y, lambda x, y: 1.1 + 0.5 * y, 0)
+        else:           # a 1 m slab whose top is z = 0
+            m.box((0, 0, -0.5), (2, 2, 1), 0)
+        with m.fitting(name, embed=embed, direction=direction, gap=gap, spread=spread) as b:
+            m.box((base[0], base[1], base[2] + (0.05 if direction[2] < 0 else -0.05)), (0.04, 0.04, 0.1), 0)
+            b.append(base)
+        _rows, bad = seat_failures([m])
+        return {'case': name, 'expect': expect, 'got': 'fail' if bad else 'pass', 'ok': bool(bad) == (expect == 'fail')}
+
+    def coplanar_case(name, expect, dz):
+        m = Mesh(name, 0)
+        m.box((0, 0, 0), (1, 1, 0.2), 0)
+        m.box((0.5, 0, dz), (1, 0.9, 0.2), 0)       # narrower, so only the tops and bottoms can be shared
+        n, _ = coplanar_overlaps([m])
+        return {'case': name, 'expect': expect, 'got': 'fail' if n else 'pass', 'ok': bool(n) == (expect == 'fail')}
+
+    return [
+        seat_case('foot 1 cm into its slab', 'pass', (0, 0, -0.01)),
+        seat_case('foot 3 cm above its slab (a floating bench)', 'fail', (0, 0, 0.03)),
+        seat_case('foot 20 cm into its slab (sunk)', 'fail', (0, 0, -0.2)),
+        seat_case('foot over nothing', 'fail', (3, 0, 0)),
+        seat_case('gable infill 3 mm into a sloped roof', 'pass', (0, 0.2, 1.103), embed=0.005,
+                  direction=(0, 0, 1), gap=0.002, spread=0, sloped=True),
+        seat_case('gable infill 2 cm short of a sloped roof', 'fail', (0, 0.2, 1.08), embed=0.005,
+                  direction=(0, 0, 1), gap=0.002, spread=0, sloped=True),
+        coplanar_case('two slabs sharing a top face', 'fail', 0.0),
+        coplanar_case('two slabs with tops 5 mm apart', 'pass', 0.005),
+    ]

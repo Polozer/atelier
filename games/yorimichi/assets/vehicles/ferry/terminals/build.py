@@ -89,15 +89,24 @@ def frame_axes(U, V):
 
 
 # ------------------------------------------------------------------ structural pieces
+SINK = 0.01            # fitting bases start this far into what carries them: no base face shares the support's plane
+
+
 def post(m, x, y, z0, z1, s=0.26, mat=TIMBER, footing=False):
-    m.box((x, y, (z0 + z1) / 2), (s, s, z1 - z0), mat, bevel=0.015)
-    if footing:
-        m.box((x, y, z0 + 0.12), (s + 0.22, s + 0.22, 0.24), STONE, bevel=0.03)
+    """A square post standing on z0 (sunk SINK into it), up to z1; a footing takes the post's foot 3 cm into it."""
+    with m.fitting('post') as base:
+        zb = z0 - SINK + (0.03 if footing else 0.0)
+        m.box((x, y, (zb + z1) / 2), (s, s, z1 - zb), mat, bevel=0.015)
+        if footing:
+            m.box((x, y, z0 - SINK + 0.12), (s + 0.22, s + 0.22, 0.24), STONE, bevel=0.03)
+        base.append((x, y, z0 - SINK))
 
 
 def rail_line(m, pts, z, h=RAIL_H, spacing=1.6, mat=TIMBER):
-    """Timber railing along a polyline at floor height z: square posts, a capped top rail and a mid rail."""
-    for a, b in zip(pts, pts[1:]):
+    """Timber railing along a polyline at floor height z: square posts, a capped top rail and a mid rail. Rails of
+    alternate segments are 6 mm larger in section, so two rails meeting at a corner share no face."""
+    for i, (a, b) in enumerate(zip(pts, pts[1:])):
+        e = 0.006 * (i % 2)
         L = math.dist(a, b); n = max(1, math.ceil(L / spacing))
         for k in range(n + 1):
             if k == 0 and a is not pts[0]:
@@ -105,8 +114,8 @@ def rail_line(m, pts, z, h=RAIL_H, spacing=1.6, mat=TIMBER):
             x = a[0] + (b[0] - a[0]) * k / n; y = a[1] + (b[1] - a[1]) * k / n
             m.box((x, y, z + h / 2), (0.13, 0.13, h), mat, bevel=0.01)
             m.box((x, y, z + h + 0.03), (0.17, 0.17, 0.06), mat)
-        m.beam((a[0], a[1], z + h - 0.05), (b[0], b[1], z + h - 0.05), 0.11, 0.14, mat)
-        m.beam((a[0], a[1], z + h * 0.5), (b[0], b[1], z + h * 0.5), 0.07, 0.1, mat)
+        m.beam((a[0], a[1], z + h - 0.05), (b[0], b[1], z + h - 0.05), 0.11 + e, 0.14 + e, mat)
+        m.beam((a[0], a[1], z + h * 0.5), (b[0], b[1], z + h * 0.5), 0.07 + e, 0.1 + e, mat)
         col_seg(a, b, 0.17, z, z + h + 0.06)
 
 
@@ -114,7 +123,10 @@ def solid_stair(m, foot, direction, width, z0, flights, r, tread=TREAD, landing=
                 T=0.25):
     """Flights of closed steps (treads and risers in one solid each, so there is no daylight between steps), each with
     a soffit parallel to its pitch, joined by landing slabs. foot is the centre of the first riser on the floor at z0;
-    the stair climbs along direction. Returns its run, rise and top."""
+    the stair climbs along direction. Each flight's last riser stands 5 mm inside what it climbs onto (a landing or
+    the floor at the top), so the riser's face does not share that floor's front face; landings are 1 cm wider than
+    the flights and the stringers run 5 mm into the flight's sides, so no side faces coincide. Returns its run, rise
+    and top."""
     d = Vector((direction[0], direction[1], 0)).normalized()
     U, V, A = frame_axes(d, (0, 0, 1))
     u, z = 0.0, 0.0; treads = []
@@ -126,16 +138,21 @@ def solid_stair(m, foot, direction, width, z0, flights, r, tread=TREAD, landing=
                 z += r; pts.append((u, z))
                 if k < n - 1:
                     treads.append((u, u + tread, z)); u += tread; pts.append((u, z))
-            pts += [(u, z - r - T), (us + T * tread / r, zs)]
+            ue = u + 0.005                # the last riser, 5 mm inside the landing or floor it climbs onto
+            if n > 1:
+                pts[-2] = (ue, pts[-2][1])
+            pts[-1] = (ue, z)
+            pts += [(ue, z - r - T), (us + T * tread / r, zs)]
             mats = {}
             for a_, b_ in zip(pts, pts[1:] + pts[:1]):
                 horizontal = abs(a_[1] - b_[1]) < 1e-6 and b_[0] > a_[0]
                 mats[(round((a_[0] + b_[0]) / 2, 4), round((a_[1] + b_[1]) / 2, 4))] = top_mat if horizontal else side_mat
             m.prism(pts, -width / 2, width / 2, lambda x, y, mats=mats: mats.get((round(x, 4), round(y, 4)), side_mat),
                     top=side_mat, bottom=side_mat)
-            for sd in (-1, 1):            # stringers on both sides, 0.25 m proud of the pitch line
-                sl = [(us, zs - 0.05), (us, zs + r + 0.25), (u, z + 0.25), (u, z - r - T - 0.05)]
-                m.prism(sl, sd * width / 2 - 0.04 * (1 - sd) - 0.0, sd * width / 2 + 0.04 * (1 + sd), TIMBER)
+            for sd in (-1, 1):            # stringers on both sides, 0.25 m proud of the pitch line, 5 mm into the
+                # flight's sides and starting 5 mm before its first riser
+                sl = [(us - 0.005, zs - 0.05), (us - 0.005, zs + r + 0.25), (u, z + 0.25), (u, z - r - T - 0.05)]
+                m.prism(sl, *sorted((sd * (width / 2 - 0.005), sd * (width / 2 + 0.08))), TIMBER)
             # Collision: a ramp over the nosings of the flight (players walk the stair as a slope), down to the soffit.
             Wd = lambda uu, zz, vv: tuple(Vector((foot[0], foot[1], z0)) + U * uu + V * zz + A * vv)
             col([Wd(uu, zz, vv) for uu, zz in ((us, zs), (u, z), (u, z - r - T), (us, zs - T)) for vv in (-width / 2, width / 2)])
@@ -143,7 +160,7 @@ def solid_stair(m, foot, direction, width, z0, flights, r, tread=TREAD, landing=
                 col([Wd(uu, zz, vv) for uu in (u, u + landing) for zz in (z - T, z) for vv in (-width / 2, width / 2)])
                 # One landing slab: its walking face (the profile edge at z) takes the tread finish, so no second
                 # slab shares that face.
-                m.prism(F.rect(u, z - T, u + landing, z), -width / 2, width / 2,
+                m.prism(F.rect(u, z - T, u + landing, z), -width / 2 - 0.005, width / 2 + 0.005,
                         lambda x, y, z=z: top_mat if abs(y - z) < 1e-6 else side_mat, top=side_mat, bottom=side_mat)
                 treads.append((u, u + landing, z)); u += landing
     top = (foot[0] + d.x * u, foot[1] + d.y * u, z0 + z)
@@ -177,7 +194,8 @@ def gable_roof(m, x0, y0, x1, y1, ze, pitch, axis='x', over=(0.9, 0.9, 0.9, 0.9)
             n = int((x1 + oe - (x0 - ow)) / 0.3)
             for k in range(n + 1):
                 x = x0 - ow + 0.12 + k * (x1 + oe - x0 + ow - 0.24) / n
-                p0 = Vector((x, yc, zr + 0.02)) + A * (t + 0.02); p1 = p0 + V * (L - 0.05)
+                # Each rib starts 1 cm down the slope, so its end cap is clear of the slab's ridge face.
+                p0 = Vector((x, yc, zr + 0.02)) + A * (t + 0.02) + V * 0.01; p1 = p0 + V * (L - 0.06)
                 m.tube([tuple(p0), tuple(p1)], 0.065, KAWARA, n=5)
             # Round eave tiles and a fascia board under the eave edge.
             e = Vector((0, yc, zr + 0.02)) + V * L
@@ -187,19 +205,28 @@ def gable_roof(m, x0, y0, x1, y1, ze, pitch, axis='x', over=(0.9, 0.9, 0.9, 0.9)
             x = x0 + k * (x1 - x0) / int((x1 - x0) / 0.6)
             a = Vector((x, y0 if s < 0 else y1, ze - 0.12)); b = Vector((x, yc + s * (D + o - 0.1), ze - 0.12 - (o - 0.1) * pitch))
             m.beam(tuple(a), tuple(b), 0.08, 0.1, TIMBER_DARK)
-    # Ridge: a capped tile ridge with onigawara end blocks.
-    m.beam((x0 - ow - 0.05, yc, zr + 0.18), (x1 + oe + 0.05, yc, zr + 0.18), 0.4, 0.36, RIDGE)
-    m.tube([(x0 - ow - 0.05, yc, zr + 0.4), (x1 + oe + 0.05, yc, zr + 0.4)], 0.15, RIDGE, n=8)
+    # Ridge: a capped tile ridge with onigawara end blocks. The beam and the tube end at different depths inside the
+    # end blocks, clear of the bargeboards' faces.
+    m.beam((x0 - ow - 0.07, yc, zr + 0.18), (x1 + oe + 0.07, yc, zr + 0.18), 0.4, 0.36, RIDGE)
+    m.tube([(x0 - ow - 0.04, yc, zr + 0.4), (x1 + oe + 0.04, yc, zr + 0.4)], 0.15, RIDGE, n=8)
     for x in (x0 - ow - 0.1, x1 + oe + 0.1):
         m.box((x, yc, zr + 0.42), (0.22, 0.56, 0.62), RIDGE, bevel=0.04)
-    # Gable triangles and bargeboards at both ends.
+    # Gable triangles and bargeboards at both ends. Each triangle reaches 3 mm into the roof slabs (no gap under the
+    # roof); its sloped top edges are registered as upward seats that must find the roof underside within 2 mm, one
+    # ray per point (side rays on the slope would land at other heights and could pass a gap).
     for x, o in ((x0, -ow), (x1, oe)):
-        tri = [(y0, ze), (y1, ze), (y1, ze + 0.02), (yc, zr + 0.02), (y0, ze + 0.02)]   # up to the roof underside
-        with m.frame((x - 0.06, 0, 0), Vector((0, 1, 0)), Vector((0, 0, 1)), Vector((1, 0, 0))):
-            m.prism(tri, 0.0, 0.12, gable_mat)
-        for s in (-1, 1):
+        tri = [(y0, ze), (y1, ze), (y1, ze + 0.023), (yc, zr + 0.023), (y0, ze + 0.023)]
+        with m.fitting('gable infill', embed=0.005, direction=(0, 0, 1), gap=0.002, spread=0) as base:
+            with m.frame((x - 0.06, 0, 0), Vector((0, 1, 0)), Vector((0, 0, 1)), Vector((1, 0, 0))):
+                m.prism(tri, 0.0, 0.12, gable_mat)
+            apex = max(tri, key=lambda p: p[1])
+            for ya in (y0, y1):      # points along each sloped top edge, mid-thickness, taken from the triangle itself
+                eave = max((p for p in tri if p[0] == ya), key=lambda p: p[1])
+                for f in (0.15, 0.4, 0.65, 0.9):
+                    base.append((x, eave[0] + (apex[0] - eave[0]) * f, eave[1] + (apex[1] - eave[1]) * f))
+        for s in (-1, 1):            # the second bargeboard is 8 mm wider, so the pair share no face at the apex
             ye = yc + s * (D + (os_ if s < 0 else on)); zz = ze - (os_ if s < 0 else on) * pitch
-            m.beam((x + o, yc, zr + 0.12), (x + o, ye, zz + 0.05), 0.1, 0.32, TIMBER_DARK)
+            m.beam((x + o, yc, zr + 0.12), (x + o, ye, zz + 0.05), 0.1 if s < 0 else 0.108, 0.32, TIMBER_DARK)
     return zr
 
 
@@ -208,8 +235,8 @@ def tie_truss(m, x, y0, y1, ze, zr, mat=TIMBER):
     yc = (y0 + y1) / 2
     m.beam((x, y0, ze - 0.2), (x, y1, ze - 0.2), 0.22, 0.3, mat)
     m.beam((x, yc, ze - 0.05), (x, yc, zr - 0.15), 0.2, 0.2, mat)
-    for s in (y0, y1):
-        m.beam((x, s + (yc - s) * 0.12, ze - 0.05), (x, yc, zr - 0.25), 0.16, 0.18, mat)
+    for s, w in ((y0, 0.16), (y1, 0.15)):       # struts 1 cm apart in width: their faces meet at the king post apart
+        m.beam((x, s + (yc - s) * 0.12, ze - 0.05), (x, yc, zr - 0.25), w, 0.18, mat)
 
 
 def knee(m, p, q, mat=TIMBER):
@@ -217,8 +244,11 @@ def knee(m, p, q, mat=TIMBER):
 
 
 def bollard(m, x, y, z, r=0.22):
-    m.lathe((x, y, z), [(0, r * 1.2), (0.08, r * 1.2), (0.12, r), (0.5, r * 0.9), (0.58, r * 1.35), (0.68, r * 1.35), (0.74, 0)],
-            IRON, n=12)
+    z -= SINK
+    with m.fitting('bollard') as base:
+        m.lathe((x, y, z), [(0, r * 1.2), (0.08, r * 1.2), (0.12, r), (0.5, r * 0.9), (0.58, r * 1.35), (0.68, r * 1.35), (0.74, 0)],
+                IRON, n=12)
+        base.append((x, y, z))
 
 
 def tyre(m, c, normal, R=0.36, r=0.13):
@@ -228,12 +258,15 @@ def tyre(m, c, normal, R=0.36, r=0.13):
 
 
 def rope_coil(m, x, y, z, R=0.42, turns=3):
-    for k in range(turns):
-        m.torus((x, y, z + 0.05 + k * 0.075), R - k * 0.05, 0.045, ROPE, n=16, m=5)
+    with m.fitting('rope coil') as base:
+        for k in range(turns):
+            m.torus((x, y, z + 0.05 + k * 0.075), R - k * 0.05, 0.045, ROPE, n=16, m=5)
+        base.append((x + R, y, z + 0.005))       # the bottom turn's underside
 
 
 def crate(m, x, y, z, s=0.9, yaw=0.0):
-    with m.at((x, y, z), yaw):
+    with m.at((x, y, z - SINK), yaw), m.fitting('crate') as base:
+        base += [(u * s * 0.4, v * s * 0.4, 0.0) for u in (-1, 1) for v in (-1, 1)]
         m.box((0, 0, s / 2), (s, s, s), CRATE, bevel=0.02)
         for h in (0.12, s - 0.12):
             m.ring_prism(F.rect(-s / 2 - 0.02, -s / 2 - 0.02, s / 2 + 0.02, s / 2 + 0.02), F.rect(-s / 2 + 0.01, -s / 2 + 0.01, s / 2 - 0.01, s / 2 - 0.01),
@@ -241,13 +274,18 @@ def crate(m, x, y, z, s=0.9, yaw=0.0):
 
 
 def barrel(m, x, y, z, h=0.95):
-    m.lathe((x, y, z), [(0, 0.27), (0.1, 0.31), (h / 2, 0.36), (h - 0.1, 0.31), (h, 0.27), (h, 0)], CRATE, n=14)
-    for hz in (0.12, h - 0.12):
-        m.lathe((x, y, z + hz - 0.03), [(0, 0.325), (0.06, 0.325), (0.06, 0)], IRON, n=14)
+    z -= SINK
+    with m.fitting('barrel') as base:
+        m.lathe((x, y, z), [(0, 0.27), (0.1, 0.31), (h / 2, 0.36), (h - 0.1, 0.31), (h, 0.27), (h, 0)], CRATE, n=14)
+        for hz in (0.12, h - 0.12):
+            m.lathe((x, y, z + hz - 0.03), [(0, 0.325), (0.06, 0.325), (0.06, 0)], IRON, n=14)
+        base.append((x, y, z))
 
 
 def net_pile(m, x, y, z, r=0.75):
-    m.lathe((x, y, z), [(0, r), (r * 0.35, r * 0.9), (r * 0.6, r * 0.55), (r * 0.72, 0)], NET, n=12, sx=1.0, sy=0.8)
+    with m.fitting('net pile') as base:
+        m.lathe((x, y, z - SINK), [(0, r), (r * 0.35, r * 0.9), (r * 0.6, r * 0.55), (r * 0.72, 0)], NET, n=12, sx=1.0, sy=0.8)
+        base.append((x, y, z - SINK))
     for k in range(5):
         a = k * 1.3
         m.lathe((x + 0.55 * r * math.cos(a), y + 0.45 * r * math.sin(a), z + 0.18 + 0.12 * (k % 2)),
@@ -270,56 +308,70 @@ def ground_under(world, x0, y0, x1, y1):
 
 
 def bench(m, a, b, z, depth=0.42, h=0.44):
+    """A plank bench from a to b on floor z; its legs start 5 mm into the floor (posts sink SINK: no shared plane)."""
     d = Vector((b[0] - a[0], b[1] - a[1], 0)); L = d.length; d.normalize(); nrm = Vector((-d.y, d.x, 0))
-    m.beam((a[0], a[1], z + h), (b[0], b[1], z + h), depth, 0.07, PLANK)
-    for t in (0.12, 0.5, 0.88):
-        if L < 2.0 and t == 0.5:
-            continue
-        p = (a[0] + d.x * L * t, a[1] + d.y * L * t)
-        m.box((p[0], p[1], z + h / 2 - 0.02), (0.1 + abs(nrm.x) * (depth - 0.1), 0.1 + abs(nrm.y) * (depth - 0.1), h - 0.04), TIMBER_DARK)
+    with m.fitting('bench') as base:
+        m.beam((a[0], a[1], z + h), (b[0], b[1], z + h), depth, 0.07, PLANK)
+        for t in (0.12, 0.5, 0.88):
+            if L < 2.0 and t == 0.5:
+                continue
+            p = (a[0] + d.x * L * t, a[1] + d.y * L * t)
+            m.box((p[0], p[1], z + h / 2 - 0.0225), (0.1 + abs(nrm.x) * (depth - 0.1), 0.1 + abs(nrm.y) * (depth - 0.1), h - 0.035), TIMBER_DARK)
+            base.append((p[0], p[1], z - 0.005))
 
 
-def wall(m, a, b, z0, h, t, mat, openings=(), frame_mat=TIMBER):
+def wall(m, a, b, z0, h, t, mat, openings=(), frame_mat=TIMBER, end_post=True):
     """A straight wall from a to b (outward normal to the right of a->b) with rectangular openings
-    [(u0, u1, v0, v1)] in metres along/up the wall; timber frame members at the ends and around openings."""
+    [(u0, u1, v0, v1)] in metres along/up the wall; timber frame members at the ends and around openings.
+
+    No two members share a face plane: the infill stops 1 cm inside the base board, top beam, sills and lintels, at
+    the jamb centres and inside the corner posts; the corner posts stand 8 mm proud of the boards and beams, which
+    stop inside them clear of the next wall's; jambs stand 5 mm proud of the lintels, which run 5 mm past them; the
+    window grid's ends run 5 mm into the frame and its transoms are 5 mm shallower than its mullions. Walls round a
+    building build each corner post once: pass end_post=False and close the loop."""
     d = Vector((b[0] - a[0], b[1] - a[1], 0)); L = d.length; d.normalize()
     U, V, A = frame_axes(d, (0, 0, 1))
-    cuts = sorted({0.0, L, *[o[0] for o in openings], *[o[1] for o in openings]})
+    f = t / 2 + 0.03                  # base board and top beam half-depth
+    P = f + 0.008                     # corner post half-size, both ways
+    me = f + 0.004                    # boards and beams stop inside the corner posts, clear of the next wall's
+    se = t / 2 + 0.004                # the infill stops inside the corner posts, clear of the next wall's infill
+    doors = sorted(o for o in openings if o[2] <= 0.05)
+    cuts = sorted({se, L - se, *[o[0] - 0.06 for o in openings], *[o[1] + 0.06 for o in openings]})
     with m.frame((a[0], a[1], z0), U, V, A):
         for u0, u1 in zip(cuts, cuts[1:]):
-            spans = [(0.0, h)]
+            spans = [(0.01, h - 0.01)]
             for o in openings:
-                if o[0] <= u0 + 1e-6 and o[1] >= u1 - 1e-6:
-                    spans = [(s0, s1) for s0, s1 in [(0.0, o[2]), (o[3], h)] if s1 - s0 > 1e-3]
+                if o[0] - 0.06 <= u0 + 1e-6 and o[1] + 0.06 >= u1 - 1e-6:
+                    spans = [(s0, s1) for s0, s1 in [(0.01, o[2] - 0.01), (o[3] + 0.01, h - 0.01)] if s1 - s0 > 1e-3]
             for v0, v1 in spans:
                 m.prism(F.rect(u0, v0, u1, v1), -t / 2, t / 2, mat)
-        for u in (0.0, L):
-            m.prism(F.rect(u - 0.12, 0.0, u + 0.12, h), -t / 2 - 0.03, t / 2 + 0.03, frame_mat)
-        m.prism(F.rect(0.0, h - 0.18, L, h), -t / 2 - 0.03, t / 2 + 0.03, frame_mat)
-        base = [0.0]                  # the base board stops at a door
-        for o in sorted(o for o in openings if o[2] <= 0.05):
-            base += [o[0], o[1]]
-        base.append(L)
+        for u in ((0.0, L) if end_post else (0.0,)):
+            m.prism(F.rect(u - P, -0.01, u + P, h + 0.01), -P, P, frame_mat)
+        m.prism(F.rect(me, h - 0.18, L - me, h), -f, f, frame_mat)
+        base = [me]                   # the base board stops inside the jambs of a door
+        for o in doors:
+            base += [o[0] - 0.07, o[1] + 0.07]
+        base.append(L - me)
         for u0, u1 in zip(base[::2], base[1::2]):
             if u1 - u0 > 1e-3:
-                m.prism(F.rect(u0, 0.0, u1, 0.2), -t / 2 - 0.03, t / 2 + 0.03, frame_mat)
+                m.prism(F.rect(u0, 0.0, u1, 0.2), -f, f, frame_mat)
         for o in openings:
-            u0, u1, v0, v1 = o[:4]
+            u0, u1, v0, v1 = o[:4]; door = o[2] <= 0.05
             for u in (u0 - 0.06, u1 + 0.06):
-                m.prism(F.rect(u - 0.06, max(0.0, v0 - 0.06), u + 0.06, min(h, v1 + 0.06)), -t / 2 - 0.035, t / 2 + 0.035, frame_mat)
-            m.prism(F.rect(u0 - 0.12, v1, u1 + 0.12, v1 + 0.1), -t / 2 - 0.035, t / 2 + 0.035, frame_mat)
-            if v0 > 0.05:
-                m.prism(F.rect(u0 - 0.12, v0 - 0.1, u1 + 0.12, v0), -t / 2 - 0.05, t / 2 + 0.05, frame_mat)
+                m.prism(F.rect(u - 0.06, -0.01 if door else v0 - 0.06, u + 0.06, min(h, v1 + 0.06)), -t / 2 - 0.04, t / 2 + 0.04, frame_mat)
+            m.prism(F.rect(u0 - 0.125, v1, u1 + 0.125, v1 + 0.1), -t / 2 - 0.035, t / 2 + 0.035, frame_mat)
+            if not door:
+                m.prism(F.rect(u0 - 0.125, v0 - 0.1, u1 + 0.125, v0), -t / 2 - 0.05, t / 2 + 0.05, frame_mat)
             kind = o[4] if len(o) > 4 else 'window'
             if kind == 'window':      # sliding glazed sash with a timber grid (inset)
                 m.prism(F.rect(u0, v0, u1, v1), -0.03, 0.03, GLASS)
                 nx = max(1, round((u1 - u0) / 0.45)); ny = max(1, round((v1 - v0) / 0.45))
                 for i in range(1, nx):
                     uu = u0 + (u1 - u0) * i / nx
-                    m.prism(F.rect(uu - 0.025, v0, uu + 0.025, v1), -0.05, 0.05, frame_mat)
+                    m.prism(F.rect(uu - 0.025, v0 - 0.005, uu + 0.025, v1 + 0.005), -0.05, 0.05, frame_mat)
                 for j in range(1, ny):
                     vv = v0 + (v1 - v0) * j / ny
-                    m.prism(F.rect(u0, vv - 0.025, u1, vv + 0.025), -0.05, 0.05, frame_mat)
+                    m.prism(F.rect(u0 - 0.005, vv - 0.025, u1 + 0.005, vv + 0.025), -0.045, 0.045, frame_mat)
             elif kind == 'door':      # closed
                 m.prism(F.rect(u0, 0.0, u1, v1), -0.04, 0.04, TIMBER_DARK)
                 m.prism(F.rect(u0 + 0.12, v1 * 0.55, u1 - 0.12, v1 - 0.12), -0.06, 0.06, GLASS)
@@ -327,8 +379,8 @@ def wall(m, a, b, z0, h, t, mat, openings=(), frame_mat=TIMBER):
                 w = u1 - u0
                 m.prism(F.rect(u0 - w, 0.0, u0, v1), t / 2 + 0.05, t / 2 + 0.09, TIMBER_DARK)
                 m.prism(F.rect(u0 - w + 0.12, v1 * 0.55, u0 - 0.12, v1 - 0.12), t / 2 + 0.04, t / 2 + 0.10, GLASS)
-            elif kind == 'counter':   # ticket window: an open hatch with a shelf
-                m.prism(F.rect(u0, v0 - 0.08, u1, v0), 0.0, 0.42, PLANK)
+            elif kind == 'counter':   # ticket window: an open hatch with a shelf 5 mm above the sill
+                m.prism(F.rect(u0, v0 - 0.075, u1, v0 + 0.005), 0.0, 0.42, PLANK)
 
 
 def piles_under(m, xs, ys, z_top, z_bot=-4.0, s=0.34, braces=True, mat=TIMBER_DARK):
@@ -357,7 +409,8 @@ def brow(m, shore, hull, inboard, z_shore, width=BROW_W):
         zz = lambda u: rise * u / L
         for s in (-1, 1):
             yy = s * (width / 2 - 0.05)
-            m.beam((0.0, yy - 0.0, 0.06), (L, yy, rise + 0.06), 0.1, 0.12, WHITE)                  # kick plate
+            yk = s * (width / 2 - 0.052)        # kick plate: inner face as before, outer face 4 mm inside the deck edge
+            m.beam((0.0, yk, 0.06), (L, yk, rise + 0.06), 0.096, 0.12, WHITE)
             m.beam((0.0, yy, 1.0), (L, yy, rise + 1.0), 0.06, 0.06, WHITE)
             m.beam((0.0, yy, 0.5), (L, yy, rise + 0.5), 0.04, 0.04, WHITE)
             n = max(2, round(L / 0.55))
@@ -365,7 +418,7 @@ def brow(m, shore, hull, inboard, z_shore, width=BROW_W):
                 u = L * k / n
                 m.beam((u, yy, zz(u)), (u, yy, zz(u) + 1.0), 0.05, 0.05, WHITE)
         # The hinge barrel on the shore end, and the lip resting on the ship's landing plate.
-        m.tube([(0.0, -width / 2, -0.06), (0.0, width / 2, -0.06)], 0.07, IRON, n=8)
+        m.tube([(0.0, -width / 2 + 0.006, -0.06), (0.0, width / 2 - 0.006, -0.06)], 0.07, IRON, n=8)   # ends 6 mm in
         m.prism(F.rect(L - 0.05, -width / 2 + 0.1, L + HULL_GAP + LIP, width / 2 - 0.1), rise - LIP_T, rise, IRON)
     end = Vector((shore[0], shore[1], 0)) + d * (L + HULL_GAP + LIP)
     W = lambda u, v, z: (shore[0] + d.x * u + nrm.x * v, shore[1] + d.y * u + nrm.y * v, z)
@@ -409,8 +462,8 @@ def hidamari():
     # Jetty: plank deck flush with the coping, on timber piles, with a dark fascia, black fender piles on its face and
     # railings along its open sides.
     J.prism(F.rect(x0, face, x1, QF), quay - deck_t, quay, TIMBER_DARK, top=PLANK)
-    for k in range(int((x1 - x0) / 0.5)):
-        xx = x0 + 0.25 + k * 0.5
+    for k in range(int((x1 - x0) / 0.5)):     # (5 mm off the half-metre grid: clear of the stair posts' faces)
+        xx = x0 + 0.255 + k * 0.5
         J.box((xx, (face + QF) / 2, quay + 0.004), (0.02, QF - face - 0.1, 0.012), TIMBER_DARK)   # plank seams
     piles_under(J, [x0 + 0.3 + k * (x1 - x0 - 0.6) / 5 for k in range(6)], [face + 0.3, (face + QF) / 2, QF - 0.4], quay - deck_t)
     for k in range(9):
@@ -442,24 +495,21 @@ def hidamari():
             spans = [(sx0, sx1)] if (y < gal1 - 1.0 or zz < quay + (SILL - quay) * 0.4) else [(sx0, gx - 1.25), (gx + 1.25, sx1)]
             for xa, xb in spans:
                 S.beam((xa, y, zz), (xb, y, zz), 0.14, 0.24, TIMBER)
-    for x in (sx0 + 0.2, sx1 - 0.2):
-        for zz in (quay + 2.45, ze - 0.2):
-            S.beam((x, gal0, zz), (x, foot_y - 0.2, zz), 0.14, 0.24, TIMBER)
+    for x in (sx0 + 0.2, sx1 - 0.2):             # side ties, 1 cm deeper than the nuki they cross; at the eaves the
+        S.beam((x, gal0, quay + 2.45), (x, foot_y - 0.2, quay + 2.45), 0.14, 0.25, TIMBER)   # end trusses' tie beams
     for x in (gx - 1.45, gx + 1.45):             # stair landing posts
         post(S, x, gal1 + 9 * TREAD + 0.6, quay, quay + (SILL - quay) * 10 / 19 - 0.05, s=0.22)
     land_y0 = gal1 + 8 * TREAD; land_y1 = land_y0 + 1.2
     # Gallery and stair railings, open at the brow and the stair head.
-    rail_line(S, [(sx0 + 0.1, gal1 - 0.05), (sx0 + 0.1, gal0 + 0.1), (gx - BROW_W / 2 - 0.1, gal0 + 0.1)], SILL)
-    rail_line(S, [(gx + BROW_W / 2 + 0.1, gal0 + 0.1), (sx1 - 0.1, gal0 + 0.1), (sx1 - 0.1, gal1 - 0.05)], SILL)
-    rail_line(S, [(sx0 + 0.1, gal1 - 0.05), (gx - 1.2, gal1 - 0.05)], SILL)
-    rail_line(S, [(gx + 1.2, gal1 - 0.05), (sx1 - 0.1, gal1 - 0.05)], SILL)
+    rail_line(S, [(gx - 1.2, gal1 - 0.05), (sx0 + 0.1, gal1 - 0.05), (sx0 + 0.1, gal0 + 0.1), (gx - BROW_W / 2 - 0.1, gal0 + 0.1)], SILL)
+    rail_line(S, [(gx + BROW_W / 2 + 0.1, gal0 + 0.1), (sx1 - 0.1, gal0 + 0.1), (sx1 - 0.1, gal1 - 0.05), (gx + 1.2, gal1 - 0.05)], SILL)
     for s in (-1, 1):                            # stair handrails following the pitch
         xs = gx + s * 1.2
         for (ua, za), (ub, zb) in (((foot_y, quay), (land_y1, quay + (SILL - quay) * 10 / 19)),
                                    ((land_y0, quay + (SILL - quay) * 10 / 19), (gal1, SILL))):
             S.beam((xs, ua, za + 0.95), (xs, ub, zb + 0.95), 0.08, 0.1, TIMBER)
-            for yy, zz in ((ua, za), (ub, zb)):
-                S.box((xs, yy, zz + 0.5), (0.12, 0.12, 1.0), TIMBER)
+            for yy, zz in ((ua, za), (ub, zb)):       # 1 cm into the floor, clear of the railing posts' feet
+                S.box((xs, yy, zz + 0.495), (0.12, 0.12, 1.01), TIMBER)
     for x in (sx0 + 0.2, gx - 1.45, gx + 1.45, sx1 - 0.2):   # knee braces under the gallery
         knee(S, (x, gal0 + 0.2, SILL - 1.2), (x, gal0 + 1.4, SILL - 0.3))
     bench(S, (sx0 + 0.6, gal1 + 0.6), (sx0 + 0.6, foot_y - 0.6), quay)
@@ -469,7 +519,7 @@ def hidamari():
         tie_truss(S, x, gal0, foot_y - 0.2, ze, zr)
     for x in (gx - 1.0, gx + 1.0):
         lantern(S, x, gal1 - 0.3, ze - 0.55, h=0.3)
-        S.beam((x, gal1 - 0.3, ze - 0.25), (x, gal1 - 0.3, ze - 0.2), 0.03, 0.03, IRON)
+        S.beam((x, gal1 - 0.3, ze - 0.245), (x, gal1 - 0.3, ze - 0.2), 0.03, 0.03, IRON)
     # Brow: hinged on the gallery's south edge, over the fender gap to the hull, its lip on the ship's landing plate.
     br = brow(B, (gx, face), (gx, gy), (0.0, -1.0), SILL)
     # Waiting house on the promenade west of the jetty root: white plaster between dark timber, sliding windows,
@@ -479,11 +529,11 @@ def hidamari():
     hb = b['promenade_range'][0] - 0.15        # the plinth reaches below the lowest ground under it
     W.prism(F.rect(hx0 - 0.3, hy0 - 0.3, hx1 + 0.3, hy1 + 0.3), hb, hz + 0.18, STONE)
     wh = 2.9
-    wall(W, (hx0, hy0), (hx1, hy0), hz + 0.18, wh, 0.18, PLASTER, [(1.2, 2.2, 0.0, 2.15, 'open door'), (3.0, 6.0, 0.85, 2.2), (7.0, 10.6, 0.85, 2.2)])
-    wall(W, (hx1, hy0), (hx1, hy1), hz + 0.18, wh, 0.18, PLASTER, [(1.4, 6.1, 0.85, 2.2)])
-    wall(W, (hx1, hy1), (hx0, hy1), hz + 0.18, wh, 0.18, PLASTER, [(1.0, 4.0, 0.85, 2.2), (8.0, 11.0, 0.85, 2.2)])
-    wall(W, (hx0, hy1), (hx0, hy0), hz + 0.18, wh, 0.18, PLASTER, [(2.2, 5.3, 0.85, 2.2)])
-    W.prism(F.rect(hx0 + 0.1, hy0 + 0.1, hx1 - 0.1, hy1 - 0.1), hz + 0.18, hz + 0.2, PLANK)
+    wall(W, (hx0, hy0), (hx1, hy0), hz + 0.18, wh, 0.18, PLASTER, [(1.2, 2.2, 0.0, 2.15, 'open door'), (3.0, 6.0, 0.85, 2.2), (7.0, 10.6, 0.85, 2.2)], end_post=False)
+    wall(W, (hx1, hy0), (hx1, hy1), hz + 0.18, wh, 0.18, PLASTER, [(1.4, 6.1, 0.85, 2.2)], end_post=False)
+    wall(W, (hx1, hy1), (hx0, hy1), hz + 0.18, wh, 0.18, PLASTER, [(1.0, 4.0, 0.85, 2.2), (8.0, 11.0, 0.85, 2.2)], end_post=False)
+    wall(W, (hx0, hy1), (hx0, hy0), hz + 0.18, wh, 0.18, PLASTER, [(2.2, 5.3, 0.85, 2.2)], end_post=False)
+    W.prism(F.rect(hx0 + 0.1, hy0 + 0.1, hx1 - 0.1, hy1 - 0.1), hz + 0.175, hz + 0.2, PLANK)   # 5 mm into the plinth
     gable_roof(W, hx0, hy0, hx1, hy1, hz + 0.18 + wh, 0.6, over=(0.7, 0.7, 1.1, 0.8))
     for u0, u1 in ((3.2, 5.8), (7.4, 10.0)):   # feet on the exported quay under each bench
         bench(W, (hx0 + u0, hy0 - 0.7), (hx0 + u1, hy0 - 0.7), ground_under(world, hx0 + u0, hy0 - 0.91, hx0 + u1, hy0 - 0.49))
@@ -498,8 +548,10 @@ def hidamari():
         col_box(dx - 0.6, y0, dx + 0.6, y1, gd - 0.1, top - k * r)
     for xx in (hx0 + 0.6, hx1 - 0.9):         # potted plants either side, as in the concept (west one clear of the step)
         pz = ground_under(world, xx - 0.3, hy0 - 1.1, xx + 0.3, hy0 - 0.5)
-        W.lathe((xx, hy0 - 0.8, pz), [(0, 0.22), (0.45, 0.3), (0.5, 0.0)], TERRACOTTA, n=10)
-        W.lathe((xx, hy0 - 0.8, pz + 0.45), [(0, 0.3), (0.3, 0.36), (0.6, 0.0)], MOSS, n=10)
+        with W.fitting('plant pot') as base:
+            W.lathe((xx, hy0 - 0.8, pz), [(0, 0.22), (0.45, 0.3), (0.5, 0.0)], TERRACOTTA, n=10)
+            W.lathe((xx, hy0 - 0.8, pz + 0.45), [(0, 0.3), (0.3, 0.36), (0.6, 0.0)], MOSS, n=10)
+            base.append((xx, hy0 - 0.8, pz))
     # Timetable board on the promenade at the jetty root, facing the city.
     tx, ty, tz = b['timetable']
     timetable(T, tx, ty, tz - 0.02, 0.0)
@@ -542,27 +594,39 @@ def brinecove():
     lx0, lx1, ly0, ly1 = PW, PW + 3.4, gy - 3.6, gy + 3.6
     # A framed timber stage, closed underneath (nobody walks into the 1.7 m void): a plank deck overhanging a fascia,
     # posts on stone footings, recessed board infill and one diagonal brace per bay, so its faces read as joinery.
+    # No two of its members share a face plane: the core stands 1 cm into the plinth; the posts' heads run 2.5 cm
+    # into the deck; each corner has one post, inset from both edges; boards and fascias along the x-facing sides sit
+    # 5 mm lower than those along the y-facing sides where they cross at the corners, and the fascias stop 1 cm short
+    # of the deck's edges.
     ins, fz = 0.16, SILL - 0.22
-    Lm.prism(F.rect(lx0 + ins, ly0 + ins, lx1 - ins, ly1 - ins), deck, fz, TIMBER_DARK)
+    Lm.prism(F.rect(lx0 + ins, ly0 + ins, lx1 - ins, ly1 - ins), deck + 0.17, fz, TIMBER_DARK)
     Lm.prism(F.rect(lx0, ly0, lx1, ly1), fz, SILL, TIMBER, top=PLANK)
     Lm.prism(F.rect(lx0 + 0.04, ly0 + 0.04, lx1 - 0.04, ly1 - 0.04), deck, deck + 0.18, STONE)    # plinth
+    corners = set()
     for (ax, ay), (bx, by_) in (((lx0, ly0), (lx1, ly0)), ((lx1, ly0), (lx1, ly1)), ((lx0, ly1), (lx1, ly1)),
                                 ((lx0, ly0), (lx0, ly1))):
         L = math.dist((ax, ay), (bx, by_)); n = max(1, round(L / 2.0))
         ox, oy = (0.0, -1.0) if ay == by_ == ly0 else (1.0, 0.0) if ax == bx == lx1 else (0.0, 1.0) if ay == by_ else (-1.0, 0.0)
         tx, ty = (bx - ax) / L, (by_ - ay) / L
+        dz = -0.005 if ax == bx else 0.0
         for k in range(int(L / 0.32)):                      # infill boards, proud of the core, behind the posts
             u = (k + 0.5) * L / int(L / 0.32)
-            Lm.box((ax + tx * u - ox * (ins - 0.03), ay + ty * u - oy * (ins - 0.03), (deck + 0.18 + fz) / 2),
+            Lm.box((ax + tx * u - ox * (ins - 0.03), ay + ty * u - oy * (ins - 0.03), (deck + 0.18 + fz) / 2 + dz),
                    (abs(tx) * 0.26 + abs(ox) * 0.03 + 0.001, abs(ty) * 0.26 + abs(oy) * 0.03 + 0.001, fz - deck - 0.18), TIMBER_DARK)
         for k in range(n + 1):
             u = k * L / n; px, py = ax + tx * u - ox * 0.06, ay + ty * u - oy * 0.06
-            post(Lm, px, py, deck, fz, s=0.22, footing=True)
+            if k in (0, n):                                  # a corner: one post, inset from both edges
+                c = (round(px + tx * (0.06 if k == 0 else -0.06), 4), round(py + ty * (0.06 if k == 0 else -0.06), 4))
+                if c not in corners:
+                    corners.add(c); post(Lm, c[0], c[1], deck, fz + 0.025, s=0.22, footing=True)
+            else:
+                post(Lm, px, py, deck, fz + 0.025, s=0.22, footing=True)
             if k < n:                                          # one brace per bay, alternating
                 v = (k + 1) * L / n; qx, qy = ax + tx * v - ox * 0.06, ay + ty * v - oy * 0.06
                 lo, hi = (deck + 0.3, fz - 0.08) if k % 2 == 0 else (fz - 0.08, deck + 0.3)
                 Lm.beam((px + tx * 0.12, py + ty * 0.12, lo), (qx - tx * 0.12, qy - ty * 0.12, hi), 0.09, 0.12, TIMBER)
-        Lm.beam((ax - ox * 0.05, ay - oy * 0.05, fz - 0.08), (bx - ox * 0.05, by_ - oy * 0.05, fz - 0.08), 0.12, 0.18, TIMBER)
+        Lm.beam((ax - ox * 0.05 + tx * 0.01, ay - oy * 0.05 + ty * 0.01, fz - 0.08 + dz),
+                (bx - ox * 0.05 - tx * 0.01, by_ - oy * 0.05 - ty * 0.01, fz - 0.08 + dz), 0.12, 0.18, TIMBER)
     # The stair runs north along the pier's west edge, so the walkway between it and the pavilion stays 2.6 m wide.
     r = (SILL - deck) / 7
     sx_ = (lx0 + lx1) / 2; foot_y = ly1 + 6 * 0.30
@@ -615,10 +679,10 @@ def brinecove():
     for k in range(6):                           # coursed blocks
         H.box((hx0 - 0.02, hy0 + 0.4 + k * 0.75, deck + 0.42), (0.04, 0.02, 0.8), INK)
     wh = 2.3; z1 = deck + 0.85
-    wall(H, (hx0, hy0), (hx1, hy0), z1, wh, 0.16, TIMBER_DARK, [])
-    wall(H, (hx1, hy0), (hx1, hy1), z1, wh, 0.16, TIMBER_DARK, [])
-    wall(H, (hx1, hy1), (hx0, hy1), z1, wh, 0.16, TIMBER_DARK, [(1.0, 1.95, 0.0, 2.0, 'door')])
-    wall(H, (hx0, hy1), (hx0, hy0), z1, wh, 0.16, TIMBER_DARK, [(1.1, 3.4, 0.35, 1.5, 'counter')])
+    wall(H, (hx0, hy0), (hx1, hy0), z1, wh, 0.16, TIMBER_DARK, [], end_post=False)
+    wall(H, (hx1, hy0), (hx1, hy1), z1, wh, 0.16, TIMBER_DARK, [], end_post=False)
+    wall(H, (hx1, hy1), (hx0, hy1), z1, wh, 0.16, TIMBER_DARK, [(1.0, 1.95, 0.0, 2.0, 'door')], end_post=False)
+    wall(H, (hx0, hy1), (hx0, hy0), z1, wh, 0.16, TIMBER_DARK, [(1.1, 3.4, 0.35, 1.5, 'counter')], end_post=False)
     for k in range(int((hy1 - hy0) / 0.3)):      # vertical boards on the walkway face
         yy = hy0 + 0.15 + k * 0.3
         if not (hy1 - 3.4 - 0.1 < yy < hy1 - 1.1 + 0.1):
@@ -629,13 +693,14 @@ def brinecove():
     timetable(H, (hx0 + hx1) / 2, hy1 + 1.4, deck, 180.0, w=1.4, h=1.3)      # facing passengers coming down the pier
     H.prism(F.rect(hx0 - 1.0, hy0 + 0.2, hx0 - 0.3, hy0 + 1.4), deck, deck + 0.45, CRATE)    # flower box
     H.prism(F.rect(hx0 - 0.95, hy0 + 0.25, hx0 - 0.35, hy0 + 1.35), deck + 0.45, deck + 0.62, MOSS)
-    # Harbour props as in the concept: crates, a barrel, nets with orange floats and rope coils.
-    for x, y, s, yaw in ((PW + 1.0, gy - 8.0, 0.9, 10), (PW + 1.0, gy - 9.1, 0.8, -6), (PW + 1.6, gy - 8.6, 0.7, 30),
+    # Harbour props as in the concept: crates, a barrel, nets with orange floats and rope coils, each clear of the
+    # others (none runs through another).
+    for x, y, s, yaw in ((PW + 1.0, gy - 8.0, 0.9, 10), (PW + 1.0, gy - 9.1, 0.8, -6), (PW + 2.0, gy - 8.6, 0.7, 30),
                          (PW + 12.0, gy + 13.0, 0.9, 4), (PW + 12.1, gy + 12.0, 0.75, 22)):
         crate(Pr, x, y, deck, s, yaw)
     barrel(Pr, PW + 2.2, gy - 7.0, deck)
     net_pile(Pr, PW + 11.8, gy + 15.6, deck)
-    net_pile(Pr, PW + 11.6, gy + 14.6, deck, r=0.6)
+    net_pile(Pr, PW + 11.5, gy + 14.4, deck, r=0.6)
     rope_coil(Pr, PW + 0.9, gy - 6.0, deck)
     rope_coil(Pr, PW + 12.0, gy - 10.6, deck, R=0.5)
     col_box(lx0, ly0, lx1, ly1, deck, SILL)
@@ -680,6 +745,19 @@ def context_ground(name, route):
     m = bpy.data.meshes.new('ctx_' + name); t = tris[keep]
     m.from_pydata(t.reshape(-1, 3).tolist(), [], [[3 * k, 3 * k + 1, 3 * k + 2] for k in range(len(t))])
     return m, cuts
+
+
+def world_near(name, pts, margin=2.0):
+    """The exported world's triangles (ground and solids) within margin of the given plan points, less the world cuts
+    B3 makes: what carries the terminal's fittings in game."""
+    w = FS.load_world(name)
+    tris = np.concatenate([w['ground'], w['solid']])
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    lo, hi = tris.min(1), tris.max(1)
+    keep = (hi[:, 0] >= min(xs) - margin) & (lo[:, 0] <= max(xs) + margin) & (hi[:, 1] >= min(ys) - margin) & (lo[:, 1] <= max(ys) + margin)
+    for c in SITE[name]['berth']['world_cuts']:
+        keep &= ~FS.cut_mask(tris, c)
+    return tris[keep].tolist()
 
 
 def ship_meshes(mats):
@@ -833,11 +911,21 @@ def main():
                                                           'width_min': WC.WIDTH_MIN, 'capsule_radius': WC.RADIUS},
                 'terminals': {}}
     walks = {}
-    failures = []
+    # The seat and coplanar audits first prove on known cases that they still catch what they are for.
+    fixtures = F.SM.audit_fixtures(); manifest['audit_fixtures'] = fixtures
+    failures = [f'audit fixture misjudged: {r["case"]} expected {r["expect"]}, got {r["got"]}' for r in fixtures if not r['ok']]
+    print('audit fixtures', sum(r['ok'] for r in fixtures), 'of', len(fixtures), 'judged right')
     for name, fn, prefix in (('hidamari', hidamari, 'FT_HD'), ('brinecove', brinecove, 'FT_BC')):
         COL.clear()
         meshes, walk = fn()
         objs = []
+        # Fittings stand on the kit or the exported ground (seat rule), and no two parts share a visible face. In the
+        # build frame, before export moves the kit to its anchor.
+        kit = list(meshes.values()); bases = [s_['at'] for m in kit for s_ in m.seats]
+        seat_rows, seat_bad = F.SM.seat_failures(kit, world_near(name, bases) if bases else ())
+        n_cop, cop = F.SM.coplanar_overlaps(kit, limit=400)
+        seats = {'count': len(seat_rows), 'failures': seat_bad, 'rule': {'gap_max_m': F.SM.SEAT_GAP, 'slack_m': F.SM.SEAT_SLACK}}
+        coplanar = {'count': n_cop, 'samples': cop}
         coll = bpy.data.collections.new(name); bpy.context.scene.collection.children.link(coll)
         rep = export(meshes, walk['anchor'], mats, objs)
         hulls = export_collision(prefix, walk['anchor'])
@@ -850,10 +938,10 @@ def main():
         moored = ship_at(ship, SITE[name]['berth'], coll)
         clash = ship_clash(objs, moored)
         audit = walk_audit(objs + [cobj] + moored, walk)
-        walks[name] = {**walk, 'audit': audit, 'ship_clash': clash, 'world_cuts_pending': cuts}
+        walks[name] = {**walk, 'audit': audit, 'ship_clash': clash, 'world_cuts_pending': cuts, 'seats': seats, 'coplanar': coplanar}
         manifest['terminals'][name] = {'anchor': walk['anchor'], 'frame': walk['frame'], 'meshes': rep, 'stair': walk['stair'],
                                        'brow': walk['brow'], 'gate': walk['gate'], 'walk': audit, 'ship_clash': clash,
-                                       'world_cuts_pending': cuts,
+                                       'world_cuts_pending': cuts, 'seats': seats, 'coplanar': coplanar,
                                        'collision': {'file': f'assets/{prefix}_Collision.fbx', 'convex_hulls': hulls},
                                        'triangles': sum(v['triangles'] for v in rep.values())}
         print(name, 'walk audit', audit)
@@ -861,6 +949,9 @@ def main():
         failures += [f'{name}: open edges in {n}' for n, v in rep.items() if v['open_edges']]
         failures += [f'{name}: walk audit failed'] * (not audit['pass'])
         failures += [f'{name}: {c["terminal"]} meets {c["ship"]} ({c})' for c in clash['clashes']]
+        failures += [f'{name}: {r["label"]} in {r["mesh"]} {r["status"]} at {r["at"]} (gap {r.get("gap_m")})' for r in seat_bad]
+        failures += [f'{name}: {n_cop} coplanar overlapping faces, e.g. {c["parts"]} at {c["at"]}' for c in cop[:8]] if n_cop else []
+        print(name, 'seats', len(seat_rows), 'failures', len(seat_bad), 'coplanar', n_cop)
     manifest['failures'] = failures
     (OUT / 'walk.json').write_text(json.dumps(walks, indent=1) + '\n')
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n')
