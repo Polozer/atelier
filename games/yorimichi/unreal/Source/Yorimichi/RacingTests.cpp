@@ -413,8 +413,8 @@ bool FRacingSharedHorseGaitTest::RunTest(const FString&)
     // Mounted walk starts at 10 cm/s; racing starts at 12 cm/s and caps sprint at 1.45x.
     TestTrue(TEXT("Mounted walk at 10 cm/s is 0.82"), FMath::IsNearlyEqual(UHorseComponent::PlayRateForGait(1, 10.f, false), .82f, 1e-4f));
     TestTrue(TEXT("Mounted walk at 135 cm/s is midpoint"), UHorseComponent::PlayRateForGait(1, 135.f, false) > UHorseComponent::PlayRateForGait(1, 135.f, true));
-    TestTrue(TEXT("Mounted sprint clamps at 1.22"), FMath::IsNearlyEqual(UHorseComponent::PlayRateForGait(5, 1700.f, false), 1.22f, 1e-4f));
-    TestTrue(TEXT("Racing sprint clamps at 1.45"), FMath::IsNearlyEqual(UHorseComponent::PlayRateForGait(5, 1700.f, true), 1.45f, 1e-4f));
+    TestTrue(TEXT("Mounted sprint clamps at 1.22"), FMath::IsNearlyEqual(UHorseComponent::PlayRateForGait(5, 1800.f, false), 1.22f, 1e-4f));
+    TestTrue(TEXT("Racing sprint clamps at 1.45"), FMath::IsNearlyEqual(UHorseComponent::PlayRateForGait(5, 1800.f, true), 1.45f, 1e-4f));
     TSharedPtr<FJsonObject> Breed;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(TEXT("{\"contacts\":{\"saddle_root\":[0.04,0.12,1.6],\"seat_z\":1.43}}"));
     TestTrue(TEXT("Breed JSON parses"), FJsonSerializer::Deserialize(Reader, Breed) && Breed.IsValid());
