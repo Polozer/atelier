@@ -9,7 +9,6 @@ class AJapanWorld;
 class USoundAttenuation;
 class USoundWave;
 class UAudioComponent;
-class UJapanSoundBank;
 class UJapanFootstepComponent;
 DECLARE_MULTICAST_DELEGATE_OneParam(FJapanFootstepAudioReady, UJapanFootstepComponent*);
 
@@ -63,17 +62,12 @@ public:
     bool IsReady() const { return Set != nullptr; }
     bool IsAudioReady() const { return IsReady(); }
     static FJapanFootstepAudioReady AudioReady;
-    /** Loaded local presentation only; nullptr selects exact Original. No plant-state reset. */
-    bool CanSetSoundBank(const UJapanSoundBank* Replacement, FString& Error) const;
-    bool SetSoundBank(UJapanSoundBank* Replacement, FString& Error);
-    const UJapanSoundBank* GetSoundBank() const { return SoundBank.Get(); }
-    /** Local human-footstep presentation only, independent of the selected bank. */
+    /** Local human-footstep presentation only (hooves keep their plain playback). */
     void SetAudioPreferences(bool bSoften, float Volume);
 private:
-    friend class FJapanFootstepSoundBankTest;
+    friend class FJapanFootstepShuffleTest;
     friend class FJapanFootstepPreferencesTest;
     UPROPERTY() TObjectPtr<UJapanFootstepSet> Set;
-    UPROPERTY() TObjectPtr<UJapanSoundBank> SoundBank;
     UPROPERTY() TObjectPtr<AJapanWorld> Landscape;
     // Per foot: planted means the sound has already fired and the foot must swing clear again.
     bool bPlanted[2] = {true,true};
@@ -81,15 +75,15 @@ private:
     float SincePlant[2] = {0.f,0.f};
     // Per surface shuffled queue, so the same one-shot never comes round twice in a row.
     TMap<FName,FAtelierShuffleBag> Bags;
-    TMap<FName,FAtelierShuffleBag> AlternativeBags;
     bool bSoftenFootsteps = false;
     float FootstepVolume = 1.f;
-    // Weak handles cannot retain finished auto-destroy voices or their old bank.
+    // Weak handles cannot retain finished auto-destroy voices.
     TMap<TWeakObjectPtr<UAudioComponent>,float> FootstepVoices;
     void ApplyVoicePreferences(UAudioComponent* Voice, float BaseVolume) const;
     void PlayFootstepVoice(USoundWave* Wave, const FVector& At, float Volume, float Pitch);
     void StopFootstepVoices();
     void Plant(int32 Side,const FVector& Foot,float Speed);
-    USoundWave* DrawStep(FName Surface,bool bOriginalOnly);
-    void Play(FName Surface,const FVector& At,float Volume,float Pitch,bool bOriginalOnly=false);
+    USoundWave* DrawStep(FName Surface);
+    /** bHoof: a hoof stand-in, played plainly without the human-footstep soften/volume preferences. */
+    void Play(FName Surface,const FVector& At,float Volume,float Pitch,bool bHoof=false);
 };

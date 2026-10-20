@@ -1,4 +1,4 @@
-#include "JapanSoundBanks.h"
+#include "JapanAudioPreferences.h"
 #include "SkateComponent.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Engine/World.h"
@@ -18,32 +18,30 @@ bool FJapanSkatePreferencesTest::RunTest(const FString&)
     auto* Actor=World->SpawnActor<AActor>();
     if(!TestNotNull(TEXT("Local emitter owner"),Actor)) { World->DestroyWorld(false); return false; }
     auto* Pending=NewObject<USkateComponent>(Actor);
-    auto* Banks=NewObject<UJapanSoundBanks>(World);
-    Banks->SetSkatePreferences(true,.25f);
+    auto* Prefs=NewObject<UJapanAudioPreferences>(World);
+    Prefs->SetSkatePreferences(true,.25f);
     TestEqual(TEXT("Board without loaded audio waits for readiness"),Pending->GetSoundVolume(),1.f);
     TestFalse(TEXT("Board without loaded audio is not softened early"),Pending->GetSoftenSounds());
-    Banks->SkateReady(Pending);
-    TestEqual(TEXT("Late Original board receives saved gain without loading a bank"),Pending->GetSoundVolume(),.25f);
-    TestTrue(TEXT("Late Original board receives softening"),Pending->GetSoftenSounds());
-    TestFalse(TEXT("Preferences do not load registry or bank"),Banks->bRegistryAttempted);
-    TestNull(TEXT("Original remains delegated"),Banks->Active.Get());
-    Banks->SetSkatePreferences(true,2.f);
-    Banks->SkateReady(Pending);
+    Prefs->SkateReady(Pending);
+    TestEqual(TEXT("Late board receives saved gain"),Pending->GetSoundVolume(),.25f);
+    TestTrue(TEXT("Late board receives softening"),Pending->GetSoftenSounds());
+    Prefs->SetSkatePreferences(true,2.f);
+    Prefs->SkateReady(Pending);
     TestEqual(TEXT("Host clamps the saved gain"),Pending->GetSoundVolume(),1.f);
-    Banks->SetSkatePreferences(true,.25f);
-    Banks->SetSkatePreferences(false,std::numeric_limits<float>::quiet_NaN());
-    Banks->SkateReady(Pending);
+    Prefs->SetSkatePreferences(true,.25f);
+    Prefs->SetSkatePreferences(false,std::numeric_limits<float>::quiet_NaN());
+    Prefs->SkateReady(Pending);
     TestTrue(TEXT("Nonfinite request keeps saved softening"),Pending->GetSoftenSounds());
-    TestEqual(TEXT("Footstep preferences stay independent"),Banks->FootstepVolume,1.f);
-    TestFalse(TEXT("Footstep softening stays independent"),Banks->bSoftenFootsteps);
-    Banks->SetFootstepPreferences(true,.5f);
+    TestEqual(TEXT("Footstep preferences stay independent"),Prefs->FootstepVolume,1.f);
+    TestFalse(TEXT("Footstep softening stays independent"),Prefs->bSoftenFootsteps);
+    Prefs->SetFootstepPreferences(true,.5f);
     TestEqual(TEXT("Footstep changes leave skate gain alone"),Pending->GetSoundVolume(),.25f);
     auto* Unrelated=NewObject<USkateComponent>();
-    Banks->SkateReady(Unrelated);
+    Prefs->SkateReady(Unrelated);
     TestEqual(TEXT("Readiness from another world cannot inherit settings"),Unrelated->GetSoundVolume(),1.f);
-    Banks->bShuttingDown=true;
-    Banks->SetSkatePreferences(false,1.f);
-    Banks->SkateReady(Pending);
+    Prefs->bShuttingDown=true;
+    Prefs->SetSkatePreferences(false,1.f);
+    Prefs->SkateReady(Pending);
     TestEqual(TEXT("Teardown refuses preference mutation"),Pending->GetSoundVolume(),.25f);
     World->DestroyWorld(false);
     return true;

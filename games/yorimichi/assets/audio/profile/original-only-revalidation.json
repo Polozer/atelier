@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "parent": "b1a0296ce26120d937391156162823117312b7a2",
+  "review_scope": "Original is the only soundbank (operator 494): the alternative-bank override is removed. DrawStep draws from the Original set's pool and its single per-surface shuffle bag, exactly the path fresh Original already took (the alternative branch was skipped when no bank was selected); Play passes bHoof (formerly bOriginalOnly) through unchanged, so hoof stand-ins keep their plain AtelierPlaySound playback and human footsteps keep their owned voices with the soften/volume preferences. Surface detection, plant timing, landing, hooves, the tick and per-voice preferences are byte-identical. The offline profile still represents the default Original mix; no new hardware listening is claimed.",
+  "sources": [
+    {
+      "source": "games/yorimichi/unreal/Source/Yorimichi/JapanFootsteps.cpp",
+      "owner": "UJapanFootstepComponent",
+      "before_sha256": "53e85ae9990853b51cc56b3ff60abbb0d7c44348a20431b66649c2c957190660",
+      "after_sha256": "08df0472b8cac0db829b5e6602934321a2b10eceb4802ba6999b22c7c1cd512d",
+      "unchanged_function_bodies": {
+        "SurfaceAt": "4dc1f264811acbb0e3a5205bafb343e443f1b90f87459bd6747528f2eda2f4ad",
+        "Plant": "6454c3a4ce0c815241f3d512621b3fdec8a1eb1514fe2d1f22eed8179d1e81ef",
+        "Land": "7c205ea6ecf3a016614739aadaf3997b5046b4b5fb1a710b3257b17e6fcab3b7",
+        "TickComponent": "e139bd083254dbf7442fbfc257972cc7eef309f5e3ecc36231215aa757582542",
+        "Hoof": "caa3f0112c08f70d0980c8a38cb21f5c309bdac5eb9b0d93bc14de8ca8a29e54",
+        "ApplyVoicePreferences": "08a4e5e222998f2334fce99577929dd2c182012c147fc89de3db7f7be48bc29c"
+      },
+      "changed_function_bodies": {
+        "DrawStep": {
+          "before_sha256": "e1e8dd68895a3373df7283859c2a98497023cb874f20758075b5b97f326f6bc8",
+          "after_sha256": "fd845993c683214f853bc112ca470e44fae00482af1350e338dcd4a2582c7178"
+        },
+        "Play": {
+          "before_sha256": "fcd18d8b80804e758025dbe9b69bb25b98d507e2391727cee17571731b592143",
+          "after_sha256": "490754f45cc7ef203183cc7a3a4fb3301bc4f6b6e0137c00e9bdca281b481c14"
+        }
+      }
+    }
+  ]
+}

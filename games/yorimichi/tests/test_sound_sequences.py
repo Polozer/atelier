@@ -100,9 +100,12 @@ def test_ready_notifications_preserve_exact_contact_and_skate_profile_bodies():
     assert set(follow['changed_function_bodies']) == {'Play'}
     later = {row['source']: row for row in json.loads(
         (game / 'assets/audio/profile/skate-preferences-revalidation.json').read_text())['sources']}
+    original = {row['source']: row for row in json.loads(
+        (game / 'assets/audio/profile/original-only-revalidation.json').read_text())['sources']}
     for row in witness['sources']:
         # Each later witness starts exactly where the previous one ended.
         chain = [row] + ([follow] if row['source'] == follow['source'] else []) + [later[row['source']]]
+        chain += [original[row['source']]] if row['source'] in original else []
         bodies = dict(row['unchanged_function_bodies'])
         for previous, record in zip(chain, chain[1:]):
             assert previous['after_sha256'] == record['before_sha256'] and previous['owner'] == record['owner']
@@ -119,13 +122,38 @@ def test_ready_notifications_preserve_exact_contact_and_skate_profile_bodies():
             assert _body_digest(text, row['owner'], name) == expected
 
 
+def test_original_only_revalidation_witness():
+    """Removing the alternative banks changes only DrawStep and Play; every other footstep body is byte-identical."""
+    game = SOURCE.parents[1]
+    witness = json.loads((game / 'assets/audio/profile/original-only-revalidation.json').read_text())
+    assert witness['version'] == 1
+    (row,) = witness['sources']
+    assert Path(row['source']).name == 'JapanFootsteps.cpp' and row['owner'] == 'UJapanFootstepComponent'
+    assert set(row['changed_function_bodies']) == {'DrawStep', 'Play'}
+    assert set(row['unchanged_function_bodies']) == {'SurfaceAt', 'Plant', 'Land', 'TickComponent', 'Hoof',
+                                                     'ApplyVoicePreferences'}
+    path = sequences.REPO / row['source']
+    assert row['after_sha256'] == sequences.RUNTIME[row['source']] == sequences.digest(path)
+    text = path.read_text()
+    bodies = dict(row['unchanged_function_bodies'])
+    bodies.update({name: value['after_sha256'] for name, value in row['changed_function_bodies'].items()})
+    for name, expected in bodies.items():
+        assert _body_digest(text, row['owner'], name) == expected
+
+
 def test_skate_preferences_revalidation_witness():
     game = SOURCE.parents[1]
     witness = json.loads((game / 'assets/audio/profile/skate-preferences-revalidation.json').read_text())
     assert witness['version'] == 1
     assert witness['defaults'] == {'soften_skate': False, 'skate_volume': 1.0}
     assert {Path(row['source']).name for row in witness['sources']} == {'SkateComponent.cpp', 'SkateRuntime.cpp', 'JapanFootsteps.cpp'}
+    # A later witness takes over where this one ended (the chain test above follows it to the current source).
+    later = {row['source']: row for row in json.loads(
+        (game / 'assets/audio/profile/original-only-revalidation.json').read_text())['sources']}
     for row in witness['sources']:
+        if row['source'] in later:
+            assert row['after_sha256'] == later[row['source']]['before_sha256']
+            continue
         path = sequences.REPO / row['source']
         assert row['after_sha256'] == sequences.RUNTIME[row['source']] == sequences.digest(path)
         text = path.read_text()

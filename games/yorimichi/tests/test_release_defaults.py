@@ -6,8 +6,9 @@ GAME = Path(__file__).resolve().parents[1]
 PREFERENCES = GAME / 'unreal/Source/Yorimichi/JapanPreferences.cpp'
 PRESET = Path(__file__).resolve().parent / 'fixtures/operator393-defaults.txt'
 # Preset keys that are not preferences: kept by their own code at the preset's value, or retired settings.
-KEPT_ELSEWHERE = {'soundbank': 0.0, 'light_version': 3.0}
-RETIRED = {'cairo_botw', 'moveset', 'shield'}
+KEPT_ELSEWHERE = {'light_version': 3.0}
+# soundbank: Original is the only soundbank (operator 494); a saved choice is dropped on the next save.
+RETIRED = {'cairo_botw', 'moveset', 'shield', 'soundbank'}
 
 
 def preset():
@@ -57,7 +58,8 @@ def test_retired_and_separately_kept_keys_are_not_preferences():
     assert not (RETIRED | set(KEPT_ELSEWHERE)) & set(prefs)
     text = source()
     assert 'static constexpr int32 LightVersion = 3;' in text
-    assert 'Saved(TEXT("soundbank"),0.f)' in text
+    assert 'Saved(TEXT("soundbank")' not in text
+    assert 'NextValues.Remove(TEXT("soundbank"));' in text
 
 
 def test_saved_values_win_and_resets_return_to_the_release_defaults():
