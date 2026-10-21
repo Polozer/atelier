@@ -179,7 +179,7 @@ def test_wall_runs_have_a_level_unbroken_top_through_every_join():
     5 mm, every centimetre across the top both sections share, and the run's line is one line through it."""
     name = 'SM_BM_BVV_StoneWall'
     item, lines = generated(name)
-    axis, lo, hi = item.run
+    axis, lo, hi, _ = item.run
     assert axis == 0
     top = max(p.z(p.poly).max() for p in item.plates)
     transforms = [p['transform'] for p in MANIFEST['placements'] if p['asset'] == ENTRIES[name]['source_asset']]
@@ -195,7 +195,7 @@ def test_wall_runs_have_a_level_unbroken_top_through_every_join():
         # Across the top both sections share: one placement sits up to a few cm aside of the other.
         u = (ends[i] - starts[i])[:2] / np.linalg.norm((ends[i] - starts[i])[:2])
         aside = abs(u[0] * (starts[j] - ends[i])[1] - u[1] * (starts[j] - ends[i])[0]) / 100
-        shared = .12 - aside - .01
+        shared = .12 - furniture.RUN_TAPER_M - aside - .01
         for lateral in (-shared, 0., shared):
             local = np.c_[hi + s, np.full(len(s), lateral), np.full(len(s), top)]
             at = furniture.to_region_cm(transforms[i], local)
