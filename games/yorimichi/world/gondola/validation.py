@@ -8,12 +8,13 @@ from pathlib import Path
 GAME=Path(__file__).resolve().parents[2]
 REPO=GAME.parents[1]
 KIT=GAME/'assets/vehicles/gondola'
+RASTER=GAME/'world/walk_raster.py'
 _spec=importlib.util.spec_from_file_location('gondola_canonical_parameters',KIT/'params.py')
 PARAMETERS=importlib.util.module_from_spec(_spec);_spec.loader.exec_module(PARAMETERS)
 SITE_CODE=tuple(GAME/name for name in (
     'world/regions/gondola/site.py','world/regions/gondola/layout.py',
     'world/regions/hidamari/gondola.py','world/regions/belmonte/gondola.py',
-    'world/gondola/line.py','world/gondola/support.py','world/gondola/products.py',
+    'world/walk_raster.py','world/gondola/line.py','world/gondola/support.py','world/gondola/products.py',
     'world/gondola/terrain.py','world/gondola/clearance.py','world/gondola/validation.py',
     'unreal/Scripts/mesh_import.py','unreal/Scripts/import_gondola.py',
     'world/terrain_product.py','world/terrain_query.py','world/regions/belmonte/layout.py',
@@ -54,7 +55,7 @@ def kit_snapshot(build):
             data.get('walk',{}).get('all_pass') is not True):
         raise ValueError('Gondola kit is missing, stale, noncanonical or failed')
     report=json.loads((folder/'review/walk_report.json').read_text())
-    expected={'checker_sha256':sha(KIT/'walk.py'),
+    expected={'checker_sha256':sha(KIT/'walk.py'),'raster_sha256':sha(RASTER),
               'layouts':{name:sha(folder/f'layout_{name}.json') for name in ('cabin','valley','rim','crater')}}
     if (report.get('all_pass') is not True or report.get('failures')!=[] or report.get('inputs')!=expected or
             set(report.get('pieces',{}))!={'cabin','valley','rim','crater'}):

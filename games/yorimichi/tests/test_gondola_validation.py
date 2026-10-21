@@ -8,8 +8,10 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'world'))
 from gondola import validation
 
 
-@pytest.mark.parametrize('fault',['missing','failed','layout','checker','incomplete'])
+@pytest.mark.parametrize('fault',['missing','failed','layout','checker','raster','incomplete'])
 def test_kit_walking_report_is_complete_current_and_required(tmp_path,monkeypatch,fault):
+    raster=tmp_path/'walk_raster.py';raster.write_text('original raster core')
+    monkeypatch.setattr(validation,'RASTER',raster)
     p=validation.PARAMETERS
     monkeypatch.setattr(p,'source_hash',lambda:'canonical')
     root=tmp_path/'gondola'
@@ -18,7 +20,7 @@ def test_kit_walking_report_is_complete_current_and_required(tmp_path,monkeypatc
     manifest={'failures':[],'soft_fail':False,'source_hash':'canonical','parameters':p.DEFAULTS,'walk':{'all_pass':True}}
     (root/'manifest.json').write_text(json.dumps(manifest))
     report={'all_pass':True,'failures':[],'pieces':{name:{} for name in ('cabin','valley','rim','crater')},
-            'inputs':{'checker_sha256':validation.sha(validation.KIT/'walk.py'),
+            'inputs':{'checker_sha256':validation.sha(validation.KIT/'walk.py'),'raster_sha256':validation.sha(raster),
                       'layouts':{name:validation.sha(root/f'layout_{name}.json') for name in ('cabin','valley','rim','crater')}}}
     path=root/'review/walk_report.json';path.write_text(json.dumps(report))
     validation.kit_snapshot(tmp_path)
@@ -29,6 +31,7 @@ def test_kit_walking_report_is_complete_current_and_required(tmp_path,monkeypatc
     else:
         if fault=='failed':report['failures']=['disconnected route']
         if fault=='checker':report['inputs']['checker_sha256']='old checker'
+        if fault=='raster':raster.write_text('changed raster core')
         if fault=='incomplete':del report['pieces']['crater']
         path.write_text(json.dumps(report))
     with pytest.raises((ValueError,FileNotFoundError)):

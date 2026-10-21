@@ -87,3 +87,14 @@ def test_station_import_keeps_the_complete_plain_canonical_material_roster():
         assert stations.WINDOW==kit.params.WINDOW
         assert kit.solid.MATERIALS is kit.params.MATERIALS
         assert kit.solid.MATERIALS==before
+
+
+def test_shared_walking_core_is_a_narrow_declared_production_input(tmp_path):
+    recipe=build.load_recipe('yorimichi')
+    rows={s.name:s for s in recipe.steps(SimpleNamespace(out=tmp_path,uproject=None))}
+    core=recipe.WORLD/'walk_raster.py'
+    for name in ('world.gondola_kit','world.gondola_site','world.gondola_service','unreal.gondola',
+                 'world.ferry_ship','world.ferry_service','unreal.ferry'):
+        assert core in rows[name].inputs,name
+    assert core not in rows['world.ferry_probes'].inputs
+    assert core not in rows['world.ferry_site'].inputs

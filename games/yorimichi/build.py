@@ -1465,7 +1465,7 @@ def gondola_steps(ctx):
     result = [Step('world.gondola_kit', [Blender(kit / 'build.py', threads=3, factory_startup=True,
                     env=(('GONDOLA_PIECES', 'cabin,towers,valley,rim,crater'),
                          ('GONDOLA_PARAMS', ''), ('GONDOLA_SOFT_FAIL', '')))],
-                 inputs=sorted(set(local_imports(kit / 'build.py') + [kit / name for name in parameters.BUILD_SOURCES])),
+                 inputs=sorted(set(local_imports(kit / 'build.py') + [kit / name for name in parameters.BUILD_SOURCES] + [WORLD/'walk_raster.py'])),
                  products=[Product('gondola.kit', tuple(files))], heavy=True, cache=True,
                  about='ropeway cabin, all tower heights and stations: closure, contact, level-floor and walk gates')]
 
@@ -1534,7 +1534,7 @@ def ferry_steps(ctx):
     terminal_names += ['FT_BC_' + name for name in ('Landing', 'Brow', 'Pavilion', 'TicketHut', 'Fenders', 'Props', 'Collision')]
     return [
         Step('world.ferry_ship', [Blender(kit / 'build.py', threads=3), Python(kit / 'walk.py')],
-             inputs=[kit / 'build.py', kit / 'walk.py', *shared],
+             inputs=[kit / 'build.py', kit / 'walk.py', WORLD/'walk_raster.py', *shared],
              outputs=[out / 'ferry/manifest.json', out / 'ferry/deck_layout.json', out / 'ferry/review/walk_report.json',
                       out / 'ferry/assets/FY_ImportSeed.fbx',
                       *(out / 'ferry/assets' / f'{name}.fbx' for name in ship_names)], heavy=True,
@@ -1559,13 +1559,13 @@ def ferry_steps(ctx):
              outputs=[out / 'hidamari/ferry/HD_Harbor.fbx', out / 'hidamari/ferry/cut.json'],
              heavy=True, about='Hidamari opens its quay rail and posts at the audited jetty root'),
         Step('world.ferry_service', [Python(region / 'service.py')],
-             inputs=[region / 'service.py', region / 'timetable.py', harbor_source, terminal / 'walkcheck.py', kit / 'walk.py', *site_code],
+             inputs=[region / 'service.py', region / 'timetable.py', harbor_source, terminal / 'walkcheck.py', kit / 'walk.py', WORLD/'walk_raster.py', *site_code],
              needs=['world.ferry_terminals', 'world.hidamari_ferry_cut'],
              outputs=[out / 'ferry/service/service.json'],
              about='one passenger ferry, a shared-clock two-way timetable, audited boarding walks and sounds'),
         Step('unreal.ferry', [UnrealScript(SCRIPTS / 'import_ferry.py', 'FERRY IMPORT COMPLETE', null_rhi=True)],
              inputs=[SCRIPTS / 'import_ferry.py', SCRIPTS / 'mesh_import.py',
-                     region / 'service.py', region / 'timetable.py', harbor_source, terminal / 'walkcheck.py', kit / 'walk.py', *site_code],
+                     region / 'service.py', region / 'timetable.py', harbor_source, terminal / 'walkcheck.py', kit / 'walk.py', WORLD/'walk_raster.py', *site_code],
              needs=['world.ferry_service', 'unreal.world'], after=['unreal.compile'],
              outputs=[out / 'ferry/import-report.json',
                       *(GAME / 'unreal/Content/Ferry/Ship' / f'{name}.uasset' for name in ship_names),

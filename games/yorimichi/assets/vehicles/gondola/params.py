@@ -80,7 +80,7 @@ def source_hash():
     here=Path(__file__).resolve().parent
     digest=hashlib.sha256()
     files=[(name,here/name) for name in sorted(BUILD_SOURCES)]
-    files.append(('world/solid_mesh.py',here.parents[2]/'world/solid_mesh.py'))
+    files.extend((f'world/{name}',here.parents[2]/'world'/name) for name in ('solid_mesh.py','walk_raster.py'))
     for name,path in files:
         digest.update(name.encode());digest.update(path.read_bytes())
     return digest.hexdigest()[:16]
