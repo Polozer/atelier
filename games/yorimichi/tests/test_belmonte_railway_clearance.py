@@ -1,6 +1,7 @@
 """The railway's corridor (train/corridor.py) over every planted source along the line (Hidamari's city.json,
 Belmonte's runtime.json, the world's world.json): no tree in it, shrubs and grass only down to its soft edge, and
-nothing near the line left floating over or sunk under the earthworks' carved ground."""
+nothing near the line left floating over or sunk under the earthworks' carved ground, and no tree's crown in the
+train's swept envelope."""
 import json
 import sys
 import unittest
@@ -15,30 +16,34 @@ import yori  # noqa: E402
 from train import corridor as C  # noqa: E402
 
 
+def rows(v):
+    """(x, y, z, scale) rows from [x, y, z, yaw, scale] instances (scale 1 when absent)."""
+    a = np.asarray(v, float).reshape(len(v), -1)
+    return np.column_stack([a[:, :3], a[:, 4] if a.shape[1] > 4 else np.ones(len(a))])
+
+
 def planted():
-    """{source: {name: array of (x, y, z)}} for the built sources that exist."""
+    """{source: {name: array of (x, y, z, scale)}} for the built sources that exist."""
     out = {}
     city = yori.OUT / 'hidamari' / 'city.json'
     if city.exists():
-        out['hidamari'] = {n: np.asarray(v, float).reshape(len(v), -1)[:, :3]
-                           for n, v in json.loads(city.read_text())['instances'].items() if v}
+        out['hidamari'] = {n: rows(v) for n, v in json.loads(city.read_text())['instances'].items() if v}
     world = yori.OUT / 'world.json'
     if world.exists():
-        out['world'] = {n: np.asarray(v, float).reshape(len(v), -1)[:, :3]
-                        for n, v in json.loads(world.read_text()).get('instances', {}).items() if v}
+        out['world'] = {n: rows(v) for n, v in json.loads(world.read_text()).get('instances', {}).items() if v}
     runtime = yori.OUT / 'belmonte' / 'runtime.json'
     if runtime.exists():
         from belmonte import layout as BM
-        rows = {}
+        found = {}
         for g in json.loads(runtime.read_text())['groups']:
             if not g.get('plant'):
                 continue
             name = g['asset'].split('.')[-1]
             xy = [(t['translation_cm'][0] / 100 + BM.ORIGIN[0], -t['translation_cm'][1] / 100 + BM.ORIGIN[1],
-                   t['translation_cm'][2] / 100 + BM.ORIGIN[2]) for t in g['transforms']]
+                   t['translation_cm'][2] / 100 + BM.ORIGIN[2], max(t.get('scale') or [1.])) for t in g['transforms']]
             if xy:
-                rows[name] = np.concatenate([rows[name], xy]) if name in rows else np.asarray(xy, float)
-        out['belmonte'] = rows
+                found[name] = np.concatenate([found[name], xy]) if name in found else np.asarray(xy, float)
+        out['belmonte'] = found
     return out
 
 
@@ -102,12 +107,36 @@ class Clearance(unittest.TestCase):
                 if C.kind(name) is None or not len(xyz):
                     continue
                 with self.subTest(source=source, plant=name):
-                    keep, z = C.settle(name, xyz[:, 0], xyz[:, 1], xyz[:, 2], self.line)
+                    keep, z = C.settle(name, xyz[:, 0], xyz[:, 1], xyz[:, 2], self.line, xyz[:, 3])
                     # Carving twice moves a crest by about ROUND / 4 (a plant right on a deep cutting's crest).
                     off = np.abs(z - xyz[:, 2]) > C.MOVED + .05
                     bad = off | ~keep
                     if bad.any():
                         self.fail(f'{int(bad.sum())} not settled on the carved ground, e.g. {xyz[bad][0].round(1).tolist()}')
+
+    def test_no_tree_crown_reaches_the_trains_swept_envelope(self):
+        """The train's envelope (service.json's exteriors, 1.7 m either side, with 0.3 m margin and the overhang) stays
+        clear of every placed tree's crown (its radius times the instance's scale) along the open line; the in-game
+        probe of every static mesh along the line found only forest crowns there (rocks, cliffs and props keep clear)."""
+        from train import earthworks as E
+        ln = E.line()
+        if ln is None:
+            self.skipTest('earthworks off')
+        crowns = C.crowns()
+        for source, names in self.sources.items():
+            for name, xyzs in names.items():
+                if C.kind(name) != 'tree' or name not in crowns or not len(xyzs):
+                    continue
+                with self.subTest(source=source, tree=name):
+                    s, u, _ = ln.project(xyzs[:, 0], xyzs[:, 1])
+                    near = np.isfinite(s) & (np.nan_to_num(s) >= 0.) & (np.nan_to_num(s) <= ln.s[-1])
+                    tunnel, _ = ln.inside(np.nan_to_num(s), ln.tunnels)
+                    gap = np.abs(np.nan_to_num(u, nan=1e9)) - crowns[name] * xyzs[:, 3]
+                    bad = near & (tunnel <= 0) & (gap < C.ENVELOPE_HALF)
+                    if bad.any():
+                        i = np.flatnonzero(bad)[np.argmin(gap[bad])]
+                        self.fail(f'{int(bad.sum())} crowns in the envelope, e.g. at s {s[i]:.0f} '
+                                  f'{xyzs[i].round(2).tolist()} ({gap[i] - C.ENVELOPE_HALF:.2f} m)')
 
 
 if __name__ == '__main__':

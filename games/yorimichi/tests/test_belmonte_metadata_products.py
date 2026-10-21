@@ -72,6 +72,13 @@ def test_moved_runtime_declarations_match_complete_original_ast_after_explicit_d
             current.args.args=current.args.args[:1]
             calls=[n for n in ast.walk(current) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='osteria_landing']
             assert len(calls)==1 and ast.unparse(calls[0].args[0])=='data';calls[0].args=[]
+        elif name=='clear_railway':
+            # Since the move, settle also takes each instance's scale (a tree's crown grows with it): drop that.
+            loop=next(n for n in ast.walk(current) if isinstance(n,ast.For))
+            scale=[n for n in loop.body if isinstance(n,ast.Assign) and ast.unparse(n.targets[0])=='scale']
+            assert len(scale)==1;loop.body.remove(scale[0])
+            calls=[n for n in ast.walk(current) if isinstance(n,ast.Call) and ast.unparse(n.func)=='corridor.settle']
+            assert len(calls)==1 and ast.unparse(calls[0].args[-1])=='scale';calls[0].args.pop()
         assert ast.dump(current,include_attributes=False)==ast.dump(old,include_attributes=False),name
 
 
