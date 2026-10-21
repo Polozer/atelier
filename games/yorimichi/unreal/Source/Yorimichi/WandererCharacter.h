@@ -99,6 +99,8 @@ public:
     bool HasMovementIntent() const { return !MoveIntent.IsNearlyZero(); }
     bool DoesActionLoop() const { return bActionLoops; }
     bool IsReady() const { return bReady; }
+    /** A menu (settings, the sword teacher's, the betting window) has the controls. */
+    bool IsMenuOpen() const { return bMenuOpen; }
     /** Current action or vehicle prevents ordinary movement/input. Read-only for native probes. */
     bool MovementLocked() const;
     bool bVehicleBrakeIntent = false;
