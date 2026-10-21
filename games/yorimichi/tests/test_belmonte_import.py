@@ -77,7 +77,9 @@ def test_import_disables_distance_fields_only_on_separate_physics_hull(tmp_path,
                     if isinstance(node, ast.FunctionDef) and node.name == 'main')
     namespace = dict(OUT=out, ROOT='/Game/Belmonte', E=assets, unreal=unreal, Path=Path, json=json,
         __file__=str(script), runpy=SimpleNamespace(run_path=lambda path: tv_imports.append(Path(path))),
-        parent=lambda: None, textures=lambda _: None, surfaces=lambda *_: None, import_mesh=imported)
+        parent=lambda _: None, textures=lambda _: None, surfaces=lambda *_: None, import_mesh=imported,
+        grass_spec=lambda _: dict(colour='T_BM_GrassDetail.png', normal='T_BM_GrassNormal.png', tile_m=2.51),
+        grass_textures=lambda _: None)
     from atelier import native_membership
     from atelier.unreal_mesh_reuse import set_if_changed
     namespace.update(native_membership=native_membership, native_context=lambda _: None, yori=SimpleNamespace(GAME=SimpleNamespace(name='test')),

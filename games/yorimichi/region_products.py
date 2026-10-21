@@ -32,7 +32,7 @@ def file_record(root, member):
 def texture_members(report):
     names = {entry['texture'] for entry in report['materials'].values() if entry['texture']}
     for entry in report['materials'].values():
-        names.update(value for field in ('layers', 'normals')
+        names.update(value for field in ('layers', 'normals', 'detail')
                      for value in entry.get(field, {}).values() if isinstance(value, str) and value)
     return sorted({member('textures/' + name) for name in names})
 
