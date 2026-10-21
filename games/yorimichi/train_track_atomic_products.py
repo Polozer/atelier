@@ -11,6 +11,20 @@ from atelier import export_assembly, export_manifest
 GAME = Path(__file__).resolve().parent
 
 
+def textures(root):
+    """The ballast bed's detail textures (track_texture_files.py) for track.json: {material: {file, tile_m, sha256}},
+    each file present under root with that digest, one per material of track.TEXTURED."""
+    folder = root / 'textures'
+    export_manifest.real_directory(folder)
+    mapping = json.loads((folder / 'textures.json').read_text())
+    for material, spec in mapping.items():
+        path = root / spec['file']
+        if (path.parent != folder or path.is_symlink() or not path.is_file()
+                or hashlib.sha256(path.read_bytes()).hexdigest() != spec['sha256'] or not spec['tile_m'] > 0):
+            raise ValueError('Railway texture differs from its record: ' + material)
+    return mapping
+
+
 def assemble(out):
     """@cc [owner:fontanierh,label:correctness;performance] railway-complete-file-only-assembly
     Assembly MUST validate every current source/LOD and bounded export before copying
@@ -77,9 +91,11 @@ def assemble(out):
     module = importlib.util.module_from_spec(spec);sys.modules[spec.name] = module;spec.loader.exec_module(module)
     budget = module.triangle_report({key: [SimpleNamespace(triangles=n) for n in values] for key, values in triangles.items()})
     if not all(row['ok'] for row in budget.values()) or total > 15e6: raise ValueError('Original railway triangle/disk budgets exceeded')
+    detail = textures(root)
     dest = root / 'atomic'
     assembled = export_assembly.assemble(items, dest / 'meshes')
     doc['meshes'] = meshes
+    doc['textures'] = detail
     atomic_json(dest / 'track.json', doc)
     atomic_json(dest / 'manifest.json', dict(schema=1, complete=True, exports=assembled, triangles=triangles,
         budgets=budget, bytes=total, checks=dict(budgets_ok=True, disk_ok=True)))

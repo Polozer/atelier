@@ -54,6 +54,11 @@ def track_steps(ctx, *, source_inputs=(), bank_inputs=()):
         inputs=inputs, needs=['world.belmonte_train_route'],
         products=[Product('belmonte_track.source_inventory', (roster,))], cache=True, replan=True,
         about='original track placement/query arithmetic without constructing any meshes')]
+    textures = ctx.out / 'belmonte-track/textures'
+    texture_script = TRAIN / 'track_texture_files.py'
+    result.append(Step('world.belmonte_track.textures', [Python(texture_script, ('--output', str(textures)))],
+        inputs=local_imports(texture_script, (WORLD,)), products=[Product('belmonte_track.textures', (textures,))],
+        cache=True, about="the ballast bed's detail textures (T_TK_Ballast, T_TK_Cess) and their tiles"))
     rows = inventory(roster)
     product = Product('belmonte_track.library', (ctx.out / 'belmonte-track/atomic',))
     if not rows:
@@ -112,7 +117,7 @@ def track_steps(ctx, *, source_inputs=(), bank_inputs=()):
     result.append(Step('world.belmonte_track', [Call('assemble railway files', assemble)],
         inputs=[Path(__file__), GAME / 'train_track_atomic_products.py', TRAIN / 'track.py',
                 *export_assembly.runtime_inputs()],
-        reads=['belmonte_track.atomic', 'belmonte_track.source_inventory', *source_products,
+        reads=['belmonte_track.atomic', 'belmonte_track.source_inventory', 'belmonte_track.textures', *source_products,
                *('belmonte_track.geometry.' + asset.key for asset in assets)],
         products=[product], about='file-only railway assembly and original signed triangle/disk budget gates'))
     return result
