@@ -14,6 +14,7 @@ passing loop's second track), which the route step writes beside route.json. rou
 sees (views and empty spaces, counted over the planted trees), which changes whenever the regions clear the corridor;
 line.json does not, so clearing the trees never makes the route and the regions stale in turn.
 """
+import functools
 import json
 
 import numpy as np
@@ -63,13 +64,22 @@ class Corridor:
 
     def margin(self, x, y):
         """Distance beyond the corridor's edge (negative inside it) for points x, y."""
+        # The Belmonte station's footprint, forecourt and access road keep ROAD_CLEAR of plants too.
+        return np.minimum(self._distance(x, y, self.w, self.w), self.station_margin(x, y))
+
+    def distance(self, x, y, reach=MAX_HALF_WIDTH):
+        """Distance from the open line's track (and the passing loop's second one) for points x, y; inf beyond
+        `reach`."""
+        return self._distance(x, y, np.zeros_like(self.w), np.full_like(self.w, float(np.max(reach, initial=0.))))
+
+    def _distance(self, x, y, widths, pad):
         x, y = np.asarray(x, float).ravel(), np.asarray(y, float).ravel()
         out = np.full(len(x), np.inf)
         if not len(x):
             return out
-        lo = np.minimum(self.a, self.b) - self.w[:, None]
-        hi = np.maximum(self.a, self.b) + self.w[:, None]
-        for (ax, ay), (bx, by), w, (x0, y0), (x1, y1) in zip(self.a, self.b, self.w, lo, hi):
+        lo = np.minimum(self.a, self.b) - pad[:, None]
+        hi = np.maximum(self.a, self.b) + pad[:, None]
+        for (ax, ay), (bx, by), w, (x0, y0), (x1, y1) in zip(self.a, self.b, widths, lo, hi):
             near = (x >= x0) & (x <= x1) & (y >= y0) & (y <= y1)
             if not near.any():
                 continue
@@ -78,8 +88,6 @@ class Corridor:
             t = np.clip(((px - ax) * dx + (py - ay) * dy) / max(dx * dx + dy * dy, 1e-9), 0., 1.)
             d = np.hypot(px - ax - t * dx, py - ay - t * dy) - w
             out[near] = np.minimum(out[near], d)
-        # The Belmonte station's footprint, forecourt and access road keep ROAD_CLEAR of plants too.
-        out = np.minimum(out, self.station_margin(x, y))
         return out
 
     def station_margin(self, x, y):
@@ -89,9 +97,12 @@ class Corridor:
         return SS.excess(self.site, x, y) - SS.ROAD_CLEAR
 
     def blocked(self, x, y, reach=0.):
-        """True where a plant at x, y (whose own crown reaches `reach` metres beyond HALF_WIDTH's) stands in the
-        corridor."""
-        return self.margin(x, y) < reach
+        """True where a plant at x, y stands in the corridor, or (with `reach`, a crown's radius plus the train's
+        envelope; see crown_clearance) where its crown would reach the train."""
+        out = self.margin(x, y) < 0.
+        if np.any(np.asarray(reach) > 0.):
+            out |= self.distance(x, y, reach) < reach
+        return out
 
 
 def line_data(route):
@@ -132,6 +143,35 @@ GRASSES = ('Grass', 'Flower')
 SHRUB_HALF = 4.5            # the train's half width (1.8) and the step boards, plus a shrub's spread
 GRASS_HALF = 3.2            # the ballast's skirt (track.SKIRT 2.6) and its shoulder
 MOVED = .5                  # a tree on ground the earthworks moved more than this goes (it would float or sink)
+# The train's swept envelope (vehicles/belmonte-train service.json's exteriors, 1.7 m either side of the track) with
+# 0.3 m margin and 0.1 m for the coaches' overhang on the tightest curve. A tree whose crown (CROWN radius times its
+# instance scale) would reach it from beyond the corridor's edge goes too.
+ENVELOPE_HALF = 2.1
+# Crown radii (m) at scale 1, measured on the built meshes where the forest's generated crowns outgrow their spec.
+MEASURED_CROWN = {'Tree_Forest_Maple': 8.2, 'Tree_Forest_Ginkgo': 7.1, 'Tree_Forest_Pine': 5.1}
+CROWN_SPREAD = 1.2          # otherwise the generated crown spreads this much past the spec's width / 2
+
+
+@functools.lru_cache(None)
+def crowns():
+    """{asset: crown radius at scale 1} for the generated trees (regions/forest/specs.py), measured where known."""
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location('_forest_specs', Path(__file__).resolve().parents[1] / 'regions' /
+                                                  'forest' / 'specs.py')
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    out = {n: v[3] / 2 * CROWN_SPREAD for n, v in {**mod.TUSCAN, **mod.FOREST}.items()}
+    out.update(MEASURED_CROWN)
+    return out
+
+
+def crown_clearance(name, scale=1.):
+    """How far from the track a tree named `name` at instance scale `scale` must stand for its crown to keep out of the
+    train's envelope (0 for trees without a known crown, which HALF_WIDTH clears)."""
+    r = crowns().get(name)
+    scale = np.asarray(scale, float)
+    return np.zeros(scale.shape) if r is None else r * scale + ENVELOPE_HALF
 
 
 def kind(name):
@@ -141,10 +181,11 @@ def kind(name):
         'grass' if name.startswith(GRASSES) else None
 
 
-def settle(name, x, y, z, corridor=None):
-    """(keep, z): which of the plants named `name` at x, y, z (natural ground) stay, and their height on the carved
-    ground. Without the earthworks (RAILWAY_EARTHWORKS=0 or no line) shrubs keep clear of the whole corridor as trees
-    do, and nothing moves."""
+def settle(name, x, y, z, corridor=None, scale=1.):
+    """(keep, z): which of the plants named `name` at x, y, z (natural ground, instance scale `scale`) stay, and their
+    height on the carved ground. A tree also keeps its crown out of the train's envelope (crown_clearance). Without the
+    earthworks (RAILWAY_EARTHWORKS=0 or no line) shrubs keep clear of the whole corridor as trees do, and nothing
+    moves."""
     from train import earthworks as E
     x, y, z = (np.asarray(v, float).ravel() for v in (x, y, z))
     keep, out = np.ones(len(x), bool), z.copy()
@@ -153,14 +194,15 @@ def settle(name, x, y, z, corridor=None):
     if k is None or c is None or not len(x):
         return keep, out
     ln = E.line()
+    reach = np.broadcast_to(crown_clearance(name, scale), x.shape) if k == 'tree' else 0.
     if ln is None:
         if k != 'grass':
-            keep = ~c.blocked(x, y)
+            keep = ~c.blocked(x, y, reach)
         return keep, out
     s, u, _ = ln.project(x, y)
     near = np.isfinite(s)
     if k == 'tree':
-        keep = ~c.blocked(x, y)
+        keep = ~c.blocked(x, y, reach)
     keep &= c.station_margin(x, y) >= 0.                    # nothing grows on the station's ground
     if not near.any():
         return keep, out
@@ -201,7 +243,7 @@ def clear_instances(instances, corridor=None):
         a = np.asarray(rows, float)
         if a.ndim != 2 or a.shape[1] < 3:
             continue
-        keep, z = settle(name, a[:, 0], a[:, 1], a[:, 2], c)
+        keep, z = settle(name, a[:, 0], a[:, 1], a[:, 2], c, a[:, 4] if a.shape[1] > 4 else 1.)
         if (~keep).any() or not np.array_equal(z, a[:, 2]):
             a[:, 2] = np.round(z, 3)
             removed[name] = int((~keep).sum())

@@ -29,7 +29,8 @@ def clear_railway(plants):
             continue
         t = np.asarray([tr['translation_cm'] for tr in transforms], float)
         x, y = t[:, 0] / 100 + L.ORIGIN[0], -t[:, 1] / 100 + L.ORIGIN[1]
-        keep, z = corridor.settle(name, x, y, t[:, 2] / 100 + L.ORIGIN[2], line)
+        scale = np.asarray([max(tr.get('scale') or [1.]) for tr in transforms], float)
+        keep, z = corridor.settle(name, x, y, t[:, 2] / 100 + L.ORIGIN[2], line, scale)
         moved = np.abs(z - (t[:, 2] / 100 + L.ORIGIN[2])) > .005
         for tr, zz, m in zip(transforms, z, moved):
             if m:
