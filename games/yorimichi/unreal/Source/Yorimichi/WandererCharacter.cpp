@@ -30,6 +30,7 @@
 #include "HorseComponent.h"
 #include "JapanCharacterMovement.h"
 #include "JapanWorld.h"
+#include "EngineUtils.h"
 #include "JapanCameraArm.h"
 #include "SeeThrough.h"
 #include "ZeppelinService.h"
@@ -391,7 +392,14 @@ void AWandererCharacter::EnterWorld(AJapanWorld* World)
             }
         }
         else Valid = false;
-        if (!Valid || !Car->Configure(Fit)) UE_LOG(LogTemp, Error, TEXT("Kart cockpit data or rider dimensions are invalid"));
+        if (!Valid)
+        {
+            UE_LOG(LogTemp, Error, TEXT("Kart cockpit JSON is invalid"));
+        }
+        else if (!Car->Configure(Fit))
+        {
+            UE_LOG(LogTemp, Error, TEXT("Kart cockpit data or rider dimensions are invalid"));
+        }
     }
     else UE_LOG(LogTemp, Error, TEXT("Kart cockpit data missing: build the kart and stage runtime data"));
     Car->RequireAuthoredGrips(true);
@@ -555,10 +563,16 @@ void AWandererCharacter::BuildInput()
         FEnhancedActionKeyMapping& Hold = Mapping->MapKey(Axis(TEXT("HorsePad"),EInputActionValueType::Boolean),EKeys::Gamepad_RightShoulder);
         auto* HoldTrigger = NewObject<UInputTriggerHold>(Mapping); HoldTrigger->HoldTimeThreshold = .4f; HoldTrigger->bIsOneShot = true; Hold.Triggers.Add(HoldTrigger);
     }
+    // The kart: a 0.4 s hold of the left bumper, free on foot (it is the train view and flight speed only aboard those).
+    {
+        FEnhancedActionKeyMapping& Hold = Mapping->MapKey(Axis(TEXT("CarPad"),EInputActionValueType::Boolean),EKeys::Gamepad_LeftShoulder);
+        auto* HoldTrigger = NewObject<UInputTriggerHold>(Mapping); HoldTrigger->HoldTimeThreshold = .4f; HoldTrigger->bIsOneShot = true; Hold.Triggers.Add(HoldTrigger);
+    }
     Key(Axis(TEXT("HorseRandomPad"),EInputActionValueType::Boolean),EKeys::Gamepad_FaceButton_Left);
     Key(Axis(TEXT("HorseBreedPad"),EInputActionValueType::Boolean),EKeys::Gamepad_DPad_Up);
     Key(Axis(TEXT("HorseTackPad"),EInputActionValueType::Boolean),EKeys::Gamepad_DPad_Right);
     Key(Axis(TEXT("HorseCoatPad"),EInputActionValueType::Boolean),EKeys::Gamepad_DPad_Left);
+    Key(Axis(TEXT("CarHandbrakePad"),EInputActionValueType::Boolean),EKeys::Gamepad_FaceButton_Right);
     // The board button on foot: a board to the hand, or put away (Ride's carry).
     Key(Axis(TEXT("SkateboardHand"),EInputActionValueType::Boolean),EKeys::G);
     Key(Inputs[TEXT("SkateboardHand")],EKeys::Gamepad_DPad_Right);
@@ -622,6 +636,9 @@ void AWandererCharacter::SetupPlayerInputComponent(UInputComponent* Input)
         E->BindAction(Inputs[TEXT("SkateboardPad")],ETriggerEvent::Triggered,this,&AWandererCharacter::ToggleSkateboard);
         E->BindAction(Inputs[TEXT("BikePad")],ETriggerEvent::Triggered,this,&AWandererCharacter::ToggleBike);
         E->BindAction(Inputs[TEXT("HorsePad")],ETriggerEvent::Triggered,this,&AWandererCharacter::HorsePad);
+        E->BindAction(Inputs[TEXT("CarPad")],ETriggerEvent::Triggered,this,&AWandererCharacter::ToggleCar);
+        E->BindAction(Inputs[TEXT("CarHandbrakePad")],ETriggerEvent::Triggered,this,&AWandererCharacter::CarHandbrake);
+        E->BindAction(Inputs[TEXT("CarHandbrakePad")],ETriggerEvent::Completed,this,&AWandererCharacter::CarHandbrakeReleased);
         for (const auto& Binding : TArray<TPair<FName,void(AWandererCharacter::*)(const FInputActionValue&)>>{
             {TEXT("HorseRandomPad"),&AWandererCharacter::RandomizeHorse},{TEXT("HorseBreedPad"),&AWandererCharacter::CycleHorseBreed},
             {TEXT("HorseTackPad"),&AWandererCharacter::CycleHorseTack},{TEXT("HorseCoatPad"),&AWandererCharacter::CycleHorseCoat}})
@@ -811,6 +828,14 @@ void AWandererCharacter::ToggleCar(const FInputActionValue&)
     if (Car->IsEquipped()) { Car->Toggle(); return; }
     if (Sword && !Sword->CancelForInterrupt(true)) return;
     if (CanAct() && StandForAction() && Car->Toggle()) { if (Moves) Moves->Reset(); SetAction(NAME_None); JumpBuffer = 0.f; bPendingTakeoff = false; StopJumping(); }
+}
+void AWandererCharacter::CarHandbrake(const FInputActionValue&)
+{
+    if (Car->IsEquipped()) Car->SetHandbrake(true);
+}
+void AWandererCharacter::CarHandbrakeReleased(const FInputActionValue&)
+{
+    if (Car->IsEquipped()) Car->SetHandbrake(false);
 }
 // The pad's hold: beside a docked zeppelin and aboard one the shoulders choose its stop or flight speed, so the hold
 // leaves the horse alone there (online it would otherwise ask the host and be refused).
@@ -1548,6 +1573,15 @@ void AWandererCharacter::Tick(float Dt)
             }
         }
     }
+    if (!Landscape || !Landscape->bLoaded)
+    {
+        // A standalone game can start its pawn before the world actor's BeginPlay has handed the world over; the pawn
+        // would then never become ready, and the live bridge (and the character's whole simulation) never starts.
+        TActorIterator<AJapanWorld> It(GetWorld());
+        if (It && It->bLoaded) EnterWorld(*It);
+    }
+    // The world can be handed over before the pawn's mesh and rig are ready; the cockpit fit needs both.
+    if (Landscape && Landscape->bLoaded && !Car->IsConfigured()) EnterWorld(Landscape);
     if (!Definition || !Landscape || !Landscape->bLoaded) return;
     if(!BuildingReviewSpecPath.IsEmpty())
     {
@@ -1640,6 +1674,15 @@ void AWandererCharacter::Tick(float Dt)
         }
         return;
     }
+    // The bridge must start even when readiness and possession settle on different frames: the old placement only ran
+    // inside the not-ready branch, so a pawn that became ready before it was locally controlled never listened.
+    if (!bLiveStarted && !IsNpc() && IsLocallyControlled() && !JapanNetwork::IsOnline(GetWorld()))
+    {
+        bLiveStarted = true;
+        AtelierLive::SetTeleport([](APawn* Pawn, const FVector& Ground, float Yaw)
+        { AWandererCharacter* Player = Cast<AWandererCharacter>(Pawn); return Player && Player->TravelTo(Ground, Yaw, TEXT("live")); });
+        AtelierLive::Start(GetWorld());
+    }
     if (bSailboatReview) AdvanceSailboatReview(Dt);
     if (bMapReview && IsLocallyControlled()) AdvanceMapReview(Dt);
     if (!BenchmarkView.IsEmpty()) AdvanceBenchmark(Dt);
@@ -1648,7 +1691,16 @@ void AWandererCharacter::Tick(float Dt)
     if(IsZeppelinPassenger()){Stamina.Tick(Dt,false,false,bMenuOpen);return;}
     if (!JapanNetwork::IsOnline(GetWorld())) Sailboat->SetInput(MoveIntent,bMenuOpen || (Map && Map->IsOpen()));
     if (!JapanNetwork::IsOnline(GetWorld())) Bike->SetInput(GetBikeIntent(),GetBikeLean(),bMenuOpen || (Map && Map->IsOpen()));
-    Car->SetInput(MoveIntent);
+    // The kart drives like the reference racer: the triggers (or W / S) are throttle and brake, the left stick only
+    // steers, and the handbrake is the jump button (Space / A) or B.
+    FVector2D CarIntent = MoveIntent;
+    if (Car->IsEquipped())
+    {
+        const float Pedal = FMath::Clamp(BikeThrottleInput, -1.f, 1.f);
+        CarIntent.Y = FMath::Abs(Pedal) > .01f ? Pedal : MoveIntent.Y;
+    }
+    Car->SetInput(CarIntent);
+    if (Car->IsEquipped()) AdvanceCarEffects(Dt);
     if (!JapanNetwork::IsOnline(GetWorld()))
     {
         // The horse rides on the bike's controls (triggers or W / S, the stick steering); Alt and J hold it to a walk or trot.
@@ -1739,6 +1791,58 @@ void AWandererCharacter::Tick(float Dt)
         }
     }
 }
+
+void AWandererCharacter::AdvanceCarEffects(float Dt)
+{
+    if (!Car || !Car->IsEquipped()) return;
+    AAtelierFX* FX = AAtelierFX::Get(GetWorld());
+    if (!FX) return;
+    const FVector Forward = GetActorForwardVector();
+    // Rear tyres: grey rubber smoke that rolls out behind the kart while they slide.
+    for (int32 Side = 0; Side < 2; ++Side)
+    {
+        CarSmokeWait[Side] = FMath::Max(0.f, CarSmokeWait[Side] - Dt);
+        const int32 Wheel = 2 + Side;
+        if (!Car->IsWheelGrounded(Wheel)) continue;
+        const float Slip = Car->GetWheelSlip(Wheel);
+        if (Slip < .10f || CarSmokeWait[Side] > 0.f) continue;
+        CarSmokeWait[Side] = FMath::Lerp(.16f, .035f, FMath::Clamp(Slip, 0.f, 1.f));
+        const FVector At = Car->GetWheelContact(Wheel) + FVector(0, 0, 6.f);
+        for (int32 I = 0; I < 2; ++I)
+        {
+            AAtelierFX::FParticle& P = FX->Spawn(AAtelierFX::ESprite::Dust,
+                At + FVector(FMath::FRandRange(-7.f, 7.f), FMath::FRandRange(-7.f, 7.f), 2.f));
+            P.V = -Forward * FMath::FRandRange(40.f, 120.f)
+                + FVector(FMath::FRandRange(-50.f, 50.f), FMath::FRandRange(-50.f, 50.f), FMath::FRandRange(18.f, 60.f));
+            P.Drag = 2.4f; P.Gravity = 10.f; P.Life = FMath::FRandRange(.55f, 1.1f);
+            P.Size0 = FMath::FRandRange(10.f, 16.f); P.Size1 = P.Size0 * FMath::FRandRange(3.2f, 5.2f);
+            P.Color = FLinearColor(.78f, .77f, .75f); P.Alpha = (.16f + .30f * Slip) * FMath::FRandRange(.7f, 1.f);
+            P.FadeIn = .10f; P.Wobble = 9.f;
+        }
+    }
+    // A wall hit: sparks off the nose, a short flash, a puff of paint dust and a knock in the camera.
+    float HitSpeed = 0.f; FVector HitAt = FVector::ZeroVector;
+    if (Car->ConsumeImpact(HitSpeed, HitAt))
+    {
+        const float Hit = FMath::Clamp(HitSpeed / 1400.f, .2f, 1.f);
+        FX->Burst(HitAt, -Forward, FMath::RoundToInt(6 + 16 * Hit), 850.f + 550.f * Hit,
+                  FLinearColor(1.f, .55f, .18f), .42f, 4.f);
+        FX->Flash(HitAt, 34.f + 42.f * Hit, FLinearColor(.55f, .38f, .18f), .12f);
+        FX->Dust(HitAt, .6f + .6f * Hit, -Forward);
+        FX->Shake(.16f + .42f * Hit);
+    }
+    // Blipping the throttle from low speed spits a short flame from the tailpipe.
+    CarExhaustWait = FMath::Max(0.f, CarExhaustWait - Dt);
+    if (CarExhaustWait <= 0.f && Car->GetThrottle() > .55f && Car->GetSpeed() < 1100.f && Car->GetAudioRevs() > 1600.f)
+    {
+        CarExhaustWait = FMath::FRandRange(.10f, .24f);
+        const FVector At = GetActorLocation() - Forward * 96.f + FVector(0, 0, -16.f);
+        AAtelierFX::FParticle& P = FX->Spawn(AAtelierFX::ESprite::Glow, At);
+        P.V = -Forward * 210.f + FVector(0, 0, 30.f); P.Drag = 7.f; P.Life = .085f;
+        P.Size0 = 4.f; P.Size1 = 13.f; P.Color = FLinearColor(1.f, .42f, .10f); P.Alpha = .6f;
+    }
+}
+
 
 void AWandererCharacter::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult)
 {

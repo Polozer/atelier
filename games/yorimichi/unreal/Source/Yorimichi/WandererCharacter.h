@@ -266,6 +266,8 @@ private:
     friend struct FAdventureNetworkState;
     friend struct FJapanVehicleQAAccess;
     float LookGrace=0.f, SkateCameraBlend=0.f, HorseCameraBlend=0.f, CarCameraBlend=0.f, PreferredArmLength=0.f;
+    float CarSmokeWait[2]={0.f,0.f}, CarExhaustWait=0.f, CarDustWait=0.f;
+    bool bLiveStarted=false;
     // Share of the skating camera in the view (CalcCamera), and its last frame for easing out after a ride.
     float BoardCameraBlend=0.f;
     FMinimalViewInfo BoardCamera;
@@ -324,6 +326,8 @@ private:
     bool bBenchmarkCapturing = false, bBenchmarkFinished = false, bBenchmarkBoarding = false, bBenchmarkStillTaken = false;
     FVector BenchmarkLastPosition = FVector::ZeroVector;
     void AdvanceBenchmark(float Dt);
+    /** Tyre smoke, impact sparks and exhaust pops while the kart is out. */
+    void AdvanceCarEffects(float Dt);
     bool AdvanceZeppelinBenchmark();
     void AdvanceSailboatReview(float Dt);
     bool bCinematic=false;
@@ -388,6 +392,8 @@ private:
     void ToggleSailboat(const FInputActionValue& Value);
     void ToggleBike(const FInputActionValue& Value);
     void ToggleCar(const FInputActionValue& Value);
+    void CarHandbrake(const FInputActionValue& Value);
+    void CarHandbrakeReleased(const FInputActionValue& Value);
     void ToggleHorse(const FInputActionValue& Value);
     void HorsePad(const FInputActionValue& Value);
     void RandomizeHorse(const FInputActionValue& Value);

@@ -21,11 +21,17 @@ def playable_ids():
 def source_paths(character):
     folder = GAME / 'assets/characters' / character
     definition = tomllib.loads((folder / 'character.toml').read_text())
-    paths = {folder / definition['source']}
-    paths.update(p for p in folder.iterdir() if p.suffix in ('.toml', '.json', '.py') and p.is_file())
-    paths.update((GAME / 'assets/characters/pipeline').rglob('*.py'))
-    paths.update((ROOT / 'platform/studio/atelier/character').rglob('*.py'))
-    paths.update((ROOT / 'platform/conventions/rigs').glob('*.toml'))
+    # Only inputs that decide the prepared skeleton, skin and outfit. Animation builds
+    # (combat-build.json, locomotion-build.json, adventure.toml) and authoring notes do
+    # not invalidate an authored grip. The pipeline files here are the shared rig/skin
+    # path, not the animation fitting and inspection tools.
+    paths = {folder / definition['source'], folder / 'character.toml', folder / 'source-manifest.json'}
+    paths.update(folder / name for name in ('export_hooks.py', 'outfit_correctives.py') if (folder / name).is_file())
+    paths.update((folder / 'outfits').glob('*.toml'))
+    pipeline = GAME / 'assets/characters' / 'pipeline'
+    paths.update(pipeline / name for name in ('definition.py', 'export.py', 'rig.py'))
+    paths.add(ROOT / 'platform/studio/atelier/character/names.py')
+    paths.add(ROOT / 'platform/conventions/rigs/humanoid.toml')
     return tuple(p for p in sorted(paths) if '__pycache__' not in p.parts)
 
 
@@ -48,17 +54,25 @@ def register(models, profiles):
         name = pose['character']
         meta = json.loads((models / f'{name}.json').read_text())
         checksum = hashlib.sha256((models / f'{name}.glb').read_bytes()).hexdigest()
-        if checksum != meta['model_sha256'] or checksum != pose['model_sha256']:
-            raise ValueError(f'{name}: re-author against the current prepared model')
+        # A re-export whose bind is unchanged may carry the authored poses forward. The
+        # receipt records the new model bytes; the save is updated below so the editor
+        # no longer reports it as stale. A real bind or scale change still needs a save.
+        if digest(pose['bind_world']) != digest(meta['bind_world']):
+            raise ValueError(f'{name}: saved bind does not match the prepared model; re-author the grip')
+        if abs(pose['scale'] - meta['scale']) > 1e-5:
+            raise ValueError(f'{name}: prepared scale changed; re-author the grip')
         current = source_identity(name)
         if meta.get('source_sha256') != current:
-            raise ValueError(f'{name}: re-export the prepared model after its sources changed')
+            raise ValueError(f'{name}: character rig/skin sources changed; re-export and re-register the prepared model')
         bind = digest(meta['bind_world'])
         if digest(pose['bind_world']) != bind:
             raise ValueError(f'{name}: saved bind does not match the prepared model')
         receipt[name] = {'model_sha256': checksum, 'bind_sha256': bind, 'source_sha256': current,
                          'scale': meta['scale'], 'seated_world': {n: meta['seated_world'][n]
                          for n in ('pelvis', 'upperarm_L', 'upperarm_R')}}
+        if pose.get('model_sha256') != checksum:
+            pose['model_sha256'] = checksum
+            path.write_text(json.dumps(pose, indent=2) + '\n')
     temporary = profiles / '.prepared-models.tmp'
     temporary.write_text(json.dumps({'schema': 1, 'models': receipt}, indent=2)+'\n')
     temporary.replace(profiles / 'prepared-models.json')

@@ -205,8 +205,45 @@ def test_registered_model_receipt_is_independent_of_save_claims(meta):
                'scale': meta['scale'], 'seated_world': meta['seated_world']}
     validate_profile(pose, meta['layout'], receipt)
     pose['model_sha256'] = 'b'*64
-    with pytest.raises(ValueError, match='registered'):
-        validate_profile(pose, meta['layout'], receipt)
+    # A re-export with the same bind carries the authored pose forward; the receipt,
+    # not the save's historical model claim, decides the current model bytes.
+    validate_profile(pose, meta['layout'], receipt)
+    changed = copy.deepcopy(pose)
+    changed['bind_world']['finger_0_L'][12] += .01
+    with pytest.raises(ValueError, match='registered prepared bind'):
+        validate_profile(changed, meta['layout'], receipt)
+
+
+def test_grip_source_identity_excludes_animation_builds():
+    from source_identity import source_paths
+    names = {p.name for p in source_paths('cairo')}
+    assert 'combat-build.json' not in names and 'locomotion-build.json' not in names
+    assert 'fit.py' not in names
+    assert {'character.toml', 'source-manifest.json', 'outfit_correctives.py',
+            'humanoid.toml', 'names.py', 'rig.py', 'export.py', 'definition.py'} <= names
+
+
+def test_register_carries_a_pose_across_a_rebuilt_model(monkeypatch, tmp_path, meta):
+    import source_identity as identity
+    models, profiles = tmp_path / 'models', tmp_path / 'profiles'
+    models.mkdir(); profiles.mkdir()
+    meta.update(source_sha256='a'*64, scale=.85)
+    (models / 'cairo.json').write_text(json.dumps(meta))
+    (models / 'cairo.glb').write_bytes(b'new-model-bytes')
+    pose = payload(meta)
+    pose.update(scale=meta['scale'], bind_world=meta['bind_world'], model_sha256='b'*64)
+    (profiles / 'cairo.json').write_text(json.dumps(pose))
+    monkeypatch.setattr(identity, 'source_identity', lambda name: 'a'*64)
+    receipt = identity.register(models, profiles)
+    import hashlib
+    current = hashlib.sha256(b'new-model-bytes').hexdigest()
+    assert receipt['cairo']['model_sha256'] == current
+    assert json.loads((profiles / 'cairo.json').read_text())['model_sha256'] == current
+    changed = json.loads((profiles / 'cairo.json').read_text())
+    changed['bind_world']['finger_0_L'][12] += .01
+    (profiles / 'cairo.json').write_text(json.dumps(changed))
+    with pytest.raises(ValueError, match='re-author the grip'):
+        identity.register(models, profiles)
 
 
 def test_neutral_replay_detects_a_detached_wrist(meta):

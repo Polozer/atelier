@@ -56,6 +56,8 @@ void ReadKartGrip(AWandererCharacter* Pawn, UDrivingComponent* Car)
         return Result;
     };
     TMap<FName, FTransform> Frames;
+    float WorstBind = 0.f;
+    FString WorstBindName;
     for (const TCHAR* Side : {TEXT("L"), TEXT("R")})
     {
         const TSharedPtr<FJsonObject>* Hand = nullptr;
@@ -82,13 +84,17 @@ void ReadKartGrip(AWandererCharacter* Pawn, UDrivingComponent* Car)
                 UE_LOG(LogTemp, Error, TEXT("Kart grip missing bone/frame %s"), *Name); return;
             }
             const FTransform UEReference = Reference(Index);
-            const FVector ImportedOffset = Body->GetRelativeTransform().TransformVector(UEReference.GetLocation()-UEHand);
+            // The prepared offsets are native-size cm. Rotate only; the mesh component's
+            // relative scale is presentation of a character, not a grip-axis transform.
+            const FVector ImportedOffset = Body->GetRelativeRotation().RotateVector(UEReference.GetLocation()-UEHand);
             const FVector PreparedOffset = BlenderBind.GetLocation()-BlenderHand.GetLocation();
             // A 3 mm allowance covers FBX float/export rounding, not a different rest pose or rig.
-            if (FVector::Distance(ImportedOffset, PreparedOffset) > .3)
+            const float BindDistance = FVector::Distance(ImportedOffset, PreparedOffset);
+            if (BindDistance > WorstBind) { WorstBind = BindDistance; WorstBindName = Name; }
+            if (BindDistance > .3)
             {
                 Reject(FString::Printf(TEXT("prepared/imported bind differs at %s by %.3f cm"), *Name,
-                                      FVector::Distance(ImportedOffset, PreparedOffset))); return;
+                                      BindDistance)); return;
             }
             // Blender's prepared world is actor-forward. FBX may use different bone axes and a
             // mesh-facing rotation: calibrate those axes from both bind skeletons, never guessed Euler angles.
@@ -97,6 +103,8 @@ void ReadKartGrip(AWandererCharacter* Pawn, UDrivingComponent* Car)
             Frames.Add(Bone, Local);
         }
     }
+    UE_LOG(LogTemp, Display, TEXT("Kart grip %s imported bind margin: %.3f cm worst (%s)"),
+           *Character->Id, WorstBind, *WorstBindName);
     const TSharedPtr<FJsonObject>* Poles = nullptr;
     const TArray<TSharedPtr<FJsonValue>>* Left = nullptr;
     if (!Data->TryGetObjectField(TEXT("arm_poles"), Poles) || !(*Poles)->TryGetArrayField(TEXT("L"), Left) || Left->Num() != 3)

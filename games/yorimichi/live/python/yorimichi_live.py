@@ -59,6 +59,11 @@ def car_state():
     return L.car_state()
 
 
+def car_loops():
+    """The kart's engine, tyre, skid and wind loops, as volume@pitch."""
+    return L.car_loops()
+
+
 def skate():
     """Get on or off the board (skate. controls, docs/SKATE.md)."""
     return L.skate_toggle()

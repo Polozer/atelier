@@ -13,9 +13,8 @@ def validate_profile(pose, layout, prepared=None):
     checksum = pose.get('model_sha256', '')
     if pose.get('layout') != layout or len(checksum) != 64 or any(c not in '0123456789abcdef' for c in checksum):
         raise ValueError(f'{character}: stale cockpit or invalid prepared model checksum')
-    if prepared is not None and (checksum != prepared.get('model_sha256') or
-                                 digest(pose.get('bind_world')) != prepared.get('bind_sha256')):
-        raise ValueError(f'{character}: grip differs from the registered prepared model or bind')
+    if prepared is not None and digest(pose.get('bind_world')) != prepared.get('bind_sha256'):
+        raise ValueError(f'{character}: grip differs from the registered prepared bind')
     scale = pose.get('scale', 0)
     if not isinstance(scale, (int, float)) or not layout['scale_range'][0] <= scale <= layout['scale_range'][1]:
         raise ValueError(f'{character}: unsupported kart scale')

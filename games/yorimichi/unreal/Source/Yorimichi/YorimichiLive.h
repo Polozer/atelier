@@ -53,6 +53,7 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Live") static FString BikeState();
     /** The car's state while it is out: speed, gear, wheels on the ground, hint and chassis pose (UDrivingComponent). */
     UFUNCTION(BlueprintCallable, Category = "Live") static FString CarState();
+    UFUNCTION(BlueprintCallable, Category = "Live") static FString CarLoops();
     /** The skate loops now: "volume pitch" for roll, grind, slide, skid and scrape. */
     UFUNCTION(BlueprintCallable, Category = "Live") static FString SkateLoops();
     /** The bike's loops, "volume pitch" each (UBikeComponent::GetLoopState). */

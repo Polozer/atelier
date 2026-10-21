@@ -7,7 +7,10 @@
 #include "DrivingComponent.generated.h"
 
 class ACharacter;
+class UAudioComponent;
 class UPrimitiveComponent;
+class USoundAttenuation;
+class USoundWave;
 class USceneComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
@@ -49,6 +52,9 @@ public:
     void Initialize(ACharacter* InRider);
     /** Configure before mounting; an unconfigured or incomplete cockpit cannot be summoned. */
     bool Configure(const FDrivingCockpit& InCockpit);
+    /** True once a valid cockpit and a fitted rider are configured; a host retries the configuration after the rider's
+     *  mesh arrives. */
+    bool IsConfigured() const { return bConfigured; }
     /** Summon and mount, or (stopped) step off and park. False with the reason in GetStatus(). */
     bool Toggle();
     void StowImmediately();
@@ -89,6 +95,24 @@ public:
      *  and grips, for the animation stance. */
     FVector PosePoint(const FVector& Local) const;
     FVector PoseDirection(const FVector& Local) const;
+    /** Folder the host game stages its driving cues in (impact and suspension one-shots, the engine, tyre, skid and
+     *  wind loops). A game that stages none there drives silently. */
+    void SetAudioRoot(const FString& InRoot) { AudioRoot = InRoot; }
+    /** Each loop's applied volume and pitch (engine, tyre, skid, wind), for QA and offline film mixing. */
+    FString GetAudioState() const;
+    /** Engine revolutions the engine loop was pitched from; zero while the kart is put away. */
+    float GetAudioRevs() const { return AudioRevs; }
+    /** Worst tyre skid among the grounded wheels, 0 to 1. */
+    float GetAudioSlip() const { return AudioSlip; }
+    /** Throttle intent: 0 released, 1 held. */
+    float GetThrottle() const { return FMath::Max(MoveInput.Y, 0.f); }
+    /** Skid of one wheel (0 front left, then front right, rear left, rear right), 0 to 1. */
+    float GetWheelSlip(int32 Index) const;
+    bool IsWheelGrounded(int32 Index) const;
+    /** The tyre's contact point in world space (the wheel's ground origin). */
+    FVector GetWheelContact(int32 Index) const;
+    /** The wall hit since the last call, for effects: closing speed in cm/s and the point it met. */
+    bool ConsumeImpact(float& OutSpeed, FVector& OutAt);
     FVector SeatPoint() const { return Cockpit.Pelvis; }
     FVector HandPoint(int32 Side) const;
     FVector ElbowPoint(int32 Side) const { return SidePoint(HasAuthoredGrips() ? AuthoredElbow : Cockpit.Elbow, Side); }
@@ -110,6 +134,10 @@ private:
     bool StandingRoom(const FVector& Ground) const;
     void Recover();
     void UpdatePose(float DeltaSeconds);
+    void LoadSounds();
+    bool PlayCue(FName Cue, float Volume, float Pitch);
+    void UpdateAudio(float DeltaSeconds);
+    void StopAudio();
     bool GroundBelow(const FVector& At, float Reach, FVector& Out) const;
     bool FreeAt(const FVector& At, const FQuat& Rotation) const;
     void FindGroundOffset();
@@ -148,4 +176,19 @@ private:
     bool bEquipped = false;
     bool bHasGround = false;
     bool bSavedUseControllerYaw = false;
+    FString AudioRoot = TEXT("/Game/Audio/Driving");
+    UPROPERTY() TObjectPtr<USoundAttenuation> Attenuation;
+    UPROPERTY() TArray<TObjectPtr<USoundWave>> Waves;
+    UPROPERTY() TArray<TObjectPtr<UAudioComponent>> Loops;
+    TMap<FName, FIntPoint> CueRange;
+    TArray<float> LoopVolume;
+    TArray<float> LoopPitch;
+    int32 EngineFirst = 0, EngineCount = 0, TyreFirst = 0, TyreCount = 0;
+    int32 SkidFirst = 0, SkidCount = 0, WindFirst = 0, WindCount = 0;
+    int32 LastVariant = INDEX_NONE;
+    float AudioRevs = 0.f, AudioSlip = 0.f, ImpactSpeed = 0.f, BumpWait = 0.f, ImpactWait = 0.f;
+    float PendingImpact = 0.f;
+    FVector PendingImpactAt = FVector::ZeroVector;
+    bool bAudioReady = false;
+    bool bWheelWasGrounded[4] = {false, false, false, false};
 };

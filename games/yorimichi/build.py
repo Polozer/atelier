@@ -1222,6 +1222,8 @@ def sound_effect_steps(ctx):
                      *(paths.cache_dir('sonniss', 'combat', create=False) / name for name in TRANSPORT_MASTERS)],
              outputs=[out / 'audio' / 'transport' / 'manifest.json'],
              about="the ferry's, gondolas' and zeppelin's engines, wash, wind, horns, bells, gates and doors"),
+        Step('audio.kart', [Python(AUDIO / 'kart' / 'make.py')], inputs=[AUDIO / 'kart', AUDIO / 'skate' / 'make.py'],
+             outputs=[out / 'audio' / 'kart' / 'manifest.json'], about="the kart's engine, tyres, skid, wind, impacts and suspension knocks"),
         # The Suno library is optional: naming `audio.music` or `unreal.music` selects
         # only the tracks requested by YORIMICHI_MUSIC_* selectors. A plain build
         # never downloads or imports the large release.
@@ -1374,12 +1376,13 @@ def unreal_steps(ctx):
                 UnrealScript(SCRIPTS / 'import_combat_audio.py', 'COMBAT AUDIO IMPORT COMPLETE'),
                 UnrealScript(SCRIPTS / 'import_skate_audio.py', 'SKATE AUDIO IMPORT COMPLETE'),
                 UnrealScript(SCRIPTS / 'import_bike_audio.py', 'BIKE AUDIO IMPORT COMPLETE'),
-                UnrealScript(SCRIPTS / 'import_transport_audio.py', 'TRANSPORT AUDIO IMPORT COMPLETE')],
+                UnrealScript(SCRIPTS / 'import_transport_audio.py', 'TRANSPORT AUDIO IMPORT COMPLETE'),
+                UnrealScript(SCRIPTS / 'import_driving_audio.py', 'DRIVING AUDIO IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_footsteps.py', SCRIPTS / 'import_combat_audio.py', SCRIPTS / 'import_skate_audio.py', SCRIPTS / 'import_bike_audio.py',
-                     SCRIPTS / 'import_transport_audio.py'],
+                     SCRIPTS / 'import_transport_audio.py', SCRIPTS / 'import_driving_audio.py'],
              # The footstep library lives in /Game/Japan, which the world import clears, so a world import reruns this.
-             needs=['unreal.world', 'audio.footsteps', 'audio.combat', 'audio.skate', 'audio.bike', 'audio.transport'], heavy=True,
-             about='footstep library, combat, skate, bike and transport sounds'),
+             needs=['unreal.world', 'audio.footsteps', 'audio.combat', 'audio.skate', 'audio.bike', 'audio.transport', 'audio.kart'], heavy=True,
+             about='footstep library, combat, skate, bike, transport and driving sounds'),
         Step('unreal.music', [UnrealScript(SCRIPTS / 'import_music.py', 'MUSIC IMPORT COMPLETE', null_rhi=True)],
              inputs=[SCRIPTS / 'import_music.py', SCRIPTS / 'music_inventory.py', AUDIO / 'music' / 'prepare.py'],
              needs=['audio.music'], after=['unreal.compile'], explicit=True, heavy=True,

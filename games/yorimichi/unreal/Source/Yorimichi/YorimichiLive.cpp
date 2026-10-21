@@ -200,6 +200,12 @@ FString UYorimichiLive::CarState()
         C->IsEquipped() ? 1 : 0, C->GetSpeed(), C->GetSpeedKph(), *C->GetStatus().Replace(TEXT(" "), TEXT("_")),
         A.X, A.Y, A.Z, P->GetActorRotation().Yaw, T.GetLocation().X, T.GetLocation().Y, T.GetLocation().Z, R.Pitch, R.Yaw, R.Roll);
 }
+
+FString UYorimichiLive::CarLoops()
+{
+    const AWandererCharacter* P = Cast<AWandererCharacter>(ULiveLibrary::Player()); const UDrivingComponent* C = P ? P->GetCar() : nullptr;
+    return C ? C->GetAudioState() : FString();
+}
 static bool GFilmHud = false;
 void UYorimichiLive::FilmHud(bool bOn) { GFilmHud = bOn; }
 bool UYorimichiLive::IsFilmHud() { return GFilmHud; }

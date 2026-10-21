@@ -1,10 +1,14 @@
 #include "DrivingComponent.h"
 
 #include "Components/CapsuleComponent.h"
+#include "Components/AudioComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Sound/SoundAttenuation.h"
+#include "Sound/SoundWave.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
@@ -147,6 +151,286 @@ void UDrivingComponent::Initialize(ACharacter* InRider)
     SteeringColumn->RegisterComponent();
     SteeringColumn->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     SteeringColumn->SetVisibility(false, true);
+    LoadSounds();
+}
+
+void UDrivingComponent::LoadSounds()
+{
+    if (bAudioReady || !Rider || !CarRoot)
+    {
+        return;
+    }
+    auto Load = [this](const FString& Name)
+    {
+        return LoadObject<USoundWave>(nullptr, *FString::Printf(TEXT("%s/%s.%s"), *AudioRoot, *Name, *Name), nullptr,
+                                      LOAD_NoWarn | LOAD_Quiet);
+    };
+    Attenuation = NewObject<USoundAttenuation>(this);
+    FSoundAttenuationSettings& A = Attenuation->Attenuation;
+    A.bAttenuate = true;
+    A.bSpatialize = true;
+    A.AttenuationShape = EAttenuationShape::Sphere;
+    A.AttenuationShapeExtents = FVector(300.f, 0.f, 0.f);
+    A.FalloffDistance = 3000.f;
+    A.DistanceAlgorithm = EAttenuationDistanceModel::NaturalSound;
+    A.dBAttenuationAtMax = -48.f;
+    for (const TCHAR* Cue : {TEXT("impact"), TEXT("bump")})
+    {
+        const int32 First = Waves.Num();
+        for (int32 I = 1; I <= 8; ++I)
+        {
+            if (USoundWave* W = Load(FString::Printf(TEXT("%s_%02d"), Cue, I)))
+            {
+                Waves.Add(W);
+            }
+        }
+        if (Waves.Num() > First)
+        {
+            CueRange.Add(FName(Cue), FIntPoint(First, Waves.Num() - First));
+        }
+    }
+    auto LoadBank = [&](const TCHAR* Cue, int32 Count)
+    {
+        const int32 First = Loops.Num();
+        for (int32 I = 1; I <= Count; ++I)
+        {
+            UAudioComponent* L = NewObject<UAudioComponent>(Rider, *FString::Printf(TEXT("DriveLoop%d"), Loops.Num()));
+            L->SetupAttachment(CarRoot);
+            L->bAutoActivate = false;
+            L->bAllowSpatialization = true;
+            L->AttenuationSettings = Attenuation;
+            L->SetSound(Load(FString::Printf(TEXT("%s_%02d"), Cue, I)));
+            L->RegisterComponent();
+            Loops.Add(L);
+        }
+        return First;
+    };
+    EngineFirst = LoadBank(TEXT("engine"), 5);
+    EngineCount = Loops.Num() - EngineFirst;
+    TyreFirst = LoadBank(TEXT("tyre"), 3);
+    TyreCount = Loops.Num() - TyreFirst;
+    SkidFirst = LoadBank(TEXT("skid"), 3);
+    SkidCount = Loops.Num() - SkidFirst;
+    WindFirst = LoadBank(TEXT("wind"), 3);
+    WindCount = Loops.Num() - WindFirst;
+    // The engine is the one required bank: a game that stages no driving cues stays silent rather than half-voiced.
+    bAudioReady = EngineCount > 0 && Loops[EngineFirst] && Loops[EngineFirst]->Sound != nullptr;
+    if (bAudioReady)
+    {
+        LoopVolume.Init(0.f, Loops.Num());
+        LoopPitch.Init(1.f, Loops.Num());
+    }
+    else
+    {
+        for (UAudioComponent* L : Loops)
+        {
+            if (L) L->DestroyComponent();
+        }
+        Loops.Reset();
+    }
+    UE_LOG(LogTemp, Display, TEXT("DRIVING sounds: %d one-shots, %d loops (%d engine, %d tyre, %d skid, %d wind)%s"),
+           Waves.Num(), Loops.Num(), EngineCount, TyreCount, SkidCount, WindCount,
+           bAudioReady ? TEXT("") : TEXT(" (none staged)"));
+}
+
+bool UDrivingComponent::PlayCue(FName Cue, float Volume, float Pitch)
+{
+    const FIntPoint* Range = CueRange.Find(Cue);
+    if (!Range || Range->Y <= 0 || !Rider || !CarRoot || !Waves.IsValidIndex(Range->X))
+    {
+        return false;
+    }
+    int32 Pick = Range->X + FMath::RandHelper(Range->Y);
+    if (Range->Y > 1 && Pick == LastVariant)
+    {
+        Pick = Range->X + (Pick - Range->X + 1) % Range->Y;
+    }
+    LastVariant = Pick;
+    UGameplayStatics::PlaySoundAtLocation(this, Waves[Pick], CarRoot->GetComponentLocation() + FVector(0, 0, 40.f),
+                                         Volume, FMath::Clamp(Pitch, .25f, 4.f), 0.f, Attenuation);
+    return true;
+}
+
+void UDrivingComponent::StopAudio()
+{
+    for (UAudioComponent* L : Loops)
+    {
+        if (L) L->Stop();
+    }
+    for (float& V : LoopVolume) V = 0.f;
+    AudioRevs = AudioSlip = ImpactSpeed = PendingImpact = 0.f;
+    BumpWait = ImpactWait = 0.f;
+}
+
+void UDrivingComponent::UpdateAudio(float DeltaSeconds)
+{
+    if (!bAudioReady || !Car || !Rider || LoopVolume.Num() != Loops.Num())
+    {
+        return;
+    }
+    const float Speed = GetSpeed();
+    const float Throttle = FMath::Max(MoveInput.Y, 0.f);
+    float Slip = 0.f;
+    int32 Contacts = 0;
+    for (int32 I = 0; I < 4; ++I)
+    {
+        const WheelState W = Car->Chassis.wheel(I);
+        if (!W.on_ground)
+        {
+            bWheelWasGrounded[I] = false;
+            continue;
+        }
+        ++Contacts;
+        Slip = FMath::Max(Slip, W.skid);
+        // A wheel meeting the ground again after airtime knocks the suspension once.
+        if (!bWheelWasGrounded[I] && Speed > 400.f && BumpWait <= 0.f)
+        {
+            PlayCue(TEXT("bump"), .35f + .35f * FMath::Clamp(Speed / 1800.f, 0.f, 1.f),
+                    FMath::FRandRange(.94f, 1.06f));
+            BumpWait = .35f;
+        }
+        bWheelWasGrounded[I] = true;
+    }
+    AudioSlip = Slip;
+    BumpWait = FMath::Max(0.f, BumpWait - DeltaSeconds);
+    ImpactWait = FMath::Max(0.f, ImpactWait - DeltaSeconds);
+    if (ImpactSpeed > 0.f && ImpactWait <= 0.f)
+    {
+        PlayCue(TEXT("impact"), FMath::Clamp(ImpactSpeed / 900.f, .3f, 1.f), FMath::FRandRange(.92f, 1.04f));
+        ImpactWait = .25f;
+    }
+    ImpactSpeed = 0.f;
+
+    AudioRevs = FMath::Clamp(Car->Chassis.rpm(), 0.f, 6000.f);
+    float Want[32] = {};
+    float Pitch[32] = {};
+    const bool bRolling = Contacts > 0 && Speed > 4.f;
+    // Volumes crossfade between adjacent recordings in a bank; the engine's five loops each pitch around their own
+    // engine speed, so the ladder from idle to the limiter stays in tune as it hands over.
+    static const float EngineSpeeds[] = {1200.f, 2200.f, 3200.f, 4200.f, 5200.f};
+    auto FadeBank = [&](int32 First, int32 Count, float Position, float Base, float PitchAt, const float* Speeds)
+    {
+        if (Count <= 0 || First < 0 || First + Count > 32)
+        {
+            return;
+        }
+        for (int32 I = 0; I < Count; ++I)
+        {
+            Want[First + I] = 0.f;
+            Pitch[First + I] = PitchAt;
+        }
+        const float X = FMath::Clamp(Position, 0.f, float(Count - 1));
+        const int32 I0 = FMath::FloorToInt(X);
+        const int32 I1 = FMath::Min(I0 + 1, Count - 1);
+        const float F = X - I0;
+        Want[First + I0] += Base * (1.f - F);
+        Want[First + I1] += Base * F;
+        if (Speeds)
+        {
+            for (int32 I = 0; I < Count; ++I)
+            {
+                Pitch[First + I] = FMath::Clamp(AudioRevs / Speeds[I], .72f, 1.42f);
+            }
+        }
+    };
+    const float RevPosition = FMath::Clamp((AudioRevs - 1150.f) / (5350.f - 1150.f), 0.f, 1.f) * (EngineCount - 1);
+    FadeBank(EngineFirst, EngineCount, RevPosition, .42f + .30f * Throttle + .06f * RevPosition, 1.f, EngineSpeeds);
+    if (bRolling)
+    {
+        FadeBank(TyreFirst, TyreCount, FMath::Clamp(Speed / 1900.f, 0.f, 1.f) * (TyreCount - 1),
+                 .34f * FMath::Clamp(Speed / 1200.f, 0.f, 1.f), FMath::Clamp(.85f + Speed / 4200.f, .7f, 1.45f), nullptr);
+        FadeBank(WindFirst, WindCount, FMath::Clamp((Speed - 250.f) / 2900.f, 0.f, 1.f) * (WindCount - 1),
+                 .60f * FMath::Clamp((Speed - 300.f) / 2600.f, 0.f, 1.f), FMath::Clamp(.82f + Speed / 3600.f, .7f, 1.4f), nullptr);
+    }
+    if (bRolling && Slip > .05f)
+    {
+        FadeBank(SkidFirst, SkidCount, FMath::Clamp(Slip / .9f, 0.f, 1.f) * (SkidCount - 1),
+                 .88f * Slip, FMath::Clamp(.90f + Speed / 5200.f, .8f, 1.25f), nullptr);
+    }
+    for (int32 I = 0; I < Loops.Num(); ++I)
+    {
+        UAudioComponent* L = Loops[I];
+        if (!L || !L->Sound)
+        {
+            continue;
+        }
+        // A quick attack (a skid starts at once), a softer release.
+        LoopVolume[I] = FMath::FInterpTo(LoopVolume[I], Want[I], DeltaSeconds, Want[I] > LoopVolume[I] ? 18.f : 6.f);
+        LoopPitch[I] = FMath::FInterpTo(LoopPitch[I], FMath::Max(Pitch[I], .01f), DeltaSeconds, 10.f);
+        if (LoopVolume[I] > .01f)
+        {
+            if (!L->IsPlaying())
+            {
+                L->Play(FMath::FRand() * 1.5f);
+            }
+            L->SetVolumeMultiplier(LoopVolume[I]);
+            L->SetPitchMultiplier(LoopPitch[I]);
+        }
+        else if (L->IsPlaying())
+        {
+            L->Stop();
+        }
+    }
+}
+
+FString UDrivingComponent::GetAudioState() const
+{
+    if (!bAudioReady || LoopVolume.Num() != Loops.Num())
+    {
+        return TEXT("driving audio: none staged");
+    }
+    auto Bank = [this](int32 First, int32 Count)
+    {
+        float Volume = 0.f, Pitch = 1.f;
+        for (int32 I = 0; I < Count; ++I)
+        {
+            if (LoopVolume[First + I] >= Volume)
+            {
+                Volume = LoopVolume[First + I];
+                Pitch = LoopPitch[First + I];
+            }
+        }
+        return FString::Printf(TEXT("%.2f@%.2f"), Volume, Pitch);
+    };
+    return FString::Printf(TEXT("engine %s tyre %s skid %s wind %s revs %.0f slip %.2f"),
+                           *Bank(EngineFirst, EngineCount), *Bank(TyreFirst, TyreCount),
+                           *Bank(SkidFirst, SkidCount), *Bank(WindFirst, WindCount), AudioRevs, AudioSlip);
+}
+
+float UDrivingComponent::GetWheelSlip(int32 Index) const
+{
+    if (!Car || Index < 0 || Index > 3)
+    {
+        return 0.f;
+    }
+    const WheelState W = Car->Chassis.wheel(Index);
+    return W.on_ground ? FMath::Clamp(W.skid, 0.f, 1.f) : 0.f;
+}
+
+bool UDrivingComponent::IsWheelGrounded(int32 Index) const
+{
+    return Car && Index >= 0 && Index <= 3 && Car->Chassis.wheel(Index).on_ground;
+}
+
+FVector UDrivingComponent::GetWheelContact(int32 Index) const
+{
+    if (!Car || Index < 0 || Index > 3)
+    {
+        return FVector::ZeroVector;
+    }
+    return ToUE(Car->Chassis.wheel(Index).position);
+}
+
+bool UDrivingComponent::ConsumeImpact(float& OutSpeed, FVector& OutAt)
+{
+    if (PendingImpact <= 0.f)
+    {
+        return false;
+    }
+    OutSpeed = PendingImpact;
+    OutAt = PendingImpactAt;
+    PendingImpact = 0.f;
+    return true;
 }
 
 bool UDrivingComponent::Configure(const FDrivingCockpit& InCockpit)
@@ -157,9 +441,18 @@ bool UDrivingComponent::Configure(const FDrivingCockpit& InCockpit)
     if (!Rider || InCockpit.ReferenceLegLength <= 0.f || InCockpit.SteeringRadius <= 0.f ||
         InCockpit.MinScale <= 0.f || InCockpit.MaxScale < InCockpit.MinScale ||
         InCockpit.WheelRadius <= 0.f || InCockpit.WheelWidth <= 0.f)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Kart cockpit values: rider=%d leg=%.3f steer=%.3f scale=%.2f..%.2f wheel=%.3f/%.3f"),
+               Rider ? 1 : 0, InCockpit.ReferenceLegLength, InCockpit.SteeringRadius, InCockpit.MinScale,
+               InCockpit.MaxScale, InCockpit.WheelRadius, InCockpit.WheelWidth);
         return false;
+    }
     const USkeletalMesh* Mesh = Rider->GetMesh()->GetSkeletalMeshAsset();
-    if (!Mesh) return false;
+    if (!Mesh)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Kart cockpit: %s has no skeletal mesh yet"), *GetNameSafe(Rider));
+        return false;
+    }
     const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
     auto Point = [&Ref](const TCHAR* Name)
     {
@@ -168,7 +461,11 @@ bool UDrivingComponent::Configure(const FDrivingCockpit& InCockpit)
         return T.GetLocation();
     };
     if (Ref.FindBoneIndex(TEXT("thigh_L")) == INDEX_NONE || Ref.FindBoneIndex(TEXT("shin_L")) == INDEX_NONE ||
-        Ref.FindBoneIndex(TEXT("foot_L")) == INDEX_NONE) return false;
+        Ref.FindBoneIndex(TEXT("foot_L")) == INDEX_NONE)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Kart cockpit: %s lacks thigh_L/shin_L/foot_L"), *Mesh->GetName());
+        return false;
+    }
     const float Leg = FVector::Dist(Point(TEXT("thigh_L")), Point(TEXT("shin_L"))) + FVector::Dist(Point(TEXT("shin_L")), Point(TEXT("foot_L")));
     const float Scale = Leg / InCockpit.ReferenceLegLength;
     if (!FMath::IsFinite(Scale) || Scale < InCockpit.MinScale || Scale > InCockpit.MaxScale)
@@ -288,6 +585,9 @@ bool UDrivingComponent::Summon()
     }
     if (!Rider || !Rider->GetWorld() || !Body || !bConfigured || !BodyMesh || !SeatMesh || !WheelMesh || !SteeringMesh)
     {
+        UE_LOG(LogTemp, Warning, TEXT("Kart summon blocked: rider=%d world=%d body=%d configured=%d meshes=%d%d%d%d"),
+               Rider ? 1 : 0, Rider && Rider->GetWorld() ? 1 : 0, Body ? 1 : 0, bConfigured ? 1 : 0,
+               BodyMesh ? 1 : 0, SeatMesh ? 1 : 0, WheelMesh ? 1 : 0, SteeringMesh ? 1 : 0);
         if (Hint.IsEmpty()) Hint = TEXT("The car is not ready");
         return false;
     }
@@ -320,6 +620,8 @@ bool UDrivingComponent::Summon()
     }
     if (!bFound)
     {
+        UE_LOG(LogTemp, Warning, TEXT("Kart summon: no free ground beside %s at %s"), *GetNameSafe(Rider),
+               *Rider->GetActorLocation().ToString());
         Hint = TEXT("No room for the car");
         return false;
     }
@@ -458,6 +760,7 @@ void UDrivingComponent::FinishDrive()
     if (Seat) Seat->SetVisibility(false, true);
     for (int i = 0; i < 4; ++i) Wheel[i]->SetVisibility(false, true);
     if (Steering) Steering->SetVisibility(false, true);
+    StopAudio();
     Car.Reset();
     bEquipped = false;
     Hint = TEXT("Parked");
@@ -512,6 +815,9 @@ void UDrivingComponent::UpdatePose(float DeltaSeconds)
             if (Closing < 0.f)
             {
                 Car->Chassis.notify_wall_contact(ToSim(Hit.ImpactPoint), N, N * Closing, V);
+                ImpactSpeed = FMath::Max(ImpactSpeed, -Closing * 100.f);
+                PendingImpact = FMath::Max(PendingImpact, -Closing * 100.f);
+                PendingImpactAt = Hit.ImpactPoint;
                 Car->Chassis.body.linear_velocity = V - N * Closing;
             }
             Car->Chassis.body.position = ToSim(OldLocation);
@@ -585,6 +891,7 @@ void UDrivingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
     {
         UpdatePose(DeltaTime);
     }
+    UpdateAudio(DeltaTime);
     if (Car->Chassis.position().y < -20.0f)
     {
         Recover();

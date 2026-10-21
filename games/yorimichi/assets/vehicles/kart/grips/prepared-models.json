@@ -4,7 +4,7 @@
     "cairo": {
       "model_sha256": "e2c89446d00c5878e90c0ddbd8d90959b8ccb9f7b6813f4ed22d511fd4c6c85a",
       "bind_sha256": "162df99965eb622f923e51089be4a2e62406c766340f32b85c8094a3013f3301",
-      "source_sha256": "477ca12514339b9665a70baef3b4ea1e2682c1b174737b24e0b23df1cb62a33b",
+      "source_sha256": "7b020c1bb102b6902af199179a93fd83c272f95554c195aad407ab8ea4c8d054",
       "scale": 0.8503781225377938,
       "seated_world": {
         "pelvis": [
@@ -66,7 +66,7 @@
     "modori": {
       "model_sha256": "e9f578fa5690e1be055b55c3b234f5c45ebda3433daa94003ba04d9f73d57e63",
       "bind_sha256": "5278847ae8ec020591846980265a8d72fc9b030795113c275a0dd152dd474198",
-      "source_sha256": "29ab2fb20ebaa53842e1dfce70f6b0f846553bbccdc6b379bb2c2592a6b00a8a",
+      "source_sha256": "cca40aab6ca40acaeed25012787ddfc81cc2af75e9d36f3549542fe76e2a3f1d",
       "scale": 1.0808708425737112,
       "seated_world": {
         "pelvis": [
@@ -128,7 +128,7 @@
     "nox": {
       "model_sha256": "4c1a1c9883c3d20f7388c2a0871ce509244ec9296dccd887088653847ad6b9f4",
       "bind_sha256": "fab0bb2edee2c0245d09923e89f9b3f24d40099a23bbd133a48e03e912b52fe0",
-      "source_sha256": "92ffd27fa5bd58a8f6c8d8dcafceb01968238f74489de1081b53fae479fe8982",
+      "source_sha256": "5a9019e1e2b4990c9072e27a31ebc9008fbc17843902fbd7caf30b58457595d8",
       "scale": 1.1335296646408517,
       "seated_world": {
         "pelvis": [
@@ -190,7 +190,7 @@
     "paul": {
       "model_sha256": "d193c34d462ee2a9b0207fe4b29afd6cee64f42126720a61e77f804f1c3ec44f",
       "bind_sha256": "c59e7dc8e6a55310b94694d1a9e16a43186f9e2f459b5a8d0ee2d81cfa0193f1",
-      "source_sha256": "4bf94c886937be98a727f3de90ec7e79688494defb5cc255ed60b971cec777dd",
+      "source_sha256": "18f6bd0615b82d8e908c2de2f6a5c27a6bba1d2893113151d8e0189cb9ceb246",
       "scale": 1.0347070361220283,
       "seated_world": {
         "pelvis": [
