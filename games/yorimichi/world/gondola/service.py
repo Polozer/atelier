@@ -73,7 +73,7 @@ def build_data(site,build):
         table=clock.prepare(line['circuit'],[by_name[key] for key in line['stations']],towers)
         # The geometry remains exact; only world coordinate units change here.
         count=4 if line['id']=='L3' else 12
-        separation=clock.spacing(table,count,math.dist(*cabin['bounds'])+2*math.sqrt(sum(v*v for v in cabin['grip']['pivot']['point'])))
+        separation=clock.spacing(table,count,math.dist(*cabin['bounds'])+2*math.sqrt(math.fsum(v*v for v in cabin['grip']['pivot']['point'])))
         table['points']=[ue(q) for q in table['points']]
         lines.append({'id':line['id'],'stations':line['stations'],'clock':table,
                       'cabins':count,'spacing':separation,

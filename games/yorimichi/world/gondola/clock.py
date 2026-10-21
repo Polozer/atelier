@@ -14,7 +14,7 @@ STATION_SPEED=.6
 
 
 def distance(a,b):
-    return math.sqrt(sum((x-y)**2 for x,y in zip(a,b)))
+    return math.sqrt(math.fsum((x-y)**2 for x,y in zip(a,b)))
 
 
 def interpolate(a,b,t):
@@ -43,6 +43,8 @@ def prepare(points,stations,towers=()):
     """Build a periodic clock from the already fitted kit-loop/rope circuit.
 
     Stations carry origin/along/lateral/platform_z and their exact berth targets.
+    Float reductions use fsum so generation and embedded Python preflight
+    produce the same clock across Python versions.
     No second spatial path is authored here. A target must already be on this
     circuit within the same centimetre tolerance as the station's physical fit.
     """
@@ -55,8 +57,8 @@ def prepare(points,stations,towers=()):
                     station['gauge']/2*side*station['lateral'][k] for k in (0,1)]+[station['rope_z']]
             best=None
             for i,(a,b) in enumerate(zip(points,points[1:])):
-                ab=[v-u for u,v in zip(a,b)];length2=sum(v*v for v in ab)
-                t=max(0.,min(1.,sum((q-u)*v for q,u,v in zip(target,a,ab))/length2))
+                ab=[v-u for u,v in zip(a,b)];length2=math.fsum(v*v for v in ab)
+                t=max(0.,min(1.,math.fsum((q-u)*v for q,u,v in zip(target,a,ab))/length2))
                 q=interpolate(a,b,t);candidate=(distance(q,target),i,t,q)
                 if best is None or candidate[0]<best[0]:best=candidate
             error,i,t,q=best
@@ -68,7 +70,7 @@ def prepare(points,stations,towers=()):
         origin,along,lateral=station['origin'],station['along'],station['lateral']
         for i,p in enumerate(points[:-1]):
             q=[p[k]-origin[k] for k in (0,1)]
-            x=sum(q[k]*along[k] for k in (0,1));y=sum(q[k]*lateral[k] for k in (0,1))
+            x=math.fsum(q[k]*along[k] for k in (0,1));y=math.fsum(q[k]*lateral[k] for k in (0,1))
             if x<=station['mouth_x']+.61 and abs(y)<=station['gauge']/2+.01 and abs(p[2]-station['rope_z'])<.01:
                 station_nodes.add(i)
         for side in (-1,1):

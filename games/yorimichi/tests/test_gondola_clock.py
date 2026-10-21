@@ -60,3 +60,19 @@ def test_real_kit_circuit_has_four_stopped_berths_and_smooth_cyclic_motion():
         assert first[4]+first[5]*(first[1]-first[0])==pytest.approx(last[4],abs=1e-9)
     for row in rows:
         assert abs(row[5])<=.350001 and 0<=row[4]<=5.
+
+
+def test_clock_arc_is_identical_with_python311_float_sum(monkeypatch):
+    from gondola import clock
+    # These small squared components straddle a rounding boundary beside 1.
+    # Python 3.11 adds them sequentially; newer builtins sum more accurately.
+    # Embedded import preflight must reconstruct exactly the generated clock.
+    points=[[0.,0.,0.],[1.,1.24e-8,1.24e-8],[1.,1.,0.],[0.,0.,0.]]
+    expected=clock.arc_lengths(points)
+    assert expected[1]==1.
+    def python311_sum(values,start=0):
+        total=start
+        for value in values:total+=value
+        return total
+    monkeypatch.setattr(clock,'sum',python311_sum,raising=False)
+    assert clock.arc_lengths(points)==expected
