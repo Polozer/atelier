@@ -267,7 +267,7 @@ bool FRacingRecordsPagesTest::RunTest(const FString&)
             }
         }
     TestEqual(TEXT("Seven record panels: three circuits, four Grands Prix"), RacingRecords::Panels().Num(), 7);
-    // The board: the standings and the next races.
+    // The board: the standings and today's results.
     const FRacingRecordsPage Board = F.Page(ERacingHallObject::Board);
     TestTrue(TEXT("The board's standings"), Board.Lines.Num() > 0 && Board.Lines[0].bHeading);
     // Paging: the cabinet's horses.
@@ -326,7 +326,11 @@ bool FRacingRecordsPagesTest::RunTest(const FString&)
     TestEqual(TEXT("A text per panel"), B.Records.Num(), RacingRecords::Panels().Num());
     TestEqual(TEXT("and per honour"), B.Honours.Num(), int32(ERacingHonour::Count));
     TestTrue(TEXT("The standings"), B.Standings.StartsWith(TEXT("CLASSEMENT")));
-    TestTrue(TEXT("The next races"), B.Upcoming.StartsWith(TEXT("PROCHAINES COURSES")));
+    TestTrue(TEXT("Today's results"), B.Results.StartsWith(TEXT("RÉSULTATS DU JOUR")));
+    // No schedule or countdown in the town hall (only the hippodrome, the Salon's windows and the TVs show race timing).
+    TestFalse(TEXT("No next races on the board"), B.Results.Contains(TEXT("PROCHAIN")) || B.Results.Contains(TEXT("DANS ")));
+    for (const FRacingRecordsLine& Line : Board.Lines)
+        TestFalse(TEXT("No countdown on the board's page"), Line.Right.StartsWith(TEXT("dans ")) || Line.Left.Contains(TEXT("Prochaine")));
     auto Latin1 = [](const FString& T) { for (const TCHAR C : T) if (C > 0xFF && C != 0x00B7) return false; return true; };
     for (const FString& T : B.Honours) TestTrue(TEXT("World text is Latin-1"), Latin1(T));
     for (const FString& T : B.Records) TestTrue(TEXT("World text is Latin-1"), Latin1(T));
