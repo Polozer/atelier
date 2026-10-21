@@ -121,3 +121,15 @@ def test_normal_build_includes_the_whole_ferry_pipeline():
     assert Path('/build/ferry/terminals/assets/FT_HD_Brow.fbx') in rows['world.ferry_terminals'].outputs
     assert all(c.threads == 3 for key, step in rows.items() if 'ferry' in key
                for c in step.commands if isinstance(c, build.Blender))
+
+
+@pytest.mark.parametrize('batch', [1, 200])
+def test_a_clear_ship_cannot_pass_outside_the_exported_probe(site, batch):
+    probe = world((-100., -100., 100., 100.))
+    # Large triangles beyond the sampled box do not prove that unexported solids are absent.
+    probe['ground'] = world((-200., -200., 200., 200.))['ground']
+    result = site.crossing_sweep(probe, (80., 0., 0.), [('ahead', 2.)], batch=batch)
+    assert not result['pass']
+    assert result['probe_boundary_count'] == result['poses']
+    assert result['probe_boundary_conflicts']
+    assert result['conflict_count'] == result['grounding_count'] == 0

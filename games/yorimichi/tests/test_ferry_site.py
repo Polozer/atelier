@@ -284,3 +284,12 @@ def test_cutting_the_rail_clears_the_route(walkcheck, site):
     kept = parts[~site.cut_mask(parts, cut)]
     assert walk_over_quay(walkcheck, site, [kept])['pass']
     assert not walk_over_quay(walkcheck, site, [BEAM])['pass']           # the beam alone blocks at waist height
+
+
+def test_a_harbour_cannot_clip_the_hull_or_its_clearance_at_the_probe_edge(site):
+    probe = world((-80., -40., 80., 60.))
+    hb = site.Harbour('fixture', probe, (0., 0., 0.), [], [])
+    result = hb.check('outside', (60., 0., 0.), [('ahead', 1.)])[0]
+    assert not result['pass']
+    assert result['probe_boundary_count'] == result['poses']
+    assert result['conflict_count'] == result['grounding_count'] == 0

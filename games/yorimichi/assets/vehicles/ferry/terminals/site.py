@@ -59,7 +59,7 @@ SHIP_TOP = 30.0                                 # above the masthead: solids up 
 GATE_X, GATE_W = ship.GATES[0]
 SILL_Z = ship.deck_z(GATE_X)
 CELL = 0.25
-BOUNDS = {'hidamari': (700.0, -330.0, 1000.0, -110.0), 'brinecove': (-460.0, -260.0, -100.0, 70.0)}
+BOUNDS = {'hidamari': (700.0, -380.0, 1000.0, -110.0), 'brinecove': (-460.0, -330.0, -100.0, 70.0)}
 
 
 def outline(full):
@@ -259,6 +259,9 @@ class Harbour:
     def __init__(self, name, world, berth, berth_zone, terminal):
         self.name, self.berth, self.terminal = name, berth, terminal
         self.g = Grid(*world['bounds'])
+        tile, probe = world['bounds'], world.get('probe_bounds', world['bounds'])
+        self.checked_bounds = (max(tile[0], probe[0]), max(tile[1], probe[1]),
+                               min(tile[2], probe[2]), min(tile[3], probe[3]))
         self.z = self.g.surface_max(world['ground'])
         self.misses = int(np.isnan(self.z).sum())
         self.z = np.where(np.isnan(self.z), np.inf, self.z)           # no exported ground: never safe water, so a
@@ -291,8 +294,14 @@ class Harbour:
         worst, worst_alongside, berth_gap, grounded, hits = 99.0, 99.0, 99.0, [], []
         berthing = [k == 'berth' or (k == 'start' and i + 1 < len(ps) and ps[i + 1][3] == 'berth') or
                     (i > 0 and ps[i - 1][3] == 'berth' and k == 'berth') for i, (_, _, _, k) in enumerate(ps)]
+        outside = []
         started = spoken = time.monotonic()
         for index, ((x, y, h, kind), alongside) in enumerate(zip(ps, berthing)):
+            envelope = place(FULL, x, y, h)
+            lo, hi = envelope.min(0) - STRUCTURE_CLEARANCE, envelope.max(0) + STRUCTURE_CLEARANCE
+            if (lo[0] < self.checked_bounds[0] or lo[1] < self.checked_bounds[1] or
+                    hi[0] > self.checked_bounds[2] or hi[1] > self.checked_bounds[3]):
+                outside.append((round(x, 2), round(y, 2), round(math.degrees(h), 2), kind))
             m = self.g.mask(); self.g.ship(m, FULL, x, y, h)
             w = self.g.mask(); self.g.ship(w, WET, x, y, h)
             swept |= m; wet |= w
@@ -323,12 +332,13 @@ class Harbour:
                   'structure_conflicts': hits[:20], 'conflict_count': len(hits), 'grounding_poses': grounded[:20],
                   'grounding_count': len(grounded), 'deepest_seabed_under_keel_m': round(float(self.z[wet].max()), 2),
                   'swept_cells_without_ground': int(np.isinf(self.z[wet]).sum()),
+                  'probe_boundary_count': len(outside), 'probe_boundary_conflicts': outside[:20],
                   'nearest_by_obstacle_m': dict(sorted(near.items(), key=lambda kv: kv[1])[:8]),
                   'path': [[round(x, 2), round(y, 2), round(math.degrees(h), 1)] for x, y, h, _ in ps[::8]] +
                   [[round(ps[-1][0], 2), round(ps[-1][1], 2), round(math.degrees(ps[-1][2]), 1)]]}
         result.update(start=[ps[0][0], ps[0][1], math.degrees(ps[0][2])],
                       end=[ps[-1][0], ps[-1][1], math.degrees(ps[-1][2])])
-        result['pass'] = not hits and not grounded
+        result['pass'] = not hits and not grounded and not outside
         return result, swept, ps, wet
 
     def draw(self, path, results, title):
@@ -498,7 +508,7 @@ def crossing_sweep(world, start, moves, batch=200):
         xy = np.asarray(chunk)[:, :2].astype(float)
         lo = np.floor((xy.min(0) - pad) / CELL) * CELL
         hi = np.ceil((xy.max(0) + pad) / CELL) * CELL
-        tile = dict(world, bounds=(*lo, *hi))
+        tile = dict(world, bounds=(*lo, *hi), probe_bounds=world['bounds'])
         for k, (mn, mx) in boxes.items():
             keep = (mx[:, :2] >= lo).all(1) & (mn[:, :2] <= hi).all(1)
             tile[k] = arrays[k][keep]
@@ -517,6 +527,11 @@ def crossing_sweep(world, start, moves, batch=200):
             'deepest_seabed_under_keel_m': max(r['deepest_seabed_under_keel_m'] for r in results),
             'grounding_count': sum(r['grounding_count'] for r in results),
             'conflict_count': sum(r['conflict_count'] for r in results),
+            'structure_conflicts': [c for r in results for c in r['structure_conflicts']][:20],
+            'probe_boundary_count': sum(r['probe_boundary_count'] for r in results),
+            'probe_boundary_conflicts': [c for r in results for c in r['probe_boundary_conflicts']][:20],
+            'nearest_by_obstacle_m': {name: min(r['nearest_by_obstacle_m'].get(name, 99.) for r in results)
+                                      for name in sorted({n for r in results for n in r['nearest_by_obstacle_m']})},
             'swept_cells_without_ground': sum(r['swept_cells_without_ground'] for r in results)}
 
 

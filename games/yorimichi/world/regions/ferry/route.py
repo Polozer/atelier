@@ -22,7 +22,7 @@ CROSSINGS = {
                   'radii': [260.0, 400.0, 260.0]},
 }
 # The crossing's swept area: everything the probe exports for it (world metres, x0, y0, x1, y1).
-BOUNDS = (-2000.0, -1080.0, 1000.0, -250.0)
+BOUNDS = (-2000.0, -1080.0, 1000.0, -220.0)
 
 
 def polyline(start, end, spec):
