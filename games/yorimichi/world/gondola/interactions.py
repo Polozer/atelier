@@ -29,7 +29,7 @@ def path_strip(path,half_width=1.3):
     return np.concatenate([path-half_width*normal,path+half_width*normal])
 
 
-def walking_link(G,frame,route,meshes,structures,stone_path):
+def walking_link(G,frame,route,meshes,structures,stone_path,access_surfaces=()):
     """@cc [owner:fontanierh,label:correctness] belmonte-ground-walking-link
     The natural-ground connection MUST preserve the complete existing stone
     path, have complete owned terrain coverage and walkable triangle slopes,
@@ -38,6 +38,13 @@ def walking_link(G,frame,route,meshes,structures,stone_path):
     clearing and the ordinary physical boarding drive use the same path.
     """
     from gondola.support import owned_triangles
+    from solid_mesh import ear_clip
+    overlays=[]
+    for surface in access_surfaces:
+        polygon=np.asarray(surface['poly'],float)
+        heights=np.broadcast_to(surface['z1'] if 'z1' in surface else surface['top'],(len(polygon),))
+        vertices=np.c_[frame[0]+polygon[:,0,None]*frame[1]+polygon[:,1,None]*frame[2],heights+frame[3]]
+        overlays.extend(vertices[list(indices)] for indices in ear_clip(polygon))
     geometry=[mesh_vertices(m,frame) for m in meshes]
     low=np.concatenate(geometry).min(0);high=np.concatenate(geometry).max(0)
     strip=path_strip(stone_path)
@@ -58,7 +65,7 @@ def walking_link(G,frame,route,meshes,structures,stone_path):
         raise ValueError('No clear northern join to the existing stone path')
     west=low[0]-3.
     knots=np.array([end,away,[west,away[1]],[west,join[1]],join])
-    begin,finish=knots.min(0)-.35,knots.max(0)+.35
+    begin,finish=knots.min(0)-.5,knots.max(0)+.5
     cropped={}
     for key,triangles in structures.arrays.items():
         a,b=structures.extents[key]
@@ -74,8 +81,12 @@ def walking_link(G,frame,route,meshes,structures,stone_path):
         samples=np.linspace(a,b,max(2,math.ceil(length/.5)+1))
         heights=G.contact(samples)[0]
         for index,(c,d) in enumerate(zip(samples,samples[1:])):
-            polygon=np.array([c-normal*.35,d-normal*.35,d+normal*.35,c+normal*.35])
+            # Square caps conservatively contain the complete swept capsule
+            # disc at every endpoint and on the outside of each route turn.
+            c0,d0=c-direction*.35,d+direction*.35
+            polygon=np.array([c0-normal*.35,d0-normal*.35,d0+normal*.35,c0+normal*.35])
             faces=owned_triangles(G,polygon)
+            faces=walking_floor(faces,polygon,overlays)
             cross=np.cross(faces[:,1]-faces[:,0],faces[:,2]-faces[:,0])
             valid=np.linalg.norm(cross,axis=1)>1e-12
             faces,cross=faces[valid],cross[valid]
@@ -97,6 +108,27 @@ def walking_link(G,frame,route,meshes,structures,stone_path):
     return [*route,*local_points.tolist()],{'pass':True,'width_m':.7,'height_m':1.7,
         'complete_coverage':True,'triangles':triangles,'maximum_slope':maximum_slope,
         'stone_path_gap_m':separation,'join':join.tolist(),'knots':knots.tolist()}
+
+
+def walking_floor(ground,polygon,overlays):
+    """The fitted stair's actual walking caps own their footprints at the join.
+
+    Base-ground coverage was already required. Adopting the explicit stair
+    surface prevents its intended walking floor being labelled an obstruction;
+    posts, rails and all geometry above that floor remain in headroom checks.
+    """
+    from gondola.support import intersection,subtract,area
+    pieces=[list(t) for t in ground];tops=[]
+    for triangle in overlays:
+        top=intersection(triangle,polygon)
+        if area(top)<=1e-9:continue
+        pieces=[part for old in pieces for part in subtract(old,np.asarray(top)[:,:2])]
+        tops.append(top)
+    triangles=[]
+    for piece in pieces+tops:
+        if area(piece)<=1e-9:continue
+        triangles.extend([piece[0],piece[i],piece[i+1]] for i in range(1,len(piece)-1))
+    return np.asarray(triangles,float).reshape(-1,3,3)
 
 
 def walking_headroom(query,floors):

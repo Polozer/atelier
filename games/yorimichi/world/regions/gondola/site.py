@@ -566,7 +566,7 @@ def main():
             if key=='belmonte':
                 from regions.zeppelin.layout import belmonte_path
                 access['route'],data['walking_link']=walking_link(G,frame,access['route'],
-                    [*shells[data['kind']].values(),foundation,stair],structures,belmonte_path())
+                    [*shells[data['kind']].values(),foundation,stair],structures,belmonte_path(),access['surfaces'])
             if scope is not None:
                 for mesh in [*shells[data['kind']].values(),foundation,stair]:
                     vertices=mesh_vertices(mesh,frame)

@@ -203,3 +203,47 @@ assert 'numpy' not in sys.modules and 'bpy' not in sys.modules
     result=subprocess.run([sys.executable,'-S','-c',script,str(world),str(structures.REPO/'platform/studio'),str(folder)],
                           capture_output=True,text=True)
     assert result.returncode==0,result.stderr
+
+
+@pytest.mark.parametrize('defect',['obstacle','hole','steep'])
+def test_actual_walking_link_refuses_the_capsule_corner_gap(defect):
+    from types import SimpleNamespace
+    from gondola_kit_fixture import gondola_modules
+    from gondola.interactions import walking_link
+    from gondola.terrain import Ground
+    from terrain_product import Mesh
+    from terrain_query import Surface
+    triangles=[]
+    xs=[-30,-2.94,-2.82,30];ys=[-30,-2.18,-2.06,30]
+    for i,(a,b) in enumerate(zip(xs,xs[1:])):
+        for j,(c,d) in enumerate(zip(ys,ys[1:])):
+            if i==j==1 and defect=='hole':continue
+            z=2. if i==j==1 and defect=='steep' else 0.
+            triangles.extend([[[a,c,0],[b,c,0],[b,d,z]],[[a,c,0],[b,d,z],[a,d,0]]])
+    def surface(owner,faces):
+        faces=np.asarray(faces,float).reshape(-1,3,3)
+        return Surface(Mesh.from_polygons(faces.reshape(-1,3),np.arange(len(faces)*3).reshape(-1,3)),owner=owner,stage='final')
+    G=Ground(city=surface('city',triangles),mountain=surface('mountain',[]),
+             valley=surface('valley',[]),apron=surface('apron',[]),trail=surface('trail',[]),
+             city_bounds=(-30,-30,30,30),mountain_bounds=(-30,30,30,40),
+             valley_bounds=(-30,50,30,60),apron_bounds=(-30,40,30,60))
+    obstacle=np.array([[[-2.885,-2.125,1],[-2.875,-2.125,1],[-2.88,-2.115,1]]]) if defect=='obstacle' else np.empty((0,3,3))
+    query=StructureClearance({'visual':obstacle,'collision':obstacle},[-30,-30,30,30])
+    frame=(np.array([0.,0.]),np.array([1.,0.]),np.array([0.,1.]),0.)
+    mesh=SimpleNamespace(verts=[[0,0,0],[10,10,0]],faces=[])
+    with gondola_modules('solid',pure=False),pytest.raises(ValueError):
+        walking_link(G,frame,[[-4,-2,0],[-5,-2,0]],[mesh],query,[[20,13],[20,14],[20,15]])
+
+
+def test_explicit_stair_cap_owns_join_contact_but_never_hides_a_rail():
+    from gondola_kit_fixture import gondola_modules
+    from gondola.interactions import walking_floor,walking_headroom
+    floor=np.array([[[0,0,0],[1,0,0],[0,1,0]]])
+    cap=floor+[0,0,.2]
+    with gondola_modules('solid',pure=False):
+        contact=walking_floor(floor,[[0,0],[1,0],[0,1]],list(cap))
+        assert np.allclose(contact[:,:,2],.2)
+        query=StructureClearance({'visual':cap,'collision':cap},[-20,-20,20,20])
+        walking_headroom(query,contact)
+        query=StructureClearance({'visual':cap+[0,0,.3],'collision':cap},[-20,-20,20,20])
+        with pytest.raises(ValueError,match='headroom'):walking_headroom(query,contact)

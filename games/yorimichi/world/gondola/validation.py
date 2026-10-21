@@ -20,6 +20,7 @@ SITE_CODE=tuple(GAME/name for name in (
     'world/terrain_product.py','world/terrain_query.py','world/regions/belmonte/layout.py',
     'world/gondola/interactions.py','world/regions/zeppelin/layout.py','world/regions/village/layout.py',
     'world/regions/zeppelin/build.py','unreal/Source/Yorimichi/ZeppelinService.cpp',
+    'unreal/Source/Yorimichi/ZeppelinNetwork.cpp',
     'world/regions/craterpark/placement.py','world/regions/craterpark/v2/v4_placement.py',
     'world/regions/craterpark/v2/v4_config.py',
 ))

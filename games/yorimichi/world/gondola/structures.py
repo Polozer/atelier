@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parents[4]
 CODE = ('games/yorimichi/world/gondola/structures.py',
         'games/yorimichi/world/gondola/structure_probe.py',
         'games/yorimichi/world/regions/belmonte/source.py',
+        'games/yorimichi/unreal/Scripts/import_belmonte.py',
         'games/yorimichi/world/gondola/__init__.py',
         'platform/studio/atelier/gltf.py','platform/studio/atelier/__init__.py',
         'platform/studio/atelier/paths.py')
