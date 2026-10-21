@@ -146,3 +146,7 @@ gate and landing it already derives from FZeppelinNetworkState or the offline ri
 simulation, timing or authority, and it MUST stay silent without the imported bank or on a dedicated server. Loops
 MUST fade towards state-set targets and stop only once inaudible; one-shots MUST fire once per state transition and
 never for the state first observed (a late joiner). There is one transport bank, with no alternate soundbanks.
+
+@cc [owner:fontanierh,label:correctness] racing-hud-venue
+The race HUD banner MUST be English and MUST appear only inside a venue's grounds near track height.
+The broad runner-rendering proximity radius MUST NOT enable the HUD banner.

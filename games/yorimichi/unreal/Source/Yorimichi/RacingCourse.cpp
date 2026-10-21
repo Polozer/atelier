@@ -95,6 +95,37 @@ FVector FRacingCourse::Centre() const
     return bOval ? Oval.World(Oval.Origin.X, Oval.Origin.Y) : Line.Centre();
 }
 
+bool FRacingCourse::ContainsGrounds(const FVector& Where) const
+{
+    if (!IsValid() || Where.ContainsNaN()) return false;
+    if (bOval)
+    {
+        const FVector Local = (Where - Centre()) / 100.;
+        // The authored platform in world/regions/hippodrome/layout.py (including the grandstand apron).
+        const double Rail = Oval.Radius + Oval.Width * .5;
+        return Local.X >= -Oval.Half - Rail - 7. && Local.X <= Oval.Half + Rail + 30.
+            && Local.Y >= -Rail - 7. && Local.Y <= 82. && Local.Z >= -3. && Local.Z <= 20.;
+    }
+    // Belmonte: inside the closed track or within its 30 m spectator apron. Unlike a bounding box, this
+    // follows the bends and excludes the countryside at the corners. Work in the authored metre frame.
+    const FVector Delta = (Where - Line.OriginCm) / 100.;
+    const FVector2D P(Delta.X, -Delta.Y);
+    bool bInside = false;
+    double Nearest = TNumericLimits<double>::Max(), Ground = 0.;
+    for (int32 I = 0; I < Line.Points.Num(); ++I)
+    {
+        const FVector& A = Line.Points[I];
+        const FVector& B = Line.Points[(I + 1) % Line.Points.Num()];
+        const FVector2D Start(A), End(B), Edge = End - Start;
+        const double T = FMath::Clamp(FVector2D::DotProduct(P - Start, Edge) / FMath::Max(Edge.SizeSquared(), 1e-9), 0., 1.);
+        const double Distance = (P - (Start + Edge * T)).SizeSquared();
+        if (Distance < Nearest) { Nearest = Distance; Ground = FMath::Lerp(A.Z, B.Z, T); }
+        if ((A.Y > P.Y) != (B.Y > P.Y) && P.X < A.X + (P.Y - A.Y) * (B.X - A.X) / (B.Y - A.Y))
+            bInside = !bInside;
+    }
+    return (bInside || Nearest <= 30. * 30.) && Delta.Z >= Ground - 3. && Delta.Z <= Ground + 20.;
+}
+
 bool RacingGround::Pick(TConstArrayView<FHit> Hits, double AuthoredZ, double& OutZ)
 {
     OutZ = AuthoredZ;
