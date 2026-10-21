@@ -182,7 +182,7 @@ def assemble(kit):
     walk = {'name': 'hidamari', 'route': [(dx, hy0 + 1.5, hz + 0.2), (dx, -123.6, None), (gx - 1.0, -123.6, None),
                                          (gx, QF + 0.2, quay), (gx, foot_y + 1.0, quay),
                                          (gx, foot_y - 0.05, quay)] +
-            [(gx, y, None) for y in (land_y1, land_y0)] + [(gx, gal1, kit.SILL), (gx, gal0 + 0.5, kit.SILL), (gx, face, kit.SILL),
+            [(gx, y, quay + (kit.SILL - quay) * 10 / 19) for y in (land_y1, land_y0)] + [(gx, gal1, kit.SILL), (gx, gal0 + 0.5, kit.SILL), (gx, face, kit.SILL),
                                                           (gx, gy, None), (gx, gy - 1.5, None)],
             'gate': [gx, gy, kit.SILL], 'stair': {k: v for k, v in st.items() if k != 'treads'}, 'brow': br,
             'anchor': [gx, face, 0.0], 'frame': 'world'}
