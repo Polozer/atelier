@@ -67,13 +67,21 @@ class Alignment(unittest.TestCase):
         self.assertGreaterEqual(R.volcano_distance(self.line.x, self.line.y).min(), R.VOLCANO_CLEARANCE)
 
     def test_posted_limits(self):
-        self.assertAlmostEqual(R.MAX_SPEED * 3.6, 100.)
-        for radius, kmh in ((250., 50), (300., 50), (450., 70), (620., 80), (760., 90), (2000., 100)):
+        self.assertAlmostEqual(R.MAX_SPEED * 3.6, 110.)
+        for radius, kmh in ((250., 50), (300., 50), (450., 70), (620., 80), (760., 90), (2000., 110)):
             self.assertAlmostEqual(R.curve_limit(radius) * 3.6, kmh)
-        for start, end, v, radius in R.posted_limits(self.line):
+        posted = R.posted_limits(self.line)
+        for start, end, v, radius in posted:
             self.assertLess(start, end)
+            hand = [kmh for key, kmh in R.CURVE_LIMITS.items() if abs(key - start) <= 1.]
+            if hand:                                       # set by hand (Paul's 91 km/h)
+                self.assertAlmostEqual(v * 3.6, hand[0])
+                continue
             self.assertAlmostEqual(v, R.curve_limit(radius))
             self.assertAlmostEqual(round(v * 3.6) % 10, 0)
+        for key in R.CURVE_LIMITS:                         # every hand-set limit names a curve of the line
+            self.assertTrue(any(abs(key - start) <= 1. for start, _, _, _ in posted), key)
+        self.assertEqual([round(v * 3.6) for _, _, v, _ in R.posted_limits(self.line, overrides={})][2], 90)
 
     def test_traction(self):
         self.assertAlmostEqual(R.MASS, 290e3)
@@ -185,7 +193,7 @@ class Profile(unittest.TestCase):
         line, tunnel = self.r['line'], self.r['kind'] == 'tunnel'
         for name, direction in (('run', 1), ('run_down', -1)):
             c, t, v = self.r[name]
-            self.assertLessEqual(v.max(), R.TUNNEL_SPEED + 1e-6)
+            self.assertLessEqual(v.max(), max(R.TUNNEL_SPEED, *(z[2] / 3.6 for z in R.SPEED_ZONES)) + 1e-6)
             self.assertTrue((v > R.MAX_SPEED).any())
             for head in c[v > R.MAX_SPEED + 1e-6]:
                 rear = head - direction * R.TRAIN_LENGTH

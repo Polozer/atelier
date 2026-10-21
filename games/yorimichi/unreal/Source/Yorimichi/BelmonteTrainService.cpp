@@ -32,6 +32,7 @@
 #include "Misc/Parse.h"
 #include "PhysicsEngine/BodySetup.h"
 #include "Dom/JsonObject.h"
+#include "Components/AudioComponent.h"
 
 static TAutoConsoleVariable<float> CVarTrainTimeScale(TEXT("train.TimeScale"), 1.f,
     TEXT("Belmonte train service clock speed (1 = the timetable; dev only, local to this machine)."));
@@ -277,6 +278,39 @@ ABelmonteTrainService* ABelmonteTrainService::Spawn(UWorld* World, const FString
     return Service;
 }
 
+TArray<FTrainEmitter> ABelmonteTrainService::SoundEmitters(const TSharedPtr<FJsonObject>& V)
+{
+    TArray<FTrainEmitter> Out;
+    if (!V.IsValid()) return Out;
+    auto Add = [&Out](ETrainEmitter Kind, const FVector& Local, const FString& Id) { Out.Add({Kind, Local, Id}); };
+    const TSharedPtr<FJsonObject>* Sound = nullptr;
+    if (V->TryGetObjectField(TEXT("sound"), Sound))
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+        if ((*Sound)->TryGetArrayField(TEXT("wheels"), Rows))
+            for (int32 I = 0; I < Rows->Num(); ++I) Add(ETrainEmitter::Wheel, JsonVector((*Rows)[I]->AsArray()), FString::Printf(TEXT("wheel%d"), I));
+        if ((*Sound)->TryGetArrayField(TEXT("chimney"), Rows)) Add(ETrainEmitter::Chimney, JsonVector(*Rows), TEXT("chimney"));
+        if ((*Sound)->TryGetArrayField(TEXT("cylinders"), Rows))
+            for (int32 I = 0; I < Rows->Num(); ++I) Add(ETrainEmitter::Cylinder, JsonVector((*Rows)[I]->AsArray()), FString::Printf(TEXT("cylinder%d"), I));
+    }
+    else
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Bogies = nullptr;
+        if (V->TryGetArrayField(TEXT("bogies"), Bogies))
+            for (int32 I = 0; I < Bogies->Num(); ++I) Add(ETrainEmitter::Wheel, FVector((*Bogies)[I]->AsNumber() * 100., 0., 0.), FString::Printf(TEXT("wheel%d"), I));
+    }
+    const TArray<TSharedPtr<FJsonValue>>* DoorRows = nullptr;
+    if (V->TryGetArrayField(TEXT("doors"), DoorRows))
+        for (const auto& DoorValue : *DoorRows)
+        {
+            const auto D = DoorValue->AsObject();
+            if (D->GetStringField(TEXT("kind")) != TEXT("exterior")) continue;
+            const TArray<TSharedPtr<FJsonValue>>* Box = nullptr;
+            if (D->TryGetArrayField(TEXT("collision"), Box) && Box->Num() >= 6) Add(ETrainEmitter::Door, JsonBox(*Box).GetCenter(), D->GetStringField(TEXT("id")));
+        }
+    return Out;
+}
+
 ABelmonteTrainService* ABelmonteTrainService::Find(const UObject* WorldContext)
 {
     UWorld* World = WorldContext ? WorldContext->GetWorld() : nullptr;
@@ -500,6 +534,7 @@ bool ABelmonteTrainService::Initialize(const FString& Path)
                 }
             const TArray<TSharedPtr<FJsonValue>>* ExteriorRows = nullptr;
             if (V->TryGetArrayField(TEXT("exteriors"), ExteriorRows)) Exteriors += ExteriorRows->Num();
+            Vehicle.Emitters = SoundEmitters(V);
             const TArray<TSharedPtr<FJsonValue>>* BoardingRows = nullptr;
             if (V->TryGetArrayField(TEXT("boarding"), BoardingRows))
                 for (const auto& BoardingValue : *BoardingRows)
@@ -533,6 +568,7 @@ bool ABelmonteTrainService::Initialize(const FString& Path)
     UE_LOG(LogTemp, Display, TEXT("TRAIN SERVICE ready vehicles=%d trains=%d furniture=%d instances=%d leaves=%d stations=%d boarding=%d exteriors=%d missing=%d cycle=%.1f loop=%.0f-%.0f tunnels=%d enclosed=%d"),
         Vehicles.Num(), Line.Trains.Num(), Furniture.Num(), Instances, Leaves, Stations.Num(), Ways, Exteriors, Missing, Line.Cycle, Line.LoopStart, Line.LoopEnd,
         Tunnels, Line.Enclosed.Num());
+    LoadSounds();
     TrainSafe.Init(FVector::ZeroVector, Line.Trains.Num());
     bTrainSafe.Init(false, Line.Trains.Num());
     bInitialized = Vehicles.Num() > 0;
@@ -677,20 +713,45 @@ void ABelmonteTrainService::SitDown(FRider& Rider, int32 VehicleIndex, int32 Sea
     UE_LOG(LogTemp, Display, TEXT("TRAIN RIDER %s sat vehicle=%s seat=%s"), *C->GetName(), *V.Id, *V.Seats[SeatIndex].Id);
 }
 
+void ABelmonteTrainService::FollowTurn(AWandererCharacter* C, double Turn)
+{
+    if (C && C->IsLocallyControlled() && C->Controller && !FMath::IsNearlyZero(Turn))
+        C->Controller->SetControlRotation(C->Controller->GetControlRotation() + FRotator(0., Turn, 0.));
+}
+
+TArray<FVector2D> ABelmonteTrainService::RoomSeats(const FVehicle& V, int32 SeatIndex)
+{
+    TArray<FBox> Rooms; TArray<FVector2D> Seats;
+    for (const FInterior& I : V.Interiors) Rooms.Add(I.Box);
+    for (const FSeat& S : V.Seats) Seats.Add(FVector2D(S.Location));
+    return BelmonteTrainRules::RoomSeats(Rooms, Seats, SeatIndex);
+}
+
 void ABelmonteTrainService::StandUp(FRider& Rider)
 {
     AWandererCharacter* C = Rider.Character.Get();
     if (!C || !Vehicles.IsValidIndex(Rider.Vehicle) || Rider.Seat == INDEX_NONE) return;
     FVehicle& V = Vehicles[Rider.Vehicle];
-    const FSeat& Seat = V.Seats[Rider.Seat];
-    V.SeatTaken[Rider.Seat] = 0;
+    const int32 SeatIndex = Rider.Seat;
+    const FSeat& Seat = V.Seats[SeatIndex];
+    V.SeatTaken[SeatIndex] = 0;
     Rider.Seat = INDEX_NONE;
     C->bTrainDriving = Rider.BoardDoor != INDEX_NONE;
-    // Step forward off the seat onto the floor (1.25 m above the rail) in the coach's current frame on this machine.
-    const FVector Forward = FRotator(0., Seat.Yaw, 0.).Vector();
-    const FVector Local(Seat.Location.X + Forward.X * 55., Seat.Location.Y + Forward.Y * 55., 125.);
+    // Onto the aisle beside the seat, on the floor (1.25 m above the rail), in the coach's current frame on this machine:
+    // a step off the seat's front would leave the rider wedged between the seat and a table (BelmonteTrainRules::
+    // StandUpPoint). The aisle comes from the seats of the seat's room; the standing capsule must be clear of the coach.
+    const FTransform Frame = V.Body->GetComponentTransform();
     const float Half = C->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-    C->SetActorLocation(V.Body->GetComponentTransform().TransformPosition(Local) + FVector(0, 0, Half + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+    const float Radius = C->GetCapsuleComponent()->GetScaledCapsuleRadius();
+    constexpr double Floor = 125.;
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(TrainStandUp), false, C);
+    FCollisionObjectQueryParams Objects; Objects.AddObjectTypesToQuery(ECC_Vehicle); Objects.AddObjectTypesToQuery(ECC_Pawn);
+    const FCollisionShape Capsule = FCollisionShape::MakeCapsule(Radius - 1.f, Half - 1.f);
+    auto Standing = [&](const FVector2D& P) { return Frame.TransformPosition(FVector(P.X, P.Y, Floor + Half + 2.)); };
+    const FVector2D Point = BelmonteTrainRules::StandUpPoint(FVector2D(Seat.Location), FVector2D(FRotator(0., Seat.Yaw, 0.).Vector()),
+        RoomSeats(V, SeatIndex),
+        [&](const FVector2D& P) { return GetWorld()->OverlapAnyTestByObjectType(Standing(P), Frame.GetRotation(), Objects, Capsule, Query); });
+    C->SetActorLocation(Standing(Point), false, nullptr, ETeleportType::TeleportPhysics);
     C->SetActorEnableCollision(true);
     auto* M = C->GetCharacterMovement();
     M->SetMovementMode(MOVE_Walking); M->bForceNextFloorCheck = true;
@@ -698,7 +759,7 @@ void ABelmonteTrainService::StandUp(FRider& Rider)
     if (JapanNetwork::IsOnline(GetWorld()))
         if (auto* JM = Cast<UJapanCharacterMovement>(M)) JM->ResetActivityPrediction();
     C->SetAction(NAME_None, false, .2f);
-    UE_LOG(LogTemp, Display, TEXT("TRAIN RIDER %s stood vehicle=%s seat=%s"), *C->GetName(), *V.Id, *Seat.Id);
+    UE_LOG(LogTemp, Display, TEXT("TRAIN RIDER %s stood vehicle=%s seat=%s at=%.0f,%.0f"), *C->GetName(), *V.Id, *Seat.Id, Point.X, Point.Y);
     if (HasAuthority()) PublishNetworkState();
 }
 
@@ -1132,6 +1193,8 @@ void ABelmonteTrainService::UpdateRiders(float Dt)
             C->SetActorLocationAndRotation(T.TransformPosition(Seat.Location) + FVector(0, 0, Half - 12.f),
                 FRotator(0., T.Rotator().Yaw + Seat.Yaw, 0.), false, nullptr, ETeleportType::TeleportPhysics);
             Rider.SeatedAt = C->GetActorLocation();
+            // The view turns with the coach: the passenger keeps looking where they chose in it (CarriageTurn).
+            if (V.bMoved) FollowTurn(C, BelmonteTrainRules::CarriageTurn(V.Previous.Rotator().Yaw, T.Rotator().Yaw));
             C->GetCharacterMovement()->Velocity = FVector::ZeroVector;
             Rider.Seated += Dt;
             if (Rider.Seated > 1.1f) C->SetAction(TEXT("SitIdle"), true, .2f);
@@ -1216,10 +1279,9 @@ void ABelmonteTrainService::UpdateRiders(float Dt)
                 {
                     const FTransform Now = V.Body->GetComponentTransform();
                     const FVector At = Now.TransformPosition(V.Previous.InverseTransformPosition(C->GetActorLocation()));
-                    const double Turn = FRotator::NormalizeAxis(Now.Rotator().Yaw - V.Previous.Rotator().Yaw);
+                    const double Turn = BelmonteTrainRules::CarriageTurn(V.Previous.Rotator().Yaw, Now.Rotator().Yaw);
                     C->SetActorLocationAndRotation(At, C->GetActorRotation() + FRotator(0., Turn, 0.), false, nullptr, ETeleportType::TeleportPhysics);
-                    if (C->IsLocallyControlled() && C->Controller && !FMath::IsNearlyZero(Turn))
-                        C->Controller->SetControlRotation(C->Controller->GetControlRotation() + FRotator(0., Turn, 0.));
+                    FollowTurn(C, Turn);
                 }
                 if (C->GetCharacterMovement()->IsMovingOnGround()) C->SetBase(V.Body);
             }
@@ -1558,6 +1620,7 @@ void ABelmonteTrainService::Tick(float DeltaSeconds)
     }
     const double Time = ServiceTime();
     PlaceVehicles(Time, false);
+    UpdateSounds(Time, DeltaSeconds);
     UpdateDoors(Time, DeltaSeconds);
     UpdateRiders(DeltaSeconds);
     if (GetNetMode() != NM_Client && GetWorld()->GetTimeSeconds() >= NextSafeRecord) { NextSafeRecord = GetWorld()->GetTimeSeconds() + 1.; RecordTrainSafe(Time); }
@@ -1658,7 +1721,12 @@ FString ABelmonteTrainService::StateJson() const
     FString Base = Player && Player->GetMovementBase() ? Player->GetMovementBase()->GetName() : FString();
     // The player in their vehicle's frame (cm, same frame as the rest of this state): drift checks need both at once.
     const FVector Local = Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Body->GetComponentTransform().InverseTransformPosition(At) : FVector::ZeroVector;
-    return FString::Printf(TEXT("{\"time\":%.2f,\"scale\":%.2f,\"trains\":[%s],\"boards\":[%s],\"player\":[%.1f,%.1f,%.1f],\"aboard\":%s,\"vehicle\":\"%s\",\"train\":%d,\"seat\":\"%s\",\"nosprint\":%s,\"base\":\"%s\",\"mode\":%d,\"action\":\"%s\",\"boarding\":%s,\"camera\":%.2f,\"arm\":%.0f,\"yaw\":%.1f,\"local\":[%.1f,%.1f,%.1f],\"admitted\":%s,\"first_person\":%s,\"on_vehicle\":%s}"),
+    // The sound mix of the rider's train (else the first): what this player hears.
+    const int32 MixTrain = Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Train : 0;
+    const BelmonteTrainRules::FTrainSoundMix Mix = LastMixes.IsValidIndex(MixTrain) ? LastMixes[MixTrain] : BelmonteTrainRules::FTrainSoundMix();
+    FVector Ear = FVector::ZeroVector, EarFront, EarRight;
+    if (PC) PC->GetAudioListenerPosition(Ear, EarFront, EarRight);
+    return FString::Printf(TEXT("{\"time\":%.2f,\"scale\":%.2f,\"trains\":[%s],\"boards\":[%s],\"player\":[%.1f,%.1f,%.1f],\"aboard\":%s,\"vehicle\":\"%s\",\"train\":%d,\"seat\":\"%s\",\"nosprint\":%s,\"base\":\"%s\",\"mode\":%d,\"action\":\"%s\",\"boarding\":%s,\"camera\":%.2f,\"arm\":%.0f,\"yaw\":%.1f,\"local\":[%.1f,%.1f,%.1f],\"admitted\":%s,\"first_person\":%s,\"on_vehicle\":%s,\"view_yaw\":%.2f,\"coach_yaw\":%.2f,\"sounds\":{\"loops\":%d,\"idle\":%.2f,\"start\":%.2f,\"effort\":%.2f,\"roll\":%.2f,\"roll_pitch\":%.2f,\"chuff_rate\":%.2f,\"brakes\":%d,\"departs\":%d,\"clacks\":%d,\"doors\":%d,\"blowoffs\":%d,\"passes\":%d,\"listener_vehicle\":\"%s\",\"voices\":[%s]}}"),
         Time, ClockScale(), *Trains, *BoardText, At.X, At.Y, At.Z, Rider && Rider->bAboard ? TEXT("true") : TEXT("false"),
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? *Vehicles[Rider->Vehicle].Id : TEXT(""),
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Train : -1,
@@ -1669,7 +1737,12 @@ FString ABelmonteTrainService::StateJson() const
         Player && Player->CameraArm ? Player->CameraArm->TargetArmLength : 0.f, Player ? Player->GetActorRotation().Yaw : 0.f,
         Local.X, Local.Y, Local.Z, Rider && Rider->Admission.bAdmitted ? TEXT("true") : TEXT("false"),
         Player && Player->IsTrainFirstPerson() ? TEXT("true") : TEXT("false"),
-        OnAnyVehicle(Player, JapanNetwork::IsOnline(GetWorld())) ? TEXT("true") : TEXT("false"));
+        OnAnyVehicle(Player, JapanNetwork::IsOnline(GetWorld())) ? TEXT("true") : TEXT("false"),
+        PC ? PC->GetControlRotation().Yaw : 0.f,
+        Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Body->GetComponentRotation().Yaw : 0.,
+        RollLoops.Num() + IdleLoops.Num() + StartSounds.Num() + EffortLoops.Num(), Mix.Idle, Mix.Start, Mix.Effort, Mix.Roll, Mix.RollPitch,
+        Mix.ChuffRate, SoundEvents[0], SoundEvents[1], SoundEvents[2], SoundEvents[3], SoundEvents[4], SoundEvents[5],
+        Vehicles.IsValidIndex(ListenerVehicle) ? *Vehicles[ListenerVehicle].Id : TEXT(""), *SoundVoicesJson(Ear));
 }
 
 FVector ABelmonteTrainService::PointOn(int32 Train, const FString& Vehicle, const FString& What) const

@@ -11,6 +11,9 @@ class UStaticMeshComponent;
 class UInstancedStaticMeshComponent;
 class UBoxComponent;
 class UTextRenderComponent;
+class UAudioComponent;
+class USoundWave;
+class USoundAttenuation;
 class AWandererCharacter;
 
 /** A track's centreline: chainage (metres) and rail-top points (Unreal cm), in chainage order. */
@@ -38,6 +41,14 @@ struct YORIMICHI_API FBelmonteTrainStop
 {
     int32 Train = 0;
     double Arrive = 0., Depart = 0.;
+};
+
+/** A train's stand anywhere on the line (a terminus, the passing loop), from its samples: the service times (0 .. Cycle)
+ *  its deceleration into the stand begins, it stops and it moves off again. */
+struct YORIMICHI_API FBelmonteTrainStand
+{
+    int32 Train = 0;
+    double BrakeStart = 0., Arrive = 0., Depart = 0.;
 };
 
 /** An arrival on a station board: the train and the service seconds until it arrives (0 while it stands there). */
@@ -84,6 +95,8 @@ struct YORIMICHI_API FBelmonteTrainLine
     double NextCrossing(double From, double* Where = nullptr) const;
     /** The first service time after From when any train's centre passes Chainage, or -1. */
     double NextPassing(double From, double Chainage, int32* Which = nullptr) const;
+    /** Every stand of a train over one cycle lasting at least MinStand s (FBelmonteTrainStand), by arrival time. */
+    TArray<FBelmonteTrainStand> Stands(int32 Train, double MinStand = 2.) const;
     /** Every train's stands at the terminus at Chainage over one cycle (from the samples), by arrival time. */
     TArray<FBelmonteTrainStop> Stops(double Chainage) const;
     /** The next Count arrivals at a terminus with these stops at a service time: trains standing there first, then the
@@ -144,6 +157,31 @@ struct FBelmonteTrainNetworkState
     UPROPERTY() TArray<FBelmonteTrainPassenger> Passengers;
 };
 
+/** Where a vehicle's sounds come from (service.json "sound", from the train's authored geometry): its wheels (the roll
+ *  and the rail-joint clacks), the locomotive's chimney (idle, departure, beats, whistle) and cylinders (steam blasts),
+ *  and each exterior door (closing). Local: vehicle frame, cm. */
+enum class ETrainEmitter : uint8 { Wheel, Chimney, Cylinder, Door };
+struct YORIMICHI_API FTrainEmitter
+{
+    ETrainEmitter Kind = ETrainEmitter::Wheel;
+    FVector Local = FVector::ZeroVector;
+    FString Id;
+};
+
+/** A sound voice placed on the train, for checks and the live state: the component, the vehicle it hangs on and where. */
+struct YORIMICHI_API FTrainSoundVoice
+{
+    FString Name, Vehicle;
+    int32 Train = 0;
+    ETrainEmitter Kind = ETrainEmitter::Wheel;
+    const USceneComponent* Parent = nullptr;
+    const USceneComponent* Body = nullptr;
+    FVector Local = FVector::ZeroVector;
+    bool bPlaying = false;
+    float Volume = 0.f, Attenuated = 0.f, LowPass = 0.f;
+    double Distance = 0.;
+};
+
 UCLASS()
 class YORIMICHI_API ABelmonteTrainService : public AActor
 {
@@ -154,6 +192,13 @@ public:
     static bool IsEnabled();
     static ABelmonteTrainService* Spawn(UWorld* World, const FString& Path);
     static ABelmonteTrainService* Find(const UObject* WorldContext);
+    /** A service.json vehicle's sound emitters: its "sound" record's wheels, chimney and cylinders, and the centre of
+     *  each exterior door's collision box. Without a "sound" record (older data), its two bogies on the rail. */
+    static TArray<FTrainEmitter> SoundEmitters(const TSharedPtr<FJsonObject>& Vehicle);
+    /** Every sound voice on the trains, with its distance and attenuated volume at the listener (Ear, world cm). */
+    TArray<FTrainSoundVoice> SoundVoices(const FVector& Ear) const;
+    /** The same as JSON (the playing wheels and the engine's voices, nearest first), for the live state. */
+    FString SoundVoicesJson(const FVector& Ear) const;
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
@@ -221,6 +266,7 @@ private:
         TArray<FSeat> Seats;
         TArray<FInterior> Interiors;
         TArray<int32> SeatTaken;
+        TArray<FTrainEmitter> Emitters;
     };
     struct FRider
     {
@@ -294,6 +340,10 @@ private:
     /** Inside a coach, the short train camera; it blends back to the rider's own outside. */
     void UpdateCamera(FRider& Rider, bool bInside, float Dt);
     void StandUp(FRider& Rider);
+    /** The locally controlled rider's view turns with the coach by Turn degrees of yaw (seated, or carried off its floor). */
+    static void FollowTurn(AWandererCharacter* C, double Turn);
+    /** The seats (vehicle cm, x/y) of the room holding a vehicle's seat: where its aisle is found (StandUp). */
+    static TArray<FVector2D> RoomSeats(const FVehicle& V, int32 SeatIndex);
     /** The vehicle whose interior room (in last frame's vehicle frame, grown by Margin cm) holds Feet, or INDEX_NONE. */
     int32 InteriorAt(const FVector& Feet, const FVector& Margin, bool& bNoSprint, bool& bCamera) const;
     /** Host or offline: puts a player riding inside a coach without the ticket back on safe ground, off any vehicle
@@ -341,6 +391,45 @@ private:
     void PublishNetworkState();
     void CancelLocal(FRider& Rider);
     bool AnyRiderAboard() const;
+    /** The train's sounds (BelmonteTrainSound.cpp; the transport bank's train_* cues, assets/audio/transport/make.py):
+     *  every machine plays them from the shared service clock, as it places the vehicles, so a host and its guests hear the same train without replicating
+     *  anything. A roll loop on each vehicle follows its train's speed; the locomotive's idle (standing), its start (the
+     *  departure's build-up, played from the departure) and effort (exhaust beats at the driving wheels' rate) follow it
+     *  too; from the timetable's stands, each arrival's brakes and blow-off, the doors closing before each departure and
+     *  the whistle at it play once; clacks at each wheel crossing a joint, a pass-by for a listener by the line. */
+    void LoadSounds();
+    void UpdateSounds(double Time, float Dt);
+    /** Per wheel emitter (RollWheels: its vehicle and emitter): the roll loop; per train: the locomotive's idle loop,
+     *  start one-shot and effort loop at its chimney. */
+    UPROPERTY() TArray<TObjectPtr<UAudioComponent>> RollLoops;
+    TArray<FIntPoint> RollWheels;
+    /** Per train: the vehicle of its locomotive (its first vehicle without one). */
+    TArray<int32> EngineVehicles;
+    /** The vehicle whose interior holds the listener (INDEX_NONE outside): sounds from elsewhere are muffled. */
+    int32 ListenerVehicle = INDEX_NONE;
+    UPROPERTY() TArray<TObjectPtr<UAudioComponent>> IdleLoops;
+    UPROPERTY() TArray<TObjectPtr<UAudioComponent>> StartSounds;
+    UPROPERTY() TArray<TObjectPtr<UAudioComponent>> EffortLoops;
+    /** The joint clacks (clack_01, _02...), one picked at random per crossing. */
+    UPROPERTY() TArray<TObjectPtr<USoundWave>> ClackSounds;
+    UPROPERTY() TObjectPtr<USoundWave> PassSound;
+    UPROPERTY() TObjectPtr<USoundWave> BrakeSound;
+    UPROPERTY() TObjectPtr<USoundWave> DepartSound;
+    UPROPERTY() TObjectPtr<USoundWave> DoorsSound;
+    /** The blow-off at each stop. */
+    UPROPERTY() TObjectPtr<USoundWave> HissSound;
+    UPROPERTY() TObjectPtr<USoundAttenuation> RollAttenuation;
+    UPROPERTY() TObjectPtr<USoundAttenuation> SignalAttenuation;
+    /** Per train: its stands, where the brake and departure cues play. */
+    TArray<TArray<FBelmonteTrainStand>> TrainStands;
+    /** Per train: when this listener last heard it pass (world s): one pass-by a passage. */
+    TArray<double> LastPass;
+    /** Per wheel emitter: its chainage last frame (a clack at each rail joint it passes). */
+    TArray<double> LastWheels;
+    double LastSoundTime = -1.;
+    /** Brake cues, departure whistles, clacks, door closings, blow-offs and pass-bys due on this machine (TrainState). */
+    int32 SoundEvents[6] = {0, 0, 0, 0, 0, 0};
+    TArray<BelmonteTrainRules::FTrainSoundMix> LastMixes;    // per train, for the live state
     bool bInitialized = false, bInitFailed = false;
     double LastNetworkPublication = -1.;
     double DevOffset = 0.;

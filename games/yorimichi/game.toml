@@ -9,8 +9,8 @@ build = "build.py"                      # the build recipe: `atelier build yorim
 
 [fetch]
 # Audio masters stay in the ignored Atelier cache. Model sources are committed in assets/.
-scripts = ["assets/audio/footsteps/fetch.py", "assets/audio/combat/fetch.py"]
-needs = ["sonniss/footsteps", "sonniss/combat"]
+scripts = ["assets/audio/footsteps/fetch.py", "assets/audio/combat/fetch.py", "assets/audio/transport/fetch.py"]
+needs = ["sonniss/footsteps", "sonniss/combat", "sonniss/transport"]
 
 [play.play]
 # The default: measured desktop tuning at native 1440 in a window; saved renderer/tree choices are honored.
