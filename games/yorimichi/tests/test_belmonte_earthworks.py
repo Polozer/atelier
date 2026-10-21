@@ -99,10 +99,21 @@ class Design(unittest.TestCase):
                     self.assertTrue(h >= top - 1e-6 or h <= 100. + C.PORTAL_HEIGHT[0], (s, u, h))
                     # layered under the shown ground's hood, never on it
                     self.assertLessEqual(h, 100. + E.HOOD - E.HIDDEN_CLEARANCE + 1e-6)
-        # Away from the tunnel the hidden ground is not moved.
-        far = (np.abs(v[:, 0] - 195.) > 70.) | (np.abs(v[:, 1]) > 30.)
+        # Along the open line it stays under the cutting (never over the formation), never raised; away from the
+        # line and the tunnel it is not moved.
+        for s in np.arange(102., 140., 3.):
+            for u in (-6., -2.6, 0., 2.6, 6.):
+                h = float(ground.height(np.array([s]), np.array([u]))[0])
+                up, _, _ = E.design(np.array([s]), np.array([u]), self.ln)
+                self.assertLessEqual(h, float(up[0]) - E.HIDDEN_CLEARANCE + .05, (s, u))
+        moved = out[:len(v), 2] - v[:, 2]
+        _, _, info = E.design(v[:, 0], v[:, 1], self.ln)
+        self.assertTrue(np.all(moved[info['tunnel'] <= 0] <= 1e-9))
+        far = ~np.isfinite(self.ln.project(v[:, 0], v[:, 1])[0])
         np.testing.assert_allclose(out[:len(v)][far, 2], v[far, 2])
-        self.assertEqual(E.bore_lift(np.array([60.]), np.array([0.]), np.array([101.]), self.ln).tolist(), [101.])
+        self.assertEqual(E.hidden_ground(np.array([60.]), np.array([0.]), np.array([95.]), self.ln).tolist(), [95.])
+        self.assertLess(float(E.hidden_ground(np.array([60.]), np.array([0.]), np.array([101.]), self.ln)[0]),
+                        100. - E.FORMATION_DROP - E.HIDDEN_CLEARANCE + 1e-6)
 
     def test_committed_line_is_loaded_unconditionally(self):
         E.line.cache_clear()
@@ -197,6 +208,77 @@ class Built(unittest.TestCase):
         off = np.abs(z[on] - (self.rail[inside][on] - E.FORMATION_DROP))
         self.assertLess(float(off.max()), TOLERANCE)
 
+
+
+SUPPORT_STEP = 2.               # metres between the whole-line support checks
+BED = (-2.6, -2.45, -1.7, 0., 1.7, 2.45, 2.6)    # across the ballast bed: skirts, toes, shoulders, centre (track.py)
+UNDER = 1.5 + .1                # the ground may lie this far under the rail top, no further: the skirts' foot
+OVER = .70 - .1                 # ... and must stay this far under it inside the toes: under the ballast
+
+
+def built_ground():
+    """Every built terrain the line crosses, as one top surface: the far hills, Hidamari, the foothills, Belmonte's
+    tiles, apron and country, and the track's own banks. None when they are not all built."""
+    from terrain_product import load
+    from belmonte import layout as BM, source
+    from train import track as T
+    out = yori.OUT
+    owners = ('FarHills', 'HD_Terrain', 'HD_NorthMountains')
+    glb = out / 'belmonte' / 'glb'
+    names = ['SM_BM_NorthApron', 'SM_BM_NorthCountry']
+    if not all((out / 'terrain' / o / 'final.npz').exists() for o in owners) or not glb.is_dir() or \
+            not all((glb / f'{n}.glb').exists() for n in names) or not T.ROUTE.exists():
+        return None
+    faces = []
+    for owner in owners:
+        m = load(out / 'terrain' / owner / 'final.npz', owner=owner, stage='final', city=True)
+        faces.append(m.vertices[m.triangles()])
+    tiles = sorted(p for p in glb.glob('SM_BM_BT_Terrain_*.glb') if 'Collision' not in p.name)
+    faces.append(np.concatenate([source.triangles(p) for p in tiles + [glb / f'{n}.glb' for n in names]]) + BM.ORIGIN)
+    meshes, doc = T.layout()
+    for row in doc['banks']:
+        mesh = meshes[row['name']][0]
+        v = np.asarray(mesh.verts) + row['origin']
+        faces.append(np.asarray([(v[f[0]], v[f[k]], v[f[k + 1]]) for f in mesh.faces for k in range(1, len(f) - 1)]))
+    return source.Surface(np.concatenate(faces))
+
+
+@unittest.skipUnless(C.ROUTE.exists() and (yori.OUT / 'terrain' / 'FarHills' / 'final.npz').exists(),
+                     'route or terrain products not built')
+class Supported(unittest.TestCase):
+    def test_the_track_neither_floats_nor_sinks_anywhere(self):
+        """Every SUPPORT_STEP metres of open line (not in a tunnel or on a viaduct, outside the portals' holes), the
+        ground the game shows (the top of every built terrain and bank) carries the ballast bed: no void under its
+        skirts or centre (UNDER) and nothing standing over the formation inside its toes (OVER), whichever terrain
+        owns it there; hidden ground (the far hills under the foothills) included."""
+        ground = built_ground()
+        if ground is None:
+            self.skipTest('terrain products not all built')
+        E.line.cache_clear()
+        ln = E.line()
+        s = np.arange(0., ln.length, SUPPORT_STEP)
+        tun, _ = ln.inside(s, ln.tunnels)
+        via, _ = ln.inside(s, ln.viaducts)
+        open_ = (tun < -E.HOLE[0] / 2) & (via < 0.)       # clear of the portals' holes (HOLE) and off the viaducts
+        s = s[open_]
+        u = np.array(BED)
+        x0, y0 = np.interp(s, ln.s, ln.xy[:, 0]), np.interp(s, ln.s, ln.xy[:, 1])
+        rail = np.interp(s, ln.s, ln.rail)
+        tx, ty = ln.tangent(s)
+        z = ground.height(x0[:, None] - ty[:, None] * u, y0[:, None] + tx[:, None] * u) - rail[:, None]
+        inside = np.abs(u) <= 2.45
+        low = ~(z >= -UNDER)                                # NaN (no ground at all) counts as a void
+        high = (z > -OVER) & inside[None]
+
+        def stretches(mask):
+            rows = np.flatnonzero(mask.any(1))
+            if not len(rows):
+                return []
+            cuts = np.flatnonzero(np.diff(s[rows]) > SUPPORT_STEP * 1.5)
+            return [(float(s[rows[a]]), float(s[rows[b]]), float(np.nanmax(np.abs(z[rows[a]:rows[b] + 1]))))
+                    for a, b in zip(np.r_[0, cuts + 1], np.r_[cuts, len(rows) - 1])]
+        self.assertEqual(stretches(low), [], 'the track floats (chainage from, to, worst metres)')
+        self.assertEqual(stretches(high), [], 'ground stands over the formation (chainage from, to, worst metres)')
 
 if __name__ == '__main__':
     unittest.main()
