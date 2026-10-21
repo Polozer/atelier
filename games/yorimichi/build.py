@@ -1284,6 +1284,10 @@ def music_import_present(out):
 # The Sonniss combat masters assets/audio/transport/make.py layers (its METAL, THUMP, DRUM and STICK).
 TRANSPORT_MASTERS = ('smartsound_sword_hit_metal_02.wav', 'gamemaster_body_thump_02.wav', 'baxter_hit_big_drum_03.wav',
                      'audioville_stick_hit_13_wild.wav')
+# The train's Sonniss recordings it cuts (its TRAIN_SPEC), fetched by assets/audio/transport/fetch.py.
+TRANSPORT_RECORDINGS = ('idle_steam_blast_distant.wav', 'dep_steam_freerun.wav', 'roll_steam_ride.wav', 'roll_ext_rails.wav',
+                        'arr_steam_loco.wav', 'sig_steam_whistle.wav', 'sig_door_close.wav', 'arr_steam_hiss.wav',
+                        'pass_steam_tunnel.wav')
 
 
 def sound_effect_steps(ctx):
@@ -1311,13 +1315,16 @@ def sound_effect_steps(ctx):
              products=[Product('audio.skate', (out / 'audio' / 'skate',))], about='board loops and cues'),
         Step('audio.bike', [Python(AUDIO / 'bike' / 'make.py')], inputs=[AUDIO / 'bike', AUDIO / 'skate' / 'make.py', paths.cache_dir('sonniss', 'combat', create=False)],
              outputs=[out / 'audio' / 'bike' / 'manifest.json'], about="the bike's tyres, freewheel, chain, wind, bell and knocks"),
-        # Only what make.py reads: itself, the skate and bike DSP helpers, the combat fetch list (for the manifest's
-        # md5s) and the four combat masters it layers (TRANSPORT_MASTERS).
+        # Only what make.py reads: itself, the skate and bike DSP helpers, the combat and transport fetch lists (for the
+        # manifest's md5s), the four combat masters it layers (TRANSPORT_MASTERS) and the train's recordings
+        # (TRANSPORT_RECORDINGS).
         Step('audio.transport', [Python(AUDIO / 'transport' / 'make.py')],
              inputs=[AUDIO / 'transport' / 'make.py', AUDIO / 'skate' / 'make.py', AUDIO / 'bike' / 'make.py', AUDIO / 'combat' / 'fetch.py',
-                     *(paths.cache_dir('sonniss', 'combat', create=False) / name for name in TRANSPORT_MASTERS)],
+                     AUDIO / 'transport' / 'fetch.py',
+                     *(paths.cache_dir('sonniss', 'combat', create=False) / name for name in TRANSPORT_MASTERS),
+                     *(paths.cache_dir('sonniss', 'transport', create=False) / name for name in TRANSPORT_RECORDINGS)],
              outputs=[out / 'audio' / 'transport' / 'manifest.json'],
-             about="the ferry's, gondolas' and zeppelin's engines, wash, wind, horns, bells, gates and doors"),
+             about="the ferry's, gondolas', zeppelin's and Belmonte train's engines, wash, wind, rails, horns, bells, gates and doors"),
         Step('audio.kart', [Python(AUDIO / 'kart' / 'make.py')], inputs=[AUDIO / 'kart', AUDIO / 'skate' / 'make.py'],
              outputs=[out / 'audio' / 'kart' / 'manifest.json'], about="the kart's engine, tyres, skid, wind, impacts and suspension knocks"),
         # The Suno library is optional: naming `audio.music` or `unreal.music` selects
