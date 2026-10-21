@@ -18,7 +18,7 @@ GROUND = re.compile(r'SM_BM_(BT_Terrain_|BC_Pave_|BC_Piazza|BHip_(Course|Arenas|
 SPOTS = {
     'meadow west of the town': ((-375., 157.), 'Grass'),
     'meadow by the western estate': ((-721., 525.), 'Grass'),
-    'country road to the eastern estate': ((459., 43.), 'Road'),
+    'country road north of the town': ((73., 237.), 'Road'),
     'road up to the northern estates': ((235., 637.), 'Road'),
     'cobbled street in town': ((41., 133.), 'Stone'),
     'limestone of the river gorge': ((-339., -73.), 'Rock'),
