@@ -53,7 +53,7 @@ def companionway_route(deck, start):
     foot = stair['foot_x']-stair['tread']
     aft = foot-.8
     side = -1 if start[1] < 0 else 1
-    corridor = side*4.5
+    corridor = side*4.4  # Audited aft walk: clears the canopy posts as well as the house portals.
     route = [list(start), [start[0], corridor, height(deck['main_deck'], start[0])],
              [aft, corridor, height(deck['main_deck'], aft)],
              [aft, y, height(deck['main_deck'], aft)], [foot, y, stair['foot_z']]]
