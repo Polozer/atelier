@@ -113,7 +113,7 @@ def build():
             ground = L.ground_at(BEACH + unreal.Vector(index * 2000.0, 0.0, 0.0))
             L.teleport_player(ground, 0.0)
 
-        def summon(index=index):
+        def summon(index=index, rider=rider):
             live.press('car')
             if 'driving=1' not in L.car_state():
                 # A crest or a slope can refuse the car; try a second flat patch before recording a failure.
@@ -167,6 +167,10 @@ def build():
         later(0.3, lambda rider=rider: hand_shot('left', rider, 'steer'))
         later(0.3, lambda rider=rider: hand_shot('right', rider, 'steer'))
         later(0.2, lambda: L.input_key('D', 'release', 0.0))
+        later(0.2, lambda: L.input_key('A', 'press', 1.0))
+        later(0.4, lambda rider=rider: hand_shot('left', rider, 'steer_other'))
+        later(0.3, lambda rider=rider: hand_shot('right', rider, 'steer_other'))
+        later(0.2, lambda: L.input_key('A', 'release', 0.0))
         later(0.5, lambda rider=rider: hand_shot('left', rider, 'neutral'))
         later(0.3, lambda rider=rider: hand_shot('right', rider, 'neutral'))
         later(0.2, restore)
@@ -177,14 +181,19 @@ def build():
 results = []
 build()
 json_path = os.path.join(OUT, 'kart_fit.json')
+json.dump({'ok': False, 'status': 'running', 'riders': []}, open(json_path, 'w'), indent=1)
 clock = {'t': 0.0}
+finished = {'value': False}
 
 
 def tick(dt):
     try:
+        if finished['value']:
+            return
         if not queue:
+            finished['value'] = True
             CLEAN.cleanup(live, MV.restore_player_camera)
-            json.dump(results, open(json_path, 'w'), indent=1)
+            json.dump({'ok': True, 'status': 'passed', 'riders': results}, open(json_path, 'w'), indent=1)
             print('kart fit done: %d riders' % len(results))
             unreal.log('KART FIT COMPLETE %d' % len(results))
             live.stop('kart_fit')
@@ -194,7 +203,10 @@ def tick(dt):
             fn = queue.pop(0)[1]
             fn()
     except Exception as error:
+        finished['value'] = True
         CLEAN.cleanup(live, MV.restore_player_camera)
+        json.dump({'ok': False, 'status': 'failed', 'riders': results, 'errors': [repr(error)]},
+                  open(json_path, 'w'), indent=1)
         unreal.log_error('KART FIT: %s' % error)
         queue.clear()
         live.stop('kart_fit')

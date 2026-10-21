@@ -79,12 +79,16 @@ def run(dt):
         if t > END + .4:
             CLEAN.cleanup(live, unreal.MegaParkValidation.restore_player_camera)
             json.dump({'take': TAKE, 'fps': 30, 'frames': st['frames'], 'car': L.car_state(),
-                       'loops': L.car_loops(), 'errors': st['errors']}, open(os.path.join(OUT, 'done.json'), 'w'), indent=1)
+                       'loops': L.car_loops(), 'errors': st['errors'], 'ok': not st['errors'],
+                       'status': 'passed' if not st['errors'] else 'failed'},
+                      open(os.path.join(OUT, 'done.json'), 'w'), indent=1)
             unreal.log('KART FILM COMPLETE %d frames' % st['film'])
             live.stop('kart_film')
     except Exception as error:
         st['errors'].append(repr(error))
         CLEAN.cleanup(live, unreal.MegaParkValidation.restore_player_camera)
+        json.dump({'take': TAKE, 'ok': False, 'status': 'failed', 'errors': st['errors']},
+                  open(os.path.join(OUT, 'done.json'), 'w'), indent=1)
         unreal.log_error('KART FILM: %s' % error)
         live.stop('kart_film')
 

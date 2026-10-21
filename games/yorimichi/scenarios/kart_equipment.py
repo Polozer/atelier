@@ -19,6 +19,10 @@ _spec = importlib.util.spec_from_file_location('kart_cleanup', os.path.join(live
 CLEAN = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(CLEAN)
 
+REPORT = os.path.join(OUT, 'kart_equipment.json')
+# A previous success must not survive a failed run: the receipt is invalid while this one is armed.
+json.dump({'ok': False, 'status': 'running', 'checks': [], 'errors': []}, open(REPORT, 'w'), indent=1)
+
 
 def glider_visible():
     world = unreal.LiveLibrary.game_world()
@@ -120,13 +124,16 @@ def run(dt):
             st['phase'] = 13
             check('glider still opens after driving', glider_visible() is True, 'visible=%r' % glider_visible())
             CLEAN.cleanup(live, unreal.MegaParkValidation.restore_player_camera)
-            json.dump({'ok': not st['errors'], 'checks': st['checks'], 'shots': st['shots'],
-                       'errors': st['errors']}, open(os.path.join(OUT, 'kart_equipment.json'), 'w'), indent=1)
+            json.dump({'ok': not st['errors'], 'status': 'passed' if not st['errors'] else 'failed',
+                       'checks': st['checks'], 'shots': st['shots'], 'errors': st['errors']},
+                      open(REPORT, 'w'), indent=1)
             unreal.log('KART EQUIPMENT %s' % ('PASS' if not st['errors'] else 'FAIL: ' + '; '.join(st['errors'])))
             live.stop('kart_equipment')
     except Exception as error:
         st['errors'].append(repr(error))
         CLEAN.cleanup(live, unreal.MegaParkValidation.restore_player_camera)
+        json.dump({'ok': False, 'status': 'failed', 'checks': st['checks'], 'errors': st['errors']},
+                  open(REPORT, 'w'), indent=1)
         unreal.log_error('KART EQUIPMENT: %s' % error)
         live.stop('kart_equipment')
 

@@ -20,6 +20,9 @@ _spec = importlib.util.spec_from_file_location('kart_cleanup', os.path.join(live
 CLEAN = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(CLEAN)
 
+REPORT = os.path.join(OUT, 'kart_uneven.json')
+json.dump({'ok': False, 'status': 'running', 'errors': []}, open(REPORT, 'w'), indent=1)
+
 START = globals().get('START', unreal.Vector(-23600.0, 16000.0, 0.0))
 YAW = globals().get('YAW', 0.0)
 RUN = 6.0   # seconds of throttle from the standing start
@@ -49,7 +52,9 @@ def finish():
               'contact_lost_percent': round(100.0 * st['lost'] / max(1, st['samples']), 2),
               'mean_speed_kph': round(mean_speed, 1), 'samples': len(accels),
               'errors': st['errors']}
-    json.dump(report, open(os.path.join(OUT, 'kart_uneven.json'), 'w'), indent=1)
+    report['ok'] = not st['errors']
+    report['status'] = 'passed' if not st['errors'] else 'failed'
+    json.dump(report, open(REPORT, 'w'), indent=1)
     unreal.log('KART UNEVEN ' + json.dumps(report))
     live.stop('kart_uneven')
 
@@ -100,6 +105,7 @@ def run(dt):
     except Exception as error:
         st['errors'].append(repr(error))
         CLEAN.cleanup(live, unreal.MegaParkValidation.restore_player_camera)
+        json.dump({'ok': False, 'status': 'failed', 'errors': st['errors']}, open(REPORT, 'w'), indent=1)
         unreal.log_error('KART UNEVEN: %s' % error)
         live.stop('kart_uneven')
 
