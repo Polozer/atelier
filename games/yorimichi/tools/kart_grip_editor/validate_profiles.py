@@ -1,12 +1,25 @@
 """Validate all authored source grips before the native import publishes matching cockpit assets."""
 import argparse
 import json
+import math
 from pathlib import Path
 
-from grip_data import bone_names, neutral_reach
-from server import validate
+from grip_data import bone_names, mirror_left, neutral_reach
 from source_identity import digest, playable_ids, source_identity
 
+
+def validate_mirror(pose, meta):
+    """The saved right hand is the left grip mirrored through the rig's bind frames, not an independent edit."""
+    hands = pose.get('hands') or {}
+    if set(hands) != {'L', 'R'}:
+        raise ValueError(f'{pose.get("character")}: hands are not mirrored; both sides are required')
+    expected = mirror_left(hands['L'], meta)
+    for name, values in expected.items():
+        right = hands['R'].get(name)
+        if right is None or len(right) != len(values):
+            raise ValueError(f'{pose.get("character")}: hands are not mirrored ({name})')
+        if any(abs(a - b) > 1e-4 for a, b in zip(values, right)):
+            raise ValueError(f'{pose.get("character")}: hands are not mirrored ({name})')
 
 def validate_profile(pose, layout, prepared=None):
     character = pose.get('character')
@@ -25,7 +38,7 @@ def validate_profile(pose, layout, prepared=None):
             parents[name] = None if index == 0 else f'hand_{side}' if (index-1) % 3 == 0 else names[index-1]
     meta = {'id': character, 'model_sha256': checksum, 'scale': scale, 'layout': layout,
             'bind_world': pose['bind_world'], 'parents': parents}
-    validate(pose, meta)
+    validate_mirror(pose, meta)
     if prepared is not None:
         if abs(pose['scale']-prepared['scale']) > 1e-5:
             raise ValueError(f'{character}: prepared scale changed')

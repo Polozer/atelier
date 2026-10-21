@@ -1381,7 +1381,7 @@ def unreal_steps(ctx):
              inputs=[SCRIPTS / 'import_footsteps.py', SCRIPTS / 'import_combat_audio.py', SCRIPTS / 'import_skate_audio.py', SCRIPTS / 'import_bike_audio.py',
                      SCRIPTS / 'import_transport_audio.py', SCRIPTS / 'import_driving_audio.py'],
              # The footstep library lives in /Game/Japan, which the world import clears, so a world import reruns this.
-             needs=['unreal.world', 'audio.footsteps', 'audio.combat', 'audio.skate', 'audio.bike', 'audio.transport', 'audio.kart'], heavy=True,
+             needs=['unreal.world', 'audio.footsteps', 'audio.combat', 'audio.skate', 'audio.kart', 'audio.bike', 'audio.transport'], heavy=True,
              about='footstep library, combat, skate, bike, transport and driving sounds'),
         Step('unreal.music', [UnrealScript(SCRIPTS / 'import_music.py', 'MUSIC IMPORT COMPLETE', null_rhi=True)],
              inputs=[SCRIPTS / 'import_music.py', SCRIPTS / 'music_inventory.py', AUDIO / 'music' / 'prepare.py'],
