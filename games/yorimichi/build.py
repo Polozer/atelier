@@ -48,6 +48,9 @@ _definition = importlib.util.spec_from_file_location('character_definition', PIP
 definition = importlib.util.module_from_spec(_definition)
 _definition.loader.exec_module(definition)
 YORI = WORLD / 'yori.py'
+_kart_identity_spec = importlib.util.spec_from_file_location('kart_source_identity', TOOLS / 'kart_grip_editor/source_identity.py')
+kart_source_identity = importlib.util.module_from_spec(_kart_identity_spec)
+_kart_identity_spec.loader.exec_module(kart_source_identity)
 _foliage_spec = importlib.util.spec_from_file_location('yorimichi_foliage_build', GAME / 'foliage_build.py')
 foliage_build = importlib.util.module_from_spec(_foliage_spec)
 _foliage_spec.loader.exec_module(foliage_build)
@@ -966,6 +969,13 @@ def world_steps(ctx):
         Step('world.kei', [Blender(ASSETS / 'vehicles' / 'kei' / 'build.py')],
              inputs=[ASSETS / 'vehicles' / 'kei', REGIONS / 'village' / 'build.py'],
              outputs=[out / 'kei' / 'manifest.json'], about='the four kei cars in the Mega Park car park', heavy=True),
+        Step('world.kart', [Blender(ASSETS / 'vehicles' / 'kart' / 'build.py', threads=3)],
+             inputs=[ASSETS / 'vehicles' / 'kart' / 'build.py', ASSETS / 'vehicles' / 'kart' / 'cockpit.py',
+                     ASSETS / 'vehicles' / 'kart' / 'cockpit.json', REGIONS / 'village' / 'build.py', REGIONS / 'village' / 'layout.py', YORI],
+             outputs=[out / 'kart' / 'manifest.json', out / 'kart' / 'cockpit.json',
+                      *(out / 'kart' / 'assets' / f'{name}.fbx' for name in
+                        ('SM_Kart_Body', 'SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel'))],
+             about='the go-kart, its seat, its wheels and its steering wheel', heavy=True),
         Step('world.belmonte_train', [Blender(WORLD / 'train' / 'build.py', threads=3)],
              inputs=[*build_inputs.local_imports(WORLD / 'train' / 'build.py', (WORLD,)),
                      ASSETS / 'vehicles' / 'belmonte-train' / 'planning',
@@ -1212,6 +1222,8 @@ def sound_effect_steps(ctx):
                      *(paths.cache_dir('sonniss', 'combat', create=False) / name for name in TRANSPORT_MASTERS)],
              outputs=[out / 'audio' / 'transport' / 'manifest.json'],
              about="the ferry's, gondolas' and zeppelin's engines, wash, wind, horns, bells, gates and doors"),
+        Step('audio.kart', [Python(AUDIO / 'kart' / 'make.py')], inputs=[AUDIO / 'kart', AUDIO / 'skate' / 'make.py'],
+             outputs=[out / 'audio' / 'kart' / 'manifest.json'], about="the kart's engine, tyres, skid, wind, impacts and suspension knocks"),
         # The Suno library is optional: naming `audio.music` or `unreal.music` selects
         # only the tracks requested by YORIMICHI_MUSIC_* selectors. A plain build
         # never downloads or imports the large release.
@@ -1316,6 +1328,22 @@ def unreal_steps(ctx):
         Step('unreal.kei', [UnrealScript(SCRIPTS / 'import_kei.py', 'KEI IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_kei.py'], needs=['unreal.world', 'world.kei'], heavy=True,
              about='the kei cars the Mega Park parks in its car park (/Game/Japan/Assets)'),
+        Step('unreal.kart', [Python(TOOLS / 'kart_grip_editor/validate_profiles.py', ('--layout', out / 'kart/cockpit.json')),
+                             UnrealScript(SCRIPTS / 'import_kart.py', 'KART IMPORT COMPLETE', modules=IMPORT_CODE)],
+             inputs=[SCRIPTS / 'import_kart.py', SCRIPTS / 'kart_material.py', SCRIPTS / 'mesh_import.py', YORI,
+                     *(kart_source_identity.profile_path(name) for name in kart_source_identity.playable_ids()),
+                     *(kart_source_identity.model_path(name) for name in kart_source_identity.playable_ids()),
+                     TOOLS / 'kart_grip_editor/validate_profiles.py',
+                     TOOLS / 'kart_grip_editor/server.py', TOOLS / 'kart_grip_editor/grip_data.py',
+                     TOOLS / 'kart_grip_editor/source_identity.py',
+                     *(p for name in kart_source_identity.playable_ids() for p in kart_source_identity.source_paths(name))],
+             needs=['world.kart', *unreal_modules.needs(IMPORT_CODE)], heavy=True,
+             outputs=[GAME / 'unreal' / 'Content' / 'Japan' / 'Kart' / f'{name}.uasset' for name in
+                      ('M_Kart', 'SM_Kart_Body', 'SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel')]
+                     + [GAME / 'unreal/Content/Data/kart/cockpit.json',
+                        GAME / 'unreal/Content/Data/kart/prepared-models.json',
+                        *(GAME / f'unreal/Content/Data/kart/grips/{name}.json' for name in kart_source_identity.playable_ids())],
+             about='the go-kart body, wheels and steering wheel (/Game/Japan/Kart)'),
         Step('unreal.bike', [UnrealScript(SCRIPTS / 'import_bike.py', 'BIKE IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_bike.py', SCRIPTS / 'bike_material.py'], needs=['unreal.world', 'world.bike'], heavy=True,
              about="Cairo's bike parts and M_Bike (/Game/Japan/Assets)"),
@@ -1352,12 +1380,13 @@ def unreal_steps(ctx):
                 UnrealScript(SCRIPTS / 'import_combat_audio.py', 'COMBAT AUDIO IMPORT COMPLETE'),
                 UnrealScript(SCRIPTS / 'import_skate_audio.py', 'SKATE AUDIO IMPORT COMPLETE'),
                 UnrealScript(SCRIPTS / 'import_bike_audio.py', 'BIKE AUDIO IMPORT COMPLETE'),
-                UnrealScript(SCRIPTS / 'import_transport_audio.py', 'TRANSPORT AUDIO IMPORT COMPLETE')],
+                UnrealScript(SCRIPTS / 'import_transport_audio.py', 'TRANSPORT AUDIO IMPORT COMPLETE'),
+                UnrealScript(SCRIPTS / 'import_driving_audio.py', 'DRIVING AUDIO IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_footsteps.py', SCRIPTS / 'import_combat_audio.py', SCRIPTS / 'import_skate_audio.py', SCRIPTS / 'import_bike_audio.py',
-                     SCRIPTS / 'import_transport_audio.py'],
+                     SCRIPTS / 'import_transport_audio.py', SCRIPTS / 'import_driving_audio.py'],
              # The footstep library lives in /Game/Japan, which the world import clears, so a world import reruns this.
-             needs=['unreal.world', 'audio.footsteps', 'audio.combat', 'audio.skate', 'audio.bike', 'audio.transport'], heavy=True,
-             about='footstep library, combat, skate, bike and transport sounds'),
+             needs=['unreal.world', 'audio.footsteps', 'audio.combat', 'audio.skate', 'audio.kart', 'audio.bike', 'audio.transport'], heavy=True,
+             about='footstep library, combat, skate, bike, transport and driving sounds'),
         Step('unreal.music', [UnrealScript(SCRIPTS / 'import_music.py', 'MUSIC IMPORT COMPLETE', null_rhi=True)],
              inputs=[SCRIPTS / 'import_music.py', SCRIPTS / 'music_inventory.py', AUDIO / 'music' / 'prepare.py'],
              needs=['audio.music'], after=['unreal.compile'], explicit=True, heavy=True,
