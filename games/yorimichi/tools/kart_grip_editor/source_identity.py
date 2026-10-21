@@ -54,6 +54,8 @@ def register(models, profiles):
         name = pose['character']
         meta = json.loads((models / f'{name}.json').read_text())
         checksum = hashlib.sha256((models / f'{name}.glb').read_bytes()).hexdigest()
+        if checksum != meta.get('model_sha256'):
+            raise ValueError(f'{name}: prepared GLB does not match its export metadata; re-export it before registering')
         # A re-export whose bind is unchanged may carry the authored poses forward. The
         # receipt records the new model bytes; the save is updated below so the editor
         # no longer reports it as stale. A real bind or scale change still needs a save.

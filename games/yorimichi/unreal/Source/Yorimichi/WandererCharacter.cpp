@@ -30,6 +30,7 @@
 #include "HorseComponent.h"
 #include "JapanCharacterMovement.h"
 #include "JapanWorld.h"
+#include "DrivingIntent.h"
 #include "EngineUtils.h"
 #include "JapanCameraArm.h"
 #include "SeeThrough.h"
@@ -330,6 +331,23 @@ void AWandererCharacter::EnterWorld(AJapanWorld* World)
     if (!World || !World->bLoaded || IsNpc()) return;
     Bike->Initialize(this);
     Car->Initialize(this);
+    ConfigureCar();
+    Horse->Initialize(this);
+    Sailboat->Initialize(this,World);
+    if (!bSwitchedIn && !JapanNetwork::IsOnline(GetWorld()))
+    {
+        SetActorLocation(World->PlayerStart.GetLocation()+FVector(0,0,GetCapsuleComponent()->GetScaledCapsuleHalfHeight()+3.f),false,nullptr,ETeleportType::TeleportPhysics);
+        SetActorRotation(World->PlayerStart.Rotator());
+        if (Controller) Controller->SetControlRotation(FRotator(-8,World->PlayerStart.Rotator().Yaw,0));
+    }
+    ReviewForward = GetActorForwardVector();
+    if (Preferences) Preferences->Apply();
+    if (!bSwitchedIn && FParse::Param(FCommandLine::Get(),TEXT("sworddummy"))) SpawnSwordDummy();
+}
+
+void AWandererCharacter::ConfigureCar()
+{
+    if (!Car || Car->IsConfigured()) return;
     Car->SetMeshes(FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Body.SM_Kart_Body")),
                    FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Seat.SM_Kart_Seat")),
                    FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Wheel.SM_Kart_Wheel")),
@@ -404,17 +422,6 @@ void AWandererCharacter::EnterWorld(AJapanWorld* World)
     else UE_LOG(LogTemp, Error, TEXT("Kart cockpit data missing: build the kart and stage runtime data"));
     Car->RequireAuthoredGrips(true);
     ReadKartGrip(this, Car);
-    Horse->Initialize(this);
-    Sailboat->Initialize(this,World);
-    if (!bSwitchedIn && !JapanNetwork::IsOnline(GetWorld()))
-    {
-        SetActorLocation(World->PlayerStart.GetLocation()+FVector(0,0,GetCapsuleComponent()->GetScaledCapsuleHalfHeight()+3.f),false,nullptr,ETeleportType::TeleportPhysics);
-        SetActorRotation(World->PlayerStart.Rotator());
-        if (Controller) Controller->SetControlRotation(FRotator(-8,World->PlayerStart.Rotator().Yaw,0));
-    }
-    ReviewForward = GetActorForwardVector();
-    if (Preferences) Preferences->Apply();
-    if (!bSwitchedIn && FParse::Param(FCommandLine::Get(),TEXT("sworddummy"))) SpawnSwordDummy();
 }
 
 void AWandererCharacter::Leave()
@@ -1580,8 +1587,13 @@ void AWandererCharacter::Tick(float Dt)
         TActorIterator<AJapanWorld> It(GetWorld());
         if (It && It->bLoaded) EnterWorld(*It);
     }
-    // The world can be handed over before the pawn's mesh and rig are ready; the cockpit fit needs both.
-    if (Landscape && Landscape->bLoaded && !Car->IsConfigured()) EnterWorld(Landscape);
+    // The world can be handed over before the pawn's mesh and rig are ready; retry only the cockpit setup, once, and
+    // never repeat world entry, travel or preferences.
+    if (Landscape && Landscape->bLoaded && !bCarConfigureTried && !Car->IsConfigured() && GetMesh()->GetSkeletalMeshAsset())
+    {
+        bCarConfigureTried = true;
+        ConfigureCar();
+    }
     if (!Definition || !Landscape || !Landscape->bLoaded) return;
     if(!BuildingReviewSpecPath.IsEmpty())
     {
@@ -1696,8 +1708,10 @@ void AWandererCharacter::Tick(float Dt)
     FVector2D CarIntent = MoveIntent;
     if (Car->IsEquipped())
     {
-        const float Pedal = FMath::Clamp(BikeThrottleInput, -1.f, 1.f);
-        CarIntent.Y = FMath::Abs(Pedal) > .01f ? Pedal : MoveIntent.Y;
+        // The physical left stick only steers; the triggers (or W / S) drive. Scripted intent (Live_Drive) still uses Y.
+        const atelier::driving::FDrivingIntent Drive =
+            atelier::driving::driving_intent(MoveIntent.X, BikeThrottleInput, MoveIntent != InputMove, MoveIntent.Y);
+        CarIntent = FVector2D(Drive.steer, Drive.pedal);
     }
     Car->SetInput(CarIntent);
     if (Car->IsEquipped()) AdvanceCarEffects(Dt);

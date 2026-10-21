@@ -268,6 +268,7 @@ private:
     float LookGrace=0.f, SkateCameraBlend=0.f, HorseCameraBlend=0.f, CarCameraBlend=0.f, PreferredArmLength=0.f;
     float CarSmokeWait[2]={0.f,0.f}, CarExhaustWait=0.f, CarDustWait=0.f;
     bool bLiveStarted=false;
+    bool bCarConfigureTried=false;
     // Share of the skating camera in the view (CalcCamera), and its last frame for easing out after a ride.
     float BoardCameraBlend=0.f;
     FMinimalViewInfo BoardCamera;
@@ -328,6 +329,8 @@ private:
     void AdvanceBenchmark(float Dt);
     /** Tyre smoke, impact sparks and exhaust pops while the kart is out. */
     void AdvanceCarEffects(float Dt);
+    /** The kart's cockpit fit, called by world entry and once more when the rider's mesh arrives late. */
+    void ConfigureCar();
     bool AdvanceZeppelinBenchmark();
     void AdvanceSailboatReview(float Dt);
     bool bCinematic=false;

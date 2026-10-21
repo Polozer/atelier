@@ -225,24 +225,42 @@ def test_grip_source_identity_excludes_animation_builds():
 
 def test_register_carries_a_pose_across_a_rebuilt_model(monkeypatch, tmp_path, meta):
     import source_identity as identity
+    import hashlib
     models, profiles = tmp_path / 'models', tmp_path / 'profiles'
     models.mkdir(); profiles.mkdir()
+    # A consistent re-export updates the GLB and the export metadata together.
+    new_model = b'new-model-bytes'
+    meta['model_sha256'] = hashlib.sha256(new_model).hexdigest()
     meta.update(source_sha256='a'*64, scale=.85)
     (models / 'cairo.json').write_text(json.dumps(meta))
-    (models / 'cairo.glb').write_bytes(b'new-model-bytes')
+    (models / 'cairo.glb').write_bytes(new_model)
     pose = payload(meta)
     pose.update(scale=meta['scale'], bind_world=meta['bind_world'], model_sha256='b'*64)
     (profiles / 'cairo.json').write_text(json.dumps(pose))
     monkeypatch.setattr(identity, 'source_identity', lambda name: 'a'*64)
     receipt = identity.register(models, profiles)
-    import hashlib
-    current = hashlib.sha256(b'new-model-bytes').hexdigest()
+    current = meta['model_sha256']
     assert receipt['cairo']['model_sha256'] == current
     assert json.loads((profiles / 'cairo.json').read_text())['model_sha256'] == current
     changed = json.loads((profiles / 'cairo.json').read_text())
     changed['bind_world']['finger_0_L'][12] += .01
     (profiles / 'cairo.json').write_text(json.dumps(changed))
     with pytest.raises(ValueError, match='re-author the grip'):
+        identity.register(models, profiles)
+
+
+def test_register_rejects_a_changed_model_with_unchanged_metadata(monkeypatch, tmp_path, meta):
+    import source_identity as identity
+    models, profiles = tmp_path / 'models', tmp_path / 'profiles'
+    models.mkdir(); profiles.mkdir()
+    meta.update(source_sha256='a'*64, scale=.85, model_sha256='a'*64)
+    (models / 'cairo.json').write_text(json.dumps(meta))
+    (models / 'cairo.glb').write_bytes(b'not-the-prepared-model')
+    pose = payload(meta)
+    pose.update(scale=meta['scale'], bind_world=meta['bind_world'], model_sha256=meta['model_sha256'])
+    (profiles / 'cairo.json').write_text(json.dumps(pose))
+    monkeypatch.setattr(identity, 'source_identity', lambda name: 'a'*64)
+    with pytest.raises(ValueError, match='does not match its export metadata'):
         identity.register(models, profiles)
 
 
