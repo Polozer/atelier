@@ -14,7 +14,11 @@
 #include "LiveLibrary.h"
 #include "MoverCharacter.h"
 #include "PlayableCharacter.h"
+#include "RacingBetting.h"
 #include "RacingBroadcast.h"
+#include "RacingIdentity.h"
+#include "RacingRecords.h"
+#include "RacingStables.h"
 #include "WandererDefinition.h"
 #include "WandererCharacter.h"
 #include "Animation/AnimSequence.h"
@@ -32,6 +36,7 @@
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformFileManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Async/Async.h"
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
@@ -39,7 +44,24 @@
 #include "Net/UnrealNetwork.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "UObject/ConstructorHelpers.h"
+
+FString RacingJsonEscape(const FString& In)
+{
+    FString Out;
+    Out.Reserve(In.Len() + 8);
+    for (const TCHAR C : In)
+    {
+        if (C == TEXT('"') || C == TEXT('\\')) { Out.AppendChar(TEXT('\\')); Out.AppendChar(C); }
+        else if (C == TEXT('\n')) Out += TEXT("\\n");
+        else if (C == TEXT('\r')) Out += TEXT("\\r");
+        else if (C == TEXT('\t')) Out += TEXT("\\t");
+        else if (C < 0x20) Out += FString::Printf(TEXT("\\u%04x"), int32(C));
+        else Out.AppendChar(C);
+    }
+    return Out;
+}
 
 static TAutoConsoleVariable<float> CVarRacingTimeScale(TEXT("racing.TimeScale"), 1.f,
     TEXT("Racing world clock speed (1 = real time; dev only, set on the host)."));
@@ -128,21 +150,8 @@ namespace RacingLooks
 
     double UnixNow() { return double((FDateTime::UtcNow() - FDateTime(1970, 1, 1)).GetTicks()) / double(ETimespan::TicksPerSecond); }
 
-    /** The id this machine's own player keeps across sessions (Saved/racing/player-id.txt). */
-    FString LocalPlayerId()
-    {
-        static FString Cached;
-        if (!Cached.IsEmpty()) return Cached;
-        const FString Path = FPaths::GetPath(ARacingService::DefaultSavePath()) / TEXT("player-id.txt");
-        FString Text;
-        if (FFileHelper::LoadFileToString(Text, *Path) && !Text.TrimStartAndEnd().IsEmpty()) Cached = Text.TrimStartAndEnd();
-        else
-        {
-            Cached = TEXT("local:") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
-            FFileHelper::SaveStringToFile(Cached, *Path);
-        }
-        return Cached;
-    }
+    /** The id this machine's own player keeps across sessions: "local:" and the install id (RacingIdentity). */
+    FString LocalPlayerId() { return RacingIdentity::HostKey(ARacingService::LocalInstallId()); }
 }
 
 // ------------------------------------------------------------------------------------------------------------ snapshot
@@ -351,6 +360,8 @@ ARacingService::ARacingService()
     // The saddles take the stable's colour (a cooked engine material, as the sword's).
     static ConstructorHelpers::FObjectFinder<UMaterialInterface> Basic(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
     SilksMaterial = Basic.Object;
+    Ledger = MakeShared<FRacingLedger>();
+    HallBoards = MakeShared<FRacingHallBoards>();
 }
 
 void ARacingService::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -511,9 +522,92 @@ bool ARacingService::OpenWorld(const FString& Path, const FString& Seed)
     bHasWorld = true;
     Registered.Reset();
     LookCache.Reset();
+    LoadLedger();
     bDirty = true;
     SaveNow();
     return true;
+}
+
+FString ARacingService::LedgerPath(const FString& WorldPath)
+{
+    return FPaths::GetPath(WorldPath) / TEXT("records.json");
+}
+
+void ARacingService::LoadLedger()
+{
+    // The records hall's ledger lives beside the world (Saved/racing/records.json). One that is not admissible or belongs
+    // to another world (another seed) is kept aside, never mixed in nor written over; one that cannot be read now (or
+    // kept aside) is left as it is and this session does not save the ledger.
+    *Ledger = FRacingLedger();
+    bLedgerWritable = true;
+    const FString Path = LedgerPath(SavePath);
+    IPlatformFile& Files = FPlatformFileManager::Get().GetPlatformFile();
+    if (Files.FileExists(*Path))
+    {
+        FString Text;
+        FRacingLedger Loaded;
+        if (!FFileHelper::LoadFileToString(Text, *Path))
+        {
+            bLedgerWritable = false;
+            UE_LOG(LogTemp, Error, TEXT("RACING RECORDS cannot read %s: left as it is, this session's ledger is not saved"), *Path);
+        }
+        else if (FRacingLedger::FromJson(Text, Loaded) && Loaded.Seed == State.Seed) *Ledger = MoveTemp(Loaded);
+        else
+        {
+            const FString Aside = Path + FString::Printf(TEXT(".unreadable-%lld"), int64(RacingLooks::UnixNow()));
+            if (Files.MoveFile(*Aside, *Path))
+            {
+                UE_LOG(LogTemp, Warning, TEXT("RACING RECORDS %s is not this world's admissible ledger: kept as %s, the hall starts a new one"), *Path, *Aside);
+            }
+            else
+            {
+                bLedgerWritable = false;
+                UE_LOG(LogTemp, Error, TEXT("RACING RECORDS %s is not this world's admissible ledger and could not be kept aside: left as it is, this session's ledger is not saved"), *Path);
+            }
+        }
+    }
+    Ledger->Seed = State.Seed;
+    RacingRecords::Note(*Ledger, State, HostWorldSeconds(), false);
+    LedgerSaved = 0;
+    HallStamp = MAX_uint32;
+    UE_LOG(LogTemp, Display, TEXT("RACING RECORDS ledger: %d records, %d riders, since day %d"), Ledger->Records.Num(), Ledger->Riders.Num(), Ledger->SinceT);
+}
+
+void ARacingService::SaveLedger()
+{
+    if (SavePath.IsEmpty() || !bLedgerWritable || LedgerSaved == Ledger->Revision + 1) return;
+    // Written beside the world, through a temporary file (a crash leaves the old ledger or the new one).
+    const FString Path = LedgerPath(SavePath), Temp = Path + TEXT(".tmp");
+    if (FFileHelper::SaveStringToFile(Ledger->ToJson(), *Temp, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM) &&
+        IFileManager::Get().Move(*Path, *Temp, true, true))
+        LedgerSaved = Ledger->Revision + 1;
+    else UE_LOG(LogTemp, Error, TEXT("RACING RECORDS could not write %s"), *Path);
+}
+
+bool ARacingService::AdvanceNoting(double Target)
+{
+    const int32 DayBefore = State.T;
+    int32 RunBefore = 0;
+    for (const FHRRace& R : State.Meeting.Races) RunBefore += R.IsRun() ? 1 : 0;
+    const double DayEnd = HRClock::DayStart(State.T + 1);
+    Target = FMath::Min(Target, DayEnd);
+    if (Target >= DayEnd)
+    {
+        // Every race of the day starts well before its end: run them, note them all, then let the rules close the day
+        // (stepping through a day gives the same world as one call, HRRules::AdvanceTo).
+        HRRules::AdvanceTo(State, DayEnd - 1e-3);
+        RacingRecords::Note(*Ledger, State, DayEnd, true);
+    }
+    HRRules::AdvanceTo(State, Target);
+    RacingRecords::Note(*Ledger, State, Target, false);
+    int32 RunAfter = 0;
+    for (const FHRRace& R : State.Meeting.Races) RunAfter += R.IsRun() ? 1 : 0;
+    return State.T != DayBefore || RunAfter != RunBefore;
+}
+
+void ARacingService::BuildRecordsPage(const FRacingRecordsQuery& Query, FRacingRecordsPage& Out) const
+{
+    RacingRecords::BuildPage(State, *Ledger, HostWorldSeconds(), Query, Out);
 }
 
 bool ARacingService::SaveNow()
@@ -524,8 +618,12 @@ bool ARacingService::SaveNow()
     State.EpochUnix -= int64(Whole);
     DevSeconds -= Whole;
     FString Error;
-    const bool bSaved = SaveWorldFile(State, SavePath, Error);
+    // Guests' session players and their tickets stay out of the file (they have no identity to come back with).
+    bool bSessionPlayers = false;
+    for (const TPair<FString, FHRPlayer>& Player : State.Players) bSessionPlayers |= IsSessionPlayer(Player.Key);
+    const bool bSaved = SaveWorldFile(bSessionPlayers ? PersistentWorld(State) : State, SavePath, Error);
     LastSave = FPlatformTime::Seconds();
+    SaveLedger();
     if (bSaved)
     {
         bDirty = false;
@@ -586,17 +684,17 @@ void ARacingService::TickHost(float DeltaSeconds)
         UE_LOG(LogTemp, Display, TEXT("RACING away for long: %d race days skipped, %d to catch up"), Skipped, HRRules::MaxCatchUpDays);
     }
     const int32 DayBefore = State.T;
-    int32 RunBefore = 0;
-    for (const FHRRace& R : State.Meeting.Races) RunBefore += R.IsRun() ? 1 : 0;
     // At most one race day per frame: a host back after hours catches up over a few frames, never in one long hitch.
-    HRRules::AdvanceTo(State, FMath::Min(Now, HRClock::DayStart(State.T + 1)));
-    int32 RunAfter = 0;
-    for (const FHRRace& R : State.Meeting.Races) RunAfter += R.IsRun() ? 1 : 0;
-    const bool bChanged = State.T != DayBefore || RunAfter != RunBefore;
+    // The records hall notes each race as its winner is home, and every race of a day before it closes.
+    const uint32 LedgerBefore = Ledger->Revision;
+    const bool bChanged = AdvanceNoting(Now);
+    if (Ledger->Revision != LedgerBefore) bDirty = true;
     if (State.T != DayBefore) LookCache.Reset();
     bDirty |= bChanged;
     const double Real = FPlatformTime::Seconds();
     if (Real >= NextRegister) { NextRegister = Real + 1.; RegisterPlayers(); }
+    // Wallets twice a second (a decided ticket shows its outcome once its race is seen won) and when the world changes.
+    if (bChanged || Real >= NextWallets) { NextWallets = Real + .5; RefreshWallets(); }
     if (bChanged || Scale != AppliedScale || Real >= NextPublish) Publish(Scale != AppliedScale);
     if (bDirty && Real - LastSave > 15.) SaveNow();
 }
@@ -605,24 +703,32 @@ void ARacingService::RegisterPlayers()
 {
     const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState() : nullptr;
     if (!GS) return;
+    TSet<FString> Present;
     for (APlayerState* PS : GS->PlayerArray)
     {
         if (!PS) continue;
-        const AController* Owner = Cast<AController>(PS->GetOwner());
-        // V1 registers the host's own player only (its id is saved beside the world). Remote guests have no persistent
-        // identity yet (an online id may be absent, a session id changes every session), so they get no player record,
-        // wallet or stable: they watch from the replicated snapshot, which carries none (docs/RACING.md, "Players").
-        if (!Owner || !Owner->IsLocalController()) continue;
-        const FString Id = RacingLooks::LocalPlayerId();
+        // The host's own player keeps its id across sessions (saved beside the world); a guest is known by the install id
+        // it presented (URacingWallet::ServerIdentify), and is not registered before (docs/RACING.md, "Players").
+        const FString Id = PlayerIdOf(Cast<AController>(PS->GetOwner()));
+        Present.Add(Id);
         if (Id.IsEmpty() || Registered.Contains(Id)) continue;
         Registered.Add(Id);
-        if (HRRules::FindPlayer(State, Id)) continue;
         // Not the player name: offline it is the machine's network name.
         const AJapanPlayerState* JPS = Cast<AJapanPlayerState>(PS);
         const FString Name = JPS ? JPS->RiderName : FString();
-        HRRules::AddPlayer(State, Id, Name.IsEmpty() ? FString(TEXT("Player")) : Name);
+        RegisterPlayer(Id, Name.IsEmpty() ? FString(TEXT("Player")) : Name);
+    }
+    // A guest keeps their stable while away (it stays theirs, saved with the world). Only a session player's (a legacy
+    // world's) goes back to the world when they leave.
+    TArray<FString> Gone;
+    for (const FHRStable& St : State.Stables)
+        if (IsSessionPlayer(St.OwnerPlayerId) && !Present.Contains(St.OwnerPlayerId)) Gone.Add(St.OwnerPlayerId);
+    for (const FString& Id : Gone)
+    {
+        RacingStables::Release(State, Id);
+        Registered.Remove(Id);
         bDirty = true;
-        UE_LOG(LogTemp, Display, TEXT("RACING player registered: %s (%s)"), *Id, *Name);
+        UE_LOG(LogTemp, Display, TEXT("RACING STABLE %s left: its stable goes back to the world"), *Id);
     }
 }
 
@@ -1085,18 +1191,417 @@ void ARacingService::TickPresentation(float DeltaSeconds)
     }
 }
 
+// ------------------------------------------------------------------------------------------------------------ betting
+
+namespace RacingBets
+{
+    /** The rules' refusals (English) in the game's French; an unknown one is passed on as it is. */
+    FString French(const FString& Refusal)
+    {
+        using L = HRRules::FBetLimits;
+        if (Refusal.IsEmpty()) return Refusal;
+        if (Refusal.StartsWith(TEXT("Unknown player"))) return TEXT("Pas de portefeuille pour ce joueur.");
+        if (Refusal.StartsWith(TEXT("Race not found"))) return TEXT("Cette course n'est pas au programme.");
+        if (Refusal.StartsWith(TEXT("This race has been run"))) return TEXT("Les paris sur cette course sont fermés.");
+        if (Refusal.StartsWith(TEXT("Not enough runners"))) return TEXT("Pas assez de partants pour parier.");
+        if (Refusal.StartsWith(TEXT("This horse is not declared"))) return TEXT("Ce cheval n'est pas partant.");
+        if (Refusal.StartsWith(TEXT("Stake between"))) return FString::Printf(TEXT("La mise va de %d à %d pièces."), L::MinStake, L::MaxStake);
+        if (Refusal.StartsWith(TEXT("No more than")) && Refusal.Contains(TEXT("a day")))
+            return FString::Printf(TEXT("Pas plus de %d pièces de paris par jour."), L::PerDay);
+        if (Refusal.StartsWith(TEXT("It takes"))) return TEXT("Solde insuffisant pour cette mise.");
+        if (Refusal.StartsWith(TEXT("No more than")) && Refusal.Contains(TEXT("tickets")))
+            return FString::Printf(TEXT("Pas plus de %d tickets par course."), L::TicketsPerRace);
+        return Refusal;
+    }
+
+    /** The name of a race of an earlier day, from its key ("village:1") and that day's event. */
+    FString PastRaceName(int32 T, const FString& Key)
+    {
+        FHRRace Race;
+        FString Group;
+        if (!Key.Split(TEXT(":"), &Race.Round, &Group)) Race.Round = Key;
+        Race.Group = FCString::Atoi(*Group);
+        Race.EventId = HRContent::EventForT(T).Id;
+        return ARacingService::RaceName(Race);
+    }
+
+    int32 Hundredths(double Rapport) { return FMath::Clamp(FMath::FloorToInt(Rapport * 100. + 1e-6), 0, 999999); }
+}
+
+int32 FRacingWalletView::OpenCount() const
+{
+    int32 Open = 0;
+    for (const FRacingTicketView& T : Tickets) Open += T.GetStatus() == ERacingTicket::Open ? 1 : 0;
+    return Open;
+}
+
+FString ARacingService::PlayerIdOf(const AController* Controller)
+{
+    if (!Controller) return FString();
+    if (Controller->IsLocalController()) return RacingLooks::LocalPlayerId();
+    // A guest: the key the host gave the install id it presented, empty until it has.
+    const URacingWallet* Wallet = URacingWallet::Of(Controller);
+    return Wallet ? Wallet->GetGuestKey() : FString();
+}
+
+FString ARacingService::LocalInstallId()
+{
+    static FString Cached;
+    if (Cached.IsEmpty()) Cached = RacingIdentity::LoadOrCreate(FPaths::GetPath(DefaultSavePath()) / TEXT("player-id.txt"));
+    return Cached;
+}
+
+bool ARacingService::RegisterPlayer(const FString& PlayerId, const FString& Name)
+{
+    if (!bHasWorld || PlayerId.IsEmpty() || PlayerId.Len() > HRSave::MaxIdChars) return false;
+    if (const FHRPlayer* Known = HRRules::FindPlayer(State, PlayerId))
+    {
+        UE_LOG(LogTemp, Display, TEXT("RACING player back: %s (%s), %d coins"), *PlayerId, *Known->Name, Known->Coins);
+    }
+    else
+    {
+        HRRules::AddPlayer(State, PlayerId, Name.Left(64));
+        // A session player is never saved: it does not make the world dirty.
+        if (!IsSessionPlayer(PlayerId)) bDirty = true;
+        UE_LOG(LogTemp, Display, TEXT("RACING player registered: %s (%s)%s"), *PlayerId, *Name, IsSessionPlayer(PlayerId) ? TEXT(", this session only") : TEXT(""));
+    }
+    // Every player gets a stable at once (docs/RACING.md, "Stables"): the host's player Belmonte's, the first guest Hidamari's
+    // (theirs for good, kept while they are away); a session player none.
+    if (!HRRules::PlayerStable(State, PlayerId))
+    {
+        const FString Refusal = RacingStables::Assign(State, PlayerId);
+        const FHRStable* Stable = HRRules::PlayerStable(State, PlayerId);
+        UE_LOG(LogTemp, Display, TEXT("RACING STABLE %s: %s"), *PlayerId, Stable ? *FString::Printf(TEXT("%s (%s)"), *Stable->Name, *Stable->Id) : *Refusal);
+        // The stable itself is part of the world (a guest's stays theirs when they leave): always saved.
+        if (Stable) bDirty = true;
+    }
+    return true;
+}
+
+FString ARacingService::BetRefusal(const FHRWorldState& S, const FString& PlayerId, const FString& RaceKey, const FString& HorseId, int32 Stake,
+    double Now)
+{
+    if (PlayerId.IsEmpty() || !HRRules::FindPlayer(S, PlayerId)) return RacingBets::French(TEXT("Unknown player."));
+    const FHRRace* Race = HRRules::FindRace(S, RaceKey);
+    if (!Race) return RacingBets::French(TEXT("Race not found."));
+    // Betting closes at the start: the rules run (and settle) a race when its slot starts, and the host may not have
+    // ticked past it yet.
+    const double Start = HRRules::RaceStartSeconds(S, RaceKey);
+    if (Race->IsRun() || Start < 0. || !FMath::IsFinite(Now) || Now >= Start) return RacingBets::French(TEXT("This race has been run."));
+    return RacingBets::French(HRRules::BetRefusal(S, PlayerId, *Race, HorseId, Stake));
+}
+
+FString ARacingService::PlaceBetIn(FHRWorldState& S, const FString& PlayerId, const FString& RaceKey, const FString& HorseId, int32 Stake, double Now)
+{
+    const FString Refusal = BetRefusal(S, PlayerId, RaceKey, HorseId, Stake, Now);
+    if (!Refusal.IsEmpty()) return Refusal;
+    return RacingBets::French(HRRules::PlaceBet(S, PlayerId, RaceKey, HorseId, Stake));
+}
+
+FString ARacingService::PlaceBet(const FString& PlayerId, const FString& RaceKey, const FString& HorseId, int32 Stake)
+{
+    if (!HasAuthority() || !bHasWorld) return TEXT("Les guichets sont fermés pour le moment.");
+    const FString Refusal = PlaceBetIn(State, PlayerId, RaceKey, HorseId, Stake, HostWorldSeconds());
+    const FHRPlayer* Player = HRRules::FindPlayer(State, PlayerId);
+    UE_LOG(LogTemp, Display, TEXT("RACING BET %s race=%s horse=%s stake=%d coins=%d%s%s"), *PlayerId, *RaceKey, *HorseId, Stake,
+        Player ? Player->Coins : -1, Refusal.IsEmpty() ? TEXT(" taken") : TEXT(" refused: "), *Refusal);
+    if (!Refusal.IsEmpty()) return Refusal;
+    // A session player's bet is never saved either.
+    if (!IsSessionPlayer(PlayerId)) bDirty = true;
+    RefreshWallets();
+    // The pool's odds moved: the TVs and the HUD show them at once.
+    if (GetWorld()) Publish(false);
+    return FString();
+}
+
+void ARacingService::BuildWallet(const FHRWorldState& S, const FString& PlayerId, double Now, FRacingWalletView& Out)
+{
+    Out = FRacingWalletView();
+    const FHRPlayer* Player = PlayerId.IsEmpty() ? nullptr : HRRules::FindPlayer(S, PlayerId);
+    if (!Player) return;
+    Out.bActive = true;
+    Out.bSession = IsSessionPlayer(PlayerId);
+    Out.Day = S.T;
+    Out.DayStaked = HRRules::DayStake(S, PlayerId);
+    const uint8 Venue = uint8(VenueForDay(S.T));
+    int64 Hidden = 0;
+    TArray<FRacingTicketView> Open, Done;
+    for (const FHRTicket& T : S.Tickets)
+    {
+        if (T.PlayerId != PlayerId) continue;
+        FRacingTicketView V;
+        V.Id = T.Id;
+        V.Day = T.T;
+        V.Stake = T.Stake;
+        V.Payout = T.Payout;
+        const FHRHorse* Horse = S.Horses.Find(T.HorseId);
+        V.Horse = Horse ? Horse->Name : T.HorseId;
+        V.Status = uint8(T.Status == TEXT("won") ? ERacingTicket::Won : T.Status == TEXT("lost") ? ERacingTicket::Lost
+            : T.Status == TEXT("refunded") ? ERacingTicket::Refunded : ERacingTicket::Open);
+        V.OddsHundredths = RacingBets::Hundredths(T.Rapport);
+        const FHRRace* Race = T.T == S.T ? HRRules::FindRace(S, T.RaceKey) : nullptr;
+        if (Race)
+        {
+            V.Race = RaceName(*Race);
+            V.Venue = Venue;
+            V.Start = HRRules::RaceStartSeconds(S, T.RaceKey);
+            if (V.GetStatus() == ERacingTicket::Open) V.OddsHundredths = RacingBets::Hundredths(HRRules::Rapport(S, *Race, T.HorseId));
+            else
+            {
+                // Decided at the start, seen at the post: until then the ticket is still running and its payout not shown.
+                const double Home = Race->Status == TEXT("run") && Race->Finishes.Num() ? Race->Finishes[0].TimeUs / 1e6 : 0.;
+                if (V.Start >= 0. && Now < V.Start + Home + RevealSeconds)
+                {
+                    Hidden += T.Payout;
+                    V.Status = uint8(ERacingTicket::Open);
+                    V.Payout = 0;
+                    V.OddsHundredths = RacingBets::Hundredths(HRRules::Rapport(S, *Race, T.HorseId));
+                }
+            }
+        }
+        else
+        {
+            V.Race = RacingBets::PastRaceName(T.T, T.RaceKey);
+            V.Venue = uint8(VenueForDay(T.T));
+        }
+        if (V.GetStatus() == ERacingTicket::Open) Open.Add(MoveTemp(V));
+        else Done.Add(MoveTemp(V));
+    }
+    Out.Coins = int32(FMath::Clamp<int64>(int64(Player->Coins) - Hidden, 0, HRRules::MaxCoins));
+    Open.StableSort([](const FRacingTicketView& A, const FRacingTicketView& B) { return A.Start < B.Start; });
+    Out.Tickets = MoveTemp(Open);
+    // The latest results: tickets are placed in order, so the last ones settled are the last in the list.
+    for (int32 I = Done.Num() - 1, Shown = 0; I >= 0 && Shown < FRacingWalletView::MaxResults; --I, ++Shown) Out.Tickets.Add(Done[I]);
+}
+
+void ARacingService::BuildCard(const FHRWorldState& S, const FString& PlayerId, double Now, FRacingCard& Out)
+{
+    Out = FRacingCard();
+    Out.Day = S.T;
+    Out.Event = HRContent::EventForT(S.T).Name;
+    Out.NextMeeting = HRClock::DayStart(S.T + 1) + HRClock::FirstRaceSecond;
+    const uint8 Venue = uint8(VenueForDay(S.T));
+    for (const FHRRace& R : S.Meeting.Races)
+    {
+        const double Start = HRRules::RaceStartSeconds(S, R.Key);
+        if (R.IsRun() || Start < 0. || Now >= Start || R.Entries.Num() < 2) continue;
+        FRacingCardRace& C = Out.Races.AddDefaulted_GetRef();
+        C.Key = R.Key;
+        C.Name = RaceName(R);
+        C.Venue = Venue;
+        C.Distance = R.Distance;
+        C.Start = Start;
+        for (const FHRTicket& T : S.Tickets)
+            if (T.T == S.T && T.RaceKey == R.Key && T.PlayerId == PlayerId) C.MyTickets++;
+        for (const FHRRunner& Entry : R.Entries)
+        {
+            const FHRHorse* H = S.Horses.Find(Entry.HorseId);
+            const FHRStable* St = HRRules::FindStable(S, Entry.StableId);
+            FRacingCardRunner& Runner = C.Runners.AddDefaulted_GetRef();
+            Runner.HorseId = Entry.HorseId;
+            Runner.Horse = H ? H->Name : Entry.HorseId;
+            Runner.Stable = St ? St->Name : Entry.StableId;
+            Runner.Silks = St ? FColor::FromHex(St->Color) : FColor::White;
+            Runner.OddsHundredths = RacingBets::Hundredths(HRRules::Rapport(S, R, Entry.HorseId));
+            if (!Entry.RiderPlayerId.IsEmpty())
+            {
+                const FHRPlayer* P = HRRules::FindPlayer(S, Entry.RiderPlayerId);
+                Runner.Jockey = P && !P->Name.IsEmpty() ? P->Name : Entry.RiderPlayerId;
+            }
+            else if (const FHRRider* Rider = HRRules::RiderOf(S, Entry.HorseId)) Runner.Jockey = Rider->FullName();
+            for (const FHRTicket& T : S.Tickets)
+                if (T.T == S.T && T.RaceKey == R.Key && T.PlayerId == PlayerId && T.HorseId == Entry.HorseId) Runner.Mine++;
+        }
+    }
+    Out.Races.StableSort([](const FRacingCardRace& A, const FRacingCardRace& B) { return A.Start < B.Start; });
+}
+
+void ARacingService::BuildPreview(const FHRWorldState& S, FRacingCardPreview& Out)
+{
+    Out = FRacingCardPreview();
+    FHRWorldState Next = S;
+    HRRules::AdvanceDay(Next);
+    if (Next.T != S.T + 1) return;
+    const HRContent::FEvent& Event = HRContent::EventForT(Next.T);
+    Out.Day = Next.T;
+    Out.Event = Event.Name;
+    Out.Venue = uint8(VenueForDay(Next.T));
+    Out.bGrandPrix = Event.bGrandPrix;
+    Out.FirstStart = -1.;
+    for (const FHRRace& R : Next.Meeting.Races)
+    {
+        const double Start = HRRules::RaceStartSeconds(Next, R.Key);
+        if (Start < 0. || R.Entries.Num() < 2) continue;
+        ++Out.Races;
+        if (Out.FirstStart < 0. || Start < Out.FirstStart) { Out.FirstStart = Start; Out.Distance = R.Distance; }
+    }
+    if (Out.FirstStart < 0.) Out.FirstStart = HRClock::DayStart(Next.T) + HRClock::FirstRaceSecond;
+}
+
+FHRWorldState ARacingService::PersistentWorld(const FHRWorldState& S)
+{
+    FHRWorldState Out = S;
+    // A guest's stable stays in the world as a computer stable (they have no identity to come back with yet).
+    RacingStables::ReleaseSessionStables(Out);
+    for (auto It = Out.Players.CreateIterator(); It; ++It)
+        if (IsSessionPlayer(It.Key())) It.RemoveCurrent();
+    Out.Tickets.RemoveAll([](const FHRTicket& T) { return IsSessionPlayer(T.PlayerId); });
+    return Out;
+}
+
+void ARacingService::RefreshWallets()
+{
+    UWorld* World = GetWorld();
+    if (!World || !HasAuthority() || !bHasWorld) return;
+    const double Now = HostWorldSeconds();
+    for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+    {
+        URacingWallet* Wallet = URacingWallet::Of(It->Get());
+        if (!Wallet) continue;
+        Wallet->HostPlayerId = PlayerIdOf(It->Get());
+        FRacingWalletView View;
+        BuildWallet(State, Wallet->HostPlayerId, Now, View);
+        Wallet->HostSetView(View);
+        if (Wallet->WantsCard())
+        {
+            FRacingCard Card;
+            BuildCard(State, Wallet->HostPlayerId, Now, Card);
+            // Tomorrow's meeting, once a day and only once someone opens a betting window: the day's close runs on a
+            // copy of the world, off the game thread (the copy itself is taken here, where the world may change).
+            if (PreviewFor != State.T)
+            {
+                PreviewFor = State.T;
+                const double Started = FPlatformTime::Seconds();
+                TSharedRef<FHRWorldState> Copy = MakeShared<FHRWorldState>(State);
+                const double Copied = FPlatformTime::Seconds();
+                TWeakObjectPtr<ARacingService> Self(this);
+                const int32 For = State.T;
+                Async(EAsyncExecution::ThreadPool, [Self, Copy, For, Started, Copied]
+                {
+                    TSharedRef<FRacingCardPreview> Out = MakeShared<FRacingCardPreview>();
+                    BuildPreview(*Copy, *Out);
+                    const double Built = FPlatformTime::Seconds();
+                    AsyncTask(ENamedThreads::GameThread, [Self, Out, For, Started, Copied, Built]
+                    {
+                        ARacingService* Service = Self.Get();
+                        if (!Service || Service->PreviewFor != For) return;
+                        Service->Preview = Out;
+                        UE_LOG(LogTemp, Display, TEXT("RACING preview of day %d: %d races at %s (copy %.1f ms on the game thread, day's close %.1f ms off it)"),
+                            Out->Day, Out->Races, RacingLooks::VenueName(ERacingVenue(Out->Venue)), (Copied - Started) * 1000., (Built - Copied) * 1000.);
+                        Service->RefreshWallets();
+                    });
+                });
+            }
+            if (Preview.IsValid() && Preview->Day == State.T + 1) Card.Next = *Preview;
+            Wallet->HostSetCard(Card);
+        }
+    }
+    // The records hall (docs/RACING.md, "Records hall"): its objects' texts, only to readers in the hall, rebuilt when a
+    // race is noted or the day changes, and every five seconds so a result shows once its race is seen won.
+    bool bHallBuilt = false;
+    for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+    {
+        URacingRecordsDesk* Desk = URacingRecordsDesk::Of(It->Get());
+        if (!Desk || !Desk->WantsBoards()) continue;
+        if (!bHallBuilt)
+        {
+            bHallBuilt = true;
+            const uint32 Stamp = HashCombine(GetTypeHash(State.T), HashCombine(GetTypeHash(Ledger->Revision), GetTypeHash(State.Meeting.Races.Num())));
+            const double Real = FPlatformTime::Seconds();
+            if (Stamp != HallStamp || Real - HallBuilt >= 5.)
+            {
+                const double Started = Real;
+                RacingRecords::BuildBoards(State, *Ledger, Now, *HallBoards);
+                HallStamp = Stamp;
+                HallBuilt = FPlatformTime::Seconds();
+                UE_LOG(LogTemp, Verbose, TEXT("RACING RECORDS boards built in %.2f ms"), (HallBuilt - Started) * 1000.);
+            }
+        }
+        Desk->HostSetBoards(*HallBoards);
+    }
+    // The stables (docs/RACING.md, "Stables"): each owner's view, and the market while they are at their stable.
+    for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+    {
+        URacingStableDesk* Desk = URacingStableDesk::Of(It->Get());
+        if (!Desk) continue;
+        Desk->HostPlayerId = PlayerIdOf(It->Get());
+        FRacingStableView View;
+        RacingStables::BuildView(State, Desk->HostPlayerId, View);
+        Desk->HostSetView(View);
+        if (Desk->WantsMarket())
+        {
+            FRacingStableMarket Market;
+            RacingStables::BuildMarket(State, Desk->HostPlayerId, Market);
+            Desk->HostSetMarket(Market);
+        }
+    }
+}
+
+FString ARacingService::ApplyStableRequest(const FString& PlayerId, const FRacingStableRequest& Request)
+{
+    if (!HasAuthority() || !bHasWorld) return TEXT("L'écurie est fermée pour le moment.");
+    const FString Refusal = RacingStables::Apply(State, PlayerId, Request);
+    const FHRPlayer* Player = HRRules::FindPlayer(State, PlayerId);
+    UE_LOG(LogTemp, Display, TEXT("RACING STABLE %s action=%d target=%s other=%s coins=%d%s%s"), *PlayerId, Request.Action, *Request.Target, *Request.Other,
+        Player ? Player->Coins : -1, Refusal.IsEmpty() ? TEXT(" done") : TEXT(" refused: "), *Refusal);
+    if (!Refusal.IsEmpty()) return Refusal;
+    // The stable is the world's (a guest's too): saved.
+    bDirty = true;
+    RefreshWallets();
+    if (GetWorld()) Publish(false);
+    return FString();
+}
+
+void ARacingService::AdvanceClock(double Seconds)
+{
+    if (!HasAuthority() || !bHasWorld) return;
+    DevSeconds += FMath::Max(Seconds, 0.);
+    double Now = HostWorldSeconds();
+    HRRules::LimitCatchUp(State, Now);
+    // Day by day, as the host's tick, so the records hall notes every race.
+    for (int32 Guard = 0; Guard <= HRRules::MaxCatchUpDays + 1; ++Guard)
+    {
+        const int32 Day = State.T;
+        AdvanceNoting(Now);
+        if (State.T == Day) break;
+    }
+    bDirty = true;
+}
+
 // ------------------------------------------------------------------------------------------------------------ HUD, travel, live
+
+ERacingVenue ARacingService::GroundsVenue(const FVector& At) const
+{
+    // The stands (RacingTv::VenueShots): Hidamari's grandstand by the post, Belmonte's along its home straight.
+    static const struct { ERacingVenue Venue; uint8 Track; } Courses[] = {
+        {ERacingVenue::Hidamari, 0}, {ERacingVenue::Belmonte, 0}, {ERacingVenue::Belmonte, 1}};
+    for (int32 I = 0; I < int32(UE_ARRAY_COUNT(Courses)); ++I)
+    {
+        const FRacingCourse* C = GetCourse(Courses[I].Venue, Courses[I].Track);
+        if (!C) continue;
+        RacingGrounds::FFootprint& G = Grounds[I];
+        if (!G.IsValid() || G.Lap != C->Lap())
+        {
+            const RacingTv::FVenueShots& Stand = RacingTv::VenueShots(uint8(Courses[I].Venue));
+            G.Build(*C, Stand.StandS, Stand.StandOut, Stand.StandHalf);
+        }
+        if (G.Contains(At)) return Courses[I].Venue;
+    }
+    return ERacingVenue::Count;
+}
 
 FString ARacingService::HudLine(const AWandererCharacter* Pawn) const
 {
-    if (!Pawn || !Net.Serial || !bCoursesLoaded) return FString();
-    const FVector At = Pawn->GetActorLocation();
-    ERacingVenue Near = ERacingVenue::Count;
-    for (const ERacingVenue V : {ERacingVenue::Hidamari, ERacingVenue::Belmonte})
-        if (const FRacingCourse* C = GetCourse(V); C && NearCourse(*C, At)) { Near = V; break; }
+    return Pawn ? HudLineAt(Pawn->GetActorLocation(), WorldNow()) : FString();
+}
+
+FString ARacingService::HudLineAt(const FVector& At, double Now) const
+{
+    if (!Net.Serial) return FString();
+    // Only on a racecourse's grounds: never in the town round it (docs/RACING.md, "HUD").
+    const ERacingVenue Near = GroundsVenue(At);
     if (Near == ERacingVenue::Count) return FString();
     const FString Venue = FString::Printf(TEXT("Hippodrome de %s"), RacingLooks::VenueName(Near));
-    const double Now = WorldNow();
     const FRacingNetRace& Race = Net.Race;
     const FRacingNetResult& Last = Net.Last;
     FString Result;
@@ -1169,20 +1674,20 @@ FString ARacingService::StateJson() const
         const FRacingNetRunner& R = Race.Runners[I];
         Runners += FString::Printf(TEXT("%s{\"horse\":\"%s\",\"stable\":\"%s\",\"jockey\":\"%s\",\"odds\":%.1f,\"breed\":%d,\"coat\":%d,\"place\":%d,"
             "\"distance\":%.1f,\"speed\":%.2f,\"at\":[%.0f,%.0f,%.0f],\"placed\":%s}"), I ? TEXT(",") : TEXT(""),
-            *R.Horse.ReplaceCharWithEscapedChar(), *R.Stable.ReplaceCharWithEscapedChar(), *R.Jockey.ReplaceCharWithEscapedChar(), R.OddsTenths / 10.,
+            *RacingJsonEscape(R.Horse), *RacingJsonEscape(R.Stable), *RacingJsonEscape(R.Jockey), R.OddsTenths / 10.,
             R.Breed, R.Coat, R.Place, RacingMotion::Distance(R.Plan(Race.Distance), Now - Race.Start), Speed, Where.X, Where.Y, Where.Z,
             bPlaced ? TEXT("true") : TEXT("false"));
     }
     FString Top;
-    for (int32 I = 0; I < Net.Last.Top.Num(); ++I) Top += FString::Printf(TEXT("%s\"%s\""), I ? TEXT(",") : TEXT(""), *Net.Last.Top[I].ReplaceCharWithEscapedChar());
+    for (int32 I = 0; I < Net.Last.Top.Num(); ++I) Top += FString::Printf(TEXT("%s\"%s\""), I ? TEXT(",") : TEXT(""), *RacingJsonEscape(Net.Last.Top[I]));
     return FString::Printf(TEXT("{\"serial\":%u,\"host\":%s,\"world\":%.2f,\"scale\":%.2f,\"day\":%d,\"event\":\"%s\",\"grand_prix\":%s,"
         "\"race\":{\"key\":\"%s\",\"name\":\"%s\",\"venue\":\"%s\",\"track\":%d,\"distance\":%d,\"start\":%.2f,\"t\":%.2f,\"run\":%s,\"runners\":[%s]},"
         "\"last\":{\"race\":\"%s\",\"top\":[%s]},\"shown\":%d,\"courses\":%s,\"players\":%d,\"save\":\"%s\"}"),
-        Net.Serial, HasAuthority() ? TEXT("true") : TEXT("false"), Now, Net.Scale, Net.Day, *Net.Event.ReplaceCharWithEscapedChar(),
-        Net.bGrandPrix ? TEXT("true") : TEXT("false"), *Race.Key, *Race.Name.ReplaceCharWithEscapedChar(),
+        Net.Serial, HasAuthority() ? TEXT("true") : TEXT("false"), Now, Net.Scale, Net.Day, *RacingJsonEscape(Net.Event),
+        Net.bGrandPrix ? TEXT("true") : TEXT("false"), *Race.Key, *RacingJsonEscape(Race.Name),
         RacingLooks::VenueName(ERacingVenue(Race.Venue)), Race.Track, Race.Distance, Race.Start, Now - Race.Start, Race.bRun ? TEXT("true") : TEXT("false"),
-        *Runners, *Net.Last.Race.ReplaceCharWithEscapedChar(), *Top, Shown.Num(), bCoursesLoaded ? TEXT("true") : TEXT("false"),
-        bHasWorld ? State.Players.Num() : -1, *SavePath.ReplaceCharWithEscapedChar());
+        *Runners, *RacingJsonEscape(Net.Last.Race), *Top, Shown.Num(), bCoursesLoaded ? TEXT("true") : TEXT("false"),
+        bHasWorld ? State.Players.Num() : -1, *RacingJsonEscape(SavePath));
 }
 
 FString URacingLive::RacingState()
@@ -1226,4 +1731,73 @@ bool URacingLive::RacingTvGo(const FString& Spot)
 {
     ARacingBroadcast* Broadcast = ARacingBroadcast::Find(ULiveLibrary::GameWorld());
     return Broadcast && Broadcast->GoToScreen(Spot);
+}
+
+FString URacingLive::RacingWallet()
+{
+    const URacingWallet* Wallet = URacingWallet::Local(ULiveLibrary::GameWorld());
+    if (!Wallet) return TEXT("{}");
+    const FRacingWalletView& V = Wallet->GetView();
+    auto Escape = [](const FString& Text) { return RacingJsonEscape(Text); };
+    FString Tickets;
+    for (const FRacingTicketView& T : V.Tickets)
+        Tickets += FString::Printf(TEXT("%s{\"id\":\"%s\",\"race\":\"%s\",\"horse\":\"%s\",\"day\":%d,\"start\":%.1f,\"stake\":%d,\"status\":%d,\"payout\":%d,\"odds\":%.2f}"),
+            Tickets.IsEmpty() ? TEXT("") : TEXT(","), *Escape(T.Id), *Escape(T.Race), *Escape(T.Horse), T.Day, T.Start, T.Stake, T.Status, T.Payout,
+            T.OddsHundredths / 100.);
+    FString Races;
+    for (const FRacingCardRace& R : Wallet->GetCard().Races)
+    {
+        FString Runners;
+        for (const FRacingCardRunner& Run : R.Runners)
+            Runners += FString::Printf(TEXT("%s{\"id\":\"%s\",\"horse\":\"%s\",\"odds\":%.2f,\"mine\":%d}"), Runners.IsEmpty() ? TEXT("") : TEXT(","),
+                *Escape(Run.HorseId), *Escape(Run.Horse), Run.OddsHundredths / 100., Run.Mine);
+        Races += FString::Printf(TEXT("%s{\"key\":\"%s\",\"name\":\"%s\",\"start\":%.1f,\"mine\":%d,\"runners\":[%s]}"), Races.IsEmpty() ? TEXT("") : TEXT(","),
+            *Escape(R.Key), *Escape(R.Name), R.Start, R.MyTickets, *Runners);
+    }
+    const ARacingService* Service = ARacingService::Find(ULiveLibrary::GameWorld());
+    const AWandererCharacter* Pawn = Cast<AWandererCharacter>(ULiveLibrary::Player());
+    return FString::Printf(TEXT("{\"active\":%s,\"session\":%s,\"coins\":%d,\"day_staked\":%d,\"open\":%d,\"tickets\":[%s],\"card\":[%s],"
+        "\"pending\":%s,\"reply\":{\"seq\":%u,\"error\":\"%s\"},\"at_counter\":%s,\"window\":%s,\"world\":%.1f}"),
+        V.bActive ? TEXT("true") : TEXT("false"), V.bSession ? TEXT("true") : TEXT("false"), V.Coins, V.DayStaked, V.OpenCount(), *Tickets, *Races,
+        Wallet->IsPending() ? TEXT("true") : TEXT("false"), Wallet->GetReplySeq(), *Escape(Wallet->GetReplyError()),
+        RacingCounter::CanUse(Pawn) ? TEXT("true") : TEXT("false"), *RacingCounter::WindowJson(), Service ? Service->WorldNow() : 0.);
+}
+
+bool URacingLive::RacingCounterGo()
+{
+    return RacingCounter::GoTo(Cast<AWandererCharacter>(ULiveLibrary::Player()));
+}
+
+int32 URacingLive::RacingBet(const FString& RaceKey, const FString& HorseId, int32 Stake)
+{
+    URacingWallet* Wallet = URacingWallet::Local(ULiveLibrary::GameWorld());
+    return Wallet ? int32(Wallet->RequestBet(RaceKey, HorseId, Stake)) : 0;
+}
+
+FString URacingLive::RacingPlayers()
+{
+    UWorld* World = ULiveLibrary::GameWorld();
+    const ARacingService* Service = ARacingService::Find(World);
+    auto Escape = [](const FString& Text) { return RacingJsonEscape(Text); };
+    FString Connected, Kept;
+    if (World && Service && Service->HasAuthority())
+    {
+        for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+            Connected += FString::Printf(TEXT("%s\"%s\""), Connected.IsEmpty() ? TEXT("") : TEXT(","), *Escape(ARacingService::PlayerIdOf(It->Get())));
+        const FHRWorldState& S = Service->GetWorldState();
+        for (const TPair<FString, FHRPlayer>& P : S.Players)
+        {
+            int32 Open = 0, Tickets = 0;
+            for (const FHRTicket& T : S.Tickets)
+                if (T.PlayerId == P.Key) { ++Tickets; Open += T.Status == TEXT("open") ? 1 : 0; }
+            const FHRStable* St = HRRules::PlayerStable(S, P.Key);
+            Kept += FString::Printf(TEXT("%s{\"key\":\"%s\",\"name\":\"%s\",\"coins\":%d,\"tickets\":%d,\"open\":%d,\"stable\":\"%s\"}"),
+                Kept.IsEmpty() ? TEXT("") : TEXT(","), *Escape(P.Key), *Escape(P.Value.Name), P.Value.Coins, Tickets, Open, St ? *Escape(St->Id) : TEXT(""));
+        }
+    }
+    const URacingWallet* Wallet = URacingWallet::Local(World);
+    const AController* Local = World ? World->GetFirstPlayerController() : nullptr;
+    return FString::Printf(TEXT("{\"install\":\"%s\",\"local_key\":\"%s\",\"host\":%s,\"connected\":[%s],\"players\":[%s]}"),
+        *ARacingService::LocalInstallId(), Local && Local->HasAuthority() ? *Escape(ARacingService::PlayerIdOf(Local)) : TEXT(""),
+        Service && Service->HasAuthority() ? TEXT("true") : TEXT("false"), *Connected, *Kept);
 }

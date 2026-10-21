@@ -3,8 +3,9 @@
 Races run in the world on the rules of the `HorseRacing` game plugin
 (`games/yorimichi/unreal/Plugins/HorseRacing`, module `AtelierHorseRacing`): a continuous clock with one race day
 every two real hours and up to six races a day, computer stables, jockeys and Grand Prix days. Yorimichi shows the
-races at two racecourses, the same for every player. Four TVs in Belmonte show the races live. There are no bets, stables or menus yet: later work adds betting and player
-stables.
+races at two racecourses, the same for every player. Four TVs in Belmonte show the races live, and the Salon des Paris
+takes win bets ("gagnant") from every player's wallet. Each player has a stable of their own: Belmonte's "Votre écurie"
+estate for the host's player, the Hidamari stable for the next one.
 
 ## The service
 
@@ -24,12 +25,22 @@ and positions computed on every machine from the replicated clock, never replica
   file cannot be read at all, it is left exactly as it is, no world opens and racing stays off (an error in the log,
   `GetPersistenceError()`). A failed save keeps the accepted world in memory and dirty, logs the error, and the next save
   tries again.
-- **Players.** V1 registers the host's own player only (`HRRules::AddPlayer`), with an id saved beside the world
-  (`Saved/racing/player-id.txt`); its name is their character's. **Remote guests get no player record, wallet or stable**:
-  there is no persistent guest identity yet (an online id may be missing and a session id changes every session), so
-  nothing persistent may be owned by one. Guests watch from the replicated snapshot, which carries no player, coins,
-  tickets or ownership; every rules call that changes the world (and `racing.Next`, `racing.TimeScale`, `racing.Save`)
-  runs on the host only. Betting, stables and wallets for guests wait for a persistent guest identity.
+- **Players** (`RacingIdentity.h/.cpp`). Every install keeps one random id, 32 hexadecimal digits generated once and
+  saved beside its racing world (`Saved/racing/player-id.txt`, or beside `-racingsave=PATH`): no personal data, no
+  secret. The host's own player is `local:<id>` (the file's text, unchanged from before guests had an identity). A guest
+  presents its install's id to the host when it joins (`URacingWallet::ServerIdentify`, sent once by the guest's wallet
+  as soon as it is its own) and the host keys its racing player `guest:<id>`: its record (`HRRules::AddPlayer`: wallet,
+  tickets) and its stable are saved with the world like the host's, so a returning guest finds its coins, open bets and
+  stable again, whatever session or host restart came in between. Until its id arrives a guest is not registered (no
+  wallet yet). A guest key never equals the host's (`guest:` against `local:`): a guest cannot become the host's player,
+  even from the same install. **Collisions:** a second connection presenting an id another connected player already
+  holds, or an id that is not 32 hexadecimal digits, gets a session player, `session:<session player id>`: a wallet for
+  this session only, never saved (`PersistentWorld` leaves session players and their tickets out), and no stable; the
+  first holder keeps its wallet and stable. A guest that crashes and rejoins before the host has dropped its old
+  connection is such a second connection until then. **Spoofing:** the id is not authentication. A friend who copies
+  another's `player-id.txt` is that player on this host; acceptable for V1's LAN and friends' sessions, where the host
+  chooses whom to let in. Its name is their character's. Every rules call that changes the world (and `racing.Next`, `racing.TimeScale`, `racing.Save`) runs on the
+  host only.
 - **The snapshot.** `FRacingNetState` carries the clock anchor (the rules' world second at a server time, and the dev
   time scale), the race day and its event, the race in focus, the last podium and the six best stables. The race in
   focus is the one running or just run (for the rules' 180 s after its start), else the next one today. Each runner
@@ -132,10 +143,168 @@ though the main view does not draw them. The field is the same six runners the s
 to keep in step. Each camera's sightline is checked with a trace from its subject against the static world; a blocked
 camera moves in front of the obstacle.
 
+## Betting
+
+Win bets only, on the rules' pari-mutuel pool (`HRRules` betting: `BetRefusal`, `PlaceBet`, `SettleRace`). One currency,
+the rules' coins ("pièces"): a new player starts with the rules' `FHRPlayer` coins (160) and earns their daily income;
+later horses and salaries use the same wallet. Balances saturate within 0..`MaxCoins`; stakes are 1 to 10, at most 30
+a day and three tickets a race (`FBetLimits`).
+
+- **The Salon des Paris.** Its three betting windows (Haras Valley's `gameplay.salon`: the central window's betting
+  point and the windows 2.5 m apart along the counter) are derived from the Salon hall's committed placement
+  (`SM_BM_BHip_SalonHall` in `assets/belmonte/source.json`) by `world/regions/belmonte/build.py` (`SALON_COUNTER`,
+  `racing_places`), written into Belmonte's `runtime.json` as `racing_places.counter` and read by `RacingCounter`
+  (`RacingBetting.h`, through `RacingPlaces`) round the region's origin, as the TVs. There is no hardcoded fallback:
+  without that entry (an old `runtime.json`: run `world.belmonte` and `data.stage`) there is no counter. Within 2.6 m of the counter, on foot, the HUD offers "Parier au guichet" and Interact
+  (D-pad Down, E) opens the betting window.
+- **The window** (`SRacingBetWindow`, the game's forest-and-brass menu style): today's races still open to bets on the
+  left (the venue, distance and countdown), the selected race's runners with their silks, jockey, stable and current
+  odds on the right, the stake under them with the estimated return, then the player's open tickets and latest results.
+  Gamepad first: LB / RB change the race, up / down the horse, left / right the stake, the bottom button bets (once to
+  choose, again to confirm), the right button cancels or closes. The keyboard (Tab, arrows, Enter, Esc) and the mouse
+  work the same rows. It exists only while open and redraws when its data changes, never every frame. Under the open
+  races, "Demain · programme" previews the next race day, read-only (bets open on the day itself): its venue, event,
+  number of races, first distance and the countdown to its first race. The host builds it once a day, when a window
+  first opens, by running the day's close on a copy of the world (`ARacingService::BuildPreview`): the copy is taken on
+  the game thread (about 2 ms), the close runs on a worker (about 0.3 s), and the card gets it when it is done.
+- **Authority.** `URacingWallet`, a component on every player controller, carries the player's wallet view
+  (`FRacingWalletView`: coins, the day's stakes, open tickets and the last eight results) and, while their window is
+  open, the race card (`FRacingCard`), both replicated to their owner only. A guest's window sends `ServerPlaceBet`; the
+  host checks the request (sizes), then `ARacingService::PlaceBet`: betting on a race closes at its start, then the
+  rules' refusal decides (the runner, the stake, the day's limit, the balance, the tickets per race), and answers with
+  `ClientBetReply` (the refusal in French, empty when taken). At most five requests a second are looked at. Offline and
+  on the host the same calls run directly.
+- **Settlement.** The rules decide and settle a race at its start (`RunNextRace` pays the winners at the pool's odds,
+  refunds a race not run or a non-runner first, and the day's close refunds what is left). The wallet shows a decided
+  ticket as running, and its payout not yet in the coins, until 1.5 s after the winner is home
+  (`ARacingService::RevealSeconds`), so the result is never known before it is seen. Then the HUD shows one line
+  ("Pari gagnant : … +N pièces", "Pari perdu", "Pari remboursé") for seven seconds; no voice.
+- **HUD.** The purse sits under the health bar ("160 pièces · 1 pari en cours"). The host refreshes every wallet twice
+  a second and when the world changes; a bet republishes the snapshot so the TVs show the moved odds.
+- **Persistence.** The host's player's and every guest's coins and tickets are part of the racing world and saved with it
+  (`HRSave` admission); a session player's are not.
+
+## Stables
+
+Racing V1 gives each player a stable at once, free, with no quest; racing stays optional and the world lives on its own
+(the computer stables race whatever the players do). Management is light, "stats without menus": what a player needs to
+know hangs on the stable itself, read close up, and a small overlay only chooses, sorts and confirms. The rules decide
+everything (`HRRules`: `BuyStable`, `FoundStable`, `SetResting`, `BuyHorse`, `ListHorse`, `BreedPlayer`, `HireRider`,
+`ListRider`, `ReleaseRider`, the day's close for upkeep and salaries); `RacingStables` (`RacingStables.h/.cpp`) only asks
+them and says their answers in French. Money is the wallet's pièces; Henry's economy is unchanged.
+
+- **The sites** (`RacingStables::Sites()`, in the order they are given): `belmonte`, Haras Valley's estate 0 (Val d'Oro,
+  the existing building signed "Votre écurie"), which is the rules' stable for sale `old_mill`, renamed "Écurie de la
+  Vallée"; then `hidamari`, the new Hidamari stable (陽だまり厩舎, `world/regions/hidamari_stable`), stable id `hidamari`,
+  "Écurie Hidamari". **Assignment:** when a player registers, the host gives them the first site no player owns that they
+  may claim: Belmonte is for the host's own player only (`local:`), Hidamari for a guest with an install id, so the host's player
+  gets Belmonte and the first distinct guest Hidamari, whoever connects first, for good (the mapping is the stable's
+  owner, saved with the world). A session player gets none. The stable for sale is bought for them with its three
+  riders, a missing one founded (under the stand-in player `site:<id>`, then given to them), an unowned one taken over;
+  the rules' price is lent and the balance restored, so it is free. Its jockeys ride (`bRides` off). A third player gets
+  none in V1. Changing who gets what is changing the table.
+- **Away** (`RacingIdentity`): a guest's stable stays theirs while they are away, saved with the world; no computer
+  stable or other guest takes it over, and the rules run it as any player's (its horses race as entered, salaries and
+  upkeep come from its owner's wallet at each day's close, a jockey who cannot be paid leaves). Only a stable a session
+  player owns goes back to the world when they leave (`RacingStables::Release`: a computer stable that keeps its horses
+  and jockeys; the next guest takes an unowned site over), which only a world saved before guests had an identity can
+  hold. The host's player's stable, horses, jockeys and coins, and every guest's, are saved with the world (`HRSave`
+  admission).
+- **In the world** (`ARacingStableBoards`, drawn on every machine for its own player, never on a dedicated server, and
+  only within 45 m of their stable): a name plate on every stall door (the horse's name, sex, age, card score, the four
+  abilities, form, record, status and today's race), the jockeys' board (the three jockeys: country, age, the four stats
+  and their overall, salary, record, the day's salaries and costs) and the transfer board (the listed and free jockeys,
+  horses for sale). At Belmonte the plates hang on the eleven stall doors of the stable range's yard front and the boards
+  either side of its main door (Haras Valley's `estates.json`, estate 0), derived from the estate's committed placement
+  (`SM_BM_BE_0_Stables`) by `world/regions/belmonte/build.py` (`BELMONTE_STABLE`) into `runtime.json`'s
+  `racing_places.belmonte_stable`, with no hardcoded fallback; at Hidamari on its stall plates and its office's
+  cork board, halved (its `stable.json`, only while `AHidamariStable` stands in the world: its committed
+  `bEnabled` switch on and its import run). World text is Latin-1.
+- **The Hidamari stable is disabled for now.** Its geometry and runtime (#475) are behind committed switches
+  (`hidamari_stable/layout.py` `ENABLED = False`, `AHidamariStable::bEnabled`), and its three build steps are explicit.
+  The second player is still assigned the `hidamari` stable in the rules (its horses and jockeys race, and its
+  host-validated requests work through the live `racing_stable_act` call), but it has no plates, boards, prompts or
+  overlay in the world until the stable is enabled: `RacingStables::SiteAnchors` returns none while no
+  `AHidamariStable` stands in the world. Enabling it is a separate change: flip both switches, put `world.hidamari_stable` and `unreal.hidamari_stable`
+  into the default chain (not explicit) and their outputs into staging/cook, and rebuild the terrain chain that reads
+  `hidamari_stable/layout.py` (`world.layout`, `world.hippodrome`, `world.belmonte`, `world.terrain` and the Unreal
+  imports after them): a full world rebuild. The content policy already keeps `HidamariStable`/`hidamari_stable` (#482).
+- **Actions.** Within reach of a plate or board the HUD offers it and Interact (D-pad Down, E) opens the overlay, a
+  narrow panel in the betting window's forest and brass: at a plate, enter the horse for the coming race days or rest it
+  (the rules enter a stable's best three non-resting horses each day), put it up for sale at its value or withdraw it
+  (another stable buys it at a day's close), or cover it (a partner of the other sex from the stable or another stable,
+  the service plus the fee; the foal is born in the stable after the rules' gestation); at the jockeys' board, list a
+  jockey for transfer at its value, take it off, or release it; at the transfer board, sign a listed jockey (its price
+  to its stable, the offer the rules accept at once) or a free agent, or buy a market recruit or a listed horse. Up and
+  down choose, the bottom button acts (twice when it costs or commits), the right button goes back, the bumpers switch
+  the transfer board between jockeys and horses, the left button sorts by price or rating. Salaries and upkeep are paid
+  from the wallet at each day's close; a jockey who cannot be paid leaves.
+- **Authority.** `URacingStableDesk`, on every player controller, carries the stable's view (`FRacingStableView`) and,
+  while its owner is at their stable or has the overlay open, the market (`FRacingStableMarket`), both replicated to the
+  owner only. A request (`FRacingStableRequest`: the action, a target, another) goes to the host (`ServerRequest`), which
+  checks its sizes and action, at most five a second, then `ARacingService::ApplyStableRequest` asks the rules and
+  answers (`ClientReply`, the refusal in French). The host rebuilds the views twice a second and when the world changes.
+
+## Records hall
+
+Every statistic of the racing world lives in one place, the "salle des courses" of Belmonte's town hall, and is read on
+its objects close up, one page at a time, never in a big menu (Paul's racing vision). The town hall is Haras Valley's
+Palazzo Comunale (sign MAIRIE, `heroes.json`: at Belmonte-local (0, -3150, 263) cm, turned to face the piazza); it has no
+interior, so the hall is its open ground-floor loggia (24.8 x 4.2 m, 6 m high, five arches onto the piazza, its back
+wall pierced by three doors and two windows). `RacingRecords` (`RacingRecords.h/.cpp`) holds it:
+
+- **The objects** (`RacingRecords::HallAnchors`, placed from `runtime.json`'s `racing_places.records_hall`, which
+  `world/regions/belmonte/build.py` (`RECORDS_HALL`) derives from the palazzo's committed placement
+  `SM_BM_BH_PalazzoComunale` in `assets/belmonte/source.json`; no hardcoded fallback, so no hall without it): a black split-flap board in a brass frame over the middle door (the
+  season's standings and today's results: each race once its winner is seen home, never the schedule or a countdown);
+  between the doors and windows at eye height, one record panel per circuit (Hidamari's oval, Belmonte's turf, Belmonte's
+  sand: the best time at each distance, the horse, its jockey, its stable, the date) and per Grand Prix (the final's and
+  the heats' records and the winners by season), and the hall's plaque; the honour boards on the end walls (most wins,
+  most defeats, most Grands Prix, most earnings, longest winning streaks: the top three horses, jockeys and stables on
+  each); in the east corner a walnut card cabinet (a card per horse, jockey and stable), in the west corner a table of
+  archive ledgers. World text is Latin-1 TextRender on boards of engine cubes (no new assets) (`ARacingRecordsHall`, on every machine that
+  draws, for its own player): built only within 40 m of the hall, culled beyond, rewritten at most once a second and
+  only when the texts change; no per-frame work.
+- **Reading.** Within reach of an object the HUD offers it and Interact (D-pad Down, E) opens the reader, a narrow panel
+  in the betting window's forest and brass. Up and down choose a line, the bottom button opens its card (a horse's,
+  jockey's or stable's: totals, records held, last races, titles), the right button goes back, the bumpers switch the
+  ranking (horses, jockeys, stables; on a record panel the next panel), left and right turn the page (eight lines a
+  page), the left button sorts the cabinet (name, wins, earnings) and the archives (newest first, name), the top button
+  picks a first letter; on a keyboard, typing searches a name (accents and case ignored).
+- **Where numbers come from.** Henry's rules keep careers and totals: horses' starts, wins, Grands Prix, earnings and
+  career lines, riders' rides and wins, stables' titles and earnings. Wins follow the rules (a heat is a ride, never a
+  win); a defeat is a start without a win, heats included; a streak counts consecutive wins, heats skipped. A stable's
+  races are its horses' career lines (each says which stable it ran for), one race counted once. What the rules do not
+  keep, the host notes in a ledger (`FRacingLedger`, `Saved/racing/records.json` beside the world, written with it
+  through a temporary file; admitted by `FRacingLedger::FromJson` (version, bounded collections and strings, unique
+  record keys, sane counts) and kept aside as `records.json.unreadable-<unix time>` when it is not admissible or belongs
+  to another seed, never written over; one that cannot be read or kept aside is left as it is and that session saves no
+  ledger): each run race once its winner is home (`RacingRecords::Note`), the record
+  times per circuit and distance and per Grand Prix (final, heats) and each rider's Grands Prix, earnings and streaks
+  (players who ride included). The host steps the world day by day (`ARacingService::AdvanceNoting`) so a day's races
+  are noted before the rules close it, also on a catch-up; record times and riders' extras start when the hall first
+  opens.
+- **Archives.** The rules archive a horse two in-game years after its retirement (`HRClock::ArchiveDays`, placement
+  `archive`); a rider is archived by the same rule. Archived horses and riders leave the cabinet for the archive
+  ledgers; the honour boards keep them (all-time). Stables are never archived.
+- **Authority.** `URacingRecordsDesk`, on every player controller, carries the page the player reads
+  (`FRacingRecordsPage`) and, while they are in the hall, the objects' texts (`FRacingHallBoards`), both replicated to
+  the owner only and only on demand. A query (`FRacingRecordsQuery`: object, panel or board, kind, sort, search, page,
+  card) goes to the host (`ServerAsk`, at most ten a second), which checks its sizes and builds it from the world and the
+  ledger (`RacingRecords::BuildPage`). The hall's texts are rebuilt when a race is noted or the day changes and every
+  five seconds for the countdowns, only while someone is in the hall. Text is French; the rules' horse, stable, jockey
+  and event names stay English.
+
 ## HUD
 
-Near a racecourse the HUD shows one line at the top: the next race and its countdown, "Course en cours" while the
-field runs, the podium ("Arrivée : 1. … 2. … 3. …") for five minutes after a finish, or where today's races are run.
+On a racecourse's grounds the HUD shows one line at the top: the next race and its countdown, "Course en cours" while
+the field runs, the podium ("Arrivée : 1. … 2. … 3. …") for five minutes after a finish, or where today's races are run.
+**Race timing (next race, next meeting, countdowns, the races elsewhere) never shows in the general HUD away from a
+hippodrome** (Paul's rule): only on its grounds (`RacingGrounds`: the course footprint out to the outer rail and its stand,
+from the course data and `RacingTv::VenueShots`, with a 40 m margin; `ARacingService::GroundsVenue`), at the Salon's betting
+windows and on the TVs. The town round a course, the Salon's square and the station show none. `NearCourse` (about
+600 m) still decides where the runners are drawn. The wallet line (coins, open bets) and a settled ticket's toast are not
+timing and show everywhere; the records hall shows results, never the schedule.
 
 ## Dev and live
 
@@ -146,12 +315,39 @@ racing.Go hidamari|belmonte # stand by the post of a racecourse
 racing.Save                 # write the world now
 racing.Tv osteria_front     # stand at a TV's watch point (osteria_front, osteria_back, salon_paris, salon_bar)
 racing.TvCapture 0          # keep the TVs' capture off (the idle card only), to measure it
+racing.Stable plate 0       # stand before a plate (plate <n>), the jockeys' board (jockeys) or the transfer board (transfers)
+racing.Records board        # stand before an object of the records hall: board, record <n>, honour <n>, cabinet, archive, plaque
 ```
 
 Launch flags: `-racingnext`, `-racingseed=`, `-racingsave=`. The live bridge has `unreal.RacingLive.racing_state()`
 (JSON: clock, race, each runner's distance, speed and position), `racing_next(lead)`, `racing_go(venue)` and
 `racing_view_point(along, outwards)` (a point by the course and the yaw facing it), `racing_tv_state()` (JSON: the screens,
-whether the capture is live, the shot, the nearest screen, frame and GPU times) and `racing_tv_go(spot)`.
+whether the capture is live, the shot, the nearest screen, frame and GPU times), `racing_tv_go(spot)`, `racing_wallet()`
+(JSON: the local wallet, the race card, the last answer, whether the player is at the counter and the window's
+selection), `racing_counter_go()` and `racing_bet(race, horse, stake)` (a request as the window sends it). `unreal.RacingStableLive`:
+`racing_stable()` (JSON: the stable, its horses and jockeys, the market, the boards shown, the prompt and the overlay),
+`racing_stable_go(spot)`, `racing_stable_open()` and `racing_stable_act(action, target, other)`. `unreal.RacingRecordsLive`:
+`racing_records()` (JSON: the ledger's size, the objects shown, the object in reach, the boards' texts and the reader),
+`racing_records_go(spot)`, `racing_records_open()` and `racing_records_press(key)` (`up`, `down`, `accept`, `back`,
+`next`, `prev`, `kind`, `sort`, `letter`, `type:<text>`).
+`unreal.YorimichiLive.pad_input('Gamepad_DPad_Down', 1)` then `0` presses Interact through the gamepad mapping; the
+window takes the same pad keys.
+
+## Two players
+
+`review_network_session.py --racing` (docs/MULTIPLAYER.md) runs a listen host and a guest on one machine, each with its
+own racing world and install id. `RacingNetworkQA` drives them natively (the live bridge is standalone-only): the host
+checks the guest's key (`guest:<id>`) and the stables (Belmonte the host's, Hidamari the guest's) and jumps the clock to
+50 s before the next race; the guest checks its kept wallet and Hidamari, rests a horse and enters it again, reads the
+records cabinet and its stable's card, bets 3 pièces on the three favourites, waits for the settlement, leaves for Solo
+and joins again, then compares its wallet, tickets and stable with those before it left; the host checks the stable
+stayed the guest's while away and the same key and coins on return. Both sample the race twice a second (runner
+positions at their world now and at whole world seconds), the train line (service clock, the next crossing and the
+next train through the line's origin, what a station board counts down) and their frame rate into `racing-server.json`
+and `racing-client.json`; `tools/network_racing_review.py` compares them into `racing-review.json` (the clocks within
+0.25 s, the same runner data, live positions within 5 m, countdowns within 1 s). With `--render-view host|guest` the
+rendered side saves captures (`racing-host-*.png`: the Salon's TV during the race and its result; `racing-guest-*.png`:
+joined, bets, settled, rejoined).
 
 ## Tests
 
@@ -162,6 +358,29 @@ result after a race), `Save` (create, save and reload through the service on a t
 invalid save kept aside; one that cannot be moved left untouched with no world opened; a failed save keeping the world
 in memory, then succeeding), `Ground` (walls, rails, roofs and steep slopes ignored, the authored height after a miss), `TvPlacement` (the
 screens round the region origin, the osteria's watch point on its map stop, each watch point in front of its screen) and
-`TvDirector` (the shot list, the crowd camera, the same camera for the same clock, the leader in frame). `uv run pytest
+`TvDirector` (the shot list, the crowd camera, the same camera for the same clock, the leader in frame), `BetValidation`
+(every refusal, closing at the start, the limits, the card), `BetSettlement` (one winner at the rules' odds, saturation,
+the reveal after the post, settled once), `BetRefund` (a race not run, a non-runner), `BetPreview` (the next day from a copy, the world untouched, the same races and first start as the day the rules
+open), `BetPersistence` (the host's
+wallet and ticket saved and reloaded, a guest's never written) and `BetRequest` (owner-only replication, a guest's
+request and answer over the wire, refusals, the closed race, the result line); `StableAssign` (the host's player Belmonte, a guest Hidamari whoever comes first, free, three
+jockeys, none for a third nor a session player, a released stable back to the world and taken over), `StableEntry` (rest and enter through the
+next race day, refusals, the plate's text), `StableTrade` (market and listed horses bought and paid, sale and withdrawal),
+`StableBreed` (partners, cost, refusals, the foal born in the stable), `StableJockeys` (the board, listing, release,
+a transfer paid to the seller, the refusals, salaries at the day's close and an unpaid jockey leaving), `StableRequest`
+(owner-only replication, a guest's request and answer over the wire, refusals), `StablePersistence` (the host's stable
+and the guest's saved and reloaded, Hidamari still the away guest's after a race day and refused to another guest, the
+guest back with it); `IdentityIds` (generation, validity, the host, guest and session keys apart, the file's text),
+`IdentityFile` (created once and read back, a legacy host file kept, a damaged one replaced), `IdentityCollision` (a
+second connection with an id in use or an invalid id a session player, the wallet's key set once) and `IdentityReturn`
+(a guest's wallet, open bet and Hidamari saved and back in the next session, a session player's not, another guest first
+tonight without the away guest's stable), `StablePlaces` (the Belmonte plates and boards on the
+estate's front, reach, Hidamari's from its file) and `StableFrench`; `RecordsLedger` (noted once the winner is home,
+once only; records only fall; heats never wins; the ledger's JSON), `RecordsHonours` (streaks, rankings best first, the
+rules' numbers, a stable's race counted once, the riders' archive rule), `RecordsPages` (every object, paging, search,
+sort, cards, refusals, formats, the boards' Latin-1 texts), `RecordsArchive` (the rules' archiving, two pages of
+registers, newest first, out of the cabinet), `RecordsRequest` (owner-only replication, a page over the wire, refusals,
+the ledger saved and read back, another world's set aside) and `RecordsPlaces` (the objects inside the loggia, clear of
+its doors and windows, reach). `uv run pytest
 games/yorimichi/tests/test_racing_courses.py -q` checks the committed course data, the simplification and the staging;
 `test_racing_assets.py` the asset validation and its lists against the service's.

@@ -7,8 +7,20 @@
 #include "RacingMotion.h"
 #include "RacingService.generated.h"
 
+/** A string as JSON string content: quotes, backslashes and control characters escaped; an apostrophe stays as is. */
+YORIMICHI_API FString RacingJsonEscape(const FString& In);
+
+class AController;
 class AWandererCharacter;
 class UAnimSequence;
+struct FRacingCard;
+struct FRacingCardPreview;
+struct FRacingHallBoards;
+struct FRacingLedger;
+struct FRacingRecordsPage;
+struct FRacingRecordsQuery;
+struct FRacingStableRequest;
+struct FRacingWalletView;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class USkeletalMesh;
@@ -185,12 +197,68 @@ public:
     /** Travels the local player to a venue's stand; false without a player or the venue. */
     bool GoToVenue(const FString& Venue);
 
+    // ------------------------------------------------------------------ betting (docs/RACING.md, "Betting")
+    /** The rules' player id of a controller (RacingIdentity): the host's own ("local:<install id>"), a guest's from the
+     *  install id it presented ("guest:<id>", or a session player when that id is not valid or in use), empty for a guest
+     *  that has not presented one yet. */
+    static FString PlayerIdOf(const AController* Controller);
+    /** This install's id (Saved/racing/player-id.txt beside the world file, created once; RacingIdentity). */
+    static FString LocalInstallId();
+    /** A player kept for this session only (never saved, no stable): a guest without a usable install id. */
+    static bool IsSessionPlayer(const FString& PlayerId) { return PlayerId.StartsWith(TEXT("session:")); }
+    /** Host: adds a player to the world (the rules' starting coins), once; false without a world or an id. */
+    bool RegisterPlayer(const FString& PlayerId, const FString& Name);
+    /** Why a win bet is refused at world second Now, in French, empty when it is allowed: betting on a race closes at its
+     *  start, then the rules decide (HRRules::BetRefusal: the runner, the stake, the day's limit, the balance, the tickets
+     *  per race). */
+    static FString BetRefusal(const FHRWorldState& S, const FString& PlayerId, const FString& RaceKey, const FString& HorseId, int32 Stake,
+        double Now);
+    /** Places a win bet with the rules (HRRules::PlaceBet) once BetRefusal allows it; the refusal otherwise. */
+    static FString PlaceBetIn(FHRWorldState& S, const FString& PlayerId, const FString& RaceKey, const FString& HorseId, int32 Stake, double Now);
+    /** Host: places a bet now for a player, marks the world for saving, refreshes the wallets and the snapshot's odds. */
+    FString PlaceBet(const FString& PlayerId, const FString& RaceKey, const FString& HorseId, int32 Stake);
+    /** What a player's wallet shows at world second Now. The rules settle a race when it starts; its tickets show their
+     *  outcome (and the coins their payout) only RevealSeconds after the winner is home, as the race is seen. */
+    static void BuildWallet(const FHRWorldState& S, const FString& PlayerId, double Now, FRacingWalletView& Out);
+    static constexpr double RevealSeconds = 1.5;
+    /** Today's races still open to bets at Now, with each runner's current odds and the player's tickets. */
+    static void BuildCard(const FHRWorldState& S, const FString& PlayerId, double Now, FRacingCard& Out);
+    /** The next race day as the rules will open it: a copy of the world advanced one day (today's races left run in the
+     *  copy only, never shown). Costly (a day's close), so the host computes it once a day (RefreshWallets). */
+    static void BuildPreview(const FHRWorldState& S, FRacingCardPreview& Out);
+    /** The world as it is saved: without session players and their tickets. */
+    static FHRWorldState PersistentWorld(const FHRWorldState& S);
+    /** Host: every player controller's wallet view, and the race card of an open betting window. */
+    void RefreshWallets();
+    /** Host: a stable request of a player (docs/RACING.md, "Stables"), decided by the rules (RacingStables::Apply); marks the
+     *  world for saving and refreshes the desks. Empty when done, else the refusal in French. */
+    FString ApplyStableRequest(const FString& PlayerId, const FRacingStableRequest& Request);
+    /** Host (tests): moves the clock Seconds on and advances the world to it, as the host's tick does. */
+    void AdvanceClock(double Seconds);
+
+    // ------------------------------------------------------------------ records hall (docs/RACING.md, "Records hall")
+    /** The host's ledger: record times and riders' tallies noted as races are seen run (RacingRecords::Note). */
+    const FRacingLedger& GetLedger() const { return *Ledger; }
+    /** Saved/racing/records.json beside the world file at Path. */
+    static FString LedgerPath(const FString& WorldPath);
+    /** Host: one page of the records hall for a reader, from the world and the ledger now. */
+    void BuildRecordsPage(const FRacingRecordsQuery& Query, FRacingRecordsPage& Out) const;
+
     // ------------------------------------------------------------------ presentation
     const FRacingNetState& GetNetState() const { return Net; }
     /** The venue's course (Track 1: Belmonte's sand), or nullptr when it is not loaded. */
     const FRacingCourse* GetCourse(ERacingVenue Venue, uint8 Track = 0) const;
-    /** The HUD line near a venue (French), empty elsewhere. */
+    /** The HUD line on a racecourse's grounds (French): the next race, the race running or the last podium; empty
+     *  anywhere else, the town round the course included (race timing is only at the hippodrome, the Salon's windows and
+     *  the TVs). */
     FString HudLine(const AWandererCharacter* Pawn) const;
+    /** HudLine for a point (Unreal cm) at world second Now. */
+    FString HudLineAt(const FVector& At, double Now) const;
+    /** The venue whose grounds (RacingGrounds: the course footprint and its stand, with a margin) hold a point;
+     *  ERacingVenue::Count when none. */
+    ERacingVenue GroundsVenue(const FVector& At) const;
+    /** Tests: the replicated snapshot as a client would receive it. */
+    void SetNetStateForTests(const FRacingNetState& Snapshot) { Net = Snapshot; }
     FString StateJson() const;
     int32 NumRunnersShown() const { return Shown.Num(); }
     /** The racing TVs (ARacingBroadcast) film the race on this machine: the field is shown wherever the player is, and its
@@ -209,6 +277,11 @@ private:
     UFUNCTION() void OnRep_Net();
 
     void TickHost(float DeltaSeconds);
+    /** Advances the world to world second Target, at most to the end of today: the day's races are noted in the ledger
+     *  before the rules close it. True when a race was run or the day changed. */
+    bool AdvanceNoting(double Target);
+    void LoadLedger();
+    void SaveLedger();
     void RegisterPlayers();
     void Publish(bool bForce);
     void TickPresentation(float DeltaSeconds);
@@ -221,14 +294,26 @@ private:
     FHRWorldState State;
     bool bHasWorld = false, bDirty = false;
     FString SavePath, PersistenceError;
-    double DevSeconds = 0., LastSave = 0., NextRegister = 0., NextPublish = 0., NextReport = 0.;
+    double DevSeconds = 0., LastSave = 0., NextRegister = 0., NextPublish = 0., NextReport = 0., NextWallets = 0.;
     float AppliedScale = 1.f;
     TSet<FString> Registered;
     FRacingNetResult LastResult;
     TMap<FString, FIntVector> LookCache;
+    /** The next day's preview, computed for day PreviewFor (-1: none yet). */
+    TSharedPtr<FRacingCardPreview> Preview;
+    int32 PreviewFor = -1;
+    /** The records hall's ledger (made by the constructor) and its texts for readers in the hall. */
+    TSharedPtr<FRacingLedger> Ledger;
+    TSharedPtr<FRacingHallBoards> HallBoards;
+    uint32 LedgerSaved = 0, HallStamp = MAX_uint32;
+    /** False when the ledger file could not be read or kept aside: it is left as it is and never written over. */
+    bool bLedgerWritable = true;
+    double HallBuilt = -100.;
 
     // Courses
     FRacingCourse Hidamari, BelmonteTurf, BelmonteSand;
+    /** Each course's grounds (Hidamari, Belmonte turf, Belmonte sand), sampled on first use and when a lap changes. */
+    mutable RacingGrounds::FFootprint Grounds[3];
     bool bCoursesLoaded = false, bCoursesFileFailed = false;
 
     // Runners on this machine
@@ -285,4 +370,13 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Live") static FString RacingTvState();
     /** racing.Tv: travels to a TV's watch point ("osteria_front", "osteria_back", "salon_paris", "salon_bar"). */
     UFUNCTION(BlueprintCallable, Category = "Live") static bool RacingTvGo(const FString& Spot);
+    /** The local player's wallet, the race card and the betting window (its selection, step and last message), as JSON. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static FString RacingWallet();
+    /** Travels to the Salon des Paris's betting windows. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static bool RacingCounterGo();
+    /** Asks for a win bet through the local player's wallet, as the window does (host or client). */
+    UFUNCTION(BlueprintCallable, Category = "Live") static int32 RacingBet(const FString& RaceKey, const FString& HorseId, int32 Stake);
+    /** Who is who (RacingIdentity): this install's id, the local player's key and, on the host, every connected player's
+     *  key and every player the world keeps (coins, open tickets, stable), as JSON. */
+    UFUNCTION(BlueprintCallable, Category = "Live") static FString RacingPlayers();
 };

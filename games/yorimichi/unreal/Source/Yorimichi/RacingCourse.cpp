@@ -108,3 +108,43 @@ bool RacingGround::Pick(TConstArrayView<FHit> Hits, double AuthoredZ, double& Ou
     }
     return bFound;
 }
+
+void RacingGrounds::FFootprint::Build(const FRacingCourse& Course, double InStandS, double InStandOut, double InStandHalf)
+{
+    At.Reset(); Out.Reset(); S.Reset();
+    Lap = Course.IsValid() ? Course.Lap() : 0.;
+    StandS = InStandS; StandOut = InStandOut; StandHalf = InStandHalf;
+    // The outer rail: the outermost lane's edge, never inside the centre line.
+    RailOffset = FMath::Max(Course.OuterLane, 0.);
+    if (Lap <= 1.) return;
+    const int32 Count = FMath::Clamp(FMath::CeilToInt(Lap / StepM), 3, 20000);
+    for (int32 I = 0; I < Count; ++I)
+    {
+        const double Along = Lap * I / Count;
+        const FVector C = Course.At(Along, 0.), O = Course.At(Along, 1.);
+        const FVector2D N = FVector2D(O - C).GetSafeNormal();
+        if (N.IsNearlyZero()) continue;
+        At.Add(C);
+        Out.Add(N);
+        S.Add(Along);
+    }
+}
+
+bool RacingGrounds::FFootprint::Contains(const FVector& Where) const
+{
+    if (!IsValid()) return false;
+    int32 Best = 0;
+    double BestD = TNumericLimits<double>::Max();
+    for (int32 I = 0; I < At.Num(); ++I)
+    {
+        const double D = FVector2D::DistSquared(FVector2D(At[I]), FVector2D(Where));
+        if (D < BestD) { BestD = D; Best = I; }
+    }
+    // Metres outwards of the centre line (negative inside the loop: the track and its infield).
+    const double Offset = FVector2D::DotProduct(FVector2D(Where - At[Best]), Out[Best]) / 100.;
+    if (Offset <= RailOffset + Margin) return true;
+    double Along = FMath::Fmod(S[Best] - StandS, Lap);
+    if (Along > Lap * .5) Along -= Lap;
+    if (Along < -Lap * .5) Along += Lap;
+    return FMath::Abs(Along) <= StandHalf + Margin && Offset <= StandOut + StandDepth + Margin;
+}

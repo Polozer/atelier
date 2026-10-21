@@ -143,33 +143,111 @@ TV_BUILDING_SPOTS = (
 )
 
 
+def building_transform(data, mesh_name, what='Racing placement'):
+    """The one committed placement of an authored Belmonte building (its source.json transform)."""
+    assets = {m['source_asset'] for m in data['meshes'] if m['name'] == mesh_name}
+    placements = [p['transform'] for p in data['placements'] if p['asset'] in assets]
+    if len(assets) != 1 or len(placements) != 1:
+        raise ValueError(f'{what} requires exactly one committed {mesh_name} placement')
+    return placements[0]
+
+
+def building_point(tr, local_cm):
+    """A point of a building's local space (cm) in Belmonte-local cm, through its committed transform."""
+    return (planting.rotate(tr['rotation_xyzw'], np.asarray(local_cm, float) * np.asarray(tr['scale'], float))
+            + np.asarray(tr['translation_cm'], float)).round(2).tolist()
+
+
+def building_yaw(tr, local_yaw):
+    """A building-local yaw (degrees) in Belmonte-local degrees, in (-180, 180]."""
+    fwd = planting.rotate(tr['rotation_xyzw'], np.array([1., 0., 0.]))
+    yaw = round(((float(np.degrees(np.arctan2(fwd[1], fwd[0]))) + local_yaw + 180.) % 360.) - 180., 2)
+    return 180. if abs(yaw + 180.) < 1e-6 else yaw
+
+
 def tv_spots(data=None):
     """Derive the four Belmonte racing TV spots from the committed Osteria and Salon placements."""
     data = data or source.manifest()
-    by_name = {}
-    for mesh_name in {'SM_BM_BH_Osteria_Taproom', 'SM_BM_BHip_SalonHall'}:
-        assets = {m['source_asset'] for m in data['meshes'] if m['name'] == mesh_name}
-        placements = [p['transform'] for p in data['placements'] if p['asset'] in assets]
-        if len(assets) != 1 or len(placements) != 1:
-            raise ValueError(f'TV placement requires exactly one committed {mesh_name} placement')
-        by_name[mesh_name] = placements[0]
+    by_name = {name: building_transform(data, name, 'TV placement') for name in {'SM_BM_BH_Osteria_Taproom', 'SM_BM_BHip_SalonHall'}}
     out = []
     for spot_id, mesh_name, local_pivot, dyaw, local_watch, dwyaw, scale in TV_BUILDING_SPOTS:
         tr = by_name[mesh_name]
-        q = tr['rotation_xyzw']
-        t = np.asarray(tr['translation_cm'], float)
         s = np.asarray(tr['scale'], float)
-        fwd = planting.rotate(q, np.array([1., 0., 0.]))
-        base_yaw = float(np.degrees(np.arctan2(fwd[1], fwd[0])))
-        pivot = (planting.rotate(q, np.asarray(local_pivot, float) * s) + t).round(2).tolist()
-        watch = (planting.rotate(q, np.asarray(local_watch, float) * s) + t).round(2).tolist()
-        yaw = round(((base_yaw + dyaw + 180.) % 360.) - 180., 2)
-        if abs(yaw + 180.) < 1e-6:
-            yaw = 180.
-        watch_yaw = round(((base_yaw + dwyaw + 180.) % 360.) - 180., 2)
-        out.append({'id': spot_id, 'pivot_cm': pivot, 'yaw': yaw, 'watch_cm': watch, 'watch_yaw': watch_yaw,
+        out.append({'id': spot_id, 'pivot_cm': building_point(tr, local_pivot), 'yaw': building_yaw(tr, dyaw),
+                    'watch_cm': building_point(tr, local_watch), 'watch_yaw': building_yaw(tr, dwyaw),
                     'scale': float(scale * max(abs(v) for v in s[:2]))})
     return out
+
+
+# The Salon des Paris's betting windows (docs/RACING.md, "Betting"), in the Salon hall's local space: the player's spot
+# at the central window (GUICHET 2), facing the counter, and the counter's reach round it (cm).
+SALON_COUNTER = {'spot_cm': [-1760., 300., 15.], 'yaw': 180., 'half_length_cm': 380., 'reach_cm': 260., 'behind_cm': 150.,
+                 'below_cm': 80., 'above_cm': 260.}
+
+
+# The player's racing stable in Belmonte (docs/RACING.md, "Stables"): estate 0's stable range (SM_BM_BE_0_Stables, Haras
+# Valley's estates.json "Val d'Oro", "Votre écurie"), in its local space. A name plate (92 x 56 cm) at each of its eleven
+# stall doors on the yard front, 1.52 m over the yard, and the two boards (150 x 112 cm) either side of the main double
+# door under its windows: the jockeys' board west, the transfer board east. All face the yard (local yaw 90).
+BELMONTE_STABLE = {'mesh': 'SM_BM_BE_0_Stables', 'front_y_cm': -1647., 'yaw': 90.,
+                   'stall_x_cm': [-3090.625, -2731.875, -2373.125, -2014.375, -1655.625, -1296.875, -938.125,
+                                  138.125, 496.875, 855.625, 1214.375],
+                   'plate_z_cm': 152., 'plate_size_cm': [92., 56.],
+                   'boards': (('jockeys', -698.), ('transfers', -102.)), 'board_z_cm': 108., 'board_size_cm': [150., 112.]}
+
+
+def belmonte_stable_places(data):
+    """The stall plates and boards of the player's Belmonte stable, from the estate's committed placement."""
+    st = BELMONTE_STABLE
+    tr = building_transform(data, st['mesh'])
+    yaw = building_yaw(tr, st['yaw'])
+    out = [{'kind': 'plate', 'stall': i, 'at_cm': building_point(tr, [x, st['front_y_cm'], st['plate_z_cm']]), 'yaw': yaw,
+            'size_cm': list(st['plate_size_cm'])} for i, x in enumerate(st['stall_x_cm'])]
+    out += [{'kind': kind, 'stall': 0, 'at_cm': building_point(tr, [x, st['front_y_cm'], st['board_z_cm']]), 'yaw': yaw,
+             'size_cm': list(st['board_size_cm'])} for kind, x in st['boards']]
+    return out
+
+
+# The records hall (docs/RACING.md, "Records hall") in the loggia of the Palazzo Comunale (SM_BM_BH_PalazzoComunale), in
+# its local space (cm, its floor at z 0; Haras Valley heroes.py palazzo_v3: the loggia between the arcade and the back
+# wall at local y -250, from x -1240 to 1240, 6 m high, doors at x 0 and +-940, windows at +-470). Each object:
+# (object, index, local position, local yaw facing the reader, width x height cm).
+RECORDS_HALL = {
+    'mesh': 'SM_BM_BH_PalazzoComunale', 'centre_cm': [0., -460., 0.],
+    'objects': (
+        # The split-flap board over the middle door (its arch and keystone end under 3.9 m, the beams at 5.8 m).
+        ('board', 0, [0., -254., 480.], -90., [600., 165.]),
+        # Between the doors and the windows, at eye height: the three circuits, the four Grands Prix, the hall's plaque
+        # (clear of the windows' open shutters).
+        *(('record', i, [-x, -254., 165.], -90., [124., 100.]) for i, x in enumerate((-785., -650., -290., -155., 155., 290., 650.))),
+        ('plaque', 0, [-785., -254., 165.], -90., [124., 100.]),
+        # The honour boards on the end walls, clear of the archive table and the card cabinet in the corners.
+        *(('honour', i, [1236., -613.5 + 123.5 * i, 190.], 180., [113., 210.]) for i in range(3)),
+        *(('honour', 3 + i, [-1236., -395. - 180. * i, 190.], 0., [170., 210.]) for i in range(2)),
+        # The card cabinet and the archive table with its ledgers, their fronts facing the piazza.
+        ('cabinet', 0, [-1132., -302., 65.], -90., [110., 130.]),
+        ('archive', 0, [1132., -312., 70.], -90., [120., 85.]),
+    ),
+}
+
+
+def records_hall_places(data):
+    """The records hall's boards and furniture, from the Palazzo Comunale's committed placement."""
+    hall = RECORDS_HALL
+    tr = building_transform(data, hall['mesh'])
+    return {'centre_cm': building_point(tr, hall['centre_cm']), 'floor_cm': building_point(tr, [0., 0., 0.])[2],
+            'objects': [{'object': obj, 'index': i, 'at_cm': building_point(tr, local), 'yaw': building_yaw(tr, yaw),
+                         'size_cm': list(size)} for obj, i, local, yaw, size in hall['objects']]}
+
+
+def racing_places(data=None):
+    """Belmonte's racing places (docs/RACING.md), derived from the committed building placements, for runtime.json."""
+    data = data or source.manifest()
+    salon = building_transform(data, 'SM_BM_BHip_SalonHall')
+    c = SALON_COUNTER
+    counter = {'at_cm': building_point(salon, c['spot_cm']), 'yaw': building_yaw(salon, c['yaw']),
+               **{k: c[k] for k in ('half_length_cm', 'reach_cm', 'behind_cm', 'below_cm', 'above_cm')}}
+    return {'counter': counter, 'belmonte_stable': belmonte_stable_places(data), 'records_hall': records_hall_places(data)}
 
 
 def map_zones(town_z):
@@ -278,7 +356,8 @@ def main():
     town_z = float(source.terrain().height(0., -18.)) + L.ORIGIN[2] + 1.
     runtime = {'version': 1, 'origin_cm': L.native_origin(), 'bounds_m': L.BOUNDS,
                'clearance_m': list(terrain.OUTER), 'groups': groups, 'signs': signs, 'railway_corridor': L.RAILWAY,
-               'zones': map_zones(town_z), 'tv_spots': tv_spots(data)}
+               'zones': map_zones(town_z), 'tv_spots': tv_spots(data),
+               'racing_places': racing_places(data)}
     (OUT / 'runtime.json').write_text(json.dumps(runtime, separators=(',', ':')) + '\n')
     (OUT / 'build-report.json').write_text(json.dumps({'meshes': meshes, 'materials': materials,
                                                      'planting': plant_report, 'seam': seam}, indent=1) + '\n')

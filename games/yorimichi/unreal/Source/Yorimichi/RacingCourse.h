@@ -77,3 +77,28 @@ namespace RacingGround
     /** The ground height among a trace's hits; false (OutZ = AuthoredZ) when none is walkable ground in the window. */
     YORIMICHI_API bool Pick(TConstArrayView<FHit> Hits, double AuthoredZ, double& OutZ);
 }
+
+/**
+ * A racecourse's grounds (docs/RACING.md, "HUD"): the course footprint (its infield and track out to the outer rail) and
+ * its stand, each with a margin. Race timing in the general HUD shows only here, never in the town round it. A point is
+ * placed against the centre line sampled every StepM metres: its along-track S and signed offset outwards.
+ */
+namespace RacingGrounds
+{
+    /** How far past the outer rail and round the stand the grounds reach, and how deep the stand is behind its centre (m). */
+    inline constexpr double Margin = 40., StandDepth = 20., StepM = 2.;
+    struct YORIMICHI_API FFootprint
+    {
+        /** Centre-line samples (Unreal cm), their outward unit normals (plan) and S (m from the post). */
+        TArray<FVector> At;
+        TArray<FVector2D> Out;
+        TArray<double> S;
+        double Lap = 0., RailOffset = 0., StandS = 0., StandOut = 0., StandHalf = 0.;
+        bool IsValid() const { return At.Num() >= 3 && Lap > 1.; }
+        /** Samples Course; the stand's centre StandS metres from the post and StandOut outwards, StandHalf along the track
+         *  either side. */
+        void Build(const FRacingCourse& Course, double InStandS, double InStandOut, double InStandHalf);
+        /** Whether a world point (Unreal cm, plan only) is on the grounds. */
+        bool Contains(const FVector& Where) const;
+    };
+}
