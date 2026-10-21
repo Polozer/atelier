@@ -85,8 +85,12 @@ def apply_cut(bm, cut):
     # The region's FBX has separate vertices for each hard-edged face. Restore
     # adjacency only in this rail band before finding solids and filling caps.
     # Coincident vertices move by at most 0.01 mm; other harbour geometry is untouched.
-    rail = [v for v in bm.verts if cut['y'][0] - EPS <= v.co.y <= cut['y'][1] + EPS
-            and v.co.z >= cut['z_from'] - EPS]
+    rail_faces = []
+    for face in bm.faces:
+        lo, hi = box_of([face])
+        if in_band(lo, hi, cut) and hi[0] >= x0 - 2 * POST and lo[0] <= x1 + 2 * POST:
+            rail_faces.append(face)
+    rail = list({v for face in rail_faces for v in face.verts})
     bmesh.ops.remove_doubles(bm, verts=rail, dist=1e-5)
     bm.faces.ensure_lookup_table(); bm.faces.index_update()
     groups = [(g, *box_of(g)) for g in islands(bm)]
@@ -151,15 +155,19 @@ def audit_split_rail():
         box((-.065, -.065, 2.45), (.065, .065, 3.55))
         # A neighbouring split solid must retain its original topology/coordinates.
         box((-1, 2, 0), (1, 3, 1))
-        untouched = [v for v in bm.verts if v.co.y >= 2]
+        # The quay corner contains coincident duplicate posts. Welding the whole
+        # Y band would silently remove one, outside this opening's allowed area.
+        box((-10, -.065, 2.45), (-9.87, .065, 3.55))
+        box((-10, -.065, 2.45), (-9.87, .065, 3.55))
+        untouched = [v for v in bm.verts if v.co.y >= 2 or v.co.x < -9]
         coordinates = [tuple(v.co) for v in untouched]
         result = apply_cut(bm, {'what': 'split-rail regression', 'x': [-.5, .5],
                                 'y': [-.1, .1], 'z_from': 2.4})
         assert result['posts_removed'] == 1 and result['posts_added'] == 2
         assert result['ends_closed'] == 2 and result['cap_normals_pass'], result
-        assert not any(e.is_boundary for e in bm.edges if all(abs(v.co.y) < .1 for v in e.verts))
+        assert not any(e.is_boundary for e in bm.edges if all(abs(v.co.y) < .1 and v.co.x > -6 for v in e.verts))
         assert [tuple(v.co) for v in untouched] == coordinates
-        assert sum(e.is_boundary for e in bm.edges) == 24
+        assert sum(e.is_boundary for e in bm.edges) == 72
         return {'split_rail_closed': True, 'outward_caps': True, 'neighbour_untouched': True}
     finally:
         bm.free()
