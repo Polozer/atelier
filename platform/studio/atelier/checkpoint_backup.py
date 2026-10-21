@@ -42,7 +42,9 @@ def queue(store, repository, key, tag, revision, *, public_repository):
     and full source revision before public publication. Pending/failed records and their blobs
     MUST remain retention roots. Workers MUST NOT read or hold the producing checkout.
     """
-    store.load(key)
+    manifest = store.load(key)
+    if manifest.get('source_revision', revision) != revision:
+        raise CheckpointError('Captured checkpoint source differs from the backup request')
     if not re.fullmatch('[0-9a-f]{40}', revision):
         raise CheckpointError('Backup source revision must be a full Git SHA')
     from .checkpoint_github import Remote

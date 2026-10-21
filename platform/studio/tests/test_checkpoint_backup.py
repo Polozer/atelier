@@ -219,3 +219,14 @@ def test_resume_before_private_draft_uses_exact_durable_request(fixture, tmp_pat
         assert result['checkpoint'] == key
         assert observed == ['public verified', path]
         assert not fixture[0].events
+
+
+def test_capture_source_binding_cannot_be_relabelled(fixture, tmp_path):
+    _, store, remote = fixture
+    key = checkpoint(store, tmp_path, [b'captured'])
+    captured = store.save(dict(store.load(key), source_revision='c' * 40))
+    with pytest.raises(backup.CheckpointError, match='Captured checkpoint source'):
+        backup.queue(store, 'owner/private', captured, 'playtest-1', 'd' * 40, public_repository='owner/game')
+    with pytest.raises(backup.CheckpointError, match='Captured checkpoint source'):
+        remote.publish(store, captured, 'playtest-1', revision='d' * 40)
+    assert not fixture[0].events
