@@ -67,7 +67,8 @@ bool FFerryInvalidLineTest::RunTest(const FString&)
     Data->SetNumberField(TEXT("cycle_s"), 9.);
     TestFalse(TEXT("Incomplete samples refuse"), Line.Parse(Root, Error));
     Root = FerryFixture(); Data = Root->GetObjectField(TEXT("line"));
-    auto Ships = Data->GetArrayField(TEXT("ships")); Ships.Add(Ships[0]);
+    auto Ships = Data->GetArrayField(TEXT("ships"));
+    const auto DuplicateShip = Ships[0]; Ships.Add(DuplicateShip);
     Data->SetArrayField(TEXT("ships"), Ships);
     TestFalse(TEXT("The draft's second ship refuses"), Line.Parse(Root, Error));
     Root = FerryFixture(); Data = Root->GetObjectField(TEXT("line"));
