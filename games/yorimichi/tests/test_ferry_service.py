@@ -161,3 +161,28 @@ def test_ship_walk_refuses_missing_stale_and_failed_audit(tmp_path, fault):
         report_path.write_text(json.dumps(report))
     with pytest.raises((ValueError, FileNotFoundError)):
         service.validate_ship_walk(tmp_path, checker)
+
+
+@pytest.mark.parametrize('field', ['failures', 'meshes', 'seats', 'coplanar', 'carried', 'ship_clash', 'walk', 'audit_fixtures'])
+@pytest.mark.parametrize('failed', [False, True])
+def test_terminal_audits_refuse_missing_or_failed_proof(field, failed):
+    import copy
+    terminal = {'meshes': {'deck': {'open_edges': 0, 'flipped_parts': 0}},
+                'seats': {'count': 1, 'failures': []}, 'coplanar': {'count': 0},
+                'carried': {'groups': 1, 'islands': 1, 'uncarried_groups': 0,
+                            'uncarried_islands': 0, 'failures': []},
+                'ship_clash': {'pass': True, 'clashes': []}, 'walk': {'pass': True}}
+    data = {'failures': [], 'audit_fixtures': [{'ok': True}],
+            'terminals': {name: copy.deepcopy(terminal) for name in service.HARBOURS}}
+    service.validate_terminal_audits(data)
+    target = data if field in ('failures', 'audit_fixtures') else data['terminals']['hidamari']
+    if failed:
+        target[field] = {'failures':['bad'] ,'meshes':{'deck':{'open_edges':1,'flipped_parts':0}},
+                         'seats':{'count':1,'failures':['floating']}, 'coplanar':{'count':1},
+                         'carried':{'groups':1,'islands':1,'uncarried_groups':1,'uncarried_islands':1,'failures':[]},
+                         'ship_clash':{'pass':False,'clashes':['hull']},'walk':{'pass':False},
+                         'audit_fixtures':[{'ok':False}]}[field]
+    else:
+        del target[field]
+    with pytest.raises(ValueError, match='audit'):
+        service.validate_terminal_audits(data)

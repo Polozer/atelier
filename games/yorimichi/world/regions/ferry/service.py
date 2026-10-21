@@ -177,6 +177,33 @@ def validate_manifest(data, root, repo=REPO):
         raise ValueError('ferry manifest contains failed or soft audits')
 
 
+def validate_terminal_audits(data):
+    """Require complete explicit passing terminal proof, independently of hashes."""
+    try:
+        if data['failures'] != [] or set(data['terminals']) != set(HARBOURS):
+            raise ValueError('ferry terminal audit verdict failed')
+        if not data['audit_fixtures'] or not all(row['ok'] is True for row in data['audit_fixtures']):
+            raise ValueError('ferry terminal audit fixture failed')
+        for terminal in data['terminals'].values():
+            meshes = terminal['meshes']
+            if not meshes or any(mesh['open_edges'] != 0 or mesh['flipped_parts'] != 0 for mesh in meshes.values()):
+                raise ValueError('ferry terminal closure audit failed')
+            if terminal['seats']['count'] <= 0 or terminal['seats']['failures'] != []:
+                raise ValueError('ferry terminal seating audit failed')
+            if terminal['coplanar']['count'] != 0:
+                raise ValueError('ferry terminal coplanar audit failed')
+            carried = terminal['carried']
+            if (carried['groups'] <= 0 or carried['islands'] <= 0 or carried['failures'] != [] or
+                    carried['uncarried_groups'] != 0 or carried['uncarried_islands'] != 0):
+                raise ValueError('ferry terminal carried audit failed')
+            if terminal['ship_clash']['pass'] is not True or terminal['ship_clash']['clashes'] != []:
+                raise ValueError('ferry terminal ship clash audit failed')
+            if terminal['walk']['pass'] is not True:
+                raise ValueError('ferry terminal walking audit failed')
+    except (KeyError, TypeError) as exc:
+        raise ValueError('ferry terminal audit proof is incomplete') from exc
+
+
 def validate_ship_walk(root=FERRY, checker=SHIP_WALK):
     """Require a passing ship walk bound to this checker and the exact deck."""
     report = json.loads((root / 'review/walk_report.json').read_text())
@@ -215,6 +242,7 @@ def preflight(root=FERRY):
     if terminals.get('site_inputs') != site['inputs']:
         raise ValueError('ferry terminals were built against a different world/site')
     validate_manifest(terminals, root / 'terminals')
+    validate_terminal_audits(terminals)
     validate_manifest(ferry, root)
     validate_ship_walk(root)
     from regions.hidamari.ferry_source import validated_harbor
