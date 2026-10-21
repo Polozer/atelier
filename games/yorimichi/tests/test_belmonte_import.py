@@ -46,7 +46,8 @@ def test_import_disables_distance_fields_only_on_separate_physics_hull(tmp_path,
     editor = SimpleNamespace(get_lod_build_settings=get_settings, set_lod_build_settings=set_settings)
     entry = dict(sha256='0'*64, name='SM_BM_House', path='glb/House.glb', triangles=1, bounds_m=[[0, 0, 0], [1, 2, 3]])
     if with_hull: entry['collision'] = dict(path='glb/House_hull.glb', sha256='0'*64)
-    (tmp_path / 'build-report.json').write_text(json.dumps(dict(meshes=[entry], materials={})))
+    (tmp_path / 'build-report.json').write_text(json.dumps(dict(meshes=[entry], materials={},
+        grass=dict(colour='T_BM_GrassDetail.png', normal='T_BM_GrassNormal.png', tile_m=2.51))))
     (tmp_path / 'runtime.json').write_text(json.dumps(dict(groups=[dict(plant=False,
         asset='/Game/Belmonte/Meshes/SM_BM_House.SM_BM_House', materials=['paint'])])))
     assets = SimpleNamespace(make_directory=lambda *_: None, does_asset_exist=lambda *_: False,
@@ -61,7 +62,7 @@ def test_import_disables_distance_fields_only_on_separate_physics_hull(tmp_path,
                     if isinstance(node, ast.FunctionDef) and node.name == 'main')
     namespace = dict(OUT=tmp_path, ROOT='/Game/Belmonte', E=assets, unreal=unreal, Path=Path, json=json,
         __file__=str(script), runpy=SimpleNamespace(run_path=lambda path: tv_imports.append(Path(path))),
-        parent=lambda: None, textures=lambda _: None, surfaces=lambda *_: None, import_mesh=imported)
+        parent=lambda _: None, textures=lambda _: None, grass_textures=lambda _: None, surfaces=lambda *_: None, import_mesh=imported)
     from atelier.unreal_mesh_reuse import set_if_changed
     namespace.update(native_context=lambda _: None, yori=SimpleNamespace(GAME=SimpleNamespace(name='test')),
         atmosphere=SimpleNamespace(__file__=str(script)), ground_grain=SimpleNamespace(__file__=str(script)),

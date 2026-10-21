@@ -94,6 +94,43 @@ def finish_surfaces(data):
     return materials
 
 
+# The valley's grass layers' near detail: Poly Haven grass_ground (CC0, Charlotte Baglioni), the photograph the Haras
+# terrain painted its dry and green grass with, committed in the library; one repeat covers 2.51 m of ground.
+GRASS_TEXTURE = '/Game/Haras/Belmonte/Textures/T_B_grass_ground_D.T_B_grass_ground_D'
+GRASS_TILE_M = 2.51
+
+
+def grass_detail(data):
+    """Neutral grass detail and its normal map for the terrain's grass layers (import_belmonte.py), in build/.
+
+    The detail is the photograph's linear colour over its own mean (surface_textures.neutral_detail), its hue pulled
+    halfway to grey, so the layer palette keeps Belmonte's grass colour and only the blades and gaps show. The normal
+    map is the detail's own relief, from the luminance of the blades: its red and green tilt the normal along +U and
+    +V, which the material lays along world X and Y."""
+    from surface_textures import neutral_detail
+    info = data['textures'][GRASS_TEXTURE]
+    path = source.LIBRARY / info['file']
+    assert source.sha(path) == info['sha256'], path
+    image = Image.open(path).convert('RGB')
+    image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+    detail = np.asarray(neutral_detail(image), float) / 255.
+    linear = np.where(detail <= .04045, detail / 12.92, ((detail + .055) / 1.055) ** 2.4)
+    grey = linear @ [.2126, .7152, .0722]
+    linear = linear * .5 + grey[..., None] * .5
+    encoded = np.where(linear <= .0031308, linear * 12.92, 1.055 * np.clip(linear, 0, None) ** (1 / 2.4) - .055)
+    height = grey / max(grey.mean(), 1e-3)
+    # A light blur keeps single bright pixels from reading as spikes; the texture tiles, so neighbours wrap.
+    height = sum(np.roll(np.roll(height, dy, 0), dx, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9.
+    du = (np.roll(height, -1, 1) - np.roll(height, 1, 1)) / 2.
+    dv = (np.roll(height, -1, 0) - np.roll(height, 1, 0)) / 2.
+    normal = np.dstack([-du * 2.5, -dv * 2.5, np.ones_like(height)])
+    normal /= np.linalg.norm(normal, axis=2, keepdims=True)
+    files = {'colour': 'T_BM_GrassDetail.png', 'normal': 'T_BM_GrassNormal.png'}
+    Image.fromarray(np.uint8(np.clip(encoded * 255, 0, 255) + .5)).save(OUT / 'textures' / files['colour'])
+    Image.fromarray(np.uint8(np.clip((normal * .5 + .5) * 255, 0, 255) + .5)).save(OUT / 'textures' / files['normal'])
+    return dict(files, tile_m=GRASS_TILE_M, source=info['file'])
+
+
 def slot_material(materials, path, key):
     """The finished instance for a placement's source material on a slot that carries surface key (terrain only)."""
     return materials[f'{path}#{key}'] if key else materials[path]
@@ -304,7 +341,7 @@ def main():
                'clearance_m': list(terrain.OUTER), 'groups': groups, 'signs': signs, 'railway_corridor': L.RAILWAY,
                'zones': map_zones(town_z), 'tv_spots': tv_spots(data)}
     (OUT / 'runtime.json').write_text(json.dumps(runtime, separators=(',', ':')) + '\n')
-    (OUT / 'build-report.json').write_text(json.dumps({'meshes': meshes, 'materials': materials
+    (OUT / 'build-report.json').write_text(json.dumps({'meshes': meshes, 'materials': materials, 'grass': grass_detail(data),
                                                      'planting': plant_report, 'seam': seam}, indent=1) + '\n')
     print(f'BELMONTE BUILD COMPLETE: {len(meshes)} meshes, {len(groups)} groups, {sum(len(v) for v in plants.values())} plants', flush=True)
 

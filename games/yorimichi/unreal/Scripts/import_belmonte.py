@@ -25,7 +25,58 @@ MEL = unreal.MaterialEditingLibrary
 REGISTRY = unreal.AssetRegistryHelpers.get_asset_registry()
 
 
-def parent():
+def grass_code(weight):
+    """HLSL declaring grassFine, the grass layers' close detail (build.grass_detail: Poly Haven grass_ground, 2.51 m
+    a repeat), and grassW, how much of it shows. As on Hidamari's ground, a second sample turned and five times
+    larger and a slow world-space swell keep the field from repeating. Both are neutral (mean 1), so the layer
+    palette keeps Belmonte's grass colour."""
+    return f'''
+float grassW=saturate({weight})*GrassDetail;
+float2 grassUV=World.xy/(GrassTile*100);
+float3 grassA=Texture2DSample(Grass,GrassSampler,grassUV).rgb*2;
+float3 grassB=Texture2DSample(Grass,GrassSampler,float2(grassUV.x*.8-grassUV.y*.6,grassUV.x*.6+grassUV.y*.8)*.2+.37).rgb*2;
+float2 grassWave=World.xy*.0001;
+float swell=sin(grassWave.x*3.1+sin(grassWave.y*2.3)*1.7)*sin(grassWave.y*2.7+sin(grassWave.x*1.9)*1.3)+.5*sin(grassWave.x*7.3-grassWave.y*6.1);
+float3 grassFine=grassA*lerp(1,grassB,.35)*(1+.08*swell);
+'''
+
+
+def grass_normal_code(weight):
+    """HLSL returning the world-space normal: the vertex normal tilted by the grass relief where the grass shows."""
+    return f'''
+float grassW=saturate({weight})*GrassDetail;
+float2 grassUV=World.xy/(GrassTile*100);
+float2 tilt=Texture2DSample(GrassNormal,GrassNormalSampler,grassUV).rg*2-1;
+return normalize(Normal+float3(tilt*GrassRelief*grassW,0));
+'''
+
+
+def grass_inputs(grass, node):
+    """Custom-node inputs: the grass textures and scales as parameters whose defaults are this build's."""
+    return [('Grass', node(unreal.MaterialExpressionTextureObjectParameter, parameter_name='Grass', texture=grass['colour']), ''),
+            ('GrassNormal', node(unreal.MaterialExpressionTextureObjectParameter, parameter_name='GrassNormal',
+                                 texture=grass['normal'], sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_MASKS), ''),
+            ('GrassTile', node(unreal.MaterialExpressionScalarParameter, parameter_name='GrassTile',
+                               default_value=float(grass['tile_m'])), ''),
+            ('GrassRelief', node(unreal.MaterialExpressionScalarParameter, parameter_name='GrassRelief', default_value=.45), ''),
+            # 0 shows the shared ground grain alone (the look before the grass detail), for side-by-side reviews.
+            ('GrassDetail', node(unreal.MaterialExpressionScalarParameter, parameter_name='GrassDetail', default_value=1.), '')]
+
+
+def custom(node, code, inputs, output=unreal.CustomMaterialOutputType.CMOT_FLOAT3):
+    result = node(unreal.MaterialExpressionCustom, output_type=output, code=code)
+    arguments = []
+    for key, _, _ in inputs:
+        value = unreal.CustomInput()
+        value.set_editor_property('input_name', key)
+        arguments.append(value)
+    result.set_editor_property('inputs', arguments)
+    for key, expression, pin in inputs:
+        assert MEL.connect_material_expressions(expression, pin, result, key), key
+    return result
+
+
+def parent(grass):
     name = 'M_Belmonte'
     asset = ROOT + '/Materials/' + name
     material = E.load_asset(asset) if E.does_asset_exist(asset) else AT.create_asset(name, ROOT + '/Materials', unreal.Material, unreal.MaterialFactoryNew())
@@ -48,13 +99,15 @@ def parent():
     world = node(unreal.MaterialExpressionWorldPosition)
     tex = node(unreal.MaterialExpressionTextureObjectParameter, parameter_name='Tex',
                texture=E.load_asset('/Engine/EngineResources/WhiteSquareTexture'))
+    terrain = scalar('Terrain', 0.)
+    grassy = grass_inputs(grass, node)
     inputs = [('C', vc, ''), ('Alpha', vc, 'A'), ('UV', uv, ''), ('World', world, ''), ('Tex', tex, ''), ('Tile', scalar('Tile', 4.), ''),
               ('Colour', colour('Colour', (.7, .6, .4)), ''), ('Tint', colour('Tint', (1., 1., 1.)), ''),
               ('WhiteVertex', scalar('WhiteVertex', 0.), ''), ('Strength', scalar('Strength', 0.), ''),
               ('Brightness', scalar('Brightness', 1.), ''), ('Atlas', scalar('Atlas', 0.), ''),
-              ('Terrain', scalar('Terrain', 0.), ''), ('Dry', colour('Dry', (.40, .37, .18)), ''),
+              ('Terrain', terrain, ''), ('Dry', colour('Dry', (.40, .37, .18)), ''),
               ('Green', colour('Green', (.16, .24, .08)), ''), ('Dirt', colour('Dirt', (.42, .30, .17)), ''),
-              ('Rock', colour('Rock', (.36, .37, .35)), '')]
+              ('Rock', colour('Rock', (.36, .37, .35)), '')] + grassy
     base = node(unreal.MaterialExpressionCustom, output_type=unreal.CustomMaterialOutputType.CMOT_FLOAT3,
                 code='''
 float3 vertexLinear = lerp(C.rgb/12.92, pow((C.rgb+.055)/1.055, 2.4), step(.04045, C.rgb));
@@ -68,8 +121,10 @@ float2 coord=lerp(UV/Tile,World.xy/(Tile*100),Terrain);
 float3 detail = Texture2DSample(Tex, TexSampler, coord).rgb;
 float3 surface = lerp(1, detail*lerp(2,1,Atlas), Strength);
 if(Terrain>.5){
-'''+ground_grain.code('Tex','TexSampler','World')+'''
-surface=groundDetail;
+'''+ground_grain.code('Tex','TexSampler','World')+grass_code('weights.r+weights.g')+'''
+// The grass layers trade the shared 9 m grain (floorFine) for their own close detail; the shared stand and field
+// variations stay, so the far view and the joins match.
+surface=groundDetail*lerp(1,grassFine/max(floorFine,.02),grassW);
 }
 return paint * Tint.rgb * surface * Brightness;
 ''')
@@ -88,6 +143,14 @@ return paint * Tint.rgb * surface * Brightness;
     assert MEL.connect_material_property(emission, '', unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     assert MEL.connect_material_property(scalar('Roughness', .87), '', unreal.MaterialProperty.MP_ROUGHNESS)
     assert MEL.connect_material_property(scalar('Specular', .12), '', unreal.MaterialProperty.MP_SPECULAR)
+    # A world-space normal: the grass relief lies in world X/Y like its colour; everything else keeps its own normal.
+    normal = custom(node, '''if(Terrain<.5) return Normal;
+float4 weights=float4(C,Alpha);
+weights/=max(dot(weights,float4(1,1,1,1)),.001);''' + grass_normal_code('weights.r+weights.g'),
+                    [('C', vc, ''), ('Alpha', vc, 'A'), ('Terrain', terrain, ''), ('World', world, ''),
+                     ('Normal', node(unreal.MaterialExpressionVertexNormalWS), '')] + grassy)
+    assert MEL.connect_material_property(normal, '', unreal.MaterialProperty.MP_NORMAL)
+    material.set_editor_property('tangent_space_normal', False)
     material.set_editor_property('used_with_instanced_static_meshes', True)
     MEL.recompile_material(material)
     E.save_loaded_asset(material)
@@ -116,7 +179,32 @@ def textures(report):
     return result
 
 
-def join_parent(texture):
+def grass_textures(report):
+    """The grass layers' detail (sRGB colour) and relief (a linear normal map) from build.grass_detail."""
+    result = {'tile_m': report['grass']['tile_m']}
+    for key, srgb in (('colour', True), ('normal', False)):
+        name = Path(report['grass'][key]).stem
+        task = unreal.AssetImportTask()
+        task.filename = str(OUT / 'textures' / report['grass'][key])
+        task.destination_path = ROOT + '/Textures'
+        task.destination_name = name
+        task.automated = True
+        task.replace_existing = True
+        task.save = True
+        AT.import_asset_tasks([task])
+        asset = E.load_asset(ROOT + '/Textures/' + name)
+        assert asset, name
+        asset.set_editor_property('srgb', srgb)
+        if not srgb:
+            asset.set_editor_property('compression_settings', unreal.TextureCompressionSettings.TC_MASKS)
+        asset.set_editor_property('max_texture_size', 1024)
+        asset.set_editor_property('lod_group', unreal.TextureGroup.TEXTUREGROUP_WORLD)
+        E.save_loaded_asset(asset)
+        result[key] = asset
+    return result
+
+
+def join_parent(texture, grass):
     name = 'M_BelmonteJoin'; folder = ROOT + '/Materials'
     material = E.load_asset(folder+'/'+name) if E.does_asset_exist(folder+'/'+name) else AT.create_asset(name, folder, unreal.Material, unreal.MaterialFactoryNew())
     MEL.delete_all_material_expressions(material)
@@ -128,10 +216,14 @@ def join_parent(texture):
     world = node(unreal.MaterialExpressionWorldPosition)
     assert texture
     ground = node(unreal.MaterialExpressionTextureObjectParameter, parameter_name='Ground', texture=texture)
-    inputs = [('C', vc, ''), ('Alpha', vc, 'A'), ('World', world, ''), ('Ground', ground, '')]
+    grassy = grass_inputs(grass, node)
+    inputs = [('C', vc, ''), ('Alpha', vc, 'A'), ('World', world, ''), ('Ground', ground, '')] + grassy
+    # The valley's grass detail carries on across the join and fades with the forest weight (Alpha): the inner rim
+    # matches the terrain tiles, the outer rim the neighbouring ground.
     shade = node(unreal.MaterialExpressionCustom, output_type=unreal.CustomMaterialOutputType.CMOT_FLOAT3,
                  code='''float3 valley=lerp(C/12.92,pow((C+.055)/1.055,2.4),step(.04045,C));
-'''+ground_grain.code('Ground','GroundSampler','World')+'\nreturn valley*groundDetail;')
+'''+ground_grain.code('Ground','GroundSampler','World')+grass_code('1-Alpha')+'''
+return valley*groundDetail*lerp(1,grassFine/max(floorFine,.02),grassW);''')
     custom_inputs = []
     for key, _, _ in inputs:
         value = unreal.CustomInput(); value.set_editor_property('input_name', key); custom_inputs.append(value)
@@ -155,15 +247,19 @@ def join_parent(texture):
         alpha=unreal.CustomInput();alpha.set_editor_property('input_name','A');value.set_editor_property('inputs',[alpha])
         assert MEL.connect_material_expressions(vc,'A',value,'A')
         assert MEL.connect_material_property(value,'',prop)
+    normal = custom(node, grass_normal_code('1-Alpha'), [('Alpha', vc, 'A'), ('World', world, ''),
+                    ('Normal', node(unreal.MaterialExpressionVertexNormalWS), '')] + grassy)
+    assert MEL.connect_material_property(normal, '', unreal.MaterialProperty.MP_NORMAL)
+    material.set_editor_property('tangent_space_normal', False)
     material.set_editor_property('used_with_instanced_static_meshes', True)
     MEL.recompile_material(material); E.save_loaded_asset(material)
     return material
 
 
-def surfaces(report, master, images):
+def surfaces(report, master, images, grass):
     ground={entry['texture'] for entry in report['materials'].values() if entry.get('terrain')}
     assert len(ground)==1,ground
-    join = join_parent(images[ground.pop()])
+    join = join_parent(images[ground.pop()], grass)
     for entry in report['materials'].values():
         name = entry['name']
         path = ROOT + '/Materials/' + name
@@ -262,16 +358,19 @@ def main():
         if not group['plant']:
             defaults.setdefault(group['asset'].split('.')[-1], group['materials'])
     E.make_directory(ROOT)
-    texture_files = sorted({entry['texture'] for entry in report['materials'].values() if entry['texture']})
+    texture_files = sorted({entry['texture'] for entry in report['materials'].values() if entry['texture']}
+                           | {report['grass']['colour'], report['grass']['normal']})
     material_packages = sorted({ROOT + '/Materials/' + name for name in
         ['M_Belmonte', 'M_BelmonteJoin'] + [entry['name'] for entry in report['materials'].values()]}
         | {ROOT + '/Textures/' + Path(file).stem for file in texture_files})
     materials = AssetGroup(native_context(yori.GAME.name), 'unreal.belmonte', __file__,
-        ('parent', 'textures', 'join_parent', 'surfaces'), parameters=report['materials'],
+        ('grass_code', 'grass_normal_code', 'grass_inputs', 'custom', 'parent', 'textures', 'grass_textures',
+         'join_parent', 'surfaces'), parameters={'materials': report['materials'], 'grass': report['grass']},
         sources=[OUT / 'textures' / file for file in texture_files],
         support=[Path(atmosphere.__file__), Path(ground_grain.__file__)])
     if not materials.matches(material_packages):
-        surfaces(report, parent(), textures(report))
+        grass = grass_textures(report)
+        surfaces(report, parent(grass), textures(report), grass)
         materials.validated(material_packages)
     reuse = MeshReuse(native_context(yori.GAME.name), 'unreal.belmonte', __file__,
                       ('import_mesh', 'generate_terrain_lods'),
