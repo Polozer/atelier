@@ -51,7 +51,16 @@ RAIL_MIN_M = 1.         # shorter runs are not worth a grind
 RAIL_MIN_HEIGHT_M = .15  # lower edges are trim (plinths), not curbs
 RAIL_TURN_DEG = 30.     # a line bends at most this much between segments (a basin's rim); sharper is a corner
 RAIL_STEP_M = .1        # probe and point spacing along a line
-JOIN_CM = 5.            # placed lines whose ends meet within this are one line
+JOIN_CM = 7.            # placed lines whose ends meet within this are one line
+# The deck riding the line (RideTransitionDetail.h DeckHalfLength 45.6 cm, DeckHalfWidth 12 cm) must clear what
+# stands over it, nose and tail, or the board stops on it (a bench's armrest): probed above the line at these heights.
+DECK_HALF_M = .456 + .1
+# Modules laid end to end in runs (a field wall's 10 m sections) meet with up to JOIN_CM of gap or overlap: their
+# collision reaches half of that past each drawn end so the run's top has no gap at a join.
+RUN_OVERLAP_M = JOIN_CM / 100 / 2
+RUN_CHAMFER_M = .005
+DECK_SIDE_M = .12
+DECK_UP_M = (.05, .12)
 THIN, FAT, LEDGE, IMPOSSIBLE = 'ThinRail', 'FatRail', 'Ledge', 'Impossible'
 # The ground every prop stands on (local z = 0), for the probes beside a low edge.
 GROUND = np.array([[[-50., -50., 0.], [50., -50., 0.], [50., 50., 0.]], [[-50., -50., 0.], [50., 50., 0.], [-50., 50., 0.]]])
@@ -323,6 +332,7 @@ class Furniture:
     plates: list
     columns: list = field(default_factory=list)   # [(plate, triangles)]
     unheld: int = 0                               # drawn vertices no plate column takes
+    run: tuple = None                             # (axis, drawn from, drawn to) when laid end to end in runs
 
     @property
     def faces(self):
@@ -339,12 +349,30 @@ class Furniture:
         return np.concatenate(out) if out else np.zeros((0, 3, 3))
 
 
-def generate(entry, path=None):
+def run_axis(data, entry, path=None):
+    """The local axis (its longer plan side, 0 x or 1 y) along which this module's placements meet end to end
+    within JOIN_CM, or None."""
+    drawn = solid_faces(entry['name'], path or source.LIBRARY / entry['path']).reshape(-1, 3)
+    lo, hi = drawn.min(0), drawn.max(0)
+    centre = (lo + hi) / 2
+    placed = [p['transform'] for p in data['placements'] if p['asset'] == entry['source_asset']]
+    for axis in [int(np.argmax((hi - lo)[:2]))]:
+        a, b = centre.copy(), centre.copy()
+        a[axis], b[axis] = lo[axis], hi[axis]
+        starts = np.array([to_region_cm(t, [a])[0] for t in placed])
+        ends = np.array([to_region_cm(t, [b])[0] for t in placed])
+        if len(placed) > 1 and (np.linalg.norm(ends[:, None] - starts[None], axis=-1) <= JOIN_CM).any():
+            return axis
+    return None
+
+
+def generate(entry, path=None, run=None):
     """@cc [owner:fontanierh,label:correctness] belmonte-furniture-collides-as-drawn
     Skate furniture (FURNITURE) MUST collide with closed, outward convex columns derived from its drawn mesh: one per
     drawn top plate, planar within TOP_TOL_M of the drawn top, reaching down to the prop's base and out to every
     drawn vertex that no plate holds up. Every drawn solid vertex MUST lie inside the collision within TOP_TOL_M.
-    Its grind lines (rails) MUST lie on that collision and pass the skate plugin's grind-surface probes (classify)
+    A module laid end to end in runs (run_axis) MAY reach RUN_OVERLAP_M past its drawn ends along the run, so joins
+    have no gap. Its grind lines (rails) MUST lie on that collision and pass the skate plugin's grind-surface probes (classify)
     along their whole length, and MUST come from this geometry and the placements, never from coordinates.
     """
     drawn = solid_faces(entry['name'], path or source.LIBRARY / entry['path'])
@@ -364,6 +392,8 @@ def generate(entry, path=None):
         owner[closer], best[closer] = k, d[closer]
         reach.append(np.where(under, d, np.inf))
     furniture = Furniture(entry['name'], drawn, base, tops)
+    if run is not None:
+        furniture.run = (run, float(points[:, run].min()), float(points[:, run].max()))
     furniture.unheld = int(((owner < 0) & ~held).sum())
     for k, plate in enumerate(tops):
         mine = owner == k
@@ -381,6 +411,13 @@ def generate(entry, path=None):
         z = np.full(len(xy), -np.inf)
         np.maximum.at(z, index.reshape(-1), above[:, 2])
         cloud = np.concatenate([np.c_[xy, z], np.c_[xy, np.full(len(xy), base)]])
+        if run is not None:                        # a run's module reaches past its drawn ends (RUN_OVERLAP_M)
+            lo, hi = points[:, run].min(), points[:, run].max()
+            end = cloud[(cloud[:, run] <= lo + 1e-4) | (cloud[:, run] >= hi - 1e-4)].copy()
+            end[:, run] += np.where(end[:, run] < (lo + hi) / 2, -RUN_OVERLAP_M, RUN_OVERLAP_M)
+            # Chamfered down, so where sections overlap at a pitch or roll the reaching end sinks under the next top.
+            end[end[:, 2] > base + 1e-4, 2] -= RUN_CHAMFER_M
+            cloud = np.concatenate([cloud, end])
         furniture.columns.append((plate, hull3d(cloud)))
     furniture.columns = [c for i, c in enumerate(furniture.columns)
                          if not any(j != i and contains(o[1], c[1]) for j, o in enumerate(furniture.columns))]
@@ -495,10 +532,26 @@ def turn(a, b):
     return float(np.degrees(np.arccos(np.clip(a @ b / np.linalg.norm(a) / np.linalg.norm(b), -1, 1))))
 
 
+def clear(faces, points, direction):
+    """Is the board's deck free to ride over each point of a line: nothing within its length (plus a margin) and
+    width at DECK_UP_M above the line?"""
+    direction = direction / np.linalg.norm(direction)
+    side = np.cross([0., 0., 1.], direction)
+    side /= np.linalg.norm(side)
+    ok = np.ones(len(points), bool)
+    for h in DECK_UP_M:
+        for lateral in (-DECK_SIDE_M, 0., DECK_SIDE_M):
+            at = points + side * lateral + [0., 0., h]
+            ok &= np.isnan(segment_hits(faces, at - direction * DECK_HALF_M, at + direction * DECK_HALF_M))
+    return ok
+
+
 def accepted(faces, a, b):
-    """Does the segment a-b pass the plugin's probes at both ends and its middle: on the surface, not blocked?"""
-    kinds, on = classify(faces, np.array([a, (a + b) / 2, b]), b - a)
-    return bool(on.all() and (kinds != IMPOSSIBLE).all())
+    """Does the segment a-b pass the plugin's probes at both ends and its middle (on the surface, not blocked) with
+    the deck clear over it?"""
+    points = np.array([a, (a + b) / 2, b])
+    kinds, on = classify(faces, points, b - a)
+    return bool(on.all() and (kinds != IMPOSSIBLE).all() and clear(faces, points, b - a).all())
 
 
 def chains(segments):
@@ -559,6 +612,9 @@ def rails(furniture):
                 piece.append(p)
                 continue
             points = np.array(piece)
+            if furniture.run is not None:            # a run's lines end at the drawn ends, where the next one starts
+                axis, lo, hi = furniture.run
+                points[:, axis] = np.clip(points[:, axis], lo, hi)
             if len(points) > 1 and _length(points) >= RAIL_MIN_M:
                 out.append(dict(kind=kind_of(faces, points), points=simplify(points)))
             if p is not None:
