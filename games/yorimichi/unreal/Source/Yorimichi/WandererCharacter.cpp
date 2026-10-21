@@ -779,9 +779,35 @@ bool AWandererCharacter::CanCarrySkateBoard() const
 bool AWandererCharacter::RefuseVehicleOnTrain()
 {
     if (!IsOnTrain()) return false;
-    const TCHAR* Message = TEXT("Pas à bord du train");
+    const TCHAR* Message = BelmonteTrainRules::Refusal();
     if (IsLocallyControlled()) ULiveLibrary::Say(Message, 2.f);
     else if (HasAuthority()) ClientActivityRejected(Message);
+    return true;
+}
+bool AWandererCharacter::StowVehicleOnTrain()
+{
+    if (!IsOnTrain()) return false;
+    if (JapanNetwork::IsOnline(GetWorld()))
+    {
+        // The host ends any ride (a guest's skate included) with the ordinary handoff to foot; every machine stows it.
+        if (!HasAuthority()) return false;
+        const EJapanActivity Kind = NetworkActivity.Kind;
+        if (Kind != EJapanActivity::Skate && Kind != EJapanActivity::Bike && Kind != EJapanActivity::Horse && Kind != EJapanActivity::Sailboat) return false;
+        if (Kind == EJapanActivity::Bike) { Bike->StowImmediately(); NetworkParkedBike.Visible = false; }   // never parked in a coach
+        BeginNetworkActivity(EJapanActivity::OnFoot, GetCharacterMovement()->IsFalling());
+    }
+    else
+    {
+        if (!SkateRide->IsRiding() && !OnVehicle()) return false;
+        // Leave custom ramp physics before restoring the ordinary character pose (as TravelTo).
+        GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+        if (SkateRide->IsRiding()) SkateRide->StowImmediately();
+        if (Sailboat->IsEquipped()) Sailboat->StowImmediately();
+        if (Bike->IsEquipped()) Bike->StowImmediately();
+        if (Horse->IsEquipped()) Horse->StowImmediately();
+        SetAction(NAME_None);
+    }
+    RefuseVehicleOnTrain();
     return true;
 }
 void AWandererCharacter::ToggleCrouch(const FInputActionValue&)

@@ -1,4 +1,5 @@
-"""Hidden speed must never leak across an exposed portal or a gap between tunnels."""
+"""Hidden speed must never leak across an exposed portal or a gap between tunnels (without SPEED_ZONES, which
+are made for the real line)."""
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -30,7 +31,7 @@ def test_separate_tunnels_never_hide_an_exposed_middle(line, direction):
 @pytest.mark.parametrize('direction', [1, -1])
 def test_portal_containment_includes_the_rear_and_preserves_braking(line, direction):
     tunnel = (line.s >= 300.) & (line.s <= 2600.)
-    c, t, v = R.run(line, direction=direction, tunnel=tunnel)
+    c, t, v = R.run(line, direction=direction, tunnel=tunnel, zones=[])
     # Independent oracle: every part of the physical interval must fit this tunnel.
     rear = c - direction * R.TRAIN_LENGTH
     inside = (np.minimum(c, rear) >= 300.) & (np.maximum(c, rear) <= 2600.)
@@ -44,14 +45,14 @@ def test_portal_containment_includes_the_rear_and_preserves_braking(line, direct
     acceleration = np.diff(v ** 2) / (2. * ds)
     assert acceleration.max() <= R.TUNNEL_ACCELERATION + 1e-6
     assert acceleration.min() >= -R.BRAKING - 1e-6
-    assert t[-1] < R.run(line, direction=direction)[1][-1]
+    assert t[-1] < R.run(line, direction=direction, zones=[])[1][-1]
 
 
 @pytest.mark.parametrize('direction', [1, -1])
 def test_short_tunnel_cannot_boost_a_partly_exposed_train(line, direction):
     tunnel = (line.s >= 1400.) & (line.s <= 1450.)
-    baseline = R.run(line, direction=direction)
-    actual = R.run(line, direction=direction, tunnel=tunnel)
+    baseline = R.run(line, direction=direction, zones=[])
+    actual = R.run(line, direction=direction, tunnel=tunnel, zones=[])
     for a, b in zip(actual, baseline):
         np.testing.assert_array_equal(a, b)
 
