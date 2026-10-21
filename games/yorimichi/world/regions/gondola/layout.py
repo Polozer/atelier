@@ -5,7 +5,7 @@ from regions.belmonte.gondola import STATIONS as BM
 STATIONS = HD | BM
 LINES = (
     {'id':'L1','stations':('hidamari','southeast'),
-     'towers':((35.,13.),(425.,20.),(970.,16.),(1510.,28.))},
+     'towers':((35.,13.),(425.,20.),(970.,20.),(1430.,28.))},
     {'id':'L2','stations':('belmonte','northwest'),
      'towers':((70.,28.),(615.,24.),(1160.,28.),(1705.,28.))},
     {'id':'L3','stations':('floor','floor_rim'),
