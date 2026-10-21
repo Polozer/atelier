@@ -225,8 +225,11 @@ def test_registered_model_receipt_is_independent_of_save_claims(meta):
                'scale': meta['scale'], 'seated_world': meta['seated_world']}
     validate_profile(pose, meta['layout'], receipt)
     pose['model_sha256'] = 'b'*64
-    # A re-export with the same bind carries the authored pose forward; the receipt,
-    # not the save's historical model claim, decides the current model bytes.
+    # Only registration may carry a pose across a verified re-export. A save claim
+    # alone cannot change the independently recorded model identity.
+    with pytest.raises(ValueError, match='registered prepared model checksum'):
+        validate_profile(pose, meta['layout'], receipt)
+    receipt['model_sha256'] = 'b'*64
     validate_profile(pose, meta['layout'], receipt)
     changed = copy.deepcopy(pose)
     changed['bind_world']['finger_0_L'][12] += .01
