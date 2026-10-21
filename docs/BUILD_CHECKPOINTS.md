@@ -43,6 +43,70 @@ is recorded locally; a later tool change invalidates compatibility-only stamps. 
 stop before native work. Reuse never manufactures producer provenance or treats any Intermediate file as proof.
 A changed C++ target still goes through UBT; this is not a cross-worktree compiler object cache.
 
+Native importers can also declare a `CandidateScope` on their normal build step. Before a
+cache miss executes, including a batched leaf, the executor discovers compatible retained
+checkpoints locally and in private history. It stages the declared reports and complete package
+directories as independent copies in ignored `.state/import-candidates/`. Existing receiver
+products and stamps remain intact; no manual donor selection is required. An engine/SDK mismatch,
+missing clean donor revision, incomplete history or corrupted bytes makes the candidate unavailable.
+
+These are compatibility candidates, not certified task results. The native importer loads one
+validated bundle, verifies each selected member on access, and must prove its current source and
+geometry policy match before reuse. The bundle carries `donor_stamp`, the original task evidence.
+Its per-file input identities recover historical importer and support code from local Git objects
+without executing it. The capture revision identifies the capture; it does not prove which importer
+produced an older package. Missing original policy evidence is a normal import miss. It reruns current material, role, bounds and collision checks.
+Changed or unproved assets import normally. Only the normal successful importer can publish a
+current result. A whole-task miss can therefore reuse unchanged meshes without accepting stale
+validation or overwriting unrelated completed receiver work. Importers must integrate this shared
+protocol and declare their real artifact boundaries; arbitrary existing importers are not inferred.
+
+Existing local imports made before package inventories can follow a bounded incremental transition:
+their recovered source/import policy and receiving environment must agree, their package files must
+predate the old successful task without later modification/replacement, and Unreal must confirm the
+stored source MD5 plus current import options and native validation. Known environment mismatches
+are refused. When prior byte inventories exist they must match; a failed per-mesh receipt cannot
+fall back to weaker evidence. This is compatibility-only continuity, not proof of canonical vertex
+identity or a newly produced action result. It avoids reconstructing intact older local assets;
+it does not authorize arbitrary existing packages or manual stamp adoption.
+
+For an agreed read-only handoff from a clean, fully stopped older producer, use
+`atelier cache retain-candidates GAME --source CHECKOUT`. It writes capture scratch/logs in the
+controller and immutable files in the machine cache. It never writes producer `.state`, stamps,
+products or Zen data. Only generated/Content members and historical evidence enter a candidate-only
+catalogue; this is not a complete workspace seed or a new task certificate. Normal importer discovery
+finds it automatically. Preserve the producer until the key is reported. This diagnostic capture is
+not required for ordinary merge/release retention. With the producer owner’s permission,
+`atelier cache recover-history GAME --source CHECKOUT --checkpoint KEY --before-ns N --task TASK`
+can recover explicitly selected small original stamp records. Both timestamps must precede the
+known pre-capture boundary, the checkout must match the captured producer, and each read must
+remain stable. It never reads live output bytes or writes the producer. Rewritten records miss.
+
+All retention paths preserve stale tasks
+separately in `historical_stamps`; these records never become successful action certificates or
+receiving stamps. The read-only command accepts `--deadline-seconds` from 60 to 900 for bounded
+maintenance handoffs, including queue time and cleanup.
+
+A reviewed source-support extraction can preserve complete local products and restore an
+existing portable cache result under its original tool identity. The executor reproduces the full
+old fingerprint with unchanged installed tool bytes, source, commands and dependencies; keyed
+state must also match its complete output inventory. Unknown changes miss. Preserved results
+remain compatibility-only rather than acquiring a new producer certificate. Lookup and migration
+happen before batching, so intact exports are not rerun merely because shared support code moved.
+
+Embedded importers use `native_protocol.native_context(game)` rather than the build controller.
+`native_protocol.runtime_files()` declares the complete small standard-library source closure.
+Recipes include that closure and their actual game helpers, so unrelated release/build-controller
+edits cannot invalidate native geometry. Unsupported source policies rebuild through the ordinary
+importer and do not publish reusable receipts.
+
+The host receipt update preserves proved warm batch results through a bounded equivalence
+check. It reproduces the complete previous fingerprint with current inputs, worker, commands,
+tools, dependencies and outputs, substituting only one reviewed predecessor host file. Complete
+retained output evidence must still match. The migrated state remains compatibility-only and
+keeps its downstream result token. Unknown history, changed data/commands or incomplete output
+proof follows the normal miss path; migration never weakens a future execution-policy change.
+
 Character body, bike and horse imports depend on normalized exported content. An exporter implementation change
 that reproduces the same mesh, skinning, clips and textures leaves the import current. FBX timestamps and generated
 IDs do not count as content changes. Importer implementation, native module, actual asset or engine changes still
