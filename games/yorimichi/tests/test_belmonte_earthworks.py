@@ -106,6 +106,14 @@ class Design(unittest.TestCase):
                 h = float(ground.height(np.array([s]), np.array([u]))[0])
                 up, _, _ = E.design(np.array([s]), np.array([u]), self.ln)
                 self.assertLessEqual(h, float(up[0]) - E.HIDDEN_CLEARANCE + .05, (s, u))
+        # Round the portal's face (over the tunnel's first metres) it stays under the face standing back too.
+        for s in np.arange(146., 152., 1.):
+            for u in (-14., -10., 10., 14.):
+                h = float(ground.height(np.array([s]), np.array([u]))[0])
+                up, _, info = E.design(np.array([s]), np.array([u]), self.ln)
+                top = max(float(up[0]), float(info['hood'][0]))
+                if np.isfinite(h):
+                    self.assertLessEqual(h, top - E.HIDDEN_CLEARANCE + .15, (s, u))   # linear between vertices
         moved = out[:len(v), 2] - v[:, 2]
         _, _, info = E.design(v[:, 0], v[:, 1], self.ln)
         self.assertTrue(np.all(moved[info['tunnel'] <= 0] <= 1e-9))
@@ -279,6 +287,35 @@ class Supported(unittest.TestCase):
                     for a, b in zip(np.r_[0, cuts + 1], np.r_[cuts, len(rows) - 1])]
         self.assertEqual(stretches(low), [], 'the track floats (chainage from, to, worst metres)')
         self.assertEqual(stretches(high), [], 'ground stands over the formation (chainage from, to, worst metres)')
+
+    def test_hidden_far_hills_never_show_through_the_foothills(self):
+        """Round every portal under the foothills the far hills' ground (hidden there, not carved) stays under the
+        foothills' own: no hillside patch standing out of the cutting's faces or over the portal (the dark green
+        patches Paul saw round the 1705 m portal)."""
+        from terrain_product import load
+        from belmonte import source
+        out = yori.OUT / 'terrain'
+        if not all((out / o / 'final.npz').exists() for o in ('FarHills', 'HD_NorthMountains')):
+            self.skipTest('terrain products not built')
+        surfaces = {o: source.Surface(m.vertices[m.triangles()]) for o in ('FarHills', 'HD_NorthMountains')
+                    for m in [load(out / o / 'final.npz', owner=o, stage='final', city=True)]}
+        E.line.cache_clear()
+        ln = E.line()
+        worst = []
+        for portal in [p for t in ln.tunnels for p in t]:
+            s, u = np.meshgrid(np.arange(portal - 30., portal + 30., 1.), np.arange(-40., 40.1, 1.), indexing='ij')
+            s, u = s.ravel(), u.ravel()
+            tx, ty = ln.tangent(s)
+            x = np.interp(s, ln.s, ln.xy[:, 0]) - ty * u
+            y = np.interp(s, ln.s, ln.xy[:, 1]) + tx * u
+            hidden, shown = surfaces['FarHills'].height(x, y), surfaces['HD_NorthMountains'].height(x, y)
+            # Within a refinement cell of the portal line, beside the face wall and its wing walls, the hood stands as
+            # a vertical step that both terrains only resolve to their own triangles: the portal's masonry stands there.
+            masonry = (np.abs(s - portal) <= 2.5) & (np.abs(u) <= 12.)
+            over = np.isfinite(hidden) & np.isfinite(shown) & (hidden > shown + .02) & ~masonry
+            if over.any():
+                worst.append((portal, int(over.sum()), round(float((hidden - shown)[over].max()), 2)))
+        self.assertEqual(worst, [], 'far hills over the foothills round a portal (portal, points, worst metres)')
 
 if __name__ == '__main__':
     unittest.main()
