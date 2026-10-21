@@ -23,7 +23,7 @@ import walk as W
 from cabin import Cabin, pose
 from tower import Tower
 from stations import Station, Valley, Rim, Crater, railing
-from gondola.line import centre_profile, closed_circuit, placed, simplify, station_frame, near_rope_tolerance, float32_cm_axes, stored_groove_audit
+from gondola.line import centre_profile, closed_circuit, placed, simplify, station_frame, near_rope_tolerance, float32_cm_axes, stored_groove_audit, recover_rope_vertices
 from gondola.products import ground
 from gondola.support import owned_range, owned_triangles, floor_intrusion
 from gondola.validation import site_inputs, validate_site
@@ -380,29 +380,22 @@ def recovered_rope_axes(mesh,path,ring_counts):
     try:
         bpy.ops.import_scene.fbx(filepath=str(path),use_image_search=False,use_anim=False)
         created=[obj for obj in bpy.data.objects if obj not in before]
-        vertices=np.array([tuple(obj.matrix_world@vertex.co) for obj in created if obj.type=='MESH'
-                           for vertex in obj.data.vertices],float)
-        expected=np.asarray(mesh.verts,float)
-        unique,inverse=np.unique(expected,axis=0,return_inverse=True)
-        actual=np.unique(vertices,axis=0)
-        if actual.shape!=unique.shape:
-            raise ValueError('Rope FBX read-back changed emitted vertex count')
+        meshes=[obj for obj in created if obj.type=='MESH']
+        if len(meshes)!=1:raise ValueError('Rope FBX must contain one emitted mesh')
+        obj=meshes[0]
+        vertices=np.array([tuple(vertex.co) for vertex in obj.data.vertices],float)
+        world=np.array([tuple(obj.matrix_world@vertex.co) for vertex in obj.data.vertices],float)
+        if not len(vertices) or not np.isfinite(vertices).all() or not np.isfinite(world).all():
+            raise ValueError('Incomplete rope FBX control points or world transform')
+        actual,indices=np.unique(vertices,axis=0,return_index=True)
+        world=world[indices]
         from mathutils.kdtree import KDTree
         tree=KDTree(len(actual))
         for index,point in enumerate(actual):tree.insert(point,index)
         tree.balance()
-        indices=[tree.find(point)[1] for point in unique]
-        # This tolerance identifies matching control points after FBX unit
-        # conversion. The separate actual groove check still requires <=2mm.
-        allowance=max(1e-6,float(np.spacing(np.abs(expected).astype(np.float32)).max())*2)
-        if len(set(indices))!=len(actual) or allowance>.001:
-            raise ValueError('Rope FBX read-back vertex correspondence is ambiguous')
-        recovered=actual[indices][inverse]
-        error=float(np.linalg.norm(recovered-expected,axis=1).max())
-        if error>allowance:raise ValueError('Rope FBX read-back displaced emitted vertices')
+        recovered,proof=recover_rope_vertices(mesh.verts,actual,world,lambda point:tree.find(point)[1])
         axes=float32_cm_axes(recovered,ring_counts)
-        return axes,{'matched_vertices':len(recovered),'roundtrip_error_m':error,
-                     'roundtrip_allowance_m':allowance}
+        return axes,proof
     finally:
         for obj in created:
             data=obj.data if obj.type=='MESH' else None

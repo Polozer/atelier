@@ -83,15 +83,16 @@ def validate_access_ground(access):
 def validate_stored_contact(row,poses,hardware_min):
     proof=row.get('stored_contact',{})
     if (proof.get('pass') is not True or proof.get('representation')!='fbx-float32-cm-ring-axis' or
+            proof.get('control_point_frame')!='mesh-local' or proof.get('world_transform_applied') is not True or
             proof.get('directions')!=[-1,1] or proof.get('poses')!=poses or poses<=0 or
             proof.get('points_per_pose')!=114 or type(proof.get('matched_vertices')) is not int or proof['matched_vertices']<48 or
             not all(type(proof.get(key)) in (int,float) and math.isfinite(proof[key])
-                    for key in ('max_error_mm','bound_mm','roundtrip_error_m','roundtrip_allowance_m',
-                                'axis_extra_m','axis_bound_m','hardware_bound_m')) or
+                    for key in ('max_error_mm','bound_mm','control_point_error_m','control_point_allowance_m',
+                                'axis_extra_m','axis_bound_m','hardware_bound_m','world_displacement_m')) or
             proof['max_error_mm']<0 or proof['bound_mm']>2. or
             abs(proof['bound_mm']-proof['max_error_mm']-.005)>1e-9 or
-            not 0<=proof['roundtrip_error_m']<=proof['roundtrip_allowance_m']<=.001 or
-            proof['axis_extra_m']<0 or proof['hardware_bound_m']<.095 or
+            not 0<=proof['control_point_error_m']<=proof['control_point_allowance_m']<=.001 or
+            proof['world_displacement_m']<0 or proof['axis_extra_m']<0 or proof['hardware_bound_m']<.095 or
             abs(proof['axis_bound_m']-row.get('axis_deviation_m',-1)-proof['axis_extra_m'])>1e-12 or
             abs(proof['hardware_bound_m']-hardware_min+proof['axis_bound_m'])>1e-12):
         raise ValueError('Incomplete or failed stored rope contact proof')

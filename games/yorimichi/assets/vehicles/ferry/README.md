@@ -207,5 +207,11 @@ For bounded native checks, `ferry.Go hidamari` / `ferry.Go brinecove` selects th
 nobody is aboard. `ferry.TimeScale` changes the diagnostic clock speed. Live helpers expose the state,
 audited walking points, ship-local points and sound loops (`FerryState`, `FerryPoint`, `FerryLoops`).
 Native automation tests under `Yorimichi.Ferry` cover interpolation, wrap, boarding windows, invalid
-line data and shared rider cleanup. Both harbour boarding routes still need revision-bound game drives,
-and the voyage needs native ride and playback evidence before acceptance.
+line data and shared rider cleanup. [Integration validation](https://github.com/fontanierh/atelier/pull/494)
+records guarded, revision-bound ordinary walking over both harbour routes in both directions,
+both sea voyages and moving-deck walking at `bb28064b`, plus companionway ascent/descent at `b2dc033a`.
+The production geometry and native binaries are identical across those two revisions. Arrival/departure
+horns, brow/fender events and engine-loop state were recorded; this is event evidence, not a listening-quality
+assessment. Actual two-process and late-join play was not run because the existing compound worker refused
+its available-memory prerequisite before either game launched. Native remote-membership regression
+coverage is separate from that reduced real-peer coverage.

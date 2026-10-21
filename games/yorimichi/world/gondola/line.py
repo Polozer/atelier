@@ -165,6 +165,36 @@ def near_rope_tolerance(groove_error_mm):
     return .9*(2.-groove_error_mm-.0005)/1000.
 
 
+def recover_rope_vertices(expected, local, world, nearest):
+    """@cc [owner:fontanierh,label:correctness] gondola-fbx-world-transform
+    FBX correspondence MUST preserve the world transform of every matched
+    control point. Local matching tolerance MUST NOT forgive physical groove
+    or hardware error; those checks MUST use the transformed world vertices.
+
+    Correspondence tolerance identifies vertices only. Physical contact uses
+    the returned world positions, including every imported transform error.
+    """
+    expected,local,world=(np.asarray(points,float) for points in (expected,local,world))
+    if (any(points.ndim!=2 or points.shape[1]!=3 or not len(points) or not np.isfinite(points).all()
+            for points in (expected,local,world)) or local.shape!=world.shape):
+        raise ValueError('Incomplete rope FBX vertices')
+    unique,inverse=np.unique(expected,axis=0,return_inverse=True)
+    if unique.shape!=local.shape or len(np.unique(local,axis=0))!=len(local):
+        raise ValueError('Rope FBX read-back changed emitted vertex count')
+    indices=np.asarray([nearest(point) for point in unique],int)
+    allowance=max(1e-6,float(np.spacing(np.abs(expected).astype(np.float32)).max())*2)
+    if (len(set(indices))!=len(local) or np.any(indices<0) or np.any(indices>=len(local)) or allowance>.001):
+        raise ValueError('Rope FBX read-back vertex correspondence is ambiguous')
+    error=float(np.linalg.norm(local[indices]-unique,axis=1).max())
+    if error>allowance:
+        raise ValueError('Rope FBX read-back displaced emitted control points')
+    recovered=world[indices][inverse]
+    return recovered,{'matched_vertices':len(recovered),'control_point_error_m':error,
+                      'control_point_allowance_m':allowance,'control_point_frame':'mesh-local',
+                      'world_transform_applied':True,
+                      'world_displacement_m':float(np.linalg.norm(recovered-expected,axis=1).max())}
+
+
 def float32_cm_axes(vertices, ring_counts, sides=12):
     """Ring centres after the emitted vertices enter Unreal's float32 cm buffer."""
     vertices=np.asarray(vertices,float)

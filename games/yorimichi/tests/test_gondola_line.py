@@ -109,6 +109,48 @@ def test_stored_rope_axis_uses_centimetre_float32_vertices():
     with pytest.raises(ValueError):float32_cm_axes(vertices[:-1],[2,2])
 
 
+def test_rope_correspondence_preserves_the_actual_nonidentity_world_transform():
+    from gondola.line import recover_rope_vertices
+    expected=np.array([[1176.240478515625,2021.1805419921875,697.8170776367188],
+                       [1177.,2022.,698.]],dtype='f4').astype(float)
+    local=expected[::-1].copy()
+    matrix=np.array([[1.,1.5099580252808664e-7,0.],[-1.5099580252808664e-7,1.,0.],[0.,0.,1.]],dtype='f4')
+    world=(matrix@local.astype('f4').T).T.astype(float)
+    recovered,proof=recover_rope_vertices(expected,local,world,lambda p:int(np.linalg.norm(local-p,axis=1).argmin()))
+    assert np.array_equal(recovered,world[::-1])
+    assert proof['control_point_error_m']==0
+    assert proof['world_displacement_m']>proof['control_point_allowance_m']
+    assert proof['world_transform_applied'] is True
+
+
+@pytest.mark.parametrize('fault',['count','local-drift','ambiguous','local-nan','world-nan'])
+def test_rope_correspondence_still_refuses_invalid_control_points(fault):
+    from gondola.line import recover_rope_vertices
+    expected=np.array([[1000.,2000.,500.],[1001.,2000.,500.]])
+    local=expected.copy();world=local.copy()
+    if fault=='count':local=local[:1];world=world[:1]
+    elif fault=='local-drift':local[0,0]+=.002
+    elif fault=='local-nan':local[0,0]=float('nan')
+    elif fault=='world-nan':world[0,0]=float('nan')
+    nearest=lambda p:0 if fault=='ambiguous' else int(np.linalg.norm(local-p,axis=1).argmin())
+    with pytest.raises(ValueError):recover_rope_vertices(expected,local,world,nearest)
+
+
+def test_preserved_world_displacement_still_fails_actual_groove_limit():
+    from gondola.line import recover_rope_vertices,float32_cm_axes,stored_groove_audit
+    spec=importlib.util.spec_from_file_location('transformed_rope',ROOT/'assets/vehicles/gondola/rope.py')
+    rope=importlib.util.module_from_spec(spec);spec.loader.exec_module(rope)
+    vertices=np.array([[x,.045*math.cos(a),100.+.045*math.sin(a)]
+                       for x in (0.,4.,0.,4.) for a in np.arange(12)*2*math.pi/12],dtype='f4').astype(float)
+    local=np.unique(vertices,axis=0);world=local+[0,.003,0]
+    recovered,_=recover_rope_vertices(vertices,local,world,lambda p:int(np.linalg.norm(local-p,axis=1).argmin()))
+    axes=float32_cm_axes(recovered,[2,2])
+    angles=np.radians([*range(0,86,5),86])
+    groove=[[x,side*.045*math.cos(t),.045*math.sin(t)] for side in(-1,1) for x in(-.195,0.,.195) for t in angles]
+    proof=stored_groove_audit(np.array([[0.,100.],[4.,100.]]),axes,groove,rope.RopePath,.045)
+    assert proof['max_error_mm']>2.9 and proof['pass'] is False
+
+
 @pytest.mark.parametrize('offset,passed',[(.0005,True),(.003,False)])
 def test_stored_grooves_check_unquantized_runtime_frames_and_both_directions(offset,passed):
     from gondola.line import stored_groove_audit

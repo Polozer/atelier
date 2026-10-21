@@ -52,11 +52,12 @@ def test_complete_access_floor_receipt_is_required(fault):
         validation.validate_access_ground(access)
 
 
-@pytest.mark.parametrize('fault',['missing','failed','poses','direction','points','representation','vertices','bound','roundtrip','nan','hardware','axis','allowance'])
+@pytest.mark.parametrize('fault',['missing','failed','poses','direction','points','representation','vertices','bound','roundtrip','nan','hardware','axis','allowance','frame','transform','world'])
 def test_final_stored_rope_proof_is_complete_and_required(fault):
     proof={'pass':True,'representation':'fbx-float32-cm-ring-axis','directions':[-1,1],
            'poses':42,'points_per_pose':114,'matched_vertices':120,
-           'max_error_mm':1.8,'bound_mm':1.805,'roundtrip_error_m':0.,'roundtrip_allowance_m':.0002,'axis_extra_m':.0001,
+           'control_point_frame':'mesh-local','world_transform_applied':True,'world_displacement_m':.0003,
+           'max_error_mm':1.8,'bound_mm':1.805,'control_point_error_m':0.,'control_point_allowance_m':.0002,'axis_extra_m':.0001,
            'axis_bound_m':.0003,'hardware_bound_m':.0997}
     row={'stored_contact':proof,'axis_deviation_m':.0002}
     validation.validate_stored_contact(row,42,.1)
@@ -68,10 +69,13 @@ def test_final_stored_rope_proof_is_complete_and_required(fault):
     elif fault=='representation':proof['representation']='ideal double axis'
     elif fault=='vertices':proof['matched_vertices']=0
     elif fault=='bound':proof['bound_mm']=1.8
-    elif fault=='roundtrip':proof['roundtrip_error_m']=.01
+    elif fault=='roundtrip':proof['control_point_error_m']=.01
     elif fault=='nan':proof['max_error_mm']=float('nan')
     elif fault=='hardware':proof['hardware_bound_m']=.094
     elif fault=='axis':proof['axis_bound_m']=.0001
-    elif fault=='allowance':proof['roundtrip_allowance_m']=.01
+    elif fault=='allowance':proof['control_point_allowance_m']=.01
+    elif fault=='frame':proof.pop('control_point_frame')
+    elif fault=='transform':proof['world_transform_applied']=False
+    elif fault=='world':proof['world_displacement_m']=float('nan')
     with pytest.raises(ValueError,match='stored rope contact proof'):
         validation.validate_stored_contact(row,42,.1)
