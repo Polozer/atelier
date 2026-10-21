@@ -43,18 +43,29 @@ bool FFerryProductionInitializationTest::RunTest(const FString&)
     for (const FWorldContext& Context : GEngine->GetWorldContexts())
         if (Context.World() && Context.World()->IsGameWorld()) { World = Context.World(); break; }
     if (!TestNotNull(TEXT("Native game world"), World)) return false;
-    AFerryService* Service = AFerryService::Spawn(World, AtelierDataPath(TEXT("ferry/service/service.json")));
-    ON_SCOPE_EXIT { if (Service) Service->Destroy(); };
+    const FString Path = AtelierDataPath(TEXT("ferry/service/service.json"));
+    const auto Data = AtelierReadJson(Path);
+    if (!TestTrue(TEXT("Current staged ferry data exists"), Data.IsValid())) return false;
+    const bool bCreated = AFerryService::Find(World) == nullptr;
+    AFerryService* Service = AFerryService::Spawn(World, Path);
+    ON_SCOPE_EXIT { if (bCreated && Service) Service->Destroy(); };
     if (!TestNotNull(TEXT("Complete imported ferry service initializes"), Service)) return false;
     TArray<UTextRenderComponent*> Boards;
     Service->GetComponents(Boards);
     TestEqual(TEXT("Both terminal timetable texts exist"), Boards.Num(), 2);
-    for (const TCHAR* Key : {TEXT("hidamari"), TEXT("brinecove")})
+    for (const auto& Value : Data->GetArrayField(TEXT("terminals")))
     {
-        const FName MeshName(*(FString(Key) + TEXT("_Timetable")));
-        const FName TextName(*(FString(Key) + TEXT("_TimetableText")));
-        TestNotNull(TEXT("Timetable mesh retains its stable component name"), FindObject<UStaticMeshComponent>(Service, *MeshName.ToString()));
-        TestNotNull(TEXT("Timetable text has a distinct stable component name"), FindObject<UTextRenderComponent>(Service, *TextName.ToString()));
+        const auto Terminal = Value->AsObject();
+        const FString Key = Terminal->GetStringField(TEXT("key"));
+        for (const auto& Part : Terminal->GetArrayField(TEXT("parts")))
+        {
+            const FString Name = Key + TEXT("_") + Part->AsObject()->GetStringField(TEXT("name"));
+            TestNotNull(TEXT("Every staged terminal mesh retains its stable component name"),
+                FindObject<UStaticMeshComponent>(Service, *Name));
+        }
+        const FString TextName = Key + TEXT("_TimetableText");
+        TestNotNull(TEXT("Timetable text has a distinct stable component name"),
+            FindObject<UTextRenderComponent>(Service, *TextName));
     }
     return true;
 }
