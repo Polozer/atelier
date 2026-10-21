@@ -58,7 +58,7 @@ DECK_HALF_M = .456 + .1
 # Modules laid end to end in runs (a field wall's 10 m sections) meet with up to JOIN_CM of gap or overlap: their
 # collision reaches half of that past each drawn end so the run's top has no gap at a join.
 RUN_OVERLAP_M = JOIN_CM / 100 / 2
-RUN_CHAMFER_M = .005
+RUN_CHAMFER_M = .001
 DECK_SIDE_M = .12
 DECK_UP_M = (.05, .12)
 THIN, FAT, LEDGE, IMPOSSIBLE = 'ThinRail', 'FatRail', 'Ledge', 'Impossible'
@@ -366,6 +366,17 @@ def run_axis(data, entry, path=None):
     return None
 
 
+def run_ends(cloud, run, points, base):
+    """A run's module (run_axis) reaches RUN_OVERLAP_M past each drawn end, its top easing RUN_CHAMFER_M down, so a
+    join has no gap, and where sections overlap the wheels roll from one top to the next over a dip under a
+    millimetre instead of meeting the next section's end face."""
+    lo, hi = points[:, run].min(), points[:, run].max()
+    end = cloud[(cloud[:, run] <= lo + 1e-4) | (cloud[:, run] >= hi - 1e-4)].copy()
+    end[:, run] += np.where(end[:, run] < (lo + hi) / 2, -RUN_OVERLAP_M, RUN_OVERLAP_M)
+    end[end[:, 2] > base + 1e-4, 2] -= RUN_CHAMFER_M
+    return np.concatenate([cloud, end])
+
+
 def generate(entry, path=None, run=None):
     """@cc [owner:fontanierh,label:correctness] belmonte-furniture-collides-as-drawn
     Skate furniture (FURNITURE) MUST collide with closed, outward convex columns derived from its drawn mesh: one per
@@ -393,7 +404,9 @@ def generate(entry, path=None, run=None):
         reach.append(np.where(under, d, np.inf))
     furniture = Furniture(entry['name'], drawn, base, tops)
     if run is not None:
-        furniture.run = (run, float(points[:, run].min()), float(points[:, run].max()))
+        side = points[:, 1 - run]
+        furniture.run = (run, float(points[:, run].min()), float(points[:, run].max()),
+                         float(side.min() + side.max()) / 2)
     furniture.unheld = int(((owner < 0) & ~held).sum())
     for k, plate in enumerate(tops):
         mine = owner == k
@@ -411,13 +424,8 @@ def generate(entry, path=None, run=None):
         z = np.full(len(xy), -np.inf)
         np.maximum.at(z, index.reshape(-1), above[:, 2])
         cloud = np.concatenate([np.c_[xy, z], np.c_[xy, np.full(len(xy), base)]])
-        if run is not None:                        # a run's module reaches past its drawn ends (RUN_OVERLAP_M)
-            lo, hi = points[:, run].min(), points[:, run].max()
-            end = cloud[(cloud[:, run] <= lo + 1e-4) | (cloud[:, run] >= hi - 1e-4)].copy()
-            end[:, run] += np.where(end[:, run] < (lo + hi) / 2, -RUN_OVERLAP_M, RUN_OVERLAP_M)
-            # Chamfered down, so where sections overlap at a pitch or roll the reaching end sinks under the next top.
-            end[end[:, 2] > base + 1e-4, 2] -= RUN_CHAMFER_M
-            cloud = np.concatenate([cloud, end])
+        if run is not None:
+            cloud = run_ends(cloud, run, points, base)
         furniture.columns.append((plate, hull3d(cloud)))
     furniture.columns = [c for i, c in enumerate(furniture.columns)
                          if not any(j != i and contains(o[1], c[1]) for j, o in enumerate(furniture.columns))]
@@ -613,7 +621,7 @@ def rails(furniture):
                 continue
             points = np.array(piece)
             if furniture.run is not None:            # a run's lines end at the drawn ends, where the next one starts
-                axis, lo, hi = furniture.run
+                axis, lo, hi, _ = furniture.run
                 points[:, axis] = np.clip(points[:, axis], lo, hi)
             if len(points) > 1 and _length(points) >= RAIL_MIN_M:
                 out.append(dict(kind=kind_of(faces, points), points=simplify(points)))

@@ -179,7 +179,7 @@ def test_wall_runs_have_a_level_unbroken_top_through_every_join():
     5 mm, every centimetre across the top both sections share, and the run's line is one line through it."""
     name = 'SM_BM_BVV_StoneWall'
     item, lines = generated(name)
-    axis, lo, hi = item.run
+    axis, lo, hi, _ = item.run
     assert axis == 0
     top = max(p.z(p.poly).max() for p in item.plates)
     transforms = [p['transform'] for p in MANIFEST['placements'] if p['asset'] == ENTRIES[name]['source_asset']]
