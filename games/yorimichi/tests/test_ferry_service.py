@@ -186,3 +186,26 @@ def test_terminal_audits_refuse_missing_or_failed_proof(field, failed):
         del target[field]
     with pytest.raises(ValueError, match='audit'):
         service.validate_terminal_audits(data)
+
+
+@pytest.mark.parametrize('quay', [1.8, 2.475])
+def test_hidamari_landing_waypoints_match_the_two_flight_stair(quay):
+    import ast
+    from types import SimpleNamespace
+    # Execute the production route declaration without Blender mesh generation.
+    source = WORLD / 'regions/hidamari/ferry_terminal.py'
+    tree = ast.parse(source.read_text())
+    assemble = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'assemble')
+    declaration = next(n for n in assemble.body if isinstance(n, ast.Assign)
+                       and any(isinstance(t, ast.Name) and t.id == 'walk' for t in n.targets))
+    scope = dict(dx=820.5, hy0=-122., hz=2.867, gx=839.8, QF=-127.7, quay=quay,
+                 foot_y=-129.94, land_y1=-132.36, land_y0=-133.56, gal1=-135.8, gal0=-138.8,
+                 face=-138.8, gy=-139.4, st={}, br={}, kit=SimpleNamespace(SILL=6.939))
+    exec(compile(ast.Module(body=[declaration], type_ignores=[]), str(source), 'exec'), scope)
+    route = service.walk_points(scope['walk']['route'], (0., 0.))
+    # Ten lower-flight risers reach a level 1.2 m landing, followed by nine more.
+    landing_cm = 100 * (quay + 10 * (6.939 - quay) / 19)
+    assert route[6][2] == pytest.approx(landing_cm, abs=.005)
+    assert route[7][2] == pytest.approx(landing_cm, abs=.005)
+    assert abs(route[6][1] - route[7][1]) == pytest.approx(120.)
+    assert list(reversed(route))[6][2] == pytest.approx(landing_cm, abs=.005)
