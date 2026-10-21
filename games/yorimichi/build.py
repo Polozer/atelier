@@ -1311,8 +1311,8 @@ def world_steps(ctx):
         Step('world.belmonte_track.meshes',
              [Call('export digest belmonte-track', lambda ctx, log:
                    export_digest.record(out / 'digests' / 'world.belmonte_track.meshes.json',
-                                        export_digest.files(out / 'belmonte-track', ['runtime/track.json', 'atomic/meshes']), log))],
-             inputs=[GAME / 'export_digest.py'],reads=['belmonte_track.library','belmonte_track.runtime'],
+                                        export_digest.files(out / 'belmonte-track', ['runtime/track.json', 'atomic/meshes', 'textures']), log))],
+             inputs=[GAME / 'export_digest.py'],reads=['belmonte_track.library','belmonte_track.runtime','belmonte_track.textures'],
              outputs=[out / 'digests' / 'world.belmonte_track.meshes.json'], cutoff=True,
              about='the track meshes and runtime data unreal.belmonte_track reads'),
         Step('world.map', [Python(WORLD / 'map' / 'build_map.py')],
