@@ -347,7 +347,10 @@ void AWandererCharacter::EnterWorld(AJapanWorld* World)
 
 void AWandererCharacter::ConfigureCar()
 {
-    if (!Car || Car->IsConfigured()) return;
+    if (!Car) return;
+    // A late retry can run before world entry reached the car's Initialize; it is idempotent.
+    Car->Initialize(this);
+    if (Car->IsConfigured()) return;
     Car->SetMeshes(FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Body.SM_Kart_Body")),
                    FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Seat.SM_Kart_Seat")),
                    FSoftObjectPath(TEXT("/Game/Japan/Kart/SM_Kart_Wheel.SM_Kart_Wheel")),
