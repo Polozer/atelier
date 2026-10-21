@@ -59,8 +59,8 @@ DECK_HALF_M = .456 + .1
 # collision reaches half of that past each drawn end so the run's top has no gap at a join.
 RUN_OVERLAP_M = JOIN_CM / 100 / 2
 RUN_CHAMFER_M = .005
-RUN_TAPER_M = .02
-RUN_TAPER_LEN_M = .6
+RUN_TAPER_M = .03         # no more: the lines stay on the drawn edge and the plugin's probes must still find it
+RUN_TAPER_LEN_M = .8
 DECK_SIDE_M = .12
 DECK_UP_M = (.05, .12)
 THIN, FAT, LEDGE, IMPOSSIBLE = 'ThinRail', 'FatRail', 'Ledge', 'Impossible'
@@ -371,8 +371,8 @@ def run_axis(data, entry, path=None):
 def run_ends(cloud, run, points, base):
     """A run's module (run_axis) at its ends: it reaches RUN_OVERLAP_M past each drawn end, chamfered RUN_CHAMFER_M
     down, so a join has no gap and where sections overlap at a pitch or roll the reaching end sinks under the next
-    top; and it narrows by RUN_TAPER_M over RUN_TAPER_LEN_M, so where the next section turns its side stays inside
-    the line the board's wheels hang over (a ledge grind's outer wheels catch a side standing proud)."""
+    top; and its collision narrows by RUN_TAPER_M over RUN_TAPER_LEN_M while its lines stay on the drawn edge, so
+    where the next section turns, its side stays clear of the wheels a ledge grind hangs over that edge."""
     lo, hi = points[:, run].min(), points[:, run].max()
     side = 1 - run
     middle = (points[:, side].min() + points[:, side].max()) / 2
@@ -391,17 +391,6 @@ def run_ends(cloud, run, points, base):
     reach[:, run] -= inward * RUN_OVERLAP_M
     reach[reach[:, 2] > base + 1e-4, 2] -= RUN_CHAMFER_M
     return np.concatenate([cloud[~at_end], full, narrow, reach])
-
-
-def tapered(run, points):
-    """Points along a run module's drawn top moved in as run_ends narrows its collision near the ends."""
-    axis, lo, hi, middle = run
-    points = points.copy()
-    near = np.minimum(points[:, axis] - lo, hi - points[:, axis])
-    shrink = RUN_TAPER_M * np.clip(1 - near / RUN_TAPER_LEN_M, 0, 1)
-    offset = points[:, 1 - axis] - middle
-    points[:, 1 - axis] = middle + np.sign(offset) * np.maximum(np.abs(offset) - shrink, 0)
-    return points
 
 
 def generate(entry, path=None, run=None):
@@ -637,8 +626,6 @@ def rails(furniture):
                 continue
             n = max(1, int(np.ceil(np.linalg.norm(b - a) / RAIL_STEP_M)))
             cut = [a + (b - a) * i / n for i in range(n + 1)]
-            if furniture.run is not None:
-                cut = list(tapered(furniture.run, np.array(cut)))
             kept = [(p, q) for p, q in zip(cut[:-1], cut[1:]) if accepted(faces, p, q)]
             (segments if perimeter else lines).extend(kept if perimeter else chains(kept))
     out = []

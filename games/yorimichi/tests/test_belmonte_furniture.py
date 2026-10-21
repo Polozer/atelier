@@ -212,6 +212,40 @@ def test_wall_runs_have_a_level_unbroken_top_through_every_join():
             assert any(0 < np.linalg.norm(w - p, axis=1).argmin() < len(w) - 1 for w in near), (i, j, edge)
 
 
+def test_a_turning_wall_section_keeps_its_side_clear_of_the_ledge_wheels():
+    """In game a ledge grind lost a third of its speed at a field wall join on one edge only: its outer wheels skim
+    the battered side just under the edge, and the next section, turned a degree or two, stood proud of that line.
+    Run modules narrow toward their ends (RUN_TAPER_M over RUN_TAPER_LEN_M) while their lines stay on the drawn
+    edge: in the first 0.3 m past every join turning under 2 degrees, the next side stands at most 3 mm proud of the
+    line the previous section's side keeps, 1-3 cm under the edge."""
+    name = 'SM_BM_BVV_StoneWall'
+    item, _ = generated(name)
+    _, lo, hi, _ = item.run
+    top = max(p.z(p.poly).max() for p in item.plates)
+    transforms = [p['transform'] for p in MANIFEST['placements'] if p['asset'] == ENTRIES[name]['source_asset']]
+    starts = np.array([furniture.to_region_cm(t, [[lo, 0, top]])[0] for t in transforms])
+    ends = np.array([furniture.to_region_cm(t, [[hi, 0, top]])[0] for t in transforms])
+    joins = np.argwhere(np.linalg.norm(ends[:, None] - starts[None], axis=-1) <= furniture.JOIN_CM)
+    checked = 0
+    for i, j in joins:
+        if furniture.turn(ends[i] - starts[i], ends[j] - starts[j]) > 2:
+            continue
+        checked += 1
+        own, next_ = (furniture.to_region_cm(transforms[k], item.faces.reshape(-1, 3)).reshape(-1, 3, 3) for k in (i, j))
+        for edge in (-.12, .12):
+            out = np.sign(edge)
+            for below in (.01, .02, .03):
+                def across(faces, x):                  # a 20 cm probe from outside in, across the side (cm in)
+                    a, b = furniture.to_region_cm(transforms[i], [[x, edge + out * .15, top - below],
+                                                                   [x, edge - out * .05, top - below]])
+                    return furniture.segment_hits(faces, a[None], b[None])[0] * 20
+                side = across(own, hi - 1.)
+                for d in (0., .1, .2, .3):
+                    hit = across(next_, hi + d)
+                    assert np.isnan(hit) or side - hit <= .3, (i, j, edge, below, d, side - hit)
+    assert checked > 100
+
+
 def test_build_writes_furniture_collision_and_rails(tmp_path, monkeypatch):
     monkeypatch.setattr(build, 'OUT', tmp_path)
     (tmp_path / 'glb').mkdir()
