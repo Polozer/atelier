@@ -441,8 +441,9 @@ def brow(m, shore, hull, inboard, z_shore, width=BROW_W):
 def timetable(m, x, y, z, yaw, w=2.4, h=1.7):
     """Timetable notice board on two posts with a small kawara hood and two lamps, as in concept v2."""
     with m.at((x, y, z), yaw):
+        post_width = 0.2
         for s in (-1, 1):
-            post(m, s * (w / 2 + 0.12), 0, 0.0, 3.2, s=0.2, mat=TIMBER_DARK, footing=True)
+            post(m, s * (w / 2 + post_width / 2 - SINK), 0, 0.0, 3.2, s=post_width, mat=TIMBER_DARK, footing=True)
         m.box((0, 0, 1.0 + h / 2), (w, 0.08, h), TIMBER_DARK)
         m.box((0, -0.05, 1.0 + h / 2), (w - 0.16, 0.04, h - 0.16), PAPER)
         m.box((0, 0, 3.05), (w + 0.7, 0.5, 0.12), TIMBER_DARK)
