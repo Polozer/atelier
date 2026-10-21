@@ -203,3 +203,29 @@ def test_adjoining_landing_rails_reuse_one_corner_post_and_keep_both_rails():
     function(mesh,station,[(2,0),(2,2)],'timber',start_post=False)
     assert posts.count((2.,0.))==1 and len(posts)==len(set(posts))
     assert len(rails)==2*first_rails and first_rails>0
+
+
+def test_access_stringers_and_posts_clear_the_adjoining_landing_post():
+    import math
+    from contextlib import nullcontext
+    rails=[];supports=[]
+    mesh=SimpleNamespace(tagged=lambda *a:nullcontext(),at=lambda *a:nullcontext(),
+                         prism=lambda *a,**k:None,box=lambda *a,**k:None)
+    def support(m,g,frame,point,*args):supports.append(np.asarray(point).copy())
+    namespace={'np':np,'math':math,'solid':SimpleNamespace(Mesh=lambda *a:mesh,TIMBER=1,TIMBER_DARK=2,DECK=3),
+               'STATIONS':{'fixture':{'access_turn_deg':90.}},
+               'Station':lambda *a:SimpleNamespace(seats=[],proxies=[]),
+               'P':SimpleNamespace(DEFAULTS={},derived=lambda p:{}),
+               'world_xy':lambda p,f:np.asarray(p),
+               'ground_edge':lambda *a:(np.array([-1.1,1.1]),np.zeros(2)),
+               'railing':lambda m,st,points,*a,**k:rails.append(np.asarray(points)),
+               'timber_support':support,'floor_intrusion':lambda *a:0.}
+    function=helper('access_stair',namespace)
+    layout={'access':[{'edge':[[0.,-1.2],[0.,1.2]],'point':[-1.,0.],'z':2.}]}
+    function('fixture',layout,SimpleNamespace(contact=lambda xy:(np.zeros(len(xy)),None)),(None,None,None,0.))
+    landing_post=rails[1][-1]
+    stair_starts=[points[0] for points in rails[2:]]
+    # .13m post and .18m stringer must leave at least 1cm between their faces.
+    assert min(np.linalg.norm(point-landing_post) for point in stair_starts)>=.13/2+.18/2+.01
+    assert len(stair_starts)==2
+    for rail,post in zip(stair_starts,supports[:2]):assert np.allclose(rail,post)

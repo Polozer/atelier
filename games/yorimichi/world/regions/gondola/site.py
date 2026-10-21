@@ -251,8 +251,9 @@ def access_stair(key,layout,G,frame):
         return top-(top-bottom)*distance/length+.25
     support_section=.20
     bearing_half_length=.08
+    rail_inset=.18  # Clear the adjoining landing post and the .18m stringer section.
     for side in (-1,1):
-        offset=side*(width/2-.12)*across
+        offset=side*(width/2-rail_inset)*across
         a,b=start+offset,end+offset
         # Clear both the .20m support-post end planes and .16m bearing pads.
         extension=max(support_section/2,bearing_half_length)+.02
@@ -279,7 +280,7 @@ def access_stair(key,layout,G,frame):
     supports=[]
     for distance in np.arange(0,length+.01,3):
         for side in (-1,1):
-            point=start+distance*direction+side*(width/2-.12)*across
+            point=start+distance*direction+side*(width/2-rail_inset)*across
             level=top-(top-bottom)*distance/length-.20
             support=timber_support(mesh,G,frame,point,level,support_section)
             if support:
