@@ -82,6 +82,12 @@ def apply_cut(bm, cut):
     """Opens one cut. Returns what it did."""
     x0, x1 = cut['x']
     c0, c1 = x0 - POST / 2 - 0.001, x1 + POST / 2 + 0.001        # the new rail ends, each inside its new post
+    # The region's FBX has separate vertices for each hard-edged face. Restore
+    # adjacency only in this rail band before finding solids and filling caps.
+    # Coincident vertices move by at most 0.01 mm; other harbour geometry is untouched.
+    rail = [v for v in bm.verts if cut['y'][0] - EPS <= v.co.y <= cut['y'][1] + EPS
+            and v.co.z >= cut['z_from'] - EPS]
+    bmesh.ops.remove_doubles(bm, verts=rail, dist=1e-5)
     bm.faces.ensure_lookup_table(); bm.faces.index_update()
     groups = [(g, *box_of(g)) for g in islands(bm)]
     band = [(g, lo, hi) for g, lo, hi in groups if in_band(lo, hi, cut) and hi[0] >= c0 - POST and lo[0] <= c1 + POST]
@@ -128,6 +134,37 @@ def apply_cut(bm, cut):
             'cap_normals': cap_normals, 'cap_normals_pass': caps_pass}
 
 
+def audit_split_rail():
+    """A hard-edge FBX-style rail must cut into closed solids with outward caps."""
+    bm = bmesh.new()
+    try:
+        def box(lo, hi):
+            corners = [(lo[0], lo[1], lo[2]), (hi[0], lo[1], lo[2]),
+                       (hi[0], hi[1], lo[2]), (lo[0], hi[1], lo[2]),
+                       (lo[0], lo[1], hi[2]), (hi[0], lo[1], hi[2]),
+                       (hi[0], hi[1], hi[2]), (lo[0], hi[1], hi[2])]
+            # Each face owns its vertices, as in the actual imported harbour.
+            for face in ((3, 2, 1, 0), (4, 5, 6, 7), (0, 1, 5, 4),
+                         (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)):
+                bm.faces.new([bm.verts.new(corners[i]) for i in face])
+        box((-5, -.045, 3.455), (5, .045, 3.545))
+        box((-.065, -.065, 2.45), (.065, .065, 3.55))
+        # A neighbouring split solid must retain its original topology/coordinates.
+        box((-1, 2, 0), (1, 3, 1))
+        untouched = [v for v in bm.verts if v.co.y >= 2]
+        coordinates = [tuple(v.co) for v in untouched]
+        result = apply_cut(bm, {'what': 'split-rail regression', 'x': [-.5, .5],
+                                'y': [-.1, .1], 'z_from': 2.4})
+        assert result['posts_removed'] == 1 and result['posts_added'] == 2
+        assert result['ends_closed'] == 2 and result['cap_normals_pass'], result
+        assert not any(e.is_boundary for e in bm.edges if all(abs(v.co.y) < .1 for v in e.verts))
+        assert [tuple(v.co) for v in untouched] == coordinates
+        assert sum(e.is_boundary for e in bm.edges) == 24
+        return {'split_rail_closed': True, 'outward_caps': True, 'neighbour_untouched': True}
+    finally:
+        bm.free()
+
+
 def triangles(obj):
     me = obj.data; me.calc_loop_triangles()
     v = np.array([tuple(p.co) for p in me.vertices]); t = np.array([tuple(lt.vertices) for lt in me.loop_triangles], int)
@@ -135,6 +172,7 @@ def triangles(obj):
 
 
 def main():
+    fixtures = audit_split_rail()
     site = json.loads(SITE.read_text())
     cuts = site['hidamari']['berth']['world_cuts']
     S = load_site()
@@ -186,7 +224,7 @@ def main():
                              use_custom_props=False)
     report = {'source': str(SOURCE.relative_to(yori.OUT)), 'site': str(SITE.relative_to(yori.OUT)), 'cuts': done,
               'triangles': {'before': len(before), 'after': len(after)}, 'untouched_outside_cuts': bool(same),
-              'failures': failures,
+              'failures': failures, 'fixtures': fixtures,
               'inputs': {str(p.relative_to(yori.REPO)) if p.is_relative_to(yori.REPO) else p.name:
                          hashlib.sha256(p.read_bytes()).hexdigest() for p in (Path(__file__), SOURCE, SITE)},
               'output_sha256': hashlib.sha256(TARGET.read_bytes()).hexdigest()}
