@@ -163,7 +163,7 @@ bool FTransportRiderTransitionTest::RunTest(const FString&)
     // Station floors and cabins may have the same service owner; ownership is not a moving-base identity.
     auto* Service = World->SpawnActor<AActor>(Spawn);
     if (!TestNotNull(TEXT("Shared station and cabin owner"), Service)) return false;
-    ON_SCOPE_EXIT { Character->SetBase(nullptr); Service->Destroy(); };
+    ON_SCOPE_EXIT { Character->SetBase(static_cast<UPrimitiveComponent*>(nullptr)); Service->Destroy(); };
     auto* Station = NewObject<UBoxComponent>(Service);
     auto* Body = NewObject<UBoxComponent>(Service);
     for (UBoxComponent* Part : {Station, Body})
