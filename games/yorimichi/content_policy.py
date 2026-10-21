@@ -38,11 +38,13 @@ DATA_ROOTS = frozenset({
     'gondola', 'ferry', 'belmonte_track', 'belmonte_train', 'brinecove', 'hidamari_stable', 'racing',
 } | {c.id for c in MOVERS})
 # Each mover's runtime data: its move record, its readiness record, bike report if playable, and its posed grips if
-# committed; and the runtime data of the imports that write their own (unreal.hippodrome, unreal.horses).
+# committed; and the runtime data of the imports that write their own (unreal.hippodrome, unreal.hidamari_stable,
+# unreal.horses).
 CHARACTER_DATA = {
     **{c.id: {'adventure.json'} | ({'character.json', 'portrait.png', 'bike'} if c.playable else set())
        | ({'grips.json'} if (c.folder.parent / 'grips' / c.id).is_dir() else set()) for c in MOVERS},
     'hippodrome': {'hippodrome.json'},
+    'hidamari_stable': {'stable.json'},
     'horses': {'roster.json'},
 }
 # The folders inside a mover's own folder, when its move set is imported there.
