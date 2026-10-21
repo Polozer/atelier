@@ -218,14 +218,6 @@ namespace RacingRecordsText
         return Rank * 1000 + FCString::Atoi(*Group);
     }
 
-    FString Ago(double Seconds)
-    {
-        if (Seconds <= 0.) return TEXT("en cours");
-        const int32 Minutes = FMath::CeilToInt(Seconds / 60.);
-        if (Minutes < 60) return FString::Printf(TEXT("dans %d min"), Minutes);
-        return FString::Printf(TEXT("dans %d h %02d"), Minutes / 60, Minutes % 60);
-    }
-
     FString Age(int32 Months)
     {
         const int32 Years = FMath::Max(0, Months) / 12, Rest = FMath::Max(0, Months) % 12;
@@ -561,6 +553,22 @@ namespace RacingRecordsText
 {
     using FLine = FRacingRecordsLine;
     FLine Heading(const FString& Text) { FLine L; L.Left = Text; L.bHeading = true; return L; }
+    /** Today's races already seen won (RevealSeconds after the winner is home), in running order: no schedule and no
+     *  countdown, which the general game never shows away from the hippodrome, the Salon's windows and the TVs. */
+    TArray<const FHRRace*> SeenRun(const FHRWorldState& S, double Now)
+    {
+        TArray<TPair<double, const FHRRace*>> Seen;
+        for (const FHRRace& R : S.Meeting.Races)
+        {
+            const double Start = HRRules::RaceStartSeconds(S, R.Key);
+            if (R.Status != TEXT("run") || R.Finishes.IsEmpty() || Start < 0.) continue;
+            if (Now >= Start + R.Finishes[0].TimeUs / 1e6 + ARacingService::RevealSeconds) Seen.Emplace(Start, &R);
+        }
+        Seen.StableSort([](const TPair<double, const FHRRace*>& A, const TPair<double, const FHRRace*>& B) { return A.Key < B.Key; });
+        TArray<const FHRRace*> Out;
+        for (const TPair<double, const FHRRace*>& P : Seen) Out.Add(P.Value);
+        return Out;
+    }
     FLine Row(const FString& Left, const FString& Right, const FString& Sub = FString(), const FString& Subject = FString())
     {
         FLine L; L.Left = Left; L.Right = Right; L.Sub = Sub; L.Subject = Subject; return L;
@@ -737,20 +745,13 @@ void RacingRecords::BuildPage(const FHRWorldState& S, const FRacingLedger& L, do
             for (int32 I = 0; I < Order.Num(); ++I)
                 Lines.Add(Row(FString::Printf(TEXT("%d. %s"), I + 1, *Order[I]->Name), Plural(Order[I]->EventWins, TEXT("victoire"), TEXT("victoires")),
                     FString::Printf(TEXT("%s pièces gagnées en tout"), *Number(Order[I]->TotalEarnings)), TEXT("stable:") + Order[I]->Id));
-            Lines.Add(Heading(TEXT("Prochaines courses")));
-            for (const FHRRace& R : S.Meeting.Races)
-            {
-                const double Start = HRRules::RaceStartSeconds(S, R.Key);
-                if (R.IsRun() || Start < 0.) continue;
-                Lines.Add(Row(ARacingService::RaceName(R), Ago(Start - Now),
-                    FString::Printf(TEXT("%s · %d m · %d partants"), VenueName(int32(ARacingService::VenueForDay(S.T))), R.Distance, R.Entries.Num())));
-            }
-            for (int32 D = 1; D <= 3; ++D)
-            {
-                const HRContent::FEvent& Next = HRContent::EventForT(S.T + D);
-                Lines.Add(Row(Next.Name, D == 1 ? FString(TEXT("demain")) : FString::Printf(TEXT("dans %d jours"), D),
-                    FString::Printf(TEXT("%s · %s%s"), VenueName(int32(ARacingService::VenueForDay(S.T + D))), *Date(S.T + D), Next.bGrandPrix ? TEXT(" · Grand Prix") : TEXT(""))));
-            }
+            Lines.Add(Heading(TEXT("Résultats du jour")));
+            const TArray<const FHRRace*> Run = SeenRun(S, Now);
+            if (Run.IsEmpty()) Lines.Add(Row(TEXT("Pas encore de course courue aujourd'hui."), FString()));
+            for (const FHRRace* R : Run)
+                Lines.Add(Row(ARacingService::RaceName(*R), R->Finishes[0].HorseName,
+                    FString::Printf(TEXT("%s · %d m · %s"), VenueName(int32(ARacingService::VenueForDay(S.T))), R->Distance, *R->Finishes[0].StableName),
+                    TEXT("horse:") + R->Finishes[0].HorseId));
             break;
         }
         case ERacingHallObject::Record:
@@ -855,7 +856,7 @@ void RacingRecords::BuildPage(const FHRWorldState& S, const FRacingLedger& L, do
         default:
             Out.Title = TEXT("Salle des courses");
             Out.Intro = TEXT("Les registres de la Mairie de Belmonte : tout ce que les courses ont écrit, à Hidamari comme à Belmonte.");
-            Lines.Add(Row(TEXT("Tableau des courses"), TEXT("au-dessus de la porte"), TEXT("Le classement de la saison et les prochaines courses")));
+            Lines.Add(Row(TEXT("Tableau des courses"), TEXT("au-dessus de la porte"), TEXT("Le classement de la saison et les résultats du jour")));
             Lines.Add(Row(TEXT("Records"), TEXT("entre les portes"), TEXT("Un panneau par piste et par Grand Prix")));
             Lines.Add(Row(TEXT("Tableaux d'honneur"), TEXT("aux deux bouts"), TEXT("Victoires, défaites, Grands Prix, gains, séries")));
             Lines.Add(Row(TEXT("Fichier"), TEXT("à droite"), TEXT("Une fiche par cheval, jockey et écurie")));
@@ -873,7 +874,7 @@ void RacingRecords::BuildBoards(const FHRWorldState& S, const FRacingLedger& L, 
     using namespace RacingRecordsText;
     Out = FRacingHallBoards();
     Out.Day = S.T;
-    // The split-flap board: the season's standings and the next races, upper case as the flaps are.
+    // The split-flap board: the season's standings and today's results (no schedule), upper case as the flaps are.
     {
         TArray<const FHRStable*> Order;
         for (const FHRStable& St : S.Stables) if (!St.bForSale) Order.Add(&St);
@@ -887,21 +888,12 @@ void RacingRecords::BuildBoards(const FHRWorldState& S, const FRacingLedger& L, 
         for (int32 I = 0; I < FMath::Min(6, Order.Num()); ++I)
             Rows.Add(FString::Printf(TEXT("%d  %s   %d V"), I + 1, *Upper(Order[I]->Name), Order[I]->EventWins));
         Out.Standings = Latin1(FString::Join(Rows, TEXT("\n")));
-        Rows = {TEXT("PROCHAINES COURSES")};
-        const TCHAR* Venue = VenueName(int32(ARacingService::VenueForDay(S.T)));
-        for (const FHRRace& R : S.Meeting.Races)
-        {
-            const double Start = HRRules::RaceStartSeconds(S, R.Key);
-            if (R.IsRun() || Start < 0. || Rows.Num() >= 5) continue;
-            Rows.Add(FString::Printf(TEXT("%s  %s  %s"), *Upper(Ago(Start - Now)), *Upper(Venue), *Upper(ARacingService::RaceName(R))));
-        }
-        for (int32 D = 1; Rows.Num() < 7; ++D)
-        {
-            const HRContent::FEvent& Next = HRContent::EventForT(S.T + D);
-            Rows.Add(FString::Printf(TEXT("J+%d  %s  %s%s"), D, *Upper(VenueName(int32(ARacingService::VenueForDay(S.T + D)))), *Upper(Next.Name),
-                Next.bGrandPrix ? TEXT("  GP") : TEXT("")));
-        }
-        Out.Upcoming = Latin1(FString::Join(Rows, TEXT("\n")));
+        Rows = {TEXT("RÉSULTATS DU JOUR")};
+        const TArray<const FHRRace*> Run = SeenRun(S, Now);
+        if (Run.IsEmpty()) Rows.Add(TEXT("PAS ENCORE DE COURSE COURUE"));
+        for (int32 I = FMath::Max(0, Run.Num() - 6); I < Run.Num(); ++I)
+            Rows.Add(FString::Printf(TEXT("%s  1. %s"), *Upper(ARacingService::RaceName(*Run[I])), *Upper(Run[I]->Finishes[0].HorseName)));
+        Out.Results = Latin1(FString::Join(Rows, TEXT("\n")));
     }
     // The record panels.
     for (const FPanel& P : Panels())
@@ -1279,7 +1271,7 @@ void ARacingRecordsHall::Build()
             case ERacingHallObject::Board:
             {
                 // A black split-flap board in a brass frame, two halves. Seen from the hall, the anchor's +Y is the
-                // reader's left: the standings on the left, the next races on the right, each written rightwards.
+                // reader's left: the standings on the left, today's results on the right, each written rightwards.
                 Box(A.At, FVector(-6., 0., 0.), FVector(4., W + 16., H + 16.), Brass, false);
                 Box(A.At, FVector(-3.5, 0., 0.), FVector(3., W, H), Flap, false);
                 Box(A.At, FVector(-1.8, 0., 0.), FVector(.4, 1.2, H - 8.), FLinearColor(.25f, .18f, .07f), false);
@@ -1358,7 +1350,7 @@ void ARacingRecordsHall::Write()
         FString Text;
         switch (A.Object)
         {
-            case ERacingHallObject::Board: Text = BoardHalf++ == 0 ? B.Standings : B.Upcoming; break;
+            case ERacingHallObject::Board: Text = BoardHalf++ == 0 ? B.Standings : B.Results; break;
             case ERacingHallObject::Record: Text = B.Records.IsValidIndex(A.Index) ? B.Records[A.Index] : FString(); break;
             case ERacingHallObject::Honour: Text = B.Honours.IsValidIndex(A.Index) ? B.Honours[A.Index] : FString(); break;
             case ERacingHallObject::Cabinet: Text = B.Cabinet; break;
@@ -1926,10 +1918,10 @@ FString URacingRecordsLive::RacingRecords()
         Pawn->GetController() ? FRotator(0., Pawn->GetController()->GetControlRotation().Yaw, 0.).Vector() : Pawn->GetActorForwardVector());
     const FRacingLedger* Ledger = Service && Service->HasAuthority() ? &Service->GetLedger() : nullptr;
     return FString::Printf(TEXT("{\"ledger\":{\"since\":%d,\"records\":%d,\"riders\":%d},\"shown\":%d,\"anchors\":%d,\"reach\":%d,\"prompt\":\"%s\","
-        "\"boards\":{\"day\":%d,\"standings\":\"%s\",\"upcoming\":\"%s\",\"records\":[%s],\"honours\":[%s],\"cabinet\":\"%s\",\"archive\":\"%s\"},\"window\":%s}"),
+        "\"boards\":{\"day\":%d,\"standings\":\"%s\",\"results\":\"%s\",\"records\":[%s],\"honours\":[%s],\"cabinet\":\"%s\",\"archive\":\"%s\"},\"window\":%s}"),
         Ledger ? Ledger->SinceT : -1, Ledger ? Ledger->Records.Num() : -1, Ledger ? Ledger->Riders.Num() : -1, Hall ? Hall->NumShown() : 0,
         Hall ? Hall->GetAnchors().Num() : 0, Reach, *E(RacingRecords::Prompt(Pawn)), Desk ? Desk->GetBoards().Day : -1,
-        Desk ? *E(Desk->GetBoards().Standings) : TEXT(""), Desk ? *E(Desk->GetBoards().Upcoming) : TEXT(""), *Records, *Honours,
+        Desk ? *E(Desk->GetBoards().Standings) : TEXT(""), Desk ? *E(Desk->GetBoards().Results) : TEXT(""), *Records, *Honours,
         Desk ? *E(Desk->GetBoards().Cabinet) : TEXT(""), Desk ? *E(Desk->GetBoards().Archive) : TEXT(""), *RacingRecords::WindowJson());
 }
 

@@ -1497,7 +1497,7 @@ void ARacingService::RefreshWallets()
         }
     }
     // The records hall (docs/RACING.md, "Records hall"): its objects' texts, only to readers in the hall, rebuilt when a
-    // race is noted or the day changes, and every five seconds for the next races' countdowns.
+    // race is noted or the day changes, and every five seconds so a result shows once its race is seen won.
     bool bHallBuilt = false;
     for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
     {
