@@ -151,7 +151,10 @@ README's Surfaces section has the rules; `DefaultGame.ini` maps the game's groun
 
 The mini-mega, its trail and the hamlet share the vertex-colour `M_Village`, so they are named by mesh. Hidamari's city
 material gives each face a slot `MI_HD_<slug>` (`world/regions/hidamari/surfaces.py`), keyed `HD_<slug>`. In the game,
-`skate.SurfaceDebug 1` logs every mesh section's surface the next time the collision snapshot is built.
+Belmonte names each instance `MI_BM_<hash>__<Key>` after the ground its source material is (`world/regions/belmonte/
+surfaces.py`): `Grass` (meadows, turf), `Road` (the pale gravel roads the terrain paints), `Rock`, `Stone` (paving,
+masonry), `Dirt` (gravel paths), `Sand`, `Wood` and `Metal`; each terrain tile has one section per key, by the
+layer that paints each face. `skate.SurfaceDebug 1` logs every mesh section's surface the next time the collision snapshot is built.
 
 The footbridge's gaps between planks are edges a board rolls over (the plugin README's Collision note): a subfloor 1 mm
 under the plank tops makes each gap 1 mm deep. The mini-mega's seams and coping are `Mega_Trim`, which has no

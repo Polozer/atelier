@@ -90,11 +90,15 @@ public:
 
     /** What each colliding triangle rides like, first match wins: an actor or component tag SkateSurface.<Surface>
      *  (SkateSurface.Wood), the static mesh's name in SurfaceMeshes, the triangle's material in SurfaceMaterials, then
-     *  DefaultSurface. Names drop a leading SM_, MI_ or M_ (MI_Road is Road). */
+     *  DefaultSurface. Names are keyed by SurfaceKey. */
     UPROPERTY(Config, EditAnywhere, Category = "Surfaces") TMap<FString, ESkateSurface> SurfaceMeshes;
     UPROPERTY(Config, EditAnywhere, Category = "Surfaces") TMap<FString, ESkateSurface> SurfaceMaterials;
     UPROPERTY(Config, EditAnywhere, Category = "Surfaces") ESkateSurface DefaultSurface = ESkateSurface::Concrete;
     /** The surface a hit is on, by the same rules (for others on the same ground: Cairo's bike). The material needs a
      *  trace with bTraceComplex and bReturnFaceIndex; without a face only tags, the mesh and DefaultSurface count. */
     static ESkateSurface SurfaceAt(const FHitResult& Hit);
+    /** A mesh or material name as the surface tables key it: the part after its last "__" when it has one (a
+     *  generated MI_BM_0a1b2c3d4e5f__Grass is Grass), else the name without a leading SM_, MI_ or M_ (MI_Road is
+     *  Road). Footsteps and other ground readers key their own tables the same way. */
+    static FString SurfaceKey(FString Name);
 };

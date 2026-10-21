@@ -20,6 +20,8 @@ GAME = Path(__file__).resolve().parents[1]
 REGION = GAME / 'world/regions/belmonte'
 SPEC = importlib.util.spec_from_file_location('bounded_belmonte_models', REGION / 'model_pieces.py')
 PIECES = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(PIECES)
+SURFACE_SPEC = importlib.util.spec_from_file_location('belmonte_surface_keys', REGION / 'surfaces.py')
+SURFACES = importlib.util.module_from_spec(SURFACE_SPEC); SURFACE_SPEC.loader.exec_module(SURFACES)
 SOURCE = GAME / 'assets/belmonte'
 MANIFEST = json.loads((SOURCE / 'source.json').read_text())
 LARGE = [entry for entry in MANIFEST['meshes'] if entry['triangles'] > PIECES.LIMIT]
@@ -128,7 +130,7 @@ def test_actual_region_main_preserves_shared_instances_materials_parent_cull_and
     monkeypatch.setattr(PIECES, 'prepare', lambda entry, path: prepare(entry, path, triangle_limit=100))
     namespace = dict(OUT=out, source=source, finish_surfaces=lambda data: deepcopy(material_values),
                      terrain=SimpleNamespace(VALLEY_CARVED_TILES=set(), OUTER=[0., 0., 10., 10.]),
-                     model_pieces=PIECES, surroundings=lambda: ([], {}),
+                     model_pieces=PIECES, surface_keys=SURFACES, surroundings=lambda: ([], {}),
                      planting=SimpleNamespace(replacements=lambda *a: ({}, {}), woodland=lambda *a: {}),
                      clear_railway=lambda *a: {}, map_zones=lambda *a: [], tv_spots=lambda *a: [],
                      L=SimpleNamespace(ORIGIN=[0., 0., 0.], BOUNDS=[0., 0., 10., 10.], RAILWAY={}, native_origin=lambda: [0., 0., 0.]),

@@ -190,12 +190,7 @@ namespace SkateRuntimeDetail
     {
         return Surface==ESkateSurface::None ? FString(TEXT("none")) : StaticEnum<ESkateSurface>()->GetNameStringByValue(int64(Surface));
     }
-    /** A mesh or material name as the surface tables key it: without a leading SM_, MI_ or M_. */
-    inline FString SurfaceKey(FString Name)
-    {
-        if (!Name.RemoveFromStart(TEXT("SM_")) && !Name.RemoveFromStart(TEXT("MI_"))) Name.RemoveFromStart(TEXT("M_"));
-        return Name;
-    }
+    inline FString SurfaceKey(FString Name) { return USkateSettings::SurfaceKey(MoveTemp(Name)); }
     /** The surface a SkateSurface.<Surface> tag on the component or its actor names, or the mesh's in SurfaceMeshes. */
     inline ESkateSurface ComponentSurface(const UStaticMeshComponent* C, const UStaticMesh* Mesh, const USkateSettings& Settings)
     {
