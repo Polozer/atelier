@@ -182,6 +182,7 @@ pool for that scene and area:
 | Brinecove's quay | `brinecove`: harbour jazz, lighthouse and seaside lofi |
 | Belmonte, the Salon | `belmonte` and `salon`: salon and harbour jazz |
 | Forest, temple, foothills, open country | `nature` and `wild`: dawn and high ambient, study and dojo lofi |
+| Aboard the Belmonte train, seated or standing | `train`: exactly four clips (by `clip_id`): Rain on the Line (B), Harbor Lounge (A), Salon Jazz (A) and Coffee Shop (B) |
 | Sailing, zeppelin, bike or horse | `sail`, `air` and `ride` |
 
 The area comes from the nearest map zone within its radius. Calm exploring pools

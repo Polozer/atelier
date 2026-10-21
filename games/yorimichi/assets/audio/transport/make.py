@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Build the transport sounds (README.md) into build/yorimichi/audio/transport/<cue>/<cue>_NN.wav (48 kHz mono 16-bit).
 
-One bank for the three passenger vehicles: the ferry, the gondola lines and the zeppelin. Loops are periodic by
+One bank for the passenger vehicles: the ferry, the gondola lines, the zeppelin and the Belmonte train. Loops are periodic by
 construction, as the skateboard's and the bike's are: noise is shaped in the frequency domain, tones are snapped to a
 whole number of cycles per loop and every hit train wraps round the loop's end, so a loop has no seam to click. The
 game sets each loop's volume and pitch from the vehicle's state (the ferry's throttle, the zeppelin's propeller RPM, a
 cabin's line speed) and fades it in and out. One-shots mark the state changes: horns, bells and chimes, gangways,
 gates, grips and doors, a fender or a mooring taking the weight. Metal clanks, heavy thumps and wooden knocks are built
 around four Sonniss GDC masters already in sonniss/combat (local signal processing only, see audio/SONNISS-LICENSE.txt);
-everything else is synthesis. Deterministic: fixed seeds. The DSP helpers are the skateboard's (audio/skate/make.py)
+everything else is synthesis, except the train. The train's cues (TRAIN_SPEC) are cut from nine Sonniss GDC steam-train
+recordings that fetch.py restores into sonniss/transport: chosen cuts, levelled, the loops crossfaded closed (or a
+vendor loop kept whole). Deterministic: fixed seeds, fixed cuts. The DSP helpers are the skateboard's (audio/skate/make.py)
 and the bike's struck-metal `ring` and `rattle` (audio/bike/make.py).
 """
 import importlib.util, json, sys, wave
@@ -33,6 +35,7 @@ ring, rattle = bk.ring, bk.rattle
 ROOT = sk.ROOT
 OUT = ROOT / 'audio/transport'
 SONNISS = sk.SONNISS
+RECORDINGS = SONNISS.parent / 'transport'     # the train's recordings (fetch.py)
 
 # Every cue the runtime plays (Source/Yorimichi/TransportAudio.cpp), its variant count and the Sonniss combat masters
 # it is built around. A cue that names no master is pure synthesis.
@@ -66,7 +69,19 @@ CUES = {
     'zeppelin_gate_close': dict(loop=False, variants=3, sonniss=(METAL,)),
     'zeppelin_moor': dict(loop=False, variants=3, sonniss=(THUMP, DRUM)),
     'zeppelin_bell': dict(loop=False, variants=2, sonniss=()),
+    # the Belmonte train (BelmonteTrainSound.cpp): cut from its own recordings, no synthesis
+    'train_idle': dict(loop=True, variants=1, sonniss=(), recordings=('idle_steam_blast_distant.wav',)),
+    'train_effort': dict(loop=True, variants=1, sonniss=(), recordings=('dep_steam_freerun.wav',)),
+    'train_roll': dict(loop=True, variants=1, sonniss=(), recordings=('roll_steam_ride.wav',)),
+    'train_start': dict(loop=False, variants=1, sonniss=(), recordings=('dep_steam_freerun.wav',)),
+    'train_clack': dict(loop=False, variants=6, sonniss=(), recordings=('roll_ext_rails.wav',)),
+    'train_brake': dict(loop=False, variants=1, sonniss=(), recordings=('arr_steam_loco.wav',)),
+    'train_depart': dict(loop=False, variants=1, sonniss=(), recordings=('sig_steam_whistle.wav',)),
+    'train_doors': dict(loop=False, variants=1, sonniss=(), recordings=('sig_door_close.wav',)),
+    'train_hiss': dict(loop=False, variants=1, sonniss=(), recordings=('arr_steam_hiss.wav',)),
+    'train_pass': dict(loop=False, variants=1, sonniss=(), recordings=('pass_steam_tunnel.wav',)),
 }
+TRAIN = [cue for cue, spec in CUES.items() if spec.get('recordings')]
 LOOPS = [cue for cue, spec in CUES.items() if spec['loop']]
 # The propeller RPM each zeppelin engine loop is authored at (pitch 1): the runtime plays it at RPM / this.
 ZEPPELIN_IDLE_RPM, ZEPPELIN_CRUISE_RPM = 90, 480
@@ -271,7 +286,7 @@ def one_shots(sonniss):
     body = transient(master(THUMP), .45)
     drum = filtered(transient(master(DRUM), 1.2), 25, 260)
     stick = transient(master(STICK), .3)
-    out = {cue: [] for cue, spec in CUES.items() if not spec['loop']}
+    out = {cue: [] for cue, spec in CUES.items() if not spec['loop'] and cue not in TRAIN}
     out['ferry_horn_depart'].append(horn([(0, 3.4)], [(98, 1.), (147, .55)], 101))         # one prolonged blast
     out['ferry_horn_arrive'].append(horn([(0, 1.), (1.45, 2.2)], [(98, 1.), (147, .55)], 102))  # a short and a long
     # chime: the cabin's soft two-tone 'ding-dong' (E5, C5), struck bars with their fourth and tenth partials
@@ -334,6 +349,109 @@ def one_shots(sonniss):
     return out if sonniss else {cue: x for cue, x in out.items() if not CUES[cue]['sonniss']}
 
 
+# --------------------------------------------------------------------------------------------- the train
+# ABelmonteTrainService plays these from the train's own motion, the same pure function of the shared service clock on
+# every machine (BelmonteTrainSound.cpp, BelmonteTrainRules::SoundMix):
+# - train_idle (loop): a distant steam blast: the engine's steam swelling over the last seconds of the braking, full at
+#   the stop, then a faint simmer gone within 10 s (a steam engine is loud stopping, not stopped);
+# - train_start (one-shot): the departure, started at the real departure: an engine's clean build-up, slowed
+#   (TRAIN_START_RATE) so its beats roughly follow the driving wheels through the soft start, as loud as the effort;
+# - train_effort (loop): then the same engine's beats looped, played at the driving wheels' rate (TRAIN_CHUFF_* below)
+#   while the train accelerates, handing over to the roll as it reaches its cruise;
+# - train_roll (loop): on the nearest wheel sets, its volume and pitch following the speed (TRAIN_ROLL_SPEED_MS: pitch 1);
+# - train_clack (six one-shots): a wheel set crossing a rail joint (TRAIN_RAIL_LENGTH_M apart), varied in gain and pitch;
+# - train_brake: started as the deceleration into a stand begins, pitched to end at the stop;
+# - train_depart: the whistle as the train moves off; train_doors: the doors closing just before;
+# - train_hiss: the cylinders blowing off at the stop; train_pass: a train going by, for a listener by the line.
+TRAIN_ROLL_SPEED_MS = 22.     # the roll recording's speed (m/s): it plays at pitch 1 there (BelmonteTrainSound.cpp RollSpeed)
+TRAIN_RAIL_LENGTH_M = 25.     # one clack per bogie per joint (BelmonteTrainSound.cpp RailLength)
+# The freerun recording accelerates cleanly for its first 16.2 s (onsets on 5 ms frames: a beat every 0.45 s rising to
+# every 0.10 s, the level rising 12 dB) before its decelerations. Its beats come in threes (strong, strong, weak). The
+# effort loop is 4 such cycles, 12 beats from the onset at 14.805 s to the one at 16.075 s: TRAIN_CHUFF_BEATS_PER_S at
+# rate 1 (BelmonteTrainSound.cpp ChuffLoopBeats). The engine beats 4 times per revolution of its 1.9 m driving wheels:
+# rate = (4 v / (pi 1.9)) / TRAIN_CHUFF_BEATS_PER_S.
+TRAIN_CHUFF_BEATS_PER_S = round(12. / (16.075 - 14.805), 3)
+TRAIN_CHUFF_BEATS_PER_REV = 4.
+TRAIN_CHUFF_WHEEL_M = 1.9
+# The start is the build-up up to that loop at half speed: a flat departure reaches the wheels' 4.9 beats/s after 29.6 s,
+# when the slowed take beats 4.7/s and ends; across it the slowed beats stay within about 25 % of the wheels'.
+TRAIN_START_RATE = .5
+# The pass-by's loudest moment (the engine abreast), s into its cut (BelmonteTrainSound.cpp PassPeak).
+TRAIN_PASS_PEAK_S = 7.
+# Paul's picks (2026-10-20). Each cut: {'master': a recording, 'start': s, 'seconds': s (None: to the end) |
+# 'cuts': [(start, seconds)...], 'rate': resampling, 'rms_db' | 'gain_db': dB, 'rms_at': (from, to) s of the result,
+# 'fade': s, 'vendor_loop'}. Cut points from local DSP only (RMS envelopes, band energies, onsets): no listening model.
+TRAIN_SPEC = {
+    # the blast's steady middle (0.8-2.3 s within 1 dB), looped ~10 dB under the roll's cruise level
+    'train_idle': {'master': 'idle_steam_blast_distant.wav', 'start': .7, 'seconds': 1.75, 'rms_db': -30., 'fade': .5},
+    # the build-up to the loop's first beat, slowed to TRAIN_START_RATE; its last 4 s (as slowed) as loud as the effort
+    'train_start': {'master': 'dep_steam_freerun.wav', 'start': 0., 'seconds': 14.805, 'rate': TRAIN_START_RATE,
+                    'rms_db': -18., 'rms_at': (25.6, 29.6), 'fade': .5},
+    # 12 beats (the cut runs 20 ms past the 13th onset: the crossfade moves it onto the loop's first)
+    'train_effort': {'master': 'dep_steam_freerun.wav', 'start': 14.805, 'seconds': 16.075 - 14.805 + .02, 'rms_db': -18.,
+                     'fade': .02},
+    'train_roll': {'master': 'roll_steam_ride.wav', 'start': 0., 'seconds': None, 'rms_db': -20., 'vendor_loop': True},
+    # six single joint crossings of a passing train, each 30 ms before its onset for 220 ms
+    'train_clack': {'master': 'roll_ext_rails.wav', 'cuts': [(t - .03, .22) for t in (7.11, 8.14, 9.865, 10.865, 11.875, 12.88)],
+                    'rms_db': -20., 'fade': .08},
+    # the arrival from its first clatter to the stop (the squeal ends at 21.3 s)
+    'train_brake': {'master': 'arr_steam_loco.wav', 'start': 1., 'seconds': 20.4, 'rms_db': -20., 'fade': .25},
+    'train_depart': {'master': 'sig_steam_whistle.wav', 'start': 0., 'seconds': 12., 'rms_db': -16., 'fade': .8},
+    'train_doors': {'master': 'sig_door_close.wav', 'start': 0., 'seconds': 1.2, 'rms_db': -20., 'fade': .05},
+    # the recording's strongest blast (the third: from 4.05 s, silent from 6.4 s), loud
+    'train_hiss': {'master': 'arr_steam_hiss.wav', 'start': 4.05, 'seconds': 2.4, 'rms_db': -16., 'fade': .2},
+    # the approach and pass: from 20 s (rising out of the tunnel's rumble) to 44 s (back at the floor)
+    'train_pass': {'master': 'pass_steam_tunnel.wav', 'start': 20., 'seconds': 24., 'rms_db': -20., 'fade': 1.5},
+}
+
+
+def recorded(x, spec, name):
+    """One cut of a recording (mono at SR): DC removed, resampled, levelled."""
+    a = n_of(spec['start'])
+    b = len(x) if spec['seconds'] is None else n_of(spec['start'] + spec['seconds'])     # None: to the end
+    if a < 0 or b > len(x) or b - a < SR // 20:
+        raise SystemExit(f'transport audio: {name} has no {spec["start"]} s + {spec["seconds"]} s')
+    x = x[a:b] - x[a:b].mean()
+    if spec.get('rate', 1.) != 1.:          # played slower (lower, longer) or faster
+        x = resample(x, 1. / spec['rate'])
+    if 'rms_db' in spec:                    # to a set loudness (of the cut or a window of it), whatever the recording's level
+        a, b = (n_of(t) for t in spec.get('rms_at', (0., len(x) / SR)))
+        return x * 10 ** (spec['rms_db'] / 20.) / max(float(np.sqrt((x[a:b] ** 2).mean())), 1e-9)
+    return x * 10 ** (spec.get('gain_db', 0.) / 20.)
+
+
+def crossfade_loop(x, fade):
+    """A seamless loop from a recording: the head crossfaded (equal power) into the tail."""
+    n = n_of(fade)
+    if n <= 0 or 2 * n >= len(x):
+        raise SystemExit('transport audio: a loop needs a crossfade shorter than half its length')
+    w = np.linspace(0., np.pi / 2, n)
+    head, x = x[:n].copy(), x[n:].copy()
+    x[-n:] = x[-n:] * np.cos(w) + head * np.sin(w)
+    return x
+
+
+def train_cues(recordings, spec=None):
+    """The train's cues, {cue: [samples, ...]}, cut from the recordings in `recordings` (a missing one fails)."""
+    out, cache = {}, {}
+    for cue, chosen in (TRAIN_SPEC if spec is None else spec).items():
+        path = Path(recordings) / chosen['master']
+        if not path.is_file():
+            raise SystemExit(f'transport audio: missing recording {path.name} (run assets/audio/transport/fetch.py)')
+        if path not in cache: cache[path] = read(path)
+        x = cache[path]
+        out[cue] = []
+        for start, seconds in chosen['cuts'] if 'cuts' in chosen else [(chosen['start'], chosen['seconds'])]:
+            y = recorded(x, dict(chosen, start=start, seconds=seconds), path.name)
+            if CUES[cue]['loop']:
+                y = y if chosen.get('vendor_loop') else crossfade_loop(y, chosen.get('fade', .5))     # a vendor loop as it is
+            else:                           # 2 ms in, `fade` s out
+                y = y.copy(); a, b = min(len(y), 96), min(len(y), n_of(max(chosen.get('fade', .05), .005)))
+                y[:a] *= np.linspace(0., 1., a); y[len(y) - b:] *= np.linspace(1., 0., b)
+            out[cue].append(y)
+    return out
+
+
 # Peak (linear) each cue is written at: the transport bank sits inside the bike's and the skateboard's level range
 # (games/yorimichi/tests/test_transport_audio.py checks it); the game balances them further with its own gains.
 PEAKS = {
@@ -348,8 +466,13 @@ PEAKS = {
 
 def finish(cue, x):
     """Normalise to the cue's peak. One-shots get a 2 ms fade-in and a 20 ms fade-out; loops are left whole, since
-    any fade would put a dip at the seam."""
+    any fade would put a dip at the seam. The train's cuts keep the level TRAIN_SPEC set (the game's gains are balanced
+    on it), never above -1 dBFS."""
     x = np.asarray(x, np.float64)
+    if cue in TRAIN:
+        peak = np.max(np.abs(x))
+        if not np.isfinite(peak) or peak <= 1e-6: raise SystemExit(f'transport audio: {cue} is silent')
+        return x / peak * min(peak, .891)
     if not CUES[cue]['loop']:
         x = fade_tail(x); x[:96] *= np.linspace(0, 1, 96)
     return x / max(np.max(np.abs(x)), 1e-9) * PEAKS[cue]
@@ -373,7 +496,12 @@ def levels(x):
 
 
 def provenance(cue, picks):
-    """Where a cue's sound comes from: synthesis here, plus each Sonniss master with its archive item, path and md5."""
+    """Where a cue's sound comes from: synthesis here, plus each Sonniss master with its archive item, path and md5;
+    a train cue, its recording."""
+    if cue in TRAIN:
+        return [{'kind': 'sonniss', 'file': f'sonniss/transport/{name}', 'source_item': item, 'source_path': path, 'md5': md5}
+                for name in CUES[cue]['recordings'] for item, path, md5 in [picks['recordings'][name]]] + [
+                {'kind': 'cut', 'script': 'assets/audio/transport/make.py'}]
     sources = [{'kind': 'synthesis', 'script': 'assets/audio/transport/make.py'}]
     for name in CUES[cue]['sonniss']:
         item, path, md5 = picks[name]
@@ -387,17 +515,27 @@ def combat_picks():
     return {name: (item, path, md5) for name, item, path, md5, _ in fetch.PICKS}
 
 
-def build(out=OUT, sonniss=SONNISS):
+def recording_picks():
+    """The train's fetched recordings (fetch.py), {local name: (archive item, path in item, md5)}."""
+    fetch = _load('transport_fetch', HERE / 'fetch.py')
+    return {name: (item, path, md5) for name, item, path, md5, _ in fetch.PICKS}
+
+
+def build(out=OUT, sonniss=SONNISS, recordings=RECORDINGS):
     """@cc [owner:fontanierh,label:correctness] transport-bank-provenance
     Every transport sound MUST come from this script's synthesis or from Sonniss combat masters declared in CUES and
-    fetched md5-checked by combat/fetch.py, with each source recorded in the manifest; no generated (AI) or music
-    audio MAY enter the bank. Loops MUST stay periodic over their length, so they repeat without a seam.
+    fetched md5-checked by combat/fetch.py, or cut from the train's Sonniss recordings in TRAIN_SPEC fetched md5-checked
+    by fetch.py, with each source recorded in the manifest; no generated (AI) or music audio MAY enter the bank. Loops MUST stay periodic over their length, so they repeat without a seam.
     """
-    out = Path(out); picks = combat_picks()
+    out = Path(out); picks = dict(combat_picks(), recordings=recording_picks())
     sounds = {cue: [x] for cue, x in loops().items()}
     sounds.update(one_shots(Path(sonniss) if sonniss else None))
-    if sonniss and set(sounds) != set(CUES): raise SystemExit(f'transport audio: missing cues {sorted(set(CUES) - set(sounds))}')
-    manifest = {'sample_rate': SR, 'loops': LOOPS, 'cues': {}, 'sources': {}, 'zeppelin_rpm': {'idle': ZEPPELIN_IDLE_RPM, 'cruise': ZEPPELIN_CRUISE_RPM}}
+    if recordings: sounds.update(train_cues(recordings))
+    if sonniss and recordings and set(sounds) != set(CUES): raise SystemExit(f'transport audio: missing cues {sorted(set(CUES) - set(sounds))}')
+    manifest = {'sample_rate': SR, 'loops': [cue for cue in LOOPS if cue in sounds], 'cues': {}, 'sources': {},
+                'zeppelin_rpm': {'idle': ZEPPELIN_IDLE_RPM, 'cruise': ZEPPELIN_CRUISE_RPM},
+                'train': {'roll_speed_ms': TRAIN_ROLL_SPEED_MS, 'rail_length_m': TRAIN_RAIL_LENGTH_M,
+                          'chuff_beats_per_s': TRAIN_CHUFF_BEATS_PER_S, 'start_rate': TRAIN_START_RATE, 'pass_peak_s': TRAIN_PASS_PEAK_S}}
     for cue, variants in sounds.items():
         if len(variants) != CUES[cue]['variants']: raise SystemExit(f'transport audio: {cue} has {len(variants)} variants')
         files = []

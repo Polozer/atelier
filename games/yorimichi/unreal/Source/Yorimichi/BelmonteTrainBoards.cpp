@@ -43,6 +43,38 @@ TArray<FBelmonteTrainStop> FBelmonteTrainLine::Stops(double At) const
     return Out;
 }
 
+TArray<FBelmonteTrainStand> FBelmonteTrainLine::Stands(int32 Train, double MinStand) const
+{
+    TArray<FBelmonteTrainStand> Out;
+    if (!Trains.IsValidIndex(Train)) return Out;
+    const FBelmonteTrainRun& Run = Trains[Train];
+    const int32 N = Run.S.Num();
+    if (N < 3 || Run.Dt <= 0.) return Out;
+    // The speed over each interval of the samples (the chainage runs straight between them), round the cycle.
+    auto V = [&](int32 K) { K = ((K % N) + N) % N; return FMath::Abs(double(Run.S[(K + 1) % N]) - double(Run.S[K])) / Run.Dt; };
+    // Standing below Still (m/s); braking: slowing by at least Braking m/s^2 (coasting up a grade slows far less), the
+    // last crawl under Creep m/s to the stop included.
+    constexpr double Still = .02, Braking = .4, Creep = 2.;
+    int32 First = INDEX_NONE;
+    for (int32 K = 0; K < N && First == INDEX_NONE; ++K) if (V(K) >= Still) First = K;
+    if (First == INDEX_NONE) return Out;                 // a train that never moves has no stands
+    for (int32 K = First + 1; K <= First + N; ++K)
+    {
+        if (!(V(K) < Still && V(K - 1) >= Still)) continue;
+        int32 End = K;
+        while (End < K + N && V(End + 1) < Still) ++End;
+        if ((End + 1 - K) * Run.Dt < MinStand) continue;
+        // Back from the last moving interval while the train was braking into it: the braking starts at the sample after
+        // the last interval that was not (the samples' chainage runs straight between them).
+        int32 D = K - 1;
+        while (D > K - 1 - N && V(D - 1) >= Still && (V(D) < Creep || V(D - 1) - V(D) >= Braking * Run.Dt)) --D;
+        Out.Add({Train, WrapServiceTime(Run.T0 + (D + 1) * Run.Dt, Cycle), WrapServiceTime(Run.T0 + K * Run.Dt, Cycle),
+                 WrapServiceTime(Run.T0 + (End + 1) * Run.Dt, Cycle)});
+    }
+    Out.Sort([](const FBelmonteTrainStand& A, const FBelmonteTrainStand& B) { return A.Arrive < B.Arrive; });
+    return Out;
+}
+
 TArray<FBelmonteTrainArrival> FBelmonteTrainLine::NextArrivals(const TArray<FBelmonteTrainStop>& Stops, double Cycle, double Time, int32 Count)
 {
     TArray<FBelmonteTrainArrival> Standing, Coming;
