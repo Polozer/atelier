@@ -79,7 +79,6 @@ public:
                    const FSoftObjectPath& Steering);
     /** Whole-kart scale, fitted before mounting to the rider's reference leg length. */
     void SetKartScale(float Scale);
-    float GetKartScale() const { return KartScale; }
     /** All authored bone frames are wheel-local; the current animated wheel carries them. */
     void SetAuthoredGrips(TMap<FName, FTransform> Frames) { AuthoredGrips = MoveTemp(Frames); }
     void SetAuthoredElbow(FVector Point) { AuthoredElbow = Point; }
