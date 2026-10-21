@@ -73,6 +73,28 @@ def approach(station):
     route(points[:split+1],'approach_'+station)
 
 
+def boarding_candidate(st,station):
+    """@cc [owner:fontanierh,label:correctness] gondola-qa-open-dwell
+    Boarding MUST use the normal service clock and a fully open outbound cabin
+    with at least nine seconds of stationary dwell remaining. A late opening
+    sample MUST NOT start an ordinary walking route through a closing door.
+    """
+    clock=SPEC['clock'];cycle=clock['cycle_s']
+    first=0
+    for line in DATA['lines']:
+        if line['id']==LINE:break
+        first+=line['cabins']
+    for cabin in st['cabins']:
+        if cabin['line']!=LINE or cabin['station']!=station or cabin['side']!=1 or cabin['door']<=.999:continue
+        index=cabin['index']-first
+        if not 0<=index<SPEC['cabins']:raise RuntimeError('invalid cabin clock index')
+        phase=(st['time']+cycle*index/SPEC['cabins'])%cycle
+        if any(stop['station']==station and stop['side']==1 and stop['start']<=phase<stop['end']
+               and stop['end']-phase>=9. for stop in clock['stops']):
+            return cabin
+    return None
+
+
 def step(dt):
     S['elapsed']+=dt;S['stage_time']+=dt
     if time.monotonic()-START>2100:raise RuntimeError('ropeway round trip exceeded 35 minutes')
@@ -90,7 +112,7 @@ def step(dt):
         if drive(dt):mark('wait_'+station)
     elif S['stage'].startswith('wait_'):
         live.drive(0,0)
-        ready=next((c for c in st['cabins'] if c['line']==LINE and c['station']==station and c['side']==1 and c['door']>.999),None)
+        ready=boarding_candidate(st,station)
         if ready:
             S['cabin']=ready['index'];route(S['board_tail'],'boarding_'+station)
         elif S['stage_time']>240:raise RuntimeError('no outbound cabin reached '+station)
