@@ -533,7 +533,15 @@ bool ABelmonteTrainService::Initialize(const FString& Path)
                     I->TryGetBoolField(TEXT("camera"), Room.bCamera);
                 }
             const TArray<TSharedPtr<FJsonValue>>* ExteriorRows = nullptr;
-            if (V->TryGetArrayField(TEXT("exteriors"), ExteriorRows)) Exteriors += ExteriorRows->Num();
+            if (V->TryGetArrayField(TEXT("exteriors"), ExteriorRows))
+            {
+                Exteriors += ExteriorRows->Num();
+                for (const auto& ExteriorValue : *ExteriorRows)
+                {
+                    const TArray<TSharedPtr<FJsonValue>>* Box = nullptr;
+                    if (ExteriorValue->AsObject()->TryGetArrayField(TEXT("box"), Box) && Box->Num() >= 6) Vehicle.Envelopes.Add(JsonBox(*Box));
+                }
+            }
             Vehicle.Emitters = SoundEmitters(V);
             const TArray<TSharedPtr<FJsonValue>>* BoardingRows = nullptr;
             if (V->TryGetArrayField(TEXT("boarding"), BoardingRows))
@@ -584,6 +592,7 @@ void ABelmonteTrainService::EndPlay(const EEndPlayReason::Type Reason)
             if (Rider.BoardDoor != INDEX_NONE) FinishBoarding(Rider);
             if (Rider.Seat != INDEX_NONE) StandUp(Rider);
             if (Rider.bAboard) Board(Rider, false);
+            Rider.Character->bTrainInside = false;
             UpdateCamera(Rider, false, 1.f);
         }
     Super::EndPlay(Reason);
@@ -1060,8 +1069,8 @@ void ABelmonteTrainService::CancelLocal(FRider& Rider)
     Rider.Vehicle = INDEX_NONE;
     // A cancel (a teleport, a respawn, the map's travel, an ejection) ends the ticket.
     Rider.Admission.Revoke();
-    Rider.TrackedVehicle = INDEX_NONE;
-    if (C) C->bTrainDriving = false;
+    Rider.TrackedVehicle = Rider.EnvelopeVehicle = INDEX_NONE;
+    if (C) C->bTrainDriving = C->bTrainInside = false;
     UpdateCamera(Rider, false, 1.f);
 }
 
@@ -1081,7 +1090,7 @@ bool ABelmonteTrainService::ReplacePassenger(AWandererCharacter* From, AWanderer
     const int32 Index = BelmonteTrainRules::MoveRider(Riders, From, To, [this](FRider& Stale) { ReleaseRider(Stale); });
     if (Index == INDEX_NONE) return false;
     FRider& R = Riders[Index];
-    From->bTrainAboard = From->bTrainDriving = From->bNoSprint = false;
+    From->bTrainAboard = From->bTrainDriving = From->bTrainInside = From->bNoSprint = false;
     From->AboardVehicle = ETransportVehicle::None;
     R.bTickOrdered = false;
     R.TrackedVehicle = INDEX_NONE;
@@ -1182,6 +1191,8 @@ void ABelmonteTrainService::UpdateRiders(float Dt)
         // root its owner sends, never the rendered skater (whose pose may lag or bail away from it).
         const FVector Feet = C->GetActorLocation() - FVector(0, 0, Half - 5.);
         const int32 BaseVehicle = VehicleOf(C->GetMovementBase());
+        // Ticket or not, on the train no vehicle comes out and an active one is put away (by the host).
+        UpdateOnTrain(Rider, Feet, BaseVehicle, Time, Dt);
         int32 Inside = INDEX_NONE; bool bNoSprint = false, bCamera = false;
         if (Rider.Admission.bAdmitted)
         {
@@ -1272,6 +1283,54 @@ int32 ABelmonteTrainService::InteriorAt(const FVector& Feet, const FVector& Marg
             if (Room.Box.ExpandBy(Margin).IsInside(Local)) { bNoSprint = Room.bNoSprint; bCamera = Room.bCamera; return I; }
     }
     return INDEX_NONE;
+}
+
+int32 ABelmonteTrainService::EnvelopeAt(const FVector& Feet, FVector& Local) const
+{
+    for (int32 I = 0; I < Vehicles.Num(); ++I)
+    {
+        const FVehicle& V = Vehicles[I];
+        if (FVector::DistSquared(V.Previous.GetLocation(), Feet) > FMath::Square(2500.)) continue;
+        Local = V.Previous.InverseTransformPosition(Feet);
+        for (const FBox& Box : V.Envelopes) if (BelmonteTrainRules::InEnvelope(Box, Local)) return I;
+    }
+    return INDEX_NONE;
+}
+
+void ABelmonteTrainService::UpdateOnTrain(FRider& Rider, const FVector& Feet, int32 BaseVehicle, double Time, float Dt)
+{
+    AWandererCharacter* C = Rider.Character.Get();
+    if (!C) return;
+    FVector Local = FVector::ZeroVector;
+    const int32 Held = EnvelopeAt(Feet, Local);
+    // The rider's speed in that vehicle's frame tells someone riding it from a bystander the running train sweeps through.
+    if (Held == INDEX_NONE) { Rider.EnvelopeVehicle = INDEX_NONE; Rider.EnvelopeSpeed = -1.; }
+    else
+    {
+        if (Rider.EnvelopeVehicle == Held && Dt > 0.f)
+        {
+            const double Speed = FVector::Dist(Local, Rider.EnvelopeLocal) / Dt;
+            Rider.EnvelopeSpeed = Rider.EnvelopeSpeed < 0. ? Speed : FMath::Lerp(Rider.EnvelopeSpeed, Speed, .3);
+        }
+        else Rider.EnvelopeSpeed = -1.;
+        Rider.EnvelopeVehicle = Held; Rider.EnvelopeLocal = Local;
+    }
+    bool bMoving = false, bWithCoach = false;
+    if (Held != INDEX_NONE)
+    {
+        const FVehicle& V = Vehicles[Held];
+        const double CoachSpeed = FMath::Abs(Line.Speed(V.Train, Time)) * 100.;
+        bMoving = V.bMoved || CoachSpeed > 1.;
+        bWithCoach = BaseVehicle == Held || (Rider.EnvelopeSpeed >= 0. && BelmonteTrainRules::MovesWithCoach(Rider.EnvelopeSpeed, CoachSpeed));
+    }
+    const bool bWas = C->bTrainInside;
+    C->bTrainInside = BelmonteTrainRules::OnTrainVehicle(BaseVehicle != INDEX_NONE, Held != INDEX_NONE, bMoving, bWithCoach);
+    if (C->bTrainInside != bWas)
+        UE_LOG(LogTemp, Display, TEXT("TRAIN RIDER %s %s vehicle=%s"), *C->GetName(), C->bTrainInside ? TEXT("on the train") : TEXT("off the train"),
+            Held != INDEX_NONE ? *Vehicles[Held].Id : (Vehicles.IsValidIndex(BaseVehicle) ? *Vehicles[BaseVehicle].Id : TEXT("-")));
+    // Host or offline only: a guest's ride is ended by the host's activity handoff.
+    if (C->StowVehicleOnTrain())
+        UE_LOG(LogTemp, Display, TEXT("TRAIN RIDER %s vehicle put away on the train"), *C->GetName());
 }
 
 bool ABelmonteTrainService::Eject(FRider& Rider, int32 VehicleIndex)
@@ -1544,7 +1603,7 @@ FString ABelmonteTrainService::Status(const AWandererCharacter* C) const
 {
     const FRider* Rider = FindRider(C);
     if (!Rider) return TEXT("none");
-    return FString::Printf(TEXT("aboard=%d vehicle=%s seat=%s nosprint=%d"), Rider->bAboard,
+    return FString::Printf(TEXT("aboard=%d ontrain=%d vehicle=%s seat=%s nosprint=%d"), Rider->bAboard, C ? C->IsOnTrain() : 0,
         Vehicles.IsValidIndex(Rider->Vehicle) ? *Vehicles[Rider->Vehicle].Id : TEXT("-"),
         Rider->Seat != INDEX_NONE && Vehicles.IsValidIndex(Rider->Vehicle) ? *Vehicles[Rider->Vehicle].Seats[Rider->Seat].Id : TEXT("-"), C ? C->bNoSprint : 0);
 }
@@ -1688,7 +1747,7 @@ FString ABelmonteTrainService::StateJson() const
     const BelmonteTrainRules::FTrainSoundMix Mix = LastMixes.IsValidIndex(MixTrain) ? LastMixes[MixTrain] : BelmonteTrainRules::FTrainSoundMix();
     FVector Ear = FVector::ZeroVector, EarFront, EarRight;
     if (PC) PC->GetAudioListenerPosition(Ear, EarFront, EarRight);
-    return FString::Printf(TEXT("{\"time\":%.2f,\"scale\":%.2f,\"trains\":[%s],\"boards\":[%s],\"player\":[%.1f,%.1f,%.1f],\"aboard\":%s,\"vehicle\":\"%s\",\"train\":%d,\"seat\":\"%s\",\"nosprint\":%s,\"base\":\"%s\",\"mode\":%d,\"action\":\"%s\",\"boarding\":%s,\"camera\":%.2f,\"arm\":%.0f,\"yaw\":%.1f,\"local\":[%.1f,%.1f,%.1f],\"admitted\":%s,\"first_person\":%s,\"on_vehicle\":%s,\"view_yaw\":%.2f,\"coach_yaw\":%.2f,\"sounds\":{\"loops\":%d,\"idle\":%.2f,\"start\":%.2f,\"effort\":%.2f,\"roll\":%.2f,\"roll_pitch\":%.2f,\"chuff_rate\":%.2f,\"brakes\":%d,\"departs\":%d,\"clacks\":%d,\"doors\":%d,\"blowoffs\":%d,\"passes\":%d,\"listener_vehicle\":\"%s\",\"voices\":[%s]}}"),
+    return FString::Printf(TEXT("{\"time\":%.2f,\"scale\":%.2f,\"trains\":[%s],\"boards\":[%s],\"player\":[%.1f,%.1f,%.1f],\"aboard\":%s,\"vehicle\":\"%s\",\"train\":%d,\"seat\":\"%s\",\"nosprint\":%s,\"base\":\"%s\",\"mode\":%d,\"action\":\"%s\",\"boarding\":%s,\"camera\":%.2f,\"arm\":%.0f,\"yaw\":%.1f,\"local\":[%.1f,%.1f,%.1f],\"admitted\":%s,\"first_person\":%s,\"on_vehicle\":%s,\"on_train\":%s,\"view_yaw\":%.2f,\"coach_yaw\":%.2f,\"sounds\":{\"loops\":%d,\"idle\":%.2f,\"start\":%.2f,\"effort\":%.2f,\"roll\":%.2f,\"roll_pitch\":%.2f,\"chuff_rate\":%.2f,\"brakes\":%d,\"departs\":%d,\"clacks\":%d,\"doors\":%d,\"blowoffs\":%d,\"passes\":%d,\"listener_vehicle\":\"%s\",\"voices\":[%s]}}"),
         Time, ClockScale(), *Trains, *BoardText, At.X, At.Y, At.Z, Rider && Rider->bAboard ? TEXT("true") : TEXT("false"),
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? *Vehicles[Rider->Vehicle].Id : TEXT(""),
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Train : -1,
@@ -1700,6 +1759,7 @@ FString ABelmonteTrainService::StateJson() const
         Local.X, Local.Y, Local.Z, Rider && Rider->Admission.bAdmitted ? TEXT("true") : TEXT("false"),
         Player && Player->IsTrainFirstPerson() ? TEXT("true") : TEXT("false"),
         OnAnyVehicle(Player, JapanNetwork::IsOnline(GetWorld())) ? TEXT("true") : TEXT("false"),
+        Player && Player->IsOnTrain() ? TEXT("true") : TEXT("false"),
         PC ? PC->GetControlRotation().Yaw : 0.f,
         Rider && Vehicles.IsValidIndex(Rider->Vehicle) ? Vehicles[Rider->Vehicle].Body->GetComponentRotation().Yaw : 0.,
         RollLoops.Num() + IdleLoops.Num() + StartSounds.Num() + EffortLoops.Num(), Mix.Idle, Mix.Start, Mix.Effort, Mix.Roll, Mix.RollPitch,
