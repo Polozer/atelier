@@ -91,6 +91,18 @@ def test_documented_clearance_is_the_code_rule(site):
     assert f'{site.SEABED_MAX:.1f}'.replace('-', '−') in readme
 
 
+def test_terminal_grounding_uses_region_owned_quay_limit(site):
+    # Execute the real helper without importing the Blender-only terminal builder.
+    tree = ast.parse((FERRY / 'terminals/build.py').read_text())
+    helper = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'ground_under')
+    namespace = {'FS': site, 'np': np}
+    exec(compile(ast.Module(body=[helper], type_ignores=[]), '<terminal grounding>', 'exec'), namespace)
+    ground = namespace['ground_under']
+    assert ground(world((-2, -2, 2, 2), seabed=2.7), -1, -1, 1, 1) == pytest.approx(2.7)
+    with pytest.raises(SystemExit, match='no exported ground'):
+        ground(world((-2, -2, 2, 2), seabed=site.HD.QUAY_RAIL + 1), -1, -1, 1, 1)
+
+
 def test_outlines_are_symmetric_and_the_wet_footprint_lies_inside_the_full_outline(site):
     xs, hw = site.ENV[id(site.FULL)]
     assert np.allclose(site.FULL[:161, 1], -site.FULL[161:, 1][::-1])

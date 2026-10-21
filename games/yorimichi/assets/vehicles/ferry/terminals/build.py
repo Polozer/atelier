@@ -306,7 +306,7 @@ def lantern(m, x, y, z, h=0.42):
 def ground_under(world, x0, y0, x1, y1):
     """The lowest exported walking surface under a footprint, so feet and bases meet the ground (sinking a little
     where it is higher, never floating where it is lower). Fails if any of the footprint has no surface."""
-    z = FS.levels(world, FS.rect_points(x0, y0, x1, y1, 0.1), FS.QUAY_RAIL + 0.5)
+    z = FS.levels(world, FS.rect_points(x0, y0, x1, y1, 0.1), FS.HD.QUAY_RAIL + 0.5)
     if np.isnan(z).any():
         raise SystemExit(f'no exported ground under ({x0:.2f}, {y0:.2f})-({x1:.2f}, {y1:.2f})')
     return float(np.min(z))
