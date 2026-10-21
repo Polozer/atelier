@@ -1338,6 +1338,7 @@ def unreal_steps(ctx):
              outputs=[GAME / 'unreal' / 'Content' / 'Japan' / 'Kart' / f'{name}.uasset' for name in
                       ('M_Kart', 'SM_Kart_Body', 'SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel')]
                      + [GAME / 'unreal/Content/Data/kart/cockpit.json',
+                        GAME / 'unreal/Content/Data/kart/prepared-models.json',
                         *(GAME / f'unreal/Content/Data/kart/grips/{name}.json' for name in kart_source_identity.playable_ids())],
              about='the go-kart body, wheels and steering wheel (/Game/Japan/Kart)'),
         Step('unreal.bike', [UnrealScript(SCRIPTS / 'import_bike.py', 'BIKE IMPORT COMPLETE')],

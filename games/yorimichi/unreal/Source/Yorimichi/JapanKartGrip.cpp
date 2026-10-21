@@ -41,18 +41,16 @@ void ReadKartGrip(AWandererCharacter* Pawn, UDrivingComponent* Car)
     const TSharedPtr<FJsonObject>* Bind = nullptr;
     FString Id;
     double Schema = 0., Scale = 0.;
-    double ExpectedScale = Car->GetKartScale(), ScaleTolerance = .02;
-    if (const TSharedPtr<FJsonObject> Receipt = AtelierReadJson(AtelierDataPath(TEXT("kart/prepared-models.json"))))
+    double ExpectedScale = 0., ScaleTolerance = 1e-4, ReceiptSchema = 0.;
+    const TSharedPtr<FJsonObject> Receipt = AtelierReadJson(AtelierDataPath(TEXT("kart/prepared-models.json")));
+    const TSharedPtr<FJsonObject>* Models = nullptr;
+    const TSharedPtr<FJsonObject>* Entry = nullptr;
+    if (!Receipt || !Receipt->TryGetNumberField(TEXT("schema"), ReceiptSchema) || ReceiptSchema != 1. ||
+        !Receipt->TryGetObjectField(TEXT("models"), Models) || !(*Models)->TryGetObjectField(Character->Id, Entry) ||
+        !(*Entry)->TryGetNumberField(TEXT("scale"), ExpectedScale) || !FMath::IsFinite(ExpectedScale) || ExpectedScale <= 0.)
     {
-        const TSharedPtr<FJsonObject>* Models = nullptr;
-        const TSharedPtr<FJsonObject>* Entry = nullptr;
-        double Prepared = 0.;
-        if (Receipt->TryGetObjectField(TEXT("models"), Models) && (*Models)->TryGetObjectField(Character->Id, Entry) &&
-            (*Entry)->TryGetNumberField(TEXT("scale"), Prepared) && FMath::IsFinite(Prepared))
-        {
-            ExpectedScale = Prepared;
-            ScaleTolerance = 1e-4;
-        }
+        Reject(TEXT("prepared-model receipt is missing or does not name this character"));
+        return;
     }
     if (!Data->TryGetNumberField(TEXT("schema"), Schema) || Schema != 1. ||
         !Data->TryGetStringField(TEXT("character"), Id) || Id != Character->Id ||
