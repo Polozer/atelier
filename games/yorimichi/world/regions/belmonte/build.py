@@ -10,7 +10,7 @@ import shutil
 import numpy as np
 from PIL import Image
 from atelier.gltf import glb_parts
-from belmonte import layout as L, source, planting, terrain, appearance
+from belmonte import layout as L, source, planting, terrain, appearance, collision, furniture
 
 OUT = yori.OUT / 'belmonte'
 
@@ -202,6 +202,63 @@ def map_zones(town_z):
     ]
 
 
+def outward_hulls(hulls):
+    """A committed hull file written to glb/ with its faces turned out of their solids (the library's wind inward), as
+    the drawn meshes and the generated shells face: the skate surface keeps a face's side."""
+    path = OUT / 'glb' / hulls.name
+    collision.write_glb(path, collision.mirror(source.triangles(hulls)))
+    return {'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
+            'source': hulls.relative_to(source.LIBRARY).as_posix()}
+
+
+def building_collision(data, meshes):
+    """Buildings collide with shells generated from what is drawn (belmonte/collision.py): the committed hulls plus
+    the drawn storeys, roofs and stand tiers they miss, and plugs in the openings to unfurnished interiors. Writes each
+    <mesh>_Collision.glb, points its entry at it and fails if a walker could still get inside."""
+    by_name = {entry['name']: entry for entry in meshes}
+    report = {}
+    for name, (transform, entries) in collision.buildings(data).items():
+        building = collision.load(name, transform, entries)
+        shell = collision.generate(building)
+        result = collision.audit(building, shell.faces, stats=False)
+        if result.intrusion_m3 or result.uncovered_wall > collision.MAX_UNCOVERED or result.uncovered_roof > collision.MAX_UNCOVERED:
+            raise ValueError(f'{name}: generated collision leaves the building open: {result.row()}')
+        triangles = {}
+        for entry in entries:
+            if 'collision' not in entry:
+                continue
+            path = OUT / 'glb' / (entry['name'] + '_Collision.glb')
+            collision.write_glb(path, shell.faces[entry['name']])
+            triangles[entry['name']] = len(shell.faces[entry['name']])
+            by_name[entry['name']]['collision'] = {'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
+                                                   'triangles': triangles[entry['name']], 'generated': True}
+        report[name] = {'triangles': triangles, 'kept_drawn_triangles': shell.skin_triangles, 'plugs': shell.plugs,
+                        'reachable_m3': result.intrusion_m3, 'uncovered_wall': round(result.uncovered_wall, 4),
+                        'uncovered_roof': round(result.uncovered_roof, 4)}
+        print(f'BELMONTE COLLISION {name}: {sum(triangles.values())} triangles, {shell.plugs} plugs', flush=True)
+    print(f'BELMONTE COLLISION: {sum(sum(r["triangles"].values()) for r in report.values())} triangles '
+          f'for {len(report)} buildings', flush=True)
+    return report
+
+
+def furniture_collision(entry, drawn, data):
+    """Skate furniture (benches, planters, walls, basins) collides with columns generated from its drawn tops
+    (belmonte/furniture.py) and carries grind lines; fails if the collision leaves any of the drawing outside."""
+    path = OUT / 'glb' / (entry['name'] + '_Collision.glb')
+    item = furniture.generate(entry, drawn, run=furniture.run_axis(data, entry, drawn))
+    worst = float(furniture.outside_m(item, np.unique(np.round(item.drawn.reshape(-1, 3), 5), axis=0)).max())
+    if worst > furniture.TOP_TOL_M + 1e-3:
+        raise ValueError(f'{entry["name"]}: drawn geometry {worst:.3f} m outside its generated collision')
+    collision.write_glb(path, item.faces)
+    lines = furniture.rails(item)
+    entry['collision'] = {'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
+                          'triangles': len(item.faces), 'generated': True}
+    report = {'triangles': len(item.faces), 'columns': len(item.columns), 'drawn_outside_m': round(worst, 3),
+              'rails': [{'kind': r['kind'], 'length_m': round(furniture._length(r['points']), 2)} for r in lines]}
+    print(f'BELMONTE FURNITURE {entry["name"]}: {len(item.faces)} triangles, {len(lines)} grind lines', flush=True)
+    return lines, report
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / 'glb').mkdir(exist_ok=True)
@@ -209,6 +266,7 @@ def main():
     data = source.manifest()
     materials = finish_surfaces(data)
     by_asset, meshes, retained_slots = {}, [], {}
+    grind_lines, furniture_report = {}, {}
     for entry in data['meshes']:
         path = source.LIBRARY / entry['path']
         assert source.sha(path) == entry['sha256'], path
@@ -225,9 +283,13 @@ def main():
         doc, _ = glb_parts(path.read_bytes())
         retained_slots[entry['source_asset']] = [int(material['name'].split('_')[1]) for material in doc['materials']]
         if 'collision' in entry:
-            collision = source.LIBRARY / entry['collision']['path']
-            assert source.sha(collision) == entry['collision']['sha256'], collision
-            shutil.copy2(collision, OUT / 'glb' / collision.name)
+            hulls = source.LIBRARY / entry['collision']['path']
+            assert source.sha(hulls) == entry['collision']['sha256'], hulls
+            if furniture.is_furniture(entry['name']):
+                grind_lines[entry['name']], furniture_report[entry['name']] = furniture_collision(entry, path, data)
+            elif not collision.is_building(entry['name']):     # buildings get generated shells below
+                entry['collision'] = outward_hulls(hulls)
+    shells = building_collision(data, meshes)
     extra, seam = surroundings()
     meshes.extend(extra)
     grouped = {}
@@ -278,10 +340,12 @@ def main():
     town_z = float(source.terrain().height(0., -18.)) + L.ORIGIN[2] + 1.
     runtime = {'version': 1, 'origin_cm': L.native_origin(), 'bounds_m': L.BOUNDS,
                'clearance_m': list(terrain.OUTER), 'groups': groups, 'signs': signs, 'railway_corridor': L.RAILWAY,
-               'zones': map_zones(town_z), 'tv_spots': tv_spots(data)}
+               'zones': map_zones(town_z), 'tv_spots': tv_spots(data), 'rails': furniture.placed_rails(data, grind_lines)}
     (OUT / 'runtime.json').write_text(json.dumps(runtime, separators=(',', ':')) + '\n')
     (OUT / 'build-report.json').write_text(json.dumps({'meshes': meshes, 'materials': materials,
-                                                     'planting': plant_report, 'seam': seam}, indent=1) + '\n')
+                                                     'planting': plant_report, 'seam': seam,
+                                                     'building_collision': shells,
+                                                     'furniture_collision': furniture_report}, indent=1) + '\n')
     print(f'BELMONTE BUILD COMPLETE: {len(meshes)} meshes, {len(groups)} groups, {sum(len(v) for v in plants.values())} plants', flush=True)
 
 
