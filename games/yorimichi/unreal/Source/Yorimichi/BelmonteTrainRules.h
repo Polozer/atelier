@@ -14,6 +14,25 @@ inline const TCHAR* Refusal() { return TEXT("Pas à bord du train"); }
  *  door (bTrainAction). Putting one away is always allowed. */
 inline bool MayTakeOutVehicle(bool bAboard, bool bTrainAction) { return !bAboard && !bTrainAction; }
 
+/** A vehicle's envelope (its exterior box, vehicle cm) holds the feet (vehicle cm): inside the coach, on the tender's
+ *  load, on a step or up to RoofMargin above the roof. */
+inline bool InEnvelope(const FBox& Exterior, const FVector& LocalFeet, double RoofMargin = 60.)
+{
+    return LocalFeet.X >= Exterior.Min.X && LocalFeet.X <= Exterior.Max.X && LocalFeet.Y >= Exterior.Min.Y &&
+        LocalFeet.Y <= Exterior.Max.Y && LocalFeet.Z >= Exterior.Min.Z && LocalFeet.Z <= Exterior.Max.Z + RoofMargin;
+}
+
+/**
+ * On the train for the vehicle rule, ticket or not (walked in at a platform, ridden in, jumped onto a roof or into the
+ * tender): standing on any of its vehicles (bOnFloor), or within a vehicle's envelope while it stands or the player
+ * moves with it (bWithCoach, MovesWithCoach). A bystander the running train sweeps through is not on it. There no
+ * vehicle comes out and an active one is put away (AWandererCharacter::IsOnTrain, StowVehicleOnTrain).
+ */
+inline bool OnTrainVehicle(bool bOnFloor, bool bInEnvelope, bool bCoachMoving, bool bWithCoach)
+{
+    return bOnFloor || (bInEnvelope && (!bCoachMoving || bWithCoach));
+}
+
 /**
  * Admission: the ticket the boarding walk gives (Monter at a station door), the one way to be carried as a passenger.
  * Owned by the host (offline: the game); clients take it from the replicated passenger list.
