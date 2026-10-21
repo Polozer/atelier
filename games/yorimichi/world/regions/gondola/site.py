@@ -167,6 +167,16 @@ def ground_edge(G,frame,end,across,width):
     return knots,z
 
 
+def rail_bearing(mesh,x,y,direction,across,roof):
+    """A level post seat with a fitted underside embedded in the stringer."""
+    centre=np.array([x,y])
+    polygon=[centre+a*.08*direction+b*.075*across for a,b in ((-1,-1),(1,-1),(1,1),(-1,1))]
+    top=max(roof(*point) for point in polygon)+.02
+    with mesh.tagged('access_stringer'):
+        mesh.prism(polygon,lambda x,y:roof(x,y)-.01,top,solid.TIMBER_DARK)
+    return top
+
+
 def access_stair(key,layout,G,frame):
     access=layout['access'][0]
     edge=np.asarray(access['edge'],float);start=edge.mean(0)
@@ -242,10 +252,12 @@ def access_stair(key,layout,G,frame):
     for side in (-1,1):
         offset=side*(width/2-.12)*across
         a,b=start+offset,end+offset
-        polygon=[a-across*.09,b-across*.09,b+across*.09,a+across*.09]
+        head=a-.10*direction;tail=b+.10*direction
+        polygon=[head-across*.09,tail-across*.09,tail+across*.09,head+across*.09]
         with mesh.tagged('access_stringer'):
             mesh.prism(polygon,lambda x,y:stringer_top(x,y)-.55,stringer_top,solid.TIMBER)
-        railing(mesh,rail_layout,[a,b],'timber',z0=stringer_top,on=('access_stringer',))
+        railing(mesh,rail_layout,[a,b],'timber',
+                z0=lambda x,y:rail_bearing(mesh,x,y,direction,across,stringer_top),on=('access_stringer',))
     route.append([*end,float(np.interp(0,edge_t,edge_z))])
     # Check every generated landing strip against the same final contact query.
     for surface in surfaces:

@@ -115,3 +115,19 @@ def test_trestle_crossheads_seat_in_posts_without_coplanar_junction_overlaps():
         for other_lo,other_hi in rectangles[i+1:]:
             overlap=np.minimum(hi,other_hi)-np.maximum(lo,other_lo)
             assert not np.all(overlap>1e-8),f'Overlapping crosshead faces: {overlap}'
+
+
+def test_sloping_stringer_has_a_level_fully_supported_railing_post_seat():
+    from contextlib import nullcontext
+    pieces=[]
+    mesh=SimpleNamespace(tagged=lambda tag:nullcontext(),prism=lambda poly,base,top,mat:pieces.append((np.asarray(poly),base,top)))
+    function=helper('rail_bearing',{'np':np,'solid':SimpleNamespace(TIMBER_DARK=1)})
+    for slope in (.12,.57,.85):
+        roof=lambda x,y:2.-slope*x
+        top=function(mesh,0.,0.,np.array([1.,0.]),np.array([0.,1.]),roof)
+        polygon,base,cap=pieces[-1]
+        assert top==cap and top>max(roof(*point) for point in polygon)
+        assert all(abs(base(*point)-(roof(*point)-.01))<1e-12 for point in polygon)
+        # All five existing seat-audit rays hit this horizontal bearing surface.
+        for point in ((0,0),(-.06,0),(.06,0),(0,-.06),(0,.06)):
+            assert np.all(np.asarray(point)>polygon.min(0)) and np.all(np.asarray(point)<polygon.max(0))
