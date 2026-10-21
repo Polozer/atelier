@@ -2,6 +2,9 @@
 #include "AtelierData.h"
 #include "BelmonteRegion.h"
 #include "Misc/AutomationTest.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "Misc/ScopeExit.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGondolaClockTest,"Yorimichi.Gondola.FittedClockAndLevelCabin",
@@ -10,6 +13,23 @@ bool FGondolaClockTest::RunTest(const FString&)
 {
     const auto Root=AtelierReadJson(AtelierDataPath(TEXT("gondola/runtime.json")));
     if(!TestTrue(TEXT("Current staged ropeway exists"),Root.IsValid()))return false;
+    UWorld* World=nullptr;
+    for(const FWorldContext& Context:GEngine->GetWorldContexts())
+        if(Context.World()&&Context.World()->IsGameWorld()){World=Context.World();break;}
+    if(!TestNotNull(TEXT("Native game world"),World))return false;
+    const bool Created=AGondolaService::Find(World)==nullptr;
+    auto* Service=AGondolaService::Spawn(World,AtelierDataPath(TEXT("gondola/runtime.json")));
+    ON_SCOPE_EXIT{if(Created&&Service)Service->Destroy();};
+    if(!TestNotNull(TEXT("Complete imported ropeway initializes"),Service))return false;
+    TestTrue(TEXT("Production service is ready"),Service->bReady&&!Service->bFailed);
+    TestEqual(TEXT("All three fitted lines initialize"),Service->Lines.Num(),Root->GetArrayField(TEXT("lines")).Num());
+    TestEqual(TEXT("Every staged station initializes"),Service->Stations.Num(),Root->GetArrayField(TEXT("stations")).Num());
+    int32 ExpectedCabins=0;
+    for(const auto& Line:Service->Lines)ExpectedCabins+=Line.CabinCount;
+    TestEqual(TEXT("Complete cabin roster initializes"),Service->Cabins.Num(),ExpectedCabins);
+    for(const auto& Cabin:Service->Cabins)
+        if(!TestTrue(TEXT("Every cabin has imported body, grip and physical door"),
+            Cabin.Body!=nullptr&&Cabin.Grip!=nullptr&&Cabin.DoorBlock!=nullptr))return false;
     const FVector Pivot(0.,18.5,-13.);
     for(const auto& V:Root->GetArrayField(TEXT("lines")))
     {
