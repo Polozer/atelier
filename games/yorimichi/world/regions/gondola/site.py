@@ -25,6 +25,9 @@ from tower import Tower
 from stations import Station, Valley, Rim, Crater, railing
 from gondola.line import centre_profile, closed_circuit, placed, simplify, station_frame, near_rope_tolerance, float32_cm_axes, stored_groove_audit, recover_rope_vertices
 from gondola.products import ground
+from gondola.structures import validate as validate_structures
+from gondola.clearance import StructureClearance, structure_envelope
+from gondola.interactions import walking_link, mesh_vertices, flight_clearance
 from gondola.support import owned_range, owned_triangles, floor_intrusion
 from gondola.validation import site_inputs, validate_site
 from regions.gondola.layout import LINES, STATIONS
@@ -350,7 +353,7 @@ def station_jump_clearance(points,riding,drop):
     return {'poses':len(points),'triangles_tested':count,'minimum_m':best if count else None,'pass':True}
 
 
-def export_world(mesh,folder,mats,limit=50000,*,frame=None,G=None,seats=(),riding=None):
+def export_world(mesh,folder,mats,limit=50000,*,frame=None,G=None,seats=(),riding=None,structures=None):
     proof=solid.closed(mesh)
     if proof['open_edges'] or proof['misoriented_edges'] or proof['degenerate_faces'] or mesh.tris()>limit:
         raise ValueError(f'{mesh.name}: invalid or over-budget world mesh: {proof}, {mesh.tris()} triangles')
@@ -365,12 +368,17 @@ def export_world(mesh,folder,mats,limit=50000,*,frame=None,G=None,seats=(),ridin
         carried={**summary,'failures':failures}
         if count or failures or any(row['status']!='ok' for row in seating):
             raise ValueError(f'{mesh.name}: floating/seating/coplanar proof failed: {coplanar}, {seating}, {carried}')
+    world_structure = None
+    if structures is not None:
+        vertices=np.c_[world_xy(np.asarray(mesh.verts)[:,:2],frame),np.asarray(mesh.verts)[:,2]+frame[3]]
+        world_structure=structures.static(vertices,require_bounds=True)
     obj,names=solid.to_object(mesh,mats)
     path=folder/f'{mesh.name}.fbx';solid.export_fbx([obj],path)
     bpy.data.objects.remove(obj,do_unlink=True)
     return {'name':mesh.name,'materials':names,'triangles':mesh.tris(),'closed':proof,
             'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'coplanar':coplanar,
-            'seating':seating,'carried':carried,'riding_plan_clear':frame is not None}
+            'seating':seating,'carried':carried,'riding_plan_clear':frame is not None,
+            'world_structure':world_structure}
 
 
 def recovered_rope_axes(mesh,path,ring_counts):
@@ -519,29 +527,61 @@ def main():
     if kit.get('soft_fail') or kit['failures'] or kit['source_hash']!=K.source_hash():
         raise ValueError('Gondola kit is stale or failed')
     G=ground(yori.OUT)
+    structure_receipt=validate_structures(yori.OUT)
+    with np.load(yori.OUT/'gondola/world/structures.npz',allow_pickle=False) as arrays:
+        structures=StructureClearance(arrays,structure_receipt['inputs']['selection']['bounds_m'])
     layouts={kind:json.loads((yori.OUT/f'gondola/layout_{kind}.json').read_text()) for kind in ('valley','rim','crater')}
     folder=yori.OUT/'gondola/world';assets=folder/'assets';assets.mkdir(parents=True,exist_ok=True)
     mats=solid.make_materials({})
     cabin=Cabin(p,d);meshes,_=cabin.build();cab={'cabin':cabin,'meshes':meshes}
+    envelope=structure_envelope(meshes,kit['pieces']['cabin']['grip']['pivot']['point'],
+                               kit['pieces']['cabin']['door_frame']['leaves']['open_offsets'])
+    structure_radius,structure_drop=envelope['radius_m'],envelope['drop_m']
     riding=PARK.piece_triangles()
     shells={kind:cls(kind,p,d).make() for kind,cls in (('valley',Valley),('rim',Rim),('crater',Crater))}
     stations={};frames={};exports=[];lines=[]
+    flight_boxes=[]
     for line in LINES:
         first,last=line['stations']
         for key,other in ((first,last),(last,first)):
             print('GONDOLA SITE station',key,flush=True)
             data,frame=fit_station(key,other,G,layouts)
+            scope=structures if line['id']=='L2' else None
+            if scope is not None:
+                data['structure_static']={}
             for shell in shells[data['kind']].values():
                 untouched_riding(shell,frame,riding)
+                if scope is not None:
+                    vertices=np.c_[world_xy(np.asarray(shell.verts)[:,:2],frame),np.asarray(shell.verts)[:,2]+frame[3]]
+                    data['structure_static'][shell.name]=scope.static(vertices,require_bounds=True)
+            if scope is not None:
+                proxies=layouts[data['kind']]['obstacles']
+                vertices=np.array([[x,y,z] for proxy in proxies for edge in ('z0','z1')
+                                   for (x,y),z in zip(proxy['poly'],proxy[edge])],float)
+                vertices=np.c_[world_xy(vertices[:,:2],frame),vertices[:,2]+frame[3]]
+                data['structure_collision']=scope.static(vertices,require_bounds=True)
             data['static_riding_clear']=True
             foundation,posts=station_foundation(key,layouts[data['kind']],G,frame)
             stair,access=access_stair(key,layouts[data['kind']],G,frame)
+            if key=='belmonte':
+                from regions.zeppelin.layout import belmonte_path
+                access['route'],data['walking_link']=walking_link(G,frame,access['route'],
+                    [*shells[data['kind']].values(),foundation,stair],structures,belmonte_path())
+            if scope is not None:
+                for mesh in [*shells[data['kind']].values(),foundation,stair]:
+                    vertices=mesh_vertices(mesh,frame)
+                    flight_boxes.append([vertices.min(0).tolist(),vertices.max(0).tolist()])
             loop=R.station_loop(p['gauge']/2,d['rope_height_above_platform'],d['rope_height_above_platform'],7.6,p['rope_radius'],step=.5).pts
+            if scope is not None:
+                data['structure_loop']=scope.path(placed(loop,frame),radius=structure_radius,drop=structure_drop)
+                curve=placed(loop,frame)
+                flight_boxes.append([(curve.min(0)-[structure_radius,structure_radius,structure_drop]).tolist(),
+                                     (curve.max(0)+structure_radius).tolist()])
             data['jump']=station_jump_clearance(placed(loop,frame),riding,d['grip_to_floor']+p['cabin_floor_depth'])
             data['posts']=posts;data['access']=access
             data['boarding_routes']=W.station_routes(layouts[data['kind']],data['kind'])
-            data['foundation']=export_world(foundation,assets,mats,frame=frame,G=G,riding=riding)
-            data['access_mesh']=export_world(stair,assets,mats,frame=frame,G=G,seats=access['rail_seats'],riding=riding)
+            data['foundation']=export_world(foundation,assets,mats,frame=frame,G=G,riding=riding,structures=scope)
+            data['access_mesh']=export_world(stair,assets,mats,frame=frame,G=G,seats=access['rail_seats'],riding=riding,structures=scope)
             exports += [data['foundation'],data['access_mesh']]
             stations[key]=data;frames[key]=frame
         A,B=np.asarray(STATIONS[first]['mouth']),np.asarray(STATIONS[last]['mouth'])
@@ -550,11 +590,27 @@ def main():
         towers=[];tower_geometry=[]
         for index,(s,height) in enumerate(line['towers']):
             tower,mesh,frame,row=tower_fit(f'{line["id"]}_{index}',s,height,A,direction,G,p)
-            row['mesh']=export_world(mesh,assets,mats,limit=checks.BUDGET['tower'],frame=frame,G=G,seats=tower.seats,riding=riding)
+            row['mesh']=export_world(mesh,assets,mats,limit=checks.BUDGET['tower'],frame=frame,G=G,seats=tower.seats,riding=riding,
+                                     structures=structures if line['id']=='L2' else None)
             exports.append(row['mesh']);towers.append(row);tower_geometry.append((tower,mesh,row))
+            if line['id']=='L2':flight_boxes.append(row['mesh']['world_structure']['bounds_m'])
             supports.append((s,frame[3]+height,True))
         supports.append((length-.6,frames[last][3]+d['rope_height_above_platform'],False))
         profile=centre_profile(supports)
+        if line['id']=='L2':
+            world_profile=np.c_[A+profile[:,0,None]*direction,profile[:,1]]
+            # Every source segment is retained in a local box; one global box
+            # would give the distant rim's height to the low Belmonte prefix.
+            for i in range(0,len(world_profile)-1,100):
+                chunk=world_profile[i:i+101]
+                low=chunk.min(0)-np.array([p['gauge']/2+structure_radius]*2+[structure_drop])
+                high=chunk.max(0)+np.array([p['gauge']/2+structure_radius]*2+[structure_radius])
+                flight_boxes.append([low.tolist(),high.tolist()])
+            from regions.zeppelin.layout import metadata as zeppelin_metadata
+            flight=flight_clearance(zeppelin_metadata(),json.loads((yori.OUT/'zeppelin/manifest.json').read_text()),
+                                    flight_boxes,profile,envelope)
+        structure_span=(structures.span(profile,A,direction,radius=structure_radius,gauge=p['gauge'],drop=structure_drop)
+                        if line['id']=='L2' else None)
         from gondola.clearance import riding_clearance
         clearance=riding_clearance(riding,A,direction,profile,lateral=16.3,half_length=p['cabin_length']/2,drop=d['grip_to_floor']+p['cabin_floor_depth'])
         if clearance['minimum_m'] is not None and clearance['minimum_m']<15.:
@@ -601,9 +657,11 @@ def main():
                       f'{contact["bound_mm"]:.6f}mm bound, {row["triangles"]} triangles',flush=True)
             rope_exports.append(row);exports.append(row)
         lines.append({'id':line['id'],'stations':[first,last],'supports':supports,'towers':towers,
-                      'profile':profile.tolist(),'circuit':circuit.tolist(),'ground':gap,'riding':clearance,'span_audit':audit,'rope_meshes':rope_exports})
+                      'profile':profile.tolist(),'circuit':circuit.tolist(),'ground':gap,'riding':clearance,
+                      'structures':structure_span,'span_audit':audit,'rope_meshes':rope_exports})
         print('GONDOLA SITE line complete',line['id'],flush=True)
-    result={'inputs':inputs,'stations':stations,'lines':lines,'exports':exports,'failures':[],'kit_source':kit['source_hash']}
+    result={'inputs':inputs,'stations':stations,'lines':lines,'exports':exports,'failures':[],
+            'structure_envelope':envelope,'zeppelin_flight':flight,'kit_source':kit['source_hash']}
     if site_inputs(yori.OUT)!=inputs:
         raise ValueError('Gondola site source or world inputs changed during fitting')
     (folder/'site.json').write_text(json.dumps(result,separators=(',',':'))+'\n')

@@ -1521,12 +1521,31 @@ def gondola_steps(ctx):
     site_spec = importlib.util.spec_from_file_location('gondola_site_validation', site_code)
     validation = importlib.util.module_from_spec(site_spec)
     site_spec.loader.exec_module(validation)
+    structure_code = WORLD / 'gondola/structures.py'
+    structure_spec = importlib.util.spec_from_file_location('gondola_structure_inputs', structure_code)
+    structures = importlib.util.module_from_spec(structure_spec)
+    structure_spec.loader.exec_module(structures)
+    structure_digest = ctx.out / 'digests/world.gondola.structures.json'
+    result += [Step('world.gondola_structure_inputs',
+                    [Call('ropeway final structure inputs', lambda ctx, log:
+                          export_digest.record(structure_digest, structures.inputs(ctx.out), log))],
+                    inputs=[*(paths.REPO / name for name in structures.CODE),
+                            ctx.out / 'belmonte/runtime.json', ctx.out / 'belmonte/build-report.json'],
+                    needs=['world.belmonte'],
+                    deferred_inputs=[DeferredInputs('gondola-structures', structures.paths, (ctx.out,), support=(structure_code,))],
+                    outputs=[structure_digest], cutoff=True,
+                    about='collision-enabled Belmonte structures intersecting the ropeway footprint'),
+               Step('world.gondola_structures', [Python(WORLD / 'gondola/structure_probe.py')],
+                    inputs=[*(paths.REPO / name for name in structures.CODE), YORI],
+                    needs=['world.gondola_structure_inputs'],
+                    outputs=[folder / 'world/structures.npz', folder / 'world/structures.json'],
+                    about='final instanced visual and actual complex collision geometry for ropeway clearance')]
     names = validation.network_layout().mesh_names()
     result.append(Step('world.gondola_site',
                        [Blender(REGIONS / 'gondola/site.py',threads=3,factory_startup=True)],
                        inputs=[*validation.SITE_CODE, *[kit/name for name in parameters.BUILD_SOURCES],
                                WORLD / 'solid_mesh.py', query, *craterpark_v4.input_paths(), YORI],
-                       needs=['world.gondola_kit','world.gondola_ground','world.craterpark_geometry'],
+                       needs=['world.gondola_kit','world.gondola_ground','world.gondola_structures','world.craterpark_geometry','world.zeppelin'],
                        outputs=[folder/'world/site.json',*(folder/'world/assets'/f'{name}.fbx' for name in names)],
                        heavy=True,about='final station supports/access, exact rope paths and actual fitted-span contact gates'))
     service=WORLD/'gondola/service.py'

@@ -41,7 +41,11 @@ def test_fitted_world_declares_its_complete_code_and_mesh_closure(tmp_path):
     rows={s.name:s for s in recipe.gondola_steps(SimpleNamespace(out=tmp_path))}
     site=rows['world.gondola_site']
     validate_imports(site,site.inputs)
-    assert set(site.needs)=={'world.gondola_kit','world.gondola_ground','world.craterpark_geometry'}
+    structures=rows['world.gondola_structures']
+    validate_imports(structures,structures.inputs)
+    assert structures.needs==['world.gondola_structure_inputs']
+    assert rows['world.gondola_structure_inputs'].cutoff
+    assert set(site.needs)=={'world.gondola_kit','world.gondola_ground','world.gondola_structures','world.craterpark_geometry','world.zeppelin'}
     assert len(site.outputs)==32
     assert all(c.threads==3 and c.factory_startup for c in site.commands)
 

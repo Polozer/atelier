@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
 import export_digest
 
-GROUND_BOUNDS = (390., 3550., 535., 4670.)
+GROUND_BOUNDS = (360., 3550., 535., 4670.)
 REPO = Path(__file__).resolve().parents[4]
 MANIFEST = Path(__file__).resolve().parents[2] / 'assets/belmonte/source.json'
 CODE = {name: REPO / name for name in (
