@@ -60,6 +60,12 @@ void ReadKartGrip(AWandererCharacter* Pawn, UDrivingComponent* Car)
     {
         UE_LOG(LogTemp, Error, TEXT("Kart grip is invalid or stale for %s"), *Character->Id); return;
     }
+    const double LiveScale = Car->GetKartScale();
+    const double RelativeScaleGap = FMath::Abs(LiveScale / ExpectedScale - 1.);
+    UE_LOG(LogTemp, Log, TEXT("Kart grip %s scale: live %.6f prepared %.6f gap %.3f%% mesh %s"),
+        *Character->Id, LiveScale, ExpectedScale, RelativeScaleGap * 100., *Mesh->GetPathName());
+    if (RelativeScaleGap > .01)
+        UE_LOG(LogTemp, Warning, TEXT("Kart grip %s live scale differs from the authored fit by more than 1%%; inspect reach at playtest"), *Character->Id);
     const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
     auto Reference = [&Ref](int Index)
     {

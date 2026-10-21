@@ -171,7 +171,7 @@ def handler(models=MODELS, saves=SAVES):
                         (archive / f'{time.time_ns()}.json').write_bytes(prior)
                     raw = (json.dumps(pose, indent=2, allow_nan=False) + '\n').encode()
                     path.parent.mkdir(parents=True, exist_ok=True)
-                    temporary = path.with_suffix('.tmp')
+                    temporary = path.with_name('.' + path.name + '.tmp')
                     temporary.write_bytes(raw); temporary.replace(path)
                 self.json({'ok': True, 'revision': hashlib.sha256(raw).hexdigest()})
             except (ValueError, TypeError, KeyError, AttributeError) as error:

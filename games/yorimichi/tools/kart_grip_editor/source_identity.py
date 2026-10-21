@@ -101,7 +101,7 @@ def register(models, characters=CHARACTERS):
             pose['model_sha256'] = checksum
             path.write_text(json.dumps(pose, indent=2) + '\n')
         target = model_path(name, characters)
-        temporary = target.with_suffix('.tmp')
+        temporary = target.with_name('.' + target.name + '.tmp')
         temporary.write_text(json.dumps({'schema': 1, 'character': name, **receipt[name]}, indent=2)+'\n')
         temporary.replace(target)
     return receipt

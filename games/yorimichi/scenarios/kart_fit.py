@@ -35,6 +35,7 @@ def scale_of(state):
     match = re.search(r'scale=([0-9.]+)', state)
     return float(match.group(1)) if match else None
 
+# This scenario intentionally captures the four operator-approved riders as a fixed QA set.
 RIDERS = ['Cairo', 'Modori', 'Nox', 'Paul']
 # (name, forward, right, up, aim forward, aim up, fov)
 VIEWS = [
