@@ -87,6 +87,18 @@ bool FBelmonteTrainRulesTest::RunTest(const FString&)
     TestFalse(TEXT("Seated or on the steps, no vehicle"), MayTakeOutVehicle(false, true));
     TestFalse(TEXT("Seated aboard, no vehicle"), MayTakeOutVehicle(true, true));
     TestTrue(TEXT("The refusal reads in English"), FString(Refusal()) == TEXT("Not aboard the train"));
+    // Ticket or not: anyone in or on a vehicle is on the train for the vehicle rule; a swept bystander is not.
+    const FBox Coach(FVector(-1200., -195., 20.), FVector(1200., 195., 433.));
+    TestTrue(TEXT("Walked into a coach at the platform"), InEnvelope(Coach, FVector(300., 0., 125.)));
+    TestTrue(TEXT("Standing on the roof"), InEnvelope(Coach, FVector(0., 50., 440.)));
+    TestFalse(TEXT("On the platform beside the coach"), InEnvelope(Coach, FVector(0., 230., 110.)));
+    TestFalse(TEXT("On a bridge above the line"), InEnvelope(Coach, FVector(0., 0., 900.)));
+    TestFalse(TEXT("On the track past the coach's end"), InEnvelope(Coach, FVector(1300., 0., 20.)));
+    TestTrue(TEXT("Standing on a vehicle's floor (gangway, step, tender)"), OnTrainVehicle(true, false, true, false));
+    TestTrue(TEXT("In a standing train"), OnTrainVehicle(false, true, false, false));
+    TestTrue(TEXT("Riding with a running train"), OnTrainVehicle(false, true, true, true));
+    TestFalse(TEXT("A bystander the running train sweeps through"), OnTrainVehicle(false, true, true, false));
+    TestFalse(TEXT("Off the train"), OnTrainVehicle(false, false, false, false));
     // Riding inside a running coach without the boarding walk: put back outside; passengers and door steps stay.
     TestTrue(TEXT("Riding inside without boarding is ejected"), MustEject(true, false, false, false, true, true));
     TestFalse(TEXT("A boarded passenger stays"), MustEject(true, true, false, false, true, true));
