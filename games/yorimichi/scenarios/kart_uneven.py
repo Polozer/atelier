@@ -23,8 +23,8 @@ _spec.loader.exec_module(CLEAN)
 REPORT = os.path.join(OUT, 'kart_uneven.json')
 json.dump({'ok': False, 'status': 'running', 'errors': []}, open(REPORT, 'w'), indent=1)
 
-START = globals().get('START', unreal.Vector(-23600.0, 16000.0, 0.0))
-YAW = globals().get('YAW', 0.0)
+START = globals().get('KART_UNEVEN_START', unreal.Vector(-23600.0, 16000.0, 0.0))
+YAW = globals().get('KART_UNEVEN_YAW', 0.0)
 RUN = 6.0   # seconds of throttle from the standing start
 NUMBER = re.compile(r'(y|vy|pitch|roll)=(-?[0-9.]+)')
 
