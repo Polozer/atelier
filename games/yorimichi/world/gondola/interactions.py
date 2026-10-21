@@ -154,6 +154,64 @@ def walking_headroom(query,floors):
                     raise ValueError(f'Walking headroom intersects final {key} triangle {index}')
 
 
+def access_headroom(access,meshes,layout):
+    """@cc [owner:fontanierh,label:correctness] cross-mesh-access-headroom
+    The complete minimum-width access corridor MUST clear the station's actual
+    visual/collision shells, foundation and its own rails, bearing pads, posts
+    and feet. Only audited walking slabs and risers MAY supply the floor rather
+    than obstacles. Every turn/end cap MUST include the full capsule footprint.
+    """
+    from types import SimpleNamespace
+    from gondola.support import floor_caps,intersection,area
+    identity=(np.zeros(2),np.array([1.,0.]),np.array([0.,1.]),0.)
+    obstacles=[]
+    for mesh in meshes:
+        faces=[]
+        for first,last,tag,*_ in mesh.parts:
+            if tag not in {'access_floor','access_riser','access_landing'}:
+                faces.extend(mesh.faces[first:last])
+        obstacles.append(SimpleNamespace(verts=mesh.verts,faces=faces))
+    visual=world_triangles(obstacles,identity)
+    collision=[]
+    for proxy in layout['obstacles']:
+        polygon=np.asarray(proxy['poly']);low=np.asarray(proxy['z0']);high=np.asarray(proxy['z1'])
+        collision.extend(floor_caps({'poly':polygon,'z1':low}))
+        collision.extend(floor_caps({'poly':polygon,'z1':high}))
+        for i,j in zip(range(len(polygon)),np.roll(np.arange(len(polygon)),-1)):
+            q=np.array([[*polygon[i],low[i]],[*polygon[j],low[j]],
+                        [*polygon[j],high[j]],[*polygon[i],high[i]]])
+            collision.extend((q[[0,1,2]],q[[0,2,3]]))
+    collision=np.asarray(collision,float).reshape(-1,3,3)
+    path=np.asarray(access['route'],float)[:,:2]
+    masks=[];half=.45
+    for a,b in zip(path,path[1:]):
+        axis=b-a;length=np.linalg.norm(axis)
+        if length<1e-10:continue
+        axis/=length;normal=np.array([-axis[1],axis[0]])
+        masks.append(np.array([a-half*axis-half*normal,b+half*axis-half*normal,
+                               b+half*axis+half*normal,a-half*axis+half*normal]))
+    floors=[]
+    for surface in access['surfaces']:
+        for triangle in floor_caps(surface):
+            for mask in masks:
+                if not (np.all(triangle[:,:2].max(0)>=mask.min(0)) and
+                        np.all(triangle[:,:2].min(0)<=mask.max(0))):continue
+                polygon=intersection(triangle,mask)
+                if area(polygon)<=1e-9:continue
+                for i in range(1,len(polygon)-1):
+                    triangle=np.asarray([polygon[0],polygon[i],polygon[i+1]])
+                    if area(triangle)>1e-9:floors.append(triangle)
+    if not floors or not len(visual) or not len(collision):
+        raise ValueError('Missing complete access cross-mesh headroom geometry')
+    floors=np.asarray(floors,float)
+    low=floors[:,:,:2].min((0,1))-1.;high=floors[:,:,:2].max((0,1))+1.
+    query=StructureClearance({'visual':visual,'collision':collision},[*low,*high])
+    walking_headroom(query,floors)
+    return {'pass':True,'width_m':2*half,'height_m':1.7,'floor_allowance_m':.05,
+            'floor_triangles':len(floors),'visual_triangles':len(visual),'collision_triangles':len(collision),
+            'complete_turn_caps':True}
+
+
 def flight_clearance(metadata,manifest,boxes,profile,envelope):
     """A rotating hull column during climb, then complete high cruise legs."""
     ship=np.asarray(metadata['stations'][3]['ship'],float)
