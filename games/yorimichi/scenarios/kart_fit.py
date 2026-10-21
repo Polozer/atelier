@@ -25,7 +25,6 @@ VIEWS = [
     ('left', 0.0, -520.0, 130.0, 0.0, 60.0, 50.0),
     ('right', 0.0, 520.0, 130.0, 0.0, 60.0, 50.0),
     ('seat', 250.0, 0.0, 300.0, 0.0, 30.0, 55.0),
-    ('grips', 190.0, -70.0, 108.0, 55.0, 98.0, 35.0),
 ]
 BEACH = unreal.Vector(-23600.0, 16000.0, 0.0)
 
@@ -46,6 +45,29 @@ def glider_visible():
         if component.get_name() == 'Paraglider':
             return bool(component.is_visible())
     return None
+
+
+def hand_shot(side, rider, state):
+    """A close-up of one hand on the rim, aimed from the hand bone itself rather than the pawn origin."""
+    world = unreal.LiveLibrary.game_world()
+    pawn = unreal.GameplayStatics.get_player_pawn(world, 0)
+    mesh = None
+    for component in pawn.get_components_by_class(unreal.SkeletalMeshComponent):
+        if component.get_name() in ('CharacterMesh0', 'Mesh'):
+            mesh = component
+            break
+    if not mesh:
+        return
+    bone = 'hand_L' if side == 'left' else 'hand_R'
+    hand = mesh.get_socket_transform(bone, unreal.RelativeTransformSpace.RTS_WORLD).translation
+    _, yaw = live.player()
+    r = math.radians(yaw)
+    forward = unreal.Vector(math.cos(r), math.sin(r), 0.0)
+    right = unreal.Vector(-math.sin(r), math.cos(r), 0.0)
+    lateral = -45.0 if side == 'left' else 45.0
+    eye = hand + forward * 55.0 + right * lateral + unreal.Vector(0, 0, 18)
+    MV.review_camera(eye, hand, 30.0)
+    L.screenshot(os.path.join(OUT, '%s_grip_%s_%s.png' % (rider.lower(), side, state)))
 
 
 queue = []
@@ -115,7 +137,11 @@ def build():
                 MV.review_camera(eye, at, fov)
                 L.screenshot(os.path.join(OUT, '%s_%s.png' % (rider.lower(), view)))
             later(0.3, shot)
-        later(1.8, lambda: L.input_key('D', 'release', 0.0))
+        later(0.3, lambda rider=rider: hand_shot('left', rider, 'steer'))
+        later(0.3, lambda rider=rider: hand_shot('right', rider, 'steer'))
+        later(0.2, lambda: L.input_key('D', 'release', 0.0))
+        later(0.5, lambda rider=rider: hand_shot('left', rider, 'neutral'))
+        later(0.3, lambda rider=rider: hand_shot('right', rider, 'neutral'))
         later(0.2, restore)
         later(0.2, record)
         later(0.2, park)
