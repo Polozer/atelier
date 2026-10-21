@@ -198,8 +198,8 @@ def access_stair(key,layout,G,frame):
         landing_surfaces.append({'poly':[list(p) for p in polygon],'top':top})
         with mesh.tagged('access_landing'):
             mesh.prism(polygon,top-.24,top,solid.TIMBER_DARK,top=solid.DECK)
-        for a,b in ((polygon[0],polygon[1]),(polygon[1],polygon[2])):
-            railing(mesh,rail_layout,[a,b],'timber',z0=top,on=('access_landing',))
+        for index,(a,b) in enumerate(((polygon[0],polygon[1]),(polygon[1],polygon[2]))):
+            railing(mesh,rail_layout,[a,b],'timber',z0=top,on=('access_landing',),start_post=index==0)
         start=old_start+old_direction*width/2+old_across*width/2
         direction=old_across;across=-old_direction
         preface.extend([[*(old_start+old_direction*width/2),top],[*start,top]])

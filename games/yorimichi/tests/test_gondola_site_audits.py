@@ -169,3 +169,36 @@ def test_actual_access_stringer_end_caps_clear_their_support_post_faces():
         initial=[(p,s) for p,s in posts if p[0]==0. and abs(p[1]-centre)<1e-8]
         assert initial
         assert all(head<p[0]-section/2-1e-8 for p,section in initial)
+
+
+def test_adjoining_landing_rails_reuse_one_corner_post_and_keep_both_rails():
+    from contextlib import nullcontext
+    source=SOURCE.parents[3]/'assets/vehicles/gondola/stations.py'
+    tree=ast.parse(source.read_text())
+    node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='railing')
+    posts=[];rails=[]
+    class V:
+        def __init__(self,values):self.values=np.asarray(values,float)
+        @property
+        def x(self):return self.values[0]
+        @property
+        def y(self):return self.values[1]
+        def __add__(self,other):return V(self.values+other.values)
+        def __sub__(self,other):return V(self.values-other.values)
+        def __mul__(self,n):return V(self.values*n)
+        def normalized(self):return V(self.values/np.linalg.norm(self.values))
+    def point_at(points,distance):
+        a,b=map(np.asarray,points);t=(b-a)/np.linalg.norm(b-a)
+        return a+distance*t,V(t)
+    mesh=SimpleNamespace(at=lambda *a:nullcontext(),grained=lambda *a:nullcontext(),
+                         box=lambda *a,**k:None,beam=lambda a,b,*args,**k:rails.append((a,b)))
+    station=SimpleNamespace(seat=lambda label,x,y,z,**k:posts.append((x,y)),proxies=[])
+    namespace={'math':__import__('math'),'path_len':lambda p:np.linalg.norm(np.asarray(p[1])-p[0]),
+               'point_at':point_at,'Vector':V,'TIMBER':1,'proxy_strip':lambda *a:None}
+    exec(compile(ast.Module(body=[node],type_ignores=[]),str(source),'exec'),namespace)
+    function=namespace['railing']
+    function(mesh,station,[(0,0),(2,0)],'timber')
+    first_rails=len(rails)
+    function(mesh,station,[(2,0),(2,2)],'timber',start_post=False)
+    assert posts.count((2.,0.))==1 and len(posts)==len(set(posts))
+    assert len(rails)==2*first_rails and first_rails>0
