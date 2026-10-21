@@ -9,6 +9,8 @@ import unreal
 
 os.makedirs(OUT, exist_ok=False)
 DATA = json.load(open(os.path.join(os.environ.get('ATELIER_BUILD_ROOT', os.path.join(live.ROOT, 'build')), 'yorimichi/ferry/service/service.json')))
+DECK = json.load(open(os.path.join(os.environ.get('ATELIER_BUILD_ROOT', os.path.join(live.ROOT, 'build')), 'yorimichi/ferry/deck_layout.json')))
+COMPANIONWAY_ONLY = globals().get('COMPANIONWAY_ONLY', False)
 F = unreal.FerryLive
 WORLD = live.L.game_world()
 PC = unreal.GameplayStatics.get_player_controller(WORLD, 0)
@@ -36,23 +38,61 @@ def walk(terminal, reverse, stage):
     mark(stage)
 
 
+def companionway_route(deck, start):
+    """Ship-local metres, from the boarding walk through both companionway joins."""
+    def height(surface, x):
+        xs, zs = surface['x'], surface['z']
+        for i in range(1, len(xs)):
+            if x <= xs[i]:
+                t = (x-xs[i-1])/(xs[i]-xs[i-1])
+                return zs[i-1]*(1-t)+zs[i]*t
+        raise ValueError('companionway waypoint outside deck')
+
+    stair = deck['stair']
+    y = sum(stair['y'])/2
+    foot = stair['foot_x']-stair['tread']
+    aft = foot-.8
+    side = -1 if start[1] < 0 else 1
+    corridor = side*4.5
+    route = [list(start), [start[0], corridor, height(deck['main_deck'], start[0])],
+             [aft, corridor, height(deck['main_deck'], aft)],
+             [aft, y, height(deck['main_deck'], aft)], [foot, y, stair['foot_z']]]
+    # Collision is the declared ramp under the visible treads. Sample it and cross the upper join.
+    count = math.ceil((stair['top_x']-foot)/.5)
+    route += [[foot+(stair['top_x']-foot)*i/count, y,
+               stair['foot_z']+(stair['top_z']-stair['foot_z'])*i/count] for i in range(1, count+1)]
+    top = stair['top_x']+.8
+    route.append([top, y, height(deck['boat_deck']['z'], top)])
+    return route
+
+
+def begin_companionway(st):
+    x, y, z = st['local']
+    S['route'] = companionway_route(DECK, [x/100, -y/100, (z-HALF)/100])
+    S['companionway_route'] = S['route']
+    S['index'] = 0
+    mark('companionway_up')
+
+
 def finish(error=None):
     live.drive(0, 0)
     live.stop('ferry_roundtrip')
     live.L.audio_log('stop', os.path.join(OUT, 'audio.json'))
     result = dict(passed=error is None, error=error, elapsed=S['elapsed'], wall_seconds=time.monotonic()-START,
-                  marks=S['marks'], rows=S['rows'], loops=S['loops'], state=state())
+                  marks=S['marks'], rows=S['rows'], loops=S['loops'], state=state(),
+                  companionway_route=S.get('companionway_route'), companionway_walked=S.get('companionway_walked', False))
     json.dump(result, open(os.path.join(OUT, 'completed.json'), 'w'), indent=1)
     print('FERRY QA', 'FAILED '+str(error) if error else 'PASSED', flush=True)
 
 
-def drive_route(dt):
+def drive_route(dt, ship_local=False):
     loc = PAWN.get_actor_location()
     feet = unreal.Vector(loc.x, loc.y, loc.z-HALF)
     while S['index'] < len(S['route']):
-        target = unreal.Vector(*S['route'][S['index']])
+        point = S['route'][S['index']]
+        target = F.ferry_point('ship:0:%s:%s:%s' % tuple(point)) if ship_local else unreal.Vector(*point)
         dx, dy, dz = target.x-feet.x, target.y-feet.y, target.z-feet.z
-        if math.hypot(dx, dy) > 42 or abs(dz) > 65:
+        if math.hypot(dx, dy) > (12 if ship_local else 42) or abs(dz) > (35 if ship_local else 65):
             break
         S['index'] += 1
         S['still'] = 0.
@@ -62,9 +102,10 @@ def drive_route(dt):
     yaw = math.degrees(math.atan2(dy, dx))
     PC.set_control_rotation(unreal.Rotator(roll=0., pitch=-9., yaw=yaw))
     live.drive(forward=min(1., max(.35, math.hypot(dx, dy)/120)), right=0., gait='walk')
+    position = tuple(state()['local']) if ship_local else (loc.x, loc.y, loc.z)
     prev = S['last']
-    S['still'] = S['still']+dt if prev and math.dist(prev, (loc.x, loc.y, loc.z)) < 1 else 0.
-    S['last'] = (loc.x, loc.y, loc.z)
+    S['still'] = S['still']+dt if prev and math.dist(prev, position) < 1 else 0.
+    S['last'] = position
     if S['still'] > 8 or S['stage_time'] > 120:
         raise RuntimeError('route stalled: '+S['stage']+' point '+str(S['index']))
     return False
@@ -95,7 +136,25 @@ def step(dt):
         if drive_route(dt):
             if not st['aboard']:
                 raise RuntimeError('Hidamari walk reached deck without boarding')
-            mark('westbound')
+            if COMPANIONWAY_ONLY:
+                begin_companionway(st)
+            else:
+                mark('westbound')
+    elif S['stage'].startswith('companionway_'):
+        if not st['aboard']:
+            raise RuntimeError('rider lost during companionway walk')
+        if drive_route(dt, ship_local=True):
+            if S['stage'] == 'companionway_up':
+                S['route'] = list(reversed(S['companionway_route']))
+                S['index'] = 0
+                mark('companionway_down')
+            else:
+                S['companionway_walked'] = True
+                if COMPANIONWAY_ONLY:
+                    mark('complete')
+                    finish()
+                else:
+                    mark('westbound')
     elif S['stage'].startswith('deck_'):
         if not st['aboard']:
             raise RuntimeError('rider lost during moving-deck walk')
@@ -108,7 +167,7 @@ def step(dt):
                 mark('deck_back')
             else:
                 S['deck_walked'] = True
-                mark('westbound')
+                begin_companionway(st)
     elif S['stage'] == 'westbound':
         live.drive(0, 0)
         S['sailed'] |= ship['speed'] > 100
