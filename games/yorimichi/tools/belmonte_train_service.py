@@ -30,7 +30,7 @@ from pathlib import Path
 GAME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GAME / 'world'))
 import yori  # noqa: E402
-from train import bake_manifest as BM, station_site  # noqa: E402
+from train import bake_manifest as BM, layout as L, station_site  # noqa: E402
 sys.path.insert(0, str(GAME / 'world' / 'regions'))
 from hidamari import station_yard  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -111,7 +111,9 @@ def viewpoints(samples, shortest=150.0):
 # ---------------------------------------------------------------- runs
 
 class Profile:
-    """A speed profile [chainage, seconds, km/h] as speed (m/s) against chainage, ending at a stop at `stop`."""
+    """A run as route.json gives it, rows [chainage, seconds, km/h] (every metre from route.py's run()), from a stand
+    to a stop at `stop`. The service plays the run's own times, so the game moves exactly as run() computed: its
+    soft start, its acceleration and braking, and any stop inside it (the waiting direction's loop stop)."""
 
     def __init__(self, rows, stop):
         rows = [(float(s), float(t), float(v) / 3.6) for s, t, v in rows]
@@ -120,41 +122,24 @@ class Profile:
         self.rows = rows
         self.start, self.stop = rows[0][0], rows[-1][0]
         self.sign = 1 if self.stop > self.start else -1
-        ordered = sorted((s, v) for s, _, v in rows)
-        self.s = [s for s, _ in ordered]
-        self.v = [v for _, v in ordered]
-        # The rates the profile starts and stops at: a stop in the loop uses the same.
-        first, last = rows[1], rows[-2]
-        self.accel = min(max(first[2] ** 2 / (2 * abs(first[0] - rows[0][0])), .2), 1.5)
-        self.brake = min(max(last[2] ** 2 / (2 * abs(rows[-1][0] - last[0])), .2), 1.5)
         self.seconds = rows[-1][1]
+        self.d = [abs(r[0] - self.start) for r in rows]
+        self.t = [r[1] for r in rows]
 
-    def speed(self, c):
-        i = bisect.bisect_right(self.s, c)
-        if i <= 0:
-            return self.v[0]
-        if i >= len(self.s):
-            return self.v[-1]
-        a, b = self.s[i - 1], self.s[i]
-        # v^2 is linear in distance under a constant rate: interpolating v itself made the last samples into a stop a
-        # slow exponential crawl, and warping the run to the timetable then sped up everything else.
-        f = (c - a) / (b - a)
-        return math.sqrt(max(self.v[i - 1] ** 2 + f * (self.v[i] ** 2 - self.v[i - 1] ** 2), 0.))
+    def time_at(self, c):
+        """Seconds from the start at chainage `c` (the first time it is there: a stand is one row)."""
+        d = abs(c - self.start)
+        i = min(max(bisect.bisect_left(self.d, d), 1), len(self.d) - 1)
+        f = (d - self.d[i - 1]) / max(self.d[i] - self.d[i - 1], 1e-9)
+        return self.t[i - 1] + min(max(f, 0.), 1.) * (self.t[i] - self.t[i - 1])
 
     def run(self, origin, target):
-        """(seconds, chainage) from a stop at `origin` to a stop at `target`, along the profile's direction."""
-        length = abs(target - origin)
-        steps = max(2, int(math.ceil(length)))
+        """(seconds, chainage) from `origin` to `target` along the profile, timed from origin."""
+        t0, t1 = self.time_at(origin), self.time_at(target)
+        lo, hi = sorted((abs(origin - self.start), abs(target - self.start)))
         out = [(0.0, origin)]
-        t, previous = 0.0, 0.0
-        for k in range(1, steps + 1):
-            d = length * k / steps
-            c = origin + self.sign * d
-            v = min(self.speed(c), math.sqrt(2 * self.accel * d), math.sqrt(2 * self.brake * (length - d)))
-            ds = length / steps
-            t += 2 * ds / max(previous + v, 1e-3)
-            previous = v
-            out.append((t, c))
+        out += [(t - t0, self.start + self.sign * d) for d, t in zip(self.d, self.t) if lo < d < hi and t0 < t < t1]
+        out.append((t1 - t0, target))
         return out
 
 
@@ -200,6 +185,10 @@ def timeline(legs, cycle, profiles, stop, waiting, loop):
     for leg in legs:
         profile = profiles[leg['direction']]
         if 'loop_arrive' in leg:
+            # the waiting direction: route.py's run with its stop in the loop, waiting there for the crossing
+            profile = profiles.get(leg['direction'] + '-stopping')
+            if profile is None:
+                raise ValueError(f"route.json has no stopping run for the {leg['direction']} trains that wait in the loop")
             first = warp(profile.run(profile.start, stop), leg['loop_arrive'] - leg['depart'])
             second = warp(profile.run(stop, profile.stop), leg['arrive'] - leg['loop_leave'])
             moves.append((leg['depart'], first))
@@ -239,6 +228,7 @@ def centred(rows, shift):
 def service(route):
     up_rows, down_rows = route['speed_profile'], route['speed_profile_down']
     summary = route['summary'].get('service') or {}
+    h = 0.
     if summary.get('profile_reference') == 'head':
         # The route gives the leading end's chainage (the head stops at the end of the line); the game places the
         # consist by its centre, half a train behind the head in each direction.
@@ -247,10 +237,19 @@ def service(route):
     up = Profile(up_rows, down_rows[0][0])
     down = Profile(down_rows, up_rows[0][0])
     cycle, trains, stop, waiting = legs_from_schedule(route, up, down)
+    profiles = {'up': up, 'down': down}
+    stopping = route.get('speed_profile_stopping')
+    if stopping:
+        # the stop is where route.py's waiting train halts (by its head), not the loop's centre
+        shift = h if summary.get('profile_reference') == 'head' else 0.
+        sign = 1 if stopping['direction'] == 'up' else -1
+        rows = centred(stopping['rows'], -sign * shift) if shift else stopping['rows']
+        profiles[stopping['direction'] + '-stopping'] = Profile(rows, rows[-1][0])
+        stop = float(stopping['halt']) - sign * shift
     loop = line(route)['loop']
     out = []
     for name, legs in trains:
-        start, s, loop_track = timeline(legs, cycle, {'up': up, 'down': down}, stop, waiting, loop)
+        start, s, loop_track = timeline(legs, cycle, profiles, stop, waiting, loop)
         out.append({'name': name, 't0': round(start, 3), 'dt': DT, 's': s, 'loop_track': loop_track,
                     'legs': [{k: round(v, 3) if isinstance(v, float) else v for k, v in leg.items()} for leg in legs]})
     first = min(leg['depart'] for leg in trains[0][1])
@@ -365,6 +364,29 @@ def boarding(v, p):
     return out
 
 
+def sound(v, p):
+    """Where a vehicle's sounds come from (ABelmonteTrainService::LoadSounds), from its authored geometry, Unreal cm in the
+    vehicle's frame: its wheels (a coach's two bogies; the engine's leading bogie, coupled wheels and trailing axle; the
+    tender's axles) on the rail at their axle height, and on the locomotive its chimney (the smoke emitter mount: idle,
+    departure, beats, whistle) and its two cylinders (the steam blasts)."""
+    body = p.get('body') or {}
+    kind = body.get('kind') or v['id']
+    if kind == 'locomotive':
+        wheels = [(sum(L.LEADING) / len(L.LEADING), L.LEADING_R), (sum(L.DRIVERS) / len(L.DRIVERS), L.DRIVER_R),
+                  *((x, L.TRAILING_R) for x in L.TRAILING)]
+    elif kind == 'tender':
+        wheels = [(x, L.TENDER_WHEEL_R) for x in L.TENDER_AXLES]
+    else:
+        wheels = [(x, L.WHEEL_R) for x in (body.get('bogies') or ())]
+    out = {'wheels': [to_ue(x, 0., r) for x, r in wheels]}
+    if kind == 'locomotive':
+        chimney = next(m for m in vehicle_field(v, p, 'mounts') if m['id'] == 'chimney-smoke')
+        x0, x1, _, z, y = L.CYLINDER
+        out['chimney'] = to_ue(chimney['x'], chimney['y'], chimney['z'])
+        out['cylinders'] = [to_ue((x0 + x1) / 2, side * y, z) for side in (1, -1)]
+    return out
+
+
 def consist(assembly, placements, records=None):
     records = records or {}
     vehicles = assembly['vehicles']
@@ -405,6 +427,7 @@ def consist(assembly, placements, records=None):
             'exteriors': [{'name': i['name'], 'box': box_ue(i['box']), 'no_climb': 'no_climb' in i.get('tags', [])}
                           for i in vehicle_field(v, p, 'exterior_volumes')],
             'boarding': boarding(v, p),
+            'sound': sound(v, p),
         })
     return {'length': round(front - back, 3), 'head': 'up', 'vehicles': out}, dict(sorted(assets.items()))
 

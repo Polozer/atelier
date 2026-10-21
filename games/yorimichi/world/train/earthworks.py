@@ -46,6 +46,7 @@ FACE_NOISE = (1.6, 22., .5, 7.)   # lateral wander of the faces: metres at a 22 
 BACK_RATIO = .35            # the face over a portal
 HOOD = 8.6                  # ground over the rail at a portal (the face wall stands 9 m) and over every tunnel
 HOOD_HALF = 7.              # ... within this half width, falling 1:1 beyond
+HIDDEN_CLEARANCE = .5       # ground lying under another terrain keeps this far under the hood and the cuttings (hidden_ground)
 HOLE = (6.4, -1.2, 2.2)     # the hole at a portal: half width, from (outside, metres along) to (inside)
 END_RATIO = 1.5             # cones where a fill or cut ends at a viaduct or the line's end
 REACH = 120.                # nothing is carved further than this from the centre line
@@ -392,6 +393,28 @@ def seam_weight(x, y, box, fade=SEAM_FADE):
     return _smooth(np.hypot(dx, dy) / fade)
 
 
+def hidden_ground(x, y, z, ln=None):
+    """Ground lying under another terrain (refine's `hidden`) is not carved, but it must never show through the
+    shown ground's earthworks: over every tunnel it is lifted to HIDDEN_CLEARANCE under the hood the shown ground keeps
+    there (HOOD over the rail within HOOD_HALF, falling 1:1 beyond), so it stays clear of the lining; along the open line
+    and round the portals' faces it is lowered to HIDDEN_CLEARANCE under the cutting's upper bound (the hood over a
+    tunnel), so a hidden hillside never stands over the formation or the faces where the shown ground is cut down (the
+    far hills under the foothills, before, after and over the portals). It is never raised outside the tunnels (a fill
+    only raises the shown ground), and beyond the earthworks' reach it is unchanged."""
+    ln = ln or line()
+    x, y, z = (np.asarray(v, float).ravel() for v in (x, y, z))
+    if ln is None or not len(x):
+        return z.copy()
+    upper, _, info = design(x, y, ln)
+    hood = info['hood'].ravel()
+    lift = hood - HIDDEN_CLEARANCE
+    # The shown ground never stands over max(upper, hood) (carve): neither may the hidden one, minus the clearance.
+    # Over a tunnel that is the face standing back over the portal, so no hidden hillside shows round the portal.
+    cap = np.fmax(upper.ravel(), np.where(np.isfinite(hood), hood, np.nan)) - HIDDEN_CLEARANCE
+    z = np.where(np.isfinite(lift), np.maximum(z, lift), z)
+    return np.where(np.isfinite(cap), np.minimum(z, cap), z)
+
+
 def touched(points, ln=None, margin=.02):
     """True for the points the earthworks move (or nearly: within 12 m of the open line)."""
     ln = ln or line()
@@ -406,7 +429,8 @@ def touched(points, ln=None, margin=.02):
 def refine(vertices, faces, step, attributes=None, ln=None, holes=True, hidden=None, weight=None, *, conform_neighbors=False):
     """Subdivide the triangles the earthworks touch to about `step` metres, carve every vertex and leave the portal
     holes open. vertices (N, 3) in route metres; faces (M, 3); attributes {name: (N, k)} are interpolated (normals
-    are recomputed where carved). `hidden(x, y)`: where this terrain lies under another one (left as it is);
+    are recomputed where carved). `hidden(x, y)`: where this terrain lies under another one (not carved, but kept out
+    of the tunnels' bores and under the cuttings: hidden_ground);
     `weight(x, y)`: 0..1, how much of the carving applies (seam_weight).
     With conform_neighbors, retained adjacent faces share selected edge nodes before carving.
     Returns (vertices, faces, attributes, report)."""
@@ -419,6 +443,8 @@ def refine(vertices, faces, step, attributes=None, ln=None, holes=True, hidden=N
         c = carve(p[on, 0], p[on, 1], p[on, 2], ln)
         w = 1. if weight is None else weight(p[on, 0], p[on, 1])
         z[on] = p[on, 2] + w * (c - p[on, 2])
+        if not on.all():
+            z[~on] = hidden_ground(p[~on, 0], p[~on, 1], p[~on, 2], ln)
         return z
     v = np.asarray(vertices, float).reshape(-1, 3)
     f = np.asarray(faces, np.int64).reshape(-1, 3)
@@ -436,7 +462,12 @@ def refine(vertices, faces, step, attributes=None, ln=None, holes=True, hidden=N
     hit = np.zeros(len(f), bool)
     if len(near_idx):
         q = probes[near_idx].reshape(-1, 3)
-        hit[near_idx] = (touched(q, ln) & shown(q[:, 0], q[:, 1])).reshape(-1, 7).any(1)
+        on = shown(q[:, 0], q[:, 1])
+        # Hidden ground is refined where hidden_ground moves it, so it follows the bore and the cuttings closely.
+        lift = np.zeros(len(q), bool)
+        if not on.all():
+            lift[~on] = np.abs(hidden_ground(q[~on, 0], q[~on, 1], q[~on, 2], ln) - q[~on, 2]) > .02
+        hit[near_idx] = ((touched(q, ln) & on) | lift).reshape(-1, 7).any(1)
     # Wide triangles may hide the line between their probes: take those whose span reaches the centre line too.
     if len(near_idx):
         _, u, _ = ln.project(centre[near_idx, 0], centre[near_idx, 1])
@@ -490,7 +521,9 @@ def refine(vertices, faces, step, attributes=None, ln=None, holes=True, hidden=N
     new_f = ids[:, tmpl].reshape(-1, 3)
     if holes:
         c = allv[new_f].mean(1)
-        open_ = in_hole(c[:, 0], c[:, 1], c[:, 2], ln) & shown(c[:, 0], c[:, 1])
+        # Across a tunnel's mouth every terrain opens, the hidden one too: the portal closes the hole, and ground left
+        # under another terrain there would show through the lining's mouth.
+        open_ = in_hole(c[:, 0], c[:, 1], c[:, 2], ln)
         report['hole_triangles'] = int(open_.sum())
         new_f = new_f[~open_]
     faces_out = np.concatenate([retained, new_f])

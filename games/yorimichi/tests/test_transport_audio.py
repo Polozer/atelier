@@ -1,7 +1,8 @@
 """The transport sound bank (assets/audio/transport) against its runtime, its seams, its levels and its sources.
 
 Runs from the source tree with numpy only: no Unreal. The loops and the pure-synthesis one-shots are built into a
-temporary folder; the cues layered on Sonniss masters are built too when the masters are fetched on this machine.
+temporary folder; the cues layered on Sonniss masters, and the train's cues cut from its recordings, are built too
+when those are fetched on this machine. tests/test_transport_train_audio.py covers the train's cuts.
 """
 import ast
 import importlib.util
@@ -22,6 +23,8 @@ spec.loader.exec_module(make)
 
 MASTERS = {name for spec_ in make.CUES.values() for name in spec_['sonniss']}
 FETCHED = all((make.SONNISS / name).is_file() for name in MASTERS)
+RECORDINGS = {name for spec_ in make.CUES.values() for name in spec_.get('recordings', ())}
+RECORDED = all((make.RECORDINGS / name).is_file() for name in RECORDINGS)
 # The bike's and the skateboard's built banks, measured on 2026-10-20 (peak dBFS; loudest 400 ms RMS dBFS):
 # loops peak -9.1..-4.4, loudest -30.7..-16.3; one-shots peak -9.1..-1.4, loudest -33.5..-11.1.
 LOOP_PEAK, LOOP_LOUDEST = (-9.5, -4.0), (-31., -16.)
@@ -31,7 +34,7 @@ SHOT_PEAK, SHOT_LOUDEST = (-9.5, -1.0), (-34., -11.)
 @pytest.fixture(scope='module')
 def built(tmp_path_factory):
     out = tmp_path_factory.mktemp('audio') / 'transport'
-    manifest = make.build(out, make.SONNISS if FETCHED else None)
+    manifest = make.build(out, make.SONNISS if FETCHED else None, make.RECORDINGS if RECORDED else None)
     return out, manifest
 
 
@@ -50,8 +53,12 @@ def runtime_cues():
 
 def test_bank_has_exactly_the_cues_the_runtime_plays():
     loops, shots = runtime_cues()
-    assert loops == set(make.LOOPS)
-    assert shots == {cue for cue, spec_ in make.CUES.items() if not spec_['loop']}
+    assert loops == set(make.LOOPS) - set(make.TRAIN)
+    assert shots == {cue for cue, spec_ in make.CUES.items() if not spec_['loop'] and cue not in make.TRAIN}
+    # The train's cues are the ones its service plays, from the same folder.
+    train = (SOURCE / 'BelmonteTrainSound.cpp').read_text()
+    assert set(re.findall(r'TEXT\("(train_\w+)"\)', train)) == set(make.TRAIN)
+    assert 'LoadTransportWave(' in train and 'Audio/Train' not in train
     # The importer loads the manifest's loops into the folder the components load from.
     importer = (GAME / 'unreal/Scripts/import_transport_audio.py').read_text()
     assert "DEST = '/Game/Audio/Transport'" in importer and "['loops']" in importer
@@ -64,7 +71,7 @@ def test_build_runs_the_bank_and_imports_it():
     assert "UnrealScript(SCRIPTS / 'import_transport_audio.py', 'TRANSPORT AUDIO IMPORT COMPLETE')" in build
     assert "'audio.bike', 'audio.transport'], heavy=True" in build
     bank = tomllib.loads((BANK / 'bank.toml').read_text())
-    assert bank == {'id': 'transport', 'needs': ['combat'], 'build': 'make.py',
+    assert bank == {'id': 'transport', 'fetch': 'fetch.py', 'needs': ['combat'], 'build': 'make.py',
                     'licence': 'Sonniss GDC bundles and own synthesis: may ship inside the game; no AI use'}
 
 
@@ -82,9 +89,9 @@ def test_zeppelin_engine_pitch_follows_the_service_rpm():
 
 def test_loops_are_seamless(built):
     out, manifest = built
-    for cue in make.LOOPS:
+    for cue in manifest['loops']:
         x = samples(out / cue / f'{cue}_01.wav')
-        assert len(x) % 480 == 0, cue                                  # a whole number of 10 ms
+        assert cue in make.TRAIN or len(x) % 480 == 0, cue             # a whole number of 10 ms (synthesis)
         # The step across the seam is an ordinary step of the signal, not a click ...
         steps = np.abs(np.diff(x))
         assert abs(x[0] - x[-1]) <= np.quantile(steps, .999), cue
@@ -103,6 +110,14 @@ def test_loops_are_seamless(built):
 def test_levels_sit_inside_the_existing_banks(built):
     out, manifest = built
     for cue, files in manifest['cues'].items():
+        if cue in make.TRAIN:
+            # The train keeps the loudness TRAIN_SPEC sets (its own gains are balanced on it), never above -1 dBFS.
+            for entry in files:
+                x = samples(out.parent.parent / entry['file'])
+                assert make.levels(x)['peak_dbfs'] <= -.99, entry['file']
+                if not make.CUES[cue]['loop']:
+                    assert abs(x[0]) < 1e-3 and abs(x[-1]) < 1e-3, entry['file']
+            continue
         peak_range, loudest_range = (LOOP_PEAK, LOOP_LOUDEST) if make.CUES[cue]['loop'] else (SHOT_PEAK, SHOT_LOUDEST)
         assert len(files) == make.CUES[cue]['variants'], cue
         for entry in files:
@@ -117,16 +132,26 @@ def test_levels_sit_inside_the_existing_banks(built):
 
 def test_one_shots_are_built_or_need_only_fetched_masters(built):
     _, manifest = built
-    expected = set(make.CUES) if FETCHED else {cue for cue, spec_ in make.CUES.items() if not spec_['sonniss']}
-    assert set(manifest['cues']) == expected
-    if not FETCHED:
-        pytest.skip('Sonniss combat masters are not fetched here; their cues were left out')
+    expected = {cue for cue, spec_ in make.CUES.items() if cue not in make.TRAIN and (FETCHED or not spec_['sonniss'])}
+    assert set(manifest['cues']) == expected | (set(make.TRAIN) if RECORDED else set())
+    if not FETCHED or not RECORDED:
+        pytest.skip('Sonniss masters or the train recordings are not fetched here; their cues were left out')
 
 
 def test_every_source_is_sonniss_or_synthesis(built):
     _, manifest = built
     picks = make.combat_picks()
+    recordings = make.recording_picks()
     for cue, sources in manifest['sources'].items():
+        if cue in make.TRAIN:
+            # Cut from its recordings only: each named, md5-checked, from a Sonniss GDC bundle.
+            assert sources[-1] == {'kind': 'cut', 'script': 'assets/audio/transport/make.py'}, cue
+            assert [Path(source['file']).name for source in sources[:-1]] == list(make.CUES[cue]['recordings']), cue
+            for source in sources[:-1]:
+                assert (source['kind'], *recordings[Path(source['file']).name]) == (
+                    'sonniss', source['source_item'], source['source_path'], source['md5'])
+                assert source['source_item'].startswith('sonniss-gdc-'), source
+            continue
         assert sources[0] == {'kind': 'synthesis', 'script': 'assets/audio/transport/make.py'}, cue
         named = sources[1:]
         assert [source['kind'] for source in named] == ['sonniss'] * len(named), cue
@@ -143,14 +168,18 @@ def test_every_source_is_sonniss_or_synthesis(built):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings]
     names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)} | {
         node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
-    assert {value for value in literals if re.fullmatch(r'[\w-]+\.wav', value)} == MASTERS
-    assert MASTERS <= set(picks)
+    assert {value for value in literals if re.fullmatch(r'[\w-]+\.wav', value)} == MASTERS | RECORDINGS
+    assert MASTERS <= set(picks) and RECORDINGS == set(recordings)
+    assert {spec_['master'] for spec_ in make.TRAIN_SPEC.values()} == RECORDINGS and set(make.TRAIN_SPEC) == set(make.TRAIN)
     forbidden = re.compile(r'music|suno|stable_audio|ledger|openai|elevenlabs|urlopen|requests|cache_dir', re.I)
     assert not [value for value in [*literals, *names] if forbidden.search(value)]
 
 
 def test_build_declares_exactly_the_masters_make_reads():
-    """audio.transport depends on the combat masters the cues layer, named one by one, not the whole cache."""
+    """audio.transport depends on the combat masters the cues layer and the train's recordings, named one by one, not
+    the whole caches."""
     build = ast.parse((GAME / 'build.py').read_text())
-    declared = next(n.value for n in build.body if isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == 'TRANSPORT_MASTERS')
-    assert set(ast.literal_eval(declared)) == MASTERS
+    declared = lambda name: set(ast.literal_eval(next(n.value for n in build.body
+                                                      if isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == name)))
+    assert declared('TRANSPORT_MASTERS') == MASTERS
+    assert declared('TRANSPORT_RECORDINGS') == RECORDINGS

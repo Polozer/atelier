@@ -348,7 +348,7 @@ def sheds(lod):
         box(m, a0, 15., u0, u1, SPRING - .4, SPRING + .9, 'MI_B_stone')
     # The decorative siding: ballast, two rails, sleepers (LOD0) and a buffer stop at each end.
     s0, s1 = a0 + 2., -2.
-    box(m, s0 - 1., s1 + 1., S.SIDING - 1.7, S.SIDING + 1.7, base, -.2, 'MI_B_gravel')
+    box(m, s0 - 1., s1 + 1., S.SIDING - 1.7, S.SIDING + 1.7, base, -.2, 'MI_TK_Ballast')
     for side in (-1., 1.):
         u = S.SIDING + side * T.GAUGE / 2
         box(m, s0, s1, u - .035, u + .035, -.15, 0., 'MI_B_iron')

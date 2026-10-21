@@ -112,6 +112,68 @@ class Track(unittest.TestCase):
         rail = np.interp(via['piers'], self.line.s, self.line.rail).max()
         self.assertAlmostEqual(hi, rail - T.DECK_DEPTH + T.PARAPET[1], delta=.5)
 
+    def test_ballast_bed_is_textured_and_faces_the_train(self):
+        """The bed is crushed-stone ballast over its top and shoulders and a dusty cess at its foot, both textured
+        (never one flat colour), every face turned up and out so it shows from the train and the line side."""
+        mesh = self.meshes['SM_TK_Chunk_000'][0] if 'SM_TK_Chunk_000' in self.meshes else \
+            self.meshes[next(n for n in self.meshes if n.startswith('SM_TK_Chunk'))][0]
+        self.assertEqual(set(mesh.mats), {'MI_TK_Ballast', 'MI_TK_Cess', 'MI_B_iron'})
+        for lod in range(3):
+            section = T.ballast_profile(lod)
+            parts = T.ballast_parts(section)
+            self.assertEqual([m for _, m in parts], ['MI_TK_Cess', 'MI_TK_Ballast', 'MI_TK_Cess'])
+            # The parts share their edges and together are the whole section.
+            self.assertEqual(parts[0][0][-1], parts[1][0][0])
+            self.assertEqual(parts[1][0][-1], parts[2][0][0])
+            self.assertEqual(parts[0][0] + parts[1][0][1:-1] + parts[2][0], section)
+            for points, mat in parts:
+                for (u0, v0), (u1, v1) in zip(points[:-1], points[1:]):
+                    # The section runs right to left (u rising): faces point to its left, i.e. normal (-dv, du).
+                    nu, nv = -(v1 - v0), u1 - u0
+                    self.assertGreater(nv, 0., (lod, mat))                       # up
+                    self.assertGreaterEqual(nu * np.sign(u0 + u1), 0., (lod, mat))   # and out, never in
+        v = np.asarray(mesh.verts)
+        for f, mat in zip(mesh.faces, mesh.mats):
+            if mat in T.TEXTURED and len(f) == 4:     # the swept faces (the end cap stands across the line)
+                n = np.cross(v[f[1]] - v[f[0]], v[f[2]] - v[f[0]])
+                self.assertGreater(n[2], 0., mat)
+        # At both ends of the line the bed is closed by an end face looking along the line, out of the bed.
+        for s0, s1, at, out in ((0., 50., 0., -1.), (self.line.length - 50., self.line.length, self.line.length, 1.)):
+            m = T.chunk_mesh(self.line, s0, s1, 0, np.zeros(3))
+            w = np.asarray(m.verts)
+            caps = [f for f in m.faces if len(f) == len(T.ballast_profile(0))]
+            self.assertEqual(len(caps), 1, at)
+            p = w[list(caps[0])]
+            normal = sum(np.cross(p[i], p[(i + 1) % len(p)]) for i in range(len(p)))
+            self.assertGreater(float(np.dot(normal / np.linalg.norm(normal), self.line.frame(at)[1])) * out, .99)
+        from train import track_textures as TT
+        for mat, (name, tile) in T.TEXTURED.items():
+            self.assertIn(mat, T.MATERIALS)
+            self.assertGreater(tile, 0.)
+            px = TT.ALL[name](size=256)[..., :3]
+            self.assertGreater(float(px.mean(axis=2).std()), .05, name)          # detail, not a flat colour
+            # Seamless: the wrap-around step is no larger than the steps inside the image.
+            inner = np.abs(np.diff(px, axis=1)).mean()
+            self.assertLess(float(np.abs(px[:, 0] - px[:, -1]).mean()), 3 * inner, name)
+
+    def test_banks_end_in_the_ground(self):
+        """A bank built over ground the earthworks cannot carve (the Belmonte valley) never ends hanging in the air:
+        next to a viaduct it runs on under the deck as the end cone until its whole section is down in the ground."""
+        from train import route as R
+        ends = 0
+        for a, b in T.bank_ranges(self.line):
+            for va, vb in self.line.ranges('viaduct'):
+                for end, inward in ((a, 1.), (b, -1.)):
+                    if not va - 1. <= end <= vb + 1.:
+                        continue
+                    ends += 1
+                    mesh = T.bank_mesh(self.line, *sorted((end, end + inward)), 0, (0., 0., 0.))
+                    v = np.asarray(mesh.verts)
+                    row = v[:len(v) // 2] if inward > 0 else v[len(v) // 2:]
+                    ground = R.ground(row[:, 0], row[:, 1])
+                    self.assertLess(float((row[:, 2] - ground).max()), .05, (a, b, end))
+        self.assertGreater(ends, 0)
+
     def test_triangle_budgets(self):
         report = T.triangle_report(self.meshes)
         self.assertEqual([k for k, r in report.items() if not r['ok']], [])
