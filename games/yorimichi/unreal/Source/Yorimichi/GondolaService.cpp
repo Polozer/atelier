@@ -128,8 +128,8 @@ void AGondolaService::BeginPlay()
 {
     Super::BeginPlay();if(!bReady)Initialize(AtelierDataPath(TEXT("gondola/runtime.json")));
 }
-void AGondolaService::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out)const
-{Super::GetLifetimeReplicatedProps(Out);DOREPLIFETIME(AGondolaService,NetworkState);}
+void AGondolaService::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps)const
+{Super::GetLifetimeReplicatedProps(OutLifetimeProps);DOREPLIFETIME(AGondolaService,NetworkState);}
 
 UStaticMeshComponent* AGondolaService::MeshPart(const FString& Name,const FString& Path,bool Collision,bool Movable)
 {
