@@ -91,6 +91,8 @@ def test_world_selector_includes_native_references_without_reading_their_bytes(t
     expected['gondola.kit']='world.gondola_kit'
     expected.update({f'brinecove.{part}': 'world.brinecove.meshes'
                      for part in ('geometry', 'materials', 'runtime', 'map', 'clearance')})
+    expected.update({'brinecove.model.' + definition.stem: 'world.brinecove.model.' + definition.stem
+                     for definition in recipe.brinecove_library.definitions()})
     expected.update({f'belmonte.{part}': 'world.belmonte.meshes'
                      for part in ('geometry', 'materials', 'runtime')})
     expected.update({f'belmonte.native_{part}': 'unreal.belmonte'
