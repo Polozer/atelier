@@ -2,7 +2,7 @@
 
     atelier live py - < games/yorimichi/scenarios/kart_fit.py
 
-Switches the playable character in place, summons the kart on the beach flat and captures front, rear, both sides,
+Switches the playable character in place, summons the kart on the flat village road and captures front, rear, both sides,
 an elevated seat view and a grip close-up per rider. The review camera is restored and the kart parked afterward.
 Writes build/yorimichi/kart_film/kart_fit.json with each rider's mesh, car state, ride telemetry and glider state.
 """
@@ -42,7 +42,7 @@ VIEWS = [
     ('right', 0.0, 520.0, 130.0, 0.0, 60.0, 50.0),
     ('seat', 250.0, 0.0, 300.0, 0.0, 30.0, 55.0),
 ]
-BEACH = unreal.Vector(-23600.0, 16000.0, 0.0)
+BEACH = unreal.Vector(-25542.0, 10140.0, 0.0)   # the flat village road: the sand dunes refuse the larger karts
 REQUIRED_VIEWS = [view[0] for view in VIEWS] + ['grip_left_steer', 'grip_right_steer', 'grip_left_steer_other',
                                                 'grip_right_steer_other', 'grip_left_neutral', 'grip_right_neutral']
 
@@ -111,8 +111,7 @@ def build():
                 L.fixed_step(60)
 
         def place(index=index):
-            # Each rider gets its own stretch: a previously parked kart still occupies its patch.
-            ground = L.ground_at(BEACH + unreal.Vector(index * 2000.0, 0.0, 0.0))
+            ground = L.ground_at(BEACH)
             L.teleport_player(ground, 0.0)
 
         def summon(index=index, rider=rider):
