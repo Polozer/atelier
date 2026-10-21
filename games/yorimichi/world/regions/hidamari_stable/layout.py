@@ -17,7 +17,7 @@ Standard library and numpy only: build.py (Blender) and the tests import it.
 import math
 
 NAME = '陽だまり厩舎'
-ENABLED = False                # committed switch (paired with AHidamariStable::bEnabled in HidamariStable.h)
+ENABLED = True                 # committed switch (paired with AHidamariStable::bEnabled in HidamariStable.h)
 SITE = (955., 447.)            # world (x, y) of the frame's origin: chosen by Paul on the slope above the city's north edge
 YAW = 0.                       # degrees; the frame is axis-aligned with the island
 COMPOUND = (-40., -35., 40., 35.)   # pad rectangle (x0, y0, x1, y1)
