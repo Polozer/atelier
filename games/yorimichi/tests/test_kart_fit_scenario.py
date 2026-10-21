@@ -7,6 +7,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import sys
 import types
 from pathlib import Path
@@ -125,12 +126,15 @@ class FakeLive(types.ModuleType):
         self.keys = []
         self.shots = []
         self.driving = False
+        self.rider = 'cairo'
         self.L = FakeL(self)
         self.ROOT = ROOT
 
     def car_state(self):
         if self.driving:
-            return ('driving=1 speed=0 kph=0.0 scale=0.8504 hint=Driving pos=(0,0,0) yaw=0.0 '
+            receipt = Path(ROOT) / 'games/yorimichi/assets/characters' / self.rider / 'kart-grip-model.json'
+            scale = json.loads(receipt.read_text())['scale']
+            return (f'driving=1 speed=0 kph=0.0 scale={scale:.4f} hint=Driving pos=(0,0,0) yaw=0.0 '
                     'car=(0,0,0) carrot=(0.0,0.0,0.0)')
         return 'driving=0 speed=0 kph=0.0 hint=Parked pos=(0,0,0) yaw=0.0 car=(0,0,0) carrot=(0.0,0.0,0.0)'
 
@@ -142,6 +146,7 @@ class FakeLive(types.ModuleType):
             self.driving = not self.driving
 
     def switch_character(self, name):
+        self.rider = name.lower()
         return name
 
     def player(self):
@@ -193,7 +198,7 @@ def test_every_rider_gets_a_summon_flag_and_captures(tmp_path, monkeypatch):
         assert any(Path(shot).name == rider + '_grip_right_steer.png' for shot in live.shots), rider
     assert len(module.results) == 4
     assert all(item['summon_ok'] for item in module.results)
-    assert all(item['live_scale'] == 0.8504 for item in module.results)
+    assert all(abs(item['live_scale'] / item['prepared_scale'] - 1) < .001 for item in module.results)
     assert all(item['prepared_scale'] for item in module.results)
     receipt = json.loads(Path(module.json_path).read_text())
     assert receipt['ok'] is True and receipt['status'] == 'passed'
@@ -225,3 +230,13 @@ def test_refused_summons_do_not_pass_the_receipt(tmp_path, monkeypatch):
     assert any('did not mount' in error for error in data['errors'])
     assert any('missing' in error for error in data['errors'])
 
+
+
+def test_fit_receipt_refuses_live_scale_mismatch(tmp_path, monkeypatch):
+    module, live, _ = load(tmp_path, monkeypatch)
+    original = live.car_state
+    monkeypatch.setattr(live, 'car_state', lambda: re.sub(r'scale=[0-9.]+', 'scale=0.5', original()))
+    drain(module)
+    receipt = json.loads(Path(module.json_path).read_text())
+    assert not receipt['ok'] and receipt['status'] == 'failed'
+    assert len([error for error in receipt['errors'] if 'scale mismatch' in error]) == 4

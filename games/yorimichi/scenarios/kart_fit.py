@@ -204,6 +204,13 @@ def tick(dt):
                            if not os.path.exists(os.path.join(OUT, '%s_%s.png' % (rider.lower(), name)))]
                 if missing:
                     errors.append('%s missing %s' % (rider, ', '.join(missing)))
+            for item in results:
+                actual, expected = item['live_scale'], item['prepared_scale']
+                if (not isinstance(actual, (int, float)) or not math.isfinite(actual) or actual <= 0
+                        or not isinstance(expected, (int, float)) or not math.isfinite(expected) or expected <= 0
+                        or abs(actual / expected - 1) > .01):
+                    errors.append('%s live/prepared scale mismatch: %s / %s (1%% limit)' %
+                                  (item['rider'], actual, expected))
             ok = not errors
             json.dump({'ok': ok, 'status': 'passed' if ok else 'failed', 'riders': results, 'errors': errors},
                       open(json_path, 'w'), indent=1)
