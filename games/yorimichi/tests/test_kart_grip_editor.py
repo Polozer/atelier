@@ -152,6 +152,26 @@ def test_production_preflight_rejects_unmirrored_and_stale_profiles(meta):
         validate_profile(pose, dict(meta['layout'], steering=[.2, 0, .6]))
 
 
+def test_preflight_keeps_the_full_saved_grip_contract(meta):
+    from validate_profiles import validate_profile
+    meta = copy.deepcopy(meta)
+    meta['model_sha256'] = 'a'*64
+    meta['layout']['scale_range'] = [.82, 1.16]
+    pose = payload(meta)
+    pose.update(scale=meta['scale'], layout=meta['layout'], bind_world=meta['bind_world'],
+                model_sha256=meta['model_sha256'])
+    validate_profile(pose, meta['layout'])
+    nan = copy.deepcopy(pose); nan['hands']['R']['finger_0_R'][0] = float('nan')
+    with pytest.raises(ValueError, match='Invalid finger transform'):
+        validate_profile(nan, meta['layout'])
+    wrong = copy.deepcopy(pose); wrong['schema'] = 99
+    with pytest.raises(ValueError, match='Wrong character or grip format'):
+        validate_profile(wrong, meta['layout'])
+    elbow = copy.deepcopy(pose); elbow['arm_poles'] = {'L': [-.1, -.3, .5]}
+    with pytest.raises(ValueError, match='left elbow'):
+        validate_profile(elbow, meta['layout'])
+
+
 def test_cairo_transfer_preserves_target_lengths_and_normalized_knuckle_contact(meta):
     from retarget import retarget
     source = payload(meta)
