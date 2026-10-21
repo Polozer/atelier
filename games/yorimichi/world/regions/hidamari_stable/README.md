@@ -12,7 +12,9 @@ uv run atelier live py "live.stable('aisle')"                                   
 uv run pytest games/yorimichi/tests/test_hidamari_stable_layout.py -q
 ```
 
-All three steps are explicit, so only a build that names them runs them. The pad and its slopes are not a mesh: they are
+The stable is enabled (`layout.ENABLED`, paired with `AHidamariStable::bEnabled`): `world.hidamari_stable` and
+`unreal.hidamari_stable` are in the default build, so the cook carries `/Game/HidamariStable` and
+`Data/hidamari_stable/stable.json`; only the control renders (`world.hidamari_stable_review`) are explicit. The pad and its slopes are not a mesh: they are
 Hidamari's own terrain. `hidamari/layout.py height()` passes its ground through `grade()` here, so `HD_Terrain`, the
 heightmap, the scatter and the foliage all see the graded ground and keep Hidamari's grass and material. Every step that
 reads `hidamari/layout.py` therefore also lists this `layout.py` as an input. `world.hidamari_stable` needs
