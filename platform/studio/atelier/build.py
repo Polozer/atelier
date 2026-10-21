@@ -52,10 +52,30 @@ class UnrealScript:
     # steps, and the editor loads only those modules and what they need; unreal_script_guard stops it if any other
     # game or plugin library is loaded when the script ends.
     modules: tuple = ()
+    memory_gib: float = 10.  # explicit per-command ceiling; full-capacity reservation grows with it
+
+    def __post_init__(self):
+        self.memory_limit()
+
+    def memory_limit(self):
+        """@cc [owner:fontanierh,label:safety] explicit-script-memory-envelope
+        Script ceilings MUST be finite 10–24 GiB numbers. A nondefault ceiling MUST use one
+        aggregate heavy guard and matching full-capacity reservation; the default command
+        representation MUST remain unchanged. Warm batches MUST refuse nondefault ceilings.
+        """
+        if (type(self.memory_gib) not in (int, float) or not math.isfinite(self.memory_gib)
+                or not 10 <= self.memory_gib <= 24):
+            raise ValueError('UnrealScript memory_gib must be a finite number from 10 to 24 GiB')
+        return self.memory_gib
+
+    def validate_step(self, step):
+        if self.memory_limit() != 10 and (not step.heavy or step.batch is not None or 'ATELIER_BATCH' in dict(self.env)):
+            raise ValueError('An explicit script ceiling requires a separate guarded heavy command, without batching')
 
     def __repr__(self):
         # The fingerprint's view: declared modules count, and a script without them reads as before they existed.
-        shown = [f for f in fields(self) if f.name != 'modules' or self.modules]
+        shown = [f for f in fields(self) if (f.name != 'modules' or self.modules)
+                 and (f.name != 'memory_gib' or self.memory_limit() != 10)]
         return f'UnrealScript({", ".join(f"{f.name}={getattr(self, f.name)!r}" for f in shown)})'
 
     def runs(self):
@@ -211,6 +231,8 @@ def check_modules(steps):
     """A script that declares game modules must need their module steps, so their digests feed its fingerprint."""
     for step in steps:
         for command in step.commands:
+            if isinstance(command, UnrealScript):
+                command.validate_step(step)
             missing = [module_step(m) for m in getattr(command, 'modules', ()) if module_step(m) not in step.needs]
             if missing:
                 raise SystemExit(f'{step.name}: its script uses {missing} but the step does not need them')
@@ -507,6 +529,8 @@ def slot_request(ctx, step):
 def run_command(ctx, step, command, log, request=None, slots=None, *, products=None, audit_receipt=None):
     """Run one command of a step. A heavy step's command runs under guarded.run, in a render slot asked for with
     `request` (slot_request's answer, computed now when absent); the slot is written to the log and added to `slots`."""
+    if isinstance(command, UnrealScript):
+        command.validate_step(step)
     if isinstance(command, Call):
         return command.fn(ctx, log)
     if isinstance(command, (Python, Blender)):
@@ -527,6 +551,9 @@ def run_argv(ctx, step, command, argv, env, log, request, slots, *, pass_fds=())
     if isinstance(command, (Python, Blender)):
         source_request = request or (slot_request(ctx, step) if step.heavy else None)
         return build_source.run_argv(ctx, step, command, argv, env, log, source_request, slots, pass_fds=pass_fds)
+    script_memory = command.memory_limit() if isinstance(command, UnrealScript) else 10
+    if script_memory != 10 and (not step.heavy or step.batch is not None or 'ATELIER_BATCH' in dict(env)):
+        raise ValueError('An explicit script ceiling requires a separate guarded heavy command, without batching')
     selected_cook_memory = cook_memory_limit(getattr(ctx, 'cook_memory_gib', None)) if isinstance(command, UnrealPackage) else None
     if selected_cook_memory is not None and not step.heavy:
         raise ValueError('An explicit cook ceiling requires the normal heavy compile guard lifecycle')
@@ -549,6 +576,8 @@ def run_argv(ctx, step, command, argv, env, log, request, slots, *, pass_fds=())
     if step.heavy:
         folder = ctx.logs / f'{step.name}.guard'
         kind, small_gib = request or slot_request(ctx, step)
+        if script_memory != 10:
+            kind, small_gib = 'job', None
         used = []
 
         def note(slot, why):
@@ -560,6 +589,8 @@ def run_argv(ctx, step, command, argv, env, log, request, slots, *, pass_fds=())
         inherited = {'pass_fds': pass_fds} if pass_fds else {}
         if selected_cook_memory is not None:
             inherited.update(limit_gib=selected_cook_memory, compile_memory_gib=selected_cook_memory)
+        if script_memory != 10:
+            inherited.update(limit_gib=script_memory, script_memory_gib=script_memory, aggregate_tree=True)
         if preflight:
             inherited['aggregate_tree'] = True
         cook = None
