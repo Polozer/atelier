@@ -100,11 +100,13 @@ bool FRacingCourse::ContainsGrounds(const FVector& Where) const
     if (!IsValid() || Where.ContainsNaN()) return false;
     if (bOval)
     {
-        const FVector Local = (Where - Centre()) / 100.;
-        // The authored platform in world/regions/hippodrome/layout.py (including the grandstand apron).
-        const double Rail = Oval.Radius + Oval.Width * .5;
-        return Local.X >= -Oval.Half - Rail - 7. && Local.X <= Oval.Half + Rail + 30.
-            && Local.Y >= -Rail - 7. && Local.Y <= 82. && Local.Z >= -3. && Local.Z <= 20.;
+        // Read from the loaded platform mesh, so layout changes need no duplicate C++ boundary table.
+        const FBox& Bounds = Oval.Grounds;
+        return Bounds.IsValid && !Bounds.Min.ContainsNaN() && !Bounds.Max.ContainsNaN()
+            && Bounds.Min.X < Bounds.Max.X && Bounds.Min.Y < Bounds.Max.Y
+            && Where.X >= Bounds.Min.X && Where.X <= Bounds.Max.X
+            && Where.Y >= Bounds.Min.Y && Where.Y <= Bounds.Max.Y
+            && Where.Z >= Oval.Z * 100. - 300. && Where.Z <= Oval.Z * 100. + 2000.;
     }
     // Belmonte: inside the closed track or within its 30 m spectator apron. Unlike a bounding box, this
     // follows the bends and excludes the countryside at the corners. Work in the authored metre frame.

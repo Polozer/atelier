@@ -62,6 +62,9 @@ bool FRacingHudGroundsTest::RunTest(const FString&)
     Oval.Oval.Lap = 4. * Oval.Oval.Half + 2. * PI * Oval.Oval.Radius;
     Oval.Oval.Z = 40.;
     auto At = [&](double X, double Y, double Z = 0.) { return Oval.Oval.World(X, Y, Z); };
+    TestFalse(TEXT("Loaded course without platform bounds hides the banner"), Oval.ContainsGrounds(At(600., 525.)));
+    Oval.Oval.Grounds += At(476., 443.);
+    Oval.Oval.Grounds += At(747., 589.);
     TestTrue(TEXT("Hidamari infield"), Oval.ContainsGrounds(At(600., 525.)));
     TestTrue(TEXT("Grandstand arrival"), Oval.ContainsGrounds(At(563.5, 458.5, 1.)));
     TestTrue(TEXT("Grandstand upper seats"), Oval.ContainsGrounds(At(600., 453., 15.)));
@@ -72,6 +75,8 @@ bool FRacingHudGroundsTest::RunTest(const FString&)
     TestFalse(TEXT("Beyond north platform edge"), Oval.ContainsGrounds(At(600., 590.)));
     TestFalse(TEXT("Flying over the venue"), Oval.ContainsGrounds(At(600., 525., 30.)));
     TestFalse(TEXT("Under the platform"), Oval.ContainsGrounds(At(600., 525., -10.)));
+    Oval.Oval.Grounds = FBox(At(500., 500.), At(700., 600.));
+    TestFalse(TEXT("Invalid bounds hide the banner"), Oval.ContainsGrounds(At(600., 525.)));
 
     ARacingService* Service = NewObject<ARacingService>(GetTransientPackage());
     FString Error;
