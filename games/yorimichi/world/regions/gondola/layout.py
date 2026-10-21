@@ -9,7 +9,7 @@ LINES = (
     {'id':'L2','stations':('belmonte','northwest'),
      'towers':((70.,28.),(615.,24.),(1160.,28.),(1705.,28.))},
     {'id':'L3','stations':('floor','floor_rim'),
-     'towers':((30.,20.),(158.,20.))},
+     'towers':((30.,20.),(158.,28.))},
 )
 
 

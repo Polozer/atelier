@@ -45,3 +45,24 @@ def test_sag_knot_inside_triangle_interval_is_used_instead_of_only_endpoints():
     tri = [[[2,-.5,12],[8,-.5,12],[5,.5,12]]]
     p = np.array([[0,40],[5,25],[10,40]])
     assert check(tri,p)['minimum_m']==pytest.approx(13)
+
+
+
+def test_l3_committed_fit_clears_the_rim_approach_crest():
+    """Datums/crest from the failed final-owner probe; placement comes from source."""
+    from gondola.line import centre_profile
+    from gondola.validation import PARAMETERS
+    from regions.gondola.layout import LINES,STATIONS
+    line=next(row for row in LINES if row['id']=='L3')
+    length=np.linalg.norm(np.array(STATIONS['floor_rim']['mouth'])-STATIONS['floor']['mouth'])
+    d=PARAMETERS.derived(PARAMETERS.DEFAULTS)
+    crest=np.array([[[183.37,-4.3,702.361],[189.97,4.3,702.361],[189.97,-4.3,702.361]]])
+    def clearance(height,lift):
+        profile=centre_profile([(.6,655.1621877479114,False),
+                                (line['towers'][0][0],660.5034018391225,True),
+                                (line['towers'][1][0],687.9759026165713+height,True),
+                                (length-.6,693.5030226726246+lift+d['rope_height_above_platform'],False)])
+        return riding_clearance(crest,[0,0],[1,0],profile,lateral=4.3,half_length=1.15,
+                                drop=d['grip_to_floor']+PARAMETERS.DEFAULTS['cabin_floor_depth'])['minimum_m']
+    assert clearance(20.,0.)<0
+    assert clearance(line['towers'][-1][1],STATIONS['floor_rim']['platform_lift_m'])>.03
