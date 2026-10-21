@@ -539,6 +539,8 @@ def main():
         rope_exports=[]
         normal=np.array([-direction[1],direction[0]])
         near_tolerance=near_rope_tolerance(audit['groove_max_mm'])
+        print(f'{line["id"]} fitted rope: groove {audit["groove_max_mm"]:.6f}mm, '
+              f'near axis allowance {near_tolerance*1000:.6f}mm',flush=True)
         for lod,(tolerance,sides) in enumerate(((near_tolerance,12),(.015,8),(.05,6))):
             mesh=solid.Mesh(f'GD_{line["id"]}_Rope_LOD{lod}')
             for side in (-1,1):

@@ -128,7 +128,7 @@ def simplify(points, tolerance):
 
 
 def near_rope_tolerance(groove_error_mm):
-    """Reserve half the remaining 2 mm jaw allowance for axis simplification.
+    """Use the measured 2 mm jaw allowance with a ten-percent safety reserve.
 
     Distance to a curve is 1-Lipschitz under a bounded Hausdorff displacement.
     simplify bounds that displacement across complete original segments, so
@@ -136,4 +136,4 @@ def near_rope_tolerance(groove_error_mm):
     """
     if not math.isfinite(groove_error_mm) or not 0<=groove_error_mm<1.9995:
         raise ValueError('No remaining near-rope contact allowance')
-    return min(.0001,(2.-groove_error_mm-.0005)/2000.)
+    return .9*(2.-groove_error_mm-.0005)/1000.

@@ -85,6 +85,21 @@ def test_near_rope_simplification_uses_remaining_jaw_allowance():
     with pytest.raises(ValueError):near_rope_tolerance(2.)
 
 
+def test_near_rope_uses_available_contact_budget_to_reduce_long_span_density():
+    from gondola.line import centre_profile,near_rope_tolerance,simplify
+    profile=centre_profile([(0.,0.,False),(400.,40.,True),(950.,210.,True),(1410.,535.,True),(1565.,631.,False)])
+    points=np.c_[profile[:,0],np.zeros(len(profile)),profile[:,1]]
+    tolerance=near_rope_tolerance(1.2)
+    former=simplify(points,.0001)
+    reduced=simplify(points,tolerance)
+    assert len(reduced)<len(former)*.6
+    for a,b in zip(reduced,reduced[1:]):
+        original=points[(points[:,0]>=a[0])&(points[:,0]<=b[0])]
+        t=np.clip((original-a)@(b-a)/np.sum((b-a)**2),0,1)
+        deviation=np.linalg.norm(original-a-t[:,None]*(b-a),axis=1).max()
+        assert 1.2+.0005+deviation*1000<2.
+
+
 def test_trestle_crossheads_seat_in_posts_without_coplanar_junction_overlaps():
     beams=[]
     class Mesh:
