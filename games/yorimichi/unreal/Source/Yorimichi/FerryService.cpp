@@ -321,7 +321,7 @@ bool AFerryService::Initialize(const FString& Path)
         if (GetNetMode() != NM_DedicatedServer)
         {
             const auto Board = T->GetObjectField(TEXT("board"));
-            auto* Text = NewObject<UTextRenderComponent>(this, *(Terminal.Key + TEXT("_Timetable")));
+            auto* Text = NewObject<UTextRenderComponent>(this, *(Terminal.Key + TEXT("_TimetableText")));
             Text->SetupAttachment(RootComponent); Text->SetMobility(EComponentMobility::Static);
             Text->SetWorldLocationAndRotation(JsonVector(Board->GetArrayField(TEXT("location_cm"))), FRotator(0, Board->GetNumberField(TEXT("yaw")), 0));
             Text->SetWorldSize(Board->GetNumberField(TEXT("text_size_cm")));

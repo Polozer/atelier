@@ -11,6 +11,9 @@
 #include "Engine/World.h"
 #include "Misc/ScopeExit.h"
 #include "JapanSkateNetwork.h"
+#include "AtelierData.h"
+#include "Components/TextRenderComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "SkateComponent.h"
 
 namespace
@@ -29,6 +32,42 @@ TSharedPtr<FJsonObject> FerryFixture()
     FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root);
     return Root;
 }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFerryProductionInitializationTest, "Yorimichi.Ferry.ProductionInitialization",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FFerryProductionInitializationTest::RunTest(const FString&)
+{
+    UWorld* World = nullptr;
+    for (const FWorldContext& Context : GEngine->GetWorldContexts())
+        if (Context.World() && Context.World()->IsGameWorld()) { World = Context.World(); break; }
+    if (!TestNotNull(TEXT("Native game world"), World)) return false;
+    const FString Path = AtelierDataPath(TEXT("ferry/service/service.json"));
+    const auto Data = AtelierReadJson(Path);
+    if (!TestTrue(TEXT("Current staged ferry data exists"), Data.IsValid())) return false;
+    const bool bCreated = AFerryService::Find(World) == nullptr;
+    AFerryService* Service = AFerryService::Spawn(World, Path);
+    ON_SCOPE_EXIT { if (bCreated && Service) Service->Destroy(); };
+    if (!TestNotNull(TEXT("Complete imported ferry service initializes"), Service)) return false;
+    TArray<UTextRenderComponent*> Boards;
+    Service->GetComponents(Boards);
+    TestEqual(TEXT("Both terminal timetable texts exist"), Boards.Num(), 2);
+    for (const auto& Value : Data->GetArrayField(TEXT("terminals")))
+    {
+        const auto Terminal = Value->AsObject();
+        const FString Key = Terminal->GetStringField(TEXT("key"));
+        for (const auto& Part : Terminal->GetArrayField(TEXT("parts")))
+        {
+            const FString Name = Key + TEXT("_") + Part->AsObject()->GetStringField(TEXT("name"));
+            TestNotNull(TEXT("Every staged terminal mesh retains its stable component name"),
+                FindObject<UStaticMeshComponent>(Service, *Name));
+        }
+        const FString TextName = Key + TEXT("_TimetableText");
+        TestNotNull(TEXT("Timetable text has a distinct stable component name"),
+            FindObject<UTextRenderComponent>(Service, *TextName));
+    }
+    return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFerryClockTest, "Yorimichi.Ferry.ClockAndBoarding",
