@@ -58,9 +58,7 @@ DECK_HALF_M = .456 + .1
 # Modules laid end to end in runs (a field wall's 10 m sections) meet with up to JOIN_CM of gap or overlap: their
 # collision reaches half of that past each drawn end so the run's top has no gap at a join.
 RUN_OVERLAP_M = JOIN_CM / 100 / 2
-RUN_CHAMFER_M = .005
-RUN_TAPER_M = .03         # no more: the lines stay on the drawn edge and the plugin's probes must still find it
-RUN_TAPER_LEN_M = .8
+RUN_CHAMFER_M = .001
 DECK_SIDE_M = .12
 DECK_UP_M = (.05, .12)
 THIN, FAT, LEDGE, IMPOSSIBLE = 'ThinRail', 'FatRail', 'Ledge', 'Impossible'
@@ -369,28 +367,14 @@ def run_axis(data, entry, path=None):
 
 
 def run_ends(cloud, run, points, base):
-    """A run's module (run_axis) at its ends: it reaches RUN_OVERLAP_M past each drawn end, chamfered RUN_CHAMFER_M
-    down, so a join has no gap and where sections overlap at a pitch or roll the reaching end sinks under the next
-    top; and its collision narrows by RUN_TAPER_M over RUN_TAPER_LEN_M while its lines stay on the drawn edge, so
-    where the next section turns, its side stays clear of the wheels a ledge grind hangs over that edge."""
+    """A run's module (run_axis) reaches RUN_OVERLAP_M past each drawn end, its top easing RUN_CHAMFER_M down, so a
+    join has no gap, and where sections overlap the wheels roll from one top to the next over a dip under a
+    millimetre instead of meeting the next section's end face."""
     lo, hi = points[:, run].min(), points[:, run].max()
-    side = 1 - run
-    middle = (points[:, side].min() + points[:, side].max()) / 2
-    at_end = (cloud[:, run] <= lo + 1e-4) | (cloud[:, run] >= hi - 1e-4)
-    end = cloud[at_end]
-    inward = np.where(end[:, run] < (lo + hi) / 2, 1., -1.)
-    full = end.copy()                                    # full width from RUN_TAPER_LEN_M in
-    full[:, run] += inward * RUN_TAPER_LEN_M
-    if len(full):
-        planar = end[:, 2] > base + 1e-4
-        full[planar, 2] = end[planar, 2]
-    narrow = end.copy()
-    offset = narrow[:, side] - middle
-    narrow[:, side] = middle + np.sign(offset) * np.maximum(np.abs(offset) - RUN_TAPER_M, 0)
-    reach = narrow.copy()
-    reach[:, run] -= inward * RUN_OVERLAP_M
-    reach[reach[:, 2] > base + 1e-4, 2] -= RUN_CHAMFER_M
-    return np.concatenate([cloud[~at_end], full, narrow, reach])
+    end = cloud[(cloud[:, run] <= lo + 1e-4) | (cloud[:, run] >= hi - 1e-4)].copy()
+    end[:, run] += np.where(end[:, run] < (lo + hi) / 2, -RUN_OVERLAP_M, RUN_OVERLAP_M)
+    end[end[:, 2] > base + 1e-4, 2] -= RUN_CHAMFER_M
+    return np.concatenate([cloud, end])
 
 
 def generate(entry, path=None, run=None):
