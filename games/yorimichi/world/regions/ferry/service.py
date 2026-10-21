@@ -33,7 +33,8 @@ DECK_Z = (5.2, 17.0)                      # metres above the waterline that coun
 GATE_HEIGHT = 1.2                         # the closed boarding gate's stop, above the sill
 SHIP_ROOT = '/Game/Ferry/Ship'
 TERMINAL_ROOT = '/Game/Ferry/Terminals'
-CODE = (HERE / 'service.py', HERE / 'timetable.py', HERE.parent / 'hidamari/ferry_source.py')
+SHIP_WALK = yori.ASSETS / 'vehicles/ferry/walk.py'
+CODE = (HERE / 'service.py', HERE / 'timetable.py', HERE.parent / 'hidamari/ferry_source.py', SHIP_WALK)
 
 
 def ue(x, y, z=0.0):
@@ -176,6 +177,18 @@ def validate_manifest(data, root, repo=REPO):
         raise ValueError('ferry manifest contains failed or soft audits')
 
 
+def validate_ship_walk(root=FERRY, checker=SHIP_WALK):
+    """Require a passing ship walk bound to this checker and the exact deck."""
+    report = json.loads((root / 'review/walk_report.json').read_text())
+    expected = {'checker_sha256': sha(checker),
+                'deck_layout_sha256': sha(root / 'deck_layout.json')}
+    if report.get('inputs') != expected:
+        raise ValueError('ferry ship walk is stale; rebuild the deck walking audit')
+    if report.get('failures') != []:
+        raise ValueError('ferry ship walk failed or has no verdict')
+    return report
+
+
 def preflight(root=FERRY):
     """@cc [owner:fontanierh,label:correctness] ferry-stale-input-refusal
     Service generation and Unreal import MUST refuse failed/missing sweeps and audits or mismatched
@@ -203,6 +216,7 @@ def preflight(root=FERRY):
         raise ValueError('ferry terminals were built against a different world/site')
     validate_manifest(terminals, root / 'terminals')
     validate_manifest(ferry, root)
+    validate_ship_walk(root)
     from regions.hidamari.ferry_source import validated_harbor
     validated_harbor(yori.OUT, REPO)
     audit = ferry['deck_audit']
@@ -218,6 +232,7 @@ def source_records(root=FERRY):
             'products': {str(p.relative_to(yori.OUT)): sha(p) for p in
                          (root / 'terminals/site.json', root / 'terminals/manifest.json',
                           root / 'terminals/walk.json', root / 'manifest.json',
+                          root / 'review/walk_report.json',
                           yori.OUT / 'hidamari/ferry/cut.json', yori.OUT / 'hidamari/ferry/HD_Harbor.fbx')}}
 
 

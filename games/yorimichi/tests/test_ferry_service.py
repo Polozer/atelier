@@ -133,3 +133,31 @@ def test_a_clear_ship_cannot_pass_outside_the_exported_probe(site, batch):
     assert result['probe_boundary_count'] == result['poses']
     assert result['probe_boundary_conflicts']
     assert result['conflict_count'] == result['grounding_count'] == 0
+
+
+@pytest.mark.parametrize('fault', ['missing', 'checker', 'layout', 'failed', 'no-verdict'])
+def test_ship_walk_refuses_missing_stale_and_failed_audit(tmp_path, fault):
+    checker = tmp_path / 'walk.py'
+    checker.write_text('original walking checker')
+    layout = tmp_path / 'deck_layout.json'
+    layout.write_text('{"deck": "original"}')
+    report_path = tmp_path / 'review/walk_report.json'
+    report_path.parent.mkdir()
+    report = {'failures': [], 'inputs': {'checker_sha256': service.sha(checker),
+                                        'deck_layout_sha256': service.sha(layout)}}
+    report_path.write_text(json.dumps(report))
+    service.validate_ship_walk(tmp_path, checker)
+    if fault == 'missing':
+        report_path.unlink()
+    elif fault == 'checker':
+        checker.write_text('changed walking rule')
+    elif fault == 'layout':
+        layout.write_text('{"deck": "changed collision"}')
+    else:
+        if fault == 'failed':
+            report['failures'] = ['disconnected boarding route']
+        else:
+            del report['failures']
+        report_path.write_text(json.dumps(report))
+    with pytest.raises((ValueError, FileNotFoundError)):
+        service.validate_ship_walk(tmp_path, checker)
