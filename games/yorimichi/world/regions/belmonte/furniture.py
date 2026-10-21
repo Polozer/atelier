@@ -38,6 +38,8 @@ SIDE_M = .06       # a drawn vertex within this of a plate's footprint, under it
 TOP_TOL_M = .06    # a plate's plane keeps within this of its drawn top
 MIN_PLATE_M = .03  # plates lower than this over the base are ground trim, not furniture
 TILT = .05         # a plate's fitted slope under this is level
+SEAM_M = .001      # a face within this of another column's inside is hidden by it
+SECTOR_DEG = 15.   # a ring whose faces each span less than this round its centre is cut into sectors
 HOLLOW = .02       # a plate whose hull is uncovered over more than this share is split into convex pieces
 
 # The skate plugin's grind-surface probes (PlayerGrindSurface.cpp, metres) and its DeckCenterToTruck setting.
@@ -118,10 +120,22 @@ def plan_distance(poly, points):
 
 
 def hull3d(points, eps=1e-5):
-    """Outward-wound triangles of the convex hull of 3D points (incremental, farthest points first; points are
-    snapped to 0.1 mm so near-coplanar drawn vertices do not leave slivers)."""
+    """Outward-wound triangles of the convex hull of 3D points (incremental; points are snapped to 0.1 mm so
+    near-coplanar drawn vertices do not leave slivers). Coplanar runs can fool one insertion order, so the result is
+    checked and other fixed orders are tried."""
     p = np.unique(np.round(np.asarray(points, float), 4), axis=0)
     p = p[np.argsort(-np.linalg.norm(p - p.mean(0), axis=1))]
+    rng = np.random.default_rng(0)
+    for attempt in range(16):
+        order = np.arange(len(p)) if attempt == 0 else np.r_[0, 1 + rng.permutation(len(p) - 1)]
+        faces = _hull3d(p[order], eps)
+        normal, offset = planes(faces)
+        if (p @ normal.T - offset).max() < 10 * eps:
+            return faces
+    raise AssertionError('no convex hull')
+
+
+def _hull3d(p, eps):
     i0 = 0
     i1 = int(np.argmax(np.linalg.norm(p - p[i0], axis=1)))
     line = p[i1] - p[i0]
@@ -159,6 +173,7 @@ class Plate:
     faces: np.ndarray            # the drawn upward faces
     coef: np.ndarray             # z = coef[0] + coef[1] x + coef[2] y
     poly: np.ndarray             # convex plan footprint, CCW
+    sector: tuple = None         # (centre xy, angle from, angle to): one sector of a turned ring (a basin's rim)
 
     def z(self, xy):
         xy = np.atleast_2d(xy)
@@ -190,8 +205,9 @@ def plates(faces):
         label = new
     out = []
     for value in np.unique(label):
-        for part in convex_parts(f[label == value]):
+        for part, sector in convex_parts(f[label == value]):
             plate = fit(part)
+            plate.sector = sector
             if len(plate.poly) >= 3:
                 out.append(plate)
     return out
@@ -231,7 +247,10 @@ def convex_parts(faces):
     """Split a plate that is not solid across its hull (a basin's rim, a ring of steps) into convex pieces: faces
     are added to a piece, neighbour by neighbour, while the piece's hull stays covered by its faces."""
     if hollow(faces) <= HOLLOW:
-        return [faces]
+        return [(faces, None)]
+    sectors = turned(faces)
+    if sectors is not None:
+        return sectors
     centre = faces.mean(1)
     left = list(range(len(faces)))
     parts = []
@@ -249,8 +268,30 @@ def convex_parts(faces):
                     left.remove(i)
                     grown = True
                     break
-        parts.append(faces[group])
+        parts.append((faces[group], None))
     return parts
+
+
+def angle_of(xy, centre):
+    return np.arctan2(xy[..., 1] - centre[1], xy[..., 0] - centre[0])
+
+
+def turned(faces):
+    """A ring turned about a centre (every face spans less than SECTOR_DEG round it): its sectors between the ring's
+    own vertex angles, so every sector meets its neighbours and the parts inside and outside it on shared radii."""
+    centre = np.unique(np.round(faces.reshape(-1, 3), 5), axis=0)[:, :2].mean(0)
+    a = angle_of(faces[:, :, :2], centre)
+    span = np.ptp(np.unwrap(a, axis=1), axis=1)
+    if span.max() > np.radians(SECTOR_DEG):
+        return None
+    cuts = np.unique(np.round(a.ravel(), 4))
+    mid = angle_of(faces.mean(1)[:, :2], centre)
+    out = []
+    for lo, hi in zip(cuts, np.r_[cuts[1:], cuts[0] + 2 * np.pi]):
+        sel = (np.mod(mid - lo, 2 * np.pi) < np.mod(hi - lo, 2 * np.pi))
+        if sel.any():
+            out.append((faces[sel], (centre, float(lo), float(hi))))
+    return out
 
 
 def fit(part):
@@ -285,7 +326,17 @@ class Furniture:
 
     @property
     def faces(self):
-        return np.concatenate([c for _, c in self.columns]) if self.columns else np.zeros((0, 3, 3))
+        """The columns' surface without the faces one column hides inside or on another (the seams between a rim's
+        convex pieces): the board meets one continuous top, not an edge at every seam."""
+        out = []
+        for i, (plate, solid) in enumerate(self.columns):
+            hidden = np.zeros(len(solid), bool)
+            if plate is not None:
+                for j, (other, cover) in enumerate(self.columns):
+                    if j != i and other is not None:
+                        hidden |= inside(cover, solid.reshape(-1, 3), SEAM_M).reshape(-1, 3).all(1)
+            out.append(solid[~hidden])
+        return np.concatenate(out) if out else np.zeros((0, 3, 3))
 
 
 def generate(entry, path=None):
@@ -304,22 +355,33 @@ def generate(entry, path=None):
     held = np.zeros(len(points), bool)
     owner = np.full(len(points), -1)
     best = np.full(len(points), np.inf)
+    reach = []
     for k, plate in enumerate(tops):
         d = plan_distance(plate.poly, points)
-        under = plate.z(points[:, :2]) >= points[:, 2] - TOP_TOL_M
+        under = plate.z(points[:, :2]) >= points[:, 2] - TOP_TOL_M - 2e-3
         held |= under & (d <= SIDE_M)
         closer = under & (d < best)
         owner[closer], best[closer] = k, d[closer]
+        reach.append(np.where(under, d, np.inf))
     furniture = Furniture(entry['name'], drawn, base, tops)
     furniture.unheld = int(((owner < 0) & ~held).sum())
     for k, plate in enumerate(tops):
-        extra = points[~held & (owner == k)]
+        mine = owner == k
+        if plate.sector is not None:
+            # A sector takes every drawn vertex beyond it within its angles (both edges), so neighbours agree.
+            centre, lo, hi = plate.sector
+            a = np.mod(angle_of(points[:, :2], centre) - lo + 1e-4, 2 * np.pi) <= np.mod(hi - lo, 2 * np.pi) + 2e-4
+            mine = a & np.isfinite(best) & (reach[k] <= best + 1e-4)      # what no plate holds stays loose
+        extra = points[mine if plate.sector is not None else ~held & mine]
         top = np.c_[plate.poly, plate.z(plate.poly)]
         extra = np.c_[extra[:, :2], np.minimum(extra[:, 2], plate.z(extra[:, :2]))] if len(extra) else extra
-        cloud = [top, np.c_[plate.poly, np.full(len(plate.poly), base)]]
-        if len(extra):
-            cloud += [extra, np.c_[extra[:, :2], np.full(len(extra), base)]]
-        furniture.columns.append((plate, hull3d(np.concatenate(cloud))))
+        # A column stands on the base, so each plan point only needs its highest drawn height (no collinear stacks).
+        above = np.concatenate([top, extra]) if len(extra) else top
+        xy, index = np.unique(np.round(above[:, :2], 4), axis=0, return_inverse=True)
+        z = np.full(len(xy), -np.inf)
+        np.maximum.at(z, index.reshape(-1), above[:, 2])
+        cloud = np.concatenate([np.c_[xy, z], np.c_[xy, np.full(len(xy), base)]])
+        furniture.columns.append((plate, hull3d(cloud)))
     furniture.columns = [c for i, c in enumerate(furniture.columns)
                          if not any(j != i and contains(o[1], c[1]) for j, o in enumerate(furniture.columns))]
     # What no plate holds up (a statue over its plinth) collides as drawn.

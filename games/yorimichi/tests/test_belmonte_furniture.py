@@ -85,6 +85,18 @@ def test_columns_are_closed_convex_and_wound_outward(name):
         assert ((solid.mean(1) - keys.mean(0)) * normal).sum(1).min() > 0, (name, 'faces wound inward')
 
 
+@pytest.mark.parametrize('name', NAMES)
+def test_no_seams_inside_the_collision(name):
+    """In game the board stalled crossing the fountain rim's piece seams: the faces between two columns must go."""
+    item, _ = generated(name)
+    solids = [solid for plate, solid in item.columns if plate is not None]
+    faces = item.faces
+    covering = sum(furniture.inside(solid, faces.reshape(-1, 3), furniture.SEAM_M).reshape(-1, 3).all(1) for solid in solids)
+    assert covering.max() <= 1, name
+    if name in ('SM_BM_BVV_StoneWall', 'SM_BM_BP_Bench', 'SM_BM_BP_StonePlanter_A'):
+        assert all(plate is not None for plate, _ in item.columns), name     # nothing left to collide as drawn
+
+
 def test_generated_collision_round_trips_outward(tmp_path):
     item, _ = generated('SM_BM_BP_Bench')
     path = tmp_path / 'SM_BM_BP_Bench_Collision.glb'
