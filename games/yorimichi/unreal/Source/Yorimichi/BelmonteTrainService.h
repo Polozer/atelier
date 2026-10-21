@@ -266,6 +266,8 @@ private:
         TArray<FDoor> Doors;
         TArray<FSeat> Seats;
         TArray<FInterior> Interiors;
+        /** The vehicle's exterior boxes (service.json "exteriors"): its whole body, for the on-train vehicle rule. */
+        TArray<FBox> Envelopes;
         TArray<int32> SeatTaken;
         TArray<FTrainEmitter> Emitters;
     };
@@ -286,6 +288,11 @@ private:
         FVector TrackedLocal = FVector::ZeroVector;
         /** That speed (cm/s), smoothed; negative until measured. */
         double TrackedSpeed = -1.;
+        /** The same measure in the envelope of the vehicle that holds the rider's feet (any rider walking or riding):
+         *  the on-train vehicle rule (BelmonteTrainRules::OnTrainVehicle). */
+        int32 EnvelopeVehicle = INDEX_NONE;
+        FVector EnvelopeLocal = FVector::ZeroVector;
+        double EnvelopeSpeed = -1.;
         float Seated = 0.f;
         /** Where the service last put the seated rider: moved elsewhere (a teleport, a respawn), they are let go. */
         FVector SeatedAt = FVector::ZeroVector;
@@ -343,6 +350,10 @@ private:
     static TArray<FVector2D> RoomSeats(const FVehicle& V, int32 SeatIndex);
     /** The vehicle whose interior room (in last frame's vehicle frame, grown by Margin cm) holds Feet, or INDEX_NONE. */
     int32 InteriorAt(const FVector& Feet, const FVector& Margin, bool& bNoSprint, bool& bCamera) const;
+    /** The vehicle whose envelope holds the feet (world cm, in last frame's vehicle placement), or INDEX_NONE. */
+    int32 EnvelopeAt(const FVector& Feet, FVector& Local) const;
+    /** The vehicle rule for one walking or riding player (AWandererCharacter::bTrainInside), and the stow it calls for. */
+    void UpdateOnTrain(FRider& Rider, const FVector& Feet, int32 BaseVehicle, double Time, float Dt);
     /** Host or offline: puts a player riding inside a coach without the ticket back on safe ground, off any vehicle
      *  (AWandererCharacter::TravelTo stows it and, online, hands the new foot activity to the owner). The destination
      *  follows BelmonteTrainRules::RecoveryOrder and is accepted only by BelmonteTrainRecovery::SafeStand; with none,
