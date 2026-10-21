@@ -57,7 +57,8 @@ void FTransportRiders::Carry(FTransportRider& Rider, const AActor& Service, UPri
     // Standing on its floor the character movement follows the vehicle as its base; when it does not (a moment off the
     // floor), offline the vehicle's move this frame is applied to the rider here, before the character's own movement.
     const UPrimitiveComponent* Base = C->GetMovementBase();
-    if (Base && Base->GetOwner() == &Service) return;
+    // A station floor can share the service owner. Only this exact moving body is already following the rider.
+    if (Base == Body) return;
     if (!JapanNetwork::IsOnline(Service.GetWorld()) && bMoved)
     {
         const FTransform Now = Body->GetComponentTransform();

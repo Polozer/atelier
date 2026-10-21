@@ -343,7 +343,16 @@ FString AGondolaService::StateJson()const
     }
     Root->SetArrayField(TEXT("cabins"),Rows);Rows.Reset();
     for(const auto& R:Riders)if(R.Character.IsValid()&&R.bAboard)
-    {auto Row=MakeShared<FJsonObject>();Row->SetStringField(TEXT("name"),R.Character->GetName());Row->SetNumberField(TEXT("cabin"),R.Vehicle);Rows.Add(MakeShared<FJsonValueObject>(Row));}
+    {
+        auto Row=MakeShared<FJsonObject>();Row->SetStringField(TEXT("name"),R.Character->GetName());Row->SetNumberField(TEXT("cabin"),R.Vehicle);
+        const auto* Base=R.Character->GetMovementBase();
+        Row->SetStringField(TEXT("movement_base"),Base?Base->GetName():TEXT(""));
+        Row->SetBoolField(TEXT("base_is_cabin"),Cabins.IsValidIndex(R.Vehicle)&&Base==Cabins[R.Vehicle].Body);
+        const FVector Feet=R.Character->GetActorLocation()-FVector(0,0,R.Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+        TArray<TSharedPtr<FJsonValue>> Position;
+        for(double V:{Feet.X,Feet.Y,Feet.Z})Position.Add(MakeShared<FJsonValueNumber>(V));
+        Row->SetArrayField(TEXT("feet_cm"),Position);Rows.Add(MakeShared<FJsonValueObject>(Row));
+    }
     Root->SetArrayField(TEXT("riders"),Rows);FString Text;FJsonSerializer::Serialize(Root,TJsonWriterFactory<>::Create(&Text));return Text;
 }
 FVector AGondolaService::Point(const FString& What)const
