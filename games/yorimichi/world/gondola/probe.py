@@ -10,9 +10,9 @@ import json
 
 import bpy
 import numpy as np
+import yori  # Bootstrap shared studio and region imports inside Blender.
 from gondola.inputs import GROUND_BOUNDS, snapshot
 from regions.belmonte import source
-import yori
 
 
 def clipped(triangles,bounds):

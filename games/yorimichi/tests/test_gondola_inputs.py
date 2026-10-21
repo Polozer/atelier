@@ -60,3 +60,19 @@ def test_ground_snapshot_changes_when_extraction_or_decoding_code_changes(export
     from gondola.products import ground
     with pytest.raises(ValueError,match='ground exports changed'):
         ground(folder)
+
+
+def test_ground_extractor_bootstraps_studio_in_an_isolated_blender_environment():
+    """Blender supplies NumPy/bpy but does not install the Atelier package."""
+    import subprocess
+    import numpy as np
+    probe=Path(__file__).resolve().parents[1]/'world/gondola/probe.py'
+    code='\n'.join((
+        'import runpy,sys,types',
+        f'sys.path.append({str(Path(np.__file__).resolve().parents[1])!r})',
+        "sys.modules['bpy']=types.ModuleType('bpy')",
+        f"runpy.run_path({str(probe)!r},run_name='ground_extractor_import')",
+        "assert 'atelier.gltf' in sys.modules",
+    ))
+    result=subprocess.run([sys.executable,'-I','-S','-c',code],capture_output=True,text=True,timeout=20)
+    assert result.returncode==0,result.stderr
