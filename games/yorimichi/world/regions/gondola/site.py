@@ -23,7 +23,7 @@ import walk as W
 from cabin import Cabin, pose
 from tower import Tower
 from stations import Station, Valley, Rim, Crater, railing
-from gondola.line import centre_profile, closed_circuit, placed, simplify, station_frame, near_rope_tolerance
+from gondola.line import centre_profile, closed_circuit, placed, simplify, station_frame, near_rope_tolerance, float32_cm_axes, stored_groove_audit
 from gondola.products import ground
 from gondola.support import owned_range, owned_triangles, floor_intrusion
 from gondola.validation import site_inputs, validate_site
@@ -373,6 +373,43 @@ def export_world(mesh,folder,mats,limit=50000,*,frame=None,G=None,seats=(),ridin
             'seating':seating,'carried':carried,'riding_plan_clear':frame is not None}
 
 
+def recovered_rope_axes(mesh,path,ring_counts):
+    """Read the actual emitted FBX before modelling its centimetre vertex buffer."""
+    before=set(bpy.data.objects)
+    created=[]
+    try:
+        bpy.ops.import_scene.fbx(filepath=str(path),use_image_search=False,use_anim=False)
+        created=[obj for obj in bpy.data.objects if obj not in before]
+        vertices=np.array([tuple(obj.matrix_world@vertex.co) for obj in created if obj.type=='MESH'
+                           for vertex in obj.data.vertices],float)
+        expected=np.asarray(mesh.verts,float)
+        unique,inverse=np.unique(expected,axis=0,return_inverse=True)
+        actual=np.unique(vertices,axis=0)
+        if actual.shape!=unique.shape:
+            raise ValueError('Rope FBX read-back changed emitted vertex count')
+        from mathutils.kdtree import KDTree
+        tree=KDTree(len(actual))
+        for index,point in enumerate(actual):tree.insert(point,index)
+        tree.balance()
+        indices=[tree.find(point)[1] for point in unique]
+        # This tolerance identifies matching control points after FBX unit
+        # conversion. The separate actual groove check still requires <=2mm.
+        allowance=max(1e-6,float(np.spacing(np.abs(expected).astype(np.float32)).max())*2)
+        if len(set(indices))!=len(actual) or allowance>.001:
+            raise ValueError('Rope FBX read-back vertex correspondence is ambiguous')
+        recovered=actual[indices][inverse]
+        error=float(np.linalg.norm(recovered-expected,axis=1).max())
+        if error>allowance:raise ValueError('Rope FBX read-back displaced emitted vertices')
+        axes=float32_cm_axes(recovered,ring_counts)
+        return axes,{'matched_vertices':len(recovered),'roundtrip_error_m':error,
+                     'roundtrip_allowance_m':allowance}
+    finally:
+        for obj in created:
+            data=obj.data if obj.type=='MESH' else None
+            bpy.data.objects.remove(obj,do_unlink=True)
+            if data is not None and data.users==0:bpy.data.meshes.remove(data)
+
+
 def tower_fit(key,s,height,A,direction,G,p):
     xy=A+s*direction
     prototype=Tower(p,height)
@@ -543,15 +580,32 @@ def main():
               f'near axis allowance {near_tolerance*1000:.6f}mm',flush=True)
         for lod,(tolerance,sides) in enumerate(((near_tolerance,12),(.015,8),(.05,6))):
             mesh=solid.Mesh(f'GD_{line["id"]}_Rope_LOD{lod}')
+            ring_counts=[];reduced_axes=[]
             for side in (-1,1):
                 points=np.c_[A+profile[:,0,None]*direction+side*p['gauge']/2*normal,profile[:,1]]
-                mesh.tube(simplify(points,tolerance),p['rope_radius'],solid.STEEL,n=sides)
+                reduced=simplify(points,tolerance);ring_counts.append(len(reduced));reduced_axes.append(reduced)
+                mesh.tube(reduced,p['rope_radius'],solid.STEEL,n=sides)
             row=export_world(mesh,assets,mats,limit=100000)
             row['axis_deviation_m']=tolerance
             row['minimum_view_distance_m']=(0.,1000.,2000.)[lod]
             if lod==0:
                 row['groove_bound_mm']=audit['groove_max_mm']+.0005+tolerance*1000
                 if row['groove_bound_mm']>2.:raise ValueError('Reduced rope exceeds jaw contact budget')
+                stored,readback=recovered_rope_axes(mesh,assets/f'{mesh.name}.fbx',ring_counts)
+                extra=max(float(np.linalg.norm(axis-reduced.astype(np.float32).astype(float),axis=1).max())
+                          for axis,reduced in zip(stored,reduced_axes))
+                local=[]
+                for side,axis in zip((-1,1),stored):
+                    delta=axis[:,:2]-A-side*p['gauge']/2*normal
+                    local.append(np.c_[delta@direction,delta@normal,axis[:,2]])
+                contact=stored_groove_audit(profile,local,cabin.groove,R.RopePath,p['rope_radius'])
+                contact.update(readback,axis_extra_m=extra,axis_bound_m=tolerance+extra,
+                               hardware_bound_m=audit['hardware_min_m']-tolerance-extra)
+                row['stored_contact']=contact
+                if not contact['pass'] or contact['hardware_bound_m']<.095:
+                    raise ValueError(f'Stored rope exceeds contact/clearance budget: {contact}')
+                print(f'{line["id"]} stored rope contact: {contact["poses"]} directed poses, '
+                      f'{contact["bound_mm"]:.6f}mm bound, {row["triangles"]} triangles',flush=True)
             rope_exports.append(row);exports.append(row)
         lines.append({'id':line['id'],'stations':[first,last],'supports':supports,'towers':towers,
                       'profile':profile.tolist(),'circuit':circuit.tolist(),'ground':gap,'riding':clearance,'span_audit':audit,'rope_meshes':rope_exports})

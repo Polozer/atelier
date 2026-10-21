@@ -74,3 +74,53 @@ def test_reduction_proves_intervals_even_when_prefix_error_is_not_monotone(point
 @pytest.mark.parametrize('tolerance',[float('nan'),float('inf'),0.,-1.])
 def test_reduction_refuses_invalid_error_bound(tolerance):
     with pytest.raises(ValueError):simplify([[0,0,0],[1,1,1]],tolerance)
+
+
+def test_world_rope_reduction_bounds_stored_float32_segments_in_both_tracks():
+    from gondola.line import near_rope_tolerance
+    profile=centre_profile([(0.,0.,False),(400.,40.,True),(950.,210.,True),(1410.,535.,True),(1565.,631.,False)])
+    axis=np.array([60.,1585.]);axis/=np.linalg.norm(axis)
+    normal=np.array([-axis[1],axis[0]]);tolerance=near_rope_tolerance(1.764)
+    for side in(-1,1):
+        points=np.c_[np.array([1120.,455.])+profile[:,0,None]*axis+side*3*normal,profile[:,1]+51.]
+        reduced=simplify(points,tolerance);stored=reduced.astype('f4').astype(float)
+        assert 2*(12*2*(len(reduced)-1)+2*(12-2))<100000
+        longitudinal=(points[:,:2]-np.array([1120.,455.]))@axis
+        for a,b,sa,sb in zip(reduced,reduced[1:],stored,stored[1:]):
+            lo,hi=(np.array([a[:2],b[:2]])-np.array([1120.,455.]))@axis
+            original=points[(longitudinal>=lo-1e-9)&(longitudinal<=hi+1e-9)]
+            t=np.clip((original-sa)@(sb-sa)/np.sum((sb-sa)**2),0,1)
+            assert np.linalg.norm(original-sa-t[:,None]*(sb-sa),axis=1).max()<=tolerance+1e-12
+
+
+def test_rope_refuses_when_storage_precision_exhausts_axis_allowance():
+    with pytest.raises(ValueError,match='float32 coordinate precision'):
+        simplify([[10000.1234,10000.4567,0.],[10001.1234,10001.4567,1.]],.0001)
+    with pytest.raises(ValueError,match='Unrepresentable'):
+        simplify([[0.,0.,0.],[1e40,0.,0.]],.001)
+
+
+def test_stored_rope_axis_uses_centimetre_float32_vertices():
+    from gondola.line import float32_cm_axes
+    vertices=np.array([[1000.123456+ring,2000.456789,500.123456] for ring in range(4) for _ in range(12)])
+    axes=float32_cm_axes(vertices,[2,2])
+    expected=(vertices*100).astype('f4').astype(float)/100
+    assert np.array_equal(np.vstack(axes),expected.reshape(4,12,3).mean(1))
+    with pytest.raises(ValueError):float32_cm_axes(vertices[:-1],[2,2])
+
+
+@pytest.mark.parametrize('offset,passed',[(.0005,True),(.003,False)])
+def test_stored_grooves_check_unquantized_runtime_frames_and_both_directions(offset,passed):
+    from gondola.line import stored_groove_audit
+    spec=importlib.util.spec_from_file_location('stored_rope',ROOT/'assets/vehicles/gondola/rope.py')
+    rope=importlib.util.module_from_spec(spec);spec.loader.exec_module(rope)
+    angles=np.radians([*range(0,86,5),86])
+    groove=[[x,side*.045*math.cos(t),.045*math.sin(t)] for side in(-1,1) for x in(-.195,0.,.195) for t in angles]
+    profile=np.array([[0.,10000.123456],[4.,10000.123456]])
+    axes=[np.c_[[0.,4.],[offset,offset],profile[:,1]] for _ in(-1,1)]
+    proof=stored_groove_audit(profile,axes,groove,rope.RopePath,.045)
+    assert proof['directions']==[-1,1] and proof['poses']>=40
+    assert proof['points_per_pose']==114
+    assert proof['pass'] is passed
+    assert proof['max_error_mm']==pytest.approx(offset*1000,abs=1e-5)
+    assert proof['bound_mm']==pytest.approx(offset*1000+.005,abs=1e-5)

@@ -15,6 +15,7 @@ SITE_CODE=tuple(GAME/name for name in (
     'world/regions/hidamari/gondola.py','world/regions/belmonte/gondola.py',
     'world/gondola/line.py','world/gondola/support.py','world/gondola/products.py',
     'world/gondola/terrain.py','world/gondola/clearance.py','world/gondola/validation.py',
+    'unreal/Scripts/mesh_import.py','unreal/Scripts/import_gondola.py',
     'world/terrain_product.py','world/terrain_query.py','world/regions/belmonte/layout.py',
     'world/regions/craterpark/placement.py','world/regions/craterpark/v2/v4_placement.py',
     'world/regions/craterpark/v2/v4_config.py',
@@ -78,6 +79,23 @@ def validate_access_ground(access):
         raise ValueError('Gondola complete access-floor proof is missing or failed')
 
 
+
+def validate_stored_contact(row,poses,hardware_min):
+    proof=row.get('stored_contact',{})
+    if (proof.get('pass') is not True or proof.get('representation')!='fbx-float32-cm-ring-axis' or
+            proof.get('directions')!=[-1,1] or proof.get('poses')!=poses or poses<=0 or
+            proof.get('points_per_pose')!=114 or type(proof.get('matched_vertices')) is not int or proof['matched_vertices']<48 or
+            not all(type(proof.get(key)) in (int,float) and math.isfinite(proof[key])
+                    for key in ('max_error_mm','bound_mm','roundtrip_error_m','roundtrip_allowance_m',
+                                'axis_extra_m','axis_bound_m','hardware_bound_m')) or
+            proof['max_error_mm']<0 or proof['bound_mm']>2. or
+            abs(proof['bound_mm']-proof['max_error_mm']-.005)>1e-9 or
+            not 0<=proof['roundtrip_error_m']<=proof['roundtrip_allowance_m']<=.001 or
+            proof['axis_extra_m']<0 or proof['hardware_bound_m']<.095 or
+            abs(proof['axis_bound_m']-row.get('axis_deviation_m',-1)-proof['axis_extra_m'])>1e-12 or
+            abs(proof['hardware_bound_m']-hardware_min+proof['axis_bound_m'])>1e-12):
+        raise ValueError('Incomplete or failed stored rope contact proof')
+
 def validate_site(build):
     folder=build/'gondola/world'
     data=json.loads((folder/'site.json').read_text())
@@ -99,6 +117,7 @@ def validate_site(build):
         if [row['minimum_view_distance_m'] for row in ropes]!=[0.,1000.,2000.]:
             raise ValueError('Far rope detail has no explicit distance/contact policy')
         audit=line['span_audit']
+        validate_stored_contact(ropes[0],audit.get('poses',0),audit.get('hardware_min_m',0))
         if (audit.get('pass') is not True or audit['poses']<=0 or
                 not all(math.isfinite(audit[key]) for key in ('groove_max_mm','hardware_min_m')) or
                 audit['groove_max_mm']>2. or audit['hardware_min_m']<.095):

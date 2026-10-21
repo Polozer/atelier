@@ -50,3 +50,28 @@ def test_complete_access_floor_receipt_is_required(fault):
     elif fault=='surfaces':access['surfaces']=[]
     with pytest.raises(ValueError,match='complete access-floor proof'):
         validation.validate_access_ground(access)
+
+
+@pytest.mark.parametrize('fault',['missing','failed','poses','direction','points','representation','vertices','bound','roundtrip','nan','hardware','axis','allowance'])
+def test_final_stored_rope_proof_is_complete_and_required(fault):
+    proof={'pass':True,'representation':'fbx-float32-cm-ring-axis','directions':[-1,1],
+           'poses':42,'points_per_pose':114,'matched_vertices':120,
+           'max_error_mm':1.8,'bound_mm':1.805,'roundtrip_error_m':0.,'roundtrip_allowance_m':.0002,'axis_extra_m':.0001,
+           'axis_bound_m':.0003,'hardware_bound_m':.0997}
+    row={'stored_contact':proof,'axis_deviation_m':.0002}
+    validation.validate_stored_contact(row,42,.1)
+    if fault=='missing':row.clear()
+    elif fault=='failed':proof['pass']=False
+    elif fault=='poses':proof['poses']=21
+    elif fault=='direction':proof['directions']=[-1]
+    elif fault=='points':proof['points_per_pose']=57
+    elif fault=='representation':proof['representation']='ideal double axis'
+    elif fault=='vertices':proof['matched_vertices']=0
+    elif fault=='bound':proof['bound_mm']=1.8
+    elif fault=='roundtrip':proof['roundtrip_error_m']=.01
+    elif fault=='nan':proof['max_error_mm']=float('nan')
+    elif fault=='hardware':proof['hardware_bound_m']=.094
+    elif fault=='axis':proof['axis_bound_m']=.0001
+    elif fault=='allowance':proof['roundtrip_allowance_m']=.01
+    with pytest.raises(ValueError,match='stored rope contact proof'):
+        validation.validate_stored_contact(row,42,.1)

@@ -106,24 +106,33 @@ def simplify(points, tolerance):
     """Polyline reduction with a declared maximum point-to-segment error.
 
     Grow each shortcut with exponential search, then refine its endpoint. Every
-    accepted interval is checked against all original samples. Since both curves
-    are piecewise linear, this bounds the complete original segments too.
+    accepted interval is checked against all original samples, using both ideal
+    endpoints and their float32 storage conversion used by Mesh.tube/Blender.
+    Since both curves are piecewise linear, complete segments are bounded too.
     """
     points=np.asarray(points,float)
     if len(points)<2 or not math.isfinite(tolerance) or tolerance<=0 or not np.isfinite(points).all():
         raise ValueError('Invalid rope mesh simplification')
 
+    with np.errstate(over='ignore'):
+        stored=points.astype(np.float32).astype(float)
+    if not np.isfinite(stored).all():
+        raise ValueError('Unrepresentable rope mesh coordinates')
+
     def fits(first,last):
-        q=points[first+1:last]
-        if not len(q):
-            return True
-        a,b=points[first],points[last];ab=b-a;length2=float(ab@ab)
-        t=np.clip((q-a)@ab/length2,0,1) if length2 else np.zeros(len(q))
-        return bool(np.linalg.norm(q-a-t[:,None]*ab,axis=1).max()<=tolerance)
+        q=points[first:last+1]
+        for endpoints in (points,stored):
+            a,b=endpoints[first],endpoints[last];ab=b-a;length2=float(ab@ab)
+            t=np.clip((q-a)@ab/length2,0,1) if length2 else np.zeros(len(q))
+            if np.linalg.norm(q-a-t[:,None]*ab,axis=1).max()>tolerance:
+                return False
+        return True
 
     keep=[0]
     while keep[-1]<len(points)-1:
         first=keep[-1];last=first+1;stride=2
+        if not fits(first,last):
+            raise ValueError('Rope axis allowance is below float32 coordinate precision')
         while True:
             candidate=min(first+stride,len(points)-1)
             if not fits(first,candidate):
@@ -154,3 +163,71 @@ def near_rope_tolerance(groove_error_mm):
     if not math.isfinite(groove_error_mm) or not 0<=groove_error_mm<1.9995:
         raise ValueError('No remaining near-rope contact allowance')
     return .9*(2.-groove_error_mm-.0005)/1000.
+
+
+def float32_cm_axes(vertices, ring_counts, sides=12):
+    """Ring centres after the emitted vertices enter Unreal's float32 cm buffer."""
+    vertices=np.asarray(vertices,float)
+    if (vertices.ndim!=2 or vertices.shape[1]!=3 or not np.isfinite(vertices).all() or
+            len(ring_counts)!=2 or any(n<2 for n in ring_counts) or
+            len(vertices)!=sum(ring_counts)*sides):
+        raise ValueError('Incomplete stored rope rings')
+    stored=(vertices*100).astype(np.float32).astype(float)/100
+    if not np.isfinite(stored).all():
+        raise ValueError('Unrepresentable stored rope rings')
+    result=[];start=0
+    for count in ring_counts:
+        end=start+count*sides
+        result.append(stored[start:end].reshape(count,sides,3).mean(axis=1))
+        start=end
+    return result
+
+
+def stored_groove_audit(profile, axes, groove, path_type, radius):
+    """@cc [owner:fontanierh,label:correctness] gondola-stored-rope-contact
+    Production MUST check emitted rope axes in their centimetre float32 storage
+    representation against unquantized shared runtime grip frames, both ways,
+    preserving the 2 mm groove and 0.095 m hardware-clearance refusals.
+
+    Compare stored axes with unquantized runtime frames and actual jaw samples.
+
+    The two short, flat kit-owned overlaps are separate segments: no fictitious
+    bridge fills any gap between a station's rope and the exported span.
+    """
+    profile=np.asarray(profile,float);groove=np.asarray(groove,np.float32).astype(float)
+    if (len(axes)!=2 or groove.shape!=(114,3) or not np.isfinite(groove).all() or
+            not np.isfinite(profile).all() or len(profile)<2):
+        raise ValueError('Incomplete stored rope contact inputs')
+    extended=np.vstack(([profile[0,0]-.4,profile[0,1]],profile,[profile[-1,0]+.4,profile[-1,1]]))
+    path=path_type([(s,0,z) for s,z in extended],radius)
+    samples=np.arange(path.s[1],path.s[-2]+1e-8,.2)
+    worst=0.;poses=0
+    for side,axis in zip((-1,1),axes):
+        axis=np.asarray(axis,float)
+        if (axis.ndim!=2 or axis.shape[1]!=3 or len(axis)<2 or not np.isfinite(axis).all() or
+                np.any(np.diff(axis[:,0])<=0)):
+            raise ValueError('Incomplete stored rope axis')
+        kit=np.array([[[profile[0,0]-.4,0,profile[0,1]],[profile[0,0],0,profile[0,1]]],
+                      [[profile[-1,0],0,profile[-1,1]],[profile[-1,0]+.4,0,profile[-1,1]]]])
+        segments=np.concatenate((np.stack((axis[:-1],axis[1:]),axis=1),kit))
+        for arc in samples:
+            G=np.asarray(path.grip_frame(float(arc),(0,side,0)),float)
+            points=groove@G[:3,:3].T+G[:3,3]
+            # Every groove point is within .3m of the grip origin. Segments
+            # outside this window cannot beat the nearby rope's .045m radius.
+            if np.max(np.linalg.norm(points-G[:3,3],axis=1))>=.3:
+                raise ValueError('Stored rope groove search window is insufficient')
+            selected=segments[(segments[:,:,0].max(axis=1)>=G[0,3]-.8)&
+                              (segments[:,:,0].min(axis=1)<=G[0,3]+.8)]
+            if not len(selected):raise ValueError('Missing stored rope segment')
+            a=selected[:,0];v=selected[:,1]-a;length2=np.sum(v*v,axis=1)
+            if np.any(length2<=0):raise ValueError('Degenerate stored rope segment')
+            t=np.clip(np.sum((points[:,None,:]-a)*v,axis=2)/length2,0,1)
+            distances=np.linalg.norm(points[:,None,:]-a-t[:,:,None]*v,axis=2).min(axis=1)
+            worst=max(worst,float(np.abs(distances-radius).max())*1000);poses+=1
+    # Five micrometres cover the short kit overlap's local-coordinate storage;
+    # the world span itself uses the recovered, centimetre-quantized vertices.
+    bound=worst+.005
+    return {'poses':poses,'directions':[-1,1],'points_per_pose':len(groove),
+            'max_error_mm':worst,'bound_mm':bound,'pass':bound<=2.,
+            'representation':'fbx-float32-cm-ring-axis'}
