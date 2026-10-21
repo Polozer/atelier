@@ -17,7 +17,7 @@ inline VehicleSpec kart_spec()
     s.chassis.front_axle = 0.75f;
     s.chassis.front_weight_bias = 42.0f;
     s.chassis.roll_center = 3.0f;
-    // Ride quality over broken ground, measured by tests/.../kart_ride_test.cpp: 7 cm of travel on soft springs
+    // Ride quality over broken ground, measured by tests/.../kart_ride_test.cpp: 9.1 cm of travel on soft springs
     // with light damping keeps all four tyres down over ripples and facets without wallowing in a turn.
     s.chassis.spring_stiffness[0] = 90.0f;
     s.chassis.spring_stiffness[1] = 105.0f;

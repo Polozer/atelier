@@ -196,8 +196,8 @@ FString UYorimichiLive::CarState()
     AWandererCharacter* P = Cast<AWandererCharacter>(ULiveLibrary::Player()); const UDrivingComponent* C = P ? P->GetCar() : nullptr;
     if (!C) return TEXT("no car");
     const FVector A = P->GetActorLocation(); const FTransform T = C->GetCarTransform(); const FRotator R = T.Rotator();
-    return FString::Printf(TEXT("driving=%d speed=%.0f kph=%.1f hint=%s pos=(%.0f,%.0f,%.0f) yaw=%.1f car=(%.0f,%.0f,%.0f) carrot=(%.1f,%.1f,%.1f)"),
-        C->IsEquipped() ? 1 : 0, C->GetSpeed(), C->GetSpeedKph(), *C->GetStatus().Replace(TEXT(" "), TEXT("_")),
+    return FString::Printf(TEXT("driving=%d speed=%.0f kph=%.1f scale=%.4f hint=%s pos=(%.0f,%.0f,%.0f) yaw=%.1f car=(%.0f,%.0f,%.0f) carrot=(%.1f,%.1f,%.1f)"),
+        C->IsEquipped() ? 1 : 0, C->GetSpeed(), C->GetSpeedKph(), C->GetKartScale(), *C->GetStatus().Replace(TEXT(" "), TEXT("_")),
         A.X, A.Y, A.Z, P->GetActorRotation().Yaw, T.GetLocation().X, T.GetLocation().Y, T.GetLocation().Z, R.Pitch, R.Yaw, R.Roll);
 }
 

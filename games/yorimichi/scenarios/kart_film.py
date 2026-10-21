@@ -7,7 +7,7 @@ The game steps at a fixed 60 Hz and every second step is captured, so the take i
 the real key bindings (W / A / D / S), not the scripted intent, so the same path as a player's. Writes the frames and
 done.json with the car state.
 """
-import json, os
+import importlib.util, json, os
 import unreal
 
 L = live.L
@@ -15,6 +15,9 @@ TAKE = globals().get('TAKE', 'kart1')
 ROOT = os.environ.get('ATELIER_BUILD_ROOT') or os.path.join(live.ROOT, 'build')
 OUT = os.path.join(ROOT, 'yorimichi/kart_film', TAKE)
 os.makedirs(OUT, exist_ok=True)
+_spec = importlib.util.spec_from_file_location('kart_cleanup', os.path.join(live.ROOT, 'games/yorimichi/scenarios/kart_cleanup.py'))
+CLEAN = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(CLEAN)
 for name in os.listdir(OUT):
     if name.endswith('.jpg') or name.endswith('.json'):
         os.remove(os.path.join(OUT, name))
@@ -74,15 +77,14 @@ def run(dt):
             st['film'] += 1
         st['sim'] += 1
         if t > END + .4:
-            for k in st['held']:
-                L.input_key(k, 'release', 0)
-            L.fixed_step(0)
+            CLEAN.cleanup(live, unreal.MegaParkValidation.restore_player_camera)
             json.dump({'take': TAKE, 'fps': 30, 'frames': st['frames'], 'car': L.car_state(),
                        'loops': L.car_loops(), 'errors': st['errors']}, open(os.path.join(OUT, 'done.json'), 'w'), indent=1)
             unreal.log('KART FILM COMPLETE %d frames' % st['film'])
             live.stop('kart_film')
     except Exception as error:
         st['errors'].append(repr(error))
+        CLEAN.cleanup(live, unreal.MegaParkValidation.restore_player_camera)
         unreal.log_error('KART FILM: %s' % error)
         live.stop('kart_film')
 

@@ -7,6 +7,7 @@ build/yorimichi/kart_film/kart_uneven.json. Use it before and after a suspension
 family, so the vertical acceleration and wheel-contact numbers compare like for like.
 """
 import json
+import importlib.util
 import os
 import re
 import unreal
@@ -15,6 +16,9 @@ L = live.L
 ROOT = os.environ.get('ATELIER_BUILD_ROOT') or os.path.join(live.ROOT, 'build')
 OUT = os.path.join(ROOT, 'yorimichi/kart_film')
 os.makedirs(OUT, exist_ok=True)
+_spec = importlib.util.spec_from_file_location('kart_cleanup', os.path.join(live.ROOT, 'games/yorimichi/scenarios/kart_cleanup.py'))
+CLEAN = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(CLEAN)
 
 START = globals().get('START', unreal.Vector(-23600.0, 16000.0, 0.0))
 YAW = globals().get('YAW', 0.0)
@@ -34,6 +38,7 @@ def ride():
 
 
 def finish():
+    CLEAN.cleanup(live, unreal.MegaParkValidation.restore_player_camera)
     accels = st['accels']
     if not accels:
         st['errors'].append('no samples')
@@ -94,6 +99,7 @@ def run(dt):
                 finish()
     except Exception as error:
         st['errors'].append(repr(error))
+        CLEAN.cleanup(live, unreal.MegaParkValidation.restore_player_camera)
         unreal.log_error('KART UNEVEN: %s' % error)
         live.stop('kart_uneven')
 

@@ -17,7 +17,7 @@ the host moves the character actor with it and reads the world with one ray per 
 
 ## Ride
 
-The kart runs 3.6 in of suspension travel on 90/110 lb/in springs with light damping (12/14 lb/in/s bump,
+The kart runs 3.6 in (9.1 cm) of suspension travel on 90/105 lb/in springs with light damping (12/14 lb/in/s bump,
 17/19 rebound) and a 0.5 progression, so a four-tyre contact is kept over broken asphalt instead of bouncing
 off the bump stops. On the 20 s test road in
 `platform/engine/Plugins/Activities/Driving/Tests/Simulation/kart_ride_test.cpp` (8 m/s over 2 cm and 0.8 cm

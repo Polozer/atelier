@@ -7,6 +7,7 @@ steps out, then opens the glider again to prove driving left the equipment worki
 build/yorimichi/kart_film/kart_equipment.json with every check and two stills.
 """
 import json
+import importlib.util
 import os
 import unreal
 
@@ -14,6 +15,9 @@ L = live.L
 ROOT = os.environ.get('ATELIER_BUILD_ROOT') or os.path.join(live.ROOT, 'build')
 OUT = os.path.join(ROOT, 'yorimichi/kart_film')
 os.makedirs(OUT, exist_ok=True)
+_spec = importlib.util.spec_from_file_location('kart_cleanup', os.path.join(live.ROOT, 'games/yorimichi/scenarios/kart_cleanup.py'))
+CLEAN = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(CLEAN)
 
 
 def glider_visible():
@@ -115,13 +119,14 @@ def run(dt):
         elif st['phase'] == 12 and t > 7.2:
             st['phase'] = 13
             check('glider still opens after driving', glider_visible() is True, 'visible=%r' % glider_visible())
-            L.fixed_step(0)
+            CLEAN.cleanup(live, unreal.MegaParkValidation.restore_player_camera)
             json.dump({'ok': not st['errors'], 'checks': st['checks'], 'shots': st['shots'],
                        'errors': st['errors']}, open(os.path.join(OUT, 'kart_equipment.json'), 'w'), indent=1)
             unreal.log('KART EQUIPMENT %s' % ('PASS' if not st['errors'] else 'FAIL: ' + '; '.join(st['errors'])))
             live.stop('kart_equipment')
     except Exception as error:
         st['errors'].append(repr(error))
+        CLEAN.cleanup(live, unreal.MegaParkValidation.restore_player_camera)
         unreal.log_error('KART EQUIPMENT: %s' % error)
         live.stop('kart_equipment')
 

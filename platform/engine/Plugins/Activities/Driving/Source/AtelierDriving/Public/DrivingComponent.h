@@ -64,6 +64,8 @@ public:
     /** Ground speed in centimetres per second (the game's unit). */
     float GetSpeed() const;
     float GetSpeedKph() const;
+    /** The kart's mounted scale, fitted to the rider's leg length; fixed for the ride. */
+    float GetKartScale() const { return KartScale; }
     FString GetStatus() const { return Hint; }
     /** The chassis pose: origin at the centre of gravity, +X the nose. */
     FTransform GetCarTransform() const;

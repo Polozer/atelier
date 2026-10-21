@@ -7,8 +7,10 @@ an elevated seat view and a grip close-up per rider. The review camera is restor
 Writes build/yorimichi/kart_film/kart_fit.json with each rider's mesh, car state, ride telemetry and glider state.
 """
 import json
+import importlib.util
 import math
 import os
+import re
 import unreal
 
 L = live.L
@@ -16,6 +18,20 @@ MV = unreal.MegaParkValidation
 ROOT = os.environ.get('ATELIER_BUILD_ROOT') or os.path.join(live.ROOT, 'build')
 OUT = os.path.join(ROOT, 'yorimichi/kart_film/fit')
 os.makedirs(OUT, exist_ok=True)
+_spec = importlib.util.spec_from_file_location('kart_cleanup', os.path.join(live.ROOT, 'games/yorimichi/scenarios/kart_cleanup.py'))
+CLEAN = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(CLEAN)
+try:
+    PREPARED = json.load(open(os.path.join(live.ROOT, 'games/yorimichi/assets/vehicles/kart/grips/prepared-models.json')))
+except Exception:
+    PREPARED = {'models': {}}
+
+flags = {}
+
+
+def scale_of(state):
+    match = re.search(r'scale=([0-9.]+)', state)
+    return float(match.group(1)) if match else None
 
 RIDERS = ['Cairo', 'Modori', 'Nox', 'Paul']
 # (name, forward, right, up, aim forward, aim up, fov)
@@ -49,6 +65,8 @@ def glider_visible():
 
 def hand_shot(side, rider, state):
     """A close-up of one hand on the rim, aimed from the hand bone itself rather than the pawn origin."""
+    if not flags.get(rider):
+        return
     world = unreal.LiveLibrary.game_world()
     pawn = unreal.GameplayStatics.get_player_pawn(world, 0)
     mesh = None
@@ -81,6 +99,9 @@ def build():
     for index, rider in enumerate(RIDERS):
         def select(rider=rider):
             print('rider %s -> %s' % (rider, L.switch_character(rider)))
+            for name in os.listdir(OUT):
+                if name.startswith(rider.lower() + '_'):
+                    os.remove(os.path.join(OUT, name))
 
         def park():
             if 'driving=1' in L.car_state():
@@ -99,6 +120,7 @@ def build():
                 ground = L.ground_at(BEACH + unreal.Vector(450.0, 400.0, 0.0))
                 L.teleport_player(ground, 0.0)
                 live.press('car')
+            flags[rider] = 'driving=1' in L.car_state()
 
         def record(rider=rider):
             world = unreal.LiveLibrary.game_world()
@@ -111,6 +133,9 @@ def build():
             result = {'rider': rider,
                       'pawn': pawn.get_class().get_name(),
                       'mesh': mesh.get_path_name() if mesh else None,
+                      'summon_ok': bool(flags.get(rider)),
+                      'live_scale': scale_of(L.car_state()),
+                      'prepared_scale': PREPARED.get('models', {}).get(rider.lower(), {}).get('scale'),
                       'car': L.car_state(),
                       'ride': L.car_ride(),
                       'glider_visible': glider_visible(),
@@ -132,6 +157,8 @@ def build():
         for view, forward, right, up, aim_forward, aim_up, fov in VIEWS:
             def shot(view=view, forward=forward, right=right, up=up, aim_forward=aim_forward,
                      aim_up=aim_up, fov=fov, rider=rider):
+                if not flags.get(rider):
+                    return
                 loc, yaw = live.player()
                 eye, at = frame(loc, yaw, forward, right, up, aim_forward, aim_up)
                 MV.review_camera(eye, at, fov)
@@ -156,7 +183,7 @@ clock = {'t': 0.0}
 def tick(dt):
     try:
         if not queue:
-            L.fixed_step(0)
+            CLEAN.cleanup(live, MV.restore_player_camera)
             json.dump(results, open(json_path, 'w'), indent=1)
             print('kart fit done: %d riders' % len(results))
             unreal.log('KART FIT COMPLETE %d' % len(results))
@@ -167,6 +194,7 @@ def tick(dt):
             fn = queue.pop(0)[1]
             fn()
     except Exception as error:
+        CLEAN.cleanup(live, MV.restore_player_camera)
         unreal.log_error('KART FIT: %s' % error)
         queue.clear()
         live.stop('kart_fit')
