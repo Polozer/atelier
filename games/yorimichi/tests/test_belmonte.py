@@ -178,6 +178,22 @@ class Flora(unittest.TestCase):
         self.assertAlmostEqual(shifted['osteria_front']['pivot_cm'][0], -2350., places=2)
         self.assertAlmostEqual(shifted['osteria_front']['watch_cm'][0], -2790., places=2)
 
+    def test_racing_counter_follows_the_salon_hall(self):
+        from belmonte import build as B
+        counter = B.racing_places()['counter']
+        # The central guichet as Haras Valley placed it, now derived from SM_BM_BHip_SalonHall's committed transform.
+        self.assertEqual(counter['at_cm'], [8760., -30500., 3015.])
+        self.assertEqual(counter['yaw'], 0.)
+        moved = json.loads(json.dumps(source.manifest()))
+        salon = {m['source_asset'] for m in moved['meshes'] if m['name'] == 'SM_BM_BHip_SalonHall'}
+        for p in moved['placements']:
+            if p['asset'] in salon:
+                p['transform']['translation_cm'][1] += 300.
+                p['transform']['rotation_xyzw'] = [0., 0., 0.70710678, 0.70710678]
+        shifted = B.racing_places(moved)['counter']
+        self.assertEqual(shifted['yaw'], -90.)
+        self.assertAlmostEqual(shifted['at_cm'][0], 7000. - 300., places=1)
+        self.assertAlmostEqual(shifted['at_cm'][1], -30200. + 300. - 1760., places=1)
 
 if __name__ == '__main__':
     unittest.main()
