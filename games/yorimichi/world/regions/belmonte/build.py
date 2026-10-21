@@ -241,11 +241,11 @@ def building_collision(data, meshes):
     return report
 
 
-def furniture_collision(entry, drawn):
+def furniture_collision(entry, drawn, data):
     """Skate furniture (benches, planters, walls, basins) collides with columns generated from its drawn tops
     (belmonte/furniture.py) and carries grind lines; fails if the collision leaves any of the drawing outside."""
     path = OUT / 'glb' / (entry['name'] + '_Collision.glb')
-    item = furniture.generate(entry, drawn)
+    item = furniture.generate(entry, drawn, run=furniture.run_axis(data, entry, drawn))
     worst = float(furniture.outside_m(item, np.unique(np.round(item.drawn.reshape(-1, 3), 5), axis=0)).max())
     if worst > furniture.TOP_TOL_M + 1e-3:
         raise ValueError(f'{entry["name"]}: drawn geometry {worst:.3f} m outside its generated collision')
@@ -286,7 +286,7 @@ def main():
             hulls = source.LIBRARY / entry['collision']['path']
             assert source.sha(hulls) == entry['collision']['sha256'], hulls
             if furniture.is_furniture(entry['name']):
-                grind_lines[entry['name']], furniture_report[entry['name']] = furniture_collision(entry, path)
+                grind_lines[entry['name']], furniture_report[entry['name']] = furniture_collision(entry, path, data)
             elif not collision.is_building(entry['name']):     # buildings get generated shells below
                 entry['collision'] = outward_hulls(hulls)
     shells = building_collision(data, meshes)

@@ -18,18 +18,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world'))
 import yori  # noqa: E402,F401
 from belmonte import build, collision, furniture, source  # noqa: E402
 
-ENTRIES = {m['name']: m for m in source.manifest()['meshes'] if furniture.is_furniture(m['name'])}
+MANIFEST = source.manifest()
+ENTRIES = {m['name']: m for m in MANIFEST['meshes'] if furniture.is_furniture(m['name'])}
 NAMES = sorted(ENTRIES)
 
 # What a skater should find on each prop: (kind, least length m, height m) for every line it must offer.
 EXPECTED = {
-    'SM_BM_BP_Bench': [('ThinRail', 1.8, .83), ('Ledge', 1.4, .48), ('Ledge', 1.4, .48)],
+    'SM_BM_BP_Bench': [('ThinRail', 1.8, .83)],          # the seat's edges run under the armrests (below)
     'SM_BM_BP_StoneBench': [('Ledge', 1.9, .49)] * 2,
     'SM_BM_BP_StonePlanter_A': [('Ledge', 1.85, .50)] * 2,
     'SM_BM_BP_StonePlanter_B': [('Ledge', 1.85, .50)] * 2,
     'SM_BM_BVV_StoneWall': [('Ledge', 10., .92)] * 2,
     'SM_BM_BE_Trough': [('ThinRail', 2., .62)] * 2,
-    'SM_BM_BE_MountingBlock': [('Ledge', 1.1, .75)] * 2 + [('Ledge', 1.1, .50)] * 2 + [('Ledge', 1.1, .25)],
+    'SM_BM_BE_MountingBlock': [('Ledge', 1.1, .75)] * 2 + [('Ledge', 1.1, .50), ('Ledge', 1.1, .25)],
     'SM_BM_BHip_HayBale': [('Ledge', 1., .42)] * 2,
     'SM_BM_BH_Fontanella': [('Ledge', 8., .80), ('Ledge', 10., .16)],
     'SM_BM_BH_FountainPiazza': [('Ledge', 27., 1.10), ('Ledge', 34., .32), ('Ledge', 37., .16)],
@@ -38,7 +39,7 @@ EXPECTED = {
 
 @lru_cache(maxsize=None)
 def generated(name):
-    item = furniture.generate(ENTRIES[name])
+    item = furniture.generate(ENTRIES[name], run=furniture.run_axis(MANIFEST, ENTRIES[name]))
     return item, furniture.rails(item)
 
 
@@ -124,11 +125,32 @@ def test_grind_lines_qualify_under_the_plugin_rules(name):
             kinds, on = furniture.classify(faces, samples, q - p)
             assert on.all(), (name, 'line off its collision')
             assert (kinds != furniture.IMPOSSIBLE).all(), (name, 'blocked line', kinds)
+            assert furniture.clear(faces, samples, q - p).all(), (name, 'the deck would stop on something')
     found = sorted((r['kind'], furniture._length(r['points']), float(r['points'][:, 2].mean())) for r in lines)
     for kind, length, height in EXPECTED[name]:
         match = [f for f in found if f[0] == kind and f[1] >= length - .02 and abs(f[2] - height) < .02]
         assert match, (name, kind, length, height, found)
         found.remove(match[0])
+
+
+def test_a_bench_seat_edge_is_no_line_where_the_armrests_stop_the_deck():
+    """In game the board stalled 0.7 m into the bench's seat edge: its nose (45.6 cm ahead of the deck's centre) hit
+    the armrest, which spans the seat's whole depth. Both seat edges fail the deck clearance near the armrests, so
+    neither is offered as a line; the backrest's rail is the bench's grind, clear every 10 cm of its length."""
+    item, lines = generated('SM_BM_BP_Bench')
+    faces = np.concatenate([item.faces, furniture.GROUND])
+    seat = [p for p in item.plates if abs(p.z(p.poly).max() - .477) < .01][0]
+    for y in (seat.poly[:, 1].min(), seat.poly[:, 1].max()):
+        x = np.arange(-.7, .71, furniture.RAIL_STEP_M)
+        edge = np.c_[x, np.full(len(x), y), seat.z(np.c_[x, np.full(len(x), y)])]
+        ok = furniture.clear(faces, edge, np.array([1., 0., 0.]))
+        assert ok[np.abs(x) < .15].all() and not ok[np.abs(x) > .3].any()
+    assert all(r['points'][:, 2].min() > .8 for r in lines)
+    rail = lines[0]['points']
+    x = np.arange(rail[:, 0].min(), rail[:, 0].max() + 1e-6, furniture.RAIL_STEP_M)
+    samples = np.c_[x, np.full(len(x), rail[0, 1]), np.full(len(x), rail[0, 2])]
+    kinds, on = furniture.classify(faces, samples, np.array([1., 0., 0.]))
+    assert on.all() and (kinds != furniture.IMPOSSIBLE).all() and furniture.clear(faces, samples, np.array([1., 0., 0.])).all()
 
 
 def test_placed_lines_join_wall_sections_and_follow_their_placements():
@@ -151,10 +173,49 @@ def test_placed_lines_join_wall_sections_and_follow_their_placements():
     assert np.allclose(np.asarray(rail['points']) / [100., -100., 100.], world, atol=.002)
 
 
+def test_wall_runs_have_a_level_unbroken_top_through_every_join():
+    """In game the board slowed crossing a field wall join. Sections meet with up to JOIN_CM of gap or overlap; their
+    collision reaches RUN_OVERLAP_M past each drawn end, so through every join the top has no hole and no step over
+    5 mm, every centimetre across the top both sections share, and the run's line is one line through it."""
+    name = 'SM_BM_BVV_StoneWall'
+    item, lines = generated(name)
+    axis, lo, hi = item.run
+    assert axis == 0
+    top = max(p.z(p.poly).max() for p in item.plates)
+    transforms = [p['transform'] for p in MANIFEST['placements'] if p['asset'] == ENTRIES[name]['source_asset']]
+    starts = np.array([furniture.to_region_cm(t, [[lo, 0, top]])[0] for t in transforms])
+    ends = np.array([furniture.to_region_cm(t, [[hi, 0, top]])[0] for t in transforms])
+    gap = np.linalg.norm(ends[:, None] - starts[None], axis=-1)
+    joins = np.argwhere(gap <= furniture.JOIN_CM)
+    assert len(joins) > 100
+    s = np.arange(-.2, .201, .01)
+    for i, j in joins:
+        faces = np.concatenate([furniture.to_region_cm(transforms[k], item.faces.reshape(-1, 3)).reshape(-1, 3, 3)
+                                for k in (i, j)])
+        # Across the top both sections share: one placement sits up to a few cm aside of the other.
+        u = (ends[i] - starts[i])[:2] / np.linalg.norm((ends[i] - starts[i])[:2])
+        aside = abs(u[0] * (starts[j] - ends[i])[1] - u[1] * (starts[j] - ends[i])[0]) / 100
+        shared = .12 - aside - .01
+        for lateral in (-shared, 0., shared):
+            local = np.c_[hi + s, np.full(len(s), lateral), np.full(len(s), top)]
+            at = furniture.to_region_cm(transforms[i], local)
+            t = furniture.segment_hits(faces, at + [0, 0, 30], at - [0, 0, 30])
+            assert not np.isnan(t).any(), (i, j, 'hole in the top at the join')
+            rise = np.diff(at[:, 2] + 30 - 60 * t)            # cm per cm along the run, on a slope
+            assert np.abs(rise - np.median(rise)).max() <= .5, (i, j, 'step at the join', (rise - np.median(rise)).round(2).tolist())
+    placed = furniture.placed_rails(MANIFEST, {name: lines})
+    walls = [np.asarray(r['points']) for r in placed if r['id'].startswith('BVV_StoneWall')]
+    for i, j in joins:                                       # the join is a point inside one line, not two ends
+        for edge in (-.12, .12):
+            p = furniture.to_region_cm(transforms[i], [[hi, edge, top]])[0]
+            near = [w for w in walls if np.linalg.norm(w - p, axis=1).min() <= furniture.JOIN_CM]
+            assert any(0 < np.linalg.norm(w - p, axis=1).argmin() < len(w) - 1 for w in near), (i, j, edge)
+
+
 def test_build_writes_furniture_collision_and_rails(tmp_path, monkeypatch):
     monkeypatch.setattr(build, 'OUT', tmp_path)
     (tmp_path / 'glb').mkdir()
     entry = dict(ENTRIES['SM_BM_BP_StoneBench'])
-    lines, report = build.furniture_collision(entry, source.LIBRARY / entry['path'])
+    lines, report = build.furniture_collision(entry, source.LIBRARY / entry['path'], MANIFEST)
     assert entry['collision']['generated'] and (tmp_path / entry['collision']['path']).exists()
     assert report['drawn_outside_m'] == 0 and len(lines) == 2
