@@ -41,9 +41,23 @@ void ReadKartGrip(AWandererCharacter* Pawn, UDrivingComponent* Car)
     const TSharedPtr<FJsonObject>* Bind = nullptr;
     FString Id;
     double Schema = 0., Scale = 0.;
+    double ExpectedScale = Car->GetKartScale(), ScaleTolerance = .02;
+    if (const TSharedPtr<FJsonObject> Receipt = AtelierReadJson(AtelierDataPath(TEXT("kart/prepared-models.json"))))
+    {
+        const TSharedPtr<FJsonObject>* Models = nullptr;
+        const TSharedPtr<FJsonObject>* Entry = nullptr;
+        double Prepared = 0.;
+        if (Receipt->TryGetObjectField(TEXT("models"), Models) && (*Models)->TryGetObjectField(Character->Id, Entry) &&
+            (*Entry)->TryGetNumberField(TEXT("scale"), Prepared) && FMath::IsFinite(Prepared))
+        {
+            ExpectedScale = Prepared;
+            ScaleTolerance = 1e-4;
+        }
+    }
     if (!Data->TryGetNumberField(TEXT("schema"), Schema) || Schema != 1. ||
         !Data->TryGetStringField(TEXT("character"), Id) || Id != Character->Id ||
-        !Data->TryGetNumberField(TEXT("scale"), Scale) || !FMath::IsFinite(Scale) || FMath::Abs(Scale-Car->GetKartScale()) > .002 ||
+        !Data->TryGetNumberField(TEXT("scale"), Scale) || !FMath::IsFinite(Scale) ||
+        FMath::Abs(Scale - ExpectedScale) > ScaleTolerance ||
         !Data->TryGetObjectField(TEXT("hands"), Hands) || !Data->TryGetObjectField(TEXT("bind_world"), Bind))
     {
         UE_LOG(LogTemp, Error, TEXT("Kart grip is invalid or stale for %s"), *Character->Id); return;

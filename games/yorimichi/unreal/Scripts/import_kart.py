@@ -39,6 +39,8 @@ for name in ('SM_Kart_Body', 'SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringW
 data = Path(__file__).resolve().parents[1] / 'Content/Data/kart/cockpit.json'
 data.parent.mkdir(parents=True, exist_ok=True)
 shutil.copy2(OUT / 'cockpit.json', data)
+# The runtime checks a saved grip against the prepared model it was authored on, not against the live fit.
+shutil.copy2(yori.OUT / 'kart-grip-editor' / 'prepared-models.json', data.parent / 'prepared-models.json')
 # Authoring is explicit: shipping never substitutes guessed curls for an unsaved character.
 grips = Path(__file__).resolve().parents[2] / 'assets/vehicles/kart/grips'
 for character in playable_ids():
