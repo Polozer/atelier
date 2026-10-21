@@ -23,6 +23,10 @@ from mesh_import import import_mesh  # noqa: E402
 E = unreal.EditorAssetLibrary
 M = unreal.MaterialEditingLibrary
 TOOLS = unreal.AssetToolsHelpers.get_asset_tools()
+unreal.load_module('StaticMeshEditor')
+EDITOR = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+if EDITOR is None:
+    raise RuntimeError('StaticMeshEditor subsystem is unavailable after loading its module')
 unreal.SystemLibrary.execute_console_command(None, 'Interchange.FeatureFlags.Import.FBX 0')
 
 
@@ -88,7 +92,7 @@ for folder, dest, entries, palette in (
         collision = name.endswith(('_Collision', '_Brow'))
         if collision:
             body.set_editor_property('collision_trace_flag', unreal.CollisionTraceFlag.CTF_USE_SIMPLE_AS_COMPLEX)
-            count = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem).get_convex_collision_count(mesh)
+            count = EDITOR.get_convex_collision_count(mesh)
             if count <= 0:
                 raise ValueError(f'{name}: missing authored convex collision')
         else:
