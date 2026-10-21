@@ -124,10 +124,48 @@ def test_sloping_stringer_has_a_level_fully_supported_railing_post_seat():
     function=helper('rail_bearing',{'np':np,'solid':SimpleNamespace(TIMBER_DARK=1)})
     for slope in (.12,.57,.85):
         roof=lambda x,y:2.-slope*x
-        top=function(mesh,0.,0.,np.array([1.,0.]),np.array([0.,1.]),roof)
+        top=function(mesh,0.,0.,np.array([1.,0.]),np.array([0.,1.]),roof,.08)
         polygon,base,cap=pieces[-1]
         assert top==cap and top>max(roof(*point) for point in polygon)
         assert all(abs(base(*point)-(roof(*point)-.01))<1e-12 for point in polygon)
         # All five existing seat-audit rays hit this horizontal bearing surface.
         for point in ((0,0),(-.06,0),(.06,0),(0,-.06),(0,.06)):
             assert np.all(np.asarray(point)>polygon.min(0)) and np.all(np.asarray(point)<polygon.max(0))
+
+
+def test_actual_access_stringer_end_caps_clear_their_support_post_faces():
+    from contextlib import contextmanager,nullcontext
+    roofs=[];posts=[]
+    class Mesh:
+        tag=None
+        def __init__(self,name):pass
+        @contextmanager
+        def tagged(self,tag):
+            previous=self.tag;self.tag=tag
+            try:yield
+            finally:self.tag=previous
+        def prism(self,polygon,*args,**kwargs):
+            if self.tag=='access_stringer':roofs.append(np.asarray(polygon))
+        def at(self,*args):return nullcontext()
+        def box(self,*args):pass
+    def support(mesh,G,frame,point,level,section):
+        posts.append((point,section));return None
+    solid=SimpleNamespace(Mesh=Mesh,TIMBER_DARK=1,TIMBER=2,DECK=3)
+    ground=SimpleNamespace(contact=lambda points:(np.zeros(len(points)),None))
+    function=helper('access_stair',{
+        'np':np,'math':__import__('math'),'solid':solid,'STATIONS':{'fixture':{}},
+        'Station':lambda *a:SimpleNamespace(seats=[],proxies=[]),
+        'P':SimpleNamespace(DEFAULTS={},derived=lambda p:{}),
+        'world_xy':lambda points,frame:np.asarray(points),
+        'ground_edge':lambda *a:(np.array([-1.1,1.1]),np.zeros(2)),
+        'railing':lambda *a,**k:None,'timber_support':support,
+    })
+    layout={'access':[{'edge':[[0.,-1.2],[0.,1.2]],'point':[-1.,0.],'z':2.}]}
+    function('fixture',layout,ground,(None,None,None,0.))
+    assert len(roofs)==2 and len(posts)>0
+    for polygon in roofs:
+        centre=polygon[:,1].mean()
+        head=polygon[:,0].min()
+        initial=[(p,s) for p,s in posts if p[0]==0. and abs(p[1]-centre)<1e-8]
+        assert initial
+        assert all(head<p[0]-section/2-1e-8 for p,section in initial)

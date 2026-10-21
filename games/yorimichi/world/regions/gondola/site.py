@@ -167,10 +167,10 @@ def ground_edge(G,frame,end,across,width):
     return knots,z
 
 
-def rail_bearing(mesh,x,y,direction,across,roof):
+def rail_bearing(mesh,x,y,direction,across,roof,half_length):
     """A level post seat with a fitted underside embedded in the stringer."""
     centre=np.array([x,y])
-    polygon=[centre+a*.08*direction+b*.075*across for a,b in ((-1,-1),(1,-1),(1,1),(-1,1))]
+    polygon=[centre+a*half_length*direction+b*.075*across for a,b in ((-1,-1),(1,-1),(1,1),(-1,1))]
     top=max(roof(*point) for point in polygon)+.02
     with mesh.tagged('access_stringer'):
         mesh.prism(polygon,lambda x,y:roof(x,y)-.01,top,solid.TIMBER_DARK)
@@ -249,15 +249,19 @@ def access_stair(key,layout,G,frame):
     def stringer_top(x,y):
         distance=float((np.array([x,y])-start)@direction)
         return top-(top-bottom)*distance/length+.25
+    support_section=.20
+    bearing_half_length=.08
     for side in (-1,1):
         offset=side*(width/2-.12)*across
         a,b=start+offset,end+offset
-        head=a-.10*direction;tail=b+.10*direction
+        # Clear both the .20m support-post end planes and .16m bearing pads.
+        extension=max(support_section/2,bearing_half_length)+.02
+        head=a-extension*direction;tail=b+extension*direction
         polygon=[head-across*.09,tail-across*.09,tail+across*.09,head+across*.09]
         with mesh.tagged('access_stringer'):
             mesh.prism(polygon,lambda x,y:stringer_top(x,y)-.55,stringer_top,solid.TIMBER)
         railing(mesh,rail_layout,[a,b],'timber',
-                z0=lambda x,y:rail_bearing(mesh,x,y,direction,across,stringer_top),on=('access_stringer',))
+                z0=lambda x,y:rail_bearing(mesh,x,y,direction,across,stringer_top,bearing_half_length),on=('access_stringer',))
     route.append([*end,float(np.interp(0,edge_t,edge_z))])
     # Check every generated landing strip against the same final contact query.
     for surface in surfaces:
@@ -275,7 +279,7 @@ def access_stair(key,layout,G,frame):
         for side in (-1,1):
             point=start+distance*direction+side*(width/2-.12)*across
             level=top-(top-bottom)*distance/length-.20
-            support=timber_support(mesh,G,frame,point,level,.20)
+            support=timber_support(mesh,G,frame,point,level,support_section)
             if support:
                 supports.append(support)
     return mesh,{'route':route,'width':width,'risers':n,'riser':rise,'tread':.32,
