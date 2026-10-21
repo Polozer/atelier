@@ -159,6 +159,7 @@ def test_actual_access_stringer_end_caps_clear_their_support_post_faces():
         'world_xy':lambda points,frame:np.asarray(points),
         'ground_edge':lambda *a:(np.array([-1.1,1.1]),np.zeros(2)),
         'railing':lambda *a,**k:None,'timber_support':support,
+        'floor_intrusion':lambda *a:0.,
     })
     layout={'access':[{'edge':[[0.,-1.2],[0.,1.2]],'point':[-1.,0.],'z':2.}]}
     function('fixture',layout,ground,(None,None,None,0.))

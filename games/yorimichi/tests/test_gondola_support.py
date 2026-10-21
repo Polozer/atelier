@@ -56,3 +56,29 @@ def test_unsampled_interior_peak_sets_complete_foot_relief():
                [b,d,3. if b==d==.2 else 0.],[a,d,3. if a==d==.2 else 0.]]
             triangles += [[q[0],q[1],q[2]],[q[0],q[2],q[3]]]
     assert support.ground_ceiling(np.array(triangles),[[-.4,-.4],[.4,-.4],[.4,.4],[-.4,.4]])==3.
+
+
+def test_sloping_access_floor_compares_matching_planes_instead_of_global_extrema():
+    with gondola_modules('solid',pure=False):
+        from gondola.support import floor_intrusion
+    from test_gondola_ground import ground,plane
+    from terrain_product import Mesh
+    from terrain_query import Surface
+    xy=np.array([[-10,-10],[10,-10],[10,10],[-10,10]])
+    vertices=np.c_[xy,2*xy[:,0]+xy[:,1]]
+    city=Surface(Mesh.from_polygons(vertices,[[0,1,2],[0,2,3]]),owner='city',stage='final')
+    G=ground(city=city,trail=plane('trail',0,(30,30,31,31)))
+    polygon=np.array([[-.4,-2.4],[.4,-2.4],[.4,-1.6],[-.4,-1.6]])
+    heights=2*polygon[:,0]+polygon[:,1]+.05
+    assert floor_intrusion(G,polygon,heights)==pytest.approx(-.05)
+    assert floor_intrusion(G,polygon[::-1],heights[::-1])==pytest.approx(-.05)
+
+
+def test_nonplanar_access_quad_uses_the_exported_cap_diagonal():
+    with gondola_modules('solid',pure=False):
+        from gondola.support import floor_intrusion
+    from test_gondola_access_ground import terrain
+    # The 3m crest lies in the generated cap's flat triangle; bilinear
+    # interpolation across this nonplanar quad would assign it a raised floor.
+    polygon=np.array([[0.,0.],[1.,0.],[1.,1.],[0.,1.]])
+    assert floor_intrusion(terrain('off-centre'),polygon,[0.,0.,1.,0.])==pytest.approx(3.)

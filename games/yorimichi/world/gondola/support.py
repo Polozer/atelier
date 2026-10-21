@@ -1,7 +1,7 @@
 """Complete owned footprint coverage and relief from final terrain triangles."""
 import math
 import numpy as np
-from solid_mesh import signed_area
+from solid_mesh import signed_area, ear_clip
 from gondola.clearance import clip
 
 AREA_TOL=1e-9
@@ -130,3 +130,30 @@ def owned_range(G,polygon,*,contact=True):
     values=owned_triangles(G,polygon,contact=contact)[:,:,2]
     if not values.size:raise ValueError('Missing complete owned footprint')
     return float(values.min()),float(values.max())
+
+
+def floor_intrusion(G,polygon,heights):
+    """@cc [owner:fontanierh,label:correctness] complete-access-floor-ground
+    Every point of an access floor MUST have final owned ground coverage.
+    Intrusion MUST compare that ground against the actual generated floor cap
+    triangles at all intersection vertices, including trail-owned contact.
+    """
+    polygon=np.asarray(polygon,float)
+    heights=np.broadcast_to(np.asarray(heights,float),(len(polygon),))
+    if polygon.shape!=(len(polygon),2) or len(polygon)<3 or not np.isfinite(polygon).all() or not np.isfinite(heights).all():
+        raise ValueError('Invalid access floor geometry')
+    if signed_area(polygon-polygon[0])<0:
+        polygon=polygon[::-1];heights=heights[::-1]
+    ground=owned_triangles(G,polygon)
+    worst=-float('inf')
+    for indices in ear_clip(polygon):
+        indices=list(indices);xy=polygon[indices];z=heights[indices]
+        slope=np.linalg.solve(xy[1:]-xy[0],z[1:]-z[0])
+        for triangle in ground:
+            overlap=intersection(triangle,xy)
+            if not overlap:continue
+            points=np.asarray(overlap)
+            roof=z[0]+(points[:,:2]-xy[0])@slope
+            worst=max(worst,float(np.max(points[:,2]-roof)))
+    if not math.isfinite(worst):raise ValueError('Missing complete access-floor intersection proof')
+    return worst

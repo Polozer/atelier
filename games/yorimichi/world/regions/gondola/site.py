@@ -25,7 +25,7 @@ from tower import Tower
 from stations import Station, Valley, Rim, Crater, railing
 from gondola.line import centre_profile, closed_circuit, placed, simplify, station_frame, near_rope_tolerance
 from gondola.products import ground
-from gondola.support import owned_range, owned_triangles
+from gondola.support import owned_range, owned_triangles, floor_intrusion
 from gondola.validation import site_inputs, validate_site
 from regions.gondola.layout import LINES, STATIONS
 from regions.craterpark import placement as PARK
@@ -263,17 +263,19 @@ def access_stair(key,layout,G,frame):
         railing(mesh,rail_layout,[a,b],'timber',
                 z0=lambda x,y:rail_bearing(mesh,x,y,direction,across,stringer_top,bearing_half_length),on=('access_stringer',))
     route.append([*end,float(np.interp(0,edge_t,edge_z))])
-    # Check every generated landing strip against the same final contact query.
+    # Validate complete owned footprints against the exact generated cap
+    # triangles: sampled corners cannot detect a narrow crest or interior hole.
+    floor_limit=.03
+    intrusion=[]
     for surface in surfaces:
         polygon=np.asarray(surface['poly'])
-        samples=np.vstack((polygon,polygon.mean(0)))
-        heights=G.contact(world_xy(samples,frame))[0]-frame[3]
-        roof=min(surface.get('z1',[surface.get('top',bottom)]))
-        if heights[:-1].max()>roof+.03 and surface is not surfaces[-1]:
-            # The conforming join may meet its own sloped edge; ordinary treads
-            # must remain above the rendered ground throughout their footprint.
-            if 'z1' not in surface:
-                raise ValueError(f'{key}: ground intersects an access tread')
+        heights=surface['z1'] if 'z1' in surface else np.full(len(polygon),surface['top'])
+        value=floor_intrusion(G,world_xy(polygon,frame),np.asarray(heights)+frame[3])
+        if value>floor_limit:
+            raise ValueError(f'{key}: ground intersects an access floor by {value:.6f}m')
+        intrusion.append(value)
+    ground_proof={'complete_coverage':True,'surfaces':len(surfaces),
+                  'maximum_intrusion_m':max(intrusion),'allowance_m':floor_limit,'pass':True}
     supports=[]
     for distance in np.arange(0,length+.01,3):
         for side in (-1,1):
@@ -283,7 +285,7 @@ def access_stair(key,layout,G,frame):
             if support:
                 supports.append(support)
     return mesh,{'route':route,'width':width,'risers':n,'riser':rise,'tread':.32,
-                 'rail_seats':rail_layout.seats,'obstacles':rail_layout.proxies,'turn_deg':turn,'ground_edge_tolerance':.0001,'ground_edge':{'t':edge_t.tolist(),'z':edge_z.tolist()},'surfaces':surfaces,'supports':supports}
+                 'ground_proof':ground_proof,'rail_seats':rail_layout.seats,'obstacles':rail_layout.proxies,'turn_deg':turn,'ground_edge_tolerance':.0001,'ground_edge':{'t':edge_t.tolist(),'z':edge_z.tolist()},'surfaces':surfaces,'supports':supports}
 
 
 def world_ground(mesh,frame,G):

@@ -33,3 +33,20 @@ def test_kit_walking_report_is_complete_current_and_required(tmp_path,monkeypatc
         path.write_text(json.dumps(report))
     with pytest.raises((ValueError,FileNotFoundError)):
         validation.kit_snapshot(tmp_path)
+
+
+@pytest.mark.parametrize('fault',['missing','failed','coverage','count','height','allowance','surfaces'])
+def test_complete_access_floor_receipt_is_required(fault):
+    access={'surfaces':[{}],'ground_proof':{'complete_coverage':True,'surfaces':1,
+            'maximum_intrusion_m':.01,'allowance_m':.03,'pass':True}}
+    validation.validate_access_ground(access)
+    proof=access['ground_proof']
+    if fault=='missing':del access['ground_proof']
+    elif fault=='failed':proof['pass']=False
+    elif fault=='coverage':proof['complete_coverage']=False
+    elif fault=='count':proof['surfaces']=0
+    elif fault=='height':proof['maximum_intrusion_m']=float('nan')
+    elif fault=='allowance':proof['allowance_m']=.3
+    elif fault=='surfaces':access['surfaces']=[]
+    with pytest.raises(ValueError,match='complete access-floor proof'):
+        validation.validate_access_ground(access)

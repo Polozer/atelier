@@ -68,6 +68,16 @@ def site_inputs(build):
                 'gondola/world/ground.npz','gondola/world/ground.json','craterpark/v2/geometry.npz')}}
 
 
+def validate_access_ground(access):
+    proof=access.get('ground_proof',{})
+    value=proof.get('maximum_intrusion_m')
+    if (proof.get('pass') is not True or proof.get('complete_coverage') is not True or
+            not access.get('surfaces') or proof.get('surfaces')!=len(access['surfaces']) or
+            proof.get('allowance_m')!=.03 or not isinstance(value,(int,float)) or
+            not math.isfinite(value) or value>.03):
+        raise ValueError('Gondola complete access-floor proof is missing or failed')
+
+
 def validate_site(build):
     folder=build/'gondola/world'
     data=json.loads((folder/'site.json').read_text())
@@ -108,6 +118,7 @@ def validate_site(build):
         if (value is None and line['riding']['triangles_tested']!=0) or (value is not None and (not math.isfinite(value) or value<15.)):
             raise ValueError('Gondola riding/jump clearance failed')
     for station in data['stations'].values():
+        validate_access_ground(station['access'])
         if station.get('static_riding_clear') is not True:
             raise ValueError('Gondola station overlaps riding structure or has no static proof')
         jump=station['jump']
