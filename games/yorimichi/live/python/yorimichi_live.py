@@ -59,6 +59,11 @@ def car_state():
     return L.car_state()
 
 
+def car_ride():
+    """Ride telemetry: chassis height, vertical speed, pitch and roll, and each wheel's compression/height/contact."""
+    return L.car_ride()
+
+
 def car_loops():
     """The kart's engine, tyre, skid and wind loops, as volume@pitch."""
     return L.car_loops()

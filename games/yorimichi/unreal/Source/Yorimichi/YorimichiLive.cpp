@@ -206,6 +206,12 @@ FString UYorimichiLive::CarLoops()
     const AWandererCharacter* P = Cast<AWandererCharacter>(ULiveLibrary::Player()); const UDrivingComponent* C = P ? P->GetCar() : nullptr;
     return C ? C->GetAudioState() : FString();
 }
+
+FString UYorimichiLive::CarRide()
+{
+    const AWandererCharacter* P = Cast<AWandererCharacter>(ULiveLibrary::Player()); const UDrivingComponent* C = P ? P->GetCar() : nullptr;
+    return C ? C->GetRideState() : FString(TEXT("no car"));
+}
 static bool GFilmHud = false;
 void UYorimichiLive::FilmHud(bool bOn) { GFilmHud = bOn; }
 bool UYorimichiLive::IsFilmHud() { return GFilmHud; }

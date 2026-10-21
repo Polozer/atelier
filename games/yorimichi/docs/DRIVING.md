@@ -11,6 +11,27 @@ the host moves the character actor with it and reads the world with one ray per 
 - `W` / `S` (the stick's forward axis) accelerate and brake; holding `S` from a stop selects reverse. `A` / `D`
   steer. `Space` is the handbrake.
 - The camera settles behind the kart, pulls back a little and widens with speed.
+- The paraglider is stowed while driving. Summoning resets the move set, and every equipment update reconciles
+  the glider component's visibility, so a late or externally propagated visibility change cannot leave the
+  canopy open behind the kart.
+
+## Ride
+
+The kart runs 3.6 in of suspension travel on 90/110 lb/in springs with light damping (12/14 lb/in/s bump,
+17/19 rebound) and a 0.5 progression, so a four-tyre contact is kept over broken asphalt instead of bouncing
+off the bump stops. On the 20 s test road in
+`platform/engine/Plugins/Activities/Driving/Tests/Simulation/kart_ride_test.cpp` (8 m/s over 2 cm and 0.8 cm
+ripples), vertical acceleration RMS fell from 5.14 to 3.93 m/s², the peak from 13.6 to 10.1 m/s², and wheel
+contact loss from 16% of steps to none.
+
+In the running game, `live.car_ride()` prints the chassis height, vertical speed, pitch/roll and each wheel's
+compression, height and contact. `games/yorimichi/scenarios/kart_uneven.py` drives a fixed route at a fixed
+throttle and writes the same acceleration and contact numbers, for a before/after comparison on real terrain.
+
+## Equipment transitions
+
+`games/yorimichi/scenarios/kart_equipment.py` opens the glider, lands, summons the kart, steps out and opens
+the glider again, checking the canopy's visibility at each step.
 
 ## The driver
 

@@ -100,6 +100,8 @@ public:
     void SetAudioRoot(const FString& InRoot) { AudioRoot = InRoot; }
     /** Each loop's applied volume and pitch (engine, tyre, skid, wind), for QA and offline film mixing. */
     FString GetAudioState() const;
+    /** Ride telemetry: chassis height and vertical speed, pitch/roll, and per-wheel compression, height and contact. */
+    FString GetRideState() const;
     /** Engine revolutions the engine loop was pitched from; zero while the kart is put away. */
     float GetAudioRevs() const { return AudioRevs; }
     /** Worst tyre skid among the grounded wheels, 0 to 1. */

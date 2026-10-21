@@ -397,6 +397,25 @@ FString UDrivingComponent::GetAudioState() const
                            *Bank(SkidFirst, SkidCount), *Bank(WindFirst, WindCount), AudioRevs, AudioSlip);
 }
 
+FString UDrivingComponent::GetRideState() const
+{
+    if (!Car)
+    {
+        return TEXT("no car");
+    }
+    const Vec3 P = Car->Chassis.position();
+    const Vec3 V = Car->Chassis.linear_velocity();
+    const FRotator R = ToUE(Car->Chassis.orientation()).Rotator();
+    FString Wheels;
+    for (int32 I = 0; I < 4; ++I)
+    {
+        const WheelState Wheel = Car->Chassis.wheel(I);
+        Wheels += FString::Printf(TEXT("%s%.2f@%.1f/%d"), I ? TEXT(",") : TEXT(""), Wheel.compression,
+                                  Wheel.position.y * 100.f, Wheel.on_ground ? 1 : 0);
+    }
+    return FString::Printf(TEXT("y=%.2f vy=%.2f pitch=%.2f roll=%.2f wheels=%s"), P.y, V.y, R.Pitch, R.Roll, *Wheels);
+}
+
 float UDrivingComponent::GetWheelSlip(int32 Index) const
 {
     if (!Car || Index < 0 || Index > 3)
@@ -687,7 +706,9 @@ bool UDrivingComponent::Summon()
     Steering->SetRelativeRotation(SteeringBase);
     Steering->SetVisibility(true, true);
 
-    Rider->GetMesh()->SetVisibility(true, true);
+    // The rider alone: propagating to attached meshes would force carried equipment (the paraglider) visible
+    // behind the move set's back, which then believes it is still hidden.
+    Rider->GetMesh()->SetVisibility(true, false);
     Rider->GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     bSavedUseControllerYaw = Rider->bUseControllerRotationYaw;
     Rider->bUseControllerRotationYaw = false;
@@ -752,7 +773,7 @@ void UDrivingComponent::FinishDrive()
         return;
     }
     Rider->SetActorRotation(FRotator(0, Rider->GetActorRotation().Yaw, 0));
-    Rider->GetMesh()->SetVisibility(true, true);
+    Rider->GetMesh()->SetVisibility(true, false);
     Rider->GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
     Rider->bUseControllerRotationYaw = bSavedUseControllerYaw;
     Rider->GetCharacterMovement()->SetMovementMode(MOVE_Walking);

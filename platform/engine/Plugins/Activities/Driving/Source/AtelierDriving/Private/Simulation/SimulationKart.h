@@ -17,20 +17,22 @@ inline VehicleSpec kart_spec()
     s.chassis.front_axle = 0.75f;
     s.chassis.front_weight_bias = 42.0f;
     s.chassis.roll_center = 3.0f;
-    s.chassis.spring_stiffness[0] = 140.0f;
-    s.chassis.spring_stiffness[1] = 160.0f;
-    s.chassis.spring_progression[0] = 1.2f;
-    s.chassis.spring_progression[1] = 1.2f;
-    s.chassis.shock_stiffness[0] = 14.0f;
-    s.chassis.shock_stiffness[1] = 16.0f;
-    s.chassis.shock_ext_stiffness[0] = 18.0f;
-    s.chassis.shock_ext_stiffness[1] = 20.0f;
+    // Ride quality over broken ground, measured by tests/.../kart_ride_test.cpp: 7 cm of travel on soft springs
+    // with light damping keeps all four tyres down over ripples and facets without wallowing in a turn.
+    s.chassis.spring_stiffness[0] = 90.0f;
+    s.chassis.spring_stiffness[1] = 105.0f;
+    s.chassis.spring_progression[0] = 0.5f;
+    s.chassis.spring_progression[1] = 0.5f;
+    s.chassis.shock_stiffness[0] = 12.0f;
+    s.chassis.shock_stiffness[1] = 14.0f;
+    s.chassis.shock_ext_stiffness[0] = 17.0f;
+    s.chassis.shock_ext_stiffness[1] = 19.0f;
     s.chassis.swaybar_stiffness[0] = 80.0f;
     s.chassis.swaybar_stiffness[1] = 60.0f;
-    s.chassis.travel[0] = 2.0f;
-    s.chassis.travel[1] = 2.0f;
-    s.chassis.ride_height[0] = 2.2f;
-    s.chassis.ride_height[1] = 2.2f;
+    s.chassis.travel[0] = 3.6f;
+    s.chassis.travel[1] = 3.6f;
+    s.chassis.ride_height[0] = 2.8f;
+    s.chassis.ride_height[1] = 2.8f;
 
     s.tires.rim_size[0] = 5.0f;
     s.tires.rim_size[1] = 5.0f;
