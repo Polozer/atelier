@@ -158,3 +158,13 @@ def test_final_ground_continuation_requires_complete_walkable_triangles(case):
     G=ground(city=city,mountain=plane('mountain',0.),trail=plane('trail',0.,(8,8,9,9)))
     with pytest.raises(ValueError,match='Missing owned terrain|nonwalkable'):
         audit(ground_override=G)
+
+
+@pytest.mark.parametrize('route',[[[0,0,0],[1,0,0],[3,0,0]],[[0,0,0],[3,0,0]]])
+def test_headroom_keeps_original_cap_for_every_route_segment(route):
+    from gondola.interactions import access_headroom
+    floor={'poly':[[-1,-1],[4,-1],[4,2],[-1,2]],'top':0.}
+    mesh=SimpleNamespace(verts=[[2,-.1,.5],[2.1,.1,.5],[2,.1,1.5]],faces=[[0,1,2]],parts=[(0,1,'post')])
+    distant={'poly':[[8,8],[9,8],[9,9],[8,9]],'z0':[0.]*4,'z1':[1.]*4}
+    with gondola_modules('solid',pure=False),pytest.raises(ValueError,match='headroom'):
+        access_headroom({'route':route,'surfaces':[floor]},[mesh],{'obstacles':[distant]})

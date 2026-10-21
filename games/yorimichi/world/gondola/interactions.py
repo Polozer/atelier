@@ -199,8 +199,8 @@ def access_headroom(access,meshes,layout):
                 polygon=intersection(triangle,mask)
                 if area(polygon)<=1e-9:continue
                 for i in range(1,len(polygon)-1):
-                    triangle=np.asarray([polygon[0],polygon[i],polygon[i+1]])
-                    if area(triangle)>1e-9:floors.append(triangle)
+                    piece=np.asarray([polygon[0],polygon[i],polygon[i+1]])
+                    if area(piece)>1e-9:floors.append(piece)
     if not floors or not len(visual) or not len(collision):
         raise ValueError('Missing complete access cross-mesh headroom geometry')
     floors=np.asarray(floors,float)
