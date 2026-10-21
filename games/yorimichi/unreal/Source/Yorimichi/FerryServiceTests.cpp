@@ -11,6 +11,9 @@
 #include "Engine/World.h"
 #include "Misc/ScopeExit.h"
 #include "JapanSkateNetwork.h"
+#include "AtelierData.h"
+#include "Components/TextRenderComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "SkateComponent.h"
 
 namespace
@@ -29,6 +32,31 @@ TSharedPtr<FJsonObject> FerryFixture()
     FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root);
     return Root;
 }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFerryProductionInitializationTest, "Yorimichi.Ferry.ProductionInitialization",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FFerryProductionInitializationTest::RunTest(const FString&)
+{
+    UWorld* World = nullptr;
+    for (const FWorldContext& Context : GEngine->GetWorldContexts())
+        if (Context.World() && Context.World()->IsGameWorld()) { World = Context.World(); break; }
+    if (!TestNotNull(TEXT("Native game world"), World)) return false;
+    AFerryService* Service = AFerryService::Spawn(World, AtelierDataPath(TEXT("ferry/service/service.json")));
+    ON_SCOPE_EXIT { if (Service) Service->Destroy(); };
+    if (!TestNotNull(TEXT("Complete imported ferry service initializes"), Service)) return false;
+    TArray<UTextRenderComponent*> Boards;
+    Service->GetComponents(Boards);
+    TestEqual(TEXT("Both terminal timetable texts exist"), Boards.Num(), 2);
+    for (const TCHAR* Key : {TEXT("hidamari"), TEXT("brinecove")})
+    {
+        const FName MeshName(*(FString(Key) + TEXT("_Timetable")));
+        const FName TextName(*(FString(Key) + TEXT("_TimetableText")));
+        TestNotNull(TEXT("Timetable mesh retains its stable component name"), FindObject<UStaticMeshComponent>(Service, *MeshName.ToString()));
+        TestNotNull(TEXT("Timetable text has a distinct stable component name"), FindObject<UTextRenderComponent>(Service, *TextName.ToString()));
+    }
+    return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFerryClockTest, "Yorimichi.Ferry.ClockAndBoarding",
