@@ -101,6 +101,7 @@ class FakeL:
 
     def screenshot(self, path):
         self.live.shots.append(path)
+        Path(path).write_bytes(b'x')   # the real component writes the frame on the next tick
 
     def ground_at(self, point):
         return point
@@ -159,12 +160,12 @@ class FakeLive(types.ModuleType):
 PAWN = Pawn()
 
 
-def load(tmp_path):
-    os.environ['ATELIER_BUILD_ROOT'] = str(tmp_path)
+def load(tmp_path, monkeypatch):
+    monkeypatch.setenv('ATELIER_BUILD_ROOT', str(tmp_path))
     unreal = FakeUnreal()
     live = FakeLive()
-    sys.modules['unreal'] = unreal
-    sys.modules['live'] = live
+    monkeypatch.setitem(sys.modules, 'unreal', unreal)
+    monkeypatch.setitem(sys.modules, 'live', live)
     spec = importlib.util.spec_from_file_location('kart_fit_scenario', SCENARIO)
     module = importlib.util.module_from_spec(spec)
     module.live = live   # the bridge injects this name into the shared namespace
@@ -181,8 +182,8 @@ def drain(module):
             break
 
 
-def test_every_rider_gets_a_summon_flag_and_captures(tmp_path):
-    module, live, unreal = load(tmp_path)
+def test_every_rider_gets_a_summon_flag_and_captures(tmp_path, monkeypatch):
+    module, live, unreal = load(tmp_path, monkeypatch)
     drain(module)
     assert not unreal.errors
     assert module.flags == {'Cairo': True, 'Modori': True, 'Nox': True, 'Paul': True}
@@ -199,8 +200,8 @@ def test_every_rider_gets_a_summon_flag_and_captures(tmp_path):
     assert [item['rider'] for item in receipt['riders']] == ['Cairo', 'Modori', 'Nox', 'Paul']
 
 
-def test_a_failed_run_invalidates_a_previous_success(tmp_path):
-    module, live, unreal = load(tmp_path)
+def test_a_failed_run_invalidates_a_previous_success(tmp_path, monkeypatch):
+    module, live, unreal = load(tmp_path, monkeypatch)
     receipt = Path(module.json_path)
     receipt.write_text(json.dumps({'ok': True, 'status': 'passed', 'riders': [{'rider': 'Cairo'}]}))
 
@@ -212,4 +213,15 @@ def test_a_failed_run_invalidates_a_previous_success(tmp_path):
     data = json.loads(receipt.read_text())
     assert data['ok'] is False and data['status'] == 'failed'
     assert any('boom' in error for error in data['errors'])
+
+
+def test_refused_summons_do_not_pass_the_receipt(tmp_path, monkeypatch):
+    module, live, unreal = load(tmp_path, monkeypatch)
+    live.press = lambda button: None   # every car toggle refused
+    drain(module)
+    data = json.loads(Path(module.json_path).read_text())
+    assert data['ok'] is False and data['status'] == 'failed'
+    assert all(not item['summon_ok'] for item in data['riders'])
+    assert any('did not mount' in error for error in data['errors'])
+    assert any('missing' in error for error in data['errors'])
 

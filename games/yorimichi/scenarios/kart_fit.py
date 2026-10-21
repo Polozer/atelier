@@ -43,6 +43,8 @@ VIEWS = [
     ('seat', 250.0, 0.0, 300.0, 0.0, 30.0, 55.0),
 ]
 BEACH = unreal.Vector(-23600.0, 16000.0, 0.0)
+REQUIRED_VIEWS = [view[0] for view in VIEWS] + ['grip_left_steer', 'grip_right_steer', 'grip_left_steer_other',
+                                                'grip_right_steer_other', 'grip_left_neutral', 'grip_right_neutral']
 
 
 def frame(loc, yaw, forward, right, up, aim_forward, aim_up):
@@ -193,9 +195,19 @@ def tick(dt):
         if not queue:
             finished['value'] = True
             CLEAN.cleanup(live, MV.restore_player_camera)
-            json.dump({'ok': True, 'status': 'passed', 'riders': results}, open(json_path, 'w'), indent=1)
-            print('kart fit done: %d riders' % len(results))
-            unreal.log('KART FIT COMPLETE %d' % len(results))
+            errors = []
+            for rider in RIDERS:
+                if not flags.get(rider):
+                    errors.append('%s did not mount' % rider)
+                missing = [name for name in REQUIRED_VIEWS
+                           if not os.path.exists(os.path.join(OUT, '%s_%s.png' % (rider.lower(), name)))]
+                if missing:
+                    errors.append('%s missing %s' % (rider, ', '.join(missing)))
+            ok = not errors
+            json.dump({'ok': ok, 'status': 'passed' if ok else 'failed', 'riders': results, 'errors': errors},
+                      open(json_path, 'w'), indent=1)
+            print('kart fit done: %d riders, %d errors' % (len(results), len(errors)))
+            unreal.log('KART FIT COMPLETE %d errors %d' % (len(results), len(errors)))
             live.stop('kart_fit')
             return
         queue[0][0] -= dt
