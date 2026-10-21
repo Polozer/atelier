@@ -19,17 +19,18 @@ for name in os.listdir(OUT):
     if name.endswith('.jpg') or name.endswith('.json'):
         os.remove(os.path.join(OUT, name))
 
-START, END = 0.8, 6.4
+START, END = 0.8, 7.0
 # t, keys (the set of held keys from this time on)
 TIMELINE = [
     (0.0, set()),
-    (0.6, {'W'}),
-    (3.0, {'W', 'D'}),
-    (3.9, {'W', 'A'}),
-    (4.7, {'S'}),
-    (5.9, set()),
+    (1.4, {'W'}),
+    (3.4, {'W', 'D'}),
+    (4.3, {'W', 'A'}),
+    (5.1, {'S'}),
+    (6.3, set()),
 ]
-st = {'t': 0.0, 'sim': 0, 'film': 0, 'phase': -1, 'held': set(), 'frames': [], 'errors': [], 'started': False}
+st = {'t': 0.0, 'sim': 0, 'film': 0, 'phase': -1, 'held': set(), 'frames': [], 'errors': [], 'started': False,
+      'press_at': None}
 
 
 def phase_at(t):
@@ -49,10 +50,15 @@ def run(dt):
                 live.press('car')
             g = L.ground_at(unreal.Vector(-23600, 16000, 3000))
             L.teleport_player(g, 0.0)
-            live.press('car')
             L.fixed_step(60)
+            # The press needs the teleport to have settled: a same-frame summon is refused on the ground check.
+            st['press_at'] = 0.7
         st['t'] += 1.0 / 60.0
         t = st['t']
+        if st['press_at'] is not None and t >= st['press_at']:
+            st['press_at'] = None
+            live.press('car')
+            st['car'] = L.car_state()
         phase = phase_at(t)
         if phase != st['phase']:
             st['phase'] = phase
