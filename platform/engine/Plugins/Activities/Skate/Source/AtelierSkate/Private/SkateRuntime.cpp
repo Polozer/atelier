@@ -97,6 +97,14 @@ namespace SkateRuntimeDetail
         TEXT("1: the simulation session under the Ride body fails on its next step (QA of the failure path); clears itself"));
 }
 
+FString USkateSettings::SurfaceKey(FString Name)
+{
+    const int32 Split=Name.Find(TEXT("__"),ESearchCase::CaseSensitive,ESearchDir::FromEnd);
+    if (Split!=INDEX_NONE) return Name.RightChop(Split+2);
+    if (!Name.RemoveFromStart(TEXT("SM_")) && !Name.RemoveFromStart(TEXT("MI_"))) Name.RemoveFromStart(TEXT("M_"));
+    return Name;
+}
+
 ESkateSurface USkateSettings::SurfaceAt(const FHitResult& Hit)
 {
     const USkateSettings& Settings=*GetDefault<USkateSettings>();

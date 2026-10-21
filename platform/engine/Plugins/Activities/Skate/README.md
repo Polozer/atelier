@@ -116,7 +116,8 @@ The first match wins:
 3. The triangle's material, read per mesh section, in `SurfaceMaterials`.
 4. `DefaultSurface`.
 
-Names drop a leading `SM_`, `MI_` or `M_`, so `MI_Road` is `Road`. Use a mesh name when several kinds of ground share
+Names drop a leading `SM_`, `MI_` or `M_`, so `MI_Road` is `Road`; a name with `__` is keyed by what follows its last
+`__`, so a generated `MI_BM_0a1b2c3d4e5f__Grass` is `Grass` (`USkateSettings::SurfaceKey`, which footsteps share). Use a mesh name when several kinds of ground share
 one material. The ini form is `SurfaceMaterials=(("Grass",Grass),("Road",Asphalt))`. `skate.SurfaceDebug 1` logs
 each mesh section's surface the next time the snapshot is built. `GetSimulationState` reports the surface under the
 wheels as `surface=<name>:<wheels>`.

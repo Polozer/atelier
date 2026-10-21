@@ -17,6 +17,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
+#include "SkateSettings.h"
 #include "Sound/SoundWave.h"
 
 static TAutoConsoleVariable<float> CVarFootstepVolume(TEXT("japan.FootstepVolume"),1.f,
@@ -127,7 +128,7 @@ FName UJapanFootstepComponent::SurfaceAt(const FHitResult& Hit) const
     if(!Set) return NAME_None;
     FName Surface=NAME_None;
     // The painterly pass assigns one material instance per Blender slot, so the material the
-    // foot actually landed on names the surface: MI_Road, MI_Wood, MI_Stone.
+    // foot actually landed on names the surface: MI_Road, MI_Wood, MI_Stone, MI_BM_<hash>__Grass.
     if(const UStaticMeshComponent* Mesh=Cast<UStaticMeshComponent>(Hit.Component.Get()))
     {
         int32 Section=0;
@@ -136,8 +137,8 @@ FName UJapanFootstepComponent::SurfaceAt(const FHitResult& Hit) const
             : Mesh->GetMaterial(0);
         if(Material)
         {
-            FString Name=Material->GetName();
-            Name.RemoveFromStart(TEXT("MI_")); Name.RemoveFromStart(TEXT("M_"));
+            // Keyed as the skateboard and the bike key their surfaces (MI_Road is Road, MI_BM_<hash>__Grass is Grass).
+            const FString Name=USkateSettings::SurfaceKey(Material->GetName());
             if(const FName* Found=Set->MaterialSurfaces.Find(FName(*Name))) Surface=*Found;
             if(CVarFootstepDebug.GetValueOnGameThread())
                 UE_LOG(LogTemp,Display,TEXT("  footstep material %s -> %s"),*Name,

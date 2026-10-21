@@ -10,7 +10,7 @@ import shutil
 import numpy as np
 from PIL import Image
 from atelier.gltf import glb_parts
-from belmonte import layout as L, source, planting, terrain, appearance
+from belmonte import layout as L, source, planting, terrain, appearance, surfaces as surface_keys
 
 OUT = yori.OUT / 'belmonte'
 
@@ -40,7 +40,8 @@ def clear_railway(plants):
 
 
 def finish_surfaces(data):
-    """Current scenery and a Tuscan ground palette with neutral texture grain."""
+    """Current scenery and a Tuscan ground palette with neutral texture grain. Each instance is named after the
+    surface it is made of (surfaces.py); the terrain has one identical instance per surface key, keyed <path>#<Key>."""
     materials, images = {}, {}
     for path, entry in data['materials'].items():
         if path.endswith('MI_B_foliage'):
@@ -81,7 +82,21 @@ def finish_surfaces(data):
             image.save(OUT / 'textures' / file)
             images[key] = file
         materials[path]['texture'] = images[key]
+    for path in list(materials):
+        entry = materials[path]
+        if entry['terrain']:
+            del materials[path]
+            for key in surface_keys.TERRAIN_KEYS:
+                materials[f'{path}#{key}'] = dict(entry, name=surface_keys.instance_name(entry['name'], key), surface=key)
+        else:
+            key = surface_keys.material_key(path)
+            entry.update(name=surface_keys.instance_name(entry['name'], key), surface=key)
     return materials
+
+
+def slot_material(materials, path, key):
+    """The finished instance for a placement's source material on a slot that carries surface key (terrain only)."""
+    return materials[f'{path}#{key}'] if key else materials[path]
 
 
 def surroundings():
@@ -220,10 +235,16 @@ def main():
         else:
             shutil.copy2(path, destination)
             entry = dict(entry, path=destination.relative_to(OUT).as_posix())
+        if entry['name'].startswith('SM_BM_BT_Terrain_'):
+            # One section per surface key, so a trace reads the ground the terrain's layers paint there.
+            entry = dict(entry, surfaces=surface_keys.split_terrain(destination, destination),
+                         sha256=source.sha(destination))
         meshes.append(entry)
         by_asset[entry['source_asset']] = entry
-        doc, _ = glb_parts(path.read_bytes())
-        retained_slots[entry['source_asset']] = [int(material['name'].split('_')[1]) for material in doc['materials']]
+        doc, _ = glb_parts(destination.read_bytes())
+        # (source slot, surface key of a split section or None) per material the GLB keeps.
+        retained_slots[entry['source_asset']] = [(int(material['name'].split('_')[1]), surface_keys.slot_key(material['name']))
+                                                 for material in doc['materials']]
         if 'collision' in entry:
             collision = source.LIBRARY / entry['collision']['path']
             assert source.sha(collision) == entry['collision']['sha256'], collision
@@ -235,7 +256,7 @@ def main():
         entry = by_asset[placement['asset']]
         # glTF omits unused slots. The retained names pin their original index.
         slots = retained_slots[placement['asset']]
-        names = [materials[placement['materials'][slot]]['name'] for slot in slots]
+        names = [slot_material(materials, placement['materials'][slot], key)['name'] for slot, key in slots]
         bindings = tuple(f'/Game/Belmonte/Materials/{name}.{name}' for name in names)
         key = (entry['name'], bindings)
         grouped.setdefault(key, []).append(placement['transform'])
@@ -248,10 +269,13 @@ def main():
         groups.append({'asset': f'/Game/Belmonte/Meshes/{name}.{name}', 'materials': list(bindings),
                        'plant': False, 'collision': not water, 'shadow': not water,
                        'cull_cm': 50000 if span < 8. else 0, 'transforms': transforms})
-    material_name = 'MI_BM_Ground'
+    material_name = surface_keys.instance_name('MI_BM_Ground', surface_keys.COUNTRY)
     materials['Ground'] = {'name': material_name, 'colour': [.24, .30, .12, 1.], 'tint': [1., 1., 1., 1.],
                            'terrain': False, 'layers': {}, 'tile_m': 4., 'white_vertex': True,
-                           'brightness': 1., 'atlas': False, 'water': False, 'texture': None, 'join': True}
+                           'brightness': 1., 'atlas': False, 'water': False, 'texture': None, 'join': True,
+                           'surface': surface_keys.COUNTRY}
+    # The collision-only hulls keep the plain instance: they are never drawn and name no surface.
+    materials['Hull'] = dict(materials['Ground'], name='MI_BM_Ground', surface=None)
     for entry in extra:
         name = entry['name']
         groups.append({'asset': f'/Game/Belmonte/Meshes/{name}.{name}',
@@ -280,7 +304,7 @@ def main():
                'clearance_m': list(terrain.OUTER), 'groups': groups, 'signs': signs, 'railway_corridor': L.RAILWAY,
                'zones': map_zones(town_z), 'tv_spots': tv_spots(data)}
     (OUT / 'runtime.json').write_text(json.dumps(runtime, separators=(',', ':')) + '\n')
-    (OUT / 'build-report.json').write_text(json.dumps({'meshes': meshes, 'materials': materials,
+    (OUT / 'build-report.json').write_text(json.dumps({'meshes': meshes, 'materials': materials
                                                      'planting': plant_report, 'seam': seam}, indent=1) + '\n')
     print(f'BELMONTE BUILD COMPLETE: {len(meshes)} meshes, {len(groups)} groups, {sum(len(v) for v in plants.values())} plants', flush=True)
 
