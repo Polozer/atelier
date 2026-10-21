@@ -397,17 +397,20 @@ def hidden_ground(x, y, z, ln=None):
     """Ground lying under another terrain (refine's `hidden`) is not carved, but it must never show through the
     shown ground's earthworks: over every tunnel it is lifted to HIDDEN_CLEARANCE under the hood the shown ground keeps
     there (HOOD over the rail within HOOD_HALF, falling 1:1 beyond), so it stays clear of the lining; along the open line
-    it is lowered to HIDDEN_CLEARANCE under the cutting's upper bound, so a hidden hillside never stands over the
-    formation or the faces where the shown ground is cut down (the far hills under the foothills, before and after the
-    portals). It is never raised outside the tunnels (a fill only raises the shown ground), and beyond the earthworks'
-    reach it is unchanged."""
+    and round the portals' faces it is lowered to HIDDEN_CLEARANCE under the cutting's upper bound (the hood over a
+    tunnel), so a hidden hillside never stands over the formation or the faces where the shown ground is cut down (the
+    far hills under the foothills, before, after and over the portals). It is never raised outside the tunnels (a fill
+    only raises the shown ground), and beyond the earthworks' reach it is unchanged."""
     ln = ln or line()
     x, y, z = (np.asarray(v, float).ravel() for v in (x, y, z))
     if ln is None or not len(x):
         return z.copy()
     upper, _, info = design(x, y, ln)
-    lift = info['hood'].ravel() - HIDDEN_CLEARANCE
-    cap = np.where(info['tunnel'].ravel() > 0, np.nan, upper.ravel() - HIDDEN_CLEARANCE)
+    hood = info['hood'].ravel()
+    lift = hood - HIDDEN_CLEARANCE
+    # The shown ground never stands over max(upper, hood) (carve): neither may the hidden one, minus the clearance.
+    # Over a tunnel that is the face standing back over the portal, so no hidden hillside shows round the portal.
+    cap = np.fmax(upper.ravel(), np.where(np.isfinite(hood), hood, np.nan)) - HIDDEN_CLEARANCE
     z = np.where(np.isfinite(lift), np.maximum(z, lift), z)
     return np.where(np.isfinite(cap), np.minimum(z, cap), z)
 
