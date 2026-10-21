@@ -222,20 +222,12 @@ def preflight(root=FERRY):
     source/product hashes before creating assets. The ship MUST be the approved single shuttle, and
     its runtime manoeuvres MUST be exactly the source-bound moves the sweep checked.
     """
-    import importlib.util
-    path = yori.ASSETS / 'vehicles/ferry/terminals/site.py'
-    spec = importlib.util.spec_from_file_location('ferry_site', path)
-    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     site = json.loads((root / 'terminals/site.json').read_text())
     terminals = json.loads((root / 'terminals/manifest.json').read_text())
     walks = json.loads((root / 'terminals/walk.json').read_text())
     ferry = json.loads((root / 'manifest.json').read_text())
-    if not site.get('pass') or module.stale_inputs(site, root / 'terminals'):
-        raise ValueError('ferry site is stale or failed; rebuild the world probes and site')
-    for files in site['inputs']['exports'].values():
-        for rel, wanted in files.items():
-            if not (yori.OUT / rel).is_file() or sha(yori.OUT / rel) != wanted:
-                raise ValueError(f'ferry world export changed: {rel}')
+    from regions.hidamari.ferry_source import validated_harbor
+    validated_harbor(yori.OUT, REPO)
     crossings = site.get('crossings') or {}
     if set(crossings) != {'eastbound', 'westbound'} or not all(c.get('pass') for c in crossings.values()):
         raise ValueError('a swept ferry sea crossing is missing or failed')
@@ -245,8 +237,6 @@ def preflight(root=FERRY):
     validate_terminal_audits(terminals)
     validate_manifest(ferry, root)
     validate_ship_walk(root)
-    from regions.hidamari.ferry_source import validated_harbor
-    validated_harbor(yori.OUT, REPO)
     audit = ferry['deck_audit']
     if any(m['open_edges'] for m in ferry['meshes'].values()) or audit['failures'] or any(audit['lifeboat_overlaps'].values()) or audit['fitting_rail_contacts']:
         raise ValueError('ferry mesh/deck audits failed')

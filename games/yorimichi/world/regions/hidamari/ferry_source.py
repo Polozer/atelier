@@ -40,6 +40,10 @@ def validated_harbor(build, repo):
     if cut.get('inputs') != expected or not target.is_file() or sha(target) != cut.get('output_sha256'):
         raise ValueError('Hidamari ferry access cut inputs or final mesh changed')
     _verify(repo, site['inputs']['code'])
+    probes = site['inputs'].get('world_probes')
+    if not probes or set(probes) != {'hidamari', 'brinecove', 'crossing'}:
+        raise ValueError('Hidamari ferry sweep is missing world probe identities')
+    _verify(build / 'ferry/terminals', {f'world_{name}.npz': value for name, value in probes.items()})
     for records in site['inputs']['exports'].values():
         _verify(build, records)
     return target

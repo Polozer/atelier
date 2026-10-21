@@ -28,6 +28,12 @@ def proof(tmp_path):
     paths['site'].parent.mkdir(parents=True, exist_ok=True)
     site = {'pass': True, 'inputs': {'code': {str(paths[k].relative_to(repo)): sha(paths[k]) for k in ('code', 'layout')},
             'exports': {'hidamari': {str(paths[k].relative_to(build)): sha(paths[k]) for k in ('base', 'ground')}}}}
+    probes = {}
+    for name in ('hidamari', 'brinecove', 'crossing'):
+        path = build / f'ferry/terminals/world_{name}.npz'
+        path.write_bytes(b'probe')
+        probes[name] = sha(path)
+    site['inputs']['world_probes'] = probes
     paths['site'].write_text(json.dumps(site))
     cut = {'failures': [], 'cuts': [{'cap_normals_pass': True}],
            'source': str(paths['base'].relative_to(build)), 'site': str(paths['site'].relative_to(build)),
@@ -64,3 +70,28 @@ def test_failed_or_incomplete_cut_refuses(tmp_path, change):
     paths['receipt'].write_text(json.dumps(cut))
     with pytest.raises(ValueError, match='failed|different source'):
         validated_harbor(build, repo)
+
+
+def test_changed_probe_refuses_without_loading_geometry(tmp_path):
+    repo, build, _, _ = proof(tmp_path)
+    (build/'ferry/terminals/world_crossing.npz').write_bytes(b'changed probe')
+    with pytest.raises(ValueError, match='changed'):
+        validated_harbor(build, repo)
+
+
+def test_unreal_preflight_needs_only_standard_library(tmp_path):
+    import subprocess
+    world = Path(__file__).resolve().parents[1]/'world'
+    code = """import sys
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+from regions.ferry import service
+try:
+    service.preflight(Path(sys.argv[2]))
+except FileNotFoundError:
+    pass
+else:
+    raise AssertionError('Missing receipts must refuse')
+assert not {'numpy','bpy','mathutils'}.intersection(sys.modules)
+"""
+    subprocess.run([sys.executable,'-S','-c',code,str(world),str(tmp_path)],check=True)
