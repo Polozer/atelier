@@ -90,7 +90,7 @@ are for the worst view, either a player on the viaduct or at the loop looking do
 | Belmonte station (`SM_ST_Headhouse` / `SM_ST_Sheds` / `SM_ST_Coaches`), LOD0 | ≤ 14,500 / 34,000 / 2,000 tris (LODs in `BELMONTE_STATION.md`) |
 | Turnout | ≤ 3,000 tris each |
 | Buffer stop | ≤ 800 tris |
-| Materials | reuse the Belmonte MIs (`MI_B_ashlar`, `MI_B_stone`, `MI_B_gravel`, `MI_B_iron`) plus one 1k ballast-and-sleeper texture set |
+| Materials | reuse the Belmonte MIs (`MI_B_ashlar`, `MI_B_stone`, `MI_B_iron`, `MI_B_wood`) plus two 1k ballast textures (`MI_TK_Ballast`, `MI_TK_Cess`) |
 | Shaders | opaque only: no translucency, no world-position offset, no tessellation |
 | Total unique mesh data on disk | ≤ 15 MB |
 
@@ -104,14 +104,14 @@ Steps: `atelier build yorimichi world.belmonte_track` (and `world.belmonte_track
 
 | Part | Built | Worst triangles per LOD |
 | --- | --- | --- |
-| Main chunks | 72 | 950 / 220 / 40 |
+| Main chunks | 80 | 846 / 266 / 60 |
 | Loop rails | 1 | 1,820 / 312 / 44 |
 | Tunnel linings | 28 | 520 / 120 |
 | Portal | 1 mesh, 4 instances | 236 / 124 |
 | Viaduct | 4 pieces | 1,560 in total at LOD0 |
 | Sleepers | 11,725 instances | 10 each |
 
-The GLBs take 7.6 MB in total and `track.json` 1 MB.
+The GLBs take 14.7 MB in total (LOD0 swept every 5 m). `track.json` takes 1 MB.
 
 - Through the loop, the main chunks' ballast widens under the second track.
 - Where the two tracks are closer than a sleeper's length, they share long timbers. These are sleeper instances
@@ -119,8 +119,15 @@ The GLBs take 7.6 MB in total and `track.json` 1 MB.
 - The turnout mesh carries the switch stand, lever, rodding, blades and a block frog.
 - The rails of the two tracks simply cross at the frog.
 - UVs are planar, in metres along each face's dominant axis.
-- The ballast texture with painted sleepers is still to come; the GLBs use flat material colours named after the
-  Belmonte material instances.
+- The ballast bed is textured (Paul 2026-10-21: the flat beige shoulders read as unfinished from the train):
+  `MI_TK_Ballast` (crushed stone, `T_TK_Ballast`, 1 m tile) over the top and the upper shoulders, `MI_TK_Cess` (the
+  bed's dusty foot thinning out over earth with grass creeping in, `T_TK_Cess`, 1.5 m tile) from the shoulders' foot
+  down the skirts and on the end faces behind the buffer stops. `track_textures.py` draws both with numpy;
+  `track_build.py` writes them to `textures/` and `track.json`'s `textures`; the import binds them to M_Belmonte
+  instances. The valley banks (`MI_TK_Bank`) take the Belmonte ground's grain. Other parts keep flat colours named
+  after the Belmonte material instances.
+- A bank over the valley that meets a viaduct runs on under the deck as the earthworks' end cone until its section is
+  in the ground, so it never ends hanging over the valley.
 - Collision comes from the chunk's LOD2 (ballast), the lining's LOD1 and the viaduct's LOD2.
 - Since the terminus moved next to Belmonte (route v4, Paul 2026-10-17), the line passes under the road from the
   south-east gate in its final cutting. `overbridge.py` builds the stone overbridge (`SM_ST_Overbridge`, placed by
