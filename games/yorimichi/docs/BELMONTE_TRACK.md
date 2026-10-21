@@ -32,6 +32,11 @@ Built:
   no shadows) grouped by tunnel, to be spawned with the tunnel's data layer. Each lining piece also carries an
   oriented `volume` box for a post-process volume that pins the auto-exposure (EV −1…1), so the tunnel reads dark and
   the lamps carry the light. The terrain keeps 8.6 m of ground over the rail (train/earthworks.py), so no sky leaks in.
+- Empty tunnels (20 October 2026): nothing stands in a bore. Terrain lying under another one (the far hills under the
+  foothills) is not carved, but over a tunnel `earthworks.bore_lift` lifts it to 0.5 m under the hood, and it opens
+  across the mouths like the shown ground. Plants of any kind whose foot is under the lining's crown over a tunnel
+  are removed (`corridor.settle`). Before this, the far hills' hillside crossed the bores just inside the portals
+  (T1 east, T2 west, the spiral's west mouth), and passengers rode through it.
 - The viaduct: arched piers and a deck in Belmonte stone (`MI_B_ashlar`, with `MI_B_stone` for the copings).
 - Earthwork marker posts every 50 m at the top of each cut and the toe of each fill. They are editor-only and data
   only.

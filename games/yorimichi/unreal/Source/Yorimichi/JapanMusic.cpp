@@ -82,6 +82,7 @@ FString FJapanMusicRules::PoolName(EJapanMusicScene Scene, const FString& Area)
         return TEXT("skate");
     case EJapanMusicScene::Sail: return TEXT("sail");
     case EJapanMusicScene::Air: return TEXT("air");
+    case EJapanMusicScene::Train: return TEXT("train");
     case EJapanMusicScene::Ride: return Area == TEXT("course") ? TEXT("course") : TEXT("ride");
     default: return Area;
     }
@@ -125,6 +126,35 @@ bool FJapanMusicRules::TakesRole(const FString& Pool, const FString& Group, cons
     return Role != TEXT("contrast");
 }
 
+TArray<FString> FJapanMusicRules::PoolClips(const FString& Pool)
+{
+    // Aboard the train: Paul's four picks, rainy lofi and lounge jazz for the window seat.
+    if (Pool == TEXT("train"))
+        return {TEXT("67c9760a-c69e-451c-b4db-dc61f2f9fc6e"),   // Rain on the Line (B)
+                TEXT("508699d0-8143-4924-a11e-a1bdd60956de"),   // Harbor Lounge (A)
+                TEXT("19fedb51-66cc-4ec8-91c0-a0201c47fe1d"),   // Salon Jazz (A)
+                TEXT("055e7d39-0e67-48e1-93e8-838fc862dfbf")};  // Coffee Shop (B)
+    return {};
+}
+
+bool FJapanMusicRules::InPool(const FString& Pool, const FString& Zone, const FJapanMusicTrack& Track)
+{
+    const TArray<FString> Clips = PoolClips(Pool);
+    if (!Clips.IsEmpty()) return Clips.Contains(Track.Id);
+    return PoolGroups(Pool, Zone).Contains(Track.Group) && TakesRole(Pool, Track.Group, Track.Role);
+}
+
+EJapanMusicScene FJapanMusicRules::ActivityScene(const AWandererCharacter& Pawn)
+{
+    if (const USkateComponent* Skate = Pawn.GetSkate(); Skate && Skate->IsRiding()) return EJapanMusicScene::Skate;
+    if (const USailboatComponent* Boat = Pawn.GetSailboat(); Boat && Boat->IsEquipped()) return EJapanMusicScene::Sail;
+    if (Pawn.IsZeppelinPassenger()) return EJapanMusicScene::Air;
+    if (Pawn.IsTrainPassenger()) return EJapanMusicScene::Train;
+    if (const UBikeComponent* Bike = Pawn.GetBike(); Bike && Bike->IsRiding()) return EJapanMusicScene::Ride;
+    if (const UHorseComponent* Horse = Pawn.GetHorse(); Horse && Horse->IsRiding()) return EJapanMusicScene::Ride;
+    return EJapanMusicScene::Explore;
+}
+
 float FJapanMusicRules::Level(const FString& Pool)
 {
     if (Pool == TEXT("combat") || Pool == TEXT("skate_crater")) return 1.1f;
@@ -166,6 +196,7 @@ bool UJapanMusic::LoadLibrary(const FString& Dir)
         (*O)->TryGetStringField(TEXT("group"), T.Group);
         (*O)->TryGetStringField(TEXT("role"), T.Role);
         (*O)->TryGetStringField(TEXT("style_family"), T.Style);
+        (*O)->TryGetStringField(TEXT("clip_id"), T.Id);
         double Seconds = 0.;
         if ((*O)->TryGetNumberField(TEXT("duration_s"), Seconds)) T.Seconds = float(Seconds);
         if (T.Seconds > 30.f) Tracks.Add(MoveTemp(T));
@@ -260,26 +291,20 @@ EJapanMusicScene UJapanMusic::ReadScene(AWandererCharacter* Pawn, FString& OutZo
     for (TActorIterator<AFoxHunter> It(GetWorld()); It; ++It)
         if (It->IsAlive() && It->IsEngaged() && FVector::Dist(It->GetActorLocation(), Where) < CombatRadius)
             return EJapanMusicScene::Combat;
-    if (const USkateComponent* Skate = Pawn->GetSkate(); Skate && Skate->IsRiding()) return EJapanMusicScene::Skate;
-    if (const USailboatComponent* Boat = Pawn->GetSailboat(); Boat && Boat->IsEquipped()) return EJapanMusicScene::Sail;
-    if (Pawn->IsZeppelinPassenger()) return EJapanMusicScene::Air;
-    if (const UBikeComponent* Bike = Pawn->GetBike(); Bike && Bike->IsRiding()) return EJapanMusicScene::Ride;
-    if (const UHorseComponent* Horse = Pawn->GetHorse(); Horse && Horse->IsRiding()) return EJapanMusicScene::Ride;
-    return EJapanMusicScene::Explore;
+    return FJapanMusicRules::ActivityScene(*Pawn);
 }
 
 int32 UJapanMusic::Choose(const FString& InPool, const FString& InZone)
 {
     // Variety: never one of the last few tracks. Coherence: favour the style family that is already playing, and
     // the zone's own score where there is one.
-    const TArray<FString> Groups = FJapanMusicRules::PoolGroups(InPool, InZone);
     TArray<int32> Candidates;
     TArray<float> Weights;
     float Total = 0.f;
     for (int32 I = 0; I < Tracks.Num(); ++I)
     {
         const FJapanMusicTrack& T = Tracks[I];
-        if (!Groups.Contains(T.Group) || !FJapanMusicRules::TakesRole(InPool, T.Group, T.Role)) continue;
+        if (!FJapanMusicRules::InPool(InPool, InZone, T)) continue;
         float W = Recent.Contains(I) ? 0.f : 1.f;
         if (W > 0.f && !LastStyle.IsEmpty() && T.Style == LastStyle) W *= 2.f;
         if (W > 0.f && T.Group == InZone) W *= 1.5f;
@@ -299,9 +324,7 @@ int32 UJapanMusic::Choose(const FString& InPool, const FString& InZone)
 
 bool UJapanMusic::HasTracks(const FString& InPool, const FString& InZone) const
 {
-    const TArray<FString> Groups = FJapanMusicRules::PoolGroups(InPool, InZone);
-    return Tracks.ContainsByPredicate([&](const FJapanMusicTrack& T)
-        { return Groups.Contains(T.Group) && FJapanMusicRules::TakesRole(InPool, T.Group, T.Role); });
+    return Tracks.ContainsByPredicate([&](const FJapanMusicTrack& T) { return FJapanMusicRules::InPool(InPool, InZone, T); });
 }
 
 int32 UJapanMusic::Active() const
@@ -445,8 +468,7 @@ void UJapanMusic::Tick(float DeltaTime)
         {
             // Coherence: a track that suits the new scene keeps playing.
             const FJapanMusicTrack& T = Tracks[Channels[A].Track];
-            if ((!FJapanMusicRules::PoolGroups(Pool, Zone).Contains(T.Group) || !FJapanMusicRules::TakesRole(Pool, T.Group, T.Role))
-                && HasTracks(Pool, Zone))
+            if (!FJapanMusicRules::InPool(Pool, Zone, T) && HasTracks(Pool, Zone))
                 Start(Choose(Pool, Zone), Pool, 8.f);
             return;
         }

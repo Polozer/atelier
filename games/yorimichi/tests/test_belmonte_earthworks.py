@@ -76,6 +76,34 @@ class Design(unittest.TestCase):
         far = np.abs(v[:, 1]) > E.REACH + 25
         self.assertTrue(np.allclose(out[:len(v)][far, 2], 115.))
 
+    def test_hidden_ground_stays_out_of_the_tunnel_bore(self):
+        """Ground under another terrain (refine's hidden) is not carved, but nothing of it may stand inside a tunnel's
+        bore (grass seen from the train): over the tunnel it is lifted under the hood by HIDDEN_CLEARANCE, across the
+        mouth it opens like the shown ground, and elsewhere it is left as it is."""
+        xs, ys = np.arange(100., 301., 8.), np.arange(-40., 41., 8.)
+        x, y = np.meshgrid(xs, ys)
+        # A hillside under the foothills, rising across the line: inside the bore height on one side.
+        z = 101. + .12 * (y + 40.)
+        v = np.stack([x, y, z], -1).reshape(-1, 3)
+        w = len(xs)
+        faces = [(j * w + i, j * w + i + 1, (j + 1) * w + i + 1) for j in range(len(ys) - 1) for i in range(w - 1)]
+        faces += [(j * w + i, (j + 1) * w + i + 1, (j + 1) * w + i) for j in range(len(ys) - 1) for i in range(w - 1)]
+        out, f, _, _ = E.refine(v, faces, 2.5, ln=self.ln, hidden=lambda x, y: np.ones(np.shape(x), bool))
+        from belmonte.source import Surface
+        ground = Surface(out[f])
+        top = 100. + C.PORTAL_HEIGHT[1]          # over the lining's crown
+        for s in np.arange(147., 244., 3.):     # the tunnel runs 145-245
+            for u in (-2.6, 0., 2.6):           # the lining's half width
+                h = float(ground.height(np.array([s]), np.array([u]))[0])
+                if np.isfinite(h):
+                    self.assertTrue(h >= top - 1e-6 or h <= 100. + C.PORTAL_HEIGHT[0], (s, u, h))
+                    # layered under the shown ground's hood, never on it
+                    self.assertLessEqual(h, 100. + E.HOOD - E.HIDDEN_CLEARANCE + 1e-6)
+        # Away from the tunnel the hidden ground is not moved.
+        far = (np.abs(v[:, 0] - 195.) > 70.) | (np.abs(v[:, 1]) > 30.)
+        np.testing.assert_allclose(out[:len(v)][far, 2], v[far, 2])
+        self.assertEqual(E.bore_lift(np.array([60.]), np.array([0.]), np.array([101.]), self.ln).tolist(), [101.])
+
     def test_committed_line_is_loaded_unconditionally(self):
         E.line.cache_clear()
         self.assertIsNotNone(E.line())
@@ -221,3 +249,17 @@ def test_conforming_neighbor_ownership_rejects_nearby_distinct_endpoints():
     import pytest
     with pytest.raises(ValueError,match='endpoints'):
         E._conform_neighbors(v,np.array([[4,1,2]]),np.array([[0,1,3]]),ids,index,3,shifted)
+
+
+def test_nothing_grows_inside_a_tunnel():
+    """Plants over a tunnel (any kind) whose foot is under the lining's crown would stand in the bore: they go; the
+    forest higher up over the tunnel stays."""
+    E.line.cache_clear()
+    ln = E.line()
+    for a, b in ln.tunnels:
+        s = (a + b) / 2
+        x, y = np.interp(s, ln.s, ln.xy[:, 0]), np.interp(s, ln.s, ln.xy[:, 1])
+        rail = float(np.interp(s, ln.s, ln.rail))
+        for name in ('Grass_A', 'Bush_Green_A', 'Tree_Pine_A', 'Rock_A'):
+            keep, _ = C.settle(name, [x, x], [y, y], [rail + 2., rail + 40.])
+            assert keep.tolist() == [False, True], (name, a, b)

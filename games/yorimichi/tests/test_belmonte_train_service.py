@@ -35,7 +35,15 @@ def route(schedule=True):
             {'direction': 'Hidamari -> Belmonte', 'depart_s': 300.0, 'loop_arrive_s': 400.0, 'loop_leave_s': 410.0, 'arrive_s': 500.0}]}]}
     return {'samples': samples, 'passing_loop': loop,
             'speed_profile': profile(100., 1100., 180.), 'speed_profile_down': profile(1100., 100., 180.),
+            'speed_profile_stopping': {'direction': 'down', 'halt': 600., 'rows': stopping(1100., 600., 100., 180.)},
             'summary': {'service': service if schedule else {'dwell_s': 60.0}}}
+
+
+def stopping(start, halt, stop, seconds):
+    """route.py's waiting run: to a stand at `halt`, then on from it to `stop` (one row at the stand)."""
+    first = profile(start, halt, seconds / 2)
+    second = profile(halt, stop, seconds / 2)
+    return first + [[s, t + first[-1][1], v] for s, t, v in second[1:]]
 
 
 def write_fixture(root, schedule=True):
@@ -63,6 +71,8 @@ def write_fixture(root, schedule=True):
         records = [{'id': 'exterior-al', 'outside': [-10.95, 2.3, 0.], 'inside': [-10.95, 1.35, 1.25],
                     'treads': [{'box': [-11.2, -10.7, 1.7, 1.88], 'top_z': .96}, {'box': [-11.2, -10.7, 1.82, 2.12], 'top_z': .66}]}]
         extra = {'door_interactions': doors, 'boarding': records} if v == 'second-class' else {}
+        if v == 'locomotive':     # the smoke emitter mount: the engine's sounds come from its chimney
+            extra = {'mounts': [{'id': 'chimney-smoke', 'kind': 'emitter', 'room': 'cab', 'x': 4.4, 'y': 0., 'z': 4.12}]}
         (root / v / f'{v}-placements.json').write_text(json.dumps({'body': body, 'placements': placements, 'collision_boxes': boxes, **extra}))
     from train_furniture_fixtures import bake
     baked = bake(root / 'furniture')
@@ -118,6 +128,17 @@ class BelmonteTrainServiceTests(unittest.TestCase):
         self.assertEqual([b['name'] for b in coach['switchable']], ['COL_SM_X_door-a'])
         bench = next(f for f in coach['furniture'] if f['asset'] == 'second-class-bench')
         self.assertEqual(bench['instances'][0], [100.0, -110.0, 125.0, -90.0])
+
+    def test_sounds_come_from_the_wheels_chimney_and_cylinders(self):
+        loco, coach = self.data['consist']['vehicles']
+        L = S.L
+        # a coach: at its two bogies, on the axle; the engine: its leading bogie, coupled wheels and trailing axle
+        self.assertEqual(coach['sound'], {'wheels': [[-850.0, -0.0, L.WHEEL_R * 100], [850.0, -0.0, L.WHEEL_R * 100]]})
+        self.assertEqual([w[0] for w in loco['sound']['wheels']],
+                         [round(sum(L.LEADING) / 2 * 100, 2), round(sum(L.DRIVERS) / 3 * 100, 2), round(L.TRAILING[0] * 100, 2)])
+        self.assertEqual(loco['sound']['chimney'], [440.0, -0.0, 412.0])           # the smoke emitter mount
+        x0, x1, _, z, y = L.CYLINDER
+        self.assertEqual(loco['sound']['cylinders'], [[round((x0 + x1) * 50, 2), -y * 100, z * 100], [round((x0 + x1) * 50, 2), y * 100, z * 100]])
 
     def test_furniture_uses_recorded_lods_and_cull(self):
         bench = self.data['furniture']['second-class-bench']

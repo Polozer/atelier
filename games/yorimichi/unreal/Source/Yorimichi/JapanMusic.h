@@ -11,12 +11,12 @@ class UMediaSoundComponent;
 /** One track of the music library (its catalog.json entry). */
 struct FJapanMusicTrack
 {
-    FString Path, Title, Group, Role, Style;
+    FString Path, Title, Group, Role, Style, Id;
     float Seconds = 0.f;
 };
 
 /** What the local player is doing, as the music rules see it. */
-enum class EJapanMusicScene : uint8 { Explore, Skate, Ride, Sail, Air, Combat };
+enum class EJapanMusicScene : uint8 { Explore, Skate, Ride, Sail, Air, Train, Combat };
 
 /** The rules: which cues fit a moment. Pure, so tests and the live bridge can ask without a world. */
 struct FJapanMusicRules
@@ -28,6 +28,13 @@ struct FJapanMusicRules
     static FString PoolName(EJapanMusicScene Scene, const FString& Area);
     static TArray<FString> PoolGroups(const FString& Pool, const FString& Zone);
     static bool TakesRole(const FString& Pool, const FString& Group, const FString& Role);
+    /** A pool chosen clip by clip (the catalog's clip_id) rather than by group: empty for a group pool. */
+    static TArray<FString> PoolClips(const FString& Pool);
+    /** Whether a track belongs to a pool in a zone: by clip for a clip pool, else by group and role. */
+    static bool InPool(const FString& Pool, const FString& Zone, const FJapanMusicTrack& Track);
+    /** What the player is doing, combat and the area aside: skating, sailing, a passenger aboard the zeppelin or the
+     *  Belmonte train (seated or standing), riding a bike or horse, else exploring. */
+    static EJapanMusicScene ActivityScene(const class AWandererCharacter& Pawn);
     /** How loud a pool plays against the game's sound effects (before the player's music volume). */
     static float Level(const FString& Pool);
 };
