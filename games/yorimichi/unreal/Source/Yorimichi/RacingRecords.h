@@ -133,9 +133,9 @@ struct FRacingHallBoards
 {
     GENERATED_BODY()
     UPROPERTY() int32 Day = 0;
-    /** The split-flap board's two halves: the standings and the next races. */
+    /** The split-flap board's two halves: the standings and today's results (races seen won; never a schedule). */
     UPROPERTY() FString Standings;
-    UPROPERTY() FString Upcoming;
+    UPROPERTY() FString Results;
     /** One text per record panel (RacingRecords::Panels()) and per honour board (ERacingHonour). */
     UPROPERTY() TArray<FString> Records;
     UPROPERTY() TArray<FString> Honours;

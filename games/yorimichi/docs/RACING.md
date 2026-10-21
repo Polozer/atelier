@@ -256,7 +256,7 @@ wall pierced by three doors and two windows). `RacingRecords` (`RacingRecords.h/
 - **The objects** (`RacingRecords::HallAnchors`, placed from `runtime.json`'s `racing_places.records_hall`, which
   `world/regions/belmonte/build.py` (`RECORDS_HALL`) derives from the palazzo's committed placement
   `SM_BM_BH_PalazzoComunale` in `assets/belmonte/source.json`; no hardcoded fallback, so no hall without it): a black split-flap board in a brass frame over the middle door (the
-  season's standings and the next races at both venues: today's races still to run, then the next three race days);
+  season's standings and today's results: each race once its winner is seen home, never the schedule or a countdown);
   between the doors and windows at eye height, one record panel per circuit (Hidamari's oval, Belmonte's turf, Belmonte's
   sand: the best time at each distance, the horse, its jockey, its stable, the date) and per Grand Prix (the final's and
   the heats' records and the winners by season), and the hall's plaque; the honour boards on the end walls (most wins,
@@ -301,7 +301,10 @@ Inside a racecourse's grounds the HUD shows one English line at the top: the nex
 progress" while the field runs, the podium ("Results: 1. … 2. … 3. …") for five minutes after a finish, or where today's
 races are run. The banner stays hidden outside the venue and more than 20 m above or 3 m below the track. Hidamari uses
 its authored platform; Belmonte uses the closed turf track and its 30 m spectator apron. The wider racehorse rendering
-radius does not enable the banner.
+radius does not enable the banner. Race timing (next race, next meeting, countdowns) never shows in the general HUD away
+from a hippodrome (Paul's rule): only on its grounds, at the Salon's betting windows and on the TVs. The wallet line
+(coins, open bets) and a settled ticket's toast are not timing and show everywhere; the records hall shows results,
+never the schedule.
 
 ## Dev and live
 
