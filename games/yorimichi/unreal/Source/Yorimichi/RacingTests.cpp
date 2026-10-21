@@ -963,4 +963,47 @@ bool FRacingCounterPlaceTest::RunTest(const FString&)
     TestFalse(TEXT("A short spot"), RacingCounter::Parse(RacingPlaces::Parse(Short), C));
     return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRacingHudGroundsTest, "Yorimichi.Racing.HudGrounds",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FRacingHudGroundsTest::RunTest(const FString&)
+{
+    // Race timing shows in the general HUD only on a racecourse's grounds (the course and its stand), never in the town:
+    // Paul's rule, the Salon's windows and the TVs being the other places that show it.
+    const FString Json = RacingTest::CoursesJson();
+    if (!TestFalse(TEXT("belmonte_courses.json is readable"), Json.IsEmpty())) return false;
+    ARacingService* Service = NewObject<ARacingService>(GetTransientPackage());
+    FString Error;
+    if (!TestTrue(TEXT("The courses parse: ") + Error, Service->LoadBelmonteCourses(Json, RacingTest::BelmonteOrigin, Error))) return false;
+    const FRacingCourse* Turf = Service->GetCourse(ERacingVenue::Belmonte, 0);
+    if (!TestNotNull(TEXT("Turf"), Turf)) return false;
+    const RacingTv::FVenueShots& Stand = RacingTv::VenueShots(uint8(ERacingVenue::Belmonte));
+    // Belmonte-local plan metres (x east, y north) to world cm.
+    auto Plan = [](double X, double Y, double Z) { return RacingTest::BelmonteOrigin + FVector(X * 100., -Y * 100., Z * 100.); };
+    const FVector InStand = Turf->At(Stand.StandS, Stand.StandOut);
+    const FVector OnTrack = Turf->At(400., -5.);
+    const FVector Infield = Turf->Centre();
+    const FVector TownSquare = Plan(0., 31.5, 3.);           // the piazza before the Palazzo Comunale
+    const FVector SalonSquare = Plan(70., 290., 30.);        // outside the Salon des Paris, south of the course
+    const FVector TownEdge = Plan(70., 200., 30.);           // well inside the old 600 m radius round the course
+    TestTrue(TEXT("The stand is on Belmonte's grounds"), Service->GroundsVenue(InStand) == ERacingVenue::Belmonte);
+    TestTrue(TEXT("so is the track"), Service->GroundsVenue(OnTrack) == ERacingVenue::Belmonte);
+    TestTrue(TEXT("and the infield"), Service->GroundsVenue(Infield) == ERacingVenue::Belmonte);
+    TestTrue(TEXT("The town's square is not"), Service->GroundsVenue(TownSquare) == ERacingVenue::Count);
+    TestTrue(TEXT("nor the Salon's square"), Service->GroundsVenue(SalonSquare) == ERacingVenue::Count);
+    TestTrue(TEXT("nor the town near the course"), Service->GroundsVenue(TownEdge) == ERacingVenue::Count);
+    TestTrue(TEXT("Behind the stand, past its margin, is not"), Service->GroundsVenue(Turf->At(Stand.StandS, Stand.StandOut + RacingGrounds::StandDepth + RacingGrounds::Margin + 15.)) == ERacingVenue::Count);
+    // The HUD line itself, with a race snapshot as a client has it.
+    RacingTest::FRaceFixture F;
+    if (!F.Make(*this)) return false;
+    FRacingNetState Received = F.Snapshot;
+    Received.Serial = 1;   // published (BuildSnapshot leaves the serial to Publish)
+    Service->SetNetStateForTests(Received);
+    const double Now = F.Start + 1.;
+    TestFalse(TEXT("A player in the stand reads the racing line"), Service->HudLineAt(InStand, Now).IsEmpty());
+    TestTrue(TEXT("A player in the town square reads none"), Service->HudLineAt(TownSquare, Now).IsEmpty());
+    TestTrue(TEXT("nor outside the Salon"), Service->HudLineAt(SalonSquare, Now).IsEmpty());
+    TestTrue(TEXT("nor at the town's edge"), Service->HudLineAt(TownEdge, Now).IsEmpty());
+    return true;
+}
 #endif

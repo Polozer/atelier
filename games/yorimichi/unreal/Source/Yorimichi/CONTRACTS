@@ -184,3 +184,11 @@ id a guest presents once per connection (URacingWallet::ServerIdentify) for a gu
 "local:" key, a key another connected player holds, or a key from an invalid id: those get a session player
 ("session:"), saved never and owning no stable. A guest MUST NOT be registered before it has identified itself.
 The id is not authentication and MUST NOT be presented as such.
+
+@cc [owner:fontanierh,label:correctness] racing-timing-only-at-venues
+Race timing (the next race, the next meeting, countdowns, today's races elsewhere) MUST NOT appear in the general
+game HUD or any overlay away from a racecourse's grounds: ARacingService::HudLine MUST be empty unless
+GroundsVenue (RacingGrounds: the course footprint out to its outer rail and its stand, from the course data and
+RacingTv::VenueShots, with a bounded margin) holds the player. The Salon's betting window and the TVs MAY show it.
+World boards and readers elsewhere (the records hall) MUST show results only once seen, never a schedule. Wallet
+balances, open-bet counts and settled-ticket toasts are not timing.

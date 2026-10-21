@@ -256,7 +256,7 @@ wall pierced by three doors and two windows). `RacingRecords` (`RacingRecords.h/
 - **The objects** (`RacingRecords::HallAnchors`, placed from `runtime.json`'s `racing_places.records_hall`, which
   `world/regions/belmonte/build.py` (`RECORDS_HALL`) derives from the palazzo's committed placement
   `SM_BM_BH_PalazzoComunale` in `assets/belmonte/source.json`; no hardcoded fallback, so no hall without it): a black split-flap board in a brass frame over the middle door (the
-  season's standings and the next races at both venues: today's races still to run, then the next three race days);
+  season's standings and today's results: each race once its winner is seen home, never the schedule or a countdown);
   between the doors and windows at eye height, one record panel per circuit (Hidamari's oval, Belmonte's turf, Belmonte's
   sand: the best time at each distance, the horse, its jockey, its stable, the date) and per Grand Prix (the final's and
   the heats' records and the winners by season), and the hall's plaque; the honour boards on the end walls (most wins,
@@ -297,8 +297,14 @@ wall pierced by three doors and two windows). `RacingRecords` (`RacingRecords.h/
 
 ## HUD
 
-Near a racecourse the HUD shows one line at the top: the next race and its countdown, "Course en cours" while the
-field runs, the podium ("Arrivée : 1. … 2. … 3. …") for five minutes after a finish, or where today's races are run.
+On a racecourse's grounds the HUD shows one line at the top: the next race and its countdown, "Course en cours" while
+the field runs, the podium ("Arrivée : 1. … 2. … 3. …") for five minutes after a finish, or where today's races are run.
+**Race timing (next race, next meeting, countdowns, the races elsewhere) never shows in the general HUD away from a
+hippodrome** (Paul's rule): only on its grounds (`RacingGrounds`: the course footprint out to the outer rail and its stand,
+from the course data and `RacingTv::VenueShots`, with a 40 m margin; `ARacingService::GroundsVenue`), at the Salon's betting
+windows and on the TVs. The town round a course, the Salon's square and the station show none. `NearCourse` (about
+600 m) still decides where the runners are drawn. The wallet line (coins, open bets) and a settled ticket's toast are not
+timing and show everywhere; the records hall shows results, never the schedule.
 
 ## Dev and live
 

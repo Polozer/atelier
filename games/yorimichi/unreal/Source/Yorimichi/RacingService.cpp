@@ -1497,7 +1497,7 @@ void ARacingService::RefreshWallets()
         }
     }
     // The records hall (docs/RACING.md, "Records hall"): its objects' texts, only to readers in the hall, rebuilt when a
-    // race is noted or the day changes, and every five seconds for the next races' countdowns.
+    // race is noted or the day changes, and every five seconds so a result shows once its race is seen won.
     bool bHallBuilt = false;
     for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
     {
@@ -1570,16 +1570,38 @@ void ARacingService::AdvanceClock(double Seconds)
 
 // ------------------------------------------------------------------------------------------------------------ HUD, travel, live
 
+ERacingVenue ARacingService::GroundsVenue(const FVector& At) const
+{
+    // The stands (RacingTv::VenueShots): Hidamari's grandstand by the post, Belmonte's along its home straight.
+    static const struct { ERacingVenue Venue; uint8 Track; } Courses[] = {
+        {ERacingVenue::Hidamari, 0}, {ERacingVenue::Belmonte, 0}, {ERacingVenue::Belmonte, 1}};
+    for (int32 I = 0; I < int32(UE_ARRAY_COUNT(Courses)); ++I)
+    {
+        const FRacingCourse* C = GetCourse(Courses[I].Venue, Courses[I].Track);
+        if (!C) continue;
+        RacingGrounds::FFootprint& G = Grounds[I];
+        if (!G.IsValid() || G.Lap != C->Lap())
+        {
+            const RacingTv::FVenueShots& Stand = RacingTv::VenueShots(uint8(Courses[I].Venue));
+            G.Build(*C, Stand.StandS, Stand.StandOut, Stand.StandHalf);
+        }
+        if (G.Contains(At)) return Courses[I].Venue;
+    }
+    return ERacingVenue::Count;
+}
+
 FString ARacingService::HudLine(const AWandererCharacter* Pawn) const
 {
-    if (!Pawn || !Net.Serial || !bCoursesLoaded) return FString();
-    const FVector At = Pawn->GetActorLocation();
-    ERacingVenue Near = ERacingVenue::Count;
-    for (const ERacingVenue V : {ERacingVenue::Hidamari, ERacingVenue::Belmonte})
-        if (const FRacingCourse* C = GetCourse(V); C && NearCourse(*C, At)) { Near = V; break; }
+    return Pawn ? HudLineAt(Pawn->GetActorLocation(), WorldNow()) : FString();
+}
+
+FString ARacingService::HudLineAt(const FVector& At, double Now) const
+{
+    if (!Net.Serial) return FString();
+    // Only on a racecourse's grounds: never in the town round it (docs/RACING.md, "HUD").
+    const ERacingVenue Near = GroundsVenue(At);
     if (Near == ERacingVenue::Count) return FString();
     const FString Venue = FString::Printf(TEXT("Hippodrome de %s"), RacingLooks::VenueName(Near));
-    const double Now = WorldNow();
     const FRacingNetRace& Race = Net.Race;
     const FRacingNetResult& Last = Net.Last;
     FString Result;

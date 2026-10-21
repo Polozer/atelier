@@ -248,8 +248,17 @@ public:
     const FRacingNetState& GetNetState() const { return Net; }
     /** The venue's course (Track 1: Belmonte's sand), or nullptr when it is not loaded. */
     const FRacingCourse* GetCourse(ERacingVenue Venue, uint8 Track = 0) const;
-    /** The HUD line near a venue (French), empty elsewhere. */
+    /** The HUD line on a racecourse's grounds (French): the next race, the race running or the last podium; empty
+     *  anywhere else, the town round the course included (race timing is only at the hippodrome, the Salon's windows and
+     *  the TVs). */
     FString HudLine(const AWandererCharacter* Pawn) const;
+    /** HudLine for a point (Unreal cm) at world second Now. */
+    FString HudLineAt(const FVector& At, double Now) const;
+    /** The venue whose grounds (RacingGrounds: the course footprint and its stand, with a margin) hold a point;
+     *  ERacingVenue::Count when none. */
+    ERacingVenue GroundsVenue(const FVector& At) const;
+    /** Tests: the replicated snapshot as a client would receive it. */
+    void SetNetStateForTests(const FRacingNetState& Snapshot) { Net = Snapshot; }
     FString StateJson() const;
     int32 NumRunnersShown() const { return Shown.Num(); }
     /** The racing TVs (ARacingBroadcast) film the race on this machine: the field is shown wherever the player is, and its
@@ -303,6 +312,8 @@ private:
 
     // Courses
     FRacingCourse Hidamari, BelmonteTurf, BelmonteSand;
+    /** Each course's grounds (Hidamari, Belmonte turf, Belmonte sand), sampled on first use and when a lap changes. */
+    mutable RacingGrounds::FFootprint Grounds[3];
     bool bCoursesLoaded = false, bCoursesFileFailed = false;
 
     // Runners on this machine
