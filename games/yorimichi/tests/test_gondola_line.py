@@ -52,3 +52,25 @@ def test_rope_reduction_bounds_every_original_interval_and_keeps_corners():
         subset=points[(points[:,0]>=a[0])&(points[:,0]<=b[0])]
         t=np.clip((subset-a)@(b-a)/np.sum((b-a)**2),0,1)
         assert np.linalg.norm(subset-(a+t[:,None]*(b-a)),axis=1).max()<=.0005+1e-10
+
+
+@pytest.mark.parametrize('points', [
+    [[0,0,0],[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,0]],
+    [[0,0,0],[1,1,0],[2,0,0],[3,-1,0],[4,0,0],[5,1,0],[6,0,0]],
+])
+def test_reduction_proves_intervals_even_when_prefix_error_is_not_monotone(points):
+    points=np.array(points,float);tolerance=.2
+    reduced=simplify(points,tolerance)
+    first=0
+    for endpoint in reduced[1:]:
+        last=next(i for i in range(first+1,len(points)) if np.array_equal(points[i],endpoint))
+        q=points[first:last+1];a,b=points[first],points[last];ab=b-a
+        t=np.clip((q-a)@ab/(ab@ab),0,1) if ab@ab else np.zeros(len(q))
+        assert np.linalg.norm(q-a-t[:,None]*ab,axis=1).max()<=tolerance
+        first=last
+    assert first==len(points)-1
+
+
+@pytest.mark.parametrize('tolerance',[float('nan'),float('inf'),0.,-1.])
+def test_reduction_refuses_invalid_error_bound(tolerance):
+    with pytest.raises(ValueError):simplify([[0,0,0],[1,1,1]],tolerance)

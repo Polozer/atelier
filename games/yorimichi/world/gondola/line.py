@@ -105,26 +105,43 @@ def closed_circuit(profile, a, b, station_path, gauge):
 def simplify(points, tolerance):
     """Polyline reduction with a declared maximum point-to-segment error.
 
-    Each retained interval is proved against all original samples. Since both
-    curves are piecewise linear, the sample maximum bounds the whole interval.
+    Grow each shortcut with exponential search, then refine its endpoint. Every
+    accepted interval is checked against all original samples. Since both curves
+    are piecewise linear, this bounds the complete original segments too.
     """
     points=np.asarray(points,float)
-    if len(points)<2 or tolerance<=0 or not np.isfinite(points).all():
+    if len(points)<2 or not math.isfinite(tolerance) or tolerance<=0 or not np.isfinite(points).all():
         raise ValueError('Invalid rope mesh simplification')
-    keep={0,len(points)-1}; pending=[(0,len(points)-1)]
-    while pending:
-        first,last=pending.pop()
-        if last-first<2:
-            continue
-        a,b=points[first],points[last]; ab=b-a
-        q=points[first+1:last]; length2=float(ab@ab)
+
+    def fits(first,last):
+        q=points[first+1:last]
+        if not len(q):
+            return True
+        a,b=points[first],points[last];ab=b-a;length2=float(ab@ab)
         t=np.clip((q-a)@ab/length2,0,1) if length2 else np.zeros(len(q))
-        distance=np.linalg.norm(q-(a+t[:,None]*ab),axis=1)
-        index=int(np.argmax(distance))
-        if distance[index]>tolerance:
-            middle=first+index+1;keep.add(middle)
-            pending.extend(((first,middle),(middle,last)))
-    return points[sorted(keep)]
+        return bool(np.linalg.norm(q-a-t[:,None]*ab,axis=1).max()<=tolerance)
+
+    keep=[0]
+    while keep[-1]<len(points)-1:
+        first=keep[-1];last=first+1;stride=2
+        while True:
+            candidate=min(first+stride,len(points)-1)
+            if not fits(first,candidate):
+                break
+            last=candidate
+            if last==len(points)-1:
+                break
+            stride*=2
+        if last<len(points)-1:
+            high=candidate
+            while high-last>1:
+                middle=(last+high)//2
+                if fits(first,middle):
+                    last=middle
+                else:
+                    high=middle
+        keep.append(last)
+    return points[keep]
 
 
 def near_rope_tolerance(groove_error_mm):
