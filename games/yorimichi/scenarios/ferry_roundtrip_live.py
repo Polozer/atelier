@@ -54,8 +54,10 @@ def companionway_route(deck, start):
     aft = foot-.8
     side = -1 if start[1] < 0 else 1
     corridor = side*4.4  # Audited aft walk: clears the canopy posts as well as the house portals.
+    turn = foot-.08  # Turn before the aft lifebuoy locker, behind the stair handrail's start.
     route = [list(start), [start[0], corridor, height(deck['main_deck'], start[0])],
-             [aft, corridor, height(deck['main_deck'], aft)],
+             [turn, corridor, height(deck['main_deck'], turn)],
+             [turn, y, height(deck['main_deck'], turn)],
              [aft, y, height(deck['main_deck'], aft)], [foot, y, stair['foot_z']]]
     # Collision is the declared ramp under the visible treads. Sample it and cross the upper join.
     count = math.ceil((stair['top_x']-foot)/.5)
