@@ -16,7 +16,7 @@ from mesh_import import import_mesh
 from kart_material import material as kart_material
 
 sys.path.insert(0, str(HERE.parents[1] / 'tools/kart_grip_editor'))
-from source_identity import playable_ids
+from source_identity import playable_ids, profile_path, prepared_models
 
 OUT = yori.OUT / 'kart'
 unreal.SystemLibrary.execute_console_command(None, 'Interchange.FeatureFlags.Import.FBX 0')
@@ -40,18 +40,16 @@ data = Path(__file__).resolve().parents[1] / 'Content/Data/kart/cockpit.json'
 data.parent.mkdir(parents=True, exist_ok=True)
 shutil.copy2(OUT / 'cockpit.json', data)
 # The runtime checks a saved grip against the prepared model it was authored on, not against the live fit.
-shutil.copy2(Path(__file__).resolve().parents[2] / 'assets/vehicles/kart/grips/prepared-models.json',
-             data.parent / 'prepared-models.json')
+(data.parent / 'prepared-models.json').write_text(json.dumps(prepared_models(), indent=2) + '\n')
 # Authoring is explicit: shipping never substitutes guessed curls for an unsaved character.
-grips = Path(__file__).resolve().parents[2] / 'assets/vehicles/kart/grips'
 for character in playable_ids():
-    source = grips / f'{character}.json'
+    source = profile_path(character)
     if not source.is_file():
         raise RuntimeError(f'Save the {character} grip in the kart grip editor before importing the kart')
     pose = json.loads(source.read_text())
     if pose.get('schema') != 1 or pose.get('character') != character or pose.get('layout') != manifest['layout']:
         raise RuntimeError(f'Stale or invalid kart grip: {character}; reopen and save in the current editor')
-    target = data.parent / 'grips' / source.name
+    target = data.parent / 'grips' / f'{character}.json'
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
 unreal.log('KART IMPORT COMPLETE')

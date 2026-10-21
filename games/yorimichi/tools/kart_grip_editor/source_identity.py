@@ -6,6 +6,7 @@ import tomllib
 
 GAME = Path(__file__).resolve().parents[2]
 ROOT = GAME.parents[1]
+CHARACTERS = GAME / 'assets/characters'
 
 
 def digest(value):
@@ -16,6 +17,30 @@ def playable_ids():
     return tuple(sorted(p.parent.name for p in (GAME / 'assets/characters').glob('*/character.toml')
                         if (p.parent / 'adventure.toml').is_file() and
                         tomllib.loads(p.read_text()).get('role', 'player') == 'player'))
+
+
+def profile_path(character, characters=CHARACTERS):
+    """@cc [owner:fontanierh,label:architecture] character-owned-kart-grips
+    Authored kart grips and prepared-model identities MUST live beside their character
+    definition. Shared kart tooling MUST discover those files from the playable roster;
+    a runtime aggregate MUST be generated, never a second authored source of truth.
+    """
+    return characters / character / 'kart-grip.json'
+
+
+def model_path(character, characters=CHARACTERS):
+    return characters / character / 'kart-grip-model.json'
+
+
+def prepared_models(characters=CHARACTERS):
+    """Collect character-owned identities for the generated runtime table."""
+    models = {}
+    for name in playable_ids():
+        entry = json.loads(model_path(name, characters).read_text())
+        if entry.get('schema') != 1 or entry.get('character') != name:
+            raise ValueError(f'{name}: invalid prepared-model receipt')
+        models[name] = {key: value for key, value in entry.items() if key not in ('schema', 'character')}
+    return {'schema': 1, 'models': models}
 
 
 def source_paths(character):
@@ -40,18 +65,18 @@ def source_identity(character):
                    for p in source_paths(character)})
 
 
-def register(models, profiles):
+def register(models, characters=CHARACTERS):
     """@cc [owner:fontanierh,label:correctness] kart-prepared-model-identity
     A registered grip MUST identify the inspected model bytes and bind frames, with an
     independently verified current character-source identity. Production validation MUST
     reject stale receipts and MUST NOT derive its expected identity from the pose itself.
     """
     receipt = {}
-    for path in sorted(profiles.glob('*.json')):
-        if path.name == 'prepared-models.json':
-            continue
+    for path in sorted(characters.glob('*/kart-grip.json')):
         pose = json.loads(path.read_text())
         name = pose['character']
+        if name != path.parent.name:
+            raise ValueError(f'{path}: grip belongs to a different character')
         meta = json.loads((models / f'{name}.json').read_text())
         checksum = hashlib.sha256((models / f'{name}.glb').read_bytes()).hexdigest()
         if checksum != meta.get('model_sha256'):
@@ -75,12 +100,13 @@ def register(models, profiles):
         if pose.get('model_sha256') != checksum:
             pose['model_sha256'] = checksum
             path.write_text(json.dumps(pose, indent=2) + '\n')
-    temporary = profiles / '.prepared-models.tmp'
-    temporary.write_text(json.dumps({'schema': 1, 'models': receipt}, indent=2)+'\n')
-    temporary.replace(profiles / 'prepared-models.json')
+        target = model_path(name, characters)
+        temporary = target.with_suffix('.tmp')
+        temporary.write_text(json.dumps({'schema': 1, 'character': name, **receipt[name]}, indent=2)+'\n')
+        temporary.replace(target)
     return receipt
 
 
 if __name__ == '__main__':
     print('Registered', ', '.join(register(ROOT / 'build/yorimichi/kart-grip-editor',
-                                         GAME / 'assets/vehicles/kart/grips')))
+                                         CHARACTERS)))

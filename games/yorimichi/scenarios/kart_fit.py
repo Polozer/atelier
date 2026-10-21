@@ -22,7 +22,9 @@ _spec = importlib.util.spec_from_file_location('kart_cleanup', os.path.join(live
 CLEAN = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(CLEAN)
 try:
-    PREPARED = json.load(open(os.path.join(live.ROOT, 'games/yorimichi/assets/vehicles/kart/grips/prepared-models.json')))
+    PREPARED = {'models': {name: json.load(open(os.path.join(live.ROOT,
+                'games/yorimichi/assets/characters', name, 'kart-grip-model.json')))
+                for name in ('cairo', 'modori', 'nox', 'paul')}}
 except Exception:
     PREPARED = {'models': {}}
 

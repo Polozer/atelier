@@ -97,16 +97,16 @@ def test_save_round_trip_and_conflict_preserve_operator_work(tmp_path, meta):
                                   {'Content-Type': 'application/json', 'X-Grip-Token': token}, method='POST')
         with urlopen(request()) as response:
             first = json.load(response)
-        raw = (saves / 'cairo.json').read_bytes()
+        raw = (saves / 'cairo/kart-grip.json').read_bytes()
         with pytest.raises(HTTPError) as conflict:
             urlopen(request())
         assert conflict.value.code == 409
-        assert (saves / 'cairo.json').read_bytes() == raw
+        assert (saves / 'cairo/kart-grip.json').read_bytes() == raw
         data['revision'] = first['revision']
         with urlopen(request()) as response:
             assert json.load(response)['ok']
         assert len(list((models / 'history/cairo').glob('*.json'))) == 1
-        saved = json.loads((saves / 'cairo.json').read_text())
+        saved = json.loads((saves / 'cairo/kart-grip.json').read_text())
         assert saved['hands'] == data['hands'] and saved['bind_world'] == meta['bind_world']
         for key in ('arm_poles', 'shoulder_lean_degrees', 'wheel_height_offset', 'wheel_tilt_offset_degrees'):
             assert saved[key] == data[key]
@@ -247,7 +247,7 @@ def test_register_carries_a_pose_across_a_rebuilt_model(monkeypatch, tmp_path, m
     import source_identity as identity
     import hashlib
     models, profiles = tmp_path / 'models', tmp_path / 'profiles'
-    models.mkdir(); profiles.mkdir()
+    models.mkdir(); (profiles / 'cairo').mkdir(parents=True)
     # A consistent re-export updates the GLB and the export metadata together.
     new_model = b'new-model-bytes'
     meta['model_sha256'] = hashlib.sha256(new_model).hexdigest()
@@ -256,15 +256,17 @@ def test_register_carries_a_pose_across_a_rebuilt_model(monkeypatch, tmp_path, m
     (models / 'cairo.glb').write_bytes(new_model)
     pose = payload(meta)
     pose.update(scale=meta['scale'], bind_world=meta['bind_world'], model_sha256='b'*64)
-    (profiles / 'cairo.json').write_text(json.dumps(pose))
+    (profiles / 'cairo/kart-grip.json').write_text(json.dumps(pose))
     monkeypatch.setattr(identity, 'source_identity', lambda name: 'a'*64)
     receipt = identity.register(models, profiles)
+    registered = json.loads((profiles / 'cairo/kart-grip-model.json').read_text())
+    assert registered == {'schema': 1, 'character': 'cairo', **receipt['cairo']}
     current = meta['model_sha256']
     assert receipt['cairo']['model_sha256'] == current
-    assert json.loads((profiles / 'cairo.json').read_text())['model_sha256'] == current
-    changed = json.loads((profiles / 'cairo.json').read_text())
+    assert json.loads((profiles / 'cairo/kart-grip.json').read_text())['model_sha256'] == current
+    changed = json.loads((profiles / 'cairo/kart-grip.json').read_text())
     changed['bind_world']['finger_0_L'][12] += .01
-    (profiles / 'cairo.json').write_text(json.dumps(changed))
+    (profiles / 'cairo/kart-grip.json').write_text(json.dumps(changed))
     with pytest.raises(ValueError, match='re-author the grip'):
         identity.register(models, profiles)
 
@@ -272,13 +274,13 @@ def test_register_carries_a_pose_across_a_rebuilt_model(monkeypatch, tmp_path, m
 def test_register_rejects_a_changed_model_with_unchanged_metadata(monkeypatch, tmp_path, meta):
     import source_identity as identity
     models, profiles = tmp_path / 'models', tmp_path / 'profiles'
-    models.mkdir(); profiles.mkdir()
+    models.mkdir(); (profiles / 'cairo').mkdir(parents=True)
     meta.update(source_sha256='a'*64, scale=.85, model_sha256='a'*64)
     (models / 'cairo.json').write_text(json.dumps(meta))
     (models / 'cairo.glb').write_bytes(b'not-the-prepared-model')
     pose = payload(meta)
     pose.update(scale=meta['scale'], bind_world=meta['bind_world'], model_sha256=meta['model_sha256'])
-    (profiles / 'cairo.json').write_text(json.dumps(pose))
+    (profiles / 'cairo/kart-grip.json').write_text(json.dumps(pose))
     monkeypatch.setattr(identity, 'source_identity', lambda name: 'a'*64)
     with pytest.raises(ValueError, match='does not match its export metadata'):
         identity.register(models, profiles)
@@ -290,3 +292,25 @@ def test_neutral_replay_detects_a_detached_wrist(meta):
     assert max(neutral_reach(pose, meta).values()) < .001
     pose['hands']['L']['hand_L'][12] += 2
     assert neutral_reach(pose, meta)['L'] > .01
+
+
+def test_character_owned_grips_form_the_complete_runtime_table(monkeypatch, tmp_path):
+    import source_identity as identity
+    from validate_profiles import validate_profile
+    receipt = identity.prepared_models()
+    assert set(receipt['models']) == set(identity.playable_ids())
+    for name, prepared in receipt['models'].items():
+        path = identity.profile_path(name)
+        assert (path.parent / 'character.toml').is_file()
+        pose = json.loads(path.read_text())
+        assert pose['character'] == name
+        assert prepared['source_sha256'] == identity.source_identity(name)
+        validate_profile(pose, pose['layout'], prepared)
+    monkeypatch.setattr(identity, 'playable_ids', lambda: ('fixture',))
+    folder = tmp_path / 'fixture'
+    folder.mkdir()
+    with pytest.raises(FileNotFoundError):
+        identity.prepared_models(tmp_path)
+    identity.model_path('fixture', tmp_path).write_text(json.dumps({'schema': 1, 'character': 'another'}))
+    with pytest.raises(ValueError, match='invalid prepared-model receipt'):
+        identity.prepared_models(tmp_path)

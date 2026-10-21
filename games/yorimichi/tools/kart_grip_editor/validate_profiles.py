@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from grip_data import bone_names, neutral_reach
-from source_identity import digest, playable_ids, source_identity
+from source_identity import digest, playable_ids, source_identity, profile_path, prepared_models
 
 # Load the grip editor's validator by path: a bare server import resolved to animation_lab.server when this module was
 # imported from the test suite, which is a different module and has no validate().
@@ -46,12 +46,11 @@ def main():
     parser.add_argument('--layout', type=Path, required=True)
     args = parser.parse_args()
     layout = json.loads(args.layout.read_text())
-    source = Path(__file__).resolve().parents[2] / 'assets/vehicles/kart/grips'
-    receipt = json.loads((source / 'prepared-models.json').read_text())
+    receipt = prepared_models()
     if receipt.get('schema') != 1:
         raise ValueError('Invalid prepared-model receipt')
     for name in playable_ids():
-        path = source / f'{name}.json'
+        path = profile_path(name)
         if not path.is_file():
             raise ValueError(f'Save the {name} grip in the kart grip editor before importing the kart')
         pose = json.loads(path.read_text())

@@ -11,13 +11,13 @@ import threading
 import time
 from urllib.parse import unquote, urlsplit
 from grip_data import bone_names as bones, mirror_left, neutral_reach
-from source_identity import playable_ids
+from source_identity import CHARACTERS as CHARACTER_ROOT, playable_ids, profile_path
 
 WEB = Path(__file__).resolve().parent
 GAME = WEB.parents[1]
 ROOT = GAME.parents[1]
 MODELS = ROOT / 'build/yorimichi/kart-grip-editor'
-SAVES = GAME / 'assets/vehicles/kart/grips'
+SAVES = CHARACTER_ROOT
 VENDOR = GAME / 'tools/character_review_web/vendor'
 CHARACTERS = playable_ids()
 WRITE_LOCK = threading.Lock()
@@ -119,7 +119,7 @@ def handler(models=MODELS, saves=SAVES):
             pieces = route.strip('/').split('/')
             if len(pieces) == 2 and pieces[0] in ('meta', 'saved') and pieces[1] in CHARACTERS:
                 name = pieces[1]
-                path = models / f'{name}.json' if pieces[0] == 'meta' else saves / f'{name}.json'
+                path = models / f'{name}.json' if pieces[0] == 'meta' else profile_path(name, saves)
                 if not path.exists():
                     return self.json({'pose': None, 'revision': ''}) if pieces[0] == 'saved' else self.json({'error': 'Model export not ready'}, 503)
                 raw = path.read_bytes()
@@ -160,7 +160,7 @@ def handler(models=MODELS, saves=SAVES):
                             scale=meta['scale'], layout=meta['layout'], bind_world=meta['bind_world'],
                             saved_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
                 with WRITE_LOCK:
-                    path = saves / f'{name}.json'
+                    path = profile_path(name, saves)
                     prior = path.read_bytes() if path.exists() else b''
                     revision = hashlib.sha256(prior).hexdigest() if prior else ''
                     if incoming.get('revision', '') != revision:
@@ -170,8 +170,8 @@ def handler(models=MODELS, saves=SAVES):
                     if prior:
                         (archive / f'{time.time_ns()}.json').write_bytes(prior)
                     raw = (json.dumps(pose, indent=2, allow_nan=False) + '\n').encode()
-                    saves.mkdir(parents=True, exist_ok=True)
-                    temporary = saves / f'.{name}.tmp'
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = path.with_suffix('.tmp')
                     temporary.write_bytes(raw); temporary.replace(path)
                 self.json({'ok': True, 'revision': hashlib.sha256(raw).hexdigest()})
             except (ValueError, TypeError, KeyError, AttributeError) as error:

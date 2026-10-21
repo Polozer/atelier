@@ -84,7 +84,7 @@ to bend; negative arm height lowers the elbow guides. **Wheel height** telescope
 column along its shaft; **Wheel angle** rotates the shaft and wheel together. Both
 carry the pinned hands. These fitting settings are saved independently per character. Check both hand/palm cameras and steering extremes.
 
-Save writes `assets/vehicles/kart/grips/<character>.json` atomically. Each hand and finger
+Save writes `assets/characters/<character>/kart-grip.json` atomically. Each hand and finger
 has a complete transform relative to the unsteered, scaled wheel; changing steering
 never edits those transforms. The save also includes the source bind skeleton, model
 checksum, mirrored elbow guides, shoulder lean, wheel height/angle and cockpit revision.
@@ -121,7 +121,7 @@ to refresh `build/yorimichi/kart-grip-editor/kart.glb`. This preserves character
 metadata and authored poses. Its optional `--baseline-build` compares all generated
 surface/collider coordinates and face topology against an earlier generator.
 
-`grips/prepared-models.json` is the registered identity of each inspected prepared
+`assets/characters/<character>/kart-grip-model.json` is the registered identity of its inspected prepared
 skin: model SHA, bind SHA, source/preparation SHA and replay shoulder frame. Production
 preflight checks that independent receipt and the current character inputs before
 accepting a pose; it does not trust the pose's own checksum as its expected value.
@@ -131,3 +131,7 @@ Normal imports fingerprint all those source inputs. Runtime separately compares 
 prepared and imported hand-relative bind positions within 3 mm and logs a rejection
 if they differ. Saves and preflight refuse neutral wrist reach misses above 1 cm;
 runtime logs larger animated misses and preserves incoming bone scales.
+
+Authored kart grips and their prepared-model identities belong beside each character definition.
+The kart owns only the shared cockpit and replay mechanism. Its importer builds the runtime
+profile table from those character-owned files; there is no second authored copy under vehicles.
