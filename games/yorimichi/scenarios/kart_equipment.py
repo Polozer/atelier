@@ -32,6 +32,14 @@ def press(key):
     L.input_key(key, 'release', 0.0)
 
 
+def lift(metres):
+    """Put the player in the air: the ground-only teleport verb would snap them back down."""
+    world = unreal.LiveLibrary.game_world()
+    pawn = unreal.GameplayStatics.get_player_pawn(world, 0)
+    ground = L.ground_at(BEACH)
+    pawn.set_actor_location(unreal.Vector(ground.x, ground.y, ground.z + metres * 100.0), False, True)
+
+
 st = {'t': 0.0, 'phase': 0, 'checks': [], 'errors': [], 'shots': []}
 
 
@@ -64,44 +72,48 @@ def run(dt):
             L.fixed_step(60)
         elif st['phase'] == 1 and t > 0.8:
             st['phase'] = 2
-            ground = L.ground_at(BEACH)
-            L.teleport_player(unreal.Vector(ground.x, ground.y, ground.z + 1800.0), 0.0)
+            lift(18.0)
         elif st['phase'] == 2 and t > 1.5:
             st['phase'] = 3
-            press('Space')
-        elif st['phase'] == 3 and t > 2.0:
+            press('SpaceBar')   # Cairo's double jump; any other rider jumps its aerial move
+        elif st['phase'] == 3 and t > 1.9:
             st['phase'] = 4
+            press('SpaceBar')   # the glider opens on the next press in the air
+        elif st['phase'] == 4 and t > 2.4:
+            st['phase'] = 5
             check('glider opens in the air', glider_visible() is True, 'visible=%r' % glider_visible())
             ground = L.ground_at(BEACH)
             L.teleport_player(ground, 0.0)
-        elif st['phase'] == 4 and t > 2.8:
-            st['phase'] = 5
+        elif st['phase'] == 5 and t > 3.2:
+            st['phase'] = 6
             check('glider stowed after landing', glider_visible() is False, 'visible=%r' % glider_visible())
             live.press('car')
-        elif st['phase'] == 5 and t > 3.5:
-            st['phase'] = 6
+        elif st['phase'] == 6 and t > 3.9:
+            st['phase'] = 7
             state = L.car_state()
             check('car is out', 'driving=1' in state, state)
             check('no glider while driving', glider_visible() is False, 'visible=%r' % glider_visible())
             shot('kart_equipment_drive.png')
-        elif st['phase'] == 6 and t > 4.0:
-            st['phase'] = 7
-            live.press('car')
-        elif st['phase'] == 7 and t > 4.8:
+        elif st['phase'] == 7 and t > 4.4:
             st['phase'] = 8
+            live.press('car')
+        elif st['phase'] == 8 and t > 5.2:
+            st['phase'] = 9
             state = L.car_state()
             check('car parked', 'driving=0' in state, state)
             check('no glider back on foot', glider_visible() is False, 'visible=%r' % glider_visible())
             shot('kart_equipment_foot.png')
-        elif st['phase'] == 8 and t > 5.2:
-            st['phase'] = 9
-            ground = L.ground_at(BEACH)
-            L.teleport_player(unreal.Vector(ground.x, ground.y, ground.z + 1800.0), 0.0)
-        elif st['phase'] == 9 and t > 5.9:
+        elif st['phase'] == 9 and t > 5.6:
             st['phase'] = 10
-            press('Space')
-        elif st['phase'] == 10 and t > 6.4:
+            lift(18.0)
+        elif st['phase'] == 10 and t > 6.3:
             st['phase'] = 11
+            press('SpaceBar')
+        elif st['phase'] == 11 and t > 6.7:
+            st['phase'] = 12
+            press('SpaceBar')
+        elif st['phase'] == 12 and t > 7.2:
+            st['phase'] = 13
             check('glider still opens after driving', glider_visible() is True, 'visible=%r' % glider_visible())
             L.fixed_step(0)
             json.dump({'ok': not st['errors'], 'checks': st['checks'], 'shots': st['shots'],

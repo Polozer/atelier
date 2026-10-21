@@ -25,7 +25,7 @@ VIEWS = [
     ('left', 0.0, -520.0, 130.0, 0.0, 60.0, 50.0),
     ('right', 0.0, 520.0, 130.0, 0.0, 60.0, 50.0),
     ('seat', 250.0, 0.0, 300.0, 0.0, 30.0, 55.0),
-    ('grips', 240.0, -100.0, 110.0, 30.0, 85.0, 38.0),
+    ('grips', 190.0, -70.0, 108.0, 55.0, 98.0, 35.0),
 ]
 BEACH = unreal.Vector(-23600.0, 16000.0, 0.0)
 
@@ -65,18 +65,29 @@ def build():
                 live.press('car')
                 L.fixed_step(60)
 
-        def place():
-            ground = L.ground_at(BEACH)
+        def place(index=index):
+            # Each rider gets its own stretch: a previously parked kart still occupies its patch.
+            ground = L.ground_at(BEACH + unreal.Vector(index * 2000.0, 0.0, 0.0))
             L.teleport_player(ground, 0.0)
 
-        def summon():
+        def summon(index=index):
             live.press('car')
+            if 'driving=1' not in L.car_state():
+                # A crest or a slope can refuse the car; try a second flat patch before recording a failure.
+                ground = L.ground_at(BEACH + unreal.Vector(450.0, 400.0, 0.0))
+                L.teleport_player(ground, 0.0)
+                live.press('car')
 
         def record(rider=rider):
             world = unreal.LiveLibrary.game_world()
             pawn = unreal.GameplayStatics.get_player_pawn(world, 0)
-            mesh = pawn.get_mesh().get_skeletal_mesh_asset()
+            mesh = None
+            for component in pawn.get_components_by_class(unreal.SkeletalMeshComponent):
+                if component.get_name() in ('CharacterMesh0', 'Mesh'):
+                    mesh = component.get_skeletal_mesh_asset()
+                    break
             result = {'rider': rider,
+                      'pawn': pawn.get_class().get_name(),
                       'mesh': mesh.get_path_name() if mesh else None,
                       'car': L.car_state(),
                       'ride': L.car_ride(),
@@ -94,7 +105,7 @@ def build():
         later(0.1, select)
         later(1.2, park)
         later(0.6, place)
-        later(0.5, summon)
+        later(0.7, summon)
         later(0.7, lambda: L.input_key('D', 'press', 1.0))
         for view, forward, right, up, aim_forward, aim_up, fov in VIEWS:
             def shot(view=view, forward=forward, right=right, up=up, aim_forward=aim_forward,
