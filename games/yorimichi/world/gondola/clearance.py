@@ -97,7 +97,7 @@ class StructureClearance:
                 high[0] > self.bounds[2] or high[1] > self.bounds[3]):
             raise ValueError('Structure query leaves its declared extraction footprint')
 
-    def static(self, vertices, *, require_bounds=False):
+    def static(self, vertices, *, require_bounds=False, plan_clear=False):
         vertices = np.asarray(vertices,float)
         if vertices.ndim != 2 or vertices.shape[1] != 3 or not len(vertices) or not np.isfinite(vertices).all():
             raise ValueError('Static structure proof needs complete finite vertices')
@@ -107,11 +107,13 @@ class StructureClearance:
         counts = {}
         for key,triangles in self.arrays.items():
             lo,hi = self.extents[key]
-            indices = np.flatnonzero((hi>=low).all(1)&(lo<=high).all(1))
+            dimensions=2 if plan_clear else 3
+            indices = np.flatnonzero((hi[:,:dimensions]>=low[:dimensions]).all(1)&
+                                     (lo[:,:dimensions]<=high[:dimensions]).all(1))
             count = 0
             for index in indices:
                 polygon = list(triangles[index])
-                for axis in range(3):
+                for axis in range(dimensions):
                     polygon = clip(polygon,axis,low[axis],True)
                     if not polygon:break
                     polygon = clip(polygon,axis,high[axis],False)
@@ -121,7 +123,7 @@ class StructureClearance:
                 count += 1
             counts[key] = count
         return {'pass':True,'representation':'complete-expanded-static-box','margin_m':self.MARGIN,
-                'bounds_m':[low.tolist(),high.tolist()],'candidates':counts}
+                'bounds_m':[low.tolist(),high.tolist()],'candidates':counts,'plan_clear':plan_clear}
 
     def path(self, points, *, radius, drop):
         points = np.asarray(points,float)

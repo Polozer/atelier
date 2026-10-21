@@ -371,7 +371,10 @@ def export_world(mesh,folder,mats,limit=50000,*,frame=None,G=None,seats=(),ridin
     world_structure = None
     if structures is not None:
         vertices=np.c_[world_xy(np.asarray(mesh.verts)[:,:2],frame),np.asarray(mesh.verts)[:,2]+frame[3]]
-        world_structure=structures.static(vertices,require_bounds=True)
+        # The Belmonte-side tower must also leave all town walking space clear
+        # in plan, independently of paving/roof height. All towers retain the
+        # complete3D refusal; distant buried country is not walking space.
+        world_structure=structures.static(vertices,require_bounds=True,plan_clear=mesh.name=='GD_L2_0_Tower')
     obj,names=solid.to_object(mesh,mats)
     path=folder/f'{mesh.name}.fbx';solid.export_fbx([obj],path)
     bpy.data.objects.remove(obj,do_unlink=True)

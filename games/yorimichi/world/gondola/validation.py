@@ -229,6 +229,8 @@ def validate_site(build):
     for row in data['exports']:
         if row['name'].startswith(('GD_belmonte_','GD_northwest_','GD_L2_')) and '_Rope_LOD' not in row['name']:
             validate_structure_proof(row.get('world_structure') or {},static=True)
+            if row['name']=='GD_L2_0_Tower' and row['world_structure'].get('plan_clear') is not True:
+                raise ValueError('Tower footing/guy footprint obstructs final town walking space')
         proof=row['closed']
         if any(proof[key]!=0 for key in ('open_edges','misoriented_edges','degenerate_faces')) or row['triangles']<=0:
             raise ValueError('Gondola fitted mesh closure proof failed')

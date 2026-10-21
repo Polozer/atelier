@@ -14,7 +14,7 @@ from atelier.gltf import glb_parts
 
 # Includes both L2 station loops, complete station/access footprints and the
 # intervening corridor. Queries outside this footprint must refuse.
-BOUNDS = (360., 2700., 560., 4680.)
+BOUNDS = (340., 2700., 560., 4680.)
 REPO = Path(__file__).resolve().parents[4]
 CODE = ('games/yorimichi/world/gondola/structures.py',
         'games/yorimichi/world/gondola/structure_probe.py',

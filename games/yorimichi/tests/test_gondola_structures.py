@@ -105,6 +105,10 @@ def test_static_box_catches_a_large_crossing_face_and_rejects_unowned_contact():
     with pytest.raises(ValueError,match='intersects'):
         query.static([[-1,-1,0],[1,1,1]])
     assert query.static([[-1,-1,2],[1,1,3]])['pass']
+    # A town footing/guy envelope must not occupy a walking footprint even
+    # when the currently selected object lies above its paving surface.
+    with pytest.raises(ValueError,match='intersects'):
+        query.static([[-1,-1,2],[1,1,3]],plan_clear=True)
 
 
 def test_complete_curve_refuses_a_thin_interior_crest_and_missing_query_coverage():
