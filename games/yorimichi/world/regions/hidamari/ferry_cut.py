@@ -90,7 +90,10 @@ def apply_cut(bm, cut):
         lo, hi = box_of([face])
         if in_band(lo, hi, cut) and hi[0] >= x0 - 2 * POST and lo[0] <= x1 + 2 * POST:
             rail_faces.append(face)
-    rail = list({v for face in rail_faces for v in face.verts})
+    # Include all split copies of those positions: a beam's original end caps
+    # lie outside the opening, but must reconnect to its selected long faces.
+    positions = {tuple(v.co) for face in rail_faces for v in face.verts}
+    rail = [v for v in bm.verts if tuple(v.co) in positions]
     bmesh.ops.remove_doubles(bm, verts=rail, dist=1e-5)
     bm.faces.ensure_lookup_table(); bm.faces.index_update()
     groups = [(g, *box_of(g)) for g in islands(bm)]
@@ -138,6 +141,20 @@ def apply_cut(bm, cut):
             'cap_normals': cap_normals, 'cap_normals_pass': caps_pass}
 
 
+def open_cut_edges(bm, cuts):
+    """Count real holes in a normalized inspection copy; retain the output's hard-edge vertices."""
+    check = bm.copy()
+    try:
+        vertices = [v for v in check.verts if any(c['x'][0] - 2 <= v.co.x <= c['x'][1] + 2 and
+                                                  c['y'][0] - 1 <= v.co.y <= c['y'][1] + 1 for c in cuts)]
+        bmesh.ops.remove_doubles(check, verts=vertices, dist=1e-5)
+        return sum(e.is_boundary and any(c['x'][0] - 1 <= v.co.x <= c['x'][1] + 1 and
+                                        c['y'][0] - .5 <= v.co.y <= c['y'][1] + .5
+                                        for c in cuts for v in e.verts) for e in check.edges)
+    finally:
+        check.free()
+
+
 def audit_split_rail():
     """A hard-edge FBX-style rail must cut into closed solids with outward caps."""
     bm = bmesh.new()
@@ -159,16 +176,23 @@ def audit_split_rail():
         # Y band would silently remove one, outside this opening's allowed area.
         box((-10, -.065, 2.45), (-9.87, .065, 3.55))
         box((-10, -.065, 2.45), (-9.87, .065, 3.55))
-        untouched = [v for v in bm.verts if v.co.y >= 2 or v.co.x < -9]
+        box((1, -.065, 2.45), (1.13, .065, 3.55))
+        untouched = [v for v in bm.verts if v.co.y >= 2 or v.co.x < -9 or 1 <= v.co.x <= 1.13]
         coordinates = [tuple(v.co) for v in untouched]
-        result = apply_cut(bm, {'what': 'split-rail regression', 'x': [-.5, .5],
-                                'y': [-.1, .1], 'z_from': 2.4})
+        cut = {'what': 'split-rail regression', 'x': [-.5, .5], 'y': [-.1, .1], 'z_from': 2.4}
+        result = apply_cut(bm, cut)
         assert result['posts_removed'] == 1 and result['posts_added'] == 2
         assert result['ends_closed'] == 2 and result['cap_normals_pass'], result
-        assert not any(e.is_boundary for e in bm.edges if all(abs(v.co.y) < .1 and v.co.x > -6 for v in e.verts))
+        assert all(v in untouched for e in bm.edges if e.is_boundary for v in e.verts)
         assert [tuple(v.co) for v in untouched] == coordinates
-        assert sum(e.is_boundary for e in bm.edges) == 72
-        return {'split_rail_closed': True, 'outward_caps': True, 'neighbour_untouched': True}
+        assert sum(e.is_boundary for e in bm.edges) == 96
+        assert open_cut_edges(bm, [cut]) == 0
+        # Inspection must still refuse a real hole after normalizing split vertices.
+        cap = next(f for f in bm.faces if abs(f.calc_center_median().x + .566) < EPS and f.normal.x > .99)
+        bmesh.ops.delete(bm, geom=[cap], context='FACES_ONLY')
+        assert open_cut_edges(bm, [cut]) == 4
+        return {'split_rail_closed': True, 'outward_caps': True, 'neighbour_untouched': True,
+                'missing_cap_refused': True}
     finally:
         bm.free()
 
@@ -219,11 +243,10 @@ def main():
     if not same:
         failures.append(f'triangles outside the cuts changed: {len(ob)} before, {len(oa)} after')
     bm = bmesh.new(); bm.from_mesh(obj.data)
-    boundary = [e for e in bm.edges if e.is_boundary and any(c['x'][0] - 1 <= v.co.x <= c['x'][1] + 1 and
-                                                            c['y'][0] - 0.5 <= v.co.y <= c['y'][1] + 0.5 for c in cuts for v in e.verts)]
+    boundary = open_cut_edges(bm, cuts)
     bm.free()
     if boundary:
-        failures.append(f'{len(boundary)} open edges where the rail was cut')
+        failures.append(f'{boundary} open edges where the rail was cut')
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True)
     obj.name = 'HD_Harbor'
@@ -232,7 +255,7 @@ def main():
                              use_custom_props=False)
     report = {'source': str(SOURCE.relative_to(yori.OUT)), 'site': str(SITE.relative_to(yori.OUT)), 'cuts': done,
               'triangles': {'before': len(before), 'after': len(after)}, 'untouched_outside_cuts': bool(same),
-              'failures': failures, 'fixtures': fixtures,
+              'failures': failures, 'fixtures': fixtures, 'open_cut_edges': boundary,
               'inputs': {str(p.relative_to(yori.REPO)) if p.is_relative_to(yori.REPO) else p.name:
                          hashlib.sha256(p.read_bytes()).hexdigest() for p in (Path(__file__), SOURCE, SITE)},
               'output_sha256': hashlib.sha256(TARGET.read_bytes()).hexdigest()}
