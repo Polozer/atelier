@@ -695,7 +695,7 @@ def belmonte_steps(out):
     region = REGIONS / 'belmonte'
     return [
         Step('world.belmonte', [Python(region / 'build.py')],
-             inputs=[region, WORLD / 'surface_textures.py', ASSETS / 'belmonte', ASSETS / 'environment/textures/tuscan-ground.jpg',
+             inputs=[*(p for p in region.iterdir() if p.name not in ('gondola.py', '__pycache__')), WORLD / 'surface_textures.py', ASSETS / 'belmonte', ASSETS / 'environment/textures/tuscan-ground.jpg',
                      ASSETS / 'environment/textures/tuscan-ground.provenance.json', REGIONS / 'megapark/forest.py', REGIONS / 'hippodrome' / 'build.py',
                      REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py',
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari_stable' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK, YORI, *NORTH_LAYOUT, *belmonte_train_corridor(out)],
@@ -825,7 +825,7 @@ def world_steps(ctx):
                        Product('terrain.FarHills.provenance', (out / 'terrain/FarHills/manifest.json',))],
              heavy=True, about='authoritative FarHills natural and final ordered geometry before city scenery'),
         Step('world.hidamari', [Blender(REGIONS / 'hidamari' / 'build.py')],
-             inputs=[*(p for p in (REGIONS / 'hidamari').iterdir() if p.name not in ('ferry_terminal.py', 'ferry_cut.py', 'ferry_source.py', '__pycache__')), *CRATERPARK, REGIONS / 'village' / 'build.py', REGIONS / 'zeppelin' / 'layout.py',
+             inputs=[*(p for p in (REGIONS / 'hidamari').iterdir() if p.name not in ('ferry_terminal.py', 'ferry_cut.py', 'ferry_source.py', 'gondola.py', '__pycache__')), *CRATERPARK, REGIONS / 'village' / 'build.py', REGIONS / 'zeppelin' / 'layout.py',
                      REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'forest.py', REGIONS / 'megapark' / 'trail.py',
                      REGIONS / 'megapark' / 'gate.py', REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py', ASSETS / 'hidamari' / 'props',
                      *TREEHOUSE_LAYOUT, *VILLAGE_LAYOUT, WORLD / 'farhills_grid.py', WORLD / 'north_mountain_surface.py',
@@ -1430,7 +1430,7 @@ def staging_steps(ctx):
                      *runtime_data.courses.surface_inputs(),
                      *build_inputs.local_imports(runtime_data.courses.SOURCE_READER),
                      *(CHARS / 'portraits' / f'{c.id}.png' for c in definition.movers() if c.playable)],
-             needs=['world.ferry_service', 'world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.craterpark', 'world.crater_cloud', 'world.belmonte', 'world.bike',
+             needs=['world.ferry_service', 'world.gondola_service', 'world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.craterpark', 'world.crater_cloud', 'world.belmonte', 'world.bike',
                     *[f'characters.{key(c)}_{kind}' for c in definition.movers() for kind, wanted in
                       (('bike', c.playable), ('grips', (GRIPS / c.id).is_dir())) if wanted]],
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / rel for rel in staged(out)], about='runtime files into unreal/Content/Data'),
@@ -1447,6 +1447,76 @@ def racing_assets_step(out):
                 needs=['unreal.horses', f'unreal.{key(jockey)}_horse'],
                 outputs=[out / 'racing' / 'assets.json'],
                 about='the racing breeds, coats, saddles and jockey clips: present and always cooked')
+
+
+def gondola_steps(ctx):
+    """@cc [owner:fontanierh,label:correctness] production-gondola-preparation
+    Normal preparation MUST build every kit piece using canonical parameters,
+    with soft failure disabled, and preserve closure, seating, rope-contact,
+    level-floor, collision, walking and triangle-budget failures. Verified reuse
+    MUST include every runtime mesh, collision mesh, texture and walking layout.
+    """
+    kit = ASSETS / 'vehicles/gondola'
+    spec = importlib.util.spec_from_file_location('gondola_parameters', kit / 'params.py')
+    parameters = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(parameters)
+    folder = ctx.out / 'gondola'
+    files = [folder / name for name in parameters.product_files()]
+    result = [Step('world.gondola_kit', [Blender(kit / 'build.py', threads=3, factory_startup=True,
+                    env=(('GONDOLA_PIECES', 'cabin,towers,valley,rim,crater'),
+                         ('GONDOLA_PARAMS', ''), ('GONDOLA_SOFT_FAIL', '')))],
+                 inputs=sorted(set(local_imports(kit / 'build.py') + [kit / name for name in parameters.BUILD_SOURCES])),
+                 products=[Product('gondola.kit', tuple(files))], heavy=True, cache=True,
+                 about='ropeway cabin, all tower heights and stations: closure, contact, level-floor and walk gates')]
+
+    query = WORLD / 'gondola/inputs.py'
+    query_spec = importlib.util.spec_from_file_location('gondola_world_inputs', query)
+    queries = importlib.util.module_from_spec(query_spec)
+    query_spec.loader.exec_module(queries)
+    digest = ctx.out / 'digests/world.gondola.ground.json'
+    result += [Step('world.gondola_ground_inputs',
+                    [Call('ropeway final ground inputs', lambda ctx, log:
+                          export_digest.record(digest, queries.snapshot(ctx.out), log))],
+                    inputs=[*queries.CODE.values(), ASSETS / 'belmonte/source.json'],
+                    needs=['world.hidamari', 'world.terrain.meshes', 'world.belmonte'],
+                    deferred_inputs=[DeferredInputs('gondola-ground', queries.paths, (ctx.out,), support=(query,))],
+                    outputs=[digest], cutoff=True,
+                    about='only final terrain, North Trail and corridor-selected Belmonte ground'),
+               Step('world.gondola_ground', [Blender(WORLD / 'gondola/probe.py', threads=3, factory_startup=True)],
+                    inputs=[WORLD / 'gondola/probe.py', query, GAME / 'export_digest.py', REGIONS / 'belmonte/source.py',
+                            paths.STUDIO / 'atelier/gltf.py', YORI],
+                    needs=['world.gondola_ground_inputs'],
+                    outputs=[folder / 'world/ground.npz', folder / 'world/ground.json'], heavy=True,
+                    about='final exported trail contact and owned Belmonte terrain queries')]
+    site_code = WORLD / 'gondola/validation.py'
+    site_spec = importlib.util.spec_from_file_location('gondola_site_validation', site_code)
+    validation = importlib.util.module_from_spec(site_spec)
+    site_spec.loader.exec_module(validation)
+    names = validation.network_layout().mesh_names()
+    result.append(Step('world.gondola_site',
+                       [Blender(REGIONS / 'gondola/site.py',threads=3,factory_startup=True)],
+                       inputs=[*validation.SITE_CODE, *[kit/name for name in parameters.BUILD_SOURCES],
+                               WORLD / 'solid_mesh.py', query, *craterpark_v4.input_paths(), YORI],
+                       needs=['world.gondola_kit','world.gondola_ground','world.craterpark_geometry'],
+                       outputs=[folder/'world/site.json',*(folder/'world/assets'/f'{name}.fbx' for name in names)],
+                       heavy=True,about='final station supports/access, exact rope paths and actual fitted-span contact gates'))
+    service=WORLD/'gondola/service.py'
+    result += [Step('world.gondola_service',[Python(service)],
+                    inputs=[service,WORLD/'gondola/clock.py',WORLD/'gondola/inputs.py',*validation.SITE_CODE,YORI,kit/'params.py',kit/'rope.py'],
+                    needs=['world.gondola_site'],outputs=[folder/'runtime.json'],
+                    about='source-bound detachable cabin clocks and station boarding data'),
+               Step('unreal.gondola',[UnrealScript(SCRIPTS/'import_gondola.py','GONDOLA IMPORT COMPLETE',null_rhi=True)],
+                    inputs=[SCRIPTS/'import_gondola.py',SCRIPTS/'mesh_import.py',SCRIPTS/'mesh_materials.py',SCRIPTS/'material_assets.py',
+                            service,WORLD/'gondola/clock.py',WORLD/'gondola/inputs.py',*validation.SITE_CODE,YORI,kit/'params.py',kit/'rope.py'],
+                    needs=['world.gondola_service','unreal.world'],after=['unreal.compile'],heavy=True,
+                    outputs=[folder/'import-report.json',
+                             *(GAME/'unreal/Content/Gondola/Kit'/f'{name}.uasset' for name in parameters.asset_names()),
+                             *(GAME/'unreal/Content/Gondola/World'/f'{name}.uasset' for name in names if not name.endswith(('_LOD1','_LOD2'))),
+                             *(GAME/'unreal/Content/Gondola/Materials'/f'{name}.uasset' for name in parameters.MATERIALS),
+                             *(GAME/'unreal/Content/Gondola/Textures'/f'{Path(name).stem}.uasset'
+                               for name in parameters.product_files() if name.startswith('textures/'))],
+                    about='complete ropeway kit, fitted supports/access and authored rope detail levels')]
+    return result
 
 
 def ferry_steps(ctx):
@@ -1507,10 +1577,13 @@ def ferry_steps(ctx):
 def steps(ctx):
     """Compose the recipe in its established order; packaging is explicit and optional sources remain optional."""
     ferry = ferry_steps(ctx)
+    gondola = gondola_steps(ctx)
     result = (world_steps(ctx) + character_steps(ctx) + sound_effect_steps(ctx)
               + [step for step in ferry if not step.name.startswith('unreal.')]
+              + [step for step in gondola if not step.name.startswith('unreal.')]
               + unreal_steps(ctx) + staging_steps(ctx) + adventure_steps(ctx.out) + hippodrome_steps(ctx.out) + belmonte_steps(ctx.out)[2:]
-              + brinecove_steps(ctx.out)[2:] + [step for step in ferry if step.name.startswith('unreal.')])
+              + brinecove_steps(ctx.out)[2:] + [step for step in ferry if step.name.startswith('unreal.')]
+              + [step for step in gondola if step.name.startswith('unreal.')])
     result += fit_steps(ctx.out, result)
     result += pawn_steps(result)
     # A step layered on the world brings the volcano with it: a targeted build that reimports the world reimports it too.
