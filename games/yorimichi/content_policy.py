@@ -74,7 +74,7 @@ def retired(content):
     """
     # Unknown generated imports at owned recipe boundaries; no traversal inside committed source data.
     data_roots = set(DATA_ROOTS)
-    audio_roots = {'Bike', 'Combat', 'Skate', 'Transport'}
+    audio_roots = {'Bike', 'Combat', 'Driving', 'Skate', 'Transport'}
     if music_enabled():
         data_roots.add('Music')
         audio_roots.add('Music')

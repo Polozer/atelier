@@ -314,3 +314,14 @@ def test_character_owned_grips_form_the_complete_runtime_table(monkeypatch, tmp_
     identity.model_path('fixture', tmp_path).write_text(json.dumps({'schema': 1, 'character': 'another'}))
     with pytest.raises(ValueError, match='invalid prepared-model receipt'):
         identity.prepared_models(tmp_path)
+
+
+def test_production_preflight_uses_the_independent_model_checksum():
+    import source_identity as identity
+    from validate_profiles import validate_profile
+    prepared = identity.prepared_models()['models']['cairo']
+    pose = json.loads(identity.profile_path('cairo').read_text())
+    pose['model_sha256'] = 'f' * 64
+    assert pose['model_sha256'] != prepared['model_sha256']
+    with pytest.raises(ValueError, match='registered prepared model checksum'):
+        validate_profile(pose, pose['layout'], prepared)
