@@ -187,7 +187,7 @@ def run(target):
 
 
 def resume(game, key, tag, revision, public_repository, *, echo=print):
-    """Recover an old interrupted pre-public backup without recapture or producer access."""
+    """Recover an interrupted backup without recapture or producer access."""
     from .checkpoint_github import Remote
     settings = paths.cache_dir('checkpoints', create=False) / 'settings.json'
     repository = read_json(settings).get('repository')
@@ -197,7 +197,18 @@ def resume(game, key, tag, revision, public_repository, *, echo=print):
     expected = dict(tag_name=remote.prefix + tag, name=remote.prefix + tag,
         body=f'Build checkpoint {key}\nSource {revision}\nRetain this release: later checkpoints may reference its packs.',
         prerelease=False, target_commitish=metadata['default_branch'])
-    release.check_release(found, expected)
+    store = Store(game)
+    if found is None:
+        # A worker can fail before its first private release exists. Only an already
+        # durable, exactly bound local request authorizes this no-draft recovery path.
+        target = record_path(store, tag)
+        value = read_json(target) if target.exists() else None
+        bindings = dict(schema=1, game=game, repository=repository, key=key, tag=tag,
+                        revision=revision, public_repository=public_repository)
+        if type(value) is not dict or any(value.get(k) != v for k, v in bindings.items()):
+            raise CheckpointError('No matching retained backup request or private release')
+    else:
+        release.check_release(found, expected)
     public = release.GitHub(public_repository, threading.Event())
     published = release.find_release(public, tag)
     if published is None or published.get('draft') is not False:
@@ -206,7 +217,7 @@ def resume(game, key, tag, revision, public_repository, *, echo=print):
     assets = release.asset_map(public, published)
     if not {'SHA256SUMS', 'manifest.json', 'verification.json'} <= assets.keys():
         raise CheckpointError('Published release lacks readiness/verification assets')
-    target = queue(Store(game), repository, key, tag, revision, public_repository=public_repository)
+    target = queue(store, repository, key, tag, revision, public_repository=public_repository)
     start(target, echo=echo)
     return dict(queued=True, checkpoint=key)
 

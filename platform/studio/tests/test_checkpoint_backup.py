@@ -185,3 +185,37 @@ def test_frozen_worker_executes_real_publish_from_cas_with_fake_transport(fixtur
                             cwd=tmp_path, capture_output=True, text=True, timeout=15)
     assert result.returncode == 0, result.stderr
     assert json.loads(path.read_text())['state'] == 'complete'
+
+
+@pytest.mark.parametrize('damage', [None, 'key', 'repository', 'revision', 'public_repository', 'missing'])
+def test_resume_before_private_draft_uses_exact_durable_request(fixture, tmp_path, monkeypatch, damage):
+    path = queued(fixture, tmp_path)
+    value = json.loads(path.read_text()); key = value['key']
+    value['state'] = 'failed'
+    if damage == 'missing':
+        path.unlink()
+    else:
+        if damage is not None:
+            value[damage] = 'e' * 64 if damage == 'key' else 'wrong'
+        backup.save(path, value)
+    config = tmp_path / 'config'; config.mkdir()
+    (config / 'settings.json').write_text('{"repository":"owner/private"}')
+    monkeypatch.setattr(backup.paths, 'cache_dir', lambda *a, **kw: config)
+    monkeypatch.setattr(backup, 'Store', lambda game: fixture[1])
+    monkeypatch.setattr(gh, 'Remote', lambda *a, **kw: fixture[2])
+    public = object()
+    monkeypatch.setattr(release, 'GitHub', lambda *a: public)
+    monkeypatch.setattr(release, 'find_release', lambda client, tag: dict(draft=False) if client is public else None)
+    observed = []
+    monkeypatch.setattr(release, 'check_tag', lambda *a, **kw: observed.append('public verified'))
+    monkeypatch.setattr(release, 'asset_map', lambda *a: dict.fromkeys(['SHA256SUMS', 'manifest.json', 'verification.json']))
+    monkeypatch.setattr(backup, 'start', lambda target, **kw: observed.append(target))
+    if damage is not None:
+        with pytest.raises(backup.CheckpointError, match='matching retained'):
+            backup.resume('fixture', key, 'playtest-1', 'c' * 40, 'owner/game')
+        assert not observed
+    else:
+        result = backup.resume('fixture', key, 'playtest-1', 'c' * 40, 'owner/game')
+        assert result['checkpoint'] == key
+        assert observed == ['public verified', path]
+        assert not fixture[0].events
