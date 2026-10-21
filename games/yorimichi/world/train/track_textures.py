@@ -64,7 +64,7 @@ def cess(size=SIZE, seed=33):
     stone = (f1 < rng.uniform(.25, .5, 26 * 26)[ids]) & (rng.random(26 * 26)[ids] < .55)
     edge = np.clip((f2 - f1) / .2, 0., 1.)
     earth_n = _noise(size, size, (6, 6), seed + 1, 4)
-    earth = np.stack([.50 + .12 * earth_n, .40 + .10 * earth_n, .29 + .07 * earth_n], -1)
+    earth = np.stack([.45 + .1 * earth_n, .39 + .09 * earth_n, .31 + .07 * earth_n], -1)
     grey = rng.uniform(.38, .68, 26 * 26)[ids][..., None] * (.35 + .65 * edge[..., None])
     rgb = np.where(stone[..., None], grey * np.array([.95, .93, .88]), earth)
     grass_mask = np.clip((_noise(size, size, (5, 5), seed + 2, 3) - .52) * 5., 0., 1.)

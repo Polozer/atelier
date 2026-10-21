@@ -62,8 +62,8 @@ MATERIALS = {               # Blender colour stand-ins; the names are the Unreal
     'MI_TK_TunnelLining': (.075, .07, .065, .95),   # soot-blackened stone: the tunnel stays dark between its lamps
     'MI_TK_LampGlow': (1., .72, .38, .3),            # emissive in Unreal (track_build.py lights it in Blender)
     'MI_TK_Bank': (.10, .14, .045, .95),             # the grass of a bank built over ground that is not carved
-    'MI_TK_Ballast': (.62, .60, .58, .95),           # crushed stone (T_TK_Ballast tints it): the bed's top and shoulders
-    'MI_TK_Cess': (.66, .64, .60, .95),              # the bed's foot, thinning out over earth (T_TK_Cess)
+    'MI_TK_Ballast': (.50, .49, .47, .95),           # crushed stone (T_TK_Ballast tints it): the bed's top and shoulders
+    'MI_TK_Cess': (.54, .52, .49, .95),              # the bed's foot, thinning out over earth (T_TK_Cess)
     # the Belmonte station (station.py)
     'MI_B_flag': (.55, .40, .25, .9),
     'MI_B_cobble': (.55, .38, .22, .9),
