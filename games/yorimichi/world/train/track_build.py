@@ -4,6 +4,8 @@ Turns track.py's layout into GLBs and writes the placements: build/yorimichi/bel
 - meshes/SM_TK_<name>_LOD<k>.glb: glTF, metres, Blender's standard Y-up export, each mesh relative to its origin;
 - track.json: chunk and piece origins, instance lists (sleepers per chunk, portals, buffer stops, stop boards,
   turnouts, editor-only earthwork markers), tunnel data layers and load boxes, viaduct pieces;
+- textures/T_TK_<name>.png: the ballast bed's detail textures (track_textures.py), named in track.json's `textures`
+  with their tile in metres (track.TEXTURED);
 - manifest.json: sizes, checksums, triangles per LOD and the budget checks (BELMONTE_TRACK.md).
 UVs are planar in metres along the face's dominant axis (one material tile per metre).
 """
@@ -15,8 +17,10 @@ import bpy
 import numpy as np
 
 from train import track as T
+from train import track_textures as TT
 
 MESHES = T.OUT / 'meshes'
+TEXTURES = T.OUT / 'textures'
 
 
 def clear():
@@ -74,6 +78,24 @@ def export_glb(path, obj):
                               export_animations=False)
 
 
+def make_textures():
+    """The detail textures of track.TEXTURED as PNGs: {material: {file, tile_m, sha256}} for track.json."""
+    TEXTURES.mkdir(parents=True, exist_ok=True)
+    out = {}
+    for material, (name, tile) in T.TEXTURED.items():
+        px = TT.ALL[name]()
+        h, w, _ = px.shape
+        img = bpy.data.images.new(name, w, h, alpha=False)
+        img.pixels.foreach_set(px.astype(np.float32).ravel())
+        path = TEXTURES / f'{name}.png'
+        img.filepath_raw = str(path)
+        img.file_format = 'PNG'
+        img.save()
+        bpy.data.images.remove(img)
+        out[material] = dict(file=f'textures/{name}.png', tile_m=tile, sha256=sha(path))
+    return out
+
+
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -97,6 +119,7 @@ def main():
     doc['meshes'] = {name: dict(lods=[f'meshes/{name}_LOD{k}.glb' for k in range(len(lods))], triangles=triangles[name],
                                 materials=list(dict.fromkeys(m for mesh in lods for m in mesh.mats)))
                      for name, lods in meshes.items()}
+    doc['textures'] = make_textures()
     (T.OUT / 'track.json').write_text(json.dumps(doc, indent=1))
     report = T.triangle_report(meshes)
     total = sum(f['bytes'] for f in files.values())

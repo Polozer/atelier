@@ -5,7 +5,10 @@ Reads build/yorimichi/belmonte-track/runtime/track.json (tools/belmonte_track_da
 - every mesh as SM_TK_<Name> with its LODs (no Nanite; screen sizes from the runtime data);
 - material slots by name: MI_B_* are the Belmonte environment's instances (/Game/Belmonte/Materials, through the
   Belmonte build report's names), MI_TK_* are instances of M_Belmonte with the GLB's colour (the soot-black tunnel
-  lining, the signal red, the bank grass), and MI_TK_LampGlow an unlit emissive (M_TK_Glow);
+  lining, the signal red, the bank grass), and MI_TK_LampGlow an unlit emissive (M_TK_Glow). The ballast bed's
+  MI_TK_Ballast and MI_TK_Cess take their detail textures from track.json's `textures` (track_textures.py, imported to
+  /Game/BelmonteTrack/Textures), and the bank (MI_TK_Bank) the Belmonte ground's own grain, so neither reads as a flat
+  colour from the train;
 - collision as track.json gives it per piece (chunks LOD2, linings LOD1, viaduct LOD2, banks LOD1) through
   LODForCollision, used as complex-as-simple; buffer stops, stop boards and portals collide on their last LOD.
 
@@ -89,8 +92,33 @@ def glow_parent():
     return material
 
 
-def track_material(name, record, glow):
-    """MI_TK_<name>: M_Belmonte with the GLB's flat colour (white vertex colour -> Colour), or the glow."""
+def import_texture(path):
+    """A track detail texture (sRGB, world group, 1024 at most) under /Game/BelmonteTrack/Textures."""
+    task = unreal.AssetImportTask()
+    for key, value in dict(filename=str(path), destination_path=f'{ROOT}/Textures', destination_name=path.stem,
+                           automated=True, replace_existing=True, save=True).items():
+        task.set_editor_property(key, value)
+    AT.import_asset_tasks([task])
+    asset = E.load_asset(f'{ROOT}/Textures/{path.stem}')
+    assert asset, path
+    asset.set_editor_property('srgb', True)
+    asset.set_editor_property('max_texture_size', 1024)
+    asset.set_editor_property('lod_group', unreal.TextureGroup.TEXTUREGROUP_WORLD)
+    E.save_loaded_asset(asset)
+    return asset
+
+
+def detail(textures, ground):
+    """{MI_TK_ name: (texture asset, tile metres)}: the ballast bed's own textures, the bank the Belmonte ground's."""
+    out = {name: (import_texture(TRACK / spec['file']), float(spec['tile_m'])) for name, spec in textures.items()}
+    if ground:
+        out['MI_TK_Bank'] = ground
+    return out
+
+
+def track_material(name, record, glow, textured=None):
+    """MI_TK_<name>: M_Belmonte with the GLB's colour (white vertex colour -> Colour), times a detail texture when
+    `textured` gives one (texture, tile metres), or the glow."""
     path = f'{ROOT}/Materials/{name}'
     instance = AT.create_asset(name, f'{ROOT}/Materials', unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
     pbr = (record or {}).get('pbrMetallicRoughness', {})
@@ -106,9 +134,14 @@ def track_material(name, record, glow):
         MEL.set_material_instance_parent(instance, E.load_asset('/Game/Belmonte/Materials/M_Belmonte'))
         MEL.set_material_instance_vector_parameter_value(instance, 'Colour', unreal.LinearColor(r, g, b, 1.))
         # Soot: the lining keeps half its recorded albedo, so the sky's unshadowed fill reads near black between lamps.
-        for key, value in (('WhiteVertex', 1.), ('Strength', 0.), ('Terrain', 0.), ('Brightness', .5 if name == 'MI_TK_TunnelLining' else 1.),
+        for key, value in (('WhiteVertex', 1.), ('Strength', 1. if textured else 0.), ('Terrain', 0.),
+                           ('Brightness', .5 if name == 'MI_TK_TunnelLining' else 1.),
                            ('Roughness', float(pbr.get('roughnessFactor', .9)))):
             MEL.set_material_instance_scalar_parameter_value(instance, key, value)
+        if textured:
+            texture, tile = textured
+            MEL.set_material_instance_texture_parameter_value(instance, 'Tex', texture)
+            MEL.set_material_instance_scalar_parameter_value(instance, 'Tile', tile)
     MEL.update_material_instance(instance)
     E.save_loaded_asset(instance)
     assert E.does_asset_exist(path)
@@ -133,6 +166,12 @@ def main():
     E.make_directory(ROOT)
     E.make_directory(f'{ROOT}/Materials')
     glow = glow_parent()
+    # The Belmonte ground's grain for the bank: the terrain material's texture at its tile (import_belmonte.py).
+    entries = json.loads(BELMONTE_REPORT.read_text())['materials'].values()
+    ground = next(((E.load_asset(f"/Game/Belmonte/Textures/{Path(e['texture']).stem}"), float(e['tile_m']))
+                   for e in entries if e.get('terrain') and e.get('texture')), None)
+    assert ground is None or ground[0], 'the Belmonte ground texture is not imported'
+    textured = detail(data.get('textures', {}), ground)
     materials = {}
     # Collision LOD per mesh: the pieces' own (chunks, linings, viaduct, banks); the last LOD for solid instances.
     collision = {p['name']: p['collision'] for p in data['pieces']}
@@ -160,7 +199,7 @@ def main():
                 material = E.load_asset(belmonte[key])
             else:
                 if key not in materials:
-                    materials[key] = track_material(key, records.get(key), glow)
+                    materials[key] = track_material(key, records.get(key), glow, textured.get(key))
                 material = materials[key]
             assert material, (name, key)
             mesh.set_material(i, material)

@@ -1127,6 +1127,7 @@ def world_steps(ctx):
              about='Belmonte railway route study: alignment, profile, structures, timetable (route.json, plan and profile)'),
         Step('world.belmonte_track', [Blender(WORLD / 'train' / 'track_build.py', threads=3)],
              inputs=[WORLD / 'train' / 'track.py', WORLD / 'train' / 'track_build.py', WORLD / 'train' / 'earthworks.py',
+                     WORLD / 'train' / 'track_textures.py', WORLD / 'train' / 'textures.py',
                      WORLD / 'train' / 'corridor.py', WORLD / 'train' / 'station_site.py', WORLD / 'train' / 'overbridge.py',
                      WORLD / 'train' / 'station.py',
                      *CRATERPARK, *NORTH_LAYOUT,
@@ -1178,7 +1179,7 @@ def world_steps(ctx):
         Step('world.belmonte_track.meshes',
              [Call('export digest belmonte-track', lambda ctx, log:
                    export_digest.record(out / 'digests' / 'world.belmonte_track.meshes.json',
-                                        export_digest.files(out / 'belmonte-track', ['runtime/track.json', 'meshes']), log))],
+                                        export_digest.files(out / 'belmonte-track', ['runtime/track.json', 'meshes', 'textures']), log))],
              inputs=[GAME / 'export_digest.py'], needs=['world.belmonte_track', 'world.belmonte_track_data'],
              outputs=[out / 'digests' / 'world.belmonte_track.meshes.json'], cutoff=True,
              about='the track meshes and runtime data unreal.belmonte_track reads'),
