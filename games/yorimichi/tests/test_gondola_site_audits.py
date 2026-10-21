@@ -83,3 +83,35 @@ def test_near_rope_simplification_uses_remaining_jaw_allowance():
         assert error+.0005+1000*near_rope_tolerance(error)<2.
     assert 1.695+1000*.0005>2. # former fixed reduction can overspend the budget
     with pytest.raises(ValueError):near_rope_tolerance(2.)
+
+
+def test_trestle_crossheads_seat_in_posts_without_coplanar_junction_overlaps():
+    beams=[]
+    class Mesh:
+        def __init__(self,name):pass
+        def beam(self,a,b,width,depth,material,**kwargs):
+            if a[2]==b[2]:beams.append((np.array(a),np.array(b),width))
+    def support(mesh,G,frame,xy,top,section):
+        return {'xy':list(xy),'top':top,'base':top-4.}
+    function=helper('station_foundation',{
+        'np':np,'math':__import__('math'),'solid':SimpleNamespace(Mesh=Mesh,TIMBER=1,TIMBER_DARK=2),
+        'FLOORS':{'platform'},'timber_support':support,
+        'W':SimpleNamespace(inside_poly=lambda x,y,p:np.ones(len(x),bool)),
+    })
+    layout={'obstacles':[{'name':'platform','poly':[[-3,-3],[6,-3],[6,6],[-3,6]],'z0':[0.]}]}
+    _,posts=function('fixture',layout,None,None)
+    assert beams
+    rectangles=[]
+    for a,b,width in beams:
+        axis=(b-a)[:2];axis/=np.linalg.norm(axis)
+        normal=np.array([-axis[1],axis[0]])*width/2
+        rect=np.array([a[:2]-normal,a[:2]+normal,b[:2]+normal,b[:2]-normal])
+        rectangles.append((rect.min(0),rect.max(0)))
+        for endpoint in (a,b):
+            # Every crosshead still penetrates a real post, rather than leaving
+            # a gap to avoid the coplanar audit.
+            assert any(np.max(abs(endpoint[:2]-post['xy']))<.14 for post in posts)
+    for i,(lo,hi) in enumerate(rectangles):
+        for other_lo,other_hi in rectangles[i+1:]:
+            overlap=np.minimum(hi,other_hi)-np.maximum(lo,other_lo)
+            assert not np.all(overlap>1e-8),f'Overlapping crosshead faces: {overlap}'

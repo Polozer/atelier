@@ -96,13 +96,14 @@ def station_foundation(key,layout,G,frame):
     polys=[p['poly'] for p in floors]
     points=np.concatenate([np.asarray(p,float) for p in polys]);lo,hi=points.min(0),points.max(0)
     posts={}
+    post_section=.28
     for x in np.arange(math.ceil(lo[0]/3)*3,hi[0],3):
         for y in np.arange(math.ceil(lo[1]/3)*3,hi[1],3):
             found=[p for p in floors if W.inside_poly(np.array([x]),np.array([y]),p['poly'])[0]]
             if not found:
                 continue
             top=min(min(p['z0']) for p in found)+.04
-            post=timber_support(mesh,G,frame,np.array([x,y]),top)
+            post=timber_support(mesh,G,frame,np.array([x,y]),top,post_section)
             if post:
                 posts[(float(x),float(y))]=post
     for (x,y),post in posts.items():
@@ -121,7 +122,11 @@ def station_foundation(key,layout,G,frame):
             for index,(a,b) in enumerate(((post,other),(other,post))):
                 offset=(index-.5)*.16*normal
                 mesh.beam((*(np.array(a['xy'])+offset),low),(*(np.array(b['xy'])+offset),high),.14,.18,solid.TIMBER_DARK,up=(0,0,1))
-            mesh.beam((x,y,high),(*next_,high),.22,.25,solid.TIMBER,up=(0,0,1))
+            # Crossheads seat 1cm inside each post face. Ending them at post
+            # centres makes perpendicular crossheads share coplanar top faces.
+            inset=direction/np.linalg.norm(direction)*(post_section/2-.01)
+            mesh.beam((*(np.array(post['xy'])+inset),high),
+                      (*(np.array(other['xy'])-inset),high),.22,.25,solid.TIMBER,up=(0,0,1))
     return mesh,list(posts.values())
 
 
