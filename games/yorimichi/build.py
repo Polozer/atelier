@@ -802,11 +802,14 @@ def hippodrome_steps(ctx):
 
 
 def hidamari_stable_steps(ctx):
-    """Explicit disabled Stable: independent semantic/LOD exports and complete native ownership."""
+    """Henry's racing stable (world/regions/hidamari_stable/README.md): independent semantic/LOD exports and complete
+    native ownership. They follow the committed switch (layout.ENABLED): in the default build when it is set, explicit
+    otherwise; the control renders are always explicit."""
     out = ctx.out
     region = REGIONS / 'hidamari_stable'
     root = out / 'hidamari-stable'
     catalogue = _load_helper_module('stable_central_catalogue', region / 'catalogue.py')
+    enabled = _load_helper_module('stable_central_layout', region / 'layout.py').is_enabled()
     return [
         *_load_helper_module('stable_central_atomic', GAME / 'stable_atomic_build.py').steps(ctx),
         Step('world.hidamari_stable_review', [Blender(region / 'render.py', threads=3, factory_startup=True)],
@@ -821,7 +824,7 @@ def hidamari_stable_steps(ctx):
                      GAME / 'stable_atomic_products.py'],
              needs=['unreal.world', *unreal_modules.needs(IMPORT_CODE)],
              reads=['stable.meshes', 'stable.runtime', 'hidamari_stable.atomic'],
-             after=['unreal.compile'], heavy=True, explicit=True,
+             after=['unreal.compile'], heavy=True, explicit=not enabled,
              products=[Product('stable.native', (GAME / 'unreal/Content/HidamariStable',
                  GAME / 'unreal/Content/Data/hidamari_stable/stable.json', root / 'import-report.json'))],
              candidate_scope=CandidateScope(directories=(GAME / 'unreal/Content/HidamariStable',)),

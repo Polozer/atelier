@@ -12,7 +12,7 @@ uv run atelier live py "live.stable('aisle')"                                   
 uv run pytest games/yorimichi/tests/test_hidamari_stable_layout.py -q
 ```
 
-The Stable remains disabled by the committed paired Python/C++ switch. Its source/query/export and native steps are explicit; a normal disabled build refuses before generating artifacts. Enabling it requires the complete saved-native equivalence checks. The pad and its slopes are not a mesh: they are
+The Stable is enabled by the committed paired Python/C++ switch (`layout.ENABLED`, paired with `AHidamariStable::bEnabled`): its source/query/export steps and `unreal.hidamari_stable` follow it into the default build, so the cook carries `/Game/HidamariStable` and `Data/hidamari_stable/stable.json`; with the switch off they are explicit and a normal build refuses before generating artifacts. Only the control renders (`world.hidamari_stable_review`) are always explicit. The pad and its slopes are not a mesh: they are
 Hidamari's own terrain. `hidamari/layout.py height()` passes its ground through `grade()` here, so `HD_Terrain`, the
 heightmap, the scatter and the foliage all see the graded ground and keep Hidamari's grass and material. Every step that
 reads `hidamari/layout.py` therefore also lists this `layout.py` as an input. `world.hidamari_stable` needs

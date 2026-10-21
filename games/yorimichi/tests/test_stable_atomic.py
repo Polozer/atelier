@@ -15,6 +15,7 @@ GAME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GAME / 'world'))
 import yori  # noqa: E402,F401
 from hidamari_stable.atomic_sources import publish  # noqa: E402
+from hidamari_stable import layout as stable_layout  # noqa: E402
 from hidamari_stable.catalogue import SOURCES, PARENTS, context_key, selected  # noqa: E402
 from hidamari_stable.query_samples import Recorder, Lookup  # noqa: E402
 import numpy as np  # noqa: E402
@@ -79,7 +80,8 @@ def test_all_semantic_lods_are_complete_factory_tasks_without_sibling_export_rea
     steps = module.steps(SimpleNamespace(out=tmp_path))
     planners = [step for step in steps if step.name.startswith('world.hidamari_stable.geometry.')]
     assert len(planners) == len(SOURCES) == 24 and len(PARENTS) == 10
-    assert all(step.explicit for step in steps)
+    # The Stable's steps follow the committed switch: default build when enabled, explicit otherwise.
+    assert all(step.explicit == (not stable_layout.is_enabled()) for step in steps)
     for step in planners:
         key = step.name.rsplit('.', 1)[1]
         assert selected(key)[0] in PARENTS
@@ -157,7 +159,8 @@ def test_actual_recipe_uses_atomic_stable_and_complete_native_owner(tmp_path):
     steps = {step.name:step for step in recipe.steps(ctx)}
     stable = {name:step for name,step in steps.items() if 'hidamari_stable' in name}
     assert len([key for key in stable if key.startswith('world.hidamari_stable.geometry.')]) == 24
-    assert all(step.explicit for step in stable.values())
+    assert stable['world.hidamari_stable_review'].explicit
+    assert all(step.explicit == (not stable_layout.is_enabled()) for name, step in stable.items() if name != 'world.hidamari_stable_review')
     assert all(command.script != GAME/'world/regions/hidamari_stable/build.py'
         for step in stable.values() for command in step.commands if isinstance(command,build.Blender))
     assembled = stable['world.hidamari_stable']
