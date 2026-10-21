@@ -660,7 +660,7 @@ def main():
             foundation,posts=station_foundation(key,layouts[data['kind']],G,frame)
             stair,access=access_stair(key,layouts[data['kind']],G,frame)
             if access['turn_deg']==180.:
-                access['headroom_proof']=access_headroom(access,[*shells[data['kind']].values(),foundation,stair],layouts[data['kind']])
+                access['headroom_proof']=access_headroom(access,[*shells[data['kind']].values(),foundation,stair],layouts[data['kind']],G,frame)
             if key=='belmonte':
                 from regions.zeppelin.layout import belmonte_path
                 access['route'],data['walking_link']=walking_link(G,frame,access['route'],

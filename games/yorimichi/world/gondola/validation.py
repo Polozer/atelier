@@ -118,9 +118,10 @@ def validate_access_walk(access):
 
 def validate_access_headroom(access):
     proof=access.get('headroom_proof',{})
-    counts=('floor_triangles','visual_triangles','collision_triangles')
+    counts=('floor_triangles','visual_triangles','collision_triangles','endpoint_triangles')
     if (proof.get('pass') is not True or proof.get('width_m')!=.9 or proof.get('height_m')!=1.7 or
             proof.get('floor_allowance_m')!=.05 or proof.get('complete_turn_caps') is not True or
+            proof.get('complete_endpoint_caps') is not True or proof.get('kit_edge_tolerance_m')!=.001 or
             any(type(proof.get(key)) is not int or proof[key]<=0 for key in counts)):
         raise ValueError('Gondola complete cross-mesh access headroom proof is missing or failed')
 

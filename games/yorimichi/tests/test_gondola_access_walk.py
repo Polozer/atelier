@@ -115,9 +115,9 @@ def headroom_fixture(obstacle):
     floor_tri=np.array([[-1,-1,0],[2,-1,0],[2,2,0]])
     vertices=np.concatenate([floor_tri,np.asarray(obstacle)])
     mesh=SimpleNamespace(verts=vertices,faces=[[0,1,2],[3,4,5]],parts=[(0,1,'access_floor'),(1,2,'post')])
-    distant={'poly':[[8,8],[9,8],[9,9],[8,9]],'z0':[0.]*4,'z1':[1.]*4}
+    distant={'name':'distant','poly':[[8,8],[9,8],[9,9],[8,9]],'z0':[0.]*4,'z1':[1.]*4}
     with gondola_modules('solid',pure=False):
-        return access_headroom({'route':[[0,0,0],[1,0,0],[1,1,0]],'surfaces':[floor]},[mesh],{'obstacles':[distant]})
+        return access_headroom({'route':[[0,0,0],[1,0,0],[1,1,0]],'surfaces':[floor]},[mesh],{'obstacles':[distant]},fixture()[0],fixture()[1])
 
 
 def test_cross_mesh_headroom_catches_turn_corner_and_retains_rails_posts():
@@ -165,6 +165,16 @@ def test_headroom_keeps_original_cap_for_every_route_segment(route):
     from gondola.interactions import access_headroom
     floor={'poly':[[-1,-1],[4,-1],[4,2],[-1,2]],'top':0.}
     mesh=SimpleNamespace(verts=[[2,-.1,.5],[2.1,.1,.5],[2,.1,1.5]],faces=[[0,1,2]],parts=[(0,1,'post')])
-    distant={'poly':[[8,8],[9,8],[9,9],[8,9]],'z0':[0.]*4,'z1':[1.]*4}
+    distant={'name':'distant','poly':[[8,8],[9,8],[9,9],[8,9]],'z0':[0.]*4,'z1':[1.]*4}
     with gondola_modules('solid',pure=False),pytest.raises(ValueError,match='headroom'):
-        access_headroom({'route':route,'surfaces':[floor]},[mesh],{'obstacles':[distant]})
+        access_headroom({'route':route,'surfaces':[floor]},[mesh],{'obstacles':[distant]},fixture()[0],fixture()[1])
+
+
+@pytest.mark.parametrize('x',[-.2,1.2])
+def test_headroom_covers_capsule_overhang_at_real_kit_and_ground_endpoints(x):
+    from gondola.interactions import access_headroom
+    floor={'poly':[[0,-1],[1,-1],[1,1],[0,1]],'top':0.}
+    mesh=SimpleNamespace(verts=[[x,-.1,.5],[x+.1,.1,.5],[x,.1,1.5]],faces=[[0,1,2]],parts=[(0,1,'post')])
+    head={'name':'boardwalk','poly':[[-1,-1],[0,-1],[0,1],[-1,1]],'z0':[-.2]*4,'z1':[0.]*4}
+    with gondola_modules('solid',pure=False),pytest.raises(ValueError,match='headroom'):
+        access_headroom({'route':[[0,0,0],[1,0,0]],'surfaces':[floor]},[mesh],{'obstacles':[head]},fixture()[0],fixture()[1])
