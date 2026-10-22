@@ -25,7 +25,11 @@ PROP_MARGIN_M = 4.      # around a piece of skate furniture outside the town
 EDGE_M = 1.             # lines this close to an area's edge are cut (what lies past it was not looked at)
 REACH_M = 1.5           # metres over the street a skater ollies onto (a lip's or a bar's top)
 STREET_M = 2.5          # around a line, where the street it rises from is looked for (its highest point under the line)
-STREETS = ('SM_BM_BT_Terrain', 'SM_BM_BC_Pave', 'SM_BM_BC_Piazza')
+STREETS = ('SM_BM_BT_Terrain', 'SM_BM_BC_Pave', 'SM_BM_BC_Piazza',      # the ground a skater rolls on: streets,
+           'SM_BM_BHip_StableYard', 'SM_BM_BHip_Course', 'SM_BM_BHip_Infield',  # the racecourse's yards and tracks,
+           'SM_BM_BHip_Arenas', 'SM_BM_BHip_SalonGrounds', 'SM_BM_BHip_StandTerrace',
+           'SM_BM_BE_0_Grounds', 'SM_BM_BE_1_Grounds', 'SM_BM_BE_2_Grounds',    # and the estates' grounds
+           'SM_BM_BE_3_Grounds', 'SM_BM_BE_4_Grounds', 'SM_BM_BE_5_Grounds', 'SM_BM_BE_6_Grounds')
 SOFT = ('water', 'glass', 'window', 'foam')                  # drawn faces the board passes or never meets
 BAR_SLOTS = ('iron', 'wood')
 # Props whose committed hull is one solid block over an open frame that a skater grinds (a market stall's counter and
