@@ -50,8 +50,25 @@ base and out to the drawn sides (a wall's batter); a backrest or an armrest is i
 basin's rim, a fountain's steps) are split into convex pieces. Planted foliage in the planters is left soft; a basin's
 water carries the board at its surface. The step fails if any drawn vertex lies more than 6 cm outside.
 
-The same step writes the furniture's grind lines to `runtime.json` (`rails`, region-local centimetres), which
-`ABelmonteRegion` registers with the Skate plugin: each column's top edges, or the centre line of a top narrower
-than 18 cm (a backrest, the trough's rim), kept where the plugin's own grind-surface probes accept them (on the
-collision, not blocked) and at least 1 m long, joined across modules that meet end to end (the walls' 10 m sections).
-`build-report.json` lists each prop's triangles and lines under `furniture_collision`.
+The wooden bench has no armrests (the owner's decision, 2026-10-21): `tools/belmonte_armless_bench.py` removed them
+from the committed model so its seat can be ground, and `source.json` records the edit.
+
+## Grind lines
+
+`world.belmonte` writes Belmonte's grind lines to `runtime.json` (`rails`, region-local centimetres), which
+`ABelmonteRegion` registers with the Skate plugin (`world/regions/belmonte/skate.py`):
+
+- Lips: Crater Park's lip finder (`world/regions/craterpark/grind.py`, the runtime's grind probes) runs over the
+  placed collision the board rides, in the town and around each piece of skate furniture outside it: ledges, low
+  walls, planters, bench seats, fountain rims, kerbs. Stair nosings stay out, as at Crater Park.
+- Bars: thin wooden or iron members with no deck for a lip (shop-window ledges, a bench's backrest, terrace rails)
+  get a line along their top, and their box joins their mesh's collision so the board meets what it grinds.
+- Only what a skater can reach counts: 1.5 m or less over the street it rises from. Wall sections laid end to end
+  become one line. Market stalls collide as drawn: their hull was one block over the counter and shelf.
+
+`build-report.json` sums them up under `grind_lines`. To compare what looks grindable with what a build registers
+(a map and a list, no Unreal):
+
+```sh
+uv run python games/yorimichi/tools/belmonte_skate_audit.py --out DIR [--runtime build/yorimichi/belmonte/runtime.json]
+```

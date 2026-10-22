@@ -1,4 +1,4 @@
-"""Belmonte street furniture a skater grinds and slides on: collision from the drawn tops, and its grind lines.
+"""Belmonte street furniture a skater grinds and slides on: collision from the drawn tops.
 
 The committed hulls of benches, planters, walls and basins are single boxes stopping at the seat or a guessed
 height (the bench's backrest had none), so the board rode under or through what is drawn. `generate` replaces them
@@ -11,9 +11,8 @@ with collision derived from the drawn mesh alone:
   vertex that no plate holds up within SIDE_M (a wall's batter, a bench's back legs). Tops are clean planes, edges
   straight; a backrest is its own column, so the board stops on it or grinds its top rail. What no plate holds up
   (a fountain's statue) collides as drawn.
-- Grind lines: column top edges (or the centre line of a top narrower than a deck, such as a backrest's) that the
-  skate plugin's grind-surface probes (PlayerGrindSurface.cpp) classify as a ledge or rail, not blocked, over at least
-  RAIL_MIN_M, become rails in runtime.json for ABelmonteRegion to register with USkateRailSubsystem.
+- Runs: modules laid end to end (a field wall's sections) reach past their drawn ends so a run's top has no gap,
+  and their grind lines (belmonte/skate.py, from these columns) join into one line (`join`).
 
 The committed hulls are never modified: outputs go under build/ through world.belmonte.
 """
@@ -42,28 +41,13 @@ SEAM_M = .001      # a face within this of another column's inside is hidden by 
 SECTOR_DEG = 15.   # a ring whose faces each span less than this round its centre is cut into sectors
 HOLLOW = .02       # a plate whose hull is uncovered over more than this share is split into convex pieces
 
-# The skate plugin's grind-surface probes (PlayerGrindSurface.cpp, metres) and its DeckCenterToTruck setting.
-NEAR_M, SHORT_UP_M, RAISED_M = .09, .04, .09
-DECK_TO_TRUCK_M = .243
-FAR_UP = 1.06
-LEDGE_FRACTION = .65
-RAIL_MIN_M = 1.         # shorter runs are not worth a grind
-RAIL_MIN_HEIGHT_M = .15  # lower edges are trim (plinths), not curbs
-RAIL_TURN_DEG = 30.     # a line bends at most this much between segments (a basin's rim); sharper is a corner
-RAIL_STEP_M = .1        # probe and point spacing along a line
+RAIL_TURN_DEG = 30.     # placed lines whose ends meet bend at most this much to join (a basin's rim)
 JOIN_CM = 7.            # placed lines whose ends meet within this are one line
-# The deck riding the line (RideTransitionDetail.h DeckHalfLength 45.6 cm, DeckHalfWidth 12 cm) must clear what
-# stands over it, nose and tail, or the board stops on it (a bench's armrest): probed above the line at these heights.
-DECK_HALF_M = .456 + .1
 # Modules laid end to end in runs (a field wall's 10 m sections) meet with up to JOIN_CM of gap or overlap: their
 # collision reaches half of that past each drawn end so the run's top has no gap at a join.
 RUN_OVERLAP_M = JOIN_CM / 100 / 2
 RUN_CHAMFER_M = .001
-DECK_SIDE_M = .12
-DECK_UP_M = (.05, .12)
-THIN, FAT, LEDGE, IMPOSSIBLE = 'ThinRail', 'FatRail', 'Ledge', 'Impossible'
-# The ground every prop stands on (local z = 0), for the probes beside a low edge.
-GROUND = np.array([[[-50., -50., 0.], [50., -50., 0.], [50., 50., 0.]], [[-50., -50., 0.], [50., 50., 0.], [-50., 50., 0.]]])
+LEDGE, THIN = 'Ledge', 'ThinRail'      # runtime.json kinds: a lip, a bar's top
 
 
 def tail(name):
@@ -383,8 +367,7 @@ def generate(entry, path=None, run=None):
     drawn top plate, planar within TOP_TOL_M of the drawn top, reaching down to the prop's base and out to every
     drawn vertex that no plate holds up. Every drawn solid vertex MUST lie inside the collision within TOP_TOL_M.
     A module laid end to end in runs (run_axis) MAY reach RUN_OVERLAP_M past its drawn ends along the run, so joins
-    have no gap. Its grind lines (rails) MUST lie on that collision and pass the skate plugin's grind-surface probes (classify)
-    along their whole length, and MUST come from this geometry and the placements, never from coordinates.
+    have no gap.
     """
     drawn = solid_faces(entry['name'], path or source.LIBRARY / entry['path'])
     points = np.unique(np.round(drawn.reshape(-1, 3), 5), axis=0)
@@ -467,193 +450,6 @@ def outside_m(furniture, points):
     return best
 
 
-# ---------------------------------------------------------------------------------------------------- grind lines
-
-def segment_hits(faces, start, end, eps=1e-3):
-    """Fraction along each segment start->end of its first hit on the triangles (nan for none)."""
-    start, end = np.atleast_2d(start), np.atleast_2d(end)
-    d = end - start
-    a, b, c = faces[:, 0], faces[:, 1], faces[:, 2]
-    e1, e2 = b - a, c - a
-    pvec = np.cross(d[:, None], e2[None])
-    det = (e1[None] * pvec).sum(-1)
-    ok = np.abs(det) > 1e-12
-    inv = np.where(ok, 1 / np.where(ok, det, 1), 0)
-    tvec = start[:, None] - a[None]
-    u = (tvec * pvec).sum(-1) * inv
-    q = np.cross(tvec, e1[None])
-    v = (d[:, None] * q).sum(-1) * inv
-    t = (e2[None] * q).sum(-1) * inv
-    hit = ok & (u >= -eps) & (v >= -eps) & (u + v <= 1 + eps) & (t >= -eps) & (t <= 1 + eps)
-    t = np.where(hit, t, np.inf).min(1)
-    return np.where(np.isfinite(t), t, np.nan)
-
-
-def classify(faces, points, direction, inner=False):
-    """The plugin's grind-surface kind at each point of a line (PlayerGrindSurface.cpp ResolvePlayerGrindSurface),
-    and whether the line lies on the surface (its centre probe hits). With inner, whether the top continues on both
-    sides (both near probes hit): a line across a top, not along its edge."""
-    direction = direction / np.linalg.norm(direction)
-    world_up = np.array([0., 0., 1.])
-    up = np.cross(direction, np.cross(world_up, direction))
-    up /= np.linalg.norm(up)
-    side = np.cross(up, direction)
-
-    def probe(at, half):
-        return segment_hits(faces, at + half, at - half)
-    h = [probe(points + side * NEAR_M, up * SHORT_UP_M), probe(points - side * NEAR_M, up * SHORT_UP_M),
-         probe(points + side * DECK_TO_TRUCK_M, up * DECK_TO_TRUCK_M * FAR_UP),
-         probe(points - side * DECK_TO_TRUCK_M, up * DECK_TO_TRUCK_M * FAR_UP),
-         probe(points, up * SHORT_UP_M), probe(points + up * RAISED_M, side * NEAR_M)]
-    hit = [~np.isnan(x) for x in h]
-    if inner:
-        return hit[0] & hit[1]
-    kinds = np.where((hit[0] & hit[1]) | hit[5], IMPOSSIBLE,
-                     np.where(hit[0], np.where(hit[2] & (np.nan_to_num(h[2], nan=1) < LEDGE_FRACTION), LEDGE, FAT),
-                              np.where(hit[1], np.where(hit[3] & (np.nan_to_num(h[3], nan=1) < LEDGE_FRACTION), LEDGE, FAT),
-                                       THIN)))
-    return kinds, hit[4]
-
-
-def width(poly):
-    """The least width of a convex polygon, and the direction of its longest edge."""
-    edge = np.roll(poly, -1, 0) - poly
-    length = np.linalg.norm(edge, axis=1)
-    normal = np.stack([edge[:, 1], -edge[:, 0]], 1) / length[:, None]
-    return float(min(np.ptp(poly @ n) for n in normal)), edge[np.argmax(length)] / length.max()
-
-
-def candidates(plate):
-    """Lines along a column's top: its centre line when narrower than the board's near probes reach either side
-    (a backrest, a trough's rim), otherwise its perimeter edges."""
-    narrow, axis = width(plate.poly)
-    if narrow < 2 * NEAR_M:
-        s = plate.poly @ axis
-        mid = plate.poly.mean(0) - axis * (plate.poly.mean(0) @ axis)
-        a, b = mid + axis * s.min(), mid + axis * s.max()
-        return [np.array([[*a, *plate.z(a)], [*b, *plate.z(b)]])], False
-    top = np.c_[plate.poly, plate.z(plate.poly)]
-    return [np.array([p, q]) for p, q in zip(top, np.roll(top, -1, 0))], True
-
-
-def turn(a, b):
-    return float(np.degrees(np.arccos(np.clip(a @ b / np.linalg.norm(a) / np.linalg.norm(b), -1, 1))))
-
-
-def clear(faces, points, direction):
-    """Is the board's deck free to ride over each point of a line: nothing within its length (plus a margin) and
-    width at DECK_UP_M above the line?"""
-    direction = direction / np.linalg.norm(direction)
-    side = np.cross([0., 0., 1.], direction)
-    side /= np.linalg.norm(side)
-    ok = np.ones(len(points), bool)
-    for h in DECK_UP_M:
-        for lateral in (-DECK_SIDE_M, 0., DECK_SIDE_M):
-            at = points + side * lateral + [0., 0., h]
-            ok &= np.isnan(segment_hits(faces, at - direction * DECK_HALF_M, at + direction * DECK_HALF_M))
-    return ok
-
-
-def accepted(faces, a, b):
-    """Does the segment a-b pass the plugin's probes at both ends and its middle (on the surface, not blocked) with
-    the deck clear over it?"""
-    points = np.array([a, (a + b) / 2, b])
-    kinds, on = classify(faces, points, b - a)
-    return bool(on.all() and (kinds != IMPOSSIBLE).all() and clear(faces, points, b - a).all())
-
-
-def chains(segments):
-    """Join segments end to end (shared endpoints) into polylines, without passing a junction."""
-    key = lambda p: tuple(np.round(p, 3))                                           # noqa: E731
-    ends = {}
-    for i, (a, b) in enumerate(segments):
-        ends.setdefault(key(a), []).append(i)
-        ends.setdefault(key(b), []).append(i)
-    used, out = set(), []
-
-    def walk(i, point):
-        line = [point]
-        while True:
-            a, b = segments[i]
-            point = b if key(a) == key(point) else a
-            line.append(point)
-            used.add(i)
-            nxt = [j for j in ends[key(point)] if j not in used]
-            if len(ends[key(point)]) != 2 or not nxt:
-                return line
-            i = nxt[0]
-    # Open chains start at a free end or a junction; what is left is closed loops.
-    for k, members in ends.items():
-        if len(members) != 2:
-            for i in members:
-                if i not in used:
-                    a, b = segments[i]
-                    out.append(walk(i, a if key(a) == k else b))
-    for i in range(len(segments)):
-        if i not in used:
-            out.append(walk(i, segments[i][0]))
-    return [np.array(line) for line in out]
-
-
-def rails(furniture):
-    """[{kind, points (local metres)}]: the furniture's grind lines: column top edges and narrow tops' centre lines
-    cut into RAIL_STEP_M segments, kept where the plugin's probes accept them (classify), joined end to end across
-    columns (a basin's rim), split at corners sharper than RAIL_TURN_DEG, at least RAIL_MIN_M long."""
-    faces = np.concatenate([furniture.faces, GROUND])
-    segments, lines = [], []
-    for plate, _ in furniture.columns:
-        if plate is None:
-            continue
-        edges, perimeter = candidates(plate)
-        for a, b in edges:
-            if min(a[2], b[2]) < RAIL_MIN_HEIGHT_M or classify(faces, (a + b)[None] / 2, b - a, inner=True)[0]:
-                continue
-            n = max(1, int(np.ceil(np.linalg.norm(b - a) / RAIL_STEP_M)))
-            cut = [a + (b - a) * i / n for i in range(n + 1)]
-            kept = [(p, q) for p, q in zip(cut[:-1], cut[1:]) if accepted(faces, p, q)]
-            (segments if perimeter else lines).extend(kept if perimeter else chains(kept))
-    out = []
-    for line in chains(segments) + lines:
-        piece = [line[0], line[1]] if len(line) > 1 else []
-        for p in list(line[2:]) + [None]:
-            if p is not None and turn(piece[-1] - piece[-2], p - piece[-1]) <= RAIL_TURN_DEG:
-                piece.append(p)
-                continue
-            points = np.array(piece)
-            if furniture.run is not None:            # a run's lines end at the drawn ends, where the next one starts
-                axis, lo, hi, _ = furniture.run
-                points[:, axis] = np.clip(points[:, axis], lo, hi)
-            if len(points) > 1 and _length(points) >= RAIL_MIN_M:
-                out.append(dict(kind=kind_of(faces, points), points=simplify(points)))
-            if p is not None:
-                piece = [piece[-1], p]
-    return out
-
-
-def _length(points):
-    return float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
-
-
-def simplify(points, tol=.002):
-    """Drop points on straight stretches: a straight edge is two points."""
-    keep = [0]
-    for i in range(1, len(points) - 1):
-        a, b = points[keep[-1]], points[i + 1]
-        ab = b - a
-        t = np.clip((points[keep[-1] + 1:i + 1] - a) @ ab / (ab @ ab), 0, 1)
-        if np.linalg.norm(a + t[:, None] * ab - points[keep[-1] + 1:i + 1], axis=1).max() > tol:
-            keep.append(i)
-    keep.append(len(points) - 1)
-    return points[keep]
-
-
-def kind_of(faces, points):
-    seg = np.diff(points, axis=0)
-    mid = (points[:-1] + points[1:]) / 2
-    kinds = [classify(faces, m[None], s)[0][0] for m, s in zip(mid, seg)]
-    return max(set(kinds), key=kinds.count)
-
-
 # ---------------------------------------------------------------------------------------------------- placement
 
 def to_region_cm(transform, points):
@@ -662,24 +458,8 @@ def to_region_cm(transform, points):
     return planting.rotate(transform['rotation_xyzw'], native) + transform['translation_cm']
 
 
-def placed_rails(data, lines):
-    """runtime.json's rails: every placement's grind lines in the region actor's frame (UE cm), joined where
-    modules meet end to end (a field wall's 10 m sections) within JOIN_CM and RAIL_TURN_DEG."""
-    by_asset = {m['source_asset']: m for m in data['meshes']}
-    out = []
-    for index, placement in enumerate(data['placements']):
-        name = by_asset[placement['asset']]['name']
-        for k, rail in enumerate(lines.get(name, ())):
-            out.append({'id': f'{tail(name)}_{index}_{k}', 'kind': rail['kind'],
-                        'points': to_region_cm(placement['transform'], rail['points'])})
-    out = join(out)
-    for rail in out:
-        rail['points'] = np.round(rail['points'], 1).tolist()
-    return out
-
-
-def join(rails):
-    """Join rails whose ends meet (within JOIN_CM) and continue each other (within RAIL_TURN_DEG)."""
+def join(rails, tol=JOIN_CM):
+    """Join rails whose ends meet (within tol centimetres) and continue each other (within RAIL_TURN_DEG)."""
     if not rails:
         return rails
     ends = np.array([[r['points'][0], r['points'][-1]] for r in rails]).reshape(-1, 3)
@@ -691,7 +471,7 @@ def join(rails):
     # Two ends meet when the lines continue: each heads out of its rail, so they point opposite ways.
     gap[heading @ heading.T > -np.cos(np.radians(RAIL_TURN_DEG))] = np.inf
     nearest = gap.argmin(1)
-    partner = np.where((gap.min(1) <= JOIN_CM) & (nearest[nearest] == np.arange(len(ends))), nearest, -1)
+    partner = np.where((gap.min(1) <= tol) & (nearest[nearest] == np.arange(len(ends))), nearest, -1)
     used, out = set(), []
 
     def walk(r, start_end):
