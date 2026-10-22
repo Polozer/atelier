@@ -264,7 +264,7 @@ def city_tile_steps(out):
         result += [city_input_step(out, 'tiles', (name,)),
                    Step('world.city_tiles.'+name,
                         [Blender(WORLD / 'city_surface_tiles.py',
-                                 ('--tag', 'v1_128m', '--sources', name), threads=3)],
+                                 ('--tag', 'v1_128m', '--sources', name), threads=3, factory_startup=True)],
                         inputs=[WORLD / 'city_surface_tiles.py', WORLD / 'mesh_pieces.py',
                                 paths.STUDIO / 'atelier/mesh_cells.py',
                                 paths.STUDIO / 'atelier/mesh_partition.py', paths.STUDIO / 'atelier/conventions.py',
@@ -273,7 +273,8 @@ def city_tile_steps(out):
                         products=[Product('city.tiles.'+name, (root / name,))],
                         cache=True, heavy=True, about='bounded city surface '+name)]
     result.append(Step('world.city_tiles',
-                       [Call('assemble city pieces', lambda ctx, log: city_products.assemble(root, log))],
+                       [Call('assemble city pieces', lambda ctx, log:
+                             city_products.assemble(root, lambda line: log.write(line + '\n')))],
                        inputs=[GAME / 'city_tile_products.py', paths.STUDIO / 'atelier/atomic_files.py',
                                paths.STUDIO / 'atelier/conventions.py', paths.STUDIO / 'atelier/model_files.py'],
                        reads=['city.tiles.'+name for name in city_inputs.TILES],

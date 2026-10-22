@@ -71,6 +71,24 @@ def test_cutoff_selections_match_the_actual_generators():
     assert not any(isinstance(node, ast.Name) and node.id == 'SOURCES' for node in ast.walk(tree))
 
 
+def test_actual_city_assembly_recipe_accepts_build_log_file(tmp_path):
+    from test_city_tile_products import production_manifest
+    manifest = production_manifest()
+    root = tmp_path/'city_surface_tiles/v1_128m'
+    for name, row in manifest['sources'].items():
+        folder = root/name
+        folder.mkdir(parents=True)
+        (folder/'manifest.json').write_text(json.dumps({**manifest, 'sources': {name: row}}))
+        for tile in row['tiles']:
+            (folder/(tile['name']+'.fbx')).write_bytes(b'completed source')
+    assembly = RECIPE.city_tile_steps(tmp_path)[-1]
+    log_path = tmp_path/'assembly.log'
+    with log_path.open('w') as log:
+        assembly.commands[0].fn(SimpleNamespace(out=tmp_path), log)
+    assert json.loads((root/'manifest.json').read_text()) == manifest
+    assert log_path.read_text() == 'CITY PIECES assembled '+str(sum(len(row['tiles']) for row in manifest['sources'].values()))+'\n'
+
+
 def test_ordinary_rebuild_skips_both_generators_after_unrelated_producer_change(city_build):
     p = city_build
     p.state['HD_NorthMountains']['triangles'] = 99
@@ -143,6 +161,7 @@ def test_recipe_keeps_generator_code_and_existing_unreal_cutoffs(tmp_path):
         assert cutoff.cutoff and cutoff.needs == ['world.hidamari']
         assert piece.needs == [cutoff.name]
         assert piece.cache and piece.products[0].name == 'city.tiles.'+name
+        assert piece.commands[0].factory_startup is True
         assert piece.commands[0].script in piece.inputs
         closure = set(build_inputs.local_imports(piece.commands[0].script, (RECIPE.WORLD, RECIPE.REGIONS)))
         assert closure <= set(piece.inputs)
