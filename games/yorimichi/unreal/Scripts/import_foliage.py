@@ -22,6 +22,17 @@ def verify_bounds(mesh, authored):
     assert all(abs(a - b) < .1 for a, b in zip(extents, expected)), (mesh.get_name(), 'bounds', extents, expected)
 
 
+def disable_import_popups():
+    """@cc [owner:fontanierh,label:correctness] unattended-foliage-import-keeps-diagnostics
+    A fresh FBX create logs every build warning (e.g. nearly zero LOD tangents) to the FBX message log,
+    and on Mac that log tries to open a Slate tab, which asserts under -NullRHI. Warnings MUST stay in
+    the log without that popup, and suppressing it MUST NOT bypass any import or validation below.
+    """
+    U.load_module('MessageLog')
+    U.SystemLibrary.execute_console_command(None, 'MessageLog.DisablePopup 1')
+    assert U.SystemLibrary.get_console_variable_bool_value('MessageLog.DisablePopup'), 'FBX popup suppression unavailable'
+
+
 def main():
     """@cc [owner:fontanierh,label:correctness] complete-foliage-package-owner
     One action MUST import and validate its LOD0, LOD chain, slots, collision and runtime flags.
@@ -37,6 +48,7 @@ def main():
         raise ValueError('Invalid authored trunk collision policy: ' + name)
     interface = json.loads((yori.OUT / 'materials/foliage-interface.json').read_text())
     editor = U.EditorAssetLibrary
+    disable_import_popups()
     U.SystemLibrary.execute_console_command(None, 'Interchange.FeatureFlags.Import.FBX 0')
     U.load_module('StaticMeshEditor')
     meshes = U.get_editor_subsystem(U.StaticMeshEditorSubsystem)

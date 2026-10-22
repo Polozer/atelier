@@ -47,7 +47,7 @@ def owner(monkeypatch, tmp_path):
     previous, imported = Mesh(mutations), Mesh(mutations)
     state = SimpleNamespace(previous=previous, imported=imported, mutations=mutations, logs=logs,
                             original_body=imported.values['body_setup'], fail_removal=False,
-                            after_lods=lambda mesh: None)
+                            after_lods=lambda mesh: None, console=[])
     data = dict(bounds=[[0, 0, 0], [1, 2, 3]], triangles=[1], screen_sizes=[1.0], materials=[],
                 collision='complex', trunk_collision=[.6, 0, 0, -.25, 0, 0, 2], import_trunk_collision=False)
     manifest = tmp_path / 'foliage/Tree_Test/manifest.json'
@@ -87,7 +87,8 @@ def owner(monkeypatch, tmp_path):
     unreal = SimpleNamespace(
         EditorAssetLibrary=SimpleNamespace(does_asset_exist=lambda path: True, load_asset=lambda path: previous,
                                           list_assets=lambda *args, **kwargs: [], save_loaded_asset=save),
-        SystemLibrary=SimpleNamespace(execute_console_command=lambda *args: None),
+        SystemLibrary=SimpleNamespace(execute_console_command=lambda world, command: state.console.append(command),
+                                      get_console_variable_bool_value=lambda name: name + ' 1' in state.console),
         load_module=lambda name: None, get_editor_subsystem=lambda kind: meshes, StaticMeshEditorSubsystem=object(),
         CollisionTraceFlag=SimpleNamespace(CTF_USE_COMPLEX_AS_SIMPLE='complex', CTF_USE_DEFAULT='default'), log=logs.append)
     for name, module in {
@@ -126,6 +127,15 @@ def test_explicit_policy_clears_or_retains_imported_ucx_on_the_final_mesh(owner,
     assert report['import_trunk_collision'] is enabled
     assert ('save', owner.imported) in owner.mutations
     assert any(line.startswith('FOLIAGE IMPORT COMPLETE Tree_Test:') for line in owner.logs)
+
+
+def test_fbx_message_log_popup_is_disabled_before_any_import(owner, monkeypatch):
+    seen = []
+    original = owner.run.__globals__['import_mesh']
+    monkeypatch.setitem(owner.run.__globals__, 'import_mesh',
+                        lambda *args, **kwargs: (seen.append(list(owner.console)), original(*args, **kwargs))[1])
+    owner.run()
+    assert seen and 'MessageLog.DisablePopup 1' in seen[0]
 
 
 def assert_uncertified(owner):
