@@ -18,7 +18,7 @@
 namespace RacingStableTest
 {
     constexpr const TCHAR* Host = TEXT("local:paul");
-    constexpr const TCHAR* Guest = TEXT("session:henry");
+    constexpr const TCHAR* Guest = TEXT("guest:0123456789abcdef0123456789abcdef");
 
     /** A fresh world with the host's player and a guest, each given their stable. */
     struct FFixture
@@ -101,14 +101,20 @@ bool FRacingStableAssignTest::RunTest(const FString&)
         TestFalse(FString::Printf(TEXT("%s: its jockeys ride"), Who), F.Player(Who).bRides);
     }
     for (const TPair<FString, FHRHorse>& It : F.World.Horses)
-        TestFalse(TEXT("No horse id carries a session id"), It.Key.Contains(TEXT("session:")));
+        TestFalse(TEXT("No horse id carries a player's id"), It.Key.Contains(TEXT("guest:")) || It.Key.Contains(TEXT("local:")));
     TestNull(TEXT("The stand-in founder is gone"), HRRules::FindPlayer(F.World, TEXT("site:hidamari")));
     TestEqual(TEXT("Assigning again changes nothing"), RacingStables::Assign(F.World, Host), FString());
     TestEqual(TEXT("still Belmonte"), F.Stable(Host).Id, FString(TEXT("old_mill")));
     // A third player: V1 has two player stables.
-    HRRules::AddPlayer(F.World, TEXT("session:third"), TEXT("Third"));
-    TestFalse(TEXT("A third player gets none"), RacingStables::Assign(F.World, TEXT("session:third")).IsEmpty());
-    TestNull(TEXT("(no stable)"), HRRules::PlayerStable(F.World, TEXT("session:third")));
+    const TCHAR* Third = TEXT("guest:fedcba9876543210fedcba9876543210");
+    HRRules::AddPlayer(F.World, Third, TEXT("Third"));
+    TestFalse(TEXT("A third player gets none"), RacingStables::Assign(F.World, Third).IsEmpty());
+    TestNull(TEXT("(no stable)"), HRRules::PlayerStable(F.World, Third));
+    // A session player (a guest without a usable install id) gets none, even with Hidamari free.
+    FHRWorldState Free = HRRules::CreateWorld(TEXT("yorimichi-stables-session"));
+    HRRules::AddPlayer(Free, TEXT("session:0123"), TEXT("Session"));
+    TestTrue(TEXT("A session player gets no stable"), RacingStables::Assign(Free, TEXT("session:0123")).Contains(TEXT("reconnus")));
+    TestNull(TEXT("(none)"), HRRules::PlayerStable(Free, TEXT("session:0123")));
     // A guest first never takes the host's estate.
     FHRWorldState W = HRRules::CreateWorld(TEXT("yorimichi-stables-order"));
     HRRules::AddPlayer(W, Guest, TEXT("Henry"));
@@ -117,15 +123,15 @@ bool FRacingStableAssignTest::RunTest(const FString&)
     RacingStables::Assign(W, Host);
     TestEqual(TEXT("A guest who comes first still gets Hidamari"), HRRules::PlayerStable(W, Guest)->Id, FString(TEXT("hidamari")));
     TestEqual(TEXT("and the host Belmonte"), HRRules::PlayerStable(W, Host)->Id, FString(TEXT("old_mill")));
-    // The guest leaves: the stable stays in the world, run by it; the next guest takes it over.
+    // A released stable (a session player's, from a world before guests had an identity) stays in the world, run by it;
+    // the next guest takes it over.
     const int32 Horses = HRRules::StableHorses(F.World, TEXT("hidamari")).Num();
     RacingStables::Release(F.World, Guest);
     const FHRStable* Left = HRRules::FindStable(F.World, TEXT("hidamari"));
     if (TestNotNull(TEXT("Hidamari stays"), Left)) TestTrue(TEXT("as a computer stable"), Left->IsComputer());
     TestEqual(TEXT("with its horses"), HRRules::StableHorses(F.World, TEXT("hidamari")).Num(), Horses);
-    HRRules::AddPlayer(F.World, TEXT("session:henry2"), TEXT("Henry"));
-    TestEqual(TEXT("The next guest gets it back"), RacingStables::Assign(F.World, TEXT("session:henry2")), FString());
-    TestEqual(TEXT("the same stable"), HRRules::PlayerStable(F.World, TEXT("session:henry2"))->Id, FString(TEXT("hidamari")));
+    TestEqual(TEXT("The next guest gets it back"), RacingStables::Assign(F.World, Third), FString());
+    TestEqual(TEXT("the same stable"), HRRules::PlayerStable(F.World, Third)->Id, FString(TEXT("hidamari")));
     TestEqual(TEXT("The world stays admissible"), HRSave::Validate(F.World), FString());
     // The world lives on: both stables race with the computer ones over a day.
     HRRules::AdvanceDay(F.World);
@@ -395,7 +401,7 @@ bool FRacingStableRequestTest::RunTest(const FString&)
     TestEqual(TEXT("Its stable arrives with the new horse"), OnClient->GetView().Horses.Num(), Horses + 1);
     TestEqual(TEXT("and the coins paid"), OnClient->GetView().Coins, Coins - HRRules::AdultPrice);
     TestEqual(TEXT("It is the guest's Hidamari stable"), OnClient->GetView().Site, FString(TEXT("hidamari")));
-    TestTrue(TEXT("for this session"), OnClient->GetView().bSession);
+    TestFalse(TEXT("kept across sessions"), OnClient->GetView().bSession);
     R.Seq = 2;
     R.Action = uint8(ERacingStableAction::Rest);
     R.Target = HRRules::StableHorses(Service->GetWorldState(), TEXT("old_mill"))[0]->Id;
@@ -451,10 +457,13 @@ bool FRacingStablePersistenceTest::RunTest(const FString&)
     FHRWorldState Admitted;
     FString Error;
     TestTrue(TEXT("The file is an admissible world: ") + Error, HRSave::FromJson(Text, Admitted, Error));
+    const int32 GuestCoins = HRRules::FindPlayer(First->GetWorldState(), Guest)->Coins;
     for (const TPair<FString, FHRPlayer>& It : Admitted.Players) TestFalse(TEXT("No session player in the file"), ARacingService::IsSessionPlayer(It.Key));
-    for (const FHRStable& St : Admitted.Stables) TestFalse(TEXT("No stable owned by a session player"), ARacingService::IsSessionPlayer(St.OwnerPlayerId));
-    TestEqual(TEXT("The guest still owns Hidamari in this session"), HRRules::PlayerStable(First->GetWorldState(), Guest)->Id, FString(TEXT("hidamari")));
+    TestNotNull(TEXT("The guest is in the file"), HRRules::FindPlayer(Admitted, Guest));
+    const FHRStable* Saved = HRRules::FindStable(Admitted, TEXT("hidamari"));
+    TestTrue(TEXT("and owns Hidamari there"), Saved && Saved->OwnerPlayerId == Guest);
 
+    // The next session: the guest is away, the host plays on for a race day.
     ARacingService* Second = NewObject<ARacingService>(GetTransientPackage());
     if (!TestTrue(TEXT("Reloaded"), Second->OpenWorld(Path, TEXT("another-seed")))) return false;
     const FHRWorldState& S = Second->GetWorldState();
@@ -469,13 +478,23 @@ bool FRacingStablePersistenceTest::RunTest(const FString&)
     const FHRStable* Hidamari = HRRules::FindStable(S, TEXT("hidamari"));
     if (TestNotNull(TEXT("Hidamari is in the world"), Hidamari))
     {
-        TestTrue(TEXT("run by the world while its guest is away"), Hidamari->IsComputer());
+        TestEqual(TEXT("still the away guest's"), Hidamari->OwnerPlayerId, FString(Guest));
         TestEqual(TEXT("with its horses"), HRRules::StableHorses(S, TEXT("hidamari")).Num(), HidamariHorses);
     }
-    TestNull(TEXT("The guest is not saved"), HRRules::FindPlayer(S, Guest));
-    TestTrue(TEXT("A guest who comes back gets Hidamari again"), Second->RegisterPlayer(TEXT("session:back"), TEXT("Henry")));
-    const FHRStable* Back = HRRules::PlayerStable(Second->GetWorldState(), TEXT("session:back"));
-    TestTrue(TEXT("(Hidamari)"), Back && Back->Id == TEXT("hidamari"));
+    if (const FHRPlayer* Back = HRRules::FindPlayer(S, Guest)) TestEqual(TEXT("The guest's coins are kept"), Back->Coins, GuestCoins);
+    else AddError(TEXT("The guest is kept"));
+    Second->RegisterPlayer(Host, TEXT("Paul"));
+    // Another guest comes while the first is away: Hidamari is not theirs to take.
+    const TCHAR* Other = TEXT("guest:fedcba9876543210fedcba9876543210");
+    TestTrue(TEXT("Another guest is registered"), Second->RegisterPlayer(Other, TEXT("Lea")));
+    TestNull(TEXT("but gets no stable"), HRRules::PlayerStable(S, Other));
+    Second->AdvanceClock(3. * 3600.);
+    const FHRStable* Kept = HRRules::FindStable(S, TEXT("hidamari"));
+    TestTrue(TEXT("A race day later, Hidamari is still the away guest's"), Kept && Kept->OwnerPlayerId == Guest);
+    TestTrue(TEXT("The guest comes back"), Second->RegisterPlayer(Guest, TEXT("Henry")));
+    const FHRStable* Back = HRRules::PlayerStable(S, Guest);
+    TestTrue(TEXT("and has Hidamari"), Back && Back->Id == TEXT("hidamari"));
+    TestEqual(TEXT("The world stays admissible"), HRSave::Validate(S), FString());
     IFileManager::Get().DeleteDirectory(*FPaths::GetPath(Path), false, true);
     return true;
 }

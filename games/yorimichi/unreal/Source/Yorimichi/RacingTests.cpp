@@ -1020,4 +1020,27 @@ bool FRacingCounterPlaceTest::RunTest(const FString&)
     TestFalse(TEXT("A short spot"), RacingCounter::Parse(RacingPlaces::Parse(Short), C));
     return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRacingTimingOnlyAtVenuesTest, "Yorimichi.Racing.TimingOnlyAtVenues",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FRacingTimingOnlyAtVenuesTest::RunTest(const FString&)
+{
+    // Race timing shows in the general HUD only on a racecourse's grounds (FRacingCourse::ContainsGrounds), never in
+    // Belmonte's town round the course: Paul's rule, the Salon's windows and the TVs being the other places that show it.
+    ARacingService* Service = NewObject<ARacingService>(GetTransientPackage());
+    FString Error;
+    if (!TestTrue(TEXT("Belmonte loaded"), Service->LoadBelmonteCourses(RacingTest::CoursesJson(), RacingTest::BelmonteOrigin, Error))) return false;
+    const FRacingCourse* Turf = Service->GetCourse(ERacingVenue::Belmonte);
+    if (!TestNotNull(TEXT("Belmonte turf"), Turf)) return false;
+    // Belmonte-local plan metres (x east, y north) to world cm, at the track's height so only the plan decides.
+    const double Z = Turf->Centre().Z;
+    auto Plan = [&](double X, double Y) { FVector P = RacingTest::BelmonteOrigin + FVector(X * 100., -Y * 100., 0.); P.Z = Z; return P; };
+    TestTrue(TEXT("On the track"), Turf->ContainsGrounds(Turf->At(400., -5.)));
+    // The stand racing.Go sends a player to (ARacingService::GoToVenue): outside the outer rail just past the post.
+    TestTrue(TEXT("At the stand"), Turf->ContainsGrounds(Turf->At(15., Turf->OuterLane + 9.)));
+    TestFalse(TEXT("The town's square"), Turf->ContainsGrounds(Plan(0., 31.5)));
+    TestFalse(TEXT("The Salon's square"), Turf->ContainsGrounds(Plan(70., 290.)));
+    TestFalse(TEXT("The town near the course"), Turf->ContainsGrounds(Plan(70., 200.)));
+    return true;
+}
 #endif

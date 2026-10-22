@@ -181,7 +181,7 @@ namespace RacingStables
         const TCHAR* Place;
     };
     /** The player stables in the order they are given: Belmonte's "Votre écurie" estate (the rules' stable for sale) to
-     *  the host's player, then the Hidamari stable to the next player. */
+     *  the host's player, then the Hidamari stable to the first guest with an install id (RacingIdentity), theirs for good. */
     YORIMICHI_API const TArray<FSiteDef>& Sites();
     YORIMICHI_API int32 SiteIndexOfStable(const FString& StableId);
 
@@ -194,7 +194,8 @@ namespace RacingStables
     YORIMICHI_API FString Assign(FHRWorldState& S, const FString& PlayerId);
     /** The player's stable goes back to the world: a computer stable that keeps its horses and jockeys and races on. */
     YORIMICHI_API void Release(FHRWorldState& S, const FString& PlayerId);
-    /** Every stable a guest's session player owns is released (what a save keeps of them: guests have no identity yet). */
+    /** Every stable a session player owns is released (what a save keeps of them). Assign gives them none; only a world
+     *  from before guests had an identity can hold one. */
     YORIMICHI_API void ReleaseSessionStables(FHRWorldState& S);
     /** Renames a stable everywhere the world refers to it. False when From is missing or To taken. */
     YORIMICHI_API bool RenameStable(FHRWorldState& S, const FString& From, const FString& To);

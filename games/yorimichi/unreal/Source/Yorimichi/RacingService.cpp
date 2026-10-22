@@ -16,6 +16,7 @@
 #include "PlayableCharacter.h"
 #include "RacingBetting.h"
 #include "RacingBroadcast.h"
+#include "RacingIdentity.h"
 #include "RacingRecords.h"
 #include "RacingStables.h"
 #include "WandererDefinition.h"
@@ -149,21 +150,8 @@ namespace RacingLooks
 
     double UnixNow() { return double((FDateTime::UtcNow() - FDateTime(1970, 1, 1)).GetTicks()) / double(ETimespan::TicksPerSecond); }
 
-    /** The id this machine's own player keeps across sessions (Saved/racing/player-id.txt). */
-    FString LocalPlayerId()
-    {
-        static FString Cached;
-        if (!Cached.IsEmpty()) return Cached;
-        const FString Path = FPaths::GetPath(ARacingService::DefaultSavePath()) / TEXT("player-id.txt");
-        FString Text;
-        if (FFileHelper::LoadFileToString(Text, *Path) && !Text.TrimStartAndEnd().IsEmpty()) Cached = Text.TrimStartAndEnd();
-        else
-        {
-            Cached = TEXT("local:") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
-            FFileHelper::SaveStringToFile(Cached, *Path);
-        }
-        return Cached;
-    }
+    /** The id this machine's own player keeps across sessions: "local:" and the install id (RacingIdentity). */
+    FString LocalPlayerId() { return RacingIdentity::HostKey(ARacingService::LocalInstallId()); }
 }
 
 // ------------------------------------------------------------------------------------------------------------ snapshot
@@ -719,10 +707,8 @@ void ARacingService::RegisterPlayers()
     for (APlayerState* PS : GS->PlayerArray)
     {
         if (!PS) continue;
-        // The host's own player keeps its id across sessions (saved beside the world). A remote guest has no persistent
-        // identity yet (an online id may be absent, a session id changes every session): it gets a session player, a
-        // wallet for this session that is never saved (PersistentWorld), and nothing it could own for longer
-        // (docs/RACING.md, "Players").
+        // The host's own player keeps its id across sessions (saved beside the world); a guest is known by the install id
+        // it presented (URacingWallet::ServerIdentify), and is not registered before (docs/RACING.md, "Players").
         const FString Id = PlayerIdOf(Cast<AController>(PS->GetOwner()));
         Present.Add(Id);
         if (Id.IsEmpty() || Registered.Contains(Id)) continue;
@@ -732,7 +718,8 @@ void ARacingService::RegisterPlayers()
         const FString Name = JPS ? JPS->RiderName : FString();
         RegisterPlayer(Id, Name.IsEmpty() ? FString(TEXT("Player")) : Name);
     }
-    // A guest who left gives their stable back to the world, which runs it until a player takes it again.
+    // A guest keeps their stable while away (it stays theirs, saved with the world). Only a session player's (a legacy
+    // world's) goes back to the world when they leave.
     TArray<FString> Gone;
     for (const FHRStable& St : State.Stables)
         if (IsSessionPlayer(St.OwnerPlayerId) && !Present.Contains(St.OwnerPlayerId)) Gone.Add(St.OwnerPlayerId);
@@ -1252,27 +1239,40 @@ FString ARacingService::PlayerIdOf(const AController* Controller)
 {
     if (!Controller) return FString();
     if (Controller->IsLocalController()) return RacingLooks::LocalPlayerId();
-    const AJapanPlayerState* PS = Controller->GetPlayerState<AJapanPlayerState>();
-    return PS && !PS->SessionPlayerId.IsEmpty() ? TEXT("session:") + PS->SessionPlayerId : FString();
+    // A guest: the key the host gave the install id it presented, empty until it has.
+    const URacingWallet* Wallet = URacingWallet::Of(Controller);
+    return Wallet ? Wallet->GetGuestKey() : FString();
+}
+
+FString ARacingService::LocalInstallId()
+{
+    static FString Cached;
+    if (Cached.IsEmpty()) Cached = RacingIdentity::LoadOrCreate(FPaths::GetPath(DefaultSavePath()) / TEXT("player-id.txt"));
+    return Cached;
 }
 
 bool ARacingService::RegisterPlayer(const FString& PlayerId, const FString& Name)
 {
     if (!bHasWorld || PlayerId.IsEmpty() || PlayerId.Len() > HRSave::MaxIdChars) return false;
-    if (!HRRules::FindPlayer(State, PlayerId))
+    if (const FHRPlayer* Known = HRRules::FindPlayer(State, PlayerId))
+    {
+        UE_LOG(LogTemp, Display, TEXT("RACING player back: %s (%s), %d coins"), *PlayerId, *Known->Name, Known->Coins);
+    }
+    else
     {
         HRRules::AddPlayer(State, PlayerId, Name.Left(64));
         // A session player is never saved: it does not make the world dirty.
         if (!IsSessionPlayer(PlayerId)) bDirty = true;
         UE_LOG(LogTemp, Display, TEXT("RACING player registered: %s (%s)%s"), *PlayerId, *Name, IsSessionPlayer(PlayerId) ? TEXT(", this session only") : TEXT(""));
     }
-    // Every player gets a stable at once (docs/RACING.md, "Stables"): the host's player Belmonte's, the next one Hidamari's.
+    // Every player gets a stable at once (docs/RACING.md, "Stables"): the host's player Belmonte's, the first guest Hidamari's
+    // (theirs for good, kept while they are away); a session player none.
     if (!HRRules::PlayerStable(State, PlayerId))
     {
         const FString Refusal = RacingStables::Assign(State, PlayerId);
         const FHRStable* Stable = HRRules::PlayerStable(State, PlayerId);
         UE_LOG(LogTemp, Display, TEXT("RACING STABLE %s: %s"), *PlayerId, Stable ? *FString::Printf(TEXT("%s (%s)"), *Stable->Name, *Stable->Id) : *Refusal);
-        // The stable itself is part of the world (a guest's stays when they leave, run by the world): always saved.
+        // The stable itself is part of the world (a guest's stays theirs when they leave): always saved.
         if (Stable) bDirty = true;
     }
     return true;
@@ -1497,7 +1497,7 @@ void ARacingService::RefreshWallets()
         }
     }
     // The records hall (docs/RACING.md, "Records hall"): its objects' texts, only to readers in the hall, rebuilt when a
-    // race is noted or the day changes, and every five seconds for the next races' countdowns.
+    // race is noted or the day changes, and every five seconds so a result shows once its race is seen won.
     bool bHallBuilt = false;
     for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
     {
@@ -1750,4 +1750,32 @@ int32 URacingLive::RacingBet(const FString& RaceKey, const FString& HorseId, int
 {
     URacingWallet* Wallet = URacingWallet::Local(ULiveLibrary::GameWorld());
     return Wallet ? int32(Wallet->RequestBet(RaceKey, HorseId, Stake)) : 0;
+}
+
+FString URacingLive::RacingPlayers()
+{
+    UWorld* World = ULiveLibrary::GameWorld();
+    const ARacingService* Service = ARacingService::Find(World);
+    auto Escape = [](const FString& Text) { return RacingJsonEscape(Text); };
+    FString Connected, Kept;
+    if (World && Service && Service->HasAuthority())
+    {
+        for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+            Connected += FString::Printf(TEXT("%s\"%s\""), Connected.IsEmpty() ? TEXT("") : TEXT(","), *Escape(ARacingService::PlayerIdOf(It->Get())));
+        const FHRWorldState& S = Service->GetWorldState();
+        for (const TPair<FString, FHRPlayer>& P : S.Players)
+        {
+            int32 Open = 0, Tickets = 0;
+            for (const FHRTicket& T : S.Tickets)
+                if (T.PlayerId == P.Key) { ++Tickets; Open += T.Status == TEXT("open") ? 1 : 0; }
+            const FHRStable* St = HRRules::PlayerStable(S, P.Key);
+            Kept += FString::Printf(TEXT("%s{\"key\":\"%s\",\"name\":\"%s\",\"coins\":%d,\"tickets\":%d,\"open\":%d,\"stable\":\"%s\"}"),
+                Kept.IsEmpty() ? TEXT("") : TEXT(","), *Escape(P.Key), *Escape(P.Value.Name), P.Value.Coins, Tickets, Open, St ? *Escape(St->Id) : TEXT(""));
+        }
+    }
+    const URacingWallet* Wallet = URacingWallet::Local(World);
+    const AController* Local = World ? World->GetFirstPlayerController() : nullptr;
+    return FString::Printf(TEXT("{\"install\":\"%s\",\"local_key\":\"%s\",\"host\":%s,\"connected\":[%s],\"players\":[%s]}"),
+        *ARacingService::LocalInstallId(), Local && Local->HasAuthority() ? *Escape(ARacingService::PlayerIdOf(Local)) : TEXT(""),
+        Service && Service->HasAuthority() ? TEXT("true") : TEXT("false"), *Connected, *Kept);
 }
