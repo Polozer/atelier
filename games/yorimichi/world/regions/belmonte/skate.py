@@ -31,6 +31,9 @@ BAR_SLOTS = ('iron', 'wood')
 # Props whose committed hull is one solid block over an open frame that a skater grinds (a market stall's counter and
 # shelf under its canopy): they collide as drawn instead, as the streets do.
 AS_DRAWN = ('SM_BM_BP_Stall_',)
+# Props whose committed hull stops under what is drawn above it (the well's hull is its kerb block, so a skater rode
+# through its posts and roof): what is drawn over the hull's top collides too, the hull still closing the shaft.
+OVER_HULL = ('SM_BM_BH_Pozzo',)
 BAR_LENGTH_M = 1.2      # a bar is at least this long along its top
 BAR_THICK_M = .25       # and at most this across
 BAR_LOW_M = .25         # metres a bar's top stands over the street at least (lower is trim)
@@ -58,6 +61,15 @@ def slotted(entry, cache={}):
 
 def as_drawn(name):
     return name.startswith(AS_DRAWN)
+
+
+def over_hull(entry, hulls):
+    """The drawn hard faces of an OVER_HULL prop wholly over its committed hull's top (local plan metres)."""
+    if not entry['name'].startswith(OVER_HULL):
+        return np.zeros((0, 3, 3))
+    faces, names = slotted(entry)
+    faces = faces[hard(names)]
+    return faces[faces[:, :, 2].min(1) >= source.triangles(hulls).reshape(-1, 3)[:, 2].max() - 1e-3]
 
 
 def hard(names):
