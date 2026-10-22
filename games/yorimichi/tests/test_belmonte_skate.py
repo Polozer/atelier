@@ -119,3 +119,17 @@ def test_wall_sections_join_into_one_line():
     rails = furniture.join([{'id': str(k), 'kind': furniture.LEDGE, 'points': l * [100., -100., 100.]}
                             for k, l in enumerate(found)], skate.LINE_JOIN_CM)
     assert max(length(np.asarray(r['points']) / 100.) for r in rails) >= 29.
+
+
+def test_a_well_collides_over_its_kerb(tmp_path, monkeypatch):
+    """The well's committed hull is its kerb block (0.95 m): its posts and roof collide too, the block still closes
+    the shaft."""
+    entry = ENTRIES['SM_BM_BH_Pozzo']
+    hulls = source.LIBRARY / entry['collision']['path']
+    over = skate.over_hull(entry, hulls)
+    assert len(over) and over[:, :, 2].max() >= 2.4
+    assert not len(skate.over_hull(ENTRIES['SM_BM_BP_Barrel'], source.LIBRARY / ENTRIES['SM_BM_BP_Barrel']['collision']['path']))
+    monkeypatch.setattr(build, 'OUT', tmp_path)
+    (tmp_path / 'glb').mkdir()
+    record = build.outward_hulls(hulls, (), over)
+    assert len(source.triangles(tmp_path / record['path'])) == len(source.triangles(hulls)) + len(over)

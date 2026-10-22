@@ -202,12 +202,14 @@ def map_zones(town_z):
     ]
 
 
-def outward_hulls(hulls, bars=()):
+def outward_hulls(hulls, bars=(), over=()):
     """A committed hull file written to glb/ with its faces turned out of their solids (the library's wind inward), as
     the drawn meshes and the generated shells face: the skate surface keeps a face's side. The mesh's reachable
-    bars (belmonte/skate.py) collide too, so the board meets the line it grinds."""
+    bars (belmonte/skate.py) collide too, so the board meets the line it grinds, and what is drawn over a too low
+    hull (`over`, skate.over_hull: a well's posts and roof)."""
     path = OUT / 'glb' / hulls.name
-    collision.write_glb(path, np.concatenate([collision.mirror(source.triangles(hulls))] + [b.faces() for b in bars]))
+    collision.write_glb(path, np.concatenate([collision.mirror(source.triangles(hulls))] + [b.faces() for b in bars]
+                                             + [np.asarray(over, float).reshape(-1, 3, 3)]))
     return {'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
             'source': hulls.relative_to(source.LIBRARY).as_posix()}
 
@@ -291,7 +293,7 @@ def main():
                 furniture_report[entry['name']] = furniture_collision(entry, path, data)
             else:
                 entry['collision'] = (shell_records[entry['name']] if collision.is_building(entry['name'])
-                                      else outward_hulls(hulls, bars.get(entry['name'], ())))
+                                      else outward_hulls(hulls, bars.get(entry['name'], ()), skate.over_hull(entry, hulls)))
             if 'collision' in entry:
                 collisions[entry['name']] = OUT / entry['collision']['path']
         prepared = model_pieces.prepare(entry, destination)

@@ -61,12 +61,13 @@ def test_normal_belmonte_producer_retires_superseded_glbs_without_touching_sourc
     # The skate collision steps (generated shells, outward hulls, furniture) have their own tests
     # (test_belmonte_collision.py, test_belmonte_furniture.py, test_belmonte_skate.py): here a hull is
     # published as committed and no grind line is found.
-    def outward_hulls(hulls, bars=()):
+    def outward_hulls(hulls, bars=(), over=()):
         shutil.copy2(hulls, out / 'belmonte/glb' / hulls.name)
         return {'path': 'glb/' + hulls.name, 'sha256': sha(hulls)}
     scope = dict(OUT=out / 'belmonte', json=json, shutil=shutil, building_collision=lambda data, bars: ({}, {}),
         skate=SimpleNamespace(street_query=lambda data: None, bars=lambda data, above: ({}, []),
-                             as_drawn=lambda name: False, rails=lambda *a: ([], {})),
+                             as_drawn=lambda name: False, over_hull=lambda entry, hulls: (),
+                             rails=lambda *a: ([], {})),
         outward_hulls=outward_hulls, collision=SimpleNamespace(is_building=lambda name: False),
         furniture=SimpleNamespace(is_furniture=lambda name: False, placed_rails=lambda data, lines: []), source=SimpleNamespace(
         LIBRARY=library, manifest=manifest, sha=sha, triangles=lambda _: [], Surface=lambda _: None,
