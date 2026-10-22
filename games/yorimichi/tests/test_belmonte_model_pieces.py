@@ -134,7 +134,8 @@ def test_actual_region_main_preserves_shared_instances_materials_parent_cull_and
         return {'path': 'glb/' + hulls.name, 'sha256': source.sha(hulls)}
     namespace = dict(OUT=out, source=source, finish_surfaces=lambda data: deepcopy(material_values),
                      building_collision=lambda data, bars: ({}, {}), outward_hulls=outward_hulls,
-                     skate=SimpleNamespace(carved=lambda data, directory: data, street_query=lambda data: None, bars=lambda data, above: ({}, []),
+                     props=SimpleNamespace(apply=lambda data, directory: data),
+                     skate=SimpleNamespace(street_query=lambda data: None, bars=lambda data, above: ({}, []),
                                           as_drawn=lambda name: False, over_hull=lambda entry, hulls: (),
                      rails=lambda *a: ([], {})),
                      collision=SimpleNamespace(is_building=lambda name: False),
