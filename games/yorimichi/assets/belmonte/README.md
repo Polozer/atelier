@@ -39,3 +39,19 @@ To compare every building with the committed hulls (about ten minutes, no Unreal
 ```sh
 uv run python games/yorimichi/tools/belmonte_collision_audit.py [--json OUT] [NAME ...]
 ```
+
+## Street furniture for skating
+
+Benches, stone benches, planters, the field walls, the trough, the mounting block, hay bales and the two fountains
+collide with columns generated from their drawn tops (`world/regions/belmonte/furniture.py`, in `world.belmonte`),
+not with their committed hulls (the bench's stopped at the seat under a 0.86 m backrest). Each group of drawn upward
+faces becomes one plane, within 6 cm of the drawing, and a closed convex column from that plane down to the prop's
+base and out to the drawn sides (a wall's batter); a backrest or an armrest is its own column. Ring-shaped tops (a
+basin's rim, a fountain's steps) are split into convex pieces. Planted foliage in the planters is left soft; a basin's
+water carries the board at its surface. The step fails if any drawn vertex lies more than 6 cm outside.
+
+The same step writes the furniture's grind lines to `runtime.json` (`rails`, region-local centimetres), which
+`ABelmonteRegion` registers with the Skate plugin: each column's top edges, or the centre line of a top narrower
+than 18 cm (a backrest, the trough's rim), kept where the plugin's own grind-surface probes accept them (on the
+collision, not blocked) and at least 1 m long, joined across modules that meet end to end (the walls' 10 m sections).
+`build-report.json` lists each prop's triangles and lines under `furniture_collision`.
