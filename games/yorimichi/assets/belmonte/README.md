@@ -39,3 +39,39 @@ To compare every building with the committed hulls (about ten minutes, no Unreal
 ```sh
 uv run python games/yorimichi/tools/belmonte_collision_audit.py [--json OUT] [NAME ...]
 ```
+
+## Street furniture for skating
+
+Benches, stone benches, planters, the field walls, the trough, the mounting block, hay bales and the two fountains
+collide with columns generated from their drawn tops (`world/regions/belmonte/furniture.py`, in `world.belmonte`),
+not with their committed hulls (the bench's stopped at the seat under a 0.86 m backrest). Each group of drawn upward
+faces becomes one plane, within 6 cm of the drawing, and a closed convex column from that plane down to the prop's
+base and out to the drawn sides (a wall's batter); a backrest or an armrest is its own column. Ring-shaped tops (a
+basin's rim, a fountain's steps) are split into convex pieces. Planted foliage in the planters is left soft; a basin's
+water carries the board at its surface. The step fails if any drawn vertex lies more than 6 cm outside.
+
+Every bench in game is `props/bench_armless/` (the owner's decision, 2026-10-22): an armless bench the owner made in
+Tripo Studio from their pictures, registered by `tools/belmonte_props.py` with its provenance. world.belmonte fits it
+to the extracted bench (its height and back plane) and places it wherever the scene placed that bench
+(`world/regions/belmonte/props.py`); it collides with boxes over its seat, backrest and legs, and its seat's steel
+front edge is a grind line. The extracted bench and `source.json` stay as they are.
+
+## Grind lines
+
+`world.belmonte` writes Belmonte's grind lines to `runtime.json` (`rails`, region-local centimetres), which
+`ABelmonteRegion` registers with the Skate plugin (`world/regions/belmonte/skate.py`):
+
+- Lips: Crater Park's lip finder (`world/regions/craterpark/grind.py`, the runtime's grind probes) runs over the
+  placed collision the board rides, in the town and around each piece of skate furniture outside it: ledges, low
+  walls, planters, bench seats, fountain rims, kerbs. Stair nosings stay out, as at Crater Park.
+- Bars: thin wooden or iron members with no deck for a lip (shop-window ledges, a bench's backrest, terrace rails)
+  get a line along their top, and their box joins their mesh's collision so the board meets what it grinds.
+- Only what a skater can reach counts: 1.5 m or less over the street it rises from. Wall sections laid end to end
+  become one line. Market stalls collide as drawn: their hull was one block over the counter and shelf.
+
+`build-report.json` sums them up under `grind_lines`. To compare what looks grindable with what a build registers
+(a map and a list, no Unreal):
+
+```sh
+uv run python games/yorimichi/tools/belmonte_skate_audit.py --out DIR [--runtime build/yorimichi/belmonte/runtime.json]
+```

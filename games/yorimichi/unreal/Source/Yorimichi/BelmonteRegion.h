@@ -24,4 +24,5 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Environment") bool bGameplayReady = false;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Environment") int32 SceneryInstances = 0;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Environment") int32 PlantInstances = 0;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Environment") int32 GrindLines = 0;
 };
