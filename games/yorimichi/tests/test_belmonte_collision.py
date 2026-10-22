@@ -130,7 +130,7 @@ def test_build_writes_generated_shells_for_buildings_only(tmp_path, monkeypatch)
     monkeypatch.setattr(build, 'OUT', tmp_path)
     monkeypatch.setattr(collision, 'buildings', lambda _data=None: small)
     (tmp_path / 'glb').mkdir()
-    records, report = build.building_collision(data)
+    records, report = build.building_collision(data, {})
     record = records[keep]
     assert record['generated'] and record['path'] == f'glb/{keep}_Collision.glb' and set(records) == {keep}
     assert source.sha(tmp_path / record['path']) == record['sha256']
