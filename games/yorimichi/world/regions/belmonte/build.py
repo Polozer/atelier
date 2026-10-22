@@ -10,7 +10,7 @@ import shutil
 import numpy as np
 from PIL import Image
 from atelier.model_files import source_records, retain_files
-from belmonte import layout as L, source, planting, terrain, appearance, model_pieces, collision, furniture, skate
+from belmonte import layout as L, source, planting, terrain, appearance, model_pieces, collision, furniture, props, skate
 
 OUT = yori.OUT / 'belmonte'
 
@@ -262,11 +262,25 @@ def furniture_collision(entry, drawn, data):
     return {'triangles': len(item.faces), 'columns': len(item.columns), 'drawn_outside_m': round(worst, 3)}
 
 
+def prop_collision(entry, drawn):
+    """A prop made for the game (belmonte/props.py) collides with boxes over its seat, backrest and legs; fails if the
+    boxes leave any of the drawing outside. Its grind lines come with the town's, from this collision."""
+    path = OUT / 'glb' / (entry['name'] + '_Collision.glb')
+    faces, worst, seat = props.boxes(source.triangles(drawn))
+    if worst > furniture.TOP_TOL_M + 1e-3:
+        raise ValueError(f'{entry["name"]}: drawn geometry {worst:.3f} m outside its collision')
+    collision.write_glb(path, faces)
+    entry['collision'] = {'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
+                          'triangles': len(faces), 'generated': True}
+    print(f'BELMONTE PROP {entry["name"]} ({entry["prop"]}): {len(faces)} triangles, seat at {seat:.3f} m', flush=True)
+    return {'prop': entry['prop'], 'triangles': len(faces), 'seat_m': round(seat, 3), 'drawn_outside_m': round(worst, 3)}
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / 'glb').mkdir(exist_ok=True)
     (OUT / 'textures').mkdir(exist_ok=True)
-    data = skate.carved(source.manifest(), OUT / 'carved')
+    data = props.apply(source.manifest(), OUT / 'props')
     materials = finish_surfaces(data)
     by_asset, meshes = {}, []
     furniture_report, collisions = {}, {}
@@ -284,7 +298,10 @@ def main():
         else:
             shutil.copy2(path, destination)
             entry = dict(entry, path=destination.relative_to(OUT).as_posix())
-        if 'collision' in entry:
+        if entry.get('prop'):
+            furniture_report[entry['name']] = prop_collision(entry, destination)
+            collisions[entry['name']] = OUT / entry['collision']['path']
+        elif 'collision' in entry:
             hulls = source.LIBRARY / entry['collision']['path']
             assert source.sha(hulls) == entry['collision']['sha256'], hulls
             if skate.as_drawn(entry['name']):

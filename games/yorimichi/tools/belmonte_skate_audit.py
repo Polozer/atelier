@@ -26,7 +26,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world' / 'regions'))
 import yori  # noqa: E402,F401
-from belmonte import collision, furniture, skate, source  # noqa: E402
+from belmonte import collision, furniture, props, skate, source  # noqa: E402
 from craterpark import grind  # noqa: E402
 
 MAP_CELL = .25          # metres per map pixel
@@ -150,7 +150,7 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     log = lambda *a: print(f'[{time.time() - t0:6.1f}s]', *a, flush=True)
-    data = skate.carved(source.manifest(), args.out / 'carved')      # as world.belmonte carves its props
+    data = props.apply(source.manifest(), args.out / 'props')      # as world.belmonte places its props
     rows = [(i, e, t, skate.to_world(t, skate.slotted(e)[0]), skate.slotted(e)[1]) for i, e, t in skate.placements(data)]
     blocks = np.concatenate([f.reshape(-1, 3) for _, e, _, f, _ in rows if e['name'].startswith('SM_BM_BT_blk_')])
     box = (*(blocks[:, :2].min(0) - TOWN_MARGIN), *(blocks[:, :2].max(0) + TOWN_MARGIN))

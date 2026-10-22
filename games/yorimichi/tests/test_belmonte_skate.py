@@ -1,8 +1,8 @@
 """Belmonte's grind lines come from the town's own geometry: Crater Park's lip finder over the collision the board
 rides, and the tops of the bars a skater can reach (belmonte/skate.py).
 
-Paul's decisions (2026-10-21): the wooden bench loses its armrests so its seat grinds, and every bar that looks like a
-grind or slide bar grinds (shop-window ledges, stall shelves, terrace rails). These checks hold the lines to the
+Paul's decisions: every bar that looks like a grind or slide bar grinds (shop-window ledges, stall shelves, terrace
+rails; 2026-10-21), and every bench is one real armless bench whose seat grinds (props/bench_armless, 2026-10-22). These checks hold the lines to the
 general rules on real Belmonte props, placed on a level street.
 """
 from functools import lru_cache
@@ -14,10 +14,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world'))
 import yori  # noqa: E402,F401
-from belmonte import build, collision, furniture, skate, source  # noqa: E402
+from belmonte import build, collision, furniture, props, skate, source  # noqa: E402
 
-CARVED = Path(tempfile.mkdtemp(prefix='belmonte-carved-')).resolve()
-MANIFEST = skate.carved(source.manifest(), CARVED)      # as world.belmonte carves them, under build/
+PROPS = Path(tempfile.mkdtemp(prefix='belmonte-props-')).resolve()
+MANIFEST = props.apply(source.manifest(), PROPS)      # as world.belmonte places them, under build/
 ENTRIES = {m['name']: m for m in MANIFEST['meshes']}
 BOX = (-30., -30., 30., 30.)
 STREET = np.array([[[-40., -40., 0.], [40., -40., 0.], [40., 40., 0.]], [[-40., -40., 0.], [40., 40., 0.], [-40., 40., 0.]]])
@@ -41,25 +41,26 @@ def length(line):
     return float(np.linalg.norm(np.diff(line, axis=0), axis=1).sum())
 
 
-def test_the_bench_has_no_armrests():
-    """Carved in the build: the committed model and its manifest entry stay as extracted."""
+def test_every_bench_is_the_armless_prop():
+    """The extracted bench and source.json stay as extracted; the prop stands in for it, fitted to its height and back."""
     committed = next(m for m in source.manifest()['meshes'] if m['name'] == 'SM_BM_BP_Bench')
     assert source.sha(source.LIBRARY / committed['path']) == committed['sha256'] and committed['triangles'] == 184
-    assert Path(ENTRIES['SM_BM_BP_Bench']['path']).parent == CARVED
-    faces = source.triangles(source.LIBRARY / ENTRIES['SM_BM_BP_Bench']['path'])
-    assert len(faces) == ENTRIES['SM_BM_BP_Bench']['triangles'] == 136
-    points = faces.reshape(-1, 3)
-    # Nothing stands on the seat at its ends any more, in front of the backrest.
-    over_seat = (np.abs(points[:, 0]) > .7) & (points[:, 1] > -.18) & (points[:, 2] > .5)
-    assert not over_seat.any()
+    bench = ENTRIES['SM_BM_BP_Bench']
+    assert bench['prop'] == 'bench_armless' and Path(bench['path']).parent == PROPS and bench['slots'] == [props.SLOT]
+    assert all(p['materials'] == [props.MATERIAL.format(slug='bench_armless')]
+               for p in MANIFEST['placements'] if p['asset'] == bench['source_asset'])
+    lo, hi = np.asarray(bench['bounds_m']), np.asarray(committed['bounds_m'])
+    assert abs(lo[1][2] - hi[1][2]) < .005 and abs(lo[0][1] - hi[0][1]) < .005      # its height, its back plane
 
 
-def test_the_bench_seat_is_a_lip_and_its_backrest_top_a_bar():
-    seat = [l for l in lines_of('SM_BM_BP_Bench') if abs(l[:, 2].mean() - .477) < .02]
-    assert seat and max(length(l) for l in seat) >= 1.4                  # the front edge, end to end
-    bars = skate.mesh_bars(ENTRIES['SM_BM_BP_Bench'])
-    top = max(bars, key=lambda b: b.top[0, 2])
-    assert top.top[0, 2] >= .82 and np.linalg.norm(top.top[1] - top.top[0]) >= 1.7
+def test_the_bench_seat_front_is_a_grind_line():
+    """Boxes over the seat, backrest and legs leave nothing drawn outside; the seat's steel front edge is a lip."""
+    faces, outside, seat = props.boxes(source.triangles(Path(ENTRIES['SM_BM_BP_Bench']['path'])))
+    assert outside <= furniture.TOP_TOL_M and .45 <= seat <= .52
+    assert np.einsum('ij,ij->i', faces[:, 0], np.cross(faces[:, 1], faces[:, 2])).sum() > 0
+    front = [l for l in skate.lips(np.concatenate([faces, STREET]), [BOX], over_street)
+             if abs(l[:, 2].mean() - seat) < .01 and l[:, 1].mean() > 0]
+    assert front and max(length(l) for l in front) >= 1.9
 
 
 def test_the_stone_bench_offers_both_edges():
