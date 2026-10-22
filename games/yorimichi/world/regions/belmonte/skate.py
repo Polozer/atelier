@@ -14,7 +14,7 @@ end to end (furniture.join) become one line. Every line comes from the authored 
 from dataclasses import dataclass
 
 import numpy as np
-from atelier.gltf import glb_parts
+from atelier.gltf import glb_pack, glb_parts
 
 from . import collision, furniture, source
 from craterpark import grind
@@ -46,11 +46,81 @@ BAR_FOLLOWED = .15      # a bar whose top a lip already follows within this is t
 WELD_M = .005
 # Wall sections laid end to end on a slope turn a little at each join: their top edges' ends meet within this (cm).
 LINE_JOIN_CM = 12.
+# The owner's decision (2026-10-21): the wooden bench's armrests stand on its seat at both ends and stop the board's
+# nose, so they come off in the build (carved) and its seat grinds. Name -> triangles of the boxes removed: the two
+# front arm posts from the seat up and the two arm bars, whose pieces lie wholly within these local plan boxes.
+CARVED = {'SM_BM_BP_Bench': 48}
+ARM_X = (.74, .82)                  # |x|: the ends of the seat
+POSTS = ((.14, .22), (.43, .67))    # (y, z): the front arm posts, from the seat to the arm
+ARMS = ((-.24, .22), (.65, .70))    # (y, z): the arm bars
+
+
+def armrests(vertices, faces):
+    """Mask of the faces (k, 3) of the pieces (closed boxes, welded at a millimetre) lying wholly in an armrest box."""
+    key = np.unique(np.round(vertices * 1000).astype(np.int64), axis=0, return_inverse=True)[1].ravel()
+    parent = np.arange(key.max() + 1)
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]; i = parent[i]
+        return i
+    for f in key[faces]:
+        for j in f[1:]:
+            parent[find(j)] = find(f[0])
+    piece = np.array([find(key[f[0]]) for f in faces])
+    out = np.zeros(len(faces), bool)
+    for p in np.unique(piece):
+        points = vertices[faces[piece == p].ravel()]
+        end = (np.abs(points[:, 0]) >= ARM_X[0]) & (np.abs(points[:, 0]) <= ARM_X[1])
+        within = lambda box: ((points[:, 1] >= box[0][0]) & (points[:, 1] <= box[0][1]) &
+                              (points[:, 2] >= box[1][0]) & (points[:, 2] <= box[1][1]))
+        out[piece == p] = bool((end & within(POSTS)).all() or (end & within(ARMS)).all())
+    return out
+
+
+def carved(data, directory):
+    """The manifest with the CARVED meshes cut from their committed models into `directory` (under build/), each
+    entry pointing at its carved file with its sha, triangles and bounds. The committed library is never written."""
+    data = dict(data, meshes=[dict(m) for m in data['meshes']])
+    directory.mkdir(parents=True, exist_ok=True)
+    for entry in data['meshes']:
+        if entry['name'] not in CARVED:
+            continue
+        path = source.LIBRARY / entry['path']
+        assert source.sha(path) == entry['sha256'], path
+        doc, binary = glb_parts(path.read_bytes())
+        binary = bytearray(binary)
+        removed = 0
+        for node in doc['nodes']:
+            for primitive in doc['meshes'][node['mesh']]['primitives'] if 'mesh' in node else ():
+                pos = doc['accessors'][primitive['attributes']['POSITION']]
+                view = doc['bufferViews'][pos['bufferView']]
+                vertices = np.frombuffer(binary, '<f4', pos['count'] * 3, view.get('byteOffset', 0) + pos.get('byteOffset', 0))
+                vertices = vertices.reshape(-1, 3).astype(float) @ source.FRAME.T
+                acc = doc['accessors'][primitive['indices']]
+                iview = doc['bufferViews'][acc['bufferView']]
+                dtype = {5121: 'u1', 5123: '<u2', 5125: '<u4'}[acc['componentType']]
+                offset = iview.get('byteOffset', 0) + acc.get('byteOffset', 0)
+                faces = np.frombuffer(binary, dtype, acc['count'], offset).reshape(-1, 3)
+                keep = ~armrests(vertices, faces)
+                kept = faces[keep].ravel()
+                # The kept faces first in the index run, the accessor shortened to them.
+                binary[offset:offset + kept.nbytes] = kept.astype(dtype).tobytes()
+                acc['count'] = int(kept.size)
+                removed += int((~keep).sum())
+        if removed != CARVED[entry['name']]:
+            raise ValueError(f"{entry['name']}: expected {CARVED[entry['name']]} carved triangles, found {removed}")
+        out = directory / path.name
+        out.write_bytes(glb_pack(doc, bytes(binary)))
+        faces = source.triangles(out).reshape(-1, 3)
+        entry.update(path=str(out.resolve()), sha256=source.sha(out), triangles=entry['triangles'] - removed,
+                     bounds_m=[faces.min(0).tolist(), faces.max(0).tolist()])
+    return data
 
 
 def slotted(entry, cache={}):
-    """(local plan triangles, material name per triangle) of a library mesh."""
-    if entry['name'] not in cache:
+    """(local plan triangles, material name per triangle) of a library (or carved) mesh."""
+    if (entry['name'], entry['sha256']) not in cache:
         path = source.LIBRARY / entry['path']
         doc, _ = glb_parts(path.read_bytes())
         faces = source.triangles(path)
@@ -59,8 +129,8 @@ def slotted(entry, cache={}):
             for p in doc['meshes'][node['mesh']]['primitives'] if 'mesh' in node else ():
                 names += [doc['materials'][p['material']]['name'].lower()] * (doc['accessors'][p['indices']]['count'] // 3)
         assert len(names) == len(faces), entry['name']
-        cache[entry['name']] = faces, np.array(names)
-    return cache[entry['name']]
+        cache[entry['name'], entry['sha256']] = faces, np.array(names)
+    return cache[entry['name'], entry['sha256']]
 
 
 def as_drawn(name):

@@ -137,7 +137,7 @@ def walls(origin):
     """Three building facades, ridden into square, north from the street: (name, start plan m, heading, metres to the
     wall's plane at deck height). The wall is the first face of the block's generated collision on the ride's line."""
     from belmonte import skate, source
-    data = source.manifest()
+    data = skate.carved(source.manifest(), yori.OUT / "belmonte" / "carved")
     glb = yori.OUT / 'belmonte' / 'glb'
     picks = []
     for _, entry, transform in skate.placements(data):
