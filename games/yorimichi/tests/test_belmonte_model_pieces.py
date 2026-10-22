@@ -127,13 +127,14 @@ def test_actual_region_main_preserves_shared_instances_materials_parent_cull_and
     prepare = PIECES.prepare
     monkeypatch.setattr(PIECES, 'prepare', lambda entry, path: prepare(entry, path, triangle_limit=100))
     # The skate collision steps (generated shells, outward hulls, furniture) have their own tests
-    # (test_belmonte_collision.py): here a hull is published as committed.
+    # (test_belmonte_collision.py, test_belmonte_furniture.py): here a hull is published as committed.
     def outward_hulls(hulls):
         shutil.copy2(hulls, out / 'glb' / hulls.name)
         return {'path': 'glb/' + hulls.name, 'sha256': source.sha(hulls)}
     namespace = dict(OUT=out, source=source, finish_surfaces=lambda data: deepcopy(material_values),
                      building_collision=lambda data: ({}, {}), outward_hulls=outward_hulls,
                      collision=SimpleNamespace(is_building=lambda name: False),
+                     furniture=SimpleNamespace(is_furniture=lambda name: False, placed_rails=lambda data, lines: []),
                      terrain=SimpleNamespace(VALLEY_CARVED_TILES=set(), OUTER=[0., 0., 10., 10.]),
                      model_pieces=PIECES, surroundings=lambda: ([], {}),
                      planting=SimpleNamespace(replacements=lambda *a: ({}, {}), woodland=lambda *a: {}),

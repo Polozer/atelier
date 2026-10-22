@@ -2,6 +2,7 @@
 #include "AtelierData.h"
 #include "JapanWorld.h"
 #include "SeeThrough.h"
+#include "SkateRails.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Engine/StaticMesh.h"
@@ -177,9 +178,22 @@ ABelmonteRegion* ABelmonteRegion::Spawn(AJapanWorld* Landscape, const FString& P
         Sign->SetCastShadow(false);
         Sign->RegisterComponent();
     }
+    // Grind lines along the street furniture's tops (world.belmonte furniture.py), in the region's frame.
+    const TArray<TSharedPtr<FJsonValue>>* Rails = nullptr;
+    USkateRailSubsystem* Registry = Landscape->GetWorld()->GetSubsystem<USkateRailSubsystem>();
+    if (Registry && Data->TryGetArrayField(TEXT("rails"), Rails))
+        for (const auto& Value : *Rails)
+        {
+            const auto Entry = Value->AsObject();
+            FSkateRail Rail;
+            Rail.Id = FName(*Entry->GetStringField(TEXT("id")));
+            for (const auto& Point : Entry->GetArrayField(TEXT("points")))
+                Rail.Points.Add(Region->GetActorLocation() + Vector(Point->AsArray()));
+            if (Rail.Points.Num() >= 2 && Inside(Rail.Points[0]) && Registry->Add(MoveTemp(Rail)) != INDEX_NONE) ++Region->GrindLines;
+        }
     Region->bGameplayReady = Missing == 0 && Region->SceneryInstances > 0;
-    UE_LOG(LogTemp, Display, TEXT("%s ready=%d scenery=%d plants=%d missing=%d outside=%d at %s"),
-           *Tag.ToString().ToUpper(), Region->bGameplayReady, Region->SceneryInstances, Region->PlantInstances, Missing, Outside, *Region->GetActorLocation().ToString());
+    UE_LOG(LogTemp, Display, TEXT("%s ready=%d scenery=%d plants=%d grind_lines=%d missing=%d outside=%d at %s"),
+           *Tag.ToString().ToUpper(), Region->bGameplayReady, Region->SceneryInstances, Region->PlantInstances, Region->GrindLines, Missing, Outside, *Region->GetActorLocation().ToString());
     return Region;
 }
 
