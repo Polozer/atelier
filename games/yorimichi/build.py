@@ -694,7 +694,8 @@ def hippodrome_steps(out):
 
 def hidamari_stable_steps(out):
     """Henry's racing stable east of the hippodrome (world/regions/hidamari_stable/README.md): the Blender model, its
-    control renders and the Unreal import. All three steps are explicit, so plain builds skip them."""
+    control renders and the Unreal import. The model and its import are part of the default build (the terrain grades
+    the pad whenever layout.ENABLED is set); only the control renders are explicit."""
     region = REGIONS / 'hidamari_stable'
     root = out / 'hidamari-stable'
     kit = [REGIONS / 'village' / 'build.py', REGIONS / 'village' / 'layout.py', REGIONS / 'hidamari' / 'arcade.py',
@@ -705,7 +706,7 @@ def hidamari_stable_steps(out):
              inputs=[region / 'build.py', region / 'layout.py', *kit, REGIONS / 'hippodrome' / 'layout.py',
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
                      REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py', *NORTH_LAYOUT, YORI],
-             needs=['world.layout', 'world.treehouse_trees'], heavy=True, explicit=True,
+             needs=['world.layout', 'world.treehouse_trees'], heavy=True,
              outputs=[root / 'hidamari-stable.blend', root / 'placements.json', root / 'manifest.json',
                       *(root / 'glb' / f'SM_HS_{m}_LOD{k}.glb' for m in ('Stable', 'StallDoor', 'RoomDoor') for k in (0, 1, 2)),
                       *(root / 'glb' / f'SM_HS_{m}.glb' for m in ('Ground', 'Road', 'RoadSign')), root / 'glb' / 'SM_HS_Stable_Collision.glb'],
@@ -717,7 +718,7 @@ def hidamari_stable_steps(out):
              about='Hidamari stable control renders: road from the street, front, three-quarter, aerial, interior aisle'),
         Step('unreal.hidamari_stable', [UnrealScript(SCRIPTS / 'import_hidamari_stable.py', 'HIDAMARI STABLE IMPORT COMPLETE', null_rhi=True)],
              inputs=[SCRIPTS / 'import_hidamari_stable.py'], needs=['world.hidamari_stable', 'unreal.world'],
-             after=['unreal.compile'], heavy=True, explicit=True,
+             after=['unreal.compile'], heavy=True,
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'hidamari_stable' / 'stable.json', root / 'import-report.json'],
              about='/Game/HidamariStable: the stable (3 LODs, box collision), door leaves, pad, road and sign, AHidamariStable data'),
     ]

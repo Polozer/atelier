@@ -77,6 +77,9 @@ bool AHidamariStable::Initialize(const FString& Path)
     Data->TryGetStringField(TEXT("asset_root"), AssetRoot);
     Origin = StableField(StableObj(Data, TEXT("site")), TEXT("origin"));
     SetActorLocation(World(FVector::ZeroVector));
+    // The root is static before any part is attached: Unreal refuses to attach a static component to a movable parent
+    // and leaves it unattached, its site-relative placement then read as world coordinates (at the island's origin).
+    RootComponent->SetMobility(EComponentMobility::Static);
     Tags.AddUnique(TEXT("hidamari_stable"));
     auto Load = [&](const FString& Name)
     {
@@ -156,7 +159,6 @@ bool AHidamariStable::Initialize(const FString& Path)
             SetRoomDoorOpen(Room, 1.f);
         }
     }
-    RootComponent->SetMobility(EComponentMobility::Static);
     // anchors for the racing game
     const TSharedPtr<FJsonObject> SignData = StableObj(Data, TEXT("sign"));
     const FVector SN = StableField(SignData, TEXT("normal"));
