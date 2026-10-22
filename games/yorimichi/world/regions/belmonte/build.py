@@ -10,7 +10,7 @@ import shutil
 import numpy as np
 from PIL import Image
 from atelier.model_files import source_records, retain_files
-from belmonte import layout as L, source, planting, terrain, appearance, model_pieces, collision, furniture
+from belmonte import layout as L, source, planting, terrain, appearance, model_pieces, collision, furniture, skate
 
 OUT = yori.OUT / 'belmonte'
 
@@ -202,20 +202,22 @@ def map_zones(town_z):
     ]
 
 
-def outward_hulls(hulls):
+def outward_hulls(hulls, bars=()):
     """A committed hull file written to glb/ with its faces turned out of their solids (the library's wind inward), as
-    the drawn meshes and the generated shells face: the skate surface keeps a face's side."""
+    the drawn meshes and the generated shells face: the skate surface keeps a face's side. The mesh's reachable
+    bars (belmonte/skate.py) collide too, so the board meets the line it grinds."""
     path = OUT / 'glb' / hulls.name
-    collision.write_glb(path, collision.mirror(source.triangles(hulls)))
+    collision.write_glb(path, np.concatenate([collision.mirror(source.triangles(hulls))] + [b.faces() for b in bars]))
     return {'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
             'source': hulls.relative_to(source.LIBRARY).as_posix()}
 
 
-def building_collision(data):
+def building_collision(data, bars):
     """Buildings collide with shells generated from what is drawn (belmonte/collision.py): the committed hulls plus
     the drawn storeys, roofs and stand tiers they miss, and plugs in the openings to unfurnished interiors. Writes each
     <mesh>_Collision.glb and fails if a walker could still get inside: ({mesh name: collision record}, report). A
-    record replaces the mesh's committed hull before model_pieces bounds it, so the piece owning the hull owns it."""
+    record replaces the mesh's committed hull before model_pieces bounds it, so the piece owning the hull owns it.
+    A mesh's reachable bars ({mesh name: [skate.Bar]}) join its collision, so the board meets the line it grinds."""
     records, report = {}, {}
     for name, (transform, entries) in collision.buildings(data).items():
         building = collision.load(name, transform, entries)
@@ -228,8 +230,9 @@ def building_collision(data):
             if 'collision' not in entry:
                 continue
             path = OUT / 'glb' / (entry['name'] + '_Collision.glb')
-            collision.write_glb(path, shell.faces[entry['name']])
-            triangles[entry['name']] = len(shell.faces[entry['name']])
+            faces = np.concatenate([shell.faces[entry['name']]] + [b.faces() for b in bars.get(entry['name'], ())])
+            collision.write_glb(path, faces)
+            triangles[entry['name']] = len(faces)
             records[entry['name']] = {'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
                                       'triangles': triangles[entry['name']], 'generated': True}
         report[name] = {'triangles': triangles, 'kept_drawn_triangles': shell.skin_triangles, 'plugs': shell.plugs,
@@ -243,20 +246,18 @@ def building_collision(data):
 
 def furniture_collision(entry, drawn, data):
     """Skate furniture (benches, planters, walls, basins) collides with columns generated from its drawn tops
-    (belmonte/furniture.py) and carries grind lines; fails if the collision leaves any of the drawing outside."""
+    (belmonte/furniture.py); fails if the collision leaves any of the drawing outside. Its grind lines come with the
+    town's (belmonte/skate.py), from this collision."""
     path = OUT / 'glb' / (entry['name'] + '_Collision.glb')
     item = furniture.generate(entry, drawn, run=furniture.run_axis(data, entry, drawn))
     worst = float(furniture.outside_m(item, np.unique(np.round(item.drawn.reshape(-1, 3), 5), axis=0)).max())
     if worst > furniture.TOP_TOL_M + 1e-3:
         raise ValueError(f'{entry["name"]}: drawn geometry {worst:.3f} m outside its generated collision')
     collision.write_glb(path, item.faces)
-    lines = furniture.rails(item)
     entry['collision'] = {'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
                           'triangles': len(item.faces), 'generated': True}
-    report = {'triangles': len(item.faces), 'columns': len(item.columns), 'drawn_outside_m': round(worst, 3),
-              'rails': [{'kind': r['kind'], 'length_m': round(furniture._length(r['points']), 2)} for r in lines]}
-    print(f'BELMONTE FURNITURE {entry["name"]}: {len(item.faces)} triangles, {len(lines)} grind lines', flush=True)
-    return lines, report
+    print(f'BELMONTE FURNITURE {entry["name"]}: {len(item.faces)} triangles', flush=True)
+    return {'triangles': len(item.faces), 'columns': len(item.columns), 'drawn_outside_m': round(worst, 3)}
 
 
 def main():
@@ -266,8 +267,10 @@ def main():
     data = source.manifest()
     materials = finish_surfaces(data)
     by_asset, meshes = {}, []
-    grind_lines, furniture_report = {}, {}
-    shell_records, shells = building_collision(data)
+    furniture_report, collisions = {}, {}
+    above = skate.street_query(data)
+    bars, bar_lines = skate.bars(data, above)
+    shell_records, shells = building_collision(data, bars)
     for entry in data['meshes']:
         path = source.LIBRARY / entry['path']
         assert source.sha(path) == entry['sha256'], path
@@ -282,10 +285,15 @@ def main():
         if 'collision' in entry:
             hulls = source.LIBRARY / entry['collision']['path']
             assert source.sha(hulls) == entry['collision']['sha256'], hulls
-            if furniture.is_furniture(entry['name']):
-                grind_lines[entry['name']], furniture_report[entry['name']] = furniture_collision(entry, path, data)
+            if skate.as_drawn(entry['name']):
+                entry = {k: v for k, v in entry.items() if k != 'collision'}     # its drawn counter and shelf collide
+            elif furniture.is_furniture(entry['name']):
+                furniture_report[entry['name']] = furniture_collision(entry, path, data)
             else:
-                entry['collision'] = shell_records[entry['name']] if collision.is_building(entry['name']) else outward_hulls(hulls)
+                entry['collision'] = (shell_records[entry['name']] if collision.is_building(entry['name'])
+                                      else outward_hulls(hulls, bars.get(entry['name'], ())))
+            if 'collision' in entry:
+                collisions[entry['name']] = OUT / entry['collision']['path']
         prepared = model_pieces.prepare(entry, destination)
         meshes.extend(row[0] for row in prepared)
         by_asset[entry['source_asset']] = prepared
@@ -341,10 +349,12 @@ def main():
     for sign in signs:
         if sign['text'] == 'Votre écurie':
             sign['text'] = 'Haras de Belmonte'
+    rails, grind_report = skate.rails(data, collisions, bar_lines, above)
+    print(f'BELMONTE GRIND LINES: {grind_report}', flush=True)
     town_z = float(source.terrain().height(0., -18.)) + L.ORIGIN[2] + 1.
     runtime = {'version': 1, 'origin_cm': L.native_origin(), 'bounds_m': L.BOUNDS,
                'clearance_m': list(terrain.OUTER), 'groups': groups, 'signs': signs, 'railway_corridor': L.RAILWAY,
-               'zones': map_zones(town_z), 'tv_spots': tv_spots(data), 'rails': furniture.placed_rails(data, grind_lines)}
+               'zones': map_zones(town_z), 'tv_spots': tv_spots(data), 'rails': rails}
     # Current meshes/hulls are complete now. Retire only this producer's generated
     # model members, so a normal removal/rename cannot strand an invalid inventory.
     expected = [Path(name).relative_to('glb').as_posix()
@@ -356,7 +366,8 @@ def main():
     (OUT / 'build-report.json').write_text(json.dumps({'meshes': meshes, 'materials': materials,
                                                      'planting': plant_report, 'seam': seam,
                                                      'building_collision': shells,
-                                                     'furniture_collision': furniture_report}, indent=1) + '\n')
+                                                     'furniture_collision': furniture_report,
+                                                     'grind_lines': grind_report}, indent=1) + '\n')
     print(f'BELMONTE BUILD COMPLETE: {len(meshes)} meshes, {len(groups)} groups, {sum(len(v) for v in plants.values())} plants', flush=True)
 
 
