@@ -165,3 +165,12 @@ replicate to their owner only and MUST NOT expose another player's tickets or th
 show its outcome and payout only once its race is seen won (RevealSeconds after the winner is home). The Salon
 counter MUST come from runtime.json's racing_places.counter, derived by world/regions/belmonte/build.py from
 SM_BM_BHip_SalonHall's committed placement, with no hardcoded fallback: without it there is no counter.
+
+@cc [owner:fontanierh,label:correctness] racing-player-stables
+Stable sites MUST be assigned and stable requests applied only on authority (URacingStableDesk::ServerRequest
+admitted at MinRequestGap with bounded action and ids, then RacingStables::Apply through the rules); clients MUST
+NOT change horses, riders or coins locally, and views and markets MUST replicate to their owner only. A guest's
+stable MUST return to the world as a computer stable when it leaves and in what is saved (PersistentWorld).
+Belmonte's plates and boards MUST come from runtime.json's racing_places.belmonte_stable, derived from
+SM_BM_BE_0_Stables' committed placement, with no hardcoded fallback. Hidamari's MUST come from its stable.json
+and appear only while an AHidamariStable stands in the world (its committed switches stay off until enabled).
