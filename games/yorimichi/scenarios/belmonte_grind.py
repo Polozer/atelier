@@ -35,7 +35,7 @@ FAMILIES = {
     'stone_bench': ('BP_StoneBench_', '_lip'), 'planter': ('BP_StonePlanter_', '_lip'),
     'fountain_rim': ('BH_FountainPiazza_', '_lip'), 'low_wall': ('BC_Works_', '_lip'),
     'field_wall_run': ('BVV_StoneWall_', '_lip'), 'kerb': ('BT_Terrain_', '_lip'),
-    'shop_ledge': ('BT_blk_', '_bar'), 'stall_counter': ('BP_Stall', '_lip'),
+    'shop_ledge': ('BT_blk_', '_bar'), 'stall_counter': ('BP_StallGoods_', '_lip'),
 }
 TOWN = (-171., -215., 184., 144.)     # plan metres around the town's blocks (belmonte_skate_audit's box)
 
@@ -141,7 +141,7 @@ def walls(origin):
     glb = yori.OUT / 'belmonte' / 'glb'
     picks = []
     for _, entry, transform in skate.placements(data):
-        if not entry['name'].startswith('SM_BM_BT_blk_') or entry['name'][-2:] not in ('04', '13', '19'):
+        if not entry['name'].startswith('SM_BM_BT_blk_'):
             continue
         path = glb / (entry['name'] + '_Collision.glb')
         if not path.exists():
@@ -163,6 +163,8 @@ def walls(origin):
                 hit = y
         if hit is not None:
             picks.append((entry['name'][6:], np.array([x, y0, z - .5]), 90., hit - y0))
+        if len(picks) == 3:
+            break
     return picks
 
 
