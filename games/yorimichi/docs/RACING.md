@@ -233,6 +233,56 @@ them and says their answers in French. Money is the wallet's pièces; Henry's ec
   checks its sizes and action, at most five a second, then `ARacingService::ApplyStableRequest` asks the rules and
   answers (`ClientReply`, the refusal in French). The host rebuilds the views twice a second and when the world changes.
 
+## Records hall
+
+Every statistic of the racing world lives in one place, the "salle des courses" of Belmonte's town hall, and is read on
+its objects close up, one page at a time, never in a big menu (Paul's racing vision). The town hall is Haras Valley's
+Palazzo Comunale (sign MAIRIE, `heroes.json`: at Belmonte-local (0, -3150, 263) cm, turned to face the piazza); it has no
+interior, so the hall is its open ground-floor loggia (24.8 x 4.2 m, 6 m high, five arches onto the piazza, its back
+wall pierced by three doors and two windows). `RacingRecords` (`RacingRecords.h/.cpp`) holds it:
+
+- **The objects** (`RacingRecords::HallAnchors`, placed from `runtime.json`'s `racing_places.records_hall`, which
+  `world/regions/belmonte/build.py` (`RECORDS_HALL`) derives from the palazzo's committed placement
+  `SM_BM_BH_PalazzoComunale` in `assets/belmonte/source.json`; no hardcoded fallback, so no hall without it): a black split-flap board in a brass frame over the middle door (the
+  season's standings and the next races at both venues: today's races still to run, then the next three race days);
+  between the doors and windows at eye height, one record panel per circuit (Hidamari's oval, Belmonte's turf, Belmonte's
+  sand: the best time at each distance, the horse, its jockey, its stable, the date) and per Grand Prix (the final's and
+  the heats' records and the winners by season), and the hall's plaque; the honour boards on the end walls (most wins,
+  most defeats, most Grands Prix, most earnings, longest winning streaks: the top three horses, jockeys and stables on
+  each); in the east corner a walnut card cabinet (a card per horse, jockey and stable), in the west corner a table of
+  archive ledgers. World text is Latin-1 TextRender on boards of engine cubes (no new assets) (`ARacingRecordsHall`, on every machine that
+  draws, for its own player): built only within 40 m of the hall, culled beyond, rewritten at most once a second and
+  only when the texts change; no per-frame work.
+- **Reading.** Within reach of an object the HUD offers it and Interact (D-pad Down, E) opens the reader, a narrow panel
+  in the betting window's forest and brass. Up and down choose a line, the bottom button opens its card (a horse's,
+  jockey's or stable's: totals, records held, last races, titles), the right button goes back, the bumpers switch the
+  ranking (horses, jockeys, stables; on a record panel the next panel), left and right turn the page (eight lines a
+  page), the left button sorts the cabinet (name, wins, earnings) and the archives (newest first, name), the top button
+  picks a first letter; on a keyboard, typing searches a name (accents and case ignored).
+- **Where numbers come from.** Henry's rules keep careers and totals: horses' starts, wins, Grands Prix, earnings and
+  career lines, riders' rides and wins, stables' titles and earnings. Wins follow the rules (a heat is a ride, never a
+  win); a defeat is a start without a win, heats included; a streak counts consecutive wins, heats skipped. A stable's
+  races are its horses' career lines (each says which stable it ran for), one race counted once. What the rules do not
+  keep, the host notes in a ledger (`FRacingLedger`, `Saved/racing/records.json` beside the world, written with it
+  through a temporary file; admitted by `FRacingLedger::FromJson` (version, bounded collections and strings, unique
+  record keys, sane counts) and kept aside as `records.json.unreadable-<unix time>` when it is not admissible or belongs
+  to another seed, never written over; one that cannot be read or kept aside is left as it is and that session saves no
+  ledger): each run race once its winner is home (`RacingRecords::Note`), the record
+  times per circuit and distance and per Grand Prix (final, heats) and each rider's Grands Prix, earnings and streaks
+  (players who ride included). The host steps the world day by day (`ARacingService::AdvanceNoting`) so a day's races
+  are noted before the rules close it, also on a catch-up; record times and riders' extras start when the hall first
+  opens.
+- **Archives.** The rules archive a horse two in-game years after its retirement (`HRClock::ArchiveDays`, placement
+  `archive`); a rider is archived by the same rule. Archived horses and riders leave the cabinet for the archive
+  ledgers; the honour boards keep them (all-time). Stables are never archived.
+- **Authority.** `URacingRecordsDesk`, on every player controller, carries the page the player reads
+  (`FRacingRecordsPage`) and, while they are in the hall, the objects' texts (`FRacingHallBoards`), both replicated to
+  the owner only and only on demand. A query (`FRacingRecordsQuery`: object, panel or board, kind, sort, search, page,
+  card) goes to the host (`ServerAsk`, at most ten a second), which checks its sizes and builds it from the world and the
+  ledger (`RacingRecords::BuildPage`). The hall's texts are rebuilt when a race is noted or the day changes and every
+  five seconds for the countdowns, only while someone is in the hall. Text is French; the rules' horse, stable, jockey
+  and event names stay English.
+
 ## HUD
 
 Inside a racecourse's grounds the HUD shows one English line at the top: the next race and its countdown, "Race in
@@ -251,6 +301,7 @@ racing.Save                 # write the world now
 racing.Tv osteria_front     # stand at a TV's watch point (osteria_front, osteria_back, salon_paris, salon_bar)
 racing.TvCapture 0          # keep the TVs' capture off (the idle card only), to measure it
 racing.Stable plate 0       # stand before a plate (plate <n>), the jockeys' board (jockeys) or the transfer board (transfers)
+racing.Records board        # stand before an object of the records hall: board, record <n>, honour <n>, cabinet, archive, plaque
 ```
 
 Launch flags: `-racingnext`, `-racingseed=`, `-racingsave=`. The live bridge has `unreal.RacingLive.racing_state()`
@@ -260,7 +311,10 @@ whether the capture is live, the shot, the nearest screen, frame and GPU times),
 (JSON: the local wallet, the race card, the last answer, whether the player is at the counter and the window's
 selection), `racing_counter_go()` and `racing_bet(race, horse, stake)` (a request as the window sends it). `unreal.RacingStableLive`:
 `racing_stable()` (JSON: the stable, its horses and jockeys, the market, the boards shown, the prompt and the overlay),
-`racing_stable_go(spot)`, `racing_stable_open()` and `racing_stable_act(action, target, other)`.
+`racing_stable_go(spot)`, `racing_stable_open()` and `racing_stable_act(action, target, other)`. `unreal.RacingRecordsLive`:
+`racing_records()` (JSON: the ledger's size, the objects shown, the object in reach, the boards' texts and the reader),
+`racing_records_go(spot)`, `racing_records_open()` and `racing_records_press(key)` (`up`, `down`, `accept`, `back`,
+`next`, `prev`, `kind`, `sort`, `letter`, `type:<text>`).
 `unreal.YorimichiLive.pad_input('Gamepad_DPad_Down', 1)` then `0` presses Interact through the gamepad mapping; the
 window takes the same pad keys.
 
@@ -285,6 +339,12 @@ next race day, refusals, the plate's text), `StableTrade` (market and listed hor
 a transfer paid to the seller, the refusals, salaries at the day's close and an unpaid jockey leaving), `StableRequest`
 (owner-only replication, a guest's request and answer over the wire, refusals), `StablePersistence` (the host's stable
 saved and reloaded, a guest's left to the world and taken back), `StablePlaces` (the Belmonte plates and boards on the
-estate's front, reach, Hidamari's from its file) and `StableFrench`. `uv run pytest
+estate's front, reach, Hidamari's from its file) and `StableFrench`; `RecordsLedger` (noted once the winner is home,
+once only; records only fall; heats never wins; the ledger's JSON), `RecordsHonours` (streaks, rankings best first, the
+rules' numbers, a stable's race counted once, the riders' archive rule), `RecordsPages` (every object, paging, search,
+sort, cards, refusals, formats, the boards' Latin-1 texts), `RecordsArchive` (the rules' archiving, two pages of
+registers, newest first, out of the cabinet), `RecordsRequest` (owner-only replication, a page over the wire, refusals,
+the ledger saved and read back, another world's set aside) and `RecordsPlaces` (the objects inside the loggia, clear of
+its doors and windows, reach). `uv run pytest
 games/yorimichi/tests/test_racing_courses.py -q` checks the committed course data, the simplification and the staging;
 `test_racing_assets.py` the asset validation and its lists against the service's.
