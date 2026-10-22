@@ -65,7 +65,7 @@ def test_normal_belmonte_producer_retires_superseded_glbs_without_touching_sourc
         shutil.copy2(hulls, out / 'belmonte/glb' / hulls.name)
         return {'path': 'glb/' + hulls.name, 'sha256': sha(hulls)}
     scope = dict(OUT=out / 'belmonte', json=json, shutil=shutil, building_collision=lambda data, bars: ({}, {}),
-        skate=SimpleNamespace(street_query=lambda data: None, bars=lambda data, above: ({}, []),
+        skate=SimpleNamespace(carved=lambda data, directory: data, street_query=lambda data: None, bars=lambda data, above: ({}, []),
                              as_drawn=lambda name: False, over_hull=lambda entry, hulls: (),
                              rails=lambda *a: ([], {})),
         outward_hulls=outward_hulls, collision=SimpleNamespace(is_building=lambda name: False),

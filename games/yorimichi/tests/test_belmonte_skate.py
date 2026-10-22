@@ -8,6 +8,7 @@ general rules on real Belmonte props, placed on a level street.
 from functools import lru_cache
 from pathlib import Path
 import sys
+import tempfile
 
 import numpy as np
 
@@ -15,7 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'world'))
 import yori  # noqa: E402,F401
 from belmonte import build, collision, furniture, skate, source  # noqa: E402
 
-MANIFEST = source.manifest()
+CARVED = Path(tempfile.mkdtemp(prefix='belmonte-carved-')).resolve()
+MANIFEST = skate.carved(source.manifest(), CARVED)      # as world.belmonte carves them, under build/
 ENTRIES = {m['name']: m for m in MANIFEST['meshes']}
 BOX = (-30., -30., 30., 30.)
 STREET = np.array([[[-40., -40., 0.], [40., -40., 0.], [40., 40., 0.]], [[-40., -40., 0.], [40., 40., 0.], [-40., 40., 0.]]])
@@ -40,6 +42,10 @@ def length(line):
 
 
 def test_the_bench_has_no_armrests():
+    """Carved in the build: the committed model and its manifest entry stay as extracted."""
+    committed = next(m for m in source.manifest()['meshes'] if m['name'] == 'SM_BM_BP_Bench')
+    assert source.sha(source.LIBRARY / committed['path']) == committed['sha256'] and committed['triangles'] == 184
+    assert Path(ENTRIES['SM_BM_BP_Bench']['path']).parent == CARVED
     faces = source.triangles(source.LIBRARY / ENTRIES['SM_BM_BP_Bench']['path'])
     assert len(faces) == ENTRIES['SM_BM_BP_Bench']['triangles'] == 136
     points = faces.reshape(-1, 3)

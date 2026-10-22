@@ -50,8 +50,9 @@ base and out to the drawn sides (a wall's batter); a backrest or an armrest is i
 basin's rim, a fountain's steps) are split into convex pieces. Planted foliage in the planters is left soft; a basin's
 water carries the board at its surface. The step fails if any drawn vertex lies more than 6 cm outside.
 
-The wooden bench has no armrests (the owner's decision, 2026-10-21): `tools/belmonte_armless_bench.py` removed them
-from the committed model so its seat can be ground, and `source.json` records the edit.
+The wooden bench has no armrests in game (the owner's decision, 2026-10-21) so its seat can be ground: world.belmonte
+cuts them from the committed model into `build/yorimichi/belmonte/carved/` (`skate.carved`). The committed model and
+`source.json` stay as extracted.
 
 ## Grind lines
 

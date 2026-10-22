@@ -266,7 +266,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / 'glb').mkdir(exist_ok=True)
     (OUT / 'textures').mkdir(exist_ok=True)
-    data = source.manifest()
+    data = skate.carved(source.manifest(), OUT / 'carved')
     materials = finish_surfaces(data)
     by_asset, meshes = {}, []
     furniture_report, collisions = {}, {}
