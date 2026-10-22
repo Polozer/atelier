@@ -261,7 +261,7 @@ def city_tile_steps(out):
         result += [city_input_step(out, 'tiles', (name,)),
                    Step('world.city_tiles.'+name,
                         [Blender(WORLD / 'city_surface_tiles.py',
-                                 ('--tag', 'v1_128m', '--sources', name), threads=3)],
+                                 ('--tag', 'v1_128m', '--sources', name), threads=3, factory_startup=True)],
                         inputs=[WORLD / 'city_surface_tiles.py', paths.STUDIO / 'atelier/mesh_cells.py',
                                 paths.STUDIO / 'atelier/mesh_partition.py', paths.STUDIO / 'atelier/conventions.py',
                                 paths.STUDIO / 'atelier/model_files.py', paths.STUDIO / 'atelier/atomic_files.py'],
