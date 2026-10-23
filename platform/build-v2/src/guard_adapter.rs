@@ -234,6 +234,23 @@ fn clear_cloexec(fd: RawFd) -> io::Result<()> {
     Ok(())
 }
 
+/// One past the highest descriptor number to sweep before exec: the soft descriptor limit,
+/// capped so a huge limit cannot make every launch slow, and always past the bridge's own.
+fn sweep_limit(own: &[RawFd]) -> RawFd {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: getrlimit writes only the struct we pass.
+    let soft = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } == 0 {
+        RawFd::try_from(limit.rlim_cur.min(1 << 16)).unwrap_or(1 << 16)
+    } else {
+        1 << 16
+    };
+    let highest = own.iter().copied().max().unwrap_or(2);
+    soft.max(highest.saturating_add(1))
+}
+
 fn text(value: &std::ffi::OsStr) -> io::Result<String> {
     value.to_str().map(str::to_owned).ok_or_else(|| {
         io::Error::new(
@@ -315,12 +332,18 @@ impl WorkerLauncher for GuardedLauncher {
             .stdout(log.try_clone()?)
             .stderr(log);
         let exact = inherited.clone();
-        // SAFETY: between fork and exec this only calls fcntl (async-signal-safe) to clear
-        // close-on-exec on exactly the descriptors meant for the bridge.
+        let limit = sweep_limit(&exact);
+        // SAFETY: between fork and exec this only calls fcntl (async-signal-safe) and allocates
+        // nothing: it clears close-on-exec on exactly the bridge's descriptors and sets it on
+        // every other one, so descriptors this process inherited never reach the bridge.
         unsafe {
             bridge.pre_exec(move || {
-                for fd in &exact {
-                    clear_cloexec(*fd)?;
+                for fd in 3..limit {
+                    if exact.contains(&fd) {
+                        clear_cloexec(fd)?;
+                    } else {
+                        libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+                    }
                 }
                 Ok(())
             });
