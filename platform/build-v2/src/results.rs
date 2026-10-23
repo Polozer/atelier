@@ -610,6 +610,9 @@ impl WriteTransaction {
                 "original cache ticket differs from sealed completion key/ingredients".into(),
             ));
         }
+        let certified = completion
+            .certified_objects()
+            .map_err(ResultError::Validation)?;
         // Detect known nondeterminism from complete recorded metadata even when winner blobs vanished.
         let winner = {
             let _guard = self.store.leases.lock()?;
@@ -623,12 +626,22 @@ impl WriteTransaction {
             }
         }
         let mut objects = vec![];
-        for object in &completion.objects {
-            objects.push(
-                self.store
-                    .objects
-                    .adopt_in(object, &self.store.objects.root().join(&self.lease.staging))?,
-            );
+        for object in certified {
+            match self
+                .store
+                .objects
+                .adopt_in(object, &self.store.objects.root().join(&self.lease.staging))
+            {
+                Ok(adopted) => objects.push(adopted),
+                Err(error) => {
+                    object.check_frozen().map_err(|source| {
+                        ResultError::Validation(format!(
+                            "local snapshot lost certification: {source}"
+                        ))
+                    })?;
+                    return Err(ResultError::Store(error));
+                }
+            }
         }
         let mut envelope = envelope.clone();
         // Retention is nonsemantic; preserve the original miss ticket's already-protected lineage.

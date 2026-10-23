@@ -264,7 +264,9 @@ fn staged_directories(root: &Path) -> Result<Vec<PathBuf>, String> {
 /// exact declared job-relative paths, plus an empty writable `output/`. Code bytes MUST come from the
 /// keyed frozen snapshot and match the keyed digests; live sources are never reread. `Bytes` inputs
 /// are files and `Item` inputs directories of exactly their recorded members, cloned (never copied)
-/// from pinned store objects with their recorded size and executable bit; absent optional inputs
+/// from certified sources with their recorded size and executable bit: pinned CAS objects, checkout
+/// descriptors under read custody, or sealed local snapshots. Checkout read custody MUST end after
+/// independent job clones are staged, before worker execution; absent optional inputs
 /// create nothing. Every staged file and directory except `output/` MUST be read-only. Unsafe
 /// paths, links, shape mismatches and incomplete items MUST fail the staging. An object source's
 /// refusal MUST reach the caller as `StageError::Source` with its typed kind and the digest asked

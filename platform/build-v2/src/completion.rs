@@ -131,7 +131,7 @@ impl CompletionWork {
             .create_new(true)
             .open(&path)?;
         use std::io::Write;
-        let members: Vec<_> = objects.iter().map(|object| Ok(serde_json::json!({"path": object.local_path(&scope)?, "digest":object.digest().as_hex(), "size":object.size(), "source_mode":object.source_mode()}))).collect::<Result<_, StoreError>>()?;
+        let members: Vec<_> = objects.iter().map(|object| Ok(serde_json::json!({"path": object.local_path(&scope)?, "digest":object.digest().as_hex(), "size":object.size(), "source_mode":object.source_mode(),"observation":object.observation_json()}))).collect::<Result<_, StoreError>>()?;
         let record = serde_json::json!({"version":1, "envelope":envelope, "objects":members});
         file.write_all(&crate::keys::canonical_bytes(&record).map_err(ResultError::Invalid)?)?;
         use std::os::unix::fs::PermissionsExt;
@@ -199,17 +199,24 @@ impl FrozenCompletion {
         outcome
     }
     fn checked_object(&self, file: &StoredFile) -> Result<&PreparedObject, String> {
-        let object = self
-            .objects
+        self.objects
             .iter()
-            .find(|object| {
+            .filter(|object| {
                 object.digest().as_hex() == file.digest
                     && object.size() == file.size
                     && normalized_mode(object.source_mode()) == file.mode
             })
-            .ok_or("missing or mismatched frozen completion object")?;
-        object.check_frozen().map_err(|error| error.to_string())?;
-        Ok(object)
+            .find(|object| object.check_frozen().is_ok())
+            .ok_or_else(|| "no surviving certified frozen completion object".into())
+    }
+    pub(crate) fn certified_objects(&self) -> Result<Vec<&PreparedObject>, String> {
+        let mut selected = BTreeMap::new();
+        for file in self.envelope.files() {
+            selected
+                .entry((file.digest.clone(), file.size, file.mode))
+                .or_insert(self.checked_object(file)?);
+        }
+        Ok(selected.into_values().collect())
     }
     /// Available local groups require every named sealed snapshot, not merely recorded metadata.
     /// This does not make them CAS hits or permit unchecked recorded identities to become available.
@@ -311,7 +318,8 @@ impl FrozenCompletion {
     ) -> Result<(), StoreError> {
         self.objects
             .iter()
-            .find(|object| object.digest() == digest)
+            .filter(|object| object.digest() == digest)
+            .find(|object| object.check_frozen().is_ok())
             .ok_or(StoreError::InvalidFile("uncertified local digest"))?
             .clone_to(destination)
     }
